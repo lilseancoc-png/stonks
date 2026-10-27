@@ -4,9 +4,11 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { contentHash,quarterlyFacts,finite,FORECAST_MODEL } from '../lib/earnings-forecast.mjs';
+import { hasWrittenProfile } from '../lib/earnings-forecast-profiles.mjs';
 const dir=process.env.EARNINGS_DATA_DIR||fileURLToPath(new URL('../data/',import.meta.url));
 const state=JSON.parse(await readFile(resolve(dir,'earnings-forecast-state.json'))),payload=JSON.parse(await readFile(resolve(dir,'earnings-forecast.json')));
-assert.equal(payload.companies.length,10);assert.equal(state.cohort.companies.length,10);
+const size=state.cohort.size||10,current=payload.companies.filter(c=>!c.former);assert.equal(state.cohort.companies.length,size);assert.equal(current.length,size);
+assert.deepEqual(current.map(c=>c.symbol),state.cohort.companies.map(c=>c.symbol));for(const c of payload.companies.filter(c=>c.former))assert(!state.cohort.companies.some(x=>x.symbol===c.symbol),'a former company cannot also be current');
 const runIds=new Set(state.runs.map(r=>r.id));assert.equal(runIds.size,state.runs.length);
 let sources=0,reconciledAxes=0;
 for(const[hash,s]of Object.entries(state.sourceDocuments))if(/^[a-f0-9]{64}$/.test(hash)){
@@ -25,4 +27,7 @@ for(const c of payload.companies){
   }
   if(finite(run.outputs.eps)){const a=run.assumptions,o=run.outputs;assert(Math.abs(o.operatingIncome+a.nonoperating-o.pretaxIncome)<.01);assert(Math.abs(o.pretaxIncome-o.taxes+a.commonIncomeAdjustment-o.netIncome)<.01);assert(Math.abs(o.netIncome/a.dilutedShares-o.eps)<1e-10);}
 }
-console.log(JSON.stringify({companies:payload.companies.map(c=>c.symbol),rankingComplete:state.cohort.complete,verifiedSourceHashes:sources,reconciledDisclosureAxes:reconciledAxes,revenueForecasts:payload.companies.filter(c=>finite(c.forecast.outputs?.revenue)).length,epsForecasts:payload.companies.filter(c=>finite(c.forecast.outputs?.eps)).length,liveResolvedQuarters:state.evaluations.length,cost:payload.cost,note:'Source integrity and accounting consistency only; this does not establish predictive accuracy.'},null,2));
+// Companies on the list without a written driver profile fall back to their reported lines.
+const missingProfiles=current.filter(c=>!hasWrittenProfile(c.symbol)).map(c=>c.symbol);
+const newLines=payload.companies.flatMap(c=>[c.mix?.product,c.mix?.geographic].filter(Boolean).flatMap(a=>a.rows.filter(r=>r.isNew).map(r=>c.symbol+': '+r.name)));
+console.log(JSON.stringify({companies:current.map(c=>c.symbol),formerCompanies:payload.companies.filter(c=>c.former).map(c=>c.symbol),cohortSelectedAt:state.cohort.selectedAt,missingProfiles,newRevenueLines:newLines,segmentForecasts:current.filter(c=>finite(c.forecast.segment?.revenue)).length,rankingComplete:state.cohort.complete,verifiedSourceHashes:sources,reconciledDisclosureAxes:reconciledAxes,revenueForecasts:payload.companies.filter(c=>finite(c.forecast.outputs?.revenue)).length,epsForecasts:payload.companies.filter(c=>finite(c.forecast.outputs?.eps)).length,liveResolvedQuarters:state.evaluations.length,cost:payload.cost,note:'Source integrity and accounting consistency only; this does not establish predictive accuracy.'},null,2));

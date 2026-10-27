@@ -1,6 +1,6 @@
 # Research-stack changes
 
-Implemented on `Data-Stack-Review`, October 27, 2026. No production deployment or private-store mutation was performed.
+Implemented on `Data-Stack-Review`, October 27, 2026, and integrated with the current main branch before release. Local audits do not mutate the private store or run broker actions.
 
 ## Data and evaluation repairs
 
@@ -15,9 +15,9 @@ The existing **Earnings Forecast** page now includes three additional views. The
 
 ### Company record
 
-The current ten-company forecast cohort gets a rolling three-year reporting view. SEC financial observations reuse the existing immutable source/observation archive. Already-collected vendor revenue, net income, FCF, CapEx, operating cash flow and explicitly dated debt observations are retained in the existing `earnings-forecast-state.json` under `companyHistory`.
+The current twenty-company forecast cohort gets a rolling three-year reporting view. SEC financial observations reuse the existing immutable source/observation archive. Already-collected vendor revenue, net income, FCF, CapEx, operating cash flow and explicitly dated debt observations are retained in the existing `earnings-forecast-state.json` under `companyHistory`.
 
-The UI distinguishes SEC facts from vendor-normalized financials. Each has period, currency and source information. Vendor records preserve the first collection time and prior versions when the same reported period changes. Unchanged observations do not mint daily copies. Company records survive the actual state-file write/read cycle and the existing hydrate-before-wipe build path. Short coverage is displayed; three-year retention does not manufacture twelve quarters when the sources supply less.
+The UI distinguishes SEC facts from vendor-normalized financials. Each has period, currency and source information. Vendor records preserve the first collection time and prior versions when the same reported period changes. Unchanged observations do not mint daily copies. Company records survive the actual state-file write/read cycle and the existing hydrate-before-wipe build path. Quarterly cohort changes retain former-company history within the same three-year window and shared byte cap. The record view lists missing latest-quarter inputs and the coverage of each cash-flow/debt series. Short coverage is displayed; three-year retention does not manufacture twelve quarters when the sources supply less.
 
 Undated current cash and outstanding-share snapshots are not mislabeled as historical quarterly observations. The SEC record includes supported reported diluted shares used by the earnings bridge. A complete debt-maturity, stock-compensation or issuer-specific KPI database is outside this implementation.
 
@@ -29,7 +29,7 @@ The workbench exposes growth, gross/operating margin, taxes, annual nonoperating
 
 The initial exit P/E, when available, is the current provider forward multiple used as an editable assumption. It is not an independent valuation conclusion. Annual nonoperating/common-income inputs begin at four times the quarterly bridge assumptions. Missing growth history begins at an explicitly disclosed flat-growth assumption. Missing dividends leave total return unestimated. Operating margin cannot exceed a known assumed gross margin.
 
-Unsupported EPS bridges, losses, missing inputs and incompatible currency/share bases remain unavailable. TWD local-share results are not converted to USD ADR values. Reference-price comparisons expire after 96 hours when evaluated in the browser. Scenario outputs carry no probabilities. Quarterly engine forecasts, training data and accuracy records are unchanged by edits to the full-year workbench.
+Unsupported EPS bridges, losses, missing inputs and incompatible currency/share bases remain unavailable. Annual valuations also wait when a newer reporting period is known, the accepted financial period is over 180 days old, or the company has left the current cohort. EPS assumptions must match the latest quarter in the annual baseline. TWD local-share results are not converted to USD ADR values. Reference-price comparisons expire after 96 hours when evaluated in the browser. Scenario outputs carry no probabilities. Quarterly engine forecasts, training data and accuracy records are unchanged by edits to the full-year workbench.
 
 Working scenarios remain in memory per company, survive company/view switching, reset visibly when their source/reference fingerprint changes, and clear on failed authorization or reload. Local JSON exports preserve inputs, the source fingerprint, evaluation time and recomputed outputs. No scenario writes to the server or model-learning ledger.
 
@@ -51,9 +51,9 @@ The connected Vercel account lists other projects but does not expose the Mingst
 
 The implementation reuses the existing private object store and the existing two forecast files. It provisions no service, subscription, bucket, table, storage key family or schedule. It does not require a paid-plan change by design. That is not a guarantee of spare capacity or unchanged billing on the actual account.
 
-The extra retained vendor-history state has a **500,000-byte hard limit**. A synthetic ten-company history with three years of five quarterly metrics measured approximately **251 KB**. This is a representative fixture measurement, not an audit of account usage. If new vendor observations would exceed the limit, their update pauses with a visible warning and the accepted in-window history remains intact. Other forecasts can still publish. Records are not silently discarded to fit the budget. The existing 3 MB UI-payload publication guard remains in place. SEC raw sources and the original forecast archive already exist and are not duplicated for the company view.
+The extra retained vendor-history state has a **500,000-byte hard limit**. A synthetic twenty-company history with three years of five quarterly metrics measured **259,351 bytes**, about 259 KB. Shared provider descriptions and URLs are reconstructed for display instead of repeated in every retained row. This is a representative fixture measurement, not an audit of account usage. If new vendor observations would exceed the limit, their update pauses with a visible warning and the accepted in-window history remains intact. Other forecasts can still publish. Records are not silently discarded to fit the budget. The existing 3 MB UI-payload publication guard remains in place. SEC raw sources and the original forecast archive already exist and are not duplicated for the company view.
 
-Generation publication temporarily retains earlier versions, so current-file size is not total billed storage. Larger existing files can also increase transfer/processing even when operation counts and key counts do not change. The account owner should confirm storage headroom before release and observe the first production build's measured bytes. No live data was uploaded to test capacity.
+Generation publication temporarily retains earlier versions, so current-file size is not total billed storage. Larger existing files can also increase transfer/processing even when operation counts and key counts do not change. Actual account headroom remains unverified. Each build now logs accepted vendor-history bytes, the complete state/UI sizes and pending archive bytes. The existing generation collector removes unreferenced old objects after its 26-hour grace period; current build logs show that collection running. No live data was uploaded to test capacity.
 
 For context, current [R2 pricing](https://developers.cloudflare.com/r2/pricing/) separates stored bytes from read/write operations, and [Vercel Blob pricing](https://vercel.com/docs/vercel-blob/usage-and-pricing) also depends on usage and plan. Neither public pricing page establishes this account's remaining allowance.
 
@@ -67,8 +67,12 @@ The existing forecast, grade-research, renderer, private-store, Owner Lab, picks
 
 ## Remaining limits
 
-- No account-level storage/usage confirmation, live publication, authenticated production UI test or paid subscription was performed.
+- Account-level quota and authenticated production UI/data coverage remain unverified. No paid subscription or storage-plan change is required by this code.
 - Three-year history is currently scoped to the existing forecast cohort. Other stocks appear in industry connections but do not automatically get a complete financial model.
 - Existing source depth and accounting support limit the initial history. Missing periods are not backfilled with assumed values.
 - The full-year workbench is a conditional financial/multiple sensitivity model. It does not add a complete business-specific operating model, calibrated target-price probabilities, a DCF engine, or independent market-consensus history.
 - Historical data repairs preserve ambiguous evidence rather than asserting every old zero was an error. Forward performance must still be measured separately.
+
+## Release audit
+
+The last successful production build inspected during review was GitHub Actions run `40551182411`, October 27, 2026. It reported 20 cohort companies and 17 supported revenue forecasts. Missing forecasts cannot be filled by assuming financial statements. It also reported 574 logical stored objects after publication and garbage collection removing 335 old generation objects. Object counts establish neither total stored bytes nor remaining plan allowance. New company records and coverage summaries populate on the next normal full build; older Owner payloads remain readable in the meantime.

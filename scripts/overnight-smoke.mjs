@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { buildCorrelationsPayload, GLOBAL_QUOTE_TYPES } from "./build.mjs";
+import { OVERNIGHT_TONE } from "../lib/overnight-tone.mjs";
 
 function bars(start, dailyStep, count = 31) {
   const out = [];
@@ -70,7 +71,8 @@ assert.doesNotMatch(overnightCss, /\.ovn-carry-card>span\{[^}]*text-overflow:ell
 assert.ok(GLOBAL_QUOTE_TYPES.has("index"), "foreign cash indices must use latest-session quotes");
 assert.ok(GLOBAL_QUOTE_TYPES.has("equity"), "foreign bellwethers must use latest-session quotes");
 assert.match(overnightApp, /fetch\('api\/macro-live\?tape=1'/);
-assert.match(overnightApp, /d\.tone = deriveOvernightTone\(d\.markets\)/);
+assert.match(overnightApp, /d\.tone = deriveOvernightTone\(d\)/);
+assert.match(overnightApp, /var OVERNIGHT = \(\$\{overnightToneFactory\.toString\(\)\}\)\(\);/);
 assert.match(overnightApp, /latest-session overlays/);
 assert.match(overnightApp, /if \(baked\.type === 'rate' && prev != null\) out\.chgBp/);
 
@@ -84,10 +86,27 @@ const liveTenYear = overlayOvernightMarket(
 assert.equal(liveTenYear.chgBp, 25);
 assert.equal(liveTenYear.moves["1d"].bp, 25);
 
-const deriveSrc = overnightApp.match(/function deriveOvernightTone\(markets\)\{[\s\S]*?\r?\n  \}\r?\n  function overlayOvernightMarket/)?.[0] || "";
-assert.ok(deriveSrc.includes("function deriveOvernightTone"), "tone helper must exist");
-const deriveOvernightTone = new Function(`${deriveSrc.replace(/\r?\n  function overlayOvernightMarket[\s\S]*$/, "")}\nreturn deriveOvernightTone;`)();
-assert.ok(deriveOvernightTone({ "^TNX": { chgBp: 12 } }).reasons.some((r) => r.startsWith("10Y +12bp")));
-assert.ok(deriveOvernightTone({ "^TNX": { moves: { "1d": { bp: -10 } } } }).reasons.some((r) => r.startsWith("10Y -10bp")));
+// The tab headline: today's saved call wins; otherwise the shared scorer runs
+// on the snapshot with the same freshness rules as the saved call.
+const toneSrc = overnightApp.match(/  function ovnEtNow\(ms\)\{[\s\S]*?\r?\n  \}\r?\n  function overlayOvernightMarket/)?.[0] || "";
+assert.ok(toneSrc.includes("function deriveOvernightTone(d)"), "tone helper must exist");
+const toneFns = new Function("OVERNIGHT", `${toneSrc.replace(/\r?\n  function overlayOvernightMarket[\s\S]*$/, "")}\nreturn { deriveOvernightTone, ovnTodayCall, ovnEtNow };`)(OVERNIGHT_TONE);
+const todayEt = toneFns.ovnEtNow().date;
+const savedTone = { label: "risk-off", score: -3, buckets: [], present: 4, excluded: [], gap: { call: "down" } };
+const fromCall = toneFns.deriveOvernightTone({ markets: {}, preopen: { today: { date: todayEt, tone: savedTone, reconstructed: false } } });
+assert.equal(fromCall.label, "risk-off");
+assert.equal(fromCall.source, "preopen");
+const oldCall = toneFns.deriveOvernightTone({ markets: {}, preopen: { latest: { date: "2020-01-02", tone: savedTone } } });
+assert.equal(oldCall.source, "snapshot", "a prior day's saved call must not be today's headline");
+assert.equal(oldCall.label, "insufficient", "an empty snapshot cannot call a tone");
+const snap = toneFns.deriveOvernightTone({
+  markets: {
+    "ES=F": { chPct: 1.2, sigma1d: 1 }, "NQ=F": { chPct: 1.5, sigma1d: 1.3 },
+    "AUDJPY=X": { chPct: 0.8, sigma1d: 0.6 }, "HG=F": { chPct: 1.6, sigma1d: 1.4 }, "BTC-USD": { chPct: 4, sigma1d: 3 },
+  },
+  context: { priorUs: { date: "2020-01-02", closeMs: Date.parse("2020-01-02T21:00:00Z"), pct: 0 } },
+});
+assert.equal(snap.source, "snapshot");
+assert.ok(snap.present >= 3 && snap.score >= 3, `aligned futures/FX/growth should read risk-on (got ${snap.label} ${snap.score})`);
 
 console.log("overnight smoke: ok");

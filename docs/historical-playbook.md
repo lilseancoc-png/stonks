@@ -21,6 +21,14 @@ probabilistic (not predictive) read.
   into `data/briefs.json` (`pattern` / `resemblance` / `history` /
   `differences` / `assessment` / `watch`); if no pattern truly fits — a cue
   alone is not a match — the field is omitted and the brief skips it.
+- Pandemics, tariffs and bank runs have no price proxy: their cues fire only
+  on a macro headline from the last 48 hours plus a risk-off session (SPY −1%
+  or VIX +10%), via `headlineHits` in `lib/historical-events.mjs`. The WWDC cue
+  follows the keynote date (`wwdcKeynote`).
+- Measured history for every pattern here (episode tables, follow-through
+  rates, a "Resembles now" panel) lives in the Owner Historical Data tab under
+  Events & analogs; see `docs/historical-data.md`. Those numbers are not
+  copied into the public Brief.
 - The Brief tab renders the analog as a "Historical playbook" panel, with the
   raw deterministic cues as chips underneath.
 

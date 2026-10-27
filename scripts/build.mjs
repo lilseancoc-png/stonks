@@ -46,6 +46,10 @@ import { buildBriefExtendedHours, extendedSessionForKind } from "../lib/brief-ex
 import { contentAssetVersion } from "../lib/asset-version.mjs";
 import { scoreSectorGrowth } from "../lib/sector-growth.mjs";
 import { IV_RICHNESS, IV_RICHNESS_VERSION } from "../lib/iv-richness.mjs";
+import { OVERNIGHT_TONE, OVERNIGHT_TONE_VERSION } from "../lib/overnight-tone.mjs";
+import { buildOvernightCall, priorUsSession, isBeforeUsOpen, etParts as overnightEtParts, preOpenCutoffMs, usCloseMs as overnightUsCloseMs, sigmaPct as overnightSigmaPct, fitAsiaEcho } from "../lib/overnight-inputs.mjs";
+import { fetchOvernightSeries } from "../lib/overnight-fetch.mjs";
+import { mergeOvernightLog, overnightLogSummary, OVERNIGHT_LOG_KEY, OVERNIGHT_PREOPEN_KEY } from "../lib/overnight-log.mjs";
 import { sectorGroupOfLabel } from "../lib/sector-groups.mjs";
 import { outcomeFromPnl, realFillMark, exitDetailFor, mergeArchive } from "../lib/track-record-fills.mjs";
 import { assessDecisionInputsBeforeAi } from "../lib/freshness-policy.mjs";
@@ -70,7 +74,8 @@ import {
 } from "../lib/pattern-recognition.mjs";
 import { buildBottomTracker } from "../lib/bottom-tracker.mjs";
 import { writeHistoricalDataFile } from "./refresh-historical-data.mjs";
-import { readHistoricalSourceCache, refreshHistoricalSourceCache, loadFreeFredHistory, loadFreeMarketHistory } from "./collect-historical-sources.mjs";
+import { readHistoricalSourceCache, refreshHistoricalSourceCache, loadFreeFredHistory, loadFreeMarketHistory, loadFredReleaseDates } from "./collect-historical-sources.mjs";
+import { headlineHits, wwdcKeynote, WWDC_WINDOW_DAYS } from "../lib/historical-events.mjs";
 import { confirmedMarketBars } from "../lib/historical-market-history.mjs";
 import { HISTORICAL_SOURCE_KEY } from "../lib/historical-sources.mjs";
 import { readForecastState, prepareEarningsForecast, writeEarningsForecast } from './refresh-earnings-forecast.mjs';
@@ -287,8 +292,12 @@ export const GLOBAL_MARKETS = {
   "9984.T":    { name: "SoftBank Group",      region: "Japan",       type: "equity", lead: "Arm parent" },
   // Hong Kong / China (closes ~04:00 ET)
   "^HSI":      { name: "Hang Seng",           region: "China",       type: "index",  lead: "China / HK tech" },
+  "000300.SS": { name: "CSI 300",             region: "China",       type: "index",  lead: "Mainland China large caps" },
+  // Australia (closes ~01:00-02:00 ET) — broad Asia-Pacific risk, commodity exporters
+  "^AXJO":     { name: "ASX 200",             region: "Australia",   type: "index",  lead: "Australia broad / commodity exporters" },
   // Europe (closes ~11:30 ET — concurrent with the US morning, not overnight)
   "^GDAXI":    { name: "DAX",                 region: "Europe",      type: "index",  lead: "Germany / EU broad" },
+  "^STOXX50E": { name: "Euro Stoxx 50",       region: "Europe",      type: "index",  lead: "Eurozone large caps (open since 03:00 ET)" },
   // FX & rates — yen carry, cross-yen confirmation, the dollar, the US curve
   // (2Y/10Y/30Y) + Japan's 2Y/10Y curve. The USD crosses marked hidden feed
   // the relative-currency-strength context but do not clutter the tile grid.
@@ -299,12 +308,23 @@ export const GLOBAL_MARKETS = {
   "AUDUSD=X":  { name: "AUD/USD",             region: "FX & rates",  type: "fx",     lead: "Australian dollar vs USD", hidden: true },
   "GBPUSD=X":  { name: "GBP/USD",             region: "FX & rates",  type: "fx",     lead: "Sterling vs USD", hidden: true },
   "DX-Y.NYB":  { name: "Dollar index (DXY)",  region: "FX & rates",  type: "fx",     lead: "Broad USD" },
+  "CNH=X":     { name: "USD/CNH",             region: "FX & rates",  type: "fx",     lead: "Offshore yuan (up = yuan weaker = Asia stress)" },
+  "KRW=X":     { name: "USD/KRW",             region: "FX & rates",  type: "fx",     lead: "Korean won (up = won weaker = chip/EM stress)" },
   "US2Y":      { name: "US 2Y yield",         region: "FX & rates",  type: "rate",   lead: "Short rates / Fed path" },
   "^TNX":      { name: "US 10Y yield",        region: "FX & rates",  type: "rate",   lead: "Long rates / valuations" },
   // US overnight futures + vol — the most direct pre-open read
   "ES=F":      { name: "S&P 500 futures",     region: "US futures",  type: "future", lead: "Overnight S&P" },
   "NQ=F":      { name: "Nasdaq 100 futures",  region: "US futures",  type: "future", lead: "Overnight Nasdaq" },
+  "RTY=F":     { name: "Russell 2000 futures", region: "US futures", type: "future", lead: "Overnight small caps (breadth)" },
+  "ZN=F":      { name: "10Y T-note futures",  region: "US futures",  type: "future", lead: "Treasuries overnight (up = yields down)" },
   "^VIX":      { name: "VIX",                 region: "US futures",  type: "vol",    lead: "Equity vol (up = risk-off)" },
+  // Volatility curve + credit context. Cash indexes that mostly do not trade
+  // overnight: shown as levels, and only fresh prints vote (HYG pre-market).
+  "^VIX3M":    { name: "VIX 3-month",         region: "Vol & credit", type: "vol",   lead: "VIX above VIX3M = inverted (stressed) curve" },
+  "^VVIX":     { name: "VVIX",                region: "Vol & credit", type: "vol",   lead: "Volatility of VIX (hedging demand)" },
+  "^SKEW":     { name: "SKEW",                region: "Vol & credit", type: "vol",   lead: "Tail-hedge demand in S&P options" },
+  "^MOVE":     { name: "MOVE",                region: "Vol & credit", type: "vol",   lead: "Treasury volatility" },
+  "HYG":       { name: "High-yield bonds (HYG)", region: "Vol & credit", type: "credit", lead: "Credit risk appetite (pre-market)" },
   // Commodities — cross-asset drivers for non-tech sectors (energy, materials,
   // industrials, power, logistics). β sign encodes the direction per name
   // (oil up helps producers, hurts fuel-heavy logistics → negative β there).
@@ -321,6 +341,7 @@ export const GLOBAL_MARKETS = {
   "JGB10Y":    { name: "Japan 10Y JGB",      region: "FX & rates",  type: "rate",   lead: "JGB yield — yen-carry / global duration anchor" },
   // Crypto — risk-appetite proxy for crypto-levered brokers/names
   "BTC-USD":   { name: "Bitcoin",            region: "Crypto",      type: "crypto", lead: "Crypto risk appetite" },
+  "ETH-USD":   { name: "Ether",              region: "Crypto",      type: "crypto", lead: "Crypto risk appetite (higher beta)" },
 };
 
 // Curated peer GROUPS — each is an ordered list of GLOBAL_MARKETS keys that
@@ -381,7 +402,7 @@ export const GLOBAL_PEER_OF_TICKER = {
 
 // Broad overnight backdrop shown for EVERY ticker (and as the Overnight tab's
 // header strip): US futures, the yen carry, the dollar, vol and long rates.
-export const GLOBAL_BROAD_SIGNALS = ["ES=F", "NQ=F", "JPY=X", "^VIX", "DX-Y.NYB", "^TNX"];
+export const GLOBAL_BROAD_SIGNALS = ["ES=F", "NQ=F", "RTY=F", "AUDJPY=X", "^VIX", "ZN=F", "DX-Y.NYB"];
 
 // Types whose latest *daily* bar can be a stale or session-misaligned overnight
 // read. Cash vol/yields do not trade overnight, futures/FX/commodities/crypto use
@@ -391,7 +412,7 @@ export const GLOBAL_BROAD_SIGNALS = ["ES=F", "NQ=F", "JPY=X", "^VIX", "DX-Y.NYB"
 // 18 sessions had closed). Quote every tracked market type so the headline 1d
 // move and as-of date use regularMarketPrice / regularMarketPreviousClose;
 // longer-horizon history and correlation still come from the daily bars.
-export const GLOBAL_QUOTE_TYPES = new Set(["future", "vol", "rate", "fx", "commodity", "crypto", "index", "equity"]);
+export const GLOBAL_QUOTE_TYPES = new Set(["future", "vol", "rate", "fx", "commodity", "crypto", "index", "equity", "credit"]);
 
 // Session class for the overnight panel's lead-vs-co-move framing:
 //  - "leading"    : a foreign CASH market that closes BEFORE the US open, so its
@@ -408,7 +429,7 @@ export function globalSessionClass(sym) {
   // which sit at yesterday's close pre-open and co-move).
   if (sym === "JGB2Y" || sym === "JGB10Y") return "leading";
   if (t === "future" || t === "fx" || t === "commodity" || t === "crypto") return "24h";
-  if (t === "vol" || t === "rate") return "concurrent";
+  if (t === "vol" || t === "rate" || t === "credit") return "concurrent";
   if (r === "Europe") return "concurrent";
   return "leading";
 }
@@ -2567,7 +2588,7 @@ const REVENUE_CONCEPTS = [
 // `srt:` (Securities Reporting Taxonomy), `us-gaap:`, and `ifrs-full:`
 // prefixes — MSFT uses srt:, older 10-Ks use us-gaap:, 20-F filers use
 // ifrs-full:.
-const PRODUCT_AXES_PRIORITY = [
+export const PRODUCT_AXES_PRIORITY = [
   "us-gaap:StatementBusinessSegmentsAxis",
   "srt:StatementBusinessSegmentsAxis",
   "ifrs-full:SegmentsAxis",
@@ -2575,7 +2596,7 @@ const PRODUCT_AXES_PRIORITY = [
   "us-gaap:ProductOrServiceAxis",
   "ifrs-full:ProductsAndServicesAxis",
 ];
-const GEOGRAPHIC_AXES_PRIORITY = [
+export const GEOGRAPHIC_AXES_PRIORITY = [
   "srt:StatementGeographicalAxis",
   "us-gaap:StatementGeographicalAxis",
   "ifrs-full:GeographicalAreasAxis",
@@ -3146,7 +3167,7 @@ function buildTotalsByPeriod(facts, contexts, periodPredicate) {
 // stable across periods (a 10-Q reports the same product breakdown for
 // both current quarter and YTD), so the same axis usually wins per period.
 // Returns Map<periodEnd, Map<memberName, value>> or null.
-function pickBestAxisBreakdownByPeriod(facts, contexts, priorityList, periodPredicate, totalsByPeriod, opts = {}) {
+export function pickBestAxisBreakdownByPeriod(facts, contexts, priorityList, periodPredicate, totalsByPeriod, opts = {}) {
   // When the caller wants to avoid geographic-looking breakdowns in the
   // product slot (Apple's reportable segments ARE the five geographies),
   // keep the first geographic match as a last-resort fallback and prefer
@@ -3173,7 +3194,39 @@ function pickBestAxisBreakdownByPeriod(facts, contexts, priorityList, periodPred
     }
     return result;
   }
-  return demoted;
+  return demoted || pickCompanyAxisBreakdown(facts, contexts, opts.companyAxisPattern, periodPredicate, totalsByPeriod, opts);
+}
+
+// Last resort: a company's own (extension) axis, e.g. `nvda:MarketPlatformAxis`.
+// Only used when no standard axis worked, only for axes whose name says what
+// they split, and only for periods whose lines add up to reported revenue
+// within 2% — so a custom axis can never double-count or invent a split.
+const STANDARD_TAXONOMY_PREFIX = /^(us-gaap|srt|ifrs-full|dei|country|currency):/;
+export const COMPANY_PRODUCT_AXIS = /(Segment|Product|Service|Business|Platform|Revenue(Source|Type|Stream|Category)|Category)s?Axis$/i;
+export const COMPANY_GEOGRAPHIC_AXIS = /(Geograph|Region|Countr|Area)\w*Axis$/i;
+function pickCompanyAxisBreakdown(facts, contexts, pattern, periodPredicate, totalsByPeriod, opts = {}) {
+  if (!pattern || !totalsByPeriod?.size) return null;
+  const axes = new Set();
+  for (const [, ctx] of contexts) {
+    for (const d of ctx.dims || []) {
+      if (!STANDARD_TAXONOMY_PREFIX.test(d.axis) && pattern.test(d.axis)) axes.add(d.axis);
+    }
+  }
+  for (const axis of [...axes].sort()) {
+    if (opts.rejectGeographic && COMPANY_GEOGRAPHIC_AXIS.test(axis)) continue;
+    const result = extractAxisBreakdownByPeriod(facts, contexts, axis, periodPredicate, totalsByPeriod);
+    if (!result) continue;
+    const kept = new Map();
+    for (const [end, periodMap] of result) {
+      const total = totalsByPeriod.get(end);
+      const sum = [...periodMap.values()].reduce((a, b) => a + b, 0);
+      if (periodMap.size >= 2 && total > 0 && Math.abs(sum - total) <= total * 0.02) kept.set(end, periodMap);
+    }
+    if (!kept.size) continue;
+    if (opts.rejectGeographic && [...kept.values()].every((m) => looksGeographic([...m.keys()]))) continue;
+    return kept;
+  }
+  return null;
 }
 
 // Bumped whenever the XBRL parser changes shape — forces a re-parse of
@@ -3214,7 +3267,7 @@ function mergeBreakdownsByPeriod(target, source, sourceFilingDate, periodSources
   }
 }
 
-function buildSegmentSlices(currentMap, previousMap) {
+export function buildSegmentSlices(currentMap, previousMap) {
   if (!currentMap) return null;
   const entries = [...currentMap.entries()]
     .map(([name, value]) => ({ name, value }))
@@ -3225,13 +3278,28 @@ function buildSegmentSlices(currentMap, previousMap) {
   let otherSum = 0;
   let otherPrevSum = 0;
   const prev = previousMap || new Map();
+  // A line with no figure in the comparison period is a new revenue line.
+  // It keeps its own slice (up to three of them) even under 2% or past the
+  // top eight, so a new business is not hidden inside "Other". If no line
+  // carries over, the company re-labelled its breakdown and nothing is new.
+  // New lines take slots from the top eight, so the donut never needs more
+  // than eight named slices plus "Other" (nine colours).
+  const comparable = prev.size > 0 && entries.some((e) => prev.get(e.name) > 0);
+  const isNewLine = (e) => comparable && !(prev.get(e.name) > 0);
+  const keptNew = new Set(entries.filter(isNewLine).slice(0, 3).map((e) => e.name));
+  const regularSlots = 8 - keptNew.size;
+  let regularKept = 0;
   for (const e of entries) {
     const prevValue = prev.get(e.name);
-    if (significant.length < 8 && e.value / total >= 0.02) {
+    const isNew = isNewLine(e);
+    const keep = keptNew.has(e.name) || (regularKept < regularSlots && e.value / total >= 0.02);
+    if (keep) {
+      if (!keptNew.has(e.name)) regularKept++;
       significant.push({
         name: e.name,
         value: e.value,
         previousValue: Number.isFinite(prevValue) && prevValue > 0 ? prevValue : null,
+        ...(comparable ? { isNew } : {}),
       });
     } else {
       otherSum += e.value;
@@ -3243,6 +3311,7 @@ function buildSegmentSlices(currentMap, previousMap) {
       name: "Other",
       value: otherSum,
       previousValue: otherPrevSum > 0 ? otherPrevSum : null,
+      ...(comparable ? { isNew: false } : {}),
     });
   }
   return significant;
@@ -3321,10 +3390,12 @@ export async function fetchRevenueSegments(symbol) {
   for (const { filing, parsed } of parsedFilings) {
     const totalsQ = buildTotalsByPeriod(parsed.facts, parsed.contexts, isQuarterlyPeriod);
     const totalsA = buildTotalsByPeriod(parsed.facts, parsed.contexts, isAnnualPeriod);
-    const prodQ = pickBestAxisBreakdownByPeriod(parsed.facts, parsed.contexts, PRODUCT_AXES_PRIORITY, isQuarterlyPeriod, totalsQ, { rejectGeographic: true });
-    const geoQ = pickBestAxisBreakdownByPeriod(parsed.facts, parsed.contexts, GEOGRAPHIC_AXES_PRIORITY, isQuarterlyPeriod, totalsQ);
-    const prodA = pickBestAxisBreakdownByPeriod(parsed.facts, parsed.contexts, PRODUCT_AXES_PRIORITY, isAnnualPeriod, totalsA, { rejectGeographic: true });
-    const geoA = pickBestAxisBreakdownByPeriod(parsed.facts, parsed.contexts, GEOGRAPHIC_AXES_PRIORITY, isAnnualPeriod, totalsA);
+    const productOpts = { rejectGeographic: true, companyAxisPattern: COMPANY_PRODUCT_AXIS };
+    const geoOpts = { companyAxisPattern: COMPANY_GEOGRAPHIC_AXIS };
+    const prodQ = pickBestAxisBreakdownByPeriod(parsed.facts, parsed.contexts, PRODUCT_AXES_PRIORITY, isQuarterlyPeriod, totalsQ, productOpts);
+    const geoQ = pickBestAxisBreakdownByPeriod(parsed.facts, parsed.contexts, GEOGRAPHIC_AXES_PRIORITY, isQuarterlyPeriod, totalsQ, geoOpts);
+    const prodA = pickBestAxisBreakdownByPeriod(parsed.facts, parsed.contexts, PRODUCT_AXES_PRIORITY, isAnnualPeriod, totalsA, productOpts);
+    const geoA = pickBestAxisBreakdownByPeriod(parsed.facts, parsed.contexts, GEOGRAPHIC_AXES_PRIORITY, isAnnualPeriod, totalsA, geoOpts);
     mergeBreakdownsByPeriod(productByPeriodQ, prodQ, filing.filingDate, periodSourcesProductQ);
     mergeBreakdownsByPeriod(geoByPeriodQ, geoQ, filing.filingDate, periodSourcesGeoQ);
     mergeBreakdownsByPeriod(productByPeriodA, prodA, filing.filingDate, periodSourcesProductA);
@@ -4781,7 +4852,7 @@ export function fundHistoryPoint(data) {
 // Legacy zeros cannot be distinguished from Number(null) without source
 // evidence. Keep their values in the record, outside the numeric series.
 export function sanitizeFundamentalsHistory(payload) {
-  return (Array.isArray(payload?.entries) ? payload.entries : []).map(entry => {
+  return (Array.isArray(payload?.entries) ? payload.entries : []).filter(entry => entry && typeof entry === 'object' && !Array.isArray(entry)).map(entry => {
     const row = { ...entry };
     const unverified = { ...(entry?.unverifiedLegacyZeros || {}) };
     for (const [key, value] of Object.entries(row)) {
@@ -13665,15 +13736,15 @@ export const FOMC_MEETINGS_BASELINE = [
   { date: "2026-09-16", label: "Sep 15–16, 2026" },
   { date: "2026-10-28", label: "Oct 27–28, 2026" },
   { date: "2026-12-09", label: "Dec 8–9, 2026" },
-  // 2027 (Fed-published projected dates — subject to confirmation)
+  // 2027 (tentative schedule, Fed press release of 2025-09-05)
   { date: "2027-01-27", label: "Jan 26–27, 2027" },
   { date: "2027-03-17", label: "Mar 16–17, 2027" },
   { date: "2027-04-28", label: "Apr 27–28, 2027" },
-  { date: "2027-06-16", label: "Jun 15–16, 2027" },
+  { date: "2027-06-09", label: "Jun 8–9, 2027" },
   { date: "2027-07-28", label: "Jul 27–28, 2027" },
-  { date: "2027-09-22", label: "Sep 21–22, 2027" },
-  { date: "2027-11-03", label: "Nov 2–3, 2027" },
-  { date: "2027-12-15", label: "Dec 14–15, 2027" },
+  { date: "2027-09-15", label: "Sep 14–15, 2027" },
+  { date: "2027-10-27", label: "Oct 26–27, 2027" },
+  { date: "2027-12-08", label: "Dec 7–8, 2027" },
 ];
 
 // Best-effort live fetch of the Fed's FOMC calendar HTML. Parses the
@@ -17438,22 +17509,11 @@ export const PICKS_TIMING_THRESHOLDS = Object.freeze({
 const PICKS_IVRANK_MIN_N = Number(process.env.PICKS_IVRANK_MIN_N ?? 10); // min IV-history entries to rank (attachIvRanks)
 
 // ---- Overnight global-tape axis (consumed by deriveGlobalTapeAxis) ----------
-// Folds the overnight foreign sweep into the regime's cross-asset score. Kept
-// because deriveGlobalTapeAxis (correlations payload + the regime's global axis)
-// reads these thresholds; the simplified regime only uses the resulting score.
+// The axis is the day's saved PRE-OPEN overnight call (lib/overnight-tone.mjs,
+// data/overnight-log.json), frozen at about 09:05 ET. Intraday swings in
+// futures belong to the indexes axis, so the tape axis no longer re-reads the
+// live session. PICKS_MACRO_GLOBAL=0 turns the axis off.
 const PICKS_MACRO_GLOBAL = process.env.PICKS_MACRO_GLOBAL !== "0";
-const PICKS_MACRO_GLOBAL_FUT = Number(process.env.PICKS_MACRO_GLOBAL_FUT ?? 0.4);
-const PICKS_MACRO_GLOBAL_BREADTH = Number(process.env.PICKS_MACRO_GLOBAL_BREADTH ?? 0.6);
-const PICKS_MACRO_GLOBAL_YEN = Number(process.env.PICKS_MACRO_GLOBAL_YEN ?? 0.6);
-const PICKS_MACRO_GLOBAL_BTC = Number(process.env.PICKS_MACRO_GLOBAL_BTC ?? 2.5); // raised 2.0→2.5: a 2% BTC move is sub-1σ noise
-const PICKS_MACRO_GLOBAL_ACUTE = Number(process.env.PICKS_MACRO_GLOBAL_ACUTE ?? 3);
-// Per-component STRONG gates: a single large overnight move (≈2σ) can carry a ±2
-// vote so a concentrated single-asset shock isn't capped at ±1 (paired with a
-// |votes|≥2 co-requisite in deriveGlobalTapeAxis so one lone asset can't hit the extreme).
-const PICKS_MACRO_GLOBAL_FUT_STRONG = Number(process.env.PICKS_MACRO_GLOBAL_FUT_STRONG ?? 1.2);
-const PICKS_MACRO_GLOBAL_BREADTH_STRONG = Number(process.env.PICKS_MACRO_GLOBAL_BREADTH_STRONG ?? 1.5);
-const PICKS_MACRO_GLOBAL_YEN_STRONG = Number(process.env.PICKS_MACRO_GLOBAL_YEN_STRONG ?? 1.2);
-const PICKS_MACRO_GLOBAL_BTC_STRONG = Number(process.env.PICKS_MACRO_GLOBAL_BTC_STRONG ?? 6);
 
 // ============================================================================
 // Market-tape (cross-asset macro regime) engine — the "market tape" the Top
@@ -19583,9 +19643,7 @@ const MACRO_LIVE_THRESHOLDS = {
   grossRiskoff: PICKS_MACRO_GROSS_RISKOFF, grossSevere: PICKS_MACRO_GROSS_SEVERE, grossFragile: PICKS_MACRO_GROSS_FRAGILE,
   grossRamp: PICKS_MACRO_GROSS_RAMP, tiltFullStress: PICKS_MACRO_TILT_FULL_STRESS,
   commodityOn: PICKS_MACRO_COMMODITY, sentimentOn: PICKS_MACRO_SENTIMENT, fgInternalsOn: PICKS_MACRO_FG_INTERNALS,
-  globalOn: PICKS_MACRO_GLOBAL, globalFut: PICKS_MACRO_GLOBAL_FUT, globalBreadth: PICKS_MACRO_GLOBAL_BREADTH,
-  globalYen: PICKS_MACRO_GLOBAL_YEN, globalBtc: PICKS_MACRO_GLOBAL_BTC, globalAcute: PICKS_MACRO_GLOBAL_ACUTE,
-  globalFutStrong: PICKS_MACRO_GLOBAL_FUT_STRONG, globalBreadthStrong: PICKS_MACRO_GLOBAL_BREADTH_STRONG, globalYenStrong: PICKS_MACRO_GLOBAL_YEN_STRONG, globalBtcStrong: PICKS_MACRO_GLOBAL_BTC_STRONG,
+  globalOn: PICKS_MACRO_GLOBAL, globalVersion: OVERNIGHT_TONE_VERSION,
   twoYOn: PICKS_MACRO_TWOY, twoYBps1d: PICKS_MACRO_TWOY_BPS_1D, twoYBps1dStrong: PICKS_MACRO_TWOY_BPS_1D_STRONG,
   bondVolOn: PICKS_MACRO_BONDVOL, moveHi: PICKS_MACRO_MOVE_HI, moveVhi: PICKS_MACRO_MOVE_VHI, moveCalm: PICKS_MACRO_MOVE_CALM, move1d: PICKS_MACRO_MOVE_1D,
   breadthOn: PICKS_MACRO_BREADTH, breadthHi: PICKS_MACRO_BREADTH_HI, breadthLo: PICKS_MACRO_BREADTH_LO, breadthVlo: PICKS_MACRO_BREADTH_VLO, breadthVhi: PICKS_MACRO_BREADTH_VHI,
@@ -23252,7 +23310,7 @@ export function buildStockChecklist(sym, data, grade, sectorPE, traps, peers) {
   fin.push(fcf != null && (mcap > 0 || totalDebt != null)
     ? item("How does free cash flow compare to total debt and market cap?", totalDebt == null ? "unsure" : "answered",
         [mcap > 0 ? `FCF yield ${r1((fcf / mcap) * 100)}% of market cap (${stkBigMoney(fcf)} on ${stkBigMoney(mcap)})` : null,
-         totalDebt > 0 ? (fcf > 0 ? `debt is ${r1(totalDebt / fcf)}x annual FCF` : `debt ${stkBigMoney(totalDebt)} against negative FCF`) : totalDebt === 0 ? "no reported debt" : "debt data unavailable"].filter(Boolean).join("; ") + ".")
+         totalDebt > 0 ? (fcf > 0 ? `debt is ${r1(totalDebt / fcf)}x annual FCF` : `debt ${stkBigMoney(totalDebt)} against ${fcf === 0 ? "zero" : "negative"} FCF`) : totalDebt === 0 ? "no reported debt" : "debt data unavailable"].filter(Boolean).join("; ") + ".")
     : unanswered("How does free cash flow compare to total debt and market cap?"));
   {
     // Answered from the trailing-4Q capital-allocation block
@@ -29493,9 +29551,10 @@ async function fetchGlobalMarketBars(symbol) {
     const retryQuotes = Array.isArray(retry?.quotes) ? retry.quotes : [];
     if (retryQuotes.length > quotes.length) { result = retry; quotes = retryQuotes; }
   }
+  const barTz = result?.meta?.exchangeTimezoneName || null;
   const bars = quotes
     .filter((q) => q && q.close != null)
-    .map((q) => ({ c: q.close, t: q.date ? new Date(q.date).toISOString().slice(0, 10) : null }))
+    .map((q) => ({ c: q.close, t: q.date ? (overnightLocalDate(new Date(q.date), barTz) || new Date(q.date).toISOString().slice(0, 10)) : null }))
     .filter((b) => b.t);
   if (bars.length < 2) throw new Error(`no usable bars for ${symbol}`);
   const last = bars[bars.length - 1];
@@ -29507,6 +29566,7 @@ async function fetchGlobalMarketBars(symbol) {
   let asOf = last.t;
   let currency = meta.currency || null;
   let yName = meta.shortName || meta.longName || null;
+  let quoteTimeIso = null;
   // Use the quote for the latest 1d move and session timestamp. This is the
   // actual move versus the prior settle for 24h instruments and repairs foreign
   // cash charts that have not published their just-completed daily bar yet.
@@ -29528,7 +29588,12 @@ async function fetchGlobalMarketBars(symbol) {
           chPct = qChP;
         }
         const qt = q?.regularMarketTime ? new Date(q.regularMarketTime) : null;
-        if (qt && !isNaN(qt.getTime())) asOf = qt.toISOString().slice(0, 10);
+        if (qt && !isNaN(qt.getTime())) {
+          // Exchange-local date: a raw UTC slice dates the ASX/Asia session a
+          // day early or late depending on the close time.
+          asOf = overnightLocalDate(qt, q?.exchangeTimezoneName || meta.exchangeTimezoneName) || qt.toISOString().slice(0, 10);
+          quoteTimeIso = qt.toISOString();
+        }
         if (!currency && q?.currency) currency = q.currency;
         if (!yName && (q?.shortName || q?.longName)) yName = q.shortName || q.longName;
       }
@@ -29542,9 +29607,19 @@ async function fetchGlobalMarketBars(symbol) {
     prevClose,
     chPct: chPct == null ? null : Math.round(chPct * 100) / 100,
     asOf,
+    quoteTimeIso,
     currency,
     yName,
   };
+}
+
+function overnightLocalDate(date, tz) {
+  if (!tz) return null;
+  try {
+    return new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
+  } catch {
+    return null;
+  }
 }
 
 // Japan JGB curve — Yahoo has no reliable JGB symbols, so pull the Ministry of
@@ -29819,128 +29894,43 @@ function usBarsForCorrelation(data) {
   return [];
 }
 
-// Derived risk tone from the broad overnight backdrop. Each signal casts a
-// ±1 risk-on/off vote: US futures direction, a VIX spike, the yen carry, Asian-
-// equity breadth, the 10Y (in bp), copper (Dr. Copper = global growth) and the
-// dollar (a bid tightens financial conditions). Folding in the panel below the
-// headline keeps a 2% Asia selloff / 10bp rate move / copper-DXY swing from being
-// invisible to the tone. Label cutoffs scale with the larger vote pool.
-function deriveGlobalTone(markets) {
-  const reasons = [];
-  let score = 0;
-  const chOf = (s) => (markets[s] && markets[s].chPct != null && isFinite(markets[s].chPct)) ? markets[s].chPct : null;
-  // US futures (ES/NQ avg) — the most direct pre-open read.
-  const fut = [chOf("ES=F"), chOf("NQ=F")].filter((v) => v != null);
-  if (fut.length) {
-    const a = fut.reduce((s, v) => s + v, 0) / fut.length;
-    if (a <= -0.4) { score -= 1; reasons.push(`US futures soft (${a.toFixed(2)}%)`); }
-    else if (a >= 0.4) { score += 1; reasons.push(`US futures firm (+${a.toFixed(2)}%)`); }
-  }
-  // VIX spike.
-  const vix = chOf("^VIX");
-  if (vix != null) {
-    if (vix >= 5) { score -= 1; reasons.push(`VIX +${vix.toFixed(1)}%`); }
-    else if (vix <= -5) { score += 1; reasons.push(`VIX ${vix.toFixed(1)}%`); }
-  }
-  // Yen carry — USD/JPY down => yen stronger => carry unwind => risk-off.
-  const jpy = chOf("JPY=X");
-  if (jpy != null) {
-    if (jpy <= -0.6) { score -= 1; reasons.push(`yen bid (USD/JPY ${jpy.toFixed(2)}%) — carry unwind`); }
-    else if (jpy >= 0.6) { score += 1; reasons.push(`yen soft (USD/JPY +${jpy.toFixed(2)}%)`); }
-  }
-  // Asian-equity breadth (the genuinely-leading closed-session complex).
-  const asia = ["^KS11", "005930.KS", "000660.KS", "^TWII", "2330.TW", "^N225", "8035.T", "6857.T", "9984.T", "^HSI"]
-    .map(chOf).filter((v) => v != null);
-  if (asia.length >= 3) {
-    const a = asia.reduce((s, v) => s + v, 0) / asia.length;
-    if (a <= -0.6) { score -= 1; reasons.push(`Asia weak (${a.toFixed(2)}% avg)`); }
-    else if (a >= 0.6) { score += 1; reasons.push(`Asia firm (+${a.toFixed(2)}% avg)`); }
-  }
-  // 10Y yield shock (in basis points) — a sharp back-up pressures valuations.
-  const tnx = markets["^TNX"];
-  if (tnx && tnx.chgBp != null && isFinite(tnx.chgBp)) {
-    if (tnx.chgBp >= 8) { score -= 1; reasons.push(`10Y +${Math.round(tnx.chgBp)}bp`); }
-    else if (tnx.chgBp <= -8) { score += 1; reasons.push(`10Y ${Math.round(tnx.chgBp)}bp`); }
-  }
-  // Copper — Dr. Copper reads global growth.
-  const cu = chOf("HG=F");
-  if (cu != null) {
-    if (cu <= -1) { score -= 1; reasons.push(`copper ${cu.toFixed(1)}% — growth scare`); }
-    else if (cu >= 1) { score += 1; reasons.push(`copper +${cu.toFixed(1)}% — growth bid`); }
-  }
-  // Dollar (DXY) — a firm bid tightens financial conditions (risk-off).
-  const dxy = chOf("DX-Y.NYB");
-  if (dxy != null) {
-    if (dxy >= 0.5) { score -= 1; reasons.push(`USD firm (+${dxy.toFixed(2)}%)`); }
-    else if (dxy <= -0.5) { score += 1; reasons.push(`USD soft (${dxy.toFixed(2)}%)`); }
-  }
-  let label = "mixed";
-  if (score >= 3) label = "risk-on";
-  else if (score <= -3) label = "risk-off";
-  else if (score >= 1) label = "leaning risk-on";
-  else if (score <= -1) label = "leaning risk-off";
-  return { label, score, reasons };
+// Freshness context for a snapshot read: the last completed US session (from
+// the SPY chain) and whether the read is before today's US open.
+export function overnightSnapshotOpts(spyBars, nowMs = Date.now()) {
+  const bars = (spyBars || []).filter((b) => b && b.t && Number.isFinite(b.c)).map((b) => ({ t: b.t, c: b.c }));
+  const prior = priorUsSession(bars, nowMs);
+  const et = overnightEtParts(nowMs);
+  const weekday = et.weekday !== "Sat" && et.weekday !== "Sun";
+  return {
+    priorUsDate: prior?.date || null,
+    priorUsCloseMs: prior?.closeMs || null,
+    priorUsPct: prior?.pct ?? null,
+    preOpen: weekday && isBeforeUsOpen(nowMs) && prior?.date !== et.date,
+  };
 }
 
-// Cross-asset tape axis for the macro regime (PICKS_MACRO_GLOBAL). Reads the
-// correlations `markets` snapshot and scores the overnight risk-breadth on the
-// regime's −2..+2 axis scale, using ONLY the signals the other axes don't own
-// (US futures + foreign-index breadth + yen carry + Bitcoin). Each
-// casts a ±1 sub-vote; their net maps to the axis score (±2 once the breadth is
-// broad/acute). Returns { score, label, driver, components } — `components` is
-// the per-signal detail the tape meter can show. Graceful: too few markets ⇒
-// score 0 (neutral), so a thin/stale sweep never fabricates a regime vote.
-export function deriveGlobalTapeAxis(markets) {
-  markets = markets || {};
-  const chOf = (s) => (markets[s] && markets[s].chPct != null && isFinite(markets[s].chPct)) ? markets[s].chPct : null;
-  const avg = (syms) => {
-    const vals = syms.map(chOf).filter((v) => v != null);
-    return vals.length ? { v: vals.reduce((a, b) => a + b, 0) / vals.length, n: vals.length } : null;
-  };
-  const components = [];
-  let votes = 0, present = 0, strongUp = false, strongDn = false;
-  // Add one leg: ±1 vote at its gate, and flag whether it crossed the STRONG (~2σ)
-  // gate in the vote's direction (a concentrated single-asset shock).
-  const addLeg = (val, gate, strongGate, key, label) => {
-    if (val == null) return;
-    present++;
-    let v = 0;
-    if (val >= gate) { v = 1; if (val >= strongGate) strongUp = true; }
-    else if (val <= -gate) { v = -1; if (val <= -strongGate) strongDn = true; }
-    votes += v;
-    components.push({ key, label, vote: v });
-  };
-  // US equity futures (the most direct overnight risk proxy).
-  const fut = avg(["ES=F", "NQ=F"]);
-  if (fut) addLeg(fut.v, PICKS_MACRO_GLOBAL_FUT, PICKS_MACRO_GLOBAL_FUT_STRONG, "futures", `US futures ${fut.v >= 0 ? "+" : ""}${fut.v.toFixed(2)}%`);
-  // Foreign-index breadth (Asia + Europe) — the genuinely-leading closed sessions.
-  const breadth = avg(["^N225", "^KS11", "^GDAXI", "^TWII"]);
-  if (breadth && breadth.n >= 2) addLeg(breadth.v, PICKS_MACRO_GLOBAL_BREADTH, PICKS_MACRO_GLOBAL_BREADTH_STRONG, "breadth", `Global equities ${breadth.v >= 0 ? "+" : ""}${breadth.v.toFixed(2)}% avg`);
-  // Yen carry (USD/JPY up = carry-on = risk-on; a yen bid = unwind = risk-off).
-  const yen = chOf("JPY=X");
-  if (yen != null) addLeg(yen, PICKS_MACRO_GLOBAL_YEN, PICKS_MACRO_GLOBAL_YEN_STRONG, "yen", `USD/JPY ${yen >= 0 ? "+" : ""}${yen.toFixed(2)}%`);
-  // Bitcoin — the purest cross-asset risk-appetite proxy (volatile → wider gate).
-  const btc = chOf("BTC-USD");
-  if (btc != null) addLeg(btc, PICKS_MACRO_GLOBAL_BTC, PICKS_MACRO_GLOBAL_BTC_STRONG, "btc", `Bitcoin ${btc >= 0 ? "+" : ""}${btc.toFixed(1)}%`);
-  if (present < 3) return { score: 0, label: "no cross-asset data", driver: null, components };
-  votes = Math.max(-4, Math.min(4, votes)); // clamp so no single tape saturates
-  // ±2 via the BREADTH path (|votes|≥ACUTE, ≥3 aligned components) OR the MAGNITUDE
-  // path (an aligned component crossed its STRONG gate AND ≥2 components agree — so a
-  // lone idiosyncratic move can't hit the extreme while another asset dissents).
-  let score = 0;
-  if (votes >= PICKS_MACRO_GLOBAL_ACUTE || (strongUp && votes >= 2)) score = 2;
-  else if (votes >= 1) score = 1;
-  else if (votes <= -PICKS_MACRO_GLOBAL_ACUTE || (strongDn && votes <= -2)) score = -2;
-  else if (votes <= -1) score = -1;
-  // Label from the lit drivers in the axis direction (most informative first).
-  const dir = score === 0 ? 0 : (score > 0 ? 1 : -1);
-  const lit = components.filter((c) => c.vote === dir).map((c) => c.label);
-  const tone = score > 0 ? "risk-on" : (score < 0 ? "risk-off" : "mixed");
-  const label = score === 0
-    ? `Global tape mixed (${present} signals)`
-    : `Global tape ${tone}${lit.length ? " — " + lit.slice(0, 3).join(", ") : ""}`;
-  const driver = score <= -1 ? `global tape ${tone}` : null;
-  return { score, label, driver, components };
+// Tone from the market snapshot (each market's own last change). Used for the
+// tab only when no saved pre-open call exists for the session.
+export function snapshotOvernightTone(markets, context = {}, opts = {}) {
+  const inputs = OVERNIGHT_TONE.inputsFromSnapshot(markets, opts);
+  return OVERNIGHT_TONE.scoreTone(inputs, { asiaEcho: context?.asiaEcho || null, priorUsPct: opts.priorUsPct });
+}
+
+// Cross-asset tape axis for the macro regime (PICKS_MACRO_GLOBAL), on the
+// regime's -2..+2 scale. It is the day's saved pre-open call; before the open
+// (no call yet) it reads the snapshot; with neither it votes 0 rather than
+// re-reading the live US session as "overnight".
+export function deriveGlobalTapeAxis(markets, opts = {}) {
+  const { todayCall = null, context = null, snapshotOpts = null } = opts || {};
+  if (todayCall?.tone) {
+    const axis = OVERNIGHT_TONE.tapeAxis(todayCall.tone, { prefix: `Pre-open tape (${todayCall.date})` });
+    return { ...axis, source: todayCall.reconstructed ? "preopen-rebuilt" : "preopen", date: todayCall.date };
+  }
+  if (markets && snapshotOpts?.preOpen) {
+    const tone = snapshotOvernightTone(markets, context, snapshotOpts);
+    return { ...OVERNIGHT_TONE.tapeAxis(tone, { prefix: "Overnight tape so far" }), source: "snapshot" };
+  }
+  return { score: 0, label: "Global tape — no pre-open call saved for today", driver: null, components: [], source: "none" };
 }
 
 function globalMoveForPeriod(g, type, sessions) {
@@ -30056,15 +30046,19 @@ function buildOvernightContext(globalMarkets, markets, priorContext = null) {
   };
 }
 
-export function buildCorrelationsPayload(chains, globalMarkets, builtAtIso, prior = null) {
+// overnight: { log, todayCall, nowMs } — the saved pre-open call history
+// (data/overnight-log.json) and today's call when one exists.
+export function buildCorrelationsPayload(chains, globalMarkets, builtAtIso, prior = null, overnight = null) {
   globalMarkets = globalMarkets || {};
   const haveSyms = Object.keys(globalMarkets);
+  const preopen = overnight?.log ? { ...overnightLogSummary(overnight.log), today: overnight.todayCall || null } : (prior?.preopen || null);
   // Too little came back — keep last-good rather than blanking the tab.
   if (haveSyms.length < 3) {
-    if (prior && prior.map) return { ...prior, stale: true };
+    if (prior && prior.map) return { ...prior, ...(preopen ? { preopen } : {}), stale: true };
     return {
       builtAtIso, builtAt: nyTimestamp(), markets: {}, regions: [],
-      broad: GLOBAL_BROAD_SIGNALS, map: {}, tone: { label: "mixed", score: 0, reasons: [] }, stale: true,
+      broad: GLOBAL_BROAD_SIGNALS, map: {}, tone: { label: "insufficient", score: 0, reasons: [], buckets: [], excluded: [], source: "none" }, stale: true,
+      ...(preopen ? { preopen } : {}),
     };
   }
   // Snapshot every fetched foreign symbol.
@@ -30113,6 +30107,9 @@ export function buildCorrelationsPayload(chains, globalMarkets, builtAtIso, prio
       chgPt,
       cur: g.currency || null,
       asOf: g.asOf || null,
+      quoteTimeIso: g.quoteTimeIso || null,
+      // Daily % volatility (last 60 sessions): the scorer's z-score scale.
+      sigma1d: overnightSigmaPct(g.bars),
       source: sym === "US2Y" ? "US Treasury" : (sym === "JGB2Y" || sym === "JGB10Y" ? "Japan MOF" : "Yahoo Finance"),
       moves,
       ...(closes.length >= 4 ? { series: closes, seriesDates } : {}),
@@ -30154,6 +30151,21 @@ export function buildCorrelationsPayload(chains, globalMarkets, builtAtIso, prio
     }
     if (peers.length) map[sym] = { group, peers };
   }
+  const context = buildOvernightContext(globalMarkets, markets, prior?.context || null);
+  // Asia replays the prior US day; the scorer votes only the residual.
+  const spyBars = usBarsForCorrelation(chains?.SPY || null);
+  const asiaDaily = {};
+  for (const sym of OVERNIGHT_TONE.ASIA_BROAD) asiaDaily[sym] = globalMarkets[sym]?.bars || [];
+  context.asiaEcho = fitAsiaEcho(asiaDaily, spyBars) || prior?.context?.asiaEcho || null;
+  const nowMs = overnight?.nowMs ?? Date.parse(builtAtIso) ?? Date.now();
+  const snapOpts = overnightSnapshotOpts(spyBars, Number.isFinite(nowMs) ? nowMs : Date.now());
+  context.priorUs = { date: snapOpts.priorUsDate, closeMs: snapOpts.priorUsCloseMs, pct: snapOpts.priorUsPct };
+  // The headline is the saved pre-open call for today's session when one
+  // exists; otherwise the snapshot read (labelled as such on the tab).
+  const todayCall = overnight?.todayCall || null;
+  const tone = todayCall?.tone
+    ? { ...todayCall.tone, source: todayCall.reconstructed ? "preopen-rebuilt" : "preopen", date: todayCall.date }
+    : { ...snapshotOvernightTone(markets, context, snapOpts), source: "snapshot" };
   return {
     builtAtIso,
     builtAt: nyTimestamp(),
@@ -30161,9 +30173,67 @@ export function buildCorrelationsPayload(chains, globalMarkets, builtAtIso, prio
     regions,
     broad: GLOBAL_BROAD_SIGNALS.filter((s) => markets[s]),
     map,
-    tone: deriveGlobalTone(markets),
-    context: buildOvernightContext(globalMarkets, markets, prior?.context || null),
+    tone,
+    context,
+    ...(preopen ? { preopen } : {}),
   };
+}
+
+// ---- Saved overnight calls (data/overnight-log.json) -------------------------
+// The 09:00 ET pre-open job writes data/overnight-preopen.json. Each bake folds
+// that live call into the log, rebuilds any session in the last ~8 weeks that
+// has no call (from 15-minute bars, at a 09:05 ET cutoff, about when the live job reads), and grades
+// every completed session against SPY/QQQ. Free Yahoo data only.
+const OVERNIGHT_BACKFILL_UNDER = 40;
+async function readPriorDataJson(name) {
+  try { return JSON.parse(await readFile(resolve(DATA_DIR, name), "utf8")); } catch { return null; }
+}
+export async function updateOvernightLog({ priorLog = null, preopenFile = null, calendar = null, nowMs = Date.now(), fetcher = null, yahoo = null } = {}) {
+  const entries = priorLog?.entries || [];
+  const backfill = entries.length < OVERNIGHT_BACKFILL_UNDER;
+  const fetch = fetcher || ((opts) => fetchOvernightSeries(yahoo || yahooFinance, opts));
+  const todayEt = overnightEtParts(nowMs).date;
+  const have = new Set(entries.map((e) => e.date));
+  const live = preopenFile?.call;
+  // Most bakes only need SPY/QQQ daily bars to grade. The full ~40-market
+  // fetch runs when the log is short, today's call is missing after 09:05 ET,
+  // or the latest saved call is more than 4 days old (a missed day to rebuild).
+  const weekday = !["Sat", "Sun"].includes(overnightEtParts(nowMs).weekday);
+  const latestPast = entries.filter((e) => e.date < todayEt).map((e) => e.date).sort().pop() || null;
+  const needToday = weekday && nowMs >= preOpenCutoffMs(todayEt) && !have.has(todayEt) && !(live?.date === todayEt && !live.forced);
+  const gap = !latestPast || (Date.parse(todayEt) - Date.parse(latestPast)) / 86400000 > 4;
+  const full = backfill || needToday || gap;
+  const { series, failed } = await fetch(full
+    ? { nowMs, intradayDays: backfill ? 58 : 6 }
+    : { nowMs, intradayDays: 0, symbols: ["SPY", "QQQ"] });
+  const calls = [];
+  if (live?.date && !live.forced) calls.push(live);
+  const esBars = series?.["ES=F"]?.intraday || [];
+  const firstIntradayMs = esBars.length ? esBars[0].ms : Infinity;
+  for (const bar of series?.SPY?.daily || []) {
+    const d = bar.t;
+    if (!d || d > todayEt || have.has(d) || (live?.date === d && !live.forced)) continue;
+    const cutoffMs = preOpenCutoffMs(d);
+    // Needs the cutoff to have passed and a full prior night of 15m bars.
+    if (cutoffMs > nowMs || cutoffMs - firstIntradayMs < 2 * 86400000) continue;
+    const call = buildOvernightCall({
+      series, callDate: d, cutoffMs,
+      calendar: d === todayEt ? calendar : null,
+      stats: priorLog?.stats || null,
+      capturedAtIso: new Date(nowMs).toISOString(),
+      reconstructed: true,
+    });
+    if (call) calls.push(call);
+  }
+  const completed = (bars) => (bars || []).filter((b) => b?.t && overnightUsCloseMs(b.t) <= nowMs);
+  const log = mergeOvernightLog(priorLog, {
+    calls,
+    spyBars: completed(series?.SPY?.daily),
+    qqqBars: completed(series?.QQQ?.daily),
+    nowIso: new Date(nowMs).toISOString(),
+  });
+  const todayCall = log.entries.find((e) => e.date === todayEt) || null;
+  return { log, todayCall, nowMs, added: calls.length, fetchFailures: failed?.length || 0, fetched: full ? "full" : "grading" };
 }
 
 // Read BEFORE writeChainFiles wipes data/ so a thin foreign sweep can fall back
@@ -30177,8 +30247,8 @@ async function readPriorCorrelations() {
   return null;
 }
 
-async function writeCorrelationsFile(chains, globalMarkets, builtAtIso, prior = null) {
-  const payload = buildCorrelationsPayload(chains, globalMarkets, builtAtIso, prior);
+async function writeCorrelationsFile(chains, globalMarkets, builtAtIso, prior = null, overnight = null) {
+  const payload = buildCorrelationsPayload(chains, globalMarkets, builtAtIso, prior, overnight);
   const json = JSON.stringify(payload);
   await writeFile(resolve(DATA_DIR, "correlations.json"), json, "utf8");
   return {
@@ -31867,9 +31937,10 @@ function computeBriefGex(entry, sym, rfr) {
 // Fear & Greed, confirmed 1-day moves, rvol, the ET calendar date) and only
 // patterns whose cue fires reach the prompt — the model judges whether the
 // tape genuinely resembles one, and writes the optional `analog` block into
-// the brief if (and only if) it does. Patterns with no reliable price/calendar
-// proxy (pandemics, tariffs, bank runs) live in the doc but get no detector:
-// flagging them off headlines we don't have would just invite hallucination.
+// the brief if (and only if) it does. Pandemics, tariffs and bank runs have no
+// price proxy, so their cues need a fresh macro headline AND a risk-off tape
+// (SPY -1% or VIX +10% on the day) — headlineHits in lib/historical-events.mjs,
+// the same rule Historical Data's "resembles now" check uses.
 const HISTORICAL_PLAYBOOK = {
   war: {
     name: "Geopolitical shock / war",
@@ -31926,6 +31997,21 @@ const HISTORICAL_PLAYBOOK = {
     recognition: "Apple's June developer conference window — pre-event hype in AAPL and suppliers, post-keynote stall or reversal despite positive news.",
     reaction: "Buy-the-rumor / sell-the-news: run-up into the keynote, then a fade or consolidation in AAPL and the semis complex.",
   },
+  pandemic: {
+    name: "Pandemic / outbreak shock",
+    recognition: "Outbreak headlines (WHO alerts, lockdowns, new variants) arriving with a broad risk-off tape.",
+    reaction: "A global outbreak brought a severe initial crash (COVID-19, 2020); milder scares (SARS 2003, H1N1 2009, Ebola 2014, Zika 2016) had smaller, shorter market effects. Policy support drove recoveries; healthcare and staples held up early.",
+  },
+  tariffs: {
+    name: "Tariff / trade-war shock",
+    recognition: "Tariff announcements or retaliation headlines with a risk-off tape; exposed groups (semis, autos, agriculture, retailers) hit hardest.",
+    reaction: "Initial sell-off in exposed multinationals and supply chains, often a rebound on pauses or deals (2018-19 US-China; April 2025 'Liberation Day' then the April 9 pause).",
+  },
+  bankRun: {
+    name: "Bank run / bank-failure stress",
+    recognition: "Headlines about deposit flight or bank failures with falling financials and a risk-off tape.",
+    reaction: "Financials crash; the broad market follows only if it turns systemic (2008). Fast backstops (March 2023, SVB) have stopped contagion within weeks.",
+  },
   econEvent: {
     name: "Macro data reaction",
     recognition: "A scheduled release (CPI, jobs, FOMC, GDP) just printed — the surprise vs consensus is what moves markets, not the level.",
@@ -31957,7 +32043,7 @@ function thirdFridayDay(year, monthIdx) {
 // tape-shock-first (each { id, name, cue, recognition, reaction }), capped at
 // PLAYBOOK_MAX_CUES so the prompt stays bounded.
 export function detectPlaybookCues(ctx, now = new Date()) {
-  const { chains = {}, macro = null, fearGreed = null, calendar = {} } = ctx || {};
+  const { chains = {}, macro = null, fearGreed = null, calendar = {}, headlines = [] } = ctx || {};
   const cues = [];
   const pct = (v) => briefPctStr(Number(v)) ?? "n/a";
   const add = (id, cue) => {
@@ -32001,6 +32087,15 @@ export function detectPlaybookCues(ctx, now = new Date()) {
     }
   }
   if (squeezy.length) add("squeeze", squeezy.slice(0, 3).join(", "));
+  // Headline-led patterns need a risk-off reaction on the tape as well.
+  const spy1d = Number(chains?.SPY?.technicals?.volume?.priceMove1dPct);
+  if (spy1d <= -1 || vix1d >= 10) {
+    const hits = headlineHits(headlines, now.toISOString());
+    const tape = `SPY ${pct(spy1d)}, VIX ${pct(vix1d)}`;
+    if (hits.pandemic) add("pandemic", `"${hits.pandemic[0].title}" with ${tape}`);
+    if (hits.tariffs) add("tariffs", `"${hits.tariffs[0].title}" with ${tape}`);
+    if (hits["bank-run"]) add("bankRun", `"${hits["bank-run"][0].title}" with ${tape}`);
+  }
   const printedToday = (Array.isArray(calendar?.releases) ? calendar.releases : [])
     .filter((r) => r && r.actual && String(r.date) === todayEt);
   if (printedToday.length) {
@@ -32015,9 +32110,23 @@ export function detectPlaybookCues(ctx, now = new Date()) {
   if ((mm === 12 && dd >= 22) || (mm === 1 && dd <= 5)) add("santa", "inside the Santa Claus rally window (last 5 Dec + first 2 Jan sessions)");
   if (mm === 5) add("sellInMay", "May — start of the historically weak May-October stretch");
   if (mm === 9) add("septemberWeak", "September — historically the weakest month");
-  if (mm === 6 && dd <= 15) add("wwdc", "early-June WWDC window — watch AAPL and suppliers for a sell-the-news fade");
+  const wwdc = wwdcKeynote(yy), toKeynote = Math.round((Date.parse(`${wwdc.date}T00:00:00Z`) - Date.parse(`${todayEt}T00:00:00Z`)) / 86400000);
+  if (toKeynote >= -WWDC_WINDOW_DAYS.after && toKeynote <= WWDC_WINDOW_DAYS.before) add("wwdc", `WWDC keynote ${wwdc.date}${wwdc.estimated ? " (estimated)" : ""}${toKeynote > 0 ? ` in ${toKeynote}d` : toKeynote === 0 ? " (today)" : ` (${-toKeynote}d ago)`} — watch AAPL and suppliers for a sell-the-news fade`);
 
   return cues.slice(0, PLAYBOOK_MAX_CUES);
+}
+
+// Bake-time inputs for Historical Data's "resembles now" check: recent macro
+// headline hits and squeeze-style single-name moves (the playbook thresholds).
+// Stored in the snapshot so the offline audit can reproduce it exactly.
+export function historicalEventInputs(chains, macroHeadlines, analyzedAtIso) {
+  const squeezes = [];
+  for (const [sym, d] of Object.entries(chains || {})) {
+    const v = d?.technicals?.volume;
+    if (v && Number(v.priceMove1dPct) >= PLAYBOOK_SQUEEZE_CH && Number(v.rvol) >= PLAYBOOK_SQUEEZE_RVOL) squeezes.push({ sym, chPct: Math.round(Number(v.priceMove1dPct) * 100) / 100, rvol: Math.round(Number(v.rvol) * 10) / 10 });
+  }
+  squeezes.sort((a, b) => b.chPct - a.chPct);
+  return { headlineHits: headlineHits(macroHeadlines, analyzedAtIso), squeezes: squeezes.slice(0, 5) };
 }
 
 // Build the deterministic fact block for a brief. `kind` is "morning" or
@@ -32720,7 +32829,7 @@ export function gatherBriefSignals(kind, ctx) {
   // seasonals). The full entries (recognition + typical reaction) ride here
   // for the prompt; briefRenderFields strips them down to {id, name, cue} for
   // the brief JSON the browser renders.
-  const playbook = detectPlaybookCues({ chains, macro, fearGreed, calendar });
+  const playbook = detectPlaybookCues({ chains, macro, fearGreed, calendar, headlines });
   if (playbook.length) signals.playbook = playbook;
 
   return signals;
@@ -37005,6 +37114,11 @@ async function main() {
   // Prior correlations snapshot — fall back to it if tonight's foreign sweep
   // came back too thin (graceful degradation; data/ is about to be wiped).
   const priorCorrelations = await readPriorCorrelations();
+  // Saved overnight calls + this morning's live pre-open call (read before the
+  // wipe; the bake rewrites the log, the pre-open file stays job-owned).
+  const priorOvernightLog = await readPriorDataJson(OVERNIGHT_LOG_KEY);
+  const overnightPreopenFile = await readPriorDataJson(OVERNIGHT_PREOPEN_KEY);
+  const priorCalendarForOvernight = await readPriorDataJson("calendar.json");
   // Prior AI-CapEx + capital-raises snapshots — both are SEC/news-sourced and
   // change slowly (quarterly filings / sparse issuance news). Capital raises
   // is a rolling 21-day ledger, so its prior rows must be merged with this
@@ -37493,10 +37607,12 @@ async function main() {
   const historicalSourceCache = await refreshHistoricalSourceCache({ previous: historicalSourcePrev, builtAtIso, collectedAtIso: new Date().toISOString(),
     loadMarket: (symbol, request) => loadFreeMarketHistory(yahooFinance, symbol, request),
     loadContext: loadSharedFred,
+    loadRelease: process.env.FRED_API_KEY ? (id, request) => loadFredReleaseDates(id, fetch, request) : undefined,
     log: message => console.log(`  · history source ${message}`),
   });
   await writeFile(resolve(DATA_DIR, HISTORICAL_SOURCE_KEY), JSON.stringify(historicalSourceCache), "utf8");
-  const historicalInfo = await writeHistoricalDataFile({ dataDir: DATA_DIR, builtAtIso, analyzedAtIso: new Date().toISOString(), sourceCache: historicalSourceCache });
+  const historicalAnalyzedAt = new Date().toISOString();
+  const historicalInfo = await writeHistoricalDataFile({ dataDir: DATA_DIR, builtAtIso, analyzedAtIso: historicalAnalyzedAt, sourceCache: historicalSourceCache, inputs: historicalEventInputs(chains, trends.macroHeadlines || [], historicalAnalyzedAt) });
   console.log(`wrote data/historical-data.json — ${historicalInfo.indexes} markets, ${historicalInfo.bytes} bytes; ${historicalSourceCache.cost.requestsThisRun} free source downloads`);
   const sharedIndexBars = sharedHistoryBars(historicalSourceCache, PATTERN_INDEX_SYMBOLS);
   try {
@@ -37533,7 +37649,25 @@ async function main() {
   } catch (err) {
     console.log(`  · bottom tracker failed (non-fatal): ${err.message}`);
   }
-  const correlationsInfo = await writeCorrelationsFile(chains, globalMarkets, builtAtIso, priorCorrelations);
+  let overnightState = null;
+  try {
+    overnightState = await updateOvernightLog({
+      priorLog: priorOvernightLog,
+      preopenFile: overnightPreopenFile,
+      calendar: priorCalendarForOvernight,
+      nowMs: Date.parse(builtAtIso),
+    });
+    console.log(`  · overnight log: ${overnightState.log.entries.length} call(s), ${overnightState.added} added/rebuilt, today ${overnightState.todayCall ? `${overnightState.todayCall.tone.label}${overnightState.todayCall.reconstructed ? " (rebuilt)" : ""}` : "none"}`);
+  } catch (err) {
+    console.log(`  ⚠ overnight log update failed (non-fatal, keeping prior log): ${err?.message || err}`);
+    if (priorOvernightLog) {
+      const todayEt = overnightEtParts(Date.parse(builtAtIso)).date;
+      overnightState = { log: priorOvernightLog, todayCall: (priorOvernightLog.entries || []).find((e) => e.date === todayEt) || null, nowMs: Date.parse(builtAtIso) };
+    }
+  }
+  // Always rewrite the log (carry-forward when the update failed).
+  await writeFile(resolve(DATA_DIR, "overnight-log.json"), JSON.stringify(overnightState?.log || { version: OVERNIGHT_TONE_VERSION, updatedAtIso: builtAtIso, entries: [], stats: OVERNIGHT_TONE.summarize([]) }), "utf8");
+  const correlationsInfo = await writeCorrelationsFile(chains, globalMarkets, builtAtIso, priorCorrelations, overnightState);
   console.log(`wrote data/correlations.json — ${correlationsInfo.symbols} markets, ${correlationsInfo.mapped} mapped tickers, ${correlationsInfo.bytes} bytes${correlationsInfo.stale ? " [stale — kept last-good]" : ""}`);
   // AI CapEx (Mag 7 aggregate, from SEC XBRL) + capital-raises feed (rolling
   // current/prior/history merge from the judgments news scan, SEC-enriched).
@@ -37630,6 +37764,7 @@ async function main() {
   const fundHistoryBytes = await writeFundamentalsHistory(fundHistory);
   const earningsForecastInfo = await writeEarningsForecast({ dataDir: DATA_DIR, prepared: earningsForecastPrepared });
   console.log(`wrote data/earnings-forecast.json — ${earningsForecastInfo.companies} launch companies, ${earningsForecastInfo.forecasts} revenue forecasts; no AI calls`);
+  if(earningsForecastPrepared.payload.companyStorage)console.log('company research storage: '+JSON.stringify(earningsForecastPrepared.payload.companyStorage));
   if (fundHistory.size) {
     console.log(`wrote data/fundamentals-history/ — ${fundHistory.size} tickers, ${fundHistoryBytes} bytes total`);
   }
@@ -37901,6 +38036,11 @@ async function main() {
     // LIVE ±2 vote off day-old moves) — feed null so the axis scores a neutral 0.
     macroBackdrop.crossAsset = deriveGlobalTapeAxis(
       correlationsInfo?.payload?.stale ? null : (correlationsInfo?.payload?.markets || null),
+      {
+        todayCall: overnightState?.todayCall || null,
+        context: correlationsInfo?.payload?.context || null,
+        snapshotOpts: overnightSnapshotOpts(usBarsForCorrelation(chains?.SPY || null), Date.parse(builtAtIso)),
+      },
     );
     macroBackdrop.macroRegime = computeMacroRegime(
       macroBackdrop,

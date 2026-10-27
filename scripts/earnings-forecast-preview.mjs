@@ -5,18 +5,22 @@ import { resolve,extname } from 'node:path';
 import { fileURLToPath,pathToFileURL } from 'node:url';
 import { earningsFixture } from './fixtures/earnings-forecast.mjs';
 import { prepareEarningsForecast } from './refresh-earnings-forecast.mjs';
-import { selectCohort } from '../lib/earnings-forecast.mjs';
 import { buildIndustryEvidence } from '../lib/company-research.mjs';
 export async function createEarningsPreview({port=0,payloadFile=null}={}){
   const root=fileURLToPath(new URL('../',import.meta.url));let payload;
   if(payloadFile)payload=JSON.parse(await readFile(payloadFile,'utf8'));
   else{
-    const symbols=Array.from({length:10},(_,i)=>'T'+i),chains=Object.fromEntries(symbols.map((s,i)=>[s,{spot:100,quoteAsOf:'2025-02-14T21:00:00Z',quoteProvenance:{currency:'USD'},fundamentals:{name:'Test issuer '+i,marketCap:(10-i)*1e11,financialCurrency:'USD',forwardPE:20,fcfHistory:[{date:'2024-12-31',value:12}],totalDebt:0,totalDebtAsOf:'2024-12-31'}}]));
-    const state={version:1,cohort:selectCohort(chains,symbols,{},'2025-02-15T12:00:00Z'),observations:Object.fromEntries(symbols.map(s=>[s,earningsFixture(s)])),runs:[],current:{},evaluations:[],mix:{},sourceStatus:Object.fromEntries(symbols.map(s=>[s,{issuerId:'0000000001',checkedAt:'2025-02-15T12:00:00Z',accessions:null,rawHash:'fixture',error:null}])),sourceDocuments:{}};
-    payload=(await prepareEarningsForecast({previous:state,chains,universe:symbols,sectors:{},cikMap:new Map(),now:()=>'2025-02-15T12:00:00Z',fetchImpl:()=>{throw Error('Preview cannot fetch providers');}})).payload;
-    payload.companies[0].name='Test issuer <img src=x onerror=alert(1)>';
-    for(const c of payload.companies)c.mix={product:{rows:[{name:'Products',value:60},{name:'Services',value:40}],period:{periodType:'quarter',currentPeriod:{endDate:'2024-12-31'}},currency:'USD',reconciliation:{status:'matched'}},geographic:{rows:[{name:'Home',value:25},{name:'Overseas',value:75}],period:{periodType:'annual',currentPeriod:{endDate:'2024-12-31'}},currency:'USD',reconciliation:{status:'matched'}}};
+    // 22 issuers: the list of 20 is ranked in Q1, then re-ranked in Q2 when T21 jumps to the top and T19 leaves.
+    const symbols=Array.from({length:22},(_,i)=>'T'+i),chains=big=>Object.fromEntries(symbols.map((s,i)=>[s,{spot:100,quoteAsOf:'2025-04-01T20:00:00Z',quoteProvenance:{currency:'USD'},fundamentals:{financialCurrency:'USD',forwardPE:20,fcfHistory:[{date:'2024-12-31',value:12}],totalDebt:0,totalDebtAsOf:'2024-12-31',name:'Test issuer '+i,marketCap:s===big?5e12:(22-i)*1e11}}]));
+    const period={periodType:'quarter',currentPeriod:{endDate:'2024-12-31'},previousPeriod:{endDate:'2023-12-31'}};
+    const mix={product:{rows:[{name:'Products',value:55,previousValue:50},{name:'Services',value:37,previousValue:50},{name:'AI platform',value:8,previousValue:null,isNew:true}],period,currency:'USD'},geographic:{rows:[{name:'Home',value:25,previousValue:30},{name:'Overseas',value:75,previousValue:70}],period:{...period,periodType:'annual'},currency:'USD'},filed:'2025-01-30'};
+    const state={version:1,cohort:null,observations:Object.fromEntries(symbols.map(s=>[s,earningsFixture(s)])),runs:[],current:{},evaluations:[],mix:Object.fromEntries(symbols.map(s=>[s,mix])),sourceStatus:Object.fromEntries(symbols.map(s=>[s,{issuerId:'0000000001',checkedAt:'2025-04-02T12:00:00Z',accessions:null,rawHash:'fixture',error:null}])),sourceDocuments:{}};
+    const run=(st,big,at)=>prepareEarningsForecast({previous:st,chains:chains(big),universe:symbols,sectors:{},cikMap:new Map(),now:()=>at,fetchImpl:()=>{throw Error('Preview cannot fetch providers');}});
+    payload=(await run((await run(state,null,'2025-02-15T12:00:00Z')).state,'T21','2025-04-02T12:00:00Z')).payload;
     payload.industryEvidence=buildIndustryEvidence({asOf:'2025-02-15T12:00:00Z',universe:['MU','NVDA','CRWV','MSFT','SNDK'],memory:{spot:{items:[{name:'DRAM <img src=x>',sessionAvg:2}],history:{'DRAM <img src=x>':[{d:'2025-02-14',avg:2}]},sourceUrl:'https://www.trendforce.com/price/dram/dram_spot',stale:false}},gpu:{builtAtIso:'2025-02-14T12:00:00Z',quotes:[{key:'x',provider:'Test provider',model:'H100',market:'on-demand',price:2,sourceUrl:'https://example.com/pricing',stale:false}],history:{x:[{d:'2025-02-14',p:2}]}}});
+    payload.companies[1].name='Test issuer <img src=x onerror=alert(1)>';
+    // The fixture has no annual revenue fact, so mark the annual region split as reconciled like a real 10-K would be.
+    for(const c of payload.companies)if(c.mix.geographic)c.mix.geographic.reconciliation={...c.mix.geographic.reconciliation,status:'matched'};
   }
   const html=await readFile(resolve(root,'index.html'),'utf8'),shell=JSON.parse(html.match(/window\.STONKS_MANIFEST=(\{.*\});<\/script>/)[1]),manifest={...shell,symbols:[],narratives:[],deferred:false};
   let scenario='owner',requests=0;

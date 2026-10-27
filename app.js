@@ -19,7 +19,7 @@
   }
 
 
-  var SITE_MAP = [["today","Today","Today","What is happening in the market right now",0,[["home","Home","","A one-screen overview of the market and every part of the site.",0],["brief","Market brief","Brief","A short digest of what moved, why, and what is coming up next.",0],["news","News","News desk","Market-moving stock and economic headlines, most important first.",0],["heatmap","Heatmap","","Every tracked stock as a tile: size is company value, color is how much it moved.",0],["calendar","Calendar","","Upcoming earnings reports, economic releases and Fed meetings.",0],["overnight","Overnight markets","","How Asian and European markets traded before the US open, and which US stocks they tend to lead.",0]]],["stocks","Stocks","Stocks","Look up, compare and follow companies",0,[["tickers","All stocks","Tickers","Every stock the site follows, with its price and current grade. Pick one to see the full report.",0],["grade","Look up a stock","Grade a ticker stock report","One stock in depth: its chart, grade, fundamentals, options and news.",0],["compare","Compare stocks","Compare companies","Line up a few companies side by side on price, growth and valuation.",0],["earnings","Earnings results","Earnings tracker","Which companies beat or missed expectations this season, and how their stocks reacted.",0],["calls","Earnings calls","","What management said on each company’s latest earnings call, and what changed.",0],["f13","Who owns what","SEC ownership 13F Form 4 insider","What big investment funds bought and sold last quarter, plus recent insider trades.",0],["pending-buyouts","Pending buyouts","M&A mergers","Announced and rumored takeovers, and how far along each deal is.",0]]],["market","Market & economy","Market","The big picture: mood, rates, money and themes",0,[["fear-greed","Market mood","Fear & Greed","CNN’s Fear & Greed index: whether investors are acting scared or greedy, from 0 to 100.",0],["bonds-usd","Rates & the dollar","Bonds & USD Fed","Treasury yields, the US dollar and what the Fed is expected to do next.",0],["commodities","Commodities","","Oil, gold, copper and other raw materials, and the stocks that move with them.",0],["central-bank-gold","Central-bank gold","","How much gold the world’s central banks are buying or selling.",0],["capital-raises","Capital markets","Capital raises share sales buybacks IPOs credit issuance debt","Companies selling stock or debt or buying shares back, upcoming IPOs, and how easily companies and households can borrow.",0],["narratives","Market themes","Narratives","The big stories driving money right now, such as AI spending, and which stocks ride them.",0]]],["options","Options activity","Options","Where traders are placing bets",0,[["flow","Unusual options trades","Unusual flow","Option trades far bigger than normal for that stock, a sign someone expects a move.",0],["volume","Trading volume","Volume","Days when a stock traded much more or less than usual.",0],["oi","Options walls","Gamma exposure GEX","Price levels where large option positions can slow a stock down or speed it up.",0],["iv-trend","Rising volatility","Trending IV implied volatility","Stocks whose options are pricing in a bigger move than usual.",0],["strategies","Strategy builder","Strategies","Pick a stock and build a defined-risk options trade, with its profit and loss at expiry.",0]]],["signals","Charts & signals","Signals","Price trends and repeating patterns",0,[["ma-tracker","Moving averages","MA tracker crossover","Stocks sitting close to their 20, 50, 100 or 200-day average price.",0],["streaks","Up/down streaks","Streaks green red","Stocks on a run of up days or down days in a row.",0],["pattern-lab","Pattern lab","Seasonality","Repeating patterns such as seasonality and how stocks behave after big moves.",0],["spillover","Earnings ripple effects","Event spillover","How one company’s earnings tend to move the other stocks in its industry.",0],["index-cal","Index calendar","","A month view of the major index funds, showing which days the whole market joined in.",0]]],["industry","Industry trends","Industry","Real-world data behind the AI and chip trade",0,[["ai-capex","AI spending","AI CapEx","How much the biggest tech companies are spending on AI data centers.",0],["ram-prices","Memory chip prices","RAM prices DRAM","Weekly prices for computer memory, a read on the chip cycle.",0],["accelerator-prices","GPU cloud prices","Accelerator","What it costs to rent AI chips by the hour, a read on AI demand.",0],["search-interest","Search trends","Search interest Google","Which market themes people are searching for more or less this week.",0]]],["learn","Learn & help","Learn","Guides, definitions and site info",0,[["cheatsheet","Options guide","Buyer's manual","A plain-English guide to buying options: calls, puts, risk and timing.",0],["chart-patterns","Chart patterns","","What common chart shapes look like and how traders read them.",0],["timeline","When data updates","Refresh schedule timeline","When each part of the site refreshes during the trading day.",0],["privacy","Privacy Policy","","What this site collects and how it is used.",0],["terms","Terms of Use","","The terms for using this site. Nothing here is investment advice.",0]]],["owner","Owner","Owner","Private research",1,[["unified-signal-engine","Unified Signal Engine","","All private signals combined into one ranked read.",0],["market","Market analysis","","The cross-asset tape, risk barometer and regime history.",0],["risk","Risk analysis","","Seven risk desks read together, with the reason when they disagree.",0],["bottom-tracker","Bottom tracker","","Signs the market is washing out and turning.",0],["historical-data","Historical Data","","The stored history behind the private research.",0],["earnings-forecast","Earnings Forecast","Quarterly full-year valuation company history revenue EPS industry model","Quarterly forecasts, company history, full-year valuation and linked industry evidence for Owner research.",0],["forced-liquidation","Forced Liquidation Tracker","Pledged shares collateral leverage margin","SEC stock pledges, loan terms and estimated price thresholds, with missing terms kept visible.",0],["picks","Top picks","","The model’s highest-conviction option contracts for today.",0],["leaps","LEAPS","","Names scored for a one- to two-year options hold.",0],["stocks","Stock picks","","Quality companies on a dip, as shares rather than options.",0],["rotation","Sector rotation","","Strong names sold with their sector that are now turning back up.",0],["levetf","Leveraged ETFs","","Leveraged ETF setups from the same engine.",0],["open-picks","Open picks","","Every open trade, with lines ready to copy to a broker.",0],["track","Top Picks track record","","How every closed pick worked out.",0],["quant","Owner Lab","","Research tools and diagnostics.",0]]]];
+  var SITE_MAP = [["today","Today","Today","What is happening in the market right now",0,[["home","Home","","A one-screen overview of the market and every part of the site.",0],["brief","Market brief","Brief","A short digest of what moved, why, and what is coming up next.",0],["news","News","News desk","Market-moving stock and economic headlines, most important first.",0],["heatmap","Heatmap","","Every tracked stock as a tile: size is company value, color is how much it moved.",0],["calendar","Calendar","","Upcoming earnings reports, economic releases and Fed meetings.",0],["overnight","Overnight markets","","How Asian and European markets traded before the US open, and which US stocks they tend to lead.",0]]],["stocks","Stocks","Stocks","Look up, compare and follow companies",0,[["tickers","All stocks","Tickers","Every stock the site follows, with its price and current grade. Pick one to see the full report.",0],["grade","Look up a stock","Grade a ticker stock report","One stock in depth: its chart, grade, fundamentals, options and news.",0],["compare","Compare stocks","Compare companies","Line up a few companies side by side on price, growth and valuation.",0],["earnings","Earnings results","Earnings tracker","Which companies beat or missed expectations this season, and how their stocks reacted.",0],["calls","Earnings calls","","What management said on each company’s latest earnings call, and what changed.",0],["f13","Who owns what","SEC ownership 13F Form 4 insider","What big investment funds bought and sold last quarter, plus recent insider trades.",0],["pending-buyouts","Pending buyouts","M&A mergers","Announced and rumored takeovers, and how far along each deal is.",0]]],["market","Market & economy","Market","The big picture: mood, rates, money and themes",0,[["fear-greed","Market mood","Fear & Greed","CNN’s Fear & Greed index: whether investors are acting scared or greedy, from 0 to 100.",0],["bonds-usd","Rates & the dollar","Bonds & USD Fed","Treasury yields, the US dollar and what the Fed is expected to do next.",0],["commodities","Commodities","","Oil, gold, copper and other raw materials, and the stocks that move with them.",0],["central-bank-gold","Central-bank gold","","How much gold the world’s central banks are buying or selling.",0],["capital-raises","Capital markets","Capital raises share sales buybacks IPOs credit issuance debt","Companies selling stock or debt or buying shares back, upcoming IPOs, and how easily companies and households can borrow.",0],["narratives","Market themes","Narratives","The big stories driving money right now, such as AI spending, and which stocks ride them.",0]]],["options","Options activity","Options","Where traders are placing bets",0,[["flow","Unusual options trades","Unusual flow","Option trades far bigger than normal for that stock, a sign someone expects a move.",0],["volume","Trading volume","Volume","Days when a stock traded much more or less than usual.",0],["oi","Options walls","Gamma exposure GEX","Price levels where large option positions can slow a stock down or speed it up.",0],["iv-trend","Rising volatility","Trending IV implied volatility","Stocks whose options are pricing in a bigger move than usual.",0],["strategies","Strategy builder","Strategies","Pick a stock and build a defined-risk options trade, with its profit and loss at expiry.",0]]],["signals","Charts & signals","Signals","Price trends and repeating patterns",0,[["ma-tracker","Moving averages","MA tracker crossover","Stocks sitting close to their 20, 50, 100 or 200-day average price.",0],["streaks","Up/down streaks","Streaks green red","Stocks on a run of up days or down days in a row.",0],["pattern-lab","Pattern lab","Seasonality","Repeating patterns such as seasonality and how stocks behave after big moves.",0],["spillover","Earnings ripple effects","Event spillover","How one company’s earnings tend to move the other stocks in its industry.",0],["index-cal","Index calendar","","A month view of the major index funds, showing which days the whole market joined in.",0]]],["industry","Industry trends","Industry","Real-world data behind the AI and chip trade",0,[["ai-capex","AI spending","AI CapEx","How much the biggest tech companies are spending on AI data centers.",0],["ram-prices","Memory chip prices","RAM prices DRAM","Weekly prices for computer memory, a read on the chip cycle.",0],["accelerator-prices","GPU cloud prices","Accelerator","What it costs to rent AI chips by the hour, a read on AI demand.",0],["search-interest","Search trends","Search interest Google","Which market themes people are searching for more or less this week.",0]]],["learn","Learn & help","Learn","Guides, definitions and site info",0,[["cheatsheet","Options guide","Buyer's manual","A plain-English guide to buying options: calls, puts, risk and timing.",0],["chart-patterns","Chart patterns","","What common chart shapes look like and how traders read them.",0],["timeline","When data updates","Refresh schedule timeline","When each part of the site refreshes during the trading day.",0],["privacy","Privacy Policy","","What this site collects and how it is used.",0],["terms","Terms of Use","","The terms for using this site. Nothing here is investment advice.",0]]],["owner","Owner","Owner","Private research",1,[["unified-signal-engine","Unified Signal Engine","","All private signals combined into one ranked read.",0],["market","Market analysis","","The cross-asset tape, risk barometer and regime history.",0],["risk","Risk analysis","","Seven risk desks read together, with the reason when they disagree.",0],["bottom-tracker","Bottom tracker","","Signs the market is washing out and turning.",0],["historical-data","Historical Data","","The stored history behind the private research.",0],["earnings-forecast","Earnings Forecast","Quarterly full-year valuation company history revenue EPS industry model","Quarterly forecasts for the top 20 covered companies, company history, full-year valuation and linked industry evidence.",0],["forced-liquidation","Forced Liquidation Tracker","Pledged shares collateral leverage margin","SEC stock pledges, loan terms and estimated price thresholds, with missing terms kept visible.",0],["picks","Top picks","","The model’s highest-conviction option contracts for today.",0],["leaps","LEAPS","","Names scored for a one- to two-year options hold.",0],["stocks","Stock picks","","Quality companies on a dip, as shares rather than options.",0],["rotation","Sector rotation","","Strong names sold with their sector that are now turning back up.",0],["levetf","Leveraged ETFs","","Leveraged ETF setups from the same engine.",0],["open-picks","Open picks","","Every open trade, with lines ready to copy to a broker.",0],["track","Top Picks track record","","How every closed pick worked out.",0],["quant","Owner Lab","","Research tools and diagnostics.",0]]]];
   var RECENT_KEY = 'stonks-recent-v1';
   function wfReadRecent(){
     try {
@@ -855,6 +855,498 @@ function validNewsFeedPayload(data) {
     classify: classify
   };
 })();
+  // One overnight risk-on/off scorer (source: lib/overnight-tone.mjs), the same
+  // one the bake uses for the saved pre-open call and the Top Picks tape axis.
+  var OVERNIGHT = (function overnightToneFactory() {
+  var VERSION = '2026-10-overnight-v2';
+  // A bucket votes ±1 once its weighted z passes VOTE_Z. STRONG_Z marks a
+  // strong vote (shown, and lets a 2-bucket agreement reach ±2 on the axis).
+  var VOTE_Z = 0.5, STRONG_Z = 1.5;
+  // Rates only vote on a shock: a yield spike is risk-off, and falling yields
+  // count as risk-on only when equities are not falling (otherwise it is a
+  // flight to safety, which is not a risk-on signal).
+  var RATES_SHOCK_Z = 1.0;
+  // Label cut-offs on the summed bucket votes (-5..+5).
+  var RISK_CUT = 3, LEAN_CUT = 1;
+  var MIN_BUCKETS = 3;
+  // Gap call: futures average move since the prior close below this is "flat".
+  var GAP_FLAT_PCT = 0.15;
+  // The session call stays "no edge" until the graded log reaches this size
+  // and hit rate.
+  var SESSION_MIN_N = 60, SESSION_MIN_HIT = 0.55, SESSION_BASE_MARGIN = 0.03;
+  // VIX / VIX3M above this is an inverted (stressed) volatility curve.
+  var VIX_TERM_INVERTED = 1.0;
+
+  var ASIA_BROAD = ['^N225', '^KS11', '^TWII', '^HSI', '^AXJO', '000300.SS'];
+  var CHIP_TAPE = ['000660.KS', '005930.KS', '2330.TW', '8035.T', '6857.T', '9984.T'];
+  var EUROPE = ['^STOXX50E', '^GDAXI'];
+  var FUTURES = ['ES=F', 'NQ=F', 'RTY=F'];
+
+  // Bucket specs. sign -1 means "this market up = risk-off". weight is the
+  // part's share of the bucket when every part is present (renormalized over
+  // the parts that are present and fresh).
+  var BUCKETS = [
+    { key: 'equities', label: 'Equities', parts: [
+      { key: 'futures', label: 'US futures', syms: FUTURES, sign: 1, weight: 0.5 },
+      { key: 'asia', label: 'Asia (net of prior US day)', syms: ASIA_BROAD, sign: 1, weight: 0.3, residual: true },
+      { key: 'europe', label: 'Europe so far', syms: EUROPE, sign: 1, weight: 0.2 }
+    ] },
+    { key: 'volatility', label: 'Volatility', parts: [
+      { key: 'vix', label: 'VIX', syms: ['^VIX'], sign: -1, weight: 1 }
+    ] },
+    { key: 'rates', label: 'Rates', parts: [
+      { key: 'tnote', label: '10Y T-note futures', syms: ['ZN=F'], sign: 1, weight: 1 }
+    ] },
+    { key: 'fx', label: 'FX / carry', parts: [
+      { key: 'audjpy', label: 'AUD/JPY', syms: ['AUDJPY=X'], sign: 1, weight: 0.5 },
+      { key: 'cnh', label: 'USD/CNH', syms: ['CNH=X'], sign: -1, weight: 0.2 },
+      { key: 'krw', label: 'USD/KRW', syms: ['KRW=X'], sign: -1, weight: 0.15 },
+      { key: 'dxy', label: 'Dollar index', syms: ['DX-Y.NYB'], sign: -1, weight: 0.15 }
+    ] },
+    { key: 'growth', label: 'Growth / credit', parts: [
+      { key: 'copper', label: 'Copper', syms: ['HG=F'], sign: 1, weight: 0.4 },
+      { key: 'credit', label: 'High-yield credit (HYG pre-market)', syms: ['HYG'], sign: 1, weight: 0.2 },
+      { key: 'crypto', label: 'Bitcoin + Ether', syms: ['BTC-USD', 'ETH-USD'], sign: 1, weight: 0.4 }
+    ] }
+  ];
+  // Every overnight market and how its move is read (see lib/overnight-inputs.mjs):
+  // 24h = futures/FX/commodities/crypto, asia = Asian cash sessions, europe =
+  // European cash (pre-open only), usx = US cash series that print outside the
+  // bell only sometimes, level = context levels that never vote.
+  var SYMBOLS = {
+    'ES=F': { kind: '24h', name: 'S&P 500 futures' },
+    'NQ=F': { kind: '24h', name: 'Nasdaq 100 futures' },
+    'RTY=F': { kind: '24h', name: 'Russell 2000 futures' },
+    'ZN=F': { kind: '24h', name: '10Y T-note futures' },
+    'AUDJPY=X': { kind: '24h', name: 'AUD/JPY' },
+    'JPY=X': { kind: '24h', name: 'USD/JPY' },
+    'CNH=X': { kind: '24h', name: 'USD/CNH' },
+    'KRW=X': { kind: '24h', name: 'USD/KRW' },
+    'DX-Y.NYB': { kind: '24h', name: 'Dollar index' },
+    'HG=F': { kind: '24h', name: 'Copper' },
+    'CL=F': { kind: '24h', name: 'WTI crude' },
+    'GC=F': { kind: '24h', name: 'Gold' },
+    'BTC-USD': { kind: '24h', name: 'Bitcoin' },
+    'ETH-USD': { kind: '24h', name: 'Ether' },
+    '^N225': { kind: 'asia', name: 'Nikkei 225' },
+    '^KS11': { kind: 'asia', name: 'KOSPI' },
+    '^TWII': { kind: 'asia', name: 'TAIEX' },
+    '^HSI': { kind: 'asia', name: 'Hang Seng' },
+    '^AXJO': { kind: 'asia', name: 'ASX 200' },
+    '000300.SS': { kind: 'asia', name: 'CSI 300' },
+    '000660.KS': { kind: 'asia', name: 'SK Hynix' },
+    '005930.KS': { kind: 'asia', name: 'Samsung Electronics' },
+    '2330.TW': { kind: 'asia', name: 'TSMC' },
+    '8035.T': { kind: 'asia', name: 'Tokyo Electron' },
+    '6857.T': { kind: 'asia', name: 'Advantest' },
+    '9984.T': { kind: 'asia', name: 'SoftBank Group' },
+    '^STOXX50E': { kind: 'europe', name: 'Euro Stoxx 50' },
+    '^GDAXI': { kind: 'europe', name: 'DAX' },
+    '^VIX': { kind: 'usx', name: 'VIX' },
+    'HYG': { kind: 'usx', name: 'High-yield bonds (HYG)' },
+    'SPY': { kind: 'usx', name: 'SPY' },
+    'QQQ': { kind: 'usx', name: 'QQQ' },
+    'IWM': { kind: 'usx', name: 'IWM' },
+    'SMH': { kind: 'usx', name: 'SMH' },
+    '^TNX': { kind: 'usx', name: 'US 10Y yield (cash)' },
+    '^VIX3M': { kind: 'level', name: 'VIX 3-month' },
+    '^VVIX': { kind: 'level', name: 'VVIX' },
+    '^SKEW': { kind: 'level', name: 'SKEW' },
+    '^MOVE': { kind: 'level', name: 'MOVE (bond vol)' }
+  };
+  // Shown as context only; never vote.
+  var CONTEXT = ['JPY=X', '^VIX3M', '^VVIX', '^SKEW', '^MOVE', 'CL=F', 'GC=F', '^TNX'];
+
+  function num(v) {
+    if (v == null || v === '' || typeof v === 'boolean') return null;
+    var n = Number(v);
+    return isFinite(n) ? n : null;
+  }
+  function round(v, d) {
+    if (v == null) return null;
+    var p = Math.pow(10, d == null ? 2 : d);
+    return Math.round(v * p) / p;
+  }
+  function signed(v, d, unit) {
+    if (v == null) return 'n/a';
+    return (v > 0 ? '+' : '') + v.toFixed(d) + (unit || '');
+  }
+  function zOf(input) {
+    if (!input) return null;
+    var move = num(input.movePct), sigma = num(input.sigmaPct);
+    if (move == null || sigma == null || !(sigma > 0)) return null;
+    return move / sigma;
+  }
+
+  // One part's z: the average z of its fresh markets (residual for Asia).
+  function partZ(part, inputs, ctx, excluded) {
+    var zs = [], moves = [], used = [];
+    for (var i = 0; i < part.syms.length; i++) {
+      var sym = part.syms[i];
+      var inp = inputs[sym];
+      if (!inp) continue;
+      if (inp.fresh === false) {
+        excluded.push({ sym: sym, name: inp.name || sym, why: inp.staleWhy || 'no move since the prior US close' });
+        continue;
+      }
+      var move = num(inp.movePct);
+      if (move == null) continue;
+      if (part.residual && ctx && ctx.asiaEcho && num(ctx.asiaEcho.beta) != null && num(ctx.priorUsPct) != null) {
+        move = move - Number(ctx.asiaEcho.beta) * Number(ctx.priorUsPct);
+        var rs = num(ctx.asiaEcho.residSigmaPct);
+        var z = rs != null && rs > 0 ? move / rs : zOf({ movePct: move, sigmaPct: inp.sigmaPct });
+        if (z == null) continue;
+        zs.push(z);
+      } else {
+        var z2 = zOf(inp);
+        if (z2 == null) continue;
+        zs.push(z2);
+      }
+      moves.push(move);
+      used.push(sym);
+    }
+    if (!zs.length) return null;
+    var zAvg = 0, mAvg = 0;
+    for (var j = 0; j < zs.length; j++) { zAvg += zs[j]; mAvg += moves[j]; }
+    zAvg = zAvg / zs.length; mAvg = mAvg / moves.length;
+    return { z: zAvg * part.sign, movePct: mAvg, used: used };
+  }
+
+  function bucketVote(z) {
+    if (z == null) return 0;
+    if (z >= VOTE_Z) return 1;
+    if (z <= -VOTE_Z) return -1;
+    return 0;
+  }
+
+  // inputs: { [sym]: { movePct, sigmaPct, fresh, staleWhy, name, level } }
+  // ctx: { asiaEcho: { beta, residSigmaPct }, priorUsPct, events: [] }
+  function scoreTone(inputs, ctx) {
+    inputs = inputs || {};
+    ctx = ctx || {};
+    var excluded = [];
+    var buckets = [];
+    var equitiesZ = null;
+    for (var b = 0; b < BUCKETS.length; b++) {
+      var spec = BUCKETS[b];
+      var parts = [], wSum = 0, zSum = 0;
+      for (var p = 0; p < spec.parts.length; p++) {
+        var part = spec.parts[p];
+        var r = partZ(part, inputs, ctx, excluded);
+        if (!r) continue;
+        parts.push({ key: part.key, label: part.label, z: round(r.z, 2), movePct: round(r.movePct, 2), used: r.used });
+        wSum += part.weight;
+        zSum += part.weight * r.z;
+      }
+      var z = wSum > 0 ? zSum / wSum : null;
+      // Volatility curve: an inverted VIX / VIX3M adds stress even when the
+      // overnight VIX change is small (or stale).
+      if (spec.key === 'volatility') {
+        var vix = inputs['^VIX'], vix3m = inputs['^VIX3M'];
+        var ratio = vix && vix3m && num(vix.level) != null && num(vix3m.level) > 0 ? Number(vix.level) / Number(vix3m.level) : null;
+        if (ratio != null) {
+          parts.push({ key: 'term', label: 'VIX / VIX3M ' + ratio.toFixed(2), z: ratio >= VIX_TERM_INVERTED ? -1 : 0, ratio: round(ratio, 3) });
+          // A calm curve with no fresh VIX print is not evidence either way,
+          // so the group stays absent rather than counting toward MIN_BUCKETS.
+          if (ratio >= VIX_TERM_INVERTED) z = (z == null ? 0 : Math.min(z, 0)) - 1;
+        }
+      }
+      var vote = bucketVote(z);
+      if (spec.key === 'equities') equitiesZ = z;
+      if (spec.key === 'rates' && z != null) {
+        // Shock-only rule (see RATES_SHOCK_Z).
+        if (Math.abs(z) < RATES_SHOCK_Z) vote = 0;
+        else if (z > 0 && equitiesZ != null && equitiesZ < 0) vote = 0;
+      }
+      buckets.push({
+        key: spec.key,
+        label: spec.label,
+        present: z != null,
+        z: round(z, 2),
+        vote: z == null ? 0 : vote,
+        strong: z != null && Math.abs(z) >= STRONG_Z && vote !== 0,
+        parts: parts
+      });
+    }
+    var present = 0, score = 0;
+    for (var k = 0; k < buckets.length; k++) {
+      if (!buckets[k].present) continue;
+      present++;
+      score += buckets[k].vote;
+    }
+    var label;
+    if (present < MIN_BUCKETS) label = 'insufficient';
+    else if (score >= RISK_CUT) label = 'risk-on';
+    else if (score <= -RISK_CUT) label = 'risk-off';
+    else if (score >= LEAN_CUT) label = 'leaning risk-on';
+    else if (score <= -LEAN_CUT) label = 'leaning risk-off';
+    else label = 'mixed';
+    var reasons = [];
+    for (var m = 0; m < buckets.length; m++) {
+      var bk = buckets[m];
+      if (!bk.present || bk.vote === 0) continue;
+      var lead = bk.parts.length ? bk.parts.slice().sort(function(a, c){ return Math.abs(c.z) - Math.abs(a.z); })[0] : null;
+      reasons.push(bk.label + ' ' + (bk.vote > 0 ? 'risk-on' : 'risk-off') + (lead ? ' (' + lead.label + (lead.movePct != null ? ' ' + signed(lead.movePct, 2, '%') : '') + ', z ' + signed(lead.z, 1) + ')' : ''));
+    }
+    // Chip tape is context (6 of the old 10 "Asia" names were chip stocks).
+    var chip = [];
+    for (var c = 0; c < CHIP_TAPE.length; c++) {
+      var ci = inputs[CHIP_TAPE[c]];
+      if (ci && ci.fresh !== false && num(ci.movePct) != null) chip.push(Number(ci.movePct));
+    }
+    var chipAvg = chip.length ? chip.reduce(function(s, v){ return s + v; }, 0) / chip.length : null;
+    return {
+      version: VERSION,
+      label: label,
+      score: score,
+      present: present,
+      buckets: buckets,
+      reasons: reasons,
+      excluded: dedupeExcluded(excluded),
+      chipTape: chipAvg == null ? null : { movePct: round(chipAvg, 2), n: chip.length },
+      gap: gapCall(inputs)
+    };
+  }
+
+  function dedupeExcluded(list) {
+    var seen = {}, out = [];
+    for (var i = 0; i < list.length; i++) {
+      if (seen[list[i].sym]) continue;
+      seen[list[i].sym] = true;
+      out.push(list[i]);
+    }
+    return out;
+  }
+
+  // Direction of the open versus the prior close, from the futures move since
+  // that close. This is what an overnight tape can predict.
+  function gapCall(inputs) {
+    var vals = [];
+    for (var i = 0; i < FUTURES.length; i++) {
+      var inp = inputs[FUTURES[i]];
+      if (inp && inp.fresh !== false && num(inp.movePct) != null) vals.push(Number(inp.movePct));
+    }
+    if (!vals.length) return { call: 'none', movePct: null };
+    var avg = vals.reduce(function(s, v){ return s + v; }, 0) / vals.length;
+    var call = avg >= GAP_FLAT_PCT ? 'up' : avg <= -GAP_FLAT_PCT ? 'down' : 'flat';
+    return { call: call, movePct: round(avg, 2) };
+  }
+
+  function toneDirection(label) {
+    if (label === 'risk-on' || label === 'leaning risk-on') return 1;
+    if (label === 'risk-off' || label === 'leaning risk-off') return -1;
+    return 0;
+  }
+
+  // Session (open-to-close) call: "no edge" until the saved log shows one.
+  function sessionCall(tone, stats) {
+    var dir = tone ? toneDirection(tone.label) : 0;
+    var s = stats && stats.toneSession ? stats.toneSession : null;
+    // Proven means enough graded days, a hit rate of at least SESSION_MIN_HIT,
+    // and a clear margin (SESSION_BASE_MARGIN) over simply guessing the more
+    // common session direction on those days.
+    var base = stats && stats.base && stats.base.sessionUp != null ? Math.max(stats.base.sessionUp, 1 - stats.base.sessionUp) : 0.5;
+    var proven = !!(s && s.n >= SESSION_MIN_N && s.hitRate != null && s.hitRate >= SESSION_MIN_HIT && s.hitRate >= base + SESSION_BASE_MARGIN);
+    if (!proven || dir === 0) {
+      return {
+        call: 'no-edge',
+        proven: proven,
+        note: proven
+          ? 'The tape is mixed, so there is no session lean today.'
+          : 'No proven edge for the open-to-close session yet (' + (s ? s.n : 0) + ' graded days, ' + SESSION_MIN_N + ' needed; hit rate ' + (s && s.hitRate != null ? Math.round(s.hitRate * 100) + '%' : 'n/a') + ' vs ' + Math.round(Math.max(SESSION_MIN_HIT, base + SESSION_BASE_MARGIN) * 100) + '% needed).'
+      };
+    }
+    return { call: dir > 0 ? 'up' : 'down', proven: true, note: 'Session lean from ' + s.n + ' graded days at a ' + Math.round(s.hitRate * 100) + '% hit rate.' };
+  }
+
+  // Top Picks market-tape axis (-2..+2) from a tone.
+  function tapeAxis(tone, opts) {
+    opts = opts || {};
+    if (!tone || tone.label === 'insufficient') {
+      return { score: 0, label: (opts.prefix || 'Global tape') + ' — not enough fresh overnight inputs', driver: null, components: tone ? tapeComponents(tone) : [] };
+    }
+    var s = tone.score, strong = false;
+    for (var i = 0; i < tone.buckets.length; i++) if (tone.buckets[i].strong) strong = true;
+    var score = 0;
+    if (s >= RISK_CUT || (strong && s >= 2)) score = 2;
+    else if (s >= LEAN_CUT) score = 1;
+    else if (s <= -RISK_CUT || (strong && s <= -2)) score = -2;
+    else if (s <= -LEAN_CUT) score = -1;
+    var word = score > 0 ? 'risk-on' : score < 0 ? 'risk-off' : 'mixed';
+    var lit = [];
+    for (var j = 0; j < tone.buckets.length; j++) {
+      var b = tone.buckets[j];
+      if (b.present && b.vote !== 0 && (score === 0 || (b.vote > 0) === (score > 0))) lit.push(b.label);
+    }
+    var label = (opts.prefix || 'Global tape') + ' ' + word + (score !== 0 && lit.length ? ' — ' + lit.slice(0, 3).join(', ') : ' (' + tone.present + ' of 5 groups)');
+    return { score: score, label: label, driver: score <= -1 ? 'global tape ' + word : null, components: tapeComponents(tone) };
+  }
+  function tapeComponents(tone) {
+    var out = [];
+    for (var i = 0; i < tone.buckets.length; i++) {
+      var b = tone.buckets[i];
+      if (!b.present) continue;
+      out.push({ key: b.key, label: b.label + ' z ' + signed(b.z, 1), vote: b.vote });
+    }
+    return out;
+  }
+
+  // ---- Grading --------------------------------------------------------------
+  // bars: [{ t:'YYYY-MM-DD', o, c }] daily for SPY (or QQQ). The entry's date is
+  // the US session it called.
+  function outcomeFor(date, bars) {
+    if (!date || !bars || !bars.length) return null;
+    var idx = -1;
+    for (var i = 0; i < bars.length; i++) if (bars[i] && bars[i].t === date) { idx = i; break; }
+    if (idx < 1) return null;
+    var prev = bars[idx - 1], cur = bars[idx];
+    var pc = num(prev.c), o = num(cur.o), c = num(cur.c);
+    if (!(pc > 0) || !(o > 0) || !(c > 0)) return null;
+    return {
+      gapPct: round((o / pc - 1) * 100, 3),
+      sessionPct: round((c / o - 1) * 100, 3),
+      ccPct: round((c / pc - 1) * 100, 3)
+    };
+  }
+  function sgn(v) { return v > 0 ? 1 : v < 0 ? -1 : 0; }
+  function gradeEntry(entry, spyBars, qqqBars) {
+    if (!entry || !entry.tone) return entry;
+    var spy = outcomeFor(entry.date, spyBars);
+    if (!spy) return entry;
+    var qqq = outcomeFor(entry.date, qqqBars);
+    var dir = toneDirection(entry.tone.label);
+    var gap = entry.tone.gap && entry.tone.gap.call;
+    var gapDir = gap === 'up' ? 1 : gap === 'down' ? -1 : 0;
+    var graded = {
+      spy: spy,
+      qqq: qqq,
+      gapCallHit: gapDir === 0 ? null : sgn(spy.gapPct) === gapDir,
+      toneGapHit: dir === 0 ? null : sgn(spy.gapPct) === dir,
+      toneSessionHit: dir === 0 ? null : sgn(spy.sessionPct) === dir,
+      toneCcHit: dir === 0 ? null : sgn(spy.ccPct) === dir
+    };
+    var out = {};
+    for (var k in entry) if (Object.prototype.hasOwnProperty.call(entry, k)) out[k] = entry[k];
+    out.outcome = graded;
+    return out;
+  }
+  function rate(entries, field, filter) {
+    var n = 0, hit = 0;
+    for (var i = 0; i < entries.length; i++) {
+      var e = entries[i];
+      if (!e || !e.outcome || (filter && !filter(e))) continue;
+      var v = e.outcome[field];
+      if (v == null) continue;
+      n++;
+      if (v) hit++;
+    }
+    return { n: n, hits: hit, hitRate: n ? round(hit / n, 3) : null };
+  }
+  function baseRates(entries) {
+    var n = 0, gapUp = 0, sessUp = 0;
+    for (var i = 0; i < entries.length; i++) {
+      var o = entries[i] && entries[i].outcome && entries[i].outcome.spy;
+      if (!o) continue;
+      n++;
+      if (o.gapPct > 0) gapUp++;
+      if (o.sessionPct > 0) sessUp++;
+    }
+    return { n: n, gapUp: n ? round(gapUp / n, 3) : null, sessionUp: n ? round(sessUp / n, 3) : null };
+  }
+  function summarize(entries, opts) {
+    entries = entries || [];
+    opts = opts || {};
+    var live = function(e){ return !e.reconstructed; };
+    var strong = function(e){ return e.tone && (e.tone.label === 'risk-on' || e.tone.label === 'risk-off'); };
+    var out = {
+      gapCall: rate(entries, 'gapCallHit'),
+      toneGap: rate(entries, 'toneGapHit'),
+      toneSession: rate(entries, 'toneSessionHit'),
+      toneCc: rate(entries, 'toneCcHit'),
+      strongToneSession: rate(entries, 'toneSessionHit', strong),
+      liveOnly: {
+        gapCall: rate(entries, 'gapCallHit', live),
+        toneSession: rate(entries, 'toneSessionHit', live)
+      },
+      buckets: {},
+      // Base rates: a hit rate means little next to how often SPY simply
+      // opened up / closed above its open over the same graded days.
+      base: baseRates(entries)
+    };
+    // Per-bucket session and gap hit rates (for re-fitting thresholds).
+    for (var b = 0; b < BUCKETS.length; b++) {
+      var key = BUCKETS[b].key;
+      var g = { n: 0, hits: 0 }, s = { n: 0, hits: 0 };
+      for (var i = 0; i < entries.length; i++) {
+        var e = entries[i];
+        if (!e || !e.outcome || !e.outcome.spy || !e.tone || !e.tone.buckets) continue;
+        var bk = null;
+        for (var j = 0; j < e.tone.buckets.length; j++) if (e.tone.buckets[j].key === key) bk = e.tone.buckets[j];
+        if (!bk || !bk.present || !bk.vote) continue;
+        g.n++; if (sgn(e.outcome.spy.gapPct) === bk.vote) g.hits++;
+        s.n++; if (sgn(e.outcome.spy.sessionPct) === bk.vote) s.hits++;
+      }
+      out.buckets[key] = {
+        gap: { n: g.n, hitRate: g.n ? round(g.hits / g.n, 3) : null },
+        session: { n: s.n, hitRate: s.n ? round(s.hits / s.n, 3) : null }
+      };
+    }
+    return out;
+  }
+
+  // Scorer inputs from a market snapshot (correlations.json markets, optionally
+  // overlaid with live quotes). Each market's move is its own last change, so
+  // this is the in-between read used only BEFORE the open, when no saved
+  // pre-open call exists yet. Freshness rules match the saved call:
+  //   asia   counts only a session dated after the prior US session
+  //   usx    counts only a quote stamped after the prior US close
+  //   europe counts only before the US open
+  // markets[sym]: { chPct, sigma1d, asOf, quoteTimeIso, last }
+  // opts: { priorUsDate, priorUsCloseMs, preOpen }
+  function inputsFromSnapshot(markets, opts) {
+    markets = markets || {};
+    opts = opts || {};
+    var out = {};
+    for (var sym in SYMBOLS) {
+      if (!Object.prototype.hasOwnProperty.call(SYMBOLS, sym)) continue;
+      var m = markets[sym];
+      if (!m) continue;
+      var meta = SYMBOLS[sym];
+      var move = num(m.chPct);
+      var row = { name: meta.name, kind: meta.kind, movePct: move, sigmaPct: num(m.sigma1d), level: num(m.last), fresh: move != null };
+      if (meta.kind === 'asia') {
+        if (opts.priorUsDate && m.asOf && String(m.asOf) <= String(opts.priorUsDate)) { row.fresh = false; row.staleWhy = 'closed since ' + m.asOf + ' (holiday or no session yet)'; }
+      } else if (meta.kind === 'usx') {
+        var qt = Date.parse(m.quoteTimeIso || '');
+        if (!(opts.priorUsCloseMs && isFinite(qt) && qt > opts.priorUsCloseMs)) { row.fresh = false; row.staleWhy = 'no print since the prior US close'; }
+      } else if (meta.kind === 'europe') {
+        if (!opts.preOpen) { row.fresh = false; row.staleWhy = 'Europe trades with the US morning; counted only before the open'; }
+      } else if (meta.kind === 'level') {
+        row.fresh = false; row.staleWhy = 'context level';
+      }
+      out[sym] = row;
+    }
+    return out;
+  }
+
+  return {
+    VERSION: VERSION,
+    VOTE_Z: VOTE_Z, STRONG_Z: STRONG_Z, RATES_SHOCK_Z: RATES_SHOCK_Z,
+    RISK_CUT: RISK_CUT, LEAN_CUT: LEAN_CUT, MIN_BUCKETS: MIN_BUCKETS,
+    GAP_FLAT_PCT: GAP_FLAT_PCT, SESSION_MIN_N: SESSION_MIN_N, SESSION_MIN_HIT: SESSION_MIN_HIT, SESSION_BASE_MARGIN: SESSION_BASE_MARGIN,
+    VIX_TERM_INVERTED: VIX_TERM_INVERTED,
+    SYMBOLS: SYMBOLS, BUCKETS: BUCKETS, ASIA_BROAD: ASIA_BROAD, CHIP_TAPE: CHIP_TAPE, EUROPE: EUROPE, FUTURES: FUTURES, CONTEXT: CONTEXT,
+    scoreTone: scoreTone,
+    inputsFromSnapshot: inputsFromSnapshot,
+    gapCall: gapCall,
+    sessionCall: sessionCall,
+    tapeAxis: tapeAxis,
+    toneDirection: toneDirection,
+    outcomeFor: outcomeFor,
+    gradeEntry: gradeEntry,
+    summarize: summarize
+  };
+})();
   // One broad sector grouping (source: lib/sector-groups.mjs), the same one the
   // sector cap, the heatmap blocks and the sector breadth streaks use. Fine
   // SECTORS labels stay for search and card subtitles; anything that GROUPS
@@ -1525,6 +2017,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
     HAS_TOP_PICKS = HAS_OWNER_ACCESS;
     HAS_QUANT_LAB = HAS_OWNER_ACCESS;
     if (document.body) document.body.classList.toggle('is-owner', HAS_OWNER_ACCESS);
+    // The Export menu is for the signed-in owners only.
+    var exportBtn = document.getElementById('export-toggle');
+    if (exportBtn) exportBtn.hidden = !HAS_OWNER_ACCESS || IS_EMBED;
   }
   // Private-data deploys read through a data mode on the exact /api/auth/me
   // function that established membership for this page. Production has
@@ -5725,6 +6220,792 @@ function scenarioEventPhase(ev, now = Date.now()) {
       splitOpen(linked || splitState.a, splitState.b);
     }
 
+
+    var exportToggle = document.getElementById('export-toggle');
+    var exportPanel = null, exportParts = [], exportChoice = 0, exportBusy = false, exportTab = 'home';
+    var exportShot = null; // last picture made: { key, blob }
+    // Learn & help pages are guides and legal text, not data.
+    var EXPORT_SKIP_SECTIONS = { learn: 1 };
+    var EXPORT_SOURCES = {"home":["heatmap.json"],"brief":["briefs.json"],"news":["news-feed.json"],"heatmap":["heatmap.json"],"calendar":["calendar.json"],"overnight":["correlations.json"],"tickers":["heatmap.json","grades.json"],"compare":["grades.json"],"earnings":["earnings-tracker.json"],"calls":["earnings-calls.json"],"f13":["13f.json"],"pending-buyouts":["pending-buyouts.json"],"bonds-usd":["macro-history.json"],"commodities":["commodities.json"],"central-bank-gold":["central-bank-gold.json"],"capital-raises":["capital-raises.json","ipo-credit.json"],"flow":["unusual.json"],"volume":["volume-flags.json"],"oi":["oi-tracker.json"],"iv-trend":["iv-trending.json"],"ma-tracker":["ma-tracker.json"],"streaks":["streaks.json"],"pattern-lab":["pattern-recognition.json"],"spillover":["spillover-pairs.json"],"index-cal":["index-calendar.json"],"ai-capex":["ai-capex.json"],"ram-prices":["ram-prices.json"],"accelerator-prices":["accelerator-prices.json"],"search-interest":["search-interest.json"],"unified-signal-engine":["market-analysis.json","sector-rotation.json"],"market":["regime-history.json","correlations.json"],"risk":["market-analysis.json"],"bottom-tracker":["bottom-tracker.json"],"picks":["picks.json","picks-open.json"],"leaps":["leaps-picks.json"],"stocks":["stock-picks.json"],"rotation":["sector-rotation.json"],"levetf":["leveraged-etfs.json"],"open-picks":["picks-open.json","picks-accuracy.json"],"track":["picks-accuracy.json","picks-changes.json","picks-roster.json","grades-history.json"],"quant":["quant.json"]};
+    function exportOwner(){ return HAS_OWNER_ACCESS && !IS_EMBED; }
+    function exportTabNow(){
+      var a = document.querySelector('[data-page-tab][aria-controls][aria-selected="true"]');
+      return a ? a.getAttribute('data-page-tab') : 'home';
+    }
+    function exportPaneOf(tab){
+      var a = document.querySelector('[data-page-tab="' + tab + '"][aria-controls]');
+      return a ? document.getElementById(a.getAttribute('aria-controls')) : null;
+    }
+    function exportPageLabel(tab){ var it = wfItem(tab); return it ? it[1] : tab; }
+    function exportShown(el){ return !!(el && el.getClientRects().length && !el.closest('[hidden]')); }
+    function exportClean(s){ return String(s == null ? '' : s).replace(/\s+/g, ' ').trim(); }
+    function exportSlug(s){ return exportClean(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'export'; }
+    function exportStamp(){
+      var d = new Date();
+      function p(n){ return (n < 10 ? '0' : '') + n; }
+      return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + '-' + p(d.getHours()) + p(d.getMinutes());
+    }
+    function exportWhen(){
+      try { return new Date().toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) + ' ET'; }
+      catch (_) { return new Date().toISOString().slice(0, 16).replace('T', ' ') + ' UTC'; }
+    }
+    function exportHeading(el){
+      var h = el.querySelector('h1, h2, h3, .card-title, .picks-group-title');
+      return h ? exportClean(h.textContent).slice(0, 60) : '';
+    }
+    // A table's name: its caption or label, else the nearest heading above it
+    // inside the same card.
+    function exportTableName(t, i){
+      var cap = t.querySelector('caption');
+      if (cap && exportClean(cap.textContent)) return exportClean(cap.textContent).slice(0, 60);
+      if (t.getAttribute('aria-label')) return exportClean(t.getAttribute('aria-label')).slice(0, 60);
+      var node = t;
+      for (var hops = 0; node && hops < 40; hops++){
+        var prev = node.previousElementSibling;
+        while (prev){
+          if (/^H[1-6]$/.test(prev.tagName) || (prev.classList && prev.classList.contains('card-title'))) return exportClean(prev.textContent).slice(0, 60);
+          var inner = prev.querySelectorAll ? prev.querySelectorAll('h2, h3, h4, .card-title') : [];
+          if (inner.length) return exportClean(inner[inner.length - 1].textContent).slice(0, 60);
+          prev = prev.previousElementSibling;
+        }
+        node = node.parentElement;
+        if (!node || node.classList.contains('page-pane')) break;
+      }
+      return 'Table ' + (i + 1);
+    }
+    // Picks: the card grid (all, or one group), and an opened pick with
+    // whichever of its Recommendation / Grade views is showing.
+    function exportPicksParts(pane, out){
+      var data = (typeof picksState !== 'undefined' && picksState.data) ? picksState.data : null;
+      var all = data && Array.isArray(data.picks) ? data.picks : [];
+      var detail = document.getElementById('picks-detail-card');
+      if (exportShown(detail)){
+        var card = detail.querySelector('.pick-card');
+        var sym = card ? card.getAttribute('data-symbol') : '';
+        var tab = detail.querySelector('.pick-tab.is-active');
+        var pick = all.filter(function(p){ return p.symbol === sym; })[0] || null;
+        out.push({ label: (sym || 'This pick') + (tab ? ' · ' + exportClean(tab.textContent) + ' view' : ''), el: detail, slug: 'pick-' + sym,
+          rows: function(){ return picksExportRows().filter(function(r){ return r.ticker === sym; }); },
+          raw: function(){ return pick || (typeof picksGradesState !== 'undefined' && picksGradesState.data && picksGradesState.data.grades ? picksGradesState.data.grades[sym] || null : null); } });
+      }
+      var grid = document.getElementById('picks-grid');
+      if (!exportShown(grid)) return;
+      out.push({ label: 'All pick cards', el: grid, slug: 'cards', rows: picksExportRows, raw: function(){ return all; } });
+      var heads = grid.querySelectorAll(':scope > .picks-group-head');
+      var groups = [];
+      for (var i = 0; i < heads.length; i++){
+        var cards = [], n = heads[i].nextElementSibling;
+        while (n && !n.classList.contains('picks-group-head')){ if (n.matches('[data-symbol], .pick-tab-card, .pick-card')) cards.push(n); n = n.nextElementSibling; }
+        if (!cards.length) continue;
+        var syms = cards.map(function(c){ return c.getAttribute('data-symbol') || (c.querySelector('.ptc-sym') || {}).textContent || ''; });
+        var keep = [heads[i]].concat(cards);
+        var title = exportClean((heads[i].querySelector('.picks-group-title') || heads[i]).textContent);
+        groups.push({ label: title + ' only (' + cards.length + ')', el: grid, keep: keep, slug: exportSlug(title),
+          rows: (function(s){ return function(){ return picksExportRows().filter(function(r){ return s.indexOf(r.ticker) !== -1; }); }; })(syms),
+          raw: (function(s){ return function(){ return all.filter(function(p){ return s.indexOf(p.symbol) !== -1; }); }; })(syms) });
+      }
+      // One group alone is just "All pick cards" again.
+      if (groups.length > 1) groups.forEach(function(g){ out.push(g); });
+    }
+    var EXPORT_TAB_PARTS = {
+      picks: exportPicksParts,
+      track: function(pane, out){
+        var on = pane.querySelector('.acc-tab[aria-selected="true"], .acc-tab.is-active');
+        var acc = Array.prototype.filter.call(pane.querySelectorAll('.acc-pane'), exportShown)[0];
+        if (acc) out.push({ label: 'Track record · ' + (on ? exportClean(on.textContent) : 'this view'), el: acc, slug: 'track-' + exportSlug(on ? on.textContent : 'view') });
+      },
+      // The whole page's data is the rows under the current filters.
+      flow: function(pane, out){ out[0].rows = flowExportRows; },
+      calendar: function(pane, out){ out[0].rows = calendarExportRows; }
+    };
+    function exportFindParts(tab){
+      var pane = exportPaneOf(tab);
+      if (!pane || !exportShown(pane)) return [];
+      var out = [];
+      var page = exportPageLabel(tab);
+      out.push({ label: 'Whole page', el: pane, page: true, slug: 'page' });
+      try { if (EXPORT_TAB_PARTS[tab]) EXPORT_TAB_PARTS[tab](pane, out); } catch (_) {}
+      var seen = out.map(function(p){ return p.keep ? null : p.el; });
+      var paneH = pane.getBoundingClientRect().height || 1;
+      // Each top-level card with a heading, unless it is the whole page anyway.
+      var cards = pane.querySelectorAll('.card, section[aria-labelledby]');
+      for (var i = 0; i < cards.length && out.length < 14; i++){
+        var c = cards[i];
+        if (!exportShown(c) || seen.indexOf(c) !== -1) continue;
+        if (c.parentElement && c.parentElement.closest('.card') && c.parentElement.closest('.card') !== pane) continue;
+        var h = exportHeading(c);
+        if (!h || c.getBoundingClientRect().height > paneH * 0.85) continue;
+        seen.push(c);
+        out.push({ label: h, el: c, slug: exportSlug(h) });
+      }
+      // Sections someone opened (an expanded grade, a "show more" panel).
+      var opened = pane.querySelectorAll('[aria-expanded="true"][aria-controls]');
+      for (var j = 0; j < opened.length && out.length < 14; j++){
+        var target = document.getElementById(opened[j].getAttribute('aria-controls'));
+        if (!target || !pane.contains(target) || !exportShown(target) || seen.indexOf(target) !== -1) continue;
+        var th = target.getBoundingClientRect().height;
+        if (th < 60) continue;
+        if (seen.some(function(x){ return x && x !== pane && x.contains(target) && th > x.getBoundingClientRect().height * 0.7; })) continue;
+        var name = exportClean(opened[j].textContent || opened[j].getAttribute('aria-label')).slice(0, 50) || 'Opened section';
+        seen.push(target);
+        out.push({ label: 'Opened: ' + name, el: target, slug: exportSlug(name) });
+      }
+      // Blocks inside the page that carry their own heading (a brief's
+      // "Biggest movers", a track-record panel), widest headings first.
+      ['h3', 'h4'].forEach(function(level){
+        var hs = Array.prototype.filter.call(pane.querySelectorAll(level), function(h){ return exportShown(h) && !h.closest('nav, .export-panel'); });
+        if (level === 'h4' && hs.length > 12) return;
+        hs.forEach(function(hd){
+          if (out.length >= 12) return;
+          var block = hd.parentElement;
+          if (block && /header|head$/i.test(block.className || '') && block.parentElement) block = block.parentElement;
+          if (!block || block === pane || seen.indexOf(block) !== -1) return;
+          var bh = block.getBoundingClientRect().height;
+          if (bh < 80 || bh > paneH * 0.85) return;
+          if (seen.some(function(x){ return x && x !== pane && x.contains(block) && bh > x.getBoundingClientRect().height * 0.7; })) return;
+          var name = exportClean(hd.textContent).slice(0, 60);
+          if (!name) return;
+          seen.push(block);
+          out.push({ label: name, el: block, slug: exportSlug(name) });
+        });
+      });
+      // Every visible table with at least two rows.
+      var tables = pane.querySelectorAll('table');
+      for (var k = 0; k < tables.length && out.length < 16; k++){
+        var t = tables[k];
+        if (!exportShown(t) || t.rows.length < 2 || seen.indexOf(t) !== -1) continue;
+        var tn = exportTableName(t, k);
+        seen.push(t);
+        out.push({ label: 'Table: ' + tn, el: t, slug: exportSlug(tn) });
+      }
+      out.forEach(function(p){ p.page_ = page; });
+      return out;
+    }
+
+    // ---- Data out of the page ------------------------------------------
+    function exportReadTable(t, name){
+      var rows = [];
+      for (var r = 0; r < t.rows.length; r++){
+        var tr = t.rows[r];
+        if (!exportShown(tr)) continue;
+        var cells = [];
+        for (var c = 0; c < tr.cells.length; c++){
+          var v = exportClean(tr.cells[c].innerText || tr.cells[c].textContent);
+          cells.push(v);
+          var span = Math.min(20, parseInt(tr.cells[c].getAttribute('colspan') || '1', 10) || 1);
+          for (var s = 1; s < span; s++) cells.push('');
+        }
+        if (cells.some(function(x){ return x !== ''; })) rows.push(cells);
+      }
+      if (rows.length < 2) return null;
+      var width = rows.reduce(function(m, r){ return Math.max(m, r.length); }, 0);
+      var head = rows[0].slice();
+      while (head.length < width) head.push('');
+      var used = {};
+      head = head.map(function(h, i){
+        var key = h || ('Column ' + (i + 1));
+        if (used[key]) key += ' (' + (++used[key]) + ')'; else used[key] = 1;
+        return key;
+      });
+      return { name: name, head: head, rows: rows.slice(1).map(function(r){ while (r.length < width) r.push(''); return r; }) };
+    }
+    // The part's data as one or more tables. A page with its own data
+    // (Top picks, Unusual options trades, Calendar) exports that; otherwise
+    // the tables showing inside the part.
+    function exportTables(part){
+      if (part.rows){
+        var list = [];
+        try { list = part.rows() || []; } catch (_) { list = []; }
+        if (list.length){
+          var head = Object.keys(list[0]);
+          return [{ name: part.label, head: head, rows: list.map(function(o){ return head.map(function(h){ return o[h] == null ? '' : o[h]; }); }) }];
+        }
+      }
+      var el = part.el, found = [];
+      var ts = el.tagName === 'TABLE' ? [el] : el.querySelectorAll('table');
+      for (var i = 0; i < ts.length; i++){
+        if (!exportShown(ts[i])) continue;
+        if (part.keep && !part.keep.some(function(k){ return k.contains(ts[i]); })) continue;
+        var t = exportReadTable(ts[i], exportTableName(ts[i], i));
+        if (t) found.push(t);
+      }
+      return found;
+    }
+    function exportCsvText(tables){
+      return tables.map(function(t){
+        var lines = [];
+        if (tables.length > 1) lines.push(csvEscape(t.name));
+        lines.push(t.head.map(csvEscape).join(','));
+        t.rows.forEach(function(r){ lines.push(r.map(csvEscape).join(',')); });
+        return lines.join('\r\n');
+      }).join('\r\n\r\n') + '\r\n';
+    }
+    function exportTsvText(tables){
+      function cell(v){ return String(v == null ? '' : v).replace(/[\t\r\n]+/g, ' '); }
+      return tables.map(function(t){
+        return [t.head.map(cell).join('\t')].concat(t.rows.map(function(r){ return r.map(cell).join('\t'); })).join('\n');
+      }).join('\n\n');
+    }
+    function exportJsonTables(tables){
+      return tables.map(function(t){
+        return { table: t.name, rows: t.rows.map(function(r){ var o = {}; t.head.forEach(function(h, i){ o[h] = r[i]; }); return o; }) };
+      });
+    }
+    // "1,234.5" -> 1234.5 for spreadsheets; anything with words stays text.
+    function exportNumber(v){
+      if (typeof v === 'number') return isFinite(v) ? v : null;
+      var s = String(v == null ? '' : v).trim();
+      if (!/^[-+\u2212]?\$?[0-9][0-9,]*(\.[0-9]+)?$/.test(s) && !/^[-+\u2212]?\$?\.[0-9]+$/.test(s)) return null;
+      var n = Number(s.replace(/[$,+]/g, '').replace('\u2212', '-'));
+      return isFinite(n) ? n : null;
+    }
+
+    // ---- The page's own data files --------------------------------------
+    // Most pages draw cards rather than tables, so a whole-page CSV / Excel /
+    // JSON is built from the data files that page read. A file is read again
+    // through the same Owner gate (and kept for the next export).
+    var exportCache = [];
+    function exportLoadSource(key){
+      for (var i = 0; i < exportCache.length; i++) if (exportCache[i].key === key) return exportCache[i].p;
+      var p = fetch(dataUrl(key), { cache: 'no-cache', credentials: 'same-origin' }).then(function(r){
+        if (!r.ok) throw new Error(r.status === 401 || r.status === 403 ? 'sign in again' : 'not available');
+        return r.json();
+      });
+      exportCache.unshift({ key: key, p: p });
+      if (exportCache.length > 6) exportCache.length = 6;
+      p.catch(function(){ exportCache = exportCache.filter(function(c){ return c.p !== p; }); });
+      return p;
+    }
+    function exportScalar(v){
+      if (v == null) return '';
+      if (typeof v === 'object') return null;
+      return v;
+    }
+    // One object -> flat columns: nested fields as "a.b", short lists joined.
+    function exportFlatRow(o, prefix, row, depth){
+      Object.keys(o).forEach(function(k){
+        var v = o[k], name = prefix ? prefix + '.' + k : k;
+        var sc = exportScalar(v);
+        if (sc !== null){ row[name] = sc; return; }
+        if (Array.isArray(v)){
+          if (v.every(function(x){ return exportScalar(x) !== null; })) row[name] = v.join('; ');
+          else row[name] = v.length + (v.length === 1 ? ' item' : ' items');
+          return;
+        }
+        if (depth < 2) exportFlatRow(v, name, row, depth + 1);
+      });
+      return row;
+    }
+    // The lists of records inside a data file (arrays of objects, or maps
+    // of ticker -> object), biggest first.
+    function exportFindLists(json, file){
+      var found = [];
+      function isObj(x){ return x && typeof x === 'object' && !Array.isArray(x); }
+      function walk(v, path, depth){
+        if (Array.isArray(v)){
+          var objs = v.filter(isObj);
+          if (objs.length >= 2 && objs.length >= v.length * 0.8) found.push({ path: path, items: objs, keyed: false });
+          return;
+        }
+        if (!isObj(v) || depth > 3) return;
+        var keys = Object.keys(v);
+        if (keys.length >= 5 && keys.every(function(k){ return isObj(v[k]); }) && /^[A-Z0-9^.=-]{1,12}$/.test(keys[0])){
+          found.push({ path: path, items: keys.map(function(k){ var o = { key: k }; Object.keys(v[k]).forEach(function(f){ o[f] = v[k][f]; }); return o; }), keyed: true });
+          return;
+        }
+        keys.forEach(function(k){ walk(v[k], path ? path + '.' + k : k, depth + 1); });
+      }
+      walk(json, '', 0);
+      found.sort(function(a, b){ return b.items.length - a.items.length; });
+      return found.slice(0, 4).map(function(f){
+        var rows = f.items.slice(0, 5000).map(function(o){ return exportFlatRow(o, '', {}, 0); });
+        var head = [];
+        rows.slice(0, 300).forEach(function(r){ Object.keys(r).forEach(function(k){ if (head.indexOf(k) === -1 && head.length < 80) head.push(k); }); });
+        var base = file.replace(/.json$/, '');
+        return { name: f.path ? base + ' ' + f.path : base, head: head, rows: rows.map(function(r){ return head.map(function(h){ return r[h] == null ? '' : r[h]; }); }) };
+      });
+    }
+    // Everything a data export needs for a part: { tables, raw, files }.
+    function exportData(part){
+      var tables = exportTables(part), raw = null;
+      try { raw = part.raw ? part.raw() : null; } catch (_) {}
+      if (!part.page || tables.length || raw != null) return Promise.resolve({ tables: tables, raw: raw });
+      var keys = exportSources(exportTab);
+      return Promise.all(keys.map(function(k){ return exportLoadSource(k).then(function(j){ return { key: k, json: j }; }, function(){ return null; }); })).then(function(list){
+        var files = {}, out = [];
+        list.forEach(function(f){
+          if (!f) return;
+          files[f.key] = f.json;
+          exportFindLists(f.json, f.key).forEach(function(t){ if (out.length < 8) out.push(t); });
+        });
+        return { tables: out, raw: null, files: Object.keys(files).length ? files : null };
+      });
+    }
+    function exportHasData(part){
+      if (part.rows || part.raw) return true;
+      if (part.page && exportSources(exportTab).length) return true;
+      return exportTables(part).length > 0;
+    }
+
+    // ---- Files ---------------------------------------------------------
+    function exportSave(blob, name){
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url; a.download = name; a.rel = 'noopener';
+      document.body.appendChild(a); a.click();
+      setTimeout(function(){ URL.revokeObjectURL(url); a.remove(); }, 1500);
+    }
+    var EXPORT_CRC = null;
+    function exportCrc32(bytes){
+      if (!EXPORT_CRC){
+        EXPORT_CRC = new Uint32Array(256);
+        for (var n = 0; n < 256; n++){ var c = n; for (var k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; EXPORT_CRC[n] = c >>> 0; }
+      }
+      var crc = 0xFFFFFFFF;
+      for (var i = 0; i < bytes.length; i++) crc = EXPORT_CRC[(crc ^ bytes[i]) & 0xFF] ^ (crc >>> 8);
+      return (crc ^ 0xFFFFFFFF) >>> 0;
+    }
+    // A plain (stored, uncompressed) zip: all an .xlsx needs.
+    function exportZip(files){
+      var enc = new TextEncoder(), parts = [], central = [], offset = 0;
+      function u16(v){ return [v & 255, (v >>> 8) & 255]; }
+      function u32(v){ return [v & 255, (v >>> 8) & 255, (v >>> 16) & 255, (v >>> 24) & 255]; }
+      files.forEach(function(f){
+        var name = enc.encode(f.name), data = enc.encode(f.text), crc = exportCrc32(data);
+        var head = [].concat([0x50, 0x4b, 3, 4], u16(20), u16(0x0800), u16(0), u16(0), u16(0x21), u32(crc), u32(data.length), u32(data.length), u16(name.length), u16(0));
+        parts.push(new Uint8Array(head), name, data);
+        central.push(new Uint8Array([].concat([0x50, 0x4b, 1, 2], u16(20), u16(20), u16(0x0800), u16(0), u16(0), u16(0x21), u32(crc), u32(data.length), u32(data.length), u16(name.length), u16(0), u16(0), u16(0), u16(0), u32(0), u32(offset))), name);
+        offset += head.length + name.length + data.length;
+      });
+      var size = central.reduce(function(m, b){ return m + b.length; }, 0);
+      var end = new Uint8Array([].concat([0x50, 0x4b, 5, 6], u16(0), u16(0), u16(files.length), u16(files.length), u32(size), u32(offset), u16(0)));
+      return new Blob(parts.concat(central, [end]), { type: 'application/zip' });
+    }
+    function exportXml(s){ return String(s).replace(/[&<>"]/g, function(c){ return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, ''); }
+    function exportColName(i){ var s = ''; i++; while (i > 0){ var m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); } return s; }
+    function exportXlsx(tables){
+      var files = [], sheets = [], used = {};
+      tables.forEach(function(t, n){
+        var name = String(t.name || ('Sheet ' + (n + 1))).replace(/[\[\]:*?\/\\]/g, ' ').trim().slice(0, 28) || ('Sheet ' + (n + 1));
+        if (used[name.toLowerCase()]) name = name.slice(0, 25) + ' ' + (n + 1);
+        used[name.toLowerCase()] = 1;
+        sheets.push(name);
+        var all = [t.head].concat(t.rows);
+        var xml = all.map(function(r, ri){
+          return '<row r="' + (ri + 1) + '">' + r.map(function(v, ci){
+            var ref = exportColName(ci) + (ri + 1);
+            var num = ri === 0 ? null : exportNumber(v);
+            if (num != null) return '<c r="' + ref + '"><v>' + num + '</v></c>';
+            if (v === '' || v == null) return '';
+            return '<c r="' + ref + '" t="inlineStr"' + (ri === 0 ? ' s="1"' : '') + '><is><t xml:space="preserve">' + exportXml(v) + '</t></is></c>';
+          }).join('') + '</row>';
+        }).join('');
+        files.push({ name: 'xl/worksheets/sheet' + (n + 1) + '.xml', text: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><sheetData>' + xml + '</sheetData></worksheet>' });
+      });
+      var ns = 'http://schemas.openxmlformats.org/';
+      files.unshift(
+        { name: '[Content_Types].xml', text: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="' + ns + 'package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' + sheets.map(function(_, i){ return '<Override PartName="/xl/worksheets/sheet' + (i + 1) + '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'; }).join('') + '</Types>' },
+        { name: '_rels/.rels', text: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="' + ns + 'package/2006/relationships"><Relationship Id="rId1" Type="' + ns + 'officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>' },
+        { name: 'xl/workbook.xml', text: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="' + ns + 'spreadsheetml/2006/main" xmlns:r="' + ns + 'officeDocument/2006/relationships"><sheets>' + sheets.map(function(s, i){ return '<sheet name="' + exportXml(s) + '" sheetId="' + (i + 1) + '" r:id="rId' + (i + 1) + '"/>'; }).join('') + '</sheets></workbook>' },
+        { name: 'xl/_rels/workbook.xml.rels', text: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="' + ns + 'package/2006/relationships">' + sheets.map(function(_, i){ return '<Relationship Id="rId' + (i + 1) + '" Type="' + ns + 'officeDocument/2006/relationships/worksheet" Target="worksheets/sheet' + (i + 1) + '.xml"/>'; }).join('') + '<Relationship Id="rId' + (sheets.length + 1) + '" Type="' + ns + 'officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>' },
+        { name: 'xl/styles.xml', text: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="' + ns + 'spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf/></cellStyleXfs><cellXfs count="2"><xf/><xf fontId="1" applyFont="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>' }
+      );
+      return new Blob([exportZip(files)], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    }
+
+    // ---- Pictures ------------------------------------------------------
+    var exportLibLoad = null;
+    function exportLib(){
+      if (window.htmlToImage) return Promise.resolve(window.htmlToImage);
+      if (exportLibLoad) return exportLibLoad;
+      exportLibLoad = new Promise(function(resolve, reject){
+        var s = document.createElement('script');
+        s.src = 'js/vendor/html-to-image-1.11.11.js';
+        s.async = true;
+        s.onload = function(){ window.htmlToImage ? resolve(window.htmlToImage) : reject(new Error('Image tool did not load')); };
+        s.onerror = function(){ exportLibLoad = null; reject(new Error('Image tool did not load')); };
+        document.head.appendChild(s);
+      });
+      return exportLibLoad;
+    }
+    // The site's fonts, latin only, inlined once so pictures use them too.
+    var exportFontCss = null;
+    function exportFonts(){
+      if (exportFontCss) return exportFontCss;
+      var link = document.querySelector('link[rel="stylesheet"][href*="fonts.googleapis.com"]');
+      if (!link || !window.fetch) return (exportFontCss = Promise.resolve(''));
+      exportFontCss = fetch(link.href).then(function(r){ if (!r.ok) throw new Error('fonts'); return r.text(); }).then(function(css){
+        var blocks = css.split(/(?=\/\*\s*[a-z-]+\s*\*\/)/).filter(function(b){ return /^\/\*\s*latin\s*\*\//.test(b); });
+        return Promise.all(blocks.map(function(b){
+          var m = b.match(/url\((https:[^)]+)\)/);
+          if (!m) return '';
+          return fetch(m[1]).then(function(r){ return r.blob(); }).then(function(blob){
+            return new Promise(function(res){ var fr = new FileReader(); fr.onload = function(){ res(b.replace(m[1], fr.result)); }; fr.onerror = function(){ res(''); }; fr.readAsDataURL(blob); });
+          }).catch(function(){ return ''; });
+        })).then(function(list){ return list.join('\n'); });
+      }).catch(function(){ return ''; });
+      return exportFontCss;
+    }
+    function exportVar(name, fallback){
+      var v = getComputedStyle(document.body).getPropertyValue(name).trim();
+      return v || fallback;
+    }
+    // Hide what the picture leaves out (page links, the other pick group)
+    // while it is drawn, behind a short "Preparing" cover.
+    function exportHideFor(part){
+      var hidden = [];
+      function hide(el){ if (el && !el.classList.contains('export-hide')){ el.classList.add('export-hide'); hidden.push(el); } }
+      if (part.page) Array.prototype.forEach.call(part.el.querySelectorAll(':scope > .wf-head, :scope > .wf-foot'), hide);
+      // Buttons that only mean something on the site (watch stars and the
+      // watchlist button, the Recommendation / Grade switch, "View judgment",
+      // the old Export CSV buttons) stay out of the export.
+      Array.prototype.forEach.call(part.el.querySelectorAll('.ptc-cta, .ptc-watch, .pick-watch-btn, .pick-tabs, .csv-export-btn'), hide);
+      if (part.keep) Array.prototype.forEach.call(part.el.children, function(c){ if (part.keep.indexOf(c) === -1) hide(c); });
+      return function(){ hidden.forEach(function(el){ el.classList.remove('export-hide'); }); };
+    }
+    function exportCanvas(part){
+      return Promise.all([exportLib(), exportFonts()]).then(function(got){
+        var lib = got[0], fontCss = got[1];
+        var cover = document.createElement('div');
+        cover.className = 'export-cover';
+        cover.innerHTML = '<span>Preparing image&hellip;</span>';
+        document.body.appendChild(cover);
+        var restore = exportHideFor(part);
+        var scrollY = window.scrollY;
+        var el = part.el;
+        var w = Math.ceil(el.scrollWidth), h = Math.ceil(el.scrollHeight);
+        // Stay inside what phones can draw (about 16 million pixels).
+        var ratio = Math.min(2, Math.max(0.5, Math.sqrt(16e6 / Math.max(1, w * h))), 16000 / Math.max(1, h));
+        var bg = exportVar('--bg', '#ffffff');
+        var opts = { pixelRatio: ratio, backgroundColor: bg, width: w, height: h, cacheBust: false,
+          style: { margin: '0', transform: 'none' },
+          filter: function(node){ return !(node.classList && (node.classList.contains('export-hide') || node.classList.contains('export-cover'))); } };
+        if (fontCss) opts.fontEmbedCSS = fontCss; else opts.skipFonts = true;
+        function done(){ restore(); cover.remove(); window.scrollTo(0, scrollY); }
+        return lib.toCanvas(el, opts).then(function(c){ done(); return exportFrame(c, part, ratio); }, function(err){ done(); throw err; });
+      });
+    }
+    // Title strip above and source line below, in the page's own colors.
+    function exportFrame(shot, part, ratio){
+      var pad = Math.round(24 * ratio), top = Math.round(80 * ratio), foot = Math.round(40 * ratio);
+      var c = document.createElement('canvas');
+      c.width = shot.width + pad * 2;
+      c.height = shot.height + top + foot + pad;
+      var g = c.getContext('2d');
+      g.fillStyle = exportVar('--bg', '#ffffff');
+      g.fillRect(0, 0, c.width, c.height);
+      var sans = exportVar('--font-sans', 'system-ui, sans-serif');
+      g.textBaseline = 'alphabetic';
+      g.fillStyle = exportVar('--text-strong', '#111111');
+      g.font = '700 ' + Math.round(20 * ratio) + 'px ' + sans;
+      var title = part.page_ + (part.page ? '' : ' · ' + part.label);
+      g.fillText(title, pad, Math.round(40 * ratio), c.width - pad * 2);
+      g.fillStyle = exportVar('--muted', '#666666');
+      g.font = '500 ' + Math.round(13 * ratio) + 'px ' + sans;
+      g.fillText('Exported ' + exportWhen(), pad, Math.round(60 * ratio), c.width - pad * 2);
+      g.drawImage(shot, pad, top);
+      g.fillText('mingstreet.app · Research only, not investment advice.', pad, top + shot.height + Math.round(26 * ratio), c.width - pad * 2);
+      return c;
+    }
+    function exportBlob(canvas, type, quality){
+      return new Promise(function(resolve, reject){
+        canvas.toBlob(function(b){ b ? resolve(b) : reject(new Error('Could not make the image')); }, type, quality);
+      });
+    }
+    // A picture PDF: the image on one tall page (split if very long), so it
+    // opens the same everywhere. Print / Save as PDF keeps selectable text.
+    function exportPdf(canvas){
+      var pageW = 612, scale = pageW / canvas.width, maxH = 14000;
+      var sliceH = Math.floor(maxH / scale), slices = [];
+      for (var y = 0; y < canvas.height; y += sliceH) slices.push([y, Math.min(sliceH, canvas.height - y)]);
+      return Promise.all(slices.map(function(s){
+        var part = document.createElement('canvas');
+        part.width = canvas.width; part.height = s[1];
+        var g = part.getContext('2d');
+        g.fillStyle = '#ffffff'; g.fillRect(0, 0, part.width, part.height);
+        g.drawImage(canvas, 0, -s[0]);
+        return exportBlob(part, 'image/jpeg', 0.92).then(function(b){ return b.arrayBuffer(); }).then(function(buf){ return { w: part.width, h: part.height, jpg: new Uint8Array(buf) }; });
+      })).then(function(pages){
+        var enc = new TextEncoder(), chunks = [], offsets = [], len = 0;
+        function add(x){ var b = typeof x === 'string' ? enc.encode(x) : x; chunks.push(b); len += b.length; }
+        function obj(n, body){ offsets[n] = len; add(n + ' 0 obj\n'); body(); add('\nendobj\n'); }
+        var count = 2 + pages.length * 3;
+        add('%PDF-1.4\n%\u00e2\u00e3\n');
+        obj(1, function(){ add('<< /Type /Catalog /Pages 2 0 R >>'); });
+        obj(2, function(){ add('<< /Type /Pages /Count ' + pages.length + ' /Kids [' + pages.map(function(_, i){ return (3 + i * 3) + ' 0 R'; }).join(' ') + '] >>'); });
+        pages.forEach(function(p, i){
+          var n = 3 + i * 3, w = pageW, h = Math.round(p.h * scale * 100) / 100;
+          var draw = 'q ' + w + ' 0 0 ' + h + ' 0 0 cm /Im0 Do Q';
+          obj(n, function(){ add('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ' + w + ' ' + h + '] /Resources << /XObject << /Im0 ' + (n + 2) + ' 0 R >> >> /Contents ' + (n + 1) + ' 0 R >>'); });
+          obj(n + 1, function(){ add('<< /Length ' + draw.length + ' >>\nstream\n' + draw + '\nendstream'); });
+          obj(n + 2, function(){ add('<< /Type /XObject /Subtype /Image /Width ' + p.w + ' /Height ' + p.h + ' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ' + p.jpg.length + ' >>\nstream\n'); add(p.jpg); add('\nendstream'); });
+        });
+        var xref = len;
+        var table = 'xref\n0 ' + (count + 1) + '\n0000000000 65535 f \n';
+        for (var k = 1; k <= count; k++) table += String(offsets[k]).padStart(10, '0') + ' 00000 n \n';
+        add(table + 'trailer\n<< /Size ' + (count + 1) + ' /Root 1 0 R >>\nstartxref\n' + xref + '\n%%EOF\n');
+        return new Blob(chunks, { type: 'application/pdf' });
+      });
+    }
+    function exportPicture(part){
+      var key = exportPartKey(part);
+      if (exportShot && exportShot.key === key && Date.now() - exportShot.at < 60000) return Promise.resolve(exportShot);
+      return exportCanvas(part).then(function(canvas){
+        return exportBlob(canvas, 'image/png').then(function(blob){
+          exportShot = { key: key, blob: blob, canvas: canvas, at: Date.now() };
+          return exportShot;
+        });
+      });
+    }
+    function exportPartKey(part){ return exportTab + '|' + part.label; }
+    // Print / Save as PDF: only the chosen part is printed.
+    function exportPrint(part){
+      var path = [], n = part.el;
+      while (n && n !== document.body){ n.classList.add('export-print-path'); path.push(n); n = n.parentElement; }
+      part.el.classList.add('export-print-target');
+      var restore = exportHideFor(part);
+      var head = document.createElement('div');
+      head.className = 'export-print-head';
+      head.innerHTML = '<b>' + escapeHtml(part.page_ + (part.page ? '' : ' · ' + part.label)) + '</b><span>Exported ' + escapeHtml(exportWhen()) + ' · mingstreet.app</span>';
+      document.body.insertBefore(head, document.body.firstChild);
+      document.documentElement.classList.add('exporting-print');
+      function cleanup(){
+        window.removeEventListener('afterprint', cleanup);
+        document.documentElement.classList.remove('exporting-print');
+        path.forEach(function(el){ el.classList.remove('export-print-path'); });
+        part.el.classList.remove('export-print-target');
+        head.remove();
+        restore();
+      }
+      window.addEventListener('afterprint', cleanup);
+      // Browsers that skip afterprint: the next tap or key means the dialog closed.
+      // (The tap that chose Print has already finished its pointerdown.)
+      function late(){ document.removeEventListener('pointerdown', late, true); document.removeEventListener('keydown', late, true); if (document.documentElement.classList.contains('exporting-print')) cleanup(); }
+      document.addEventListener('pointerdown', late, true);
+      document.addEventListener('keydown', late, true);
+      window.print();
+    }
+
+    // ---- Menu ----------------------------------------------------------
+    var EXPORT_FORMATS = [
+      ['png', 'Image (PNG)', 'picture'],
+      ['copy-img', 'Copy image', 'picture'],
+      ['share', 'Share image', 'picture'],
+      ['pdf', 'PDF', 'picture'],
+      ['print', 'Print / Save as PDF', 'picture'],
+      ['csv', 'CSV', 'data'],
+      ['xlsx', 'Excel (.xlsx)', 'data'],
+      ['json', 'JSON', 'data'],
+      ['copy-table', 'Copy table', 'data']
+    ];
+    function exportCanShare(){
+      try { return !!(navigator.canShare && navigator.canShare({ files: [new File([''], 'x.png', { type: 'image/png' })] })); } catch (_) { return false; }
+    }
+    function exportSources(tab){
+      var list = (EXPORT_SOURCES[tab] || []).slice();
+      if (tab === 'grade' && state.symbol && /^[A-Z0-9.^=-]{1,12}$/.test(state.symbol)) list.unshift(state.symbol + '.json');
+      return list;
+    }
+    function exportStatus(msg, bad){
+      if (!exportPanel) return;
+      var s = exportPanel.querySelector('.export-status');
+      if (s){ s.textContent = msg || ''; s.classList.toggle('is-bad', !!bad); }
+    }
+    function exportBuild(){
+      if (exportPanel) return exportPanel;
+      exportPanel = document.createElement('div');
+      exportPanel.id = 'export-panel';
+      exportPanel.className = 'export-panel';
+      exportPanel.setAttribute('role', 'dialog');
+      exportPanel.setAttribute('aria-label', 'Export');
+      exportPanel.hidden = true;
+      document.body.appendChild(exportPanel);
+      exportPanel.addEventListener('change', function(ev){
+        if (ev.target && ev.target.name === 'export-part'){ exportChoice = Number(ev.target.value) || 0; exportMark(); exportSyncFormats(); }
+      });
+      exportPanel.addEventListener('click', function(ev){
+        var t = ev.target && ev.target.closest ? ev.target.closest('[data-export-format], [data-export-source], [data-export-close]') : null;
+        if (!t || t.disabled) return;
+        if (t.hasAttribute('data-export-close')) return exportClose(true);
+        if (t.hasAttribute('data-export-source')) return exportSource(t.getAttribute('data-export-source'));
+        exportRun(t.getAttribute('data-export-format'));
+      });
+      exportPanel.addEventListener('keydown', function(ev){
+        if (ev.key === 'Escape'){ ev.preventDefault(); exportClose(true); }
+      });
+      return exportPanel;
+    }
+    function exportRender(){
+      var tab = exportTab = exportTabNow();
+      var sec = wfSectionOf(tab);
+      var skip = !!(sec && EXPORT_SKIP_SECTIONS[sec.sec[0]]);
+      exportParts = skip ? [] : exportFindParts(tab);
+      if (exportChoice >= exportParts.length) exportChoice = 0;
+      var head = '<div class="export-head"><div><b>Export</b><span>' + escapeHtml(exportPageLabel(tab)) + '</span></div>' +
+        '<button type="button" class="export-x" data-export-close aria-label="Close export">&times;</button></div>';
+      if (!exportParts.length){
+        var split = document.body.classList.contains('split-on');
+        exportPanel.innerHTML = head + '<p class="export-empty">' + (split ? 'Close split view first, then export the page you want.' : skip ? 'This page is a guide, so there is no data to export. Open a data page such as Top picks or the track record.' : 'Nothing on this page can be exported yet. Wait for it to finish loading.') + '</p>';
+        return;
+      }
+      var parts = exportParts.map(function(p, i){
+        return '<label class="export-part"><input type="radio" name="export-part" value="' + i + '"' + (i === exportChoice ? ' checked' : '') + '><span>' + escapeHtml(p.label) + '</span></label>';
+      }).join('');
+      var formats = EXPORT_FORMATS.filter(function(f){ return f[0] !== 'share' || exportCanShare(); }).map(function(f){
+        return '<button type="button" class="export-fmt export-fmt-' + f[2] + '" data-export-format="' + f[0] + '">' + escapeHtml(f[1]) + '</button>';
+      }).join('');
+      var sources = exportSources(tab);
+      exportPanel.innerHTML = head +
+        '<fieldset class="export-parts"><legend>What to export</legend>' + parts + '</fieldset>' +
+        '<div class="export-fmts" role="group" aria-label="Format">' + formats + '</div>' +
+        (sources.length ? '<div class="export-sources"><span>Source data (JSON)</span>' + sources.map(function(k){ return '<button type="button" class="export-src" data-export-source="' + escapeHtml(k) + '">' + escapeHtml(k) + '</button>'; }).join('') + '</div>' : '') +
+        '<p class="export-status" role="status" aria-live="polite"></p>';
+      exportSyncFormats();
+      exportMark();
+    }
+    function exportSyncFormats(){
+      var part = exportParts[exportChoice];
+      if (!part) return;
+      var hasData = exportHasData(part);
+      Array.prototype.forEach.call(exportPanel.querySelectorAll('[data-export-format]'), function(b){
+        var f = b.getAttribute('data-export-format');
+        var isData = b.classList.contains('export-fmt-data');
+        var off = (isData && !hasData) || (f === 'copy-img' && !(navigator.clipboard && window.ClipboardItem)) || (f === 'copy-table' && !(navigator.clipboard && (navigator.clipboard.writeText || window.ClipboardItem)));
+        b.disabled = off;
+        b.title = off && isData ? 'This part has no table or data behind it. Pick the whole page or a table.' : '';
+      });
+    }
+    // Outline the part on the page while the menu is open.
+    function exportMark(){
+      Array.prototype.forEach.call(document.querySelectorAll('.export-target'), function(el){ el.classList.remove('export-target'); });
+      var part = exportParts[exportChoice];
+      if (part && !part.page) part.el.classList.add('export-target');
+    }
+    function exportPlace(){
+      if (!exportPanel || exportPanel.hidden) return;
+      var phone = window.matchMedia && window.matchMedia('(max-width: 640px)').matches;
+      if (phone){ exportPanel.style.top = ''; exportPanel.style.right = ''; return; }
+      var r = (exportShown(exportToggle) ? exportToggle : document.getElementById('workspace-settings-toggle') || exportToggle).getBoundingClientRect();
+      exportPanel.style.top = Math.round(r.bottom + 8) + 'px';
+      exportPanel.style.right = Math.max(12, Math.round(window.innerWidth - r.right)) + 'px';
+    }
+    function exportOpen(){
+      if (!exportOwner()) return;
+      exportBuild();
+      try { closeWorkspaceSettings(false); } catch (_) {}
+      exportChoice = 0;
+      exportRender();
+      exportPanel.hidden = false;
+      exportToggle.setAttribute('aria-expanded', 'true');
+      exportPlace();
+      var first = exportPanel.querySelector('input[name="export-part"]:checked, [data-export-close]');
+      if (first) first.focus();
+    }
+    function exportClose(focusBack){
+      if (!exportPanel || exportPanel.hidden) return;
+      exportPanel.hidden = true;
+      exportToggle.setAttribute('aria-expanded', 'false');
+      Array.prototype.forEach.call(document.querySelectorAll('.export-target'), function(el){ el.classList.remove('export-target'); });
+      if (focusBack){
+        var t = exportShown(exportToggle) ? exportToggle : document.getElementById('workspace-settings-toggle');
+        if (t) t.focus();
+      }
+    }
+    function exportName(part, ext){ return 'mingstreet-' + exportSlug(exportTab) + (part.page ? '' : '-' + exportSlug(part.slug || part.label)) + '-' + exportStamp() + '.' + ext; }
+    function exportRun(fmt){
+      if (!exportOwner() || exportBusy) return;
+      var part = exportParts[exportChoice];
+      if (!part) return;
+      Array.prototype.forEach.call(document.querySelectorAll('.export-target'), function(el){ el.classList.remove('export-target'); });
+      function finish(msg, bad){ exportBusy = false; exportPanel.classList.remove('is-busy'); exportStatus(msg, bad); exportMark(); }
+      function fail(err){ finish('Could not export: ' + ((err && err.message) || 'something went wrong') + '.', true); }
+      if (fmt === 'csv' || fmt === 'xlsx' || fmt === 'json' || fmt === 'copy-table'){
+        exportBusy = true;
+        exportPanel.classList.add('is-busy');
+        exportStatus('Gathering data…');
+        var gather = exportData(part);
+        if (fmt === 'copy-table'){
+          var text = gather.then(function(d){ if (!d.tables.length) throw new Error('no table here'); return exportTsvText(d.tables); });
+          var copied;
+          // Safari needs the clipboard write to start inside the tap.
+          try { copied = window.ClipboardItem ? navigator.clipboard.write([new ClipboardItem({ 'text/plain': text.then(function(t){ return new Blob([t], { type: 'text/plain' }); }) })]) : text.then(function(t){ return navigator.clipboard.writeText(t); }); }
+          catch (_) { copied = text.then(function(t){ return navigator.clipboard.writeText(t); }); }
+          copied.then(function(){ finish('Table copied. Paste it into a spreadsheet or message.'); }, fail);
+          return;
+        }
+        gather.then(function(d){
+          var tables = d.tables, rows = tables.reduce(function(m, t){ return m + t.rows.length; }, 0);
+          if (fmt === 'json'){
+            var doc = { page: part.page_, part: part.label, exportedAt: new Date().toISOString(), source: 'mingstreet.app' };
+            if (d.raw != null) doc.data = d.raw;
+            if (d.files) doc.files = d.files;
+            if (tables.length && d.raw == null && !d.files) doc.tables = exportJsonTables(tables);
+            exportSave(new Blob([JSON.stringify(doc, null, 2)], { type: 'application/json' }), exportName(part, 'json'));
+            return finish('Saved JSON.');
+          }
+          if (!tables.length) throw new Error('no table here');
+          if (fmt === 'csv'){ exportSave(new Blob(['﻿' + exportCsvText(tables)], { type: 'text/csv;charset=utf-8' }), exportName(part, 'csv')); return finish('Saved CSV (' + rows + (rows === 1 ? ' row' : ' rows') + (tables.length > 1 ? ' in ' + tables.length + ' tables' : '') + ').'); }
+          exportSave(exportXlsx(tables), exportName(part, 'xlsx'));
+          finish('Saved Excel file (' + tables.length + (tables.length === 1 ? ' sheet, ' : ' sheets, ') + rows + ' rows).');
+        }).catch(fail);
+        return;
+      }
+      if (fmt === 'print'){ exportClose(false); exportPrint(part); return; }
+      exportBusy = true;
+      exportPanel.classList.add('is-busy');
+      exportStatus('Preparing image\u2026');
+      if (fmt === 'copy-img'){
+        // Safari needs the clipboard write to start inside the tap.
+        var pending = exportPicture(part).then(function(s){ return s.blob; });
+        try {
+          navigator.clipboard.write([new ClipboardItem({ 'image/png': pending })]).then(function(){ finish('Image copied. Paste it into a message or document.'); }, fail);
+        } catch (err){ fail(err); }
+        return;
+      }
+      exportPicture(part).then(function(shot){
+        if (fmt === 'png'){ exportSave(shot.blob, exportName(part, 'png')); return finish('Saved image.'); }
+        if (fmt === 'pdf') return exportPdf(shot.canvas).then(function(pdf){ exportSave(pdf, exportName(part, 'pdf')); finish('Saved PDF.'); });
+        if (fmt === 'share'){
+          var file = new File([shot.blob], exportName(part, 'png'), { type: 'image/png' });
+          return navigator.share({ files: [file], title: part.page_ }).then(function(){ finish('Shared.'); }, function(err){
+            // The tap expired while the image was drawn; the next tap shares at once.
+            if (err && err.name === 'NotAllowedError') return finish('Image ready. Tap Share image again to send it.');
+            if (err && err.name === 'AbortError') return finish('');
+            fail(err);
+          });
+        }
+      }).catch(fail);
+    }
+    // A data file this page read, saved as it is stored (Owner files go
+    // through the same Owner gate as the page itself).
+    function exportSource(key){
+      if (!exportOwner() || exportBusy) return;
+      exportBusy = true;
+      exportStatus('Getting ' + key + '…');
+      exportLoadSource(key).then(function(json){
+        exportSave(new Blob([JSON.stringify(json, null, 2)], { type: 'application/json' }), 'mingstreet-' + key.replace(/[^A-Za-z0-9.-]+/g, '-').replace(/.json$/, '') + '-' + exportStamp() + '.json');
+        exportBusy = false;
+        exportStatus('Saved ' + key + '.');
+      }).catch(function(err){ exportBusy = false; exportStatus('Could not get ' + key + ': ' + err.message + '.', true); });
+    }
+    if (exportToggle){
+      exportToggle.hidden = !exportOwner();
+      exportToggle.addEventListener('click', function(ev){
+        ev.stopPropagation();
+        if (exportPanel && !exportPanel.hidden) exportClose(false); else exportOpen();
+      });
+      document.addEventListener('click', function(ev){
+        // The download link's own (scripted) click must not close the menu.
+        if (!exportPanel || exportPanel.hidden || !ev.isTrusted) return;
+        if (exportPanel.contains(ev.target) || exportToggle.contains(ev.target)) return;
+        exportClose(false);
+      });
+      window.addEventListener('resize', exportPlace);
+      document.addEventListener('keydown', function(ev){
+        if (ev.key === 'Escape' && exportPanel && !exportPanel.hidden) exportClose(exportPanel.contains(document.activeElement));
+      });
+    }
+
     // Restore the persisted desktop collapse before the first sync so the
     // sidebar doesn't flash open for a user who keeps it closed.
     try {
@@ -5920,6 +7201,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       // Picking a page from the main window (sidebar, search, a link) while
       // split view is on goes back to one full page.
       if (!splitInternalNav && splitIsOn()) splitClose(false);
+      exportClose(false);
       resetNavFilter();
       try { localStorage.setItem('stonks-page-tab', name); } catch (_) {}
       var activeBtn = null;
@@ -13386,7 +14668,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     yields: ['^TNX', '^TYX'],
     dxy: ['DX-Y.NYB'],
     commodity: ['CL=F', 'GC=F'],
-    globalTape: ['ES=F', 'NQ=F', '^GDAXI', '^N225', '^KS11', 'JPY=X', 'BTC-USD'],
+    globalTape: ['ES=F', 'NQ=F', '^GDAXI', '^N225', '^KS11', '^VIX', '^TNX', 'JPY=X', 'DX-Y.NYB', 'HG=F', 'BTC-USD'],
     twoY: ['US2Y'], bondVol: ['MOVE'], breadth: ['BREADTH'], putCall: ['PUTCALL'], credit: ['CREDIT'],
     indexes: [], sentiment: [], fed: [], geo: [], inflation: [],
   };
@@ -13395,7 +14677,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     'ES=F': 'S&P 500 futures', 'NQ=F': 'Nasdaq 100 futures', '^GDAXI': 'DAX', '^N225': 'Nikkei 225',
     '^KS11': 'KOSPI', '^VIX': 'VIX', '^TNX': '10Y yield', '^TYX': '30Y yield',
     'JPY=X': 'USD/JPY', 'DX-Y.NYB': 'Dollar (DXY)', 'CL=F': 'WTI crude',
-    'GC=F': 'Gold', 'BTC-USD': 'Bitcoin',
+    'GC=F': 'Gold', 'BTC-USD': 'Bitcoin', 'HG=F': 'Copper',
     'US2Y': '2Y yield', 'MOVE': 'MOVE', 'BREADTH': 'Breadth', 'PUTCALL': 'Put / call', 'CREDIT': 'HY credit',
   };
   // Plain-language "what this axis measures" (richer than the tile's one-liner).
@@ -13406,7 +14688,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     yields: 'The 10Y and 30Y Treasury yields set the discount rate on every risk asset. A fast back-up in the long end pressures valuations (risk-OFF); an orderly fall eases conditions.',
     commodity: 'Crude + gold form the supply-shock / safe-haven axis. An oil spike (supply or war) alongside a confirmed gold haven bid is the classic geopolitical-shock tell (risk-OFF). Gold only counts as a haven when indexes, VIX or DXY corroborate risk-off conditions.',
     sentiment: 'CNN’s Fear & Greed index distills seven equity internals (breadth, momentum, junk-bond demand…). Extreme fear, or a fast swing toward fear, reads risk-OFF.',
-    globalTape: 'The overnight cross-asset tape — US futures + Asia/EU cash + the yen carry + Bitcoin. Broad overnight green leans risk-on; broad red leans risk-OFF.',
+    globalTape: 'The overnight read from the US close to the open, in five groups: equities (US futures, Asia after removing its echo of the prior US day, Europe), volatility (VIX and its term curve), rates (10Y futures, only on a big move), currencies (AUD/JPY, yuan, won, dollar) and growth/credit (copper, high yield, crypto). Each move is measured against that market’s normal daily range. The call is saved at about 09:05 ET and holds for the whole session, so it can be graded later.',
     fed: 'The Fed-path axis tracks the change in FedWatch hike-minus-cut probability across the nearest meetings. Hawkish repricing tightens the expected path (risk-OFF); dovish drift eases it. A nearby FOMC decision adds event-risk caution.',
     geo: 'The geopolitics axis reads fresh war/tariff headlines plus the active narrative layer. It is stress-only: escalation can vote risk-OFF, while de-escalation merely clears that stress vote rather than voting risk-on. Slow axis — updates at the build.',
     inflation: 'The inflation/jobs axis reads CPI YoY direction plus labor deterioration through the Sahm-gap measure. Re-accelerating inflation or a rising unemployment gap tilts risk-OFF; cool, non-rising CPI can offset one point of stress.',
@@ -13418,54 +14700,31 @@ function scenarioEventPhase(ev, now = Date.now()) {
     rotation: 'The rotation axis reads intra-equity risk appetite — a high-beta growth/tech basket’s 1-day move minus a low-beta defensive (staples/health) basket’s. Offense leading can vote risk-on; defense outperforming while indexes are not risk-on is an early, stronger risk-OFF rotation tell that can lead the index level. Slow axis — recomputed at the build.',
   };
 
-  // Live global cross-asset tape axis — a port of deriveGlobalTapeAxis
-  // (scripts/build.mjs). Reads the /api/macro-live ?tape=1 legs (keyed by Yahoo
-  // symbol, { pctChange1d, … }) so the SAME cross-asset moves the barometer rail
-  // shows actually move the regime gauge intraday. A closed foreign cash index's
-  // pctChange1d IS its last completed session (== the baked overnight read), so
-  // including it is correct; the ~24h legs (US futures / yen / BTC)
-  // refresh live. Returns null when the axis is off or < 3 signals are present,
-  // and the caller carries the baked axis. Keep in sync with deriveGlobalTapeAxis.
+  // Live global tape axis. After the US open the axis is the day's saved
+  // pre-open call (frozen ~09:05 ET and graded later), so this returns null and
+  // the caller keeps the baked axis: intraday moves no longer repaint an
+  // overnight read. Before the open, the ?tape=1 legs are laid over the baked
+  // overnight markets (which carry each market's 60-session daily sigma) and
+  // scored with the same shared scorer the bake and the Overnight tab use
+  // (lib/overnight-tone.mjs). Needs the Overnight sweep loaded; otherwise null.
   function liveGlobalTapeAxis(legs, T){
-    if (!legs) return null;
-    function ch(s){ var l = legs[s]; return (l && l.pctChange1d != null && isFinite(l.pctChange1d)) ? Number(l.pctChange1d) : null; }
-    function avg(syms){ var vals = []; for (var i = 0; i < syms.length; i++){ var v = ch(syms[i]); if (v != null) vals.push(v); } return vals.length ? { v: vals.reduce(function(a, b){ return a + b; }, 0) / vals.length, n: vals.length } : null; }
-    function th(x, d){ return (x != null && isFinite(x)) ? Number(x) : d; }
-    var futT = th(T.globalFut, 0.4), brT = th(T.globalBreadth, 0.6), yenT = th(T.globalYen, 0.6);
-    var btcT = th(T.globalBtc, 2.5), acuteT = th(T.globalAcute, 3);
-    var futS = th(T.globalFutStrong, 1.2), brS = th(T.globalBreadthStrong, 1.5), yenS = th(T.globalYenStrong, 1.2), btcS = th(T.globalBtcStrong, 6);
-    var components = [], votes = 0, present = 0, strongUp = false, strongDn = false;
-    function addLeg(val, gate, strongGate, key, label){
-      if (val == null) return;
-      present++;
-      var v = 0;
-      if (val >= gate){ v = 1; if (val >= strongGate) strongUp = true; }
-      else if (val <= -gate){ v = -1; if (val <= -strongGate) strongDn = true; }
-      votes += v;
-      components.push({ key: key, label: label, vote: v });
+    if (!legs || T.globalOn === false) return null;
+    var d = (typeof overnightState !== 'undefined' && overnightState.data) || null;
+    if (!d || !d.markets || !Object.keys(d.markets).length) return null;
+    if (ovnTodayCall(d)) return null;
+    var et = ovnEtNow(), ctx = d.context || {}, pu = ctx.priorUs || {};
+    var weekday = et.weekday !== 'Sat' && et.weekday !== 'Sun';
+    if (!(weekday && et.minutes < 570 && pu.date && pu.date !== et.date)) return null;
+    var markets = {};
+    for (var sym in d.markets){
+      if (!Object.prototype.hasOwnProperty.call(d.markets, sym)) continue;
+      markets[sym] = (legs[sym] && overlayOvernightMarket(d.markets[sym], legs[sym])) || d.markets[sym];
     }
-    var fut = avg(['ES=F', 'NQ=F']);
-    if (fut) addLeg(fut.v, futT, futS, 'futures', 'US futures ' + (fut.v >= 0 ? '+' : '') + fut.v.toFixed(2) + '%');
-    var breadth = avg(['^N225', '^KS11', '^GDAXI', '^TWII']);
-    if (breadth && breadth.n >= 2) addLeg(breadth.v, brT, brS, 'breadth', 'Global equities ' + (breadth.v >= 0 ? '+' : '') + breadth.v.toFixed(2) + '% avg');
-    var yen = ch('JPY=X');
-    if (yen != null) addLeg(yen, yenT, yenS, 'yen', 'USD/JPY ' + (yen >= 0 ? '+' : '') + yen.toFixed(2) + '%');
-    var btc = ch('BTC-USD');
-    if (btc != null) addLeg(btc, btcT, btcS, 'btc', 'Bitcoin ' + (btc >= 0 ? '+' : '') + btc.toFixed(1) + '%');
-    if (present < 3) return null;
-    votes = Math.max(-4, Math.min(4, votes));
-    var score = 0;
-    if (votes >= acuteT || (strongUp && votes >= 2)) score = 2;
-    else if (votes >= 1) score = 1;
-    else if (votes <= -acuteT || (strongDn && votes <= -2)) score = -2;
-    else if (votes <= -1) score = -1;
-    var dir = score === 0 ? 0 : (score > 0 ? 1 : -1);
-    var lit = components.filter(function(c){ return c.vote === dir; }).map(function(c){ return c.label; });
-    var tone = score > 0 ? 'risk-on' : (score < 0 ? 'risk-off' : 'mixed');
-    var label = score === 0
-      ? ('Global tape mixed (' + present + ' signals)')
-      : ('Global tape ' + tone + (lit.length ? ' — ' + lit.slice(0, 3).join(', ') : ''));
-    return { score: score, label: label, components: components, live: true };
+    var opts = { priorUsDate: pu.date, priorUsCloseMs: pu.closeMs || null, priorUsPct: pu.pct, preOpen: true };
+    var tone = OVERNIGHT.scoreTone(OVERNIGHT.inputsFromSnapshot(markets, opts), { asiaEcho: ctx.asiaEcho || null, priorUsPct: pu.pct });
+    var ax = OVERNIGHT.tapeAxis(tone, { prefix: 'Overnight tape (live, before the open)' });
+    if (!ax) return null;
+    return Object.assign({}, ax, { live: true, source: 'live-preopen' });
   }
 
   function computeLiveMacroRegime(baked, live){
@@ -13668,11 +14927,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
     axes.fed = Object.assign({ live: false }, baked.axes.fed || { score: 0, label: 'no Fed-path data' });
     axes.geo = Object.assign({ live: false }, baked.axes.geo || { score: 0, label: 'no geopolitical narrative' });
     axes.inflation = Object.assign({ live: false }, baked.axes.inflation || { score: 0, label: 'inflation/labor axis off' });
-    // Global cross-asset tape axis — recomputed LIVE from the ?tape=1 legs (the
-    // same rows the barometer rail shows), so an intraday risk-appetite swing in
-    // US futures / the yen carry / BTC MOVES the gauge instead of holding
-    // the stale baked overnight read all session. Falls back to baked when the
-    // axis is off (T.globalOn === false) or too few legs returned.
+    // Global tape axis. Before the open it is re-scored live from the ?tape=1
+    // legs with the shared overnight scorer; from the open on it is the day's
+    // saved pre-open call and stays fixed (liveGlobalTapeAxis returns null).
     (function(){
       var ca = (live && live.crossAsset && typeof live.crossAsset === 'object') ? live.crossAsset : null;
       var lt = (T.globalOn !== false && ca) ? liveGlobalTapeAxis(ca, T) : null;
@@ -14255,7 +15512,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (k === 'yields') return 'Risk-off if the worst 10Y/30Y move is ≥ +' + v(T.yieldBps1d, 10) + 'bp in 1 day (−2 at +' + v(T.yieldBps1dStrong, 16) + 'bp), or the baked 10Y trend is rising by at least ' + v(T.yieldBps1d, 10) + 'bp over 5 days. A matching fall can vote risk-on only when indexes, VIX and credit do not signal stress; otherwise it is an unconfirmed yield decline.';
     if (k === 'commodity') return 'Stress-only. Crude ≥ +' + v(T.oil1d, 4) + '% in 1 day or +' + v(T.oil5d, 12) + '% in 5 days votes −1; a 1-day shock ≥ +' + v(T.oil1dStrong, 8) + '% votes −2. Gold votes only at +' + v(T.gold1d, 3) + '% in 1 day (unless its week is down) or +' + v(T.gold5d, 6) + '% in 5 days, and only when Indexes, VIX or DXY confirms risk-off; oil + confirmed gold can vote −2.';
     if (k === 'sentiment') return 'Risk-off at Fear & Greed ≤ ' + v(T.fgFear, 25) + ' or a 1-day swing ≤ −' + v(T.fgDelta, 10) + ' points; risk-on at ≥ ' + v(T.fgGreed, 75) + ' or a swing ≥ +' + v(T.fgDelta, 10) + '. A stale baked snapshot is ignored; a timestamped CNN observation is rescored.';
-    if (k === 'globalTape') return 'Futures, Asia/EU breadth, USD/JPY and Bitcoin each vote after their own move threshold. At least three signals are required; net votes set ±1, while broad or strongly confirmed agreement sets ±2. It refreshes from the same cross-asset legs shown below.';
+    if (k === 'globalTape') return 'Five groups (equities, volatility, rates, currencies, growth/credit) each vote when their move is at least half a normal day for that market. At least three groups are required. A net of ±3 groups (or ±2 with one very large move) sets ±2; a net of ±1 or ±2 sets ±1. Before the open it re-scores live; from the open it is the saved 09:05 ET call.';
     if (k === 'fed') return 'The average change in hike-minus-cut probability across the nearest FedWatch meetings votes −1 at +' + v(T.fedDriftPt, 5) + ' points, −2 at +' + (2 * v(T.fedDriftPt, 5)) + ', and +1 at −' + v(T.fedDriftPt, 5) + '. An FOMC decision inside the configured near-event window forces at least −1. Slow axis — refreshes at the build.';
     if (k === 'geo') return 'Stress-only. Fresh conflict headlines can vote −2; tariff/geopolitical flashpoints or an active bearish narrative can vote −1. De-escalation clears stress to neutral, not risk-on. Slow axis — refreshes at the build.';
     if (k === 'inflation') return 'CPI votes −1 when ≥' + v(T.cpiWarm, 3.0) + '% and re-accelerating by ≥' + v(T.cpiReaccel, 0.3) + 'pp versus 3 months ago, or when ≥' + v(T.cpiHot, 4.0) + '% and still rising; CPI ≤' + v(T.cpiCool, 2.5) + '% and not rising votes +1. Labor subtracts 1 at a Sahm gap ≥' + v(T.ueSahmSoft, 0.3) + 'pp when it is not improving (confirmed regardless of trend at ' + v(T.ueSahm, 0.5) + 'pp). Combined score is capped at −2 / +1. Slow axis.';
@@ -14352,7 +15609,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     { k:'yields', name:'Long yields', desc:'10Y / 30Y — financial conditions' },
     { k:'commodity', name:'Commodities', desc:'Oil-price moves + confirmed gold demand' },
     { k:'sentiment', name:'Fear & Greed', desc:'CNN equity internals' },
-    { k:'globalTape', name:'Global tape', desc:'Futures + Asia/EU + yen + BTC' },
+    { k:'globalTape', name:'Global tape', desc:'Overnight call: 5 groups, saved 09:05 ET' },
     { k:'fed', name:'Fed path', desc:'FedWatch drift + FOMC proximity' },
     { k:'geo', name:'Geopolitics', desc:'War / tariffs / Iran — headlines' },
     { k:'inflation', name:'Inflation / jobs', desc:'CPI YoY + unemployment' },
@@ -15213,14 +16470,16 @@ function scenarioEventPhase(ev, now = Date.now()) {
       return Object.assign(base, { status: 'missing', stance: null, label: 'Unavailable', why: 'The overnight sweep has no markets.' });
     }
     var raw = d.tone && d.tone.score != null && isFinite(Number(d.tone.score)) ? Number(d.tone.score) : 0;
-    var state = raw >= 3 ? 'risk-on' : raw <= -3 ? 'risk-off' : raw >= 1 ? 'lean-on' : raw <= -1 ? 'lean-off' : 'mixed';
+    // Same label the Overnight tab shows (shared scorer, 5 groups).
+    var state = ovnToneState(d.tone && d.tone.label);
+    if (state === 'insufficient') return Object.assign(base, { status: 'missing', stance: null, label: 'Not enough data', why: 'Fewer than three of the five overnight groups moved since the prior US close.' });
     var stance = (state === 'risk-on' || state === 'lean-on') ? 1 : (state === 'risk-off' || state === 'lean-off') ? -1 : 0;
     var strength = (state === 'lean-on' || state === 'lean-off') ? 'lean' : 'full';
     var label = state === 'risk-on' ? 'Risk-on' : state === 'risk-off' ? 'Risk-off' : state === 'lean-on' ? 'Leans risk-on' : state === 'lean-off' ? 'Leans defensive' : 'No clean edge';
     var reasons = d.tone && Array.isArray(d.tone.reasons) ? d.tone.reasons.slice(0, 3) : [];
-    var why = 'Overnight score ' + (raw > 0 ? '+' : '') + raw + '.' + (reasons.length ? ' ' + reasons.join(' ') : ' No broad reason cleared the vote thresholds.');
+    var why = 'Overnight score ' + (raw > 0 ? '+' : '') + raw + ' of ±5 groups' + (d.tone && d.tone.source ? ' (' + ovnSourceLabel(d.tone) + ')' : '') + '.' + (reasons.length ? ' ' + reasons.join('; ') + '.' : ' No group cleared its vote threshold.');
     var fresh = overnightFreshness(d);
-    if (!fresh.current) return Object.assign(base, { status: 'stale', stance: null, label: label, why: 'Reference only. ' + why });
+    if (!fresh.current && !ovnTodayCall(d)) return Object.assign(base, { status: 'stale', stance: null, label: label, why: 'Reference only. ' + why });
     return Object.assign(base, { status: 'ready', stance: stance, strength: strength, label: label, why: why });
   }
   function riskFearDesk(){
@@ -25557,7 +26816,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   return { valid, expired, status, label };
 })());
   var historicalData = (function historicalDataFactory(host, doc, options) {
-  const state = { data: null, pending: false, error: null, symbol: 'SPY', range: 'all', study: 'q4', view: 'studies', context: 'VIXCLS', bound: false, libraryScroll: 0, freshnessTimer: null };
+  const state = { data: null, pending: false, error: null, symbol: 'SPY', range: 'all', study: 'q4', event: 'war', view: 'studies', context: 'VIXCLS', bound: false, libraryScroll: 0, freshnessTimer: null };
   const nyClock = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
   const clockParts = time => Object.fromEntries(nyClock.formatToParts(new Date(time)).map(p => [p.type, p.value]));
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -25592,14 +26851,15 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (expires > now) candidates.push(expires);
     state.freshnessTimer = host.setTimeout(() => { if (!doc.hidden && root()?.closest('.page-pane')?.hidden === false) render(); }, Math.max(1, Math.min(...candidates) - now));
   }
-  function save() { try { host.localStorage.setItem('stonks-historical-view', JSON.stringify({ symbol: state.symbol, range: state.range, study: state.study, view: state.view, context: state.context })); } catch {} }
+  function save() { try { host.localStorage.setItem('stonks-historical-view', JSON.stringify({ symbol: state.symbol, range: state.range, study: state.study, event: state.event, view: state.view, context: state.context })); } catch {} }
   function restore() {
     try {
       const saved = JSON.parse(host.localStorage.getItem('stonks-historical-view') || '{}');
       if (typeof saved.symbol === 'string' && /^[A-Z]{1,5}$/.test(saved.symbol)) state.symbol = saved.symbol;
       if (['all', '20y', '10y'].includes(saved.range)) state.range = saved.range;
       if (typeof saved.study === 'string') state.study = saved.study;
-      if (['studies','context','sources'].includes(saved.view)) state.view = saved.view;
+      if (['studies','events','context','sources'].includes(saved.view)) state.view = saved.view;
+      if (typeof saved.event === 'string' && /^[a-z0-9-]+$/.test(saved.event)) state.event = saved.event;
       if (typeof saved.context === 'string') state.context = saved.context;
     } catch {}
   }
@@ -25633,7 +26893,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     return data;
   }
   function viewTabs() {
-    return '<div class="h-view-tabs" aria-label="Historical Data views">' + [['studies','Seasonal studies'],['context','Macro & conditions'],['sources','Sources & coverage']].map(([id,label]) => '<button type="button" data-history-view="' + id + '" aria-pressed="' + (state.view === id) + '" class="' + (state.view === id ? 'is-selected' : '') + '">' + label + '</button>').join('') + '</div>';
+    return '<div class="h-view-tabs" aria-label="Historical Data views">' + [['studies','Seasonal studies'],['events','Events & analogs'],['context','Macro & conditions'],['sources','Sources & coverage']].map(([id,label]) => '<button type="button" data-history-view="' + id + '" aria-pressed="' + (state.view === id) + '" class="' + (state.view === id ? 'is-selected' : '') + '">' + label + '</button>').join('') + '</div>';
   }
   function coverageStatus(s) {
     if (s.status === 'ready') return '10+ years verified';
@@ -25642,7 +26902,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   function sourceView(data) {
     const c = data.coverage, sources = [...c.markets, ...c.context];
     const table = list => '<div class="h-table-wrap"><table class="h-table h-source-table"><thead><tr><th>Dataset / original publisher</th><th>Usable dates</th><th>Years / observations</th><th>Coverage and refresh</th></tr></thead><tbody>' + list.map(s => '<tr><td><a href="' + escape(s.url) + '" target="_blank" rel="noopener">' + escape(s.id + ' · ' + s.label) + '</a><small>' + escape(s.publisher + ' via ' + s.provider) + '</small></td><td>' + escape(s.firstDate || '—') + ' → ' + escape(s.lastDate || '—') + (s.excludedEarlyObservations ? '<small>Excluded ' + s.excludedEarlyObservations + ' earlier observations before ' + s.gapCount + ' reporting gaps. Raw source starts ' + escape(s.rawFirstDate) + '.</small>' : '') + '</td><td>' + number(s.years, 1) + ' years<small>' + s.observations.toLocaleString() + ' · ' + escape(s.frequency) + '</small></td><td>' + escape(coverageStatus(s)) + (s.error ? '<small class="h-neg">Latest refresh failed · retained data: ' + escape(s.error) + '</small>' : '') + (sourceStale(s) ? '<small class="h-neg">Latest observation is stale</small>' : '') + '<small>Source check: ' + escape(s.checkedAt || 'no source check recorded') + '</small><small>Last successful download: ' + escape(s.lastSuccessAt || 'not recorded') + '</small>' + (s.confirmedThrough ? '<small>Confirmed closes through ' + escape(s.confirmedThrough) + '</small>' : '') + '</td></tr>').join('') + '</tbody></table></div>';
-    return '<div class="h-source-intro"><h3>Ten-year coverage ledger</h3><p>' + c.ready + ' of ' + c.total + ' catalogued datasets pass the ten-year history rule. Provider subscription fees for enabled adapters: $0. A missing, short or failed dataset never becomes a zero or a successful coverage claim.</p><p class="h-caption">Dates describe the contiguous usable tail, not an interpolated history. Earlier irregular reporting is retained in the source cache but excluded from comparisons. Free access does not grant blanket redistribution rights.</p></div>' + ['US stocks','Bonds','Commodities'].map(group => '<h4 class="h-source-heading">' + group + '</h4>' + table(c.markets.filter(s => s.group === group))).join('') + '<h4 class="h-source-heading">Macro, volatility and physical commodities</h4>' + table(c.context) + '<section class="h-paid"><h3>Optional paid data · none connected</h3><p>These services fill specific gaps. Each requires your approval before implementation or subscription. Prices checked October 24, 2026; taxes and business/display licenses may add cost.</p>' + c.paidOptions.map(p => '<article><h4><a href="' + escape(p.url) + '" target="_blank" rel="noopener">' + escape(p.name) + '</a> · ' + escape(p.cost) + '</h4><p>' + escape(p.purpose) + '</p><p class="h-caption">' + escape(p.limitation) + ' ' + escape(p.status) + '.</p></article>').join('') + '</section><details class="h-disclosure"><summary>Coverage boundaries and outstanding data needs</summary><ul>' + c.boundaries.map(t => '<li>' + escape(t) + '</li>').join('') + '<li>Long original-vintage macro histories need ALFRED vintage retrieval before use in a historical trading backtest. Current context charts use revised observations.</li><li>Super Bowl, lunar, intraday, event-surprise and option-chain effects remain untested without their separate event datasets.</li></ul></details>';
+    return '<div class="h-source-intro"><h3>Ten-year coverage ledger</h3><p>' + c.ready + ' of ' + c.total + ' catalogued datasets pass the ten-year history rule. Provider subscription fees for enabled adapters: $0. A missing, short or failed dataset never becomes a zero or a successful coverage claim.</p><p class="h-caption">Dates describe the contiguous usable tail, not an interpolated history. Earlier irregular reporting is retained in the source cache but excluded from comparisons. Free access does not grant blanket redistribution rights.</p></div>' + ['US stocks','Bonds','Commodities'].map(group => '<h4 class="h-source-heading">' + group + '</h4>' + table(c.markets.filter(s => s.group === group))).join('') + '<h4 class="h-source-heading">Macro, volatility and physical commodities</h4>' + table(c.context) + (Array.isArray(c.eventMarkets) && c.eventMarkets.length ? '<h4 class="h-source-heading">Event-study histories · not counted in the ledger above</h4>' + table(c.eventMarkets) : '') + (Array.isArray(c.releaseCalendars) && c.releaseCalendars.length ? '<h4 class="h-source-heading">Release calendars</h4><ul class="h-caption">' + c.releaseCalendars.map(r => '<li><a href="' + escape(r.url) + '" target="_blank" rel="noopener">' + escape(r.label) + '</a> · ' + escape(r.publisher) + ' · ' + (r.releases ? r.releases.toLocaleString() + ' past releases, ' + escape(r.firstDate) + ' to ' + escape(r.lastDate) : 'not collected') + (r.error ? ' · <span class="h-neg">' + escape(r.error) + '</span>' : '') + '</li>').join('') + '<li>FOMC decision days: Federal Reserve calendar, kept in code.</li></ul>' : '') + '<section class="h-paid"><h3>Optional paid data · none connected</h3><p>These services fill specific gaps. Each requires your approval before implementation or subscription. Prices checked October 24, 2026; taxes and business/display licenses may add cost.</p>' + c.paidOptions.map(p => '<article><h4><a href="' + escape(p.url) + '" target="_blank" rel="noopener">' + escape(p.name) + '</a> · ' + escape(p.cost) + '</h4><p>' + escape(p.purpose) + '</p><p class="h-caption">' + escape(p.limitation) + ' ' + escape(p.status) + '.</p></article>').join('') + '</section><details class="h-disclosure"><summary>Coverage boundaries and outstanding data needs</summary><ul>' + c.boundaries.map(t => '<li>' + escape(t) + '</li>').join('') + '<li>Long original-vintage macro histories need ALFRED vintage retrieval before use in a historical trading backtest. Current context charts use revised observations.</li><li>Super Bowl, lunar, intraday, event-surprise and option-chain effects remain untested without their separate event datasets.</li></ul></details>';
   }
   function contextChart(s) {
     if (s.status !== 'ready' || !s.chart.length) return '<p class="h-notice">This dataset does not meet the ten-year coverage requirement. Its chart and comparative statistics are withheld.</p>';
@@ -25657,6 +26917,69 @@ function scenarioEventPhase(ev, now = Date.now()) {
     const s = list.find(s=>s.id===state.context) || list[0]; if(!s) return '<p class="h-empty">No context series are catalogued.</p>';
     state.context = s.id;
     return '<div class="h-toolbar"><label>Economic or market series<select data-history-control="context">' + list.map(d=>'<option value="'+escape(d.id)+'"'+(d.id===s.id?' selected':'')+'>'+escape(d.label+' · '+d.id)+'</option>').join('') + '</select></label><button type="button" class="book-more" data-history-retry>Refresh snapshot</button></div><div class="h-source-intro"><span class="h-kicker">'+escape(s.group+' · '+coverageStatus(s))+'</span><h3>'+escape(s.label)+'</h3><p>'+escape(s.note || 'Latest revised observations from the original publisher, distributed by FRED.')+'</p><p class="h-caption">'+escape(s.publisher)+' via FRED · '+escape(s.frequency)+' · usable range '+escape(s.firstDate||'—')+' to '+escape(s.lastDate||'—')+' · '+number(s.years,1)+' years</p></div>' + (sourceStale(s) ? '<p class="h-notice">The latest observation is stale for this series. The value below is the last reported observation, not a current reading.</p>' : '') + (s.error ? '<p class="h-notice">Latest source refresh failed. Any retained history keeps its original observation dates.</p>' : '') + '<div class="h-metrics">'+metric('Latest reported value',number(s.latest),'As of '+(s.lastDate||'unavailable'))+metric('Ten-year median',number(s.median10y),'Ending '+(s.lastDate||'unavailable'))+metric('Ten-year level percentile',s.percentile10y==null?'—':number(s.percentile10y,0)+'%', 'Descriptive rank, not a return')+metric('History coverage',number(s.years,1)+' years',s.observations.toLocaleString()+' observations')+'</div>'+contextChart(s)+'<p class="h-caption">Source: <a href="'+escape(s.url)+'" target="_blank" rel="noopener">'+escape(s.publisher+' · '+s.id)+'</a>. '+escape(s.vintage)+'. Observation periods may precede publication. Ten-year statistics end at the latest reported observation. Trending levels can have high percentiles without an unusual economic change. These charts do not condition return analogs or imply a trade.</p>';
+  }
+  // Events & analogs: dated event studies, rule studies and the "resembles
+  // now" matches, all computed in the bake (lib/historical-events.mjs).
+  const basisLabel = b => ({ price: 'Price trigger', 'price+rates': 'Price and rates trigger', 'headline+price': 'Headline plus market reaction', calendar: 'Calendar' })[b] || 'Trigger';
+  function eventCount(s) {
+    if (s.kind === 'dated') return (s.summary?.n ?? 0) + (s.peak ? ' peaks' : ' episodes');
+    const since = s.since ? ' since ' + String(s.since).slice(0, 4) : '';
+    if (s.kind === 'rule') return (s.occurrences ?? 0) + ' days, ' + (s.clusters ?? s.summary?.n ?? 0) + ' clusters' + since;
+    if (s.kind === 'nasdaq') return (s.all?.n ?? 0) + ' days, ' + (s.firstInCluster?.n ?? 0) + ' clusters' + since;
+    if (s.kind === 'witching') return (s.rows?.[0]?.n ?? 0) + ' expirations' + since;
+    if (s.kind === 'wwdc') return (s.summary?.n ?? 0) + ' keynotes';
+    if (s.kind === 'econ') return (s.rows || []).filter(r => r.n).length + ' release types';
+    return '';
+  }
+  const share = v => typeof v === 'number' && Number.isFinite(v) ? number(v, 0) + '%' : '—';
+  const cell = v => '<td class="' + sign(v) + '">' + pct(v) + '</td>';
+  function episodeTable(s, horizons) {
+    const extra = s.episodes.some(e => e.oil20Pct != null) ? ['oil20Pct', 'WTI spot, 20 readings'] : s.episodes.some(e => e.banks20Pct != null) ? ['banks20Pct', 'Regional bank ETF (KRE), 20 sessions'] : null;
+    const head = s.peak ? ['Peak close', 'Boom', '250 sessions before'].concat(horizons.slice(2).map(h => h.label + ' after'), ['Lowest close (1,500 sessions)', 'Sessions to low', 'Sessions to regain peak'])
+      : ['Date', 'Event'].concat(horizons.map(h => h.label), ['Worst close, 60 sessions', 'Sessions to regain']).concat(extra ? [extra[1]] : []);
+    const recover = e => e.recoverySessions == null ? (e.recoveryWindowComplete ? 'Not within ' + (s.peak ? '1,500' : '750') : 'Not yet') : e.recoverySessions === 0 ? 'Never below' : String(e.recoverySessions);
+    const label = e => (s.kind === 'rule' ? (e.name ? e.name + ' · ' : '') + pct(e.dropPct) + ' day' + (e.firstInCluster === false ? ' · same cluster' : '') : e.name || '');
+    const rows = [...s.episodes].reverse().map(e => e.unavailable ? '<tr><th scope="row">' + escape(e.date) + '</th><td>' + escape(e.name) + '</td><td colspan="' + (head.length - 2) + '">' + escape(e.market) + ' history does not cover this date.</td></tr>'
+      : '<tr><th scope="row">' + escape(e.date) + (e.session && e.session !== e.date && !s.peak ? '<small>First session ' + escape(e.session) + '</small>' : '') + '</th><td>' + escape(label(e)) + (e.market && e.market !== s.market ? ' <small>Measured on ' + escape(e.marketLabel || e.market) + '</small>' : '') + (e.note ? '<small>' + escape(e.note) + '</small>' : '') + (e.peakConfirmed === false ? '<small class="neg">Not the highest close of the prior three years and next 60 sessions in this data.</small>' : '') + '</td>' + (s.peak ? cell(e.prior250Pct) + horizons.slice(2).map(h => cell(e['d' + h.sessions])).join('') + cell(e.troughPct) + '<td>' + (e.troughSessions ?? '—') + '</td>' : horizons.map(h => cell(e['d' + h.sessions])).join('') + cell(e.drawdown60Pct)) + '<td>' + escape(recover(e)) + '</td>' + (extra && !s.peak ? cell(e[extra[0]]) : '') + '</tr>').join('');
+    const caption = s.peak ? 'Returns are cumulative from the peak close, in trading sessions (1 month = 20, 3 months = 60, 1 year = 250). Price only, no dividends.' : 'Returns are cumulative from the close before the first session, in trading sessions (1 week = 5, 1 month = 20, 3 months = 60, 1 year = 250). "Sessions to regain" counts to the first close back at or above that close, looking up to 750 sessions (about three years). Price only, no dividends.' + (extra ? ' ' + (extra[0] === 'oil20Pct' ? 'WTI spot is the FRED daily series, from 1986.' : 'KRE starts in 2006.') : '');
+    return '<p class="h-caption">' + escape(caption) + '</p><div class="h-table-wrap"><table class="h-table h-event-table"><thead><tr>' + head.map(h => '<th scope="col">' + escape(h) + '</th>').join('') + '</tr></thead><tbody>' + (rows || '<tr><td colspan="' + head.length + '">No episodes in this snapshot.</td></tr>') + '</tbody></table></div>';
+  }
+  function eventDetail(s, ev) {
+    const horizons = Array.isArray(ev.horizons) ? ev.horizons : [];
+    const head = '<header class="h-study-head"><div><span class="h-kicker">' + escape(((s.markets && s.markets.length > 1 ? s.markets.join(' and ') : s.marketLabel || s.market) || '') + ' · ' + ({ dated: 'Dated episodes', rule: 'Every qualifying day', nasdaq: 'Every qualifying day', witching: 'Every expiration', wwdc: 'Every keynote', econ: 'Every scheduled release' })[s.kind]) + '</span><h3>' + escape(s.name) + '</h3></div></header><p class="h-claim">' + escape(s.claim) + '</p>' + (s.definition ? '<p class="h-definition">' + escape(s.definition) + '</p>' : '') + (s.note ? '<p class="h-caption">' + escape(s.note) + '</p>' : '');
+    if (s.kind === 'dated' || s.kind === 'rule') {
+      const m = s.summary || {}, at = h => m['d' + h] || {};
+      const black = s.blackMonday ? '<section class="h-comparison"><span class="h-kicker">1987 Black Monday · ' + escape(s.blackMonday.date) + '</span><p>Day 1 <b class="' + sign(s.blackMonday.d1) + '">' + pct(s.blackMonday.d1) + '</b> · 1 month ' + pct(s.blackMonday.d20) + ' · 1 year ' + pct(s.blackMonday.d250) + ' · regained the pre-crash close (' + escape(s.blackMonday.baseline) + ') after ' + escape(s.blackMonday.recoverySessions == null ? 'more than 750 sessions' : s.blackMonday.recoverySessions + ' sessions') + '.</p></section>' : '';
+      return head + (s.peak ? '<div class="h-metrics">' + metric('Median lowest close', pct(m.medianTroughPct), 'From the peak, within 1,500 sessions (about six years)', sign(m.medianTroughPct)) + metric('3 months after peak', pct(at(60).medianPct), share(at(60).positivePct) + ' positive', sign(at(60).medianPct)) + metric('1 year after peak', pct(at(250).medianPct), share(at(250).positivePct) + ' positive', sign(at(250).medianPct)) + metric('Regained the peak', share(m.recoveredPct), 'Within 1,500 sessions' + (m.medianRecoverySessions == null ? '' : '; median ' + number(m.medianRecoverySessions, 0))) + '</div>'
+        : '<div class="h-metrics">' + metric('Day 1 median', pct(at(1).medianPct), share(at(1).positivePct) + ' positive', sign(at(1).medianPct)) + metric('1 month median', pct(at(20).medianPct), share(at(20).positivePct) + ' positive', sign(at(20).medianPct)) + metric('3 months median', pct(at(60).medianPct), share(at(60).positivePct) + ' positive', sign(at(60).medianPct)) + metric('1 year median', pct(at(250).medianPct), share(at(250).positivePct) + ' positive', sign(at(250).medianPct)) + '</div><p class="h-caption">Median worst close within 60 sessions ' + pct(m.medianDrawdown60Pct) + '. ' + share(m.recoveredPct) + ' regained the pre-event close within 750 sessions' + (m.medianRecoverySessions == null ? '' : ' (median ' + number(m.medianRecoverySessions, 0) + ' sessions, counting 0 for episodes that never closed below it)') + '. ' + (m.n || 0) + ' episodes' + (s.kind === 'rule' ? ' (first in each cluster)' : '') + (s.markets && s.markets.length > 1 ? '; medians mix ' + s.markets.join(' and ') + ' episodes' : '') + '; small samples, read each row.</p>') + black + episodeTable(s, horizons);
+    }
+    if (s.kind === 'nasdaq') {
+      const a = s.all || {}, f = s.firstInCluster || {};
+      const row = (label, x) => '<tr><th scope="row">' + label + '</th><td>' + (x.n ?? 0) + '</td><td>' + share(x.nextDayUpPct) + '</td><td>' + share(x.slightBouncePct) + '</td><td>' + share(x.below5Pct) + '</td><td>' + share(x.bounceThenBelowPct) + ' <small>of ' + (x.bounceN ?? 0) + '</small></td><td>' + share(x.below20Pct) + '</td>' + cell(x.medianFwd20Pct) + cell(x.medianFwd60Pct) + '</tr>';
+      const recent = [...s.episodes].reverse().slice(0, 40);
+      return head + '<div class="h-metrics">' + metric('Next day up', share(f.nextDayUpPct), 'First in cluster') + metric('Slight bounce, then lower', share(f.bounceThenBelowPct), (f.bounceN ?? 0) + ' slight-bounce cases') + metric('Closed below within 5 sessions', share(f.below5Pct), 'Below the drop-day close') + metric('1 month later', pct(f.medianFwd20Pct), share(f.positiveFwd20Pct) + ' positive', sign(f.medianFwd20Pct)) + '</div><div class="h-table-wrap"><table class="h-table"><thead><tr><th>Sample</th><th>Drop days</th><th>Next day up</th><th>Slight bounce (0–2%)</th><th>Closed below within 5</th><th>Bounce, then below within 5</th><th>Closed below within 20</th><th>Median 1 month</th><th>Median 3 months</th></tr></thead><tbody>' + row('Every 4% drop', a) + row('First in cluster', f) + '</tbody></table></div><details class="h-disclosure"><summary>Most recent ' + recent.length + ' of ' + s.episodes.length + ' drops</summary><div class="h-table-wrap"><table class="h-table"><thead><tr><th>Date</th><th>Drop</th><th>Next day</th><th>Closed below within 5</th><th>1 month</th><th>3 months</th></tr></thead><tbody>' + recent.map(e => '<tr><th scope="row">' + escape(e.date) + (e.firstInCluster ? '' : ' <small>cluster</small>') + '</th>' + cell(e.dropPct) + cell(e.next1Pct) + '<td>' + (e.below5 == null ? '—' : e.below5 ? 'Yes' : 'No') + '</td>' + cell(e.fwd20Pct) + cell(e.fwd60Pct) + '</tr>').join('') + '</tbody></table></div></details>';
+    }
+    if (s.kind === 'witching') {
+      return head + '<div class="h-table-wrap"><table class="h-table"><thead><tr><th>Expiration</th><th>Count</th><th>Day up</th><th>Median day</th><th>Average absolute day move</th><th>Week up</th><th>Median week</th><th>Following week up</th><th>Median following week</th></tr></thead><tbody>' + (s.rows || []).map(r => '<tr><th scope="row">' + escape(r.label) + '</th><td>' + r.n + '</td><td>' + share(r.dayUpPct) + '</td>' + cell(r.medianDayPct) + '<td>' + pct(r.meanAbsDayPct).replace('+', '') + '</td><td>' + share(r.weekUpPct) + '</td>' + cell(r.medianWeekPct) + '<td>' + share(r.nextWeekUpPct) + '</td>' + cell(r.medianNextWeekPct) + '</tr>').join('') + '<tr><th scope="row">Fridays without an expiration</th><td>—</td><td>—</td><td>—</td><td>' + pct(s.otherFridayMeanAbsPct).replace('+', '') + '</td><td colspan="4">—</td></tr></tbody></table></div><details class="h-disclosure"><summary>Recent quarterly expirations</summary><div class="h-table-wrap"><table class="h-table"><thead><tr><th>Date</th><th>Day</th><th>Week</th><th>Following week</th></tr></thead><tbody>' + (s.recent || []).map(r => '<tr><th scope="row">' + escape(r.date) + '</th>' + cell(r.dayPct) + cell(r.weekPct) + cell(r.nextWeekPct) + '</tr>').join('') + '</tbody></table></div></details>';
+    }
+    if (s.kind === 'wwdc') {
+      const m = s.summary || {};
+      return head + '<div class="h-metrics">' + metric('Rose into the keynote', share(m.runupUpPct), 'Median ' + pct(m.medianRunupPct)) + metric('Fell on keynote day', share(m.keynoteDownPct), 'Median ' + pct(m.medianKeynotePct)) + metric('Fell over the next 5 sessions', share(m.after5DownPct), 'Median ' + pct(m.medianAfter5Pct)) + metric('Full sell-the-news pattern', share(m.sellTheNewsPct), (m.n || 0) + ' keynotes') + '</div><p class="h-caption">Median 20 sessions after the keynote ' + pct(m.medianAfter20Pct) + '. Against the Nasdaq, the median 5-session move after the keynote was ' + pct(m.medianRelAfter5Pct) + '.</p><div class="h-table-wrap"><table class="h-table"><thead><tr><th>Keynote</th><th>10 sessions before</th><th>Keynote day</th><th>5 sessions after</th><th>20 sessions after</th><th>Before vs Nasdaq</th><th>After vs Nasdaq</th></tr></thead><tbody>' + [...(s.episodes || [])].reverse().map(e => '<tr><th scope="row">' + escape(e.date) + (e.sellTheNews ? ' <small>sell the news</small>' : '') + '</th>' + cell(e.runupPct) + cell(e.keynotePct) + cell(e.after5Pct) + cell(e.after20Pct) + cell(e.relRunupPct) + cell(e.relAfter5Pct) + '</tr>').join('') + '</tbody></table></div>';
+    }
+    if (s.kind === 'econ') {
+      return head + '<div class="h-table-wrap"><table class="h-table"><thead><tr><th>Release</th><th>Sessions</th><th>Average absolute move</th><th>No-release days</th><th>1% move or more</th><th>No-release days</th><th>Up on the day</th><th>Next day average absolute move</th></tr></thead><tbody>' + (s.rows || []).map(r => r.n ? '<tr><th scope="row">' + escape(r.label) + '<small>' + escape(r.source) + ' · since ' + escape(r.since) + (r.marketClosed ? ' · ' + r.marketClosed + ' listed on market holidays, not counted' : '') + (r.droppedSameMonth ? ' · ' + r.droppedSameMonth + ' extra same-month dates dropped' : '') + '</small></th><td>' + r.n + '</td><td>' + pct(r.meanAbsPct).replace('+', '') + '</td><td>' + pct(r.otherMeanAbsPct).replace('+', '') + '</td><td>' + share(r.bigMovePct) + '</td><td>' + share(r.otherBigMovePct) + '</td><td>' + share(r.upPct) + '</td><td>' + pct(r.nextDayMeanAbsPct).replace('+', '') + '</td></tr>' : '<tr><th scope="row">' + escape(r.label) + '</th><td colspan="7">Release dates are not in this snapshot' + (r.id === 'fomc' ? '.' : ' (they need the FRED API key in the build).') + '</td></tr>').join('') + '</tbody></table></div>' + ((s.upcoming || []).length ? '<p class="h-caption">Next: ' + s.upcoming.map(u => escape(u.label.replace(/ \(.*/, '') + ' ' + u.date)).join(' · ') + '.</p>' : '');
+    }
+    return head;
+  }
+  function eventsView(data) {
+    const ev = data.events;
+    if (!ev || typeof ev.studies !== 'object' || !Array.isArray(ev.order) || !ev.order.length) return '<p class="h-empty">Event studies are not in this snapshot yet. The next full market build adds them.</p>';
+    if (!ev.order.includes(state.event)) state.event = ev.order[0];
+    const matches = Array.isArray(ev.matches) ? ev.matches : [];
+    const cards = matches.length ? '<p class="h-caption">Conditions on the latest completed close (' + escape(ev.asOf || '—') + ') that look like a past event or pattern. Each card names the trigger and what happened before. A match is a comparison, not a forecast.</p><div class="h-match-grid">' + matches.map(m => '<article class="h-match"><span class="h-kicker">' + escape(basisLabel(m.basis)) + '</span><h4>' + escape(m.name) + '</h4><p>' + escape(m.why) + '</p>' + (m.history ? '<p class="h-caption">' + escape(m.history) + '</p>' : '') + '<button type="button" class="book-more" ' + (m.seasonal ? 'data-history-goto-study="' + escape(m.study) + '"' : 'data-history-event="' + escape(m.study) + '"') + '>Open the history</button></article>').join('') + '</div>'
+      : '<p class="h-caption">Nothing on the latest completed close (' + escape(ev.asOf || '—') + ') matches a catalogued event. Every full build checks Nasdaq and S&P 500 drops, VIX, oil, gold, regional banks, a Nasdaq bubble-style run, macro headlines with a risk-off reaction, squeeze-style single-name moves, triple witching, WWDC, FOMC, CPI and jobs days, and open seasonal windows.</p>';
+    const library = '<aside class="h-library" aria-label="Event library"><h3>Event library</h3><p>Pick an event. Read every episode.</p>' + ev.order.map(id => { const s = ev.studies[id]; return s ? '<button type="button" class="h-study-button' + (id === state.event ? ' is-selected' : '') + '" data-history-event="' + escape(id) + '" aria-pressed="' + (id === state.event) + '"><span>' + escape(s.name) + '</span><small>' + escape(eventCount(s)) + '</small></button>' : ''; }).join('') + '</aside>';
+    return '<section class="h-matches"><h3>Resembles now</h3>' + cards + '</section><div class="h-layout">' + library + '<div class="h-detail">' + eventDetail(ev.studies[state.event], ev) + '</div></div><details class="h-disclosure"><summary>How event studies are measured</summary><ul>' + (ev.methodology || []).map(m => '<li>' + escape(m) + '</li>').join('') + '</ul></details>';
   }
   function metric(label, value, note = '', cls = '') { return '<div class="h-metric"><span>' + escape(label) + '</span><b class="' + cls + '">' + escape(value) + '</b>' + (note ? '<small>' + escape(note) + '</small>' : '') + '</div>'; }
   function lineChart(study, sample) {
@@ -25702,7 +27025,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
     doc.addEventListener('visibilitychange', refreshFreshness);
     root().addEventListener('click', event => {
       const button = event.target.closest('button'); if (!button) return;
-      if (['studies','context','sources'].includes(button.dataset.historyView)) { state.view = button.dataset.historyView; save(); render(); }
+      if (['studies','events','context','sources'].includes(button.dataset.historyView)) { state.view = button.dataset.historyView; save(); render(); }
+      if (button.dataset.historyEvent) { state.event = button.dataset.historyEvent; state.view = 'events'; save(); render(); const next = root().querySelector('.h-library [data-history-event="' + state.event + '"]'); if (next) next.focus({ preventScroll: true }); }
+      if (button.dataset.historyGotoStudy) { state.study = button.dataset.historyGotoStudy; state.view = 'studies'; save(); render(); }
       if (button.dataset.historyStudy) { state.study = button.dataset.historyStudy; save(); render(); const next = root().querySelector('[data-history-study="' + state.study + '"]'); if (next) next.focus({ preventScroll: true }); }
       if (button.hasAttribute('data-history-retry')) load(true);
       if (button.hasAttribute('data-history-export')) exportCsv();
@@ -25725,6 +27050,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     const notice = snapshotNotice(data);
     if (state.view === 'sources') { el.innerHTML = viewTabs() + notice + sourceView(data); return; }
     if (state.view === 'context') { el.innerHTML = viewTabs() + notice + contextView(data); return; }
+    if (state.view === 'events') { el.innerHTML = viewTabs() + notice + eventsView(data); return; }
     const available = Object.keys(data.indexes);
     if (!available.length) { el.innerHTML = viewTabs() + '<div class="h-empty"><h3>Historical coverage is not ready</h3><p>No market currently meets the ten-year history requirement. Inspect Sources & coverage for actual dates and failures. Missing data is not a zero return.</p><button type="button" class="book-more" data-history-retry>Check again</button></div>'; return; }
     if (!available.includes(state.symbol)) state.symbol = available[0];
@@ -25793,12 +27119,12 @@ function scenarioEventPhase(ev, now = Date.now()) {
   const url=x=>typeof x==='string'&&/^https:\/\//.test(x)?esc(x):null;
   function valid(j){
     const list=(x,check)=>Array.isArray(x)&&x.every(check),optional=(x,check)=>x===undefined||x===null||check(x);
-    const axis=a=>optional(a,a=>list(a.rows,r=>r&&typeof r.name==='string'&&finite(r.value))&&typeof a.period?.currentPeriod?.endDate==='string'&&['quarter','annual'].includes(a.period.periodType)&&['USD','TWD'].includes(a.currency));
+    const axis=a=>optional(a,a=>list(a.rows,r=>r&&typeof r.name==='string'&&finite(r.value)&&optional(r.isNew,v=>typeof v==='boolean'))&&typeof a.period?.currentPeriod?.endDate==='string'&&['quarter','annual'].includes(a.period.periodType)&&['USD','TWD'].includes(a.currency));
     const metric=m=>m&&optional(m.value,finite)&&typeof m.unit==='string'&&optional(m.sourceUrl,u=>typeof u==='string');
-    const companyRecord=r=>r&&r.version===1&&r.years===3&&typeof r.windowStart==='string'&&list(r.quarters,q=>q&&typeof q.end==='string'&&typeof q.start==='string'&&typeof q.currency==='string'&&q.metrics&&Object.values(q.metrics).every(metric))&&list(r.vendorFacts,x=>x&&typeof x.metric==='string'&&typeof x.currency==='string'&&finite(x.value)&&typeof x.firstSeenAt==='string')&&finite(r.retainedVendorVersions);
+    const companyRecord=r=>r&&r.version===1&&r.years===3&&typeof r.windowStart==='string'&&list(r.quarters,q=>q&&typeof q.end==='string'&&typeof q.start==='string'&&typeof q.currency==='string'&&q.metrics&&Object.values(q.metrics).every(metric))&&list(r.vendorFacts,x=>x&&typeof x.metric==='string'&&typeof x.currency==='string'&&finite(x.value)&&typeof x.firstSeenAt==='string')&&finite(r.retainedVendorVersions)&&optional(r.financialCoverage,f=>f&&optional(f.latestAgeDays,finite)&&list(f.missingLatestMetrics,x=>typeof x==='string')&&list(f.vendorMetrics,x=>x&&typeof x.metric==='string'&&finite(x.periods)&&optional(x.latestEnd,d=>typeof d==='string')));
     const industry=e=>e&&['memory','gpu','capex'].includes(e.id)&&['ram-prices','accelerator-prices','ai-capex'].includes(e.tab)&&typeof e.name==='string'&&typeof e.limit==='string'&&list(e.rows,r=>r&&typeof r.label==='string'&&optional(r.value,finite)&&typeof r.unit==='string'&&typeof r.status==='string'&&optional(r.date,d=>typeof d==='string'))&&list(e.connections,r=>r&&/^[A-Z0-9.]{1,6}$/.test(r.symbol)&&['role','mechanism','confirm'].every(k=>typeof r[k]==='string'));
-    const issuer=c=>c&&typeof c.symbol==='string'&&/^[A-Z0-9.]{1,6}$/.test(c.symbol)&&c.forecast&&typeof c.forecast.status==='string'&&(!c.forecast.currency||['USD','TWD'].includes(c.forecast.currency))&&optional(c.forecast.warnings,w=>list(w,v=>typeof v==='string'))&&c.profile&&list(c.profile.drivers,d=>d&&typeof d.name==='string')&&optional(c.profile.boundaries,b=>list(b,v=>typeof v==='string'))&&list(c.sources,s=>s&&typeof s.metric==='string')&&list(c.evaluations,e=>e&&['revenue','eps'].includes(e.metric)&&['USD','TWD'].includes(e.currency))&&axis(c.mix?.product)&&axis(c.mix?.geographic)&&optional(c.historical,h=>list(h.horizons,r=>r&&r.revenue))&&optional(c.companyRecord,companyRecord)&&optional(c.valuationReference,r=>r&&optional(r.spot,finite)&&optional(r.forwardPE,finite));
-    return j?.version===1&&Number.isFinite(Date.parse(j.builtAtIso))&&Array.isArray(j.companies)&&j.companies.length<=10&&new Set(j.companies.map(c=>c?.symbol)).size===j.companies.length&&j.companies.every(issuer)&&list(j.methodology,m=>typeof m==='string')&&optional(j.context,c=>list(c,x=>x&&finite(x.value)))&&optional(j.industryEvidence,e=>list(e,industry));
+    const issuer=c=>c&&typeof c.symbol==='string'&&/^[A-Z0-9.]{1,6}$/.test(c.symbol)&&optional(c.former,x=>Number.isFinite(Date.parse(x.leftAt)))&&optional(c.joinedAt,x=>Number.isFinite(Date.parse(x)))&&c.forecast&&typeof c.forecast.status==='string'&&(!c.forecast.currency||['USD','TWD'].includes(c.forecast.currency))&&optional(c.forecast.warnings,w=>list(w,v=>typeof v==='string'))&&c.profile&&list(c.profile.drivers,d=>d&&typeof d.name==='string')&&optional(c.profile.boundaries,b=>list(b,v=>typeof v==='string'))&&list(c.sources,s=>s&&typeof s.metric==='string')&&list(c.evaluations,e=>e&&['revenue','eps'].includes(e.metric)&&['USD','TWD'].includes(e.currency))&&axis(c.mix?.product)&&axis(c.mix?.geographic)&&optional(c.historical,h=>list(h.horizons,r=>r&&r.revenue))&&optional(c.companyRecord,companyRecord)&&optional(c.valuationReference,r=>r&&optional(r.spot,finite)&&optional(r.forwardPE,finite));
+    return j?.version===1&&Number.isFinite(Date.parse(j.builtAtIso))&&Array.isArray(j.companies)&&j.companies.length<=60&&new Set(j.companies.map(c=>c?.symbol)).size===j.companies.length&&j.companies.every(issuer)&&list(j.methodology,m=>typeof m==='string')&&optional(j.context,c=>list(c,x=>x&&finite(x.value)))&&optional(j.industryEvidence,e=>list(e,industry));
   }
   function save(){try{host.localStorage.setItem('stonks-earnings-forecast-view',JSON.stringify({symbol:state.symbol,view:state.view}));}catch{}}
   function restore(){try{const s=JSON.parse(host.localStorage.getItem('stonks-earnings-forecast-view')||'{}');if(typeof s.symbol==='string')state.symbol=s.symbol;if(['forecast','assumptions','business','record','sources','valuation','company','industry'].includes(s.view))state.view=s.view;}catch{}}
@@ -25843,8 +27169,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
       '<section class="ef-scenario"><h3>Model a different mix</h3><p>Adjust product or regional shares, demand, pricing, margins, taxes and dilution in your own scenario.</p><button type="button" data-ef-view="assumptions">Adjust assumptions</button></section>';
   }
   function businessView(c){
-    const mix=c.mix||{},axis=(name,a)=>'<section><h3>'+name+'</h3>'+(!a?'<p class="ef-subtle">This breakdown is not available from the accepted disclosure. No split has been estimated.</p>':'<p class="ef-subtle">Period ended '+esc(a.period.currentPeriod.endDate)+' · '+esc(a.period.periodType)+' · '+esc(a.currency||'unknown currency')+'</p>'+table(['Reported revenue line','Revenue','Share of disclosed breakdown'],a.rows.map(r=>{const total=a.rows.reduce((v,x)=>v+x.value,0);return [esc(r.name),esc(fmt(r.value,a.currency||'USD')),esc(total>0?pct(r.value/total):'Unavailable')];})))+'</section>';
-    return '<h3>'+esc(c.profile.archetype)+'</h3><p>'+esc(mix.note||'Disclosed business mix is unavailable.')+'</p><div class="ef-columns">'+axis('Products and business lines',mix.product)+axis('Regions',mix.geographic)+'</div><h3>Factors to investigate</h3><p>These relationships explain the research questions. Their numerical effect remains uncalibrated.</p><div class="ef-drivers">'+c.profile.drivers.map(d=>'<article><small>'+esc(d.channel)+'</small><h4>'+esc(d.name)+'</h4><p>'+esc(d.rationale)+'</p><span>'+esc(d.exposure)+' · '+esc(d.status)+'</span></article>').join('')+'</div><p class="ef-subtle">'+(c.profile.boundaries||[]).map(esc).join(' ')+'</p>'+
+    const mix=c.mix||{},axis=(name,a)=>'<section><h3>'+name+'</h3>'+(!a?'<p class="ef-subtle">This breakdown is not available from the accepted disclosure. No split has been estimated.</p>':'<p class="ef-subtle">Period ended '+esc(a.period.currentPeriod.endDate)+' · '+esc(a.period.periodType)+' · '+esc(a.currency||'unknown currency')+'</p>'+table(['Reported revenue line','Revenue','Share of disclosed breakdown'],a.rows.map(r=>{const total=a.rows.reduce((v,x)=>v+x.value,0);return [esc(r.name)+(r.isNew?' <span class="ef-badge">New since last filing</span>':''),esc(fmt(r.value,a.currency||'USD')),esc(total>0?pct(r.value/total):'Unavailable')];})))+'</section>';
+    return '<h3>'+esc(c.profile.archetype)+'</h3><p>'+esc(mix.note||(mix.product||mix.geographic?'':'Disclosed business mix is unavailable.'))+'</p><div class="ef-columns">'+axis('Products and business lines',mix.product)+axis('Regions',mix.geographic)+'</div><h3>Factors to investigate</h3><p>'+(c.profile.source==='reported-lines'?'No written profile exists for this company yet. These prompts list its largest reported revenue lines and regions.':'These relationships explain the research questions.')+' Their numerical effect remains uncalibrated.</p><div class="ef-drivers">'+c.profile.drivers.map(d=>'<article><small>'+esc(d.channel)+'</small><h4>'+esc(d.name)+'</h4><p>'+esc(d.rationale)+'</p><span>'+esc(d.exposure)+' · '+esc(d.status)+'</span></article>').join('')+'</div><p class="ef-subtle">'+(c.profile.boundaries||[]).map(esc).join(' ')+'</p>'+
       (state.data.context?.length?'<h3>Current external context</h3><p class="ef-subtle">Reused from the existing market snapshot. These readings are research context and do not add an unvalidated multiplier to revenue.</p>'+table(['Indicator','Reading','Source date','Evidence'],state.data.context.map(x=>[esc(x.label),esc(new Intl.NumberFormat('en-US',{maximumFractionDigits:3}).format(x.value)+' '+x.unit),esc(stamp(x.asOf)),url(x.url)?'<a href="'+url(x.url)+'" target="_blank" rel="noopener noreferrer">Source</a>':'Unavailable'])):'')+
       (url(c.profile.investorUrl)?'<a href="'+url(c.profile.investorUrl)+'" target="_blank" rel="noopener noreferrer">Issuer investor relations</a>':'');
   }
@@ -25853,10 +27179,20 @@ function scenarioEventPhase(ev, now = Date.now()) {
     return '<div class="ef-metrics">'+metric('Resolved revenue quarters',String(sc.revenue?.n||0),'One forecast per target quarter')+metric('Revenue MAE',fmt(sc.revenue?.mae,ccy),'Mean absolute error')+metric('Revenue WAPE',pct(sc.revenue?.wape),'Absolute error ÷ reported revenue')+metric('EPS MAE',fmt(sc.eps?.mae,ccy,true),(sc.eps?.n||0)+' comparable quarters')+'</div>'+
       (!rows.length?notice('Forward results are collecting. A forecast can be scored only after a comparable quarter is reported. No backfilled live accuracy is shown.'):
       table(['Target end','Metric','Frozen forecast','Actual','Actual − forecast','Cutoff'],rows.map(r=>[esc(r.targetEnd),esc(r.metric),esc(fmt(r.forecast,r.currency,r.metric==='eps')),esc(fmt(r.actual,r.currency,r.metric==='eps')),esc(fmt(r.error,r.currency,r.metric==='eps')),esc(stamp(r.cutoffAt))])))+
-      '<h3>Learning candidate</h3><p>'+(candidate?'The '+(candidate.active?'active corrected':'shadow')+' revenue candidate is '+esc(fmt(candidate.revenue,ccy))+', using '+esc(String(candidate.sample))+' previously resolved quarters and a shrunk bias correction of '+esc(pct(candidate.biasFraction))+'.':'No supported correction candidate is available.')+'</p><p class="ef-subtle">'+esc(candidate?.promotionRule||'Candidate corrections remain experimental until independent forward comparisons justify promotion.')+'</p><p class="ef-subtle">Signed error is actual minus forecast. Positive means we forecast too low. Revenue and EPS are evaluated separately; restatements do not rewrite the original run.</p>'+
+      '<h3>Learning candidate</h3><p>'+(candidate?'The '+(candidate.active?'active corrected':'shadow')+' revenue candidate is '+esc(fmt(candidate.revenue,ccy))+', using '+esc(String(candidate.sample))+' previously resolved quarters and a shrunk bias correction of '+esc(pct(candidate.biasFraction))+'.':'No supported correction candidate is available.')+'</p><p class="ef-subtle">'+esc(candidate?.promotionRule||'Candidate corrections remain experimental until independent forward comparisons justify promotion.')+'</p>'+segmentView(c)+'<p class="ef-subtle">Signed error is actual minus forecast. Positive means we forecast too low. Revenue and EPS are evaluated separately; restatements do not rewrite the original run.</p>'+
       (c.historical?'<details class="ef-method"><summary>Retrospective filing-date checks</summary><p>'+esc(c.historical.label)+'</p><p class="ef-subtle">'+esc(c.historical.limits)+'</p>'+table(['Days before observed filing','Revenue quarters','Matched model MAE','Matched naive MAE'],c.historical.horizons.map(h=>[esc(h.horizonDays),esc(h.revenue.matchedN),esc(fmt(h.revenue.matchedModelMae,ccy)),esc(fmt(h.revenue.naiveMae,ccy))]))+'</details>':'');
   }
+  function segmentView(c){
+    const g=c.forecast.segment,ccy=c.forecast.currency||'USD';
+    if(!g)return '<h3>Business-line model</h3><p class="ef-subtle">Unavailable for this quarter. It needs a quarterly breakdown of at least two reported lines that adds up to revenue and compares with the same quarter a year earlier.</p>';
+    return '<h3>Business-line model</h3><p>The '+(g.active?'active':'shadow')+' business-line forecast is '+esc(fmt(g.revenue,ccy))+' revenue'+(finite(g.eps)?' and '+esc(fmt(g.eps,ccy,true))+' EPS':'')+', from '+esc(String(g.lines))+' reported lines with a combined year-over-year change of '+esc(pct(g.growth))+', weighted by their latest share (quarter ended '+esc(g.periodEnd)+'). '+esc(String(g.sample))+' resolved quarters so far.</p>'+(g.newLines?.length?'<p>New line'+(g.newLines.length>1?'s':'')+' since the prior-year quarter: '+esc(g.newLines.join(', '))+' ('+esc(pct(g.newShare))+' of revenue), added at '+esc(fmt(g.newRevenue,ccy))+'.</p>':'')+'<p class="ef-subtle">'+esc(g.rule||'')+' '+esc(g.status||'')+(g.status?'.':'')+'</p>';
+  }
   function sourcesView(c){return '<p>Source facts preserve fiscal periods, currency, accounting basis, source documents and ingestion time. Unknown values are withheld.</p>'+table(['Metric','Period end','Reported value','Source basis','Filed / ingested','Evidence'],c.sources.map(s=>[esc(s.metric),esc(s.periodEnd),esc(finite(s.value)?new Intl.NumberFormat('en-US',{maximumFractionDigits:3}).format(s.value)+' '+s.unit:'Unavailable'),esc(s.basis+' · '+s.quality),esc((s.filed||'Unknown')+' / '+stamp(s.firstSeenAt)),url(s.url)?'<a href="'+url(s.url)+'" target="_blank" rel="noopener noreferrer">SEC source</a>':'Unavailable']))+'<details class="ef-method"><summary>Methodology and limits</summary>'+state.data.methodology.map(m=>'<p>'+esc(m)+'</p>').join('')+'</details>';}
+  function nav(companies,c){
+    const button=x=>'<button type="button" data-ef-company="'+esc(x.symbol)+'" aria-pressed="'+(x.symbol===c.symbol)+'"'+(x.former?' class="ef-former"':'')+'><span><small>'+(x.former?'—':esc(String(x.rank).padStart(2,'0')))+'</small><b>'+esc(x.symbol)+'</b>'+(x.joinedAt&&!x.former&&x.joinedAt===state.data?.cohort?.selectedAt?'<em class="ef-badge">New</em>':'')+'</span><span>'+esc(fmt(x.marketCap))+'</span></button>';
+    const current=companies.filter(x=>!x.former),former=companies.filter(x=>x.former);
+    return current.map(button).join('')+(former.length?'<p class="ef-divider" role="separator">Left the list · frozen record</p>'+former.map(button).join(''):'');
+  }
   function render(){
     const el=root();if(!el)return;
     if(!options.owner()){reset();return;}
@@ -25864,12 +27200,12 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if(!state.data){el.innerHTML=notice(state.error||'No forecast snapshot has been published yet.')+'<button type="button" data-ef-retry>Retry snapshot</button>';bind();return;}
     const j=state.data;if(j.enabled===false){el.innerHTML=notice('Earnings Forecast collection is disabled by the operator. No new predictions are being published.');return;}
     const c=j.companies.find(c=>c.symbol===state.symbol)||j.companies[0];
-    if(!c){el.innerHTML=notice('Market-cap coverage is not ready. The launch group has not been invented.')+'<button type="button" data-ef-retry>Retry snapshot</button>';bind();return;}
-    state.symbol=c.symbol;const f=c.forecast,age=(Date.now()-Date.parse(j.builtAtIso))/86400000;
+    if(!c){el.innerHTML=notice('Market-cap coverage is not ready. The company list has not been invented.')+'<button type="button" data-ef-retry>Retry snapshot</button>';bind();return;}
+    state.symbol=c.symbol;const current=j.companies.filter(x=>!x.former),f=c.forecast,age=(Date.now()-Date.parse(j.builtAtIso))/86400000;
     el.innerHTML='<div class="ef-topline"><span>Snapshot '+esc(stamp(j.builtAtIso))+' · market caps as of '+esc(stamp(j.cohort?.rankingAsOf))+'</span><button type="button" data-ef-retry>Refresh snapshot</button></div>'+
       (age>4?notice('This published snapshot is more than four days old. Forecast cutoffs remain unchanged; newer inputs may be missing.'):'')+
-      (j.cohort?.missing?.length?notice('Ranking excludes '+j.cohort.missing.length+' companies with unavailable market caps. The launch selection is provisional.'):'')+
-      '<div class="ef-layout"><nav class="ef-companies" aria-label="Launch companies">'+j.companies.map(x=>'<button type="button" data-ef-company="'+esc(x.symbol)+'" aria-pressed="'+(x.symbol===c.symbol)+'"><span><small>'+esc(String(x.rank).padStart(2,'0'))+'</small><b>'+esc(x.symbol)+'</b></span><span>'+esc(fmt(x.marketCap))+'</span></button>').join('')+'</nav><div class="ef-detail"><div class="ef-company-head"><div><p class="ef-kicker">Launch company '+esc(c.rank)+' of '+j.companies.length+'</p><h3>'+esc(c.name)+'</h3><p>'+esc(state.view==='valuation'?'Next four fiscal quarters · approximately twelve months':state.view==='company'?'Rolling three-year reported company history':state.view==='industry'?'Industry observations and company research connections':f.target?.label||'Target period unavailable')+'</p></div><span class="ef-status">'+esc(f.status==='ready'?'Unproven forecast':f.status)+'</span></div>'+
+      (j.cohort?.missing?.length?notice('Ranking excludes '+j.cohort.missing.length+' companies with unavailable market caps. The list may change once they are ranked.'):'')+
+      '<div class="ef-layout"><nav class="ef-companies" aria-label="Companies">'+nav(j.companies,c)+'</nav><div class="ef-detail"><div class="ef-company-head"><div><p class="ef-kicker">'+(c.former?'Left the list on '+esc(c.former.leftAt.slice(0,10))+' · was rank '+esc(c.rank):'Rank '+esc(c.rank)+' of '+current.length+(c.joinedAt?' · joined '+esc(c.joinedAt.slice(0,10)):''))+'</p><h3>'+esc(c.name)+'</h3><p>'+esc(state.view==='valuation'?'Next four fiscal quarters · approximately twelve months':state.view==='company'?'Rolling three-year reported company history':state.view==='industry'?'Industry observations and company research connections':f.target?.label||'Target period unavailable')+'</p></div><span class="ef-status">'+esc(f.status==='ready'?'Unproven forecast':f.status)+'</span></div>'+
       '<div class="ef-tabs" aria-label="Company research views">'+[['forecast','Forecast'],['assumptions','Assumptions'],['business','Business & factors'],['record','Track record'],['sources','Sources'],['company','Company record'],['valuation','Full year & value'],['industry','Industry evidence']].map(([v,l])=>'<button type="button" data-ef-view="'+v+'" aria-pressed="'+(state.view===v)+'">'+l+'</button>').join('')+'</div>'+
       (f.status==='stale'?notice('Financial coverage is stale. Treat the values below as historical assumptions until sources recover.'):'')+
       (c.collectionError?notice('Source refresh incomplete: '+c.collectionError+'. The last accepted observations remain intact.'):'')+
@@ -26010,10 +27346,12 @@ function scenarioEventPhase(ev, now = Date.now()) {
       '<h3>Business-line sensitivities</h3><p class="ef-subtle">'+esc(b.mixBasis)+(b.mixPeriod?' · source period '+esc(b.mixPeriod):'')+'. Annual growth applies once; each line’s additional demand and price changes then multiply. These inputs are hypothetical and industry readings do not change them automatically.</p><div class="ef-mix-lines">'+x.lines.map((r,i)=>'<article><h4>'+esc(r.name)+' · '+pct(r.weight*100)+' starting share</h4><div class="ef-controls">'+input('Additional demand / volume change (%)','demandPct',r.demandPct,{row:i})+input('Additional price / monetization change (%)','pricePct',r.pricePct,{row:i})+'</div></article>').join('')+'</div>'+
       '<div data-cr-results>'+results(c)+'</div><button type="button" data-cr-export>Export full-year scenario</button><p class="ef-subtle">Working assumptions stay in memory and clear on sign-out or reload. Exports preserve the source fingerprint. Original forecasts and their scorecards are not edited.</p></section>';
   }
-  function record(c){const r=c.companyRecord;if(!r)return '<p class="ef-notice">The next successful build will add the company record. Older payloads remain readable.</p>';
+  function record(c){const r=c.companyRecord;if(!r)return '<p class="ef-notice">The next successful build will add the company record. Older payloads remain readable.</p>';const coverage=r.financialCoverage;
     return '<h3>Three-year company record</h3>'+(r.historyWarning?'<p class="ef-notice" role="status">'+esc(r.historyWarning)+'. Previously accepted vendor history remains available.</p>':'')+'<p>'+esc(r.note)+'</p><p class="ef-subtle">Window starts '+esc(r.windowStart)+' · '+r.quarters.length+' supported quarter ends · '+esc(r.quarters.length>=12?'At least twelve quarter ends available':'History is still incomplete')+' · '+r.retainedVendorVersions+' retained vendor observations and revisions.</p>'+
+      (coverage?'<p class="ef-notice">Latest supported quarter: '+esc(coverage.latestQuarter||'unavailable')+(finite(coverage.latestAgeDays)?' · '+esc(coverage.latestAgeDays)+' days old at collection':'')+'. '+(coverage.missingLatestMetrics.length?'Missing latest-quarter inputs: '+esc(coverage.missingLatestMetrics.join(', '))+'.':'The latest quarter includes all income-statement and diluted-share inputs used by this view.')+'</p>':'')+
       table(['Period end','Currency / basis','Revenue','Operating income','Net income','Diluted EPS','Source'],r.quarters.map(q=>[esc(q.end),esc(q.currency+' / '+q.basis),money(q.metrics.revenue?.value,q.currency),money(q.metrics.operatingIncome?.value,q.currency),money(q.metrics.netIncome?.value,q.currency),money(q.metrics.eps?.value,q.currency),source(q.metrics.revenue?.sourceUrl)]))+
       '<h3>Cash flow and dated debt observations</h3><p class="ef-subtle">Vendor-normalized financials are kept separately from SEC facts. Observation time is not an asserted filing-publication time. A vendor revision does not erase the earlier stored value.</p>'+
+      (coverage?table(['Financial series','Accepted periods','Latest reporting end'],coverage.vendorMetrics.map(x=>[esc(x.metric),esc(x.periods),esc(x.latestEnd||'Unavailable')])):'')+
       (r.vendorFacts.length?table(['Period end','Metric','Reported value','First collected','Evidence'],r.vendorFacts.map(x=>[esc(x.periodEnd),esc(x.metric),money(x.value,x.currency),esc(x.firstSeenAt),source(x.sourceUrl)])):'<p>No supported vendor cash-flow or dated debt observations are available yet.</p>');
   }
   function industry(c,payload){return '<h3>Industry evidence connected to companies</h3><p>Follow the path from a measured industry observation to the company assumption it could affect. These are research relationships, with confirmation questions, rather than automatic stock-direction calls.</p>'+(payload.industryEvidence||[]).map(e=>{
@@ -26034,25 +27372,28 @@ function scenarioEventPhase(ev, now = Date.now()) {
   function base(c){
     const rows=(c.companyRecord?.quarters||[]),latest=rows.at(-1),same=rows.filter(q=>q.currency===latest?.currency&&q.basis===latest?.basis).slice(-4);
     const continuous=same.length===4&&same.every((q,i)=>!i||(Date.parse(q.start)-Date.parse(same[i-1].end))/86400000>=1&&(Date.parse(q.start)-Date.parse(same[i-1].end))/86400000<=20);
-    const ready=continuous&&same.every(q=>finite(q.metrics.revenue?.value)&&q.metrics.revenue.value>0);
     const a=c.forecast.assumptions||{},f=c.valuationReference||{},mix=c.mix?.product;
+    const age=(Date.parse(f.asOf||c.companyRecord?.asOf)-Date.parse(latest?.end))/86400000;
+    const newerReported=Date.parse(f.reportedPeriodEnd)-Date.parse(latest?.end)>14*86400000;
+    const unavailableReason=c.former?'This company left the current research list. Its frozen quarterly record remains available.':newerReported?'A newer reporting period is known. Full-year valuation waits for its supported financial statements.':!Number.isFinite(age)||age<0||age>180?'The latest supported reporting period is missing or more than 180 days old.':null;
+    const ready=!unavailableReason&&continuous&&same.every(q=>finite(q.metrics.revenue?.value)&&q.metrics.revenue.value>0);
     const reportedMix=mix?.reconciliation?.status==='matched'&&mix.currency===latest?.currency&&Array.isArray(mix.rows)&&mix.rows.length&&mix.rows.every(r=>finite(r.value)&&r.value>=0);
     const total=reportedMix?sum(mix.rows.map(r=>r.value)):0;
     const lines=total>0?mix.rows.map(r=>({name:r.name,weight:r.value/total,demandPct:0,pricePct:0})):[{name:'Consolidated business',weight:1,demandPct:0,pricePct:0}];
-    return {version:1,symbol:c.symbol,currency:latest?.currency||c.forecast.currency||null,status:ready?'ready':'incomplete-history',
+    return {version:1,symbol:c.symbol,currency:latest?.currency||c.forecast.currency||null,status:ready?'ready':'incomplete-history',unavailableReason,
       baselineRevenue:ready?sum(same.map(q=>q.metrics.revenue.value)):null,quarters:same.map(q=>({start:q.start,end:q.end,revenue:q.metrics.revenue?.value??null})),
       latestEnd:latest?.end||null,targetStart:c.forecast.target?.start||null,
       // Four quarter-medians are an explicit annual assumption, not a reported annual result.
       inputs:{growthPct:finite(a.growthRate)?a.growthRate*100:0,grossMarginPct:finite(a.grossMargin)?a.grossMargin*100:null,operatingMarginPct:finite(a.operatingMargin)?a.operatingMargin*100:null,taxRatePct:finite(a.taxRate)?a.taxRate*100:null,nonoperating:finite(a.nonoperating)?a.nonoperating*4:null,commonIncomeAdjustment:finite(a.commonIncomeAdjustment)?a.commonIncomeAdjustment*4:null,dilutedShares:latest?.metrics.dilutedShares?.value??null,shareChangePct:0,exitMultiple:finite(f.forwardPE)&&f.forwardPE>0?f.forwardPE:null,dividendsPerShare:null,lines},
-      epsSupported:finite(c.forecast.outputs?.eps),reference:f,
+      epsSupported:finite(c.forecast.outputs?.eps)&&c.forecast.latestEnd===latest?.end,reference:f,
       mixPeriod:reportedMix?mix.period?.currentPeriod?.endDate||null:null,
       mixBasis:reportedMix?'Disclosed product mix allocated across the full-year baseline; historical shares are a scenario assumption':'Consolidated baseline',
-      sourceFingerprint:JSON.stringify([c.forecast.id,c.forecast.inputKey,latest?.end,same.map(q=>q.metrics),mix,f]),
+      sourceFingerprint:JSON.stringify([c.forecast.id,c.forecast.inputKey,c.former,latest?.end,same.map(q=>q.metrics),mix,f]),
       note:'Next four fiscal quarters, approximately twelve months. A constant annual growth assumption is applied to the last four comparable seasonal quarters. Financial bridge uses explicit annual assumptions. This is an uncalibrated sensitivity, not a price forecast.'};
   }
   function calculate(b,d,{asOf=b.reference.asOf}={}){
     const unavailable=reason=>({status:'unavailable',reason,revenue:null,operatingIncome:null,netIncome:null,eps:null,target:null,priceReturnPct:null,totalReturnPct:null,requiredRevenue:null});
-    if(b.status!=='ready'||!finite(b.baselineRevenue))return unavailable('Four consecutive same-basis reported quarters are required. Missing quarters are not annualized.');
+    if(b.status!=='ready'||!finite(b.baselineRevenue))return unavailable(b.unavailableReason||'Four consecutive same-basis reported quarters are required. Missing quarters are not annualized.');
     if(!finite(d.growthPct)||d.growthPct< -100||d.growthPct>500)return unavailable('Annual revenue growth must be between -100% and 500%.');
     if(finite(d.grossMarginPct)&&(d.grossMarginPct< -100||d.grossMarginPct>100||finite(d.operatingMarginPct)&&d.operatingMarginPct>d.grossMarginPct))return unavailable('Operating margin cannot exceed the assumed gross margin. Gross margin must be between -100% and 100%.');
     if(!Array.isArray(d.lines)||!d.lines.length||d.lines.length>40||d.lines.some(r=>!finite(r.weight)||r.weight<0||!finite(r.demandPct)||r.demandPct< -100||r.demandPct>500||!finite(r.pricePct)||r.pricePct< -100||r.pricePct>500)||Math.abs(sum(d.lines.map(r=>r.weight))-1)>1e-8)return unavailable('Business-line starting shares must total 100%, with valid demand and price assumptions.');
@@ -30993,6 +32334,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(json){
         overnightState.data = (json && json.markets) ? json : { markets: {}, map: {}, regions: [], broad: [], tone: null };
+        // The day may have rolled since the bake: re-pick today's call or the
+        // pre-open snapshot read with the shared scorer.
+        if (overnightState.data.markets && Object.keys(overnightState.data.markets).length) overnightState.data.tone = deriveOvernightTone(overnightState.data);
         overnightState.loading = false;
         overnightState.fetchedAt = Date.now();
         renderOvernight();
@@ -31088,60 +32432,32 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (m < 1440) return (m < 120 ? (m / 60).toFixed(1) : Math.round(m / 60)) + 'h old';
     return Math.round(m / 1440) + 'd old';
   }
-  // Faithful browser-side re-port of deriveGlobalTone in build.mjs. The live
-  // quote overlay must update the handoff and Asia-breadth evidence together
-  // with the cards; otherwise a red Nikkei/KOSPI close can render under a stale
-  // "Asia firm" headline.
-  function deriveOvernightTone(markets){
-    markets = markets || {};
-    var reasons = [], score = 0;
-    function chOf(sym){
-      var m = markets[sym];
-      return m && m.chPct != null && isFinite(m.chPct) ? Number(m.chPct) : null;
-    }
-    var fut = [chOf('ES=F'), chOf('NQ=F')].filter(function(v){ return v != null; });
-    if (fut.length){
-      var fa = fut.reduce(function(sum, v){ return sum + v; }, 0) / fut.length;
-      if (fa <= -0.4){ score--; reasons.push('US futures soft (' + fa.toFixed(2) + '%)'); }
-      else if (fa >= 0.4){ score++; reasons.push('US futures firm (+' + fa.toFixed(2) + '%)'); }
-    }
-    var vix = chOf('^VIX');
-    if (vix != null){
-      if (vix >= 5){ score--; reasons.push('VIX +' + vix.toFixed(1) + '%'); }
-      else if (vix <= -5){ score++; reasons.push('VIX ' + vix.toFixed(1) + '%'); }
-    }
-    var jpy = chOf('JPY=X');
-    if (jpy != null){
-      if (jpy <= -0.6){ score--; reasons.push('yen bid (USD/JPY ' + jpy.toFixed(2) + '%) — carry unwind'); }
-      else if (jpy >= 0.6){ score++; reasons.push('yen soft (USD/JPY +' + jpy.toFixed(2) + '%)'); }
-    }
-    var asia = ['^KS11','005930.KS','000660.KS','^TWII','2330.TW','^N225','8035.T','6857.T','9984.T','^HSI']
-      .map(chOf).filter(function(v){ return v != null; });
-    if (asia.length >= 3){
-      var aa = asia.reduce(function(sum, v){ return sum + v; }, 0) / asia.length;
-      if (aa <= -0.6){ score--; reasons.push('Asia weak (' + aa.toFixed(2) + '% avg)'); }
-      else if (aa >= 0.6){ score++; reasons.push('Asia firm (+' + aa.toFixed(2) + '% avg)'); }
-    }
-    var tnx = markets['^TNX'];
-    var tnxBp = tnx && tnx.chgBp != null && isFinite(tnx.chgBp)
-      ? Number(tnx.chgBp)
-      : (tnx && tnx.moves && tnx.moves['1d'] && tnx.moves['1d'].bp);
-    if (tnxBp != null && isFinite(tnxBp)){
-      if (tnxBp >= 8){ score--; reasons.push('10Y +' + Math.round(tnxBp) + 'bp'); }
-      else if (tnxBp <= -8){ score++; reasons.push('10Y ' + Math.round(tnxBp) + 'bp'); }
-    }
-    var copper = chOf('HG=F');
-    if (copper != null){
-      if (copper <= -1){ score--; reasons.push('copper ' + copper.toFixed(1) + '% — growth scare'); }
-      else if (copper >= 1){ score++; reasons.push('copper +' + copper.toFixed(1) + '% — growth bid'); }
-    }
-    var dxy = chOf('DX-Y.NYB');
-    if (dxy != null){
-      if (dxy >= 0.5){ score--; reasons.push('USD firm (+' + dxy.toFixed(2) + '%)'); }
-      else if (dxy <= -0.5){ score++; reasons.push('USD soft (' + dxy.toFixed(2) + '%)'); }
-    }
-    var label = score >= 3 ? 'risk-on' : score <= -3 ? 'risk-off' : score >= 1 ? 'leaning risk-on' : score <= -1 ? 'leaning risk-off' : 'mixed';
-    return { label: label, score: score, reasons: reasons };
+  // ET wall clock (date, minutes after midnight, weekday) for the session rules.
+  function ovnEtNow(ms){
+    var p = {};
+    new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', weekday: 'short' })
+      .formatToParts(new Date(ms == null ? Date.now() : ms)).forEach(function(x){ p[x.type] = x.value; });
+    return { date: p.year + '-' + p.month + '-' + p.day, minutes: Number(p.hour) * 60 + Number(p.minute), weekday: p.weekday };
+  }
+  // The saved pre-open call for today's US session, when one exists.
+  function ovnTodayCall(d){
+    var et = ovnEtNow(), pre = d && d.preopen;
+    if (!pre) return null;
+    if (pre.today && pre.today.date === et.date) return pre.today;
+    if (pre.latest && pre.latest.date === et.date) return pre.latest;
+    return null;
+  }
+  // Headline tone. Today's saved pre-open call (frozen ~09:05 ET and graded
+  // later) is the headline once it exists. Before that, the live quotes are
+  // scored with the same shared scorer, using the same freshness rules.
+  function deriveOvernightTone(d){
+    var call = ovnTodayCall(d);
+    if (call && call.tone) return Object.assign({}, call.tone, { source: call.reconstructed ? 'preopen-rebuilt' : 'preopen', date: call.date });
+    var et = ovnEtNow(), ctx = (d && d.context) || {}, pu = ctx.priorUs || {};
+    var weekday = et.weekday !== 'Sat' && et.weekday !== 'Sun';
+    var opts = { priorUsDate: pu.date || null, priorUsCloseMs: pu.closeMs || null, priorUsPct: pu.pct, preOpen: weekday && et.minutes < 570 && pu.date !== et.date };
+    var tone = OVERNIGHT.scoreTone(OVERNIGHT.inputsFromSnapshot((d && d.markets) || {}, opts), { asiaEcho: ctx.asiaEcho || null, priorUsPct: pu.pct });
+    return Object.assign(tone, { source: 'snapshot' });
   }
   function overlayOvernightMarket(baked, live){
     if (!baked || !live || live.value == null || !isFinite(live.value)) return null;
@@ -31159,6 +32475,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       chPct: pct,
       asOf: quoteDate,
       source: 'Yahoo Finance · latest session quote',
+      quoteTimeIso: isFinite(quoteMs) ? new Date(quoteMs).toISOString() : (baked.quoteTimeIso || null),
       _live: true,
       _liveState: live.marketState || null,
     });
@@ -31211,7 +32528,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         });
       });
     }
-    d.tone = deriveOvernightTone(d.markets);
+    d.tone = deriveOvernightTone(d);
     d.liveFetchedAt = fetchedAt || new Date().toISOString();
     d.liveCount = count;
     return count;
@@ -31262,19 +32579,6 @@ function scenarioEventPhase(ev, now = Date.now()) {
         : (ageMin == null ? 'Build time could not be verified.' : 'Updated ' + ovnAgeText(ageMin).replace(' old', ' ago') + '.'),
     };
   }
-  function ovnAverage(d, syms){
-    var vals = [];
-    (syms || []).forEach(function(sym){
-      var m = d && d.markets ? d.markets[sym] : null;
-      if (m && m.chPct != null && isFinite(m.chPct)) vals.push({ sym: sym, value: Number(m.chPct) });
-    });
-    if (!vals.length) return null;
-    return {
-      value: vals.reduce(function(sum, x){ return sum + x.value; }, 0) / vals.length,
-      n: vals.length,
-      values: vals,
-    };
-  }
   function overnightTopWatch(d){
     if (!d || !d.map || !d.markets) return null;
     var best = null;
@@ -31294,73 +32598,89 @@ function scenarioEventPhase(ev, now = Date.now()) {
     }
     return best;
   }
+  function ovnToneState(label){
+    if (label === 'risk-on') return 'risk-on';
+    if (label === 'risk-off') return 'risk-off';
+    if (label === 'leaning risk-on') return 'lean-on';
+    if (label === 'leaning risk-off') return 'lean-off';
+    if (label === 'insufficient') return 'insufficient';
+    return 'mixed';
+  }
+  function ovnSourceLabel(tone){
+    if (!tone) return '';
+    if (tone.source === 'preopen') return 'Saved pre-open call · ' + ovnShortDate(tone.date);
+    if (tone.source === 'preopen-rebuilt') return 'Pre-open call rebuilt from 09:05 ET prices · ' + ovnShortDate(tone.date);
+    return 'Live read so far (not yet saved)';
+  }
+  function ovnPctRate(r){ return r && r.hitRate != null ? Math.round(r.hitRate * 100) + '%' : '—'; }
   function overnightDecisionHtml(d){
     var freshness = overnightFreshness(d);
-    var rawScore = d && d.tone && d.tone.score != null && isFinite(d.tone.score)
-      ? Number(d.tone.score)
-      : 0;
-    var state = rawScore >= 3 ? 'risk-on'
-      : rawScore <= -3 ? 'risk-off'
-        : rawScore >= 1 ? 'lean-on'
-          : rawScore <= -1 ? 'lean-off'
-            : 'mixed';
-    var className = !freshness.current
+    var tone = d && d.tone ? d.tone : null;
+    var call = ovnTodayCall(d);
+    var state = ovnToneState(tone && tone.label);
+    var className = !freshness.current && !call
       ? 'flow-decision-reference'
       : (state === 'risk-on' || state === 'lean-on')
         ? 'flow-decision-call'
         : (state === 'risk-off' || state === 'lean-off')
           ? 'flow-decision-put'
           : 'flow-decision-mixed';
-    var headline = '';
-    var copy = '';
-    var confirm = '';
-    var invalidate = '';
+    var stats = d && d.preopen && d.preopen.stats ? d.preopen.stats : null;
+    var session = OVERNIGHT.sessionCall(tone, stats);
+    var gap = tone && tone.gap ? tone.gap : { call: 'none', movePct: null };
+    var gapWord = gap.call === 'up' ? 'Gap up' : gap.call === 'down' ? 'Gap down' : gap.call === 'flat' ? 'Flat open' : 'No futures read';
+    var headline, copy;
+    var votesOn = 0, votesOff = 0;
+    (tone && Array.isArray(tone.buckets) ? tone.buckets : []).forEach(function(b){ if (b.present && b.vote > 0) votesOn++; else if (b.present && b.vote < 0) votesOff++; });
     if (state === 'risk-on'){
-      headline = 'Overnight alignment favors long setups, but the cash open still must confirm.';
-      copy = 'Use the tailwind to prioritize relative-strength names. Do not chase a premarket gap before US breadth and participation appear.';
-      confirm = 'ES and NQ stay above prior settle through the first 15 minutes, then SPY / QQQ breadth and the Volume tab confirm.';
-      invalidate = 'Either future loses prior settle while VIX, the dollar, or long yields accelerate against risk assets.';
+      headline = 'Overnight is risk-on: ' + votesOn + ' of 5 groups vote risk-on' + (votesOff ? ', ' + votesOff + ' risk-off.' : '.');
+      copy = 'The tape points to a firmer open. It has not been shown to predict the rest of the session, so let the cash open confirm before adding size.';
     } else if (state === 'risk-off'){
-      headline = 'Overnight stress raises the bar for long exposure.';
-      copy = 'Protect size and demand downside participation before leaning short. A weak foreign tape alone is not permission to chase a US opening gap.';
-      confirm = 'ES and NQ stay below prior settle through the first 15 minutes, then Heatmap breadth and the Volume tab confirm downside.';
-      invalidate = 'Futures reclaim prior settle while VIX and yen-carry stress fade during the opening range.';
+      headline = 'Overnight is risk-off: ' + votesOff + ' of 5 groups vote risk-off' + (votesOn ? ', ' + votesOn + ' risk-on.' : '.');
+      copy = 'The tape points to a weaker open. Protect size, and do not chase an opening gap: the gap usually prices most of the overnight news.';
     } else if (state === 'lean-on'){
-      headline = 'The overnight tape leans risk-on, but conviction is incomplete.';
-      copy = 'Treat the backdrop as a modest tailwind, not a trade signal. Let the strongest US names prove they can hold the opening range.';
-      confirm = 'Both US futures remain positive and cash-session breadth expands with volume after the open.';
-      invalidate = 'Futures diverge, breadth narrows, or VIX turns higher while the opening range fails.';
+      headline = 'The overnight tape leans risk-on, but the groups do not agree.';
+      copy = 'Treat it as a modest tailwind for the open, not a trade signal.';
     } else if (state === 'lean-off'){
-      headline = 'The overnight tape leans defensive, but the signals are not fully aligned.';
-      copy = 'Reduce the benefit of the doubt for longs. Wait for US price and volume to confirm before acting on foreign weakness.';
-      confirm = 'Both futures remain negative and cash-session breadth weakens with downside volume after the open.';
-      invalidate = 'Futures reclaim prior settle, breadth improves, or the stress gauges reverse during the opening range.';
+      headline = 'The overnight tape leans defensive, but the groups do not agree.';
+      copy = 'Give longs less benefit of the doubt into the open. Wait for US price and volume before acting on foreign weakness.';
+    } else if (state === 'insufficient'){
+      headline = 'Not enough fresh overnight inputs to call a tone.';
+      copy = 'Fewer than three of the five groups moved since the prior US close (holiday, weekend or a data gap). Stay stock-specific.';
     } else {
       headline = 'The overnight tape offers no clean directional edge.';
-      copy = 'Cross-asset inputs disagree. Let ticker-specific Grade, opening-range behavior, and participation lead the decision.';
-      confirm = 'US futures, VIX, and global-equity breadth align after the open with Volume confirming the same direction.';
-      invalidate = 'The inputs keep disagreeing or reverse during the opening range; stay stock-specific and smaller.';
+      copy = 'The groups disagree. Let ticker-specific Grade, opening-range behavior and participation lead.';
     }
-    if (!freshness.current){
+    if (!call && !freshness.current){
       headline = 'This overnight sweep is reference only.';
-      copy = "The last-good cross-market map can explain prior pressure, but it cannot set today's directional posture or opening trigger.";
-      confirm = 'A current build reproduces the same futures, volatility, rates, and foreign-equity alignment after their session clocks update.';
-      invalidate = 'Any fresh market leg changes the tone, top mapped US watch, or opening-range setup.';
+      copy = "The last-good map can explain prior pressure, but it cannot set today's posture.";
     }
-    var futures = ovnAverage(d, ['ES=F', 'NQ=F']);
-    var asia = ovnAverage(d, ['^N225', '^KS11', '^TWII', '^HSI']);
-    var vix = d && d.markets ? d.markets['^VIX'] : null;
-    var tenY = d && d.markets ? d.markets['^TNX'] : null;
+    var buckets = tone && Array.isArray(tone.buckets) ? tone.buckets : [];
+    var bucketHtml = buckets.map(function(b){
+      var cls = !b.present ? 'ovn-flat' : (b.vote > 0 ? 'ovn-up' : b.vote < 0 ? 'ovn-dn' : 'ovn-flat');
+      var vote = !b.present ? 'no fresh data' : (b.vote > 0 ? 'risk-on' : b.vote < 0 ? 'risk-off' : 'neutral') + (b.strong ? ' (strong)' : '');
+      var lead = b.parts && b.parts.length ? b.parts.map(function(pt){ return pt.label + (pt.movePct != null ? ' ' + ovnSignPct(pt.movePct, 2) : '') + (pt.z != null ? ' · z ' + (pt.z > 0 ? '+' : '') + Number(pt.z).toFixed(1) : ''); }).join(' | ') : 'No fresh market in this group';
+      return '<div class="ovn-bucket ' + cls + '"><span>' + ovnEsc(b.label) + '</span><b>' + ovnEsc(vote) + '</b><small>' + ovnEsc(lead) + '</small></div>';
+    }).join('');
+    var excluded = tone && Array.isArray(tone.excluded) ? tone.excluded.filter(function(x){ return x.why !== 'context level'; }) : [];
+    var excludedHtml = excluded.length
+      ? '<p class="ovn-excluded"><b>Left out (no move since the prior US close):</b> ' + excluded.slice(0, 8).map(function(x){ return ovnEsc(x.name + ' — ' + x.why); }).join('; ') + (excluded.length > 8 ? '; +' + (excluded.length - 8) + ' more' : '') + '</p>'
+      : '';
+    var events = call && Array.isArray(call.events) ? call.events : [];
+    var eventsHtml = events.length
+      ? '<ul class="ovn-events">' + events.map(function(e){ return '<li class="ovn-event-' + ovnEsc(e.kind) + '">' + ovnEsc(e.label) + '</li>'; }).join('') + '</ul>'
+      : '';
+    var chip = tone && tone.chipTape ? '<span>Asia chip stocks ' + ovnEsc(ovnSignPct(tone.chipTape.movePct, 2)) + ' avg (context, not a vote)</span>' : '';
+    var es = call && call.esRange ? '<span>ES overnight range ' + ovnEsc(call.esRange.rangePct != null ? call.esRange.rangePct.toFixed(2) + '%' : '—') + (call.esRange.volumeVsAvg != null ? ' · volume ' + call.esRange.volumeVsAvg.toFixed(2) + '× the 5-night average' : '') + '</span>' : '';
+    var pre = call && call.premarket && call.premarket.indexes ? call.premarket.indexes : null;
+    var preHtml = pre && Object.keys(pre).length ? '<span>Pre-market ' + Object.keys(pre).map(function(k){ return ovnEsc(k + ' ' + ovnSignPct(pre[k], 2)); }).join(' · ') + '</span>' : '';
+    var movers = call && call.premarket && call.premarket.movers ? call.premarket.movers : null;
+    var moverList = movers ? (movers.gainers || []).concat(movers.losers || []) : [];
+    var moversHtml = moverList.length ? '<span>Pre-market movers ' + moverList.slice(0, 6).map(function(m){ return ovnEsc(m.sym + ' ' + ovnSignPct(m.chPct, 1)); }).join(' · ') + '</span>' : '';
+    var earn = call && call.premarket && Array.isArray(call.premarket.earnings) ? call.premarket.earnings : [];
+    var earnHtml = earn.length ? '<span>Earnings around the bell ' + earn.slice(0, 4).map(function(m){ return ovnEsc(m.sym + ' ' + ovnSignPct(m.chPct, 1)); }).join(' · ') + '</span>' : '';
+    var extras = [chip, es, preHtml, moversHtml, earnHtml].filter(Boolean).join('');
     var watch = overnightTopWatch(d);
-    var futuresSub = futures
-      ? futures.values.map(function(x){ return x.sym === 'ES=F' ? 'ES ' + ovnSignPct(x.value, 2) : 'NQ ' + ovnSignPct(x.value, 2); }).join(' | ')
-      : 'ES / NQ unavailable';
-    var asiaSub = asia ? asia.n + ' leading cash index' + (asia.n === 1 ? '' : 'es') : 'leading cash breadth unavailable';
-    var vixSub = vix
-      ? (ovnSignPct(vix.chPct, 1) + (ovnLevelStr(vix) ? ' | level ' + ovnLevelStr(vix) : ''))
-      : 'volatility read unavailable';
-    var tenYSub = tenY && ovnLevelStr(tenY) ? 'yield ' + ovnLevelStr(tenY) : 'long-yield read unavailable';
-    var reasons = d && d.tone && Array.isArray(d.tone.reasons) ? d.tone.reasons.slice(0, 4) : [];
     var watchContext = '';
     if (watch){
       var mapped = watch.implied != null && isFinite(watch.implied)
@@ -31368,33 +32688,68 @@ function scenarioEventPhase(ev, now = Date.now()) {
         : ' has a significant historical relationship';
       watchContext = '<b>US watch: ' + ovnEsc(watch.sym) + '</b> | ' + ovnEsc(watch.market.name) + ' ' + ovnEsc(ovnMoveStr(watch.market)) + mapped + ' (r ' + ovnEsc((watch.peer.corr > 0 ? '+' : '') + Number(watch.peer.corr).toFixed(2)) + ').';
     }
-    var evidence = reasons.length
-      ? '<b>Tape evidence:</b> ' + reasons.map(ovnEsc).join(' | ')
-      : '<b>Tape evidence:</b> No broad reason cleared the overnight vote thresholds.';
-    var primary = freshness.current && watch
+    var primary = (freshness.current || call) && watch
       ? '<button type="button" class="flow-decision-action is-primary" data-ovn-grade="' + ovnEsc(watch.sym) + '">Grade ' + ovnEsc(watch.sym) + '</button>'
       : '<button type="button" class="flow-decision-action is-primary" data-ovn-tab="heatmap">Open Heatmap</button>';
+    var gapRate = stats ? ovnPctRate(stats.gapCall) + ' of ' + (stats.gapCall ? stats.gapCall.n : 0) + ' graded days' : 'not graded yet';
     return '<section class="flow-decision overnight-decision ' + className + '" aria-label="Overnight decision desk">' +
       '<div class="flow-decision-main">' +
-        '<div class="flow-decision-head"><span>Overnight handoff</span><em>' + ovnEsc(freshness.label) + '</em></div>' +
+        '<div class="flow-decision-head"><span>Overnight handoff</span><em>' + ovnEsc(ovnSourceLabel(tone) || freshness.label) + '</em></div>' +
         '<h3>' + ovnEsc(headline) + '</h3>' +
         '<p>' + ovnEsc(copy) + '</p>' +
-        '<div class="flow-decision-rules"><div><span>Confirms when</span><b>' + ovnEsc(confirm) + '</b></div><div><span>Invalidates when</span><b>' + ovnEsc(invalidate) + '</b></div></div>' +
+        '<div class="flow-decision-rules">' +
+          '<div><span>Gap call (open vs prior close)</span><b>' + ovnEsc(gapWord + (gap.movePct != null ? ' · futures ' + ovnSignPct(gap.movePct, 2) : '')) + '</b><small>Right on ' + ovnEsc(gapRate) + '</small></div>' +
+          '<div><span>Session call (open to close)</span><b>' + ovnEsc(session.call === 'no-edge' ? 'No edge' : (session.call === 'up' ? 'Lean up' : 'Lean down')) + '</b><small>' + ovnEsc(session.note) + '</small></div>' +
+        '</div>' +
+        (eventsHtml ? '<div class="ovn-events-wrap"><span>Overnight events</span>' + eventsHtml + '</div>' : '') +
       '</div>' +
       '<aside class="flow-decision-side">' +
-        '<div class="flow-decision-source"><span>' + ovnEsc(freshness.detail) + '</span><small>Leading cash, concurrent, and 24h markets use different session clocks.</small></div>' +
-        '<div class="flow-decision-metrics">' +
-          '<div><span>US futures</span><b>' + (futures ? ovnEsc(ovnSignPct(futures.value, 2)) : 'N/A') + '</b><small>' + ovnEsc(futuresSub) + '</small></div>' +
-          '<div><span>Asia breadth</span><b>' + (asia ? ovnEsc(ovnSignPct(asia.value, 2)) : 'N/A') + '</b><small>' + ovnEsc(asiaSub) + '</small></div>' +
-          '<div><span>VIX</span><b>' + (vix ? ovnEsc(ovnMoveStr(vix)) : 'N/A') + '</b><small>' + ovnEsc(vixSub) + '</small></div>' +
-          '<div><span>US 10Y</span><b>' + (tenY ? ovnEsc(ovnMoveStr(tenY)) : 'N/A') + '</b><small>' + ovnEsc(tenYSub) + '</small></div>' +
-        '</div>' +
-        '<p class="flow-decision-context">' + evidence + (watchContext ? '<br> ' + watchContext : '') + '</p>' +
+        '<div class="flow-decision-source"><span>' + ovnEsc(freshness.detail) + '</span><small>Every move is measured from the prior US close. Each group casts one vote once its move passes half a typical day (z ±0.5).</small></div>' +
+        '<div class="ovn-buckets">' + bucketHtml + '</div>' +
+        excludedHtml +
+        (extras ? '<p class="flow-decision-context ovn-extras">' + extras + '</p>' : '') +
+        (watchContext ? '<p class="flow-decision-context">' + watchContext + '</p>' : '') +
         '<div class="flow-decision-actions">' + primary +
-          (freshness.current && watch ? '<button type="button" class="flow-decision-action" data-ovn-tab="heatmap">Open Heatmap</button>' : '') +
+          ((freshness.current || call) && watch ? '<button type="button" class="flow-decision-action" data-ovn-tab="heatmap">Open Heatmap</button>' : '') +
           '<button type="button" class="flow-decision-action" data-ovn-tab="volume">Open Volume</button>' +
         '</div>' +
       '</aside>' +
+    '</section>';
+  }
+  // Running record of the saved pre-open calls vs what SPY did.
+  function overnightRecordHtml(d){
+    var pre = d && d.preopen;
+    if (!pre || !pre.stats) return '';
+    var st = pre.stats;
+    function card(label, r, note){
+      return '<div class="ovn-record-card"><span>' + ovnEsc(label) + '</span><b>' + ovnEsc(ovnPctRate(r)) + '</b><small>' + ovnEsc((r ? r.n : 0) + ' graded days' + (note ? ' · ' + note : '')) + '</small></div>';
+    }
+    var rows = (pre.recent || []).slice(0, 10).map(function(e){
+      var o = e.outcome;
+      function hit(v){ return v == null ? '<td class="ovn-flat">—</td>' : (v ? '<td class="ovn-up">✓</td>' : '<td class="ovn-dn">✗</td>'); }
+      return '<tr><td>' + ovnEsc(ovnShortDate(e.date)) + (e.reconstructed ? ' <small title="Rebuilt from 09:05 ET prices by the bake">rebuilt</small>' : '') + '</td>' +
+        '<td>' + ovnEsc(e.label || '—') + '</td>' +
+        '<td>' + ovnEsc(e.gap || '—') + '</td>' +
+        '<td class="' + ovnMoveCls(o ? o.gapPct : null) + '">' + ovnEsc(o ? ovnSignPct(o.gapPct, 2) : 'pending') + '</td>' + hit(o ? o.gapCallHit : null) +
+        '<td class="' + ovnMoveCls(o ? o.sessionPct : null) + '">' + ovnEsc(o ? ovnSignPct(o.sessionPct, 2) : 'pending') + '</td>' + hit(o ? o.toneSessionHit : null) + '</tr>';
+    }).join('');
+    var b = st.buckets || {};
+    var bucketRows = OVERNIGHT.BUCKETS.map(function(spec){
+      var x = b[spec.key];
+      if (!x) return '';
+      return '<span>' + ovnEsc(spec.label + ': gap ' + ovnPctRate(x.gap) + ', session ' + ovnPctRate(x.session) + ' (n ' + (x.session ? x.session.n : 0) + ')') + '</span>';
+    }).join('');
+    return '<section class="ovn-record" aria-label="Overnight call track record"><div class="ovn-desk-head"><div><span class="ovn-desk-kicker">Track record</span><h3>How the saved pre-open calls did against SPY</h3></div></div>' +
+      '<div class="ovn-record-grid">' +
+        card('Gap call right', st.gapCall, 'open vs prior close') +
+        card('Tone right on the gap', st.toneGap) +
+        card('Tone right on the session', st.toneSession, 'open to close') +
+        card('Tone right close to close', st.toneCc) +
+      '</div>' +
+      (st.base && st.base.n ? '<p class="ovn-record-note">For scale: over the same ' + st.base.n + ' days SPY opened up ' + ovnEsc(ovnPctRate({ hitRate: st.base.gapUp })) + ' of the time and closed above its open ' + ovnEsc(ovnPctRate({ hitRate: st.base.sessionUp })) + '. A call only adds something if it beats those.</p>' : '') +
+      (st.liveOnly && st.liveOnly.gapCall && st.liveOnly.gapCall.n ? '<p class="ovn-record-note">Live 09:00 ET calls only: gap ' + ovnEsc(ovnPctRate(st.liveOnly.gapCall)) + ' (n ' + st.liveOnly.gapCall.n + '), session ' + ovnEsc(ovnPctRate(st.liveOnly.toneSession)) + ' (n ' + st.liveOnly.toneSession.n + '). The rest were rebuilt by the bake from 09:05 ET prices.</p>' : '<p class="ovn-record-note">Days marked "rebuilt" were reconstructed by the bake from 09:05 ET prices; live 09:00 ET calls replace them going forward.</p>') +
+      (bucketRows ? '<p class="ovn-record-buckets">' + bucketRows + '</p>' : '') +
+      (rows ? '<div class="ovn-record-table-wrap"><table class="ovn-record-table"><thead><tr><th>Day</th><th>Tone</th><th>Gap call</th><th>SPY gap</th><th>Gap call right</th><th>SPY session</th><th>Tone right</th></tr></thead><tbody>' + rows + '</tbody></table></div>' : '') +
     '</section>';
   }
   function bindOvernightDecisionActions(host){
@@ -31657,7 +33012,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         '<span class="ovn-region-lead"><em>' + ovnEsc(leader.name) + '</em><strong class="' + ovnMoveCls(ovnMoveValue(leader, horizon)) + '">' + ovnMoveStr(leader, horizon) + '</strong></span></summary>' +
         '<div class="ovn-region-body"><div class="ovn-region-grid">' + tiles + '</div></div></details>';
     }).join('');
-    root.innerHTML = overnightContextHtml(d) + overnightDetailHtml(d) + desk + (regionHtml ? '<div class="ovn-region-list">' + regionHtml + '</div>' : '<p class="overnight-empty">No overnight markets available.</p>');
+    root.innerHTML = overnightRecordHtml(d) + overnightContextHtml(d) + overnightDetailHtml(d) + desk + (regionHtml ? '<div class="ovn-region-list">' + regionHtml + '</div>' : '<p class="overnight-empty">No overnight markets available.</p>');
     if (eyebrow){
       var rangeTxt = ovnMaxAsOf
         ? (minAsOf && minAsOf !== ovnMaxAsOf ? ('sessions ' + ovnShortDate(minAsOf) + ' – ' + ovnShortDate(ovnMaxAsOf)) : ('sessions through ' + ovnShortDate(ovnMaxAsOf)))
@@ -44596,38 +45951,102 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
 
   // --- CSV export ---------------------------------------------------------
+  // Rows behind the Unusual options trades table (current filters).
+  function flowExportRows(){
+    var tickers = filteredTickers();
+    var rows = [];
+    tickers.forEach(function(t){
+      (t.contracts || []).forEach(function(c){
+        rows.push({
+          ticker: t.symbol,
+          spot: t.spot != null ? t.spot : '',
+          // Field names must match what scan-unusual.mjs::stripCandidate
+          // writes (side/strike/expSec/vol) — the same names flowContractHtml
+          // renders. The old c.type/c.s/c.expDate/c.v never existed on these
+          // objects, so those four columns exported blank.
+          side: c.side || '',
+          strike: c.strike != null ? c.strike : '',
+          expiry: c.expSec ? fmtExpiry(c.expSec) : '',
+          dte: c.dte != null ? c.dte : '',
+          volume: c.vol != null ? c.vol : '',
+          openInterest: c.oi != null ? c.oi : '',
+          volOiRatio: (c.oi != null && c.oi > 0 && c.vol != null) ? Math.round((c.vol / c.oi) * 100) / 100 : '',
+          iv: c.iv != null ? c.iv : '',
+          tape: c.tape || '',
+          hourlyDelta: c.deltaVol != null ? c.deltaVol : '',
+          hourlyPremium: c.deltaPremium != null ? c.deltaPremium : '',
+          premium: c.premium != null ? c.premium : '',
+          repeats5d: c.repeatCount || 0,
+          note: c.note || '',
+        });
+      });
+    });
+    return rows;
+  }
+  // Calendar events under the current type filter.
+  function calendarExportRows(){
+    var data = (typeof calendarState !== 'undefined' && calendarState.data) ? calendarState.data : { events: [] };
+    var filtered = (data.events || []).filter(function(e){ return calendarTypeMatches(e.type, calendarState.type); });
+    var rows = filtered.map(function(e){
+      return {
+        date: e.date || '',
+        type: e.type || '',
+        ticker: e.ticker || e.symbol || '',
+        title: e.title || e.label || e.name || '',
+        session: e.session || '',
+        actual: e.actual != null ? e.actual : '',
+        previous: e.previous != null ? e.previous : '',
+        consensus: e.consensus != null ? e.consensus : '',
+        forecast: e.forecast != null ? e.forecast : '',
+      };
+    });
+    return rows;
+  }
+  // Top picks in the current sort order, one row per pick.
+  function picksExportRows(){
+    var data = (typeof picksState !== 'undefined' && picksState.data) ? picksState.data : { picks: [] };
+    var picksRaw = Array.isArray(data.picks) ? data.picks : [];
+    var picks = sortPicks(picksRaw, picksState.sort);
+    var r2 = function(v){ return (v != null && isFinite(v)) ? Number(Number(v).toFixed(2)) : ''; };
+    var rows = picks.map(function(p){
+      var c = p.contract || {};
+      var pl = p.pillars || {};
+      var rec = p.recommendation || {};
+      var sz = p.sizing || {};
+      return {
+        ticker: p.symbol || '',
+        tier: rec.label || '',
+        side: p.side || '',
+        total: r2(p.total != null ? p.total : p.score),
+        fundamentals: pl.fundamentals && pl.fundamentals.score != null ? r2(pl.fundamentals.score) : '',
+        technicals: pl.technicals && pl.technicals.score != null ? r2(pl.technicals.score) : '',
+        mechanicals: pl.mechanicals && pl.mechanicals.score != null ? r2(pl.mechanicals.score) : '',
+        narrative: pl.narrative && pl.narrative.score != null ? r2(pl.narrative.score) : '',
+        weightPct: sz.weight != null ? Number((sz.weight * 100).toFixed(1)) : '',
+        suggestedContracts: sz.suggestedContracts != null ? sz.suggestedContracts : '',
+        riskToStopPct: sz.riskToStopPct != null ? Number((sz.riskToStopPct * 100).toFixed(1)) : '',
+        spot: p.spot != null ? p.spot : '',
+        sector: p.sector || '',
+        strike: c.strike != null ? c.strike : '',
+        expiry: c.expiryLabel || '',
+        dte: c.dte != null ? c.dte : '',
+        otmPct: c.otmPct != null ? c.otmPct : '',
+        breakeven: c.breakeven != null ? c.breakeven : '',
+        breakevenMovePct: r2(c.breakevenMovePct),
+        delta: c.delta != null ? c.delta : '',
+        mid: c.mid != null ? c.mid : '',
+        premiumPerContract: r2(c.mid != null && isFinite(c.mid) ? c.mid * 100 : null),
+        iv: c.iv != null ? c.iv : '',
+        analysis: (p.analysis || '').replace(/\r?\n/g, ' '),
+      };
+    });
+    return rows;
+  }
   function bindCsvExports(){
     var flowBtn = $('flow-export-csv');
     if (flowBtn){
       flowBtn.addEventListener('click', function(){
-        var tickers = filteredTickers();
-        var rows = [];
-        tickers.forEach(function(t){
-          (t.contracts || []).forEach(function(c){
-            rows.push({
-              ticker: t.symbol,
-              spot: t.spot != null ? t.spot : '',
-              // Field names must match what scan-unusual.mjs::stripCandidate
-              // writes (side/strike/expSec/vol) — the same names flowContractHtml
-              // renders. The old c.type/c.s/c.expDate/c.v never existed on these
-              // objects, so those four columns exported blank.
-              side: c.side || '',
-              strike: c.strike != null ? c.strike : '',
-              expiry: c.expSec ? fmtExpiry(c.expSec) : '',
-              dte: c.dte != null ? c.dte : '',
-              volume: c.vol != null ? c.vol : '',
-              openInterest: c.oi != null ? c.oi : '',
-              volOiRatio: (c.oi != null && c.oi > 0 && c.vol != null) ? Math.round((c.vol / c.oi) * 100) / 100 : '',
-              iv: c.iv != null ? c.iv : '',
-              tape: c.tape || '',
-              hourlyDelta: c.deltaVol != null ? c.deltaVol : '',
-              hourlyPremium: c.deltaPremium != null ? c.deltaPremium : '',
-              premium: c.premium != null ? c.premium : '',
-              repeats5d: c.repeatCount || 0,
-              note: c.note || '',
-            });
-          });
-        });
+        var rows = flowExportRows();
         if (!rows.length){
           try { alert('No flow rows to export with the current filters.'); } catch (_){}
           return;
@@ -44638,21 +46057,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var calBtn = $('calendar-export-csv');
     if (calBtn){
       calBtn.addEventListener('click', function(){
-        var data = (typeof calendarState !== 'undefined' && calendarState.data) ? calendarState.data : { events: [] };
-        var filtered = (data.events || []).filter(function(e){ return calendarTypeMatches(e.type, calendarState.type); });
-        var rows = filtered.map(function(e){
-          return {
-            date: e.date || '',
-            type: e.type || '',
-            ticker: e.ticker || e.symbol || '',
-            title: e.title || e.label || e.name || '',
-            session: e.session || '',
-            actual: e.actual != null ? e.actual : '',
-            previous: e.previous != null ? e.previous : '',
-            consensus: e.consensus != null ? e.consensus : '',
-            forecast: e.forecast != null ? e.forecast : '',
-          };
-        });
+        var rows = calendarExportRows();
         if (!rows.length){
           try { alert('No events to export with the current filter.'); } catch (_){}
           return;
@@ -44663,42 +46068,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var picksBtn = $('picks-export-csv');
     if (picksBtn){
       picksBtn.addEventListener('click', function(){
-        var data = (typeof picksState !== 'undefined' && picksState.data) ? picksState.data : { picks: [] };
-        var picksRaw = Array.isArray(data.picks) ? data.picks : [];
-        var picks = sortPicks(picksRaw, picksState.sort);
-        var r2 = function(v){ return (v != null && isFinite(v)) ? Number(Number(v).toFixed(2)) : ''; };
-        var rows = picks.map(function(p){
-          var c = p.contract || {};
-          var pl = p.pillars || {};
-          var rec = p.recommendation || {};
-          var sz = p.sizing || {};
-          return {
-            ticker: p.symbol || '',
-            tier: rec.label || '',
-            side: p.side || '',
-            total: r2(p.total != null ? p.total : p.score),
-            fundamentals: pl.fundamentals && pl.fundamentals.score != null ? r2(pl.fundamentals.score) : '',
-            technicals: pl.technicals && pl.technicals.score != null ? r2(pl.technicals.score) : '',
-            mechanicals: pl.mechanicals && pl.mechanicals.score != null ? r2(pl.mechanicals.score) : '',
-            narrative: pl.narrative && pl.narrative.score != null ? r2(pl.narrative.score) : '',
-            weightPct: sz.weight != null ? Number((sz.weight * 100).toFixed(1)) : '',
-            suggestedContracts: sz.suggestedContracts != null ? sz.suggestedContracts : '',
-            riskToStopPct: sz.riskToStopPct != null ? Number((sz.riskToStopPct * 100).toFixed(1)) : '',
-            spot: p.spot != null ? p.spot : '',
-            sector: p.sector || '',
-            strike: c.strike != null ? c.strike : '',
-            expiry: c.expiryLabel || '',
-            dte: c.dte != null ? c.dte : '',
-            otmPct: c.otmPct != null ? c.otmPct : '',
-            breakeven: c.breakeven != null ? c.breakeven : '',
-            breakevenMovePct: r2(c.breakevenMovePct),
-            delta: c.delta != null ? c.delta : '',
-            mid: c.mid != null ? c.mid : '',
-            premiumPerContract: r2(c.mid != null && isFinite(c.mid) ? c.mid * 100 : null),
-            iv: c.iv != null ? c.iv : '',
-            analysis: (p.analysis || '').replace(/\r?\n/g, ' '),
-          };
-        });
+        var rows = picksExportRows();
         if (!rows.length){
           try { alert('No picks to export.'); } catch (_){}
           return;

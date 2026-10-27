@@ -27,9 +27,42 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Request an uncompressed R2 lock with a strong ETag so a released Webull paper lock can be acquired conditionally; fail closed on malformed locks or repeated conflicts, expose Owner-only diagnostics, and report mirror failures in a separate workflow health job.
 - Reconcile Webull grouped option positions using confirmed broker order legs and stable position identities; prepare manual spread adoption without replaying its entry, retain separate overlapping manual holdings, and exclude manual entries from automatic fill timing and slippage.
 
+## 2026-10-27
+
+### Added
+
+- Historical Data gains an **Events & analogs** view (Owner): dated event studies for war, pandemics, oil disruptions, tariffs, mania peaks, short squeezes and bank runs; every S&P 500 close down 5% or more since 1950 with 1987 Black Monday; every Nasdaq 4% drop since 1971 (bounce, then lower close); triple witching against other expirations; AAPL around every WWDC keynote; and S&P 500 moves on FOMC, CPI and jobs days. A "Resembles now" panel matches the latest close against these patterns with deterministic price, calendar and headline-plus-reaction checks. New free inputs (S&P 500 since 1950, Nasdaq since 1971, AAPL, KRE, GME, FRED release dates) ride the existing daily refresh; no AI calls. `lib/historical-events.mjs`, `scripts/historical-events-smoke.mjs`.
+- The Brief's Historical playbook adds pandemic, tariff and bank-run cues (fresh headline plus a risk-off tape) and its WWDC cue follows the keynote date. `scripts/build.mjs`.
+- Earnings Forecast now covers the 20 largest covered companies (was 10) and re-ranks the list once each calendar quarter. New names get a "New" tag; names that leave move under a "Left the list" divider with their frozen forecast and record, and their filings keep refreshing until that forecast can be scored.
+- Earnings Forecast adds a shadow business-line model (each reported line's year-over-year growth weighted by its latest share, plus any brand-new line at its latest-quarter level). It is scored on every resolved quarter and only replaces the base revenue after passing the same forward gate as the bias candidate.
+- Revenue lines with no prior-period figure are tagged "New since last filing" and named in a forecast warning; companies without a written profile get research prompts built from their reported lines and regions, and the audit script lists them.
+
+### Changed
+
+- The SEC segment parser keeps up to three new revenue lines out of "Other" even under 2% (still at most eight named slices plus Other), and falls back to a company's own XBRL segment or region axis when no standard one exists, keeping only periods that add up to reported revenue within 2%. Applies as each company files its next 10-Q or 10-K.
+- Earnings Forecast's free SEC source cap rises from 24 requests / 60 MB to 48 / 120 MB per day for the larger list. Still no AI calls. (#703)
+
+- Add an Owner-only Export menu beside split view and the light / dark switch. It saves the open page, Top picks cards (all, or one group such as the six actionable picks), an opened pick's Grade view, a Track record panel, sections and tables as a PNG, picture PDF, print of only that part, CSV, Excel, or JSON, plus the page's source data files. Pictures use the site fonts; nothing calls AI. (#702)
+
+### Fixed
+
+- The fallback FOMC calendar had four wrong 2027 dates (June, September, October/November and December); it now matches the Fed's published 2027 schedule, so the calendar no longer shows phantom meetings next to the live dates. `scripts/build.mjs` (#704)
+- Earnings Forecast's "Left the list" section keeps at most 20 former names, and the phone company list uses three columns so it no longer fills the screen. (#703)
+- Show the Track record's "Inspect resolved picks" button, which drew with no colour and was invisible. (#702)
+
 ## 2026-10-26
 
 ### Added
+
+- Rebuild the overnight risk-on / risk-off call. One shared scorer (`lib/overnight-tone.mjs`) now drives the Overnight tab, the Top Picks global tape axis and the live pre-open read. Moves are measured from the prior US close, scaled by each market's normal daily range, and grouped into five one-vote groups (equities, volatility, rates, FX/carry, growth/credit); stale markets are left out with a reason, and Asia is scored net of the prior US day it echoes.
+- Save a pre-open overnight call every weekday at about 09:00 ET, inside the existing 09:00 transcripts run (`scripts/overnight-preopen.mjs`, private-store owner `overnight`). Each bake keeps a graded log (`overnight-log.json`), rebuilds missed days from 15-minute bars, and the Overnight tab shows a gap call, a session call that says "no edge" until proven, overnight events, and a track record against SPY with base rates. Free Yahoo data only; no AI calls.
+- Add CSI 300, ASX 200, Euro Stoxx 50, USD/CNH, USD/KRW, Russell 2000 and 10Y T-note futures, VIX3M, VVIX, SKEW, MOVE, HYG and Ether to the overnight sweep and the live quote.
+- Add `scripts/overnight-fit.mjs`, a read-only report of per-group hit rates and threshold sweeps from the saved log.
+
+### Changed
+
+- The Top Picks global tape axis is now the day's saved pre-open call and stays fixed through the session; with no saved call after the open it votes 0 instead of re-reading the US session. The `PICKS_MACRO_GLOBAL_*` thresholds are removed (`PICKS_MACRO_GLOBAL=0` still turns the axis off).
+- Foreign daily bars are dated in the exchange's own time zone, which fixes ASX sessions landing on the previous day.
 
 - Add split view: a button next to the light/dark switch shows two pages side by side (stacked on phones), each with its own page picker, a draggable divider, Swap and Full page. `vercel.json` now allows same-site framing so the panes can load; other sites still cannot frame the app (#691).
 - Add plain-English wayfinding on every page: a "Home / Section / Page" trail, a one-line "what this shows" summary, chips for the other pages in the section, and Previous / Next links at the bottom (`scripts/render/wayfinding-js.mjs`).

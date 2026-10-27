@@ -1,7 +1,7 @@
 {
-  "reviewedAt": "2026-10-27T19:16:42.297Z",
+  "reviewedAt": "2026-10-27T19:33:17.661Z",
   "reviewDatePacific": "2026-10-27",
-  "commit": "5eb1c882d49f544406317edb4564790028c99fbd",
+  "commit": "2e93b9e5c986b5a90739b07dc922c079b251b10f",
   "branch": "Data-Stack-Review",
   "scope": "All navigation destinations inventoried; selected core pipelines inspected. Not a certification of every page, production pipeline, or investment performance.",
   "universe": {
@@ -405,7 +405,7 @@
         "label": "Earnings Forecast",
         "section": "Owner",
         "owner": true,
-        "description": "Quarterly forecasts, company history, full-year valuation and linked industry evidence for Owner research."
+        "description": "Quarterly forecasts for the top 20 covered companies, company history, full-year valuation and linked industry evidence."
       },
       {
         "id": "forced-liquidation",
@@ -497,8 +497,8 @@
     },
     {
       "name": "historical-data.json",
-      "bytes": 2933366,
-      "builtAt": "2026-10-25T08:27:46.500Z",
+      "bytes": 2951265,
+      "builtAt": "2026-10-27T19:32:17.855Z",
       "version": 2
     },
     {
@@ -582,7 +582,7 @@
       "trueZeroPreserved": true,
       "location": {
         "path": "scripts/build.mjs",
-        "line": 4744,
+        "line": 4815,
         "text": "function fundHistoryPoint("
       },
       "limitation": "Source reproduction; affected production records have not been established."
@@ -598,7 +598,7 @@
       ],
       "location": {
         "path": "scripts/build.mjs",
-        "line": 23073,
+        "line": 23131,
         "text": "export function buildStockChecklist("
       },
       "limitation": "Synthetic input to the actual checklist function; not an assertion about AAPL financials."
@@ -624,7 +624,7 @@
       "suite": "research-stack-smoke.mjs",
       "exitCode": 0,
       "error": null,
-      "output": "{\n  \"status\": \"passed\",\n  \"repairs\": [\n    \"missing debt\",\n    \"history null semantics and legacy quarantine\",\n    \"raw/persisted evaluator wiring\",\n    \"30 non-overlapping 5-session windows\"\n  ],\n  \"threeYearTenCompanyVendorHistoryBytes\": 250511,\n  \"incrementalStateLimitBytes\": 500000,\n  \"extraStorageKeys\": 0,\n  \"fullYearCases\": \"seasonality, lines, dilution, tax, losses, currency, quote date, reverse valuation, missing quarters, immutability\",\n  \"industry\": \"memory/GPU/CapEx relationships, stale and missing observations\",\n  \"persistence\": \"actual forecast state write/read\"\n}",
+      "output": "{\n  \"status\": \"passed\",\n  \"repairs\": [\n    \"missing debt\",\n    \"history null semantics and legacy quarantine\",\n    \"raw/persisted evaluator wiring\",\n    \"30 non-overlapping 5-session windows\"\n  ],\n  \"threeYearTwentyCompanyVendorHistoryBytes\": 259351,\n  \"incrementalStateLimitBytes\": 500000,\n  \"extraStorageKeys\": 0,\n  \"fullYearCases\": \"seasonality, lines, dilution, tax, losses, currency, quote date, reverse valuation, missing quarters, immutability\",\n  \"industry\": \"memory/GPU/CapEx relationships, stale and missing observations\",\n  \"persistence\": \"actual forecast state write/read\"\n}",
       "kind": "offline behavior contract"
     },
     {
@@ -638,7 +638,7 @@
       "suite": "earnings-forecast-smoke.mjs",
       "exitCode": 0,
       "error": null,
-      "output": "Earnings Forecast: 48 groups passed: normalization, fiscal periods, provenance, immutability/retries, financial bridge, withholding, as-of replay, actuals, learning isolation, cohort selection, native TWD, private responses and zero-provider offline integration.",
+      "output": "Earnings Forecast: 55 groups passed: normalization, fiscal periods, provenance, immutability/retries, financial bridge, withholding, as-of replay, actuals, learning isolation, cohort selection, native TWD, private responses and zero-provider offline integration.",
       "kind": "offline behavior contract"
     },
     {
@@ -694,7 +694,7 @@
       "suite": "audit-historical-coverage.mjs",
       "exitCode": 0,
       "error": null,
-      "output": "{\n  \"datasetsVerified\": 37,\n  \"markets\": 17,\n  \"contextSeries\": 20,\n  \"windowReturnsReconciled\": 11162,\n  \"contextMediansReconciled\": 20,\n  \"minimumMarketYears\": 19.52,\n  \"minimumContextYears\": 13.08,\n  \"responseBytes\": 2933366,\n  \"providerSubscriptionUsd\": 0,\n  \"cutoff\": \"2026-10-24\"\n}",
+      "output": "{\n  \"datasetsVerified\": 37,\n  \"markets\": 17,\n  \"contextSeries\": 20,\n  \"windowReturnsReconciled\": 11162,\n  \"contextMediansReconciled\": 20,\n  \"minimumMarketYears\": 19.52,\n  \"minimumContextYears\": 13.08,\n  \"responseBytes\": 2951265,\n  \"providerSubscriptionUsd\": 0,\n  \"cutoff\": \"2026-10-26\"\n}",
       "kind": "actual local cache reconciliation"
     },
     {
@@ -709,11 +709,11 @@
   "fingerprints": [
     {
       "path": "scripts/build.mjs",
-      "sha256": "fd77e14b630bc9b6e4b8f702a8639f649e5bef6058a70035792658f187345f84"
+      "sha256": "a5fed89542432dd143e539e1e740b3d5440b7696077cb951931f8d5fef8ba50e"
     },
     {
       "path": "scripts/render/site-map.mjs",
-      "sha256": "9f011bc179906d21812fef4c380aa7273dd33eb8852fe55f50e0b1d322a758ae"
+      "sha256": "c9c2316ff469740d69b1c983864e77e95a89ec6f075354787a814e2dde77ce10"
     },
     {
       "path": "lib/yahoo.mjs",
@@ -733,15 +733,15 @@
     },
     {
       "path": "lib/historical-sources.mjs",
-      "sha256": "1138ee693d3c302b9b9c51409793ac6e3967f42e0353b7a0b7fcd30c03a97723"
+      "sha256": "4b56a775837affd3dbb9769576b54966ec7a996f60144c9099fea330236ba348"
     },
     {
       "path": "lib/historical-data.mjs",
-      "sha256": "ad82e4b8ba0e34c77315e197d94260182de2d7f72a33c0b0c003b007748a8df7"
+      "sha256": "ea4c54e1903426a68e28c7c07f9747295493868ea59360fb5a72ba202957946a"
     },
     {
       "path": "lib/earnings-forecast.mjs",
-      "sha256": "d7f2e4c6fbdecb629378edfaaf16828b9c5c6d3460541885577b9e5b6304a5f0"
+      "sha256": "fa6b9849d60e7b304e5131aed19bd1a40c650c2f09c7bb34d2553b7c445f967c"
     },
     {
       "path": "lib/earnings-forecast-scenarios.mjs",
@@ -749,19 +749,19 @@
     },
     {
       "path": "scripts/refresh-earnings-forecast.mjs",
-      "sha256": "2553bb9014c3afdb5b7d6445878679f393ba4ccfae3efe6c7fffbe8bd8d7f8a1"
+      "sha256": "44c49ab414ba0a9abda77a3956f78988c538864f2e7946286e2ae31cf6439f8e"
     },
     {
       "path": "lib/company-research.mjs",
-      "sha256": "60c58d66eec071ef86dc539630225bea4cfdfc0eceaa5dce14df3ea446d864fd"
+      "sha256": "469267e62368faa7301694c8b1fbc5c3b1f3dba1a7024bfc71167ca3f950341a"
     },
     {
       "path": "lib/full-year-valuation.mjs",
-      "sha256": "deb8106949b9dc21c92a0d18bafc6d28525b5be9740904ec7dac4fe5eb30ead0"
+      "sha256": "479d3fec3429e3b55858201ab5088b5708c3e97fdf1f65be57ad134273c787a0"
     },
     {
       "path": "scripts/render/company-research-client.mjs",
-      "sha256": "c63396dc48ca759299572c0724da50fee90e609b25abf59ad960039c97b1e711"
+      "sha256": "d0ebdbd757bb336f294b054ac38e0382c57205253efe92fba01b0da187af7b73"
     },
     {
       "path": "lib/leaps-score.mjs",
@@ -817,7 +817,7 @@
     },
     {
       "path": ".github/workflows/daily.yml",
-      "sha256": "c16225b2251b612c7f3abb88acf02316e1ca1764736687e04a98cf18a6149600"
+      "sha256": "fb02722711093ce8058d9d756459ab2d4431b964cdcea2bb72093301f1962882"
     },
     {
       "path": ".github/workflows/unusual-flow.yml",
@@ -835,37 +835,37 @@
   "anchors": [
     {
       "path": "scripts/build.mjs",
-      "line": 1327,
+      "line": 1348,
       "text": "const HISTORY_LOOKBACK_DAYS ="
     },
     {
       "path": "scripts/build.mjs",
-      "line": 4319,
+      "line": 4390,
       "text": "const PRICE_SERIES_BARS ="
     },
     {
       "path": "scripts/build.mjs",
-      "line": 4727,
+      "line": 4798,
       "text": "const FUND_HISTORY_DIR ="
     },
     {
       "path": "scripts/build.mjs",
-      "line": 4404,
+      "line": 4475,
       "text": "const IV_HISTORY_MAX_ENTRIES ="
     },
     {
       "path": "scripts/build.mjs",
-      "line": 1245,
+      "line": 1266,
       "text": "const MIN_SUCCESS_RATE ="
     },
     {
       "path": "scripts/build.mjs",
-      "line": 1929,
+      "line": 1950,
       "text": "async function fetchFundamentals("
     },
     {
       "path": "scripts/build.mjs",
-      "line": 18041,
+      "line": 18101,
       "text": "export function computeCapexQualityMetrics("
     }
   ]

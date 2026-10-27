@@ -18,6 +18,7 @@ assert.match(debt({totalDebt:null}).a,/debt data unavailable/);
 assert.equal(debt({totalDebt:null}).status,'unsure');
 assert.match(debt({totalDebt:0}).a,/no reported debt/);
 assert.match(debt({totalDebt:500}).a,/5x annual FCF/);
+assert.match(debt({totalDebt:500,freeCashFlow:0}).a,/zero FCF/);
 assert.match(debt({totalDebt:-1}).a,/unavailable/);
 assert.equal(debt({totalDebt:null,freeCashFlow:null}).status,'unanswered');
 const incompleteLeverage=find(checklist({totalDebt:null,currentRatio:2}),/How leveraged/)[0];assert.equal(incompleteLeverage.status,'unsure');assert.match(incompleteLeverage.a,/cannot be assessed/);
@@ -28,6 +29,7 @@ assert.equal(fundHistoryPoint({fundamentals:{totalDebt:'',freeCashFlow:false}}),
 const legacy=sanitizeFundamentalsHistory({entries:[{date:'2026-10-01',debt:0,fcf:12},{date:'2026-10-02',version:2,debt:0,fcf:-5}]});
 assert.equal(legacy[0].debt,undefined);assert.equal(legacy[0].unverifiedLegacyZeros.debt,0);assert.equal(legacy[1].debt,0);
 assert.deepEqual(sanitizeFundamentalsHistory({version:2,entries:legacy}),legacy,'migration is idempotent and preserves ambiguity');
+assert.deepEqual(sanitizeFundamentalsHistory({entries:[null,...legacy]}),legacy,'a malformed row cannot erase all valid history');
 
 const dates=[];
 for(let d=new Date('2025-01-02T00:00:00Z');dates.length<252;d.setUTCDate(d.getUTCDate()+1))if(![0,6].includes(d.getUTCDay()))dates.push(d.toISOString().slice(0,10));
@@ -54,18 +56,27 @@ assert.equal(retained.observations.TEST.length,2);assert(retained.observations.T
 assert.deepEqual(retainCompanyHistory({previous:retained.observations,chains:{TEST:{fundamentals:f}},symbols:['TEST'],asOf:'2025-02-16T12:00:00Z'}).observations,retained.observations,'unchanged inputs do not mint daily copies');
 const changed=retainCompanyHistory({previous:retained.observations,chains:{TEST:{fundamentals:{...f,fcfHistory:[{date:'2024-12-31',value:11}]}}},symbols:['TEST'],asOf:'2025-02-17T12:00:00Z'});
 assert.equal(changed.observations.TEST.filter(r=>r.metric==='freeCashFlow').length,2,'vendor corrections retain prior version');
+const reverted=retainCompanyHistory({previous:changed.observations,chains:{TEST:{fundamentals:f}},symbols:['TEST'],asOf:'2025-02-18T12:00:00Z'});
+assert.equal(reverted.observations.TEST.filter(r=>r.metric==='freeCashFlow').length,3,'a provider correction back to an old value remains a distinct revision');
+assert.equal(buildCompanyRecord({symbol:'TEST',vendor:reverted.observations.TEST,asOf:'2025-02-18T12:00:00Z'}).vendorFacts.find(r=>r.metric==='freeCashFlow').value,10);
+assert.deepEqual(retainCompanyHistory({previous:changed.observations,chains:{},symbols:['NEW'],asOf:'2025-02-17T12:00:00Z'}).observations.TEST,changed.observations.TEST,'reranking cannot discard a former company history');
+assert(!('sourceUrl' in changed.observations.TEST[0]),'shared descriptions are not duplicated in retained state');
 const companyRecord=buildCompanyRecord({symbol:'TEST',observations,vendor:changed.observations.TEST,asOf:'2025-02-17T12:00:00Z'});
 assert.equal(companyRecord.vendorFacts.find(r=>r.metric==='freeCashFlow').value,11);
 assert.equal(companyRecord.quarters.length,8);assert.equal(companyRecord.coverage,'partial-history');
+assert(companyRecord.vendorFacts.every(r=>r.sourceUrl.startsWith('https://finance.yahoo.com/')));
+assert.equal(companyRecord.financialCoverage.vendorMetrics.find(r=>r.metric==='capex').periods,0,'missing financial series stays visible');
 const roll=retainCompanyHistory({previous:changed.observations,chains:{},symbols:['TEST'],asOf:'2028-01-01T12:00:00Z'});assert.equal(roll.observations.TEST.length,0);
-const large=Object.fromEntries(Array.from({length:10},(_,i)=>['T'+i,Array.from({length:12},(_,j)=>{const d=new Date(Date.UTC(2023, j*3+2,28));return {date:d.toISOString().slice(0,10),value:1e9+j};})]));
+const large=Object.fromEntries(Array.from({length:20},(_,i)=>['T'+i,Array.from({length:12},(_,j)=>{const d=new Date(Date.UTC(2023, j*3+2,28));return {date:d.toISOString().slice(0,10),value:1e9+j};})]));
 const largeChains=Object.fromEntries(Object.entries(large).map(([s,rows])=>[s,{fundamentals:{financialCurrency:'USD',revenueHistory:rows,netIncomeHistory:rows,fcfHistory:rows,capexHistory:rows,operatingCashFlowHistory:rows}}]));
 const measured=retainCompanyHistory({chains:largeChains,symbols:Object.keys(largeChains),asOf:'2026-01-01T00:00:00Z'});assert(measured.bytes<COMPANY_HISTORY_BYTE_LIMIT);
 const changedLarge=structuredClone(largeChains);
 for(const data of Object.values(changedLarge))for(const field of ['revenueHistory','netIncomeHistory','fcfHistory','capexHistory','operatingCashFlowHistory'])data.fundamentals[field]=data.fundamentals[field].map(r=>({...r,value:r.value+100}));
 const budgetState={cohort:{companies:Object.keys(largeChains).map(symbol=>({symbol}))},companyHistory:measured.observations,observations:{}},budgetPayload={companies:[{symbol:'T0'}]};
 attachCompanyResearch({state:budgetState,payload:budgetPayload,chains:changedLarge,asOf:'2026-01-02T00:00:00Z'});
-assert.match(budgetPayload.companyStorage.warning,/paused/);assert.deepEqual(budgetState.companyHistory,measured.observations,'budget overflow preserves accepted records without blocking unrelated forecasts');
+let budgetPrior=structuredClone(budgetState.companyHistory);
+for(let revision=2;!budgetPayload.companyStorage.warning&&revision<10;revision++){budgetPrior=structuredClone(budgetState.companyHistory);for(const data of Object.values(changedLarge))for(const field of ['revenueHistory','netIncomeHistory','fcfHistory','capexHistory','operatingCashFlowHistory'])for(const row of data.fundamentals[field])row.value++;attachCompanyResearch({state:budgetState,payload:budgetPayload,chains:changedLarge,asOf:'2026-01-0'+revision+'T00:00:00Z'});}
+assert.match(budgetPayload.companyStorage.warning,/paused/);assert.deepEqual(budgetState.companyHistory,budgetPrior,'budget overflow preserves accepted records without blocking unrelated forecasts');
 
 const c={symbol:'TEST',companyRecord,forecast:forecastQuarter({symbol:'TEST',observations,cutoffAt:asOf}),mix:{},valuationReference:{spot:100,currency:'USD',quoteAsOf:'2025-02-14T21:00:00Z',asOf,forwardPE:20}};
 const model=fullYearValuationFactory(),b=model.base(c),d=structuredClone(b.inputs),out=model.calculate(b,d);
@@ -83,6 +94,10 @@ assert.equal(model.calculate(b,{...d,operatingMarginPct:80,grossMarginPct:40}).s
 assert.equal(model.calculate(b,d,{asOf:'2026-01-01T00:00:00Z'}).priceReturnPct,null,'browser evaluation clock expires old reference quotes');
 assert.equal(model.calculate(b,{...d,growthPct:null}).status,'unavailable');
 assert.equal(model.base({...c,companyRecord:{quarters:companyRecord.quarters.slice(-3)}}).status,'incomplete-history');
+assert.equal(model.base({...c,valuationReference:{...c.valuationReference,asOf:'2026-02-15T00:00:00Z'}}).status,'incomplete-history','stale financial periods cannot support a new annual valuation');
+assert.equal(model.base({...c,valuationReference:{...c.valuationReference,reportedPeriodEnd:'2025-03-31'}}).status,'incomplete-history','known newer financial reports wait for normalization');
+assert.equal(model.base({...c,former:{leftAt:asOf}}).status,'incomplete-history','former company assumptions cannot mix with current data');
+assert.equal(model.base({...c,forecast:{...c.forecast,latestEnd:'2024-09-30'}}).epsSupported,false,'EPS assumptions must use the same latest quarter as the annual baseline');
 assert.equal(model.calculate(b,{...d,lines:[{name:'A',weight:.5,demandPct:0,pricePct:0}]}).status,'unavailable');
 const productC={...c,mix:{product:{currency:'USD',reconciliation:{status:'matched'},rows:[{name:'A',value:60},{name:'B',value:40}],period:{currentPeriod:{endDate:'2024-12-31'}}}}};
 const pb=model.base(productC),pd=structuredClone(pb.inputs);pd.lines[0].demandPct=10;assert.equal(model.calculate(pb,pd).revenue,424);
@@ -92,8 +107,11 @@ const industry=buildIndustryEvidence({asOf:'2026-10-27T00:00:00Z',universe:TICKE
 assert(industry[0].connections.some(r=>r.symbol==='MU'));assert(industry[1].connections.some(r=>r.symbol==='CRWV'));assert(industry[2].connections.some(r=>r.symbol==='NVDA'));
 assert.equal(industry[0].rows[0].status,'stale');assert.equal(industry[1].rows[0].status,'retained / stale');assert.equal(industry[2].rows.length,0,'missing CapEx cannot invent an observation');
 assert.match(industry[0].connections.find(r=>r.symbol==='SNDK').confirm,/NAND/);
+const capexEvidence=buildIndustryEvidence({asOf:'2026-10-27T00:00:00Z',capex:{companies:[{ticker:'TSM',source:'sec+yahoo-ttm',ttm:{val:48e9,asOf:'2026-09-30',source:'yahoo'}},{ticker:'AAPL',ttm:{val:null,asOf:'2026-09-30'},fyLatest:{val:12e9,end:'2025-09-30'}}]}})[2];
+assert.match(capexEvidence.rows[0].sourceUrl,/finance.yahoo.com/,'roll-forward links to the provider that supplied the displayed value');
+assert.equal(capexEvidence.rows[1].value,12e9);assert.equal(capexEvidence.rows[1].date,'2025-09-30');assert.match(capexEvidence.rows[1].label,/FY/,'fallback amount, date and frequency stay aligned');
 
-const launch=Array.from({length:10},(_,i)=>'T'+i),launchChains=Object.fromEntries(launch.map((s,i)=>[s,{spot:100,quoteAsOf:'2025-02-14T21:00:00Z',quoteProvenance:{currency:'USD'},fundamentals:{...f,name:s,marketCap:(10-i)*1e11,forwardPE:20}}]));
+const launch=Array.from({length:20},(_,i)=>'T'+i),launchChains=Object.fromEntries(launch.map((s,i)=>[s,{spot:100,quoteAsOf:'2025-02-14T21:00:00Z',quoteProvenance:{currency:'USD'},fundamentals:{...f,name:s,marketCap:(20-i)*1e11,forwardPE:20}}]));
 const state={version:1,cohort:selectCohort(launchChains,launch,{},asOf),observations:Object.fromEntries(launch.map(s=>[s,earningsFixture(s)])),runs:[],current:{},evaluations:[],mix:{},sourceStatus:{},sourceDocuments:{}};
 let calls=0;const prepared=await prepareEarningsForecast({previous:state,chains:launchChains,universe:launch,sectors:{},cikMap:new Map(),now:()=>asOf,fetchImpl:()=>{calls++;throw Error('offline');}});
 assert(prepared.payload.companies.every(c=>c.companyRecord?.years===3&&c.valuationReference?.currency==='USD'));
@@ -102,6 +120,8 @@ await writeFile(join(dir,'ram-prices.json'),JSON.stringify({spot:{items:[{name:'
 await writeEarningsForecast({dataDir:dir,prepared});
 const restored=await readForecastState(dir);assert.deepEqual(restored.companyHistory,prepared.state.companyHistory,'company records survive actual state write/read');
 const body=JSON.parse(await readFile(join(dir,'earnings-forecast.json'),'utf8'));assert.equal(body.companyStorage.newStorageKeys,0);
+assert.equal(body.companyStorage.payloadBytes,Buffer.byteLength(await readFile(join(dir,'earnings-forecast.json'))));
+assert.equal(body.companyStorage.stateBytes,Buffer.byteLength(await readFile(join(dir,'earnings-forecast-state.json'))));
 assert.equal(body.industryEvidence[0].rows[0].value,3,'standalone and full-bake writers compile the already-collected industry snapshot');
 assert.equal(prepared.payload.cost.requestsThisRun,calls,'new research adds no network calls beyond existing forecast collection');
-console.log(JSON.stringify({status:'passed',repairs:['missing debt','history null semantics and legacy quarantine','raw/persisted evaluator wiring','30 non-overlapping 5-session windows'],threeYearTenCompanyVendorHistoryBytes:measured.bytes,incrementalStateLimitBytes:COMPANY_HISTORY_BYTE_LIMIT,extraStorageKeys:0,fullYearCases:'seasonality, lines, dilution, tax, losses, currency, quote date, reverse valuation, missing quarters, immutability',industry:'memory/GPU/CapEx relationships, stale and missing observations',persistence:'actual forecast state write/read'},null,2));
+console.log(JSON.stringify({status:'passed',repairs:['missing debt','history null semantics and legacy quarantine','raw/persisted evaluator wiring','30 non-overlapping 5-session windows'],threeYearTwentyCompanyVendorHistoryBytes:measured.bytes,incrementalStateLimitBytes:COMPANY_HISTORY_BYTE_LIMIT,extraStorageKeys:0,fullYearCases:'seasonality, lines, dilution, tax, losses, currency, quote date, reverse valuation, missing quarters, immutability',industry:'memory/GPU/CapEx relationships, stale and missing observations',persistence:'actual forecast state write/read'},null,2));

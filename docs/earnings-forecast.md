@@ -29,8 +29,9 @@ All keys in the namespace require both signed Owner claims.
 
 Company facts, period normalization and forecast calculations are independent
 of transport and UI. The UI reads only the compact current payload, lazily.
-The launch cohort is frozen from a dated market-cap ranking of the site's
-non-ETF universe. Ranking coverage and missing market caps remain visible.
+The company list is the 20 largest names by market cap in the site's non-ETF
+universe, re-ranked once each calendar quarter. Ranking coverage and missing
+market caps remain visible.
 
 The chosen design reuses the existing scheduled bake and private publication
 boundary. A separate service would add scheduling, credentials and cost;
@@ -38,8 +39,16 @@ per-company engines would duplicate accounting and evaluation rules.
 
 ## Financial model and company coverage
 
-The first complete market-cap ranking fixes the launch cohort. Provisional
-rankings disclose missing caps and are rechecked until complete. Both the
+The list holds the top 20 (`COHORT_SIZE`) and is re-ranked on the first bake
+of each calendar quarter (`cohortDue`). A new ranking is accepted when it is
+complete, when the list size changed, or once the quarter is more than ten days
+old, so one missing market cap cannot hold last quarter's list in place
+(`acceptCohort`). Names that join start forecasting on that bake and show a
+"New" tag until the next re-rank. Names that leave move below a "Left the list"
+divider with their last frozen forecast and record; they get no new forecasts,
+but their SEC facts keep refreshing for about four months past that forecast's
+target quarter so it can still be scored. A name that returns is current again.
+Every change is logged in `cohortHistory` in the state file. Both the
 existing sector classification and the provider's `quoteType` exclude ETFs.
 This matters for DRAM, which is classified as a semiconductor theme on the
 site but is a fund. Adding its quote type reuses the existing fundamentals
@@ -75,7 +84,11 @@ normalization catches up. Supported actuals resolve on filing collection,
 which can lag an earnings release. Forecasts are financial research and do
 not imply a surprise versus Street consensus or a stock-price prediction.
 
-Company profiles describe business-specific driver hypotheses. Disclosed
+Company profiles describe business-specific driver hypotheses. A company with
+no written profile (usually a new entrant) gets research prompts built from its
+largest reported business lines and regions, each with its share and growth;
+`npm run audit:earnings-forecast` lists those names so a written profile can
+be added in `lib/earnings-forecast-profiles.mjs`. Disclosed
 product/segment and geographic views remain separate. They never invent a
 product-by-country matrix. Available existing macro readings are contextual,
 not unsupported causal coefficients. Scenario changes are temporary
@@ -148,6 +161,30 @@ and promotion evidence IDs travel with the run. This is a conservative
 engineering policy, not an empirically established optimal threshold or a
 claim that improvement will persist. Failed gates retain the base model.
 
+A second shadow model forecasts revenue from the reported business lines: the
+same quarter last year times each line's year-over-year growth weighted by its
+latest share, so a fast-growing line counts for more than it did a year ago.
+Lines with no year-ago figure are added at their latest-quarter level (they
+may already be partly in the year-ago base, so this can overstate; the forward
+gate decides whether that matters).
+It needs a quarterly breakdown with at least two lines that compares with the
+same quarter a year earlier, was public before the cutoff, and adds up to
+reported revenue within 1%. It is scored on every resolved quarter and uses the
+same promotion gate as the bias candidate (and only when that candidate is not
+active). Segment inputs join a run's input key only when they exist, so
+forecasts without them keep their original key.
+
+Revenue lines with no figure in the comparison period are tagged "New since
+last filing" in the Business view and listed on the forecast as a warning.
+The segment parser keeps up to three new lines out of "Other" even under 2% of
+revenue. When no line carries over, the company re-labelled its breakdown and
+nothing is tagged new. When no standard XBRL product or region axis is found,
+the parser tries the company's own axes whose names say what they split
+(segment, product, platform, revenue stream; region, geography, country, area),
+and keeps only periods whose lines add up to reported revenue within 2%.
+Parser changes apply as each company files its next 10-Q or 10-K; cached
+filings are not re-parsed.
+
 Retrospective checks use documented filing dates with conservative cutoffs
 at filing-minus-30/14/7/1 days. They explicitly do not reconstruct original
 ingestion or an earnings schedule known at the time. They never enter the
@@ -161,7 +198,8 @@ facts/source bytes and the new forecasts are Owner-only and are excluded from
 Git and deployment archives by existing `data/` rules. Issuer IR links are
 research references, not a transcript scraping or paid-consensus adapter.
 
-There is a 24-request and 60 MB source cap per UTC day, 12 MB per document,
+There is a 48-request and 120 MB source cap per UTC day (raised from 24 / 60 MB
+when the list grew to 20), 12 MB per document,
 15-second timeout and no automatic retry loop. Source accessions and a seven-
 day safety refresh control US company-facts downloads; TSM checks its filing
 index at most once per day. The CIK map already used by the bake is reused.
@@ -197,7 +235,7 @@ EARNINGS_PAYLOAD_FILE=data/earnings-forecast.json npm run preview:earnings-forec
 
 Browser checks accept `PLAYWRIGHT_MODULE` and `CHROMIUM_PATH` when those tools
 are provided by the desktop runtime. With `EARNINGS_PAYLOAD_FILE` set, the
-browser test additionally exercises the actual cached ten-company payload.
+browser test additionally exercises the actual cached payload.
 The preview is localhost-only and explicitly simulates an Owner session.
 It does not bypass production authentication.
 The raw-source audit requires the locally collected source/run archives.
