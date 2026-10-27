@@ -47,7 +47,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Fixed
 
-- The Webull paper mirror stopped pausing on every run since 2026-10-22: an entry filled before broker legs were recorded now reads those legs from Webull's own order detail to bind its spread, and positions opened outside the mirror no longer block it (a new pick that shares one of their contracts is skipped). (#PRNUM)
+- The Webull paper mirror stopped pausing on every run since 2026-10-22: an entry filled before broker legs were recorded now reads those legs from Webull's own order detail to bind its spread, and positions opened outside the mirror no longer block it (a new pick that shares one of their contracts is skipped). (#708)
 - The fallback FOMC calendar had four wrong 2027 dates (June, September, October/November and December); it now matches the Fed's published 2027 schedule, so the calendar no longer shows phantom meetings next to the live dates. `scripts/build.mjs` (#704)
 - Earnings Forecast's "Left the list" section keeps at most 20 former names, and the phone company list uses three columns so it no longer fills the screen. (#703)
 - Show the Track record's "Inspect resolved picks" button, which drew with no colour and was invisible. (#702)
