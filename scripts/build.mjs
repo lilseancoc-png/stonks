@@ -2587,7 +2587,7 @@ const REVENUE_CONCEPTS = [
 // `srt:` (Securities Reporting Taxonomy), `us-gaap:`, and `ifrs-full:`
 // prefixes — MSFT uses srt:, older 10-Ks use us-gaap:, 20-F filers use
 // ifrs-full:.
-const PRODUCT_AXES_PRIORITY = [
+export const PRODUCT_AXES_PRIORITY = [
   "us-gaap:StatementBusinessSegmentsAxis",
   "srt:StatementBusinessSegmentsAxis",
   "ifrs-full:SegmentsAxis",
@@ -2595,7 +2595,7 @@ const PRODUCT_AXES_PRIORITY = [
   "us-gaap:ProductOrServiceAxis",
   "ifrs-full:ProductsAndServicesAxis",
 ];
-const GEOGRAPHIC_AXES_PRIORITY = [
+export const GEOGRAPHIC_AXES_PRIORITY = [
   "srt:StatementGeographicalAxis",
   "us-gaap:StatementGeographicalAxis",
   "ifrs-full:GeographicalAreasAxis",
@@ -3166,7 +3166,7 @@ function buildTotalsByPeriod(facts, contexts, periodPredicate) {
 // stable across periods (a 10-Q reports the same product breakdown for
 // both current quarter and YTD), so the same axis usually wins per period.
 // Returns Map<periodEnd, Map<memberName, value>> or null.
-function pickBestAxisBreakdownByPeriod(facts, contexts, priorityList, periodPredicate, totalsByPeriod, opts = {}) {
+export function pickBestAxisBreakdownByPeriod(facts, contexts, priorityList, periodPredicate, totalsByPeriod, opts = {}) {
   // When the caller wants to avoid geographic-looking breakdowns in the
   // product slot (Apple's reportable segments ARE the five geographies),
   // keep the first geographic match as a last-resort fallback and prefer
@@ -3193,7 +3193,39 @@ function pickBestAxisBreakdownByPeriod(facts, contexts, priorityList, periodPred
     }
     return result;
   }
-  return demoted;
+  return demoted || pickCompanyAxisBreakdown(facts, contexts, opts.companyAxisPattern, periodPredicate, totalsByPeriod, opts);
+}
+
+// Last resort: a company's own (extension) axis, e.g. `nvda:MarketPlatformAxis`.
+// Only used when no standard axis worked, only for axes whose name says what
+// they split, and only for periods whose lines add up to reported revenue
+// within 2% — so a custom axis can never double-count or invent a split.
+const STANDARD_TAXONOMY_PREFIX = /^(us-gaap|srt|ifrs-full|dei|country|currency):/;
+export const COMPANY_PRODUCT_AXIS = /(Segment|Product|Service|Business|Platform|Revenue(Source|Type|Stream|Category)|Category)s?Axis$/i;
+export const COMPANY_GEOGRAPHIC_AXIS = /(Geograph|Region|Countr|Area)\w*Axis$/i;
+function pickCompanyAxisBreakdown(facts, contexts, pattern, periodPredicate, totalsByPeriod, opts = {}) {
+  if (!pattern || !totalsByPeriod?.size) return null;
+  const axes = new Set();
+  for (const [, ctx] of contexts) {
+    for (const d of ctx.dims || []) {
+      if (!STANDARD_TAXONOMY_PREFIX.test(d.axis) && pattern.test(d.axis)) axes.add(d.axis);
+    }
+  }
+  for (const axis of [...axes].sort()) {
+    if (opts.rejectGeographic && COMPANY_GEOGRAPHIC_AXIS.test(axis)) continue;
+    const result = extractAxisBreakdownByPeriod(facts, contexts, axis, periodPredicate, totalsByPeriod);
+    if (!result) continue;
+    const kept = new Map();
+    for (const [end, periodMap] of result) {
+      const total = totalsByPeriod.get(end);
+      const sum = [...periodMap.values()].reduce((a, b) => a + b, 0);
+      if (periodMap.size >= 2 && total > 0 && Math.abs(sum - total) <= total * 0.02) kept.set(end, periodMap);
+    }
+    if (!kept.size) continue;
+    if (opts.rejectGeographic && [...kept.values()].every((m) => looksGeographic([...m.keys()]))) continue;
+    return kept;
+  }
+  return null;
 }
 
 // Bumped whenever the XBRL parser changes shape — forces a re-parse of
@@ -3234,7 +3266,7 @@ function mergeBreakdownsByPeriod(target, source, sourceFilingDate, periodSources
   }
 }
 
-function buildSegmentSlices(currentMap, previousMap) {
+export function buildSegmentSlices(currentMap, previousMap) {
   if (!currentMap) return null;
   const entries = [...currentMap.entries()]
     .map(([name, value]) => ({ name, value }))
@@ -3245,13 +3277,28 @@ function buildSegmentSlices(currentMap, previousMap) {
   let otherSum = 0;
   let otherPrevSum = 0;
   const prev = previousMap || new Map();
+  // A line with no figure in the comparison period is a new revenue line.
+  // It keeps its own slice (up to three of them) even under 2% or past the
+  // top eight, so a new business is not hidden inside "Other". If no line
+  // carries over, the company re-labelled its breakdown and nothing is new.
+  // New lines take slots from the top eight, so the donut never needs more
+  // than eight named slices plus "Other" (nine colours).
+  const comparable = prev.size > 0 && entries.some((e) => prev.get(e.name) > 0);
+  const isNewLine = (e) => comparable && !(prev.get(e.name) > 0);
+  const keptNew = new Set(entries.filter(isNewLine).slice(0, 3).map((e) => e.name));
+  const regularSlots = 8 - keptNew.size;
+  let regularKept = 0;
   for (const e of entries) {
     const prevValue = prev.get(e.name);
-    if (significant.length < 8 && e.value / total >= 0.02) {
+    const isNew = isNewLine(e);
+    const keep = keptNew.has(e.name) || (regularKept < regularSlots && e.value / total >= 0.02);
+    if (keep) {
+      if (!keptNew.has(e.name)) regularKept++;
       significant.push({
         name: e.name,
         value: e.value,
         previousValue: Number.isFinite(prevValue) && prevValue > 0 ? prevValue : null,
+        ...(comparable ? { isNew } : {}),
       });
     } else {
       otherSum += e.value;
@@ -3263,6 +3310,7 @@ function buildSegmentSlices(currentMap, previousMap) {
       name: "Other",
       value: otherSum,
       previousValue: otherPrevSum > 0 ? otherPrevSum : null,
+      ...(comparable ? { isNew: false } : {}),
     });
   }
   return significant;
@@ -3341,10 +3389,12 @@ export async function fetchRevenueSegments(symbol) {
   for (const { filing, parsed } of parsedFilings) {
     const totalsQ = buildTotalsByPeriod(parsed.facts, parsed.contexts, isQuarterlyPeriod);
     const totalsA = buildTotalsByPeriod(parsed.facts, parsed.contexts, isAnnualPeriod);
-    const prodQ = pickBestAxisBreakdownByPeriod(parsed.facts, parsed.contexts, PRODUCT_AXES_PRIORITY, isQuarterlyPeriod, totalsQ, { rejectGeographic: true });
-    const geoQ = pickBestAxisBreakdownByPeriod(parsed.facts, parsed.contexts, GEOGRAPHIC_AXES_PRIORITY, isQuarterlyPeriod, totalsQ);
-    const prodA = pickBestAxisBreakdownByPeriod(parsed.facts, parsed.contexts, PRODUCT_AXES_PRIORITY, isAnnualPeriod, totalsA, { rejectGeographic: true });
-    const geoA = pickBestAxisBreakdownByPeriod(parsed.facts, parsed.contexts, GEOGRAPHIC_AXES_PRIORITY, isAnnualPeriod, totalsA);
+    const productOpts = { rejectGeographic: true, companyAxisPattern: COMPANY_PRODUCT_AXIS };
+    const geoOpts = { companyAxisPattern: COMPANY_GEOGRAPHIC_AXIS };
+    const prodQ = pickBestAxisBreakdownByPeriod(parsed.facts, parsed.contexts, PRODUCT_AXES_PRIORITY, isQuarterlyPeriod, totalsQ, productOpts);
+    const geoQ = pickBestAxisBreakdownByPeriod(parsed.facts, parsed.contexts, GEOGRAPHIC_AXES_PRIORITY, isQuarterlyPeriod, totalsQ, geoOpts);
+    const prodA = pickBestAxisBreakdownByPeriod(parsed.facts, parsed.contexts, PRODUCT_AXES_PRIORITY, isAnnualPeriod, totalsA, productOpts);
+    const geoA = pickBestAxisBreakdownByPeriod(parsed.facts, parsed.contexts, GEOGRAPHIC_AXES_PRIORITY, isAnnualPeriod, totalsA, geoOpts);
     mergeBreakdownsByPeriod(productByPeriodQ, prodQ, filing.filingDate, periodSourcesProductQ);
     mergeBreakdownsByPeriod(geoByPeriodQ, geoQ, filing.filingDate, periodSourcesGeoQ);
     mergeBreakdownsByPeriod(productByPeriodA, prodA, filing.filingDate, periodSourcesProductA);
