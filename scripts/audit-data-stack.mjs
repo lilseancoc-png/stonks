@@ -22,6 +22,7 @@ const sourceFiles = [
   'lib/historical-sources.mjs', 'lib/historical-data.mjs', 'lib/earnings-forecast.mjs',
   'lib/earnings-forecast-scenarios.mjs', 'scripts/refresh-earnings-forecast.mjs',
   'lib/company-research.mjs', 'lib/full-year-valuation.mjs',
+  'lib/render-risk-free-rate.mjs', 'scripts/regen-static.mjs',
   'scripts/render/company-research-client.mjs',
   'lib/leaps-score.mjs', 'lib/unified-signal.mjs', 'lib/risk-stack.mjs',
   'lib/gex.mjs', 'lib/track-record-fills.mjs', 'lib/shadow-signals.mjs',

@@ -1,7 +1,7 @@
 {
-  "reviewedAt": "2026-10-27T19:35:03.484Z",
+  "reviewedAt": "2026-10-27T19:38:47.669Z",
   "reviewDatePacific": "2026-10-27",
-  "commit": "5ba0c61666574d1b3ffdb420d6b89a209a7fdcc8",
+  "commit": "6e45da79964734e446b3a5963317fff42d02ddf7",
   "branch": "Data-Stack-Review",
   "scope": "All navigation destinations inventoried; selected core pipelines inspected. Not a certification of every page, production pipeline, or investment performance.",
   "universe": {
@@ -522,7 +522,7 @@
     {
       "name": "ma-tracker.json",
       "bytes": 339,
-      "builtAt": "2026-10-26T17:33:13.671Z",
+      "builtAt": "2026-10-27T19:33:19.598Z",
       "version": 1
     },
     {
@@ -709,7 +709,7 @@
   "fingerprints": [
     {
       "path": "scripts/build.mjs",
-      "sha256": "a5fed89542432dd143e539e1e740b3d5440b7696077cb951931f8d5fef8ba50e"
+      "sha256": "5ed64a082c9122ab6b1e2097e649758a0554883d51f72099255bc03ace29386f"
     },
     {
       "path": "scripts/render/site-map.mjs",
@@ -758,6 +758,14 @@
     {
       "path": "lib/full-year-valuation.mjs",
       "sha256": "479d3fec3429e3b55858201ab5088b5708c3e97fdf1f65be57ad134273c787a0"
+    },
+    {
+      "path": "lib/render-risk-free-rate.mjs",
+      "sha256": "157505f1eecc4dbda4a539a2c55e5e650bbef61749ebf8f2684f49240686993d"
+    },
+    {
+      "path": "scripts/regen-static.mjs",
+      "sha256": "2ce0e5c7ca0fb4bddb2f5b7d0a09961b0456cd9e4a24f5b48cc97e2ab1f3e572"
     },
     {
       "path": "scripts/render/company-research-client.mjs",

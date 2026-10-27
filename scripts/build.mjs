@@ -4815,7 +4815,7 @@ function trimFundHistory(entries, todayKey) {
 export function fundHistoryPoint(data) {
   const f = data?.fundamentals || {};
   const num = (v, digits) => {
-    if (v == null || v === "" || typeof v === "boolean") return null;
+    if (typeof v !== "number" && (typeof v !== "string" || !v.trim())) return null;
     const n = Number(v);
     if (!Number.isFinite(n)) return null;
     const m = 10 ** digits;
@@ -23129,43 +23129,44 @@ export function stockTrackedPeers(chains, sym) {
 }
 
 export function buildStockChecklist(sym, data, grade, sectorPE, traps, peers) {
+  const optionalNumber = x => typeof x === "number" || (typeof x === "string" && x.trim()) ? pnumN(x) : null;
   const f = data?.fundamentals || {};
   const j = f.judgment || null;
-  const spot = pnumN(data?.spot);
+  const spot = optionalNumber(data?.spot);
   const item = (q, status, a) => ({ q, status, a });
   const unanswered = (q, extra) => item(q, "unanswered", extra ? `${CHECKLIST_UNANSWERED} ${extra}` : CHECKLIST_UNANSWERED);
 
   // Shared computed facts.
-  const nm = Array.isArray(f.netMarginHistory) ? f.netMarginHistory.filter((x) => pnumN(x?.value) != null) : [];
+  const nm = Array.isArray(f.netMarginHistory) ? f.netMarginHistory.filter((x) => optionalNumber(x?.value) != null) : [];
   const nmCur = nm.length ? Number(nm[nm.length - 1].value) : null;
   const nmPrior = nm.length >= 5 ? Number(nm[nm.length - 5].value) : nm.length >= 2 ? Number(nm[nm.length - 2].value) : null;
   const nmDelta = nmCur != null && nmPrior != null ? nmCur - nmPrior : null;
   const marginTrend = nmDelta == null ? null : nmDelta >= 0.5 ? "expanding" : nmDelta <= -0.5 ? "compressing" : "stable";
   let revYoy = null;
-  const rh = Array.isArray(f.revenueHistory) ? f.revenueHistory.filter((x) => pnumN(x?.value) != null) : [];
+  const rh = Array.isArray(f.revenueHistory) ? f.revenueHistory.filter((x) => optionalNumber(x?.value) != null) : [];
   if (rh.length >= 8) {
     const sum = (a) => a.reduce((s, x) => s + Number(x.value), 0);
     const cur = sum(rh.slice(-4)), prior = sum(rh.slice(-8, -4));
     if (prior > 0) revYoy = (cur / prior - 1) * 100;
   }
-  if (revYoy == null) revYoy = pnumN(f.revenueGrowthYoy);
-  const fcf = pnumN(f.freeCashFlow), ocf = pnumN(f.operatingCashFlow), mcap = pnumN(f.marketCap);
-  const parsedDebt = pnumN(f.totalDebt);
+  if (revYoy == null) revYoy = optionalNumber(f.revenueGrowthYoy);
+  const fcf = optionalNumber(f.freeCashFlow), ocf = optionalNumber(f.operatingCashFlow), mcap = optionalNumber(f.marketCap);
+  const parsedDebt = optionalNumber(f.totalDebt);
   const totalDebt = parsedDebt != null && parsedDebt >= 0 ? parsedDebt : null;
-  const totalCash = pnumN(f.totalCash), de = pnumN(f.debtToEquity);
-  const gm = pnumN(f.grossMargin), om = pnumN(f.operatingMargin), pm = pnumN(f.profitMargin);
-  const roe = pnumN(f.returnOnEquity), roa = pnumN(f.returnOnAssets);
-  const ni = Array.isArray(f.netIncomeHistory) ? f.netIncomeHistory.filter((x) => pnumN(x?.value) != null) : [];
+  const totalCash = optionalNumber(f.totalCash), de = optionalNumber(f.debtToEquity);
+  const gm = optionalNumber(f.grossMargin), om = optionalNumber(f.operatingMargin), pm = optionalNumber(f.profitMargin);
+  const roe = optionalNumber(f.returnOnEquity), roa = optionalNumber(f.returnOnAssets);
+  const ni = Array.isArray(f.netIncomeHistory) ? f.netIncomeHistory.filter((x) => optionalNumber(x?.value) != null) : [];
   const niTtm = ni.length >= 4 ? ni.slice(-4).reduce((s, x) => s + Number(x.value), 0) : null;
   const profQuarters = ni.length ? ni.filter((x) => Number(x.value) > 0).length : null;
-  const pe = pnumN(f.trailingPE), fpe = pnumN(f.forwardPE), peg = pnumN(f.pegRatio);
-  const secPE = pnumN(sectorPE);
+  const pe = optionalNumber(f.trailingPE), fpe = optionalNumber(f.forwardPE), peg = optionalNumber(f.pegRatio);
+  const secPE = optionalNumber(sectorPE);
   const ar = f.analystRevisions || null;
-  const arNet = ar ? pnumN(ar.net) : null;
-  const tgtMean = pnumN(f.targetMeanPrice), tgtHi = pnumN(f.targetHighPrice), tgtLo = pnumN(f.targetLowPrice);
-  const nAnalysts = pnumN(f.numberOfAnalystOpinions);
-  const beta = pnumN(f.beta);
-  const lo52 = pnumN(f.fiftyTwoWeekLow);
+  const arNet = ar ? optionalNumber(ar.net) : null;
+  const tgtMean = optionalNumber(f.targetMeanPrice), tgtHi = optionalNumber(f.targetHighPrice), tgtLo = optionalNumber(f.targetLowPrice);
+  const nAnalysts = optionalNumber(f.numberOfAnalystOpinions);
+  const beta = optionalNumber(f.beta);
+  const lo52 = optionalNumber(f.fiftyTwoWeekLow);
   const upside = (t) => (t > 0 && spot > 0 ? r1((t / spot - 1) * 100) : null);
   const pctStr = (v) => `${v >= 0 ? "+" : ""}${r1(v)}%`;
 
@@ -23271,7 +23272,7 @@ export function buildStockChecklist(sym, data, grade, sectorPE, traps, peers) {
     if (de != null) bits.push(`debt/equity ${r2(de / 100)}x`);
     if (totalDebt != null && totalCash != null) bits.push(`${stkBigMoney(totalCash)} cash vs ${stkBigMoney(totalDebt)} debt`);
     if (fcf > 0 && totalDebt > 0) bits.push(`~${r1(totalDebt / fcf)} years of FCF would retire all debt`);
-    const cr = pnumN(f.currentRatio);
+    const cr = optionalNumber(f.currentRatio);
     if (cr != null) bits.push(`current ratio ${r2(cr)}`);
     fin.push(bits.length
       ? item("How leveraged is the balance sheet? Can it service its debt in a downturn?", totalDebt == null || totalCash == null ? "unsure" : "answered",
@@ -23283,7 +23284,7 @@ export function buildStockChecklist(sym, data, grade, sectorPE, traps, peers) {
     // accumulated across builds; Yahoo serves ~6 quarters per fetch, so the
     // year-over-year comparison unlocks as the series deepens).
     const q = "Does the business generate consistent and growing free cash flow?";
-    const fh = Array.isArray(f.fcfHistory) ? f.fcfHistory.filter((x) => pnumN(x?.value) != null) : [];
+    const fh = Array.isArray(f.fcfHistory) ? f.fcfHistory.filter((x) => optionalNumber(x?.value) != null) : [];
     if (fh.length >= 4) {
       const pos = fh.filter((x) => Number(x.value) > 0).length;
       const ttm = fh.slice(-4).reduce((s, x) => s + Number(x.value), 0);
@@ -23317,7 +23318,7 @@ export function buildStockChecklist(sym, data, grade, sectorPE, traps, peers) {
     // (fundamentals.capitalAllocation, quarterly cash-flow statement lines),
     // cross-referencing the Capital raises tab for fresh financing headlines.
     const q = "What is management doing with the free cash flow (buybacks, dividends, M&A, capex, debt paydown)?";
-    const dy = pnumN(f.dividendYield), po = pnumN(f.payoutRatio);
+    const dy = optionalNumber(f.dividendYield), po = optionalNumber(f.payoutRatio);
     const ca = f.capitalAllocation || null;
     const parts = [];
     if (ca?.buybackTtm > 0) parts.push(`bought back ${stkBigMoney(ca.buybackTtm)} of stock`);
@@ -23329,7 +23330,7 @@ export function buildStockChecklist(sym, data, grade, sectorPE, traps, peers) {
       ? ` Fresh financing headline on file: ${(CAPITAL_RAISE_KIND_LABEL[cr.kind] || cr.kind).toLowerCase()}${cr.amount != null ? ` (~${fmtUsdCompact(cr.amount)})` : ""} — the Capital raises tab (under Macro) has the filed SEC amounts.`
       : " Fresh issuance/buyback headlines across the universe land on the Capital raises tab (under Macro).";
     if (parts.length) {
-      const fh = Array.isArray(f.fcfHistory) ? f.fcfHistory.filter((x) => pnumN(x?.value) != null) : [];
+      const fh = Array.isArray(f.fcfHistory) ? f.fcfHistory.filter((x) => optionalNumber(x?.value) != null) : [];
       const ttm = fh.length >= 4 ? fh.slice(-4).reduce((s, x) => s + Number(x.value), 0) : null;
       const returned = (ca.buybackTtm > 0 ? ca.buybackTtm : 0) + (ca.dividendsTtm > 0 ? ca.dividendsTtm : 0);
       const shareNote = ttm > 0 && returned > 0 ? ` — ~${Math.round((returned / ttm) * 100)}% of trailing FCF returned to shareholders` : "";
@@ -23380,7 +23381,7 @@ export function buildStockChecklist(sym, data, grade, sectorPE, traps, peers) {
       reasons.length ? `Best deterministic guess: ${reasons.join("; ")}. The narrative behind the multiple needs qualitative work.` : "No clear deterministic read — the narrative behind the multiple needs qualitative work."));
   }
   {
-    const g = pnumN(f.growthEstimateCurY);
+    const g = optionalNumber(f.growthEstimateCurY);
     val.push(peg != null || (fpe != null && g != null)
       ? item("What growth is the market pricing in? Is it realistic and sustainable?", "unsure",
           `${peg != null ? `PEG ${r2(peg)} — the multiple ${peg <= 1 ? "asks for less growth than analysts already forecast" : peg <= 1.5 ? "roughly matches forecast growth" : "prices in more growth than current forecasts"}` : ""}${g != null ? `${peg != null ? "; " : ""}street sees ${pctStr(g)} earnings growth this year` : ""}${revYoy != null ? ` against ${pctStr(revYoy)} actual revenue growth` : ""}. Whether that sustains is a judgment call.`)

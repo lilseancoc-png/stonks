@@ -5,7 +5,7 @@ broker writes or changes to the existing ranking engines.
 
 The October 27 research upgrade adds **Company record**, **Full year & value**,
 and **Industry evidence** views inside this same Owner workspace. The company
-record retains a rolling three-year window for the existing ten-company cohort.
+record retains a rolling three-year window for the current twenty-company cohort.
 The full-year workbench models the next four fiscal quarters with editable
 business sensitivities, dilution, valuation multiples and reverse valuation.
 Industry readings link existing memory, GPU and CapEx observations to company

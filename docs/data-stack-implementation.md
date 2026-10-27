@@ -4,6 +4,8 @@ Implemented on `Data-Stack-Review`, October 27, 2026, and integrated with the cu
 
 ## Data and evaluation repairs
 
+- Renderer-only rebuilds preserve a valid published Treasury rate when the local private-data cache is missing or older. The original source date and existing expiry rule still apply; a future, expired or fallback rate cannot become a measured rate.
+
 - The Stock Picks checklist uses null-preserving optional financial inputs. Unknown or invalid debt remains unavailable; an observed zero alone can support “no reported debt.” Missing FCF does not become measured zero. The generic `pnum` helper is unchanged because other callers rely on its behavior.
 - New daily fundamentals snapshots reject absent, blank and boolean values before conversion. Genuine zero and valid negative observations remain valid. Writer version 2 identifies new points. Legacy zero fields are preserved under `unverifiedLegacyZeros`, outside numeric histories; no zero is retroactively asserted to be false or reconstructed using today's data.
 - Grade evaluation accepts the raw build `_bars` representation and persisted `priceSeries`. Build and regeneration supply the same normalized contract. Current unfinished sessions are excluded using the existing confirmed-close cutoff. An explicit input-failure state distinguishes missing prices from waiting for future results.

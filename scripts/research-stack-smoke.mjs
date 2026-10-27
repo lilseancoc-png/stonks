@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { renderRiskFreeRate } from '../lib/render-risk-free-rate.mjs';
 import { buildStockChecklist, fundHistoryPoint, sanitizeFundamentalsHistory, publicChainFilePayload, TICKERS } from './build.mjs';
 import { buildGradeResearch, seriesFromChains } from '../lib/grade-research.mjs';
 import { retainCompanyHistory, buildCompanyRecord, buildIndustryEvidence, attachCompanyResearch, COMPANY_HISTORY_BYTE_LIMIT } from '../lib/company-research.mjs';
@@ -11,11 +12,21 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { writeEarningsForecast, readForecastState } from './refresh-earnings-forecast.mjs';
 
+const embeddedJs='var RFR = 0.04040;\nvar RFR_META = {"source":"fresh","asOf":"2026-10-27","ageDays":null};';
+const rateArgs={embeddedJs,asOf:'2026-10-27',maxAgeDays:14,fallback:.045};
+assert.equal(renderRiskFreeRate(rateArgs).rate,.0404,'sparse local data cannot erase a valid published Treasury rate');
+assert.equal(renderRiskFreeRate({...rateArgs,cached:{rate:.04,capturedAt:'2026-10-26',asOf:'2026-10-26'}}).rate,.0404,'newer published rate wins over stale local cache');
+assert.equal(renderRiskFreeRate({...rateArgs,cached:{rate:.041,capturedAt:'2026-10-27',asOf:'2026-10-27'}}).rate,.041);
+assert.equal(renderRiskFreeRate({...rateArgs,asOf:'2026-11-12'}).source,'fallback','published rates still expire');
+assert.equal(renderRiskFreeRate({...rateArgs,asOf:'2026-10-26'}).source,'fallback','future rates cannot leak backward');
+assert.equal(renderRiskFreeRate({...rateArgs,embeddedJs:embeddedJs.replace('fresh','fallback')}).source,'fallback');
+
 function find(value,pattern){if(Array.isArray(value))return value.flatMap(x=>find(x,pattern));if(value&&typeof value==='object')return [...(value.q&&pattern.test(value.q)?[value]:[]),...Object.values(value).flatMap(x=>find(x,pattern))];return [];}
 const checklist=f=>buildStockChecklist('TEST',{spot:100,fundamentals:{marketCap:10000,freeCashFlow:100,...f}},{},null,[],[]);
 const debt=f=>find(checklist(f),/free cash flow compare/i)[0];
 assert.match(debt({totalDebt:null}).a,/debt data unavailable/);
 assert.equal(debt({totalDebt:null}).status,'unsure');
+for(const totalDebt of [false,'','   ',[]])assert.equal(debt({totalDebt}).status,'unsure','invalid financial values cannot imply no debt');
 assert.match(debt({totalDebt:0}).a,/no reported debt/);
 assert.match(debt({totalDebt:500}).a,/5x annual FCF/);
 assert.match(debt({totalDebt:500,freeCashFlow:0}).a,/zero FCF/);
@@ -26,6 +37,7 @@ assert(!JSON.stringify(checklist({freeCashFlow:null,totalDebt:null,dividendYield
 assert.equal(fundHistoryPoint({fundamentals:{trailingPE:null,totalDebt:null,freeCashFlow:null}}),null);
 assert.deepEqual(fundHistoryPoint({fundamentals:{totalDebt:0,freeCashFlow:-12}}),{fcf:-12,debt:0});
 assert.equal(fundHistoryPoint({fundamentals:{totalDebt:'',freeCashFlow:false}}),null);
+assert.equal(fundHistoryPoint({fundamentals:{totalDebt:'   ',freeCashFlow:[]}}),null);
 const legacy=sanitizeFundamentalsHistory({entries:[{date:'2026-10-01',debt:0,fcf:12},{date:'2026-10-02',version:2,debt:0,fcf:-5}]});
 assert.equal(legacy[0].debt,undefined);assert.equal(legacy[0].unverifiedLegacyZeros.debt,0);assert.equal(legacy[1].debt,0);
 assert.deepEqual(sanitizeFundamentalsHistory({version:2,entries:legacy}),legacy,'migration is idempotent and preserves ambiguity');
