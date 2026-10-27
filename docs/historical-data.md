@@ -164,6 +164,67 @@ Definitions and limitations draw on [NYSE holiday rules](https://www.nyse.com/tr
 and [SEC performance guidance](https://www.investor.gov/introduction-investing/general-resources/news-alerts/alerts-bulletins/investor-bulletins-47).
 No published return statistics are copied into the feature.
 
+## Events & analogs
+
+The **Events & analogs** view (`lib/historical-events.mjs`, built in the same
+bake step, no AI) covers the market-event list the owner asked for on
+2026-10-27. It has three kinds of study:
+
+- **Dated episodes** — a fixed catalog of dates written before measuring:
+  war and geopolitical shocks, pandemics and outbreaks, oil supply
+  disruptions, tariffs, mania peaks, short squeezes (GME) and bank runs. Each
+  episode is measured on the S&P 500 index (`^GSPC`, since 1950) unless it
+  names another market (Nasdaq `^IXIC` since 1971 for the dot-com and 2021
+  peaks; GME for squeezes): day 1, 1 week, 1 month, 3 months and 1 year from
+  the close before the first session, worst close within 60 sessions, and
+  sessions until the pre-event close is regained. Oil episodes add the WTI
+  spot move over 20 sessions; bank episodes add regional banks (KRE). Mania
+  episodes are measured from each boom's closing high.
+- **Rule studies over every qualifying day** — S&P 500 closes down 6% or
+  more since 1950 (with 1987 Black Monday called out; clusters within 20
+  sessions are shown but summarized once); Nasdaq closes down 4% or more since
+  1971 (next-day bounce, "slight bounce then a lower close within five
+  sessions", 1- and 3-month follow-through); triple witching against the other
+  monthly expirations and ordinary Fridays since 1984; AAPL into and out of
+  every WWDC keynote since 2003, alone and against the Nasdaq; and S&P 500
+  moves on FOMC, CPI and jobs-report days against all other sessions.
+- **Resembles now** — deterministic checks on the latest completed close:
+  Nasdaq −4% or S&P 500 −5% in the last five sessions; a 1987-style setup (S&P
+  500 up 25%+ on the year with the 10-year yield up 1 point in six months);
+  VIX 30+ or +25% in a day; WTI +10% in 5 sessions or +25% in 20; gold +2%
+  with crude or VIX jumping; KRE −12% in 10 sessions; Nasdaq up 40%+ on the
+  year and 20%+ above its 200-day average; squeeze-style single-name moves
+  (+15% on 4x volume); triple witching week; the WWDC window; FOMC/CPI/jobs in
+  the next three days; and open Santa / Sell in May / September windows (those
+  link back to the seasonal studies). War, tariff, pandemic and bank-run
+  headlines from the last 48 hours count only with a risk-off reaction on the
+  same session (S&P 500 −1% or VIX +10%); relief headlines (pause, deal,
+  ceasefire) are ignored. Each match shows its trigger and the matching
+  study's headline numbers.
+
+New free inputs ride the existing once-a-day refresh: `^GSPC`, `^IXIC`, AAPL,
+KRE and GME closes from Yahoo (`HISTORICAL_EVENT_MARKETS`; pre-1990 sessions
+use the provider's session list, `cleanLongBars`), and CPI / jobs-report
+release dates from the FRED API using the existing `FRED_API_KEY`, checked
+once a week (`HISTORICAL_RELEASES`). Without the key the release study shows
+FOMC days only. FOMC decision days since 2015 are listed in code. These inputs
+appear in Sources & coverage under their own headings and are not part of the
+17 + 20 ten-year ledger count. The bake passes the headline hits and squeeze
+moves in as `inputs`; they are stored in the snapshot (`events.inputs`) so
+`npm run audit:historical` rebuilds it byte for byte.
+
+The Brief's Historical playbook gained pandemic, tariff and bank-run cues on
+the same headline-plus-reaction rule, and its WWDC cue now follows the actual
+keynote date. No Owner numbers flow into the public Brief.
+
+Limits: event lists are short case-study sets, not statistical samples;
+indexes exclude dividends; daily lows, volume, consensus forecasts and
+surprises are not in the data, so "tested the low" means a lower close and
+release-day studies cannot condition on the surprise.
+
+Run `node scripts/historical-events-smoke.mjs` (also part of
+`npm run test:historical-data`).
+
 ## Costs and approval boundary
 
 Enabled adapters use publicly accessible downloads with $0 new provider

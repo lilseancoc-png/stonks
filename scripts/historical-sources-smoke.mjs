@@ -29,8 +29,8 @@ assert.equal(historicalCoverage(brokenRecent).status,'under-ten-years','a recent
 let active=0,maxActive=0, downloads=0;
 const fakeLoad=async()=>{active++;maxActive=Math.max(maxActive,active);downloads++; await new Promise(r=>setTimeout(r,1));active--;return bars;};
 const cache=await refreshHistoricalSourceCache({builtAtIso:now,loadMarket:fakeLoad,loadContext:fakeLoad});
-assert.equal(downloads,39,'17 ETFs, 20 study series and the 2 shared Bottom tracker spreads'); assert(maxActive<=2); assert.equal(cache.cost.providerFeeUsd,0); assert.equal(cache.cost.aiCalls,0); assert.equal(cache.cost.newScheduledJobs,0);
-assert.equal(cache.version,2); assert.equal(cache.cost.maxRequestsPerDay,56);
+assert.equal(downloads,44,'17 ETFs, 5 event-study markets, 20 study series and the 2 shared Bottom tracker spreads'); assert(maxActive<=2); assert.equal(cache.cost.providerFeeUsd,0); assert.equal(cache.cost.aiCalls,0); assert.equal(cache.cost.newScheduledJobs,0);
+assert.equal(cache.version,2); assert.equal(cache.cost.maxRequestsPerDay,68);
 assert(cache.context.BAMLH0A0HYM2.rows.length>0 && cache.context.BAMLC0A0CM.rows.length>0,'shared credit spreads are cached with the study series');
 assert(!buildSourceCoverage({symbols:cache.symbols,context:cache.context,records:cache.records,cutoff:'2026-10-24'}).context.some(s=>s.id==='BAMLH0A0HYM2'),'shared-only series stay out of Historical Data coverage');
 const shortSpread=await refreshHistoricalSourceCache({builtAtIso:now,loadContext:async(id)=>id.startsWith('BAML')?monthly.slice(-30):bars});
@@ -63,7 +63,7 @@ const retained=await refreshHistoricalSourceCache({previous:provisional,builtAtI
 assert.equal(retained.symbols.SPY.at(-1).t,'2026-10-22','later wall clock cannot promote an unconfirmed tail');
 assert.equal(retained.records.SPY.lastSuccessAt,early,'reusing a cache preserves the actual successful source check');
 const repaired=await refreshHistoricalSourceCache({previous:provisional,builtAtIso:late,loadMarket:async()=>bars});
-assert.equal(repaired.cost.requestsThisRun,17,'a newly completed session permits a same-day source check');
+assert.equal(repaired.cost.requestsThisRun,22,'a newly completed session permits a same-day source check (17 ETFs + 5 event-study markets)');
 assert.equal(repaired.symbols.SPY.at(-1).t,'2026-10-23'); assert.equal(repaired.records.SPY.collectedAtIso,late);
 const failedConfirmation=await refreshHistoricalSourceCache({previous:provisional,builtAtIso:late,loadMarket:async()=>{throw Error('offline');}});
 assert.equal(failedConfirmation.symbols.SPY.at(-1).t,'2026-10-22'); assert.equal(failedConfirmation.records.SPY.lastSuccessAt,early);
