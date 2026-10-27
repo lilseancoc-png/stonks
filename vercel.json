@@ -1,7 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "echo 'No build step — files are committed by the daily-build workflow.'",
-  "outputDirectory": ".",
+  "buildCommand": "node scripts/prepare-vercel.mjs",
+  "outputDirectory": "public",
   "framework": null,
   "redirects": [
     { "source": "/cheatsheet.html", "destination": "/?tab=cheatsheet", "permanent": false },
