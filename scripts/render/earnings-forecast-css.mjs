@@ -1,4 +1,7 @@
 export function renderEarningsForecastCss(){return `
+.ef-industry { margin:24px 0;padding:18px 0;border-top:1px solid var(--border); }
+.ef-industry td { min-width:110px;white-space:normal;vertical-align:top; }
+.ef-tabs { flex-wrap:wrap; }
 #earnings-forecast-root { min-width: 0; }
 .ef-topline,.ef-section-head,.ef-company-head,.ef-foot { display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap; }
 .ef-topline { margin:14px 0 20px;color:var(--muted);font-size:12px; }

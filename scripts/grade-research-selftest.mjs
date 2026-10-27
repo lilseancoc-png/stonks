@@ -49,8 +49,9 @@ assert.ok(h10.overlapping.meanIc > 0.9, `expected a near-perfect IC, got ${h10.o
 assert.ok(h10.nonOverlapping.days >= 4 && h10.nonOverlapping.days <= 5, `non-overlapping count ${h10.nonOverlapping.days}`);
 assert.ok(h10.nonOverlapping.days < h10.overlapping.days);
 assert.equal(h10.placebo.above95, true, "a real rank signal must beat the shuffle band");
-assert.equal(report.killLine.established, false, "40 windows are not the 60-window claim");
-assert.match(report.killLine.reason, /60/);
+assert.equal(report.killLine.established, false, "the short fixture has fewer than 30 non-overlapping 5-session windows");
+assert.match(report.killLine.reason, /30/);
+assert.equal(report.method.evaluationHorizon, 5);
 
 const again = buildGradeResearch({ ...mono, placeboDraws: 40, seed: 1337 });
 assert.equal(again.horizons["10"].placebo.p95, h10.placebo.p95, "placebo band is seeded");

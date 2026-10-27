@@ -3,6 +3,7 @@ import { readFile, writeFile, mkdir, link, unlink, rename } from 'node:fs/promis
 import { randomUUID } from 'node:crypto';
 import { resolve, dirname } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
+import { attachCompanyResearch, buildIndustryEvidence } from '../lib/company-research.mjs';
 import { FORECAST_KEY, FORECAST_STATE_KEY, contentHash, makeObservation, normalizeCompanyFacts, mergeObservations, selectCohort, forecastQuarter, evaluateRuns, buildForecastPayload, businessMix, finite, conservativePublication, reconstructedBacktest, knownReportedPeriod } from '../lib/earnings-forecast.mjs';
 
 const DAY=86400000;
@@ -117,10 +118,20 @@ export async function prepareEarningsForecast({previous,chains,universe,sectors,
   }
   const payload=buildForecastPayload({state,chains,builtAtIso:cutoffAt,collection:{requestsThisRun:state.dailyCost.requests-initialRequests,requestsToday:state.dailyCost.requests,bytesToday:state.dailyCost.bytes,requestLimitPerDay:maxRequests,collectionError:state.collectionError||null}});
   payload.enabled=true;
-  return {state,payload,artifacts};
+  attachCompanyResearch({state,payload,chains,asOf:cutoffAt,industryInputs:{universe}});
+  for(const c of payload.companies){const q=chains[c.symbol];c.valuationReference={spot:q?.spot??null,quoteAsOf:q?.quoteAsOf||null,currency:q?.quoteProvenance?.currency||null,forwardPE:q?.fundamentals?.forwardPE??null,asOf:cutoffAt};}
+  return {state,payload,artifacts,industryUniverse:universe};
 }
 
 export async function writeEarningsForecast({dataDir,prepared}){
+  // Both the full bake and the standalone refresh use the same collected
+  // snapshots. Publication never initiates another source scan.
+  const industryInputs={};
+  for(const[key,file]of [['memory','ram-prices.json'],['gpu','accelerator-prices.json'],['capex','ai-capex.json']]){
+    try{industryInputs[key]=JSON.parse(await readFile(resolve(dataDir,file),'utf8'));}
+    catch{industryInputs[key]=null;}
+  }
+  prepared.payload.industryEvidence=buildIndustryEvidence({...industryInputs,asOf:prepared.payload.builtAtIso,universe:prepared.industryUniverse||[]});
   // Publish the pathname only after bytes are complete. Exclusive hard links
   // make concurrent identical puts idempotent without exposing partial JSON.
   for(const[key,value]of prepared.artifacts){

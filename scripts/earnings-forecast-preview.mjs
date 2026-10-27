@@ -6,15 +6,17 @@ import { fileURLToPath,pathToFileURL } from 'node:url';
 import { earningsFixture } from './fixtures/earnings-forecast.mjs';
 import { prepareEarningsForecast } from './refresh-earnings-forecast.mjs';
 import { selectCohort } from '../lib/earnings-forecast.mjs';
+import { buildIndustryEvidence } from '../lib/company-research.mjs';
 export async function createEarningsPreview({port=0,payloadFile=null}={}){
   const root=fileURLToPath(new URL('../',import.meta.url));let payload;
   if(payloadFile)payload=JSON.parse(await readFile(payloadFile,'utf8'));
   else{
-    const symbols=Array.from({length:10},(_,i)=>'T'+i),chains=Object.fromEntries(symbols.map((s,i)=>[s,{fundamentals:{name:'Test issuer '+i,marketCap:(10-i)*1e11}}]));
-    const state={version:1,cohort:selectCohort(chains,symbols,{},'2025-02-15T12:00:00Z'),observations:Object.fromEntries(symbols.map(s=>[s,earningsFixture(s)])),runs:[],current:{},evaluations:[],mix:{},sourceStatus:{},sourceDocuments:{}};
+    const symbols=Array.from({length:10},(_,i)=>'T'+i),chains=Object.fromEntries(symbols.map((s,i)=>[s,{spot:100,quoteAsOf:'2025-02-14T21:00:00Z',quoteProvenance:{currency:'USD'},fundamentals:{name:'Test issuer '+i,marketCap:(10-i)*1e11,financialCurrency:'USD',forwardPE:20,fcfHistory:[{date:'2024-12-31',value:12}],totalDebt:0,totalDebtAsOf:'2024-12-31'}}]));
+    const state={version:1,cohort:selectCohort(chains,symbols,{},'2025-02-15T12:00:00Z'),observations:Object.fromEntries(symbols.map(s=>[s,earningsFixture(s)])),runs:[],current:{},evaluations:[],mix:{},sourceStatus:Object.fromEntries(symbols.map(s=>[s,{issuerId:'0000000001',checkedAt:'2025-02-15T12:00:00Z',accessions:null,rawHash:'fixture',error:null}])),sourceDocuments:{}};
     payload=(await prepareEarningsForecast({previous:state,chains,universe:symbols,sectors:{},cikMap:new Map(),now:()=>'2025-02-15T12:00:00Z',fetchImpl:()=>{throw Error('Preview cannot fetch providers');}})).payload;
     payload.companies[0].name='Test issuer <img src=x onerror=alert(1)>';
     for(const c of payload.companies)c.mix={product:{rows:[{name:'Products',value:60},{name:'Services',value:40}],period:{periodType:'quarter',currentPeriod:{endDate:'2024-12-31'}},currency:'USD',reconciliation:{status:'matched'}},geographic:{rows:[{name:'Home',value:25},{name:'Overseas',value:75}],period:{periodType:'annual',currentPeriod:{endDate:'2024-12-31'}},currency:'USD',reconciliation:{status:'matched'}}};
+    payload.industryEvidence=buildIndustryEvidence({asOf:'2025-02-15T12:00:00Z',universe:['MU','NVDA','CRWV','MSFT','SNDK'],memory:{spot:{items:[{name:'DRAM <img src=x>',sessionAvg:2}],history:{'DRAM <img src=x>':[{d:'2025-02-14',avg:2}]},sourceUrl:'https://www.trendforce.com/price/dram/dram_spot',stale:false}},gpu:{builtAtIso:'2025-02-14T12:00:00Z',quotes:[{key:'x',provider:'Test provider',model:'H100',market:'on-demand',price:2,sourceUrl:'https://example.com/pricing',stale:false}],history:{x:[{d:'2025-02-14',p:2}]}}});
   }
   const html=await readFile(resolve(root,'index.html'),'utf8'),shell=JSON.parse(html.match(/window\.STONKS_MANIFEST=(\{.*\});<\/script>/)[1]),manifest={...shell,symbols:[],narratives:[],deferred:false};
   let scenario='owner',requests=0;

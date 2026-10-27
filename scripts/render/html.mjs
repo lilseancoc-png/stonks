@@ -2245,8 +2245,8 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-earnings-forecast" role="tabpanel" aria-labelledby="page-tab-earnings-forecast" hidden>
     <section class="card" id="earnings-forecast-section">
-      <header class="card-header"><h2 class="card-title">Earnings Forecast</h2><span class="card-eyebrow">Owner research · quarterly financials</span></header>
-      <p class="use-intro">Understand the business, inspect our next-quarter assumptions, and compare each frozen forecast with reported results. Predictive accuracy is unproven.</p>
+      <header class="card-header"><h2 class="card-title">Earnings Forecast</h2><span class="card-eyebrow">Owner research · company financials & valuation</span></header>
+      <p class="use-intro">Inspect quarterly forecasts, retain company history, connect industry evidence, and model the next full year. Conditional valuations and forecast accuracy remain unproven.</p>
       <div id="earnings-forecast-root" aria-live="polite">Open this view to load the private forecast snapshot.</div>
     </section>
   </div>

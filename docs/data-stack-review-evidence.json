@@ -1,0 +1,985 @@
+{
+  "reviewedAt": "2026-10-27T07:50:45.786Z",
+  "reviewDatePacific": "2026-10-27",
+  "commit": "5eb1c882d49f544406317edb4564790028c99fbd",
+  "branch": "Data-Stack-Review",
+  "scope": "All navigation destinations inventoried; selected core pipelines inspected. Not a certification of every page, production pipeline, or investment performance.",
+  "universe": {
+    "tickerCount": 85,
+    "symbols": [
+      "SPY",
+      "QQQ",
+      "IWM",
+      "SMH",
+      "UVXY",
+      "TLT",
+      "USO",
+      "GLD",
+      "SLV",
+      "KWEB",
+      "EWY",
+      "AAPL",
+      "MSFT",
+      "AMZN",
+      "META",
+      "GOOGL",
+      "TSLA",
+      "NVDA",
+      "TSM",
+      "AVGO",
+      "ORCL",
+      "NFLX",
+      "JPM",
+      "V",
+      "MA",
+      "LLY",
+      "MRNA",
+      "MRK",
+      "WMT",
+      "COST",
+      "CRWD",
+      "ADBE",
+      "SHOP",
+      "BAC",
+      "SCHW",
+      "BABA",
+      "MS",
+      "GS",
+      "HOOD",
+      "AXP",
+      "AMD",
+      "C",
+      "UNH",
+      "DELL",
+      "ASML",
+      "VST",
+      "NOW",
+      "MDB",
+      "ACN",
+      "OKTA",
+      "SNOW",
+      "RKLB",
+      "CRM",
+      "ASTS",
+      "FTNT",
+      "INTU",
+      "TEAM",
+      "NKE",
+      "PANW",
+      "DIS",
+      "IBM",
+      "QCOM",
+      "HD",
+      "PLTR",
+      "PYPL",
+      "DDOG",
+      "SBUX",
+      "ANET",
+      "TXN",
+      "INTC",
+      "SMCI",
+      "NVO",
+      "CRWV",
+      "MRVL",
+      "AMAT",
+      "MU",
+      "BE",
+      "SNDK",
+      "WDC",
+      "DRAM",
+      "SPCX",
+      "CBRS",
+      "ARM",
+      "VRT",
+      "TGT"
+    ],
+    "warning": "Curated coverage is not a historical security master or delisted-stock database. Site sector labels alone cannot establish ETF status."
+  },
+  "navigation": {
+    "count": 53,
+    "ownerCount": 15,
+    "features": [
+      {
+        "id": "home",
+        "label": "Home",
+        "section": "Today",
+        "owner": false,
+        "description": "A one-screen overview of the market and every part of the site."
+      },
+      {
+        "id": "brief",
+        "label": "Market brief",
+        "section": "Today",
+        "owner": false,
+        "description": "A short digest of what moved, why, and what is coming up next."
+      },
+      {
+        "id": "news",
+        "label": "News",
+        "section": "Today",
+        "owner": false,
+        "description": "Market-moving stock and economic headlines, most important first."
+      },
+      {
+        "id": "heatmap",
+        "label": "Heatmap",
+        "section": "Today",
+        "owner": false,
+        "description": "Every tracked stock as a tile: size is company value, color is how much it moved."
+      },
+      {
+        "id": "calendar",
+        "label": "Calendar",
+        "section": "Today",
+        "owner": false,
+        "description": "Upcoming earnings reports, economic releases and Fed meetings."
+      },
+      {
+        "id": "overnight",
+        "label": "Overnight markets",
+        "section": "Today",
+        "owner": false,
+        "description": "How Asian and European markets traded before the US open, and which US stocks they tend to lead."
+      },
+      {
+        "id": "tickers",
+        "label": "All stocks",
+        "section": "Stocks",
+        "owner": false,
+        "description": "Every stock the site follows, with its price and current grade. Pick one to see the full report."
+      },
+      {
+        "id": "grade",
+        "label": "Look up a stock",
+        "section": "Stocks",
+        "owner": false,
+        "description": "One stock in depth: its chart, grade, fundamentals, options and news."
+      },
+      {
+        "id": "compare",
+        "label": "Compare stocks",
+        "section": "Stocks",
+        "owner": false,
+        "description": "Line up a few companies side by side on price, growth and valuation."
+      },
+      {
+        "id": "earnings",
+        "label": "Earnings results",
+        "section": "Stocks",
+        "owner": false,
+        "description": "Which companies beat or missed expectations this season, and how their stocks reacted."
+      },
+      {
+        "id": "calls",
+        "label": "Earnings calls",
+        "section": "Stocks",
+        "owner": false,
+        "description": "What management said on each company’s latest earnings call, and what changed."
+      },
+      {
+        "id": "f13",
+        "label": "Who owns what",
+        "section": "Stocks",
+        "owner": false,
+        "description": "What big investment funds bought and sold last quarter, plus recent insider trades."
+      },
+      {
+        "id": "pending-buyouts",
+        "label": "Pending buyouts",
+        "section": "Stocks",
+        "owner": false,
+        "description": "Announced and rumored takeovers, and how far along each deal is."
+      },
+      {
+        "id": "fear-greed",
+        "label": "Market mood",
+        "section": "Market & economy",
+        "owner": false,
+        "description": "CNN’s Fear & Greed index: whether investors are acting scared or greedy, from 0 to 100."
+      },
+      {
+        "id": "bonds-usd",
+        "label": "Rates & the dollar",
+        "section": "Market & economy",
+        "owner": false,
+        "description": "Treasury yields, the US dollar and what the Fed is expected to do next."
+      },
+      {
+        "id": "commodities",
+        "label": "Commodities",
+        "section": "Market & economy",
+        "owner": false,
+        "description": "Oil, gold, copper and other raw materials, and the stocks that move with them."
+      },
+      {
+        "id": "central-bank-gold",
+        "label": "Central-bank gold",
+        "section": "Market & economy",
+        "owner": false,
+        "description": "How much gold the world’s central banks are buying or selling."
+      },
+      {
+        "id": "capital-raises",
+        "label": "Capital markets",
+        "section": "Market & economy",
+        "owner": false,
+        "description": "Companies selling stock or debt or buying shares back, upcoming IPOs, and how easily companies and households can borrow."
+      },
+      {
+        "id": "narratives",
+        "label": "Market themes",
+        "section": "Market & economy",
+        "owner": false,
+        "description": "The big stories driving money right now, such as AI spending, and which stocks ride them."
+      },
+      {
+        "id": "flow",
+        "label": "Unusual options trades",
+        "section": "Options activity",
+        "owner": false,
+        "description": "Option trades far bigger than normal for that stock, a sign someone expects a move."
+      },
+      {
+        "id": "volume",
+        "label": "Trading volume",
+        "section": "Options activity",
+        "owner": false,
+        "description": "Days when a stock traded much more or less than usual."
+      },
+      {
+        "id": "oi",
+        "label": "Options walls",
+        "section": "Options activity",
+        "owner": false,
+        "description": "Price levels where large option positions can slow a stock down or speed it up."
+      },
+      {
+        "id": "iv-trend",
+        "label": "Rising volatility",
+        "section": "Options activity",
+        "owner": false,
+        "description": "Stocks whose options are pricing in a bigger move than usual."
+      },
+      {
+        "id": "strategies",
+        "label": "Strategy builder",
+        "section": "Options activity",
+        "owner": false,
+        "description": "Pick a stock and build a defined-risk options trade, with its profit and loss at expiry."
+      },
+      {
+        "id": "ma-tracker",
+        "label": "Moving averages",
+        "section": "Charts & signals",
+        "owner": false,
+        "description": "Stocks sitting close to their 20, 50, 100 or 200-day average price."
+      },
+      {
+        "id": "streaks",
+        "label": "Up/down streaks",
+        "section": "Charts & signals",
+        "owner": false,
+        "description": "Stocks on a run of up days or down days in a row."
+      },
+      {
+        "id": "pattern-lab",
+        "label": "Pattern lab",
+        "section": "Charts & signals",
+        "owner": false,
+        "description": "Repeating patterns such as seasonality and how stocks behave after big moves."
+      },
+      {
+        "id": "spillover",
+        "label": "Earnings ripple effects",
+        "section": "Charts & signals",
+        "owner": false,
+        "description": "How one company’s earnings tend to move the other stocks in its industry."
+      },
+      {
+        "id": "index-cal",
+        "label": "Index calendar",
+        "section": "Charts & signals",
+        "owner": false,
+        "description": "A month view of the major index funds, showing which days the whole market joined in."
+      },
+      {
+        "id": "ai-capex",
+        "label": "AI spending",
+        "section": "Industry trends",
+        "owner": false,
+        "description": "How much the biggest tech companies are spending on AI data centers."
+      },
+      {
+        "id": "ram-prices",
+        "label": "Memory chip prices",
+        "section": "Industry trends",
+        "owner": false,
+        "description": "Weekly prices for computer memory, a read on the chip cycle."
+      },
+      {
+        "id": "accelerator-prices",
+        "label": "GPU cloud prices",
+        "section": "Industry trends",
+        "owner": false,
+        "description": "What it costs to rent AI chips by the hour, a read on AI demand."
+      },
+      {
+        "id": "search-interest",
+        "label": "Search trends",
+        "section": "Industry trends",
+        "owner": false,
+        "description": "Which market themes people are searching for more or less this week."
+      },
+      {
+        "id": "cheatsheet",
+        "label": "Options guide",
+        "section": "Learn & help",
+        "owner": false,
+        "description": "A plain-English guide to buying options: calls, puts, risk and timing."
+      },
+      {
+        "id": "chart-patterns",
+        "label": "Chart patterns",
+        "section": "Learn & help",
+        "owner": false,
+        "description": "What common chart shapes look like and how traders read them."
+      },
+      {
+        "id": "timeline",
+        "label": "When data updates",
+        "section": "Learn & help",
+        "owner": false,
+        "description": "When each part of the site refreshes during the trading day."
+      },
+      {
+        "id": "privacy",
+        "label": "Privacy Policy",
+        "section": "Learn & help",
+        "owner": false,
+        "description": "What this site collects and how it is used."
+      },
+      {
+        "id": "terms",
+        "label": "Terms of Use",
+        "section": "Learn & help",
+        "owner": false,
+        "description": "The terms for using this site. Nothing here is investment advice."
+      },
+      {
+        "id": "unified-signal-engine",
+        "label": "Unified Signal Engine",
+        "section": "Owner",
+        "owner": true,
+        "description": "All private signals combined into one ranked read."
+      },
+      {
+        "id": "market",
+        "label": "Market analysis",
+        "section": "Owner",
+        "owner": true,
+        "description": "The cross-asset tape, risk barometer and regime history."
+      },
+      {
+        "id": "risk",
+        "label": "Risk analysis",
+        "section": "Owner",
+        "owner": true,
+        "description": "Seven risk desks read together, with the reason when they disagree."
+      },
+      {
+        "id": "bottom-tracker",
+        "label": "Bottom tracker",
+        "section": "Owner",
+        "owner": true,
+        "description": "Signs the market is washing out and turning."
+      },
+      {
+        "id": "historical-data",
+        "label": "Historical Data",
+        "section": "Owner",
+        "owner": true,
+        "description": "The stored history behind the private research."
+      },
+      {
+        "id": "earnings-forecast",
+        "label": "Earnings Forecast",
+        "section": "Owner",
+        "owner": true,
+        "description": "Our next-quarter financial forecasts for the ten largest covered companies, with assumptions and results."
+      },
+      {
+        "id": "forced-liquidation",
+        "label": "Forced Liquidation Tracker",
+        "section": "Owner",
+        "owner": true,
+        "description": "SEC stock pledges, loan terms and estimated price thresholds, with missing terms kept visible."
+      },
+      {
+        "id": "picks",
+        "label": "Top picks",
+        "section": "Owner",
+        "owner": true,
+        "description": "The model’s highest-conviction option contracts for today."
+      },
+      {
+        "id": "leaps",
+        "label": "LEAPS",
+        "section": "Owner",
+        "owner": true,
+        "description": "Names scored for a one- to two-year options hold."
+      },
+      {
+        "id": "stocks",
+        "label": "Stock picks",
+        "section": "Owner",
+        "owner": true,
+        "description": "Quality companies on a dip, as shares rather than options."
+      },
+      {
+        "id": "rotation",
+        "label": "Sector rotation",
+        "section": "Owner",
+        "owner": true,
+        "description": "Strong names sold with their sector that are now turning back up."
+      },
+      {
+        "id": "levetf",
+        "label": "Leveraged ETFs",
+        "section": "Owner",
+        "owner": true,
+        "description": "Leveraged ETF setups from the same engine."
+      },
+      {
+        "id": "open-picks",
+        "label": "Open picks",
+        "section": "Owner",
+        "owner": true,
+        "description": "Every open trade, with lines ready to copy to a broker."
+      },
+      {
+        "id": "track",
+        "label": "Top Picks track record",
+        "section": "Owner",
+        "owner": true,
+        "description": "How every closed pick worked out."
+      },
+      {
+        "id": "quant",
+        "label": "Owner Lab",
+        "section": "Owner",
+        "owner": true,
+        "description": "Research tools and diagnostics."
+      }
+    ]
+  },
+  "historyCatalog": {
+    "markets": 17,
+    "macroSeries": 20
+  },
+  "localArtifacts": [
+    {
+      "name": "calendar.json",
+      "bytes": 74738,
+      "builtAt": "2026-09-04T20:12:38.766Z",
+      "version": null
+    },
+    {
+      "name": "earnings-tracker.json",
+      "bytes": 480940,
+      "builtAt": "2026-10-14T20:13:01.505Z",
+      "version": null
+    },
+    {
+      "name": "heatmap.json",
+      "bytes": 54,
+      "builtAt": "2026-10-21T20:14:31.853Z",
+      "version": null
+    },
+    {
+      "name": "historical-data.json",
+      "bytes": 2933366,
+      "builtAt": "2026-10-25T08:27:46.500Z",
+      "version": 2
+    },
+    {
+      "name": "historical-source-history.json",
+      "bytes": 7430612,
+      "builtAt": "2026-10-25T08:19:39.410Z",
+      "version": 2
+    },
+    {
+      "name": "index-long-history.json",
+      "bytes": 770162,
+      "builtAt": "2026-10-23T20:12:06.137Z",
+      "version": null
+    },
+    {
+      "name": "iv-trending.json",
+      "bytes": 137030,
+      "builtAt": "2026-10-14T20:13:01.505Z",
+      "version": null
+    },
+    {
+      "name": "ma-tracker.json",
+      "bytes": 339,
+      "builtAt": "2026-10-23T20:12:06.137Z",
+      "version": 1
+    },
+    {
+      "name": "manifest-free.json",
+      "bytes": 66002,
+      "builtAt": null,
+      "version": null
+    },
+    {
+      "name": "manifest.json",
+      "bytes": 113,
+      "builtAt": null,
+      "version": null
+    },
+    {
+      "name": "oi-tracker.json",
+      "bytes": 482356,
+      "builtAt": "2026-10-14T21:00:38.771Z",
+      "version": null
+    },
+    {
+      "name": "pattern-recognition.json",
+      "bytes": 9416,
+      "builtAt": "2026-10-16T08:44:35.240Z",
+      "version": 1
+    },
+    {
+      "name": "spillover-pairs.json",
+      "bytes": 743465,
+      "builtAt": "2026-10-14T20:13:01.505Z",
+      "version": null
+    },
+    {
+      "name": "streaks.json",
+      "bytes": 135500,
+      "builtAt": "2026-10-14T20:13:01.505Z",
+      "version": null
+    },
+    {
+      "name": "trends.json",
+      "bytes": 66130,
+      "builtAt": "2026-10-14T20:13:01.505Z",
+      "version": null
+    }
+  ],
+  "probes": {
+    "nullHistory": {
+      "input": {
+        "trailingPE": null,
+        "totalDebt": null,
+        "freeCashFlow": null
+      },
+      "actual": {
+        "pe": 0,
+        "spot": 100,
+        "fcf": 0,
+        "debt": 0
+      },
+      "missingBecameZero": true,
+      "trueZeroPreserved": true,
+      "location": {
+        "path": "scripts/build.mjs",
+        "line": 4744,
+        "text": "function fundHistoryPoint("
+      },
+      "limitation": "Source reproduction; affected production records have not been established."
+    },
+    "missingDebtChecklist": {
+      "inputDebt": null,
+      "answers": [
+        {
+          "q": "How does free cash flow compare to total debt and market cap?",
+          "status": "answered",
+          "a": "FCF yield 1% of market cap ($100 on $10000); essentially no debt."
+        }
+      ],
+      "location": {
+        "path": "scripts/build.mjs",
+        "line": 23058,
+        "text": "export function buildStockChecklist("
+      },
+      "limitation": "Synthetic input to the actual checklist function; not an assertion about AAPL financials."
+    },
+    "gradeResearchWiring": {
+      "rawBakeShapeNames": 0,
+      "serializedShapeNames": 21,
+      "detail": "fetchTickerChain returns _bars; full bake passes these chains to seriesFromChains, which reads priceSeries only. Serialization creates priceSeries on a separate payload.",
+      "limitation": "Executed pure functions with synthetic bars plus inspected production caller; no authenticated production grade-research payload read."
+    },
+    "gradeResearchRetention": {
+      "gradeSnapshotCap": 280,
+      "priceBarsPerName": 252,
+      "nonOverlappingTenSessionWindows": 25,
+      "requiredWindows": 60,
+      "established": false,
+      "detail": "Even the serialized caller cannot reach 60 non-overlapping 10-session windows with 252 retained closes. Increasing only the grade-snapshot cap is insufficient."
+    }
+  },
+  "checks": [
+    {
+      "suite": "earnings-forecast-smoke.mjs",
+      "exitCode": 0,
+      "error": null,
+      "output": "Earnings Forecast: 48 groups passed: normalization, fiscal periods, provenance, immutability/retries, financial bridge, withholding, as-of replay, actuals, learning isolation, cohort selection, native TWD, private responses and zero-provider offline integration.",
+      "kind": "offline behavior contract"
+    },
+    {
+      "suite": "leaps-score-smoke.mjs",
+      "exitCode": 0,
+      "error": null,
+      "output": "leaps-score smoke checks passed",
+      "kind": "offline behavior contract"
+    },
+    {
+      "suite": "unified-signal-smoke.mjs",
+      "exitCode": 0,
+      "error": null,
+      "output": "Unified Signal Engine: 81 checks passed. Synthetic/offline evidence only.",
+      "kind": "offline behavior contract"
+    },
+    {
+      "suite": "evidence-record-smoke.mjs",
+      "exitCode": 0,
+      "error": null,
+      "output": "evidence-record smoke ok",
+      "kind": "offline behavior contract"
+    },
+    {
+      "suite": "track-record-fills-smoke.mjs",
+      "exitCode": 0,
+      "error": null,
+      "output": "54/54 checks passed.",
+      "kind": "offline behavior contract"
+    },
+    {
+      "suite": "historical-data-smoke.mjs",
+      "exitCode": 0,
+      "error": null,
+      "output": "Historical Data passed: completed-close cutoff, calendar/session windows, held-out years, returns, bands, analog ranking, missing data, private publication and strict owner access.",
+      "kind": "offline behavior contract"
+    },
+    {
+      "suite": "historical-sources-smoke.mjs",
+      "exitCode": 0,
+      "error": null,
+      "output": "Historical source checks passed: ten-year coverage, correct medians, immutable close confirmation, post-close refresh, fallback selection, free-only allowlist, concurrency/budgets, retained-source provenance and lossless payload packing.",
+      "kind": "offline behavior contract"
+    },
+    {
+      "suite": "risk-stack-smoke.mjs",
+      "exitCode": 0,
+      "error": null,
+      "output": "PASS a severe regime against a neutral tape explains the gap instead of averaging it\nPASS extreme fear with a calm tape is a sentiment watch, not a crash call\nPASS agreement on defense does not invent a disagreement\nPASS a split headline names the camps instead of one arbitrary neutral desk\nPASS extreme greed without a confirming tape stays a crowded-sentiment warning\nPASS positive gamma dampens and does not cast a directional vote\nPASS a defensive session inside a calm backdrop stays a split\nPASS stale and missing desks do not vote\nPASS desk evidence is escaped\nPASS empty input does not throw\nPASS generated shell, script, and stylesheet include the market-position read\n11 risk-stack checks passed",
+      "kind": "offline behavior contract"
+    },
+    {
+      "suite": "audit-historical-coverage.mjs",
+      "exitCode": 0,
+      "error": null,
+      "output": "{\n  \"datasetsVerified\": 37,\n  \"markets\": 17,\n  \"contextSeries\": 20,\n  \"windowReturnsReconciled\": 11162,\n  \"contextMediansReconciled\": 20,\n  \"minimumMarketYears\": 19.52,\n  \"minimumContextYears\": 13.08,\n  \"responseBytes\": 2933366,\n  \"providerSubscriptionUsd\": 0,\n  \"cutoff\": \"2026-10-24\"\n}",
+      "kind": "actual local cache reconciliation"
+    },
+    {
+      "suite": "diagnose-grade-ic.mjs",
+      "exitCode": 0,
+      "error": null,
+      "output": "No data/grades-daily.json yet — it accumulates one row per ET day once builds run with this change. Re-run after a few sessions.",
+      "kind": "sample availability diagnostic"
+    }
+  ],
+  "production": [
+    {
+      "url": "https://mingstreet.app/api/data/manifest-free.json",
+      "checkedAt": "2026-10-27T07:50:45.342Z",
+      "status": 200,
+      "cacheControl": "public, max-age=60",
+      "bytes": 66955,
+      "keys": [
+        "_meta",
+        "narratives",
+        "sectorOverviews",
+        "recentlyEnded",
+        "macroHeadlines",
+        "spots",
+        "fearGreed",
+        "macro",
+        "marketBackdrop"
+      ],
+      "meta": {
+        "dataBuiltAtIso": "2026-10-26T20:13:05.072Z",
+        "renderedAtIso": "2026-10-26T21:01:46.990Z"
+      },
+      "builtAtIso": null,
+      "sourceQuoteAt": null,
+      "financialPeriod": null,
+      "revenueHistoryCount": null,
+      "fcfHistoryCount": null,
+      "historyEntries": null,
+      "error": null
+    },
+    {
+      "url": "https://mingstreet.app/api/data/manifest.json",
+      "checkedAt": "2026-10-27T07:50:45.377Z",
+      "status": 200,
+      "cacheControl": "public, max-age=60",
+      "bytes": 19888,
+      "keys": [
+        "_meta",
+        "unusual"
+      ],
+      "meta": {
+        "dataBuiltAtIso": "2026-10-26T20:13:05.072Z",
+        "renderedAtIso": "2026-10-26T21:01:46.990Z"
+      },
+      "builtAtIso": null,
+      "sourceQuoteAt": null,
+      "financialPeriod": null,
+      "revenueHistoryCount": null,
+      "fcfHistoryCount": null,
+      "historyEntries": null,
+      "error": null
+    },
+    {
+      "url": "https://mingstreet.app/api/data/AAPL.json",
+      "checkedAt": "2026-10-27T07:50:45.443Z",
+      "status": 200,
+      "cacheControl": "public, max-age=60",
+      "bytes": 168135,
+      "keys": [
+        "spot",
+        "quoteAsOf",
+        "quoteProvenance",
+        "marketState",
+        "expirations",
+        "chains",
+        "technicals",
+        "fundamentals",
+        "news",
+        "catalysts",
+        "social",
+        "aiSignals",
+        "ivRank",
+        "ivSurface",
+        "earningsHx",
+        "priceSeries"
+      ],
+      "meta": null,
+      "builtAtIso": null,
+      "sourceQuoteAt": "2026-10-26T20:00:01.000Z",
+      "financialPeriod": "2026-06-27",
+      "revenueHistoryCount": 5,
+      "fcfHistoryCount": 6,
+      "historyEntries": null,
+      "error": null
+    },
+    {
+      "url": "https://mingstreet.app/api/data/fundamentals-history/AAPL.json",
+      "checkedAt": "2026-10-27T07:50:45.472Z",
+      "status": 404,
+      "cacheControl": "public, max-age=0, must-revalidate",
+      "bytes": 79,
+      "keys": [],
+      "meta": null,
+      "builtAtIso": null,
+      "sourceQuoteAt": null,
+      "financialPeriod": null,
+      "revenueHistoryCount": null,
+      "fcfHistoryCount": null,
+      "historyEntries": null,
+      "error": null
+    },
+    {
+      "url": "https://mingstreet.app/api/data/earnings-forecast.json",
+      "checkedAt": "2026-10-27T07:50:45.622Z",
+      "status": 401,
+      "cacheControl": "private, no-store",
+      "bytes": 25,
+      "keys": [
+        "error"
+      ],
+      "meta": null,
+      "builtAtIso": null,
+      "sourceQuoteAt": null,
+      "financialPeriod": null,
+      "revenueHistoryCount": null,
+      "fcfHistoryCount": null,
+      "historyEntries": null,
+      "error": "auth required"
+    },
+    {
+      "url": "https://mingstreet.app/api/data/unified-signal.json",
+      "checkedAt": "2026-10-27T07:50:45.786Z",
+      "status": 401,
+      "cacheControl": "private, no-store",
+      "bytes": 25,
+      "keys": [
+        "error"
+      ],
+      "meta": null,
+      "builtAtIso": null,
+      "sourceQuoteAt": null,
+      "financialPeriod": null,
+      "revenueHistoryCount": null,
+      "fcfHistoryCount": null,
+      "historyEntries": null,
+      "error": "auth required"
+    }
+  ],
+  "fingerprints": [
+    {
+      "path": "scripts/build.mjs",
+      "sha256": "94cb29ba5c7eacf4c8aa323b1d0f59a77761258505f77c797fdf1644d8b33571"
+    },
+    {
+      "path": "scripts/render/site-map.mjs",
+      "sha256": "b6efae9d8464bbb0e1716bbd78f58dc7ef0aaaba61caf9993cbc340e790c7fb3"
+    },
+    {
+      "path": "lib/yahoo.mjs",
+      "sha256": "1ba54feea6481d4ea3f0e9564163bf94040c3095b331123ce5cf2484196ec9dc"
+    },
+    {
+      "path": "lib/quote-provenance.mjs",
+      "sha256": "bfea61fecee8f93468dce3fa13991c2944b526b5c2d90488f077d2a43d95af12"
+    },
+    {
+      "path": "lib/freshness-policy.mjs",
+      "sha256": "60076d7e5e016159aa88260f1e7710afef64044b2675273e7350616e029dbab7"
+    },
+    {
+      "path": "lib/datastore.mjs",
+      "sha256": "a1d12f4ad95025a0cfb9166a0c53b875ae1bf690466b6e579ea755dda250b630"
+    },
+    {
+      "path": "lib/historical-sources.mjs",
+      "sha256": "1138ee693d3c302b9b9c51409793ac6e3967f42e0353b7a0b7fcd30c03a97723"
+    },
+    {
+      "path": "lib/historical-data.mjs",
+      "sha256": "ad82e4b8ba0e34c77315e197d94260182de2d7f72a33c0b0c003b007748a8df7"
+    },
+    {
+      "path": "lib/earnings-forecast.mjs",
+      "sha256": "d7f2e4c6fbdecb629378edfaaf16828b9c5c6d3460541885577b9e5b6304a5f0"
+    },
+    {
+      "path": "lib/earnings-forecast-scenarios.mjs",
+      "sha256": "4c6465aaf0192e85e3e8d81055523eb442c8361ab195e7361f89ac31abc16b4a"
+    },
+    {
+      "path": "scripts/refresh-earnings-forecast.mjs",
+      "sha256": "42535ab6318ef185aa556ac0cc7c6a647a03ca9767538c59f7e51083200aae20"
+    },
+    {
+      "path": "lib/leaps-score.mjs",
+      "sha256": "b14e59eef5884b1e57896acae7424bb0a8fc34404bc5be99879b6d406b27a28f"
+    },
+    {
+      "path": "lib/unified-signal.mjs",
+      "sha256": "2b8e0464658e20952493fb8e7c1ee24af40a39b475a9654a78555e16ddebd5a3"
+    },
+    {
+      "path": "lib/risk-stack.mjs",
+      "sha256": "d04a9befacb9636523f95d254492bef86cc4a8b6829f993a9e9ad134d01a2802"
+    },
+    {
+      "path": "lib/gex.mjs",
+      "sha256": "e3c5e71b3bc609c38d767d1d9926924fc331729230ecf2403183644c150231a0"
+    },
+    {
+      "path": "lib/track-record-fills.mjs",
+      "sha256": "19e8d6e808c52fe7e1dda9f93c97e0f09fca1ec74e2a179c7378ba245b0dbfd5"
+    },
+    {
+      "path": "lib/shadow-signals.mjs",
+      "sha256": "b40498ada5a657a50ea2c945f985cd3a7f869f4304d94e777837f13d97bbe85d"
+    },
+    {
+      "path": "lib/evidence-record.mjs",
+      "sha256": "b4e24a95341ea12122ebbc7ccc6014e3548fa7ed23e04637156af05783e16486"
+    },
+    {
+      "path": "lib/free-news-sources.mjs",
+      "sha256": "5f134e7a8358c83d6489eadeb8bfbb3b9b1bbaadfb9db31c48be0b3d31e3e6a3"
+    },
+    {
+      "path": "scripts/scan-unusual.mjs",
+      "sha256": "e0379c356dc607d3a752bc6d7a8adb6c49bc33325a652ec5a68c5e0c7f349b5f"
+    },
+    {
+      "path": "lib/accelerator-prices.mjs",
+      "sha256": "45e184dad0888f9902b3120cc42279f9037c88d94d4fc440cdc962d180afb110"
+    },
+    {
+      "path": "lib/central-bank-gold.mjs",
+      "sha256": "8c569f4bc8d534f13a5f9007b99864ed923d8295a11aea50edacebe42a5ec2e5"
+    },
+    {
+      "path": "scripts/diagnose-grade-ic.mjs",
+      "sha256": "24d2f12f814c658fe307df6a80dd8a67b4e7f3c5561404235aceb543584cedfc"
+    },
+    {
+      "path": "scripts/backtest-picks.mjs",
+      "sha256": "8e1f4964d467b252b3b242d352e593575f402ec107d809e051bd2f3ae3990657"
+    },
+    {
+      "path": ".github/workflows/daily.yml",
+      "sha256": "fd7c215ae9bdf61f2b055e02da67bf18cbe2165b429f6688356ad5ea92033acb"
+    },
+    {
+      "path": ".github/workflows/unusual-flow.yml",
+      "sha256": "4a61ade39408e3e88f5b731e6b8931faca282a97eee489c392d02c2a137dc85c"
+    },
+    {
+      "path": ".github/workflows/oi-tracker.yml",
+      "sha256": "b15c166dae9efe6da7562725bcf0b8c5b32764b97051578e26e0cf53c5390a52"
+    },
+    {
+      "path": ".github/workflows/search-interest.yml",
+      "sha256": "5209c2990d4fd0b4c12e05e5e273a2dcf82c6f394004b326723a168c1e68eae1"
+    }
+  ],
+  "anchors": [
+    {
+      "path": "scripts/build.mjs",
+      "line": 1327,
+      "text": "const HISTORY_LOOKBACK_DAYS ="
+    },
+    {
+      "path": "scripts/build.mjs",
+      "line": 4319,
+      "text": "const PRICE_SERIES_BARS ="
+    },
+    {
+      "path": "scripts/build.mjs",
+      "line": 4727,
+      "text": "const FUND_HISTORY_DIR ="
+    },
+    {
+      "path": "scripts/build.mjs",
+      "line": 4404,
+      "text": "const IV_HISTORY_MAX_ENTRIES ="
+    },
+    {
+      "path": "scripts/build.mjs",
+      "line": 1245,
+      "text": "const MIN_SUCCESS_RATE ="
+    },
+    {
+      "path": "scripts/build.mjs",
+      "line": 1929,
+      "text": "async function fetchFundamentals("
+    },
+    {
+      "path": "scripts/build.mjs",
+      "line": 18026,
+      "text": "export function computeCapexQualityMetrics("
+    }
+  ]
+}

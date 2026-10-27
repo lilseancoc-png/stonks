@@ -398,6 +398,11 @@ jobs:
         # Offline fixtures only: accounting, replay, private access and archives.
         run: npm run test:earnings-forecast
 
+      - name: Verify research inputs and full-year valuation
+        # Offline only. Reproduces the data repairs, five-session evaluation,
+        # bounded company retention and the shared browser valuation model.
+        run: npm run test:research-stack
+
       - name: Build site
         env:
           EARNINGS_FORECAST_ENABLED: ${{ vars.EARNINGS_FORECAST_ENABLED || '1' }}
