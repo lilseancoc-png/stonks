@@ -22690,6 +22690,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         eclAnalystChip(s.analystTone && s.analystTone.label) + '</div>' +
     '</div>';
     if (s.headline) html += '<div class="ecl-det-headline">' + escapeHtml(s.headline) + '</div>';
+    if (d.partial) html += '<p class="ecl-age">This summary was cut off at the AI output limit. Sections after the cut are missing; check the linked transcript.</p>';
     html += eclSection('Key takeaways', eclBullets(s.execSummary));
     // Financial highlights.
     var fin = '';
@@ -22804,6 +22805,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         eclAnalystChip(s.analystTone && s.analystTone.label) + '</div>' +
     '</div>';
     html += '<p class="ecl-age">' + escapeHtml(callAge.label) + ' · ' + escapeHtml(callReportContext(d,callsState.reports).label) + '. Check the linked transcript and newer releases before using this outlook.</p>';
+    if (d.partial) html += '<p class="ecl-age">This summary was cut off at the AI output limit. Sections after the cut are missing; check the linked transcript.</p>';
     html += '<section class="ecl-decision ecl-decision-' + decision.signal.tone + '">' +
       '<div class="ecl-decision-head"><span>Call verdict</span><h3>' + escapeHtml(decision.signal.label) + '</h3>' +
         (s.headline ? '<p>' + escapeHtml(s.headline) + '</p>' : '') + '</div>' +
