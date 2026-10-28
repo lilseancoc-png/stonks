@@ -12,6 +12,18 @@ export async function readForecastState(dataDir) {
   catch(e){if(e.code==='ENOENT')return {version:1,cohort:null,observations:{},runs:[],current:{},evaluations:[],mix:{},sourceStatus:{},sourceDocuments:{}};throw e;}
 }
 
+// The bake keeps the previous snapshot when this feature fails, so a forecast
+// problem cannot stop every other page from refreshing.
+export async function readForecastFiles(dataDir){
+  const files={};
+  for(const key of [FORECAST_KEY,FORECAST_STATE_KEY]){try{files[key]=await readFile(resolve(dataDir,key),'utf8');}catch(e){if(e.code!=='ENOENT')throw e;}}
+  return files;
+}
+export async function restoreForecastFiles(dataDir,files){
+  for(const[key,text]of Object.entries(files||{}))await writeFile(resolve(dataDir,key),text,'utf8');
+  return Object.keys(files||{}).length;
+}
+
 export function parseTsmRelease(html, {url,accession,filed,firstSeenAt,rawHash}) {
   const clean=x=>x.replace(/<sup\b[^>]*>[\s\S]*?<\/sup>/gi,'').replace(/<[^>]+>/g,' ').replace(/&#(\d+);/g,(_,n)=>String.fromCharCode(Number(n))).replace(/&nbsp;/g,' ').replace(/&amp;/g,'&').replace(/\s+/g,' ').trim();
   const text=clean(html), header=/\b([1-4])Q(\d{2})\s+Amount/i.exec(text);

@@ -82,7 +82,7 @@ import { readHistoricalSourceCache, refreshHistoricalSourceCache, loadFreeFredHi
 import { FOMC_DECISIONS, headlineHits, wwdcKeynote, WWDC_WINDOW_DAYS } from "../lib/historical-events.mjs";
 import { cleanHistoricalBars, cleanLongBars, confirmedMarketBars } from "../lib/historical-market-history.mjs";
 import { HISTORICAL_MARKETS, HISTORICAL_SOURCE_KEY } from "../lib/historical-sources.mjs";
-import { readForecastState, prepareEarningsForecast, writeEarningsForecast } from './refresh-earnings-forecast.mjs';
+import { readForecastState, readForecastFiles, restoreForecastFiles, prepareEarningsForecast, writeEarningsForecast } from './refresh-earnings-forecast.mjs';
 import { forcedLiquidationContext } from "../lib/forced-liquidation.mjs";
 import { buyoutContextFor } from "../lib/pending-buyout-guard.mjs";
 import { buildShadowSignals } from "../lib/shadow-signals.mjs";
@@ -7805,8 +7805,9 @@ const TRANSCRIPT_PROBES_PER_BUILD = Math.max(0, Number(process.env.TRANSCRIPT_PR
 const TRANSCRIPT_CONCURRENCY = Math.max(1, Number(process.env.TRANSCRIPT_CONCURRENCY) || 3);
 const TRANSCRIPT_PROBE_COOLDOWN_DAYS = 3;
 // Input-token lever: a big-cap call runs ~45-70k chars; 90k covers the tail
-// without letting a malformed page feed the model megabytes.
-const TRANSCRIPT_MAX_CHARS = transcriptCharacterBudget(process.env.AI_TRANSCRIPT_CHARS);
+// without letting a malformed page feed the model megabytes. Read at call
+// time: a malformed value fails the transcript step, not every importer.
+const transcriptMaxChars = () => transcriptCharacterBudget(process.env.AI_TRANSCRIPT_CHARS);
 // Sanity floor — shorter than this isn't a real call transcript (parse failure,
 // paywall stub, redirect page); skip and retry a later build.
 const TRANSCRIPT_MIN_CHARS = 6_000;
@@ -8254,9 +8255,10 @@ const TRANSCRIPT_SUMMARY_SYSTEM_PROMPT =
 // send maxItems for this large, deeply nested contract. Adding those 17
 // constraints on 2026-07-20 made every newly-discovered transcript request
 // fail with INVALID_ARGUMENT before the model could answer. The model still
-// receives the exact limits in its instruction below, and the normalizer caps
-// every array after parsing, so output quality/size remain bounded without
-// making the backend compile the combinatorial constrained-decoding grammar.
+// receives the exact limits in its instruction below, and the response check
+// rejects any array over its limit (never clips it), so output quality/size
+// remain bounded without making the backend compile the combinatorial
+// constrained-decoding grammar.
 function transcriptOpenApiSchema(node = TRANSCRIPT_SUMMARY_SCHEMA) {
   if (Array.isArray(node)) return node.map((value) => transcriptOpenApiSchema(value));
   if (!node || typeof node !== "object") return node;
@@ -8357,7 +8359,7 @@ export function normalizeTranscriptSummary(parsed) {
 }
 
 async function summarizeEarningsCall(sym, meta) {
-  const sourceInput = prepareTranscriptInput(meta.text, TRANSCRIPT_MAX_CHARS);
+  const sourceInput = prepareTranscriptInput(meta.text, transcriptMaxChars());
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: AI_HTTP_TIMEOUT_MS } });
   const userMessage =
     `${sym} — ${meta.company || sym} ${meta.quarter || ""} earnings call` +
@@ -37002,6 +37004,7 @@ async function main() {
   // Immutable earnings research state must survive the data/ replacement.
   // A corrupt existing ledger fails before the wipe instead of resetting history.
   const priorEarningsForecast = await readForecastState(DATA_DIR);
+  const priorEarningsForecastFiles = await readForecastFiles(DATA_DIR);
   // Prior central-bank gold snapshot - country holdings and global demand are
   // sourced independently, so either side can carry last-good across a WGC
   // outage while the other refreshes. Read it before the wholesale wipe.
@@ -37316,12 +37319,17 @@ async function main() {
     .filter((d) => d >= todayIsoForFomc)
     .sort()
     .slice(0, 2);
-  const earningsForecastPrepared = await prepareEarningsForecast({
-    previous: priorEarningsForecast, chains, universe: TICKERS, sectors: SECTORS,
-    cikMap: await fetchCikMap(),
-    macroContext: macroBackdrop,
-    enabled: process.env.EARNINGS_FORECAST_ENABLED !== '0',
-  });
+  let earningsForecastPrepared = null;
+  try {
+    earningsForecastPrepared = await prepareEarningsForecast({
+      previous: priorEarningsForecast, chains, universe: TICKERS, sectors: SECTORS,
+      cikMap: await fetchCikMap(),
+      macroContext: macroBackdrop,
+      enabled: process.env.EARNINGS_FORECAST_ENABLED !== '0',
+    });
+  } catch (err) {
+    console.warn(`⚠ earnings forecast not refreshed: ${err?.message || err} — keeping the previous snapshot`);
+  }
   const builtAtIso = new Date().toISOString();
   // Scan timestamps remain on coverage. The artifact gets this generation's
   // stamp, which is created only after the network stages have completed.
@@ -37655,9 +37663,20 @@ async function main() {
     console.log(`wrote data/iv-history/ — ${ivHistory.size} tickers, ${ivHistoryBytes} bytes total`);
   }
   const fundHistoryBytes = await writeFundamentalsHistory(fundHistory);
-  const earningsForecastInfo = await writeEarningsForecast({ dataDir: DATA_DIR, prepared: earningsForecastPrepared });
-  console.log(`wrote data/earnings-forecast.json — ${earningsForecastInfo.companies} launch companies, ${earningsForecastInfo.forecasts} revenue forecasts; no AI calls`);
-  if(earningsForecastPrepared.payload.companyStorage)console.log('company research storage: '+JSON.stringify(earningsForecastPrepared.payload.companyStorage));
+  let earningsForecastInfo = null;
+  if (earningsForecastPrepared) {
+    try {
+      earningsForecastInfo = await writeEarningsForecast({ dataDir: DATA_DIR, prepared: earningsForecastPrepared });
+      console.log(`wrote data/earnings-forecast.json — ${earningsForecastInfo.companies} launch companies, ${earningsForecastInfo.forecasts} revenue forecasts; no AI calls`);
+      if(earningsForecastPrepared.payload.companyStorage)console.log('company research storage: '+JSON.stringify(earningsForecastPrepared.payload.companyStorage));
+    } catch (err) {
+      console.warn(`⚠ earnings forecast not written: ${err?.message || err} — keeping the previous snapshot`);
+    }
+  }
+  if (!earningsForecastInfo) {
+    const restored = await restoreForecastFiles(DATA_DIR, priorEarningsForecastFiles);
+    console.log(`kept the previous earnings forecast snapshot (${restored} file${restored === 1 ? '' : 's'})`);
+  }
   if (fundHistory.size) {
     console.log(`wrote data/fundamentals-history/ — ${fundHistory.size} tickers, ${fundHistoryBytes} bytes total`);
   }
