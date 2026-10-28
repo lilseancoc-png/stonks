@@ -5,7 +5,7 @@ import { historicalFixtureBars } from './fixtures/historical-data.mjs';
 import { buildHistoricalData, packHistoricalData } from '../lib/historical-data.mjs';
 import { confirmedMarketBars } from '../lib/historical-market-history.mjs';
 const bars = historicalFixtureBars(), now = '2026-10-24T22:00:00Z';
-assert.equal(HISTORICAL_MARKETS.length, 17); assert.equal(HISTORICAL_CONTEXT.length, 20);
+assert.equal(HISTORICAL_MARKETS.length, 19); assert.deepEqual(HISTORICAL_MARKETS.filter(s => s.long).map(s => s.id), ['^GSPC', '^IXIC'], 'the long S&P 500 and Nasdaq indexes run the seasonal studies'); assert.equal(HISTORICAL_CONTEXT.length, 20);
 assert(HISTORICAL_MARKETS.every(s => s.feeUsd === 0 && s.provider === 'Yahoo Finance'));
 assert(HISTORICAL_CONTEXT.every(s => s.feeUsd === 0 && s.provider === 'FRED'));
 assert.equal(historicalCoverage(bars).status, 'ready');

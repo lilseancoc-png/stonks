@@ -69,15 +69,16 @@ import { advanceLeapsPaperTrack, LEAPS_PAPER_KEY, shouldWriteLeapsPaper } from "
 import { summarizeYahooError, withYahooRetry } from "../lib/yahoo-retry.mjs";
 import {
   PATTERN_INDEX_SYMBOLS,
+  PATTERN_SEASONALITY_SYMBOLS,
   buildPatternRecognition,
   mergeDailyCloses,
 } from "../lib/pattern-recognition.mjs";
 import { buildBottomTracker } from "../lib/bottom-tracker.mjs";
 import { writeHistoricalDataFile } from "./refresh-historical-data.mjs";
 import { readHistoricalSourceCache, refreshHistoricalSourceCache, loadFreeFredHistory, loadFreeMarketHistory, loadFredReleaseDates } from "./collect-historical-sources.mjs";
-import { headlineHits, wwdcKeynote, WWDC_WINDOW_DAYS } from "../lib/historical-events.mjs";
-import { confirmedMarketBars } from "../lib/historical-market-history.mjs";
-import { HISTORICAL_SOURCE_KEY } from "../lib/historical-sources.mjs";
+import { FOMC_DECISIONS, headlineHits, wwdcKeynote, WWDC_WINDOW_DAYS } from "../lib/historical-events.mjs";
+import { cleanHistoricalBars, cleanLongBars, confirmedMarketBars } from "../lib/historical-market-history.mjs";
+import { HISTORICAL_MARKETS, HISTORICAL_SOURCE_KEY } from "../lib/historical-sources.mjs";
 import { readForecastState, prepareEarningsForecast, writeEarningsForecast } from './refresh-earnings-forecast.mjs';
 import { forcedLiquidationContext } from "../lib/forced-liquidation.mjs";
 import { buyoutContextFor } from "../lib/pending-buyout-guard.mjs";
@@ -6677,7 +6678,7 @@ async function writeQuantFiles(payload, history) {
 // graceful degradation, the columns fill as history accrues. Same
 // read-before-wipe / write-after-wipe contract as the other data/ histories.
 const EARNINGS_HISTORY_FILE = "earnings-history.json";
-const EARNINGS_HISTORY_MAX_EVENTS = 12; // ~3 years per ticker
+const EARNINGS_HISTORY_MAX_EVENTS = 44; // ~11 years per ticker (the long-run record)
 const EARNINGS_HX_SHOWN_EVENTS = 8; // quarters shipped to the browser
 const EARNINGS_BACKFILL_QUARTERS = 8;
 const EARNINGS_BACKFILL_CONCURRENCY = 4;
@@ -6690,6 +6691,14 @@ const EARNINGS_BACKFILL_CONCURRENCY = 4;
 const EARNINGS_PREPRINT_STAMP_DAYS = 8;
 // Long enough for 8 quarters of reaction sessions + a 1-week tail.
 const EARNINGS_BACKFILL_LOOKBACK_DAYS = 800;
+// One deep pass per ticker (bump the version to rerun it): ~40 past prints
+// from Yahoo's earnings-dates feed and one daily chart long enough to price
+// their reactions, so the long-run record covers about ten years. The table
+// still shows the last EARNINGS_HX_SHOWN_EVENTS; every reader of
+// earningsHx.events keeps that same window.
+const EARNINGS_DEEP_BACKFILL_VERSION = 1;
+const EARNINGS_DEEP_BACKFILL_ROWS = 60;
+const EARNINGS_DEEP_YEARS = 10;
 // A ticker whose NEWEST stored print is older than this is missing recent
 // quarters — companies report ~every 91 days, and even a moved date stays
 // well under this. Without it, a ticker stranded by the frozen Yahoo
@@ -6884,9 +6893,9 @@ async function fetchNasdaqEarningsSurprise(symbol) {
 // ~2y of daily bars (with opens) for backfilled events that predate the
 // standard HISTORY_LOOKBACK_DAYS window. Fetched at most once per ticker
 // per backfill pass — steady-state builds never call this.
-async function fetchEarningsBackfillBars(symbol) {
+async function fetchEarningsBackfillBars(symbol, lookbackDays = EARNINGS_BACKFILL_LOOKBACK_DAYS) {
   const period2 = new Date();
-  const period1 = new Date(period2.getTime() - EARNINGS_BACKFILL_LOOKBACK_DAYS * 86400000);
+  const period1 = new Date(period2.getTime() - lookbackDays * 86400000);
   const result = await yahooFinance.chart(symbol, { period1, period2, interval: "1d" });
   const quotes = Array.isArray(result?.quotes) ? result.quotes : [];
   return quotes
@@ -7174,12 +7183,18 @@ export async function updateEarningsEventsHistory(store, chains, ivHistoryMap) {
     const entry = (store.tickers[sym] ||= { events: [] });
     if (!Array.isArray(entry.events)) entry.events = [];
     let backfillBars = null;
-    if (earningsBackfillNeeded(entry, todayIso) && entry.backfilledAt !== todayIso) {
+    const deep = entry.deepBackfill !== EARNINGS_DEEP_BACKFILL_VERSION;
+    if ((deep || earningsBackfillNeeded(entry, todayIso)) && entry.backfilledAt !== todayIso) {
       entry.backfilledAt = todayIso;
       try {
-        const got = await fetchYahooEarningsDates(sym);
-        for (const ev of got) upsertEarningsEvent(entry.events, ev);
+        const got = await fetchYahooEarningsDates(sym, deep ? EARNINGS_DEEP_BACKFILL_ROWS : 20);
+        // Prints older than the long-run window are not kept.
+        const oldest = etDateKey(new Date(nowMs - (EARNINGS_DEEP_YEARS + 0.5) * 365.25 * 86400000));
+        for (const ev of got) if (ev.date >= oldest) upsertEarningsEvent(entry.events, ev);
         if (got.length) backfilled++;
+        // A completed call marks the deep pass done, even for a young listing
+        // with fewer prints; a failed call retries on the next day's build.
+        if (deep) entry.deepBackfill = EARNINGS_DEEP_BACKFILL_VERSION;
       } catch (err) {
         console.log(`    ⚠ ${sym} earnings-dates backfill failed: ${err.message}`);
       }
@@ -7201,8 +7216,11 @@ export async function updateEarningsEventsHistory(store, chains, ivHistoryMap) {
         (e) => e?.date && e.date <= todayIso && !e.week1Done && (!barsStart || e.date <= barsStart),
       );
       if (needsLongBars) {
+        // Reach the oldest unresolved print plus a month of run-up sessions.
+        const oldestOpen = entry.events.filter((e) => e?.date && e.date <= todayIso && !e.week1Done).reduce((m, e) => (e.date < m ? e.date : m), todayIso);
+        const reach = Math.ceil((Date.parse(`${todayIso}T00:00:00Z`) - Date.parse(`${oldestOpen}T00:00:00Z`)) / 86400000) + 45;
         try {
-          backfillBars = await fetchEarningsBackfillBars(sym);
+          backfillBars = await fetchEarningsBackfillBars(sym, Math.max(EARNINGS_BACKFILL_LOOKBACK_DAYS, reach));
         } catch (err) {
           console.log(`    ⚠ ${sym} earnings backfill bars failed: ${err.message}`);
         }
@@ -7359,6 +7377,27 @@ function earningsAnchorMs(earningsIso, session) {
 // with its live straddle-implied move. qEnd ties each event to the fiscal
 // quarter from fundamentals.earningsHistory (announcement lands 0–100 days
 // after the quarter end) so the page can label the period.
+// The long-run record behind the Earnings history card: every stored past
+// print (up to ~10 years), summarized. The 8-row table and every other reader
+// of earningsHx.events keep the recent window. Moves are fractions.
+export function earningsLongRun(past) {
+  const resolved = past.filter((e) => typeof e?.movePct === "number" && isFinite(e.movePct));
+  if (!resolved.length) return null;
+  const avg = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
+  const eps = past.filter((e) => typeof e?.surprisePct === "number" && isFinite(e.surprisePct));
+  const week = resolved.map((e) => e.week1Pct).filter((v) => typeof v === "number" && isFinite(v));
+  return {
+    n: resolved.length,
+    since: resolved[0].date,
+    up: resolved.filter((e) => e.movePct > 0).length,
+    avgAbsMovePct: ehxRound(avg(resolved.map((e) => Math.abs(e.movePct)))),
+    maxAbsMovePct: ehxRound(Math.max(...resolved.map((e) => Math.abs(e.movePct)))),
+    avgWeek1Pct: week.length ? ehxRound(avg(week)) : null,
+    epsN: eps.length,
+    beat: eps.filter((e) => e.surprisePct > 0).length,
+  };
+}
+
 export function attachEarningsHx(chains, store, nowMs = Date.now()) {
   const todayIso = etDateKey(new Date(nowMs));
   for (const [sym, data] of Object.entries(chains)) {
@@ -7448,6 +7487,7 @@ export function attachEarningsHx(chains, store, nowMs = Date.now()) {
         guidance: ev.guidance ?? null,
         guidanceSrc: ev.guidanceSrc ?? null,
       })),
+      longRun: earningsLongRun(past),
       next,
     };
   }
@@ -29208,7 +29248,7 @@ function patternCloseSeries(chain) {
 // index-long-history.json that Pattern lab and the Bottom tracker kept apart.
 function sharedHistoryBars(cache, symbols) {
   const out = {};
-  for (const symbol of symbols) out[symbol] = confirmedMarketBars(cache?.symbols?.[symbol], cache?.records?.[symbol], cache?.version);
+  for (const symbol of symbols) out[symbol] = confirmedMarketBars(cache?.symbols?.[symbol], cache?.records?.[symbol], cache?.version, undefined, HISTORICAL_MARKETS.find((d) => d.id === symbol)?.long ? cleanLongBars : cleanHistoricalBars);
   return out;
 }
 
@@ -29231,7 +29271,7 @@ async function writePatternRecognitionFiles({
   chains, globalMarkets, fearGreed, regimeHistoryPrev, indexBars, macroRegime, builtAtIso,
 }) {
   const symbols = {};
-  for (const symbol of PATTERN_INDEX_SYMBOLS) {
+  for (const symbol of PATTERN_SEASONALITY_SYMBOLS) {
     symbols[symbol] = mergeDailyCloses(indexBars?.[symbol], patternCloseSeries(chains?.[symbol]));
   }
   const peers = [];
@@ -30421,20 +30461,17 @@ const SPILLOVER_NW_LAG_EVENT = 2;  // Newey-West lag, sparse event series
 const SPILLOVER_MIN_EVENTS = 6;    // below this, stats ship marked insufficient
 const SPILLOVER_GATES = { r2: 0.25, p: 0.05, hit: 0.6, fdrQ: 0.1 }; // doc §7
 const SPILLOVER_NEAR_ZERO = 0.0005; // |driver ret| below this → no direction
-const SPILLOVER_BARS_YEARS = 5.2;  // deep-recompute bar lookback
+const SPILLOVER_BARS_YEARS = 10.2; // deep-recompute bar lookback (~10 years of earnings events)
 const SPILLOVER_UPCOMING_DAYS = 30; // horizon for the upcoming-events block
 const SPILLOVER_LOG_MAX_EVENTS = 300; // rolling cap on the forward log (~2 full earnings seasons at 128 names)
 const SPILLOVER_UPCOMING_FOLLOWERS = 12; // per-event follower rows shipped (qualified pairs first)
 const SPILLOVER_MIN_BAR_COVERAGE = 0.8; // deep recompute needs ≥80% of the universe's 5y bars
 
-// FOMC decision days 2021–2024 — FOMC_MEETINGS_BASELINE starts at 2025; the
-// backtest-era isolation gate needs the earlier meetings. (Doc §8.)
-export const FOMC_MEETINGS_HISTORICAL = [
-  "2021-01-27", "2021-03-17", "2021-04-28", "2021-06-16", "2021-07-28", "2021-09-22", "2021-11-03", "2021-12-15",
-  "2022-01-26", "2022-03-16", "2022-05-04", "2022-06-15", "2022-07-27", "2022-09-21", "2022-11-02", "2022-12-14",
-  "2023-02-01", "2023-03-22", "2023-05-03", "2023-06-14", "2023-07-26", "2023-09-20", "2023-11-01", "2023-12-13",
-  "2024-01-31", "2024-03-20", "2024-05-01", "2024-06-12", "2024-07-31", "2024-09-18", "2024-11-07", "2024-12-18",
-];
+// FOMC decision days before 2025 — FOMC_MEETINGS_BASELINE starts at 2025; the
+// backtest-era isolation gate needs the earlier meetings. (Doc §8.) One list
+// for the site: Historical Data's FOMC_DECISIONS (checked against the Fed's
+// published calendars).
+export const FOMC_MEETINGS_HISTORICAL = FOMC_DECISIONS.filter((d) => d < "2025-01-01");
 
 // Standard normal CDF (Abramowitz–Stegun) for Newey-West p-values.
 function spillNormCdf(x) {
@@ -30539,13 +30576,23 @@ export function spillRollingBeta(depSeries, indepSeries, barDateExclusive, roll,
 // NFP (holiday shifts ignored — documented), CPI/PPI as an APPROXIMATE
 // weekday day-of-month 9–16 flag (BLS blocks schedule scraping; the residual
 // variant is the principled control, so this flags rather than excludes).
-export function buildSpilloverMacroSets(yearsBack) {
+// Jobs-report days come from the BLS release calendar (FRED release 50, in
+// the shared history cache) when it is there; a month it does not cover falls
+// back to the first Friday, which misses moved releases (holidays, shutdowns).
+export function buildSpilloverMacroSets(yearsBack, { jobs = [] } = {}) {
   const fomc = new Set([...FOMC_MEETINGS_HISTORICAL, ...FOMC_MEETINGS_BASELINE.map((m) => m.date)]);
   const nfp = new Set();
+  const listed = new Set();
+  for (const d of Array.isArray(jobs) ? jobs : []) {
+    if (typeof d !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(d)) continue;
+    nfp.add(d);
+    listed.add(d.slice(0, 7));
+  }
   const startYear = new Date(Date.now() - (yearsBack + 0.2) * 365.25 * 86400000).getUTCFullYear();
   const endYear = new Date().getUTCFullYear() + 1;
   for (let y = startYear; y <= endYear; y++) {
     for (let m = 0; m < 12; m++) {
+      if (listed.has(`${y}-${String(m + 1).padStart(2, "0")}`)) continue;
       const first = new Date(Date.UTC(y, m, 1));
       const day = 1 + ((5 - first.getUTCDay() + 7) % 7);
       nfp.add(`${y}-${String(m + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`);
@@ -30598,8 +30645,8 @@ const spillStrip = (o) => {
 // Pairs are measured WITHIN a group; pooled-shrinkage targets are per group
 // (doc §5B: "pooled sector event-beta"); BH-FDR runs across ALL groups' rows
 // per variant (doc §7 — mandatory at universe scale).
-export function buildSpilloverMatrix({ events, series, groups = SPILLOVER_GROUPS, currentIv = {}, builtAtIso, yearsBack = SPILLOVER_BARS_YEARS }) {
-  const macro = buildSpilloverMacroSets(yearsBack);
+export function buildSpilloverMatrix({ events, series, groups = SPILLOVER_GROUPS, currentIv = {}, builtAtIso, yearsBack = SPILLOVER_BARS_YEARS, jobs = [] }) {
+  const macro = buildSpilloverMacroSets(yearsBack, { jobs });
   const groupOf = new Map();
   for (const g of groups) for (const m of g.members) groupOf.set(m, g);
   // Same-sector reporters per date, per group — contamination is a
@@ -30851,8 +30898,8 @@ function spillCollectEvents(earningsHxStore, priorLog) {
 // doc's owner directive: no sizing, ever). Follower rows per event are
 // capped (qualified pairs first, then deepest n) so an earnings-season week
 // with dozens of reporters ships a readable payload.
-function spillUpcoming(chains, matrix, todayEt) {
-  const macro = buildSpilloverMacroSets(1);
+function spillUpcoming(chains, matrix, todayEt, jobs = []) {
+  const macro = buildSpilloverMacroSets(1, { jobs });
   const upcomingByGroup = new Map(SPILLOVER_GROUPS.map((g) => [g.key, new Map()])); // group -> date -> Set(driver)
   const list = [];
   for (const g of SPILLOVER_GROUPS) for (const d of g.members) {
@@ -30995,7 +31042,7 @@ function updateSpilloverLog(priorLog, { chains, upcoming, todayEt, builtAtIso })
 
 // Main-loop entry: deep matrix once per ET day (carried forward intra-day),
 // cheap upcoming/log refresh every bake. Returns writable payloads.
-export async function buildSpilloverArtifacts(chains, earningsHxStore, prior, builtAtIso) {
+export async function buildSpilloverArtifacts(chains, earningsHxStore, prior, builtAtIso, { jobs = [] } = {}) {
   const todayEt = etDateKey();
   let matrix = null;
   const priorMatrix = prior?.pairs && typeof prior.pairs === "object" ? prior.pairs : null;
@@ -31016,7 +31063,7 @@ export async function buildSpilloverArtifacts(chains, earningsHxStore, prior, bu
       const currentIv = {};
       for (const sym of SPILLOVER_UNIVERSE) if (chains[sym]?.ivRank?.iv > 0) currentIv[sym] = chains[sym].ivRank.iv;
       matrix = {
-        ...buildSpilloverMatrix({ events, series, currentIv, builtAtIso }),
+        ...buildSpilloverMatrix({ events, series, currentIv, builtAtIso, jobs }),
         date: todayEt,
         barCoverage: { fetched: gotUniverse, universe: SPILLOVER_UNIVERSE.length, etfsMissing: etfs.filter((e) => !series[e]) },
       };
@@ -31030,7 +31077,7 @@ export async function buildSpilloverArtifacts(chains, earningsHxStore, prior, bu
       };
     }
   }
-  const upcoming = spillUpcoming(chains, matrix, todayEt);
+  const upcoming = spillUpcoming(chains, matrix, todayEt, jobs);
   const log = updateSpilloverLog(prior?.log, { chains, upcoming, todayEt, builtAtIso });
   matrix.upcoming = upcoming;
   matrix.forward = log.forward;
@@ -37654,7 +37701,7 @@ async function main() {
   const historicalAnalyzedAt = new Date().toISOString();
   const historicalInfo = await writeHistoricalDataFile({ dataDir: DATA_DIR, builtAtIso, analyzedAtIso: historicalAnalyzedAt, sourceCache: historicalSourceCache, inputs: historicalEventInputs(chains, trends.macroHeadlines || [], historicalAnalyzedAt) });
   console.log(`wrote data/historical-data.json — ${historicalInfo.indexes} markets, ${historicalInfo.bytes} bytes; ${historicalSourceCache.cost.requestsThisRun} free source downloads`);
-  const sharedIndexBars = sharedHistoryBars(historicalSourceCache, PATTERN_INDEX_SYMBOLS);
+  const sharedIndexBars = sharedHistoryBars(historicalSourceCache, PATTERN_SEASONALITY_SYMBOLS);
   try {
     const patternInfo = await writePatternRecognitionFiles({
       chains,
@@ -37835,7 +37882,7 @@ async function main() {
   // Non-fatal: a Yahoo miss carries the prior matrix forward stale-marked.
   let scenarioSpilloverMatrix = priorSpillover || null;
   try {
-    const { matrix, log } = await buildSpilloverArtifacts(chains, earningsHxStore, priorSpillover, builtAtIso);
+    const { matrix, log } = await buildSpilloverArtifacts(chains, earningsHxStore, priorSpillover, builtAtIso, { jobs: historicalSourceCache?.releases?.jobs?.dates || [] });
     scenarioSpilloverMatrix = matrix;
     const spillInfo = await writeSpilloverFiles(matrix, log);
     console.log(`wrote data/${SPILLOVER_FILE} + ${SPILLOVER_LOG_FILE} — ${spillInfo.pairCount} pairs, ${spillInfo.upcoming} upcoming, ${spillInfo.resolved} resolved forward events, ${spillInfo.bytes} bytes${matrix.stale ? " [stale — kept last-good]" : ""}`);

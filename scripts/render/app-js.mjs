@@ -6580,6 +6580,16 @@ ${renderExportBindings()}
       if (isNum(avgCrush)) recap += '<span class="opt-ehx-stat">avg IV crush <b>' + pct(avgCrush, true) + '</b></span>';
       html += '<div class="opt-ehx-recap">' + recap + '</div>';
     }
+    // ---- long-run record (every stored print, up to ~10 years) ----
+    var lr = hx && hx.longRun;
+    if (lr && lr.n > moves.length){
+      var lrStats = '<span class="opt-ehx-stat">closed higher <b>' + lr.up + '/' + lr.n + '</b></span>' +
+        (isNum(lr.avgAbsMovePct) ? '<span class="opt-ehx-stat">avg move <b>±' + (lr.avgAbsMovePct * 100).toFixed(1) + '%</b></span>' : '') +
+        (isNum(lr.maxAbsMovePct) ? '<span class="opt-ehx-stat">biggest <b>±' + (lr.maxAbsMovePct * 100).toFixed(1) + '%</b></span>' : '') +
+        (lr.epsN ? '<span class="opt-ehx-stat">beat EPS <b>' + lr.beat + '/' + lr.epsN + '</b></span>' : '') +
+        (isNum(lr.avgWeek1Pct) ? '<span class="opt-ehx-stat">avg 1-wk drift <b class="' + (lr.avgWeek1Pct >= 0 ? 'opt-ehx-pos' : 'opt-ehx-neg') + '">' + pct(lr.avgWeek1Pct, true) + '</b></span>' : '');
+      html += '<div class="opt-ehx-recap"><span class="opt-ehx-stat">Since ' + escapeHtml(fmtDate(lr.since)) + ' (' + lr.n + ' reports):</span>' + lrStats + '</div>';
+    }
 
     // ---- the table (newest first) ----
     if (events.length){
@@ -20075,7 +20085,7 @@ ${renderExportBindings()}
   function startMaTrackerLive(){ maTrackerLivePoller.start(); }
   function stopMaTrackerLive(){ maTrackerLivePoller.stop(); }
 
-  var patternLabState = { data: null, loading: false, symbol: 'SPY' };
+  var patternLabState = { data: null, loading: false, symbol: null };
   function patPct(v){
     if (v == null || !isFinite(v)) return '—';
     return (v > 0 ? '+' : '') + Number(v).toFixed(2) + '%';
@@ -20119,12 +20129,16 @@ ${renderExportBindings()}
       '<p class="pat-note">Average absolute move the next day: ' + patPct(sample.expanding && sample.expanding.nextAbsPct) + ' after an expanding stretch (n=' + ((sample.expanding && sample.expanding.n) || 0) + '), ' + patPct(sample.calm && sample.calm.nextAbsPct) + ' after a calm stretch (n=' + ((sample.calm && sample.calm.n) || 0) + '). This is a description of SPY. It does not change a grade or a position.</p>');
   }
   function renderPatternSeasonality(all){
-    var symbol = patternLabState.symbol || 'SPY';
+    // The S&P 500 index (since 1950) is the long-history default; SPY, QQQ
+    // and IWM start at each fund's launch.
+    var longReady = !!(all && all['^GSPC'] && !all['^GSPC'].unavailable);
+    var symbol = patternLabState.symbol || (longReady ? '^GSPC' : 'SPY');
     var row = (all && all[symbol]) || {};
-    var switches = ['SPY', 'QQQ', 'IWM'].map(function(sym){
-      return '<button type="button" data-pat-symbol="' + sym + '" aria-pressed="' + (sym === symbol ? 'true' : 'false') + '">' + sym + '</button>';
+    var patLabel = function(sym){ return sym === '^GSPC' ? 'S&P 500 index' : sym; };
+    var switches = (longReady ? ['^GSPC', 'SPY', 'QQQ', 'IWM'] : ['SPY', 'QQQ', 'IWM']).map(function(sym){
+      return '<button type="button" data-pat-symbol="' + sym + '" aria-pressed="' + (sym === symbol ? 'true' : 'false') + '">' + patLabel(sym) + '</button>';
     }).join('');
-    if (row.unavailable) return patPiece('Index price history', 'Index seasonality', '<div class="pat-switch">' + switches + '</div><p>Not enough stored history for ' + symbol + '.</p>');
+    if (row.unavailable) return patPiece('Index price history', 'Index seasonality', '<div class="pat-switch">' + switches + '</div><p>Not enough stored history for ' + escapeHtml(patLabel(symbol)) + '.</p>');
     var active = row.active || {};
     var windows = [];
     if (active.inSanta) windows.push('Santa window');
@@ -20143,14 +20157,14 @@ ${renderExportBindings()}
     var mid = row.midterm || {};
     return patPiece('Index price history', 'Index seasonality',
       '<div class="pat-switch" role="group" aria-label="Index">' + switches + '</div>' +
-      '<p>' + escapeHtml(symbol) + ' · ' + patNum(row.years, 1) + ' years · ' + (row.sessions || 0) + ' sessions. Close-to-close price change. Dividends are not included.' + (windows.length ? ' The latest session is inside: ' + windows.join(', ') + '.' : ' No short calendar window is open on the latest session.') + (active.midtermYear ? ' This calendar year is a midterm year.' : '') + patProv(row.provisional) + '</p>' +
+      '<p>' + escapeHtml(patLabel(symbol)) + ' · ' + patNum(row.years, 1) + ' years' + (row.firstDate ? ' since ' + escapeHtml(row.firstDate) : '') + ' · ' + (row.sessions || 0) + ' sessions. Close-to-close price change. Dividends are not included.' + (windows.length ? ' The latest session is inside: ' + windows.join(', ') + '.' : ' No short calendar window is open on the latest session.') + (active.midtermYear ? ' This calendar year is a midterm year.' : '') + patProv(row.provisional) + '</p>' +
       '<div class="pat-metrics">' +
         patMetric('Santa window', patPct(santa.avgPct), patCls(santa.avgPct), 'whole window · up ' + patRate(santa.hitRatePct) + ' of ' + (santa.n || 0)) +
         patMetric('September', patPct(sep.avgPct), patCls(sep.avgPct), 'full month · up ' + patRate(sep.hitRatePct) + ' of ' + (sep.n || 0)) +
         patMetric('Turn of month', patPct(turn.avgPct), patCls(turn.avgPct), 'whole window · any ' + (turn.windowSessions || 4) + ' sessions ' + patPct(turn.outsideAvgPct)) +
         patMetric('Expiration week', patPct(opex.avgPct), patCls(opex.avgPct), 'whole week · any ' + (opex.windowSessions || 5) + ' sessions ' + patPct(opex.outsideAvgPct)) +
       '</div>' +
-      '<p class="pat-note">Only prior complete calendar years count, and each window runs from the prior close. Santa is the last five December sessions plus the first two January sessions. Turn of month is the final session of a month plus the first three of the next. Expiration week is the Monday-through-Friday around the third Friday. "Any N sessions" is the average of back-to-back stretches of the same length, for comparison. Midterm years, price change only: ' + patPct(mid.avgPct) + ' versus ' + patPct(mid.otherAvgPct) + ' in other years (n=' + (mid.n || 0) + ').' + patProv(mid.provisional) + ' ' + escapeHtml(mid.note || '') + (row.droppedExtremeDays ? ' Windows holding ' + row.droppedExtremeDays + ' daily print' + (row.droppedExtremeDays === 1 ? '' : 's') + ' larger than 25% ' + (row.droppedExtremeDays === 1 ? 'was' : 'were') + ' left out.' : '') + '</p>' +
+      '<p class="pat-note">Only prior complete calendar years count, and each window runs from the prior close. Santa is the last five December sessions plus the first two January sessions. Turn of month is the final session of a month plus the first three of the next. Expiration week is the Monday-through-Friday around the third Friday. "Any N sessions" is the average of back-to-back stretches of the same length, for comparison. Midterm years, price change only: ' + patPct(mid.avgPct) + ' versus ' + patPct(mid.otherAvgPct) + ' in other years (n=' + (mid.n || 0) + (mid.firstYear ? ' midterm years, ' + mid.firstYear + ' to ' + mid.lastYear : '') + ').' + patProv(mid.provisional) + ' ' + escapeHtml(mid.note || '') + (row.droppedExtremeDays ? ' Windows holding ' + row.droppedExtremeDays + ' daily print' + (row.droppedExtremeDays === 1 ? '' : 's') + ' larger than 25% ' + (row.droppedExtremeDays === 1 ? 'was' : 'were') + ' left out.' : '') + '</p>' +
       patTable(['Month', 'Years', 'Month price change', 'Years up', 'Sample'], months) +
       patTable(['Weekday', 'Sessions', 'Average day', 'Days up'], days));
   }

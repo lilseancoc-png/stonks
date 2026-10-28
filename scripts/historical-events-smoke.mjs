@@ -44,7 +44,7 @@ assert.equal(pk.peakConfirmed, false, 'a gently rising series is not at its high
 // Synthetic market set.
 const shocks = { '1987-10-19': -20.5, '1987-10-20': 5, '2008-10-15': -9, '2020-03-16': -12 };
 const nq = { '2022-05-05': -5, '2022-05-06': 1, '2022-05-09': -4.5, '2024-08-05': -4.2 };
-const gspc = series('1950-01-03', '2026-10-26', { shocks }), ixic = series('1971-02-05', '2026-10-26', { shocks: nq });
+const gspc = series('1949-12-01', '2026-10-26', { shocks }), ixic = series('1971-02-05', '2026-10-26', { shocks: nq });
 const aapl = series('1990-01-02', '2026-10-26'), kre = series('2006-06-01', '2026-10-26'), gme = series('2002-02-13', '2026-10-26', { shocks: { '2021-01-13': 57 } });
 const spy = series('1993-01-29', '2026-10-26'), gld = series('2004-11-18', '2026-10-26');
 const wti = series('1986-01-02', '2026-10-26').map(r => ({ t: r.t, v: r.c / 2 }));
@@ -171,7 +171,15 @@ await assert.rejects(loadFredReleaseDates('jobs', async () => ({ ok: false, stat
 const full = buildHistoricalData({ sourceCache: cache, builtAtIso: '2026-10-26T22:00:00Z', inputs: { headlineHits: {}, squeezes: [] } });
 assert(full.events && full.events.order.length === 12);
 assert.equal(full.coverage.total, full.coverage.markets.length + full.coverage.context.length);
-assert.equal(full.coverage.eventMarkets.length, 5); assert(full.coverage.eventMarkets.every(s => s.status === 'ready'));
+assert.equal(full.coverage.eventMarkets.length, 3); assert(full.coverage.eventMarkets.every(s => s.status === 'ready'));
+// The S&P 500 index runs the seasonal and election-cycle studies back to 1950.
+const spx = full.indexes['^GSPC'], mid = spx.studies.find(s => s.id === 'midterm').ranges.all.years.map(e => e.year);
+assert.equal(spx.firstDate.slice(0, 7), '1949-12'); assert.equal(mid[0], 1950); assert(mid.includes(1962) && mid.includes(1986) && mid.includes(2022));
+assert.equal(mid.length, 19, 'every midterm year 1950-2022 is counted');
+assert(spx.studies.find(s => s.id === 'santa').ranges.all.years.some(e => e.year === 1955 && e.sessions === 7), 'pre-1990 Santa windows use the provider sessions');
+assert(spx.studies.find(s => s.id === 'q4').ranges.all.years.some(e => e.year === 1987), '1987 Q4 is measured');
+assert(full.indexes['^IXIC'].studies.find(s => s.id === 'election').ranges.all.years[0].year === 1972);
+assert(full.events.matches.filter(m => m.seasonal).every(m => /S&P 500 index/.test(m.why)), 'open seasonal windows quote the long index');
 assert.equal(full.coverage.releaseCalendars.find(r => r.id === 'cpi').releases, 1, 'future release dates are not counted as past releases');
 const wire = JSON.stringify(packHistoricalData(full));
 assert(Buffer.byteLength(wire) < 4_150_000, 'snapshot stays under the response cap');

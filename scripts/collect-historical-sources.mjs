@@ -66,7 +66,14 @@ export async function refreshHistoricalSourceCache({ previous = {}, builtAtIso =
     if (loadMarket && (force || old?.checkedAt?.slice(0, 10) !== today || old?.checkedThrough !== confirmedThrough)) jobs.push(async () => {
       records[def.id] = { ...records[def.id], checkedAt: collectedAtIso, checkedThrough: confirmedThrough, error: null }; requests++;
       try {
-        const result = clean(await invoke(loadMarket, def.id), confirmedThrough);
+        const raw = await invoke(loadMarket, def.id);
+        const result = clean(raw, confirmedThrough);
+        // Rows from 1990 the calendar rejected (a weekend or NYSE holiday) are a
+        // date-label warning for the data checks; they are never cached.
+        const kept = new Set(result.map(r => r.t));
+        const off = [...new Set((Array.isArray(raw) ? raw : []).map(r => r?.t).filter(t => typeof t === 'string' && t >= '1990-01-01' && t <= confirmedThrough && !kept.has(t)))].sort();
+        records[def.id].offCalendarRows = off.length;
+        records[def.id].offCalendarSample = off.slice(-5);
         if (historicalCoverage(result).status !== 'ready') {
           if (historicalCoverage(symbols[def.id]).status !== 'ready') {
             symbols[def.id] = result;
