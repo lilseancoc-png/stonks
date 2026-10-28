@@ -1122,7 +1122,7 @@ function patternLabSection() {
       <h2 class="card-title">Pattern lab</h2>
       <span class="card-eyebrow" id="pattern-lab-eyebrow" aria-live="polite"></span>
     </header>
-    ${infoNote('How to read this page', '<p>Six research reads, kept separate from the desks that already exist. Nothing here replaces a grade, the index calendar, or overnight markets, and nothing here is a position. Seasonality is the close-to-close price change, without dividends. A thin sample is marked. Read the unit on each figure: a full month, a full window, or one day.</p>')}
+    ${infoNote('How to read this page', '<p>Six research studies with Overview, Charts, and sortable Tables views. Stock studies request two years of daily closes; actual coverage is listed in the page. Index seasonality keeps its separate long history. Nothing here replaces a grade, the index calendar, or overnight markets, and nothing here is a position. Seasonality is the close-to-close price change, without dividends. Counts can include overlapping observations. Read the unit on each figure: a full month, a full window, or one day.</p>')}
     <div id="pattern-lab-root" class="pat-root">Loading pattern lab&hellip;</div>
   </section>`;
 }
@@ -2298,7 +2298,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
         <h2 class="card-title">Daily green / red streaks</h2>
         <span class="card-eyebrow" id="streaks-eyebrow" aria-live="polite"></span>
       </header>
-      ${infoNote('How streaks are counted', `<p>Daily moves first pass an adaptive noise floor based on the ticker's own recent median absolute move (bounded at 0.08–0.35%), so microscopic closes do not create streaks. Counter-day and cumulative-tolerance break bars also scale with that volatility, within conservative bounds. A same-direction close partially heals the tolerance bank and one counter day rather than erasing all prior damage. The displayed streak count is the number of same-direction days; when tolerated counter/flat days occur, the sparkline may span a longer session window. Cumulative return is compounded, not summed. “Just snapped” only includes a material prior run (3+ same-direction days plus length or move significance) with a meaningful reversal, which keeps ordinary two-day noise out of the mean-reversion queue.</p>`)}
+      ${infoNote('How streaks are counted', `<p>Daily moves first pass an adaptive noise floor based on the ticker's own recent median absolute move (bounded at 0.08–0.35%), so microscopic closes do not create streaks. Counter-day and cumulative-tolerance break bars also scale with that volatility, within conservative bounds. A same-direction close partially heals the tolerance bank and one counter day rather than erasing all prior damage. The displayed streak count is the number of same-direction days; when tolerated counter/flat days occur, the sparkline may span a longer session window. Cumulative return is compounded, not summed. “Just snapped” only includes a material prior run (3+ same-direction days plus length or move significance) with a meaningful reversal, which keeps ordinary two-day noise out of the mean-reversion queue. The collapsible “Just snapped” column shares the ticker, minimum-run, sector, and sorting controls. Its length, move, volume, and tolerance sorts use the ended run; last close and Grade use the latest data. Flat sessions interrupt the consecutive counter-day count without healing the tolerance bank. Moving-average context uses the same completed closes as the streak. It shows the nearest 20/50/100/200-day simple average, its five-session slope, and any reclaim or loss on the latest close; this context does not add scoring points.</p>`)}
       <div class="streaks-controls" role="toolbar" aria-label="Filter and sort streaks">
         <label class="streaks-field streaks-field-search">
           <span class="streaks-field-label">Find</span>
@@ -2335,7 +2335,6 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
           </select>
         </label>
       </div>
-      <div id="streaks-snapped" class="streaks-snapped" hidden></div>
       <div id="streaks-root" class="streaks-root">Loading streaks…</div>
       <section id="book-streaks" class="book-view" hidden></section>
       <div id="streaks-footer" class="streaks-footer"></div>

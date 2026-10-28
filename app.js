@@ -21947,195 +21947,191 @@ function scenarioEventPhase(ev, now = Date.now()) {
   function startMaTrackerLive(){ maTrackerLivePoller.start(); }
   function stopMaTrackerLive(){ maTrackerLivePoller.stop(); }
 
-  var patternLabState = { data: null, loading: false, symbol: 'SPY' };
-  function patPct(v){
-    if (v == null || !isFinite(v)) return '—';
-    return (v > 0 ? '+' : '') + Number(v).toFixed(2) + '%';
+  var patternLab = (function patternLabFactory(host, doc, views, symbolHref) {
+  const $ = id => doc.getElementById(id);
+  const escape = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  const finite = value => typeof value === 'number' && Number.isFinite(value);
+  const number = (value, digits = 2) => finite(value) ? value.toFixed(digits) : '—';
+  const pct = value => finite(value) ? (value > 0 ? '+' : '') + number(value) + '%' : '—';
+  const store = (key, fallback) => views.get('pattern-lab.' + key, fallback);
+  const valid = (value, values, fallback) => values.includes(value) ? value : fallback;
+  const names = {volatility:'Volatility clustering', seasonality:'Index seasonality', leadLag:'Cross-asset relationships', divergences:'Price divergences', breadth:'Breadth disagreement', sentiment:'Sentiment disagreement'};
+  const state = {data:null, pending:false, error:null, bound:false,
+    view:valid(store('view','overview'), ['overview','charts','tables'], 'overview'),
+    study:valid(store('study','all'), ['all',...Object.keys(names)], 'all'),
+    symbol:valid(store('symbol','SPY'), ['SPY','QQQ','IWM'], 'SPY'), query:'', direction:'all'};
+  const save = key => views.set('pattern-lab.' + key, state[key]);
+  const link = symbol => '<a class="pat-sym" href="' + escape(symbolHref(symbol)) + '">' + escape(symbol) + '</a>';
+  function table(cols, rows, key, empty = 'No observations available for this snapshot.') {
+    return views.tableHtml(cols, rows, {key:'pattern-' + key, empty});
   }
-  function patCls(v){ return v == null || !isFinite(v) || v === 0 ? '' : (v > 0 ? 'pat-up' : 'pat-down'); }
-  function patNum(v, digits){
-    if (v == null || !isFinite(v)) return '—';
-    return Number(v).toFixed(digits == null ? 2 : digits);
+  const column = (label, key, kind) => ({label, num:kind === 'number' || kind === 'pct',
+    cell:row => kind === 'pct' ? pct(row[key]) : kind === 'number' ? number(row[key], 0) : escape(row[key] ?? '—'),
+    sort:row => row[key] ?? null});
+  function bars(title, rows, unit, note) {
+    const validRows = rows.filter(row => finite(row.value));
+    if (!validRows.length) return '<p class="pat-note">No completed observations for this comparison.</p>';
+    const max = Math.max(...validRows.map(row => Math.abs(row.value)), .0001);
+    return '<figure class="pat-bars"><figcaption>' + escape(title) + '</figcaption><p class="pat-note">' + escape(unit) + ' · bars extend from zero · scale ±' + number(max) + '</p>' + validRows.map(row => {
+      const width = Math.abs(row.value) / max * 50;
+      return '<div class="pat-bar-row"><span>' + escape(row.label) + (row.n != null ? '<small>n=' + escape(row.n) + (row.provisional ? ' · limited sample' : '') + '</small>' : '') + '</span><span class="pat-bar-track" aria-hidden="true"><i class="' + (row.value < 0 ? 'is-negative' : 'is-positive') + '" style="left:' + (row.value < 0 ? 50 - width : 50) + '%;width:' + width + '%"></i></span><b>' + (unit.includes('%') ? pct(row.value) : number(row.value)) + '</b></div>';
+    }).join('') + '<p class="pat-note">' + escape(note) + '</p></figure>';
   }
-  function patRate(v){
-    if (v == null || !isFinite(v)) return '—';
-    return Number(v).toFixed(1) + '%';
-  }
-  function patProv(flag){ return flag ? ' <span class="pat-flag">Thin sample.</span> ' : ''; }
-  function patMetric(label, value, cls, sub){
-    return '<div><small>' + label + '</small><b class="' + (cls || '') + '">' + value + '</b>' + (sub ? '<em>' + sub + '</em>' : '') + '</div>';
-  }
-  function patTable(headers, rows, empty){
-    if (!rows.length) return '<p class="pat-note">' + (empty || 'No rows for this build.') + '</p>';
-    return '<div class="pat-table-wrap"><table class="pat-table"><thead><tr>' + headers.map(function(h){ return '<th>' + h + '</th>'; }).join('') + '</tr></thead><tbody>' + rows.join('') + '</tbody></table></div>';
-  }
-  function patPiece(kicker, title, body){
-    return '<section class="pat-piece"><div class="pat-kicker">' + kicker + '</div><h3>' + title + '</h3>' + body + '</section>';
-  }
-  function patNode(target){
-    if (!target) return null;
-    return target.nodeType === 1 ? target : target.parentElement;
-  }
-  function renderPatternVolatility(vol){
-    if (!vol || vol.state === 'unavailable') return patPiece('SPY daily closes', 'Volatility clustering', '<p>Not enough recent SPY history to compare a short stretch with the last month.</p>');
-    var sample = vol.sample || {};
-    var stateLabel = vol.state === 'expanding' ? 'Expanding' : vol.state === 'calm' ? 'Calm' : 'Neither';
-    return patPiece('SPY daily closes', 'Volatility clustering',
-      '<p>' + escapeHtml(vol.advisory || '') + patProv(vol.provisional) + '</p>' +
-      '<div class="pat-metrics">' +
-        patMetric('Current stretch', stateLabel) +
-        patMetric('5-day realized vol', vol.rv5Pct == null ? '—' : patNum(vol.rv5Pct, 1) + '%', '', 'annualized') +
-        patMetric('20-day realized vol', vol.rv20Pct == null ? '—' : patNum(vol.rv20Pct, 1) + '%', '', 'annualized') +
-        patMetric('Size persistence', patNum(vol.absReturnAutocorr, 2), '', '0 means today does not predict tomorrow') +
-      '</div>' +
-      '<p class="pat-note">Average absolute move the next day: ' + patPct(sample.expanding && sample.expanding.nextAbsPct) + ' after an expanding stretch (n=' + ((sample.expanding && sample.expanding.n) || 0) + '), ' + patPct(sample.calm && sample.calm.nextAbsPct) + ' after a calm stretch (n=' + ((sample.calm && sample.calm.n) || 0) + '). This is a description of SPY. It does not change a grade or a position.</p>');
-  }
-  function renderPatternSeasonality(all){
-    var symbol = patternLabState.symbol || 'SPY';
-    var row = (all && all[symbol]) || {};
-    var switches = ['SPY', 'QQQ', 'IWM'].map(function(sym){
-      return '<button type="button" data-pat-symbol="' + sym + '" aria-pressed="' + (sym === symbol ? 'true' : 'false') + '">' + sym + '</button>';
-    }).join('');
-    if (row.unavailable) return patPiece('Index price history', 'Index seasonality', '<div class="pat-switch">' + switches + '</div><p>Not enough stored history for ' + symbol + '.</p>');
-    var active = row.active || {};
-    var windows = [];
-    if (active.inSanta) windows.push('Santa window');
-    if (active.inTurnOfMonth) windows.push('turn of the month');
-    if (active.inOpexWeek) windows.push('expiration week');
-    var months = (row.months || []).map(function(m){
-      return '<tr><td>' + escapeHtml(m.name) + '</td><td>' + (m.n || 0) + '</td><td class="' + patCls(m.avgPct) + '">' + patPct(m.avgPct) + '</td><td>' + patRate(m.hitRatePct) + '</td><td>' + (m.provisional ? 'Thin' : 'Enough years') + '</td></tr>';
-    });
-    var days = (row.weekdays || []).map(function(d){
-      return '<tr><td>' + escapeHtml(d.name) + '</td><td>' + (d.n || 0) + '</td><td class="' + patCls(d.avgPct) + '">' + patPct(d.avgPct) + '</td><td>' + patRate(d.hitRatePct) + '</td></tr>';
-    });
-    var santa = row.santa || {};
-    var sep = row.september || {};
-    var turn = row.turnOfMonth || {};
-    var opex = row.opexWeek || {};
-    var mid = row.midterm || {};
-    return patPiece('Index price history', 'Index seasonality',
-      '<div class="pat-switch" role="group" aria-label="Index">' + switches + '</div>' +
-      '<p>' + escapeHtml(symbol) + ' · ' + patNum(row.years, 1) + ' years · ' + (row.sessions || 0) + ' sessions. Close-to-close price change. Dividends are not included.' + (windows.length ? ' The latest session is inside: ' + windows.join(', ') + '.' : ' No short calendar window is open on the latest session.') + (active.midtermYear ? ' This calendar year is a midterm year.' : '') + patProv(row.provisional) + '</p>' +
-      '<div class="pat-metrics">' +
-        patMetric('Santa window', patPct(santa.avgPct), patCls(santa.avgPct), 'whole window · up ' + patRate(santa.hitRatePct) + ' of ' + (santa.n || 0)) +
-        patMetric('September', patPct(sep.avgPct), patCls(sep.avgPct), 'full month · up ' + patRate(sep.hitRatePct) + ' of ' + (sep.n || 0)) +
-        patMetric('Turn of month', patPct(turn.avgPct), patCls(turn.avgPct), 'whole window · any ' + (turn.windowSessions || 4) + ' sessions ' + patPct(turn.outsideAvgPct)) +
-        patMetric('Expiration week', patPct(opex.avgPct), patCls(opex.avgPct), 'whole week · any ' + (opex.windowSessions || 5) + ' sessions ' + patPct(opex.outsideAvgPct)) +
-      '</div>' +
-      '<p class="pat-note">Only prior complete calendar years count, and each window runs from the prior close. Santa is the last five December sessions plus the first two January sessions. Turn of month is the final session of a month plus the first three of the next. Expiration week is the Monday-through-Friday around the third Friday. "Any N sessions" is the average of back-to-back stretches of the same length, for comparison. Midterm years, price change only: ' + patPct(mid.avgPct) + ' versus ' + patPct(mid.otherAvgPct) + ' in other years (n=' + (mid.n || 0) + ').' + patProv(mid.provisional) + ' ' + escapeHtml(mid.note || '') + (row.droppedExtremeDays ? ' Windows holding ' + row.droppedExtremeDays + ' daily print' + (row.droppedExtremeDays === 1 ? '' : 's') + ' larger than 25% ' + (row.droppedExtremeDays === 1 ? 'was' : 'were') + ' left out.' : '') + '</p>' +
-      patTable(['Month', 'Years', 'Month price change', 'Years up', 'Sample'], months) +
-      patTable(['Weekday', 'Sessions', 'Average day', 'Days up'], days));
-  }
-  function patSession(kind){
-    if (kind === 'leading') return 'Closes before the US open';
-    if (kind === 'concurrent') return 'Overlaps the US day';
-    if (kind === '24h') return 'Trades overnight';
-    return kind || '—';
-  }
-  function renderPatternLead(lead){
-    lead = lead || {};
-    var rows = (lead.rows || []).filter(function(row){ return row.read !== 'too weak'; }).slice(0, 24);
-    var html = rows.map(function(row){
-      return '<tr><td><button type="button" class="pat-sym" data-pat-open="' + escapeHtml(row.us) + '">' + escapeHtml(row.us) + '</button></td><td>' + escapeHtml(row.peer) + '</td><td>' + escapeHtml(patSession(row.sessionClass)) + '</td><td>' + patNum(row.lag1Beta, 2) + '</td><td>' + patNum(row.lag1T, 1) + '</td><td>' + patNum(row.sameDayBeta, 2) + '</td><td>' + patNum(row.corr60, 2) + ' / ' + patNum(row.corr120, 2) + '</td><td>' + escapeHtml(row.read) + '</td></tr>';
-    });
-    var hidden = Math.max(0, (lead.tested || 0) - rows.length);
-    var empty = lead.tested ? 'No curated link cleared the bar on this build.' : 'Peer history was not available on this build. Overnight markets are unchanged.';
-    return patPiece('Curated foreign peers', 'Cross-asset lead',
-      '<p>' + (lead.usable || 0) + ' of ' + (lead.tested || 0) + ' curated links have a t-stat of at least 2 over 80 or more sessions, or the 60-day correlation has fallen apart versus the 120-day correlation. A market that closes before the US open is compared on the same date. Europe, futures, and commodities are compared with the previous session.</p>' +
-      '<p class="pat-note">' + escapeHtml(lead.caveat || '') + '</p>' +
-      patTable(['US name', 'Peer', 'When it trades', 'Prior-session beta', 'Prior-session t', 'Same-day beta', 'Corr 60 / 120', 'Read'], html, empty) +
-      (hidden ? '<p class="pat-note">' + hidden + ' links stayed below that bar and are not listed.</p>' : ''));
-  }
-  function renderPatternDivergence(div){
-    var rows = ((div && div.rows) || []).map(function(row){
-      return '<tr><td><button type="button" class="pat-sym" data-pat-open="' + escapeHtml(row.symbol) + '">' + escapeHtml(row.symbol) + '</button></td><td>' + escapeHtml(row.indicator) + '</td><td>' + escapeHtml(row.direction) + '</td><td>' + escapeHtml(row.olderDate || '') + '</td><td>' + escapeHtml(row.newerDate || '') + '</td><td class="' + patCls(row.priceChangePct) + '">' + patPct(row.priceChangePct) + '</td></tr>';
-    });
-    var record = div && div.record || {};
-    var keys = ['rsiBullish', 'rsiBearish', 'macdBullish', 'macdBearish'];
-    var labels = { rsiBullish: 'RSI bullish', rsiBearish: 'RSI bearish', macdBullish: 'MACD bullish', macdBearish: 'MACD bearish' };
-    var stats = keys.map(function(key){
-      var s = record[key] || {};
-      return patMetric(labels[key], patPct(s.avgPct), patCls(s.avgPct), 'n=' + (s.n || 0) + (s.provisional ? ' · thin' : ''));
-    }).join('');
-    var baseline = record.rsiBullish && record.rsiBullish.baselineAvgPct;
-    return patPiece('Daily RSI and MACD', 'Price divergences',
-      '<p>A bullish row is a lower price low with a higher indicator low. A bearish row is a higher price high with a lower indicator high. The table is the latest bar only.</p>' +
-      '<p class="pat-note">' + escapeHtml((div && div.note) || '') + ' Across the same names, the plain 10-session price change averaged ' + patPct(baseline) + '.</p>' +
-      '<div class="pat-metrics">' + stats + '</div>' +
-      patTable(['Name', 'Indicator', 'Read', 'Older pivot', 'Newer pivot', 'Price between pivots'], rows, 'No divergence is on the latest bar.'));
-  }
-  function renderPatternBreadth(breadth){
-    breadth = breadth || {};
-    var f5 = breadth.forward5 || {};
-    var f10 = breadth.forward10 || {};
-    if (!breadth.latest) return patPiece('Regime history', 'Breadth versus the index', '<p>Regime history is not on this build yet. Market Analysis is unchanged.</p>');
-    return patPiece('Regime history', 'Breadth versus the index',
-      '<p>' + (breadth.active ? 'The latest saved regime day has the indexes flat or up while breadth is down.' : 'The latest saved regime day does not have that split.') + (breadth.latest && breadth.latest.date ? ' Latest day: ' + escapeHtml(breadth.latest.date) + '.' : '') + '</p>' +
-      '<p class="pat-note">' + escapeHtml(breadth.note || '') + '</p>' +
-      '<div class="pat-metrics">' +
-        patMetric('S&P, next 5 sessions', patPct(f5.avgPct), patCls(f5.avgPct), 'n=' + (f5.n || 0) + (f5.provisional ? ' · thin' : '')) +
-        patMetric('S&P, next 10 sessions', patPct(f10.avgPct), patCls(f10.avgPct), 'up ' + patRate(f10.hitRatePct) + (f10.provisional ? ' · thin' : '')) +
-      '</div>');
-  }
-  function renderPatternSentiment(sent){
-    sent = sent || {};
-    var fear = sent.fear || {};
-    var greed = sent.greed || {};
-    var latest = sent.latest || {};
-    if (!latest.date) return patPiece('Fear & Greed history', 'Sentiment disagreement', '<p>Fear &amp; Greed history is not on this build yet. The Fear &amp; Greed page is unchanged.</p>');
-    var stateText = sent.state === 'aligned' ? 'Fear & Greed and the 5-session S&P move agree.' : sent.state === 'fear while price is up' ? 'Fear & Greed is at extreme fear while the S&P is up over 5 sessions.' : sent.state === 'greed while price is down' ? 'Fear & Greed is at extreme greed while the S&P is down over 5 sessions.' : escapeHtml(sent.state || '');
-    return patPiece('Fear & Greed history', 'Sentiment disagreement',
-      '<p>' + stateText + ' Latest score ' + patNum(latest.score, 0) + ' on ' + escapeHtml(latest.date) + '. S&P 5-session price change ' + patPct(latest.spy5dPct) + '.</p>' +
-      '<p class="pat-note">' + escapeHtml(sent.rules || '') + ' The figures below are the S&P price change over the following 10 sessions. They are not a position.</p>' +
-      '<div class="pat-metrics">' +
-        patMetric('After extreme fear and a rising tape', patPct(fear.avgPct), patCls(fear.avgPct), 'S&P next 10 sessions · n=' + (fear.n || 0) + (fear.provisional ? ' · thin' : '')) +
-        patMetric('After extreme greed and a falling tape', patPct(greed.avgPct), patCls(greed.avgPct), 'S&P next 10 sessions · n=' + (greed.n || 0) + (greed.provisional ? ' · thin' : '')) +
-      '</div>');
-  }
-  function renderPatternLab(){
-    var root = $('pattern-lab-root');
-    var eye = $('pattern-lab-eyebrow');
-    if (!root) return;
-    var data = patternLabState.data;
-    if (patternLabState.loading && !data){ root.innerHTML = 'Loading pattern lab…'; return; }
-    if (!data || data.loadError){ root.innerHTML = '<p class="pat-note">Pattern lab has not been written yet. It appears after the next bake.</p>'; if (eye) eye.textContent = ''; return; }
-    var pieces = data.pieces || {};
-    if (eye) eye.textContent = data.asOf ? ('Session ' + data.asOf) : '';
-    root.innerHTML =
-      '<p class="pat-note">These reads sit beside the desks that already exist. They do not replace a grade, the index calendar, or overnight markets, and they do not change a position.</p>' +
-      renderPatternVolatility(pieces.volatility) +
-      renderPatternSeasonality(pieces.seasonality) +
-      renderPatternLead(pieces.leadLag) +
-      renderPatternDivergence(pieces.divergences) +
-      renderPatternBreadth(pieces.breadth) +
-      renderPatternSentiment(pieces.sentiment);
-  }
-  function loadPatternLab(){
-    var root = $('pattern-lab-root');
-    if (patternLabState.data || patternLabState.loading){ renderPatternLab(); return; }
-    patternLabState.loading = true;
-    if (root && !root.dataset.patBound){
-      root.dataset.patBound = '1';
-      root.addEventListener('click', function(ev){
-        var el = patNode(ev.target);
-        var open = el && el.closest ? el.closest('[data-pat-open]') : null;
-        if (open){
-          var sym = open.getAttribute('data-pat-open');
-          var gradeTab = document.querySelector('[data-page-tab="grade"]');
-          if (gradeTab) gradeTab.click();
-          try { if (typeof combo !== 'undefined' && combo && combo.commit) combo.commit(sym); } catch (_) {}
-          return;
-        }
-        var pick = el && el.closest ? el.closest('[data-pat-symbol]') : null;
-        if (!pick) return;
-        patternLabState.symbol = pick.getAttribute('data-pat-symbol') || 'SPY';
-        renderPatternLab();
-      });
+  function summaryRows(pieces) {
+    const rows = [], add = (study, label, stats, value = stats?.avgPct, unit = '10-session return (%)') => {
+      if (!stats || !finite(value)) return;
+      rows.push({study, label, unit, n:stats.n ?? null, baselineN:stats.baselineN ?? null, mean:value, median:stats.medianPct ?? null,
+        sample:stats.provisional ? 'Limited sample' : 'In-sample', positive:stats.hitRatePct ?? null, gap:finite(value) && finite(stats.baselineAvgPct) ? value - stats.baselineAvgPct : null, baseline:stats.baselineAvgPct ?? null, worst:stats.worstPct ?? null, best:stats.bestPct ?? null});
+    };
+    for (const [key, label] of [['expanding','Expanding volatility'],['calm','Calm volatility'],['neutral','Neutral volatility']]) {
+      const s = pieces.volatility?.sample?.[key]; add('volatility', label, s, s?.nextAbsPct, 'Next-session absolute move (%)');
     }
-    fetch(dataUrl('pattern-recognition.json'), { cache: 'no-cache' }).then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-      .then(function(j){ patternLabState.data = j && typeof j === 'object' ? j : { pieces: {} }; patternLabState.loading = false; renderPatternLab(); })
-      .catch(function(){ patternLabState.loading = false; patternLabState.data = { loadError: true }; renderPatternLab(); });
+    const seasonal = pieces.seasonality?.[state.symbol] || {};
+    for (const m of seasonal.months || []) add('seasonality', state.symbol + ' · ' + m.name, m, m.avgPct, 'Full-month price return (%)');
+    for (const d of seasonal.weekdays || []) add('seasonality', state.symbol + ' · ' + d.name, d, d.avgPct, 'Daily price return (%)');
+    for (const [key,label] of [['turnOfMonth','Turn of month'],['opexWeek','Expiration week'],['santa','Santa window'],['midterm','Midterm year']]) add('seasonality', state.symbol + ' · ' + label, seasonal[key], seasonal[key]?.avgPct, 'Full-window price return (%)');
+    for (const [key,label] of [['rsiBullish','RSI bullish'],['rsiBearish','RSI bearish'],['macdBullish','MACD bullish'],['macdBearish','MACD bearish']]) {
+      if (state.direction !== 'all' && !key.toLowerCase().endsWith(state.direction)) continue;
+      let stats = pieces.divergences?.record?.[key];
+      if ((state.data?.version || 1) < 2 && key.endsWith('Bearish') && finite(stats?.baselineAvgPct)) stats = {...stats, baselineAvgPct:-stats.baselineAvgPct};
+      add('divergences', label, stats, stats?.avgPct, '10-session direction-adjusted return (%)');
+    }
+    add('breadth', 'SPY after breadth disagreement · 5 sessions', pieces.breadth?.forward5, pieces.breadth?.forward5?.avgPct, '5-session price return (%)');
+    add('breadth', 'SPY after breadth disagreement · 10 sessions', pieces.breadth?.forward10);
+    add('sentiment', 'SPY after fear with a rising tape', pieces.sentiment?.fear);
+    add('sentiment', 'SPY after greed with a falling tape', pieces.sentiment?.greed);
+    return rows.filter(row => state.study === 'all' || row.study === state.study);
   }
+  function evidenceTable(rows, key) {
+    return table([column('Comparison','label'), column('Unit','unit'), column('Observations','n','number'),column('Sample','sample'),
+      column('Mean','mean','pct'), column('Median','median','pct'), column('Positive','positive','pct'),
+      column('Same-direction baseline','baseline','pct'), {...column('Difference (pp)','gap'),cell:row=>number(row.gap)}, column('Worst','worst','pct'), column('Best','best','pct')], rows, key);
+  }
+  function matches(symbol) { return String(symbol).toUpperCase().includes(state.query); }
+  function currentRows(pieces) {
+    return (pieces.divergences?.rows || []).filter(row => matches(row.symbol) && (state.direction === 'all' || row.direction === state.direction));
+  }
+  function divergencesTable(pieces, limit) {
+    const all = currentRows(pieces), rows = limit ? all.slice(0, limit) : all;
+    return '<h4>Current confirmed-pivot divergences</h4><p class="pat-note">' + all.length + ' matching rows. Pivots require three later sessions for confirmation; the newer pivot can be up to 12 sessions old.</p>' + table([
+      {label:'Ticker', cell:row=>link(row.symbol), sort:row=>row.symbol}, column('Indicator','indicator'), column('Direction','direction'),
+      column('Older pivot','olderDate'), column('Newer pivot','newerDate'), column('Price between pivots','priceChangePct','pct')
+    ], rows, 'current-divergences', 'No current divergences match these filters.') + (limit && all.length > limit ? '<p class="pat-note">Showing the first ' + limit + '. Open Tables for every matching row.</p>' : '');
+  }
+  function leadsTable(pieces, limit) {
+    const rows = (pieces.leadLag?.rows || []).filter(row => matches(row.us));
+    return table([{label:'US ticker',cell:row=>link(row.us),sort:row=>row.us},column('Peer','peer'),column('Timing','sessionClass'),
+      {...column('Relevant beta','beta'),cell:row=>number(row.sessionClass === 'leading' ? row.sameDayBeta : row.lag1Beta),sort:row=>row.sessionClass === 'leading' ? row.sameDayBeta : row.lag1Beta},
+      {...column('Relevant t-stat','t'),cell:row=>number(row.sessionClass === 'leading' ? row.sameDayT : row.lag1T),sort:row=>row.sessionClass === 'leading' ? row.sameDayT : row.lag1T},
+      column('Corr 60','corr60'),column('Corr 120','corr120'),column('Read','read')], limit ? rows.slice(0,limit) : rows, 'leads', 'No peer observations match this view.');
+  }
+  function seasonality(pieces) {
+    const season = pieces.seasonality?.[state.symbol] || {};
+    if (season.unavailable || !season.months?.length) return '<p class="pat-note">Seasonal history is unavailable for this index.</p>';
+    if (state.view === 'tables') return evidenceTable(summaryRows(pieces).filter(row => row.study === 'seasonality'),'seasonality');
+    const note = 'Prior complete calendar years; price returns exclude cash distributions. These are seasonal descriptions, not forecasts.';
+    return '<p class="pat-note">' + escape(state.symbol) + ' · ' + number(season.years,1) + ' years · ' + (season.sessions || 0) + ' sessions. Calendar history is separate from the two-year stock studies.</p>' +
+      bars('Monthly returns', (season.months || []).map(row=>({label:row.name,n:row.n,value:row.avgPct,provisional:row.provisional})), 'Mean full-month return (%)', note) +
+      (state.view === 'charts' ? bars('Weekday returns',(season.weekdays || []).map(row=>({label:row.name,n:row.n,value:row.avgPct,provisional:row.provisional})),'Mean daily return (%)', note) +
+        bars('Recurring windows', ['turnOfMonth','opexWeek','santa','midterm'].map(key=>({label:{turnOfMonth:'Turn of month',opexWeek:'Expiration week',santa:'Santa window',midterm:'Midterm year'}[key],n:season[key]?.n,value:season[key]?.avgPct})),'Mean full-window return (%)','Window lengths differ; compare each with its own history, rather than ranking them as interchangeable signals.') : '');
+  }
+  function section(key, pieces) {
+    const s = pieces[key] || {}, rows = summaryRows(pieces).filter(row=>row.study === key);
+    let takeaway = '', body = '';
+    if (key === 'volatility') {
+      takeaway = s.state && s.state !== 'unavailable' ? 'SPY volatility is ' + s.state + '. This describes move size, rather than market direction.' : 'SPY volatility coverage is unavailable.';
+      body = state.view === 'tables' ? evidenceTable(rows,key) : bars('Move size after each volatility state', rows.map(row=>({label:row.label,n:row.n,value:row.mean,provisional:row.sample==='Limited sample'})), 'Mean next-session absolute move (%)', s.advisory || 'Historical comparison only.');
+      body += '<p class="pat-note">5-session realized volatility: ' + pct(s.rv5Pct) + ' annualized · 20-session: ' + pct(s.rv20Pct) + ' annualized.</p>';
+    } else if (key === 'seasonality') {
+      takeaway = 'Use the same calendar window and return unit when comparing outcomes.';
+      body = seasonality(pieces);
+    } else if (key === 'leadLag') {
+      takeaway = (s.usable || 0) + ' of ' + (s.tested || 0) + ' peer relationships meet the association or breakdown screen.';
+      body = state.view === 'charts' ? bars('Relevant peer association', (s.rows || []).filter(row=>matches(row.us)).slice(0,16).map(row=>({label:row.us+' / '+row.peer,value:row.sessionClass === 'leading' ? row.sameDayT : row.lag1T,n:row.sessionClass === 'leading' ? row.n : row.lag1N})), 'In-sample t-statistic', 'A large t-statistic is an association, not a forecast. Leading markets use same-day observations; overlapping and overnight markets use the prior session.') : leadsTable(pieces,state.view === 'overview' ? 6 : null);
+      body += '<p class="pat-note">' + escape(s.caveat || '') + '</p>';
+    } else if (key === 'divergences') {
+      takeaway = currentRows(pieces).length + ' current divergence rows match the view. Historical returns below are signed in the setup direction.';
+      const comparable = rows.filter(row=>row.n >= 30 && finite(row.gap)).sort((a,b)=>b.gap-a.gap);
+      if (comparable.length) {
+        const lead = comparable[0];
+        takeaway += ' Among groups with at least 30 checks, ' + lead.label + ' has the highest mean minus baseline: ' + number(lead.gap) + ' percentage points across ' + lead.n + ' overlapping observations.';
+      }
+      if (state.view !== 'tables') {
+        body = bars('Divergence outcomes and their direction-matched baseline', rows.flatMap(row=>[{label:row.label,n:row.n,value:row.mean,provisional:row.sample==='Limited sample'},{label:row.label+' · baseline',n:row.baselineN,value:row.baseline}]), 'Mean next-10-session return (%)', 'Bearish outcomes and baselines reverse the sign of the underlying return. Overlapping five-session checks are correlated, and a high count is not a count of independent trades.');
+      } else body = evidenceTable(rows,key);
+      if (state.view !== 'charts') body += divergencesTable(pieces,state.view === 'overview' ? 6 : null);
+      body += '<p class="pat-note">' + escape(s.note || 'These observations are exploratory.') + '</p>';
+    } else if (key === 'breadth') {
+      takeaway = !s.latest ? 'Breadth history is unavailable.' : s.active ? 'The latest saved day has flat or rising indexes alongside weakening breadth.' : 'The latest saved day does not show breadth disagreement.';
+      body = state.view === 'tables' ? evidenceTable(rows,key) : bars('SPY after breadth disagreement',rows.map(row=>({label:row.label,n:row.n,value:row.mean,provisional:row.sample==='Limited sample'})),'Mean forward price return (%)','Five-session and ten-session results are different horizons. Repeated flagged days can overlap.');
+    } else if (key === 'sentiment') {
+      takeaway = s.state && s.state !== 'unavailable' ? s.state === 'aligned' ? 'No extreme-sentiment disagreement is active.' : s.state : 'Sentiment history is unavailable.';
+      body = state.view === 'tables' ? evidenceTable(rows,key) : bars('SPY after sentiment disagreement',rows.map(row=>({label:row.label,n:row.n,value:row.mean,provisional:row.sample==='Limited sample'})),'Mean next-10-session price return (%)','Returns are SPY price changes. Samples can overlap; a positive average is not a validated entry signal.');
+      body += '<p class="pat-note">' + escape(s.rules || '') + '</p>';
+    }
+    return '<section class="pat-piece" data-pat-study-section="' + key + '"><header class="pat-study-header"><h3>' + names[key] + '</h3>' + (state.view === 'overview' ? '<button type="button" data-pat-explore="' + key + '">Explore</button>' : '') + '</header><p class="pat-takeaway">' + escape(takeaway) + '</p>' + body + '</section>';
+  }
+  function coverage(data) {
+    const rows = data.history?.stocks || [];
+    if (!data.history) return '<p class="pat-note">This older snapshot does not record stock-history depth. A new data build is needed for the two-year study.</p>';
+    return '<details class="pat-coverage"><summary>Actual stock-history coverage · ' + rows.length + ' names</summary><p class="pat-note">' + escape(data.history.note) + '</p>' + table([column('Ticker','symbol'),column('First close','firstDate'),column('Last close','lastDate'),column('Sessions','sessions','number')],rows,'coverage') + '</details>';
+  }
+  function render() {
+    const root = $('pattern-lab-root'), eye = $('pattern-lab-eyebrow');
+    if (!root) return;
+    root.setAttribute('aria-busy', String(state.pending));
+    if (!state.data) {root.innerHTML = '<p class="pat-note">' + (state.error ? 'Pattern Lab could not load. <button type="button" data-pat-retry>Retry</button>' : 'Loading Pattern Lab…') + '</p>'; return;}
+    const data = state.data, pieces = data.pieces || {}, selected = state.study === 'all' ? Object.keys(names) : [state.study];
+    if (eye) eye.textContent = 'Session ' + (data.asOf || 'unknown');
+    const stale = Date.parse(data.builtAtIso);
+    root.innerHTML = '<div class="pat-toolbar"><div class="pat-switch" role="group" aria-label="Pattern Lab view">' + [['overview','Overview'],['charts','Charts'],['tables','Tables']].map(([key,label])=>'<button type="button" data-pat-view="' + key + '" aria-pressed="' + (state.view === key) + '">' + label + '</button>').join('') + '</div><label>Study<select data-pat-study aria-label="Pattern study">' + [['all','All studies'],...Object.entries(names)].map(([key,label])=>'<option value="' + key + '"' + (state.study === key ? ' selected' : '') + '>' + label + '</option>').join('') + '</select></label><button type="button" class="streaks-btn" data-pat-export>Export summary</button><button type="button" class="streaks-btn" data-pat-retry' + (state.pending ? ' disabled' : '') + '>' + (state.pending ? 'Refreshing…' : 'Refresh snapshot') + '</button></div>' +
+      '<div class="pat-filters">' + (state.study === 'all' || state.study === 'seasonality' ? '<label>Index<select data-pat-symbol aria-label="Seasonal index">' + ['SPY','QQQ','IWM'].map(symbol=>'<option' + (state.symbol === symbol ? ' selected' : '') + '>' + symbol + '</option>').join('') + '</select></label>' : '') + '<label>Find ticker<input type="search" data-pat-query aria-label="Filter current tickers" value="' + escape(state.query) + '" placeholder="Current divergences and peers"></label><label>Divergence direction<select data-pat-direction aria-label="Divergence direction">' + ['all','bullish','bearish'].map(value=>'<option value="' + value + '"' + (state.direction === value ? ' selected' : '') + '>' + value + '</option>').join('') + '</select></label></div>' +
+      '<p class="pat-note">Explore current conditions and past outcomes. Each study uses its own return horizon and units.</p>' +
+      ((!finite(stale) || Date.now() - stale > 72 * 3600000) ? '<p class="pat-flag" role="status">Reference snapshot: this data is more than three days old or its build date is unavailable.</p>' : '') +
+      '<p class="pat-note">Stock history: up to two years. Expand coverage for actual dates and sample sizes.</p>' + coverage(data) +
+      selected.map(key=>section(key,pieces)).join('') + '<p class="pat-note">All results describe the available sample. Observations can overlap, and no view establishes a trading probability or changes grades or positions.</p>';
+  }
+  function exportSummary() {
+    const pieces = state.data?.pieces || {}, rows = summaryRows(pieces);
+    if (state.study === 'all' || state.study === 'leadLag') for (const row of pieces.leadLag?.rows || []) if (matches(row.us)) rows.push({study:'leadLag',label:row.us+' / '+row.peer,unit:'Association coefficients',n:row.n,beta:row.sessionClass==='leading'?row.sameDayBeta:row.lag1Beta,t:row.sessionClass==='leading'?row.sameDayT:row.lag1T,corr60:row.corr60,corr120:row.corr120,timing:row.sessionClass});
+    const fields = ['study','label','unit','n','mean','median','positive','baseline','gap','worst','best','beta','t','corr60','corr120','timing'];
+    const body = [fields,...rows.map(row=>fields.map(key=>row[key]))].map(row=>row.map(value=>'"' + String(value ?? '').replace(/"/g,'""') + '"').join(',')).join('\r\n');
+    const url = host.URL.createObjectURL(new host.Blob([body],{type:'text/csv;charset=utf-8'}));
+    const a = doc.createElement('a'); a.href = url; a.download = 'pattern-lab-' + state.study + '-' + state.symbol + '.csv'; a.click(); host.setTimeout(()=>host.URL.revokeObjectURL(url),1000);
+  }
+  function bind() {
+    const root = $('pattern-lab-root'); if (!root || state.bound) return; state.bound = true;
+    root.addEventListener('click',event=>{
+      const button = event.target.closest('button'); if (!button) return;
+      if (button.dataset.patView) {state.view = button.dataset.patView;save('view');render();root.querySelector('[data-pat-view="' + state.view + '"]')?.focus();}
+      if (button.dataset.patExplore) {state.study=button.dataset.patExplore;state.view='charts';save('study');save('view');render();root.querySelector('[data-pat-study]')?.focus();}
+      if (button.hasAttribute('data-pat-export')) exportSummary();
+      if (button.hasAttribute('data-pat-retry')) load(true);
+    });
+    root.addEventListener('change',event=>{
+      const control = event.target;
+      for (const key of ['study','symbol','direction']) if (control.hasAttribute('data-pat-' + key)) {state[key]=control.value; if (key !== 'direction') save(key);render();root.querySelector('[data-pat-' + key + ']')?.focus();}
+    });
+    root.addEventListener('input',event=>{
+      if (!event.target.hasAttribute('data-pat-query')) return;
+      const value = event.target.value, start = event.target.selectionStart, end = event.target.selectionEnd; state.query=value.trim().toUpperCase();render();const input=root.querySelector('[data-pat-query]');input.focus();input.setSelectionRange(start,end);
+    });
+  }
+  async function load(force = false) {
+    bind(); if (state.pending) return;
+    if (state.data && !force) {render();return;}
+    state.pending=true; state.error=null;render();
+    try {
+      const url = typeof host.stonksDataUrl === 'function' ? host.stonksDataUrl('pattern-recognition.json') : 'data/pattern-recognition.json';
+      const response = await host.fetch(url,{cache:'no-store'}); if (!response.ok) throw Error('HTTP ' + response.status);
+      const data = await response.json(); if (!data?.pieces || data.error) throw Error('Pattern snapshot unavailable');
+      state.data=data;
+    } catch (error) {state.error=error;state.data=null;}
+    finally {state.pending=false;render();}
+  }
+  return {load,render};
+})(window, document, VIEWS, symGradeHref);
+  function loadPatternLab(){ patternLab.load(); }
 
   // --- AI CapEx (Alt data section) ----------------------------------------
   // Aggregate major AI infrastructure buyers' CapEx from data/ai-capex.json — SEC XBRL
