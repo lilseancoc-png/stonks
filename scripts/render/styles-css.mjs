@@ -10774,6 +10774,9 @@ button.cal-ov-card:focus-visible { outline: none; box-shadow: var(--focus-ring);
 .cal-ov-label { font: 600 10px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
 .cal-ov-value { font: 700 16px/1.15 var(--font-serif); color: var(--text-strong); letter-spacing: -.01em; }
 .cal-ov-sub { font-size: 12px; color: var(--muted-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.calendar-coverage { margin: 12px 0; color: var(--muted-strong); font-size: 12px; line-height: 1.6; }
+.calendar-coverage p { margin: 6px 0; }
+.calendar-coverage summary { cursor: pointer; }
 .calendar-root { display: flex; flex-direction: column; gap: var(--s-3); margin-top: var(--s-2); }
 /* === Month-grid calendar ===
    The Calendar tab renders a real wall-calendar month view: a nav bar

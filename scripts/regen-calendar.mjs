@@ -29,7 +29,7 @@ async function loadChains() {
       const raw = await readFile(resolve(DATA_DIR, file), "utf8");
       const data = JSON.parse(raw);
       const sym = file.replace(/\.json$/, "");
-      chains[sym] = data;
+      if (build.TICKERS.includes(sym)) chains[sym] = data;
     } catch (_) { /* skip malformed */ }
   }
   return chains;
@@ -38,13 +38,11 @@ async function loadChains() {
 async function main() {
   const chains = await loadChains();
   console.log(`loaded ${Object.keys(chains).length} ticker chains`);
+  if (!Object.keys(chains).length) throw new Error("No current-universe ticker inputs. Hydrate data before regenerating the calendar.");
   const macroHistory = await build.readMacroHistory();
 
-  const todayMs = Date.UTC(
-    new Date().getUTCFullYear(),
-    new Date().getUTCMonth(),
-    new Date().getUTCDate(),
-  );
+  const calendarToday = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  const todayMs = Date.parse(calendarToday + "T00:00:00Z");
   // Rest-of-year horizon, shared with build.mjs so regen matches the full bake.
   const cutoffMs = build.calendarCutoffMs(todayMs);
   const calDays = Math.round((cutoffMs - todayMs) / 86400000);

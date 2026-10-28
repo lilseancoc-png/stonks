@@ -1069,7 +1069,8 @@ async function renderCalendar() {
   const id = "book-cal-density";
   try {
     const data = await loadJson("calendar.json");
-    const events = data && Array.isArray(data.events) ? data.events : [];
+    const tracked = new Set(window.STONKS_MANIFEST?.symbols || []);
+    const events = (data && Array.isArray(data.events) ? data.events : []).filter(e => e && (!e.symbol || tracked.has(e.symbol)));
     const start = etToday();
     const days = [];
     for (let i = 0; i < 21; i++) {

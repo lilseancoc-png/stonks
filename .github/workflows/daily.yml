@@ -411,6 +411,10 @@ jobs:
           npm run test:news
           npm run test:news-accuracy
 
+      - name: Verify calendar universe and source coverage
+        # Offline fixtures only. Feed outages remain visible in the calendar.
+        run: npm run test:calendar
+
       - name: Verify collateral extraction and Top Picks admission
         # Offline fixtures only; no SEC, Yahoo, AI or private-store requests.
         run: npm run test:forced-liquidation
