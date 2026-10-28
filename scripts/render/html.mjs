@@ -69,6 +69,7 @@ const SIDE_NAV_ICONS = {
   spillover: '<circle cx="12" cy="12" r="2.5"/><path d="M12 5.5a6.5 6.5 0 0 1 6.5 6.5"/><path d="M12 2a10 10 0 0 1 10 10"/>',
   quant: '<path d="M18 6.5V4H6l6.5 8L6 20h12v-2.5"/>',
   'historical-data': '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/>',
+  'party-tracker': '<path d="M4 20h16M6 20V9M10 20V9M14 20V9M18 20V9M3 9h18M12 3l8 6H4z"/>',
   'earnings-forecast': '<path d="M4 20V4M4 20h16M8 15l4-5 4 2 4-7"/><path d="M16 5h4v4"/>',
   levetf: '<path d="M3.5 20.5v-17"/><path d="M3.5 20.5h17"/><path d="m6 16.5 3.5-4 2.5 2 4-5.5"/><path d="m11.5 6.5 3-3 3 3"/><path d="M14.5 3.5v7"/>',
   overnight: '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>',
@@ -1122,7 +1123,7 @@ function patternLabSection() {
       <h2 class="card-title">Pattern lab</h2>
       <span class="card-eyebrow" id="pattern-lab-eyebrow" aria-live="polite"></span>
     </header>
-    ${infoNote('How to read this page', '<p>Six research reads, kept separate from the desks that already exist. Nothing here replaces a grade, the index calendar, or overnight markets, and nothing here is a position. Seasonality is the close-to-close price change, without dividends. A thin sample is marked. Read the unit on each figure: a full month, a full window, or one day.</p>')}
+    ${infoNote('How to read this page', '<p>Six research studies with Overview, Charts, and sortable Tables views. Stock studies request two years of daily closes; actual coverage is listed in the page. Index seasonality keeps its separate long history. Nothing here replaces a grade, the index calendar, or overnight markets, and nothing here is a position. Seasonality is the close-to-close price change, without dividends. Counts can include overlapping observations. Read the unit on each figure: a full month, a full window, or one day.</p>')}
     <div id="pattern-lab-root" class="pat-root">Loading pattern lab&hellip;</div>
   </section>`;
 }
@@ -1958,6 +1959,10 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
           <option value="utc">UTC</option>
         </select>
       </label>
+      <!-- Owner-only Export menu (export-js.mjs): hidden until the Owner session is confirmed. -->
+      <button id="export-toggle" class="icon-btn" type="button" hidden aria-haspopup="dialog" aria-expanded="false" aria-controls="export-panel" aria-label="Export this page: image, PDF, CSV, Excel or JSON" title="Export: image, PDF, CSV, Excel or JSON">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+      </button>
       <button id="split-toggle" class="icon-btn" type="button" aria-pressed="false" aria-label="Split view: show two pages side by side" title="Split view: two pages side by side">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/></svg>
       </button>
@@ -2231,8 +2236,8 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-unified-signal-engine" role="tabpanel" aria-labelledby="page-tab-unified-signal-engine" hidden>
     <section class="card" id="unified-signal-section">
-      <header class="card-header"><h2 class="card-title">Unified Signal Engine</h2><span class="card-eyebrow">Owner research · swing decisions</span></header>
-      <p class="use-intro">One place to inspect a stock's direction, supporting and opposing evidence, uncertainty, price assumptions, and available trade plan. Research is unproven; entry checks and missing data stay visible.</p>
+      <header class="card-header"><h2 class="card-title">Unified Signal Engine</h2><span class="card-eyebrow">Owner research · multiple perspectives</span></header>
+      <p class="use-intro">Inspect the existing decision alongside separate investment and trading perspectives. Compare business assumptions with price, explore confirmed setups, and see where the views disagree. Research is unproven; entry checks and missing data stay visible.</p>
       <div id="unified-signal-root">Open this view to load the private decision snapshot.</div>
     </section>
   </div>
@@ -2243,10 +2248,17 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
       <div id="historical-data-root" aria-live="polite">Open this view to load the historical snapshot.</div>
     </section>
   </div>
+  <div class="page-pane" id="page-pane-party-tracker" role="tabpanel" aria-labelledby="page-tab-party-tracker" hidden>
+    <section class="card" id="party-tracker-section">
+      <header class="card-header"><h2 class="card-title">Party tracker</h2><span class="card-eyebrow">Owner · market history</span></header>
+      <p class="hint">See how the market and each sector did when Democrats or Republicans held the presidency, the House, or the Senate, from Bush’s inauguration through the latest close.</p>
+      <div id="party-tracker-root" aria-live="polite">Open this view to load party control history.</div>
+    </section>
+  </div>
   <div class="page-pane" id="page-pane-earnings-forecast" role="tabpanel" aria-labelledby="page-tab-earnings-forecast" hidden>
     <section class="card" id="earnings-forecast-section">
-      <header class="card-header"><h2 class="card-title">Earnings Forecast</h2><span class="card-eyebrow">Owner research · quarterly financials</span></header>
-      <p class="use-intro">Understand the business, inspect our next-quarter assumptions, and compare each frozen forecast with reported results. Predictive accuracy is unproven.</p>
+      <header class="card-header"><h2 class="card-title">Earnings Forecast</h2><span class="card-eyebrow">Owner research · company financials & valuation</span></header>
+      <p class="use-intro">Inspect quarterly forecasts, retain company history, connect industry evidence, and model the next full year. Conditional valuations and forecast accuracy remain unproven.</p>
       <div id="earnings-forecast-root" aria-live="polite">Open this view to load the private forecast snapshot.</div>
     </section>
   </div>
@@ -2298,7 +2310,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
         <h2 class="card-title">Daily green / red streaks</h2>
         <span class="card-eyebrow" id="streaks-eyebrow" aria-live="polite"></span>
       </header>
-      ${infoNote('How streaks are counted', `<p>Daily moves first pass an adaptive noise floor based on the ticker's own recent median absolute move (bounded at 0.08–0.35%), so microscopic closes do not create streaks. Counter-day and cumulative-tolerance break bars also scale with that volatility, within conservative bounds. A same-direction close partially heals the tolerance bank and one counter day rather than erasing all prior damage. The displayed streak count is the number of same-direction days; when tolerated counter/flat days occur, the sparkline may span a longer session window. Cumulative return is compounded, not summed. “Just snapped” only includes a material prior run (3+ same-direction days plus length or move significance) with a meaningful reversal, which keeps ordinary two-day noise out of the mean-reversion queue.</p>`)}
+      ${infoNote('How streaks are counted', `<p>Daily moves first pass an adaptive noise floor based on the ticker's own recent median absolute move (bounded at 0.08–0.35%), so microscopic closes do not create streaks. Counter-day and cumulative-tolerance break bars also scale with that volatility, within conservative bounds. A same-direction close partially heals the tolerance bank and one counter day rather than erasing all prior damage. The displayed streak count is the number of same-direction days; when tolerated counter/flat days occur, the sparkline may span a longer session window. Cumulative return is compounded, not summed. “Just snapped” only includes a material prior run (3+ same-direction days plus length or move significance) with a meaningful reversal, which keeps ordinary two-day noise out of the mean-reversion queue. The collapsible “Just snapped” column shares the ticker, minimum-run, sector, and sorting controls. Its length, move, volume, and tolerance sorts use the ended run; last close and Grade use the latest data. Flat sessions interrupt the consecutive counter-day count without healing the tolerance bank. Moving-average context uses the same completed closes as the streak. It shows the nearest 20/50/100/200-day simple average, its five-session slope, and any reclaim or loss on the latest close; this context does not add scoring points.</p>`)}
       <div class="streaks-controls" role="toolbar" aria-label="Filter and sort streaks">
         <label class="streaks-field streaks-field-search">
           <span class="streaks-field-label">Find</span>
@@ -2335,7 +2347,6 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
           </select>
         </label>
       </div>
-      <div id="streaks-snapped" class="streaks-snapped" hidden></div>
       <div id="streaks-root" class="streaks-root">Loading streaks…</div>
       <section id="book-streaks" class="book-view" hidden></section>
       <div id="streaks-footer" class="streaks-footer"></div>

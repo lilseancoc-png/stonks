@@ -1,10 +1,10 @@
 # Files excluded from the Vercel deployment (kept in the repo).
 #
 # Local/private build inputs. Vercel CLI reads this file independently of
-# .gitignore, and outputDirectory is the repository root, so omitting these
-# exclusions would package local credentials and hydrated private-store data in
-# a manual `vercel` / `vercel --prod` deployment.
+# .gitignore. Keep credentials and hydrated private-store data out of the
+# uploaded source as well as the explicitly staged public/ serving directory.
 /data/
+/public/
 /r2.env
 *.env
 .env*
@@ -12,6 +12,16 @@
 /.codex/
 /AGENTS.md
 *.log
+#
+# Build/scanner sources, documentation, and repository metadata are not runtime
+# inputs. Keep only the small script that stages the committed browser assets.
+/scripts/*
+!/scripts/prepare-vercel.mjs
+/docs/
+/.github/
+/supabase/
+/*.md
+/.gitignore
 #
 # Dormant portfolio stack (#269): the Portfolio tab was removed from the site,
 # so these endpoints are unreachable (gated/503) anyway. Excluding them from the

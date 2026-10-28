@@ -123,7 +123,8 @@ try {
   assert.match(appJs, /this\.input = \$\('symbol-input'\);[\s\S]*?else if \(q && this\.items\[0\] === q\)/, "Grade combobox Enter must commit an exact ticker match");
   assert.match(appJs, /var freshnessActiveTab = null;[\s\S]*?if \(activeTab\) freshnessActiveTab = activeTab;\s*else activeTab = freshnessActiveTab;/, "Freshness heartbeat must keep the active-tab override");
   assert.match(appJs, /function loadMaTracker\(\)[\s\S]*?ma-tracker\.json/);
-  assert.match(appJs, /function loadPatternLab\(\)[\s\S]*?pattern-recognition\.json/);
+  assert.match(appJs, /function patternLabFactory[\s\S]*?pattern-recognition\.json/);
+  assert.match(appJs, /function loadPatternLab\(\)\{ patternLab\.load\(\); \}/);
   assert.match(appJs, /function maTrackerScore\([\s\S]*?proximity[\s\S]*?approach[\s\S]*?momentum/);
   assert.match(appJs, /name === 'ma-tracker'[\s\S]*?startMaTrackerLive/);
   assert.match(appJs, /function loadOwnerTools\(\)[\s\S]*?loadStocks\(\);[\s\S]*?loadSectorRotation\(\);[\s\S]*?loadLevEtf\(\);/);
@@ -250,7 +251,7 @@ try {
   const ownerTabsText = appJs.match(/var OWNER_TABS = (\{[^;]+\});/)?.[1];
   assert(ownerTabsText, 'Owner tab access map is present');
   const ownerTabs = new Function('return (' + ownerTabsText + ')')();
-  for (const tab of ['unified-signal-engine','market','risk','bottom-tracker','historical-data','forced-liquidation','picks','leaps','stocks','rotation','levetf','open-picks','track','quant']) {
+  for (const tab of ['unified-signal-engine','market','risk','bottom-tracker','historical-data','party-tracker','forced-liquidation','picks','leaps','stocks','rotation','levetf','open-picks','track','quant']) {
     assert.equal(ownerTabs[tab], 1, tab + ' requires Owner access');
   }
   assert.ok(isPremiumKey('unified-signal.json'));

@@ -1,4 +1,6 @@
 node_modules
+# Vercel's static serving directory, copied from the committed site assets.
+/public/
 .DS_Store
 *.log
 

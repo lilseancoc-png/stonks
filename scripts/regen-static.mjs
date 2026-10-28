@@ -4,6 +4,7 @@
 import { readFile, writeFile, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { renderRiskFreeRate } from '../lib/render-risk-free-rate.mjs';
 import { contentAssetVersion } from "../lib/asset-version.mjs";
 import {
   FALLBACK_RISK_FREE_RATE,
@@ -198,44 +199,11 @@ const css = renderStylesCss();
 // workflows regen app.js from here too, with no build to bake the rate. Pass
 // it as the structured payload so the greeks tooltip's source label stays
 // honest ("fresh" only if captured today, else "cached").
-let riskFreeRate = {
-  rate: FALLBACK_RISK_FREE_RATE,
-  asOf: todayIsoForFomc,
-  source: "fallback",
-  ageDays: null,
-};
-try {
-  const rfr = await readRfrHistory();
-  if (rfr && Number.isFinite(rfr.rate) && rfr.rate >= 0 && rfr.rate < 0.20) {
-    const capturedIso = rfr.capturedAt || rfr.asOf || null;
-    const isFresh = capturedIso === todayIsoForFomc;
-    // On a non-fresh (cached) reading, carry the age so the greeks tooltip can
-    // show "cached ^IRX, Nd old" — matching what build.mjs's fetchRiskFreeRate
-    // emits. Fresh readings have no meaningful age (ageDays stays null).
-    let ageDays = null;
-    if (!isFresh && capturedIso) {
-      const capturedMs = Date.parse(capturedIso);
-      const todayMs = Date.parse(todayIsoForFomc);
-      if (Number.isFinite(capturedMs) && Number.isFinite(todayMs)) {
-        const rawAgeDays = (todayMs - capturedMs) / 86400000;
-        if (rawAgeDays >= 0) ageDays = rawAgeDays;
-      }
-    }
-    if (isFresh || (ageDays != null && ageDays <= RFR_CACHE_MAX_DAYS)) {
-      riskFreeRate = {
-        rate: rfr.rate,
-        asOf: rfr.asOf || null,
-        source: isFresh ? "fresh" : "cached",
-        ageDays,
-      };
-    } else {
-      console.warn(
-        `regen-static: cached ^IRX is missing a valid date or older than ${RFR_CACHE_MAX_DAYS}d; ` +
-        `using ${(FALLBACK_RISK_FREE_RATE * 100).toFixed(1)}% fallback`,
-      );
-    }
-  }
-} catch { /* no readable rfr-history.json — keep the explicit 4.5% fallback */ }
+const [cachedRate,embeddedJs]=await Promise.all([
+  readRfrHistory().catch(()=>null),
+  readFile(resolve(ROOT,'app.js'),'utf8').catch(()=>''),
+]);
+const riskFreeRate=renderRiskFreeRate({cached:cachedRate,embeddedJs,asOf:todayIsoForFomc,maxAgeDays:RFR_CACHE_MAX_DAYS,fallback:FALLBACK_RISK_FREE_RATE});
 const js = renderAppJs({ riskFreeRate });
 const streaksJs = await readFile(resolve(ROOT, "js", "streaks.js"), "utf8");
 const bookViewsJs = await readFile(resolve(ROOT, "js", "book-views.js"), "utf8");

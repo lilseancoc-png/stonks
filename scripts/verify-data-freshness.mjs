@@ -9,6 +9,7 @@
 //   node scripts/verify-data-freshness.mjs --owner=brief
 //   node scripts/verify-data-freshness.mjs --owner=transcripts
 //   node scripts/verify-data-freshness.mjs --owner=search-interest
+//   node scripts/verify-data-freshness.mjs --owner=overnight
 //   node scripts/verify-data-freshness.mjs --self-test
 
 import { appendFile, mkdtemp, mkdir, readFile, readdir, rm, stat, utimes, writeFile } from "node:fs/promises";
@@ -74,7 +75,9 @@ const BAKE_STAMPED_FILES = [
   "quant.json",
   "historical-data.json",
   "historical-source-history.json",
+  "party-tracker.json",
   "forced-liquidation.json",
+  "leverage-distress.json",
   "news-feed.json",
   "pending-buyouts.json",
   "13f.json",
@@ -117,7 +120,10 @@ const BAKE_REQUIRED_REWRITTEN_FILES = [
   "index-calendar.json",
   "historical-data.json",
   "historical-source-history.json",
+  "party-tracker.json",
   "forced-liquidation.json",
+  "leverage-distress.json",
+  "leverage-distress-state.json",
   "ipo-credit.json",
   "iv-trending.json",
   "leveraged-etfs-log.json",
@@ -131,6 +137,7 @@ const BAKE_REQUIRED_REWRITTEN_FILES = [
   "market-analysis.json",
   "market-structure.json",
   "news-feed.json",
+  "overnight-log.json",
   "pattern-recognition.json",
   "news-source-evidence.json",
   "pending-buyouts.json",
@@ -839,6 +846,25 @@ async function auditSearchInterest({ report, dataDir, runStartedAt, now }) {
   }
 }
 
+// The pre-open overnight call must be today's, captured before the US open
+// and stamped by this run. A --force test call is never publishable.
+async function auditOvernight({ report, dataDir, runStartedAt, now }) {
+  const payload = await requireStampedFile(report, dataDir, "overnight-preopen.json", null, runStartedAt, now, ["builtAtIso"]);
+  const call = payload?.call;
+  if (!call || typeof call !== "object") return fail(report, "overnight-preopen.json: missing call");
+  if (call.forced) fail(report, "overnight-preopen.json: a --force test call cannot be published");
+  if (call.date !== etDateKey(now)) fail(report, `overnight-preopen.json: call is for ${call.date || "an unknown date"}, not ${etDateKey(now)}`);
+  const capturedMs = validMs(call.capturedAtIso);
+  const captured = capturedMs == null ? null : etParts(new Date(capturedMs));
+  const capturedMin = captured ? Number(captured.hour) * 60 + Number(captured.minute) : null;
+  if (capturedMin == null || capturedMin < 8 * 60 || capturedMin >= 9 * 60 + 30) {
+    fail(report, `overnight-preopen.json: capturedAtIso ${call.capturedAtIso || "missing"} is not inside 08:00-09:29 ET`);
+  }
+  const tone = call.tone;
+  if (!tone || !Array.isArray(tone.buckets) || tone.buckets.length !== 5) fail(report, "overnight-preopen.json: tone must carry five groups");
+  else pass(report, `overnight-preopen.json: ${call.date} call ${tone.label} (${tone.present}/5 groups) captured ${call.capturedAtIso}`);
+}
+
 async function auditBrief({ report, dataDir, runStartedAt, now }) {
   const payload = await requireStampedFile(
     report,
@@ -894,8 +920,8 @@ export async function auditFreshness({
   now = new Date(),
   expectedSymbols = TICKERS,
 } = {}) {
-  if (!["bake", "unusual", "oi", "brief", "search-interest", "transcripts"].includes(owner)) {
-    throw new Error("owner must be bake|unusual|oi|brief|search-interest|transcripts");
+  if (!["bake", "unusual", "oi", "brief", "search-interest", "transcripts", "overnight"].includes(owner)) {
+    throw new Error("owner must be bake|unusual|oi|brief|search-interest|transcripts|overnight");
   }
   const startMs = validMs(runStartedAt);
   if (startMs == null) {
@@ -908,6 +934,7 @@ export async function auditFreshness({
   else if (owner === "oi") await auditOi({ report, dataDir, runStartedAt: start, now });
   else if (owner === "brief") await auditBrief({ report, dataDir, runStartedAt: start, now });
   else if (owner === "transcripts") await auditTranscripts({ report, dataDir, runStartedAt: start, now });
+  else if (owner === "overnight") await auditOvernight({ report, dataDir, runStartedAt: start, now });
   else await auditSearchInterest({ report, dataDir, runStartedAt: start, now });
   return report;
 }
@@ -1307,6 +1334,28 @@ async function selfTest() {
       expectedSymbols: ["TEST"],
     });
     if (transcriptsReport.errors.length) throw new Error(renderReport(transcriptsReport));
+    const overnightCall = (capturedAtIso, extra = {}) => ({
+      builtAtIso: capturedAtIso,
+      call: {
+        date: "2026-07-30",
+        capturedAtIso,
+        tone: { label: "mixed", present: 4, buckets: [{}, {}, {}, {}, {}] },
+        ...extra,
+      },
+    });
+    const overnightStart = new Date("2026-07-30T13:15:00.000Z");
+    const overnightOpts = { owner: "overnight", dataDir: dir, runStartedAt: overnightStart.toISOString(), now: new Date("2026-07-30T13:22:00.000Z"), expectedSymbols: ["TEST"] };
+    await write("overnight-preopen.json", overnightCall("2026-07-30T13:20:00.000Z"));
+    const overnightReport = await auditFreshness(overnightOpts);
+    if (overnightReport.errors.length) throw new Error(renderReport(overnightReport));
+    await write("overnight-preopen.json", overnightCall("2026-07-30T13:20:00.000Z", { forced: true }));
+    if (!(await auditFreshness(overnightOpts)).errors.some((m) => m.includes("--force"))) {
+      throw new Error("self-test expected a forced overnight call to fail");
+    }
+    await write("overnight-preopen.json", overnightCall("2026-07-30T13:20:00.000Z", { date: "2026-07-29" }));
+    if (!(await auditFreshness(overnightOpts)).errors.some((m) => m.includes("not 2026-07-30"))) {
+      throw new Error("self-test expected a prior-day overnight call to fail");
+    }
     await write("briefs.json", { builtAtIso: stamp });
     await write("ai-usage.json", {});
 

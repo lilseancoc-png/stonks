@@ -4,7 +4,7 @@
 import { readFile, writeFile, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildTopPicks, buildGradesIndex, gradeTradeCut, PICKS_MIN_CONVICTION, PICKS_ACCURACY_RESET_EPOCH, PICKS_ENTRY_TIMING_VERSION, FALLBACK_RISK_FREE_RATE, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges, buildPicksRoster, writePicksRoster, attachIvRanks, computeMacroRegime, buildIndexAxisInput, buildBreadthAxisInput, buildPutCallAxisInput, buildRotationAxisInput, deriveGlobalTapeAxis, readRfrHistory, readGradesDaily, appendGradesDaily, writeGradesDaily, readRegimeHistory, appendRegimeHistory, writeRegimeHistory, buildStockPicks, writeStockPicksFile, STOCK_PICKS_FILE, readPriorStockPicks, buildSectorRotationRebounds, writeSectorRotationFile, SECTOR_ROTATION_FILE, readPriorSectorRotationLog, sectorRotationRecordFromLog, buildLeveragedEtfPicks, writeLeveragedEtfsFile, LEVERAGED_ETFS_FILE, readPriorLevEtfLog, levRecordFromLog, SECTORS, macroKindOf, MACRO_PROFILES, pickContractForPick, writeAutoPicksFile, quarantineScoringInputs, dropStaleMacroLiveLegs } from "./build.mjs";
+import { buildTopPicks, buildGradesIndex, gradeTradeCut, PICKS_MIN_CONVICTION, PICKS_ACCURACY_RESET_EPOCH, PICKS_ENTRY_TIMING_VERSION, FALLBACK_RISK_FREE_RATE, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges, buildPicksRoster, writePicksRoster, attachIvRanks, computeMacroRegime, buildIndexAxisInput, buildBreadthAxisInput, buildPutCallAxisInput, buildRotationAxisInput, deriveGlobalTapeAxis, overnightSnapshotOpts, readRfrHistory, readGradesDaily, appendGradesDaily, writeGradesDaily, readRegimeHistory, appendRegimeHistory, writeRegimeHistory, buildStockPicks, writeStockPicksFile, STOCK_PICKS_FILE, readPriorStockPicks, buildSectorRotationRebounds, writeSectorRotationFile, SECTOR_ROTATION_FILE, readPriorSectorRotationLog, sectorRotationRecordFromLog, buildLeveragedEtfPicks, writeLeveragedEtfsFile, LEVERAGED_ETFS_FILE, readPriorLevEtfLog, levRecordFromLog, SECTORS, macroKindOf, MACRO_PROFILES, pickContractForPick, writeAutoPicksFile, quarantineScoringInputs, dropStaleMacroLiveLegs } from "./build.mjs";
 import { appendScenarioHistory, buildScenarioEngine } from "../lib/scenario-engine.mjs";
 import { buildGradeResearch, seriesFromChains, writeGradeResearchFile } from "../lib/grade-research.mjs";
 import { readForcedLiquidation } from './refresh-forced-liquidation.mjs';
@@ -165,7 +165,16 @@ if (macroBackdrop) {
   } catch {}
   try {
     const corr = JSON.parse(await readFile(resolve(DATA_DIR, "correlations.json"), "utf8"));
-    macroBackdrop.crossAsset = deriveGlobalTapeAxis(corr && corr.markets ? corr.markets : null);
+    // Same rule as the bake: today's saved pre-open call, else (before the
+    // open) the snapshot, else a neutral vote.
+    const todayEt = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+    const today = corr?.preopen?.today?.date === todayEt ? corr.preopen.today
+      : (corr?.preopen?.latest?.date === todayEt ? corr.preopen.latest : null);
+    macroBackdrop.crossAsset = deriveGlobalTapeAxis(corr && !corr.stale && corr.markets ? corr.markets : null, {
+      todayCall: today,
+      context: corr?.context || null,
+      snapshotOpts: overnightSnapshotOpts(chains?.SPY?.priceSeries ? chains.SPY.priceSeries.t.map((t, i) => ({ t, c: chains.SPY.priceSeries.c[i] })) : [], Date.now()),
+    });
   } catch {}
   macroBackdrop.indexes = buildIndexAxisInput(chains);
   // Universe breadth + put/call recomputed from the loaded chains (same as the
@@ -491,7 +500,7 @@ try {
   try { picksSnap = JSON.parse(await readFile(resolve(DATA_DIR, "picks-accuracy.json"), "utf8")); } catch {}
   const research = buildGradeResearch({
     days: dailySnap.days || [],
-    series: seriesFromChains(chains),
+    series: seriesFromChains(chains, { asOf: builtAtIso }),
     sectors: SECTORS,
     picks: picksSnap,
     builtAtIso,
