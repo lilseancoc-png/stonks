@@ -11,6 +11,7 @@ import { liquidationEventFacts, extractLiquidationFiling, collectLiquidationSec 
 import { buildForcedLiquidationPayload, pledgeStressScore, LIQUIDATION_EVIDENCE_VERSION } from '../lib/forced-liquidation.mjs';
 import { rebalanceTrade, leveragedEtfRebalance, detectClusterSelloff, updateClusterLog, impliedQuarterReturn, bookStats, classifyBook, collapseBookRows,
   hotFundLevel, fundReturnSeries, estimateTopHoldingsMove, updateFundSnapshots, fundPressureState, issuerNameKey, parse13FInfoTableXml, sessionMove,
+  normalizeBookRows, splitAdjustedEndPrices, splitFactor, priceBasisCheck, hotFundStockLinks,
   LEVERAGE_DISTRESS_KEY, LEVERAGE_DISTRESS_STATE_KEY } from '../lib/leverage-distress.mjs';
 import { parse13FDataSetLinks, planHotFundPass, neededPeriods, readZipDirectory, zipEntryStream, tsvRows, parseSecDmy, process13FWindow, selectBooks } from '../lib/hot-funds-sec.mjs';
 import { refreshLeverageDistress } from './refresh-leverage-distress.mjs';
@@ -208,9 +209,37 @@ eq(out.payload.clusters.shadow, true);
 
 // Live move and snapshots.
 const top = [{ cusip: 'x', ticker: 'AAA', value: 1000, shares: 10, price: 100 }, { cusip: 'y', ticker: 'BBB', value: 1000, shares: 10, price: 100, putCall: 'PUT' }];
-const mv = estimateTopHoldingsMove(top, { AAA: { price: 80, asOf: '2026-10-27T19:00:00Z' }, BBB: { price: 80, asOf: '2026-10-27T19:00:00Z' } }, '2026-10-27T20:00:00Z');
+const rng = { low52: 60, high52: 140, currency: 'USD' };
+const mv = estimateTopHoldingsMove(top, { AAA: { price: 80, asOf: '2026-10-27T19:00:00Z', ...rng }, BBB: { price: 80, asOf: '2026-10-27T19:00:00Z', ...rng } }, '2026-10-27T20:00:00Z', undefined, { anchorPeriod: '2026-09-30' });
 eq(mv.movePct, 0, 'a put offsets the same move in the stock');
-const stale = estimateTopHoldingsMove(top, { AAA: { price: 80, asOf: '2026-10-01T19:00:00Z' } }, '2026-10-27T20:00:00Z');
+{
+  // A holding that split 10-for-1 after the 13F date is restated, not read as a 90% loss.
+  const split = estimateTopHoldingsMove([{ cusip: 'z', ticker: 'SPL', value: 1000, shares: 10, price: 100 }], { SPL: { price: 11, asOf: '2026-10-27T19:00:00Z', low52: 8, high52: 12, currency: 'USD' } }, '2026-10-27T20:00:00Z', undefined, { anchorPeriod: '2026-09-30' });
+  near(split.movePct, 10, 0.01, 'split after the 13F is restated'); eq(split.rows[0].splitFactor, 10);
+  // A CUSIP mapped to the wrong listing (price outside the 52-week range with no single split ratio) is left out.
+  const wrong = estimateTopHoldingsMove([{ cusip: 'w', ticker: 'WRG', value: 1000, shares: 10, price: 100 }], { WRG: { price: 7, asOf: '2026-10-27T19:00:00Z', low52: 5, high52: 9, currency: 'USD' } }, '2026-10-27T20:00:00Z', undefined, { anchorPeriod: '2026-09-30' });
+  eq(wrong.movePct, null, 'an unverifiable price basis is not a move'); eq(wrong.rows[0].priceCheck, 'price-basis');
+  eq(priceBasisCheck({ price: 100 }, { price: 90, currency: 'EUR', low52: 80, high52: 120 }, { anchorPeriod: '2026-09-30', now: '2026-10-27T20:00:00Z' }).reason, 'currency', 'another currency is never compared');
+  const chain = { _bars: [{ t: '2026-09-30', c: 50, v: 1 }] };
+  eq(priceBasisCheck({ price: 100 }, { price: 52 }, { chain, anchorPeriod: '2026-09-30', now: '2026-10-27T20:00:00Z' }).factor, 2, 'our own split-adjusted close gives the split factor');
+  eq(splitFactor(100, 95), 1); eq(splitFactor(100, 10.2), 10); eq(splitFactor(100, 70), null, 'a 30% gap is neither the same basis nor a split');
+  // Our-stock links restate shares across a split and drop a mismatched price.
+  const links = hotFundStockLinks([{ cik: '1', name: 'F', level: 'alert', pressure: 'steady', anchorPeriod: '2026-09-30', stats: { stockValue: 1e9 },
+    universe: [{ symbol: 'AAA', shares: 1e6, value: 1e8 }, { symbol: 'BBB', shares: 1e6, value: 1e8 }] }], ['AAA', 'BBB'],
+    { AAA: { _bars: [{ t: '2026-09-30', c: 25, v: 1e6 }] }, BBB: { _bars: [{ t: '2026-09-30', c: 61, v: 1e6 }] } });
+  eq(links.map(l => [l.symbol, l.sharesHeld]), [['AAA', 4e6]], 'a 4-for-1 split restates shares; a price mismatch is left out');
+}
+{
+  // Consensus prices make a filer's unit slip harmless and value options on the underlying.
+  const rows = [{ cusip: 'A', value: 1000, shares: 10 }, { cusip: 'B', value: 50, shares: 10, putCall: 'CALL' }, { cusip: 'C', value: 0.5, shares: 10 }];
+  const norm = normalizeBookRows(rows, { A: 100, B: 20, C: 50 });
+  eq(norm.map(r => r.value), [1000, 200, 500], 'options at notional, a thousands slip revalued'); eq(norm[2].revalued, true);
+  const r = impliedQuarterReturn([{ cusip: 'A', value: 1, shares: 10 }], { A: 110 }, { A: 100 });
+  eq(r.stockPct, 10, 'a row reported in thousands still returns 10%, not +109900%');
+  const adj = splitAdjustedEndPrices({ A: 100, B: 50 }, { A: 1e6, B: 1e6 }, { A: 10.5, B: 45 }, { A: 10.1e6, B: 1.05e6 });
+  eq(adj.prices.A, 105, 'a 10-for-1 split inside the quarter is restated'); eq(adj.prices.B, 45, 'an ordinary move is untouched'); eq(adj.splits, { A: 10 });
+}
+const stale = estimateTopHoldingsMove(top, { AAA: { price: 80, asOf: '2026-10-01T19:00:00Z', ...rng } }, '2026-10-27T20:00:00Z', undefined, { anchorPeriod: '2026-09-30' });
 eq(stale.movePct, null, 'stale quotes do not price a move');
 let snaps = updateFundSnapshots([], { period: 'p', movePct: 10, now: '2026-10-20T20:00:00Z' });
 snaps = updateFundSnapshots(snaps.snapshots, { period: 'p', movePct: -15, now: '2026-10-27T20:00:00Z' });
@@ -218,9 +247,11 @@ near(snaps.drawdownPct, (0.85 / 1.1 - 1) * 100, 0.01, 'drawdown from the window 
 eq(fundPressureState(snaps.drawdownPct, -15), 'deleveraging-risk');
 eq(fundPressureState(-5, -3), 'steady');
 eq(updateFundSnapshots(snaps.snapshots, { period: 'new', movePct: 1, now: '2026-10-28T20:00:00Z' }).snapshots.length, 1, 'a new 13F resets the history');
-eq(hotFundLevel({ ytd: 35, qoq: 5, coverage: 0.9 }, { reportedValue: 10, stockValue: 10 }, { hedged: false }).level, 'watch');
-eq(hotFundLevel({ ytd: 35, qoq: 5, coverage: 0.5 }, { reportedValue: 10, stockValue: 10 }, { hedged: false }).level, null, 'thin price coverage cannot flag');
-eq(hotFundLevel({ ytd: 10, qoq: 5, ytdWithOptions: 60, coverage: 0.9 }, { reportedValue: 100, stockValue: 10 }, { hedged: false }).level, null, 'a tiny stock book cannot carry an option-adjusted flag');
+eq(updateFundSnapshots(snaps.snapshots, { period: 'p', movePct: -40, pricedPct: 50, now: '2026-10-28T20:00:00Z' }).snapshots.length, 2, 'a thinly priced day is not recorded');
+eq(hotFundLevel({ ytd: 35, qoq: 5, coverage: 0.9, ytdCoverage: 0.9 }, { reportedValue: 10, stockValue: 10 }, { hedged: false }).level, 'watch');
+eq(hotFundLevel({ ytd: 35, qoq: 5, coverage: 0.5, ytdCoverage: 0.5 }, { reportedValue: 10, stockValue: 10 }, { hedged: false }).level, null, 'thin price coverage cannot flag');
+eq(hotFundLevel({ ytd: 35, qoq: 5, coverage: 0.9, ytdCoverage: 0.4 }, { reportedValue: 10, stockValue: 10 }, { hedged: false }).level, null, 'a thinly priced earlier quarter cannot carry a YTD flag');
+eq(hotFundLevel({ ytd: 10, qoq: 5, ytdWithOptions: 60, coverage: 0.9, ytdCoverage: 0.9 }, { reportedValue: 100, stockValue: 10 }, { hedged: false }).level, null, 'a tiny stock book cannot carry an option-adjusted flag');
 
 // ---------------------------------------------------------------- rebalance
 eq(rebalanceTrade(2, 1e9, 5), 1e8); eq(rebalanceTrade(-1, 1e9, 5), 1e8); eq(rebalanceTrade(-2, 1e9, -5), -3e8); eq(rebalanceTrade(2, null, 5), null);
@@ -238,11 +269,13 @@ eq(rebalanceTrade(2, 1e9, 5), 1e8); eq(rebalanceTrade(-1, 1e9, 5), 1e8); eq(reba
   const t = '2026-10-27T20:30:00Z';
   const mk = (last, vol, earnings = null) => ({ spot: last, quoteAsOf: t, fundamentals: { nextEarningsDate: earnings },
     _bars: [...Array(30)].map((_, i) => new Date(Date.UTC(2026, 8, 25 + i)).toISOString().slice(0, 10)).filter(d => ![0, 6].includes(new Date(d).getUTCDay()) && d < '2026-10-27').map((d, i) => ({ t: d, c: 100 + (i % 2 ? 0.5 : -0.5), v: 1e6 })).concat([{ t: '2026-10-27', c: last, v: vol }]) });
-  const chains = { AAA: mk(90, 4e6), BBB: mk(88, 5e6), CCC: mk(91, 3e6), DDD: mk(85, 6e6, '2026-10-27'), SPY: mk(99.6, 1e6), EEE: mk(99, 1e6) };
-  const groups = { AAA: 'Tech', BBB: 'Health', CCC: 'Energy', DDD: 'Tech' };
+  const chains = { AAA: mk(90, 4e6), BBB: mk(88, 5e6), CCC: mk(91, 3e6), DDD: mk(85, 6e6, '2026-10-27'), SPY: mk(99.6, 1e6), EEE: mk(99, 1e6), FFF: { ...mk(84, 6e6, '2027-01-28'), earningsHx: { events: [{ date: '2026-10-26' }] } }, GLD: mk(85, 6e6) };
+  const groups = { AAA: 'Tech', BBB: 'Health', CCC: 'Energy', DDD: 'Tech', FFF: 'Energy', GLD: 'ETF' };
   const res = detectClusterSelloff({ chains, universe: Object.keys(chains), now: t, groupOf: s => groups[s], hotFunds: [{ cik: '1', name: 'Hot', level: 'alert', universe: [{ symbol: 'AAA' }, { symbol: 'BBB' }] }] });
   eq(res.flagged, true); eq(res.names.map(n => n.symbol).sort(), ['AAA', 'BBB', 'CCC']);
   eq(res.names.some(n => n.symbol === 'DDD'), false, 'an earnings reaction is excluded');
+  eq(res.names.some(n => n.symbol === 'FFF'), false, 'the session after an after-close print is excluded');
+  eq(res.names.some(n => n.symbol === 'GLD'), false, 'a basket ETF is not a company');
   eq(res.commonHolders[0].held, ['AAA', 'BBB']);
   const marketDay = detectClusterSelloff({ chains: { ...chains, SPY: mk(96, 1e6) }, universe: Object.keys(chains), now: t, groupOf: s => groups[s] });
   eq(marketDay.flagged, false, 'a falling index is a market move, not a cluster');

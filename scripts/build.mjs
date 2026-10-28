@@ -9944,7 +9944,9 @@ const F13_CUSIP_TICKER_OVERRIDES = new Map([
   ["G0259H108", "ACN"],    // Accenture PLC
 ]);
 
-async function fetchOpenFigiCusipMap(cusips) {
+// exchCode (e.g. "US") narrows each lookup to one market's listings; the 13F
+// tab leaves it unset and keeps its existing behavior.
+async function fetchOpenFigiCusipMap(cusips, { exchCode = null } = {}) {
   const out = new Map();
   const unique = [...new Set(cusips.filter(Boolean))];
   if (!unique.length) return out;
@@ -9980,7 +9982,7 @@ async function fetchOpenFigiCusipMap(cusips) {
       const res = await fetch("https://api.openfigi.com/v3/mapping", {
         method: "POST",
         headers,
-        body: JSON.stringify(chunk.map((c) => ({ idType: "ID_CUSIP", idValue: c }))),
+        body: JSON.stringify(chunk.map((c) => ({ idType: "ID_CUSIP", idValue: c, ...(exchCode ? { exchCode } : {}) }))),
         signal: AbortSignal.timeout(20000),
       });
       if (!res.ok) {

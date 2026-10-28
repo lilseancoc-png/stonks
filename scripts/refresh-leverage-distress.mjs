@@ -38,10 +38,11 @@ async function quoteBatch(quoteClient, symbols, deadline) {
   for (let i = 0; i < list.length; i += 50) {
     if (Date.now() > deadline) { errors.push({ stage: 'quotes', message: 'Quote budget reached' }); break; }
     try {
-      const got = await quoteClient.quote(list.slice(i, i + 50), { fields: ['symbol', 'regularMarketPrice', 'regularMarketTime'] }, { validateResult: false });
+      const got = await quoteClient.quote(list.slice(i, i + 50), { fields: ['symbol', 'regularMarketPrice', 'regularMarketTime', 'fiftyTwoWeekLow', 'fiftyTwoWeekHigh', 'currency'] }, { validateResult: false });
       for (const q of Array.isArray(got) ? got : got ? [got] : []) {
         const t = q?.regularMarketTime ? new Date(q.regularMarketTime) : null;
-        if (q?.symbol && positive(q.regularMarketPrice) && t && Number.isFinite(t.getTime())) out[String(q.symbol).toUpperCase()] = { price: q.regularMarketPrice, asOf: t.toISOString() };
+        if (q?.symbol && positive(q.regularMarketPrice) && t && Number.isFinite(t.getTime())) out[String(q.symbol).toUpperCase()] = { price: q.regularMarketPrice, asOf: t.toISOString(),
+          low52: positive(q.fiftyTwoWeekLow) ? q.fiftyTwoWeekLow : null, high52: positive(q.fiftyTwoWeekHigh) ? q.fiftyTwoWeekHigh : null, currency: q.currency || null };
       }
     } catch (e) { errors.push({ stage: 'quotes', message: e.message }); }
   }
@@ -123,8 +124,9 @@ export async function refreshLeverageDistress({ prior = null, priorState = null,
   const unmapped = [...new Set(tops.map(r => r.cusip).filter(c => !cusipTickers[c] && !hf.universeCusips?.[c] && !(misses[c] && Date.parse(now) - Date.parse(misses[c]) < 14 * DAY)))];
   if (cusipMapper && unmapped.length) {
     try {
-      const mapped = await cusipMapper(unmapped.slice(0, 300));
-      for (const c of unmapped.slice(0, 300)) { const t = mapped?.get?.(c); if (t && /^[A-Z][A-Z0-9.-]{0,9}$/.test(t)) cusipTickers[c] = t; else misses[c] = now; }
+      // US listings only; OpenFIGI writes share classes as BRK/B, Yahoo as BRK-B.
+      const mapped = await cusipMapper(unmapped.slice(0, 300), { exchCode: 'US' });
+      for (const c of unmapped.slice(0, 300)) { const t = String(mapped?.get?.(c) || '').toUpperCase().replace(/[/ ]/g, '-'); if (t && /^[A-Z][A-Z0-9.-]{0,9}$/.test(t)) cusipTickers[c] = t; else misses[c] = now; }
     } catch (e) { errors.push({ stage: 'cusip-map', message: e.message }); }
   }
   hf = { ...hf, cusipTickers, cusipMisses: misses };
