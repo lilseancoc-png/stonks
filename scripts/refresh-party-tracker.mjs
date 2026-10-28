@@ -9,6 +9,7 @@ import {
   PARTY_TRACKER_KEY,
   barsFromChart,
   buildPartyTracker,
+  dropOpenSession,
   emptyPartyTracker,
   priorPartyTrackerUsable,
   refreshReady,
@@ -46,8 +47,9 @@ export async function refreshPartyTracker({ prior = null, builtAtIso, fetchSerie
     try {
       const loaded = await fetchSeries(def.id, def.since);
       const parsed = loaded?.rows ? loaded : { rows: loaded, adjusted: 0, closeOnly: 0 };
-      if (!Array.isArray(parsed.rows) || parsed.rows.length < 2) throw new Error('not enough prices');
-      series[def.id] = parsed.rows;
+      const rows = dropOpenSession(parsed.rows, builtAtIso);
+      if (!Array.isArray(rows) || rows.length < 2) throw new Error('not enough prices');
+      series[def.id] = rows;
       adjusted += parsed.adjusted || 0;
       closeOnly += parsed.closeOnly || 0;
     } catch (err) {
@@ -61,6 +63,11 @@ export async function refreshPartyTracker({ prior = null, builtAtIso, fetchSerie
     return emptyPartyTracker(builtAtIso, errors.find((item) => item.id === 'SPY')?.message || 'S&P 500 history could not be downloaded.');
   }
   const payload = buildPartyTracker({ series, builtAtIso });
+  if (payload.error) {
+    errors.push({ id: 'SPY', message: payload.error });
+    if (priorPartyTrackerUsable(prior)) return { ...prior, builtAtIso, carriedForward: true, errors };
+    return payload;
+  }
   payload.errors = errors;
   if (closeOnly > 0 && adjusted === 0) {
     payload.methodology = payload.methodology.concat('This run used Yahoo closes without a separate adjusted-close field, so cash dividends may be missing.');

@@ -8,6 +8,7 @@ import {
   STUDY_START,
   buildPartyTracker,
   controlGaps,
+  dropOpenSession,
   nextDay,
   partyOn,
   refreshReady,
@@ -76,7 +77,7 @@ const repAnn = (Math.pow(1.0002, 365.2425) - 1) * 100;
 assert.ok(Math.abs(president.parties.D.annPct - demAnn) < 0.2, `Democratic annualized ${president.parties.D.annPct} vs ${demAnn}`);
 assert.ok(Math.abs(president.parties.R.annPct - repAnn) < 0.2, `Republican annualized ${president.parties.R.annPct} vs ${repAnn}`);
 assert.equal(president.leader, 'D');
-assert.match(president.read, /Democratic president periods compounded/);
+assert.match(president.read, /Democratic presidential periods compounded/);
 const health = payload.rows.find((row) => row.id === 'XLV');
 assert.ok(health.offices.president.D.excessAnnPct > 5);
 assert.match(payload.highlights.president.health, /Health care compounded/);
@@ -150,6 +151,32 @@ const partialFetch = await refreshPartyTracker({
 assert.equal(partialFetch.carriedForward, undefined);
 assert.ok(partialFetch.errors.some((item) => item.id === 'XLV'));
 assert.equal(partialFetch.rows.some((row) => row.id === 'XLV'), false);
+
+const recentOnly = buildPartyTracker({ series: { SPY: bars('2024-01-02', end, () => 1.001) }, builtAtIso: '2026-10-28T12:00:00.000Z' });
+assert.equal(refreshReady(recentOnly), false);
+assert.match(recentOnly.error, /does not reach back/);
+const gappedSpy = spy.filter((row) => row.t < '2012-03-01' || row.t > '2012-03-20');
+const gapped = buildPartyTracker({ series: { SPY: gappedSpy }, builtAtIso: '2026-10-28T12:00:00.000Z' });
+assert.equal(refreshReady(gapped), false);
+assert.match(gapped.error, /missing sessions/);
+const truncatedFetch = await refreshPartyTracker({
+  prior: payload,
+  builtAtIso: '2026-10-28T13:00:00.000Z',
+  fetchSeries: async (id) => (id === 'SPY' ? bars('2024-01-02', end, () => 1.001) : spy),
+});
+assert.equal(truncatedFetch.carriedForward, true);
+assert.equal(truncatedFetch.asOf, payload.asOf);
+
+assert.deepEqual(dropOpenSession([{ t: '2026-10-27', v: 1 }, { t: '2026-10-28', v: 2 }], '2026-10-28T15:00:00.000Z').map((row) => row.t), ['2026-10-27']);
+assert.equal(dropOpenSession([{ t: '2026-10-27', v: 1 }, { t: '2026-10-28', v: 2 }], '2026-10-28T20:10:00.000Z').length, 2);
+assert.equal(dropOpenSession([{ t: '2026-10-27', v: 1 }], '2026-10-28T15:00:00.000Z').length, 1);
+
+const widest = buildPartyTracker({
+  series: { SPY: spy, XLV: xlv, XLE: spy, XLC: bars('2018-06-19', end, (t) => (partyOn(PRESIDENT_CONTROL, t)?.party === 'R' ? 1.01 : 1)) },
+  builtAtIso: '2026-10-28T12:00:00.000Z',
+});
+assert.doesNotMatch(widest.highlights.president.widest, /Communication services/);
+assert.match(widest.highlights.president.widest, /presidential control/);
 
 assert.equal(isPremiumKey('party-tracker.json'), true);
 assert.deepEqual(roleClaimForKey('party-tracker.json'), ['tr', 'tp']);

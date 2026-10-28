@@ -36,10 +36,14 @@ Real estate starts in October 2015 and communication services in June 2018. Thei
 
 Each line on the chart compounds S&P 500 days for one party and earns nothing on the other party’s days. The annualized figures are the comparison. The line that was invested longer can finish higher even with a lower annual rate.
 
-A missed price download keeps the previous snapshot and says so. It does not fill the gap with zero.
+Real estate and communication services are left out of the "largest sector edge" sentence, because their gap covers different years from the other sectors.
+
+If the S&P 500 download fails, or its history does not reach back before January 20, 2001, or it is missing more than a week of sessions, the previous snapshot is kept and the page says so. If a single fund fails, that fund is left out and the page names it. Nothing is filled with zero.
+
+A build before the 16:00 ET close drops the session still in progress, so every figure runs through the latest completed close.
 
 ## What this is not
 
-Five presidential terms and thirteen Congresses is a small sample. The 2008, 2020, and 2022 declines move the averages. The page records what prices did. It does not show that a party caused the result.
+Seven presidential terms across five presidencies and thirteen Congresses is a small sample. The 2008, 2020, and 2022 declines move the averages. The page records what prices did. It does not show that a party caused the result.
 
 The payload is `data/party-tracker.json`. It is Owner-only. The bake refreshes it. There is no AI call.

@@ -144,7 +144,7 @@ globalThis.fetch=async()=>{throw new Error('Admission regression prohibits netwo
 try {
   await mkdir(resolve(scratch,'data'));
   let source=await readFile(new URL('./build.mjs',import.meta.url),'utf8');
-  source=source.replace(/^(import(?:\s*\{[^}]*\}|\s+[^\n;]+?)\s+from\s+)(["'])([^"']+)\2/gm,(whole,prefix,quote,specifier)=>{
+  source=source.replace(/^(import(?:\s*\{[^}]*\}|\s+[^\n;]+?)\s+from\s+|export\s*\{[^}]*\}\s*from\s+)(["'])([^"']+)\2/gm,(whole,prefix,quote,specifier)=>{
     if(specifier.startsWith('node:'))return whole;
     return prefix+quote+(specifier.startsWith('.')?new URL(specifier,new URL('./build.mjs',import.meta.url)).href:import.meta.resolve(specifier))+quote;
   });

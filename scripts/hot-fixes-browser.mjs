@@ -8,6 +8,10 @@ import { readFile, mkdir } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import { resolve, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { PAGE_TEXT_SCALE } from './render/text-scale.mjs';
+
+// Page-pane controls are 13px scaled by the page text size.
+const controlFont = +(13 * PAGE_TEXT_SCALE).toFixed(2) + 'px';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
@@ -145,7 +149,7 @@ try {
     await go('calls');
     await page.locator('[data-calls-sort]').waitFor();
     const callsStyle = await page.locator('[data-calls-sort]').evaluate(el => ({ font: getComputedStyle(el).fontSize, label: getComputedStyle(el.closest('label')).display }));
-    assert.equal(callsStyle.font, '13px'); assert.ok(['flex', 'inline-flex'].includes(callsStyle.label));
+    assert.equal(callsStyle.font, controlFont); assert.ok(['flex', 'inline-flex'].includes(callsStyle.label));
     await noOverflow('Earnings calls');
     await page.screenshot({ path: out + '/' + width + '-' + theme + '-calls.png' });
 
@@ -174,7 +178,7 @@ try {
     await page.locator('[data-cmp-tray-open]').click();
     await page.locator('.cmp-pl-bar').first().waitFor();
     assert.equal(await page.locator('body').evaluate(el => parseFloat(getComputedStyle(el).paddingBottom)), 0);
-    for (const id of ['cmp-mode', 'cmp-bench']) assert.equal(await page.locator('#' + id).evaluate(el => getComputedStyle(el).fontSize), '13px');
+    for (const id of ['cmp-mode', 'cmp-bench']) assert.equal(await page.locator('#' + id).evaluate(el => getComputedStyle(el).fontSize), controlFont);
     if (width === 390) {
       assert.equal(await page.locator('.cmp-pl-ticker').first().isVisible(), true);
       assert.equal(await page.locator('.cmp-pl-ticker').first().textContent(), symbols[0]);
@@ -185,7 +189,7 @@ try {
     const last = page.locator('[data-cmp-sec].is-on');
     await last.dispatchEvent('click');
     assert.equal(await page.locator('[data-cmp-sec].is-on').count(), 1);
-    for (const id of ['cmp-sec-metric', 'cmp-sec-weight']) assert.equal(await page.locator('#' + id).evaluate(el => getComputedStyle(el).fontSize), '13px');
+    for (const id of ['cmp-sec-metric', 'cmp-sec-weight']) assert.equal(await page.locator('#' + id).evaluate(el => getComputedStyle(el).fontSize), controlFont);
     await noOverflow('Compare pillars and sectors');
     await page.locator('#cmp-pillars').scrollIntoViewIfNeeded();
     await page.screenshot({ path: out + '/' + width + '-' + theme + '-compare.png' });
