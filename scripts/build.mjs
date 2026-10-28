@@ -87,6 +87,7 @@ import { forcedLiquidationContext } from "../lib/forced-liquidation.mjs";
 import { buyoutContextFor } from "../lib/pending-buyout-guard.mjs";
 import { buildShadowSignals } from "../lib/shadow-signals.mjs";
 import { readForcedLiquidation, refreshForcedLiquidation, writeForcedLiquidation } from './refresh-forced-liquidation.mjs';
+import { fetchPartyBars, refreshPartyTracker } from './refresh-party-tracker.mjs';
 import { emptyLeverageDistress, readLeverageDistress, refreshLeverageDistress, writeLeverageDistress } from './refresh-leverage-distress.mjs';
 import { withYahooTimeout } from "../lib/yahoo.mjs";
 import { yahooQuoteProvenance } from "../lib/quote-provenance.mjs";
@@ -37372,6 +37373,25 @@ async function main() {
   // order rendered first and then writeChainFiles removed data/ wholesale,
   // which meant a direct `npm run build` finished without manifest.json or
   // manifest-free.json; workflows only repaired that via a later regen pass.
+  let priorPartyTracker = null;
+  try {
+    priorPartyTracker = JSON.parse(await readFile(resolve(DATA_DIR, "party-tracker.json"), "utf8"));
+  } catch { priorPartyTracker = null; }
+  let partyTracker;
+  try {
+    partyTracker = await refreshPartyTracker({
+      prior: priorPartyTracker,
+      builtAtIso,
+      fetchSeries: (symbol, since) => fetchPartyBars(yahooFinance, symbol, since),
+    });
+    const partyPresident = partyTracker.offices?.find((office) => office.id === "president");
+    console.log(`Party tracker: through ${partyTracker.asOf || "n/a"}${partyTracker.carriedForward ? " (carried forward)" : ""}${partyPresident ? `, Democratic presidencies ${partyPresident.parties.D.annPct}%/yr vs Republican ${partyPresident.parties.R.annPct}%/yr` : ""}`);
+  } catch (err) {
+    console.warn(`  ⚠ party tracker failed: ${String(err?.message || err).split("\n")[0]}`);
+    partyTracker = priorPartyTracker?.asOf
+      ? { ...priorPartyTracker, builtAtIso, carriedForward: true }
+      : { version: 1, builtAtIso, error: String(err?.message || err), offices: [], rows: [], timeline: [], periods: [], methodology: [] };
+  }
   const totalChainBytes = await writeChainFiles(
     chains,
     riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE,
@@ -37379,6 +37399,7 @@ async function main() {
   );
   await writeForcedLiquidation(DATA_DIR, forcedLiquidation);
   await writeLeverageDistress(DATA_DIR, leverageDistress);
+  await writeFile(resolve(DATA_DIR, "party-tracker.json"), JSON.stringify(partyTracker) + "\n", "utf8");
   if (leapsPicks.length) {
     try {
       const paper = await writeLeapsPaperTrack({

@@ -251,7 +251,7 @@ try {
   const ownerTabsText = appJs.match(/var OWNER_TABS = (\{[^;]+\});/)?.[1];
   assert(ownerTabsText, 'Owner tab access map is present');
   const ownerTabs = new Function('return (' + ownerTabsText + ')')();
-  for (const tab of ['unified-signal-engine','market','risk','bottom-tracker','historical-data','forced-liquidation','picks','leaps','stocks','rotation','levetf','open-picks','track','quant']) {
+  for (const tab of ['unified-signal-engine','market','risk','bottom-tracker','historical-data','party-tracker','forced-liquidation','picks','leaps','stocks','rotation','levetf','open-picks','track','quant']) {
     assert.equal(ownerTabs[tab], 1, tab + ' requires Owner access');
   }
   assert.ok(isPremiumKey('unified-signal.json'));
