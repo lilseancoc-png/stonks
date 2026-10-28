@@ -23663,7 +23663,10 @@ a.brief-hline-title:hover .brief-hline-ext { color: var(--accent-strong); }
   .brief-toolscan > header { flex-direction: column; }
   .brief-toolscan-count { text-align: left; }
   .brief-toolscan-grid { grid-template-columns: minmax(0, 1fr); }
-  .brief-toolscan-row { grid-template-columns: minmax(82px, auto) minmax(0, 1fr); }
+  .brief-toolscan-row { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .brief-toolscan-row p { font-size: 12px; line-height: 1.5; }
+  .brief-toolscan-syms { grid-column: 1; }
+  .brief-toolscan-source { min-height: 32px; display: flex; align-items: center; }
 }
 
 /* ── News desk ───────────────────────────────────────────────────────── */

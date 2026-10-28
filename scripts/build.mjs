@@ -31684,13 +31684,16 @@ const BRIEF_WATCH_EXCLUDE = new Set(["SPY", "QQQ", "IWM", "DIA"]);
 // Track Record, and Quant are absent: those payloads have stricter gates than Briefs, so
 // copying their facts into briefs.json would bypass that access boundary.
 const BRIEF_TOOL_STANDOUT_MAX = 10;
-const BRIEF_TOOL_SOURCES = [
+const BRIEF_TOOL_FACT_MAX = 32;
+const BRIEF_TOOL_FACT_CHARS = 320;
+export const BRIEF_TOOL_SOURCES = [
+  { key: "overnight", file: "correlations.json", label: "Overnight markets", tab: "overnight", maxAgeHours: 30 },
   { key: "ma-tracker", file: "ma-tracker.json", label: "MA tracker", tab: "ma-tracker", maxAgeHours: 30 },
   { key: "buyouts", file: "pending-buyouts.json", label: "Pending buyouts", tab: "pending-buyouts", maxAgeHours: 30 },
   { key: "earnings", file: "earnings-tracker.json", label: "Earnings tracker", tab: "earnings", maxAgeHours: 30 },
   { key: "calls", file: "earnings-calls.json", label: "Earnings calls", tab: "calls", maxAgeHours: 30 },
   { key: "spillover", file: "spillover-pairs.json", label: "Event spillover", tab: "spillover", maxAgeHours: 30 },
-  { key: "index-calendar", file: "index-calendar.json", label: "Index calendar", tab: "index-calendar", maxAgeHours: 30 },
+  { key: "index-calendar", file: "index-calendar.json", label: "Index calendar", tab: "index-cal", maxAgeHours: 30 },
   { key: "heatmap", file: "heatmap.json", label: "Heatmap", tab: "heatmap", maxAgeHours: 30 },
   { key: "pattern-lab", file: "pattern-recognition.json", label: "Pattern lab", tab: "pattern-lab", maxAgeHours: 30 },
   { key: "volume", file: "volume-flags.json", label: "Volume", tab: "volume", maxAgeHours: 3 },
@@ -31698,7 +31701,7 @@ const BRIEF_TOOL_SOURCES = [
   { key: "streaks", file: "streaks.json", label: "Streaks", tab: "streaks", maxAgeHours: 30 },
   { key: "commodities", file: "commodities.json", label: "Commodities", tab: "commodities", maxAgeHours: 48 },
   { key: "raises", file: "capital-raises.json", label: "Capital raises", tab: "capital-raises", maxAgeHours: 48 },
-  { key: "credit", file: "ipo-credit.json", label: "IPOs & credit", tab: "ipo-credit", maxAgeHours: 48 },
+  { key: "credit", file: "ipo-credit.json", label: "IPOs & credit", tab: "capital-raises", maxAgeHours: 48 },
   { key: "capex", file: "ai-capex.json", label: "AI CapEx", tab: "ai-capex", maxAgeHours: 48 },
   { key: "ram", file: "ram-prices.json", label: "RAM prices", tab: "ram-prices", maxAgeHours: 48 },
   { key: "accelerators", file: "accelerator-prices.json", label: "GPU cloud prices", tab: "accelerator-prices", maxAgeHours: 48 },
@@ -31706,6 +31709,13 @@ const BRIEF_TOOL_SOURCES = [
   { key: "search", file: "search-interest.json", label: "Search interest", tab: "search-interest", maxAgeHours: 240 },
   { key: "ownership", file: "13f.json", label: "SEC ownership", tab: "f13", maxAgeHours: 24 * 120 },
 ];
+BRIEF_TOOL_SOURCES.forEach(Object.freeze);
+Object.freeze(BRIEF_TOOL_SOURCES);
+// These pages share the core ticker, news, calendar, flow and macro sections.
+export const BRIEF_CORE_TABS = Object.freeze([
+  "tickers", "grade", "compare", "strategies", "news", "calendar", "flow",
+  "iv-trend", "fear-greed", "bonds-usd",
+]);
 for (const source of BRIEF_TOOL_SOURCES) {
   if (isPremiumKey(source.file)) {
     throw new Error(`Owner-only payload cannot feed public Brief: ${source.file}`);
@@ -32093,10 +32103,11 @@ function briefToolSourceIsCurrent(source, payload, nowMs = Date.now()) {
   const stamp = briefToolStamp(payload);
   if (!stamp) return true; // some accumulated payloads predate source stamps
   const ms = Date.parse(stamp);
-  return !Number.isFinite(ms) || nowMs - ms <= source.maxAgeHours * 3600000;
+  return Number.isFinite(ms) && ms <= nowMs + 5 * 60000
+    && nowMs - ms <= source.maxAgeHours * 3600000;
 }
 
-function briefToolClean(text, max = 230) {
+function briefToolClean(text, max = BRIEF_TOOL_FACT_CHARS) {
   const s = String(text || "").replace(/\s+/g, " ").trim();
   if (!s) return "";
   return s.length > max ? s.slice(0, max - 1).trim() + "…" : s;
@@ -32110,7 +32121,7 @@ function briefToolPct(v, digits = 1) {
 // Turn the payload of one site desk into zero or more MATERIAL facts. A tool
 // that found nothing stays in `checked` but emits no fact; quiet is a result,
 // not filler. Importance ranks presentation only and is never shown as a score.
-function briefToolFacts(source, p, kind) {
+function briefToolFacts(source, p, kind, nowMs) {
   const facts = [];
   const add = (text, importance, tone = "info", symbols = []) => {
     const clean = briefToolClean(text);
@@ -32118,7 +32129,19 @@ function briefToolFacts(source, p, kind) {
     facts.push({ source: source.label, tab: source.tab, text: clean, importance, tone, symbols: symbols.filter(Boolean).slice(0, 4) });
   };
 
-  if (source.key === "ma-tracker") {
+  if (source.key === "overnight") {
+    const today = etDateKey(new Date(nowMs));
+    const saved = p.preopen?.today?.date === today ? p.preopen.today : null;
+    const tone = saved?.tone || (kind === "morning" ? p.tone : null);
+    if (tone && tone.label && tone.label !== "insufficient") {
+      const gap = tone.gap;
+      const session = saved?.session;
+      const stamp = saved?.cutoffIso || saved?.capturedAtIso || briefToolStamp(p);
+      const basis = saved ? `${saved.reconstructed ? "Reconstructed" : "Saved"} pre-open read` : "Overnight snapshot";
+      add(`${basis}${stamp ? ` as of ${stamp}` : ""}: ${tone.label}${Number.isFinite(tone.present) ? ` across ${tone.present}/5 independent groups` : ""}${gap?.call && gap.call !== "none" && Number.isFinite(gap.movePct) ? `; futures indicate a ${gap.call} opening gap (${briefToolPct(gap.movePct)})` : ""}${session?.call === "no-edge" ? "; no proven edge for the open-to-close session" : ""}.`, 85, "watch");
+      if (tone.chipTape && Math.abs(tone.chipTape.movePct) >= 2) add(`Asian chip shares moved ${briefToolPct(tone.chipTape.movePct)} on average across ${tone.chipTape.n} fresh names; this overlaps the equity group, not an independent vote.`, 73, "watch");
+    }
+  } else if (source.key === "ma-tracker") {
     const statusRank = { likely: 2, building: 1, watch: 0 };
     const candidates = [
       ...(p.summary?.topAbove || []),
@@ -32138,7 +32161,7 @@ function briefToolFacts(source, p, kind) {
       const spread = row.grossSpreadPct == null || row.grossSpreadPct === "" ? null : Number(row.grossSpreadPct);
       const days = row.daysLeft == null || row.daysLeft === "" ? null : Number(row.daysLeft);
       const updatedMs = Date.parse(row.lastUpdateAtIso || row.reportedAtIso || "");
-      const recent = Number.isFinite(updatedMs) && Date.now() - updatedMs <= 7 * 86400000;
+      const recent = Number.isFinite(updatedMs) && nowMs - updatedMs <= 7 * 86400000;
       let importance = 0;
       if (row.stage === "expected_close" && Number.isFinite(days) && days >= 0 && days <= 30) importance = 88;
       else if (row.stage === "regulatory_vote") importance = 84;
@@ -32160,23 +32183,6 @@ function briefToolFacts(source, p, kind) {
       add(`${row.targetTicker || row.target}: ${stage}${row.acquirer ? ` with ${row.acquirer}` : ""}${economics ? ` — ${economics}` : ""}${catalyst ? `; next: ${catalyst}` : ""}.`,
         lead.importance, row.stage === "rumor" || row.stage === "active_talks" ? "watch" : lead.spread >= 5 ? "risk" : "watch", [row.targetTicker]);
     }
-  } else if (source.key === "market") {
-    const r = p.macroRegime;
-    if (r && r.state && r.state !== "neutral") {
-      add(r.summary || `${r.state} tape${Array.isArray(r.drivers) && r.drivers.length ? ` — ${r.drivers.join(", ")}` : ""}`,
-        /severe/.test(r.state) ? 100 : 88, /off/.test(r.state) ? "risk" : "positive");
-    }
-    const d = p.scenarioEngine?.decision;
-    if (d && Number(d.grossMultiplier) < 1) add(d.note || `Scenario engine caps gross at ${Math.round(d.grossMultiplier * 100)}%.`, 86, "risk");
-  } else if (source.key === "stocks") {
-    const c = (p.candidates || []).find((r) => r?.clean);
-    if (c) add(`${c.symbol} is the leading clean quality-dip setup: ${c.fired || 0} dip reads, score ${c.dipScore ?? "n/a"}${c.execution?.action?.label ? `; ${c.execution.action.label}` : ""}.`, 82, "positive", [c.symbol]);
-  } else if (source.key === "rotation") {
-    const c = (p.candidates || []).find((r) => r?.phase === "confirmed" || r?.phase === "first-thrust");
-    if (c) add(`${c.symbol} is a ${String(c.phase).replace("-", " ")} rebound in ${c.group?.label || c.group?.key || c.sector || "its peer group"}${c.plan?.state ? `; entry read ${c.plan.state}` : ""}.`, c.phase === "confirmed" ? 86 : 76, "positive", [c.symbol]);
-  } else if (source.key === "levetf") {
-    const idea = (p.ideas || []).find((r) => r?.tier === "strong" || r?.entry?.state === "go" || r?.entry?.state === "ready") || (p.ideas || [])[0];
-    if (idea) add(`${idea.etf} expresses a ${idea.direction} ${idea.under?.symbol || idea.label || idea.group || "market"} view at ${idea.leverage || "leveraged"} exposure${idea.entry?.state ? `; entry ${idea.entry.state}` : ""}${idea.tape === "against" ? " and it fights the tape" : ""}.`, idea.tape === "against" ? 74 : 80, idea.direction === "bear" ? "risk" : "positive", [idea.under?.symbol, idea.etf]);
   } else if (source.key === "earnings") {
     const ai = p.ai;
     if (ai?.headline && ai?.tone && ai.tone !== "mixed") add(`${ai.headline}${ai.summary ? ` — ${ai.summary}` : ""}`, 77, ai.tone === "positive" ? "positive" : "risk", (ai.standouts || []).map((x) => x.ticker));
@@ -32184,8 +32190,8 @@ function briefToolFacts(source, p, kind) {
     if (u && (Math.abs(u.pre10Pct || 0) >= 10 || Number(u.impliedMovePct) >= 8)) add(`${u.sym} reports ${u.date}${u.session ? ` ${u.session}` : ""}: ${u.pre10Pct != null ? `${briefToolPct(u.pre10Pct)} over 10 sessions` : ""}${u.pre10Pct != null && u.impliedMovePct != null ? ", " : ""}${u.impliedMovePct != null ? `±${u.impliedMovePct}% implied` : ""}.`, 80, "watch", [u.sym]);
   } else if (source.key === "calls") {
     const rows = Object.entries(p.calls || {}).map(([sym, row]) => ({ sym, ...row })).sort((a, b) => String(b.callDate || b.updatedAt || "").localeCompare(String(a.callDate || a.updatedAt || "")));
-    const c = rows.find((r) => r.headline && r.callDate && Date.now() - Date.parse(r.callDate + "T20:00:00Z") <= 4 * 86400000);
-    if (c) add(`${c.sym} call: ${c.headline}${c.mgmtTone ? ` (management ${c.mgmtTone})` : ""}.`, 75,
+    const c = rows.find((r) => r.headline && r.callDate && nowMs - Date.parse(r.callDate + "T20:00:00Z") <= 4 * 86400000);
+    if (c) add(`${c.sym} call (${c.callDate}): ${c.headline}${c.mgmtTone ? `; management ${c.mgmtTone}` : ""}${c.stance ? `, ${c.stance}` : ""}${c.analystTone ? `; analysts ${c.analystTone}` : ""}.`, 75,
       ["confident", "optimistic"].includes(c.mgmtTone) ? "positive" : ["cautious", "defensive"].includes(c.mgmtTone) ? "risk" : "watch", [c.sym]);
   } else if (source.key === "spillover") {
     const e = (p.upcoming || []).find((r) => r?.daysUntil <= 3 && r?.isolation?.status !== "conflict" && (r.followers || []).some((f) => f.pairQualified));
@@ -32194,7 +32200,7 @@ function briefToolFacts(source, p, kind) {
       add(`${e.driver} earnings in ${e.daysUntil}d has qualified historical read-throughs to ${followers.join(", ")}${e.impliedMovePct != null ? ` off a ±${e.impliedMovePct}% implied move` : ""}.`, 83, "watch", [e.driver, ...followers]);
     }
   } else if (source.key === "index-calendar") {
-    const day = (p.days || []).findLast((d) => d?.date === etDateKey());
+    const day = (p.days || []).findLast((d) => d?.date === etDateKey(new Date(nowMs)));
     const rows = [["SPY", day?.spy], ["QQQ", day?.qqq], ["IWM", day?.iwm]]
       .map(([symbol, row]) => ({ symbol, session: row?.session }))
       .filter((x) => x.session?.firstHourComplete)
@@ -32206,7 +32212,7 @@ function briefToolFacts(source, p, kind) {
     }
   } else if (source.key === "heatmap") {
     if (kind === "afternoon" && p.eodSummary?.headline &&
-        (!p.eodSummary.date || p.eodSummary.date === etDateKey())) {
+        (!p.eodSummary.date || p.eodSummary.date === etDateKey(new Date(nowMs)))) {
       add(`${p.eodSummary.headline}${p.eodSummary.stats?.avgChangeWeighted != null ? ` Cap-weighted breadth ${briefToolPct(p.eodSummary.stats.avgChangeWeighted)}.` : ""}`, 79, "watch");
     }
     const streaks = Array.isArray(p.sectorRotation?.alerts) ? p.sectorRotation.alerts.filter((a) => a && a.sector && a.days >= 2) : [];
@@ -32230,17 +32236,19 @@ function briefToolFacts(source, p, kind) {
     if (vol?.clusteringPresent && (vol.state === "expanding" || vol.state === "calm")) {
       bits.push(`SPY short-horizon volatility is ${vol.state}${Number.isFinite(Number(vol.ratio)) ? ` at ${Number(vol.ratio).toFixed(2)}× its 20-day pace` : ""}`);
     }
-    const season = pieces.seasonality?.SPY;
+    const seasonSymbol = pieces.seasonality?.["^GSPC"] && !pieces.seasonality["^GSPC"].unavailable ? "^GSPC" : "SPY";
+    const seasonName = seasonSymbol === "^GSPC" ? "S&P 500" : "SPY";
+    const season = pieces.seasonality?.[seasonSymbol];
     const active = season?.active;
     if (active && !season.provisional) {
       if (active.inSanta && season.santa && !season.santa.provisional && season.santa.avgPct != null) {
-        bits.push(`the Santa window is open and past windows averaged ${briefToolPct(season.santa.avgPct)}`);
+        bits.push(`${seasonName} is in the Santa window; past windows averaged ${briefToolPct(season.santa.avgPct)} (n=${season.santa.n})`);
       } else if (active.inOpexWeek && season.opexWeek?.avgPct != null && season.opexWeek?.outsideAvgPct != null
           && Math.abs(season.opexWeek.avgPct - season.opexWeek.outsideAvgPct) >= 0.15) {
-        bits.push(`SPY is in expiration week, which has averaged ${briefToolPct(season.opexWeek.avgPct)} versus ${briefToolPct(season.opexWeek.outsideAvgPct)} on other days`);
+        bits.push(`${seasonName} is in expiration week, which has averaged ${briefToolPct(season.opexWeek.avgPct)} versus ${briefToolPct(season.opexWeek.outsideAvgPct)} on other days`);
       } else if (active.inTurnOfMonth && season.turnOfMonth?.avgPct != null && season.turnOfMonth?.outsideAvgPct != null
           && Math.abs(season.turnOfMonth.avgPct - season.turnOfMonth.outsideAvgPct) >= 0.1) {
-        bits.push(`SPY is in the turn-of-month window, which has averaged ${briefToolPct(season.turnOfMonth.avgPct)} versus ${briefToolPct(season.turnOfMonth.outsideAvgPct)} outside it`);
+        bits.push(`${seasonName} is in the turn-of-month window, which has averaged ${briefToolPct(season.turnOfMonth.avgPct)} versus ${briefToolPct(season.turnOfMonth.outsideAvgPct)} outside it`);
       }
     }
     const broken = (pieces.leadLag?.rows || []).filter((row) => row?.broken).slice(0, 2);
@@ -32252,9 +32260,17 @@ function briefToolFacts(source, p, kind) {
     if (sent?.fearDisagree || sent?.greedDisagree) {
       bits.push(`Fear & Greed is ${sent.score} while SPY is ${briefToolPct(sent.spy5dPct)} over 5 sessions`);
     }
-    const divs = (pieces.divergences?.rows || []).filter((row) => row?.symbol && row?.direction).slice(0, 3);
-    if (divs.length >= 2) {
-      bits.push(`${divs.map((row) => `${row.symbol} ${row.indicator} ${row.direction}`).join(", ")}`);
+    const divs = (pieces.divergences?.rows || []).filter((row) => row?.symbol && ["rsi", "macd"].includes(row.indicator) && ["bullish", "bearish"].includes(row.direction)).slice(0, 3);
+    const leadDiv = divs[0];
+    if (leadDiv) {
+      const key = `${leadDiv.indicator}${leadDiv.direction === "bullish" ? "Bullish" : "Bearish"}`;
+      const record = pieces.divergences?.record?.[key];
+      // Keep the matched-direction baseline and observation count together.
+      if (record && !record.provisional && record.n >= 30 && Number.isFinite(record.avgPct) && Number.isFinite(record.baselineAvgPct)) {
+        add(`${leadDiv.symbol} ${leadDiv.indicator.toUpperCase()} ${leadDiv.direction} divergence: historical next-10-session return signed in the signal's direction averaged ${briefToolPct(record.avgPct)} vs ${briefToolPct(record.baselineAvgPct)} baseline (n=${record.n}, overlapping observations). In-sample, not a trade.`, 72, "watch", [leadDiv.symbol]);
+      } else {
+        bits.push(`${divs.map((row) => `${row.symbol} ${row.indicator} ${row.direction}`).join(", ")} divergence; outcome sample limited or unavailable`);
+      }
     }
     if (bits.length) {
       add(`Pattern lab: ${bits.slice(0, 3).join("; ")}. In-sample context, not a trade.`, 71, "watch");
@@ -32270,30 +32286,56 @@ function briefToolFacts(source, p, kind) {
     const r = (p.tickers || []).filter((x) => x?.flagged).sort((a, b) => (b.score || 0) - (a.score || 0))[0];
     if (r) add(`${r.symbol} has the strongest OI/gamma flag: ${(r.reasons || []).slice(0, 2).map((x) => x.label).filter(Boolean).join("; ")}.`, 82, "watch", [r.symbol]);
   } else if (source.key === "streaks") {
-    const r = (p.tickers || []).filter((x) => x?.current && (x.current.sameDays >= 5 || Math.abs(x.current.cumulativePct || 0) >= 10)).sort((a, b) => Math.abs(b.current.cumulativePct || 0) - Math.abs(a.current.cumulativePct || 0))[0];
-    if (r) add(`${r.symbol} is on a ${r.current.sameDays}-session ${r.current.color} streak totaling ${briefToolPct(r.current.cumulativePct)}${r.current.volumeTrend ? ` on ${r.current.volumeTrend} volume` : ""}.`, 72, r.current.color === "green" ? "positive" : "risk", [r.symbol]);
+    const rows = p.tickers || [];
+    const maRead = (row) => {
+      const levels = row.maContext?.levels || [];
+      const ma = levels.find((x) => x.event === "reclaimed" || x.event === "lost")
+        || levels.find((x) => x.period === row.maContext?.nearestPeriod);
+      if (!ma || !Number.isFinite(ma.distancePct)) return "";
+      return `; ${ma.event === "reclaimed" || ma.event === "lost" ? `${ma.event} ` : ""}${ma.period}-day average, ${briefToolPct(ma.distancePct)} from it${ma.slope ? `, average ${ma.slope}` : ""}`;
+    };
+    const active = rows.filter((x) => x?.current && (x.current.sameDays >= 5 || Math.abs(x.current.cumulativePct || 0) >= 10))
+      .sort((a, b) => Math.abs(b.current.cumulativePct || 0) - Math.abs(a.current.cumulativePct || 0))[0];
+    if (active) {
+      const c = active.current;
+      add(`${active.symbol}: ${c.sameDays} ${c.color} sessions across ${c.windowDays || c.days || c.sameDays} sessions, ${briefToolPct(c.cumulativePct)} cumulative${Number.isFinite(c.volumeRatio) ? `, ${c.volumeRatio.toFixed(1)}x baseline volume` : ""}${maRead(active)}. Completed closes only.`, 72, "watch", [active.symbol]);
+    }
+    const ended = rows.filter((x) => x?.lastEnded && Number.isFinite(x.lastEnded.sessionsAgo) && x.lastEnded.sessionsAgo <= 1 && x.lastEnded.sessionsAgo >= 0
+      && (x.lastEnded.sameDays >= 5 || Math.abs(x.lastEnded.cumulativePct || 0) >= 10))
+      .sort((a, b) => Math.abs(b.lastEnded.cumulativePct || 0) - Math.abs(a.lastEnded.cumulativePct || 0))[0];
+    if (ended) {
+      const e = ended.lastEnded;
+      add(`${ended.symbol}'s ${e.sameDays}-day ${e.color} run (${briefToolPct(e.cumulativePct)}) ended ${e.sessionsAgo} sessions ago${Number.isFinite(e.reversalPct) ? ` with a ${briefToolPct(e.reversalPct)} reversal` : ""}${maRead(ended)}. Ended-run metrics are separate from the active streak.`, 78, "watch", [ended.symbol]);
+    }
   } else if (source.key === "commodities") {
     const rows = (p.items || []).filter((x) => !x.stale).flatMap((x) => (x.changes || []).map((c) => ({ x, c }))).filter((r) => Number.isFinite(r.c.pct)).sort((a, b) => Math.abs(b.c.pct) - Math.abs(a.c.pct));
     const r = rows.find((x) => Math.abs(x.c.pct) >= (x.c.label === "1d" ? 3 : 7));
-    if (r) add(`${r.x.label} moved ${briefToolPct(r.c.pct)} ${r.c.label}.`, 70, r.c.pct < 0 ? "risk" : "positive");
+    if (r) add(`${r.x.label} moved ${briefToolPct(r.c.pct)} ${r.c.label}${r.x.asOf ? ` as of ${r.x.asOf}` : ""}${r.x.proxyNote ? `; ${briefToolClean(r.x.proxyNote, 65)}` : ""}. Equity exposures are links, not measured stock reactions.`, 70, "watch", r.x.watch || []);
   } else if (source.key === "raises") {
-    const e = (p.events || []).find((x) => x?.publishedAt && Date.now() - Date.parse(x.publishedAt) <= 7 * 86400000);
-    if (e) add(`${e.ticker}: ${e.kindLabel || e.kind} — ${e.headline}${e.headlineAmount ? ` (${e.headlineAmount})` : ""}.`, e.kind === "buyback" ? 72 : 78, e.kind === "buyback" ? "positive" : "risk", [e.ticker]);
+    const recent = (p.events || []).filter((x) => x?.publishedAt && Date.parse(x.publishedAt) <= nowMs && nowMs - Date.parse(x.publishedAt) <= 7 * 86400000)
+      .sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt));
+    const events = [recent.find((x) => x.kind !== "buyback"), recent.find((x) => x.kind === "buyback")].filter(Boolean);
+    for (const e of events) add(`${e.ticker}: ${e.kindLabel || e.kind} announced ${e.publishedAt.slice(0, 10)} — ${briefToolClean(e.headline, 130)}${e.headlineAmount ? ` (headline amount: ${e.headlineAmount})` : ""}. ${e.kind === "buyback" ? "Authorization is not completed repurchases." : "Financing terms determine dilution or credit impact."}`, e.kind === "buyback" ? 72 : 78, "watch", [e.ticker]);
   } else if (source.key === "credit") {
     const b = p.raises?.bonds?.latest;
-    if (b && (Math.abs(b.momPct || 0) >= 20 || Math.abs(b.yoyPct || 0) >= 25)) {
+    if (b && !p.raises.bonds.stale && (Math.abs(b.momPct || 0) >= 20 || Math.abs(b.yoyPct || 0) >= 25)) {
       const changes = [b.momPct != null ? `${briefToolPct(b.momPct)} m/m` : null, b.yoyPct != null ? `${briefToolPct(b.yoyPct)} y/y` : null].filter(Boolean).join(" and ");
       add(`US corporate bond issuance was $${b.totalB}B in ${b.m}${changes ? `, ${changes}` : ""}.`, 65, "watch");
     }
     const rev = p.credit?.revolving;
-    if (rev && Math.abs(rev.yoyPct || 0) >= 5) add(`Revolving consumer credit is $${rev.latestB}B, ${briefToolPct(rev.yoyPct)} y/y.`, 64, rev.yoyPct > 0 ? "risk" : "positive");
+    if (rev && !rev.stale && Math.abs(rev.yoyPct || 0) >= 5) add(`Revolving consumer credit is $${rev.latestB}B, ${briefToolPct(rev.yoyPct)} y/y${rev.asOf ? ` as of ${rev.asOf}` : ""}.`, 64, rev.yoyPct > 0 ? "risk" : "positive");
   } else if (source.key === "capex") {
     const t = p.totals;
-    if (t && Math.abs(t.yoyPct || 0) >= 20) add(`Mag 7 AI CapEx grew ${briefToolPct(t.yoyPct)} to $${(t.fyLatestSum / 1e9).toFixed(0)}B${t.revenue?.yoyPct != null ? ` versus revenue ${briefToolPct(t.revenue.yoyPct)}` : ""}.`, 68, "watch", ["MSFT", "META", "AMZN", "GOOGL"]);
+    if (t && Number.isFinite(t.fyLatestSum) && Math.abs(t.yoyPct || 0) >= 20) add(`Tracked AI buyers' reported CapEx grew ${briefToolPct(t.yoyPct)} to $${(t.fyLatestSum / 1e9).toFixed(0)}B${t.fyRangeLabel ? ` (${t.fyRangeLabel})` : ""}${t.revenue?.yoyPct != null ? ` versus revenue ${briefToolPct(t.revenue.yoyPct)}` : ""}. Fiscal periods can differ; guidance is separate.`, 68, "watch", ["MSFT", "META", "AMZN", "GOOGL"]);
+    const guidance = (t?.guidance?.companies || []).find((g) => !g.review && ["raised", "lowered"].includes(g.callChange)
+      && Date.parse(g.asOf) <= nowMs && nowMs - Date.parse(g.asOf) <= 45 * 86400000 && Number.isFinite(g.low));
+    if (guidance) add(`${guidance.ticker} ${guidance.callChange} ${guidance.period} CapEx guidance on ${guidance.asOf}: ${guidance.high == null ? "more than " : ""}$${(guidance.low / 1e9).toFixed(0)}B${Number.isFinite(guidance.high) && guidance.high !== guidance.low ? ` to $${(guidance.high / 1e9).toFixed(0)}B` : ""}. Management guidance, not reported spending.`, 74, "watch", [guidance.ticker]);
   } else if (source.key === "ram") {
-    const cats = p.retail?.categories || [];
+    const cats = p.retail?.stale ? [] : p.retail?.categories || [];
     const r = cats.slice().sort((a, b) => Math.abs(b.monthPct || 0) - Math.abs(a.monthPct || 0))[0];
-    if (r && Math.abs(r.monthPct || 0) >= 10) add(`${r.label} retail RAM prices moved ${briefToolPct(r.monthPct)} over one month.`, 67, r.monthPct > 0 ? "risk" : "positive");
+    if (r && Math.abs(r.monthPct || 0) >= 10) add(`${r.label} retail RAM prices moved ${briefToolPct(r.monthPct)} over one month. Retail pricing is separate from wholesale DRAM.`, 67, "watch");
+    const spot = (p.spot?.stale ? [] : p.spot?.items || []).slice().sort((a, b) => Math.abs(b.m1Pct || 0) - Math.abs(a.m1Pct || 0))[0];
+    if (spot && Math.abs(spot.m1Pct || 0) >= 10) add(`${spot.name} wholesale DRAM spot prices moved ${briefToolPct(spot.m1Pct)} over one month${p.spot.updatedAt ? ` (source updated ${p.spot.updatedAt})` : ""}.`, 69, "watch");
   } else if (source.key === "accelerators") {
     const f = p.summary?.focus;
     const move = Math.abs(f?.change7dPct || 0) >= Math.abs(f?.change30dPct || 0) ? { v: f?.change7dPct, w: "7d" } : { v: f?.change30dPct, w: "30d" };
@@ -32309,7 +32351,14 @@ function briefToolFacts(source, p, kind) {
     if (b.length) add(`${p.summary.breakoutCount || b.length} Google Trends breakouts; ${b.slice(0, 3).map((x) => `${x.label}: “${x.query}”`).join("; ")}.`, 64, "watch");
   } else if (source.key === "ownership") {
     const b = (p.overallTopBought || [])[0], s = (p.overallTopSold || [])[0];
-    if (b && b.firmCount >= 5) add(`${b.ticker} led active-manager 13F buying across ${b.firmCount} firms${s ? ` while ${s.ticker} led selling across ${s.firmCount} firms` : ""}.`, 60, "watch", [b.ticker, s?.ticker]);
+    if (b && b.firmCount >= 5) add(`${b.ticker} led active-manager 13F buying across ${b.firmCount} firms${s ? ` while ${s.ticker} led selling across ${s.firmCount} firms` : ""}${p.periodEndIso || p.period ? ` for ${p.periodEndIso || p.period}` : ""}. Delayed quarterly holdings, not today's flows.`, 60, "watch", [b.ticker, s?.ticker]);
+    const insiders = p.insiderTransactions;
+    if (briefToolSourceIsCurrent({ maxAgeHours: 48 }, { builtAtIso: insiders?.asOf }, nowMs) && insiders?.asOf) {
+      const purchase = (insiders.transactions || []).filter((x) => x.openMarket && x.direction === "buy" && Number.isFinite(x.value) && x.value >= 1e6
+        && Date.parse(x.transactionDate) <= nowMs && nowMs - Date.parse(x.transactionDate) <= 7 * 86400000)
+        .sort((a, b) => b.value - a.value)[0];
+      if (purchase) add(`${purchase.symbol}: ${purchase.ownerName || "an insider"} disclosed a $${(purchase.value / 1e6).toFixed(1)}M open-market purchase dated ${purchase.transactionDate}. SEC Form 4 disclosure, not a directional forecast.`, 75, "watch", [purchase.symbol]);
+    }
   }
   return facts;
 }
@@ -32317,16 +32366,17 @@ function briefToolFacts(source, p, kind) {
 // Read every live desk in parallel, retain an auditable checked/missing list,
 // and rank only material outputs. Exported so an offline fixture can verify the
 // contract without a Yahoo/Gemini build.
-export async function collectBriefSiteTools({ kind = "intraday", narratives = [], dataDir = DATA_DIR, payloads = {} } = {}) {
+export async function collectBriefSiteTools({ kind = "intraday", narratives = null, dataDir = DATA_DIR, payloads = {}, now = new Date() } = {}) {
+  const nowMs = now.getTime();
   const loaded = await Promise.all(BRIEF_TOOL_SOURCES.map(async (source) => {
     try {
-      const payload = payloads[source.key] || JSON.parse(await readFile(resolve(dataDir, source.file), "utf8"));
-      return { source, payload, current: briefToolSourceIsCurrent(source, payload) };
+      const payload = Object.hasOwn(payloads, source.key) ? payloads[source.key] : JSON.parse(await readFile(resolve(dataDir, source.file), "utf8"));
+      return { source, payload, current: briefToolSourceIsCurrent(source, payload, nowMs) };
     } catch (_) {
       return { source, payload: null, current: false };
     }
   }));
-  const facts = loaded.flatMap(({ source, payload, current }) => current ? briefToolFacts(source, payload, kind) : []);
+  const facts = loaded.flatMap(({ source, payload, current }) => current ? briefToolFacts(source, payload, kind, nowMs) : []);
   // The Narratives tab is assembled in memory and its file is written after the
   // brief, so thread its fresh objects directly into the same scan.
   const liveNarratives = (Array.isArray(narratives) ? narratives : [])
@@ -32359,11 +32409,13 @@ export async function collectBriefSiteTools({ kind = "intraday", narratives = []
   const checked = loaded.filter((x) => x.current).map((x) => x.source.label);
   if (Array.isArray(narratives)) checked.push("Narratives");
   const missing = loaded.filter((x) => !x.current).map((x) => x.source.label);
+  if (!Array.isArray(narratives)) missing.push("Narratives");
   return {
     checked: [...new Set(checked)],
     missing,
     total: BRIEF_TOOL_SOURCES.length + 1,
-    facts: facts.slice(0, 24),
+    facts: [...facts.filter((fact, i) => facts.findIndex((f) => f.source === fact.source) === i),
+      ...facts.filter((fact, i) => facts.findIndex((f) => f.source === fact.source) !== i)].slice(0, BRIEF_TOOL_FACT_MAX),
     standouts: standouts.map(({ importance, ...fact }) => fact),
   };
 }
@@ -32373,7 +32425,7 @@ export function gatherBriefSignals(kind, ctx) {
     chains = {}, fearGreed = null, macro = null, correlations = null,
     unusual = null, calendar = {},
     rfr = FALLBACK_RISK_FREE_RATE, headlines = [],
-    ivTrending = null, siteTools = null, extended = null,
+    ivTrending = null, siteTools = null, extended = null, now = new Date(),
   } = ctx || {};
 
   // Fear & Greed + 1-day delta (green = greedier, red = more fearful).
@@ -32526,18 +32578,26 @@ export function gatherBriefSignals(kind, ctx) {
   }).filter((f) => f.sym);
   if (flow.length) signals.flow = flow;
 
-  // IV tracker — ONLY the actionable trend flags (the tiered names: implied
+  // IV tracker — material trend or Rich flags (the tiered names: implied
   // vol elevated vs the name's OWN ~18-month history AND still climbing, i.e.
   // the options market pricing in a bigger-than-usual move), never the whole
-  // ranked table. Rows arrive score-sorted from buildIvTrendingPayload, so
+  // ranked table. Rich premium can remain expensive without rising.
+  // Rows arrive score-sorted from buildIvTrendingPayload, so
   // the slice is the strongest flags. Earnings context rides along so the
   // model can tell scheduled event premium from an unexplained ramp.
-  const ivRows = Array.isArray(ivTrending?.tickers)
-    ? ivTrending.tickers.filter((r) => r && r.tier && r.symbol)
-    : [];
-  const ivTrend = ivRows.slice(0, 5).map((r) => ({
+  const ivRows = (Array.isArray(ivTrending?.tickers) ? ivTrending.tickers : [])
+    .filter((row) => row?.symbol)
+    .map((row) => ({ row, richness: IV_RICHNESS.classify({
+      pctile: row.pctile, iv: row.iv,
+      rv30: chains?.[row.symbol]?.technicals?.volRegime?.rv30,
+    }) }))
+    .filter(({ row, richness }) => row.tier || (row.elevated && richness.rich))
+    .sort((a, b) => Number(!!b.row.tier) - Number(!!a.row.tier));
+  const ivTrend = ivRows.slice(0, 5).map(({ row: r, richness }) => ({
     sym: r.symbol,
-    tier: r.tier,
+    tier: r.tier || "rich",
+    richnessBasis: richness.basis,
+    richnessNote: richness.note,
     ivPct: Number.isFinite(r.iv) ? Math.round(r.iv * 1000) / 10 : null,
     meanPct: Number.isFinite(r.mean) ? Math.round(r.mean * 1000) / 10 : null,
     z: Number.isFinite(r.z) ? r.z : null,
@@ -32557,14 +32617,21 @@ export function gatherBriefSignals(kind, ctx) {
         reasons: Array.isArray(correlations.tone.reasons) ? correlations.tone.reasons.slice(0, 3) : [],
       };
     }
+    const priorUs = correlations?.context?.priorUs;
+    const snapshotInputs = OVERNIGHT_TONE.inputsFromSnapshot(correlations?.markets, {
+      priorUsDate: priorUs?.date,
+      priorUsCloseMs: priorUs?.closeMs,
+      preOpen: isBeforeUsOpen(now.getTime()),
+    });
     const mk = correlations?.markets ? Object.values(correlations.markets) : [];
-    // The biggest overnight equity / FX / commodity / futures moves, ranked by
+    // Use the Overnight page's shared freshness rules, excluding closed cash
+    // markets and context-only volatility levels. Rank remaining moves by
     // %. Sovereign yields (type "rate") are deliberately EXCLUDED here — they
     // get their own always-present "Global bonds" section (bp-denominated), so
     // a low-base yield like the JGB can't crowd genuine equity/FX moves out of
     // the top-6, and the US curve lives in the macro strip.
     signals.overnight = mk
-      .filter((m) => m && m.type !== "rate" && Number.isFinite(m.chPct))
+      .filter((m) => m && m.type !== "rate" && snapshotInputs[m.sym]?.fresh && Number.isFinite(m.chPct))
       .sort((a, b) => Math.abs(b.chPct) - Math.abs(a.chPct))
       .slice(0, 6)
       .map((m) => ({
@@ -32576,7 +32643,7 @@ export function gatherBriefSignals(kind, ctx) {
     const fm = correlations?.markets || {};
     for (const fs of ["ES=F", "NQ=F"]) {
       const m = fm[fs];
-      if (m && Number.isFinite(m.chPct)) idxFut.push({ sym: fs, label: m.name || fs, chPct: Math.round(m.chPct * 100) / 100 });
+      if (m && snapshotInputs[fs]?.fresh && Number.isFinite(m.chPct)) idxFut.push({ sym: fs, label: m.name || fs, chPct: Math.round(m.chPct * 100) / 100 });
     }
     if (idxFut.length) signals.indexes = idxFut;
     // Yesterday's confirmed index close — the anchor the overnight read trades
@@ -32686,7 +32753,7 @@ export function gatherBriefSignals(kind, ctx) {
 }
 
 // Keep only the deterministic fields worth rendering as chips/stats on the card.
-function briefRenderFields(s) {
+export function briefRenderFields(s) {
   const out = {};
   if (s.fearGreed) out.fearGreed = s.fearGreed;
   if (s.macro && s.macro.length) out.macro = s.macro;
@@ -32748,7 +32815,7 @@ function briefSystemPrompt(kind) {
     "likely a repeat of the core pattern is, the implied directional bias, volatility outlook and rough magnitude, " +
     "plus sector or asset-class implications), and watch (key levels or indicators from the supplied facts to " +
     "monitor for confirmation or invalidation). Be probabilistic rather than predictive and acknowledge " +
-    "uncertainty. If NO listed pattern genuinely fits, or no playbook section is supplied, OMIT the analog field " +
+    "uncertainty. Numerical probabilities and historical returns must come from supplied statistics; otherwise use qualitative wording. If NO listed pattern genuinely fits, or no playbook section is supplied, OMIT the analog field " +
     "entirely — do not force an analogy. " +
     "TAPE DRIVERS: when the facts include a 'Market-wide headlines' section, judge whether any headline plausibly " +
     "explains the broad tape's direction — e.g. a geopolitical de-escalation or trade-deal headline lifting risk " +
@@ -32764,11 +32831,18 @@ function briefSystemPrompt(kind) {
     "surface it explicitly in the summary AND as a highlight, " +
     "since rates and curve shifts move equities. Any bond flagged 'SIGNIFICANT' must be called out. Don't " +
     "manufacture a rates story when the moves are small (a few bp). " +
+    "PUBLIC EVIDENCE ONLY: Owner research, private rosters, forecasts, liquidation desks, positions and trade records are outside this brief. " +
+    "RECENT PUBLIC TOOLS: distinguish an active streak from an ended run and its reversal; MA reclaims/losses use completed closes. " +
+    "Overnight gap indications are separate from open-to-close performance; keep saved pre-open timestamps and no-edge limits explicit. " +
+    "13F holdings are delayed quarterly disclosures, not current fund flows. Form 4 purchases are disclosures, not forecasts. " +
+    "Buyback authorizations are not completed repurchases, and announced financing is not the same as cash raised. " +
+    "Keep wholesale DRAM separate from retail memory prices; commodity exposures do not prove an equity reaction. " +
+    "For Pattern lab outcomes retain the horizon, sample count, direction-matched baseline and overlapping in-sample limitation. " +
     "PATTERN LAB AND BREADTH STREAKS: a Pattern lab standout is in-sample context, not a trade, and a sector " +
     "breadth streak is participation only, not fund flow. Mention one of them in a highlight only when the " +
     "cross-tool scan includes it, and do not turn it into a buy or sell. " +
     "IV TRACKER: when the facts include an 'IV tracker' section, those are single names whose options premium is " +
-    "both elevated vs the name's own history and still climbing — the options market pricing in a " +
+    "elevated vs the name's own history. Trend flags are still climbing; RICH follows the shared premium band; it can use percentile alone when realized volatility is unavailable. Respect each row's supplied basis and do not claim missing realized-volatility confirmation or a rising trend. The options market is pricing a " +
     "bigger-than-usual move. A name flagged SURGING, especially one with NO scheduled earnings inside 45 days " +
     "(an unexplained ramp — positioning or something leaking), is worth a highlight; an IV build into a " +
     "scheduled print is routine and only worth noting when the implied move is unusually large. Rising IV is " +
@@ -32958,17 +33032,18 @@ export function briefUserMessage(kind, dateKey, signals) {
     for (const f of signals.flow) lines.push(`- ${f.sym}${f.side ? ` ${f.side}s` : ""}: ${f.note || "heavy volume vs the prior session"}`);
   }
   if (signals.ivTrend && signals.ivTrend.length) {
-    lines.push("IV tracker — actionable implied-vol trend flags (each name's ATM ~30d IV vs its OWN ~18-month history; only flagged names listed — surging = well above its mean AND ripping higher now):");
+    lines.push("IV tracker — material implied-vol flags (each name's ATM ~30d IV vs its OWN ~18-month history; SURGING is rising, RICH uses the shared premium band, with percentile-only classification when realized volatility is unavailable; it makes no trend claim):");
     for (const v of signals.ivTrend) {
       const bits = [];
       if (v.ivPct != null) {
         bits.push(`IV ${v.ivPct.toFixed(1)}%${v.meanPct != null ? ` vs ${v.meanPct.toFixed(1)}% avg` : ""}${v.z != null ? ` (${v.z >= 0 ? "+" : ""}${v.z.toFixed(1)}σ)` : ""}`);
       }
       if (v.chg5dPct != null) bits.push(`${briefPctStr(v.chg5dPct, 1)} 5d`);
+      if (v.tier === "rich" && v.richnessNote) bits.push(v.richnessNote);
       if (v.risingStreak >= 2) bits.push(`${v.risingStreak}d rising streak`);
       bits.push(v.earnings
         ? `earnings ${v.earnings.date}${v.earnings.inDays != null ? ` (${v.earnings.inDays}d out)` : ""}${v.earnings.impliedMovePct != null ? `, ±${v.earnings.impliedMovePct}% implied move` : ""}`
-        : "no scheduled earnings inside 45d — unexplained ramp");
+        : v.tier === "rich" ? "no scheduled earnings inside 45d; rich premium, not a rising-trend signal" : "no scheduled earnings inside 45d — unexplained ramp");
       lines.push(`- ${v.sym}: ${String(v.tier).toUpperCase()} — ${bits.join(", ")}`);
     }
   }
@@ -33175,7 +33250,7 @@ export async function buildMarketBriefs(opts) {
   if (haveKey && want) {
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: AI_HTTP_TIMEOUT_MS } });
-      const siteTools = await collectBriefSiteTools({ kind, narratives, payloads: siteToolPayloads });
+      const siteTools = await collectBriefSiteTools({ kind, narratives, payloads: { ...siteToolPayloads, overnight: correlations } });
       // Core desks already have first-class fact-sheet sections in
       // gatherBriefSignals. Include them in the coverage audit without
       // duplicating their facts in the cross-tool list below.
@@ -33185,7 +33260,6 @@ export async function buildMarketBriefs(opts) {
         ["Calendar", !!calendar && typeof calendar === "object"],
         ["Unusual flow", !!unusual],
         ["Trending IV", !!ivTrending],
-        ["Overnight markets", !!correlations],
         ["Fear & Greed", !!fearGreed],
         ["Bonds & USD", !!macro],
       ];
@@ -36335,7 +36409,7 @@ function computeRecentlyEnded(history, activeNarrativeNames, todayIso) {
 // filled to the slice caps the Brief builder already enforces. That sheet is
 // wider than a typical one: every section present, each row at its cap
 // (watchlist 6, headlines 8, printed releases 8, flow 4, IV flags 5, tool
-// facts 24 at the 230-char cleaner, playbook 4 using the longest registry
+// facts 32 at the 320-char cleaner, playbook 4 using the longest registry
 // blurbs). Morning earnings lines are not sliced in gatherBriefSignals, so
 // the bound is one line per tracked ticker plus 16 same-day macro chips —
 // more than the named CPI/PPI/jobs series and a busy BLS/BEA day. Chars/3
@@ -36418,7 +36492,9 @@ function saturatedBriefSignals() {
     })),
     ivTrend: Array.from({ length: 5 }, (_, i) => ({
       sym: `IV${i}`,
-      tier: "surging",
+      tier: "rich",
+      richnessBasis: "percentile-only",
+      richnessNote: fill(180),
       ivPct: 82.4,
       meanPct: 41.2,
       z: 2.4,
@@ -36438,13 +36514,13 @@ function saturatedBriefSignals() {
       checked: toolSources,
       coreChecked: [
         "Ticker tracker & Grade", "News desk", "Calendar", "Unusual flow",
-        "Trending IV", "Overnight markets", "Fear & Greed", "Bonds & USD",
+        "Trending IV", "Fear & Greed", "Bonds & USD",
       ],
       missing: [],
-      total: toolSources.length + 8,
-      facts: Array.from({ length: 24 }, (_, i) => ({
+      total: toolSources.length + 7,
+      facts: Array.from({ length: BRIEF_TOOL_FACT_MAX }, (_, i) => ({
         source: `Desk ${i}`,
-        text: fill(230),
+        text: fill(BRIEF_TOOL_FACT_CHARS),
         symbols: ["AAAA", "BBBB", "CCCC", "DDDD"],
       })),
     },
@@ -38342,9 +38418,9 @@ async function main() {
   if (refreshBrief) {
   try {
     const briefTodayIso = etDateKey();
-    // Pure rebuild of the correlations payload (no fetch — reuses the already-
-    // fetched globalMarkets + chains bars) for the overnight signal block.
-    const briefCorrelations = buildCorrelationsPayload(chains, globalMarkets, builtAtIso, priorCorrelations);
+    // Reuse the public Overnight payload, including today's saved pre-open
+    // call, rather than rebuilding a snapshot that drops the call.
+    const briefCorrelations = correlationsInfo.payload;
     const sess = (sym, date) => sessionMap.get(`${sym}|${date}`) || "TBD";
     const allEarn = upcomingEarningsList(chains, briefTodayIso, 14);
     const calForBrief = {
