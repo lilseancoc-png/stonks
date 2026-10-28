@@ -38968,6 +38968,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     let body = '<p class="wb-sample-note">' + (rec.checkedAtIso ? 'Last broker reconciliation: ' + html(dateTime(rec.checkedAtIso)) + '.' : 'No broker reconciliation snapshot was supplied.') + '</p>';
     if (!Number.isFinite(run) || reportsSnapshot && Number.isFinite(current) && (!Number.isFinite(checked) || current > checked)) body += '<p class="wb-review-warning" role="status">The latest Track Record build has not been checked by the mirror yet, or no mirror run is recorded.</p>';
     body += '<p class="wb-sample-note">Holdings and order checks follow the 11:00 and 15:30 ET Top Picks builds after publication, with up to two two-minute follow-ups while orders are pending. Build delays are possible. Expiry closes start with the first mirror on the two-session cutoff date.</p>';
+    if (rec.externalGroups > 0) body += '<p class="wb-sample-note">' + rec.externalGroups + (rec.externalGroups === 1 ? ' position' : ' positions') + ' in the paper account came from outside the mirror. The mirror leaves them alone, and they only block a new pick that uses the same contract.</p>';
     const alerts = Array.isArray(rec.alerts) ? rec.alerts : [];
     if (alerts.length || ['attention', 'incomplete'].includes(rec.status)) body += '<div class="wb-review-warning" role="alert"><strong>Broker reconciliation needs review</strong><p>Entries may be paused or exposure may need review.</p>' + (alerts.length ? '<ul>' + alerts.map(a => '<li>' + html(a) + '</li>').join('') + '</ul>' : '') + '</div>';
     return body;

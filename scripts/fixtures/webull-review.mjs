@@ -20,7 +20,7 @@ export function webullReviewFixture(now = Date.now(), mode = 'standard') {
     if (i % 3) baseline.push({ pairKey: symbol + ':' + side + ':' + engineEntryIso, exitDate: closeFillIso, optionPnlPct: 8 });
   }
   ['open', 'entering', 'exiting', 'missed', 'skipped', 'settlement-pending'].forEach((state, i) => trades.push({ tradeId: 'pending-' + i, symbol: 'NVDA', side: i % 2 ? 'put' : 'call', structure: 'long', state, engineEntryIso: new Date(now - 86400000).toISOString(), engineEntryPrice: 3, fillPrice: state === 'open' || state === 'exiting' ? 3 : null }));
-  const result = { mirror: { enabled: true, lastRunIso: new Date(now).toISOString(), engineSnapshotIso: new Date(now).toISOString(), reconciliation: { status: 'ok', checkedAtIso: new Date(now).toISOString(), alerts: [] }, goLiveIso: new Date(now - 90 * 86400000).toISOString(), trades }, accuracy: { builtAtIso: new Date(now).toISOString(), open: [], closed: records, baseline: { closed: baseline, open: [] } } };
+  const result = { mirror: { enabled: true, lastRunIso: new Date(now).toISOString(), engineSnapshotIso: new Date(now).toISOString(), reconciliation: { status: 'ok', checkedAtIso: new Date(now).toISOString(), alerts: [], externalGroups: 2 }, goLiveIso: new Date(now - 90 * 86400000).toISOString(), trades }, accuracy: { builtAtIso: new Date(now).toISOString(), open: [], closed: records, baseline: { closed: baseline, open: [] } } };
   if (mode === 'edge') {
     trades[0].closeFillIso = null;
     Object.assign(trades[1], { requestedQty: 3, filledQty: 3, closedQty: 3, openQty: 0, fees: 3 });

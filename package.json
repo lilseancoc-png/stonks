@@ -69,7 +69,7 @@
     "test:track-record-fills": "node scripts/track-record-fills-smoke.mjs",
     "test:webull-analytics": "node scripts/webull-analytics-smoke.mjs",
     "preview:webull": "node scripts/webull-review-preview.mjs",
-    "test:webull-mirror": "node scripts/r2-lease-smoke.mjs && node scripts/webull-mirror-smoke.mjs && node scripts/webull-grouped-smoke.mjs && node scripts/webull-recovery-smoke.mjs && node scripts/webull-view-smoke.mjs && node scripts/webull-window-smoke.mjs",
+    "test:webull-mirror": "node scripts/r2-lease-smoke.mjs && node scripts/webull-mirror-smoke.mjs && node scripts/webull-grouped-smoke.mjs && node scripts/webull-legacy-fill-smoke.mjs && node scripts/webull-recovery-smoke.mjs && node scripts/webull-view-smoke.mjs && node scripts/webull-window-smoke.mjs",
     "test:iv-richness": "node scripts/iv-richness-smoke.mjs",
     "test:sector-groups": "node scripts/sector-groups-smoke.mjs",
     "test:picks": "node scripts/picks-smoke.mjs",
