@@ -430,6 +430,12 @@ jobs:
         # bounded company retention and the shared browser valuation model.
         run: npm run test:research-stack
 
+      - name: Verify Unified Signal perspectives and entry isolation
+        # Offline financial/price fixtures, publication, archives and private access.
+        run: |
+          npm run test:unified-signal
+          npm run audit:unified-perspectives
+
       - name: Build site
         env:
           EARNINGS_FORECAST_ENABLED: ${{ vars.EARNINGS_FORECAST_ENABLED || '1' }}

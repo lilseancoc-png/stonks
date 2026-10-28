@@ -8,6 +8,7 @@ import { historicalDataFactory } from './historical-data-client.mjs';
 import { earningsForecastFactory } from './earnings-forecast-client.mjs';
 import { companyResearchClientFactory } from './company-research-client.mjs';
 import { fullYearValuationFactory } from '../../lib/full-year-valuation.mjs';
+import { investmentPerspectiveFactory } from '../../lib/investment-perspective.mjs';
 import { earningsScenarioFactory } from '../../lib/earnings-forecast-scenarios.mjs';
 import { forcedLiquidationFactory } from './forced-liquidation-client.mjs';
 import { liquidationPledgeDisclosure } from '../../lib/forced-liquidation.mjs';
@@ -23271,6 +23272,7 @@ ${renderExportBindings()}
   // dispersion / post-earnings-drift screens. ANALYTICAL ONLY: z-scores and
   // ranks, never trade signals (the playbook table in the shell is educational).
   var unifiedSignal = (${unifiedSignalClientFactory.toString()})(window, document, {
+    investment: (${investmentPerspectiveFactory.toString()})((${fullYearValuationFactory.toString()})()),
     owner: function(){ return HAS_OWNER_ACCESS; },
     url: function(){ return '/api/auth/me?data=unified-signal.json'; },
     // Company record view: the grade breakdown (same panel as the Top Picks

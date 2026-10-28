@@ -2235,8 +2235,8 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-unified-signal-engine" role="tabpanel" aria-labelledby="page-tab-unified-signal-engine" hidden>
     <section class="card" id="unified-signal-section">
-      <header class="card-header"><h2 class="card-title">Unified Signal Engine</h2><span class="card-eyebrow">Owner research · swing decisions</span></header>
-      <p class="use-intro">One place to inspect a stock's direction, supporting and opposing evidence, uncertainty, price assumptions, and available trade plan. Research is unproven; entry checks and missing data stay visible.</p>
+      <header class="card-header"><h2 class="card-title">Unified Signal Engine</h2><span class="card-eyebrow">Owner research · multiple perspectives</span></header>
+      <p class="use-intro">Inspect the existing decision alongside separate investment and trading perspectives. Compare business assumptions with price, explore confirmed setups, and see where the views disagree. Research is unproven; entry checks and missing data stay visible.</p>
       <div id="unified-signal-root">Open this view to load the private decision snapshot.</div>
     </section>
   </div>

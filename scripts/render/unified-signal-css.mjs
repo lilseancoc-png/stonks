@@ -39,6 +39,13 @@ export function renderUnifiedSignalCss() {
 .use-view p { color:var(--text); font:400 12px/1.75 var(--font-sans); margin:6px 0 12px; overflow-wrap:anywhere; }
 .use-view .use-muted, .use-muted { color:var(--muted-strong); }
 .use-answer { padding:0 0 18px; margin:0 0 18px; border-bottom:1px solid var(--border); }
+.use-perspective-summary { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:20px; margin:0 0 24px; padding:16px; background:var(--surface-2); border:1px solid var(--border); border-radius:5px; }
+.use-perspective-summary section { min-width:0; }
+.use-perspective-summary h3 { margin-top:5px; }
+.use-section-title { display:flex; gap:12px; justify-content:space-between; align-items:start; flex-wrap:wrap; }
+.use-assumption-controls { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px 18px; margin:16px 0; }
+.use-assumption-controls label { display:grid; gap:6px; min-width:0; color:var(--muted-strong); font:500 11px/1.6 var(--font-sans); }
+.use-assumption-controls input { box-sizing:border-box; width:100%; min-width:0; background:var(--surface-2); border:1px solid var(--border-strong); border-radius:5px; padding:9px 10px; color:var(--text-strong); font:500 13px var(--font-mono); }
 .use-evidence-pair { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:22px; margin-bottom:20px; }
 .use-evidence-pair section { min-width:0; }
 .use-observation { padding:12px 0; border-top:1px solid var(--border); min-width:0; overflow-wrap:anywhere; }
@@ -71,6 +78,7 @@ export function renderUnifiedSignalCss() {
 .use-empty { padding:28px 12px; font:400 13px/1.7 var(--font-sans); color:var(--muted-strong); }
 .use-empty h3 { font:600 17px/1.5 var(--font-sans); color:var(--text-strong); }
 #unified-signal-root button:focus-visible, #unified-signal-root input:focus-visible, #unified-signal-root select:focus-visible, #unified-signal-root summary:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+@media(max-width:700px) { .use-perspective-summary, .use-assumption-controls { grid-template-columns:1fr; } }
 @media(max-width:1100px) { .use-layout { grid-template-columns:190px minmax(0,1fr); gap:18px; } .use-evidence-pair { grid-template-columns:1fr; gap:16px; } }
 @media(max-width:700px) { .use-layout { grid-template-columns:1fr; } .use-library { max-height:220px; border-right:0; border-bottom:1px solid var(--border); padding:0 0 10px; } .use-candidate { padding:9px; } .use-decision-head { flex-wrap:wrap; scroll-margin-top:80px; } .use-decision-head .use-price { text-align:left; } .use-evidence-grid { grid-template-columns:1fr; } .use-toolbar label { flex:1 1 140px; min-width:0; } .use-toolbar label:first-child { flex:1 1 100%; max-width:none; } .use-facts { grid-template-columns:1fr; gap:12px; } .use-view-tabs button { padding:8px; } }
 `;
