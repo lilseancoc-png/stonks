@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { emptyLedger, newTrade, updateQuantities, runWebullMirror } from "../lib/webull-mirror.mjs";
+import { emptyLedger, newTrade, updateQuantities, runWebullMirror, ledgerToFillRows } from "../lib/webull-mirror.mjs";
 import { parsePositions } from "../lib/webull-reconciliation.mjs";
 import { pickTradeId } from "../lib/pick-trade-text.mjs";
 
@@ -67,5 +67,25 @@ r = await runWebullMirror({ client: client({ placeOrder: async (_, orders) => { 
   orderDetail: async (_, id) => id === "mrvl-entry-1" ? detail(id, mrvlLegs) : { orders: [{ client_order_id: id, status: "SUBMITTED", filled_quantity: "0" }] } }),
   accountId: "PAPER", acc: { ...acc, open: [mrvl, tsla, aapl] }, ledger: structuredClone(ledger), nowMs: during, quoteFn: async () => null });
 assert.deepEqual(sent.map(o => o.legs?.[0]?.symbol ?? o.symbol), ["AAPL"], "only the unrelated pick is entered");
-assert.match(r.ledger.trades[pickTradeId(tsla)].note, /outside the mirror/);
+const skippedTsla = r.ledger.trades[pickTradeId(tsla)];
+assert.equal(skippedTsla.state, "missed", "a blocked pick is logged as missed, not left pending");
+assert.match(skippedTsla.note, /outside the mirror/);
+assert.equal(r.summary.followUpNeeded, true, "the working AAPL order still gets follow-ups");
+const tslaRow = ledgerToFillRows(r.ledger).find(x => x.trade_id === pickTradeId(tsla));
+assert.equal(tslaRow.skipped, "yes"); assert.match(tslaRow.skip_reason, /outside the mirror/);
+
+// Every published entry is logged with its reason, including while orders are
+// paused and when the engine closes the pick before an order could go out.
+const paused = structuredClone(ledger);
+const pausedClient = client({ orderDetail: async () => { throw new Error("timeout"); } });
+r = await runWebullMirror({ client: pausedClient, accountId: "PAPER", acc: { ...acc, open: [mrvl, aapl] }, ledger: paused, nowMs: during });
+const waiting = r.ledger.trades[pickTradeId(aapl)];
+assert.equal(waiting.state, "entering"); assert.match(waiting.note, /^Waiting: orders are paused/);
+assert.equal(r.ledger.reconciliation.failure.reason, "broker group direction needs confirmed order evidence", "the parse failure names its check");
+r = await runWebullMirror({ client: pausedClient, accountId: "PAPER", ledger: r.ledger, nowMs: during + 120000,
+  acc: { ...acc, open: [mrvl], closed: [{ ...aapl, status: "hit-stop", exitDate: "2026-10-27T19:36:00Z" }] } });
+const closedFirst = r.ledger.trades[pickTradeId(aapl)];
+assert.equal(closedFirst.state, "missed");
+assert.match(closedFirst.note, /engine closed the pick before an order was sent \(orders were paused/);
+assert.equal(ledgerToFillRows(r.ledger).filter(x => x.skipped === "yes").length, 1, "the missed entry is in the trade log");
 console.log("Webull legacy fill: broker-leg backfill binds the old spread, outside positions don't pause entries, overlaps still fail closed (offline).");

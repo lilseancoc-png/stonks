@@ -173,8 +173,11 @@ for such an open, unbound fill and stores its confirmed legs only when they
 match the tracked contract and direction; a mismatch flags the trade for review.
 An unbound group whose contracts the mirror neither holds nor has ordered is
 held outside the mirror: it is counted (`externalGroups`) and left alone rather
-than pausing the account, and a new pick that shares one of its contracts is not
-entered. An outside group that shares a mirror contract, or whose legs are not
+than pausing the account, and a new pick that shares one of its contracts is
+logged as missed. A pick that waits while orders are paused carries a
+"Waiting" note; if the engine closes it first it is logged as missed with that
+reason. A positions-parse failure records the failed check (`failure.reason`,
+a fixed string with no broker data). An outside group that shares a mirror contract, or whose legs are not
 fully described, still pauses execution.
 
 `prepareManualRecovery` in `lib/webull-manual-recovery.mjs` prepares a local
