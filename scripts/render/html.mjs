@@ -69,6 +69,7 @@ const SIDE_NAV_ICONS = {
   spillover: '<circle cx="12" cy="12" r="2.5"/><path d="M12 5.5a6.5 6.5 0 0 1 6.5 6.5"/><path d="M12 2a10 10 0 0 1 10 10"/>',
   quant: '<path d="M18 6.5V4H6l6.5 8L6 20h12v-2.5"/>',
   'historical-data': '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/>',
+  'party-tracker': '<path d="M4 20h16M6 20V9M10 20V9M14 20V9M18 20V9M3 9h18M12 3l8 6H4z"/>',
   'earnings-forecast': '<path d="M4 20V4M4 20h16M8 15l4-5 4 2 4-7"/><path d="M16 5h4v4"/>',
   levetf: '<path d="M3.5 20.5v-17"/><path d="M3.5 20.5h17"/><path d="m6 16.5 3.5-4 2.5 2 4-5.5"/><path d="m11.5 6.5 3-3 3 3"/><path d="M14.5 3.5v7"/>',
   overnight: '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>',
@@ -2245,6 +2246,13 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
       <header class="card-header"><h2 class="card-title">Historical Data</h2><span class="card-eyebrow">Owner · historical research</span></header>
       <p class="hint">Compare today's market with seasonal windows and past election cycles. Inspect the sample, the spread of outcomes and where this period differs.</p>
       <div id="historical-data-root" aria-live="polite">Open this view to load the historical snapshot.</div>
+    </section>
+  </div>
+  <div class="page-pane" id="page-pane-party-tracker" role="tabpanel" aria-labelledby="page-tab-party-tracker" hidden>
+    <section class="card" id="party-tracker-section">
+      <header class="card-header"><h2 class="card-title">Party tracker</h2><span class="card-eyebrow">Owner · market history</span></header>
+      <p class="hint">See how the market and each sector did when Democrats or Republicans held the presidency, the House, or the Senate, from Bush’s inauguration through the latest close.</p>
+      <div id="party-tracker-root" aria-live="polite">Open this view to load party control history.</div>
     </section>
   </div>
   <div class="page-pane" id="page-pane-earnings-forecast" role="tabpanel" aria-labelledby="page-tab-earnings-forecast" hidden>

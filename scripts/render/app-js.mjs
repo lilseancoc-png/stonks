@@ -5,6 +5,7 @@ import { marketRefreshFactory } from '../../lib/market-refresh.mjs';
 import { webullAnalyticsFactory } from '../../lib/webull-analytics.mjs';
 import { webullReviewFactory } from './webull-review-client.mjs';
 import { historicalDataFactory } from './historical-data-client.mjs';
+import { partyTrackerFactory } from './party-tracker-client.mjs';
 import { earningsForecastFactory } from './earnings-forecast-client.mjs';
 import { companyResearchClientFactory } from './company-research-client.mjs';
 import { fullYearValuationFactory } from '../../lib/full-year-valuation.mjs';
@@ -128,7 +129,7 @@ ${scenarioEventPhase.toString()}
   // the Owner analysis/idea/record desks and Owner Lab; this UI boundary keeps
   // destinations hidden until the owner session's compatibility claims resolve.
   // Discord mints both only after verifying the existing Top Picks owner role.
-  var OWNER_TABS = { 'earnings-forecast':1, 'unified-signal-engine':1, market:1, risk:1, 'bottom-tracker':1, 'historical-data':1, 'forced-liquidation':1, picks:1, leaps:1, stocks:1, rotation:1, levetf:1, 'open-picks':1, track:1, quant:1 };
+  var OWNER_TABS = { 'earnings-forecast':1, 'unified-signal-engine':1, market:1, risk:1, 'bottom-tracker':1, 'historical-data':1, 'party-tracker':1, 'forced-liquidation':1, picks:1, leaps:1, stocks:1, rotation:1, levetf:1, 'open-picks':1, track:1, quant:1 };
   var GATE_ON = false;
   var HAS_TRACK_RECORD = false;
   var HAS_TOP_PICKS = false;
@@ -553,10 +554,21 @@ ${scenarioEventPhase.toString()}
       var dy = (p[1] - v.y) * sy;
       return dx * dx + dy * dy;
     };
-    var best = pts[0], bd = dist(pts[0]);
+    var bestD = dist(pts[0]), tied = [pts[0]];
     for (var i=1; i<pts.length; i++){
       var d = dist(pts[i]);
-      if (d < bd){ bd = d; best = pts[i]; }
+      if (d < bestD - 0.01){ bestD = d; tied = [pts[i]]; }
+      else if (d <= bestD + 0.01) tied.push(pts[i]);
+    }
+    // One point per x keeps the original snap. Two lines that share an x
+    // (median and this year's path) follow whichever line the cursor is near.
+    var best = tied[0];
+    if (!xy && tied.length > 1){
+      var bestDy = Infinity;
+      for (var t=0; t<tied.length; t++){
+        var dy = Math.abs((tied[t][1] - v.y) * sy);
+        if (dy < bestDy){ bestDy = dy; best = tied[t]; }
+      }
     }
     var s = svg.createSVGPoint(); s.x = best[0]; s.y = best[1];
     var sp = s.matrixTransform(ctm);
@@ -572,7 +584,7 @@ ${scenarioEventPhase.toString()}
     var tip = chHover.tip;
     var lines = String(best[2] || '').split('\\n');
     var htmlOut = '';
-    for (var li=0; li<lines.length; li++) htmlOut += (li ? '<br>' : '') + escapeHtml(lines[li]);
+    for (var li=0; li<lines.length; li++) htmlOut += '<span class="' + (li ? 'ch-tip-line' : 'ch-tip-lead') + '">' + escapeHtml(lines[li]) + '</span>';
     tip.innerHTML = htmlOut;
     tip.style.display = '';
     // Above the dot, flipping below when clipped at the top, and clamped to
@@ -3712,7 +3724,7 @@ ${scenarioEventPhase.toString()}
   // resolve the URL's initial tab synchronously at script-evaluation time (the
   // anti-flash pre-select in the boot block) before the /api/auth/me +
   // manifest fetches settle and bind() runs the full selectTab.
-  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','news','market','risk','unified-signal-engine','historical-data','earnings-forecast','forced-liquidation','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','bottom-tracker','open-picks','track','cheatsheet','chart-patterns','timeline','privacy','terms'];
+  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','news','market','risk','unified-signal-engine','historical-data','party-tracker','earnings-forecast','forced-liquidation','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','bottom-tracker','open-picks','track','cheatsheet','chart-patterns','timeline','privacy','terms'];
   // Friendly aliases so deep-links people might guess work too.
   // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
   // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -3720,6 +3732,7 @@ ${scenarioEventPhase.toString()}
   var PAGE_TAB_ALIASES = {
     unified: 'unified-signal-engine', signals: 'unified-signal-engine', 'signal-engine': 'unified-signal-engine',
     historical: 'historical-data', history: 'historical-data', 'historical-data': 'historical-data',
+    party: 'party-tracker', parties: 'party-tracker', 'party-tracker': 'party-tracker', democrats: 'party-tracker', republicans: 'party-tracker',
     forecast: 'earnings-forecast', 'earnings-forecast': 'earnings-forecast',
     liquidation: 'forced-liquidation', 'forced-liquidation-tracker': 'forced-liquidation', 'forced-liquidation': 'forced-liquidation',
     unusual: 'flow', 'unusual-flow': 'flow',
@@ -4200,6 +4213,7 @@ ${renderExportBindings()}
         if (name === 'pending-buyouts' && typeof loadPendingBuyouts === 'function') loadPendingBuyouts();
         if (name === 'bottom-tracker' && typeof loadBottomTracker === 'function') loadBottomTracker();
         if (name === 'historical-data') historicalData.load();
+        if (name === 'party-tracker') partyTracker.load();
         if (name === 'earnings-forecast') earningsForecast.load();
         if (name === 'forced-liquidation') forcedLiquidation.load();
         if (name === 'unified-signal-engine') unifiedSignal.load();
@@ -19548,6 +19562,7 @@ ${renderExportBindings()}
         eclAnalystChip(s.analystTone && s.analystTone.label) + '</div>' +
     '</div>';
     if (s.headline) html += '<div class="ecl-det-headline">' + escapeHtml(s.headline) + '</div>';
+    if (d.partial) html += '<p class="ecl-age">This summary was cut off at the AI output limit. Sections after the cut are missing; check the linked transcript.</p>';
     html += eclSection('Key takeaways', eclBullets(s.execSummary));
     // Financial highlights.
     var fin = '';
@@ -19662,6 +19677,7 @@ ${renderExportBindings()}
         eclAnalystChip(s.analystTone && s.analystTone.label) + '</div>' +
     '</div>';
     html += '<p class="ecl-age">' + escapeHtml(callAge.label) + ' · ' + escapeHtml(callReportContext(d,callsState.reports).label) + '. Check the linked transcript and newer releases before using this outlook.</p>';
+    if (d.partial) html += '<p class="ecl-age">This summary was cut off at the AI output limit. Sections after the cut are missing; check the linked transcript.</p>';
     html += '<section class="ecl-decision ecl-decision-' + decision.signal.tone + '">' +
       '<div class="ecl-decision-head"><span>Call verdict</span><h3>' + escapeHtml(decision.signal.label) + '</h3>' +
         (s.headline ? '<p>' + escapeHtml(s.headline) + '</p>' : '') + '</div>' +
@@ -20087,7 +20103,7 @@ ${renderExportBindings()}
   function startMaTrackerLive(){ maTrackerLivePoller.start(); }
   function stopMaTrackerLive(){ maTrackerLivePoller.stop(); }
 
-  var patternLab = (${patternLabFactory.toString()})(window, document, VIEWS, symGradeHref, dataUrl);
+  var patternLab = (${patternLabFactory.toString()})(window, document, VIEWS, symGradeHref, dataUrl, calGoToTicker);
   function loadPatternLab(){ patternLab.load(); }
 
 
@@ -21072,13 +21088,25 @@ ${renderExportBindings()}
     return value > 0 ? 'up' : 'down';
   }
   function siSpark(history){
-    var values = (Array.isArray(history) ? history : []).slice(-45).map(function(p){ return Number(p.value); }).filter(isFinite);
-    if (values.length < 2) return '';
+    var rows = (Array.isArray(history) ? history : []).slice(-45).map(function(p){
+      return { date: p && p.date ? String(p.date) : '', value: Number(p && p.value) };
+    }).filter(function(p){ return isFinite(p.value); });
+    if (rows.length < 2) return '';
+    var values = rows.map(function(p){ return p.value; });
     var lo = Math.min.apply(null, values), hi = Math.max.apply(null, values), span = Math.max(1, hi - lo);
-    var points = values.map(function(v, i){
-      return ((i / (values.length - 1)) * 100).toFixed(1) + ',' + (27 - ((v - lo) / span) * 23).toFixed(1);
+    var points = rows.map(function(p, i){
+      return ((i / (rows.length - 1)) * 100).toFixed(1) + ',' + (27 - ((p.value - lo) / span) * 23).toFixed(1);
     }).join(' ');
-    return '<svg class="si-spark" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true">' + sparkAreaHtml(points, 30) + '<polyline points="' + points + '"/></svg>';
+    var hover = chHoverAttr(rows.map(function(p, i){
+      var back = rows.length - 1 - i;
+      var when = p.date || (back === 0 ? 'latest' : back + ' points back');
+      return {
+        x: (i / (rows.length - 1)) * 100,
+        y: 27 - ((p.value - lo) / span) * 23,
+        label: when + '\\nSearch interest ' + Math.round(p.value)
+      };
+    }));
+    return '<svg class="si-spark" viewBox="0 0 100 30" preserveAspectRatio="none" role="img" aria-label="Search interest history"' + hover + '>' + sparkAreaHtml(points, 30) + '<polyline points="' + points + '"/></svg>';
   }
   function siQueryList(items, rising){
     var list = Array.isArray(items) ? items : [];
@@ -21574,7 +21602,8 @@ ${renderExportBindings()}
     if (verdict === 'stress') return 'bad';
     return 'na';
   }
-  function btmSpark(values){
+  // levelOnly: a spread or rate, where drag-compare's % change is not a meaningful move.
+  function btmSpark(values, name, levelOnly){
     if (!values || values.length < 2) return '';
     var min = Infinity, max = -Infinity, i;
     for (i = 0; i < values.length; i++){
@@ -21582,10 +21611,19 @@ ${renderExportBindings()}
       if (values[i] > max) max = values[i];
     }
     var span = max - min || 1, w = 168, h = 36, pts = [];
-    for (i = 0; i < values.length; i++){
-      pts.push(((i / (values.length - 1)) * w).toFixed(1) + ',' + (h - ((values[i] - min) / span) * (h - 4) - 2).toFixed(1));
+    function yOf(v){ return h - ((v - min) / span) * (h - 4) - 2; }
+    function shown(v){
+      var av = Math.abs(v);
+      if (av >= 1000) return v.toLocaleString(undefined, { maximumFractionDigits: 1 });
+      return v.toFixed(av >= 100 ? 1 : 2);
     }
-    return '<svg class="btm-spark" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" aria-hidden="true">' + sparkAreaHtml(pts.join(' '), h) + '<polyline fill="none" points="' + pts.join(' ') + '"/></svg>';
+    for (i = 0; i < values.length; i++) pts.push(((i / (values.length - 1)) * w).toFixed(1) + ',' + yOf(values[i]).toFixed(1));
+    var hover = chHoverAttr(values.map(function(v, i){
+      var back = values.length - 1 - i;
+      var when = back === 0 ? 'Latest' : back + ' points back';
+      return { x: (i / (values.length - 1)) * w, y: yOf(v), label: (name ? name + '\\n' : '') + when + '\\n' + shown(v), value: levelOnly ? undefined : v, time: when };
+    }));
+    return '<svg class="btm-spark" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" role="img" aria-label="' + escapeHtml(name || 'History') + '"' + hover + '>' + sparkAreaHtml(pts.join(' '), h) + '<polyline fill="none" points="' + pts.join(' ') + '"/></svg>';
   }
   function btmRate(value){
     if (value == null || !isFinite(value)) return '—';
@@ -21666,8 +21704,8 @@ ${renderExportBindings()}
         return '<li><span>' + escapeHtml(fact.label) + '</span><b>' + escapeHtml(fact.value) + '</b></li>';
       }).join('');
       var spark = '';
-      if (card.id === 'price' && d.spark && d.spark.spy) spark = btmSpark(d.spark.spy);
-      if (card.id === 'credit' && d.spark && d.spark.hy) spark = btmSpark(d.spark.hy);
+      if (card.id === 'price' && d.spark && d.spark.spy) spark = btmSpark(d.spark.spy, 'SPY');
+      if (card.id === 'credit' && d.spark && d.spark.hy) spark = btmSpark(d.spark.hy, 'High-yield spread', true);
       html += '<article class="btm-card btm-' + btmTone(card.state) + '"><header><span>' + escapeHtml(card.phase || '') + '</span><h3>' + escapeHtml(card.title || '') + '</h3><em>' + escapeHtml(card.stateLabel || '') + '</em></header>' + spark + '<p>' + escapeHtml(card.summary || '') + '</p>' + (facts ? '<ul class="btm-facts">' + facts + '</ul>' : '') + '<small>' + escapeHtml(card.source || '') + '</small></article>';
     });
     html += '</div>';
@@ -23294,7 +23332,12 @@ ${renderExportBindings()}
   var historicalData = (${historicalDataFactory.toString()})(window, document, {
     owner: function(){ return HAS_OWNER_ACCESS; },
     // Never use a legacy static-data fallback for this Owner-only feature.
-    url: function(){ return '/api/auth/me?data=historical-data.json'; }
+    url: function(){ return '/api/auth/me?data=historical-data.json'; },
+    hover: chHoverAttr
+  });
+  var partyTracker = (${partyTrackerFactory.toString()})(window, document, {
+    owner: function(){ return HAS_OWNER_ACCESS; },
+    url: function(){ return '/api/auth/me?data=party-tracker.json'; }
   });
   var earningsForecast = (${earningsForecastFactory.toString()})(window, document, { owner: function(){ return HAS_OWNER_ACCESS; } }, ${earningsScenarioFactory.toString()}, ${companyResearchClientFactory.toString()}, ${fullYearValuationFactory.toString()});
   var forcedLiquidation = (${forcedLiquidationFactory.toString()})(window, document, {
@@ -25576,13 +25619,21 @@ ${renderExportBindings()}
     var peers = rotSeriesValues(c, 'peers');
     if (vals.length < 2) return '';
     if (peers.length !== vals.length) peers = [];
+    var rawSeries = c && c.series;
+    var dateList = rawSeries && !Array.isArray(rawSeries) && Array.isArray(rawSeries.dates) ? rawSeries.dates : [];
+    var dates = dateList.length >= vals.length ? dateList.slice(dateList.length - vals.length) : [];
     var scaleVals = peers.length ? vals.concat(peers) : vals;
     var lo = Math.min.apply(null, scaleVals), hi = Math.max.apply(null, scaleVals);
     var span = hi - lo || 1, W = 240, H = 48, pad = 3;
+    function xy(v, idx){
+      return {
+        x: vals.length === 1 ? 0 : idx * W / (vals.length - 1),
+        y: pad + (H - pad * 2) * (1 - (v - lo) / span)
+      };
+    }
     function points(series){ return series.map(function(v, idx){
-      var x = vals.length === 1 ? 0 : idx * W / (vals.length - 1);
-      var y = pad + (H - pad * 2) * (1 - (v - lo) / span);
-      return x.toFixed(1) + ',' + y.toFixed(1);
+      var p = xy(v, idx);
+      return p.x.toFixed(1) + ',' + p.y.toFixed(1);
     }).join(' '); }
     var pts = points(vals), peerPts = peers.length ? points(peers) : '';
     var trough = vals.indexOf(lo);
@@ -25592,7 +25643,15 @@ ${renderExportBindings()}
     var stockMove = vals[0] > 0 ? (vals[vals.length - 1] / vals[0] - 1) * 100 : null;
     var peerMove = peers.length && peers[0] > 0 ? (peers[peers.length - 1] / peers[0] - 1) * 100 : null;
     var alpha = stockMove != null && peerMove != null ? stockMove - peerMove : null;
-    return '<div class="rot-spark-wrap"><svg class="rot-spark rot-spark-' + tone + '" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="Recent normalized stock and peer-group paths; dotted vertical line marks the stock low">' +
+    var hover = chHoverAttr(vals.map(function(v, idx){
+      var p = xy(v, idx);
+      var back = vals.length - 1 - idx;
+      var when = dates[idx] || (back === 0 ? 'Latest' : back + ' sessions back');
+      var lines = [when, 'Stock ' + v.toFixed(1) + ' (rebased to 100)'];
+      if (peers.length) lines.push('Peers ' + peers[idx].toFixed(1) + ' (rebased to 100)');
+      return { x: p.x, y: p.y, label: lines.join('\\n'), value: v, time: when };
+    }));
+    return '<div class="rot-spark-wrap"><svg class="rot-spark rot-spark-' + tone + '" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="Recent normalized stock and peer-group paths; dotted vertical line marks the stock low"' + hover + '>' +
       '<line class="rot-spark-low" x1="' + tx.toFixed(1) + '" y1="2" x2="' + tx.toFixed(1) + '" y2="46"/>' +
       (peerPts ? '<polyline class="rot-spark-peer" points="' + peerPts + '" fill="none"/>' : '') +
       sparkAreaHtml(pts, H) + '<polyline class="rot-spark-stock" points="' + pts + '" fill="none"/></svg>' +
@@ -28100,9 +28159,10 @@ ${renderExportBindings()}
   }
   // Current level, formatted per type (yields in %, USD instruments with $,
   // foreign cash with its currency code). '' when no level is available (#7).
-  function ovnLevelStr(m){
-    if (!m || m.last == null || !isFinite(m.last)) return '';
-    var v = m.last;
+  function ovnLevelStr(m, value){
+    if (!m) return '';
+    var v = value == null ? m.last : value;
+    if (v == null || !isFinite(v)) return '';
     if (m.type === 'rate') return v.toFixed(2) + '%';
     if (m.type === 'vol') return v.toFixed(1);
     var num = Math.abs(v) >= 1000 ? Math.round(v).toLocaleString() : (Math.abs(v) >= 100 ? v.toFixed(1) : v.toFixed(2));
@@ -28494,15 +28554,35 @@ ${renderExportBindings()}
     return (v > 0 ? '+' : '') + (Math.abs(v) >= 100 ? Math.round(v) : Number(v).toFixed(1)) + 'bp';
   }
   function ovnMiniSpark(m){
-    var values = m && Array.isArray(m.series) ? m.series.map(Number).filter(isFinite) : [];
-    if (values.length < 3) return '';
+    var raw = m && Array.isArray(m.series) ? m.series : [];
+    var dates = m && Array.isArray(m.seriesDates) ? m.seriesDates : [];
+    var rows = [];
+    for (var i = 0; i < raw.length; i++){
+      var v = Number(raw[i]);
+      if (!isFinite(v)) continue;
+      rows.push({ v: v, d: dates[i] ? String(dates[i]) : '' });
+    }
+    if (rows.length < 3) return '';
+    var values = rows.map(function(row){ return row.v; });
     var min = Math.min.apply(null, values), max = Math.max.apply(null, values), span = max - min || 1;
-    var pts = values.map(function(v, i){
-      var x = values.length === 1 ? 0 : (i / (values.length - 1)) * 100;
-      var y = 30 - ((v - min) / span) * 26;
+    var pts = rows.map(function(row, i){
+      var x = rows.length === 1 ? 0 : (i / (rows.length - 1)) * 100;
+      var y = 30 - ((row.v - min) / span) * 26;
       return x.toFixed(1) + ',' + y.toFixed(1);
     }).join(' ');
-    return '<svg class="ovn-detail-spark" viewBox="0 0 100 32" preserveAspectRatio="none" role="img" aria-label="Trailing ' + values.length + '-session price path">' + sparkAreaHtml(pts, 32) + '<polyline points="' + pts + '" fill="none" vector-effect="non-scaling-stroke"></polyline></svg>';
+    var hover = chHoverAttr(rows.map(function(row, i){
+      var back = rows.length - 1 - i;
+      var when = row.d || (back === 0 ? 'latest' : back + ' sessions back');
+      return {
+        x: rows.length === 1 ? 0 : (i / (rows.length - 1)) * 100,
+        y: 30 - ((row.v - min) / span) * 26,
+        label: when + '\\n' + (ovnLevelStr(m, row.v) || String(row.v)),
+        // A yield's move is read in basis points; drag-compare would show a % of the yield.
+        value: m.type === 'rate' ? undefined : row.v,
+        time: when
+      };
+    }));
+    return '<svg class="ovn-detail-spark" viewBox="0 0 100 32" preserveAspectRatio="none" role="img" aria-label="Trailing ' + rows.length + '-session price path"' + hover + '>' + sparkAreaHtml(pts, 32) + '<polyline points="' + pts + '" fill="none" vector-effect="non-scaling-stroke"></polyline></svg>';
   }
   function overnightDetailHtml(d){
     var sym = overnightState.selectedMarket;
@@ -42517,11 +42597,13 @@ ${renderExportBindings()}
       { key:'qqq', label:'QQQ', cls:'qqq', offset:0 },
       { key:'iwm', label:'IWM', cls:'iwm', offset:barW + 2 }
     ];
-    var bars = '', labels = '', bondPts = [], hit = '';
+    var bars = '', labels = '', bondPts = [], hit = '', hoverPts = [];
     chronological.forEach(function(row, idx){
       var x = padL + groupW * (idx + .5);
+      var tip = [fomcDayShortDate(row.date) + ((row.decisionLabel || row.decision) ? ' · ' + (row.decisionLabel || row.decision) : '')];
       series.forEach(function(s){
         var value = fomcDayNum(row.markets && row.markets[s.key] && row.markets[s.key].changePct);
+        tip.push(s.label + ' ' + (value == null ? '—' : fomcDayPct(value)));
         if (value == null) return;
         var height = Math.max(1, Math.abs(value) * yScale);
         var y = value >= 0 ? zero - height : zero;
@@ -42529,6 +42611,9 @@ ${renderExportBindings()}
       });
       var bond = fomcDayBondRead(row);
       if (bond.value != null) bondPts.push({ x:x, y:zero - bond.value * yScale, value:bond.value, row:row });
+      var bondY = bond.value == null ? zero : zero - bond.value * yScale;
+      if (bond.value != null) tip.push('TLT ' + fomcDayPct(bond.value) + (bond.post ? ' from 2pm' : ''));
+      hoverPts.push({ x: x, y: bondY, label: tip.join('\\n') });
       labels += '<text class="fomc-day-axis-label" x="' + x.toFixed(1) + '" y="' + (H - 18) + '">' + escapeHtml(fomcDayShortDate(row.date)) + '</text>';
       hit += '<rect class="fomc-day-hit' + (row.date === fomcDaySelected ? ' is-selected' : '') + '" data-fomc-day="' + escapeHtml(row.date) + '" x="' + (x - groupW / 2 + 2).toFixed(1) + '" y="' + padT + '" width="' + Math.max(12, groupW - 4).toFixed(1) + '" height="' + (plotH + 24) + '" tabindex="0" role="button" aria-label="Show ' + escapeHtml(row.label || row.date) + ' details"></rect>';
     });
@@ -42547,7 +42632,7 @@ ${renderExportBindings()}
     var chart = '<div class="fomc-day-chart-head"><div class="fomc-day-legend">' +
       '<span class="is-spy">SPY</span><span class="is-qqq">QQQ</span><span class="is-iwm">IWM</span><span class="is-tlt">TLT bond reaction</span>' +
       '</div><small>bars = full session &middot; TLT line = 2pm to close when captured</small></div>' +
-      '<div class="fomc-day-chart-scroll"><svg class="fomc-day-chart" viewBox="0 0 ' + W + ' ' + H + '" style="min-width:' + W + 'px" role="img" aria-label="FOMC day returns for SPY, QQQ, IWM and TLT">' +
+      '<div class="fomc-day-chart-scroll"><svg class="fomc-day-chart" viewBox="0 0 ' + W + ' ' + H + '" style="min-width:' + W + 'px" role="img" aria-label="FOMC day returns for SPY, QQQ, IWM and TLT"' + chHoverAttr(hoverPts) + '>' +
       grid + bars + bondPath + bondDots + labels + hit + '</svg></div>';
     var meetingButtons = rows.map(function(row){
       var dissents = Number(row.dissentCount) || 0;

@@ -32,7 +32,7 @@ Negated or conditional releases do not close a pledge. A partial release without
 
 The SEC's submissions API is a recent-filing index. This collector does not exhaust older archive pages or separately linked exhibits. SEC full-text search is an additional discovery path, not a guaranteed stable public API. The view reports errors, coverage caps and missing terms. An empty result does not establish that no leverage exists.
 
-Default limits per scan are 44 documents, 12 tracked issuers, 80 SEC requests, 3 followed 13D exhibits and a 100-second budget. Requests are serial with a 250 ms gap. Discovered but unread documents persist in a pending queue across issuer rotations. A successful scan is reused for 18 hours only when the parser version is current and the queue is empty. Scan health expires after three days. Failed scans preserve observations and the original last-success timestamp. They cannot authorize a new entry veto.
+Default limits per scan are 44 documents, 12 tracked issuers, 80 SEC requests, 3 followed 13D exhibits and a 100-second budget. Requests are serial with a 250 ms gap. Discovered but unread documents persist in a pending queue across issuer rotations. A successful scan is reused for 18 hours only when the parser version is current and the queue is empty. Scan health expires after three days. Failed scans preserve observations and the original last-success timestamp. They cannot authorize a new entry veto. A document that fails three reads, or can never be read (over 12 MB or not a filing), is set aside, listed under skipped documents and no longer keeps the scan incomplete. When SEC lists several tickers under one company (share classes, preferred series, foreign listings), the tracked ticker is used.
 
 The existing chain supplies prices, reported float and 20 completed daily volume bars. Zero-volume trading sessions count toward that average. Today's bar enters after the completed-close cutoff. An old or incomplete volume window cannot supply a current liquidity ratio.
 
@@ -59,7 +59,7 @@ Every current, confirmed pledge gets a 0–100 stress score that does not need l
 | Modeled trigger | 20 if breached, 10 if within 15% |
 | Forced-sale report in 30 days (or a Form 144 sale up to 10 days ahead) | 20 |
 
-60 and above is **High**, 35 and above **Elevated**. Missing inputs are listed rather than counted as zero risk. Released, stale and unconfirmed records are not scored. The browser drops price parts when the quote goes stale and rescores. The score ranks visible pressure; it is not a probability of a margin call.
+60 and above is **High**, 35 and above **Elevated**. Missing inputs are listed rather than counted as zero risk; a pledge with no measured input is shown as unscored, not Low. Released, stale and unconfirmed records are not scored. The browser drops price parts when the quote goes stale and rescores. The score ranks visible pressure; it is not a probability of a margin call.
 
 ## Hot funds
 
