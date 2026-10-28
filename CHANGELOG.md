@@ -32,6 +32,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Added
 
+- Owner **Party tracker** compares S&P 500 and sector-ETF returns while Democrats or Republicans held the presidency, the House, or the Senate, from Bush’s inauguration through the latest close. Each presidency and each House-and-Senate stretch can be opened on its own. The S&P line can be followed with the pointer or dragged between two dates, and every results table reverses when its column is clicked again. No AI.
 - Forced Liquidation Tracker reads Form 144 and 8-K filings and flags reported forced sales (margin calls, pledgee or lender sales, foreclosures); risk-factor wording never counts. 13D pledges without margin terms now open up to two loan exhibits.
 - Every current pledge gets a 0–100 pledge stress score from the drop since disclosure, the drop from the 52-week high, days of volume, share of float, the modeled trigger and any forced-sale report.
 - New Owner views on the tracker: **Hot funds** ($3B+ 13F books up 30% (watch) or 40% (alert) YTD or last quarter, their leverage tells, top 15 holdings priced daily, recent 13D/G and Form 4 filings, and our stocks they hold), **ETF rebalance** (estimated end-of-day trades of single-stock leveraged ETFs) and **Cluster selloffs** (a logged-only Archegos-style detector). No AI calls.

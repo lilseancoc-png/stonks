@@ -90,6 +90,7 @@ export const SITE_SECTIONS = [
       { id: 'risk', label: 'Risk analysis', blurb: 'Seven risk desks read together, with the reason when they disagree.' },
       { id: 'bottom-tracker', label: 'Bottom tracker', blurb: 'Signs the market is washing out and turning.' },
       { id: 'historical-data', label: 'Historical Data', blurb: 'The stored history behind the private research.' },
+      { id: 'party-tracker', label: 'Party tracker', alias: 'Party-Tracker Democrats Republicans president house senate', blurb: 'How the market and each sector did when Democrats or Republicans held the presidency, the House, or the Senate.' },
       { id: 'earnings-forecast', label: 'Earnings Forecast', alias: 'Quarterly full-year valuation company history revenue EPS industry model', blurb: 'Quarterly forecasts for the top 20 covered companies, company history, full-year valuation and linked industry evidence.' },
       { id: 'forced-liquidation', label: 'Forced Liquidation Tracker', alias: 'Pledged shares collateral leverage margin', blurb: 'SEC stock pledges, loan terms and estimated price thresholds, with missing terms kept visible.' },
       { id: 'picks', label: 'Top picks', blurb: 'The model’s highest-conviction option contracts for today.' },
