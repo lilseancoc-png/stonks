@@ -43,7 +43,11 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Fixed
 
-- The Brief's historical playbook quotes figures measured on our own data (Santa Rally since 1950: average +1.3%, up 77% of years; about 90% of Nasdaq -4% days since 1984 retest the low within five sessions) instead of "per some studies".
+- The Brief's historical playbook quotes figures measured on our own data (Santa Rally since 1950: average +1.2%, up 76% of years; about 90% of Nasdaq -4% days since 1984 retest the low within five sessions) instead of "per some studies".
+- The after-midterm study no longer skips 1954–1966: the NYSE closed for Election Day then, so those windows start from the last close before the vote.
+- The earnings deep backfill retries the next day when its long price download fails, and its long-run line counts EPS beats over the same reports as the price figures.
+- Event Spillover no longer invents a first-Friday jobs report in a month the BLS calendar skipped (the 2025 shutdown).
+- Historical Data names the index ("S&P 500 index") in its conditions header instead of the raw "^GSPC" symbol.
 
 ## 2026-10-27
 

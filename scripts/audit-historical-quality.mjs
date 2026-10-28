@@ -20,27 +20,29 @@ const MONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 
 const iso = (y, m, d) => `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 const text = html => html.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;|&#160;/g, ' ').replace(/&ndash;|&#8211;|\u2013/g, '-').replace(/\s+/g, ' ');
 // Scheduled FOMC meetings from the Fed's historical pages ("March 21-22 Meeting",
-// "January 31-February 1 Meeting"); conference calls and unscheduled meetings are
+// "January 31-February 1 Meeting", "Jan/Feb 31-1 Meeting", "April/May 30-1
+// Meeting"); conference calls and "(unscheduled)" / "(cancelled)" meetings are
 // skipped. The decision date is the meeting's last day.
+const MONTH_RE = 'January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sept|Sep|Oct|Nov|Dec';
+const monthNum = name => MONTHS.findIndex(m => m.startsWith(name.toLowerCase().slice(0, 3))) + 1;
 function fomcFromHistorical(html, year) {
-  const out = [], re = /(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})(?:\s*-\s*(?:(January|February|March|April|May|June|July|August|September|October|November|December)\s+)?(\d{1,2}))?\s*(?:,\s*\d{4}\s*)?(Meeting|Conference Call|\(unscheduled\))/gi;
+  const out = [], re = new RegExp(`\\b(${MONTH_RE})(?:/(${MONTH_RE}))?\\s+(\\d{1,2})(?:\\s*-\\s*(?:(${MONTH_RE})\\s+)?(\\d{1,2}))?\\s*(\\((?:unscheduled|cancelled)\\)\\s*)?(Meeting|Conference Call)`, 'g');
   for (const m of text(html).matchAll(re)) {
-    if (!/^meeting$/i.test(m[5])) continue;
-    const month = MONTHS.indexOf((m[3] || m[1]).toLowerCase()) + 1, day = Number(m[4] || m[2]);
-    const tail = text(html).slice(m.index, m.index + 120);
-    if (/unscheduled/i.test(tail.slice(0, 60))) continue;
-    out.push(iso(year, month, day));
+    if (m[6] || m[7] !== 'Meeting') continue;
+    out.push(iso(year, monthNum(m[4] || m[2] || m[1]), Number(m[5] || m[3])));
   }
   return [...new Set(out)].sort();
 }
-// fomccalendars.htm: per-year panels with month + "26-27" / "31-1" day cells.
+// fomccalendars.htm: per-year panels with month + "26-27" / "31-1" day cells,
+// each ending at its "Note:" line (which can name next year's first meeting).
 function fomcFromCalendars(html) {
   const out = [], t = text(html);
   for (const block of t.split(/(?=\b(20\d\d) FOMC Meetings\b)/)) {
     const y = Number(block.match(/^(20\d\d) FOMC Meetings/)?.[1]);
     if (!y) continue;
-    const re = /\b(January|February|March|April|May|June|July|August|September|October|November|December)(?:\/(January|February|March|April|May|June|July|August|September|October|November|December))?\s+(\d{1,2})\s*-\s*(\d{1,2})(\*?)/g;
-    for (const m of block.matchAll(re)) out.push(iso(y, MONTHS.indexOf((m[2] || m[1]).toLowerCase()) + 1, Number(m[4])));
+    const body = block.split(/\bNote:/)[0];
+    const re = new RegExp(`\\b(${MONTH_RE})(?:/(${MONTH_RE}))?\\s+(\\d{1,2})\\s*-\\s*(\\d{1,2})(\\*?)`, 'g');
+    for (const m of body.matchAll(re)) out.push(iso(y, monthNum(m[2] || m[1]), Number(m[4])));
   }
   return [...new Set(out)].sort();
 }
@@ -52,6 +54,10 @@ async function fedFomc() {
     byYear[y] = fomcFromHistorical(await readFile(resolve(dir, 'fed', `fomchistorical${y}.htm`), 'utf8'), y);
   }
   if (files.has('fomccalendars.htm')) for (const d of fomcFromCalendars(await readFile(resolve(dir, 'fed', 'fomccalendars.htm'), 'utf8'))) (byYear[d.slice(0, 4)] ||= []).push(d);
+  // The 2003 page also lists a separate September 15 session; that meeting's
+  // policy statement is dated September 16 (/boarddocs/press/monetary/2003/20030916).
+  const KNOWN_PAGE_EXTRAS = new Set(['2003-09-15']);
+  for (const y of Object.keys(byYear)) byYear[y] = byYear[y].filter(d => !KNOWN_PAGE_EXTRAS.has(d));
   const fed = Object.values(byYear).flat().sort(), ours = new Set(FOMC_DECISIONS), theirs = new Set(fed);
   const lo = fed[0], hi = fed.at(-1);
   return {

@@ -181,6 +181,10 @@ assert.equal(mid.length, 18, 'every midterm year 1954-2022 is counted');
 assert(spx.studies.find(s => s.id === 'santa').ranges.all.years.some(e => e.year === 1955 && e.sessions === 7), 'pre-1990 Santa windows use the provider sessions');
 assert(spx.studies.find(s => s.id === 'q4').ranges.all.years.some(e => e.year === 1987), '1987 Q4 is measured');
 assert(full.indexes['^IXIC'].studies.find(s => s.id === 'election').ranges.all.years[0].year === 1972);
+// The NYSE closed for Election Day through 1968: post-midterm windows start from the prior close.
+{ const closed = { ...cache, symbols: { ...cache.symbols, '^GSPC': cache.symbols['^GSPC'].filter(r => !['1954-11-02', '1958-11-04', '1962-11-06', '1966-11-08'].includes(r.t)) } };
+  const post = buildHistoricalData({ sourceCache: closed, builtAtIso: '2026-10-26T22:00:00Z', inputs: { headlineHits: {}, squeezes: [] } }).indexes['^GSPC'].studies.find(s => s.id === 'post-midterm').ranges.all.years;
+  assert(post.some(e => e.year === 1958 && e.baseline === '1958-11-03'), 'a closed Election Day starts from the last close before the vote'); }
 assert(full.events.matches.filter(m => m.seasonal).every(m => /S&P 500 index/.test(m.why)), 'open seasonal windows quote the long index');
 assert.equal(full.coverage.releaseCalendars.find(r => r.id === 'cpi').releases, 1, 'future release dates are not counted as past releases');
 const wire = JSON.stringify(packHistoricalData(full));

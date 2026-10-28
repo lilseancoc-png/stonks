@@ -158,6 +158,8 @@ all five weekdays, turn of month, and the monthly expiration calendar week.
 - Midterms are years with `year % 4 === 2`. Election day is the Tuesday after
   the first Monday in November. The post-midterm window is 252 observed
   sessions after the election-day close, not exactly twelve calendar months.
+  The NYSE closed for Election Day through 1968, so in those years the window
+  starts from the last close before the vote.
 - The path band is the pointwise 25th–75th percentile of prior outcomes. It is
   not a forecast band or a confidence interval. Calendar windows align by
   calendar progress; fixed-session windows align by sessions.

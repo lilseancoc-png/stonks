@@ -7193,7 +7193,8 @@ export async function updateEarningsEventsHistory(store, chains, ivHistoryMap) {
         for (const ev of got) if (ev.date >= oldest) upsertEarningsEvent(entry.events, ev);
         if (got.length) backfilled++;
         // A completed call marks the deep pass done, even for a young listing
-        // with fewer prints; a failed call retries on the next day's build.
+        // with fewer prints; a failed call (or a failed bar fetch below)
+        // retries on the next day's build.
         if (deep) entry.deepBackfill = EARNINGS_DEEP_BACKFILL_VERSION;
       } catch (err) {
         console.log(`    ⚠ ${sym} earnings-dates backfill failed: ${err.message}`);
@@ -7223,6 +7224,7 @@ export async function updateEarningsEventsHistory(store, chains, ivHistoryMap) {
           backfillBars = await fetchEarningsBackfillBars(sym, Math.max(EARNINGS_BACKFILL_LOOKBACK_DAYS, reach));
         } catch (err) {
           console.log(`    ⚠ ${sym} earnings backfill bars failed: ${err.message}`);
+          if (deep) delete entry.deepBackfill;
         }
       }
     }
@@ -7384,7 +7386,8 @@ export function earningsLongRun(past) {
   const resolved = past.filter((e) => typeof e?.movePct === "number" && isFinite(e.movePct));
   if (!resolved.length) return null;
   const avg = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
-  const eps = past.filter((e) => typeof e?.surprisePct === "number" && isFinite(e.surprisePct));
+  // Every figure covers the same reports: prints with a priced reaction.
+  const eps = resolved.filter((e) => typeof e?.surprisePct === "number" && isFinite(e.surprisePct));
   const week = resolved.map((e) => e.week1Pct).filter((v) => typeof v === "number" && isFinite(v));
   return {
     n: resolved.length,
@@ -30577,22 +30580,23 @@ export function spillRollingBeta(depSeries, indepSeries, barDateExclusive, roll,
 // weekday day-of-month 9–16 flag (BLS blocks schedule scraping; the residual
 // variant is the principled control, so this flags rather than excludes).
 // Jobs-report days come from the BLS release calendar (FRED release 50, in
-// the shared history cache) when it is there; a month it does not cover falls
+// the shared history cache) when it is there; months outside its span fall
 // back to the first Friday, which misses moved releases (holidays, shutdowns).
 export function buildSpilloverMacroSets(yearsBack, { jobs = [] } = {}) {
   const fomc = new Set([...FOMC_MEETINGS_HISTORICAL, ...FOMC_MEETINGS_BASELINE.map((m) => m.date)]);
   const nfp = new Set();
-  const listed = new Set();
-  for (const d of Array.isArray(jobs) ? jobs : []) {
-    if (typeof d !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(d)) continue;
-    nfp.add(d);
-    listed.add(d.slice(0, 7));
-  }
+  // Inside the calendar's span a month with no listed release really had
+  // none (the 2025 shutdown); only months outside it use the first Friday.
+  const listed = (Array.isArray(jobs) ? jobs : []).filter((d) => typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
+  for (const d of listed) nfp.add(d);
+  const firstListed = listed[0]?.slice(0, 7) || null;
+  const lastListed = listed.at(-1)?.slice(0, 7) || null;
   const startYear = new Date(Date.now() - (yearsBack + 0.2) * 365.25 * 86400000).getUTCFullYear();
   const endYear = new Date().getUTCFullYear() + 1;
   for (let y = startYear; y <= endYear; y++) {
     for (let m = 0; m < 12; m++) {
-      if (listed.has(`${y}-${String(m + 1).padStart(2, "0")}`)) continue;
+      const month = `${y}-${String(m + 1).padStart(2, "0")}`;
+      if (firstListed && month >= firstListed && month <= lastListed) continue;
       const first = new Date(Date.UTC(y, m, 1));
       const day = 1 + ((5 - first.getUTCDay() + 7) % 7);
       nfp.add(`${y}-${String(m + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`);
@@ -32067,7 +32071,7 @@ const HISTORICAL_PLAYBOOK = {
   santa: {
     name: "Santa Claus rally window",
     recognition: "Last 5 trading days of December plus the first 2 of January.",
-    reaction: "Positive seasonal bias (S&P 500 since 1950: avg ~+1.3%, positive ~77% of years); a FAILED Santa rally has itself been a caution sign some years.",
+    reaction: "Positive seasonal bias (S&P 500 since 1950: avg ~+1.2%, positive ~76% of years); a FAILED Santa rally has itself been a caution sign some years.",
   },
   sellInMay: {
     name: "Sell in May seasonal",
