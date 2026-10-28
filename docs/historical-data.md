@@ -8,8 +8,9 @@ conditions. It does not change grades, picks, sizing, or execution.
 
 The catalog in `lib/historical-sources.mjs` names every enabled dataset,
 provider, original publisher, unit, cadence, source URL, and known limitation.
-The current scope contains 17 exchange-traded market proxies and 20 FRED
-context series. This is an explicit coverage list, not a claim to contain every
+The current scope contains two index-level histories (the S&P 500 `^GSPC`
+since December 1949 and the Nasdaq Composite `^IXIC` since 1971), 17
+exchange-traded market proxies and 20 FRED context series. This is an explicit coverage list, not a claim to contain every
 vendor, every individual stock, or every possible market saying.
 
 A dataset must have at least ten calendar years in its usable continuous tail.
@@ -26,6 +27,32 @@ comparative statistics are withheld when coverage fails. Reported zeros,
 negative yield spreads, and negative commodity prices remain valid context
 values. Freshness is separate from history depth and uses cadence-specific
 limits. Original observation dates survive failed refreshes.
+
+## Data checks
+
+`lib/historical-quality.mjs` (`buildQualityChecks`) runs on every build and
+ships as `quality` in `historical-data.json`; the Sources view shows it as a
+"Data checks" table, failures first. It adds no download. Checks:
+
+- Per market: missing NYSE sessions since 1990 (or the fund's launch),
+  closes dated on a weekend or holiday that the cleaner dropped
+  (`offCalendarRows`, recorded by the collector from the raw download), and
+  one-day moves over 25% (GME, UNG and USO exempt).
+- Date labels: SPY against the S&P 500 index and QQQ against the Nasdaq
+  Composite. Same-day daily returns must correlate at least 0.95 (0.9 for
+  QQQ) and better than the same series shifted one day either way; a
+  one-day label slip fails.
+- FRED: daily series with weekend dates, monthly or quarterly series not
+  dated on the 1st, and staleness against each series' publishing lag.
+- Dated lists: FOMC decision days (trading days, sorted, no duplicates, eight
+  scheduled meetings a year except 2020, when the March meeting was replaced
+  by emergency calls), WWDC keynotes (Mondays), every event-catalog date and
+  peak, and the CPI and jobs release dates (no weekends; months without a
+  listed date are reported, such as the fall 2025 shutdown gap).
+
+`node scripts/audit-historical-quality.mjs --dir=<folder>` runs the same
+checks over raw Yahoo chart JSON and FRED CSV downloads, plus the Fed's FOMC
+pages and the Brief playbook figures, without the private store.
 
 ## Data flow
 
@@ -44,7 +71,7 @@ can include closes confirmed after the bake started. Both files are bake-owned.
 
 This is the site's one long-history cache (site audit C5, 2026-10-26). The
 bake refreshes it before Pattern lab and the Bottom tracker run, and both read
-it: Pattern lab takes SPY, QQQ and IWM closes from it (the old
+it: Pattern lab takes S&P 500 index, SPY, QQQ and IWM closes from it (the old
 `index-long-history.json` file is retired), and the Bottom tracker takes SPY,
 QQQ and all ten of its FRED series from it instead of downloading them on
 every bake. The two ICE credit spreads the Bottom tracker needs
@@ -63,8 +90,8 @@ call, account, paid API, or subscription. Context sources get one automatic
 attempt per UTC day. Markets can also refresh after a newly completed trading
 session, so a morning check cannot suppress the confirmed evening close. Failed
 attempts at the same session wait until the next UTC day. The upper bound is
-54 logical downloads per UTC day: 20 context sources plus up to two checks for
-each of 17 markets. Two concurrent downloads, a 15-second per-request abort
+58 logical downloads per UTC day: 20 context sources plus up to two checks for
+each of 19 markets. Two concurrent downloads, a 15-second per-request abort
 signal, and a 60-second total refresh budget remain in force. Deferred sources
 resume in a later bake. A warm build in the same UTC day at the same confirmation cutoff makes zero
 additional downloads. Yahoo consent handling can involve additional HTTP
@@ -123,8 +150,11 @@ all five weekdays, turn of month, and the monthly expiration calendar week.
   periods ending on weekends or holidays. The expected first session, prior
   baseline close, and final close must exist. A missing final price makes the
   completed period unavailable. The research-only calendar includes ordinary
-  NYSE holidays and exceptional closures since 1990. It does not alter the
-  separately verified order/expiry calendar.
+  NYSE holidays and exceptional closures since 1990. Before 1990 (the two
+  index histories only) the provider's own list of sessions is the calendar,
+  so the 1968 Wednesday closures and other old exchange closings are not
+  counted as missing. It does not alter the separately verified order/expiry
+  calendar.
 - Midterms are years with `year % 4 === 2`. Election day is the Tuesday after
   the first Monday in November. The post-midterm window is 252 observed
   sessions after the election-day close, not exactly twelve calendar months.
@@ -133,7 +163,9 @@ all five weekdays, turn of month, and the monthly expiration calendar week.
   calendar progress; fixed-session windows align by sessions.
 - Rough normal mean intervals appear only with ten observations. They are not
   adjusted for multiple comparisons or dependence between overlapping studies.
-  Ten years of market prices does not supply ten midterm-election observations.
+  Ten years of market prices does not supply ten midterm-election observations;
+  that is why the seasonal and election-cycle studies default to the S&P 500
+  index (19 midterm years, 1950–2022) instead of SPY (8, since 1994).
 - Typical-window returns use non-overlapping blocks of the sample's median
   session length before the comparison starts. They are a descriptive drift
   reference that can include seasonal windows, not an independent control.
@@ -214,14 +246,15 @@ bake step, no AI) covers the market-event list the owner asked for on
   ceasefire) are ignored. Each match shows its trigger and the matching
   study's headline numbers.
 
-New free inputs ride the existing once-a-day refresh: `^GSPC`, `^IXIC`, AAPL,
-KRE and GME closes from Yahoo (`HISTORICAL_EVENT_MARKETS`; pre-1990 sessions
-use the provider's session list, `cleanLongBars`), and CPI / jobs-report
+New free inputs ride the existing once-a-day refresh: AAPL, KRE and GME closes
+from Yahoo (`HISTORICAL_EVENT_MARKETS`; the two index histories are part of
+the market list above, and pre-1990 sessions use the provider's session list,
+`cleanLongBars`), and CPI / jobs-report
 release dates from the FRED API using the existing `FRED_API_KEY`, checked
 once a week (`HISTORICAL_RELEASES`). Without the key the release study shows
-FOMC days only. FOMC decision days since 2015 are listed in code. These inputs
+FOMC days only. Scheduled FOMC decision days since 1994 are listed in code. These inputs
 appear in Sources & coverage under their own headings and are not part of the
-17 + 20 ten-year ledger count. The bake passes the headline hits and squeeze
+19 + 20 ten-year ledger count. The bake passes the headline hits and squeeze
 moves in as `inputs`; they are stored in the snapshot (`events.inputs`) so
 `npm run audit:historical` rebuilds it byte for byte.
 
@@ -229,8 +262,10 @@ The Brief's Historical playbook gained pandemic, tariff and bank-run cues on
 the same headline-plus-reaction rule, and its WWDC cue now follows the actual
 keynote date. No Owner numbers flow into the public Brief.
 
-Hard-coded dates: every FOMC decision day 2015–2027 was checked against
-federalreserve.gov on 2026-10-27 (that check found four wrong 2027 dates in
+Hard-coded dates: every scheduled FOMC decision day 1994–2027 was checked
+against federalreserve.gov (1994–2020 on 2026-10-28 from the Fed's historical
+pages, conference calls and unscheduled moves excluded; 2021–2027 on
+2026-10-27) (that check found four wrong 2027 dates in
 the build's `FOMC_MEETINGS_BASELINE`, now fixed), and the 2026 WWDC keynote
 against Apple's announcement. Earlier WWDC keynotes and the episode dates are
 well-documented public dates written into the code; mania peaks are also

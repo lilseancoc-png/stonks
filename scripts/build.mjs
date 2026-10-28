@@ -30465,7 +30465,7 @@ const SPILLOVER_BARS_YEARS = 10.2; // deep-recompute bar lookback (~10 years of 
 const SPILLOVER_UPCOMING_DAYS = 30; // horizon for the upcoming-events block
 const SPILLOVER_LOG_MAX_EVENTS = 300; // rolling cap on the forward log (~2 full earnings seasons at 128 names)
 const SPILLOVER_UPCOMING_FOLLOWERS = 12; // per-event follower rows shipped (qualified pairs first)
-const SPILLOVER_MIN_BAR_COVERAGE = 0.8; // deep recompute needs ≥80% of the universe's 5y bars
+const SPILLOVER_MIN_BAR_COVERAGE = 0.8; // deep recompute needs ≥80% of the universe's 10y bars
 
 // FOMC decision days before 2025 — FOMC_MEETINGS_BASELINE starts at 2025; the
 // backtest-era isolation gate needs the earlier meetings. (Doc §8.) One list

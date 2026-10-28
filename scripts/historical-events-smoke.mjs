@@ -88,26 +88,28 @@ const [q, m] = ev.studies.witching.rows;
 assert(q.n >= 160 && m.n >= 2 * q.n - 8, 'quarterly vs other monthly expirations since 1984');
 assert.equal(ev.studies.wwdc.summary.n, WWDC_KEYNOTES.filter(d => d <= '2026-09-20').length, 'every keynote with 20 sessions after it');
 const econ = ev.studies.econ;
-assert(econ.rows.find(r => r.id === 'fomc').n >= 90, 'FOMC days since 2015');
+assert(econ.rows.find(r => r.id === 'fomc').n >= 250, 'FOMC days since 1994');
 assert(econ.rows.find(r => r.id === 'cpi').unavailable, 'CPI needs FRED release dates');
 assert.equal(econ.upcoming.find(u => u.id === 'fomc').date, '2026-10-28');
 assert(FOMC_DECISIONS.every((d, i, a) => !i || a[i - 1] < d), 'FOMC dates sorted and unique');
-assert(FOMC_DECISIONS.every(d => new Date(`${d}T00:00:00Z`).getUTCDay() === 3 || d === '2015-09-17' || d === '2018-11-08' || d === '2020-11-05' || d === '2024-11-07'), 'decision days are Wednesdays except four Thursday decisions');
+assert(FOMC_DECISIONS.filter(d => d >= '2015').every(d => new Date(`${d}T00:00:00Z`).getUTCDay() === 3 || d === '2015-09-17' || d === '2018-11-08' || d === '2020-11-05' || d === '2024-11-07'), 'decision days since 2015 are Wednesdays except four Thursday decisions');
+assert(FOMC_DECISIONS[0] === '1994-02-04' && FOMC_DECISIONS.every(d => { const w = new Date(`${d}T00:00:00Z`).getUTCDay(); return w >= 1 && w <= 5; }), 'FOMC list starts 1994 on weekdays');
+{ const per = {}; for (const d of FOMC_DECISIONS) per[d.slice(0, 4)] = (per[d.slice(0, 4)] || 0) + 1; assert.deepEqual(Object.entries(per).filter(([, n]) => n !== 8).map(([y]) => y), ['2020'], 'eight scheduled meetings a year except 2020'); }
 { const { FOMC_MEETINGS_BASELINE } = await import('./build.mjs'); assert(FOMC_MEETINGS_BASELINE.every(m => FOMC_DECISIONS.includes(m.date)), 'the event list matches the build calendar baseline'); }
 const withCpi = buildHistoricalEvents({ ...base, releases: { cpi: { dates: ['2025-01-15', '2025-02-07', '2025-02-12', '2026-11-10'] } } });
 const cpiRow = withCpi.studies.econ.rows.find(r => r.id === 'cpi');
 assert.equal(cpiRow.n, 2, 'one CPI date per month (the latest listed)'); assert.equal(cpiRow.droppedSameMonth, 1);
 // "Other days" exclude every release type, so rows compare against the same quiet sessions.
 assert.notEqual(ev.studies.econ.rows.find(r => r.id === 'fomc').otherMeanAbsPct, null);
-// Make every non-FOMC session since 2015 a "CPI day": FOMC then has no quiet days to compare with.
-const allDays = gspc.filter(r => r.t >= '2015-01-01' && r.t <= '2026-10-26' && !FOMC_DECISIONS.includes(r.t)).map(r => r.t);
+// Make every non-FOMC session since 1990 a "CPI day": FOMC then has no quiet days to compare with.
+const allDays = gspc.filter(r => r.t >= '1990-01-01' && r.t <= '2026-10-26' && !FOMC_DECISIONS.includes(r.t)).map(r => r.t);
 const crowded = buildHistoricalEvents({ ...base, releases: { cpi: { dates: allDays } } }).studies.econ.rows.find(r => r.id === 'fomc');
 assert.equal(crowded.otherMeanAbsPct, null, 'other days exclude every release type, not just this row');
 assert.equal(withCpi.studies.econ.rows.find(r => r.id === 'cpi').marketClosed, 0);
 
 // "Resembles now": quiet tape -> only calendar matches (FOMC in two days).
 assert.deepEqual(ev.matches.map(x => x.id), ['econ-fomc'], 'a quiet synthetic tape matches only the upcoming FOMC');
-assert.match(ev.matches[0].history, /releases since 2015/);
+assert.match(ev.matches[0].history, /releases since 1994/);
 
 // Nasdaq -4% and S&P -5% on the latest close.
 const hit = buildHistoricalEvents({ ...base, series: { ...base.series, '^IXIC': series('1971-02-05', '2026-10-26', { shocks: { ...nq, '2026-10-26': -4.6 } }), '^GSPC': series('1950-01-03', '2026-10-26', { shocks: { ...shocks, '2026-10-26': -5.5 } }) } });

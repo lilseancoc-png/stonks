@@ -28,6 +28,19 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Request an uncompressed R2 lock with a strong ETag so a released Webull paper lock can be acquired conditionally; fail closed on malformed locks or repeated conflicts, expose Owner-only diagnostics, and report mirror failures in a separate workflow health job.
 - Reconcile Webull grouped option positions using confirmed broker order legs and stable position identities; prepare manual spread adoption without replaying its entry, retain separate overlapping manual holdings, and exclude manual entries from automatic fill timing and slippage.
 
+## 2026-10-28
+
+### Added
+
+- Historical Data and Pattern lab measure seasonal and election-cycle windows on the S&P 500 index since 1950 (19 midterm years instead of SPY's 8) and the Nasdaq Composite since 1971; both are now the default market.
+- Historical Data runs data checks every build (missing sessions, off-calendar dates, SPY-vs-index date-label alignment, FRED dating, FOMC/WWDC/event/release date lists) and shows them in Sources as "Data checks"; `scripts/audit-historical-quality.mjs` runs the same checks on raw downloads.
+- The Grade tab's earnings history adds a long-run line over up to ten years of stored prints; a one-time backfill per ticker fills the older years.
+
+### Changed
+
+- The FOMC decision list goes back to 1994 (was 2015), checked against the Federal Reserve's historical pages; the event study and Event Spillover use it.
+- Event Spillover uses ten years of bars, the full FOMC list and the real jobs-report dates instead of first-Friday guesses.
+
 ## 2026-10-27
 
 ### Added
