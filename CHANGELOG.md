@@ -28,6 +28,27 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Request an uncompressed R2 lock with a strong ETag so a released Webull paper lock can be acquired conditionally; fail closed on malformed locks or repeated conflicts, expose Owner-only diagnostics, and report mirror failures in a separate workflow health job.
 - Reconcile Webull grouped option positions using confirmed broker order legs and stable position identities; prepare manual spread adoption without replaying its entry, retain separate overlapping manual holdings, and exclude manual entries from automatic fill timing and slippage.
 
+## 2026-10-28
+
+### Added
+
+- Historical Data and Pattern lab measure seasonal and election-cycle windows on the S&P 500 index since 1950 (18 midterm years, 1954–2022, instead of SPY's 8) and the Nasdaq Composite since 1971; both are now the default market.
+- Historical Data runs data checks every build (missing sessions, off-calendar dates, SPY-vs-index date-label alignment, FRED dating, FOMC/WWDC/event/release date lists) and shows them in Sources as "Data checks"; `scripts/audit-historical-quality.mjs` runs the same checks on raw downloads.
+- The Grade tab's earnings history adds a long-run line over up to ten years of stored prints; a one-time backfill per ticker fills the older years.
+
+### Changed
+
+- The FOMC decision list goes back to 1994 (was 2015), checked against the Federal Reserve's historical pages; the event study and Event Spillover use it.
+- Event Spillover uses ten years of bars, the full FOMC list and the real jobs-report dates instead of first-Friday guesses.
+
+### Fixed
+
+- The Brief's historical playbook quotes figures measured on our own data (Santa Rally since 1950: average +1.2%, up 76% of years; about 90% of Nasdaq -4% days since 1984 retest the low within five sessions) instead of "per some studies".
+- The after-midterm study no longer skips 1954–1966: the NYSE closed for Election Day then, so those windows start from the last close before the vote.
+- The earnings deep backfill retries the next day when its long price download fails, and its long-run line counts EPS beats over the same reports as the price figures.
+- Event Spillover no longer invents a first-Friday jobs report in a month the BLS calendar skipped (the 2025 shutdown).
+- Historical Data names the index ("S&P 500 index") in its conditions header instead of the raw "^GSPC" symbol.
+
 ## 2026-10-27
 
 ### Added
