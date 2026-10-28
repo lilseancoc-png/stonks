@@ -32,7 +32,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Added
 
-- Historical Data and Pattern lab measure seasonal and election-cycle windows on the S&P 500 index since 1950 (19 midterm years instead of SPY's 8) and the Nasdaq Composite since 1971; both are now the default market.
+- Historical Data and Pattern lab measure seasonal and election-cycle windows on the S&P 500 index since 1950 (18 midterm years, 1954–2022, instead of SPY's 8) and the Nasdaq Composite since 1971; both are now the default market.
 - Historical Data runs data checks every build (missing sessions, off-calendar dates, SPY-vs-index date-label alignment, FRED dating, FOMC/WWDC/event/release date lists) and shows them in Sources as "Data checks"; `scripts/audit-historical-quality.mjs` runs the same checks on raw downloads.
 - The Grade tab's earnings history adds a long-run line over up to ten years of stored prints; a one-time backfill per ticker fills the older years.
 
@@ -40,6 +40,10 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 - The FOMC decision list goes back to 1994 (was 2015), checked against the Federal Reserve's historical pages; the event study and Event Spillover use it.
 - Event Spillover uses ten years of bars, the full FOMC list and the real jobs-report dates instead of first-Friday guesses.
+
+### Fixed
+
+- The Brief's historical playbook quotes figures measured on our own data (Santa Rally since 1950: average +1.3%, up 77% of years; about 90% of Nasdaq -4% days since 1984 retest the low within five sessions) instead of "per some studies".
 
 ## 2026-10-27
 

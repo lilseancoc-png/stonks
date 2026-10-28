@@ -9,7 +9,7 @@ conditions. It does not change grades, picks, sizing, or execution.
 The catalog in `lib/historical-sources.mjs` names every enabled dataset,
 provider, original publisher, unit, cadence, source URL, and known limitation.
 The current scope contains two index-level histories (the S&P 500 `^GSPC`
-since December 1949 and the Nasdaq Composite `^IXIC` since 1971), 17
+since January 1950 and the Nasdaq Composite `^IXIC` since 1971), 17
 exchange-traded market proxies and 20 FRED context series. This is an explicit coverage list, not a claim to contain every
 vendor, every individual stock, or every possible market saying.
 
@@ -165,7 +165,8 @@ all five weekdays, turn of month, and the monthly expiration calendar week.
   adjusted for multiple comparisons or dependence between overlapping studies.
   Ten years of market prices does not supply ten midterm-election observations;
   that is why the seasonal and election-cycle studies default to the S&P 500
-  index (19 midterm years, 1950–2022) instead of SPY (8, since 1994).
+  index (18 midterm years, 1954–2022; Yahoo has no 1949 close, so 1950 can't be
+  measured) instead of SPY (8, 1994–2022).
 - Typical-window returns use non-overlapping blocks of the sample's median
   session length before the comparison starts. They are a descriptive drift
   reference that can include seasonal windows, not an independent control.

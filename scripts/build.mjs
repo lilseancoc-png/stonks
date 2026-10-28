@@ -32047,7 +32047,7 @@ const HISTORICAL_PLAYBOOK = {
   nasdaq4: {
     name: "Nasdaq -4% day",
     recognition: "A >4% one-day Nasdaq loss, often a small next-day bounce, with high VIX and tech concentration.",
-    reaction: "Historically high odds (~90% per some studies) the crash-day low gets tested or breached within ~5 sessions — follow-through selling rather than a V-bottom.",
+    reaction: "High odds the crash-day low gets tested or breached within ~5 sessions (about 90% of Nasdaq -4% days since 1984) — follow-through selling rather than a V-bottom.",
   },
   mania: {
     name: "Mania / bubble euphoria",
@@ -32067,7 +32067,7 @@ const HISTORICAL_PLAYBOOK = {
   santa: {
     name: "Santa Claus rally window",
     recognition: "Last 5 trading days of December plus the first 2 of January.",
-    reaction: "Positive seasonal bias (S&P 500 avg ~+1.3%, positive ~75-80% of years); a FAILED Santa rally has itself been a caution sign some years.",
+    reaction: "Positive seasonal bias (S&P 500 since 1950: avg ~+1.3%, positive ~77% of years); a FAILED Santa rally has itself been a caution sign some years.",
   },
   sellInMay: {
     name: "Sell in May seasonal",
