@@ -27646,21 +27646,22 @@ ${renderExportBindings()}
       }).join('');
       blocks.push(briefBlock(b.kind === 'morning' ? 'Prior-session flow' : 'Notable flow', '<div class="brief-chips">' + flow + '</div>'));
     }
-    // IV standouts — the IV tracker's actionable flags only (names whose ATM
-    // IV is elevated vs their OWN history AND climbing; see gatherBriefSignals).
+    // IV standouts — material trend and Rich flags (names whose ATM
+    // IV is elevated vs their OWN history; Rich need not be climbing).
     // Surging names get the hot color + marker; the tooltip carries the
     // vs-history read and the earnings-vs-unexplained-ramp context.
     if (Array.isArray(b.ivTrend) && b.ivTrend.length){
       var ivt = b.ivTrend.map(function(v){
-        var sub = (v.ivPct != null ? Number(v.ivPct).toFixed(0) + '% IV' : '') +
+        var sub = (v.tier === 'rich' ? 'Rich premium · ' : '') + (v.ivPct != null ? Number(v.ivPct).toFixed(0) + '% IV' : '') +
           (v.chg5dPct != null ? (v.ivPct != null ? ' · ' : '') + (v.chg5dPct >= 0 ? '+' : '') + Number(v.chg5dPct).toFixed(0) + '% 5d' : '');
-        var tierLabel = v.tier ? v.tier.charAt(0).toUpperCase() + v.tier.slice(1) : '';
+        var tierLabel = v.tier === 'rich' ? 'Rich premium, not a rising-trend signal' : v.tier ? v.tier.charAt(0).toUpperCase() + v.tier.slice(1) : '';
         var tip = tierLabel +
+          (v.tier === 'rich' && v.richnessNote ? ' · ' + v.richnessNote : '') +
           (v.meanPct != null ? ' · avg ' + Number(v.meanPct).toFixed(0) + '%' : '') +
           (v.z != null ? ' · ' + (v.z >= 0 ? '+' : '') + Number(v.z).toFixed(1) + 'σ vs own history' : '') +
           (v.earnings && v.earnings.date
             ? ' · earnings ' + v.earnings.date + (v.earnings.impliedMovePct != null ? ' (±' + v.earnings.impliedMovePct + '% implied)' : '')
-            : ' · no scheduled earnings inside 45d — unexplained ramp');
+            : v.tier === 'rich' ? ' · no scheduled earnings inside 45d' : ' · no scheduled earnings inside 45d — unexplained ramp');
         return '<button type="button" class="brief-chip ' + (v.tier === 'surging' ? 'neg' : 'flow') + '" data-sym="' + briefEsc(v.sym) + '" title="' + briefEsc(tip) + '">' +
           (v.tier === 'surging' ? '▲ ' : '') + briefEsc(v.sym) + (sub ? ' <span>' + briefEsc(sub) + '</span>' : '') + '</button>';
       }).join('');
