@@ -40,6 +40,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Changed
 
+- Open picks unstick: the 3–7 session macro-event drag is shown but no longer holds back an open pick (the 0–2 session wait before FOMC/CPI/PPI/jobs stays; `PICKS_EVENT_SOFT_BLOCKS=1` restores it), the AI final grader is skipped when no candidate could become an open pick, and the losing-record gate reads only closes from the last 10 days (`PICKS_EDGE_GATE_WINDOW_DAYS`). (#706)
 - The SEC segment parser keeps up to three new revenue lines out of "Other" even under 2% (still at most eight named slices plus Other), and falls back to a company's own XBRL segment or region axis when no standard one exists, keeping only periods that add up to reported revenue within 2%. Applies as each company files its next 10-Q or 10-K.
 - Earnings Forecast's free SEC source cap rises from 24 requests / 60 MB to 48 / 120 MB per day for the larger list. Still no AI calls. (#703)
 
