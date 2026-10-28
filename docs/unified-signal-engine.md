@@ -185,7 +185,9 @@ missing value as zero or preserving a prior successful result.
 
 `lib/trading-perspective.mjs` discovers price hypotheses independently of
 the grade. It requires at least 80 aligned completed OHLCV sessions, retains
-at most 520, and excludes history before a gap over seven calendar days.
+at most 520, and excludes history before a missing expected exchange session
+where the verified calendar is available. Older dates without a verified
+calendar retain a seven-calendar-day gap check and show that limitation.
 Dates, prices, volume, and ordering are validated at the input boundary.
 The chart request and response must have completed by the assessment cutoff.
 The dedicated chart request time, rather than a later quote download, determines

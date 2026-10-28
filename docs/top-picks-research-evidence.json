@@ -4,7 +4,7 @@
   "scope": "Source connections and local coverage only; no production access or predictive backtest.",
   "sources": {
     "scripts/build.mjs": {
-      "sha256": "639b56f49929ad63a1798a548f3e1caad70c4d3ce5454f43fbd44d64d392d926"
+      "sha256": "97fc094176c7f2071d55aa6540e50208d34832513893a40c51a2f4e89ab58b80"
     },
     "lib/shadow-signals.mjs": {
       "sha256": "b40498ada5a657a50ea2c945f985cd3a7f869f4304d94e777837f13d97bbe85d"

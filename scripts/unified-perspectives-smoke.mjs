@@ -109,6 +109,11 @@ const noVolume=structuredClone(fixture);delete noVolume.chains.BULL._bars[20].v;
 check(get(noVolume).trading.status==='insufficient-data','partial volume history is not treated as measured zero');
 const staleBars=structuredClone(fixture);staleBars.chains.BULL._bars.splice(-2,2);
 check(get(staleBars).trading.status==='insufficient-data','an older confirmed close cannot look current');
+const missingSession=structuredClone(fixture);
+missingSession.chains.BULL._bars=missingSession.chains.BULL._bars.filter(bar=>bar.t!=='2026-10-14');
+const interrupted=get(missingSession).trading;
+check(interrupted.status==='insufficient-data' && interrupted.coverage.firstDate==='2026-10-15' && interrupted.coverage.excludedBeforeGap>0,'a missing expected exchange session cuts history before averages, streaks and session outcomes are computed');
+check(current.trading.coverage.excludedBeforeGap===0,'verified holidays do not break consecutive trading history');
 const staleIv=structuredClone(fixture);staleIv.ivTrending.tickers[0].asOf='2026-10-21';
 check(get(staleIv).trading.volatility.status==='unavailable','stale IV is not silently joined onto fresh prices');
 for(const sampledAt of [null,'2026-10-23T15:06:00Z','2026-10-23T12:00:00Z']) {
