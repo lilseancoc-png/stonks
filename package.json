@@ -53,6 +53,7 @@
     "test:leaps-score": "node scripts/leaps-score-smoke.mjs",
     "test:private-store": "node scripts/private-store-smoke.mjs",
     "test:render": "node scripts/render-smoke.mjs",
+    "test:chart-hover": "node scripts/chart-hover-smoke.mjs",
     "test:site-map": "node scripts/site-map-smoke.mjs",
     "test:risk-stack": "node scripts/risk-stack-smoke.mjs",
     "test:recovery": "node scripts/earnings-recovery-smoke.mjs",

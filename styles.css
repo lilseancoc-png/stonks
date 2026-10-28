@@ -25174,7 +25174,7 @@ button.ovn-carry-card:hover,button.ovn-carry-card:focus-visible{border-color:var
 /* One shared crosshair line + snap dot + tooltip, fixed-positioned by the
    delegated engine in app.js. pointer-events:none so they never steal the
    hover from the chart under them. */
-svg[data-ch]{ cursor: crosshair; touch-action: pan-y; }
+svg[data-ch]{ cursor: crosshair; touch-action: pan-y; pointer-events: all; }
 [data-cr]{ cursor: crosshair; touch-action: pan-y; }
 .is-range-comparing .opt-pc-hover,
 .is-range-comparing .opt-pc-tip,
@@ -25188,7 +25188,7 @@ svg[data-ch]{ cursor: crosshair; touch-action: pan-y; }
 .is-range-comparing .cmp-chart-dot { display: none !important; }
 .ch-line{
   position: fixed; z-index: 960; width: 0;
-  border-left: 1px dashed color-mix(in srgb, var(--text) 40%, transparent);
+  border-left: 1px dashed color-mix(in srgb, var(--text) 78%, transparent);
   pointer-events: none;
 }
 .ch-dot{
@@ -25204,11 +25204,13 @@ svg[data-ch]{ cursor: crosshair; touch-action: pan-y; }
   font-size: calc(12px * var(--ts, 1)); font-weight: 500; line-height: 1.45;
   font-variant-numeric: tabular-nums;
   /* Lines break only at the label's own line breaks unless one is wider than
-     the box; then it wraps inside the tooltip instead of running out of it. */
-  white-space: normal; overflow-wrap: anywhere;
+     the box; then it wraps on spaces so a value is not split mid-number. */
+  white-space: normal; overflow-wrap: break-word;
   box-shadow: 0 4px 14px rgb(0 0 0 / .2);
   pointer-events: none;
 }
+.ch-tip-lead { display: block; font-weight: 700; }
+.ch-tip-line { display: block; }
 .ch-range-band {
   position: fixed;
   z-index: 958;

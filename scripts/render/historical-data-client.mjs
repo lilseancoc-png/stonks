@@ -88,13 +88,21 @@ export function historicalDataFactory(host, doc, options) {
     const table = list => '<div class="h-table-wrap"><table class="h-table h-source-table"><thead><tr><th>Dataset / original publisher</th><th>Usable dates</th><th>Years / observations</th><th>Coverage and refresh</th></tr></thead><tbody>' + list.map(s => '<tr><td><a href="' + escape(s.url) + '" target="_blank" rel="noopener">' + escape(s.id + ' · ' + s.label) + '</a><small>' + escape(s.publisher + ' via ' + s.provider) + '</small></td><td>' + escape(s.firstDate || '—') + ' → ' + escape(s.lastDate || '—') + (s.excludedEarlyObservations ? '<small>Excluded ' + s.excludedEarlyObservations + ' earlier observations before ' + s.gapCount + ' reporting gaps. Raw source starts ' + escape(s.rawFirstDate) + '.</small>' : '') + '</td><td>' + number(s.years, 1) + ' years<small>' + s.observations.toLocaleString() + ' · ' + escape(s.frequency) + '</small></td><td>' + escape(coverageStatus(s)) + (s.error ? '<small class="h-neg">Latest refresh failed · retained data: ' + escape(s.error) + '</small>' : '') + (sourceStale(s) ? '<small class="h-neg">Latest observation is stale</small>' : '') + '<small>Source check: ' + escape(s.checkedAt || 'no source check recorded') + '</small><small>Last successful download: ' + escape(s.lastSuccessAt || 'not recorded') + '</small>' + (s.confirmedThrough ? '<small>Confirmed closes through ' + escape(s.confirmedThrough) + '</small>' : '') + '</td></tr>').join('') + '</tbody></table></div>';
     return '<div class="h-source-intro"><h3>Ten-year coverage ledger</h3><p>' + c.ready + ' of ' + c.total + ' catalogued datasets pass the ten-year history rule. Provider subscription fees for enabled adapters: $0. A missing, short or failed dataset never becomes a zero or a successful coverage claim.</p><p class="h-caption">Dates describe the contiguous usable tail, not an interpolated history. Earlier irregular reporting is retained in the source cache but excluded from comparisons. Free access does not grant blanket redistribution rights.</p></div>' + ['US stocks','Bonds','Commodities'].map(group => '<h4 class="h-source-heading">' + group + '</h4>' + table(c.markets.filter(s => s.group === group))).join('') + '<h4 class="h-source-heading">Macro, volatility and physical commodities</h4>' + table(c.context) + '<section class="h-paid"><h3>Optional paid data · none connected</h3><p>These services fill specific gaps. Each requires your approval before implementation or subscription. Prices checked October 24, 2026; taxes and business/display licenses may add cost.</p>' + c.paidOptions.map(p => '<article><h4><a href="' + escape(p.url) + '" target="_blank" rel="noopener">' + escape(p.name) + '</a> · ' + escape(p.cost) + '</h4><p>' + escape(p.purpose) + '</p><p class="h-caption">' + escape(p.limitation) + ' ' + escape(p.status) + '.</p></article>').join('') + '</section><details class="h-disclosure"><summary>Coverage boundaries and outstanding data needs</summary><ul>' + c.boundaries.map(t => '<li>' + escape(t) + '</li>').join('') + '<li>Long original-vintage macro histories need ALFRED vintage retrieval before use in a historical trading backtest. Current context charts use revised observations.</li><li>Super Bowl, lunar, intraday, event-surprise and option-chain effects remain untested without their separate event datasets.</li></ul></details>';
   }
+  function chartHover(points) {
+    return typeof options.hover === 'function' ? options.hover(points) : '';
+  }
   function contextChart(s) {
     if (s.status !== 'ready' || !s.chart.length) return '<p class="h-notice">This dataset does not meet the ten-year coverage requirement. Its chart and comparative statistics are withheld.</p>';
     const rows = s.chart, values = rows.map(r => r.v); let low = Math.min(...values), high = Math.max(...values);
     const pad = Math.max(.001, (high - low) * .08); low -= pad; high += pad;
     const first = Date.parse(rows[0].t), last = Date.parse(rows.at(-1).t), x = t => 78 + (Date.parse(t) - first) / Math.max(1, last - first) * 590, y = v => 210 - (v - low) / (high - low) * 182;
     const path = rows.map((r,i)=>(i?'L':'M')+number(x(r.t))+','+number(y(r.v))).join(' ');
-    return '<figure class="h-figure h-context-chart"><svg viewBox="0 0 704 267" role="img" aria-label="' + escape(s.label + ', historical levels in ' + s.unit) + '">' + Array.from({length:5},(_,i)=>{const v=low+(high-low)*i/4;return '<line class="h-grid" x1="78" x2="668" y1="'+y(v)+'" y2="'+y(v)+'"/><text x="70" y="'+(y(v)+4)+'" text-anchor="end">'+Number(v.toPrecision(4)).toLocaleString()+'</text>';}).join('') + '<path class="h-current" d="'+path+'"/>' + [0,.25,.5,.75,1].map(p=>{const t=first+(last-first)*p;return '<text x="'+(78+p*590)+'" y="235" text-anchor="middle">'+new Date(t).getUTCFullYear()+'</text>';}).join('') + '<text x="373" y="260" text-anchor="middle">Observation date (year)</text></svg><figcaption>Vertical axis: ' + escape(s.unit) + '. Monthly last available observations, latest 600 months at most.</figcaption></figure>';
+    const unit = s.unit ? ' ' + s.unit : '';
+    const hover = chartHover(rows.map(r => ({
+      x: x(r.t), y: y(r.v),
+      label: r.t + '\n' + number(r.v) + unit + '\n' + s.label,
+    })));
+    return '<figure class="h-figure h-context-chart"><svg viewBox="0 0 704 267" role="img" aria-label="' + escape(s.label + ', historical levels in ' + s.unit) + '"' + hover + '>' + Array.from({length:5},(_,i)=>{const v=low+(high-low)*i/4;return '<line class="h-grid" x1="78" x2="668" y1="'+y(v)+'" y2="'+y(v)+'"/><text x="70" y="'+(y(v)+4)+'" text-anchor="end">'+Number(v.toPrecision(4)).toLocaleString()+'</text>';}).join('') + '<path class="h-current" d="'+path+'"/>' + [0,.25,.5,.75,1].map(p=>{const t=first+(last-first)*p;return '<text x="'+(78+p*590)+'" y="235" text-anchor="middle">'+new Date(t).getUTCFullYear()+'</text>';}).join('') + '<text x="373" y="260" text-anchor="middle">Observation date (year)</text></svg><figcaption>Vertical axis: ' + escape(s.unit) + '. Monthly last available observations, latest 600 months at most.</figcaption></figure>';
   }
   function contextView(data) {
     const list = data.coverage.context;
@@ -114,7 +122,27 @@ export function historicalDataFactory(host, doc, options) {
     const band = [...history.map(p => ({ x: p.x, y: p.low })), ...[...history].reverse().map(p => ({ x: p.x, y: p.high }))];
     const grid = Array.from({ length: 5 }, (_, i) => { const v = low + (high - low) * i / 4; return '<line class="h-grid" x1="58" x2="676" y1="' + y(v) + '" y2="' + y(v) + '"/><text x="50" y="' + (y(v) + 4) + '" text-anchor="end">' + number(v, 1) + '%</text>'; }).join('');
     const ticks = [0, 25, 50, 75, 100].map(n => '<text x="' + x(n) + '" y="237" text-anchor="middle">' + n + '%</text>').join('');
-    return '<figure class="h-figure"><svg viewBox="0 0 704 267" role="img" aria-label="Window return chart. Historical median and middle fifty percent, with the held-out comparison through its latest completed close.">' + grid + '<path class="h-band" d="' + path(band) + 'Z"/><line class="h-zero" x1="58" x2="676" y1="' + y(0) + '" y2="' + y(0) + '"/><path class="h-median" d="' + path(history.map(p => ({ x: p.x, y: p.median }))) + '"/>' + (current.length ? '<path class="h-current" d="' + path(current) + '"/>' : '') + ticks + '<text x="367" y="260" text-anchor="middle">Window progress (%)</text></svg><figcaption><span class="h-legend-median">Historical median</span><span class="h-legend-band">Middle 50% of outcomes</span>' + (current.length ? '<span class="h-legend-current">' + study.comparison.year + ' held-out comparison</span>' : '') + '</figcaption><p class="h-caption">Vertical axis: price return from the prior close (%). Calendar windows align by calendar progress; Santa and post-midterm windows by trading sessions. The band shows past dispersion, not a forecast. ' + sample.n + ' completed observations · ' + escape(rangeLabel()) + '.</p></figure>';
+    let gap = 100;
+    for (let i = 1; i < history.length; i++) gap = Math.min(gap, Math.abs(history[i].x - history[i - 1].x) || gap);
+    const tol = Math.max(0.5, gap / 2);
+    const hoverPoints = [];
+    history.forEach(p => {
+      let near = null, dist = Infinity;
+      for (const point of current) {
+        const d = Math.abs(point.x - p.x);
+        if (d < dist) { dist = d; near = point; }
+      }
+      if (!near || dist > tol) near = null;
+      const progress = Math.abs(p.x - Math.round(p.x)) < 0.05 ? String(Math.round(p.x)) : number(p.x, 1);
+      const lines = [progress + '% of the window', 'Median ' + pct(p.median), 'Middle 50% ' + pct(p.low) + ' to ' + pct(p.high)];
+      if (near) lines.push(study.comparison.year + ' comparison ' + pct(near.y));
+      const label = lines.join('\n');
+      const px = x(p.x);
+      hoverPoints.push({ x: px, y: y(p.median), label });
+      if (near) hoverPoints.push({ x: px, y: y(near.y), label });
+    });
+    const hover = chartHover(hoverPoints);
+    return '<figure class="h-figure"><svg viewBox="0 0 704 267" role="img" aria-label="Window return chart. Historical median and middle fifty percent, with the held-out comparison through its latest completed close."' + hover + '>' + grid + '<path class="h-band" d="' + path(band) + 'Z"/><line class="h-zero" x1="58" x2="676" y1="' + y(0) + '" y2="' + y(0) + '"/><path class="h-median" d="' + path(history.map(p => ({ x: p.x, y: p.median }))) + '"/>' + (current.length ? '<path class="h-current" d="' + path(current) + '"/>' : '') + ticks + '<text x="367" y="260" text-anchor="middle">Window progress (%)</text></svg><figcaption><span class="h-legend-median">Historical median</span><span class="h-legend-band">Middle 50% of outcomes</span>' + (current.length ? '<span class="h-legend-current">' + study.comparison.year + ' held-out comparison</span>' : '') + '</figcaption><p class="h-caption">Vertical axis: price return from the prior close (%). Calendar windows align by calendar progress; Santa and post-midterm windows by trading sessions. The band shows past dispersion, not a forecast. ' + sample.n + ' completed observations · ' + escape(rangeLabel()) + '.</p></figure>';
   }
   function barChart(rows, labels, title) {
     const vals = rows.map(r => r.meanPct ?? r.returnPct).filter(Number.isFinite);
@@ -123,10 +151,15 @@ export function historicalDataFactory(host, doc, options) {
     if (low === high) { low = -.5; high = .5; }
     const span = high - low, digits = Math.min(4, Math.max(1, Math.ceil(-Math.log10(span)) + 1));
     const y = v => 169 - (v - low) / span * 143, step = 618 / rows.length;
-    return '<figure class="h-figure"><svg viewBox="0 0 704 224" role="img" aria-label="' + escape(title) + '"><text x="50" y="30" text-anchor="end">' + number(high, digits) + '%</text><text x="50" y="173" text-anchor="end">' + number(low, digits) + '%</text><line class="h-zero" x1="58" x2="676" y1="' + y(0) + '" y2="' + y(0) + '"/>' + rows.map((r, i) => {
+    const hover = chartHover(rows.flatMap((r, i) => {
+      const v = r.meanPct ?? r.returnPct;
+      if (!Number.isFinite(v)) return [];
+      return [{ x: 58 + i * step + step * .5, y: y(v), label: String(labels[i] ?? '') + '\n' + pct(v) + (r.n != null ? '\n' + r.n + ' observations' : '') }];
+    }));
+    return '<figure class="h-figure"><svg viewBox="0 0 704 224" role="img" aria-label="' + escape(title) + '"' + hover + '><text x="50" y="30" text-anchor="end">' + number(high, digits) + '%</text><text x="50" y="173" text-anchor="end">' + number(low, digits) + '%</text><line class="h-zero" x1="58" x2="676" y1="' + y(0) + '" y2="' + y(0) + '"/>' + rows.map((r, i) => {
       const v = r.meanPct ?? r.returnPct, px = 58 + i * step + step * .15;
       if (!Number.isFinite(v)) return '';
-      return '<rect class="' + (v >= 0 ? 'h-bar-pos' : 'h-bar-neg') + '" x="' + px + '" y="' + Math.min(y(0), y(v)) + '" width="' + Math.max(1, step * .7) + '" height="' + Math.abs(y(v) - y(0)) + '"><title>' + escape(labels[i]) + ': ' + pct(v) + (r.n != null ? ' · n=' + r.n : '') + '</title></rect>' + (rows.length <= 15 || i % 3 === 0 ? '<text x="' + (px + step * .35) + '" y="191" text-anchor="middle">' + escape(labels[i]) + '</text>' : '');
+      return '<rect class="' + (v >= 0 ? 'h-bar-pos' : 'h-bar-neg') + '" x="' + px + '" y="' + Math.min(y(0), y(v)) + '" width="' + Math.max(1, step * .7) + '" height="' + Math.abs(y(v) - y(0)) + '"></rect>' + (rows.length <= 15 || i % 3 === 0 ? '<text x="' + (px + step * .35) + '" y="191" text-anchor="middle">' + escape(labels[i]) + '</text>' : '');
     }).join('') + '<text x="367" y="217" text-anchor="middle">' + (rows.length === 12 && rows[0].month ? 'Calendar month' : 'Window anchor year') + '</text></svg><figcaption>' + escape(title) + ' · vertical axis: price return (%)</figcaption></figure>';
   }
   function exportCsv() {
