@@ -19110,7 +19110,7 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
       // open pick for most of each macro window (owner decision 2026-10-27).
       macroSoftScore = eventSessions <= 3 ? -2 : -1;
       if (PICKS_EVENT_SOFT_BLOCKS) eventScore = macroSoftScore;
-      reasons.push(`${PICKS_EVENT_SOFT_BLOCKS ? "- " : ""}${eventRisk.label || "major macro event"} in ${Math.round(eventSessions)} trading sessions${PICKS_EVENT_SOFT_BLOCKS ? "" : " (noted; entry not held back)"}`);
+      reasons.push(`- ${eventRisk.label || "major macro event"} in ${Math.round(eventSessions)} trading sessions${PICKS_EVENT_SOFT_BLOCKS ? "" : " (noted; entry not held back)"}`);
     }
   }
   const ed = data?.fundamentals?.nextEarningsDate ? etDaysUntil(data.fundamentals.nextEarningsDate) : null;

@@ -882,7 +882,7 @@ for (const sessionsOut of [3, 5, 7]) {
     !soft.hardWait && soft.score === none.score && soft.state === none.state
       && soft.components.event.score === 0
       && soft.components.event.macroSoftScore === (sessionsOut <= 3 ? -2 : -1)
-      && soft.reasons.some((x) => /CPI in \d+ trading sessions \(noted; entry not held back\)/.test(x)));
+      && soft.reasons.some((x) => /^- CPI in \d+ trading sessions \(noted; entry not held back\)/.test(x)));
 }
 const earnLater = mkTicker({ spot: 100, fundamentals: { nextEarningsDate: inEtSessions(5) } });
 const earnLaterTiming = computeEntryTiming("call", earnLater, 100, {});
