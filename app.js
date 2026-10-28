@@ -19,7 +19,7 @@
   }
 
 
-  var SITE_MAP = [["today","Today","Today","What is happening in the market right now",0,[["home","Home","","A one-screen overview of the market and every part of the site.",0],["brief","Market brief","Brief","A short digest of what moved, why, and what is coming up next.",0],["news","News","News desk","Market-moving stock and economic headlines, most important first.",0],["heatmap","Heatmap","","Every tracked stock as a tile: size is company value, color is how much it moved.",0],["calendar","Calendar","","Upcoming earnings reports, economic releases and Fed meetings.",0],["overnight","Overnight markets","","How Asian and European markets traded before the US open, and which US stocks they tend to lead.",0]]],["stocks","Stocks","Stocks","Look up, compare and follow companies",0,[["tickers","All stocks","Tickers","Every stock the site follows, with its price and current grade. Pick one to see the full report.",0],["grade","Look up a stock","Grade a ticker stock report","One stock in depth: its chart, grade, fundamentals, options and news.",0],["compare","Compare stocks","Compare companies","Line up a few companies side by side on price, growth and valuation.",0],["earnings","Earnings results","Earnings tracker","Which companies beat or missed expectations this season, and how their stocks reacted.",0],["calls","Earnings calls","","What management said on each company’s latest earnings call, and what changed.",0],["f13","Who owns what","SEC ownership 13F Form 4 insider","What big investment funds bought and sold last quarter, plus recent insider trades.",0],["pending-buyouts","Pending buyouts","M&A mergers","Announced and rumored takeovers, and how far along each deal is.",0]]],["market","Market & economy","Market","The big picture: mood, rates, money and themes",0,[["fear-greed","Market mood","Fear & Greed","CNN’s Fear & Greed index: whether investors are acting scared or greedy, from 0 to 100.",0],["bonds-usd","Rates & the dollar","Bonds & USD Fed","Treasury yields, the US dollar and what the Fed is expected to do next.",0],["commodities","Commodities","","Oil, gold, copper and other raw materials, and the stocks that move with them.",0],["central-bank-gold","Central-bank gold","","How much gold the world’s central banks are buying or selling.",0],["capital-raises","Capital markets","Capital raises share sales buybacks IPOs credit issuance debt","Companies selling stock or debt or buying shares back, upcoming IPOs, and how easily companies and households can borrow.",0],["narratives","Market themes","Narratives","The big stories driving money right now, such as AI spending, and which stocks ride them.",0]]],["options","Options activity","Options","Where traders are placing bets",0,[["flow","Unusual options trades","Unusual flow","Option trades far bigger than normal for that stock, a sign someone expects a move.",0],["volume","Trading volume","Volume","Days when a stock traded much more or less than usual.",0],["oi","Options walls","Gamma exposure GEX","Price levels where large option positions can slow a stock down or speed it up.",0],["iv-trend","Rising volatility","Trending IV implied volatility","Stocks whose options are pricing in a bigger move than usual.",0],["strategies","Strategy builder","Strategies","Pick a stock and build a defined-risk options trade, with its profit and loss at expiry.",0]]],["signals","Charts & signals","Signals","Price trends and repeating patterns",0,[["ma-tracker","Moving averages","MA tracker crossover","Stocks sitting close to their 20, 50, 100 or 200-day average price.",0],["streaks","Up/down streaks","Streaks green red","Stocks on a run of up days or down days in a row.",0],["pattern-lab","Pattern lab","Seasonality","Repeating patterns such as seasonality and how stocks behave after big moves.",0],["spillover","Earnings ripple effects","Event spillover","How one company’s earnings tend to move the other stocks in its industry.",0],["index-cal","Index calendar","","A month view of the major index funds, showing which days the whole market joined in.",0]]],["industry","Industry trends","Industry","Real-world data behind the AI and chip trade",0,[["ai-capex","AI spending","AI CapEx","How much the biggest tech companies are spending on AI data centers.",0],["ram-prices","Memory chip prices","RAM prices DRAM","Weekly prices for computer memory, a read on the chip cycle.",0],["accelerator-prices","GPU cloud prices","Accelerator","What it costs to rent AI chips by the hour, a read on AI demand.",0],["search-interest","Search trends","Search interest Google","Which market themes people are searching for more or less this week.",0]]],["learn","Learn & help","Learn","Guides, definitions and site info",0,[["cheatsheet","Options guide","Buyer's manual","A plain-English guide to buying options: calls, puts, risk and timing.",0],["chart-patterns","Chart patterns","","What common chart shapes look like and how traders read them.",0],["timeline","When data updates","Refresh schedule timeline","When each part of the site refreshes during the trading day.",0],["privacy","Privacy Policy","","What this site collects and how it is used.",0],["terms","Terms of Use","","The terms for using this site. Nothing here is investment advice.",0]]],["owner","Owner","Owner","Private research",1,[["unified-signal-engine","Unified Signal Engine","","All private signals combined into one ranked read.",0],["market","Market analysis","","The cross-asset tape, risk barometer and regime history.",0],["risk","Risk analysis","","Seven risk desks read together, with the reason when they disagree.",0],["bottom-tracker","Bottom tracker","","Signs the market is washing out and turning.",0],["historical-data","Historical Data","","The stored history behind the private research.",0],["earnings-forecast","Earnings Forecast","Quarterly full-year valuation company history revenue EPS industry model","Quarterly forecasts for the top 20 covered companies, company history, full-year valuation and linked industry evidence.",0],["forced-liquidation","Forced Liquidation Tracker","Pledged shares collateral leverage margin","SEC stock pledges, loan terms and estimated price thresholds, with missing terms kept visible.",0],["picks","Top picks","","The model’s highest-conviction option contracts for today.",0],["leaps","LEAPS","","Names scored for a one- to two-year options hold.",0],["stocks","Stock picks","","Quality companies on a dip, as shares rather than options.",0],["rotation","Sector rotation","","Strong names sold with their sector that are now turning back up.",0],["levetf","Leveraged ETFs","","Leveraged ETF setups from the same engine.",0],["open-picks","Open picks","","Every open trade, with lines ready to copy to a broker.",0],["track","Top Picks track record","","How every closed pick worked out.",0],["quant","Owner Lab","","Research tools and diagnostics.",0]]]];
+  var SITE_MAP = [["today","Today","Today","What is happening in the market right now",0,[["home","Home","","A one-screen overview of the market and every part of the site.",0],["brief","Market brief","Brief","A short digest of what moved, why, and what is coming up next.",0],["news","News","News desk","Market-moving stock and economic headlines, most important first.",0],["heatmap","Heatmap","","Every tracked stock as a tile: size is company value, color is how much it moved.",0],["calendar","Calendar","","Upcoming earnings reports, economic releases and Fed meetings.",0],["overnight","Overnight markets","","How Asian and European markets traded before the US open, and which US stocks they tend to lead.",0]]],["stocks","Stocks","Stocks","Look up, compare and follow companies",0,[["tickers","All stocks","Tickers","Every stock the site follows, with its price and current grade. Pick one to see the full report.",0],["grade","Look up a stock","Grade a ticker stock report","One stock in depth: its chart, grade, fundamentals, options and news.",0],["compare","Compare stocks","Compare companies","Line up a few companies side by side on price, growth and valuation.",0],["earnings","Earnings results","Earnings tracker","Which companies beat or missed expectations this season, and how their stocks reacted.",0],["calls","Earnings calls","","What management said on each company’s latest earnings call, and what changed.",0],["f13","Who owns what","SEC ownership 13F Form 4 insider","What big investment funds bought and sold last quarter, plus recent insider trades.",0],["pending-buyouts","Pending buyouts","M&A mergers","Announced and rumored takeovers, and how far along each deal is.",0]]],["market","Market & economy","Market","The big picture: mood, rates, money and themes",0,[["fear-greed","Market mood","Fear & Greed","CNN’s Fear & Greed index: whether investors are acting scared or greedy, from 0 to 100.",0],["bonds-usd","Rates & the dollar","Bonds & USD Fed","Treasury yields, the US dollar and what the Fed is expected to do next.",0],["commodities","Commodities","","Oil, gold, copper and other raw materials, and the stocks that move with them.",0],["central-bank-gold","Central-bank gold","","How much gold the world’s central banks are buying or selling.",0],["capital-raises","Capital markets","Capital raises share sales buybacks IPOs credit issuance debt","Companies selling stock or debt or buying shares back, upcoming IPOs, and how easily companies and households can borrow.",0],["narratives","Market themes","Narratives","The big stories driving money right now, such as AI spending, and which stocks ride them.",0]]],["options","Options activity","Options","Where traders are placing bets",0,[["flow","Unusual options trades","Unusual flow","Option trades far bigger than normal for that stock, a sign someone expects a move.",0],["volume","Trading volume","Volume","Days when a stock traded much more or less than usual.",0],["oi","Options walls","Gamma exposure GEX","Price levels where large option positions can slow a stock down or speed it up.",0],["iv-trend","Rising volatility","Trending IV implied volatility","Stocks whose options are pricing in a bigger move than usual.",0],["strategies","Strategy builder","Strategies","Pick a stock and build a defined-risk options trade, with its profit and loss at expiry.",0]]],["signals","Charts & signals","Signals","Price trends and repeating patterns",0,[["ma-tracker","Moving averages","MA tracker crossover","Stocks sitting close to their 20, 50, 100 or 200-day average price.",0],["streaks","Up/down streaks","Streaks green red","Stocks on a run of up days or down days in a row.",0],["pattern-lab","Pattern lab","Seasonality","Repeating patterns such as seasonality and how stocks behave after big moves.",0],["spillover","Earnings ripple effects","Event spillover","How one company’s earnings tend to move the other stocks in its industry.",0],["index-cal","Index calendar","","A month view of the major index funds, showing which days the whole market joined in.",0]]],["industry","Industry trends","Industry","Real-world data behind the AI and chip trade",0,[["ai-capex","AI spending","AI CapEx","How much the biggest tech companies are spending on AI data centers.",0],["ram-prices","Memory chip prices","RAM prices DRAM","Weekly prices for computer memory, a read on the chip cycle.",0],["accelerator-prices","GPU cloud prices","Accelerator","What it costs to rent AI chips by the hour, a read on AI demand.",0],["search-interest","Search trends","Search interest Google","Which market themes people are searching for more or less this week.",0]]],["learn","Learn & help","Learn","Guides, definitions and site info",0,[["cheatsheet","Options guide","Buyer's manual","A plain-English guide to buying options: calls, puts, risk and timing.",0],["chart-patterns","Chart patterns","","What common chart shapes look like and how traders read them.",0],["timeline","When data updates","Refresh schedule timeline","When each part of the site refreshes during the trading day.",0],["privacy","Privacy Policy","","What this site collects and how it is used.",0],["terms","Terms of Use","","The terms for using this site. Nothing here is investment advice.",0]]],["owner","Owner","Owner","Private research",1,[["unified-signal-engine","Unified Signal Engine","","Existing decisions with separate investment and trading perspectives.",0],["market","Market analysis","","The cross-asset tape, risk barometer and regime history.",0],["risk","Risk analysis","","Seven risk desks read together, with the reason when they disagree.",0],["bottom-tracker","Bottom tracker","","Signs the market is washing out and turning.",0],["historical-data","Historical Data","","The stored history behind the private research.",0],["earnings-forecast","Earnings Forecast","Quarterly full-year valuation company history revenue EPS industry model","Quarterly forecasts for the top 20 covered companies, company history, full-year valuation and linked industry evidence.",0],["forced-liquidation","Forced Liquidation Tracker","Pledged shares collateral leverage margin","SEC stock pledges, loan terms and estimated price thresholds, with missing terms kept visible.",0],["picks","Top picks","","The model’s highest-conviction option contracts for today.",0],["leaps","LEAPS","","Names scored for a one- to two-year options hold.",0],["stocks","Stock picks","","Quality companies on a dip, as shares rather than options.",0],["rotation","Sector rotation","","Strong names sold with their sector that are now turning back up.",0],["levetf","Leveraged ETFs","","Leveraged ETF setups from the same engine.",0],["open-picks","Open picks","","Every open trade, with lines ready to copy to a broker.",0],["track","Top Picks track record","","How every closed pick worked out.",0],["quant","Owner Lab","","Research tools and diagnostics.",0]]]];
   var RECENT_KEY = 'stonks-recent-v1';
   function wfReadRecent(){
     try {
@@ -2046,7 +2046,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
   // surfaces non-fresh sources so traders know the anchor is degraded.
-  var RFR_META = {"source":"fresh","asOf":"2026-10-27","ageDays":null};
+  var RFR_META = {"source":"cached","asOf":"2026-10-27","ageDays":1};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, intradaySeries: null, fundamentals: null, social: null, chainRequestSeq: 0 };
   var ownerAutoPicks = { data: null, pending: null };
@@ -26592,8 +26592,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // dispersion / post-earnings-drift screens. ANALYTICAL ONLY: z-scores and
   // ranks, never trade signals (the playbook table in the shell is educational).
   var unifiedSignal = (function unifiedSignalClientFactory(host, doc, options, policy) {
-  const state = { data: null, loading: false, error: '', symbol: '', query: '', filter: 'all', view: 'decision', bound: false, timer: null, records: {} };
-  const VIEWS = ['decision','evidence','prices','vehicles','record'];
+  const state = { data: null, loading: false, error: '', symbol: '', query: '', filter: 'all', view: 'decision', bound: false, timer: null, records: {}, investments: {} };
+  const VIEWS = ['decision','investment','trading','evidence','prices','vehicles','record'];
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[c]);
   const num = (value, digits = 2) => typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString('en-US', { maximumFractionDigits: digits, minimumFractionDigits: digits }) : 'Unavailable';
   const pct = value => typeof value === 'number' && Number.isFinite(value) ? (value > 0 ? '+' : '') + num(value) + '%' : 'Unavailable';
@@ -26619,10 +26619,48 @@ function scenarioEventPhase(ev, now = Date.now()) {
     const sourceName = ({'grades.json':'Existing grade rubric','quant.json':'Quant Lab','link-map.json':'Company relationships','market-analysis.json':'Market Analysis','sector-rotation.json':'Sector Rotation'})[item.source] || item.source;
     return '<article class="use-observation"><div class="use-observation-head">' + pill(item.family, item.effect) + (item.unavailable ? pill('Unavailable','context') : '') + '</div><h4>' + (url ? '<a href="' + esc(url) + '" target="_blank" rel="noopener noreferrer">' + esc(item.title) + '</a>' : esc(item.title)) + '</h4><p>' + esc(item.detail) + '</p><small>' + esc(sourceName) + ' · ' + esc(time(item.asOf)) + (item.timeBasis === 'computed-assessment' ? ' · computed assessment; underlying publication times vary' : '') + '</small></article>';
   }
+  function perspectivesSummary(row) {
+    if (!row.perspectives) return '';
+    return '<div class="use-perspective-summary">' + [['investment','Investment outlook','Months to years'],['trading','Trading outlook','Days to weeks']].map(([key,label,horizon]) => '<section><span class="use-kicker">' + horizon + '</span><h3>' + label + '</h3><p>' + esc(row.perspectives[key].label) + '</p><button type="button" class="use-text-button" data-use-view="' + key + '">Explore ' + label.toLowerCase() + '</button></section>').join('') + '</div>';
+  }
+  function investmentDraft(row) {
+    const source = row.perspectives.investment;
+    if (!state.investments[row.symbol] || state.investments[row.symbol].inputId !== source.inputId) state.investments[row.symbol] = { inputId: source.inputId, value: options.investment.defaults(source.model), edited: false };
+    return state.investments[row.symbol];
+  }
+  function investmentView(row) {
+    const investment = row.perspectives?.investment;
+    const quote = row.perspectives?.quote || row.quote;
+    if (!investment) return '<section class="use-answer"><h3>This snapshot predates the investment perspective</h3><p>Refresh after the next published decision build to load the additional assessment.</p></section>';
+    const introduction = '<section class="use-answer"><span class="use-kicker">Separate perspective · ' + esc(investment.horizon) + '</span><h3>Does the current price fit plausible business outcomes?</h3><p>Business earnings, valuation assumptions and the observed share price drive this assessment. It does not add points to the grade or qualify a trade.</p><p class="use-muted">Research calculated ' + esc(time(investment.asOf)) + '. Price reference ' + esc(money(quote.value,quote.currency)) + ' at ' + esc(time(quote.asOf)) + '.</p></section>';
+    if (!investment.model || !options.investment) return introduction + '<section class="use-answer"><h3>' + esc(investment.label) + '</h3>' + list(investment.missing,'') + '<p>Other perspectives remain available. Missing financial coverage is not a negative business verdict.</p></section>' + list(investment.limitations,'');
+    const draft = investmentDraft(row), result = options.investment.calculate(investment.model, draft.value), currency = investment.model.currency;
+    const input = (label,key,min,max) => '<label>' + label + '<input type="number" step="any" min="' + min + '" max="' + max + '" data-use-investment-field="' + key + '" value="' + esc(draft.value[key] ?? '') + '"></label>';
+    const scenarioTable = result.scenarios.length ? '<div class="use-table-wrap"><table class="use-table"><thead><tr><th>Assumptions</th><th>Revenue growth</th><th>Operating margin</th><th>Exit P/E</th><th>Annual EPS</th><th>Price in 12 months</th><th>Present value</th><th>Conditional price return</th></tr></thead><tbody>' + result.scenarios.map(s => '<tr><th>' + esc(s.label) + '</th><td>' + esc(pct(s.growthPct)) + '</td><td>' + esc(pct(s.operatingMarginPct)) + '</td><td>' + esc(num(s.exitMultiple)) + '×</td><td>' + esc(money(s.eps,currency)) + '</td><td>' + esc(money(s.priceAtHorizon,currency)) + '</td><td>' + esc(money(s.presentValue,currency)) + '</td><td>' + esc(pct(s.priceReturnPct)) + '</td></tr>').join('') + '</tbody></table></div>' : '';
+    const controls = '<section class="use-answer"><div class="use-section-title"><h3>Explore the assumptions</h3><button type="button" class="use-text-button" data-use-investment-reset>Reset assumptions</button></div><p>Changes are temporary and stay in this page. They do not edit the saved assessment, financial forecasts or Top Picks. A changed source snapshot resets the assumptions.</p><div class="use-assumption-controls">' + input('Annual revenue growth (%)','growthPct',-95,200) + input('Operating margin (%)','operatingMarginPct',.1,80) + input('Exit earnings multiple (×)','exitMultiple',1,100) + input('Required annual return (%)','requiredReturnPct',1,50) + '</div></section>';
+    const resultSummary = '<section class="use-answer" aria-live="polite" data-use-investment-result><span class="use-kicker">' + (draft.edited ? 'Your temporary scenario' : 'Saved assessment assumptions') + '</span><h3>' + esc(result.label) + '</h3>' + (result.errors.length ? list(result.errors,'') : '<p>' + esc(result.interpretation) + '</p><dl class="use-facts"><div><dt>Conditional present-value range</dt><dd>' + esc(money(result.range.low,currency)) + ' to ' + esc(money(result.range.high,currency)) + '</dd></div><div><dt>Gap to base present value</dt><dd>' + esc(pct(result.gapToBasePct)) + '</dd></div><div><dt>Revenue growth needed to meet your return hurdle</dt><dd>' + esc(pct(result.requiredGrowthPct)) + '</dd></div><div><dt>Required annual return assumption</dt><dd>' + esc(pct(result.requiredReturnPct)) + '</dd></div></dl>') + '<p class="use-muted">Lower assumptions use revenue growth 5 percentage points lower, margin 2 points lower and a 20% lower multiple. Higher assumptions apply the opposite shifts, subject to the displayed financial limits. These are sensitivity tests, not probability intervals.</p></section>';
+    return introduction + resultSummary + controls + '<div data-use-investment-scenarios>' + scenarioTable + '</div>' +
+      '<section class="use-answer"><h3>What today’s price requires</h3><p>The required-growth calculation holds the chosen margin, tax, share count and exit multiple fixed, then solves for revenue sufficient to reach today’s price plus the required annual return. This is a model-implied requirement, not a direct observation of market beliefs.</p><p>The future price is annual EPS × the assumed exit multiple. Present value discounts that price by your required annual return. Dividends and transaction costs are not estimated.</p></section>' +
+      '<section class="use-answer"><h3>Source financials and valuation reference</h3><p>Latest supported reporting period: ' + esc(investment.financialPeriodEnd) + '. Financial forecast cutoff: ' + esc(time(investment.financialCutoffAt)) + '.</p><p>' + esc(investment.model.multiple.basis) + '</p>' + (investment.model.multiple.peers.length ? '<p>Reference peers: ' + investment.model.multiple.peers.map(peer => esc(peer.symbol) + ' ' + esc(num(peer.forwardPE)) + '×').join(', ') + '.</p>' : '') + '<p>Period basis: ' + investment.model.base.quarters.map(q=>esc(q.start)+' to '+esc(q.end)).join('; ') + '.</p>' + list(investment.limitations,'') + '</section>';
+  }
+  function tradingView(row) {
+    const trading = row.perspectives?.trading;
+    if (!trading) return '<section class="use-answer"><h3>This snapshot predates the trading perspective</h3><p>Refresh after the next published decision build to load the additional assessment.</p></section>';
+    const plan = trading.plan, setup = trading.setup, iv = trading.volatility, coverage = trading.coverage;
+    const action = trading.execution.qualified && currentStatus(row) === 'eligible' ? trading.execution.reason : 'Research only. This view cannot qualify or override an existing owner entry. Check the current Decision view for policy eligibility.';
+    return '<section class="use-answer"><span class="use-kicker">Separate perspective · ' + esc(trading.horizon) + '</span><h3>' + esc(trading.label) + '</h3><p>' + (setup ? esc(setup.name) + ' · ' + esc(trading.direction) + ' · confirmed bars through ' + esc(setup.asOf) + '.' : 'The price setup is assessed independently of the four-pillar grade.') + '</p><p>' + esc(action) + '</p><p class="use-muted">Research calculated ' + esc(time(trading.asOf)) + '. No new provider or AI analysis runs when this view opens.</p></section>' +
+      (setup ? '<section class="use-answer"><h3>Price confirmation</h3><ul class="use-notes">' + trading.confirmation.map(item => '<li>' + esc(item.pass ? 'Confirmed: ' : 'Pending: ') + esc(item.label) + '</li>').join('') + '</ul><p>Confirmed relative volume: ' + esc(num(setup.rvol)) + '×. 14-session ATR: ' + esc(money(setup.atr,row.quote.currency)) + '.' + (setup.snapped ? ' The ended ' + esc(setup.snapped.color) + ' run had ' + esc(setup.snapped.sameDays) + ' same-direction sessions and a ' + esc(pct(setup.snapped.cumulativePct)) + ' cumulative move.' : '') + '</p></section>' : '') +
+      '<section class="use-answer"><h3>What needs to happen?</h3>' + list(trading.blocks,'The experimental setup clears its research conditions. Predictive edge remains unproven and owner execution checks still apply.') + '</section>' +
+      (plan ? '<section class="use-answer"><h3>Price and payoff references</h3><dl class="use-facts"><div><dt>Observed entry reference</dt><dd>' + esc(money(plan.entry,row.quote.currency)) + '</dd></div><div><dt>Confirmation trigger reference</dt><dd>' + esc(money(plan.trigger,row.quote.currency)) + '</dd></div><div><dt>Technical objective</dt><dd>' + esc(money(plan.target,row.quote.currency)) + '</dd></div><div><dt>Invalidation</dt><dd>' + esc(money(plan.invalidation,row.quote.currency)) + '</dd></div><div><dt>Reference reward / risk</dt><dd>' + esc(num(plan.rewardRisk)) + ':1</dd></div><div><dt>Risk distance / ATR</dt><dd>' + esc(num(plan.riskAtr)) + '×</dd></div></dl><p>' + esc(plan.targetMethod) + '. ' + esc(plan.warning) + '</p></section>' : '') +
+      '<section class="use-answer"><h3>Volatility perspective</h3><p>' + esc(iv.label) + '</p>' + (iv.status === 'available' ? '<p>ATM IV ' + esc(num(iv.iv*100)) + '% versus an average of ' + esc(num(iv.mean*100)) + '%. Five-session IV change: ' + esc(pct(iv.change5dPct)) + '. History: ' + esc(iv.n) + ' observations, as of ' + esc(iv.asOf) + '. Sampled ' + esc(time(iv.sampledAt)) + '.</p>' : '') + '<p class="use-muted">' + esc(iv.note) + '</p></section>' +
+      (trading.peers ? '<section class="use-answer"><h3>Industry context</h3><p>' + (trading.peers.status === 'available' ? esc(trading.peers.n) + ' other covered peers averaged ' + esc(pct(trading.peers.meanReturn5Pct)) + ' over five completed sessions.' : 'Fewer than three comparable peers have aligned current history. Peer confirmation is unavailable.') + '</p><p class="use-muted">' + esc(trading.peers.note) + '</p></section>' : '') +
+      (trading.history ? '<section class="use-answer"><h3>Previous occurrences of this setup</h3><div class="use-table-wrap"><table class="use-table"><thead><tr><th>Forward window</th><th>Resolved events</th><th>Mean signed stock return</th><th>Median signed stock return</th><th>Positive outcomes</th><th>Unconditional same-stock mean</th></tr></thead><tbody>' + trading.history.horizons.map(h => '<tr><th>' + esc(h.sessions) + ' trading sessions</th><td>' + esc(h.n) + (h.n < 20 ? ' · limited sample' : ' · descriptive sample') + '</td><td>' + esc(pct(h.meanReturnPct)) + '</td><td>' + esc(pct(h.medianReturnPct)) + '</td><td>' + esc(pct(h.positiveOutcomePct)) + '</td><td>' + esc(pct(h.baselineMeanPct)) + ' · n=' + esc(h.baselineN) + '</td></tr>').join('') + '</tbody></table></div><p>' + esc(trading.history.interpretation) + '</p></section>' : '') +
+      '<section class="use-answer"><h3>Coverage and limits</h3><p>' + esc(coverage.sessions) + ' aligned sessions' + (coverage.firstDate ? ', ' + esc(coverage.firstDate) + ' to ' + esc(coverage.lastDate) : '') + '. Required latest completed session: ' + esc(coverage.through || 'unavailable') + '.</p>' + (coverage.excludedBeforeGap ? '<p>History before a gap longer than seven calendar days is excluded.</p>' : '') + list(trading.limitations,'') + '</section>';
+  }
   function decisionView(row) {
     const support = row.evidence.filter(e => e.effect === 'supports' && !e.unavailable).slice(0, 4);
     const opposing = row.evidence.filter(e => e.effect === 'opposes' && !e.unavailable).slice(0, 4);
-    return '<div class="use-answer"><h3>What is the opportunity?</h3><p>' + esc(row.summary) + '</p><p class="use-muted">' + esc(state.data.horizon.label) + '. The grade ranks existing research; it is not a win probability.</p></div>' +
+    return perspectivesSummary(row) + '<div class="use-answer"><h3>What is the opportunity?</h3><p>' + esc(row.summary) + '</p><p class="use-muted">' + esc(state.data.horizon.label) + '. The grade ranks existing research; it is not a win probability.</p></div>' +
       (row.thesis.summary ? '<section class="use-answer"><h3>Existing owner thesis</h3><p>' + esc(row.thesis.summary) + '</p><p class="use-muted">' + esc(row.thesis.source) + '. This interpretation is not additional independent evidence.</p></section>' : '') +
       '<div class="use-evidence-pair"><section><h3>What supports it</h3>' + (support.length ? support.map(evidenceItem).join('') : '<p class="use-muted">No supporting rubric contribution is available.</p>') + '</section><section><h3>What challenges it</h3>' + (opposing.length ? opposing.map(evidenceItem).join('') : '<p class="use-muted">No opposing rubric contribution is recorded. That does not establish certainty.</p>') + '</section></div>' +
       '<section class="use-answer"><h3>What keeps this from an entry?</h3>' + list(entryBlocks(row), 'The published owner entry checks qualified this idea at build time. Check the current market and account risk before acting.') + '</section>' +
@@ -26684,7 +26722,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     const libraryScroll = target.querySelector('.use-library')?.scrollTop || 0;
     const disclosures = Array.from(target.querySelectorAll('[data-use-details]')).map(el => [el.getAttribute('data-use-details'), el.open]);
     const focused = target.contains(doc.activeElement) ? doc.activeElement : null;
-    const focusAttribute = ['data-use-view','data-use-symbol','data-use-refresh','data-use-search','data-use-filter','data-use-disclosure'].find(attribute => focused?.hasAttribute(attribute));
+    const focusAttribute = ['data-use-view','data-use-symbol','data-use-refresh','data-use-search','data-use-filter','data-use-disclosure','data-use-investment-field','data-use-investment-reset'].find(attribute => focused?.hasAttribute(attribute));
     const focusValue = focusAttribute ? focused.getAttribute(focusAttribute) : null;
     if (!state.data) {
       target.innerHTML = '<div class="use-empty" role="status"><h3>' + (state.loading ? 'Loading the decision snapshot' : 'Decision snapshot unavailable') + '</h3><p>' + esc(state.error || 'The first snapshot is published with an 11:00 or 15:30 ET decision build.') + '</p>' + (!state.loading ? '<button type="button" class="use-button" data-use-refresh>Try again</button>' : '') + '</div>';
@@ -26698,7 +26736,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     const notices = state.error ? '<p class="use-notice" role="alert">' + esc(state.error) + ' Previous snapshot is reference only.</p>' : expired || quoteExpired ? '<p class="use-notice" role="status">Reference snapshot. The entry check has expired or the regular session has closed. Refresh checks for a newer published decision; it does not fetch live quotes.</p>' : '';
     target.innerHTML = '<div class="use-toolbar"><label>Find ticker or sector<input type="search" data-use-search value="' + esc(state.query) + '" placeholder="Search symbols" autocomplete="off"></label><label>Show<select data-use-filter>' + [['all','All research'],['eligible','Entry qualified'],['wait','Waiting'],['watch','Research watch'],['avoid','Avoid'],['insufficient-data','Missing data']].map(([value,label]) => '<option value="' + value + '"' + (state.filter === value ? ' selected' : '') + '>' + label + '</option>').join('') + '</select></label><button type="button" class="use-button" data-use-refresh' + (state.loading ? ' disabled' : '') + '>' + (state.loading ? 'Checking…' : 'Refresh snapshot') + '</button></div>' +
       '<p class="use-snapshot-meta" role="status">' + visible.length + ' of ' + all.length + ' tickers · ' + esc(time(state.data.builtAtIso)) + ' · ' + esc(state.data.cadence) + '</p>' + notices +
-      (selected ? '<div class="use-layout"><aside class="use-library" aria-label="Unified Signal Engine research list">' + visible.map(row => '<button type="button" data-use-symbol="' + esc(row.symbol) + '" class="use-candidate' + (row.symbol === selected.symbol ? ' is-selected' : '') + '" aria-pressed="' + (row.symbol === selected.symbol) + '"><span><b>' + esc(row.symbol) + '</b><small>' + esc(row.direction) + '</small></span><small>' + esc(policy.label(currentStatus(row))) + '</small></button>').join('') + '</aside><section class="use-detail" aria-label="Ticker assessment"><header class="use-decision-head"><div><span class="use-kicker">' + esc(state.data.horizon.label) + '</span><h3>' + esc(selected.symbol) + ' <span>' + esc(selected.direction) + '</span></h3><p>' + esc(selected.sector || 'Sector unverified') + '</p></div><div>' + pill(policy.label(currentStatus(selected)), currentStatus(selected)) + '<p class="use-price">' + esc(money(selected.quote.value,selected.quote.currency)) + '</p></div></header><nav class="use-view-tabs" aria-label="Assessment views">' + [['decision','Decision'],['evidence','Evidence'],['prices','Price explanations'],['vehicles','Trade comparison'],['record','Company record']].map(([view,label]) => '<button type="button" data-use-view="' + view + '" aria-pressed="' + (state.view === view) + '">' + label + '</button>').join('') + '</nav><div class="use-view">' + (state.view === 'evidence' ? evidenceView(selected) : state.view === 'prices' ? pricesView(selected) : state.view === 'vehicles' ? vehiclesView(selected) : state.view === 'record' ? recordView(selected) : decisionView(selected)) + '</div></section></div>' : '<div class="use-empty"><h3>No matching research</h3><p>Change the ticker search or policy filter to inspect other assessments.</p></div>') +
+      (selected ? '<div class="use-layout"><aside class="use-library" aria-label="Unified Signal Engine research list">' + visible.map(row => '<button type="button" data-use-symbol="' + esc(row.symbol) + '" class="use-candidate' + (row.symbol === selected.symbol ? ' is-selected' : '') + '" aria-pressed="' + (row.symbol === selected.symbol) + '"><span><b>' + esc(row.symbol) + '</b><small>' + esc(row.direction) + '</small></span><small>' + esc(policy.label(currentStatus(row))) + '</small></button>').join('') + '</aside><section class="use-detail" aria-label="Ticker assessment"><header class="use-decision-head"><div><span class="use-kicker">Existing decision · ' + esc(state.data.horizon.label) + '</span><h3>' + esc(selected.symbol) + ' <span>' + esc(selected.direction) + '</span></h3><p>' + esc(selected.sector || 'Sector unverified') + '</p></div><div>' + pill(policy.label(currentStatus(selected)), currentStatus(selected)) + '<p class="use-price">' + esc(money(selected.quote.value,selected.quote.currency)) + '</p></div></header><nav class="use-view-tabs" aria-label="Assessment views">' + [['decision','Decision'],['investment','Investment outlook'],['trading','Trading outlook'],['evidence','Evidence'],['prices','Price explanations'],['vehicles','Trade comparison'],['record','Company record']].map(([view,label]) => '<button type="button" data-use-view="' + view + '" aria-pressed="' + (state.view === view) + '">' + label + '</button>').join('') + '</nav><div class="use-view">' + (state.view === 'investment' ? investmentView(selected) : state.view === 'trading' ? tradingView(selected) : state.view === 'evidence' ? evidenceView(selected) : state.view === 'prices' ? pricesView(selected) : state.view === 'vehicles' ? vehiclesView(selected) : state.view === 'record' ? recordView(selected) : decisionView(selected)) + '</div></section></div>' : '<div class="use-empty"><h3>No matching research</h3><p>Change the ticker search or policy filter to inspect other assessments.</p></div>') +
       '<footer class="use-footer"><p>' + esc(state.data.validation) + ' No live account sizing or order execution is connected.</p><details><summary>Method and saved decision</summary><p>' + esc(state.data.ranking) + '</p><p>Shared evidence is shown once in the rubric. Measurements and related desks remain context. Policy eligibility comes from a matching current owner trade and cannot override its entry or risk gates.</p><p>Snapshot ' + esc(state.data.snapshotId) + '</p><p>Engine ' + esc(state.data.engineVersion) + ' · entry policy ' + esc(state.data.entryPolicyVersion) + '</p></details></footer>';
     if (selected && state.view === 'record') fillRecord(selected.symbol);
     const library = target.querySelector('.use-library');
@@ -26714,6 +26752,25 @@ function scenarioEventPhase(ev, now = Date.now()) {
       state.timer = host.setTimeout(() => { if (root()?.closest('.page-pane')?.hidden === false) render(); }, Math.max(1, Math.min(...deadlines) - Date.now() + 1));
     }
   }
+  function updateInvestment(input) {
+    const field = input.dataset.useInvestmentField;
+    if (!['growthPct','operatingMarginPct','exitMultiple','requiredReturnPct'].includes(field)) return false;
+    const row = state.data?.decisions.find(item => item.symbol === state.symbol);
+    if (!row?.perspectives?.investment.model) return false;
+    const draft = investmentDraft(row);
+    draft.value[field] = input.value === '' ? null : Number(input.value);
+    draft.edited = true;
+    // Update calculations without replacing the focused control or a button
+    // receiving the user's click when that control loses focus.
+    const fragment = doc.createElement('div');
+    fragment.innerHTML = investmentView(row);
+    for (const attribute of ['data-use-investment-result','data-use-investment-scenarios']) {
+      const current = root().querySelector('[' + attribute + ']');
+      const next = fragment.querySelector('[' + attribute + ']');
+      if (current && next) current.replaceWith(next);
+    }
+    return true;
+  }
   function bind() {
     if (state.bound || !root()) return;
     state.bound = true; restore();
@@ -26721,6 +26778,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       const button = event.target.closest('button');
       if (!button) return;
       if (button.hasAttribute('data-use-refresh')) { load(true); return; }
+      if (button.hasAttribute('data-use-investment-reset')) { delete state.investments[state.symbol]; render(); return; }
       const selectedTicker = !!button.dataset.useSymbol;
       if (selectedTicker) state.symbol = button.dataset.useSymbol;
       if (VIEWS.includes(button.dataset.useView)) state.view = button.dataset.useView;
@@ -26729,8 +26787,12 @@ function scenarioEventPhase(ev, now = Date.now()) {
       nextFocus?.focus({preventScroll:true});
       if (selectedTicker && host.innerWidth <= 700) root().querySelector('.use-decision-head')?.scrollIntoView({block:'start'});
     });
-    root().addEventListener('change', event => { if (event.target.hasAttribute('data-use-filter')) { state.filter = event.target.value; save(); render(); root().querySelector('[data-use-filter]')?.focus({preventScroll:true}); } });
+    root().addEventListener('change', event => {
+      if (event.target.hasAttribute('data-use-filter')) { state.filter = event.target.value; save(); render(); root().querySelector('[data-use-filter]')?.focus({preventScroll:true}); }
+      updateInvestment(event.target);
+    });
     root().addEventListener('input', event => {
+      if (updateInvestment(event.target)) return;
       if (!event.target.hasAttribute('data-use-search')) return;
       state.query = event.target.value; const position = event.target.selectionStart;
       render(); const input = root().querySelector('[data-use-search]'); input.focus();
@@ -26750,7 +26812,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     state.loading = true; state.error = ''; render();
     try {
       const response = await host.fetch(options.url(), { credentials: 'same-origin', cache: 'no-store', signal: controller.signal });
-      if (response.status === 401 || response.status === 403) { state.data = null; throw new Error('Owner access is required. Sign in again to view private decisions.'); }
+      if (response.status === 401 || response.status === 403) { state.data = null; state.investments = {}; throw new Error('Owner access is required. Sign in again to view private decisions.'); }
       if (response.status === 404) throw new Error('No decision snapshot has been published yet. Check after the next 11:00 or 15:30 ET build.');
       if (!response.ok) throw new Error('The published snapshot could not be loaded. Try again.');
       let payload;
@@ -26773,6 +26835,105 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
   return { load, open };
 })(window, document, {
+    investment: (function investmentPerspectiveFactory(valuation) {
+  const finite = value => typeof value === 'number' && Number.isFinite(value);
+  const round = value => finite(value) ? Math.round(value * 10000) / 10000 : null;
+  const defaults = model => ({ growthPct: model.base.inputs.growthPct,
+    operatingMarginPct: model.base.inputs.operatingMarginPct,
+    exitMultiple: model.multiple.value, requiredReturnPct: 12 });
+  function calculate(model, draft = defaults(model)) {
+    const errors = [];
+    for (const [key, low, high, label] of [
+      ['growthPct', -95, 200, 'Revenue growth'], ['operatingMarginPct', .1, 80, 'Operating margin'],
+      ['exitMultiple', 1, 100, 'Exit earnings multiple'], ['requiredReturnPct', 1, 50, 'Required annual return'],
+    ]) if (!finite(draft[key]) || draft[key] < low || draft[key] > high) errors.push(`${label} must be between ${low} and ${high}.`);
+    if (finite(model.base.inputs.grossMarginPct) && draft.operatingMarginPct > model.base.inputs.grossMarginPct) errors.push('Operating margin cannot exceed the supported gross margin.');
+    if (errors.length) return { status: 'unavailable', label: 'Review assumptions', errors, scenarios: [], range: null, requiredGrowthPct: null };
+    const scenarios = [];
+    for (const [key, label, growthShift, marginShift, multipleFactor] of [
+      ['downside', 'Lower assumptions', -5, -2, .8], ['base', 'Base assumptions', 0, 0, 1], ['upside', 'Higher assumptions', 5, 2, 1.2],
+    ]) {
+      const inputs = { ...model.base.inputs, growthPct: Math.max(-95, draft.growthPct + growthShift),
+        operatingMarginPct: Math.min(model.base.inputs.grossMarginPct ?? 80, draft.operatingMarginPct + marginShift),
+        exitMultiple: Math.min(120, draft.exitMultiple * multipleFactor) };
+      const outcome = valuation.calculate(model.base, inputs, { asOf: model.asOf });
+      if (outcome.status !== 'supported' || !(outcome.target > 0) || !finite(outcome.priceReturnPct)) {
+        errors.push(outcome.reason || 'The supported earnings bridge cannot price these assumptions.');
+        continue;
+      }
+      scenarios.push({ key, label, growthPct: round(inputs.growthPct), operatingMarginPct: round(inputs.operatingMarginPct),
+        exitMultiple: round(inputs.exitMultiple), revenue: round(outcome.revenue), eps: round(outcome.eps),
+        priceAtHorizon: round(outcome.target), presentValue: round(outcome.target / (1 + draft.requiredReturnPct / 100)),
+        priceReturnPct: round(outcome.priceReturnPct) });
+    }
+    if (errors.length || scenarios.length !== 3) return { status: 'unavailable', label: 'Incomplete scenario bridge', errors, scenarios: [], range: null, requiredGrowthPct: null };
+    const low = Math.min(...scenarios.map(row => row.presentValue)), high = Math.max(...scenarios.map(row => row.presentValue));
+    const middle = scenarios.find(row => row.key === 'base');
+    const status = model.spot < low ? 'below-range' : model.spot > high ? 'above-range' : 'within-range';
+    // Solve the SAME earnings bridge for a future price that meets the hurdle.
+    const reverseBase = { ...model.base, reference: { ...model.base.reference, spot: model.spot * (1 + draft.requiredReturnPct / 100) } };
+    const reverse = valuation.calculate(reverseBase, { ...model.base.inputs, ...draft }, { asOf: model.asOf });
+    return { status, label: { 'below-range': 'Below the scenario value range', 'within-range': 'Within the scenario value range', 'above-range': 'Above the scenario value range' }[status], errors: [],
+      scenarios, range: { low, high }, basePresentValue: middle.presentValue,
+      gapToBasePct: round((middle.presentValue / model.spot - 1) * 100),
+      requiredGrowthPct: round(reverse.requiredGrowthPct), requiredReturnPct: draft.requiredReturnPct,
+      interpretation: status === 'below-range' ? 'The price is below all three conditional present values. Review whether the assumptions and required return adequately reflect business risk.'
+        : status === 'above-range' ? 'The current price needs more favorable assumptions than this scenario range supports.'
+          : 'The current price falls inside the scenario range. The purchase case depends on which assumptions prove reasonable.' };
+  }
+  return { defaults, calculate };
+})((function fullYearValuationFactory(){
+  const finite=x=>typeof x==='number'&&Number.isFinite(x);
+  const sum=xs=>xs.reduce((a,b)=>a+b,0);
+  function base(c){
+    const rows=(c.companyRecord?.quarters||[]),latest=rows.at(-1),same=rows.filter(q=>q.currency===latest?.currency&&q.basis===latest?.basis).slice(-4);
+    const continuous=same.length===4&&same.every((q,i)=>!i||(Date.parse(q.start)-Date.parse(same[i-1].end))/86400000>=1&&(Date.parse(q.start)-Date.parse(same[i-1].end))/86400000<=20);
+    const a=c.forecast.assumptions||{},f=c.valuationReference||{},mix=c.mix?.product;
+    const age=(Date.parse(f.asOf||c.companyRecord?.asOf)-Date.parse(latest?.end))/86400000;
+    const newerReported=Date.parse(f.reportedPeriodEnd)-Date.parse(latest?.end)>14*86400000;
+    const unavailableReason=c.former?'This company left the current research list. Its frozen quarterly record remains available.':newerReported?'A newer reporting period is known. Full-year valuation waits for its supported financial statements.':!Number.isFinite(age)||age<0||age>180?'The latest supported reporting period is missing or more than 180 days old.':null;
+    const ready=!unavailableReason&&continuous&&same.every(q=>finite(q.metrics.revenue?.value)&&q.metrics.revenue.value>0);
+    const reportedMix=mix?.reconciliation?.status==='matched'&&mix.currency===latest?.currency&&Array.isArray(mix.rows)&&mix.rows.length&&mix.rows.every(r=>finite(r.value)&&r.value>=0);
+    const total=reportedMix?sum(mix.rows.map(r=>r.value)):0;
+    const lines=total>0?mix.rows.map(r=>({name:r.name,weight:r.value/total,demandPct:0,pricePct:0})):[{name:'Consolidated business',weight:1,demandPct:0,pricePct:0}];
+    return {version:1,symbol:c.symbol,currency:latest?.currency||c.forecast.currency||null,status:ready?'ready':'incomplete-history',unavailableReason,
+      baselineRevenue:ready?sum(same.map(q=>q.metrics.revenue.value)):null,quarters:same.map(q=>({start:q.start,end:q.end,revenue:q.metrics.revenue?.value??null})),
+      latestEnd:latest?.end||null,targetStart:c.forecast.target?.start||null,
+      // Four quarter-medians are an explicit annual assumption, not a reported annual result.
+      inputs:{growthPct:finite(a.growthRate)?a.growthRate*100:0,grossMarginPct:finite(a.grossMargin)?a.grossMargin*100:null,operatingMarginPct:finite(a.operatingMargin)?a.operatingMargin*100:null,taxRatePct:finite(a.taxRate)?a.taxRate*100:null,nonoperating:finite(a.nonoperating)?a.nonoperating*4:null,commonIncomeAdjustment:finite(a.commonIncomeAdjustment)?a.commonIncomeAdjustment*4:null,dilutedShares:latest?.metrics.dilutedShares?.value??null,shareChangePct:0,exitMultiple:finite(f.forwardPE)&&f.forwardPE>0?f.forwardPE:null,dividendsPerShare:null,lines},
+      epsSupported:finite(c.forecast.outputs?.eps)&&c.forecast.latestEnd===latest?.end,reference:f,
+      mixPeriod:reportedMix?mix.period?.currentPeriod?.endDate||null:null,
+      mixBasis:reportedMix?'Disclosed product mix allocated across the full-year baseline; historical shares are a scenario assumption':'Consolidated baseline',
+      sourceFingerprint:JSON.stringify([c.forecast.id,c.forecast.inputKey,c.former,latest?.end,same.map(q=>q.metrics),mix,f]),
+      note:'Next four fiscal quarters, approximately twelve months. A constant annual growth assumption is applied to the last four comparable seasonal quarters. Financial bridge uses explicit annual assumptions. This is an uncalibrated sensitivity, not a price forecast.'};
+  }
+  function calculate(b,d,{asOf=b.reference.asOf}={}){
+    const unavailable=reason=>({status:'unavailable',reason,revenue:null,operatingIncome:null,netIncome:null,eps:null,target:null,priceReturnPct:null,totalReturnPct:null,requiredRevenue:null});
+    if(b.status!=='ready'||!finite(b.baselineRevenue))return unavailable(b.unavailableReason||'Four consecutive same-basis reported quarters are required. Missing quarters are not annualized.');
+    if(!finite(d.growthPct)||d.growthPct< -100||d.growthPct>500)return unavailable('Annual revenue growth must be between -100% and 500%.');
+    if(finite(d.grossMarginPct)&&(d.grossMarginPct< -100||d.grossMarginPct>100||finite(d.operatingMarginPct)&&d.operatingMarginPct>d.grossMarginPct))return unavailable('Operating margin cannot exceed the assumed gross margin. Gross margin must be between -100% and 100%.');
+    if(!Array.isArray(d.lines)||!d.lines.length||d.lines.length>40||d.lines.some(r=>!finite(r.weight)||r.weight<0||!finite(r.demandPct)||r.demandPct< -100||r.demandPct>500||!finite(r.pricePct)||r.pricePct< -100||r.pricePct>500)||Math.abs(sum(d.lines.map(r=>r.weight))-1)>1e-8)return unavailable('Business-line starting shares must total 100%, with valid demand and price assumptions.');
+    const adjustedLines=d.lines.map(r=>({...r,revenue:b.baselineRevenue*(1+d.growthPct/100)*r.weight*(1+r.demandPct/100)*(1+r.pricePct/100)}));
+    const revenue=sum(adjustedLines.map(r=>r.revenue));
+    const operatingIncome=finite(d.operatingMarginPct)&&d.operatingMarginPct>=-100&&d.operatingMarginPct<=100?revenue*d.operatingMarginPct/100:null;
+    const pretax=finite(operatingIncome)&&finite(d.nonoperating)?operatingIncome+d.nonoperating:null;
+    const bridge=b.epsSupported&&finite(pretax)&&pretax>0&&finite(d.taxRatePct)&&d.taxRatePct>=0&&d.taxRatePct<=100&&finite(d.commonIncomeAdjustment)&&finite(d.dilutedShares)&&d.dilutedShares>0&&finite(d.shareChangePct)&&d.shareChangePct> -100&&d.shareChangePct<=500;
+    const shares=bridge?d.dilutedShares*(1+d.shareChangePct/100):null;
+    const net=bridge?pretax*(1-d.taxRatePct/100)+d.commonIncomeAdjustment:null;
+    const eps=finite(net)&&net>0?net/shares:null;
+    const target=finite(eps)&&finite(d.exitMultiple)&&d.exitMultiple>0&&d.exitMultiple<=200?eps*d.exitMultiple:null;
+    const ref=b.reference,age=(Date.parse(asOf)-Date.parse(ref.quoteAsOf))/3600000;
+    const comparable=ref.currency===b.currency&&b.currency==='USD'&&b.symbol!=='TSM'&&finite(ref.spot)&&ref.spot>0&&Number.isFinite(age)&&age>=0&&age<=96;
+    const priceReturnPct=comparable&&finite(target)?(target/ref.spot-1)*100:null;
+    const dividends=finite(d.dividendsPerShare)&&d.dividendsPerShare>=0?d.dividendsPerShare:null;
+    const totalReturnPct=finite(priceReturnPct)&&dividends!==null?(target+dividends-ref.spot)/ref.spot*100:null;
+    const requiredEps=comparable&&finite(d.exitMultiple)&&d.exitMultiple>0&&d.exitMultiple<=200?ref.spot/d.exitMultiple:null;
+    const requiredRevenue=bridge&&finite(requiredEps)&&d.taxRatePct<100&&d.operatingMarginPct>0?((requiredEps*shares-d.commonIncomeAdjustment)/(1-d.taxRatePct/100)-d.nonoperating)/(d.operatingMarginPct/100):null;
+    return {status:finite(eps)?'supported':'partial',revenue,operatingIncome,pretaxIncome:pretax,netIncome:finite(eps)?net:null,dilutedShares:shares,eps,target,priceReturnPct,totalReturnPct,requiredRevenue:finite(requiredRevenue)&&requiredRevenue>=0?requiredRevenue:null,requiredGrowthPct:finite(requiredRevenue)&&requiredRevenue>=0?(requiredRevenue/b.baselineRevenue-1)*100:null,adjustedLines,
+      reason:!b.epsSupported?'The accepted quarterly EPS bridge is unsupported; manual inputs cannot override that source limitation.':!finite(eps)?'EPS is withheld for missing financial inputs, unsupported share changes or losses.':!comparable?'Price comparison is unavailable: source date, currency or share basis is not comparable.':!finite(target)?'Enter a positive exit P/E, up to 200×, to calculate conditional value.':null};
+  }
+  return {base,calculate};
+})()),
     owner: function(){ return HAS_OWNER_ACCESS; },
     url: function(){ return '/api/auth/me?data=unified-signal.json'; },
     // Company record view: the grade breakdown (same panel as the Top Picks
@@ -26793,6 +26954,55 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }, (function unifiedSignalDisplayFactory() {
   const states = ['eligible','wait','watch','avoid','insufficient-data'];
   const finite = value => typeof value === 'number' && Number.isFinite(value);
+  const optionalNumber = value => value === null || finite(value);
+  const strings = value => Array.isArray(value) && value.every(item => typeof item === 'string');
+  const timestamp = value => typeof value === 'string' && Number.isFinite(Date.parse(value));
+  function perspectivesValid(value) {
+    if (value === undefined) return true; // Retained snapshots remain readable.
+    if (!value || value.version !== 1) return false;
+    if (value.quote !== undefined && (!value.quote || !optionalNumber(value.quote.value) || typeof value.quote.usable !== 'boolean' || typeof value.quote.current !== 'boolean')) return false;
+    const investment = value.investment, trading = value.trading;
+    if (!investment || investment.version !== 1 || !timestamp(investment.asOf) || typeof investment.horizon !== 'string'
+      || !['unavailable', 'below-range', 'within-range', 'above-range'].includes(investment.status)
+      || typeof investment.label !== 'string' || !strings(investment.missing) || !strings(investment.limitations) || !Array.isArray(investment.sources)) return false;
+    if (investment.status !== 'unavailable') {
+      const model = investment.model, result = investment.assessment;
+      if (!model?.base?.inputs || model.base.status !== 'ready' || model.base.epsSupported !== true || !(model.spot > 0) || model.currency !== 'USD'
+        || !timestamp(model.asOf) || !model.base.reference || !Array.isArray(model.base.inputs.lines)
+        || !model.base.inputs.lines.length || !model.base.inputs.lines.every(row => row && finite(row.weight) && finite(row.demandPct) && finite(row.pricePct))
+        || !finite(model.base.baselineRevenue) || !Array.isArray(model.base.quarters) || !model.base.quarters.every(q => q && typeof q.start === 'string' && typeof q.end === 'string')
+        || !model.multiple || !finite(model.multiple.value) || typeof model.multiple.basis !== 'string' || !Array.isArray(model.multiple.peers)
+        || !model.multiple.peers.every(peer => peer && typeof peer.symbol === 'string' && finite(peer.forwardPE))
+        || !['growthPct', 'operatingMarginPct', 'exitMultiple'].every(key => finite(model.base.inputs[key]) || key === 'exitMultiple' && model.base.inputs[key] === null)
+        || typeof investment.inputId !== 'string' || !result || result.status !== investment.status || typeof result.interpretation !== 'string'
+        || !Array.isArray(result.scenarios) || result.scenarios.length !== 3
+        || !result.scenarios.every(row => row && ['downside', 'base', 'upside'].includes(row.key) && typeof row.label === 'string'
+          && ['growthPct', 'operatingMarginPct', 'exitMultiple', 'revenue', 'eps', 'priceAtHorizon', 'presentValue', 'priceReturnPct'].every(key => finite(row[key])))
+        || !result.range || !(result.range.low > 0) || !(result.range.high >= result.range.low)
+        || !optionalNumber(result.requiredGrowthPct) || !finite(result.requiredReturnPct)) return false;
+    } else if (investment.model !== null || investment.assessment !== null) return false;
+    if (!trading || trading.version !== 1 || !timestamp(trading.asOf) || typeof trading.horizon !== 'string'
+      || !['insufficient-data', 'no-setup', 'invalidated', 'wait', 'setup'].includes(trading.status)
+      || !['bullish', 'bearish', 'mixed'].includes(trading.direction) || typeof trading.label !== 'string'
+      || !strings(trading.blocks) || !strings(trading.limitations) || !Array.isArray(trading.confirmation)
+      || !trading.confirmation.every(row => row && typeof row.label === 'string' && typeof row.pass === 'boolean')
+      || !trading.coverage || !finite(trading.coverage.sessions) || !trading.execution || typeof trading.execution.qualified !== 'boolean' || typeof trading.execution.reason !== 'string'
+      || !trading.volatility || typeof trading.volatility.label !== 'string' || typeof trading.volatility.note !== 'string'
+      || !['iv', 'mean', 'change5dPct'].every(key => optionalNumber(trading.volatility[key]))) return false;
+    if (trading.setup !== null && (!trading.setup || typeof trading.setup.name !== 'string' || typeof trading.setup.asOf !== 'string' || !['call', 'put'].includes(trading.setup.side)
+      || !finite(trading.setup.atr) || !optionalNumber(trading.setup.rvol) || typeof trading.setup.confirmed !== 'boolean')) return false;
+    if (trading.plan !== null && (!trading.plan || !['entry', 'target', 'invalidation', 'trigger', 'rewardRisk', 'riskAtr'].every(key => optionalNumber(trading.plan[key])) || typeof trading.plan.targetMethod !== 'string' || typeof trading.plan.warning !== 'string')) return false;
+    if (trading.peers !== null && (!trading.peers || !finite(trading.peers.n) || !optionalNumber(trading.peers.meanReturn5Pct) || typeof trading.peers.note !== 'string' || !Array.isArray(trading.peers.members))) return false;
+    if (trading.history !== null && (!trading.history || typeof trading.history.interpretation !== 'string' || !Array.isArray(trading.history.horizons)
+      || !trading.history.horizons.every(row => row && [5, 10].includes(row.sessions) && finite(row.n)
+        && ['meanReturnPct', 'medianReturnPct', 'positiveOutcomePct', 'baselineMeanPct'].every(key => optionalNumber(row[key])) && finite(row.baselineN)
+        && Array.isArray(row.samples) && row.samples.length === row.n && row.samples.every(sample => sample && typeof sample.signalDate === 'string' && typeof sample.outcomeDate === 'string' && finite(sample.signedReturnPct) && finite(sample.adverseMovePct))))) return false;
+    if (trading.inputs !== null && (!trading.inputs || trading.inputs.encoding !== 'deflate-raw-json-base64' || !Number.isInteger(trading.inputs.rows)
+      || trading.inputs.rows < 1 || trading.inputs.rows > 520 || typeof trading.inputs.sourceHash !== 'string'
+      || !/^[a-f0-9]{64}$/.test(trading.inputs.sourceHash) || typeof trading.inputs.data !== 'string' || trading.inputs.data.length > 200000
+      || !Array.isArray(trading.inputs.columns) || trading.inputs.columns.join(',') !== 'date,high,low,close,volume')) return false;
+    return true;
+  }
   function valid(payload) {
     if (payload?.version !== 1 || typeof payload.engineVersion !== 'string' || !Array.isArray(payload.decisions) || payload.decisions.length > 1000) return false;
     const built = Date.parse(payload.builtAtIso), expiry = Date.parse(payload.validUntil);
@@ -26804,7 +27014,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       seen.add(row.symbol);
       return states.includes(row.status) && ['bullish','bearish','mixed'].includes(row.direction)
         && (row.grade === null || finite(row.grade)) && row.quote && (row.quote.value === null || finite(row.quote.value))
-        && row.plan && Array.isArray(row.blocks) && row.blocks.every(s => typeof s === 'string')
+        && row.plan && perspectivesValid(row.perspectives) && Array.isArray(row.blocks) && row.blocks.every(s => typeof s === 'string')
         && Array.isArray(row.evidence) && row.evidence.every(e => e && typeof e.id === 'string' && typeof e.title === 'string' && ['supports','opposes','context'].includes(e.effect))
         && row.uncertainty && Array.isArray(row.uncertainty.missing) && row.uncertainty.missing.every(s => typeof s === 'string') && row.valuation && row.stress && Array.isArray(row.stress.paths) && row.stress.paths.every(s => s && typeof s.name === 'string' && finite(s.low) && finite(s.high))
         && row.thesis && row.review && Array.isArray(row.review.invalidators) && row.changes && Array.isArray(row.changes.items)

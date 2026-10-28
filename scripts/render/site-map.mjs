@@ -85,7 +85,7 @@ export const SITE_SECTIONS = [
   {
     id: 'owner', label: 'Owner', short: 'Owner', desc: 'Private research', owner: true,
     items: [
-      { id: 'unified-signal-engine', label: 'Unified Signal Engine', blurb: 'All private signals combined into one ranked read.' },
+      { id: 'unified-signal-engine', label: 'Unified Signal Engine', blurb: 'Existing decisions with separate investment and trading perspectives.' },
       { id: 'market', label: 'Market analysis', blurb: 'The cross-asset tape, risk barometer and regime history.' },
       { id: 'risk', label: 'Risk analysis', blurb: 'Seven risk desks read together, with the reason when they disagree.' },
       { id: 'bottom-tracker', label: 'Bottom tracker', blurb: 'Signs the market is washing out and turning.' },

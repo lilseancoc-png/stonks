@@ -4,14 +4,14 @@ import { buildUnifiedSignalEngine, writeUnifiedSignalEngine } from '../lib/unifi
 import { etClock } from '../lib/us-equity-calendar.mjs';
 
 // Reuse the completed bake's local artifacts. No remote hydration or AI work.
-export async function publishUnifiedSignal({ dataDir, builtAtIso, chains, grades, previous = null } = {}) {
+export async function publishUnifiedSignal({ dataDir, builtAtIso, chains, grades, previous = null, assessmentAtIso = builtAtIso } = {}) {
   const read = async key => { try { return JSON.parse(await readFile(resolve(dataDir, key), 'utf8')); } catch { return null; } };
   const day = etClock(Date.parse(builtAtIso)).date;
-  const [picks, market, evidence, quant, linkMap, rotation, gradeSource] = await Promise.all([
+  const [picks, market, evidence, quant, linkMap, rotation, gradeSource, forecast, ivTrending] = await Promise.all([
     read('picks.json'), read('market-analysis.json'), read(`evidence/${day}.json`),
-    read('quant.json'), read('link-map.json'), read('sector-rotation.json'), read('grades.json'),
+    read('quant.json'), read('link-map.json'), read('sector-rotation.json'), read('grades.json'), read('earnings-forecast.json'), read('iv-trending.json'),
   ]);
-  const payload = buildUnifiedSignalEngine({ builtAtIso, chains, grades, previous, picks,
+  const payload = buildUnifiedSignalEngine({ builtAtIso, assessmentAtIso, chains, grades, previous, picks, forecast, ivTrending,
     scenario: market?.scenarioEngine || market?.scenario || null, evidence, quant, linkMap, rotation, gradeModelVersion: gradeSource?.gradeModelVersion || null });
   await writeUnifiedSignalEngine(dataDir, payload);
   return payload;
