@@ -32,6 +32,10 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Added
 
+- Forced Liquidation Tracker reads Form 144 and 8-K filings and flags reported forced sales (margin calls, pledgee or lender sales, foreclosures); risk-factor wording never counts. 13D pledges without margin terms now open up to two loan exhibits.
+- Every current pledge gets a 0–100 pledge stress score from the drop since disclosure, the drop from the 52-week high, days of volume, share of float, the modeled trigger and any forced-sale report.
+- New Owner views on the tracker: **Hot funds** ($3B+ 13F books up 30% (watch) or 40% (alert) YTD or last quarter, their leverage tells, top 15 holdings priced daily, recent 13D/G and Form 4 filings, and our stocks they hold), **ETF rebalance** (estimated end-of-day trades of single-stock leveraged ETFs) and **Cluster selloffs** (a logged-only Archegos-style detector). No AI calls.
+
 - Historical Data and Pattern lab measure seasonal and election-cycle windows on the S&P 500 index since 1950 (18 midterm years, 1954–2022, instead of SPY's 8) and the Nasdaq Composite since 1971; both are now the default market.
 - Historical Data runs data checks every build (missing sessions, off-calendar dates, SPY-vs-index date-label alignment, FRED dating, FOMC/WWDC/event/release date lists) and shows them in Sources as "Data checks"; `scripts/audit-historical-quality.mjs` runs the same checks on raw downloads.
 - The Grade tab's earnings history adds a long-run line over up to ten years of stored prints; a one-time backfill per ticker fills the older years.

@@ -5,6 +5,7 @@ import {resolve,extname} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {liquidationFixture} from './fixtures/forced-liquidation.mjs';
 import {buildForcedLiquidationPayload} from '../lib/forced-liquidation.mjs';
+import {leverageDistressFixture} from './fixtures/leverage-distress.mjs';
 export async function createLiquidationPreview({port=0,payloadFile=null}={}){
   const root=resolve(fileURLToPath(new URL('..',import.meta.url))),fixture=liquidationFixture();
   const payload=payloadFile?JSON.parse(await readFile(payloadFile,'utf8')):fixture.payload;
@@ -30,6 +31,10 @@ export async function createLiquidationPreview({port=0,payloadFile=null}={}){
       if(scenario==='stale-volume')return json({...payload,rows:payload.rows.map(r=>({...r,market:r.market?{...r.market,volumeAsOf:'2026-01-01'}:null}))});
       if(scenario==='currency-history')return json(buildForcedLiquidationPayload({observations:fixture.observations.map(r=>r.asOfDate==='2026-09-23'?{...r,currency:'unresolved'}:r),chains:fixture.chains,coverage:fixture.coverage,builtAtIso:fixture.payload.builtAtIso}));
       return json(payload);
+    }
+    if(key==='leverage-distress.json'){
+      if(['anonymous','tp-only','tr-only','disabled'].includes(scenario))return json({error:'Owner role required'},401);
+      return json(leverageDistressFixture(payload.builtAtIso));
     }
     if(key==='manifest.json'||key==='manifest-free.json')return json(manifest);
     if(key==='picks.json')return json({builtAtIso:payload.builtAtIso,picks:[],rosterMeta:{forcedLiquidationWatch:payload.rows.filter(r=>r.state!=='debt-context').map(r=>({symbol:r.symbol,state:r.state,distancePct:r.distancePct,engineEligible:r.engineEligible,vetoLong:r.vetoLong}))}});

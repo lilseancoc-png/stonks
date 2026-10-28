@@ -86,6 +86,7 @@ import { forcedLiquidationContext } from "../lib/forced-liquidation.mjs";
 import { buyoutContextFor } from "../lib/pending-buyout-guard.mjs";
 import { buildShadowSignals } from "../lib/shadow-signals.mjs";
 import { readForcedLiquidation, refreshForcedLiquidation, writeForcedLiquidation } from './refresh-forced-liquidation.mjs';
+import { emptyLeverageDistress, readLeverageDistress, refreshLeverageDistress, writeLeverageDistress } from './refresh-leverage-distress.mjs';
 import { withYahooTimeout } from "../lib/yahoo.mjs";
 import { yahooQuoteProvenance } from "../lib/quote-provenance.mjs";
 import { prepareTranscriptInput, assertTranscriptResponse, transcriptCharacterBudget } from "../lib/transcript-input.mjs";
@@ -37232,6 +37233,10 @@ async function main() {
   const aiCapexBriefs = await readAiCapexCallBriefs();
   const priorCapitalRaises = await readPriorCapitalRaises();
   const priorLiquidation = await readForcedLiquidation(DATA_DIR);
+  // Hot funds / leveraged ETF rebalance / cluster selloffs. The payload keeps
+  // per-fund snapshot history and the state keeps 13F price tables, so both
+  // are read before the wipe.
+  const priorLeverageDistress = await readLeverageDistress(DATA_DIR);
   // Prior IPOs & Credit snapshot — accumulates the universe issuance events
   // across builds and caches the immutable completed-quarter EDGAR counts +
   // the quarterly NY Fed household-credit parse, so it must be pre-read
@@ -37399,6 +37404,22 @@ async function main() {
     prior:priorLiquidation, universe:TICKERS, chains, cikMap:_cikMap, builtAtIso:new Date().toISOString(), quoteClient:yahooFinance,
   });
   console.log(`Collateral tracker: ${forcedLiquidation.rows.length} disclosure(s), SEC ${forcedLiquidation.coverage.status}, ${forcedLiquidation.coverage.requestsThisRun} source request(s)`);
+  // Still inside the serial SEC stage. At most one 13F data-set window (one
+  // SEC download) per build, and never on a Top Picks decision run, so the
+  // 11:00 and 15:30 bakes keep their timing. No AI calls.
+  let leverageDistress;
+  try {
+    leverageDistress = await refreshLeverageDistress({
+      prior: priorLeverageDistress.payload, priorState: priorLeverageDistress.state, universe: TICKERS, chains, now: new Date().toISOString(),
+      quoteClient: yahooFinance, cusipMapper: fetchOpenFigiCusipMap, levEtfSingles: LEVERAGED_ETF_SINGLES, groupOf: sectorGroupOf,
+      allowBulk: /^(?:0|false)$/i.test(process.env.REFRESH_TOP_PICKS || "1") || process.env.LEVERAGE_BULK === "1",
+    });
+    const hf = leverageDistress.payload.hotFunds;
+    console.log(`Leverage distress: ${hf.counts.flagged} hot fund(s) (${hf.counts.alert} alert), 13F ${hf.coverage.bulk.status}${hf.coverage.bulk.period ? " " + hf.coverage.bulk.period : ""}, ${leverageDistress.payload.rebalance.rows.length} ETF rebalance row(s), cluster ${leverageDistress.payload.clusters.today?.flagged ? "FLAGGED" : "quiet"}`);
+  } catch (err) {
+    console.warn(`  ⚠ leverage distress collection failed: ${String(err?.message || err).split("\n")[0]}`);
+    leverageDistress = { payload: priorLeverageDistress.payload ? { ...priorLeverageDistress.payload, errors: [{ stage: "collect", message: String(err?.message || err) }] } : emptyLeverageDistress(new Date().toISOString(), String(err?.message || err)), state: priorLeverageDistress.state || { version: 1 } };
+  }
   // Kick off 13F enrichment (SEC EDGAR per-firm holdings + OpenFIGI CUSIP map)
   // NOW so its ~60-80s runs CONCURRENTLY with the narratives + calendar + scoring
   // phases below, instead of serially after them — it was the build's second
@@ -37560,6 +37581,7 @@ async function main() {
   // Scan timestamps remain on coverage. The artifact gets this generation's
   // stamp, which is created only after the network stages have completed.
   forcedLiquidation.builtAtIso = builtAtIso;
+  leverageDistress.payload.builtAtIso = builtAtIso;
   // AI rejection log: exact-get today's file plus the firstSeen window BEFORE
   // writeChainFiles wipes data/. Missing history is not a failed bake.
   let aiRejectionContext = { today: null, prior: [] };
@@ -37612,6 +37634,7 @@ async function main() {
     builtAtIso,
   );
   await writeForcedLiquidation(DATA_DIR, forcedLiquidation);
+  await writeLeverageDistress(DATA_DIR, leverageDistress);
   if (leapsPicks.length) {
     try {
       const paper = await writeLeapsPaperTrack({

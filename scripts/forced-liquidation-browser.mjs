@@ -102,7 +102,7 @@ try{
     ok(sortedCsv.includes('quote_fresh')&&sortedCsv.includes('sec_scan_status'),'CSV carries uncertainty and source state');
     await page.reload();await root.locator('.fl-table').waitFor();ok((await root.locator('.fl-table tbody [data-fl-open]').allTextContents()).join(',')==='SCEN,GAPS,ATLS','header sort persists');
     await root.locator('[data-fl-sort]').selectOption('distance');ok(await root.locator('[data-fl-sort-key="distance"]').locator('..').getAttribute('aria-sort')==='ascending','sort menu takes control of sorting');
-    await root.locator('[data-fl-view="watch"]').focus();await page.keyboard.press('ArrowRight');ok(await root.locator('[data-fl-view="evidence"]').getAttribute('aria-selected')==='true','keyboard changes view');
+    await root.locator('[data-fl-view="watch"]').focus();await page.keyboard.press('ArrowRight');ok(await root.locator('[data-fl-view="funds"]').getAttribute('aria-selected')==='true','keyboard changes view');
     await page.keyboard.press('End');ok(await root.locator('[data-fl-view="method"]').getAttribute('aria-selected')==='true');await page.keyboard.press('Home');
     await root.locator('[data-fl-filter]').selectOption('topups');ok((await root.locator('.fl-table tbody tr').count())===1);
     await root.locator('[data-fl-open]').click();await root.locator('.fl-detail').waitFor();
@@ -124,6 +124,21 @@ try{
     await root.locator('[data-fl-view="evidence"]').click();ok((await root.locator('.fl-evidence').count())===4);
     await page.reload();await root.locator('.fl-evidence').first().waitFor();ok((await root.locator('[data-fl-view="evidence"]').getAttribute('aria-selected'))==='true','view persists');
     await root.locator('[data-fl-view="method"]').click();ok((await root.innerText()).includes('Trigger price = outstanding loan ÷ (pledged shares × maintenance LTV)'));
+    await root.locator('[data-fl-view="funds"]').click();await root.locator('[data-fl-fund]').first().waitFor();
+    ok((await root.locator('[data-fl-fund]').count())===2,'hot funds listed');ok((await root.innerText()).includes('Alert · 40%+'),'alert level shown');
+    ok((await root.innerText()).includes('Our stocks held by hot funds'),'stock links shown');
+    await page.evaluate(()=>{document.activeElement?.blur();scrollTo(0,0);});await page.screenshot({path:resolve(output,'funds-'+width+'-'+theme+'.png'),fullPage:false});
+    await root.locator('[data-fl-fund]').first().click();await root.locator('.fl-detail').waitFor();
+    ok((await root.locator('.fl-detail tbody tr').count())===6,'top holdings listed');ok((await root.locator('.fl-detail a').first().getAttribute('href')).startsWith('https://www.sec.gov/'),'filing links stay on sec.gov');
+    ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'fund detail fits');
+    await page.evaluate(()=>{document.activeElement?.blur();scrollTo(0,0);});await page.screenshot({path:resolve(output,'fund-detail-'+width+'-'+theme+'.png'),fullPage:false});
+    await root.locator('[data-fl-fund-close]').click();await root.locator('[data-fl-view="rebalance"]').click();
+    ok((await root.innerText()).includes('Sell $57'),'rebalance estimate shown');
+    await page.evaluate(()=>{document.activeElement?.blur();scrollTo(0,0);});await page.screenshot({path:resolve(output,'rebalance-'+width+'-'+theme+'.png'),fullPage:false});
+    await root.locator('[data-fl-view="clusters"]').click();ok((await root.innerText()).includes('Cluster selloff flagged today'),'cluster read shown');ok((await root.innerText()).includes('Shadow signal'),'cluster labeled shadow');
+    ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'clusters fit');
+    await page.evaluate(()=>{document.activeElement?.blur();scrollTo(0,0);});await page.screenshot({path:resolve(output,'clusters-'+width+'-'+theme+'.png'),fullPage:false});
+    await root.locator('[data-fl-view="method"]').click();
     for(const nextWidth of [390,1024,width]){await page.setViewportSize({width:nextWidth,height:1100});ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'resize fits '+nextWidth);}
     await root.locator('[data-fl-view="watch"]').click();await page.reload();await root.locator('.fl-table').waitFor();
     await page.goto(preview.base+'/?tab=picks',{waitUntil:'domcontentloaded'});await page.locator('#picks-liquidation-watch').waitFor();
