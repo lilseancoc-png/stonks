@@ -32,6 +32,8 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Added
 
+- Historical Data adds a **Before, on and after FOMC decisions** study: the S&P 500 index over the three sessions before each scheduled decision since 1994, the decision day and the three sessions after, split into hikes, cuts and holds (from the Fed's own list of rate changes) and compared with any stretch of the same length. The FOMC "Resembles now" card opens five days ahead and links to it, and a new data check compares the rate-change list with the effective fed funds rate.
+
 - Historical Data and Pattern lab measure seasonal and election-cycle windows on the S&P 500 index since 1950 (18 midterm years, 1954–2022, instead of SPY's 8) and the Nasdaq Composite since 1971; both are now the default market.
 - Historical Data runs data checks every build (missing sessions, off-calendar dates, SPY-vs-index date-label alignment, FRED dating, FOMC/WWDC/event/release date lists) and shows them in Sources as "Data checks"; `scripts/audit-historical-quality.mjs` runs the same checks on raw downloads.
 - The Grade tab's earnings history adds a long-run line over up to ten years of stored prints; a one-time backfill per ticker fills the older years.

@@ -46,8 +46,8 @@ try {
     assert.match(csv, /price_return_pct/); assert.match(csv, /"QQQ","midterm"/); assert.match(csv, /"true","false"/, 'in-progress comparison is explicitly incomplete');
     await root.locator('[data-history-view="sources"]').click();
     assert.match(await root.innerText(), /Ten-year coverage ledger/);
-    assert.match(await root.innerText(), new RegExp(preview.payload.coverage.ready + ' of 37'));
-    assert.equal(await root.locator('.h-source-table tbody tr').count(),37 + preview.payload.coverage.eventMarkets.length,'37 ledger rows plus the separately listed event-study histories');
+    assert.match(await root.innerText(), new RegExp(preview.payload.coverage.ready + ' of ' + preview.payload.coverage.total));
+    assert.equal(await root.locator('.h-source-table tbody tr').count(),preview.payload.coverage.total + preview.payload.coverage.eventMarkets.length,'ledger rows plus the separately listed event-study histories');
     assert.match(await root.innerText(), /Event-study histories/);
     assert.match(await root.innerText(), /\$79\/month/);
     assert.match(await root.innerText(), /approval required/i);
