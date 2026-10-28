@@ -1,5 +1,5 @@
 // One display model for overview, charts, tables, and exported summaries.
-export function patternLabFactory(host, doc, views, symbolHref, dataUrl) {
+export function patternLabFactory(host, doc, views, symbolHref, dataUrl, openSymbol) {
   const $ = id => doc.getElementById(id);
   const escape = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
   const finite = value => typeof value === 'number' && Number.isFinite(value);
@@ -13,7 +13,7 @@ export function patternLabFactory(host, doc, views, symbolHref, dataUrl) {
     study:valid(store('study','all'), ['all',...Object.keys(names)], 'all'),
     symbol:valid(store('symbol',null), ['^GSPC','SPY','QQQ','IWM'], null), query:'', direction:'all'};
   const save = key => views.set('pattern-lab.' + key, state[key]);
-  const link = symbol => '<a class="pat-sym" href="' + escape(symbolHref(symbol)) + '">' + escape(symbol) + '</a>';
+  const link = symbol => '<a class="pat-sym" href="' + escape(symbolHref(symbol)) + '" data-pat-open="' + escape(symbol) + '">' + escape(symbol) + '</a>';
   function table(cols, rows, key, empty = 'No observations available for this snapshot.') {
     return views.tableHtml(cols, rows, {key:'pattern-' + key, empty});
   }
@@ -43,7 +43,10 @@ export function patternLabFactory(host, doc, views, symbolHref, dataUrl) {
     const seasonal = pieces.seasonality?.[state.symbol] || {};
     for (const m of seasonal.months || []) add('seasonality', state.symbol + ' · ' + m.name, m, m.avgPct, 'Full-month price return (%)');
     for (const d of seasonal.weekdays || []) add('seasonality', state.symbol + ' · ' + d.name, d, d.avgPct, 'Daily price return (%)');
-    for (const [key,label] of [['turnOfMonth','Turn of month'],['opexWeek','Expiration week'],['santa','Santa window'],['midterm','Midterm year']]) add('seasonality', state.symbol + ' · ' + label, seasonal[key], seasonal[key]?.avgPct, 'Full-window price return (%)');
+    for (const [key,label] of [['turnOfMonth','Turn of month'],['opexWeek','Expiration week'],['santa','Santa window'],['midterm','Midterm year']]) {
+      const s = seasonal[key], other = s?.outsideAvgPct ?? s?.otherAvgPct;
+      add('seasonality', state.symbol + ' · ' + label, s && finite(other) ? {...s, baselineAvgPct:other} : s, s?.avgPct, 'Full-window price return (%)');
+    }
     for (const [key,label] of [['rsiBullish','RSI bullish'],['rsiBearish','RSI bearish'],['macdBullish','MACD bullish'],['macdBearish','MACD bearish']]) {
       if (state.direction !== 'all' && !key.toLowerCase().endsWith(state.direction)) continue;
       let stats = pieces.divergences?.record?.[key];
@@ -89,7 +92,13 @@ export function patternLabFactory(host, doc, views, symbolHref, dataUrl) {
     if (season.unavailable || !season.months?.length) return '<p class="pat-note">Seasonal history is unavailable for this index.</p>';
     if (state.view === 'tables') return evidenceTable(summaryRows(pieces).filter(row => row.study === 'seasonality'),'seasonality');
     const note = 'Prior complete calendar years; price returns exclude cash distributions. These are seasonal descriptions, not forecasts.';
+    const active = season.active || {}, inside = [active.inTurnOfMonth && 'turn of month', active.inOpexWeek && 'expiration week', active.inSanta && 'the Santa window', active.midtermYear && 'a midterm year'].filter(Boolean);
+    const compare = [['turnOfMonth','Turn of month','other sessions','outsideAvgPct'],['opexWeek','Expiration week','other sessions','outsideAvgPct'],['midterm','Midterm years','other years','otherAvgPct']]
+      .filter(([key,,,field]) => finite(season[key]?.avgPct) && finite(season[key]?.[field]))
+      .map(([key,label,other,field]) => label + ' ' + pct(season[key].avgPct) + ' vs ' + other + ' ' + pct(season[key][field]));
     return '<p class="pat-note">' + escape(state.symbol) + ' · ' + number(season.years,1) + ' years · ' + (season.sessions || 0) + ' sessions. Calendar history is separate from the two-year stock studies.</p>' +
+      (active.date ? '<p class="pat-note">Latest session ' + escape(active.date) + (inside.length ? ' is inside ' + escape(inside.join(', ')) + '.' : ' is not inside any recurring window.') + '</p>' : '') +
+      (compare.length ? '<p class="pat-note">' + escape(compare.join(' · ')) + '.</p>' : '') +
       bars('Monthly returns', (season.months || []).map(row=>({label:row.name,n:row.n,value:row.avgPct,provisional:row.provisional})), 'Mean full-month return (%)', note) +
       (state.view === 'charts' ? bars('Weekday returns',(season.weekdays || []).map(row=>({label:row.name,n:row.n,value:row.avgPct,provisional:row.provisional})),'Mean daily return (%)', note) +
         bars('Recurring windows', ['turnOfMonth','opexWeek','santa','midterm'].map(key=>({label:{turnOfMonth:'Turn of month',opexWeek:'Expiration week',santa:'Santa window',midterm:'Midterm year'}[key],n:season[key]?.n,value:season[key]?.avgPct,provisional:season[key]?.provisional})),'Mean full-window return (%)','Window lengths differ; compare each with its own history, rather than ranking them as interchangeable signals.') : '');
@@ -146,6 +155,7 @@ export function patternLabFactory(host, doc, views, symbolHref, dataUrl) {
     root.innerHTML = '<div class="pat-toolbar"><div class="pat-switch" role="group" aria-label="Pattern Lab view">' + [['overview','Overview'],['charts','Charts'],['tables','Tables']].map(([key,label])=>'<button type="button" data-pat-view="' + key + '" aria-pressed="' + (state.view === key) + '">' + label + '</button>').join('') + '</div><label>Study<select data-pat-study aria-label="Pattern study">' + [['all','All studies'],...Object.entries(names)].map(([key,label])=>'<option value="' + key + '"' + (state.study === key ? ' selected' : '') + '>' + label + '</option>').join('') + '</select></label><button type="button" class="streaks-btn" data-pat-export>Export summary</button><button type="button" class="streaks-btn" data-pat-retry' + (state.pending ? ' disabled' : '') + '>' + (state.pending ? 'Refreshing…' : 'Refresh snapshot') + '</button></div>' +
       '<div class="pat-filters">' + (state.study === 'all' || state.study === 'seasonality' ? '<label>Index<select data-pat-symbol aria-label="Seasonal index">' + ['^GSPC','SPY','QQQ','IWM'].map(symbol=>'<option' + (state.symbol === symbol ? ' selected' : '') + '>' + symbol + '</option>').join('') + '</select></label>' : '') + '<label>Find ticker<input type="search" data-pat-query aria-label="Filter current tickers" value="' + escape(state.query) + '" placeholder="Current divergences and peers"></label><label>Divergence direction<select data-pat-direction aria-label="Divergence direction">' + ['all','bullish','bearish'].map(value=>'<option value="' + value + '"' + (state.direction === value ? ' selected' : '') + '>' + value + '</option>').join('') + '</select></label></div>' +
       '<p class="pat-note">Explore current conditions and past outcomes. Each study uses its own return horizon and units.</p>' +
+      (state.error ? '<p class="pat-flag" role="status">The refresh did not load, so this is the snapshot already on the page.</p>' : '') +
       ((!finite(stale) || Date.now() - stale > 72 * 3600000) ? '<p class="pat-flag" role="status">Reference snapshot: this data is more than three days old or its build date is unavailable.</p>' : '') +
       '<p class="pat-note">Stock history: up to two years. Expand coverage for actual dates and sample sizes.</p>' + coverage(data) +
       selected.map(key=>section(key,pieces)).join('') + '<p class="pat-note">All results describe the available sample. Observations can overlap, and no view establishes a trading probability or changes grades or positions.</p>';
@@ -161,6 +171,10 @@ export function patternLabFactory(host, doc, views, symbolHref, dataUrl) {
   function bind() {
     const root = $('pattern-lab-root'); if (!root || state.bound) return; state.bound = true;
     root.addEventListener('click',event=>{
+      const open = event.target.closest('a[data-pat-open]');
+      if (open && typeof openSymbol === 'function' && event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {
+        event.preventDefault(); openSymbol(open.dataset.patOpen); return;
+      }
       const button = event.target.closest('button'); if (!button) return;
       if (button.dataset.patView) {state.view = button.dataset.patView;save('view');render();root.querySelector('[data-pat-view="' + state.view + '"]')?.focus();}
       if (button.dataset.patExplore) {state.study=button.dataset.patExplore;state.view='charts';save('study');save('view');render();root.querySelector('[data-pat-study]')?.focus();}
@@ -186,7 +200,7 @@ export function patternLabFactory(host, doc, views, symbolHref, dataUrl) {
       const data = await response.json(); if (!data?.pieces || data.error) throw Error('Pattern snapshot unavailable');
       state.data=data;
       if (!state.symbol) state.symbol = data.pieces.seasonality?.['^GSPC']?.months?.length ? '^GSPC' : 'SPY';
-    } catch (error) {state.error=error;state.data=null;}
+    } catch (error) {state.error=error;}
     finally {state.pending=false;render();}
   }
   return {load,render};

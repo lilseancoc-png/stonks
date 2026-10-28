@@ -83,6 +83,7 @@ await check('A tracked shareholder CIK cannot turn an untracked collateral stock
     return normal(u);
   }});
   assert(c.observations.length);assert(c.observations.every(r=>r.symbol==='ARM'));
+  assert(!c.observations.some(r=>r.accessionNumber===accession),'the untracked schedule yields no ARM record');
 });
 await check('Daily cache reuse removes an old off-universe observation',async()=>{
   const c=await collectLiquidationSec({prior:{version:1,...collected,observations:[...collected.observations,adur]},universe:['ARM'],now,fetchImpl:()=>{throw new Error('Cache must be reused');},delayMs:0});
@@ -108,6 +109,32 @@ await check('The full refresh never requests a fallback quote for retained ADUR'
   const calls=[];
   const p=await refreshForcedLiquidation({prior:{version:1,...collected,observations:[...collected.observations,adur]},universe:['ARM'],chains:{},builtAtIso:now,delayMs:0,fetchImpl:fetcher(),quoteClient:{quote:async s=>{calls.push(s);return {};},chart:async()=>({quotes:[]}),quoteSummary:async()=>({})}});
   assert.deepEqual(calls,['ARM']);assert(p.rows.every(r=>r.symbol==='ARM'));
+});
+await check('Reading a 13D loan exhibit keeps the cover pledge',async()=>{
+  const normal=fetcher({keywordAdur:false}),accession='0009999999-26-000001',dir='https://www.sec.gov/Archives/edgar/data/9999999/000999999926000001';
+  const c=await collectLiquidationSec({universe:['ARM'],now,delayMs:0,fetchImpl:async u=>{
+    if(u.includes('search-index'))return response({hits:{total:{value:1},hits:[{_id:accession+':cover.htm',_source:{ciks:['9999999'],adsh:accession,form:'SCHEDULE 13D',file_date:'2026-10-20'}}]}});
+    if(u===dir+'/cover.htm')return response('<html><p>Name of Issuer: Arm Holdings plc</p><p>Example Holder has pledged 5,000,000 ordinary shares as collateral.</p></html>');
+    if(u===dir+'/index.json')return response({directory:{item:[{name:'cover.htm'},{name:'ex99-1loan.htm'}]}});
+    if(u===dir+'/ex99-1loan.htm')return response('<html><p>Borrower: Example Holder; 5,000,000 ordinary shares are pledged as collateral. Maintenance LTV is 50%.</p></html>');
+    return normal(u);
+  }});
+  const rows=c.observations.filter(r=>r.accessionNumber===accession);
+  assert(rows.some(r=>r.url===dir+'/cover.htm'&&r.disclosedShares===5000000),'cover pledge kept');
+  assert(rows.some(r=>r.url===dir+'/ex99-1loan.htm'&&r.fragmentId>=1000&&r.exhibitOf),'exhibit record has its own id');
+});
+await check('An issuer with several SEC tickers resolves to the tracked one',async()=>{
+  const normal=fetcher({keywordAdur:false});
+  const c=await collectLiquidationSec({universe:['ARM'],now,delayMs:0,fetchImpl:async u=>u.includes('company_tickers')?response({...directory,2:{ticker:'ARMXY',title:issuer.company,cik_str:1973239}}):normal(u)});
+  assert(c.observations.some(r=>r.symbol==='ARM'&&r.sharesPledged===769029000));
+});
+await check('A document that keeps failing is set aside instead of holding the scan partial',async()=>{
+  const normal=fetcher({keywordAdur:false});
+  const failing=async u=>u===armFiling.url?{ok:false,status:500,headers:new Headers(),json:async()=>({}),text:async()=>''}:normal(u);
+  let prior=null;const statuses=[];
+  for(let i=0;i<3;i++){const c=await collectLiquidationSec({prior,universe:['ARM'],now,delayMs:0,fetchImpl:failing});statuses.push(c.coverage.status);prior={version:1,...c};}
+  assert.deepEqual(statuses,['partial','partial','ok']);
+  assert.equal(prior.coverage.skippedDocuments.length,1);assert.equal(prior.coverage.pendingFilings.length,0);
 });
 if(process.env.ARM_FILING_FILE){
   await check('Actual Arm 2026 SEC report flows through collection into research-only ARM rows',async()=>{

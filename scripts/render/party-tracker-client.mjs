@@ -314,7 +314,9 @@ export function partyTrackerFactory(host, doc, options) {
         '<div class="pty-reads"><p>' + escape(highlight.health || '') + '</p><p>' + escape(highlight.energy || '') + '</p>' + (highlight.widest ? '<p>' + escape(highlight.widest) + '</p>' : '') + '</div>' +
         comparisonTable(data.rows);
     }
+    const missing = !data.carriedForward && Array.isArray(data.errors) ? data.errors.map((item) => item && item.id).filter(Boolean) : [];
     el.innerHTML = (data.carriedForward ? '<p class="pty-notice" role="status">This build could not refresh prices, so the figures below are the previous snapshot' + (data.asOf ? ', through ' + escape(data.asOf) : '') + '.</p>' : '') +
+      (missing.length ? '<p class="pty-notice" role="status">Prices for ' + escape(missing.join(', ')) + ' could not be downloaded in this build, so ' + (missing.length === 1 ? 'that fund is' : 'those funds are') + ' left out below.</p>' : '') +
       (data.current ? '<p class="pty-now">' + escape(data.current.read) + '</p>' : '') +
       '<p class="pty-caveat">' + escape(data.caveat || '') + ' Window: ' + escape(data.window.start) + ' through ' + escape(data.window.end) + '.</p>' +
       '<div class="pty-offices">' + cards + '</div>' + reads +

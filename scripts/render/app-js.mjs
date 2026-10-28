@@ -19562,6 +19562,7 @@ ${renderExportBindings()}
         eclAnalystChip(s.analystTone && s.analystTone.label) + '</div>' +
     '</div>';
     if (s.headline) html += '<div class="ecl-det-headline">' + escapeHtml(s.headline) + '</div>';
+    if (d.partial) html += '<p class="ecl-age">This summary was cut off at the AI output limit. Sections after the cut are missing; check the linked transcript.</p>';
     html += eclSection('Key takeaways', eclBullets(s.execSummary));
     // Financial highlights.
     var fin = '';
@@ -19676,6 +19677,7 @@ ${renderExportBindings()}
         eclAnalystChip(s.analystTone && s.analystTone.label) + '</div>' +
     '</div>';
     html += '<p class="ecl-age">' + escapeHtml(callAge.label) + ' · ' + escapeHtml(callReportContext(d,callsState.reports).label) + '. Check the linked transcript and newer releases before using this outlook.</p>';
+    if (d.partial) html += '<p class="ecl-age">This summary was cut off at the AI output limit. Sections after the cut are missing; check the linked transcript.</p>';
     html += '<section class="ecl-decision ecl-decision-' + decision.signal.tone + '">' +
       '<div class="ecl-decision-head"><span>Call verdict</span><h3>' + escapeHtml(decision.signal.label) + '</h3>' +
         (s.headline ? '<p>' + escapeHtml(s.headline) + '</p>' : '') + '</div>' +
@@ -20101,7 +20103,7 @@ ${renderExportBindings()}
   function startMaTrackerLive(){ maTrackerLivePoller.start(); }
   function stopMaTrackerLive(){ maTrackerLivePoller.stop(); }
 
-  var patternLab = (${patternLabFactory.toString()})(window, document, VIEWS, symGradeHref, dataUrl);
+  var patternLab = (${patternLabFactory.toString()})(window, document, VIEWS, symGradeHref, dataUrl, calGoToTicker);
   function loadPatternLab(){ patternLab.load(); }
 
 
@@ -21600,7 +21602,8 @@ ${renderExportBindings()}
     if (verdict === 'stress') return 'bad';
     return 'na';
   }
-  function btmSpark(values, name){
+  // levelOnly: a spread or rate, where drag-compare's % change is not a meaningful move.
+  function btmSpark(values, name, levelOnly){
     if (!values || values.length < 2) return '';
     var min = Infinity, max = -Infinity, i;
     for (i = 0; i < values.length; i++){
@@ -21618,7 +21621,7 @@ ${renderExportBindings()}
     var hover = chHoverAttr(values.map(function(v, i){
       var back = values.length - 1 - i;
       var when = back === 0 ? 'Latest' : back + ' points back';
-      return { x: (i / (values.length - 1)) * w, y: yOf(v), label: (name ? name + '\\n' : '') + when + '\\n' + shown(v), value: v, time: when };
+      return { x: (i / (values.length - 1)) * w, y: yOf(v), label: (name ? name + '\\n' : '') + when + '\\n' + shown(v), value: levelOnly ? undefined : v, time: when };
     }));
     return '<svg class="btm-spark" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" role="img" aria-label="' + escapeHtml(name || 'History') + '"' + hover + '>' + sparkAreaHtml(pts.join(' '), h) + '<polyline fill="none" points="' + pts.join(' ') + '"/></svg>';
   }
@@ -21702,7 +21705,7 @@ ${renderExportBindings()}
       }).join('');
       var spark = '';
       if (card.id === 'price' && d.spark && d.spark.spy) spark = btmSpark(d.spark.spy, 'SPY');
-      if (card.id === 'credit' && d.spark && d.spark.hy) spark = btmSpark(d.spark.hy, 'High-yield spread');
+      if (card.id === 'credit' && d.spark && d.spark.hy) spark = btmSpark(d.spark.hy, 'High-yield spread', true);
       html += '<article class="btm-card btm-' + btmTone(card.state) + '"><header><span>' + escapeHtml(card.phase || '') + '</span><h3>' + escapeHtml(card.title || '') + '</h3><em>' + escapeHtml(card.stateLabel || '') + '</em></header>' + spark + '<p>' + escapeHtml(card.summary || '') + '</p>' + (facts ? '<ul class="btm-facts">' + facts + '</ul>' : '') + '<small>' + escapeHtml(card.source || '') + '</small></article>';
     });
     html += '</div>';
@@ -28573,7 +28576,8 @@ ${renderExportBindings()}
         x: rows.length === 1 ? 0 : (i / (rows.length - 1)) * 100,
         y: 30 - ((row.v - min) / span) * 26,
         label: when + '\\n' + (ovnLevelStr(m, row.v) || String(row.v)),
-        value: row.v,
+        // A yield's move is read in basis points; drag-compare would show a % of the yield.
+        value: m.type === 'rate' ? undefined : row.v,
         time: when
       };
     }));

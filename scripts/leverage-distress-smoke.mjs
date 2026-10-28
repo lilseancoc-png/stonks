@@ -59,7 +59,7 @@ const stressRow = { pledge: { confirmed: true }, state: 'needs-terms', pledgedTo
 const s1 = pledgeStressScore({ row: stressRow, price: { changeSinceDisclosurePct: -50, fromHighPct: -60 }, recentEvent: '2026-10-20' });
 eq(s1.score, 100); eq(s1.band, 'high');
 const s2 = pledgeStressScore({ row: { ...stressRow, pledgedToAdvPct: null, pledgedToFloatPct: null }, price: null });
-eq(s2.score, 0); eq(s2.band, 'low'); eq(s2.missing.length, 4);
+eq(s2.score, 0); eq(s2.band, 'unscored'); eq(s2.missing.length, 4);
 eq(pledgeStressScore({ row: { ...stressRow, state: 'released' } }), null);
 const s3 = pledgeStressScore({ row: { ...stressRow, pledgedToAdvPct: 100, pledgedToFloatPct: 2 }, price: { changeSinceDisclosurePct: 10, fromHighPct: -10 } });
 eq(s3.band, 'low', 'a rising stock with a small block scores low');

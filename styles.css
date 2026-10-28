@@ -25321,6 +25321,9 @@ button.ovn-carry-card:hover,button.ovn-carry-card:focus-visible{border-color:var
    hover from the chart under them. */
 svg[data-ch]{ cursor: crosshair; touch-action: pan-y; pointer-events: all; }
 [data-cr]{ cursor: crosshair; touch-action: pan-y; }
+/* Charts inside a sideways scroller must still let a finger scroll it. */
+.fomc-day-chart-scroll svg[data-ch], .fomc-day-chart-scroll [data-cr],
+.book-table-wrap svg[data-ch], .book-table-wrap [data-cr]{ touch-action: pan-x pan-y; }
 .is-range-comparing .opt-pc-hover,
 .is-range-comparing .opt-pc-tip,
 .is-range-comparing .opt-fund-eh-cross,

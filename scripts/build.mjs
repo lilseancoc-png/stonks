@@ -82,7 +82,7 @@ import { readHistoricalSourceCache, refreshHistoricalSourceCache, loadFreeFredHi
 import { FOMC_DECISIONS, headlineHits, wwdcKeynote, WWDC_WINDOW_DAYS } from "../lib/historical-events.mjs";
 import { cleanHistoricalBars, cleanLongBars, confirmedMarketBars } from "../lib/historical-market-history.mjs";
 import { HISTORICAL_MARKETS, HISTORICAL_SOURCE_KEY } from "../lib/historical-sources.mjs";
-import { readForecastState, prepareEarningsForecast, writeEarningsForecast } from './refresh-earnings-forecast.mjs';
+import { readForecastState, readForecastFiles, restoreForecastFiles, prepareEarningsForecast, writeEarningsForecast } from './refresh-earnings-forecast.mjs';
 import { forcedLiquidationContext } from "../lib/forced-liquidation.mjs";
 import { buyoutContextFor } from "../lib/pending-buyout-guard.mjs";
 import { buildShadowSignals } from "../lib/shadow-signals.mjs";
@@ -91,7 +91,7 @@ import { fetchPartyBars, refreshPartyTracker } from './refresh-party-tracker.mjs
 import { emptyLeverageDistress, readLeverageDistress, refreshLeverageDistress, writeLeverageDistress } from './refresh-leverage-distress.mjs';
 import { withYahooTimeout } from "../lib/yahoo.mjs";
 import { yahooQuoteProvenance } from "../lib/quote-provenance.mjs";
-import { prepareTranscriptInput, assertTranscriptResponse, transcriptCharacterBudget } from "../lib/transcript-input.mjs";
+import { prepareTranscriptInput, transcriptListOverruns, transcriptCharacterBudget, salvageTruncatedJson } from "../lib/transcript-input.mjs";
 import { UNIFIED_SIGNAL_KEY } from "../lib/unified-signal.mjs";
 import { publishUnifiedSignal } from "./publish-unified-signal.mjs";
 import { attachLeapsExpirations, leapsExtraFetchEnabled } from "../lib/leaps-expirations.mjs";
@@ -7805,8 +7805,9 @@ const TRANSCRIPT_PROBES_PER_BUILD = Math.max(0, Number(process.env.TRANSCRIPT_PR
 const TRANSCRIPT_CONCURRENCY = Math.max(1, Number(process.env.TRANSCRIPT_CONCURRENCY) || 3);
 const TRANSCRIPT_PROBE_COOLDOWN_DAYS = 3;
 // Input-token lever: a big-cap call runs ~45-70k chars; 90k covers the tail
-// without letting a malformed page feed the model megabytes.
-const TRANSCRIPT_MAX_CHARS = transcriptCharacterBudget(process.env.AI_TRANSCRIPT_CHARS);
+// without letting a malformed page feed the model megabytes. Read at call
+// time: a malformed value fails the transcript step, not every importer.
+const transcriptMaxChars = () => transcriptCharacterBudget(process.env.AI_TRANSCRIPT_CHARS);
 // Sanity floor — shorter than this isn't a real call transcript (parse failure,
 // paywall stub, redirect page); skip and retry a later build.
 const TRANSCRIPT_MIN_CHARS = 6_000;
@@ -8254,9 +8255,9 @@ const TRANSCRIPT_SUMMARY_SYSTEM_PROMPT =
 // send maxItems for this large, deeply nested contract. Adding those 17
 // constraints on 2026-07-20 made every newly-discovered transcript request
 // fail with INVALID_ARGUMENT before the model could answer. The model still
-// receives the exact limits in its instruction below, and the normalizer caps
-// every array after parsing, so output quality/size remain bounded without
-// making the backend compile the combinatorial constrained-decoding grammar.
+// receives the exact limits in its instruction below; a response that runs
+// over one is kept whole and the overrun recorded, so the backend never has to
+// compile the combinatorial constrained-decoding grammar.
 function transcriptOpenApiSchema(node = TRANSCRIPT_SUMMARY_SCHEMA) {
   if (Array.isArray(node)) return node.map((value) => transcriptOpenApiSchema(value));
   if (!node || typeof node !== "object") return node;
@@ -8296,68 +8297,99 @@ export function transcriptSummaryGenerateConfig() {
   };
 }
 
-// Validate at the model-response boundary. Keep complete strings, including a
-// final qualification; the prompt and provider output ceiling bound verbosity.
-export function normalizeTranscriptSummary(parsed) {
-  assertTranscriptResponse(parsed, TRANSCRIPT_SUMMARY_SCHEMA);
-  const str = v => typeof v === "string" ? v.replace(/\s+/g, " ").trim() : "";
-  const invalid = section => {
-    const err = new Error(`transcript summary contains an empty ${section} entry`);
+// A paid response is kept: every usable entry is published, complete strings
+// included. Lists over the prompted limit stay whole; an entry that cannot be
+// shown (empty, missing its required text, unsupported label) is left out on
+// its own. Each such case is pushed onto `notes` so the brief records it.
+export function normalizeTranscriptSummary(parsed, notes = []) {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    const err = new Error("transcript summary is not a JSON object");
     err.transcriptContentFailure = true;
     throw err;
+  }
+  transcriptListOverruns(parsed, TRANSCRIPT_SUMMARY_SCHEMA, "$", notes);
+  const P = TRANSCRIPT_SUMMARY_SCHEMA.properties;
+  const str = v => typeof v === "string" ? v.replace(/\s+/g, " ").trim() : typeof v === "number" && Number.isFinite(v) ? String(v) : "";
+  const omit = (path, issue) => notes.push({ path, issue });
+  const list = (v, path) => {
+    if (v == null) return [];
+    if (Array.isArray(v)) return v;
+    omit(path, "not a list");
+    return [];
   };
-  const strArr = v => (v || []).map(x => str(x) || invalid("text"));
-  const objArr = (v, fields, required, section) => (v || []).map(x => {
-    const row = Object.fromEntries(fields.map(key => [key, str(x[key])]));
-    if (required.some(key => !row[key])) invalid(section);
-    return row;
+  const strArr = (v, key) => list(v, `$.${key}`).flatMap((x, i) => {
+    const s = str(x);
+    if (!s) { omit(`$.${key}[${i}]`, "empty entry"); return []; }
+    return [s];
   });
-  const tone = (o, phraseKey) => {
+  const objArr = (v, key, fields, required) => list(v, `$.${key}`).flatMap((x, i) => {
+    const row = Object.fromEntries(fields.map(f => [f, str(x?.[f])]));
+    const missing = required.filter(f => !row[f]);
+    if (missing.length) { omit(`$.${key}[${i}]`, `missing ${missing.join(", ")}`); return []; }
+    return [row];
+  });
+  const choice = (v, allowed, path) => {
+    if (v == null || v === "") return null;
+    if (allowed.includes(v)) return v;
+    omit(path, "unsupported value");
+    return null;
+  };
+  const tone = (key, phraseKey) => {
+    const o = parsed[key];
+    if (o == null) { omit(`$.${key}`, "missing"); return null; }
+    if (typeof o !== "object" || Array.isArray(o)) { omit(`$.${key}`, "not an object"); return null; }
+    const props = P[key].properties;
     return {
-      label: o.label,
-      ...(phraseKey === "speaker"
-        ? { stance: o.stance }
-        : {}),
+      label: choice(o.label, props.label.enum, `$.${key}.label`),
+      ...(phraseKey === "speaker" ? { stance: choice(o.stance, props.stance.enum, `$.${key}.stance`) } : {}),
       summary: str(o.summary),
-      phrases: objArr(o.phrases, ["quote", phraseKey, "read"], ["quote"], "tone evidence"),
+      phrases: objArr(o.phrases, `${key}.phrases`, ["quote", phraseKey, "read"], ["quote"]),
     };
   };
   const out = {
     headline: str(parsed.headline),
-    execSummary: strArr(parsed.execSummary),
-    financials: objArr(parsed.financials, ["label", "value", "context"], ["label", "value"], "financial"),
-    guidance: parsed.guidance
-      .map((g) => {
-        return {
-          metric: str(g.metric),
-          value: str(g.value),
-          period: str(g.period),
-          change: g.change ?? null,
-        };
-      })
-      .map(g => g.metric && g.value ? g : invalid("guidance")),
-    operational: strArr(parsed.operational),
-    segments: objArr(parsed.segments, ["name", "detail"], ["name", "detail"], "segment"),
-    kpis: objArr(parsed.kpis, ["name", "value", "note"], ["name", "value"], "KPI"),
-    capitalAllocation: strArr(parsed.capitalAllocation),
-    competitive: strArr(parsed.competitive),
-    macro: strArr(parsed.macro),
-    pipeline: strArr(parsed.pipeline),
-    legal: strArr(parsed.legal),
-    mgmtTone: tone(parsed.mgmtTone, "speaker"),
-    analystTone: tone(parsed.analystTone, "analyst"),
-    qa: objArr(parsed.qa, ["analyst", "firm", "question", "respondent", "answer", "takeaway"], ["question", "answer"], "Q&A"),
-    risks: strArr(parsed.risks),
-    quotes: objArr(parsed.quotes, ["speaker", "role", "quote"], ["quote"], "quote"),
-    participants: objArr(parsed.participants, ["name", "role"], ["name"], "participant"),
-    epsVerdict: parsed.epsVerdict ?? null,
+    execSummary: strArr(parsed.execSummary, "execSummary"),
+    financials: objArr(parsed.financials, "financials", ["label", "value", "context"], ["label", "value"]),
+    guidance: list(parsed.guidance, "$.guidance").flatMap((g, i) => {
+      const row = {
+        metric: str(g?.metric),
+        value: str(g?.value),
+        period: str(g?.period),
+        change: choice(g?.change ?? null, P.guidance.items.properties.change.enum, `$.guidance[${i}].change`),
+      };
+      if (!row.metric || !row.value) { omit(`$.guidance[${i}]`, "missing metric or value"); return []; }
+      return [row];
+    }),
+    operational: strArr(parsed.operational, "operational"),
+    segments: objArr(parsed.segments, "segments", ["name", "detail"], ["name", "detail"]),
+    kpis: objArr(parsed.kpis, "kpis", ["name", "value", "note"], ["name", "value"]),
+    capitalAllocation: strArr(parsed.capitalAllocation, "capitalAllocation"),
+    competitive: strArr(parsed.competitive, "competitive"),
+    macro: strArr(parsed.macro, "macro"),
+    pipeline: strArr(parsed.pipeline, "pipeline"),
+    legal: strArr(parsed.legal, "legal"),
+    mgmtTone: tone("mgmtTone", "speaker"),
+    analystTone: tone("analystTone", "analyst"),
+    qa: objArr(parsed.qa, "qa", ["analyst", "firm", "question", "respondent", "answer", "takeaway"], ["question", "answer"]),
+    risks: strArr(parsed.risks, "risks"),
+    quotes: objArr(parsed.quotes, "quotes", ["speaker", "role", "quote"], ["quote"]),
+    participants: objArr(parsed.participants, "participants", ["name", "role"], ["name"]),
+    epsVerdict: choice(parsed.epsVerdict, P.epsVerdict.enum, "$.epsVerdict"),
   };
-  if (!out.headline || out.execSummary.length < 3) throw new Error("transcript summary missing headline/execSummary");
+  if (!out.headline && out.execSummary.length) {
+    out.headline = out.execSummary[0];
+    omit("$.headline", "missing; first summary point used");
+  }
+  if (!out.headline) {
+    const err = new Error("transcript summary has no headline or summary points to show");
+    err.transcriptContentFailure = true;
+    throw err;
+  }
   return out;
 }
 
 async function summarizeEarningsCall(sym, meta) {
-  const sourceInput = prepareTranscriptInput(meta.text, TRANSCRIPT_MAX_CHARS);
+  const sourceInput = prepareTranscriptInput(meta.text, transcriptMaxChars());
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: AI_HTTP_TIMEOUT_MS } });
   const userMessage =
     `${sym} — ${meta.company || sym} ${meta.quarter || ""} earnings call` +
@@ -8386,27 +8418,39 @@ async function summarizeEarningsCall(sym, meta) {
     }
   }
   if (!response) throw lastErr ?? new Error("no response from Gemini");
-  // A response that slammed into maxOutputTokens is truncated mid-JSON and —
-  // because the runaway is a property of the transcript, not the call — it
-  // reproduces on every attempt (UBS did it every bake for days: ~16.4k output
-  // tokens burned per try on the priciest model). Detect the finishReason
-  // instead of letting JSON.parse throw, and tag it (like the parse/normalize
-  // failures below) as a CONTENT failure so the caller stamps the per-name
-  // daily cooldown rather than re-attempting every bake. Not thrown inside the
-  // retry loop — the API call "succeeded", so the model ladder never fires.
-  if (response?.candidates?.[0]?.finishReason === "MAX_TOKENS") {
-    const err = new Error("response hit the maxOutputTokens cap (finishReason MAX_TOKENS) — truncated JSON");
-    err.transcriptContentFailure = true;
+  // A response that slammed into maxOutputTokens is truncated mid-JSON, and
+  // the runaway reproduces on every attempt (UBS did it every bake for days).
+  // It has been paid for, so every section that finished before the cut is
+  // kept and the brief is marked partial. Only a response with nothing
+  // recoverable is a CONTENT failure (the per-name daily cooldown). Not thrown
+  // inside the retry loop: the API call "succeeded", so the model ladder never fires.
+  const truncated = response?.candidates?.[0]?.finishReason === "MAX_TOKENS";
+  const text = response.text;
+  if (!text) {
+    const err = new Error(truncated ? "response hit the maxOutputTokens cap (finishReason MAX_TOKENS) with no text" : "empty Gemini response");
+    if (truncated) err.transcriptContentFailure = true;
     throw err;
   }
-  const text = response.text;
-  if (!text) throw new Error("empty Gemini response");
   const stripped = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
   const firstBrace = stripped.indexOf("{");
   const lastBrace = stripped.lastIndexOf("}");
   try {
-    const parsed = JSON.parse(firstBrace >= 0 && lastBrace > firstBrace ? stripped.slice(firstBrace, lastBrace + 1) : stripped);
-    return { summary: normalizeTranscriptSummary(parsed), sourceInput };
+    const notes = [];
+    let parsed;
+    if (truncated) {
+      parsed = salvageTruncatedJson(stripped);
+      if (!parsed) throw new Error("response hit the maxOutputTokens cap (finishReason MAX_TOKENS) and no complete section could be recovered");
+      notes.push({ path: "$", issue: "truncated" });
+    } else {
+      try {
+        parsed = JSON.parse(firstBrace >= 0 && lastBrace > firstBrace ? stripped.slice(firstBrace, lastBrace + 1) : stripped);
+      } catch (parseErr) {
+        parsed = salvageTruncatedJson(stripped);
+        if (!parsed) throw parseErr;
+        notes.push({ path: "$", issue: "malformed JSON; complete sections kept" });
+      }
+    }
+    return { summary: normalizeTranscriptSummary(parsed, notes), sourceInput, notes, partial: truncated };
   } catch (err) {
     // The model answered but the content is unusable (malformed JSON, missing
     // required sections) — deterministic for this transcript, so same-day
@@ -8629,7 +8673,7 @@ export async function updateEarningsCallsData({ prior = null, earningsHxStore = 
       }
     }
     try {
-      const { summary, sourceInput } = await summarizeEarningsCall(item.sym, parsed);
+      const { summary, sourceInput, notes, partial } = await summarizeEarningsCall(item.sym, parsed);
       const quarter = parsed.quarter || item.quarter || null;
       const callDate = parsed.callDate || item.published || null;
       const sourceName = item.origin === "marketbeat" ? "MarketBeat" : "The Motley Fool";
@@ -8645,8 +8689,11 @@ export async function updateEarningsCallsData({ prior = null, earningsHxStore = 
         v: TRANSCRIPT_SUMMARY_VERSION,
         summaryFormat: TRANSCRIPT_BRIEF_FORMAT,
         sourceInput: { coverage: sourceInput.coverage, originalChars: sourceInput.originalChars, suppliedChars: sourceInput.suppliedChars, sourceHash: sourceInput.sourceHash },
+        ...(notes.length ? { responseNotes: notes.slice(0, 40) } : {}),
+        ...(partial ? { partial: true } : {}),
         summary,
       });
+      if (notes.length) console.log(`  [calls] ${item.sym} summary kept with ${notes.length} note${notes.length === 1 ? "" : "s"}: ${notes.slice(0, 3).map(n => `${n.path} ${n.issue}`).join("; ")}`);
       calls[item.sym] = {
         sym: item.sym,
         company: parsed.company || item.sym,
@@ -37002,6 +37049,7 @@ async function main() {
   // Immutable earnings research state must survive the data/ replacement.
   // A corrupt existing ledger fails before the wipe instead of resetting history.
   const priorEarningsForecast = await readForecastState(DATA_DIR);
+  const priorEarningsForecastFiles = await readForecastFiles(DATA_DIR);
   // Prior central-bank gold snapshot - country holdings and global demand are
   // sourced independently, so either side can carry last-good across a WGC
   // outage while the other refreshes. Read it before the wholesale wipe.
@@ -37316,12 +37364,17 @@ async function main() {
     .filter((d) => d >= todayIsoForFomc)
     .sort()
     .slice(0, 2);
-  const earningsForecastPrepared = await prepareEarningsForecast({
-    previous: priorEarningsForecast, chains, universe: TICKERS, sectors: SECTORS,
-    cikMap: await fetchCikMap(),
-    macroContext: macroBackdrop,
-    enabled: process.env.EARNINGS_FORECAST_ENABLED !== '0',
-  });
+  let earningsForecastPrepared = null;
+  try {
+    earningsForecastPrepared = await prepareEarningsForecast({
+      previous: priorEarningsForecast, chains, universe: TICKERS, sectors: SECTORS,
+      cikMap: await fetchCikMap(),
+      macroContext: macroBackdrop,
+      enabled: process.env.EARNINGS_FORECAST_ENABLED !== '0',
+    });
+  } catch (err) {
+    console.warn(`⚠ earnings forecast not refreshed: ${err?.message || err} — keeping the previous snapshot`);
+  }
   const builtAtIso = new Date().toISOString();
   // Scan timestamps remain on coverage. The artifact gets this generation's
   // stamp, which is created only after the network stages have completed.
@@ -37655,9 +37708,20 @@ async function main() {
     console.log(`wrote data/iv-history/ — ${ivHistory.size} tickers, ${ivHistoryBytes} bytes total`);
   }
   const fundHistoryBytes = await writeFundamentalsHistory(fundHistory);
-  const earningsForecastInfo = await writeEarningsForecast({ dataDir: DATA_DIR, prepared: earningsForecastPrepared });
-  console.log(`wrote data/earnings-forecast.json — ${earningsForecastInfo.companies} launch companies, ${earningsForecastInfo.forecasts} revenue forecasts; no AI calls`);
-  if(earningsForecastPrepared.payload.companyStorage)console.log('company research storage: '+JSON.stringify(earningsForecastPrepared.payload.companyStorage));
+  let earningsForecastInfo = null;
+  if (earningsForecastPrepared) {
+    try {
+      earningsForecastInfo = await writeEarningsForecast({ dataDir: DATA_DIR, prepared: earningsForecastPrepared });
+      console.log(`wrote data/earnings-forecast.json — ${earningsForecastInfo.companies} launch companies, ${earningsForecastInfo.forecasts} revenue forecasts; no AI calls`);
+      if(earningsForecastPrepared.payload.companyStorage)console.log('company research storage: '+JSON.stringify(earningsForecastPrepared.payload.companyStorage));
+    } catch (err) {
+      console.warn(`⚠ earnings forecast not written: ${err?.message || err} — keeping the previous snapshot`);
+    }
+  }
+  if (!earningsForecastInfo) {
+    const restored = await restoreForecastFiles(DATA_DIR, priorEarningsForecastFiles);
+    console.log(`kept the previous earnings forecast snapshot (${restored} file${restored === 1 ? '' : 's'})`);
+  }
   if (fundHistory.size) {
     console.log(`wrote data/fundamentals-history/ — ${fundHistory.size} tickers, ${fundHistoryBytes} bytes total`);
   }
