@@ -1958,6 +1958,10 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
           <option value="utc">UTC</option>
         </select>
       </label>
+      <!-- Owner-only Export menu (export-js.mjs): hidden until the Owner session is confirmed. -->
+      <button id="export-toggle" class="icon-btn" type="button" hidden aria-haspopup="dialog" aria-expanded="false" aria-controls="export-panel" aria-label="Export this page: image, PDF, CSV, Excel or JSON" title="Export: image, PDF, CSV, Excel or JSON">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+      </button>
       <button id="split-toggle" class="icon-btn" type="button" aria-pressed="false" aria-label="Split view: show two pages side by side" title="Split view: two pages side by side">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/></svg>
       </button>
@@ -2245,8 +2249,8 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-earnings-forecast" role="tabpanel" aria-labelledby="page-tab-earnings-forecast" hidden>
     <section class="card" id="earnings-forecast-section">
-      <header class="card-header"><h2 class="card-title">Earnings Forecast</h2><span class="card-eyebrow">Owner research · quarterly financials</span></header>
-      <p class="use-intro">Understand the business, inspect our next-quarter assumptions, and compare each frozen forecast with reported results. Predictive accuracy is unproven.</p>
+      <header class="card-header"><h2 class="card-title">Earnings Forecast</h2><span class="card-eyebrow">Owner research · company financials & valuation</span></header>
+      <p class="use-intro">Inspect quarterly forecasts, retain company history, connect industry evidence, and model the next full year. Conditional valuations and forecast accuracy remain unproven.</p>
       <div id="earnings-forecast-root" aria-live="polite">Open this view to load the private forecast snapshot.</div>
     </section>
   </div>

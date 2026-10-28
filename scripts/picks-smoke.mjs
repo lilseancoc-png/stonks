@@ -873,6 +873,17 @@ ok("timing: macro event two sessions away is hard even across four calendar days
   macroWeekendTiming.state === "wait"
   && macroWeekendTiming.hardWait === "event"
   && macroWeekendTiming.components.event.macroSessionsOut === 2);
+for (const sessionsOut of [3, 5, 7]) {
+  const soft = computeEntryTiming("call", mkTicker({ spot: 100 }), 100, {
+    eventRisk: { active: true, label: "CPI", daysOut: sessionsOut + 2, sessionsOut },
+  });
+  const none = computeEntryTiming("call", mkTicker({ spot: 100 }), 100, {});
+  ok(`timing: macro event ${sessionsOut} sessions out no longer lowers the timing score`,
+    !soft.hardWait && soft.score === none.score && soft.state === none.state
+      && soft.components.event.score === 0
+      && soft.components.event.macroSoftScore === (sessionsOut <= 3 ? -2 : -1)
+      && soft.reasons.some((x) => /^- CPI in \d+ trading sessions \(noted; entry not held back\)/.test(x)));
+}
 const earnLater = mkTicker({ spot: 100, fundamentals: { nextEarningsDate: inEtSessions(5) } });
 const earnLaterTiming = computeEntryTiming("call", earnLater, 100, {});
 ok("entry-v2: earnings 4-7 sessions out is a soft -2 event penalty, not a hard defer", earnLaterTiming.components.event.score === -2 && !earnLaterTiming.hardWait);
@@ -1489,7 +1500,7 @@ function computeEedge() { return computeEdgeScale(null) === 1 && computeEdgeScal
 // Edge-governed selection bar: no/insufficient/positive history keeps the base
 // bar; a materially negative realized edge (the live ~33%-win-rate state) stands
 // the bar up so the roster ships only higher-conviction names.
-const mkClosed = (n, pnl) => Array.from({ length: n }, () => ({ outcome: pnl >= 0 ? "win" : "loss", optionPnlPct: pnl }));
+const mkClosed = (n, pnl, exitDate = new Date(Date.now() - 86400000).toISOString()) => Array.from({ length: n }, () => ({ outcome: pnl >= 0 ? "win" : "loss", optionPnlPct: pnl, exitDate }));
 ok("edge gate: null / too-few-decided keep base bar",
   edgeGatedConviction(null).bar === PICKS_MIN_CONVICTION && edgeGatedConviction(mkClosed(5, -30)).bar === PICKS_MIN_CONVICTION);
 ok("edge gate: positive edge keeps base bar", edgeGatedConviction(mkClosed(20, 12)).bar === PICKS_MIN_CONVICTION);
@@ -1498,6 +1509,21 @@ ok("edge gate: realistic 33% WR (edge≈−13%) raises the bar",
 ok("edge gate: deeply negative edge stands down to Strong", edgeGatedConviction(mkClosed(20, -20)).bar === PICKS_TIER_STRONG);
 ok("edge gate: forced 'dropped' closes don't move the bar",
   edgeGatedConviction([...mkClosed(20, 12), ...mkClosed(30, -40).map((c) => ({ ...c, status: "dropped" }))]).bar === PICKS_MIN_CONVICTION);
+{
+  // 10-day look-back: old losses can't hold the bar up, recent ones still do.
+  const now = "2026-10-27T19:30:00.000Z";
+  const daysAgo = (d) => new Date(Date.parse(now) - d * 86400000).toISOString();
+  ok("edge gate: losses older than 10 days no longer raise the bar",
+    edgeGatedConviction(mkClosed(20, -20, daysAgo(11)), now).bar === PICKS_MIN_CONVICTION
+      && edgeGatedConviction(mkClosed(20, -20, daysAgo(11)), now).n === 0);
+  ok("edge gate: a losing last 10 days still raises the bar to Strong",
+    edgeGatedConviction([...mkClosed(20, -20, daysAgo(3)), ...mkClosed(40, 30, daysAgo(25))], now).bar === PICKS_TIER_STRONG);
+  ok("edge gate: a winning last 10 days ignores an older losing streak",
+    edgeGatedConviction([...mkClosed(14, 15, daysAgo(2)), ...mkClosed(40, -40, daysAgo(20))], now).bar === PICKS_MIN_CONVICTION);
+  ok("edge gate: undated closes are left out and the window is reported",
+    edgeGatedConviction(mkClosed(20, -20).map(({ exitDate, ...c }) => c), now).n === 0
+      && edgeGatedConviction(mkClosed(20, -20, daysAgo(1)), now).windowDays === 10);
+}
 const debitR = { outcome: "loss", optionPnlPct: -50, contract: { structure: "long", mid: 2, maxLoss: 2 } };
 const creditR = { outcome: "loss", optionPnlPct: -50, contract: { structure: "credit_vertical", mid: 1, netCredit: 1, maxLoss: 4 } };
 ok("edge: credit P&L is scored vs maxLoss, not vs the credit",
@@ -2464,6 +2490,27 @@ const gradeOne = (data, opts = {}, unusual = null) => buildGradesIndex({ ONE: da
   ok("ai slots: ready names move ahead of a higher-ranked name that can't open",
     pr.ready >= 1 && pr.ordered[0].r.sym !== "LOWX" && pr.ordered.findIndex((c) => c.r.sym === "LOWX") >= pr.ready);
   ok("ai slots: nothing is added or lost", pr.ordered.length === cands.length && pr.ordered.find((c) => c.r.sym === "LOWX").precheck === "below-bar");
+
+  // Nothing can open → no new grader calls. A fake key proves the skip happens
+  // before any client is built (a call here would try the network).
+  {
+    const savedKey = process.env.GEMINI_API_KEY, savedAi = process.env.AI_THESIS;
+    process.env.GEMINI_API_KEY = "smoke-test-key"; delete process.env.AI_THESIS;
+    const blocked = [0, 1, 2].map((i) => ({ sym: "WAIT" + i, total: 9 + i, side: "call", drivers: [], timing: { state: "wait", hardWait: "event" }, data: { spot: 100, fundamentals: {} } }));
+    const none = await generateAiTheses({ scored: blocked, regimeBand: "neutral" }, null, {}, {});
+    ok("ai skip: no candidate can open → grader skipped, no grades written",
+      none.skipped && none.skipped.reason === "none-ready" && none.skipped.candidates === 3 && Object.keys(none.map).length === 0);
+    if (savedKey === undefined) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = savedKey;
+    if (savedAi === undefined) delete process.env.AI_THESIS; else process.env.AI_THESIS = savedAi;
+    process.env.AI_THESIS = "0";
+    const some = await generateAiTheses(scoreAllTickers(healthyUniverse, [], null, null, null, null, {}), null, { rfr: 0.045 }, {});
+    if (savedAi === undefined) delete process.env.AI_THESIS; else process.env.AI_THESIS = savedAi;
+    ok("ai skip: the grader still runs when a name can open", some.skipped === null);
+    const skippedRoster = buildTopPicks(healthyUniverse, [], null, null, null, null, 0.045, { aiThesisMap: {}, aiGraderSkipped: true });
+    ok("ai skip: a skipped grader can't let an ungraded name open",
+      skippedRoster.rosterMeta.aiGraderSkipped === true
+        && skippedRoster.filter((p) => p.group === "actionable").length === 0);
+  }
   const semis = ready.filter((r) => SECTORS[r.sym] === SECTORS[ready[0].sym]);
   if (semis.length > 3) ok("ai slots: the sector cap counts names ahead in the queue", prioritizeAiSlots(semis.map((r) => ({ r, side: "call" })), { rfr: 0.045 }).ready === 3);
   ok("gate trace: every open pick is traced as picked",

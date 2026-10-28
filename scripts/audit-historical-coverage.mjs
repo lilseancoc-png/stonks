@@ -10,7 +10,7 @@ import { HISTORICAL_MARKETS, HISTORICAL_CONTEXT, HISTORICAL_SOURCE_KEY } from '.
 const dataDir = fileURLToPath(new URL('../data/', import.meta.url));
 const read = async file => JSON.parse(await readFile(resolve(dataDir, file), 'utf8'));
 const [sourceCache, published] = await Promise.all([read(HISTORICAL_SOURCE_KEY),read('historical-data.json')]);
-const canonical = buildHistoricalData({ sourceCache, sourceBuiltAtIso: sourceCache.builtAtIso, builtAtIso: published.builtAtIso, analyzedAtIso: published.analyzedAtIso });
+const canonical = buildHistoricalData({ sourceCache, sourceBuiltAtIso: sourceCache.builtAtIso, builtAtIso: published.builtAtIso, analyzedAtIso: published.analyzedAtIso, inputs: published.events?.inputs || {} });
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 assert.equal(hash(published), hash(packHistoricalData(canonical)), 'actual serialized snapshot matches the collected sources and build stamp');
 assert.equal(canonical.coverage.total, HISTORICAL_MARKETS.length + HISTORICAL_CONTEXT.length);

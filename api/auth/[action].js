@@ -411,7 +411,7 @@ async function webullMirror(req, res) {
         lastRunIso: ledger.lastRunIso,
         engineSnapshotIso: ledger.engineSnapshotIso ?? null,
         runs: (ledger.runs || []).slice(0, 10),
-        reconciliation: ledger.reconciliation ? { checkedAtIso: ledger.reconciliation.checkedAtIso, status: ledger.reconciliation.status, alerts: ledger.reconciliation.alerts || [], failure: ledger.reconciliation.failure || null } : null,
+        reconciliation: ledger.reconciliation ? { checkedAtIso: ledger.reconciliation.checkedAtIso, status: ledger.reconciliation.status, alerts: ledger.reconciliation.alerts || [], failure: ledger.reconciliation.failure || null, externalGroups: ledger.reconciliation.externalGroups || 0 } : null,
         rows,
         trades: mirror.ledgerToTestTrades(ledger),
       });

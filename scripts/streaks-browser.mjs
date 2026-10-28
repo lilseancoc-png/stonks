@@ -82,6 +82,16 @@ try {
     await page.locator('[data-streak-focus]').click();
     await page.waitForFunction(() => document.querySelector('#streaks-snapped').open);
     assert.equal(await panel.locator('[data-grade]:focus').count(), 1, 'decision action opens and focuses snapped stock');
+    if (width === 1440 && theme === 'dark') {
+      await page.locator('#streaks-min-select').selectOption('5');
+      await page.locator('[data-sort-flip="streaks"]').click();
+      await page.getByRole('button',{name:'Reset filters',exact:true}).click();
+      assert.equal(await page.locator('[data-sort-flip="streaks"]').getAttribute('aria-pressed'),'false');
+      await page.reload();await rows.first().waitFor();
+      assert.equal(await page.locator('#streaks-min-select').inputValue(),'2');
+      assert.equal(await page.locator('#streaks-sort-select').inputValue(),'streak');
+      assert.equal(await rows.count(),24,'reset persists across reload');
+    }
     assert.deepEqual(errors, []);
     await context.close();
     console.log('PASS browser ' + width + ' ' + theme);
@@ -117,6 +127,10 @@ try {
     await page.goto(preview.base + '/?tab=streaks');
     await page.getByText(scenario === 'empty' ? 'No streak data available.' : /Couldn't load streaks/).waitFor();
     assert.equal(await page.locator('#streaks-snapped').count(), 0, 'no stale snapped list on failed/empty load');
+    if (scenario === 'error') {
+      preview.setScenario('normal');await page.locator('[data-streak-retry]').click();
+      await page.locator('[data-snapped-symbol]').first().waitFor();
+    }
     await page.close();
   }
 } finally { await browser.close(); await new Promise(r => preview.server.close(r)); }

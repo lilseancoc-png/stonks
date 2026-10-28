@@ -75,7 +75,8 @@ async function loadStreaks() {
     streaksState.data = json;
     render(root, footer, eyebrow, json);
   } catch (err) {
-    root.innerHTML = `<p class="streaks-empty">Couldn't load streaks (${escapeHtml(err.message || err)}).</p>`;
+    root.innerHTML = `<p class="streaks-empty">Couldn't load streaks (${escapeHtml(err.message || err)}).</p><button type="button" class="streaks-btn" data-streak-retry>Retry</button>`;
+    root.querySelector('[data-streak-retry]').addEventListener('click', () => loadStreaks());
   }
 }
 
@@ -83,6 +84,18 @@ function rerender() {
   if (streaksState.data) {
     render($("streaks-root"), $("streaks-footer"), $("streaks-eyebrow"), streaksState.data);
   }
+}
+
+// Programmatic actions must update the same saved settings as the toolbar.
+function saveStreakControls() {
+  const views = V();
+  if (!views) return;
+  views.set("sel:streaks.sort", streaksState.sort);
+  views.set("sel:streaks.min", String(streaksState.minStreak));
+  views.set("sel:streaks.sector", streaksState.sector);
+  views.set("rev:streaks", false);
+  const flip = document.querySelector('[data-sort-flip="streaks"]');
+  if (flip) flip.outerHTML = views.flipHtml("streaks");
 }
 
 function bindStreaksControls() {
@@ -636,11 +649,17 @@ function render(root, footer, eyebrow, { builtAtIso, tickers }) {
     </div>`;
 
   const panel = $("streaks-snapped");
-  panel.addEventListener("toggle", () => {
+  const syncSnappedPanel = () => {
     if (!panel.isConnected) return;
     streaksState.snappedCollapsed = !panel.open;
     panel.closest(".streaks-board").classList.toggle("is-snapped-collapsed", !panel.open);
     if (views) views.set("streaks.snappedCollapsed", !panel.open);
+  };
+  const setSnappedOpen = (open) => { panel.open = open; syncSnappedPanel(); };
+  panel.addEventListener("toggle", syncSnappedPanel);
+  panel.querySelector('.streaks-snapped-head').addEventListener('click', (event) => {
+    event.preventDefault();
+    setSnappedOpen(!panel.open);
   });
 
   if (footer && builtAtIso) {
@@ -660,7 +679,7 @@ function render(root, footer, eyebrow, { builtAtIso, tickers }) {
         .find((t) => String(t?.symbol || "").toUpperCase() === sym);
       if (hasRecentSnap(match, streaksState.minStreak)) {
         const panel = $("streaks-snapped");
-        panel.open = true;
+        setSnappedOpen(true);
         const button = [...panel.querySelectorAll("[data-grade]")]
           .find((el) => el.dataset.grade === sym);
         if (button) {
@@ -689,6 +708,7 @@ function render(root, footer, eyebrow, { builtAtIso, tickers }) {
       streaksState.sort = btn.dataset.streakSort || "streak";
       const select = $("streaks-sort-select");
       if (select) select.value = streaksState.sort;
+      saveStreakControls();
       rerender();
     });
   });
@@ -706,6 +726,7 @@ function render(root, footer, eyebrow, { builtAtIso, tickers }) {
       if (minSelect) minSelect.value = "2";
       if (sectorSelect) sectorSelect.value = "";
       if (search) search.value = "";
+      saveStreakControls();
       rerender();
     });
   });
@@ -742,10 +763,10 @@ function movingAverageContextHtml(t) {
   const events = levels.filter(level => level.event).map(level => `${level.event === "reclaimed" ? "Reclaimed" : "Lost"} ${level.period}D`).join(" · ");
   return `<div class="streaks-ma-context">
     <span class="streaks-ma-label">MA context · completed close${context.asOf ? ` ${escapeHtml(fmtShortDate(context.asOf))}` : ""}</span>
-    <div class="streaks-ma-nearest"><b>${nearest.period}D SMA ${fmtMoney(nearest.value)}</b><span>${escapeHtml(read(nearest))}</span></div>
+    <div class="streaks-ma-nearest"><b>${escapeHtml(nearest.period)}D SMA ${fmtMoney(nearest.value)}</b><span>${escapeHtml(read(nearest))}</span></div>
     ${events ? `<p class="streaks-ma-events">${escapeHtml(events)} on the latest close</p>` : ""}
     <details><summary>All moving averages</summary>
-      <ul>${levels.map(level => `<li><b>${level.period}D · ${fmtMoney(level.value)}</b><span>${escapeHtml(read(level))}</span></li>`).join("")}</ul>
+      <ul>${levels.map(level => `<li><b>${escapeHtml(level.period)}D · ${fmtMoney(level.value)}</b><span>${escapeHtml(read(level))}</span></li>`).join("")}</ul>
       <p>Slope compares the average with five sessions earlier. Context is descriptive.</p>
     </details>
   </div>`;
@@ -826,7 +847,7 @@ function streakTableHtml(list, sectors, views) {
     { label: "Direction", cell: (t) => t.current.color === "green" ? '<span class="vt-tag call">Up</span>' : '<span class="vt-tag put">Down</span>', sort: (t) => t.current.color === "green" ? "up" : "down" },
     { label: "Days", num: true, cell: (t) => String(streakSignalDays(t)), sort: (t) => streakSignalDays(t) },
     { label: "Cumulative", num: true, cell: (t) => pct(t.current.cumulativePct), sort: (t) => { const n = Number(t.current.cumulativePct); return isFinite(n) ? n : null; } },
-    { label: "Nearest MA", cell: (t) => { const m = t.maContext?.levels?.find(x => x.period === t.maContext.nearestPeriod); return m ? `${m.period}D · ${fmtPct(m.distancePct)} · ${escapeHtml(m.slope || "slope unavailable")}` : "Unavailable"; } },
+    { label: "Nearest MA", cell: (t) => { const m = t.maContext?.levels?.find(x => x.period === t.maContext.nearestPeriod); return m ? `${escapeHtml(m.period)}D · ${fmtPct(m.distancePct)} · ${escapeHtml(m.slope || "slope unavailable")}` : "Unavailable"; } },
     { label: "Last close", num: true, cell: (t) => isFinite(Number(t.lastClose)) ? fmtMoney(Number(t.lastClose)) : "", sort: (t) => { const n = Number(t.lastClose); return isFinite(n) ? n : null; } },
     { label: "Volume trend", num: true, title: "Volume during the run vs normal", cell: (t) => isFinite(Number(t.current.volumeRatio)) && Number(t.current.volumeRatio) > 0 ? Number(t.current.volumeRatio).toFixed(2) + "×" : "", sort: (t) => { const n = Number(t.current.volumeRatio); return isFinite(n) && n > 0 ? n : null; } },
     { label: "Break risk", num: true, title: "Share of the counter-move tolerance already used", cell: (t) => { const tb = Number(t.current.toleranceBreakPct || 1.5); const n = tb > 0 ? Number(t.current.tolerancePct || 0) / tb * 100 : null; return n == null ? "" : Math.round(n) + "%"; }, sort: (t) => { const tb = Number(t.current.toleranceBreakPct || 1.5); return tb > 0 ? Number(t.current.tolerancePct || 0) / tb : null; } },

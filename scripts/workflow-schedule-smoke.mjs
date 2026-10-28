@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 
 function workflow(name) {
@@ -19,7 +19,13 @@ assert.doesNotMatch(
   "weekly routing must not combine an immutable cron hour with the delayed runner's calendar date",
 );
 
+assert.ok(!existsSync(new URL("../.github/workflows/overnight-preopen.yml", import.meta.url)), "the pre-open call is saved only by the 09:00 ET daily.yml run");
+
 const daily = workflow("daily.yml");
+const dailyOvernight = daily.match(/- name: Save the pre-open overnight call[\s\S]*?(?=\n      - name: Verify earnings-call schema)/)?.[0];
+assert.ok(dailyOvernight, "the 09:00 transcripts job saves the pre-open overnight call");
+assert.match(dailyOvernight, /continue-on-error: true/);
+assert.match(dailyOvernight, /push --owner=overnight/);
 assert.match(daily, /actions\/runs\/\$\{GITHUB_RUN_ID\}/);
 assert.match(daily, /CREATED_AT=\$\(curl/);
 assert.match(daily, /date -d "\$CREATED_AT" \+%u/);

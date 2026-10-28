@@ -13,7 +13,7 @@ export function patternLabFixture() {
   const long=series('2012-01-03','2026-10-27'),spy=series('2024-10-28','2026-10-27');
   const stockNames=['ALFA','BETA','GAMMA'];
   const stocks=stockNames.map((symbol,i)=>{const bars=series('2024-10-28','2026-10-27',i);return {symbol,closes:bars.map(b=>b.c),dates:bars.map(b=>b.t)};});
-  const payload=buildPatternRecognition({builtAtIso:'2026-10-28T00:00:00Z',asOf:'2026-10-27',indexBars:{SPY:long,QQQ:long,IWM:long},spyBars:spy,divergences:stocks,
+  const payload=buildPatternRecognition({builtAtIso:'2026-10-28T00:00:00Z',asOf:'2026-10-27',indexBars:{'^GSPC':long,SPY:long,QQQ:long,IWM:long},spyBars:spy,divergences:stocks,
     fearGreed:spy.map((b,i)=>({date:b.t,score:i%60<30?10:90})),regimeDays:spy.map((b,i)=>({date:b.t,axisScores:{indexes:i%3===0?1:-1,breadth:-1}}))});
   payload.pieces.divergences.rows=[
     {symbol:'ALFA',indicator:'rsi',direction:'bullish',olderDate:'2026-10-01',newerDate:'2026-10-20',priceChangePct:-3},

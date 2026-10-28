@@ -16,6 +16,7 @@ try {
   await page.goto(preview.base+'/?tab=pattern-lab');const root=page.locator('#pattern-lab-root');
   await root.locator('[data-pat-view="overview"]').waitFor();
   assert.equal(await root.locator('[data-pat-study-section]').count(),6);
+  assert.equal(await root.locator('[data-pat-symbol]').inputValue(),'^GSPC','new S&P 500 index seasonality remains the default');
   await root.locator('.pat-coverage summary').click();
   assert.match(await root.locator('.pat-coverage').innerText(),/2024-10-28/);
   assert.match(await root.locator('.pat-coverage').innerText(),/2026-10-27/);
@@ -57,7 +58,9 @@ try {
   assert.match(await root.innerText(),/In-sample t-statistic/);
   await root.locator('[data-pat-view="tables"]').click();
   const leadDownload=page.waitForEvent('download');await root.locator('[data-pat-export]').click();const leadFile=await leadDownload;
-  assert.match(await readFile(await leadFile.path(),'utf8'),/ALFA \/ PEER-A/);
+  const leadCsv=await readFile(await leadFile.path(),'utf8');
+  assert.match(leadCsv,/ALFA \/ PEER-A/);
+  assert.match(leadCsv,/BETA \/ PEER-B[^\n]*"199"/,'prior-session association exports its matched sample count');
   await root.locator('[data-pat-study]').selectOption('divergences');await root.locator('[data-pat-view="charts"]').click();
   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'no document overflow at '+width);
   await page.evaluate(()=>scrollTo(0,document.querySelector('#pattern-lab-root').getBoundingClientRect().top+scrollY-90));

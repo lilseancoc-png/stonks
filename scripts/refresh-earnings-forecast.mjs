@@ -3,7 +3,8 @@ import { readFile, writeFile, mkdir, link, unlink, rename } from 'node:fs/promis
 import { randomUUID } from 'node:crypto';
 import { resolve, dirname } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
-import { FORECAST_KEY, FORECAST_STATE_KEY, contentHash, makeObservation, normalizeCompanyFacts, mergeObservations, selectCohort, forecastQuarter, evaluateRuns, buildForecastPayload, businessMix, finite, conservativePublication, reconstructedBacktest, knownReportedPeriod } from '../lib/earnings-forecast.mjs';
+import { attachCompanyResearch, buildIndustryEvidence } from '../lib/company-research.mjs';
+import { FORECAST_KEY, FORECAST_STATE_KEY, contentHash, makeObservation, normalizeCompanyFacts, mergeObservations, selectCohort, forecastQuarter, evaluateRuns, buildForecastPayload, businessMix, finite, conservativePublication, reconstructedBacktest, knownReportedPeriod, cohortDue, acceptCohort, rerankCohort, segmentInputMix } from '../lib/earnings-forecast.mjs';
 
 const DAY=86400000;
 export async function readForecastState(dataDir) {
@@ -34,7 +35,7 @@ export function parseTsmRelease(html, {url,accession,filed,firstSeenAt,rawHash})
   return observations;
 }
 
-export async function prepareEarningsForecast({previous,chains,universe,sectors,cikMap=null,fetchImpl=fetch,now=()=>new Date().toISOString(),maxRequests=24,enabled=true,macroContext=null}) {
+export async function prepareEarningsForecast({previous,chains,universe,sectors,cikMap=null,fetchImpl=fetch,now=()=>new Date().toISOString(),maxRequests=48,maxBytes=120e6,enabled=true,macroContext=null}) {
   const state=structuredClone(previous),startedAt=now(),today=startedAt.slice(0,10),artifacts=new Map();
   state.collectionError=null;
   state.reconstructed ||= {};
@@ -43,24 +44,29 @@ export async function prepareEarningsForecast({previous,chains,universe,sectors,
   const initialRequests=state.dailyCost.requests;
   let lastRequestAt=0;
   if(!enabled)return {state,artifacts,payload:{...buildForecastPayload({state,chains,builtAtIso:startedAt}),enabled:false}};
-  if(!state.cohort?.companies?.length||!state.cohort.complete){const cohort=selectCohort(chains,universe,sectors,startedAt);if(cohort.companies.length===10&&(cohort.complete||!state.cohort?.companies?.length))state.cohort=cohort;}
+  // Re-rank once per calendar quarter (and until a complete ranking lands).
+  if(cohortDue(state.cohort,startedAt)){const cohort=selectCohort(chains,universe,sectors,startedAt);if(acceptCohort(state.cohort,cohort,startedAt))rerankCohort(state,cohort,startedAt);}
+  // Former members keep collecting filings until their last frozen forecast
+  // can be scored (about four months past its target quarter).
+  const inCohort=new Set((state.cohort?.companies||[]).map(c=>c.symbol));
+  const tracked=[...(state.cohort?.companies||[]),...Object.values(state.former||{}).filter(c=>{if(inCohort.has(c.symbol))return false;const run=state.runs.find(r=>r.id===state.current[c.symbol]);return run&&Date.parse(run.target.end)+120*DAY>Date.parse(startedAt);})];
   async function get(url){
     const u=new URL(url);if(u.protocol!=='https:'||!['data.sec.gov','www.sec.gov'].includes(u.hostname))throw Error('Source host not permitted');
-    if(state.dailyCost.requests>=maxRequests||state.dailyCost.bytes>=60e6)throw Error('Daily free-source request/byte limit reached');
+    if(state.dailyCost.requests>=maxRequests||state.dailyCost.bytes>=maxBytes)throw Error('Daily free-source request/byte limit reached');
     const pause=150-(Date.now()-lastRequestAt);if(pause>0)await new Promise(r=>setTimeout(r,pause));lastRequestAt=Date.now();
     state.dailyCost.requests++;
     const r=await fetchImpl(url,{headers:{'User-Agent':process.env.SEC_USER_AGENT||'Mingstreet research (mingstreet.app)','Accept':'application/json, text/html'},signal:AbortSignal.timeout(15000)});
     if(!r.ok)throw Error('SEC HTTP '+r.status);
     const chunks=[];let bytes=0;
-    if(r.body?.getReader){const reader=r.body.getReader();try{while(true){const{done,value}=await reader.read();if(done)break;bytes+=value.byteLength;state.dailyCost.bytes+=value.byteLength;if(bytes>12e6||state.dailyCost.bytes>60e6){await reader.cancel();throw Error('SEC source exceeds byte limit');}chunks.push(Buffer.from(value));}}finally{reader.releaseLock();}}
-    else{const b=Buffer.from(await r.text());bytes=b.length;state.dailyCost.bytes+=bytes;if(bytes>12e6||state.dailyCost.bytes>60e6)throw Error('SEC source exceeds byte limit');chunks.push(b);}
+    if(r.body?.getReader){const reader=r.body.getReader();try{while(true){const{done,value}=await reader.read();if(done)break;bytes+=value.byteLength;state.dailyCost.bytes+=value.byteLength;if(bytes>12e6||state.dailyCost.bytes>maxBytes){await reader.cancel();throw Error('SEC source exceeds byte limit');}chunks.push(Buffer.from(value));}}finally{reader.releaseLock();}}
+    else{const b=Buffer.from(await r.text());bytes=b.length;state.dailyCost.bytes+=bytes;if(bytes>12e6||state.dailyCost.bytes>maxBytes)throw Error('SEC source exceeds byte limit');chunks.push(b);}
     return Buffer.concat(chunks).toString('utf8');
   }
   const preserve=(body,metadata)=>{const hash=contentHash(body);if(!state.sourceDocuments[hash]){const record={version:1,hash,firstSeenAt:now(),...metadata,body},key='earnings-forecast/sources/'+contentHash(record)+'.json';artifacts.set(key,record);state.sourceDocuments[hash]={key,firstSeenAt:record.firstSeenAt,url:metadata.url};}return hash;};
   let map=cikMap;
-  if(!map&&state.cohort?.companies?.every(c=>state.sourceStatus[c.symbol]?.issuerId))map=new Map(state.cohort.companies.map(c=>[c.symbol,state.sourceStatus[c.symbol].issuerId]));
-  if(!map&&state.cohort?.companies?.length){try{const url='https://www.sec.gov/files/company_tickers.json',body=await get(url);preserve(body,{url});const j=JSON.parse(body);map=new Map(Object.values(j).map(v=>[v.ticker,String(v.cik_str).padStart(10,'0')]));}catch(e){state.collectionError=e.message;}}
-  for(const c of state.cohort?.companies||[]){
+  if(!map&&tracked.length&&tracked.every(c=>state.sourceStatus[c.symbol]?.issuerId))map=new Map(tracked.map(c=>[c.symbol,state.sourceStatus[c.symbol].issuerId]));
+  if(!map&&tracked.length){try{const url='https://www.sec.gov/files/company_tickers.json',body=await get(url);preserve(body,{url});const j=JSON.parse(body);map=new Map(Object.values(j).map(v=>[v.ticker,String(v.cik_str).padStart(10,'0')]));}catch(e){state.collectionError=e.message;}}
+  for(const c of tracked){
     const sym=c.symbol,old=state.sourceStatus[sym]||{},accessions=chains[sym]?.fundamentals?.segments?.sourceAccessions||null;
     const issuerId=map?.get(sym)||old.issuerId;
     if(issuerId){const f={...chains[sym]?.fundamentals,cik:issuerId};const mix=businessMix(f);if(mix.product||mix.geographic)state.mix[sym]=mix;}
@@ -109,7 +115,7 @@ export async function prepareEarningsForecast({previous,chains,universe,sectors,
   for(const c of state.cohort?.companies||[]){
     const announcement=chains[c.symbol]?.fundamentals?.nextEarningsDate,remaining=announcement?(Date.parse(announcement)-Date.parse(cutoffAt))/DAY:null;
     const horizon=remaining===null||remaining<0?'unscheduled':remaining>30?'T30plus':remaining>14?'T30':remaining>7?'T14':remaining>1?'T7':'T1';
-    const run=forecastQuarter({symbol:c.symbol,observations:state.observations[c.symbol]||[],cutoffAt,liveEvaluations:state.evaluations,horizon,reportedPeriodEnd:knownReportedPeriod(chains[c.symbol]?.fundamentals)});
+    const run=forecastQuarter({symbol:c.symbol,observations:state.observations[c.symbol]||[],cutoffAt,liveEvaluations:state.evaluations,horizon,reportedPeriodEnd:knownReportedPeriod(chains[c.symbol]?.fundamentals),segmentMix:segmentInputMix(state.mix[c.symbol])});
     if(['ready','partial'].includes(run.status)&&finite(run.outputs?.revenue)){
       const old=state.runs.find(r=>r.inputKey===run.inputKey);if(!old){state.runs.push(run);artifacts.set('earnings-forecast/runs/'+run.id+'.json',run);}state.current[c.symbol]=old?.id||run.id;
     }else delete state.current[c.symbol];
@@ -117,10 +123,30 @@ export async function prepareEarningsForecast({previous,chains,universe,sectors,
   }
   const payload=buildForecastPayload({state,chains,builtAtIso:cutoffAt,collection:{requestsThisRun:state.dailyCost.requests-initialRequests,requestsToday:state.dailyCost.requests,bytesToday:state.dailyCost.bytes,requestLimitPerDay:maxRequests,collectionError:state.collectionError||null}});
   payload.enabled=true;
-  return {state,payload,artifacts};
+  attachCompanyResearch({state,payload,chains,asOf:cutoffAt,industryInputs:{universe}});
+  for(const c of payload.companies){const q=chains[c.symbol];c.valuationReference={spot:q?.spot??null,quoteAsOf:q?.quoteAsOf||null,currency:q?.quoteProvenance?.currency||null,forwardPE:q?.fundamentals?.forwardPE??null,reportedPeriodEnd:knownReportedPeriod(q?.fundamentals),asOf:cutoffAt};}
+  return {state,payload,artifacts,industryUniverse:universe};
 }
 
 export async function writeEarningsForecast({dataDir,prepared}){
+  // Both the full bake and the standalone refresh use the same collected
+  // snapshots. Publication never initiates another source scan.
+  const industryInputs={};
+  for(const[key,file]of [['memory','ram-prices.json'],['gpu','accelerator-prices.json'],['capex','ai-capex.json']]){
+    try{industryInputs[key]=JSON.parse(await readFile(resolve(dataDir,file),'utf8'));}
+    catch{industryInputs[key]=null;}
+  }
+  prepared.payload.industryEvidence=buildIndustryEvidence({...industryInputs,asOf:prepared.payload.builtAtIso,universe:prepared.industryUniverse||[]});
+  const stateText=JSON.stringify(prepared.state);
+  if(prepared.payload.companyStorage)Object.assign(prepared.payload.companyStorage,{
+    stateBytes:Buffer.byteLength(stateText),
+    pendingArchiveBytes:[...prepared.artifacts.values()].reduce((sum,value)=>sum+Buffer.byteLength(JSON.stringify(value)),0),
+    payloadBytes:0,
+  });
+  let text=JSON.stringify(prepared.payload);
+  if(prepared.payload.companyStorage)for(let i=0;i<3;i++){prepared.payload.companyStorage.payloadBytes=Buffer.byteLength(text);text=JSON.stringify(prepared.payload);}
+  // Validate the complete UI snapshot before writing any new archive objects.
+  if(Buffer.byteLength(text)>3_000_000)throw Error('Forecast UI payload exceeds budget');
   // Publish the pathname only after bytes are complete. Exclusive hard links
   // make concurrent identical puts idempotent without exposing partial JSON.
   for(const[key,value]of prepared.artifacts){
@@ -128,8 +154,7 @@ export async function writeEarningsForecast({dataDir,prepared}){
     await writeFile(temp,text,{flag:'wx'});
     try{try{await link(temp,path);}catch(e){if(e.code!=='EEXIST')throw e;if(await readFile(path,'utf8')!==text)throw Error('Immutable forecast artifact collision: '+key);}}finally{await unlink(temp);}
   }
-  const text=JSON.stringify(prepared.payload);if(Buffer.byteLength(text)>3_000_000)throw Error('Forecast UI payload exceeds budget');
-  for(const[key,body]of [[FORECAST_STATE_KEY,JSON.stringify(prepared.state)],[FORECAST_KEY,text]]){const path=resolve(dataDir,key),temp=path+'.'+randomUUID()+'.tmp';await writeFile(temp,body,{flag:'wx'});await rename(temp,path);}
+  for(const[key,body]of [[FORECAST_STATE_KEY,stateText],[FORECAST_KEY,text]]){const path=resolve(dataDir,key),temp=path+'.'+randomUUID()+'.tmp';await writeFile(temp,body,{flag:'wx'});await rename(temp,path);}
   return {companies:prepared.payload.companies.length,forecasts:prepared.payload.companies.filter(c=>finite(c.forecast.outputs?.revenue)&&c.forecast.status!=='stale').length,bytes:Buffer.byteLength(text)};
 }
 

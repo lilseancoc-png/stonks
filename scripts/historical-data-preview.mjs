@@ -5,7 +5,8 @@ import { readFile } from 'node:fs/promises';
 import { resolve, extname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { buildHistoricalData, packHistoricalData } from '../lib/historical-data.mjs';
-import { historicalFixtureBars } from './fixtures/historical-data.mjs';
+import { historicalFixtureBars, historicalEventFixture } from './fixtures/historical-data.mjs';
+import { buildHistoricalEvents } from '../lib/historical-events.mjs';
 import { readHistoricalSourceCache } from './collect-historical-sources.mjs';
 export async function createHistoricalPreview({ historyFile = null, port = 0 } = {}) {
   const root = resolve(fileURLToPath(new URL('../', import.meta.url)));
@@ -13,6 +14,8 @@ export async function createHistoricalPreview({ historyFile = null, port = 0 } =
   const history = historyFile ? JSON.parse(await readFile(historyFile, 'utf8')) : { symbols: Object.fromEntries(['SPY', 'QQQ', 'IWM', 'SHY'].map(s => [s, s === 'SHY' ? fixture.map((r,i)=>({...r,c:100+Math.sin(i*.03)*.1})) : fixture])) };
   const sourceCache = historyFile ? await readHistoricalSourceCache(resolve(root, 'data')) : {};
   const payload = buildHistoricalData({ symbols: historyFile ? {} : history.symbols, sourceCache, builtAtIso: historyFile ? new Date().toISOString() : '2026-10-24T22:00:00Z', sourceBuiltAtIso: sourceCache.builtAtIso || null });
+  // Without a real cache, the event studies use labeled synthetic histories.
+  if (!historyFile) { const f = historicalEventFixture(); payload.events = buildHistoricalEvents({ ...f, cutoff: payload.cutoff }); }
   const wire = packHistoricalData(payload);
   const html = await readFile(resolve(root, 'index.html'), 'utf8');
   const shell = JSON.parse(html.match(/window\.STONKS_MANIFEST=(\{.*\});<\/script>/)[1]);

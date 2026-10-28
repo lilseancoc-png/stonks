@@ -1,7 +1,8 @@
 name: Daily build
 
 # Routes the 08:30 ET dispatch to a lightweight pre-market Brief-only refresh,
-# the 09:00 and 19:00 ET dispatches to an earnings-call transcript pass, then
+# the 09:00 and 19:00 ET dispatches to an earnings-call transcript pass (the
+# 09:00 run also saves the pre-open overnight call), then
 # runs five decision-grade full builds at 10:00, 11:00, 13:30, 15:30, and
 # 16:10 ET. Full-bake commits trigger Vercel's GitHub integration.
 #
@@ -257,6 +258,32 @@ jobs:
       - name: Mark freshness window
         run: echo "FRESHNESS_RUN_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)" >> "$GITHUB_ENV"
 
+      - name: Save the pre-open overnight call (09:00 ET run only)
+        # Free Yahoo data, no AI. The script writes nothing outside 08:00-09:29
+        # ET, so the 19:00 run is a no-op. A failure here never blocks the
+        # transcript pass; the bake rebuilds a missed call from 15-minute bars.
+        id: overnight
+        if: ${{ vars.PRIVATE_DATA_ENABLED == '1' }}
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          rm -f data/overnight-preopen.json
+          node scripts/overnight-preopen.mjs
+          if [ -f data/overnight-preopen.json ]; then
+            node scripts/verify-data-freshness.mjs --owner=overnight
+            echo "written=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Push pre-open overnight call to private store
+        if: ${{ vars.PRIVATE_DATA_ENABLED == '1' && steps.overnight.outputs.written == 'true' }}
+        continue-on-error: true
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: node scripts/sync-data.mjs push --owner=overnight
+
       - name: Verify earnings-call schema
         run: npm run verify:transcripts
 
@@ -397,6 +424,11 @@ jobs:
       - name: Verify Earnings Forecast contracts
         # Offline fixtures only: accounting, replay, private access and archives.
         run: npm run test:earnings-forecast
+
+      - name: Verify research inputs and full-year valuation
+        # Offline only. Reproduces the data repairs, five-session evaluation,
+        # bounded company retention and the shared browser valuation model.
+        run: npm run test:research-stack
 
       - name: Build site
         env:

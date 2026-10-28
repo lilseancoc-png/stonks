@@ -1,5 +1,5 @@
 // One display model for overview, charts, tables, and exported summaries.
-export function patternLabFactory(host, doc, views, symbolHref) {
+export function patternLabFactory(host, doc, views, symbolHref, dataUrl) {
   const $ = id => doc.getElementById(id);
   const escape = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
   const finite = value => typeof value === 'number' && Number.isFinite(value);
@@ -11,7 +11,7 @@ export function patternLabFactory(host, doc, views, symbolHref) {
   const state = {data:null, pending:false, error:null, bound:false,
     view:valid(store('view','overview'), ['overview','charts','tables'], 'overview'),
     study:valid(store('study','all'), ['all',...Object.keys(names)], 'all'),
-    symbol:valid(store('symbol','SPY'), ['SPY','QQQ','IWM'], 'SPY'), query:'', direction:'all'};
+    symbol:valid(store('symbol',null), ['^GSPC','SPY','QQQ','IWM'], null), query:'', direction:'all'};
   const save = key => views.set('pattern-lab.' + key, state[key]);
   const link = symbol => '<a class="pat-sym" href="' + escape(symbolHref(symbol)) + '">' + escape(symbol) + '</a>';
   function table(cols, rows, key, empty = 'No observations available for this snapshot.') {
@@ -32,8 +32,10 @@ export function patternLabFactory(host, doc, views, symbolHref) {
   function summaryRows(pieces) {
     const rows = [], add = (study, label, stats, value = stats?.avgPct, unit = '10-session return (%)') => {
       if (!stats || !finite(value)) return;
+      const minimum = study === 'seasonality' ? 10 : study === 'divergences' ? 30 : 20;
+      const sample = stats.provisional || (finite(stats.n) && stats.n < minimum) ? 'Limited sample' : finite(stats.n) ? 'In-sample' : 'Not recorded';
       rows.push({study, label, unit, n:stats.n ?? null, baselineN:stats.baselineN ?? null, mean:value, median:stats.medianPct ?? null,
-        sample:stats.provisional ? 'Limited sample' : 'In-sample', positive:stats.hitRatePct ?? null, gap:finite(value) && finite(stats.baselineAvgPct) ? value - stats.baselineAvgPct : null, baseline:stats.baselineAvgPct ?? null, worst:stats.worstPct ?? null, best:stats.bestPct ?? null});
+        sample, positive:stats.hitRatePct ?? null, gap:finite(value) && finite(stats.baselineAvgPct) ? value - stats.baselineAvgPct : null, baseline:stats.baselineAvgPct ?? null, worst:stats.worstPct ?? null, best:stats.bestPct ?? null});
     };
     for (const [key, label] of [['expanding','Expanding volatility'],['calm','Calm volatility'],['neutral','Neutral volatility']]) {
       const s = pieces.volatility?.sample?.[key]; add('volatility', label, s, s?.nextAbsPct, 'Next-session absolute move (%)');
@@ -59,6 +61,11 @@ export function patternLabFactory(host, doc, views, symbolHref) {
       column('Mean','mean','pct'), column('Median','median','pct'), column('Positive','positive','pct'),
       column('Same-direction baseline','baseline','pct'), {...column('Difference (pp)','gap'),cell:row=>number(row.gap)}, column('Worst','worst','pct'), column('Best','best','pct')], rows, key);
   }
+  function peerRead(row) {
+    return row.sessionClass === 'leading'
+      ? {beta:row.sameDayBeta,t:row.sameDayT,n:row.n,timing:'Before US open'}
+      : {beta:row.lag1Beta,t:row.lag1T,n:row.lag1N,timing:row.sessionClass === '24h' ? 'Overnight market' : 'Overlaps US session'};
+  }
   function matches(symbol) { return String(symbol).toUpperCase().includes(state.query); }
   function currentRows(pieces) {
     return (pieces.divergences?.rows || []).filter(row => matches(row.symbol) && (state.direction === 'all' || row.direction === state.direction));
@@ -72,9 +79,9 @@ export function patternLabFactory(host, doc, views, symbolHref) {
   }
   function leadsTable(pieces, limit) {
     const rows = (pieces.leadLag?.rows || []).filter(row => matches(row.us));
-    return table([{label:'US ticker',cell:row=>link(row.us),sort:row=>row.us},column('Peer','peer'),column('Timing','sessionClass'),
-      {...column('Relevant beta','beta'),cell:row=>number(row.sessionClass === 'leading' ? row.sameDayBeta : row.lag1Beta),sort:row=>row.sessionClass === 'leading' ? row.sameDayBeta : row.lag1Beta},
-      {...column('Relevant t-stat','t'),cell:row=>number(row.sessionClass === 'leading' ? row.sameDayT : row.lag1T),sort:row=>row.sessionClass === 'leading' ? row.sameDayT : row.lag1T},
+    return table([{label:'US ticker',cell:row=>link(row.us),sort:row=>row.us},column('Peer','peer'),{label:'Timing',cell:row=>escape(peerRead(row).timing),sort:row=>peerRead(row).timing}, {label:'Observations',num:true,cell:row=>number(peerRead(row).n,0),sort:row=>peerRead(row).n ?? null},
+      {...column('Relevant beta','beta'),cell:row=>number(peerRead(row).beta),sort:row=>peerRead(row).beta},
+      {...column('Relevant t-stat','t'),cell:row=>number(peerRead(row).t),sort:row=>peerRead(row).t},
       column('Corr 60','corr60'),column('Corr 120','corr120'),column('Read','read')], limit ? rows.slice(0,limit) : rows, 'leads', 'No peer observations match this view.');
   }
   function seasonality(pieces) {
@@ -85,7 +92,7 @@ export function patternLabFactory(host, doc, views, symbolHref) {
     return '<p class="pat-note">' + escape(state.symbol) + ' · ' + number(season.years,1) + ' years · ' + (season.sessions || 0) + ' sessions. Calendar history is separate from the two-year stock studies.</p>' +
       bars('Monthly returns', (season.months || []).map(row=>({label:row.name,n:row.n,value:row.avgPct,provisional:row.provisional})), 'Mean full-month return (%)', note) +
       (state.view === 'charts' ? bars('Weekday returns',(season.weekdays || []).map(row=>({label:row.name,n:row.n,value:row.avgPct,provisional:row.provisional})),'Mean daily return (%)', note) +
-        bars('Recurring windows', ['turnOfMonth','opexWeek','santa','midterm'].map(key=>({label:{turnOfMonth:'Turn of month',opexWeek:'Expiration week',santa:'Santa window',midterm:'Midterm year'}[key],n:season[key]?.n,value:season[key]?.avgPct})),'Mean full-window return (%)','Window lengths differ; compare each with its own history, rather than ranking them as interchangeable signals.') : '');
+        bars('Recurring windows', ['turnOfMonth','opexWeek','santa','midterm'].map(key=>({label:{turnOfMonth:'Turn of month',opexWeek:'Expiration week',santa:'Santa window',midterm:'Midterm year'}[key],n:season[key]?.n,value:season[key]?.avgPct,provisional:season[key]?.provisional})),'Mean full-window return (%)','Window lengths differ; compare each with its own history, rather than ranking them as interchangeable signals.') : '');
   }
   function section(key, pieces) {
     const s = pieces[key] || {}, rows = summaryRows(pieces).filter(row=>row.study === key);
@@ -99,7 +106,7 @@ export function patternLabFactory(host, doc, views, symbolHref) {
       body = seasonality(pieces);
     } else if (key === 'leadLag') {
       takeaway = (s.usable || 0) + ' of ' + (s.tested || 0) + ' peer relationships meet the association or breakdown screen.';
-      body = state.view === 'charts' ? bars('Relevant peer association', (s.rows || []).filter(row=>matches(row.us)).slice(0,16).map(row=>({label:row.us+' / '+row.peer,value:row.sessionClass === 'leading' ? row.sameDayT : row.lag1T,n:row.sessionClass === 'leading' ? row.n : row.lag1N})), 'In-sample t-statistic', 'A large t-statistic is an association, not a forecast. Leading markets use same-day observations; overlapping and overnight markets use the prior session.') : leadsTable(pieces,state.view === 'overview' ? 6 : null);
+      body = state.view === 'charts' ? bars('Relevant peer association', (s.rows || []).filter(row=>matches(row.us)).slice(0,16).map(row=>({label:row.us+' / '+row.peer,value:peerRead(row).t,n:peerRead(row).n})), 'In-sample t-statistic', 'A large t-statistic is an association, not a forecast. Leading markets use same-day observations; overlapping and overnight markets use the prior session.') : leadsTable(pieces,state.view === 'overview' ? 6 : null);
       body += '<p class="pat-note">' + escape(s.caveat || '') + '</p>';
     } else if (key === 'divergences') {
       takeaway = currentRows(pieces).length + ' current divergence rows match the view. Historical returns below are signed in the setup direction.';
@@ -126,7 +133,7 @@ export function patternLabFactory(host, doc, views, symbolHref) {
   function coverage(data) {
     const rows = data.history?.stocks || [];
     if (!data.history) return '<p class="pat-note">This older snapshot does not record stock-history depth. A new data build is needed for the two-year study.</p>';
-    return '<details class="pat-coverage"><summary>Actual stock-history coverage · ' + rows.length + ' names</summary><p class="pat-note">' + escape(data.history.note) + '</p>' + table([column('Ticker','symbol'),column('First close','firstDate'),column('Last close','lastDate'),column('Sessions','sessions','number')],rows,'coverage') + '</details>';
+    return '<details class="pat-coverage"><summary>Actual stock-history coverage · ' + rows.length + ' names</summary><p class="pat-note">' + escape(data.history.note) + '</p>' + table([column('Ticker','symbol'),column('First close','firstDate'),column('Last close','lastDate'),column('Sessions','sessions','number'),{label:'Divergence study',cell:row=>escape({'included':'Included','under-80-sessions':'Insufficient history','excluded-large-print':'Excluded: daily move above 40%'}[row.status] || 'Not recorded'),sort:row=>row.status ?? null}],rows,'coverage') + '</details>';
   }
   function render() {
     const root = $('pattern-lab-root'), eye = $('pattern-lab-eyebrow');
@@ -134,10 +141,10 @@ export function patternLabFactory(host, doc, views, symbolHref) {
     root.setAttribute('aria-busy', String(state.pending));
     if (!state.data) {root.innerHTML = '<p class="pat-note">' + (state.error ? 'Pattern Lab could not load. <button type="button" data-pat-retry>Retry</button>' : 'Loading Pattern Lab…') + '</p>'; return;}
     const data = state.data, pieces = data.pieces || {}, selected = state.study === 'all' ? Object.keys(names) : [state.study];
-    if (eye) eye.textContent = 'Session ' + (data.asOf || 'unknown');
+    if (eye) eye.textContent = 'Snapshot ' + (data.asOf || 'unknown');
     const stale = Date.parse(data.builtAtIso);
     root.innerHTML = '<div class="pat-toolbar"><div class="pat-switch" role="group" aria-label="Pattern Lab view">' + [['overview','Overview'],['charts','Charts'],['tables','Tables']].map(([key,label])=>'<button type="button" data-pat-view="' + key + '" aria-pressed="' + (state.view === key) + '">' + label + '</button>').join('') + '</div><label>Study<select data-pat-study aria-label="Pattern study">' + [['all','All studies'],...Object.entries(names)].map(([key,label])=>'<option value="' + key + '"' + (state.study === key ? ' selected' : '') + '>' + label + '</option>').join('') + '</select></label><button type="button" class="streaks-btn" data-pat-export>Export summary</button><button type="button" class="streaks-btn" data-pat-retry' + (state.pending ? ' disabled' : '') + '>' + (state.pending ? 'Refreshing…' : 'Refresh snapshot') + '</button></div>' +
-      '<div class="pat-filters">' + (state.study === 'all' || state.study === 'seasonality' ? '<label>Index<select data-pat-symbol aria-label="Seasonal index">' + ['SPY','QQQ','IWM'].map(symbol=>'<option' + (state.symbol === symbol ? ' selected' : '') + '>' + symbol + '</option>').join('') + '</select></label>' : '') + '<label>Find ticker<input type="search" data-pat-query aria-label="Filter current tickers" value="' + escape(state.query) + '" placeholder="Current divergences and peers"></label><label>Divergence direction<select data-pat-direction aria-label="Divergence direction">' + ['all','bullish','bearish'].map(value=>'<option value="' + value + '"' + (state.direction === value ? ' selected' : '') + '>' + value + '</option>').join('') + '</select></label></div>' +
+      '<div class="pat-filters">' + (state.study === 'all' || state.study === 'seasonality' ? '<label>Index<select data-pat-symbol aria-label="Seasonal index">' + ['^GSPC','SPY','QQQ','IWM'].map(symbol=>'<option' + (state.symbol === symbol ? ' selected' : '') + '>' + symbol + '</option>').join('') + '</select></label>' : '') + '<label>Find ticker<input type="search" data-pat-query aria-label="Filter current tickers" value="' + escape(state.query) + '" placeholder="Current divergences and peers"></label><label>Divergence direction<select data-pat-direction aria-label="Divergence direction">' + ['all','bullish','bearish'].map(value=>'<option value="' + value + '"' + (state.direction === value ? ' selected' : '') + '>' + value + '</option>').join('') + '</select></label></div>' +
       '<p class="pat-note">Explore current conditions and past outcomes. Each study uses its own return horizon and units.</p>' +
       ((!finite(stale) || Date.now() - stale > 72 * 3600000) ? '<p class="pat-flag" role="status">Reference snapshot: this data is more than three days old or its build date is unavailable.</p>' : '') +
       '<p class="pat-note">Stock history: up to two years. Expand coverage for actual dates and sample sizes.</p>' + coverage(data) +
@@ -145,7 +152,7 @@ export function patternLabFactory(host, doc, views, symbolHref) {
   }
   function exportSummary() {
     const pieces = state.data?.pieces || {}, rows = summaryRows(pieces);
-    if (state.study === 'all' || state.study === 'leadLag') for (const row of pieces.leadLag?.rows || []) if (matches(row.us)) rows.push({study:'leadLag',label:row.us+' / '+row.peer,unit:'Association coefficients',n:row.n,beta:row.sessionClass==='leading'?row.sameDayBeta:row.lag1Beta,t:row.sessionClass==='leading'?row.sameDayT:row.lag1T,corr60:row.corr60,corr120:row.corr120,timing:row.sessionClass});
+    if (state.study === 'all' || state.study === 'leadLag') for (const row of pieces.leadLag?.rows || []) if (matches(row.us)) rows.push({study:'leadLag',label:row.us+' / '+row.peer,unit:'Association coefficients',n:peerRead(row).n,beta:peerRead(row).beta,t:peerRead(row).t,corr60:row.corr60,corr120:row.corr120,timing:peerRead(row).timing});
     const fields = ['study','label','unit','n','mean','median','positive','baseline','gap','worst','best','beta','t','corr60','corr120','timing'];
     const body = [fields,...rows.map(row=>fields.map(key=>row[key]))].map(row=>row.map(value=>'"' + String(value ?? '').replace(/"/g,'""') + '"').join(',')).join('\r\n');
     const url = host.URL.createObjectURL(new host.Blob([body],{type:'text/csv;charset=utf-8'}));
@@ -174,10 +181,11 @@ export function patternLabFactory(host, doc, views, symbolHref) {
     if (state.data && !force) {render();return;}
     state.pending=true; state.error=null;render();
     try {
-      const url = typeof host.stonksDataUrl === 'function' ? host.stonksDataUrl('pattern-recognition.json') : 'data/pattern-recognition.json';
+      const url = dataUrl('pattern-recognition.json');
       const response = await host.fetch(url,{cache:'no-store'}); if (!response.ok) throw Error('HTTP ' + response.status);
       const data = await response.json(); if (!data?.pieces || data.error) throw Error('Pattern snapshot unavailable');
       state.data=data;
+      if (!state.symbol) state.symbol = data.pieces.seasonality?.['^GSPC']?.months?.length ? '^GSPC' : 'SPY';
     } catch (error) {state.error=error;state.data=null;}
     finally {state.pending=false;render();}
   }
