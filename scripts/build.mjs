@@ -1,3 +1,5 @@
+import { buildStreakMaContext } from "../lib/streak-ma-context.mjs";
+import { PATTERN_HISTORY_DAYS, splitPatternHistory } from "../lib/pattern-history.mjs";
 // Renders index.html — a single-purpose Option Contract Rater.
 //
 // Build-time: fetches Yahoo's option chain for a curated ticker list
@@ -1333,20 +1335,16 @@ async function fetchLeapsExpirationChain(symbol, expSec, spotHint) {
 }
 
 // --- Historical bars + technical indicators -----------------------------
-// Pulls ~7 months of daily closes (high/low/close) per ticker. Enough warmup
+// Pulls two years of daily closes (high/low/close) per ticker. Enough warmup
 // to run a 14-period RSI, a 12/26/9 MACD, and rolling 20-/50-day swing
 // support/resistance off the same series. Cost is one extra Yahoo call per
 // ticker (chart endpoint), added to the per-expiration calls already running
 // inside fetchTickerChain. Transient chart failures retry in place; an
 // exhausted daily-history miss remains null so the pre-AI gate can fail closed
 // before paid work or publication.
-// 365 calendar days ≈ 252 trading days — enough to fill the 200-day SMA and
-// the 200-day support/resistance windows with margin for weekends + market
-// holidays. (Was 220 ≈ ~150 trading days, which left every 200d window
-// perpetually null.) Bars are never persisted per-ticker (`_bars` is stripped
-// before write) and the streak tracker slices its own 60-day tail, so the
-// extra history only feeds the trailing-window technicals.
-const HISTORY_LOOKBACK_DAYS = 365;
+// The one request supplies two years to Pattern Lab. Scoring and existing
+// consumers keep their one-year window; both raw arrays stay in memory only.
+const HISTORY_LOOKBACK_DAYS = PATTERN_HISTORY_DAYS;
 
 async function fetchHistoricalBars(symbol) {
   const period2 = new Date();
@@ -1457,13 +1455,16 @@ const STREAK_CONSECUTIVE_COUNTER_BREAK = 4;
 const STREAK_SNAPPED_RECENT_SESSIONS = 2;
 
 // Confirmed daily bars for streaks (and any other live-candle consumer).
-// Drop the last bar unless the session is already closed or post-close —
-// the in-progress regular-session print is unfinished. Volume stays on
-// the same cutoff because computeStreakForTicker reads each bar's `.v`.
-export function confirmedDailyBars(bars, marketState) {
+// Remove an unfinished current-session print, preserving the prior close
+// when Yahoo has not appended today's candle yet (especially pre-market).
+// Unknown dates retain the conservative cutoff. Volume follows the same bar.
+export function confirmedDailyBars(bars, marketState, now = new Date()) {
   if (!Array.isArray(bars) || !bars.length) return [];
   const st = String(marketState || "").toUpperCase();
-  if (st === "CLOSED" || st === "POST") return bars;
+  if (st === "CLOSED" || st === "POST" || st === "POSTPOST") return bars;
+  const last = bars[bars.length - 1];
+  const lastDate = barDateKey(last?.t ?? last?.date);
+  if (lastDate && lastDate < etDateKey(now)) return bars;
   return bars.slice(0, -1);
 }
 
@@ -1511,6 +1512,20 @@ export function computeStreakForTicker(symbol, bars) {
         : "flat",
   }));
 
+  // Measure volume against the baseline before THIS run, including ended
+  // runs. A new reversal must never lend its volume to the run it snapped.
+  const runVolume = (run) => {
+    const avg = (values) => values.length ? values.reduce((sum, v) => sum + v, 0) / values.length : null;
+    const startIdx = run.history[0].idx;
+    const runAvg = avg(run.history.map((m) => m.volume).filter((v) => v > 0));
+    const baseAvg = avg(tail.slice(Math.max(0, startIdx - 20), startIdx).map((b) => b.v).filter((v) => v > 0));
+    const volumeRatio = runAvg != null && baseAvg > 0 ? runAvg / baseAvg : null;
+    return {
+      volumeRatio,
+      volumeTrend: volumeRatio == null ? null : volumeRatio >= 1.15 ? "rising" : volumeRatio <= 0.85 ? "falling" : "flat",
+    };
+  };
+
   // Walk oldest -> newest, restarting the streak whenever a break fires.
   // Whatever streak survives to the end of the loop is the "current" one.
   let streak = null;
@@ -1546,9 +1561,10 @@ export function computeStreakForTicker(symbol, bars) {
   for (const m of moves) {
     if (m.color === "flat") {
       // Flat days are neither same nor counter -- record them but don't
-      // touch direction or tolerance bookkeeping. Their small return still
-      // belongs in the compounded window result.
+      // touch direction or the tolerance bank. They interrupt consecutive
+      // counter sessions; their small return stays in the compounded result.
       if (streak) {
+        streak.consecutiveCounterDays = 0;
         streak.days += 1;
         streak.growthFactor *= 1 + m.changePct / 100;
         streak.cumulativePct = (streak.growthFactor - 1) * 100;
@@ -1594,7 +1610,12 @@ export function computeStreakForTicker(symbol, bars) {
       // The dying streak passed the sameDays>=2 guard above, so it's a real
       // run worth remembering as a recent break. `endIdx` = the breaking
       // day's position in `tail`; recency is measured against it at the end.
-      priorEnded = {
+      const ended = {
+        ...runVolume(streak),
+        tolerancePct: streak.tolerancePct,
+        toleranceBreakPct,
+        counterDays: streak.counterDays,
+        consecutiveCounterDays: streak.consecutiveCounterDays,
         color: streak.direction,
         days: streak.sameDays,
         windowDays: streak.days,
@@ -1609,6 +1630,7 @@ export function computeStreakForTicker(symbol, bars) {
         ),
         brokeBy: breakSingleDay ? "big counter day" : breakCumulative ? "tolerance bank" : "counter days",
       };
+      if (ended.material) priorEnded = ended;
       streak = startStreak(m);
       continue;
     }
@@ -1628,28 +1650,7 @@ export function computeStreakForTicker(symbol, bars) {
   const lastMove = streak.history[streak.history.length - 1];
   const lastIdx = lastMove?.idx;
 
-  // Volume-trend read: average share volume DURING the streak vs the ~20
-  // sessions immediately before it began. A run on rising volume is on
-  // conviction; a fading-volume run is more likely to mean-revert. Both
-  // averages degrade to null when volume is missing (the trend is then
-  // simply omitted from the payload).
-  const avgOf = (arr) => (arr.length ? arr.reduce((s, x) => s + x, 0) / arr.length : null);
-  const startIdx = streak.history[0]?.idx;
-  const streakVols = streak.history.map((m) => m.volume).filter((v) => v > 0);
-  const baseVols = [];
-  if (Number.isInteger(startIdx)) {
-    for (let j = Math.max(0, startIdx - 20); j < startIdx; j++) {
-      if (tail[j]?.v > 0) baseVols.push(tail[j].v);
-    }
-  }
-  const streakAvgVol = avgOf(streakVols);
-  const baseAvgVol = avgOf(baseVols);
-  let volumeRatio = null;
-  let volumeTrend = null;
-  if (streakAvgVol != null && baseAvgVol > 0) {
-    volumeRatio = streakAvgVol / baseAvgVol;
-    volumeTrend = volumeRatio >= 1.15 ? "rising" : volumeRatio <= 0.85 ? "falling" : "flat";
-  }
+  const { volumeRatio, volumeTrend } = runVolume(streak);
 
   // Surface the snapped streak only if it broke within the last few sessions
   // (sessionsAgo 0 = snapped today). Older breaks aren't actionable, so drop.
@@ -1662,6 +1663,12 @@ export function computeStreakForTicker(symbol, bars) {
     const sessionsAgo = lastIdx - priorEnded.endIdx;
     if (sessionsAgo >= 0 && sessionsAgo <= STREAK_SNAPPED_RECENT_SESSIONS) {
       lastEnded = {
+        volumeRatio: priorEnded.volumeRatio,
+        volumeTrend: priorEnded.volumeTrend,
+        tolerancePct: priorEnded.tolerancePct,
+        toleranceBreakPct: priorEnded.toleranceBreakPct,
+        counterDays: priorEnded.counterDays,
+        consecutiveCounterDays: priorEnded.consecutiveCounterDays,
         color: priorEnded.color,
         days: priorEnded.days,
         windowDays: priorEnded.windowDays,
@@ -1687,6 +1694,7 @@ export function computeStreakForTicker(symbol, bars) {
   return {
     symbol,
     lastClose: lastMove?.close ?? null,
+    maContext: buildStreakMaContext(bars),
     current: {
       color: streak.direction,
       days: streak.days,
@@ -1695,6 +1703,7 @@ export function computeStreakForTicker(symbol, bars) {
       cumulativePct: streak.cumulativePct,
       tolerancePct: streak.tolerancePct,
       counterDays: streak.counterDays,
+      consecutiveCounterDays: streak.consecutiveCounterDays,
       moveNoisePct,
       counterBreakPct,
       toleranceBreakPct,
@@ -3645,9 +3654,12 @@ async function fetchTickerChain(symbol) {
   // log becomes scannable, which is the higher value here.
   let technicals = null;
   let bars = null;
+  let patternBars = null;
   let intraday = null;
   try {
-    bars = await fetchHistoricalBars(symbol);
+    const history = splitPatternHistory(await fetchHistoricalBars(symbol));
+    bars = history.technical;
+    patternBars = history.research;
     technicals = computeTechnicals(bars);
   } catch (err) {
     console.log(`    ⚠ ${symbol} historical/technicals failed: ${summarizeYahooError(err)}`);
@@ -3689,6 +3701,7 @@ async function fetchTickerChain(symbol) {
     // Used by the streak aggregator (data/streaks.json) so we don't re-hit
     // Yahoo for the same daily closes.
     _bars: bars,
+    _patternBars: patternBars,
     // _intraday (30m, regular session) — in-memory only, stripped before write.
     // Compacted into the persisted `intradaySeries` for the browser's 1W/1M chart tabs.
     _intraday: intraday,
@@ -4431,7 +4444,7 @@ export async function writeAutoPicksFile(picks, builtAtIso = new Date().toISOStr
 
 // Public per-ticker body. Transient series and the LEAPS tail stay in memory.
 export function publicChainFilePayload(data) {
-  const { _bars, _intraday, _signalHeadlines, _listedExpirations, _leapsChains, autoPick: _legacyAutoPick, ...rest } = data;
+  const { _bars, _patternBars, _intraday, _signalHeadlines, _listedExpirations, _leapsChains, autoPick: _legacyAutoPick, ...rest } = data;
   return {
     ...rest,
     priceSeries: buildPriceSeries(_bars),
@@ -29236,14 +29249,12 @@ async function writeMovingAverageTrackerFile(chains, builtAtIso) {
   return { bytes: json.length, tickers: payload.tickers.length, inBand: payload.summary.inBand };
 }
 
-function patternCloseSeries(chain) {
-  const rows = [];
-  if (Array.isArray(chain?._bars) && chain._bars.length) {
-    for (const bar of chain._bars) rows.push({ t: bar?.t, c: bar?.c });
-  } else if (chain?.priceSeries?.t && chain?.priceSeries?.c) {
-    for (let i = 0; i < chain.priceSeries.t.length; i++) rows.push({ t: chain.priceSeries.t[i], c: chain.priceSeries.c[i] });
+export function patternCloseSeries(chain, builtAtIso) {
+  let bars = chain?._patternBars || chain?._bars;
+  if (!Array.isArray(bars) && chain?.priceSeries?.t && chain?.priceSeries?.c) {
+    bars = chain.priceSeries.t.map((t, i) => ({t, c: chain.priceSeries.c[i]}));
   }
-  return mergeDailyCloses(rows);
+  return mergeDailyCloses(confirmedDailyBars(bars, chain?.marketState, new Date(builtAtIso)));
 }
 
 // Confirmed daily closes for the given ETFs from the site's one long-history
@@ -29275,26 +29286,27 @@ async function writePatternRecognitionFiles({
 }) {
   const symbols = {};
   for (const symbol of PATTERN_SEASONALITY_SYMBOLS) {
-    symbols[symbol] = mergeDailyCloses(indexBars?.[symbol], patternCloseSeries(chains?.[symbol]));
+    symbols[symbol] = mergeDailyCloses(indexBars?.[symbol], patternCloseSeries(chains?.[symbol], builtAtIso));
   }
   const peers = [];
   for (const [us, group] of Object.entries(GLOBAL_PEER_OF_TICKER)) {
     for (const peer of GLOBAL_PEER_GROUPS[group] || []) {
-      const peerBars = globalMarkets?.[peer]?.bars;
+      const peerData = globalMarkets?.[peer];
+      const peerBars = patternCloseSeries({_patternBars: peerData?._patternBars || peerData?.bars, marketState: peerData?.marketState}, builtAtIso);
       if (!peerBars?.length || !chains?.[us]) continue;
       peers.push({
         us,
         peer,
         sessionClass: globalSessionClass(peer),
-        usBars: patternCloseSeries(chains[us]),
+        usBars: patternCloseSeries(chains[us], builtAtIso),
         peerBars,
       });
     }
   }
   const divergences = [];
   for (const [symbol, chain] of Object.entries(chains || {})) {
-    const series = patternCloseSeries(chain);
-    if (series.length < 80) continue;
+    const series = patternCloseSeries(chain, builtAtIso);
+    if (!series.length) continue;
     divergences.push({ symbol, dates: series.map((row) => row.t), closes: series.map((row) => row.c) });
   }
   const regimeDays = appendRegimeHistory(regimeHistoryPrev, macroRegime || null, null, builtAtIso).days;
@@ -29302,7 +29314,7 @@ async function writePatternRecognitionFiles({
     asOf: etDateKey(new Date(builtAtIso)),
     builtAtIso,
     indexBars: symbols,
-    spyBars: patternCloseSeries(chains?.SPY),
+    spyBars: patternCloseSeries(chains?.SPY, builtAtIso),
     peers,
     divergences,
     regimeDays,
@@ -29610,13 +29622,13 @@ async function writeHeatmapFile(chains, builtAtIso, priorEodSummary = null, prio
 
 // ---------------------------------------------------------------------------
 // Global market correlations (data/correlations.json) — see GLOBAL_MARKETS.
-const GLOBAL_HISTORY_DAYS = 365;
+const GLOBAL_HISTORY_DAYS = PATTERN_HISTORY_DAYS;
 const GLOBAL_CORR_MAX_OBS = 150;  // trailing common trading days for corr/beta
 const GLOBAL_CORR_MIN_OBS = 30;   // below this, corr/beta are not reported
 const GLOBAL_FETCH_CONCURRENCY = 4;
 const CORR_SPARK_BARS = 31;       // trailing closes baked per market for the rail sparkline
 
-// One foreign symbol: ~1y of daily closes + the last completed session's move
+// One foreign symbol: two years of daily closes for Pattern Lab + the last completed session's move
 // and chart meta (currency / display name). Non-fatal at the caller — a failed
 // symbol is simply absent from the snapshot (graceful degradation, like a
 // skipped ticker in the main chain sweep).
@@ -29635,10 +29647,11 @@ async function fetchGlobalMarketBars(symbol) {
     if (retryQuotes.length > quotes.length) { result = retry; quotes = retryQuotes; }
   }
   const barTz = result?.meta?.exchangeTimezoneName || null;
-  const bars = quotes
+  const researchBars = quotes
     .filter((q) => q && q.close != null)
     .map((q) => ({ c: q.close, t: q.date ? (overnightLocalDate(new Date(q.date), barTz) || new Date(q.date).toISOString().slice(0, 10)) : null }))
     .filter((b) => b.t);
+  const bars = splitPatternHistory(researchBars).technical;
   if (bars.length < 2) throw new Error(`no usable bars for ${symbol}`);
   const last = bars[bars.length - 1];
   const prev = bars[bars.length - 2];
@@ -29686,6 +29699,7 @@ async function fetchGlobalMarketBars(symbol) {
   }
   return {
     bars,
+    _patternBars: researchBars,
     last: lastPx,
     prevClose,
     chPct: chPct == null ? null : Math.round(chPct * 100) / 100,
