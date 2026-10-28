@@ -2423,10 +2423,21 @@ function scenarioEventPhase(ev, now = Date.now()) {
       var dy = (p[1] - v.y) * sy;
       return dx * dx + dy * dy;
     };
-    var best = pts[0], bd = dist(pts[0]);
+    var bestD = dist(pts[0]), tied = [pts[0]];
     for (var i=1; i<pts.length; i++){
       var d = dist(pts[i]);
-      if (d < bd){ bd = d; best = pts[i]; }
+      if (d < bestD - 0.01){ bestD = d; tied = [pts[i]]; }
+      else if (d <= bestD + 0.01) tied.push(pts[i]);
+    }
+    // One point per x keeps the original snap. Two lines that share an x
+    // (median and this year's path) follow whichever line the cursor is near.
+    var best = tied[0];
+    if (!xy && tied.length > 1){
+      var bestDy = Infinity;
+      for (var t=0; t<tied.length; t++){
+        var dy = Math.abs((tied[t][1] - v.y) * sy);
+        if (dy < bestDy){ bestDy = dy; best = tied[t]; }
+      }
     }
     var s = svg.createSVGPoint(); s.x = best[0]; s.y = best[1];
     var sp = s.matrixTransform(ctm);
@@ -2442,7 +2453,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var tip = chHover.tip;
     var lines = String(best[2] || '').split('\n');
     var htmlOut = '';
-    for (var li=0; li<lines.length; li++) htmlOut += (li ? '<br>' : '') + escapeHtml(lines[li]);
+    for (var li=0; li<lines.length; li++) htmlOut += '<span class="' + (li ? 'ch-tip-line' : 'ch-tip-lead') + '">' + escapeHtml(lines[li]) + '</span>';
     tip.innerHTML = htmlOut;
     tip.style.display = '';
     // Above the dot, flipping below when clipped at the top, and clamped to
@@ -24394,13 +24405,25 @@ function scenarioEventPhase(ev, now = Date.now()) {
     return value > 0 ? 'up' : 'down';
   }
   function siSpark(history){
-    var values = (Array.isArray(history) ? history : []).slice(-45).map(function(p){ return Number(p.value); }).filter(isFinite);
-    if (values.length < 2) return '';
+    var rows = (Array.isArray(history) ? history : []).slice(-45).map(function(p){
+      return { date: p && p.date ? String(p.date) : '', value: Number(p && p.value) };
+    }).filter(function(p){ return isFinite(p.value); });
+    if (rows.length < 2) return '';
+    var values = rows.map(function(p){ return p.value; });
     var lo = Math.min.apply(null, values), hi = Math.max.apply(null, values), span = Math.max(1, hi - lo);
-    var points = values.map(function(v, i){
-      return ((i / (values.length - 1)) * 100).toFixed(1) + ',' + (27 - ((v - lo) / span) * 23).toFixed(1);
+    var points = rows.map(function(p, i){
+      return ((i / (rows.length - 1)) * 100).toFixed(1) + ',' + (27 - ((p.value - lo) / span) * 23).toFixed(1);
     }).join(' ');
-    return '<svg class="si-spark" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true">' + sparkAreaHtml(points, 30) + '<polyline points="' + points + '"/></svg>';
+    var hover = chHoverAttr(rows.map(function(p, i){
+      var back = rows.length - 1 - i;
+      var when = p.date || (back === 0 ? 'latest' : back + ' points back');
+      return {
+        x: (i / (rows.length - 1)) * 100,
+        y: 27 - ((p.value - lo) / span) * 23,
+        label: when + '\nSearch interest ' + Math.round(p.value)
+      };
+    }));
+    return '<svg class="si-spark" viewBox="0 0 100 30" preserveAspectRatio="none" role="img" aria-label="Search interest history"' + hover + '>' + sparkAreaHtml(points, 30) + '<polyline points="' + points + '"/></svg>';
   }
   function siQueryList(items, rising){
     var list = Array.isArray(items) ? items : [];
@@ -24896,7 +24919,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (verdict === 'stress') return 'bad';
     return 'na';
   }
-  function btmSpark(values){
+  function btmSpark(values, name){
     if (!values || values.length < 2) return '';
     var min = Infinity, max = -Infinity, i;
     for (i = 0; i < values.length; i++){
@@ -24904,10 +24927,19 @@ function scenarioEventPhase(ev, now = Date.now()) {
       if (values[i] > max) max = values[i];
     }
     var span = max - min || 1, w = 168, h = 36, pts = [];
-    for (i = 0; i < values.length; i++){
-      pts.push(((i / (values.length - 1)) * w).toFixed(1) + ',' + (h - ((values[i] - min) / span) * (h - 4) - 2).toFixed(1));
+    function yOf(v){ return h - ((v - min) / span) * (h - 4) - 2; }
+    function shown(v){
+      var av = Math.abs(v);
+      if (av >= 1000) return v.toLocaleString(undefined, { maximumFractionDigits: 1 });
+      return v.toFixed(av >= 100 ? 1 : 2);
     }
-    return '<svg class="btm-spark" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" aria-hidden="true">' + sparkAreaHtml(pts.join(' '), h) + '<polyline fill="none" points="' + pts.join(' ') + '"/></svg>';
+    for (i = 0; i < values.length; i++) pts.push(((i / (values.length - 1)) * w).toFixed(1) + ',' + yOf(values[i]).toFixed(1));
+    var hover = chHoverAttr(values.map(function(v, i){
+      var back = values.length - 1 - i;
+      var when = back === 0 ? 'Latest' : back + ' points back';
+      return { x: (i / (values.length - 1)) * w, y: yOf(v), label: (name ? name + '\n' : '') + when + '\n' + shown(v), value: v, time: when };
+    }));
+    return '<svg class="btm-spark" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" role="img" aria-label="' + escapeHtml(name || 'History') + '"' + hover + '>' + sparkAreaHtml(pts.join(' '), h) + '<polyline fill="none" points="' + pts.join(' ') + '"/></svg>';
   }
   function btmRate(value){
     if (value == null || !isFinite(value)) return '—';
@@ -24988,8 +25020,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
         return '<li><span>' + escapeHtml(fact.label) + '</span><b>' + escapeHtml(fact.value) + '</b></li>';
       }).join('');
       var spark = '';
-      if (card.id === 'price' && d.spark && d.spark.spy) spark = btmSpark(d.spark.spy);
-      if (card.id === 'credit' && d.spark && d.spark.hy) spark = btmSpark(d.spark.hy);
+      if (card.id === 'price' && d.spark && d.spark.spy) spark = btmSpark(d.spark.spy, 'SPY');
+      if (card.id === 'credit' && d.spark && d.spark.hy) spark = btmSpark(d.spark.hy, 'High-yield spread');
       html += '<article class="btm-card btm-' + btmTone(card.state) + '"><header><span>' + escapeHtml(card.phase || '') + '</span><h3>' + escapeHtml(card.title || '') + '</h3><em>' + escapeHtml(card.stateLabel || '') + '</em></header>' + spark + '<p>' + escapeHtml(card.summary || '') + '</p>' + (facts ? '<ul class="btm-facts">' + facts + '</ul>' : '') + '<small>' + escapeHtml(card.source || '') + '</small></article>';
     });
     html += '</div>';
@@ -27133,13 +27165,21 @@ function scenarioEventPhase(ev, now = Date.now()) {
     const checks = q && Array.isArray(q.checks) && qs ? '<section class="h-source-intro"><h3>Data checks</h3><p>' + qs.pass + ' passed · ' + qs.warn + ' to watch · ' + qs.fail + ' failed. Every build checks each cached series against the NYSE calendar (closes on holidays, sessions with no close), compares SPY with the S&P 500 index day by day to catch shifted date labels, flags one-day jumps over 25%, checks FRED observation dates and staleness, and checks the FOMC, WWDC, event and release dates in code.</p></section><div class="h-table-wrap"><table class="h-table h-source-table"><thead><tr><th>Check</th><th>Result</th><th>Detail</th></tr></thead><tbody>' + [...q.checks].sort((a, b) => ({ fail: 0, warn: 1, pass: 2 })[a.status] - ({ fail: 0, warn: 1, pass: 2 })[b.status]).map(c => '<tr><td>' + escape(c.title) + '<small>' + escape(c.area) + '</small></td><td class="' + (c.status === 'fail' ? 'h-neg' : c.status === 'pass' ? 'h-pos' : '') + '">' + escape(({ pass: 'Passed', warn: 'Watch', fail: 'Failed' })[c.status] || c.status) + '</td><td>' + escape(c.detail) + '</td></tr>').join('') + '</tbody></table></div>' : '';
     return checks + '<div class="h-source-intro"><h3>Ten-year coverage ledger</h3><p>' + c.ready + ' of ' + c.total + ' catalogued datasets pass the ten-year history rule. Provider subscription fees for enabled adapters: $0. A missing, short or failed dataset never becomes a zero or a successful coverage claim.</p><p class="h-caption">Dates describe the contiguous usable tail, not an interpolated history. Earlier irregular reporting is retained in the source cache but excluded from comparisons. Free access does not grant blanket redistribution rights.</p></div>' + ['US stocks','Bonds','Commodities'].map(group => '<h4 class="h-source-heading">' + group + '</h4>' + table(c.markets.filter(s => s.group === group))).join('') + '<h4 class="h-source-heading">Macro, volatility and physical commodities</h4>' + table(c.context) + (Array.isArray(c.eventMarkets) && c.eventMarkets.length ? '<h4 class="h-source-heading">Event-study histories · not counted in the ledger above</h4>' + table(c.eventMarkets) : '') + (Array.isArray(c.releaseCalendars) && c.releaseCalendars.length ? '<h4 class="h-source-heading">Release calendars</h4><ul class="h-caption">' + c.releaseCalendars.map(r => '<li><a href="' + escape(r.url) + '" target="_blank" rel="noopener">' + escape(r.label) + '</a> · ' + escape(r.publisher) + ' · ' + (r.releases ? r.releases.toLocaleString() + ' past releases, ' + escape(r.firstDate) + ' to ' + escape(r.lastDate) : 'not collected') + (r.error ? ' · <span class="h-neg">' + escape(r.error) + '</span>' : '') + '</li>').join('') + '<li>FOMC decision days: Federal Reserve calendar, kept in code.</li></ul>' : '') + '<section class="h-paid"><h3>Optional paid data · none connected</h3><p>These services fill specific gaps. Each requires your approval before implementation or subscription. Prices checked October 24, 2026; taxes and business/display licenses may add cost.</p>' + c.paidOptions.map(p => '<article><h4><a href="' + escape(p.url) + '" target="_blank" rel="noopener">' + escape(p.name) + '</a> · ' + escape(p.cost) + '</h4><p>' + escape(p.purpose) + '</p><p class="h-caption">' + escape(p.limitation) + ' ' + escape(p.status) + '.</p></article>').join('') + '</section><details class="h-disclosure"><summary>Coverage boundaries and outstanding data needs</summary><ul>' + c.boundaries.map(t => '<li>' + escape(t) + '</li>').join('') + '<li>Long original-vintage macro histories need ALFRED vintage retrieval before use in a historical trading backtest. Current context charts use revised observations.</li><li>Super Bowl, lunar, intraday, event-surprise and option-chain effects remain untested without their separate event datasets.</li></ul></details>';
   }
+  function chartHover(points) {
+    return typeof options.hover === 'function' ? options.hover(points) : '';
+  }
   function contextChart(s) {
     if (s.status !== 'ready' || !s.chart.length) return '<p class="h-notice">This dataset does not meet the ten-year coverage requirement. Its chart and comparative statistics are withheld.</p>';
     const rows = s.chart, values = rows.map(r => r.v); let low = Math.min(...values), high = Math.max(...values);
     const pad = Math.max(.001, (high - low) * .08); low -= pad; high += pad;
     const first = Date.parse(rows[0].t), last = Date.parse(rows.at(-1).t), x = t => 78 + (Date.parse(t) - first) / Math.max(1, last - first) * 590, y = v => 210 - (v - low) / (high - low) * 182;
     const path = rows.map((r,i)=>(i?'L':'M')+number(x(r.t))+','+number(y(r.v))).join(' ');
-    return '<figure class="h-figure h-context-chart"><svg viewBox="0 0 704 267" role="img" aria-label="' + escape(s.label + ', historical levels in ' + s.unit) + '">' + Array.from({length:5},(_,i)=>{const v=low+(high-low)*i/4;return '<line class="h-grid" x1="78" x2="668" y1="'+y(v)+'" y2="'+y(v)+'"/><text x="70" y="'+(y(v)+4)+'" text-anchor="end">'+Number(v.toPrecision(4)).toLocaleString()+'</text>';}).join('') + '<path class="h-current" d="'+path+'"/>' + [0,.25,.5,.75,1].map(p=>{const t=first+(last-first)*p;return '<text x="'+(78+p*590)+'" y="235" text-anchor="middle">'+new Date(t).getUTCFullYear()+'</text>';}).join('') + '<text x="373" y="260" text-anchor="middle">Observation date (year)</text></svg><figcaption>Vertical axis: ' + escape(s.unit) + '. Monthly last available observations, latest 600 months at most.</figcaption></figure>';
+    const unit = s.unit ? ' ' + s.unit : '';
+    const hover = chartHover(rows.map(r => ({
+      x: x(r.t), y: y(r.v),
+      label: r.t + '\n' + number(r.v) + unit + '\n' + s.label,
+    })));
+    return '<figure class="h-figure h-context-chart"><svg viewBox="0 0 704 267" role="img" aria-label="' + escape(s.label + ', historical levels in ' + s.unit) + '"' + hover + '>' + Array.from({length:5},(_,i)=>{const v=low+(high-low)*i/4;return '<line class="h-grid" x1="78" x2="668" y1="'+y(v)+'" y2="'+y(v)+'"/><text x="70" y="'+(y(v)+4)+'" text-anchor="end">'+Number(v.toPrecision(4)).toLocaleString()+'</text>';}).join('') + '<path class="h-current" d="'+path+'"/>' + [0,.25,.5,.75,1].map(p=>{const t=first+(last-first)*p;return '<text x="'+(78+p*590)+'" y="235" text-anchor="middle">'+new Date(t).getUTCFullYear()+'</text>';}).join('') + '<text x="373" y="260" text-anchor="middle">Observation date (year)</text></svg><figcaption>Vertical axis: ' + escape(s.unit) + '. Monthly last available observations, latest 600 months at most.</figcaption></figure>';
   }
   function contextView(data) {
     const list = data.coverage.context;
@@ -27222,7 +27262,27 @@ function scenarioEventPhase(ev, now = Date.now()) {
     const band = [...history.map(p => ({ x: p.x, y: p.low })), ...[...history].reverse().map(p => ({ x: p.x, y: p.high }))];
     const grid = Array.from({ length: 5 }, (_, i) => { const v = low + (high - low) * i / 4; return '<line class="h-grid" x1="58" x2="676" y1="' + y(v) + '" y2="' + y(v) + '"/><text x="50" y="' + (y(v) + 4) + '" text-anchor="end">' + number(v, 1) + '%</text>'; }).join('');
     const ticks = [0, 25, 50, 75, 100].map(n => '<text x="' + x(n) + '" y="237" text-anchor="middle">' + n + '%</text>').join('');
-    return '<figure class="h-figure"><svg viewBox="0 0 704 267" role="img" aria-label="Window return chart. Historical median and middle fifty percent, with the held-out comparison through its latest completed close.">' + grid + '<path class="h-band" d="' + path(band) + 'Z"/><line class="h-zero" x1="58" x2="676" y1="' + y(0) + '" y2="' + y(0) + '"/><path class="h-median" d="' + path(history.map(p => ({ x: p.x, y: p.median }))) + '"/>' + (current.length ? '<path class="h-current" d="' + path(current) + '"/>' : '') + ticks + '<text x="367" y="260" text-anchor="middle">Window progress (%)</text></svg><figcaption><span class="h-legend-median">Historical median</span><span class="h-legend-band">Middle 50% of outcomes</span>' + (current.length ? '<span class="h-legend-current">' + study.comparison.year + ' held-out comparison</span>' : '') + '</figcaption><p class="h-caption">Vertical axis: price return from the prior close (%). Calendar windows align by calendar progress; Santa and post-midterm windows by trading sessions. The band shows past dispersion, not a forecast. ' + sample.n + ' completed observations · ' + escape(rangeLabel()) + '.</p></figure>';
+    let gap = 100;
+    for (let i = 1; i < history.length; i++) gap = Math.min(gap, Math.abs(history[i].x - history[i - 1].x) || gap);
+    const tol = Math.max(0.5, gap / 2);
+    const hoverPoints = [];
+    history.forEach(p => {
+      let near = null, dist = Infinity;
+      for (const point of current) {
+        const d = Math.abs(point.x - p.x);
+        if (d < dist) { dist = d; near = point; }
+      }
+      if (!near || dist > tol) near = null;
+      const progress = Math.abs(p.x - Math.round(p.x)) < 0.05 ? String(Math.round(p.x)) : number(p.x, 1);
+      const lines = [progress + '% of the window', 'Median ' + pct(p.median), 'Middle 50% ' + pct(p.low) + ' to ' + pct(p.high)];
+      if (near) lines.push(study.comparison.year + ' comparison ' + pct(near.y));
+      const label = lines.join('\n');
+      const px = x(p.x);
+      hoverPoints.push({ x: px, y: y(p.median), label });
+      if (near) hoverPoints.push({ x: px, y: y(near.y), label });
+    });
+    const hover = chartHover(hoverPoints);
+    return '<figure class="h-figure"><svg viewBox="0 0 704 267" role="img" aria-label="Window return chart. Historical median and middle fifty percent, with the held-out comparison through its latest completed close."' + hover + '>' + grid + '<path class="h-band" d="' + path(band) + 'Z"/><line class="h-zero" x1="58" x2="676" y1="' + y(0) + '" y2="' + y(0) + '"/><path class="h-median" d="' + path(history.map(p => ({ x: p.x, y: p.median }))) + '"/>' + (current.length ? '<path class="h-current" d="' + path(current) + '"/>' : '') + ticks + '<text x="367" y="260" text-anchor="middle">Window progress (%)</text></svg><figcaption><span class="h-legend-median">Historical median</span><span class="h-legend-band">Middle 50% of outcomes</span>' + (current.length ? '<span class="h-legend-current">' + study.comparison.year + ' held-out comparison</span>' : '') + '</figcaption><p class="h-caption">Vertical axis: price return from the prior close (%). Calendar windows align by calendar progress; Santa and post-midterm windows by trading sessions. The band shows past dispersion, not a forecast. ' + sample.n + ' completed observations · ' + escape(rangeLabel()) + '.</p></figure>';
   }
   function barChart(rows, labels, title) {
     const vals = rows.map(r => r.meanPct ?? r.returnPct).filter(Number.isFinite);
@@ -27231,10 +27291,15 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (low === high) { low = -.5; high = .5; }
     const span = high - low, digits = Math.min(4, Math.max(1, Math.ceil(-Math.log10(span)) + 1));
     const y = v => 169 - (v - low) / span * 143, step = 618 / rows.length;
-    return '<figure class="h-figure"><svg viewBox="0 0 704 224" role="img" aria-label="' + escape(title) + '"><text x="50" y="30" text-anchor="end">' + number(high, digits) + '%</text><text x="50" y="173" text-anchor="end">' + number(low, digits) + '%</text><line class="h-zero" x1="58" x2="676" y1="' + y(0) + '" y2="' + y(0) + '"/>' + rows.map((r, i) => {
+    const hover = chartHover(rows.flatMap((r, i) => {
+      const v = r.meanPct ?? r.returnPct;
+      if (!Number.isFinite(v)) return [];
+      return [{ x: 58 + i * step + step * .5, y: y(v), label: String(labels[i] ?? '') + '\n' + pct(v) + (r.n != null ? '\n' + r.n + ' observations' : '') }];
+    }));
+    return '<figure class="h-figure"><svg viewBox="0 0 704 224" role="img" aria-label="' + escape(title) + '"' + hover + '><text x="50" y="30" text-anchor="end">' + number(high, digits) + '%</text><text x="50" y="173" text-anchor="end">' + number(low, digits) + '%</text><line class="h-zero" x1="58" x2="676" y1="' + y(0) + '" y2="' + y(0) + '"/>' + rows.map((r, i) => {
       const v = r.meanPct ?? r.returnPct, px = 58 + i * step + step * .15;
       if (!Number.isFinite(v)) return '';
-      return '<rect class="' + (v >= 0 ? 'h-bar-pos' : 'h-bar-neg') + '" x="' + px + '" y="' + Math.min(y(0), y(v)) + '" width="' + Math.max(1, step * .7) + '" height="' + Math.abs(y(v) - y(0)) + '"><title>' + escape(labels[i]) + ': ' + pct(v) + (r.n != null ? ' · n=' + r.n : '') + '</title></rect>' + (rows.length <= 15 || i % 3 === 0 ? '<text x="' + (px + step * .35) + '" y="191" text-anchor="middle">' + escape(labels[i]) + '</text>' : '');
+      return '<rect class="' + (v >= 0 ? 'h-bar-pos' : 'h-bar-neg') + '" x="' + px + '" y="' + Math.min(y(0), y(v)) + '" width="' + Math.max(1, step * .7) + '" height="' + Math.abs(y(v) - y(0)) + '"></rect>' + (rows.length <= 15 || i % 3 === 0 ? '<text x="' + (px + step * .35) + '" y="191" text-anchor="middle">' + escape(labels[i]) + '</text>' : '');
     }).join('') + '<text x="367" y="217" text-anchor="middle">' + (rows.length === 12 && rows[0].month ? 'Calendar month' : 'Window anchor year') + '</text></svg><figcaption>' + escape(title) + ' · vertical axis: price return (%)</figcaption></figure>';
   }
   function exportCsv() {
@@ -27333,7 +27398,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
 })(window, document, {
     owner: function(){ return HAS_OWNER_ACCESS; },
     // Never use a legacy static-data fallback for this Owner-only feature.
-    url: function(){ return '/api/auth/me?data=historical-data.json'; }
+    url: function(){ return '/api/auth/me?data=historical-data.json'; },
+    hover: chHoverAttr
   });
   var partyTracker = (function partyTrackerFactory(host, doc, options) {
   const state = { data: null, pending: false, error: null, office: 'president', sort: 'gap', dir: 'desc', cycle: 'all', chapter: '', listSort: 'start', listDir: 'asc', openList: false, openMethod: false, bound: false };
@@ -30502,13 +30568,21 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var peers = rotSeriesValues(c, 'peers');
     if (vals.length < 2) return '';
     if (peers.length !== vals.length) peers = [];
+    var rawSeries = c && c.series;
+    var dateList = rawSeries && !Array.isArray(rawSeries) && Array.isArray(rawSeries.dates) ? rawSeries.dates : [];
+    var dates = dateList.length >= vals.length ? dateList.slice(dateList.length - vals.length) : [];
     var scaleVals = peers.length ? vals.concat(peers) : vals;
     var lo = Math.min.apply(null, scaleVals), hi = Math.max.apply(null, scaleVals);
     var span = hi - lo || 1, W = 240, H = 48, pad = 3;
+    function xy(v, idx){
+      return {
+        x: vals.length === 1 ? 0 : idx * W / (vals.length - 1),
+        y: pad + (H - pad * 2) * (1 - (v - lo) / span)
+      };
+    }
     function points(series){ return series.map(function(v, idx){
-      var x = vals.length === 1 ? 0 : idx * W / (vals.length - 1);
-      var y = pad + (H - pad * 2) * (1 - (v - lo) / span);
-      return x.toFixed(1) + ',' + y.toFixed(1);
+      var p = xy(v, idx);
+      return p.x.toFixed(1) + ',' + p.y.toFixed(1);
     }).join(' '); }
     var pts = points(vals), peerPts = peers.length ? points(peers) : '';
     var trough = vals.indexOf(lo);
@@ -30518,7 +30592,15 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var stockMove = vals[0] > 0 ? (vals[vals.length - 1] / vals[0] - 1) * 100 : null;
     var peerMove = peers.length && peers[0] > 0 ? (peers[peers.length - 1] / peers[0] - 1) * 100 : null;
     var alpha = stockMove != null && peerMove != null ? stockMove - peerMove : null;
-    return '<div class="rot-spark-wrap"><svg class="rot-spark rot-spark-' + tone + '" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="Recent normalized stock and peer-group paths; dotted vertical line marks the stock low">' +
+    var hover = chHoverAttr(vals.map(function(v, idx){
+      var p = xy(v, idx);
+      var back = vals.length - 1 - idx;
+      var when = dates[idx] || (back === 0 ? 'Latest' : back + ' sessions back');
+      var lines = [when, 'Stock ' + v.toFixed(1) + ' (rebased to 100)'];
+      if (peers.length) lines.push('Peers ' + peers[idx].toFixed(1) + ' (rebased to 100)');
+      return { x: p.x, y: p.y, label: lines.join('\n'), value: v, time: when };
+    }));
+    return '<div class="rot-spark-wrap"><svg class="rot-spark rot-spark-' + tone + '" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="Recent normalized stock and peer-group paths; dotted vertical line marks the stock low"' + hover + '>' +
       '<line class="rot-spark-low" x1="' + tx.toFixed(1) + '" y1="2" x2="' + tx.toFixed(1) + '" y2="46"/>' +
       (peerPts ? '<polyline class="rot-spark-peer" points="' + peerPts + '" fill="none"/>' : '') +
       sparkAreaHtml(pts, H) + '<polyline class="rot-spark-stock" points="' + pts + '" fill="none"/></svg>' +
@@ -33025,9 +33107,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
   // Current level, formatted per type (yields in %, USD instruments with $,
   // foreign cash with its currency code). '' when no level is available (#7).
-  function ovnLevelStr(m){
-    if (!m || m.last == null || !isFinite(m.last)) return '';
-    var v = m.last;
+  function ovnLevelStr(m, value){
+    if (!m) return '';
+    var v = value == null ? m.last : value;
+    if (v == null || !isFinite(v)) return '';
     if (m.type === 'rate') return v.toFixed(2) + '%';
     if (m.type === 'vol') return v.toFixed(1);
     var num = Math.abs(v) >= 1000 ? Math.round(v).toLocaleString() : (Math.abs(v) >= 100 ? v.toFixed(1) : v.toFixed(2));
@@ -33419,15 +33502,34 @@ function scenarioEventPhase(ev, now = Date.now()) {
     return (v > 0 ? '+' : '') + (Math.abs(v) >= 100 ? Math.round(v) : Number(v).toFixed(1)) + 'bp';
   }
   function ovnMiniSpark(m){
-    var values = m && Array.isArray(m.series) ? m.series.map(Number).filter(isFinite) : [];
-    if (values.length < 3) return '';
+    var raw = m && Array.isArray(m.series) ? m.series : [];
+    var dates = m && Array.isArray(m.seriesDates) ? m.seriesDates : [];
+    var rows = [];
+    for (var i = 0; i < raw.length; i++){
+      var v = Number(raw[i]);
+      if (!isFinite(v)) continue;
+      rows.push({ v: v, d: dates[i] ? String(dates[i]) : '' });
+    }
+    if (rows.length < 3) return '';
+    var values = rows.map(function(row){ return row.v; });
     var min = Math.min.apply(null, values), max = Math.max.apply(null, values), span = max - min || 1;
-    var pts = values.map(function(v, i){
-      var x = values.length === 1 ? 0 : (i / (values.length - 1)) * 100;
-      var y = 30 - ((v - min) / span) * 26;
+    var pts = rows.map(function(row, i){
+      var x = rows.length === 1 ? 0 : (i / (rows.length - 1)) * 100;
+      var y = 30 - ((row.v - min) / span) * 26;
       return x.toFixed(1) + ',' + y.toFixed(1);
     }).join(' ');
-    return '<svg class="ovn-detail-spark" viewBox="0 0 100 32" preserveAspectRatio="none" role="img" aria-label="Trailing ' + values.length + '-session price path">' + sparkAreaHtml(pts, 32) + '<polyline points="' + pts + '" fill="none" vector-effect="non-scaling-stroke"></polyline></svg>';
+    var hover = chHoverAttr(rows.map(function(row, i){
+      var back = rows.length - 1 - i;
+      var when = row.d || (back === 0 ? 'latest' : back + ' sessions back');
+      return {
+        x: rows.length === 1 ? 0 : (i / (rows.length - 1)) * 100,
+        y: 30 - ((row.v - min) / span) * 26,
+        label: when + '\n' + (ovnLevelStr(m, row.v) || String(row.v)),
+        value: row.v,
+        time: when
+      };
+    }));
+    return '<svg class="ovn-detail-spark" viewBox="0 0 100 32" preserveAspectRatio="none" role="img" aria-label="Trailing ' + rows.length + '-session price path"' + hover + '>' + sparkAreaHtml(pts, 32) + '<polyline points="' + pts + '" fill="none" vector-effect="non-scaling-stroke"></polyline></svg>';
   }
   function overnightDetailHtml(d){
     var sym = overnightState.selectedMarket;
@@ -47628,11 +47730,13 @@ function scenarioEventPhase(ev, now = Date.now()) {
       { key:'qqq', label:'QQQ', cls:'qqq', offset:0 },
       { key:'iwm', label:'IWM', cls:'iwm', offset:barW + 2 }
     ];
-    var bars = '', labels = '', bondPts = [], hit = '';
+    var bars = '', labels = '', bondPts = [], hit = '', hoverPts = [];
     chronological.forEach(function(row, idx){
       var x = padL + groupW * (idx + .5);
+      var tip = [fomcDayShortDate(row.date) + ((row.decisionLabel || row.decision) ? ' · ' + (row.decisionLabel || row.decision) : '')];
       series.forEach(function(s){
         var value = fomcDayNum(row.markets && row.markets[s.key] && row.markets[s.key].changePct);
+        tip.push(s.label + ' ' + (value == null ? '—' : fomcDayPct(value)));
         if (value == null) return;
         var height = Math.max(1, Math.abs(value) * yScale);
         var y = value >= 0 ? zero - height : zero;
@@ -47640,6 +47744,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
       });
       var bond = fomcDayBondRead(row);
       if (bond.value != null) bondPts.push({ x:x, y:zero - bond.value * yScale, value:bond.value, row:row });
+      var bondY = bond.value == null ? zero : zero - bond.value * yScale;
+      if (bond.value != null) tip.push('TLT ' + fomcDayPct(bond.value) + (bond.post ? ' from 2pm' : ''));
+      hoverPts.push({ x: x, y: bondY, label: tip.join('\n') });
       labels += '<text class="fomc-day-axis-label" x="' + x.toFixed(1) + '" y="' + (H - 18) + '">' + escapeHtml(fomcDayShortDate(row.date)) + '</text>';
       hit += '<rect class="fomc-day-hit' + (row.date === fomcDaySelected ? ' is-selected' : '') + '" data-fomc-day="' + escapeHtml(row.date) + '" x="' + (x - groupW / 2 + 2).toFixed(1) + '" y="' + padT + '" width="' + Math.max(12, groupW - 4).toFixed(1) + '" height="' + (plotH + 24) + '" tabindex="0" role="button" aria-label="Show ' + escapeHtml(row.label || row.date) + ' details"></rect>';
     });
@@ -47658,7 +47765,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var chart = '<div class="fomc-day-chart-head"><div class="fomc-day-legend">' +
       '<span class="is-spy">SPY</span><span class="is-qqq">QQQ</span><span class="is-iwm">IWM</span><span class="is-tlt">TLT bond reaction</span>' +
       '</div><small>bars = full session &middot; TLT line = 2pm to close when captured</small></div>' +
-      '<div class="fomc-day-chart-scroll"><svg class="fomc-day-chart" viewBox="0 0 ' + W + ' ' + H + '" style="min-width:' + W + 'px" role="img" aria-label="FOMC day returns for SPY, QQQ, IWM and TLT">' +
+      '<div class="fomc-day-chart-scroll"><svg class="fomc-day-chart" viewBox="0 0 ' + W + ' ' + H + '" style="min-width:' + W + 'px" role="img" aria-label="FOMC day returns for SPY, QQQ, IWM and TLT"' + chHoverAttr(hoverPts) + '>' +
       grid + bars + bondPath + bondDots + labels + hit + '</svg></div>';
     var meetingButtons = rows.map(function(row){
       var dissents = Number(row.dissentCount) || 0;
