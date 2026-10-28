@@ -54,7 +54,7 @@
     "test:overnight": "node scripts/overnight-smoke.mjs && node scripts/overnight-tone-smoke.mjs",
     "test:workflow-schedules": "node scripts/workflow-schedule-smoke.mjs",
     "test:yahoo-retry": "node scripts/yahoo-retry-smoke.mjs",
-    "test:calendar": "node scripts/calendar-smoke.mjs && node scripts/calendar-coverage-smoke.mjs",
+    "test:calendar": "node scripts/calendar-smoke.mjs && node scripts/calendar-coverage-smoke.mjs && node scripts/company-events-smoke.mjs",
     "audit:calendar": "node scripts/audit-calendar.mjs",
     "test:calendar-browser": "node scripts/calendar-browser.mjs",
     "test:leaps-pricer": "node scripts/leaps-pricer-smoke.mjs",

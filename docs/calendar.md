@@ -10,7 +10,7 @@ an earnings date even when a ticker's option-chain fetch fails.
 - Earnings dates come from Yahoo fundamentals and a Nasdaq sweep over the next
   21 calendar days. Nasdaq also supplies sessions for explicitly known dates
   farther out. A provider date is not an issuer confirmation.
-- Company catalysts require the dated-news evidence accepted by
+- News-derived company catalysts require the dated-news evidence accepted by
   `currentCachedCatalysts`. The calendar retains the article URL, publication
   time, and date evidence. Identical titles for different stocks stay separate.
 - BLS, BEA, Census, and ISM provide official release schedules. Census adds
@@ -102,3 +102,56 @@ That establishes the extraction pass ran; it does not establish that every
 upcoming company event was present in the supplied news or passed date
 validation. New coverage metadata distinguishes a recent successful review
 with an empty result from a missing review or fallback news.
+
+## Published company schedules
+
+`lib/company-events.mjs` supplies 12 verified milestones across seven tracked
+companies, independently of short-lived news. Dates were checked October 28,
+2026 against issuer pages:
+
+- [Oracle AI World](https://www.oracle.com/ai-world/): October 25–28 in Las Vegas.
+  The current page takes precedence over an older Oracle PDF with different dates.
+- [Apple iPhone Duo](https://www.apple.com/newsroom/2026/09/apple-unveils-iphone-duo/):
+  September 9 announcement, October 16 pre-orders, October 23 initial release,
+  and October 30 availability in 28 additional markets.
+- [Microsoft Ignite](https://sponsor.microsoft.com/): November 17–20.
+- [AWS re:Invent](https://aws.amazon.com/events/reinvent/faqs/): November 30
+  through December 4, plus the separately published December 1 CEO keynote.
+- [NVIDIA GTC Washington](https://www.nvidia.com/gtc/dc/faq/): December 1–3
+  conference and expo, plus the December 1 keynote at 14:00 ET. Workshops on
+  November 30 are not presented as the conference's first day.
+- [Snowflake Expedition](https://www.snowflake.com/en/expedition/): November 3–6
+  regional livestreams.
+- [Salesforce Dreamforce](https://www.salesforce.com/dreamforce/register/):
+  September 15–17.
+
+These are selected schedules, not full issuer-calendar coverage for every
+stock. Existing news extraction continues across the full tracked universe.
+Company events retain 90 days of history. An ongoing conference remains
+visible after its first day, and past launches are labeled Past. No next-year
+date is inferred from an annual pattern.
+
+The existing bake and calendar regeneration check the registered issuer pages
+with four concurrent requests and a ten-second limit per page. Successful
+checks reuse their state for 24 hours. Explicit Schema.org Event metadata can
+update dates or cancel/postpone an event. Those changes persist through cache
+reuse and network failures. HTML without structured event dates does not
+reconfirm or modify the manually verified dates. Source access failures are
+shown; they do not erase the last published schedule. Adding or correcting a
+manually verified edition requires updating the registry and its version.
+
+Company events remain under Catalysts. Detail chips wrap full titles, identify
+past/ongoing/upcoming status, show the published span, and link to the issuer.
+CSV export includes only the viewed month and active event type, with date
+ranges and source links. The activity chart counts every day of a multi-day
+event and labels its totals as event appearances. Phone filters wrap instead
+of clipping, and the dense activity chart scrolls instead of overlapping labels.
+
+The company-source check retrieved seven of eight registered pages. Snowflake's
+page was unavailable to the Node request; its manually verified schedule was
+retained with a source-check warning. Browser QA passed at 1440px and 390px in
+light and dark themes, including the Oracle span, iPhone release history,
+month navigation, readable titles, issuer links and month-scoped CSV exports.
+Calendar, render, export, Owner Lab, news and brief regression checks passed.
+`node scripts/calendar-preview.mjs` opens a read-only local company-schedule
+preview using the published dates, with no production data publication.

@@ -1,3 +1,4 @@
+import {fetchCompanyCalendar} from "../lib/company-events.mjs";
 // Read-only calendar audit. --live checks the published payload; --sources
 // also exercises official schedule adapters. Never publishes or runs AI.
 import { readFile, writeFile } from 'node:fs/promises';
@@ -25,7 +26,7 @@ export function auditCalendar(data, nowMs = Date.now()) {
     upcomingEarnings: scheduled.size, earningsWithoutUpcomingDate: stocks.filter(s => !scheduled.has(s)),
     removedSymbols: removed, health: calendarHealth(data, nowMs), sourceCoverage: data.coverage || null,
     upcomingCounts: Object.fromEntries(Object.entries(families).map(([k, test]) => [k, current.filter(test).length])),
-    uncitedCatalysts: current.filter(e => e.type === 'catalyst' && (!e.sourceUrl || !e.dateEvidence)).map(e => ({ symbol: e.symbol, date: e.date, title: e.title })),
+    uncitedCatalysts: current.filter(e => e.type === 'catalyst' && (!e.sourceUrl || (!e.dateEvidence && !(e.companyEvent && e.verifiedAt)))).map(e => ({ symbol: e.symbol, date: e.date, title: e.title })),
     limits: ['Counts establish receipt, not completeness.', 'Missing earnings dates can mean already reported, not announced, outside the horizon, or an unavailable input.', 'News catalysts and weekly additions cannot guarantee every material event.'],
   };
 }
@@ -44,6 +45,8 @@ async function main() {
   if (process.argv.includes('--sources')) {
     const start = Date.parse(new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' }) + 'T00:00:00Z');
     const official = await fetchOfficialCalendarEvents(start, calendarCutoffMs(start));
+    const company = await fetchCompanyCalendar({symbols:TICKERS,startMs:start,cutoffMs:calendarCutoffMs(start),prior:data.companyCalendar});
+    report.companySources = {status:company.status,events:company.events.map(({symbol,title,date,endDate,sourceUrl,verifiedAt,sourceCheckFailed})=>({symbol,title,date,endDate,sourceUrl,verifiedAt,sourceCheckFailed}))};
     report.liveOfficialSources = { status: official.status, upcomingBySource: official.events.reduce((a, e) => { a[e.sourceKey] = (a[e.sourceKey] || 0) + 1; return a; }, {}) };
   }
   const output = process.argv.find(a => a.startsWith('--output='))?.slice(9);

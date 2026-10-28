@@ -28992,6 +28992,7 @@ ${renderExportBindings()}
     if (cat === 'fda') return 'FDA';
     if (cat === 'contract') return 'Contract';
     if (cat === 'launch') return 'Launch';
+    if (cat === 'conference') return 'Conference';
     if (cat === 'court') return 'Court';
     if (cat === 'trial') return 'Trial';
     if (cat === 'merger') return 'M&A';
@@ -29294,7 +29295,9 @@ ${renderExportBindings()}
         (c.catalystReview.missing.length ? '<p>Recent review unavailable: ' + escapeHtml(c.catalystReview.missing.join(', ')) + '.</p>' : '') : '<p>Catalyst review coverage was not measured in this snapshot.</p>') +
       (sources.length ? '<p>' + escapeHtml(sources.join(' · ')) + '.</p>' : '') +
       '<p>Nasdaq lookup: ' + escapeHtml(c.nasdaq ? c.nasdaq.status : 'not measured') + '. Weekly economic feed: ' + escapeHtml(c.reportSources ? c.reportSources.forexFactory : 'not measured') + '.</p>' +
-      '<p>Catalysts come from dated news and are not an exhaustive company schedule. Weekly additions cover this week and next week. Estimated dates and cached rows need reconfirmation. An empty day does not rule out unscheduled news, filings, policy announcements or other market events.</p></details>';
+      (c.companyEvents ? '<p>Company schedules: ' + escapeHtml(String(c.companyEvents.scheduled)) + ' events across ' + escapeHtml(String(c.companyEvents.symbols.length)) + ' stocks. Recent company events stay available for 90 days.</p>' : '') +
+      (c.companyEvents && Object.values(c.companyEvents.sourceChecks || {}).some(function(status){return status === 'unavailable';}) ? '<p>Some company event pages could not be checked. Their previously published dates remain visible.</p>' : '') +
+      '<p>Catalysts combine selected company schedules with dated news and are not exhaustive. Weekly additions cover this week and next week. Estimated dates and cached rows need reconfirmation. An empty day does not rule out unscheduled news, filings, policy announcements or other market events.</p></details>';
   }
   function renderCalendarBriefing(data){
     var host = $('calendar-briefing');
@@ -30286,9 +30289,8 @@ ${renderExportBindings()}
     renderCalendarCoverage(data);
     renderCalendarBriefing(data);
     renderCalendarOverview(data);
-    // Navigable month window. calendar.json only ever carries today→horizon
-    // events, so the earliest navigable month is the current one (no empty
-    // past months to wander into); the latest is the furthest event's month.
+    // Company schedules retain recent history. Open on today and allow
+    // navigation back to the earliest stored event month.
     var allYms = [];
     data.events.forEach(function(e){
       calEventDateKeys(e).forEach(function(date){ allYms.push(date.slice(0, 7)); });
@@ -30370,7 +30372,7 @@ ${renderExportBindings()}
     function renderDayRow(date){
       var rows = groups[date].map(function(e){
         if (e.type === 'report') return renderReportChip(e);
-        var cls = 'cal-chip cal-' + e.type;
+        var cls = 'cal-chip cal-' + e.type + (e.companyEvent ? ' cal-company-event' : '');
         var label;
         if (e.type === 'earnings'){
           var movePill = (e.impliedMovePct != null && isFinite(e.impliedMovePct))
@@ -30398,6 +30400,12 @@ ${renderExportBindings()}
           label = '<span class="cal-chip-tag">' + escapeHtml(calendarTypeLabel(e.type)) + '</span> ' +
             (e.time ? '<span class="cal-chip-time">' + escapeHtml(e.time) + '</span> ' : '') +
             '<span class="cal-chip-text">' + escapeHtml(e.title) + '</span>';
+        }
+        if (e.companyEvent){
+          var end = e.endDate || e.date;
+          var phase = end < todayYmd ? 'Past' : e.date <= todayYmd ? 'Ongoing' : 'Upcoming';
+          var span = fmtCalendarDateShort(e.date) + (e.endDate ? ' – ' + fmtCalendarDateShort(e.endDate) : '');
+          label += '<span class="cal-company-meta">' + escapeHtml(phase + ' · ' + span + (e.time ? ' · ' + e.time : '') + (e.sourceCheckFailed ? ' · source check unavailable' : '')) + '</span>';
         }
         var src = calendarSourceMarkup(e);
         var icon = '<span class="cal-chip-ico">' + calEventIcon(e.type) + '</span>';
@@ -30439,7 +30447,7 @@ ${renderExportBindings()}
         var more = evs.length > 3 ? '<span class="cal-mini-more">+' + (evs.length - 3) + '</span>' : '';
         markers = '<span class="cal-cell-events">' + shown + more + '</span>';
       }
-      return '<button type="button" class="' + cls + '" data-cal-day="' + date + '" aria-pressed="' + (isSel ? 'true' : 'false') + '">' +
+      return '<button type="button" aria-label="' + escapeHtml(fmtCalendarDate(date) + (evs.length ? ': ' + evs.map(calMiniTitle).join('; ') : ': No stored events')) + '" class="' + cls + '" data-cal-day="' + date + '" aria-pressed="' + (isSel ? 'true' : 'false') + '">' +
           '<span class="cal-cell-num">' + dayNum + '</span>' + markers +
         '</button>';
     }
@@ -41547,10 +41555,14 @@ ${renderExportBindings()}
   // Calendar events under the current type filter.
   function calendarExportRows(){
     var data = (typeof calendarState !== 'undefined' && calendarState.data) ? calendarState.data : { events: [] };
-    var filtered = (data.events || []).filter(function(e){ return calendarTypeMatches(e.type, calendarState.type); });
+    var filtered = (data.events || []).filter(function(e){ return calendarTypeMatches(e.type, calendarState.type) && (!calendarState.viewYm || calEventDateKeys(e).some(function(d){ return d.slice(0,7) === calendarState.viewYm; })); });
     var rows = filtered.map(function(e){
       return {
         date: e.date || '',
+        end_date: e.endDate || '',
+        source: e.source || '',
+        source_url: e.sourceUrl || '',
+        verified_date: e.verifiedAt || '',
         type: e.type || '',
         ticker: e.ticker || e.symbol || '',
         title: e.title || e.label || e.name || '',

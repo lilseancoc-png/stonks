@@ -23,7 +23,7 @@ reports.sourceStatus = { forexFactory: 'unavailable' };
 const data = buildCalendarPayload(chains, [
   { title: 'Future publication is not a scheduled event', publishedAt: '2026-11-06T12:00:00Z' },
   { title: 'Fed announcement today', publisher: 'Federal Reserve', publishedAt: '2026-10-27T14:00:00Z', link: 'https://www.federalreserve.gov/' },
-], built, { sessionMap: sessions, reportEvents: reports, officialCalendar: { events: [official], status: { bls: true, bea: false } } });
+], built, { companyCalendar:{events:[],status:{}}, sessionMap: sessions, reportEvents: reports, officialCalendar: { events: [official], status: { bls: true, bea: false } } });
 assert(data.events.some(e => e.symbol === 'AAPL' && e.date === '2026-10-27'), 'ET date retains today after UTC midnight');
 assert(!data.events.some(e => e.symbol === 'RDDT' || e.symbol === 'SPY'), 'removed tickers and ETF earnings excluded');
 assert.equal(data.coverage.earningsUniverse, TICKERS.filter(s => SECTORS[s] !== 'ETF').length);
@@ -50,7 +50,7 @@ assert(calendarHealth(data, Date.parse('2026-11-06')).warnings.some(s => /refres
 assert.deepEqual(upcomingEarningsList(chains, '2026-10-27').map(e => e.symbol), ['AAPL', 'MSFT']);
 assert.equal(upcomingEarningsList({ AAPL: { fundamentals: { nextEarningsDate: '2026-02-31' } } }, '2026-02-01').length, 0);
 assert.equal(dedupeCalendarEvents([{ type: 'catalyst', date: catalyst.date, title: catalyst.title, symbol: 'AAPL' }, { type: 'catalyst', date: catalyst.date, title: catalyst.title, symbol: 'MSFT' }]).length, 2);
-assert.equal(buildCalendarPayload({ AAPL: { catalysts: [{ date: catalyst.date, title: 'Unsupported legacy event' }] } }, [], built, {}).events.filter(e => e.type === 'catalyst').length, 0);
+assert.equal(buildCalendarPayload({ AAPL: { catalysts: [{ date: catalyst.date, title: 'Unsupported legacy event' }] } }, [], built, {companyCalendar:{events:[],status:{}}}).events.filter(e => e.type === 'catalyst').length, 0);
 
 const census = parseCensusCalendar(`<table><tr><td>Advance Monthly Sales for Retail and Food Services</td><td sorttable_customkey="199901010830">November 17, 2026</td><td>8:30 AM</td><td>October 2026</td></tr><tr><td>Suspended release</td><td sorttable_customkey="202611180830">Suspended</td><td>8:30 AM</td><td>October 2026</td></tr></table>`, 2026);
 assert.equal(census.length, 1); assert.equal(census[0].date, '2026-11-17'); assert.equal(census[0].time, '08:30 ET');

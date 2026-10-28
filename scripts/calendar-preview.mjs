@@ -5,9 +5,9 @@ import { resolve, extname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { buildCalendarPayload } from './build.mjs';
 
-export async function createCalendarPreview({ port = 0 } = {}) {
+export async function createCalendarPreview({ port = 0, asOfIso = null } = {}) {
   const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
-  const now = new Date().toISOString(), today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  const now = asOfIso || new Date().toISOString(), today = new Date(now).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
   const payload = buildCalendarPayload({
     AAPL: { fundamentals: { nextEarningsDate: today, nextEarningsSession: 'PM' }, catalysts: [{
       date: today, title: 'Synthetic developer event', category: 'launch', evidenceVersion: 2,
@@ -15,6 +15,7 @@ export async function createCalendarPreview({ port = 0 } = {}) {
       sourceUrl: 'https://example.com/calendar-test', sourcePublishedAt: now,
     }] },
   }, [{ title: 'Synthetic macro announcement', publisher: 'Macro feed', publishedAt: now }], now, {
+    companyCalendar:{events:[],status:{}},
     reportEvents: [{ type: 'report', subtype: 'test-claims', title: 'Synthetic unemployment claims', date: today, time: '08:30 ET', source: 'ForexFactory', consensus: '200K', sourceKey: 'forex-factory' }],
     fomcMeetings: [{ date: today, label: 'Synthetic FOMC meeting' }],
     officialCalendar: { status: { bls: false, bea: true, 'census-2026': true }, events: [] },
@@ -22,6 +23,7 @@ export async function createCalendarPreview({ port = 0 } = {}) {
   // Deliberately injected legacy rows prove the browser rejects removed names
   // even before a new calendar snapshot has been published.
   payload.events.push({ type: 'earnings', date: today, symbol: 'RDDT', title: 'RDDT earnings' });
+  const companyPayload=buildCalendarPayload({},[],now,{});
   let scenario = 'normal';
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, 'http://127.0.0.1');
@@ -30,6 +32,7 @@ export async function createCalendarPreview({ port = 0 } = {}) {
     if (url.pathname === '/api/auth/me') return json({ enabled: false, authenticated: false });
     const key = url.searchParams.get('data') || (/^\/(?:api\/)?data\//.test(url.pathname) ? url.pathname.replace(/^\/(?:api\/)?data\//, '') : null);
     if (key === 'calendar.json') {
+      if (scenario === 'company') return json(companyPayload);
       if (scenario === 'error') return json({ error: 'Synthetic outage' }, 503);
       if (scenario === 'stale') return json({ ...payload, builtAtIso: '2026-01-01T00:00:00Z' });
       return json(payload);
@@ -41,7 +44,7 @@ export async function createCalendarPreview({ port = 0 } = {}) {
     if (!['index.html','app.js','styles.css','favicon.svg','js/streaks.js','js/book-views.js'].includes(relative)) return json({ error: 'Not found' }, 404);
     try {
       let body = await readFile(resolve(root, relative));
-      if (relative === 'index.html') body = Buffer.from(body.toString().replace('<body>', '<body><p style="padding:8px;text-align:center">Calendar preview · synthetic test events</p>'));
+      if (relative === 'index.html') body = Buffer.from(body.toString().replace('<body>', '<body><p style="padding:8px;text-align:center">Calendar preview · test data; company scenario uses published schedules</p>'));
       res.setHeader('Content-Type', ({ '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml' })[extname(relative)] || 'application/octet-stream');
       res.end(body);
     } catch { json({ error: 'Not found' }, 404); }
@@ -51,5 +54,6 @@ export async function createCalendarPreview({ port = 0 } = {}) {
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const preview = await createCalendarPreview({ port: 4198 });
-  console.log('Synthetic calendar preview: ' + preview.base + '/?tab=calendar');
+  preview.setScenario('company');
+  console.log('Published company-event preview: ' + preview.base + '/?tab=calendar');
 }

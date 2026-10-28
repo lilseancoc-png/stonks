@@ -1,3 +1,4 @@
+import { fetchCompanyCalendar } from "../lib/company-events.mjs";
 // One-shot helper to regenerate data/calendar.json with the extended
 // schema (earnings AM/PM session, structured macro reports, FOMC widget
 // data, CME FedWatch snapshots) without re-running the full Yahoo +
@@ -142,6 +143,7 @@ async function main() {
 
   console.log("Fetching complete official BLS / BEA / Federal Reserve calendars…");
   const officialCalendar = await build.fetchOfficialCalendarEvents(todayMs, cutoffMs);
+  const companyCalendar = await fetchCompanyCalendar({symbols:build.TICKERS,startMs:todayMs,cutoffMs,prior:priorCalendar?.companyCalendar});
   console.log(`  · ${officialCalendar.events.length} official event rows`);
 
   console.log("Fetching prediction markets (Kalshi + Polymarket)…");
@@ -183,6 +185,7 @@ async function main() {
     macroHistory,
     sessionMap,
     officialCalendar,
+    companyCalendar,
     predictionMarkets,
     priorCalendar,
   });

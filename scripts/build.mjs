@@ -1,3 +1,4 @@
+import { PUBLISHED_COMPANY_EVENTS, COMPANY_EVENTS_VERSION, companyEventsInWindow, fetchCompanyCalendar, COMPANY_EVENT_LOOKBACK_DAYS, coveredByCompanySchedule } from "../lib/company-events.mjs";
 import { calendarCoverage, calendarEventsForUniverse } from "../lib/calendar-policy.mjs";
 import { ISM_CALENDAR_URL, censusCalendarUrl, parseCensusCalendar, parseIsmCalendar, ismBaselineEvents, supplementalWeeklyReports, marketSessionCalendarEvents, scheduledPolicyCalendarEvents } from "../lib/calendar-sources.mjs";
 import { computeStreakForTicker } from "../lib/streaks.mjs";
@@ -8787,6 +8788,7 @@ export function dedupeCalendarEvents(input) {
     const group = ev?.type === "report" ? calendarReportGroup(ev) : null;
     const groupKey = `${group}|${ev.date}`;
     if (ev.official && group && detailedGroups.has(groupKey) && (officialPeriods.get(groupKey)?.size || 0) < 2) continue;
+    if (coveredByCompanySchedule(ev, events)) continue;
     const key = calendarEventIdentity(ev);
     if (seen.has(key)) continue;
     seen.add(key);
@@ -8827,7 +8829,8 @@ export function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras)
   const todayIso = new Date(builtAtIso).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
   const startMs = Date.parse(todayIso + "T00:00:00Z");
   const cutoffMs = calendarCutoffMs(startMs);
-  const events = [];
+  const companyCalendar = extras?.companyCalendar || {version:COMPANY_EVENTS_VERSION,events:companyEventsInWindow(PUBLISHED_COMPANY_EVENTS,TICKERS,startMs,cutoffMs),status:{},checks:{}};
+  const events = companyEventsInWindow(companyCalendar.events || [],TICKERS,startMs,cutoffMs);
   const reportEvents = extras?.reportEvents || [];
   const fomcMeetings = extras?.fomcMeetings || [];
   const fedRate = extras?.fedRate || null;
@@ -8922,6 +8925,7 @@ export function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras)
       if (eventMs < startMs || eventMs > cutoffMs) continue;
       const category = c.category || "other";
       const title = c.title || "Catalyst";
+      if (coveredByCompanySchedule({type:"catalyst",symbol:sym,date:c.date,title}, companyCalendar.cancellations || [])) continue;
       events.push({
         type: "catalyst",
         date: c.date,
@@ -9015,7 +9019,8 @@ export function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras)
     if (ev.baseline && (extras?.priorCalendar?.events || []).some(prior => prior.official && !prior.baseline && prior.sourceKey === ev.sourceKey && prior.subtype === ev.subtype && prior.date?.slice(0, 7) === ev.date.slice(0, 7))) continue;
     if (ev?.source === "Federal Reserve Board" && ev?.type === "report" && isExcludedFedCalendarReport(ev.title)) continue;
     const ms = Date.parse(ev.date + "T00:00:00Z");
-    if (!Number.isFinite(ms) || ms < startMs || ms > cutoffMs) continue;
+    const endMs = Date.parse((ev.endDate || ev.date) + "T00:00:00Z");
+    if (!Number.isFinite(ms) || endMs < startMs || ms > cutoffMs) continue;
     events.push(ev);
   }
   const officialStatus = officialCalendar.status || {};
@@ -9024,7 +9029,8 @@ export function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras)
     if (!ev?.official || !ev?.sourceKey || officialStatus[ev.sourceKey] !== false || !ev?.date) continue;
     if (ev?.source === "Federal Reserve Board" && ev?.type === "report" && isExcludedFedCalendarReport(ev.title)) continue;
     const ms = Date.parse(ev.date + "T00:00:00Z");
-    if (!Number.isFinite(ms) || ms < startMs || ms > cutoffMs) continue;
+    const endMs = Date.parse((ev.endDate || ev.date) + "T00:00:00Z");
+    if (!Number.isFinite(ms) || endMs < startMs || ms > cutoffMs) continue;
     events.push({ ...ev, stale: true });
   }
 
@@ -9098,9 +9104,12 @@ export function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras)
     // so windowDays is no longer a fixed constant.
     windowDays: Math.round((cutoffMs - startMs) / 86400000),
     windowEnd: new Date(cutoffMs).toISOString().slice(0, 10),
+    companyHistoryStart: new Date(startMs - COMPANY_EVENT_LOOKBACK_DAYS * 86400000).toISOString().slice(0,10),
+    companyCalendar,
     events: dedupedEvents,
     coverage: {
       ...calendarCoverage({ events: dedupedEvents, symbols: TICKERS, stockSymbols: TICKERS.filter(s => SECTORS[s] !== "ETF"), chains, sessionMap, officialSources: officialStatus, reportSources: reportEvents.sourceStatus, asOfMs: Date.parse(builtAtIso) }),
+      companyEvents: {scheduled:events.filter(e=>e.companyEvent).length,symbols:[...new Set(events.filter(e=>e.companyEvent).map(e=>e.symbol))],sourceChecks:companyCalendar.status},
       staleReportSubtypes: [...staleReportSubtypes].sort(),
       nasdaqSweepDays: NASDAQ_EARNINGS_SWEEP_DAYS,
       officialSources: officialStatus,
@@ -14042,7 +14051,8 @@ export async function fetchOfficialCalendarEvents(startMs, cutoffMs) {
   const addInWindow = (rows) => {
     for (const ev of rows || []) {
       const ms = Date.parse(String(ev?.date || "") + "T00:00:00Z");
-      if (Number.isFinite(ms) && ms >= startMs && ms <= cutoffMs) events.push(ev);
+      const endMs = Date.parse(String(ev?.endDate || ev?.date || "") + "T00:00:00Z");
+      if (Number.isFinite(ms) && Number.isFinite(endMs) && endMs >= startMs && ms <= cutoffMs) events.push(ev);
     }
   };
   await Promise.all([
@@ -37788,11 +37798,12 @@ async function main() {
   // The FedWatch/CME ZQ source depends on fedRate + the FOMC schedule, so it
   // stays sequential after this batch resolves.
   console.log("Fetching calendar sources (NY Fed EFFR · FOMC schedule · Nasdaq earnings · official event calendars) in parallel…");
-  const [fedRate, liveFomc, sessionMap, officialCalendar] = await Promise.all([
+  const [fedRate, liveFomc, sessionMap, officialCalendar, companyCalendar] = await Promise.all([
     fetchEffectiveFedFundsRate(),
     fetchFomcSchedule(),
     fetchNasdaqEarningsSessions(todayMs, calDays, earnSessionDates),
     fetchOfficialCalendarEvents(todayMs, cutoffMs),
+    fetchCompanyCalendar({symbols:TICKERS,startMs:todayMs,cutoffMs,prior:priorCalendar?.companyCalendar}),
   ]);
   if (fedRate) console.log(`  · Fed Funds ${fedRate.rate}% as of ${fedRate.asOf}`);
   // FedWatch history was read BEFORE writeChainFiles wiped data/. Start
@@ -38016,6 +38027,7 @@ async function main() {
     macroHistory: macroHistoryNext,
     sessionMap,
     officialCalendar,
+    companyCalendar,
     priorCalendar,
   });
   console.log(`wrote data/calendar.json — ${calendarInfo.count} events (through ${new Date(cutoffMs).toISOString().slice(0, 10)}), ${calendarInfo.bytes} bytes`);

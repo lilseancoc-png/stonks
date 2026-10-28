@@ -11191,6 +11191,9 @@ button.idx-cal-cell:focus-visible { outline: none; box-shadow: var(--focus-ring)
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.cal-company-event { flex-wrap: wrap; }
+.cal-company-event .cal-chip-text { flex: 1 1 180px; white-space: normal; overflow-wrap: anywhere; }
+.cal-company-meta { flex-basis: 100%; color: var(--muted-strong); font-size: 11px; }
 .cal-chip-source {
   font-size: 11px;
   color: var(--muted);
@@ -18478,9 +18481,8 @@ body.tape-axm-open { overflow: hidden; }
   .calendar-controls { gap: var(--s-2); }
   .calendar-type-filter {
     width: 100%;
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    scrollbar-width: none;
+    flex-wrap: wrap;
+    overflow-x: visible;
     padding-bottom: 2px;
   }
   .calendar-type-filter::-webkit-scrollbar { display: none; }
@@ -25277,6 +25279,7 @@ ${renderExportCss()}
   .book-cols { gap: 2px; }
   .book-col, .book-cols-dense .book-col { flex: 1 1 0; min-width: 0; }
   .book-col small { font-size: 8px; }
+  .book-cols.book-cols-dense .book-col { flex: 0 0 38px; min-width: 38px; }
   .book-wall-read { grid-column: auto; }
   .book-plot { grid-template-columns: 46px minmax(0, 1fr); }
 }
