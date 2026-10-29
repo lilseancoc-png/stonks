@@ -11,6 +11,8 @@
 //   picks-fills      -> the Owner's uploaded paper/real trade log (GET / POST)
 //   webull-mirror    -> copy the record's trades into the Webull paper account
 //                       (POST from the build workflow) / its trade log (GET)
+//   track-record-reset -> Owner-only, same-origin wipe of one tracker (POST)
+//   track-record-data  -> Owner-only reporting view, independent of execution
 //
 // Discord auth is intentionally an INTERNAL Owner Lab mechanism. Public site
 // access never requires a login; only principals holding the existing Top Picks
@@ -21,6 +23,7 @@ import {
   serializeCookie,
   parseCookies,
   signSession,
+  verifySessionToken,
   getSession,
   SESSION_COOKIE,
   STATE_COOKIE,
@@ -82,6 +85,10 @@ export default async function handler(req, res) {
       return picksFills(req, res);
     case "webull-mirror":
       return webullMirror(req, res);
+    case "track-record-reset":
+      return trackRecordReset(req, res);
+    case "track-record-data":
+      return trackRecordData(req, res);
     default:
       return res.status(404).json({ error: "not found" });
   }
@@ -311,6 +318,60 @@ async function picksFeed(req, res) {
 // which no workflow pushes or deletes.
 const FILLS_KEY = "picks-fills.json";
 
+async function trackRecordReset(req, res) {
+  res.setHeader('Cache-Control', 'private, no-store');
+  if (process.env.PRIVATE_DATA_ENABLED !== '1') return res.status(404).json({ error: 'not found' });
+  const session = await getSession(req).catch(() => null);
+  if (!session || session.tr !== true || session.tp !== true) return res.status(401).json({ error: 'Owner access required' });
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', 'POST');
+    return res.status(405).json({ error: 'method not allowed' });
+  }
+  if (!isSameOriginRequest(req)) return res.status(403).json({ error: 'forbidden' });
+  const { scope, range, operation, confirmation, previewToken } = req.body || {};
+  if (!['webull', 'onsite'].includes(scope) || !['1D', '1W', '1M', '3M', 'ALL'].includes(range) || !['preview', 'wipe'].includes(operation)) {
+    return res.status(400).json({ error: 'Select one tracker and a valid wipe period.' });
+  }
+  try {
+    const [{ store }, { resetTrackRecord, previewTrackRecord }] = await Promise.all([
+      import('../../lib/datastore.mjs'), import('../../lib/track-record-reset.mjs'),
+    ]);
+    if (operation === 'preview') {
+      const preview = await previewTrackRecord({ store, scope, range });
+      return res.status(200).json({ ...preview, previewToken: await signSession(preview, { ttlSec: 600 }) });
+    }
+    const preview = await verifySessionToken(previewToken);
+    if (!preview || preview.kind !== 'track-record-wipe' || preview.scope !== scope || preview.range !== range ||
+        confirmation !== `WIPE ${scope.toUpperCase()} ${range} RECORD`) {
+      return res.status(400).json({ error: 'Confirmation expired or does not match the tracker and period. Select the period again.' });
+    }
+    const result = await resetTrackRecord({ store, preview });
+    if (result.busy) return res.status(409).json({ error: 'Another log wipe is running. Wait for it to finish, then try again.' });
+    return res.status(200).json(result.result);
+  } catch (err) {
+    if (err.code === 'RESET_STALE') return res.status(409).json({ error: err.message });
+    console.error('track record reset failed', { code: err?.code, message: String(err?.message || err) });
+    return res.status(502).json({ error: 'Could not wipe the record. Refresh to check its current state before trying again.' });
+  }
+}
+
+async function trackRecordData(req, res) {
+  res.setHeader('Cache-Control', 'private, no-store');
+  if (process.env.PRIVATE_DATA_ENABLED !== '1') return res.status(404).json({ error: 'not found' });
+  const session = await getSession(req).catch(() => null);
+  if (!session || session.tr !== true || session.tp !== true) return res.status(401).json({ error: 'Owner access required' });
+  if (req.method !== 'GET') { res.setHeader('Allow', 'GET'); return res.status(405).json({ error: 'method not allowed' }); }
+  const { readSiteRecord, SITE_RECORD_KEYS } = await import('../../lib/track-record-reset.mjs');
+  if (!SITE_RECORD_KEYS.includes(req.query?.key)) return res.status(400).json({ error: 'Unknown Track Record log' });
+  try {
+    const { store } = await import('../../lib/datastore.mjs');
+    return res.status(200).json(await readSiteRecord(store, req.query.key));
+  } catch (err) {
+    console.error('track record log read failed', { message: String(err?.message || err) });
+    return res.status(502).json({ error: 'Track Record log unavailable' });
+  }
+}
+
 async function picksFills(req, res) {
   res.setHeader("Cache-Control", "private, no-store");
   if (process.env.PRIVATE_DATA_ENABLED !== "1") return res.status(404).json({ error: "not found" });
@@ -366,7 +427,8 @@ async function webullFillRows(store) {
     const buf = await store.get("webull-paper-ledger.json");
     if (buf == null) return [];
     const { ledgerToFillRows } = await import("../../lib/webull-mirror.mjs");
-    return ledgerToFillRows(JSON.parse(buf.toString("utf8")));
+    const { projectWebullLedger, parseReset, RESET_KEYS } = await import('../../lib/track-record-reset.mjs');
+    return ledgerToFillRows(projectWebullLedger(JSON.parse(buf.toString('utf8')), parseReset(await store.get(RESET_KEYS.webull))));
   } catch (err) {
     console.error("webull ledger read failed", { message: String(err?.message || err) });
     return [];
@@ -385,7 +447,8 @@ async function webullMirror(req, res) {
     try {
       const { store } = await import("../../lib/datastore.mjs");
       const buf = await store.get(mirror.LEDGER_KEY);
-      const ledger = buf == null ? mirror.emptyLedger() : JSON.parse(buf.toString("utf8"));
+      const { projectWebullLedger, webullEngineRecord, parseReset, RESET_KEYS } = await import('../../lib/track-record-reset.mjs');
+      const ledger = projectWebullLedger(buf == null ? mirror.emptyLedger() : JSON.parse(buf.toString('utf8')), parseReset(await store.get(RESET_KEYS.webull)));
       const rows = mirror.ledgerToFillRows(ledger);
       if (req.query?.format === "orders") {
         res.setHeader("Content-Type", "text/csv; charset=utf-8");
@@ -411,7 +474,12 @@ async function webullMirror(req, res) {
           executionLock = describeObjectLease(lock == null ? null : { value });
         }
       } catch { executionLock = { state: "unavailable" }; }
+      // Webull comparisons use the raw engine record, independently of the
+      // on-site reporting exclusions. Never feed a report back to execution.
+      const accBuf = await store.get('picks-accuracy.json');
+      const engineRecord = webullEngineRecord(accBuf == null ? {} : JSON.parse(accBuf.toString('utf8')), ledger);
       return res.status(200).json({
+        engineRecord,
         executionLock,
         enabled: String(process.env.WEBULL_MIRROR || "").trim().toLowerCase() === "on",
         goLiveIso: ledger.goLiveIso,
