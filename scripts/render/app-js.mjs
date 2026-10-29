@@ -3726,7 +3726,7 @@ ${scenarioEventPhase.toString()}
   function bindAccuracyTabs(){
     var tabs = document.querySelectorAll('.acc-tab');
     if (!tabs.length) return;
-    var KEYS = ['summary','scorecard','webull','top10','activity','picks','equity','breakdowns','sim','montecarlo','research'];
+    var KEYS = ['summary','scorecard','webull','webull-equity','top10','activity','picks','equity','breakdowns','webull-breakdown','sim','montecarlo','research'];
     function selectAccTab(name){
       try { localStorage.setItem('stonks-acc-tab', name); } catch (_) {}
       tabs.forEach(function(btn){
@@ -34685,7 +34685,7 @@ ${renderExportBindings()}
       .then(function(r){ if (!r.ok){ var err = new Error('HTTP ' + r.status); err.status = r.status; throw err; } return r.json(); })
       .then(function(j){ wbTest.data = j || {}; wbTest.error = null; })
       .catch(function(err){ wbTest.error = (err && err.status === 404) ? 'off' : 'Couldn’t load the Webull trade log.'; })
-      .then(function(){ wbTest.loaded = true; wbTest.loading = false; renderWebullTest(); });
+      .then(function(){ wbTest.loaded = true; wbTest.loading = false; renderWebullTest(); renderWebullEquity(); renderWebullBreakdown(); });
   }
   function wbNum(v){ if (v == null || v === '' || typeof v === 'boolean') return null; var n = Number(v); return isFinite(n) ? n : null; }
   function wbMean(v){ if (!v.length) return null; var t = 0; for (var i = 0; i < v.length; i++) t += v[i]; return t / v.length; }
@@ -34704,7 +34704,7 @@ ${renderExportBindings()}
   function wbFeePct(t){ var f = wbNum(t.fees), o = wbNum(t.fillPrice), q = WB_ANALYTICS.quantity(t); return (f != null && o > 0 && q > 0) ? f / (o * q) : 0; }
   function wbNetPnl(t){ return WB_ANALYTICS.net(t); }
   function wbRun(t){ var p = tlEtParts(Date.parse(t.engineEntryIso)); return p ? (Number(p.hour) < 13 ? '11' : '15') : null; }
-  function wbRows(){
+  function wbJoined(){
     var trades = (wbTest.data && Array.isArray(wbTest.data.trades)) ? wbTest.data.trades : [];
     var d = accuracyState.data || {};
     var byId = Object.create(null);
@@ -34712,8 +34712,16 @@ ${renderExportBindings()}
     var base = Object.create(null);
     var bl = d.baseline || {};
     [].concat(bl.open || [], bl.closed || []).forEach(function(b){ if (b && b.pairKey) base[b.pairKey] = b; });
+    return trades.map(function(t){
+      var rec = byId[accFillKey(t.tradeId)] || null;
+      var spy = rec ? (base[rec.symbol + ':' + rec.side + ':' + rec.entryDate] || null) : null;
+      return { t: t, rec: rec, spy: spy };
+    });
+  }
+  function wbRows(){
     var cutoff = accView.wbRange === 'all' ? null : Date.now() - Number(accView.wbRange) * 86400000;
-    return trades.filter(function(t){
+    return wbJoined().filter(function(row){
+      var t = row.t;
       if (accView.wbSide !== 'all' && t.side !== accView.wbSide) return false;
       if (accView.wbStruct === 'single' && t.structure !== 'long') return false;
       if (accView.wbStruct === 'spread' && t.structure === 'long') return false;
@@ -34722,11 +34730,53 @@ ${renderExportBindings()}
       if (accView.wbState === 'closed' && t.state !== 'closed') return false;
       if (cutoff != null && !(Date.parse(t.engineEntryIso) >= cutoff)) return false;
       return true;
-    }).map(function(t){
-      var rec = byId[accFillKey(t.tradeId)] || null;
-      var spy = rec ? (base[rec.symbol + ':' + rec.side + ':' + rec.entryDate] || null) : null;
-      return { t: t, rec: rec, spy: spy };
     });
+  }
+  // One track-record-shaped row per verified paper fill, so Site Equity and
+  // Site Breakdown can be drawn again from the mirror. Unverified closes,
+  // misses, and skips stay out. Open rows are included only when a paper
+  // result is already recorded.
+  function wbBookTrades(){
+    var includeOpen = accView.wbBook === 'all';
+    var out = [];
+    wbJoined().forEach(function(row){
+      var t = row.t, rec = row.rec || {};
+      var closed = WB_ANALYTICS.isClosed(t);
+      var position = t.state === 'open' || t.state === 'entering' || t.state === 'exiting';
+      if (!closed && !(includeOpen && position && !t.needsReview)) return;
+      var pct = wbNetPnl(t), usd = WB_ANALYTICS.dollars(t, false), px = wbNum(t.fillPrice), q = WB_ANALYTICS.quantity(t);
+      if (pct == null || usd == null || !(px > 0) || !(q > 0) || !isFinite(pct) || !isFinite(usd)) return;
+      if (pct === 0 && usd === 0) return;
+      var c = rec.contract || {};
+      var structure = t.structure || c.structure || 'long';
+      var contract = { structure: structure, mid: px, dte: c.dte, pop: c.pop, maxLoss: c.maxLoss, maxProfit: c.maxProfit, iv: c.iv };
+      if (wbCredit(t)) contract.netCredit = px;
+      else if (structure === 'debit_vertical') contract.netDebit = px;
+      out.push({
+        symbol: t.symbol || rec.symbol,
+        side: t.side === 'put' ? 'put' : 'call',
+        outcome: usd > 0 || (usd === 0 && pct > 0) ? 'win' : 'loss',
+        optionPnlPct: pct,
+        paperDollars: usd,
+        paperEntryCost: px * 100 * q,
+        entryDate: Number.isFinite(Date.parse(t.fillIso)) ? t.fillIso : null,
+        exitDate: Number.isFinite(Date.parse(t.closeFillIso)) ? t.closeFillIso : null,
+        status: closed ? (t.engineCloseReason || rec.status || 'closed') : 'open-mark',
+        sector: rec.sector,
+        tier: rec.tier,
+        score: rec.score,
+        thesisCategory: rec.thesisCategory,
+        thesisCategorySecondary: rec.thesisCategorySecondary,
+        entryRegime: rec.entryRegime,
+        gradeModelVersion: rec.gradeModelVersion,
+        exitPolicy: rec.exitPolicy,
+        entryPolicyVersion: rec.entryPolicyVersion,
+        entryTimingVersion: rec.entryTimingVersion,
+        contract: contract,
+        realFillPnlPct: rec.realFillPnlPct
+      });
+    });
+    return out;
   }
   function wbChip(num, lbl, cls, tip){
     return '<div class="accuracy-chip"' + (tip ? ' title="' + escapeHtml(tip) + '"' : '') + '><span class="accuracy-chip-num' + (cls ? ' ' + cls : '') + '">' + num + '</span><span class="accuracy-chip-lbl">' + lbl + '</span></div>';
@@ -35294,8 +35344,18 @@ ${renderExportBindings()}
   // --- decided-trade subset + the metric bundle ----------------------------
   function accDecided(trades){ return (trades||[]).filter(function(e){ return e && (e.outcome === 'win' || e.outcome === 'loss'); }); }
 
+  // Dollar P&L for one decided trade on the selected basis. 'account' is the
+  // Webull paper fill (quantity and known fees). The other three bases restate
+  // optionPnlPct, which for a paper row is the net paper percent.
+  function accPnlForBasis(e, d, basis, notional){
+    var pct = Number(e && e.optionPnlPct);
+    if (basis === 'notional') return isFinite(pct) ? pct / 100 * notional : NaN;
+    if (basis === 'environment') return isFinite(pct) ? pct / 100 * accEnvironmentNotional(e) : NaN;
+    if (basis === 'account'){ var usd = Number(e && e.paperDollars); return isFinite(usd) ? usd : NaN; }
+    return d ? d.pnl : NaN;
+  }
   // The single metric bundle used by the scorecard, every bucket cell, the
-  // cross-tab, and the sim summary. opts.basis ∈ 'notional'|'contract'.
+  // cross-tab, and the sim summary. opts.basis ∈ 'notional'|'environment'|'contract'|'account'.
   function tradeMetrics(trades, opts){
     opts = opts || {}; var basis = opts.basis || 'notional', notional = opts.notional || ACC_NOTIONAL;
     var m = { n:0, wins:0, losses:0, winRate:null, grossWin:0, grossLoss:0, profitFactor:null, avgWin:null, avgLoss:null, rr:null, expectancy:null, totalPnl:0,
@@ -35305,12 +35365,10 @@ ${renderExportBindings()}
     var rows = [];
     var dec = accDecided(trades);
     for (var i=0;i<dec.length;i++){
-      var e = dec[i], d = tradeDollars(e); if (!d) continue;
-      var pnl = basis === 'notional' ? (d.pnlPct/100*notional)
-              : basis === 'environment' ? (d.pnlPct/100*accEnvironmentNotional(e))
-              : d.pnl;
+      var e = dec[i], d = tradeDollars(e); if (!d && basis !== 'account') continue;
+      var pnl = accPnlForBasis(e, d, basis, notional);
       if (!isFinite(pnl)) continue;
-      rows.push({ e:e, d:d, pnl:pnl, R:d.rr, win:e.outcome === 'win', status:e.status });
+      rows.push({ e:e, d:d, pnl:pnl, R: d ? d.rr : null, win:e.outcome === 'win', status:e.status });
     }
     var n = rows.length; m.n = n; if (!n) return m;
     var wins=[], losses=[], Rs=[], winR=[], lossR=[], capList=[], tp=0, cut=0, best=null, worst=null, total=0;
@@ -35320,7 +35378,7 @@ ${renderExportBindings()}
       else { m.losses++; losses.push(r.pnl); m.grossLoss += Math.max(0, -r.pnl); }
       if (r.R != null && isFinite(r.R)){ Rs.push(r.R); (r.R >= 0 ? winR : lossR).push(r.R); }
       if (r.status === 'hit-tp-prem' || r.status === 'trail-stop') tp++; else if (r.status === 'hit-stop-prem' || r.status === 'theta-stop' || r.status === 'hit-stop-under') cut++;
-      if (r.win && r.d.maxProfit != null && r.d.maxProfit > 0) capList.push(Math.max(0, r.d.pnl) / r.d.maxProfit);
+      if (r.win && r.d && r.d.maxProfit != null && r.d.maxProfit > 0) capList.push(Math.max(0, r.d.pnl) / r.d.maxProfit);
       if (!best || r.pnl > best.pnl) best = { sym:r.e.symbol, date:r.e.exitDate, pnl:r.pnl, R:r.R };
       if (!worst || r.pnl < worst.pnl) worst = { sym:r.e.symbol, date:r.e.exitDate, pnl:r.pnl, R:r.R };
     }
@@ -35381,14 +35439,15 @@ ${renderExportBindings()}
     var seq = accSortByExit(accDecided(trades));
     var base;
     if (basis === 'notional' || basis === 'environment') base = notional;
+    // Paper-account mode is a running sum of recorded dollars. It does not
+    // invent a bankroll from one fill's premium.
+    else if (basis === 'account') base = 0;
     else { var costs = []; for (var i=0;i<seq.length;i++){ var dd = tradeDollars(seq[i]); if (dd) costs.push(dd.entryCost); } base = costs.length ? accMean(costs) : notional; }
     var eq = base, peak = base, maxDD = 0, maxDDpct = 0, troughIdx = -1, peakAtTrough = base;
     var pts = [{ idx:0, value:base, date:(seq.length ? seq[0].entryDate : null) }];
     for (i=0;i<seq.length;i++){
       var e = seq[i], d = tradeDollars(e);
-      var pnl = basis === 'notional' ? (Number(e.optionPnlPct)/100*notional)
-              : basis === 'environment' ? (Number(e.optionPnlPct)/100*accEnvironmentNotional(e))
-              : (d ? d.pnl : NaN);
+      var pnl = accPnlForBasis(e, d, basis, notional);
       if (!isFinite(pnl)) continue;
       eq += pnl;
       pts.push({ idx: pts.length, value: eq, date: e.exitDate });
@@ -35772,9 +35831,9 @@ ${renderExportBindings()}
   // (dataset = resolved-only vs incl. open marks; basis = $10k notional vs
   // per-contract) and re-renders on any toggle via accRerenderAnalytics().
   // ========================================================================
-  var accView = { dataset:'closed', basis:'notional', xtabA:'thesis', xtabB:'conviction', simMode:'fixed', simOpens:false, simHighConv:false, mcIters:'5000', mcSeed:1337, researchHorizon:'5', wbLens:'performance', wbGroup:'structure', wbSide:'all', wbStruct:'all', wbRun:'all', wbState:'all', wbRange:'all', eqSplit:'side', cmpPreset:'side', cmpA:'', cmpB:'' };
-  (function(){ try { var sv = JSON.parse(localStorage.getItem('stonks-acc-view') || '{}'); ['dataset','basis','xtabA','xtabB','simMode','mcIters','researchHorizon','wbLens','wbGroup','wbSide','wbStruct','wbRun','wbState','wbRange','eqSplit','cmpPreset','cmpA','cmpB'].forEach(function(k){ if (sv[k] != null) accView[k] = sv[k]; }); ['simOpens','simHighConv'].forEach(function(k){ if (typeof sv[k] === 'boolean') accView[k] = sv[k]; }); if (['fixed','environment','vol','kelly','combined'].indexOf(accView.simMode) < 0) accView.simMode = 'fixed'; if (['notional','environment','contract'].indexOf(accView.basis) < 0) accView.basis = 'notional'; if (['5','10','14'].indexOf(String(accView.researchHorizon)) < 0) accView.researchHorizon = '5'; if (['performance','accuracy','engine','trades'].indexOf(accView.wbLens) < 0) accView.wbLens = 'performance'; if (['structure','side','grade','tier','sector','regime','run'].indexOf(accView.wbGroup) < 0) accView.wbGroup = 'structure'; if (['all','call','put'].indexOf(accView.wbSide) < 0) accView.wbSide = 'all'; if (['all','single','spread'].indexOf(accView.wbStruct) < 0) accView.wbStruct = 'all'; if (['all','11','15'].indexOf(accView.wbRun) < 0) accView.wbRun = 'all'; if (['all','open','closed'].indexOf(accView.wbState) < 0) accView.wbState = 'all'; if (['all','90','30'].indexOf(String(accView.wbRange)) < 0) accView.wbRange = 'all'; } catch (e){} })();
-  function accSaveView(){ try { localStorage.setItem('stonks-acc-view', JSON.stringify({ dataset:accView.dataset, basis:accView.basis, xtabA:accView.xtabA, xtabB:accView.xtabB, simMode:accView.simMode, simOpens:accView.simOpens, simHighConv:accView.simHighConv, mcIters:accView.mcIters, researchHorizon:accView.researchHorizon, wbLens:accView.wbLens, wbGroup:accView.wbGroup, wbSide:accView.wbSide, wbStruct:accView.wbStruct, wbRun:accView.wbRun, wbState:accView.wbState, wbRange:accView.wbRange, eqSplit:accView.eqSplit, cmpPreset:accView.cmpPreset, cmpA:accView.cmpA, cmpB:accView.cmpB })); } catch (e){} }
+  var accView = { dataset:'closed', basis:'notional', xtabA:'thesis', xtabB:'conviction', simMode:'fixed', simOpens:false, simHighConv:false, mcIters:'5000', mcSeed:1337, researchHorizon:'5', wbLens:'performance', wbGroup:'structure', wbSide:'all', wbStruct:'all', wbRun:'all', wbState:'all', wbRange:'all', eqSplit:'side', cmpPreset:'side', cmpA:'', cmpB:'', wbBook:'closed', wbEqBasis:'account', wbEqSplit:'side', wbXtabA:'thesis', wbXtabB:'conviction', wbCmpPreset:'side', wbCmpA:'', wbCmpB:'' };
+  (function(){ try { var sv = JSON.parse(localStorage.getItem('stonks-acc-view') || '{}'); ['dataset','basis','xtabA','xtabB','simMode','mcIters','researchHorizon','wbLens','wbGroup','wbSide','wbStruct','wbRun','wbState','wbRange','eqSplit','cmpPreset','cmpA','cmpB','wbBook','wbEqBasis','wbEqSplit','wbXtabA','wbXtabB','wbCmpPreset','wbCmpA','wbCmpB'].forEach(function(k){ if (sv[k] != null) accView[k] = sv[k]; }); ['simOpens','simHighConv'].forEach(function(k){ if (typeof sv[k] === 'boolean') accView[k] = sv[k]; }); if (['fixed','environment','vol','kelly','combined'].indexOf(accView.simMode) < 0) accView.simMode = 'fixed'; if (['notional','environment','contract'].indexOf(accView.basis) < 0) accView.basis = 'notional'; if (['5','10','14'].indexOf(String(accView.researchHorizon)) < 0) accView.researchHorizon = '5'; if (['performance','accuracy','engine','trades'].indexOf(accView.wbLens) < 0) accView.wbLens = 'performance'; if (['structure','side','grade','tier','sector','regime','run'].indexOf(accView.wbGroup) < 0) accView.wbGroup = 'structure'; if (['all','call','put'].indexOf(accView.wbSide) < 0) accView.wbSide = 'all'; if (['all','single','spread'].indexOf(accView.wbStruct) < 0) accView.wbStruct = 'all'; if (['all','11','15'].indexOf(accView.wbRun) < 0) accView.wbRun = 'all'; if (['all','open','closed'].indexOf(accView.wbState) < 0) accView.wbState = 'all'; if (['all','90','30'].indexOf(String(accView.wbRange)) < 0) accView.wbRange = 'all'; if (['closed','all'].indexOf(accView.wbBook) < 0) accView.wbBook = 'closed'; if (['account','notional','environment','contract'].indexOf(accView.wbEqBasis) < 0) accView.wbEqBasis = 'account'; if (['side','structure','sector'].indexOf(accView.wbEqSplit) < 0) accView.wbEqSplit = 'side'; if (!ACC_DIMS[accView.wbXtabA]) accView.wbXtabA = 'thesis'; if (!ACC_DIMS[accView.wbXtabB]) accView.wbXtabB = 'conviction'; if (['side','structure','sector','version'].indexOf(accView.wbCmpPreset) < 0) accView.wbCmpPreset = 'side'; } catch (e){} })();
+  function accSaveView(){ try { localStorage.setItem('stonks-acc-view', JSON.stringify({ dataset:accView.dataset, basis:accView.basis, xtabA:accView.xtabA, xtabB:accView.xtabB, simMode:accView.simMode, simOpens:accView.simOpens, simHighConv:accView.simHighConv, mcIters:accView.mcIters, researchHorizon:accView.researchHorizon, wbLens:accView.wbLens, wbGroup:accView.wbGroup, wbSide:accView.wbSide, wbStruct:accView.wbStruct, wbRun:accView.wbRun, wbState:accView.wbState, wbRange:accView.wbRange, eqSplit:accView.eqSplit, cmpPreset:accView.cmpPreset, cmpA:accView.cmpA, cmpB:accView.cmpB, wbBook:accView.wbBook, wbEqBasis:accView.wbEqBasis, wbEqSplit:accView.wbEqSplit, wbXtabA:accView.wbXtabA, wbXtabB:accView.wbXtabB, wbCmpPreset:accView.wbCmpPreset, wbCmpA:accView.wbCmpA, wbCmpB:accView.wbCmpB })); } catch (e){} }
   // The active trade set. 'closed' = resolved only; 'all' = also include the
   // open book, each open position "resolved" at its CURRENT modeled mark
   // (win if green now). Clearly labelled as modeled wherever it's shown.
@@ -35977,17 +36036,19 @@ ${renderExportBindings()}
         '<div class="acc-mc' + cls + '">' + (m.rr != null ? (m.rr === Infinity ? '∞' : m.rr.toFixed(2) + ':1') : '—') + '</div>';
     }
     var any = false;
-    for (var i=0;i<buckets.length;i++){ var b = buckets[i]; var m = tradeMetrics(b.trades, { basis:'contract' }); if (!m.n) continue; any = true; rows += rowHtml(b.label, m, false); }
+    var metricBasis = opts.basis || 'contract';
+    for (var i=0;i<buckets.length;i++){ var b = buckets[i]; var m = tradeMetrics(b.trades, { basis: metricBasis }); if (!m.n) continue; any = true; rows += rowHtml(b.label, m, false); }
     if (!any) return '<p class="muted acc-an-note">No resolved trades in these buckets yet.</p>';
     var allTrades = []; buckets.forEach(function(b){ allTrades = allTrades.concat(b.trades); });
-    rows += rowHtml('Overall', tradeMetrics(allTrades, { basis:'contract' }), true);
+    rows += rowHtml('Overall', tradeMetrics(allTrades, { basis: metricBasis }), true);
     return '<div class="acc-tscroll"><div class="acc-mtable" style="grid-template-columns:1.5fr repeat(' + cols + ',minmax(56px,1fr))">' + head + rows + '</div></div>';
   }
   // Cross-tab heatmap: rows = dimA buckets, cols = dimB buckets, cell = win-rate
   // (color) with the full metric bundle in the tooltip.
-  function accCrossTabHtml(dimAName, dimBName, trades){
+  function accCrossTabHtml(dimAName, dimBName, trades, basis){
     var dimA = ACC_DIMS[dimAName], dimB = ACC_DIMS[dimBName];
     if (!dimA || !dimB) return '';
+    basis = basis || 'contract';
     var aKeys = {}, bKeys = {};
     trades.forEach(function(e){ aKeys[dimA.key(e) || 'Unknown'] = true; bKeys[dimB.key(e) || 'Unknown'] = true; });
     var rowsK = accOrderKeys(dimA, Object.keys(aKeys)), colsK = accOrderKeys(dimB, Object.keys(bKeys));
@@ -35999,7 +36060,7 @@ ${renderExportBindings()}
       colsK.forEach(function(ck){
         var cell = trades.filter(function(e){ return (dimA.key(e) || 'Unknown') === rk && (dimB.key(e) || 'Unknown') === ck; });
         if (!cell.length){ grid += '<div class="acc-xc acc-xc-empty">·</div>'; return; }
-        var m = tradeMetrics(cell, { basis:'contract' });
+        var m = tradeMetrics(cell, { basis: basis });
         var wr = m.winRate, tint = wr == null ? '' : (wr >= 0.5 ? 'pos' : 'neg'), strength = wr == null ? 0 : Math.min(1, Math.abs(wr - 0.5) * 2);
         var bg = tint ? ' style="background:color-mix(in srgb, var(--' + (tint === 'pos' ? 'pos' : 'neg') + ') ' + Math.round(8 + strength * 32) + '%, transparent)"' : '';
         var tip = dimA.lab(rk) + ' × ' + dimB.lab(ck) + ' — ' + m.n + ' trades · win ' + accPctRate(wr) + ' · PF ' + accPF(m.profitFactor) + ' · exp ' + accMoney(m.expectancy, true);
@@ -36493,7 +36554,8 @@ ${renderExportBindings()}
       return ACC_ET_DAY.format(new Date(t));
     } catch (_) { return new Date(t).toISOString().slice(0, 10); }
   }
-  function accPnlHistogramHtml(dec){
+  function accPnlHistogramHtml(dec, opts){
+    opts = opts || {};
     var vals = [];
     dec.forEach(function(e){ var v = Number(e.optionPnlPct); if (isFinite(v)) vals.push(v); });
     if (vals.length < 3) return '';
@@ -36508,17 +36570,18 @@ ${renderExportBindings()}
       var i = Math.floor((Math.max(lo, Math.min(v, hi - 0.001)) - lo) / step);
       bins[Math.max(0, Math.min(bins.length - 1, i))].count++;
     });
-    return '<div class="acc-an-subhead">How big each trade was (contract P&amp;L %)</div>' +
-      '<p class="hint">' + vals.length + ' trades in ' + step + '-point bins; red bars lost money. Values past +300% sit in the last bar.</p>' +
+    return '<div class="acc-an-subhead">' + (opts.title || 'How big each trade was (contract P&amp;L %)') + '</div>' +
+      '<p class="hint">' + (opts.hint || (vals.length + ' trades in ' + step + '-point bins; red bars lost money. Values past +300% sit in the last bar.')) + '</p>' +
       accBarsSvg(bins, { breakeven:0, unit:'trade', fmtX:function(v){ return (v > 0 ? '+' : '') + Math.round(v) + '%'; } });
   }
-  function accPnlCalendarHtml(dec){
+  function accPnlCalendarHtml(dec, basis){
+    basis = basis || 'contract';
     var days = {}, any = false;
     dec.forEach(function(e){
-      var d = tradeDollars(e), k = accEtDay(e.exitDate);
-      if (!d || !k || !isFinite(d.pnl)) return;
+      var pnl = accPnlForBasis(e, tradeDollars(e), basis, ACC_NOTIONAL), k = accEtDay(e.exitDate);
+      if (!isFinite(pnl) || !k) return;
       var row = days[k] || (days[k] = { pnl:0, n:0, syms:[] });
-      row.pnl += d.pnl; row.n++; if (row.syms.length < 6) row.syms.push(e.symbol || '?');
+      row.pnl += pnl; row.n++; if (row.syms.length < 6) row.syms.push(e.symbol || '?');
       any = true;
     });
     if (!any) return '';
@@ -36551,8 +36614,9 @@ ${renderExportBindings()}
     }
     var total = keys.reduce(function(s, k){ return s + days[k].pnl; }, 0);
     var green = keys.filter(function(k){ return days[k].pnl > 0; }).length;
+    var unitPhrase = basis === 'account' ? 'paper-account' : basis === 'notional' ? '$10k-notional' : basis === 'environment' ? 'market-sized' : 'per-contract';
     return '<div class="acc-an-subhead">Daily realized P&amp;L calendar</div>' +
-      '<p class="hint">Each square is one weekday (ET), shaded by that day\\'s summed per-contract P&amp;L on closed trades. ' + green + ' of ' + keys.length + ' close days were green · ' + accMoney(total, true) + ' total. Hover a square for the trades.</p>' +
+      '<p class="hint">Each square is one weekday (ET), shaded by that day\\'s summed ' + unitPhrase + ' P&amp;L on closed trades. ' + green + ' of ' + keys.length + ' close days were green · ' + accMoney(total, true) + ' total. Hover a square for the trades.</p>' +
       '<div class="acc-cal"><div class="acc-cal-days"><span>Mon</span><span></span><span>Wed</span><span></span><span>Fri</span></div>' +
       '<div class="acc-cal-scroll"><div class="acc-cal-months">' + monthRow + '</div><div class="acc-cal-grid">' + cols + '</div></div></div>';
   }
@@ -36582,18 +36646,19 @@ ${renderExportBindings()}
     });
     return '<svg class="acc-eq-svg"' + chHoverAttr(hoverPts) + ' viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Cumulative P&amp;L by group">' + grid + zero + lines + '</svg>';
   }
-  function accSplitGroups(dec, dimName, maxGroups){
+  function accSplitGroups(dec, dimName, maxGroups, basis){
     var buckets = accBucketize(dec, dimName).filter(function(b){ return b.trades.length; });
     buckets.sort(function(a, b){ return b.trades.length - a.trades.length; });
     if (maxGroups && buckets.length > maxGroups){
       var rest = buckets.slice(maxGroups - 1).reduce(function(acc, b){ return acc.concat(b.trades); }, []);
       buckets = buckets.slice(0, maxGroups - 1).concat([{ key:'other', label:'Other', trades:rest }]);
     }
-    return buckets.map(function(b){ return accCumPoints(b.trades, b.label); });
+    return buckets.map(function(b){ return accCumPoints(b.trades, b.label, basis); });
   }
-  function accCumPoints(trades, label){
+  function accCumPoints(trades, label, basis){
+    basis = basis || 'contract';
     var rows = [];
-    trades.forEach(function(e){ var d = tradeDollars(e), t = Date.parse(e.exitDate); if (d && isFinite(d.pnl) && isFinite(t)) rows.push({ t:t, d:d.pnl, sym:e.symbol || '?' }); });
+    trades.forEach(function(e){ var pnl = accPnlForBasis(e, tradeDollars(e), basis, ACC_NOTIONAL), t = Date.parse(e.exitDate); if (isFinite(pnl) && isFinite(t)) rows.push({ t:t, d:pnl, sym:e.symbol || '?' }); });
     rows.sort(function(a, b){ return a.t - b.t; });
     var run = 0;
     return { label:label, n:rows.length, total:rows.reduce(function(s, r){ return s + r.d; }, 0), pts:rows.map(function(r){ run += r.d; return { t:r.t, v:run, d:r.d, sym:r.sym }; }) };
@@ -36603,14 +36668,16 @@ ${renderExportBindings()}
       return '<span><i class="acc-split-key acc-split-' + (gi % 6) + '"></i>' + escapeHtml(g.label) + ' <b class="' + accSignClass(g.total) + '">' + accMoney(g.total, true) + '</b> <small>' + g.n + ' trade' + (g.n === 1 ? '' : 's') + '</small></span>';
     }).join('') + '</div>';
   }
-  function accSplitCurvesHtml(dec){
-    var dim = ACC_SPLIT_DIMS[accView.eqSplit] ? accView.eqSplit : 'side';
-    var groups = accSplitGroups(dec, dim, 6).filter(function(g){ return g.n; });
+  function accSplitCurvesHtml(dec, lens){
+    lens = lens || {};
+    var splitKey = lens.splitKey || 'eqSplit';
+    var dim = ACC_SPLIT_DIMS[accView[splitKey]] ? accView[splitKey] : 'side';
+    var groups = accSplitGroups(dec, dim, 6, lens.chartBasis || 'contract').filter(function(g){ return g.n; });
     if (!groups.length) return '';
     var opts = Object.keys(ACC_SPLIT_DIMS).map(function(k){ return { value:k, label:ACC_SPLIT_DIMS[k] }; });
     return '<div class="acc-an-subhead">Cumulative P&amp;L split by group</div>' +
-      '<div class="acc-controls"><div class="acc-ctl"><span class="acc-ctl-lbl">Split by</span>' + accSeg('eqSplit', 'acc-eq-split', dim, opts) + '</div></div>' +
-      '<p class="hint">Per-contract running total for each group, on one time axis.</p>' + accSplitCurvesSvg(groups) + accLegendHtml(groups);
+      '<div class="acc-controls"><div class="acc-ctl"><span class="acc-ctl-lbl">Split by</span>' + accSeg(splitKey, lens.splitId || 'acc-eq-split', dim, opts) + '</div></div>' +
+      '<p class="hint">' + (lens.hint || 'Per-contract running total for each group, on one time axis.') + '</p>' + accSplitCurvesSvg(groups) + accLegendHtml(groups);
   }
   // Two-slice comparison: the same metrics side by side, plus both curves.
   var ACC_CMP_PRESETS = [
@@ -36620,16 +36687,19 @@ ${renderExportBindings()}
     { value:'version', label:'Before vs after a rule change' }
   ];
   var ACC_CMP_MIN = 10;
-  function accCompareSlices(dec){
-    var preset = accView.cmpPreset;
+  function accCompareSlices(dec, lens){
+    lens = lens || {};
+    var presetKey = lens.cmpPresetKey || 'cmpPreset';
+    var keyA = lens.cmpAKey || 'cmpA', keyB = lens.cmpBKey || 'cmpB';
+    var preset = accView[presetKey];
     if (preset === 'structure') return [
       { label:'Singles', trades:dec.filter(function(e){ return !(e.contract && /vertical/.test(e.contract.structure || '')); }) },
       { label:'Spreads', trades:dec.filter(function(e){ return !!(e.contract && /vertical/.test(e.contract.structure || '')); }) }
     ];
     if (preset === 'sector'){
       var sectors = accBucketize(dec, 'sector').sort(function(a, b){ return b.trades.length - a.trades.length; }).map(function(b){ return b.key; });
-      var a = sectors.indexOf(accView.cmpA) >= 0 ? accView.cmpA : sectors[0];
-      var b = sectors.indexOf(accView.cmpB) >= 0 && accView.cmpB !== a ? accView.cmpB : (sectors[0] === a ? sectors[1] : sectors[0]);
+      var a = sectors.indexOf(accView[keyA]) >= 0 ? accView[keyA] : sectors[0];
+      var b = sectors.indexOf(accView[keyB]) >= 0 && accView[keyB] !== a ? accView[keyB] : (sectors[0] === a ? sectors[1] : sectors[0]);
       return { sectors:sectors, a:a, b:b, slices:[
         { label:a || '—', trades:dec.filter(function(e){ return accSectorOf(e) === a; }) },
         { label:b || '—', trades:dec.filter(function(e){ return accSectorOf(e) === b; }) }
@@ -36649,16 +36719,19 @@ ${renderExportBindings()}
       { label:'Puts', trades:dec.filter(function(e){ return e.side === 'put'; }) }
     ];
   }
-  function accCompareHtml(dec){
-    var res = accCompareSlices(dec), slices = Array.isArray(res) ? res : res.slices;
-    var presetSel = '<select class="acc-xsel" data-acc-set="cmpPreset" aria-label="What to compare">' + ACC_CMP_PRESETS.map(function(o){ return '<option value="' + o.value + '"' + (o.value === accView.cmpPreset ? ' selected' : '') + '>' + escapeHtml(o.label) + '</option>'; }).join('') + '</select>';
+  function accCompareHtml(dec, lens){
+    lens = lens || {};
+    var metricsBasis = lens.metricsBasis || 'contract';
+    var res = accCompareSlices(dec, lens), slices = Array.isArray(res) ? res : res.slices;
+    var presetKey = lens.cmpPresetKey || 'cmpPreset';
+    var presetSel = '<select class="acc-xsel" data-acc-set="' + presetKey + '" aria-label="What to compare">' + ACC_CMP_PRESETS.map(function(o){ return '<option value="' + o.value + '"' + (o.value === accView[presetKey] ? ' selected' : '') + '>' + escapeHtml(o.label) + '</option>'; }).join('') + '</select>';
     var sectorSel = '';
     if (!Array.isArray(res)){
       var sel = function(key, cur){ return '<select class="acc-xsel" data-acc-set="' + key + '" aria-label="Sector">' + res.sectors.map(function(sx){ return '<option value="' + escapeHtml(sx) + '"' + (sx === cur ? ' selected' : '') + '>' + escapeHtml(sx) + '</option>'; }).join('') + '</select>'; };
-      sectorSel = sel('cmpA', res.a) + '<span class="acc-xtab-x">vs</span>' + sel('cmpB', res.b);
+      sectorSel = sel(lens.cmpAKey || 'cmpA', res.a) + '<span class="acc-xtab-x">vs</span>' + sel(lens.cmpBKey || 'cmpB', res.b);
     }
     var ms = slices.map(function(sl){
-      var m = tradeMetrics(sl.trades, { basis:'contract' });
+      var m = tradeMetrics(sl.trades, { basis: metricsBasis });
       var pcts = [], real = [];
       accDecided(sl.trades).forEach(function(e){
         var v = Number(e.optionPnlPct); if (isFinite(v)) pcts.push(v);
@@ -36667,12 +36740,14 @@ ${renderExportBindings()}
       return { label:sl.label, m:m, avgPct:pcts.length ? accMean(pcts) : null, real:real.length ? accMean(real) : null, realN:real.length };
     });
     function cell(v, txt){ return '<td class="num ' + accSignClass(v) + '">' + txt + '</td>'; }
+    var undatedPaper = metricsBasis === 'account' ? dec.filter(function(e){ return !isFinite(Date.parse(e.exitDate)); }).length : 0;
+    var dollarUnit = metricsBasis === 'account' ? 'paper $' : '$ / contract';
     var rows = [
       ['Trades', function(x){ return '<td class="num">' + x.m.n + '</td>'; }],
       ['Win rate', function(x){ return '<td class="num">' + accPctRate(x.m.winRate) + '</td>'; }],
       ['Avg P&amp;L per trade', function(x){ return x.avgPct == null ? '<td class="num">—</td>' : cell(x.avgPct, accPct(x.avgPct)); }],
-      ['Expectancy ($ / contract)', function(x){ return x.m.expectancy == null ? '<td class="num">—</td>' : cell(x.m.expectancy, accMoney(x.m.expectancy, true)); }],
-      ['Total ($ / contract)', function(x){ return x.m.n ? cell(x.m.totalPnl, accMoney(x.m.totalPnl, true)) : '<td class="num">—</td>'; }],
+      ['Expectancy (' + dollarUnit + ')', function(x){ return x.m.expectancy == null ? '<td class="num">—</td>' : cell(x.m.expectancy, accMoney(x.m.expectancy, true)); }],
+      ['Total (' + dollarUnit + ')', function(x){ return x.m.n ? cell(x.m.totalPnl, accMoney(x.m.totalPnl, true)) : '<td class="num">—</td>'; }],
       ['Avg win / avg loss', function(x){ return '<td class="num">' + (x.m.avgWin != null ? accMoney(x.m.avgWin, false) : '—') + ' / ' + (x.m.avgLoss != null ? accMoney(x.m.avgLoss, false) : '—') + '</td>'; }],
       ['Real-fill avg P&amp;L', function(x){ return x.real == null ? '<td class="num">—</td>' : cell(x.real, accPct(x.real) + ' <small>(' + x.realN + ')</small>'); }]
     ];
@@ -36680,97 +36755,208 @@ ${renderExportBindings()}
       rows.map(function(r){ return '<tr><th scope="row">' + r[0] + '</th>' + r[1](ms[0]) + r[1](ms[1]) + '</tr>'; }).join('') + '</tbody></table>';
     var thin = ms.filter(function(x){ return x.m.n < ACC_CMP_MIN; });
     var warn = thin.length ? '<p class="acc-cmp-warn">Too few trades to judge: ' + thin.map(function(x){ return escapeHtml(x.label) + ' has ' + x.m.n; }).join(', ') + ' (under ' + ACC_CMP_MIN + '). Treat any gap as noise for now.</p>' : '';
-    var curves = slices.map(function(sl){ return accCumPoints(sl.trades, sl.label); }).filter(function(g){ return g.n; });
+    var curves = slices.map(function(sl){ return accCumPoints(sl.trades, sl.label, lens.chartBasis || 'contract'); }).filter(function(g){ return g.n; });
     return '<div class="acc-an-subhead">Compare two slices</div>' +
-      '<div class="acc-xtab-ctl">' + presetSel + sectorSel + '<span class="acc-xtab-hint">per contract, modeled; real-fill only for picks opened after the measurement update</span></div>' +
-      warn + table + (curves.length ? accSplitCurvesSvg(curves) + accLegendHtml(curves) : '');
+      '<div class="acc-xtab-ctl">' + presetSel + sectorSel + '<span class="acc-xtab-hint">' + (lens.hint || 'per contract, modeled; real-fill only for picks opened after the measurement update') + '</span></div>' +
+      warn + table + (undatedPaper ? '<p class="wb-sample-note">' + undatedPaper + ' trades without broker close timestamps are omitted from time curves and remain in totals.</p>' : '') + (curves.length ? accSplitCurvesSvg(curves) + accLegendHtml(curves) : '');
   }
-  function renderEquityView(){
-    var box = $('an-equity'); if (!box) return;
-    var trades = accDatasetTrades();
-    var basis = accView.basis;
+  function renderEquityView(cfg){
+    cfg = cfg || {};
+    var paper = !!cfg.paper;
+    var box = $(cfg.boxId || 'an-equity'); if (!box) return;
+    var sumId = cfg.sumId || 'acc-sum-equity';
+    var datasetKey = cfg.datasetKey || 'dataset';
+    var basisKey = cfg.basisKey || 'basis';
+    var dataset = accView[datasetKey];
+    var basis = accView[basisKey];
+    var trades = cfg.trades ? cfg.trades() : accDatasetTrades();
+    var bases = cfg.bases || [{ value:'notional', label:'$10k / trade' }, { value:'environment', label:'Market-sized' }, { value:'contract', label:'Per contract' }];
+    var tip = paper
+      ? (dataset === 'all' ? ' Includes open paper positions only when a paper result is already recorded.' : '')
+      : accDatasetTip();
+    var toggles = '<div class="acc-controls">' +
+      '<div class="acc-ctl"><span class="acc-ctl-lbl">Trades</span>' + accSeg(datasetKey, cfg.dsId || 'acc-ds-eq', dataset, [{ value:'closed', label:'Resolved only' }, { value:'all', label:'Incl. open marks' }]) + '</div>' +
+      '<div class="acc-ctl"><span class="acc-ctl-lbl">$ basis</span>' + accSeg(basisKey, cfg.bsId || 'acc-bs-eq', basis, bases) + '</div>' +
+    '</div>';
     var ec = buildEquityCurve(trades, { basis: basis });
     var m = tradeMetrics(trades, { basis: basis });
-    var toggles = '<div class="acc-controls">' +
-      '<div class="acc-ctl"><span class="acc-ctl-lbl">Trades</span>' + accSeg('dataset', 'acc-ds-eq', accView.dataset, [{ value:'closed', label:'Resolved only' }, { value:'all', label:'Incl. open marks' }]) + '</div>' +
-      '<div class="acc-ctl"><span class="acc-ctl-lbl">$ basis</span>' + accSeg('basis', 'acc-bs-eq', basis, [{ value:'notional', label:'$10k / trade' }, { value:'environment', label:'Market-sized' }, { value:'contract', label:'Per contract' }]) + '</div>' +
-    '</div>';
-    if (ec.points.length < 2){ accPaneSummary('acc-sum-equity', []); box.innerHTML = toggles + '<p class="muted acc-an-note">The cumulative-P&L equity curve appears once at least 2 trades resolve.' + accDatasetTip() + '</p>'; return; }
-    var basisLbl = basis === 'notional' ? '$' + ACC_NOTIONAL.toLocaleString() + ' per trade'
+    if (paper && trades.some(function(e){ return !isFinite(Date.parse(e.entryDate)) || !isFinite(Date.parse(e.exitDate)); })){
+      accPaneSummary(sumId, [
+        { val: String(m.n), lbl: 'verified paper trades' },
+        { val: accMoney(m.totalPnl, true), lbl: 'total P&amp;L on selected basis', cls: accSignClass(m.totalPnl) }
+      ]);
+      box.innerHTML = toggles + '<p class="wb-review-warning" role="status">Time curves and drawdown are unavailable until every included trade has broker-confirmed entry and close timestamps. Verified dollar totals remain included. Site model dates are not substituted for broker fill times.</p>';
+      return;
+    }
+    if (ec.points.length < 2){
+      accPaneSummary(sumId, []);
+      box.innerHTML = toggles + '<p class="muted acc-an-note">' + (paper
+        ? 'The paper equity curve appears once at least 2 mirrored trades have a verified close.'
+        : 'The cumulative-P&L equity curve appears once at least 2 trades resolve.') + tip + '</p>';
+      return;
+    }
+    var account = basis === 'account';
+    var basisLbl = account ? 'recorded paper dollars after known fees, added from $0'
+      : basis === 'notional' ? '$' + ACC_NOTIONAL.toLocaleString() + ' per trade'
       : basis === 'environment' ? '$' + ACC_NOTIONAL.toLocaleString() + ' full / $' + (ACC_NOTIONAL / 2).toLocaleString() + ' defensive, frozen at entry'
       : 'per contract (bankroll ' + accMoney(ec.base, false) + ')';
-    // "At a glance" strip — where the modeled equity curve stands right now.
+    var bookWord = paper ? 'paper book' : 'modeled book';
+    var nCloses = ec.points.length - 1;
     var eqPnl = ec.finalEquity - ec.base;
-    var eqTake = 'After ' + (ec.points.length - 1) + ' trade' + (ec.points.length === 2 ? '' : 's') + ' the modeled book is ' +
-      (ec.curDD > 0 ? Math.round(ec.curDDpct * 100) + '% below its peak.' : 'at equity highs.');
-    accPaneSummary('acc-sum-equity', [
-      { val: accMoney(eqPnl, true), lbl: 'cumulative P&amp;L (modeled)', cls: accSignClass(eqPnl) },
-      { val: accMoney(ec.finalEquity, false), lbl: 'final equity', tip: 'Running balance at ' + basisLbl + '.' + accDatasetTip() },
-      { val: ec.maxDDpct > 0 ? '-' + Math.round(ec.maxDDpct * 100) + '%' : 'none', lbl: 'max drawdown', cls: ec.maxDDpct > 0 ? 'sig-neg' : '', tip: 'Largest peak-to-trough drop in the curve (' + accMoney(ec.maxDD, false) + ').' },
-      { val: ec.curDD > 0 ? '-' + Math.round(ec.curDDpct * 100) + '%' : 'at highs', lbl: 'current drawdown', cls: ec.curDD > 0 ? 'sig-neg' : 'sig-pos' },
-      ec.windowReturn != null ? { val: (ec.windowReturn >= 0 ? '+' : '') + Math.round(ec.windowReturn * 100) + '%', lbl: 'window return', cls: ec.windowReturn >= 0 ? 'sig-pos' : 'sig-neg', tip: 'Change from the starting bankroll to the last close. This curve adds each trade onto one balance. It is not a funded account.' } : null,
-      { val: m.cagr != null ? (m.cagr >= 0 ? '+' : '') + Math.round(m.cagr * 100) + '%' : '—', lbl: 'CAGR (ann.)', cls: m.cagr != null && m.cagr >= 0 ? 'sig-pos' : '', tip: m.cagr != null ? 'Annualized only after 365 calendar days from the first entry to the last close.' : 'Withheld until the first entry and the last close are 365 calendar days apart.' },
+    var eqTake = account
+      ? ('After ' + nCloses + ' close' + (nCloses === 1 ? '' : 's') + ' the paper book is ' + (ec.curDD > 0 ? accMoney(ec.curDD, false) + ' below its high.' : 'at its high.'))
+      : ('After ' + nCloses + ' trade' + (nCloses === 1 ? '' : 's') + ' the ' + bookWord + ' is ' + (ec.curDD > 0 ? Math.round(ec.curDDpct * 100) + '% below its peak.' : 'at equity highs.'));
+    var windowTip = 'Change from the starting bankroll to the last close. This curve adds each trade onto one balance. It is not a funded account.';
+    var ddPct = function(dollars, pct){
+      if (!(dollars > 0)) return 'none';
+      if (account) return '-' + accMoney(dollars, false);
+      return '-' + accMoney(dollars, false) + ' / ' + Math.round((pct || 0) * 100) + '%';
+    };
+    accPaneSummary(sumId, [
+      { val: accMoney(eqPnl, true), lbl: paper ? 'cumulative P&amp;L (paper)' : 'cumulative P&amp;L (modeled)', cls: accSignClass(eqPnl) },
+      account ? { val: accMoney(ec.peak, false), lbl: 'peak P&amp;L', tip: 'Highest running total of recorded paper dollars.' } : { val: accMoney(ec.finalEquity, false), lbl: 'final equity', tip: 'Running balance at ' + basisLbl + '.' + tip },
+      { val: account ? ddPct(ec.maxDD, 0) : (ec.maxDDpct > 0 ? '-' + Math.round(ec.maxDDpct * 100) + '%' : 'none'), lbl: 'max drawdown', cls: (account ? ec.maxDD > 0 : ec.maxDDpct > 0) ? 'sig-neg' : '', tip: account ? 'Largest drop in the running paper P&amp;L (' + accMoney(ec.maxDD, false) + ').' : 'Largest peak-to-trough drop in the curve (' + accMoney(ec.maxDD, false) + ').' },
+      { val: account ? (ec.curDD > 0 ? '-' + accMoney(ec.curDD, false) : 'at high') : (ec.curDD > 0 ? '-' + Math.round(ec.curDDpct * 100) + '%' : 'at highs'), lbl: 'current drawdown', cls: ec.curDD > 0 ? 'sig-neg' : 'sig-pos' },
+      !account && ec.windowReturn != null ? { val: (ec.windowReturn >= 0 ? '+' : '') + Math.round(ec.windowReturn * 100) + '%', lbl: 'window return', cls: ec.windowReturn >= 0 ? 'sig-pos' : 'sig-neg', tip: windowTip } : null,
+      !account ? { val: m.cagr != null ? (m.cagr >= 0 ? '+' : '') + Math.round(m.cagr * 100) + '%' : '—', lbl: 'CAGR (ann.)', cls: m.cagr != null && m.cagr >= 0 ? 'sig-pos' : '', tip: m.cagr != null ? 'Annualized only after 365 calendar days from the first entry to the last close.' : 'Withheld until the first entry and the last close are 365 calendar days apart.' } : null,
     ], eqTake);
     function chip(num, lbl, cls, tip){ return '<div class="accuracy-chip' + (cls ? ' ' + cls : '') + '"' + (tip ? ' title="' + escapeHtml(tip) + '"' : '') + '><span class="accuracy-chip-num">' + num + '</span><span class="accuracy-chip-lbl">' + lbl + '</span></div>'; }
     var tiles = '<div class="accuracy-chips">' +
-      chip(accMoney(ec.finalEquity, false), 'final equity', '') +
-      chip(accMoney(ec.finalEquity - ec.base, true), 'cumulative P&L', accSignClass(ec.finalEquity - ec.base) === 'sig-pos' ? 'accuracy-chip-good' : 'accuracy-chip-bad') +
-      chip(accMoney(ec.peak, false), 'peak equity', '') +
-      chip(ec.maxDD > 0 ? '-' + accMoney(ec.maxDD, false) + ' / ' + Math.round(ec.maxDDpct * 100) + '%' : 'none', 'max drawdown', ec.maxDD > 0 ? 'accuracy-chip-bad' : '') +
-      chip(ec.curDD > 0 ? '-' + accMoney(ec.curDD, false) + ' / ' + Math.round(ec.curDDpct * 100) + '%' : 'at highs', 'current drawdown', ec.curDD > 0 ? 'accuracy-chip-bad' : 'accuracy-chip-good') +
-      chip(ec.recovery != null ? ec.recovery + ' trades' : (ec.maxDD > 0 ? 'not yet' : '—'), 'trades to recover', 'Length of the single worst drawdown, in trades, until equity reclaimed that peak.') +
-      chip(ec.windowReturn != null ? (ec.windowReturn >= 0 ? '+' : '') + Math.round(ec.windowReturn * 100) + '%' : '—', 'window return', ec.windowReturn >= 0 ? 'accuracy-chip-good' : 'accuracy-chip-bad', 'Change from the starting bankroll to the last close.') +
-      chip(m.cagr != null ? (m.cagr >= 0 ? '+' : '') + Math.round(m.cagr * 100) + '%' : '—', 'CAGR (ann.)', m.cagr != null && m.cagr >= 0 ? 'accuracy-chip-good' : '', m.cagr != null ? 'Annualized from the first entry to the last close.' : 'Withheld until that span is 365 calendar days. Read the window return.') +
+      (account ? '' : chip(accMoney(ec.finalEquity, false), 'final equity', '')) +
+      chip(accMoney(eqPnl, true), 'cumulative P&L', accSignClass(eqPnl) === 'sig-pos' ? 'accuracy-chip-good' : 'accuracy-chip-bad') +
+      chip(accMoney(ec.peak, false), account ? 'peak P&L' : 'peak equity', '') +
+      chip(ddPct(ec.maxDD, ec.maxDDpct), 'max drawdown', ec.maxDD > 0 ? 'accuracy-chip-bad' : '') +
+      chip(ec.curDD > 0 ? ddPct(ec.curDD, ec.curDDpct) : (account ? 'at high' : 'at highs'), 'current drawdown', ec.curDD > 0 ? 'accuracy-chip-bad' : 'accuracy-chip-good') +
+      chip(ec.recovery != null ? ec.recovery + ' trades' : (ec.maxDD > 0 ? 'not yet' : '—'), 'trades to recover', account ? 'Length of the single worst drawdown, in trades, until the running total reclaimed that peak.' : 'Length of the single worst drawdown, in trades, until equity reclaimed that peak.') +
+      (account ? '' : chip(ec.windowReturn != null ? (ec.windowReturn >= 0 ? '+' : '') + Math.round(ec.windowReturn * 100) + '%' : '—', 'window return', ec.windowReturn >= 0 ? 'accuracy-chip-good' : 'accuracy-chip-bad', windowTip)) +
+      (account ? '' : chip(m.cagr != null ? (m.cagr >= 0 ? '+' : '') + Math.round(m.cagr * 100) + '%' : '—', 'CAGR (ann.)', m.cagr != null && m.cagr >= 0 ? 'accuracy-chip-good' : '', m.cagr != null ? 'Annualized from the first entry to the last close.' : 'Withheld until that span is 365 calendar days. Read the window return.')) +
     '</div>';
+    var lead = paper
+      ? ('Webull paper fills, ordered by close · ' + escapeHtml(basisLbl) + '.' + tip)
+      : ('Running cumulative P&L, ordered by resolution date · ' + escapeHtml(basisLbl) + '.' + tip);
+    var accountNote = account
+      ? '<p class="hint">Each close adds the recorded dollar result after known fees. The line starts at $0. It is not the broker cash balance, so there is no account return or CAGR.</p>'
+      : '';
+    var splitLens = paper ? { splitKey: 'wbEqSplit', splitId: 'acc-wb-eq-split', chartBasis: basis, hint: (basis === 'account' ? 'Paper-account running total for each group, on one time axis.' : 'Running total for each group on the selected dollar basis, on one time axis.') } : null;
     box.innerHTML = toggles +
-      '<p class="hint acc-an-lead">Running cumulative P&L, ordered by resolution date · ' + escapeHtml(basisLbl) + '.' + accDatasetTip() + '</p>' +
+      '<p class="hint acc-an-lead">' + lead + '</p>' + accountNote +
       tiles + accEquitySvg(ec.points, { formatValue: function(v){ return accMoney(v, false); } }) +
-      (function(){ var dec = accDecided(trades); return accSplitCurvesHtml(dec) + accPnlHistogramHtml(dec) + accPnlCalendarHtml(dec); })();
+      (function(){
+        var dec = accDecided(trades);
+        return accSplitCurvesHtml(dec, splitLens) + accPnlHistogramHtml(dec, paper ? { title: 'How big each paper trade was (P&amp;L %)' } : null) + accPnlCalendarHtml(dec, paper ? basis : undefined);
+      })();
   }
 
   // --- Breakdowns sub-tab (#an-breakdowns) ---------------------------------
-  function renderBreakdowns(){
-    var box = $('an-breakdowns'); if (!box) return;
-    var trades = accDatasetTrades();
+  function renderBreakdowns(cfg){
+    cfg = cfg || {};
+    var paper = !!cfg.paper;
+    var box = $(cfg.boxId || 'an-breakdowns'); if (!box) return;
+    var sumId = cfg.sumId || 'acc-sum-breakdowns';
+    var datasetKey = cfg.datasetKey || 'dataset';
+    var dataset = accView[datasetKey];
+    var metricBasis = cfg.metricsBasis || 'contract';
+    var xtabAKey = cfg.xtabAKey || 'xtabA', xtabBKey = cfg.xtabBKey || 'xtabB';
+    var trades = cfg.trades ? cfg.trades() : accDatasetTrades();
+    var tip = paper
+      ? (dataset === 'all' ? ' Includes open paper positions only when a paper result is already recorded.' : '')
+      : accDatasetTip();
     var toggles = '<div class="acc-controls">' +
-      '<div class="acc-ctl"><span class="acc-ctl-lbl">Trades</span>' + accSeg('dataset', 'acc-ds-bk', accView.dataset, [{ value:'closed', label:'Resolved only' }, { value:'all', label:'Incl. open marks' }]) + '</div>' +
+      '<div class="acc-ctl"><span class="acc-ctl-lbl">Trades</span>' + accSeg(datasetKey, cfg.dsId || 'acc-ds-bk', dataset, [{ value:'closed', label:'Resolved only' }, { value:'all', label:'Incl. open marks' }]) + '</div>' +
     '</div>';
     var dec = accDecided(trades);
-    if (!dec.length){ accPaneSummary('acc-sum-breakdowns', []); box.innerHTML = toggles + '<p class="muted acc-an-note">Per-bucket performance tables appear once picks resolve.' + accDatasetTip() + '</p>'; return; }
-    // "At a glance" strip — the strongest and weakest bucket across the tables
-    // below, ranked by per-contract expectancy.
+    var moneyUnit = paper ? 'paper account' : 'per contract';
+    if (!dec.length){
+      accPaneSummary(sumId, []);
+      box.innerHTML = toggles + '<p class="muted acc-an-note">' + (paper
+        ? 'Per-bucket paper results appear once mirrored trades have a verified close.'
+        : 'Per-bucket performance tables appear once picks resolve.') + tip + '</p>';
+      return;
+    }
     var MINBK = 3, bkSegs = [];
     ['dte','pop','conviction','thesis'].forEach(function(dn){
       accBucketize(dec, dn).forEach(function(b){
         if (b.trades.length < MINBK || b.key === 'Unknown' || b.key === 'none') return;
-        var bm = tradeMetrics(b.trades, { basis: 'contract' });
+        var bm = tradeMetrics(b.trades, { basis: metricBasis });
         if (bm.expectancy == null || !isFinite(bm.expectancy)) return;
         bkSegs.push({ dim: ACC_DIMS[dn].label, label: b.label, m: bm });
       });
     });
     bkSegs.sort(function(x, y){ return y.m.expectancy - x.m.expectancy; });
     var bkBest = bkSegs[0] || null, bkWorst = bkSegs.length > 1 ? bkSegs[bkSegs.length - 1] : null;
-    function bkTip(s){ return s.dim + ' bucket — ' + s.m.n + ' trades · win ' + accPctRate(s.m.winRate) + ' · expectancy ' + accMoney(s.m.expectancy, true) + ' per contract.'; }
-    accPaneSummary('acc-sum-breakdowns', [
-      { val: String(dec.length), lbl: accView.dataset === 'all' ? 'trades incl. open marks' : 'resolved trades' },
+    function bkTip(s){ return s.dim + ' bucket — ' + s.m.n + ' trades · win ' + accPctRate(s.m.winRate) + ' · expectancy ' + accMoney(s.m.expectancy, true) + ' ' + moneyUnit + '.'; }
+    accPaneSummary(sumId, [
+      { val: String(dec.length), lbl: dataset === 'all' ? (paper ? 'paper trades incl. open marks' : 'trades incl. open marks') : (paper ? 'verified paper closes' : 'resolved trades') },
       bkBest ? { val: accMoney(bkBest.m.expectancy, true), lbl: 'best bucket — ' + escapeHtml(bkBest.label), cls: accSignClass(bkBest.m.expectancy), tip: bkTip(bkBest) } : null,
       bkWorst ? { val: accMoney(bkWorst.m.expectancy, true), lbl: 'weakest bucket — ' + escapeHtml(bkWorst.label), cls: accSignClass(bkWorst.m.expectancy), tip: bkTip(bkWorst) } : null,
     ], bkSegs.length
-      ? 'Best and weakest expectancy across the DTE / PoP / conviction / thesis buckets below (per contract; a bucket needs ≥' + MINBK + ' trades to qualify).'
+      ? 'Best and weakest expectancy across the DTE / PoP / conviction / thesis buckets below (' + moneyUnit + '; a bucket needs ≥' + MINBK + ' trades to qualify).'
       : 'A bucket needs ≥' + MINBK + ' trades before a best / weakest call-out — keep letting the record build.');
-    function section(title, dimName, opts){ return '<div class="acc-an-subhead">' + escapeHtml(title) + '</div>' + accBucketTableHtml(accBucketize(dec, dimName), Object.assign({ dimLabel: ACC_DIMS[dimName].label }, opts || {})); }
+    function section(title, dimName, opts){ return '<div class="acc-an-subhead">' + escapeHtml(title) + '</div>' + accBucketTableHtml(accBucketize(dec, dimName), Object.assign({ dimLabel: ACC_DIMS[dimName].label, basis: metricBasis }, opts || {})); }
     var tables = section('By days-to-expiration (DTE)', 'dte') +
       section('By modeled probability-of-profit (PoP)', 'pop') +
       section('By conviction tier', 'conviction') +
       section('By thesis category', 'thesis', { total: true });
-    // configurable cross-tab
     var dimOpts = Object.keys(ACC_DIMS).map(function(k){ return { value: k, label: ACC_DIMS[k].label }; });
     function sel(setKey, cur){ var h = '<select class="acc-xsel" data-acc-set="' + setKey + '">'; dimOpts.forEach(function(o){ h += '<option value="' + o.value + '"' + (o.value === cur ? ' selected' : '') + '>' + escapeHtml(o.label) + '</option>'; }); return h + '</select>'; }
-    var a = accView.xtabA, b = accView.xtabB; if (a === b){ b = (a === 'conviction') ? 'thesis' : 'conviction'; }
+    var a = accView[xtabAKey], b = accView[xtabBKey]; if (a === b){ b = (a === 'conviction') ? 'thesis' : 'conviction'; }
     var xtab = '<div class="acc-an-subhead">Cross-tab — pick two dimensions</div>' +
-      '<div class="acc-xtab-ctl">' + sel('xtabA', accView.xtabA) + '<span class="acc-xtab-x">×</span>' + sel('xtabB', accView.xtabB) + '<span class="acc-xtab-hint">cell = win rate · expectancy ($/contract) · n</span></div>' +
-      accCrossTabHtml(a, b, dec);
-    box.innerHTML = toggles + '<p class="hint acc-an-lead">All bucket tables are per single contract.' + accDatasetTip() + '</p>' + accCompareHtml(dec) + tables + xtab;
+      '<div class="acc-xtab-ctl">' + sel(xtabAKey, accView[xtabAKey]) + '<span class="acc-xtab-x">×</span>' + sel(xtabBKey, accView[xtabBKey]) + '<span class="acc-xtab-hint">cell = win rate · expectancy (' + (paper ? 'paper $' : '$/contract') + ') · n</span></div>' +
+      accCrossTabHtml(a, b, dec, metricBasis);
+    var compareLens = paper ? { metricsBasis: 'account', chartBasis: 'account', cmpPresetKey: 'wbCmpPreset', cmpAKey: 'wbCmpA', cmpBKey: 'wbCmpB', hint: 'paper account dollars after known fees' } : null;
+    var lead = paper
+      ? 'All bucket tables use the paper account’s recorded dollars after known fees. Days-to-expiration, probability, conviction, thesis, and regime come from the joined track-record pick when the mirror has one.'
+      : 'All bucket tables are per single contract.';
+    box.innerHTML = toggles + '<p class="hint acc-an-lead">' + lead + tip + '</p>' + accCompareHtml(dec, compareLens) + tables + xtab;
+  }
+  function wbMirrorGate(box, sumId){
+    if (!wbTest.loaded){
+      loadWebullTest();
+      accPaneSummary(sumId, []);
+      box.innerHTML = '<p class="muted acc-an-note">Loading the Webull trade log…</p>';
+      return false;
+    }
+    if (wbTest.error){
+      accPaneSummary(sumId, []);
+      box.innerHTML = '<button type="button" class="wb-refresh" data-acc-action="refresh-webull">Retry loading trades</button><p class="muted acc-an-note">' + (wbTest.error === 'off' ? 'The Webull paper mirror isn’t available on this deployment.' : escapeHtml(wbTest.error)) + '</p>';
+      return false;
+    }
+    return true;
+  }
+  function renderWebullEquity(){
+    var box = $('an-webull-equity'); if (!box) return;
+    if (!wbMirrorGate(box, 'acc-sum-webull-equity')) return;
+    renderEquityView({
+      paper: true,
+      boxId: 'an-webull-equity',
+      sumId: 'acc-sum-webull-equity',
+      datasetKey: 'wbBook',
+      basisKey: 'wbEqBasis',
+      dsId: 'acc-ds-wbeq',
+      bsId: 'acc-bs-wbeq',
+      trades: wbBookTrades,
+      bases: [
+        { value:'account', label:'Paper account' },
+        { value:'notional', label:'$10k / trade' },
+        { value:'environment', label:'Market-sized' },
+        { value:'contract', label:'Per contract' }
+      ]
+    });
+  }
+  function renderWebullBreakdown(){
+    var box = $('an-webull-breakdown'); if (!box) return;
+    if (!wbMirrorGate(box, 'acc-sum-webull-breakdown')) return;
+    renderBreakdowns({
+      paper: true,
+      boxId: 'an-webull-breakdown',
+      sumId: 'acc-sum-webull-breakdown',
+      datasetKey: 'wbBook',
+      dsId: 'acc-ds-wbbk',
+      metricsBasis: 'account',
+      xtabAKey: 'wbXtabA',
+      xtabBKey: 'wbXtabB',
+      trades: wbBookTrades
+    });
   }
 
   // --- Portfolio backtest sub-tab (#an-sim) ---------------------------------
@@ -37086,7 +37272,7 @@ ${renderExportBindings()}
     // button-run, so it is intentionally NOT re-rendered here — a toggle on
     // another sub-tab must not wipe a completed MC run. renderAccuracy seeds its
     // intro on first load.
-    renderProfitBlock(); renderEquityView(); renderBreakdowns(); renderSimulation(); renderGradeEdge(); renderWebullTest();
+    renderProfitBlock(); renderEquityView(); renderBreakdowns(); renderSimulation(); renderGradeEdge(); renderWebullTest(); renderWebullEquity(); renderWebullBreakdown();
   }
   // one delegated listener for every analytics control (segmented/checkbox/select/button)
   function bindAccuracyControls(){
@@ -37096,6 +37282,21 @@ ${renderExportBindings()}
       var key = t.getAttribute('data-acc-set'); if (!key) return;
       accView[key] = (t.type === 'checkbox') ? t.checked : t.value; accSaveView();
       if (key === 'mcIters') return;   // takes effect on next Run
+      if (key === 'wbBook' || key.indexOf('wbEq') === 0){
+        var focusEq = t.id;
+        renderWebullEquity();
+        if (key === 'wbBook') renderWebullBreakdown();
+        var nextEq = focusEq ? $(focusEq) : null;
+        if (nextEq) nextEq.focus({ preventScroll: true });
+        return;
+      }
+      if (key.indexOf('wbBk') === 0 || key.indexOf('wbXtab') === 0 || key.indexOf('wbCmp') === 0){
+        var focusBk = t.id;
+        renderWebullBreakdown();
+        var nextBk = focusBk ? $(focusBk) : null;
+        if (nextBk) nextBk.focus({ preventScroll: true });
+        return;
+      }
       if (key.indexOf('wb') === 0){
         var focusId = t.id;
         renderWebullTest();
@@ -37107,7 +37308,7 @@ ${renderExportBindings()}
     });
     pane.addEventListener('click', function(ev){
       var btn = ev.target && ev.target.closest ? ev.target.closest('[data-acc-action]') : null; if (!btn) return;
-      if (btn.getAttribute('data-acc-action') === 'refresh-webull'){ wbTest.loaded = false; wbTest.error = null; renderWebullTest(); return; }
+      if (btn.getAttribute('data-acc-action') === 'refresh-webull'){ wbTest.loaded = false; wbTest.error = null; renderWebullTest(); renderWebullEquity(); renderWebullBreakdown(); return; }
       if (btn.getAttribute('data-acc-action') === 'open-realfills'){ var rfTab = $('acc-tab-webull'); if (rfTab){ rfTab.click(); rfTab.focus(); } return; }
       if (btn.getAttribute('data-acc-action') === 'run-mc'){ accView.mcSeed = (accView.mcSeed || 1337) + 1; renderMonteCarlo(true); }
     });
@@ -37961,6 +38162,8 @@ ${renderExportBindings()}
     renderGradeEdge();
 
     renderWebullTest();
+    renderWebullEquity();
+    renderWebullBreakdown();
     if (d.loadError){
       // Surface the error on the default (Scorecard) pane — accuracy-root now
       // lives in the hidden Picks pane, so an error written only there would be

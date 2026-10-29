@@ -18650,7 +18650,7 @@ body.tape-axm-open { overflow: hidden; }
   .acc-tabs::-webkit-scrollbar { display: none; }
   .opt-tab { flex: 0 0 auto; white-space: nowrap; }
   .acc-tab { flex: 0 0 auto; white-space: nowrap; }
-  /* Eleven track-record tabs do not fit one phone row. Wrap them so Grade
+  /* Thirteen track-record tabs do not fit one phone row. Wrap them so Grade
      edge stay on screen. The selected tab carries its own
      underline, so a second row does not hide which view is open. */
   .acc-tabs {

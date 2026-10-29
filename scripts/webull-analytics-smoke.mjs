@@ -179,4 +179,40 @@ const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
 assert.doesNotMatch(html, /acc-tab-books|acc-pane-books|Paper books|paper books/);
 assert.doesNotMatch(app, /function renderPaperBooks|paperBook:/);
 assert.match(app, /wbLens:accView.wbLens/);
+assert.match(html, /data-acc-tab="webull-equity">Webull/);
+assert.match(html, /data-acc-tab="equity">Site/);
+assert.match(html, /data-acc-tab="breakdowns">Site/);
+assert.match(html, /data-acc-tab="webull-breakdown">Webull/);
+assert.match(app, /function wbBookTrades/);
+assert.match(app, /function renderWebullEquity/);
+context.wbTest = { loaded: true, data: { trades: [
+  { tradeId: 'eq1', symbol: 'NVDA', side: 'call', structure: 'long', state: 'closed', fillPrice: 2, closeFillPrice: 3, paperPnlPct: 50, fees: 1, closeFillIso: '2026-10-01T20:00:00Z', engineEntryIso: '2026-09-01T15:00:00Z' },
+  { tradeId: 'eq2', symbol: 'AMD', side: 'put', structure: 'long', state: 'closed', fillPrice: 2, closeFillPrice: 1, paperPnlPct: -50, fees: 3, filledQty: 3, closedQty: 3, openQty: 0, closeFillIso: '2026-10-02T20:00:00Z', engineEntryIso: '2026-09-02T15:00:00Z' },
+  { tradeId: 'miss', symbol: 'TSLA', side: 'call', structure: 'long', state: 'missed', engineEntryIso: '2026-09-03T15:00:00Z' }
+] } };
+context.accuracyState = { data: { closed: [], open: [] } };
+const eqBook = vm.runInContext('wbBookTrades()', context);
+assert.equal(eqBook.length, 2);
+assert.equal(eqBook[0].paperDollars, 99);
+assert.equal(eqBook[1].paperDollars, -303);
+assert.equal(eqBook[0].outcome, 'win');
+assert.equal(eqBook[1].outcome, 'loss');
+assert.equal(eqBook[1].side, 'put');
+assert.equal(eqBook[0].realFillPnlPct, undefined);
+context.wbTest.data.trades.push({ tradeId: 'credit-win', symbol: 'META', side: 'call', structure: 'credit_vertical', state: 'closed', fillPrice: 4, closeFillPrice: 2.88, paperPnlPct: 28, fees: 1.2, filledQty: 1, closedQty: 1, openQty: 0, closeFillIso: '2026-10-03T20:00:00Z', engineEntryIso: '2026-09-03T15:00:00Z' });
+context.wbTest.data.trades.push({ tradeId: 'review-row', symbol: 'NVDA', side: 'put', structure: 'long', state: 'error', needsReview: true, fillPrice: 3, closeFillPrice: 4, paperPnlPct: 33, fees: 0, filledQty: 1, closedQty: 1, openQty: 0, closeFillIso: '2026-10-04T20:00:00Z', engineEntryIso: '2026-09-04T15:00:00Z' });
+context.accView.wbBook = 'all';
+const book2 = vm.runInContext('wbBookTrades()', context);
+const credit = book2.find(t => t.symbol === 'META');
+assert.ok(Math.abs(credit.paperDollars - 110.8) < 1e-9);
+assert.equal(credit.outcome, 'win');
+assert.equal(book2.some(t => t.symbol === 'NVDA' && t.status === 'open-mark'), false);
+context.wbTest.data.trades[0].fillIso = null;
+context.wbTest.data.trades[0].engineEntryIso = '2026-09-01T15:00:00Z';
+context.wbTest.data.trades[0].closeFillIso = null;
+context.wbTest.data.trades[0].engineExitIso = '2026-10-01T20:00:00Z';
+const unknownTimes = vm.runInContext('wbBookTrades()', context)[0];
+assert.equal(unknownTimes.entryDate, null, 'missing broker entry time cannot fall back to the model');
+assert.equal(unknownTimes.exitDate, null, 'missing broker close time cannot fall back to the model or current time');
+assert.equal(unknownTimes.paperDollars, 99, 'undated verified fills retain their actual dollars');
 console.log('Webull analytics: quantity/fee accounting, drawdown, matched samples, missing values, filters, four shipped views and Paper books removal passed.');
