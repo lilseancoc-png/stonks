@@ -34759,8 +34759,8 @@ ${renderExportBindings()}
         optionPnlPct: pct,
         paperDollars: usd,
         paperEntryCost: px * 100 * q,
-        entryDate: t.fillIso || t.engineEntryIso || rec.entryDate,
-        exitDate: t.closeFillIso || t.engineExitIso || rec.exitDate || new Date().toISOString(),
+        entryDate: Number.isFinite(Date.parse(t.fillIso)) ? t.fillIso : null,
+        exitDate: Number.isFinite(Date.parse(t.closeFillIso)) ? t.closeFillIso : null,
         status: closed ? (t.engineCloseReason || rec.status || 'closed') : 'open-mark',
         sector: rec.sector,
         tier: rec.tier,
@@ -36740,6 +36740,7 @@ ${renderExportBindings()}
       return { label:sl.label, m:m, avgPct:pcts.length ? accMean(pcts) : null, real:real.length ? accMean(real) : null, realN:real.length };
     });
     function cell(v, txt){ return '<td class="num ' + accSignClass(v) + '">' + txt + '</td>'; }
+    var undatedPaper = metricsBasis === 'account' ? dec.filter(function(e){ return !isFinite(Date.parse(e.exitDate)); }).length : 0;
     var dollarUnit = metricsBasis === 'account' ? 'paper $' : '$ / contract';
     var rows = [
       ['Trades', function(x){ return '<td class="num">' + x.m.n + '</td>'; }],
@@ -36757,7 +36758,7 @@ ${renderExportBindings()}
     var curves = slices.map(function(sl){ return accCumPoints(sl.trades, sl.label, lens.chartBasis || 'contract'); }).filter(function(g){ return g.n; });
     return '<div class="acc-an-subhead">Compare two slices</div>' +
       '<div class="acc-xtab-ctl">' + presetSel + sectorSel + '<span class="acc-xtab-hint">' + (lens.hint || 'per contract, modeled; real-fill only for picks opened after the measurement update') + '</span></div>' +
-      warn + table + (curves.length ? accSplitCurvesSvg(curves) + accLegendHtml(curves) : '');
+      warn + table + (undatedPaper ? '<p class="wb-sample-note">' + undatedPaper + ' trades without broker close timestamps are omitted from time curves and remain in totals.</p>' : '') + (curves.length ? accSplitCurvesSvg(curves) + accLegendHtml(curves) : '');
   }
   function renderEquityView(cfg){
     cfg = cfg || {};
@@ -36779,6 +36780,14 @@ ${renderExportBindings()}
     '</div>';
     var ec = buildEquityCurve(trades, { basis: basis });
     var m = tradeMetrics(trades, { basis: basis });
+    if (paper && trades.some(function(e){ return !isFinite(Date.parse(e.entryDate)) || !isFinite(Date.parse(e.exitDate)); })){
+      accPaneSummary(sumId, [
+        { val: String(m.n), lbl: 'verified paper trades' },
+        { val: accMoney(m.totalPnl, true), lbl: 'total P&amp;L on selected basis', cls: accSignClass(m.totalPnl) }
+      ]);
+      box.innerHTML = toggles + '<p class="wb-review-warning" role="status">Time curves and drawdown are unavailable until every included trade has broker-confirmed entry and close timestamps. Verified dollar totals remain included. Site model dates are not substituted for broker fill times.</p>';
+      return;
+    }
     if (ec.points.length < 2){
       accPaneSummary(sumId, []);
       box.innerHTML = toggles + '<p class="muted acc-an-note">' + (paper

@@ -39957,9 +39957,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
       (a.phase === 'exit' ? 'Exit ' : 'Entry ') + a.n, o.observedIso ? executionDateTime(o.observedIso) : 'Unknown', events[o.kind] || o.kind || 'Unknown',
       o.status || 'Unknown', o.filledQty ?? 'Unknown', price(o.filledPrice), o.filledIso ? executionDateTime(o.filledIso) : 'Unknown', price(o.feeActual), o.brokerOrderId || 'Unknown']));
     const evidence = observations.length ? '<details class="wb-order-observations"><summary>Broker observations and order actions (' + observations.length + ')</summary>' + dataTable(['Order', 'Observed', 'Event', 'Status', 'Cumulative filled', 'Average fill', 'Broker fill time', 'Actual fees', 'Broker order ID'], observations, false) + '<p class="wb-sample-note">These are cumulative order observations, not individual execution lots. Repeated totals are counted once. Earlier partial-fill evidence stays in this history.</p></details>' : '';
-    const blocked = decisions.length ? '<p class="wb-sample-note">Execution decisions where no order was sent</p>' + dataTable(['Side', 'Stage', 'Observed', 'Reason', 'Quote source'], decisions.map(d => [d.phase, d.stage, executionDateTime(d.observedIso), d.reason, d.quoteSource]), false) : '';
+    const blocked = decisions.length ? '<p class="wb-sample-note">Execution decisions where no order was sent</p>' + dataTable(['Side', 'Stage', 'Observed', 'Reason', 'Quote source'], decisions.map(d => [d.phase === 'exit' ? 'Exit' : 'Entry', d.stage === 'emergency-exit' ? 'Emergency exit' : d.stage === 'eod-entry' ? 'End-of-day entry (5% cap)' : d.stage === 0 ? '2% allowance' : d.stage === 1 ? '4% allowance' : d.stage, executionDateTime(d.observedIso), d.reason, d.quoteSource]), false) : '';
     const rows = attempts.map(a => [a.phase === 'exit' ? 'Exit' : 'Entry', a.source === 'manual' ? 'Manual entry' : a.stage === 'emergency-exit' ? 'Emergency end-of-day exit' : a.stage === 'eod-entry' ? 'End-of-day entry (5% cap)' : a.stage === 'expiry-exit' ? 'Expiry exit' : a.allowancePct != null ? a.allowancePct + '% allowance' : 'Earlier policy', a.sentIso ? executionDateTime(a.sentIso) : 'Unknown', a.status || 'Unknown', (a.filledQty ?? 'Unknown') + '/' + (a.quantity ?? 'Unknown'), price(a.referencePrice), price(a.limit), a.filledPrice == null ? 'Unconfirmed' : price(a.filledPrice), a.filledIso ? executionDateTime(a.filledIso) : 'Unconfirmed', price(a.bid) + ' / ' + price(a.ask), a.cancelRequestedIso ? executionDateTime(a.cancelRequestedIso) : 'None recorded', a.quoteSource || 'Unknown', a.quoteObservedIso ? executionDateTime(a.quoteObservedIso) : 'Unknown']);
-    return '<details class="wb-execution-history"><summary>Order attempts and confirmed fills (' + attempts.length + ')</summary>' + dataTable(['Side', 'Method', 'Sent', 'Broker status', 'Filled / requested', 'Modeled reference', 'Limit', 'Actual fill', 'Fill time', 'Quote bid / ask', 'Cancel requested', 'Quote source', 'Quote fetched'], rows, false) + evidence + blocked + '<p class="wb-sample-note">Limit prices are not fills. Quote fetched is when this app received the response; exchange quote timestamps are unverified. Manual prices and timing are excluded from automatic-entry statistics. Earlier automatic misses remain recorded.</p></details>';
+    return '<details class="wb-execution-history"><summary>Order attempts and confirmed fills (' + attempts.length + ')</summary>' + dataTable(['Side', 'Method', 'Order preparation / manual order time', 'Broker status', 'Filled / requested', 'Modeled reference', 'Limit', 'Actual fill', 'Fill time', 'Quote bid / ask', 'Cancel requested', 'Quote source', 'Quote fetched'], rows, false) + evidence + blocked + '<p class="wb-sample-note">Limit prices are not fills. Automatic order time records preparation; manual order time comes from the broker. Fill time comes from broker fill evidence. Quote fetched is when this app received the response; exchange quote timestamps are unverified. Manual prices and timing are excluded from automatic-entry statistics. Earlier automatic misses remain recorded.</p></details>';
   }
   return { render, status, executionHistory };
 })({ html: escapeHtml, pct: accPct, money: accMoney, hover: chHoverAttr, dateTime: accDateTime,
@@ -40046,8 +40046,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
         optionPnlPct: pct,
         paperDollars: usd,
         paperEntryCost: px * 100 * q,
-        entryDate: t.fillIso || t.engineEntryIso || rec.entryDate,
-        exitDate: t.closeFillIso || t.engineExitIso || rec.exitDate || new Date().toISOString(),
+        entryDate: Number.isFinite(Date.parse(t.fillIso)) ? t.fillIso : null,
+        exitDate: Number.isFinite(Date.parse(t.closeFillIso)) ? t.closeFillIso : null,
         status: closed ? (t.engineCloseReason || rec.status || 'closed') : 'open-mark',
         sector: rec.sector,
         tier: rec.tier,
@@ -42027,6 +42027,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       return { label:sl.label, m:m, avgPct:pcts.length ? accMean(pcts) : null, real:real.length ? accMean(real) : null, realN:real.length };
     });
     function cell(v, txt){ return '<td class="num ' + accSignClass(v) + '">' + txt + '</td>'; }
+    var undatedPaper = metricsBasis === 'account' ? dec.filter(function(e){ return !isFinite(Date.parse(e.exitDate)); }).length : 0;
     var dollarUnit = metricsBasis === 'account' ? 'paper $' : '$ / contract';
     var rows = [
       ['Trades', function(x){ return '<td class="num">' + x.m.n + '</td>'; }],
@@ -42044,7 +42045,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var curves = slices.map(function(sl){ return accCumPoints(sl.trades, sl.label, lens.chartBasis || 'contract'); }).filter(function(g){ return g.n; });
     return '<div class="acc-an-subhead">Compare two slices</div>' +
       '<div class="acc-xtab-ctl">' + presetSel + sectorSel + '<span class="acc-xtab-hint">' + (lens.hint || 'per contract, modeled; real-fill only for picks opened after the measurement update') + '</span></div>' +
-      warn + table + (curves.length ? accSplitCurvesSvg(curves) + accLegendHtml(curves) : '');
+      warn + table + (undatedPaper ? '<p class="wb-sample-note">' + undatedPaper + ' trades without broker close timestamps are omitted from time curves and remain in totals.</p>' : '') + (curves.length ? accSplitCurvesSvg(curves) + accLegendHtml(curves) : '');
   }
   function renderEquityView(cfg){
     cfg = cfg || {};
@@ -42066,6 +42067,14 @@ function scenarioEventPhase(ev, now = Date.now()) {
     '</div>';
     var ec = buildEquityCurve(trades, { basis: basis });
     var m = tradeMetrics(trades, { basis: basis });
+    if (paper && trades.some(function(e){ return !isFinite(Date.parse(e.entryDate)) || !isFinite(Date.parse(e.exitDate)); })){
+      accPaneSummary(sumId, [
+        { val: String(m.n), lbl: 'verified paper trades' },
+        { val: accMoney(m.totalPnl, true), lbl: 'total P&amp;L on selected basis', cls: accSignClass(m.totalPnl) }
+      ]);
+      box.innerHTML = toggles + '<p class="wb-review-warning" role="status">Time curves and drawdown are unavailable until every included trade has broker-confirmed entry and close timestamps. Verified dollar totals remain included. Site model dates are not substituted for broker fill times.</p>';
+      return;
+    }
     if (ec.points.length < 2){
       accPaneSummary(sumId, []);
       box.innerHTML = toggles + '<p class="muted acc-an-note">' + (paper

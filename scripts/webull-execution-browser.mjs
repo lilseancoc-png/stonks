@@ -69,6 +69,12 @@ try {
     await root.locator('[data-acc-action="refresh-webull"]').click();
     await root.locator('.wb-execution-history').first().waitFor();
     assert.equal(await root.locator('.wb-execution-history').count(), 4);
+    await page.locator('#acc-tab-webull-equity').click();
+    await page.locator('#an-webull-equity .acc-eq-svg').first().waitFor();
+    assert.match(await page.locator('#acc-sum-webull-equity').innerText(), /20\.24/);
+    await page.locator('#acc-tab-webull-breakdown').click();
+    assert.match(await page.locator('#an-webull-breakdown').innerText(), /recorded dollars after known fees/);
+    assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'paper equity/breakdown fit the viewport');
     const storage = await page.evaluate(() => JSON.stringify(localStorage));
     assert.doesNotMatch(storage, /manual-broker-order|filledPrice|51\.75|emergency-exit/, 'private execution data is not persisted in browser preferences');
     assert.deepEqual(errors, []);
@@ -82,6 +88,12 @@ try {
   await root.getByRole('button', { name: 'Retry loading trades' }).click();
   await root.locator('.wb-review-nav').waitFor();
   assert.match(await root.innerText(), /Last broker reconciliation/);
+  await page.goto(preview.base + '/?tab=track&previewCase=edge');
+  await page.locator('#acc-tab-webull-equity').click();
+  await page.locator('#an-webull-equity .wb-review-warning').waitFor();
+  assert.match(await page.locator('#an-webull-equity').innerText(), /broker-confirmed entry and close timestamps/);
+  assert.equal(await page.locator('#an-webull-equity svg').count(), 0, 'undated fills cannot create a paper timeline');
+  assert.match(await page.locator('#acc-sum-webull-equity').innerText(), /verified paper trades/);
   await page.close();
   console.log('Webull browser passed: manual and emergency labels, broker-confirmed prices/times, automatic miss accounting, keyboard history, CSV, filters, reload/refresh, failure/retry, desktop/mobile and light/dark. Screenshots: ' + output);
 } finally {
