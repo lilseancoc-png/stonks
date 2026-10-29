@@ -1,3 +1,6 @@
+import { PUBLISHED_COMPANY_EVENTS, COMPANY_EVENTS_VERSION, companyEventsInWindow, fetchCompanyCalendar, COMPANY_EVENT_LOOKBACK_DAYS, coveredByCompanySchedule } from "../lib/company-events.mjs";
+import { calendarCoverage, calendarEventsForUniverse } from "../lib/calendar-policy.mjs";
+import { ISM_CALENDAR_URL, censusCalendarUrl, parseCensusCalendar, parseIsmCalendar, ismBaselineEvents, supplementalWeeklyReports, marketSessionCalendarEvents, scheduledPolicyCalendarEvents } from "../lib/calendar-sources.mjs";
 import { computeStreakForTicker } from "../lib/streaks.mjs";
 export { computeStreakForTicker } from "../lib/streaks.mjs";
 import { PATTERN_HISTORY_DAYS, splitPatternHistory } from "../lib/pattern-history.mjs";
@@ -8751,12 +8754,9 @@ export async function writeEarningsCallsFiles({ prior = null, earningsHxStore = 
   return { bytes: json.length, covered: index.covered, universe: index.universe, wrote: details.length, keyless };
 }
 
-// Unified rest-of-year macro + earnings calendar. Pulls confirmed
-// next-earnings dates straight out of each ticker's fundamentals (already
-// fetched) and merges them with future-dated macro headlines (Fed
-// announcements, BLS releases, SEC press) from the same RSS digest the
-// narratives engine consumes. Macro feeds publish historical items too —
-// we only keep the ones whose pubDate falls in [today, end of year].
+// Rest-of-year earnings and event calendar. Combine provider earnings dates,
+// cited company catalysts and official schedules with today's observed macro
+// publications. Publication timestamps are never future event dates.
 const CALENDAR_FILE = "calendar.json";
 // Minimum forward window (a floor, not the horizon). The calendar now spans
 // the rest of the current calendar year (see calendarCutoffMs); this floor
@@ -8789,13 +8789,16 @@ function classifyMacroEvent(publisher, title) {
 function calendarReportGroup(ev) {
   const subtype = String(ev?.subtype || "").toLowerCase();
   const title = String(ev?.title || "").toLowerCase();
+  if (/\badp\b/.test(title)) return null;
   if (/^(?:core-)?cpi-|consumer price index|\bcpi\b/.test(subtype + " " + title)) return "cpi";
   if (/^ppi-|producer price index|\bppi\b/.test(subtype + " " + title)) return "ppi";
-  if (/^(?:nfp|unrate)$|employment situation|non-farm|nonfarm|unemployment rate/.test(subtype + " " + title)) return "employment";
-  if (/^jolts$|job openings and labor turnover/.test(subtype + " " + title)) return "jolts";
+  if (/^(?:nfp|unrate)\b|employment situation|non-farm|nonfarm|unemployment rate/.test(subtype + " " + title)) return "employment";
+  if (/^jolts\b|job openings and labor turnover/.test(subtype + " " + title)) return "jolts";
   if (/^core-pce-|personal income and outlays/.test(subtype + " " + title)) return "pce";
-  if (/^durable-goods-|durable goods orders/.test(subtype + " " + title)) return "durables";
-  if (/^gdp-|gross domestic product|\bgdp\b/.test(subtype + " " + title)) return "gdp";
+  if (/^durable-goods-|durable goods orders|advance report on durable goods/.test(subtype + " " + title)) return "durables";
+  if (/^gdp-/.test(subtype) || /^(?:gross domestic product|gdp)\s*\(/.test(title)) return "gdp";
+  if (/ism.*manufacturing/.test(title) || subtype === "ism-mfg") return "ism-mfg";
+  if (/ism.*services/.test(title) || subtype === "ism-services") return "ism-services";
   return null;
 }
 
@@ -8805,7 +8808,7 @@ function calendarEventIdentity(ev) {
     .replace(/&/g, "and")
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
-  return `${ev?.type || "macro"}|${ev?.date || ""}|${title}`;
+  return `${ev?.type || "macro"}|${ev?.date || ""}|${ev?.symbol || ""}|${ev?.referencePeriod || ""}|${title}`;
 }
 
 // Broader official calendars overlap a handful of the detailed rows we build
@@ -8815,17 +8818,25 @@ function calendarEventIdentity(ev) {
 export function dedupeCalendarEvents(input) {
   const events = Array.isArray(input) ? input : [];
   const detailedGroups = new Set();
+  const officialPeriods = new Map();
   for (const ev of events) {
-    if (ev?.official) continue;
     const group = ev?.type === "report" ? calendarReportGroup(ev) : null;
-    if (group && ev?.date) detailedGroups.add(`${group}|${ev.date}`);
+    if (!group || !ev?.date) continue;
+    const key = `${group}|${ev.date}`;
+    if (!ev.official) detailedGroups.add(key);
+    else if (ev.referencePeriod) {
+      if (!officialPeriods.has(key)) officialPeriods.set(key, new Set());
+      officialPeriods.get(key).add(ev.referencePeriod);
+    }
   }
   const seen = new Set();
   const out = [];
   for (const ev of events) {
     if (!ev?.date || !ev?.title) continue;
     const group = ev?.type === "report" ? calendarReportGroup(ev) : null;
-    if (ev.official && group && detailedGroups.has(`${group}|${ev.date}`)) continue;
+    const groupKey = `${group}|${ev.date}`;
+    if (ev.official && group && detailedGroups.has(groupKey) && (officialPeriods.get(groupKey)?.size || 0) < 2) continue;
+    if (coveredByCompanySchedule(ev, events)) continue;
     const key = calendarEventIdentity(ev);
     if (seen.has(key)) continue;
     seen.add(key);
@@ -8835,7 +8846,7 @@ export function dedupeCalendarEvents(input) {
 }
 
 // The upcoming-earnings list ({symbol, name, date}) within `daysAhead`,
-// derived from each ticker's confirmed nextEarningsDate. Shared by main() /
+// derived from each ticker's available nextEarningsDate. Shared by main() /
 // regen-calendar for two purposes: (1) the per-name Polymarket "beat" reading,
 // fetched with the near-term default (Polymarket only lists earnings markets a
 // few weeks out, so there's no point querying months ahead); and (2) the exact
@@ -8849,22 +8860,25 @@ export function upcomingEarningsList(chains, todayIso, daysAhead = CALENDAR_DAYS
   const cutoffMs = startMs + daysAhead * 86400000;
   const out = [];
   for (const [sym, data] of Object.entries(chains || {})) {
+    if (!TICKERS.includes(sym) || SECTORS[sym] === "ETF") continue;
     const dateStr = data?.fundamentals?.nextEarningsDate;
     if (!dateStr || typeof dateStr !== "string") continue;
     const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(dateStr);
     if (!m) continue;
     const eventMs = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-    if (eventMs < startMs || eventMs > cutoffMs) continue;
+    if (new Date(eventMs).toISOString().slice(0, 10) !== `${m[1]}-${m[2]}-${m[3]}` || eventMs < startMs || eventMs > cutoffMs) continue;
     out.push({ symbol: sym, name: data?.fundamentals?.name || null, date: `${m[1]}-${m[2]}-${m[3]}` });
   }
   return out;
 }
 
-function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
-  const today = new Date();
-  const startMs = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
+export function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
+  chains = Object.fromEntries(Object.entries(chains || {}).filter(([sym]) => TICKERS.includes(sym)));
+  const todayIso = new Date(builtAtIso).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  const startMs = Date.parse(todayIso + "T00:00:00Z");
   const cutoffMs = calendarCutoffMs(startMs);
-  const events = [];
+  const companyCalendar = extras?.companyCalendar || {version:COMPANY_EVENTS_VERSION,events:companyEventsInWindow(PUBLISHED_COMPANY_EVENTS,TICKERS,startMs,cutoffMs),status:{},checks:{}};
+  const events = companyEventsInWindow(companyCalendar.events || [],TICKERS,startMs,cutoffMs);
   const reportEvents = extras?.reportEvents || [];
   const fomcMeetings = extras?.fomcMeetings || [];
   const fedRate = extras?.fedRate || null;
@@ -8898,7 +8912,7 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
       if (cut <= 0) continue;
       const symbol = key.slice(0, cut);
       const date = key.slice(cut + 1);
-      if (!Object.prototype.hasOwnProperty.call(chains, symbol) || !/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+      if (!TICKERS.includes(symbol) || SECTORS[symbol] === "ETF" || !/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
       const eventMs = Date.parse(date + "T00:00:00Z");
       if (!Number.isFinite(eventMs) || eventMs < startMs || eventMs > cutoffMs) continue;
       const prior = nasdaqBySymbol.get(symbol);
@@ -8906,7 +8920,9 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
     }
   }
 
-  for (const [sym, data] of Object.entries(chains)) {
+  for (const sym of TICKERS) {
+    if (SECTORS[sym] === "ETF") continue;
+    const data = chains[sym] || {};
     const nasdaq = nasdaqBySymbol.get(sym) || null;
     const dateStr = nasdaq?.date || data?.fundamentals?.nextEarningsDate;
     if (!dateStr || typeof dateStr !== "string") continue;
@@ -8915,6 +8931,7 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
     const eventMs = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
     if (eventMs < startMs || eventMs > cutoffMs) continue;
     const date = `${m[1]}-${m[2]}-${m[3]}`;
+    if (new Date(eventMs).toISOString().slice(0, 10) !== date) continue;
     // Prefer Nasdaq-supplied session over the Yahoo-timestamp heuristic.
     let session = nasdaq?.session || data?.fundamentals?.nextEarningsSession || "TBD";
     if (sessionMap) {
@@ -8947,7 +8964,7 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
   // already date-grounded and category-tagged; we only re-apply the window
   // filter here in case a stored catalyst has aged out since the last build.
   for (const [sym, data] of Object.entries(chains)) {
-    const list = Array.isArray(data?.catalysts) ? data.catalysts : [];
+    const list = currentCachedCatalysts(data?.catalysts, Date.parse(builtAtIso), todayIso);
     for (const c of list) {
       if (!c?.date) continue;
       const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(c.date);
@@ -8956,6 +8973,7 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
       if (eventMs < startMs || eventMs > cutoffMs) continue;
       const category = c.category || "other";
       const title = c.title || "Catalyst";
+      if (coveredByCompanySchedule({type:"catalyst",symbol:sym,date:c.date,title}, companyCalendar.cancellations || [])) continue;
       events.push({
         type: "catalyst",
         date: c.date,
@@ -8963,7 +8981,12 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
         title,
         category,
         confidence: c.confidence || "medium",
-        source: "AI",
+        source: "AI · cited news",
+        sourceUrl: c.sourceUrl || null,
+        sourceTitle: c.sourceTitle || null,
+        sourcePublishedAt: c.sourcePublishedAt || null,
+        dateEvidence: c.dateEvidence || null,
+        evidenceVersion: c.evidenceVersion || null,
       });
     }
   }
@@ -8975,8 +8998,20 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
   // ONCE per subtype here (the report rows all carry the same series) so the
   // calendar.json stays compact — the browser looks it up by subtype.
   const reportHistory = {};
-  for (const ev of reportEvents) {
-    if (!ev?.date) continue;
+  for (const original of reportEvents) {
+    if (!original?.date) continue;
+    let ev = original;
+    const group = calendarReportGroup(ev);
+    const published = (extras?.officialCalendar?.events || []).filter(row => row.type === "report" && calendarReportGroup(row) === group && row.date?.slice(0, 7) === ev.date.slice(0, 7) && (ev.subtype !== "gdp-final" || /third|final/i.test(row.title)));
+    const dates = [...new Set(published.map(row => row.date))];
+    if (group && dates.length === 1) {
+      const official = published[0];
+      const moved = official.date !== ev.date;
+      ev = { ...ev, date: official.date, time: official.time || ev.time, scheduleSource: official.source,
+        sourceUrl: official.sourceUrl, ...(official.stale ? { stale: true, baseline: !!official.baseline } : {}), ...(moved ? { actual: null, consensus: null, forecast: null } : {}) };
+    } else if (!ev.sourceKey) {
+      ev = { ...ev, scheduleEstimated: true };
+    }
     const ms = Date.UTC(
       Number(ev.date.slice(0, 4)),
       Number(ev.date.slice(5, 7)) - 1,
@@ -9027,9 +9062,13 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
   const officialCalendar = extras?.officialCalendar || { events: [], status: {} };
   for (const ev of (officialCalendar.events || [])) {
     if (!ev?.date) continue;
+    // A publisher's last successfully fetched date is stronger than a static
+    // fallback if that source is temporarily unavailable.
+    if (ev.baseline && (extras?.priorCalendar?.events || []).some(prior => prior.official && !prior.baseline && prior.sourceKey === ev.sourceKey && prior.subtype === ev.subtype && prior.date?.slice(0, 7) === ev.date.slice(0, 7))) continue;
     if (ev?.source === "Federal Reserve Board" && ev?.type === "report" && isExcludedFedCalendarReport(ev.title)) continue;
     const ms = Date.parse(ev.date + "T00:00:00Z");
-    if (!Number.isFinite(ms) || ms < startMs || ms > cutoffMs) continue;
+    const endMs = Date.parse((ev.endDate || ev.date) + "T00:00:00Z");
+    if (!Number.isFinite(ms) || endMs < startMs || ms > cutoffMs) continue;
     events.push(ev);
   }
   const officialStatus = officialCalendar.status || {};
@@ -9038,21 +9077,40 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
     if (!ev?.official || !ev?.sourceKey || officialStatus[ev.sourceKey] !== false || !ev?.date) continue;
     if (ev?.source === "Federal Reserve Board" && ev?.type === "report" && isExcludedFedCalendarReport(ev.title)) continue;
     const ms = Date.parse(ev.date + "T00:00:00Z");
-    if (!Number.isFinite(ms) || ms < startMs || ms > cutoffMs) continue;
+    const endMs = Date.parse((ev.endDate || ev.date) + "T00:00:00Z");
+    if (!Number.isFinite(ms) || endMs < startMs || ms > cutoffMs) continue;
     events.push({ ...ev, stale: true });
   }
 
-  // Macro events from the RSS digest. RSS items carry pubDate (when
-  // published) — for the calendar we only keep items whose pubDate is
-  // in the forward window, which catches Fed pre-announcements, BLS
-  // release schedules, and SEC notices. Past items just clutter the
-  // timeline so we drop them.
+  // Salvage each missing detailed series independently. A successful weekly
+  // claims fetch must not erase CPI/PCE figures when a monthly source fails.
+  const freshSubtypes = new Set(reportEvents.map(e => e.subtype).filter(Boolean));
+  const staleReportSubtypes = new Set();
+  for (const prior of extras?.priorCalendar?.events || []) {
+    if (prior.type !== "report" || prior.official || !prior.subtype || freshSubtypes.has(prior.subtype)) continue;
+    const ms = Date.parse(prior.date + "T00:00:00Z");
+    if (!Number.isFinite(ms) || ms < startMs || ms > cutoffMs) continue;
+    const group = calendarReportGroup(prior);
+    const published = (officialCalendar.events || []).filter(e => group && calendarReportGroup(e) === group && e.date?.slice(0, 7) === prior.date.slice(0, 7));
+    if (published.length && !published.some(e => e.date === prior.date)) continue;
+    events.push({ ...prior, stale: true });
+    staleReportSubtypes.add(prior.subtype);
+    if (!reportHistory[prior.subtype] && extras?.priorCalendar?.reportHistory?.[prior.subtype]) {
+      reportHistory[prior.subtype] = extras.priorCalendar.reportHistory[prior.subtype];
+    }
+  }
+
+  // Today's observed macro publications provide context. They do not establish
+  // a future schedule, so reject future publication times and prior ET dates.
   for (const h of macroHeadlines || []) {
     if (!h?.publishedAt) continue;
     const eventMs = Date.parse(h.publishedAt);
-    if (!Number.isFinite(eventMs) || eventMs < startMs || eventMs > cutoffMs) continue;
+    if (!Number.isFinite(eventMs) || eventMs > Date.parse(builtAtIso)) continue;
     const date = new Date(eventMs).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+    if (date < todayIso) continue;
     events.push({
+      observed: true,
+      sourceUrl: h.link || null,
       type: classifyMacroEvent(h.publisher, h.title),
       date,
       // Keep the observed headline time so the first-hour event study can
@@ -9072,7 +9130,8 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
 
   applyEmploymentPrintsToReports(events, macroHeadlines);
 
-  const dedupedEvents = dedupeCalendarEvents(events);
+  events.push(...marketSessionCalendarEvents(startMs, cutoffMs), ...scheduledPolicyCalendarEvents(startMs, cutoffMs));
+  const dedupedEvents = dedupeCalendarEvents(calendarEventsForUniverse(events, TICKERS));
   dedupedEvents.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : (a.symbol || a.title || "").localeCompare(b.symbol || b.title || "")));
   // Attach per-meeting consensus divergence (futures vs Kalshi vs Polymarket) to
   // the prediction-market block so the widget can flag where the sources disagree.
@@ -9093,10 +9152,13 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
     // so windowDays is no longer a fixed constant.
     windowDays: Math.round((cutoffMs - startMs) / 86400000),
     windowEnd: new Date(cutoffMs).toISOString().slice(0, 10),
+    companyHistoryStart: new Date(startMs - COMPANY_EVENT_LOOKBACK_DAYS * 86400000).toISOString().slice(0,10),
+    companyCalendar,
     events: dedupedEvents,
     coverage: {
-      earningsUniverse: Object.keys(chains || {}).length,
-      earningsScheduled: new Set(dedupedEvents.filter((ev) => ev.type === "earnings").map((ev) => ev.symbol)).size,
+      ...calendarCoverage({ events: dedupedEvents, symbols: TICKERS, stockSymbols: TICKERS.filter(s => SECTORS[s] !== "ETF"), chains, sessionMap, officialSources: officialStatus, reportSources: reportEvents.sourceStatus, asOfMs: Date.parse(builtAtIso) }),
+      companyEvents: {scheduled:events.filter(e=>e.companyEvent).length,symbols:[...new Set(events.filter(e=>e.companyEvent).map(e=>e.symbol))],sourceChecks:companyCalendar.status},
+      staleReportSubtypes: [...staleReportSubtypes].sort(),
       nasdaqSweepDays: NASDAQ_EARNINGS_SWEEP_DAYS,
       officialSources: officialStatus,
     },
@@ -9124,14 +9186,8 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
   };
 }
 
-// Snapshot data/calendar.json BEFORE writeChainFiles wipes data/, so the
-// macro-report salvage in writeCalendarFile (carry in-window report rows when
-// FRED + BLS both come back empty) has a prior calendar to read. In the build
-// path the wipe runs before writeCalendarFile, so a disk read there always
-// misses — main() pre-reads via this and threads the result in as
-// extras.priorCalendar. regen-calendar.mjs never wipes data/, so it leaves
-// extras.priorCalendar undefined and writeCalendarFile falls back to the
-// on-disk read. Returns null when the file is absent/unreadable.
+// Snapshot before writeChainFiles wipes data/. The payload builder retains
+// missing report series and failed official schedules from this prior value.
 export async function readPriorCalendar() {
   try {
     return JSON.parse(await readFile(resolve(DATA_DIR, CALENDAR_FILE), "utf8"));
@@ -9141,56 +9197,8 @@ export async function readPriorCalendar() {
 }
 
 export async function writeCalendarFile(chains, macroHeadlines, builtAtIso, extras) {
-  const payload = buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras);
-  // Final tier of macro-report resilience: if FRED + BLS both came back
-  // empty AND no in-window report dates landed (the schedule may also
-  // have no upcoming releases), salvage any in-window report rows from
-  // the prior calendar.json so a transient outage doesn't blank the
-  // macro tab. Mirrors the lastKnownFedRate pattern in
-  // fedwatch-history.json. Carried rows are tagged `stale:true` so the
-  // UI can flag them if it ever wants to.
-  // Official BLS/BEA/Fed schedule rows prove the broad calendar loaded, but
-  // they do not replace the detailed Actual/Previous/Consensus series. Only a
-  // fresh non-official report row may suppress that layer's last-good salvage.
-  const hasFreshReports = payload.events.some((ev) => ev?.type === "report" && !ev?.official);
-  if (!hasFreshReports) {
-    try {
-      // In the build path data/calendar.json is already wiped by the time this
-      // runs, so main() pre-reads it before the wipe and passes it as
-      // extras.priorCalendar (may be null on a cold start). regen-calendar.mjs
-      // leaves it undefined and we read from disk — it never wipes data/.
-      const prior = extras?.priorCalendar !== undefined
-        ? extras.priorCalendar
-        : JSON.parse(await readFile(resolve(DATA_DIR, CALENDAR_FILE), "utf8"));
-      const today = new Date(builtAtIso || Date.now());
-      const startMs = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
-      const cutoffMs = calendarCutoffMs(startMs);
-      const carried = [];
-      for (const ev of (prior?.events || [])) {
-        if (ev?.type !== "report" || !ev?.date) continue;
-        const ms = Date.UTC(
-          Number(ev.date.slice(0, 4)),
-          Number(ev.date.slice(5, 7)) - 1,
-          Number(ev.date.slice(8, 10)),
-        );
-        if (ms < startMs || ms > cutoffMs) continue;
-        carried.push({ ...ev, stale: true });
-      }
-      if (carried.length) {
-        payload.events = payload.events.concat(carried);
-        payload.events.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : (a.symbol || "").localeCompare(b.symbol || "")));
-        // Restore the per-subtype bar-chart history too (this path runs only
-        // when no fresh reports landed, so payload.reportHistory is {}) — else
-        // the carried stale chips would lose their charts. Mirrors the FOMC
-        // prediction-market carry-forward just below.
-        payload.reportHistory = { ...(prior?.reportHistory || {}), ...payload.reportHistory };
-        console.log(`    ⚠ macro reports empty — carried ${carried.length} stale rows from prior calendar.json`);
-      }
-    } catch (_) {
-      // No prior calendar.json (first run) or unreadable JSON — nothing
-      // to carry. Calendar still ships with whatever else is in events.
-    }
-  }
+  const priorCalendar = extras?.priorCalendar !== undefined ? extras.priorCalendar : await readPriorCalendar();
+  const payload = buildCalendarPayload(chains, macroHeadlines, builtAtIso, { ...extras, priorCalendar });
   // FOMC prediction-market carry-forward: if today's Kalshi/Polymarket reads all
   // flaked, reuse the prior calendar's still-upcoming entries (tagged stale) so
   // the cross-check doesn't blink out on one bad fetch. Same prior source as the
@@ -13991,7 +13999,7 @@ export function parseFederalReserveCalendarHtml(html, year, monthIdx) {
           ...(isReport ? { subtype: `official-${sourceKey}-${calendarSlug(title)}` } : {}),
           date,
           ...(time ? { time } : {}),
-          title,
+          title: isHoliday ? `Federal Reserve holiday · ${title}` : title,
           category,
           source: "Federal Reserve Board",
           sourceUrl,
@@ -14091,7 +14099,8 @@ export async function fetchOfficialCalendarEvents(startMs, cutoffMs) {
   const addInWindow = (rows) => {
     for (const ev of rows || []) {
       const ms = Date.parse(String(ev?.date || "") + "T00:00:00Z");
-      if (Number.isFinite(ms) && ms >= startMs && ms <= cutoffMs) events.push(ev);
+      const endMs = Date.parse(String(ev?.endDate || ev?.date || "") + "T00:00:00Z");
+      if (Number.isFinite(ms) && Number.isFinite(endMs) && endMs >= startMs && ms <= cutoffMs) events.push(ev);
     }
   };
   await Promise.all([
@@ -14107,11 +14116,43 @@ export async function fetchOfficialCalendarEvents(startMs, cutoffMs) {
     (async () => {
       try {
         const text = await fetchTextCalendar(BEA_CALENDAR_ICS);
-        addInWindow(parseOfficialIcsCalendar(text, { sourceKey: "bea", source: "BEA", sourceUrl: BEA_CALENDAR_ICS }));
+        const parsed = parseOfficialIcsCalendar(text, { sourceKey: "bea", source: "BEA", sourceUrl: BEA_CALENDAR_ICS });
+        if (!parsed.length) throw new Error("no BEA events parsed");
+        addInWindow(parsed);
         status.bea = true;
       } catch (err) {
         status.bea = false;
         console.log(`    ⚠ official BEA calendar failed: ${err.message}`);
+      }
+    })(),
+    ...[...new Set(calendarMonthsInWindow(startMs, cutoffMs).map(m => m.year))].map(async year => {
+      const key = `census-${year}`;
+      try {
+        let parsed = [];
+        for (const url of [censusCalendarUrl(year), "https://www.census.gov/economic-indicators/calendar-listview.html"]) {
+          try { parsed = parseCensusCalendar(await fetchTextCalendar(url), year).map(e => ({ ...e, sourceUrl: url })); } catch (_) { /* try current calendar URL */ }
+          if (parsed.length) break;
+        }
+        if (!parsed.length) throw new Error("no Census events parsed");
+        addInWindow(parsed);
+        status[key] = true;
+      } catch (err) {
+        status[key] = false;
+        console.log(`    ⚠ Census schedule ${year} failed: ${err.message}`);
+      }
+    }),
+    (async () => {
+      const years = [...new Set(calendarMonthsInWindow(startMs, cutoffMs).map(m => m.year))];
+      try {
+        const parsed = parseIsmCalendar(await fetchTextCalendar(ISM_CALENDAR_URL));
+        for (const year of years) {
+          status[`ism-${year}`] = parsed.some(e => e.date.startsWith(String(year)));
+          if (!status[`ism-${year}`]) addInWindow(ismBaselineEvents(year));
+        }
+        addInWindow(parsed);
+      } catch (err) {
+        for (const year of years) { status[`ism-${year}`] = false; addInWindow(ismBaselineEvents(year)); }
+        console.log(`    ⚠ ISM schedule failed: ${err.message}`);
       }
     })(),
     ...calendarMonthsInWindow(startMs, cutoffMs).map(async ({ year, month }) => {
@@ -14119,7 +14160,10 @@ export async function fetchOfficialCalendarEvents(startMs, cutoffMs) {
       const key = `fed-board-${year}-${String(month + 1).padStart(2, "0")}`;
       const url = `https://www.federalreserve.gov/newsevents/${year}-${monthName}.htm`;
       try {
-        addInWindow(parseFederalReserveCalendarHtml(await fetchTextCalendar(url), year, month));
+        const html = await fetchTextCalendar(url);
+        const parsed = parseFederalReserveCalendarHtml(html, year, month);
+        if (!parsed.length && !/cal-nojs__rowTitle/.test(html)) throw new Error("Fed calendar markup missing");
+        addInWindow(parsed);
         status[key] = true;
       } catch (err) {
         status[key] = false;
@@ -15403,6 +15447,8 @@ export async function fetchMacroReleases(startMs, cutoffMs, asOfMs = Date.now())
       });
     }
   }
+  events.push(...supplementalWeeklyReports(ffEvents, startMs, cutoffMs, Number(asOfMs)));
+  events.sourceStatus = ffEvents.sourceStatus;
   return events;
 }
 
@@ -15622,6 +15668,8 @@ export async function fetchNasdaqEarningsSessions(startMs, windowDays, explicitD
     origin: "https://www.nasdaq.com",
   };
   const out = new Map();
+  const coverage = { status: "unknown", requested: 0, succeeded: 0, failedDates: [] };
+  out.coverage = coverage;
   // Union the exact Yahoo-derived dates with a bounded near-term weekday walk.
   // The walk is what closes the missing-date gap; keeping it at 21 calendar
   // days avoids the ~100-request rest-of-year burst the old fallback could make.
@@ -15639,14 +15687,16 @@ export async function fetchNasdaqEarningsSessions(startMs, windowDays, explicitD
   for (let i = 0; i < sweepDays; i++) addDate(new Date(startMs + i * 86400000).toISOString().slice(0, 10));
   // Bounded concurrency: a months-long date list would otherwise burst dozens
   // of simultaneous requests at Nasdaq, which rate-limits / WAF-blocks bursts.
+  coverage.requested = dates.length;
   await runPooled(dates, 8, async (date) => {
     try {
       const url = `https://api.nasdaq.com/api/calendar/earnings?date=${date}`;
       const res = await fetch(url, { headers, signal: AbortSignal.timeout(12000) });
-      if (!res.ok) return;
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       const rows = json?.data?.rows;
-      if (!Array.isArray(rows)) return;
+      if (!Array.isArray(rows)) throw new Error("missing earnings rows");
+      coverage.succeeded++;
       for (const r of rows) {
         const sym = String(r?.symbol || "").toUpperCase().trim();
         if (!sym) continue;
@@ -15657,9 +15707,11 @@ export async function fetchNasdaqEarningsSessions(startMs, windowDays, explicitD
         out.set(sym + "|" + date, session);
       }
     } catch (_) {
-      // network / WAF block — fall through silently
+      coverage.failedDates.push(date);
     }
   });
+  coverage.failedDates.sort();
+  coverage.status = !coverage.requested ? "not-requested" : !coverage.succeeded ? "unavailable" : coverage.failedDates.length ? "partial" : "ok";
   return out;
 }
 
@@ -15676,6 +15728,7 @@ async function fetchForexFactoryCalendar() {
     "https://nfs.faireconomy.media/ff_calendar_nextweek.json",
   ];
   const out = [];
+  let succeeded = 0;
   for (const url of urls) {
     try {
       const res = await fetch(url, {
@@ -15688,19 +15741,21 @@ async function fetchForexFactoryCalendar() {
       });
       if (!res.ok) continue;
       const json = await res.json();
-      if (Array.isArray(json)) out.push(...json);
+      if (Array.isArray(json) && json.length) { out.push(...json); succeeded++; }
     } catch (_) {
       // Network error → empty list. Macro reports degrade to FRED-only.
     }
   }
+  out.sourceStatus = { forexFactory: !succeeded ? "unavailable" : succeeded < urls.length ? "partial" : "ok" };
   return out;
 }
 
 // Map a ForexFactory event title to our internal report subtype. Matching
 // is keyword-based since FF titles drift slightly across feeds ("Non-Farm
 // Employment Change", "Non-Farm Payrolls", etc.).
-function matchForexFactoryEventSubtype(title) {
+export function matchForexFactoryEventSubtype(title) {
   const t = String(title || "").toLowerCase();
+  if (/\badp\b/.test(t)) return null;
   if (t.includes("jolts")) return "jolts";
   if (t.includes("unemployment rate")) return "unrate";
   if (t.includes("non-farm") || t.includes("nonfarm") || t.includes("nfp") || t.includes("employment change")) return "nfp";
@@ -15715,7 +15770,7 @@ function matchForexFactoryEventSubtype(title) {
   // Prelim, and NOT the "Final GDP Price Index" (the deflator) that FF lists on
   // the same date — without the !price guard both collide on the gdp-final key.
   if (t.includes("gdp") && t.includes("final") && !t.includes("price")) return "gdp-final";
-  if (t.includes("ppi")) return "ppi-mom";
+  if (t.includes("ppi")) return !t.includes("core") && !/y\/y|yoy|annual/.test(t) ? "ppi-mom" : null;
   const isCore = t.includes("core");
   const isYoy = t.includes("y/y") || t.includes("yoy") || t.includes("annual");
   if (t.includes("cpi")) {
@@ -37366,16 +37421,14 @@ async function main() {
   // FRED-cascade coupling with fetchEffectiveFedFundsRate is preserved: the
   // counter is module-level and the rate fetch still runs strictly after
   // this in the calendar section.
-  const todayMs = Date.UTC(
-    new Date().getUTCFullYear(),
-    new Date().getUTCMonth(),
-    new Date().getUTCDate(),
-  );
+  const calendarToday = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  const todayMs = Date.parse(calendarToday + "T00:00:00Z");
   const cutoffMs = calendarCutoffMs(todayMs);
   const todayIsoEarly = new Date(todayMs).toISOString().slice(0, 10);
   console.log("Fetching macro releases (BLS primary · FRED fallback · ForexFactory consensus)…");
   const reportEventsAll = await fetchMacroReleases(todayMs - MACRO_RELEASE_LOOKBACK_DAYS * 86400000, cutoffMs);
   const reportEvents = reportEventsAll.filter((r) => String(r.date) >= todayIsoEarly);
+  reportEvents.sourceStatus = reportEventsAll.sourceStatus;
   const macroReleaseReads = buildMacroReleaseReads(reportEventsAll, todayIsoEarly);
   console.log(`  · ${reportEvents.length} report rows (${macroReleaseReads.length} already printed in the last ${MACRO_RELEASE_LOOKBACK_DAYS}d)`);
   for (const r of macroReleaseReads) console.log(`    · ${r.line}`);
@@ -37906,11 +37959,12 @@ async function main() {
   // The FedWatch/CME ZQ source depends on fedRate + the FOMC schedule, so it
   // stays sequential after this batch resolves.
   console.log("Fetching calendar sources (NY Fed EFFR · FOMC schedule · Nasdaq earnings · official event calendars) in parallel…");
-  const [fedRate, liveFomc, sessionMap, officialCalendar] = await Promise.all([
+  const [fedRate, liveFomc, sessionMap, officialCalendar, companyCalendar] = await Promise.all([
     fetchEffectiveFedFundsRate(),
     fetchFomcSchedule(),
     fetchNasdaqEarningsSessions(todayMs, calDays, earnSessionDates),
     fetchOfficialCalendarEvents(todayMs, cutoffMs),
+    fetchCompanyCalendar({symbols:TICKERS,startMs:todayMs,cutoffMs,prior:priorCalendar?.companyCalendar}),
   ]);
   if (fedRate) console.log(`  · Fed Funds ${fedRate.rate}% as of ${fedRate.asOf}`);
   // FedWatch history was read BEFORE writeChainFiles wiped data/. Start
@@ -38134,6 +38188,7 @@ async function main() {
     macroHistory: macroHistoryNext,
     sessionMap,
     officialCalendar,
+    companyCalendar,
     priorCalendar,
   });
   console.log(`wrote data/calendar.json — ${calendarInfo.count} events (through ${new Date(cutoffMs).toISOString().slice(0, 10)}), ${calendarInfo.bytes} bytes`);
