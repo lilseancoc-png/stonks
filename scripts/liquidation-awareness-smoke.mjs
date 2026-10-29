@@ -44,7 +44,13 @@ check('An unknown ADS conversion preserves awareness without quote-based pressur
 });
 check('Multiple excerpts of one stock do not inflate the stock count or sum amounts',()=>{
   const first=parse('123,456 ordinary shares are pledged as collateral.'),second={...first,fragmentId:1};
-  const p=buildForcedLiquidationPayload({observations:[first,second],universe:['ATLS'],builtAtIso:now});assert.equal(p.rows.length,2);assert.equal(p.summary.tracked,2);assert.equal(p.summary.pledgedStocks,1);assert(p.rows.every(r=>r.pledge.shares===123456));
+  const p=buildForcedLiquidationPayload({observations:[first,second],universe:['ATLS'],builtAtIso:now});assert.equal(p.rows.length,1);assert.equal(p.summary.tracked,1);assert.equal(p.summary.pledgedStocks,1);assert(p.rows.every(r=>r.pledge.shares===123456));
+});
+check('Same-source amounts, borrowers and excerpt differences remain separate evidence',()=>{
+  const first=parse('123,456 ordinary shares are pledged as collateral.');
+  for(const changed of [{borrower:'Separate Holder'},{disclosedShares:999},{excerpt:'Different source context.'},{url:first.url+'?exhibit=2'}]){
+    const p=buildForcedLiquidationPayload({observations:[first,{...first,...changed,fragmentId:1}],builtAtIso:now});assert.equal(p.rows.length,2);
+  }
 });
 check('A collateral issuer that needs review is not counted as a confirmed stock pledge',()=>{
   const p=buildForcedLiquidationPayload({observations:[{...base,issuerVerified:false}],builtAtIso:now});assert.equal(p.summary.pledgedStocks,0);assert.equal(p.summary.tracked,0);assert.equal(p.rows[0].pledge.confirmed,false);assert.equal(p.rows[0].liquidityWarning,false);

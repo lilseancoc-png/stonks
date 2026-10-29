@@ -68,6 +68,7 @@
     "test:private-store": "node scripts/private-store-smoke.mjs",
     "test:render": "node scripts/render-smoke.mjs",
     "test:chart-hover": "node scripts/chart-hover-smoke.mjs",
+    "test:chart-ui-browser": "node scripts/chart-ui-browser.mjs",
     "test:site-map": "node scripts/site-map-smoke.mjs",
     "test:export": "node scripts/export-smoke.mjs",
     "test:export-browser": "node scripts/export-browser.mjs",

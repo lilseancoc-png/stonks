@@ -14,6 +14,8 @@ Health care and energy are written out in sentences for the office on screen. Th
 
 Choose a president to rebase the S&P 500 line on that term, then choose a House-and-Senate stretch inside it. Move along the line to read the date and who held each office. Drag across the line to compare two dates.
 
+Charts label the date and the value of a $1 investment in USD. They retain the preceding close as the $1 baseline, the first session, and monthly closing observations, including the final session. Short chapters retain their baseline and closing observation. The displayed return uses all completed sessions, not just the sampled chart points. Party comparison lines keep separate boundaries for each invested stretch and do not connect through another party's tenure.
+
 Unified government means one party held the presidency and both chambers. A separate line shows both chambers Democratic, both chambers Republican, and a split Congress.
 
 ## Control dates

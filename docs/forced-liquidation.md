@@ -93,6 +93,8 @@ The **Cluster selloffs** view logs days that look like Archegos: at least three 
 
 Overlapping observations are not summed. Identified facilities have a history. Unidentified facilities remain separate research leads. Known unresolved split language blocks modeling and comparisons. Undisclosed corporate actions and incomplete matching remain limitations.
 
+The watchlist shows one row per stock. Current forced-sale reports take priority, followed by breached or nearby estimated thresholds, then the highest pledge stress score. Every displayed amount belongs to the selected disclosure. The detail selector preserves other facilities and excerpts. CSV exports include every matching disclosure, grouped in watchlist order. Exact duplicate observations from the same document are removed during collection and when reading retained browser snapshots; different excerpts, dates, borrowers, facilities, or amounts remain separate evidence.
+
 ## Top Picks
 
 `scoreAllTickers` attaches `forcedLiquidationContext` to its internal scored records when the caller supplies the private payload. It does not add the research to public ticker files, public grades or conviction points.

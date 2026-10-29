@@ -23212,6 +23212,8 @@ button.vol-cal-cell:focus-visible { outline: none; box-shadow: var(--focus-ring)
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
   z-index: 10;
   max-width: 240px;
+  max-height: calc(100vh - 140px);
+  overflow: hidden;
 }
 .heatmap-tooltip[hidden] { display: none; }
 .heatmap-tooltip-head {
