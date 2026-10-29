@@ -103,6 +103,27 @@ for (const term of payload.timeline) {
 }
 const fullLast = payload.path.at(-1);
 assert.ok(fullLast && fullLast.t === end);
+for (const stretch of [
+  { start: payload.window.start, path: payload.path },
+  ...payload.timeline.flatMap(term => [term, ...term.chapters]),
+]) {
+  assert.ok(stretch.path.length >= 2, 'Even short stretches retain a baseline and a closing observation');
+  assert.equal(stretch.path[0].baseline, true);
+  assert.equal(stretch.path[0].level, 1);
+  assert.ok(stretch.path[0].t < stretch.start, 'Baseline is the observed close before the stretch');
+  assert.equal(new Set(stretch.path.map(p => p.t)).size, stretch.path.length, 'Sampling cannot duplicate a date');
+  const first = spy.find(p => p.t >= stretch.start);
+  assert.ok(stretch.path.some(p => p.t === first.t), 'First session cannot disappear into monthly sampling');
+}
+for (const office of payload.offices) for (const party of ['D', 'R']) {
+  const points = payload.curves[office.id][party];
+  assert.ok(Math.abs((points.at(-1).level - 1) * 100 - office.parties[party].totalPct) < 0.02, 'Curve agrees with independently compounded totals');
+  assert.equal(new Set(points.map(p => p.t)).size, points.length);
+  for (const segment of new Set(points.map(p => p.segment))) {
+    const run = points.filter(p => p.segment === segment);
+    assert.ok(run.length >= 2 && run[0].baseline, 'Each invested stretch has an explicit boundary');
+  }
+}
 const sampleRows = [
   { label: 'Health care', offices: { president: { D: { annPct: 1 }, R: { annPct: 9 }, gapAnnPct: -8 } } },
   { label: 'Energy', offices: { president: { D: { annPct: 4 }, R: { annPct: 2 }, gapAnnPct: 2 } } },

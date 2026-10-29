@@ -89,6 +89,7 @@ export function partyTrackerFactory(host, doc, options) {
       render();
       focusSel('[data-party-office="' + state.office + '"]');
     });
+    host.addEventListener('resize', () => { if (state.data && !el.closest('.page-pane')?.hidden) render(); });
   }
   function column(stats, party) {
     return '<div><span>' + partyWord(party) + (stats && stats.faster ? ' · faster' : '') + '</span><b class="' + signClass(stats && stats.annPct) + '">' + pct(stats && stats.annPct) + '</b><small>a year · ' + pct(stats && stats.totalPct) + ' total</small><small>' + (stats && finite(stats.years) ? stats.years.toFixed(1) + ' years' : '—') + '</small></div>';
@@ -115,7 +116,7 @@ export function partyTrackerFactory(host, doc, options) {
     }
     if (out.length < 2) return '';
     let html = ' data-ch="' + escape(JSON.stringify(out)) + '"' + (nearestLine ? ' data-ch-xy' : '');
-    if (!nearestLine) html += ' data-cr="' + escape(JSON.stringify({ d: dates, s: [{ n: 'S&P 500', v: values }] })) + '"';
+    if (!nearestLine) html += ' data-cr="' + escape(JSON.stringify({ d: dates, x: out.map((point) => point[0]), s: [{ n: 'S&P 500', v: values }] })) + '"';
     return html;
   }
   function drawChart(seriesList, aria) {
@@ -124,16 +125,40 @@ export function partyTrackerFactory(host, doc, options) {
     if (flat.length < 2) return '<p class="pty-empty">Not enough sessions to draw this stretch.</p>';
     const levels = flat.map((point) => point.level);
     const times = flat.map((point) => Date.parse(point.t));
-    const lo = Math.min.apply(null, levels.concat(1));
-    const hi = Math.max.apply(null, levels.concat(1));
+    let lo = Math.min.apply(null, levels.concat(1));
+    let hi = Math.max.apply(null, levels.concat(1));
+    if (hi === lo) { lo -= 0.1; hi += 0.1; }
+    const rawStep = (hi - lo) / 4;
+    const magnitude = Math.pow(10, Math.floor(Math.log10(rawStep)));
+    const step = [1, 2, 5, 10].find((n) => n * magnitude >= rawStep) * magnitude;
+    lo = Math.floor(lo / step) * step;
+    hi = Math.ceil(hi / step) * step;
     const minT = Math.min.apply(null, times);
     const maxT = Math.max.apply(null, times);
-    const width = 720;
-    const height = 220;
-    const padX = 16;
-    const padY = 18;
-    const xOf = (t) => padX + ((Date.parse(t) - minT) / (maxT - minT || 1)) * (width - padX * 2);
-    const yOf = (level) => padY + (1 - (level - lo) / (hi - lo || 1)) * (height - padY * 2);
+    const width = Math.max(280, Math.min(720, root()?.clientWidth || 720));
+    const height = 280;
+    const digits = Math.max(2, -Math.floor(Math.log10(step)));
+    const labelLength = Math.max(lo.toFixed(digits).length, hi.toFixed(digits).length);
+    const left = Math.max(62, (labelLength + 1) * 7 + 14), right = width - 18, top = 32, bottom = height - 54;
+    const xOf = (t) => maxT === minT ? (left + right) / 2 : left + ((Date.parse(t) - minT) / (maxT - minT)) * (right - left);
+    const yOf = (level) => top + (1 - (level - lo) / (hi - lo || 1)) * (bottom - top);
+    let axes = '<g class="pty-axis"><text x="' + left + '" y="16">Value of $1 (USD)</text>';
+    const count = Math.round((hi - lo) / step);
+    for (let i = 0; i <= count; i++) {
+      const value = lo + i * step, y = yOf(value).toFixed(1);
+      axes += '<line class="pty-grid" x1="' + left + '" x2="' + right + '" y1="' + y + '" y2="' + y + '"/>' +
+        '<text x="' + (left - 8) + '" y="' + y + '" dy=".35em" text-anchor="end">$' + value.toFixed(digits) + '</text>';
+    }
+    const dateTicks = maxT === minT ? 1 : right - left < 220 ? 2 : width < 460 ? 3 : 5;
+    for (let i = 0; i < dateTicks; i++) {
+      const t = new Date(minT + (maxT - minT) * i / Math.max(1, dateTicks - 1)).toISOString().slice(0, 10);
+      const x = xOf(t).toFixed(1);
+      axes += '<line x1="' + x + '" x2="' + x + '" y1="' + bottom + '" y2="' + (bottom + 4) + '"/>' +
+        '<text x="' + x + '" y="' + (bottom + 20) + '" text-anchor="' + (dateTicks === 1 ? 'middle' : i === 0 ? 'start' : i === dateTicks - 1 ? 'end' : 'middle') + '">' + t + '</text>';
+    }
+    axes += '<line x1="' + left + '" x2="' + left + '" y1="' + top + '" y2="' + bottom + '"/>' +
+      '<line x1="' + left + '" x2="' + right + '" y1="' + bottom + '" y2="' + bottom + '"/>' +
+      '<text x="' + ((left + right) / 2) + '" y="' + (height - 5) + '" text-anchor="middle">Date</text></g>';
     const hover = [];
     const paths = seriesList.map((series) => {
       const usable = series.points.filter((point) => point && finite(point.level));
@@ -141,22 +166,28 @@ export function partyTrackerFactory(host, doc, options) {
         const x = xOf(point.t);
         const y = yOf(point.level);
         hover.push({ x: x, y: y, label: point.label, value: point.level, time: point.t });
-        const gap = index > 0 && (Date.parse(point.t) - Date.parse(usable[index - 1].t)) > 40 * 86400000;
+        const previous = usable[index - 1];
+        const gap = index > 0 && ((point.segment && point.segment !== previous.segment) || (Date.parse(point.t) - Date.parse(previous.t)) > 40 * 86400000);
         return (index && !gap ? 'L' : 'M') + x.toFixed(1) + ' ' + y.toFixed(1);
       }).join(' ');
       return '<path d="' + d + '" fill="none" stroke="' + series.color + '" stroke-width="2.25" stroke-linejoin="round" stroke-linecap="round"/>';
     }).join('');
     const oneLine = seriesList.length === 1;
     return '<svg class="pty-chart" viewBox="0 0 ' + width + ' ' + height + '" role="img" aria-label="' + escape(aria) + '"' + hoverAttrs(hover, !oneLine) + '>' +
-      '<line x1="' + padX + '" y1="' + yOf(1).toFixed(1) + '" x2="' + (width - padX) + '" y2="' + yOf(1).toFixed(1) + '" stroke="currentColor" stroke-opacity="0.18"/>' +
+      axes + '<line x1="' + left + '" y1="' + yOf(1).toFixed(1) + '" x2="' + right + '" y2="' + yOf(1).toFixed(1) + '" stroke="currentColor" stroke-opacity="0.25"/>' +
       paths + '</svg>';
   }
   function pathLabel(point) {
     const move = finite(point.level) ? pct((point.level - 1) * 100) : '—';
+    if (point.baseline) return point.t + '\n' + (point.baselineAtStart ? 'Start of stretch' : 'Baseline close') + ' · $1 starting value';
     return point.t + '\nS&P 500 $' + Number(point.level).toFixed(2) + ' · ' + move + ' from the start of this line\nPresident ' + partyWord(point.president) + ' · House ' + partyWord(point.house) + ' · Senate ' + partyWord(point.senate);
   }
-  function pathChart(points, title, caption) {
-    const series = [{ name: 'S&P 500', color: 'currentColor', points: (points || []).map((point) => Object.assign({}, point, { label: pathLabel(point) })) }];
+  function pathChart(points, title, caption, start) {
+    const path = (points || []).slice();
+    // Retained snapshots predate explicit baseline points. Their normalized
+    // starting value is still known; do not invent an observed session date.
+    if (path.length && !path[0].baseline && start && path[0].t >= start) path.unshift({ t: start, level: 1, baseline: true, baselineAtStart: true });
+    const series = [{ name: 'S&P 500', color: 'currentColor', points: path.map((point) => Object.assign({}, point, { label: pathLabel(point) })) }];
     const end = series[0].points.length ? series[0].points[series[0].points.length - 1].level : null;
     return '<h3>' + escape(title) + '</h3><div class="pty-legend"><span>S&P 500' + (finite(end) ? ' · $' + end.toFixed(2) : '') + '</span><span>$1 is the close before this stretch</span></div>' +
       drawChart(series, title) + '<p class="pty-caption">' + caption + '</p>';
@@ -167,6 +198,7 @@ export function partyTrackerFactory(host, doc, options) {
     const line = (points, name) => points.filter((point) => finite(point.level)).map((point) => ({
       t: point.t,
       level: point.level,
+      segment: point.segment,
       label: point.t + '\n' + name + ' days $' + Number(point.level).toFixed(2) + '\n' + pct((point.level - 1) * 100) + ' compounded on those days only',
     }));
     const end = (points) => points.length ? points[points.length - 1].level : null;
@@ -304,11 +336,11 @@ export function partyTrackerFactory(host, doc, options) {
       const blurb = who + ', ' + stretch.start + ' to ' + stretch.end + '. The S&P 500 returned ' + pct(stretch.totalPct) + ' (' + pct(stretch.annPct) + ' a year' + (finite(stretch.years) ? ' over ' + stretch.years.toFixed(1) + ' years' : '') + ').';
       const sectorLine = (row, label) => row ? label + ' returned ' + pct(row.totalPct) + ' in this stretch (' + pct(row.annPct) + ' a year), ' + excess(row.excessTotalPct) + ' on the total result.' + (finite(row.years) && row.years >= 1 ? ' Annualized, that is ' + excess(row.excessAnnPct) + '.' : '') : label + ' does not cover this stretch.';
       analysis = '<h3>This stretch</h3><p class="pty-now">' + escape(blurb) + '</p>' +
-        pathChart(stretch.path, 'S&P 500 through ' + who, 'Move along the line to read the date, the level, and who held each office. Drag across the line to compare two dates.') +
+        pathChart(stretch.path, 'S&P 500 through ' + who, 'Monthly closes and period endpoints. Move along the line to read the date, the value of $1, and who held each office. Drag across the line to compare two dates.', stretch.start) +
         '<div class="pty-reads"><p>' + escape(sectorLine(health, 'Health care')) + '</p><p>' + escape(sectorLine(energy, 'Energy')) + '</p></div>' +
         stretchTable(stretch.sectors || []);
     } else {
-      analysis = pathChart(data.path || [], 'S&P 500 since Bush’s inauguration', 'Move along the line to read the date and who held the presidency, the House, and the Senate. Drag across the line to compare two dates. Choose a president below to rebase this line on that term.') +
+      analysis = pathChart(data.path || [], 'S&P 500 since Bush’s inauguration', 'Monthly closes and period endpoints. Move along the line to read the date and who held each office. Drag across the line to compare two dates. Choose a president below to rebase this line on that term.', data.window.start) +
         '<div class="pty-tabs" role="tablist" aria-label="Which office to compare">' + data.offices.map((office) => '<button type="button" role="tab" data-party-office="' + office.id + '" aria-selected="' + (office.id === selected.id ? 'true' : 'false') + '">' + escape(office.label) + '</button>').join('') + '</div>' +
         compareChart(data.curves[selected.id]) +
         '<div class="pty-reads"><p>' + escape(highlight.health || '') + '</p><p>' + escape(highlight.energy || '') + '</p>' + (highlight.widest ? '<p>' + escape(highlight.widest) + '</p>' : '') + '</div>' +

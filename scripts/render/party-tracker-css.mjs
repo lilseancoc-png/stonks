@@ -22,7 +22,10 @@ export function renderPartyTrackerCss() {
 .pty-tabs button { border: 0; background: none; color: var(--muted-strong); padding: 10px 14px; cursor: pointer; font: inherit; border-bottom: 2px solid transparent; }
 .pty-tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
 .pty-tabs button:focus-visible, .pty-sort:focus-visible, .pty-retry:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.pty-chart { width: 100%; height: auto; display: block; cursor: crosshair; touch-action: none; }
+.pty-chart { width: 100%; height: auto; display: block; cursor: crosshair; touch-action: none; user-select: none; }
+.pty-axis { fill: var(--muted-strong); font-size: 11px; font-variant-numeric: tabular-nums; }
+.pty-axis line { stroke: var(--muted-strong); stroke-opacity: .35; }
+.pty-axis .pty-grid { stroke-opacity: .12; }
 .pty-cycles { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
 .pty-cycles button, .pty-term-btn { border: 1px solid var(--border); background: transparent; color: var(--text); border-radius: 6px; padding: 8px 12px; font: inherit; cursor: pointer; text-align: left; }
 .pty-cycles button[aria-pressed="true"], .pty-term.is-selected { border-color: var(--accent); }

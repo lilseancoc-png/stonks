@@ -2504,6 +2504,17 @@ function scenarioEventPhase(ev, now = Date.now()) {
   function chRangeIndex(el, data, clientX){
     var rect = el.getBoundingClientRect();
     if (!rect.width || !data || !data.d || !data.d.length) return 0;
+    if (Array.isArray(data.x) && data.x.length === data.d.length && el.getScreenCTM){
+      var ctm = el.getScreenCTM();
+      if (ctm){
+        var best = 0, distance = Infinity;
+        for (var i = 0; i < data.x.length; i++){
+          var delta = Math.abs(ctm.a * data.x[i] + ctm.e - clientX);
+          if (delta < distance){ best = i; distance = delta; }
+        }
+        return best;
+      }
+    }
     var frac = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
     return Math.round(frac * (data.d.length - 1));
   }
@@ -2526,6 +2537,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (!rect.width || !rect.height) return;
     var x1 = rect.left + (n === 1 ? 0 : a / (n - 1)) * rect.width;
     var x2 = rect.left + (n === 1 ? 0 : b / (n - 1)) * rect.width;
+    if (Array.isArray(data.x) && data.x.length === n && chRange.el.getScreenCTM){
+      var ctm = chRange.el.getScreenCTM();
+      if (ctm){ x1 = ctm.a * data.x[a] + ctm.e; x2 = ctm.a * data.x[b] + ctm.e; }
+    }
     chRange.band.style.left = x1 + 'px';
     chRange.band.style.top = rect.top + 'px';
     chRange.band.style.width = Math.max(2, x2 - x1) + 'px';
@@ -2592,7 +2607,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
     }, { passive: true });
     document.addEventListener('pointercancel', chRangeHide, { passive: true });
     document.addEventListener('keydown', function(e){ if (e.key === 'Escape') chRangeHide(); });
-    document.addEventListener('scroll', chRangeHide, { passive: true, capture: true });
+    document.addEventListener('scroll', function(e){
+      // Scrolling an unrelated panel, such as the sidebar, does not move the chart.
+      if (chRange.el && e.target.contains && e.target.contains(chRange.el)) chRangeHide();
+    }, { passive: true, capture: true });
     window.addEventListener('resize', chRangeHide);
   })();
 
@@ -27506,6 +27524,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       render();
       focusSel('[data-party-office="' + state.office + '"]');
     });
+    host.addEventListener('resize', () => { if (state.data && !el.closest('.page-pane')?.hidden) render(); });
   }
   function column(stats, party) {
     return '<div><span>' + partyWord(party) + (stats && stats.faster ? ' · faster' : '') + '</span><b class="' + signClass(stats && stats.annPct) + '">' + pct(stats && stats.annPct) + '</b><small>a year · ' + pct(stats && stats.totalPct) + ' total</small><small>' + (stats && finite(stats.years) ? stats.years.toFixed(1) + ' years' : '—') + '</small></div>';
@@ -27532,7 +27551,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     }
     if (out.length < 2) return '';
     let html = ' data-ch="' + escape(JSON.stringify(out)) + '"' + (nearestLine ? ' data-ch-xy' : '');
-    if (!nearestLine) html += ' data-cr="' + escape(JSON.stringify({ d: dates, s: [{ n: 'S&P 500', v: values }] })) + '"';
+    if (!nearestLine) html += ' data-cr="' + escape(JSON.stringify({ d: dates, x: out.map((point) => point[0]), s: [{ n: 'S&P 500', v: values }] })) + '"';
     return html;
   }
   function drawChart(seriesList, aria) {
@@ -27541,16 +27560,40 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (flat.length < 2) return '<p class="pty-empty">Not enough sessions to draw this stretch.</p>';
     const levels = flat.map((point) => point.level);
     const times = flat.map((point) => Date.parse(point.t));
-    const lo = Math.min.apply(null, levels.concat(1));
-    const hi = Math.max.apply(null, levels.concat(1));
+    let lo = Math.min.apply(null, levels.concat(1));
+    let hi = Math.max.apply(null, levels.concat(1));
+    if (hi === lo) { lo -= 0.1; hi += 0.1; }
+    const rawStep = (hi - lo) / 4;
+    const magnitude = Math.pow(10, Math.floor(Math.log10(rawStep)));
+    const step = [1, 2, 5, 10].find((n) => n * magnitude >= rawStep) * magnitude;
+    lo = Math.floor(lo / step) * step;
+    hi = Math.ceil(hi / step) * step;
     const minT = Math.min.apply(null, times);
     const maxT = Math.max.apply(null, times);
-    const width = 720;
-    const height = 220;
-    const padX = 16;
-    const padY = 18;
-    const xOf = (t) => padX + ((Date.parse(t) - minT) / (maxT - minT || 1)) * (width - padX * 2);
-    const yOf = (level) => padY + (1 - (level - lo) / (hi - lo || 1)) * (height - padY * 2);
+    const width = Math.max(280, Math.min(720, root()?.clientWidth || 720));
+    const height = 280;
+    const digits = Math.max(2, -Math.floor(Math.log10(step)));
+    const labelLength = Math.max(lo.toFixed(digits).length, hi.toFixed(digits).length);
+    const left = Math.max(62, (labelLength + 1) * 7 + 14), right = width - 18, top = 32, bottom = height - 54;
+    const xOf = (t) => maxT === minT ? (left + right) / 2 : left + ((Date.parse(t) - minT) / (maxT - minT)) * (right - left);
+    const yOf = (level) => top + (1 - (level - lo) / (hi - lo || 1)) * (bottom - top);
+    let axes = '<g class="pty-axis"><text x="' + left + '" y="16">Value of $1 (USD)</text>';
+    const count = Math.round((hi - lo) / step);
+    for (let i = 0; i <= count; i++) {
+      const value = lo + i * step, y = yOf(value).toFixed(1);
+      axes += '<line class="pty-grid" x1="' + left + '" x2="' + right + '" y1="' + y + '" y2="' + y + '"/>' +
+        '<text x="' + (left - 8) + '" y="' + y + '" dy=".35em" text-anchor="end">$' + value.toFixed(digits) + '</text>';
+    }
+    const dateTicks = maxT === minT ? 1 : right - left < 220 ? 2 : width < 460 ? 3 : 5;
+    for (let i = 0; i < dateTicks; i++) {
+      const t = new Date(minT + (maxT - minT) * i / Math.max(1, dateTicks - 1)).toISOString().slice(0, 10);
+      const x = xOf(t).toFixed(1);
+      axes += '<line x1="' + x + '" x2="' + x + '" y1="' + bottom + '" y2="' + (bottom + 4) + '"/>' +
+        '<text x="' + x + '" y="' + (bottom + 20) + '" text-anchor="' + (dateTicks === 1 ? 'middle' : i === 0 ? 'start' : i === dateTicks - 1 ? 'end' : 'middle') + '">' + t + '</text>';
+    }
+    axes += '<line x1="' + left + '" x2="' + left + '" y1="' + top + '" y2="' + bottom + '"/>' +
+      '<line x1="' + left + '" x2="' + right + '" y1="' + bottom + '" y2="' + bottom + '"/>' +
+      '<text x="' + ((left + right) / 2) + '" y="' + (height - 5) + '" text-anchor="middle">Date</text></g>';
     const hover = [];
     const paths = seriesList.map((series) => {
       const usable = series.points.filter((point) => point && finite(point.level));
@@ -27558,22 +27601,28 @@ function scenarioEventPhase(ev, now = Date.now()) {
         const x = xOf(point.t);
         const y = yOf(point.level);
         hover.push({ x: x, y: y, label: point.label, value: point.level, time: point.t });
-        const gap = index > 0 && (Date.parse(point.t) - Date.parse(usable[index - 1].t)) > 40 * 86400000;
+        const previous = usable[index - 1];
+        const gap = index > 0 && ((point.segment && point.segment !== previous.segment) || (Date.parse(point.t) - Date.parse(previous.t)) > 40 * 86400000);
         return (index && !gap ? 'L' : 'M') + x.toFixed(1) + ' ' + y.toFixed(1);
       }).join(' ');
       return '<path d="' + d + '" fill="none" stroke="' + series.color + '" stroke-width="2.25" stroke-linejoin="round" stroke-linecap="round"/>';
     }).join('');
     const oneLine = seriesList.length === 1;
     return '<svg class="pty-chart" viewBox="0 0 ' + width + ' ' + height + '" role="img" aria-label="' + escape(aria) + '"' + hoverAttrs(hover, !oneLine) + '>' +
-      '<line x1="' + padX + '" y1="' + yOf(1).toFixed(1) + '" x2="' + (width - padX) + '" y2="' + yOf(1).toFixed(1) + '" stroke="currentColor" stroke-opacity="0.18"/>' +
+      axes + '<line x1="' + left + '" y1="' + yOf(1).toFixed(1) + '" x2="' + right + '" y2="' + yOf(1).toFixed(1) + '" stroke="currentColor" stroke-opacity="0.25"/>' +
       paths + '</svg>';
   }
   function pathLabel(point) {
     const move = finite(point.level) ? pct((point.level - 1) * 100) : '—';
+    if (point.baseline) return point.t + '\n' + (point.baselineAtStart ? 'Start of stretch' : 'Baseline close') + ' · $1 starting value';
     return point.t + '\nS&P 500 $' + Number(point.level).toFixed(2) + ' · ' + move + ' from the start of this line\nPresident ' + partyWord(point.president) + ' · House ' + partyWord(point.house) + ' · Senate ' + partyWord(point.senate);
   }
-  function pathChart(points, title, caption) {
-    const series = [{ name: 'S&P 500', color: 'currentColor', points: (points || []).map((point) => Object.assign({}, point, { label: pathLabel(point) })) }];
+  function pathChart(points, title, caption, start) {
+    const path = (points || []).slice();
+    // Retained snapshots predate explicit baseline points. Their normalized
+    // starting value is still known; do not invent an observed session date.
+    if (path.length && !path[0].baseline && start && path[0].t >= start) path.unshift({ t: start, level: 1, baseline: true, baselineAtStart: true });
+    const series = [{ name: 'S&P 500', color: 'currentColor', points: path.map((point) => Object.assign({}, point, { label: pathLabel(point) })) }];
     const end = series[0].points.length ? series[0].points[series[0].points.length - 1].level : null;
     return '<h3>' + escape(title) + '</h3><div class="pty-legend"><span>S&P 500' + (finite(end) ? ' · $' + end.toFixed(2) : '') + '</span><span>$1 is the close before this stretch</span></div>' +
       drawChart(series, title) + '<p class="pty-caption">' + caption + '</p>';
@@ -27584,6 +27633,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     const line = (points, name) => points.filter((point) => finite(point.level)).map((point) => ({
       t: point.t,
       level: point.level,
+      segment: point.segment,
       label: point.t + '\n' + name + ' days $' + Number(point.level).toFixed(2) + '\n' + pct((point.level - 1) * 100) + ' compounded on those days only',
     }));
     const end = (points) => points.length ? points[points.length - 1].level : null;
@@ -27721,11 +27771,11 @@ function scenarioEventPhase(ev, now = Date.now()) {
       const blurb = who + ', ' + stretch.start + ' to ' + stretch.end + '. The S&P 500 returned ' + pct(stretch.totalPct) + ' (' + pct(stretch.annPct) + ' a year' + (finite(stretch.years) ? ' over ' + stretch.years.toFixed(1) + ' years' : '') + ').';
       const sectorLine = (row, label) => row ? label + ' returned ' + pct(row.totalPct) + ' in this stretch (' + pct(row.annPct) + ' a year), ' + excess(row.excessTotalPct) + ' on the total result.' + (finite(row.years) && row.years >= 1 ? ' Annualized, that is ' + excess(row.excessAnnPct) + '.' : '') : label + ' does not cover this stretch.';
       analysis = '<h3>This stretch</h3><p class="pty-now">' + escape(blurb) + '</p>' +
-        pathChart(stretch.path, 'S&P 500 through ' + who, 'Move along the line to read the date, the level, and who held each office. Drag across the line to compare two dates.') +
+        pathChart(stretch.path, 'S&P 500 through ' + who, 'Monthly closes and period endpoints. Move along the line to read the date, the value of $1, and who held each office. Drag across the line to compare two dates.', stretch.start) +
         '<div class="pty-reads"><p>' + escape(sectorLine(health, 'Health care')) + '</p><p>' + escape(sectorLine(energy, 'Energy')) + '</p></div>' +
         stretchTable(stretch.sectors || []);
     } else {
-      analysis = pathChart(data.path || [], 'S&P 500 since Bush’s inauguration', 'Move along the line to read the date and who held the presidency, the House, and the Senate. Drag across the line to compare two dates. Choose a president below to rebase this line on that term.') +
+      analysis = pathChart(data.path || [], 'S&P 500 since Bush’s inauguration', 'Monthly closes and period endpoints. Move along the line to read the date and who held each office. Drag across the line to compare two dates. Choose a president below to rebase this line on that term.', data.window.start) +
         '<div class="pty-tabs" role="tablist" aria-label="Which office to compare">' + data.offices.map((office) => '<button type="button" role="tab" data-party-office="' + office.id + '" aria-selected="' + (office.id === selected.id ? 'true' : 'false') + '">' + escape(office.label) + '</button>').join('') + '</div>' +
         compareChart(data.curves[selected.id]) +
         '<div class="pty-reads"><p>' + escape(highlight.health || '') + '</p><p>' + escape(highlight.energy || '') + '</p>' + (highlight.widest ? '<p>' + escape(highlight.widest) + '</p>' : '') + '</div>' +
@@ -28103,7 +28153,13 @@ function scenarioEventPhase(ev, now = Date.now()) {
     // The scan's own universe, not the build's loaded chains: a ticker whose
     // option chain failed this build still has its pledges.
     const tracked=new Set(Array.isArray(body.coverage?.universeSymbols)&&body.coverage.universeSymbols.length?body.coverage.universeSymbols:config.symbols());
-    body.rows=body.rows.filter(r=>tracked.has(r.symbol));
+    const evidence=new Set();
+    body.rows=body.rows.filter(r=>{
+      if(!tracked.has(r.symbol))return false;
+      const key=config.evidenceKey(r.observation);
+      if(evidence.has(key))return false;
+      evidence.add(key);return true;
+    });
     const now=Date.now(),scanAge=(now-Date.parse(body.coverage.lastSuccessAt))/86400000;
     body.coverage.scanHealthy=body.coverage.status==='ok'&&scanAge>=0&&scanAge<=3;
     for(const r of body.rows){
@@ -28165,12 +28221,32 @@ function scenarioEventPhase(ev, now = Date.now()) {
       if(state.filter==='liquidity')return r.liquidityWarning;
       if(state.filter==='terms')return ['needs-terms','scenario-only'].includes(r.state);
       return true;
-    }).sort((a,b)=>{
+    }).sort(compareRows);
+  }
+  function compareRows(a,b){
       const read=r=>state.sort==='stress'?r.stress?.score:state.sort==='company'?[r.company||r.symbol,r.borrower].filter(Boolean).join(' '):state.sort==='date'?r.observation.filingDate:state.sort==='volume'?r.pledgedToAdvPct:state.sort==='velocity'?r.velocity?.leverageVelocityPct30d:state.sort==='principal'?r.principalBorrowed:state.sort==='shares'?r.pledge.shares:state.sort==='trigger'?r.triggerPrice:state.sort==='price'?r.market?.price:r.distancePct;
       const av=read(a),bv=read(b);if(av==null||bv==null)return av==null&&bv==null?0:av==null?1:-1;
       const compare=typeof av==='string'?av.localeCompare(bv):av-bv;
       return direction()==='asc'?compare:-compare;
-    });
+  }
+  function watchGroups(){
+    const groups=new Map();
+    for(const r of visibleRows()){
+      const key=r.symbol||r.id;
+      if(!groups.has(key))groups.set(key,[]);
+      groups.get(key).push(r);
+    }
+    return [...groups.values()].map(records=>{
+      // Pick one actual disclosure, never combine possibly overlapping loans.
+      // A current forced-sale report stays visible ahead of pledge estimates.
+      const priority=r=>r.state==='forced-sale-event'?0:r.current&&r.priceFresh&&r.distancePct!=null&&r.distancePct<=0?1:r.current&&r.priceFresh&&r.distancePct!=null&&r.distancePct<=15?2:3;
+      records.sort((a,b)=>priority(a)-priority(b)
+        || Number(b.current&&b.pledge.confirmed)-Number(a.current&&a.pledge.confirmed)
+        || (b.stress?.score??-1)-(a.stress?.score??-1)
+        || b.observation.filingDate.localeCompare(a.observation.filingDate)
+        || a.id.localeCompare(b.id));
+      return {row:records[0],count:records.length,records:records.slice().sort(compareRows)};
+    }).sort((a,b)=>compareRows(a.row,b.row));
   }
   function direction(){return state.direction||(['distance','company'].includes(state.sort)?'asc':'desc');}
   function eventsCallout(){
@@ -28181,9 +28257,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
   function sortHeader(key,text){const sorted=state.sort===key;return '<th aria-sort="'+(sorted?(direction()==='asc'?'ascending':'descending'):'none')+'"><button type="button" data-fl-sort-key="'+key+'">'+text+(sorted?'<span aria-hidden="true"> '+(direction()==='asc'?'↑':'↓')+'</span>':'')+'</button></th>';}
   function triggerCell(r){return r.triggerPrice!=null?money(r.triggerPrice)+'<small>Disclosed maintenance '+pct(r.maintenanceLtv*100)+'</small>':r.scenarios?.length?'<span>Scenario '+money(Math.min(...r.scenarios.map(s=>s.price)))+'–'+money(Math.max(...r.scenarios.map(s=>s.price)))+'</span><small>35–65% assumed LTV</small>':'<span>Unknown</span><small>'+esc(r.observation.collateralBasis==='mixed'?'Mixed collateral':'Loan terms incomplete')+'</small>';}
   function watch(){
-    const rows=visibleRows();
+    const groups=watchGroups();
     const head=[['company','Company / borrower'],['stress','Pledge stress'],['shares','Disclosed shares'],['principal','Principal borrowed'],['trigger','Estimated trigger'],['price','Stock price'],['distance','Distance to trigger'],['volume','Pressure signals']].map(([key,title])=>sortHeader(key,title)).join('');
-    return eventsCallout()+toolbar()+'<p class="fl-caption">Pledge stress (0–100) ranks visible pressure without needing loan terms: the drop since the pledge was disclosed, the drop from the 52-week high, the pledged block in days of volume and as a share of float, a modeled trigger when one exists, and any recent forced-sale report. It is not a probability.</p><p class="fl-caption">Disclosed pledges stay on this watchlist even when the loan balance, borrower or maintenance terms are unknown.</p><p class="fl-caption">Signed distance = (stock price − trigger) ÷ stock price. Negative means the quote is below a modeled threshold. It does not confirm a margin call.</p>'+(rows.length?'<div class="fl-scroll" tabindex="0" role="region" aria-label="Pledged-stock watchlist"><table class="fl-table" data-nosort><thead><tr>'+head+'</tr></thead><tbody>'+rows.map(watchRow).join('')+'</tbody></table></div>':warning(data.rows.length?'No disclosures match these filters.':'No pledged-stock disclosures are available in this snapshot. Review scan coverage below; this is not evidence that the market has no pledged stock.'));
+    return eventsCallout()+toolbar()+'<p class="fl-caption">Pledge stress (0–100) ranks visible pressure without needing loan terms: the drop since the pledge was disclosed, the drop from the 52-week high, the pledged block in days of volume and as a share of float, a modeled trigger when one exists, and any recent forced-sale report. It is not a probability.</p><p class="fl-caption">One row per stock. When several disclosures match, forced-sale reports and breached or nearby thresholds take priority, followed by the highest-stress pledge. Open the stock to review repeated excerpts and separate facilities; amounts are never added together. CSV includes every matching disclosure.</p><p class="fl-caption">Signed distance = (stock price − trigger) ÷ stock price. Negative means the quote is below a modeled threshold. It does not confirm a margin call.</p>'+(groups.length?'<div class="fl-scroll" tabindex="0" role="region" aria-label="Pledged-stock watchlist"><table class="fl-table" data-nosort><thead><tr>'+head+'</tr></thead><tbody>'+groups.map(g=>watchRow(g.row,g.count)).join('')+'</tbody></table></div>':warning(data.rows.length?'No disclosures match these filters.':'No pledged-stock disclosures are available in this snapshot. Review scan coverage below; this is not evidence that the market has no pledged stock.'));
   }
   function statusLabel(r){return r.observation.status==='released'?'Pledge released':r.observation.kind==='equity-pledge'&&!r.observation.issuerVerified?'Stock attribution unverified':r.observation.kind==='equity-pledge'&&r.observation.parserVersion!==config.evidenceVersion?'Pledge reported · refresh needed':label(r.state);}
   function pledgeShares(r){return (r.pledge.shares!=null&&r.pledge.shareBasis==='capacity-only'?'Up to ':'')+n(r.pledge.shares,0);}
@@ -28192,7 +28268,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     return basis+(!r.pledge.quoteComparable&&r.pledge.shareBasis==='stated-current'?' · quote or share basis needs review':'');
   }
   function principalCaption(r){return r.observation.principalBasis==='capacity'?'Credit limit only; drawn amount unknown':r.principalBorrowed==null?'Outstanding USD balance unknown':'USD · outstanding balance';}
-  function watchRow(r){return '<tr><td><button type="button" class="fl-open" data-fl-open="'+esc(r.id)+'">'+esc(r.symbol||'Issuer unresolved')+'</button><small>'+esc(r.company||'Issuer needs review')+'</small><small>'+esc(r.borrower||'Borrower undisclosed')+'</small><small>Facts '+esc(r.observation.asOfDate||'undated')+' · filed '+esc(r.observation.filingDate)+'</small><span class="fl-status fl-'+esc(r.state)+'">'+esc(statusLabel(r))+'</span>'+(r.observation.kind==='liquidation-event'?'<small>'+esc(eventText(r.observation))+'</small>':'')+'</td><td>'+stressCell(r)+'</td><td>'+pledgeShares(r)+'<small>'+esc(shareCaption(r))+'</small><small>'+pct(r.pledgedToFloatPct)+' of float</small></td><td>'+money(r.principalBorrowed)+'<small>'+esc(principalCaption(r))+'</small></td><td>'+triggerCell(r)+'</td><td>'+money(r.market?.price)+'<small>'+(r.priceFresh?'Quoted ':'Stale / undated · ')+date(r.market?.quoteAsOf)+'</small></td><td><b class="'+(r.distancePct!=null&&r.distancePct<=15?'fl-negative':'')+'">'+pct(r.distancePct)+'</b><small>'+esc(basis(r))+'</small></td><td>'+signals(r).map(s=>'<span class="fl-signal">'+esc(s)+'</span>').join('')+'<small>'+pct(r.pledgedToAdvPct)+' of 20-session ADV</small><small>Leverage / 30 days '+pct(r.velocity?.leverageVelocityPct30d)+'</small></td></tr>';}
+  function watchRow(r,count){return '<tr><td><button type="button" class="fl-open" data-fl-open="'+esc(r.id)+'">'+esc(r.symbol||'Issuer unresolved')+'</button>'+(count>1?'<small>'+count+' matching disclosures · '+(r.state==='forced-sale-event'?'forced-sale report shown':r.current&&r.priceFresh&&r.distancePct!=null&&r.distancePct<=15?'threshold-risk disclosure shown':r.pledge.confirmed&&r.current?'highest-stress pledge shown':'selected disclosure shown')+'</small>':'')+'<small>'+esc(r.company||'Issuer needs review')+'</small><small>'+esc(r.borrower||'Borrower undisclosed')+'</small><small>Facts '+esc(r.observation.asOfDate||'undated')+' · filed '+esc(r.observation.filingDate)+'</small><span class="fl-status fl-'+esc(r.state)+'">'+esc(statusLabel(r))+'</span>'+(r.observation.kind==='liquidation-event'?'<small>'+esc(eventText(r.observation))+'</small>':'')+'</td><td>'+stressCell(r)+'</td><td>'+pledgeShares(r)+'<small>'+esc(shareCaption(r))+'</small><small>'+pct(r.pledgedToFloatPct)+' of float</small></td><td>'+money(r.principalBorrowed)+'<small>'+esc(principalCaption(r))+'</small></td><td>'+triggerCell(r)+'</td><td>'+money(r.market?.price)+'<small>'+(r.priceFresh?'Quoted ':'Stale / undated · ')+date(r.market?.quoteAsOf)+'</small></td><td><b class="'+(r.distancePct!=null&&r.distancePct<=15?'fl-negative':'')+'">'+pct(r.distancePct)+'</b><small>'+esc(basis(r))+'</small></td><td>'+signals(r).map(s=>'<span class="fl-signal">'+esc(s)+'</span>').join('')+'<small>'+pct(r.pledgedToAdvPct)+' of 20-session ADV</small><small>Leverage / 30 days '+pct(r.velocity?.leverageVelocityPct30d)+'</small></td></tr>';}
   function scenario(r){
     if(!r.scenarios?.length)return warning('The disclosed pledge remains visible for awareness. A price estimate needs a comparable outstanding balance, current pledged shares and usable collateral terms.');
     const s=r.scenarios.find(s=>s.ltv===Number(state.ltv))||r.scenarios[0],ltv=s.ltv;
@@ -28204,9 +28280,14 @@ function scenarioEventPhase(ev, now = Date.now()) {
     return h.principalBorrowed==null?'Undisclosed':n(h.principalBorrowed,0)+' · currency unverified';
   }
   function historyShares(h){const r={observation:h,pledge:config.pledgeDisclosure(h,config.evidenceVersion)};return h.parserVersion===config.evidenceVersion?pledgeShares(r)+'<small>'+esc(shareCaption(r))+'</small>':'Needs extraction refresh';}
+  function disclosurePicker(r){
+    const records=data.rows.filter(other=>r.symbol?other.symbol===r.symbol:other.id===r.id);
+    if(records.length<2)return '';
+    return '<div class="fl-disclosures"><label>Disclosure to inspect<select data-fl-disclosure>'+records.map((other,i)=>'<option value="'+esc(other.id)+'"'+(other.id===r.id?' selected':'')+'>'+esc((i+1)+'. '+other.observation.form+' · '+other.observation.filingDate+' · '+(other.borrower||'Borrower undisclosed')+' · '+(other.observation.facilityKey||shareCaption(other))+' · '+statusLabel(other)+(other.stress?' · stress '+other.stress.score:''))+'</option>').join('')+'</select></label><p>'+records.length+' disclosure records for this stock. These can be repeated excerpts or separate facilities, not necessarily separate loans. Each record keeps its own terms, stress score and source; amounts are never summed.</p></div>';
+  }
   function detail(r){
     const o=r.observation;
-    return '<article class="fl-detail"><div class="fl-detail-head"><div><span class="fl-kicker">'+esc(statusLabel(r))+'</span><h3>'+esc((r.symbol||'Unresolved issuer')+' · '+(r.borrower||'Borrower undisclosed'))+'</h3><p>'+esc(o.securityClass||'Share class unresolved')+' · '+esc(o.facilityKey||'Facility identity needs review')+'</p></div><button type="button" class="book-more" data-fl-close>Close detail</button></div><div class="fl-metrics">'+metric('Outstanding principal',money(r.principalBorrowed),o.principalBasis==='capacity'?'Facility limit is not drawn debt':'As of '+(o.asOfDate||'date undisclosed'))+metric('Disclosed shares',pledgeShares(r),shareCaption(r))+metric('Estimated threshold',money(r.triggerPrice),basis(r))+metric('Distance to threshold',pct(r.distancePct),'Stock quote '+(r.priceFresh?'dated and current':'stale or absent'))+'</div>'+(o.kind==='liquidation-event'?'<div class="fl-pressure"><h4>Reported forced sale</h4><p>'+esc(eventText(o))+'</p><p class="fl-caption">The excerpt below is the sentence that reported it. A Form 144 is a notice of a proposed sale; the sale may be smaller, later, or not happen.</p></div>':'')+(r.stress?'<div class="fl-pressure"><h4>Pledge stress '+n(r.stress.score,0)+' · '+esc({high:'High pressure',elevated:'Elevated',low:'Low',unscored:'No measured inputs'}[r.stress.band])+'</h4><dl>'+r.stress.parts.map(p=>'<dt>'+esc(p.label)+'</dt><dd>'+n(p.points,1)+' points'+(typeof p.value==='number'?' · '+(p.key==='days-volume'?n(p.value,2)+' days':pct(p.value)):'')+'</dd>').join('')+'</dl>'+(r.stress.missing?.length?'<p class="fl-caption">Not available, scored as zero: '+esc(r.stress.missing.join('; '))+'.</p>':'')+'<p class="fl-caption">'+esc(r.stress.note)+'</p></div>':'')+'<div class="fl-pressure"><h4>Reflexive pressure</h4><p>'+esc(signals(r).join(' · ')||'No pressure pattern established from available observations.')+'</p><dl><dt>Pledged shares / daily volume</dt><dd>'+pct(r.pledgedToAdvPct)+' · '+n(r.liquidationDaysAt100PctAdv,2)+' average-volume days</dd><dt>Average daily volume</dt><dd>'+n(r.market?.averageDailyVolume,0)+' shares · 20 completed sessions through '+esc(r.market?.volumeAsOf||'unavailable')+'</dd><dt>Leverage per pledged share</dt><dd>'+pct(r.velocity?.leverageVelocityPct30d)+' per 30 days</dd><dt>Buffer change</dt><dd>'+n(r.distanceVelocityPpPerDay,2)+' percentage points / day</dd></dl><p class="fl-caption">20% of daily volume is a screening rule. It does not measure executable liquidity, sales participation, a gap probability, or days-to-cover for short sellers. Float is a separate denominator.</p>'+(r.velocity?'<p>'+esc('Between '+r.velocity.previousDate+' and '+r.velocity.latestDate+', shares changed '+pct(r.velocity.sharesChangePct)+' and outstanding debt changed '+pct(r.velocity.debtChangePct)+'. '+r.velocity.interpretation)+'</p>':'')+'</div>'+r.warnings.map(warning).join('')+(r.missing.length?warning('Needed to estimate liquidation: '+r.missing.join('; ')+'.'):'')+scenario(r)+'<h4>Filing evidence</h4><p>'+link(o)+' · filed '+esc(o.filingDate)+' · facts as of '+esc(o.asOfDate||'not separately dated')+'</p><blockquote class="fl-excerpt">'+esc(o.excerpt)+'</blockquote><p class="fl-caption">'+esc(o.extractionStatus)+' · '+esc(o.collateralBasis)+' · '+esc(o.currency)+'. An excerpt can omit context; inspect the original filing and linked agreements.</p><h4>Disclosure history</h4><div class="fl-scroll"><table class="fl-table fl-history"><thead><tr><th>Filed / facts as of</th><th>Principal</th><th>Disclosed shares</th><th>Maintenance LTV</th><th>Source</th></tr></thead><tbody>'+r.history.map(h=>'<tr><td>'+esc(h.filingDate)+'<small>'+esc(h.asOfDate||'Fact date undisclosed')+'</small></td><td>'+historyPrincipal(h)+'</td><td>'+historyShares(h)+'</td><td>'+(h.parserVersion===config.evidenceVersion?pct(h.maintenanceLtv==null?null:h.maintenanceLtv*100):'Needs extraction refresh')+'</td><td>'+link(h)+'</td></tr>').join('')+'</tbody></table></div></article>';
+    return '<article class="fl-detail"><div class="fl-detail-head"><div><span class="fl-kicker">'+esc(statusLabel(r))+'</span><h3>'+esc((r.symbol||'Unresolved issuer')+' · '+(r.borrower||'Borrower undisclosed'))+'</h3><p>'+esc(o.securityClass||'Share class unresolved')+' · '+esc(o.facilityKey||'Facility identity needs review')+'</p></div><button type="button" class="book-more" data-fl-close>Close detail</button></div>'+disclosurePicker(r)+'<div class="fl-metrics">'+metric('Outstanding principal',money(r.principalBorrowed),o.principalBasis==='capacity'?'Facility limit is not drawn debt':'As of '+(o.asOfDate||'date undisclosed'))+metric('Disclosed shares',pledgeShares(r),shareCaption(r))+metric('Estimated threshold',money(r.triggerPrice),basis(r))+metric('Distance to threshold',pct(r.distancePct),'Stock quote '+(r.priceFresh?'dated and current':'stale or absent'))+'</div>'+(o.kind==='liquidation-event'?'<div class="fl-pressure"><h4>Reported forced sale</h4><p>'+esc(eventText(o))+'</p><p class="fl-caption">The excerpt below is the sentence that reported it. A Form 144 is a notice of a proposed sale; the sale may be smaller, later, or not happen.</p></div>':'')+(r.stress?'<div class="fl-pressure"><h4>Pledge stress '+n(r.stress.score,0)+' · '+esc({high:'High pressure',elevated:'Elevated',low:'Low',unscored:'No measured inputs'}[r.stress.band])+'</h4><dl>'+r.stress.parts.map(p=>'<dt>'+esc(p.label)+'</dt><dd>'+n(p.points,1)+' points'+(typeof p.value==='number'?' · '+(p.key==='days-volume'?n(p.value,2)+' days':pct(p.value)):'')+'</dd>').join('')+'</dl>'+(r.stress.missing?.length?'<p class="fl-caption">Not available, scored as zero: '+esc(r.stress.missing.join('; '))+'.</p>':'')+'<p class="fl-caption">'+esc(r.stress.note)+'</p></div>':'')+'<div class="fl-pressure"><h4>Reflexive pressure</h4><p>'+esc(signals(r).join(' · ')||'No pressure pattern established from available observations.')+'</p><dl><dt>Pledged shares / daily volume</dt><dd>'+pct(r.pledgedToAdvPct)+' · '+n(r.liquidationDaysAt100PctAdv,2)+' average-volume days</dd><dt>Average daily volume</dt><dd>'+n(r.market?.averageDailyVolume,0)+' shares · 20 completed sessions through '+esc(r.market?.volumeAsOf||'unavailable')+'</dd><dt>Leverage per pledged share</dt><dd>'+pct(r.velocity?.leverageVelocityPct30d)+' per 30 days</dd><dt>Buffer change</dt><dd>'+n(r.distanceVelocityPpPerDay,2)+' percentage points / day</dd></dl><p class="fl-caption">20% of daily volume is a screening rule. It does not measure executable liquidity, sales participation, a gap probability, or days-to-cover for short sellers. Float is a separate denominator.</p>'+(r.velocity?'<p>'+esc('Between '+r.velocity.previousDate+' and '+r.velocity.latestDate+', shares changed '+pct(r.velocity.sharesChangePct)+' and outstanding debt changed '+pct(r.velocity.debtChangePct)+'. '+r.velocity.interpretation)+'</p>':'')+'</div>'+r.warnings.map(warning).join('')+(r.missing.length?warning('Needed to estimate liquidation: '+r.missing.join('; ')+'.'):'')+scenario(r)+'<h4>Filing evidence</h4><p>'+link(o)+' · filed '+esc(o.filingDate)+' · facts as of '+esc(o.asOfDate||'not separately dated')+'</p><blockquote class="fl-excerpt">'+esc(o.excerpt)+'</blockquote><p class="fl-caption">'+esc(o.extractionStatus)+' · '+esc(o.collateralBasis)+' · '+esc(o.currency)+'. An excerpt can omit context; inspect the original filing and linked agreements.</p><h4>Disclosure history</h4><div class="fl-scroll"><table class="fl-table fl-history"><thead><tr><th>Filed / facts as of</th><th>Principal</th><th>Disclosed shares</th><th>Maintenance LTV</th><th>Source</th></tr></thead><tbody>'+r.history.map(h=>'<tr><td>'+esc(h.filingDate)+'<small>'+esc(h.asOfDate||'Fact date undisclosed')+'</small></td><td>'+historyPrincipal(h)+'</td><td>'+historyShares(h)+'</td><td>'+(h.parserVersion===config.evidenceVersion?pct(h.maintenanceLtv==null?null:h.maintenanceLtv*100):'Needs extraction refresh')+'</td><td>'+link(h)+'</td></tr>').join('')+'</tbody></table></div></article>';
   }
   function evidence(){return '<p class="fl-caption">Raw excerpts include incomplete pledges and corporate debt context. Corporate borrowing alone does not establish a forced-sale threshold in the listed stock.</p>'+data.rows.map(r=>'<article class="fl-evidence"><div><span class="fl-status fl-'+esc(r.state)+'">'+esc(statusLabel(r))+'</span> <button type="button" class="fl-open" data-fl-open="'+esc(r.id)+'">'+esc(r.symbol||'Issuer unresolved')+'</button> · '+esc(r.observation.form)+' · '+esc(r.observation.filingDate)+'</div><p>'+esc(r.borrower||r.company||'Entity unresolved')+'</p><blockquote class="fl-excerpt">'+esc(r.observation.excerpt)+'</blockquote>'+link(r.observation)+'</article>').join('');}
   function method(){const c=data.coverage||{},sourceErrors=[...(c.errors||[]),...(c.marketData?.errors||[])];return '<div class="fl-method"><h3>What the estimate means</h3><p class="fl-formula">Trigger price = outstanding loan ÷ (pledged shares × maintenance LTV)</p><p>LTV means debt divided by eligible collateral value. A $100 million loan against 10 million shares at a 50% maximum maintenance LTV reaches that ratio at $20 a share. A 25% equity maintenance requirement is a 75% maximum LTV.</p><p>Principal, collateral stock, share class and loan facility must refer to the same borrowing. A facility limit, total corporate debt, sale proceeds, transaction price or the value of another pledged asset cannot substitute for outstanding principal.</p><h4>Signals to monitor</h4><ul><li>Distance to trigger: a signed percentage of the current dated stock quote. An estimated threshold crossing is not proof that a lender has called the loan.</li><li>Leverage velocity: change in debt per pledged share, normalized to 30 days between comparable dated disclosures. Added shares with unchanged outstanding principal is a possible collateral top-up, not new-share issuance or proof of a bank demand.</li><li>Liquidity pressure: pledged shares above 20% of 20-session average daily volume is flagged separately from pledged shares / float. Sales can be spread over time or cured with cash and other collateral.</li><li>Reflexivity watch: a shrinking buffer faster than one percentage point per day, liquidity pressure, and a collateral top-up or rising leverage. It needs repeated market snapshots with unchanged loan terms.</li></ul><h4>Top Picks use</h4><p>Fresh, attributable, disclosed single-stock loan terms within 90 days can block a new bullish Top Pick within 15% of its estimated trigger. The existing grader receives the evidence for both directions. Incomplete terms and illustrative LTV scenarios cannot block an entry or add conviction points. A bearish idea still needs the usual thesis, trend, option and entry checks.</p><h4>Coverage & freshness</h4><p>Only stocks in our tracked universe are shown. SEC discovery includes annual reports. Facility capacity is not outstanding debt.</p><p>'+esc(c.scope||'Scan coverage unavailable.')+'</p><p>Forms: '+esc((c.forms||[]).join(', '))+'. '+n(c.issuersCheckedThisRun,0)+' tracked issuers checked this run from '+n(c.universeSize,0)+'. A scan is reused for 18 hours only when the parser is current and no discovered documents remain unread. Prices older than 96 hours cannot establish distance. Disclosures older than 400 days remain visible as stale research.</p>'+(sourceErrors.length?'<ul>'+sourceErrors.map(e=>'<li>'+esc([e.stage,e.symbol,e.field,e.message].filter(Boolean).join(' · '))+'</li>').join(''):'')+'<p>Parent-company debt can use subsidiary shares or a mixed pool of assets. Cure periods, accrued interest, lender haircuts, refinancing, share splits, undisclosed amendments and lender discretion can change the actual outcome.</p><p><a href="https://www.sec.gov/search-filings/edgar-application-programming-interfaces" target="_blank" rel="noopener">SEC data sources</a> · <a href="https://www.finra.org/investors/insights/securities-backed-lines-credit" target="_blank" rel="noopener">FINRA explanation of collateral maintenance calls</a></p></div>';}
@@ -28278,7 +28359,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
   function exportCsv(){
     data=expireSnapshot(data);
-    const rows=visibleRows(), cols=['ticker','company','borrower','pledge_disclosed','disclosed_shares','disclosed_share_basis','outstanding_principal_usd','shares_pledged','maintenance_ltv','estimated_trigger_usd','stock_price_usd','quote_as_of','distance_to_trigger_pct','estimate_basis','pledged_to_adv_pct','pledged_to_float_pct','leverage_velocity_pct_30d','possible_collateral_top_up','filing_date','facts_as_of','sec_url','disclosure_state','quote_fresh','disclosure_current','sec_scan_status','engine_eligible','extraction_version','missing_terms','pledge_stress','pledge_stress_band','event_type','shares_sold'];
+    const rows=watchGroups().flatMap(g=>g.records), cols=['ticker','company','borrower','pledge_disclosed','disclosed_shares','disclosed_share_basis','outstanding_principal_usd','shares_pledged','maintenance_ltv','estimated_trigger_usd','stock_price_usd','quote_as_of','distance_to_trigger_pct','estimate_basis','pledged_to_adv_pct','pledged_to_float_pct','leverage_velocity_pct_30d','possible_collateral_top_up','filing_date','facts_as_of','sec_url','disclosure_state','quote_fresh','disclosure_current','sec_scan_status','engine_eligible','extraction_version','missing_terms','pledge_stress','pledge_stress_band','event_type','shares_sold'];
     const cell=v=>'"'+(typeof v==='number'?String(v):String(v??'').replace(/^\s*[=+\-@\t\r]/,"'$&")).replace(/"/g,'""')+'"';
     const csv=[cols,...rows.map(r=>[r.symbol,r.company,r.borrower,r.pledge.confirmed,r.pledge.shares,r.pledge.shareBasis,r.principalBorrowed,r.sharesPledged,r.maintenanceLtv,r.triggerPrice,r.market?.price,r.market?.quoteAsOf,r.distancePct,r.estimateBasis,r.pledgedToAdvPct,r.pledgedToFloatPct,r.velocity?.leverageVelocityPct30d,r.velocity?.collateralTopUp??null,r.observation.filingDate,r.observation.asOfDate,r.observation.url,r.state,r.priceFresh,r.current,data.coverage.status,r.engineEligible,r.observation.parserVersion,r.missing.join('; '),r.stress?.score??null,r.stress?.band??null,r.observation.eventType??null,r.observation.sharesSold??null])].map(r=>r.map(cell).join(',')).join('\r\n');
     const url=win.URL.createObjectURL(new win.Blob([csv],{type:'text/csv;charset=utf-8'})),a=doc.createElement('a');a.href=url;a.download='forced-liquidation-'+data.builtAtIso.slice(0,10)+'.csv';a.click();win.URL.revokeObjectURL(url);
@@ -28295,9 +28376,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
     save();render();
     if(el.dataset.flSortKey)root().querySelector('[data-fl-sort-key="'+el.dataset.flSortKey+'"]').focus({preventScroll:true});
     if(el.dataset.flOpen){const title=root().querySelector('.fl-detail h3');if(title){title.tabIndex=-1;title.focus({preventScroll:true});title.scrollIntoView({block:'start'});}}
-    if(closing)Array.from(root().querySelectorAll('[data-fl-open]')).find(b=>b.dataset.flOpen===closing)?.focus();
+    if(closing)Array.from(root().querySelectorAll('[data-fl-open]')).find(b=>b.dataset.flOpen===closing||data.rows.find(r=>r.id===b.dataset.flOpen)?.symbol===data.rows.find(r=>r.id===closing)?.symbol)?.focus();
   });
-  doc.addEventListener('change',e=>{const el=e.target;if(!el.closest('#forced-liquidation-root')||!data)return;if(el.hasAttribute('data-fl-filter'))state.filter=el.value;else if(el.hasAttribute('data-fl-sort')){state.sort=el.value;state.direction=null;}else if(el.hasAttribute('data-fl-ltv'))state.ltv=Number(el.value);else return;save();render();});
+  doc.addEventListener('change',e=>{const el=e.target;if(!el.closest('#forced-liquidation-root')||!data)return;if(el.hasAttribute('data-fl-filter'))state.filter=el.value;else if(el.hasAttribute('data-fl-sort')){state.sort=el.value;state.direction=null;}else if(el.hasAttribute('data-fl-ltv'))state.ltv=Number(el.value);else if(el.hasAttribute('data-fl-disclosure'))state.selected=el.value;else return;save();render();if(el.hasAttribute('data-fl-disclosure'))root().querySelector('[data-fl-disclosure]')?.focus({preventScroll:true});});
   doc.addEventListener('input',e=>{if(!e.target.hasAttribute('data-fl-search')||!data)return;const caret=e.target.selectionStart;state.query=e.target.value;save();render();const input=root().querySelector('[data-fl-search]');input?.focus();if(caret!=null)input?.setSelectionRange(caret,caret);});
   doc.addEventListener('keydown',e=>{if(!e.target.matches('[data-fl-view]')||!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;const buttons=Array.from(root().querySelectorAll('[data-fl-view]')),i=buttons.indexOf(e.target),next=e.key==='Home'?0:e.key==='End'?buttons.length-1:(i+(e.key==='ArrowRight'?1:-1)+buttons.length)%buttons.length;e.preventDefault();const view=buttons[next].dataset.flView;buttons[next].click();root().querySelector('[data-fl-view="'+view+'"]').focus();});
   doc.addEventListener('visibilitychange',()=>{if(!doc.hidden&&data&&config.owner()&&root()?.closest('.page-pane')?.hidden===false)render();});
@@ -28316,6 +28397,15 @@ function scenarioEventPhase(ev, now = Date.now()) {
   return {confirmed,shares,shareBasis,securityClass:r.securityClass || null,
     quoteComparable:r.shareBasis==='stated-current' && !r.splitUnresolved,
     asOfDate:r.asOfDate || null,filingDate:r.filingDate,sourceUrl:r.url};
+},
+    evidenceKey: function liquidationEvidenceKey(observation) {
+  function ordered(value) {
+    if (Array.isArray(value)) return value.map(ordered);
+    if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map(key => [key, ordered(value[key])]));
+    return value;
+  }
+  const { fragmentId, ...evidence } = observation;
+  return JSON.stringify(ordered(evidence));
 }
   });
   // data/quant.json is the daily analytical research payload.
@@ -37354,7 +37444,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // --- Heatmap tab --------------------------------------------------------
   // Finviz-style market map. Tiles sized by market cap, colored by today's
   // % change. Data is baked into data/heatmap.json at build time and the
-  // live overlay (opt-in checkbox) polls /api/quotes to recolor while the
+  // live overlay (on by default, with an off switch) polls /api/quotes while the
   // market is open. ETFs are excluded — heatmap.json itself filters them.
   var heatmapState = {
     data: null,
@@ -37366,7 +37456,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
     gradeMap: null, gradeLoading: false, ivMap: null, ivLoading: false,
     period: '1d',      // '1d' | '1w' | '1m' | '3m' | 'ytd' | '1y'
     search: '',        // uppercased ticker filter for highlight
-    live: false,
+    live: VIEWS.get('heatmap.live', true) !== false,
+    liveRequest: 0,
     livePollTimer: null,
     liveOverlay: {},   // symbol -> { ch, sp, rv, hi52, lo52, dayHi, dayLo, marketState, prevSpot }
     liveUpdatedAt: 0,
@@ -37421,7 +37512,14 @@ function scenarioEventPhase(ev, now = Date.now()) {
     fetch(dataUrl('heatmap.json'), { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(json){
-        var tickers = (json && Array.isArray(json.tickers)) ? json.tickers : [];
+        var candidates = (json && Array.isArray(json.tickers)) ? json.tickers : [];
+        var unique = new Map();
+        candidates.forEach(function(row){
+          if (!row || typeof row.t !== 'string' || !row.t.trim()) return;
+          var symbol = row.t.trim().toUpperCase(), previous = unique.get(symbol);
+          if (!previous || (previous.stale && !row.stale)) unique.set(symbol, Object.assign({}, row, { t: symbol }));
+        });
+        var tickers = Array.from(unique.values());
         heatmapState.data = {
           builtAtIso: json && json.builtAtIso,
           refreshedAtIso: json && json.refreshedAtIso,
@@ -37512,6 +37610,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       liveToggle.checked = heatmapState.live;
       liveToggle.addEventListener('change', function(){
         heatmapState.live = !!liveToggle.checked;
+        VIEWS.set('heatmap.live', heatmapState.live ? null : false);
         if (heatmapState.live) startHeatmapLivePolling();
         else stopHeatmapLivePolling(true);
       });
@@ -37842,6 +37941,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var value = t.perf && t.perf[period];
     return value != null && isFinite(value) ? Number(value) : null;
   }
+  function heatmapOverlayFor(symbol){
+    var age = Date.now() - heatmapState.liveUpdatedAt;
+    return heatmapState.live && age >= 0 && age < 90000 ? (heatmapState.liveOverlay[symbol] || null) : null;
+  }
   // Live session change is direct from /api/quotes. Longer returns reuse the
   // baked period baseline implied by {spot, return}, then mark that baseline
   // with the live regular-session spot. This keeps every selected horizon live
@@ -37850,7 +37953,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (!t) return null;
     var period = periodOverride || heatmapState.period || '1d';
     var baked = heatmapBakedReturn(t, period);
-    var o = heatmapState.liveOverlay && heatmapState.liveOverlay[t.t];
+    var o = heatmapOverlayFor(t.t);
     if (!o) return baked;
     if (period === '1d' && o.ch != null && isFinite(o.ch)) return Number(o.ch);
     var bakedSpot = Number(t.sp);
@@ -37863,7 +37966,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     return baked;
   }
   function heatmapEffectiveRvol(t){
-    var o = heatmapState.liveOverlay && heatmapState.liveOverlay[t.t];
+    var o = heatmapOverlayFor(t.t);
     if (o && o.rv != null && isFinite(o.rv)) return o.rv;
     return (t.rv != null && isFinite(t.rv)) ? t.rv : null;
   }
@@ -38711,15 +38814,17 @@ function scenarioEventPhase(ev, now = Date.now()) {
       var mc = Number(btn.getAttribute('data-mc'));
       var ch = Number(btn.getAttribute('data-ch'));
       var sp = Number(btn.getAttribute('data-sp'));
-      var rvAttr = Number(btn.getAttribute('data-rv'));
+      var rvText = btn.getAttribute('data-rv');
+      var rvAttr = rvText == null || rvText === '' ? null : Number(rvText);
       var periodStart = btn.getAttribute('data-period-start') || '';
       var sec = btn.getAttribute('data-sec') || '';
       var ind = btn.getAttribute('data-ind') || '';
       var stale = btn.getAttribute('data-stale') === '1';
-      var live = (heatmapState.liveOverlay && heatmapState.liveOverlay[sym]) || null;
-      var rv = (live && live.rv != null && isFinite(live.rv)) ? live.rv : (isFinite(rvAttr) && rvAttr > 0 ? rvAttr : null);
+      var live = heatmapOverlayFor(sym);
+      var rv = (live && live.rv != null && isFinite(live.rv)) ? live.rv : (rvAttr != null && isFinite(rvAttr) && rvAttr >= 0 ? rvAttr : null);
       var pctCls = ch > 0 ? 'heatmap-tooltip-pct-pos' : (ch < 0 ? 'heatmap-tooltip-pct-neg' : '');
       var rows = '';
+      rows += '<div class="heatmap-tooltip-row"><span>Quote source</span><span>' + (live ? 'Live regular session' : 'Saved snapshot') + '</span></div>';
       rows += '<div class="heatmap-tooltip-row"><span>' + heatmapPeriodLabel() + ' return</span><span class="' + pctCls + '">' + escapeHtml(heatmapFmtPct(ch)) + '</span></div>';
       if (periodStart) rows += '<div class="heatmap-tooltip-row"><span>Baseline date</span><span>' + escapeHtml(periodStart) + '</span></div>';
       if (rv != null){
@@ -38744,14 +38849,15 @@ function scenarioEventPhase(ev, now = Date.now()) {
         (name && name !== sym ? '<div class="heatmap-tooltip-name">' + escapeHtml(name) + '</div>' : '') +
         rows +
         (stale ? '<div class="heatmap-tooltip-stale">⚠ stale — last good print, no fresh quote</div>' : '');
+      tooltip.hidden = false;
       var rootRect = root.getBoundingClientRect();
-      var tipW = 240, tipH = 180;
+      var tipW = tooltip.offsetWidth, tipH = tooltip.offsetHeight;
       var x = ev.clientX - rootRect.left + 14;
       var y = ev.clientY - rootRect.top + 14;
       if (x + tipW > rootRect.width) x = ev.clientX - rootRect.left - tipW - 12;
       if (y + tipH > rootRect.height) y = ev.clientY - rootRect.top - tipH - 12;
-      if (x < 0) x = 4;
-      if (y < 0) y = 4;
+      x = Math.max(Math.max(4, 4 - rootRect.left), Math.min(x, window.innerWidth - rootRect.left - tipW - 4));
+      y = Math.max(Math.max(4, 72 - rootRect.top), Math.min(y, window.innerHeight - rootRect.top - tipH - 64));
       tooltip.style.setProperty('--tip-x', x + 'px');
       tooltip.style.setProperty('--tip-y', y + 'px');
       tooltip.hidden = false;
@@ -38763,11 +38869,11 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
 
   // Live overlay polling — only runs while the heatmap tab is the active
-  // page tab AND the user has toggled live mode on. /api/quotes batches
+  // page tab AND live mode is enabled. /api/quotes batches
   // up to 150 symbols per request so the whole curated list lands in one
   // round trip. Drops back to baked colors silently on a network error.
   function startHeatmapLivePolling(){
-    if (!heatmapState.live) return;
+    if (!heatmapState.live || document.hidden) return;
     if (heatmapState.livePollTimer) return;
     var pane = document.getElementById('page-pane-heatmap');
     if (!pane || pane.hidden) return;
@@ -38775,6 +38881,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     heatmapState.livePollTimer = setInterval(pollHeatmapLiveOnce, 30000);
   }
   function stopHeatmapLivePolling(clearOverlay){
+    heatmapState.liveRequest++;
     if (heatmapState.livePollTimer){
       clearInterval(heatmapState.livePollTimer);
       heatmapState.livePollTimer = null;
@@ -38790,17 +38897,29 @@ function scenarioEventPhase(ev, now = Date.now()) {
     }
   }
   function pollHeatmapLiveOnce(){
+    if (!heatmapState.live || document.hidden) return;
+    var pane = document.getElementById('page-pane-heatmap');
+    if (!pane || pane.hidden) return;
+    if (heatmapState.liveUpdatedAt && Date.now() - heatmapState.liveUpdatedAt >= 90000){
+      heatmapState.liveOverlay = {};
+      heatmapState.liveUpdatedAt = 0;
+      applyHeatmapLiveOverlay(); renderHeatmapBreadth(); renderHeatmapDecision();
+      var delayed = $('heatmap-live-state');
+      if (delayed){ delayed.className = 'heatmap-live-state'; delayed.textContent = 'Quote refresh delayed · showing saved snapshot'; }
+    }
     var data = heatmapState.data;
     if (!data || !Array.isArray(data.tickers) || !data.tickers.length){
       stopHeatmapLivePolling(false);
       return;
     }
     var stateEl = $('heatmap-live-state');
+    var request = ++heatmapState.liveRequest;
     var syms = data.tickers.map(function(t){ return t.t; });
     var url = 'api/quotes?symbols=' + encodeURIComponent(syms.join(','));
     fetch(url, { cache: 'no-store' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(json){
+        if (request !== heatmapState.liveRequest || !heatmapState.live) return;
         var quotes = (json && Array.isArray(json.quotes)) ? json.quotes : [];
         if (!quotes.length) throw new Error('No quotes');
         var marketState = marketStateOfQuotes(quotes);
@@ -38827,7 +38946,11 @@ function scenarioEventPhase(ev, now = Date.now()) {
         data.tickers.forEach(function(row){ if (row && row.t) rowBySymbol[row.t] = row; });
         for (var i = 0; i < quotes.length; i++){
           var q = quotes[i];
-          if (!q || !q.symbol || q.changePct == null) continue;
+          if (!q || !rowBySymbol[q.symbol] || typeof q.changePct !== 'number' || !isFinite(q.changePct) || typeof q.spot !== 'number' || !isFinite(q.spot) || q.spot <= 0) continue;
+          // A response stamp is not a fresh trade. Reject old or future-dated
+          // prints when the provider supplies the underlying session time.
+          var quoteAge = q.regularAsOf ? Date.now() - Date.parse(q.regularAsOf) : NaN;
+          if (!isFinite(quoteAge) || quoteAge < -300000 || quoteAge > 15 * 60000) continue;
           var prev = heatmapState.liveOverlay[q.symbol];
           // Compare cumulative volume with the fraction of a normal 20-day
           // session expected by this clock time. This avoids making every
@@ -38840,7 +38963,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
           var frac = qState.indexOf('REGULAR') === 0
             ? Math.max(0.05, execCumFracExpected(execEtMinutesSinceOpen()))
             : 1;
-          var canRefreshRv = qState.indexOf('PRE') !== 0 && isFinite(dv) && dv > 0 && isFinite(av) && av > 0;
+          var canRefreshRv = q.dayVolume != null && qState.indexOf('PRE') !== 0 && isFinite(dv) && dv >= 0 && isFinite(av) && av > 0;
           var rv = canRefreshRv
             ? Math.round((dv / (av * frac)) * 100) / 100
             : (bakedRow && bakedRow.rv != null ? Number(bakedRow.rv) : null);
@@ -38857,17 +38980,19 @@ function scenarioEventPhase(ev, now = Date.now()) {
           };
         }
         heatmapState.liveOverlay = overlay;
-        heatmapState.liveUpdatedAt = Date.now();
+        var liveCount = Object.keys(overlay).length;
+        heatmapState.liveUpdatedAt = liveCount ? Date.now() : 0;
         heatmapState.liveMarketState = marketState || '';
         applyHeatmapLiveOverlay();
         renderHeatmapBreadth();
         renderHeatmapDecision();
         if (stateEl){
-          stateEl.className = 'heatmap-live-state is-live';
-          stateEl.textContent = 'Live · ' + (marketState || 'updated') + ' · ' + formatDisplayInstant(new Date(), { hour: 'numeric', minute: '2-digit' });
+          stateEl.className = 'heatmap-live-state' + (liveCount ? ' is-live' : ' is-error');
+          stateEl.textContent = liveCount ? 'Live · ' + liveCount + '/' + data.tickers.length + ' stocks · ' + formatDisplayInstant(new Date(), { hour: 'numeric', minute: '2-digit' }) + (liveCount < data.tickers.length ? ' · others use saved snapshot' : '') : 'No fresh live quotes · showing saved snapshot';
         }
       })
       .catch(function(){
+        if (request !== heatmapState.liveRequest || !heatmapState.live) return;
         heatmapState.liveOverlay = {};
         heatmapState.liveUpdatedAt = 0;
         heatmapState.liveMarketState = '';
@@ -38881,7 +39006,6 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
   function applyHeatmapLiveOverlay(){
     if (heatmapState.layout !== 'map'){ heatmapSyncLayout(); return; }
-    var overlay = heatmapState.liveOverlay || {};
     var root = $('heatmap-root');
     if (!root) return;
     var colorBy = heatmapState.colorBy;
@@ -38894,27 +39018,26 @@ function scenarioEventPhase(ev, now = Date.now()) {
       var tile = tiles[i];
       var sym = tile.getAttribute('data-sym');
       if (!sym) continue;
-      var live = overlay[sym];
+      var live = heatmapOverlayFor(sym);
       tile.classList.remove('is-live-up');
       tile.classList.remove('is-live-down');
-      if (!live) continue;
-      var ch = heatmapEffectiveCh(rowBySymbol[sym]);
+      var bakedRow = rowBySymbol[sym];
+      if (!bakedRow) continue;
+      var ch = heatmapEffectiveCh(bakedRow);
       // Live data supersedes the baked row — drop the stale dim if it had one.
-      tile.classList.remove('is-stale');
-      tile.removeAttribute('data-stale');
+      tile.classList.toggle('is-stale', !live && !!bakedRow.stale);
+      if (!live && bakedRow.stale) tile.setAttribute('data-stale', '1');
+      else tile.removeAttribute('data-stale');
       // Prefer the live intraday rvol; fall back to the baked one for the color.
-      var rv = (live.rv != null && isFinite(live.rv))
-        ? live.rv
-        : (function(){ var b = Number(tile.getAttribute('data-rv')); return isFinite(b) && b > 0 ? b : null; })();
+      var rv = heatmapEffectiveRvol(bakedRow);
       var color = heatmapPaintParts(ch, rv, colorBy, period, sym);
       tile.setAttribute('data-dir', color.dir);
       tile.style.setProperty('--hm-intensity', color.intensity.toFixed(3));
       tile.setAttribute('data-ch', ch);
-      if (live.rv != null && isFinite(live.rv)){
-        tile.setAttribute('data-rv', live.rv);
-        tile.classList.toggle('is-hot', live.rv >= HEATMAP_HOT_RVOL);
-      }
-      if (live.sp != null) tile.setAttribute('data-sp', live.sp);
+      tile.setAttribute('data-rv', rv == null ? '' : rv);
+      tile.classList.toggle('is-hot', rv != null && rv >= HEATMAP_HOT_RVOL);
+      var spot = live && live.sp != null ? live.sp : bakedRow.sp;
+      tile.setAttribute('data-sp', spot == null ? '' : spot);
       var pctEl = tile.querySelector('.heatmap-tile-pct');
       if (pctEl) pctEl.textContent = heatmapValueText(sym, ch, rv, colorBy);
       tile.setAttribute('aria-label', sym + ', ' + heatmapPeriodLabel(period) + ' return ' + heatmapFmtPct(ch) +
@@ -38922,7 +39045,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       // Flash a subtle outline when the spot ticked since the last poll
       // so the user can see motion even on small tiles. Cleared on the
       // next poll cycle.
-      if (live.prevSpot != null && live.sp != null && live.sp !== live.prevSpot){
+      if (live && live.prevSpot != null && live.sp != null && live.sp !== live.prevSpot){
         tile.classList.add(live.sp > live.prevSpot ? 'is-live-up' : 'is-live-down');
       }
     }

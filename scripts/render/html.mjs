@@ -2190,7 +2190,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
           <input type="search" id="heatmap-search" class="heatmap-search-input" placeholder="Ticker…" aria-label="Find a ticker on the heatmap" autocomplete="off" spellcheck="false" />
         </div>
         <label class="heatmap-control heatmap-live-toggle">
-          <input type="checkbox" id="heatmap-live-toggle" />
+          <input type="checkbox" id="heatmap-live-toggle" checked />
           <span class="heatmap-control-label">Live overlay</span>
         </label>
         <div class="heatmap-control heatmap-zoom" role="group" aria-label="Zoom">

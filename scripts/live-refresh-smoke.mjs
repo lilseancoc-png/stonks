@@ -80,12 +80,15 @@ export async function verifyLiveRefresh(appJs) {
   let failHeatmap = false;
   let paintedReturn;
   let breadthReturn;
+  let heatmapRequests = 0;
   const heatmap = {
-    heatmapState: { data: { tickers: [row] }, period: "1d", live: true, liveOverlay: {} },
+    heatmapState: { data: { tickers: [row] }, period: "1d", live: true, liveRequest: 0, liveOverlay: {} },
+    document: { hidden: false, getElementById: () => ({ hidden: false }) },
     $: () => label,
     fetch: async () => {
+      heatmapRequests++;
       if (failHeatmap) throw new Error("offline");
-      return { ok: true, json: async () => ({ quotes: [{ symbol: "AAPL", spot: 108, changePct: 8, marketState: "REGULAR", dayVolume: 2000 }] }) };
+      return { ok: true, json: async () => ({ quotes: [{ symbol: "AAPL", spot: 108, changePct: 8, marketState: "REGULAR", regularAsOf: new Date().toISOString(), dayVolume: 2000 }] }) };
     },
     marketStateOfQuotes: () => "REGULAR", isRegularMarketQuote: () => true,
     execCumFracExpected: () => 1, execEtMinutesSinceOpen: () => 390,
@@ -116,4 +119,12 @@ export async function verifyLiveRefresh(appJs) {
   heatmap.pollHeatmapLiveOnce();
   await settle();
   assert.equal(paintedReturn, 8, "next successful poll restores live values");
+  const beforePause = heatmapRequests;
+  heatmap.document.hidden = true;
+  heatmap.pollHeatmapLiveOnce();
+  heatmap.document.hidden = false;
+  heatmap.heatmapState.live = false;
+  heatmap.pollHeatmapLiveOnce();
+  await settle();
+  assert.equal(heatmapRequests, beforePause, "hidden and disabled heatmaps make no quote requests");
 }

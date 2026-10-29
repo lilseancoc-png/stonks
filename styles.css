@@ -164,7 +164,10 @@
 .pty-tabs button { border: 0; background: none; color: var(--muted-strong); padding: 10px 14px; cursor: pointer; font: inherit; border-bottom: 2px solid transparent; }
 .pty-tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
 .pty-tabs button:focus-visible, .pty-sort:focus-visible, .pty-retry:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.pty-chart { width: 100%; height: auto; display: block; cursor: crosshair; touch-action: none; }
+.pty-chart { width: 100%; height: auto; display: block; cursor: crosshair; touch-action: none; user-select: none; }
+.pty-axis { fill: var(--muted-strong); font-size: calc(11px * var(--ts, 1)); font-variant-numeric: tabular-nums; }
+.pty-axis line { stroke: var(--muted-strong); stroke-opacity: .35; }
+.pty-axis .pty-grid { stroke-opacity: .12; }
 .pty-cycles { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
 .pty-cycles button, .pty-term-btn { border: 1px solid var(--border); background: transparent; color: var(--text); border-radius: 6px; padding: 8px 12px; font: inherit; cursor: pointer; text-align: left; }
 .pty-cycles button[aria-pressed="true"], .pty-term.is-selected { border-color: var(--accent); }
@@ -307,6 +310,9 @@
 .fl-notice,.fl-empty { padding:15px 18px; background:var(--surface-2); border-left:2px solid var(--border); color:var(--muted-strong); font-size:calc(13px * var(--ts, 1)); line-height:1.7; }
 .fl-caption { color:var(--muted-strong); font-size:calc(12px * var(--ts, 1)); line-height:1.7; }
 .fl-detail { padding:0 2px; }
+.fl-disclosures { margin:16px 0; }
+.fl-disclosures label { display:grid; gap:8px; font-size:calc(13px * var(--ts, 1)); color:var(--muted-strong); }
+.fl-disclosures select { min-width:0; max-width:100%; width:100%; padding:8px; background:var(--surface-2); color:var(--text); border:1px solid var(--border); border-radius:4px; font:inherit; }
 .fl-detail-head { justify-content:space-between; align-items:start; }
 .fl-detail h3,.fl-method h3 { font-size:22px; margin:6px 0; font-weight:500; }
 .fl-detail h3 { scroll-margin-top:140px; }
@@ -23606,6 +23612,8 @@ button.vol-cal-cell:focus-visible { outline: none; box-shadow: var(--focus-ring)
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
   z-index: 10;
   max-width: 240px;
+  max-height: calc(100vh - 140px);
+  overflow: hidden;
 }
 .heatmap-tooltip[hidden] { display: none; }
 .heatmap-tooltip-head {

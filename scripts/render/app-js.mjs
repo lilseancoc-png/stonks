@@ -12,7 +12,7 @@ import { fullYearValuationFactory } from '../../lib/full-year-valuation.mjs';
 import { investmentPerspectiveFactory } from '../../lib/investment-perspective.mjs';
 import { earningsScenarioFactory } from '../../lib/earnings-forecast-scenarios.mjs';
 import { forcedLiquidationFactory } from './forced-liquidation-client.mjs';
-import { liquidationPledgeDisclosure } from '../../lib/forced-liquidation.mjs';
+import { liquidationPledgeDisclosure, liquidationEvidenceKey } from '../../lib/forced-liquidation.mjs';
 import { LIQUIDATION_EVIDENCE_VERSION } from '../../lib/forced-liquidation.mjs';
 import { unifiedSignalClientFactory } from './unified-signal-client.mjs';
 import { unifiedSignalDisplayFactory } from '../../lib/unified-signal-display.mjs';
@@ -635,6 +635,17 @@ ${scenarioEventPhase.toString()}
   function chRangeIndex(el, data, clientX){
     var rect = el.getBoundingClientRect();
     if (!rect.width || !data || !data.d || !data.d.length) return 0;
+    if (Array.isArray(data.x) && data.x.length === data.d.length && el.getScreenCTM){
+      var ctm = el.getScreenCTM();
+      if (ctm){
+        var best = 0, distance = Infinity;
+        for (var i = 0; i < data.x.length; i++){
+          var delta = Math.abs(ctm.a * data.x[i] + ctm.e - clientX);
+          if (delta < distance){ best = i; distance = delta; }
+        }
+        return best;
+      }
+    }
     var frac = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
     return Math.round(frac * (data.d.length - 1));
   }
@@ -657,6 +668,10 @@ ${scenarioEventPhase.toString()}
     if (!rect.width || !rect.height) return;
     var x1 = rect.left + (n === 1 ? 0 : a / (n - 1)) * rect.width;
     var x2 = rect.left + (n === 1 ? 0 : b / (n - 1)) * rect.width;
+    if (Array.isArray(data.x) && data.x.length === n && chRange.el.getScreenCTM){
+      var ctm = chRange.el.getScreenCTM();
+      if (ctm){ x1 = ctm.a * data.x[a] + ctm.e; x2 = ctm.a * data.x[b] + ctm.e; }
+    }
     chRange.band.style.left = x1 + 'px';
     chRange.band.style.top = rect.top + 'px';
     chRange.band.style.width = Math.max(2, x2 - x1) + 'px';
@@ -723,7 +738,10 @@ ${scenarioEventPhase.toString()}
     }, { passive: true });
     document.addEventListener('pointercancel', chRangeHide, { passive: true });
     document.addEventListener('keydown', function(e){ if (e.key === 'Escape') chRangeHide(); });
-    document.addEventListener('scroll', chRangeHide, { passive: true, capture: true });
+    document.addEventListener('scroll', function(e){
+      // Scrolling an unrelated panel, such as the sidebar, does not move the chart.
+      if (chRange.el && e.target.contains && e.target.contains(chRange.el)) chRangeHide();
+    }, { passive: true, capture: true });
     window.addEventListener('resize', chRangeHide);
   })();
 
@@ -23343,7 +23361,8 @@ ${renderExportBindings()}
   var forcedLiquidation = (${forcedLiquidationFactory.toString()})(window, document, {
     owner: function(){ return HAS_OWNER_ACCESS; }, evidenceVersion: ${LIQUIDATION_EVIDENCE_VERSION},
     symbols: function(){ return Array.isArray(MANIFEST.symbols) ? MANIFEST.symbols : []; },
-    pledgeDisclosure: ${liquidationPledgeDisclosure.toString()}
+    pledgeDisclosure: ${liquidationPledgeDisclosure.toString()},
+    evidenceKey: ${liquidationEvidenceKey.toString()}
   });
   // data/quant.json is the daily analytical research payload.
   var quantState = { data: null, loading: false };
@@ -32381,7 +32400,7 @@ ${renderExportBindings()}
   // --- Heatmap tab --------------------------------------------------------
   // Finviz-style market map. Tiles sized by market cap, colored by today's
   // % change. Data is baked into data/heatmap.json at build time and the
-  // live overlay (opt-in checkbox) polls /api/quotes to recolor while the
+  // live overlay (on by default, with an off switch) polls /api/quotes while the
   // market is open. ETFs are excluded — heatmap.json itself filters them.
   var heatmapState = {
     data: null,
@@ -32393,7 +32412,8 @@ ${renderExportBindings()}
     gradeMap: null, gradeLoading: false, ivMap: null, ivLoading: false,
     period: '1d',      // '1d' | '1w' | '1m' | '3m' | 'ytd' | '1y'
     search: '',        // uppercased ticker filter for highlight
-    live: false,
+    live: VIEWS.get('heatmap.live', true) !== false,
+    liveRequest: 0,
     livePollTimer: null,
     liveOverlay: {},   // symbol -> { ch, sp, rv, hi52, lo52, dayHi, dayLo, marketState, prevSpot }
     liveUpdatedAt: 0,
@@ -32448,7 +32468,14 @@ ${renderExportBindings()}
     fetch(dataUrl('heatmap.json'), { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(json){
-        var tickers = (json && Array.isArray(json.tickers)) ? json.tickers : [];
+        var candidates = (json && Array.isArray(json.tickers)) ? json.tickers : [];
+        var unique = new Map();
+        candidates.forEach(function(row){
+          if (!row || typeof row.t !== 'string' || !row.t.trim()) return;
+          var symbol = row.t.trim().toUpperCase(), previous = unique.get(symbol);
+          if (!previous || (previous.stale && !row.stale)) unique.set(symbol, Object.assign({}, row, { t: symbol }));
+        });
+        var tickers = Array.from(unique.values());
         heatmapState.data = {
           builtAtIso: json && json.builtAtIso,
           refreshedAtIso: json && json.refreshedAtIso,
@@ -32539,6 +32566,7 @@ ${renderExportBindings()}
       liveToggle.checked = heatmapState.live;
       liveToggle.addEventListener('change', function(){
         heatmapState.live = !!liveToggle.checked;
+        VIEWS.set('heatmap.live', heatmapState.live ? null : false);
         if (heatmapState.live) startHeatmapLivePolling();
         else stopHeatmapLivePolling(true);
       });
@@ -32869,6 +32897,10 @@ ${renderExportBindings()}
     var value = t.perf && t.perf[period];
     return value != null && isFinite(value) ? Number(value) : null;
   }
+  function heatmapOverlayFor(symbol){
+    var age = Date.now() - heatmapState.liveUpdatedAt;
+    return heatmapState.live && age >= 0 && age < 90000 ? (heatmapState.liveOverlay[symbol] || null) : null;
+  }
   // Live session change is direct from /api/quotes. Longer returns reuse the
   // baked period baseline implied by {spot, return}, then mark that baseline
   // with the live regular-session spot. This keeps every selected horizon live
@@ -32877,7 +32909,7 @@ ${renderExportBindings()}
     if (!t) return null;
     var period = periodOverride || heatmapState.period || '1d';
     var baked = heatmapBakedReturn(t, period);
-    var o = heatmapState.liveOverlay && heatmapState.liveOverlay[t.t];
+    var o = heatmapOverlayFor(t.t);
     if (!o) return baked;
     if (period === '1d' && o.ch != null && isFinite(o.ch)) return Number(o.ch);
     var bakedSpot = Number(t.sp);
@@ -32890,7 +32922,7 @@ ${renderExportBindings()}
     return baked;
   }
   function heatmapEffectiveRvol(t){
-    var o = heatmapState.liveOverlay && heatmapState.liveOverlay[t.t];
+    var o = heatmapOverlayFor(t.t);
     if (o && o.rv != null && isFinite(o.rv)) return o.rv;
     return (t.rv != null && isFinite(t.rv)) ? t.rv : null;
   }
@@ -33738,15 +33770,17 @@ ${renderExportBindings()}
       var mc = Number(btn.getAttribute('data-mc'));
       var ch = Number(btn.getAttribute('data-ch'));
       var sp = Number(btn.getAttribute('data-sp'));
-      var rvAttr = Number(btn.getAttribute('data-rv'));
+      var rvText = btn.getAttribute('data-rv');
+      var rvAttr = rvText == null || rvText === '' ? null : Number(rvText);
       var periodStart = btn.getAttribute('data-period-start') || '';
       var sec = btn.getAttribute('data-sec') || '';
       var ind = btn.getAttribute('data-ind') || '';
       var stale = btn.getAttribute('data-stale') === '1';
-      var live = (heatmapState.liveOverlay && heatmapState.liveOverlay[sym]) || null;
-      var rv = (live && live.rv != null && isFinite(live.rv)) ? live.rv : (isFinite(rvAttr) && rvAttr > 0 ? rvAttr : null);
+      var live = heatmapOverlayFor(sym);
+      var rv = (live && live.rv != null && isFinite(live.rv)) ? live.rv : (rvAttr != null && isFinite(rvAttr) && rvAttr >= 0 ? rvAttr : null);
       var pctCls = ch > 0 ? 'heatmap-tooltip-pct-pos' : (ch < 0 ? 'heatmap-tooltip-pct-neg' : '');
       var rows = '';
+      rows += '<div class="heatmap-tooltip-row"><span>Quote source</span><span>' + (live ? 'Live regular session' : 'Saved snapshot') + '</span></div>';
       rows += '<div class="heatmap-tooltip-row"><span>' + heatmapPeriodLabel() + ' return</span><span class="' + pctCls + '">' + escapeHtml(heatmapFmtPct(ch)) + '</span></div>';
       if (periodStart) rows += '<div class="heatmap-tooltip-row"><span>Baseline date</span><span>' + escapeHtml(periodStart) + '</span></div>';
       if (rv != null){
@@ -33771,14 +33805,15 @@ ${renderExportBindings()}
         (name && name !== sym ? '<div class="heatmap-tooltip-name">' + escapeHtml(name) + '</div>' : '') +
         rows +
         (stale ? '<div class="heatmap-tooltip-stale">⚠ stale — last good print, no fresh quote</div>' : '');
+      tooltip.hidden = false;
       var rootRect = root.getBoundingClientRect();
-      var tipW = 240, tipH = 180;
+      var tipW = tooltip.offsetWidth, tipH = tooltip.offsetHeight;
       var x = ev.clientX - rootRect.left + 14;
       var y = ev.clientY - rootRect.top + 14;
       if (x + tipW > rootRect.width) x = ev.clientX - rootRect.left - tipW - 12;
       if (y + tipH > rootRect.height) y = ev.clientY - rootRect.top - tipH - 12;
-      if (x < 0) x = 4;
-      if (y < 0) y = 4;
+      x = Math.max(Math.max(4, 4 - rootRect.left), Math.min(x, window.innerWidth - rootRect.left - tipW - 4));
+      y = Math.max(Math.max(4, 72 - rootRect.top), Math.min(y, window.innerHeight - rootRect.top - tipH - 64));
       tooltip.style.setProperty('--tip-x', x + 'px');
       tooltip.style.setProperty('--tip-y', y + 'px');
       tooltip.hidden = false;
@@ -33790,11 +33825,11 @@ ${renderExportBindings()}
   }
 
   // Live overlay polling — only runs while the heatmap tab is the active
-  // page tab AND the user has toggled live mode on. /api/quotes batches
+  // page tab AND live mode is enabled. /api/quotes batches
   // up to 150 symbols per request so the whole curated list lands in one
   // round trip. Drops back to baked colors silently on a network error.
   function startHeatmapLivePolling(){
-    if (!heatmapState.live) return;
+    if (!heatmapState.live || document.hidden) return;
     if (heatmapState.livePollTimer) return;
     var pane = document.getElementById('page-pane-heatmap');
     if (!pane || pane.hidden) return;
@@ -33802,6 +33837,7 @@ ${renderExportBindings()}
     heatmapState.livePollTimer = setInterval(pollHeatmapLiveOnce, 30000);
   }
   function stopHeatmapLivePolling(clearOverlay){
+    heatmapState.liveRequest++;
     if (heatmapState.livePollTimer){
       clearInterval(heatmapState.livePollTimer);
       heatmapState.livePollTimer = null;
@@ -33817,17 +33853,29 @@ ${renderExportBindings()}
     }
   }
   function pollHeatmapLiveOnce(){
+    if (!heatmapState.live || document.hidden) return;
+    var pane = document.getElementById('page-pane-heatmap');
+    if (!pane || pane.hidden) return;
+    if (heatmapState.liveUpdatedAt && Date.now() - heatmapState.liveUpdatedAt >= 90000){
+      heatmapState.liveOverlay = {};
+      heatmapState.liveUpdatedAt = 0;
+      applyHeatmapLiveOverlay(); renderHeatmapBreadth(); renderHeatmapDecision();
+      var delayed = $('heatmap-live-state');
+      if (delayed){ delayed.className = 'heatmap-live-state'; delayed.textContent = 'Quote refresh delayed · showing saved snapshot'; }
+    }
     var data = heatmapState.data;
     if (!data || !Array.isArray(data.tickers) || !data.tickers.length){
       stopHeatmapLivePolling(false);
       return;
     }
     var stateEl = $('heatmap-live-state');
+    var request = ++heatmapState.liveRequest;
     var syms = data.tickers.map(function(t){ return t.t; });
     var url = 'api/quotes?symbols=' + encodeURIComponent(syms.join(','));
     fetch(url, { cache: 'no-store' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(json){
+        if (request !== heatmapState.liveRequest || !heatmapState.live) return;
         var quotes = (json && Array.isArray(json.quotes)) ? json.quotes : [];
         if (!quotes.length) throw new Error('No quotes');
         var marketState = marketStateOfQuotes(quotes);
@@ -33854,7 +33902,11 @@ ${renderExportBindings()}
         data.tickers.forEach(function(row){ if (row && row.t) rowBySymbol[row.t] = row; });
         for (var i = 0; i < quotes.length; i++){
           var q = quotes[i];
-          if (!q || !q.symbol || q.changePct == null) continue;
+          if (!q || !rowBySymbol[q.symbol] || typeof q.changePct !== 'number' || !isFinite(q.changePct) || typeof q.spot !== 'number' || !isFinite(q.spot) || q.spot <= 0) continue;
+          // A response stamp is not a fresh trade. Reject old or future-dated
+          // prints when the provider supplies the underlying session time.
+          var quoteAge = q.regularAsOf ? Date.now() - Date.parse(q.regularAsOf) : NaN;
+          if (!isFinite(quoteAge) || quoteAge < -300000 || quoteAge > 15 * 60000) continue;
           var prev = heatmapState.liveOverlay[q.symbol];
           // Compare cumulative volume with the fraction of a normal 20-day
           // session expected by this clock time. This avoids making every
@@ -33867,7 +33919,7 @@ ${renderExportBindings()}
           var frac = qState.indexOf('REGULAR') === 0
             ? Math.max(0.05, execCumFracExpected(execEtMinutesSinceOpen()))
             : 1;
-          var canRefreshRv = qState.indexOf('PRE') !== 0 && isFinite(dv) && dv > 0 && isFinite(av) && av > 0;
+          var canRefreshRv = q.dayVolume != null && qState.indexOf('PRE') !== 0 && isFinite(dv) && dv >= 0 && isFinite(av) && av > 0;
           var rv = canRefreshRv
             ? Math.round((dv / (av * frac)) * 100) / 100
             : (bakedRow && bakedRow.rv != null ? Number(bakedRow.rv) : null);
@@ -33884,17 +33936,19 @@ ${renderExportBindings()}
           };
         }
         heatmapState.liveOverlay = overlay;
-        heatmapState.liveUpdatedAt = Date.now();
+        var liveCount = Object.keys(overlay).length;
+        heatmapState.liveUpdatedAt = liveCount ? Date.now() : 0;
         heatmapState.liveMarketState = marketState || '';
         applyHeatmapLiveOverlay();
         renderHeatmapBreadth();
         renderHeatmapDecision();
         if (stateEl){
-          stateEl.className = 'heatmap-live-state is-live';
-          stateEl.textContent = 'Live · ' + (marketState || 'updated') + ' · ' + formatDisplayInstant(new Date(), { hour: 'numeric', minute: '2-digit' });
+          stateEl.className = 'heatmap-live-state' + (liveCount ? ' is-live' : ' is-error');
+          stateEl.textContent = liveCount ? 'Live · ' + liveCount + '/' + data.tickers.length + ' stocks · ' + formatDisplayInstant(new Date(), { hour: 'numeric', minute: '2-digit' }) + (liveCount < data.tickers.length ? ' · others use saved snapshot' : '') : 'No fresh live quotes · showing saved snapshot';
         }
       })
       .catch(function(){
+        if (request !== heatmapState.liveRequest || !heatmapState.live) return;
         heatmapState.liveOverlay = {};
         heatmapState.liveUpdatedAt = 0;
         heatmapState.liveMarketState = '';
@@ -33908,7 +33962,6 @@ ${renderExportBindings()}
   }
   function applyHeatmapLiveOverlay(){
     if (heatmapState.layout !== 'map'){ heatmapSyncLayout(); return; }
-    var overlay = heatmapState.liveOverlay || {};
     var root = $('heatmap-root');
     if (!root) return;
     var colorBy = heatmapState.colorBy;
@@ -33921,27 +33974,26 @@ ${renderExportBindings()}
       var tile = tiles[i];
       var sym = tile.getAttribute('data-sym');
       if (!sym) continue;
-      var live = overlay[sym];
+      var live = heatmapOverlayFor(sym);
       tile.classList.remove('is-live-up');
       tile.classList.remove('is-live-down');
-      if (!live) continue;
-      var ch = heatmapEffectiveCh(rowBySymbol[sym]);
+      var bakedRow = rowBySymbol[sym];
+      if (!bakedRow) continue;
+      var ch = heatmapEffectiveCh(bakedRow);
       // Live data supersedes the baked row — drop the stale dim if it had one.
-      tile.classList.remove('is-stale');
-      tile.removeAttribute('data-stale');
+      tile.classList.toggle('is-stale', !live && !!bakedRow.stale);
+      if (!live && bakedRow.stale) tile.setAttribute('data-stale', '1');
+      else tile.removeAttribute('data-stale');
       // Prefer the live intraday rvol; fall back to the baked one for the color.
-      var rv = (live.rv != null && isFinite(live.rv))
-        ? live.rv
-        : (function(){ var b = Number(tile.getAttribute('data-rv')); return isFinite(b) && b > 0 ? b : null; })();
+      var rv = heatmapEffectiveRvol(bakedRow);
       var color = heatmapPaintParts(ch, rv, colorBy, period, sym);
       tile.setAttribute('data-dir', color.dir);
       tile.style.setProperty('--hm-intensity', color.intensity.toFixed(3));
       tile.setAttribute('data-ch', ch);
-      if (live.rv != null && isFinite(live.rv)){
-        tile.setAttribute('data-rv', live.rv);
-        tile.classList.toggle('is-hot', live.rv >= HEATMAP_HOT_RVOL);
-      }
-      if (live.sp != null) tile.setAttribute('data-sp', live.sp);
+      tile.setAttribute('data-rv', rv == null ? '' : rv);
+      tile.classList.toggle('is-hot', rv != null && rv >= HEATMAP_HOT_RVOL);
+      var spot = live && live.sp != null ? live.sp : bakedRow.sp;
+      tile.setAttribute('data-sp', spot == null ? '' : spot);
       var pctEl = tile.querySelector('.heatmap-tile-pct');
       if (pctEl) pctEl.textContent = heatmapValueText(sym, ch, rv, colorBy);
       tile.setAttribute('aria-label', sym + ', ' + heatmapPeriodLabel(period) + ' return ' + heatmapFmtPct(ch) +
@@ -33949,7 +34001,7 @@ ${renderExportBindings()}
       // Flash a subtle outline when the spot ticked since the last poll
       // so the user can see motion even on small tiles. Cleared on the
       // next poll cycle.
-      if (live.prevSpot != null && live.sp != null && live.sp !== live.prevSpot){
+      if (live && live.prevSpot != null && live.sp != null && live.sp !== live.prevSpot){
         tile.classList.add(live.sp > live.prevSpot ? 'is-live-up' : 'is-live-down');
       }
     }

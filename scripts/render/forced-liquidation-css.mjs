@@ -28,6 +28,9 @@ export function renderForcedLiquidationCss(){return `
 .fl-notice,.fl-empty { padding:15px 18px; background:var(--surface-2); border-left:2px solid var(--border); color:var(--muted-strong); font-size:13px; line-height:1.7; }
 .fl-caption { color:var(--muted-strong); font-size:12px; line-height:1.7; }
 .fl-detail { padding:0 2px; }
+.fl-disclosures { margin:16px 0; }
+.fl-disclosures label { display:grid; gap:8px; font-size:13px; color:var(--muted-strong); }
+.fl-disclosures select { min-width:0; max-width:100%; width:100%; padding:8px; background:var(--surface-2); color:var(--text); border:1px solid var(--border); border-radius:4px; font:inherit; }
 .fl-detail-head { justify-content:space-between; align-items:start; }
 .fl-detail h3,.fl-method h3 { font-size:22px; margin:6px 0; font-weight:500; }
 .fl-detail h3 { scroll-margin-top:140px; }
