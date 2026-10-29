@@ -1,0 +1,32 @@
+name: Webull end-of-day execution
+on:
+  schedule:
+    # UTC coverage for regular and early closes in both ET offsets. The runner
+    # checks the exchange calendar and acts only in the final 20 minutes.
+    # The second dispatch is a catch-up if the scheduler starts the first late.
+    - cron: '40,50 16 * * 1-5'
+    - cron: '40,50 17 * * 1-5'
+    - cron: '40,50 18 * * 1-5'
+    - cron: '40,50 19 * * 1-5'
+    - cron: '40,50 20 * * 1-5'
+  workflow_dispatch:
+concurrency:
+  group: stonks-webull-eod
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  closing-window:
+    if: ${{ vars.PRIVATE_DATA_ENABLED == '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 26
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+      - name: Monitor final entries and emergency closes
+        env:
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          WEBULL_EOD_SCHEDULE: ${{ github.event.schedule }}
+        run: node scripts/webull-eod-trigger.mjs

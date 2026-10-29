@@ -353,7 +353,8 @@ async function picksFills(req, res) {
 // POST /api/auth/webull-mirror  (Authorization: Bearer <trigger token>)
 //   Runs lib/webull-mirror.mjs once: copies new record opens/closes into the
 //   Webull PaperTrade account and saves webull-paper-ledger.json. The build
-//   workflow calls it after every full bake. The trigger token is derived from
+//   workflows call it after Top Picks publication and in the closing window.
+//   The trigger token is derived from
 //   R2_SECRET_ACCESS_KEY (already set in Vercel and GitHub), so no new secret
 //   is shared between the two; the response carries counts only.
 // GET  /api/auth/webull-mirror[?format=csv]  (Owner session)
@@ -386,6 +387,12 @@ async function webullMirror(req, res) {
       const buf = await store.get(mirror.LEDGER_KEY);
       const ledger = buf == null ? mirror.emptyLedger() : JSON.parse(buf.toString("utf8"));
       const rows = mirror.ledgerToFillRows(ledger);
+      if (req.query?.format === "orders") {
+        res.setHeader("Content-Type", "text/csv; charset=utf-8");
+        res.setHeader("Content-Disposition", 'attachment; filename="webull-order-attempts.csv"');
+        res.statusCode = 200;
+        return res.end(mirror.orderAttemptsToCsv(ledger));
+      }
       if (req.query?.format === "csv") {
         res.setHeader("Content-Type", "text/csv; charset=utf-8");
         res.setHeader("Content-Disposition", 'attachment; filename="webull-paper-trades.csv"');
@@ -410,6 +417,8 @@ async function webullMirror(req, res) {
         goLiveIso: ledger.goLiveIso,
         lastRunIso: ledger.lastRunIso,
         engineSnapshotIso: ledger.engineSnapshotIso ?? null,
+        lastEndOfDayDeadlineIso: ledger.lastEndOfDayDeadlineIso ?? null,
+        lastEndOfDayAudit: ledger.lastEndOfDayAudit ?? null,
         runs: (ledger.runs || []).slice(0, 10),
         reconciliation: ledger.reconciliation ? { checkedAtIso: ledger.reconciliation.checkedAtIso, status: ledger.reconciliation.status, alerts: ledger.reconciliation.alerts || [], failure: ledger.reconciliation.failure || null, externalGroups: ledger.reconciliation.externalGroups || 0 } : null,
         rows,
@@ -454,7 +463,7 @@ async function webullMirror(req, res) {
       const client = createWebullClient({ appKey: WEBULL_APP_KEY, appSecret: WEBULL_APP_SECRET, accessToken: WEBULL_ACCESS_TOKEN || null, timeoutMs: 5000 });
       const quoteFn = mirror.makeQuoteFn(fetchContract);
       const checkpoint = async (next) => { guard(); await store.put(mirror.LEDGER_KEY, JSON.stringify(next)); };
-      const { summary } = await mirror.runWebullMirror({ client, accountId: WEBULL_PAPER_ACCOUNT_ID, acc, ledger, quoteFn, checkpoint, guard });
+      const { summary } = await mirror.runWebullMirror({ client, accountId: WEBULL_PAPER_ACCOUNT_ID, acc, ledger, quoteFn, checkpoint, guard, endOfDayOnly: req.query?.mode === "eod" });
       return { ran: !summary.skipped, summary };
     });
     return res.status(200).json(lease.busy ? { ran: false, reason: "mirror already running", retryAfterMs: lease.retryAfterMs } : lease.result);

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { endOfDayWindow, scheduledClosingWindow } from "../lib/webull-execution-policy.mjs";
 
 function workflow(name) {
   return readFileSync(new URL(`../.github/workflows/${name}`, import.meta.url), "utf8");
@@ -77,19 +78,34 @@ assert.equal(publicationStatus([{ name: "build", conclusion: "success", steps: [
 assert.equal(publicationStatus([]), 1);
 
 // Webull execution follows the actual Top Picks publication, not a wall clock
-// that can run before a delayed build finishes. No independent polling cron.
+// that can run before a delayed build finishes. The closing window is separate.
 const mirror = workflow("webull-mirror.yml");
 assert.doesNotMatch(mirror, /schedule:|cron:/);
 assert.match(mirror, /workflow_dispatch:/);
 const mirrorStep = daily.match(/- name: Mirror published Top Picks to Webull paper[\s\S]*?(?=\n      - name:)/)?.[0];
 assert.ok(mirrorStep);
 assert.match(mirrorStep, /needs\.route\.outputs\.refresh_top_picks == 'true'/);
-assert.match(mirrorStep, /WEBULL_MIRROR_FOLLOW_UPS: '2'/);
+assert.match(mirrorStep, /WEBULL_MIRROR_FOLLOW_UPS: '4'/);
 assert.match(mirrorStep, /WEBULL_MIRROR_STRICT: '1'/);
 assert.match(mirrorStep, /id: webull_mirror/);
 assert.match(daily, /webull_outcome: \$\{\{ steps\.webull_mirror\.outcome \}\}/);
 assert.match(daily, /webull-health:[\s\S]*?needs: build[\s\S]*?always\(\) && needs\.build\.outputs\.webull_outcome == 'failure'[\s\S]*?exit 1/);
 assert.ok(daily.indexOf("run: node scripts/sync-data.mjs push --owner=bake") < daily.indexOf("- name: Mirror published Top Picks"));
 assert.match(daily, /ET_MIN.*-eq 660.*ET_MIN.*-eq 930/);
+
+const eod = workflow("webull-eod.yml");
+assert.match(eod, /group: stonks-webull-eod/);
+assert.match(eod, /cancel-in-progress: false/);
+assert.match(eod, /PRIVATE_DATA_ENABLED == '1'/);
+assert.match(eod, /WEBULL_EOD_SCHEDULE: \$\{\{ github.event.schedule \}\}/);
+assert.match(eod, /node scripts\/webull-eod-trigger\.mjs/);
+const schedules = [...eod.matchAll(/cron: '([^']+)'/g)].map(m => m[1]);
+assert.deepEqual(schedules, [16, 17, 18, 19, 20].map(h => `40,50 ${h} * * 1-5`));
+for (const [date, hour] of [["2026-10-28", 19], ["2026-12-01", 20], ["2026-11-27", 17], ["2028-07-03", 16]]) {
+  assert(endOfDayWindow(Date.parse(`${date}T${hour}:40:00Z`)).monitor);
+  assert(scheduledClosingWindow(Date.parse(`${date}T${hour + 1}:04:00Z`), `40,50 ${hour} * * 1-5`), "late dispatch remains auditable");
+  assert(!scheduledClosingWindow(Date.parse(`${date}T${hour + 1}:04:00Z`), `40,50 ${hour - 1} * * 1-5`));
+}
+assert(!scheduledClosingWindow(Date.parse("2026-11-26T21:02:00Z"), "40,50 20 * * 1-5"), "holiday dispatch is quiet");
 
 console.log("workflow schedule smoke: ok");

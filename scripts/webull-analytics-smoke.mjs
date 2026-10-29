@@ -84,6 +84,7 @@ const context = vm.createContext({ Date, console, isFinite, escapeHtml, $: id =>
   accFillKey: v => v, tlEtParts: v => Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(v)).map(p => [p.type, p.value])),
   accSeg: (key, id, value, options) => options.map(o => '<input data-acc-set="' + key + '" value="' + o.value + '">').join(''),
   accPaneSummary: (...args) => summaries.push(args), accDateTime: v => v, accDate: v => v,
+  formatDisplayInstant: v => v,
   accPct: v => v == null ? '—' : v.toFixed(1) + '%', accMoney: v => v == null ? '—' : '$' + v.toFixed(2), accUsd: v => v == null ? null : '$' + v,
   ACC_STATUS_LABEL: {}, chHoverAttr: p => ' data-hover-count="' + p.length + '"',
   // app.js resolves a record's sector bucket from its symbol (lib/sector-groups.mjs).
@@ -141,7 +142,7 @@ fixture.mirror.trades = [{ ...fixture.mirror.trades[1], tradeId: 'manual-only', 
   filledQty: 1, openQty: 1, entryDiffPct: 99, exitDiffPct: null, entryHow: 'first', entrySentIso: '2026-10-23T19:20:42Z', fillIso: '2026-10-23T19:20:43Z' }];
 context.accView.wbState = 'all'; context.accView.wbLens = 'engine';
 vm.runInContext('renderWebullTest()', context);
-assert.match(box.innerHTML, /Automatic entries only/);
+assert.equal(box.innerHTML.includes('Automatic attempts only'), true);
 assert.equal(vm.runInContext('wbEntryCost(wbRows()[0].t)', context), null, 'manual entries never enter automatic slippage');
 assert.equal(summaries.at(-1)[1].find(x => x.lbl.startsWith('filled (')).val, '—', 'manual fill cannot inflate automatic fill rate');
 assert.equal(vm.runInContext('WB_ANALYTICS.analyze(wbRows()).slippage.length', context), 0);
@@ -178,4 +179,32 @@ const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
 assert.doesNotMatch(html, /acc-tab-books|acc-pane-books|Paper books|paper books/);
 assert.doesNotMatch(app, /function renderPaperBooks|paperBook:/);
 assert.match(app, /wbLens:accView.wbLens/);
+assert.match(html, /data-acc-tab="webull-equity">Webull/);
+assert.match(html, /data-acc-tab="equity">Site/);
+assert.match(html, /data-acc-tab="breakdowns">Site/);
+assert.match(html, /data-acc-tab="webull-breakdown">Webull/);
+assert.match(app, /function wbBookTrades/);
+assert.match(app, /function renderWebullEquity/);
+context.wbTest = { loaded: true, data: { trades: [
+  { tradeId: 'eq1', symbol: 'NVDA', side: 'call', structure: 'long', state: 'closed', fillPrice: 2, closeFillPrice: 3, paperPnlPct: 50, fees: 1, closeFillIso: '2026-10-01T20:00:00Z', engineEntryIso: '2026-09-01T15:00:00Z' },
+  { tradeId: 'eq2', symbol: 'AMD', side: 'put', structure: 'long', state: 'closed', fillPrice: 2, closeFillPrice: 1, paperPnlPct: -50, fees: 3, filledQty: 3, closedQty: 3, openQty: 0, closeFillIso: '2026-10-02T20:00:00Z', engineEntryIso: '2026-09-02T15:00:00Z' },
+  { tradeId: 'miss', symbol: 'TSLA', side: 'call', structure: 'long', state: 'missed', engineEntryIso: '2026-09-03T15:00:00Z' }
+] } };
+context.accuracyState = { data: { closed: [], open: [] } };
+const eqBook = vm.runInContext('wbBookTrades()', context);
+assert.equal(eqBook.length, 2);
+assert.equal(eqBook[0].paperDollars, 99);
+assert.equal(eqBook[1].paperDollars, -303);
+assert.equal(eqBook[0].outcome, 'win');
+assert.equal(eqBook[1].outcome, 'loss');
+assert.equal(eqBook[1].side, 'put');
+assert.equal(eqBook[0].realFillPnlPct, undefined);
+context.wbTest.data.trades.push({ tradeId: 'credit-win', symbol: 'META', side: 'call', structure: 'credit_vertical', state: 'closed', fillPrice: 4, closeFillPrice: 2.88, paperPnlPct: 28, fees: 1.2, filledQty: 1, closedQty: 1, openQty: 0, closeFillIso: '2026-10-03T20:00:00Z', engineEntryIso: '2026-09-03T15:00:00Z' });
+context.wbTest.data.trades.push({ tradeId: 'review-row', symbol: 'NVDA', side: 'put', structure: 'long', state: 'error', needsReview: true, fillPrice: 3, closeFillPrice: 4, paperPnlPct: 33, fees: 0, filledQty: 1, closedQty: 1, openQty: 0, closeFillIso: '2026-10-04T20:00:00Z', engineEntryIso: '2026-09-04T15:00:00Z' });
+context.accView.wbBook = 'all';
+const book2 = vm.runInContext('wbBookTrades()', context);
+const credit = book2.find(t => t.symbol === 'META');
+assert.ok(Math.abs(credit.paperDollars - 110.8) < 1e-9);
+assert.equal(credit.outcome, 'win');
+assert.equal(book2.some(t => t.symbol === 'NVDA' && t.status === 'open-mark'), false);
 console.log('Webull analytics: quantity/fee accounting, drawdown, matched samples, missing values, filters, four shipped views and Paper books removal passed.');

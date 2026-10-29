@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import vm from "node:vm";
 import { readFile } from "node:fs/promises";
+import { webullReviewFixture } from "./fixtures/webull-review.mjs";
 const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
 const start = app.indexOf("  var wbTest = "), end = app.indexOf('  // --- Per-pick "Strategy & entry details"', start);
 assert.ok(start > 0 && end > start);
@@ -18,6 +19,7 @@ const context = vm.createContext({ console, Date, isFinite, $, escapeHtml,
   accFillKey: (s) => s, tlTradeId: (e) => e.tradeId, tlEtParts: () => ({ hour: "11" }),
   accSeg: () => "", accPaneSummary: (...args) => summaries.push(args),
   accDateTime: (v) => v || "—", accPct: (v) => v == null ? "—" : `${v.toFixed(1)}%`,
+  formatDisplayInstant: v => v,
   accMoney: (v) => `$${v.toFixed(2)}`, accDate: (v) => v || "—", accUsd: (v) => v == null ? null : `$${v}`,
   ACC_STATUS_LABEL: { "hit-tp-prem": "take profit" }, chHoverAttr: () => "",
   // app.js resolves a record's sector bucket from its symbol (lib/sector-groups.mjs).
@@ -54,4 +56,35 @@ assert.doesNotMatch(box.innerHTML, /every 5 minutes|over 15 minutes old/);
 context.accuracyState.data.builtAtIso = "2026-10-22T19:30:00Z";
 vm.runInContext("renderWebullTest()", context);
 assert.match(box.innerHTML, /latest Track Record build has not been checked/);
-console.log("Webull shipped view: quantity totals, partial/settlement states, safe alerts and filters passed.");
+const execution = webullReviewFixture(Date.now(), "execution");
+context.wbTest.data = execution.mirror;
+context.accuracyState.data = execution.accuracy;
+context.accView.wbState = "all"; context.accView.wbLens = "trades";
+vm.runInContext("renderWebullTest()", context);
+const summary = summaries.at(-1)[1];
+assert.equal(summary[1].val, "25%", "three manually recovered automatic misses remain in the four-trade denominator");
+assert.equal(summary[1].lbl, "filled (3 missed)");
+assert.equal(summary[2].val, "-1.2%", "manual entry price gaps are excluded from automatic-entry averages");
+assert.match(box.innerHTML, /Manual entry, broker-confirmed; automated exits only/);
+assert.match(box.innerHTML, /Paper bought at the engine&#39;s price/);
+assert.match(box.innerHTML, /Emergency end-of-day exit attempted; fill not confirmed/);
+assert.match(box.innerHTML, /Emergency end-of-day exit: broker-confirmed fill/);
+assert.match(box.innerHTML, /Earlier automatic entry missed; manually recovered/);
+assert.match(box.innerHTML, /2026-10-29T13:30:01Z/);
+assert.match(box.innerHTML, /Last closing-deadline check/);
+execution.mirror.lastEndOfDayAudit = { checkedAtIso: "2026-10-29T20:00:10Z", deadlineObserved: false, incomplete: true };
+vm.runInContext("renderWebullTest()", context);
+assert.match(box.innerHTML, /No completed check was recorded in the final ten minutes/);
+assert.match(box.innerHTML, /final broker reconciliation was incomplete/);
+execution.mirror.lastEndOfDayAudit = null;
+assert.doesNotMatch(box.innerHTML, /undefined/);
+context.historyTrade = { attempts: [{ phase: "entry", source: "manual", quantity: 1, filledQty: 1,
+  limit: 100.25, filledPrice: 100.25, quoteSource: "<unsafe>" }] };
+const history = vm.runInContext("WB_REVIEW.executionHistory(historyTrade)", context);
+assert.match(history, /\$100\.25/); assert.doesNotMatch(history, /\$100<\/td>/);
+assert.match(history, /&lt;unsafe&gt;/); assert.doesNotMatch(history, /<unsafe>/);
+context.accView.wbLens = "engine";
+vm.runInContext("renderWebullTest()", context);
+assert.equal(/<td>Spreads<\/td><td>4<\/td><td>25%<\/td>/.test(box.innerHTML), true);
+assert.match(box.innerHTML, /manual prices and timing are excluded/);
+console.log("Webull shipped view: quantity totals, partial/settlement states, safe alerts, filters, manual-recovery fill-rate accounting, exact prices and emergency provenance passed.");

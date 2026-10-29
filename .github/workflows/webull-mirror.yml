@@ -1,7 +1,7 @@
 name: Webull paper reconciliation
 
 # Manual recovery/inspection only. Automatic execution belongs to the
-# 11:00 / 15:30 ET Top Picks publication steps in daily.yml.
+# 11:00 / 15:30 ET Top Picks publication steps and webull-eod.yml closing window.
 on:
   workflow_dispatch:
 
@@ -16,16 +16,16 @@ jobs:
   ping:
     if: ${{ vars.PRIVATE_DATA_ENABLED == '1' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 18
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
           node-version: "22"
       - name: Reconcile Webull paper orders and expiry exposure
-        timeout-minutes: 10
+        timeout-minutes: 15
         env:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           WEBULL_MIRROR_STRICT: '1'
-          WEBULL_MIRROR_FOLLOW_UPS: '2'
+          WEBULL_MIRROR_FOLLOW_UPS: '4'
         run: node scripts/webull-mirror-trigger.mjs
