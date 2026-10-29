@@ -1,0 +1,55 @@
+import {auditCalendar} from './audit-calendar.mjs';
+import assert from 'node:assert/strict';
+import {PUBLISHED_COMPANY_EVENTS,companyEventsInWindow,parseIssuerEvents,fetchCompanyCalendar,coveredByCompanySchedule} from '../lib/company-events.mjs';
+import {buildCalendarPayload,TICKERS,dedupeCalendarEvents} from './build.mjs';
+import {calendarCoveredDays} from '../js/book-views.js';
+const now=Date.parse('2026-10-28T16:00:00Z'),start=Date.parse('2026-10-28'),end=Date.parse('2026-12-31');
+const payload=buildCalendarPayload({},[],'2026-10-28T16:00:00Z',{});
+assert(payload.events.some(e=>e.id==='orcl-ai-world-2026' && e.date==='2026-10-25' && e.endDate==='2026-10-28'),'ongoing conference survives a start date before today');
+assert(payload.events.some(e=>e.id==='aapl-iphone-duo-release-2026' && e.date==='2026-10-23'),'recent product release remains visible');
+assert(payload.events.some(e=>e.id==='aapl-iphone-duo-expansion-2026' && e.date==='2026-10-30'));
+assert(!companyEventsInWindow(PUBLISHED_COMPANY_EVENTS,['AAPL'],start,end).some(e=>e.symbol!=='AAPL'));
+assert(companyEventsInWindow(PUBLISHED_COMPANY_EVENTS,TICKERS,Date.parse('2027-10-28'),Date.parse('2027-12-31')).length===0,'annual dates are never inferred for another year');
+assert.deepEqual(calendarCoveredDays({date:'2026-10-25',endDate:'2026-10-28'}),['2026-10-25','2026-10-26','2026-10-27','2026-10-28']);
+const news={type:'catalyst',symbol:'ORCL',date:'2026-10-28',title:'Oracle AI World 2026'};
+assert(coveredByCompanySchedule(news,payload.events));
+assert(!coveredByCompanySchedule({...news,title:'Oracle AI World keynote'},payload.events),'keynote remains distinct from conference');
+assert.equal(dedupeCalendarEvents([payload.events.find(e=>e.id==='orcl-ai-world-2026'),news]).length,1);
+const script=body=>'<script type="application/ld+json">'+JSON.stringify(body)+'</script>';
+const event={ '@type':'Event',name:'Microsoft Ignite 2026',startDate:'2026-11-18T08:00:00-08:00',endDate:'2026-11-20T17:00:00-08:00'};
+const parsed=parseIssuerEvents(script({'@graph':[event]}),{symbol:'MSFT',sourceUrl:'https://sponsor.microsoft.com/'});
+assert.equal(parsed[0].date,'2026-11-18');assert.equal(parsed[0].time,'11:00 ET');assert.equal(parsed[0].endDate,'2026-11-20');
+assert.equal(parseIssuerEvents(script({...event,startDate:'2026-02-31'}),{symbol:'MSFT',sourceUrl:'https://sponsor.microsoft.com/'}).length,0);
+assert.equal(parseIssuerEvents(script({...event,startDate:'2026-11-18T08:00:00'}),{symbol:'MSFT',sourceUrl:'https://sponsor.microsoft.com/'}).length,0,'unqualified local times cannot become ET');
+const fetchPage=html=>async()=>({ok:true,text:async()=>'<html>'+html+' '.repeat(1600)+'</html>'});
+const moved=await fetchCompanyCalendar({symbols:['MSFT'],startMs:start,cutoffMs:end,nowMs:now,fetchImpl:fetchPage(script(event))});
+assert.equal(moved.events.find(e=>e.id==='msft-ignite-2026').date,'2026-11-18');
+const cancelled=await fetchCompanyCalendar({symbols:['MSFT'],startMs:start,cutoffMs:end,nowMs:now,fetchImpl:fetchPage(script({...event,eventStatus:'https://schema.org/EventCancelled'}))});
+assert.equal(cancelled.events.length,0);
+const cancelledNews=buildCalendarPayload({MSFT:{catalysts:[{date:'2026-11-17',title:'Microsoft Ignite 2026',evidenceVersion:2,dateEvidence:'Scheduled event',sourceTitle:'Old news',sourceUrl:'https://example.com/news',sourcePublishedAt:'2026-10-28T12:00:00Z'}]}},[],'2026-10-28T16:00:00Z',{companyCalendar:cancelled});
+assert(!cancelledNews.events.some(e=>e.symbol==='MSFT' && /Ignite/.test(e.title)),'old news cannot resurrect an issuer-cancelled event');
+
+const cachedCancelled=await fetchCompanyCalendar({symbols:['MSFT'],startMs:start,cutoffMs:end,nowMs:now+1000,prior:cancelled,fetchImpl:async()=>{throw Error('should reuse cache');}});
+assert.equal(cachedCancelled.events.length,0,'cache cannot resurrect a cancelled event');
+const outage=await fetchCompanyCalendar({symbols:['MSFT'],startMs:start,cutoffMs:end,nowMs:now+2*86400000,prior:moved,fetchImpl:async()=>{throw Error('network');}});
+assert.equal(outage.events.find(e=>e.id==='msft-ignite-2026').date,'2026-11-18','outage cannot replace rescheduled date with old baseline');
+assert(outage.events[0].sourceCheckFailed);
+const initialOutage=await fetchCompanyCalendar({symbols:['ORCL'],startMs:start,cutoffMs:end,nowMs:now,fetchImpl:async()=>({ok:false,status:403})});
+assert(initialOutage.events.some(e=>e.id==='orcl-ai-world-2026' && e.sourceCheckFailed),'verified schedule survives source outage');
+console.log('Company event smoke passed: dates, history, universe filtering, ranges, time zones, deduplication, reschedules, cancellations and outages.');
+
+const unknown={...event,name:'Microsoft AI product launch conference',startDate:'2026-11-22',endDate:'2026-11-23'};
+const once=await fetchCompanyCalendar({symbols:['MSFT'],startMs:start,cutoffMs:end,nowMs:now,fetchImpl:fetchPage(script(unknown))});
+const twice=await fetchCompanyCalendar({symbols:['MSFT'],startMs:start,cutoffMs:end,nowMs:now+2*86400000,prior:once,fetchImpl:fetchPage(script(unknown))});
+assert.equal(once.events.length,twice.events.length,'repeated checks cannot accumulate duplicate structured events');
+const recovered=await fetchCompanyCalendar({symbols:['MSFT'],startMs:start,cutoffMs:end,nowMs:now+3*86400000,prior:outage,fetchImpl:fetchPage('Publisher page is available')});
+assert(!recovered.events.some(e=>e.sourceCheckFailed),'a successful source check clears an earlier access warning');
+const changedVersion=await fetchCompanyCalendar({symbols:['MSFT'],startMs:start,cutoffMs:end,nowMs:now+1000,prior:{...cancelled,version:0},fetchImpl:fetchPage('Publisher page available')});
+assert(changedVersion.events.some(e=>e.id==='msft-ignite-2026'),'registry version change invalidates prior source cache');
+console.log('Company event repeat/recovery checks passed.');
+
+const ongoingFed={type:'fed',date:'2026-10-26',endDate:'2026-10-29',title:'Official multi-day conference',sourceKey:'fed-test',official:true};
+assert(buildCalendarPayload({},[],'2026-10-28T16:00:00Z',{officialCalendar:{events:[ongoingFed],status:{'fed-test':true}}}).events.some(e=>e.title===ongoingFed.title));
+assert(buildCalendarPayload({},[],'2026-10-28T16:00:00Z',{officialCalendar:{events:[],status:{'fed-test':false}},priorCalendar:{events:[ongoingFed]}}).events.some(e=>e.title===ongoingFed.title && e.stale),'ongoing official events also survive source outages');
+
+assert.equal(auditCalendar(payload,now).uncitedCatalysts.length,0,'published issuer schedules carry their own verification evidence');

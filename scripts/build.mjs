@@ -1,3 +1,9 @@
+import { PUBLISHED_COMPANY_EVENTS, COMPANY_EVENTS_VERSION, companyEventsInWindow, fetchCompanyCalendar, COMPANY_EVENT_LOOKBACK_DAYS, coveredByCompanySchedule } from "../lib/company-events.mjs";
+import { calendarCoverage, calendarEventsForUniverse } from "../lib/calendar-policy.mjs";
+import { ISM_CALENDAR_URL, censusCalendarUrl, parseCensusCalendar, parseIsmCalendar, ismBaselineEvents, supplementalWeeklyReports, marketSessionCalendarEvents, scheduledPolicyCalendarEvents } from "../lib/calendar-sources.mjs";
+import { computeStreakForTicker } from "../lib/streaks.mjs";
+export { computeStreakForTicker } from "../lib/streaks.mjs";
+import { PATTERN_HISTORY_DAYS, splitPatternHistory } from "../lib/pattern-history.mjs";
 // Renders index.html — a single-purpose Option Contract Rater.
 //
 // Build-time: fetches Yahoo's option chain for a curated ticker list
@@ -79,14 +85,16 @@ import { readHistoricalSourceCache, refreshHistoricalSourceCache, loadFreeFredHi
 import { FOMC_DECISIONS, headlineHits, wwdcKeynote, WWDC_WINDOW_DAYS } from "../lib/historical-events.mjs";
 import { cleanHistoricalBars, cleanLongBars, confirmedMarketBars } from "../lib/historical-market-history.mjs";
 import { HISTORICAL_MARKETS, HISTORICAL_SOURCE_KEY } from "../lib/historical-sources.mjs";
-import { readForecastState, prepareEarningsForecast, writeEarningsForecast } from './refresh-earnings-forecast.mjs';
+import { readForecastState, readForecastFiles, restoreForecastFiles, prepareEarningsForecast, writeEarningsForecast } from './refresh-earnings-forecast.mjs';
 import { forcedLiquidationContext } from "../lib/forced-liquidation.mjs";
 import { buyoutContextFor } from "../lib/pending-buyout-guard.mjs";
 import { buildShadowSignals } from "../lib/shadow-signals.mjs";
 import { readForcedLiquidation, refreshForcedLiquidation, writeForcedLiquidation } from './refresh-forced-liquidation.mjs';
+import { fetchPartyBars, refreshPartyTracker } from './refresh-party-tracker.mjs';
+import { emptyLeverageDistress, readLeverageDistress, refreshLeverageDistress, writeLeverageDistress } from './refresh-leverage-distress.mjs';
 import { withYahooTimeout } from "../lib/yahoo.mjs";
 import { yahooQuoteProvenance } from "../lib/quote-provenance.mjs";
-import { prepareTranscriptInput, assertTranscriptResponse, transcriptCharacterBudget } from "../lib/transcript-input.mjs";
+import { prepareTranscriptInput, transcriptListOverruns, transcriptCharacterBudget, salvageTruncatedJson } from "../lib/transcript-input.mjs";
 import { UNIFIED_SIGNAL_KEY } from "../lib/unified-signal.mjs";
 import { publishUnifiedSignal } from "./publish-unified-signal.mjs";
 import { attachLeapsExpirations, leapsExtraFetchEnabled } from "../lib/leaps-expirations.mjs";
@@ -1333,20 +1341,16 @@ async function fetchLeapsExpirationChain(symbol, expSec, spotHint) {
 }
 
 // --- Historical bars + technical indicators -----------------------------
-// Pulls ~7 months of daily closes (high/low/close) per ticker. Enough warmup
+// Pulls two years of daily closes (high/low/close) per ticker. Enough warmup
 // to run a 14-period RSI, a 12/26/9 MACD, and rolling 20-/50-day swing
 // support/resistance off the same series. Cost is one extra Yahoo call per
 // ticker (chart endpoint), added to the per-expiration calls already running
 // inside fetchTickerChain. Transient chart failures retry in place; an
 // exhausted daily-history miss remains null so the pre-AI gate can fail closed
 // before paid work or publication.
-// 365 calendar days ≈ 252 trading days — enough to fill the 200-day SMA and
-// the 200-day support/resistance windows with margin for weekends + market
-// holidays. (Was 220 ≈ ~150 trading days, which left every 200d window
-// perpetually null.) Bars are never persisted per-ticker (`_bars` is stripped
-// before write) and the streak tracker slices its own 60-day tail, so the
-// extra history only feeds the trailing-window technicals.
-const HISTORY_LOOKBACK_DAYS = 365;
+// The one request supplies two years to Pattern Lab. Scoring and existing
+// consumers keep their one-year window; both raw arrays stay in memory only.
+const HISTORY_LOOKBACK_DAYS = PATTERN_HISTORY_DAYS;
 
 async function fetchHistoricalBars(symbol) {
   const period2 = new Date();
@@ -1443,271 +1447,18 @@ async function fetchIntradayBars(symbol) {
   );
 }
 
-// A counter day moves opposite the streak. The daily noise floor, one-day
-// break bar, and cumulative tolerance bar adapt to each ticker's own recent
-// median absolute move below. Four consecutive counter days remains a hard
-// behavioral stop. Same-direction closes heal half the tolerance bank and
-// one accumulated counter day, so old damage fades without resetting a
-// fragile run to pristine in a single session. Tolerance only begins after
-// two same-direction days; a one-day move followed by a reversal is not a
-// streak worth defending.
-const STREAK_CONSECUTIVE_COUNTER_BREAK = 4;
-// How recently a genuine streak must have broken to be surfaced as a
-// "just snapped" mean-reversion candidate (0 = snapped on the latest session).
-const STREAK_SNAPPED_RECENT_SESSIONS = 2;
-
 // Confirmed daily bars for streaks (and any other live-candle consumer).
-// Drop the last bar unless the session is already closed or post-close —
-// the in-progress regular-session print is unfinished. Volume stays on
-// the same cutoff because computeStreakForTicker reads each bar's `.v`.
-export function confirmedDailyBars(bars, marketState) {
+// Remove an unfinished current-session print, preserving the prior close
+// when Yahoo has not appended today's candle yet (especially pre-market).
+// Unknown dates retain the conservative cutoff. Volume follows the same bar.
+export function confirmedDailyBars(bars, marketState, now = new Date()) {
   if (!Array.isArray(bars) || !bars.length) return [];
   const st = String(marketState || "").toUpperCase();
-  if (st === "CLOSED" || st === "POST") return bars;
+  if (st === "CLOSED" || st === "POST" || st === "POSTPOST") return bars;
+  const last = bars[bars.length - 1];
+  const lastDate = barDateKey(last?.t ?? last?.date);
+  if (lastDate && lastDate < etDateKey(now)) return bars;
   return bars.slice(0, -1);
-}
-
-// Walks daily closes oldest-first, building each day's % change, and
-// simulates the current streak forward. Returns null for tickers without
-// enough bars to derive even one day-over-day move.
-export function computeStreakForTicker(symbol, bars) {
-  if (!bars || bars.length < 2) return null;
-  // Cap at the most recent ~60 sessions so we don't carry decades of
-  // history forward; the active streak is always recent by definition.
-  const tail = bars.slice(-60);
-  const rawMoves = [];
-  for (let i = 1; i < tail.length; i++) {
-    const prev = tail[i - 1];
-    const curr = tail[i];
-    if (!(prev?.c > 0) || !(curr?.c > 0)) continue;
-    const changePct = ((curr.c - prev.c) / prev.c) * 100;
-    // idx -> position in `tail` (for volume baseline lookup); volume -> the
-    // session's share volume (used for the streak's volume-trend read).
-    rawMoves.push({ idx: i, date: curr.t || curr.date || null, close: curr.c, volume: curr.v ?? null, changePct });
-  }
-  if (!rawMoves.length) return null;
-  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
-  const median = (values) => {
-    const sorted = values.slice().sort((a, b) => a - b);
-    const mid = Math.floor(sorted.length / 2);
-    return sorted.length % 2
-      ? sorted[mid]
-      : (sorted[mid - 1] + sorted[mid]) / 2;
-  };
-  const recentAbs = rawMoves.slice(-20).map((m) => Math.abs(m.changePct));
-  const medianAbsMove = median(recentAbs);
-  // Ignore tape dust: a +0.03% close should not extend a streak. Scale the
-  // dead-band and break bars to each ticker's own recent daily movement.
-  const moveNoisePct = clamp(medianAbsMove * 0.20, 0.08, 0.35);
-  const counterBreakPct = clamp(medianAbsMove * 1.75, 0.8, 2.5);
-  const toleranceBreakPct = clamp(counterBreakPct * 1.25, 1.0, 3.0);
-  const materialRunPct = Math.max(2, medianAbsMove * 3);
-  const moves = rawMoves.map((m) => ({
-    ...m,
-    color: m.changePct > moveNoisePct
-      ? "green"
-      : m.changePct < -moveNoisePct
-        ? "red"
-        : "flat",
-  }));
-
-  // Walk oldest -> newest, restarting the streak whenever a break fires.
-  // Whatever streak survives to the end of the loop is the "current" one.
-  let streak = null;
-  // Rarity context — the longest GENUINE (>=2 same-direction days) green and
-  // red run anywhere in the 60-session window, so the renderer can flag a
-  // current run as "longest in 3mo" vs a routine length.
-  let maxGreenDays = 0;
-  let maxRedDays = 0;
-  const recordMax = (s) => {
-    if (!s || s.sameDays < 2) return;
-    if (s.direction === "green") maxGreenDays = Math.max(maxGreenDays, s.sameDays);
-    else if (s.direction === "red") maxRedDays = Math.max(maxRedDays, s.sameDays);
-  };
-  // The most-recently-ended genuine streak (a "snapped" run) — captured each
-  // time a real streak breaks, surfaced at the end only if it broke within the
-  // last few sessions. Powers the mean-reversion "Just snapped" view.
-  let priorEnded = null;
-  const startStreak = (m) => ({
-    direction: m.color,
-    days: 1,
-    sameDays: 1,
-    cumulativePct: m.changePct,
-    growthFactor: 1 + m.changePct / 100,
-    // Counter-day drag, partially healed by later same-direction closes.
-    tolerancePct: 0,
-    // Net counter-day pressure after partial healing.
-    counterDays: 0,
-    // Current trailing run of counter days -- only this resets on a
-    // same-direction day. Used solely for the N-in-a-row break rule.
-    consecutiveCounterDays: 0,
-    history: [m],
-  });
-  for (const m of moves) {
-    if (m.color === "flat") {
-      // Flat days are neither same nor counter -- record them but don't
-      // touch direction or tolerance bookkeeping. Their small return still
-      // belongs in the compounded window result.
-      if (streak) {
-        streak.days += 1;
-        streak.growthFactor *= 1 + m.changePct / 100;
-        streak.cumulativePct = (streak.growthFactor - 1) * 100;
-        streak.history.push(m);
-      }
-      continue;
-    }
-    if (!streak) {
-      streak = startStreak(m);
-      continue;
-    }
-    if (m.color === streak.direction) {
-      // Same-direction day extends the run and heals half of prior counter-day
-      // damage. Old tiny pullbacks should not permanently poison a trend, but
-      // a recently fragile run should not reset to pristine in one close.
-      streak.sameDays += 1;
-      streak.days += 1;
-      streak.growthFactor *= 1 + m.changePct / 100;
-      streak.cumulativePct = (streak.growthFactor - 1) * 100;
-      streak.tolerancePct *= 0.5;
-      streak.counterDays = Math.max(0, streak.counterDays - 1);
-      streak.consecutiveCounterDays = 0;
-      streak.history.push(m);
-      continue;
-    }
-    // Counter-direction day. Tolerance only applies once the streak has
-    // ≥ 2 same-direction days under its belt; a 1-day "streak" followed
-    // by a counter just flips direction.
-    if (streak.sameDays < 2) {
-      recordMax(streak);
-      streak = startStreak(m);
-      continue;
-    }
-    const counterMag = Math.abs(m.changePct);
-    const newTolerance = streak.tolerancePct + counterMag;
-    const newCounterDays = streak.counterDays + 1;
-    const newConsecutiveCounter = streak.consecutiveCounterDays + 1;
-    const breakSingleDay = counterMag > counterBreakPct;
-    const breakCumulative = newTolerance >= toleranceBreakPct;
-    const breakConsecutive = newConsecutiveCounter >= STREAK_CONSECUTIVE_COUNTER_BREAK;
-    if (breakSingleDay || breakCumulative || breakConsecutive) {
-      recordMax(streak);
-      // The dying streak passed the sameDays>=2 guard above, so it's a real
-      // run worth remembering as a recent break. `endIdx` = the breaking
-      // day's position in `tail`; recency is measured against it at the end.
-      priorEnded = {
-        color: streak.direction,
-        days: streak.sameDays,
-        windowDays: streak.days,
-        sameDays: streak.sameDays,
-        cumulativePct: streak.cumulativePct,
-        endIdx: m.idx,
-        reversalPct: m.changePct,
-        material: (
-          streak.sameDays >= 3 &&
-          (streak.sameDays >= 5 || Math.abs(streak.cumulativePct) >= materialRunPct) &&
-          counterMag >= Math.max(moveNoisePct, counterBreakPct * 0.5)
-        ),
-        brokeBy: breakSingleDay ? "big counter day" : breakCumulative ? "tolerance bank" : "counter days",
-      };
-      streak = startStreak(m);
-      continue;
-    }
-    // Tolerated: streak survives but logs the counter day's drag.
-    streak.days += 1;
-    streak.growthFactor *= 1 + m.changePct / 100;
-    streak.cumulativePct = (streak.growthFactor - 1) * 100;
-    streak.tolerancePct = newTolerance;
-    streak.counterDays = newCounterDays;
-    streak.consecutiveCounterDays = newConsecutiveCounter;
-    streak.history.push(m);
-  }
-  if (!streak) return null;
-  // Fold the surviving (current) streak into the rarity context too.
-  recordMax(streak);
-
-  const lastMove = streak.history[streak.history.length - 1];
-  const lastIdx = lastMove?.idx;
-
-  // Volume-trend read: average share volume DURING the streak vs the ~20
-  // sessions immediately before it began. A run on rising volume is on
-  // conviction; a fading-volume run is more likely to mean-revert. Both
-  // averages degrade to null when volume is missing (the trend is then
-  // simply omitted from the payload).
-  const avgOf = (arr) => (arr.length ? arr.reduce((s, x) => s + x, 0) / arr.length : null);
-  const startIdx = streak.history[0]?.idx;
-  const streakVols = streak.history.map((m) => m.volume).filter((v) => v > 0);
-  const baseVols = [];
-  if (Number.isInteger(startIdx)) {
-    for (let j = Math.max(0, startIdx - 20); j < startIdx; j++) {
-      if (tail[j]?.v > 0) baseVols.push(tail[j].v);
-    }
-  }
-  const streakAvgVol = avgOf(streakVols);
-  const baseAvgVol = avgOf(baseVols);
-  let volumeRatio = null;
-  let volumeTrend = null;
-  if (streakAvgVol != null && baseAvgVol > 0) {
-    volumeRatio = streakAvgVol / baseAvgVol;
-    volumeTrend = volumeRatio >= 1.15 ? "rising" : volumeRatio <= 0.85 ? "falling" : "flat";
-  }
-
-  // Surface the snapped streak only if it broke within the last few sessions
-  // (sessionsAgo 0 = snapped today). Older breaks aren't actionable, so drop.
-  let lastEnded = null;
-  if (
-    priorEnded?.material &&
-    Number.isInteger(lastIdx) &&
-    Number.isInteger(priorEnded.endIdx)
-  ) {
-    const sessionsAgo = lastIdx - priorEnded.endIdx;
-    if (sessionsAgo >= 0 && sessionsAgo <= STREAK_SNAPPED_RECENT_SESSIONS) {
-      lastEnded = {
-        color: priorEnded.color,
-        days: priorEnded.days,
-        windowDays: priorEnded.windowDays,
-        sameDays: priorEnded.sameDays,
-        cumulativePct: priorEnded.cumulativePct,
-        reversalPct: priorEnded.reversalPct,
-        brokeBy: priorEnded.brokeBy,
-        sessionsAgo,
-      };
-    }
-  }
-
-  // History is emitted newest-first to match the existing data contract.
-  // Emit the full streak window. The renderer uses windowDays for the spark
-  // and sameDays for the signal length shown in filters and rankings.
-  const histOut = streak.history.slice().reverse().map((m, idx) => ({
-    sessionsBack: idx,
-    date: m.date,
-    close: m.close,
-    changePct: m.changePct,
-    color: m.color,
-  }));
-  return {
-    symbol,
-    lastClose: lastMove?.close ?? null,
-    current: {
-      color: streak.direction,
-      days: streak.days,
-      windowDays: streak.days,
-      sameDays: streak.sameDays,
-      cumulativePct: streak.cumulativePct,
-      tolerancePct: streak.tolerancePct,
-      counterDays: streak.counterDays,
-      moveNoisePct,
-      counterBreakPct,
-      toleranceBreakPct,
-      counterDaysBreak: STREAK_CONSECUTIVE_COUNTER_BREAK,
-      volumeRatio,
-      volumeTrend,
-    },
-    // Longest comparable run (same-direction-day metric) for each direction over the
-    // ~60-session window — lets the UI flag an unusually long current run.
-    context: { maxGreenDays, maxRedDays, windowSessions: moves.length },
-    lastEnded,
-    history: histOut,
-  };
 }
 
 function emaSeries(values, period) {
@@ -3645,9 +3396,15 @@ async function fetchTickerChain(symbol) {
   // log becomes scannable, which is the higher value here.
   let technicals = null;
   let bars = null;
+  let patternBars = null;
   let intraday = null;
+  let priceHistoryProvenance = null;
   try {
-    bars = await fetchHistoricalBars(symbol);
+    const requestedAt = new Date().toISOString();
+    const history = splitPatternHistory(await fetchHistoricalBars(symbol));
+    priceHistoryProvenance = { provider: 'Yahoo Finance chart', interval: '1d', requestedAt, fetchedAt: new Date().toISOString() };
+    bars = history.technical;
+    patternBars = history.research;
     technicals = computeTechnicals(bars);
   } catch (err) {
     console.log(`    ⚠ ${symbol} historical/technicals failed: ${summarizeYahooError(err)}`);
@@ -3681,6 +3438,7 @@ async function fetchTickerChain(symbol) {
     quoteAsOf,
     quoteProvenance: yahooQuoteProvenance(initial.quote, { optionSpot: true }),
     marketState: initial.quote?.marketState ?? null,
+    priceHistoryProvenance,
     expirations: Object.keys(chains).map(Number).sort((a, b) => a - b),
     chains,
     technicals,
@@ -3689,6 +3447,7 @@ async function fetchTickerChain(symbol) {
     // Used by the streak aggregator (data/streaks.json) so we don't re-hit
     // Yahoo for the same daily closes.
     _bars: bars,
+    _patternBars: patternBars,
     // _intraday (30m, regular session) — in-memory only, stripped before write.
     // Compacted into the persisted `intradaySeries` for the browser's 1W/1M chart tabs.
     _intraday: intraday,
@@ -4431,7 +4190,7 @@ export async function writeAutoPicksFile(picks, builtAtIso = new Date().toISOStr
 
 // Public per-ticker body. Transient series and the LEAPS tail stay in memory.
 export function publicChainFilePayload(data) {
-  const { _bars, _intraday, _signalHeadlines, _listedExpirations, _leapsChains, autoPick: _legacyAutoPick, ...rest } = data;
+  const { _bars, _patternBars, _intraday, _signalHeadlines, _listedExpirations, _leapsChains, autoPick: _legacyAutoPick, ...rest } = data;
   return {
     ...rest,
     priceSeries: buildPriceSeries(_bars),
@@ -5253,6 +5012,7 @@ export function buildIvTrendingPayload(ivHistory, chains, builtAtIso = new Date(
       elevated,
       band: ivBand.band,
       asOf: lastDate,
+      capturedAtIso: entries.at(-1)?.capturedAtIso || null,
     };
     // Earnings context — the most common "why": IV mechanically builds into a
     // print. Attach it so the UI can distinguish scheduled event risk from an
@@ -8048,8 +7808,9 @@ const TRANSCRIPT_PROBES_PER_BUILD = Math.max(0, Number(process.env.TRANSCRIPT_PR
 const TRANSCRIPT_CONCURRENCY = Math.max(1, Number(process.env.TRANSCRIPT_CONCURRENCY) || 3);
 const TRANSCRIPT_PROBE_COOLDOWN_DAYS = 3;
 // Input-token lever: a big-cap call runs ~45-70k chars; 90k covers the tail
-// without letting a malformed page feed the model megabytes.
-const TRANSCRIPT_MAX_CHARS = transcriptCharacterBudget(process.env.AI_TRANSCRIPT_CHARS);
+// without letting a malformed page feed the model megabytes. Read at call
+// time: a malformed value fails the transcript step, not every importer.
+const transcriptMaxChars = () => transcriptCharacterBudget(process.env.AI_TRANSCRIPT_CHARS);
 // Sanity floor — shorter than this isn't a real call transcript (parse failure,
 // paywall stub, redirect page); skip and retry a later build.
 const TRANSCRIPT_MIN_CHARS = 6_000;
@@ -8497,9 +8258,9 @@ const TRANSCRIPT_SUMMARY_SYSTEM_PROMPT =
 // send maxItems for this large, deeply nested contract. Adding those 17
 // constraints on 2026-07-20 made every newly-discovered transcript request
 // fail with INVALID_ARGUMENT before the model could answer. The model still
-// receives the exact limits in its instruction below, and the normalizer caps
-// every array after parsing, so output quality/size remain bounded without
-// making the backend compile the combinatorial constrained-decoding grammar.
+// receives the exact limits in its instruction below; a response that runs
+// over one is kept whole and the overrun recorded, so the backend never has to
+// compile the combinatorial constrained-decoding grammar.
 function transcriptOpenApiSchema(node = TRANSCRIPT_SUMMARY_SCHEMA) {
   if (Array.isArray(node)) return node.map((value) => transcriptOpenApiSchema(value));
   if (!node || typeof node !== "object") return node;
@@ -8539,68 +8300,99 @@ export function transcriptSummaryGenerateConfig() {
   };
 }
 
-// Validate at the model-response boundary. Keep complete strings, including a
-// final qualification; the prompt and provider output ceiling bound verbosity.
-export function normalizeTranscriptSummary(parsed) {
-  assertTranscriptResponse(parsed, TRANSCRIPT_SUMMARY_SCHEMA);
-  const str = v => typeof v === "string" ? v.replace(/\s+/g, " ").trim() : "";
-  const invalid = section => {
-    const err = new Error(`transcript summary contains an empty ${section} entry`);
+// A paid response is kept: every usable entry is published, complete strings
+// included. Lists over the prompted limit stay whole; an entry that cannot be
+// shown (empty, missing its required text, unsupported label) is left out on
+// its own. Each such case is pushed onto `notes` so the brief records it.
+export function normalizeTranscriptSummary(parsed, notes = []) {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    const err = new Error("transcript summary is not a JSON object");
     err.transcriptContentFailure = true;
     throw err;
+  }
+  transcriptListOverruns(parsed, TRANSCRIPT_SUMMARY_SCHEMA, "$", notes);
+  const P = TRANSCRIPT_SUMMARY_SCHEMA.properties;
+  const str = v => typeof v === "string" ? v.replace(/\s+/g, " ").trim() : typeof v === "number" && Number.isFinite(v) ? String(v) : "";
+  const omit = (path, issue) => notes.push({ path, issue });
+  const list = (v, path) => {
+    if (v == null) return [];
+    if (Array.isArray(v)) return v;
+    omit(path, "not a list");
+    return [];
   };
-  const strArr = v => (v || []).map(x => str(x) || invalid("text"));
-  const objArr = (v, fields, required, section) => (v || []).map(x => {
-    const row = Object.fromEntries(fields.map(key => [key, str(x[key])]));
-    if (required.some(key => !row[key])) invalid(section);
-    return row;
+  const strArr = (v, key) => list(v, `$.${key}`).flatMap((x, i) => {
+    const s = str(x);
+    if (!s) { omit(`$.${key}[${i}]`, "empty entry"); return []; }
+    return [s];
   });
-  const tone = (o, phraseKey) => {
+  const objArr = (v, key, fields, required) => list(v, `$.${key}`).flatMap((x, i) => {
+    const row = Object.fromEntries(fields.map(f => [f, str(x?.[f])]));
+    const missing = required.filter(f => !row[f]);
+    if (missing.length) { omit(`$.${key}[${i}]`, `missing ${missing.join(", ")}`); return []; }
+    return [row];
+  });
+  const choice = (v, allowed, path) => {
+    if (v == null || v === "") return null;
+    if (allowed.includes(v)) return v;
+    omit(path, "unsupported value");
+    return null;
+  };
+  const tone = (key, phraseKey) => {
+    const o = parsed[key];
+    if (o == null) { omit(`$.${key}`, "missing"); return null; }
+    if (typeof o !== "object" || Array.isArray(o)) { omit(`$.${key}`, "not an object"); return null; }
+    const props = P[key].properties;
     return {
-      label: o.label,
-      ...(phraseKey === "speaker"
-        ? { stance: o.stance }
-        : {}),
+      label: choice(o.label, props.label.enum, `$.${key}.label`),
+      ...(phraseKey === "speaker" ? { stance: choice(o.stance, props.stance.enum, `$.${key}.stance`) } : {}),
       summary: str(o.summary),
-      phrases: objArr(o.phrases, ["quote", phraseKey, "read"], ["quote"], "tone evidence"),
+      phrases: objArr(o.phrases, `${key}.phrases`, ["quote", phraseKey, "read"], ["quote"]),
     };
   };
   const out = {
     headline: str(parsed.headline),
-    execSummary: strArr(parsed.execSummary),
-    financials: objArr(parsed.financials, ["label", "value", "context"], ["label", "value"], "financial"),
-    guidance: parsed.guidance
-      .map((g) => {
-        return {
-          metric: str(g.metric),
-          value: str(g.value),
-          period: str(g.period),
-          change: g.change ?? null,
-        };
-      })
-      .map(g => g.metric && g.value ? g : invalid("guidance")),
-    operational: strArr(parsed.operational),
-    segments: objArr(parsed.segments, ["name", "detail"], ["name", "detail"], "segment"),
-    kpis: objArr(parsed.kpis, ["name", "value", "note"], ["name", "value"], "KPI"),
-    capitalAllocation: strArr(parsed.capitalAllocation),
-    competitive: strArr(parsed.competitive),
-    macro: strArr(parsed.macro),
-    pipeline: strArr(parsed.pipeline),
-    legal: strArr(parsed.legal),
-    mgmtTone: tone(parsed.mgmtTone, "speaker"),
-    analystTone: tone(parsed.analystTone, "analyst"),
-    qa: objArr(parsed.qa, ["analyst", "firm", "question", "respondent", "answer", "takeaway"], ["question", "answer"], "Q&A"),
-    risks: strArr(parsed.risks),
-    quotes: objArr(parsed.quotes, ["speaker", "role", "quote"], ["quote"], "quote"),
-    participants: objArr(parsed.participants, ["name", "role"], ["name"], "participant"),
-    epsVerdict: parsed.epsVerdict ?? null,
+    execSummary: strArr(parsed.execSummary, "execSummary"),
+    financials: objArr(parsed.financials, "financials", ["label", "value", "context"], ["label", "value"]),
+    guidance: list(parsed.guidance, "$.guidance").flatMap((g, i) => {
+      const row = {
+        metric: str(g?.metric),
+        value: str(g?.value),
+        period: str(g?.period),
+        change: choice(g?.change ?? null, P.guidance.items.properties.change.enum, `$.guidance[${i}].change`),
+      };
+      if (!row.metric || !row.value) { omit(`$.guidance[${i}]`, "missing metric or value"); return []; }
+      return [row];
+    }),
+    operational: strArr(parsed.operational, "operational"),
+    segments: objArr(parsed.segments, "segments", ["name", "detail"], ["name", "detail"]),
+    kpis: objArr(parsed.kpis, "kpis", ["name", "value", "note"], ["name", "value"]),
+    capitalAllocation: strArr(parsed.capitalAllocation, "capitalAllocation"),
+    competitive: strArr(parsed.competitive, "competitive"),
+    macro: strArr(parsed.macro, "macro"),
+    pipeline: strArr(parsed.pipeline, "pipeline"),
+    legal: strArr(parsed.legal, "legal"),
+    mgmtTone: tone("mgmtTone", "speaker"),
+    analystTone: tone("analystTone", "analyst"),
+    qa: objArr(parsed.qa, "qa", ["analyst", "firm", "question", "respondent", "answer", "takeaway"], ["question", "answer"]),
+    risks: strArr(parsed.risks, "risks"),
+    quotes: objArr(parsed.quotes, "quotes", ["speaker", "role", "quote"], ["quote"]),
+    participants: objArr(parsed.participants, "participants", ["name", "role"], ["name"]),
+    epsVerdict: choice(parsed.epsVerdict, P.epsVerdict.enum, "$.epsVerdict"),
   };
-  if (!out.headline || out.execSummary.length < 3) throw new Error("transcript summary missing headline/execSummary");
+  if (!out.headline && out.execSummary.length) {
+    out.headline = out.execSummary[0];
+    omit("$.headline", "missing; first summary point used");
+  }
+  if (!out.headline) {
+    const err = new Error("transcript summary has no headline or summary points to show");
+    err.transcriptContentFailure = true;
+    throw err;
+  }
   return out;
 }
 
 async function summarizeEarningsCall(sym, meta) {
-  const sourceInput = prepareTranscriptInput(meta.text, TRANSCRIPT_MAX_CHARS);
+  const sourceInput = prepareTranscriptInput(meta.text, transcriptMaxChars());
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: AI_HTTP_TIMEOUT_MS } });
   const userMessage =
     `${sym} — ${meta.company || sym} ${meta.quarter || ""} earnings call` +
@@ -8629,27 +8421,39 @@ async function summarizeEarningsCall(sym, meta) {
     }
   }
   if (!response) throw lastErr ?? new Error("no response from Gemini");
-  // A response that slammed into maxOutputTokens is truncated mid-JSON and —
-  // because the runaway is a property of the transcript, not the call — it
-  // reproduces on every attempt (UBS did it every bake for days: ~16.4k output
-  // tokens burned per try on the priciest model). Detect the finishReason
-  // instead of letting JSON.parse throw, and tag it (like the parse/normalize
-  // failures below) as a CONTENT failure so the caller stamps the per-name
-  // daily cooldown rather than re-attempting every bake. Not thrown inside the
-  // retry loop — the API call "succeeded", so the model ladder never fires.
-  if (response?.candidates?.[0]?.finishReason === "MAX_TOKENS") {
-    const err = new Error("response hit the maxOutputTokens cap (finishReason MAX_TOKENS) — truncated JSON");
-    err.transcriptContentFailure = true;
+  // A response that slammed into maxOutputTokens is truncated mid-JSON, and
+  // the runaway reproduces on every attempt (UBS did it every bake for days).
+  // It has been paid for, so every section that finished before the cut is
+  // kept and the brief is marked partial. Only a response with nothing
+  // recoverable is a CONTENT failure (the per-name daily cooldown). Not thrown
+  // inside the retry loop: the API call "succeeded", so the model ladder never fires.
+  const truncated = response?.candidates?.[0]?.finishReason === "MAX_TOKENS";
+  const text = response.text;
+  if (!text) {
+    const err = new Error(truncated ? "response hit the maxOutputTokens cap (finishReason MAX_TOKENS) with no text" : "empty Gemini response");
+    if (truncated) err.transcriptContentFailure = true;
     throw err;
   }
-  const text = response.text;
-  if (!text) throw new Error("empty Gemini response");
   const stripped = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
   const firstBrace = stripped.indexOf("{");
   const lastBrace = stripped.lastIndexOf("}");
   try {
-    const parsed = JSON.parse(firstBrace >= 0 && lastBrace > firstBrace ? stripped.slice(firstBrace, lastBrace + 1) : stripped);
-    return { summary: normalizeTranscriptSummary(parsed), sourceInput };
+    const notes = [];
+    let parsed;
+    if (truncated) {
+      parsed = salvageTruncatedJson(stripped);
+      if (!parsed) throw new Error("response hit the maxOutputTokens cap (finishReason MAX_TOKENS) and no complete section could be recovered");
+      notes.push({ path: "$", issue: "truncated" });
+    } else {
+      try {
+        parsed = JSON.parse(firstBrace >= 0 && lastBrace > firstBrace ? stripped.slice(firstBrace, lastBrace + 1) : stripped);
+      } catch (parseErr) {
+        parsed = salvageTruncatedJson(stripped);
+        if (!parsed) throw parseErr;
+        notes.push({ path: "$", issue: "malformed JSON; complete sections kept" });
+      }
+    }
+    return { summary: normalizeTranscriptSummary(parsed, notes), sourceInput, notes, partial: truncated };
   } catch (err) {
     // The model answered but the content is unusable (malformed JSON, missing
     // required sections) — deterministic for this transcript, so same-day
@@ -8872,7 +8676,7 @@ export async function updateEarningsCallsData({ prior = null, earningsHxStore = 
       }
     }
     try {
-      const { summary, sourceInput } = await summarizeEarningsCall(item.sym, parsed);
+      const { summary, sourceInput, notes, partial } = await summarizeEarningsCall(item.sym, parsed);
       const quarter = parsed.quarter || item.quarter || null;
       const callDate = parsed.callDate || item.published || null;
       const sourceName = item.origin === "marketbeat" ? "MarketBeat" : "The Motley Fool";
@@ -8888,8 +8692,11 @@ export async function updateEarningsCallsData({ prior = null, earningsHxStore = 
         v: TRANSCRIPT_SUMMARY_VERSION,
         summaryFormat: TRANSCRIPT_BRIEF_FORMAT,
         sourceInput: { coverage: sourceInput.coverage, originalChars: sourceInput.originalChars, suppliedChars: sourceInput.suppliedChars, sourceHash: sourceInput.sourceHash },
+        ...(notes.length ? { responseNotes: notes.slice(0, 40) } : {}),
+        ...(partial ? { partial: true } : {}),
         summary,
       });
+      if (notes.length) console.log(`  [calls] ${item.sym} summary kept with ${notes.length} note${notes.length === 1 ? "" : "s"}: ${notes.slice(0, 3).map(n => `${n.path} ${n.issue}`).join("; ")}`);
       calls[item.sym] = {
         sym: item.sym,
         company: parsed.company || item.sym,
@@ -8947,12 +8754,9 @@ export async function writeEarningsCallsFiles({ prior = null, earningsHxStore = 
   return { bytes: json.length, covered: index.covered, universe: index.universe, wrote: details.length, keyless };
 }
 
-// Unified rest-of-year macro + earnings calendar. Pulls confirmed
-// next-earnings dates straight out of each ticker's fundamentals (already
-// fetched) and merges them with future-dated macro headlines (Fed
-// announcements, BLS releases, SEC press) from the same RSS digest the
-// narratives engine consumes. Macro feeds publish historical items too —
-// we only keep the ones whose pubDate falls in [today, end of year].
+// Rest-of-year earnings and event calendar. Combine provider earnings dates,
+// cited company catalysts and official schedules with today's observed macro
+// publications. Publication timestamps are never future event dates.
 const CALENDAR_FILE = "calendar.json";
 // Minimum forward window (a floor, not the horizon). The calendar now spans
 // the rest of the current calendar year (see calendarCutoffMs); this floor
@@ -8985,13 +8789,16 @@ function classifyMacroEvent(publisher, title) {
 function calendarReportGroup(ev) {
   const subtype = String(ev?.subtype || "").toLowerCase();
   const title = String(ev?.title || "").toLowerCase();
+  if (/\badp\b/.test(title)) return null;
   if (/^(?:core-)?cpi-|consumer price index|\bcpi\b/.test(subtype + " " + title)) return "cpi";
   if (/^ppi-|producer price index|\bppi\b/.test(subtype + " " + title)) return "ppi";
-  if (/^(?:nfp|unrate)$|employment situation|non-farm|nonfarm|unemployment rate/.test(subtype + " " + title)) return "employment";
-  if (/^jolts$|job openings and labor turnover/.test(subtype + " " + title)) return "jolts";
+  if (/^(?:nfp|unrate)\b|employment situation|non-farm|nonfarm|unemployment rate/.test(subtype + " " + title)) return "employment";
+  if (/^jolts\b|job openings and labor turnover/.test(subtype + " " + title)) return "jolts";
   if (/^core-pce-|personal income and outlays/.test(subtype + " " + title)) return "pce";
-  if (/^durable-goods-|durable goods orders/.test(subtype + " " + title)) return "durables";
-  if (/^gdp-|gross domestic product|\bgdp\b/.test(subtype + " " + title)) return "gdp";
+  if (/^durable-goods-|durable goods orders|advance report on durable goods/.test(subtype + " " + title)) return "durables";
+  if (/^gdp-/.test(subtype) || /^(?:gross domestic product|gdp)\s*\(/.test(title)) return "gdp";
+  if (/ism.*manufacturing/.test(title) || subtype === "ism-mfg") return "ism-mfg";
+  if (/ism.*services/.test(title) || subtype === "ism-services") return "ism-services";
   return null;
 }
 
@@ -9001,7 +8808,7 @@ function calendarEventIdentity(ev) {
     .replace(/&/g, "and")
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
-  return `${ev?.type || "macro"}|${ev?.date || ""}|${title}`;
+  return `${ev?.type || "macro"}|${ev?.date || ""}|${ev?.symbol || ""}|${ev?.referencePeriod || ""}|${title}`;
 }
 
 // Broader official calendars overlap a handful of the detailed rows we build
@@ -9011,17 +8818,25 @@ function calendarEventIdentity(ev) {
 export function dedupeCalendarEvents(input) {
   const events = Array.isArray(input) ? input : [];
   const detailedGroups = new Set();
+  const officialPeriods = new Map();
   for (const ev of events) {
-    if (ev?.official) continue;
     const group = ev?.type === "report" ? calendarReportGroup(ev) : null;
-    if (group && ev?.date) detailedGroups.add(`${group}|${ev.date}`);
+    if (!group || !ev?.date) continue;
+    const key = `${group}|${ev.date}`;
+    if (!ev.official) detailedGroups.add(key);
+    else if (ev.referencePeriod) {
+      if (!officialPeriods.has(key)) officialPeriods.set(key, new Set());
+      officialPeriods.get(key).add(ev.referencePeriod);
+    }
   }
   const seen = new Set();
   const out = [];
   for (const ev of events) {
     if (!ev?.date || !ev?.title) continue;
     const group = ev?.type === "report" ? calendarReportGroup(ev) : null;
-    if (ev.official && group && detailedGroups.has(`${group}|${ev.date}`)) continue;
+    const groupKey = `${group}|${ev.date}`;
+    if (ev.official && group && detailedGroups.has(groupKey) && (officialPeriods.get(groupKey)?.size || 0) < 2) continue;
+    if (coveredByCompanySchedule(ev, events)) continue;
     const key = calendarEventIdentity(ev);
     if (seen.has(key)) continue;
     seen.add(key);
@@ -9031,7 +8846,7 @@ export function dedupeCalendarEvents(input) {
 }
 
 // The upcoming-earnings list ({symbol, name, date}) within `daysAhead`,
-// derived from each ticker's confirmed nextEarningsDate. Shared by main() /
+// derived from each ticker's available nextEarningsDate. Shared by main() /
 // regen-calendar for two purposes: (1) the per-name Polymarket "beat" reading,
 // fetched with the near-term default (Polymarket only lists earnings markets a
 // few weeks out, so there's no point querying months ahead); and (2) the exact
@@ -9045,22 +8860,25 @@ export function upcomingEarningsList(chains, todayIso, daysAhead = CALENDAR_DAYS
   const cutoffMs = startMs + daysAhead * 86400000;
   const out = [];
   for (const [sym, data] of Object.entries(chains || {})) {
+    if (!TICKERS.includes(sym) || SECTORS[sym] === "ETF") continue;
     const dateStr = data?.fundamentals?.nextEarningsDate;
     if (!dateStr || typeof dateStr !== "string") continue;
     const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(dateStr);
     if (!m) continue;
     const eventMs = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-    if (eventMs < startMs || eventMs > cutoffMs) continue;
+    if (new Date(eventMs).toISOString().slice(0, 10) !== `${m[1]}-${m[2]}-${m[3]}` || eventMs < startMs || eventMs > cutoffMs) continue;
     out.push({ symbol: sym, name: data?.fundamentals?.name || null, date: `${m[1]}-${m[2]}-${m[3]}` });
   }
   return out;
 }
 
-function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
-  const today = new Date();
-  const startMs = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
+export function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
+  chains = Object.fromEntries(Object.entries(chains || {}).filter(([sym]) => TICKERS.includes(sym)));
+  const todayIso = new Date(builtAtIso).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  const startMs = Date.parse(todayIso + "T00:00:00Z");
   const cutoffMs = calendarCutoffMs(startMs);
-  const events = [];
+  const companyCalendar = extras?.companyCalendar || {version:COMPANY_EVENTS_VERSION,events:companyEventsInWindow(PUBLISHED_COMPANY_EVENTS,TICKERS,startMs,cutoffMs),status:{},checks:{}};
+  const events = companyEventsInWindow(companyCalendar.events || [],TICKERS,startMs,cutoffMs);
   const reportEvents = extras?.reportEvents || [];
   const fomcMeetings = extras?.fomcMeetings || [];
   const fedRate = extras?.fedRate || null;
@@ -9094,7 +8912,7 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
       if (cut <= 0) continue;
       const symbol = key.slice(0, cut);
       const date = key.slice(cut + 1);
-      if (!Object.prototype.hasOwnProperty.call(chains, symbol) || !/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+      if (!TICKERS.includes(symbol) || SECTORS[symbol] === "ETF" || !/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
       const eventMs = Date.parse(date + "T00:00:00Z");
       if (!Number.isFinite(eventMs) || eventMs < startMs || eventMs > cutoffMs) continue;
       const prior = nasdaqBySymbol.get(symbol);
@@ -9102,7 +8920,9 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
     }
   }
 
-  for (const [sym, data] of Object.entries(chains)) {
+  for (const sym of TICKERS) {
+    if (SECTORS[sym] === "ETF") continue;
+    const data = chains[sym] || {};
     const nasdaq = nasdaqBySymbol.get(sym) || null;
     const dateStr = nasdaq?.date || data?.fundamentals?.nextEarningsDate;
     if (!dateStr || typeof dateStr !== "string") continue;
@@ -9111,6 +8931,7 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
     const eventMs = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
     if (eventMs < startMs || eventMs > cutoffMs) continue;
     const date = `${m[1]}-${m[2]}-${m[3]}`;
+    if (new Date(eventMs).toISOString().slice(0, 10) !== date) continue;
     // Prefer Nasdaq-supplied session over the Yahoo-timestamp heuristic.
     let session = nasdaq?.session || data?.fundamentals?.nextEarningsSession || "TBD";
     if (sessionMap) {
@@ -9143,7 +8964,7 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
   // already date-grounded and category-tagged; we only re-apply the window
   // filter here in case a stored catalyst has aged out since the last build.
   for (const [sym, data] of Object.entries(chains)) {
-    const list = Array.isArray(data?.catalysts) ? data.catalysts : [];
+    const list = currentCachedCatalysts(data?.catalysts, Date.parse(builtAtIso), todayIso);
     for (const c of list) {
       if (!c?.date) continue;
       const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(c.date);
@@ -9152,6 +8973,7 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
       if (eventMs < startMs || eventMs > cutoffMs) continue;
       const category = c.category || "other";
       const title = c.title || "Catalyst";
+      if (coveredByCompanySchedule({type:"catalyst",symbol:sym,date:c.date,title}, companyCalendar.cancellations || [])) continue;
       events.push({
         type: "catalyst",
         date: c.date,
@@ -9159,7 +8981,12 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
         title,
         category,
         confidence: c.confidence || "medium",
-        source: "AI",
+        source: "AI · cited news",
+        sourceUrl: c.sourceUrl || null,
+        sourceTitle: c.sourceTitle || null,
+        sourcePublishedAt: c.sourcePublishedAt || null,
+        dateEvidence: c.dateEvidence || null,
+        evidenceVersion: c.evidenceVersion || null,
       });
     }
   }
@@ -9171,8 +8998,20 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
   // ONCE per subtype here (the report rows all carry the same series) so the
   // calendar.json stays compact — the browser looks it up by subtype.
   const reportHistory = {};
-  for (const ev of reportEvents) {
-    if (!ev?.date) continue;
+  for (const original of reportEvents) {
+    if (!original?.date) continue;
+    let ev = original;
+    const group = calendarReportGroup(ev);
+    const published = (extras?.officialCalendar?.events || []).filter(row => row.type === "report" && calendarReportGroup(row) === group && row.date?.slice(0, 7) === ev.date.slice(0, 7) && (ev.subtype !== "gdp-final" || /third|final/i.test(row.title)));
+    const dates = [...new Set(published.map(row => row.date))];
+    if (group && dates.length === 1) {
+      const official = published[0];
+      const moved = official.date !== ev.date;
+      ev = { ...ev, date: official.date, time: official.time || ev.time, scheduleSource: official.source,
+        sourceUrl: official.sourceUrl, ...(official.stale ? { stale: true, baseline: !!official.baseline } : {}), ...(moved ? { actual: null, consensus: null, forecast: null } : {}) };
+    } else if (!ev.sourceKey) {
+      ev = { ...ev, scheduleEstimated: true };
+    }
     const ms = Date.UTC(
       Number(ev.date.slice(0, 4)),
       Number(ev.date.slice(5, 7)) - 1,
@@ -9223,9 +9062,13 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
   const officialCalendar = extras?.officialCalendar || { events: [], status: {} };
   for (const ev of (officialCalendar.events || [])) {
     if (!ev?.date) continue;
+    // A publisher's last successfully fetched date is stronger than a static
+    // fallback if that source is temporarily unavailable.
+    if (ev.baseline && (extras?.priorCalendar?.events || []).some(prior => prior.official && !prior.baseline && prior.sourceKey === ev.sourceKey && prior.subtype === ev.subtype && prior.date?.slice(0, 7) === ev.date.slice(0, 7))) continue;
     if (ev?.source === "Federal Reserve Board" && ev?.type === "report" && isExcludedFedCalendarReport(ev.title)) continue;
     const ms = Date.parse(ev.date + "T00:00:00Z");
-    if (!Number.isFinite(ms) || ms < startMs || ms > cutoffMs) continue;
+    const endMs = Date.parse((ev.endDate || ev.date) + "T00:00:00Z");
+    if (!Number.isFinite(ms) || endMs < startMs || ms > cutoffMs) continue;
     events.push(ev);
   }
   const officialStatus = officialCalendar.status || {};
@@ -9234,21 +9077,40 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
     if (!ev?.official || !ev?.sourceKey || officialStatus[ev.sourceKey] !== false || !ev?.date) continue;
     if (ev?.source === "Federal Reserve Board" && ev?.type === "report" && isExcludedFedCalendarReport(ev.title)) continue;
     const ms = Date.parse(ev.date + "T00:00:00Z");
-    if (!Number.isFinite(ms) || ms < startMs || ms > cutoffMs) continue;
+    const endMs = Date.parse((ev.endDate || ev.date) + "T00:00:00Z");
+    if (!Number.isFinite(ms) || endMs < startMs || ms > cutoffMs) continue;
     events.push({ ...ev, stale: true });
   }
 
-  // Macro events from the RSS digest. RSS items carry pubDate (when
-  // published) — for the calendar we only keep items whose pubDate is
-  // in the forward window, which catches Fed pre-announcements, BLS
-  // release schedules, and SEC notices. Past items just clutter the
-  // timeline so we drop them.
+  // Salvage each missing detailed series independently. A successful weekly
+  // claims fetch must not erase CPI/PCE figures when a monthly source fails.
+  const freshSubtypes = new Set(reportEvents.map(e => e.subtype).filter(Boolean));
+  const staleReportSubtypes = new Set();
+  for (const prior of extras?.priorCalendar?.events || []) {
+    if (prior.type !== "report" || prior.official || !prior.subtype || freshSubtypes.has(prior.subtype)) continue;
+    const ms = Date.parse(prior.date + "T00:00:00Z");
+    if (!Number.isFinite(ms) || ms < startMs || ms > cutoffMs) continue;
+    const group = calendarReportGroup(prior);
+    const published = (officialCalendar.events || []).filter(e => group && calendarReportGroup(e) === group && e.date?.slice(0, 7) === prior.date.slice(0, 7));
+    if (published.length && !published.some(e => e.date === prior.date)) continue;
+    events.push({ ...prior, stale: true });
+    staleReportSubtypes.add(prior.subtype);
+    if (!reportHistory[prior.subtype] && extras?.priorCalendar?.reportHistory?.[prior.subtype]) {
+      reportHistory[prior.subtype] = extras.priorCalendar.reportHistory[prior.subtype];
+    }
+  }
+
+  // Today's observed macro publications provide context. They do not establish
+  // a future schedule, so reject future publication times and prior ET dates.
   for (const h of macroHeadlines || []) {
     if (!h?.publishedAt) continue;
     const eventMs = Date.parse(h.publishedAt);
-    if (!Number.isFinite(eventMs) || eventMs < startMs || eventMs > cutoffMs) continue;
+    if (!Number.isFinite(eventMs) || eventMs > Date.parse(builtAtIso)) continue;
     const date = new Date(eventMs).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+    if (date < todayIso) continue;
     events.push({
+      observed: true,
+      sourceUrl: h.link || null,
       type: classifyMacroEvent(h.publisher, h.title),
       date,
       // Keep the observed headline time so the first-hour event study can
@@ -9268,7 +9130,8 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
 
   applyEmploymentPrintsToReports(events, macroHeadlines);
 
-  const dedupedEvents = dedupeCalendarEvents(events);
+  events.push(...marketSessionCalendarEvents(startMs, cutoffMs), ...scheduledPolicyCalendarEvents(startMs, cutoffMs));
+  const dedupedEvents = dedupeCalendarEvents(calendarEventsForUniverse(events, TICKERS));
   dedupedEvents.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : (a.symbol || a.title || "").localeCompare(b.symbol || b.title || "")));
   // Attach per-meeting consensus divergence (futures vs Kalshi vs Polymarket) to
   // the prediction-market block so the widget can flag where the sources disagree.
@@ -9289,10 +9152,13 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
     // so windowDays is no longer a fixed constant.
     windowDays: Math.round((cutoffMs - startMs) / 86400000),
     windowEnd: new Date(cutoffMs).toISOString().slice(0, 10),
+    companyHistoryStart: new Date(startMs - COMPANY_EVENT_LOOKBACK_DAYS * 86400000).toISOString().slice(0,10),
+    companyCalendar,
     events: dedupedEvents,
     coverage: {
-      earningsUniverse: Object.keys(chains || {}).length,
-      earningsScheduled: new Set(dedupedEvents.filter((ev) => ev.type === "earnings").map((ev) => ev.symbol)).size,
+      ...calendarCoverage({ events: dedupedEvents, symbols: TICKERS, stockSymbols: TICKERS.filter(s => SECTORS[s] !== "ETF"), chains, sessionMap, officialSources: officialStatus, reportSources: reportEvents.sourceStatus, asOfMs: Date.parse(builtAtIso) }),
+      companyEvents: {scheduled:events.filter(e=>e.companyEvent).length,symbols:[...new Set(events.filter(e=>e.companyEvent).map(e=>e.symbol))],sourceChecks:companyCalendar.status},
+      staleReportSubtypes: [...staleReportSubtypes].sort(),
       nasdaqSweepDays: NASDAQ_EARNINGS_SWEEP_DAYS,
       officialSources: officialStatus,
     },
@@ -9320,14 +9186,8 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
   };
 }
 
-// Snapshot data/calendar.json BEFORE writeChainFiles wipes data/, so the
-// macro-report salvage in writeCalendarFile (carry in-window report rows when
-// FRED + BLS both come back empty) has a prior calendar to read. In the build
-// path the wipe runs before writeCalendarFile, so a disk read there always
-// misses — main() pre-reads via this and threads the result in as
-// extras.priorCalendar. regen-calendar.mjs never wipes data/, so it leaves
-// extras.priorCalendar undefined and writeCalendarFile falls back to the
-// on-disk read. Returns null when the file is absent/unreadable.
+// Snapshot before writeChainFiles wipes data/. The payload builder retains
+// missing report series and failed official schedules from this prior value.
 export async function readPriorCalendar() {
   try {
     return JSON.parse(await readFile(resolve(DATA_DIR, CALENDAR_FILE), "utf8"));
@@ -9337,56 +9197,8 @@ export async function readPriorCalendar() {
 }
 
 export async function writeCalendarFile(chains, macroHeadlines, builtAtIso, extras) {
-  const payload = buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras);
-  // Final tier of macro-report resilience: if FRED + BLS both came back
-  // empty AND no in-window report dates landed (the schedule may also
-  // have no upcoming releases), salvage any in-window report rows from
-  // the prior calendar.json so a transient outage doesn't blank the
-  // macro tab. Mirrors the lastKnownFedRate pattern in
-  // fedwatch-history.json. Carried rows are tagged `stale:true` so the
-  // UI can flag them if it ever wants to.
-  // Official BLS/BEA/Fed schedule rows prove the broad calendar loaded, but
-  // they do not replace the detailed Actual/Previous/Consensus series. Only a
-  // fresh non-official report row may suppress that layer's last-good salvage.
-  const hasFreshReports = payload.events.some((ev) => ev?.type === "report" && !ev?.official);
-  if (!hasFreshReports) {
-    try {
-      // In the build path data/calendar.json is already wiped by the time this
-      // runs, so main() pre-reads it before the wipe and passes it as
-      // extras.priorCalendar (may be null on a cold start). regen-calendar.mjs
-      // leaves it undefined and we read from disk — it never wipes data/.
-      const prior = extras?.priorCalendar !== undefined
-        ? extras.priorCalendar
-        : JSON.parse(await readFile(resolve(DATA_DIR, CALENDAR_FILE), "utf8"));
-      const today = new Date(builtAtIso || Date.now());
-      const startMs = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
-      const cutoffMs = calendarCutoffMs(startMs);
-      const carried = [];
-      for (const ev of (prior?.events || [])) {
-        if (ev?.type !== "report" || !ev?.date) continue;
-        const ms = Date.UTC(
-          Number(ev.date.slice(0, 4)),
-          Number(ev.date.slice(5, 7)) - 1,
-          Number(ev.date.slice(8, 10)),
-        );
-        if (ms < startMs || ms > cutoffMs) continue;
-        carried.push({ ...ev, stale: true });
-      }
-      if (carried.length) {
-        payload.events = payload.events.concat(carried);
-        payload.events.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : (a.symbol || "").localeCompare(b.symbol || "")));
-        // Restore the per-subtype bar-chart history too (this path runs only
-        // when no fresh reports landed, so payload.reportHistory is {}) — else
-        // the carried stale chips would lose their charts. Mirrors the FOMC
-        // prediction-market carry-forward just below.
-        payload.reportHistory = { ...(prior?.reportHistory || {}), ...payload.reportHistory };
-        console.log(`    ⚠ macro reports empty — carried ${carried.length} stale rows from prior calendar.json`);
-      }
-    } catch (_) {
-      // No prior calendar.json (first run) or unreadable JSON — nothing
-      // to carry. Calendar still ships with whatever else is in events.
-    }
-  }
+  const priorCalendar = extras?.priorCalendar !== undefined ? extras.priorCalendar : await readPriorCalendar();
+  const payload = buildCalendarPayload(chains, macroHeadlines, builtAtIso, { ...extras, priorCalendar });
   // FOMC prediction-market carry-forward: if today's Kalshi/Polymarket reads all
   // flaked, reuse the prior calendar's still-upcoming entries (tagged stale) so
   // the cross-check doesn't blink out on one bad fetch. Same prior source as the
@@ -9930,7 +9742,9 @@ const F13_CUSIP_TICKER_OVERRIDES = new Map([
   ["G0259H108", "ACN"],    // Accenture PLC
 ]);
 
-async function fetchOpenFigiCusipMap(cusips) {
+// exchCode (e.g. "US") narrows each lookup to one market's listings; the 13F
+// tab leaves it unset and keeps its existing behavior.
+async function fetchOpenFigiCusipMap(cusips, { exchCode = null } = {}) {
   const out = new Map();
   const unique = [...new Set(cusips.filter(Boolean))];
   if (!unique.length) return out;
@@ -9966,7 +9780,7 @@ async function fetchOpenFigiCusipMap(cusips) {
       const res = await fetch("https://api.openfigi.com/v3/mapping", {
         method: "POST",
         headers,
-        body: JSON.stringify(chunk.map((c) => ({ idType: "ID_CUSIP", idValue: c }))),
+        body: JSON.stringify(chunk.map((c) => ({ idType: "ID_CUSIP", idValue: c, ...(exchCode ? { exchCode } : {}) }))),
         signal: AbortSignal.timeout(20000),
       });
       if (!res.ok) {
@@ -14185,7 +13999,7 @@ export function parseFederalReserveCalendarHtml(html, year, monthIdx) {
           ...(isReport ? { subtype: `official-${sourceKey}-${calendarSlug(title)}` } : {}),
           date,
           ...(time ? { time } : {}),
-          title,
+          title: isHoliday ? `Federal Reserve holiday · ${title}` : title,
           category,
           source: "Federal Reserve Board",
           sourceUrl,
@@ -14285,7 +14099,8 @@ export async function fetchOfficialCalendarEvents(startMs, cutoffMs) {
   const addInWindow = (rows) => {
     for (const ev of rows || []) {
       const ms = Date.parse(String(ev?.date || "") + "T00:00:00Z");
-      if (Number.isFinite(ms) && ms >= startMs && ms <= cutoffMs) events.push(ev);
+      const endMs = Date.parse(String(ev?.endDate || ev?.date || "") + "T00:00:00Z");
+      if (Number.isFinite(ms) && Number.isFinite(endMs) && endMs >= startMs && ms <= cutoffMs) events.push(ev);
     }
   };
   await Promise.all([
@@ -14301,11 +14116,43 @@ export async function fetchOfficialCalendarEvents(startMs, cutoffMs) {
     (async () => {
       try {
         const text = await fetchTextCalendar(BEA_CALENDAR_ICS);
-        addInWindow(parseOfficialIcsCalendar(text, { sourceKey: "bea", source: "BEA", sourceUrl: BEA_CALENDAR_ICS }));
+        const parsed = parseOfficialIcsCalendar(text, { sourceKey: "bea", source: "BEA", sourceUrl: BEA_CALENDAR_ICS });
+        if (!parsed.length) throw new Error("no BEA events parsed");
+        addInWindow(parsed);
         status.bea = true;
       } catch (err) {
         status.bea = false;
         console.log(`    ⚠ official BEA calendar failed: ${err.message}`);
+      }
+    })(),
+    ...[...new Set(calendarMonthsInWindow(startMs, cutoffMs).map(m => m.year))].map(async year => {
+      const key = `census-${year}`;
+      try {
+        let parsed = [];
+        for (const url of [censusCalendarUrl(year), "https://www.census.gov/economic-indicators/calendar-listview.html"]) {
+          try { parsed = parseCensusCalendar(await fetchTextCalendar(url), year).map(e => ({ ...e, sourceUrl: url })); } catch (_) { /* try current calendar URL */ }
+          if (parsed.length) break;
+        }
+        if (!parsed.length) throw new Error("no Census events parsed");
+        addInWindow(parsed);
+        status[key] = true;
+      } catch (err) {
+        status[key] = false;
+        console.log(`    ⚠ Census schedule ${year} failed: ${err.message}`);
+      }
+    }),
+    (async () => {
+      const years = [...new Set(calendarMonthsInWindow(startMs, cutoffMs).map(m => m.year))];
+      try {
+        const parsed = parseIsmCalendar(await fetchTextCalendar(ISM_CALENDAR_URL));
+        for (const year of years) {
+          status[`ism-${year}`] = parsed.some(e => e.date.startsWith(String(year)));
+          if (!status[`ism-${year}`]) addInWindow(ismBaselineEvents(year));
+        }
+        addInWindow(parsed);
+      } catch (err) {
+        for (const year of years) { status[`ism-${year}`] = false; addInWindow(ismBaselineEvents(year)); }
+        console.log(`    ⚠ ISM schedule failed: ${err.message}`);
       }
     })(),
     ...calendarMonthsInWindow(startMs, cutoffMs).map(async ({ year, month }) => {
@@ -14313,7 +14160,10 @@ export async function fetchOfficialCalendarEvents(startMs, cutoffMs) {
       const key = `fed-board-${year}-${String(month + 1).padStart(2, "0")}`;
       const url = `https://www.federalreserve.gov/newsevents/${year}-${monthName}.htm`;
       try {
-        addInWindow(parseFederalReserveCalendarHtml(await fetchTextCalendar(url), year, month));
+        const html = await fetchTextCalendar(url);
+        const parsed = parseFederalReserveCalendarHtml(html, year, month);
+        if (!parsed.length && !/cal-nojs__rowTitle/.test(html)) throw new Error("Fed calendar markup missing");
+        addInWindow(parsed);
         status[key] = true;
       } catch (err) {
         status[key] = false;
@@ -15597,6 +15447,8 @@ export async function fetchMacroReleases(startMs, cutoffMs, asOfMs = Date.now())
       });
     }
   }
+  events.push(...supplementalWeeklyReports(ffEvents, startMs, cutoffMs, Number(asOfMs)));
+  events.sourceStatus = ffEvents.sourceStatus;
   return events;
 }
 
@@ -15816,6 +15668,8 @@ export async function fetchNasdaqEarningsSessions(startMs, windowDays, explicitD
     origin: "https://www.nasdaq.com",
   };
   const out = new Map();
+  const coverage = { status: "unknown", requested: 0, succeeded: 0, failedDates: [] };
+  out.coverage = coverage;
   // Union the exact Yahoo-derived dates with a bounded near-term weekday walk.
   // The walk is what closes the missing-date gap; keeping it at 21 calendar
   // days avoids the ~100-request rest-of-year burst the old fallback could make.
@@ -15833,14 +15687,16 @@ export async function fetchNasdaqEarningsSessions(startMs, windowDays, explicitD
   for (let i = 0; i < sweepDays; i++) addDate(new Date(startMs + i * 86400000).toISOString().slice(0, 10));
   // Bounded concurrency: a months-long date list would otherwise burst dozens
   // of simultaneous requests at Nasdaq, which rate-limits / WAF-blocks bursts.
+  coverage.requested = dates.length;
   await runPooled(dates, 8, async (date) => {
     try {
       const url = `https://api.nasdaq.com/api/calendar/earnings?date=${date}`;
       const res = await fetch(url, { headers, signal: AbortSignal.timeout(12000) });
-      if (!res.ok) return;
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       const rows = json?.data?.rows;
-      if (!Array.isArray(rows)) return;
+      if (!Array.isArray(rows)) throw new Error("missing earnings rows");
+      coverage.succeeded++;
       for (const r of rows) {
         const sym = String(r?.symbol || "").toUpperCase().trim();
         if (!sym) continue;
@@ -15851,9 +15707,11 @@ export async function fetchNasdaqEarningsSessions(startMs, windowDays, explicitD
         out.set(sym + "|" + date, session);
       }
     } catch (_) {
-      // network / WAF block — fall through silently
+      coverage.failedDates.push(date);
     }
   });
+  coverage.failedDates.sort();
+  coverage.status = !coverage.requested ? "not-requested" : !coverage.succeeded ? "unavailable" : coverage.failedDates.length ? "partial" : "ok";
   return out;
 }
 
@@ -15870,6 +15728,7 @@ async function fetchForexFactoryCalendar() {
     "https://nfs.faireconomy.media/ff_calendar_nextweek.json",
   ];
   const out = [];
+  let succeeded = 0;
   for (const url of urls) {
     try {
       const res = await fetch(url, {
@@ -15882,19 +15741,21 @@ async function fetchForexFactoryCalendar() {
       });
       if (!res.ok) continue;
       const json = await res.json();
-      if (Array.isArray(json)) out.push(...json);
+      if (Array.isArray(json) && json.length) { out.push(...json); succeeded++; }
     } catch (_) {
       // Network error → empty list. Macro reports degrade to FRED-only.
     }
   }
+  out.sourceStatus = { forexFactory: !succeeded ? "unavailable" : succeeded < urls.length ? "partial" : "ok" };
   return out;
 }
 
 // Map a ForexFactory event title to our internal report subtype. Matching
 // is keyword-based since FF titles drift slightly across feeds ("Non-Farm
 // Employment Change", "Non-Farm Payrolls", etc.).
-function matchForexFactoryEventSubtype(title) {
+export function matchForexFactoryEventSubtype(title) {
   const t = String(title || "").toLowerCase();
+  if (/\badp\b/.test(t)) return null;
   if (t.includes("jolts")) return "jolts";
   if (t.includes("unemployment rate")) return "unrate";
   if (t.includes("non-farm") || t.includes("nonfarm") || t.includes("nfp") || t.includes("employment change")) return "nfp";
@@ -15909,7 +15770,7 @@ function matchForexFactoryEventSubtype(title) {
   // Prelim, and NOT the "Final GDP Price Index" (the deflator) that FF lists on
   // the same date — without the !price guard both collide on the gdp-final key.
   if (t.includes("gdp") && t.includes("final") && !t.includes("price")) return "gdp-final";
-  if (t.includes("ppi")) return "ppi-mom";
+  if (t.includes("ppi")) return !t.includes("core") && !/y\/y|yoy|annual/.test(t) ? "ppi-mom" : null;
   const isCore = t.includes("core");
   const isYoy = t.includes("y/y") || t.includes("yoy") || t.includes("annual");
   if (t.includes("cpi")) {
@@ -29236,14 +29097,12 @@ async function writeMovingAverageTrackerFile(chains, builtAtIso) {
   return { bytes: json.length, tickers: payload.tickers.length, inBand: payload.summary.inBand };
 }
 
-function patternCloseSeries(chain) {
-  const rows = [];
-  if (Array.isArray(chain?._bars) && chain._bars.length) {
-    for (const bar of chain._bars) rows.push({ t: bar?.t, c: bar?.c });
-  } else if (chain?.priceSeries?.t && chain?.priceSeries?.c) {
-    for (let i = 0; i < chain.priceSeries.t.length; i++) rows.push({ t: chain.priceSeries.t[i], c: chain.priceSeries.c[i] });
+export function patternCloseSeries(chain, builtAtIso) {
+  let bars = chain?._patternBars || chain?._bars;
+  if (!Array.isArray(bars) && chain?.priceSeries?.t && chain?.priceSeries?.c) {
+    bars = chain.priceSeries.t.map((t, i) => ({t, c: chain.priceSeries.c[i]}));
   }
-  return mergeDailyCloses(rows);
+  return mergeDailyCloses(confirmedDailyBars(bars, chain?.marketState, new Date(builtAtIso)));
 }
 
 // Confirmed daily closes for the given ETFs from the site's one long-history
@@ -29275,26 +29134,27 @@ async function writePatternRecognitionFiles({
 }) {
   const symbols = {};
   for (const symbol of PATTERN_SEASONALITY_SYMBOLS) {
-    symbols[symbol] = mergeDailyCloses(indexBars?.[symbol], patternCloseSeries(chains?.[symbol]));
+    symbols[symbol] = mergeDailyCloses(indexBars?.[symbol], patternCloseSeries(chains?.[symbol], builtAtIso));
   }
   const peers = [];
   for (const [us, group] of Object.entries(GLOBAL_PEER_OF_TICKER)) {
     for (const peer of GLOBAL_PEER_GROUPS[group] || []) {
-      const peerBars = globalMarkets?.[peer]?.bars;
+      const peerData = globalMarkets?.[peer];
+      const peerBars = patternCloseSeries({_patternBars: peerData?._patternBars || peerData?.bars, marketState: peerData?.marketState}, builtAtIso);
       if (!peerBars?.length || !chains?.[us]) continue;
       peers.push({
         us,
         peer,
         sessionClass: globalSessionClass(peer),
-        usBars: patternCloseSeries(chains[us]),
+        usBars: patternCloseSeries(chains[us], builtAtIso),
         peerBars,
       });
     }
   }
   const divergences = [];
   for (const [symbol, chain] of Object.entries(chains || {})) {
-    const series = patternCloseSeries(chain);
-    if (series.length < 80) continue;
+    const series = patternCloseSeries(chain, builtAtIso);
+    if (!series.length) continue;
     divergences.push({ symbol, dates: series.map((row) => row.t), closes: series.map((row) => row.c) });
   }
   const regimeDays = appendRegimeHistory(regimeHistoryPrev, macroRegime || null, null, builtAtIso).days;
@@ -29302,7 +29162,7 @@ async function writePatternRecognitionFiles({
     asOf: etDateKey(new Date(builtAtIso)),
     builtAtIso,
     indexBars: symbols,
-    spyBars: patternCloseSeries(chains?.SPY),
+    spyBars: patternCloseSeries(chains?.SPY, builtAtIso),
     peers,
     divergences,
     regimeDays,
@@ -29610,13 +29470,13 @@ async function writeHeatmapFile(chains, builtAtIso, priorEodSummary = null, prio
 
 // ---------------------------------------------------------------------------
 // Global market correlations (data/correlations.json) — see GLOBAL_MARKETS.
-const GLOBAL_HISTORY_DAYS = 365;
+const GLOBAL_HISTORY_DAYS = PATTERN_HISTORY_DAYS;
 const GLOBAL_CORR_MAX_OBS = 150;  // trailing common trading days for corr/beta
 const GLOBAL_CORR_MIN_OBS = 30;   // below this, corr/beta are not reported
 const GLOBAL_FETCH_CONCURRENCY = 4;
 const CORR_SPARK_BARS = 31;       // trailing closes baked per market for the rail sparkline
 
-// One foreign symbol: ~1y of daily closes + the last completed session's move
+// One foreign symbol: two years of daily closes for Pattern Lab + the last completed session's move
 // and chart meta (currency / display name). Non-fatal at the caller — a failed
 // symbol is simply absent from the snapshot (graceful degradation, like a
 // skipped ticker in the main chain sweep).
@@ -29635,10 +29495,11 @@ async function fetchGlobalMarketBars(symbol) {
     if (retryQuotes.length > quotes.length) { result = retry; quotes = retryQuotes; }
   }
   const barTz = result?.meta?.exchangeTimezoneName || null;
-  const bars = quotes
+  const researchBars = quotes
     .filter((q) => q && q.close != null)
     .map((q) => ({ c: q.close, t: q.date ? (overnightLocalDate(new Date(q.date), barTz) || new Date(q.date).toISOString().slice(0, 10)) : null }))
     .filter((b) => b.t);
+  const bars = splitPatternHistory(researchBars).technical;
   if (bars.length < 2) throw new Error(`no usable bars for ${symbol}`);
   const last = bars[bars.length - 1];
   const prev = bars[bars.length - 2];
@@ -29686,6 +29547,7 @@ async function fetchGlobalMarketBars(symbol) {
   }
   return {
     bars,
+    _patternBars: researchBars,
     last: lastPx,
     prevClose,
     chPct: chPct == null ? null : Math.round(chPct * 100) / 100,
@@ -31925,13 +31787,16 @@ const BRIEF_WATCH_EXCLUDE = new Set(["SPY", "QQQ", "IWM", "DIA"]);
 // Track Record, and Quant are absent: those payloads have stricter gates than Briefs, so
 // copying their facts into briefs.json would bypass that access boundary.
 const BRIEF_TOOL_STANDOUT_MAX = 10;
-const BRIEF_TOOL_SOURCES = [
+const BRIEF_TOOL_FACT_MAX = 32;
+const BRIEF_TOOL_FACT_CHARS = 320;
+export const BRIEF_TOOL_SOURCES = [
+  { key: "overnight", file: "correlations.json", label: "Overnight markets", tab: "overnight", maxAgeHours: 30 },
   { key: "ma-tracker", file: "ma-tracker.json", label: "MA tracker", tab: "ma-tracker", maxAgeHours: 30 },
   { key: "buyouts", file: "pending-buyouts.json", label: "Pending buyouts", tab: "pending-buyouts", maxAgeHours: 30 },
   { key: "earnings", file: "earnings-tracker.json", label: "Earnings tracker", tab: "earnings", maxAgeHours: 30 },
   { key: "calls", file: "earnings-calls.json", label: "Earnings calls", tab: "calls", maxAgeHours: 30 },
   { key: "spillover", file: "spillover-pairs.json", label: "Event spillover", tab: "spillover", maxAgeHours: 30 },
-  { key: "index-calendar", file: "index-calendar.json", label: "Index calendar", tab: "index-calendar", maxAgeHours: 30 },
+  { key: "index-calendar", file: "index-calendar.json", label: "Index calendar", tab: "index-cal", maxAgeHours: 30 },
   { key: "heatmap", file: "heatmap.json", label: "Heatmap", tab: "heatmap", maxAgeHours: 30 },
   { key: "pattern-lab", file: "pattern-recognition.json", label: "Pattern lab", tab: "pattern-lab", maxAgeHours: 30 },
   { key: "volume", file: "volume-flags.json", label: "Volume", tab: "volume", maxAgeHours: 3 },
@@ -31939,7 +31804,7 @@ const BRIEF_TOOL_SOURCES = [
   { key: "streaks", file: "streaks.json", label: "Streaks", tab: "streaks", maxAgeHours: 30 },
   { key: "commodities", file: "commodities.json", label: "Commodities", tab: "commodities", maxAgeHours: 48 },
   { key: "raises", file: "capital-raises.json", label: "Capital raises", tab: "capital-raises", maxAgeHours: 48 },
-  { key: "credit", file: "ipo-credit.json", label: "IPOs & credit", tab: "ipo-credit", maxAgeHours: 48 },
+  { key: "credit", file: "ipo-credit.json", label: "IPOs & credit", tab: "capital-raises", maxAgeHours: 48 },
   { key: "capex", file: "ai-capex.json", label: "AI CapEx", tab: "ai-capex", maxAgeHours: 48 },
   { key: "ram", file: "ram-prices.json", label: "RAM prices", tab: "ram-prices", maxAgeHours: 48 },
   { key: "accelerators", file: "accelerator-prices.json", label: "GPU cloud prices", tab: "accelerator-prices", maxAgeHours: 48 },
@@ -31947,6 +31812,13 @@ const BRIEF_TOOL_SOURCES = [
   { key: "search", file: "search-interest.json", label: "Search interest", tab: "search-interest", maxAgeHours: 240 },
   { key: "ownership", file: "13f.json", label: "SEC ownership", tab: "f13", maxAgeHours: 24 * 120 },
 ];
+BRIEF_TOOL_SOURCES.forEach(Object.freeze);
+Object.freeze(BRIEF_TOOL_SOURCES);
+// These pages share the core ticker, news, calendar, flow and macro sections.
+export const BRIEF_CORE_TABS = Object.freeze([
+  "tickers", "grade", "compare", "strategies", "news", "calendar", "flow",
+  "iv-trend", "fear-greed", "bonds-usd",
+]);
 for (const source of BRIEF_TOOL_SOURCES) {
   if (isPremiumKey(source.file)) {
     throw new Error(`Owner-only payload cannot feed public Brief: ${source.file}`);
@@ -32334,10 +32206,11 @@ function briefToolSourceIsCurrent(source, payload, nowMs = Date.now()) {
   const stamp = briefToolStamp(payload);
   if (!stamp) return true; // some accumulated payloads predate source stamps
   const ms = Date.parse(stamp);
-  return !Number.isFinite(ms) || nowMs - ms <= source.maxAgeHours * 3600000;
+  return Number.isFinite(ms) && ms <= nowMs + 5 * 60000
+    && nowMs - ms <= source.maxAgeHours * 3600000;
 }
 
-function briefToolClean(text, max = 230) {
+function briefToolClean(text, max = BRIEF_TOOL_FACT_CHARS) {
   const s = String(text || "").replace(/\s+/g, " ").trim();
   if (!s) return "";
   return s.length > max ? s.slice(0, max - 1).trim() + "…" : s;
@@ -32351,7 +32224,7 @@ function briefToolPct(v, digits = 1) {
 // Turn the payload of one site desk into zero or more MATERIAL facts. A tool
 // that found nothing stays in `checked` but emits no fact; quiet is a result,
 // not filler. Importance ranks presentation only and is never shown as a score.
-function briefToolFacts(source, p, kind) {
+function briefToolFacts(source, p, kind, nowMs) {
   const facts = [];
   const add = (text, importance, tone = "info", symbols = []) => {
     const clean = briefToolClean(text);
@@ -32359,7 +32232,19 @@ function briefToolFacts(source, p, kind) {
     facts.push({ source: source.label, tab: source.tab, text: clean, importance, tone, symbols: symbols.filter(Boolean).slice(0, 4) });
   };
 
-  if (source.key === "ma-tracker") {
+  if (source.key === "overnight") {
+    const today = etDateKey(new Date(nowMs));
+    const saved = p.preopen?.today?.date === today ? p.preopen.today : null;
+    const tone = saved?.tone || (kind === "morning" ? p.tone : null);
+    if (tone && tone.label && tone.label !== "insufficient") {
+      const gap = tone.gap;
+      const session = saved?.session;
+      const stamp = saved?.cutoffIso || saved?.capturedAtIso || briefToolStamp(p);
+      const basis = saved ? `${saved.reconstructed ? "Reconstructed" : "Saved"} pre-open read` : "Overnight snapshot";
+      add(`${basis}${stamp ? ` as of ${stamp}` : ""}: ${tone.label}${Number.isFinite(tone.present) ? ` across ${tone.present}/5 independent groups` : ""}${gap?.call && gap.call !== "none" && Number.isFinite(gap.movePct) ? `; futures indicate a ${gap.call} opening gap (${briefToolPct(gap.movePct)})` : ""}${session?.call === "no-edge" ? "; no proven edge for the open-to-close session" : ""}.`, 85, "watch");
+      if (tone.chipTape && Math.abs(tone.chipTape.movePct) >= 2) add(`Asian chip shares moved ${briefToolPct(tone.chipTape.movePct)} on average across ${tone.chipTape.n} fresh names; this overlaps the equity group, not an independent vote.`, 73, "watch");
+    }
+  } else if (source.key === "ma-tracker") {
     const statusRank = { likely: 2, building: 1, watch: 0 };
     const candidates = [
       ...(p.summary?.topAbove || []),
@@ -32379,7 +32264,7 @@ function briefToolFacts(source, p, kind) {
       const spread = row.grossSpreadPct == null || row.grossSpreadPct === "" ? null : Number(row.grossSpreadPct);
       const days = row.daysLeft == null || row.daysLeft === "" ? null : Number(row.daysLeft);
       const updatedMs = Date.parse(row.lastUpdateAtIso || row.reportedAtIso || "");
-      const recent = Number.isFinite(updatedMs) && Date.now() - updatedMs <= 7 * 86400000;
+      const recent = Number.isFinite(updatedMs) && nowMs - updatedMs <= 7 * 86400000;
       let importance = 0;
       if (row.stage === "expected_close" && Number.isFinite(days) && days >= 0 && days <= 30) importance = 88;
       else if (row.stage === "regulatory_vote") importance = 84;
@@ -32401,23 +32286,6 @@ function briefToolFacts(source, p, kind) {
       add(`${row.targetTicker || row.target}: ${stage}${row.acquirer ? ` with ${row.acquirer}` : ""}${economics ? ` — ${economics}` : ""}${catalyst ? `; next: ${catalyst}` : ""}.`,
         lead.importance, row.stage === "rumor" || row.stage === "active_talks" ? "watch" : lead.spread >= 5 ? "risk" : "watch", [row.targetTicker]);
     }
-  } else if (source.key === "market") {
-    const r = p.macroRegime;
-    if (r && r.state && r.state !== "neutral") {
-      add(r.summary || `${r.state} tape${Array.isArray(r.drivers) && r.drivers.length ? ` — ${r.drivers.join(", ")}` : ""}`,
-        /severe/.test(r.state) ? 100 : 88, /off/.test(r.state) ? "risk" : "positive");
-    }
-    const d = p.scenarioEngine?.decision;
-    if (d && Number(d.grossMultiplier) < 1) add(d.note || `Scenario engine caps gross at ${Math.round(d.grossMultiplier * 100)}%.`, 86, "risk");
-  } else if (source.key === "stocks") {
-    const c = (p.candidates || []).find((r) => r?.clean);
-    if (c) add(`${c.symbol} is the leading clean quality-dip setup: ${c.fired || 0} dip reads, score ${c.dipScore ?? "n/a"}${c.execution?.action?.label ? `; ${c.execution.action.label}` : ""}.`, 82, "positive", [c.symbol]);
-  } else if (source.key === "rotation") {
-    const c = (p.candidates || []).find((r) => r?.phase === "confirmed" || r?.phase === "first-thrust");
-    if (c) add(`${c.symbol} is a ${String(c.phase).replace("-", " ")} rebound in ${c.group?.label || c.group?.key || c.sector || "its peer group"}${c.plan?.state ? `; entry read ${c.plan.state}` : ""}.`, c.phase === "confirmed" ? 86 : 76, "positive", [c.symbol]);
-  } else if (source.key === "levetf") {
-    const idea = (p.ideas || []).find((r) => r?.tier === "strong" || r?.entry?.state === "go" || r?.entry?.state === "ready") || (p.ideas || [])[0];
-    if (idea) add(`${idea.etf} expresses a ${idea.direction} ${idea.under?.symbol || idea.label || idea.group || "market"} view at ${idea.leverage || "leveraged"} exposure${idea.entry?.state ? `; entry ${idea.entry.state}` : ""}${idea.tape === "against" ? " and it fights the tape" : ""}.`, idea.tape === "against" ? 74 : 80, idea.direction === "bear" ? "risk" : "positive", [idea.under?.symbol, idea.etf]);
   } else if (source.key === "earnings") {
     const ai = p.ai;
     if (ai?.headline && ai?.tone && ai.tone !== "mixed") add(`${ai.headline}${ai.summary ? ` — ${ai.summary}` : ""}`, 77, ai.tone === "positive" ? "positive" : "risk", (ai.standouts || []).map((x) => x.ticker));
@@ -32425,8 +32293,8 @@ function briefToolFacts(source, p, kind) {
     if (u && (Math.abs(u.pre10Pct || 0) >= 10 || Number(u.impliedMovePct) >= 8)) add(`${u.sym} reports ${u.date}${u.session ? ` ${u.session}` : ""}: ${u.pre10Pct != null ? `${briefToolPct(u.pre10Pct)} over 10 sessions` : ""}${u.pre10Pct != null && u.impliedMovePct != null ? ", " : ""}${u.impliedMovePct != null ? `±${u.impliedMovePct}% implied` : ""}.`, 80, "watch", [u.sym]);
   } else if (source.key === "calls") {
     const rows = Object.entries(p.calls || {}).map(([sym, row]) => ({ sym, ...row })).sort((a, b) => String(b.callDate || b.updatedAt || "").localeCompare(String(a.callDate || a.updatedAt || "")));
-    const c = rows.find((r) => r.headline && r.callDate && Date.now() - Date.parse(r.callDate + "T20:00:00Z") <= 4 * 86400000);
-    if (c) add(`${c.sym} call: ${c.headline}${c.mgmtTone ? ` (management ${c.mgmtTone})` : ""}.`, 75,
+    const c = rows.find((r) => r.headline && r.callDate && nowMs - Date.parse(r.callDate + "T20:00:00Z") <= 4 * 86400000);
+    if (c) add(`${c.sym} call (${c.callDate}): ${c.headline}${c.mgmtTone ? `; management ${c.mgmtTone}` : ""}${c.stance ? `, ${c.stance}` : ""}${c.analystTone ? `; analysts ${c.analystTone}` : ""}.`, 75,
       ["confident", "optimistic"].includes(c.mgmtTone) ? "positive" : ["cautious", "defensive"].includes(c.mgmtTone) ? "risk" : "watch", [c.sym]);
   } else if (source.key === "spillover") {
     const e = (p.upcoming || []).find((r) => r?.daysUntil <= 3 && r?.isolation?.status !== "conflict" && (r.followers || []).some((f) => f.pairQualified));
@@ -32435,7 +32303,7 @@ function briefToolFacts(source, p, kind) {
       add(`${e.driver} earnings in ${e.daysUntil}d has qualified historical read-throughs to ${followers.join(", ")}${e.impliedMovePct != null ? ` off a ±${e.impliedMovePct}% implied move` : ""}.`, 83, "watch", [e.driver, ...followers]);
     }
   } else if (source.key === "index-calendar") {
-    const day = (p.days || []).findLast((d) => d?.date === etDateKey());
+    const day = (p.days || []).findLast((d) => d?.date === etDateKey(new Date(nowMs)));
     const rows = [["SPY", day?.spy], ["QQQ", day?.qqq], ["IWM", day?.iwm]]
       .map(([symbol, row]) => ({ symbol, session: row?.session }))
       .filter((x) => x.session?.firstHourComplete)
@@ -32447,7 +32315,7 @@ function briefToolFacts(source, p, kind) {
     }
   } else if (source.key === "heatmap") {
     if (kind === "afternoon" && p.eodSummary?.headline &&
-        (!p.eodSummary.date || p.eodSummary.date === etDateKey())) {
+        (!p.eodSummary.date || p.eodSummary.date === etDateKey(new Date(nowMs)))) {
       add(`${p.eodSummary.headline}${p.eodSummary.stats?.avgChangeWeighted != null ? ` Cap-weighted breadth ${briefToolPct(p.eodSummary.stats.avgChangeWeighted)}.` : ""}`, 79, "watch");
     }
     const streaks = Array.isArray(p.sectorRotation?.alerts) ? p.sectorRotation.alerts.filter((a) => a && a.sector && a.days >= 2) : [];
@@ -32471,17 +32339,19 @@ function briefToolFacts(source, p, kind) {
     if (vol?.clusteringPresent && (vol.state === "expanding" || vol.state === "calm")) {
       bits.push(`SPY short-horizon volatility is ${vol.state}${Number.isFinite(Number(vol.ratio)) ? ` at ${Number(vol.ratio).toFixed(2)}× its 20-day pace` : ""}`);
     }
-    const season = pieces.seasonality?.SPY;
+    const seasonSymbol = pieces.seasonality?.["^GSPC"] && !pieces.seasonality["^GSPC"].unavailable ? "^GSPC" : "SPY";
+    const seasonName = seasonSymbol === "^GSPC" ? "S&P 500" : "SPY";
+    const season = pieces.seasonality?.[seasonSymbol];
     const active = season?.active;
     if (active && !season.provisional) {
       if (active.inSanta && season.santa && !season.santa.provisional && season.santa.avgPct != null) {
-        bits.push(`the Santa window is open and past windows averaged ${briefToolPct(season.santa.avgPct)}`);
+        bits.push(`${seasonName} is in the Santa window; past windows averaged ${briefToolPct(season.santa.avgPct)} (n=${season.santa.n})`);
       } else if (active.inOpexWeek && season.opexWeek?.avgPct != null && season.opexWeek?.outsideAvgPct != null
           && Math.abs(season.opexWeek.avgPct - season.opexWeek.outsideAvgPct) >= 0.15) {
-        bits.push(`SPY is in expiration week, which has averaged ${briefToolPct(season.opexWeek.avgPct)} versus ${briefToolPct(season.opexWeek.outsideAvgPct)} on other days`);
+        bits.push(`${seasonName} is in expiration week, which has averaged ${briefToolPct(season.opexWeek.avgPct)} versus ${briefToolPct(season.opexWeek.outsideAvgPct)} on other days`);
       } else if (active.inTurnOfMonth && season.turnOfMonth?.avgPct != null && season.turnOfMonth?.outsideAvgPct != null
           && Math.abs(season.turnOfMonth.avgPct - season.turnOfMonth.outsideAvgPct) >= 0.1) {
-        bits.push(`SPY is in the turn-of-month window, which has averaged ${briefToolPct(season.turnOfMonth.avgPct)} versus ${briefToolPct(season.turnOfMonth.outsideAvgPct)} outside it`);
+        bits.push(`${seasonName} is in the turn-of-month window, which has averaged ${briefToolPct(season.turnOfMonth.avgPct)} versus ${briefToolPct(season.turnOfMonth.outsideAvgPct)} outside it`);
       }
     }
     const broken = (pieces.leadLag?.rows || []).filter((row) => row?.broken).slice(0, 2);
@@ -32493,9 +32363,17 @@ function briefToolFacts(source, p, kind) {
     if (sent?.fearDisagree || sent?.greedDisagree) {
       bits.push(`Fear & Greed is ${sent.score} while SPY is ${briefToolPct(sent.spy5dPct)} over 5 sessions`);
     }
-    const divs = (pieces.divergences?.rows || []).filter((row) => row?.symbol && row?.direction).slice(0, 3);
-    if (divs.length >= 2) {
-      bits.push(`${divs.map((row) => `${row.symbol} ${row.indicator} ${row.direction}`).join(", ")}`);
+    const divs = (pieces.divergences?.rows || []).filter((row) => row?.symbol && ["rsi", "macd"].includes(row.indicator) && ["bullish", "bearish"].includes(row.direction)).slice(0, 3);
+    const leadDiv = divs[0];
+    if (leadDiv) {
+      const key = `${leadDiv.indicator}${leadDiv.direction === "bullish" ? "Bullish" : "Bearish"}`;
+      const record = pieces.divergences?.record?.[key];
+      // Keep the matched-direction baseline and observation count together.
+      if (record && !record.provisional && record.n >= 30 && Number.isFinite(record.avgPct) && Number.isFinite(record.baselineAvgPct)) {
+        add(`${leadDiv.symbol} ${leadDiv.indicator.toUpperCase()} ${leadDiv.direction} divergence: historical next-10-session return signed in the signal's direction averaged ${briefToolPct(record.avgPct)} vs ${briefToolPct(record.baselineAvgPct)} baseline (n=${record.n}, overlapping observations). In-sample, not a trade.`, 72, "watch", [leadDiv.symbol]);
+      } else {
+        bits.push(`${divs.map((row) => `${row.symbol} ${row.indicator} ${row.direction}`).join(", ")} divergence; outcome sample limited or unavailable`);
+      }
     }
     if (bits.length) {
       add(`Pattern lab: ${bits.slice(0, 3).join("; ")}. In-sample context, not a trade.`, 71, "watch");
@@ -32511,30 +32389,56 @@ function briefToolFacts(source, p, kind) {
     const r = (p.tickers || []).filter((x) => x?.flagged).sort((a, b) => (b.score || 0) - (a.score || 0))[0];
     if (r) add(`${r.symbol} has the strongest OI/gamma flag: ${(r.reasons || []).slice(0, 2).map((x) => x.label).filter(Boolean).join("; ")}.`, 82, "watch", [r.symbol]);
   } else if (source.key === "streaks") {
-    const r = (p.tickers || []).filter((x) => x?.current && (x.current.sameDays >= 5 || Math.abs(x.current.cumulativePct || 0) >= 10)).sort((a, b) => Math.abs(b.current.cumulativePct || 0) - Math.abs(a.current.cumulativePct || 0))[0];
-    if (r) add(`${r.symbol} is on a ${r.current.sameDays}-session ${r.current.color} streak totaling ${briefToolPct(r.current.cumulativePct)}${r.current.volumeTrend ? ` on ${r.current.volumeTrend} volume` : ""}.`, 72, r.current.color === "green" ? "positive" : "risk", [r.symbol]);
+    const rows = p.tickers || [];
+    const maRead = (row) => {
+      const levels = row.maContext?.levels || [];
+      const ma = levels.find((x) => x.event === "reclaimed" || x.event === "lost")
+        || levels.find((x) => x.period === row.maContext?.nearestPeriod);
+      if (!ma || !Number.isFinite(ma.distancePct)) return "";
+      return `; ${ma.event === "reclaimed" || ma.event === "lost" ? `${ma.event} ` : ""}${ma.period}-day average, ${briefToolPct(ma.distancePct)} from it${ma.slope ? `, average ${ma.slope}` : ""}`;
+    };
+    const active = rows.filter((x) => x?.current && (x.current.sameDays >= 5 || Math.abs(x.current.cumulativePct || 0) >= 10))
+      .sort((a, b) => Math.abs(b.current.cumulativePct || 0) - Math.abs(a.current.cumulativePct || 0))[0];
+    if (active) {
+      const c = active.current;
+      add(`${active.symbol}: ${c.sameDays} ${c.color} sessions across ${c.windowDays || c.days || c.sameDays} sessions, ${briefToolPct(c.cumulativePct)} cumulative${Number.isFinite(c.volumeRatio) ? `, ${c.volumeRatio.toFixed(1)}x baseline volume` : ""}${maRead(active)}. Completed closes only.`, 72, "watch", [active.symbol]);
+    }
+    const ended = rows.filter((x) => x?.lastEnded && Number.isFinite(x.lastEnded.sessionsAgo) && x.lastEnded.sessionsAgo <= 1 && x.lastEnded.sessionsAgo >= 0
+      && (x.lastEnded.sameDays >= 5 || Math.abs(x.lastEnded.cumulativePct || 0) >= 10))
+      .sort((a, b) => Math.abs(b.lastEnded.cumulativePct || 0) - Math.abs(a.lastEnded.cumulativePct || 0))[0];
+    if (ended) {
+      const e = ended.lastEnded;
+      add(`${ended.symbol}'s ${e.sameDays}-day ${e.color} run (${briefToolPct(e.cumulativePct)}) ended ${e.sessionsAgo} sessions ago${Number.isFinite(e.reversalPct) ? ` with a ${briefToolPct(e.reversalPct)} reversal` : ""}${maRead(ended)}. Ended-run metrics are separate from the active streak.`, 78, "watch", [ended.symbol]);
+    }
   } else if (source.key === "commodities") {
     const rows = (p.items || []).filter((x) => !x.stale).flatMap((x) => (x.changes || []).map((c) => ({ x, c }))).filter((r) => Number.isFinite(r.c.pct)).sort((a, b) => Math.abs(b.c.pct) - Math.abs(a.c.pct));
     const r = rows.find((x) => Math.abs(x.c.pct) >= (x.c.label === "1d" ? 3 : 7));
-    if (r) add(`${r.x.label} moved ${briefToolPct(r.c.pct)} ${r.c.label}.`, 70, r.c.pct < 0 ? "risk" : "positive");
+    if (r) add(`${r.x.label} moved ${briefToolPct(r.c.pct)} ${r.c.label}${r.x.asOf ? ` as of ${r.x.asOf}` : ""}${r.x.proxyNote ? `; ${briefToolClean(r.x.proxyNote, 65)}` : ""}. Equity exposures are links, not measured stock reactions.`, 70, "watch", r.x.watch || []);
   } else if (source.key === "raises") {
-    const e = (p.events || []).find((x) => x?.publishedAt && Date.now() - Date.parse(x.publishedAt) <= 7 * 86400000);
-    if (e) add(`${e.ticker}: ${e.kindLabel || e.kind} — ${e.headline}${e.headlineAmount ? ` (${e.headlineAmount})` : ""}.`, e.kind === "buyback" ? 72 : 78, e.kind === "buyback" ? "positive" : "risk", [e.ticker]);
+    const recent = (p.events || []).filter((x) => x?.publishedAt && Date.parse(x.publishedAt) <= nowMs && nowMs - Date.parse(x.publishedAt) <= 7 * 86400000)
+      .sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt));
+    const events = [recent.find((x) => x.kind !== "buyback"), recent.find((x) => x.kind === "buyback")].filter(Boolean);
+    for (const e of events) add(`${e.ticker}: ${e.kindLabel || e.kind} announced ${e.publishedAt.slice(0, 10)} — ${briefToolClean(e.headline, 130)}${e.headlineAmount ? ` (headline amount: ${e.headlineAmount})` : ""}. ${e.kind === "buyback" ? "Authorization is not completed repurchases." : "Financing terms determine dilution or credit impact."}`, e.kind === "buyback" ? 72 : 78, "watch", [e.ticker]);
   } else if (source.key === "credit") {
     const b = p.raises?.bonds?.latest;
-    if (b && (Math.abs(b.momPct || 0) >= 20 || Math.abs(b.yoyPct || 0) >= 25)) {
+    if (b && !p.raises.bonds.stale && (Math.abs(b.momPct || 0) >= 20 || Math.abs(b.yoyPct || 0) >= 25)) {
       const changes = [b.momPct != null ? `${briefToolPct(b.momPct)} m/m` : null, b.yoyPct != null ? `${briefToolPct(b.yoyPct)} y/y` : null].filter(Boolean).join(" and ");
       add(`US corporate bond issuance was $${b.totalB}B in ${b.m}${changes ? `, ${changes}` : ""}.`, 65, "watch");
     }
     const rev = p.credit?.revolving;
-    if (rev && Math.abs(rev.yoyPct || 0) >= 5) add(`Revolving consumer credit is $${rev.latestB}B, ${briefToolPct(rev.yoyPct)} y/y.`, 64, rev.yoyPct > 0 ? "risk" : "positive");
+    if (rev && !rev.stale && Math.abs(rev.yoyPct || 0) >= 5) add(`Revolving consumer credit is $${rev.latestB}B, ${briefToolPct(rev.yoyPct)} y/y${rev.asOf ? ` as of ${rev.asOf}` : ""}.`, 64, rev.yoyPct > 0 ? "risk" : "positive");
   } else if (source.key === "capex") {
     const t = p.totals;
-    if (t && Math.abs(t.yoyPct || 0) >= 20) add(`Mag 7 AI CapEx grew ${briefToolPct(t.yoyPct)} to $${(t.fyLatestSum / 1e9).toFixed(0)}B${t.revenue?.yoyPct != null ? ` versus revenue ${briefToolPct(t.revenue.yoyPct)}` : ""}.`, 68, "watch", ["MSFT", "META", "AMZN", "GOOGL"]);
+    if (t && Number.isFinite(t.fyLatestSum) && Math.abs(t.yoyPct || 0) >= 20) add(`Tracked AI buyers' reported CapEx grew ${briefToolPct(t.yoyPct)} to $${(t.fyLatestSum / 1e9).toFixed(0)}B${t.fyRangeLabel ? ` (${t.fyRangeLabel})` : ""}${t.revenue?.yoyPct != null ? ` versus revenue ${briefToolPct(t.revenue.yoyPct)}` : ""}. Fiscal periods can differ; guidance is separate.`, 68, "watch", ["MSFT", "META", "AMZN", "GOOGL"]);
+    const guidance = (t?.guidance?.companies || []).find((g) => !g.review && ["raised", "lowered"].includes(g.callChange)
+      && Date.parse(g.asOf) <= nowMs && nowMs - Date.parse(g.asOf) <= 45 * 86400000 && Number.isFinite(g.low));
+    if (guidance) add(`${guidance.ticker} ${guidance.callChange} ${guidance.period} CapEx guidance on ${guidance.asOf}: ${guidance.high == null ? "more than " : ""}$${(guidance.low / 1e9).toFixed(0)}B${Number.isFinite(guidance.high) && guidance.high !== guidance.low ? ` to $${(guidance.high / 1e9).toFixed(0)}B` : ""}. Management guidance, not reported spending.`, 74, "watch", [guidance.ticker]);
   } else if (source.key === "ram") {
-    const cats = p.retail?.categories || [];
+    const cats = p.retail?.stale ? [] : p.retail?.categories || [];
     const r = cats.slice().sort((a, b) => Math.abs(b.monthPct || 0) - Math.abs(a.monthPct || 0))[0];
-    if (r && Math.abs(r.monthPct || 0) >= 10) add(`${r.label} retail RAM prices moved ${briefToolPct(r.monthPct)} over one month.`, 67, r.monthPct > 0 ? "risk" : "positive");
+    if (r && Math.abs(r.monthPct || 0) >= 10) add(`${r.label} retail RAM prices moved ${briefToolPct(r.monthPct)} over one month. Retail pricing is separate from wholesale DRAM.`, 67, "watch");
+    const spot = (p.spot?.stale ? [] : p.spot?.items || []).slice().sort((a, b) => Math.abs(b.m1Pct || 0) - Math.abs(a.m1Pct || 0))[0];
+    if (spot && Math.abs(spot.m1Pct || 0) >= 10) add(`${spot.name} wholesale DRAM spot prices moved ${briefToolPct(spot.m1Pct)} over one month${p.spot.updatedAt ? ` (source updated ${p.spot.updatedAt})` : ""}.`, 69, "watch");
   } else if (source.key === "accelerators") {
     const f = p.summary?.focus;
     const move = Math.abs(f?.change7dPct || 0) >= Math.abs(f?.change30dPct || 0) ? { v: f?.change7dPct, w: "7d" } : { v: f?.change30dPct, w: "30d" };
@@ -32550,7 +32454,14 @@ function briefToolFacts(source, p, kind) {
     if (b.length) add(`${p.summary.breakoutCount || b.length} Google Trends breakouts; ${b.slice(0, 3).map((x) => `${x.label}: “${x.query}”`).join("; ")}.`, 64, "watch");
   } else if (source.key === "ownership") {
     const b = (p.overallTopBought || [])[0], s = (p.overallTopSold || [])[0];
-    if (b && b.firmCount >= 5) add(`${b.ticker} led active-manager 13F buying across ${b.firmCount} firms${s ? ` while ${s.ticker} led selling across ${s.firmCount} firms` : ""}.`, 60, "watch", [b.ticker, s?.ticker]);
+    if (b && b.firmCount >= 5) add(`${b.ticker} led active-manager 13F buying across ${b.firmCount} firms${s ? ` while ${s.ticker} led selling across ${s.firmCount} firms` : ""}${p.periodEndIso || p.period ? ` for ${p.periodEndIso || p.period}` : ""}. Delayed quarterly holdings, not today's flows.`, 60, "watch", [b.ticker, s?.ticker]);
+    const insiders = p.insiderTransactions;
+    if (briefToolSourceIsCurrent({ maxAgeHours: 48 }, { builtAtIso: insiders?.asOf }, nowMs) && insiders?.asOf) {
+      const purchase = (insiders.transactions || []).filter((x) => x.openMarket && x.direction === "buy" && Number.isFinite(x.value) && x.value >= 1e6
+        && Date.parse(x.transactionDate) <= nowMs && nowMs - Date.parse(x.transactionDate) <= 7 * 86400000)
+        .sort((a, b) => b.value - a.value)[0];
+      if (purchase) add(`${purchase.symbol}: ${purchase.ownerName || "an insider"} disclosed a $${(purchase.value / 1e6).toFixed(1)}M open-market purchase dated ${purchase.transactionDate}. SEC Form 4 disclosure, not a directional forecast.`, 75, "watch", [purchase.symbol]);
+    }
   }
   return facts;
 }
@@ -32558,16 +32469,17 @@ function briefToolFacts(source, p, kind) {
 // Read every live desk in parallel, retain an auditable checked/missing list,
 // and rank only material outputs. Exported so an offline fixture can verify the
 // contract without a Yahoo/Gemini build.
-export async function collectBriefSiteTools({ kind = "intraday", narratives = [], dataDir = DATA_DIR, payloads = {} } = {}) {
+export async function collectBriefSiteTools({ kind = "intraday", narratives = null, dataDir = DATA_DIR, payloads = {}, now = new Date() } = {}) {
+  const nowMs = now.getTime();
   const loaded = await Promise.all(BRIEF_TOOL_SOURCES.map(async (source) => {
     try {
-      const payload = payloads[source.key] || JSON.parse(await readFile(resolve(dataDir, source.file), "utf8"));
-      return { source, payload, current: briefToolSourceIsCurrent(source, payload) };
+      const payload = Object.hasOwn(payloads, source.key) ? payloads[source.key] : JSON.parse(await readFile(resolve(dataDir, source.file), "utf8"));
+      return { source, payload, current: briefToolSourceIsCurrent(source, payload, nowMs) };
     } catch (_) {
       return { source, payload: null, current: false };
     }
   }));
-  const facts = loaded.flatMap(({ source, payload, current }) => current ? briefToolFacts(source, payload, kind) : []);
+  const facts = loaded.flatMap(({ source, payload, current }) => current ? briefToolFacts(source, payload, kind, nowMs) : []);
   // The Narratives tab is assembled in memory and its file is written after the
   // brief, so thread its fresh objects directly into the same scan.
   const liveNarratives = (Array.isArray(narratives) ? narratives : [])
@@ -32600,11 +32512,13 @@ export async function collectBriefSiteTools({ kind = "intraday", narratives = []
   const checked = loaded.filter((x) => x.current).map((x) => x.source.label);
   if (Array.isArray(narratives)) checked.push("Narratives");
   const missing = loaded.filter((x) => !x.current).map((x) => x.source.label);
+  if (!Array.isArray(narratives)) missing.push("Narratives");
   return {
     checked: [...new Set(checked)],
     missing,
     total: BRIEF_TOOL_SOURCES.length + 1,
-    facts: facts.slice(0, 24),
+    facts: [...facts.filter((fact, i) => facts.findIndex((f) => f.source === fact.source) === i),
+      ...facts.filter((fact, i) => facts.findIndex((f) => f.source === fact.source) !== i)].slice(0, BRIEF_TOOL_FACT_MAX),
     standouts: standouts.map(({ importance, ...fact }) => fact),
   };
 }
@@ -32614,7 +32528,7 @@ export function gatherBriefSignals(kind, ctx) {
     chains = {}, fearGreed = null, macro = null, correlations = null,
     unusual = null, calendar = {},
     rfr = FALLBACK_RISK_FREE_RATE, headlines = [],
-    ivTrending = null, siteTools = null, extended = null,
+    ivTrending = null, siteTools = null, extended = null, now = new Date(),
   } = ctx || {};
 
   // Fear & Greed + 1-day delta (green = greedier, red = more fearful).
@@ -32767,18 +32681,26 @@ export function gatherBriefSignals(kind, ctx) {
   }).filter((f) => f.sym);
   if (flow.length) signals.flow = flow;
 
-  // IV tracker — ONLY the actionable trend flags (the tiered names: implied
+  // IV tracker — material trend or Rich flags (the tiered names: implied
   // vol elevated vs the name's OWN ~18-month history AND still climbing, i.e.
   // the options market pricing in a bigger-than-usual move), never the whole
-  // ranked table. Rows arrive score-sorted from buildIvTrendingPayload, so
+  // ranked table. Rich premium can remain expensive without rising.
+  // Rows arrive score-sorted from buildIvTrendingPayload, so
   // the slice is the strongest flags. Earnings context rides along so the
   // model can tell scheduled event premium from an unexplained ramp.
-  const ivRows = Array.isArray(ivTrending?.tickers)
-    ? ivTrending.tickers.filter((r) => r && r.tier && r.symbol)
-    : [];
-  const ivTrend = ivRows.slice(0, 5).map((r) => ({
+  const ivRows = (Array.isArray(ivTrending?.tickers) ? ivTrending.tickers : [])
+    .filter((row) => row?.symbol)
+    .map((row) => ({ row, richness: IV_RICHNESS.classify({
+      pctile: row.pctile, iv: row.iv,
+      rv30: chains?.[row.symbol]?.technicals?.volRegime?.rv30,
+    }) }))
+    .filter(({ row, richness }) => row.tier || (row.elevated && richness.rich))
+    .sort((a, b) => Number(!!b.row.tier) - Number(!!a.row.tier));
+  const ivTrend = ivRows.slice(0, 5).map(({ row: r, richness }) => ({
     sym: r.symbol,
-    tier: r.tier,
+    tier: r.tier || "rich",
+    richnessBasis: richness.basis,
+    richnessNote: richness.note,
     ivPct: Number.isFinite(r.iv) ? Math.round(r.iv * 1000) / 10 : null,
     meanPct: Number.isFinite(r.mean) ? Math.round(r.mean * 1000) / 10 : null,
     z: Number.isFinite(r.z) ? r.z : null,
@@ -32798,14 +32720,21 @@ export function gatherBriefSignals(kind, ctx) {
         reasons: Array.isArray(correlations.tone.reasons) ? correlations.tone.reasons.slice(0, 3) : [],
       };
     }
+    const priorUs = correlations?.context?.priorUs;
+    const snapshotInputs = OVERNIGHT_TONE.inputsFromSnapshot(correlations?.markets, {
+      priorUsDate: priorUs?.date,
+      priorUsCloseMs: priorUs?.closeMs,
+      preOpen: isBeforeUsOpen(now.getTime()),
+    });
     const mk = correlations?.markets ? Object.values(correlations.markets) : [];
-    // The biggest overnight equity / FX / commodity / futures moves, ranked by
+    // Use the Overnight page's shared freshness rules, excluding closed cash
+    // markets and context-only volatility levels. Rank remaining moves by
     // %. Sovereign yields (type "rate") are deliberately EXCLUDED here — they
     // get their own always-present "Global bonds" section (bp-denominated), so
     // a low-base yield like the JGB can't crowd genuine equity/FX moves out of
     // the top-6, and the US curve lives in the macro strip.
     signals.overnight = mk
-      .filter((m) => m && m.type !== "rate" && Number.isFinite(m.chPct))
+      .filter((m) => m && m.type !== "rate" && snapshotInputs[m.sym]?.fresh && Number.isFinite(m.chPct))
       .sort((a, b) => Math.abs(b.chPct) - Math.abs(a.chPct))
       .slice(0, 6)
       .map((m) => ({
@@ -32817,7 +32746,7 @@ export function gatherBriefSignals(kind, ctx) {
     const fm = correlations?.markets || {};
     for (const fs of ["ES=F", "NQ=F"]) {
       const m = fm[fs];
-      if (m && Number.isFinite(m.chPct)) idxFut.push({ sym: fs, label: m.name || fs, chPct: Math.round(m.chPct * 100) / 100 });
+      if (m && snapshotInputs[fs]?.fresh && Number.isFinite(m.chPct)) idxFut.push({ sym: fs, label: m.name || fs, chPct: Math.round(m.chPct * 100) / 100 });
     }
     if (idxFut.length) signals.indexes = idxFut;
     // Yesterday's confirmed index close — the anchor the overnight read trades
@@ -32927,7 +32856,7 @@ export function gatherBriefSignals(kind, ctx) {
 }
 
 // Keep only the deterministic fields worth rendering as chips/stats on the card.
-function briefRenderFields(s) {
+export function briefRenderFields(s) {
   const out = {};
   if (s.fearGreed) out.fearGreed = s.fearGreed;
   if (s.macro && s.macro.length) out.macro = s.macro;
@@ -32989,7 +32918,7 @@ function briefSystemPrompt(kind) {
     "likely a repeat of the core pattern is, the implied directional bias, volatility outlook and rough magnitude, " +
     "plus sector or asset-class implications), and watch (key levels or indicators from the supplied facts to " +
     "monitor for confirmation or invalidation). Be probabilistic rather than predictive and acknowledge " +
-    "uncertainty. If NO listed pattern genuinely fits, or no playbook section is supplied, OMIT the analog field " +
+    "uncertainty. Numerical probabilities and historical returns must come from supplied statistics; otherwise use qualitative wording. If NO listed pattern genuinely fits, or no playbook section is supplied, OMIT the analog field " +
     "entirely — do not force an analogy. " +
     "TAPE DRIVERS: when the facts include a 'Market-wide headlines' section, judge whether any headline plausibly " +
     "explains the broad tape's direction — e.g. a geopolitical de-escalation or trade-deal headline lifting risk " +
@@ -33005,11 +32934,18 @@ function briefSystemPrompt(kind) {
     "surface it explicitly in the summary AND as a highlight, " +
     "since rates and curve shifts move equities. Any bond flagged 'SIGNIFICANT' must be called out. Don't " +
     "manufacture a rates story when the moves are small (a few bp). " +
+    "PUBLIC EVIDENCE ONLY: Owner research, private rosters, forecasts, liquidation desks, positions and trade records are outside this brief. " +
+    "RECENT PUBLIC TOOLS: distinguish an active streak from an ended run and its reversal; MA reclaims/losses use completed closes. " +
+    "Overnight gap indications are separate from open-to-close performance; keep saved pre-open timestamps and no-edge limits explicit. " +
+    "13F holdings are delayed quarterly disclosures, not current fund flows. Form 4 purchases are disclosures, not forecasts. " +
+    "Buyback authorizations are not completed repurchases, and announced financing is not the same as cash raised. " +
+    "Keep wholesale DRAM separate from retail memory prices; commodity exposures do not prove an equity reaction. " +
+    "For Pattern lab outcomes retain the horizon, sample count, direction-matched baseline and overlapping in-sample limitation. " +
     "PATTERN LAB AND BREADTH STREAKS: a Pattern lab standout is in-sample context, not a trade, and a sector " +
     "breadth streak is participation only, not fund flow. Mention one of them in a highlight only when the " +
     "cross-tool scan includes it, and do not turn it into a buy or sell. " +
     "IV TRACKER: when the facts include an 'IV tracker' section, those are single names whose options premium is " +
-    "both elevated vs the name's own history and still climbing — the options market pricing in a " +
+    "elevated vs the name's own history. Trend flags are still climbing; RICH follows the shared premium band; it can use percentile alone when realized volatility is unavailable. Respect each row's supplied basis and do not claim missing realized-volatility confirmation or a rising trend. The options market is pricing a " +
     "bigger-than-usual move. A name flagged SURGING, especially one with NO scheduled earnings inside 45 days " +
     "(an unexplained ramp — positioning or something leaking), is worth a highlight; an IV build into a " +
     "scheduled print is routine and only worth noting when the implied move is unusually large. Rising IV is " +
@@ -33199,17 +33135,18 @@ export function briefUserMessage(kind, dateKey, signals) {
     for (const f of signals.flow) lines.push(`- ${f.sym}${f.side ? ` ${f.side}s` : ""}: ${f.note || "heavy volume vs the prior session"}`);
   }
   if (signals.ivTrend && signals.ivTrend.length) {
-    lines.push("IV tracker — actionable implied-vol trend flags (each name's ATM ~30d IV vs its OWN ~18-month history; only flagged names listed — surging = well above its mean AND ripping higher now):");
+    lines.push("IV tracker — material implied-vol flags (each name's ATM ~30d IV vs its OWN ~18-month history; SURGING is rising, RICH uses the shared premium band, with percentile-only classification when realized volatility is unavailable; it makes no trend claim):");
     for (const v of signals.ivTrend) {
       const bits = [];
       if (v.ivPct != null) {
         bits.push(`IV ${v.ivPct.toFixed(1)}%${v.meanPct != null ? ` vs ${v.meanPct.toFixed(1)}% avg` : ""}${v.z != null ? ` (${v.z >= 0 ? "+" : ""}${v.z.toFixed(1)}σ)` : ""}`);
       }
       if (v.chg5dPct != null) bits.push(`${briefPctStr(v.chg5dPct, 1)} 5d`);
+      if (v.tier === "rich" && v.richnessNote) bits.push(v.richnessNote);
       if (v.risingStreak >= 2) bits.push(`${v.risingStreak}d rising streak`);
       bits.push(v.earnings
         ? `earnings ${v.earnings.date}${v.earnings.inDays != null ? ` (${v.earnings.inDays}d out)` : ""}${v.earnings.impliedMovePct != null ? `, ±${v.earnings.impliedMovePct}% implied move` : ""}`
-        : "no scheduled earnings inside 45d — unexplained ramp");
+        : v.tier === "rich" ? "no scheduled earnings inside 45d; rich premium, not a rising-trend signal" : "no scheduled earnings inside 45d — unexplained ramp");
       lines.push(`- ${v.sym}: ${String(v.tier).toUpperCase()} — ${bits.join(", ")}`);
     }
   }
@@ -33416,7 +33353,7 @@ export async function buildMarketBriefs(opts) {
   if (haveKey && want) {
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: AI_HTTP_TIMEOUT_MS } });
-      const siteTools = await collectBriefSiteTools({ kind, narratives, payloads: siteToolPayloads });
+      const siteTools = await collectBriefSiteTools({ kind, narratives, payloads: { ...siteToolPayloads, overnight: correlations } });
       // Core desks already have first-class fact-sheet sections in
       // gatherBriefSignals. Include them in the coverage audit without
       // duplicating their facts in the cross-tool list below.
@@ -33426,7 +33363,6 @@ export async function buildMarketBriefs(opts) {
         ["Calendar", !!calendar && typeof calendar === "object"],
         ["Unusual flow", !!unusual],
         ["Trending IV", !!ivTrending],
-        ["Overnight markets", !!correlations],
         ["Fear & Greed", !!fearGreed],
         ["Bonds & USD", !!macro],
       ];
@@ -36576,7 +36512,7 @@ function computeRecentlyEnded(history, activeNarrativeNames, todayIso) {
 // filled to the slice caps the Brief builder already enforces. That sheet is
 // wider than a typical one: every section present, each row at its cap
 // (watchlist 6, headlines 8, printed releases 8, flow 4, IV flags 5, tool
-// facts 24 at the 230-char cleaner, playbook 4 using the longest registry
+// facts 32 at the 320-char cleaner, playbook 4 using the longest registry
 // blurbs). Morning earnings lines are not sliced in gatherBriefSignals, so
 // the bound is one line per tracked ticker plus 16 same-day macro chips —
 // more than the named CPI/PPI/jobs series and a busy BLS/BEA day. Chars/3
@@ -36659,7 +36595,9 @@ function saturatedBriefSignals() {
     })),
     ivTrend: Array.from({ length: 5 }, (_, i) => ({
       sym: `IV${i}`,
-      tier: "surging",
+      tier: "rich",
+      richnessBasis: "percentile-only",
+      richnessNote: fill(180),
       ivPct: 82.4,
       meanPct: 41.2,
       z: 2.4,
@@ -36679,13 +36617,13 @@ function saturatedBriefSignals() {
       checked: toolSources,
       coreChecked: [
         "Ticker tracker & Grade", "News desk", "Calendar", "Unusual flow",
-        "Trending IV", "Overnight markets", "Fear & Greed", "Bonds & USD",
+        "Trending IV", "Fear & Greed", "Bonds & USD",
       ],
       missing: [],
-      total: toolSources.length + 8,
-      facts: Array.from({ length: 24 }, (_, i) => ({
+      total: toolSources.length + 7,
+      facts: Array.from({ length: BRIEF_TOOL_FACT_MAX }, (_, i) => ({
         source: `Desk ${i}`,
-        text: fill(230),
+        text: fill(BRIEF_TOOL_FACT_CHARS),
         symbols: ["AAAA", "BBBB", "CCCC", "DDDD"],
       })),
     },
@@ -37218,6 +37156,10 @@ async function main() {
   const aiCapexBriefs = await readAiCapexCallBriefs();
   const priorCapitalRaises = await readPriorCapitalRaises();
   const priorLiquidation = await readForcedLiquidation(DATA_DIR);
+  // Hot funds / leveraged ETF rebalance / cluster selloffs. The payload keeps
+  // per-fund snapshot history and the state keeps 13F price tables, so both
+  // are read before the wipe.
+  const priorLeverageDistress = await readLeverageDistress(DATA_DIR);
   // Prior IPOs & Credit snapshot — accumulates the universe issuance events
   // across builds and caches the immutable completed-quarter EDGAR counts +
   // the quarterly NY Fed household-credit parse, so it must be pre-read
@@ -37238,6 +37180,7 @@ async function main() {
   // Immutable earnings research state must survive the data/ replacement.
   // A corrupt existing ledger fails before the wipe instead of resetting history.
   const priorEarningsForecast = await readForecastState(DATA_DIR);
+  const priorEarningsForecastFiles = await readForecastFiles(DATA_DIR);
   // Prior central-bank gold snapshot - country holdings and global demand are
   // sourced independently, so either side can carry last-good across a WGC
   // outage while the other refreshes. Read it before the wholesale wipe.
@@ -37385,6 +37328,22 @@ async function main() {
     prior:priorLiquidation, universe:TICKERS, chains, cikMap:_cikMap, builtAtIso:new Date().toISOString(), quoteClient:yahooFinance,
   });
   console.log(`Collateral tracker: ${forcedLiquidation.rows.length} disclosure(s), SEC ${forcedLiquidation.coverage.status}, ${forcedLiquidation.coverage.requestsThisRun} source request(s)`);
+  // Still inside the serial SEC stage. At most one 13F data-set window (one
+  // SEC download) per build, and never on a Top Picks decision run, so the
+  // 11:00 and 15:30 bakes keep their timing. No AI calls.
+  let leverageDistress;
+  try {
+    leverageDistress = await refreshLeverageDistress({
+      prior: priorLeverageDistress.payload, priorState: priorLeverageDistress.state, universe: TICKERS, chains, now: new Date().toISOString(),
+      quoteClient: yahooFinance, cusipMapper: fetchOpenFigiCusipMap, levEtfSingles: LEVERAGED_ETF_SINGLES, groupOf: sectorGroupOf,
+      allowBulk: /^(?:0|false)$/i.test(process.env.REFRESH_TOP_PICKS || "1") || process.env.LEVERAGE_BULK === "1",
+    });
+    const hf = leverageDistress.payload.hotFunds;
+    console.log(`Leverage distress: ${hf.counts.flagged} hot fund(s) (${hf.counts.alert} alert), 13F ${hf.coverage.bulk.status}${hf.coverage.bulk.period ? " " + hf.coverage.bulk.period : ""}, ${leverageDistress.payload.rebalance.rows.length} ETF rebalance row(s), cluster ${leverageDistress.payload.clusters.today?.flagged ? "FLAGGED" : "quiet"}`);
+  } catch (err) {
+    console.warn(`  ⚠ leverage distress collection failed: ${String(err?.message || err).split("\n")[0]}`);
+    leverageDistress = { payload: priorLeverageDistress.payload ? { ...priorLeverageDistress.payload, errors: [{ stage: "collect", message: String(err?.message || err) }] } : emptyLeverageDistress(new Date().toISOString(), String(err?.message || err)), state: priorLeverageDistress.state || { version: 1 } };
+  }
   // Kick off 13F enrichment (SEC EDGAR per-firm holdings + OpenFIGI CUSIP map)
   // NOW so its ~60-80s runs CONCURRENTLY with the narratives + calendar + scoring
   // phases below, instead of serially after them — it was the build's second
@@ -37462,16 +37421,14 @@ async function main() {
   // FRED-cascade coupling with fetchEffectiveFedFundsRate is preserved: the
   // counter is module-level and the rate fetch still runs strictly after
   // this in the calendar section.
-  const todayMs = Date.UTC(
-    new Date().getUTCFullYear(),
-    new Date().getUTCMonth(),
-    new Date().getUTCDate(),
-  );
+  const calendarToday = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  const todayMs = Date.parse(calendarToday + "T00:00:00Z");
   const cutoffMs = calendarCutoffMs(todayMs);
   const todayIsoEarly = new Date(todayMs).toISOString().slice(0, 10);
   console.log("Fetching macro releases (BLS primary · FRED fallback · ForexFactory consensus)…");
   const reportEventsAll = await fetchMacroReleases(todayMs - MACRO_RELEASE_LOOKBACK_DAYS * 86400000, cutoffMs);
   const reportEvents = reportEventsAll.filter((r) => String(r.date) >= todayIsoEarly);
+  reportEvents.sourceStatus = reportEventsAll.sourceStatus;
   const macroReleaseReads = buildMacroReleaseReads(reportEventsAll, todayIsoEarly);
   console.log(`  · ${reportEvents.length} report rows (${macroReleaseReads.length} already printed in the last ${MACRO_RELEASE_LOOKBACK_DAYS}d)`);
   for (const r of macroReleaseReads) console.log(`    · ${r.line}`);
@@ -37536,16 +37493,22 @@ async function main() {
     .filter((d) => d >= todayIsoForFomc)
     .sort()
     .slice(0, 2);
-  const earningsForecastPrepared = await prepareEarningsForecast({
-    previous: priorEarningsForecast, chains, universe: TICKERS, sectors: SECTORS,
-    cikMap: await fetchCikMap(),
-    macroContext: macroBackdrop,
-    enabled: process.env.EARNINGS_FORECAST_ENABLED !== '0',
-  });
+  let earningsForecastPrepared = null;
+  try {
+    earningsForecastPrepared = await prepareEarningsForecast({
+      previous: priorEarningsForecast, chains, universe: TICKERS, sectors: SECTORS,
+      cikMap: await fetchCikMap(),
+      macroContext: macroBackdrop,
+      enabled: process.env.EARNINGS_FORECAST_ENABLED !== '0',
+    });
+  } catch (err) {
+    console.warn(`⚠ earnings forecast not refreshed: ${err?.message || err} — keeping the previous snapshot`);
+  }
   const builtAtIso = new Date().toISOString();
   // Scan timestamps remain on coverage. The artifact gets this generation's
   // stamp, which is created only after the network stages have completed.
   forcedLiquidation.builtAtIso = builtAtIso;
+  leverageDistress.payload.builtAtIso = builtAtIso;
   // AI rejection log: exact-get today's file plus the firstSeen window BEFORE
   // writeChainFiles wipes data/. Missing history is not a failed bake.
   let aiRejectionContext = { today: null, prior: [] };
@@ -37592,12 +37555,33 @@ async function main() {
   // order rendered first and then writeChainFiles removed data/ wholesale,
   // which meant a direct `npm run build` finished without manifest.json or
   // manifest-free.json; workflows only repaired that via a later regen pass.
+  let priorPartyTracker = null;
+  try {
+    priorPartyTracker = JSON.parse(await readFile(resolve(DATA_DIR, "party-tracker.json"), "utf8"));
+  } catch { priorPartyTracker = null; }
+  let partyTracker;
+  try {
+    partyTracker = await refreshPartyTracker({
+      prior: priorPartyTracker,
+      builtAtIso,
+      fetchSeries: (symbol, since) => fetchPartyBars(yahooFinance, symbol, since),
+    });
+    const partyPresident = partyTracker.offices?.find((office) => office.id === "president");
+    console.log(`Party tracker: through ${partyTracker.asOf || "n/a"}${partyTracker.carriedForward ? " (carried forward)" : ""}${partyPresident ? `, Democratic presidencies ${partyPresident.parties.D.annPct}%/yr vs Republican ${partyPresident.parties.R.annPct}%/yr` : ""}`);
+  } catch (err) {
+    console.warn(`  ⚠ party tracker failed: ${String(err?.message || err).split("\n")[0]}`);
+    partyTracker = priorPartyTracker?.asOf
+      ? { ...priorPartyTracker, builtAtIso, carriedForward: true }
+      : { version: 1, builtAtIso, error: String(err?.message || err), offices: [], rows: [], timeline: [], periods: [], methodology: [] };
+  }
   const totalChainBytes = await writeChainFiles(
     chains,
     riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE,
     builtAtIso,
   );
   await writeForcedLiquidation(DATA_DIR, forcedLiquidation);
+  await writeLeverageDistress(DATA_DIR, leverageDistress);
+  await writeFile(resolve(DATA_DIR, "party-tracker.json"), JSON.stringify(partyTracker) + "\n", "utf8");
   if (leapsPicks.length) {
     try {
       const paper = await writeLeapsPaperTrack({
@@ -37853,9 +37837,20 @@ async function main() {
     console.log(`wrote data/iv-history/ — ${ivHistory.size} tickers, ${ivHistoryBytes} bytes total`);
   }
   const fundHistoryBytes = await writeFundamentalsHistory(fundHistory);
-  const earningsForecastInfo = await writeEarningsForecast({ dataDir: DATA_DIR, prepared: earningsForecastPrepared });
-  console.log(`wrote data/earnings-forecast.json — ${earningsForecastInfo.companies} launch companies, ${earningsForecastInfo.forecasts} revenue forecasts; no AI calls`);
-  if(earningsForecastPrepared.payload.companyStorage)console.log('company research storage: '+JSON.stringify(earningsForecastPrepared.payload.companyStorage));
+  let earningsForecastInfo = null;
+  if (earningsForecastPrepared) {
+    try {
+      earningsForecastInfo = await writeEarningsForecast({ dataDir: DATA_DIR, prepared: earningsForecastPrepared });
+      console.log(`wrote data/earnings-forecast.json — ${earningsForecastInfo.companies} launch companies, ${earningsForecastInfo.forecasts} revenue forecasts; no AI calls`);
+      if(earningsForecastPrepared.payload.companyStorage)console.log('company research storage: '+JSON.stringify(earningsForecastPrepared.payload.companyStorage));
+    } catch (err) {
+      console.warn(`⚠ earnings forecast not written: ${err?.message || err} — keeping the previous snapshot`);
+    }
+  }
+  if (!earningsForecastInfo) {
+    const restored = await restoreForecastFiles(DATA_DIR, priorEarningsForecastFiles);
+    console.log(`kept the previous earnings forecast snapshot (${restored} file${restored === 1 ? '' : 's'})`);
+  }
   if (fundHistory.size) {
     console.log(`wrote data/fundamentals-history/ — ${fundHistory.size} tickers, ${fundHistoryBytes} bytes total`);
   }
@@ -37964,11 +37959,12 @@ async function main() {
   // The FedWatch/CME ZQ source depends on fedRate + the FOMC schedule, so it
   // stays sequential after this batch resolves.
   console.log("Fetching calendar sources (NY Fed EFFR · FOMC schedule · Nasdaq earnings · official event calendars) in parallel…");
-  const [fedRate, liveFomc, sessionMap, officialCalendar] = await Promise.all([
+  const [fedRate, liveFomc, sessionMap, officialCalendar, companyCalendar] = await Promise.all([
     fetchEffectiveFedFundsRate(),
     fetchFomcSchedule(),
     fetchNasdaqEarningsSessions(todayMs, calDays, earnSessionDates),
     fetchOfficialCalendarEvents(todayMs, cutoffMs),
+    fetchCompanyCalendar({symbols:TICKERS,startMs:todayMs,cutoffMs,prior:priorCalendar?.companyCalendar}),
   ]);
   if (fedRate) console.log(`  · Fed Funds ${fedRate.rate}% as of ${fedRate.asOf}`);
   // FedWatch history was read BEFORE writeChainFiles wiped data/. Start
@@ -38192,6 +38188,7 @@ async function main() {
     macroHistory: macroHistoryNext,
     sessionMap,
     officialCalendar,
+    companyCalendar,
     priorCalendar,
   });
   console.log(`wrote data/calendar.json — ${calendarInfo.count} events (through ${new Date(cutoffMs).toISOString().slice(0, 10)}), ${calendarInfo.bytes} bytes`);
@@ -38561,9 +38558,9 @@ async function main() {
   if (refreshBrief) {
   try {
     const briefTodayIso = etDateKey();
-    // Pure rebuild of the correlations payload (no fetch — reuses the already-
-    // fetched globalMarkets + chains bars) for the overnight signal block.
-    const briefCorrelations = buildCorrelationsPayload(chains, globalMarkets, builtAtIso, priorCorrelations);
+    // Reuse the public Overnight payload, including today's saved pre-open
+    // call, rather than rebuilding a snapshot that drops the call.
+    const briefCorrelations = correlationsInfo.payload;
     const sess = (sym, date) => sessionMap.get(`${sym}|${date}`) || "TBD";
     const allEarn = upcomingEarningsList(chains, briefTodayIso, 14);
     const calForBrief = {
@@ -38735,7 +38732,7 @@ async function main() {
     try {
       let previous = null;
       try { previous = JSON.parse(unifiedSignalCarry || "null"); } catch { /* no usable prior decision */ }
-      const unified = await publishUnifiedSignal({ dataDir: DATA_DIR, builtAtIso, chains, grades: gradesIndex, previous });
+      const unified = await publishUnifiedSignal({ dataDir: DATA_DIR, builtAtIso, assessmentAtIso: new Date().toISOString(), chains, grades: gradesIndex, previous });
       console.log(`wrote data/${UNIFIED_SIGNAL_KEY} — ${unified.decisions.length} decisions, snapshot ${unified.snapshotId}`);
     } catch (err) {
       // A failed research view must never alter the existing trade pipeline.

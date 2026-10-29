@@ -44,7 +44,13 @@ check('An unknown ADS conversion preserves awareness without quote-based pressur
 });
 check('Multiple excerpts of one stock do not inflate the stock count or sum amounts',()=>{
   const first=parse('123,456 ordinary shares are pledged as collateral.'),second={...first,fragmentId:1};
-  const p=buildForcedLiquidationPayload({observations:[first,second],universe:['ATLS'],builtAtIso:now});assert.equal(p.rows.length,2);assert.equal(p.summary.tracked,2);assert.equal(p.summary.pledgedStocks,1);assert(p.rows.every(r=>r.pledge.shares===123456));
+  const p=buildForcedLiquidationPayload({observations:[first,second],universe:['ATLS'],builtAtIso:now});assert.equal(p.rows.length,1);assert.equal(p.summary.tracked,1);assert.equal(p.summary.pledgedStocks,1);assert(p.rows.every(r=>r.pledge.shares===123456));
+});
+check('Same-source amounts, borrowers and excerpt differences remain separate evidence',()=>{
+  const first=parse('123,456 ordinary shares are pledged as collateral.');
+  for(const changed of [{borrower:'Separate Holder'},{disclosedShares:999},{excerpt:'Different source context.'},{url:first.url+'?exhibit=2'}]){
+    const p=buildForcedLiquidationPayload({observations:[first,{...first,...changed,fragmentId:1}],builtAtIso:now});assert.equal(p.rows.length,2);
+  }
 });
 check('A collateral issuer that needs review is not counted as a confirmed stock pledge',()=>{
   const p=buildForcedLiquidationPayload({observations:[{...base,issuerVerified:false}],builtAtIso:now});assert.equal(p.summary.pledgedStocks,0);assert.equal(p.summary.tracked,0);assert.equal(p.rows[0].pledge.confirmed,false);assert.equal(p.rows[0].liquidityWarning,false);
@@ -61,6 +67,38 @@ check('A partial release or holding percentage cannot disclose a current remaini
 });
 check('Legacy extraction remains a source lead without promoting its numeric quantity',()=>{
   const r=liquidationPledgeDisclosure({...base,parserVersion:LIQUIDATION_PARSER_VERSION-1},LIQUIDATION_PARSER_VERSION);assert.equal(r.confirmed,true);assert.equal(r.shares,null);
+});
+check('A title in the holder name does not end the pledge sentence',()=>{
+  for(const text of ['1,000,000 of the shares held by Mr. Lee are pledged as collateral.','Of these shares, 1,000,000 shares held by Dr. Chen were pledged as collateral.']){
+    const o=parse(text);assert(o,text);assert.equal(o.disclosedShares,1000000,text);
+  }
+});
+check('A release of a prior pledge does not hide a new pledge in the same disclosure',()=>{
+  const mixed=assess(parse('Mr. Lee pledged 3,000,000 shares to secure a margin loan and released 1,000,000 shares from a prior pledge.'));
+  assert.equal(mixed.pledge.confirmed,true);assert.notEqual(mixed.observation.status,'released');
+  const full=parse('Mr. Lee had pledged 3,000,000 shares, all of which were released.');assert.equal(full.status,'released');
+});
+check('An agreement date is not the date of the reported pledge',()=>{
+  const o=parse('Pursuant to the Pledge Agreement dated as of March 3, 2021, the Reporting Person has pledged 2,000,000 shares as collateral.');
+  assert.equal(o.asOfDate,null);assert.notEqual(assess(o).state,'stale');
+});
+check('Ordinary wording after "class" is not a share class',()=>{
+  assert.equal(parse('Title of Class of Securities: ordinary shares. 100 shares are pledged as collateral.').securityClass,'Ordinary shares');
+  assert.equal(parse('100 shares of Class B common stock are pledged as collateral.').securityClass,'CLASS B');
+});
+check('Annual-report business wording is not a forced-sale report',()=>{
+  const rows=extractLiquidationFiling('<html><p>Example Securities issues margin calls to customers whose margin accounts fall below maintenance requirements.</p></html>',{...filing,form:'10-K'},issuer);
+  assert(!rows.some(r=>r.kind==='liquidation-event'));
+});
+check('A later full release by the same holder retires the earlier pledge',()=>{
+  const pledge={...base,facilityKey:null,borrower:'Example Holder',accessionNumber:'0000000001-26-000010',filingDate:'2026-09-01',asOfDate:'2026-09-01'};
+  const release={...pledge,accessionNumber:'0000000001-26-000011',filingDate:'2026-10-01',asOfDate:'2026-10-01',status:'released'};
+  const p=buildForcedLiquidationPayload({observations:[pledge,release],universe:['ATLS'],builtAtIso:now});
+  assert.equal(p.summary.pledgedStocks,0);assert(p.rows.every(r=>r.state==='released'&&!r.pledge.confirmed&&r.stress==null));
+});
+check('A stale pledge is retained but not counted as a current pledge',()=>{
+  const p=buildForcedLiquidationPayload({observations:[{...base,asOfDate:'2024-01-01',filingDate:'2024-01-01'}],universe:['ATLS'],builtAtIso:now});
+  assert.equal(p.rows.length,1);assert.equal(p.summary.pledgedStocks,0);assert.equal(p.summary.needsTerms,0);
 });
 if(process.env.ARM_FILING_FILE){
   const raw=await readFile(process.env.ARM_FILING_FILE,'utf8');

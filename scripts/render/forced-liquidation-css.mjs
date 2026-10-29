@@ -28,6 +28,9 @@ export function renderForcedLiquidationCss(){return `
 .fl-notice,.fl-empty { padding:15px 18px; background:var(--surface-2); border-left:2px solid var(--border); color:var(--muted-strong); font-size:13px; line-height:1.7; }
 .fl-caption { color:var(--muted-strong); font-size:12px; line-height:1.7; }
 .fl-detail { padding:0 2px; }
+.fl-disclosures { margin:16px 0; }
+.fl-disclosures label { display:grid; gap:8px; font-size:13px; color:var(--muted-strong); }
+.fl-disclosures select { min-width:0; max-width:100%; width:100%; padding:8px; background:var(--surface-2); color:var(--text); border:1px solid var(--border); border-radius:4px; font:inherit; }
 .fl-detail-head { justify-content:space-between; align-items:start; }
 .fl-detail h3,.fl-method h3 { font-size:22px; margin:6px 0; font-weight:500; }
 .fl-detail h3 { scroll-margin-top:140px; }
@@ -45,5 +48,15 @@ export function renderForcedLiquidationCss(){return `
 .fl-scenario .fl-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); max-width:600px; }
 .fl-picks-watch { padding:16px 0; border-top:1px solid var(--border); margin:14px 0; font-size:13px; line-height:1.7; }
 .fl-picks-watch a { color:var(--accent); }
+.fl-events { margin:0 0 22px; padding:16px 18px; border-left:2px solid var(--red, #bd5959); background:var(--surface-2); }
+.fl-events h3 { font-size:15px; font-weight:600; margin:0 0 10px; }
+.fl-events ul { list-style:none; margin:0; padding:0; display:grid; gap:10px; }
+.fl-events li { font-size:13px; line-height:1.6; }
+.fl-events li small { display:block; color:var(--muted-strong); font-size:11px; }
+.fl-events .fl-caption { margin:12px 0 0; }
+.fl-stress { display:inline-block; min-width:38px; padding:3px 8px; border-radius:4px; border:1px solid var(--border); font-size:15px; font-weight:600; text-align:center; font-variant-numeric:tabular-nums; }
+.fl-stress-high { color:var(--red, #bd5959); border-color:var(--red, #bd5959); }
+.fl-stress-elevated { color:var(--amber, #c08a2b); border-color:var(--amber, #c08a2b); }
+.fl-stress-low { color:var(--muted-strong); }
 @media(max-width:800px){.fl-metrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 18px}.fl-toolbar label{flex:1;min-width:145px}.fl-pressure dl{grid-template-columns:1fr}.fl-pressure dd{margin-bottom:8px}.fl-tabs button{padding:10px 8px;font-size:12px}.fl-metric b{font-size:22px}}
 `;}

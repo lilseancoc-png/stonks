@@ -19,7 +19,7 @@
   }
 
 
-  var SITE_MAP = [["today","Today","Today","What is happening in the market right now",0,[["home","Home","","A one-screen overview of the market and every part of the site.",0],["brief","Market brief","Brief","A short digest of what moved, why, and what is coming up next.",0],["news","News","News desk","Market-moving stock and economic headlines, most important first.",0],["heatmap","Heatmap","","Every tracked stock as a tile: size is company value, color is how much it moved.",0],["calendar","Calendar","","Upcoming earnings reports, economic releases and Fed meetings.",0],["overnight","Overnight markets","","How Asian and European markets traded before the US open, and which US stocks they tend to lead.",0]]],["stocks","Stocks","Stocks","Look up, compare and follow companies",0,[["tickers","All stocks","Tickers","Every stock the site follows, with its price and current grade. Pick one to see the full report.",0],["grade","Look up a stock","Grade a ticker stock report","One stock in depth: its chart, grade, fundamentals, options and news.",0],["compare","Compare stocks","Compare companies","Line up a few companies side by side on price, growth and valuation.",0],["earnings","Earnings results","Earnings tracker","Which companies beat or missed expectations this season, and how their stocks reacted.",0],["calls","Earnings calls","","What management said on each company’s latest earnings call, and what changed.",0],["f13","Who owns what","SEC ownership 13F Form 4 insider","What big investment funds bought and sold last quarter, plus recent insider trades.",0],["pending-buyouts","Pending buyouts","M&A mergers","Announced and rumored takeovers, and how far along each deal is.",0]]],["market","Market & economy","Market","The big picture: mood, rates, money and themes",0,[["fear-greed","Market mood","Fear & Greed","CNN’s Fear & Greed index: whether investors are acting scared or greedy, from 0 to 100.",0],["bonds-usd","Rates & the dollar","Bonds & USD Fed","Treasury yields, the US dollar and what the Fed is expected to do next.",0],["commodities","Commodities","","Oil, gold, copper and other raw materials, and the stocks that move with them.",0],["central-bank-gold","Central-bank gold","","How much gold the world’s central banks are buying or selling.",0],["capital-raises","Capital markets","Capital raises share sales buybacks IPOs credit issuance debt","Companies selling stock or debt or buying shares back, upcoming IPOs, and how easily companies and households can borrow.",0],["narratives","Market themes","Narratives","The big stories driving money right now, such as AI spending, and which stocks ride them.",0]]],["options","Options activity","Options","Where traders are placing bets",0,[["flow","Unusual options trades","Unusual flow","Option trades far bigger than normal for that stock, a sign someone expects a move.",0],["volume","Trading volume","Volume","Days when a stock traded much more or less than usual.",0],["oi","Options walls","Gamma exposure GEX","Price levels where large option positions can slow a stock down or speed it up.",0],["iv-trend","Rising volatility","Trending IV implied volatility","Stocks whose options are pricing in a bigger move than usual.",0],["strategies","Strategy builder","Strategies","Pick a stock and build a defined-risk options trade, with its profit and loss at expiry.",0]]],["signals","Charts & signals","Signals","Price trends and repeating patterns",0,[["ma-tracker","Moving averages","MA tracker crossover","Stocks sitting close to their 20, 50, 100 or 200-day average price.",0],["streaks","Up/down streaks","Streaks green red","Stocks on a run of up days or down days in a row.",0],["pattern-lab","Pattern lab","Seasonality","Repeating patterns such as seasonality and how stocks behave after big moves.",0],["spillover","Earnings ripple effects","Event spillover","How one company’s earnings tend to move the other stocks in its industry.",0],["index-cal","Index calendar","","A month view of the major index funds, showing which days the whole market joined in.",0]]],["industry","Industry trends","Industry","Real-world data behind the AI and chip trade",0,[["ai-capex","AI spending","AI CapEx","How much the biggest tech companies are spending on AI data centers.",0],["ram-prices","Memory chip prices","RAM prices DRAM","Weekly prices for computer memory, a read on the chip cycle.",0],["accelerator-prices","GPU cloud prices","Accelerator","What it costs to rent AI chips by the hour, a read on AI demand.",0],["search-interest","Search trends","Search interest Google","Which market themes people are searching for more or less this week.",0]]],["learn","Learn & help","Learn","Guides, definitions and site info",0,[["cheatsheet","Options guide","Buyer's manual","A plain-English guide to buying options: calls, puts, risk and timing.",0],["chart-patterns","Chart patterns","","What common chart shapes look like and how traders read them.",0],["timeline","When data updates","Refresh schedule timeline","When each part of the site refreshes during the trading day.",0],["privacy","Privacy Policy","","What this site collects and how it is used.",0],["terms","Terms of Use","","The terms for using this site. Nothing here is investment advice.",0]]],["owner","Owner","Owner","Private research",1,[["unified-signal-engine","Unified Signal Engine","","All private signals combined into one ranked read.",0],["market","Market analysis","","The cross-asset tape, risk barometer and regime history.",0],["risk","Risk analysis","","Seven risk desks read together, with the reason when they disagree.",0],["bottom-tracker","Bottom tracker","","Signs the market is washing out and turning.",0],["historical-data","Historical Data","","The stored history behind the private research.",0],["earnings-forecast","Earnings Forecast","Quarterly full-year valuation company history revenue EPS industry model","Quarterly forecasts for the top 20 covered companies, company history, full-year valuation and linked industry evidence.",0],["forced-liquidation","Forced Liquidation Tracker","Pledged shares collateral leverage margin","SEC stock pledges, loan terms and estimated price thresholds, with missing terms kept visible.",0],["picks","Top picks","","The model’s highest-conviction option contracts for today.",0],["leaps","LEAPS","","Names scored for a one- to two-year options hold.",0],["stocks","Stock picks","","Quality companies on a dip, as shares rather than options.",0],["rotation","Sector rotation","","Strong names sold with their sector that are now turning back up.",0],["levetf","Leveraged ETFs","","Leveraged ETF setups from the same engine.",0],["open-picks","Open picks","","Every open trade, with lines ready to copy to a broker.",0],["track","Top Picks track record","","How every closed pick worked out.",0],["quant","Owner Lab","","Research tools and diagnostics.",0]]]];
+  var SITE_MAP = [["today","Today","Today","What is happening in the market right now",0,[["home","Home","","A one-screen overview of the market and every part of the site.",0],["brief","Market brief","Brief","A short digest of what moved, why, and what is coming up next.",0],["news","News","News desk","Market-moving stock and economic headlines, most important first.",0],["heatmap","Heatmap","","Every tracked stock as a tile: size is company value, color is how much it moved.",0],["calendar","Calendar","","Upcoming earnings reports, economic releases and Fed meetings.",0],["overnight","Overnight markets","","How Asian and European markets traded before the US open, and which US stocks they tend to lead.",0]]],["stocks","Stocks","Stocks","Look up, compare and follow companies",0,[["tickers","All stocks","Tickers","Every stock the site follows, with its price and current grade. Pick one to see the full report.",0],["grade","Look up a stock","Grade a ticker stock report","One stock in depth: its chart, grade, fundamentals, options and news.",0],["compare","Compare stocks","Compare companies","Line up a few companies side by side on price, growth and valuation.",0],["earnings","Earnings results","Earnings tracker","Which companies beat or missed expectations this season, and how their stocks reacted.",0],["calls","Earnings calls","","What management said on each company’s latest earnings call, and what changed.",0],["f13","Who owns what","SEC ownership 13F Form 4 insider","What big investment funds bought and sold last quarter, plus recent insider trades.",0],["pending-buyouts","Pending buyouts","M&A mergers","Announced and rumored takeovers, and how far along each deal is.",0]]],["market","Market & economy","Market","The big picture: mood, rates, money and themes",0,[["fear-greed","Market mood","Fear & Greed","CNN’s Fear & Greed index: whether investors are acting scared or greedy, from 0 to 100.",0],["bonds-usd","Rates & the dollar","Bonds & USD Fed","Treasury yields, the US dollar and what the Fed is expected to do next.",0],["commodities","Commodities","","Oil, gold, copper and other raw materials, and the stocks that move with them.",0],["central-bank-gold","Central-bank gold","","How much gold the world’s central banks are buying or selling.",0],["capital-raises","Capital markets","Capital raises share sales buybacks IPOs credit issuance debt","Companies selling stock or debt or buying shares back, upcoming IPOs, and how easily companies and households can borrow.",0],["narratives","Market themes","Narratives","The big stories driving money right now, such as AI spending, and which stocks ride them.",0]]],["options","Options activity","Options","Where traders are placing bets",0,[["flow","Unusual options trades","Unusual flow","Option trades far bigger than normal for that stock, a sign someone expects a move.",0],["volume","Trading volume","Volume","Days when a stock traded much more or less than usual.",0],["oi","Options walls","Gamma exposure GEX","Price levels where large option positions can slow a stock down or speed it up.",0],["iv-trend","Rising volatility","Trending IV implied volatility","Stocks whose options are pricing in a bigger move than usual.",0],["strategies","Strategy builder","Strategies","Pick a stock and build a defined-risk options trade, with its profit and loss at expiry.",0]]],["signals","Charts & signals","Signals","Price trends and repeating patterns",0,[["ma-tracker","Moving averages","MA tracker crossover","Stocks sitting close to their 20, 50, 100 or 200-day average price.",0],["streaks","Up/down streaks","Streaks green red","Stocks on a run of up days or down days in a row.",0],["pattern-lab","Pattern lab","Seasonality","Repeating patterns such as seasonality and how stocks behave after big moves.",0],["spillover","Earnings ripple effects","Event spillover","How one company’s earnings tend to move the other stocks in its industry.",0],["index-cal","Index calendar","","A month view of the major index funds, showing which days the whole market joined in.",0]]],["industry","Industry trends","Industry","Real-world data behind the AI and chip trade",0,[["ai-capex","AI spending","AI CapEx","How much the biggest tech companies are spending on AI data centers.",0],["ram-prices","Memory chip prices","RAM prices DRAM","Weekly prices for computer memory, a read on the chip cycle.",0],["accelerator-prices","GPU cloud prices","Accelerator","What it costs to rent AI chips by the hour, a read on AI demand.",0],["search-interest","Search trends","Search interest Google","Which market themes people are searching for more or less this week.",0]]],["learn","Learn & help","Learn","Guides, definitions and site info",0,[["cheatsheet","Options guide","Buyer's manual","A plain-English guide to buying options: calls, puts, risk and timing.",0],["chart-patterns","Chart patterns","","What common chart shapes look like and how traders read them.",0],["timeline","When data updates","Refresh schedule timeline","When each part of the site refreshes during the trading day.",0],["privacy","Privacy Policy","","What this site collects and how it is used.",0],["terms","Terms of Use","","The terms for using this site. Nothing here is investment advice.",0]]],["owner","Owner","Owner","Private research",1,[["unified-signal-engine","Unified Signal Engine","","Existing decisions with separate investment and trading perspectives.",0],["market","Market analysis","","The cross-asset tape, risk barometer and regime history.",0],["risk","Risk analysis","","Seven risk desks read together, with the reason when they disagree.",0],["bottom-tracker","Bottom tracker","","Signs the market is washing out and turning.",0],["historical-data","Historical Data","","The stored history behind the private research.",0],["party-tracker","Party tracker","Party-Tracker Democrats Republicans president house senate","How the market and each sector did when Democrats or Republicans held the presidency, the House, or the Senate.",0],["earnings-forecast","Earnings Forecast","Quarterly full-year valuation company history revenue EPS industry model","Quarterly forecasts for the top 20 covered companies, company history, full-year valuation and linked industry evidence.",0],["forced-liquidation","Forced Liquidation Tracker","Pledged shares collateral leverage margin","SEC stock pledges, loan terms and estimated price thresholds, with missing terms kept visible.",0],["picks","Top picks","","The model’s highest-conviction option contracts for today.",0],["leaps","LEAPS","","Names scored for a one- to two-year options hold.",0],["stocks","Stock picks","","Quality companies on a dip, as shares rather than options.",0],["rotation","Sector rotation","","Strong names sold with their sector that are now turning back up.",0],["levetf","Leveraged ETFs","","Leveraged ETF setups from the same engine.",0],["open-picks","Open picks","","Every open trade, with lines ready to copy to a broker.",0],["track","Top Picks track record","","How every closed pick worked out.",0],["quant","Owner Lab","","Research tools and diagnostics.",0]]]];
   var RECENT_KEY = 'stonks-recent-v1';
   function wfReadRecent(){
     try {
@@ -249,6 +249,38 @@ function recoveryEvidence(row, data, now = Date.now()) {
     });
   }
 
+function calendarSourceLabel(key) {
+  const labels = { bls: 'BLS', bea: 'BEA', 'kc-fed-jackson-hole': 'Kansas City Fed · Jackson Hole' };
+  if (labels[key]) return labels[key];
+  const annual = /^(census|ism)-(\d{4})$/.exec(key);
+  if (annual) return (annual[1] === 'ism' ? 'ISM' : 'Census') + ' · ' + annual[2];
+  const fed = /^fed-board-(\d{4})-(\d{2})$/.exec(key);
+  if (fed) return 'Federal Reserve · ' + new Date(fed[1] + '-' + fed[2] + '-01T12:00:00Z').toLocaleDateString('en-US', {month:'long', year:'numeric', timeZone:'UTC'});
+  return key;
+}
+function calendarHealth(data, nowMs = Date.now()) {
+  const coverage = data?.coverage || {};
+  const builtMs = Date.parse(data?.builtAtIso || '');
+  const ageHours = Number.isFinite(builtMs) ? (nowMs - builtMs) / 3600000 : null;
+  const failedSources = Object.entries(coverage.officialSources || {}).filter(([, ok]) => ok === false).map(([key]) => key);
+  const warnings = [];
+  if (ageHours === null || ageHours > 96 || ageHours < -1) warnings.push('Calendar snapshot needs a refresh.');
+  if (failedSources.length) warnings.push('Official schedules unavailable: ' + failedSources.map(calendarSourceLabel).join(', ') + '.');
+  if (coverage.nasdaq?.status === 'partial' || coverage.nasdaq?.status === 'unavailable') warnings.push('Nasdaq earnings lookup is incomplete.');
+  if (coverage.reportSources?.forexFactory === 'partial' || coverage.reportSources?.forexFactory === 'unavailable') warnings.push('Weekly economic event feed is incomplete.');
+  if (coverage.staleReportSubtypes?.length) warnings.push('Some report figures were carried forward from the previous calendar.');
+  return { ageHours, failedSources, warnings };
+}
+function calendarForDisplay(data, symbols, stockSymbols, nowMs = Date.now()) {
+  const tracked = new Set(symbols), stocks = new Set(stockSymbols);
+  const today = new Date(nowMs).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  const events = (data.events || []).filter(e => e && (!e.symbol || tracked.has(e.symbol)) && (e.type !== 'earnings' || stocks.has(e.symbol)));
+  const scheduled = new Set(events.filter(e => e.type === 'earnings' && e.date >= today).map(e => e.symbol));
+  return { ...data, events, coverage: { ...data.coverage, earningsUniverse: stockSymbols.length,
+    earningsScheduled: scheduled.size, earningsMissing: stockSymbols.filter(s => !scheduled.has(s)) } };
+}
+  var CALENDAR_SYMBOLS = ["SPY","QQQ","IWM","SMH","UVXY","TLT","USO","GLD","SLV","KWEB","EWY","AAPL","MSFT","AMZN","META","GOOGL","TSLA","NVDA","TSM","AVGO","ORCL","NFLX","JPM","V","MA","LLY","MRNA","MRK","WMT","COST","CRWD","ADBE","SHOP","BAC","SCHW","BABA","MS","GS","HOOD","AXP","AMD","C","UNH","DELL","ASML","VST","NOW","MDB","ACN","OKTA","SNOW","RKLB","CRM","ASTS","FTNT","INTU","TEAM","NKE","PANW","DIS","IBM","QCOM","HD","PLTR","PYPL","DDOG","SBUX","ANET","TXN","INTC","SMCI","NVO","CRWV","MRVL","AMAT","MU","BE","SNDK","WDC","DRAM","SPCX","CBRS","ARM","VRT","TGT"];
+  var CALENDAR_STOCKS = ["AAPL","MSFT","AMZN","META","GOOGL","TSLA","NVDA","TSM","AVGO","ORCL","NFLX","JPM","V","MA","LLY","MRNA","MRK","WMT","COST","CRWD","ADBE","SHOP","BAC","SCHW","BABA","MS","GS","HOOD","AXP","AMD","C","UNH","DELL","ASML","VST","NOW","MDB","ACN","OKTA","SNOW","RKLB","CRM","ASTS","FTNT","INTU","TEAM","NKE","PANW","DIS","IBM","QCOM","HD","PLTR","PYPL","DDOG","SBUX","ANET","TXN","INTC","SMCI","NVO","CRWV","MRVL","AMAT","MU","BE","SNDK","WDC","DRAM","SPCX","CBRS","ARM","VRT","TGT"];
 function newsDateIsCurrent(value, now = Date.now(), days = 7) {
   const t = Date.parse(value || "");
   return Number.isFinite(t) && t <= now + 15 * 60000 && t >= now - days * 86400000;
@@ -1998,7 +2030,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // the Owner analysis/idea/record desks and Owner Lab; this UI boundary keeps
   // destinations hidden until the owner session's compatibility claims resolve.
   // Discord mints both only after verifying the existing Top Picks owner role.
-  var OWNER_TABS = { 'earnings-forecast':1, 'unified-signal-engine':1, market:1, risk:1, 'bottom-tracker':1, 'historical-data':1, 'forced-liquidation':1, picks:1, leaps:1, stocks:1, rotation:1, levetf:1, 'open-picks':1, track:1, quant:1 };
+  var OWNER_TABS = { 'earnings-forecast':1, 'unified-signal-engine':1, market:1, risk:1, 'bottom-tracker':1, 'historical-data':1, 'party-tracker':1, 'forced-liquidation':1, picks:1, leaps:1, stocks:1, rotation:1, levetf:1, 'open-picks':1, track:1, quant:1 };
   var GATE_ON = false;
   var HAS_TRACK_RECORD = false;
   var HAS_TOP_PICKS = false;
@@ -2041,12 +2073,12 @@ function scenarioEventPhase(ev, now = Date.now()) {
     return m;
   })();
   var ACTIVE_SECTOR = SECTOR_ORDER[0] || 'Technology';
-  var RFR = 0.04040;
+  var RFR = 0.03995;
   // Provenance for the risk-free rate baked above. source is
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
   // surfaces non-fresh sources so traders know the anchor is degraded.
-  var RFR_META = {"source":"fresh","asOf":"2026-10-27","ageDays":null};
+  var RFR_META = {"source":"cached","asOf":"2026-10-28","ageDays":1};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, intradaySeries: null, fundamentals: null, social: null, chainRequestSeq: 0 };
   var ownerAutoPicks = { data: null, pending: null };
@@ -2423,10 +2455,21 @@ function scenarioEventPhase(ev, now = Date.now()) {
       var dy = (p[1] - v.y) * sy;
       return dx * dx + dy * dy;
     };
-    var best = pts[0], bd = dist(pts[0]);
+    var bestD = dist(pts[0]), tied = [pts[0]];
     for (var i=1; i<pts.length; i++){
       var d = dist(pts[i]);
-      if (d < bd){ bd = d; best = pts[i]; }
+      if (d < bestD - 0.01){ bestD = d; tied = [pts[i]]; }
+      else if (d <= bestD + 0.01) tied.push(pts[i]);
+    }
+    // One point per x keeps the original snap. Two lines that share an x
+    // (median and this year's path) follow whichever line the cursor is near.
+    var best = tied[0];
+    if (!xy && tied.length > 1){
+      var bestDy = Infinity;
+      for (var t=0; t<tied.length; t++){
+        var dy = Math.abs((tied[t][1] - v.y) * sy);
+        if (dy < bestDy){ bestDy = dy; best = tied[t]; }
+      }
     }
     var s = svg.createSVGPoint(); s.x = best[0]; s.y = best[1];
     var sp = s.matrixTransform(ctm);
@@ -2442,7 +2485,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var tip = chHover.tip;
     var lines = String(best[2] || '').split('\n');
     var htmlOut = '';
-    for (var li=0; li<lines.length; li++) htmlOut += (li ? '<br>' : '') + escapeHtml(lines[li]);
+    for (var li=0; li<lines.length; li++) htmlOut += '<span class="' + (li ? 'ch-tip-line' : 'ch-tip-lead') + '">' + escapeHtml(lines[li]) + '</span>';
     tip.innerHTML = htmlOut;
     tip.style.display = '';
     // Above the dot, flipping below when clipped at the top, and clamped to
@@ -2493,6 +2536,17 @@ function scenarioEventPhase(ev, now = Date.now()) {
   function chRangeIndex(el, data, clientX){
     var rect = el.getBoundingClientRect();
     if (!rect.width || !data || !data.d || !data.d.length) return 0;
+    if (Array.isArray(data.x) && data.x.length === data.d.length && el.getScreenCTM){
+      var ctm = el.getScreenCTM();
+      if (ctm){
+        var best = 0, distance = Infinity;
+        for (var i = 0; i < data.x.length; i++){
+          var delta = Math.abs(ctm.a * data.x[i] + ctm.e - clientX);
+          if (delta < distance){ best = i; distance = delta; }
+        }
+        return best;
+      }
+    }
     var frac = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
     return Math.round(frac * (data.d.length - 1));
   }
@@ -2515,6 +2569,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (!rect.width || !rect.height) return;
     var x1 = rect.left + (n === 1 ? 0 : a / (n - 1)) * rect.width;
     var x2 = rect.left + (n === 1 ? 0 : b / (n - 1)) * rect.width;
+    if (Array.isArray(data.x) && data.x.length === n && chRange.el.getScreenCTM){
+      var ctm = chRange.el.getScreenCTM();
+      if (ctm){ x1 = ctm.a * data.x[a] + ctm.e; x2 = ctm.a * data.x[b] + ctm.e; }
+    }
     chRange.band.style.left = x1 + 'px';
     chRange.band.style.top = rect.top + 'px';
     chRange.band.style.width = Math.max(2, x2 - x1) + 'px';
@@ -2581,7 +2639,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
     }, { passive: true });
     document.addEventListener('pointercancel', chRangeHide, { passive: true });
     document.addEventListener('keydown', function(e){ if (e.key === 'Escape') chRangeHide(); });
-    document.addEventListener('scroll', chRangeHide, { passive: true, capture: true });
+    document.addEventListener('scroll', function(e){
+      // Scrolling an unrelated panel, such as the sidebar, does not move the chart.
+      if (chRange.el && e.target.contains && e.target.contains(chRange.el)) chRangeHide();
+    }, { passive: true, capture: true });
     window.addEventListener('resize', chRangeHide);
   })();
 
@@ -5582,7 +5643,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // resolve the URL's initial tab synchronously at script-evaluation time (the
   // anti-flash pre-select in the boot block) before the /api/auth/me +
   // manifest fetches settle and bind() runs the full selectTab.
-  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','news','market','risk','unified-signal-engine','historical-data','earnings-forecast','forced-liquidation','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','bottom-tracker','open-picks','track','cheatsheet','chart-patterns','timeline','privacy','terms'];
+  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','news','market','risk','unified-signal-engine','historical-data','party-tracker','earnings-forecast','forced-liquidation','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','bottom-tracker','open-picks','track','cheatsheet','chart-patterns','timeline','privacy','terms'];
   // Friendly aliases so deep-links people might guess work too.
   // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
   // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -5590,6 +5651,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   var PAGE_TAB_ALIASES = {
     unified: 'unified-signal-engine', signals: 'unified-signal-engine', 'signal-engine': 'unified-signal-engine',
     historical: 'historical-data', history: 'historical-data', 'historical-data': 'historical-data',
+    party: 'party-tracker', parties: 'party-tracker', 'party-tracker': 'party-tracker', democrats: 'party-tracker', republicans: 'party-tracker',
     forecast: 'earnings-forecast', 'earnings-forecast': 'earnings-forecast',
     liquidation: 'forced-liquidation', 'forced-liquidation-tracker': 'forced-liquidation', 'forced-liquidation': 'forced-liquidation',
     unusual: 'flow', 'unusual-flow': 'flow',
@@ -6226,7 +6288,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var exportShot = null; // last picture made: { key, blob }
     // Learn & help pages are guides and legal text, not data.
     var EXPORT_SKIP_SECTIONS = { learn: 1 };
-    var EXPORT_SOURCES = {"home":["heatmap.json"],"brief":["briefs.json"],"news":["news-feed.json"],"heatmap":["heatmap.json"],"calendar":["calendar.json"],"overnight":["correlations.json"],"tickers":["heatmap.json","grades.json"],"compare":["grades.json"],"earnings":["earnings-tracker.json"],"calls":["earnings-calls.json"],"f13":["13f.json"],"pending-buyouts":["pending-buyouts.json"],"bonds-usd":["macro-history.json"],"commodities":["commodities.json"],"central-bank-gold":["central-bank-gold.json"],"capital-raises":["capital-raises.json","ipo-credit.json"],"flow":["unusual.json"],"volume":["volume-flags.json"],"oi":["oi-tracker.json"],"iv-trend":["iv-trending.json"],"ma-tracker":["ma-tracker.json"],"streaks":["streaks.json"],"pattern-lab":["pattern-recognition.json"],"spillover":["spillover-pairs.json"],"index-cal":["index-calendar.json"],"ai-capex":["ai-capex.json"],"ram-prices":["ram-prices.json"],"accelerator-prices":["accelerator-prices.json"],"search-interest":["search-interest.json"],"unified-signal-engine":["market-analysis.json","sector-rotation.json"],"market":["regime-history.json","correlations.json"],"risk":["market-analysis.json"],"bottom-tracker":["bottom-tracker.json"],"picks":["picks.json","picks-open.json"],"leaps":["leaps-picks.json"],"stocks":["stock-picks.json"],"rotation":["sector-rotation.json"],"levetf":["leveraged-etfs.json"],"open-picks":["picks-open.json","picks-accuracy.json"],"track":["picks-accuracy.json","picks-changes.json","picks-roster.json","grades-history.json"],"quant":["quant.json"]};
+    var EXPORT_SOURCES = {"home":["heatmap.json"],"brief":["briefs.json"],"news":["news-feed.json"],"heatmap":["heatmap.json"],"calendar":["calendar.json"],"overnight":["correlations.json"],"tickers":["heatmap.json","grades.json"],"compare":["grades.json"],"earnings":["earnings-tracker.json"],"calls":["earnings-calls.json"],"f13":["13f.json"],"pending-buyouts":["pending-buyouts.json"],"bonds-usd":["macro-history.json"],"commodities":["commodities.json"],"central-bank-gold":["central-bank-gold.json"],"capital-raises":["capital-raises.json","ipo-credit.json"],"flow":["unusual.json"],"volume":["volume-flags.json"],"oi":["oi-tracker.json"],"iv-trend":["iv-trending.json"],"ma-tracker":["ma-tracker.json"],"streaks":["streaks.json"],"pattern-lab":["pattern-recognition.json"],"spillover":["spillover-pairs.json"],"index-cal":["index-calendar.json"],"ai-capex":["ai-capex.json"],"ram-prices":["ram-prices.json"],"accelerator-prices":["accelerator-prices.json"],"search-interest":["search-interest.json"],"unified-signal-engine":["market-analysis.json","sector-rotation.json"],"market":["regime-history.json","correlations.json"],"risk":["market-analysis.json"],"bottom-tracker":["bottom-tracker.json"],"party-tracker":["party-tracker.json"],"picks":["picks.json","picks-open.json"],"leaps":["leaps-picks.json"],"stocks":["stock-picks.json"],"rotation":["sector-rotation.json"],"levetf":["leveraged-etfs.json"],"open-picks":["picks-open.json","picks-accuracy.json"],"track":["picks-accuracy.json","picks-changes.json","picks-roster.json","grades-history.json"],"quant":["quant.json"]};
     function exportOwner(){ return HAS_OWNER_ACCESS && !IS_EMBED; }
     function exportTabNow(){
       var a = document.querySelector('[data-page-tab][aria-controls][aria-selected="true"]');
@@ -7329,6 +7391,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         if (name === 'pending-buyouts' && typeof loadPendingBuyouts === 'function') loadPendingBuyouts();
         if (name === 'bottom-tracker' && typeof loadBottomTracker === 'function') loadBottomTracker();
         if (name === 'historical-data') historicalData.load();
+        if (name === 'party-tracker') partyTracker.load();
         if (name === 'earnings-forecast') earningsForecast.load();
         if (name === 'forced-liquidation') forcedLiquidation.load();
         if (name === 'unified-signal-engine') unifiedSignal.load();
@@ -9710,6 +9773,16 @@ function scenarioEventPhase(ev, now = Date.now()) {
       if (isNum(avgDrift)) recap += '<span class="opt-ehx-stat">avg 1-wk drift <b class="' + (avgDrift >= 0 ? 'opt-ehx-pos' : 'opt-ehx-neg') + '">' + pct(avgDrift, true) + '</b></span>';
       if (isNum(avgCrush)) recap += '<span class="opt-ehx-stat">avg IV crush <b>' + pct(avgCrush, true) + '</b></span>';
       html += '<div class="opt-ehx-recap">' + recap + '</div>';
+    }
+    // ---- long-run record (every stored print, up to ~10 years) ----
+    var lr = hx && hx.longRun;
+    if (lr && lr.n > moves.length){
+      var lrStats = '<span class="opt-ehx-stat">closed higher <b>' + lr.up + '/' + lr.n + '</b></span>' +
+        (isNum(lr.avgAbsMovePct) ? '<span class="opt-ehx-stat">avg move <b>±' + (lr.avgAbsMovePct * 100).toFixed(1) + '%</b></span>' : '') +
+        (isNum(lr.maxAbsMovePct) ? '<span class="opt-ehx-stat">biggest <b>±' + (lr.maxAbsMovePct * 100).toFixed(1) + '%</b></span>' : '') +
+        (lr.epsN ? '<span class="opt-ehx-stat">beat EPS <b>' + lr.beat + '/' + lr.epsN + '</b></span>' : '') +
+        (isNum(lr.avgWeek1Pct) ? '<span class="opt-ehx-stat">avg 1-wk drift <b class="' + (lr.avgWeek1Pct >= 0 ? 'opt-ehx-pos' : 'opt-ehx-neg') + '">' + pct(lr.avgWeek1Pct, true) + '</b></span>' : '');
+      html += '<div class="opt-ehx-recap"><span class="opt-ehx-stat">Since ' + escapeHtml(fmtDate(lr.since)) + ' (' + lr.n + ' reports):</span>' + lrStats + '</div>';
     }
 
     // ---- the table (newest first) ----
@@ -22667,6 +22740,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         eclAnalystChip(s.analystTone && s.analystTone.label) + '</div>' +
     '</div>';
     if (s.headline) html += '<div class="ecl-det-headline">' + escapeHtml(s.headline) + '</div>';
+    if (d.partial) html += '<p class="ecl-age">This summary was cut off at the AI output limit. Sections after the cut are missing; check the linked transcript.</p>';
     html += eclSection('Key takeaways', eclBullets(s.execSummary));
     // Financial highlights.
     var fin = '';
@@ -22781,6 +22855,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         eclAnalystChip(s.analystTone && s.analystTone.label) + '</div>' +
     '</div>';
     html += '<p class="ecl-age">' + escapeHtml(callAge.label) + ' · ' + escapeHtml(callReportContext(d,callsState.reports).label) + '. Check the linked transcript and newer releases before using this outlook.</p>';
+    if (d.partial) html += '<p class="ecl-age">This summary was cut off at the AI output limit. Sections after the cut are missing; check the linked transcript.</p>';
     html += '<section class="ecl-decision ecl-decision-' + decision.signal.tone + '">' +
       '<div class="ecl-decision-head"><span>Call verdict</span><h3>' + escapeHtml(decision.signal.label) + '</h3>' +
         (s.headline ? '<p>' + escapeHtml(s.headline) + '</p>' : '') + '</div>' +
@@ -23206,195 +23281,214 @@ function scenarioEventPhase(ev, now = Date.now()) {
   function startMaTrackerLive(){ maTrackerLivePoller.start(); }
   function stopMaTrackerLive(){ maTrackerLivePoller.stop(); }
 
-  var patternLabState = { data: null, loading: false, symbol: 'SPY' };
-  function patPct(v){
-    if (v == null || !isFinite(v)) return '—';
-    return (v > 0 ? '+' : '') + Number(v).toFixed(2) + '%';
+  var patternLab = (function patternLabFactory(host, doc, views, symbolHref, dataUrl, openSymbol) {
+  const $ = id => doc.getElementById(id);
+  const escape = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  const finite = value => typeof value === 'number' && Number.isFinite(value);
+  const number = (value, digits = 2) => finite(value) ? value.toFixed(digits) : '—';
+  const pct = value => finite(value) ? (value > 0 ? '+' : '') + number(value) + '%' : '—';
+  const store = (key, fallback) => views.get('pattern-lab.' + key, fallback);
+  const valid = (value, values, fallback) => values.includes(value) ? value : fallback;
+  const names = {volatility:'Volatility clustering', seasonality:'Index seasonality', leadLag:'Cross-asset relationships', divergences:'Price divergences', breadth:'Breadth disagreement', sentiment:'Sentiment disagreement'};
+  const state = {data:null, pending:false, error:null, bound:false,
+    view:valid(store('view','overview'), ['overview','charts','tables'], 'overview'),
+    study:valid(store('study','all'), ['all',...Object.keys(names)], 'all'),
+    symbol:valid(store('symbol',null), ['^GSPC','SPY','QQQ','IWM'], null), query:'', direction:'all'};
+  const save = key => views.set('pattern-lab.' + key, state[key]);
+  const link = symbol => '<a class="pat-sym" href="' + escape(symbolHref(symbol)) + '" data-pat-open="' + escape(symbol) + '">' + escape(symbol) + '</a>';
+  function table(cols, rows, key, empty = 'No observations available for this snapshot.') {
+    return views.tableHtml(cols, rows, {key:'pattern-' + key, empty});
   }
-  function patCls(v){ return v == null || !isFinite(v) || v === 0 ? '' : (v > 0 ? 'pat-up' : 'pat-down'); }
-  function patNum(v, digits){
-    if (v == null || !isFinite(v)) return '—';
-    return Number(v).toFixed(digits == null ? 2 : digits);
+  const column = (label, key, kind) => ({label, num:kind === 'number' || kind === 'pct',
+    cell:row => kind === 'pct' ? pct(row[key]) : kind === 'number' ? number(row[key], 0) : escape(row[key] ?? '—'),
+    sort:row => row[key] ?? null});
+  function bars(title, rows, unit, note) {
+    const validRows = rows.filter(row => finite(row.value));
+    if (!validRows.length) return '<p class="pat-note">No completed observations for this comparison.</p>';
+    const max = Math.max(...validRows.map(row => Math.abs(row.value)), .0001);
+    return '<figure class="pat-bars"><figcaption>' + escape(title) + '</figcaption><p class="pat-note">' + escape(unit) + ' · bars extend from zero · scale ±' + number(max) + '</p>' + validRows.map(row => {
+      const width = Math.abs(row.value) / max * 50;
+      return '<div class="pat-bar-row"><span>' + escape(row.label) + (row.n != null ? '<small>n=' + escape(row.n) + (row.provisional ? ' · limited sample' : '') + '</small>' : '') + '</span><span class="pat-bar-track" aria-hidden="true"><i class="' + (row.value < 0 ? 'is-negative' : 'is-positive') + '" style="left:' + (row.value < 0 ? 50 - width : 50) + '%;width:' + width + '%"></i></span><b>' + (unit.includes('%') ? pct(row.value) : number(row.value)) + '</b></div>';
+    }).join('') + '<p class="pat-note">' + escape(note) + '</p></figure>';
   }
-  function patRate(v){
-    if (v == null || !isFinite(v)) return '—';
-    return Number(v).toFixed(1) + '%';
-  }
-  function patProv(flag){ return flag ? ' <span class="pat-flag">Thin sample.</span> ' : ''; }
-  function patMetric(label, value, cls, sub){
-    return '<div><small>' + label + '</small><b class="' + (cls || '') + '">' + value + '</b>' + (sub ? '<em>' + sub + '</em>' : '') + '</div>';
-  }
-  function patTable(headers, rows, empty){
-    if (!rows.length) return '<p class="pat-note">' + (empty || 'No rows for this build.') + '</p>';
-    return '<div class="pat-table-wrap"><table class="pat-table"><thead><tr>' + headers.map(function(h){ return '<th>' + h + '</th>'; }).join('') + '</tr></thead><tbody>' + rows.join('') + '</tbody></table></div>';
-  }
-  function patPiece(kicker, title, body){
-    return '<section class="pat-piece"><div class="pat-kicker">' + kicker + '</div><h3>' + title + '</h3>' + body + '</section>';
-  }
-  function patNode(target){
-    if (!target) return null;
-    return target.nodeType === 1 ? target : target.parentElement;
-  }
-  function renderPatternVolatility(vol){
-    if (!vol || vol.state === 'unavailable') return patPiece('SPY daily closes', 'Volatility clustering', '<p>Not enough recent SPY history to compare a short stretch with the last month.</p>');
-    var sample = vol.sample || {};
-    var stateLabel = vol.state === 'expanding' ? 'Expanding' : vol.state === 'calm' ? 'Calm' : 'Neither';
-    return patPiece('SPY daily closes', 'Volatility clustering',
-      '<p>' + escapeHtml(vol.advisory || '') + patProv(vol.provisional) + '</p>' +
-      '<div class="pat-metrics">' +
-        patMetric('Current stretch', stateLabel) +
-        patMetric('5-day realized vol', vol.rv5Pct == null ? '—' : patNum(vol.rv5Pct, 1) + '%', '', 'annualized') +
-        patMetric('20-day realized vol', vol.rv20Pct == null ? '—' : patNum(vol.rv20Pct, 1) + '%', '', 'annualized') +
-        patMetric('Size persistence', patNum(vol.absReturnAutocorr, 2), '', '0 means today does not predict tomorrow') +
-      '</div>' +
-      '<p class="pat-note">Average absolute move the next day: ' + patPct(sample.expanding && sample.expanding.nextAbsPct) + ' after an expanding stretch (n=' + ((sample.expanding && sample.expanding.n) || 0) + '), ' + patPct(sample.calm && sample.calm.nextAbsPct) + ' after a calm stretch (n=' + ((sample.calm && sample.calm.n) || 0) + '). This is a description of SPY. It does not change a grade or a position.</p>');
-  }
-  function renderPatternSeasonality(all){
-    var symbol = patternLabState.symbol || 'SPY';
-    var row = (all && all[symbol]) || {};
-    var switches = ['SPY', 'QQQ', 'IWM'].map(function(sym){
-      return '<button type="button" data-pat-symbol="' + sym + '" aria-pressed="' + (sym === symbol ? 'true' : 'false') + '">' + sym + '</button>';
-    }).join('');
-    if (row.unavailable) return patPiece('Index price history', 'Index seasonality', '<div class="pat-switch">' + switches + '</div><p>Not enough stored history for ' + symbol + '.</p>');
-    var active = row.active || {};
-    var windows = [];
-    if (active.inSanta) windows.push('Santa window');
-    if (active.inTurnOfMonth) windows.push('turn of the month');
-    if (active.inOpexWeek) windows.push('expiration week');
-    var months = (row.months || []).map(function(m){
-      return '<tr><td>' + escapeHtml(m.name) + '</td><td>' + (m.n || 0) + '</td><td class="' + patCls(m.avgPct) + '">' + patPct(m.avgPct) + '</td><td>' + patRate(m.hitRatePct) + '</td><td>' + (m.provisional ? 'Thin' : 'Enough years') + '</td></tr>';
-    });
-    var days = (row.weekdays || []).map(function(d){
-      return '<tr><td>' + escapeHtml(d.name) + '</td><td>' + (d.n || 0) + '</td><td class="' + patCls(d.avgPct) + '">' + patPct(d.avgPct) + '</td><td>' + patRate(d.hitRatePct) + '</td></tr>';
-    });
-    var santa = row.santa || {};
-    var sep = row.september || {};
-    var turn = row.turnOfMonth || {};
-    var opex = row.opexWeek || {};
-    var mid = row.midterm || {};
-    return patPiece('Index price history', 'Index seasonality',
-      '<div class="pat-switch" role="group" aria-label="Index">' + switches + '</div>' +
-      '<p>' + escapeHtml(symbol) + ' · ' + patNum(row.years, 1) + ' years · ' + (row.sessions || 0) + ' sessions. Close-to-close price change. Dividends are not included.' + (windows.length ? ' The latest session is inside: ' + windows.join(', ') + '.' : ' No short calendar window is open on the latest session.') + (active.midtermYear ? ' This calendar year is a midterm year.' : '') + patProv(row.provisional) + '</p>' +
-      '<div class="pat-metrics">' +
-        patMetric('Santa window', patPct(santa.avgPct), patCls(santa.avgPct), 'whole window · up ' + patRate(santa.hitRatePct) + ' of ' + (santa.n || 0)) +
-        patMetric('September', patPct(sep.avgPct), patCls(sep.avgPct), 'full month · up ' + patRate(sep.hitRatePct) + ' of ' + (sep.n || 0)) +
-        patMetric('Turn of month', patPct(turn.avgPct), patCls(turn.avgPct), 'whole window · any ' + (turn.windowSessions || 4) + ' sessions ' + patPct(turn.outsideAvgPct)) +
-        patMetric('Expiration week', patPct(opex.avgPct), patCls(opex.avgPct), 'whole week · any ' + (opex.windowSessions || 5) + ' sessions ' + patPct(opex.outsideAvgPct)) +
-      '</div>' +
-      '<p class="pat-note">Only prior complete calendar years count, and each window runs from the prior close. Santa is the last five December sessions plus the first two January sessions. Turn of month is the final session of a month plus the first three of the next. Expiration week is the Monday-through-Friday around the third Friday. "Any N sessions" is the average of back-to-back stretches of the same length, for comparison. Midterm years, price change only: ' + patPct(mid.avgPct) + ' versus ' + patPct(mid.otherAvgPct) + ' in other years (n=' + (mid.n || 0) + ').' + patProv(mid.provisional) + ' ' + escapeHtml(mid.note || '') + (row.droppedExtremeDays ? ' Windows holding ' + row.droppedExtremeDays + ' daily print' + (row.droppedExtremeDays === 1 ? '' : 's') + ' larger than 25% ' + (row.droppedExtremeDays === 1 ? 'was' : 'were') + ' left out.' : '') + '</p>' +
-      patTable(['Month', 'Years', 'Month price change', 'Years up', 'Sample'], months) +
-      patTable(['Weekday', 'Sessions', 'Average day', 'Days up'], days));
-  }
-  function patSession(kind){
-    if (kind === 'leading') return 'Closes before the US open';
-    if (kind === 'concurrent') return 'Overlaps the US day';
-    if (kind === '24h') return 'Trades overnight';
-    return kind || '—';
-  }
-  function renderPatternLead(lead){
-    lead = lead || {};
-    var rows = (lead.rows || []).filter(function(row){ return row.read !== 'too weak'; }).slice(0, 24);
-    var html = rows.map(function(row){
-      return '<tr><td><button type="button" class="pat-sym" data-pat-open="' + escapeHtml(row.us) + '">' + escapeHtml(row.us) + '</button></td><td>' + escapeHtml(row.peer) + '</td><td>' + escapeHtml(patSession(row.sessionClass)) + '</td><td>' + patNum(row.lag1Beta, 2) + '</td><td>' + patNum(row.lag1T, 1) + '</td><td>' + patNum(row.sameDayBeta, 2) + '</td><td>' + patNum(row.corr60, 2) + ' / ' + patNum(row.corr120, 2) + '</td><td>' + escapeHtml(row.read) + '</td></tr>';
-    });
-    var hidden = Math.max(0, (lead.tested || 0) - rows.length);
-    var empty = lead.tested ? 'No curated link cleared the bar on this build.' : 'Peer history was not available on this build. Overnight markets are unchanged.';
-    return patPiece('Curated foreign peers', 'Cross-asset lead',
-      '<p>' + (lead.usable || 0) + ' of ' + (lead.tested || 0) + ' curated links have a t-stat of at least 2 over 80 or more sessions, or the 60-day correlation has fallen apart versus the 120-day correlation. A market that closes before the US open is compared on the same date. Europe, futures, and commodities are compared with the previous session.</p>' +
-      '<p class="pat-note">' + escapeHtml(lead.caveat || '') + '</p>' +
-      patTable(['US name', 'Peer', 'When it trades', 'Prior-session beta', 'Prior-session t', 'Same-day beta', 'Corr 60 / 120', 'Read'], html, empty) +
-      (hidden ? '<p class="pat-note">' + hidden + ' links stayed below that bar and are not listed.</p>' : ''));
-  }
-  function renderPatternDivergence(div){
-    var rows = ((div && div.rows) || []).map(function(row){
-      return '<tr><td><button type="button" class="pat-sym" data-pat-open="' + escapeHtml(row.symbol) + '">' + escapeHtml(row.symbol) + '</button></td><td>' + escapeHtml(row.indicator) + '</td><td>' + escapeHtml(row.direction) + '</td><td>' + escapeHtml(row.olderDate || '') + '</td><td>' + escapeHtml(row.newerDate || '') + '</td><td class="' + patCls(row.priceChangePct) + '">' + patPct(row.priceChangePct) + '</td></tr>';
-    });
-    var record = div && div.record || {};
-    var keys = ['rsiBullish', 'rsiBearish', 'macdBullish', 'macdBearish'];
-    var labels = { rsiBullish: 'RSI bullish', rsiBearish: 'RSI bearish', macdBullish: 'MACD bullish', macdBearish: 'MACD bearish' };
-    var stats = keys.map(function(key){
-      var s = record[key] || {};
-      return patMetric(labels[key], patPct(s.avgPct), patCls(s.avgPct), 'n=' + (s.n || 0) + (s.provisional ? ' · thin' : ''));
-    }).join('');
-    var baseline = record.rsiBullish && record.rsiBullish.baselineAvgPct;
-    return patPiece('Daily RSI and MACD', 'Price divergences',
-      '<p>A bullish row is a lower price low with a higher indicator low. A bearish row is a higher price high with a lower indicator high. The table is the latest bar only.</p>' +
-      '<p class="pat-note">' + escapeHtml((div && div.note) || '') + ' Across the same names, the plain 10-session price change averaged ' + patPct(baseline) + '.</p>' +
-      '<div class="pat-metrics">' + stats + '</div>' +
-      patTable(['Name', 'Indicator', 'Read', 'Older pivot', 'Newer pivot', 'Price between pivots'], rows, 'No divergence is on the latest bar.'));
-  }
-  function renderPatternBreadth(breadth){
-    breadth = breadth || {};
-    var f5 = breadth.forward5 || {};
-    var f10 = breadth.forward10 || {};
-    if (!breadth.latest) return patPiece('Regime history', 'Breadth versus the index', '<p>Regime history is not on this build yet. Market Analysis is unchanged.</p>');
-    return patPiece('Regime history', 'Breadth versus the index',
-      '<p>' + (breadth.active ? 'The latest saved regime day has the indexes flat or up while breadth is down.' : 'The latest saved regime day does not have that split.') + (breadth.latest && breadth.latest.date ? ' Latest day: ' + escapeHtml(breadth.latest.date) + '.' : '') + '</p>' +
-      '<p class="pat-note">' + escapeHtml(breadth.note || '') + '</p>' +
-      '<div class="pat-metrics">' +
-        patMetric('S&P, next 5 sessions', patPct(f5.avgPct), patCls(f5.avgPct), 'n=' + (f5.n || 0) + (f5.provisional ? ' · thin' : '')) +
-        patMetric('S&P, next 10 sessions', patPct(f10.avgPct), patCls(f10.avgPct), 'up ' + patRate(f10.hitRatePct) + (f10.provisional ? ' · thin' : '')) +
-      '</div>');
-  }
-  function renderPatternSentiment(sent){
-    sent = sent || {};
-    var fear = sent.fear || {};
-    var greed = sent.greed || {};
-    var latest = sent.latest || {};
-    if (!latest.date) return patPiece('Fear & Greed history', 'Sentiment disagreement', '<p>Fear &amp; Greed history is not on this build yet. The Fear &amp; Greed page is unchanged.</p>');
-    var stateText = sent.state === 'aligned' ? 'Fear & Greed and the 5-session S&P move agree.' : sent.state === 'fear while price is up' ? 'Fear & Greed is at extreme fear while the S&P is up over 5 sessions.' : sent.state === 'greed while price is down' ? 'Fear & Greed is at extreme greed while the S&P is down over 5 sessions.' : escapeHtml(sent.state || '');
-    return patPiece('Fear & Greed history', 'Sentiment disagreement',
-      '<p>' + stateText + ' Latest score ' + patNum(latest.score, 0) + ' on ' + escapeHtml(latest.date) + '. S&P 5-session price change ' + patPct(latest.spy5dPct) + '.</p>' +
-      '<p class="pat-note">' + escapeHtml(sent.rules || '') + ' The figures below are the S&P price change over the following 10 sessions. They are not a position.</p>' +
-      '<div class="pat-metrics">' +
-        patMetric('After extreme fear and a rising tape', patPct(fear.avgPct), patCls(fear.avgPct), 'S&P next 10 sessions · n=' + (fear.n || 0) + (fear.provisional ? ' · thin' : '')) +
-        patMetric('After extreme greed and a falling tape', patPct(greed.avgPct), patCls(greed.avgPct), 'S&P next 10 sessions · n=' + (greed.n || 0) + (greed.provisional ? ' · thin' : '')) +
-      '</div>');
-  }
-  function renderPatternLab(){
-    var root = $('pattern-lab-root');
-    var eye = $('pattern-lab-eyebrow');
-    if (!root) return;
-    var data = patternLabState.data;
-    if (patternLabState.loading && !data){ root.innerHTML = 'Loading pattern lab…'; return; }
-    if (!data || data.loadError){ root.innerHTML = '<p class="pat-note">Pattern lab has not been written yet. It appears after the next bake.</p>'; if (eye) eye.textContent = ''; return; }
-    var pieces = data.pieces || {};
-    if (eye) eye.textContent = data.asOf ? ('Session ' + data.asOf) : '';
-    root.innerHTML =
-      '<p class="pat-note">These reads sit beside the desks that already exist. They do not replace a grade, the index calendar, or overnight markets, and they do not change a position.</p>' +
-      renderPatternVolatility(pieces.volatility) +
-      renderPatternSeasonality(pieces.seasonality) +
-      renderPatternLead(pieces.leadLag) +
-      renderPatternDivergence(pieces.divergences) +
-      renderPatternBreadth(pieces.breadth) +
-      renderPatternSentiment(pieces.sentiment);
-  }
-  function loadPatternLab(){
-    var root = $('pattern-lab-root');
-    if (patternLabState.data || patternLabState.loading){ renderPatternLab(); return; }
-    patternLabState.loading = true;
-    if (root && !root.dataset.patBound){
-      root.dataset.patBound = '1';
-      root.addEventListener('click', function(ev){
-        var el = patNode(ev.target);
-        var open = el && el.closest ? el.closest('[data-pat-open]') : null;
-        if (open){
-          var sym = open.getAttribute('data-pat-open');
-          var gradeTab = document.querySelector('[data-page-tab="grade"]');
-          if (gradeTab) gradeTab.click();
-          try { if (typeof combo !== 'undefined' && combo && combo.commit) combo.commit(sym); } catch (_) {}
-          return;
-        }
-        var pick = el && el.closest ? el.closest('[data-pat-symbol]') : null;
-        if (!pick) return;
-        patternLabState.symbol = pick.getAttribute('data-pat-symbol') || 'SPY';
-        renderPatternLab();
-      });
+  function summaryRows(pieces) {
+    const rows = [], add = (study, label, stats, value = stats?.avgPct, unit = '10-session return (%)') => {
+      if (!stats || !finite(value)) return;
+      const minimum = study === 'seasonality' ? 10 : study === 'divergences' ? 30 : 20;
+      const sample = stats.provisional || (finite(stats.n) && stats.n < minimum) ? 'Limited sample' : finite(stats.n) ? 'In-sample' : 'Not recorded';
+      rows.push({study, label, unit, n:stats.n ?? null, baselineN:stats.baselineN ?? null, mean:value, median:stats.medianPct ?? null,
+        sample, positive:stats.hitRatePct ?? null, gap:finite(value) && finite(stats.baselineAvgPct) ? value - stats.baselineAvgPct : null, baseline:stats.baselineAvgPct ?? null, worst:stats.worstPct ?? null, best:stats.bestPct ?? null});
+    };
+    for (const [key, label] of [['expanding','Expanding volatility'],['calm','Calm volatility'],['neutral','Neutral volatility']]) {
+      const s = pieces.volatility?.sample?.[key]; add('volatility', label, s, s?.nextAbsPct, 'Next-session absolute move (%)');
     }
-    fetch(dataUrl('pattern-recognition.json'), { cache: 'no-cache' }).then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-      .then(function(j){ patternLabState.data = j && typeof j === 'object' ? j : { pieces: {} }; patternLabState.loading = false; renderPatternLab(); })
-      .catch(function(){ patternLabState.loading = false; patternLabState.data = { loadError: true }; renderPatternLab(); });
+    const seasonal = pieces.seasonality?.[state.symbol] || {};
+    for (const m of seasonal.months || []) add('seasonality', state.symbol + ' · ' + m.name, m, m.avgPct, 'Full-month price return (%)');
+    for (const d of seasonal.weekdays || []) add('seasonality', state.symbol + ' · ' + d.name, d, d.avgPct, 'Daily price return (%)');
+    for (const [key,label] of [['turnOfMonth','Turn of month'],['opexWeek','Expiration week'],['santa','Santa window'],['midterm','Midterm year']]) {
+      const s = seasonal[key], other = s?.outsideAvgPct ?? s?.otherAvgPct;
+      add('seasonality', state.symbol + ' · ' + label, s && finite(other) ? {...s, baselineAvgPct:other} : s, s?.avgPct, 'Full-window price return (%)');
+    }
+    for (const [key,label] of [['rsiBullish','RSI bullish'],['rsiBearish','RSI bearish'],['macdBullish','MACD bullish'],['macdBearish','MACD bearish']]) {
+      if (state.direction !== 'all' && !key.toLowerCase().endsWith(state.direction)) continue;
+      let stats = pieces.divergences?.record?.[key];
+      if ((state.data?.version || 1) < 2 && key.endsWith('Bearish') && finite(stats?.baselineAvgPct)) stats = {...stats, baselineAvgPct:-stats.baselineAvgPct};
+      add('divergences', label, stats, stats?.avgPct, '10-session direction-adjusted return (%)');
+    }
+    add('breadth', 'SPY after breadth disagreement · 5 sessions', pieces.breadth?.forward5, pieces.breadth?.forward5?.avgPct, '5-session price return (%)');
+    add('breadth', 'SPY after breadth disagreement · 10 sessions', pieces.breadth?.forward10);
+    add('sentiment', 'SPY after fear with a rising tape', pieces.sentiment?.fear);
+    add('sentiment', 'SPY after greed with a falling tape', pieces.sentiment?.greed);
+    return rows.filter(row => state.study === 'all' || row.study === state.study);
   }
+  function evidenceTable(rows, key) {
+    return table([column('Comparison','label'), column('Unit','unit'), column('Observations','n','number'),column('Sample','sample'),
+      column('Mean','mean','pct'), column('Median','median','pct'), column('Positive','positive','pct'),
+      column('Same-direction baseline','baseline','pct'), {...column('Difference (pp)','gap'),cell:row=>number(row.gap)}, column('Worst','worst','pct'), column('Best','best','pct')], rows, key);
+  }
+  function peerRead(row) {
+    return row.sessionClass === 'leading'
+      ? {beta:row.sameDayBeta,t:row.sameDayT,n:row.n,timing:'Before US open'}
+      : {beta:row.lag1Beta,t:row.lag1T,n:row.lag1N,timing:row.sessionClass === '24h' ? 'Overnight market' : 'Overlaps US session'};
+  }
+  function matches(symbol) { return String(symbol).toUpperCase().includes(state.query); }
+  function currentRows(pieces) {
+    return (pieces.divergences?.rows || []).filter(row => matches(row.symbol) && (state.direction === 'all' || row.direction === state.direction));
+  }
+  function divergencesTable(pieces, limit) {
+    const all = currentRows(pieces), rows = limit ? all.slice(0, limit) : all;
+    return '<h4>Current confirmed-pivot divergences</h4><p class="pat-note">' + all.length + ' matching rows. Pivots require three later sessions for confirmation; the newer pivot can be up to 12 sessions old.</p>' + table([
+      {label:'Ticker', cell:row=>link(row.symbol), sort:row=>row.symbol}, column('Indicator','indicator'), column('Direction','direction'),
+      column('Older pivot','olderDate'), column('Newer pivot','newerDate'), column('Price between pivots','priceChangePct','pct')
+    ], rows, 'current-divergences', 'No current divergences match these filters.') + (limit && all.length > limit ? '<p class="pat-note">Showing the first ' + limit + '. Open Tables for every matching row.</p>' : '');
+  }
+  function leadsTable(pieces, limit) {
+    const rows = (pieces.leadLag?.rows || []).filter(row => matches(row.us));
+    return table([{label:'US ticker',cell:row=>link(row.us),sort:row=>row.us},column('Peer','peer'),{label:'Timing',cell:row=>escape(peerRead(row).timing),sort:row=>peerRead(row).timing}, {label:'Observations',num:true,cell:row=>number(peerRead(row).n,0),sort:row=>peerRead(row).n ?? null},
+      {...column('Relevant beta','beta'),cell:row=>number(peerRead(row).beta),sort:row=>peerRead(row).beta},
+      {...column('Relevant t-stat','t'),cell:row=>number(peerRead(row).t),sort:row=>peerRead(row).t},
+      column('Corr 60','corr60'),column('Corr 120','corr120'),column('Read','read')], limit ? rows.slice(0,limit) : rows, 'leads', 'No peer observations match this view.');
+  }
+  function seasonality(pieces) {
+    const season = pieces.seasonality?.[state.symbol] || {};
+    if (season.unavailable || !season.months?.length) return '<p class="pat-note">Seasonal history is unavailable for this index.</p>';
+    if (state.view === 'tables') return evidenceTable(summaryRows(pieces).filter(row => row.study === 'seasonality'),'seasonality');
+    const note = 'Prior complete calendar years; price returns exclude cash distributions. These are seasonal descriptions, not forecasts.';
+    const active = season.active || {}, inside = [active.inTurnOfMonth && 'turn of month', active.inOpexWeek && 'expiration week', active.inSanta && 'the Santa window', active.midtermYear && 'a midterm year'].filter(Boolean);
+    const compare = [['turnOfMonth','Turn of month','other sessions','outsideAvgPct'],['opexWeek','Expiration week','other sessions','outsideAvgPct'],['midterm','Midterm years','other years','otherAvgPct']]
+      .filter(([key,,,field]) => finite(season[key]?.avgPct) && finite(season[key]?.[field]))
+      .map(([key,label,other,field]) => label + ' ' + pct(season[key].avgPct) + ' vs ' + other + ' ' + pct(season[key][field]));
+    return '<p class="pat-note">' + escape(state.symbol) + ' · ' + number(season.years,1) + ' years · ' + (season.sessions || 0) + ' sessions. Calendar history is separate from the two-year stock studies.</p>' +
+      (active.date ? '<p class="pat-note">Latest session ' + escape(active.date) + (inside.length ? ' is inside ' + escape(inside.join(', ')) + '.' : ' is not inside any recurring window.') + '</p>' : '') +
+      (compare.length ? '<p class="pat-note">' + escape(compare.join(' · ')) + '.</p>' : '') +
+      bars('Monthly returns', (season.months || []).map(row=>({label:row.name,n:row.n,value:row.avgPct,provisional:row.provisional})), 'Mean full-month return (%)', note) +
+      (state.view === 'charts' ? bars('Weekday returns',(season.weekdays || []).map(row=>({label:row.name,n:row.n,value:row.avgPct,provisional:row.provisional})),'Mean daily return (%)', note) +
+        bars('Recurring windows', ['turnOfMonth','opexWeek','santa','midterm'].map(key=>({label:{turnOfMonth:'Turn of month',opexWeek:'Expiration week',santa:'Santa window',midterm:'Midterm year'}[key],n:season[key]?.n,value:season[key]?.avgPct,provisional:season[key]?.provisional})),'Mean full-window return (%)','Window lengths differ; compare each with its own history, rather than ranking them as interchangeable signals.') : '');
+  }
+  function section(key, pieces) {
+    const s = pieces[key] || {}, rows = summaryRows(pieces).filter(row=>row.study === key);
+    let takeaway = '', body = '';
+    if (key === 'volatility') {
+      takeaway = s.state && s.state !== 'unavailable' ? 'SPY volatility is ' + s.state + '. This describes move size, rather than market direction.' : 'SPY volatility coverage is unavailable.';
+      body = state.view === 'tables' ? evidenceTable(rows,key) : bars('Move size after each volatility state', rows.map(row=>({label:row.label,n:row.n,value:row.mean,provisional:row.sample==='Limited sample'})), 'Mean next-session absolute move (%)', s.advisory || 'Historical comparison only.');
+      body += '<p class="pat-note">5-session realized volatility: ' + pct(s.rv5Pct) + ' annualized · 20-session: ' + pct(s.rv20Pct) + ' annualized.</p>';
+    } else if (key === 'seasonality') {
+      takeaway = 'Use the same calendar window and return unit when comparing outcomes.';
+      body = seasonality(pieces);
+    } else if (key === 'leadLag') {
+      takeaway = (s.usable || 0) + ' of ' + (s.tested || 0) + ' peer relationships meet the association or breakdown screen.';
+      body = state.view === 'charts' ? bars('Relevant peer association', (s.rows || []).filter(row=>matches(row.us)).slice(0,16).map(row=>({label:row.us+' / '+row.peer,value:peerRead(row).t,n:peerRead(row).n})), 'In-sample t-statistic', 'A large t-statistic is an association, not a forecast. Leading markets use same-day observations; overlapping and overnight markets use the prior session.') : leadsTable(pieces,state.view === 'overview' ? 6 : null);
+      body += '<p class="pat-note">' + escape(s.caveat || '') + '</p>';
+    } else if (key === 'divergences') {
+      takeaway = currentRows(pieces).length + ' current divergence rows match the view. Historical returns below are signed in the setup direction.';
+      const comparable = rows.filter(row=>row.n >= 30 && finite(row.gap)).sort((a,b)=>b.gap-a.gap);
+      if (comparable.length) {
+        const lead = comparable[0];
+        takeaway += ' Among groups with at least 30 checks, ' + lead.label + ' has the highest mean minus baseline: ' + number(lead.gap) + ' percentage points across ' + lead.n + ' overlapping observations.';
+      }
+      if (state.view !== 'tables') {
+        body = bars('Divergence outcomes and their direction-matched baseline', rows.flatMap(row=>[{label:row.label,n:row.n,value:row.mean,provisional:row.sample==='Limited sample'},{label:row.label+' · baseline',n:row.baselineN,value:row.baseline}]), 'Mean next-10-session return (%)', 'Bearish outcomes and baselines reverse the sign of the underlying return. Overlapping five-session checks are correlated, and a high count is not a count of independent trades.');
+      } else body = evidenceTable(rows,key);
+      if (state.view !== 'charts') body += divergencesTable(pieces,state.view === 'overview' ? 6 : null);
+      body += '<p class="pat-note">' + escape(s.note || 'These observations are exploratory.') + '</p>';
+    } else if (key === 'breadth') {
+      takeaway = !s.latest ? 'Breadth history is unavailable.' : s.active ? 'The latest saved day has flat or rising indexes alongside weakening breadth.' : 'The latest saved day does not show breadth disagreement.';
+      body = state.view === 'tables' ? evidenceTable(rows,key) : bars('SPY after breadth disagreement',rows.map(row=>({label:row.label,n:row.n,value:row.mean,provisional:row.sample==='Limited sample'})),'Mean forward price return (%)','Five-session and ten-session results are different horizons. Repeated flagged days can overlap.');
+    } else if (key === 'sentiment') {
+      takeaway = s.state && s.state !== 'unavailable' ? s.state === 'aligned' ? 'No extreme-sentiment disagreement is active.' : s.state : 'Sentiment history is unavailable.';
+      body = state.view === 'tables' ? evidenceTable(rows,key) : bars('SPY after sentiment disagreement',rows.map(row=>({label:row.label,n:row.n,value:row.mean,provisional:row.sample==='Limited sample'})),'Mean next-10-session price return (%)','Returns are SPY price changes. Samples can overlap; a positive average is not a validated entry signal.');
+      body += '<p class="pat-note">' + escape(s.rules || '') + '</p>';
+    }
+    return '<section class="pat-piece" data-pat-study-section="' + key + '"><header class="pat-study-header"><h3>' + names[key] + '</h3>' + (state.view === 'overview' ? '<button type="button" data-pat-explore="' + key + '">Explore</button>' : '') + '</header><p class="pat-takeaway">' + escape(takeaway) + '</p>' + body + '</section>';
+  }
+  function coverage(data) {
+    const rows = data.history?.stocks || [];
+    if (!data.history) return '<p class="pat-note">This older snapshot does not record stock-history depth. A new data build is needed for the two-year study.</p>';
+    return '<details class="pat-coverage"><summary>Actual stock-history coverage · ' + rows.length + ' names</summary><p class="pat-note">' + escape(data.history.note) + '</p>' + table([column('Ticker','symbol'),column('First close','firstDate'),column('Last close','lastDate'),column('Sessions','sessions','number'),{label:'Divergence study',cell:row=>escape({'included':'Included','under-80-sessions':'Insufficient history','excluded-large-print':'Excluded: daily move above 40%'}[row.status] || 'Not recorded'),sort:row=>row.status ?? null}],rows,'coverage') + '</details>';
+  }
+  function render() {
+    const root = $('pattern-lab-root'), eye = $('pattern-lab-eyebrow');
+    if (!root) return;
+    root.setAttribute('aria-busy', String(state.pending));
+    if (!state.data) {root.innerHTML = '<p class="pat-note">' + (state.error ? 'Pattern Lab could not load. <button type="button" data-pat-retry>Retry</button>' : 'Loading Pattern Lab…') + '</p>'; return;}
+    const data = state.data, pieces = data.pieces || {}, selected = state.study === 'all' ? Object.keys(names) : [state.study];
+    if (eye) eye.textContent = 'Snapshot ' + (data.asOf || 'unknown');
+    const stale = Date.parse(data.builtAtIso);
+    root.innerHTML = '<div class="pat-toolbar"><div class="pat-switch" role="group" aria-label="Pattern Lab view">' + [['overview','Overview'],['charts','Charts'],['tables','Tables']].map(([key,label])=>'<button type="button" data-pat-view="' + key + '" aria-pressed="' + (state.view === key) + '">' + label + '</button>').join('') + '</div><label>Study<select data-pat-study aria-label="Pattern study">' + [['all','All studies'],...Object.entries(names)].map(([key,label])=>'<option value="' + key + '"' + (state.study === key ? ' selected' : '') + '>' + label + '</option>').join('') + '</select></label><button type="button" class="streaks-btn" data-pat-export>Export summary</button><button type="button" class="streaks-btn" data-pat-retry' + (state.pending ? ' disabled' : '') + '>' + (state.pending ? 'Refreshing…' : 'Refresh snapshot') + '</button></div>' +
+      '<div class="pat-filters">' + (state.study === 'all' || state.study === 'seasonality' ? '<label>Index<select data-pat-symbol aria-label="Seasonal index">' + ['^GSPC','SPY','QQQ','IWM'].map(symbol=>'<option' + (state.symbol === symbol ? ' selected' : '') + '>' + symbol + '</option>').join('') + '</select></label>' : '') + '<label>Find ticker<input type="search" data-pat-query aria-label="Filter current tickers" value="' + escape(state.query) + '" placeholder="Current divergences and peers"></label><label>Divergence direction<select data-pat-direction aria-label="Divergence direction">' + ['all','bullish','bearish'].map(value=>'<option value="' + value + '"' + (state.direction === value ? ' selected' : '') + '>' + value + '</option>').join('') + '</select></label></div>' +
+      '<p class="pat-note">Explore current conditions and past outcomes. Each study uses its own return horizon and units.</p>' +
+      (state.error ? '<p class="pat-flag" role="status">The refresh did not load, so this is the snapshot already on the page.</p>' : '') +
+      ((!finite(stale) || Date.now() - stale > 72 * 3600000) ? '<p class="pat-flag" role="status">Reference snapshot: this data is more than three days old or its build date is unavailable.</p>' : '') +
+      '<p class="pat-note">Stock history: up to two years. Expand coverage for actual dates and sample sizes.</p>' + coverage(data) +
+      selected.map(key=>section(key,pieces)).join('') + '<p class="pat-note">All results describe the available sample. Observations can overlap, and no view establishes a trading probability or changes grades or positions.</p>';
+  }
+  function exportSummary() {
+    const pieces = state.data?.pieces || {}, rows = summaryRows(pieces);
+    if (state.study === 'all' || state.study === 'leadLag') for (const row of pieces.leadLag?.rows || []) if (matches(row.us)) rows.push({study:'leadLag',label:row.us+' / '+row.peer,unit:'Association coefficients',n:peerRead(row).n,beta:peerRead(row).beta,t:peerRead(row).t,corr60:row.corr60,corr120:row.corr120,timing:peerRead(row).timing});
+    const fields = ['study','label','unit','n','mean','median','positive','baseline','gap','worst','best','beta','t','corr60','corr120','timing'];
+    const body = [fields,...rows.map(row=>fields.map(key=>row[key]))].map(row=>row.map(value=>'"' + String(value ?? '').replace(/"/g,'""') + '"').join(',')).join('\r\n');
+    const url = host.URL.createObjectURL(new host.Blob([body],{type:'text/csv;charset=utf-8'}));
+    const a = doc.createElement('a'); a.href = url; a.download = 'pattern-lab-' + state.study + '-' + state.symbol + '.csv'; a.click(); host.setTimeout(()=>host.URL.revokeObjectURL(url),1000);
+  }
+  function bind() {
+    const root = $('pattern-lab-root'); if (!root || state.bound) return; state.bound = true;
+    root.addEventListener('click',event=>{
+      const open = event.target.closest('a[data-pat-open]');
+      if (open && typeof openSymbol === 'function' && event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {
+        event.preventDefault(); openSymbol(open.dataset.patOpen); return;
+      }
+      const button = event.target.closest('button'); if (!button) return;
+      if (button.dataset.patView) {state.view = button.dataset.patView;save('view');render();root.querySelector('[data-pat-view="' + state.view + '"]')?.focus();}
+      if (button.dataset.patExplore) {state.study=button.dataset.patExplore;state.view='charts';save('study');save('view');render();root.querySelector('[data-pat-study]')?.focus();}
+      if (button.hasAttribute('data-pat-export')) exportSummary();
+      if (button.hasAttribute('data-pat-retry')) load(true);
+    });
+    root.addEventListener('change',event=>{
+      const control = event.target;
+      for (const key of ['study','symbol','direction']) if (control.hasAttribute('data-pat-' + key)) {state[key]=control.value; if (key !== 'direction') save(key);render();root.querySelector('[data-pat-' + key + ']')?.focus();}
+    });
+    root.addEventListener('input',event=>{
+      if (!event.target.hasAttribute('data-pat-query')) return;
+      const value = event.target.value, start = event.target.selectionStart, end = event.target.selectionEnd; state.query=value.trim().toUpperCase();render();const input=root.querySelector('[data-pat-query]');input.focus();input.setSelectionRange(start,end);
+    });
+  }
+  async function load(force = false) {
+    bind(); if (state.pending) return;
+    if (state.data && !force) {render();return;}
+    state.pending=true; state.error=null;render();
+    try {
+      const url = dataUrl('pattern-recognition.json');
+      const response = await host.fetch(url,{cache:'no-store'}); if (!response.ok) throw Error('HTTP ' + response.status);
+      const data = await response.json(); if (!data?.pieces || data.error) throw Error('Pattern snapshot unavailable');
+      state.data=data;
+      if (!state.symbol) state.symbol = data.pieces.seasonality?.['^GSPC']?.months?.length ? '^GSPC' : 'SPY';
+    } catch (error) {state.error=error;}
+    finally {state.pending=false;render();}
+  }
+  return {load,render};
+})(window, document, VIEWS, symGradeHref, dataUrl, calGoToTicker);
+  function loadPatternLab(){ patternLab.load(); }
+
 
   // --- AI CapEx (Alt data section) ----------------------------------------
   // Aggregate major AI infrastructure buyers' CapEx from data/ai-capex.json — SEC XBRL
@@ -24377,13 +24471,25 @@ function scenarioEventPhase(ev, now = Date.now()) {
     return value > 0 ? 'up' : 'down';
   }
   function siSpark(history){
-    var values = (Array.isArray(history) ? history : []).slice(-45).map(function(p){ return Number(p.value); }).filter(isFinite);
-    if (values.length < 2) return '';
+    var rows = (Array.isArray(history) ? history : []).slice(-45).map(function(p){
+      return { date: p && p.date ? String(p.date) : '', value: Number(p && p.value) };
+    }).filter(function(p){ return isFinite(p.value); });
+    if (rows.length < 2) return '';
+    var values = rows.map(function(p){ return p.value; });
     var lo = Math.min.apply(null, values), hi = Math.max.apply(null, values), span = Math.max(1, hi - lo);
-    var points = values.map(function(v, i){
-      return ((i / (values.length - 1)) * 100).toFixed(1) + ',' + (27 - ((v - lo) / span) * 23).toFixed(1);
+    var points = rows.map(function(p, i){
+      return ((i / (rows.length - 1)) * 100).toFixed(1) + ',' + (27 - ((p.value - lo) / span) * 23).toFixed(1);
     }).join(' ');
-    return '<svg class="si-spark" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true">' + sparkAreaHtml(points, 30) + '<polyline points="' + points + '"/></svg>';
+    var hover = chHoverAttr(rows.map(function(p, i){
+      var back = rows.length - 1 - i;
+      var when = p.date || (back === 0 ? 'latest' : back + ' points back');
+      return {
+        x: (i / (rows.length - 1)) * 100,
+        y: 27 - ((p.value - lo) / span) * 23,
+        label: when + '\nSearch interest ' + Math.round(p.value)
+      };
+    }));
+    return '<svg class="si-spark" viewBox="0 0 100 30" preserveAspectRatio="none" role="img" aria-label="Search interest history"' + hover + '>' + sparkAreaHtml(points, 30) + '<polyline points="' + points + '"/></svg>';
   }
   function siQueryList(items, rising){
     var list = Array.isArray(items) ? items : [];
@@ -24879,7 +24985,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (verdict === 'stress') return 'bad';
     return 'na';
   }
-  function btmSpark(values){
+  // levelOnly: a spread or rate, where drag-compare's % change is not a meaningful move.
+  function btmSpark(values, name, levelOnly){
     if (!values || values.length < 2) return '';
     var min = Infinity, max = -Infinity, i;
     for (i = 0; i < values.length; i++){
@@ -24887,10 +24994,19 @@ function scenarioEventPhase(ev, now = Date.now()) {
       if (values[i] > max) max = values[i];
     }
     var span = max - min || 1, w = 168, h = 36, pts = [];
-    for (i = 0; i < values.length; i++){
-      pts.push(((i / (values.length - 1)) * w).toFixed(1) + ',' + (h - ((values[i] - min) / span) * (h - 4) - 2).toFixed(1));
+    function yOf(v){ return h - ((v - min) / span) * (h - 4) - 2; }
+    function shown(v){
+      var av = Math.abs(v);
+      if (av >= 1000) return v.toLocaleString(undefined, { maximumFractionDigits: 1 });
+      return v.toFixed(av >= 100 ? 1 : 2);
     }
-    return '<svg class="btm-spark" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" aria-hidden="true">' + sparkAreaHtml(pts.join(' '), h) + '<polyline fill="none" points="' + pts.join(' ') + '"/></svg>';
+    for (i = 0; i < values.length; i++) pts.push(((i / (values.length - 1)) * w).toFixed(1) + ',' + yOf(values[i]).toFixed(1));
+    var hover = chHoverAttr(values.map(function(v, i){
+      var back = values.length - 1 - i;
+      var when = back === 0 ? 'Latest' : back + ' points back';
+      return { x: (i / (values.length - 1)) * w, y: yOf(v), label: (name ? name + '\n' : '') + when + '\n' + shown(v), value: levelOnly ? undefined : v, time: when };
+    }));
+    return '<svg class="btm-spark" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" role="img" aria-label="' + escapeHtml(name || 'History') + '"' + hover + '>' + sparkAreaHtml(pts.join(' '), h) + '<polyline fill="none" points="' + pts.join(' ') + '"/></svg>';
   }
   function btmRate(value){
     if (value == null || !isFinite(value)) return '—';
@@ -24971,8 +25087,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
         return '<li><span>' + escapeHtml(fact.label) + '</span><b>' + escapeHtml(fact.value) + '</b></li>';
       }).join('');
       var spark = '';
-      if (card.id === 'price' && d.spark && d.spark.spy) spark = btmSpark(d.spark.spy);
-      if (card.id === 'credit' && d.spark && d.spark.hy) spark = btmSpark(d.spark.hy);
+      if (card.id === 'price' && d.spark && d.spark.spy) spark = btmSpark(d.spark.spy, 'SPY');
+      if (card.id === 'credit' && d.spark && d.spark.hy) spark = btmSpark(d.spark.hy, 'High-yield spread', true);
       html += '<article class="btm-card btm-' + btmTone(card.state) + '"><header><span>' + escapeHtml(card.phase || '') + '</span><h3>' + escapeHtml(card.title || '') + '</h3><em>' + escapeHtml(card.stateLabel || '') + '</em></header>' + spark + '<p>' + escapeHtml(card.summary || '') + '</p>' + (facts ? '<ul class="btm-facts">' + facts + '</ul>' : '') + '<small>' + escapeHtml(card.source || '') + '</small></article>';
     });
     html += '</div>';
@@ -26577,8 +26693,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // dispersion / post-earnings-drift screens. ANALYTICAL ONLY: z-scores and
   // ranks, never trade signals (the playbook table in the shell is educational).
   var unifiedSignal = (function unifiedSignalClientFactory(host, doc, options, policy) {
-  const state = { data: null, loading: false, error: '', symbol: '', query: '', filter: 'all', view: 'decision', bound: false, timer: null, records: {} };
-  const VIEWS = ['decision','evidence','prices','vehicles','record'];
+  const state = { data: null, loading: false, error: '', symbol: '', query: '', filter: 'all', view: 'decision', bound: false, timer: null, records: {}, investments: {} };
+  const VIEWS = ['decision','investment','trading','evidence','prices','vehicles','record'];
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[c]);
   const num = (value, digits = 2) => typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString('en-US', { maximumFractionDigits: digits, minimumFractionDigits: digits }) : 'Unavailable';
   const pct = value => typeof value === 'number' && Number.isFinite(value) ? (value > 0 ? '+' : '') + num(value) + '%' : 'Unavailable';
@@ -26604,10 +26720,48 @@ function scenarioEventPhase(ev, now = Date.now()) {
     const sourceName = ({'grades.json':'Existing grade rubric','quant.json':'Quant Lab','link-map.json':'Company relationships','market-analysis.json':'Market Analysis','sector-rotation.json':'Sector Rotation'})[item.source] || item.source;
     return '<article class="use-observation"><div class="use-observation-head">' + pill(item.family, item.effect) + (item.unavailable ? pill('Unavailable','context') : '') + '</div><h4>' + (url ? '<a href="' + esc(url) + '" target="_blank" rel="noopener noreferrer">' + esc(item.title) + '</a>' : esc(item.title)) + '</h4><p>' + esc(item.detail) + '</p><small>' + esc(sourceName) + ' · ' + esc(time(item.asOf)) + (item.timeBasis === 'computed-assessment' ? ' · computed assessment; underlying publication times vary' : '') + '</small></article>';
   }
+  function perspectivesSummary(row) {
+    if (!row.perspectives) return '';
+    return '<div class="use-perspective-summary">' + [['investment','Investment outlook','Months to years'],['trading','Trading outlook','Days to weeks']].map(([key,label,horizon]) => '<section><span class="use-kicker">' + horizon + '</span><h3>' + label + '</h3><p>' + esc(row.perspectives[key].label) + '</p><button type="button" class="use-text-button" data-use-view="' + key + '">Explore ' + label.toLowerCase() + '</button></section>').join('') + '</div>';
+  }
+  function investmentDraft(row) {
+    const source = row.perspectives.investment;
+    if (!state.investments[row.symbol] || state.investments[row.symbol].inputId !== source.inputId) state.investments[row.symbol] = { inputId: source.inputId, value: options.investment.defaults(source.model), edited: false };
+    return state.investments[row.symbol];
+  }
+  function investmentView(row) {
+    const investment = row.perspectives?.investment;
+    const quote = row.perspectives?.quote || row.quote;
+    if (!investment) return '<section class="use-answer"><h3>This snapshot predates the investment perspective</h3><p>Refresh after the next published decision build to load the additional assessment.</p></section>';
+    const introduction = '<section class="use-answer"><span class="use-kicker">Separate perspective · ' + esc(investment.horizon) + '</span><h3>Does the current price fit plausible business outcomes?</h3><p>Business earnings, valuation assumptions and the observed share price drive this assessment. It does not add points to the grade or qualify a trade.</p><p class="use-muted">Research calculated ' + esc(time(investment.asOf)) + '. Price reference ' + esc(money(quote.value,quote.currency)) + ' at ' + esc(time(quote.asOf)) + '.</p></section>';
+    if (!investment.model || !options.investment) return introduction + '<section class="use-answer"><h3>' + esc(investment.label) + '</h3>' + list(investment.missing,'') + '<p>Other perspectives remain available. Missing financial coverage is not a negative business verdict.</p></section>' + list(investment.limitations,'');
+    const draft = investmentDraft(row), result = options.investment.calculate(investment.model, draft.value), currency = investment.model.currency;
+    const input = (label,key,min,max) => '<label>' + label + '<input type="number" step="any" min="' + min + '" max="' + max + '" data-use-investment-field="' + key + '" value="' + esc(draft.value[key] ?? '') + '"></label>';
+    const scenarioTable = result.scenarios.length ? '<div class="use-table-wrap"><table class="use-table"><thead><tr><th>Assumptions</th><th>Revenue growth</th><th>Operating margin</th><th>Exit P/E</th><th>Annual EPS</th><th>Price in 12 months</th><th>Present value</th><th>Conditional price return</th></tr></thead><tbody>' + result.scenarios.map(s => '<tr><th>' + esc(s.label) + '</th><td>' + esc(pct(s.growthPct)) + '</td><td>' + esc(pct(s.operatingMarginPct)) + '</td><td>' + esc(num(s.exitMultiple)) + '×</td><td>' + esc(money(s.eps,currency)) + '</td><td>' + esc(money(s.priceAtHorizon,currency)) + '</td><td>' + esc(money(s.presentValue,currency)) + '</td><td>' + esc(pct(s.priceReturnPct)) + '</td></tr>').join('') + '</tbody></table></div>' : '';
+    const controls = '<section class="use-answer"><div class="use-section-title"><h3>Explore the assumptions</h3><button type="button" class="use-text-button" data-use-investment-reset>Reset assumptions</button></div><p>Changes are temporary and stay in this page. They do not edit the saved assessment, financial forecasts or Top Picks. A changed source snapshot resets the assumptions.</p><div class="use-assumption-controls">' + input('Annual revenue growth (%)','growthPct',-95,200) + input('Operating margin (%)','operatingMarginPct',.1,80) + input('Exit earnings multiple (×)','exitMultiple',1,100) + input('Required annual return (%)','requiredReturnPct',1,50) + '</div></section>';
+    const resultSummary = '<section class="use-answer" aria-live="polite" data-use-investment-result><span class="use-kicker">' + (draft.edited ? 'Your temporary scenario' : 'Saved assessment assumptions') + '</span><h3>' + esc(result.label) + '</h3>' + (result.errors.length ? list(result.errors,'') : '<p>' + esc(result.interpretation) + '</p><dl class="use-facts"><div><dt>Conditional present-value range</dt><dd>' + esc(money(result.range.low,currency)) + ' to ' + esc(money(result.range.high,currency)) + '</dd></div><div><dt>Gap to base present value</dt><dd>' + esc(pct(result.gapToBasePct)) + '</dd></div><div><dt>Revenue growth needed to meet your return hurdle</dt><dd>' + esc(pct(result.requiredGrowthPct)) + '</dd></div><div><dt>Required annual return assumption</dt><dd>' + esc(pct(result.requiredReturnPct)) + '</dd></div></dl>') + '<p class="use-muted">Lower assumptions use revenue growth 5 percentage points lower, margin 2 points lower and a 20% lower multiple. Higher assumptions apply the opposite shifts, subject to the displayed financial limits. These are sensitivity tests, not probability intervals.</p></section>';
+    return introduction + resultSummary + controls + '<div data-use-investment-scenarios>' + scenarioTable + '</div>' +
+      '<section class="use-answer"><h3>What today’s price requires</h3><p>The required-growth calculation holds the chosen margin, tax, share count and exit multiple fixed, then solves for revenue sufficient to reach today’s price plus the required annual return. This is a model-implied requirement, not a direct observation of market beliefs.</p><p>The future price is annual EPS × the assumed exit multiple. Present value discounts that price by your required annual return. Dividends and transaction costs are not estimated.</p></section>' +
+      '<section class="use-answer"><h3>Source financials and valuation reference</h3><p>Latest supported reporting period: ' + esc(investment.financialPeriodEnd) + '. Financial forecast cutoff: ' + esc(time(investment.financialCutoffAt)) + '.</p><p>' + esc(investment.model.multiple.basis) + '</p>' + (investment.model.multiple.peers.length ? '<p>Reference peers: ' + investment.model.multiple.peers.map(peer => esc(peer.symbol) + ' ' + esc(num(peer.forwardPE)) + '×').join(', ') + '.</p>' : '') + '<p>Period basis: ' + investment.model.base.quarters.map(q=>esc(q.start)+' to '+esc(q.end)).join('; ') + '.</p>' + list(investment.limitations,'') + '</section>';
+  }
+  function tradingView(row) {
+    const trading = row.perspectives?.trading;
+    if (!trading) return '<section class="use-answer"><h3>This snapshot predates the trading perspective</h3><p>Refresh after the next published decision build to load the additional assessment.</p></section>';
+    const plan = trading.plan, setup = trading.setup, iv = trading.volatility, coverage = trading.coverage;
+    const action = trading.execution.qualified && currentStatus(row) === 'eligible' ? trading.execution.reason : 'Research only. This view cannot qualify or override an existing owner entry. Check the current Decision view for policy eligibility.';
+    return '<section class="use-answer"><span class="use-kicker">Separate perspective · ' + esc(trading.horizon) + '</span><h3>' + esc(trading.label) + '</h3><p>' + (setup ? esc(setup.name) + ' · ' + esc(trading.direction) + ' · confirmed bars through ' + esc(setup.asOf) + '.' : 'The price setup is assessed independently of the four-pillar grade.') + '</p><p>' + esc(action) + '</p><p class="use-muted">Research calculated ' + esc(time(trading.asOf)) + '. No new provider or AI analysis runs when this view opens.</p></section>' +
+      (setup ? '<section class="use-answer"><h3>Price confirmation</h3><ul class="use-notes">' + trading.confirmation.map(item => '<li>' + esc(item.pass ? 'Confirmed: ' : 'Pending: ') + esc(item.label) + '</li>').join('') + '</ul><p>Confirmed relative volume: ' + esc(num(setup.rvol)) + '×. 14-session ATR: ' + esc(money(setup.atr,row.quote.currency)) + '.' + (setup.snapped ? ' The ended ' + esc(setup.snapped.color) + ' run had ' + esc(setup.snapped.sameDays) + ' same-direction sessions and a ' + esc(pct(setup.snapped.cumulativePct)) + ' cumulative move.' : '') + '</p></section>' : '') +
+      '<section class="use-answer"><h3>What needs to happen?</h3>' + list(trading.blocks,'The experimental setup clears its research conditions. Predictive edge remains unproven and owner execution checks still apply.') + '</section>' +
+      (plan ? '<section class="use-answer"><h3>Price and payoff references</h3><dl class="use-facts"><div><dt>Observed entry reference</dt><dd>' + esc(money(plan.entry,row.quote.currency)) + '</dd></div><div><dt>Confirmation trigger reference</dt><dd>' + esc(money(plan.trigger,row.quote.currency)) + '</dd></div><div><dt>Technical objective</dt><dd>' + esc(money(plan.target,row.quote.currency)) + '</dd></div><div><dt>Invalidation</dt><dd>' + esc(money(plan.invalidation,row.quote.currency)) + '</dd></div><div><dt>Reference reward / risk</dt><dd>' + esc(num(plan.rewardRisk)) + ':1</dd></div><div><dt>Risk distance / ATR</dt><dd>' + esc(num(plan.riskAtr)) + '×</dd></div></dl><p>' + esc(plan.targetMethod) + '. ' + esc(plan.warning) + '</p></section>' : '') +
+      '<section class="use-answer"><h3>Volatility perspective</h3><p>' + esc(iv.label) + '</p>' + (iv.status === 'available' ? '<p>ATM IV ' + esc(num(iv.iv*100)) + '% versus an average of ' + esc(num(iv.mean*100)) + '%. Five-session IV change: ' + esc(pct(iv.change5dPct)) + '. History: ' + esc(iv.n) + ' observations, as of ' + esc(iv.asOf) + '. Sampled ' + esc(time(iv.sampledAt)) + '.</p>' : '') + '<p class="use-muted">' + esc(iv.note) + '</p></section>' +
+      (trading.peers ? '<section class="use-answer"><h3>Industry context</h3><p>' + (trading.peers.status === 'available' ? esc(trading.peers.n) + ' other covered peers averaged ' + esc(pct(trading.peers.meanReturn5Pct)) + ' over five completed sessions.' : 'Fewer than three comparable peers have aligned current history. Peer confirmation is unavailable.') + '</p><p class="use-muted">' + esc(trading.peers.note) + '</p></section>' : '') +
+      (trading.history ? '<section class="use-answer"><h3>Previous occurrences of this setup</h3><div class="use-table-wrap"><table class="use-table"><thead><tr><th>Forward window</th><th>Resolved events</th><th>Mean signed stock return</th><th>Median signed stock return</th><th>Positive outcomes</th><th>Unconditional same-stock mean</th></tr></thead><tbody>' + trading.history.horizons.map(h => '<tr><th>' + esc(h.sessions) + ' trading sessions</th><td>' + esc(h.n) + (h.n < 20 ? ' · limited sample' : ' · descriptive sample') + '</td><td>' + esc(pct(h.meanReturnPct)) + '</td><td>' + esc(pct(h.medianReturnPct)) + '</td><td>' + esc(pct(h.positiveOutcomePct)) + '</td><td>' + esc(pct(h.baselineMeanPct)) + ' · n=' + esc(h.baselineN) + '</td></tr>').join('') + '</tbody></table></div><p>' + esc(trading.history.interpretation) + '</p></section>' : '') +
+      '<section class="use-answer"><h3>Coverage and limits</h3><p>' + esc(coverage.sessions) + ' aligned sessions' + (coverage.firstDate ? ', ' + esc(coverage.firstDate) + ' to ' + esc(coverage.lastDate) : '') + '. Required latest completed session: ' + esc(coverage.through || 'unavailable') + '.</p>' + (coverage.excludedBeforeGap ? '<p>History before a missing expected trading session or a long calendar gap is excluded.</p>' : '') + list(trading.limitations,'') + '</section>';
+  }
   function decisionView(row) {
     const support = row.evidence.filter(e => e.effect === 'supports' && !e.unavailable).slice(0, 4);
     const opposing = row.evidence.filter(e => e.effect === 'opposes' && !e.unavailable).slice(0, 4);
-    return '<div class="use-answer"><h3>What is the opportunity?</h3><p>' + esc(row.summary) + '</p><p class="use-muted">' + esc(state.data.horizon.label) + '. The grade ranks existing research; it is not a win probability.</p></div>' +
+    return perspectivesSummary(row) + '<div class="use-answer"><h3>What is the opportunity?</h3><p>' + esc(row.summary) + '</p><p class="use-muted">' + esc(state.data.horizon.label) + '. The grade ranks existing research; it is not a win probability.</p></div>' +
       (row.thesis.summary ? '<section class="use-answer"><h3>Existing owner thesis</h3><p>' + esc(row.thesis.summary) + '</p><p class="use-muted">' + esc(row.thesis.source) + '. This interpretation is not additional independent evidence.</p></section>' : '') +
       '<div class="use-evidence-pair"><section><h3>What supports it</h3>' + (support.length ? support.map(evidenceItem).join('') : '<p class="use-muted">No supporting rubric contribution is available.</p>') + '</section><section><h3>What challenges it</h3>' + (opposing.length ? opposing.map(evidenceItem).join('') : '<p class="use-muted">No opposing rubric contribution is recorded. That does not establish certainty.</p>') + '</section></div>' +
       '<section class="use-answer"><h3>What keeps this from an entry?</h3>' + list(entryBlocks(row), 'The published owner entry checks qualified this idea at build time. Check the current market and account risk before acting.') + '</section>' +
@@ -26669,7 +26823,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     const libraryScroll = target.querySelector('.use-library')?.scrollTop || 0;
     const disclosures = Array.from(target.querySelectorAll('[data-use-details]')).map(el => [el.getAttribute('data-use-details'), el.open]);
     const focused = target.contains(doc.activeElement) ? doc.activeElement : null;
-    const focusAttribute = ['data-use-view','data-use-symbol','data-use-refresh','data-use-search','data-use-filter','data-use-disclosure'].find(attribute => focused?.hasAttribute(attribute));
+    const focusAttribute = ['data-use-view','data-use-symbol','data-use-refresh','data-use-search','data-use-filter','data-use-disclosure','data-use-investment-field','data-use-investment-reset'].find(attribute => focused?.hasAttribute(attribute));
     const focusValue = focusAttribute ? focused.getAttribute(focusAttribute) : null;
     if (!state.data) {
       target.innerHTML = '<div class="use-empty" role="status"><h3>' + (state.loading ? 'Loading the decision snapshot' : 'Decision snapshot unavailable') + '</h3><p>' + esc(state.error || 'The first snapshot is published with an 11:00 or 15:30 ET decision build.') + '</p>' + (!state.loading ? '<button type="button" class="use-button" data-use-refresh>Try again</button>' : '') + '</div>';
@@ -26683,7 +26837,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     const notices = state.error ? '<p class="use-notice" role="alert">' + esc(state.error) + ' Previous snapshot is reference only.</p>' : expired || quoteExpired ? '<p class="use-notice" role="status">Reference snapshot. The entry check has expired or the regular session has closed. Refresh checks for a newer published decision; it does not fetch live quotes.</p>' : '';
     target.innerHTML = '<div class="use-toolbar"><label>Find ticker or sector<input type="search" data-use-search value="' + esc(state.query) + '" placeholder="Search symbols" autocomplete="off"></label><label>Show<select data-use-filter>' + [['all','All research'],['eligible','Entry qualified'],['wait','Waiting'],['watch','Research watch'],['avoid','Avoid'],['insufficient-data','Missing data']].map(([value,label]) => '<option value="' + value + '"' + (state.filter === value ? ' selected' : '') + '>' + label + '</option>').join('') + '</select></label><button type="button" class="use-button" data-use-refresh' + (state.loading ? ' disabled' : '') + '>' + (state.loading ? 'Checking…' : 'Refresh snapshot') + '</button></div>' +
       '<p class="use-snapshot-meta" role="status">' + visible.length + ' of ' + all.length + ' tickers · ' + esc(time(state.data.builtAtIso)) + ' · ' + esc(state.data.cadence) + '</p>' + notices +
-      (selected ? '<div class="use-layout"><aside class="use-library" aria-label="Unified Signal Engine research list">' + visible.map(row => '<button type="button" data-use-symbol="' + esc(row.symbol) + '" class="use-candidate' + (row.symbol === selected.symbol ? ' is-selected' : '') + '" aria-pressed="' + (row.symbol === selected.symbol) + '"><span><b>' + esc(row.symbol) + '</b><small>' + esc(row.direction) + '</small></span><small>' + esc(policy.label(currentStatus(row))) + '</small></button>').join('') + '</aside><section class="use-detail" aria-label="Ticker assessment"><header class="use-decision-head"><div><span class="use-kicker">' + esc(state.data.horizon.label) + '</span><h3>' + esc(selected.symbol) + ' <span>' + esc(selected.direction) + '</span></h3><p>' + esc(selected.sector || 'Sector unverified') + '</p></div><div>' + pill(policy.label(currentStatus(selected)), currentStatus(selected)) + '<p class="use-price">' + esc(money(selected.quote.value,selected.quote.currency)) + '</p></div></header><nav class="use-view-tabs" aria-label="Assessment views">' + [['decision','Decision'],['evidence','Evidence'],['prices','Price explanations'],['vehicles','Trade comparison'],['record','Company record']].map(([view,label]) => '<button type="button" data-use-view="' + view + '" aria-pressed="' + (state.view === view) + '">' + label + '</button>').join('') + '</nav><div class="use-view">' + (state.view === 'evidence' ? evidenceView(selected) : state.view === 'prices' ? pricesView(selected) : state.view === 'vehicles' ? vehiclesView(selected) : state.view === 'record' ? recordView(selected) : decisionView(selected)) + '</div></section></div>' : '<div class="use-empty"><h3>No matching research</h3><p>Change the ticker search or policy filter to inspect other assessments.</p></div>') +
+      (selected ? '<div class="use-layout"><aside class="use-library" aria-label="Unified Signal Engine research list">' + visible.map(row => '<button type="button" data-use-symbol="' + esc(row.symbol) + '" class="use-candidate' + (row.symbol === selected.symbol ? ' is-selected' : '') + '" aria-pressed="' + (row.symbol === selected.symbol) + '"><span><b>' + esc(row.symbol) + '</b><small>' + esc(row.direction) + '</small></span><small>' + esc(policy.label(currentStatus(row))) + '</small></button>').join('') + '</aside><section class="use-detail" aria-label="Ticker assessment"><header class="use-decision-head"><div><span class="use-kicker">Existing decision · ' + esc(state.data.horizon.label) + '</span><h3>' + esc(selected.symbol) + ' <span>' + esc(selected.direction) + '</span></h3><p>' + esc(selected.sector || 'Sector unverified') + '</p></div><div>' + pill(policy.label(currentStatus(selected)), currentStatus(selected)) + '<p class="use-price">' + esc(money(selected.quote.value,selected.quote.currency)) + '</p></div></header><nav class="use-view-tabs" aria-label="Assessment views">' + [['decision','Decision'],['investment','Investment outlook'],['trading','Trading outlook'],['evidence','Evidence'],['prices','Price explanations'],['vehicles','Trade comparison'],['record','Company record']].map(([view,label]) => '<button type="button" data-use-view="' + view + '" aria-pressed="' + (state.view === view) + '">' + label + '</button>').join('') + '</nav><div class="use-view">' + (state.view === 'investment' ? investmentView(selected) : state.view === 'trading' ? tradingView(selected) : state.view === 'evidence' ? evidenceView(selected) : state.view === 'prices' ? pricesView(selected) : state.view === 'vehicles' ? vehiclesView(selected) : state.view === 'record' ? recordView(selected) : decisionView(selected)) + '</div></section></div>' : '<div class="use-empty"><h3>No matching research</h3><p>Change the ticker search or policy filter to inspect other assessments.</p></div>') +
       '<footer class="use-footer"><p>' + esc(state.data.validation) + ' No live account sizing or order execution is connected.</p><details><summary>Method and saved decision</summary><p>' + esc(state.data.ranking) + '</p><p>Shared evidence is shown once in the rubric. Measurements and related desks remain context. Policy eligibility comes from a matching current owner trade and cannot override its entry or risk gates.</p><p>Snapshot ' + esc(state.data.snapshotId) + '</p><p>Engine ' + esc(state.data.engineVersion) + ' · entry policy ' + esc(state.data.entryPolicyVersion) + '</p></details></footer>';
     if (selected && state.view === 'record') fillRecord(selected.symbol);
     const library = target.querySelector('.use-library');
@@ -26699,6 +26853,25 @@ function scenarioEventPhase(ev, now = Date.now()) {
       state.timer = host.setTimeout(() => { if (root()?.closest('.page-pane')?.hidden === false) render(); }, Math.max(1, Math.min(...deadlines) - Date.now() + 1));
     }
   }
+  function updateInvestment(input) {
+    const field = input.dataset.useInvestmentField;
+    if (!['growthPct','operatingMarginPct','exitMultiple','requiredReturnPct'].includes(field)) return false;
+    const row = state.data?.decisions.find(item => item.symbol === state.symbol);
+    if (!row?.perspectives?.investment.model) return false;
+    const draft = investmentDraft(row);
+    draft.value[field] = input.value === '' ? null : Number(input.value);
+    draft.edited = true;
+    // Update calculations without replacing the focused control or a button
+    // receiving the user's click when that control loses focus.
+    const fragment = doc.createElement('div');
+    fragment.innerHTML = investmentView(row);
+    for (const attribute of ['data-use-investment-result','data-use-investment-scenarios']) {
+      const current = root().querySelector('[' + attribute + ']');
+      const next = fragment.querySelector('[' + attribute + ']');
+      if (current && next) current.replaceWith(next);
+    }
+    return true;
+  }
   function bind() {
     if (state.bound || !root()) return;
     state.bound = true; restore();
@@ -26706,6 +26879,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       const button = event.target.closest('button');
       if (!button) return;
       if (button.hasAttribute('data-use-refresh')) { load(true); return; }
+      if (button.hasAttribute('data-use-investment-reset')) { delete state.investments[state.symbol]; render(); return; }
       const selectedTicker = !!button.dataset.useSymbol;
       if (selectedTicker) state.symbol = button.dataset.useSymbol;
       if (VIEWS.includes(button.dataset.useView)) state.view = button.dataset.useView;
@@ -26714,8 +26888,12 @@ function scenarioEventPhase(ev, now = Date.now()) {
       nextFocus?.focus({preventScroll:true});
       if (selectedTicker && host.innerWidth <= 700) root().querySelector('.use-decision-head')?.scrollIntoView({block:'start'});
     });
-    root().addEventListener('change', event => { if (event.target.hasAttribute('data-use-filter')) { state.filter = event.target.value; save(); render(); root().querySelector('[data-use-filter]')?.focus({preventScroll:true}); } });
+    root().addEventListener('change', event => {
+      if (event.target.hasAttribute('data-use-filter')) { state.filter = event.target.value; save(); render(); root().querySelector('[data-use-filter]')?.focus({preventScroll:true}); }
+      updateInvestment(event.target);
+    });
     root().addEventListener('input', event => {
+      if (updateInvestment(event.target)) return;
       if (!event.target.hasAttribute('data-use-search')) return;
       state.query = event.target.value; const position = event.target.selectionStart;
       render(); const input = root().querySelector('[data-use-search]'); input.focus();
@@ -26735,7 +26913,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     state.loading = true; state.error = ''; render();
     try {
       const response = await host.fetch(options.url(), { credentials: 'same-origin', cache: 'no-store', signal: controller.signal });
-      if (response.status === 401 || response.status === 403) { state.data = null; throw new Error('Owner access is required. Sign in again to view private decisions.'); }
+      if (response.status === 401 || response.status === 403) { state.data = null; state.investments = {}; throw new Error('Owner access is required. Sign in again to view private decisions.'); }
       if (response.status === 404) throw new Error('No decision snapshot has been published yet. Check after the next 11:00 or 15:30 ET build.');
       if (!response.ok) throw new Error('The published snapshot could not be loaded. Try again.');
       let payload;
@@ -26758,6 +26936,105 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
   return { load, open };
 })(window, document, {
+    investment: (function investmentPerspectiveFactory(valuation) {
+  const finite = value => typeof value === 'number' && Number.isFinite(value);
+  const round = value => finite(value) ? Math.round(value * 10000) / 10000 : null;
+  const defaults = model => ({ growthPct: model.base.inputs.growthPct,
+    operatingMarginPct: model.base.inputs.operatingMarginPct,
+    exitMultiple: model.multiple.value, requiredReturnPct: 12 });
+  function calculate(model, draft = defaults(model)) {
+    const errors = [];
+    for (const [key, low, high, label] of [
+      ['growthPct', -95, 200, 'Revenue growth'], ['operatingMarginPct', .1, 80, 'Operating margin'],
+      ['exitMultiple', 1, 100, 'Exit earnings multiple'], ['requiredReturnPct', 1, 50, 'Required annual return'],
+    ]) if (!finite(draft[key]) || draft[key] < low || draft[key] > high) errors.push(`${label} must be between ${low} and ${high}.`);
+    if (finite(model.base.inputs.grossMarginPct) && draft.operatingMarginPct > model.base.inputs.grossMarginPct) errors.push('Operating margin cannot exceed the supported gross margin.');
+    if (errors.length) return { status: 'unavailable', label: 'Review assumptions', errors, scenarios: [], range: null, requiredGrowthPct: null };
+    const scenarios = [];
+    for (const [key, label, growthShift, marginShift, multipleFactor] of [
+      ['downside', 'Lower assumptions', -5, -2, .8], ['base', 'Base assumptions', 0, 0, 1], ['upside', 'Higher assumptions', 5, 2, 1.2],
+    ]) {
+      const inputs = { ...model.base.inputs, growthPct: Math.max(-95, draft.growthPct + growthShift),
+        operatingMarginPct: Math.min(model.base.inputs.grossMarginPct ?? 80, draft.operatingMarginPct + marginShift),
+        exitMultiple: Math.min(120, draft.exitMultiple * multipleFactor) };
+      const outcome = valuation.calculate(model.base, inputs, { asOf: model.asOf });
+      if (outcome.status !== 'supported' || !(outcome.target > 0) || !finite(outcome.priceReturnPct)) {
+        errors.push(outcome.reason || 'The supported earnings bridge cannot price these assumptions.');
+        continue;
+      }
+      scenarios.push({ key, label, growthPct: round(inputs.growthPct), operatingMarginPct: round(inputs.operatingMarginPct),
+        exitMultiple: round(inputs.exitMultiple), revenue: round(outcome.revenue), eps: round(outcome.eps),
+        priceAtHorizon: round(outcome.target), presentValue: round(outcome.target / (1 + draft.requiredReturnPct / 100)),
+        priceReturnPct: round(outcome.priceReturnPct) });
+    }
+    if (errors.length || scenarios.length !== 3) return { status: 'unavailable', label: 'Incomplete scenario bridge', errors, scenarios: [], range: null, requiredGrowthPct: null };
+    const low = Math.min(...scenarios.map(row => row.presentValue)), high = Math.max(...scenarios.map(row => row.presentValue));
+    const middle = scenarios.find(row => row.key === 'base');
+    const status = model.spot < low ? 'below-range' : model.spot > high ? 'above-range' : 'within-range';
+    // Solve the SAME earnings bridge for a future price that meets the hurdle.
+    const reverseBase = { ...model.base, reference: { ...model.base.reference, spot: model.spot * (1 + draft.requiredReturnPct / 100) } };
+    const reverse = valuation.calculate(reverseBase, { ...model.base.inputs, ...draft }, { asOf: model.asOf });
+    return { status, label: { 'below-range': 'Below the scenario value range', 'within-range': 'Within the scenario value range', 'above-range': 'Above the scenario value range' }[status], errors: [],
+      scenarios, range: { low, high }, basePresentValue: middle.presentValue,
+      gapToBasePct: round((middle.presentValue / model.spot - 1) * 100),
+      requiredGrowthPct: round(reverse.requiredGrowthPct), requiredReturnPct: draft.requiredReturnPct,
+      interpretation: status === 'below-range' ? 'The price is below all three conditional present values. Review whether the assumptions and required return adequately reflect business risk.'
+        : status === 'above-range' ? 'The current price needs more favorable assumptions than this scenario range supports.'
+          : 'The current price falls inside the scenario range. The purchase case depends on which assumptions prove reasonable.' };
+  }
+  return { defaults, calculate };
+})((function fullYearValuationFactory(){
+  const finite=x=>typeof x==='number'&&Number.isFinite(x);
+  const sum=xs=>xs.reduce((a,b)=>a+b,0);
+  function base(c){
+    const rows=(c.companyRecord?.quarters||[]),latest=rows.at(-1),same=rows.filter(q=>q.currency===latest?.currency&&q.basis===latest?.basis).slice(-4);
+    const continuous=same.length===4&&same.every((q,i)=>!i||(Date.parse(q.start)-Date.parse(same[i-1].end))/86400000>=1&&(Date.parse(q.start)-Date.parse(same[i-1].end))/86400000<=20);
+    const a=c.forecast.assumptions||{},f=c.valuationReference||{},mix=c.mix?.product;
+    const age=(Date.parse(f.asOf||c.companyRecord?.asOf)-Date.parse(latest?.end))/86400000;
+    const newerReported=Date.parse(f.reportedPeriodEnd)-Date.parse(latest?.end)>14*86400000;
+    const unavailableReason=c.former?'This company left the current research list. Its frozen quarterly record remains available.':newerReported?'A newer reporting period is known. Full-year valuation waits for its supported financial statements.':!Number.isFinite(age)||age<0||age>180?'The latest supported reporting period is missing or more than 180 days old.':null;
+    const ready=!unavailableReason&&continuous&&same.every(q=>finite(q.metrics.revenue?.value)&&q.metrics.revenue.value>0);
+    const reportedMix=mix?.reconciliation?.status==='matched'&&mix.currency===latest?.currency&&Array.isArray(mix.rows)&&mix.rows.length&&mix.rows.every(r=>finite(r.value)&&r.value>=0);
+    const total=reportedMix?sum(mix.rows.map(r=>r.value)):0;
+    const lines=total>0?mix.rows.map(r=>({name:r.name,weight:r.value/total,demandPct:0,pricePct:0})):[{name:'Consolidated business',weight:1,demandPct:0,pricePct:0}];
+    return {version:1,symbol:c.symbol,currency:latest?.currency||c.forecast.currency||null,status:ready?'ready':'incomplete-history',unavailableReason,
+      baselineRevenue:ready?sum(same.map(q=>q.metrics.revenue.value)):null,quarters:same.map(q=>({start:q.start,end:q.end,revenue:q.metrics.revenue?.value??null})),
+      latestEnd:latest?.end||null,targetStart:c.forecast.target?.start||null,
+      // Four quarter-medians are an explicit annual assumption, not a reported annual result.
+      inputs:{growthPct:finite(a.growthRate)?a.growthRate*100:0,grossMarginPct:finite(a.grossMargin)?a.grossMargin*100:null,operatingMarginPct:finite(a.operatingMargin)?a.operatingMargin*100:null,taxRatePct:finite(a.taxRate)?a.taxRate*100:null,nonoperating:finite(a.nonoperating)?a.nonoperating*4:null,commonIncomeAdjustment:finite(a.commonIncomeAdjustment)?a.commonIncomeAdjustment*4:null,dilutedShares:latest?.metrics.dilutedShares?.value??null,shareChangePct:0,exitMultiple:finite(f.forwardPE)&&f.forwardPE>0?f.forwardPE:null,dividendsPerShare:null,lines},
+      epsSupported:finite(c.forecast.outputs?.eps)&&c.forecast.latestEnd===latest?.end,reference:f,
+      mixPeriod:reportedMix?mix.period?.currentPeriod?.endDate||null:null,
+      mixBasis:reportedMix?'Disclosed product mix allocated across the full-year baseline; historical shares are a scenario assumption':'Consolidated baseline',
+      sourceFingerprint:JSON.stringify([c.forecast.id,c.forecast.inputKey,c.former,latest?.end,same.map(q=>q.metrics),mix,f]),
+      note:'Next four fiscal quarters, approximately twelve months. A constant annual growth assumption is applied to the last four comparable seasonal quarters. Financial bridge uses explicit annual assumptions. This is an uncalibrated sensitivity, not a price forecast.'};
+  }
+  function calculate(b,d,{asOf=b.reference.asOf}={}){
+    const unavailable=reason=>({status:'unavailable',reason,revenue:null,operatingIncome:null,netIncome:null,eps:null,target:null,priceReturnPct:null,totalReturnPct:null,requiredRevenue:null});
+    if(b.status!=='ready'||!finite(b.baselineRevenue))return unavailable(b.unavailableReason||'Four consecutive same-basis reported quarters are required. Missing quarters are not annualized.');
+    if(!finite(d.growthPct)||d.growthPct< -100||d.growthPct>500)return unavailable('Annual revenue growth must be between -100% and 500%.');
+    if(finite(d.grossMarginPct)&&(d.grossMarginPct< -100||d.grossMarginPct>100||finite(d.operatingMarginPct)&&d.operatingMarginPct>d.grossMarginPct))return unavailable('Operating margin cannot exceed the assumed gross margin. Gross margin must be between -100% and 100%.');
+    if(!Array.isArray(d.lines)||!d.lines.length||d.lines.length>40||d.lines.some(r=>!finite(r.weight)||r.weight<0||!finite(r.demandPct)||r.demandPct< -100||r.demandPct>500||!finite(r.pricePct)||r.pricePct< -100||r.pricePct>500)||Math.abs(sum(d.lines.map(r=>r.weight))-1)>1e-8)return unavailable('Business-line starting shares must total 100%, with valid demand and price assumptions.');
+    const adjustedLines=d.lines.map(r=>({...r,revenue:b.baselineRevenue*(1+d.growthPct/100)*r.weight*(1+r.demandPct/100)*(1+r.pricePct/100)}));
+    const revenue=sum(adjustedLines.map(r=>r.revenue));
+    const operatingIncome=finite(d.operatingMarginPct)&&d.operatingMarginPct>=-100&&d.operatingMarginPct<=100?revenue*d.operatingMarginPct/100:null;
+    const pretax=finite(operatingIncome)&&finite(d.nonoperating)?operatingIncome+d.nonoperating:null;
+    const bridge=b.epsSupported&&finite(pretax)&&pretax>0&&finite(d.taxRatePct)&&d.taxRatePct>=0&&d.taxRatePct<=100&&finite(d.commonIncomeAdjustment)&&finite(d.dilutedShares)&&d.dilutedShares>0&&finite(d.shareChangePct)&&d.shareChangePct> -100&&d.shareChangePct<=500;
+    const shares=bridge?d.dilutedShares*(1+d.shareChangePct/100):null;
+    const net=bridge?pretax*(1-d.taxRatePct/100)+d.commonIncomeAdjustment:null;
+    const eps=finite(net)&&net>0?net/shares:null;
+    const target=finite(eps)&&finite(d.exitMultiple)&&d.exitMultiple>0&&d.exitMultiple<=200?eps*d.exitMultiple:null;
+    const ref=b.reference,age=(Date.parse(asOf)-Date.parse(ref.quoteAsOf))/3600000;
+    const comparable=ref.currency===b.currency&&b.currency==='USD'&&b.symbol!=='TSM'&&finite(ref.spot)&&ref.spot>0&&Number.isFinite(age)&&age>=0&&age<=96;
+    const priceReturnPct=comparable&&finite(target)?(target/ref.spot-1)*100:null;
+    const dividends=finite(d.dividendsPerShare)&&d.dividendsPerShare>=0?d.dividendsPerShare:null;
+    const totalReturnPct=finite(priceReturnPct)&&dividends!==null?(target+dividends-ref.spot)/ref.spot*100:null;
+    const requiredEps=comparable&&finite(d.exitMultiple)&&d.exitMultiple>0&&d.exitMultiple<=200?ref.spot/d.exitMultiple:null;
+    const requiredRevenue=bridge&&finite(requiredEps)&&d.taxRatePct<100&&d.operatingMarginPct>0?((requiredEps*shares-d.commonIncomeAdjustment)/(1-d.taxRatePct/100)-d.nonoperating)/(d.operatingMarginPct/100):null;
+    return {status:finite(eps)?'supported':'partial',revenue,operatingIncome,pretaxIncome:pretax,netIncome:finite(eps)?net:null,dilutedShares:shares,eps,target,priceReturnPct,totalReturnPct,requiredRevenue:finite(requiredRevenue)&&requiredRevenue>=0?requiredRevenue:null,requiredGrowthPct:finite(requiredRevenue)&&requiredRevenue>=0?(requiredRevenue/b.baselineRevenue-1)*100:null,adjustedLines,
+      reason:!b.epsSupported?'The accepted quarterly EPS bridge is unsupported; manual inputs cannot override that source limitation.':!finite(eps)?'EPS is withheld for missing financial inputs, unsupported share changes or losses.':!comparable?'Price comparison is unavailable: source date, currency or share basis is not comparable.':!finite(target)?'Enter a positive exit P/E, up to 200×, to calculate conditional value.':null};
+  }
+  return {base,calculate};
+})()),
     owner: function(){ return HAS_OWNER_ACCESS; },
     url: function(){ return '/api/auth/me?data=unified-signal.json'; },
     // Company record view: the grade breakdown (same panel as the Top Picks
@@ -26778,6 +27055,55 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }, (function unifiedSignalDisplayFactory() {
   const states = ['eligible','wait','watch','avoid','insufficient-data'];
   const finite = value => typeof value === 'number' && Number.isFinite(value);
+  const optionalNumber = value => value === null || finite(value);
+  const strings = value => Array.isArray(value) && value.every(item => typeof item === 'string');
+  const timestamp = value => typeof value === 'string' && Number.isFinite(Date.parse(value));
+  function perspectivesValid(value) {
+    if (value === undefined) return true; // Retained snapshots remain readable.
+    if (!value || value.version !== 1) return false;
+    if (value.quote !== undefined && (!value.quote || !optionalNumber(value.quote.value) || typeof value.quote.usable !== 'boolean' || typeof value.quote.current !== 'boolean')) return false;
+    const investment = value.investment, trading = value.trading;
+    if (!investment || investment.version !== 1 || !timestamp(investment.asOf) || typeof investment.horizon !== 'string'
+      || !['unavailable', 'below-range', 'within-range', 'above-range'].includes(investment.status)
+      || typeof investment.label !== 'string' || !strings(investment.missing) || !strings(investment.limitations) || !Array.isArray(investment.sources)) return false;
+    if (investment.status !== 'unavailable') {
+      const model = investment.model, result = investment.assessment;
+      if (!model?.base?.inputs || model.base.status !== 'ready' || model.base.epsSupported !== true || !(model.spot > 0) || model.currency !== 'USD'
+        || !timestamp(model.asOf) || !model.base.reference || !Array.isArray(model.base.inputs.lines)
+        || !model.base.inputs.lines.length || !model.base.inputs.lines.every(row => row && finite(row.weight) && finite(row.demandPct) && finite(row.pricePct))
+        || !finite(model.base.baselineRevenue) || !Array.isArray(model.base.quarters) || !model.base.quarters.every(q => q && typeof q.start === 'string' && typeof q.end === 'string')
+        || !model.multiple || !finite(model.multiple.value) || typeof model.multiple.basis !== 'string' || !Array.isArray(model.multiple.peers)
+        || !model.multiple.peers.every(peer => peer && typeof peer.symbol === 'string' && finite(peer.forwardPE))
+        || !['growthPct', 'operatingMarginPct', 'exitMultiple'].every(key => finite(model.base.inputs[key]) || key === 'exitMultiple' && model.base.inputs[key] === null)
+        || typeof investment.inputId !== 'string' || !result || result.status !== investment.status || typeof result.interpretation !== 'string'
+        || !Array.isArray(result.scenarios) || result.scenarios.length !== 3
+        || !result.scenarios.every(row => row && ['downside', 'base', 'upside'].includes(row.key) && typeof row.label === 'string'
+          && ['growthPct', 'operatingMarginPct', 'exitMultiple', 'revenue', 'eps', 'priceAtHorizon', 'presentValue', 'priceReturnPct'].every(key => finite(row[key])))
+        || !result.range || !(result.range.low > 0) || !(result.range.high >= result.range.low)
+        || !optionalNumber(result.requiredGrowthPct) || !finite(result.requiredReturnPct)) return false;
+    } else if (investment.model !== null || investment.assessment !== null) return false;
+    if (!trading || trading.version !== 1 || !timestamp(trading.asOf) || typeof trading.horizon !== 'string'
+      || !['insufficient-data', 'no-setup', 'invalidated', 'wait', 'setup'].includes(trading.status)
+      || !['bullish', 'bearish', 'mixed'].includes(trading.direction) || typeof trading.label !== 'string'
+      || !strings(trading.blocks) || !strings(trading.limitations) || !Array.isArray(trading.confirmation)
+      || !trading.confirmation.every(row => row && typeof row.label === 'string' && typeof row.pass === 'boolean')
+      || !trading.coverage || !finite(trading.coverage.sessions) || !trading.execution || typeof trading.execution.qualified !== 'boolean' || typeof trading.execution.reason !== 'string'
+      || !trading.volatility || typeof trading.volatility.label !== 'string' || typeof trading.volatility.note !== 'string'
+      || !['iv', 'mean', 'change5dPct'].every(key => optionalNumber(trading.volatility[key]))) return false;
+    if (trading.setup !== null && (!trading.setup || typeof trading.setup.name !== 'string' || typeof trading.setup.asOf !== 'string' || !['call', 'put'].includes(trading.setup.side)
+      || !finite(trading.setup.atr) || !optionalNumber(trading.setup.rvol) || typeof trading.setup.confirmed !== 'boolean')) return false;
+    if (trading.plan !== null && (!trading.plan || !['entry', 'target', 'invalidation', 'trigger', 'rewardRisk', 'riskAtr'].every(key => optionalNumber(trading.plan[key])) || typeof trading.plan.targetMethod !== 'string' || typeof trading.plan.warning !== 'string')) return false;
+    if (trading.peers !== null && (!trading.peers || !finite(trading.peers.n) || !optionalNumber(trading.peers.meanReturn5Pct) || typeof trading.peers.note !== 'string' || !Array.isArray(trading.peers.members))) return false;
+    if (trading.history !== null && (!trading.history || typeof trading.history.interpretation !== 'string' || !Array.isArray(trading.history.horizons)
+      || !trading.history.horizons.every(row => row && [5, 10].includes(row.sessions) && finite(row.n)
+        && ['meanReturnPct', 'medianReturnPct', 'positiveOutcomePct', 'baselineMeanPct'].every(key => optionalNumber(row[key])) && finite(row.baselineN)
+        && Array.isArray(row.samples) && row.samples.length === row.n && row.samples.every(sample => sample && typeof sample.signalDate === 'string' && typeof sample.outcomeDate === 'string' && finite(sample.signedReturnPct) && finite(sample.adverseMovePct))))) return false;
+    if (trading.inputs !== null && (!trading.inputs || trading.inputs.encoding !== 'deflate-raw-json-base64' || !Number.isInteger(trading.inputs.rows)
+      || trading.inputs.rows < 1 || trading.inputs.rows > 520 || typeof trading.inputs.sourceHash !== 'string'
+      || !/^[a-f0-9]{64}$/.test(trading.inputs.sourceHash) || typeof trading.inputs.data !== 'string' || trading.inputs.data.length > 200000
+      || !Array.isArray(trading.inputs.columns) || trading.inputs.columns.join(',') !== 'date,high,low,close,volume')) return false;
+    return true;
+  }
   function valid(payload) {
     if (payload?.version !== 1 || typeof payload.engineVersion !== 'string' || !Array.isArray(payload.decisions) || payload.decisions.length > 1000) return false;
     const built = Date.parse(payload.builtAtIso), expiry = Date.parse(payload.validUntil);
@@ -26789,7 +27115,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       seen.add(row.symbol);
       return states.includes(row.status) && ['bullish','bearish','mixed'].includes(row.direction)
         && (row.grade === null || finite(row.grade)) && row.quote && (row.quote.value === null || finite(row.quote.value))
-        && row.plan && Array.isArray(row.blocks) && row.blocks.every(s => typeof s === 'string')
+        && row.plan && perspectivesValid(row.perspectives) && Array.isArray(row.blocks) && row.blocks.every(s => typeof s === 'string')
         && Array.isArray(row.evidence) && row.evidence.every(e => e && typeof e.id === 'string' && typeof e.title === 'string' && ['supports','opposes','context'].includes(e.effect))
         && row.uncertainty && Array.isArray(row.uncertainty.missing) && row.uncertainty.missing.every(s => typeof s === 'string') && row.valuation && row.stress && Array.isArray(row.stress.paths) && row.stress.paths.every(s => s && typeof s.name === 'string' && finite(s.low) && finite(s.high))
         && row.thesis && row.review && Array.isArray(row.review.invalidators) && row.changes && Array.isArray(row.changes.items)
@@ -26816,7 +27142,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   return { valid, expired, status, label };
 })());
   var historicalData = (function historicalDataFactory(host, doc, options) {
-  const state = { data: null, pending: false, error: null, symbol: 'SPY', range: 'all', study: 'q4', event: 'war', view: 'studies', context: 'VIXCLS', bound: false, libraryScroll: 0, freshnessTimer: null };
+  const state = { data: null, pending: false, error: null, symbol: '^GSPC', range: 'all', study: 'q4', event: 'war', view: 'studies', context: 'VIXCLS', bound: false, libraryScroll: 0, freshnessTimer: null };
   const nyClock = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
   const clockParts = time => Object.fromEntries(nyClock.formatToParts(new Date(time)).map(p => [p.type, p.value]));
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -26851,11 +27177,11 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (expires > now) candidates.push(expires);
     state.freshnessTimer = host.setTimeout(() => { if (!doc.hidden && root()?.closest('.page-pane')?.hidden === false) render(); }, Math.max(1, Math.min(...candidates) - now));
   }
-  function save() { try { host.localStorage.setItem('stonks-historical-view', JSON.stringify({ symbol: state.symbol, range: state.range, study: state.study, event: state.event, view: state.view, context: state.context })); } catch {} }
+  function save() { try { host.localStorage.setItem('stonks-historical-view-v2', JSON.stringify({ symbol: state.symbol, range: state.range, study: state.study, event: state.event, view: state.view, context: state.context })); } catch {} }
   function restore() {
     try {
-      const saved = JSON.parse(host.localStorage.getItem('stonks-historical-view') || '{}');
-      if (typeof saved.symbol === 'string' && /^[A-Z]{1,5}$/.test(saved.symbol)) state.symbol = saved.symbol;
+      const saved = JSON.parse(host.localStorage.getItem('stonks-historical-view-v2') || '{}');
+      if (typeof saved.symbol === 'string' && /^\^?[A-Z]{1,5}$/.test(saved.symbol)) state.symbol = saved.symbol;
       if (['all', '20y', '10y'].includes(saved.range)) state.range = saved.range;
       if (typeof saved.study === 'string') state.study = saved.study;
       if (['studies','events','context','sources'].includes(saved.view)) state.view = saved.view;
@@ -26902,7 +27228,12 @@ function scenarioEventPhase(ev, now = Date.now()) {
   function sourceView(data) {
     const c = data.coverage, sources = [...c.markets, ...c.context];
     const table = list => '<div class="h-table-wrap"><table class="h-table h-source-table"><thead><tr><th>Dataset / original publisher</th><th>Usable dates</th><th>Years / observations</th><th>Coverage and refresh</th></tr></thead><tbody>' + list.map(s => '<tr><td><a href="' + escape(s.url) + '" target="_blank" rel="noopener">' + escape(s.id + ' · ' + s.label) + '</a><small>' + escape(s.publisher + ' via ' + s.provider) + '</small></td><td>' + escape(s.firstDate || '—') + ' → ' + escape(s.lastDate || '—') + (s.excludedEarlyObservations ? '<small>Excluded ' + s.excludedEarlyObservations + ' earlier observations before ' + s.gapCount + ' reporting gaps. Raw source starts ' + escape(s.rawFirstDate) + '.</small>' : '') + '</td><td>' + number(s.years, 1) + ' years<small>' + s.observations.toLocaleString() + ' · ' + escape(s.frequency) + '</small></td><td>' + escape(coverageStatus(s)) + (s.error ? '<small class="h-neg">Latest refresh failed · retained data: ' + escape(s.error) + '</small>' : '') + (sourceStale(s) ? '<small class="h-neg">Latest observation is stale</small>' : '') + '<small>Source check: ' + escape(s.checkedAt || 'no source check recorded') + '</small><small>Last successful download: ' + escape(s.lastSuccessAt || 'not recorded') + '</small>' + (s.confirmedThrough ? '<small>Confirmed closes through ' + escape(s.confirmedThrough) + '</small>' : '') + '</td></tr>').join('') + '</tbody></table></div>';
-    return '<div class="h-source-intro"><h3>Ten-year coverage ledger</h3><p>' + c.ready + ' of ' + c.total + ' catalogued datasets pass the ten-year history rule. Provider subscription fees for enabled adapters: $0. A missing, short or failed dataset never becomes a zero or a successful coverage claim.</p><p class="h-caption">Dates describe the contiguous usable tail, not an interpolated history. Earlier irregular reporting is retained in the source cache but excluded from comparisons. Free access does not grant blanket redistribution rights.</p></div>' + ['US stocks','Bonds','Commodities'].map(group => '<h4 class="h-source-heading">' + group + '</h4>' + table(c.markets.filter(s => s.group === group))).join('') + '<h4 class="h-source-heading">Macro, volatility and physical commodities</h4>' + table(c.context) + (Array.isArray(c.eventMarkets) && c.eventMarkets.length ? '<h4 class="h-source-heading">Event-study histories · not counted in the ledger above</h4>' + table(c.eventMarkets) : '') + (Array.isArray(c.releaseCalendars) && c.releaseCalendars.length ? '<h4 class="h-source-heading">Release calendars</h4><ul class="h-caption">' + c.releaseCalendars.map(r => '<li><a href="' + escape(r.url) + '" target="_blank" rel="noopener">' + escape(r.label) + '</a> · ' + escape(r.publisher) + ' · ' + (r.releases ? r.releases.toLocaleString() + ' past releases, ' + escape(r.firstDate) + ' to ' + escape(r.lastDate) : 'not collected') + (r.error ? ' · <span class="h-neg">' + escape(r.error) + '</span>' : '') + '</li>').join('') + '<li>FOMC decision days: Federal Reserve calendar, kept in code.</li></ul>' : '') + '<section class="h-paid"><h3>Optional paid data · none connected</h3><p>These services fill specific gaps. Each requires your approval before implementation or subscription. Prices checked October 24, 2026; taxes and business/display licenses may add cost.</p>' + c.paidOptions.map(p => '<article><h4><a href="' + escape(p.url) + '" target="_blank" rel="noopener">' + escape(p.name) + '</a> · ' + escape(p.cost) + '</h4><p>' + escape(p.purpose) + '</p><p class="h-caption">' + escape(p.limitation) + ' ' + escape(p.status) + '.</p></article>').join('') + '</section><details class="h-disclosure"><summary>Coverage boundaries and outstanding data needs</summary><ul>' + c.boundaries.map(t => '<li>' + escape(t) + '</li>').join('') + '<li>Long original-vintage macro histories need ALFRED vintage retrieval before use in a historical trading backtest. Current context charts use revised observations.</li><li>Super Bowl, lunar, intraday, event-surprise and option-chain effects remain untested without their separate event datasets.</li></ul></details>';
+    const q = data.quality, qs = q?.summary;
+    const checks = q && Array.isArray(q.checks) && qs ? '<section class="h-source-intro"><h3>Data checks</h3><p>' + qs.pass + ' passed · ' + qs.warn + ' to watch · ' + qs.fail + ' failed. Every build checks each cached series against the NYSE calendar (closes on holidays, sessions with no close), compares SPY with the S&P 500 index day by day to catch shifted date labels, flags one-day jumps over 25%, checks FRED observation dates and staleness, and checks the FOMC, WWDC, event and release dates in code.</p></section><div class="h-table-wrap"><table class="h-table h-source-table"><thead><tr><th>Check</th><th>Result</th><th>Detail</th></tr></thead><tbody>' + [...q.checks].sort((a, b) => ({ fail: 0, warn: 1, pass: 2 })[a.status] - ({ fail: 0, warn: 1, pass: 2 })[b.status]).map(c => '<tr><td>' + escape(c.title) + '<small>' + escape(c.area) + '</small></td><td class="' + (c.status === 'fail' ? 'h-neg' : c.status === 'pass' ? 'h-pos' : '') + '">' + escape(({ pass: 'Passed', warn: 'Watch', fail: 'Failed' })[c.status] || c.status) + '</td><td>' + escape(c.detail) + '</td></tr>').join('') + '</tbody></table></div>' : '';
+    return checks + '<div class="h-source-intro"><h3>Ten-year coverage ledger</h3><p>' + c.ready + ' of ' + c.total + ' catalogued datasets pass the ten-year history rule. Provider subscription fees for enabled adapters: $0. A missing, short or failed dataset never becomes a zero or a successful coverage claim.</p><p class="h-caption">Dates describe the contiguous usable tail, not an interpolated history. Earlier irregular reporting is retained in the source cache but excluded from comparisons. Free access does not grant blanket redistribution rights.</p></div>' + ['US stocks','Bonds','Commodities'].map(group => '<h4 class="h-source-heading">' + group + '</h4>' + table(c.markets.filter(s => s.group === group))).join('') + '<h4 class="h-source-heading">Macro, volatility and physical commodities</h4>' + table(c.context) + (Array.isArray(c.eventMarkets) && c.eventMarkets.length ? '<h4 class="h-source-heading">Event-study histories · not counted in the ledger above</h4>' + table(c.eventMarkets) : '') + (Array.isArray(c.releaseCalendars) && c.releaseCalendars.length ? '<h4 class="h-source-heading">Release calendars</h4><ul class="h-caption">' + c.releaseCalendars.map(r => '<li><a href="' + escape(r.url) + '" target="_blank" rel="noopener">' + escape(r.label) + '</a> · ' + escape(r.publisher) + ' · ' + (r.releases ? r.releases.toLocaleString() + ' past releases, ' + escape(r.firstDate) + ' to ' + escape(r.lastDate) : 'not collected') + (r.error ? ' · <span class="h-neg">' + escape(r.error) + '</span>' : '') + '</li>').join('') + '<li>FOMC decision days: Federal Reserve calendar, kept in code.</li></ul>' : '') + '<section class="h-paid"><h3>Optional paid data · none connected</h3><p>These services fill specific gaps. Each requires your approval before implementation or subscription. Prices checked October 24, 2026; taxes and business/display licenses may add cost.</p>' + c.paidOptions.map(p => '<article><h4><a href="' + escape(p.url) + '" target="_blank" rel="noopener">' + escape(p.name) + '</a> · ' + escape(p.cost) + '</h4><p>' + escape(p.purpose) + '</p><p class="h-caption">' + escape(p.limitation) + ' ' + escape(p.status) + '.</p></article>').join('') + '</section><details class="h-disclosure"><summary>Coverage boundaries and outstanding data needs</summary><ul>' + c.boundaries.map(t => '<li>' + escape(t) + '</li>').join('') + '<li>Long original-vintage macro histories need ALFRED vintage retrieval before use in a historical trading backtest. Current context charts use revised observations.</li><li>Super Bowl, lunar, intraday, event-surprise and option-chain effects remain untested without their separate event datasets.</li></ul></details>';
+  }
+  function chartHover(points) {
+    return typeof options.hover === 'function' ? options.hover(points) : '';
   }
   function contextChart(s) {
     if (s.status !== 'ready' || !s.chart.length) return '<p class="h-notice">This dataset does not meet the ten-year coverage requirement. Its chart and comparative statistics are withheld.</p>';
@@ -26910,7 +27241,12 @@ function scenarioEventPhase(ev, now = Date.now()) {
     const pad = Math.max(.001, (high - low) * .08); low -= pad; high += pad;
     const first = Date.parse(rows[0].t), last = Date.parse(rows.at(-1).t), x = t => 78 + (Date.parse(t) - first) / Math.max(1, last - first) * 590, y = v => 210 - (v - low) / (high - low) * 182;
     const path = rows.map((r,i)=>(i?'L':'M')+number(x(r.t))+','+number(y(r.v))).join(' ');
-    return '<figure class="h-figure h-context-chart"><svg viewBox="0 0 704 267" role="img" aria-label="' + escape(s.label + ', historical levels in ' + s.unit) + '">' + Array.from({length:5},(_,i)=>{const v=low+(high-low)*i/4;return '<line class="h-grid" x1="78" x2="668" y1="'+y(v)+'" y2="'+y(v)+'"/><text x="70" y="'+(y(v)+4)+'" text-anchor="end">'+Number(v.toPrecision(4)).toLocaleString()+'</text>';}).join('') + '<path class="h-current" d="'+path+'"/>' + [0,.25,.5,.75,1].map(p=>{const t=first+(last-first)*p;return '<text x="'+(78+p*590)+'" y="235" text-anchor="middle">'+new Date(t).getUTCFullYear()+'</text>';}).join('') + '<text x="373" y="260" text-anchor="middle">Observation date (year)</text></svg><figcaption>Vertical axis: ' + escape(s.unit) + '. Monthly last available observations, latest 600 months at most.</figcaption></figure>';
+    const unit = s.unit ? ' ' + s.unit : '';
+    const hover = chartHover(rows.map(r => ({
+      x: x(r.t), y: y(r.v),
+      label: r.t + '\n' + number(r.v) + unit + '\n' + s.label,
+    })));
+    return '<figure class="h-figure h-context-chart"><svg viewBox="0 0 704 267" role="img" aria-label="' + escape(s.label + ', historical levels in ' + s.unit) + '"' + hover + '>' + Array.from({length:5},(_,i)=>{const v=low+(high-low)*i/4;return '<line class="h-grid" x1="78" x2="668" y1="'+y(v)+'" y2="'+y(v)+'"/><text x="70" y="'+(y(v)+4)+'" text-anchor="end">'+Number(v.toPrecision(4)).toLocaleString()+'</text>';}).join('') + '<path class="h-current" d="'+path+'"/>' + [0,.25,.5,.75,1].map(p=>{const t=first+(last-first)*p;return '<text x="'+(78+p*590)+'" y="235" text-anchor="middle">'+new Date(t).getUTCFullYear()+'</text>';}).join('') + '<text x="373" y="260" text-anchor="middle">Observation date (year)</text></svg><figcaption>Vertical axis: ' + escape(s.unit) + '. Monthly last available observations, latest 600 months at most.</figcaption></figure>';
   }
   function contextView(data) {
     const list = data.coverage.context;
@@ -26993,7 +27329,27 @@ function scenarioEventPhase(ev, now = Date.now()) {
     const band = [...history.map(p => ({ x: p.x, y: p.low })), ...[...history].reverse().map(p => ({ x: p.x, y: p.high }))];
     const grid = Array.from({ length: 5 }, (_, i) => { const v = low + (high - low) * i / 4; return '<line class="h-grid" x1="58" x2="676" y1="' + y(v) + '" y2="' + y(v) + '"/><text x="50" y="' + (y(v) + 4) + '" text-anchor="end">' + number(v, 1) + '%</text>'; }).join('');
     const ticks = [0, 25, 50, 75, 100].map(n => '<text x="' + x(n) + '" y="237" text-anchor="middle">' + n + '%</text>').join('');
-    return '<figure class="h-figure"><svg viewBox="0 0 704 267" role="img" aria-label="Window return chart. Historical median and middle fifty percent, with the held-out comparison through its latest completed close.">' + grid + '<path class="h-band" d="' + path(band) + 'Z"/><line class="h-zero" x1="58" x2="676" y1="' + y(0) + '" y2="' + y(0) + '"/><path class="h-median" d="' + path(history.map(p => ({ x: p.x, y: p.median }))) + '"/>' + (current.length ? '<path class="h-current" d="' + path(current) + '"/>' : '') + ticks + '<text x="367" y="260" text-anchor="middle">Window progress (%)</text></svg><figcaption><span class="h-legend-median">Historical median</span><span class="h-legend-band">Middle 50% of outcomes</span>' + (current.length ? '<span class="h-legend-current">' + study.comparison.year + ' held-out comparison</span>' : '') + '</figcaption><p class="h-caption">Vertical axis: price return from the prior close (%). Calendar windows align by calendar progress; Santa and post-midterm windows by trading sessions. The band shows past dispersion, not a forecast. ' + sample.n + ' completed observations · ' + escape(rangeLabel()) + '.</p></figure>';
+    let gap = 100;
+    for (let i = 1; i < history.length; i++) gap = Math.min(gap, Math.abs(history[i].x - history[i - 1].x) || gap);
+    const tol = Math.max(0.5, gap / 2);
+    const hoverPoints = [];
+    history.forEach(p => {
+      let near = null, dist = Infinity;
+      for (const point of current) {
+        const d = Math.abs(point.x - p.x);
+        if (d < dist) { dist = d; near = point; }
+      }
+      if (!near || dist > tol) near = null;
+      const progress = Math.abs(p.x - Math.round(p.x)) < 0.05 ? String(Math.round(p.x)) : number(p.x, 1);
+      const lines = [progress + '% of the window', 'Median ' + pct(p.median), 'Middle 50% ' + pct(p.low) + ' to ' + pct(p.high)];
+      if (near) lines.push(study.comparison.year + ' comparison ' + pct(near.y));
+      const label = lines.join('\n');
+      const px = x(p.x);
+      hoverPoints.push({ x: px, y: y(p.median), label });
+      if (near) hoverPoints.push({ x: px, y: y(near.y), label });
+    });
+    const hover = chartHover(hoverPoints);
+    return '<figure class="h-figure"><svg viewBox="0 0 704 267" role="img" aria-label="Window return chart. Historical median and middle fifty percent, with the held-out comparison through its latest completed close."' + hover + '>' + grid + '<path class="h-band" d="' + path(band) + 'Z"/><line class="h-zero" x1="58" x2="676" y1="' + y(0) + '" y2="' + y(0) + '"/><path class="h-median" d="' + path(history.map(p => ({ x: p.x, y: p.median }))) + '"/>' + (current.length ? '<path class="h-current" d="' + path(current) + '"/>' : '') + ticks + '<text x="367" y="260" text-anchor="middle">Window progress (%)</text></svg><figcaption><span class="h-legend-median">Historical median</span><span class="h-legend-band">Middle 50% of outcomes</span>' + (current.length ? '<span class="h-legend-current">' + study.comparison.year + ' held-out comparison</span>' : '') + '</figcaption><p class="h-caption">Vertical axis: price return from the prior close (%). Calendar windows align by calendar progress; Santa and post-midterm windows by trading sessions. The band shows past dispersion, not a forecast. ' + sample.n + ' completed observations · ' + escape(rangeLabel()) + '.</p></figure>';
   }
   function barChart(rows, labels, title) {
     const vals = rows.map(r => r.meanPct ?? r.returnPct).filter(Number.isFinite);
@@ -27002,10 +27358,15 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (low === high) { low = -.5; high = .5; }
     const span = high - low, digits = Math.min(4, Math.max(1, Math.ceil(-Math.log10(span)) + 1));
     const y = v => 169 - (v - low) / span * 143, step = 618 / rows.length;
-    return '<figure class="h-figure"><svg viewBox="0 0 704 224" role="img" aria-label="' + escape(title) + '"><text x="50" y="30" text-anchor="end">' + number(high, digits) + '%</text><text x="50" y="173" text-anchor="end">' + number(low, digits) + '%</text><line class="h-zero" x1="58" x2="676" y1="' + y(0) + '" y2="' + y(0) + '"/>' + rows.map((r, i) => {
+    const hover = chartHover(rows.flatMap((r, i) => {
+      const v = r.meanPct ?? r.returnPct;
+      if (!Number.isFinite(v)) return [];
+      return [{ x: 58 + i * step + step * .5, y: y(v), label: String(labels[i] ?? '') + '\n' + pct(v) + (r.n != null ? '\n' + r.n + ' observations' : '') }];
+    }));
+    return '<figure class="h-figure"><svg viewBox="0 0 704 224" role="img" aria-label="' + escape(title) + '"' + hover + '><text x="50" y="30" text-anchor="end">' + number(high, digits) + '%</text><text x="50" y="173" text-anchor="end">' + number(low, digits) + '%</text><line class="h-zero" x1="58" x2="676" y1="' + y(0) + '" y2="' + y(0) + '"/>' + rows.map((r, i) => {
       const v = r.meanPct ?? r.returnPct, px = 58 + i * step + step * .15;
       if (!Number.isFinite(v)) return '';
-      return '<rect class="' + (v >= 0 ? 'h-bar-pos' : 'h-bar-neg') + '" x="' + px + '" y="' + Math.min(y(0), y(v)) + '" width="' + Math.max(1, step * .7) + '" height="' + Math.abs(y(v) - y(0)) + '"><title>' + escape(labels[i]) + ': ' + pct(v) + (r.n != null ? ' · n=' + r.n : '') + '</title></rect>' + (rows.length <= 15 || i % 3 === 0 ? '<text x="' + (px + step * .35) + '" y="191" text-anchor="middle">' + escape(labels[i]) + '</text>' : '');
+      return '<rect class="' + (v >= 0 ? 'h-bar-pos' : 'h-bar-neg') + '" x="' + px + '" y="' + Math.min(y(0), y(v)) + '" width="' + Math.max(1, step * .7) + '" height="' + Math.abs(y(v) - y(0)) + '"></rect>' + (rows.length <= 15 || i % 3 === 0 ? '<text x="' + (px + step * .35) + '" y="191" text-anchor="middle">' + escape(labels[i]) + '</text>' : '');
     }).join('') + '<text x="367" y="217" text-anchor="middle">' + (rows.length === 12 && rows[0].month ? 'Calendar month' : 'Window anchor year') + '</text></svg><figcaption>' + escape(title) + ' · vertical axis: price return (%)</figcaption></figure>';
   }
   function exportCsv() {
@@ -27064,7 +27425,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     const library = ['Seasonal', 'Election cycle'].map(group => '<h4>' + group + '</h4>' + index.studies.filter(s => s.group === group).map(s => '<button type="button" class="h-study-button' + (s.id === study.id ? ' is-selected' : '') + '" data-history-study="' + s.id + '" aria-pressed="' + (s.id === study.id) + '"><span>' + escape(s.name) + '</span><small>' + escape(status(s.comparison.status)) + '</small></button>').join('')).join('');
     const rows = [...sample.years].reverse();
     el.innerHTML = viewTabs() + notice + controls + (index.assetClass !== 'US stocks' ? '<p class="h-caption">' + escape(index.assetClass) + ' fund: equity-market sayings below are calendar comparisons for this asset, not assumed effects. Fund prices exclude cash distributions; commodity futures funds include roll effects.</p>' : '') + (stale ? '<p class="h-notice" role="status">Close history is ' + number(age, 0) + ' calendar days behind the completed-close cutoff. Current comparisons are stale.</p>' : '') +
-      '<div class="h-context"><div><span class="h-kicker">' + (stale ? 'Last available completed-close conditions' : 'Current completed-close conditions') + '</span><h3>' + state.symbol + ' · ' + escape(cur.asOf) + '</h3><small>' + escape(index.firstDate) + ' to ' + escape(index.asOf) + ' · ' + index.sessions.toLocaleString() + ' available sessions</small></div><div class="h-metrics h-context-metrics">' + metric('Year to date', pct(cur.ytdPct), '', sign(cur.ytdPct)) + metric('63-session return', pct(cur.trend63Pct), '', sign(cur.trend63Pct)) + metric('20-session volatility', number(cur.volatility20Pct) + '%', 'Annualized realized') + metric('Drawdown', pct(cur.drawdown252Pct), 'From trailing 252-session high') + '</div></div>' +
+      '<div class="h-context"><div><span class="h-kicker">' + (stale ? 'Last available completed-close conditions' : 'Current completed-close conditions') + '</span><h3>' + escape(state.symbol.startsWith('^') ? index.label : state.symbol) + ' · ' + escape(cur.asOf) + '</h3><small>' + escape(index.firstDate) + ' to ' + escape(index.asOf) + ' · ' + index.sessions.toLocaleString() + ' available sessions</small></div><div class="h-metrics h-context-metrics">' + metric('Year to date', pct(cur.ytdPct), '', sign(cur.ytdPct)) + metric('63-session return', pct(cur.trend63Pct), '', sign(cur.trend63Pct)) + metric('20-session volatility', number(cur.volatility20Pct) + '%', 'Annualized realized') + metric('Drawdown', pct(cur.drawdown252Pct), 'From trailing 252-session high') + '</div></div>' +
       '<div class="h-layout"><aside class="h-library" aria-label="Historical pattern library"><h3>Pattern library</h3><p>Choose a claim. Inspect the record.</p>' + library + '</aside><div class="h-detail"><header class="h-study-head"><div><span class="h-kicker">' + escape(study.group) + ' · ' + escape(sample.evidence) + '</span><h3>' + escape(study.name) + '</h3></div><button type="button" class="book-more" data-history-export>Export observations</button></header><p class="h-claim">' + escape(study.claim) + '</p><p class="h-definition">' + escape(study.definition) + '</p>' +
       '<div class="h-metrics">' + metric('Historical mean', pct(sample.meanPct), 'Across completed windows', sign(sample.meanPct)) + metric('Historical median', pct(sample.medianPct), 'Less sensitive to outliers', sign(sample.medianPct)) + metric('Positive windows', number(sample.positivePct, 0) + '%', sample.n + ' observations') + metric('Observed range', sample.n ? pct(sample.worstPct) + ' to ' + pct(sample.bestPct) : '—', 'Worst to best full-window return') + '</div>' +
       (sample.n < 10 ? '<p class="h-notice">Small sample: only ' + sample.n + ' completed observations. Election-cycle studies have few independent years. No statistical confidence claim is made.</p>' : '<p class="h-caption">Early-half mean ' + pct(sample.earlyMeanPct) + ' · later-half mean ' + pct(sample.lateMeanPct) + (sample.meanRange95 ? ' · rough 95% mean interval ' + pct(sample.meanRange95[0]) + ' to ' + pct(sample.meanRange95[1]) : '') + '. Many patterns are being examined; these intervals are not adjusted for multiple comparisons.</p>') +
@@ -27104,7 +27465,392 @@ function scenarioEventPhase(ev, now = Date.now()) {
 })(window, document, {
     owner: function(){ return HAS_OWNER_ACCESS; },
     // Never use a legacy static-data fallback for this Owner-only feature.
-    url: function(){ return '/api/auth/me?data=historical-data.json'; }
+    url: function(){ return '/api/auth/me?data=historical-data.json'; },
+    hover: chHoverAttr
+  });
+  var partyTracker = (function partyTrackerFactory(host, doc, options) {
+  const state = { data: null, pending: false, error: null, office: 'president', sort: 'gap', dir: 'desc', cycle: 'all', chapter: '', listSort: 'start', listDir: 'asc', openList: false, openMethod: false, bound: false };
+  const offices = ['president', 'house', 'senate'];
+  const root = () => doc.getElementById('party-tracker-root');
+  const escape = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
+  const partyWord = (party) => party === 'D' ? 'Democratic' : party === 'R' ? 'Republican' : '—';
+  const signClass = (n) => typeof n === 'number' && n < 0 ? 'pty-down' : typeof n === 'number' && n > 0 ? 'pty-up' : '';
+  const pct = (n, digits) => typeof n === 'number' && Number.isFinite(n) ? (n > 0 ? '+' : '') + n.toFixed(digits == null ? 1 : digits) + '%' : '—';
+  const excess = (n) => n == null ? '' : Math.abs(n) < 0.05 ? 'in line with S&P' : pct(n) + ' vs S&P';
+  function finite(n) { return typeof n === 'number' && Number.isFinite(n); }
+  function focusSel(sel) {
+    const next = root() && root().querySelector(sel);
+    if (next && next.focus) next.focus({ preventScroll: true });
+  }
+  function valid(data) {
+    return !!(data && data.version === 1 && typeof data.asOf === 'string' && data.window && Array.isArray(data.offices) && data.offices.length === 3 && data.curves && Array.isArray(data.rows) && Array.isArray(data.timeline) && Array.isArray(data.periods) && Array.isArray(data.methodology));
+  }
+  function bind() {
+    const el = root();
+    if (!el || state.bound) return;
+    state.bound = true;
+    el.addEventListener('click', (event) => {
+      const office = event.target.closest('[data-party-office]');
+      if (office) {
+        state.office = office.getAttribute('data-party-office');
+        render();
+        focusSel('[data-party-office="' + state.office + '"]');
+        return;
+      }
+      const cycle = event.target.closest('[data-party-cycle]');
+      if (cycle) {
+        const id = cycle.getAttribute('data-party-cycle');
+        state.cycle = id || 'all';
+        state.chapter = '';
+        if (state.cycle === 'all') {
+          if (['total', 'ann', 'excess'].indexOf(state.sort) >= 0) { state.sort = 'gap'; state.dir = 'desc'; }
+        } else if (['gap', 'D', 'R'].indexOf(state.sort) >= 0) {
+          state.sort = 'ann';
+          state.dir = 'desc';
+        }
+        render();
+        focusSel('[data-party-cycle="' + state.cycle + '"]');
+        return;
+      }
+      const chapter = event.target.closest('[data-party-chapter]');
+      if (chapter) {
+        const id = chapter.getAttribute('data-party-chapter');
+        state.chapter = id === 'term' ? '' : id;
+        render();
+        focusSel('[data-party-chapter="' + (state.chapter || 'term') + '"]');
+        return;
+      }
+      const sort = event.target.closest('[data-party-sort]');
+      if (sort) {
+        const key = sort.getAttribute('data-party-sort');
+        if (state.sort === key) state.dir = state.dir === 'asc' ? 'desc' : 'asc';
+        else { state.sort = key; state.dir = key === 'name' ? 'asc' : 'desc'; }
+        render();
+        focusSel('[data-party-sort="' + state.sort + '"]');
+        return;
+      }
+      const listSort = event.target.closest('[data-party-list-sort]');
+      if (listSort) {
+        const key = listSort.getAttribute('data-party-list-sort');
+        if (state.listSort === key) state.listDir = state.listDir === 'asc' ? 'desc' : 'asc';
+        else { state.listSort = key; state.listDir = key === 'label' || key === 'start' ? 'asc' : 'desc'; }
+        render();
+        focusSel('[data-party-list-sort="' + state.listSort + '"]');
+      }
+      if (event.target.closest('[data-party-retry]')) load(true);
+    });
+    el.addEventListener('toggle', (event) => {
+      const details = event.target.closest('[data-party-details]');
+      if (!details) return;
+      if (details.getAttribute('data-party-details') === 'list') state.openList = details.open;
+      if (details.getAttribute('data-party-details') === 'method') state.openMethod = details.open;
+    }, true);
+    el.addEventListener('keydown', (event) => {
+      const tab = event.target.closest('[data-party-office]');
+      if (!tab || (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft')) return;
+      event.preventDefault();
+      const tabs = Array.prototype.slice.call(el.querySelectorAll('[data-party-office]'));
+      const index = tabs.indexOf(tab);
+      const step = event.key === 'ArrowRight' ? 1 : tabs.length - 1;
+      state.office = tabs[(index + step) % tabs.length].getAttribute('data-party-office');
+      render();
+      focusSel('[data-party-office="' + state.office + '"]');
+    });
+    host.addEventListener('resize', () => { if (state.data && !el.closest('.page-pane')?.hidden) render(); });
+  }
+  function column(stats, party) {
+    return '<div><span>' + partyWord(party) + (stats && stats.faster ? ' · faster' : '') + '</span><b class="' + signClass(stats && stats.annPct) + '">' + pct(stats && stats.annPct) + '</b><small>a year · ' + pct(stats && stats.totalPct) + ' total</small><small>' + (stats && finite(stats.years) ? stats.years.toFixed(1) + ' years' : '—') + '</small></div>';
+  }
+  function markFaster(parties) {
+    const dem = Object.assign({}, parties.D);
+    const rep = Object.assign({}, parties.R);
+    if (finite(dem.annPct) && finite(rep.annPct) && Math.abs(dem.annPct - rep.annPct) >= 0.05) {
+      if (dem.annPct > rep.annPct) dem.faster = true;
+      else rep.faster = true;
+    }
+    return { D: dem, R: rep };
+  }
+  function hoverAttrs(points, nearestLine) {
+    const out = [];
+    const dates = [];
+    const values = [];
+    for (let i = 0; i < points.length; i++) {
+      const point = points[i];
+      if (!finite(point.x) || !finite(point.y) || !finite(point.value)) continue;
+      out.push([Math.round(point.x * 10) / 10, Math.round(point.y * 10) / 10, point.label]);
+      dates.push(point.time);
+      values.push(Math.round(point.value * 10000) / 10000);
+    }
+    if (out.length < 2) return '';
+    let html = ' data-ch="' + escape(JSON.stringify(out)) + '"' + (nearestLine ? ' data-ch-xy' : '');
+    if (!nearestLine) html += ' data-cr="' + escape(JSON.stringify({ d: dates, x: out.map((point) => point[0]), s: [{ n: 'S&P 500', v: values }] })) + '"';
+    return html;
+  }
+  function drawChart(seriesList, aria) {
+    const flat = [];
+    seriesList.forEach((series) => series.points.forEach((point) => { if (point && finite(point.level)) flat.push(point); }));
+    if (flat.length < 2) return '<p class="pty-empty">Not enough sessions to draw this stretch.</p>';
+    const levels = flat.map((point) => point.level);
+    const times = flat.map((point) => Date.parse(point.t));
+    let lo = Math.min.apply(null, levels.concat(1));
+    let hi = Math.max.apply(null, levels.concat(1));
+    if (hi === lo) { lo -= 0.1; hi += 0.1; }
+    const rawStep = (hi - lo) / 4;
+    const magnitude = Math.pow(10, Math.floor(Math.log10(rawStep)));
+    const step = [1, 2, 5, 10].find((n) => n * magnitude >= rawStep) * magnitude;
+    lo = Math.floor(lo / step) * step;
+    hi = Math.ceil(hi / step) * step;
+    const minT = Math.min.apply(null, times);
+    const maxT = Math.max.apply(null, times);
+    const width = Math.max(280, Math.min(720, root()?.clientWidth || 720));
+    const height = 280;
+    const digits = Math.max(2, -Math.floor(Math.log10(step)));
+    const labelLength = Math.max(lo.toFixed(digits).length, hi.toFixed(digits).length);
+    const left = Math.max(62, (labelLength + 1) * 7 + 14), right = width - 18, top = 32, bottom = height - 54;
+    const xOf = (t) => maxT === minT ? (left + right) / 2 : left + ((Date.parse(t) - minT) / (maxT - minT)) * (right - left);
+    const yOf = (level) => top + (1 - (level - lo) / (hi - lo || 1)) * (bottom - top);
+    let axes = '<g class="pty-axis"><text x="' + left + '" y="16">Value of $1 (USD)</text>';
+    const count = Math.round((hi - lo) / step);
+    for (let i = 0; i <= count; i++) {
+      const value = lo + i * step, y = yOf(value).toFixed(1);
+      axes += '<line class="pty-grid" x1="' + left + '" x2="' + right + '" y1="' + y + '" y2="' + y + '"/>' +
+        '<text x="' + (left - 8) + '" y="' + y + '" dy=".35em" text-anchor="end">$' + value.toFixed(digits) + '</text>';
+    }
+    const dateTicks = maxT === minT ? 1 : right - left < 220 ? 2 : width < 460 ? 3 : 5;
+    for (let i = 0; i < dateTicks; i++) {
+      const t = new Date(minT + (maxT - minT) * i / Math.max(1, dateTicks - 1)).toISOString().slice(0, 10);
+      const x = xOf(t).toFixed(1);
+      axes += '<line x1="' + x + '" x2="' + x + '" y1="' + bottom + '" y2="' + (bottom + 4) + '"/>' +
+        '<text x="' + x + '" y="' + (bottom + 20) + '" text-anchor="' + (dateTicks === 1 ? 'middle' : i === 0 ? 'start' : i === dateTicks - 1 ? 'end' : 'middle') + '">' + t + '</text>';
+    }
+    axes += '<line x1="' + left + '" x2="' + left + '" y1="' + top + '" y2="' + bottom + '"/>' +
+      '<line x1="' + left + '" x2="' + right + '" y1="' + bottom + '" y2="' + bottom + '"/>' +
+      '<text x="' + ((left + right) / 2) + '" y="' + (height - 5) + '" text-anchor="middle">Date</text></g>';
+    const hover = [];
+    const paths = seriesList.map((series) => {
+      const usable = series.points.filter((point) => point && finite(point.level));
+      const d = usable.map((point, index) => {
+        const x = xOf(point.t);
+        const y = yOf(point.level);
+        hover.push({ x: x, y: y, label: point.label, value: point.level, time: point.t });
+        const previous = usable[index - 1];
+        const gap = index > 0 && ((point.segment && point.segment !== previous.segment) || (Date.parse(point.t) - Date.parse(previous.t)) > 40 * 86400000);
+        return (index && !gap ? 'L' : 'M') + x.toFixed(1) + ' ' + y.toFixed(1);
+      }).join(' ');
+      return '<path d="' + d + '" fill="none" stroke="' + series.color + '" stroke-width="2.25" stroke-linejoin="round" stroke-linecap="round"/>';
+    }).join('');
+    const oneLine = seriesList.length === 1;
+    return '<svg class="pty-chart" viewBox="0 0 ' + width + ' ' + height + '" role="img" aria-label="' + escape(aria) + '"' + hoverAttrs(hover, !oneLine) + '>' +
+      axes + '<line x1="' + left + '" y1="' + yOf(1).toFixed(1) + '" x2="' + right + '" y2="' + yOf(1).toFixed(1) + '" stroke="currentColor" stroke-opacity="0.25"/>' +
+      paths + '</svg>';
+  }
+  function pathLabel(point) {
+    const move = finite(point.level) ? pct((point.level - 1) * 100) : '—';
+    if (point.baseline) return point.t + '\n' + (point.baselineAtStart ? 'Start of stretch' : 'Baseline close') + ' · $1 starting value';
+    return point.t + '\nS&P 500 $' + Number(point.level).toFixed(2) + ' · ' + move + ' from the start of this line\nPresident ' + partyWord(point.president) + ' · House ' + partyWord(point.house) + ' · Senate ' + partyWord(point.senate);
+  }
+  function pathChart(points, title, caption, start) {
+    const path = (points || []).slice();
+    // Retained snapshots predate explicit baseline points. Their normalized
+    // starting value is still known; do not invent an observed session date.
+    if (path.length && !path[0].baseline && start && path[0].t >= start) path.unshift({ t: start, level: 1, baseline: true, baselineAtStart: true });
+    const series = [{ name: 'S&P 500', color: 'currentColor', points: path.map((point) => Object.assign({}, point, { label: pathLabel(point) })) }];
+    const end = series[0].points.length ? series[0].points[series[0].points.length - 1].level : null;
+    return '<h3>' + escape(title) + '</h3><div class="pty-legend"><span>S&P 500' + (finite(end) ? ' · $' + end.toFixed(2) : '') + '</span><span>$1 is the close before this stretch</span></div>' +
+      drawChart(series, title) + '<p class="pty-caption">' + caption + '</p>';
+  }
+  function compareChart(curves) {
+    const dem = curves && curves.D || [];
+    const rep = curves && curves.R || [];
+    const line = (points, name) => points.filter((point) => finite(point.level)).map((point) => ({
+      t: point.t,
+      level: point.level,
+      segment: point.segment,
+      label: point.t + '\n' + name + ' days $' + Number(point.level).toFixed(2) + '\n' + pct((point.level - 1) * 100) + ' compounded on those days only',
+    }));
+    const end = (points) => points.length ? points[points.length - 1].level : null;
+    return '<div class="pty-legend"><span><i class="pty-d"></i>Democratic days' + (finite(end(dem)) ? ' · $' + end(dem).toFixed(2) : '') + '</span><span><i class="pty-r"></i>Republican days' + (finite(end(rep)) ? ' · $' + end(rep).toFixed(2) : '') + '</span></div>' +
+      drawChart([
+        { name: 'Democratic', color: '#7ea0c4', points: line(dem, 'Democratic') },
+        { name: 'Republican', color: '#c4896a', points: line(rep, 'Republican') },
+      ], 'Growth of one dollar on days each party held the selected office') +
+      '<p class="pty-caption">Move next to a line to read that date. A line is drawn only while that party holds the office, so it does not slope through the other party’s years. Cash in those gaps earns nothing. The annualized figures above are the comparison.</p>';
+  }
+  function sortRows(rows, key, dir, office) {
+    const sign = dir === 'asc' ? 1 : -1;
+    const read = (row) => {
+      if (key === 'name' || key === 'label') return row.label;
+      if (key === 'total') return row.totalPct;
+      if (key === 'ann') return row.annPct;
+      if (key === 'excess') return row.excessTotalPct != null ? row.excessTotalPct : row.excessAnnPct;
+      if (key === 'start') return row.start;
+      const cell = row.offices && row.offices[office];
+      if (!cell) return null;
+      if (key === 'D') return cell.D ? cell.D.annPct : null;
+      if (key === 'R') return cell.R ? cell.R.annPct : null;
+      if (key === 'gap') return cell.gapAnnPct;
+      return null;
+    };
+    return rows.slice().sort((a, b) => {
+      const av = read(a);
+      const bv = read(b);
+      if (key === 'name' || key === 'label' || key === 'start') return sign * String(av == null ? '' : av).localeCompare(String(bv == null ? '' : bv));
+      if (av == null && bv == null) return String(a.label || '').localeCompare(String(b.label || ''));
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      if (av === bv) return String(a.label || a.start || '').localeCompare(String(b.label || b.start || ''));
+      return (av - bv) * sign;
+    });
+  }
+  function head(key, label, attrName) {
+    const selected = (attrName === 'list' ? state.listSort : state.sort) === key;
+    const dir = attrName === 'list' ? state.listDir : state.dir;
+    const name = attrName === 'list' ? 'data-party-list-sort' : 'data-party-sort';
+    return '<th scope="col" aria-sort="' + (selected ? (dir === 'asc' ? 'ascending' : 'descending') : 'none') + '"><button type="button" class="pty-sort" ' + name + '="' + key + '">' + label + (selected ? (dir === 'asc' ? ' ↑' : ' ↓') : '') + '</button></th>';
+  }
+  function comparisonTable(rows) {
+    const office = state.office;
+    const groups = [['market', 'Other markets'], ['sector', 'Sectors']];
+    const body = groups.map(([group, label]) => {
+      const items = sortRows(rows.filter((row) => row.group === group), state.sort, state.dir, office);
+      if (!items.length) return '';
+      return '<tr class="pty-group"><td colspan="4">' + label + '</td></tr>' + items.map((row) => {
+        const cell = row.offices[office];
+        const side = (stats) => '<td class="' + signClass(stats.annPct) + '"><b>' + pct(stats.annPct) + '</b><small>' + escape(excess(stats.excessAnnPct)) + '</small></td>';
+        return '<tr class="' + (row.id === 'XLV' || row.id === 'XLE' ? 'pty-focus' : '') + '"><th scope="row">' + escape(row.label) + '<small>' + escape(row.id) + (row.partial ? ' · since ' + row.firstDate : '') + '</small></th>' + side(cell.D) + side(cell.R) + '<td class="' + signClass(cell.gapAnnPct) + '">' + pct(cell.gapAnnPct) + '<small>' + (cell.leader === 'tie' || !cell.leader ? 'No clear gap' : partyWord(cell.leader) + ' faster') + '</small></td></tr>';
+      }).join('');
+    }).join('');
+    return '<div class="pty-scroll"><table class="pty-table"><caption class="pty-caption">Annualized total return while that party held the selected office. Click a column again to reverse the order. The second line is the gap versus the S&P 500 on the same days.</caption><thead><tr>' + head('name', 'Series') + head('D', 'Democrats') + head('R', 'Republicans') + head('gap', 'Democratic edge') + '</tr></thead><tbody>' + body + '</tbody></table></div>';
+  }
+  function stretchTable(rows) {
+    const items = sortRows(rows || [], state.sort, state.dir, state.office);
+    const groups = [['market', 'Other markets'], ['sector', 'Sectors']];
+    const body = groups.map(([group, label]) => {
+      const groupRows = items.filter((row) => row.group === group);
+      if (!groupRows.length) return '';
+      return '<tr class="pty-group"><td colspan="4">' + label + '</td></tr>' + groupRows.map((row) => '<tr class="' + (row.id === 'XLV' || row.id === 'XLE' ? 'pty-focus' : '') + '"><th scope="row">' + escape(row.label) + '<small>' + escape(row.id) + (row.partial ? ' · since ' + row.firstDate : '') + '</small></th><td class="' + signClass(row.totalPct) + '">' + pct(row.totalPct) + '</td><td class="' + signClass(row.annPct) + '">' + pct(row.annPct) + '</td><td class="' + signClass(row.excessTotalPct) + '">' + pct(row.excessTotalPct) + '</td></tr>').join('');
+    }).join('');
+    return '<div class="pty-scroll"><table class="pty-table"><caption class="pty-caption">Return during this stretch only. Versus S&P is the gap in total return, not the annualized gap. Annualized figures on a stretch shorter than a year can look extreme. Click a column again to reverse it.</caption><thead><tr>' + head('name', 'Series') + head('total', 'Total') + head('ann', 'Annualized') + head('excess', 'Versus S&P') + '</tr></thead><tbody>' + body + '</tbody></table></div>';
+  }
+  function govCard(title, stats) {
+    return '<article><h3>' + escape(title) + '</h3><b class="' + signClass(stats && stats.annPct) + '">' + pct(stats && stats.annPct) + '</b><p>' + pct(stats && stats.totalPct) + ' total · ' + (stats && finite(stats.years) ? stats.years.toFixed(1) + ' years' : '—') + '</p></article>';
+  }
+  function activeStretch(data) {
+    if (state.cycle === 'all') return null;
+    const term = (data.timeline || []).find((item) => item.id === state.cycle);
+    if (!term) { state.cycle = 'all'; state.chapter = ''; return null; }
+    if (state.chapter) {
+      const chapter = (term.chapters || []).find((item) => item.id === state.chapter);
+      if (chapter) return { term: term, stretch: chapter, whole: false };
+      state.chapter = '';
+    }
+    return { term: term, stretch: term, whole: true };
+  }
+  function chips(data, active) {
+    const terms = (data.timeline || []).map((term) => '<button type="button" data-party-cycle="' + escape(term.id) + '" aria-pressed="' + (term.id === state.cycle ? 'true' : 'false') + '">' + escape(term.name) + (term.open ? ' · now' : '') + '<small>' + escape(term.start) + ' → ' + escape(term.end) + ' · ' + pct(term.totalPct) + '</small></button>').join('');
+    let chapters = '';
+    if (active) {
+      chapters = '<div class="pty-cycles" role="group" aria-label="Political cycles inside this presidency"><button type="button" data-party-chapter="term" aria-pressed="' + (active.whole ? 'true' : 'false') + '">Whole term<small>' + pct(active.term.annPct) + ' a year</small></button>' +
+        (active.term.chapters || []).map((chapter) => '<button type="button" data-party-chapter="' + escape(chapter.id) + '" aria-pressed="' + (chapter.id === state.chapter ? 'true' : 'false') + '">' + partyWord(chapter.house) + ' House · ' + partyWord(chapter.senate) + ' Senate<small>' + escape(chapter.start) + ' → ' + escape(chapter.end) + ' · ' + pct(chapter.totalPct) + '</small></button>').join('') + '</div>';
+    }
+    return '<div class="pty-cycles" role="group" aria-label="Presidency"><button type="button" data-party-cycle="all" aria-pressed="' + (state.cycle === 'all' ? 'true' : 'false') + '">All years<small>Compare the parties</small></button>' + terms + '</div>' + chapters;
+  }
+  function timeline(items) {
+    return '<section class="pty-block"><h3>Presidents since Bush</h3><div class="pty-timeline">' + items.map((term) => '<article class="pty-term' + (term.id === state.cycle ? ' is-selected' : '') + '"><button type="button" class="pty-term-btn" data-party-cycle="' + escape(term.id) + '" aria-pressed="' + (term.id === state.cycle ? 'true' : 'false') + '"><h3>' + escape(term.name) + ' · ' + partyWord(term.party) + (term.open ? ' <span class="pty-open">In office</span>' : '') + '</h3><p class="pty-caption">' + escape(term.start) + ' to ' + escape(term.end) + ' · S&P 500 ' + pct(term.annPct) + ' a year · ' + pct(term.totalPct) + ' total</p></button></article>').join('') + '</div></section>';
+  }
+  function periods(rows) {
+    const labels = { president: 'President', house: 'House', senate: 'Senate' };
+    const sorted = sortRows(rows, state.listSort === 'label' ? 'label' : state.listSort, state.listDir, state.office);
+    return '<div class="pty-scroll"><table class="pty-table"><caption class="pty-caption">Every measured stretch. Click a column again to reverse it. Annualized figures on a stretch shorter than a year can look extreme.</caption><thead><tr>' + head('label', 'Control', 'list') + head('start', 'Dates', 'list') + head('total', 'Total', 'list') + head('ann', 'Annualized', 'list') + '</tr></thead><tbody>' + sorted.map((row) => '<tr><th scope="row">' + labels[row.office] + ' · ' + escape(row.label) + ' · ' + partyWord(row.party) + (row.open ? ' <span class="pty-open">Open</span>' : '') + (row.note ? '<small>' + escape(row.note) + '</small>' : '') + '</th><td>' + escape(row.start) + ' → ' + escape(row.end) + '<small>' + (finite(row.years) ? row.years.toFixed(2) + ' years' : '') + '</small></td><td class="' + signClass(row.totalPct) + '">' + pct(row.totalPct) + '</td><td class="' + signClass(row.annPct) + '">' + pct(row.annPct) + '</td></tr>').join('') + '</tbody></table></div>';
+  }
+  function render() {
+    const el = root();
+    if (!el) return;
+    const listDetails = el.querySelector('[data-party-details="list"]');
+    const methodDetails = el.querySelector('[data-party-details="method"]');
+    if (listDetails) state.openList = listDetails.open;
+    if (methodDetails) state.openMethod = methodDetails.open;
+    if (!options.owner()) {
+      el.innerHTML = '<p class="pty-empty">An Owner session is required to open Party tracker.</p>';
+      return;
+    }
+    if (state.pending) {
+      el.innerHTML = '<p class="pty-empty" role="status">Loading party control history…</p>';
+      return;
+    }
+    if (state.error) {
+      el.innerHTML = '<div class="pty-empty" role="alert"><p>' + escape(state.error) + '</p><button type="button" class="pty-retry" data-party-retry>Try again</button></div>';
+      return;
+    }
+    const data = state.data;
+    if (!data) return;
+    if (!offices.includes(state.office)) state.office = 'president';
+    const selected = data.offices.find((office) => office.id === state.office) || data.offices[0];
+    const highlight = data.highlights && data.highlights[selected.id] || {};
+    const active = activeStretch(data);
+    const cards = data.offices.map((office) => {
+      const parties = markFaster(office.parties);
+      return '<article class="pty-card"><h3>' + escape(office.label) + '</h3><div class="pty-pair">' + column(parties.D, 'D') + column(parties.R, 'R') + '</div></article>';
+    }).join('');
+    const reads = '<div class="pty-reads">' + data.offices.map((office) => '<p>' + escape(office.read) + '</p>').join('') + '</div>';
+    const gov = data.government || {};
+    let analysis;
+    if (active && active.stretch && active.stretch.path) {
+      const stretch = active.stretch;
+      const health = (stretch.sectors || []).find((row) => row.id === 'XLV');
+      const energy = (stretch.sectors || []).find((row) => row.id === 'XLE');
+      const who = active.whole ? active.term.name : (partyWord(stretch.house) + ' House and ' + partyWord(stretch.senate) + ' Senate');
+      const blurb = who + ', ' + stretch.start + ' to ' + stretch.end + '. The S&P 500 returned ' + pct(stretch.totalPct) + ' (' + pct(stretch.annPct) + ' a year' + (finite(stretch.years) ? ' over ' + stretch.years.toFixed(1) + ' years' : '') + ').';
+      const sectorLine = (row, label) => row ? label + ' returned ' + pct(row.totalPct) + ' in this stretch (' + pct(row.annPct) + ' a year), ' + excess(row.excessTotalPct) + ' on the total result.' + (finite(row.years) && row.years >= 1 ? ' Annualized, that is ' + excess(row.excessAnnPct) + '.' : '') : label + ' does not cover this stretch.';
+      analysis = '<h3>This stretch</h3><p class="pty-now">' + escape(blurb) + '</p>' +
+        pathChart(stretch.path, 'S&P 500 through ' + who, 'Monthly closes and period endpoints. Move along the line to read the date, the value of $1, and who held each office. Drag across the line to compare two dates.', stretch.start) +
+        '<div class="pty-reads"><p>' + escape(sectorLine(health, 'Health care')) + '</p><p>' + escape(sectorLine(energy, 'Energy')) + '</p></div>' +
+        stretchTable(stretch.sectors || []);
+    } else {
+      analysis = pathChart(data.path || [], 'S&P 500 since Bush’s inauguration', 'Monthly closes and period endpoints. Move along the line to read the date and who held each office. Drag across the line to compare two dates. Choose a president below to rebase this line on that term.', data.window.start) +
+        '<div class="pty-tabs" role="tablist" aria-label="Which office to compare">' + data.offices.map((office) => '<button type="button" role="tab" data-party-office="' + office.id + '" aria-selected="' + (office.id === selected.id ? 'true' : 'false') + '">' + escape(office.label) + '</button>').join('') + '</div>' +
+        compareChart(data.curves[selected.id]) +
+        '<div class="pty-reads"><p>' + escape(highlight.health || '') + '</p><p>' + escape(highlight.energy || '') + '</p>' + (highlight.widest ? '<p>' + escape(highlight.widest) + '</p>' : '') + '</div>' +
+        comparisonTable(data.rows);
+    }
+    const missing = !data.carriedForward && Array.isArray(data.errors) ? data.errors.map((item) => item && item.id).filter(Boolean) : [];
+    el.innerHTML = (data.carriedForward ? '<p class="pty-notice" role="status">This build could not refresh prices, so the figures below are the previous snapshot' + (data.asOf ? ', through ' + escape(data.asOf) : '') + '.</p>' : '') +
+      (missing.length ? '<p class="pty-notice" role="status">Prices for ' + escape(missing.join(', ')) + ' could not be downloaded in this build, so ' + (missing.length === 1 ? 'that fund is' : 'those funds are') + ' left out below.</p>' : '') +
+      (data.current ? '<p class="pty-now">' + escape(data.current.read) + '</p>' : '') +
+      '<p class="pty-caveat">' + escape(data.caveat || '') + ' Window: ' + escape(data.window.start) + ' through ' + escape(data.window.end) + '.</p>' +
+      '<div class="pty-offices">' + cards + '</div>' + reads +
+      '<div class="pty-gov">' + govCard('Unified Democratic', gov.unifiedD) + govCard('Unified Republican', gov.unifiedR) + govCard('Split government', gov.divided) + '</div>' +
+      '<p class="pty-caption">Unified means one party held the presidency and both chambers. Split is every other day. Both chambers Democratic: ' + pct(gov.bothChambersD && gov.bothChambersD.annPct) + ' a year. Both chambers Republican: ' + pct(gov.bothChambersR && gov.bothChambersR.annPct) + ' a year. Split Congress: ' + pct(gov.splitChambers && gov.splitChambers.annPct) + ' a year.</p>' +
+      '<h3>Choose a presidency</h3>' + chips(data, active) + analysis +
+      timeline(data.timeline) +
+      '<details class="pty-details" data-party-details="list"' + (state.openList ? ' open' : '') + '><summary>Every control stretch</summary>' + periods(data.periods) + '</details>' +
+      '<details class="pty-details" data-party-details="method"' + (state.openMethod ? ' open' : '') + '><summary>How this is measured</summary><ul>' + data.methodology.map((line) => '<li>' + escape(line) + '</li>').join('') + '</ul>' + (Array.isArray(data.sources) ? data.sources.map((source) => '<p><a href="' + escape(source.url) + '" target="_blank" rel="noopener">' + escape(source.name) + '</a></p>').join('') : '') + '<p>Built ' + escape(data.builtAtIso) + '.</p></details>';
+  }
+  async function load(force) {
+    bind();
+    if (!options.owner()) { render(); return; }
+    if (state.pending || (state.data && !force)) { render(); return; }
+    state.pending = true;
+    state.error = null;
+    render();
+    try {
+      const response = await host.fetch(options.url(), { cache: 'no-store' });
+      if (!response.ok) throw new Error(response.status === 401 ? 'Your Owner session is no longer available. Sign in again.' : response.status === 404 ? 'The first Party tracker snapshot has not been published yet. It is produced by a full market build.' : 'The snapshot could not be read. Try again.');
+      const data = await response.json();
+      if (data && data.error && (!Array.isArray(data.offices) || !data.offices.length)) throw new Error(data.error);
+      if (!valid(data)) throw new Error('The snapshot is incomplete or uses an unsupported format. Refresh after the next full market build.');
+      state.data = data;
+    } catch (err) {
+      state.error = err.message || 'Party tracker could not be loaded.';
+    } finally {
+      state.pending = false;
+      render();
+    }
+  }
+  return { load, render };
+})(window, document, {
+    owner: function(){ return HAS_OWNER_ACCESS; },
+    url: function(){ return '/api/auth/me?data=party-tracker.json'; }
   });
   var earningsForecast = (function earningsForecastFactory(host,doc,options,scenarioFactory,researchFactory,valuationFactory){
   const scenarios=scenarioFactory();
@@ -27119,7 +27865,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   const url=x=>typeof x==='string'&&/^https:\/\//.test(x)?esc(x):null;
   function valid(j){
     const list=(x,check)=>Array.isArray(x)&&x.every(check),optional=(x,check)=>x===undefined||x===null||check(x);
-    const axis=a=>optional(a,a=>list(a.rows,r=>r&&typeof r.name==='string'&&finite(r.value)&&optional(r.isNew,v=>typeof v==='boolean'))&&typeof a.period?.currentPeriod?.endDate==='string'&&['quarter','annual'].includes(a.period.periodType)&&['USD','TWD'].includes(a.currency));
+    const axis=a=>optional(a,a=>list(a.rows,r=>r&&typeof r.name==='string'&&finite(r.value)&&optional(r.isNew,v=>typeof v==='boolean'))&&typeof a.period?.currentPeriod?.endDate==='string'&&['quarter','annual'].includes(a.period.periodType)&&(a.currency==null||/^[A-Z]{3}$/.test(a.currency)));
     const metric=m=>m&&optional(m.value,finite)&&typeof m.unit==='string'&&optional(m.sourceUrl,u=>typeof u==='string');
     const companyRecord=r=>r&&r.version===1&&r.years===3&&typeof r.windowStart==='string'&&list(r.quarters,q=>q&&typeof q.end==='string'&&typeof q.start==='string'&&typeof q.currency==='string'&&q.metrics&&Object.values(q.metrics).every(metric))&&list(r.vendorFacts,x=>x&&typeof x.metric==='string'&&typeof x.currency==='string'&&finite(x.value)&&typeof x.firstSeenAt==='string')&&finite(r.retainedVendorVersions)&&optional(r.financialCoverage,f=>f&&optional(f.latestAgeDays,finite)&&list(f.missingLatestMetrics,x=>typeof x==='string')&&list(f.vendorMetrics,x=>x&&typeof x.metric==='string'&&finite(x.periods)&&optional(x.latestEnd,d=>typeof d==='string')));
     const industry=e=>e&&['memory','gpu','capex'].includes(e.id)&&['ram-prices','accelerator-prices','ai-capex'].includes(e.tab)&&typeof e.name==='string'&&typeof e.limit==='string'&&list(e.rows,r=>r&&typeof r.label==='string'&&optional(r.value,finite)&&typeof r.unit==='string'&&typeof r.status==='string'&&optional(r.date,d=>typeof d==='string'))&&list(e.connections,r=>r&&/^[A-Z0-9.]{1,6}$/.test(r.symbol)&&['role','mechanism','confirm'].every(k=>typeof r[k]==='string'));
@@ -27169,7 +27915,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       '<section class="ef-scenario"><h3>Model a different mix</h3><p>Adjust product or regional shares, demand, pricing, margins, taxes and dilution in your own scenario.</p><button type="button" data-ef-view="assumptions">Adjust assumptions</button></section>';
   }
   function businessView(c){
-    const mix=c.mix||{},axis=(name,a)=>'<section><h3>'+name+'</h3>'+(!a?'<p class="ef-subtle">This breakdown is not available from the accepted disclosure. No split has been estimated.</p>':'<p class="ef-subtle">Period ended '+esc(a.period.currentPeriod.endDate)+' · '+esc(a.period.periodType)+' · '+esc(a.currency||'unknown currency')+'</p>'+table(['Reported revenue line','Revenue','Share of disclosed breakdown'],a.rows.map(r=>{const total=a.rows.reduce((v,x)=>v+x.value,0);return [esc(r.name)+(r.isNew?' <span class="ef-badge">New since last filing</span>':''),esc(fmt(r.value,a.currency||'USD')),esc(total>0?pct(r.value/total):'Unavailable')];})))+'</section>';
+    const mix=c.mix||{},axis=(name,a)=>'<section><h3>'+name+'</h3>'+(!a?'<p class="ef-subtle">This breakdown is not available from the accepted disclosure. No split has been estimated.</p>':'<p class="ef-subtle">Period ended '+esc(a.period.currentPeriod.endDate)+' · '+esc(a.period.periodType)+' · '+esc(a.currency||'unknown currency')+'</p>'+table(['Reported revenue line','Revenue','Share of disclosed breakdown'],a.rows.map(r=>{const total=a.rows.reduce((v,x)=>v+x.value,0);return [esc(r.name)+(r.isNew?' <span class="ef-badge">New since last filing</span>':''),esc(a.currency?fmt(r.value,a.currency):finite(r.value)?new Intl.NumberFormat('en-US',{notation:'compact',maximumFractionDigits:2}).format(r.value):'Unavailable'),esc(total>0?pct(r.value/total):'Unavailable')];})))+'</section>';
     return '<h3>'+esc(c.profile.archetype)+'</h3><p>'+esc(mix.note||(mix.product||mix.geographic?'':'Disclosed business mix is unavailable.'))+'</p><div class="ef-columns">'+axis('Products and business lines',mix.product)+axis('Regions',mix.geographic)+'</div><h3>Factors to investigate</h3><p>'+(c.profile.source==='reported-lines'?'No written profile exists for this company yet. These prompts list its largest reported revenue lines and regions.':'These relationships explain the research questions.')+' Their numerical effect remains uncalibrated.</p><div class="ef-drivers">'+c.profile.drivers.map(d=>'<article><small>'+esc(d.channel)+'</small><h4>'+esc(d.name)+'</h4><p>'+esc(d.rationale)+'</p><span>'+esc(d.exposure)+' · '+esc(d.status)+'</span></article>').join('')+'</div><p class="ef-subtle">'+(c.profile.boundaries||[]).map(esc).join(' ')+'</p>'+
       (state.data.context?.length?'<h3>Current external context</h3><p class="ef-subtle">Reused from the existing market snapshot. These readings are research context and do not add an unvalidated multiplier to revenue.</p>'+table(['Indicator','Reading','Source date','Evidence'],state.data.context.map(x=>[esc(x.label),esc(new Intl.NumberFormat('en-US',{maximumFractionDigits:3}).format(x.value)+' '+x.unit),esc(stamp(x.asOf)),url(x.url)?'<a href="'+url(x.url)+'" target="_blank" rel="noopener noreferrer">Source</a>':'Unavailable'])):'')+
       (url(c.profile.investorUrl)?'<a href="'+url(c.profile.investorUrl)+'" target="_blank" rel="noopener noreferrer">Issuer investor relations</a>':'');
@@ -27338,21 +28084,23 @@ function scenarioEventPhase(ev, now = Date.now()) {
       (r.reason?'<p class="ef-notice" role="status">'+esc(r.reason)+'</p>':'')+
       (r.adjustedLines?table(['Business line','Conditional annual revenue'],r.adjustedLines.map(x=>[esc(x.name),money(x.revenue,ccy)])):'');
   }
-  function valuation(c){const d=draft(c),b=d.base,x=d.inputs,ccy=b.currency||'USD';
+  function valuation(c){const d=draft(c),b=d.base,x=d.inputs,ccy=b.currency||'USD',changed=d.changed;d.changed=false;
     return '<section class="ef-workbench"><div class="ef-section-head"><h3>Full-year business drivers & valuation</h3><button type="button" data-cr-reset>Reset full-year assumptions</button></div><p>'+esc(b.note)+'</p>'+
-      (d.changed?'<p class="ef-notice" role="status">The source or reference snapshot changed. Full-year assumptions reset to the new base.</p>':'')+'<p class="ef-subtle">Reported baseline: '+money(b.baselineRevenue,ccy)+' over '+b.quarters.length+' quarters, latest end '+esc(b.latestEnd||'unknown')+'. Reference price '+money(b.reference.spot,b.reference.currency||ccy)+' as of '+esc(b.reference.quoteAsOf||'unknown')+'. Cross-currency or ADR share bases are not converted.</p>'+
+      (changed?'<p class="ef-notice" role="status">The source or reference snapshot changed. Full-year assumptions reset to the new base.</p>':'')+'<p class="ef-subtle">Reported baseline: '+money(b.baselineRevenue,ccy)+' over '+b.quarters.length+' quarters, latest end '+esc(b.latestEnd||'unknown')+'. Reference price '+money(b.reference.spot,b.reference.currency||ccy)+' as of '+esc(b.reference.quoteAsOf||'unknown')+'. Cross-currency or ADR share bases are not converted.</p>'+
       '<div class="ef-controls">'+input('Annual revenue growth assumption (%)','growthPct',x.growthPct)+input('Gross margin (%)','grossMarginPct',x.grossMarginPct)+input('Operating margin (%)','operatingMarginPct',x.operatingMarginPct)+input('Effective tax rate (%)','taxRatePct',x.taxRatePct)+input('Annual net nonoperating items ('+ccy+' millions)','nonoperating',x.nonoperating,{millions:true})+input('Annual common-income adjustment ('+ccy+' millions)','commonIncomeAdjustment',x.commonIncomeAdjustment,{millions:true})+input('Starting diluted shares (millions)','dilutedShares',x.dilutedShares,{millions:true})+input('Change in diluted shares (%)','shareChangePct',x.shareChangePct)+input('Assumed exit P/E','exitMultiple',x.exitMultiple)+input('Assumed annual dividends per share','dividendsPerShare',x.dividendsPerShare)+'</div>'+
       '<p class="ef-subtle">The initial exit multiple, when available, is the provider’s current forward P/E used as an editable assumption. It is not an independent target. Nonoperating items and common-income adjustment start at four times the quarterly bridge assumption. When growth history is unavailable, the starting growth input is an explicit flat 0% assumption. Blank dividends mean total return is unestimated.</p>'+
       '<h3>Business-line sensitivities</h3><p class="ef-subtle">'+esc(b.mixBasis)+(b.mixPeriod?' · source period '+esc(b.mixPeriod):'')+'. Annual growth applies once; each line’s additional demand and price changes then multiply. These inputs are hypothetical and industry readings do not change them automatically.</p><div class="ef-mix-lines">'+x.lines.map((r,i)=>'<article><h4>'+esc(r.name)+' · '+pct(r.weight*100)+' starting share</h4><div class="ef-controls">'+input('Additional demand / volume change (%)','demandPct',r.demandPct,{row:i})+input('Additional price / monetization change (%)','pricePct',r.pricePct,{row:i})+'</div></article>').join('')+'</div>'+
       '<div data-cr-results>'+results(c)+'</div><button type="button" data-cr-export>Export full-year scenario</button><p class="ef-subtle">Working assumptions stay in memory and clear on sign-out or reload. Exports preserve the source fingerprint. Original forecasts and their scorecards are not edited.</p></section>';
   }
   function record(c){const r=c.companyRecord;if(!r)return '<p class="ef-notice">The next successful build will add the company record. Older payloads remain readable.</p>';const coverage=r.financialCoverage;
+    // Revenue and net income are in the quarterly table above; this section is cash flow and debt.
+    const cashDebt=new Set(['freeCashFlow','operatingCashFlow','capex','totalDebt']),vendorFacts=r.vendorFacts.filter(x=>cashDebt.has(x.metric));
     return '<h3>Three-year company record</h3>'+(r.historyWarning?'<p class="ef-notice" role="status">'+esc(r.historyWarning)+'. Previously accepted vendor history remains available.</p>':'')+'<p>'+esc(r.note)+'</p><p class="ef-subtle">Window starts '+esc(r.windowStart)+' · '+r.quarters.length+' supported quarter ends · '+esc(r.quarters.length>=12?'At least twelve quarter ends available':'History is still incomplete')+' · '+r.retainedVendorVersions+' retained vendor observations and revisions.</p>'+
       (coverage?'<p class="ef-notice">Latest supported quarter: '+esc(coverage.latestQuarter||'unavailable')+(finite(coverage.latestAgeDays)?' · '+esc(coverage.latestAgeDays)+' days old at collection':'')+'. '+(coverage.missingLatestMetrics.length?'Missing latest-quarter inputs: '+esc(coverage.missingLatestMetrics.join(', '))+'.':'The latest quarter includes all income-statement and diluted-share inputs used by this view.')+'</p>':'')+
       table(['Period end','Currency / basis','Revenue','Operating income','Net income','Diluted EPS','Source'],r.quarters.map(q=>[esc(q.end),esc(q.currency+' / '+q.basis),money(q.metrics.revenue?.value,q.currency),money(q.metrics.operatingIncome?.value,q.currency),money(q.metrics.netIncome?.value,q.currency),money(q.metrics.eps?.value,q.currency),source(q.metrics.revenue?.sourceUrl)]))+
       '<h3>Cash flow and dated debt observations</h3><p class="ef-subtle">Vendor-normalized financials are kept separately from SEC facts. Observation time is not an asserted filing-publication time. A vendor revision does not erase the earlier stored value.</p>'+
       (coverage?table(['Financial series','Accepted periods','Latest reporting end'],coverage.vendorMetrics.map(x=>[esc(x.metric),esc(x.periods),esc(x.latestEnd||'Unavailable')])):'')+
-      (r.vendorFacts.length?table(['Period end','Metric','Reported value','First collected','Evidence'],r.vendorFacts.map(x=>[esc(x.periodEnd),esc(x.metric),money(x.value,x.currency),esc(x.firstSeenAt),source(x.sourceUrl)])):'<p>No supported vendor cash-flow or dated debt observations are available yet.</p>');
+      (vendorFacts.length?table(['Period end','Metric','Reported value','First collected','Evidence'],vendorFacts.map(x=>[esc(x.periodEnd),esc(x.metric),money(x.value,x.currency),esc(x.firstSeenAt),source(x.sourceUrl)])):'<p>No supported vendor cash-flow or dated debt observations are available yet.</p>');
   }
   function industry(c,payload){return '<h3>Industry evidence connected to companies</h3><p>Follow the path from a measured industry observation to the company assumption it could affect. These are research relationships, with confirmation questions, rather than automatic stock-direction calls.</p>'+(payload.industryEvidence||[]).map(e=>{
       const mine=e.connections.filter(x=>x.symbol===c.symbol),others=e.connections.filter(x=>x.symbol!==c.symbol);
@@ -27420,22 +28168,30 @@ function scenarioEventPhase(ev, now = Date.now()) {
 });
   var forcedLiquidation = (function forcedLiquidationFactory(win, doc, config) {
   const storageKey='mingstreet-forced-liquidation-v1';
-  let state={view:'watch',query:'',filter:'active',sort:'distance',direction:null,selected:null,ltv:0.5}, data=null, loading=false,expiryTimer=null;
+  let state={view:'watch',query:'',filter:'active',sort:'distance',direction:null,selected:null,ltv:0.5,fund:null}, data=null, distress=null, distressError=null, loading=false,expiryTimer=null;
   try { const saved=JSON.parse(win.localStorage.getItem(storageKey)||'null'); if(saved) state={...state,...saved}; } catch {}
   const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const n=(v,d=1)=>typeof v==='number' && Number.isFinite(v) ? v.toLocaleString(undefined,{maximumFractionDigits:d}) : 'Undisclosed';
   const money=v=>typeof v==='number' && Number.isFinite(v)?'$'+n(v,2):'Undisclosed';
   const pct=v=>typeof v==='number' && Number.isFinite(v)?(v!==0&&Math.abs(v)<0.1?v.toLocaleString(undefined,{maximumSignificantDigits:2}):n(v))+'%':'Unavailable';
   const date=s=>s?esc(String(s).slice(0,19).replace('T',' ')+' UTC'):'Not recorded';
-  const label=s=>({'near-trigger':'Near estimated trigger','modeled-breach':'Below modeled threshold',monitor:'Monitor','scenario-only':'Scenario only','needs-terms':'Pledge disclosed','stale-quote':'Stale stock quote',stale:'Stale disclosure','debt-context':'Corporate debt context',released:'Pledge released'}[s]||'Review');
+  const label=s=>({'forced-sale-event':'Forced sale reported','past-event':'Earlier forced-sale report','near-trigger':'Near estimated trigger','modeled-breach':'Below modeled threshold',monitor:'Monitor','scenario-only':'Scenario only','needs-terms':'Pledge disclosed','stale-quote':'Stale stock quote',stale:'Stale disclosure','debt-context':'Corporate debt context',released:'Pledge released'}[s]||'Review');
   const root=()=>doc.getElementById('forced-liquidation-root');
   function safeUrl(url) { try { const u=new URL(url);return u.protocol==='https:'&&u.hostname==='www.sec.gov'&&u.pathname.startsWith('/Archives/edgar/data/')?esc(u.href):null; }catch{return null;} }
   function link(row) {const url=safeUrl(row.url||row.sourceUrl);return url?'<a href="'+url+'" target="_blank" rel="noopener noreferrer">Open SEC '+esc(row.form||'filing')+'</a>':'SEC link unavailable';}
   function save(){try{win.localStorage.setItem(storageKey,JSON.stringify(state));}catch{}}
   function expireSnapshot(body){
     // Apply today's universe to retained snapshots as well as new collections.
-    const tracked=new Set(config.symbols());
-    body.rows=body.rows.filter(r=>tracked.has(r.symbol));
+    // The scan's own universe, not the build's loaded chains: a ticker whose
+    // option chain failed this build still has its pledges.
+    const tracked=new Set(Array.isArray(body.coverage?.universeSymbols)&&body.coverage.universeSymbols.length?body.coverage.universeSymbols:config.symbols());
+    const evidence=new Set();
+    body.rows=body.rows.filter(r=>{
+      if(!tracked.has(r.symbol))return false;
+      const key=config.evidenceKey(r.observation);
+      if(evidence.has(key))return false;
+      evidence.add(key);return true;
+    });
     const now=Date.now(),scanAge=(now-Date.parse(body.coverage.lastSuccessAt))/86400000;
     body.coverage.scanHealthy=body.coverage.status==='ok'&&scanAge>=0&&scanAge<=3;
     for(const r of body.rows){
@@ -27450,16 +28206,22 @@ function scenarioEventPhase(ev, now = Date.now()) {
       if(!r.current||!r.priceFresh){r.reflexivityWatch=false;r.distanceVelocityPpPerDay=null;}
       const volumeAge=(now-Date.parse(r.market?.volumeAsOf))/86400000;
       if(!evidenceCurrent||!r.current||!Number.isFinite(volumeAge)||volumeAge<0||volumeAge>7||r.market?.volumeSessions!==20){r.pledgedToAdvPct=null;r.liquidationDaysAt100PctAdv=null;r.liquidityWarning=false;r.reflexivityWatch=false;}
-      if(r.observation.kind!=='equity-pledge')r.state='debt-context';else if(r.observation.status==='released'){r.state='released';r.triggerPrice=null;r.distancePct=null;r.scenarios=[];r.engineEligible=false;r.vetoLong=false;r.velocity=null;r.pledgedToAdvPct=null;r.pledgedToFloatPct=null;r.liquidityWarning=false;r.reflexivityWatch=false;}
+      // Pledge stress keeps only parts whose inputs are still current.
+      if(r.stress){const drop={'since-disclosure':!r.priceFresh,'from-high':!r.priceFresh,trigger:r.distancePct==null,'days-volume':r.pledgedToAdvPct==null,float:r.pledgedToFloatPct==null},missing=[...(r.stress.missing||[])];r.stress.parts=(r.stress.parts||[]).filter(p=>{if(p.key==='event'){const age=(now-Date.parse(p.value))/86400000;return Number.isFinite(age)&&age>=-10&&age<=30;}if(drop[p.key]&&p.key!=='trigger'&&!missing.includes(p.label))missing.push(p.label);return !drop[p.key];});r.stress.missing=missing;r.stress.score=Math.min(100,Math.round(r.stress.parts.reduce((t,p)=>t+p.points,0)));r.stress.band=!r.stress.parts.length?'unscored':r.stress.score>=60?'high':r.stress.score>=35?'elevated':'low';if(!r.current||r.state==='released'||r.state==='stale')r.stress=null;}
+      if(r.observation.kind==='liquidation-event')r.state=Number.isFinite(factAge)&&factAge>=-10&&factAge<=30?'forced-sale-event':'past-event';
+      else if(r.observation.kind!=='equity-pledge')r.state='debt-context';else if(r.observation.status==='released'){r.state='released';r.triggerPrice=null;r.distancePct=null;r.scenarios=[];r.engineEligible=false;r.vetoLong=false;r.velocity=null;r.pledgedToAdvPct=null;r.pledgedToFloatPct=null;r.liquidityWarning=false;r.reflexivityWatch=false;}
+      if(r.supersededBy){r.pledge.confirmed=false;r.state='released';r.stress=null;r.triggerPrice=null;r.distancePct=null;r.scenarios=[];r.engineEligible=false;r.vetoLong=false;r.velocity=null;r.pledgedToAdvPct=null;r.pledgedToFloatPct=null;r.liquidityWarning=false;r.reflexivityWatch=false;}
     }
-    body.summary={tracked:body.rows.filter(r=>r.pledge.confirmed).length,
-      pledgedStocks:new Set(body.rows.filter(r=>r.pledge.confirmed).map(r=>r.symbol)).size,
+    body.summary={tracked:body.rows.filter(r=>r.pledge.confirmed&&r.current).length,
+      pledgedStocks:new Set(body.rows.filter(r=>r.pledge.confirmed&&r.current).map(r=>r.symbol)).size,
       modeled:body.rows.filter(r=>r.triggerPrice!=null).length,
       assessable:body.rows.filter(r=>r.current&&r.priceFresh&&r.distancePct!=null).length,
       comparable:body.rows.filter(r=>r.current&&r.velocity!=null).length,
       nearTrigger:body.rows.filter(r=>r.current&&r.priceFresh&&r.distancePct!=null&&r.distancePct<=15).length,
       topUps:body.rows.filter(r=>r.current&&r.state!=='released'&&r.velocity?.collateralTopUp).length,
-      needsTerms:body.rows.filter(r=>r.pledge.confirmed&&r.triggerPrice==null).length};
+      needsTerms:body.rows.filter(r=>r.pledge.confirmed&&r.current&&r.triggerPrice==null).length,
+      events:body.rows.filter(r=>r.state==='forced-sale-event').length,
+      stressHigh:body.rows.filter(r=>r.stress?.band==='high').length};
     return body;
   }
   function scheduleExpiry(){
@@ -27472,35 +28234,64 @@ function scenarioEventPhase(ev, now = Date.now()) {
   function metric(k,v,caption){return '<div class="fl-metric"><span>'+esc(k)+'</span><b>'+esc(v)+'</b><small>'+esc(caption)+'</small></div>';}
   function warning(text){return '<p class="fl-notice">'+esc(text)+'</p>';}
   function basis(r){return r.estimateBasis==='disclosed-terms'?'Disclosed loan terms · estimate':r.scenarios?.length?'Assumed LTV · single-stock scenario':'Insufficient disclosed terms';}
+  function stressCell(r){if(!r.stress)return '<span>Not scored</span><small>'+esc(r.observation.kind==='equity-pledge'?'Needs a confirmed, current pledge':'Not a pledge')+'</small>';return '<b class="fl-stress fl-stress-'+esc(r.stress.band)+'">'+n(r.stress.score,0)+'</b><small>'+esc({high:'High pressure',elevated:'Elevated',low:'Low',unscored:'No measured inputs'}[r.stress.band])+(r.stress.missing?.length?' · '+n(r.stress.missing.length,0)+' input'+(r.stress.missing.length===1?'':'s')+' missing':'')+'</small>';}
+  function eventText(o){return ({'margin-call':'Margin call','pledgee-sale':'Sale by the pledgee or lender',foreclosure:'Foreclosure on pledged shares','forced-sale':'Forced sale','pledgee-sale-notice':'Form 144 sale notice by a pledgee'}[o.eventType]||'Forced-sale report')+(o.sharesSold?' · '+n(o.sharesSold,0)+' shares':'')+(o.saleValueUsd?' · '+money(o.saleValueUsd):'');}
   function signals(r){return [r.velocity?.collateralTopUp?'Possible collateral top-up':null,r.liquidityWarning?'Pledge >20% of daily volume':null,r.reflexivityWatch?'Reflexivity watch':null,r.velocity?.leverageVelocityPct30d>0?'Leverage per share rising':null].filter(Boolean);}
   function coverage(){
     const c=data.coverage||{};
     return '<div class="fl-coverage"><span class="fl-status fl-'+(c.scanHealthy?'monitor':'needs-terms')+'">'+(c.scanHealthy?'SEC scan available':c.status==='unavailable'?'SEC unavailable':'Incomplete SEC scan')+'</span><span>Last successful scan '+date(c.lastSuccessAt)+'</span><span>'+n(c.documentsThisRun,0)+' documents read this run</span>'+((c.pendingFilings||[]).length?'<span>'+n(c.pendingFilings.length,0)+' documents waiting for review</span>':'')+(c.capped?'<span>Coverage capped · inspect source scope</span>':'')+'</div>';
   }
-  function toolbar(){return '<div class="fl-toolbar"><label>Find a company or borrower<input type="search" data-fl-search value="'+esc(state.query)+'" placeholder="Ticker, company, stakeholder…"></label><label>Show<select data-fl-filter>'+[['active','Pledge disclosures'],['near','Near trigger'],['topups','Collateral top-ups'],['liquidity','Liquidity warnings'],['terms','Missing terms / scenarios'],['all','All disclosures']].map(([v,t])=>'<option value="'+v+'"'+(state.filter===v?' selected':'')+'>'+t+'</option>').join('')+'</select></label><label>Order by<select data-fl-sort>'+[['distance','Distance to trigger'],['velocity','Leverage velocity'],['volume','Pledge / daily volume'],['date','Latest filing'],['company','Company / borrower'],['principal','Principal borrowed'],['shares','Disclosed shares'],['trigger','Estimated trigger'],['price','Stock price']].map(([v,t])=>'<option value="'+v+'"'+(state.sort===v?' selected':'')+'>'+t+'</option>').join('')+'</select></label><button type="button" class="book-more" data-fl-export>Export CSV</button><button type="button" class="book-more" data-fl-retry>Reload snapshot</button></div>';}
+  function toolbar(){return '<div class="fl-toolbar"><label>Find a company or borrower<input type="search" data-fl-search value="'+esc(state.query)+'" placeholder="Ticker, company, stakeholder…"></label><label>Show<select data-fl-filter>'+[['active','Pledges and forced sales'],['events','Forced-sale reports'],['stress','High or elevated stress'],['near','Near trigger'],['topups','Collateral top-ups'],['liquidity','Liquidity warnings'],['terms','Missing terms / scenarios'],['all','All disclosures']].map(([v,t])=>'<option value="'+v+'"'+(state.filter===v?' selected':'')+'>'+t+'</option>').join('')+'</select></label><label>Order by<select data-fl-sort>'+[['distance','Distance to trigger'],['stress','Pledge stress'],['velocity','Leverage velocity'],['volume','Pledge / daily volume'],['date','Latest filing'],['company','Company / borrower'],['principal','Principal borrowed'],['shares','Disclosed shares'],['trigger','Estimated trigger'],['price','Stock price']].map(([v,t])=>'<option value="'+v+'"'+(state.sort===v?' selected':'')+'>'+t+'</option>').join('')+'</select></label><button type="button" class="book-more" data-fl-export>Export CSV</button><button type="button" class="book-more" data-fl-retry>Reload snapshot</button></div>';}
   function visibleRows(){
     const q=String(state.query).trim().toLowerCase();
     return data.rows.filter(r=>!q||[r.symbol,r.company,r.borrower].some(v=>String(v||'').toLowerCase().includes(q))).filter(r=>{
-      if(state.filter==='active')return r.pledge.confirmed;
+      if(state.filter==='active')return r.pledge.confirmed||r.state==='forced-sale-event';
+      if(state.filter==='events')return ['forced-sale-event','past-event'].includes(r.state);
+      if(state.filter==='stress')return ['high','elevated'].includes(r.stress?.band);
       if(state.filter==='near')return ['near-trigger','modeled-breach'].includes(r.state);
       if(state.filter==='topups')return r.velocity?.collateralTopUp;
       if(state.filter==='liquidity')return r.liquidityWarning;
       if(state.filter==='terms')return ['needs-terms','scenario-only'].includes(r.state);
       return true;
-    }).sort((a,b)=>{
-      const read=r=>state.sort==='company'?[r.company||r.symbol,r.borrower].filter(Boolean).join(' '):state.sort==='date'?r.observation.filingDate:state.sort==='volume'?r.pledgedToAdvPct:state.sort==='velocity'?r.velocity?.leverageVelocityPct30d:state.sort==='principal'?r.principalBorrowed:state.sort==='shares'?r.pledge.shares:state.sort==='trigger'?r.triggerPrice:state.sort==='price'?r.market?.price:r.distancePct;
+    }).sort(compareRows);
+  }
+  function compareRows(a,b){
+      const read=r=>state.sort==='stress'?r.stress?.score:state.sort==='company'?[r.company||r.symbol,r.borrower].filter(Boolean).join(' '):state.sort==='date'?r.observation.filingDate:state.sort==='volume'?r.pledgedToAdvPct:state.sort==='velocity'?r.velocity?.leverageVelocityPct30d:state.sort==='principal'?r.principalBorrowed:state.sort==='shares'?r.pledge.shares:state.sort==='trigger'?r.triggerPrice:state.sort==='price'?r.market?.price:r.distancePct;
       const av=read(a),bv=read(b);if(av==null||bv==null)return av==null&&bv==null?0:av==null?1:-1;
       const compare=typeof av==='string'?av.localeCompare(bv):av-bv;
       return direction()==='asc'?compare:-compare;
-    });
+  }
+  function watchGroups(){
+    const groups=new Map();
+    for(const r of visibleRows()){
+      const key=r.symbol||r.id;
+      if(!groups.has(key))groups.set(key,[]);
+      groups.get(key).push(r);
+    }
+    return [...groups.values()].map(records=>{
+      // Pick one actual disclosure, never combine possibly overlapping loans.
+      // A current forced-sale report stays visible ahead of pledge estimates.
+      const priority=r=>r.state==='forced-sale-event'?0:r.current&&r.priceFresh&&r.distancePct!=null&&r.distancePct<=0?1:r.current&&r.priceFresh&&r.distancePct!=null&&r.distancePct<=15?2:3;
+      records.sort((a,b)=>priority(a)-priority(b)
+        || Number(b.current&&b.pledge.confirmed)-Number(a.current&&a.pledge.confirmed)
+        || (b.stress?.score??-1)-(a.stress?.score??-1)
+        || b.observation.filingDate.localeCompare(a.observation.filingDate)
+        || a.id.localeCompare(b.id));
+      return {row:records[0],count:records.length,records:records.slice().sort(compareRows)};
+    }).sort((a,b)=>compareRows(a.row,b.row));
   }
   function direction(){return state.direction||(['distance','company'].includes(state.sort)?'asc':'desc');}
+  function eventsCallout(){
+    const events=data.rows.filter(r=>r.state==='forced-sale-event');
+    if(!events.length)return '';
+    return '<section class="fl-events" aria-label="Forced-sale reports"><h3>Forced-sale reports in the last 30 days</h3><ul>'+events.map(r=>'<li><button type="button" class="fl-open" data-fl-open="'+esc(r.id)+'">'+esc(r.symbol||'Issuer unresolved')+'</button> '+esc(eventText(r.observation))+'<small>'+esc(r.observation.form)+' filed '+esc(r.observation.filingDate)+(r.observation.asOfDate?' · facts '+esc(r.observation.asOfDate):'')+(r.borrower?' · '+esc(r.borrower):'')+'</small></li>').join('')+'</ul><p class="fl-caption">A filing reported a margin call, a pledgee or lender sale, or a foreclosure. Risk-factor wording ("could", "may", "if") never counts.</p></section>';
+  }
   function sortHeader(key,text){const sorted=state.sort===key;return '<th aria-sort="'+(sorted?(direction()==='asc'?'ascending':'descending'):'none')+'"><button type="button" data-fl-sort-key="'+key+'">'+text+(sorted?'<span aria-hidden="true"> '+(direction()==='asc'?'↑':'↓')+'</span>':'')+'</button></th>';}
   function triggerCell(r){return r.triggerPrice!=null?money(r.triggerPrice)+'<small>Disclosed maintenance '+pct(r.maintenanceLtv*100)+'</small>':r.scenarios?.length?'<span>Scenario '+money(Math.min(...r.scenarios.map(s=>s.price)))+'–'+money(Math.max(...r.scenarios.map(s=>s.price)))+'</span><small>35–65% assumed LTV</small>':'<span>Unknown</span><small>'+esc(r.observation.collateralBasis==='mixed'?'Mixed collateral':'Loan terms incomplete')+'</small>';}
   function watch(){
-    const rows=visibleRows();
-    const head=[['company','Company / borrower'],['shares','Disclosed shares'],['principal','Principal borrowed'],['trigger','Estimated trigger'],['price','Stock price'],['distance','Distance to trigger'],['volume','Pressure signals']].map(([key,title])=>sortHeader(key,title)).join('');
-    return toolbar()+'<p class="fl-caption">Disclosed pledges stay on this watchlist even when the loan balance, borrower or maintenance terms are unknown.</p><p class="fl-caption">Signed distance = (stock price − trigger) ÷ stock price. Negative means the quote is below a modeled threshold. It does not confirm a margin call.</p>'+(rows.length?'<div class="fl-scroll" tabindex="0" role="region" aria-label="Pledged-stock watchlist"><table class="fl-table" data-nosort><thead><tr>'+head+'</tr></thead><tbody>'+rows.map(watchRow).join('')+'</tbody></table></div>':warning(data.rows.length?'No disclosures match these filters.':'No pledged-stock disclosures are available in this snapshot. Review scan coverage below; this is not evidence that the market has no pledged stock.'));
+    const groups=watchGroups();
+    const head=[['company','Company / borrower'],['stress','Pledge stress'],['shares','Disclosed shares'],['principal','Principal borrowed'],['trigger','Estimated trigger'],['price','Stock price'],['distance','Distance to trigger'],['volume','Pressure signals']].map(([key,title])=>sortHeader(key,title)).join('');
+    return eventsCallout()+toolbar()+'<p class="fl-caption">Pledge stress (0–100) ranks visible pressure without needing loan terms: the drop since the pledge was disclosed, the drop from the 52-week high, the pledged block in days of volume and as a share of float, a modeled trigger when one exists, and any recent forced-sale report. It is not a probability.</p><p class="fl-caption">One row per stock. When several disclosures match, forced-sale reports and breached or nearby thresholds take priority, followed by the highest-stress pledge. Open the stock to review repeated excerpts and separate facilities; amounts are never added together. CSV includes every matching disclosure.</p><p class="fl-caption">Signed distance = (stock price − trigger) ÷ stock price. Negative means the quote is below a modeled threshold. It does not confirm a margin call.</p>'+(groups.length?'<div class="fl-scroll" tabindex="0" role="region" aria-label="Pledged-stock watchlist"><table class="fl-table" data-nosort><thead><tr>'+head+'</tr></thead><tbody>'+groups.map(g=>watchRow(g.row,g.count)).join('')+'</tbody></table></div>':warning(data.rows.length?'No disclosures match these filters.':'No pledged-stock disclosures are available in this snapshot. Review scan coverage below; this is not evidence that the market has no pledged stock.'));
   }
   function statusLabel(r){return r.observation.status==='released'?'Pledge released':r.observation.kind==='equity-pledge'&&!r.observation.issuerVerified?'Stock attribution unverified':r.observation.kind==='equity-pledge'&&r.observation.parserVersion!==config.evidenceVersion?'Pledge reported · refresh needed':label(r.state);}
   function pledgeShares(r){return (r.pledge.shares!=null&&r.pledge.shareBasis==='capacity-only'?'Up to ':'')+n(r.pledge.shares,0);}
@@ -27509,7 +28300,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     return basis+(!r.pledge.quoteComparable&&r.pledge.shareBasis==='stated-current'?' · quote or share basis needs review':'');
   }
   function principalCaption(r){return r.observation.principalBasis==='capacity'?'Credit limit only; drawn amount unknown':r.principalBorrowed==null?'Outstanding USD balance unknown':'USD · outstanding balance';}
-  function watchRow(r){return '<tr><td><button type="button" class="fl-open" data-fl-open="'+esc(r.id)+'">'+esc(r.symbol||'Issuer unresolved')+'</button><small>'+esc(r.company||'Issuer needs review')+'</small><small>'+esc(r.borrower||'Borrower undisclosed')+'</small><small>Facts '+esc(r.observation.asOfDate||'undated')+' · filed '+esc(r.observation.filingDate)+'</small><span class="fl-status fl-'+esc(r.state)+'">'+esc(statusLabel(r))+'</span></td><td>'+pledgeShares(r)+'<small>'+esc(shareCaption(r))+'</small><small>'+pct(r.pledgedToFloatPct)+' of float</small></td><td>'+money(r.principalBorrowed)+'<small>'+esc(principalCaption(r))+'</small></td><td>'+triggerCell(r)+'</td><td>'+money(r.market?.price)+'<small>'+(r.priceFresh?'Quoted ':'Stale / undated · ')+date(r.market?.quoteAsOf)+'</small></td><td><b class="'+(r.distancePct!=null&&r.distancePct<=15?'fl-negative':'')+'">'+pct(r.distancePct)+'</b><small>'+esc(basis(r))+'</small></td><td>'+signals(r).map(s=>'<span class="fl-signal">'+esc(s)+'</span>').join('')+'<small>'+pct(r.pledgedToAdvPct)+' of 20-session ADV</small><small>Leverage / 30 days '+pct(r.velocity?.leverageVelocityPct30d)+'</small></td></tr>';}
+  function watchRow(r,count){return '<tr><td><button type="button" class="fl-open" data-fl-open="'+esc(r.id)+'">'+esc(r.symbol||'Issuer unresolved')+'</button>'+(count>1?'<small>'+count+' matching disclosures · '+(r.state==='forced-sale-event'?'forced-sale report shown':r.current&&r.priceFresh&&r.distancePct!=null&&r.distancePct<=15?'threshold-risk disclosure shown':r.pledge.confirmed&&r.current?'highest-stress pledge shown':'selected disclosure shown')+'</small>':'')+'<small>'+esc(r.company||'Issuer needs review')+'</small><small>'+esc(r.borrower||'Borrower undisclosed')+'</small><small>Facts '+esc(r.observation.asOfDate||'undated')+' · filed '+esc(r.observation.filingDate)+'</small><span class="fl-status fl-'+esc(r.state)+'">'+esc(statusLabel(r))+'</span>'+(r.observation.kind==='liquidation-event'?'<small>'+esc(eventText(r.observation))+'</small>':'')+'</td><td>'+stressCell(r)+'</td><td>'+pledgeShares(r)+'<small>'+esc(shareCaption(r))+'</small><small>'+pct(r.pledgedToFloatPct)+' of float</small></td><td>'+money(r.principalBorrowed)+'<small>'+esc(principalCaption(r))+'</small></td><td>'+triggerCell(r)+'</td><td>'+money(r.market?.price)+'<small>'+(r.priceFresh?'Quoted ':'Stale / undated · ')+date(r.market?.quoteAsOf)+'</small></td><td><b class="'+(r.distancePct!=null&&r.distancePct<=15?'fl-negative':'')+'">'+pct(r.distancePct)+'</b><small>'+esc(basis(r))+'</small></td><td>'+signals(r).map(s=>'<span class="fl-signal">'+esc(s)+'</span>').join('')+'<small>'+pct(r.pledgedToAdvPct)+' of 20-session ADV</small><small>Leverage / 30 days '+pct(r.velocity?.leverageVelocityPct30d)+'</small></td></tr>';}
   function scenario(r){
     if(!r.scenarios?.length)return warning('The disclosed pledge remains visible for awareness. A price estimate needs a comparable outstanding balance, current pledged shares and usable collateral terms.');
     const s=r.scenarios.find(s=>s.ltv===Number(state.ltv))||r.scenarios[0],ltv=s.ltv;
@@ -27521,17 +28312,58 @@ function scenarioEventPhase(ev, now = Date.now()) {
     return h.principalBorrowed==null?'Undisclosed':n(h.principalBorrowed,0)+' · currency unverified';
   }
   function historyShares(h){const r={observation:h,pledge:config.pledgeDisclosure(h,config.evidenceVersion)};return h.parserVersion===config.evidenceVersion?pledgeShares(r)+'<small>'+esc(shareCaption(r))+'</small>':'Needs extraction refresh';}
+  function disclosurePicker(r){
+    const records=data.rows.filter(other=>r.symbol?other.symbol===r.symbol:other.id===r.id);
+    if(records.length<2)return '';
+    return '<div class="fl-disclosures"><label>Disclosure to inspect<select data-fl-disclosure>'+records.map((other,i)=>'<option value="'+esc(other.id)+'"'+(other.id===r.id?' selected':'')+'>'+esc((i+1)+'. '+other.observation.form+' · '+other.observation.filingDate+' · '+(other.borrower||'Borrower undisclosed')+' · '+(other.observation.facilityKey||shareCaption(other))+' · '+statusLabel(other)+(other.stress?' · stress '+other.stress.score:''))+'</option>').join('')+'</select></label><p>'+records.length+' disclosure records for this stock. These can be repeated excerpts or separate facilities, not necessarily separate loans. Each record keeps its own terms, stress score and source; amounts are never summed.</p></div>';
+  }
   function detail(r){
     const o=r.observation;
-    return '<article class="fl-detail"><div class="fl-detail-head"><div><span class="fl-kicker">'+esc(statusLabel(r))+'</span><h3>'+esc((r.symbol||'Unresolved issuer')+' · '+(r.borrower||'Borrower undisclosed'))+'</h3><p>'+esc(o.securityClass||'Share class unresolved')+' · '+esc(o.facilityKey||'Facility identity needs review')+'</p></div><button type="button" class="book-more" data-fl-close>Close detail</button></div><div class="fl-metrics">'+metric('Outstanding principal',money(r.principalBorrowed),o.principalBasis==='capacity'?'Facility limit is not drawn debt':'As of '+(o.asOfDate||'date undisclosed'))+metric('Disclosed shares',pledgeShares(r),shareCaption(r))+metric('Estimated threshold',money(r.triggerPrice),basis(r))+metric('Distance to threshold',pct(r.distancePct),'Stock quote '+(r.priceFresh?'dated and current':'stale or absent'))+'</div><div class="fl-pressure"><h4>Reflexive pressure</h4><p>'+esc(signals(r).join(' · ')||'No pressure pattern established from available observations.')+'</p><dl><dt>Pledged shares / daily volume</dt><dd>'+pct(r.pledgedToAdvPct)+' · '+n(r.liquidationDaysAt100PctAdv,2)+' average-volume days</dd><dt>Average daily volume</dt><dd>'+n(r.market?.averageDailyVolume,0)+' shares · 20 completed sessions through '+esc(r.market?.volumeAsOf||'unavailable')+'</dd><dt>Leverage per pledged share</dt><dd>'+pct(r.velocity?.leverageVelocityPct30d)+' per 30 days</dd><dt>Buffer change</dt><dd>'+n(r.distanceVelocityPpPerDay,2)+' percentage points / day</dd></dl><p class="fl-caption">20% of daily volume is a screening rule. It does not measure executable liquidity, sales participation, a gap probability, or days-to-cover for short sellers. Float is a separate denominator.</p>'+(r.velocity?'<p>'+esc('Between '+r.velocity.previousDate+' and '+r.velocity.latestDate+', shares changed '+pct(r.velocity.sharesChangePct)+' and outstanding debt changed '+pct(r.velocity.debtChangePct)+'. '+r.velocity.interpretation)+'</p>':'')+'</div>'+r.warnings.map(warning).join('')+(r.missing.length?warning('Needed to estimate liquidation: '+r.missing.join('; ')+'.'):'')+scenario(r)+'<h4>Filing evidence</h4><p>'+link(o)+' · filed '+esc(o.filingDate)+' · facts as of '+esc(o.asOfDate||'not separately dated')+'</p><blockquote class="fl-excerpt">'+esc(o.excerpt)+'</blockquote><p class="fl-caption">'+esc(o.extractionStatus)+' · '+esc(o.collateralBasis)+' · '+esc(o.currency)+'. An excerpt can omit context; inspect the original filing and linked agreements.</p><h4>Disclosure history</h4><div class="fl-scroll"><table class="fl-table fl-history"><thead><tr><th>Filed / facts as of</th><th>Principal</th><th>Disclosed shares</th><th>Maintenance LTV</th><th>Source</th></tr></thead><tbody>'+r.history.map(h=>'<tr><td>'+esc(h.filingDate)+'<small>'+esc(h.asOfDate||'Fact date undisclosed')+'</small></td><td>'+historyPrincipal(h)+'</td><td>'+historyShares(h)+'</td><td>'+(h.parserVersion===config.evidenceVersion?pct(h.maintenanceLtv==null?null:h.maintenanceLtv*100):'Needs extraction refresh')+'</td><td>'+link(h)+'</td></tr>').join('')+'</tbody></table></div></article>';
+    return '<article class="fl-detail"><div class="fl-detail-head"><div><span class="fl-kicker">'+esc(statusLabel(r))+'</span><h3>'+esc((r.symbol||'Unresolved issuer')+' · '+(r.borrower||'Borrower undisclosed'))+'</h3><p>'+esc(o.securityClass||'Share class unresolved')+' · '+esc(o.facilityKey||'Facility identity needs review')+'</p></div><button type="button" class="book-more" data-fl-close>Close detail</button></div>'+disclosurePicker(r)+'<div class="fl-metrics">'+metric('Outstanding principal',money(r.principalBorrowed),o.principalBasis==='capacity'?'Facility limit is not drawn debt':'As of '+(o.asOfDate||'date undisclosed'))+metric('Disclosed shares',pledgeShares(r),shareCaption(r))+metric('Estimated threshold',money(r.triggerPrice),basis(r))+metric('Distance to threshold',pct(r.distancePct),'Stock quote '+(r.priceFresh?'dated and current':'stale or absent'))+'</div>'+(o.kind==='liquidation-event'?'<div class="fl-pressure"><h4>Reported forced sale</h4><p>'+esc(eventText(o))+'</p><p class="fl-caption">The excerpt below is the sentence that reported it. A Form 144 is a notice of a proposed sale; the sale may be smaller, later, or not happen.</p></div>':'')+(r.stress?'<div class="fl-pressure"><h4>Pledge stress '+n(r.stress.score,0)+' · '+esc({high:'High pressure',elevated:'Elevated',low:'Low',unscored:'No measured inputs'}[r.stress.band])+'</h4><dl>'+r.stress.parts.map(p=>'<dt>'+esc(p.label)+'</dt><dd>'+n(p.points,1)+' points'+(typeof p.value==='number'?' · '+(p.key==='days-volume'?n(p.value,2)+' days':pct(p.value)):'')+'</dd>').join('')+'</dl>'+(r.stress.missing?.length?'<p class="fl-caption">Not available, scored as zero: '+esc(r.stress.missing.join('; '))+'.</p>':'')+'<p class="fl-caption">'+esc(r.stress.note)+'</p></div>':'')+'<div class="fl-pressure"><h4>Reflexive pressure</h4><p>'+esc(signals(r).join(' · ')||'No pressure pattern established from available observations.')+'</p><dl><dt>Pledged shares / daily volume</dt><dd>'+pct(r.pledgedToAdvPct)+' · '+n(r.liquidationDaysAt100PctAdv,2)+' average-volume days</dd><dt>Average daily volume</dt><dd>'+n(r.market?.averageDailyVolume,0)+' shares · 20 completed sessions through '+esc(r.market?.volumeAsOf||'unavailable')+'</dd><dt>Leverage per pledged share</dt><dd>'+pct(r.velocity?.leverageVelocityPct30d)+' per 30 days</dd><dt>Buffer change</dt><dd>'+n(r.distanceVelocityPpPerDay,2)+' percentage points / day</dd></dl><p class="fl-caption">20% of daily volume is a screening rule. It does not measure executable liquidity, sales participation, a gap probability, or days-to-cover for short sellers. Float is a separate denominator.</p>'+(r.velocity?'<p>'+esc('Between '+r.velocity.previousDate+' and '+r.velocity.latestDate+', shares changed '+pct(r.velocity.sharesChangePct)+' and outstanding debt changed '+pct(r.velocity.debtChangePct)+'. '+r.velocity.interpretation)+'</p>':'')+'</div>'+r.warnings.map(warning).join('')+(r.missing.length?warning('Needed to estimate liquidation: '+r.missing.join('; ')+'.'):'')+scenario(r)+'<h4>Filing evidence</h4><p>'+link(o)+' · filed '+esc(o.filingDate)+' · facts as of '+esc(o.asOfDate||'not separately dated')+'</p><blockquote class="fl-excerpt">'+esc(o.excerpt)+'</blockquote><p class="fl-caption">'+esc(o.extractionStatus)+' · '+esc(o.collateralBasis)+' · '+esc(o.currency)+'. An excerpt can omit context; inspect the original filing and linked agreements.</p><h4>Disclosure history</h4><div class="fl-scroll"><table class="fl-table fl-history"><thead><tr><th>Filed / facts as of</th><th>Principal</th><th>Disclosed shares</th><th>Maintenance LTV</th><th>Source</th></tr></thead><tbody>'+r.history.map(h=>'<tr><td>'+esc(h.filingDate)+'<small>'+esc(h.asOfDate||'Fact date undisclosed')+'</small></td><td>'+historyPrincipal(h)+'</td><td>'+historyShares(h)+'</td><td>'+(h.parserVersion===config.evidenceVersion?pct(h.maintenanceLtv==null?null:h.maintenanceLtv*100):'Needs extraction refresh')+'</td><td>'+link(h)+'</td></tr>').join('')+'</tbody></table></div></article>';
   }
   function evidence(){return '<p class="fl-caption">Raw excerpts include incomplete pledges and corporate debt context. Corporate borrowing alone does not establish a forced-sale threshold in the listed stock.</p>'+data.rows.map(r=>'<article class="fl-evidence"><div><span class="fl-status fl-'+esc(r.state)+'">'+esc(statusLabel(r))+'</span> <button type="button" class="fl-open" data-fl-open="'+esc(r.id)+'">'+esc(r.symbol||'Issuer unresolved')+'</button> · '+esc(r.observation.form)+' · '+esc(r.observation.filingDate)+'</div><p>'+esc(r.borrower||r.company||'Entity unresolved')+'</p><blockquote class="fl-excerpt">'+esc(r.observation.excerpt)+'</blockquote>'+link(r.observation)+'</article>').join('');}
   function method(){const c=data.coverage||{},sourceErrors=[...(c.errors||[]),...(c.marketData?.errors||[])];return '<div class="fl-method"><h3>What the estimate means</h3><p class="fl-formula">Trigger price = outstanding loan ÷ (pledged shares × maintenance LTV)</p><p>LTV means debt divided by eligible collateral value. A $100 million loan against 10 million shares at a 50% maximum maintenance LTV reaches that ratio at $20 a share. A 25% equity maintenance requirement is a 75% maximum LTV.</p><p>Principal, collateral stock, share class and loan facility must refer to the same borrowing. A facility limit, total corporate debt, sale proceeds, transaction price or the value of another pledged asset cannot substitute for outstanding principal.</p><h4>Signals to monitor</h4><ul><li>Distance to trigger: a signed percentage of the current dated stock quote. An estimated threshold crossing is not proof that a lender has called the loan.</li><li>Leverage velocity: change in debt per pledged share, normalized to 30 days between comparable dated disclosures. Added shares with unchanged outstanding principal is a possible collateral top-up, not new-share issuance or proof of a bank demand.</li><li>Liquidity pressure: pledged shares above 20% of 20-session average daily volume is flagged separately from pledged shares / float. Sales can be spread over time or cured with cash and other collateral.</li><li>Reflexivity watch: a shrinking buffer faster than one percentage point per day, liquidity pressure, and a collateral top-up or rising leverage. It needs repeated market snapshots with unchanged loan terms.</li></ul><h4>Top Picks use</h4><p>Fresh, attributable, disclosed single-stock loan terms within 90 days can block a new bullish Top Pick within 15% of its estimated trigger. The existing grader receives the evidence for both directions. Incomplete terms and illustrative LTV scenarios cannot block an entry or add conviction points. A bearish idea still needs the usual thesis, trend, option and entry checks.</p><h4>Coverage & freshness</h4><p>Only stocks in our tracked universe are shown. SEC discovery includes annual reports. Facility capacity is not outstanding debt.</p><p>'+esc(c.scope||'Scan coverage unavailable.')+'</p><p>Forms: '+esc((c.forms||[]).join(', '))+'. '+n(c.issuersCheckedThisRun,0)+' tracked issuers checked this run from '+n(c.universeSize,0)+'. A scan is reused for 18 hours only when the parser is current and no discovered documents remain unread. Prices older than 96 hours cannot establish distance. Disclosures older than 400 days remain visible as stale research.</p>'+(sourceErrors.length?'<ul>'+sourceErrors.map(e=>'<li>'+esc([e.stage,e.symbol,e.field,e.message].filter(Boolean).join(' · '))+'</li>').join(''):'')+'<p>Parent-company debt can use subsidiary shares or a mixed pool of assets. Cure periods, accrued interest, lender haircuts, refinancing, share splits, undisclosed amendments and lender discretion can change the actual outcome.</p><p><a href="https://www.sec.gov/search-filings/edgar-application-programming-interfaces" target="_blank" rel="noopener">SEC data sources</a> · <a href="https://www.finra.org/investors/insights/securities-backed-lines-credit" target="_blank" rel="noopener">FINRA explanation of collateral maintenance calls</a></p></div>';}
+  const bigMoney=v=>typeof v!=='number'||!Number.isFinite(v)?'Unavailable':(v<0?'−':'')+'$'+(Math.abs(v)>=1e9?n(Math.abs(v)/1e9,2)+'B':Math.abs(v)>=1e6?n(Math.abs(v)/1e6,1)+'M':n(Math.abs(v),0));
+  const signedPct=v=>typeof v==='number'&&Number.isFinite(v)?(v>0?'+':'')+pct(v):'Unavailable';
+  const tellText=t=>({'call-heavy':'Call-heavy','put-heavy':'Put-heavy',concentrated:'Top 5 ≥ 50% of book','few-positions':'25 or fewer stocks','options-hedged':'Options-hedged'}[t]||t);
+  const priceCheckText=r=>r.priceCheck==='ok'?(r.splitFactor?'Split since the 13F, restated '+(r.splitFactor>1?n(r.splitFactor,0)+'-for-1':'1-for-'+n(1/r.splitFactor,0)):''):({'no-ticker':'No US ticker found','no-quote':'No fresh quote','price-basis':'13F price does not match this listing; left out','currency':'Quote not in US dollars; left out','unverified':'Could not verify the price basis; left out','no-13f-price':'No 13F price'}[r.priceCheck]||'');
+  const pressureText=p=>({'deleveraging-risk':'Deleveraging risk','under-pressure':'Under pressure',steady:'Steady',unpriced:'Not priced'}[p]||'Not priced');
+  function secLink(url,text){try{const u=new URL(url);return u.protocol==='https:'&&u.hostname==='www.sec.gov'?'<a href="'+esc(u.href)+'" target="_blank" rel="noopener noreferrer">'+esc(text)+'</a>':esc(text);}catch{return esc(text);}}
+  function distressNotice(){return distressError?warning(distressError)+'<button type="button" class="book-more" data-fl-retry>Retry</button>':!distress?'<p class="fl-empty" role="status">Loading hot funds, ETF rebalance and cluster reads…</p>':'';}
+  function funds(){
+    const pending=distressNotice();if(pending)return pending;
+    const h=distress.hotFunds||{},c=h.counts||{},cov=h.coverage||{},b=h.benchmark||{};
+    const selected=(h.funds||[]).find(f=>f.cik===state.fund);
+    if(selected)return fundDetail(selected,h);
+    const bulk=cov.bulk||{};
+    const status=bulk.status==='failed'?'Latest 13F data-set read failed: '+(bulk.message||'unknown error')+'. Prior figures are kept.':cov.pendingPass?'Still reading SEC 13F data sets ('+esc(cov.pendingPass.period)+' next). Returns appear once each quarter has both its starting and ending books.':'';
+    const rows=h.funds||[];
+    const table=rows.length?'<div class="fl-scroll" tabindex="0" role="region" aria-label="Hot funds"><table class="fl-table" data-nosort><thead><tr><th>Fund</th><th>Implied return</th><th>Leverage tells</th><th>Top holdings since 13F</th><th>Pressure</th><th>Our stocks held</th></tr></thead><tbody>'+rows.map(f=>'<tr><td><button type="button" class="fl-open" data-fl-fund="'+esc(f.cik)+'">'+esc(f.name)+'</button><span class="fl-status fl-'+(f.level==='alert'?'near-trigger':'monitor')+'">'+(f.level==='alert'?'Alert · 40%+':'Watch · 30–40%')+'</span><small>13F '+esc(f.anchorPeriod||f.period)+' · '+bigMoney(f.stats?.reportedValue)+' reported</small></td><td><b>'+signedPct(f.ytd)+'</b><small>'+esc(String(h.ytdYear||''))+' YTD stock book · '+signedPct(f.ytdWithOptions)+' with listed options</small><small>Last quarter '+signedPct(f.qoq)+' · '+signedPct(f.qoqWithOptions)+' with options</small></td><td>'+((f.tells||[]).map(t=>'<span class="fl-signal">'+esc(tellText(t))+'</span>').join('')||'<small>None</small>')+'<small>Calls '+pct(f.stats?.callPct)+' · puts '+pct(f.stats?.putPct)+' of stock book · '+n(f.stats?.positions,0)+' stocks</small></td><td><b class="'+(f.topMovePct<0?'fl-negative':'')+'">'+signedPct(f.topMovePct)+'</b><small>'+pct(f.topPricedPct)+' of top '+n((f.top||[]).length,0)+' priced live · book impact '+signedPct(f.bookImpactPct)+'</small></td><td><span class="fl-status fl-'+(f.pressure==='deleveraging-risk'?'modeled-breach':f.pressure==='under-pressure'?'near-trigger':'monitor')+'">'+esc(pressureText(f.pressure))+'</span><small>30-day drawdown '+pct(f.drawdownPct)+'</small></td><td>'+esc([...new Set((f.universe||[]).map(u=>u.symbol))].slice(0,8).join(', ')||'None tracked')+((f.recentFilings||[]).length?'<small>'+n(f.recentFilings.length,0)+' ownership filing(s) in 30 days</small>':'')+'</td></tr>').join('')+'</tbody></table></div>':warning(h.latestPeriod?'No $3B+ book crossed 30% this year or last quarter on the current 13F figures.':'No 13F returns are available yet. The first full read takes a few builds.');
+    const links=h.stockLinks||[];
+    const linkTable=links.length?'<h4>Our stocks held by hot funds</h4><div class="fl-scroll" tabindex="0" role="region" aria-label="Our stocks held by hot funds"><table class="fl-table" data-nosort><thead><tr><th>Stock</th><th>Hot funds</th><th>Shares held</th><th>Held by funds under pressure</th><th>Largest holders</th></tr></thead><tbody>'+links.map(l=>'<tr><td><b>'+esc(l.symbol)+'</b></td><td>'+n(l.funds,0)+'<small>'+n(l.alertFunds,0)+' at alert · '+n(l.pressureFunds,0)+' under pressure</small></td><td>'+n(l.sharesHeld,0)+'<small>'+pct(l.pctFloat)+' of float · '+n(l.daysOfVolume,1)+' days of volume</small></td><td>'+n(l.stressedShares,0)+'<small>'+n(l.stressedDaysOfVolume,1)+' days of volume</small></td><td>'+l.holders.slice(0,4).map(x=>'<small>'+esc(x.fund)+(x.putCall?' ('+esc(x.putCall.toLowerCase())+'s)':'')+' · '+pct(x.pctOfBook)+' of book</small>').join('')+'</td></tr>').join('')+'</tbody></table></div>':'';
+    return '<div class="fl-metrics">'+metric('Funds flagged',n(c.flagged,0),n(c.alert,0)+' at 40%+ · '+n(c.watch,0)+' at 30–40% · from '+n(c.screened,0)+' $3B+ books')+metric('Under pressure',n((c.pressure||0)+(c.deleveraging||0),0),n(c.deleveraging,0)+' with deleveraging risk (top holdings down 20%+ from their 30-day high or 25% since the 13F)')+metric('Benchmark',signedPct(b.ytd),esc(b.label||'All $3B+ books')+' · last quarter '+signedPct(b.qoq))+metric('Excluded',n(c.hedgedExcluded,0),'Options-hedged market-maker books · '+n(c.lowCoverage,0)+' with thin price coverage')+'</div>'+(status?warning(status):'')+'<p class="fl-caption">13F data is filed up to 45 days after each quarter, lists long US stocks and listed options only, and leaves out shorts, swaps and private stakes. Implied return = the shares held at the start of a quarter, valued at the median price all filers reported for each stock at the start and end, with splits restated. Options count at their underlying notional, so the "with options" figure is a rough upper bound. "Top holdings since 13F" prices the top 15 rows with live quotes after checking each 13F price against the same listing (splits restated, mismatches left out); the fund has certainly traded since. A flag is a leverage suspicion, never proof of borrowing.</p>'+table+linkTable;
+  }
+  function fundDetail(f,h){
+    const top=(f.top||[]);
+    return '<article class="fl-detail"><div class="fl-detail-head"><div><span class="fl-kicker">'+(f.level==='alert'?'Alert · 40%+':'Watch · 30–40%')+' · '+esc(pressureText(f.pressure))+'</span><h3>'+esc(f.name)+'</h3><p>13F for '+esc(f.anchorPeriod||f.period)+(f.early13F?' (filed '+esc(f.early13F.filingDate)+', before the SEC bulk data)':' · filed '+esc(f.filingDate||'')) +' · CIK '+esc(f.cik)+'</p></div><button type="button" class="book-more" data-fl-fund-close>Close detail</button></div><div class="fl-metrics">'+metric(String(h.ytdYear||'')+' YTD',signedPct(f.ytd),signedPct(f.ytdWithOptions)+' with listed options')+metric('Last quarter',signedPct(f.qoq),signedPct(f.qoqWithOptions)+' with listed options')+metric('Top holdings since 13F',signedPct(f.topMovePct),'Book impact '+signedPct(f.bookImpactPct)+' · 30-day drawdown '+pct(f.drawdownPct))+metric('Reported value',bigMoney((f.anchorStats||f.stats)?.reportedValue),'Stock '+bigMoney((f.anchorStats||f.stats)?.stockValue)+' · calls '+bigMoney((f.anchorStats||f.stats)?.callNotional)+' · puts '+bigMoney((f.anchorStats||f.stats)?.putNotional))+'</div><h4>Quarter by quarter</h4><p>'+(f.quarters||[]).map(q=>esc(q.period)+': '+signedPct(q.stockPct)+' stock book, '+signedPct(q.withOptionsPct)+' with options ('+pct((q.coverage||0)*100)+' priced)').join(' · ')+'</p><h4>Top '+n(top.length,0)+' holdings</h4><div class="fl-scroll" tabindex="0" role="region" aria-label="Top holdings"><table class="fl-table" data-nosort><thead><tr><th>Holding</th><th>Reported value</th><th>13F price</th><th>Live price</th><th>Move</th></tr></thead><tbody>'+top.map(r=>'<tr><td><b>'+esc(r.ticker||r.name)+'</b>'+(r.putCall?' <span class="fl-signal">'+esc(r.putCall==='CALL'?'Calls':'Puts')+'</span>':'')+'<small>'+esc(r.name)+' · '+esc(r.cusip)+'</small></td><td>'+bigMoney(r.value)+'<small>'+pct((f.anchorStats||f.stats)?.stockValue?r.value/(f.anchorStats||f.stats).stockValue*100:null)+' of stock book</small></td><td>'+money(r.price)+'</td><td>'+money(r.livePrice)+'<small>'+esc([r.liveAsOf?date(r.liveAsOf):'',priceCheckText(r)].filter(Boolean).join(' · ')||'No fresh quote')+'</small></td><td><b class="'+(r.movePct<0?'fl-negative':'')+'">'+signedPct(r.movePct)+'</b></td></tr>').join('')+'</tbody></table></div>'+((f.universe||[]).length?'<h4>Our stocks in this book</h4><p>'+f.universe.map(u=>esc(u.symbol)+(u.putCall?' '+esc(u.putCall.toLowerCase())+'s':'')+' '+n(u.shares,0)+' shares ('+bigMoney(u.value)+')').join(' · ')+'</p>':'')+((f.recentFilings||[]).length?'<h4>Ownership filings in the last 30 days</h4><ul>'+f.recentFilings.map(x=>'<li>'+secLink(x.url,x.form+' filed '+x.filingDate)+'</li>').join('')+'</ul><p class="fl-caption">Schedule 13D/G amendments and Form 4s are due within two business days of a large change, so they are the earliest public sign of a fund cutting a stake.</p>':'')+'<p class="fl-caption">Leverage tells: '+esc((f.tells||[]).map(tellText).join(', ')||'none')+'. 13F does not show borrowing, shorts or swaps.</p></article>';
+  }
+  function rebalance(){
+    const pending=distressNotice();if(pending)return pending;
+    const r=distress.rebalance||{},rows=(r.rows||[]).filter(x=>x.movePct!=null);
+    return '<p class="fl-caption">A daily-reset fund with leverage L and assets A has to trade L × (L − 1) × A × today’s return of the stock at the close: buying after an up day and selling after a down day, for 2x bulls and inverse funds alike. During the session this is "if it closed here". '+esc(r.note||'')+'</p>'+(rows.length?'<div class="fl-scroll" tabindex="0" role="region" aria-label="Leveraged ETF rebalance"><table class="fl-table" data-nosort><thead><tr><th>Stock</th><th>Move</th><th>Funds</th><th>Estimated close trade</th><th>Share of daily volume</th></tr></thead><tbody>'+rows.map(x=>'<tr><td><b>'+esc(x.underlying)+'</b><small>'+(x.closed?'Closed':'Intraday')+' · '+money(x.price)+'</small></td><td><b class="'+(x.movePct<0?'fl-negative':'')+'">'+signedPct(x.movePct)+'</b></td><td>'+x.products.map(p=>'<small>'+esc(p.sym)+' '+(p.lev>0?p.lev+'x':p.lev+'x')+' · '+(p.aum!=null?bigMoney(p.aum)+' assets':'assets unknown')+'</small>').join('')+'</td><td>'+(x.tradeUsd==null?'Unavailable':'<b>'+esc(x.side==='buy'?'Buy ':'Sell ')+bigMoney(Math.abs(x.tradeUsd))+'</b><small>'+n(Math.abs(x.shares||0),0)+' shares</small>')+'</td><td>'+pct(x.pctOfAdv)+'<small>of 20-day average volume</small></td></tr>').join('')+'</tbody></table></div>':warning('No tracked stock with a listed leveraged ETF has a current move.'));
+  }
+  function clusters(){
+    const pending=distressNotice();if(pending)return pending;
+    const c=distress.clusters||{},t=c.today,p=c.policy||{};
+    const today=t?'<div class="fl-pressure"><h4>'+(t.flagged?'Cluster selloff flagged today':'No cluster today')+'</h4><p>'+esc(t.reason)+' Index '+signedPct(t.indexMovePct)+'.</p>'+(t.names?.length?'<div class="fl-scroll" tabindex="0" role="region" aria-label="Heavy-volume drops today"><table class="fl-table" data-nosort><thead><tr><th>Stock</th><th>Move</th><th>Volume vs normal</th><th>Group</th></tr></thead><tbody>'+t.names.map(x=>'<tr><td><b>'+esc(x.symbol)+'</b></td><td><b class="fl-negative">'+signedPct(x.movePct)+'</b><small>Needed '+signedPct(-x.thresholdPct)+'</small></td><td>'+n(x.volumeRatio,1)+'x</td><td>'+esc(x.group)+'</td></tr>').join('')+'</tbody></table></div>':'')+(t.commonHolders?.length?'<p>Hot funds holding two or more of these: '+t.commonHolders.map(h=>esc(h.fund)+' ('+esc(h.held.join(', '))+')').join(' · ')+'</p>':'')+'</div>':warning('No cluster read yet.');
+    const log=(c.log||[]);
+    return '<p class="fl-caption">Shadow signal: logged, not used by any desk. Archegos looked like this: unrelated stocks falling '+n(p.minDropPct,0)+'%+ (or '+n(p.sigmaMultiple,1)+'× their usual daily move) on '+n(p.minVolumeRatio,1)+'× normal volume, in '+n(p.minGroups,0)+'+ sector groups, while the index held above '+signedPct(p.calmIndexPct)+'. Stocks with earnings within '+n(p.earningsGuardDays,0)+' days are left out. Macro days and sector news will still cause false alarms.</p>'+today+(log.length?'<h4>Log</h4><div class="fl-scroll" tabindex="0" role="region" aria-label="Cluster log"><table class="fl-table" data-nosort><thead><tr><th>Date</th><th>Read</th><th>Names</th><th>Common hot-fund holders</th></tr></thead><tbody>'+log.map(x=>'<tr><td>'+esc(x.date)+'</td><td>'+(x.flagged?'<span class="fl-status fl-near-trigger">Flagged</span>':'<span class="fl-status">Below bar</span>')+'<small>Index '+signedPct(x.indexMovePct)+'</small></td><td>'+esc(x.names.map(m=>m.symbol+' '+(m.movePct>0?'+':'')+n(m.movePct,1)+'%').join(', '))+'</td><td>'+esc((x.commonHolders||[]).map(h=>h.fund).join(', ')||'None')+'</td></tr>').join('')+'</tbody></table></div>':'');
+  }
   function render(){
     const el=root();if(!el||!data||!config.owner())return;
     data=expireSnapshot(data);
     const selected=data.rows.find(r=>r.id===state.selected),s=data.summary;
-    el.innerHTML=coverage()+'<div class="fl-metrics">'+metric('Stocks with pledges',n(s.pledgedStocks,0),n(s.tracked,0)+' pledge records; repeated excerpts may overlap')+metric('Near estimated trigger',data.coverage.scanHealthy&&s.assessable?n(s.nearTrigger,0):'Unassessed',n(s.assessable,0)+' of '+n(s.tracked,0)+' pledges have a dated estimate · within 15%')+metric('Possible top-ups',s.comparable?n(s.topUps,0):'Unassessed',n(s.comparable,0)+' of '+n(s.tracked,0)+' pledges have comparable loan histories')+metric('Pledges without estimates',n(s.needsTerms,0),'Pledge awareness does not require complete loan terms')+'</div><div class="fl-tabs" role="tablist" aria-label="Liquidation tracker views">'+[['watch','Watchlist'],['evidence','Filing evidence'],['method','Method & coverage']].map(([v,t])=>'<button type="button" role="tab" aria-selected="'+(state.view===v)+'" data-fl-view="'+v+'">'+t+'</button>').join('')+'</div>'+(selected?detail(selected):state.view==='evidence'?evidence():state.view==='method'?method():watch());
+    el.innerHTML=coverage()+'<div class="fl-metrics">'+metric('Stocks with pledges',n(s.pledgedStocks,0),n(s.tracked,0)+' pledge records; repeated excerpts may overlap')+metric('Near estimated trigger',data.coverage.scanHealthy&&s.assessable?n(s.nearTrigger,0):'Unassessed',n(s.assessable,0)+' of '+n(s.tracked,0)+' pledges have a dated estimate · within 15%')+metric('Possible top-ups',s.comparable?n(s.topUps,0):'Unassessed',n(s.comparable,0)+' of '+n(s.tracked,0)+' pledges have comparable loan histories')+metric('Forced-sale reports',n(s.events,0),'Margin calls, pledgee sales or foreclosures in the last 30 days · '+n(s.stressHigh,0)+' pledges at high stress')+'</div><div class="fl-tabs" role="tablist" aria-label="Liquidation tracker views">'+[['watch','Watchlist'],['funds','Hot funds'],['rebalance','ETF rebalance'],['clusters','Cluster selloffs'],['evidence','Filing evidence'],['method','Method & coverage']].map(([v,t])=>'<button type="button" role="tab" aria-selected="'+(state.view===v)+'" data-fl-view="'+v+'">'+t+'</button>').join('')+'</div>'+(selected?detail(selected):state.view==='funds'?funds():state.view==='rebalance'?rebalance():state.view==='clusters'?clusters():state.view==='evidence'?evidence():state.view==='method'?method():watch());
     scheduleExpiry();
   }
   async function load(force=false){
@@ -27540,36 +28372,51 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if(expiryTimer)win.clearTimeout(expiryTimer);
     const controller=new win.AbortController(),requestTimer=win.setTimeout(()=>controller.abort(),15000);
     el.innerHTML='<p class="fl-empty" role="status">Loading SEC collateral disclosures…</p>';
+    loadDistress();
     try{const response=await win.fetch('/api/auth/me?data=forced-liquidation.json',{credentials:'same-origin',cache:'no-store',signal:controller.signal});if(!response.ok)throw new Error(response.status===404?'The tracker has not been collected yet. The next full build will scan SEC filings.':response.status===401||response.status===403?'An Owner session is required.':'The SEC collateral snapshot is unavailable.');const body=await response.json();if(body.version!==1||!Array.isArray(body.rows)||!body.summary||!body.coverage||body.rows.some(r=>!r?.observation||!Array.isArray(r.history)||!Array.isArray(r.missing)||!Array.isArray(r.warnings)))throw new Error('The collateral snapshot is incomplete. Reload after the next successful build.');if(!config.owner())return; data=expireSnapshot(body);render();}
     catch(e){data=null;el.innerHTML=warning(controller.signal.aborted?'The collateral snapshot request timed out. Please retry.':e.message)+'<button type="button" class="book-more" data-fl-retry>Retry</button>';}
     finally{win.clearTimeout(requestTimer);loading=false;}
   }
+  async function loadDistress(){
+    distressError=null;
+    try{
+      const controller=new win.AbortController(),timer=win.setTimeout(()=>controller.abort(),15000);
+      const response=await win.fetch('/api/auth/me?data=leverage-distress.json',{credentials:'same-origin',cache:'no-store',signal:controller.signal}).finally(()=>win.clearTimeout(timer));
+      if(!response.ok)throw new Error(response.status===404?'Hot funds, ETF rebalance and cluster reads appear after the next full build.':'The leverage distress snapshot is unavailable.');
+      const body=await response.json();
+      if(body.version!==1||!body.hotFunds||!body.rebalance||!body.clusters)throw new Error('The leverage distress snapshot is incomplete.');
+      if(!config.owner())return;distress=body;
+    }catch(e){distress=null;distressError=e.name==='AbortError'?'The leverage distress request timed out. Please retry.':e.message;}
+    if(data&&['funds','rebalance','clusters'].includes(state.view))render();
+  }
   function exportCsv(){
     data=expireSnapshot(data);
-    const rows=visibleRows(), cols=['ticker','company','borrower','pledge_disclosed','disclosed_shares','disclosed_share_basis','outstanding_principal_usd','shares_pledged','maintenance_ltv','estimated_trigger_usd','stock_price_usd','quote_as_of','distance_to_trigger_pct','estimate_basis','pledged_to_adv_pct','pledged_to_float_pct','leverage_velocity_pct_30d','possible_collateral_top_up','filing_date','facts_as_of','sec_url','disclosure_state','quote_fresh','disclosure_current','sec_scan_status','engine_eligible','extraction_version','missing_terms'];
+    const rows=watchGroups().flatMap(g=>g.records), cols=['ticker','company','borrower','pledge_disclosed','disclosed_shares','disclosed_share_basis','outstanding_principal_usd','shares_pledged','maintenance_ltv','estimated_trigger_usd','stock_price_usd','quote_as_of','distance_to_trigger_pct','estimate_basis','pledged_to_adv_pct','pledged_to_float_pct','leverage_velocity_pct_30d','possible_collateral_top_up','filing_date','facts_as_of','sec_url','disclosure_state','quote_fresh','disclosure_current','sec_scan_status','engine_eligible','extraction_version','missing_terms','pledge_stress','pledge_stress_band','event_type','shares_sold'];
     const cell=v=>'"'+(typeof v==='number'?String(v):String(v??'').replace(/^\s*[=+\-@\t\r]/,"'$&")).replace(/"/g,'""')+'"';
-    const csv=[cols,...rows.map(r=>[r.symbol,r.company,r.borrower,r.pledge.confirmed,r.pledge.shares,r.pledge.shareBasis,r.principalBorrowed,r.sharesPledged,r.maintenanceLtv,r.triggerPrice,r.market?.price,r.market?.quoteAsOf,r.distancePct,r.estimateBasis,r.pledgedToAdvPct,r.pledgedToFloatPct,r.velocity?.leverageVelocityPct30d,r.velocity?.collateralTopUp??null,r.observation.filingDate,r.observation.asOfDate,r.observation.url,r.state,r.priceFresh,r.current,data.coverage.status,r.engineEligible,r.observation.parserVersion,r.missing.join('; ')])].map(r=>r.map(cell).join(',')).join('\r\n');
+    const csv=[cols,...rows.map(r=>[r.symbol,r.company,r.borrower,r.pledge.confirmed,r.pledge.shares,r.pledge.shareBasis,r.principalBorrowed,r.sharesPledged,r.maintenanceLtv,r.triggerPrice,r.market?.price,r.market?.quoteAsOf,r.distancePct,r.estimateBasis,r.pledgedToAdvPct,r.pledgedToFloatPct,r.velocity?.leverageVelocityPct30d,r.velocity?.collateralTopUp??null,r.observation.filingDate,r.observation.asOfDate,r.observation.url,r.state,r.priceFresh,r.current,data.coverage.status,r.engineEligible,r.observation.parserVersion,r.missing.join('; '),r.stress?.score??null,r.stress?.band??null,r.observation.eventType??null,r.observation.sharesSold??null])].map(r=>r.map(cell).join(',')).join('\r\n');
     const url=win.URL.createObjectURL(new win.Blob([csv],{type:'text/csv;charset=utf-8'})),a=doc.createElement('a');a.href=url;a.download='forced-liquidation-'+data.builtAtIso.slice(0,10)+'.csv';a.click();win.URL.revokeObjectURL(url);
   }
   doc.addEventListener('click',e=>{
-    const el=e.target.closest('[data-fl-view],[data-fl-open],[data-fl-close],[data-fl-retry],[data-fl-export],[data-fl-sort-key]');if(!el||!config.owner())return;
+    const el=e.target.closest('[data-fl-view],[data-fl-open],[data-fl-close],[data-fl-retry],[data-fl-export],[data-fl-sort-key],[data-fl-fund],[data-fl-fund-close]');if(!el||!config.owner())return;
     if(el.hasAttribute('data-fl-retry'))return load(true);if(!data)return;if(el.hasAttribute('data-fl-export'))return exportCsv();
-    if(el.dataset.flView){state.view=el.dataset.flView;state.selected=null;}
+    if(el.dataset.flView){state.view=el.dataset.flView;state.selected=null;state.fund=null;}
+    if(el.dataset.flFund){state.fund=el.dataset.flFund;state.view='funds';}
+    if(el.hasAttribute('data-fl-fund-close'))state.fund=null;
     if(el.dataset.flOpen)state.selected=el.dataset.flOpen;
     if(el.dataset.flSortKey){const key=el.dataset.flSortKey,old=direction();state.direction=state.sort===key?(old==='asc'?'desc':'asc'):['company','distance'].includes(key)?'asc':'desc';state.sort=key;}
     const closing=el.hasAttribute('data-fl-close')?state.selected:null;if(closing)state.selected=null;
     save();render();
     if(el.dataset.flSortKey)root().querySelector('[data-fl-sort-key="'+el.dataset.flSortKey+'"]').focus({preventScroll:true});
     if(el.dataset.flOpen){const title=root().querySelector('.fl-detail h3');if(title){title.tabIndex=-1;title.focus({preventScroll:true});title.scrollIntoView({block:'start'});}}
-    if(closing)Array.from(root().querySelectorAll('[data-fl-open]')).find(b=>b.dataset.flOpen===closing)?.focus();
+    if(closing)Array.from(root().querySelectorAll('[data-fl-open]')).find(b=>b.dataset.flOpen===closing||data.rows.find(r=>r.id===b.dataset.flOpen)?.symbol===data.rows.find(r=>r.id===closing)?.symbol)?.focus();
   });
-  doc.addEventListener('change',e=>{const el=e.target;if(!el.closest('#forced-liquidation-root')||!data)return;if(el.hasAttribute('data-fl-filter'))state.filter=el.value;else if(el.hasAttribute('data-fl-sort')){state.sort=el.value;state.direction=null;}else if(el.hasAttribute('data-fl-ltv'))state.ltv=Number(el.value);else return;save();render();});
+  doc.addEventListener('change',e=>{const el=e.target;if(!el.closest('#forced-liquidation-root')||!data)return;if(el.hasAttribute('data-fl-filter'))state.filter=el.value;else if(el.hasAttribute('data-fl-sort')){state.sort=el.value;state.direction=null;}else if(el.hasAttribute('data-fl-ltv'))state.ltv=Number(el.value);else if(el.hasAttribute('data-fl-disclosure'))state.selected=el.value;else return;save();render();if(el.hasAttribute('data-fl-disclosure'))root().querySelector('[data-fl-disclosure]')?.focus({preventScroll:true});});
   doc.addEventListener('input',e=>{if(!e.target.hasAttribute('data-fl-search')||!data)return;const caret=e.target.selectionStart;state.query=e.target.value;save();render();const input=root().querySelector('[data-fl-search]');input?.focus();if(caret!=null)input?.setSelectionRange(caret,caret);});
   doc.addEventListener('keydown',e=>{if(!e.target.matches('[data-fl-view]')||!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;const buttons=Array.from(root().querySelectorAll('[data-fl-view]')),i=buttons.indexOf(e.target),next=e.key==='Home'?0:e.key==='End'?buttons.length-1:(i+(e.key==='ArrowRight'?1:-1)+buttons.length)%buttons.length;e.preventDefault();const view=buttons[next].dataset.flView;buttons[next].click();root().querySelector('[data-fl-view="'+view+'"]').focus();});
   doc.addEventListener('visibilitychange',()=>{if(!doc.hidden&&data&&config.owner()&&root()?.closest('.page-pane')?.hidden===false)render();});
   return {load};
 })(window, document, {
-    owner: function(){ return HAS_OWNER_ACCESS; }, evidenceVersion: 5,
+    owner: function(){ return HAS_OWNER_ACCESS; }, evidenceVersion: 6,
     symbols: function(){ return Array.isArray(MANIFEST.symbols) ? MANIFEST.symbols : []; },
     pledgeDisclosure: function liquidationPledgeDisclosure(observation, evidenceVersion) {
   const r=observation, confirmed=r.kind==='equity-pledge' && r.issuerVerified===true && r.status!=='released';
@@ -27582,6 +28429,15 @@ function scenarioEventPhase(ev, now = Date.now()) {
   return {confirmed,shares,shareBasis,securityClass:r.securityClass || null,
     quoteComparable:r.shareBasis==='stated-current' && !r.splitUnresolved,
     asOfDate:r.asOfDate || null,filingDate:r.filingDate,sourceUrl:r.url};
+},
+    evidenceKey: function liquidationEvidenceKey(observation) {
+  function ordered(value) {
+    if (Array.isArray(value)) return value.map(ordered);
+    if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map(key => [key, ordered(value[key])]));
+    return value;
+  }
+  const { fragmentId, ...evidence } = observation;
+  return JSON.stringify(ordered(evidence));
 }
   });
   // data/quant.json is the daily analytical research payload.
@@ -29858,13 +30714,21 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var peers = rotSeriesValues(c, 'peers');
     if (vals.length < 2) return '';
     if (peers.length !== vals.length) peers = [];
+    var rawSeries = c && c.series;
+    var dateList = rawSeries && !Array.isArray(rawSeries) && Array.isArray(rawSeries.dates) ? rawSeries.dates : [];
+    var dates = dateList.length >= vals.length ? dateList.slice(dateList.length - vals.length) : [];
     var scaleVals = peers.length ? vals.concat(peers) : vals;
     var lo = Math.min.apply(null, scaleVals), hi = Math.max.apply(null, scaleVals);
     var span = hi - lo || 1, W = 240, H = 48, pad = 3;
+    function xy(v, idx){
+      return {
+        x: vals.length === 1 ? 0 : idx * W / (vals.length - 1),
+        y: pad + (H - pad * 2) * (1 - (v - lo) / span)
+      };
+    }
     function points(series){ return series.map(function(v, idx){
-      var x = vals.length === 1 ? 0 : idx * W / (vals.length - 1);
-      var y = pad + (H - pad * 2) * (1 - (v - lo) / span);
-      return x.toFixed(1) + ',' + y.toFixed(1);
+      var p = xy(v, idx);
+      return p.x.toFixed(1) + ',' + p.y.toFixed(1);
     }).join(' '); }
     var pts = points(vals), peerPts = peers.length ? points(peers) : '';
     var trough = vals.indexOf(lo);
@@ -29874,7 +30738,15 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var stockMove = vals[0] > 0 ? (vals[vals.length - 1] / vals[0] - 1) * 100 : null;
     var peerMove = peers.length && peers[0] > 0 ? (peers[peers.length - 1] / peers[0] - 1) * 100 : null;
     var alpha = stockMove != null && peerMove != null ? stockMove - peerMove : null;
-    return '<div class="rot-spark-wrap"><svg class="rot-spark rot-spark-' + tone + '" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="Recent normalized stock and peer-group paths; dotted vertical line marks the stock low">' +
+    var hover = chHoverAttr(vals.map(function(v, idx){
+      var p = xy(v, idx);
+      var back = vals.length - 1 - idx;
+      var when = dates[idx] || (back === 0 ? 'Latest' : back + ' sessions back');
+      var lines = [when, 'Stock ' + v.toFixed(1) + ' (rebased to 100)'];
+      if (peers.length) lines.push('Peers ' + peers[idx].toFixed(1) + ' (rebased to 100)');
+      return { x: p.x, y: p.y, label: lines.join('\n'), value: v, time: when };
+    }));
+    return '<div class="rot-spark-wrap"><svg class="rot-spark rot-spark-' + tone + '" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="Recent normalized stock and peer-group paths; dotted vertical line marks the stock low"' + hover + '>' +
       '<line class="rot-spark-low" x1="' + tx.toFixed(1) + '" y1="2" x2="' + tx.toFixed(1) + '" y2="46"/>' +
       (peerPts ? '<polyline class="rot-spark-peer" points="' + peerPts + '" fill="none"/>' : '') +
       sparkAreaHtml(pts, H) + '<polyline class="rot-spark-stock" points="' + pts + '" fill="none"/></svg>' +
@@ -31869,21 +32741,22 @@ function scenarioEventPhase(ev, now = Date.now()) {
       }).join('');
       blocks.push(briefBlock(b.kind === 'morning' ? 'Prior-session flow' : 'Notable flow', '<div class="brief-chips">' + flow + '</div>'));
     }
-    // IV standouts — the IV tracker's actionable flags only (names whose ATM
-    // IV is elevated vs their OWN history AND climbing; see gatherBriefSignals).
+    // IV standouts — material trend and Rich flags (names whose ATM
+    // IV is elevated vs their OWN history; Rich need not be climbing).
     // Surging names get the hot color + marker; the tooltip carries the
     // vs-history read and the earnings-vs-unexplained-ramp context.
     if (Array.isArray(b.ivTrend) && b.ivTrend.length){
       var ivt = b.ivTrend.map(function(v){
-        var sub = (v.ivPct != null ? Number(v.ivPct).toFixed(0) + '% IV' : '') +
+        var sub = (v.tier === 'rich' ? 'Rich premium · ' : '') + (v.ivPct != null ? Number(v.ivPct).toFixed(0) + '% IV' : '') +
           (v.chg5dPct != null ? (v.ivPct != null ? ' · ' : '') + (v.chg5dPct >= 0 ? '+' : '') + Number(v.chg5dPct).toFixed(0) + '% 5d' : '');
-        var tierLabel = v.tier ? v.tier.charAt(0).toUpperCase() + v.tier.slice(1) : '';
+        var tierLabel = v.tier === 'rich' ? 'Rich premium, not a rising-trend signal' : v.tier ? v.tier.charAt(0).toUpperCase() + v.tier.slice(1) : '';
         var tip = tierLabel +
+          (v.tier === 'rich' && v.richnessNote ? ' · ' + v.richnessNote : '') +
           (v.meanPct != null ? ' · avg ' + Number(v.meanPct).toFixed(0) + '%' : '') +
           (v.z != null ? ' · ' + (v.z >= 0 ? '+' : '') + Number(v.z).toFixed(1) + 'σ vs own history' : '') +
           (v.earnings && v.earnings.date
             ? ' · earnings ' + v.earnings.date + (v.earnings.impliedMovePct != null ? ' (±' + v.earnings.impliedMovePct + '% implied)' : '')
-            : ' · no scheduled earnings inside 45d — unexplained ramp');
+            : v.tier === 'rich' ? ' · no scheduled earnings inside 45d' : ' · no scheduled earnings inside 45d — unexplained ramp');
         return '<button type="button" class="brief-chip ' + (v.tier === 'surging' ? 'neg' : 'flow') + '" data-sym="' + briefEsc(v.sym) + '" title="' + briefEsc(tip) + '">' +
           (v.tier === 'surging' ? '▲ ' : '') + briefEsc(v.sym) + (sub ? ' <span>' + briefEsc(sub) + '</span>' : '') + '</button>';
       }).join('');
@@ -32381,9 +33254,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
   // Current level, formatted per type (yields in %, USD instruments with $,
   // foreign cash with its currency code). '' when no level is available (#7).
-  function ovnLevelStr(m){
-    if (!m || m.last == null || !isFinite(m.last)) return '';
-    var v = m.last;
+  function ovnLevelStr(m, value){
+    if (!m) return '';
+    var v = value == null ? m.last : value;
+    if (v == null || !isFinite(v)) return '';
     if (m.type === 'rate') return v.toFixed(2) + '%';
     if (m.type === 'vol') return v.toFixed(1);
     var num = Math.abs(v) >= 1000 ? Math.round(v).toLocaleString() : (Math.abs(v) >= 100 ? v.toFixed(1) : v.toFixed(2));
@@ -32775,15 +33649,35 @@ function scenarioEventPhase(ev, now = Date.now()) {
     return (v > 0 ? '+' : '') + (Math.abs(v) >= 100 ? Math.round(v) : Number(v).toFixed(1)) + 'bp';
   }
   function ovnMiniSpark(m){
-    var values = m && Array.isArray(m.series) ? m.series.map(Number).filter(isFinite) : [];
-    if (values.length < 3) return '';
+    var raw = m && Array.isArray(m.series) ? m.series : [];
+    var dates = m && Array.isArray(m.seriesDates) ? m.seriesDates : [];
+    var rows = [];
+    for (var i = 0; i < raw.length; i++){
+      var v = Number(raw[i]);
+      if (!isFinite(v)) continue;
+      rows.push({ v: v, d: dates[i] ? String(dates[i]) : '' });
+    }
+    if (rows.length < 3) return '';
+    var values = rows.map(function(row){ return row.v; });
     var min = Math.min.apply(null, values), max = Math.max.apply(null, values), span = max - min || 1;
-    var pts = values.map(function(v, i){
-      var x = values.length === 1 ? 0 : (i / (values.length - 1)) * 100;
-      var y = 30 - ((v - min) / span) * 26;
+    var pts = rows.map(function(row, i){
+      var x = rows.length === 1 ? 0 : (i / (rows.length - 1)) * 100;
+      var y = 30 - ((row.v - min) / span) * 26;
       return x.toFixed(1) + ',' + y.toFixed(1);
     }).join(' ');
-    return '<svg class="ovn-detail-spark" viewBox="0 0 100 32" preserveAspectRatio="none" role="img" aria-label="Trailing ' + values.length + '-session price path">' + sparkAreaHtml(pts, 32) + '<polyline points="' + pts + '" fill="none" vector-effect="non-scaling-stroke"></polyline></svg>';
+    var hover = chHoverAttr(rows.map(function(row, i){
+      var back = rows.length - 1 - i;
+      var when = row.d || (back === 0 ? 'latest' : back + ' sessions back');
+      return {
+        x: rows.length === 1 ? 0 : (i / (rows.length - 1)) * 100,
+        y: 30 - ((row.v - min) / span) * 26,
+        label: when + '\n' + (ovnLevelStr(m, row.v) || String(row.v)),
+        // A yield's move is read in basis points; drag-compare would show a % of the yield.
+        value: m.type === 'rate' ? undefined : row.v,
+        time: when
+      };
+    }));
+    return '<svg class="ovn-detail-spark" viewBox="0 0 100 32" preserveAspectRatio="none" role="img" aria-label="Trailing ' + rows.length + '-session price path"' + hover + '>' + sparkAreaHtml(pts, 32) + '<polyline points="' + pts + '" fill="none" vector-effect="non-scaling-stroke"></polyline></svg>';
   }
   function overnightDetailHtml(d){
     var sym = overnightState.selectedMarket;
@@ -33125,7 +34019,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     fetch(dataUrl('calendar.json'), { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(json){
-        calendarState.data = (json && Array.isArray(json.events)) ? json : { events: [] };
+        calendarState.data = calendarForDisplay((json && Array.isArray(json.events)) ? json : { events: [] }, CALENDAR_SYMBOLS, CALENDAR_STOCKS);
         // Compatibility with snapshots produced before holidays had their own type.
         calendarState.data.events = calendarState.data.events.map(function(e){
           return /holiday/i.test(String(e.category || '') + ' ' + String(e.title || '')) && (e.type === 'fed' || e.type === 'holiday')
@@ -33246,8 +34140,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
   function calendarSourceMarkup(e){
     if (!e || !e.source) return '';
-    if (e.sourceUrl) {
-      return '<a class="cal-chip-source" href="' + escapeHtml(e.sourceUrl) + '" target="_blank" rel="noopener noreferrer" title="Open the official source">' + escapeHtml(e.source) + '</a>';
+    if (/^https?:\/\//i.test(e.sourceUrl || '')) {
+      return '<a class="cal-chip-source" href="' + escapeHtml(e.sourceUrl) + '" target="_blank" rel="noopener noreferrer" title="Open the event source">' + escapeHtml(e.source) + '</a>';
     }
     return '<span class="cal-chip-source">' + escapeHtml(e.source) + '</span>';
   }
@@ -33268,6 +34162,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (cat === 'fda') return 'FDA';
     if (cat === 'contract') return 'Contract';
     if (cat === 'launch') return 'Launch';
+    if (cat === 'conference') return 'Conference';
     if (cat === 'court') return 'Court';
     if (cat === 'trial') return 'Trial';
     if (cat === 'merger') return 'M&A';
@@ -33552,6 +34447,28 @@ function scenarioEventPhase(ev, now = Date.now()) {
       focus: macroActive.length ? macroActive[0] : (earningsActive.length ? earningsActive[0] : (catalystsActive.length ? catalystsActive[0] : first))
     };
   }
+  function renderCalendarCoverage(data){
+    var host = $('calendar-coverage');
+    if (!host) return;
+    if (data.loadError){ host.hidden = false; host.innerHTML = '<p>Calendar could not be loaded. Event coverage is unavailable.</p>'; return; }
+    var c = data.coverage || {}, health = calendarHealth(data);
+    var missing = c.earningsMissing || [];
+    var sources = Object.entries(c.officialSources || {}).map(function(entry){ return calendarSourceLabel(entry[0]) + ': ' + (entry[1] ? 'loaded' : 'unavailable'); });
+    var summary = c.earningsUniverse != null ? c.earningsScheduled + ' of ' + c.earningsUniverse + ' stocks have an earnings date in this window.' : 'Earnings coverage has not been measured for this snapshot.';
+    host.hidden = false;
+    host.innerHTML = '<p>' + escapeHtml(summary) + ' Updated ' + escapeHtml(data.builtAtIso ? new Date(data.builtAtIso).toLocaleString('en-US', {timeZone:'America/New_York'}) + ' ET' : 'at an unknown time') + '.</p>' +
+      (health.warnings.length ? '<p role="status">' + escapeHtml(health.warnings.join(' ')) + '</p>' : '') +
+      '<details><summary>Sources &amp; coverage gaps</summary>' +
+      (missing.length ? '<p>No upcoming earnings date found: ' + escapeHtml(missing.join(', ')) + '. A company may have reported already or may not have announced its next date.</p>' : '') +
+      (c.tickerInputsMissing && c.tickerInputsMissing.length ? '<p>Ticker inputs unavailable: ' + escapeHtml(c.tickerInputsMissing.join(', ')) + '.</p>' : '') +
+      (c.catalystReview ? '<p>Recent catalyst review: ' + escapeHtml(String(c.catalystReview.reviewed)) + ' of ' + escapeHtml(String(c.catalystReview.universe)) + ' stocks. Reviews must have usable news evidence from the last 24 hours.</p>' +
+        (c.catalystReview.missing.length ? '<p>Recent review unavailable: ' + escapeHtml(c.catalystReview.missing.join(', ')) + '.</p>' : '') : '<p>Catalyst review coverage was not measured in this snapshot.</p>') +
+      (sources.length ? '<p>' + escapeHtml(sources.join(' · ')) + '.</p>' : '') +
+      '<p>Nasdaq lookup: ' + escapeHtml(c.nasdaq ? c.nasdaq.status : 'not measured') + '. Weekly economic feed: ' + escapeHtml(c.reportSources ? c.reportSources.forexFactory : 'not measured') + '.</p>' +
+      (c.companyEvents ? '<p>Company schedules: ' + escapeHtml(String(c.companyEvents.scheduled)) + ' events across ' + escapeHtml(String(c.companyEvents.symbols.length)) + ' stocks. Recent company events stay available for 90 days.</p>' : '') +
+      (c.companyEvents && Object.values(c.companyEvents.sourceChecks || {}).some(function(status){return status === 'unavailable';}) ? '<p>Some company event pages could not be checked. Their previously published dates remain visible.</p>' : '') +
+      '<p>Catalysts combine selected company schedules with dated news and are not exhaustive. Weekly additions cover this week and next week. Estimated dates and cached rows need reconfirmation. An empty day does not rule out unscheduled news, filings, policy announcements or other market events.</p></details>';
+  }
   function renderCalendarBriefing(data){
     var host = $('calendar-briefing');
     if (!host) return;
@@ -33765,8 +34682,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
     // from the prior calendar.json when BLS + FRED both come back empty
     // (each carried row gets ev.stale=true). Surface it so traders know
     // the figures may not reflect today's release schedule.
+    var scheduleTag = e.scheduleEstimated ? '<span class="cal-chip-stale" title="Date follows a baseline schedule and has not been confirmed by a live publisher calendar">Estimated date</span>' : '';
     var staleTag = e.stale
-      ? '<span class="cal-chip-stale" title="Today\'s BLS + FRED fetches were empty — these figures were carried forward from the previous build">Stale</span>'
+      ? '<span class="cal-chip-stale" title="Source unavailable this build. This event was carried forward from the previous calendar">Stale</span>'
       : '';
     return '<div class="cal-chip cal-report cal-report-clickable' + (e.stale ? ' is-stale' : '') + '"' +
       ' data-report-subtype="' + escapeHtml(e.subtype || '') + '" data-report-date="' + escapeHtml(e.date || '') + '"' +
@@ -33777,7 +34695,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         (e.time ? '<span class="cal-chip-time">' + escapeHtml(e.time) + '</span> ' : '') +
         '<span class="cal-chip-text">' + escapeHtml(e.title) + '</span>' +
         '<span class="cal-report-expand" aria-hidden="true">📊</span>' +
-        staleTag +
+        staleTag + scheduleTag +
         src +
       '</div>' +
       grid +
@@ -34538,11 +35456,11 @@ function scenarioEventPhase(ev, now = Date.now()) {
     // The "up next" overview strip is month-independent and always reads the
     // FULL event set, so it stays put as the user walks months or toggles type
     // filters. Fed policy itself now renders in Bonds & USD.
+    renderCalendarCoverage(data);
     renderCalendarBriefing(data);
     renderCalendarOverview(data);
-    // Navigable month window. calendar.json only ever carries today→horizon
-    // events, so the earliest navigable month is the current one (no empty
-    // past months to wander into); the latest is the furthest event's month.
+    // Company schedules retain recent history. Open on today and allow
+    // navigation back to the earliest stored event month.
     var allYms = [];
     data.events.forEach(function(e){
       calEventDateKeys(e).forEach(function(date){ allYms.push(date.slice(0, 7)); });
@@ -34624,7 +35542,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     function renderDayRow(date){
       var rows = groups[date].map(function(e){
         if (e.type === 'report') return renderReportChip(e);
-        var cls = 'cal-chip cal-' + e.type;
+        var cls = 'cal-chip cal-' + e.type + (e.companyEvent ? ' cal-company-event' : '');
         var label;
         if (e.type === 'earnings'){
           var movePill = (e.impliedMovePct != null && isFinite(e.impliedMovePct))
@@ -34652,6 +35570,12 @@ function scenarioEventPhase(ev, now = Date.now()) {
           label = '<span class="cal-chip-tag">' + escapeHtml(calendarTypeLabel(e.type)) + '</span> ' +
             (e.time ? '<span class="cal-chip-time">' + escapeHtml(e.time) + '</span> ' : '') +
             '<span class="cal-chip-text">' + escapeHtml(e.title) + '</span>';
+        }
+        if (e.companyEvent){
+          var end = e.endDate || e.date;
+          var phase = end < todayYmd ? 'Past' : e.date <= todayYmd ? 'Ongoing' : 'Upcoming';
+          var span = fmtCalendarDateShort(e.date) + (e.endDate ? ' – ' + fmtCalendarDateShort(e.endDate) : '');
+          label += '<span class="cal-company-meta">' + escapeHtml(phase + ' · ' + span + (e.time ? ' · ' + e.time : '') + (e.sourceCheckFailed ? ' · source check unavailable' : '')) + '</span>';
         }
         var src = calendarSourceMarkup(e);
         var icon = '<span class="cal-chip-ico">' + calEventIcon(e.type) + '</span>';
@@ -34693,7 +35617,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         var more = evs.length > 3 ? '<span class="cal-mini-more">+' + (evs.length - 3) + '</span>' : '';
         markers = '<span class="cal-cell-events">' + shown + more + '</span>';
       }
-      return '<button type="button" class="' + cls + '" data-cal-day="' + date + '" aria-pressed="' + (isSel ? 'true' : 'false') + '">' +
+      return '<button type="button" aria-label="' + escapeHtml(fmtCalendarDate(date) + (evs.length ? ': ' + evs.map(calMiniTitle).join('; ') : ': No stored events')) + '" class="' + cls + '" data-cal-day="' + date + '" aria-pressed="' + (isSel ? 'true' : 'false') + '">' +
           '<span class="cal-cell-num">' + dayNum + '</span>' + markers +
         '</button>';
     }
@@ -36582,7 +37506,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // --- Heatmap tab --------------------------------------------------------
   // Finviz-style market map. Tiles sized by market cap, colored by today's
   // % change. Data is baked into data/heatmap.json at build time and the
-  // live overlay (opt-in checkbox) polls /api/quotes to recolor while the
+  // live overlay (on by default, with an off switch) polls /api/quotes while the
   // market is open. ETFs are excluded — heatmap.json itself filters them.
   var heatmapState = {
     data: null,
@@ -36594,7 +37518,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
     gradeMap: null, gradeLoading: false, ivMap: null, ivLoading: false,
     period: '1d',      // '1d' | '1w' | '1m' | '3m' | 'ytd' | '1y'
     search: '',        // uppercased ticker filter for highlight
-    live: false,
+    live: VIEWS.get('heatmap.live', true) !== false,
+    liveRequest: 0,
     livePollTimer: null,
     liveOverlay: {},   // symbol -> { ch, sp, rv, hi52, lo52, dayHi, dayLo, marketState, prevSpot }
     liveUpdatedAt: 0,
@@ -36649,7 +37574,14 @@ function scenarioEventPhase(ev, now = Date.now()) {
     fetch(dataUrl('heatmap.json'), { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(json){
-        var tickers = (json && Array.isArray(json.tickers)) ? json.tickers : [];
+        var candidates = (json && Array.isArray(json.tickers)) ? json.tickers : [];
+        var unique = new Map();
+        candidates.forEach(function(row){
+          if (!row || typeof row.t !== 'string' || !row.t.trim()) return;
+          var symbol = row.t.trim().toUpperCase(), previous = unique.get(symbol);
+          if (!previous || (previous.stale && !row.stale)) unique.set(symbol, Object.assign({}, row, { t: symbol }));
+        });
+        var tickers = Array.from(unique.values());
         heatmapState.data = {
           builtAtIso: json && json.builtAtIso,
           refreshedAtIso: json && json.refreshedAtIso,
@@ -36740,6 +37672,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       liveToggle.checked = heatmapState.live;
       liveToggle.addEventListener('change', function(){
         heatmapState.live = !!liveToggle.checked;
+        VIEWS.set('heatmap.live', heatmapState.live ? null : false);
         if (heatmapState.live) startHeatmapLivePolling();
         else stopHeatmapLivePolling(true);
       });
@@ -37070,6 +38003,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var value = t.perf && t.perf[period];
     return value != null && isFinite(value) ? Number(value) : null;
   }
+  function heatmapOverlayFor(symbol){
+    var age = Date.now() - heatmapState.liveUpdatedAt;
+    return heatmapState.live && age >= 0 && age < 90000 ? (heatmapState.liveOverlay[symbol] || null) : null;
+  }
   // Live session change is direct from /api/quotes. Longer returns reuse the
   // baked period baseline implied by {spot, return}, then mark that baseline
   // with the live regular-session spot. This keeps every selected horizon live
@@ -37078,7 +38015,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (!t) return null;
     var period = periodOverride || heatmapState.period || '1d';
     var baked = heatmapBakedReturn(t, period);
-    var o = heatmapState.liveOverlay && heatmapState.liveOverlay[t.t];
+    var o = heatmapOverlayFor(t.t);
     if (!o) return baked;
     if (period === '1d' && o.ch != null && isFinite(o.ch)) return Number(o.ch);
     var bakedSpot = Number(t.sp);
@@ -37091,7 +38028,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     return baked;
   }
   function heatmapEffectiveRvol(t){
-    var o = heatmapState.liveOverlay && heatmapState.liveOverlay[t.t];
+    var o = heatmapOverlayFor(t.t);
     if (o && o.rv != null && isFinite(o.rv)) return o.rv;
     return (t.rv != null && isFinite(t.rv)) ? t.rv : null;
   }
@@ -37939,15 +38876,17 @@ function scenarioEventPhase(ev, now = Date.now()) {
       var mc = Number(btn.getAttribute('data-mc'));
       var ch = Number(btn.getAttribute('data-ch'));
       var sp = Number(btn.getAttribute('data-sp'));
-      var rvAttr = Number(btn.getAttribute('data-rv'));
+      var rvText = btn.getAttribute('data-rv');
+      var rvAttr = rvText == null || rvText === '' ? null : Number(rvText);
       var periodStart = btn.getAttribute('data-period-start') || '';
       var sec = btn.getAttribute('data-sec') || '';
       var ind = btn.getAttribute('data-ind') || '';
       var stale = btn.getAttribute('data-stale') === '1';
-      var live = (heatmapState.liveOverlay && heatmapState.liveOverlay[sym]) || null;
-      var rv = (live && live.rv != null && isFinite(live.rv)) ? live.rv : (isFinite(rvAttr) && rvAttr > 0 ? rvAttr : null);
+      var live = heatmapOverlayFor(sym);
+      var rv = (live && live.rv != null && isFinite(live.rv)) ? live.rv : (rvAttr != null && isFinite(rvAttr) && rvAttr >= 0 ? rvAttr : null);
       var pctCls = ch > 0 ? 'heatmap-tooltip-pct-pos' : (ch < 0 ? 'heatmap-tooltip-pct-neg' : '');
       var rows = '';
+      rows += '<div class="heatmap-tooltip-row"><span>Quote source</span><span>' + (live ? 'Live regular session' : 'Saved snapshot') + '</span></div>';
       rows += '<div class="heatmap-tooltip-row"><span>' + heatmapPeriodLabel() + ' return</span><span class="' + pctCls + '">' + escapeHtml(heatmapFmtPct(ch)) + '</span></div>';
       if (periodStart) rows += '<div class="heatmap-tooltip-row"><span>Baseline date</span><span>' + escapeHtml(periodStart) + '</span></div>';
       if (rv != null){
@@ -37972,14 +38911,15 @@ function scenarioEventPhase(ev, now = Date.now()) {
         (name && name !== sym ? '<div class="heatmap-tooltip-name">' + escapeHtml(name) + '</div>' : '') +
         rows +
         (stale ? '<div class="heatmap-tooltip-stale">⚠ stale — last good print, no fresh quote</div>' : '');
+      tooltip.hidden = false;
       var rootRect = root.getBoundingClientRect();
-      var tipW = 240, tipH = 180;
+      var tipW = tooltip.offsetWidth, tipH = tooltip.offsetHeight;
       var x = ev.clientX - rootRect.left + 14;
       var y = ev.clientY - rootRect.top + 14;
       if (x + tipW > rootRect.width) x = ev.clientX - rootRect.left - tipW - 12;
       if (y + tipH > rootRect.height) y = ev.clientY - rootRect.top - tipH - 12;
-      if (x < 0) x = 4;
-      if (y < 0) y = 4;
+      x = Math.max(Math.max(4, 4 - rootRect.left), Math.min(x, window.innerWidth - rootRect.left - tipW - 4));
+      y = Math.max(Math.max(4, 72 - rootRect.top), Math.min(y, window.innerHeight - rootRect.top - tipH - 64));
       tooltip.style.setProperty('--tip-x', x + 'px');
       tooltip.style.setProperty('--tip-y', y + 'px');
       tooltip.hidden = false;
@@ -37991,11 +38931,11 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
 
   // Live overlay polling — only runs while the heatmap tab is the active
-  // page tab AND the user has toggled live mode on. /api/quotes batches
+  // page tab AND live mode is enabled. /api/quotes batches
   // up to 150 symbols per request so the whole curated list lands in one
   // round trip. Drops back to baked colors silently on a network error.
   function startHeatmapLivePolling(){
-    if (!heatmapState.live) return;
+    if (!heatmapState.live || document.hidden) return;
     if (heatmapState.livePollTimer) return;
     var pane = document.getElementById('page-pane-heatmap');
     if (!pane || pane.hidden) return;
@@ -38003,6 +38943,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     heatmapState.livePollTimer = setInterval(pollHeatmapLiveOnce, 30000);
   }
   function stopHeatmapLivePolling(clearOverlay){
+    heatmapState.liveRequest++;
     if (heatmapState.livePollTimer){
       clearInterval(heatmapState.livePollTimer);
       heatmapState.livePollTimer = null;
@@ -38018,17 +38959,29 @@ function scenarioEventPhase(ev, now = Date.now()) {
     }
   }
   function pollHeatmapLiveOnce(){
+    if (!heatmapState.live || document.hidden) return;
+    var pane = document.getElementById('page-pane-heatmap');
+    if (!pane || pane.hidden) return;
+    if (heatmapState.liveUpdatedAt && Date.now() - heatmapState.liveUpdatedAt >= 90000){
+      heatmapState.liveOverlay = {};
+      heatmapState.liveUpdatedAt = 0;
+      applyHeatmapLiveOverlay(); renderHeatmapBreadth(); renderHeatmapDecision();
+      var delayed = $('heatmap-live-state');
+      if (delayed){ delayed.className = 'heatmap-live-state'; delayed.textContent = 'Quote refresh delayed · showing saved snapshot'; }
+    }
     var data = heatmapState.data;
     if (!data || !Array.isArray(data.tickers) || !data.tickers.length){
       stopHeatmapLivePolling(false);
       return;
     }
     var stateEl = $('heatmap-live-state');
+    var request = ++heatmapState.liveRequest;
     var syms = data.tickers.map(function(t){ return t.t; });
     var url = 'api/quotes?symbols=' + encodeURIComponent(syms.join(','));
     fetch(url, { cache: 'no-store' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(json){
+        if (request !== heatmapState.liveRequest || !heatmapState.live) return;
         var quotes = (json && Array.isArray(json.quotes)) ? json.quotes : [];
         if (!quotes.length) throw new Error('No quotes');
         var marketState = marketStateOfQuotes(quotes);
@@ -38055,7 +39008,11 @@ function scenarioEventPhase(ev, now = Date.now()) {
         data.tickers.forEach(function(row){ if (row && row.t) rowBySymbol[row.t] = row; });
         for (var i = 0; i < quotes.length; i++){
           var q = quotes[i];
-          if (!q || !q.symbol || q.changePct == null) continue;
+          if (!q || !rowBySymbol[q.symbol] || typeof q.changePct !== 'number' || !isFinite(q.changePct) || typeof q.spot !== 'number' || !isFinite(q.spot) || q.spot <= 0) continue;
+          // A response stamp is not a fresh trade. Reject old or future-dated
+          // prints when the provider supplies the underlying session time.
+          var quoteAge = q.regularAsOf ? Date.now() - Date.parse(q.regularAsOf) : NaN;
+          if (!isFinite(quoteAge) || quoteAge < -300000 || quoteAge > 15 * 60000) continue;
           var prev = heatmapState.liveOverlay[q.symbol];
           // Compare cumulative volume with the fraction of a normal 20-day
           // session expected by this clock time. This avoids making every
@@ -38068,7 +39025,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
           var frac = qState.indexOf('REGULAR') === 0
             ? Math.max(0.05, execCumFracExpected(execEtMinutesSinceOpen()))
             : 1;
-          var canRefreshRv = qState.indexOf('PRE') !== 0 && isFinite(dv) && dv > 0 && isFinite(av) && av > 0;
+          var canRefreshRv = q.dayVolume != null && qState.indexOf('PRE') !== 0 && isFinite(dv) && dv >= 0 && isFinite(av) && av > 0;
           var rv = canRefreshRv
             ? Math.round((dv / (av * frac)) * 100) / 100
             : (bakedRow && bakedRow.rv != null ? Number(bakedRow.rv) : null);
@@ -38085,17 +39042,19 @@ function scenarioEventPhase(ev, now = Date.now()) {
           };
         }
         heatmapState.liveOverlay = overlay;
-        heatmapState.liveUpdatedAt = Date.now();
+        var liveCount = Object.keys(overlay).length;
+        heatmapState.liveUpdatedAt = liveCount ? Date.now() : 0;
         heatmapState.liveMarketState = marketState || '';
         applyHeatmapLiveOverlay();
         renderHeatmapBreadth();
         renderHeatmapDecision();
         if (stateEl){
-          stateEl.className = 'heatmap-live-state is-live';
-          stateEl.textContent = 'Live · ' + (marketState || 'updated') + ' · ' + formatDisplayInstant(new Date(), { hour: 'numeric', minute: '2-digit' });
+          stateEl.className = 'heatmap-live-state' + (liveCount ? ' is-live' : ' is-error');
+          stateEl.textContent = liveCount ? 'Live · ' + liveCount + '/' + data.tickers.length + ' stocks · ' + formatDisplayInstant(new Date(), { hour: 'numeric', minute: '2-digit' }) + (liveCount < data.tickers.length ? ' · others use saved snapshot' : '') : 'No fresh live quotes · showing saved snapshot';
         }
       })
       .catch(function(){
+        if (request !== heatmapState.liveRequest || !heatmapState.live) return;
         heatmapState.liveOverlay = {};
         heatmapState.liveUpdatedAt = 0;
         heatmapState.liveMarketState = '';
@@ -38109,7 +39068,6 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
   function applyHeatmapLiveOverlay(){
     if (heatmapState.layout !== 'map'){ heatmapSyncLayout(); return; }
-    var overlay = heatmapState.liveOverlay || {};
     var root = $('heatmap-root');
     if (!root) return;
     var colorBy = heatmapState.colorBy;
@@ -38122,27 +39080,26 @@ function scenarioEventPhase(ev, now = Date.now()) {
       var tile = tiles[i];
       var sym = tile.getAttribute('data-sym');
       if (!sym) continue;
-      var live = overlay[sym];
+      var live = heatmapOverlayFor(sym);
       tile.classList.remove('is-live-up');
       tile.classList.remove('is-live-down');
-      if (!live) continue;
-      var ch = heatmapEffectiveCh(rowBySymbol[sym]);
+      var bakedRow = rowBySymbol[sym];
+      if (!bakedRow) continue;
+      var ch = heatmapEffectiveCh(bakedRow);
       // Live data supersedes the baked row — drop the stale dim if it had one.
-      tile.classList.remove('is-stale');
-      tile.removeAttribute('data-stale');
+      tile.classList.toggle('is-stale', !live && !!bakedRow.stale);
+      if (!live && bakedRow.stale) tile.setAttribute('data-stale', '1');
+      else tile.removeAttribute('data-stale');
       // Prefer the live intraday rvol; fall back to the baked one for the color.
-      var rv = (live.rv != null && isFinite(live.rv))
-        ? live.rv
-        : (function(){ var b = Number(tile.getAttribute('data-rv')); return isFinite(b) && b > 0 ? b : null; })();
+      var rv = heatmapEffectiveRvol(bakedRow);
       var color = heatmapPaintParts(ch, rv, colorBy, period, sym);
       tile.setAttribute('data-dir', color.dir);
       tile.style.setProperty('--hm-intensity', color.intensity.toFixed(3));
       tile.setAttribute('data-ch', ch);
-      if (live.rv != null && isFinite(live.rv)){
-        tile.setAttribute('data-rv', live.rv);
-        tile.classList.toggle('is-hot', live.rv >= HEATMAP_HOT_RVOL);
-      }
-      if (live.sp != null) tile.setAttribute('data-sp', live.sp);
+      tile.setAttribute('data-rv', rv == null ? '' : rv);
+      tile.classList.toggle('is-hot', rv != null && rv >= HEATMAP_HOT_RVOL);
+      var spot = live && live.sp != null ? live.sp : bakedRow.sp;
+      tile.setAttribute('data-sp', spot == null ? '' : spot);
       var pctEl = tile.querySelector('.heatmap-tile-pct');
       if (pctEl) pctEl.textContent = heatmapValueText(sym, ch, rv, colorBy);
       tile.setAttribute('aria-label', sym + ', ' + heatmapPeriodLabel(period) + ' return ' + heatmapFmtPct(ch) +
@@ -38150,7 +39107,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       // Flash a subtle outline when the spot ticked since the last poll
       // so the user can see motion even on small tiles. Cleared on the
       // next poll cycle.
-      if (live.prevSpot != null && live.sp != null && live.sp !== live.prevSpot){
+      if (live && live.prevSpot != null && live.sp != null && live.sp !== live.prevSpot){
         tile.classList.add(live.sp > live.prevSpot ? 'is-live-up' : 'is-live-down');
       }
     }
@@ -45987,10 +46944,14 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // Calendar events under the current type filter.
   function calendarExportRows(){
     var data = (typeof calendarState !== 'undefined' && calendarState.data) ? calendarState.data : { events: [] };
-    var filtered = (data.events || []).filter(function(e){ return calendarTypeMatches(e.type, calendarState.type); });
+    var filtered = (data.events || []).filter(function(e){ return calendarTypeMatches(e.type, calendarState.type) && (!calendarState.viewYm || calEventDateKeys(e).some(function(d){ return d.slice(0,7) === calendarState.viewYm; })); });
     var rows = filtered.map(function(e){
       return {
         date: e.date || '',
+        end_date: e.endDate || '',
+        source: e.source || '',
+        source_url: e.sourceUrl || '',
+        verified_date: e.verifiedAt || '',
         type: e.type || '',
         ticker: e.ticker || e.symbol || '',
         title: e.title || e.label || e.name || '',
@@ -46984,11 +47945,13 @@ function scenarioEventPhase(ev, now = Date.now()) {
       { key:'qqq', label:'QQQ', cls:'qqq', offset:0 },
       { key:'iwm', label:'IWM', cls:'iwm', offset:barW + 2 }
     ];
-    var bars = '', labels = '', bondPts = [], hit = '';
+    var bars = '', labels = '', bondPts = [], hit = '', hoverPts = [];
     chronological.forEach(function(row, idx){
       var x = padL + groupW * (idx + .5);
+      var tip = [fomcDayShortDate(row.date) + ((row.decisionLabel || row.decision) ? ' · ' + (row.decisionLabel || row.decision) : '')];
       series.forEach(function(s){
         var value = fomcDayNum(row.markets && row.markets[s.key] && row.markets[s.key].changePct);
+        tip.push(s.label + ' ' + (value == null ? '—' : fomcDayPct(value)));
         if (value == null) return;
         var height = Math.max(1, Math.abs(value) * yScale);
         var y = value >= 0 ? zero - height : zero;
@@ -46996,6 +47959,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
       });
       var bond = fomcDayBondRead(row);
       if (bond.value != null) bondPts.push({ x:x, y:zero - bond.value * yScale, value:bond.value, row:row });
+      var bondY = bond.value == null ? zero : zero - bond.value * yScale;
+      if (bond.value != null) tip.push('TLT ' + fomcDayPct(bond.value) + (bond.post ? ' from 2pm' : ''));
+      hoverPts.push({ x: x, y: bondY, label: tip.join('\n') });
       labels += '<text class="fomc-day-axis-label" x="' + x.toFixed(1) + '" y="' + (H - 18) + '">' + escapeHtml(fomcDayShortDate(row.date)) + '</text>';
       hit += '<rect class="fomc-day-hit' + (row.date === fomcDaySelected ? ' is-selected' : '') + '" data-fomc-day="' + escapeHtml(row.date) + '" x="' + (x - groupW / 2 + 2).toFixed(1) + '" y="' + padT + '" width="' + Math.max(12, groupW - 4).toFixed(1) + '" height="' + (plotH + 24) + '" tabindex="0" role="button" aria-label="Show ' + escapeHtml(row.label || row.date) + ' details"></rect>';
     });
@@ -47014,7 +47980,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var chart = '<div class="fomc-day-chart-head"><div class="fomc-day-legend">' +
       '<span class="is-spy">SPY</span><span class="is-qqq">QQQ</span><span class="is-iwm">IWM</span><span class="is-tlt">TLT bond reaction</span>' +
       '</div><small>bars = full session &middot; TLT line = 2pm to close when captured</small></div>' +
-      '<div class="fomc-day-chart-scroll"><svg class="fomc-day-chart" viewBox="0 0 ' + W + ' ' + H + '" style="min-width:' + W + 'px" role="img" aria-label="FOMC day returns for SPY, QQQ, IWM and TLT">' +
+      '<div class="fomc-day-chart-scroll"><svg class="fomc-day-chart" viewBox="0 0 ' + W + ' ' + H + '" style="min-width:' + W + 'px" role="img" aria-label="FOMC day returns for SPY, QQQ, IWM and TLT"' + chHoverAttr(hoverPts) + '>' +
       grid + bars + bondPath + bondDots + labels + hit + '</svg></div>';
     var meetingButtons = rows.map(function(row){
       var dissents = Number(row.dissentCount) || 0;

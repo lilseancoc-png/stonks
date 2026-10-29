@@ -27,21 +27,21 @@ try{
     const observations=[
       {...b,symbol:'ATLS',company:'Zulu Holdings',fragmentId:0,disclosedShares:500000,disclosedShareBasis:'stated-current'},
       {...b,symbol:'GAPS',company:'Alpha Holdings',fragmentId:1,disclosedShares:25000,disclosedShareBasis:'incremental-only'},
-      {...b,symbol:'ATLS',company:'Zulu Holdings',fragmentId:2,disclosedShares:500000,disclosedShareBasis:'stated-current'},
+      {...b,symbol:'ATLS',company:'Zulu Holdings',fragmentId:2,borrower:'Separate Holder',facilityKey:'separate-facility',disclosedShares:500000,disclosedShareBasis:'stated-current'},
       {...b,symbol:'SCEN',company:'Unverified collateral',fragmentId:3,disclosedShares:999000,disclosedShareBasis:'stated-current',issuerVerified:false},
     ];
     const payload=buildForcedLiquidationPayload({observations,coverage:preview.payload.coverage,builtAtIso:liquidationFixtureNow});
     await page.route('**/api/auth/me?data=forced-liquidation.json',route=>route.fulfill({json:payload}));
     await page.goto(preview.base+'/?tab=forced-liquidation');await root.locator('.fl-table').waitFor();
-    ok(await root.locator('.fl-table tbody tr').count()===3,'known pledges stay visible without loan terms or quotes');
+    ok(await root.locator('.fl-table tbody tr').count()===2,'known pledges stay visible without loan terms or quotes');
     ok((await root.locator('.fl-metric').first().innerText()).includes('Stocks with pledges\n2'),'stock count deduplicates repeated excerpts');
     ok((await root.innerText()).includes('Pledge disclosed')&&!(await root.innerText()).includes('Needs loan terms'),'presence is explicit rather than blocked on complete terms');
     ok((await root.innerText()).includes('500,000')&&(await root.innerText()).includes('Additional shares; total unknown'),'disclosed quantities retain their basis');
     ok(!(await root.innerText()).includes('999,000'),'unverified collateral is not promoted into a known stock pledge');
     await root.locator('[data-fl-sort-key="shares"]').click();
-    ok((await root.locator('.fl-table tbody [data-fl-open]').allTextContents()).join(',')==='ATLS,ATLS,GAPS','share sort uses displayed disclosed quantity');
+    ok((await root.locator('.fl-table tbody [data-fl-open]').allTextContents()).join(',')==='ATLS,GAPS','share sort uses displayed disclosed quantity');
     await root.locator('[data-fl-sort-key="company"]').click();
-    ok((await root.locator('.fl-table tbody [data-fl-open]').allTextContents()).join(',')==='GAPS,ATLS,ATLS','company sort uses company name rather than ticker order');
+    ok((await root.locator('.fl-table tbody [data-fl-open]').allTextContents()).join(',')==='GAPS,ATLS','company sort uses company name rather than ticker order');
     const downloadPromise=page.waitForEvent('download');await root.locator('[data-fl-export]').click();const download=await downloadPromise,csv=await readFile(await download.path(),'utf8');
     ok(csv.includes('pledge_disclosed')&&csv.includes('disclosed_shares')&&csv.includes('disclosed_share_basis'),'CSV includes awareness and amount provenance');
     const lines=csv.split('\r\n'),columns=lines[0].split(',').map(c=>c.replaceAll('"','')),values=lines[1].split(',').map(c=>c.replaceAll('"',''));
@@ -49,10 +49,14 @@ try{
     await root.locator('[data-fl-open]').filter({hasText:'ATLS'}).first().click();await root.locator('.fl-detail').waitFor();
     ok((await root.locator('.fl-history').innerText()).includes('500,000'),'detail and history retain the same disclosed amount');
     ok((await root.innerText()).includes('Needed to estimate liquidation:'),'missing terms describe the estimate requirement');
+    ok(await root.locator('[data-fl-disclosure] option').count()===2,'distinct facilities for one stock remain reachable');
+    const separate=payload.rows.find(r=>r.borrower==='Separate Holder');
+    await root.locator('[data-fl-disclosure]').selectOption(separate.id);
+    ok((await root.locator('.fl-detail-head').innerText()).includes('Separate Holder')&&(await root.locator('.fl-detail-head').innerText()).includes('separate-facility'),'grouping never combines separate borrower or facility terms');
     const heading=await root.locator('.fl-detail h3').boundingBox();ok(heading.y>=100&&heading.y<1000,'opened detail heading clears the fixed navigation');
     await page.screenshot({path:resolve(output,'awareness-'+width+'-'+theme+'.png'),fullPage:false});
     await root.locator('[data-fl-close]').click();await root.locator('[data-fl-filter]').selectOption('all');
-    ok(await root.locator('.fl-table tbody tr').count()===4&&(await root.innerText()).includes('Stock attribution unverified'),'unresolved attribution remains reviewable separately');
+    ok(await root.locator('.fl-table tbody tr').count()===3&&(await root.innerText()).includes('Stock attribution unverified'),'unresolved attribution remains reviewable separately');
     ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'awareness layout fits the viewport');
     ok(errors.length===0,'awareness has no browser errors');await context.close();
   }
@@ -102,7 +106,7 @@ try{
     ok(sortedCsv.includes('quote_fresh')&&sortedCsv.includes('sec_scan_status'),'CSV carries uncertainty and source state');
     await page.reload();await root.locator('.fl-table').waitFor();ok((await root.locator('.fl-table tbody [data-fl-open]').allTextContents()).join(',')==='SCEN,GAPS,ATLS','header sort persists');
     await root.locator('[data-fl-sort]').selectOption('distance');ok(await root.locator('[data-fl-sort-key="distance"]').locator('..').getAttribute('aria-sort')==='ascending','sort menu takes control of sorting');
-    await root.locator('[data-fl-view="watch"]').focus();await page.keyboard.press('ArrowRight');ok(await root.locator('[data-fl-view="evidence"]').getAttribute('aria-selected')==='true','keyboard changes view');
+    await root.locator('[data-fl-view="watch"]').focus();await page.keyboard.press('ArrowRight');ok(await root.locator('[data-fl-view="funds"]').getAttribute('aria-selected')==='true','keyboard changes view');
     await page.keyboard.press('End');ok(await root.locator('[data-fl-view="method"]').getAttribute('aria-selected')==='true');await page.keyboard.press('Home');
     await root.locator('[data-fl-filter]').selectOption('topups');ok((await root.locator('.fl-table tbody tr').count())===1);
     await root.locator('[data-fl-open]').click();await root.locator('.fl-detail').waitFor();
@@ -124,6 +128,21 @@ try{
     await root.locator('[data-fl-view="evidence"]').click();ok((await root.locator('.fl-evidence').count())===4);
     await page.reload();await root.locator('.fl-evidence').first().waitFor();ok((await root.locator('[data-fl-view="evidence"]').getAttribute('aria-selected'))==='true','view persists');
     await root.locator('[data-fl-view="method"]').click();ok((await root.innerText()).includes('Trigger price = outstanding loan ÷ (pledged shares × maintenance LTV)'));
+    await root.locator('[data-fl-view="funds"]').click();await root.locator('[data-fl-fund]').first().waitFor();
+    ok((await root.locator('[data-fl-fund]').count())===2,'hot funds listed');ok((await root.innerText()).includes('Alert · 40%+'),'alert level shown');
+    ok((await root.innerText()).includes('Our stocks held by hot funds'),'stock links shown');
+    await page.evaluate(()=>{document.activeElement?.blur();scrollTo(0,0);});await page.screenshot({path:resolve(output,'funds-'+width+'-'+theme+'.png'),fullPage:false});
+    await root.locator('[data-fl-fund]').first().click();await root.locator('.fl-detail').waitFor();
+    ok((await root.locator('.fl-detail tbody tr').count())===6,'top holdings listed');ok((await root.locator('.fl-detail a').first().getAttribute('href')).startsWith('https://www.sec.gov/'),'filing links stay on sec.gov');
+    ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'fund detail fits');
+    await page.evaluate(()=>{document.activeElement?.blur();scrollTo(0,0);});await page.screenshot({path:resolve(output,'fund-detail-'+width+'-'+theme+'.png'),fullPage:false});
+    await root.locator('[data-fl-fund-close]').click();await root.locator('[data-fl-view="rebalance"]').click();
+    ok((await root.innerText()).includes('Sell $57'),'rebalance estimate shown');
+    await page.evaluate(()=>{document.activeElement?.blur();scrollTo(0,0);});await page.screenshot({path:resolve(output,'rebalance-'+width+'-'+theme+'.png'),fullPage:false});
+    await root.locator('[data-fl-view="clusters"]').click();ok((await root.innerText()).includes('Cluster selloff flagged today'),'cluster read shown');ok((await root.innerText()).includes('Shadow signal'),'cluster labeled shadow');
+    ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'clusters fit');
+    await page.evaluate(()=>{document.activeElement?.blur();scrollTo(0,0);});await page.screenshot({path:resolve(output,'clusters-'+width+'-'+theme+'.png'),fullPage:false});
+    await root.locator('[data-fl-view="method"]').click();
     for(const nextWidth of [390,1024,width]){await page.setViewportSize({width:nextWidth,height:1100});ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'resize fits '+nextWidth);}
     await root.locator('[data-fl-view="watch"]').click();await page.reload();await root.locator('.fl-table').waitFor();
     await page.goto(preview.base+'/?tab=picks',{waitUntil:'domcontentloaded'});await page.locator('#picks-liquidation-watch').waitFor();

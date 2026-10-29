@@ -22,17 +22,31 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## [Unreleased]
 
+### Changed
+
+- Market briefs include public streak reversals and moving averages, Pattern lab outcomes with sample limits, saved overnight calls, insider purchases, financing and buybacks, CapEx guidance changes, wholesale memory prices and Rich option premium. Owner research stays excluded; source freshness and public page links have regression checks.
+
 ### Fixed
 
 - Stage only the eight required browser assets in Vercel's public output directory and exclude build/scanner sources, documentation, and repository metadata from deployment uploads. (#707)
 - Request an uncompressed R2 lock with a strong ETag so a released Webull paper lock can be acquired conditionally; fail closed on malformed locks or repeated conflicts, expose Owner-only diagnostics, and report mirror failures in a separate workflow health job.
 - Reconcile Webull grouped option positions using confirmed broker order legs and stable position identities; prepare manual spread adoption without replaying its entry, retain separate overlapping manual holdings, and exclude manual entries from automatic fill timing and slippage.
 
-## 2026-10-28
+## 2026-10-29
 
 ### Added
 
 - Historical Data adds a **Before, on and after FOMC decisions** study: the S&P 500 index over the three sessions before each scheduled decision since 1994, the decision day and the three sessions after, split into hikes, cuts and holds (from the Fed's own list of rate changes) and compared with any stretch of the same length. The FOMC "Resembles now" card opens five days ahead and links to it, and a new data check compares the rate-change list with the effective fed funds rate.
+
+## 2026-10-28
+
+### Added
+
+- Owner **Party tracker** compares S&P 500 and sector-ETF returns while Democrats or Republicans held the presidency, the House, or the Senate, from Bush’s inauguration through the latest close. Each presidency and each House-and-Senate stretch can be opened on its own. The S&P line can be followed with the pointer or dragged between two dates, and every results table reverses when its column is clicked again. No AI.
+- Forced Liquidation Tracker reads Form 144 and 8-K filings and flags reported forced sales (margin calls, pledgee or lender sales, foreclosures); risk-factor wording never counts. 13D pledges without margin terms now open up to two loan exhibits.
+- Every current pledge gets a 0–100 pledge stress score from the drop since disclosure, the drop from the 52-week high, days of volume, share of float, the modeled trigger and any forced-sale report.
+- New Owner views on the tracker: **Hot funds** ($3B+ 13F books up 30% (watch) or 40% (alert) YTD or last quarter, their leverage tells, top 15 holdings priced daily, recent 13D/G and Form 4 filings, and our stocks they hold), **ETF rebalance** (estimated end-of-day trades of single-stock leveraged ETFs) and **Cluster selloffs** (a logged-only Archegos-style detector). No AI calls.
+- **Forced Liquidation Tracker accuracy pass.** Hot-fund returns use consensus start and end prices for every holding, restate stock splits, revalue filer unit slips, and gate each YTD/QoQ figure on its own price coverage. Live top-holding moves are checked against our split-adjusted close or the 52-week range and skipped (with the reason shown) on a currency mismatch, a wrong listing or an ambiguous split; daily snapshots need 80% of the value priced. CUSIP lookups are US listings only. Form 144 events need pledgee, margin-call, foreclosure or secured-party wording, and a pending sale date counts as current. Cluster selloffs use the U-shaped volume curve and leave out ETFs and post-earnings drops. (#712)
 
 - Historical Data and Pattern lab measure seasonal and election-cycle windows on the S&P 500 index since 1950 (18 midterm years, 1954–2022, instead of SPY's 8) and the Nasdaq Composite since 1971; both are now the default market.
 - Historical Data runs data checks every build (missing sessions, off-calendar dates, SPY-vs-index date-label alignment, FRED dating, FOMC/WWDC/event/release date lists) and shows them in Sources as "Data checks"; `scripts/audit-historical-quality.mjs` runs the same checks on raw downloads.
@@ -55,6 +69,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Added
 
+- Add Investment outlook and Trading outlook inside the Owner Unified Signal Engine: price-based financial scenarios with temporary assumptions, streak and price setups, dated IV and peer context, and historical stock outcomes. Keep their conclusions separate from the existing Decision and Top Picks execution, and withhold unsupported or stale inputs. (#713)
 - Historical Data gains an **Events & analogs** view (Owner): dated event studies for war, pandemics, oil disruptions, tariffs, mania peaks, short squeezes and bank runs; every S&P 500 close down 5% or more since 1950 with 1987 Black Monday; every Nasdaq 4% drop since 1971 (bounce, then lower close); triple witching against other expirations; AAPL around every WWDC keynote; and S&P 500 moves on FOMC, CPI and jobs days. A "Resembles now" panel matches the latest close against these patterns with deterministic price, calendar and headline-plus-reaction checks. New free inputs (S&P 500 since 1950, Nasdaq since 1971, AAPL, KRE, GME, FRED release dates) ride the existing daily refresh; no AI calls. `lib/historical-events.mjs`, `scripts/historical-events-smoke.mjs`.
 - The Brief's Historical playbook adds pandemic, tariff and bank-run cues (fresh headline plus a risk-off tape) and its WWDC cue follows the keynote date. `scripts/build.mjs`.
 - Earnings Forecast now covers the 20 largest covered companies (was 10) and re-ranks the list once each calendar quarter. New names get a "New" tag; names that leave move under a "Left the list" divider with their frozen forecast and record, and their filings keep refreshing until that forecast can be scored.

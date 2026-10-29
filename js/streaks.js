@@ -1,7 +1,6 @@
 // Streaks tab: renders data/streaks.json -- per-ticker daily green/red
-// streak runs computed at build time from Yahoo daily closes. Two columns,
-// "Bullish streaks (>=2 green days)" and "Bearish streaks (>=2 red days)",
-// sorted by streak length and cumulative move.
+// streak runs computed at build time from Yahoo daily closes. Active runs
+// share filters and sorting with a collapsible recently-snapped watchlist.
 
 const $ = (id) => document.getElementById(id);
 
@@ -59,6 +58,7 @@ const streaksState = {
   query: "",
   data: null,
   sortBound: false,
+  snappedCollapsed: false,
 };
 
 async function loadStreaks() {
@@ -75,7 +75,8 @@ async function loadStreaks() {
     streaksState.data = json;
     render(root, footer, eyebrow, json);
   } catch (err) {
-    root.innerHTML = `<p class="streaks-empty">Couldn't load streaks (${escapeHtml(err.message || err)}).</p>`;
+    root.innerHTML = `<p class="streaks-empty">Couldn't load streaks (${escapeHtml(err.message || err)}).</p><button type="button" class="streaks-btn" data-streak-retry>Retry</button>`;
+    root.querySelector('[data-streak-retry]').addEventListener('click', () => loadStreaks());
   }
 }
 
@@ -83,6 +84,18 @@ function rerender() {
   if (streaksState.data) {
     render($("streaks-root"), $("streaks-footer"), $("streaks-eyebrow"), streaksState.data);
   }
+}
+
+// Programmatic actions must update the same saved settings as the toolbar.
+function saveStreakControls() {
+  const views = V();
+  if (!views) return;
+  views.set("sel:streaks.sort", streaksState.sort);
+  views.set("sel:streaks.min", String(streaksState.minStreak));
+  views.set("sel:streaks.sector", streaksState.sector);
+  views.set("rev:streaks", false);
+  const flip = document.querySelector('[data-sort-flip="streaks"]');
+  if (flip) flip.outerHTML = views.flipHtml("streaks");
 }
 
 function bindStreaksControls() {
@@ -93,6 +106,7 @@ function bindStreaksControls() {
   const views = V();
   sel.value = streaksState.sort;
   if (views) {
+    streaksState.snappedCollapsed = views.get("streaks.snappedCollapsed", false) === true;
     streaksState.sort = views.remember(sel, "streaks.sort") || "streak";
     if (STREAK_SORTS.indexOf(streaksState.sort) === -1) streaksState.sort = "streak";
     views.attachFlip(sel, "streaks", rerender);
@@ -182,63 +196,75 @@ function streakWindowDays(t) {
 // Shared sort / view helpers from app.js (absent if app.js failed to load).
 const V = () => window.STONKS_VIEWS || null;
 const STREAK_SORTS = ["streak", "cum", "vol", "last", "tol", "up", "down", "grade", "sector", "alpha"];
-const signedCum = (t) => Number(t?.current?.cumulativePct) || 0;
 function streakGrade(t) {
   const v = V();
   return v && v.gradeTotal ? v.gradeTotal(String(t.symbol || "").toUpperCase(), rerender) : null;
 }
 
-function makeSorter(mode) {
-  // Each column is filtered to one direction first, so secondary tiebreakers
-  // can stay direction-agnostic (we just compare magnitudes).
+// Run-derived fields refer to the ended run in the snapped column.
+function makeSorter(mode, runFor = (t) => t.current) {
+  const days = (t) => Number(runFor(t)?.sameDays ?? runFor(t)?.days ?? 0);
+  const signedCum = (t) => Number(runFor(t)?.cumulativePct) || 0;
+  // Signed up/down sorts preserve direction; magnitude sorts work across
+  // both colors in the snapped column as well as the active columns.
   if (mode === "up") {
-    return (a, b) => signedCum(b) - signedCum(a) || streakSignalDays(b) - streakSignalDays(a);
+    return (a, b) => signedCum(b) - signedCum(a) || days(b) - days(a);
   }
   if (mode === "down") {
-    return (a, b) => signedCum(a) - signedCum(b) || streakSignalDays(b) - streakSignalDays(a);
+    return (a, b) => signedCum(a) - signedCum(b) || days(b) - days(a);
   }
   if (mode === "grade") {
     return (a, b) => {
       const ga = streakGrade(a), gb = streakGrade(b);
       if (ga == null || gb == null) return ga == null ? (gb == null ? 0 : 1) : -1;
-      return gb - ga || streakSignalDays(b) - streakSignalDays(a);
+      return gb - ga || days(b) - days(a);
     };
   }
   if (mode === "sector") {
     const sectors = (window.STONKS_MANIFEST && window.STONKS_MANIFEST.sectors) || {};
     const sec = (t) => sectorGroupFor(sectors, t.symbol) || "~";
-    return (a, b) => sec(a).localeCompare(sec(b)) || streakSignalDays(b) - streakSignalDays(a);
+    return (a, b) => sec(a).localeCompare(sec(b)) || days(b) - days(a);
   }
   if (mode === "alpha") {
     return (a, b) => String(a.symbol || "").localeCompare(String(b.symbol || ""));
   }
   if (mode === "cum") {
-    return (a, b) => Math.abs(b.current.cumulativePct || 0) - Math.abs(a.current.cumulativePct || 0)
-      || streakSignalDays(b) - streakSignalDays(a);
+    return (a, b) => Math.abs(runFor(b).cumulativePct || 0) - Math.abs(runFor(a).cumulativePct || 0)
+      || days(b) - days(a);
   }
   if (mode === "last") {
     return (a, b) => (Number(b.lastClose) || 0) - (Number(a.lastClose) || 0);
   }
   if (mode === "vol") {
     // Strongest volume conviction first; names with no volume read sink.
-    const vr = (t) => Number(t.current.volumeRatio) || 0;
+    const vr = (t) => Number(runFor(t).volumeRatio) || 0;
     return (a, b) => vr(b) - vr(a)
-      || streakSignalDays(b) - streakSignalDays(a);
+      || days(b) - days(a);
   }
   if (mode === "tol") {
     // "Tolerance bank used" — bigger value = streak closer to breaking.
     const bank = (t) => {
-      const tol = Number(t.current.tolerancePct || 0);
-      const tolBreak = Number(t.current.toleranceBreakPct || 1.5);
+      if (runFor(t).tolerancePct == null) return -1;
+      const tol = Number(runFor(t).tolerancePct || 0);
+      const tolBreak = Number(runFor(t).toleranceBreakPct || 1.5);
       return tolBreak > 0 ? tol / tolBreak : 0;
     };
     return (a, b) => bank(b) - bank(a)
-      || (b.current.counterDays || 0) - (a.current.counterDays || 0)
-      || streakSignalDays(b) - streakSignalDays(a);
+      || (runFor(b).consecutiveCounterDays ?? runFor(b).counterDays ?? 0) - (runFor(a).consecutiveCounterDays ?? runFor(a).counterDays ?? 0)
+      || days(b) - days(a);
   }
   // Default: streak length, then cumulative magnitude.
-  return (a, b) => streakSignalDays(b) - streakSignalDays(a)
-    || Math.abs(b.current.cumulativePct || 0) - Math.abs(a.current.cumulativePct || 0);
+  return (a, b) => days(b) - days(a)
+    || Math.abs(runFor(b).cumulativePct || 0) - Math.abs(runFor(a).cumulativePct || 0);
+}
+
+// The builder owns materiality; the UI consistently enforces its recency and
+// minimum same-direction-day contract, including older cached payloads.
+function hasRecentSnap(t, minDays = 3) {
+  const e = t?.lastEnded;
+  return !!e && (e.color === "green" || e.color === "red")
+    && Number(e.sameDays ?? e.days) >= Math.max(3, minDays)
+    && Number.isInteger(e.sessionsAgo) && e.sessionsAgo >= 0 && e.sessionsAgo <= 2;
 }
 
 function streakMarketDayParts(date) {
@@ -302,7 +328,7 @@ function streakCandidateMeta(t) {
   const cum = Number(cur.cumulativePct || 0);
   const tol = Number(cur.tolerancePct || 0);
   const tolBreak = Number(cur.toleranceBreakPct || 1.5);
-  const counterDays = Number(cur.counterDays || 0);
+  const counterDays = Number(cur.consecutiveCounterDays ?? cur.counterDays ?? 0);
   const counterBreak = Number(cur.counterDaysBreak || 4);
   const bankPct = Math.max(
     tolBreak > 0 ? (tol / tolBreak) * 100 : 0,
@@ -316,9 +342,7 @@ function streakCandidateMeta(t) {
     && volumeRatio >= 1.05
     && !fragile;
   const stretched = days >= 5 || Math.abs(cum) >= 8;
-  const snapped = !!(ended
-    && Number(ended.days || 0) >= 2
-    && Number(ended.sessionsAgo || 0) <= 2);
+  const snapped = hasRecentSnap(t);
   let rank = days * 100 + Math.abs(cum) * 20;
   if (snapped) {
     rank += 100000
@@ -504,8 +528,7 @@ function render(root, footer, eyebrow, { builtAtIso, tickers }) {
   const q = streaksState.query;
   const minRun = streaksState.minStreak || 2;
   const sectorPick = streaksState.sector;
-  const passes = (t) => {
-    if (streakSignalDays(t) < minRun) return false;
+  const matchesIdentity = (t) => {
     const sym = String(t.symbol || "").toUpperCase();
     if (q && !sym.includes(q)) return false;
     if (sectorPick && sectorGroupFor(sectors, sym) !== sectorPick) return false;
@@ -515,21 +538,23 @@ function render(root, footer, eyebrow, { builtAtIso, tickers }) {
 
   const sorter = makeSorter(streaksState.sort);
   const views = V();
-  const flip = (arr) => (views && views.reversed("streaks") ? arr.reverse() : arr);
+  const flip = (arr, runFor = (t) => t.current) => {
+    const missing = (t) => streaksState.sort === "vol" ? !(Number(runFor(t)?.volumeRatio) > 0)
+      : streaksState.sort === "grade" ? streakGrade(t) == null
+      : streaksState.sort === "tol" ? runFor(t)?.tolerancePct == null : false;
+    return views ? views.applyDir(arr, "streaks", missing) : arr;
+  };
+  const passes = (t) => streakSignalDays(t) >= minRun && matchesIdentity(t);
   const greens = flip(allGreens.filter(passes).sort(sorter));
   const reds = flip(allReds.filter(passes).sort(sorter));
+  const allSnapped = tickers.filter((t) => hasRecentSnap(t));
+  const snapped = flip(allSnapped.filter((t) => hasRecentSnap(t, minRun) && matchesIdentity(t))
+    .sort(makeSorter(streaksState.sort, (t) => t.lastEnded)), (t) => t.lastEnded);
   const asTable = !!(views && views.viewMode("streaks") === "table");
-  const decisionUniverse = tickers.filter((t) =>
-    streakSignalDays(t) >= 2
-    || (t?.lastEnded && Number(t.lastEnded.days || 0) >= 2 && Number(t.lastEnded.sessionsAgo || 0) <= 2));
-  const decisionTickers = decisionUniverse.filter((t) => {
-    const sym = String(t.symbol || "").toUpperCase();
-    if (q && !sym.includes(q)) return false;
-    if (sectorPick && sectorGroupFor(sectors, sym) !== sectorPick) return false;
-    const activeDays = streakSignalDays(t);
-    const endedDays = Number(t?.lastEnded?.days || 0);
-    return activeDays >= minRun || endedDays >= minRun;
-  });
+  const decisionUniverse = tickers.filter((t) => streakSignalDays(t) >= 2 || hasRecentSnap(t));
+  const decisionTickers = decisionUniverse
+    .filter((t) => matchesIdentity(t) && (streakSignalDays(t) >= minRun || hasRecentSnap(t, minRun)))
+    .map((t) => hasRecentSnap(t, minRun) ? t : { ...t, lastEnded: null });
   const fullDecisionStats = streakDecisionStats(decisionUniverse);
   const decision = renderStreakDecision(decisionTickers, builtAtIso, {
     bull: allGreens.length,
@@ -540,13 +565,8 @@ function render(root, footer, eyebrow, { builtAtIso, tickers }) {
   }, filterActive);
 
   if (eyebrow) {
-    eyebrow.textContent = `${allGreens.length} bullish · ${allReds.length} bearish`;
+    eyebrow.textContent = `${allGreens.length} bullish · ${allReds.length} bearish · ${allSnapped.length} snapped`;
   }
-
-  // "Just snapped" — genuine streaks that broke within the last couple of
-  // sessions (data.lastEnded). Surfaced as a mean-reversion watchlist above
-  // the active columns. Independent of the active-streak filters.
-  renderSnapped($("streaks-snapped"), tickers, sectors);
 
   // Section summary — shows the shape of today's streaks at a glance:
   // longest active runs on each side, a length-mix distribution, and the
@@ -604,6 +624,8 @@ function render(root, footer, eyebrow, { builtAtIso, tickers }) {
   root.innerHTML = `
     ${decision}
     ${summary}
+    <div class="streaks-board${streaksState.snappedCollapsed ? " is-snapped-collapsed" : ""}">
+    <div class="streaks-active">
     ${asTable ? streakTableHtml(flip(greens.concat(reds).sort(sorter)), sectors, views) : `<div class="streaks-cols">
       <div class="streaks-col">
         <h3 class="streaks-col-title streaks-col-bull">
@@ -621,7 +643,24 @@ function render(root, footer, eyebrow, { builtAtIso, tickers }) {
           ? reds.map((t) => entry(t, sectors)).join("")
           : emptyCol("red")}
       </div>
-    </div>`}`;
+    </div>`}
+    </div>
+    ${snappedPanelHtml(snapped, allSnapped.length, sectors, filterActive)}
+    </div>`;
+
+  const panel = $("streaks-snapped");
+  const syncSnappedPanel = () => {
+    if (!panel.isConnected) return;
+    streaksState.snappedCollapsed = !panel.open;
+    panel.closest(".streaks-board").classList.toggle("is-snapped-collapsed", !panel.open);
+    if (views) views.set("streaks.snappedCollapsed", !panel.open);
+  };
+  const setSnappedOpen = (open) => { panel.open = open; syncSnappedPanel(); };
+  panel.addEventListener("toggle", syncSnappedPanel);
+  panel.querySelector('.streaks-snapped-head').addEventListener('click', (event) => {
+    event.preventDefault();
+    setSnappedOpen(!panel.open);
+  });
 
   if (footer && builtAtIso) {
     const d = new Date(builtAtIso);
@@ -638,16 +677,14 @@ function render(root, footer, eyebrow, { builtAtIso, tickers }) {
       const sym = String(btn.dataset.streakFocus || "").toUpperCase();
       const match = (streaksState.data?.tickers || [])
         .find((t) => String(t?.symbol || "").toUpperCase() === sym);
-      const snapOnly = Number(match?.current?.days || 0) < streaksState.minStreak
-        && Number(match?.lastEnded?.days || 0) >= streaksState.minStreak;
-      if (snapOnly) {
-        const snapButtons = document.querySelectorAll("#streaks-snapped [data-grade]");
-        for (const snapButton of snapButtons) {
-          if (String(snapButton.dataset.grade || "").toUpperCase() === sym) {
-            snapButton.focus({ preventScroll: true });
-            snapButton.scrollIntoView({ behavior: "smooth", block: "center" });
-            break;
-          }
+      if (hasRecentSnap(match, streaksState.minStreak)) {
+        const panel = $("streaks-snapped");
+        setSnappedOpen(true);
+        const button = [...panel.querySelectorAll("[data-grade]")]
+          .find((el) => el.dataset.grade === sym);
+        if (button) {
+          button.focus({ preventScroll: true });
+          button.scrollIntoView({ behavior: "smooth", block: "center" });
         }
         return;
       }
@@ -656,7 +693,7 @@ function render(root, footer, eyebrow, { builtAtIso, tickers }) {
       if (input) input.value = sym;
       rerender();
       requestAnimationFrame(() => {
-        const gradeButtons = root.querySelectorAll(".streaks-row [data-grade]");
+        const gradeButtons = root.querySelectorAll(".streaks-active [data-grade]");
         for (const gradeButton of gradeButtons) {
           if (String(gradeButton.dataset.grade || "").toUpperCase() === sym) {
             gradeButton.closest(".streaks-row")?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -671,6 +708,7 @@ function render(root, footer, eyebrow, { builtAtIso, tickers }) {
       streaksState.sort = btn.dataset.streakSort || "streak";
       const select = $("streaks-sort-select");
       if (select) select.value = streaksState.sort;
+      saveStreakControls();
       rerender();
     });
   });
@@ -688,56 +726,79 @@ function render(root, footer, eyebrow, { builtAtIso, tickers }) {
       if (minSelect) minSelect.value = "2";
       if (sectorSelect) sectorSelect.value = "";
       if (search) search.value = "";
+      saveStreakControls();
       rerender();
     });
   });
 }
 
-// "Just snapped" strip — names whose genuine streak broke in the last couple
-// of sessions (computeStreakForTicker stamps data.lastEnded only when recent).
-// A snapped run is the classic mean-reversion setup, so it gets its own row
-// above the active columns rather than being lost when the run ends.
-function renderSnapped(host, tickers, sectors) {
-  if (!host) return;
-  const snapped = tickers
-    .filter((t) => t && t.lastEnded && t.lastEnded.days >= 2)
-    .sort((a, b) =>
-      (a.lastEnded.sessionsAgo - b.lastEnded.sessionsAgo)
-      || (Math.abs(b.lastEnded.cumulativePct) - Math.abs(a.lastEnded.cumulativePct)));
-  if (!snapped.length) {
-    host.hidden = true;
-    host.innerHTML = "";
-    return;
-  }
-  const chips = snapped.map((t) => {
-    const sym = String(t.symbol || "?").toUpperCase();
-    const e = t.lastEnded;
-    const wasGreen = e.color === "green";
-    const sideCls = wasGreen ? "is-green" : "is-red";
-    const arrow = wasGreen ? "▲" : "▼";
-    // After a green run breaks the bias is a pullback; after a red run, a bounce.
-    const revert = wasGreen ? "watch pullback" : "watch bounce";
-    const cum = (e.cumulativePct >= 0 ? "+" : "−") + Math.abs(e.cumulativePct).toFixed(1) + "%";
-    const tip = `${sym}: ${e.days}d ${e.color} run (${cum}) snapped ${fmtSessionsAgo(e.sessionsAgo)} — ${e.brokeBy}`;
-    return `
-      <button type="button" class="streaks-snap-chip ${sideCls}" data-grade="${escapeHtml(sym)}" title="${escapeHtml(tip)}">
-        <span class="streaks-snap-arrow" aria-hidden="true">${arrow}</span>
-        <span class="streaks-snap-sym">${escapeHtml(sym)}</span>
-        <span class="streaks-snap-run">${e.days}d ${escapeHtml(e.color)} · ${cum}</span>
-        <span class="streaks-snap-meta">${escapeHtml(fmtSessionsAgo(e.sessionsAgo))} · ${revert}</span>
-      </button>`;
-  }).join("");
-  host.hidden = false;
-  host.innerHTML = `
-    <div class="streaks-snapped-head">
+// Always present, even for an empty filtered view, so collapse and counts
+// remain predictable. Native details provides keyboard and screen-reader support.
+function snappedPanelHtml(snapped, total, sectors, filterActive) {
+  const count = filterActive ? `${snapped.length} of ${total}` : String(total);
+  return `<details id="streaks-snapped" class="streaks-snapped"${streaksState.snappedCollapsed ? "" : " open"}>
+    <summary class="streaks-snapped-head">
       <span class="streaks-snapped-title">Just snapped</span>
-      <span class="streaks-snapped-sub">genuine runs that broke in the last ${tickers.some((t)=>t.lastEnded && t.lastEnded.sessionsAgo>1)?"few":"couple of"} sessions — mean-reversion candidates</span>
-      <span class="streaks-snapped-count">${snapped.length}</span>
+      <span class="streaks-snapped-count">${count}</span>
+      <span class="streaks-snapped-toggle" aria-hidden="true"></span>
+    </summary>
+    <div class="streaks-snapped-body">
+      <p class="streaks-snapped-sub">Material runs that broke in the latest 3 sessions. Watch for a bounce after red, or a pullback after green.</p>
+      <p class="streaks-snapped-sub">Filters and sort apply here too. Run metrics describe the ended run; close and Grade use the latest data.</p>
+      <div class="streaks-snapped-list" role="region" aria-label="Just snapped stocks" tabindex="0">
+        ${snapped.length ? snapped.map((t) => snappedEntry(t, sectors)).join("")
+          : `<p class="streaks-empty">${filterActive ? "No snapped runs match these filters." : "No material runs snapped in the latest 3 sessions."}</p>`}
+      </div>
     </div>
-    <div class="streaks-snapped-strip">${chips}</div>`;
-  host.querySelectorAll("[data-grade]").forEach((btn) => {
-    btn.addEventListener("click", () => jumpToGrade(btn.dataset.grade));
-  });
+  </details>`;
+}
+
+function movingAverageContextHtml(t) {
+  const context = t.maContext;
+  const levels = context?.levels || [];
+  const nearest = levels.find(level => level.period === context.nearestPeriod);
+  if (!nearest) return '<p class="streaks-ma-unavailable">MA context unavailable for this snapshot.</p>';
+  const side = level => Math.abs(level.distancePct) < 0.005 ? "at" : level.distancePct > 0 ? "above" : "below";
+  const read = level => `${Math.abs(level.distancePct).toFixed(1)}% ${side(level)} · ${level.slope || "slope unavailable"}`;
+  const events = levels.filter(level => level.event).map(level => `${level.event === "reclaimed" ? "Reclaimed" : "Lost"} ${level.period}D`).join(" · ");
+  return `<div class="streaks-ma-context">
+    <span class="streaks-ma-label">MA context · completed close${context.asOf ? ` ${escapeHtml(fmtShortDate(context.asOf))}` : ""}</span>
+    <div class="streaks-ma-nearest"><b>${escapeHtml(nearest.period)}D SMA ${fmtMoney(nearest.value)}</b><span>${escapeHtml(read(nearest))}</span></div>
+    ${events ? `<p class="streaks-ma-events">${escapeHtml(events)} on the latest close</p>` : ""}
+    <details><summary>All moving averages</summary>
+      <ul>${levels.map(level => `<li><b>${escapeHtml(level.period)}D · ${fmtMoney(level.value)}</b><span>${escapeHtml(read(level))}</span></li>`).join("")}</ul>
+      <p>Slope compares the average with five sessions earlier. Context is descriptive.</p>
+    </details>
+  </div>`;
+}
+
+function snappedEntry(t, sectors) {
+  const sym = String(t.symbol || "?").toUpperCase();
+  const e = t.lastEnded;
+  const days = Number(e.sameDays ?? e.days);
+  const wasGreen = e.color === "green";
+  const side = wasGreen ? "green" : "red";
+  const sector = sectors[sym] || "";
+  const volume = Number(e.volumeRatio);
+  return `<article class="streaks-row streaks-row-is-${side} streaks-snap-row" data-snapped-symbol="${escapeHtml(sym)}">
+    <div class="streaks-head">
+      <span class="streaks-dot is-${side}" aria-hidden="true"></span>
+      <span class="streaks-sym">${escapeHtml(sym)}</span>
+      <span class="streaks-snap-age">${escapeHtml(fmtSessionsAgo(e.sessionsAgo))}</span>
+    </div>
+    ${sector ? `<div class="streaks-sector">${escapeHtml(sector)}</div>` : ""}
+    <div class="streaks-snap-stats">
+      <b class="streaks-${wasGreen ? "pos" : "neg"}">${days}d ${side} · ${fmtPct(e.cumulativePct)}</b>
+      <span>${wasGreen ? "Watch pullback" : "Watch bounce"}</span>
+    </div>
+    <p class="streaks-snap-break">${escapeHtml(e.brokeBy || "Run ended")}${e.reversalPct != null ? ` · break-day move ${fmtPct(e.reversalPct)}` : ""}${e.windowDays > days ? ` · ${e.windowDays}-session run` : ""}</p>
+    <div class="streaks-meta">Ended-run volume ${volume > 0 ? `${volume.toFixed(2)}×` : "unavailable"}</div>
+    ${movingAverageContextHtml(t)}
+    <div class="streaks-foot">
+      <span class="streaks-last">last <b>${escapeHtml(fmtMoney(t.lastClose))}</b></span>
+      <button type="button" class="streaks-btn" data-grade="${escapeHtml(sym)}">Grade ${escapeHtml(sym)} →</button>
+    </div>
+  </article>`;
 }
 
 // Length-mix distribution — a compact stacked bar (2d / 3d / 4d / 5d+) so the
@@ -786,6 +847,7 @@ function streakTableHtml(list, sectors, views) {
     { label: "Direction", cell: (t) => t.current.color === "green" ? '<span class="vt-tag call">Up</span>' : '<span class="vt-tag put">Down</span>', sort: (t) => t.current.color === "green" ? "up" : "down" },
     { label: "Days", num: true, cell: (t) => String(streakSignalDays(t)), sort: (t) => streakSignalDays(t) },
     { label: "Cumulative", num: true, cell: (t) => pct(t.current.cumulativePct), sort: (t) => { const n = Number(t.current.cumulativePct); return isFinite(n) ? n : null; } },
+    { label: "Nearest MA", cell: (t) => { const m = t.maContext?.levels?.find(x => x.period === t.maContext.nearestPeriod); return m ? `${escapeHtml(m.period)}D · ${fmtPct(m.distancePct)} · ${escapeHtml(m.slope || "slope unavailable")}` : "Unavailable"; }, sort: (t) => { const m = t.maContext?.levels?.find(x => x.period === t.maContext.nearestPeriod); const n = Number(m?.distancePct); return m?.distancePct != null && isFinite(n) ? n : null; } },
     { label: "Last close", num: true, cell: (t) => isFinite(Number(t.lastClose)) ? fmtMoney(Number(t.lastClose)) : "", sort: (t) => { const n = Number(t.lastClose); return isFinite(n) ? n : null; } },
     { label: "Volume trend", num: true, title: "Volume during the run vs normal", cell: (t) => isFinite(Number(t.current.volumeRatio)) && Number(t.current.volumeRatio) > 0 ? Number(t.current.volumeRatio).toFixed(2) + "×" : "", sort: (t) => { const n = Number(t.current.volumeRatio); return isFinite(n) && n > 0 ? n : null; } },
     { label: "Break risk", num: true, title: "Share of the counter-move tolerance already used", cell: (t) => { const tb = Number(t.current.toleranceBreakPct || 1.5); const n = tb > 0 ? Number(t.current.tolerancePct || 0) / tb * 100 : null; return n == null ? "" : Math.round(n) + "%"; }, sort: (t) => { const tb = Number(t.current.toleranceBreakPct || 1.5); return tb > 0 ? Number(t.current.tolerancePct || 0) / tb : null; } },
@@ -868,7 +930,7 @@ function entry(t, sectors) {
   // shown when actually in use (tol > 0 or one or more consecutive counter
   // days). Clean streaks just hide it — the absence is its own signal.
   const tol = Number(t.current.tolerancePct || 0);
-  const counterDays = Number(t.current.counterDays || 0);
+  const counterDays = Number(t.current.consecutiveCounterDays ?? t.current.counterDays ?? 0);
   const tolBreak = Number(t.current.toleranceBreakPct || 1.5);
   const counterBreak = Number(t.current.counterDaysBreak || 4);
   const isCounted = tol > 0 || counterDays > 0;
@@ -905,6 +967,7 @@ function entry(t, sectors) {
       </div>
       <div class="streaks-spark" role="img" aria-label="${escapeHtml(sparkLabel)}">${spark}</div>
       ${tolMeter}
+      ${movingAverageContextHtml(t)}
       <div class="streaks-meta">
         ${startDate ? `<span class="streaks-since" title="First session of the current run">since ${escapeHtml(startDate)}</span>` : ""}
         ${volChip}

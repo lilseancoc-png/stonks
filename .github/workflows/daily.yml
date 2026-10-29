@@ -411,9 +411,17 @@ jobs:
           npm run test:news
           npm run test:news-accuracy
 
+      - name: Verify calendar universe and source coverage
+        # Offline fixtures only. Feed outages remain visible in the calendar.
+        run: npm run test:calendar
+
       - name: Verify collateral extraction and Top Picks admission
         # Offline fixtures only; no SEC, Yahoo, AI or private-store requests.
         run: npm run test:forced-liquidation
+
+      - name: Verify party control history
+        # Offline fixtures only. Price downloads stay inside the market build.
+        run: npm run test:party-tracker
 
       - name: Verify data publication contract
         # Fails in seconds when a bake writer has no publication policy.
@@ -429,6 +437,12 @@ jobs:
         # Offline only. Reproduces the data repairs, five-session evaluation,
         # bounded company retention and the shared browser valuation model.
         run: npm run test:research-stack
+
+      - name: Verify Unified Signal perspectives and entry isolation
+        # Offline financial/price fixtures, publication, archives and private access.
+        run: |
+          npm run test:unified-signal
+          npm run audit:unified-perspectives
 
       - name: Build site
         env:
@@ -656,7 +670,7 @@ jobs:
             # -f is required because Path B added an unconditional `/data/` to
             # .gitignore — without it `git add data` no-ops on the ignored path
             # and the legacy rollback commits render output with no data.
-            if [ "${PRIVATE_DATA_ENABLED:-0}" != "1" ] && [ -d data ]; then git add -f -- data ':!data/historical-data.json' ':!data/historical-source-history.json' ':!data/forced-liquidation.json' ':!data/earnings-forecast.json' ':!data/earnings-forecast-state.json' ':!data/earnings-forecast/**'; fi
+            if [ "${PRIVATE_DATA_ENABLED:-0}" != "1" ] && [ -d data ]; then git add -f -- data ':!data/historical-data.json' ':!data/historical-source-history.json' ':!data/party-tracker.json' ':!data/forced-liquidation.json' ':!data/leverage-distress.json' ':!data/leverage-distress-state.json' ':!data/earnings-forecast.json' ':!data/earnings-forecast-state.json' ':!data/earnings-forecast/**'; fi
             if git diff --cached --quiet; then
               echo "No changes to commit (attempt $attempt)."
               exit 0

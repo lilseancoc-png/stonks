@@ -408,7 +408,7 @@ function windowGradeSamples(days, symbol, period, start, asOf, todayTotal, bar) 
     putDays: totals.filter((total) => total <= -bar).length,
     first: dates[0] || null,
     last: dates[dates.length - 1] || null,
-    series: totals,
+    series: samples,
     history,
     fileStart,
     fileEnd,
@@ -592,18 +592,27 @@ function gradePoints(heatmap, grades, daily, period, bar) {
 }
 
 function gradeSpark(series) {
-  if (!series || series.length < 2) return "";
-  const lo = Math.min(...series);
-  const hi = Math.max(...series);
+  const rows = (Array.isArray(series) ? series : []).map((row) => {
+    if (row && typeof row === "object") return { date: String(row.date || ""), value: num(row.total ?? row.value) };
+    return { date: "", value: num(row) };
+  }).filter((row) => row.value != null);
+  if (rows.length < 2) return "";
+  const values = rows.map((row) => row.value);
+  const lo = Math.min(...values);
+  const hi = Math.max(...values);
   const w = 84;
   const h = 22;
-  const points = series.map((value, index) => {
-    const x = (index / (series.length - 1)) * (w - 2) + 1;
-    const y = h - 2 - ((value - lo) / (hi - lo || 1)) * (h - 4);
-    return x.toFixed(1) + "," + y.toFixed(1);
-  }).join(" ");
-  const tone = series[series.length - 1] >= series[0] ? "is-pos" : "is-neg";
-  return `<svg class="book-spark" viewBox="0 0 ${w} ${h}" aria-hidden="true"><polyline class="${tone}" points="${points}" /></svg>`;
+  const coords = rows.map((row, index) => {
+    const x = (index / (rows.length - 1)) * (w - 2) + 1;
+    const y = h - 2 - ((row.value - lo) / (hi - lo || 1)) * (h - 4);
+    const back = rows.length - 1 - index;
+    const when = row.date || (back === 0 ? "Latest" : back + " sessions back");
+    return { x, y, label: when + "\nGrade " + signed(row.value, 1) };
+  });
+  const points = coords.map((point) => point.x.toFixed(1) + "," + point.y.toFixed(1)).join(" ");
+  const hover = coords.map((point) => [Math.round(point.x * 10) / 10, Math.round(point.y * 10) / 10, point.label]);
+  const tone = values[values.length - 1] >= values[0] ? "is-pos" : "is-neg";
+  return `<svg class="book-spark" viewBox="0 0 ${w} ${h}" role="img" aria-label="Daily grade path" data-ch="${esc(JSON.stringify(hover))}"><polyline class="${tone}" points="${points}" /></svg>`;
 }
 
 function gradePasses(point, bar) {
@@ -1058,6 +1067,16 @@ async function renderIvPrice() {
   }
 }
 
+function calendarCoveredDays(event) {
+  const start = Date.parse(String(event?.date || '') + 'T00:00:00Z');
+  let end = Date.parse(String(event?.endDate || event?.date || '') + 'T00:00:00Z');
+  if (!Number.isFinite(start)) return [];
+  if (!Number.isFinite(end) || end < start) end = start;
+  const days = [];
+  for(let ms=start;ms<=end && days.length<31;ms+=86400000) days.push(new Date(ms).toISOString().slice(0,10));
+  return days;
+}
+
 function calendarBucket(event) {
   const type = event && event.type;
   if (type === "fed" || type === "fomc") return "fomc";
@@ -1069,7 +1088,8 @@ async function renderCalendar() {
   const id = "book-cal-density";
   try {
     const data = await loadJson("calendar.json");
-    const events = data && Array.isArray(data.events) ? data.events : [];
+    const tracked = new Set(window.STONKS_MANIFEST?.symbols || []);
+    const events = (data && Array.isArray(data.events) ? data.events : []).filter(e => e && (!e.symbol || tracked.has(e.symbol)));
     const start = etToday();
     const days = [];
     for (let i = 0; i < 21; i++) {
@@ -1078,14 +1098,15 @@ async function renderCalendar() {
     }
     const counts = new Map(days.map((date) => [date, { earnings: 0, report: 0, fomc: 0, catalyst: 0, macro: 0, total: 0, names: [] }]));
     for (const event of events) {
-      const date = String(event && event.date || "").slice(0, 10);
-      const bucket = counts.get(date);
-      if (!bucket) continue;
-      const key = calendarBucket(event);
-      bucket[key] += 1;
-      bucket.total += 1;
-      const label = event.symbol || event.title || key;
-      if (label && bucket.names.length < 8) bucket.names.push(String(label));
+      for(const date of calendarCoveredDays(event)) {
+        const bucket = counts.get(date);
+        if (!bucket) continue;
+        const key = calendarBucket(event);
+        bucket[key] += 1;
+        bucket.total += 1;
+        const label = event.symbol || event.title || key;
+        if (label && bucket.names.length < 8) bucket.names.push(String(label));
+      }
     }
     const peak = Math.max(1, ...[...counts.values()].map((row) => row.total));
     const barPx = 120;
@@ -1112,7 +1133,7 @@ async function renderCalendar() {
       `<div class="book-cols book-cols-dense" role="img" aria-label="Calendar events over the next 21 days">${columns}</div>` +
         `<p class="book-hover-readout" aria-live="polite"></p>` +
         legendHtml(CAL_BUCKETS.map(([key, label, color]) => ({ color, label }))),
-      "Counts use the calendar’s stored event types for the 21 days beginning " + dayLabel(start) + " ET. " + total + " events in the window. Hover a day to see the stored names. Fed speeches and FOMC share the Fed color already used by the calendar filter. No crowded-day score is added.",
+      "Counts use the calendar’s stored event types for the 21 days beginning " + dayLabel(start) + " ET. " + total + " event appearances in the window, counting every day of multi-day events. Hover a day to see the stored names. Fed speeches and FOMC share the Fed color already used by the calendar filter. No crowded-day score is added.",
     ));
   } catch (err) {
     fail(id, "Events by day", "The calendar counts could not be loaded (" + err.message + ").");
@@ -1914,4 +1935,4 @@ if (typeof document !== "undefined") {
   boot();
 }
 
-export { windowGradeSamples, evidenceBody, linkResults, rejectionRecords, EVIDENCE_LABELS };
+export { calendarCoveredDays, windowGradeSamples, gradeSpark, evidenceBody, linkResults, rejectionRecords, EVIDENCE_LABELS };

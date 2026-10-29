@@ -1,0 +1,151 @@
+{
+  "version": 1,
+  "asOf": "2026-10-27",
+  "scope": "Source connections and local coverage only; no production access or predictive backtest.",
+  "sources": {
+    "scripts/build.mjs": {
+      "sha256": "97fc094176c7f2071d55aa6540e50208d34832513893a40c51a2f4e89ab58b80"
+    },
+    "lib/shadow-signals.mjs": {
+      "sha256": "b40498ada5a657a50ea2c945f985cd3a7f869f4304d94e777837f13d97bbe85d"
+    },
+    "lib/option-entry-economics.mjs": {
+      "sha256": "43a684b5439f65ccec032bcede246da45c573ad3ab3d97ece66ce4f56298d0da"
+    },
+    "lib/evidence-record.mjs": {
+      "sha256": "b4e24a95341ea12122ebbc7ccc6014e3548fa7ed23e04637156af05783e16486"
+    }
+  },
+  "checks": [
+    {
+      "id": "streak-vote-reads-current-run",
+      "observed": true
+    },
+    {
+      "id": "streak-vote-does-not-read-snapped-or-ma-context",
+      "observed": true
+    },
+    {
+      "id": "timing-kept-out-of-base-conviction",
+      "observed": true
+    },
+    {
+      "id": "ai-candidates-screened-on-existing-score",
+      "observed": true
+    },
+    {
+      "id": "ai-prompt-already-reads-iv-momentum",
+      "observed": true
+    },
+    {
+      "id": "shadow-logging-already-exists",
+      "observed": true
+    },
+    {
+      "id": "option-feasibility-has-three-iv-stresses",
+      "observed": true
+    },
+    {
+      "id": "daily-grade-snapshot-replaces-same-date",
+      "observed": true
+    },
+    {
+      "id": "holdings-evidence-reads-value-change",
+      "observed": true
+    },
+    {
+      "id": "form4-display-is-truncated",
+      "observed": true
+    }
+  ],
+  "artifacts": [
+    {
+      "file": "streaks.json",
+      "status": "present-locally",
+      "stamp": "2026-10-14T20:13:01.505Z",
+      "ageCalendarDays": 13,
+      "note": "Local file only. Age is calendar days, not a cadence or market-session eligibility verdict."
+    },
+    {
+      "file": "iv-trending.json",
+      "status": "present-locally",
+      "stamp": "2026-10-14T20:13:01.505Z",
+      "ageCalendarDays": 13,
+      "note": "Local file only. Age is calendar days, not a cadence or market-session eligibility verdict."
+    },
+    {
+      "file": "ma-tracker.json",
+      "status": "present-locally",
+      "stamp": "2026-10-27T20:12:56.209Z",
+      "ageCalendarDays": 0,
+      "note": "Local file only. Age is calendar days, not a cadence or market-session eligibility verdict."
+    },
+    {
+      "file": "pattern-recognition.json",
+      "status": "present-locally",
+      "stamp": "2026-10-16T08:44:35.240Z",
+      "ageCalendarDays": 11,
+      "note": "Local file only. Age is calendar days, not a cadence or market-session eligibility verdict."
+    },
+    {
+      "file": "historical-data.json",
+      "status": "present-locally",
+      "stamp": "2026-10-27T19:32:17.855Z",
+      "ageCalendarDays": 0,
+      "note": "Local file only. Age is calendar days, not a cadence or market-session eligibility verdict."
+    },
+    {
+      "file": "historical-source-history.json",
+      "status": "present-locally",
+      "stamp": "2026-10-25T08:19:39.410Z",
+      "ageCalendarDays": 2,
+      "note": "Local file only. Age is calendar days, not a cadence or market-session eligibility verdict."
+    },
+    {
+      "file": "CBRS.json",
+      "status": "missing-locally"
+    },
+    {
+      "file": "grades.json",
+      "status": "missing-locally"
+    },
+    {
+      "file": "grades-daily.json",
+      "status": "missing-locally"
+    },
+    {
+      "file": "picks.json",
+      "status": "missing-locally"
+    },
+    {
+      "file": "picks-accuracy.json",
+      "status": "missing-locally"
+    },
+    {
+      "file": "13f.json",
+      "status": "missing-locally"
+    },
+    {
+      "file": "quant.json",
+      "status": "missing-locally"
+    },
+    {
+      "file": "evidence-latest.json",
+      "status": "missing-locally"
+    },
+    {
+      "file": "earnings-forecast.json",
+      "status": "missing-locally"
+    },
+    {
+      "file": "unified-signal.json",
+      "status": "missing-locally"
+    }
+  ],
+  "hasLocalIvHistoryDirectory": false,
+  "limits": [
+    "Source pattern checks detect drift; they are not runtime tests.",
+    "Missing local private data does not establish missing production data.",
+    "No performance lift, win probability, or current CBRS assessment is estimated."
+  ]
+}

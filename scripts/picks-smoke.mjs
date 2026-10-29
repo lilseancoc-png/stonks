@@ -2307,9 +2307,9 @@ const liveStreakBars = [
   { t: "2026-01-05", c: 90, v: 5e6 },
 ];
 ok("streaks: drop the live candle unless the session is closed",
-  confirmedDailyBars(liveStreakBars, "REGULAR").length === 3
+  confirmedDailyBars(liveStreakBars, "REGULAR", new Date("2026-01-05T16:00:00Z")).length === 3
   && confirmedDailyBars(liveStreakBars, "CLOSED").length === 4);
-const liveStreak = computeStreakForTicker("TEST", confirmedDailyBars(liveStreakBars, "REGULAR"));
+const liveStreak = computeStreakForTicker("TEST", confirmedDailyBars(liveStreakBars, "REGULAR", new Date("2026-01-05T16:00:00Z")));
 const closedStreak = computeStreakForTicker("TEST", confirmedDailyBars(liveStreakBars, "CLOSED"));
 ok("streaks: unfinished red candle does not snap a green run",
   liveStreak && liveStreak.current && liveStreak.current.color === "green"

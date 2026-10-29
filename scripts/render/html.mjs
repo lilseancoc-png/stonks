@@ -69,6 +69,7 @@ const SIDE_NAV_ICONS = {
   spillover: '<circle cx="12" cy="12" r="2.5"/><path d="M12 5.5a6.5 6.5 0 0 1 6.5 6.5"/><path d="M12 2a10 10 0 0 1 10 10"/>',
   quant: '<path d="M18 6.5V4H6l6.5 8L6 20h12v-2.5"/>',
   'historical-data': '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/>',
+  'party-tracker': '<path d="M4 20h16M6 20V9M10 20V9M14 20V9M18 20V9M3 9h18M12 3l8 6H4z"/>',
   'earnings-forecast': '<path d="M4 20V4M4 20h16M8 15l4-5 4 2 4-7"/><path d="M16 5h4v4"/>',
   levetf: '<path d="M3.5 20.5v-17"/><path d="M3.5 20.5h17"/><path d="m6 16.5 3.5-4 2.5 2 4-5.5"/><path d="m11.5 6.5 3-3 3 3"/><path d="M14.5 3.5v7"/>',
   overnight: '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>',
@@ -519,7 +520,7 @@ function calendarSection() {
       <button type="button" class="card-jump" id="calendar-idxcal-link" data-go="index-cal" title="Open the Index calendar">Index calendar &rarr;</button>
       <span class="card-eyebrow" id="calendar-eyebrow" aria-live="polite"></span>
     </header>
-    ${infoNote("What's on this calendar?", `<p>A month-at-a-time view of every dated market event, opening on the <b>current month</b> — use <b>&lsaquo;</b> / <b>&rsaquo;</b> to step between months (or <b>Today</b> to jump back), and tap any day to see its full details below the grid. It tracks: confirmed earnings dates (with AM/PM session tagging) for every curated ticker, cross-checked against a rolling 21-day Nasdaq sweep; ticker-specific catalysts (FDA dates, contract decisions, product launches, court rulings, investor days — extracted from recent news); the complete official <b>BLS</b> and <b>BEA</b> release schedules; the Federal Reserve Board calendar (speeches, testimony, minutes, conferences, and statistical releases); the Kansas City Fed&rsquo;s Jackson Hole symposium; detailed market-moving reports with Actual / Previous / Consensus values; and upcoming FOMC decisions. Official source labels open the publisher&rsquo;s calendar. Effective Fed Funds, FedWatch probabilities, the official vote map, and the full rate path live together in <b>Bonds &amp; USD</b>. Ticker chips are clickable.</p>`)}
+    ${infoNote("What's on this calendar?", `<p>A month-at-a-time view of every dated market event, opening on the <b>current month</b> — use <b>&lsaquo;</b> / <b>&rsaquo;</b> to step between months (or <b>Today</b> to jump back), and tap any day to see its full details below the grid. It tracks: available earnings dates (with AM/PM session tagging) for the current stock universe, cross-checked against a rolling 21-day Nasdaq sweep; ticker-specific catalysts (company conferences, product launches, FDA dates, contract decisions, court rulings and investor days from published company schedules and dated news, with 90 days of recent company-event history); official <b>BLS</b>, <b>BEA</b>, <b>Census</b> and <b>ISM</b> release schedules; selected economic events from this week and next week; U.S. stock market closures and early closes; the Federal Reserve Board calendar (speeches, testimony, minutes, conferences, and statistical releases); the Kansas City Fed&rsquo;s Jackson Hole symposium; detailed market-moving reports with Actual / Previous / Consensus values; and upcoming FOMC decisions. Official source labels open the publisher&rsquo;s calendar. Effective Fed Funds, FedWatch probabilities, the official vote map, and the full rate path live together in <b>Bonds &amp; USD</b>. Ticker chips are clickable.</p>`)}
     <details id="calendar-context" class="calendar-context">
       <summary>Event risk &amp; overview <span id="calendar-context-summary"></span></summary>
     <div id="calendar-briefing" class="cal-briefing" hidden aria-live="polite"></div>
@@ -536,6 +537,7 @@ function calendarSection() {
       </div>
       <button type="button" id="calendar-export-csv" class="csv-export-btn" title="Download visible events as CSV">Export CSV</button>
     </div>
+    <div id="calendar-coverage" class="calendar-coverage" hidden aria-live="polite"></div>
     <div id="calendar-root" class="calendar-root">Loading calendar…</div>
     <div id="calendar-empty" class="calendar-empty" hidden>No upcoming events.</div>
     <section id="book-cal-density" class="book-view" hidden></section>
@@ -628,7 +630,7 @@ function briefSection() {
       <h2 class="card-title">Market brief</h2>
       <span class="card-eyebrow" id="brief-eyebrow" aria-live="polite"></span>
     </header>
-    <p class="hint">An AI<span class="tip ai-info" tabindex="0" role="button" aria-label="About the market brief" data-tip="One rolling digest per trading day (default gemini-3.1-flash-lite; override AI_BRIEF_MODEL). A lightweight Brief-only job writes the morning setup at 8:30 a.m. ET from overnight and foreign moves, macro levels, Fear &amp; Greed, the day's calendar and the prior verified public market data; private Owner desks never feed this payload and no full pre-market bake runs. Session builds refresh it at 11:00 and 13:30, and the 16:10 close build writes the closing read. AI writes the headline and prose; standouts, chips and stats are computed.">i</span>-written market digest: a fresh overnight setup, focused 11:00 and 13:30 session updates, and a closing read after 4&nbsp;pm ET. Each update checks the site&rsquo;s live tools and surfaces only material standouts. Ticker chips are clickable. Not financial advice.</p>
+    <p class="hint">An AI<span class="tip ai-info" tabindex="0" role="button" aria-label="About the market brief" data-tip="One rolling digest per trading day (default gemini-3.1-flash-lite; override AI_BRIEF_MODEL). A lightweight Brief-only job writes the morning setup at 8:30 a.m. ET from overnight and foreign moves, macro levels, Fear &amp; Greed, the day's calendar and the prior verified public market data; private Owner desks never feed this payload and no full pre-market bake runs. Session builds refresh it at 11:00 and 13:30, and the 16:10 close build writes the closing read. AI writes the headline and prose; standouts, chips and stats are computed.">i</span>-written market digest: a fresh overnight setup, focused 11:00 and 13:30 session updates, and a closing read after 4&nbsp;pm ET. Each update checks public tools for material standouts, including streak reversals and moving averages, Pattern lab, insider filings, capital markets and industry pricing. Ticker chips are clickable. Not financial advice.</p>
     <div id="brief-root" class="brief-root">Loading brief&hellip;</div>
   </section>`;
 }
@@ -1122,7 +1124,7 @@ function patternLabSection() {
       <h2 class="card-title">Pattern lab</h2>
       <span class="card-eyebrow" id="pattern-lab-eyebrow" aria-live="polite"></span>
     </header>
-    ${infoNote('How to read this page', '<p>Six research reads, kept separate from the desks that already exist. Nothing here replaces a grade, the index calendar, or overnight markets, and nothing here is a position. Seasonality is the close-to-close price change, without dividends. A thin sample is marked. Read the unit on each figure: a full month, a full window, or one day.</p>')}
+    ${infoNote('How to read this page', '<p>Six research studies with Overview, Charts, and sortable Tables views. Stock studies request two years of daily closes; actual coverage is listed in the page. Index seasonality keeps its separate long history. Nothing here replaces a grade, the index calendar, or overnight markets, and nothing here is a position. Seasonality is the close-to-close price change, without dividends. Counts can include overlapping observations. Read the unit on each figure: a full month, a full window, or one day.</p>')}
     <div id="pattern-lab-root" class="pat-root">Loading pattern lab&hellip;</div>
   </section>`;
 }
@@ -2189,7 +2191,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
           <input type="search" id="heatmap-search" class="heatmap-search-input" placeholder="Ticker…" aria-label="Find a ticker on the heatmap" autocomplete="off" spellcheck="false" />
         </div>
         <label class="heatmap-control heatmap-live-toggle">
-          <input type="checkbox" id="heatmap-live-toggle" />
+          <input type="checkbox" id="heatmap-live-toggle" checked />
           <span class="heatmap-control-label">Live overlay</span>
         </label>
         <div class="heatmap-control heatmap-zoom" role="group" aria-label="Zoom">
@@ -2235,8 +2237,8 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-unified-signal-engine" role="tabpanel" aria-labelledby="page-tab-unified-signal-engine" hidden>
     <section class="card" id="unified-signal-section">
-      <header class="card-header"><h2 class="card-title">Unified Signal Engine</h2><span class="card-eyebrow">Owner research · swing decisions</span></header>
-      <p class="use-intro">One place to inspect a stock's direction, supporting and opposing evidence, uncertainty, price assumptions, and available trade plan. Research is unproven; entry checks and missing data stay visible.</p>
+      <header class="card-header"><h2 class="card-title">Unified Signal Engine</h2><span class="card-eyebrow">Owner research · multiple perspectives</span></header>
+      <p class="use-intro">Inspect the existing decision alongside separate investment and trading perspectives. Compare business assumptions with price, explore confirmed setups, and see where the views disagree. Research is unproven; entry checks and missing data stay visible.</p>
       <div id="unified-signal-root">Open this view to load the private decision snapshot.</div>
     </section>
   </div>
@@ -2245,6 +2247,13 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
       <header class="card-header"><h2 class="card-title">Historical Data</h2><span class="card-eyebrow">Owner · historical research</span></header>
       <p class="hint">Compare today's market with seasonal windows and past election cycles. Inspect the sample, the spread of outcomes and where this period differs.</p>
       <div id="historical-data-root" aria-live="polite">Open this view to load the historical snapshot.</div>
+    </section>
+  </div>
+  <div class="page-pane" id="page-pane-party-tracker" role="tabpanel" aria-labelledby="page-tab-party-tracker" hidden>
+    <section class="card" id="party-tracker-section">
+      <header class="card-header"><h2 class="card-title">Party tracker</h2><span class="card-eyebrow">Owner · market history</span></header>
+      <p class="hint">See how the market and each sector did when Democrats or Republicans held the presidency, the House, or the Senate, from Bush’s inauguration through the latest close.</p>
+      <div id="party-tracker-root" aria-live="polite">Open this view to load party control history.</div>
     </section>
   </div>
   <div class="page-pane" id="page-pane-earnings-forecast" role="tabpanel" aria-labelledby="page-tab-earnings-forecast" hidden>
@@ -2302,7 +2311,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
         <h2 class="card-title">Daily green / red streaks</h2>
         <span class="card-eyebrow" id="streaks-eyebrow" aria-live="polite"></span>
       </header>
-      ${infoNote('How streaks are counted', `<p>Daily moves first pass an adaptive noise floor based on the ticker's own recent median absolute move (bounded at 0.08–0.35%), so microscopic closes do not create streaks. Counter-day and cumulative-tolerance break bars also scale with that volatility, within conservative bounds. A same-direction close partially heals the tolerance bank and one counter day rather than erasing all prior damage. The displayed streak count is the number of same-direction days; when tolerated counter/flat days occur, the sparkline may span a longer session window. Cumulative return is compounded, not summed. “Just snapped” only includes a material prior run (3+ same-direction days plus length or move significance) with a meaningful reversal, which keeps ordinary two-day noise out of the mean-reversion queue.</p>`)}
+      ${infoNote('How streaks are counted', `<p>Daily moves first pass an adaptive noise floor based on the ticker's own recent median absolute move (bounded at 0.08–0.35%), so microscopic closes do not create streaks. Counter-day and cumulative-tolerance break bars also scale with that volatility, within conservative bounds. A same-direction close partially heals the tolerance bank and one counter day rather than erasing all prior damage. The displayed streak count is the number of same-direction days; when tolerated counter/flat days occur, the sparkline may span a longer session window. Cumulative return is compounded, not summed. “Just snapped” only includes a material prior run (3+ same-direction days plus length or move significance) with a meaningful reversal, which keeps ordinary two-day noise out of the mean-reversion queue. The collapsible “Just snapped” column shares the ticker, minimum-run, sector, and sorting controls. Its length, move, volume, and tolerance sorts use the ended run; last close and Grade use the latest data. Flat sessions interrupt the consecutive counter-day count without healing the tolerance bank. Moving-average context uses the same completed closes as the streak. It shows the nearest 20/50/100/200-day simple average, its five-session slope, and any reclaim or loss on the latest close; this context does not add scoring points.</p>`)}
       <div class="streaks-controls" role="toolbar" aria-label="Filter and sort streaks">
         <label class="streaks-field streaks-field-search">
           <span class="streaks-field-label">Find</span>
@@ -2339,7 +2348,6 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
           </select>
         </label>
       </div>
-      <div id="streaks-snapped" class="streaks-snapped" hidden></div>
       <div id="streaks-root" class="streaks-root">Loading streaks…</div>
       <section id="book-streaks" class="book-view" hidden></section>
       <div id="streaks-footer" class="streaks-footer"></div>

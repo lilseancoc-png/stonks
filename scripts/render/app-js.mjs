@@ -1,15 +1,18 @@
+import { patternLabFactory } from './pattern-lab-client.mjs';
 import { marketAnalysisFactory } from '../../lib/market-analysis.mjs';
 import { riskStackFactory } from '../../lib/risk-stack.mjs';
 import { marketRefreshFactory } from '../../lib/market-refresh.mjs';
 import { webullAnalyticsFactory } from '../../lib/webull-analytics.mjs';
 import { webullReviewFactory } from './webull-review-client.mjs';
 import { historicalDataFactory } from './historical-data-client.mjs';
+import { partyTrackerFactory } from './party-tracker-client.mjs';
 import { earningsForecastFactory } from './earnings-forecast-client.mjs';
 import { companyResearchClientFactory } from './company-research-client.mjs';
 import { fullYearValuationFactory } from '../../lib/full-year-valuation.mjs';
+import { investmentPerspectiveFactory } from '../../lib/investment-perspective.mjs';
 import { earningsScenarioFactory } from '../../lib/earnings-forecast-scenarios.mjs';
 import { forcedLiquidationFactory } from './forced-liquidation-client.mjs';
-import { liquidationPledgeDisclosure } from '../../lib/forced-liquidation.mjs';
+import { liquidationPledgeDisclosure, liquidationEvidenceKey } from '../../lib/forced-liquidation.mjs';
 import { LIQUIDATION_EVIDENCE_VERSION } from '../../lib/forced-liquidation.mjs';
 import { unifiedSignalClientFactory } from './unified-signal-client.mjs';
 import { unifiedSignalDisplayFactory } from '../../lib/unified-signal-display.mjs';
@@ -23,7 +26,8 @@ import { ivRichnessFactory } from '../../lib/iv-richness.mjs';
 import { overnightToneFactory } from '../../lib/overnight-tone.mjs';
 import { sectorGroupsFactory } from '../../lib/sector-groups.mjs';
 import { currentNewsSentiment, newsDateIsCurrent, validNewsFeedPayload } from '../../lib/news-policy.mjs';
-import { FALLBACK_RISK_FREE_RATE } from '../build.mjs';
+import { FALLBACK_RISK_FREE_RATE, TICKERS, SECTORS } from '../build.mjs';
+import { calendarHealth, calendarForDisplay, calendarSourceLabel } from '../../lib/calendar-policy.mjs';
 import { callReportContext, leveragedEntryPlan, earningsCallAge, pickDisplayDecision, shareEntryPayoff, pickReviewCheckpoint, scenarioEventPhase } from '../../lib/research-display.mjs';
 
 export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRateMeta = null } = {}) {
@@ -48,6 +52,11 @@ ${renderWorkspaceHelpers()}
 ${renderWayfindingHelpers()}
 ${renderSplitViewHelpers()}
 ${renderRecoveryHelpers()}
+${calendarSourceLabel.toString()}
+${calendarHealth.toString()}
+${calendarForDisplay.toString()}
+  var CALENDAR_SYMBOLS = ${JSON.stringify(TICKERS)};
+  var CALENDAR_STOCKS = ${JSON.stringify(TICKERS.filter(s => SECTORS[s] !== "ETF"))};
 ${newsDateIsCurrent.toString()}
 ${currentNewsSentiment.toString()}
 ${validNewsFeedPayload.toString()}
@@ -126,7 +135,7 @@ ${scenarioEventPhase.toString()}
   // the Owner analysis/idea/record desks and Owner Lab; this UI boundary keeps
   // destinations hidden until the owner session's compatibility claims resolve.
   // Discord mints both only after verifying the existing Top Picks owner role.
-  var OWNER_TABS = { 'earnings-forecast':1, 'unified-signal-engine':1, market:1, risk:1, 'bottom-tracker':1, 'historical-data':1, 'forced-liquidation':1, picks:1, leaps:1, stocks:1, rotation:1, levetf:1, 'open-picks':1, track:1, quant:1 };
+  var OWNER_TABS = { 'earnings-forecast':1, 'unified-signal-engine':1, market:1, risk:1, 'bottom-tracker':1, 'historical-data':1, 'party-tracker':1, 'forced-liquidation':1, picks:1, leaps:1, stocks:1, rotation:1, levetf:1, 'open-picks':1, track:1, quant:1 };
   var GATE_ON = false;
   var HAS_TRACK_RECORD = false;
   var HAS_TOP_PICKS = false;
@@ -551,10 +560,21 @@ ${scenarioEventPhase.toString()}
       var dy = (p[1] - v.y) * sy;
       return dx * dx + dy * dy;
     };
-    var best = pts[0], bd = dist(pts[0]);
+    var bestD = dist(pts[0]), tied = [pts[0]];
     for (var i=1; i<pts.length; i++){
       var d = dist(pts[i]);
-      if (d < bd){ bd = d; best = pts[i]; }
+      if (d < bestD - 0.01){ bestD = d; tied = [pts[i]]; }
+      else if (d <= bestD + 0.01) tied.push(pts[i]);
+    }
+    // One point per x keeps the original snap. Two lines that share an x
+    // (median and this year's path) follow whichever line the cursor is near.
+    var best = tied[0];
+    if (!xy && tied.length > 1){
+      var bestDy = Infinity;
+      for (var t=0; t<tied.length; t++){
+        var dy = Math.abs((tied[t][1] - v.y) * sy);
+        if (dy < bestDy){ bestDy = dy; best = tied[t]; }
+      }
     }
     var s = svg.createSVGPoint(); s.x = best[0]; s.y = best[1];
     var sp = s.matrixTransform(ctm);
@@ -570,7 +590,7 @@ ${scenarioEventPhase.toString()}
     var tip = chHover.tip;
     var lines = String(best[2] || '').split('\\n');
     var htmlOut = '';
-    for (var li=0; li<lines.length; li++) htmlOut += (li ? '<br>' : '') + escapeHtml(lines[li]);
+    for (var li=0; li<lines.length; li++) htmlOut += '<span class="' + (li ? 'ch-tip-line' : 'ch-tip-lead') + '">' + escapeHtml(lines[li]) + '</span>';
     tip.innerHTML = htmlOut;
     tip.style.display = '';
     // Above the dot, flipping below when clipped at the top, and clamped to
@@ -621,6 +641,17 @@ ${scenarioEventPhase.toString()}
   function chRangeIndex(el, data, clientX){
     var rect = el.getBoundingClientRect();
     if (!rect.width || !data || !data.d || !data.d.length) return 0;
+    if (Array.isArray(data.x) && data.x.length === data.d.length && el.getScreenCTM){
+      var ctm = el.getScreenCTM();
+      if (ctm){
+        var best = 0, distance = Infinity;
+        for (var i = 0; i < data.x.length; i++){
+          var delta = Math.abs(ctm.a * data.x[i] + ctm.e - clientX);
+          if (delta < distance){ best = i; distance = delta; }
+        }
+        return best;
+      }
+    }
     var frac = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
     return Math.round(frac * (data.d.length - 1));
   }
@@ -643,6 +674,10 @@ ${scenarioEventPhase.toString()}
     if (!rect.width || !rect.height) return;
     var x1 = rect.left + (n === 1 ? 0 : a / (n - 1)) * rect.width;
     var x2 = rect.left + (n === 1 ? 0 : b / (n - 1)) * rect.width;
+    if (Array.isArray(data.x) && data.x.length === n && chRange.el.getScreenCTM){
+      var ctm = chRange.el.getScreenCTM();
+      if (ctm){ x1 = ctm.a * data.x[a] + ctm.e; x2 = ctm.a * data.x[b] + ctm.e; }
+    }
     chRange.band.style.left = x1 + 'px';
     chRange.band.style.top = rect.top + 'px';
     chRange.band.style.width = Math.max(2, x2 - x1) + 'px';
@@ -709,7 +744,10 @@ ${scenarioEventPhase.toString()}
     }, { passive: true });
     document.addEventListener('pointercancel', chRangeHide, { passive: true });
     document.addEventListener('keydown', function(e){ if (e.key === 'Escape') chRangeHide(); });
-    document.addEventListener('scroll', chRangeHide, { passive: true, capture: true });
+    document.addEventListener('scroll', function(e){
+      // Scrolling an unrelated panel, such as the sidebar, does not move the chart.
+      if (chRange.el && e.target.contains && e.target.contains(chRange.el)) chRangeHide();
+    }, { passive: true, capture: true });
     window.addEventListener('resize', chRangeHide);
   })();
 
@@ -3710,7 +3748,7 @@ ${scenarioEventPhase.toString()}
   // resolve the URL's initial tab synchronously at script-evaluation time (the
   // anti-flash pre-select in the boot block) before the /api/auth/me +
   // manifest fetches settle and bind() runs the full selectTab.
-  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','news','market','risk','unified-signal-engine','historical-data','earnings-forecast','forced-liquidation','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','bottom-tracker','open-picks','track','cheatsheet','chart-patterns','timeline','privacy','terms'];
+  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','news','market','risk','unified-signal-engine','historical-data','party-tracker','earnings-forecast','forced-liquidation','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','bottom-tracker','open-picks','track','cheatsheet','chart-patterns','timeline','privacy','terms'];
   // Friendly aliases so deep-links people might guess work too.
   // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
   // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -3718,6 +3756,7 @@ ${scenarioEventPhase.toString()}
   var PAGE_TAB_ALIASES = {
     unified: 'unified-signal-engine', signals: 'unified-signal-engine', 'signal-engine': 'unified-signal-engine',
     historical: 'historical-data', history: 'historical-data', 'historical-data': 'historical-data',
+    party: 'party-tracker', parties: 'party-tracker', 'party-tracker': 'party-tracker', democrats: 'party-tracker', republicans: 'party-tracker',
     forecast: 'earnings-forecast', 'earnings-forecast': 'earnings-forecast',
     liquidation: 'forced-liquidation', 'forced-liquidation-tracker': 'forced-liquidation', 'forced-liquidation': 'forced-liquidation',
     unusual: 'flow', 'unusual-flow': 'flow',
@@ -4198,6 +4237,7 @@ ${renderExportBindings()}
         if (name === 'pending-buyouts' && typeof loadPendingBuyouts === 'function') loadPendingBuyouts();
         if (name === 'bottom-tracker' && typeof loadBottomTracker === 'function') loadBottomTracker();
         if (name === 'historical-data') historicalData.load();
+        if (name === 'party-tracker') partyTracker.load();
         if (name === 'earnings-forecast') earningsForecast.load();
         if (name === 'forced-liquidation') forcedLiquidation.load();
         if (name === 'unified-signal-engine') unifiedSignal.load();
@@ -19546,6 +19586,7 @@ ${renderExportBindings()}
         eclAnalystChip(s.analystTone && s.analystTone.label) + '</div>' +
     '</div>';
     if (s.headline) html += '<div class="ecl-det-headline">' + escapeHtml(s.headline) + '</div>';
+    if (d.partial) html += '<p class="ecl-age">This summary was cut off at the AI output limit. Sections after the cut are missing; check the linked transcript.</p>';
     html += eclSection('Key takeaways', eclBullets(s.execSummary));
     // Financial highlights.
     var fin = '';
@@ -19660,6 +19701,7 @@ ${renderExportBindings()}
         eclAnalystChip(s.analystTone && s.analystTone.label) + '</div>' +
     '</div>';
     html += '<p class="ecl-age">' + escapeHtml(callAge.label) + ' · ' + escapeHtml(callReportContext(d,callsState.reports).label) + '. Check the linked transcript and newer releases before using this outlook.</p>';
+    if (d.partial) html += '<p class="ecl-age">This summary was cut off at the AI output limit. Sections after the cut are missing; check the linked transcript.</p>';
     html += '<section class="ecl-decision ecl-decision-' + decision.signal.tone + '">' +
       '<div class="ecl-decision-head"><span>Call verdict</span><h3>' + escapeHtml(decision.signal.label) + '</h3>' +
         (s.headline ? '<p>' + escapeHtml(s.headline) + '</p>' : '') + '</div>' +
@@ -20085,199 +20127,9 @@ ${renderExportBindings()}
   function startMaTrackerLive(){ maTrackerLivePoller.start(); }
   function stopMaTrackerLive(){ maTrackerLivePoller.stop(); }
 
-  var patternLabState = { data: null, loading: false, symbol: null };
-  function patPct(v){
-    if (v == null || !isFinite(v)) return '—';
-    return (v > 0 ? '+' : '') + Number(v).toFixed(2) + '%';
-  }
-  function patCls(v){ return v == null || !isFinite(v) || v === 0 ? '' : (v > 0 ? 'pat-up' : 'pat-down'); }
-  function patNum(v, digits){
-    if (v == null || !isFinite(v)) return '—';
-    return Number(v).toFixed(digits == null ? 2 : digits);
-  }
-  function patRate(v){
-    if (v == null || !isFinite(v)) return '—';
-    return Number(v).toFixed(1) + '%';
-  }
-  function patProv(flag){ return flag ? ' <span class="pat-flag">Thin sample.</span> ' : ''; }
-  function patMetric(label, value, cls, sub){
-    return '<div><small>' + label + '</small><b class="' + (cls || '') + '">' + value + '</b>' + (sub ? '<em>' + sub + '</em>' : '') + '</div>';
-  }
-  function patTable(headers, rows, empty){
-    if (!rows.length) return '<p class="pat-note">' + (empty || 'No rows for this build.') + '</p>';
-    return '<div class="pat-table-wrap"><table class="pat-table"><thead><tr>' + headers.map(function(h){ return '<th>' + h + '</th>'; }).join('') + '</tr></thead><tbody>' + rows.join('') + '</tbody></table></div>';
-  }
-  function patPiece(kicker, title, body){
-    return '<section class="pat-piece"><div class="pat-kicker">' + kicker + '</div><h3>' + title + '</h3>' + body + '</section>';
-  }
-  function patNode(target){
-    if (!target) return null;
-    return target.nodeType === 1 ? target : target.parentElement;
-  }
-  function renderPatternVolatility(vol){
-    if (!vol || vol.state === 'unavailable') return patPiece('SPY daily closes', 'Volatility clustering', '<p>Not enough recent SPY history to compare a short stretch with the last month.</p>');
-    var sample = vol.sample || {};
-    var stateLabel = vol.state === 'expanding' ? 'Expanding' : vol.state === 'calm' ? 'Calm' : 'Neither';
-    return patPiece('SPY daily closes', 'Volatility clustering',
-      '<p>' + escapeHtml(vol.advisory || '') + patProv(vol.provisional) + '</p>' +
-      '<div class="pat-metrics">' +
-        patMetric('Current stretch', stateLabel) +
-        patMetric('5-day realized vol', vol.rv5Pct == null ? '—' : patNum(vol.rv5Pct, 1) + '%', '', 'annualized') +
-        patMetric('20-day realized vol', vol.rv20Pct == null ? '—' : patNum(vol.rv20Pct, 1) + '%', '', 'annualized') +
-        patMetric('Size persistence', patNum(vol.absReturnAutocorr, 2), '', '0 means today does not predict tomorrow') +
-      '</div>' +
-      '<p class="pat-note">Average absolute move the next day: ' + patPct(sample.expanding && sample.expanding.nextAbsPct) + ' after an expanding stretch (n=' + ((sample.expanding && sample.expanding.n) || 0) + '), ' + patPct(sample.calm && sample.calm.nextAbsPct) + ' after a calm stretch (n=' + ((sample.calm && sample.calm.n) || 0) + '). This is a description of SPY. It does not change a grade or a position.</p>');
-  }
-  function renderPatternSeasonality(all){
-    // The S&P 500 index (since 1950) is the long-history default; SPY, QQQ
-    // and IWM start at each fund's launch.
-    var longReady = !!(all && all['^GSPC'] && !all['^GSPC'].unavailable);
-    var symbol = patternLabState.symbol || (longReady ? '^GSPC' : 'SPY');
-    var row = (all && all[symbol]) || {};
-    var patLabel = function(sym){ return sym === '^GSPC' ? 'S&P 500 index' : sym; };
-    var switches = (longReady ? ['^GSPC', 'SPY', 'QQQ', 'IWM'] : ['SPY', 'QQQ', 'IWM']).map(function(sym){
-      return '<button type="button" data-pat-symbol="' + sym + '" aria-pressed="' + (sym === symbol ? 'true' : 'false') + '">' + patLabel(sym) + '</button>';
-    }).join('');
-    if (row.unavailable) return patPiece('Index price history', 'Index seasonality', '<div class="pat-switch">' + switches + '</div><p>Not enough stored history for ' + escapeHtml(patLabel(symbol)) + '.</p>');
-    var active = row.active || {};
-    var windows = [];
-    if (active.inSanta) windows.push('Santa window');
-    if (active.inTurnOfMonth) windows.push('turn of the month');
-    if (active.inOpexWeek) windows.push('expiration week');
-    var months = (row.months || []).map(function(m){
-      return '<tr><td>' + escapeHtml(m.name) + '</td><td>' + (m.n || 0) + '</td><td class="' + patCls(m.avgPct) + '">' + patPct(m.avgPct) + '</td><td>' + patRate(m.hitRatePct) + '</td><td>' + (m.provisional ? 'Thin' : 'Enough years') + '</td></tr>';
-    });
-    var days = (row.weekdays || []).map(function(d){
-      return '<tr><td>' + escapeHtml(d.name) + '</td><td>' + (d.n || 0) + '</td><td class="' + patCls(d.avgPct) + '">' + patPct(d.avgPct) + '</td><td>' + patRate(d.hitRatePct) + '</td></tr>';
-    });
-    var santa = row.santa || {};
-    var sep = row.september || {};
-    var turn = row.turnOfMonth || {};
-    var opex = row.opexWeek || {};
-    var mid = row.midterm || {};
-    return patPiece('Index price history', 'Index seasonality',
-      '<div class="pat-switch" role="group" aria-label="Index">' + switches + '</div>' +
-      '<p>' + escapeHtml(patLabel(symbol)) + ' · ' + patNum(row.years, 1) + ' years' + (row.firstDate ? ' since ' + escapeHtml(row.firstDate) : '') + ' · ' + (row.sessions || 0) + ' sessions. Close-to-close price change. Dividends are not included.' + (windows.length ? ' The latest session is inside: ' + windows.join(', ') + '.' : ' No short calendar window is open on the latest session.') + (active.midtermYear ? ' This calendar year is a midterm year.' : '') + patProv(row.provisional) + '</p>' +
-      '<div class="pat-metrics">' +
-        patMetric('Santa window', patPct(santa.avgPct), patCls(santa.avgPct), 'whole window · up ' + patRate(santa.hitRatePct) + ' of ' + (santa.n || 0)) +
-        patMetric('September', patPct(sep.avgPct), patCls(sep.avgPct), 'full month · up ' + patRate(sep.hitRatePct) + ' of ' + (sep.n || 0)) +
-        patMetric('Turn of month', patPct(turn.avgPct), patCls(turn.avgPct), 'whole window · any ' + (turn.windowSessions || 4) + ' sessions ' + patPct(turn.outsideAvgPct)) +
-        patMetric('Expiration week', patPct(opex.avgPct), patCls(opex.avgPct), 'whole week · any ' + (opex.windowSessions || 5) + ' sessions ' + patPct(opex.outsideAvgPct)) +
-      '</div>' +
-      '<p class="pat-note">Only prior complete calendar years count, and each window runs from the prior close. Santa is the last five December sessions plus the first two January sessions. Turn of month is the final session of a month plus the first three of the next. Expiration week is the Monday-through-Friday around the third Friday. "Any N sessions" is the average of back-to-back stretches of the same length, for comparison. Midterm years, price change only: ' + patPct(mid.avgPct) + ' versus ' + patPct(mid.otherAvgPct) + ' in other years (n=' + (mid.n || 0) + (mid.firstYear ? ' midterm years, ' + mid.firstYear + ' to ' + mid.lastYear : '') + ').' + patProv(mid.provisional) + ' ' + escapeHtml(mid.note || '') + (row.droppedExtremeDays ? ' Windows holding ' + row.droppedExtremeDays + ' daily print' + (row.droppedExtremeDays === 1 ? '' : 's') + ' larger than 25% ' + (row.droppedExtremeDays === 1 ? 'was' : 'were') + ' left out.' : '') + '</p>' +
-      patTable(['Month', 'Years', 'Month price change', 'Years up', 'Sample'], months) +
-      patTable(['Weekday', 'Sessions', 'Average day', 'Days up'], days));
-  }
-  function patSession(kind){
-    if (kind === 'leading') return 'Closes before the US open';
-    if (kind === 'concurrent') return 'Overlaps the US day';
-    if (kind === '24h') return 'Trades overnight';
-    return kind || '—';
-  }
-  function renderPatternLead(lead){
-    lead = lead || {};
-    var rows = (lead.rows || []).filter(function(row){ return row.read !== 'too weak'; }).slice(0, 24);
-    var html = rows.map(function(row){
-      return '<tr><td><button type="button" class="pat-sym" data-pat-open="' + escapeHtml(row.us) + '">' + escapeHtml(row.us) + '</button></td><td>' + escapeHtml(row.peer) + '</td><td>' + escapeHtml(patSession(row.sessionClass)) + '</td><td>' + patNum(row.lag1Beta, 2) + '</td><td>' + patNum(row.lag1T, 1) + '</td><td>' + patNum(row.sameDayBeta, 2) + '</td><td>' + patNum(row.corr60, 2) + ' / ' + patNum(row.corr120, 2) + '</td><td>' + escapeHtml(row.read) + '</td></tr>';
-    });
-    var hidden = Math.max(0, (lead.tested || 0) - rows.length);
-    var empty = lead.tested ? 'No curated link cleared the bar on this build.' : 'Peer history was not available on this build. Overnight markets are unchanged.';
-    return patPiece('Curated foreign peers', 'Cross-asset lead',
-      '<p>' + (lead.usable || 0) + ' of ' + (lead.tested || 0) + ' curated links have a t-stat of at least 2 over 80 or more sessions, or the 60-day correlation has fallen apart versus the 120-day correlation. A market that closes before the US open is compared on the same date. Europe, futures, and commodities are compared with the previous session.</p>' +
-      '<p class="pat-note">' + escapeHtml(lead.caveat || '') + '</p>' +
-      patTable(['US name', 'Peer', 'When it trades', 'Prior-session beta', 'Prior-session t', 'Same-day beta', 'Corr 60 / 120', 'Read'], html, empty) +
-      (hidden ? '<p class="pat-note">' + hidden + ' links stayed below that bar and are not listed.</p>' : ''));
-  }
-  function renderPatternDivergence(div){
-    var rows = ((div && div.rows) || []).map(function(row){
-      return '<tr><td><button type="button" class="pat-sym" data-pat-open="' + escapeHtml(row.symbol) + '">' + escapeHtml(row.symbol) + '</button></td><td>' + escapeHtml(row.indicator) + '</td><td>' + escapeHtml(row.direction) + '</td><td>' + escapeHtml(row.olderDate || '') + '</td><td>' + escapeHtml(row.newerDate || '') + '</td><td class="' + patCls(row.priceChangePct) + '">' + patPct(row.priceChangePct) + '</td></tr>';
-    });
-    var record = div && div.record || {};
-    var keys = ['rsiBullish', 'rsiBearish', 'macdBullish', 'macdBearish'];
-    var labels = { rsiBullish: 'RSI bullish', rsiBearish: 'RSI bearish', macdBullish: 'MACD bullish', macdBearish: 'MACD bearish' };
-    var stats = keys.map(function(key){
-      var s = record[key] || {};
-      return patMetric(labels[key], patPct(s.avgPct), patCls(s.avgPct), 'n=' + (s.n || 0) + (s.provisional ? ' · thin' : ''));
-    }).join('');
-    var baseline = record.rsiBullish && record.rsiBullish.baselineAvgPct;
-    return patPiece('Daily RSI and MACD', 'Price divergences',
-      '<p>A bullish row is a lower price low with a higher indicator low. A bearish row is a higher price high with a lower indicator high. The table is the latest bar only.</p>' +
-      '<p class="pat-note">' + escapeHtml((div && div.note) || '') + ' Across the same names, the plain 10-session price change averaged ' + patPct(baseline) + '.</p>' +
-      '<div class="pat-metrics">' + stats + '</div>' +
-      patTable(['Name', 'Indicator', 'Read', 'Older pivot', 'Newer pivot', 'Price between pivots'], rows, 'No divergence is on the latest bar.'));
-  }
-  function renderPatternBreadth(breadth){
-    breadth = breadth || {};
-    var f5 = breadth.forward5 || {};
-    var f10 = breadth.forward10 || {};
-    if (!breadth.latest) return patPiece('Regime history', 'Breadth versus the index', '<p>Regime history is not on this build yet. Market Analysis is unchanged.</p>');
-    return patPiece('Regime history', 'Breadth versus the index',
-      '<p>' + (breadth.active ? 'The latest saved regime day has the indexes flat or up while breadth is down.' : 'The latest saved regime day does not have that split.') + (breadth.latest && breadth.latest.date ? ' Latest day: ' + escapeHtml(breadth.latest.date) + '.' : '') + '</p>' +
-      '<p class="pat-note">' + escapeHtml(breadth.note || '') + '</p>' +
-      '<div class="pat-metrics">' +
-        patMetric('S&P, next 5 sessions', patPct(f5.avgPct), patCls(f5.avgPct), 'n=' + (f5.n || 0) + (f5.provisional ? ' · thin' : '')) +
-        patMetric('S&P, next 10 sessions', patPct(f10.avgPct), patCls(f10.avgPct), 'up ' + patRate(f10.hitRatePct) + (f10.provisional ? ' · thin' : '')) +
-      '</div>');
-  }
-  function renderPatternSentiment(sent){
-    sent = sent || {};
-    var fear = sent.fear || {};
-    var greed = sent.greed || {};
-    var latest = sent.latest || {};
-    if (!latest.date) return patPiece('Fear & Greed history', 'Sentiment disagreement', '<p>Fear &amp; Greed history is not on this build yet. The Fear &amp; Greed page is unchanged.</p>');
-    var stateText = sent.state === 'aligned' ? 'Fear & Greed and the 5-session S&P move agree.' : sent.state === 'fear while price is up' ? 'Fear & Greed is at extreme fear while the S&P is up over 5 sessions.' : sent.state === 'greed while price is down' ? 'Fear & Greed is at extreme greed while the S&P is down over 5 sessions.' : escapeHtml(sent.state || '');
-    return patPiece('Fear & Greed history', 'Sentiment disagreement',
-      '<p>' + stateText + ' Latest score ' + patNum(latest.score, 0) + ' on ' + escapeHtml(latest.date) + '. S&P 5-session price change ' + patPct(latest.spy5dPct) + '.</p>' +
-      '<p class="pat-note">' + escapeHtml(sent.rules || '') + ' The figures below are the S&P price change over the following 10 sessions. They are not a position.</p>' +
-      '<div class="pat-metrics">' +
-        patMetric('After extreme fear and a rising tape', patPct(fear.avgPct), patCls(fear.avgPct), 'S&P next 10 sessions · n=' + (fear.n || 0) + (fear.provisional ? ' · thin' : '')) +
-        patMetric('After extreme greed and a falling tape', patPct(greed.avgPct), patCls(greed.avgPct), 'S&P next 10 sessions · n=' + (greed.n || 0) + (greed.provisional ? ' · thin' : '')) +
-      '</div>');
-  }
-  function renderPatternLab(){
-    var root = $('pattern-lab-root');
-    var eye = $('pattern-lab-eyebrow');
-    if (!root) return;
-    var data = patternLabState.data;
-    if (patternLabState.loading && !data){ root.innerHTML = 'Loading pattern lab…'; return; }
-    if (!data || data.loadError){ root.innerHTML = '<p class="pat-note">Pattern lab has not been written yet. It appears after the next bake.</p>'; if (eye) eye.textContent = ''; return; }
-    var pieces = data.pieces || {};
-    if (eye) eye.textContent = data.asOf ? ('Session ' + data.asOf) : '';
-    root.innerHTML =
-      '<p class="pat-note">These reads sit beside the desks that already exist. They do not replace a grade, the index calendar, or overnight markets, and they do not change a position.</p>' +
-      renderPatternVolatility(pieces.volatility) +
-      renderPatternSeasonality(pieces.seasonality) +
-      renderPatternLead(pieces.leadLag) +
-      renderPatternDivergence(pieces.divergences) +
-      renderPatternBreadth(pieces.breadth) +
-      renderPatternSentiment(pieces.sentiment);
-  }
-  function loadPatternLab(){
-    var root = $('pattern-lab-root');
-    if (patternLabState.data || patternLabState.loading){ renderPatternLab(); return; }
-    patternLabState.loading = true;
-    if (root && !root.dataset.patBound){
-      root.dataset.patBound = '1';
-      root.addEventListener('click', function(ev){
-        var el = patNode(ev.target);
-        var open = el && el.closest ? el.closest('[data-pat-open]') : null;
-        if (open){
-          var sym = open.getAttribute('data-pat-open');
-          var gradeTab = document.querySelector('[data-page-tab="grade"]');
-          if (gradeTab) gradeTab.click();
-          try { if (typeof combo !== 'undefined' && combo && combo.commit) combo.commit(sym); } catch (_) {}
-          return;
-        }
-        var pick = el && el.closest ? el.closest('[data-pat-symbol]') : null;
-        if (!pick) return;
-        patternLabState.symbol = pick.getAttribute('data-pat-symbol') || 'SPY';
-        renderPatternLab();
-      });
-    }
-    fetch(dataUrl('pattern-recognition.json'), { cache: 'no-cache' }).then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-      .then(function(j){ patternLabState.data = j && typeof j === 'object' ? j : { pieces: {} }; patternLabState.loading = false; renderPatternLab(); })
-      .catch(function(){ patternLabState.loading = false; patternLabState.data = { loadError: true }; renderPatternLab(); });
-  }
+  var patternLab = (${patternLabFactory.toString()})(window, document, VIEWS, symGradeHref, dataUrl, calGoToTicker);
+  function loadPatternLab(){ patternLab.load(); }
+
 
   // --- AI CapEx (Alt data section) ----------------------------------------
   // Aggregate major AI infrastructure buyers' CapEx from data/ai-capex.json — SEC XBRL
@@ -21260,13 +21112,25 @@ ${renderExportBindings()}
     return value > 0 ? 'up' : 'down';
   }
   function siSpark(history){
-    var values = (Array.isArray(history) ? history : []).slice(-45).map(function(p){ return Number(p.value); }).filter(isFinite);
-    if (values.length < 2) return '';
+    var rows = (Array.isArray(history) ? history : []).slice(-45).map(function(p){
+      return { date: p && p.date ? String(p.date) : '', value: Number(p && p.value) };
+    }).filter(function(p){ return isFinite(p.value); });
+    if (rows.length < 2) return '';
+    var values = rows.map(function(p){ return p.value; });
     var lo = Math.min.apply(null, values), hi = Math.max.apply(null, values), span = Math.max(1, hi - lo);
-    var points = values.map(function(v, i){
-      return ((i / (values.length - 1)) * 100).toFixed(1) + ',' + (27 - ((v - lo) / span) * 23).toFixed(1);
+    var points = rows.map(function(p, i){
+      return ((i / (rows.length - 1)) * 100).toFixed(1) + ',' + (27 - ((p.value - lo) / span) * 23).toFixed(1);
     }).join(' ');
-    return '<svg class="si-spark" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true">' + sparkAreaHtml(points, 30) + '<polyline points="' + points + '"/></svg>';
+    var hover = chHoverAttr(rows.map(function(p, i){
+      var back = rows.length - 1 - i;
+      var when = p.date || (back === 0 ? 'latest' : back + ' points back');
+      return {
+        x: (i / (rows.length - 1)) * 100,
+        y: 27 - ((p.value - lo) / span) * 23,
+        label: when + '\\nSearch interest ' + Math.round(p.value)
+      };
+    }));
+    return '<svg class="si-spark" viewBox="0 0 100 30" preserveAspectRatio="none" role="img" aria-label="Search interest history"' + hover + '>' + sparkAreaHtml(points, 30) + '<polyline points="' + points + '"/></svg>';
   }
   function siQueryList(items, rising){
     var list = Array.isArray(items) ? items : [];
@@ -21762,7 +21626,8 @@ ${renderExportBindings()}
     if (verdict === 'stress') return 'bad';
     return 'na';
   }
-  function btmSpark(values){
+  // levelOnly: a spread or rate, where drag-compare's % change is not a meaningful move.
+  function btmSpark(values, name, levelOnly){
     if (!values || values.length < 2) return '';
     var min = Infinity, max = -Infinity, i;
     for (i = 0; i < values.length; i++){
@@ -21770,10 +21635,19 @@ ${renderExportBindings()}
       if (values[i] > max) max = values[i];
     }
     var span = max - min || 1, w = 168, h = 36, pts = [];
-    for (i = 0; i < values.length; i++){
-      pts.push(((i / (values.length - 1)) * w).toFixed(1) + ',' + (h - ((values[i] - min) / span) * (h - 4) - 2).toFixed(1));
+    function yOf(v){ return h - ((v - min) / span) * (h - 4) - 2; }
+    function shown(v){
+      var av = Math.abs(v);
+      if (av >= 1000) return v.toLocaleString(undefined, { maximumFractionDigits: 1 });
+      return v.toFixed(av >= 100 ? 1 : 2);
     }
-    return '<svg class="btm-spark" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" aria-hidden="true">' + sparkAreaHtml(pts.join(' '), h) + '<polyline fill="none" points="' + pts.join(' ') + '"/></svg>';
+    for (i = 0; i < values.length; i++) pts.push(((i / (values.length - 1)) * w).toFixed(1) + ',' + yOf(values[i]).toFixed(1));
+    var hover = chHoverAttr(values.map(function(v, i){
+      var back = values.length - 1 - i;
+      var when = back === 0 ? 'Latest' : back + ' points back';
+      return { x: (i / (values.length - 1)) * w, y: yOf(v), label: (name ? name + '\\n' : '') + when + '\\n' + shown(v), value: levelOnly ? undefined : v, time: when };
+    }));
+    return '<svg class="btm-spark" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" role="img" aria-label="' + escapeHtml(name || 'History') + '"' + hover + '>' + sparkAreaHtml(pts.join(' '), h) + '<polyline fill="none" points="' + pts.join(' ') + '"/></svg>';
   }
   function btmRate(value){
     if (value == null || !isFinite(value)) return '—';
@@ -21854,8 +21728,8 @@ ${renderExportBindings()}
         return '<li><span>' + escapeHtml(fact.label) + '</span><b>' + escapeHtml(fact.value) + '</b></li>';
       }).join('');
       var spark = '';
-      if (card.id === 'price' && d.spark && d.spark.spy) spark = btmSpark(d.spark.spy);
-      if (card.id === 'credit' && d.spark && d.spark.hy) spark = btmSpark(d.spark.hy);
+      if (card.id === 'price' && d.spark && d.spark.spy) spark = btmSpark(d.spark.spy, 'SPY');
+      if (card.id === 'credit' && d.spark && d.spark.hy) spark = btmSpark(d.spark.hy, 'High-yield spread', true);
       html += '<article class="btm-card btm-' + btmTone(card.state) + '"><header><span>' + escapeHtml(card.phase || '') + '</span><h3>' + escapeHtml(card.title || '') + '</h3><em>' + escapeHtml(card.stateLabel || '') + '</em></header>' + spark + '<p>' + escapeHtml(card.summary || '') + '</p>' + (facts ? '<ul class="btm-facts">' + facts + '</ul>' : '') + '<small>' + escapeHtml(card.source || '') + '</small></article>';
     });
     html += '</div>';
@@ -23460,6 +23334,7 @@ ${renderExportBindings()}
   // dispersion / post-earnings-drift screens. ANALYTICAL ONLY: z-scores and
   // ranks, never trade signals (the playbook table in the shell is educational).
   var unifiedSignal = (${unifiedSignalClientFactory.toString()})(window, document, {
+    investment: (${investmentPerspectiveFactory.toString()})((${fullYearValuationFactory.toString()})()),
     owner: function(){ return HAS_OWNER_ACCESS; },
     url: function(){ return '/api/auth/me?data=unified-signal.json'; },
     // Company record view: the grade breakdown (same panel as the Top Picks
@@ -23481,13 +23356,19 @@ ${renderExportBindings()}
   var historicalData = (${historicalDataFactory.toString()})(window, document, {
     owner: function(){ return HAS_OWNER_ACCESS; },
     // Never use a legacy static-data fallback for this Owner-only feature.
-    url: function(){ return '/api/auth/me?data=historical-data.json'; }
+    url: function(){ return '/api/auth/me?data=historical-data.json'; },
+    hover: chHoverAttr
+  });
+  var partyTracker = (${partyTrackerFactory.toString()})(window, document, {
+    owner: function(){ return HAS_OWNER_ACCESS; },
+    url: function(){ return '/api/auth/me?data=party-tracker.json'; }
   });
   var earningsForecast = (${earningsForecastFactory.toString()})(window, document, { owner: function(){ return HAS_OWNER_ACCESS; } }, ${earningsScenarioFactory.toString()}, ${companyResearchClientFactory.toString()}, ${fullYearValuationFactory.toString()});
   var forcedLiquidation = (${forcedLiquidationFactory.toString()})(window, document, {
     owner: function(){ return HAS_OWNER_ACCESS; }, evidenceVersion: ${LIQUIDATION_EVIDENCE_VERSION},
     symbols: function(){ return Array.isArray(MANIFEST.symbols) ? MANIFEST.symbols : []; },
-    pledgeDisclosure: ${liquidationPledgeDisclosure.toString()}
+    pledgeDisclosure: ${liquidationPledgeDisclosure.toString()},
+    evidenceKey: ${liquidationEvidenceKey.toString()}
   });
   // data/quant.json is the daily analytical research payload.
   var quantState = { data: null, loading: false };
@@ -25763,13 +25644,21 @@ ${renderExportBindings()}
     var peers = rotSeriesValues(c, 'peers');
     if (vals.length < 2) return '';
     if (peers.length !== vals.length) peers = [];
+    var rawSeries = c && c.series;
+    var dateList = rawSeries && !Array.isArray(rawSeries) && Array.isArray(rawSeries.dates) ? rawSeries.dates : [];
+    var dates = dateList.length >= vals.length ? dateList.slice(dateList.length - vals.length) : [];
     var scaleVals = peers.length ? vals.concat(peers) : vals;
     var lo = Math.min.apply(null, scaleVals), hi = Math.max.apply(null, scaleVals);
     var span = hi - lo || 1, W = 240, H = 48, pad = 3;
+    function xy(v, idx){
+      return {
+        x: vals.length === 1 ? 0 : idx * W / (vals.length - 1),
+        y: pad + (H - pad * 2) * (1 - (v - lo) / span)
+      };
+    }
     function points(series){ return series.map(function(v, idx){
-      var x = vals.length === 1 ? 0 : idx * W / (vals.length - 1);
-      var y = pad + (H - pad * 2) * (1 - (v - lo) / span);
-      return x.toFixed(1) + ',' + y.toFixed(1);
+      var p = xy(v, idx);
+      return p.x.toFixed(1) + ',' + p.y.toFixed(1);
     }).join(' '); }
     var pts = points(vals), peerPts = peers.length ? points(peers) : '';
     var trough = vals.indexOf(lo);
@@ -25779,7 +25668,15 @@ ${renderExportBindings()}
     var stockMove = vals[0] > 0 ? (vals[vals.length - 1] / vals[0] - 1) * 100 : null;
     var peerMove = peers.length && peers[0] > 0 ? (peers[peers.length - 1] / peers[0] - 1) * 100 : null;
     var alpha = stockMove != null && peerMove != null ? stockMove - peerMove : null;
-    return '<div class="rot-spark-wrap"><svg class="rot-spark rot-spark-' + tone + '" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="Recent normalized stock and peer-group paths; dotted vertical line marks the stock low">' +
+    var hover = chHoverAttr(vals.map(function(v, idx){
+      var p = xy(v, idx);
+      var back = vals.length - 1 - idx;
+      var when = dates[idx] || (back === 0 ? 'Latest' : back + ' sessions back');
+      var lines = [when, 'Stock ' + v.toFixed(1) + ' (rebased to 100)'];
+      if (peers.length) lines.push('Peers ' + peers[idx].toFixed(1) + ' (rebased to 100)');
+      return { x: p.x, y: p.y, label: lines.join('\\n'), value: v, time: when };
+    }));
+    return '<div class="rot-spark-wrap"><svg class="rot-spark rot-spark-' + tone + '" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="Recent normalized stock and peer-group paths; dotted vertical line marks the stock low"' + hover + '>' +
       '<line class="rot-spark-low" x1="' + tx.toFixed(1) + '" y1="2" x2="' + tx.toFixed(1) + '" y2="46"/>' +
       (peerPts ? '<polyline class="rot-spark-peer" points="' + peerPts + '" fill="none"/>' : '') +
       sparkAreaHtml(pts, H) + '<polyline class="rot-spark-stock" points="' + pts + '" fill="none"/></svg>' +
@@ -27774,21 +27671,22 @@ ${renderExportBindings()}
       }).join('');
       blocks.push(briefBlock(b.kind === 'morning' ? 'Prior-session flow' : 'Notable flow', '<div class="brief-chips">' + flow + '</div>'));
     }
-    // IV standouts — the IV tracker's actionable flags only (names whose ATM
-    // IV is elevated vs their OWN history AND climbing; see gatherBriefSignals).
+    // IV standouts — material trend and Rich flags (names whose ATM
+    // IV is elevated vs their OWN history; Rich need not be climbing).
     // Surging names get the hot color + marker; the tooltip carries the
     // vs-history read and the earnings-vs-unexplained-ramp context.
     if (Array.isArray(b.ivTrend) && b.ivTrend.length){
       var ivt = b.ivTrend.map(function(v){
-        var sub = (v.ivPct != null ? Number(v.ivPct).toFixed(0) + '% IV' : '') +
+        var sub = (v.tier === 'rich' ? 'Rich premium · ' : '') + (v.ivPct != null ? Number(v.ivPct).toFixed(0) + '% IV' : '') +
           (v.chg5dPct != null ? (v.ivPct != null ? ' · ' : '') + (v.chg5dPct >= 0 ? '+' : '') + Number(v.chg5dPct).toFixed(0) + '% 5d' : '');
-        var tierLabel = v.tier ? v.tier.charAt(0).toUpperCase() + v.tier.slice(1) : '';
+        var tierLabel = v.tier === 'rich' ? 'Rich premium, not a rising-trend signal' : v.tier ? v.tier.charAt(0).toUpperCase() + v.tier.slice(1) : '';
         var tip = tierLabel +
+          (v.tier === 'rich' && v.richnessNote ? ' · ' + v.richnessNote : '') +
           (v.meanPct != null ? ' · avg ' + Number(v.meanPct).toFixed(0) + '%' : '') +
           (v.z != null ? ' · ' + (v.z >= 0 ? '+' : '') + Number(v.z).toFixed(1) + 'σ vs own history' : '') +
           (v.earnings && v.earnings.date
             ? ' · earnings ' + v.earnings.date + (v.earnings.impliedMovePct != null ? ' (±' + v.earnings.impliedMovePct + '% implied)' : '')
-            : ' · no scheduled earnings inside 45d — unexplained ramp');
+            : v.tier === 'rich' ? ' · no scheduled earnings inside 45d' : ' · no scheduled earnings inside 45d — unexplained ramp');
         return '<button type="button" class="brief-chip ' + (v.tier === 'surging' ? 'neg' : 'flow') + '" data-sym="' + briefEsc(v.sym) + '" title="' + briefEsc(tip) + '">' +
           (v.tier === 'surging' ? '▲ ' : '') + briefEsc(v.sym) + (sub ? ' <span>' + briefEsc(sub) + '</span>' : '') + '</button>';
       }).join('');
@@ -28286,9 +28184,10 @@ ${renderExportBindings()}
   }
   // Current level, formatted per type (yields in %, USD instruments with $,
   // foreign cash with its currency code). '' when no level is available (#7).
-  function ovnLevelStr(m){
-    if (!m || m.last == null || !isFinite(m.last)) return '';
-    var v = m.last;
+  function ovnLevelStr(m, value){
+    if (!m) return '';
+    var v = value == null ? m.last : value;
+    if (v == null || !isFinite(v)) return '';
     if (m.type === 'rate') return v.toFixed(2) + '%';
     if (m.type === 'vol') return v.toFixed(1);
     var num = Math.abs(v) >= 1000 ? Math.round(v).toLocaleString() : (Math.abs(v) >= 100 ? v.toFixed(1) : v.toFixed(2));
@@ -28680,15 +28579,35 @@ ${renderExportBindings()}
     return (v > 0 ? '+' : '') + (Math.abs(v) >= 100 ? Math.round(v) : Number(v).toFixed(1)) + 'bp';
   }
   function ovnMiniSpark(m){
-    var values = m && Array.isArray(m.series) ? m.series.map(Number).filter(isFinite) : [];
-    if (values.length < 3) return '';
+    var raw = m && Array.isArray(m.series) ? m.series : [];
+    var dates = m && Array.isArray(m.seriesDates) ? m.seriesDates : [];
+    var rows = [];
+    for (var i = 0; i < raw.length; i++){
+      var v = Number(raw[i]);
+      if (!isFinite(v)) continue;
+      rows.push({ v: v, d: dates[i] ? String(dates[i]) : '' });
+    }
+    if (rows.length < 3) return '';
+    var values = rows.map(function(row){ return row.v; });
     var min = Math.min.apply(null, values), max = Math.max.apply(null, values), span = max - min || 1;
-    var pts = values.map(function(v, i){
-      var x = values.length === 1 ? 0 : (i / (values.length - 1)) * 100;
-      var y = 30 - ((v - min) / span) * 26;
+    var pts = rows.map(function(row, i){
+      var x = rows.length === 1 ? 0 : (i / (rows.length - 1)) * 100;
+      var y = 30 - ((row.v - min) / span) * 26;
       return x.toFixed(1) + ',' + y.toFixed(1);
     }).join(' ');
-    return '<svg class="ovn-detail-spark" viewBox="0 0 100 32" preserveAspectRatio="none" role="img" aria-label="Trailing ' + values.length + '-session price path">' + sparkAreaHtml(pts, 32) + '<polyline points="' + pts + '" fill="none" vector-effect="non-scaling-stroke"></polyline></svg>';
+    var hover = chHoverAttr(rows.map(function(row, i){
+      var back = rows.length - 1 - i;
+      var when = row.d || (back === 0 ? 'latest' : back + ' sessions back');
+      return {
+        x: rows.length === 1 ? 0 : (i / (rows.length - 1)) * 100,
+        y: 30 - ((row.v - min) / span) * 26,
+        label: when + '\\n' + (ovnLevelStr(m, row.v) || String(row.v)),
+        // A yield's move is read in basis points; drag-compare would show a % of the yield.
+        value: m.type === 'rate' ? undefined : row.v,
+        time: when
+      };
+    }));
+    return '<svg class="ovn-detail-spark" viewBox="0 0 100 32" preserveAspectRatio="none" role="img" aria-label="Trailing ' + rows.length + '-session price path"' + hover + '>' + sparkAreaHtml(pts, 32) + '<polyline points="' + pts + '" fill="none" vector-effect="non-scaling-stroke"></polyline></svg>';
   }
   function overnightDetailHtml(d){
     var sym = overnightState.selectedMarket;
@@ -29030,7 +28949,7 @@ ${renderExportBindings()}
     fetch(dataUrl('calendar.json'), { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(json){
-        calendarState.data = (json && Array.isArray(json.events)) ? json : { events: [] };
+        calendarState.data = calendarForDisplay((json && Array.isArray(json.events)) ? json : { events: [] }, CALENDAR_SYMBOLS, CALENDAR_STOCKS);
         // Compatibility with snapshots produced before holidays had their own type.
         calendarState.data.events = calendarState.data.events.map(function(e){
           return /holiday/i.test(String(e.category || '') + ' ' + String(e.title || '')) && (e.type === 'fed' || e.type === 'holiday')
@@ -29151,8 +29070,8 @@ ${renderExportBindings()}
   }
   function calendarSourceMarkup(e){
     if (!e || !e.source) return '';
-    if (e.sourceUrl) {
-      return '<a class="cal-chip-source" href="' + escapeHtml(e.sourceUrl) + '" target="_blank" rel="noopener noreferrer" title="Open the official source">' + escapeHtml(e.source) + '</a>';
+    if (/^https?:\\/\\//i.test(e.sourceUrl || '')) {
+      return '<a class="cal-chip-source" href="' + escapeHtml(e.sourceUrl) + '" target="_blank" rel="noopener noreferrer" title="Open the event source">' + escapeHtml(e.source) + '</a>';
     }
     return '<span class="cal-chip-source">' + escapeHtml(e.source) + '</span>';
   }
@@ -29173,6 +29092,7 @@ ${renderExportBindings()}
     if (cat === 'fda') return 'FDA';
     if (cat === 'contract') return 'Contract';
     if (cat === 'launch') return 'Launch';
+    if (cat === 'conference') return 'Conference';
     if (cat === 'court') return 'Court';
     if (cat === 'trial') return 'Trial';
     if (cat === 'merger') return 'M&A';
@@ -29457,6 +29377,28 @@ ${renderExportBindings()}
       focus: macroActive.length ? macroActive[0] : (earningsActive.length ? earningsActive[0] : (catalystsActive.length ? catalystsActive[0] : first))
     };
   }
+  function renderCalendarCoverage(data){
+    var host = $('calendar-coverage');
+    if (!host) return;
+    if (data.loadError){ host.hidden = false; host.innerHTML = '<p>Calendar could not be loaded. Event coverage is unavailable.</p>'; return; }
+    var c = data.coverage || {}, health = calendarHealth(data);
+    var missing = c.earningsMissing || [];
+    var sources = Object.entries(c.officialSources || {}).map(function(entry){ return calendarSourceLabel(entry[0]) + ': ' + (entry[1] ? 'loaded' : 'unavailable'); });
+    var summary = c.earningsUniverse != null ? c.earningsScheduled + ' of ' + c.earningsUniverse + ' stocks have an earnings date in this window.' : 'Earnings coverage has not been measured for this snapshot.';
+    host.hidden = false;
+    host.innerHTML = '<p>' + escapeHtml(summary) + ' Updated ' + escapeHtml(data.builtAtIso ? new Date(data.builtAtIso).toLocaleString('en-US', {timeZone:'America/New_York'}) + ' ET' : 'at an unknown time') + '.</p>' +
+      (health.warnings.length ? '<p role="status">' + escapeHtml(health.warnings.join(' ')) + '</p>' : '') +
+      '<details><summary>Sources &amp; coverage gaps</summary>' +
+      (missing.length ? '<p>No upcoming earnings date found: ' + escapeHtml(missing.join(', ')) + '. A company may have reported already or may not have announced its next date.</p>' : '') +
+      (c.tickerInputsMissing && c.tickerInputsMissing.length ? '<p>Ticker inputs unavailable: ' + escapeHtml(c.tickerInputsMissing.join(', ')) + '.</p>' : '') +
+      (c.catalystReview ? '<p>Recent catalyst review: ' + escapeHtml(String(c.catalystReview.reviewed)) + ' of ' + escapeHtml(String(c.catalystReview.universe)) + ' stocks. Reviews must have usable news evidence from the last 24 hours.</p>' +
+        (c.catalystReview.missing.length ? '<p>Recent review unavailable: ' + escapeHtml(c.catalystReview.missing.join(', ')) + '.</p>' : '') : '<p>Catalyst review coverage was not measured in this snapshot.</p>') +
+      (sources.length ? '<p>' + escapeHtml(sources.join(' · ')) + '.</p>' : '') +
+      '<p>Nasdaq lookup: ' + escapeHtml(c.nasdaq ? c.nasdaq.status : 'not measured') + '. Weekly economic feed: ' + escapeHtml(c.reportSources ? c.reportSources.forexFactory : 'not measured') + '.</p>' +
+      (c.companyEvents ? '<p>Company schedules: ' + escapeHtml(String(c.companyEvents.scheduled)) + ' events across ' + escapeHtml(String(c.companyEvents.symbols.length)) + ' stocks. Recent company events stay available for 90 days.</p>' : '') +
+      (c.companyEvents && Object.values(c.companyEvents.sourceChecks || {}).some(function(status){return status === 'unavailable';}) ? '<p>Some company event pages could not be checked. Their previously published dates remain visible.</p>' : '') +
+      '<p>Catalysts combine selected company schedules with dated news and are not exhaustive. Weekly additions cover this week and next week. Estimated dates and cached rows need reconfirmation. An empty day does not rule out unscheduled news, filings, policy announcements or other market events.</p></details>';
+  }
   function renderCalendarBriefing(data){
     var host = $('calendar-briefing');
     if (!host) return;
@@ -29670,8 +29612,9 @@ ${renderExportBindings()}
     // from the prior calendar.json when BLS + FRED both come back empty
     // (each carried row gets ev.stale=true). Surface it so traders know
     // the figures may not reflect today's release schedule.
+    var scheduleTag = e.scheduleEstimated ? '<span class="cal-chip-stale" title="Date follows a baseline schedule and has not been confirmed by a live publisher calendar">Estimated date</span>' : '';
     var staleTag = e.stale
-      ? '<span class="cal-chip-stale" title="Today\\'s BLS + FRED fetches were empty — these figures were carried forward from the previous build">Stale</span>'
+      ? '<span class="cal-chip-stale" title="Source unavailable this build. This event was carried forward from the previous calendar">Stale</span>'
       : '';
     return '<div class="cal-chip cal-report cal-report-clickable' + (e.stale ? ' is-stale' : '') + '"' +
       ' data-report-subtype="' + escapeHtml(e.subtype || '') + '" data-report-date="' + escapeHtml(e.date || '') + '"' +
@@ -29682,7 +29625,7 @@ ${renderExportBindings()}
         (e.time ? '<span class="cal-chip-time">' + escapeHtml(e.time) + '</span> ' : '') +
         '<span class="cal-chip-text">' + escapeHtml(e.title) + '</span>' +
         '<span class="cal-report-expand" aria-hidden="true">📊</span>' +
-        staleTag +
+        staleTag + scheduleTag +
         src +
       '</div>' +
       grid +
@@ -30443,11 +30386,11 @@ ${renderExportBindings()}
     // The "up next" overview strip is month-independent and always reads the
     // FULL event set, so it stays put as the user walks months or toggles type
     // filters. Fed policy itself now renders in Bonds & USD.
+    renderCalendarCoverage(data);
     renderCalendarBriefing(data);
     renderCalendarOverview(data);
-    // Navigable month window. calendar.json only ever carries today→horizon
-    // events, so the earliest navigable month is the current one (no empty
-    // past months to wander into); the latest is the furthest event's month.
+    // Company schedules retain recent history. Open on today and allow
+    // navigation back to the earliest stored event month.
     var allYms = [];
     data.events.forEach(function(e){
       calEventDateKeys(e).forEach(function(date){ allYms.push(date.slice(0, 7)); });
@@ -30529,7 +30472,7 @@ ${renderExportBindings()}
     function renderDayRow(date){
       var rows = groups[date].map(function(e){
         if (e.type === 'report') return renderReportChip(e);
-        var cls = 'cal-chip cal-' + e.type;
+        var cls = 'cal-chip cal-' + e.type + (e.companyEvent ? ' cal-company-event' : '');
         var label;
         if (e.type === 'earnings'){
           var movePill = (e.impliedMovePct != null && isFinite(e.impliedMovePct))
@@ -30557,6 +30500,12 @@ ${renderExportBindings()}
           label = '<span class="cal-chip-tag">' + escapeHtml(calendarTypeLabel(e.type)) + '</span> ' +
             (e.time ? '<span class="cal-chip-time">' + escapeHtml(e.time) + '</span> ' : '') +
             '<span class="cal-chip-text">' + escapeHtml(e.title) + '</span>';
+        }
+        if (e.companyEvent){
+          var end = e.endDate || e.date;
+          var phase = end < todayYmd ? 'Past' : e.date <= todayYmd ? 'Ongoing' : 'Upcoming';
+          var span = fmtCalendarDateShort(e.date) + (e.endDate ? ' – ' + fmtCalendarDateShort(e.endDate) : '');
+          label += '<span class="cal-company-meta">' + escapeHtml(phase + ' · ' + span + (e.time ? ' · ' + e.time : '') + (e.sourceCheckFailed ? ' · source check unavailable' : '')) + '</span>';
         }
         var src = calendarSourceMarkup(e);
         var icon = '<span class="cal-chip-ico">' + calEventIcon(e.type) + '</span>';
@@ -30598,7 +30547,7 @@ ${renderExportBindings()}
         var more = evs.length > 3 ? '<span class="cal-mini-more">+' + (evs.length - 3) + '</span>' : '';
         markers = '<span class="cal-cell-events">' + shown + more + '</span>';
       }
-      return '<button type="button" class="' + cls + '" data-cal-day="' + date + '" aria-pressed="' + (isSel ? 'true' : 'false') + '">' +
+      return '<button type="button" aria-label="' + escapeHtml(fmtCalendarDate(date) + (evs.length ? ': ' + evs.map(calMiniTitle).join('; ') : ': No stored events')) + '" class="' + cls + '" data-cal-day="' + date + '" aria-pressed="' + (isSel ? 'true' : 'false') + '">' +
           '<span class="cal-cell-num">' + dayNum + '</span>' + markers +
         '</button>';
     }
@@ -32487,7 +32436,7 @@ ${renderExportBindings()}
   // --- Heatmap tab --------------------------------------------------------
   // Finviz-style market map. Tiles sized by market cap, colored by today's
   // % change. Data is baked into data/heatmap.json at build time and the
-  // live overlay (opt-in checkbox) polls /api/quotes to recolor while the
+  // live overlay (on by default, with an off switch) polls /api/quotes while the
   // market is open. ETFs are excluded — heatmap.json itself filters them.
   var heatmapState = {
     data: null,
@@ -32499,7 +32448,8 @@ ${renderExportBindings()}
     gradeMap: null, gradeLoading: false, ivMap: null, ivLoading: false,
     period: '1d',      // '1d' | '1w' | '1m' | '3m' | 'ytd' | '1y'
     search: '',        // uppercased ticker filter for highlight
-    live: false,
+    live: VIEWS.get('heatmap.live', true) !== false,
+    liveRequest: 0,
     livePollTimer: null,
     liveOverlay: {},   // symbol -> { ch, sp, rv, hi52, lo52, dayHi, dayLo, marketState, prevSpot }
     liveUpdatedAt: 0,
@@ -32554,7 +32504,14 @@ ${renderExportBindings()}
     fetch(dataUrl('heatmap.json'), { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(json){
-        var tickers = (json && Array.isArray(json.tickers)) ? json.tickers : [];
+        var candidates = (json && Array.isArray(json.tickers)) ? json.tickers : [];
+        var unique = new Map();
+        candidates.forEach(function(row){
+          if (!row || typeof row.t !== 'string' || !row.t.trim()) return;
+          var symbol = row.t.trim().toUpperCase(), previous = unique.get(symbol);
+          if (!previous || (previous.stale && !row.stale)) unique.set(symbol, Object.assign({}, row, { t: symbol }));
+        });
+        var tickers = Array.from(unique.values());
         heatmapState.data = {
           builtAtIso: json && json.builtAtIso,
           refreshedAtIso: json && json.refreshedAtIso,
@@ -32645,6 +32602,7 @@ ${renderExportBindings()}
       liveToggle.checked = heatmapState.live;
       liveToggle.addEventListener('change', function(){
         heatmapState.live = !!liveToggle.checked;
+        VIEWS.set('heatmap.live', heatmapState.live ? null : false);
         if (heatmapState.live) startHeatmapLivePolling();
         else stopHeatmapLivePolling(true);
       });
@@ -32975,6 +32933,10 @@ ${renderExportBindings()}
     var value = t.perf && t.perf[period];
     return value != null && isFinite(value) ? Number(value) : null;
   }
+  function heatmapOverlayFor(symbol){
+    var age = Date.now() - heatmapState.liveUpdatedAt;
+    return heatmapState.live && age >= 0 && age < 90000 ? (heatmapState.liveOverlay[symbol] || null) : null;
+  }
   // Live session change is direct from /api/quotes. Longer returns reuse the
   // baked period baseline implied by {spot, return}, then mark that baseline
   // with the live regular-session spot. This keeps every selected horizon live
@@ -32983,7 +32945,7 @@ ${renderExportBindings()}
     if (!t) return null;
     var period = periodOverride || heatmapState.period || '1d';
     var baked = heatmapBakedReturn(t, period);
-    var o = heatmapState.liveOverlay && heatmapState.liveOverlay[t.t];
+    var o = heatmapOverlayFor(t.t);
     if (!o) return baked;
     if (period === '1d' && o.ch != null && isFinite(o.ch)) return Number(o.ch);
     var bakedSpot = Number(t.sp);
@@ -32996,7 +32958,7 @@ ${renderExportBindings()}
     return baked;
   }
   function heatmapEffectiveRvol(t){
-    var o = heatmapState.liveOverlay && heatmapState.liveOverlay[t.t];
+    var o = heatmapOverlayFor(t.t);
     if (o && o.rv != null && isFinite(o.rv)) return o.rv;
     return (t.rv != null && isFinite(t.rv)) ? t.rv : null;
   }
@@ -33844,15 +33806,17 @@ ${renderExportBindings()}
       var mc = Number(btn.getAttribute('data-mc'));
       var ch = Number(btn.getAttribute('data-ch'));
       var sp = Number(btn.getAttribute('data-sp'));
-      var rvAttr = Number(btn.getAttribute('data-rv'));
+      var rvText = btn.getAttribute('data-rv');
+      var rvAttr = rvText == null || rvText === '' ? null : Number(rvText);
       var periodStart = btn.getAttribute('data-period-start') || '';
       var sec = btn.getAttribute('data-sec') || '';
       var ind = btn.getAttribute('data-ind') || '';
       var stale = btn.getAttribute('data-stale') === '1';
-      var live = (heatmapState.liveOverlay && heatmapState.liveOverlay[sym]) || null;
-      var rv = (live && live.rv != null && isFinite(live.rv)) ? live.rv : (isFinite(rvAttr) && rvAttr > 0 ? rvAttr : null);
+      var live = heatmapOverlayFor(sym);
+      var rv = (live && live.rv != null && isFinite(live.rv)) ? live.rv : (rvAttr != null && isFinite(rvAttr) && rvAttr >= 0 ? rvAttr : null);
       var pctCls = ch > 0 ? 'heatmap-tooltip-pct-pos' : (ch < 0 ? 'heatmap-tooltip-pct-neg' : '');
       var rows = '';
+      rows += '<div class="heatmap-tooltip-row"><span>Quote source</span><span>' + (live ? 'Live regular session' : 'Saved snapshot') + '</span></div>';
       rows += '<div class="heatmap-tooltip-row"><span>' + heatmapPeriodLabel() + ' return</span><span class="' + pctCls + '">' + escapeHtml(heatmapFmtPct(ch)) + '</span></div>';
       if (periodStart) rows += '<div class="heatmap-tooltip-row"><span>Baseline date</span><span>' + escapeHtml(periodStart) + '</span></div>';
       if (rv != null){
@@ -33877,14 +33841,15 @@ ${renderExportBindings()}
         (name && name !== sym ? '<div class="heatmap-tooltip-name">' + escapeHtml(name) + '</div>' : '') +
         rows +
         (stale ? '<div class="heatmap-tooltip-stale">⚠ stale — last good print, no fresh quote</div>' : '');
+      tooltip.hidden = false;
       var rootRect = root.getBoundingClientRect();
-      var tipW = 240, tipH = 180;
+      var tipW = tooltip.offsetWidth, tipH = tooltip.offsetHeight;
       var x = ev.clientX - rootRect.left + 14;
       var y = ev.clientY - rootRect.top + 14;
       if (x + tipW > rootRect.width) x = ev.clientX - rootRect.left - tipW - 12;
       if (y + tipH > rootRect.height) y = ev.clientY - rootRect.top - tipH - 12;
-      if (x < 0) x = 4;
-      if (y < 0) y = 4;
+      x = Math.max(Math.max(4, 4 - rootRect.left), Math.min(x, window.innerWidth - rootRect.left - tipW - 4));
+      y = Math.max(Math.max(4, 72 - rootRect.top), Math.min(y, window.innerHeight - rootRect.top - tipH - 64));
       tooltip.style.setProperty('--tip-x', x + 'px');
       tooltip.style.setProperty('--tip-y', y + 'px');
       tooltip.hidden = false;
@@ -33896,11 +33861,11 @@ ${renderExportBindings()}
   }
 
   // Live overlay polling — only runs while the heatmap tab is the active
-  // page tab AND the user has toggled live mode on. /api/quotes batches
+  // page tab AND live mode is enabled. /api/quotes batches
   // up to 150 symbols per request so the whole curated list lands in one
   // round trip. Drops back to baked colors silently on a network error.
   function startHeatmapLivePolling(){
-    if (!heatmapState.live) return;
+    if (!heatmapState.live || document.hidden) return;
     if (heatmapState.livePollTimer) return;
     var pane = document.getElementById('page-pane-heatmap');
     if (!pane || pane.hidden) return;
@@ -33908,6 +33873,7 @@ ${renderExportBindings()}
     heatmapState.livePollTimer = setInterval(pollHeatmapLiveOnce, 30000);
   }
   function stopHeatmapLivePolling(clearOverlay){
+    heatmapState.liveRequest++;
     if (heatmapState.livePollTimer){
       clearInterval(heatmapState.livePollTimer);
       heatmapState.livePollTimer = null;
@@ -33923,17 +33889,29 @@ ${renderExportBindings()}
     }
   }
   function pollHeatmapLiveOnce(){
+    if (!heatmapState.live || document.hidden) return;
+    var pane = document.getElementById('page-pane-heatmap');
+    if (!pane || pane.hidden) return;
+    if (heatmapState.liveUpdatedAt && Date.now() - heatmapState.liveUpdatedAt >= 90000){
+      heatmapState.liveOverlay = {};
+      heatmapState.liveUpdatedAt = 0;
+      applyHeatmapLiveOverlay(); renderHeatmapBreadth(); renderHeatmapDecision();
+      var delayed = $('heatmap-live-state');
+      if (delayed){ delayed.className = 'heatmap-live-state'; delayed.textContent = 'Quote refresh delayed · showing saved snapshot'; }
+    }
     var data = heatmapState.data;
     if (!data || !Array.isArray(data.tickers) || !data.tickers.length){
       stopHeatmapLivePolling(false);
       return;
     }
     var stateEl = $('heatmap-live-state');
+    var request = ++heatmapState.liveRequest;
     var syms = data.tickers.map(function(t){ return t.t; });
     var url = 'api/quotes?symbols=' + encodeURIComponent(syms.join(','));
     fetch(url, { cache: 'no-store' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(json){
+        if (request !== heatmapState.liveRequest || !heatmapState.live) return;
         var quotes = (json && Array.isArray(json.quotes)) ? json.quotes : [];
         if (!quotes.length) throw new Error('No quotes');
         var marketState = marketStateOfQuotes(quotes);
@@ -33960,7 +33938,11 @@ ${renderExportBindings()}
         data.tickers.forEach(function(row){ if (row && row.t) rowBySymbol[row.t] = row; });
         for (var i = 0; i < quotes.length; i++){
           var q = quotes[i];
-          if (!q || !q.symbol || q.changePct == null) continue;
+          if (!q || !rowBySymbol[q.symbol] || typeof q.changePct !== 'number' || !isFinite(q.changePct) || typeof q.spot !== 'number' || !isFinite(q.spot) || q.spot <= 0) continue;
+          // A response stamp is not a fresh trade. Reject old or future-dated
+          // prints when the provider supplies the underlying session time.
+          var quoteAge = q.regularAsOf ? Date.now() - Date.parse(q.regularAsOf) : NaN;
+          if (!isFinite(quoteAge) || quoteAge < -300000 || quoteAge > 15 * 60000) continue;
           var prev = heatmapState.liveOverlay[q.symbol];
           // Compare cumulative volume with the fraction of a normal 20-day
           // session expected by this clock time. This avoids making every
@@ -33973,7 +33955,7 @@ ${renderExportBindings()}
           var frac = qState.indexOf('REGULAR') === 0
             ? Math.max(0.05, execCumFracExpected(execEtMinutesSinceOpen()))
             : 1;
-          var canRefreshRv = qState.indexOf('PRE') !== 0 && isFinite(dv) && dv > 0 && isFinite(av) && av > 0;
+          var canRefreshRv = q.dayVolume != null && qState.indexOf('PRE') !== 0 && isFinite(dv) && dv >= 0 && isFinite(av) && av > 0;
           var rv = canRefreshRv
             ? Math.round((dv / (av * frac)) * 100) / 100
             : (bakedRow && bakedRow.rv != null ? Number(bakedRow.rv) : null);
@@ -33990,17 +33972,19 @@ ${renderExportBindings()}
           };
         }
         heatmapState.liveOverlay = overlay;
-        heatmapState.liveUpdatedAt = Date.now();
+        var liveCount = Object.keys(overlay).length;
+        heatmapState.liveUpdatedAt = liveCount ? Date.now() : 0;
         heatmapState.liveMarketState = marketState || '';
         applyHeatmapLiveOverlay();
         renderHeatmapBreadth();
         renderHeatmapDecision();
         if (stateEl){
-          stateEl.className = 'heatmap-live-state is-live';
-          stateEl.textContent = 'Live · ' + (marketState || 'updated') + ' · ' + formatDisplayInstant(new Date(), { hour: 'numeric', minute: '2-digit' });
+          stateEl.className = 'heatmap-live-state' + (liveCount ? ' is-live' : ' is-error');
+          stateEl.textContent = liveCount ? 'Live · ' + liveCount + '/' + data.tickers.length + ' stocks · ' + formatDisplayInstant(new Date(), { hour: 'numeric', minute: '2-digit' }) + (liveCount < data.tickers.length ? ' · others use saved snapshot' : '') : 'No fresh live quotes · showing saved snapshot';
         }
       })
       .catch(function(){
+        if (request !== heatmapState.liveRequest || !heatmapState.live) return;
         heatmapState.liveOverlay = {};
         heatmapState.liveUpdatedAt = 0;
         heatmapState.liveMarketState = '';
@@ -34014,7 +33998,6 @@ ${renderExportBindings()}
   }
   function applyHeatmapLiveOverlay(){
     if (heatmapState.layout !== 'map'){ heatmapSyncLayout(); return; }
-    var overlay = heatmapState.liveOverlay || {};
     var root = $('heatmap-root');
     if (!root) return;
     var colorBy = heatmapState.colorBy;
@@ -34027,27 +34010,26 @@ ${renderExportBindings()}
       var tile = tiles[i];
       var sym = tile.getAttribute('data-sym');
       if (!sym) continue;
-      var live = overlay[sym];
+      var live = heatmapOverlayFor(sym);
       tile.classList.remove('is-live-up');
       tile.classList.remove('is-live-down');
-      if (!live) continue;
-      var ch = heatmapEffectiveCh(rowBySymbol[sym]);
+      var bakedRow = rowBySymbol[sym];
+      if (!bakedRow) continue;
+      var ch = heatmapEffectiveCh(bakedRow);
       // Live data supersedes the baked row — drop the stale dim if it had one.
-      tile.classList.remove('is-stale');
-      tile.removeAttribute('data-stale');
+      tile.classList.toggle('is-stale', !live && !!bakedRow.stale);
+      if (!live && bakedRow.stale) tile.setAttribute('data-stale', '1');
+      else tile.removeAttribute('data-stale');
       // Prefer the live intraday rvol; fall back to the baked one for the color.
-      var rv = (live.rv != null && isFinite(live.rv))
-        ? live.rv
-        : (function(){ var b = Number(tile.getAttribute('data-rv')); return isFinite(b) && b > 0 ? b : null; })();
+      var rv = heatmapEffectiveRvol(bakedRow);
       var color = heatmapPaintParts(ch, rv, colorBy, period, sym);
       tile.setAttribute('data-dir', color.dir);
       tile.style.setProperty('--hm-intensity', color.intensity.toFixed(3));
       tile.setAttribute('data-ch', ch);
-      if (live.rv != null && isFinite(live.rv)){
-        tile.setAttribute('data-rv', live.rv);
-        tile.classList.toggle('is-hot', live.rv >= HEATMAP_HOT_RVOL);
-      }
-      if (live.sp != null) tile.setAttribute('data-sp', live.sp);
+      tile.setAttribute('data-rv', rv == null ? '' : rv);
+      tile.classList.toggle('is-hot', rv != null && rv >= HEATMAP_HOT_RVOL);
+      var spot = live && live.sp != null ? live.sp : bakedRow.sp;
+      tile.setAttribute('data-sp', spot == null ? '' : spot);
       var pctEl = tile.querySelector('.heatmap-tile-pct');
       if (pctEl) pctEl.textContent = heatmapValueText(sym, ch, rv, colorBy);
       tile.setAttribute('aria-label', sym + ', ' + heatmapPeriodLabel(period) + ' return ' + heatmapFmtPct(ch) +
@@ -34055,7 +34037,7 @@ ${renderExportBindings()}
       // Flash a subtle outline when the spot ticked since the last poll
       // so the user can see motion even on small tiles. Cleared on the
       // next poll cycle.
-      if (live.prevSpot != null && live.sp != null && live.sp !== live.prevSpot){
+      if (live && live.prevSpot != null && live.sp != null && live.sp !== live.prevSpot){
         tile.classList.add(live.sp > live.prevSpot ? 'is-live-up' : 'is-live-down');
       }
     }
@@ -41706,10 +41688,14 @@ ${renderExportBindings()}
   // Calendar events under the current type filter.
   function calendarExportRows(){
     var data = (typeof calendarState !== 'undefined' && calendarState.data) ? calendarState.data : { events: [] };
-    var filtered = (data.events || []).filter(function(e){ return calendarTypeMatches(e.type, calendarState.type); });
+    var filtered = (data.events || []).filter(function(e){ return calendarTypeMatches(e.type, calendarState.type) && (!calendarState.viewYm || calEventDateKeys(e).some(function(d){ return d.slice(0,7) === calendarState.viewYm; })); });
     var rows = filtered.map(function(e){
       return {
         date: e.date || '',
+        end_date: e.endDate || '',
+        source: e.source || '',
+        source_url: e.sourceUrl || '',
+        verified_date: e.verifiedAt || '',
         type: e.type || '',
         ticker: e.ticker || e.symbol || '',
         title: e.title || e.label || e.name || '',
@@ -42703,11 +42689,13 @@ ${renderExportBindings()}
       { key:'qqq', label:'QQQ', cls:'qqq', offset:0 },
       { key:'iwm', label:'IWM', cls:'iwm', offset:barW + 2 }
     ];
-    var bars = '', labels = '', bondPts = [], hit = '';
+    var bars = '', labels = '', bondPts = [], hit = '', hoverPts = [];
     chronological.forEach(function(row, idx){
       var x = padL + groupW * (idx + .5);
+      var tip = [fomcDayShortDate(row.date) + ((row.decisionLabel || row.decision) ? ' · ' + (row.decisionLabel || row.decision) : '')];
       series.forEach(function(s){
         var value = fomcDayNum(row.markets && row.markets[s.key] && row.markets[s.key].changePct);
+        tip.push(s.label + ' ' + (value == null ? '—' : fomcDayPct(value)));
         if (value == null) return;
         var height = Math.max(1, Math.abs(value) * yScale);
         var y = value >= 0 ? zero - height : zero;
@@ -42715,6 +42703,9 @@ ${renderExportBindings()}
       });
       var bond = fomcDayBondRead(row);
       if (bond.value != null) bondPts.push({ x:x, y:zero - bond.value * yScale, value:bond.value, row:row });
+      var bondY = bond.value == null ? zero : zero - bond.value * yScale;
+      if (bond.value != null) tip.push('TLT ' + fomcDayPct(bond.value) + (bond.post ? ' from 2pm' : ''));
+      hoverPts.push({ x: x, y: bondY, label: tip.join('\\n') });
       labels += '<text class="fomc-day-axis-label" x="' + x.toFixed(1) + '" y="' + (H - 18) + '">' + escapeHtml(fomcDayShortDate(row.date)) + '</text>';
       hit += '<rect class="fomc-day-hit' + (row.date === fomcDaySelected ? ' is-selected' : '') + '" data-fomc-day="' + escapeHtml(row.date) + '" x="' + (x - groupW / 2 + 2).toFixed(1) + '" y="' + padT + '" width="' + Math.max(12, groupW - 4).toFixed(1) + '" height="' + (plotH + 24) + '" tabindex="0" role="button" aria-label="Show ' + escapeHtml(row.label || row.date) + ' details"></rect>';
     });
@@ -42733,7 +42724,7 @@ ${renderExportBindings()}
     var chart = '<div class="fomc-day-chart-head"><div class="fomc-day-legend">' +
       '<span class="is-spy">SPY</span><span class="is-qqq">QQQ</span><span class="is-iwm">IWM</span><span class="is-tlt">TLT bond reaction</span>' +
       '</div><small>bars = full session &middot; TLT line = 2pm to close when captured</small></div>' +
-      '<div class="fomc-day-chart-scroll"><svg class="fomc-day-chart" viewBox="0 0 ' + W + ' ' + H + '" style="min-width:' + W + 'px" role="img" aria-label="FOMC day returns for SPY, QQQ, IWM and TLT">' +
+      '<div class="fomc-day-chart-scroll"><svg class="fomc-day-chart" viewBox="0 0 ' + W + ' ' + H + '" style="min-width:' + W + 'px" role="img" aria-label="FOMC day returns for SPY, QQQ, IWM and TLT"' + chHoverAttr(hoverPts) + '>' +
       grid + bars + bondPath + bondDots + labels + hit + '</svg></div>';
     var meetingButtons = rows.map(function(row){
       var dissents = Number(row.dissentCount) || 0;

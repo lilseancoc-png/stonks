@@ -115,6 +115,7 @@ async function main() {
   const priorCorrelations = await readJson("correlations.json");
   const rfrPayload = await readJson("rfr-history.json");
   const ivTrending = await readJson("iv-trending.json");
+  const trends = await readJson("trends.json");
 
   let correlations = priorCorrelations;
   try {
@@ -159,7 +160,6 @@ async function main() {
     console.warn(`Headline refresh failed (${String(err?.message || err).split("\n")[0]}); using trends.json.`);
   }
   if (!headlines.length) {
-    const trends = await readJson("trends.json");
     if (Array.isArray(trends?.macroHeadlines)) headlines = trends.macroHeadlines;
   }
 
@@ -175,6 +175,10 @@ async function main() {
     rfr: Number.isFinite(rfrPayload?.rate) ? rfrPayload.rate : FALLBACK_RISK_FREE_RATE,
     headlines,
     ivTrending,
+    narratives: Array.isArray(trends?.narratives) && trends.builtAtIso
+      && Date.parse(trends.builtAtIso) <= startedAt.getTime()
+      && startedAt.getTime() - Date.parse(trends.builtAtIso) <= 30 * 3600000
+      ? trends.narratives : null,
   });
   await writeAiUsageState();
 

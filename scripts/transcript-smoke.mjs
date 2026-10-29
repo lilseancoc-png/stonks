@@ -11,7 +11,7 @@ import {
   updateEarningsCallsData,
   TRANSCRIPT_BRIEF_FORMAT,
 } from "./build.mjs";
-import { prepareTranscriptInput, transcriptCharacterBudget } from "../lib/transcript-input.mjs";
+import { prepareTranscriptInput, transcriptCharacterBudget, salvageTruncatedJson } from "../lib/transcript-input.mjs";
 import { extractCapexGuidanceFromBrief } from "../lib/ai-capex.mjs";
 
 const config = transcriptSummaryGenerateConfig();
@@ -94,8 +94,13 @@ assert.deepEqual(summary.segments, [], "optional sections remain empty rather th
 const guide = extractCapexGuidanceFromBrief({callDate:"2026-10-23",summary}, {calendarFiscal:true,reference:42e9});
 assert.equal(guide.low,40e9);
 assert.equal(guide.high,45e9);
-assert.throws(() => normalizeTranscriptSummary({...candidate,guidance:Array.from({length:11},()=>candidate.guidance[0])}), /not clipped/);
-assert.throws(() => normalizeTranscriptSummary({...candidate,qa:Array.from({length:4},()=>candidate.qa[0])}), /not clipped/);
+// A paid response that runs over a prompted list limit is kept whole, and the overrun is recorded.
+for (const [key, count, limit] of [["guidance", 11, 10], ["qa", 4, 3]]) {
+  const notes = [];
+  const kept = normalizeTranscriptSummary({...candidate,[key]:Array.from({length:count},()=>candidate[key][0])}, notes);
+  assert.equal(kept[key].length, count, `${key} keeps every item`);
+  assert.deepEqual(notes, [{path:`$.${key}`, issue:"over-limit", items:count, limit}]);
+}
 const longRisk = "Risk detail. ".repeat(60)+"Do not omit this final caveat.";
 const longContext = "Reported comparison. ".repeat(20)+"This comparison excludes the acquisition.";
 const longValue = "Outlook details. ".repeat(20)+"Subject to regulatory approval.";
@@ -103,13 +108,38 @@ const complete = normalizeTranscriptSummary({...candidate,risks:[longRisk],finan
 assert.equal(complete.risks[0],longRisk,"long useful fields must not reject the entire paid result");
 assert.equal(complete.financials[0].context,longContext);
 assert.equal(complete.guidance[0].value,longValue);
-for (const malformed of [
-  {...candidate,guidance:"missing"}, {...candidate,guidance:[null]},
-  {...candidate,guidance:[{metric:"Capex"}]}, {...candidate,guidance:[{metric:"Capex",value:" "}]},
-  {...candidate,risks:[null]}, {...candidate,qa:[{analyst:"Analyst",question:"Where?",respondent:"CFO"}]},
-  {...candidate,mgmtTone:null}, {...candidate,financials:[{label:"Revenue",value:12}]},
-  {...candidate,epsVerdict:"made-up"},
-]) assert.throws(()=>normalizeTranscriptSummary(malformed),err=>err.transcriptContentFailure,"malformed evidence must not disappear into an empty section");
+// One unusable entry is left out on its own and recorded; the rest of the paid summary is published.
+for (const [malformed, section] of [
+  [{...candidate,guidance:"missing"},"guidance"], [{...candidate,guidance:[null]},"guidance"],
+  [{...candidate,guidance:[{metric:"Capex"}]},"guidance"], [{...candidate,guidance:[{metric:"Capex",value:" "}]},"guidance"],
+  [{...candidate,risks:[null]},"risks"], [{...candidate,qa:[{analyst:"Analyst",question:"Where?",respondent:"CFO"}]},"qa"],
+  [{...candidate,mgmtTone:null},"mgmtTone"], [{...candidate,epsVerdict:"made-up"},"epsVerdict"],
+]) {
+  const notes = [];
+  const kept = normalizeTranscriptSummary(malformed, notes);
+  assert.equal(kept.headline, candidate.headline, `${section}: the rest of the summary is kept`);
+  assert.deepEqual(kept.execSummary, candidate.execSummary);
+  assert.ok(notes.some(n => n.path.startsWith(`$.${section}`)), `${section}: the omission is recorded`);
+  assert.ok(Array.isArray(kept[section]) ? kept[section].length === 0 : kept[section] == null, `${section}: the unusable entry is left out`);
+}
+assert.equal(normalizeTranscriptSummary({...candidate,financials:[{label:"Revenue",value:12}]}).financials[0].value,"12","a numeric value is kept as text");
+const noHeadlineNotes = [];
+assert.equal(normalizeTranscriptSummary({...candidate,headline:""}, noHeadlineNotes).headline, candidate.execSummary[0]);
+assert.ok(noHeadlineNotes.some(n => n.path === "$.headline"));
+assert.throws(()=>normalizeTranscriptSummary({...candidate,headline:"",execSummary:[]}),err=>err.transcriptContentFailure,"a response with nothing to show is still a failure");
+assert.throws(()=>normalizeTranscriptSummary("not json"),err=>err.transcriptContentFailure);
+
+// A response cut off at the output limit keeps every section that finished before the cut.
+const fullText = JSON.stringify(candidate);
+const cut = fullText.slice(0, fullText.indexOf('"risks"') + 40);
+const salvaged = salvageTruncatedJson(cut);
+assert.equal(salvaged.headline, candidate.headline);
+assert.deepEqual(salvaged.guidance, candidate.guidance, "sections completed before the cut are intact");
+assert.ok(!("qa" in salvaged), "sections after the cut are absent, not invented");
+assert.ok(normalizeTranscriptSummary(salvaged).execSummary.length === 3);
+assert.equal(salvageTruncatedJson('{"headline":"Cut mid'), null, "nothing complete means nothing to keep");
+assert.equal(salvageTruncatedJson("no json here"), null);
+assert.deepEqual(salvageTruncatedJson('{"a":[1,2,{"b":"x\\"y'), {a:[1,2]});
 
 // Formatting changes must not cause a bulk paid refresh of valid old summaries.
 const oldEntry = {sym:"AAPL",v:"ect3",quarter:"Q3 FY2026",headline:"Existing valid summary"};
