@@ -36,6 +36,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Added
 
+- Track Record adds separate red Webull and on-site log wipes with 1D, 1W, 1M, 3M and All periods, exact-date previews and a “100% sure” confirmation. Wipes preserve live engine and broker state, uploaded fills, research and the other tracker; reports and exports recalculate from retained entries. Data checks also fix missing observations being averaged as zero and incomplete SPY pairs entering comparisons.
 - Historical Data adds a **Before, on and after FOMC decisions** study: the S&P 500 index over the three sessions before each scheduled decision since 1994, the decision day and the three sessions after, split into hikes, cuts and holds (from the Fed's own list of rate changes) and compared with any stretch of the same length. The FOMC "Resembles now" card opens five days ahead and links to it, and a new data check compares the rate-change list with the effective fed funds rate.
 
 ## 2026-10-28

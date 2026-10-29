@@ -6528,12 +6528,14 @@ function scenarioEventPhase(ev, now = Date.now()) {
     // through the same Owner gate (and kept for the next export).
     var exportCache = [];
     function exportLoadSource(key){
-      for (var i = 0; i < exportCache.length; i++) if (exportCache[i].key === key) return exportCache[i].p;
-      var p = fetch(dataUrl(key), { cache: 'no-cache', credentials: 'same-origin' }).then(function(r){
+      var report = exportTab === 'track' && ['picks-accuracy.json','picks-changes.json','picks-roster.json','grades-history.json'].indexOf(key) !== -1;
+      var sourceUrl = report ? trackRecordDataUrl(key) : dataUrl(key);
+      for (var i = 0; !report && i < exportCache.length; i++) if (exportCache[i].key === sourceUrl) return exportCache[i].p;
+      var p = fetch(sourceUrl, { cache: 'no-cache', credentials: 'same-origin' }).then(function(r){
         if (!r.ok) throw new Error(r.status === 401 || r.status === 403 ? 'sign in again' : 'not available');
         return r.json();
       });
-      exportCache.unshift({ key: key, p: p });
+      exportCache.unshift({ key: sourceUrl, p: p });
       if (exportCache.length > 6) exportCache.length = 6;
       p.catch(function(){ exportCache = exportCache.filter(function(c){ return c.p !== p; }); });
       return p;
@@ -39328,24 +39330,106 @@ function scenarioEventPhase(ev, now = Date.now()) {
     else arr.sort(function(a, b){ return exitMs(b) - exitMs(a); });
     return VIEWS.applyDir(arr, 'track-closed', missing ? function(e){ return missing(e) == null; } : null);
   }
+  function bindTrackRecordReset(pane) {
+    (function trackRecordResetClient(deps) {
+  var dialog = deps.get('acc-reset-dialog');
+  if (!dialog) return;
+  var form = deps.get('acc-reset-form'), check = deps.get('acc-reset-sure');
+  var submit = deps.get('acc-reset-confirm'), cancel = deps.get('acc-reset-cancel');
+  var range = deps.get('acc-reset-range'), error = deps.get('acc-reset-error');
+  var summary = deps.get('acc-reset-summary'), refresh = deps.get('acc-reset-refresh');
+  var scope = null, busy = false, preview = null, sequence = 0;
+  var labels = { webull: 'Webull', onsite: 'On-site' };
+  function date(iso) { return new Date(iso).toLocaleString(undefined, { timeZone: 'UTC', dateStyle: 'medium', timeStyle: 'medium' }); }
+  function count(n, single, plural) { return n + ' ' + (n === 1 ? single : plural); }
+  function ready() { check.disabled = busy || !preview; submit.disabled = busy || !preview || !check.checked; }
+  function request(body) {
+    return deps.fetch('/api/auth/track-record-reset', {
+      method: 'POST', credentials: 'same-origin', cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+    }).then(function(response) {
+      return response.json().catch(function() { throw new Error('Could not read the server response. Refresh the preview before trying again.'); }).then(function(result) {
+        if (!response.ok) throw new Error(result.error || 'Could not update this log.');
+        return result;
+      });
+    });
+  }
+  function updatePreview() {
+    var current = ++sequence;
+    deps.get('acc-reset-title').textContent = 'Wipe ' + labels[scope] + ' log · ' + range.value + '?';
+    preview = null; check.checked = false; error.textContent = ''; summary.textContent = 'Checking this period…'; ready();
+    request({ operation: 'preview', scope: scope, range: range.value }).then(function(result) {
+      if (current !== sequence || !dialog.open) return;
+      preview = result;
+      var dates = result.fromIso ? date(result.fromIso) + ' through ' + date(result.toIso) : 'All logged entries through ' + date(result.toIso);
+      var counts = count(result.tradeCount, 'trade log entry', 'trade log entries') + ', ' + (scope === 'webull' ? count(result.runCount, 'run log', 'run logs') : count(result.activityCount, 'activity entry', 'activity entries') + ' and ' + count(result.snapshotCount, 'roster snapshot', 'roster snapshots'));
+      summary.textContent = dates + ' (UTC). ' + counts + ' match. ' +
+        (range.value === 'ALL' ? 'Undated entries are included.' : 'Undated entries are kept.');
+      ready();
+    }).catch(function(err) {
+      if (current !== sequence || !dialog.open) return;
+      summary.textContent = ''; error.textContent = err.message || 'Could not load this period. Refresh the preview to try again.'; ready();
+    });
+  }
+  deps.pane.addEventListener('click', function(event) {
+    var button = event.target.closest && event.target.closest('[data-track-reset]');
+    if (!button || busy || !deps.isOwner()) return;
+    scope = button.getAttribute('data-track-reset');
+    if (scope !== 'webull' && scope !== 'onsite') return;
+    deps.get('acc-reset-title').textContent = 'Wipe ' + labels[scope] + ' log?';
+    deps.get('acc-reset-data').replaceChildren();
+    var deleted = scope === 'webull'
+      ? ['Webull trade and fill log entries selected by engine entry time', 'Their order-attempt history in reports and downloads', 'Run logs selected by run time; performance charts recalculate from the remaining trades']
+      : ['Modeled open, closed and archived trade log entries selected by entry time, and matching SPY comparisons', 'Pick and grade activity selected by event time, and roster snapshots selected by snapshot time', 'On-site scorecards, equity charts, breakdowns and simulations recalculate from the remaining trades'];
+    deleted.forEach(function(text) { var li = document.createElement('li'); li.textContent = text; deps.get('acc-reset-data').appendChild(li); });
+    deps.get('acc-reset-kept').textContent = 'Only the ' + labels[scope] + ' reporting log is cleared. The other tracker, uploaded fills, research, live engine state, broker orders, positions and account balance stay intact. Active trades keep being managed, and wiping the log will not submit them again.';
+    range.value = '1D'; submit.textContent = 'Yes, wipe ' + labels[scope] + ' log';
+    dialog.showModal(); cancel.focus(); updatePreview();
+  });
+  range.addEventListener('change', updatePreview);
+  refresh.addEventListener('click', updatePreview);
+  check.addEventListener('change', ready);
+  cancel.addEventListener('click', function() { if (!busy) dialog.close(); });
+  dialog.addEventListener('close', function() { sequence++; preview = null; });
+  dialog.addEventListener('cancel', function(event) { if (busy) event.preventDefault(); });
+  form.addEventListener('submit', function(event) {
+    event.preventDefault();
+    if (busy || !preview || !check.checked || !deps.isOwner()) return;
+    busy = true; range.disabled = true; refresh.disabled = true; cancel.disabled = true;
+    submit.textContent = 'Wiping…'; error.textContent = ''; ready();
+    request({ operation: 'wipe', scope: scope, range: range.value, previewToken: preview.previewToken,
+      confirmation: 'WIPE ' + scope.toUpperCase() + ' ' + range.value + ' RECORD'
+    }).then(function() { deps.reload(); }).catch(function(err) {
+      error.textContent = err.message || 'Could not confirm the wipe. Refresh to check this log before trying again.';
+      busy = false; range.disabled = false; refresh.disabled = false; cancel.disabled = false;
+      check.checked = false; submit.textContent = 'Yes, wipe ' + labels[scope] + ' log'; ready();
+    });
+  });
+})({ get: $, pane: pane,
+      isOwner: function(){ return HAS_OWNER_ACCESS; },
+      fetch: function(url, options){ return fetch(url, options); },
+      reload: function(){ window.location.reload(); }
+    });
+  }
   var ACC_CP_LABEL = { 'day0':'Day 0', '2wk':'2 weeks', '1mo':'1 month' };
+  function trackRecordDataUrl(key){ return '/api/auth/track-record-data?key=' + encodeURIComponent(key); }
   function loadAccuracy(){
     if ((accuracyState.data && !accuracyState.data.loadError) || accuracyState.loading){ renderAccuracy(); return; }
     accuracyState.loading = true;
-    var pAcc = fetch(dataUrl('picks-accuracy.json'), { cache: 'no-cache' })
+    var pAcc = fetch(trackRecordDataUrl('picks-accuracy.json'), { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
     // Grade-change log + picks-churn log are separate, optional files — a miss
     // must not fail the whole tab, so each resolves to null and its section just
     // stays empty.
-    var pGch = fetch(dataUrl('grades-history.json'), { cache: 'no-cache' })
+    var pGch = fetch(trackRecordDataUrl('grades-history.json'), { cache: 'no-cache' })
       .then(function(r){ return r.ok ? r.json() : null; })
       .catch(function(){ return null; });
-    var pPch = fetch(dataUrl('picks-changes.json'), { cache: 'no-cache' })
+    var pPch = fetch(trackRecordDataUrl('picks-changes.json'), { cache: 'no-cache' })
       .then(function(r){ return r.ok ? r.json() : null; })
       .catch(function(){ return null; });
     // The Top-10 roster snapshot (in/out + per-pillar deltas + forecast). Optional
     // — a miss leaves the roster section empty and the rest of the tab works.
-    var pRos = fetch(dataUrl('picks-roster.json'), { cache: 'no-cache' })
+    var pRos = fetch(trackRecordDataUrl('picks-roster.json'), { cache: 'no-cache' })
       .then(function(r){ return r.ok ? r.json() : null; })
       .catch(function(){ return null; });
     // Daily Market Analysis regime history powers the environment-sized
@@ -39993,7 +40077,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   function wbRun(t){ var p = tlEtParts(Date.parse(t.engineEntryIso)); return p ? (Number(p.hour) < 13 ? '11' : '15') : null; }
   function wbJoined(){
     var trades = (wbTest.data && Array.isArray(wbTest.data.trades)) ? wbTest.data.trades : [];
-    var d = accuracyState.data || {};
+    var d = (wbTest.data && wbTest.data.engineRecord) || accuracyState.data || {};
     var byId = Object.create(null);
     [].concat(d.open || [], d.closed || [], d.archive || []).forEach(function(e){ if (e && e.symbol && e.entryDate) byId[accFillKey(tlTradeId(e))] = e; });
     var base = Object.create(null);
@@ -42593,6 +42677,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       }
       accRerenderAnalytics();
     });
+    bindTrackRecordReset(pane);
     pane.addEventListener('click', function(ev){
       var btn = ev.target && ev.target.closest ? ev.target.closest('[data-acc-action]') : null; if (!btn) return;
       if (btn.getAttribute('data-acc-action') === 'refresh-webull'){ wbTest.loaded = false; wbTest.error = null; renderWebullTest(); renderWebullEquity(); renderWebullBreakdown(); return; }
@@ -43278,13 +43363,12 @@ function scenarioEventPhase(ev, now = Date.now()) {
     }
   });
   // --- Open picks tab -------------------------------------------------------
-  // Only the trades open right now, with the same cards the Track Record's
-  // Picks pane uses. Reads picks-accuracy.json (Owner-only), reusing the Track
-  // Record's copy when that tab already loaded it. No new data file.
+  // Only the trades open right now. The execution book is independent of
+  // Track Record's reporting exclusions, so never reuse that view's cache.
   var openPicksState = { data: null, loading: false };
   function loadOpenPicks(){
-    var shared = accuracyState.data && !accuracyState.data.loadError ? accuracyState.data : null;
-    if (shared){ openPicksState.data = shared; renderOpenPicks(); return; }
+    // Track Record is a reporting view and may exclude wiped trades. The live
+    // Open picks page must always fetch the unfiltered engine book.
     if ((openPicksState.data && !openPicksState.data.loadError) || openPicksState.loading){ renderOpenPicks(); return; }
     openPicksState.loading = true;
     fetch(dataUrl('picks-accuracy.json'), { cache: 'no-cache' })
