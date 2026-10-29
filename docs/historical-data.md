@@ -46,7 +46,8 @@ ships as `quality` in `historical-data.json`; the Sources view shows it as a
   dated on the 1st, and staleness against each series' publishing lag.
 - Dated lists: FOMC decision days (trading days, sorted, no duplicates, eight
   scheduled meetings a year except 2020, when the March meeting was replaced
-  by emergency calls), WWDC keynotes (Mondays), every event-catalog date and
+  by emergency calls), the FOMC target changes (weekdays, in order, and since
+  2016 hike / cut / hold must agree with the effective fed funds rate), WWDC keynotes (Mondays), every event-catalog date and
   peak, and the CPI and jobs release dates (no weekends; months without a
   listed date are reported, such as the fall 2025 shutdown gap).
 
@@ -232,6 +233,18 @@ bake step, no AI) covers the market-event list the owner asked for on
   moves on FOMC, CPI and jobs-report days against sessions with none of the
   three releases (CPI and jobs keep one FRED-listed date per month, the
   latest; dropped dates and dates on market holidays are counted in the row).
+  Before, on and after FOMC decisions: the S&P 500 index over the three
+  sessions up to the close before each scheduled decision since 1994, the
+  decision day, the three sessions after and the whole seven-session window
+  (`FOMC_WINDOW_SESSIONS`), as average, median and share up, split into hikes,
+  cuts and holds and set against every stretch of the same length. Hike, cut
+  or hold comes from the Fed's list of target changes (`FOMC_RATE_CHANGES`,
+  checked through `FOMC_RATE_CHANGES_CHECKED`); a decision after that date is
+  classified from the effective fed funds rate (`DFF`: the five readings after
+  against the five before, 0.15 points or more) until the list is updated.
+  The nine intermeeting moves are listed, not counted. The 2:00 pm
+  announcement splits the documented pre-FOMC drift between "before" and
+  "decision day", since the data is daily closes.
 - **Resembles now** — deterministic checks on the latest completed close:
   Nasdaq −4% or S&P 500 −5% in the last five sessions; a 1987-style setup (S&P
   500 up 20%+ over 250 sessions with the 10-year yield up 1 point over 126
@@ -241,8 +254,9 @@ bake step, no AI) covers the market-event list the owner asked for on
   with crude or VIX jumping; KRE −12% in 10 sessions; Nasdaq up 40%+ on the
   year and 20%+ above its 200-day average; squeeze-style single-name moves
   (+15% on 4x volume); triple witching week; the WWDC window (14 days before to 7 after the keynote,
-  `WWDC_WINDOW_DAYS`, shared with the Brief cue); FOMC/CPI/jobs in
-  the next three days; and open Santa / Sell in May / September windows (those
+  `WWDC_WINDOW_DAYS`, shared with the Brief cue); an FOMC decision in the
+  next five days (linked to the before/on/after study) and CPI/jobs in the
+  next three; and open Santa / Sell in May / September windows (those
   link back to the seasonal studies). War, tariff, pandemic and bank-run
   headlines from the last 48 hours count only with a risk-off reaction on the
   same session (S&P 500 −1% or VIX +10%); relief headlines (pause, deal,
@@ -264,6 +278,14 @@ moves in as `inputs`; they are stored in the snapshot (`events.inputs`) so
 The Brief's Historical playbook gained pandemic, tariff and bank-run cues on
 the same headline-plus-reaction rule, and its WWDC cue now follows the actual
 keynote date. No Owner numbers flow into the public Brief.
+
+Hard-coded rate changes: every federal funds target change since 1994 comes
+from the Fed's open market operations pages (`openmarket.htm` and
+`openmarket_archive.htm`, checked 2026-10-28). Each one lands within three days
+after a scheduled decision except the nine intermeeting moves (1994-04-18,
+1998-10-15, 2001-01-03, 2001-04-18, 2001-09-17, 2008-01-22, 2008-10-08,
+2020-03-04, 2020-03-16); the smoke test pins that set. After each meeting, add
+the new change (if any) and move `FOMC_RATE_CHANGES_CHECKED`.
 
 Hard-coded dates: every scheduled FOMC decision day 1994–2027 was checked
 against federalreserve.gov (1994–2020 on 2026-10-28 from the Fed's historical

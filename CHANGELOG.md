@@ -32,6 +32,12 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Request an uncompressed R2 lock with a strong ETag so a released Webull paper lock can be acquired conditionally; fail closed on malformed locks or repeated conflicts, expose Owner-only diagnostics, and report mirror failures in a separate workflow health job.
 - Reconcile Webull grouped option positions using confirmed broker order legs and stable position identities; prepare manual spread adoption without replaying its entry, retain separate overlapping manual holdings, and exclude manual entries from automatic fill timing and slippage.
 
+## 2026-10-29
+
+### Added
+
+- Historical Data adds a **Before, on and after FOMC decisions** study: the S&P 500 index over the three sessions before each scheduled decision since 1994, the decision day and the three sessions after, split into hikes, cuts and holds (from the Fed's own list of rate changes) and compared with any stretch of the same length. The FOMC "Resembles now" card opens five days ahead and links to it, and a new data check compares the rate-change list with the effective fed funds rate.
+
 ## 2026-10-28
 
 ### Added

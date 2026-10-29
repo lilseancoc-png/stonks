@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { isHistoricalTradingDate } from '../lib/historical-market-calendar.mjs';
 import { cleanLongBars } from '../lib/historical-market-history.mjs';
-import { buildHistoricalEvents, measureEpisode, headlineHits, wwdcKeynote, EVENT_CATEGORIES, WWDC_KEYNOTES, FOMC_DECISIONS, CRASH_DROP_PCT } from '../lib/historical-events.mjs';
+import { buildHistoricalEvents, measureEpisode, headlineHits, wwdcKeynote, EVENT_CATEGORIES, WWDC_KEYNOTES, FOMC_DECISIONS, FOMC_RATE_CHANGES, FOMC_RATE_CHANGES_CHECKED, fomcOutcomes, fomcOutcomeFromDff, CRASH_DROP_PCT } from '../lib/historical-events.mjs';
 import { buildHistoricalData, packHistoricalData } from '../lib/historical-data.mjs';
 import { refreshHistoricalSourceCache, loadFredReleaseDates } from './collect-historical-sources.mjs';
 import { detectPlaybookCues, historicalEventInputs } from './build.mjs';
@@ -54,8 +54,8 @@ const base = { series: { '^GSPC': gspc, '^IXIC': ixic, AAPL: aapl, KRE: kre, GME
 const ev = buildHistoricalEvents(base);
 
 // Every item on the coverage list has a study.
-for (const id of ['war', 'pandemic', 'oil', 'tariffs', 'mania', 'squeeze', 'bank-run', 'crash', 'nasdaq-4', 'witching', 'wwdc', 'econ']) assert(ev.studies[id], `study ${id}`);
-assert.deepEqual(ev.order, ['war', 'pandemic', 'oil', 'tariffs', 'mania', 'squeeze', 'bank-run', 'crash', 'nasdaq-4', 'witching', 'wwdc', 'econ']);
+for (const id of ['war', 'pandemic', 'oil', 'tariffs', 'mania', 'squeeze', 'bank-run', 'crash', 'nasdaq-4', 'witching', 'wwdc', 'fomc', 'econ']) assert(ev.studies[id], `study ${id}`);
+assert.deepEqual(ev.order, ['war', 'pandemic', 'oil', 'tariffs', 'mania', 'squeeze', 'bank-run', 'crash', 'nasdaq-4', 'witching', 'wwdc', 'fomc', 'econ']);
 assert(EVENT_CATEGORIES.every(c => c.episodes.every(e => /^\d{4}-\d{2}-\d{2}$/.test(e.date))));
 assert.equal(ev.studies.war.episodes.filter(e => !e.unavailable).length, ev.studies.war.episodes.length, 'S&P 500 since 1950 covers every war episode');
 assert(ev.studies.oil.episodes.find(e => e.date === '1973-10-17' && !e.unavailable && e.oil20Pct == null), '1973 measured on the S&P 500; WTI spot starts 1986');
@@ -96,6 +96,40 @@ assert(FOMC_DECISIONS.filter(d => d >= '2015').every(d => new Date(`${d}T00:00:0
 assert(FOMC_DECISIONS[0] === '1994-02-04' && FOMC_DECISIONS.every(d => { const w = new Date(`${d}T00:00:00Z`).getUTCDay(); return w >= 1 && w <= 5; }), 'FOMC list starts 1994 on weekdays');
 { const per = {}; for (const d of FOMC_DECISIONS) per[d.slice(0, 4)] = (per[d.slice(0, 4)] || 0) + 1; assert.deepEqual(Object.entries(per).filter(([, n]) => n !== 8).map(([y]) => y), ['2020'], 'eight scheduled meetings a year except 2020'); }
 { const { FOMC_MEETINGS_BASELINE } = await import('./build.mjs'); assert(FOMC_MEETINGS_BASELINE.every(m => FOMC_DECISIONS.includes(m.date)), 'the event list matches the build calendar baseline'); }
+// Hike / cut / hold from the Fed's target-change list.
+{
+  const { byDate, intermeeting } = fomcOutcomes();
+  assert.deepEqual(intermeeting.map(m => m.date), ['1994-04-18', '1998-10-15', '2001-01-03', '2001-04-18', '2001-09-17', '2008-01-22', '2008-10-08', '2020-03-04', '2020-03-16'], 'every unmatched change is a known intermeeting move');
+  assert.equal(byDate.size, FOMC_DECISIONS.filter(d => d <= FOMC_RATE_CHANGES_CHECKED).length);
+  assert.equal([...byDate.values()].filter(o => o.type !== 'hold').length, FOMC_RATE_CHANGES.length - intermeeting.length, 'every other change lands on one scheduled decision');
+  for (const [d, type, bp] of [['2022-06-15', 'hike', 75], ['2024-09-18', 'cut', -50], ['2008-12-16', 'cut', -100], ['2015-12-16', 'hike', 25], ['2026-09-16', 'hike', 25], ['2023-09-20', 'hold', 0], ['1994-02-04', 'hike', 25], ['2001-01-31', 'cut', -50]]) assert.deepEqual([byDate.get(d).type, byDate.get(d).bp], [type, bp], d);
+  const dffRows = (from, to, v) => series(from, to, { drift: 0 }).map(r => ({ t: r.t, v }));
+  const step = [...dffRows('2026-10-01', '2026-10-28', 4.33), ...dffRows('2026-10-29', '2026-11-10', 4.08)];
+  assert.equal(fomcOutcomeFromDff(step, '2026-10-28').type, 'cut', 'a quarter-point drop in the effective rate is a cut');
+  assert.equal(fomcOutcomeFromDff(step, '2026-10-28').bp, -25);
+  assert.equal(fomcOutcomeFromDff(dffRows('2026-10-01', '2026-11-10', 4.33), '2026-10-28').type, 'hold');
+  assert.equal(fomcOutcomeFromDff(dffRows('2026-10-01', '2026-10-29', 4.33), '2026-10-28'), null, 'needs three readings after the decision');
+}
+// Before / on / after the decision, measured on the S&P 500 index.
+{
+  const f = ev.studies.fomc;
+  assert.equal(f.windowSessions, 3);
+  assert.deepEqual(f.rows.map(r => r.label), ['All scheduled decisions', 'Hikes', 'Cuts', 'Holds']);
+  assert.equal(f.rows[0].n, f.rows[1].n + f.rows[2].n + f.rows[3].n);
+  assert.equal(f.rows[0].n, FOMC_DECISIONS.filter(d => d <= FOMC_RATE_CHANGES_CHECKED && d <= '2026-10-26').length, 'every checked decision in the data, none dropped');
+  assert.equal(f.rows[1].n, 51); assert.equal(f.rows[2].n, 32);
+  assert.deepEqual(f.pending, [], 'no unclassified decisions before the checked date');
+  assert.equal(f.next, '2026-10-28');
+  const r = f.recent.find(x => x.date === '2025-12-10'), i = gspc.findIndex(b => b.t === '2025-12-10'), pc = (a, b) => Math.round((gspc[b].c / gspc[a].c - 1) * 1e4) / 100;
+  assert.deepEqual([r.type, r.beforePct, r.dayPct, r.afterPct, r.windowPct], ['cut', pc(i - 4, i - 1), pc(i - 1, i), pc(i, i + 3), pc(i - 4, i + 3)], 'windows: 3 sessions before, the day, 3 sessions after');
+  assert(f.baseline.before.n > 7000 && f.baseline.day.n > f.baseline.before.n - 5, 'baseline is every stretch since 1994');
+  // A decision after the checked date is classified from DFF, or left pending without it.
+  const late = buildHistoricalEvents({ ...base, series: { ...base.series, '^GSPC': series('1950-01-03', '2026-11-05', { shocks }) }, cutoff: '2026-11-05' }).studies.fomc;
+  assert.deepEqual(late.pending, ['2026-10-28']);
+  const dffLate = [...series('2026-09-01', '2026-10-28', { drift: 0 }).map(b => ({ t: b.t, v: 4.1 })), ...series('2026-10-29', '2026-11-05', { drift: 0 }).map(b => ({ t: b.t, v: 3.85 }))];
+  const late2 = buildHistoricalEvents({ ...base, series: { ...base.series, '^GSPC': series('1950-01-03', '2026-11-05', { shocks }) }, context: { ...context, DFF: dffLate }, cutoff: '2026-11-05' }).studies.fomc;
+  assert.deepEqual([late2.recent[0].date, late2.recent[0].type, late2.recent[0].fromDff], ['2026-10-28', 'cut', true]);
+}
 const withCpi = buildHistoricalEvents({ ...base, releases: { cpi: { dates: ['2025-01-15', '2025-02-07', '2025-02-12', '2026-11-10'] } } });
 const cpiRow = withCpi.studies.econ.rows.find(r => r.id === 'cpi');
 assert.equal(cpiRow.n, 2, 'one CPI date per month (the latest listed)'); assert.equal(cpiRow.droppedSameMonth, 1);
@@ -109,7 +143,8 @@ assert.equal(withCpi.studies.econ.rows.find(r => r.id === 'cpi').marketClosed, 0
 
 // "Resembles now": quiet tape -> only calendar matches (FOMC in two days).
 assert.deepEqual(ev.matches.map(x => x.id), ['econ-fomc'], 'a quiet synthetic tape matches only the upcoming FOMC');
-assert.match(ev.matches[0].history, /releases since 1994/);
+assert.equal(ev.matches[0].study, 'fomc', 'the FOMC card opens the before/on/after study');
+assert.match(ev.matches[0].history, /scheduled decisions since 1994/);
 
 // Nasdaq -4% and S&P -5% on the latest close.
 const hit = buildHistoricalEvents({ ...base, series: { ...base.series, '^IXIC': series('1971-02-05', '2026-10-26', { shocks: { ...nq, '2026-10-26': -4.6 } }), '^GSPC': series('1950-01-03', '2026-10-26', { shocks: { ...shocks, '2026-10-26': -5.5 } }) } });
@@ -171,7 +206,7 @@ await assert.rejects(loadFredReleaseDates('jobs', async () => ({ ok: false, stat
 
 // Integration: the snapshot carries events, event coverage stays out of the ledger count.
 const full = buildHistoricalData({ sourceCache: cache, builtAtIso: '2026-10-26T22:00:00Z', inputs: { headlineHits: {}, squeezes: [] } });
-assert(full.events && full.events.order.length === 12);
+assert(full.events && full.events.order.length === 13);
 assert.equal(full.coverage.total, full.coverage.markets.length + full.coverage.context.length);
 assert.equal(full.coverage.eventMarkets.length, 3); assert(full.coverage.eventMarkets.every(s => s.status === 'ready'));
 // The S&P 500 index runs the seasonal and election-cycle studies back to 1950.

@@ -73,6 +73,7 @@ export function renderHistoricalDataCss() {
 .h-table th, .h-table td { padding:9px 10px; border-bottom:1px solid var(--border); text-align:left; }
 .h-table thead th { color:var(--muted); font:550 10px/1.5 var(--font-sans); }
 .h-table tbody th { font-weight:550; }
+.h-table tr.h-baseline th, .h-table tr.h-baseline td { color:var(--muted-strong); background:var(--surface-2); }
 .h-matches { margin:20px 0 26px; }
 .h-matches h3 { margin:0 0 4px; font:650 18px/1.4 var(--font-sans); color:var(--text-strong); }
 .h-match-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:12px; margin-top:12px; }
@@ -81,7 +82,7 @@ export function renderHistoricalDataCss() {
 .h-match p { margin:0; font:400 12px/1.6 var(--font-sans); color:var(--text); overflow-wrap:anywhere; }
 .h-match button { align-self:flex-start; margin-top:auto; }
 .h-event-table thead th { white-space:normal; min-width:58px; vertical-align:bottom; }
-.h-event-table td small, .h-event-table th small, .h-table th small { display:block; color:var(--muted); font:400 10px/1.5 var(--font-sans); white-space:normal; max-width:260px; }
+.h-event-table td small, .h-event-table th small, .h-table th small, .h-table td small { display:block; color:var(--muted); font:400 10px/1.5 var(--font-sans); white-space:normal; max-width:260px; }
 .h-empty { padding:24px 10px; color:var(--muted-strong); font:400 13px/1.6 var(--font-sans); }
 .h-toolbar select:focus-visible, .h-study-button:focus-visible, .h-disclosure summary:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
 @media(max-width:1100px) { .h-layout { grid-template-columns:minmax(170px,200px) minmax(0,1fr); gap:18px; } .h-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); row-gap:18px; } }
