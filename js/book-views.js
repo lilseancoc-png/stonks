@@ -1067,6 +1067,16 @@ async function renderIvPrice() {
   }
 }
 
+function calendarCoveredDays(event) {
+  const start = Date.parse(String(event?.date || '') + 'T00:00:00Z');
+  let end = Date.parse(String(event?.endDate || event?.date || '') + 'T00:00:00Z');
+  if (!Number.isFinite(start)) return [];
+  if (!Number.isFinite(end) || end < start) end = start;
+  const days = [];
+  for(let ms=start;ms<=end && days.length<31;ms+=86400000) days.push(new Date(ms).toISOString().slice(0,10));
+  return days;
+}
+
 function calendarBucket(event) {
   const type = event && event.type;
   if (type === "fed" || type === "fomc") return "fomc";
@@ -1078,7 +1088,8 @@ async function renderCalendar() {
   const id = "book-cal-density";
   try {
     const data = await loadJson("calendar.json");
-    const events = data && Array.isArray(data.events) ? data.events : [];
+    const tracked = new Set(window.STONKS_MANIFEST?.symbols || []);
+    const events = (data && Array.isArray(data.events) ? data.events : []).filter(e => e && (!e.symbol || tracked.has(e.symbol)));
     const start = etToday();
     const days = [];
     for (let i = 0; i < 21; i++) {
@@ -1087,14 +1098,15 @@ async function renderCalendar() {
     }
     const counts = new Map(days.map((date) => [date, { earnings: 0, report: 0, fomc: 0, catalyst: 0, macro: 0, total: 0, names: [] }]));
     for (const event of events) {
-      const date = String(event && event.date || "").slice(0, 10);
-      const bucket = counts.get(date);
-      if (!bucket) continue;
-      const key = calendarBucket(event);
-      bucket[key] += 1;
-      bucket.total += 1;
-      const label = event.symbol || event.title || key;
-      if (label && bucket.names.length < 8) bucket.names.push(String(label));
+      for(const date of calendarCoveredDays(event)) {
+        const bucket = counts.get(date);
+        if (!bucket) continue;
+        const key = calendarBucket(event);
+        bucket[key] += 1;
+        bucket.total += 1;
+        const label = event.symbol || event.title || key;
+        if (label && bucket.names.length < 8) bucket.names.push(String(label));
+      }
     }
     const peak = Math.max(1, ...[...counts.values()].map((row) => row.total));
     const barPx = 120;
@@ -1121,7 +1133,7 @@ async function renderCalendar() {
       `<div class="book-cols book-cols-dense" role="img" aria-label="Calendar events over the next 21 days">${columns}</div>` +
         `<p class="book-hover-readout" aria-live="polite"></p>` +
         legendHtml(CAL_BUCKETS.map(([key, label, color]) => ({ color, label }))),
-      "Counts use the calendar’s stored event types for the 21 days beginning " + dayLabel(start) + " ET. " + total + " events in the window. Hover a day to see the stored names. Fed speeches and FOMC share the Fed color already used by the calendar filter. No crowded-day score is added.",
+      "Counts use the calendar’s stored event types for the 21 days beginning " + dayLabel(start) + " ET. " + total + " event appearances in the window, counting every day of multi-day events. Hover a day to see the stored names. Fed speeches and FOMC share the Fed color already used by the calendar filter. No crowded-day score is added.",
     ));
   } catch (err) {
     fail(id, "Events by day", "The calendar counts could not be loaded (" + err.message + ").");
@@ -1923,4 +1935,4 @@ if (typeof document !== "undefined") {
   boot();
 }
 
-export { windowGradeSamples, gradeSpark, evidenceBody, linkResults, rejectionRecords, EVIDENCE_LABELS };
+export { calendarCoveredDays, windowGradeSamples, gradeSpark, evidenceBody, linkResults, rejectionRecords, EVIDENCE_LABELS };
