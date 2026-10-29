@@ -43,7 +43,7 @@ assert.equal(plan.reconciliation.status, "matched");
 assert.equal(plan.ledger.lastRunIso, ledger.lastRunIso, "a plan is not a production run");
 assert.equal(t.filledQty, 1); assert.equal(t.fillPrice, 19.25); assert.equal(t.fees, 0.12);
 assert.equal(t.entryAttempts[0].filledIso, "2026-10-23T18:12:02.000Z");
-assert.equal(t.entrySource, "manual"); assert.equal(t.entryDiffPct, null);
+assert.equal(t.entrySource, "manual"); assert.equal(t.entryDiffPct, -5.5);
 assert.equal(plan.ledger.positionBaseline.options["TSLA|2026-12-18|PUT|390"], 1);
 const discovered = structuredClone(plan.ledger);
 delete discovered.trades[old.tradeId].brokerPosition;
@@ -142,7 +142,7 @@ Object.assign(corruptManual.trades[plan.manualTradeId], { state: "entering", req
 await runWebullMirror({ client, accountId: "PAPER", acc, ledger: corruptManual, nowMs: Date.parse("2026-10-23T19:49:00Z") });
 assert.equal(sent.length, 1, "a manual entry is never topped up or resubmitted");
 const view = ledgerToTestTrades(result.ledger).find(x => x.entrySource === "manual");
-assert.equal(view.entrySentIso, null); assert.equal(view.entryHow, null); assert.equal(view.entryDiffPct, null);
+assert.equal(view.entrySentIso, null); assert.equal(view.entryHow, null); assert.equal(view.entryDiffPct, -5.5);
 assert.equal(view.manualEntrySentIso, manualOrder.orders[0].place_time_at);
 assert.match(ledgerToFillRows(result.ledger).find(x => x.symbol === "TSLA").account, /manual entry/);
 assert.equal(ledgerToFillRows(result.ledger).find(x => x.symbol === "TSLA").source, "webull-paper");
@@ -177,3 +177,94 @@ await assert.rejects(recoverManualSpread({ ...operation, apply: true, client: { 
 } } }), /changed during recovery/);
 assert.equal(checkpoints, 1, "moving research cannot cause a stale recovery checkpoint");
 console.log("Webull grouped positions: broker-order evidence, manual provenance, duplicate prevention, one-spread exit and untouched extra long passed (offline).");
+
+// Tomorrow's manual recovery: three picks already have failed automatic
+// attempts, another holding filled on its second attempt, and old settlement
+// history must stay untouched. All prices/times come from broker evidence.
+{
+  const queuedLedger = structuredClone(ledger);
+  const auto = queuedLedger.trades[old.tradeId];
+  const autoCancelled = { orders: [{ client_order_id: "auto-cancelled", status: "CANCELLED", filled_quantity: "0" }] };
+  auto.entryAttempts.unshift({ phase: "entry", n: 1, clientOrderId: "auto-cancelled", quantity: 1, filledQty: 0, status: "CANCELLED" });
+  auto.entryAttempts[1].n = 2;
+  // Its actual fill was not yet observed when the previous window ended.
+  Object.assign(auto.entryAttempts[1], { filledQty: 0, status: "SENT", filledPrice: null });
+  Object.assign(auto, { state: "entering", filledQty: 0, openQty: 0, fillPrice: null });
+  const picks = ["MU", "TSM", "WDC"].map(symbol => pick(symbol,
+    [leg(symbol, 100, "BUY", "CALL"), leg(symbol, 110, "SELL", "CALL")], "2026-10-28T19:33:26Z", 1));
+  const manuals = picks.map((e, i) => order("manual-" + e.symbol, [leg(e.symbol, 100, "BUY", "CALL"), leg(e.symbol, 110, "SELL", "CALL")], 1.02 + i / 100, "2026-10-29T13:31:00Z"));
+  const retired = picks.map(e => ({ orders: [{ client_order_id: "cancelled-" + e.symbol, status: "CANCELLED", filled_quantity: "0" }] }));
+  for (const e of picks) {
+    const q = newTrade(e, pickTradeId(e));
+    Object.assign(q, { needsReview: true, reviewCode: "EOD_ORDER_UNCONFIRMED", entryAttempts: [{ phase: "entry", n: 1,
+      clientOrderId: "cancelled-" + e.symbol, status: "SENT", quantity: 1, filledQty: 0,
+      sentIso: "2026-10-28T19:35:00Z", bid: 0.9, ask: 1.1 }] });
+    queuedLedger.trades[q.tradeId] = q;
+    if (e.symbol === "MU") { q.reviewCode = "CANCEL_UNCONFIRMED"; q.entryAttempts[0].cancelFails = 3; }
+  }
+  const settled = newTrade({ ...picks[0], symbol: "OLD", entryDate: "2026-10-22T15:00:00Z" }, "settled-history");
+  Object.assign(settled, { state: "settled", filledQty: 1, settledQty: 1, openQty: 0, closedQty: 0,
+    entryAttempts: [{ phase: "entry", n: 1, clientOrderId: "irrelevant-history", quantity: 1, filledQty: 1, filledPrice: 1, status: "FILLED" }] });
+  queuedLedger.trades[settled.tradeId] = settled;
+  const fullPositions = [group("old-mirror", mrvlLegs), group("external-single", [tslaLegs[0]]),
+    ...manuals.map(o => group(o.orders[0].client_order_id, o.orders[0].legs))];
+  const record = { ...acc, open: [mrvl, ...picks], closed: [{ ...picks[0], entryDate: "2026-10-25T15:00:00Z", exitDate: "2026-10-27T15:00:00Z" }] };
+  const evidence = [heldOrder, autoCancelled, ...retired];
+  const args = { ledger: queuedLedger, acc: record, positions: fullPositions, accountId: "PAPER", checkedAtIso: "2026-10-29T14:00:00Z",
+    manualOrders: manuals, retiredOrders: retired, heldOrders: evidence, externalOrders: [externalOrder] };
+  const result = prepareManualRecovery(args);
+  const retiredOnly = prepareManualRecovery({ ...args, heldOrders: [heldOrder, autoCancelled] });
+  assert.equal(retiredOnly.manualTradeIds.length, 3, "fresh retired-order evidence clears only its transient prior status review");
+  assert.equal(result.manualTradeIds.length, 3);
+  assert.equal(result.ledger.trades[old.tradeId].filledQty, 1, "late automatic fill is refreshed before group allocation");
+  assert.equal(result.ledger.trades[settled.tradeId].state, "settled", "unrelated settlement history is preserved");
+  const views = ledgerToTestTrades(result.ledger).filter(t => t.entrySource === "manual");
+  assert.equal(views.length, 3);
+  for (const v of views) {
+    assert.equal(v.automaticEntryOutcome, "missed"); assert.equal(v.automaticEntryAttemptCount, 1);
+    assert.equal(v.attempts.length, 2); assert.equal(v.manualEntrySentIso, manuals[0].orders[0].place_time_at);
+    assert.equal(v.entryBid, null, "yesterday's failed auto quotes cannot describe the manual entry");
+    assert.equal(v.needsReview, false); assert.notEqual(v.entryDiffPct, null);
+  }
+  assert.equal(prepareManualRecovery({ ...args, ledger: result.ledger }).ledger.trades[pickTradeId(picks[0])].entryAttempts.length, 2, "recovery is idempotent");
+  const badProof = structuredClone(retired); badProof[0].orders[0].status = "SUBMITTED";
+  assert.throws(() => prepareManualRecovery({ ...args, retiredOrders: badProof, heldOrders: [heldOrder, autoCancelled, ...badProof] }), /execution state/);
+  const objects = new Map([["webull-paper-ledger.json", Buffer.from(JSON.stringify(queuedLedger))], ["picks-accuracy.json", Buffer.from(JSON.stringify(record))]]);
+  const calls = [];
+  const allOrders = new Map([...evidence, ...manuals, externalOrder].map(o => [o.orders[0].client_order_id, o]));
+  const operation = await recoverManualSpread({ accountId: "PAPER", config: { manualClientOrderIds: manuals.map(o => o.orders[0].client_order_id), externalClientOrderIds: ["external"] },
+    store: { backend: "r2", get: async key => objects.get(key) }, now: () => args.checkedAtIso,
+    client: { accountList: async () => [{ account_id: "PAPER" }], positions: async () => fullPositions, openOrders: async () => [],
+      orderDetail: async (_, id) => { calls.push(id); if (!allOrders.has(id)) throw new Error("unrelated historical order is unavailable"); return allOrders.get(id); } } });
+  assert.equal(operation.manualTradeIds.length, 3); assert(!calls.includes("irrelevant-history"));
+  const exitBodies = [], batchNow = Date.parse("2026-10-29T14:01:00Z");
+  let exitsFilled = false;
+  const closedRecord = { ...record, builtAtIso: new Date(batchNow).toISOString(), open: [mrvl],
+    closed: [...record.closed, ...picks.map(e => ({ ...e, exitDate: new Date(batchNow).toISOString(), status: "hit-tp-prem", optionPnlPct: 25 }))] };
+  const batchClient = { accountList: async () => [{ account_id: "PAPER" }],
+    positions: async () => fullPositions.filter(p => !exitsFilled || !picks.some(e => e.symbol === p.symbol)),
+    placeOrder: async (_, orders) => {
+      assert.equal(orders.length, 1); assert.equal(orders[0].side, "SELL"); assert.equal(orders[0].quantity, "1");
+      assert.equal(orders[0].legs.length, 2); exitBodies.push(orders[0]);
+    },
+    orderDetail: async (_, id) => {
+      const body = exitBodies.find(o => o.client_order_id === id);
+      assert(body, "manual entries must not be replayed or looked up as new automatic entries");
+      return order(id, body.legs, 1.24, new Date(batchNow + 1000).toISOString());
+    } };
+  let batch = await runWebullMirror({ client: batchClient, accountId: "PAPER", acc: closedRecord, ledger: operation.ledger,
+    nowMs: batchNow, quoteFn: async () => ({ bid: 1.2, ask: 1.3 }) });
+  assert.equal(exitBodies.length, 3, "each manually recovered spread receives exactly one automatic exit");
+  exitsFilled = true;
+  batch = await runWebullMirror({ client: batchClient, accountId: "PAPER", acc: closedRecord, ledger: batch.ledger, nowMs: batchNow + 60000 });
+  for (const id of operation.manualTradeIds) {
+    const t = batch.ledger.trades[id];
+    assert.equal(t.state, "closed"); assert.equal(t.openQty, 0); assert.equal(t.closeFillPrice, 1.24);
+    assert.equal(t.automaticEntryOutcome, "missed"); assert.equal(t.entrySource, "manual");
+    assert.equal(t.entryAttempts.length, 2); assert.equal(t.exitAttempts.length, 1);
+  }
+  assert.equal(batch.ledger.reconciliation.status, "matched");
+  await runWebullMirror({ client: batchClient, accountId: "PAPER", acc: closedRecord, ledger: structuredClone(batch.ledger), nowMs: batchNow + 120000 });
+  assert.equal(exitBodies.length, 3, "restart cannot duplicate any of the three exits");
+  console.log("Manual batch recovery: three prior misses, late automatic fill, exact manual timestamps, historical-contract disambiguation, preserved settlement history, subsequent automatic exits and restart safety passed.");
+}

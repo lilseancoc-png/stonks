@@ -55,7 +55,7 @@ globalThis.fetch = async (input, init) => {
 };
 try {
   const { default: handler } = await import("../api/auth/[action].js");
-  const response = () => ({ statusCode: null, setHeader() {}, status(s) { this.statusCode = s; return this; }, json(body) { this.body = body; return this; } });
+  const response = () => ({ statusCode: null, setHeader() {}, status(s) { this.statusCode = s; return this; }, json(body) { this.body = body; return this; }, end(body) { this.text = body; return this; } });
   const req = { method: "POST", query: { action: "webull-mirror" }, headers: { authorization: `Bearer ${mirrorTriggerToken("fake-secret")}` } };
   held = true;
   const first = response(), firstRun = handler(req, first);
@@ -80,6 +80,10 @@ try {
   assert.equal(owner.statusCode, 200); assert.equal(owner.body.trades[0].filledQty, 3); assert.equal(owner.body.reconciliation.status, "matched"); assert.equal(owner.body.engineSnapshotIso, iso);
   assert.equal(owner.body.executionLock.state, "released");
   assert.equal(owner.body.executionLock.owner, undefined);
+  const orderCsv = response(); await handler({ method: "GET", query: { action: "webull-mirror", format: "orders" }, headers: { cookie: `${SESSION_COOKIE}=${token}` } }, orderCsv);
+  assert.equal(orderCsv.statusCode, 200); assert.match(orderCsv.text, /cumulative_filled_qty/); assert.match(orderCsv.text, /observations_json/);
+  const noOrdersAuth = response(); await handler({ method: "GET", query: { action: "webull-mirror", format: "orders" }, headers: {} }, noOrdersAuth);
+  assert.equal(noOrdersAuth.statusCode, 401, "order evidence remains owner-only");
   const beforeDiagnostics = calls.length;
   const { diagnoseMirrorStore } = await import("./diagnose-webull-mirror.mjs");
   const { store } = await import("../lib/datastore.mjs");

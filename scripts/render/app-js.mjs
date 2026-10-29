@@ -34675,7 +34675,8 @@ ${renderExportBindings()}
   // the ledger + picks-accuracy.json; no AI, no extra market data.
   var wbTest = { loaded: false, loading: false, data: null, error: null };
   var WB_ANALYTICS = (${webullAnalyticsFactory.toString()})();
-  var WB_REVIEW = (${webullReviewFactory.toString()})({ html: escapeHtml, pct: accPct, money: accMoney, hover: chHoverAttr, dateTime: accDateTime });
+  var WB_REVIEW = (${webullReviewFactory.toString()})({ html: escapeHtml, pct: accPct, money: accMoney, hover: chHoverAttr, dateTime: accDateTime,
+    executionDateTime: function(iso){ return formatDisplayInstant(iso, { year:'numeric', month:'short', day:'numeric', hour:'numeric', minute:'2-digit', second:'2-digit' }) || iso; } });
   var WB_TARGET_CLOSED = 150;
   function loadWebullTest(){
     if (wbTest.loaded || wbTest.loading) return;
@@ -34816,9 +34817,9 @@ ${renderExportBindings()}
       return;
     }
     var T = rows.map(function(x){ return x.t; });
-    var automaticEntries = T.filter(function(t){ return t.entrySource !== 'manual'; });
-    var filled = automaticEntries.filter(WB_ANALYTICS.hasFill);
-    var missed = automaticEntries.filter(function(t){ return t.state === 'missed'; });
+    var automaticEntries = T.filter(function(t){ return t.entrySource !== 'manual' || t.automaticEntryOutcome === 'missed'; });
+    var filled = automaticEntries.filter(function(t){ return t.entrySource !== 'manual' && WB_ANALYTICS.hasFill(t); });
+    var missed = automaticEntries.filter(function(t){ return t.state === 'missed' || t.automaticEntryOutcome === 'missed'; });
     // A mirrored trade with no matching record still has its own symbol.
     var review = WB_ANALYTICS.analyze(rows, accView.wbGroup || 'structure', { sectorOf: function(rec, trade){
       return accSectorOf({ symbol: (rec && rec.symbol) || (trade && trade.symbol), sector: rec && rec.sector });
@@ -34862,8 +34863,8 @@ ${renderExportBindings()}
     });
     closed.forEach(function(x){ if (x.t.exitTries) exitTries.push(x.t.exitTries); });
     function splitRow(label, list){
-      list = list.filter(function(t){ return t.entrySource !== 'manual'; });
-      var f = list.filter(WB_ANALYTICS.hasFill), m = list.filter(function(t){ return t.state === 'missed'; });
+      list = list.filter(function(t){ return t.entrySource !== 'manual' || t.automaticEntryOutcome === 'missed'; });
+      var f = list.filter(function(t){ return t.entrySource !== 'manual' && WB_ANALYTICS.hasFill(t); }), m = list.filter(function(t){ return t.state === 'missed' || t.automaticEntryOutcome === 'missed'; });
       var c = f.map(wbEntryCost).filter(function(v){ return v != null; });
       return '<tr><td>' + label + '</td><td>' + (f.length + m.length) + '</td><td>' + ((f.length + m.length) ? Math.round(f.length / (f.length + m.length) * 100) + '%' : '—') + '</td><td>' + accPct(wbMean(c)) + '</td></tr>';
     }
@@ -34875,11 +34876,11 @@ ${renderExportBindings()}
       splitRow('11:00 run', T.filter(function(t){ return wbRun(t) === '11'; })) +
       splitRow('3:30 run', T.filter(function(t){ return wbRun(t) === '15'; })) +
       '</tbody></table></div>';
-    var fillsBody = '<p class="hint acc-research-note">Automatic entries only; adopted manual entries are excluded from fill rate, entry slippage and timing. + means paper paid more than the engine (or took in less on a credit spread).</p>' +
+    var fillsBody = '<p class="hint acc-research-note">Automatic attempts only. Earlier automatic misses remain misses after manual recovery; manual prices and timing are excluded from automatic-entry statistics. + means paper paid more than the engine (or took in less on a credit spread).</p>' +
       wbBars(bucketRows) +
       '<div class="accuracy-chips">' +
-        wbChip(first + ' / ' + repriced, 'filled first try / after the mid re-price') +
-        wbChip(spreadPos.length ? accPct(wbMean(spreadPos)) : '—', 'fill vs mid, % of the bid/ask spread', '', '0% = filled at the mid. +50% = paid the full ask (or sold at the bid). Negative = better than the mid.') +
+        wbChip(first + ' / ' + repriced, 'filled first try / after repricing') +
+        wbChip(spreadPos.length ? accPct(wbMean(spreadPos)) : '—', 'fill vs initial order mid, % of the bid/ask spread', '', 'Uses the quote fetched for the initial order, not a verified exchange quote at fill time. 0% = initial mid. +50% = initial ask (or bid for a credit). Negative = better than that mid.') +
         wbChip(hours.length ? (Math.round(wbMedian(hours) * 10) / 10) + ' h' : '—', 'median time to fill') +
         wbChip(exitTries.length ? (Math.round(wbMean(exitTries) * 10) / 10) + '' : '—', 'avg orders to close') +
       '</div>' + splits;
@@ -34971,15 +34972,17 @@ ${renderExportBindings()}
     var logRows = rows.map(function(x){
       var t = x.t, ec = wbEntryCost(t), xc = wbExitCost(t), np = WB_ANALYTICS.isClosed(t) ? wbNetPnl(t) : null;
       var quantities = t.filledQty != null ? '<br><small>' + escapeHtml(t.filledQty) + '/' + escapeHtml(t.requestedQty == null ? t.filledQty : t.requestedQty) + ' filled · ' + escapeHtml(t.closedQty == null ? 'unknown' : t.closedQty) + ' closed · ' + escapeHtml(t.openQty == null ? 'unknown' : t.openQty) + ' open</small>' : '';
+      var history = WB_REVIEW.executionHistory(t);
       return '<tr><td><b>' + escapeHtml(t.tradeId) + '</b><br><small>' + escapeHtml(t.legs || '') + '</small>' + ((t.labels || []).length ? '<br><small>' + escapeHtml(t.labels.join(' · ')) + '</small>' : '') + (t.note && (t.state !== 'closed' || t.needsReview) && (t.labels || []).join(' ').indexOf(t.note) < 0 ? '<br><small>' + escapeHtml(t.note) + '</small>' : '') + '</td>' +
         '<td>' + escapeHtml(t.state === 'entering' && !t.entryTries ? 'queued' : STATE[t.state] || t.state || '') + (t.needsReview || t.state === 'closed' && !WB_ANALYTICS.isClosed(t) ? '<br><strong class="sig-neg">Needs broker review</strong>' : '') + quantities + '</td>' +
         '<td>' + (accUsd(t.engineEntryPrice) || '—') + ' → ' + (accUsd(t.fillPrice) || '—') + (ec != null ? ' <small class="' + (ec <= 0 ? 'sig-pos' : 'sig-neg') + '">(' + accPct(ec) + ')</small>' : '') + '<br><small>' + wbTime(t.engineEntryIso) + ' → ' + wbTime(t.fillIso) + '</small></td>' +
         '<td>' + (t.engineExitPrice != null || t.closeFillPrice != null ? (accUsd(t.engineExitPrice) || '—') + ' → ' + (accUsd(t.closeFillPrice) || '—') + (xc != null ? ' <small class="' + (xc <= 0 ? 'sig-pos' : 'sig-neg') + '">(' + accPct(xc) + ')</small>' : '') + '<br><small>' + wbTime(t.engineExitIso) + ' → ' + wbTime(t.closeFillIso) + '</small>' : '—') + '</td>' +
         '<td class="' + wbSignCls(wbNum(t.enginePnlPct)) + '">' + accPct(wbNum(t.enginePnlPct)) + '</td>' +
         '<td class="' + wbSignCls(np) + '">' + accPct(np) + '</td>' +
-        '<td>' + (wbNum(t.fees) != null ? '$' + Number(t.fees).toFixed(2) : '—') + '</td></tr>';
+        '<td>' + (wbNum(t.fees) != null ? '$' + Number(t.fees).toFixed(2) : '—') + '</td></tr>' +
+        (history ? '<tr class="wb-execution-row"><td colspan="7">' + history + '</td></tr>' : '');
     }).join('');
-    var logBody = '<p class="hint acc-research-note">Each trade from the engine’s open to the paper close. Gaps in brackets: + is worse for us than the engine. Paper P&amp;L is less known fees. <a href="/api/auth/webull-mirror?format=csv">Download all Webull paper trades (CSV)</a></p>' +
+    var logBody = '<p class="hint acc-research-note">Each trade from the engine’s open to the paper close. Gaps in brackets: + is worse for us than the engine. Paper P&amp;L is less known fees. <a href="/api/auth/webull-mirror?format=csv">Download all Webull paper trades (CSV)</a> · <a href="/api/auth/webull-mirror?format=orders">Download order attempts (CSV)</a></p>' +
       (logRows ? '<div class="acc-tscroll wb-log"><table class="acc-qtable"><thead><tr><th>Trade</th><th>Status</th><th>Entry: engine → paper</th><th>Exit: engine → paper</th><th>Engine P&amp;L</th><th>Paper P&amp;L</th><th>Fees</th></tr></thead><tbody>' + logRows + '</tbody></table></div>' : '<p class="muted acc-an-note">No trades match these filters.</p>');
 
     var dashboard = WB_REVIEW.render(review, lens, accView.wbGroup || 'structure');

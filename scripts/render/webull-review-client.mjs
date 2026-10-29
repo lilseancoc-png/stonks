@@ -1,5 +1,5 @@
 // Browser renderer injected into the existing Track Record IIFE.
-export function webullReviewFactory({ html, pct, money, hover, dateTime = String }) {
+export function webullReviewFactory({ html, pct, money, hover, dateTime = String, executionDateTime = dateTime }) {
   function format(v, unit) { return v == null ? '—' : unit === '$' ? money(v, true) : unit === 'count' ? String(v) : unit === 'rate' ? v.toFixed(1) + '%' : pct(v); }
   function axis(v, unit) {
     const magnitude = Math.abs(v), scale = magnitude >= 1e6 ? 1e6 : magnitude >= 1e3 ? 1e3 : 1;
@@ -10,9 +10,10 @@ export function webullReviewFactory({ html, pct, money, hover, dateTime = String
   function sign(v) { return v == null || v === 0 ? '' : v > 0 ? 'sig-pos' : 'sig-neg'; }
   function card(title, subtitle, body, wide) { return '<section class="wb-chart-card' + (wide ? ' wb-wide' : '') + '"><h3>' + html(title) + '</h3><p class="wb-chart-note">' + html(subtitle) + '</p>' + body + '</section>'; }
   function empty(message) { return '<div class="wb-chart-empty">' + html(message) + '</div>'; }
-  function dataTable(headers, rows) {
+  function dataTable(headers, rows, disclosure = true) {
     if (!rows.length) return '';
-    return '<details class="wb-chart-data"><summary>View chart data</summary><div class="acc-tscroll"><table class="acc-qtable"><thead><tr>' + headers.map(h => '<th scope="col">' + html(h) + '</th>').join('') + '</tr></thead><tbody>' + rows.map(r => '<tr>' + r.map(v => '<td>' + html(v) + '</td>').join('') + '</tr>').join('') + '</tbody></table></div></details>';
+    const table = '<div class="acc-tscroll"><table class="acc-qtable"><thead><tr>' + headers.map(h => '<th scope="col">' + html(h) + '</th>').join('') + '</tr></thead><tbody>' + rows.map(r => '<tr>' + r.map(v => '<td>' + html(v) + '</td>').join('') + '</tr>').join('') + '</tbody></table></div>';
+    return disclosure ? '<details class="wb-chart-data"><summary>View chart data</summary>' + table + '</details>' : table;
   }
   function line(title, points, series, unit, range) {
     if (!points.length || !points.some(p => series.some(s => p[s.key] != null))) return empty('No observations yet for this chart.');
@@ -79,12 +80,29 @@ export function webullReviewFactory({ html, pct, money, hover, dateTime = String
     const rec = info.reconciliation || {}, run = Date.parse(info.lastRunIso), current = Date.parse(record.builtAtIso), checked = Date.parse(info.engineSnapshotIso);
     const reportsSnapshot = Object.prototype.hasOwnProperty.call(info, 'engineSnapshotIso');
     let body = '<p class="wb-sample-note">' + (rec.checkedAtIso ? 'Last broker reconciliation: ' + html(dateTime(rec.checkedAtIso)) + '.' : 'No broker reconciliation snapshot was supplied.') + '</p>';
+    if (info.lastEndOfDayDeadlineIso) body += '<p class="wb-sample-note">Last closing-deadline check: ' + html(dateTime(info.lastEndOfDayDeadlineIso)) + '.</p>';
+    const audit = info.lastEndOfDayAudit;
+    if (audit && (!audit.deadlineObserved || audit.incomplete)) body += '<p class="wb-review-warning" role="alert">Closing-window review needed: ' + html(dateTime(audit.checkedAtIso)) + '. ' + (!audit.deadlineObserved ? 'No completed check was recorded in the final ten minutes. ' : '') + (audit.incomplete ? 'The final broker reconciliation was incomplete.' : '') + '</p>';
     if (!Number.isFinite(run) || reportsSnapshot && Number.isFinite(current) && (!Number.isFinite(checked) || current > checked)) body += '<p class="wb-review-warning" role="status">The latest Track Record build has not been checked by the mirror yet, or no mirror run is recorded.</p>';
-    body += '<p class="wb-sample-note">Holdings and order checks follow the 11:00 and 15:30 ET Top Picks builds after publication, with up to two two-minute follow-ups while orders are pending. Build delays are possible. Expiry closes start with the first mirror on the two-session cutoff date.</p>';
+    body += '<p class="wb-sample-note">Holdings and order checks follow the 11:00 and 15:30 ET Top Picks builds after publication, with up to four two-minute follow-ups while orders are pending. A separate final-20-minute window checks the book; in the last 10 minutes, eligible same-day entries get a final 5% cap and signaled exits use emergency pricing. Scheduler delays and unfilled orders remain possible. Quotes are Yahoo-derived; exchange quote timestamps are unverified. Expiry closes start with the first mirror on the two-session cutoff date.</p>';
     if (rec.externalGroups > 0) body += '<p class="wb-sample-note">' + rec.externalGroups + (rec.externalGroups === 1 ? ' position' : ' positions') + ' in the paper account came from outside the mirror. The mirror leaves them alone, and they only block a new pick that uses the same contract.</p>';
     const alerts = Array.isArray(rec.alerts) ? rec.alerts : [];
     if (alerts.length || ['attention', 'incomplete'].includes(rec.status)) body += '<div class="wb-review-warning" role="alert"><strong>Broker reconciliation needs review</strong><p>Entries may be paused or exposure may need review.</p>' + (alerts.length ? '<ul>' + alerts.map(a => '<li>' + html(a) + '</li>').join('') + '</ul>' : '') + '</div>';
     return body;
   }
-  return { render, status };
+  function executionHistory(t) {
+    const attempts = Array.isArray(t.attempts) ? t.attempts : [];
+    const decisions = Array.isArray(t.decisions) ? t.decisions : [];
+    if (!attempts.length && !decisions.length) return '';
+    const price = v => v == null || !Number.isFinite(Number(v)) ? 'Unknown' : '$' + Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+    const events = { prepared: 'Order prepared', 'saved-state': 'Previously saved evidence', 'submission-request': 'Submission requested', 'submission-result': 'Submission result', 'cancel-request': 'Cancellation requested', 'broker-detail': 'Broker update', 'manual-broker-import': 'Manual fill imported', 'lookup-unavailable': 'Status unavailable', 'metadata-unavailable': 'Metadata refresh unavailable' };
+    const observations = attempts.flatMap(a => (a.observations || []).map(o => [
+      (a.phase === 'exit' ? 'Exit ' : 'Entry ') + a.n, o.observedIso ? executionDateTime(o.observedIso) : 'Unknown', events[o.kind] || o.kind || 'Unknown',
+      o.status || 'Unknown', o.filledQty ?? 'Unknown', price(o.filledPrice), o.filledIso ? executionDateTime(o.filledIso) : 'Unknown', price(o.feeActual), o.brokerOrderId || 'Unknown']));
+    const evidence = observations.length ? '<details class="wb-order-observations"><summary>Broker observations and order actions (' + observations.length + ')</summary>' + dataTable(['Order', 'Observed', 'Event', 'Status', 'Cumulative filled', 'Average fill', 'Broker fill time', 'Actual fees', 'Broker order ID'], observations, false) + '<p class="wb-sample-note">These are cumulative order observations, not individual execution lots. Repeated totals are counted once. Earlier partial-fill evidence stays in this history.</p></details>' : '';
+    const blocked = decisions.length ? '<p class="wb-sample-note">Execution decisions where no order was sent</p>' + dataTable(['Side', 'Stage', 'Observed', 'Reason', 'Quote source'], decisions.map(d => [d.phase === 'exit' ? 'Exit' : 'Entry', d.stage === 'emergency-exit' ? 'Emergency exit' : d.stage === 'eod-entry' ? 'End-of-day entry (5% cap)' : d.stage === 0 ? '2% allowance' : d.stage === 1 ? '4% allowance' : d.stage, executionDateTime(d.observedIso), d.reason, d.quoteSource]), false) : '';
+    const rows = attempts.map(a => [a.phase === 'exit' ? 'Exit' : 'Entry', a.source === 'manual' ? 'Manual entry' : a.stage === 'emergency-exit' ? 'Emergency end-of-day exit' : a.stage === 'eod-entry' ? 'End-of-day entry (5% cap)' : a.stage === 'expiry-exit' ? 'Expiry exit' : a.allowancePct != null ? a.allowancePct + '% allowance' : 'Earlier policy', a.sentIso ? executionDateTime(a.sentIso) : 'Unknown', a.status || 'Unknown', (a.filledQty ?? 'Unknown') + '/' + (a.quantity ?? 'Unknown'), price(a.referencePrice), price(a.limit), a.filledPrice == null ? 'Unconfirmed' : price(a.filledPrice), a.filledIso ? executionDateTime(a.filledIso) : 'Unconfirmed', price(a.bid) + ' / ' + price(a.ask), a.cancelRequestedIso ? executionDateTime(a.cancelRequestedIso) : 'None recorded', a.quoteSource || 'Unknown', a.quoteObservedIso ? executionDateTime(a.quoteObservedIso) : 'Unknown']);
+    return '<details class="wb-execution-history"><summary>Order attempts and confirmed fills (' + attempts.length + ')</summary>' + dataTable(['Side', 'Method', 'Order preparation / manual order time', 'Broker status', 'Filled / requested', 'Modeled reference', 'Limit', 'Actual fill', 'Fill time', 'Quote bid / ask', 'Cancel requested', 'Quote source', 'Quote fetched'], rows, false) + evidence + blocked + '<p class="wb-sample-note">Limit prices are not fills. Automatic order time records preparation; manual order time comes from the broker. Fill time comes from broker fill evidence. Quote fetched is when this app received the response; exchange quote timestamps are unverified. Manual prices and timing are excluded from automatic-entry statistics. Earlier automatic misses remain recorded.</p></details>';
+  }
+  return { render, status, executionHistory };
 }

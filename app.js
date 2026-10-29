@@ -39843,7 +39843,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
   return { analyze, net, dollars, quantity, hasFill, isClosed, isActive, scenarios, isPaperFill };
 })();
-  var WB_REVIEW = (function webullReviewFactory({ html, pct, money, hover, dateTime = String }) {
+  var WB_REVIEW = (function webullReviewFactory({ html, pct, money, hover, dateTime = String, executionDateTime = dateTime }) {
   function format(v, unit) { return v == null ? '—' : unit === '$' ? money(v, true) : unit === 'count' ? String(v) : unit === 'rate' ? v.toFixed(1) + '%' : pct(v); }
   function axis(v, unit) {
     const magnitude = Math.abs(v), scale = magnitude >= 1e6 ? 1e6 : magnitude >= 1e3 ? 1e3 : 1;
@@ -39854,9 +39854,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
   function sign(v) { return v == null || v === 0 ? '' : v > 0 ? 'sig-pos' : 'sig-neg'; }
   function card(title, subtitle, body, wide) { return '<section class="wb-chart-card' + (wide ? ' wb-wide' : '') + '"><h3>' + html(title) + '</h3><p class="wb-chart-note">' + html(subtitle) + '</p>' + body + '</section>'; }
   function empty(message) { return '<div class="wb-chart-empty">' + html(message) + '</div>'; }
-  function dataTable(headers, rows) {
+  function dataTable(headers, rows, disclosure = true) {
     if (!rows.length) return '';
-    return '<details class="wb-chart-data"><summary>View chart data</summary><div class="acc-tscroll"><table class="acc-qtable"><thead><tr>' + headers.map(h => '<th scope="col">' + html(h) + '</th>').join('') + '</tr></thead><tbody>' + rows.map(r => '<tr>' + r.map(v => '<td>' + html(v) + '</td>').join('') + '</tr>').join('') + '</tbody></table></div></details>';
+    const table = '<div class="acc-tscroll"><table class="acc-qtable"><thead><tr>' + headers.map(h => '<th scope="col">' + html(h) + '</th>').join('') + '</tr></thead><tbody>' + rows.map(r => '<tr>' + r.map(v => '<td>' + html(v) + '</td>').join('') + '</tr>').join('') + '</tbody></table></div>';
+    return disclosure ? '<details class="wb-chart-data"><summary>View chart data</summary>' + table + '</details>' : table;
   }
   function line(title, points, series, unit, range) {
     if (!points.length || !points.some(p => series.some(s => p[s.key] != null))) return empty('No observations yet for this chart.');
@@ -39923,15 +39924,33 @@ function scenarioEventPhase(ev, now = Date.now()) {
     const rec = info.reconciliation || {}, run = Date.parse(info.lastRunIso), current = Date.parse(record.builtAtIso), checked = Date.parse(info.engineSnapshotIso);
     const reportsSnapshot = Object.prototype.hasOwnProperty.call(info, 'engineSnapshotIso');
     let body = '<p class="wb-sample-note">' + (rec.checkedAtIso ? 'Last broker reconciliation: ' + html(dateTime(rec.checkedAtIso)) + '.' : 'No broker reconciliation snapshot was supplied.') + '</p>';
+    if (info.lastEndOfDayDeadlineIso) body += '<p class="wb-sample-note">Last closing-deadline check: ' + html(dateTime(info.lastEndOfDayDeadlineIso)) + '.</p>';
+    const audit = info.lastEndOfDayAudit;
+    if (audit && (!audit.deadlineObserved || audit.incomplete)) body += '<p class="wb-review-warning" role="alert">Closing-window review needed: ' + html(dateTime(audit.checkedAtIso)) + '. ' + (!audit.deadlineObserved ? 'No completed check was recorded in the final ten minutes. ' : '') + (audit.incomplete ? 'The final broker reconciliation was incomplete.' : '') + '</p>';
     if (!Number.isFinite(run) || reportsSnapshot && Number.isFinite(current) && (!Number.isFinite(checked) || current > checked)) body += '<p class="wb-review-warning" role="status">The latest Track Record build has not been checked by the mirror yet, or no mirror run is recorded.</p>';
-    body += '<p class="wb-sample-note">Holdings and order checks follow the 11:00 and 15:30 ET Top Picks builds after publication, with up to two two-minute follow-ups while orders are pending. Build delays are possible. Expiry closes start with the first mirror on the two-session cutoff date.</p>';
+    body += '<p class="wb-sample-note">Holdings and order checks follow the 11:00 and 15:30 ET Top Picks builds after publication, with up to four two-minute follow-ups while orders are pending. A separate final-20-minute window checks the book; in the last 10 minutes, eligible same-day entries get a final 5% cap and signaled exits use emergency pricing. Scheduler delays and unfilled orders remain possible. Quotes are Yahoo-derived; exchange quote timestamps are unverified. Expiry closes start with the first mirror on the two-session cutoff date.</p>';
     if (rec.externalGroups > 0) body += '<p class="wb-sample-note">' + rec.externalGroups + (rec.externalGroups === 1 ? ' position' : ' positions') + ' in the paper account came from outside the mirror. The mirror leaves them alone, and they only block a new pick that uses the same contract.</p>';
     const alerts = Array.isArray(rec.alerts) ? rec.alerts : [];
     if (alerts.length || ['attention', 'incomplete'].includes(rec.status)) body += '<div class="wb-review-warning" role="alert"><strong>Broker reconciliation needs review</strong><p>Entries may be paused or exposure may need review.</p>' + (alerts.length ? '<ul>' + alerts.map(a => '<li>' + html(a) + '</li>').join('') + '</ul>' : '') + '</div>';
     return body;
   }
-  return { render, status };
-})({ html: escapeHtml, pct: accPct, money: accMoney, hover: chHoverAttr, dateTime: accDateTime });
+  function executionHistory(t) {
+    const attempts = Array.isArray(t.attempts) ? t.attempts : [];
+    const decisions = Array.isArray(t.decisions) ? t.decisions : [];
+    if (!attempts.length && !decisions.length) return '';
+    const price = v => v == null || !Number.isFinite(Number(v)) ? 'Unknown' : '$' + Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+    const events = { prepared: 'Order prepared', 'saved-state': 'Previously saved evidence', 'submission-request': 'Submission requested', 'submission-result': 'Submission result', 'cancel-request': 'Cancellation requested', 'broker-detail': 'Broker update', 'manual-broker-import': 'Manual fill imported', 'lookup-unavailable': 'Status unavailable', 'metadata-unavailable': 'Metadata refresh unavailable' };
+    const observations = attempts.flatMap(a => (a.observations || []).map(o => [
+      (a.phase === 'exit' ? 'Exit ' : 'Entry ') + a.n, o.observedIso ? executionDateTime(o.observedIso) : 'Unknown', events[o.kind] || o.kind || 'Unknown',
+      o.status || 'Unknown', o.filledQty ?? 'Unknown', price(o.filledPrice), o.filledIso ? executionDateTime(o.filledIso) : 'Unknown', price(o.feeActual), o.brokerOrderId || 'Unknown']));
+    const evidence = observations.length ? '<details class="wb-order-observations"><summary>Broker observations and order actions (' + observations.length + ')</summary>' + dataTable(['Order', 'Observed', 'Event', 'Status', 'Cumulative filled', 'Average fill', 'Broker fill time', 'Actual fees', 'Broker order ID'], observations, false) + '<p class="wb-sample-note">These are cumulative order observations, not individual execution lots. Repeated totals are counted once. Earlier partial-fill evidence stays in this history.</p></details>' : '';
+    const blocked = decisions.length ? '<p class="wb-sample-note">Execution decisions where no order was sent</p>' + dataTable(['Side', 'Stage', 'Observed', 'Reason', 'Quote source'], decisions.map(d => [d.phase === 'exit' ? 'Exit' : 'Entry', d.stage === 'emergency-exit' ? 'Emergency exit' : d.stage === 'eod-entry' ? 'End-of-day entry (5% cap)' : d.stage === 0 ? '2% allowance' : d.stage === 1 ? '4% allowance' : d.stage, executionDateTime(d.observedIso), d.reason, d.quoteSource]), false) : '';
+    const rows = attempts.map(a => [a.phase === 'exit' ? 'Exit' : 'Entry', a.source === 'manual' ? 'Manual entry' : a.stage === 'emergency-exit' ? 'Emergency end-of-day exit' : a.stage === 'eod-entry' ? 'End-of-day entry (5% cap)' : a.stage === 'expiry-exit' ? 'Expiry exit' : a.allowancePct != null ? a.allowancePct + '% allowance' : 'Earlier policy', a.sentIso ? executionDateTime(a.sentIso) : 'Unknown', a.status || 'Unknown', (a.filledQty ?? 'Unknown') + '/' + (a.quantity ?? 'Unknown'), price(a.referencePrice), price(a.limit), a.filledPrice == null ? 'Unconfirmed' : price(a.filledPrice), a.filledIso ? executionDateTime(a.filledIso) : 'Unconfirmed', price(a.bid) + ' / ' + price(a.ask), a.cancelRequestedIso ? executionDateTime(a.cancelRequestedIso) : 'None recorded', a.quoteSource || 'Unknown', a.quoteObservedIso ? executionDateTime(a.quoteObservedIso) : 'Unknown']);
+    return '<details class="wb-execution-history"><summary>Order attempts and confirmed fills (' + attempts.length + ')</summary>' + dataTable(['Side', 'Method', 'Order preparation / manual order time', 'Broker status', 'Filled / requested', 'Modeled reference', 'Limit', 'Actual fill', 'Fill time', 'Quote bid / ask', 'Cancel requested', 'Quote source', 'Quote fetched'], rows, false) + evidence + blocked + '<p class="wb-sample-note">Limit prices are not fills. Automatic order time records preparation; manual order time comes from the broker. Fill time comes from broker fill evidence. Quote fetched is when this app received the response; exchange quote timestamps are unverified. Manual prices and timing are excluded from automatic-entry statistics. Earlier automatic misses remain recorded.</p></details>';
+  }
+  return { render, status, executionHistory };
+})({ html: escapeHtml, pct: accPct, money: accMoney, hover: chHoverAttr, dateTime: accDateTime,
+    executionDateTime: function(iso){ return formatDisplayInstant(iso, { year:'numeric', month:'short', day:'numeric', hour:'numeric', minute:'2-digit', second:'2-digit' }) || iso; } });
   var WB_TARGET_CLOSED = 150;
   function loadWebullTest(){
     if (wbTest.loaded || wbTest.loading) return;
@@ -40072,9 +40091,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
       return;
     }
     var T = rows.map(function(x){ return x.t; });
-    var automaticEntries = T.filter(function(t){ return t.entrySource !== 'manual'; });
-    var filled = automaticEntries.filter(WB_ANALYTICS.hasFill);
-    var missed = automaticEntries.filter(function(t){ return t.state === 'missed'; });
+    var automaticEntries = T.filter(function(t){ return t.entrySource !== 'manual' || t.automaticEntryOutcome === 'missed'; });
+    var filled = automaticEntries.filter(function(t){ return t.entrySource !== 'manual' && WB_ANALYTICS.hasFill(t); });
+    var missed = automaticEntries.filter(function(t){ return t.state === 'missed' || t.automaticEntryOutcome === 'missed'; });
     // A mirrored trade with no matching record still has its own symbol.
     var review = WB_ANALYTICS.analyze(rows, accView.wbGroup || 'structure', { sectorOf: function(rec, trade){
       return accSectorOf({ symbol: (rec && rec.symbol) || (trade && trade.symbol), sector: rec && rec.sector });
@@ -40118,8 +40137,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
     });
     closed.forEach(function(x){ if (x.t.exitTries) exitTries.push(x.t.exitTries); });
     function splitRow(label, list){
-      list = list.filter(function(t){ return t.entrySource !== 'manual'; });
-      var f = list.filter(WB_ANALYTICS.hasFill), m = list.filter(function(t){ return t.state === 'missed'; });
+      list = list.filter(function(t){ return t.entrySource !== 'manual' || t.automaticEntryOutcome === 'missed'; });
+      var f = list.filter(function(t){ return t.entrySource !== 'manual' && WB_ANALYTICS.hasFill(t); }), m = list.filter(function(t){ return t.state === 'missed' || t.automaticEntryOutcome === 'missed'; });
       var c = f.map(wbEntryCost).filter(function(v){ return v != null; });
       return '<tr><td>' + label + '</td><td>' + (f.length + m.length) + '</td><td>' + ((f.length + m.length) ? Math.round(f.length / (f.length + m.length) * 100) + '%' : '—') + '</td><td>' + accPct(wbMean(c)) + '</td></tr>';
     }
@@ -40131,11 +40150,11 @@ function scenarioEventPhase(ev, now = Date.now()) {
       splitRow('11:00 run', T.filter(function(t){ return wbRun(t) === '11'; })) +
       splitRow('3:30 run', T.filter(function(t){ return wbRun(t) === '15'; })) +
       '</tbody></table></div>';
-    var fillsBody = '<p class="hint acc-research-note">Automatic entries only; adopted manual entries are excluded from fill rate, entry slippage and timing. + means paper paid more than the engine (or took in less on a credit spread).</p>' +
+    var fillsBody = '<p class="hint acc-research-note">Automatic attempts only. Earlier automatic misses remain misses after manual recovery; manual prices and timing are excluded from automatic-entry statistics. + means paper paid more than the engine (or took in less on a credit spread).</p>' +
       wbBars(bucketRows) +
       '<div class="accuracy-chips">' +
-        wbChip(first + ' / ' + repriced, 'filled first try / after the mid re-price') +
-        wbChip(spreadPos.length ? accPct(wbMean(spreadPos)) : '—', 'fill vs mid, % of the bid/ask spread', '', '0% = filled at the mid. +50% = paid the full ask (or sold at the bid). Negative = better than the mid.') +
+        wbChip(first + ' / ' + repriced, 'filled first try / after repricing') +
+        wbChip(spreadPos.length ? accPct(wbMean(spreadPos)) : '—', 'fill vs initial order mid, % of the bid/ask spread', '', 'Uses the quote fetched for the initial order, not a verified exchange quote at fill time. 0% = initial mid. +50% = initial ask (or bid for a credit). Negative = better than that mid.') +
         wbChip(hours.length ? (Math.round(wbMedian(hours) * 10) / 10) + ' h' : '—', 'median time to fill') +
         wbChip(exitTries.length ? (Math.round(wbMean(exitTries) * 10) / 10) + '' : '—', 'avg orders to close') +
       '</div>' + splits;
@@ -40227,15 +40246,17 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var logRows = rows.map(function(x){
       var t = x.t, ec = wbEntryCost(t), xc = wbExitCost(t), np = WB_ANALYTICS.isClosed(t) ? wbNetPnl(t) : null;
       var quantities = t.filledQty != null ? '<br><small>' + escapeHtml(t.filledQty) + '/' + escapeHtml(t.requestedQty == null ? t.filledQty : t.requestedQty) + ' filled · ' + escapeHtml(t.closedQty == null ? 'unknown' : t.closedQty) + ' closed · ' + escapeHtml(t.openQty == null ? 'unknown' : t.openQty) + ' open</small>' : '';
+      var history = WB_REVIEW.executionHistory(t);
       return '<tr><td><b>' + escapeHtml(t.tradeId) + '</b><br><small>' + escapeHtml(t.legs || '') + '</small>' + ((t.labels || []).length ? '<br><small>' + escapeHtml(t.labels.join(' · ')) + '</small>' : '') + (t.note && (t.state !== 'closed' || t.needsReview) && (t.labels || []).join(' ').indexOf(t.note) < 0 ? '<br><small>' + escapeHtml(t.note) + '</small>' : '') + '</td>' +
         '<td>' + escapeHtml(t.state === 'entering' && !t.entryTries ? 'queued' : STATE[t.state] || t.state || '') + (t.needsReview || t.state === 'closed' && !WB_ANALYTICS.isClosed(t) ? '<br><strong class="sig-neg">Needs broker review</strong>' : '') + quantities + '</td>' +
         '<td>' + (accUsd(t.engineEntryPrice) || '—') + ' → ' + (accUsd(t.fillPrice) || '—') + (ec != null ? ' <small class="' + (ec <= 0 ? 'sig-pos' : 'sig-neg') + '">(' + accPct(ec) + ')</small>' : '') + '<br><small>' + wbTime(t.engineEntryIso) + ' → ' + wbTime(t.fillIso) + '</small></td>' +
         '<td>' + (t.engineExitPrice != null || t.closeFillPrice != null ? (accUsd(t.engineExitPrice) || '—') + ' → ' + (accUsd(t.closeFillPrice) || '—') + (xc != null ? ' <small class="' + (xc <= 0 ? 'sig-pos' : 'sig-neg') + '">(' + accPct(xc) + ')</small>' : '') + '<br><small>' + wbTime(t.engineExitIso) + ' → ' + wbTime(t.closeFillIso) + '</small>' : '—') + '</td>' +
         '<td class="' + wbSignCls(wbNum(t.enginePnlPct)) + '">' + accPct(wbNum(t.enginePnlPct)) + '</td>' +
         '<td class="' + wbSignCls(np) + '">' + accPct(np) + '</td>' +
-        '<td>' + (wbNum(t.fees) != null ? '$' + Number(t.fees).toFixed(2) : '—') + '</td></tr>';
+        '<td>' + (wbNum(t.fees) != null ? '$' + Number(t.fees).toFixed(2) : '—') + '</td></tr>' +
+        (history ? '<tr class="wb-execution-row"><td colspan="7">' + history + '</td></tr>' : '');
     }).join('');
-    var logBody = '<p class="hint acc-research-note">Each trade from the engine’s open to the paper close. Gaps in brackets: + is worse for us than the engine. Paper P&amp;L is less known fees. <a href="/api/auth/webull-mirror?format=csv">Download all Webull paper trades (CSV)</a></p>' +
+    var logBody = '<p class="hint acc-research-note">Each trade from the engine’s open to the paper close. Gaps in brackets: + is worse for us than the engine. Paper P&amp;L is less known fees. <a href="/api/auth/webull-mirror?format=csv">Download all Webull paper trades (CSV)</a> · <a href="/api/auth/webull-mirror?format=orders">Download order attempts (CSV)</a></p>' +
       (logRows ? '<div class="acc-tscroll wb-log"><table class="acc-qtable"><thead><tr><th>Trade</th><th>Status</th><th>Entry: engine → paper</th><th>Exit: engine → paper</th><th>Engine P&amp;L</th><th>Paper P&amp;L</th><th>Fees</th></tr></thead><tbody>' + logRows + '</tbody></table></div>' : '<p class="muted acc-an-note">No trades match these filters.</p>');
 
     var dashboard = WB_REVIEW.render(review, lens, accView.wbGroup || 'structure');

@@ -1,8 +1,49 @@
 # Webull paper execution controls
 
-Implemented on `WeBull-Integration`, October 22, 2026. Sandbox only. Release
-verification uses offline broker responses and does not submit broker orders.
-Deployment status and the merge revision are recorded in the release PR.
+Sandbox only. Execution policy `2026-10-29-ladder` is implemented on
+`Webull-Emergency-Fix`. Local verification uses synthetic broker responses
+and does not submit broker orders. Deployment and observed broker behavior
+require separate verification after release.
+
+## Prices and the closing deadline
+
+Ordinary entries and signaled exits use a **2% allowance, then 4%** from the
+saved Open Pick price. Allowances never compound. Debit buys can pay more,
+and debit sells can receive less. Credit-spread entries can receive less,
+and credit buybacks can pay more. The current ask or bid is used when better
+than the allowance. Tick rounding preserves each ceiling or floor.
+
+The first order has at least two minutes to work before repricing. A quote
+that already makes the working order executable does not cause cancellation.
+The final 4% DAY order stays working; status polls do not consume attempts.
+Cancellation must be confirmed before a replacement can use the remaining
+quantity. A fill that wins the cancellation race reduces that quantity.
+
+Ten minutes before the exchange close, a still-open, eligible pick from the
+same session gets one final entry attempt with a **5% cap**. A 13:00 ET early
+close uses 12:50 ET. The order remains working through close. No unrestricted
+entry or automatic next-day catch-up is allowed. A stale unacknowledged intent
+requires broker verification instead of replay into a later session.
+
+At the same deadline, a held position with a site close signal or an expiry
+close uses **emergency exit pricing**. The normal 4% allowance no longer applies.
+A debit spread or long option uses the smallest supported positive SELL limit.
+A credit vertical buyback uses the full spread width as its BUY ceiling.
+These remain complete-position LIMIT orders, with no separate leg liquidation.
+An emergency can give up nearly all remaining value. Broker-confirmed execution
+prices, rather than those permissive limits, determine the recorded result.
+Positions whose site picks remain open are retained unless expiry controls apply.
+
+Neither permissive prices nor the scheduler guarantee a fill. Missing or
+invalid quotes, unsupported broker evidence, uncertain cancellation, changed
+holdings, and absent liquidity can leave exposure open. After close, unresolved
+orders and signaled exits receive explicit review labels. Later confirmed order
+evidence can clear those specific transient labels. Unrelated reviews remain.
+
+Quotes come from Yahoo option quotes or synthetic net prices formed from the
+legs. Each attempt records the source and fetch time. Fetch time does not prove
+the exchange quote was current; exchange quote timestamps remain unknown.
+Negative synthetic bids are not converted into executable zero-price quotes.
 
 ## Quantities and order recovery
 
@@ -22,6 +63,26 @@ is raised; the next session restores the retry budget. Prices are weighted
 by filled quantity across attempts. Fee estimates are pro-rated to fills and
 recomputed, not repeatedly added on every poll. Missing execution prices or fee
 estimates remain unknown. CSV returns stay blank until the entire position closes.
+
+Every order keeps an append-only sequence of preparation, submission,
+cancellation requests, and changed broker observations. Broker order IDs,
+cumulative filled quantities, average prices, actual fees, and fill timestamps
+remain available for review. Identical polls do not add duplicate fill evidence.
+These snapshots do not claim individual execution lots absent from broker data.
+The Owner trade log and **Download order attempts (CSV)** expose this history.
+
+An unchanged cumulative fill retains its known price and fees if a later
+response omits them. A larger cumulative fill requires new price, fee, and
+timestamp evidence. Earlier partial-fill values cannot stand in for the larger
+fill. Aggregate completion times remain unknown if any contributing attempt
+lacks its fill timestamp. Active and recent terminal orders can refresh missing
+metadata; an unavailable optional metadata request does not invalidate confirmed
+holdings or block an authorized exit. Only the specific resolved cancellation
+or missing-price review clears automatically; unrelated reviews remain.
+
+Decisions blocked by unavailable quotes or invalid net prices remain stored,
+even when no broker order was sent. The final missed-entry reason, tracker
+history, and trade CSV retain that explanation after the session ends.
 
 Before any submission the ledger persists an intent with a deterministic
 `client_order_id` and exact order body. An unacknowledged submission is looked up
@@ -78,14 +139,33 @@ Other full bakes carry the Track Record forward and no longer trigger Webull.
 A forced manual build with `refresh_top_picks=true` also triggers the mirror.
 
 Each publication starts one bounded execution window: an initial call, then
-**up to two follow-up calls two minutes apart**, only while the server reports
+**up to four follow-up calls two minutes apart**, only while the server reports
 pending orders or safe unfinished work. A concurrent reconciliation can also
 request this bounded retry. Quiet books stop after the initial check. Unsafe
-reconciliation alerts stop automatic follow-ups. There is **no five-minute
-polling cron**, and no automatic hourly/all-day polling. The dedicated
+reconciliation alerts stop ordinary follow-ups. There is no all-day polling.
+The dedicated
 `.github/workflows/webull-mirror.yml` remains available for manual recovery,
 with the same bounded follow-up option. The server still enforces exchange
 hours, holidays, and early closes before placing orders.
+
+`.github/workflows/webull-eod.yml` independently monitors the final 20 minutes
+of the session with one-minute checks, up to 23 calls. It continues through a
+quiet book or transient request failure, acts in the final ten minutes, and
+checks broker outcomes after close. The UTC schedules cover regular and early
+closes in both ET offsets. Most dispatches skip without contacting the endpoint.
+A second dispatch provides a catch-up. A queued dispatch after close performs
+an audit and fails if no in-session deadline check was recorded. Invalid or
+concurrent final responses get a bounded grace period; a skipped check cannot
+count as completed reconciliation. GitHub scheduling can be late, so this is a
+best-effort closing window. Its account lease also excludes concurrent build
+or manual writers.
+
+The UTC coverage includes 16:40 and 16:50 for summer early closes, as well as
+winter early closes and ordinary sessions. A run interrupted by its time budget
+cannot mark the closing-deadline check complete. The final audit records that
+gap in the Owner view, and both ordinary and delayed closing jobs fail visibly
+when no completed deadline check exists. Final grace retries also cover broker
+failures inside an otherwise successful HTTP response.
 
 Unresolved orders after the window remain visible in the Owner view and fail
 the mirror step visibly; the next build or a manual reconciliation checks them
@@ -184,16 +264,20 @@ fully described, still pauses execution.
 ledger proposal from complete broker order details, positions and the published
 record. It performs no store writes or broker calls. It refuses partial or
 ambiguous fills, mismatched contracts, missing timestamps, duplicate allocations,
-account mismatch and replacement of existing order intents. Review and refresh
+account mismatch and unsafe replacement of existing order intents. Review and refresh
 that evidence before an explicitly approved conditional-lease checkpoint.
-An entering row checkpointed by a paused mirror can be adopted only if it has
-no order attempts, exposure, broker binding, provenance or review flag. Queuing
-the pick before recovery does not authorize replay or replacement of an order.
+An untouched entering row can be adopted with no exposure or prior execution
+state. A previous automatic miss or entering row can also be adopted when fresh
+broker detail proves every prior entry order terminal with zero fills. Previous
+intents remain in history, and the automatic miss remains in fill-rate statistics.
+An uncertain or partially filled prior entry cannot be replaced by recovery.
 Preparing the proposal does not advance the saved last-run timestamp.
 
 The operator command is `scripts/recover-webull-manual.mjs`, with a private
-`--config=<path>` JSON containing `manualClientOrderId` and
-`externalClientOrderIds`. It defaults to read-only, fetches actual order details
+`--config=<path>` JSON containing `manualClientOrderIds` and
+`externalClientOrderIds` arrays. The older singular `manualClientOrderId` is
+also accepted. One batch can adopt the three MU, TSM, and WDC manual fills
+after their real broker orders fill. It defaults to read-only, fetches actual order details
 and the complete positions/open-order snapshots, and can save a private proposal
 with `--output=<path>`. Only an explicitly approved `--apply` acquires the
 account-wide lease and checkpoints the freshly verified adoption. It refuses
@@ -202,6 +286,20 @@ also refuses changed or unavailable stock holdings in an existing baseline,
 requiring separate review rather than silently accepting a new equity baseline. It
 never submits, previews or cancels orders; the normal mirror handles authorized
 future exits after release.
+
+Run the read-only proposal with actual client order IDs in a private config:
+
+```
+node --env-file=r2.env scripts/recover-webull-manual.mjs --config=/private/path/manual-orders.json --output=/private/path/recovery-plan.json
+```
+
+Match each proposed trade to its broker fill, published legs, quantities,
+execution time, and fees. Include any unmanaged positions in
+`externalClientOrderIds`; use an empty array only when none exist. After that
+review, the same command with `--apply` instead of `--output` performs the
+ledger checkpoint. No fill is imported from a planned manual trade or a
+holdings cost. Until this verified adoption completes, those entries do not
+have managed mirror exits.
 
 An adopted spread retains its real broker order ID, requested/filled quantity,
 net execution price, placement/fill timestamps, actual fees and manual provenance.
@@ -212,17 +310,19 @@ if it shares a strike with the spread. External-group changes require review;
 they are never silently adopted or liquidated. Leg-level execution prices absent
 from broker order detail remain unknown rather than being allocated from costs.
 
-Track Record labels the manual entry, retains its execution record and actual
-fees, and excludes it from automatic-entry fill rate, timing and slippage.
+Track Record labels the manual entry and actual price above, below, or equal
+to the saved model. It retains the real execution record and fees, and excludes
+manual prices and timing from automatic-entry statistics. An earlier automatic
+miss remains a miss in the automatic fill-rate denominator after manual adoption.
 Both manual and automatic paper fills are excluded from uploaded real-money
 comparisons, using explicit source metadata with legacy account-label support.
 Subsequent automated exits retain their execution statistics. Actual cumulative
 order fees replace preview estimates when available and are not pro-rated or
 counted twice. Estimated and missing fees retain their prior behavior.
 
-Normally there are two initial automatic checks per trading day, with at most
-four conditional follow-ups across those build windows (up to six calls).
-Forced builds and manual recovery add their own bounded windows. Calls add
+Normally there are two initial build-linked checks per trading day, with at most
+eight conditional follow-ups across those windows, up to ten calls. The separate
+closing window, forced builds, and manual recovery add their own bounded checks. Calls add
 function invocations, broker/quote requests, and R2 reads/writes; no AI calls
 or paid subscription requirement is introduced in code. Actual billing depends
 on account plans, request volumes, and existing allowances.
@@ -241,7 +341,10 @@ remains optional and is not broker-native bracket execution.
 Run `npm run test:webull-mirror`, `npm run test:picks` (or
 `node scripts/picks-smoke.mjs`), `npm run test:track-record-fills`,
 `npm run test:private-store`, `npm run test:workflow-schedules`, and
-`npm run test:render`. Tests use fake broker responses and a conditional object
+`npm run test:render`. Run `npm run regen:webull` to regenerate only browser
+assets while preserving the published research snapshot and embedded rate.
+`npm run test:webull-browser` checks the generated tracker with synthetic ledger
+exports, including desktop, mobile, keyboard controls, and CSV. Tests use fake broker responses and a conditional object
 store, never real or paper orders. They prove the tested lifecycle paths, not
 live Webull schema compatibility, liquidity, scheduler punctuality, or profits.
 

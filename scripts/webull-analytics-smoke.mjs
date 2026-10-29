@@ -84,6 +84,7 @@ const context = vm.createContext({ Date, console, isFinite, escapeHtml, $: id =>
   accFillKey: v => v, tlEtParts: v => Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(v)).map(p => [p.type, p.value])),
   accSeg: (key, id, value, options) => options.map(o => '<input data-acc-set="' + key + '" value="' + o.value + '">').join(''),
   accPaneSummary: (...args) => summaries.push(args), accDateTime: v => v, accDate: v => v,
+  formatDisplayInstant: v => v,
   accPct: v => v == null ? '—' : v.toFixed(1) + '%', accMoney: v => v == null ? '—' : '$' + v.toFixed(2), accUsd: v => v == null ? null : '$' + v,
   ACC_STATUS_LABEL: {}, chHoverAttr: p => ' data-hover-count="' + p.length + '"',
   // app.js resolves a record's sector bucket from its symbol (lib/sector-groups.mjs).
@@ -141,7 +142,7 @@ fixture.mirror.trades = [{ ...fixture.mirror.trades[1], tradeId: 'manual-only', 
   filledQty: 1, openQty: 1, entryDiffPct: 99, exitDiffPct: null, entryHow: 'first', entrySentIso: '2026-10-23T19:20:42Z', fillIso: '2026-10-23T19:20:43Z' }];
 context.accView.wbState = 'all'; context.accView.wbLens = 'engine';
 vm.runInContext('renderWebullTest()', context);
-assert.match(box.innerHTML, /Automatic entries only/);
+assert.equal(box.innerHTML.includes('Automatic attempts only'), true);
 assert.equal(vm.runInContext('wbEntryCost(wbRows()[0].t)', context), null, 'manual entries never enter automatic slippage');
 assert.equal(summaries.at(-1)[1].find(x => x.lbl.startsWith('filled (')).val, '—', 'manual fill cannot inflate automatic fill rate');
 assert.equal(vm.runInContext('WB_ANALYTICS.analyze(wbRows()).slippage.length', context), 0);

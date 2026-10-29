@@ -1,5 +1,48 @@
 // Synthetic data for repeatable UI checks. Never used by the production app.
+import { newTrade, updateQuantities, ledgerToTestTrades, ledgerToFillRows, fillRowsToCsv, orderAttemptsToCsv, recordOrderObservation } from '../../lib/webull-mirror.mjs';
+import { pickTradeId } from '../../lib/pick-trade-text.mjs';
+
+function executionFixture() {
+  const ledger = { trades: {} }, open = [], closed = [];
+  const entryDate = '2026-10-28T19:33:00Z', expiry = Date.UTC(2026, 11, 18) / 1000;
+  const specs = [['MU', 980, 1130, 50.65, 51.75], ['TSM', 440, 480, 14.18, 14.36], ['WDC', 390, 470, 26.42, 26.42], ['ORCL', 145, 175, 9.67, 9.55]];
+  for (const [symbol, long, short, model, actual] of specs) {
+    const pick = { symbol, side: 'call', entryDate, contract: { structure: 'debit_vertical', netDebit: model, expiry,
+      legs: [{ qty: 1, strike: long, type: 'call', expiry }, { qty: -1, strike: short, type: 'call', expiry }] } };
+    const t = newTrade(pick, pickTradeId(pick)), manual = symbol !== 'ORCL';
+    const attempt = (n, extra) => ({ phase: 'entry', n, quantity: 1, filledQty: 0, status: 'CANCELLED', sentIso: '2026-10-28T19:35:00Z',
+      limit: model, filledPrice: null, referencePrice: model, quoteSource: 'Synthetic quote', ...extra });
+    t.entryAttempts = [attempt(1, { cancelRequestedIso: '2026-10-28T19:37:00Z' }), attempt(2, manual ? {} : {
+      policyStage: 'entry-4', allowancePct: 4, status: 'FILLED', filledQty: 1, filledPrice: actual, filledIso: '2026-10-28T19:39:34Z', feeActual: 0.12 })];
+    if (manual) {
+      t.entrySource = 'manual'; t.automaticEntryOutcome = 'missed'; t.automaticEntryAttemptCount = 2;
+      t.entryAttempts.push(attempt(3, { source: 'manual', status: 'FILLED', filledQty: 1, filledPrice: actual, limit: actual, referencePrice: null,
+        sentIso: '2026-10-29T13:30:01Z', filledIso: '2026-10-29T13:30:05Z', feeActual: 0.12, quoteSource: 'Unknown' }));
+    }
+    t.state = 'open';
+    if (symbol === 'MU' || symbol === 'ORCL') {
+      t.engineExitIso = '2026-10-29T19:30:00Z'; t.engineExitPrice = symbol === 'MU' ? 60 : 10;
+      t.engineCloseReason = 'hit-tp-prem'; t.enginePnlPct = (t.engineExitPrice / model - 1) * 100;
+      t.exitAttempts = [{ phase: 'exit', n: 1, policyStage: 'emergency-exit', emergency: true,
+        quantity: 1, filledQty: symbol === 'ORCL' ? 1 : 0, status: symbol === 'ORCL' ? 'FILLED' : 'SUBMITTED',
+        sentIso: '2026-10-29T19:50:00Z', limit: 0.01, referencePrice: t.engineExitPrice,
+        filledPrice: symbol === 'ORCL' ? 9.35 : null, filledIso: symbol === 'ORCL' ? '2026-10-29T19:50:08Z' : null,
+        bid: 9.3, ask: 9.8, quoteSource: 'Synthetic net quote', quoteObservedIso: '2026-10-29T19:50:00Z', feeActual: symbol === 'ORCL' ? 0.12 : null }];
+      t.state = symbol === 'ORCL' ? 'closed' : 'exiting';
+      closed.push({ ...pick, exitDate: t.engineExitIso, status: t.engineCloseReason, optionPnlPct: t.enginePnlPct });
+    } else open.push(pick);
+    recordOrderObservation(t.entryAttempts.at(-1), manual ? 'manual-broker-import' : 'broker-detail', manual ? '2026-10-29T13:31:00Z' : '2026-10-28T19:40:00Z');
+    if (t.exitAttempts.length) recordOrderObservation(t.exitAttempts[0], 'broker-detail', '2026-10-29T19:51:00Z');
+    updateQuantities(t); ledger.trades[t.tradeId] = t;
+  }
+  return { mirror: { enabled: true, lastRunIso: '2026-10-29T19:51:00Z', engineSnapshotIso: '2026-10-29T19:30:00Z',
+    lastEndOfDayDeadlineIso: '2026-10-29T19:51:00Z', reconciliation: { status: 'matched', checkedAtIso: '2026-10-29T19:51:00Z', alerts: [] },
+    trades: ledgerToTestTrades(ledger), rows: ledgerToFillRows(ledger) }, csv: fillRowsToCsv(ledgerToFillRows(ledger)), ordersCsv: orderAttemptsToCsv(ledger),
+    accuracy: { builtAtIso: '2026-10-29T19:30:00Z', open, closed, baseline: { open: [], closed: [] } } };
+}
+
 export function webullReviewFixture(now = Date.now(), mode = 'standard') {
+  if (mode === 'execution') return executionFixture();
   const trades = [], records = [], baseline = [];
   for (let i = 0; i < 36; i++) {
     const symbol = ['NVDA', 'AAPL', 'MSFT', 'AMD', 'META', 'TSLA'][i % 6];

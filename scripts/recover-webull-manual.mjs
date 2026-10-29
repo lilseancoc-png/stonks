@@ -1,12 +1,13 @@
 // Default: read-only plan. --apply checkpoints the verified adoption under the
 // account-wide lease; it NEVER submits, previews or cancels a broker order.
-// Private JSON config: { manualClientOrderId, externalClientOrderIds: [] }.
+// Private JSON config: { manualClientOrderIds: [...], externalClientOrderIds: [] }.
 import { readFile, writeFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { prepareManualRecovery } from "../lib/webull-manual-recovery.mjs";
 
 export async function recoverManualSpread({ store, client, accountId, config, apply = false, now = () => new Date().toISOString() }) {
-  if (store.backend !== "r2" || !accountId || typeof config?.manualClientOrderId !== "string" || !config.manualClientOrderId ||
+  const manualIds = config?.manualClientOrderIds || [config?.manualClientOrderId];
+  if (store.backend !== "r2" || !accountId || !Array.isArray(manualIds) || !manualIds.length || manualIds.some(id => typeof id !== "string" || !id) || new Set(manualIds).size !== manualIds.length ||
       !Array.isArray(config.externalClientOrderIds) || config.externalClientOrderIds.some(id => typeof id !== "string" || !id)) throw new Error("complete R2/account configuration and explicit broker order IDs are required");
   const inspect = async (guard = () => {}) => {
     guard();
@@ -20,14 +21,22 @@ export async function recoverManualSpread({ store, client, accountId, config, ap
     if (!ledgerBuf || !accBuf) throw new Error("saved ledger and published record are required");
     const ledger = JSON.parse(String(ledgerBuf)), acc = JSON.parse(String(accBuf));
     if (ledger.accountId !== accountId) throw new Error("ledger account mismatch");
-    const heldIds = Object.values(ledger.trades || {}).filter(t => t.openQty > 0 && t.entrySource !== "manual")
-      .flatMap(t => t.entryAttempts.map(a => a.clientOrderId));
-    const ids = [...new Set([config.manualClientOrderId, ...config.externalClientOrderIds, ...heldIds])];
     const orders = new Map();
-    for (const id of ids) { guard(); orders.set(id, await client.orderDetail(accountId, id)); }
+    for (const id of manualIds) { guard(); orders.set(id, await client.orderDetail(accountId, id)); }
+    const manualSymbols = new Set(manualIds.map(id => orders.get(id)?.orders?.[0]?.symbol || orders.get(id)?.orders?.[0]?.legs?.[0]?.symbol));
+    const terminal = new Set(["CANCELLED", "FILLED", "FAILED", "REJECTED", "EXPIRED"]);
+    const relevant = Object.values(ledger.trades || {}).filter(t => t.openQty > 0 ||
+      ["entering", "exiting", "error", "settlement-pending"].includes(t.state) ||
+      (t.entryAttempts || []).some(a => !terminal.has(a.status)) ||
+      manualSymbols.has(t.symbol) && t.state === "missed");
+    const heldIds = relevant.flatMap(t => t.entryAttempts.map(a => a.clientOrderId));
+    const retiredIds = relevant.filter(t => !t.filledQty && ["entering", "missed"].includes(t.state)).flatMap(t => t.entryAttempts.map(a => a.clientOrderId));
+    const ids = [...new Set([...config.externalClientOrderIds, ...heldIds, ...retiredIds])];
+    for (const id of ids) if (!orders.has(id)) { guard(); orders.set(id, await client.orderDetail(accountId, id)); }
     const checkedAtIso = now();
     const plan = prepareManualRecovery({ ledger, acc, positions, accountId, checkedAtIso,
-      manualOrder: orders.get(config.manualClientOrderId), externalOrders: config.externalClientOrderIds.map(id => orders.get(id)),
+      manualOrders: manualIds.map(id => orders.get(id)), externalOrders: config.externalClientOrderIds.map(id => orders.get(id)),
+      retiredOrders: retiredIds.map(id => orders.get(id)),
       heldOrders: heldIds.map(id => orders.get(id)) });
     if (apply) {
       // Compare again immediately before the checkpoint. The lease excludes
@@ -61,7 +70,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const plan = await recoverManualSpread({ store, client, accountId: env("WEBULL_PAPER_ACCOUNT_ID"), config, apply });
     if (outputPath) await writeFile(outputPath, JSON.stringify(plan, null, 2), { mode: 0o600, flag: "wx" });
     console.log(JSON.stringify({ applied: apply, brokerMutations: 0, reconciliation: plan.reconciliation.status,
-      managedManualContracts: plan.ledger.trades[plan.manualTradeId].filledQty,
+      managedManualTrades: plan.manualTradeIds.length,
+      managedManualContracts: plan.manualTradeIds.reduce((n, id) => n + plan.ledger.trades[id].filledQty, 0),
       externalGroupsRetained: Object.keys(plan.ledger.positionBaseline.groups).length }));
   } catch (err) {
     // Broker errors can echo private order details. Keep them out of stdout.

@@ -65,7 +65,7 @@ const tsla = pick("TSLA", tslaLegs, "2026-10-27T19:33:00.000Z", 20), aapl = pick
 const sent = [];
 r = await runWebullMirror({ client: client({ placeOrder: async (_, orders) => { sent.push(...orders); return {}; },
   orderDetail: async (_, id) => id === "mrvl-entry-1" ? detail(id, mrvlLegs) : { orders: [{ client_order_id: id, status: "SUBMITTED", filled_quantity: "0" }] } }),
-  accountId: "PAPER", acc: { ...acc, open: [mrvl, tsla, aapl] }, ledger: structuredClone(ledger), nowMs: during, quoteFn: async () => null });
+  accountId: "PAPER", acc: { ...acc, open: [mrvl, tsla, aapl] }, ledger: structuredClone(ledger), nowMs: during, quoteFn: async () => ({ bid: 6, ask: 6 }) });
 assert.deepEqual(sent.map(o => o.legs?.[0]?.symbol ?? o.symbol), ["AAPL"], "only the unrelated pick is entered");
 const skippedTsla = r.ledger.trades[pickTradeId(tsla)];
 assert.equal(skippedTsla.state, "missed", "a blocked pick is logged as missed, not left pending");

@@ -10,7 +10,7 @@ import { runMirrorWindow } from "../lib/webull-mirror-window.mjs";
 const strict = process.env.WEBULL_MIRROR_STRICT === "1";
 // A published build starts the window; wall-clock filtering here could drop a
 // legitimately queued 11:00/15:30 build. The server enforces exchange hours.
-const followUps = process.env.WEBULL_MIRROR_FOLLOW_UPS === "2" ? 2 : 0;
+const followUps = ["2", "4"].includes(process.env.WEBULL_MIRROR_FOLLOW_UPS) ? Number(process.env.WEBULL_MIRROR_FOLLOW_UPS) : 0;
 const secret = process.env.R2_SECRET_ACCESS_KEY || "";
 const url = process.env.WEBULL_MIRROR_URL || "https://mingstreet.app/api/auth/webull-mirror";
 if (!secret) {

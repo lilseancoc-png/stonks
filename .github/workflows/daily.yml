@@ -593,14 +593,14 @@ jobs:
         id: webull_mirror
         # Follow the actual Top Picks refresh, after verified private-store
         # publication. Other bakes carry the record forward and do not trade.
-        # Up to two two-minute follow-ups run only while orders remain pending.
+        # Up to four two-minute follow-ups run only while orders remain pending.
         if: ${{ vars.PRIVATE_DATA_ENABLED == '1' && needs.route.outputs.refresh_top_picks == 'true' }}
         continue-on-error: true
-        timeout-minutes: 10
+        timeout-minutes: 15
         env:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           WEBULL_MIRROR_STRICT: '1'
-          WEBULL_MIRROR_FOLLOW_UPS: '2'
+          WEBULL_MIRROR_FOLLOW_UPS: '4'
         run: node scripts/webull-mirror-trigger.mjs
 
       - name: Commit verified private-store build

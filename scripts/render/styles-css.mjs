@@ -16525,6 +16525,10 @@ body.tape-axm-open { overflow: hidden; }
 .wb-log .acc-qtable { min-width: 760px; }
 .wb-log .acc-qtable td { white-space: normal; vertical-align: top; }
 .wb-log .acc-qtable td:first-child { min-width: 220px; }
+.wb-execution-history { max-width: min(1100px, 80vw); font-size: 12px; }
+.wb-execution-history > summary { cursor: pointer; padding: 5px 0; }
+.wb-log .wb-execution-history .acc-qtable td:first-child { min-width: 0; }
+.wb-log .wb-execution-row > td { padding-top: 0; }
 .wb-review-nav { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin: 20px 0 16px; }
 .wb-review-nav .acc-seg { flex-wrap: wrap; }
 .wb-refresh { border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); padding: 8px 12px; font: inherit; font-size: 12px; cursor: pointer; }

@@ -7,13 +7,17 @@
 // Run: node scripts/webull-mirror-smoke.mjs
 import { signRequest, createWebullClient, quoteAll } from "../lib/webull-client.mjs";
 import {
-  runWebullMirror, updateQuantities, buildOrder, mirrorLegs, roundTick, clientOrderId, isRegularSession, isMarketClosedError, parseOrderDetail, parsePreviewFee, ledgerToTestTrades,
+  runWebullMirror as runActualMirror, updateQuantities, buildOrder, mirrorLegs, roundTick, clientOrderId, isRegularSession, isMarketClosedError, parseOrderDetail, parsePreviewFee, ledgerToTestTrades,
   ledgerToFillRows, fillRowsToCsv, mirrorTriggerToken, makeQuoteFn, emptyLedger, LEDGER_KEY,
 } from "../lib/webull-mirror.mjs";
 import { parsePositions, reconcilePositions } from "../lib/webull-reconciliation.mjs";
 import { expiryControl, sessionForDate, previousTradingDate } from "../lib/us-equity-calendar.mjs";
 import { withObjectLease, describeObjectLease } from "../lib/object-lease.mjs";
 import { pickTradeId } from "../lib/pick-trade-text.mjs";
+
+// Most lifecycle cases use a tight quote at their reference price. Cases that
+// test price movement or missing quotes override this explicitly.
+const runWebullMirror = args => runActualMirror({ clock: () => 0, quoteFn: async t => ({ bid: t.engineExitPrice || t.engineEntryPrice, ask: t.engineExitPrice || t.engineEntryPrice }), ...args });
 
 let pass = 0, fail = 0;
 function ok(name, cond, detail = "") {
@@ -167,9 +171,9 @@ const accWith = (open = [], closed = [], builtAtIso = "2026-10-21T15:02:00Z") =>
   let { ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger: null, nowMs: T0 });
   ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger, nowMs: T0 + 2 * H, quoteFn: async () => ({ bid: 5.2, ask: 5.4 }) }));
   ok("band: first order cancelled", wb.cancelled.length === 1);
-  ok("band: re-priced to the mid (+6%)", wb.placed[1]?.limit_price === "5.30", wb.placed[1]?.limit_price);
+  ok("ladder: retry capped at +4%", wb.placed[1]?.limit_price === "5.20", wb.placed[1]?.limit_price);
   ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger, nowMs: T0 + 4 * H, quoteFn: async () => ({ bid: 5.2, ask: 5.4 }) }));
-  ok("band: missed after 2 tries", ledger.trades[id].state === "missed" && wb.placed.length === 2);
+  ok("ladder: final normal order stays monitored", ledger.trades[id].state === "entering" && wb.placed.length === 2);
 }
 
 // 4c. Mid already 15% above the engine -> missed, no chase.
@@ -180,8 +184,8 @@ const accWith = (open = [], closed = [], builtAtIso = "2026-10-21T15:02:00Z") =>
   let { ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger: null, nowMs: T0 });
   ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger, nowMs: T0 + 2 * H, quoteFn: async () => ({ bid: 5.65, ask: 5.85 }) }));
   const t = ledger.trades[id];
-  ok("band: out of band -> missed with the gap", t.state === "missed" && /15\.0% above/.test(t.note), t.note);
-  ok("band: no second order", wb.placed.length === 1);
+  ok("ladder: wide ask does not widen the budget", t.state === "entering" && wb.placed.at(-1).limit_price === "5.20", t.note);
+  ok("ladder: one capped replacement", wb.placed.length === 2);
 }
 
 // 4d. Engine closes while the entry is still working -> cancel + missed.
@@ -200,9 +204,9 @@ const accWith = (open = [], closed = [], builtAtIso = "2026-10-21T15:02:00Z") =>
   const e = longCall({ entryDate: "2026-10-21T19:30:00Z" });
   const after = Date.parse("2026-10-21T20:12:00Z");
   let { ledger, summary } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e], [], "2026-10-21T19:31:00Z"), ledger: null, nowMs: after });
-  ok("session: no orders after the close", summary.placed === 0 && ledger.trades[pickTradeId(e)].state === "entering");
+  ok("session: no orders after the close", summary.placed === 0 && ledger.trades[pickTradeId(e)].state === "missed");
   ({ summary } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger, nowMs: Date.parse("2026-10-22T14:05:00Z") }));
-  ok("session: placed at the next open", summary.placed === 1);
+  ok("session: no stale next-day automatic entry", summary.placed === 0);
 }
 
 // 4f. Fail closed when the account isn't visible to the keys.
@@ -243,10 +247,10 @@ ok("account: unknown paper account throws", await throwsAsync(() => runWebullMir
   ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([], [closedE]), ledger, nowMs: T0 + 26 * H, quoteFn: q }));
   ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([], [closedE]), ledger, nowMs: T0 + 28 * H, quoteFn: q }));
   const px = wb.placed.slice(1).map((o) => o.limit_price);
-  ok("exit ladder: 2.50 -> 2.40 mid -> 2.20 bid", px.join(",") === "2.50,2.40,2.20", px.join(","));
-  wb.fill(wb.placed[3].client_order_id, 2.2);
+  ok("exit ladder: 2% then 4% floors; final order stays live", px.join(",") === "2.45,2.40", px.join(","));
+  wb.fill(wb.placed[2].client_order_id, 2.4);
   ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([], [closedE]), ledger, nowMs: T0 + 30 * H, quoteFn: q }));
-  ok("exit ladder: closed with the real gap", ledger.trades[id].state === "closed" && ledger.trades[id].labels[1] === "Paper sold 12.0% below engine", ledger.trades[id].labels[1]);
+  ok("exit ladder: closed with the real gap", ledger.trades[id].state === "closed" && ledger.trades[id].labels[1] === "Paper sold 4.0% below engine", ledger.trades[id].labels[1]);
 }
 
 // 4j. Expired in the record: nothing to sell.
@@ -257,7 +261,7 @@ ok("account: unknown paper account throws", await throwsAsync(() => runWebullMir
   let { ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger: null, nowMs: T0 });
   wb.fill(wb.placed[0].client_order_id, 5);
   ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([], [{ ...e, status: "expired", exitDate: "2026-12-19T15:00:00Z", optionPnlPct: -100 }]), ledger, nowMs: T0 + 24 * H }));
-  ok("engine expiry does not pretend broker is flat", ledger.trades[id].state === "exiting" && wb.placed.length === 2);
+  ok("engine expiry does not pretend broker is flat", ledger.trades[id].state === "exiting" && wb.placed.length === 1);
 }
 
 // --- 5. Quotes for spreads ------------------------------------------------------
@@ -287,7 +291,7 @@ ok("account: unknown paper account throws", await throwsAsync(() => runWebullMir
   ok("closed market: error is recognized", isMarketClosedError({ code: "OPENAPI_OPTION_ONLY_SUPPORT_MARKET_IN_CORE_TIME" }) && !isMarketClosedError({ code: "OPENAPI_PARAM_ERR" }));
   shut = false;
   ({ ledger, summary } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger, nowMs: T0 + 24 * H }));
-  ok("closed market: next session places at the engine price", summary.placed === 1 && wb.placed[0].limit_price === "5.00" && ledger.trades[id].entryAttempts.filter((a) => !a.marketClosed).length === 1);
+  ok("closed market: no stale next-day order", summary.placed === 0 && ledger.trades[id].state === "missed");
 }
 
 // --- 5c. Safety guards -----------------------------------------------------------
@@ -308,7 +312,7 @@ ok("account: unknown paper account throws", await throwsAsync(() => runWebullMir
   const e = longCall();
   const id = pickTradeId(e);
   let { ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger: null, nowMs: T0 });
-  for (let i = 1; i <= 3; i++) ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger, nowMs: T0 + i * H }));
+  for (let i = 1; i <= 3; i++) ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger, nowMs: T0 + i * H, quoteFn: async () => ({ bid: 5.5, ask: 6 }) }));
   ok("guard: unconfirmed cancel blocks a re-price", wb.placed.length === 1, String(wb.placed.length));
   ok("guard: stuck order flagged for a hand check", ledger.trades[id].needsReview && /by hand/.test(ledger.trades[id].note), ledger.trades[id].state);
 }
@@ -348,7 +352,7 @@ ok("account: unknown paper account throws", await throwsAsync(() => runWebullMir
   const realDetail = wb.orderDetail;
   wb.orderDetail = async (acct, cid) => { looks++; if (looks === 2) wb.fill(first, 5.05); return realDetail(acct, cid); };
   wb.cancelOrder = async () => ({});
-  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger, nowMs: T0 + H, sleep: async () => {} }));
+  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger, nowMs: T0 + H, quoteFn: async () => ({ bid: 5.5, ask: 6 }), sleep: async () => {} }));
   ok("guard: fill during a pending cancel is kept, no second order", wb.placed.length === 1 && ledger.trades[id].state === "open" && ledger.trades[id].fillPrice === 5.05, `${wb.placed.length} ${ledger.trades[id].state}`);
 }
 {
@@ -357,7 +361,7 @@ ok("account: unknown paper account throws", await throwsAsync(() => runWebullMir
   const e = longCall();
   let { ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger: null, nowMs: T0, sleep: async () => {} });
   wb.cancelOrder = async () => ({});
-  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger, nowMs: T0 + H, sleep: async () => {} }));
+  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger, nowMs: T0 + H, quoteFn: async () => ({ bid: 5.5, ask: 6 }), sleep: async () => {} }));
   ok("guard: unconfirmed cancel -> no new order", wb.placed.length === 1 && ledger.trades[pickTradeId(e)].entryAttempts[0].status === "CANCEL_FAILED");
 }
 ok("status: 'PARTIAL FILLED' normalized", parseOrderDetail({ orders: [{ status: "PARTIAL FILLED" }] })?.status === "PARTIAL_FILLED");
@@ -444,31 +448,31 @@ ok("tick: nickel after a rejection", Math.abs(roundTick(1.23, { nickel: true }) 
   ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger, nowMs: T0 + 60000 }));
   ok("partial entry: target quantity is submitted", wb.placed[0].quantity === "3");
   wb.fill(wb.placed[0].client_order_id, 5, 1);
-  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger, nowMs: T0 + 120000, quoteFn: async () => ({ bid: 5.1, ask: 5.3 }) }));
+  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger, nowMs: T0 + 180000, quoteFn: async () => ({ bid: 5.1, ask: 5.3 }) }));
   let t = ledger.trades[id];
   ok("partial entry: one fill is not a filled three-contract order", t.entryAttempts[0].status === "CANCELLED" && t.entryAttempts[0].filledQty === 1 && t.filledQty === 1 && t.openQty === 1);
   ok("partial entry: replacement is only the remaining two", wb.placed[1].quantity === "2");
   ok("partial entry: fees pro-rated to actual fills", t.fees === 1);
   wb.fill(wb.placed[1].client_order_id, 5.2, 2);
-  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger, nowMs: T0 + 180000 }));
+  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger, nowMs: T0 + 240000 }));
   t = ledger.trades[id];
   ok("partial entry: weighted average across attempts", t.state === "open" && Math.abs(t.fillPrice - 15.4 / 3) < 1e-10 && t.filledQty === 3);
   ok("partial entry: fees counted once", t.fees === 4);
   const closed = { ...e, status: "hit-tp-prem", exitDate: "2026-10-21T15:14:00Z", optionPnlPct: 25 };
-  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([], [closed]), ledger, nowMs: T0 + 240000 }));
+  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([], [closed]), ledger, nowMs: T0 + 300000 }));
   ok("partial exit: closes the actual three contracts", wb.placed[2].quantity === "3");
   wb.fill(wb.placed[2].client_order_id, 6.25, 1);
-  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([], [closed]), ledger, nowMs: T0 + 300000, quoteFn: async () => ({ bid: 6.1, ask: 6.3 }) }));
+  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([], [closed]), ledger, nowMs: T0 + 420000, quoteFn: async () => ({ bid: 6.1, ask: 6.3 }) }));
   t = ledger.trades[id];
   ok("partial exit: position remains open until all contracts close", t.state === "exiting" && t.closedQty === 1 && t.openQty === 2 && t.paperPnlPct === null);
   ok("partial exit: replacement cannot oversell", wb.placed[3].quantity === "2");
   ok("partial exit: CSV has no completed trade P&L", ledgerToFillRows(ledger)[0].your_pnl_pct === null);
   wb.fill(wb.placed[3].client_order_id, 6.2, 2);
-  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([], [closed]), ledger, nowMs: T0 + 360000 }));
+  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([], [closed]), ledger, nowMs: T0 + 480000 }));
   t = ledger.trades[id];
   ok("partial exit: weighted closing price, zero remaining", t.state === "closed" && t.openQty === 0 && Math.abs(t.closeFillPrice - 18.65 / 3) < 1e-10);
   const fees = t.fees, pnl = t.paperPnlPct;
-  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([], [closed]), ledger: structuredClone(ledger), nowMs: T0 + 420000 }));
+  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([], [closed]), ledger: structuredClone(ledger), nowMs: T0 + 540000 }));
   ok("partial exit: restart does not double-count fills/fees", ledger.trades[id].fees === fees && ledger.trades[id].paperPnlPct === pnl && wb.placed.length === 4);
   const view = ledgerToTestTrades(ledger)[0];
   ok("partial exit: owner view and CSV expose actual quantities", view.requestedQty === 3 && view.filledQty === 3 && view.closedQty === 3 && ledgerToFillRows(ledger)[0].qty === 3);
@@ -480,7 +484,7 @@ ok("tick: nickel after a rejection", Math.abs(roundTick(1.23, { nickel: true }) 
   ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger, nowMs: T0 + 60000 }));
   wb.fill(wb.placed[0].client_order_id, 5, 1);
   ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger, nowMs: T0 + 120000, quoteFn: async () => ({ bid: 8, ask: 9 }) }));
-  ok("partial entry outside band retains the held contract", ledger.trades[id].state === "open" && ledger.trades[id].filledQty === 1 && wb.placed.length === 1);
+  ok("partial entry outside budget retains the held contract", ledger.trades[id].state === "entering" && ledger.trades[id].filledQty === 1 && wb.placed.length === 1);
   const closed = { ...e, status: "thesis-broken", optionPnlPct: -10 };
   ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([], [closed]), ledger, nowMs: T0 + 180000 }));
   ok("partial entry closes only what actually filled", wb.placed[1].quantity === "1" && wb.placed[1].side === "SELL");
@@ -697,6 +701,7 @@ ok("tick: nickel after a rejection", Math.abs(roundTick(1.23, { nickel: true }) 
   ledger.trades[id].exitAttempts = [...Array.from({ length: 11 }, (_, i) => ({ ...last, n: i + 1, status: "CANCELLED", clientOrderId: "old-" + i })), { ...last, n: 12 }];
   ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([], [closed]), ledger, nowMs: T0 + 120000 }));
   ok("exit budget: last DAY order remains working, not cancelled", wb.cancelled.length === 0 && wb.placed.length === 2 && ledger.trades[id].needsReview);
+  wb.orders.get(last.clientOrderId).status = "CANCELLED"; // prior DAY order expired at the session close
   ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([], [closed]), ledger, nowMs: T0 + 24 * H, quoteFn: async () => ({ bid: 6, ask: 6.2 }) }));
   ok("exit budget: next session resumes remaining-quantity protection", wb.placed.length === 3 && wb.placed[2].quantity === "1" && wb.placed[2].side === "SELL");
 }

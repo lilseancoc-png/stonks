@@ -3,15 +3,14 @@
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { resolve, extname, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { webullReviewFixture } from './fixtures/webull-review.mjs';
 const root = fileURLToPath(new URL('../', import.meta.url));
-const fixtureTime = Date.now();
-const cases = new Set(['standard', 'edge', 'empty', 'open', 'retry']);
-let retryRequests = 0;
-const port = Number(process.env.WEBULL_PREVIEW_PORT || 4178);
+const cases = new Set(['standard', 'edge', 'empty', 'open', 'retry', 'execution']);
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.json': 'application/json' };
-createServer(async (req, res) => {
+export async function createWebullPreview({ port = 0, fixtureTime = Date.now() } = {}) {
+let retryRequests = 0;
+const server = createServer(async (req, res) => {
   const url = new URL(req.url, 'http://127.0.0.1');
   const requestedCase = url.searchParams.get('previewCase') || new URL(req.headers.referer || 'http://127.0.0.1').searchParams.get('previewCase');
   const previewCase = cases.has(requestedCase) ? requestedCase : 'standard';
@@ -22,7 +21,8 @@ createServer(async (req, res) => {
   if (url.pathname === '/api/auth/me' && !url.searchParams.has('data')) return json({ enabled: true, trackRecord: true, topPicks: true, authenticated: true, user: { name: 'Synthetic preview' } });
   if (url.pathname === '/api/auth/webull-mirror') {
     if (previewCase === 'retry' && retryRequests++ === 0) return json({ error: 'Synthetic one-time load failure' }, 503);
-    if (url.searchParams.get('format') === 'csv') { res.writeHead(200, { 'Content-Type': 'text/csv', 'Content-Disposition': 'attachment; filename="synthetic-webull-trades.csv"' }); return res.end('trade_id,symbol,state,paper_pnl_pct\n' + fixture.mirror.trades.map(t => [t.tradeId, t.symbol, t.state, t.paperPnlPct ?? ''].join(',')).join('\n')); }
+    if (url.searchParams.get('format') === 'orders') { res.writeHead(200, { 'Content-Type': 'text/csv', 'Content-Disposition': 'attachment; filename="synthetic-webull-orders.csv"' }); return res.end(fixture.ordersCsv || 'trade_id,phase,attempt\n'); }
+    if (url.searchParams.get('format') === 'csv') { res.writeHead(200, { 'Content-Type': 'text/csv', 'Content-Disposition': 'attachment; filename="synthetic-webull-trades.csv"' }); return res.end(fixture.csv || 'trade_id,symbol,state,paper_pnl_pct\n' + fixture.mirror.trades.map(t => [t.tradeId, t.symbol, t.state, t.paperPnlPct ?? ''].join(',')).join('\n')); }
     return json(fixture.mirror);
   }
   if (url.pathname === '/api/auth/picks-fills') return json({ rows: [] });
@@ -42,4 +42,11 @@ createServer(async (req, res) => {
     if (extname(path) === '.html') content = content.toString().replace('<body>', '<body><div style="position:fixed;bottom:0;left:0;right:0;z-index:99999;padding:8px;background:#f4df9b;color:#211a08;text-align:center;font:12px system-ui">Synthetic test data · ' + previewCase + ' case · No broker connection</div>');
     res.writeHead(200, { 'Content-Type': types[extname(path)] || 'application/octet-stream' }); res.end(content);
   } catch { json({ error: 'Not found' }, 404); }
-}).listen(port, '127.0.0.1', () => console.log('Synthetic Webull preview: http://127.0.0.1:' + port + '/?tab=track'));
+});
+await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve); });
+return { server, base: 'http://127.0.0.1:' + server.address().port };
+}
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const { base } = await createWebullPreview({ port: Number(process.env.WEBULL_PREVIEW_PORT || 4178) });
+  console.log('Synthetic Webull preview: ' + base + '/?tab=track');
+}
