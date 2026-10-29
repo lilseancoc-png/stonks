@@ -69,6 +69,7 @@ const SIDE_NAV_ICONS = {
   spillover: '<circle cx="12" cy="12" r="2.5"/><path d="M12 5.5a6.5 6.5 0 0 1 6.5 6.5"/><path d="M12 2a10 10 0 0 1 10 10"/>',
   quant: '<path d="M18 6.5V4H6l6.5 8L6 20h12v-2.5"/>',
   'historical-data': '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/>',
+  'party-tracker': '<path d="M4 20h16M6 20V9M10 20V9M14 20V9M18 20V9M3 9h18M12 3l8 6H4z"/>',
   'earnings-forecast': '<path d="M4 20V4M4 20h16M8 15l4-5 4 2 4-7"/><path d="M16 5h4v4"/>',
   levetf: '<path d="M3.5 20.5v-17"/><path d="M3.5 20.5h17"/><path d="m6 16.5 3.5-4 2.5 2 4-5.5"/><path d="m11.5 6.5 3-3 3 3"/><path d="M14.5 3.5v7"/>',
   overnight: '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>',
@@ -629,7 +630,7 @@ function briefSection() {
       <h2 class="card-title">Market brief</h2>
       <span class="card-eyebrow" id="brief-eyebrow" aria-live="polite"></span>
     </header>
-    <p class="hint">An AI<span class="tip ai-info" tabindex="0" role="button" aria-label="About the market brief" data-tip="One rolling digest per trading day (default gemini-3.1-flash-lite; override AI_BRIEF_MODEL). A lightweight Brief-only job writes the morning setup at 8:30 a.m. ET from overnight and foreign moves, macro levels, Fear &amp; Greed, the day's calendar and the prior verified public market data; private Owner desks never feed this payload and no full pre-market bake runs. Session builds refresh it at 11:00 and 13:30, and the 16:10 close build writes the closing read. AI writes the headline and prose; standouts, chips and stats are computed.">i</span>-written market digest: a fresh overnight setup, focused 11:00 and 13:30 session updates, and a closing read after 4&nbsp;pm ET. Each update checks the site&rsquo;s live tools and surfaces only material standouts. Ticker chips are clickable. Not financial advice.</p>
+    <p class="hint">An AI<span class="tip ai-info" tabindex="0" role="button" aria-label="About the market brief" data-tip="One rolling digest per trading day (default gemini-3.1-flash-lite; override AI_BRIEF_MODEL). A lightweight Brief-only job writes the morning setup at 8:30 a.m. ET from overnight and foreign moves, macro levels, Fear &amp; Greed, the day's calendar and the prior verified public market data; private Owner desks never feed this payload and no full pre-market bake runs. Session builds refresh it at 11:00 and 13:30, and the 16:10 close build writes the closing read. AI writes the headline and prose; standouts, chips and stats are computed.">i</span>-written market digest: a fresh overnight setup, focused 11:00 and 13:30 session updates, and a closing read after 4&nbsp;pm ET. Each update checks public tools for material standouts, including streak reversals and moving averages, Pattern lab, insider filings, capital markets and industry pricing. Ticker chips are clickable. Not financial advice.</p>
     <div id="brief-root" class="brief-root">Loading brief&hellip;</div>
   </section>`;
 }
@@ -2246,6 +2247,13 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
       <header class="card-header"><h2 class="card-title">Historical Data</h2><span class="card-eyebrow">Owner · historical research</span></header>
       <p class="hint">Compare today's market with seasonal windows and past election cycles. Inspect the sample, the spread of outcomes and where this period differs.</p>
       <div id="historical-data-root" aria-live="polite">Open this view to load the historical snapshot.</div>
+    </section>
+  </div>
+  <div class="page-pane" id="page-pane-party-tracker" role="tabpanel" aria-labelledby="page-tab-party-tracker" hidden>
+    <section class="card" id="party-tracker-section">
+      <header class="card-header"><h2 class="card-title">Party tracker</h2><span class="card-eyebrow">Owner · market history</span></header>
+      <p class="hint">See how the market and each sector did when Democrats or Republicans held the presidency, the House, or the Senate, from Bush’s inauguration through the latest close.</p>
+      <div id="party-tracker-root" aria-live="polite">Open this view to load party control history.</div>
     </section>
   </div>
   <div class="page-pane" id="page-pane-earnings-forecast" role="tabpanel" aria-labelledby="page-tab-earnings-forecast" hidden>

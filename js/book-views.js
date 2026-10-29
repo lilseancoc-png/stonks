@@ -408,7 +408,7 @@ function windowGradeSamples(days, symbol, period, start, asOf, todayTotal, bar) 
     putDays: totals.filter((total) => total <= -bar).length,
     first: dates[0] || null,
     last: dates[dates.length - 1] || null,
-    series: totals,
+    series: samples,
     history,
     fileStart,
     fileEnd,
@@ -592,18 +592,27 @@ function gradePoints(heatmap, grades, daily, period, bar) {
 }
 
 function gradeSpark(series) {
-  if (!series || series.length < 2) return "";
-  const lo = Math.min(...series);
-  const hi = Math.max(...series);
+  const rows = (Array.isArray(series) ? series : []).map((row) => {
+    if (row && typeof row === "object") return { date: String(row.date || ""), value: num(row.total ?? row.value) };
+    return { date: "", value: num(row) };
+  }).filter((row) => row.value != null);
+  if (rows.length < 2) return "";
+  const values = rows.map((row) => row.value);
+  const lo = Math.min(...values);
+  const hi = Math.max(...values);
   const w = 84;
   const h = 22;
-  const points = series.map((value, index) => {
-    const x = (index / (series.length - 1)) * (w - 2) + 1;
-    const y = h - 2 - ((value - lo) / (hi - lo || 1)) * (h - 4);
-    return x.toFixed(1) + "," + y.toFixed(1);
-  }).join(" ");
-  const tone = series[series.length - 1] >= series[0] ? "is-pos" : "is-neg";
-  return `<svg class="book-spark" viewBox="0 0 ${w} ${h}" aria-hidden="true"><polyline class="${tone}" points="${points}" /></svg>`;
+  const coords = rows.map((row, index) => {
+    const x = (index / (rows.length - 1)) * (w - 2) + 1;
+    const y = h - 2 - ((row.value - lo) / (hi - lo || 1)) * (h - 4);
+    const back = rows.length - 1 - index;
+    const when = row.date || (back === 0 ? "Latest" : back + " sessions back");
+    return { x, y, label: when + "\nGrade " + signed(row.value, 1) };
+  });
+  const points = coords.map((point) => point.x.toFixed(1) + "," + point.y.toFixed(1)).join(" ");
+  const hover = coords.map((point) => [Math.round(point.x * 10) / 10, Math.round(point.y * 10) / 10, point.label]);
+  const tone = values[values.length - 1] >= values[0] ? "is-pos" : "is-neg";
+  return `<svg class="book-spark" viewBox="0 0 ${w} ${h}" role="img" aria-label="Daily grade path" data-ch="${esc(JSON.stringify(hover))}"><polyline class="${tone}" points="${points}" /></svg>`;
 }
 
 function gradePasses(point, bar) {
@@ -1926,4 +1935,4 @@ if (typeof document !== "undefined") {
   boot();
 }
 
-export { calendarCoveredDays, windowGradeSamples, evidenceBody, linkResults, rejectionRecords, EVIDENCE_LABELS };
+export { calendarCoveredDays, windowGradeSamples, gradeSpark, evidenceBody, linkResults, rejectionRecords, EVIDENCE_LABELS };
