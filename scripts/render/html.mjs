@@ -14,6 +14,10 @@ import { SITE_SECTIONS, TAB_BAR_SECTIONS } from './site-map.mjs';
 import { sectorGroupOfLabel } from '../../lib/sector-groups.mjs';
 import { DISCORD_INVITE_URL, KO_FI_URL } from '../../lib/links.mjs';
 
+export function ownerMarketBriefSection() {
+  return `<section class="card" id="owner-market-brief-section"><h2>Owner Market Brief <span class="omb-badge">Owner only</span></h2><p class="hint">The public market read expanded with private research. Review conditional outcomes, suggested next steps and the evidence that could change them. Source timestamps, entry restrictions and uncertainty stay visible.</p><div id="owner-market-brief-root" aria-live="polite"></div></section>`;
+}
+
 // Reference / legal / info pages (Buyer's manual, Chart patterns, Privacy, and
 // Terms) — formerly standalone .html files, now in-app tabs.
 // Each is emitted as a pane carrying an empty shadow-host + an inert <template>
@@ -38,6 +42,7 @@ function docPanesHtml() {
 // stylesheet owns all tinting). Stored as bare path data; sideNavItem()
 // wraps each in the shared <svg class="pt-ico"> shell.
 const SIDE_NAV_ICONS = {
+  'owner-market-brief': '<path d="M4 3h16v18H4zM8 7h8M8 11h8M8 15h4"/>',
   'pending-buyouts': '<rect x="2" y="5" width="8" height="14" rx="2"/><rect x="14" y="5" width="8" height="14" rx="2"/><path d="M7 12h10m-3-3 3 3-3 3"/>',
   home: '<path d="m3 9.8 9-7.3 9 7.3V20a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 20Z"/><path d="M9.5 21.5V14h5v7.5"/>',
   brief: '<path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-4 0V6"/><path d="M18 14h-8M15 18h-5"/><path d="M10 6h8v4h-8V6Z"/>',
@@ -2150,6 +2155,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-narratives" role="tabpanel" aria-labelledby="page-tab-narratives" hidden>
   ${narrativesSection()}
+  </div>
+  <div class="page-pane" id="page-pane-owner-market-brief" role="tabpanel" aria-labelledby="page-tab-owner-market-brief" hidden>
+    ${ownerMarketBriefSection()}
   </div>
   <div class="page-pane" id="page-pane-market" role="tabpanel" aria-labelledby="page-tab-market" hidden>
   ${marketAnalysisSection()}

@@ -19,8 +19,8 @@ const app = renderAppJs({ riskFreeRate: rate, riskFreeRateMeta: rateMeta });
 new vm.Script(app);
 const styles = renderStylesCss();
 const book = await readFile(new URL('js/book-views.js', root), 'utf8');
-const assetVersions = Object.fromEntries([['app.js', app], ['styles.css', styles], ['js/book-views.js', book],
-  ['js/streaks.js', await readFile(new URL('js/streaks.js', root), 'utf8')]].map(([key, bytes]) => [key, contentAssetVersion(bytes)]));
+const assetVersions = Object.fromEntries([['app', app], ['styles', styles], ['bookViews', book],
+  ['streaks', await readFile(new URL('js/streaks.js', root), 'utf8')]].map(([key, bytes]) => [key, contentAssetVersion(bytes)]));
 let html = renderHtml({ ...manifest, volumeFlags: manifest.volumeFlagsMeta, oi: manifest.oiMeta, assetVersions });
 html = html.replace(/window\.STONKS_MANIFEST=\{.*\};<\/script>/, 'window.STONKS_MANIFEST=' + manifestText + ';</script>');
 assert.equal(html.match(/window\.STONKS_MANIFEST=(\{.*\});<\/script>/)[1], manifestText);

@@ -55,6 +55,8 @@ import {
   persistAiRejections,
 } from "../lib/ai-rejections.mjs";
 import { createFileEvidenceStore, loadEvidenceWindow, runEvidenceRecord } from "../lib/evidence-record.mjs";
+import { ownerBriefCalendar } from '../lib/owner-market-brief.mjs';
+import { publishOwnerMarketBrief } from './publish-owner-market-brief.mjs';
 import { BRIEF_ACCESS_POLICY_VERSION } from "../lib/public-data-policy.mjs";
 import { buildBriefExtendedHours, extendedSessionForKind } from "../lib/brief-extended-hours.mjs";
 import { contentAssetVersion } from "../lib/asset-version.mjs";
@@ -32634,6 +32636,7 @@ export async function collectBriefSiteTools({ kind = "intraday", narratives = nu
   const missing = loaded.filter((x) => !x.current).map((x) => x.source.label);
   if (!Array.isArray(narratives)) missing.push("Narratives");
   return {
+    sources: loaded.map(({source,payload,current})=>({label:source.label,asOf:payload ? briefToolStamp(payload) : null,maxHours:source.maxAgeHours,status:current ? 'available' : 'missing'})),
     checked: [...new Set(checked)],
     missing,
     total: BRIEF_TOOL_SOURCES.length + 1,
@@ -37058,6 +37061,8 @@ export async function writeLeapsPaperTrack({ ideas, asOf, quotes = {}, stocks = 
 }
 
 async function main() {
+  let priorOwnerMarketBrief = null;
+  try { priorOwnerMarketBrief = JSON.parse(await readFile(resolve(DATA_DIR, 'owner-market-brief.json'), 'utf8')); } catch { /* first build */ }
   // Load running AI-usage totals BEFORE the data/ wipe further down so we
   // can merge today's calls into the existing rolling window. Lives in
   // data/ai-usage.json — gets rewritten after writeChainFiles below.
@@ -38887,6 +38892,28 @@ async function main() {
     }
   } else if (unifiedSignalCarry) {
     await writeFile(resolve(DATA_DIR, UNIFIED_SIGNAL_KEY), unifiedSignalCarry, "utf8");
+  }
+  // Owner synthesis is isolated from the public prompt and runs only after all
+  // research publishers. It consumes local snapshots; no paid/provider calls.
+  try {
+    const ownerBriefNow = new Date();
+    const kind = briefKindForHour(etHourNY(ownerBriefNow));
+    const publicScan = await collectBriefSiteTools({ kind, narratives: [], now: ownerBriefNow });
+    const ownerBriefCoreSources = [
+      ['Stock prices & fundamentals', !!Object.keys(chains || {}).length], ['News desk', Array.isArray(trends.macroHeadlines)],
+      ['Calendar', !!calendarInfo.payload], ['Unusual flow', !!scoringUnusual], ['Trending IV', !!ivTrendingForBrief],
+      ['Fear & Greed', !!scoringFearGreed], ['Bonds & USD', !!macroBackdrop],
+    ];
+    publicScan.checked = publicScan.checked.filter(label=>label!=='Narratives');
+    publicScan.missing = publicScan.missing.filter(label=>label!=='Narratives');
+    publicScan.coreChecked = ownerBriefCoreSources.filter(([,present])=>present).map(([label])=>label);
+    publicScan.missing.push(...ownerBriefCoreSources.filter(([,present])=>!present).map(([label])=>label));
+    publicScan.total = publicScan.checked.length + publicScan.coreChecked.length + publicScan.missing.length;
+    const publicCore = briefRenderFields(gatherBriefSignals(kind, { chains, fearGreed: scoringFearGreed, macro: macroBackdrop, correlations: correlationsInfo?.payload?.stale ? null : correlationsInfo?.payload, unusual: scoringUnusual, calendar: ownerBriefCalendar(calendarInfo.payload,ownerBriefNow.toISOString(),macroReleaseReads), rfr: riskFreeRate?.rate, headlines: trends.macroHeadlines || [], ivTrending: ivTrendingForBrief, siteTools: publicScan, now: ownerBriefNow }));
+    const ownerBrief = await publishOwnerMarketBrief({ dataDir: DATA_DIR, builtAtIso: ownerBriefNow.toISOString(), publicScan, publicCore, previous: priorOwnerMarketBrief });
+    console.log(`wrote data/owner-market-brief.json — ${ownerBrief.ideas.length} research priorities; no extra model calls`);
+  } catch (err) {
+    console.warn(`[owner-brief] unavailable — ${String(err?.message || err).split("\n")[0]}`);
   }
   logAiUsageSummary();
   await writeAiHealthReport();

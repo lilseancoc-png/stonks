@@ -68,3 +68,9 @@ Run `npm run test:brief-browser` with Playwright available to verify the morning
 intraday and closing cards on desktop and mobile, the Rich-premium explanation,
 and navigation to public research pages. Fixtures are synthetic and make no
 model calls. They do not establish the quality of a newly generated live brief.
+
+## Owner expansion
+
+The separate [Owner Market Brief](owner-market-brief.md) combines this foundation
+with private research and conditional outcomes. Its payload requires an Owner
+session and never feeds the public Brief prompt or cache.
