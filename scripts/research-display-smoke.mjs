@@ -105,6 +105,7 @@ export function verifyResearchDisplay(appJs) {
   assert.doesNotMatch(focusHost.innerHTML,/Actionable premium|3 qualified \/ 2/);
   assert.match(appJs,/top.contracts \+ ' qualified \/ '/);
   const cmpCtx={
+    HAS_OWNER_ACCESS:true,
     compareState:{ range:'3m', window:null, ivHist:{}, fundHist:{} },
     CMP_RANGE_LABELS:{ '1m':'1 month', '3m':'3 months', '6m':'6 months', '1y':'1 year' },
     cmpIsNum(v){ return v != null && Number.isFinite(Number(v)); },

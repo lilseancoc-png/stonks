@@ -104,15 +104,15 @@ function searchField(control, label, value, placeholder) {
 const cache = new Map();
 
 function isOwnerKey(key) {
-  return key === "link-map.json" || key === "evidence-latest.json" || key === "ai-rejections-latest.json" ||
+  return key === "grades.json" || key === "grades-daily.json" || key === "link-map.json" || key === "evidence-latest.json" || key === "ai-rejections-latest.json" ||
     key.startsWith("evidence/") || key.startsWith("ai-rejections/");
 }
 
 function loadJson(key) {
   if (cache.has(key)) return cache.get(key);
   const task = (async () => {
-    const urls = isOwnerKey(key)
-      ? ["/api/auth/me?data=" + encodeURIComponent(key), "data/" + key]
+    const urls = window.STONKS_OWNER_ACCESS === true || isOwnerKey(key)
+      ? ["/api/auth/me?owner=1&data=" + encodeURIComponent(key)]
       : ["data/" + key];
     let last = "unavailable";
     for (const url of urls) {
@@ -864,12 +864,14 @@ function gradeMetric(label, value, detail) {
 
 async function renderGrade() {
   const id = "book-grade-return";
+  if (window.STONKS_OWNER_ACCESS !== true) return;
   try {
     const [heatmap, grades, daily] = await Promise.all([
       loadJson("heatmap.json"),
       loadJson("grades.json"),
       loadJson("grades-daily.json").catch(() => null),
     ]);
+    if (window.STONKS_OWNER_ACCESS !== true) return;
     const period = state.gradePeriod;
     const label = (GRADE_PERIODS.find((item) => item[0] === period) || GRADE_PERIODS[2])[1];
     const bar = num(grades && grades.minConviction) || 4;
@@ -1808,6 +1810,7 @@ function boot() {
   const go = () => openTab(activeTab());
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", go);
   else go();
+  document.addEventListener("stonks-owner-ready", () => { started.clear(); setTimeout(go, 0); });
   document.addEventListener("toggle", (event) => {
     const panel = event.target && event.target.getAttribute && event.target.getAttribute("data-book-panel");
     if (panel) state.open[panel] = event.target.open;

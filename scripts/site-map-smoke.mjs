@@ -23,9 +23,9 @@ assert.deepEqual([...mapIds].sort(), [...pageTabs].sort(), "The site map must li
 
 const ownerSection = SITE_SECTIONS.find((sec) => sec.owner);
 assert.ok(ownerSection, "An Owner section must exist");
-assert.deepEqual(ownerSection.items.map((it) => it.id).sort(), [...ownerTabs].sort(), "The Owner section holds exactly the Owner tabs");
+assert.deepEqual(SITE_SECTIONS.flatMap(s => s.items.filter(it => it.owner).map(it => it.id)).sort(), [...ownerTabs].sort(), "Owner policy covers restricted pages in every section");
 for (const sec of SITE_SECTIONS.filter((s) => !s.owner)) {
-  for (const it of sec.items) assert.ok(!ownerTabs.includes(it.id), `${it.id} is Owner-only and must not sit in ${sec.id}`);
+  for (const it of sec.items) assert.equal(!!it.owner, ownerTabs.includes(it.id), `${it.id} has the same access policy in every section`);
 }
 for (const sec of SITE_SECTIONS) {
   assert.ok(sec.label && sec.short && sec.desc, `${sec.id} needs a label, short label and description`);

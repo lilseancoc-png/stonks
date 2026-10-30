@@ -208,7 +208,8 @@ function tickersSection({ symbols, sectors, industries }) {
       <span class="card-eyebrow"><span id="tickers-visible-count">${totalSymbols}</span> / ${totalSymbols} symbols</span>
       <span class="tab-live-state" id="tickers-live-state" aria-live="polite"></span>
     </header>
-    <p class="hint">Search the universe, rank its strongest directional grades, then separate thesis strength from entry timing. Stocks and ETFs open the full contract grader; market gauges such as VIX open the market-tape view.</p>
+    <p class="hint" data-owner-only>Search the universe, rank its strongest directional grades, then separate thesis strength from entry timing. Stocks and ETFs open the full contract grader; market gauges such as VIX open the market-tape view.</p>
+    <p class="hint" data-public-only>Search the tracked stocks and ETFs by ticker, sector or industry. Compare their prices, returns, market value and trading volume.</p>
     <div class="tickers-model-summary" id="tickers-model-summary" hidden aria-live="polite"></div>
     <div class="tickers-controls">
       <label class="tickers-field tickers-search-wrap">
@@ -252,7 +253,8 @@ function tickersSection({ symbols, sectors, industries }) {
         <span class="sc-legend"><i class="sc-key call"></i>Call lean <i class="sc-key put"></i>Put lean <i class="sc-key neutral"></i>No trade</span>
       </div>
       <div id="tickers-sc-chart" class="sc-host"></div>
-      <p class="hint sc-hint">Each dot is one ticker that matches the filters above. Hover or tap for its numbers; click a dot to open it in Grade a ticker.</p>
+      <p class="hint sc-hint" data-owner-only>Each dot is one ticker that matches the filters above. Hover or tap for its numbers; click a dot to open it in Grade a ticker.</p>
+      <p class="hint sc-hint" data-public-only>Each dot is one ticker that matches the filters above. Hover or tap for its numbers.</p>
     </div>
     <div class="tickers-empty" id="tickers-empty" hidden>
       <span>No tickers match the current search + sector filter.</span>
@@ -270,7 +272,7 @@ function narrativesSection() {
       <h2 class="card-title">Active market narratives</h2>
       <span class="card-eyebrow" id="narratives-count" aria-live="polite"></span>
     </header>
-    ${infoNote('How to use a market narrative', `<p>A narrative tells you <em>where to look</em>, not when to enter. Start with the trade posture and its first invalidation check, then confirm the individual ticker in the Grade tab before risking capital. Sector and story cards keep lifecycle, fundamentals-vs-hype, bull/base/bear scenarios, industry grades, and source evidence under expandable detail so the decision state stays visible first.</p>`)}
+    <div data-owner-only>${infoNote('How to use a market narrative', `<p>A narrative tells you <em>where to look</em>, not when to enter. Start with the trade posture and its first invalidation check, then confirm the individual ticker in the Grade tab before risking capital. Sector and story cards keep lifecycle, fundamentals-vs-hype, bull/base/bear scenarios, industry grades, and source evidence under expandable detail so the decision state stays visible first.</p>`)}</div>
     <div id="narratives-pulse" class="narr-pulse" hidden></div>
     <div id="narratives-tabs" class="narr-tabs" role="tablist" aria-label="Market sectors"></div>
     <div id="narratives-panel" class="narr-panel" role="tabpanel"></div>
@@ -806,7 +808,7 @@ function ramPricesSection() {
       <h2 class="card-title">Memory pricing cycle</h2>
       <span class="card-eyebrow" id="ram-prices-eyebrow" aria-live="polite"></span>
     </header>
-    ${infoNote('How to use the memory-cycle signal', `<p>Start with the <b>trade posture</b>, then require upstream and downstream confirmation. Wholesale DRAM spot usually moves first; US retail shows whether the pressure is passing through to finished DDR5 kits. Retail confirmation uses the median move and breadth across reasonably stocked categories because a scarce configuration can distort the all-kit composite. Tightening favors memory-supplier pricing-power research; easing can relieve system-builder input costs. Verify the move against supplier guidance, relative strength, earnings risk, and each ticker&rsquo;s Grade before acting. Spot data: TrendForce / DRAMeXchange; retail data: WhereIsMyRam.</p>`)}
+    <div data-owner-only>${infoNote('How to use the memory-cycle signal', `<p>Start with the <b>trade posture</b>, then require upstream and downstream confirmation. Wholesale DRAM spot usually moves first; US retail shows whether the pressure is passing through to finished DDR5 kits. Retail confirmation uses the median move and breadth across reasonably stocked categories because a scarce configuration can distort the all-kit composite. Tightening favors memory-supplier pricing-power research; easing can relieve system-builder input costs. Verify the move against supplier guidance, relative strength, earnings risk, and each ticker&rsquo;s Grade before acting. Spot data: TrendForce / DRAMeXchange; retail data: WhereIsMyRam.</p>`)}</div>
     <div id="ram-prices-root" class="ram-prices-root">Loading RAM prices&hellip;</div>
     <div id="ram-prices-empty" class="ram-prices-empty" hidden>RAM price data will appear after the next Friday 11:30 ET refresh.</div>
     <p class="hint">Spot prices are per chip/module in USD (session average); retail prices are per kit in USD (lowest in-stock offer / category average). Sources are scraped best-effort and can go stale. Not financial advice.</p>
@@ -869,7 +871,7 @@ function commoditiesSection() {
       <h2 class="card-title">Commodities &amp; equity impact</h2>
       <span class="card-eyebrow" id="commodities-eyebrow" aria-live="polite"></span>
     </header>
-    ${infoNote('How to use commodity signals', `<p>Start with the <b>trade posture</b>, then separate input-cost pressure from demand. Crude and natural gas are revenue for producers and a cost for fuel-heavy and power-hungry businesses; copper is a read on global growth and grid build-outs. Gold and silver can reflect the dollar, real yields, safe-haven demand and, for silver, industrial demand; rising cocoa or coffee can hurt exposed buyers, while rising Baltic Dry can signal firmer industrial demand. The desk compares market series over 30 days and monthly series month over month so a noisy one-day move does not outrank a persistent trend. Aged observations are excluded from the decision desk but remain visible in detail. Use the impact label and linked tickers to confirm whether the move is transmitting through relative strength, volume, pricing actions, miner economics, and margin guidance before acting. Items marked <b>proxy</b> track an ETF rather than the native spot benchmark.</p>`)}
+    <div data-owner-only>${infoNote('How to use commodity signals', `<p>Start with the <b>trade posture</b>, then separate input-cost pressure from demand. Crude and natural gas are revenue for producers and a cost for fuel-heavy and power-hungry businesses; copper is a read on global growth and grid build-outs. Gold and silver can reflect the dollar, real yields, safe-haven demand and, for silver, industrial demand; rising cocoa or coffee can hurt exposed buyers, while rising Baltic Dry can signal firmer industrial demand. The desk compares market series over 30 days and monthly series month over month so a noisy one-day move does not outrank a persistent trend. Aged observations are excluded from the decision desk but remain visible in detail. Use the impact label and linked tickers to confirm whether the move is transmitting through relative strength, volume, pricing actions, miner economics, and margin guidance before acting. Items marked <b>proxy</b> track an ETF rather than the native spot benchmark.</p>`)}</div>
     <div id="commodities-root" class="commodities-root">Loading commodities&hellip;</div>
     <div id="commodities-empty" class="commodities-empty" hidden>Commodity data will appear after the next daily build refresh.</div>
     <p class="hint">Futures are front-month continuous contracts (daily settles); FRED series are monthly and publish on a lag. Proxy ETFs track direction, not the spot level. Scraped overlays are best-effort and can go stale. Not financial advice.</p>
@@ -888,7 +890,7 @@ function ipoCreditSection() {
       <h2 class="card-title">IPOs &amp; credit</h2>
       <span class="card-eyebrow" id="ipo-credit-eyebrow" aria-live="polite"></span>
     </header>
-    ${infoNote('How to use capital availability', `<p>Start with the <b>upcoming IPO calendar</b> for the scheduled date, expected raise, proposed share-price range, and sector, then use the <b>trade posture</b> to judge the broader funding window. Dates and terms can change until pricing. Bond issuance shows whether companies can borrow, but an investment-grade-led month is not the same as broad access for riskier issuers. IPO counts are adjusted to a quarter run-rate before comparison with the completed prior quarter, and SPAC share is shown because a SPAC-heavy calendar can overstate conventional equity appetite. Bank deposits indicate funding stability; revolving and NY Fed balances describe household leverage, not immediate default stress. Confirm an open window with high-yield participation, improving ex-SPAC IPO pace, and stable deposits. Treat filing counts as activity rather than unique companies, and inspect the underlying sleeve before changing exposure.</p>`)}
+    <div data-owner-only>${infoNote('How to use capital availability', `<p>Start with the <b>upcoming IPO calendar</b> for the scheduled date, expected raise, proposed share-price range, and sector, then use the <b>trade posture</b> to judge the broader funding window. Dates and terms can change until pricing. Bond issuance shows whether companies can borrow, but an investment-grade-led month is not the same as broad access for riskier issuers. IPO counts are adjusted to a quarter run-rate before comparison with the completed prior quarter, and SPAC share is shown because a SPAC-heavy calendar can overstate conventional equity appetite. Bank deposits indicate funding stability; revolving and NY Fed balances describe household leverage, not immediate default stress. Confirm an open window with high-yield participation, improving ex-SPAC IPO pace, and stable deposits. Treat filing counts as activity rather than unique companies, and inspect the underlying sleeve before changing exposure.</p>`)}</div>
     <div id="ipo-credit-root" class="ipo-credit-root">Loading IPOs &amp; credit&hellip;</div>
     <div id="ipo-credit-empty" class="ipo-credit-empty" hidden>IPO &amp; credit data will appear after the next daily build refresh.</div>
     <p class="hint">Upcoming IPO dates and terms are estimates until priced and may be postponed or withdrawn. IPO counts include SPACs and small-caps. Filing counts are filings, not companies. FRED series publish on a lag (G.19 ~2 months, H.8 ~1 week); the NY Fed report is quarterly. Not financial advice.</p>
@@ -1090,7 +1092,7 @@ function f13Section() {
       <h2 class="card-title">Who owns what</h2>
       <span class="card-eyebrow" id="f13-eyebrow" aria-live="polite"></span>
     </header>
-    ${infoNote('How to use SEC ownership signals', `<p><b>13F:</b> start with share-direction breadth. A stock added by many managers is stronger evidence than a large dollar change from one manager; dollar value also includes price drift, and filings can arrive 45 days after quarter-end. <b>Form 4:</b> code P open-market purchases are separated from code S sales and from grants, option exercises, gifts and tax withholding. Insider sales can reflect diversification or taxes, so no filing supplies an entry by itself. Open the ticker in Grade and confirm the current trend, catalyst, valuation and risk.</p>`)}
+    <div data-owner-only>${infoNote('How to use SEC ownership signals', `<p><b>13F:</b> start with share-direction breadth. A stock added by many managers is stronger evidence than a large dollar change from one manager; dollar value also includes price drift, and filings can arrive 45 days after quarter-end. <b>Form 4:</b> code P open-market purchases are separated from code S sales and from grants, option exercises, gifts and tax withholding. Insider sales can reflect diversification or taxes, so no filing supplies an entry by itself. Open the ticker in Grade and confirm the current trend, catalyst, valuation and risk.</p>`)}</div>
     <div id="f13-root" class="f13-root">Loading SEC ownership filings…</div>
     <div id="f13-empty" class="f13-empty" hidden>SEC ownership filings will appear after the next daily build refresh.</div>
   </section>`;
@@ -1112,7 +1114,7 @@ function unusualFlowSection() {
       <span class="card-eyebrow" id="flow-eyebrow" aria-live="polite"></span>
     </header>
     <div id="flow-body" class="flow-body">
-      ${infoNote('What counts as unusual flow?', `<p>Discovery stays broad: 5–50% OTM contracts that picked up at least 2,000 contracts of volume this hour (4,000 if expiring within 2 weeks) with vol &gt; OI remain visible as block/sweep candidates. The <strong>decision queue</strong> is stricter: it credits only ask/above-ask execution, requires material premium (normally $100k, or $50k when repeated, or $25k when aggressive demand spans multiple strikes), rejects quoted spreads wider than 35% of midpoint, and demands extra support for far-OTM or penny contracts. Midpoint prints remain evidence but are not called directional, and an old or closed-session scan is never called executable. Each chip shows <strong>volume-to-OI</strong> and hourly premium; 🔥 ×N marks repeats over five trading days. A single hour&rsquo;s flags are a <strong>small sample</strong> &mdash; treat one print as a watch, not a confirmed positioning shift. FINRA ATS volume is shown as a <strong>secondary, delayed context signal</strong> with dark-pool share of matching weekly consolidated volume and week-over-week change; it never changes the live flow direction or actionability call. Flow is a watchlist input, not an entry: calls can be sold, puts can be hedges, and every read still needs confirmation from the underlying price, volume, and structure. Hourly scan, front 2 expirations.</p>`)}
+      <div data-owner-only>${infoNote('What counts as unusual flow?', `<p>Discovery stays broad: 5–50% OTM contracts that picked up at least 2,000 contracts of volume this hour (4,000 if expiring within 2 weeks) with vol &gt; OI remain visible as block/sweep candidates. The <strong>decision queue</strong> is stricter: it credits only ask/above-ask execution, requires material premium (normally $100k, or $50k when repeated, or $25k when aggressive demand spans multiple strikes), rejects quoted spreads wider than 35% of midpoint, and demands extra support for far-OTM or penny contracts. Midpoint prints remain evidence but are not called directional, and an old or closed-session scan is never called executable. Each chip shows <strong>volume-to-OI</strong> and hourly premium; 🔥 ×N marks repeats over five trading days. A single hour&rsquo;s flags are a <strong>small sample</strong> &mdash; treat one print as a watch, not a confirmed positioning shift. FINRA ATS volume is shown as a <strong>secondary, delayed context signal</strong> with dark-pool share of matching weekly consolidated volume and week-over-week change; it never changes the live flow direction or actionability call. Flow is a watchlist input, not an entry: calls can be sold, puts can be hedges, and every read still needs confirmation from the underlying price, volume, and structure. Hourly scan, front 2 expirations.</p>`)}</div>
       <div id="flow-decision" class="flow-decision" aria-live="polite"></div>
       <div class="flow-controls" role="toolbar" aria-label="Filter unusual flow">
         <label class="flow-search">
@@ -1176,7 +1178,7 @@ function movingAverageTrackerSection() {
       <h2 class="card-title">Moving-average crossover tracker</h2>
       <span class="card-eyebrow" id="ma-tracker-eyebrow" aria-live="polite"></span>
     </header>
-    ${infoNote('How crossover priority is ranked', `<p>The desk watches every tracked stock against its <b>20, 50, 100 and 200-day simple moving averages</b> and surfaces only levels within 5% of the latest regular-session price. The 0&ndash;100 priority score is deterministic, not a probability: proximity contributes up to 50 points, a contracting gap 25, aligned 1-day/5-day momentum 20, relative volume 5, and nearby-average confluence 5 (the total is capped at 100). &ldquo;Likely&rdquo; requires a high score, a contracting gap and aligned five-session momentum. A cross is a watch trigger, not a trade by itself; confirm the close, volume, broader trend and event risk.</p>`)}
+    <div data-owner-only>${infoNote('How crossover priority is ranked', `<p>The desk watches every tracked stock against its <b>20, 50, 100 and 200-day simple moving averages</b> and surfaces only levels within 5% of the latest regular-session price. The 0&ndash;100 priority score is deterministic, not a probability: proximity contributes up to 50 points, a contracting gap 25, aligned 1-day/5-day momentum 20, relative volume 5, and nearby-average confluence 5 (the total is capped at 100). &ldquo;Likely&rdquo; requires a high score, a contracting gap and aligned five-session momentum. A cross is a watch trigger, not a trade by itself; confirm the close, volume, broader trend and event risk.</p>`)}</div>
     <div id="ma-tracker-root" class="ma-track-root">Loading moving-average tracker&hellip;</div>
     <div id="ma-tracker-empty" class="quant-empty" hidden>No tracked stock is currently within 5% of a monitored moving average.</div>
     <section id="book-ma-dist" class="book-view" hidden></section>
@@ -1387,7 +1389,7 @@ function compareCompaniesSection() {
     <header class="card-header">
       <h2 class="card-title">Compare companies</h2>
     </header>
-    <p class="hint">Put 2–6 companies side by side. Choose a sector to limit the ticker list to that group, then add the names you want. Each column keeps that company’s color from the price chart. Choose which company the gaps are measured against; every other cell is labeled versus that ticker and shows the number gap, then the percent gap when the reference reading is positive. The first group follows the chart’s 1M, 3M, 6M, YTD, or 1Y window. Switch the chart between return, drawdown, 20-day volatility, implied volatility and grade score, and add SPY, QQQ, IWM, SMH, the average of your picks, or the reference’s sector average as a benchmark line. Valuation and the other accounting rows are the current snapshot. A daily record of those ratios is saved at each bake so a later window can show how they changed. Anything older than one year is dropped. Option contracts are left out.</p>
+    <p class="hint">Put 2–6 companies side by side. Choose a sector to limit the ticker list to that group, then add the names you want. Each column keeps that company’s color from the price chart. Choose which company the gaps are measured against; every other cell is labeled versus that ticker and shows the number gap, then the percent gap when the reference reading is positive. The first group follows the chart’s 1M, 3M, 6M, YTD, or 1Y window. Switch the chart between return, drawdown, 20-day volatility, implied volatility<span data-owner-only> and grade score</span>, and add SPY, QQQ, IWM, SMH, the average of your picks, or the reference’s sector average as a benchmark line. Valuation and the other accounting rows are the current snapshot. A daily record of those ratios is saved at each bake so a later window can show how they changed. Anything older than one year is dropped. Option contracts are left out.</p>
     <div class="cmp-controls">
       <select id="cmp-sector" class="cmp-sector" aria-label="Filter tickers by sector">
         <option value="">All sectors</option>
@@ -1447,7 +1449,7 @@ function compareCompaniesSection() {
       <div id="cmp-tech-body"></div>
     </details>
     <details id="cmp-sectors" class="cmp-sectors">
-      <summary><span class="cmp-chart-eyebrow">Compare sectors</span> <b>Sectors side by side</b> <small>returns, grades and IV for up to 6 sectors</small></summary>
+      <summary><span class="cmp-chart-eyebrow">Compare sectors</span> <b>Sectors side by side</b> <small>returns<span data-owner-only>, grades</span> and IV for up to 6 sectors</small></summary>
       <div id="cmp-sectors-body" class="cmp-sectors-body"></div>
     </details>
   </section>`;
@@ -1939,15 +1941,15 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <meta name="color-scheme" content="light dark" />
 <title>stonks</title>
-<meta name="description" content="Grade any stock ticker: a 4-pillar conviction score, technicals, fundamentals, implied vol, news, and an options contract grader. Track the market narratives currently driving capital." />
+<meta name="description" content="Track stock prices, market data, company fundamentals, earnings and sourced market news." />
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <link rel="apple-touch-icon" href="favicon.svg">
 <meta property="og:type" content="website">
 <meta property="og:title" content="stonks">
-<meta property="og:description" content="Grade any stock ticker: a 4-pillar conviction score, technicals, fundamentals, implied vol, news, and an options contract grader. Track the market narratives currently driving capital.">
+<meta property="og:description" content="Track stock prices, market data, company fundamentals, earnings and sourced market news.">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="stonks">
-<meta name="twitter:description" content="Grade any stock ticker: a 4-pillar conviction score, technicals, fundamentals, implied vol, news, and an options contract grader. Track the market narratives currently driving capital.">
+<meta name="twitter:description" content="Track stock prices, market data, company fundamentals, earnings and sourced market news.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..600;1,9..144,400..600&family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
@@ -2177,7 +2179,8 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
         <h2 class="card-title">Market heatmap</h2>
         <span class="card-eyebrow" id="heatmap-eyebrow" aria-live="polite"></span>
       </header>
-      <p class="hint">Read the tape at a glance: tile size shows market cap and color shows the selected 1D, 1W, 1M, 3M, YTD, or 1Y return. Find a ticker, switch to relative volume, or tap any tile to open its Grade.</p>
+      <p class="hint" data-owner-only>Read the tape at a glance: tile size shows market cap and color shows the selected 1D, 1W, 1M, 3M, YTD, or 1Y return. Find a ticker, switch to relative volume, or tap any tile to open its Grade.</p>
+      <p class="hint" data-public-only>Read the tape at a glance: tile size shows market cap and color shows the selected 1D, 1W, 1M, 3M, YTD, or 1Y return. Find a ticker or switch to relative volume to explore observed market activity.</p>
       ${infoNote('How to read this map', `<p>Choose a <b>Period</b> to compare session, weekly, monthly, quarterly, year-to-date, or one-year performance. Deeper green and red mark larger moves on a scale adjusted to that horizon. In <b>Relative volume</b> mode, saturation shows current cumulative volume versus the fraction of a normal 20-day session expected by that clock time, using the same U-shaped intraday pace curve as the Volume desk; hue still shows the selected period&rsquo;s direction. That keeps the morning comparable with the close instead of labeling every incomplete session quiet. Pre-market keeps the last completed-session read rather than treating prior-session volume as live. Group by sector or industry, press Enter after searching to center the first match, and use the zoom controls or wheel/pinch to inspect the small-cap tail.</p><p>The <b>Sector breadth streak</b> flags a group only after at least 70% of its tracked names have closed in the same direction for two or more consecutive sessions. That proves participation is broad and persistent; it does <em>not</em> measure ETF inflows/outflows, relative strength versus SPY, or the Owner Sector Rotation desk&rsquo;s quality-washout rebound setup. Use a green streak as a leadership candidate and a red streak as a group-risk flag, then confirm with relative performance and volume. Not financial advice.</p>`)}
       <div id="heatmap-decision" class="heatmap-decision" aria-live="polite"></div>
       <div class="heatmap-controls" role="toolbar" aria-label="Heatmap controls">
