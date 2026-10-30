@@ -21531,7 +21531,7 @@ export function buildTopPicksMarketContext(chains, macroBackdrop, builtAtIso, so
     heatmap:buildHeatmapPayload(chains,builtAtIso),volume:sources.volume?{...sources.volume,tickers:(sources.volume.tickers||[]).map(r=>({...r,sector:sectorGroupOf(r.symbol)||r.sector}))}:null,
     calendar:sources.calendar,overnight:sources.overnight,gamma:gamma?{...gamma,asOf:chains.SPY.quoteAsOf||builtAtIso}:null,earnings});
   const previous = (sources.regimeHistory?.days || []).filter(d=>d.date<etDateKey(new Date(builtAtIso))).at(-1);
-  return topPicksMarket.assess({macroRegime:macroBackdrop?.macroRegime,asOf:builtAtIso,...context,previous,transition:macroBackdrop?.scenarioEngine?.transition});
+  return topPicksMarket.assess({macroRegime:macroBackdrop?.macroRegime,asOf:builtAtIso,...context,previous,sectorGroups:Object.fromEntries(Object.keys(chains||{}).map(sym=>[sym,sectorGroupOf(sym)])),transition:macroBackdrop?.scenarioEngine?.transition});
 }
 
 export function prepareTopPicksScoring(preScored, macroBackdrop, assessment) {
@@ -21543,7 +21543,7 @@ export function prepareTopPicksScoring(preScored, macroBackdrop, assessment) {
     const kind=macroKindOf(r.sym,r.data), exposure=kind==='volLong'?-1:['gold','bondProxy'].includes(kind)?0:1;
     const stockConviction=r.base??Object.values(r.pillars||{}).filter(p=>!p.executionOnly).slice(0,4).reduce((s,p)=>s+(p.score||0),0);
     const pre=r.preRegimeTotal??r.total;
-    const adjustment=topPicksMarket.score(assessment,{conviction:stockConviction||pre,optionAdjusted:pre,side,exposure,tradeFloor:PICKS_MIN_CONVICTION,strongBar:PICKS_TIER_STRONG});
+    const adjustment=topPicksMarket.score(assessment,{conviction:stockConviction,optionAdjusted:pre,side,exposure,tradeFloor:PICKS_MIN_CONVICTION,strongBar:PICKS_TIER_STRONG});
     // Non-equity instruments follow their own profile, not equity call/put direction.
     const timingRegime=exposure===0?'neutral':exposure<0?(regime==='risk-on'?'risk-off':['risk-off','severe'].includes(regime)?'risk-on':'neutral'):regime;
     const timing=computeEntryTiming(side,r.data,r.data?.spot,{regime:timingRegime,eventRisk:macroBackdrop?.eventRisk,topPicksPolicy:true});

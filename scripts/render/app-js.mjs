@@ -38178,7 +38178,7 @@ ${renderExportBindings()}
     var marketPolicySlot = $('an-market-policy');
     if (marketPolicySlot) {
       var horizon = marketPolicySlot.getAttribute('data-horizon') || '10';
-      marketPolicySlot.innerHTML = TOP_PICKS_MARKET_UI.study(d.marketStudy,Number(horizon),d);
+      TOP_PICKS_MARKET_UI.update(marketPolicySlot,TOP_PICKS_MARKET_UI.study(d.marketStudy,Number(horizon),d));
       if(!marketPolicySlot.getAttribute('data-bound')) {
         marketPolicySlot.setAttribute('data-bound','1');
         marketPolicySlot.addEventListener('click',function(ev){
@@ -40954,6 +40954,7 @@ ${renderExportBindings()}
   }
 
   function buildPickCardHtml(p, idx){
+    p=TOP_PICKS_MARKET_UI.display(p);
     var sideCls = pickSideClass(p.side);
     var sideLabel = p.side === 'put' ? 'PUT' : 'CALL';
     var spot = p.spot != null ? '$' + Number(p.spot).toFixed(2) : '';
@@ -41047,7 +41048,7 @@ ${renderExportBindings()}
           fiftyHtml +
           watchBtnHtml +
         '</div>' +
-        TOP_PICKS_MARKET_UI.scores(p) + pickPlanSummaryHtml(p) + bodyHtml +
+        TOP_PICKS_MARKET_UI.scores(p) + TOP_PICKS_MARKET_UI.explain(p) + pickPlanSummaryHtml(p) + bodyHtml +
       '</div>' +
     '</article>';
   }
@@ -41056,6 +41057,7 @@ ${renderExportBindings()}
   // detail page for that ticker. Shows rank, ticker, side, score, tier, and a
   // little context so the grid reads as a scannable menu.
   function pickTabCardHtml(p, idx){
+    p=TOP_PICKS_MARKET_UI.display(p);
     var sideCls = pickSideClass(p.side);
     var sideLabel = p.side === 'put' ? 'PUT' : 'CALL';
     // Grade × thesis classification + whether a strategy is recommended at all.
@@ -41219,11 +41221,11 @@ ${renderExportBindings()}
             : hW.verdict === 'on-track' ? '✓ Thesis on track.' : '◐ Thesis mixed — not broken, but not confirming either.';
           noteW += '<div class="pwl-detail-note pwl-detail-health-' + hW.verdict + '">' + headW + ' ' + bitsW.join(' · ') + '.</div>';
         }
-        try { holder.innerHTML = noteW + buildPickCardHtml(TOP_PICKS_MARKET_UI.snapshot(w.pick,picksState.data?.picks||[]), 0); return; } catch (_){}
+        try { TOP_PICKS_MARKET_UI.update(holder,noteW + buildPickCardHtml(TOP_PICKS_MARKET_UI.snapshot(w.pick,picksState.data?.picks||[]), 0)); return; } catch (_){}
       }
       closePickDetail(); return;
     }
-    holder.innerHTML = buildPickCardHtml(picks[idx], idx);
+    TOP_PICKS_MARKET_UI.update(holder,buildPickCardHtml(picks[idx], idx));
   }
 
   // Open the focused judgment page for a ticker; hide the landing grid.
@@ -41576,7 +41578,7 @@ ${renderExportBindings()}
     }
     var data = picksState.data || { picks: [] };
     var marketEvidence=$('picks-market-evidence');
-    if(marketEvidence)marketEvidence.innerHTML=TOP_PICKS_MARKET_UI.context(data);
+    if(marketEvidence)TOP_PICKS_MARKET_UI.update(marketEvidence,TOP_PICKS_MARKET_UI.context(data));
     var collateralBox = $('picks-liquidation-watch');
     if (collateralBox) {
       var collateralRows = !data.stale && !data.loadError && data.rosterMeta && Array.isArray(data.rosterMeta.forcedLiquidationWatch) ? data.rosterMeta.forcedLiquidationWatch : [];

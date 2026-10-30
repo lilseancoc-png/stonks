@@ -43,6 +43,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ### Changed
 
 - Replace overlapping Top Picks numerical regime adjustments with one directional multiplier while preserving shared grades and the prior research inputs used by other features. Add reproducible scope, permission, measurement and browser checks.
+- Audit fixes: use newer participation panels during live review, preserve the Fragile internals rule, explain exact score contributions, retain open evidence during refreshes, and keep watch-only ideas on Wait. Exclude incomplete measurement cohorts and revised split price bases from comparisons; require a known maximum loss for modeled credit-spread returns.
 
 ## 2026-10-29
 

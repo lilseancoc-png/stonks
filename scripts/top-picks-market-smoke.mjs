@@ -54,6 +54,21 @@ check('missing, stale and future core observations cannot qualify',()=>{
  assert(topPicksMarket.score(assess('risk-on'),{conviction:6.5}).tradeScore<7);
  assert(topPicksMarket.score(assess('risk-on'),{conviction:-6.5,side:'put'}).tradeScore<0);
 });
+check('score explanations preserve precision, neutral gamma and watch-only entry status',()=>{
+ const view=topPicksMarketClientFactory();
+ const a=assess('risk-off',{desks:[{id:'heatmap',name:'Heatmap',stance:-1,asOf:now},{id:'volume',name:'Volume',stance:-1,asOf:now},{id:'gamma',name:'Gamma Exposure',stance:0,structure:'balanced',asOf:now}]});
+ const marketAdjustment=topPicksMarket.score(a,{conviction:10,optionAdjusted:10});
+ const html=view.context({rosterMeta:{marketAssessment:a}});
+ assert.match(html,/base 0\.75 and confirmation -0\.05/);
+ assert.match(html,/balanced proxy/);
+ const watch={symbol:'TEST',side:'call',group:'watch',entry:{now:true},marketAdjustment};
+ const before=JSON.stringify(watch),display=view.display(watch);
+ assert.equal(display.entry.now,false);assert.match(display.entry.headline,/watch-only/);
+ assert.equal(JSON.stringify(watch),before,'Display copy never mutates the published decision');
+ assert.equal(view.display({...watch,group:'actionable'}).entry.now,true);
+ const capped=topPicksMarket.score(assess('risk-on'),{conviction:6.9,optionAdjusted:6.9});
+ assert.match(view.explain({...watch,stockConviction:6.9,optionAdjustedConviction:6.9,tradeScore:capped.tradeScore,marketAdjustment:capped}),/cannot promote sub-Strong/);
+});
 check('real roster path exposes both scores, cannot AI-promote an unknown market',()=>{
  const pre={scored:[structuredClone(row)],peerIndex:{},regimeBand:'neutral'},before=JSON.stringify(pre);
  const a=assess();
@@ -66,6 +81,10 @@ check('real roster path exposes both scores, cannot AI-promote an unknown market
  const held=buildTopPicks({FIXTURE:data},[],null,null,{},null,.045,{preScored:pre,marketAssessment:topPicksMarket.assess({asOf:now}),aiThesisMap:{'FIXTURE:call':aiThesis}});
  assert.equal(held.filter(p=>p.group==='actionable').length,0);
  assert.equal(pickDisplayDecision({...p[0],marketApproval:{held:true}}).ready,false);
+ const zero=prepareTopPicksScoring({scored:[{...row,base:0,total:1,preRegimeTotal:1}]},{macroRegime:macro()},a);
+ assert.equal(zero.scored[0].stockConviction,0,'option-cost support cannot be mislabeled as stock conviction');
+ const view=topPicksMarketClientFactory();assert(view.explain(p[0]).includes('After option-cost adjustment'));
+ assert(view.explain(p[0]).includes('Market base'));
 });
 check('Top Picks reviewer uses all market axes and the current IV rule only for this policy',()=>{
  const r=prepareTopPicksScoring({scored:[structuredClone(row)]},{macroRegime:macro()},assess()).scored[0];
@@ -171,8 +190,19 @@ check('live price axes retain the existing market thresholds and weighted gauge'
   for(const k of ['vix','dxy','tenY','thirtyY','twoY','move','crude','gold'])current[k]={...backdrop[k],...legs[k]};
   const expected=computeMacroRegime(current);
   for(const k of ['indexes','vix','dxy','yields','twoY','bondVol','commodity'])assert.equal(live.sourceAxes[k].score,expected.axes[k].score,k);
+  for(const [k,v]of Object.entries(live.sourceAxes))if(v.available)assert.equal(v.contribution,Math.round(v.score*expected.thresholds.axisWeights[k]*1000)/1000,'Evidence arithmetic: '+k);
   assert.equal(live.stress,expected.stress);assert.equal(live.state,expected.state);
  }
+});
+check('a live neutral transition retains the existing Fragile internals rule',()=>{
+ const legs={spy:{asOf:now,pctChange1d:0},qqq:{asOf:now,pctChange1d:0},vix:{asOf:now,value:18,pctChange1d:0}};
+ const stressed=assess('risk-off',{macroRegime:macro('risk-off',{internalsStress:true,fragile:false})});
+ const live=topPicksMarket.liveReview(stressed,legs,now);
+ assert.equal(live.state,'fragile');assert.equal(live.base,.9);
+ const cleared=assess('neutral',{macroRegime:macro('neutral',{internalsStress:false,fragile:true})});
+ assert.equal(topPicksMarket.liveReview(cleared,legs,now).state,'neutral');
+ const unknown=assess('neutral',{macroRegime:macro('neutral',{axes:{indexes:{score:0},vix:{score:0},credit:{label:'missing score'}},thresholds:{axisWeights:{credit:1}}})});
+ assert.equal(unknown.sourceAxes.credit.available,false);assert.equal(unknown.sourceAxes.credit.contribution,null);
 });
 check('prospective comparison is idempotent, point-in-time and cannot invent historical outcomes',()=>{
  const at='2026-10-01T15:00:00Z';
@@ -209,7 +239,39 @@ check('measurement uses unique common sessions and correct expiry-day option pay
  const missing=advanceMarketStudy(null,{decisions:[decision('AAA')],builtAtIso:at,publication:true});
  const report=advanceMarketStudy(missing,{builtAtIso:'2026-10-21T00:00:00Z',chains:{AAA:{_bars:bars.filter((_,i)=>i!==2)},SPY:{_bars:bars}}});
  assert(!report.rows[0].outcomes[5],'a missing stock session cannot slide the five-session target forward');
+ const missingRisk=structuredClone(decisions[2]);delete missingRisk.contract.maxLoss;
+ const riskStudy=advanceMarketStudy(advanceMarketStudy(null,{decisions:[missingRisk],builtAtIso:at,publication:true}),{builtAtIso:'2026-10-21T00:00:00Z',chains:{CCC:{_bars:bars}}});
+ assert.equal(riskStudy.rows[0].outcomes[5].modeledOptionRiskReturnPct,null,'credit collected is not maximum capital at risk');
 });
+check('storage caps cannot bias a comparison by capturing only the highest-ranked names',()=>{
+ const at='2026-10-01T15:00:00Z',policies={legacy:{eligible:true},labels:{eligible:true},combined:{eligible:true}};
+ const prior={rows:Array.from({length:19999},(_,i)=>({id:'old'+i,symbol:'OLD',side:'call',spot:100,marketState:'neutral',decisionAt:at,policies})),runs:[{at,candidates:19999,selected:1}]};
+ const next=advanceMarketStudy(prior,{publication:true,builtAtIso:'2026-10-02T15:00:00Z',decisions:['A','B','C'].map(symbol=>({symbol,side:'call',spot:100,policies}))});
+ assert(next.paused);assert.equal(next.rows.length,prior.rows.length);assert.equal(next.runs[1].collectionComplete,false);
+ assert.equal(next.reports[5].comparisonRunCount,1);assert.equal(next.reports[5].incompleteRuns,1);
+ const frozen=advanceMarketStudy(null,{publication:true,builtAtIso:at,decisions:[{symbol:'AAA',side:'call',spot:100,policies}]});
+ const replay=advanceMarketStudy(frozen,{publication:true,builtAtIso:at,decisions:[{symbol:'BBB',side:'call',spot:999,policies}]});
+ assert.equal(replay.rows.length,1);assert.equal(replay.rows[0].symbol,'AAA');assert.equal(replay.rows[0].spot,100);
+});
+check('back-adjusted price history cannot turn a three-for-two split into an avoided loss',()=>{
+ const at='2026-10-01T15:00:00Z',decision={symbol:'AAA',side:'call',spot:100,policies:{legacy:{eligible:true},combined:{eligible:false}}};
+ const frozen=advanceMarketStudy(null,{publication:true,builtAtIso:at,decisions:[decision],chains:{AAA:{_bars:[{date:'2026-09-30',c:100}]}}});
+ const future=Array.from({length:12},(_,i)=>({date:'2026-10-'+String(i+2).padStart(2,'0'),c:66.667}));
+ const after=priorClose=>advanceMarketStudy(frozen,{builtAtIso:'2026-10-21T00:00:00Z',chains:{AAA:{_bars:[{date:'2026-09-30',c:priorClose},...future]}}});
+ const adjusted=after(66.667);assert.match(adjusted.rows[0].outcomes[5].unavailable,/price basis changed/);assert.equal(adjusted.reports[5].avoidedLosers,0);
+ const crash=after(100);assert(crash.rows[0].outcomes[5].directionalReturnPct < -30);assert.equal(crash.reports[5].avoidedLosers,1);
+});
+{
+ const objects=new Map([['picks.json',JSON.stringify(payload)]]),memory={get:async k=>objects.has(k)?Buffer.from(objects.get(k)):null,put:async(k,v)=>objects.set(k,v),withLease:async(_k,fn)=>({busy:false,result:await fn(()=>{})})};
+ objects.set('heatmap.json',JSON.stringify({builtAtIso:now,tickers:[{t:'AAPL',s:'Technology',ch:-2,mc:100},{t:'JPM',s:'Financials',ch:-2,mc:100}]}));
+ objects.set('volume-flags.json',JSON.stringify({scannedAt:now,tickers:[{symbol:'AAPL',eod:{flagged:true,dayMovePct:-2}},{symbol:'JPM',eod:{flagged:true,dayMovePct:-2}}]}));
+ const live=async()=>({legs:{spy:{pctChange1d:0,asOf:now},qqq:{pctChange1d:0,asOf:now},vix:{value:18,pctChange1d:0,asOf:now}}});
+ let result=await approvedTopPicks({store:memory,fetchLive:live,now:()=>ms});
+ assert.equal(result.picks[0].marketAdjustment.multiplier,.95);assert.equal(result.rosterMeta.currentMarketAssessment.desks.find(d=>d.id==='volume').stance,-1);
+ objects.set('market-analysis.json',JSON.stringify({builtAtIso:new Date(ms+600001).toISOString(),macroRegime:macro('risk-on',{stress:100})}));
+ result=await approvedTopPicks({store:memory,fetchLive:live,now:()=>ms});assert.equal(result.rosterMeta.currentMarketAssessment.stress,0,'a future market publication cannot supply a live regime');
+ checks++;console.log('PASS request-time review consumes newer participation panels and ignores future macro reports');
+}
 
 // Test the same durable request path used by the browser and mirror, with no
 // storage/provider credentials and no broker calls.

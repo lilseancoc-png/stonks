@@ -57,6 +57,13 @@ breadth. No sector ETF coverage is required.
 
 An expandable Top Picks market-context panel shows the label, trajectory,
 coverage, directional counts, source timestamps and cross-asset evidence.
+Each axis shows its score, weight and weighted contribution, with links to
+the contributing feature. A detail-view calculation explains the four stock
+pillars, option-cost change, direction-specific base and confirmation,
+multiplier bounds, score caps and final entry decision. A timing-ready idea
+that remains on Watch displays Wait. Live refreshes preserve open evidence
+and the selected detail tab; measurement horizon changes preserve focus and
+the table's available horizontal scroll position.
 Stock conviction and market trade score remain separate on cards, detail
 views, the sortable table and CSV exports. An off-roster saved idea retains
 its research, but cannot retain a current market entry permission.
@@ -85,6 +92,8 @@ entry invariants. Market policy changes invalidate its material decision guard.
 
 `api/auth/top-picks` authorizes both Owner claims before any data/provider read.
 It reviews the persisted publication against latest existing market data and
+the latest Heatmap, Volume, Index Calendar and Overseas panels, adopting only
+newer observations and keeping optional missing evidence dated. It also uses
 the fixed-symbol macro quote provider. Indexes, VIX, dollar, long and front-end
 yields, MOVE and the crude/gold shock read refresh from that request using the
 published market thresholds. Slow policy, credit spreads, sentiment and the
@@ -139,7 +148,11 @@ missed winners can be measured for candidates without contracts. Where a
 frozen contract exists, a separate fixed-entry-IV option scenario is expressed
 per maximum loss. This assumes no intraday managed exit, fees or broker fill.
 Large price discontinuities are flagged for corporate-action review instead
-of becoming performance observations.
+of becoming performance observations. The last confirmed pre-decision close
+is frozen as a price-basis check; later back-adjustments above 5% make the
+affected comparison unavailable. This catches smaller splits without
+misclassifying an ordinary large selloff. A credit spread without a known
+maximum loss has no modeled option return.
 Expiry-day options use intrinsic payoff. A later stock close is never used
 as an expired contract's expiry price; its option comparison is unavailable.
 
@@ -161,7 +174,10 @@ Historical analysis requires actual point-in-time decision records. Today's
 fundamentals or market states cannot be projected backward. The study starts
 prospectively at the next decision run. Collection pauses at 20,000 stock-side
 snapshots instead of silently truncating them; existing outcomes continue to
-advance and the pause is visible.
+advance and the pause is visible. Each publication captures its entire
+stock-side cohort or none of it at the cap. Incomplete runs are counted and
+excluded from comparable eligibility rates and returns. Replaying a
+publication cannot add candidates to its frozen cohort.
 
 ## Verification
 

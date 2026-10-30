@@ -150,8 +150,8 @@ assert.deepEqual(universe, snapshot);
 assert.equal(isPremiumKey(LEAPS_PICKS_KEY), true);
 assert.equal(isRoleRestrictedKey(LEAPS_PICKS_KEY), true);
 assert.deepEqual(roleClaimForKey(LEAPS_PICKS_KEY), ["tr", "tp"]);
-assert.equal(isPremiumKey("grades.json"), false);
-assert.equal(roleClaimForKey("grades.json"), null);
+assert.equal(isPremiumKey("grades.json"), true);
+assert.deepEqual(roleClaimForKey("grades.json"), ["tr", "tp"]);
 assert.equal(isBakeOwnedKey(LEAPS_PICKS_KEY), true);
 assert.ok(OPTIONAL_BAKE_KEYS.includes(LEAPS_PICKS_KEY));
 
@@ -209,7 +209,7 @@ assert.equal(countLeapsGraderCalls({
 const buildSrc = await readFile(new URL("./build.mjs", import.meta.url), "utf8");
 assert.match(
   buildSrc,
-  /const aiThesis = await generateAiTheses\(preScored[\s\S]{0,900}publishLeapsAfterShortTermGrader\(preScored, builtAtIso\)/,
+  /const aiThesis = await generateAiTheses\(topScored[\s\S]{0,900}publishLeapsAfterShortTermGrader\(preScored, builtAtIso\)/,
 );
 const leapsPublish = buildSrc.slice(
   buildSrc.indexOf("async function publishLeapsAfterShortTermGrader"),
