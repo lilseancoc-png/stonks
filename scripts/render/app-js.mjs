@@ -7,6 +7,7 @@ import { riskStackFactory } from '../../lib/risk-stack.mjs';
 import { marketRefreshFactory } from '../../lib/market-refresh.mjs';
 import { webullAnalyticsFactory } from '../../lib/webull-analytics.mjs';
 import { webullReviewFactory } from './webull-review-client.mjs';
+import { trackRecordResetClient } from './track-record-reset-client.mjs';
 import { historicalDataFactory } from './historical-data-client.mjs';
 import { partyTrackerFactory } from './party-tracker-client.mjs';
 import { earningsForecastFactory } from './earnings-forecast-client.mjs';
@@ -34257,24 +34258,32 @@ ${renderExportBindings()}
     else arr.sort(function(a, b){ return exitMs(b) - exitMs(a); });
     return VIEWS.applyDir(arr, 'track-closed', missing ? function(e){ return missing(e) == null; } : null);
   }
+  function bindTrackRecordReset(pane) {
+    (${trackRecordResetClient.toString()})({ get: $, pane: pane,
+      isOwner: function(){ return HAS_OWNER_ACCESS; },
+      fetch: function(url, options){ return fetch(url, options); },
+      reload: function(){ window.location.reload(); }
+    });
+  }
   var ACC_CP_LABEL = { 'day0':'Day 0', '2wk':'2 weeks', '1mo':'1 month' };
+  function trackRecordDataUrl(key){ return '/api/auth/track-record-data?key=' + encodeURIComponent(key); }
   function loadAccuracy(){
     if ((accuracyState.data && !accuracyState.data.loadError) || accuracyState.loading){ renderAccuracy(); return; }
     accuracyState.loading = true;
-    var pAcc = fetch(dataUrl('picks-accuracy.json'), { cache: 'no-cache' })
+    var pAcc = fetch(trackRecordDataUrl('picks-accuracy.json'), { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
     // Grade-change log + picks-churn log are separate, optional files — a miss
     // must not fail the whole tab, so each resolves to null and its section just
     // stays empty.
-    var pGch = fetch(dataUrl('grades-history.json'), { cache: 'no-cache' })
+    var pGch = fetch(trackRecordDataUrl('grades-history.json'), { cache: 'no-cache' })
       .then(function(r){ return r.ok ? r.json() : null; })
       .catch(function(){ return null; });
-    var pPch = fetch(dataUrl('picks-changes.json'), { cache: 'no-cache' })
+    var pPch = fetch(trackRecordDataUrl('picks-changes.json'), { cache: 'no-cache' })
       .then(function(r){ return r.ok ? r.json() : null; })
       .catch(function(){ return null; });
     // The Top-10 roster snapshot (in/out + per-pillar deltas + forecast). Optional
     // — a miss leaves the roster section empty and the rest of the tab works.
-    var pRos = fetch(dataUrl('picks-roster.json'), { cache: 'no-cache' })
+    var pRos = fetch(trackRecordDataUrl('picks-roster.json'), { cache: 'no-cache' })
       .then(function(r){ return r.ok ? r.json() : null; })
       .catch(function(){ return null; });
     // Daily Market Analysis regime history powers the environment-sized
@@ -34718,7 +34727,7 @@ ${renderExportBindings()}
   function wbRun(t){ var p = tlEtParts(Date.parse(t.engineEntryIso)); return p ? (Number(p.hour) < 13 ? '11' : '15') : null; }
   function wbJoined(){
     var trades = (wbTest.data && Array.isArray(wbTest.data.trades)) ? wbTest.data.trades : [];
-    var d = accuracyState.data || {};
+    var d = (wbTest.data && wbTest.data.engineRecord) || accuracyState.data || {};
     var byId = Object.create(null);
     [].concat(d.open || [], d.closed || [], d.archive || []).forEach(function(e){ if (e && e.symbol && e.entryDate) byId[accFillKey(tlTradeId(e))] = e; });
     var base = Object.create(null);
@@ -37318,6 +37327,7 @@ ${renderExportBindings()}
       }
       accRerenderAnalytics();
     });
+    bindTrackRecordReset(pane);
     pane.addEventListener('click', function(ev){
       var btn = ev.target && ev.target.closest ? ev.target.closest('[data-acc-action]') : null; if (!btn) return;
       if (btn.getAttribute('data-acc-action') === 'refresh-webull'){ wbTest.loaded = false; wbTest.error = null; renderWebullTest(); renderWebullEquity(); renderWebullBreakdown(); return; }
@@ -38003,13 +38013,12 @@ ${renderExportBindings()}
     }
   });
   // --- Open picks tab -------------------------------------------------------
-  // Only the trades open right now, with the same cards the Track Record's
-  // Picks pane uses. Reads picks-accuracy.json (Owner-only), reusing the Track
-  // Record's copy when that tab already loaded it. No new data file.
+  // Only the trades open right now. The execution book is independent of
+  // Track Record's reporting exclusions, so never reuse that view's cache.
   var openPicksState = { data: null, loading: false };
   function loadOpenPicks(){
-    var shared = accuracyState.data && !accuracyState.data.loadError ? accuracyState.data : null;
-    if (shared){ openPicksState.data = shared; renderOpenPicks(); return; }
+    // Track Record is a reporting view and may exclude wiped trades. The live
+    // Open picks page must always fetch the unfiltered engine book.
     if ((openPicksState.data && !openPicksState.data.loadError) || openPicksState.loading){ renderOpenPicks(); return; }
     openPicksState.loading = true;
     fetch(dataUrl('picks-accuracy.json'), { cache: 'no-cache' })
