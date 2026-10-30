@@ -19,7 +19,7 @@
   }
 
 
-  var SITE_MAP = [["today","Today","Today","What is happening in the market right now",0,[["home","Home","","A one-screen overview of the market and every part of the site.",0],["brief","Market brief","Brief","A short digest of what moved, why, and what is coming up next.",0],["news","News","News desk","Market-moving stock and economic headlines, most important first.",0],["heatmap","Heatmap","","Every tracked stock as a tile: size is company value, color is how much it moved.",0],["calendar","Calendar","","Upcoming earnings reports, economic releases and Fed meetings.",0],["overnight","Overnight markets","","How Asian and European markets traded before the US open, and which US stocks they tend to lead.",0]]],["stocks","Stocks","Stocks","Look up, compare and follow companies",0,[["tickers","All stocks","Tickers","Every stock the site follows, with its price and current grade. Pick one to see the full report.",0],["grade","Look up a stock","Grade a ticker stock report","One stock in depth: its chart, grade, fundamentals, options and news.",0],["compare","Compare stocks","Compare companies","Line up a few companies side by side on price, growth and valuation.",0],["earnings","Earnings results","Earnings tracker","Which companies beat or missed expectations this season, and how their stocks reacted.",0],["calls","Earnings calls","","What management said on each company’s latest earnings call, and what changed.",0],["f13","Who owns what","SEC ownership 13F Form 4 insider","What big investment funds bought and sold last quarter, plus recent insider trades.",0],["pending-buyouts","Pending buyouts","M&A mergers","Announced and rumored takeovers, and how far along each deal is.",0]]],["market","Market & economy","Market","The big picture: mood, rates, money and themes",0,[["fear-greed","Market mood","Fear & Greed","CNN’s Fear & Greed index: whether investors are acting scared or greedy, from 0 to 100.",0],["bonds-usd","Rates & the dollar","Bonds & USD Fed","Treasury yields, the US dollar and what the Fed is expected to do next.",0],["commodities","Commodities","","Oil, gold, copper and other raw materials, and the stocks that move with them.",0],["central-bank-gold","Central-bank gold","","How much gold the world’s central banks are buying or selling.",0],["capital-raises","Capital markets","Capital raises share sales buybacks IPOs credit issuance debt","Companies selling stock or debt or buying shares back, upcoming IPOs, and how easily companies and households can borrow.",0],["narratives","Market themes","Narratives","The big stories driving money right now, such as AI spending, and which stocks ride them.",0]]],["options","Options activity","Options","Where traders are placing bets",0,[["flow","Unusual options trades","Unusual flow","Option trades far bigger than normal for that stock, a sign someone expects a move.",0],["volume","Trading volume","Volume","Days when a stock traded much more or less than usual.",0],["oi","Options walls","Gamma exposure GEX","Price levels where large option positions can slow a stock down or speed it up.",0],["iv-trend","Rising volatility","Trending IV implied volatility","Stocks whose options are pricing in a bigger move than usual.",0],["strategies","Strategy builder","Strategies","Pick a stock and build a defined-risk options trade, with its profit and loss at expiry.",0]]],["signals","Charts & signals","Signals","Price trends and repeating patterns",0,[["ma-tracker","Moving averages","MA tracker crossover","Stocks sitting close to their 20, 50, 100 or 200-day average price.",0],["streaks","Up/down streaks","Streaks green red","Stocks on a run of up days or down days in a row.",0],["pattern-lab","Pattern lab","Seasonality","Repeating patterns such as seasonality and how stocks behave after big moves.",0],["spillover","Earnings ripple effects","Event spillover","How one company’s earnings tend to move the other stocks in its industry.",0],["index-cal","Index calendar","","A month view of the major index funds, showing which days the whole market joined in.",0]]],["industry","Industry trends","Industry","Real-world data behind the AI and chip trade",0,[["ai-capex","AI spending","AI CapEx","How much the biggest tech companies are spending on AI data centers.",0],["ram-prices","Memory chip prices","RAM prices DRAM","Weekly prices for computer memory, a read on the chip cycle.",0],["accelerator-prices","GPU cloud prices","Accelerator","What it costs to rent AI chips by the hour, a read on AI demand.",0],["search-interest","Search trends","Search interest Google","Which market themes people are searching for more or less this week.",0]]],["learn","Learn & help","Learn","Guides, definitions and site info",0,[["cheatsheet","Options guide","Buyer's manual","A plain-English guide to buying options: calls, puts, risk and timing.",0],["chart-patterns","Chart patterns","","What common chart shapes look like and how traders read them.",0],["timeline","When data updates","Refresh schedule timeline","When each part of the site refreshes during the trading day.",0],["privacy","Privacy Policy","","What this site collects and how it is used.",0],["terms","Terms of Use","","The terms for using this site. Nothing here is investment advice.",0]]],["owner","Owner","Owner","Private research",1,[["unified-signal-engine","Unified Signal Engine","","Existing decisions with separate investment and trading perspectives.",0],["market","Market analysis","","The cross-asset tape, risk barometer and regime history.",0],["risk","Risk analysis","","Seven risk desks read together, with the reason when they disagree.",0],["bottom-tracker","Bottom tracker","","Signs the market is washing out and turning.",0],["historical-data","Historical Data","","The stored history behind the private research.",0],["party-tracker","Party tracker","Party-Tracker Democrats Republicans president house senate","How the market and each sector did when Democrats or Republicans held the presidency, the House, or the Senate.",0],["earnings-forecast","Earnings Forecast","Quarterly full-year valuation company history revenue EPS industry model","Quarterly forecasts for the top 20 covered companies, company history, full-year valuation and linked industry evidence.",0],["forced-liquidation","Forced Liquidation Tracker","Pledged shares collateral leverage margin","SEC stock pledges, loan terms and estimated price thresholds, with missing terms kept visible.",0],["picks","Top picks","","The model’s highest-conviction option contracts for today.",0],["leaps","LEAPS","","Names scored for a one- to two-year options hold.",0],["stocks","Stock picks","","Quality companies on a dip, as shares rather than options.",0],["rotation","Sector rotation","","Strong names sold with their sector that are now turning back up.",0],["levetf","Leveraged ETFs","","Leveraged ETF setups from the same engine.",0],["open-picks","Open picks","","Every open trade, with lines ready to copy to a broker.",0],["track","Top Picks track record","","How every closed pick worked out.",0],["quant","Owner Lab","","Research tools and diagnostics.",0]]]];
+  var SITE_MAP = [["today","Today","Today","What is happening in the market right now",0,[["home","Home","","A one-screen overview of the market and every part of the site.",0],["brief","Market brief","Brief","A short digest of what moved, why, and what is coming up next.",0],["news","News","News desk","Market-moving stock and economic headlines, most important first.",0],["heatmap","Heatmap","","Every tracked stock as a tile: size is company value, color is how much it moved.",0],["calendar","Calendar","","Upcoming earnings reports, economic releases and Fed meetings.",0],["overnight","Overnight markets","","How Asian and European markets traded before the US open, and which US stocks they tend to lead.",0]]],["stocks","Stocks","Stocks","Look up, compare and follow companies",0,[["tickers","All stocks","Tickers","Every stock the site follows, with its price, returns and sector.",0],["grade","Look up a stock","Grade a ticker stock report","One stock in depth: its chart, grade, fundamentals, options and news.",0],["compare","Compare stocks","Compare companies","Line up a few companies side by side on price, growth and valuation.",0],["earnings","Earnings results","Earnings tracker","Which companies beat or missed expectations this season, and how their stocks reacted.",0],["calls","Earnings calls","","What management said on each company’s latest earnings call, and what changed.",0],["f13","Who owns what","SEC ownership 13F Form 4 insider","What big investment funds bought and sold last quarter, plus recent insider trades.",0],["pending-buyouts","Pending buyouts","M&A mergers","Announced and rumored takeovers, and how far along each deal is.",0]]],["market","Market & economy","Market","The big picture: mood, rates, money and themes",0,[["fear-greed","Market mood","Fear & Greed","CNN’s Fear & Greed index: whether investors are acting scared or greedy, from 0 to 100.",0],["bonds-usd","Rates & the dollar","Bonds & USD Fed","Treasury yields, the US dollar and what the Fed is expected to do next.",0],["commodities","Commodities","","Oil, gold, copper and other raw materials, and the stocks that move with them.",0],["central-bank-gold","Central-bank gold","","How much gold the world’s central banks are buying or selling.",0],["capital-raises","Capital markets","Capital raises share sales buybacks IPOs credit issuance debt","Companies selling stock or debt or buying shares back, upcoming IPOs, and how easily companies and households can borrow.",0],["narratives","Market themes","Narratives","The big stories driving money right now, such as AI spending, and which stocks ride them.",0]]],["options","Options activity","Options","Where traders are placing bets",0,[["flow","Unusual options trades","Unusual flow","Option trades far bigger than normal for that stock, a sign someone expects a move.",0],["volume","Trading volume","Volume","Days when a stock traded much more or less than usual.",0],["oi","Options walls","Gamma exposure GEX","Price levels where large option positions can slow a stock down or speed it up.",0],["iv-trend","Rising volatility","Trending IV implied volatility","Stocks whose options are pricing in a bigger move than usual.",0],["strategies","Strategy builder","Strategies","Pick a stock and build a defined-risk options trade, with its profit and loss at expiry.",0]]],["signals","Charts & signals","Signals","Price trends and repeating patterns",0,[["ma-tracker","Moving averages","MA tracker crossover","Stocks sitting close to their 20, 50, 100 or 200-day average price.",0],["streaks","Up/down streaks","Streaks green red","Stocks on a run of up days or down days in a row.",0],["pattern-lab","Pattern lab","Seasonality","Repeating patterns such as seasonality and how stocks behave after big moves.",0],["spillover","Earnings ripple effects","Event spillover","How one company’s earnings tend to move the other stocks in its industry.",0],["index-cal","Index calendar","","A month view of the major index funds, showing which days the whole market joined in.",0]]],["industry","Industry trends","Industry","Real-world data behind the AI and chip trade",0,[["ai-capex","AI spending","AI CapEx","How much the biggest tech companies are spending on AI data centers.",0],["ram-prices","Memory chip prices","RAM prices DRAM","Weekly prices for computer memory, a read on the chip cycle.",0],["accelerator-prices","GPU cloud prices","Accelerator","What it costs to rent AI chips by the hour, a read on AI demand.",0],["search-interest","Search trends","Search interest Google","Which market themes people are searching for more or less this week.",0]]],["learn","Learn & help","Learn","Guides, definitions and site info",0,[["cheatsheet","Options guide","Buyer's manual","A plain-English guide to buying options: calls, puts, risk and timing.",0],["chart-patterns","Chart patterns","","What common chart shapes look like and how traders read them.",0],["timeline","When data updates","Refresh schedule timeline","When each part of the site refreshes during the trading day.",0],["privacy","Privacy Policy","","What this site collects and how it is used.",0],["terms","Terms of Use","","The terms for using this site. Nothing here is investment advice.",0]]],["owner","Owner","Owner","Private research",1,[["unified-signal-engine","Unified Signal Engine","","Existing decisions with separate investment and trading perspectives.",0],["market","Market analysis","","The cross-asset tape, risk barometer and regime history.",0],["risk","Risk analysis","","Seven risk desks read together, with the reason when they disagree.",0],["bottom-tracker","Bottom tracker","","Signs the market is washing out and turning.",0],["historical-data","Historical Data","","The stored history behind the private research.",0],["party-tracker","Party tracker","Party-Tracker Democrats Republicans president house senate","How the market and each sector did when Democrats or Republicans held the presidency, the House, or the Senate.",0],["earnings-forecast","Earnings Forecast","Quarterly full-year valuation company history revenue EPS industry model","Quarterly forecasts for the top 20 covered companies, company history, full-year valuation and linked industry evidence.",0],["forced-liquidation","Forced Liquidation Tracker","Pledged shares collateral leverage margin","SEC stock pledges, loan terms and estimated price thresholds, with missing terms kept visible.",0],["picks","Top picks","","The model’s highest-conviction option contracts for today.",0],["leaps","LEAPS","","Names scored for a one- to two-year options hold.",0],["stocks","Stock picks","","Quality companies on a dip, as shares rather than options.",0],["rotation","Sector rotation","","Strong names sold with their sector that are now turning back up.",0],["levetf","Leveraged ETFs","","Leveraged ETF setups from the same engine.",0],["open-picks","Open picks","","Every open trade, with lines ready to copy to a broker.",0],["track","Top Picks track record","","How every closed pick worked out.",0],["quant","Owner Lab","","Research tools and diagnostics.",0]]]];
   var RECENT_KEY = 'stonks-recent-v1';
   function wfReadRecent(){
     try {
@@ -222,6 +222,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
     return '<article class="recovery-card"><header><div><a class="recovery-symbol" href="?tab=grade&amp;s=' + encodeURIComponent(row.sym) + '">' + escapeHtml(row.sym) + '</a><span>' + escapeHtml(row.name || '') + '</span></div><strong class="ers-neg">' + (row.movePct * 100).toFixed(1) + '%<small>report-day reaction</small></strong></header><p class="recovery-event">Reported ' + escapeHtml(row.date) + ' · EPS ' + escapeHtml(row.eps || 'unknown') + ' · ' + guidance + '</p><div class="recovery-status recovery-' + (evidence ? evidence.state : 'incomplete') + '">' + label + '</div>' + (reason ? '<p class="recovery-reason">' + escapeHtml(reason.detail) + '</p>' : '') + '<details data-recovery-detail="' + escapeHtml(row.sym) + '"' + (recoveryState.open[row.sym] ? ' open' : '') + '><summary>Business evidence &amp; recovery checkpoints</summary>' + detail + '</details></article>';
   }
   function renderRecoveryScreen(root, payload){
+    if (!HAS_OWNER_ACCESS) { earningsState.view = 'season'; renderEarningsTracker(); return; }
     function selectOption(value, label, selected){ return '<option value="' + value + '"' + (String(selected) === String(value) ? ' selected' : '') + '>' + label + '</option>'; }
     root.innerHTML = '<section class="recovery-screen" aria-labelledby="recovery-title"><header class="recovery-head"><span class="recovery-kicker">Recovery research</span><h3 id="recovery-title">Sold off after earnings. Is the business holding up?</h3><p>Start with a report-day selloff and maintained or raised guidance. Then check durability, valuation and price stabilization. A beat alone is not enough.</p></header><div class="recovery-filters"><label>Reports in last<select id="recovery-days">' + [14,30,60].map(function(n){ return selectOption(n, n + ' days', recoveryState.days); }).join('') + '</select></label><label>Report-day selloff<select id="recovery-drop">' + [3,5,10].map(function(n){ return selectOption(n, 'At least ' + n + '%', recoveryState.minDrop); }).join('') + '</select></label><label>Guidance<select id="recovery-guidance">' + selectOption('stable','Maintained or raised',recoveryState.guidance) + selectOption('all','All · include cuts / unknown',recoveryState.guidance) + '</select></label><label>Find company<input id="recovery-search" type="search" placeholder="Ticker or company" value="' + escapeHtml(recoveryState.search) + '"></label><button type="button" data-recovery-reset>Reset filters</button></div><p class="recovery-policy">Business checks require positive operating margin, durable cash generation, revenue stability and balance-sheet evidence. At least 15% below the 52-week high is required; exact lifetime ATH distance is unavailable. This is a research queue, not a buy list.</p><div id="recovery-results" aria-live="polite"></div></section>';
     function refresh(){ renderRecoveryResults(root, payload); }
@@ -2030,7 +2031,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // the Owner analysis/idea/record desks and Owner Lab; this UI boundary keeps
   // destinations hidden until the owner session's compatibility claims resolve.
   // Discord mints both only after verifying the existing Top Picks owner role.
-  var OWNER_TABS = { 'earnings-forecast':1, 'unified-signal-engine':1, market:1, risk:1, 'bottom-tracker':1, 'historical-data':1, 'party-tracker':1, 'forced-liquidation':1, picks:1, leaps:1, stocks:1, rotation:1, levetf:1, 'open-picks':1, track:1, quant:1 };
+  var OWNER_TABS = {"grade":1,"strategies":1,"narratives":1,"earnings-forecast":1,"unified-signal-engine":1,"market":1,"risk":1,"bottom-tracker":1,"historical-data":1,"party-tracker":1,"forced-liquidation":1,"picks":1,"leaps":1,"stocks":1,"rotation":1,"levetf":1,"open-picks":1,"track":1,"quant":1};
   var GATE_ON = false;
   var HAS_TRACK_RECORD = false;
   var HAS_TOP_PICKS = false;
@@ -2043,7 +2044,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
     GATE_ON = !!(me && me.enabled);
     // Owner access never fails open. A disabled gate, failed probe, legacy
     // session, or either missing special claim leaves every Owner surface hidden.
-    HAS_OWNER_ACCESS = !!(GATE_ON && me && me.trackRecord && me.topPicks);
+    HAS_OWNER_ACCESS = !!(GATE_ON && me && me.authed === true && me.trackRecord === true && me.topPicks === true);
+    window.STONKS_OWNER_ACCESS = HAS_OWNER_ACCESS;
+    if (!HAS_OWNER_ACCESS && heatmapState && heatmapState.colorBy === 'grade') heatmapState.colorBy = 'perf';
     if (!HAS_OWNER_ACCESS && typeof earningsForecast !== 'undefined') earningsForecast.reset();
     HAS_TRACK_RECORD = HAS_OWNER_ACCESS;
     HAS_TOP_PICKS = HAS_OWNER_ACCESS;
@@ -2060,7 +2063,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // tier/key/role policy. Flag-off deployments keep the legacy static data/ dir.
   function dataUrl(key){
     var clean = String(key || '').replace(/^\/+/, '');
-    return GATE_ON ? '/api/auth/me?data=' + encodeURIComponent(clean) : 'data/' + clean;
+    return GATE_ON ? '/api/auth/me?data=' + encodeURIComponent(clean) + (HAS_OWNER_ACCESS ? '&owner=1' : '') : 'data/' + clean;
   }
   // industry -> parent sector, derived from INDUSTRIES_BY_SECTOR for tab routing.
   var SECTOR_OF_INDUSTRY = (function(){
@@ -8034,6 +8037,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       });
   }
   function loadChain(){
+    if (!HAS_OWNER_ACCESS) return;
     var symbol = state.symbol; if (!symbol) return;
     var requestSeq = ++state.chainRequestSeq;
     var cached = !!CHAIN_CACHE[symbol];
@@ -11453,6 +11457,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // shared with the Compare tab's grade mode.
   var gradesDailyLoad = { data: null, loading: false, waiters: [] };
   function loadGradesDaily(cb){
+    if (!HAS_OWNER_ACCESS) { if (cb) cb({ days: [] }); return; }
     if (gradesDailyLoad.data){ cb(gradesDailyLoad.data); return; }
     gradesDailyLoad.waiters.push(cb);
     if (gradesDailyLoad.loading) return;
@@ -20324,7 +20329,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       { key:'newsSent', group:'Analysts & news', label:'News tone', get:function(j){ var s=j && j.news && j.news.sentiment; return s ? String(s) : null; }, fmt:'text' },
       { key:'credit', group:'Analysts & news', label:'Credit rating', get:function(j){ var c=F(j).creditRating; return c && c.rating ? String(c.rating) : null; }, fmt:'text' },
       { key:'socialNet', group:'Analysts & news', label:'Social tone (bull − bear)', hint:'Message-board bullish percent minus bearish percent, when a current read is stored.', get:function(j){ var s=j && j.social; if (!s || !cmpIsNum(s.bullishPct) || !cmpIsNum(s.bearishPct)) return null; return Number(s.bullishPct) - Number(s.bearishPct); }, fmt:'pct', better:null, dual:true },
-    ];
+    ].filter(function(row){ return HAS_OWNER_ACCESS || (row.fmt !== 'grade' && ['target','analystUpside','targetHigh','targetLow','revNet','consensus','verdict','newsSent'].indexOf(row.key) < 0); });
   }
   function cmpTech(j){ return (j && j.technicals) || {}; }
   function cmpF(j){ return (j && j.fundamentals) || {}; }
@@ -20486,7 +20491,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       cmpLevelRow('r50', 'Resistance 50D', 'Support & resistance', 'sr'),
       cmpLevelRow('r100', 'Resistance 100D', 'Support & resistance', 'sr'),
       cmpLevelRow('r200', 'Resistance 200D', 'Support & resistance', 'sr'),
-    ];
+    ].filter(function(row){ return HAS_OWNER_ACCESS || (row.fmt !== 'grade' && row.group !== 'Grade reads' && row.key !== 'streakDays'); });
   }
   function cmpIsNum(v){ return v != null && isFinite(Number(v)); }
   function cmpFmtVol(n){
@@ -20846,6 +20851,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     sel.setAttribute('data-ready', '1');
   }
   function initCompare(){
+    if (!HAS_OWNER_ACCESS && compareState.mode === 'grade') compareState.mode = 'return';
     if (!compareState.inited){
       compareState.inited = true;
       cmpSearch.init();
@@ -20921,6 +20927,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   var CMP_SEC_MAX = 6;
   var CMP_SEC_METRICS = { '1d': '1-day return', '1w': '1-week return', '1m': '1-month return', '3m': '3-month return', 'ytd': 'Year-to-date return', '1y': '1-year return', grade: 'Average grade score', call: 'Share leaning call', iv: 'IV vs own average' };
   function cmpSecInit(){
+    if (!HAS_OWNER_ACCESS && ['grade', 'call', 'put'].indexOf(cmpSec.metric) >= 0) cmpSec.metric = '1m';
     var box = $('cmp-sectors');
     if (!box || cmpSec.bound) return;
     cmpSec.bound = true;
@@ -20951,7 +20958,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       fetch(dataUrl('heatmap.json'), { cache: 'no-cache' }).then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; }),
       fetch(dataUrl('iv-trending.json'), { cache: 'no-cache' }).then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; })
     ];
-    if (!compareState.grades && !compareState.gradesLoading){
+    if (HAS_OWNER_ACCESS && !compareState.grades && !compareState.gradesLoading){
       compareState.gradesLoading = true;
       jobs.push(fetch(dataUrl('grades.json'), { cache: 'no-cache' }).then(function(r){ return r.ok ? r.json() : null; })
         .then(function(j){ compareState.grades = j || { grades: {} }; }).catch(function(){ compareState.grades = { grades: {} }; })
@@ -21045,9 +21052,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
     ['1d','1w','1m','3m','ytd','1y'].forEach(function(p){
       cols.push({ label: p.toUpperCase(), num: true, cell: function(r){ var v = r[p]; return v == null ? '' : '<span class="' + (v > 0 ? 'pos' : v < 0 ? 'neg' : '') + '">' + cmpSecFmt(v, p) + '</span>'; }, sort: function(r){ return r[p]; } });
     });
-    cols.push({ label: 'Avg grade', num: true, cell: function(r){ return cmpSecFmt(r.grade, 'grade'); }, sort: function(r){ return r.grade; } });
-    cols.push({ label: 'Call lean', num: true, title: 'Share of names with a grade of +4 or more', cell: function(r){ return cmpSecFmt(r.call, 'call'); }, sort: function(r){ return r.call; } });
-    cols.push({ label: 'Put lean', num: true, title: 'Share of names with a grade of −4 or less', cell: function(r){ return cmpSecFmt(r.put, 'put'); }, sort: function(r){ return r.put; } });
+    if (HAS_OWNER_ACCESS) cols.push({ label: 'Avg grade', num: true, cell: function(r){ return cmpSecFmt(r.grade, 'grade'); }, sort: function(r){ return r.grade; } });
+    if (HAS_OWNER_ACCESS) cols.push({ label: 'Call lean', num: true, title: 'Share of names with a grade of +4 or more', cell: function(r){ return cmpSecFmt(r.call, 'call'); }, sort: function(r){ return r.call; } });
+    if (HAS_OWNER_ACCESS) cols.push({ label: 'Put lean', num: true, title: 'Share of names with a grade of −4 or less', cell: function(r){ return cmpSecFmt(r.put, 'put'); }, sort: function(r){ return r.put; } });
     cols.push({ label: 'IV vs avg', num: true, title: 'Average of each name’s IV against its own average', cell: function(r){ return cmpSecFmt(r.iv, 'iv'); }, sort: function(r){ return r.iv; } });
     body.innerHTML = chips + ctl + '<div class="cmp-sec-chart"><div class="hm-alt-head"><b>' + escapeHtml(CMP_SEC_METRICS[m]) + '</b>' + (m.length <= 3 && m !== 'iv' ? ' · ' + (cmpSec.weight === 'cap' ? 'weighted by market cap' : 'equal weight') : '') + '</div>' + bars + '</div>' +
       VIEWS.tableHtml(cols, picked, { key: 'cmp-sectors', empty: 'Pick at least one sector.' }) +
@@ -21170,7 +21177,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     renderCompare(); // paint chips immediately
     var need = compareState.tickers.filter(function(t){ return !compareState.cache[t] && compareState.cache[t] !== 'error'; });
     var jobs = [];
-    if (!compareState.grades && !compareState.gradesLoading){
+    if (HAS_OWNER_ACCESS && !compareState.grades && !compareState.gradesLoading){
       compareState.gradesLoading = true;
       jobs.push(fetch(dataUrl('grades.json'), { cache: 'no-cache' })
         .then(function(r){ return r.ok ? r.json() : null; })
@@ -21695,9 +21702,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var chipsEl = $('cmp-chips'); if (chipsEl) chipsEl.innerHTML = cmpChipsHtml();
     cmpSyncRangeButtons();
     var wrap = $('cmp-table-wrap'); var sum = $('cmp-summary');
-    if (!wrap || !sum) return;
+    if (!wrap) return;
     if (syms.length < 2){
-      wrap.hidden = true; sum.hidden = true; cmpHideChart(); cmpSetTechVisible(false); cmpRenderRefPicks(); cmpRenderPillars([]);
+      wrap.hidden = true; if (sum) sum.hidden = true; cmpHideChart(); cmpSetTechVisible(false); cmpRenderRefPicks(); cmpRenderPillars([]);
       cmpStatus(syms.length === 1 ? 'Add at least one more ticker to compare.' : '');
       return;
     }
@@ -21712,7 +21719,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       cols.push({ sym: sym, idx: i, j: j, grade: j._grade });
     }
     var ready = cols.filter(function(c){ return c.j; });
-    if (ready.length < 2){ compareState.window = null; wrap.hidden = true; sum.hidden = true; cmpHideChart(); cmpSetTechVisible(false); cmpRenderRefPicks(); cmpRenderPillars([]); return; }
+    if (ready.length < 2){ compareState.window = null; wrap.hidden = true; if (sum) sum.hidden = true; cmpHideChart(); cmpSetTechVisible(false); cmpRenderRefPicks(); cmpRenderPillars([]); return; }
     compareState.window = cmpWindowStats(ready);
     var refLoaded = false;
     for (var ri = 0; ri < ready.length; ri++) if (ready[ri].sym === compareState.refSym) refLoaded = true;
@@ -21737,8 +21744,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       cmpSetTechVisible(true);
     }
     // Summary
-    sum.innerHTML = cmpSummaryHtml(ready);
-    sum.hidden = false;
+    if (sum) { sum.innerHTML = cmpSummaryHtml(ready); sum.hidden = false; }
     cmpRenderPillars(ready);
   }
   // Grade pillars side by side: one row per pillar, one bar per company in
@@ -21785,6 +21791,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // Plain-language "how they stack up" — leaders on the metrics that matter,
   // and a note on whether they share a sector (the Top-Picks-style framing).
   function cmpSummaryHtml(ready){
+    if (!HAS_OWNER_ACCESS) return '';
     function F(c){ return (c.j.fundamentals) || {}; }
     function leader(getter, dir){
       var best = null;
@@ -23228,14 +23235,14 @@ function scenarioEventPhase(ev, now = Date.now()) {
     return out.sort(function(a,b){ return b.score - a.score || a.absDistancePct - b.absDistancePct || a.symbol.localeCompare(b.symbol) || a.period - b.period; });
   }
   function maTrackerRow(read){
-    var tone = read.status === 'likely' ? ' likely' : read.status === 'building' ? ' building' : '';
+    var tone = !HAS_OWNER_ACCESS ? '' : read.status === 'likely' ? ' likely' : read.status === 'building' ? ' building' : '';
     var move = read.direction === 'above' ? 'Cross above' : 'Cross below';
     var approach = read.gapChangePct == null ? 'prior gap unavailable' : read.gapChangePct > 0 ? 'gap narrowed ' + read.gapChangePct.toFixed(2) + ' pts' : 'gap widened ' + Math.abs(read.gapChangePct).toFixed(2) + ' pts';
     var eta = read.projectedSessions ? '~' + read.projectedSessions + ' session' + (read.projectedSessions === 1 ? '' : 's') + ' at recent approach rate' : 'no stable approach rate';
     return '<tr class="ma-track-row' + tone + '"><td><a class="quant-sym" href="' + symGradeHref(read.symbol) + '">' + escapeHtml(read.symbol) + '</a><small>' + escapeHtml(read.sector || '') + '</small></td>' +
       '<td><b>' + read.period + 'D</b><small>' + move + '</small></td><td>' + fmtMoney(read.spot) + '<small>' + (read.live ? 'live regular session' : 'build price') + '</small></td>' +
       '<td>' + fmtMoney(read.level) + '<small class="' + (read.direction === 'above' ? 'quant-pos' : 'quant-neg') + '">' + (read.distancePct > 0 ? '+' : '') + read.distancePct.toFixed(2) + '% vs MA</small></td>' +
-      '<td><span class="ma-track-score ' + read.status + '">' + Math.round(read.score) + '</span><small>' + read.status + '</small></td>' +
+      '<td data-owner-only><span class="ma-track-score ' + read.status + '">' + Math.round(read.score) + '</span><small>' + read.status + '</small></td>' +
       '<td class="dt-wrap">' + escapeHtml(approach) + '<small>' + escapeHtml(eta) + '</small></td><td>' + (isFinite(read.aligned5dPct) ? (read.aligned5dPct > 0 ? '+' : '') + read.aligned5dPct.toFixed(2) + '%' : '—') + '<small>5D toward level</small></td><td>' + (isFinite(read.rvol) ? read.rvol.toFixed(2) + '×' : '—') + '<small>relative volume</small></td></tr>';
   }
   function renderMaTracker(){
@@ -23243,6 +23250,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (!root) return; var d = maTrackerState.data;
     if (!d){ root.textContent = maTrackerState.loading ? 'Loading moving-average tracker…' : 'Moving-average tracker unavailable.'; return; }
     var rows = maTrackerCandidates();
+    if (!HAS_OWNER_ACCESS) rows.sort(function(a,b){ return a.absDistancePct - b.absDistancePct || a.symbol.localeCompare(b.symbol); });
     if (eye) eye.textContent = rows.length + ' levels · ' + new Set(rows.map(function(row){ return row.symbol; })).size + ' stocks' + (maTrackerState.marketState === 'REGULAR' ? ' · live' : ' · build prices');
     if (!rows.length){ root.hidden = true; if (empty) empty.hidden = false; return; }
     root.hidden = false; if (empty) empty.hidden = true;
@@ -23259,7 +23267,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         }).join('') : '<p>No stock in the 5% band.</p>') + '</section>';
     };
     var leaders = '<div class="ma-track-leaders">' + leaderPanel('Most likely to cross above', above, 'is-above') + leaderPanel('Most likely to cross below', below, 'is-below') + '</div>';
-    var table = '<div class="ma-track-table-wrap"><table class="ma-track-table"><thead><tr><th>Stock</th><th>Average</th><th>Price</th><th>Level / gap</th><th>Priority</th><th>Approach</th><th>Momentum</th><th>Volume</th></tr></thead><tbody>' + rows.map(maTrackerRow).join('') + '</tbody></table></div>';
+    var table = '<div class="ma-track-table-wrap"><table class="ma-track-table"><thead><tr><th>Stock</th><th>Average</th><th>Price</th><th>Level / gap</th><th data-owner-only>Priority</th><th>Approach</th><th>Momentum</th><th>Volume</th></tr></thead><tbody>' + rows.map(maTrackerRow).join('') + '</tbody></table></div>';
     root.innerHTML = summary + leaders + '<p class="ma-track-note"><b>Interpretation:</b> ranking measures evidence of an approaching cross; it does not estimate the probability that a cross will hold. Confirm with a daily close and volume before acting.</p>' + table;
   }
   function loadMaTracker(){
@@ -32801,6 +32809,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // click opens the ticker in a new tab like any link; a plain click is
   // intercepted for the in-page SPA jump (calGoToTicker).
   function symGradeHref(sym){
+    if (!HAS_OWNER_ACCESS) return '?tab=heatmap&heatmapSearch=' + encodeURIComponent(String(sym || '').toUpperCase());
     return '?s=' + encodeURIComponent(String(sym || '').toUpperCase());
   }
   // Shared ticker-link binder: any anchor carrying a data-sym jumps to the
@@ -34350,6 +34359,16 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // Navigate to the Grade tab and load a ticker (reuses the combobox). Shared
   // by the clickable earnings/catalyst symbols and the overview cards.
   function calGoToTicker(sym){
+    if (!HAS_OWNER_ACCESS) {
+      if (!sym) return;
+      heatmapState.search = String(sym).toUpperCase();
+      var field = $('heatmap-search');
+      if (field) field.value = heatmapState.search;
+      var heatmapTab = document.querySelector('[data-page-tab="heatmap"]');
+      if (heatmapTab) heatmapTab.click();
+      applyHeatmapSearch();
+      return;
+    }
     if (!sym) return;
     try {
       var gt = document.querySelector('[data-page-tab="grade"]');
@@ -37530,7 +37549,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     periodB: VIEWS.choose('heatmap.periodB', '1m', ['1d', '1w', '1m', '3m', 'ytd', '1y']),
     gradeMap: null, gradeLoading: false, ivMap: null, ivLoading: false,
     period: '1d',      // '1d' | '1w' | '1m' | '3m' | 'ytd' | '1y'
-    search: '',        // uppercased ticker filter for highlight
+    search: (new URLSearchParams(window.location.search).get('heatmapSearch') || '').toUpperCase().replace(/[^A-Z0-9.-]/g, ''),
     live: VIEWS.get('heatmap.live', true) !== false,
     liveRequest: 0,
     livePollTimer: null,
@@ -37953,6 +37972,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   var HEATMAP_GRADE_SAT = 8;
   var HEATMAP_IV_SAT = 40;
   function heatmapEnsureColorData(){
+    if (!HAS_OWNER_ACCESS && heatmapState.colorBy === 'grade') heatmapState.colorBy = 'perf';
     var mode = heatmapState.colorBy;
     if (mode === 'grade' && !heatmapState.gradeMap && !heatmapState.gradeLoading){
       heatmapState.gradeLoading = true;
@@ -38873,12 +38893,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       if (!btn) return;
       var sym = btn.getAttribute('data-sym');
       if (!sym) return;
-      var tab = document.querySelector('[data-page-tab="grade"]');
-      if (tab) tab.click();
-      // Defer the commit so the Grade pane is visible (the symbol-input lives
-      // in page-pane-grade, not the tickers directory; combo.commit reads
-      // input.value).
-      setTimeout(function(){ if (combo && typeof combo.commit === 'function') combo.commit(sym); }, 0);
+      calGoToTicker(sym);
     }
     function onMove(ev){
       var tooltip = $('heatmap-tooltip');
@@ -39209,6 +39224,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // Signed grade total for one ticker from the shared grade index. Starts the
   // (cached, public) index fetch on first use and re-renders the caller once.
   function gradeTotalFor(sym, rerender){
+    if (!HAS_OWNER_ACCESS) return null;
     var d = picksGradesState.data;
     if (!d){ loadGradesIndex(rerender ? function(){ rerender(); } : null); return null; }
     var g = d.grades && d.grades[sym];
@@ -39216,6 +39232,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     return isFinite(v) ? v : null;
   }
   function loadGradesIndex(cb){
+    if (!HAS_OWNER_ACCESS) { if (cb) cb({ grades: {} }); return; }
     if (picksGradesState.data){ if (cb) cb(picksGradesState.data); return; }
     // Queue every caller's callback — the file is ~900KB, so a second caller
     // (e.g. the search box committing a ticker) routinely arrives while the
@@ -47382,11 +47399,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         var btn = document.querySelector('[data-page-tab="' + it.payload + '"]');
         if (btn) btn.click();
       } else if (it.action === 'open-ticker'){
-        var gradeBtn = document.querySelector('[data-page-tab="grade"]');
-        if (gradeBtn) gradeBtn.click();
-        setTimeout(function(){
-          try { combo.commit(it.payload); } catch (_){}
-        }, 0);
+        calGoToTicker(it.payload);
       } else if (it.action === 'open-narrative'){
         var nbtn = document.querySelector('[data-page-tab="narratives"]');
         if (nbtn) nbtn.click();
@@ -48622,16 +48635,17 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var state = { query: '', sector: '', sort: 'conviction', modelFilter: 'all' };
     // Saved choices from this device (sort, sector, model filter, layout).
     var TICKER_SORTS = ['conviction', 'ready', 'score', 'move1d', 'move1m', 'mcap', 'sector', 'alpha'];
-    state.sort = VIEWS.choose('tickers.sort', 'conviction', TICKER_SORTS);
+    if (!HAS_OWNER_ACCESS) TICKER_SORTS = ['move1d', 'move1m', 'mcap', 'sector', 'alpha'];
+    state.sort = VIEWS.choose('tickers.sort', HAS_OWNER_ACCESS ? 'conviction' : 'alpha', TICKER_SORTS);
     if (sortSelect) sortSelect.value = state.sort;
     state.sector = VIEWS.remember(sectorSelect, 'tickers.sector') || '';
-    state.modelFilter = VIEWS.choose('tickers.model', 'all', ['all', 'ready', 'call', 'put', 'neutral']);
+    state.modelFilter = HAS_OWNER_ACCESS ? VIEWS.choose('tickers.model', 'all', ['all', 'ready', 'call', 'put', 'neutral']) : 'all';
     var tableHost = document.getElementById('tickers-table');
     var scatterHost = document.getElementById('tickers-scatter');
     var TICKER_VIEW_EXTRAS = [['chart', 'Scatter']];
-    var TICKER_SC_AXES = ['score', 'move1d', 'move1m', 'mcap'];
+    var TICKER_SC_AXES = HAS_OWNER_ACCESS ? ['score', 'move1d', 'move1m', 'mcap'] : ['move1d', 'move1m', 'mcap'];
     var scX = document.getElementById('tickers-sc-x'), scY = document.getElementById('tickers-sc-y');
-    if (scX){ scX.value = VIEWS.choose('tickers.scx', 'score', TICKER_SC_AXES); scX.addEventListener('change', function(){ VIEWS.set('tickers.scx', scX.value === 'score' ? null : scX.value); applyView(); }); }
+    if (scX){ scX.value = VIEWS.choose('tickers.scx', HAS_OWNER_ACCESS ? 'score' : 'move1d', TICKER_SC_AXES); scX.addEventListener('change', function(){ VIEWS.set('tickers.scx', scX.value === 'score' ? null : scX.value); applyView(); }); }
     if (scY){ scY.value = VIEWS.choose('tickers.scy', 'move1m', TICKER_SC_AXES); scY.addEventListener('change', function(){ VIEWS.set('tickers.scy', scY.value === 'move1m' ? null : scY.value); applyView(); }); }
     var controls = pane ? pane.querySelector('.tickers-controls') : null;
     if (controls && !controls.querySelector('.view-toggle')) {
@@ -48673,6 +48687,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var spots = (window.STONKS_MANIFEST && window.STONKS_MANIFEST.spots) || {};
     cards.forEach(function(card){
       var sym = card.getAttribute('data-ticker');
+      if (card.tagName === 'A') card.setAttribute('href', symGradeHref(sym));
       var spot = spots[sym];
       if (sym === '^VIX' && MANIFEST.macro && MANIFEST.macro.vix){
         spot = Number(MANIFEST.macro.vix.value);
@@ -48778,6 +48793,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
           }, sort: function(c){ var st = c.getAttribute('data-entry-state') || ''; return st && st !== 'neutral' ? (c.getAttribute('data-entry-ready') === '1' ? 'a ready' : st === 'avoid' ? 'c avoid' : 'b wait') : null; } },
         { label: 'Compare', cell: function(c){ return cmpToggleHtml(cardAlpha(c)); } }
       ];
+      if (!HAS_OWNER_ACCESS) cols = cols.filter(function(c){ return c.label !== 'Grade' && c.label !== 'Entry'; });
       tableHost.innerHTML = VIEWS.tableHtml(cols, shownCards, { key: 'tickers-table', empty: 'No tickers match the current filters.' });
     }
     var TICKER_SC_DEF = {
@@ -48869,11 +48885,11 @@ function scenarioEventPhase(ev, now = Date.now()) {
     function resetFilters(){
       state.query = '';
       state.sector = '';
-      state.sort = 'conviction';
+      state.sort = HAS_OWNER_ACCESS ? 'conviction' : 'alpha';
       state.modelFilter = 'all';
       if (search) search.value = '';
       if (sectorSelect) sectorSelect.value = '';
-      if (sortSelect) sortSelect.value = 'conviction';
+      if (sortSelect) sortSelect.value = state.sort;
       if (readyBtn){ readyBtn.setAttribute('aria-pressed', 'false'); readyBtn.classList.remove('is-active'); }
       VIEWS.set('tickers.sort', null);
       VIEWS.set('sel:tickers.sector', null);
@@ -49026,6 +49042,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       applyView();
     }
     ensureTickerDirectoryGrades = function(){
+      if (!HAS_OWNER_ACCESS) { ensureTickerMarket(); return; }
       if (gradesRequested) return;
       gradesRequested = true;
       if (modelNote) modelNote.textContent = 'Loading model grades…';
@@ -49274,7 +49291,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     // Any allowlist-shaped symbol loads — tracked names from the baked JSON,
     // anything else (VOO, the commodity proxies) via the live /api/chain
     // fallback in fetchChain. Same shape /api/quote|chain enforce server-side.
-    if (initial && initial.sym && /^[A-Z][A-Z0-9.]{0,5}$/.test(initial.sym)){
+    if (HAS_OWNER_ACCESS && initial && initial.sym && /^[A-Z][A-Z0-9.]{0,5}$/.test(initial.sym)){
       pendingUrlState = initial;
       // Default to landing on Grade, but a shared link like ?s=AAPL&tab=heatmap
       // explicitly asks for another tab — honor that and just load the contract
@@ -49337,22 +49354,42 @@ function scenarioEventPhase(ev, now = Date.now()) {
       chip.hidden = true;
     }
   }
+  // Also covers panels rendered later by lazy loaders or separate modules.
+  // CSS hides them before auth resolves; removal keeps them out of search and
+  // accessibility trees. The server separately withholds their data.
+  function enforceOwnerUi(root){
+    if (HAS_OWNER_ACCESS || !root || !root.querySelectorAll) return;
+    var selector = "[data-owner-only],#book-grade-return,.flow-decision,.heatmap-decision,.heatmap-eod-decision,#news-feed-summary,.news-posture-triggers,.news-feed-decision,.news-decision,.brief-decision,.brief-analog,.ers-posture,.ers-search-signal,.ecl-decision,.ecl-plan-posture,.cmd-posture,.cx-posture,.rp-posture,.ic-posture,.bonds-ctx-posture,.fng-decision,.idx-cal-decision,.ma-track-summary,.ma-track-desk,.ma-track-leaders,.ma-track-note,#tickers-decision,#tickers-model-summary,#tickers-model-note,#tickers-ready,.ticker-grade,#tickers-scatter .sc-legend,#cmp-pillars,#cmp-summary,[data-ers-view=\"recovery\"],.recovery-screen,option[value=\"grade\"],#tickers-sort option[value=\"score\"],#tickers-sc-x option[value=\"score\"],#tickers-sc-y option[value=\"score\"],#tickers-sort option[value=\"conviction\"],#tickers-sort option[value=\"ready\"],#cmp-sec-metric option[value=\"call\"],#cmp-sec-metric option[value=\"put\"],[data-grade],[data-scn-grade],[data-f13-grade],.flow-grade-btn,[data-go=\"grade\"],[data-go=\"strategies\"],[data-go=\"narratives\"],[data-page-tab=\"grade\"],[data-go=\"grade\"],#page-pane-grade,[data-page-tab=\"strategies\"],[data-go=\"strategies\"],#page-pane-strategies,[data-page-tab=\"narratives\"],[data-go=\"narratives\"],#page-pane-narratives,[data-page-tab=\"earnings-forecast\"],[data-go=\"earnings-forecast\"],#page-pane-earnings-forecast,[data-page-tab=\"unified-signal-engine\"],[data-go=\"unified-signal-engine\"],#page-pane-unified-signal-engine,[data-page-tab=\"market\"],[data-go=\"market\"],#page-pane-market,[data-page-tab=\"risk\"],[data-go=\"risk\"],#page-pane-risk,[data-page-tab=\"bottom-tracker\"],[data-go=\"bottom-tracker\"],#page-pane-bottom-tracker,[data-page-tab=\"historical-data\"],[data-go=\"historical-data\"],#page-pane-historical-data,[data-page-tab=\"party-tracker\"],[data-go=\"party-tracker\"],#page-pane-party-tracker,[data-page-tab=\"forced-liquidation\"],[data-go=\"forced-liquidation\"],#page-pane-forced-liquidation,[data-page-tab=\"picks\"],[data-go=\"picks\"],#page-pane-picks,[data-page-tab=\"leaps\"],[data-go=\"leaps\"],#page-pane-leaps,[data-page-tab=\"stocks\"],[data-go=\"stocks\"],#page-pane-stocks,[data-page-tab=\"rotation\"],[data-go=\"rotation\"],#page-pane-rotation,[data-page-tab=\"levetf\"],[data-go=\"levetf\"],#page-pane-levetf,[data-page-tab=\"open-picks\"],[data-go=\"open-picks\"],#page-pane-open-picks,[data-page-tab=\"track\"],[data-go=\"track\"],#page-pane-track,[data-page-tab=\"quant\"],[data-go=\"quant\"],#page-pane-quant";
+    if (root.matches && root.matches(selector)) { root.remove(); return; }
+    root.querySelectorAll(selector).forEach(function(el){ el.remove(); });
+  }
+  function revalidateOwnerAccess(){
+    if (!HAS_OWNER_ACCESS) return;
+    fetch('/api/auth/me', { cache: 'no-store', credentials: 'same-origin' })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .catch(function(){ return null; })
+      .then(function(me){
+        if (me && me.enabled && me.authed === true && me.trackRecord === true && me.topPicks === true) return;
+        applyAuth(null); // Hide private content synchronously before reloading.
+        enforceOwnerUi(document);
+        window.location.reload();
+      });
+  }
+  document.addEventListener('visibilitychange', function(){ if (!document.hidden) revalidateOwnerAccess(); });
+  window.addEventListener('focus', revalidateOwnerAccess);
+  setInterval(revalidateOwnerAccess, 60000);
   function startApp(){
     var go = function(){
-      // Physically remove every Owner destination before bind() collects routes.
-      // Stored data is independently role-enforced.
-      if (!HAS_OWNER_ACCESS) {
-        for (var ownerId in OWNER_TABS) {
-          if (!OWNER_TABS.hasOwnProperty(ownerId)) continue;
-          var ownerEntries = document.querySelectorAll('[data-page-tab="' + ownerId + '"], [data-go="' + ownerId + '"]');
-          for (var oi = 0; oi < ownerEntries.length; oi++) {
-            var ownerEntry = ownerEntries[oi];
-            if (ownerEntry && ownerEntry.parentNode) ownerEntry.parentNode.removeChild(ownerEntry);
-          }
-          var ownerPane = document.getElementById('page-pane-' + ownerId);
-          if (ownerPane && ownerPane.parentNode) ownerPane.parentNode.removeChild(ownerPane);
-        }
+      enforceOwnerUi(document);
+      if (!HAS_OWNER_ACCESS && typeof MutationObserver !== 'undefined') {
+        new MutationObserver(function(records){
+          records.forEach(function(record){
+            record.addedNodes.forEach(function(node){ if (node.nodeType === 1) enforceOwnerUi(node); });
+          });
+        }).observe(document.body, { childList: true, subtree: true });
       }
+      document.dispatchEvent(new CustomEvent('stonks-owner-ready'));
+      // Routes are pruned above before bind() collects allowed destinations.
       // The whole group starts hidden to prevent an entitlement-check flash.
       var ownerGroup = document.querySelector('[data-role-group="owner"]');
       if (ownerGroup) {

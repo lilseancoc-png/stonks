@@ -268,7 +268,7 @@ try {
   assert.doesNotMatch(appJs, /day-trading\.json|day-trading-history\.json|loadDayTrading/);
   assert.match(appJs, /HAS_TRACK_RECORD = HAS_OWNER_ACCESS/);
   assert.match(appJs, /HAS_TOP_PICKS = HAS_OWNER_ACCESS/);
-  assert.match(appJs, /HAS_OWNER_ACCESS = !!\(GATE_ON && me && me\.trackRecord && me\.topPicks\)/);
+  assert.match(appJs, /HAS_OWNER_ACCESS = !!\(GATE_ON && me && me\.authed === true && me\.trackRecord === true && me\.topPicks === true\)/);
   assert.match(appJs, /if \(OWNER_TABS\[name\] && !HAS_OWNER_ACCESS\)/);
   assert.match(appJs, /if \(!HAS_OWNER_ACCESS\) return;[\s\S]*?fetch\(dataUrl\('auto-picks\.json'\)/);
   assert.match(appJs, /var lastAnalyticsTabPath = null;[\s\S]*?function trackPageTab\(name\)\{[\s\S]*?var path = '\/tabs\/' \+ name;[\s\S]*?if \(path === lastAnalyticsTabPath \|\| typeof window\.va !== 'function'\) return;[\s\S]*?window\.va\('pageview', \{ path: path \}\);[\s\S]*?lastAnalyticsTabPath = path;/);
@@ -414,11 +414,11 @@ try {
   assert.match(welcomeSource, /<script defer src="\/_vercel\/insights\/script\.js"><\/script>/);
   assert.doesNotMatch(welcomeSource, /data-disable-auto-track/);
 
-  for (const key of ["grades.json", "grades-daily.json", "TSLA.json", "trends.json", "trends-history.json", "briefs.json", "earnings-tracker.json", "index-calendar.json", "spillover-pairs.json", "ma-tracker.json", "unusual.json", "oi-tracker.json", "iv-history/TSLA.json", "manifest.json"]) {
+  for (const key of ["TSLA.json", "briefs.json", "earnings-tracker.json", "index-calendar.json", "spillover-pairs.json", "ma-tracker.json", "unusual.json", "oi-tracker.json", "iv-history/TSLA.json", "manifest.json"]) {
     assert.equal(isPremiumKey(key), false, `${key} must take the public cache path`);
     assert.equal(roleClaimForKey(key), null, `${key} must not require a login`);
   }
-  for (const key of ["market-analysis.json", "bottom-tracker.json", "picks.json", "picks-open.json", "picks-0dte.json", "picks-0dte-accuracy.json", "auto-picks.json", "stock-picks.json", "sector-rotation.json", "sector-rotation-log.json", "leveraged-etfs.json", "leveraged-etfs-log.json", "picks-accuracy.json", "leaps-paper.json", "picks-changes.json", "picks-roster.json", "grades-history.json", "quant.json", "quant-history.json", "day-trading.json", "day-trading-history.json", "day-trades.json", "day-trades-history.json", "picks-watchlist.json", "ai-usage.json"]) {
+  for (const key of ["grades.json", "grades-daily.json", "trends.json", "trends-history.json", "flow-explanations.json", "market-analysis.json", "bottom-tracker.json", "picks.json", "picks-open.json", "picks-0dte.json", "picks-0dte-accuracy.json", "auto-picks.json", "stock-picks.json", "sector-rotation.json", "sector-rotation-log.json", "leveraged-etfs.json", "leveraged-etfs-log.json", "picks-accuracy.json", "leaps-paper.json", "picks-changes.json", "picks-roster.json", "grades-history.json", "quant.json", "quant-history.json", "day-trading.json", "day-trading-history.json", "day-trades.json", "day-trades-history.json", "picks-watchlist.json", "ai-usage.json"]) {
     assert.equal(isPremiumKey(key), true);
     assert.deepEqual(roleClaimForKey(key), ["tr", "tp"], `${key} must require both Owner claims`);
   }

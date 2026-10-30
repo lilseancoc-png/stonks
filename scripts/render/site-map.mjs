@@ -1,3 +1,5 @@
+import { OWNER_PAGE_IDS } from '../../lib/owner-access-policy.mjs';
+
 // The one site map. The sidebar (html.mjs), the page headers, previous/next
 // links, Home's "Explore by topic" tiles, the phone tab bar and the command
 // palette (app-js.mjs) all read these sections, so a page moves or gets renamed
@@ -23,7 +25,7 @@ export const SITE_SECTIONS = [
   {
     id: 'stocks', label: 'Stocks', short: 'Stocks', desc: 'Look up, compare and follow companies',
     items: [
-      { id: 'tickers', label: 'All stocks', alias: 'Tickers', blurb: 'Every stock the site follows, with its price and current grade. Pick one to see the full report.' },
+      { id: 'tickers', label: 'All stocks', alias: 'Tickers', blurb: 'Every stock the site follows, with its price, returns and sector.' },
       { id: 'grade', label: 'Look up a stock', alias: 'Grade a ticker stock report', blurb: 'One stock in depth: its chart, grade, fundamentals, options and news.' },
       { id: 'compare', label: 'Compare stocks', alias: 'Compare companies', blurb: 'Line up a few companies side by side on price, growth and valuation.' },
       { id: 'earnings', label: 'Earnings results', alias: 'Earnings tracker', blurb: 'Which companies beat or missed expectations this season, and how their stocks reacted.' },
@@ -104,6 +106,8 @@ export const SITE_SECTIONS = [
     ],
   },
 ];
+
+for (const section of SITE_SECTIONS) for (const item of section.items) item.owner = OWNER_PAGE_IDS.includes(item.id);
 
 // Phone tab bar: four sections plus the existing search.
 export const TAB_BAR_SECTIONS = ['today', 'stocks', 'market', 'options'];
