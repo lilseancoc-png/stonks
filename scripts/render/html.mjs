@@ -418,7 +418,7 @@ function leapsSection() {
   </section>`;
 }
 
-function trackRecordSection() {
+export function trackRecordSection() {
   // Skeleton chrome only — renderAccuracy() in app.js fetches
   // data/picks-accuracy.json lazily on first tab activation and fills the
   // containers in. The tracker grades whether each past pick's SCORE actually
@@ -444,6 +444,37 @@ function trackRecordSection() {
       <summary>How this works</summary>
       <p>A pick <b>resolves</b> when the underlying reaches its take-profit (<span class="acc-ok">win</span>), hits its cut (<span class="acc-bad">loss</span>), <b>breaks its thesis</b> (the live grade flips to the opposite side, the stop level is breached, or every supporting driver goes quiet), or expires (graded vs. breakeven). There is no time stop, no pre-earnings exit, and no weekly force-close &mdash; a position is held, through earnings prints included, for as long as its original thesis stays intact and the contract has time left. The <b>Summary</b> tab is the rules-based engine report: an overall health verdict, why the losers lost (direction miss vs. theta bleed), why the winners won, which segments are working vs. lagging, and a specific "what to fix next" list — all computed from the resolved record, no AI. The <b>win rate by tier</b> asks whether higher-conviction scores actually win more. <b>Top&nbsp;6 — picks in &amp; out</b> shows the current 6-name roster, what changed in the 4 pillars since the last refresh, what dropped out and what replaced it, and a rules-based upgrade/downgrade read on each name (click a row for the full rubric); <b>Recent crossings</b> is the chronological log of names crossing the conviction bar on or off the actionable set; <b>Grade changes</b> logs every ticker whose grade moves up or down (and why); each pick&rsquo;s <b>Day&nbsp;0 / 2wk / 1mo</b> checkpoints show whether the price moved the way the score predicted. The <b>Site&nbsp;Equity</b>, <b>Site&nbsp;Breakdown</b>, <b>Simulator</b>, and <b>Monte&nbsp;Carlo</b> tabs add a modeled-dollar profitability lens — an equity curve + drawdown, per-DTE / PoP / thesis / conviction tables and cross-tabs, a hypothetical $100k risk-managed book, and a bootstrap of the outcome distribution. <b>Real&nbsp;fills</b> holds the real-trading comparison (ask-in, bid-out fills, exits at the trigger, picks vs a SPY option), the upload for your own trade log, and every trade the Webull paper mirror copied: how close paper fills land to the engine&rsquo;s prices, a real-money estimate from the recorded bid/ask, pick accuracy, how well the model&rsquo;s P&amp;L matches the account, and a full trade log. <b>Webull&nbsp;Equity</b> and <b>Webull&nbsp;Breakdown</b> repeat that equity curve, calendar, histogram, split, and cohort tables on the paper mirror’s verified fills. The <b>Market-sized</b> lens and <b>Market environment</b> simulator mode use the daily Market Analysis history: defensive sizing is $5k instead of $10k, full size returns after 3 consecutive risk-on sessions, and 2 consecutive risk-off sessions cut it back in half; neutral stays defensive. Top Picks and its record refresh twice each market day, at 11:00 and 15:30 ET, not intraday.</p>
     </details>
+    <div class="acc-reset-controls">
+      <span class="muted">Start a fresh record</span>
+      <button type="button" class="acc-danger-btn" data-track-reset="webull">Wipe Webull record</button>
+      <button type="button" class="acc-danger-btn" data-track-reset="onsite">Wipe on-site record</button>
+    </div>
+    <dialog id="acc-reset-dialog" class="acc-reset-dialog" aria-labelledby="acc-reset-title" aria-describedby="acc-reset-description">
+      <form id="acc-reset-form">
+        <h3 id="acc-reset-title">Wipe tracked data?</h3>
+        <div class="acc-reset-body">
+        <label class="acc-reset-period" for="acc-reset-range">Period to wipe</label>
+        <select id="acc-reset-range">
+          <option value="1D">1D · Last 24 hours</option>
+          <option value="1W">1W · Last 7 days</option>
+          <option value="1M">1M · Last 30 days</option>
+          <option value="3M">3M · Last 90 days</option>
+          <option value="ALL">Wipe ALL</option>
+        </select>
+        <p id="acc-reset-summary" class="acc-reset-summary" role="status"></p>
+        <button id="acc-reset-refresh" class="link-btn" type="button">Refresh preview</button>
+        <p id="acc-reset-description">The selected period will be removed from this reporting log:</p>
+        <ul id="acc-reset-data" class="acc-reset-data"></ul>
+        <p id="acc-reset-kept"></p>
+        <label class="acc-reset-sure"><input id="acc-reset-sure" type="checkbox" required> I am 100% sure. I understand this cannot be undone.</label>
+        <p id="acc-reset-error" class="acc-reset-error" role="alert"></p>
+        </div>
+        <div class="acc-reset-actions">
+          <button id="acc-reset-cancel" class="wb-refresh" type="button" autofocus>Cancel</button>
+          <button id="acc-reset-confirm" class="acc-danger-btn" type="submit" disabled>Yes, wipe record</button>
+        </div>
+      </form>
+    </dialog>
     <div class="acc-tabs" role="tablist" aria-label="Track record view">
       <button type="button" class="acc-tab" role="tab" aria-selected="true" aria-controls="acc-pane-summary" id="acc-tab-summary" data-acc-tab="summary">Summary</button>
       <button type="button" class="acc-tab" role="tab" aria-selected="false" aria-controls="acc-pane-scorecard" id="acc-tab-scorecard" data-acc-tab="scorecard">Scorecard</button>
@@ -1054,11 +1085,11 @@ function capitalRaisesSection() {
 function f13Section() {
   // Card chrome only — content renders client-side from data/13f.json,
   // fetched lazily on first tab activation by loadF13() in app.js. The
-  // data file is a curated quarterly summary aggregating headline numbers
-  // from the largest 13F filers; see data/13f.json for the schema.
+  // data file contains full collected manager disclosures alongside the
+  // quarterly change summaries; see lib/ownership-13f.mjs for the schema.
   return `<section class="card" id="f13-section">
     <header class="card-header">
-      <h2 class="card-title">SEC ownership filings</h2>
+      <h2 class="card-title">Who owns what</h2>
       <span class="card-eyebrow" id="f13-eyebrow" aria-live="polite"></span>
     </header>
     <div data-owner-only>${infoNote('How to use SEC ownership signals', `<p><b>13F:</b> start with share-direction breadth. A stock added by many managers is stronger evidence than a large dollar change from one manager; dollar value also includes price drift, and filings can arrive 45 days after quarter-end. <b>Form 4:</b> code P open-market purchases are separated from code S sales and from grants, option exercises, gifts and tax withholding. Insider sales can reflect diversification or taxes, so no filing supplies an entry by itself. Open the ticker in Grade and confirm the current trend, catalyst, valuation and risk.</p>`)}</div>

@@ -285,12 +285,14 @@ export function renderExportBindings() {
     // through the same Owner gate (and kept for the next export).
     var exportCache = [];
     function exportLoadSource(key){
-      for (var i = 0; i < exportCache.length; i++) if (exportCache[i].key === key) return exportCache[i].p;
-      var p = fetch(dataUrl(key), { cache: 'no-cache', credentials: 'same-origin' }).then(function(r){
+      var report = exportTab === 'track' && ['picks-accuracy.json','picks-changes.json','picks-roster.json','grades-history.json'].indexOf(key) !== -1;
+      var sourceUrl = report ? trackRecordDataUrl(key) : dataUrl(key);
+      for (var i = 0; !report && i < exportCache.length; i++) if (exportCache[i].key === sourceUrl) return exportCache[i].p;
+      var p = fetch(sourceUrl, { cache: 'no-cache', credentials: 'same-origin' }).then(function(r){
         if (!r.ok) throw new Error(r.status === 401 || r.status === 403 ? 'sign in again' : 'not available');
         return r.json();
       });
-      exportCache.unshift({ key: key, p: p });
+      exportCache.unshift({ key: sourceUrl, p: p });
       if (exportCache.length > 6) exportCache.length = 6;
       p.catch(function(){ exportCache = exportCache.filter(function(c){ return c.p !== p; }); });
       return p;

@@ -26,6 +26,10 @@ const server = createServer(async (req, res) => {
     return json(fixture.mirror);
   }
   if (url.pathname === '/api/auth/picks-fills') return json({ rows: [] });
+  if (url.pathname === '/api/auth/track-record-data') {
+    if (url.searchParams.get('key') === 'picks-accuracy.json') return json(fixture.accuracy);
+    return json({});
+  }
   const dataKey = url.pathname === '/api/auth/me' ? url.searchParams.get('data') : url.pathname.startsWith('/data/') ? url.pathname.slice(6) : null;
   if (dataKey) {
     if (dataKey === 'picks-accuracy.json') return json(fixture.accuracy);

@@ -1,3 +1,9 @@
+import { isOwnershipBookKey } from "../lib/data-ownership.mjs";
+import { createOwnershipSecReader, expandOwnershipSubmissions, ownershipPrimaryUrl, ownershipNotice, ownershipRequestSignal } from "../lib/ownership-sec.mjs";
+import { packOwnershipBooks, ownershipBookClientFactory, retainOwnershipBooks } from "../lib/ownership-books.mjs";
+import { parseOwnership13FXml, ownershipXmlTag, buildOwnershipFund, aggregateOwnershipPositions, parseOwnershipCover, validateOwnershipTable, prioritizeOwnershipCusips } from "../lib/ownership-13f.mjs";
+import { computePicksAccuracyStats, computeBaselineStats } from "../lib/track-record-stats.mjs";
+export { computePicksAccuracyStats, computeBaselineStats };
 import { PUBLISHED_COMPANY_EVENTS, COMPANY_EVENTS_VERSION, companyEventsInWindow, fetchCompanyCalendar, COMPANY_EVENT_LOOKBACK_DAYS, coveredByCompanySchedule } from "../lib/company-events.mjs";
 import { calendarCoverage, calendarEventsForUniverse } from "../lib/calendar-policy.mjs";
 import { ISM_CALENDAR_URL, censusCalendarUrl, parseCensusCalendar, parseIsmCalendar, ismBaselineEvents, supplementalWeeklyReports, marketSessionCalendarEvents, scheduledPolicyCalendarEvents } from "../lib/calendar-sources.mjs";
@@ -9229,13 +9235,9 @@ export async function writeCalendarFile(chains, macroHeadlines, builtAtIso, extr
 }
 
 // === 13F filings summary (built each run) ============================
-// Replaces the previous static data/13f.json. Period label, filing
-// window, biggest-positions ranking, and rotation themes are derived
-// every build so the tab stays current without code edits. The top-firms
-// directory and the per-firm marquee tables remain a curated baseline —
-// per-firm 13F XML parsing would require a full SEC EDGAR pipeline and
-// is left for a future change. Filing dates inside the top-firms table
-// are computed from the active quarter so they advance automatically.
+// One frozen report quarter across the tracked SEC manager directory.
+// Full books and source rows are published in immutable, bounded parts;
+// 13f.json retains the directory, quarterly summaries and part references.
 const F13_FILE = "13f.json";
 
 // CIKs are the entity identifiers SEC EDGAR uses for 13F filings. Each
@@ -9254,7 +9256,7 @@ const F13_FILE = "13f.json";
 // EDGAR fetch silently degrades — the rest of the directory still ships.
 const F13_AUM_MIN_BILLIONS = 5;
 const F13_AUM_MAX_BILLIONS = 200;
-const F13_FIRM_DIRECTORY = [
+export const F13_FIRM_DIRECTORY = [
   // Multi-strat / quant
   { firm: "Bridgewater Associates",       cik: "1350694", aumBillions: 108, kind: "Multi-strat" },
   { firm: "Renaissance Technologies",     cik: "1037389", aumBillions: 132, kind: "Quant" },
@@ -9270,7 +9272,7 @@ const F13_FIRM_DIRECTORY = [
   // TMT / growth
   { firm: "Tiger Global Management",      cik: "1167483", aumBillions: 60,  kind: "TMT growth" },
   { firm: "Coatue Management",            cik: "1135730", aumBillions: 50,  kind: "TMT growth" },
-  { firm: "Viking Global Investors",      cik: "1170725", aumBillions: 50,  kind: "Long/short" },
+  { firm: "Viking Global Investors",      cik: "1103804", aumBillions: 50,  kind: "Long/short" },
   { firm: "Lone Pine Capital",            cik: "1061165", aumBillions: 15,  kind: "TMT growth" },
 ];
 // AUM filter — applied at fetch time so out-of-band firms never hit EDGAR.
@@ -9287,7 +9289,7 @@ function describeF13QuarterEnd(end) {
     "July","August","September","October","November","December"];
   const periodEnd = `${monthNames[end.getUTCMonth()]} ${end.getUTCDate()}, ${year}`;
   const winStart = new Date(end.getTime() + 30 * 86400000);
-  const winEnd = new Date(end.getTime() + 45 * 86400000);
+  const winEnd = f13Deadline(end);
   const winLabel = `${monthNames[winStart.getUTCMonth()].slice(0, 3)} ${winStart.getUTCDate()}–${monthNames[winEnd.getUTCMonth()].slice(0, 3)} ${winEnd.getUTCDate()}, ${winEnd.getUTCFullYear()}`;
   return {
     period: `Q${quarter} ${year}`,
@@ -9308,7 +9310,12 @@ function f13QuarterForReportDate(reportDate) {
 // is still the most recently reportable period. Returns the quarter
 // label (e.g. "Q1 2026"), the period-end date, and a rough filing
 // window string for the UI hint.
-function currentF13Quarter(asOf) {
+function f13Deadline(end) {
+  const deadline = new Date(end.getTime() + 45 * 86400000);
+  while ([0, 6].includes(deadline.getUTCDay()) || usMarketHolidaySet(deadline.getUTCFullYear()).has(deadline.toISOString().slice(0, 10))) deadline.setUTCDate(deadline.getUTCDate() + 1);
+  return deadline;
+}
+export function currentF13Quarter(asOf) {
   // The "active" 13F quarter is the most recent quarter whose 45-day
   // filing deadline has already passed (i.e. filings are now public).
   // Enumerate candidate quarter-end dates from the current and prior
@@ -9325,43 +9332,13 @@ function currentF13Quarter(asOf) {
   candidates.sort((a, b) => b.end.getTime() - a.end.getTime());
   let active = candidates[candidates.length - 1]; // safe fallback (Q1 prior-year)
   for (const c of candidates) {
-    const deadlineMs = c.end.getTime() + 45 * 86400000;
-    if (deadlineMs <= asOf.getTime()) { active = c; break; }
+    const deadline = f13Deadline(c.end).toISOString().slice(0, 10);
+    const asOfDay = asOf.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+    // Do not mix a still-open deadline day's incoming filings with a finished
+    // reporting window. EDGAR dates and deadlines use Eastern time.
+    if (asOfDay > deadline) { active = c; break; }
   }
   return describeF13QuarterEnd(active.end);
-}
-
-// Rank curated tickers by marketCap and produce the "biggest positions"
-// list. Each entry includes the company name when fundamentals supplied
-// one. Caps at 20 entries.
-function rankBiggestPositionsByMarketCap(chains) {
-  const rows = [];
-  for (const [sym, data] of Object.entries(chains)) {
-    const mc = Number(data?.fundamentals?.marketCap);
-    if (!Number.isFinite(mc) || mc <= 0) continue;
-    rows.push({ ticker: sym, name: data?.fundamentals?.name || sym, marketCap: mc });
-  }
-  rows.sort((a, b) => b.marketCap - a.marketCap);
-  return rows.slice(0, 20).map((row, i) => ({
-    rank: i + 1,
-    ticker: row.ticker,
-    name: row.name,
-    note: "Market cap " + formatBigDollarsForF13(row.marketCap),
-  }));
-}
-
-function formatBigDollarsForF13(value) {
-  // Magnitude buckets are size-based, but we keep the sign on the final
-  // rendered value so a (rare) negative dollar amount still reads
-  // sensibly. Previously the abs was applied to bucket selection only,
-  // and the divisions used the signed value — fine for the positive
-  // path, but produced "$-5.0B" instead of "-$5.0B" for negatives.
-  const sign = value < 0 ? "-" : "";
-  const v = Math.abs(value);
-  if (v >= 1e12) return sign + "$" + (v / 1e12).toFixed(2) + "T";
-  if (v >= 1e9)  return sign + "$" + (v / 1e9).toFixed(1) + "B";
-  if (v >= 1e6)  return sign + "$" + (v / 1e6).toFixed(1) + "M";
-  return sign + "$" + Math.round(v).toLocaleString("en-US");
 }
 
 // Derive rotation themes (most bought / most sold sectors) from the
@@ -9401,38 +9378,36 @@ function deriveF13RotationThemes(narratives) {
   return { buys: buys.slice(0, 8), sells: sells.slice(0, 8) };
 }
 
-// === SEC EDGAR 13F-HR holdings parser ================================
-// Free public source for real institutional holdings. SEC requires a
-// User-Agent that identifies the requester (a working email). Rate
-// limit is 10 requests/second; we run 9 firms in parallel and chunk
-// the OpenFIGI CUSIP→ticker lookups in batches of 100. On any failure
-// (network, parse, schema drift, missing filing) the firm degrades
-// silently and the curated baseline values remain.
-//
-// Pipeline per firm:
-//   1. submissions.json → recent filings list
-//   2. Find latest form=13F-HR (excluding 13F-NT)
-//   3. Fetch filing index.json → locate the information table XML
-//   4. Parse <infoTable> blocks for nameOfIssuer / cusip / value / shares
-//   5. Aggregate same-CUSIP rows (firms split puts/calls/shares)
-//   6. Sort by value, keep top 10, attach tickers via OpenFIGI
+// === SEC EDGAR 13F holdings collection =============================
+// Collect one completed reporting window for the curated manager directory.
+// A shared paced reader handles submissions, archive pages, raw XML covers,
+// every information table and notice referrals. Cover counts and USD totals
+// must reconcile before a book is accepted. Ticker mapping is a separate,
+// bounded OpenFIGI pass; unresolved issuers remain searchable by name/CUSIP.
 
 const SEC_USER_AGENT = process.env.SEC_USER_AGENT
-  || "stonks-app build-pipeline contact@example.com";
+  || "Mingstreet holdings research https://mingstreet.app";
+const readOwnershipSec = createOwnershipSecReader({ userAgent: SEC_USER_AGENT });
 
-async function fetchEdgarSubmissions(cik) {
+async function fetchEdgarSubmissions(cik, targetReportDate = null, signal = null) {
   const padded = String(cik).padStart(10, "0");
   const url = `https://data.sec.gov/submissions/CIK${padded}.json`;
   try {
-    const res = await fetch(url, {
+    const res = await readOwnershipSec(url, {
       headers: { "user-agent": SEC_USER_AGENT, accept: "application/json" },
-      signal: AbortSignal.timeout(15000),
+      signal: ownershipRequestSignal(signal, 15000),
     });
     if (!res.ok) {
       console.log(`    ⚠ EDGAR submissions CIK${padded} HTTP ${res.status}`);
       return null;
     }
-    return await res.json();
+    const data = await res.json();
+    if (!targetReportDate) return data;
+    return expandOwnershipSubmissions(data, targetReportDate, async url => {
+      const response = await readOwnershipSec(url, { signal: ownershipRequestSignal(signal, 15000) });
+      if (!response.ok) throw new Error('SEC archive HTTP ' + response.status);
+      return response.json();
+    });
   } catch (err) {
     console.log(`    ⚠ EDGAR submissions CIK${padded} failed: ${err.message}`);
     return null;
@@ -9445,9 +9420,8 @@ function findLatest13F(submissions) {
 }
 // Returns up to two filings — the latest 13F-HR and the prior quarter's.
 // Both are needed to compute QoQ deltas (positions added/exited/sized).
-// If the firm has only one 13F on file (first-time filer), the second
-// slot is omitted and downstream code treats every current holding as a
-// "new" position.
+// A missing predecessor leaves the second slot absent. The collector
+// withholds quarterly changes rather than treating a missing history as buys.
 export function findLatestTwo13Fs(submissions, targetReportDate = null) {
   const recent = submissions?.filings?.recent;
   if (!recent) return [];
@@ -9474,7 +9448,7 @@ export function findLatestTwo13Fs(submissions, targetReportDate = null) {
   // per report period below keeps the NEWEST one — which is the amendment
   // (13F-HR/A) whenever one exists, since an /A is always filed after its
   // original.
-  rows.sort((a, b) => String(b.filingDate || "").localeCompare(String(a.filingDate || "")));
+  rows.sort((a, b) => String(b.filingDate || "").localeCompare(String(a.filingDate || "")) || String(b.accessionNumber || "").localeCompare(String(a.accessionNumber || "")));
   // Keep the newest filing per distinct report period (period-of-report quarter
   // end). Deduping by period is what prevents pairing an amended quarter against
   // its own original — a near-zero, spurious QoQ diff. `reportDate` was
@@ -9494,6 +9468,12 @@ export function findLatestTwo13Fs(submissions, targetReportDate = null) {
     .sort((a, b) =>
       String(b.reportDate || b.filingDate).localeCompare(String(a.reportDate || a.filingDate)),
     );
+  for (const row of distinctPeriods) {
+    if (row.form !== "13F-HR/A") continue;
+    row.previousFilings = rows.filter(r => r.reportDate === row.reportDate && r !== row)
+      .sort((a, b) => String(a.filingDate).localeCompare(String(b.filingDate)) || String(a.accessionNumber).localeCompare(String(b.accessionNumber)))
+      .filter(r => String(r.filingDate) < String(row.filingDate) || r.filingDate === row.filingDate && String(r.accessionNumber) < String(row.accessionNumber));
+  }
   if (!targetReportDate) return distinctPeriods.slice(0, 2);
 
   // The 13F page has one global quarter label, so every firm's delta must use
@@ -9515,62 +9495,72 @@ export function findLatestTwo13Fs(submissions, targetReportDate = null) {
   return prior ? [target, prior] : [target];
 }
 
-async function fetchEdgar13FHoldings(cik, filing) {
-  const cikNum = Number(cik);
-  const accessionNoDashes = filing.accessionNumber.replace(/-/g, "");
-  const indexUrl = `https://www.sec.gov/Archives/edgar/data/${cikNum}/${accessionNoDashes}/index.json`;
+export async function fetchEdgar13FHoldings(cik, filing, { signal = null } = {}) {
   try {
-    const idxRes = await fetch(indexUrl, {
-      headers: { "user-agent": SEC_USER_AGENT, accept: "application/json" },
-      signal: AbortSignal.timeout(15000),
-    });
-    if (!idxRes.ok) {
-      return { ok: false, holdings: [], error: `filing index HTTP ${idxRes.status}` };
-    }
-    const idx = await idxRes.json();
-    const items = idx?.directory?.item || [];
-    // The information table XML is a separate file from the primary doc.
-    // Naming varies — try several patterns in priority order.
-    const xmlFile = items.find((f) => /information.*table.*\.xml$/i.test(f.name))
-      || items.find((f) => /infotable\.xml$/i.test(f.name))
-      || items.find((f) => /\.xml$/i.test(f.name) && !/primary_doc/i.test(f.name) && f.name !== filing.primaryDocument);
-    if (!xmlFile) {
-      return { ok: false, holdings: [], error: "information-table XML not found" };
-    }
-    const xmlUrl = `https://www.sec.gov/Archives/edgar/data/${cikNum}/${accessionNoDashes}/${xmlFile.name}`;
-    // EDGAR's XML mirror occasionally stalls beyond 30s on large filings;
-    // a single retry catches transient hops without doubling worst-case
-    // wall clock (still well inside the per-firm 60s budget).
-    let xmlErr = null;
-    for (let attempt = 1; attempt <= 2; attempt++) {
-      try {
-        const xmlRes = await fetch(xmlUrl, {
-          headers: { "user-agent": SEC_USER_AGENT, accept: "application/xml,text/xml,*/*" },
-          signal: AbortSignal.timeout(20000),
-        });
-        if (!xmlRes.ok) {
-          return { ok: false, holdings: [], error: `information-table HTTP ${xmlRes.status}` };
-        }
-        const xml = await xmlRes.text();
-        const holdings = parseEdgar13FXml(xml);
-        if (!holdings.length) {
-          return { ok: false, holdings: [], error: "information table parsed zero holdings" };
-        }
-        return { ok: true, holdings, error: null };
-      } catch (err) {
-        xmlErr = err;
-        if (attempt < 2) {
-          await new Promise((r) => setTimeout(r, 1000));
-          continue;
-        }
-        throw err;
+    const primaryUrl = ownershipPrimaryUrl(cik, filing);
+    const base = primaryUrl.slice(0, primaryUrl.lastIndexOf('/') + 1);
+    const get = async (url, json = false) => {
+      const res = await readOwnershipSec(url, { signal: ownershipRequestSignal(signal, 20000) });
+      if (!res.ok) throw new Error('SEC HTTP ' + res.status);
+      return json ? res.json() : res.text();
+    };
+    const cover = parseOwnershipCover(await get(primaryUrl), filing.filingDate);
+    if (cover.cik && cover.cik !== String(Number(cik))) throw new Error('SEC cover filer identity mismatch');
+    if (cover.reportPeriod && cover.reportPeriod !== filing.reportDate) throw new Error('SEC cover report period mismatch');
+    let disclosures = [];
+    if (cover.entries !== 0) {
+      const idx = await get(base + 'index.json', true);
+      const candidates = (idx?.directory?.item || []).filter(item => /\.xml$/i.test(item.name)
+        && item.name !== primaryUrl.split('/').at(-1) && !/primary_doc/i.test(item.name));
+      if (!candidates.length || candidates.length > 30) throw new Error('SEC information table file set unavailable');
+      // A filing can contain several information tables. The cover's entry and
+      // value totals, rather than filename heuristics, establish completeness.
+      for (const file of candidates) {
+        if (!/^[\w.-]+\.xml$/i.test(file.name)) throw new Error('Invalid information table filename');
+        const sourceUrl = base + encodeURIComponent(file.name);
+        const rows = parseOwnership13FXml(await get(sourceUrl), { filingDate: filing.filingDate, sourceUrl, accession: filing.accessionNumber });
+        disclosures.push(...rows);
       }
     }
-    throw xmlErr || new Error("EDGAR XML fetch failed");
+    validateOwnershipTable(disclosures, cover);
+    if (filing.form === '13F-HR/A') {
+      if (cover.amendmentType === 'NEW HOLDINGS') {
+        const earlier = [...(filing.previousFilings || [])], predecessor = earlier.pop();
+        if (!predecessor) throw new Error('Additive amendment has no earlier filing in submissions');
+        const prior = await fetchEdgar13FHoldings(cik, { ...predecessor, previousFilings: earlier }, { signal });
+        if (!prior.ok) throw new Error('Additive amendment predecessor unavailable');
+        disclosures = [...prior.disclosures, ...disclosures];
+      } else if (cover.amendmentType !== 'RESTATEMENT') throw new Error('Unknown 13F amendment type');
+    }
+    const holdings = disclosures.filter(r => r.type === 'stock').map(r => ({ ...r, name: titleCaseIssuer(r.name) }));
+    return { ok: true, holdings, disclosures, url: primaryUrl, cover, error: null };
   } catch (err) {
     console.log(`    ⚠ EDGAR holdings CIK${cik} accession ${filing.accessionNumber} failed: ${err.message}`);
     return { ok: false, holdings: [], error: err.message };
   }
+}
+
+// A 13F-NT names the reporting manager. Follow only an unambiguous SEC
+// reference, retaining its source identity and preventing referral cycles.
+async function resolveOwnershipReporter(cik, targetReportDate, seen = new Set(), signal = null) {
+  if (seen.has(String(cik)) || seen.size >= 3) throw new Error('SEC reporting-manager referral cycle');
+  seen.add(String(cik));
+  const submissions = await fetchEdgarSubmissions(cik, targetReportDate, signal);
+  if (!submissions) throw new Error('SEC submissions unavailable');
+  const filings = findLatestTwo13Fs(submissions, targetReportDate);
+  const notice = ownershipNotice(submissions, targetReportDate);
+  const latest = filings[0];
+  const noticeIsNewer = notice && (!latest || String(notice.filingDate) > String(latest.filingDate) || notice.filingDate === latest.filingDate && String(notice.accessionNumber) > String(latest.accessionNumber));
+  if (latest && !noticeIsNewer) return { cik: String(cik), name: submissions.name || null, filings, historyComplete: submissions.historyComplete !== false, sourceChain: [] };
+  if (!notice) throw new Error('No holdings report or notice for the target quarter');
+  const noticeUrl = ownershipPrimaryUrl(cik, notice);
+  const response = await readOwnershipSec(noticeUrl, { signal: ownershipRequestSignal(signal, 20000) });
+  if (!response.ok) throw new Error('SEC notice HTTP ' + response.status);
+  const cover = parseOwnershipCover(await response.text(), notice.filingDate);
+  if (cover.reportingManagers.length !== 1) throw new Error('Notice names multiple or no reporting managers; attribution requires review');
+  const reporter = cover.reportingManagers[0];
+  const resolved = await resolveOwnershipReporter(reporter.cik, targetReportDate, seen, signal);
+  return { ...resolved, sourceChain: [{ cik: String(cik), name: submissions.name, noticeUrl, reportingCik: reporter.cik, reportingName: reporter.name }, ...resolved.sourceChain] };
 }
 
 // SEC issuer names arrive in SHOUTING UPPERCASE (e.g. "MICROSOFT CORP COM").
@@ -9742,10 +9732,11 @@ const F13_CUSIP_TICKER_OVERRIDES = new Map([
   ["G0259H108", "ACN"],    // Accenture PLC
 ]);
 
-// exchCode (e.g. "US") narrows each lookup to one market's listings; the 13F
-// tab leaves it unset and keeps its existing behavior.
-async function fetchOpenFigiCusipMap(cusips, { exchCode = null } = {}) {
+// US listing mappings avoid substituting a foreign listing for a 13F CUSIP.
+// The caller reuses the prior CUSIP map and rotates unresolved lookup attempts.
+async function fetchOpenFigiCusipMap(cusips, { exchCode = null, deadline = Date.now() + 135000 } = {}) {
   const out = new Map();
+  out.attemptedCusips = new Set();
   const unique = [...new Set(cusips.filter(Boolean))];
   if (!unique.length) return out;
   // Pre-seed the overrides so they're already mapped before any network call.
@@ -9762,6 +9753,12 @@ async function fetchOpenFigiCusipMap(cusips, { exchCode = null } = {}) {
   const maxBatches = hasKey ? Infinity : OPENFIGI_MAX_BATCHES_UNAUTH;
   let batchesDone = 0;
   for (let i = 0; i < toFetch.length; i += chunkSize) {
+    if (Date.now() >= deadline) break;
+    if (i > 0) {
+      const wait = hasKey ? 250 : 2500;
+      if (Date.now() + wait >= deadline) break;
+      await new Promise(resolve => setTimeout(resolve, wait));
+    }
     if (batchesDone >= maxBatches) {
       const skipped = toFetch.length - i;
       console.log(`    ⚠ OpenFIGI batch budget exhausted — skipping ${skipped} CUSIPs (set OPENFIGI_API_KEY to map more)`);
@@ -9769,6 +9766,7 @@ async function fetchOpenFigiCusipMap(cusips, { exchCode = null } = {}) {
     }
     batchesDone++;
     const chunk = toFetch.slice(i, i + chunkSize);
+    for (const cusip of chunk) out.attemptedCusips.add(cusip);
     try {
       const headers = {
         "content-type": "application/json",
@@ -9781,9 +9779,14 @@ async function fetchOpenFigiCusipMap(cusips, { exchCode = null } = {}) {
         method: "POST",
         headers,
         body: JSON.stringify(chunk.map((c) => ({ idType: "ID_CUSIP", idValue: c, ...(exchCode ? { exchCode } : {}) }))),
-        signal: AbortSignal.timeout(20000),
+        signal: AbortSignal.timeout(Math.max(1, Math.min(20000, deadline - Date.now()))),
       });
       if (!res.ok) {
+        if (res.status === 429) {
+          const wait = Math.max(1000, Number(res.headers.get("retry-after")) * 1000 || 10000);
+          if (wait > 30000 || Date.now() + wait >= deadline) break;
+          await new Promise(resolve => setTimeout(resolve, wait));
+        }
         console.log(`    ⚠ OpenFIGI HTTP ${res.status} for batch ${i / chunkSize + 1}`);
         continue;
       }
@@ -9805,10 +9808,6 @@ async function fetchOpenFigiCusipMap(cusips, { exchCode = null } = {}) {
       }
     } catch (err) {
       console.log(`    ⚠ OpenFIGI batch ${i / chunkSize + 1} failed: ${err.message}`);
-    }
-    // Throttle between batches to stay under 25 req/min unauthenticated.
-    if (i + chunkSize < toFetch.length && !process.env.OPENFIGI_API_KEY) {
-      await new Promise((r) => setTimeout(r, 2500));
     }
   }
   return out;
@@ -9949,6 +9948,7 @@ export function aggregate13FDeltaRows(allDeltaRows = []) {
 export function canDiff13FFirmSnapshot(firm) {
   return !!(
     firm?.latest &&
+    !firm.comparisonUnavailable &&
     firm.latestFetchOk &&
     Array.isArray(firm.latestHoldings) &&
     firm.latestHoldings.length &&
@@ -9956,7 +9956,7 @@ export function canDiff13FFirmSnapshot(firm) {
   );
 }
 
-export async function buildPerFirm13FHoldings(asOf = new Date()) {
+export async function buildPerFirm13FHoldings(asOf = new Date(), { priorPayload = null, chains = {}, cusipMapper = fetchOpenFigiCusipMap } = {}) {
   // Freeze one report period for the whole fan-out. currentF13Quarter waits
   // until the filing deadline has passed, avoiding a partially reported
   // quarter; findLatestTwo13Fs then enforces this exact period per firm.
@@ -9965,26 +9965,23 @@ export async function buildPerFirm13FHoldings(asOf = new Date()) {
   // for each firm in parallel. allSettled (not all) so one firm's failure
   // doesn't drop the rest, and each firm races against its own 60s budget.
   const settled = await Promise.allSettled(
-    F13_TOP_FIRM_DIRECTORY.map((f) => Promise.race([
+    F13_TOP_FIRM_DIRECTORY.map((f) => {
+      let timeoutHandle;
+      const controller = new AbortController();
+      return Promise.race([
       (async () => {
-        const subs = await fetchEdgarSubmissions(f.cik);
-        const filings = subs ? findLatestTwo13Fs(subs, targetQuarter.periodEndIso) : [];
-        if (!filings.length) {
-          return {
-            firm: f.firm, cik: f.cik, latest: null, prior: null,
-            latestHoldings: [], priorHoldings: [], latestFetchOk: false, priorFetchOk: false,
-          };
-        }
-        const [latest, prior] = filings;
-        const latestFetch = await fetchEdgar13FHoldings(f.cik, latest);
+        const reporter = await resolveOwnershipReporter(f.cik, targetQuarter.periodEndIso, new Set(), controller.signal);
+        const [latest, prior] = reporter.filings;
+        const latestFetch = await fetchEdgar13FHoldings(reporter.cik, latest, { signal: controller.signal });
         if (!latestFetch.ok) {
           console.log(`    ⚠ EDGAR ${f.firm} ${latest.reportDate || latest.filingDate} skipped: ${latestFetch.error}`);
         }
-        let priorHoldings = [];
+        let priorHoldings = [], priorDisclosures = [];
         let priorFetchOk = !prior;
-        if (prior) {
-          const priorFetch = await fetchEdgar13FHoldings(f.cik, prior);
+        if (prior && reporter.sourceChain.length === 0) {
+          const priorFetch = await fetchEdgar13FHoldings(reporter.cik, prior, { signal: controller.signal });
           priorHoldings = priorFetch.holdings;
+          priorDisclosures = priorFetch.disclosures || [];
           priorFetchOk = priorFetch.ok;
           if (!priorFetch.ok) {
             console.log(`    ⚠ EDGAR ${f.firm} prior ${prior.reportDate || prior.filingDate} skipped: ${priorFetch.error}`);
@@ -9993,14 +9990,21 @@ export async function buildPerFirm13FHoldings(asOf = new Date()) {
         return {
           firm: f.firm, cik: f.cik, latest, prior,
           latestHoldings: latestFetch.holdings, priorHoldings,
-          latestFetchOk: latestFetch.ok, priorFetchOk,
+          latestDisclosures: latestFetch.disclosures, priorDisclosures, latestUrl: latestFetch.url,
+          latestFetchOk: latestFetch.ok,
+          priorFetchOk: priorFetchOk && reporter.sourceChain.length === 0,
+          comparisonUnavailable: !prior || !reporter.historyComplete || reporter.sourceChain.length > 0,
+          reportingCik: reporter.cik, reportingName: reporter.name,
+          sourceChain: reporter.sourceChain, reportingScope: reporter.sourceChain.length ? 'parent-book' : 'manager-book',
+          collectionError: latestFetch.error || null,
         };
       })(),
-      new Promise((_, reject) => setTimeout(
+      new Promise((_, reject) => { timeoutHandle = setTimeout(
         () => reject(new Error(`per-firm timeout ${F13_PER_FIRM_TIMEOUT_MS / 1000}s`)),
         F13_PER_FIRM_TIMEOUT_MS,
-      )),
-    ])),
+      ); }),
+    ]).finally(() => { clearTimeout(timeoutHandle); controller.abort(); });
+    }),
   );
   const firmsRaw = settled.map((res, i) => {
     const f = F13_TOP_FIRM_DIRECTORY[i];
@@ -10009,26 +10013,53 @@ export async function buildPerFirm13FHoldings(asOf = new Date()) {
     return {
       firm: f.firm, cik: f.cik, latest: null, prior: null,
       latestHoldings: [], priorHoldings: [], latestFetchOk: false, priorFetchOk: false,
+      collectionError: res.reason?.message || 'SEC collection failed',
     };
   });
   // Step 2: one OpenFIGI lookup across the union of CUSIPs from BOTH
   // quarters of every firm. Exit positions show up only in the prior
   // filing, so we'd lose their ticker if we mapped on latest-only.
-  const allCusips = firmsRaw.flatMap((f) => [
-    ...f.latestHoldings.map((h) => h.cusip),
-    ...f.priorHoldings.map((h) => h.cusip),
-  ]);
-  const cusipMap = await fetchOpenFigiCusipMap(allCusips);
-  // Step 3: diff + rank per firm. Skip firms with no latest filing.
-  const perFirm = {};
+  const mappingWeights = new Map();
+  for (const f of firmsRaw) for (const h of [...(f.latestDisclosures || f.latestHoldings), ...(f.priorDisclosures || f.priorHoldings)]) {
+    mappingWeights.set(h.cusip, (mappingWeights.get(h.cusip) || 0) + (h.type === 'stock' || !h.type ? h.value : h.value * 0.01));
+  }
+  const mappingAttempts = { ...(priorPayload?.mappingAttempts || {}) };
+  const allCusips = prioritizeOwnershipCusips(mappingWeights, mappingAttempts);
+  // Reuse verified prior CUSIP mappings so each build advances the unmapped tail.
+  const cachedMap = new Map();
+  for (const f of Object.values(priorPayload?.perFirm || {})) {
+    for (const r of [...(f?.holdings || []), ...(f?.topBought || []), ...(f?.topSold || [])]) {
+      if (r.cusip && r.ticker) cachedMap.set(r.cusip, r.ticker);
+    }
+  }
+  const freshMap = await cusipMapper(allCusips.filter(c => !cachedMap.has(c)), { exchCode: 'US' });
+  const cusipMap = new Map([...cachedMap, ...freshMap]);
+  for (const cusip of freshMap.attemptedCusips || []) mappingAttempts[cusip] = asOf.toISOString();
+  // Step 3: retain complete disclosed books independently of whether a
+  // predecessor is available for the legacy quarterly change tables.
+  const perFirm = {}, collectionIssues = {};
   const allDeltaRows = []; // for cross-firm aggregation
   for (const f of firmsRaw) {
     // A real first-time filer has no prior filing and may safely diff against
     // an empty portfolio. A prior filing that exists but failed to fetch is a
     // different state: omit that firm instead of fabricating every position as
     // a new buy (and contaminating the cross-firm aggregate).
+    const ownership = buildOwnershipFund(f, cusipMap, chains);
+    if (!ownership) {
+      const cached = priorPayload?.periodEndIso === targetQuarter.periodEndIso ? priorPayload.perFirm?.[f.firm] : null;
+      collectionIssues[f.firm] = f.collectionError || 'Complete SEC book unavailable';
+      perFirm[f.firm] = cached && Array.isArray(cached.holdings) && String(cached.cik) === String(f.cik)
+        ? { ...cached, collectionStatus: 'retained', collectionError: collectionIssues[f.firm],
+            collectedAtIso: cached.collectedAtIso || priorPayload.builtAtIso || null } : null;
+      continue;
+    }
+    const collectionMeta = { reportingCik: f.reportingCik, reportingName: f.reportingName,
+      sourceChain: f.sourceChain, reportingScope: f.reportingScope, collectionStatus: 'fresh', collectedAtIso: asOf.toISOString() };
     if (!canDiff13FFirmSnapshot(f)) {
-      perFirm[f.firm] = null;
+      perFirm[f.firm] = ownership ? { firm: f.firm, ...ownership, ...collectionMeta, filingDate: f.latest.filingDate,
+        reportDate: f.latest.reportDate, filingForm: f.latest.form,
+        totalValue: ownership.stockValue, totalPositions: ownership.holdings.filter(r => r.type === 'stock' && !r.isExit).length,
+        topBought: [], topSold: [] } : null;
       continue;
     }
     const latestCollapsed = collapseHoldingsByCusip(f.latestHoldings);
@@ -10047,6 +10078,8 @@ export async function buildPerFirm13FHoldings(asOf = new Date()) {
       .sort((a, b) => a.valueChange - b.valueChange)
       .slice(0, F13_TOP_N_PER_SIDE);
     perFirm[f.firm] = {
+      ...ownership,
+      ...collectionMeta,
       firm: f.firm,
       filingDate: f.latest.filingDate,
       reportDate: f.latest.reportDate,
@@ -10097,6 +10130,8 @@ export async function buildPerFirm13FHoldings(asOf = new Date()) {
     overallTopSold,
     targetPeriod: targetQuarter.period,
     targetReportDate: targetQuarter.periodEndIso,
+    collectionIssues,
+    mappingAttempts: Object.fromEntries(Object.entries(mappingAttempts).filter(([cusip]) => !cusipMap.has(cusip))),
   };
 }
 
@@ -10190,7 +10225,7 @@ async function fetchEdgarForm4(cik, symbol, filing) {
   if (!accessionNoDashes || !primary) return [];
   const cikNum = Number(cik);
   const url = `https://www.sec.gov/Archives/edgar/data/${cikNum}/${accessionNoDashes}/${encodeURIComponent(primary)}`;
-  const res = await fetch(url, {
+  const res = await readOwnershipSec(url, {
     headers: { "user-agent": SEC_USER_AGENT, accept: "application/xml,text/xml,*/*" },
     signal: AbortSignal.timeout(15000),
   });
@@ -10312,11 +10347,11 @@ export function build13FPayload(chains, narratives, asOf, perFirmResult) {
     kind: f.kind,
     filingDate: deadlineStr,
   }));
-  const biggestPositions = rankBiggestPositionsByMarketCap(chains);
   const themes = deriveF13RotationThemes(narratives);
   // perFirmResult is { perFirm, overallTopBought, overallTopSold } from
   // buildPerFirm13FHoldings. Defend against null/legacy callers.
   const perFirm = perFirmResult && perFirmResult.perFirm ? perFirmResult.perFirm : {};
+  const biggestPositions = aggregateOwnershipPositions(perFirm);
   const overallTopBought = perFirmResult && Array.isArray(perFirmResult.overallTopBought) ? perFirmResult.overallTopBought : [];
   const overallTopSold = perFirmResult && Array.isArray(perFirmResult.overallTopSold) ? perFirmResult.overallTopSold : [];
   const insiderTransactions = perFirmResult?.insiderTransactions || null;
@@ -10328,19 +10363,11 @@ export function build13FPayload(chains, narratives, asOf, perFirmResult) {
     .filter((v) => v && (Array.isArray(v.topBought) && v.topBought.length > 0
                        || Array.isArray(v.topSold) && v.topSold.length > 0))
     .length;
-  let sourceNote;
-  if (realFirms === totalFirms) {
-    sourceNote = `Real quarter-over-quarter 13F deltas parsed from SEC EDGAR for ${totalFirms} mid-sized fund managers ` +
-      `($${F13_AUM_MIN_BILLIONS}B–$${F13_AUM_MAX_BILLIONS}B AUM). Each firm's top ${F13_TOP_N_PER_SIDE} ` +
-      `most-bought and most-sold positions are computed by diffing the latest filing against the prior quarter; ` +
-      "CUSIP→ticker via OpenFIGI.";
-  } else if (realFirms > 0) {
-    sourceNote = `Partial EDGAR data this build: ${realFirms} of ${totalFirms} firms returned ` +
-      "quarter-over-quarter holdings deltas. Firms missing fall back to the curated baseline directory.";
-  } else {
-    sourceNote = `Aggregated view of mid-sized institutional 13F filers ($${F13_AUM_MIN_BILLIONS}B–$${F13_AUM_MAX_BILLIONS}B AUM). ` +
-      "EDGAR fetch was unavailable this build — per-firm tables fall back to the curated baseline.";
-  }
+  const fullFunds = Object.values(perFirm).filter(f => Array.isArray(f?.holdings)).length;
+  const retainedFunds = Object.values(perFirm).filter(f => f?.collectionStatus === 'retained').length;
+  const sourceNote = `Full public 13F books available for ${fullFunds} of ${totalFirms} tracked managers: ${fullFunds - retainedFunds} collected this build, ${retainedFunds} retained from an earlier collection. ` +
+    `Quarterly change tables are available for ${realFirms} managers. ` +
+    'Missing books are marked unavailable. Tickers use CUSIP mappings; unresolved securities remain searchable by issuer name or CUSIP.';
   return {
     builtAtIso: asOf.toISOString(),
     period: q.period,
@@ -10356,6 +10383,16 @@ export function build13FPayload(chains, narratives, asOf, perFirmResult) {
     overallTopBought,
     overallTopSold,
     insiderTransactions,
+    explorerVersion: 1,
+    collectionIssues: perFirmResult?.collectionIssues || {},
+    mappingAttempts: perFirmResult?.mappingAttempts || {},
+    ownershipCoverage: {
+      fullFunds,
+      retainedFunds,
+      totalFunds: totalFirms,
+      mappedPositions: Object.values(perFirm).flatMap(f => f?.holdings || []).filter(r => r.ticker && !r.isExit).length,
+      unmappedPositions: Object.values(perFirm).flatMap(f => f?.holdings || []).filter(r => !r.ticker && !r.isExit).length,
+    },
     biggestPositions,
     mostBought: themes.buys,
     mostSold: themes.sells,
@@ -10365,21 +10402,36 @@ export function build13FPayload(chains, narratives, asOf, perFirmResult) {
       `with the share-count change shown alongside.`,
     keyObservations: [
       `Mid-cap fund managers ($${F13_AUM_MIN_BILLIONS}B–$${F13_AUM_MAX_BILLIONS}B AUM) show more active rotation than the BlackRock/Vanguard passive tier.`,
-      "Quarter-over-quarter dollar deltas filter out the noise of passive index rebalancing.",
-      "Cross-firm aggregate surfaces names where multiple active managers are taking the same side.",
+      "Quarter-over-quarter dollar changes combine position changes with price drift. Share changes can include stock splits.",
+      "Holdings totals cover only tracked public filings and can overlap where managers share investment discretion.",
     ],
     disclaimer:
-      "13F filings are snapshots 45 days after quarter-end. They exclude non-13F assets " +
-      "(bonds, options details limited, international holdings partial). Data is self-reported " +
-      "and subject to rounding.",
+      "13F positions are quarter-end snapshots filed up to 45 days later. Only collected public 13F securities are searchable: " +
+      "shares, listed options and reportable principal amounts. Shorts, most non-US assets, private assets and confidential positions are absent. " +
+      "Option values describe underlying notional, not option premiums. Books can overlap across managers; totals are not unique ownership. " +
+      "Directory AUM estimates are undated and distinct from reported 13F value. Data is self-reported and subject to rounding.",
     latestDataLinks: "For latest raw data, check SEC EDGAR, WhaleWisdom, or 13F.info.",
   };
 }
 
-export async function write13FFile(chains, narratives, builtAtIso, perFirmResult) {
+export async function write13FFile(chains, narratives, builtAtIso, perFirmResult, { retainedParts = new Map(), dataDir = DATA_DIR } = {}) {
   const payload = build13FPayload(chains, narratives, new Date(builtAtIso), perFirmResult);
-  const json = JSON.stringify(payload);
-  await writeFile(resolve(DATA_DIR, F13_FILE), json, "utf8");
+  const packed = packOwnershipBooks(payload);
+  const retained = [...retainedParts].filter(([, r]) => Date.parse(r.expiresAtIso) > Date.parse(builtAtIso));
+  packed.payload.ownershipRetainedParts = retained.map(([key, r]) => ({ key, expiresAtIso: r.expiresAtIso }));
+  const files = new Map([...retained.map(([key, r]) => [key, r.body]), ...packed.parts]);
+  for (const [key, body] of files) {
+    await mkdir(dirname(resolve(dataDir, key)), { recursive: true });
+    await writeFile(resolve(dataDir, key), body, "utf8");
+  }
+  // The remote publisher removes only obsolete logical mappings. Current and
+  // grace files remain available to pages holding an earlier root snapshot.
+  for (const file of await readdir(resolve(dataDir, '13f-books')).catch(() => [])) {
+    const key = '13f-books/' + file;
+    if (isOwnershipBookKey(key) && !files.has(key)) await rm(resolve(dataDir, key));
+  }
+  const json = JSON.stringify(packed.payload);
+  await writeFile(resolve(dataDir, F13_FILE), json, "utf8");
   return { bytes: json.length, positions: payload.biggestPositions.length };
 }
 
@@ -28206,53 +28258,6 @@ export function buildSignalIcMap(bySignal) {
   return {};
 }
 
-export function computePicksAccuracyStats(open, closed, builtAtIso, spyBars = null) {
-  const decided = (closed || []).filter((c) => c && (c.outcome === "win" || c.outcome === "loss"));
-  const wins = decided.filter((c) => c.outcome === "win").length;
-  const losses = decided.length - wins;
-  // Explicit != null before pnum(): pnum(null) is 0 (Number(null) === 0), so a
-  // bare pnum() filter let null-P&L rows through as break-even 0% "wins".
-  const optDecided = decided.filter((c) => c.optionPnlPct != null && pnum(c.optionPnlPct) != null);
-  const optWins = optDecided.filter((c) => Number(c.optionPnlPct) > 0).length;
-  // Real-fill lens (entries since 2026-10-21 carry entry bid/ask): ask in, bid
-  // out, from the chain each Top Picks run already fetches.
-  const realDecided = decided.filter((c) => c.realFillPnlPct != null && pnum(c.realFillPnlPct) != null);
-  // "At trigger": a resting order exactly at the +TP / -stop level instead of
-  // the twice-daily mark the close was booked at.
-  const atTrigger = (c) => (c.exitDetail && c.exitDetail.atTriggerPct != null ? c.exitDetail.atTriggerPct : c.optionPnlPct);
-  const expect = (arr, f) => arr.length ? arr.reduce((a, c) => a + (Number(f(c)) || 0), 0) / arr.length : null;
-  const byKey = (keyFn) => {
-    const m = {};
-    for (const c of decided) { const k = keyFn(c); if (k == null) continue; (m[k] ||= { wins: 0, n: 0 }); m[k].n++; if (c.outcome === "win") m[k].wins++; }
-    for (const k of Object.keys(m)) m[k].winRate = m[k].n ? m[k].wins / m[k].n : null;
-    return m;
-  };
-  const openMarks = (open || []).filter((o) => o.optionPnlPct != null && pnum(o.optionPnlPct) != null);
-  return {
-    decided: decided.length, wins, losses, winRate: decided.length ? wins / decided.length : null,
-    optionDecided: optDecided.length, optionWinRate: optDecided.length ? optWins / optDecided.length : null,
-    optionExpectancyPct: r1(expect(optDecided, (c) => c.optionPnlPct)),
-    atTriggerExpectancyPct: r1(expect(optDecided, atTrigger)),
-    realFillDecided: realDecided.length,
-    realFillWinRate: realDecided.length ? realDecided.filter((c) => Number(c.realFillPnlPct) > 0).length / realDecided.length : null,
-    realFillExpectancyPct: r1(expect(realDecided, (c) => c.realFillPnlPct)),
-    // The model P&L on the same trades, so the two can be compared like for like.
-    realFillModelExpectancyPct: r1(expect(realDecided.filter((c) => c.optionPnlPct != null && pnum(c.optionPnlPct) != null), (c) => c.optionPnlPct)),
-    flat: (closed || []).filter((c) => c && c.outcome === "flat").length,
-    expectancyPct: r1(expect(decided, (c) => c.underlyingPnlPct)),
-    avgMfePct: r1(expect(decided, (c) => c.mfePct)), avgMaePct: r1(expect(decided, (c) => c.maePct)),
-    // Option (contract) peak/dip — the modeled high/low option P&L over each hold.
-    avgOptHiPct: r1(expect(optDecided.filter((c) => c.optHiPct != null && pnum(c.optHiPct) != null), (c) => c.optHiPct)),
-    avgOptLoPct: r1(expect(optDecided.filter((c) => c.optLoPct != null && pnum(c.optLoPct) != null), (c) => c.optLoPct)),
-    openOptionN: openMarks.length, openOptionAvgPnlPct: r1(expect(openMarks, (o) => o.optionPnlPct)), openOptionUp: openMarks.filter((o) => Number(o.optionPnlPct) >= 0).length,
-    byTier: byKey((c) => c.tier), bySector: byKey((c) => c.sector), byRegime: byKey((c) => c.entryRegime),
-    // Entry-cohort A/B (go = enrolled on a clean buy-now, wait = a trigger-state
-    // entry). Renders as the Track Record's "Gate A/B" panel (app-js cohortBlock
-    // shows it once both arms have decided trades) and is THE read that
-    // adjudicates whether buy-now endorsement earns its keep on resolved trades.
-    byCohort: byKey((c) => c.cohort),
-  };
-}
 
 export async function readPicksAccuracyState() {
   try {
@@ -28567,37 +28572,6 @@ export function advancePicksBaseline(prev, { chains, nowSec, builtAtIso, enrolle
     }
   }
   return { symbol: PICKS_BASELINE_SYMBOL, open, closed: closed.slice(0, PICKS_BASELINE_MAX_CLOSED) };
-}
-
-// Baseline scorecard plus the paired read: on the picks that closed with a
-// matching SPY trade, how much better (or worse) the pick did than SPY.
-export function computeBaselineStats(baseline, pickClosed) {
-  const bOpen = Array.isArray(baseline?.open) ? baseline.open : [];
-  const bClosed = Array.isArray(baseline?.closed) ? baseline.closed : [];
-  if (!bOpen.length && !bClosed.length) return null;
-  const st = computePicksAccuracyStats(bOpen, bClosed, null);
-  const byPair = new Map(bClosed.map((b) => [b.pairKey, b]));
-  const mean = (arr) => (arr.length ? arr.reduce((a, v) => a + v, 0) / arr.length : null);
-  const pick = [], spy = [], pickReal = [], spyReal = [];
-  for (const c of (pickClosed || [])) {
-    if (!c || (c.outcome !== "win" && c.outcome !== "loss")) continue;
-    const b = byPair.get(`${c.symbol}:${c.side}:${c.entryDate}`);
-    if (!b || b.optionPnlPct == null || c.optionPnlPct == null) continue;
-    pick.push(Number(c.optionPnlPct)); spy.push(Number(b.optionPnlPct));
-    if (c.realFillPnlPct != null && b.realFillPnlPct != null) { pickReal.push(Number(c.realFillPnlPct)); spyReal.push(Number(b.realFillPnlPct)); }
-  }
-  const pickAvg = mean(pick), spyAvg = mean(spy), pickRealAvg = mean(pickReal), spyRealAvg = mean(spyReal);
-  return {
-    symbol: baseline?.symbol || PICKS_BASELINE_SYMBOL,
-    open: bOpen.length, decided: st.decided, wins: st.wins, losses: st.losses, winRate: st.winRate,
-    optionExpectancyPct: st.optionExpectancyPct, realFillDecided: st.realFillDecided, realFillExpectancyPct: st.realFillExpectancyPct,
-    paired: {
-      n: pick.length, pickAvgPct: r1(pickAvg), spyAvgPct: r1(spyAvg),
-      edgePct: pickAvg != null && spyAvg != null ? r1(pickAvg - spyAvg) : null,
-      realN: pickReal.length, pickRealAvgPct: r1(pickRealAvg), spyRealAvgPct: r1(spyRealAvg),
-      realEdgePct: pickRealAvg != null && spyRealAvg != null ? r1(pickRealAvg - spyRealAvg) : null,
-    },
-  };
 }
 
 export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = null, gradesIndex = null, opts = {}) {
@@ -37348,8 +37322,8 @@ async function main() {
   // NOW so its ~60-80s runs CONCURRENTLY with the narratives + calendar + scoring
   // phases below, instead of serially after them — it was the build's second
   // biggest stage and is fully off the critical path once overlapped.
-  // buildPerFirm13FHoldings() reads only the network (never data/, chains, or
-  // narratives), so starting it here is safe; the result is awaited far below
+  // The collector reads prior ownership data and the completed public-price
+  // chains, and does not mutate either. Its result is awaited far below
   // where the 13F files are written. Its frozen as-of time ensures every firm
   // is selected against one report quarter even if the build runs long.
   // SEC-safety: the only per-ticker SEC (data.sec.gov) work — fetchRevenueSegments
@@ -37365,17 +37339,23 @@ async function main() {
   // (~125s with OPENFIGI_MAX_BATCHES_UNAUTH=50) and the slowest EDGAR firm can
   // burn its full per-firm budget on top — 185s observed in the wild.
   const F13_TIMEOUT_MS = 240_000;
-  let priorF13Payload = null;
+  let priorF13Payload = null, retainedF13Parts = new Map();
   try {
     priorF13Payload = JSON.parse(await readFile(resolve(DATA_DIR, F13_FILE), "utf8"));
+    const prior = await retainOwnershipBooks(priorF13Payload, key => readFile(resolve(DATA_DIR, key), 'utf8'), new Date());
+    priorF13Payload = prior.payload; retainedF13Parts = prior.parts;
   } catch { /* first run / hydration miss */ }
   const f13AsOf = new Date();
   const f13TargetQuarter = currentF13Quarter(f13AsOf);
   const f13Empty = {
-    perFirm: {},
+    perFirm: priorF13Payload?.periodEndIso === f13TargetQuarter.periodEndIso
+      ? Object.fromEntries(Object.entries(priorF13Payload.perFirm || {}).map(([name, f]) => [name, f && { ...f,
+          collectionStatus: 'retained', collectedAtIso: f.collectedAtIso || priorF13Payload.builtAtIso,
+          collectionError: 'Collection unavailable or timed out this build' }])) : {},
     overallTopBought: [],
     overallTopSold: [],
     insiderTransactions: priorF13Payload?.insiderTransactions || null,
+    mappingAttempts: priorF13Payload?.mappingAttempts || {},
     targetPeriod: f13TargetQuarter.period,
     targetReportDate: f13TargetQuarter.periodEndIso,
   };
@@ -37393,7 +37373,7 @@ async function main() {
   });
   let f13Settled = null;
   const f13WorkPromise = Promise.all([
-    buildPerFirm13FHoldings(f13AsOf).catch((err) => {
+    buildPerFirm13FHoldings(f13AsOf, { priorPayload: priorF13Payload, chains }).catch((err) => {
       console.log(`  ⚠ buildPerFirm13FHoldings failed: ${err?.message || err}`);
       return f13Empty;
     }),
@@ -38635,7 +38615,7 @@ async function main() {
   // belt-and-suspenders setup, a slow OpenFIGI throttle (~2.5s × dozens of
   // batches per firm) can blow past the workflow budget and leave the
   // file deleted in the next commit.
-  const baselineInfo = await write13FFile(chains, scoringNarratives, builtAtIso, f13Empty);
+  const baselineInfo = await write13FFile(chains, scoringNarratives, builtAtIso, f13Empty, { retainedParts: retainedF13Parts });
   console.log(`wrote data/13f.json (baseline) — ${baselineInfo.positions} biggest positions, ${baselineInfo.bytes} bytes`);
   // The enrichment work + its 240s timeout race were kicked off concurrently up
   // near attachMarketNarratives so they overlapped the narratives/calendar/scoring
@@ -38659,8 +38639,8 @@ async function main() {
   const totalFirms = Object.keys(perFirmMap).length;
   const form4Count = perFirmResult.insiderTransactions?.transactionCount || 0;
   console.log(`  · ${realFirms}/${totalFirms} firms returned QoQ deltas (overall: ${perFirmResult.overallTopBought.length} buys / ${perFirmResult.overallTopSold.length} sells); ${form4Count} recent Form 4 transactions`);
-  if (realFirms > 0 || form4Count > 0) {
-    const f13Info = await write13FFile(chains, scoringNarratives, builtAtIso, perFirmResult);
+  if (realFirms > 0 || form4Count > 0 || Object.values(perFirmMap).some(f => Array.isArray(f?.holdings))) {
+    const f13Info = await write13FFile(chains, scoringNarratives, builtAtIso, perFirmResult, { retainedParts: retainedF13Parts });
     console.log(`wrote data/13f.json (enriched) — ${f13Info.positions} biggest positions, ${f13Info.bytes} bytes`);
   } else {
     console.log("keeping baseline data/13f.json — EDGAR returned no usable holdings or Form 4 transactions.");
