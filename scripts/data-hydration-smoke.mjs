@@ -13,6 +13,9 @@ assert.equal(hydrationDate(new Date("2026-10-14T01:00:00Z")), today, "use the sa
 assert.throws(() => hydrationPolicy({ owner: "typo" }), /unknown hydration owner/);
 assert.throws(() => hydrationPolicy({ bakeDate: "2026-02-30" }), /invalid hydration date/);
 const policy = hydrationPolicy({ bakeDate: today });
+const ownershipPart = '13f-books/summary-' + 'a'.repeat(24) + '.json';
+assert.equal(policy(ownershipPart), true);
+for (const owner of ['unusual', 'oi', 'brief', 'transcripts', 'search-interest', 'overnight']) assert.equal(hydrationPolicy({ owner, bakeDate: today })(ownershipPart), false);
 assert.equal(policy(`evidence/${ago(59)}.json`), true);
 assert.equal(policy(`evidence/${ago(60)}.json`), false);
 assert.equal(policy(`ai-rejections/${ago(60)}.json`), true);
@@ -22,7 +25,7 @@ assert.equal(policy("ai-rejections/2026-10-14.json"), false);
 
 const root = await mkdtemp(resolve(tmpdir(), "stonks-hydration-"));
 const objects = new Map([["picks.json", Buffer.from('{}')], ["ai-rejection-scorecard.json", Buffer.from('{}')],
-  ["evidence-latest.json", Buffer.from('{}')], ["ai-rejections-latest.json", Buffer.from('{}')]]);
+  ["evidence-latest.json", Buffer.from('{}')], ["ai-rejections-latest.json", Buffer.from('{}')], [ownershipPart, Buffer.from('{}')]]);
 for (let day = 0; day < 1000; day++) for (const prefix of ["evidence", "ai-rejections"]) objects.set(`${prefix}/${ago(day)}.json`, Buffer.from('{}'));
 const reads = [];
 let pinned = true;
@@ -46,6 +49,7 @@ try {
       assert.ok(files.includes("evidence-latest.json"));
       assert.ok(files.includes("ai-rejections-latest.json"));
       assert.ok(!files.includes("ai-rejection-scorecard.json"));
+      assert.equal(reads.includes(ownershipPart), owner === 'bake', 'only the full bake downloads ownership book parts');
     }
   }
   reads.length = 0;

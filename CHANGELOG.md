@@ -36,6 +36,8 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Added
 
+- Who owns what searches full collected 13F portfolios by stock or fund, with shares, reported values, prior-quarter changes, voting authority, SEC sources, and matching collected Form 4 disclosures. Funds sort by AUM estimate, reported value, a labeled stock-price return proxy, position count, concentration, and filing date. Complete result downloads include source rows. Larger books use smaller files with disclosure details loaded on demand.
+- Ownership collection corrects Viking's SEC identifier, follows Pershing's reporting-parent notice, reads archived submissions and raw amendment XML, and reconciles all information tables to the filing cover. Publication validates every referenced file and retains a bounded reader grace window. Source failures retain dated same-quarter books; browser retries, load deadlines, exact insider search, and sub-dollar prices have regression checks.
 - Historical Data adds a **Before, on and after FOMC decisions** study: the S&P 500 index over the three sessions before each scheduled decision since 1994, the decision day and the three sessions after, split into hikes, cuts and holds (from the Fed's own list of rate changes) and compared with any stretch of the same length. The FOMC "Resembles now" card opens five days ahead and links to it, and a new data check compares the rate-change list with the effective fed funds rate.
 
 ## 2026-10-28

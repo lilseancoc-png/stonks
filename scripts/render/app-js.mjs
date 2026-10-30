@@ -1,3 +1,6 @@
+import { ownershipBookClientFactory } from '../../lib/ownership-books.mjs';
+import { ownershipExplorerFactory } from '../../lib/ownership-explorer.mjs';
+import { mountOwnershipExplorer } from './ownership-explorer-client.mjs';
 import { patternLabFactory } from './pattern-lab-client.mjs';
 import { marketAnalysisFactory } from '../../lib/market-analysis.mjs';
 import { riskStackFactory } from '../../lib/risk-stack.mjs';
@@ -31370,17 +31373,22 @@ ${renderExportBindings()}
   }
 
   // --- 13F filings tab ----------------------------------------------------
-  // Lazy-fetched on first activation. Data file is a curated quarterly
-  // summary — see data/13f.json for the schema. Re-rendering is cheap
-  // (static tables); no client-side filtering or sorting.
-  var f13State = { data: null, loading: false };
+  // Full ownership search and the quarterly research tables share one payload.
+  var ownershipModel = (${ownershipExplorerFactory.toString()})();
+  ${mountOwnershipExplorer.toString()}
+  var f13State = { data: null, loading: false, explorer: {} };
+  var ownershipBooks = (${ownershipBookClientFactory.toString()})(async function(key, options){
+    var response = await fetch(dataUrl(key), { cache: 'no-cache', signal: options.signal });
+    if (!response.ok) throw new Error('Ownership disclosure file could not load');
+    return response.json();
+  });
   function loadF13(){
     if (f13State.data || f13State.loading) { renderF13(); return; }
     f13State.loading = true;
-    fetch(dataUrl('13f.json'), { cache: 'no-cache' })
+    fetch(dataUrl('13f.json'), { cache: 'no-cache', signal: AbortSignal.timeout(20000) })
       .then(function(r){ return r.ok ? r.json() : null; })
-      .then(function(json){
-        f13State.data = json || null;
+      .then(async function(json){
+        f13State.data = ownershipModel.valid(json) ? await ownershipBooks.hydrate(json) : null;
         f13State.loading = false;
         renderF13();
       })
@@ -31447,6 +31455,8 @@ ${renderExportBindings()}
     if (!root || root.getAttribute('data-f13-actions-bound')) return;
     root.setAttribute('data-f13-actions-bound', '1');
     root.addEventListener('click', function(ev){
+      var retry = ev.target && ev.target.closest ? ev.target.closest('[data-f13-retry]') : null;
+      if (retry) { f13State.data = null; loadF13(); renderF13(); return; }
       var grade = ev.target && ev.target.closest ? ev.target.closest('[data-f13-grade]') : null;
       if (grade){ calGoToTicker(grade.getAttribute('data-f13-grade')); return; }
       var go = ev.target && ev.target.closest ? ev.target.closest('[data-f13-tab]') : null;
@@ -31476,7 +31486,7 @@ ${renderExportBindings()}
       if (eyebrow) eyebrow.textContent = 'load unavailable';
       root.innerHTML = '<section class="f13-empty-desk"><span class="f13-kicker">Data unavailable</span><h3>Institutional filing data could not load</h3>' +
         '<p>Do not infer that managers made no changes from a failed read. Use current market, narrative, and company-level evidence while the filing feed recovers.</p>' +
-        '<div class="f13-actions"><button type="button" class="f13-action f13-action-primary" data-f13-tab="narratives">Open Narratives</button><button type="button" class="f13-action" data-f13-tab="compare">Compare companies</button></div></section>';
+        '<div class="f13-actions"><button type="button" class="f13-action f13-action-primary" data-f13-retry>Retry holdings</button><button type="button" class="f13-action" data-f13-tab="compare">Compare companies</button></div></section>';
       bindF13Actions(root);
       return;
     }
@@ -31486,7 +31496,7 @@ ${renderExportBindings()}
     }
     var html = '';
     if (d.sourceNote){
-      var sourcePartial = Number(d.realFirms) > 0 && Number(d.totalFirms) > Number(d.realFirms);
+      var sourcePartial = Number(d.totalFirms) > Number(d.ownershipCoverage ? d.ownershipCoverage.fullFunds : d.realFirms) || Number(d.ownershipCoverage?.retainedFunds) > 0;
       html += '<div class="f13-source' + (sourcePartial ? ' is-partial' : '') + '">' +
         (sourcePartial ? '<span class="f13-source-status">Partial coverage</span>' : '<span class="f13-source-status">Coverage complete</span>') +
         '<p>' + escapeHtml(d.sourceNote) +
@@ -31525,6 +31535,7 @@ ${renderExportBindings()}
         ? '<a class="f13-sym" data-sym="' + escapeHtml(tk) + '" href="' + symGradeHref(tk) + '" title="Open ' + escapeHtml(tk) + ' in the Grade tab">' + escapeHtml(tk) + '</a>'
         : '<span>' + escapeHtml(tk) + '</span>';
     }
+    html += '<div id="ownership-explorer-root"></div>';
     // Decision-first preview: show the broadest cross-manager accumulation
     // and distribution before the directory and full research tables.
     if ((Array.isArray(d.overallTopBought) && d.overallTopBought.length) ||
@@ -31685,7 +31696,7 @@ ${renderExportBindings()}
       html += '<details class="f13-disclosure f13-directory"><summary><span><b>Tracked manager directory</b><small>$' + bandLo + 'B–$' + bandHi + 'B active-manager universe</small></span><span class="f13-disclosure-count">' + d.topFirms.length + ' firms</span></summary>' +
         '<div class="f13-disclosure-body"><p class="f13-note">Mid-sized active managers — the BlackRock/Vanguard passive tier is excluded since their 13F moves track index rebalances, not conviction. Smallest funds (&lt;$' + bandLo + 'B) are excluded on signal-to-noise.</p>' +
         '<div class="f13-table-scroll"><table class="f13-table">' +
-          '<thead><tr><th>Firm</th><th>AUM</th><th>Style</th><th>Filing deadline</th></tr></thead>' +
+          '<thead><tr><th>Firm</th><th>AUM estimate · undated</th><th>Style</th><th>Filing deadline</th></tr></thead>' +
           '<tbody>' +
           d.topFirms.map(function(f){
             return '<tr>' +
@@ -31905,6 +31916,7 @@ ${renderExportBindings()}
       '</div>';
     }
     root.innerHTML = html;
+    mountOwnershipExplorer($('ownership-explorer-root'), d, ownershipModel, f13State.explorer, ownershipBooks);
     bindBriefChips(root);
     bindF13Actions(root);
   }

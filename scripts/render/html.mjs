@@ -1052,11 +1052,11 @@ function capitalRaisesSection() {
 function f13Section() {
   // Card chrome only — content renders client-side from data/13f.json,
   // fetched lazily on first tab activation by loadF13() in app.js. The
-  // data file is a curated quarterly summary aggregating headline numbers
-  // from the largest 13F filers; see data/13f.json for the schema.
+  // data file contains full collected manager disclosures alongside the
+  // quarterly change summaries; see lib/ownership-13f.mjs for the schema.
   return `<section class="card" id="f13-section">
     <header class="card-header">
-      <h2 class="card-title">SEC ownership filings</h2>
+      <h2 class="card-title">Who owns what</h2>
       <span class="card-eyebrow" id="f13-eyebrow" aria-live="polite"></span>
     </header>
     ${infoNote('How to use SEC ownership signals', `<p><b>13F:</b> start with share-direction breadth. A stock added by many managers is stronger evidence than a large dollar change from one manager; dollar value also includes price drift, and filings can arrive 45 days after quarter-end. <b>Form 4:</b> code P open-market purchases are separated from code S sales and from grants, option exercises, gifts and tax withholding. Insider sales can reflect diversification or taxes, so no filing supplies an entry by itself. Open the ticker in Grade and confirm the current trend, catalyst, valuation and risk.</p>`)}
