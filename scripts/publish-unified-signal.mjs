@@ -11,7 +11,9 @@ export async function publishUnifiedSignal({ dataDir, builtAtIso, chains, grades
     read('picks.json'), read('market-analysis.json'), read(`evidence/${day}.json`),
     read('quant.json'), read('link-map.json'), read('sector-rotation.json'), read('grades.json'), read('earnings-forecast.json'), read('iv-trending.json'),
   ]);
-  const payload = buildUnifiedSignalEngine({ builtAtIso, assessmentAtIso, chains, grades, previous, picks, forecast, ivTrending,
+  // A Top Picks-only market policy cannot change this desk's approval input.
+  const researchPicks=picks?.sharedResearch||picks;
+  const payload = buildUnifiedSignalEngine({ builtAtIso, assessmentAtIso, chains, grades, previous, picks:researchPicks, forecast, ivTrending,
     scenario: market?.scenarioEngine || market?.scenario || null, evidence, quant, linkMap, rotation, gradeModelVersion: gradeSource?.gradeModelVersion || null });
   await writeUnifiedSignalEngine(dataDir, payload);
   return payload;

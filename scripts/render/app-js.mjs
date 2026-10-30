@@ -9,6 +9,7 @@ import { marketRefreshFactory } from '../../lib/market-refresh.mjs';
 import { webullAnalyticsFactory } from '../../lib/webull-analytics.mjs';
 import { webullReviewFactory } from './webull-review-client.mjs';
 import { trackRecordResetClient } from './track-record-reset-client.mjs';
+import {topPicksMarketClientFactory} from './top-picks-market-client.mjs';
 import { historicalDataFactory } from './historical-data-client.mjs';
 import { partyTrackerFactory } from './party-tracker-client.mjs';
 import { earningsForecastFactory } from './earnings-forecast-client.mjs';
@@ -3733,7 +3734,7 @@ ${scenarioEventPhase.toString()}
   function bindAccuracyTabs(){
     var tabs = document.querySelectorAll('.acc-tab');
     if (!tabs.length) return;
-    var KEYS = ['summary','scorecard','webull','webull-equity','top10','activity','picks','equity','breakdowns','webull-breakdown','sim','montecarlo','research'];
+    var KEYS = ['summary','scorecard','webull','webull-equity','top10','activity','picks','equity','breakdowns','webull-breakdown','sim','montecarlo','research','market-policy'];
     function selectAccTab(name){
       try { localStorage.setItem('stonks-acc-tab', name); } catch (_) {}
       tabs.forEach(function(btn){
@@ -4336,7 +4337,7 @@ ${renderExportBindings()}
       // Picks count — async fetch the small picks.json. Skipped without the
       // Top Picks role (the landing card is removed at boot and the fetch
       // would just 401).
-      if (HAS_TOP_PICKS) fetch(dataUrl('picks.json'), { cache: 'no-cache' })
+      if (HAS_TOP_PICKS) fetch('/api/auth/top-picks', { cache: 'no-cache',signal:AbortSignal.timeout(15000) })
         .then(function(r){ return r.ok ? r.json() : null; })
         .then(function(j){
           if (!j || !Array.isArray(j.picks)) return;
@@ -9824,6 +9825,7 @@ ${renderExportBindings()}
     fetch(dataUrl('picks.json'), { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(json){
+        json = json && json.sharedResearch || json;
         var picks = (json && Array.isArray(json.picks)) ? json.picks : [];
         var sides = {}, order = [];
         picks.forEach(function(p){
@@ -11292,6 +11294,22 @@ ${renderExportBindings()}
   // exit plan's take-profit / cut levels, with a badge the moment either
   // level is crossed intraday.
   var picksLive = { quotes: {}, marketState: '' };
+  var TOP_PICKS_MARKET_UI = (${topPicksMarketClientFactory.toString()})();
+  var picksMarketTimer = null, picksMarketBusy = false, picksMarketLast = 0;
+  function pollPicksMarket(){
+    var pane = document.getElementById('page-pane-picks');
+    if (!HAS_OWNER_ACCESS || document.hidden || !pane || pane.hidden || picksMarketBusy || Date.now()-picksMarketLast<30000 || !picksState.data?.rosterMeta?.marketAssessment) return;
+    picksMarketBusy=true; picksMarketLast=Date.now();
+    fetch('/api/auth/top-picks',{cache:'no-store',signal:AbortSignal.timeout(15000)}).then(function(r){if(!r.ok)throw new Error('Market approval unavailable');return r.json();}).then(function(json){
+      if(!Array.isArray(json.picks)||Date.parse(json.builtAtIso)<Date.parse(picksState.data.builtAtIso))return;
+      picksState.data=json;renderPicks(true);if(picksState.openSym)renderPickDetailCard(picksState.openSym);
+    }).catch(function(){
+      var d=picksState.data;
+      d.marketReviewUnavailable=true;
+      d.picks=(d.picks||[]).map(function(p){return !p.marketAdjustment?p:{...p,group:'watch',marketApproval:{...p.marketApproval,held:true,reason:'Current market approval unavailable'},entry:{...p.entry,now:false,signal:'wait-market',headline:'Current market approval unavailable'}};});
+      renderPicks(true);if(picksState.openSym)renderPickDetailCard(picksState.openSym);
+    }).finally(function(){picksMarketBusy=false;});
+  }
   // The track record tracks only ACTIONABLE picks (the recommended trades). The
   // watch/ideas list isn't enrolled (matches picks-accuracy + picks-roster), so
   // the live board + the live poll restrict to group === 'actionable'.
@@ -11396,6 +11414,7 @@ ${renderExportBindings()}
     for (i = 0; i < PICKS_WATCHLIST.length; i++){
       var wp = PICKS_WATCHLIST[i] && PICKS_WATCHLIST[i].pick;
       if (!wp || !wp.symbol) continue;
+      wp=TOP_PICKS_MARKET_UI.snapshot(wp,all);
       var wk = String(wp.symbol).toUpperCase() + '|' + (wp.side === 'put' ? 'put' : 'call');
       if (!lookup[wk]) lookup[wk] = wp;
     }
@@ -11540,8 +11559,8 @@ ${renderExportBindings()}
   });
   // The macro-tape live poll moved to the Market analysis tab (startMacroTapeLive
   // is started/stopped by selectTab on 'market') — picks live is just the quotes poller.
-  function startPicksLive(){ picksLivePoller.start(); }
-  function stopPicksLive(){ picksLivePoller.stop(); }
+  function startPicksLive(){ picksLivePoller.start(); pollPicksMarket(); if(!picksMarketTimer)picksMarketTimer=setInterval(pollPicksMarket,60000); }
+  function stopPicksLive(){ picksLivePoller.stop(); if(picksMarketTimer)clearInterval(picksMarketTimer);picksMarketTimer=null; }
   function pokePicksLive(){ picksLivePoller.poke(); }
 
   // ======================================================================
@@ -34105,10 +34124,11 @@ ${renderExportBindings()}
     var pAcc = fetch(dataUrl('picks-open.json'), { cache: 'no-cache' })
       .then(function(r){ return r.ok ? r.json() : null; })
       .catch(function(){ return null; });
-    fetch(dataUrl('picks.json'), { cache: 'no-cache' })
+    fetch('/api/auth/top-picks', { cache: 'no-cache', signal:AbortSignal.timeout(15000) })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(json){
         picksState.data = (json && Array.isArray(json.picks)) ? json : { picks: [] };
+        picksMarketLast=Date.now();
         return pAcc;
       })
       .then(function(acc){
@@ -38155,6 +38175,18 @@ ${renderExportBindings()}
     var emptyEl = $('accuracy-empty');
     var eyebrow = $('accuracy-eyebrow');
     var d = accuracyState.data || {};
+    var marketPolicySlot = $('an-market-policy');
+    if (marketPolicySlot) {
+      var horizon = marketPolicySlot.getAttribute('data-horizon') || '10';
+      TOP_PICKS_MARKET_UI.update(marketPolicySlot,TOP_PICKS_MARKET_UI.study(d.marketStudy,Number(horizon),d));
+      if(!marketPolicySlot.getAttribute('data-bound')) {
+        marketPolicySlot.setAttribute('data-bound','1');
+        marketPolicySlot.addEventListener('click',function(ev){
+          var b=ev.target.closest('[data-market-horizon]');if(!b)return;
+          marketPolicySlot.setAttribute('data-horizon',b.getAttribute('data-market-horizon'));renderAccuracy();
+        });
+      }
+    }
     var open = Array.isArray(d.open) ? d.open : [];
     var closed = Array.isArray(d.closed) ? d.closed : [];
     var st = d.stats || {};
@@ -39339,6 +39371,7 @@ ${renderExportBindings()}
       var side = p.side === 'put' ? 'put' : 'call';
       var ready = pickDisplayDecision(p).ready;
       var lines = p.symbol + ' ' + side.toUpperCase() + (ready ? ' · ready' : ' · watching') +
+        (p.marketAdjustment ? '\\nStock conviction '+Number(p.stockConviction).toFixed(1)+' · Market trade score '+Number(p.tradeScore).toFixed(1) : '') +
         '\\nMax loss $' + (loss == null ? '—' : Math.round(loss).toLocaleString()) + ' per contract' +
         (pop != null ? '\\nChance of profit ' + Math.round(pop * 100) + '%' : '') +
         (be != null ? '\\nBreakeven move ' + (be > 0 ? '+' : '') + be.toFixed(1) + '%' : '') +
@@ -39370,7 +39403,11 @@ ${renderExportBindings()}
       { label: 'Side', cell: function(p){ var sd = p.side === 'put' ? 'put' : 'call'; return '<span class="vt-tag ' + sd + '">' + sd.toUpperCase() + '</span>'; }, sort: function(p){ return p.side || null; } },
       { label: 'Structure', cell: function(p){ return escapeHtml(openPickStructure(p)); }, sort: function(p){ return (p.contract && p.contract.structure) || null; } },
       { label: 'Sector', cell: function(p){ return escapeHtml(p.sector || ''); }, sort: function(p){ return p.sector || null; } },
-      { label: 'Grade', num: true, cell: function(p){ var v = PICK_SORT_VALUE.score(p); return v == null ? '' : (v > 0 ? '+' : '−') + Math.abs(v).toFixed(1); }, sort: PICK_SORT_VALUE.score },
+      ...(picks.some(function(p){return !!p.marketAdjustment;}) ? [
+        {label:'Stock conviction',num:true,cell:function(p){return p.stockConviction==null?'':Number(p.stockConviction).toFixed(1);},sort:function(p){return pickNum(p.stockConviction);}},
+        {label:'Market trade score',num:true,cell:function(p){return p.tradeScore==null?'':Number(p.tradeScore).toFixed(1);},sort:function(p){return pickNum(p.tradeScore);}},
+        {label:'Market multiplier',num:true,cell:function(p){return p.marketAdjustment?Number(p.marketAdjustment.multiplier).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:3})+'×':'';},sort:function(p){return pickNum(p.marketAdjustment?.multiplier);}}
+      ] : [{ label: 'Grade', num: true, cell: function(p){ var v = PICK_SORT_VALUE.score(p); return v == null ? '' : (v > 0 ? '+' : '−') + Math.abs(v).toFixed(1); }, sort: PICK_SORT_VALUE.score }]),
       { label: 'Strike', num: true, cell: function(p){ var c = p.contract || {}; return c.strike != null ? '$' + escapeHtml(String(c.strike)) : ''; }, sort: function(p){ return pickNum(p.contract && p.contract.strike); } },
       { label: 'Expiry', cell: function(p){ var c = p.contract || {}; return escapeHtml(c.expiryLabel || ''); }, sort: function(p){ return pickNum(p.contract && p.contract.expiry); } },
       { label: 'DTE', num: true, cell: function(p){ var v = PICK_SORT_MISSING.dte(p); return v == null ? '' : String(v); }, sort: PICK_SORT_MISSING.dte },
@@ -40862,7 +40899,7 @@ ${renderExportBindings()}
   function buildWatchlistGroupHtml(){
     if (!PICKS_WATCHLIST.length && !WATCH_ERROR) return '';
     var cards = PICKS_WATCHLIST.map(function(w, i){
-      var p = w.pick;
+      var p = TOP_PICKS_MARKET_UI.snapshot(w.pick,picksState.data?.picks||[]);
       var inner;
       try { inner = pickTabCardHtml(p, i); }
       catch (_){
@@ -40917,6 +40954,7 @@ ${renderExportBindings()}
   }
 
   function buildPickCardHtml(p, idx){
+    p=TOP_PICKS_MARKET_UI.display(p);
     var sideCls = pickSideClass(p.side);
     var sideLabel = p.side === 'put' ? 'PUT' : 'CALL';
     var spot = p.spot != null ? '$' + Number(p.spot).toFixed(2) : '';
@@ -41010,7 +41048,7 @@ ${renderExportBindings()}
           fiftyHtml +
           watchBtnHtml +
         '</div>' +
-        pickPlanSummaryHtml(p) + bodyHtml +
+        TOP_PICKS_MARKET_UI.scores(p) + TOP_PICKS_MARKET_UI.explain(p) + pickPlanSummaryHtml(p) + bodyHtml +
       '</div>' +
     '</article>';
   }
@@ -41019,6 +41057,7 @@ ${renderExportBindings()}
   // detail page for that ticker. Shows rank, ticker, side, score, tier, and a
   // little context so the grid reads as a scannable menu.
   function pickTabCardHtml(p, idx){
+    p=TOP_PICKS_MARKET_UI.display(p);
     var sideCls = pickSideClass(p.side);
     var sideLabel = p.side === 'put' ? 'PUT' : 'CALL';
     // Grade × thesis classification + whether a strategy is recommended at all.
@@ -41145,7 +41184,7 @@ ${renderExportBindings()}
           : '') +
       '</span>' +
       (tierLabel ? '<span class="ptc-tier">' + tierLabel + '</span>' : '') +
-      thesisLine +
+      TOP_PICKS_MARKET_UI.scores(p) + thesisLine +
       entryLine +
       econ +
       (metaBits.length ? '<span class="ptc-meta">' + metaBits.join(' · ') + '</span>' : '') +
@@ -41182,11 +41221,11 @@ ${renderExportBindings()}
             : hW.verdict === 'on-track' ? '✓ Thesis on track.' : '◐ Thesis mixed — not broken, but not confirming either.';
           noteW += '<div class="pwl-detail-note pwl-detail-health-' + hW.verdict + '">' + headW + ' ' + bitsW.join(' · ') + '.</div>';
         }
-        try { holder.innerHTML = noteW + buildPickCardHtml(w.pick, 0); return; } catch (_){}
+        try { TOP_PICKS_MARKET_UI.update(holder,noteW + buildPickCardHtml(TOP_PICKS_MARKET_UI.snapshot(w.pick,picksState.data?.picks||[]), 0)); return; } catch (_){}
       }
       closePickDetail(); return;
     }
-    holder.innerHTML = buildPickCardHtml(picks[idx], idx);
+    TOP_PICKS_MARKET_UI.update(holder,buildPickCardHtml(picks[idx], idx));
   }
 
   // Open the focused judgment page for a ticker; hide the landing grid.
@@ -41538,6 +41577,8 @@ ${renderExportBindings()}
       return;
     }
     var data = picksState.data || { picks: [] };
+    var marketEvidence=$('picks-market-evidence');
+    if(marketEvidence)TOP_PICKS_MARKET_UI.update(marketEvidence,TOP_PICKS_MARKET_UI.context(data));
     var collateralBox = $('picks-liquidation-watch');
     if (collateralBox) {
       var collateralRows = !data.stale && !data.loadError && data.rosterMeta && Array.isArray(data.rosterMeta.forcedLiquidationWatch) ? data.rosterMeta.forcedLiquidationWatch : [];
@@ -41627,9 +41668,9 @@ ${renderExportBindings()}
         '<div class="picks-summary-chip picks-summary-call"><span class="picks-summary-num">' + callCount + '</span><span class="picks-summary-lbl">CALL</span></div>' +
         '<div class="picks-summary-chip picks-summary-put"><span class="picks-summary-num">' + putCount + '</span><span class="picks-summary-lbl">PUT</span></div>' +
         (strongCount > 0
-          ? '<div class="picks-summary-chip picks-summary-strong" title="Picks at the Strong Call / Strong Put tier (top ~5% of the universe by conviction this build)."><span class="picks-summary-num">' + strongCount + '</span><span class="picks-summary-lbl">strong</span></div>'
+          ? '<div class="picks-summary-chip picks-summary-strong" title="Picks at the Strong Call / Strong Put score tier; entry readiness is checked separately."><span class="picks-summary-num">' + strongCount + '</span><span class="picks-summary-lbl">strong</span></div>'
           : '') +
-        '<div class="picks-summary-chip" title="Average CONVICTION across the list — the mean of |grade| (magnitude only, so calls and puts both count toward strength, never cancelling). ' + (leanTxt ? 'The book has ' + leanTxt + ', shown by the call/put split.' : '') + '"><span class="picks-summary-num">' + avgConv + '</span><span class="picks-summary-lbl">avg conviction</span></div>' +
+        '<div class="picks-summary-chip" title="Mean magnitude of the displayed score across the list. ' + (leanTxt ? 'The book has ' + leanTxt + ', shown by the call/put split.' : '') + '"><span class="picks-summary-num">' + avgConv + '</span><span class="picks-summary-lbl">' + (data.rosterMeta?.marketAssessment ? 'avg market trade score' : 'avg conviction') + '</span></div>' +
         (avgBe != null
           ? '<div class="picks-summary-chip" title="Average move the underlying must make from today to reach breakeven at expiry, across the list — a one-glance read of how far this book needs the tape to travel for the premiums to pay."><span class="picks-summary-num">±' + avgBe + '%</span><span class="picks-summary-lbl">avg to BE</span></div>'
           : '') +
@@ -41968,6 +42009,10 @@ ${renderExportBindings()}
         tier: rec.label || '',
         side: p.side || '',
         total: r2(p.total != null ? p.total : p.score),
+        ...(p.marketAdjustment?{stockConviction:r2(p.stockConviction),optionAdjustedConviction:r2(p.optionAdjustedConviction),marketTradeScore:r2(p.tradeScore),
+          marketMultiplier:p.marketAdjustment.multiplier,marketState:p.marketAdjustment.marketState,trajectory:p.marketAdjustment.trajectory,
+          entryStatus:pickDisplayDecision(p).ready?'Ready':'Wait',marketApprovalReason:p.marketApproval?.reason||'',
+          stockReviewedAt:p.marketApproval?.thesisReviewedAt||'',marketCheckedAt:p.marketApproval?.checkedAt||''}:{}),
         fundamentals: pl.fundamentals && pl.fundamentals.score != null ? r2(pl.fundamentals.score) : '',
         technicals: pl.technicals && pl.technicals.score != null ? r2(pl.technicals.score) : '',
         mechanicals: pl.mechanicals && pl.mechanicals.score != null ? r2(pl.mechanicals.score) : '',

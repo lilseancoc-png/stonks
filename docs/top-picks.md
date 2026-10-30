@@ -1,5 +1,13 @@
 # Top Picks
 
+New Top Picks publications use the [market trade-score policy](top-picks-market-policy.md).
+Stock conviction stays visible, while one directional market multiplier replaces
+the old numerical regime overlay for Top Picks eligibility and ranking. The
+shared Grade engine retains the formula documented below. The linked policy
+specifies the Top Picks-only timing changes, live approval and prospective
+Track Record measurement; it supersedes the older Top Picks overlay behavior
+described in this reference. No other research desk adopts this new policy.
+
 The canonical spec for how a name becomes a **Top Pick**. The engine is a clean
 rebuild (it replaced a 263-knob, four-document tangle of nine self-contradicting
 reworks). It lives entirely in the `// TOP PICKS ENGINE` block of

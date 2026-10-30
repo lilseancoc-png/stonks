@@ -32,6 +32,20 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Request an uncompressed R2 lock with a strong ETag so a released Webull paper lock can be acquired conditionally; fail closed on malformed locks or repeated conflicts, expose Owner-only diagnostics, and report mirror failures in a separate workflow health job.
 - Reconcile Webull grouped option positions using confirmed broker order legs and stable position identities; prepare manual spread adoption without replaying its entry, retain separate overlapping manual holdings, and exclude manual entries from automatic fill timing and slippage.
 
+## 2026-10-30
+
+### Added
+
+- Options Top Picks keeps stock conviction visible beside a market-adjusted trade score, using the existing market labels, dated cross-asset evidence, independent participation and deterioration signals. Cards, tables and exports show the adjustment; the roster can be empty.
+- Track Record adds a Market policy view comparing previous rules, market labels and combined confirmation over 5, 10 and 20 subsequent sessions, with recommendation frequency, direction mix, adverse closes, avoided losses and missed winners. Frozen prospective evidence stays in a separate private research file.
+- Top Picks checks current market permission before new entries, preserves confirmed holds until a fresh stock and contract publication, and keeps saved snapshots and offline regeneration from granting new permissions. Existing positions retain their exit rules.
+
+### Changed
+
+- Replace overlapping Top Picks numerical regime adjustments with one directional multiplier while preserving shared grades and the prior research inputs used by other features. Add reproducible scope, permission, measurement and browser checks.
+- Audit fixes: use newer participation panels during live review, preserve the Fragile internals rule, explain exact score contributions, retain open evidence during refreshes, and keep watch-only ideas on Wait. Exclude incomplete measurement cohorts and revised split price bases from comparisons; require a known maximum loss for modeled credit-spread returns.
+- Require current Top Picks permission for automatic unfilled paper entries and end-of-day retries. An earlier order intent cannot bypass a market hold; confirmed positions keep their existing exit rules.
+
 ## 2026-10-29
 
 ### Added
