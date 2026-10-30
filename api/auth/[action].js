@@ -89,6 +89,8 @@ export default async function handler(req, res) {
       return trackRecordReset(req, res);
     case "track-record-data":
       return trackRecordData(req, res);
+    case "top-picks":
+      return (await import('../top-picks.js')).default(req,res);
     default:
       return res.status(404).json({ error: "not found" });
   }
@@ -526,8 +528,14 @@ async function webullMirror(req, res) {
     const lease = await store.withLease("webull-paper", async (guard) => {
       const [accBuf, ledgerBuf] = await Promise.all([store.get("picks-accuracy.json"), store.get(mirror.LEDGER_KEY)]);
       if (accBuf == null) return { ran: false, reason: "track record unavailable" };
-      const acc = JSON.parse(accBuf.toString("utf8"));
+      let acc = JSON.parse(accBuf.toString("utf8"));
       const ledger = ledgerBuf == null ? mirror.emptyLedger() : JSON.parse(ledgerBuf.toString("utf8"));
+      if (acc.open?.some(r=>r.marketAdjustment) && req.query?.mode !== 'eod') {
+        const [{approvedTopPicks,applyMarketAdmission},{topPicksLiveQuotes}]=await Promise.all([
+          import('../../lib/top-picks-approval.mjs'),import('../top-picks.js')]);
+        const approval=await approvedTopPicks({store,fetchLive:topPicksLiveQuotes}).catch(()=>null);
+        acc=applyMarketAdmission(acc,approval,ledger);
+      }
       const client = createWebullClient({ appKey: WEBULL_APP_KEY, appSecret: WEBULL_APP_SECRET, accessToken: WEBULL_ACCESS_TOKEN || null, timeoutMs: 5000 });
       const quoteFn = mirror.makeQuoteFn(fetchContract);
       const checkpoint = async (next) => { guard(); await store.put(mirror.LEDGER_KEY, JSON.stringify(next)); };

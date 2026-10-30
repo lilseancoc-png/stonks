@@ -23,8 +23,10 @@ import { PATTERN_HISTORY_DAYS, splitPatternHistory } from "../lib/pattern-histor
 // chain (~30-60 KB) from the same origin only when the user selects it.
 // The daily GitHub Actions workflow refreshes everything each market-day
 // morning and evening.
-import { writeFile, readFile, mkdir, rm, readdir, appendFile } from "node:fs/promises";
+import { writeFile, readFile, mkdir, rm, readdir, appendFile, rename } from "node:fs/promises";
 import { marketAnalysis } from "../lib/market-analysis.mjs";
+import { topPicksMarket, topPicksMarketSources } from "../lib/top-picks-market.mjs";
+import { advanceMarketStudy, marketStudyView, unavailableMarketStudyView, MARKET_STUDY_FILE } from "../lib/top-picks-market-study.mjs";
 import { leveragedEntryPlan, shareEntryPayoff, pickDisplayDecision } from "../lib/research-display.mjs";
 import { buildGradeResearch, emptyGradeResearch, seriesFromChains, writeGradeResearchFile } from "../lib/grade-research.mjs";
 import { dirname, resolve } from "node:path";
@@ -19273,11 +19275,27 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
   const independentFamilies = [setupScore > 0, momentumScore > 0, structureScore > 0].filter(Boolean).length;
   const payoffOk = structure.rr != null && structure.rr >= PICKS_TIMING_MIN_RR;
   const directionConfirmed = momentumScore > 0;
-  const trendReclaimed = sma20Prev != null && sma20 != null && n >= 2 && (
+  let trendReclaimed = sma20Prev != null && sma20 != null && n >= 2 && (
     isCall
       ? c[n - 2] <= sma20Prev && lastC > sma20
       : c[n - 2] >= sma20Prev && lastC < sma20
   );
+  // Top Picks alone accepts a recent reclaim that continues to hold. The
+  // shared grade and every other caller retain their existing timing policy.
+  let reclaimAge = trendReclaimed ? 0 : null;
+  if (opts.topPicksPolicy && !trendReclaimed) {
+    for (let age = 1; age <= 4 && n - age >= 21; age++) {
+      const end = n - 1 - age;
+      const priorMean = timingMean(c.slice(end - 20, end));
+      const currentMean = timingMean(c.slice(end - 19, end + 1));
+      const crossed = isCall ? c[end - 1] <= priorMean && c[end] > currentMean : c[end - 1] >= priorMean && c[end] < currentMean;
+      const holds = c.slice(end).every((value, i) => {
+        const at = end + i, avg = timingMean(c.slice(at - 19, at + 1));
+        return isCall ? value > avg : value < avg;
+      });
+      if (crossed && holds) { trendReclaimed = true; reclaimAge = age; break; }
+    }
+  }
   const crowdedProof = !crowdedAligned || extensionTier === "normal" || momentumScore >= 2;
   const countertrendProof = !fightsTape || (momentumScore >= 2 && structureScore > 0 && trendReclaimed);
   const goReady = !hardVeto && !hardWait && score >= PICKS_ENTRY_READY_BAR
@@ -19309,6 +19327,7 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
     readiness: {
       score, bar: PICKS_ENTRY_READY_BAR, independentFamilies, directionConfirmed,
       structureOk: structure.clear, payoffOk, crowdedProof, countertrendProof, trendReclaimed,
+      ...(opts.topPicksPolicy ? {reclaimAge} : {}),
     },
     metrics: {
       asOfClose: r2(lastC), sma20: r2(sma20), sma50: r2(sma50), atrPct: r2((atrPct || 0) * 100),
@@ -20223,6 +20242,7 @@ export function isDominantHighGrossContinuation(macroBackdrop) {
 }
 
 export function regimePrimaryGateClears(row, macroBackdrop) {
+  if (row?.marketAdjustment) return true; // the Top Picks market fit replaces this grade overlay
   if (!isDominantHighGrossContinuation(macroBackdrop)) return true;
   if (row?.regimeOverlay?.alignment !== "against-primary") return true;
   const pre = pnumN(row?.preRegimeTotal) ?? pnumN(row?.regimeOverlay?.preRegimeTotal) ?? pnumN(row?.total) ?? 0;
@@ -20238,6 +20258,7 @@ export function regimeCandidateSortKey(row, macroBackdrop) {
 }
 
 export function compareRegimeCandidates(a, b, macroBackdrop) {
+  if (a?.marketAdjustment || b?.marketAdjustment) macroBackdrop = null;
   const aConviction = Math.abs(pnumN(a?.total) ?? 0);
   const bConviction = Math.abs(pnumN(b?.total) ?? 0);
   const aTier = aConviction >= PICKS_TIER_STRONG ? 2 : aConviction >= PICKS_MIN_CONVICTION ? 1 : 0;
@@ -21435,6 +21456,7 @@ export function edgeGatedConviction(closed, nowIso = null) {
 export function openPickPrecheck(r, side, tactical, ctx = {}) {
   if (tactical) return "tactical";
   if (!r || !r.data) return "no-data";
+  if (r.marketAdjustment && !r.marketAdjustment.eligible) return "market-unavailable";
   if (Math.abs(pnum(r.total) ?? 0) < (ctx.strongBar ?? PICKS_TIER_STRONG)) return "below-bar";
   if (pillarsAlignedFor(r, side) < 2) return "confluence";
   const entry = computeEntrySignal(side, pnum(r.data.spot), r.data, r.timing, { total: r.total });
@@ -21492,10 +21514,52 @@ export function structuralVeto(r, side) {
   return null;
 }
 
+export function buildTopPicksMarketContext(chains, macroBackdrop, builtAtIso, sources = {}) {
+  const moves = [];
+  const cutoff = Date.parse(builtAtIso) - 7 * 86400000;
+  for (const [symbol, data] of Object.entries(chains || {})) {
+    if (SECTORS[symbol] === 'ETF') continue;
+    const event = (data?.earningsHx?.events || []).filter(e => Date.parse(e.date) >= cutoff && Date.parse(e.date) < Date.parse(builtAtIso)
+      && Number.isFinite(e.movePct)).sort((a,b) => b.date.localeCompare(a.date))[0];
+    if (event) moves.push({symbol,date:event.date,movePct:event.movePct*100});
+  }
+  const sorted = moves.map(e=>e.movePct).sort((a,b)=>a-b);
+  const earnings = {n:moves.length,negativeShare:moves.length?moves.filter(e=>e.movePct<0).length/moves.length:null,
+    medianMovePct:sorted.length?picksMedian(sorted):null,asOf:builtAtIso,rows:moves};
+  const gamma = chains?.SPY ? computeGexSummary(chains.SPY.chains, chains.SPY.spot, {now:Date.parse(builtAtIso)}) : null;
+  const context = topPicksMarketSources({macro:macroBackdrop,asOf:builtAtIso,
+    heatmap:buildHeatmapPayload(chains,builtAtIso),volume:sources.volume?{...sources.volume,tickers:(sources.volume.tickers||[]).map(r=>({...r,sector:sectorGroupOf(r.symbol)||r.sector}))}:null,
+    calendar:sources.calendar,overnight:sources.overnight,gamma:gamma?{...gamma,asOf:chains.SPY.quoteAsOf||builtAtIso}:null,earnings});
+  const previous = (sources.regimeHistory?.days || []).filter(d=>d.date<etDateKey(new Date(builtAtIso))).at(-1);
+  return topPicksMarket.assess({macroRegime:macroBackdrop?.macroRegime,asOf:builtAtIso,...context,previous,transition:macroBackdrop?.scenarioEngine?.transition});
+}
+
+export function prepareTopPicksScoring(preScored, macroBackdrop, assessment) {
+  if (!assessment || preScored?.marketPolicyVersion) return preScored;
+  const mr = macroBackdrop?.macroRegime;
+  const regime = mr?.state==='severe-risk-off'?'severe':mr?.state||'neutral';
+  return {...preScored,marketPolicyVersion:topPicksMarket.VERSION,scored:(preScored?.scored||[]).map(r=>{
+    const side=(r.preRegimeTotal??r.total)>=0?'call':'put';
+    const kind=macroKindOf(r.sym,r.data), exposure=kind==='volLong'?-1:['gold','bondProxy'].includes(kind)?0:1;
+    const stockConviction=r.base??Object.values(r.pillars||{}).filter(p=>!p.executionOnly).slice(0,4).reduce((s,p)=>s+(p.score||0),0);
+    const pre=r.preRegimeTotal??r.total;
+    const adjustment=topPicksMarket.score(assessment,{conviction:stockConviction||pre,optionAdjusted:pre,side,exposure,tradeFloor:PICKS_MIN_CONVICTION,strongBar:PICKS_TIER_STRONG});
+    // Non-equity instruments follow their own profile, not equity call/put direction.
+    const timingRegime=exposure===0?'neutral':exposure<0?(regime==='risk-on'?'risk-off':['risk-off','severe'].includes(regime)?'risk-on':'neutral'):regime;
+    const timing=computeEntryTiming(side,r.data,r.data?.spot,{regime:timingRegime,eventRisk:macroBackdrop?.eventRisk,topPicksPolicy:true});
+    return {...r,preRegimeTotal:pre,legacyTotal:r.total,legacyTiming:r.timing,legacyRegimeOverlay:r.regimeOverlay,stockConviction:adjustment.stockConviction,optionAdjustedConviction:pre,
+      tradeScore:adjustment.tradeScore,total:adjustment.tradeScore,side,recommendation:tierForScore(adjustment.tradeScore),
+      timing,pillars:{...r.pillars,timing:{...r.pillars?.timing,...timing,executionOnly:true}},
+      regimeOverlay:{...r.regimeOverlay,method:'market-multiplier',state:assessment.state,asOf:assessment.asOf,
+        preRegimeTotal:pre,adjustedTotal:adjustment.tradeScore,adjustment:r1(adjustment.tradeScore-pre),bias:null,tradeBias:null,multiplier:adjustment.multiplier},
+      marketAdjustment:adjustment,marketAssessment:assessment};
+  })};
+}
+
 export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayload = null, macroBackdrop = null, volumeFlags = null, rfr = FALLBACK_RISK_FREE_RATE, opts = {}) {
   // Reuse a pre-computed scoring pass when supplied (writeTopPicksFile scores once
   // up front to build the AI thesis map before re-entering the gate); else score.
-  const { scored, peerIndex, regimeBand } = opts.preScored || scoreAllTickers(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, opts);
+  const { scored, peerIndex, regimeBand } = prepareTopPicksScoring(opts.preScored || scoreAllTickers(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, opts), macroBackdrop, opts.marketAssessment);
   const regime = regimeBand;
   const collateralWatch = scored.map(r=>r.forcedLiquidation).filter(Boolean);
   const factorHealth = computeFactorTrendHealth(scored);
@@ -21516,6 +21580,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   // Record follows each one's stock move afterwards (gateLog in
   // picks-accuracy.json), so every rule can be judged on what it turned away.
   const turnedAway = [];
+  if (opts.marketAssessment) meta.marketAssessment = opts.marketAssessment;
   meta.collateralGated = [];
   meta.forcedLiquidationWatch = collateralWatch;
   meta.buyoutGated = [];
@@ -21528,7 +21593,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   const candidates = [];
   for (const r of scored) {
     const preClearsBar = Math.abs(pnumN(r.preRegimeTotal) ?? r.total) >= minConv;
-    const actionable = preClearsBar && Math.abs(r.total) >= minConv && r.side;
+    const actionable = preClearsBar && (r.marketAdjustment || Math.abs(r.total) >= minConv) && r.side;
     const tactical = (regime === "risk-off" || regime === "severe") && r.total <= PICKS_RISKOFF_PUT_BAR && r.timing?.state !== "avoid";
     // Disclosed terms near a collateral maintenance threshold add a downside
     // veto to new bullish ideas. They never manufacture a bearish entry.
@@ -21642,7 +21707,10 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     // AI can adjudicate only an ordinary, non-negative soft wait. Every audited
     // GO invariant remains deterministic and binding even when the price-only
     // entry helper would otherwise report a usable trigger.
-    const entryBlocked = entryPromotionBlocked(entry, r.timing);
+    const entryBlocked = entryPromotionBlocked(entry, r.timing) || (r.marketAdjustment && !r.marketAdjustment.eligible);
+    if (r.marketAdjustment && !r.marketAdjustment.eligible) {
+      entry.now = false; entry.signal = 'wait-market'; entry.headline = 'Wait — current index and volatility evidence is required';
+    }
     const entryConfirmed = entryBlocked ? false : aiVerdict ? aiVerdict === "buy-now" : entry.now === true;
     const heldBackBefore = meta.aiEntryHeldBack.length;
     if (aiVerdict) {
@@ -21794,15 +21862,36 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   // The forward scenario layer is a filter, not another alpha score. It cannot
   // promote a weak name or flip a side; it can only cap gross exposure while
   // its per-name timing/vehicle context travels with the pick.
-  const scenarioGross = clamp(pnum(macroBackdrop?.scenarioEngine?.decision?.grossMultiplier) ?? 1, 0.5, 1);
+  const scenarioGross = opts.marketAssessment ? 1 : clamp(pnum(macroBackdrop?.scenarioEngine?.decision?.grossMultiplier) ?? 1, 0.5, 1);
   for (const pick of finalPicks) {
     const overlay = scenarioOverlayForSymbol(macroBackdrop?.scenarioEngine, pick.symbol, pick.side);
-    if (overlay) pick.scenarioOverlay = overlay;
+    if (overlay) pick.scenarioOverlay = opts.marketAssessment ? {...overlay,sizeMultiplier:1,note:overlay.note+' Market grade adjustment is already included in the trade score.'} : overlay;
   }
   applyPickSizing(finalPicks, edgeScale * regimeGross * scenarioGross);
   meta.scenarioGrossMult = scenarioGross;
   meta.book = computeBookRisk(finalPicks);
   meta.deployedGross = r2(finalPicks.reduce((a, p) => a + (p.sizing?.weight || 0), 0));
+
+  if (opts.marketAssessment) {
+    const selected = new Set(finalPicks.filter(p=>p.group==='actionable').map(p=>p.symbol+':'+p.side));
+    meta.marketDecisions = scored.filter(r=>Math.abs(r.preRegimeTotal??0)>=PICKS_MIN_CONVICTION).map(r=>{
+      const side=r.side, old={...r,total:r.legacyTotal,timing:r.legacyTiming,regimeOverlay:r.legacyRegimeOverlay,marketAdjustment:null};
+      const labelAdjustment=topPicksMarket.score({...opts.marketAssessment,confirmation:0},{conviction:r.stockConviction,optionAdjusted:r.preRegimeTotal,side,exposure:r.marketAdjustment.exposure,tradeFloor:PICKS_MIN_CONVICTION,strongBar:PICKS_TIER_STRONG});
+      const label={...r,total:labelAdjustment.tradeScore};
+      const excluded=openSym.has(r.sym)||!!structuralVeto(r,side);
+      const clears=row=>!excluded&&regimePrimaryGateClears(row,macroBackdrop)&&Math.abs(row.preRegimeTotal??row.total)>=PICKS_TIER_STRONG&&!openPickPrecheck(row,side,false,{strongBar,rfr,eventRisk:macroBackdrop?.eventRisk,factorHealth});
+      const pick=finalPicks.find(p=>p.symbol===r.sym&&p.side===side);
+      const earningsInWindow=(()=>{const d=etDaysUntil(r.data?.fundamentals?.nextEarningsDate);return d!=null&&d>=0&&d<=PICKS_STRATEGY_EARNINGS_DAYS;})();
+      const strategy=selectStrategy(old,side,{eventRisk:macroBackdrop?.eventRisk,earningsInWindow,thesisTier:'strong',ivAsOfDate:r.ivAsOfDate});
+      const contract=pick?.contract||buildPickContract(side,r.data,rfr,strategy,{evaluateEconomics:true,stockPlan:r.legacyTiming?.structure})?.contract||null;
+      return {symbol:r.sym,side,spot:r.data.spot,stockConviction:r.stockConviction,optionAdjustedConviction:r.preRegimeTotal,
+        legacyScore:r.legacyTotal,tradeScore:r.tradeScore,multiplier:r.marketAdjustment.multiplier,marketState:opts.marketAssessment.state,
+        marketAsOf:opts.marketAssessment.asOf,policyVersion:topPicksMarket.VERSION,trajectory:opts.marketAssessment.trajectory,
+        selected:selected.has(r.sym+':'+side),aiReviewed:!!opts.aiThesisMap?.[r.sym+':'+side],contract,rate:rfr,
+        policies:{legacy:{score:old.total,eligible:clears(old)},labels:{score:label.total,eligible:clears(label)},combined:{score:r.total,eligible:clears(r)}},
+        reason:excluded?'Existing position or structural veto':!r.marketAdjustment.eligible?'Market evidence unavailable':Math.abs(r.total)<strongBar?'Market-adjusted score below bar':openPickPrecheck(r,side,false,{strongBar,rfr,eventRisk:macroBackdrop?.eventRisk,factorHealth})||'Independent prerequisites clear'};
+    });
+  }
 
   finalPicks.rosterMeta = meta;
   // Not part of the picks.json payload (array extras are dropped by
@@ -21839,6 +21928,9 @@ function buildPickObject(r, side, contract, exitPlan, entryPlan, peers, peerGrou
   } : null;
   return {
     symbol: r.sym, side, total: r.total, score: r.total, conviction: Math.abs(r.total),
+    ...(r.marketAdjustment ? {stockConviction:r.stockConviction,optionAdjustedConviction:r.optionAdjustedConviction,legacyTotal:r.legacyTotal,
+      tradeScore:r.tradeScore,marketAdjustment:r.marketAdjustment,
+      marketApproval:{version:topPicksMarket.VERSION,held:!r.marketAdjustment.eligible,checkedAt:r.marketAdjustment.marketAsOf,thesisReviewedAt:r.marketAdjustment.marketAsOf}} : {}),
     recommendation: rec, spot, sector: SECTORS[r.sym] || r.data?.fundamentals?.sector || null,
     // Broad group — what the sector cap counted, and what the Track Record
     // groups accuracy by (a fine label would make one-stock buckets).
@@ -26799,7 +26891,14 @@ async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload 
   //      the execution matrix (classification) and VETOES a
   //      'reject'. Self-skips keyless (deterministic grade stands as the fallback).
   const preScored = scoreAllTickers(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, baseOpts);
-  const aiThesis = await generateAiTheses(preScored, macroBackdrop, { ...baseOpts, rfr }, thesisProsePrior || {});
+  // Existing research consumers depend on the previous Top Picks decision.
+  // Keep their original review/cache and source snapshot independent of the
+  // new policy. Both passes retain the existing six-candidate and skip gates.
+  const legacyAi = baseOpts.marketAssessment
+    ? await generateAiTheses(preScored, macroBackdrop, {...baseOpts,rfr}, thesisProsePrior || {})
+    : null;
+  const topScored = prepareTopPicksScoring(preScored, macroBackdrop, baseOpts.marketAssessment);
+  const aiThesis = await generateAiTheses(topScored, macroBackdrop, { ...baseOpts, rfr }, baseOpts.marketAssessment ? thesisProsePrior?.__topPicksMarket || {} : thesisProsePrior || {});
   // LEAPS reads the full preScored universe after the short-term grader.
   // It clones pillars, writes leaps-picks.json only, and does not change
   // preScored, the thesis map, or picks.json. A failure here stays off that path.
@@ -26811,12 +26910,19 @@ async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload 
   } catch (err) {
     console.warn(`[leaps] score skipped — ${String(err?.message || err).split("\n")[0]}`);
   }
-  const picks = buildTopPicks(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, rfr, { ...baseOpts, preScored, aiThesisMap: aiThesis.map, aiGraderSkipped: !!aiThesis.skipped });
+  const picks = buildTopPicks(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, rfr, { ...baseOpts, preScored:topScored, aiThesisMap: aiThesis.map, aiGraderSkipped: !!aiThesis.skipped });
   const picksPath = resolve(DATA_DIR, PICKS_FILE);
 
   let priorPayload = priorPicks;
   if (!priorPayload) { try { priorPayload = JSON.parse(await readFile(picksPath, "utf8")); } catch { priorPayload = null; } }
   applyPickFirstSeen(picks, priorPayload?.picks, builtAtIso);
+  let sharedResearch = null;
+  if (baseOpts.marketAssessment) {
+    const legacyPicks = buildTopPicks(chains,narratives,streaksMap,unusualPayload,macroBackdrop,volumeFlags,rfr,
+      {...baseOpts,marketAssessment:null,preScored,aiThesisMap:legacyAi.map,aiGraderSkipped:!!legacyAi.skipped});
+    applyPickFirstSeen(legacyPicks,(priorPayload?.sharedResearch||priorPayload)?.picks,builtAtIso);
+    sharedResearch=buildTopPicksPayload(legacyPicks,builtAtIso);
+  }
 
   if (picks.length === 0 && Array.isArray(priorPayload?.picks) && priorPayload.picks.length > 0) {
     console.warn(`[picks] buildTopPicks returned 0 — publishing an empty current roster; ${priorPayload.picks.length} prior pick${priorPayload.picks.length === 1 ? "" : "s"} not reused`);
@@ -26825,9 +26931,10 @@ async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload 
   // The AI thesis + final grade are already attached to each pick (via the map →
   // buildThesisCard / buildPickObject); persist the cache (write-after-wipe in
   // main()). Deterministic grade ships regardless, so a keyless build still works.
-  const thesisProseCache = aiThesis.cache;
+  const thesisProseCache = legacyAi ? {...legacyAi.cache,__topPicksMarket:aiThesis.cache} : aiThesis.cache;
 
   const payload = buildTopPicksPayload(picks, builtAtIso);
+  if (sharedResearch) payload.sharedResearch=sharedResearch;
   const json = JSON.stringify(payload);
   await writeFile(picksPath, json, "utf8");
   return { bytes: json.length, count: picks.length, lean: pickSideLean(picks), thesisProseCache, aiRejectionCapture: picks.aiRejectionCapture || null, leapsWritten };
@@ -27154,10 +27261,14 @@ export function buildThesisUserMessage(r, side, macroRegime, extras = {}) {
 
   const ax = (macroRegime && macroRegime.axes) || {};
   const state = macroRegime?.state || "neutral";
-  const order = ["indexes", "yields", "fed", "dxy", "inflation", "commodity", "geo", "vix", "sentiment", "globalTape"];
+  const order = ["indexes", "yields", "fed", "dxy", "inflation", "commodity", "geo", "vix", "sentiment", "globalTape", ...(r.marketAdjustment ? ['twoY','bondVol','breadth','putCall','credit','rotation'] : [])];
   const axL = [];
   for (const k of order) { const a = ax[k]; if (a && a.label && axSign(a) !== 0) axL.push(a.label); }
   L.push(`MACRO BACKDROP: cross-asset tape ${state}.${axL.length ? ` Firing axes: ${axL.join(" · ")}.` : " (no axis firing strongly.)"}`);
+  if (r.marketAdjustment) {
+    const a=r.marketAdjustment;
+    L.push(`TOP PICKS MARKET POLICY ${a.version}: stock conviction ${a.stockConviction}; option-adjusted ${a.optionAdjustedConviction}; market multiplier ${a.multiplier}; trade score ${a.tradeScore}; evidence ${a.marketAsOf}; ${a.reasons.join('; ')}. Market approval is ${a.eligible?'available':'unavailable; HOLD'}. You may hold back or reject this trade. You cannot waive the market score, deterministic entry gates or missing evidence.`);
+  }
   L.push(`MACRO RELEVANCE: for a "${kind}" name the axes that matter most are ${(profile.cite || ["indexes"]).join(", ")} — judge whether they are a tailwind or a headwind for a ${bull ? "bullish" : "bearish"} trade.`);
   // Scheduled macro vol events inside the FULL trade horizon (~2 weeks) — the
   // hard defer gate only sees 5 days, but the hold rides through all of these.
@@ -27171,8 +27282,9 @@ export function buildThesisUserMessage(r, side, macroRegime, extras = {}) {
   // prose can't tell the model "defined-risk into the event" after the print.
   const eventSoon = !!(f.nextEarningsDate && (() => { const ed = etDaysUntil(f.nextEarningsDate); return ed != null && ed >= 0 && ed <= PICKS_STRATEGY_EARNINGS_DAYS; })());
   if (ivp != null || ivz != null) {
-    const rich = (ivz != null && ivz >= 1.5) || (ivp != null && ivp >= 60);
-    const cheap = (ivz != null && ivz <= -0.5) || (ivp != null && ivp <= 30);
+    const sharedIv = r.marketAdjustment ? IV_RICHNESS.classify({pctile:ivp,iv:d.ivRank?.iv,rv30:d.technicals?.volRegime?.rv30}) : null;
+    const rich = sharedIv ? sharedIv.rich : (ivz != null && ivz >= 1.5) || (ivp != null && ivp >= 60);
+    const cheap = sharedIv ? sharedIv.cheap : (ivz != null && ivz <= -0.5) || (ivp != null && ivp <= 30);
     const favors = eventSoon
       ? "an imminent earnings/event → use DEFINED-RISK only (a spread), never a naked long that eats the IV crush"
       : rich ? "elevated; premium is rich → favor SELLING premium on the bias side (credit spread) or a defined-risk debit spread over a naked long"
@@ -27351,6 +27463,8 @@ export function thesisDecisionGuardSig(r, side, kind, macroRegime, macroCalendar
     ivp != null ? Math.round(ivp / 20) : "",
     det.now ? "buy" : `${det.signal || "wait"}${det.basis === "top-guard" ? "!" : ""}`,
     nearestEvent ? `${nearestEvent.label || ""}@${nearestEvent.date || ""}:${nearestEvent.daysOut ?? ""}` : "",
+    ...(r.marketAdjustment ? [r.marketAdjustment.version,r.marketAdjustment.marketState,r.marketAdjustment.multiplier,
+      r.marketAdjustment.eligible,r.marketAdjustment.trajectory] : []),
   ].join("|");
   // A new filing or threshold state is a material change during the normal
   // five-hour reuse window. Unaffected symbols keep their existing cache key.
@@ -28260,25 +28374,52 @@ export function buildSignalIcMap(bySignal) {
 
 
 export async function readPicksAccuracyState() {
+  // Research failure pauses only the study. The trading ledger and the other
+  // features still refresh, and the bad/missing archive is never replaced.
+  let storedStudy=null,studyUnavailable=false;
+  try {
+    const raw=await readFile(resolve(DATA_DIR,MARKET_STUDY_FILE),'utf8');
+    storedStudy=JSON.parse(raw);
+    if(!storedStudy||!Array.isArray(storedStudy.rows))throw Error('Malformed market history');
+  } catch(err) {storedStudy=null;studyUnavailable=err.code!=='ENOENT';}
+  let p;
   try {
     const raw = await readFile(resolve(DATA_DIR, PICKS_ACCURACY_FILE), "utf8");
-    const p = JSON.parse(raw);
-    // One-time reset: a stored record from before the current reset epoch is
-    // discarded wholesale (see PICKS_ACCURACY_RESET_EPOCH). Stats from the old
-    // enrollment rules must not blend into the new record.
-    if (p.resetEpoch !== PICKS_ACCURACY_RESET_EPOCH) {
-      console.log(`  picks-accuracy: reset epoch ${PICKS_ACCURACY_RESET_EPOCH} — discarding prior record (${(p.open || []).length} open, ${(p.closed || []).length} closed)`);
-      return { open: [], closed: [], stats: null };
-    }
-    return {
-      open: Array.isArray(p.open) ? p.open : [], closed: Array.isArray(p.closed) ? p.closed : [], stats: p.stats || null,
-      gateLog: Array.isArray(p.gateLog) ? p.gateLog : [], gateTotals: p.gateTotals && typeof p.gateTotals === "object" ? p.gateTotals : {},
-      archive: Array.isArray(p.archive) ? p.archive : [],
-      baseline: p.baseline && typeof p.baseline === "object"
-        ? { open: Array.isArray(p.baseline.open) ? p.baseline.open : [], closed: Array.isArray(p.baseline.closed) ? p.baseline.closed : [] }
-        : { open: [], closed: [] },
-    };
-  } catch { return { open: [], closed: [], stats: null, gateLog: [], gateTotals: {}, archive: [], baseline: { open: [], closed: [] } }; }
+    p = JSON.parse(raw);
+  } catch { return { open: [], closed: [], stats: null, gateLog: [], gateTotals: {}, archive: [], baseline: { open: [], closed: [] },...(storedStudy?{marketStudy:storedStudy}:{}),...(studyUnavailable?{marketStudyUnavailable:true}:{}) }; }
+  if(p.marketStudy?.artifact&&p.marketStudy.startedAt&&!storedStudy)studyUnavailable=true;
+  const studyState={marketStudy:storedStudy||(!studyUnavailable&&Array.isArray(p.marketStudy?.rows)?p.marketStudy:null),
+    marketStudySummary:p.marketStudy||null,marketStudyUnavailable:studyUnavailable};
+  // One-time reset: a stored record from before the current reset epoch is
+  // discarded wholesale (see PICKS_ACCURACY_RESET_EPOCH). Stats from the old
+  // enrollment rules must not blend into the new record.
+  if (p.resetEpoch !== PICKS_ACCURACY_RESET_EPOCH) {
+    console.log(`  picks-accuracy: reset epoch ${PICKS_ACCURACY_RESET_EPOCH} — discarding prior record (${(p.open || []).length} open, ${(p.closed || []).length} closed)`);
+    return { open: [], closed: [], stats: null,...studyState };
+  }
+  return {
+    open: Array.isArray(p.open) ? p.open : [], closed: Array.isArray(p.closed) ? p.closed : [], stats: p.stats || null,
+    gateLog: Array.isArray(p.gateLog) ? p.gateLog : [], gateTotals: p.gateTotals && typeof p.gateTotals === "object" ? p.gateTotals : {},
+    archive: Array.isArray(p.archive) ? p.archive : [],
+    ...studyState,
+    baseline: p.baseline && typeof p.baseline === "object"
+      ? { open: Array.isArray(p.baseline.open) ? p.baseline.open : [], closed: Array.isArray(p.baseline.closed) ? p.baseline.closed : [] }
+      : { open: [], closed: [] },
+  };
+}
+
+async function refreshTopPicksMarketStudy(state,{chains,builtAtIso,publication=false,decisions=[],assessment=null}) {
+  if(!(state.marketStudy||state.marketStudyUnavailable||state.marketStudySummary||assessment))return null;
+  const priorView=state.marketStudySummary||marketStudyView(state.marketStudy);
+  if(state.marketStudyUnavailable)return unavailableMarketStudyView(priorView,{builtAtIso,publication});
+  try {
+    const prior=state.marketStudy?{...state.marketStudy,collectionGaps:priorView?.collectionGaps||state.marketStudy.collectionGaps||0}:{collectionGaps:priorView?.collectionGaps||0};
+    const study=advanceMarketStudy(prior,{chains,builtAtIso,publication,decisions,assessment});
+    const temporary=resolve(DATA_DIR,MARKET_STUDY_FILE+'.tmp');
+    await writeFile(temporary,JSON.stringify(study),'utf8');
+    await rename(temporary,resolve(DATA_DIR,MARKET_STUDY_FILE));
+    return marketStudyView(study);
+  } catch {return unavailableMarketStudyView(priorView,{builtAtIso,publication});}
 }
 
 // ---- Gate log: what each open-pick rule turned away (measurement only) -----
@@ -28749,6 +28890,7 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
       exitPolicy: pickExitPolicy(p.contract?.structure),
       symbol: p.symbol, side: p.side, tier: p.recommendation?.tier || null, label: p.recommendation?.label || null,
       score: p.total, entryDate: builtAtIso, entrySpot: r2(p.spot), lastSpot: r2(p.spot),
+      ...(p.marketAdjustment?{stockConviction:p.stockConviction,tradeScore:p.tradeScore,marketAdjustment:p.marketAdjustment,marketApproval:p.marketApproval}:{}),
       // Entry-quality cohort, frozen at enrollment: "go" = the entry signal was
       // a clean buy-now, "wait" = a trigger-state entry (reclaim / pullback /
       // dip / event defer). Read by the go-vs-wait A/B in
@@ -28821,7 +28963,7 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
         invalidators: p.thesisCard.invalidators || [],
         driverKeys: (p.thesisCard.works || []).map((w) => w.key),
         stopSpot: p.exitPlan?.cut?.price ?? null,
-        entryScore: p.total,
+        entryScore: p.legacyTotal ?? p.total,
         // The why-this-trade narrative, AI-preferred (the final grader's own
         // words) with the deterministic thesis as the keyless fallback.
         summary: p.thesisCard.ai?.summary || p.thesisCard.summary || null,
@@ -28876,7 +29018,11 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
     : (Array.isArray(state.gateLog) ? state.gateLog : []);
   const { log: gateLog, totals: gateTotals } = foldGateLog(appended, state.gateTotals, chains, builtAtIso);
   const gateStats = computeGateStats(gateLog, chains, gateTotals, builtAtIso);
-  const payload = { builtAtIso, resetEpoch: PICKS_ACCURACY_RESET_EPOCH, entryTimingVersion: PICKS_ENTRY_TIMING_VERSION, open, closed, stats, allTimeStats, gateLog, gateTotals, gateStats, baseline, baselineStats, archive };
+  const studyPublication=enrollNewPicks&&!!picksPayload?.rosterMeta?.marketAssessment&&picksPayload.rosterMeta.marketPublication!=='offline-research';
+  const studyReport=await refreshTopPicksMarketStudy(state,{chains,builtAtIso,publication:studyPublication,
+    decisions:picksPayload?.rosterMeta?.marketDecisions||[],assessment:picksPayload?.rosterMeta?.marketAssessment});
+  const payload = { builtAtIso, resetEpoch: PICKS_ACCURACY_RESET_EPOCH, entryTimingVersion: PICKS_ENTRY_TIMING_VERSION, open, closed, stats, allTimeStats, gateLog, gateTotals, gateStats, baseline, baselineStats, archive,
+    ...(studyReport?{marketStudy:studyReport}:{}) };
   await writeFile(accPath, JSON.stringify(payload), "utf8");
   // Separate open-marks file for the Top Picks tab's "since it appeared" chip
   // (pickLiveChip + pickThesisStatusFor in app.js). It carries ONLY the
@@ -38217,6 +38363,10 @@ async function main() {
   // flow log (both scanner-owned, pre-read before the wipe) and the overnight
   // correlations sweep (tonight's fresh payload, falling back to the pre-wipe
   // snapshot if the foreign sweep came back too thin to write).
+  const marketAssessment = buildTopPicksMarketContext(chains, macroBackdrop, builtAtIso, {
+    volume:scoringVolumeFlags,calendar:indexCalendarPrev,overnight:correlationsInfo?.payload,
+    regimeHistory:regimeHistoryPrev,
+  });
   const scannerExtras = {
     forcedLiquidation,
     pendingBuyouts: pendingBuyoutsForPicks,
@@ -38233,7 +38383,7 @@ async function main() {
   };
   const refreshTopPicks = !/^(?:0|false)$/i.test(process.env.REFRESH_TOP_PICKS || "1");
   if (refreshTopPicks) {
-    const picksInfo = await writeTopPicksFile(chains, scoringNarratives, builtAtIso, scoringUnusual, macroBackdrop, picksPrev, scoringVolumeFlags, riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE, picksAccuracyPrev?.closed ?? null, gradesHistoryPrev?.latest ?? null, scannerExtras, picksAccuracyPrev?.open ?? null, true, thesisProseCachePrev, streaksInfo.map);
+    const picksInfo = await writeTopPicksFile(chains, scoringNarratives, builtAtIso, scoringUnusual, macroBackdrop, picksPrev, scoringVolumeFlags, riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE, picksAccuracyPrev?.closed ?? null, gradesHistoryPrev?.latest ?? null, {...scannerExtras,marketAssessment}, picksAccuracyPrev?.open ?? null, true, thesisProseCachePrev, streaksInfo.map);
     if (!picksInfo?.leapsWritten && leapsScoreCarry) {
       await writeFile(resolve(DATA_DIR, LEAPS_PICKS_KEY), leapsScoreCarry, "utf8");
     }
@@ -38259,6 +38409,22 @@ async function main() {
     }
     await Promise.all(topPicksCarryFiles.map((file) =>
       writeFile(resolve(DATA_DIR, file), topPicksCarry[file], "utf8")));
+    const carried = JSON.parse(topPicksCarry[PICKS_FILE]);
+    const reviewed = topPicksMarket.revalidate(carried, marketAssessment);
+    if (reviewed !== carried) {
+      reviewed.rosterMeta = {...reviewed.rosterMeta,currentMarketAssessment:marketAssessment};
+      await writeFile(resolve(DATA_DIR,PICKS_FILE),JSON.stringify(reviewed),'utf8');
+    }
+    // Mark only study outcomes between publications. Open/closed trades, exit
+    // rules and every other ledger stay on their established schedule.
+    if (topPicksCarry[PICKS_ACCURACY_FILE]) {
+      const acc=JSON.parse(topPicksCarry[PICKS_ACCURACY_FILE]);
+      const studyReport=await refreshTopPicksMarketStudy(picksAccuracyPrev,{chains,builtAtIso});
+      if (studyReport) {
+        acc.marketStudy=studyReport;
+        await writeFile(resolve(DATA_DIR,PICKS_ACCURACY_FILE),JSON.stringify(acc),'utf8');
+      }
+    }
     if (leapsScoreCarry) await writeFile(resolve(DATA_DIR, LEAPS_PICKS_KEY), leapsScoreCarry, "utf8");
     console.log("carried Top Picks roster, track record and thesis cache forward without a decision run");
   }
@@ -38328,7 +38494,7 @@ async function main() {
     try { picksNow = JSON.parse(await readFile(resolve(DATA_DIR, PICKS_FILE), "utf8")); } catch { /* picks skipped this bake — no cross-badge */ }
     const levPayload = buildLeveragedEtfPicks(chains, gradesIndex, builtAtIso, macroBackdrop?.macroRegime ?? null, {
       rfr: riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE,
-      picks: picksNow?.picks || null,
+      picks: (picksNow?.sharedResearch || picksNow)?.picks || null,
     });
     const levSyms = [
       ...levPayload.ideas.map((i) => i.etf),

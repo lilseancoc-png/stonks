@@ -9,6 +9,8 @@ import { appendScenarioHistory, buildScenarioEngine } from "../lib/scenario-engi
 import { buildGradeResearch, seriesFromChains, writeGradeResearchFile } from "../lib/grade-research.mjs";
 import { readForcedLiquidation } from './refresh-forced-liquidation.mjs';
 import { publishUnifiedSignal } from "./publish-unified-signal.mjs";
+import { buildTopPicksMarketContext, buildTopPicksPayload } from './build.mjs';
+import { topPicksMarket } from '../lib/top-picks-market.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -283,16 +285,23 @@ if (macroBackdrop?.macroRegime) {
     console.warn(`Scenario layer skipped - ${String(err?.message || err).split("\n")[0]}`);
   }
 }
-const picks = buildTopPicks(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, riskFreeRate, { priorClosed, priorGrades, openPositions: priorOpen, builtAtIso, ivAsOfDate, reentryCooldown: true, ...scannerExtras });
+const pickOptions={priorClosed,priorGrades,openPositions:priorOpen,builtAtIso,ivAsOfDate,reentryCooldown:true,...scannerExtras};
+const legacyPicks=buildTopPicks(chains,narratives,streaksMap,unusualPayload,macroBackdrop,volumeFlags,riskFreeRate,pickOptions);
+let indexCalendar=null;
+try{indexCalendar=JSON.parse(await readFile(resolve(DATA_DIR,'index-calendar.json'),'utf8'));}catch{}
+const marketAssessment=buildTopPicksMarketContext(chains,macroBackdrop,builtAtIso,{volume:volumeFlags,calendar:indexCalendar,
+  overnight:scannerExtras.correlations,regimeHistory:await readRegimeHistory()});
+const proposedPicks=buildTopPicks(chains,narratives,streaksMap,unusualPayload,macroBackdrop,volumeFlags,riskFreeRate,{...pickOptions,marketAssessment});
 
 // Preserve the day-streak across a render-only regen. priorPicks was read above
 // (before this overwrite), exactly as the full build's writeTopPicksFile does (a
 // dropped/new name resets to builtAtIso). Without this, regen would emit picks
 // with no firstSeen and the Top Picks tenure chips would vanish until the next
 // full bake. Missing/corrupt file → everything is treated as freshly seen.
-applyPickFirstSeen(picks, priorPicks, builtAtIso);
+applyPickFirstSeen(proposedPicks, priorPicks, builtAtIso);
+applyPickFirstSeen(legacyPicks,(priorPicksPayload?.sharedResearch||priorPicksPayload)?.picks,builtAtIso);
 
-const out = {
+const offlinePayload = {
   builtAtIso,
   modelEpoch: PICKS_ACCURACY_RESET_EPOCH,
   entryTimingVersion: PICKS_ENTRY_TIMING_VERSION,
@@ -300,10 +309,15 @@ const out = {
   // writeTopPicksFile), not the legacy ±PICKS_MIN_CONVICTION — the cross-sectional
   // rework retired the fixed bar, so a hardcoded 12 here ships an actionable-bar that
   // disagrees with the tiers the engine actually assigned.
-  minConviction: picks.rosterMeta?.tradeCut ?? PICKS_MIN_CONVICTION,
-  rosterMeta: picks.rosterMeta || null,
-  picks,
+  minConviction: proposedPicks.rosterMeta?.tradeCut ?? PICKS_MIN_CONVICTION,
+  rosterMeta: {...proposedPicks.rosterMeta,marketPublication:'offline-research'},
+  picks:proposedPicks,
+  sharedResearch:buildTopPicksPayload(legacyPicks,builtAtIso),
 };
+// Local regeneration can recompute research scores, but cannot create a fresh
+// stock/contract permission or decision-study cohort from persisted prices.
+const out=topPicksMarket.revalidate(offlinePayload,marketAssessment);
+const picks=out.picks;
 
 // Match the minified format that build.mjs::writeTopPicksFile uses, so a
 // regen here produces a small, reviewable diff against the workflow-built
@@ -409,7 +423,7 @@ try {
 try {
   const levPayload = buildLeveragedEtfPicks(chains, grades, builtAtIso, macroBackdrop?.macroRegime ?? null, {
     rfr: riskFreeRate,
-    picks: out?.picks || picks || null,
+    picks: legacyPicks,
   });
   const levLogPrev = await readPriorLevEtfLog();
   if (levLogPrev) levPayload.record = levRecordFromLog(levLogPrev);

@@ -110,7 +110,12 @@
     "test:owner-restrictions": "node scripts/owner-restrictions-smoke.mjs",
     "test:owner-restrictions-browser": "node scripts/owner-restrictions-browser.mjs",
     "test:owner-preservation": "node scripts/owner-preservation-smoke.mjs",
-    "test:owner-scope": "node scripts/owner-scope-smoke.mjs"
+    "test:owner-scope": "node scripts/owner-scope-smoke.mjs",
+    "test:top-picks-market": "node scripts/top-picks-market-smoke.mjs",
+    "verify:top-picks-isolation": "node scripts/top-picks-isolation-check.mjs",
+    "audit:top-picks-market": "node scripts/audit-top-picks-market.mjs",
+    "regen:top-picks-market": "node scripts/regen-top-picks-market.mjs",
+    "test:top-picks-market-browser": "node scripts/top-picks-market-browser.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.15.0",

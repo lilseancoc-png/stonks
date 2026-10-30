@@ -1927,7 +1927,7 @@ function pickDisplayDecision(p) {
   const entry = p?.entry || {};
   const timing = p?.entryTiming || {};
   const unavailable = !p?.contract || p?.strategy?.type === 'none';
-  const blocked = timing.hardWait || timing.hardVeto || timing.state === 'avoid' || entry.ai?.blocked === true;
+  const blocked = timing.hardWait || timing.hardVeto || timing.state === 'avoid' || entry.ai?.blocked === true || p?.marketApproval?.held === true;
   const economics = p?.optionEconomics || entry.economics;
   const economicsFailed = p?.optionEconomics?.eligible === false || entry.economics?.eligible === false
     || (!!p?.entryPolicyVersion && economics?.eligible !== true);
@@ -5624,7 +5624,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   function bindAccuracyTabs(){
     var tabs = document.querySelectorAll('.acc-tab');
     if (!tabs.length) return;
-    var KEYS = ['summary','scorecard','webull','webull-equity','top10','activity','picks','equity','breakdowns','webull-breakdown','sim','montecarlo','research'];
+    var KEYS = ['summary','scorecard','webull','webull-equity','top10','activity','picks','equity','breakdowns','webull-breakdown','sim','montecarlo','research','market-policy'];
     function selectAccTab(name){
       try { localStorage.setItem('stonks-acc-tab', name); } catch (_) {}
       tabs.forEach(function(btn){
@@ -7488,7 +7488,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       // Picks count — async fetch the small picks.json. Skipped without the
       // Top Picks role (the landing card is removed at boot and the fetch
       // would just 401).
-      if (HAS_TOP_PICKS) fetch(dataUrl('picks.json'), { cache: 'no-cache' })
+      if (HAS_TOP_PICKS) fetch('/api/auth/top-picks', { cache: 'no-cache',signal:AbortSignal.timeout(15000) })
         .then(function(r){ return r.ok ? r.json() : null; })
         .then(function(j){
           if (!j || !Array.isArray(j.picks)) return;
@@ -12976,6 +12976,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     fetch(dataUrl('picks.json'), { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(json){
+        json = json && json.sharedResearch || json;
         var picks = (json && Array.isArray(json.picks)) ? json.picks : [];
         var sides = {}, order = [];
         picks.forEach(function(p){
@@ -14444,6 +14445,77 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // exit plan's take-profit / cut levels, with a badge the moment either
   // level is crossed intraday.
   var picksLive = { quotes: {}, marketState: '' };
+  var TOP_PICKS_MARKET_UI = (function topPicksMarketClientFactory() {
+  const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const value=(v,unit='')=>v==null?'Pending':Number(v).toFixed(1)+unit;
+  const labels={legacy:'Previous policy',labels:'Market labels',combined:'Market + confirmation'};
+  const states={'risk-on':'Risk-on',neutral:'Neutral',fragile:'Fragile','risk-off':'Risk-off','severe-risk-off':'Severe risk-off','insufficient-data':'Unconfirmed market'};
+  const stamp=iso=>iso&&Number.isFinite(Date.parse(iso))?new Date(iso).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'}):'Unknown';
+  function snapshot(p,current=[]) {
+    if(!p?.marketAdjustment)return p;
+    const approved=current.find(r=>r.symbol===p.symbol&&r.side===p.side);
+    if(approved)return approved;
+    const reason='Saved snapshot requires a fresh Top Picks review';
+    return {...p,group:'watch',classification:'waitEntry',marketApproval:{...p.marketApproval,held:true,reason},entry:{...p.entry,now:false,signal:'wait-market',headline:reason}};
+  }
+  function context(payload) {
+    const a=payload?.rosterMeta?.currentMarketAssessment||payload?.rosterMeta?.marketAssessment;
+    if(!a)return '';
+    const counts=a.counts||{},desks=a.desks||[];
+    const multiplier=a.ready?Math.max(.5,Math.min(1.1,a.base+a.confirmation)).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:3})+'×':'Unavailable';
+    const pending=payload?.rosterMeta?.pendingMarketAssessment;
+    return '<details class="tpm-evidence"><summary>Market context · '+esc(states[a.state]||a.state)+' · '+esc(a.trajectory)+' · '+(counts.current||0)+' / 7 current reads</summary>'+
+      (payload.marketReviewUnavailable?'<p><b>Wait — current market approval is unavailable.</b> This panel shows the last successful review.</p>':'')+
+      '<p><b>'+(a.ready?'Equity-call reference multiplier '+multiplier:'Wait — current core market evidence is required')+'</b>. '+(counts.defensive||0)+' defensive and '+(counts.constructive||0)+' constructive directional reads. These are context counts; overlapping desks do not receive independent full votes. Each card applies its own trade direction and exposure.</p>'+
+      (pending?'<p><b>Confirmation pending:</b> a newer '+esc(states[pending.state]||pending.state)+' read requires a second distinct observation. Published scores remain in force until confirmed.</p>':'')+
+      '<p>'+esc((a.reasons||[]).join('. '))+'. Market checked '+esc(stamp(a.asOf))+'.</p><ul>'+desks.map(d=>'<li><b>'+esc(d.name)+'</b>: '+(!d.available?'unavailable or stale':d.id==='gamma'?(d.structure==='amplify'?'can amplify moves':'can dampen moves'):d.stance<0?'defensive':d.stance>0?'constructive':'mixed or neutral')+' · '+esc(stamp(d.asOf))+'</li>').join('')+'</ul>'+
+      '<details><summary>Cross-asset evidence behind the market label</summary><ul>'+Object.entries(a.sourceAxes||{}).map(([key,v])=>'<li><b>'+esc(key)+'</b>: '+esc(v.available?v.label:'unavailable')+' · '+esc(stamp(v.asOf))+'</li>').join('')+'</ul></details></details>';
+  }
+  function scores(p) {
+    if(!p?.marketAdjustment)return '';
+    const a=p.marketAdjustment;
+    return '<span class="tpm-scores" aria-label="Stock conviction and market-adjusted trade score">'+
+      '<span>Stock conviction <b>'+value(p.stockConviction)+'</b></span><span>Market trade score <b>'+value(p.tradeScore)+'</b></span>'+
+      '<span>'+esc(states[a.marketState]||a.marketState)+' · '+Number(a.multiplier).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:3})+'× · '+esc(a.trajectory)+'</span>'+
+      (p.marketApproval?.held?'<strong>Wait · '+esc(p.marketApproval.reason||'Market review required')+'</strong>':'')+
+      '<span class="tpm-time">Stock reviewed '+esc(stamp(p.marketApproval?.thesisReviewedAt))+' · Market checked '+esc(stamp(p.marketApproval?.checkedAt||a.marketAsOf))+'</span></span>';
+  }
+  function study(data,horizon=10,record={}) {
+    const r=data?.reports?.[horizon];
+    const unavailable=data?.unavailable?'<p><b>Measurement paused.</b> '+esc(data.issue)+' Last completed study update: '+esc(stamp(data.builtAtIso))+'.</p>':'';
+    const controls='<div class="tpm-controls" role="group" aria-label="Forward measurement horizon">'+[5,10,20].map(h=>'<button type="button" data-market-horizon="'+h+'" aria-pressed="'+(h===horizon)+'">'+h+' sessions</button>').join('')+'</div>';
+    if(!r)return '<h3>Market policy measurement</h3>'+unavailable+(data?.unavailable?'':'<p>Prospective comparisons start with the next Top Picks decision. Existing trades keep their recorded scores.</p>');
+    const table=(rows)=>'<div class="tpm-table"><table><caption>Paired eligibility comparisons · '+horizon+' subsequent confirmed sessions</caption><thead><tr><th>Policy</th><th>Eligible ideas</th><th>Ideas / run</th><th>Calls / puts</th><th>Mature</th><th>Directional win rate</th><th>Mean stock move in trade direction</th><th>Worst adverse daily close</th><th>Mean modeled option return / maximum loss</th></tr></thead><tbody>'+rows.map(p=>'<tr><th>'+esc(labels[p.key])+'</th><td>'+p.decisions+'</td><td>'+value(r.publicationCount?p.decisions/r.publicationCount:null)+'</td><td>'+p.calls+' / '+p.puts+'</td><td>'+p.mature+'</td><td>'+(p.directionalWinRatePct==null?'Needs 20 mature':value(p.directionalWinRatePct,'%'))+'</td><td>'+value(p.meanDirectionalReturnPct,'%')+'</td><td>'+value(p.worstCloseExcursionPct,'%')+'</td><td>'+value(p.meanModeledOptionRiskReturnPct,'%')+' · n='+p.modeledOptionSample+'</td></tr>').join('')+'</tbody></table></div>';
+    const actual=[...(record.closed||[]),...(record.archive||[])].filter(e=>e.marketAdjustment&&['win','loss','flat'].includes(e.outcome)&&e.optionPnlPct!=null&&Number.isFinite(Number(e.optionPnlPct)));
+    const legacy=(record.closed||[]).filter(e=>!e.marketAdjustment).length;
+    const actualMean=actual.length?actual.reduce((s,e)=>s+(Number(e.optionPnlPct)||0),0)/actual.length:null;
+    const comparisons=r.periods?.holdout||[];
+    return '<h3>Market policy measurement</h3>'+unavailable+'<p>Same stock opportunities, frozen decision evidence, three policy eligibility checks. These are prospective research comparisons, not executed portfolios or broker fills.</p>'+controls+
+      '<div class="tpm-metrics"><span><b>'+r.publicationCount+'</b> decision runs</span><span><b>'+r.total+'</b> stock-side snapshots</span><span><b>'+r.mature+'</b> mature snapshots</span><span><b>'+r.emptyRuns+'</b> runs with no recommendations</span></div>'+table(r.policies)+
+      '<p>Of '+r.heldBackSample+' mature ideas eligible under the previous policy and held by the combined policy: <b>'+r.avoidedLosers+'</b> subsequently moved against the trade; <b>'+r.missedWinners+'</b> moved with it. These are underlying-price outcomes. Eligibility changed '+r.flips+' times across repeated stock-side observations. '+r.unavailableRuns+' runs had unavailable core market evidence. '+(data.collectionGaps||0)+' decision runs could not be recorded because measurement storage was unavailable.</p>'+
+      '<p><b>Recorded Top Picks cohort:</b> '+actual.length+' resolved trades with market-policy evidence; mean recorded modeled option P&amp;L '+value(actualMean,'%')+'. '+legacy+' older closed rows retain their original policy. Verified broker-fill comparisons remain in Real fills.</p>'+
+      '<details><summary>Chronological comparison and limits</summary><p>'+esc(data.method)+' '+esc(r.caveat)+'</p><p>Multipliers are starting settings and have not been calibrated. '+(r.splitDate?'The first 70% of observed dates form the development window; later observations begin '+esc(r.splitDate)+'. This is a chronological monitoring split, not an independently untouched calibration holdout.':'At least ten observed dates are required for a chronological monitoring split.')+'</p>'+
+      (r.splitDate?'<ul>'+comparisons.map(p=>'<li>'+esc(labels[p.key])+': later-window n='+p.n+', mean directional stock return '+value(p.mean,'%')+'</li>').join('')+'</ul>':'')+
+      (r.byRegime?.length?'<p><b>By market environment</b></p><ul>'+r.byRegime.map(g=>'<li>'+esc(g.state)+': '+g.results.map(p=>esc(labels[p.key])+' n='+p.n+', '+value(p.mean,'%')).join(' · ')+'</li>').join('')+'</ul>':'')+
+      '<p>'+esc(data.historicalCoverage)+' '+(data.paused?'Collection paused at the storage cap; existing observations are preserved.':'Fixed-horizon outcomes appear only after their required sessions complete.')+'</p></details>';
+  }
+  return {scores,study,context,snapshot};
+})();
+  var picksMarketTimer = null, picksMarketBusy = false, picksMarketLast = 0;
+  function pollPicksMarket(){
+    var pane = document.getElementById('page-pane-picks');
+    if (!HAS_OWNER_ACCESS || document.hidden || !pane || pane.hidden || picksMarketBusy || Date.now()-picksMarketLast<30000 || !picksState.data?.rosterMeta?.marketAssessment) return;
+    picksMarketBusy=true; picksMarketLast=Date.now();
+    fetch('/api/auth/top-picks',{cache:'no-store',signal:AbortSignal.timeout(15000)}).then(function(r){if(!r.ok)throw new Error('Market approval unavailable');return r.json();}).then(function(json){
+      if(!Array.isArray(json.picks)||Date.parse(json.builtAtIso)<Date.parse(picksState.data.builtAtIso))return;
+      picksState.data=json;renderPicks(true);if(picksState.openSym)renderPickDetailCard(picksState.openSym);
+    }).catch(function(){
+      var d=picksState.data;
+      d.marketReviewUnavailable=true;
+      d.picks=(d.picks||[]).map(function(p){return !p.marketAdjustment?p:{...p,group:'watch',marketApproval:{...p.marketApproval,held:true,reason:'Current market approval unavailable'},entry:{...p.entry,now:false,signal:'wait-market',headline:'Current market approval unavailable'}};});
+      renderPicks(true);if(picksState.openSym)renderPickDetailCard(picksState.openSym);
+    }).finally(function(){picksMarketBusy=false;});
+  }
   // The track record tracks only ACTIONABLE picks (the recommended trades). The
   // watch/ideas list isn't enrolled (matches picks-accuracy + picks-roster), so
   // the live board + the live poll restrict to group === 'actionable'.
@@ -14548,6 +14620,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     for (i = 0; i < PICKS_WATCHLIST.length; i++){
       var wp = PICKS_WATCHLIST[i] && PICKS_WATCHLIST[i].pick;
       if (!wp || !wp.symbol) continue;
+      wp=TOP_PICKS_MARKET_UI.snapshot(wp,all);
       var wk = String(wp.symbol).toUpperCase() + '|' + (wp.side === 'put' ? 'put' : 'call');
       if (!lookup[wk]) lookup[wk] = wp;
     }
@@ -14692,8 +14765,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
   });
   // The macro-tape live poll moved to the Market analysis tab (startMacroTapeLive
   // is started/stopped by selectTab on 'market') — picks live is just the quotes poller.
-  function startPicksLive(){ picksLivePoller.start(); }
-  function stopPicksLive(){ picksLivePoller.stop(); }
+  function startPicksLive(){ picksLivePoller.start(); pollPicksMarket(); if(!picksMarketTimer)picksMarketTimer=setInterval(pollPicksMarket,60000); }
+  function stopPicksLive(){ picksLivePoller.stop(); if(picksMarketTimer)clearInterval(picksMarketTimer);picksMarketTimer=null; }
   function pokePicksLive(){ picksLivePoller.poke(); }
 
   // ======================================================================
@@ -39475,10 +39548,11 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var pAcc = fetch(dataUrl('picks-open.json'), { cache: 'no-cache' })
       .then(function(r){ return r.ok ? r.json() : null; })
       .catch(function(){ return null; });
-    fetch(dataUrl('picks.json'), { cache: 'no-cache' })
+    fetch('/api/auth/top-picks', { cache: 'no-cache', signal:AbortSignal.timeout(15000) })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(json){
         picksState.data = (json && Array.isArray(json.picks)) ? json : { picks: [] };
+        picksMarketLast=Date.now();
         return pAcc;
       })
       .then(function(acc){
@@ -43803,6 +43877,18 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var emptyEl = $('accuracy-empty');
     var eyebrow = $('accuracy-eyebrow');
     var d = accuracyState.data || {};
+    var marketPolicySlot = $('an-market-policy');
+    if (marketPolicySlot) {
+      var horizon = marketPolicySlot.getAttribute('data-horizon') || '10';
+      marketPolicySlot.innerHTML = TOP_PICKS_MARKET_UI.study(d.marketStudy,Number(horizon),d);
+      if(!marketPolicySlot.getAttribute('data-bound')) {
+        marketPolicySlot.setAttribute('data-bound','1');
+        marketPolicySlot.addEventListener('click',function(ev){
+          var b=ev.target.closest('[data-market-horizon]');if(!b)return;
+          marketPolicySlot.setAttribute('data-horizon',b.getAttribute('data-market-horizon'));renderAccuracy();
+        });
+      }
+    }
     var open = Array.isArray(d.open) ? d.open : [];
     var closed = Array.isArray(d.closed) ? d.closed : [];
     var st = d.stats || {};
@@ -44987,6 +45073,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       var side = p.side === 'put' ? 'put' : 'call';
       var ready = pickDisplayDecision(p).ready;
       var lines = p.symbol + ' ' + side.toUpperCase() + (ready ? ' · ready' : ' · watching') +
+        (p.marketAdjustment ? '\nStock conviction '+Number(p.stockConviction).toFixed(1)+' · Market trade score '+Number(p.tradeScore).toFixed(1) : '') +
         '\nMax loss $' + (loss == null ? '—' : Math.round(loss).toLocaleString()) + ' per contract' +
         (pop != null ? '\nChance of profit ' + Math.round(pop * 100) + '%' : '') +
         (be != null ? '\nBreakeven move ' + (be > 0 ? '+' : '') + be.toFixed(1) + '%' : '') +
@@ -45018,7 +45105,11 @@ function scenarioEventPhase(ev, now = Date.now()) {
       { label: 'Side', cell: function(p){ var sd = p.side === 'put' ? 'put' : 'call'; return '<span class="vt-tag ' + sd + '">' + sd.toUpperCase() + '</span>'; }, sort: function(p){ return p.side || null; } },
       { label: 'Structure', cell: function(p){ return escapeHtml(openPickStructure(p)); }, sort: function(p){ return (p.contract && p.contract.structure) || null; } },
       { label: 'Sector', cell: function(p){ return escapeHtml(p.sector || ''); }, sort: function(p){ return p.sector || null; } },
-      { label: 'Grade', num: true, cell: function(p){ var v = PICK_SORT_VALUE.score(p); return v == null ? '' : (v > 0 ? '+' : '−') + Math.abs(v).toFixed(1); }, sort: PICK_SORT_VALUE.score },
+      ...(picks.some(function(p){return !!p.marketAdjustment;}) ? [
+        {label:'Stock conviction',num:true,cell:function(p){return p.stockConviction==null?'':Number(p.stockConviction).toFixed(1);},sort:function(p){return pickNum(p.stockConviction);}},
+        {label:'Market trade score',num:true,cell:function(p){return p.tradeScore==null?'':Number(p.tradeScore).toFixed(1);},sort:function(p){return pickNum(p.tradeScore);}},
+        {label:'Market multiplier',num:true,cell:function(p){return p.marketAdjustment?Number(p.marketAdjustment.multiplier).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:3})+'×':'';},sort:function(p){return pickNum(p.marketAdjustment?.multiplier);}}
+      ] : [{ label: 'Grade', num: true, cell: function(p){ var v = PICK_SORT_VALUE.score(p); return v == null ? '' : (v > 0 ? '+' : '−') + Math.abs(v).toFixed(1); }, sort: PICK_SORT_VALUE.score }]),
       { label: 'Strike', num: true, cell: function(p){ var c = p.contract || {}; return c.strike != null ? '$' + escapeHtml(String(c.strike)) : ''; }, sort: function(p){ return pickNum(p.contract && p.contract.strike); } },
       { label: 'Expiry', cell: function(p){ var c = p.contract || {}; return escapeHtml(c.expiryLabel || ''); }, sort: function(p){ return pickNum(p.contract && p.contract.expiry); } },
       { label: 'DTE', num: true, cell: function(p){ var v = PICK_SORT_MISSING.dte(p); return v == null ? '' : String(v); }, sort: PICK_SORT_MISSING.dte },
@@ -46510,7 +46601,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   function buildWatchlistGroupHtml(){
     if (!PICKS_WATCHLIST.length && !WATCH_ERROR) return '';
     var cards = PICKS_WATCHLIST.map(function(w, i){
-      var p = w.pick;
+      var p = TOP_PICKS_MARKET_UI.snapshot(w.pick,picksState.data?.picks||[]);
       var inner;
       try { inner = pickTabCardHtml(p, i); }
       catch (_){
@@ -46658,7 +46749,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
           fiftyHtml +
           watchBtnHtml +
         '</div>' +
-        pickPlanSummaryHtml(p) + bodyHtml +
+        TOP_PICKS_MARKET_UI.scores(p) + pickPlanSummaryHtml(p) + bodyHtml +
       '</div>' +
     '</article>';
   }
@@ -46793,7 +46884,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
           : '') +
       '</span>' +
       (tierLabel ? '<span class="ptc-tier">' + tierLabel + '</span>' : '') +
-      thesisLine +
+      TOP_PICKS_MARKET_UI.scores(p) + thesisLine +
       entryLine +
       econ +
       (metaBits.length ? '<span class="ptc-meta">' + metaBits.join(' · ') + '</span>' : '') +
@@ -46830,7 +46921,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
             : hW.verdict === 'on-track' ? '✓ Thesis on track.' : '◐ Thesis mixed — not broken, but not confirming either.';
           noteW += '<div class="pwl-detail-note pwl-detail-health-' + hW.verdict + '">' + headW + ' ' + bitsW.join(' · ') + '.</div>';
         }
-        try { holder.innerHTML = noteW + buildPickCardHtml(w.pick, 0); return; } catch (_){}
+        try { holder.innerHTML = noteW + buildPickCardHtml(TOP_PICKS_MARKET_UI.snapshot(w.pick,picksState.data?.picks||[]), 0); return; } catch (_){}
       }
       closePickDetail(); return;
     }
@@ -47186,6 +47277,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
       return;
     }
     var data = picksState.data || { picks: [] };
+    var marketEvidence=$('picks-market-evidence');
+    if(marketEvidence)marketEvidence.innerHTML=TOP_PICKS_MARKET_UI.context(data);
     var collateralBox = $('picks-liquidation-watch');
     if (collateralBox) {
       var collateralRows = !data.stale && !data.loadError && data.rosterMeta && Array.isArray(data.rosterMeta.forcedLiquidationWatch) ? data.rosterMeta.forcedLiquidationWatch : [];
@@ -47275,9 +47368,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
         '<div class="picks-summary-chip picks-summary-call"><span class="picks-summary-num">' + callCount + '</span><span class="picks-summary-lbl">CALL</span></div>' +
         '<div class="picks-summary-chip picks-summary-put"><span class="picks-summary-num">' + putCount + '</span><span class="picks-summary-lbl">PUT</span></div>' +
         (strongCount > 0
-          ? '<div class="picks-summary-chip picks-summary-strong" title="Picks at the Strong Call / Strong Put tier (top ~5% of the universe by conviction this build)."><span class="picks-summary-num">' + strongCount + '</span><span class="picks-summary-lbl">strong</span></div>'
+          ? '<div class="picks-summary-chip picks-summary-strong" title="Picks at the Strong Call / Strong Put score tier; entry readiness is checked separately."><span class="picks-summary-num">' + strongCount + '</span><span class="picks-summary-lbl">strong</span></div>'
           : '') +
-        '<div class="picks-summary-chip" title="Average CONVICTION across the list — the mean of |grade| (magnitude only, so calls and puts both count toward strength, never cancelling). ' + (leanTxt ? 'The book has ' + leanTxt + ', shown by the call/put split.' : '') + '"><span class="picks-summary-num">' + avgConv + '</span><span class="picks-summary-lbl">avg conviction</span></div>' +
+        '<div class="picks-summary-chip" title="Mean magnitude of the displayed score across the list. ' + (leanTxt ? 'The book has ' + leanTxt + ', shown by the call/put split.' : '') + '"><span class="picks-summary-num">' + avgConv + '</span><span class="picks-summary-lbl">' + (data.rosterMeta?.marketAssessment ? 'avg market trade score' : 'avg conviction') + '</span></div>' +
         (avgBe != null
           ? '<div class="picks-summary-chip" title="Average move the underlying must make from today to reach breakeven at expiry, across the list — a one-glance read of how far this book needs the tape to travel for the premiums to pay."><span class="picks-summary-num">±' + avgBe + '%</span><span class="picks-summary-lbl">avg to BE</span></div>'
           : '') +
@@ -47616,6 +47709,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
         tier: rec.label || '',
         side: p.side || '',
         total: r2(p.total != null ? p.total : p.score),
+        ...(p.marketAdjustment?{stockConviction:r2(p.stockConviction),optionAdjustedConviction:r2(p.optionAdjustedConviction),marketTradeScore:r2(p.tradeScore),
+          marketMultiplier:p.marketAdjustment.multiplier,marketState:p.marketAdjustment.marketState,trajectory:p.marketAdjustment.trajectory,
+          entryStatus:pickDisplayDecision(p).ready?'Ready':'Wait',marketApprovalReason:p.marketApproval?.reason||'',
+          stockReviewedAt:p.marketApproval?.thesisReviewedAt||'',marketCheckedAt:p.marketApproval?.checkedAt||''}:{}),
         fundamentals: pl.fundamentals && pl.fundamentals.score != null ? r2(pl.fundamentals.score) : '',
         technicals: pl.technicals && pl.technicals.score != null ? r2(pl.technicals.score) : '',
         mechanicals: pl.mechanicals && pl.mechanicals.score != null ? r2(pl.mechanicals.score) : '',

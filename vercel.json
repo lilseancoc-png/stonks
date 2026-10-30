@@ -11,6 +11,9 @@
     { "source": "/terms.html", "destination": "/?tab=terms", "permanent": false }
   ],
   "functions": {
+    "api/top-picks.js": {
+      "maxDuration": 15
+    },
     "api/quote.js": {
       "maxDuration": 10
     },

@@ -1,4 +1,5 @@
 import { ownerOnlyCss } from '../../lib/owner-access-policy.mjs';
+import {topPicksMarketCss} from './top-picks-market-css.mjs';
 import { renderOwnershipExplorerCss } from './ownership-explorer-css.mjs';
 import { renderWorkspaceCss } from './workspace-css.mjs';
 import { renderWayfindingCss } from './wayfinding-css.mjs';
@@ -25467,5 +25468,6 @@ ${renderExportCss()}
 @media (max-width: 900px) {
   .btm-rules, .btm-phases, .btm-cards { grid-template-columns: 1fr; }
 }
+${topPicksMarketCss()}
 `);
 }
