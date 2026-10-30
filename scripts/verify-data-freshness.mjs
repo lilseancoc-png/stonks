@@ -14,6 +14,7 @@
 
 import { appendFile, mkdtemp, mkdir, readFile, readdir, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { createHash } from 'node:crypto';
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -33,6 +34,9 @@ import {
   isUnifiedSignalArchiveKey,
   isRetainedRemoteBakeKey,
   isTickerDataKey,
+  isOwnershipBookKey,
+  OWNERSHIP_BOOK_PREFIX,
+  OWNERSHIP_RETENTION_MAX_HOURS,
   perSymbolHistorySymbol,
 } from "../lib/data-ownership.mjs";
 import { isCurrentAiRejectionPublishKey } from "../lib/ai-rejections.mjs";
@@ -58,7 +62,7 @@ const STAMP_MATCH_MS = 1500;
 const MIN_OI_SURFACED_COVERAGE_RATE = 0.25;
 const MIN_OI_FETCH_SUCCESS_RATE = 0.5;
 
-const BAKE_STAMPED_FILES = [
+export const BAKE_STAMPED_FILES = [
   "auto-picks.json",
   "trends.json",
   "grades.json",
@@ -93,7 +97,7 @@ const SWING_DESK_STAMPED_FILES = new Set([
 // all must at least be valid JSON rewritten by the completed build. This is
 // intentionally explicit: an added bake-owned key fails as unclassified until
 // its freshness semantics are reviewed here.
-const BAKE_REQUIRED_REWRITTEN_FILES = [
+export const BAKE_REQUIRED_REWRITTEN_FILES = [
   "13f.json",
   "ai-capex.json",
   "ai-usage.json",
@@ -387,6 +391,99 @@ async function warnCadence(report, dataDir, key, paths, maxAgeMs, now) {
   }
 }
 
+// Verify the full reference graph before the root can point at uploaded parts.
+// Retained parts preserve readers of an older root for one bounded grace window.
+async function auditOwnershipBooks({ report, dataDir, runStartedAt, now }) {
+  let root;
+  try { root = await readJson(dataDir, '13f.json'); } catch { return new Set(); }
+  const present = (await localKeys(dataDir)).filter(key => key.startsWith(OWNERSHIP_BOOK_PREFIX));
+  const allowed = new Set(), current = new Set(), summaries = [], parsed = new Map();
+  const error = message => fail(report, '13f.json ownership: ' + message);
+  const finite = n => typeof n === 'number' && Number.isFinite(n);
+  const validAmount = n => n == null || finite(n) && n >= 0;
+  const isSummary = key => isOwnershipBookKey(key) && key.startsWith(OWNERSHIP_BOOK_PREFIX + 'summary-');
+  const isDisclosure = key => isOwnershipBookKey(key) && key.startsWith(OWNERSHIP_BOOK_PREFIX + 'disclosures-');
+  const retained = root.ownershipRetainedParts || [];
+  if (!Array.isArray(retained)) error('retained part list must be an array');
+  else for (const entry of retained) {
+    const expires = validMs(entry?.expiresAtIso);
+    if (!isOwnershipBookKey(entry?.key) || expires == null || expires <= now.getTime() || expires > now.getTime() + OWNERSHIP_RETENTION_MAX_HOURS * 3600000) {
+      error('invalid, expired or unbounded retained part ' + String(entry?.key));
+      continue;
+    }
+    if (allowed.has(entry.key)) error('duplicate retained part ' + entry.key);
+    allowed.add(entry.key);
+  }
+  async function readPart(key) {
+    if (parsed.has(key)) return parsed.get(key);
+    parsed.set(key, null);
+    if (!isOwnershipBookKey(key)) { error('invalid part reference ' + String(key)); return null; }
+    try {
+      const body = await readFile(resolve(dataDir, key));
+      if (body.length > 750000) throw new Error('part exceeds 750000 bytes');
+      const digest = createHash('sha256').update(body).digest('hex').slice(0, 24);
+      if (!key.endsWith('-' + digest + '.json')) throw new Error('part content does not match its immutable name');
+      const value = await requireRewrittenJson(report, dataDir, key, runStartedAt);
+      if (value?.version !== 1 || !Array.isArray(value.rows)) throw new Error('invalid part schema');
+      parsed.set(key, value);
+      return value;
+    } catch (err) { error(key + ': ' + err.message); return null; }
+  }
+  if (root.perFirm != null && (typeof root.perFirm !== 'object' || Array.isArray(root.perFirm))) error('perFirm must be an object');
+  for (const [name, fund] of Object.entries(root.perFirm || {})) {
+    if (!fund || fund.holdingsParts == null) continue; // Earlier top-20 payloads.
+    if (!Array.isArray(fund.holdingsParts) || !Number.isInteger(fund.holdingsCount) || fund.holdingsCount < 0) {
+      error(name + ': invalid holdings index'); continue;
+    }
+    const rows = [], seenParts = new Set();
+    for (const key of fund.holdingsParts) {
+      if (!isSummary(key)) { error(name + ': invalid summary reference ' + String(key)); continue; }
+      if (seenParts.has(key)) { error(name + ': duplicate summary reference ' + key); continue; }
+      seenParts.add(key); current.add(key); allowed.add(key);
+      const part = await readPart(key);
+      if (part) rows.push(...part.rows);
+    }
+    if (rows.length !== fund.holdingsCount) error(name + ': holdings count does not match summary files');
+    const positions = new Set();
+    for (const row of rows) {
+      if (!row || typeof row.cusip !== 'string' || !row.cusip || !['stock','call','put','principal','other'].includes(row.type) || !finite(row.valueNow) || row.valueNow < 0 || !validAmount(row.sharesNow) || !validAmount(row.valuePrior) || !validAmount(row.sharesPrior) || !isDisclosure(row.disclosurePart) || !Number.isInteger(row.disclosureIndex) || row.disclosureIndex < 0 || !Number.isInteger(row.disclosureCount) || row.disclosureCount < 1) {
+        error(name + ': invalid position summary'); continue;
+      }
+      const identity = [row.cusip, row.type, row.sharesType].join('|');
+      if (positions.has(identity)) error(name + ': duplicate position ' + identity);
+      positions.add(identity);
+      current.add(row.disclosurePart); allowed.add(row.disclosurePart);
+      summaries.push({ name, row });
+    }
+    const total = rows.reduce((sum, row) => sum + (finite(row?.valueNow) ? row.valueNow : 0), 0);
+    if (finite(fund.reportedValue) && Math.abs(total - fund.reportedValue) > 0.01) error(name + ': reported total does not match positions');
+  }
+  // Read every explicitly retained part too. Retained summaries must retain
+  // their own source parts, otherwise an older browser can open a broken row.
+  for (const key of [...allowed]) {
+    const part = await readPart(key);
+    if (part && isSummary(key)) for (const row of part.rows) {
+      if (!isDisclosure(row?.disclosurePart) || !allowed.has(row.disclosurePart)) error(key + ': source part is not in the current or retained graph');
+    }
+  }
+  for (const { name, row } of summaries) {
+    const part = await readPart(row.disclosurePart), details = part?.rows[row.disclosureIndex];
+    if (!details || !Array.isArray(details.disclosures) || !Array.isArray(details.priorDisclosures) || details.disclosures.length + details.priorDisclosures.length !== row.disclosureCount) {
+      error(name + ': missing or incomplete disclosure rows for ' + row.cusip); continue;
+    }
+    const raw = [...details.disclosures, ...details.priorDisclosures];
+    if (raw.some(r => !r || r.cusip !== row.cusip || r.type !== row.type || !finite(r.value) || r.value < 0 || !validAmount(r.shares))) error(name + ': disclosure identity or value mismatch for ' + row.cusip);
+    const value = details.disclosures.reduce((sum, r) => sum + (finite(r?.value) ? r.value : 0), 0);
+    if (Math.abs(value - row.valueNow) > 0.01) error(name + ': disclosure values do not match summary for ' + row.cusip);
+  }
+  for (const key of present) {
+    if (!isOwnershipBookKey(key)) error('malformed part name ' + key);
+    else if (!allowed.has(key)) error('unreferenced part must be removed before publication: ' + key);
+  }
+  if (current.size || allowed.size) pass(report, `13f.json ownership graph checked (${current.size} current part(s), ${allowed.size - current.size} grace part(s))`);
+  return allowed;
+}
+
 async function auditBake({ report, dataDir, runStartedAt, now, expectedSymbols }) {
   const refreshTopPicks = !/^(?:0|false)$/i.test(process.env.REFRESH_TOP_PICKS || "1");
   const refreshSwingDesks = !/^(?:0|false)$/i.test(process.env.REFRESH_SWING_DESKS || "1");
@@ -603,11 +700,19 @@ async function auditBake({ report, dataDir, runStartedAt, now, expectedSymbols }
   }
 
   const expectedSet = new Set(expectedSymbols);
+  const ownershipParts = await auditOwnershipBooks({ report, dataDir, runStartedAt, now });
   const unclassified = [];
   for (const key of await localKeys(dataDir)) {
     if (!isBakeOwnedKey(key)) continue;
     if (BAKE_STATIC_KEYS.has(key)) continue;
     if (isTickerDataKey(key) && expectedSet.has(key.slice(0, -5))) continue;
+    if (key.startsWith(OWNERSHIP_BOOK_PREFIX)) {
+      // The graph verifier reports malformed/unreferenced parts as errors.
+      // Keep the namespace classified so valid referenced files are never
+      // silently withheld while 13f.json is published.
+      if (!ownershipParts.has(key)) fail(report, `${key}: outside the validated ownership publication graph`);
+      continue;
+    }
     // iv-history/ and fundamentals-history/ share one prefix list. A tracked
     // symbol is an allowed bake output. Valuation files also have to be
     // rewritten this run and carry a dated snapshot.
@@ -991,6 +1096,7 @@ async function assertBakeWriterContract() {
   const allowedPrefixes = new Set([
     ...PER_SYMBOL_HISTORY_PREFIXES,
     ...DELETE_STALE_ONLY_PREFIXES,
+    OWNERSHIP_BOOK_PREFIX,
   ]);
   const missingFiles = [...files].filter((file) => !allowedFiles.has(file)).sort();
   const missingPrefixes = [...prefixes].filter((prefix) => !allowedPrefixes.has(prefix)).sort();
