@@ -303,7 +303,12 @@ await assert.rejects(approvedTopPicks({store:memory,fetchLive:async()=>null,now:
 approved=topPicksMarket.revalidate(payload,topPicksMarket.assess({asOf:now}),{now:ms,live:true});
 const acc={open:[{symbol:'FIXTURE',side:'call',entryDate:now,marketAdjustment:{}}],closed:[]};
 assert.equal(applyMarketAdmission(acc,approved,{trades:{}}).open.length,0);
-assert.equal(applyMarketAdmission(acc,approved,{trades:{x:{symbol:'FIXTURE',side:'call',engineEntryIso:now}}}).open.length,1);checks++;
+const matched={symbol:'FIXTURE',side:'call',engineEntryIso:now};
+assert.equal(applyMarketAdmission(acc,approved,{trades:{x:{...matched,state:'missed',filledQty:0}}}).open.length,0,'An unfilled earlier attempt still needs current permission');
+assert.equal(applyMarketAdmission(acc,approved,{trades:{x:{...matched,state:'entering',entryAttempts:[{status:'SUBMITTED'}]}}}).open.length,0,'A working unfilled intent does not bypass permission');
+assert.equal(applyMarketAdmission(acc,approved,{trades:{x:{...matched,filledQty:1}}}).open.length,1,'Confirmed exposure keeps the original lifecycle');
+assert.equal(applyMarketAdmission(acc,approved,{trades:{x:{...matched,entryAttempts:[{status:'FILLED'}]}}}).open.length,1,'A confirmed legacy fill survives quantity migration');
+assert.equal(applyMarketAdmission(acc,approved,{trades:{x:{...matched,entrySource:'manual'}}}).open.length,1,'The automatic admission handoff does not cancel a manual order');checks++;
 let reads=0;const env=process.env.PRIVATE_DATA_ENABLED;process.env.PRIVATE_DATA_ENABLED='1';
 const handler=createTopPicksHandler({session:async()=>({tp:true,tr:false}),dataStore:{get(){reads++;throw Error('Must not read');}},quotes:async()=>{throw Error('Must not fetch');}});
 const response={setHeader(){},status(code){this.code=code;return this;},json(v){this.body=v;return this;}};

@@ -14,6 +14,7 @@ import { parsePositions, reconcilePositions } from "../lib/webull-reconciliation
 import { expiryControl, sessionForDate, previousTradingDate } from "../lib/us-equity-calendar.mjs";
 import { withObjectLease, describeObjectLease } from "../lib/object-lease.mjs";
 import { pickTradeId } from "../lib/pick-trade-text.mjs";
+import { applyMarketAdmission } from "../lib/top-picks-approval.mjs";
 
 // Most lifecycle cases use a tight quote at their reference price. Cases that
 // test price movement or missing quotes override this explicitly.
@@ -718,6 +719,28 @@ ok("tick: nickel after a rejection", Math.abs(roundTick(1.23, { nickel: true }) 
   const newSnapshot = new Date(T0 + 140000).toISOString();
   ({ ledger, summary } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e, e2], [], newSnapshot), ledger, nowMs: T0 + 150000 }));
   ok("build window: fresh publication bypasses same-snapshot minute throttle", !summary.skipped && wb.placed.some((o) => o.symbol === "MSFT") && ledger.engineSnapshotIso === newSnapshot);
+}
+
+{
+  const e=longCall({marketAdjustment:{}}),wb=fakeWebull(),id=pickTradeId(e),acc=accWith([e]);
+  let {ledger}=await runWebullMirror({client:wb,accountId:'PAPER1',acc,nowMs:T0});
+  const held=applyMarketAdmission(acc,null,ledger);
+  ({ledger}=await runWebullMirror({client:wb,accountId:'PAPER1',acc:held,ledger,nowMs:T0+120000}));
+  ok('market hold: an unfilled working entry is cancelled without a replacement',held.open.length===0&&wb.placed.length===1&&wb.cancelled.length===1&&ledger.trades[id].filledQty===0);
+  ({ledger}=await runWebullMirror({client:wb,accountId:'PAPER1',acc:applyMarketAdmission(acc,null,ledger),ledger,nowMs:Date.parse('2026-10-21T19:55:00Z'),endOfDayOnly:true}));
+  ok('market hold: an earlier unfilled intent cannot retry at the close',wb.placed.length===1&&ledger.trades[id].state==='missed');
+}
+{
+  const e=longCall({marketAdjustment:{}}),wb=fakeWebull(),id=pickTradeId(e),acc=accWith([e]);
+  let {ledger}=await runWebullMirror({client:wb,accountId:'PAPER1',acc,nowMs:T0});
+  wb.fill(wb.placed[0].client_order_id,5);
+  ({ledger}=await runWebullMirror({client:wb,accountId:'PAPER1',acc,ledger,nowMs:T0+60000}));
+  const held=applyMarketAdmission(acc,null,ledger);
+  ({ledger}=await runWebullMirror({client:wb,accountId:'PAPER1',acc:held,ledger,nowMs:T0+120000}));
+  ok('market hold: a confirmed position is retained without a new exit',held.open.length===1&&ledger.trades[id].openQty===1&&wb.placed.length===1);
+  const closed=applyMarketAdmission(accWith([],[{...e,status:'hit-tp-prem',optionPnlPct:20}]),null,ledger);
+  ({ledger}=await runWebullMirror({client:wb,accountId:'PAPER1',acc:closed,ledger,nowMs:T0+180000}));
+  ok('market hold: the existing engine exit still places its close',wb.placed.length===2&&wb.placed[1].side==='SELL');
 }
 
 console.log(`\n${pass}/${pass + fail} checks passed.`);

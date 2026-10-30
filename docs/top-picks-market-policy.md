@@ -119,8 +119,11 @@ outcomes without enrolling a new trade or rewriting the position ledger.
 Offline `regen-picks.mjs` also computes the new policy, but holds every new
 entry for the next scheduled stock/contract review and cannot create study
 decision cohorts from persisted prices.
-The mirror checks this permission for new, unmirrored admissions only. Already
-mirrored positions retain every existing execution, reconciliation and exit rule.
+The mirror checks this permission for automatic unfilled admissions, including
+end-of-day retries. A previous unfilled intent cannot bypass a current hold;
+the mirror cancels its working entry through the existing cancellation path.
+Confirmed positions and manually placed orders retain their existing
+execution, reconciliation and exit rules.
 
 ## Measurement in Track Record
 

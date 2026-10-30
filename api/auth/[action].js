@@ -530,7 +530,7 @@ async function webullMirror(req, res) {
       if (accBuf == null) return { ran: false, reason: "track record unavailable" };
       let acc = JSON.parse(accBuf.toString("utf8"));
       const ledger = ledgerBuf == null ? mirror.emptyLedger() : JSON.parse(ledgerBuf.toString("utf8"));
-      if (acc.open?.some(r=>r.marketAdjustment) && req.query?.mode !== 'eod') {
+      if (acc.open?.some(r=>r.marketAdjustment)) {
         const [{approvedTopPicks,applyMarketAdmission},{topPicksLiveQuotes}]=await Promise.all([
           import('../../lib/top-picks-approval.mjs'),import('../top-picks.js')]);
         const approval=await approvedTopPicks({store,fetchLive:topPicksLiveQuotes}).catch(()=>null);

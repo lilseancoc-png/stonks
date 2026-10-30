@@ -45,8 +45,10 @@ and previously recorded outcomes retain their rules.
 - Existing Market Analysis: 25 check groups, including 2,000 scoring cases
   and refresh simulations. Risk Stack: 11 check groups.
 - Webull mirror and its execution, grouped-position, recovery, legacy-fill,
-  shipped-view and build-window suites pass offline, including the 150-case
-  mirror checks. No broker connection or order is used.
+  shipped-view and build-window suites pass offline, including the 154-case
+  mirror checks. Actual runner cases verify cancellation of a held unfilled
+  entry, no end-of-day retry, preservation of confirmed exposure and normal
+  engine exits. No broker connection or real order is used.
 - Render, shared views, IV richness, sector groups, Owner restrictions,
   private-store access, data hydration and publish-freshness checks pass.
   LEAPS scoring, Unified Signal perspectives, AI cost limits and workflow

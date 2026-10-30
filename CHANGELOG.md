@@ -44,6 +44,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 - Replace overlapping Top Picks numerical regime adjustments with one directional multiplier while preserving shared grades and the prior research inputs used by other features. Add reproducible scope, permission, measurement and browser checks.
 - Audit fixes: use newer participation panels during live review, preserve the Fragile internals rule, explain exact score contributions, retain open evidence during refreshes, and keep watch-only ideas on Wait. Exclude incomplete measurement cohorts and revised split price bases from comparisons; require a known maximum loss for modeled credit-spread returns.
+- Require current Top Picks permission for automatic unfilled paper entries and end-of-day retries. An earlier order intent cannot bypass a market hold; confirmed positions keep their existing exit rules.
 
 ## 2026-10-29
 
