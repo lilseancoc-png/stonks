@@ -36,6 +36,9 @@ G0, October 30, 2026. Base: `1a8f450b660b7a889e63e09d90a447afe71d43a2` on
   explicitly documents non-PIT semantics. No vintage inference is permitted.
 - `lib/webull-*.mjs`, fills, portfolio and all trade ledgers remain outside the Lab.
   Modeled equity backtests are separate research artifacts, never orders or fills.
+- Research Lab is an interactive workspace, not a bake-owned decision feed. It is
+  explicitly excluded from Owner Market Brief synthesis and AI inputs. The brief
+  coverage test checks this exclusion instead of requiring a fictional adapter.
 
 ## Availability and license policy
 
