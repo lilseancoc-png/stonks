@@ -12,8 +12,10 @@ Three GitHub Actions workflows (`daily.yml`, `unusual-flow.yml`, `oi-tracker.yml
 
 ## Private data + Discord-role gating (Path B)
 
-**Research Lab:** `research-lab` is an additional Owner destination, separately
-default-off behind `RESEARCH_LAB_ENABLED=1` and `RESEARCH_LAB_OWNER_IDS`. It uses
+**Research Lab:** `research-lab` is an additional Owner destination, visible and
+available with the existing signed Owner session. No separate flag or account
+list is needed. `RESEARCH_LAB_ENABLED=0` stops execution while keeping a visible
+disabled message for owners. It uses
 the signed combined-claim session through `/api/auth/me?lab=...`. Its owner-scoped
 R2 records live in `_stonks/research-lab/`, outside market-data publication and
 readers. No AI calls, provider fetches, schedules, brief synthesis or brokerage

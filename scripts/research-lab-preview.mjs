@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve, extname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { handleResearchRequest } from '../lib/research-lab/http.mjs';
+import { researchLabEnabled } from '../lib/research-lab/access.mjs';
 import { createLabRepository } from '../lib/research-lab/repository.mjs';
 import { fixtureSnapshot, memoryStore, sourceFiles, FIXTURE_NOW } from './fixtures/research-lab.mjs';
 
@@ -12,14 +13,16 @@ export async function createResearchLabPreview({ port = 0 } = {}) {
   const shell = JSON.parse(html.match(/window\.STONKS_MANIFEST=(\{.*\});<\/script>/)[1]);
   const store = memoryStore(sourceFiles(fixtureSnapshot())), session = { sub: 'fixture-owner', tr: true, tp: true };
   store.objects.set('market-analysis.json', Buffer.from(JSON.stringify({ builtAtIso: FIXTURE_NOW, macroRegime: { state: 'risk-off', score: 61, fragile: true }, secret: 'DO_NOT_EXPORT_FIXTURE' })));
-  const env = { PRIVATE_DATA_ENABLED: '1', RESEARCH_LAB_ENABLED: '1', RESEARCH_LAB_OWNER_IDS: session.sub };
+  const env = { PRIVATE_DATA_ENABLED: '1' };
   let scenario = 'owner', labRequests = 0;
   const repo = createLabRepository({ store, owner: session.sub, clock: () => FIXTURE_NOW });
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, 'http://127.0.0.1'); res.setHeader('Cache-Control', 'no-store');
     const json = (value, status = 200) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(value)); };
-    const owner = !['anonymous', 'partial', 'foreign'].includes(scenario);
-    const enabled = scenario !== 'disabled';
+    const requestSession = scenario === 'anonymous' ? null : scenario === 'partial' ? { ...session, tp: false }
+      : scenario === 'non-owner' ? { ...session, tr: false, tp: false }
+      : scenario === 'second-owner' ? { ...session, sub: 'second-owner' } : session;
+    const requestEnv = scenario === 'disabled' ? { ...env, RESEARCH_LAB_ENABLED: '0' } : env;
     if (url.pathname === '/api/auth/me' && url.searchParams.has('lab')) {
       labRequests++;
       const chunks = []; let length = 0;
@@ -28,10 +31,10 @@ export async function createResearchLabPreview({ port = 0 } = {}) {
       res.status = n => { res.statusCode = n; return res; }; res.json = v => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(v)); return res; };
       if (scenario === 'slow' && url.searchParams.get('lab') === 'advance') await new Promise(r => setTimeout(r, 250));
       return handleResearchRequest({ method: req.method, query: Object.fromEntries(url.searchParams), body, headers: { ...req.headers, 'x-forwarded-proto': 'http' } }, res,
-        { store, env: { ...env, RESEARCH_LAB_ENABLED: enabled ? '1' : '0' }, getSession: async () => scenario === 'anonymous' ? null : scenario === 'partial' ? { ...session, tp: false } : scenario === 'foreign' ? { ...session, sub: 'foreign-owner' } : session, clock: () => FIXTURE_NOW });
+        { store, env: requestEnv, getSession: async () => requestSession, clock: () => FIXTURE_NOW });
     }
     const key = url.searchParams.get('data') || (url.pathname.startsWith('/data/') ? url.pathname.slice(6) : null);
-    if (url.pathname === '/api/auth/me' && !key) return json({ enabled: true, authed: owner, trackRecord: owner || scenario === 'partial', topPicks: owner, sub: owner ? session.sub : null, name: 'Synthetic fixture owner', researchLab: owner && enabled });
+    if (url.pathname === '/api/auth/me' && !key) return json({ enabled: true, authed: !!requestSession, trackRecord: requestSession?.tr === true, topPicks: requestSession?.tp === true, sub: requestSession?.sub ?? null, name: 'Synthetic fixture owner', researchLab: researchLabEnabled(requestSession, requestEnv) });
     if (key === 'manifest.json' || key === 'manifest-free.json') return json({ ...shell, symbols: [], narratives: [], deferred: false });
     if (key || url.pathname.startsWith('/api/')) return json({});
     if (url.pathname.startsWith('/_vercel/')) return res.end('');

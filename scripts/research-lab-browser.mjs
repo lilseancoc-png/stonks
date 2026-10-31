@@ -115,11 +115,24 @@ try {
   await draftPage.reload(); await draftPage.locator('#rl-name').waitFor();
   check(await draftPage.locator('.rl-node').count() === 7 && await draftPage.locator('#rl-hypothesis').inputValue() === 'Recover my unfinished sandbox idea.', 'Incomplete sandbox draft survives reload');
   check((await preview.repo.read()).runs.length === oldRunCount, 'Draft restoration never runs jobs automatically'); await draftPage.close();
-  for (const scenario of ['anonymous', 'partial', 'foreign', 'disabled']) {
+  for (const scenario of ['anonymous', 'partial', 'non-owner']) {
     preview.setScenario(scenario); const before = preview.requests, p = await pageAt();
     await p.goto(preview.base + '/?tab=research-lab'); await p.locator('#page-pane-home').waitFor({ state: 'visible' });
     check(!await p.locator('#page-tab-research-lab').isVisible(), scenario + ' hides navigation');
     check(preview.requests === before, scenario + ' starts no research requests'); await p.close();
   }
+  preview.setScenario('second-owner');
+  const second = await pageAt(); await second.goto(preview.base + '/?tab=research-lab'); await second.locator('#rl-name').waitFor();
+  check(await second.locator('#page-tab-research-lab').isVisible(), 'Every signed Owner sees Research Lab without an extra account list');
+  await second.locator('[data-view="journal"]').click();
+  check(!await second.locator('[data-rl="open-exp"]').count(), 'Second owner sees no first-owner experiments'); await second.close();
+  preview.setScenario('disabled');
+  const before = preview.requests, disabled = await pageAt();
+  await disabled.goto(preview.base + '/?tab=research-lab');
+  await disabled.locator('#research-lab-root [role="status"]').waitFor();
+  check(await disabled.locator('#page-tab-research-lab').isVisible() && await disabled.locator('#page-pane-research-lab').isVisible(), 'Rollback keeps Owner navigation and destination visible');
+  check((await disabled.locator('#research-lab-root').innerText()).includes('temporarily disabled'), 'Rollback explains availability instead of leaving a blank pane');
+  check(preview.requests === before, 'Rollback starts no research requests');
+  await disabled.screenshot({ path: resolve(output, 'owner-disabled.png'), fullPage: true }); await disabled.close();
   console.log(`Research Lab browser: ${checks} checks passed. Real canvas → API → immutable revision → worker → results → replay → export/import → comparison. Screenshots and ZIP: ${output}`);
 } finally { await browser.close(); preview.server.closeAllConnections(); await new Promise(r => preview.server.close(r)); }

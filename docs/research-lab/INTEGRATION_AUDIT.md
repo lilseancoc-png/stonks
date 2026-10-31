@@ -57,5 +57,6 @@ Use `npm run test:research-lab`, `npm run test:research-lab-browser`,
 `npm run test:owner-restrictions`, `npm run test:render`, `npm run test:site-map`.
 `npm run preview:research-lab` uses fictional data and no remote services.
 Live R2 conditional-write/restart behavior, namespace-scoped worker credentials,
-provider licensing, staging deployment and rollback must be verified before
-production activation. The flag and owner allowlist default to disabled.
+provider licensing and operational rollback remain unverified. The released
+feature uses existing signed Owner access by default. An explicit
+`RESEARCH_LAB_ENABLED=0` stops work and shows owners a disabled message.

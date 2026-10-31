@@ -7,7 +7,7 @@ subscriptions, browser dependencies or scheduled research jobs.
 
 ## Use the workspace
 
-1. Open **Owner → Research Lab** in an enabled, allowlisted owner session.
+1. Open **Owner → Research Lab** in your existing signed-in Owner session.
 2. Choose a template and hypothesis. Capture 1–12 symbols from the existing
    cache, including a benchmark. Captures freeze inputs; they never fetch prices.
 3. Review coverage/provenance and choose the discovery, embargo and final windows.
@@ -81,19 +81,15 @@ metrics, promotes evidence or places a trade.
 
 ## Access and activation
 
-Production remains off by default. No deployment or main merge is included.
-Use a staging deployment first. Configure:
+Research Lab appears under **Owner → Research Lab** with the site's existing
+signed-in Owner access. No additional activation flag or account list is needed.
+The existing `PRIVATE_DATA_ENABLED=1`, R2 configuration and `SESSION_SECRET` must
+be complete. The session must have both existing Owner compatibility claims
+(`tr` and `tp`) explicitly true and a signed account identity. Each owner's
+research remains isolated. Mutations require the same origin.
 
-```text
-PRIVATE_DATA_ENABLED=1
-RESEARCH_LAB_ENABLED=1
-RESEARCH_LAB_OWNER_IDS=<comma-separated signed Discord sub IDs>
-```
-
-Existing R2 configuration and `SESSION_SECRET` must be complete. The session
-must have both existing owner compatibility claims (`tr` and `tp`) explicitly
-true. A role alone is insufficient without the Lab allowlist. Ordinary owner
-tools retain their existing access rules. Mutations require the same origin.
+The optional `RESEARCH_LAB_ENABLED=0` rollback switch stops API and worker
+execution. Owners still see the destination with a temporarily disabled message.
 
 The Lab multiplexes `/api/auth/me?lab=...`, avoiding another Vercel function and
 using the cookie boundary already established by the site. Every Lab response,
@@ -182,8 +178,9 @@ worker after a persisted claim and resumes it in fresh processes. It proves the
 checkpoint protocol with a filesystem fixture, not live R2 service reliability.
 The existing conditional-write lease has its own R2 protocol smoke tests.
 
-Before enabling production, verify R2 conditional writes, worker recovery with
-namespace-scoped credentials, license policy, real cache coverage, staging and a
-rollback drill. To roll back, set `RESEARCH_LAB_ENABLED=0`, stop standalone
-workers and retain objects. The API and UI disappear without touching existing
-analytics, brokerage state or research records. No DB migration is required.
+Live R2 conditional writes, worker recovery with namespace-scoped credentials,
+license policy and real cache coverage still need staging verification. To roll
+back, set `RESEARCH_LAB_ENABLED=0`, stop standalone workers and retain objects.
+The API stops execution and the visible Owner destination explains that the Lab
+is temporarily disabled. Existing analytics, brokerage state and research records
+are retained. No DB migration is required.
