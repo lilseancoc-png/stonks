@@ -6,8 +6,6 @@ ETFs and explains what is moving them in plain English: the day's market
 brief and news, upcoming events, company fundamentals and earnings, options
 activity, and the economic backdrop. Data refreshes throughout the trading day.
 
-The code name and repository are **stonks**. For information only; nothing on
-the site is investment advice.
 
 ## Finding your way around
 
@@ -23,9 +21,6 @@ question a visitor tends to ask.
 | **Charts & signals** | What do price trends and patterns say? | Moving averages, Up/down streaks, Pattern lab, Earnings ripple effects, Index calendar |
 | **Industry trends** | What does real-world data say about the AI and chip trade? | AI spending, Memory chip prices, GPU cloud prices, Central-bank gold, Search trends |
 | **Learn & help** | How do I read all this? | Options guide, Chart patterns, When data updates, Privacy Policy, Terms of Use |
-
-An **Owner** section with the private research desks (Top picks, track
-record, and others) appears only after an Owner signs in.
 
 Ways to move around:
 
