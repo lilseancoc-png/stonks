@@ -423,7 +423,12 @@ export function researchLabClient(win, doc, options, contracts) {
   }
   function reset() { if (draftTimer) win.clearTimeout(draftTimer); processing = false; mounted = false; currentRun = null; journalData = null; importInput = null; importPreview = null; graph = contracts.template(); plan = null; snapshot = null; experimentId = null; revision = 0; latestRevision = 0; familyId = null; history = []; future = []; selectedRuns = []; sources = null; evidenceCards.clear(); chosenEvidence.clear(); compiled = null; view = 'workspace'; dirty = true; if (root) root.replaceChildren(); }
   async function load() {
-    if (!root || !options.allowed()) return;
+    if (!root || !options.owner()) return;
+    if (!options.allowed()) {
+      reset();
+      root.innerHTML = '<section class="rl"><h2>Research Lab</h2><div class="rl-warning" role="status">Research Lab is temporarily disabled. Your saved research is retained. Try again after it is re-enabled.</div></section>';
+      return;
+    }
     if (!mounted) { const hypothesis = restoreDraft(); mounted = true; shell(); if (hypothesis) { root.querySelector('#rl-hypothesis').value = hypothesis; message('Restored the local draft. Check and save a revision before running.'); } if (!root.dataset.bound) { bind(); root.dataset.bound = '1'; } await safe(refreshJournal); }
   }
   return { load, reset };

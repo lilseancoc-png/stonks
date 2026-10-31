@@ -185,14 +185,17 @@ for (let i = 0; i < graph.nodes.length; i++) {
 const restarted = await service.getRun(diskRepo, dr.id);
 check(restarted.run.status === 'SUCCEEDED' && restarted.run.attempts.some(a => a.status === 'ABANDONED'), 'Fresh worker processes recover abandoned job');
 check((await diskRepo.read()).events.filter(e => e.type === 'RUN_SUCCEEDED').length === 1, 'Restart publishes result exactly once');
-const env = { PRIVATE_DATA_ENABLED: '1', RESEARCH_LAB_ENABLED: '1', RESEARCH_LAB_OWNER_IDS: 'fixture-owner' }, session = { sub: 'fixture-owner', tr: true, tp: true };
+const env = { PRIVATE_DATA_ENABLED: '1' }, session = { sub: 'fixture-owner', tr: true, tp: true };
 const response = () => ({ headers: {}, setHeader(k, v) { this.headers[k] = v; }, status(n) { this.statusCode = n; return this; }, json(v) { this.body = v; return this; }, end(v) { this.body = v; return this; } });
-for (const who of [null, { ...session, tr: false }, { ...session, tp: false }, { ...session, sub: 'foreign-owner' }, session]) {
+for (const [who, expected] of [[null, 403], [{ ...session, tr: false }, 403], [{ ...session, tp: false }, 403], [{ ...session, sub: '' }, 403], [{ ...session, sub: ' ' }, 403], [{ ...session, sub: 'second-owner' }, 200], [session, 200]]) {
   const res = response(); await handleResearchRequest({ method: 'GET', query: { lab: 'journal' }, headers: {} }, res, { env, store, getSession: async () => who });
-  check(res.statusCode === (who === session ? 200 : 403), 'API checks owner claims and account allowlist');
+  check(res.statusCode === expected, 'API uses existing Owner claims without another activation flag or account list');
+  if (who?.sub === 'second-owner') check(res.body.experiments.length === 0 && res.body.runs.length === 0, 'Second owner cannot read the first owner journal');
   check(res.headers['Cache-Control'] === 'private, no-store', 'Research responses never shared-cache');
 }
-check(!researchLabEnabled(session, {}), 'Default off');
+check(!researchLabEnabled(session, {}), 'Existing private-data gate still fails closed');
+check(researchLabEnabled(session, env), 'Owner access works by default with existing private-data configuration');
+check(!researchLabEnabled(session, { ...env, RESEARCH_LAB_ENABLED: '0' }), 'Explicit rollback disables execution');
 const denied = response(); await handleResearchRequest({ method: 'POST', query: { lab: 'snapshot' }, headers: { origin: 'https://evil.example', host: 'site.example' }, body: { symbols: ['AAA'] } }, denied, { env, store, getSession: async () => session }); check(denied.statusCode === 403, 'Cross-origin mutation denied');
 const blobRepo = createLabRepository({ store: { ...store, backend: 'blob' }, owner: 'fixture-owner' }); await rejects(() => blobRepo.transact(() => null), 'DURABLE_STORE_REQUIRED');
 const singleton = (await import('../lib/datastore.mjs')).store;
@@ -201,15 +204,17 @@ const oldEnv = Object.fromEntries(['PRIVATE_DATA_ENABLED', 'RESEARCH_LAB_ENABLED
 try {
   Object.assign(singleton, { backend: 'r2', rawGet: store.rawGet, rawPut: store.rawPut, withLease: store.withLease });
   Object.assign(process.env, env, { SESSION_SECRET: 'research-lab-offline-signature-test' });
+  delete process.env.RESEARCH_LAB_ENABLED;
+  delete process.env.RESEARCH_LAB_OWNER_IDS;
   const token = await signSession(session), legacy = await signSession({ ...session, tp: false });
   for (const [cookie, expected] of [[token, 200], [legacy, 403], [token + 'tampered', 403], ['', 403]]) {
     const res = response(); await authHandler({ method: 'GET', query: { action: 'me', lab: 'journal' }, headers: { cookie: SESSION_COOKIE + '=' + cookie } }, res);
     check(res.statusCode === expected, 'Actual /api/auth/me Lab routing verifies signed session and claims');
   }
-  const me = response(); await authHandler({ method: 'GET', query: { action: 'me' }, headers: { cookie: SESSION_COOKIE + '=' + token } }, me); check(me.body.researchLab === true, 'Auth probe carries allowlisted feature entitlement');
+  const me = response(); await authHandler({ method: 'GET', query: { action: 'me' }, headers: { cookie: SESSION_COOKIE + '=' + token } }, me); check(me.body.researchLab === true, 'Signed Owner auth probe enables Lab without additional environment settings');
   process.env.RESEARCH_LAB_ENABLED = '0'; const off = response(); await authHandler({ method: 'GET', query: { action: 'me', lab: 'journal' }, headers: { cookie: SESSION_COOKIE + '=' + token } }, off); check(off.statusCode === 404, 'Rollback flag disables actual API without deleting records');
 } finally {
   Object.assign(singleton, oldMethods);
   for (const [k, v] of Object.entries(oldEnv)) if (v === undefined) delete process.env[k]; else process.env[k] = v;
 }
-console.log(`Research Lab: ${checks} checks passed. Golden study, temporal attacks, costs, deterministic replay, durable subprocess restart, cancellation, matched comparison, ZIP/JSON roundtrip, owner ACL and default-off gate. Evidence: ${output}`);
+console.log(`Research Lab: ${checks} checks passed. Golden study, temporal attacks, costs, deterministic replay, durable subprocess restart, cancellation, matched comparison, ZIP/JSON roundtrip, Owner access by default and explicit rollback. Evidence: ${output}`);

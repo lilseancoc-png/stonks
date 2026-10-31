@@ -65,4 +65,6 @@ not an automatic monthly reset. No new subscription or always-on queue is added.
   and attach by immutable hash. Worker trade lookups use an index.
 
 The static isolation check fails on AI/provider/broker calls or scheduled Lab
-workloads. Production remains default-off pending staging/R2 verification.
+workloads. Making the feature visible to existing signed-in owners adds no
+scheduled or AI work. Computation still starts only on an explicit action; live
+R2 reliability remains unverified.

@@ -1,5 +1,5 @@
 export function researchLabCss() { return `
-body:not(.research-lab-enabled) [data-page-tab="research-lab"],body:not(.research-lab-enabled) #page-pane-research-lab,body:not(.research-lab-enabled) [data-go="research-lab"],body:not(.research-lab-enabled) a[href="/?tab=research-lab"]{display:none!important}
+body:not(.is-owner) [data-page-tab="research-lab"],body:not(.is-owner) #page-pane-research-lab,body:not(.is-owner) [data-go="research-lab"],body:not(.is-owner) a[href="/?tab=research-lab"]{display:none!important}
 .rl{--rl-data:#447c8c;--rl-signal:#a17d37;--rl-result:#6f8771;--rl-scenario:#947092;min-width:0}
 .rl button,.rl input,.rl select,.rl textarea{font:inherit}
 .rl button{cursor:pointer;border:1px solid var(--border-strong);border-radius:7px;background:var(--surface-2);color:var(--text);padding:8px 11px;min-height:36px}

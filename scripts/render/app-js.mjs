@@ -151,7 +151,6 @@ ${scenarioEventPhase.toString()}
   var HAS_TOP_PICKS = false;
   var HAS_QUANT_LAB = false;
   var HAS_OWNER_ACCESS = false;
-  var HAS_RESEARCH_LAB = false;
   var AUTH_ME = null;
   var DISCORD_ICON_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.3 4.4A19.8 19.8 0 0 0 15.4 3l-.25.5c1.6.4 2.9 1 4.1 1.8a13.5 13.5 0 0 0-11.5 0c1.2-.8 2.6-1.4 4.1-1.8L11.6 3A19.8 19.8 0 0 0 6.7 4.4 20.6 20.6 0 0 0 3 18.6 19.9 19.9 0 0 0 8 21l.6-.9c-.9-.3-1.7-.7-2.4-1.2.2-.1.4-.3.6-.4a14.2 14.2 0 0 0 12.4 0c.2.1.4.3.6.4-.7.5-1.5.9-2.4 1.2l.6.9a19.9 19.9 0 0 0 5-2.4 20.6 20.6 0 0 0-3.7-14.2ZM9 15.3c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Zm6 0c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Z"/></svg>';
   function applyAuth(me){
@@ -161,9 +160,7 @@ ${scenarioEventPhase.toString()}
     // Owner access never fails open. A disabled gate, failed probe, legacy
     // session, or either missing special claim leaves every Owner surface hidden.
     HAS_OWNER_ACCESS = !!(GATE_ON && me && me.authed === true && me.trackRecord === true && me.topPicks === true);
-    HAS_RESEARCH_LAB = !!(HAS_OWNER_ACCESS && me.researchLab === true);
-    if (document.body) document.body.classList.toggle('research-lab-enabled', HAS_RESEARCH_LAB);
-    if (!HAS_RESEARCH_LAB && typeof researchLab !== 'undefined') researchLab.reset();
+    if ((!HAS_OWNER_ACCESS || me.researchLab !== true) && typeof researchLab !== 'undefined') researchLab.reset();
     window.STONKS_OWNER_ACCESS = HAS_OWNER_ACCESS;
     if (!HAS_OWNER_ACCESS && heatmapState && heatmapState.colorBy === 'grade') heatmapState.colorBy = 'perf';
     if (!HAS_OWNER_ACCESS && typeof ownerMarketBrief !== 'undefined') ownerMarketBrief.reset();
@@ -3868,7 +3865,6 @@ ${scenarioEventPhase.toString()}
     // Actionable tabs are internal Owner surfaces. Remove them from URL,
     // history, palette, and click resolution unless both role claims exist.
     if (!HAS_OWNER_ACCESS) valid = valid.filter(function(t){ return !OWNER_TABS[t]; });
-    if (!HAS_RESEARCH_LAB) valid = valid.filter(function(t){ return t !== 'research-lab'; });
     function resolveTab(t){ return resolvePageTabId(t, valid); }
     // Collapsible sidebar. Desktop (>=1024px, matching the CSS breakpoint):
     // the sidebar pushes the page content, defaults open, and the collapsed
@@ -4125,7 +4121,6 @@ ${renderExportBindings()}
       // Bounce stale/deep-linked Owner destinations before persisting or
       // starting any loader. The server independently enforces stored data.
       if (OWNER_TABS[name] && !HAS_OWNER_ACCESS) { return selectTab('home', nav); }
-      if (name === 'research-lab' && !HAS_RESEARCH_LAB) { return selectTab('home', nav); }
       // Picking a page from the main window (sidebar, search, a link) while
       // split view is on goes back to one full page.
       if (!splitInternalNav && splitIsOn()) splitClose(false);
@@ -23379,7 +23374,8 @@ ${renderExportBindings()}
   // dispersion / post-earnings-drift screens. ANALYTICAL ONLY: z-scores and
   // ranks, never trade signals (the playbook table in the shell is educational).
   var researchLab = (${researchLabClient.toString()})(window, document, {
-    allowed: function(){ return HAS_RESEARCH_LAB; },
+    owner: function(){ return HAS_OWNER_ACCESS; },
+    allowed: function(){ return HAS_OWNER_ACCESS && AUTH_ME && AUTH_ME.researchLab === true; },
     identity: function(){ return AUTH_ME && AUTH_ME.sub; }
   }, (${researchContractsFactory.toString()})());
   var ownerMarketBrief = (${ownerMarketBriefClient.toString()})(window, document, {
@@ -42129,7 +42125,6 @@ ${renderExportBindings()}
       });
       TABS.forEach(function(tt){
         if (OWNER_TABS[tt[0]] && !HAS_OWNER_ACCESS) return;
-        if (tt[0] === 'research-lab' && !HAS_RESEARCH_LAB) return;
         out.push({ type:'tab', label: tt[1], sub: tt[2], action:'open-tab', payload: tt[0] });
       });
       return out;

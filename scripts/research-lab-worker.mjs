@@ -7,7 +7,7 @@ import { terminal } from '../lib/research-lab/service.mjs';
 
 const owner = process.argv.find(a => a.startsWith('--owner='))?.slice(8);
 const requestedRun = process.argv.find(a => a.startsWith('--run='))?.slice(6);
-if (!owner || !researchLabEnabled({ sub: owner, tr: true, tp: true })) throw new Error('Worker disabled or owner not allowlisted. Use --owner=DISCORD_ID.');
+if (!owner || !researchLabEnabled({ sub: owner, tr: true, tp: true })) throw new Error('Worker disabled or owner identity missing. Use --owner=DISCORD_ID.');
 const repo = createLabRepository({ store, owner });
 for (let steps = 0; steps < 80; steps++) {
   if (!researchLabEnabled({ sub: owner, tr: true, tp: true })) break;

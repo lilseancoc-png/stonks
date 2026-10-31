@@ -44,8 +44,10 @@ and runtime; hitting a retention quota stops new work rather than deleting audit
 
 No Lab AI SDK, inference call, provider call or scheduled workflow. Interpretation
 is manual in ChatGPT or Claude. CPU, R2 storage and request usage still exist.
-Production requires `PRIVATE_DATA_ENABLED=1`, `RESEARCH_LAB_ENABLED=1`, R2 and
-`RESEARCH_LAB_OWNER_IDS` containing the signed Discord identity. Default off.
-Disable the flag to stop API/UI and worker execution; retain internal records.
-No deployment or main merge is part of implementation. Stage and verify R2
-recovery and rollback before enabling production. Additive objects need no DB DDL.
+The initial default-off rollout was superseded by the owner's visibility
+requirement. Existing signed Owner access and `PRIVATE_DATA_ENABLED=1` enable
+the Lab without a second flag or account list. R2 remains required for records.
+Setting `RESEARCH_LAB_ENABLED=0` stops API/worker execution while keeping the
+Owner destination visible with a disabled message. Retain internal records.
+Live R2 recovery and operational rollback still need staging verification.
+Additive objects need no DB DDL.

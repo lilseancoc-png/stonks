@@ -1,18 +1,22 @@
 # Research Lab verification
 
-October 31, 2026. Branch `Research-Labatory`, base
-`1a8f450b660b7a889e63e09d90a447afe71d43a2`. No production activation or merge.
+October 31, 2026. Initial branch `Research-Labatory`, base
+`1a8f450b660b7a889e63e09d90a447afe71d43a2`, merged in PR #726.
+The owner-visibility correction starts from `c52b7ed6f14113b81ba89cb2a8176085a2122f9b`.
 
 ## Verified locally
 
-- `npm run test:research-lab`: 213 assertions, JSON-schema drift check and
+- `npm run test:research-lab`: 220 assertions, JSON-schema drift check and
   AI/provider/broker/schedule isolation audit pass.
-- `npm run test:research-lab-browser`: 60 checks pass against the generated site
+- `npm run test:research-lab-browser`: 63 checks pass against the generated site
   and actual Lab HTTP handler/compiler/worker with isolated synthetic storage.
   Covers canvas editing, typed connections and cycle rejection, undo/redo,
   numbered revisions, execution, replay, ZIP download, tampered/valid JSON import,
   explicit commentary approval, inert follow-up drafts, matched comparison,
-  keyboard tabs, widths 1440/768/390/320, light/dark, access denial and flag-off.
+  keyboard tabs, widths 1440/768/390/320, light/dark, access denial and rollback.
+  Owner navigation is visible with only the existing private-data configuration;
+  a second owner gets an isolated Journal, and rollback displays a disabled
+  message without starting Lab requests.
   Follow-up coverage includes the searchable site shelf, frozen evidence context,
   input refresh preserving costs/settings, draft recovery and invalidating an
   already-previewed interpretation when a different JSON file is uploaded.
@@ -71,14 +75,15 @@ owner identities are fictional and labeled. No live provider, AI or broker call
 was used for verification. The actual signed `/api/auth/me` Lab route was also
 tested, including forged/partial sessions and flag rollback.
 
-## Production gates still open
+## Production verification still open
 
 The fixture restart test and existing offline conditional-lease protocol test do
-not prove deployed R2/network reliability. Before activation, test the full
+not prove deployed R2/network reliability. Staging still needs the full
 checkpoint/recovery path on staging R2 with appropriately scoped credentials,
 verify real cached coverage and license rights, and perform a staging rollback.
-No live deployment, production datastore mutation or operational rollback was
-performed in this implementation session.
+PR #726 was deployed, but these fixture checks do not establish authenticated
+production behavior. No production datastore mutation or operational rollback
+was performed during verification.
 
 Historical score/pillar availability, survivorship-free constituents, corporate-
 action-continuous raw execution data, historical earnings peers and macro/
@@ -88,6 +93,8 @@ validation promotion require additional audited data/models/evidence. Conditiona
 simulation quantiles remain assumptions. Live cached-price studies remain
 `EXPLORATORY_NON_PIT`.
 
-The owner allowlist and `RESEARCH_LAB_ENABLED` default off. No paid AI integration,
+Existing signed Owner access enables the Lab without additional flags or an
+account list. `RESEARCH_LAB_ENABLED=0` stops execution and leaves a visible
+disabled message. No paid AI integration,
 new subscription, database migration, scheduled research job or production order
 path was added. CPU, storage and requests still have ordinary usage costs.
