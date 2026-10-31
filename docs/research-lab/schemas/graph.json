@@ -27,6 +27,64 @@
                 "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,39}$"
               },
               "type": {
+                "const": "data.site_evidence"
+              },
+              "version": {
+                "const": "1.0.0"
+              },
+              "params": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "evidence_ids": {
+                    "type": "string",
+                    "default": "choose-evidence-first",
+                    "minLength": 35,
+                    "maxLength": 431,
+                    "pattern": "^ev_[a-f0-9]{32}(,ev_[a-f0-9]{32}){0,11}$"
+                  }
+                },
+                "required": [
+                  "evidence_ids"
+                ]
+              },
+              "position": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "x": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 5000
+                  },
+                  "y": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 5000
+                  }
+                },
+                "required": [
+                  "x",
+                  "y"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "type",
+              "version",
+              "params"
+            ]
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,39}$"
+              },
+              "type": {
                 "const": "market.prices"
               },
               "version": {
@@ -1569,6 +1627,54 @@
               },
               "version": {
                 "const": "1.0.0"
+              },
+              "params": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {},
+                "required": []
+              },
+              "position": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "x": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 5000
+                  },
+                  "y": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 5000
+                  }
+                },
+                "required": [
+                  "x",
+                  "y"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "type",
+              "version",
+              "params"
+            ]
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,39}$"
+              },
+              "type": {
+                "const": "output.report"
+              },
+              "version": {
+                "const": "1.1.0"
               },
               "params": {
                 "type": "object",

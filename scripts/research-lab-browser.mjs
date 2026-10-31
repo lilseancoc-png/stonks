@@ -34,6 +34,18 @@ try {
   await root.locator('[data-rl="delete-node"]').click();
   await root.locator('#rl-symbols').fill('AAA, BBB, SPY'); await root.locator('[data-rl="capture"]').click();
   await root.locator('#rl-disc-start').waitFor();
+  await root.locator('#rl-slippage').fill('17'); await root.locator('[data-rl="capture"]').click();
+  await page.waitForFunction(() => document.querySelector('#rl-message').textContent.includes('Compatible evaluation settings'));
+  check(await root.locator('#rl-slippage').inputValue() === '17', 'Refreshing inputs preserves cost and evaluation settings');
+  check((await preview.repo.read()).events.filter(e => e.type === 'SNAPSHOT_CAPTURED').length === 1, 'Repeated browser captures reuse the same snapshot');
+  await root.locator('#rl-slippage').fill('5');
+  await root.locator('[data-view="sources"]').click(); await root.locator('#rl-source-search').fill('Market analysis');
+  check(await root.locator('.rl-source-list .rl-exp').count() === 1, 'Feature catalog filters locally by meaning');
+  await root.locator('[data-source="market"]').click(); await root.locator('[data-evidence-select]').waitFor();
+  check((await root.locator('#rl-sources').innerText()).includes('macro Regime / state'), 'Research shelf loads actual dated derived source fields');
+  check(!(await root.locator('#rl-sources').innerText()).includes('DO_NOT_EXPORT_FIXTURE'), 'Source credentials remain excluded');
+  await root.locator('[data-rl="attach-evidence"]').click();
+  check(await root.locator('[data-node="context"]').count() === 1, 'Selected evidence attaches as a puzzle piece to report context');
   await root.locator('[data-select-node="shock"]').click(); await root.locator('[data-param="threshold_pct"]').fill('-3'); await root.locator('[data-param="threshold_pct"]').press('Tab');
   await root.locator('[data-select-node="breadth"]').click(); await root.locator('[data-param="min_fraction"]').fill('0.2'); await root.locator('[data-param="min_fraction"]').press('Tab');
   await root.locator('[data-rl="compile"]').click(); await page.waitForFunction(() => document.querySelector('#rl-compile').textContent.includes('Compile preview'));
@@ -43,6 +55,7 @@ try {
   await page.waitForFunction(() => document.querySelector('#rl-results h3')?.textContent.includes('SUCCEEDED'), { timeout: 30000 });
   const firstRun = (await preview.repo.read()).runs[0];
   check((await root.locator('#rl-results').innerText()).includes('Net excess return'), 'Real API and worker return results');
+  check((await root.locator('#rl-results').innerText()).includes('Attached site evidence'), 'Report keeps current context visible beside historical evidence');
   await root.locator('#rl-results [data-rl="open-exp"]').click();
   await root.locator('[data-select-node="both"]').click(); await root.locator('[data-rl="delete-node"]').click();
   await root.locator('[data-select-node="breadth"]').click(); await root.locator('[data-rl="delete-node"]').click();
@@ -69,6 +82,11 @@ try {
   check(await root.locator('[data-rl="approve-import"]').isDisabled(), 'Tampered metric cannot be approved');
   await root.locator('#rl-import-json').fill(JSON.stringify(interpretation)); await root.locator('[data-rl="preview-import"]').click();
   await page.waitForFunction(() => document.querySelector('#rl-import-preview').textContent.includes('Verified'));
+  await root.locator('#rl-import-file').setInputFiles({name:'changed.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(wrong))});
+  await page.waitForFunction(() => document.querySelector('[data-rl="approve-import"]').disabled);
+  check(await root.locator('[data-rl="approve-import"]').isDisabled(), 'Replacing a previewed JSON file invalidates old approval controls');
+  await root.locator('#rl-import-json').fill(JSON.stringify(interpretation)); await root.locator('[data-rl="preview-import"]').click();
+  await page.waitForFunction(() => document.querySelector('#rl-import-preview').textContent.includes('Verified'));
   await root.locator('[data-rl="approve-import"]').click(); await page.waitForFunction(() => document.querySelector('#rl-message').textContent.includes('review appended'));
   check((await preview.repo.read()).interpretations[0].decision === 'approved', 'Explicit reviewer decision appended');
   const runCount = (await preview.repo.read()).runs.length;
@@ -84,12 +102,19 @@ try {
     const p = await pageAt(width, theme), errs = []; p.on('pageerror', e => errs.push(e.message));
     await p.goto(preview.base + '/?tab=research-lab'); await p.locator('#rl-name').waitFor();
     check(await p.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 2), 'No page overflow at ' + width + ' ' + theme);
-    await p.locator('#rl-tab-workspace').focus(); await p.keyboard.press('ArrowRight');
+    await p.locator('#rl-tab-workspace').focus(); await p.keyboard.press('ArrowRight'); await p.keyboard.press('ArrowRight');
     check(await p.locator('#rl-tab-results').getAttribute('aria-selected') === 'true', 'Keyboard tabs ' + width + ' ' + theme);
     await p.locator('#rl-tab-workspace').click();
     await p.screenshot({ path: resolve(output, width + '-' + theme + '.png'), fullPage: true });
     check(errs.length === 0, 'No exceptions at ' + width + ' ' + theme); await p.close();
   }
+  const draftPage = await pageAt(); await draftPage.goto(preview.base + '/?tab=research-lab');
+  await draftPage.locator('#rl-name').waitFor(); await draftPage.locator('[data-add="transform.lag"]').click();
+  await draftPage.locator('#rl-hypothesis').fill('Recover my unfinished sandbox idea.'); await draftPage.locator('[data-rl="save-draft"]').click();
+  const oldRunCount = (await preview.repo.read()).runs.length;
+  await draftPage.reload(); await draftPage.locator('#rl-name').waitFor();
+  check(await draftPage.locator('.rl-node').count() === 7 && await draftPage.locator('#rl-hypothesis').inputValue() === 'Recover my unfinished sandbox idea.', 'Incomplete sandbox draft survives reload');
+  check((await preview.repo.read()).runs.length === oldRunCount, 'Draft restoration never runs jobs automatically'); await draftPage.close();
   for (const scenario of ['anonymous', 'partial', 'foreign', 'disabled']) {
     preview.setScenario(scenario); const before = preview.requests, p = await pageAt();
     await p.goto(preview.base + '/?tab=research-lab'); await p.locator('#page-pane-home').waitFor({ state: 'visible' });

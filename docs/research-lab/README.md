@@ -41,6 +41,26 @@ subscriptions, browser dependencies or scheduled research jobs.
 
 ## Manual AI research
 
+The **Research shelf** browses every site feature from the shared navigation
+catalog. Search by topic/name, filter by topic, sort, and open the complete source
+page. Data-backed sources have explicit read-only cached adapters; other pages
+can be pinned as references. No source data is read until you capture it.
+
+Cards include source/capture times, checksums, bounded selected derived fields,
+and stale/missing-date/sample warnings. They exclude raw quotes, article text,
+credentials and account/broker records. Cards are excerpts, not a complete copy
+of every source. Open the source page to inspect the full information.
+
+Select up to 12 cards and **Attach selected cards to graph**. They become a typed
+evidence puzzle piece wired to the report context port. They appear beside the
+computed results and in `site_context.json` when exported. A source update cannot
+rewrite an earlier run. Current evidence cannot connect to a historical event
+input or change the test's numerical results.
+
+Unfinished graphs and hypotheses save locally in this browser under the signed
+owner identity, with an explicit **Save local draft** control as well. Restoring
+a draft never runs it. Server revisions still require a successful compilation.
+
 From a successful run, download a compact/full ZIP under **Offsite research**.
 Attach it in a new ChatGPT or Claude conversation and follow the embedded
 `README_FOR_CHATGPT.md`. The ZIP includes an interpretation JSON Schema and

@@ -4,11 +4,15 @@ export function researchLabClient(win, doc, options, contracts) {
   let mounted = false, view = 'workspace', graph = contracts.template(), plan = null, snapshot = null,
     experimentId = null, revision = 0, latestRevision = 0, familyId = null, dirty = true, selected = 'shock', pendingPort = null,
     history = [], future = [], currentRun = null, journalData = null, compiled = null, processing = false,
-    selectedRuns = [], importInput = null, importPreview = null, libraryQuery = '', journalQuery = '', journalFilter = 'all';
+    selectedRuns = [], importInput = null, importPreview = null, libraryQuery = '', journalQuery = '', journalFilter = 'all',
+    sources = null, evidenceCards = new Map(), chosenEvidence = new Set(), sourceQuery = '', sourceCategory = '', sourceSort = 'category', draftTimer = null;
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const pct = value => value == null ? 'Unavailable' : (value * 100).toFixed(2) + '%';
   const num = value => value == null ? 'Unavailable' : Number(value).toLocaleString(undefined, { maximumFractionDigits: 4 });
   const short = value => value ? value.slice(0, 12) + '…' : 'Not saved';
+  const fieldLabel = path => path.split('.').map(part => part.replace(/([a-z])([A-Z])/g, '$1 $2').replaceAll('_', ' ')).join(' / ');
+  const factValue = value => typeof value === 'boolean' ? value ? 'Yes' : 'No' : value;
+  const sourceTime = value => !value ? 'Unknown' : /^\d{4}-\d\d-\d\d$/.test(value) ? value + ' (date only)' : new Date(value).toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
   const button = (action, label, extra = '') => '<button type="button" data-rl="' + action + '" ' + extra + '>' + esc(label) + '</button>';
   const warning = text => '<div class="rl-warning">' + esc(text) + '</div>';
   function message(text, error = false) { const el = root.querySelector('#rl-message'); if (el) { el.textContent = text; el.classList.toggle('error', error); } }
@@ -26,13 +30,26 @@ export function researchLabClient(win, doc, options, contracts) {
     if (!options.allowed() || options.identity() !== identity) throw new Error('Research session changed. Reopen the workspace.');
     return action === 'export' ? res : res.json();
   }
-  function changed() { dirty = true; compiled = null; }
+  function changed() { dirty = true; compiled = null; if (draftTimer) win.clearTimeout(draftTimer); draftTimer = win.setTimeout(saveDraft, 400); }
+  function saveDraft() {
+    if (!options.allowed() || !root.querySelector('#rl-name')) return;
+    syncForm();
+    try { win.localStorage.setItem('stonks-research-draft-' + options.identity(), JSON.stringify({ graph, plan, snapshot, experimentId, revision, latestRevision, familyId, hypothesis: root.querySelector('#rl-hypothesis').value })); } catch (_) {}
+  }
+  function restoreDraft() {
+    try {
+      const d = JSON.parse(win.localStorage.getItem('stonks-research-draft-' + options.identity()) || 'null');
+      if (!d || d.graph?.schema_version !== '1.0' || !Array.isArray(d.graph.nodes) || d.graph.nodes.length > 24 || !d.graph.nodes.every(n => contracts.blocks.some(b => b.key === n.type) && n.position && Number.isFinite(n.position.x) && Number.isFinite(n.position.y))) return;
+      graph = d.graph; plan = d.plan; snapshot = d.snapshot; experimentId = d.experimentId; revision = d.revision; latestRevision = d.latestRevision; familyId = d.familyId;
+      return d.hypothesis;
+    } catch (_) { return null; }
+  }
   function editGraph(fn) { if (root.querySelector('#rl-name')) syncForm(); history.push(JSON.stringify(graph)); if (history.length > 50) history.shift(); future = []; fn(); changed(); renderWorkspace(); }
   function changeTemplate(kind) {
     editGraph(() => {
       const cfg = graph.research_config; graph = contracts.template(kind);
       graph.research_config = { ...graph.research_config, snapshot_id: cfg.snapshot_id, as_of: cfg.as_of, random_seed: cfg.random_seed };
-      experimentId = null; revision = 0; familyId = null; selected = graph.nodes[1]?.id;
+      experimentId = null; revision = 0; selected = graph.nodes[1]?.id;
     });
   }
   function defaultPlan(summary) {
@@ -44,16 +61,22 @@ export function researchLabClient(win, doc, options, contracts) {
   }
   function shell() {
     root.innerHTML = '<div class="rl"><header class="rl-head"><div><div class="rl-eyebrow">Mingstreet / private research</div><h2>Research Lab</h2><p>Build a question. Freeze the evidence. Test what survives.<br>Export a research bundle to ChatGPT or Claude, then review its interpretation here.</p></div><span class="rl-badge">Owner only · no AI API calls</span></header>' +
-      '<div class="rl-toolbar">' + button('save', 'Save revision') + button('compile', 'Check experiment') + button('run', 'Run discovery') + button('final', 'Run final evaluation') + '</div>' +
+      '<div class="rl-toolbar">' + button('save', 'Save revision') + button('save-draft', 'Save local draft') + button('compile', 'Check experiment') + button('run', 'Run discovery') + button('final', 'Run final evaluation') + '</div>' +
       '<div id="rl-message" class="rl-message" role="status" aria-live="polite"></div><div class="rl-tabs" role="tablist" aria-label="Research Lab views">' +
-      ['workspace', 'results', 'journal', 'exchange', 'operations'].map(v => '<button type="button" role="tab" id="rl-tab-' + v + '" aria-controls="rl-' + v + '" data-view="' + v + '" aria-selected="' + (view === v) + '">' + ({ workspace: 'Workspace', results: 'Results', journal: 'Journal', exchange: 'Offsite research', operations: 'Operations' }[v]) + '</button>').join('') + '</div>' +
-      ['workspace', 'results', 'journal', 'exchange', 'operations'].map(v => '<div role="tabpanel" id="rl-' + v + '" aria-labelledby="rl-tab-' + v + '"' + (view === v ? '' : ' hidden') + '></div>').join('') + '</div>';
-    renderWorkspace(); renderResults(); renderJournal(); renderExchange(); renderOperations();
+      ['workspace', 'sources', 'results', 'journal', 'exchange', 'operations'].map(v => '<button type="button" role="tab" id="rl-tab-' + v + '" aria-controls="rl-' + v + '" data-view="' + v + '" aria-selected="' + (view === v) + '">' + ({ workspace: 'Workspace', sources: 'Research shelf', results: 'Results', journal: 'Journal', exchange: 'Offsite research', operations: 'Operations' }[v]) + '</button>').join('') + '</div>' +
+      ['workspace', 'sources', 'results', 'journal', 'exchange', 'operations'].map(v => '<div role="tabpanel" id="rl-' + v + '" aria-labelledby="rl-tab-' + v + '"' + (view === v ? '' : ' hidden') + '></div>').join('') + '</div>';
+    renderWorkspace(); renderSources(); renderResults(); renderJournal(); renderExchange(); renderOperations();
   }
   function setView(next) {
     view = next;
     root.querySelectorAll('[data-view]').forEach(el => el.setAttribute('aria-selected', String(el.dataset.view === next)));
-    for (const v of ['workspace', 'results', 'journal', 'exchange', 'operations']) root.querySelector('#rl-' + v).hidden = v !== next;
+    for (const v of ['workspace', 'sources', 'results', 'journal', 'exchange', 'operations']) root.querySelector('#rl-' + v).hidden = v !== next;
+  }
+  function renderSources() {
+    const el = root.querySelector('#rl-sources'); if (!el) return;
+    if (!sources) { el.innerHTML = '<div class="rl-panel"><h3>Research shelf</h3><p class="rl-muted">Browse every site feature, filter by topic and capture selected dated evidence. Sources load only when requested.</p>' + button('sources-load', 'Browse site information') + '</div>'; return; }
+    const shown = sources.filter(s => (!sourceCategory || s.category === sourceCategory) && (s.label + s.description + s.category).toLowerCase().includes(sourceQuery.toLowerCase())).sort((a, b) => (sourceSort === 'name' ? a.label : a.category + a.label).localeCompare(sourceSort === 'name' ? b.label : b.category + b.label));
+    el.innerHTML = '<section class="rl-panel"><h3>Browse the site information</h3><p class="rl-muted">Current evidence helps frame an idea. It cannot be wired into a past signal or override a numerical result. Opening a source page shows its full information; captures retain bounded derived fields with source times.</p><div class="rl-fields">' + input('rl-source-search', 'Search features and topics', sourceQuery) + '<label>Topic<select id="rl-source-category"><option value="">All topics</option>' + [...new Set(sources.map(s => s.category))].map(c => '<option' + (c === sourceCategory ? ' selected' : '') + '>' + esc(c) + '</option>').join('') + '</select></label><label>Sort<select id="rl-source-sort"><option value="category">Topic, then name</option><option value="name"' + (sourceSort === 'name' ? ' selected' : '') + '>Name</option></select></label></div><div class="rl-source-list">' + shown.map(s => '<article class="rl-exp"><h4>' + esc(s.label) + ' <span class="rl-badge">' + esc(s.category) + '</span></h4><p>' + esc(s.description) + '</p><div class="rl-inline"><a href="/?tab=' + esc(s.id) + '" target="_blank" rel="noopener">Open full source</a>' + button('source-capture', s.capture_supported ? 'Capture derived evidence' : 'Pin reference', 'data-source="' + esc(s.id) + '"') + '</div></article>').join('') + '</div></section><section class="rl-panel"><h3>Evidence for this idea</h3><p class="rl-muted">Select cards, then attach them as one puzzle piece to the report context port. Copies stay frozen with a run. Scores from different sources can use different scales; review the source before comparing them.</p>' + button('attach-evidence', 'Attach selected cards to graph') + [...evidenceCards.values()].map(c => '<article class="rl-exp"><label class="rl-check"><input type="checkbox" data-evidence-select="' + c.id + '"' + (chosenEvidence.has(c.id) ? ' checked' : '') + '>' + esc(c.label) + '</label><p>' + esc('Source time: ' + sourceTime(c.source_as_of) + ' · captured: ' + sourceTime(c.captured_at)) + '</p>' + c.warnings.map(warning).join('') + table(['Measure', 'Source value', 'Scale'], c.facts.map(f => [fieldLabel(f.path), factValue(f.value), 'Defined by source'])) + '</article>').join('') + (journalData?.evidence || []).filter(e => !evidenceCards.has(e.id)).map(e => button('evidence-load', 'Load saved ' + e.label, 'data-id="' + e.id + '"')).join(' ') + '</section>';
   }
   const input = (id, label, value, type = 'text', extra = '') => '<label>' + esc(label) + '<input id="' + id + '" type="' + type + '" value="' + esc(value) + '" ' + extra + '></label>';
   function renderWorkspace() {
@@ -92,13 +115,15 @@ export function researchLabClient(win, doc, options, contracts) {
   }
   function renderLibrary() {
     const list = root.querySelector('.rl-library-list'); if (!list) return;
-    list.innerHTML = contracts.blocks.filter(b => (b.label + b.category + b.key).toLowerCase().includes(libraryQuery.toLowerCase())).map(b =>
+    list.innerHTML = contracts.blocks.filter(b => !(b.key === 'output.report' && b.version === '1.0.0') && (b.label + b.category + b.key).toLowerCase().includes(libraryQuery.toLowerCase())).map(b =>
       '<button type="button" draggable="' + b.ready + '" data-add="' + b.key + '" data-category="' + b.category + '"' + (b.ready ? '' : ' disabled') + ' title="' + esc(b.description || b.reason || b.key) + '">' + esc(b.label) + '<small>' + esc(b.ready ? b.category : b.reason) + '</small></button>').join('');
   }
-  const definition = node => contracts.blocks.find(b => b.key === node.type);
+  const definition = node => contracts.blocks.find(b => b.key === node.type && b.version === node.version);
   function renderCanvas() {
     const plane = root.querySelector('.rl-plane'); if (!plane) return;
     const w = Math.max(1500, ...graph.nodes.map(n => n.position.x + 300)), h = Math.max(700, ...graph.nodes.map(n => n.position.y + 250));
+    const pendingNode = pendingPort && graph.nodes.find(n => n.id === pendingPort.split('.')[0]);
+    const pendingOutput = pendingNode && definition(pendingNode).outputs.find(p => p.name === pendingPort.split('.')[1]);
     plane.style.width = w + 'px'; plane.style.height = h + 'px'; plane.style.transform = 'scale(' + graph.viewport.zoom + ')';
     const edges = graph.edges.map(e => {
       const [a, ap] = e.from.split('.'), [b, bp] = e.to.split('.'), from = graph.nodes.find(n => n.id === a), to = graph.nodes.find(n => n.id === b);
@@ -110,11 +135,12 @@ export function researchLabClient(win, doc, options, contracts) {
     plane.innerHTML = '<svg class="rl-edges" width="' + w + '" height="' + h + '" aria-hidden="true">' + edges + '</svg>' + graph.nodes.map(node => {
       const def = definition(node);
       return '<article class="rl-node' + (node.id === selected ? ' selected' : '') + '" tabindex="0" data-node="' + node.id + '" data-category="' + def.category + '" aria-label="' + esc(def.label + ' node ' + node.id) + '" style="left:' + node.position.x + 'px;top:' + node.position.y + 'px"><button type="button" class="rl-node-title" data-select-node="' + node.id + '">' + esc(def.label) + '</button><div class="rl-node-kind">' + esc(node.id + ' · v' + node.version) + '</div><div class="rl-ports">' +
-        Array.from({ length: Math.max(def.inputs.length, def.outputs.length) }, (_, i) => '<div class="rl-port-row">' + (def.inputs[i] ? '<button type="button" data-port-in="' + node.id + '.' + def.inputs[i].name + '">○ ' + esc(def.inputs[i].name) + '</button>' : '<span></span>') +
+        Array.from({ length: Math.max(def.inputs.length, def.outputs.length) }, (_, i) => '<div class="rl-port-row">' + (def.inputs[i] ? '<button type="button" class="' + (pendingOutput && contracts.compatible(pendingOutput, def.inputs[i]) ? 'rl-compatible' : '') + '" title="' + esc(def.inputs[i].dtype + ' · ' + def.inputs[i].unit + (def.inputs[i].optional ? ' · optional' : '')) + '" data-port-in="' + node.id + '.' + def.inputs[i].name + '">○ ' + esc(def.inputs[i].name) + '</button>' : '<span></span>') +
           (def.outputs[i] ? '<button type="button" class="rl-port-out' + (pendingPort === node.id + '.' + def.outputs[i].name ? ' pending' : '') + '" data-port-out="' + node.id + '.' + def.outputs[i].name + '">' + esc(def.outputs[i].name) + ' ○</button>' : '') + '</div>').join('') + '</div></article>';
     }).join('');
     const scroll = root.querySelector('.rl-scroll'); scroll.scrollLeft = graph.viewport.x; scroll.scrollTop = graph.viewport.y;
     root.querySelector('#rl-zoom-label').textContent = Math.round(graph.viewport.zoom * 100) + '%';
+    root.querySelector('.rl-minimap').setAttribute('viewBox', '0 0 ' + w + ' ' + h);
     root.querySelector('.rl-minimap').innerHTML = graph.nodes.map(n => '<rect x="' + n.position.x + '" y="' + n.position.y + '" width="220" height="130"/>').join('');
   }
   function renderInspector() {
@@ -125,7 +151,7 @@ export function researchLabClient(win, doc, options, contracts) {
       Object.entries(def.params_schema.properties).map(([k, p]) => p.enum ? '<label>' + esc(k.replaceAll('_', ' ')) + '<select data-param="' + k + '">' + p.enum.map(v => '<option' + (v === node.params[k] ? ' selected' : '') + '>' + esc(v) + '</option>').join('') + '</select></label>' :
         '<label>' + esc(k.replaceAll('_', ' ')) + '<input type="' + (p.type === 'string' ? 'text' : 'number') + '" data-param="' + k + '" value="' + esc(node.params[k]) + '"' + (p.type === 'string' ? ' maxlength="' + p.maxLength + '"' : ' min="' + p.minimum + '" max="' + p.maximum + '" step="' + (p.type === 'integer' ? '1' : 'any') + '"') + '></label>').join('') +
       '<h4>Typed ports</h4>' + [...def.inputs, ...def.outputs].map(p => '<div class="rl-port-info">' + esc(p.name + ' · ' + p.dtype + ' · ' + p.unit + ' · ' + p.shape + ' · ' + p.frequency + ' · ' + p.timezone) + '</div>').join('') +
-      '<h4>Availability</h4><p class="rl-muted">' + esc(snapshot?.history_class || 'Capture a snapshot first') + '<br>' + esc(def.temporal_policy) + '<br>' + (sources.length ? esc(sources[0].first + ' to ' + sources[0].last) : 'No history loaded') + '</p>' +
+      '<h4>Availability</h4><p class="rl-muted">' + esc(snapshot?.history_class || 'Capture a snapshot first') + '<br>' + esc(node.type === 'data.site_evidence' ? 'Current source context only; no historical signal window. Source dates are shown on each card.' : def.temporal_policy) + '<br>' + (node.type === 'data.site_evidence' ? 'Connect only to report context.' : sources.length ? esc(sources[0].first + ' to ' + sources[0].last) : 'No history loaded') + '</p>' +
       '<h4>Compatible next blocks</h4><p class="rl-muted">' + contracts.blocks.filter(b => b.ready && b.inputs.some(p => def.outputs.some(out => contracts.compatible(out, p)))).map(b => esc(b.label)).join(', ') + '</p>' + button('delete-node', 'Remove selected block');
   }
   function renderConnections() {
@@ -171,9 +197,9 @@ export function researchLabClient(win, doc, options, contracts) {
     try {
       while (options.allowed() && !doc.hidden && !doc.getElementById('page-pane-research-lab')?.hidden) {
         const run = await api('advance', { run_id: id });
-        currentRun = await api('run', undefined, { id }); renderResults();
-        if (['SUCCEEDED', 'FAILED', 'CANCELED', 'TIMED_OUT'].includes(run.status)) { await refreshJournal(); renderExchange(); message('Run ' + run.status.toLowerCase() + '.'); break; }
-        await new Promise(resolve => win.setTimeout(resolve, 250));
+        if (['SUCCEEDED', 'FAILED', 'CANCELED', 'TIMED_OUT'].includes(run.status)) { const detail = await api('run', undefined, { id }); if (currentRun?.run.id === id) { currentRun = detail; renderResults(); renderExchange(); } await refreshJournal(); message('Run ' + run.status.toLowerCase() + '.'); break; }
+        if (currentRun?.run.id === id) { currentRun.run = run; renderResults(); }
+        await new Promise(resolve => win.setTimeout(resolve, run.claim_busy ? Math.min(5000, Math.max(1000, run.retry_after_ms || 1000)) : 250));
       }
     } finally { processing = false; }
   }
@@ -192,6 +218,7 @@ export function researchLabClient(win, doc, options, contracts) {
         [['Selected events', num(s.events)], ['Net forward return', pct(s.mean_net_return)], ['Same-date baseline', pct(s.mean_baseline_return)], ['Net excess return', pct(s.mean_excess_return)],
           ['95% interval', s.uncertainty.low == null ? 'Unavailable' : pct(s.uncertainty.low) + ' to ' + pct(s.uncertainty.high)], ['Date clusters / issuers', s.uncertainty.effective_dates + ' / ' + s.uncertainty.issuers]].map(([k, v]) => '<div class="rl-metric"><span>' + esc(k) + '</span><strong>' + esc(v) + '</strong></div>').join('') + '</div>';
       el.innerHTML += result.warnings.map(warning).join('');
+      if (result.site_evidence) el.innerHTML += '<section class="rl-panel"><h3>Attached site evidence · current context</h3>' + result.site_evidence.documents.map(c => '<article class="rl-exp"><h4>' + esc(c.label) + '</h4><p class="rl-muted">' + esc('Source time: ' + sourceTime(c.source_as_of) + ' · captured ' + sourceTime(c.captured_at)) + '</p>' + table(['Measure', 'Source value'], c.facts.map(f => [fieldLabel(f.path), factValue(f.value)])) + c.warnings.map(warning).join('') + '</article>').join('') + '</section>';
       if (result.strategy) el.innerHTML += '<section class="rl-panel"><h3>Modeled equity portfolio</h3><p>' + esc('Net ' + pct(result.strategy.net_return) + ' · gross ' + pct(result.strategy.gross_return) + ' · drawdown ' + pct(result.strategy.max_drawdown) + ' · Sharpe ' + num(result.strategy.sharpe) + ' · turnover ' + num(result.strategy.turnover)) + '</p>' + chart(result.strategy.curve.map(r => r.equity)) + warning(result.strategy.caveats) + '</section>';
       if (result.kind === 'conditional_scenario') {
         const rows = result.rows.map(({ curve, ...r }) => r), headers = Object.keys(rows[0] || {});
@@ -261,10 +288,29 @@ export function researchLabClient(win, doc, options, contracts) {
       '<section class="rl-panel"><h3>Append-only audit events</h3><div class="rl-log">' + [...journalData.events].reverse().map(e => '<div><b>' + esc(e.type) + '</b> · ' + esc(e.occurred_at) + '<br>' + esc(JSON.stringify(e.payload)) + '</div>').join('') + '</div></section>';
   }
   async function action(name, el) {
+    if (['run', 'final', 'replay'].includes(name) && processing) throw new Error('A worker is already advancing a run. Cancel or let it finish first.');
+    if (name === 'save-draft') { saveDraft(); message('Draft saved in this browser under your signed-in owner account. Incomplete graphs can be resumed without running.'); }
+    if (name === 'sources-load') { sources = (await api('sources')).sources; renderSources(); }
+    if (name === 'source-capture' || name === 'evidence-load') { const card = name === 'source-capture' ? await api('source-capture', { source_id: el.dataset.source }) : await api('evidence', undefined, { id: el.dataset.id }); evidenceCards.set(card.id, card); chosenEvidence.add(card.id); renderSources(); message('Frozen source card added. Review its date, limitations and selected fields.'); }
+    if (name === 'attach-evidence') {
+      if (!chosenEvidence.size) throw new Error('Choose at least one source card.');
+      if (chosenEvidence.size > 12) throw new Error('Choose at most 12 evidence cards per experiment.');
+      if (!graph.nodes.some(n => n.type === 'data.site_evidence') && graph.nodes.length >= contracts.LIMITS.nodes) throw new Error('Remove a block before adding an evidence collection.');
+      editGraph(() => {
+        let node = graph.nodes.find(n => n.type === 'data.site_evidence');
+        if (!node) { node = { id: 'context', type: 'data.site_evidence', version: contracts.VERSION, params: {}, position: { x: 620, y: 390 } }; if (graph.nodes.some(n => n.id === node.id)) node.id += win.crypto.randomUUID().slice(0, 8); graph.nodes.push(node); }
+        node.params.evidence_ids = [...chosenEvidence].sort().join(','); selected = node.id;
+        const report = graph.nodes.find(n => n.type === 'output.report'); if (!report) throw new Error('Add a Research report block first.');
+        report.version = '1.1.0';
+        graph.edges = graph.edges.filter(e => e.to !== report.id + '.evidence').concat({ from: node.id + '.evidence', to: report.id + '.evidence' });
+        graph.research_config.as_of = [...chosenEvidence].map(id => evidenceCards.get(id)?.captured_at || graph.research_config.as_of).concat(graph.research_config.as_of).sort().at(-1);
+      }); setView('workspace'); message('Evidence connected to report context. Historical inputs and computed conclusions remain separate.');
+    }
     if (name === 'capture') {
       syncForm(); const symbols = root.querySelector('#rl-symbols').value.toUpperCase().split(/[\s,]+/).filter(Boolean);
-      snapshot = await api('snapshot', { symbols }); graph.research_config.snapshot_id = snapshot.id; graph.research_config.as_of = snapshot.captured_at;
-      plan = defaultPlan(snapshot); changed(); renderWorkspace(); message('Captured the existing cache. Historical limitations remain attached to every run and export.');
+      snapshot = await api('snapshot', { symbols }); graph.research_config.snapshot_id = snapshot.id; graph.research_config.as_of = [graph.research_config.as_of, snapshot.captured_at, new Date().toISOString()].sort().at(-1);
+      if (!plan || ![...plan.universe, plan.benchmark].every(s => snapshot.assets[s])) plan = defaultPlan(snapshot);
+      changed(); renderWorkspace(); message('Captured the existing cache. Compatible evaluation settings are preserved. Unchanged inputs keep their original capture time; historical limitations remain attached.');
     }
     if (name === 'save') await save();
     if (name === 'compile') { syncForm(); if (!plan) throw new Error('Capture inputs first.'); contracts.validateGraph(graph); contracts.validatePlan(plan); compiled = await api('compile', { graph, plan }); renderCompile(); message('Graph and evaluation plan accepted. Review the compile preview before running.'); }
@@ -297,6 +343,7 @@ export function researchLabClient(win, doc, options, contracts) {
       const out = await api('experiment', undefined, { id: el.dataset.id, ...(el.dataset.revision ? { revision: el.dataset.revision } : {}) });
       graph = out.graph; plan = out.plan; experimentId = name === 'fork-exp' ? null : out.experiment.id; revision = name === 'fork-exp' ? 0 : out.revision; latestRevision = out.experiment.revisions.length; familyId = out.experiment.family_id;
       snapshot = out.snapshot_summary;
+      evidenceCards = new Map((out.evidence || []).map(e => [e.id, e])); chosenEvidence = new Set(evidenceCards.keys()); renderSources();
       selected = graph.nodes[1]?.id; history = []; future = []; dirty = name === 'fork-exp'; compiled = out.compiled;
       renderWorkspace(); root.querySelector('#rl-hypothesis').value = out.hypothesis; setView('workspace'); message(name === 'fork-exp' ? 'Forked within the same trial family. Edit and run explicitly.' : 'Opened frozen revision ' + revision);
     }
@@ -309,7 +356,7 @@ export function researchLabClient(win, doc, options, contracts) {
       const res = await api('export', { run_id: currentRun.run.id, profile: root.querySelector('#rl-export-profile')?.value || 'compact' }), blob = await res.blob(), url = win.URL.createObjectURL(blob), a = doc.createElement('a');
       a.href = url; a.download = 'mingstreet_' + currentRun.run.id + '.zip'; doc.body.append(a); a.click(); a.remove(); win.setTimeout(() => win.URL.revokeObjectURL(url), 1000); message('Evidence ZIP downloaded. Attach it in a new ChatGPT or Claude chat.');
     }
-    if (name === 'preview-import') { importInput = JSON.parse(root.querySelector('#rl-import-json').value); importPreview = await api('validate-import', { interpretation: importInput }); renderImportPreview(); message('Evidence pointers verified. Review the narrative and choose approve or reject.'); }
+    if (name === 'preview-import') { importPreview = null; root.querySelector('[data-rl="approve-import"]').disabled = true; root.querySelector('[data-rl="reject-import"]').disabled = true; importInput = JSON.parse(root.querySelector('#rl-import-json').value); importPreview = await api('validate-import', { interpretation: importInput }); renderImportPreview(); message('Evidence pointers verified. Review the narrative and choose approve or reject.'); }
     if (name === 'approve-import' || name === 'reject-import') {
       if (!importPreview) throw new Error('Preview the exact JSON first.');
       const latest = JSON.parse(root.querySelector('#rl-import-json').value);
@@ -324,32 +371,35 @@ export function researchLabClient(win, doc, options, contracts) {
     if (name === 'forward-realize') { if (!snapshot) throw new Error('Capture a current snapshot first.'); await api('forward', { observation_id: el.dataset.id, snapshot_id: snapshot.id }); await refreshJournal(); }
   }
   async function safe(fn) { try { await fn(); } catch (e) { message(e.message || String(e), true); } }
-  function addNode(type) {
+  function addNode(type, position) {
     if (graph.nodes.length >= contracts.LIMITS.nodes) throw new Error('Node limit reached.');
     const id = 'n' + win.crypto.randomUUID().replaceAll('-', '').slice(0, 10);
-    editGraph(() => { graph.nodes.push({ id, type, version: contracts.VERSION, params: contracts.defaults(type), position: { x: 80 + graph.nodes.length % 4 * 280, y: 350 + Math.floor(graph.nodes.length / 4) * 160 } }); selected = id; });
+    editGraph(() => { graph.nodes.push({ id, type, version: type === 'output.report' ? '1.1.0' : contracts.VERSION, params: contracts.defaults(type), position: position || { x: 80 + graph.nodes.length % 4 * 280, y: 350 + Math.floor(graph.nodes.length / 4) * 160 } }); selected = id; });
   }
   function bind() {
     root.addEventListener('click', event => safe(async () => {
       const actionEl = event.target.closest('[data-rl]'); if (actionEl && !actionEl.disabled) { actionEl.disabled = true; try { await action(actionEl.dataset.rl, actionEl); } finally { if (actionEl.isConnected) actionEl.disabled = false; } return; }
-      const tab = event.target.closest('[data-view]'); if (tab) { if (['journal', 'operations'].includes(tab.dataset.view)) await refreshJournal(); setView(tab.dataset.view); return; }
+      const tab = event.target.closest('[data-view]'); if (tab) { if (['journal', 'operations'].includes(tab.dataset.view)) await refreshJournal(); if (tab.dataset.view === 'sources' && !sources) { sources = (await api('sources')).sources; renderSources(); } setView(tab.dataset.view); return; }
       const add = event.target.closest('[data-add]'); if (add && !add.disabled) { syncForm(); addNode(add.dataset.add); return; }
       const node = event.target.closest('[data-select-node]'); if (node) { selected = node.dataset.selectNode; renderCanvas(); renderInspector(); return; }
       const out = event.target.closest('[data-port-out]'); if (out) { pendingPort = out.dataset.portOut; renderCanvas(); message('Choose a compatible input port, or use Keyboard connections.'); return; }
       const into = event.target.closest('[data-port-in]'); if (into) { if (!pendingPort) throw new Error('Select an output port first.'); connect(pendingPort, into.dataset.portIn); }
     }));
     root.addEventListener('input', event => {
+      if (event.target.id === 'rl-source-search') { sourceQuery = event.target.value; renderSources(); const input = root.querySelector('#rl-source-search'); input.focus(); input.setSelectionRange(input.value.length, input.value.length); return; }
       if (event.target.id === 'rl-library-search') { libraryQuery = event.target.value; renderLibrary(); return; }
       if (event.target.id === 'rl-import-json') { importPreview = null; root.querySelector('[data-rl="approve-import"]').disabled = true; root.querySelector('[data-rl="reject-import"]').disabled = true; return; }
       if (event.target.closest('#rl-workspace') && !['rl-final-ack', 'rl-connect-from', 'rl-connect-to'].includes(event.target.id)) changed();
     });
     root.addEventListener('change', event => safe(async () => {
       const el = event.target;
+      if (['rl-source-search', 'rl-source-category', 'rl-source-sort'].includes(el.id)) { sourceQuery = root.querySelector('#rl-source-search').value; sourceCategory = root.querySelector('#rl-source-category').value; sourceSort = root.querySelector('#rl-source-sort').value; renderSources(); }
+      if (el.dataset.evidenceSelect) { if (el.checked) chosenEvidence.add(el.dataset.evidenceSelect); else chosenEvidence.delete(el.dataset.evidenceSelect); }
       if (el.dataset.param) { const node = graph.nodes.find(n => n.id === selected), p = definition(node).params_schema.properties[el.dataset.param]; syncForm(); editGraph(() => { node.params[el.dataset.param] = p.type === 'string' ? el.value : Number(el.value); }); }
       if (el.id === 'rl-template' && el.value) { syncForm(); changeTemplate(el.value); }
       if (el.dataset.compareId) { selectedRuns = selectedRuns.filter(id => id !== el.dataset.compareId); if (el.checked) selectedRuns.push(el.dataset.compareId); }
       if (el.id === 'rl-journal-search' || el.id === 'rl-journal-filter') { journalQuery = root.querySelector('#rl-journal-search').value; journalFilter = root.querySelector('#rl-journal-filter').value; renderJournal(); }
-      if (el.id === 'rl-import-file') { const file = el.files[0]; if (!file) return; if (file.size > 100000 || !file.name.toLowerCase().endsWith('.json')) throw new Error('Choose a JSON interpretation under 100 KB. ZIP imports are not accepted.'); root.querySelector('#rl-import-json').value = await file.text(); importPreview = null; }
+      if (el.id === 'rl-import-file') { const file = el.files[0]; if (!file) return; if (file.size > 100000 || !file.name.toLowerCase().endsWith('.json')) throw new Error('Choose a JSON interpretation under 100 KB. ZIP imports are not accepted.'); root.querySelector('#rl-import-json').value = await file.text(); importPreview = null; root.querySelector('[data-rl="approve-import"]').disabled = true; root.querySelector('[data-rl="reject-import"]').disabled = true; root.querySelector('#rl-import-preview').replaceChildren(); }
     }));
     root.addEventListener('keydown', event => {
       if (event.target.matches('[role=tab]') && ['ArrowLeft', 'ArrowRight'].includes(event.key)) { event.preventDefault(); const tabs = [...root.querySelectorAll('[role=tab]')], index = tabs.indexOf(event.target), next = tabs[(index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length]; next.focus(); next.click(); }
@@ -362,7 +412,7 @@ export function researchLabClient(win, doc, options, contracts) {
     });
     root.addEventListener('dragstart', e => { const el = e.target.closest('[data-add]'); if (el) e.dataTransfer.setData('text/plain', el.dataset.add); });
     root.addEventListener('dragover', e => { if (e.target.closest('.rl-scroll')) e.preventDefault(); });
-    root.addEventListener('drop', e => safe(() => { if (!e.target.closest('.rl-scroll')) return; e.preventDefault(); const type = e.dataTransfer.getData('text/plain'); if (contracts.blocks.some(b => b.key === type && b.ready)) addNode(type); }));
+    root.addEventListener('drop', e => safe(() => { const scroll = e.target.closest('.rl-scroll'); if (!scroll) return; e.preventDefault(); const type = e.dataTransfer.getData('text/plain'), rect = scroll.getBoundingClientRect(); if (contracts.blocks.some(b => b.key === type && b.ready)) addNode(type, { x: Math.max(0, Math.min(5000, (e.clientX - rect.left + scroll.scrollLeft) / graph.viewport.zoom)), y: Math.max(0, Math.min(5000, (e.clientY - rect.top + scroll.scrollTop) / graph.viewport.zoom)) }); }));
     root.addEventListener('pointerdown', e => {
       const handle = e.target.closest('[data-select-node]'); if (!handle || e.button !== 0) return;
       const node = graph.nodes.find(n => n.id === handle.dataset.selectNode), before = JSON.stringify(graph), start = { x: e.clientX, y: e.clientY, px: node.position.x, py: node.position.y }; let moved = false;
@@ -371,10 +421,10 @@ export function researchLabClient(win, doc, options, contracts) {
       win.addEventListener('pointermove', move); win.addEventListener('pointerup', up, { once: true });
     });
   }
-  function reset() { processing = false; mounted = false; currentRun = null; journalData = null; importInput = null; importPreview = null; graph = contracts.template(); plan = null; snapshot = null; experimentId = null; revision = 0; latestRevision = 0; familyId = null; history = []; future = []; selectedRuns = []; compiled = null; view = 'workspace'; dirty = true; if (root) root.replaceChildren(); }
+  function reset() { if (draftTimer) win.clearTimeout(draftTimer); processing = false; mounted = false; currentRun = null; journalData = null; importInput = null; importPreview = null; graph = contracts.template(); plan = null; snapshot = null; experimentId = null; revision = 0; latestRevision = 0; familyId = null; history = []; future = []; selectedRuns = []; sources = null; evidenceCards.clear(); chosenEvidence.clear(); compiled = null; view = 'workspace'; dirty = true; if (root) root.replaceChildren(); }
   async function load() {
     if (!root || !options.allowed()) return;
-    if (!mounted) { mounted = true; shell(); if (!root.dataset.bound) { bind(); root.dataset.bound = '1'; } await safe(refreshJournal); }
+    if (!mounted) { const hypothesis = restoreDraft(); mounted = true; shell(); if (hypothesis) { root.querySelector('#rl-hypothesis').value = hypothesis; message('Restored the local draft. Check and save a revision before running.'); } if (!root.dataset.bound) { bind(); root.dataset.bound = '1'; } await safe(refreshJournal); }
   }
   return { load, reset };
 }

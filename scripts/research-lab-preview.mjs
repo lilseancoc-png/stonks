@@ -11,6 +11,7 @@ export async function createResearchLabPreview({ port = 0 } = {}) {
   const root = resolve(fileURLToPath(new URL('../', import.meta.url))), html = await readFile(resolve(root, 'index.html'), 'utf8');
   const shell = JSON.parse(html.match(/window\.STONKS_MANIFEST=(\{.*\});<\/script>/)[1]);
   const store = memoryStore(sourceFiles(fixtureSnapshot())), session = { sub: 'fixture-owner', tr: true, tp: true };
+  store.objects.set('market-analysis.json', Buffer.from(JSON.stringify({ builtAtIso: FIXTURE_NOW, macroRegime: { state: 'risk-off', score: 61, fragile: true }, secret: 'DO_NOT_EXPORT_FIXTURE' })));
   const env = { PRIVATE_DATA_ENABLED: '1', RESEARCH_LAB_ENABLED: '1', RESEARCH_LAB_OWNER_IDS: session.sub };
   let scenario = 'owner', labRequests = 0;
   const repo = createLabRepository({ store, owner: session.sub, clock: () => FIXTURE_NOW });

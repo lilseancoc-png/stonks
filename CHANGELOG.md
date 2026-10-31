@@ -36,7 +36,12 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Added
 
+- Research Lab adds a searchable, sortable site research shelf, dated evidence cards wired to a separate report-context port, and local recovery of unfinished ideas. Source excerpts stay distinct from historical test inputs and export with frozen provenance.
 - Add a default-off, owner-only Research Lab with a typed visual graph, frozen revisions and evaluation plans, resumable R2 jobs, deterministic studies and conditional scenarios, matched comparisons, an append-only Journal, and reviewed ChatGPT/Claude ZIP export and JSON import without site AI calls. Missing PIT histories and calibrated models block unsupported validation claims.
+
+### Fixed
+
+- Research Lab constrains strategy trades to available cash, freezes trial-family budgets, compares complete replay outputs, reuses unchanged snapshots, reduces progress requests, backs off busy workers, preserves selected run views, and prevents stale import approval. Add regression checks and a rerunnable cost estimate with no AI calls.
 
 ## 2026-10-30
 

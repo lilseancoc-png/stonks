@@ -44,6 +44,7 @@ body:not(.research-lab-enabled) [data-page-tab="research-lab"],body:not(.researc
 .rl-node.selected{outline:2px solid var(--accent);outline-offset:3px}.rl-node[data-category=Signals],.rl-node[data-category=Logic]{border-top-color:var(--rl-signal)}
 .rl-node[data-category=Scenario]{border-top-color:var(--rl-scenario)}.rl-node[data-category=Output],.rl-node[data-category=Validation]{border-top-color:var(--rl-result)}
 .rl-node .rl-node-title{width:100%;border:none;border-radius:0;text-align:left;background:transparent;font-size:12px;padding:12px;cursor:grab}
+.rl-node .rl-node-title{touch-action:none}.rl-ports button.rl-compatible{border-color:var(--accent);outline:1px solid var(--accent)}.rl-source-list{max-height:650px;overflow:auto}.rl-source-list a{color:var(--accent);font-size:12px}
 .rl-node-kind{font-size:10px;color:var(--muted-strong);padding:0 12px 8px}
 .rl-ports{display:grid;gap:5px;padding:8px;border-top:1px solid var(--border)}.rl-port-row{display:flex;justify-content:space-between;gap:8px}
 .rl-ports button{font-size:10px;padding:4px 6px;min-height:27px;border-radius:12px;max-width:100%;overflow:hidden;text-overflow:ellipsis}

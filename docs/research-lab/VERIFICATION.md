@@ -5,14 +5,17 @@ October 31, 2026. Branch `Research-Labatory`, base
 
 ## Verified locally
 
-- `npm run test:research-lab`: 189 assertions, JSON-schema drift check and
+- `npm run test:research-lab`: 213 assertions, JSON-schema drift check and
   AI/provider/broker/schedule isolation audit pass.
-- `npm run test:research-lab-browser`: 50 checks pass against the generated site
+- `npm run test:research-lab-browser`: 60 checks pass against the generated site
   and actual Lab HTTP handler/compiler/worker with isolated synthetic storage.
   Covers canvas editing, typed connections and cycle rejection, undo/redo,
   numbered revisions, execution, replay, ZIP download, tampered/valid JSON import,
   explicit commentary approval, inert follow-up drafts, matched comparison,
   keyboard tabs, widths 1440/768/390/320, light/dark, access denial and flag-off.
+  Follow-up coverage includes the searchable site shelf, frozen evidence context,
+  input refresh preserving costs/settings, draft recovery and invalidating an
+  already-previewed interpretation when a different JSON file is uploaded.
 - Golden synthetic study: oversold plus sample breadth, next-open outcome and
   same-date benchmark, frozen plan, discovery/final windows, costs, uncertainty,
   multiplicity ledger, simpler variant, paired comparison, Journal, ZIP/JSON and
@@ -35,6 +38,33 @@ October 31, 2026. Branch `Research-Labatory`, base
   audit, private-store, AI cost controls, R2 conditional-lease protocol, site map,
   renderer and workflow-schedule checks pass. Vercel asset staging succeeds.
 - `git diff --check` and JavaScript parsing checks pass.
+
+## Follow-up audit fixes
+
+- Strategy slots reinvest available cash and charge fees against actual notional.
+  A repeated-loss fixture proves an unleveraged account cannot borrow fresh
+  original capital or fall below zero. Trade lookups are indexed.
+- A trial family cannot raise its original preregistered budget through an edit
+  or fork. Templates preserve family lineage.
+- Replay compares every output, including scenario rows and strategy curves,
+  rather than only summary counts.
+- Unchanged price/source captures reuse immutable snapshots and original dates.
+  Active-run polling uses progress responses directly, busy workers back off and
+  no-op transactions do not rewrite state. Completion waits for complete results;
+  advancing another job cannot overwrite the inspected run's view.
+- All site features are indexed from the shared navigation catalog. Selected
+  derived evidence is versioned and strictly typed as report context. Private
+  account/broker fields, secrets, quotes and articles are excluded. References
+  without supported data remain labeled references, not invented measurements.
+- Twelve available local cached source files were read through isolated evidence
+  adapters without provider access or production-store writes. Some local caches
+  contain empty collections; bounded or metadata-only cards do not establish
+  full live coverage. Staging/authenticated source coverage remains open.
+- Export charts no longer connect unrelated summary metrics as if they were a
+  time series. Export metadata identifies cost sensitivity or modeled equity.
+- `npm run audit:research-lab-cost` measures fixture operations/storage/CPU and
+  produces a documented estimate using October 31 official pricing. AI API cost
+  remains zero. Actual account allowances, region and network times are unverified.
 
 Screenshots were visually inspected. All preview prices/results and simulated
 owner identities are fictional and labeled. No live provider, AI or broker call
