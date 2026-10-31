@@ -19,6 +19,7 @@
 // owner role can mint a session.
 
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { researchLabEnabled } from '../../lib/research-lab/access.mjs';
 import {
   serializeCookie,
   parseCookies,
@@ -229,6 +230,9 @@ function logout(req, res) {
 // --- session probe -----------------------------------------------------------
 async function me(req, res) {
   res.setHeader("Cache-Control", "private, no-store");
+  if (req.query?.lab != null) {
+    return (await import('../../lib/research-lab/http.mjs')).handleResearchRequest(req, res);
+  }
   // Authenticated data compatibility mode. Production has delivered the
   // session cookie to this exact /api/auth/me function while a near-simultaneous
   // /api/data/* invocation received no cookie and falsely returned 401. The app
@@ -263,6 +267,7 @@ async function me(req, res) {
     sub: session.sub || null,
     trackRecord: session.tr === true,
     topPicks: session.tp === true,
+    researchLab: researchLabEnabled(session),
   });
 }
 

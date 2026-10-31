@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mingstreet:evaluation-plan:2",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "mingstreet.evaluation-plan.v2"
+    },
+    "target": {
+      "enum": [
+        "forward_return",
+        "benchmark_relative_return"
+      ]
+    },
+    "universe": {
+      "type": "array",
+      "uniqueItems": true,
+      "minItems": 1,
+      "maxItems": 12,
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9.]{0,5}$"
+      }
+    },
+    "discovery": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "string",
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+      }
+    },
+    "holdout": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "string",
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+      }
+    },
+    "horizon_sessions": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 60
+    },
+    "embargo_sessions": {
+      "type": "integer",
+      "minimum": 2,
+      "maximum": 120
+    },
+    "benchmark": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9.]{0,5}$"
+    },
+    "costs": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "commission_bps": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 500
+        },
+        "slippage_bps": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 500
+        }
+      },
+      "required": [
+        "commission_bps",
+        "slippage_bps"
+      ]
+    },
+    "max_trials": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+    },
+    "min_events": {
+      "type": "integer",
+      "minimum": 5,
+      "maximum": 500
+    },
+    "bootstrap_samples": {
+      "type": "integer",
+      "minimum": 100,
+      "maximum": 1000
+    },
+    "execution": {
+      "const": "next_open"
+    },
+    "primary_metric": {
+      "const": "mean_excess_return"
+    }
+  },
+  "required": [
+    "schema",
+    "target",
+    "universe",
+    "discovery",
+    "holdout",
+    "horizon_sessions",
+    "embargo_sessions",
+    "benchmark",
+    "costs",
+    "max_trials",
+    "min_events",
+    "bootstrap_samples",
+    "execution",
+    "primary_metric"
+  ]
+}

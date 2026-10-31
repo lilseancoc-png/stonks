@@ -7,6 +7,13 @@
     "node": ">=20"
   },
   "scripts": {
+    "test:research-lab": "node scripts/research-lab-schemas.mjs --check && node scripts/research-lab-smoke.mjs && node scripts/research-lab-audit-smoke.mjs && node scripts/research-lab-cost-check.mjs",
+    "test:research-lab-browser": "node scripts/research-lab-browser.mjs",
+    "preview:research-lab": "node scripts/research-lab-preview.mjs",
+    "worker:research-lab": "node scripts/research-lab-worker.mjs",
+    "regen:research-lab": "node scripts/regen-owner-market-brief.mjs",
+    "verify:research-lab-cost": "node scripts/research-lab-cost-check.mjs",
+    "audit:research-lab-cost": "node scripts/research-lab-cost-benchmark.mjs",
     "collect:earnings-forecast": "node scripts/refresh-earnings-forecast.mjs",
     "audit:earnings-forecast": "node scripts/audit-earnings-forecast.mjs",
     "test:earnings-forecast": "node scripts/earnings-forecast-smoke.mjs",

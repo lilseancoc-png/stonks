@@ -2292,6 +2292,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   <div class="page-pane" id="page-pane-quant" role="tabpanel" aria-labelledby="page-tab-quant" hidden>
   ${quantSection()}
   </div>
+  <div class="page-pane" id="page-pane-research-lab" role="tabpanel" aria-labelledby="page-tab-research-lab" hidden>
+    <div id="research-lab-root"></div>
+  </div>
   <div class="page-pane" id="page-pane-unified-signal-engine" role="tabpanel" aria-labelledby="page-tab-unified-signal-engine" hidden>
     <section class="card" id="unified-signal-section">
       <header class="card-header"><h2 class="card-title">Unified Signal Engine</h2><span class="card-eyebrow">Owner research · multiple perspectives</span></header>

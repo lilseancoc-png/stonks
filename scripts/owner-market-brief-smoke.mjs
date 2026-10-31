@@ -23,7 +23,10 @@ assert.equal(report.publicRead.summary,fixture.payloads['briefs.json'].current.s
 assert.equal(report.ideas[0].symbol,fixture.payloads['unified-signal.json'].decisions[0].symbol);assert(report.ideas[0].challenges.length);assert(report.ideas.some(i=>i.blocks.length));
 assert(Date.parse(report.validUntil)<=Date.parse(fixture.builtAtIso)+24*3600000,'A brief expires within one day');
 assert.equal(report.forecasts[0].eps,2.4);assert.equal(report.forecasts[0].cutoffAt,'2026-10-20T12:00:00Z');
-for(const page of OWNER_PAGE_IDS.filter(id=>id!=='owner-market-brief'))assert(OWNER_BRIEF_SOURCES.some(s=>s.id===page),'New Owner page needs a brief adapter: '+page);
+// The on-demand Lab has owner-scoped experiments, not a daily decision feed.
+// Keep it out of scheduled synthesis and AI inputs, including when enabled.
+for(const page of OWNER_PAGE_IDS.filter(id=>!['owner-market-brief','research-lab'].includes(id)))assert(OWNER_BRIEF_SOURCES.some(s=>s.id===page),'New Owner page needs a brief adapter: '+page);
+assert(!OWNER_BRIEF_SOURCES.some(s=>s.id==='research-lab'||s.key?.startsWith('_stonks/research-lab/')),'Interactive Lab records never enter brief synthesis');
 assert(isPremiumKey(OWNER_BRIEF_KEY));assert.deepEqual(roleClaimForKey(OWNER_BRIEF_KEY),['tr','tp']);assert(isBakeOwnedKey(OWNER_BRIEF_KEY));
 for(const [value,status] of [[null,'missing'],[{},'undated'],[{builtAtIso:'invalid'},'undated'],[{builtAtIso:'2026-10-24T15:05:00Z'},'future'],[{builtAtIso:'2026-10-01T15:05:00Z'},'stale']])assert.equal(sourceStatus(value,Date.parse(fixture.builtAtIso)).status,status);
 for(const state of ['stale','undated','future']) {

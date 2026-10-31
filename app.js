@@ -19,7 +19,7 @@
   }
 
 
-  var SITE_MAP = [["today","Today","Today","What is happening in the market right now",0,[["home","Home","","A one-screen overview of the market and every part of the site.",0],["brief","Market brief","Brief","A short digest of what moved, why, and what is coming up next.",0],["news","News","News desk","Market-moving stock and economic headlines, most important first.",0],["heatmap","Heatmap","","Every tracked stock as a tile: size is company value, color is how much it moved.",0],["calendar","Calendar","","Upcoming earnings reports, economic releases and Fed meetings.",0],["overnight","Overnight markets","","How Asian and European markets traded before the US open, and which US stocks they tend to lead.",0]]],["stocks","Stocks","Stocks","Look up, compare and follow companies",0,[["tickers","All stocks","Tickers","Every stock the site follows, with its price, returns and sector.",0],["grade","Look up a stock","Grade a ticker stock report","One stock in depth: its chart, grade, fundamentals, options and news.",0],["compare","Compare stocks","Compare companies","Line up a few companies side by side on price, growth and valuation.",0],["earnings","Earnings results","Earnings tracker","Which companies beat or missed expectations this season, and how their stocks reacted.",0],["calls","Earnings calls","","What management said on each company’s latest earnings call, and what changed.",0],["f13","Who owns what","SEC ownership 13F Form 4 insider","What big investment funds bought and sold last quarter, plus recent insider trades.",0],["pending-buyouts","Pending buyouts","M&A mergers","Announced and rumored takeovers, and how far along each deal is.",0]]],["market","Market & economy","Market","The big picture: mood, rates, money and themes",0,[["fear-greed","Market mood","Fear & Greed","CNN’s Fear & Greed index: whether investors are acting scared or greedy, from 0 to 100.",0],["bonds-usd","Rates & the dollar","Bonds & USD Fed","Treasury yields, the US dollar and what the Fed is expected to do next.",0],["commodities","Commodities","","Oil, gold, copper and other raw materials, and the stocks that move with them.",0],["central-bank-gold","Central-bank gold","","How much gold the world’s central banks are buying or selling.",0],["capital-raises","Capital markets","Capital raises share sales buybacks IPOs credit issuance debt","Companies selling stock or debt or buying shares back, upcoming IPOs, and how easily companies and households can borrow.",0],["narratives","Market themes","Narratives","The big stories driving money right now, such as AI spending, and which stocks ride them.",0]]],["options","Options activity","Options","Where traders are placing bets",0,[["flow","Unusual options trades","Unusual flow","Option trades far bigger than normal for that stock, a sign someone expects a move.",0],["volume","Trading volume","Volume","Days when a stock traded much more or less than usual.",0],["oi","Options walls","Gamma exposure GEX","Price levels where large option positions can slow a stock down or speed it up.",0],["iv-trend","Rising volatility","Trending IV implied volatility","Stocks whose options are pricing in a bigger move than usual.",0],["strategies","Strategy builder","Strategies","Pick a stock and build a defined-risk options trade, with its profit and loss at expiry.",0]]],["signals","Charts & signals","Signals","Price trends and repeating patterns",0,[["ma-tracker","Moving averages","MA tracker crossover","Stocks sitting close to their 20, 50, 100 or 200-day average price.",0],["streaks","Up/down streaks","Streaks green red","Stocks on a run of up days or down days in a row.",0],["pattern-lab","Pattern lab","Seasonality","Repeating patterns such as seasonality and how stocks behave after big moves.",0],["spillover","Earnings ripple effects","Event spillover","How one company’s earnings tend to move the other stocks in its industry.",0],["index-cal","Index calendar","","A month view of the major index funds, showing which days the whole market joined in.",0]]],["industry","Industry trends","Industry","Real-world data behind the AI and chip trade",0,[["ai-capex","AI spending","AI CapEx","How much the biggest tech companies are spending on AI data centers.",0],["ram-prices","Memory chip prices","RAM prices DRAM","Weekly prices for computer memory, a read on the chip cycle.",0],["accelerator-prices","GPU cloud prices","Accelerator","What it costs to rent AI chips by the hour, a read on AI demand.",0],["search-interest","Search trends","Search interest Google","Which market themes people are searching for more or less this week.",0]]],["learn","Learn & help","Learn","Guides, definitions and site info",0,[["cheatsheet","Options guide","Buyer's manual","A plain-English guide to buying options: calls, puts, risk and timing.",0],["chart-patterns","Chart patterns","","What common chart shapes look like and how traders read them.",0],["timeline","When data updates","Refresh schedule timeline","When each part of the site refreshes during the trading day.",0],["privacy","Privacy Policy","","What this site collects and how it is used.",0],["terms","Terms of Use","","The terms for using this site. Nothing here is investment advice.",0]]],["owner","Owner","Owner","Private research",1,[["owner-market-brief","Owner Market Brief","Private digest outlook predictions scenarios research","The full site read, with private research, conditional paths, counterevidence and a curated review shortlist.",0],["unified-signal-engine","Unified Signal Engine","","Existing decisions with separate investment and trading perspectives.",0],["market","Market analysis","","The cross-asset tape, risk barometer and regime history.",0],["risk","Risk analysis","","Seven risk desks read together, with the reason when they disagree.",0],["bottom-tracker","Bottom tracker","","Signs the market is washing out and turning.",0],["historical-data","Historical Data","","The stored history behind the private research.",0],["party-tracker","Party tracker","Party-Tracker Democrats Republicans president house senate","How the market and each sector did when Democrats or Republicans held the presidency, the House, or the Senate.",0],["earnings-forecast","Earnings Forecast","Quarterly full-year valuation company history revenue EPS industry model","Quarterly forecasts for the top 20 covered companies, company history, full-year valuation and linked industry evidence.",0],["forced-liquidation","Forced Liquidation Tracker","Pledged shares collateral leverage margin","SEC stock pledges, loan terms and estimated price thresholds, with missing terms kept visible.",0],["picks","Top picks","","The model’s highest-conviction option contracts for today.",0],["leaps","LEAPS","","Names scored for a one- to two-year options hold.",0],["stocks","Stock picks","","Quality companies on a dip, as shares rather than options.",0],["rotation","Sector rotation","","Strong names sold with their sector that are now turning back up.",0],["levetf","Leveraged ETFs","","Leveraged ETF setups from the same engine.",0],["open-picks","Open picks","","Every open trade, with lines ready to copy to a broker.",0],["track","Top Picks track record","","How every closed pick worked out.",0],["quant","Owner Lab","","Research tools and diagnostics.",0]]]];
+  var SITE_MAP = [["today","Today","Today","What is happening in the market right now",0,[["home","Home","","A one-screen overview of the market and every part of the site.",0],["brief","Market brief","Brief","A short digest of what moved, why, and what is coming up next.",0],["news","News","News desk","Market-moving stock and economic headlines, most important first.",0],["heatmap","Heatmap","","Every tracked stock as a tile: size is company value, color is how much it moved.",0],["calendar","Calendar","","Upcoming earnings reports, economic releases and Fed meetings.",0],["overnight","Overnight markets","","How Asian and European markets traded before the US open, and which US stocks they tend to lead.",0]]],["stocks","Stocks","Stocks","Look up, compare and follow companies",0,[["tickers","All stocks","Tickers","Every stock the site follows, with its price, returns and sector.",0],["grade","Look up a stock","Grade a ticker stock report","One stock in depth: its chart, grade, fundamentals, options and news.",0],["compare","Compare stocks","Compare companies","Line up a few companies side by side on price, growth and valuation.",0],["earnings","Earnings results","Earnings tracker","Which companies beat or missed expectations this season, and how their stocks reacted.",0],["calls","Earnings calls","","What management said on each company’s latest earnings call, and what changed.",0],["f13","Who owns what","SEC ownership 13F Form 4 insider","What big investment funds bought and sold last quarter, plus recent insider trades.",0],["pending-buyouts","Pending buyouts","M&A mergers","Announced and rumored takeovers, and how far along each deal is.",0]]],["market","Market & economy","Market","The big picture: mood, rates, money and themes",0,[["fear-greed","Market mood","Fear & Greed","CNN’s Fear & Greed index: whether investors are acting scared or greedy, from 0 to 100.",0],["bonds-usd","Rates & the dollar","Bonds & USD Fed","Treasury yields, the US dollar and what the Fed is expected to do next.",0],["commodities","Commodities","","Oil, gold, copper and other raw materials, and the stocks that move with them.",0],["central-bank-gold","Central-bank gold","","How much gold the world’s central banks are buying or selling.",0],["capital-raises","Capital markets","Capital raises share sales buybacks IPOs credit issuance debt","Companies selling stock or debt or buying shares back, upcoming IPOs, and how easily companies and households can borrow.",0],["narratives","Market themes","Narratives","The big stories driving money right now, such as AI spending, and which stocks ride them.",0]]],["options","Options activity","Options","Where traders are placing bets",0,[["flow","Unusual options trades","Unusual flow","Option trades far bigger than normal for that stock, a sign someone expects a move.",0],["volume","Trading volume","Volume","Days when a stock traded much more or less than usual.",0],["oi","Options walls","Gamma exposure GEX","Price levels where large option positions can slow a stock down or speed it up.",0],["iv-trend","Rising volatility","Trending IV implied volatility","Stocks whose options are pricing in a bigger move than usual.",0],["strategies","Strategy builder","Strategies","Pick a stock and build a defined-risk options trade, with its profit and loss at expiry.",0]]],["signals","Charts & signals","Signals","Price trends and repeating patterns",0,[["ma-tracker","Moving averages","MA tracker crossover","Stocks sitting close to their 20, 50, 100 or 200-day average price.",0],["streaks","Up/down streaks","Streaks green red","Stocks on a run of up days or down days in a row.",0],["pattern-lab","Pattern lab","Seasonality","Repeating patterns such as seasonality and how stocks behave after big moves.",0],["spillover","Earnings ripple effects","Event spillover","How one company’s earnings tend to move the other stocks in its industry.",0],["index-cal","Index calendar","","A month view of the major index funds, showing which days the whole market joined in.",0]]],["industry","Industry trends","Industry","Real-world data behind the AI and chip trade",0,[["ai-capex","AI spending","AI CapEx","How much the biggest tech companies are spending on AI data centers.",0],["ram-prices","Memory chip prices","RAM prices DRAM","Weekly prices for computer memory, a read on the chip cycle.",0],["accelerator-prices","GPU cloud prices","Accelerator","What it costs to rent AI chips by the hour, a read on AI demand.",0],["search-interest","Search trends","Search interest Google","Which market themes people are searching for more or less this week.",0]]],["learn","Learn & help","Learn","Guides, definitions and site info",0,[["cheatsheet","Options guide","Buyer's manual","A plain-English guide to buying options: calls, puts, risk and timing.",0],["chart-patterns","Chart patterns","","What common chart shapes look like and how traders read them.",0],["timeline","When data updates","Refresh schedule timeline","When each part of the site refreshes during the trading day.",0],["privacy","Privacy Policy","","What this site collects and how it is used.",0],["terms","Terms of Use","","The terms for using this site. Nothing here is investment advice.",0]]],["owner","Owner","Owner","Private research",1,[["owner-market-brief","Owner Market Brief","Private digest outlook predictions scenarios research","The full site read, with private research, conditional paths, counterevidence and a curated review shortlist.",0],["unified-signal-engine","Unified Signal Engine","","Existing decisions with separate investment and trading perspectives.",0],["market","Market analysis","","The cross-asset tape, risk barometer and regime history.",0],["risk","Risk analysis","","Seven risk desks read together, with the reason when they disagree.",0],["bottom-tracker","Bottom tracker","","Signs the market is washing out and turning.",0],["historical-data","Historical Data","","The stored history behind the private research.",0],["party-tracker","Party tracker","Party-Tracker Democrats Republicans president house senate","How the market and each sector did when Democrats or Republicans held the presidency, the House, or the Senate.",0],["earnings-forecast","Earnings Forecast","Quarterly full-year valuation company history revenue EPS industry model","Quarterly forecasts for the top 20 covered companies, company history, full-year valuation and linked industry evidence.",0],["forced-liquidation","Forced Liquidation Tracker","Pledged shares collateral leverage margin","SEC stock pledges, loan terms and estimated price thresholds, with missing terms kept visible.",0],["picks","Top picks","","The model’s highest-conviction option contracts for today.",0],["leaps","LEAPS","","Names scored for a one- to two-year options hold.",0],["stocks","Stock picks","","Quality companies on a dip, as shares rather than options.",0],["rotation","Sector rotation","","Strong names sold with their sector that are now turning back up.",0],["levetf","Leveraged ETFs","","Leveraged ETF setups from the same engine.",0],["open-picks","Open picks","","Every open trade, with lines ready to copy to a broker.",0],["track","Top Picks track record","","How every closed pick worked out.",0],["quant","Owner Lab","","Research tools and diagnostics.",0],["research-lab","Research Lab","Experiments visual canvas journal offsite ChatGPT Claude","Compose reproducible studies, compare evidence and review research completed offsite.",0]]]];
   var RECENT_KEY = 'stonks-recent-v1';
   function wfReadRecent(){
     try {
@@ -2031,20 +2031,25 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // the Owner analysis/idea/record desks and Owner Lab; this UI boundary keeps
   // destinations hidden until the owner session's compatibility claims resolve.
   // Discord mints both only after verifying the existing Top Picks owner role.
-  var OWNER_TABS = {"owner-market-brief":1,"grade":1,"strategies":1,"narratives":1,"earnings-forecast":1,"unified-signal-engine":1,"market":1,"risk":1,"bottom-tracker":1,"historical-data":1,"party-tracker":1,"forced-liquidation":1,"picks":1,"leaps":1,"stocks":1,"rotation":1,"levetf":1,"open-picks":1,"track":1,"quant":1};
+  var OWNER_TABS = {"owner-market-brief":1,"grade":1,"strategies":1,"narratives":1,"earnings-forecast":1,"unified-signal-engine":1,"market":1,"risk":1,"bottom-tracker":1,"historical-data":1,"party-tracker":1,"forced-liquidation":1,"picks":1,"leaps":1,"stocks":1,"rotation":1,"levetf":1,"open-picks":1,"track":1,"quant":1,"research-lab":1};
   var GATE_ON = false;
   var HAS_TRACK_RECORD = false;
   var HAS_TOP_PICKS = false;
   var HAS_QUANT_LAB = false;
   var HAS_OWNER_ACCESS = false;
+  var HAS_RESEARCH_LAB = false;
   var AUTH_ME = null;
   var DISCORD_ICON_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.3 4.4A19.8 19.8 0 0 0 15.4 3l-.25.5c1.6.4 2.9 1 4.1 1.8a13.5 13.5 0 0 0-11.5 0c1.2-.8 2.6-1.4 4.1-1.8L11.6 3A19.8 19.8 0 0 0 6.7 4.4 20.6 20.6 0 0 0 3 18.6 19.9 19.9 0 0 0 8 21l.6-.9c-.9-.3-1.7-.7-2.4-1.2.2-.1.4-.3.6-.4a14.2 14.2 0 0 0 12.4 0c.2.1.4.3.6.4-.7.5-1.5.9-2.4 1.2l.6.9a19.9 19.9 0 0 0 5-2.4 20.6 20.6 0 0 0-3.7-14.2ZM9 15.3c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Zm6 0c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Z"/></svg>';
   function applyAuth(me){
+    if (AUTH_ME && AUTH_ME.sub !== (me && me.sub) && typeof researchLab !== 'undefined') researchLab.reset();
     AUTH_ME = me || null;
     GATE_ON = !!(me && me.enabled);
     // Owner access never fails open. A disabled gate, failed probe, legacy
     // session, or either missing special claim leaves every Owner surface hidden.
     HAS_OWNER_ACCESS = !!(GATE_ON && me && me.authed === true && me.trackRecord === true && me.topPicks === true);
+    HAS_RESEARCH_LAB = !!(HAS_OWNER_ACCESS && me.researchLab === true);
+    if (document.body) document.body.classList.toggle('research-lab-enabled', HAS_RESEARCH_LAB);
+    if (!HAS_RESEARCH_LAB && typeof researchLab !== 'undefined') researchLab.reset();
     window.STONKS_OWNER_ACCESS = HAS_OWNER_ACCESS;
     if (!HAS_OWNER_ACCESS && heatmapState && heatmapState.colorBy === 'grade') heatmapState.colorBy = 'perf';
     if (!HAS_OWNER_ACCESS && typeof ownerMarketBrief !== 'undefined') ownerMarketBrief.reset();
@@ -5647,7 +5652,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // resolve the URL's initial tab synchronously at script-evaluation time (the
   // anti-flash pre-select in the boot block) before the /api/auth/me +
   // manifest fetches settle and bind() runs the full selectTab.
-  var PAGE_TAB_IDS = ['home','owner-market-brief','tickers','narratives','brief','news','market','risk','unified-signal-engine','historical-data','party-tracker','earnings-forecast','forced-liquidation','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','bottom-tracker','open-picks','track','cheatsheet','chart-patterns','timeline','privacy','terms'];
+  var PAGE_TAB_IDS = ['home','owner-market-brief','tickers','narratives','brief','news','market','risk','unified-signal-engine','historical-data','party-tracker','earnings-forecast','forced-liquidation','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','research-lab','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','bottom-tracker','open-picks','track','cheatsheet','chart-patterns','timeline','privacy','terms'];
   // Friendly aliases so deep-links people might guess work too.
   // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
   // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -5749,6 +5754,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     // Actionable tabs are internal Owner surfaces. Remove them from URL,
     // history, palette, and click resolution unless both role claims exist.
     if (!HAS_OWNER_ACCESS) valid = valid.filter(function(t){ return !OWNER_TABS[t]; });
+    if (!HAS_RESEARCH_LAB) valid = valid.filter(function(t){ return t !== 'research-lab'; });
     function resolveTab(t){ return resolvePageTabId(t, valid); }
     // Collapsible sidebar. Desktop (>=1024px, matching the CSS breakpoint):
     // the sidebar pushes the page content, defaults open, and the collapsed
@@ -7266,6 +7272,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       // Bounce stale/deep-linked Owner destinations before persisting or
       // starting any loader. The server independently enforces stored data.
       if (OWNER_TABS[name] && !HAS_OWNER_ACCESS) { return selectTab('home', nav); }
+      if (name === 'research-lab' && !HAS_RESEARCH_LAB) { return selectTab('home', nav); }
       // Picking a page from the main window (sidebar, search, a link) while
       // split view is on goes back to one full page.
       if (!splitInternalNav && splitIsOn()) splitClose(false);
@@ -7328,6 +7335,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       if (name !== 'oi' && typeof stopOiLive === 'function') stopOiLive();
       if (name !== 'ma-tracker' && typeof stopMaTrackerLive === 'function') stopMaTrackerLive();
       if (name === 'owner-market-brief') ownerMarketBrief.load();
+      if (name === 'research-lab') researchLab.load();
       if (name === 'brief' && typeof loadBrief === 'function') loadBrief();
         if (name === 'news' && typeof loadNewsFeed === 'function') loadNewsFeed();
         if ((name === 'calendar' || name === 'bonds-usd') && typeof loadCalendar === 'function') loadCalendar();
@@ -26814,6 +26822,654 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // docs/quant-lab.md — deterministic sigma / VRP / pairs / surface /
   // dispersion / post-earnings-drift screens. ANALYTICAL ONLY: z-scores and
   // ranks, never trade signals (the playbook table in the shell is educational).
+  var researchLab = (function researchLabClient(win, doc, options, contracts) {
+  const root = doc.getElementById('research-lab-root');
+  let mounted = false, view = 'workspace', graph = contracts.template(), plan = null, snapshot = null,
+    experimentId = null, revision = 0, latestRevision = 0, familyId = null, dirty = true, selected = 'shock', pendingPort = null,
+    history = [], future = [], currentRun = null, journalData = null, compiled = null, processing = false,
+    selectedRuns = [], importInput = null, importPreview = null, libraryQuery = '', journalQuery = '', journalFilter = 'all',
+    sources = null, evidenceCards = new Map(), chosenEvidence = new Set(), sourceQuery = '', sourceCategory = '', sourceSort = 'category', draftTimer = null;
+  const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const pct = value => value == null ? 'Unavailable' : (value * 100).toFixed(2) + '%';
+  const num = value => value == null ? 'Unavailable' : Number(value).toLocaleString(undefined, { maximumFractionDigits: 4 });
+  const short = value => value ? value.slice(0, 12) + '…' : 'Not saved';
+  const fieldLabel = path => path.split('.').map(part => part.replace(/([a-z])([A-Z])/g, '$1 $2').replaceAll('_', ' ')).join(' / ');
+  const factValue = value => typeof value === 'boolean' ? value ? 'Yes' : 'No' : value;
+  const sourceTime = value => !value ? 'Unknown' : /^\d{4}-\d\d-\d\d$/.test(value) ? value + ' (date only)' : new Date(value).toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
+  const button = (action, label, extra = '') => '<button type="button" data-rl="' + action + '" ' + extra + '>' + esc(label) + '</button>';
+  const warning = text => '<div class="rl-warning">' + esc(text) + '</div>';
+  function message(text, error = false) { const el = root.querySelector('#rl-message'); if (el) { el.textContent = text; el.classList.toggle('error', error); } }
+  async function api(action, body, params = {}) {
+    if (!options.allowed()) throw new Error('Owner Research Lab session required');
+    const identity = options.identity();
+    const query = new URLSearchParams({ lab: action, ...params });
+    const res = await win.fetch('/api/auth/me?' + query, { method: body === undefined ? 'GET' : 'POST', credentials: 'same-origin',
+      headers: body === undefined ? {} : { 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      if ([401, 403, 404].includes(res.status) && /session|unavailable for/.test(data.error || '')) reset();
+      throw new Error((data.code ? data.code + ': ' : '') + (data.error || 'Research request failed'));
+    }
+    if (!options.allowed() || options.identity() !== identity) throw new Error('Research session changed. Reopen the workspace.');
+    return action === 'export' ? res : res.json();
+  }
+  function changed() { dirty = true; compiled = null; if (draftTimer) win.clearTimeout(draftTimer); draftTimer = win.setTimeout(saveDraft, 400); }
+  function saveDraft() {
+    if (!options.allowed() || !root.querySelector('#rl-name')) return;
+    syncForm();
+    try { win.localStorage.setItem('stonks-research-draft-' + options.identity(), JSON.stringify({ graph, plan, snapshot, experimentId, revision, latestRevision, familyId, hypothesis: root.querySelector('#rl-hypothesis').value })); } catch (_) {}
+  }
+  function restoreDraft() {
+    try {
+      const d = JSON.parse(win.localStorage.getItem('stonks-research-draft-' + options.identity()) || 'null');
+      if (!d || d.graph?.schema_version !== '1.0' || !Array.isArray(d.graph.nodes) || d.graph.nodes.length > 24 || !d.graph.nodes.every(n => contracts.blocks.some(b => b.key === n.type) && n.position && Number.isFinite(n.position.x) && Number.isFinite(n.position.y))) return;
+      graph = d.graph; plan = d.plan; snapshot = d.snapshot; experimentId = d.experimentId; revision = d.revision; latestRevision = d.latestRevision; familyId = d.familyId;
+      return d.hypothesis;
+    } catch (_) { return null; }
+  }
+  function editGraph(fn) { if (root.querySelector('#rl-name')) syncForm(); history.push(JSON.stringify(graph)); if (history.length > 50) history.shift(); future = []; fn(); changed(); renderWorkspace(); }
+  function changeTemplate(kind) {
+    editGraph(() => {
+      const cfg = graph.research_config; graph = contracts.template(kind);
+      graph.research_config = { ...graph.research_config, snapshot_id: cfg.snapshot_id, as_of: cfg.as_of, random_seed: cfg.random_seed };
+      experimentId = null; revision = 0; selected = graph.nodes[1]?.id;
+    });
+  }
+  function defaultPlan(summary) {
+    const symbols = Object.keys(summary.assets), universe = symbols.filter(s => s !== 'SPY');
+    return { schema: 'mingstreet.evaluation-plan.v2', target: 'benchmark_relative_return', universe: universe.length ? universe : symbols,
+      discovery: summary.suggested_windows.discovery, holdout: summary.suggested_windows.holdout, horizon_sessions: 10, embargo_sessions: 11,
+      benchmark: symbols.includes('SPY') ? 'SPY' : symbols.at(-1), costs: { commission_bps: 0, slippage_bps: 5 }, max_trials: 20,
+      min_events: 10, bootstrap_samples: 300, execution: 'next_open', primary_metric: 'mean_excess_return' };
+  }
+  function shell() {
+    root.innerHTML = '<div class="rl"><header class="rl-head"><div><div class="rl-eyebrow">Mingstreet / private research</div><h2>Research Lab</h2><p>Build a question. Freeze the evidence. Test what survives.<br>Export a research bundle to ChatGPT or Claude, then review its interpretation here.</p></div><span class="rl-badge">Owner only · no AI API calls</span></header>' +
+      '<div class="rl-toolbar">' + button('save', 'Save revision') + button('save-draft', 'Save local draft') + button('compile', 'Check experiment') + button('run', 'Run discovery') + button('final', 'Run final evaluation') + '</div>' +
+      '<div id="rl-message" class="rl-message" role="status" aria-live="polite"></div><div class="rl-tabs" role="tablist" aria-label="Research Lab views">' +
+      ['workspace', 'sources', 'results', 'journal', 'exchange', 'operations'].map(v => '<button type="button" role="tab" id="rl-tab-' + v + '" aria-controls="rl-' + v + '" data-view="' + v + '" aria-selected="' + (view === v) + '">' + ({ workspace: 'Workspace', sources: 'Research shelf', results: 'Results', journal: 'Journal', exchange: 'Offsite research', operations: 'Operations' }[v]) + '</button>').join('') + '</div>' +
+      ['workspace', 'sources', 'results', 'journal', 'exchange', 'operations'].map(v => '<div role="tabpanel" id="rl-' + v + '" aria-labelledby="rl-tab-' + v + '"' + (view === v ? '' : ' hidden') + '></div>').join('') + '</div>';
+    renderWorkspace(); renderSources(); renderResults(); renderJournal(); renderExchange(); renderOperations();
+  }
+  function setView(next) {
+    view = next;
+    root.querySelectorAll('[data-view]').forEach(el => el.setAttribute('aria-selected', String(el.dataset.view === next)));
+    for (const v of ['workspace', 'sources', 'results', 'journal', 'exchange', 'operations']) root.querySelector('#rl-' + v).hidden = v !== next;
+  }
+  function renderSources() {
+    const el = root.querySelector('#rl-sources'); if (!el) return;
+    if (!sources) { el.innerHTML = '<div class="rl-panel"><h3>Research shelf</h3><p class="rl-muted">Browse every site feature, filter by topic and capture selected dated evidence. Sources load only when requested.</p>' + button('sources-load', 'Browse site information') + '</div>'; return; }
+    const shown = sources.filter(s => (!sourceCategory || s.category === sourceCategory) && (s.label + s.description + s.category).toLowerCase().includes(sourceQuery.toLowerCase())).sort((a, b) => (sourceSort === 'name' ? a.label : a.category + a.label).localeCompare(sourceSort === 'name' ? b.label : b.category + b.label));
+    el.innerHTML = '<section class="rl-panel"><h3>Browse the site information</h3><p class="rl-muted">Current evidence helps frame an idea. It cannot be wired into a past signal or override a numerical result. Opening a source page shows its full information; captures retain bounded derived fields with source times.</p><div class="rl-fields">' + input('rl-source-search', 'Search features and topics', sourceQuery) + '<label>Topic<select id="rl-source-category"><option value="">All topics</option>' + [...new Set(sources.map(s => s.category))].map(c => '<option' + (c === sourceCategory ? ' selected' : '') + '>' + esc(c) + '</option>').join('') + '</select></label><label>Sort<select id="rl-source-sort"><option value="category">Topic, then name</option><option value="name"' + (sourceSort === 'name' ? ' selected' : '') + '>Name</option></select></label></div><div class="rl-source-list">' + shown.map(s => '<article class="rl-exp"><h4>' + esc(s.label) + ' <span class="rl-badge">' + esc(s.category) + '</span></h4><p>' + esc(s.description) + '</p><div class="rl-inline"><a href="/?tab=' + esc(s.id) + '" target="_blank" rel="noopener">Open full source</a>' + button('source-capture', s.capture_supported ? 'Capture derived evidence' : 'Pin reference', 'data-source="' + esc(s.id) + '"') + '</div></article>').join('') + '</div></section><section class="rl-panel"><h3>Evidence for this idea</h3><p class="rl-muted">Select cards, then attach them as one puzzle piece to the report context port. Copies stay frozen with a run. Scores from different sources can use different scales; review the source before comparing them.</p>' + button('attach-evidence', 'Attach selected cards to graph') + [...evidenceCards.values()].map(c => '<article class="rl-exp"><label class="rl-check"><input type="checkbox" data-evidence-select="' + c.id + '"' + (chosenEvidence.has(c.id) ? ' checked' : '') + '>' + esc(c.label) + '</label><p>' + esc('Source time: ' + sourceTime(c.source_as_of) + ' · captured: ' + sourceTime(c.captured_at)) + '</p>' + c.warnings.map(warning).join('') + table(['Measure', 'Source value', 'Scale'], c.facts.map(f => [fieldLabel(f.path), factValue(f.value), 'Defined by source'])) + '</article>').join('') + (journalData?.evidence || []).filter(e => !evidenceCards.has(e.id)).map(e => button('evidence-load', 'Load saved ' + e.label, 'data-id="' + e.id + '"')).join(' ') + '</section>';
+  }
+  const input = (id, label, value, type = 'text', extra = '') => '<label>' + esc(label) + '<input id="' + id + '" type="' + type + '" value="' + esc(value) + '" ' + extra + '></label>';
+  function renderWorkspace() {
+    const panel = root.querySelector('#rl-workspace'); if (!panel) return;
+    const connectionsOpen = panel.querySelector('.rl-keyboard-links')?.open;
+    const hypothesis = panel.querySelector('#rl-hypothesis')?.value || graph.name;
+    const symbols = panel.querySelector('#rl-symbols')?.value || (snapshot ? Object.keys(snapshot.assets).join(', ') : 'AAPL, MSFT, NVDA, SPY');
+    panel.innerHTML = '<section class="rl-panel"><div class="rl-fields">' + input('rl-name', 'Experiment title', graph.name) +
+      '<label>Template<select id="rl-template"><option value="">Choose a starting point</option>' +
+      [['breadth', 'Oversold + breadth'], ['forward', 'Forward-return study'], ['conditional', 'Conditional signal test'], ['stress', 'Price-target stress test'], ['reverse', 'Reverse valuation'], ['sensitivity', 'Sensitivity grid'], ['monte_carlo', 'Conditional paths'], ['strategy', 'Exploratory equity strategy'], ['factor', 'Factor-neutral strategy · needs data'], ['earnings', 'Earnings peer spillover · needs data']].map(([k, v]) => '<option value="' + k + '">' + esc(v) + '</option>').join('') + '</select></label>' +
+      '<label class="rl-wide">Hypothesis<textarea id="rl-hypothesis" maxlength="4000">' + esc(hypothesis) + '</textarea></label></div><p class="rl-muted" id="rl-revision">' +
+      (experimentId ? esc(experimentId) + ' · revision ' + revision + (dirty ? ' · unsaved changes' : ' · frozen revision') : 'New experiment · save to register the graph and evaluation plan') + '</p></section>' +
+      '<section class="rl-panel"><h3>1. Freeze the inputs</h3><div class="rl-fields">' + input('rl-symbols', 'Symbols, including benchmark', symbols) +
+      '<div class="rl-inline">' + button('capture', 'Capture existing cache') + '</div>' + input('rl-asof', 'As-of cutoff · UTC', graph.research_config.as_of) +
+      input('rl-seed', 'Deterministic seed', graph.research_config.random_seed, 'number', 'min="1" max="2147483647"') + '</div>' +
+      (snapshot ? '<p class="rl-muted">Snapshot ' + esc(short(snapshot.id)) + ' · ' + esc(snapshot.history_class) + '</p><div class="rl-table-wrap"><table><thead><tr><th>Asset</th><th>First session</th><th>Last session</th><th>Rows</th></tr></thead><tbody>' +
+        Object.entries(snapshot.assets).map(([s, a]) => '<tr><td>' + esc(s) + '</td><td>' + esc(a.first) + '</td><td>' + esc(a.last) + '</td><td>' + a.rows + '</td></tr>').join('') + '</tbody></table></div>' + snapshot.warnings.map(warning).join('') : '<p class="rl-muted">Uses data the site already stores. No AI or data-provider request. Missing history stays missing.</p>') + '</section>' +
+      '<section class="rl-panel"><h3>2. Register the evaluation plan</h3>' + (plan ? planForm() : '<p class="rl-muted">Capture inputs to choose discovery and untouched final windows.</p>') + '</section>' +
+      '<h3>3. Compose the experiment</h3><div class="rl-workbench"><aside class="rl-library" aria-label="Block library"><h3>Block library</h3>' + input('rl-library-search', 'Search blocks', libraryQuery) + '<div class="rl-library-list"></div></aside>' +
+      '<div class="rl-canvas-shell"><div class="rl-canvas-tools">' + button('undo', 'Undo', history.length ? '' : 'disabled') + button('redo', 'Redo', future.length ? '' : 'disabled') + button('zoom-out', '−', 'aria-label="Zoom out"') + button('zoom-in', '+', 'aria-label="Zoom in"') + button('fit', 'Fit') + '<span id="rl-zoom-label" class="rl-muted">' + Math.round(graph.viewport.zoom * 100) + '%</span></div>' +
+      '<div class="rl-scroll" tabindex="0" aria-label="Zoomable research canvas"><div class="rl-plane"></div></div><svg class="rl-minimap" viewBox="0 0 1600 800" aria-label="Graph minimap"></svg></div>' +
+      '<aside class="rl-inspector" aria-label="Block properties"></aside></div>' +
+      '<details class="rl-panel rl-keyboard-links"' + (connectionsOpen ? ' open' : '') + '><summary>Keyboard connections and graph links</summary><p class="rl-muted">Choose named output and input ports, then connect. Arrow keys move a focused node. Select a connection below to remove it.</p><div class="rl-fields"><label>Output port<select id="rl-connect-from"></select></label><label>Input port<select id="rl-connect-to"></select></label><div class="rl-inline">' + button('connect', 'Connect ports') + '</div></div><div class="rl-connections"></div></details>' +
+      '<section class="rl-panel"><h3>4. Check, save and run</h3><p class="rl-muted">Discovery uses only its registered window. Final evaluation records holdout exposure, including failed or canceled attempts. Further tuning of the same final period compromises independence.</p>' +
+      '<label class="rl-check"><input id="rl-final-ack" type="checkbox">I understand that final evaluation permanently records holdout access.</label><div id="rl-compile"></div></section>';
+    renderLibrary(); renderCanvas(); renderInspector(); renderConnections(); renderCompile();
+  }
+  function planForm() {
+    return '<div class="rl-fields">' + input('rl-universe', 'Evaluation universe', plan.universe.join(', ')) + input('rl-benchmark', 'Benchmark', plan.benchmark) +
+      input('rl-disc-start', 'Discovery starts', plan.discovery[0], 'date') + input('rl-disc-end', 'Discovery ends', plan.discovery[1], 'date') +
+      input('rl-hold-start', 'Final window starts', plan.holdout[0], 'date') + input('rl-hold-end', 'Final window ends', plan.holdout[1], 'date') +
+      input('rl-horizon', 'Outcome horizon · sessions', plan.horizon_sessions, 'number', 'min="1" max="60"') + input('rl-embargo', 'Embargo · sessions', plan.embargo_sessions, 'number', 'min="2" max="120"') +
+      input('rl-commission', 'Commission · bps per side', plan.costs.commission_bps, 'number', 'min="0" max="500" step="0.1"') + input('rl-slippage', 'Slippage · bps per side', plan.costs.slippage_bps, 'number', 'min="0" max="500" step="0.1"') +
+      input('rl-trials', 'Trial budget · all attempts', plan.max_trials, 'number', 'min="1" max="100"') + input('rl-min-events', 'Minimum events', plan.min_events, 'number', 'min="5" max="500"') +
+      '<label>Experiment family<select id="rl-mode">' + [['descriptive', 'Historical association'], ['conditional', 'Conditional scenario'], ['strategy', 'Modeled equity strategy'], ['forecast', 'Probability forecast · requires calibration']].map(([v, label]) => '<option value="' + v + '"' + (graph.research_config.mode === v ? ' selected' : '') + '>' + label + '</option>').join('') + '</select></label></div><p class="rl-muted">Target: next-open benchmark-relative return. Fixed spec time slices purge labels at boundaries. No sector/factor neutrality or causal claim.</p>';
+  }
+  function renderLibrary() {
+    const list = root.querySelector('.rl-library-list'); if (!list) return;
+    list.innerHTML = contracts.blocks.filter(b => !(b.key === 'output.report' && b.version === '1.0.0') && (b.label + b.category + b.key).toLowerCase().includes(libraryQuery.toLowerCase())).map(b =>
+      '<button type="button" draggable="' + b.ready + '" data-add="' + b.key + '" data-category="' + b.category + '"' + (b.ready ? '' : ' disabled') + ' title="' + esc(b.description || b.reason || b.key) + '">' + esc(b.label) + '<small>' + esc(b.ready ? b.category : b.reason) + '</small></button>').join('');
+  }
+  const definition = node => contracts.blocks.find(b => b.key === node.type && b.version === node.version);
+  function renderCanvas() {
+    const plane = root.querySelector('.rl-plane'); if (!plane) return;
+    const w = Math.max(1500, ...graph.nodes.map(n => n.position.x + 300)), h = Math.max(700, ...graph.nodes.map(n => n.position.y + 250));
+    const pendingNode = pendingPort && graph.nodes.find(n => n.id === pendingPort.split('.')[0]);
+    const pendingOutput = pendingNode && definition(pendingNode).outputs.find(p => p.name === pendingPort.split('.')[1]);
+    plane.style.width = w + 'px'; plane.style.height = h + 'px'; plane.style.transform = 'scale(' + graph.viewport.zoom + ')';
+    const edges = graph.edges.map(e => {
+      const [a, ap] = e.from.split('.'), [b, bp] = e.to.split('.'), from = graph.nodes.find(n => n.id === a), to = graph.nodes.find(n => n.id === b);
+      if (!from || !to) return '';
+      const x1 = from.position.x + 220, y1 = from.position.y + 95 + definition(from).outputs.findIndex(p => p.name === ap) * 32,
+        x2 = to.position.x, y2 = to.position.y + 95 + definition(to).inputs.findIndex(p => p.name === bp) * 32;
+      return '<path d="M' + x1 + ',' + y1 + ' C' + (x1 + 70) + ',' + y1 + ' ' + (x2 - 70) + ',' + y2 + ' ' + x2 + ',' + y2 + '"/><text x="' + ((x1 + x2) / 2) + '" y="' + ((y1 + y2) / 2 - 8) + '">' + esc(ap) + '</text>';
+    }).join('');
+    plane.innerHTML = '<svg class="rl-edges" width="' + w + '" height="' + h + '" aria-hidden="true">' + edges + '</svg>' + graph.nodes.map(node => {
+      const def = definition(node);
+      return '<article class="rl-node' + (node.id === selected ? ' selected' : '') + '" tabindex="0" data-node="' + node.id + '" data-category="' + def.category + '" aria-label="' + esc(def.label + ' node ' + node.id) + '" style="left:' + node.position.x + 'px;top:' + node.position.y + 'px"><button type="button" class="rl-node-title" data-select-node="' + node.id + '">' + esc(def.label) + '</button><div class="rl-node-kind">' + esc(node.id + ' · v' + node.version) + '</div><div class="rl-ports">' +
+        Array.from({ length: Math.max(def.inputs.length, def.outputs.length) }, (_, i) => '<div class="rl-port-row">' + (def.inputs[i] ? '<button type="button" class="' + (pendingOutput && contracts.compatible(pendingOutput, def.inputs[i]) ? 'rl-compatible' : '') + '" title="' + esc(def.inputs[i].dtype + ' · ' + def.inputs[i].unit + (def.inputs[i].optional ? ' · optional' : '')) + '" data-port-in="' + node.id + '.' + def.inputs[i].name + '">○ ' + esc(def.inputs[i].name) + '</button>' : '<span></span>') +
+          (def.outputs[i] ? '<button type="button" class="rl-port-out' + (pendingPort === node.id + '.' + def.outputs[i].name ? ' pending' : '') + '" data-port-out="' + node.id + '.' + def.outputs[i].name + '">' + esc(def.outputs[i].name) + ' ○</button>' : '') + '</div>').join('') + '</div></article>';
+    }).join('');
+    const scroll = root.querySelector('.rl-scroll'); scroll.scrollLeft = graph.viewport.x; scroll.scrollTop = graph.viewport.y;
+    root.querySelector('#rl-zoom-label').textContent = Math.round(graph.viewport.zoom * 100) + '%';
+    root.querySelector('.rl-minimap').setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+    root.querySelector('.rl-minimap').innerHTML = graph.nodes.map(n => '<rect x="' + n.position.x + '" y="' + n.position.y + '" width="220" height="130"/>').join('');
+  }
+  function renderInspector() {
+    const inspector = root.querySelector('.rl-inspector'), node = graph.nodes.find(n => n.id === selected); if (!inspector) return;
+    if (!node) { inspector.innerHTML = '<h3>Block inspector</h3><p class="rl-muted">Select a block to inspect its parameters, units and provenance.</p>'; return; }
+    const def = definition(node), sources = snapshot ? Object.values(snapshot.assets) : [];
+    inspector.innerHTML = '<h3>' + esc(def.label) + '</h3><p class="rl-muted">' + esc(def.description || 'Versioned deterministic block. Missing observations are excluded and counted.') + '</p>' +
+      Object.entries(def.params_schema.properties).map(([k, p]) => p.enum ? '<label>' + esc(k.replaceAll('_', ' ')) + '<select data-param="' + k + '">' + p.enum.map(v => '<option' + (v === node.params[k] ? ' selected' : '') + '>' + esc(v) + '</option>').join('') + '</select></label>' :
+        '<label>' + esc(k.replaceAll('_', ' ')) + '<input type="' + (p.type === 'string' ? 'text' : 'number') + '" data-param="' + k + '" value="' + esc(node.params[k]) + '"' + (p.type === 'string' ? ' maxlength="' + p.maxLength + '"' : ' min="' + p.minimum + '" max="' + p.maximum + '" step="' + (p.type === 'integer' ? '1' : 'any') + '"') + '></label>').join('') +
+      '<h4>Typed ports</h4>' + [...def.inputs, ...def.outputs].map(p => '<div class="rl-port-info">' + esc(p.name + ' · ' + p.dtype + ' · ' + p.unit + ' · ' + p.shape + ' · ' + p.frequency + ' · ' + p.timezone) + '</div>').join('') +
+      '<h4>Availability</h4><p class="rl-muted">' + esc(snapshot?.history_class || 'Capture a snapshot first') + '<br>' + esc(node.type === 'data.site_evidence' ? 'Current source context only; no historical signal window. Source dates are shown on each card.' : def.temporal_policy) + '<br>' + (node.type === 'data.site_evidence' ? 'Connect only to report context.' : sources.length ? esc(sources[0].first + ' to ' + sources[0].last) : 'No history loaded') + '</p>' +
+      '<h4>Compatible next blocks</h4><p class="rl-muted">' + contracts.blocks.filter(b => b.ready && b.inputs.some(p => def.outputs.some(out => contracts.compatible(out, p)))).map(b => esc(b.label)).join(', ') + '</p>' + button('delete-node', 'Remove selected block');
+  }
+  function renderConnections() {
+    const from = root.querySelector('#rl-connect-from'), to = root.querySelector('#rl-connect-to'); if (!from) return;
+    const ports = side => graph.nodes.flatMap(n => definition(n)[side].map(p => '<option value="' + n.id + '.' + p.name + '">' + esc(n.id + '.' + p.name + ' · ' + p.unit) + '</option>')).join('');
+    from.innerHTML = ports('outputs'); to.innerHTML = ports('inputs');
+    root.querySelector('.rl-connections').innerHTML = graph.edges.map((e, i) => '<div class="rl-connection"><span>' + esc(e.from + ' → ' + e.to) + '</span>' + button('delete-edge', 'Remove', 'data-index="' + i + '"') + '</div>').join('');
+  }
+  function connect(from, to) {
+    const [a, ap] = from.split('.'), [b, bp] = to.split('.'), an = graph.nodes.find(n => n.id === a), bn = graph.nodes.find(n => n.id === b);
+    const out = an && definition(an).outputs.find(p => p.name === ap), into = bn && definition(bn).inputs.find(p => p.name === bp);
+    if (!out || !into || !contracts.compatible(out, into)) throw new Error('TYPE_MISMATCH: port types or units are incompatible');
+    const links = graph.edges.filter(e => e.to !== to).concat({ from, to });
+    const visit = (id, seen) => { if (seen.has(id)) throw new Error('GRAPH_CYCLE: this connection would create a cycle'); const next = new Set(seen); next.add(id); links.filter(e => e.from.split('.')[0] === id).forEach(e => visit(e.to.split('.')[0], next)); };
+    graph.nodes.forEach(n => visit(n.id, new Set()));
+    editGraph(() => { graph.edges = links; pendingPort = null; }); message('Connected ' + from + ' to ' + to);
+  }
+  function renderCompile() {
+    const el = root.querySelector('#rl-compile'); if (!el || !compiled) return;
+    el.innerHTML = '<h4>Compile preview</h4><p class="rl-muted">' + esc(compiled.estimate.assets + ' assets · ' + compiled.estimate.rows + ' rows · ' + compiled.estimate.nodes + ' blocks · ' + compiled.history_class) +
+      '<br>Graph ' + esc(short(compiled.graph_sha256)) + ' · plan ' + esc(short(compiled.evaluation_plan_sha256)) + '<br>0 AI requests · 0 provider requests · node ceiling ' + compiled.estimate.max_node_ms + ' ms</p>' + compiled.warnings.map(warning).join('');
+  }
+  function syncForm() {
+    const get = id => root.querySelector('#' + id)?.value;
+    graph.name = get('rl-name') || graph.name; graph.research_config.as_of = get('rl-asof') || graph.research_config.as_of;
+    graph.research_config.random_seed = Number(get('rl-seed')); graph.research_config.mode = get('rl-mode') || graph.research_config.mode;
+    const scroll = root.querySelector('.rl-scroll'); if (scroll) { graph.viewport.x = scroll.scrollLeft; graph.viewport.y = scroll.scrollTop; }
+    if (plan) Object.assign(plan, { universe: get('rl-universe').split(/[\s,]+/).filter(Boolean).map(s => s.toUpperCase()), benchmark: get('rl-benchmark').toUpperCase(),
+      discovery: [get('rl-disc-start'), get('rl-disc-end')], holdout: [get('rl-hold-start'), get('rl-hold-end')], horizon_sessions: Number(get('rl-horizon')),
+      embargo_sessions: Number(get('rl-embargo')), costs: { commission_bps: Number(get('rl-commission')), slippage_bps: Number(get('rl-slippage')) }, max_trials: Number(get('rl-trials')), min_events: Number(get('rl-min-events')) });
+  }
+  async function save() {
+    syncForm(); if (!plan) throw new Error('Capture inputs first.');
+    const out = await api('save', { ...(experimentId ? { experiment_id: experimentId, expected_revision: latestRevision } : {}), ...(familyId ? { family_id: familyId } : {}),
+      graph, plan, hypothesis: root.querySelector('#rl-hypothesis').value });
+    experimentId = out.experiment_id; revision = out.revision; latestRevision = revision; familyId = out.family_id; compiled = out.compiled; dirty = false;
+    root.querySelector('#rl-revision').textContent = experimentId + ' · frozen revision ' + revision; renderCompile(); message('Saved revision ' + revision + '. Running it cannot change this graph or plan.'); return out;
+  }
+  async function refreshJournal() { journalData = await api('journal'); renderJournal(); renderOperations(); }
+  async function inspectRun(id) { currentRun = await api('run', undefined, { id }); renderResults(); renderExchange(); setView('results'); }
+  async function drain(id) {
+    if (processing) return; processing = true;
+    try {
+      while (options.allowed() && !doc.hidden && !doc.getElementById('page-pane-research-lab')?.hidden) {
+        const run = await api('advance', { run_id: id });
+        if (['SUCCEEDED', 'FAILED', 'CANCELED', 'TIMED_OUT'].includes(run.status)) { const detail = await api('run', undefined, { id }); if (currentRun?.run.id === id) { currentRun = detail; renderResults(); renderExchange(); } await refreshJournal(); message('Run ' + run.status.toLowerCase() + '.'); break; }
+        if (currentRun?.run.id === id) { currentRun.run = run; renderResults(); }
+        await new Promise(resolve => win.setTimeout(resolve, run.claim_busy ? Math.min(5000, Math.max(1000, run.retry_after_ms || 1000)) : 250));
+      }
+    } finally { processing = false; }
+  }
+  function renderResults() {
+    const el = root.querySelector('#rl-results'); if (!el) return;
+    if (!currentRun) { el.innerHTML = '<div class="rl-empty">Run a saved experiment or open a frozen run from the Journal.<br>Numerical outputs appear only after the full graph succeeds.</div>'; return; }
+    const { run, result, manifest, nodes } = currentRun, total = nodes.length, fraction = Math.round(run.completed_nodes.length / total * 100);
+    el.innerHTML = '<section class="rl-panel"><h3>' + esc(run.status + ' · ' + run.stage) + '</h3><p class="rl-muted">' + esc(run.id) + ' · revision ' + run.revision + ' · ' + esc(run.history_class) + '<br>Holdout: ' + esc(run.holdout_status) + '</p><div class="rl-progress" aria-label="Run progress ' + fraction + ' percent"><span style="width:' + fraction + '%"></span></div>' +
+      '<div class="rl-inline">' + button('refresh-run', 'Refresh') + (!['SUCCEEDED', 'FAILED', 'CANCELED', 'TIMED_OUT'].includes(run.status) ? button('resume', 'Resume worker') + button('cancel', 'Cancel run') : '') +
+      (run.status === 'SUCCEEDED' ? button('replay', 'Replay frozen inputs') + button('export', 'Export evidence ZIP') : '') + button('open-exp', 'Open this revision', 'data-id="' + run.experiment_id + '" data-revision="' + run.revision + '"') + '</div>' +
+      (run.failure ? warning(run.failure.code + ': ' + run.failure.message) : '') +
+      (run.replay_check ? warning('Replay: identical output bytes ' + run.replay_check.byte_identical + '; equivalent metrics ' + run.replay_check.metric_equivalent) : '') + '</section>';
+    if (result) {
+      const s = result.summary;
+      if (result.kind !== 'conditional_scenario') el.innerHTML += '<div class="rl-metrics">' +
+        [['Selected events', num(s.events)], ['Net forward return', pct(s.mean_net_return)], ['Same-date baseline', pct(s.mean_baseline_return)], ['Net excess return', pct(s.mean_excess_return)],
+          ['95% interval', s.uncertainty.low == null ? 'Unavailable' : pct(s.uncertainty.low) + ' to ' + pct(s.uncertainty.high)], ['Date clusters / issuers', s.uncertainty.effective_dates + ' / ' + s.uncertainty.issuers]].map(([k, v]) => '<div class="rl-metric"><span>' + esc(k) + '</span><strong>' + esc(v) + '</strong></div>').join('') + '</div>';
+      el.innerHTML += result.warnings.map(warning).join('');
+      if (result.site_evidence) el.innerHTML += '<section class="rl-panel"><h3>Attached site evidence · current context</h3>' + result.site_evidence.documents.map(c => '<article class="rl-exp"><h4>' + esc(c.label) + '</h4><p class="rl-muted">' + esc('Source time: ' + sourceTime(c.source_as_of) + ' · captured ' + sourceTime(c.captured_at)) + '</p>' + table(['Measure', 'Source value'], c.facts.map(f => [fieldLabel(f.path), factValue(f.value)])) + c.warnings.map(warning).join('') + '</article>').join('') + '</section>';
+      if (result.strategy) el.innerHTML += '<section class="rl-panel"><h3>Modeled equity portfolio</h3><p>' + esc('Net ' + pct(result.strategy.net_return) + ' · gross ' + pct(result.strategy.gross_return) + ' · drawdown ' + pct(result.strategy.max_drawdown) + ' · Sharpe ' + num(result.strategy.sharpe) + ' · turnover ' + num(result.strategy.turnover)) + '</p>' + chart(result.strategy.curve.map(r => r.equity)) + warning(result.strategy.caveats) + '</section>';
+      if (result.kind === 'conditional_scenario') {
+        const rows = result.rows.map(({ curve, ...r }) => r), headers = Object.keys(rows[0] || {});
+        el.innerHTML += '<section class="rl-panel"><h3>Conditional outcomes</h3><p class="rl-muted">Assumptions ' + esc(JSON.stringify(result.assumptions)) + '</p>' + table(headers, rows.map(r => headers.map(h => typeof r[h] === 'number' ? num(r[h]) : r[h]))) + (result.rows[0]?.curve ? chart(result.rows[0].curve.map(r => r.p50)) + '<p class="rl-muted">Median simulated price path for the first asset. Assumption-driven, not a forecast.</p>' : '') + '</section>';
+      } else {
+        const rows = result.rows.filter(r => r.selected);
+        el.innerHTML += '<section class="rl-panel"><h3>Event observations</h3><p class="rl-muted">Showing ' + Math.min(200, rows.length) + ' of ' + rows.length + ' selected events. Returns include the explicit round-trip costs.</p>' +
+          table(['Asset', 'Signal', 'Entry open', 'Exit open', 'Gross', 'Net', 'Baseline', 'Net excess'], rows.slice(0, 200).map(r => [r.asset, r.date, r.entry_date, r.exit_date, pct(r.gross_return), pct(r.net_return), pct(r.baseline_return), pct(r.net_excess)])) + '</section>' +
+          '<section class="rl-panel"><h3>Uncertainty and robustness</h3><p class="rl-muted">' + esc(s.uncertainty.method + '. ' + result.walk_forward_policy) + '</p>' +
+          table(['Cost multiple', 'Net return', 'Net excess'], s.cost_sensitivity.map(r => [r.multiplier, pct(r.mean_net_return), pct(r.mean_excess_return)])) +
+          warning('Multiplicity: ' + result.multiplicity.registered_family_attempts + ' registered family attempts · familywise alpha ' + num(result.multiplicity.alpha) + ' · adjusted interval ' + (result.multiplicity.adjusted_interval.low == null ? 'unavailable' : pct(result.multiplicity.adjusted_interval.low) + ' to ' + pct(result.multiplicity.adjusted_interval.high))) +
+          table(['Window start', 'Window end', 'Events', 'Net excess'], result.walk_forward.map(r => [r.start, r.end, r.events, pct(r.mean_excess_return)])) + warning('Purged / missing observations: ' + JSON.stringify(result.skipped)) + '</section>';
+      }
+    }
+    el.innerHTML += '<section class="rl-panel"><h3>Node artifacts and attempts</h3><div class="rl-inline">' + nodes.map(n => button('node', n.id + (n.completed ? ' ✓' : ' · waiting'), 'data-id="' + n.id + '"' + (run.status === 'SUCCEEDED' ? '' : ' disabled'))).join('') + '</div><pre id="rl-node-output" hidden></pre>' +
+      '<details><summary>Attempts and resource measurements</summary><pre>' + esc(JSON.stringify(run.attempts, null, 2)) + '</pre></details><details><summary>Frozen run manifest</summary><pre>' + esc(JSON.stringify(manifest, null, 2)) + '</pre></details></section>';
+  }
+  function table(headers, rows) { return '<div class="rl-table-wrap"><table><thead><tr>' + headers.map(h => '<th>' + esc(h) + '</th>').join('') + '</tr></thead><tbody>' + rows.map(r => '<tr>' + r.map(v => '<td>' + esc(v) + '</td>').join('') + '</tr>').join('') + '</tbody></table></div>'; }
+  function chart(values) {
+    if (!values.length) return '';
+    const lo = Math.min(...values), hi = Math.max(...values);
+    return '<svg class="rl-chart" viewBox="0 0 640 190" role="img" aria-label="Research result path"><line x1="15" y1="175" x2="625" y2="175"/><path d="' + values.map((v, i) => (i ? 'L' : 'M') + (15 + i / Math.max(1, values.length - 1) * 610).toFixed(2) + ',' + (175 - (v - lo) / (hi - lo || 1) * 155).toFixed(2)).join(' ') + '"/></svg>';
+  }
+  function renderJournal() {
+    const el = root.querySelector('#rl-journal'); if (!el) return;
+    if (!journalData) { el.innerHTML = button('journal-refresh', 'Load Journal'); return; }
+    const data = journalData;
+    el.innerHTML = '<section class="rl-panel"><h3>Experiment dossiers</h3><div class="rl-fields">' + input('rl-journal-search', 'Search title or hypothesis', journalQuery) +
+      '<label>Show<select id="rl-journal-filter"><option value="all">All research</option><option value="graveyard"' + (journalFilter === 'graveyard' ? ' selected' : '') + '>Signal graveyard · rejected / failed</option></select></label></div>' + button('journal-refresh', 'Refresh Journal') +
+      data.experiments.filter(e => (e.title + e.hypothesis).toLowerCase().includes(journalQuery.toLowerCase()) && (journalFilter !== 'graveyard' || ['REJECTED', 'RETIRED'].includes(e.status) || data.runs.some(r => r.experiment_id === e.id && ['FAILED', 'CANCELED', 'TIMED_OUT'].includes(r.status)))).map(e =>
+        '<article class="rl-exp"><h4>' + esc(e.title) + '</h4><p>' + esc(e.hypothesis) + '</p><p>' + esc(e.status + ' · ' + e.revision + ' revisions · ' + data.runs.filter(r => r.family_id === e.family_id && !r.replay_of).length + ' family trials') + '</p><div class="rl-inline">' + button('open-exp', 'Open latest', 'data-id="' + e.id + '"') + button('fork-exp', 'Fork variant', 'data-id="' + e.id + '"') + '</div></article>').join('') + '</section>' +
+      '<section class="rl-panel"><h3>All runs, including failed trials</h3><p class="rl-muted">Select 2–4 successful studies. The first selected is the baseline. Comparisons use the same asset/session intersection, target, horizon, costs and evaluation window.</p>' + button('compare', 'Compare selected runs') +
+      '<div class="rl-table-wrap"><table><thead><tr><th>Select</th><th>Run</th><th>Status</th><th>Stage</th><th>Revision</th><th>Holdout</th><th>Action</th></tr></thead><tbody>' + data.runs.map(r => '<tr><td><input type="checkbox" aria-label="Select ' + r.id + ' for comparison" data-compare-id="' + r.id + '"' + (selectedRuns.includes(r.id) ? ' checked' : '') + (r.status === 'SUCCEEDED' ? '' : ' disabled') + '></td><td>' + esc(short(r.id)) + '</td><td>' + esc(r.status) + '</td><td>' + esc(r.stage) + '</td><td>' + r.revision + '</td><td>' + esc(r.holdout_status) + '</td><td>' + button('open-run', 'Inspect', 'data-id="' + r.id + '"') + '</td></tr>').join('') + '</tbody></table></div><div id="rl-comparison-result"></div></section>' +
+      '<section class="rl-panel"><h3>Saved comparisons</h3>' + data.comparisons.map(c => button('open-comparison', c.title, 'data-id="' + c.id + '"')).join(' ') + '</section>' +
+      '<section class="rl-panel"><h3>Human evidence review</h3><p class="rl-muted">Review the currently inspected run. Approval of external notes never changes scientific status. Missing PIT evidence or an exposed holdout blocks promotion.</p><div class="rl-fields"><label>Status<select id="rl-review-status">' + ['EXPLORATORY', 'CANDIDATE', 'VALIDATION_PENDING', 'PAPER_MONITORING', 'VALIDATED_WITHIN_TESTED_SCOPE', 'REJECTED', 'RETIRED'].map(s => '<option>' + s + '</option>').join('') + '</select></label>' + input('rl-review-reason', 'Reason for review', '') + '</div>' + button('review-evidence', 'Record human review') + '</section>' +
+      '<section class="rl-panel"><h3>External interpretations</h3>' + data.interpretations.map(i => '<article class="rl-exp"><span class="rl-badge">' + esc(i.decision + ' · external opinion') + '</span><p>' + esc(i.summary) + '</p>' + button('open-note', 'Inspect evidence pointers', 'data-id="' + i.id + '"') + '</article>').join('') + '<pre id="rl-note-detail" hidden></pre></section>' +
+      '<section class="rl-panel"><h3>Prospective scorecard</h3><p class="rl-muted">Freeze an owner-written return assumption from a recent completed-session price. The prediction is timestamped now and cannot be edited. Realization uses an exact future-session close from a later snapshot.</p><div class="rl-fields">' +
+      input('rl-forward-asset', 'Asset in inspected run', plan?.universe[0] || '') + input('rl-forward-date', 'Future target session', '', 'date') + input('rl-forward-return', 'Assumed return · percent', '0', 'number', 'step="any"') + '</div>' + button('forward-freeze', 'Freeze prospective assumption') +
+      data.forward_observations.map(o => '<div class="rl-exp"><p>' + esc(o.asset + ' · published ' + o.published_at + ' · target ' + o.target_date + ' · assumption ' + pct(o.predicted_return) + (o.realized ? ' · actual ' + pct(o.realized.realized_return) + ' · deviation ' + pct(o.realized.deviation) : ' · awaiting realization')) + '</p>' + (!o.realized ? button('forward-realize', 'Record realization from current snapshot', 'data-id="' + o.id + '"') : '') + '</div>').join('') + '</section>';
+  }
+  function renderComparison(value) {
+    const el = root.querySelector('#rl-comparison-result');
+    el.innerHTML = '<h4>' + esc(value.title) + '</h4><p class="rl-muted">' + esc(value.common_observations + ' common observations · ' + value.dates.join(' to ') + ' · ' + value.assets.join(', ')) + '</p>' +
+      table(['Candidate', 'Mean paired increment', 'Interval', 'Overlap', 'Additional events', 'Excluded baseline / candidate'], value.comparisons.map(c => [short(c.candidate_run_id), pct(c.mean_increment), c.uncertainty.low == null ? 'Unavailable' : pct(c.uncertainty.low) + ' to ' + pct(c.uncertainty.high), c.signal_overlap, c.additional_events, c.excluded_baseline + ' / ' + c.excluded_candidate])) +
+      warning(value.method) + value.warnings.map(warning).join(''); setView('journal');
+  }
+  function renderExchange() {
+    const el = root.querySelector('#rl-exchange'); if (!el) return;
+    const text = el.querySelector('#rl-import-json')?.value || '';
+    el.innerHTML = '<section class="rl-panel"><h3>Take the evidence to ChatGPT or Claude</h3><p class="rl-muted">1. Inspect a completed run. 2. Download its ZIP. 3. Attach it in a new offsite chat and follow README_FOR_CHATGPT.md. 4. Bring back the structured JSON for review.</p><p class="rl-muted">The bundle includes the hypothesis, graph, frozen run specification, validation plan, all trial counts, indexed metrics, provenance, checksums and an interpretation template. Raw price data is excluded. Neither export nor import calls an AI service.</p><div class="rl-fields"><label>Export profile<select id="rl-export-profile"><option value="compact">Compact · aggregates and warnings</option><option value="full">Full · permitted aggregate diagnostics</option></select></label><div class="rl-inline">' + button('export', 'Download inspected run ZIP', currentRun?.run.status === 'SUCCEEDED' ? '' : 'disabled') + '</div></div></section>' +
+      '<section class="rl-panel"><h3>Preview an external interpretation</h3><label>JSON file<input id="rl-import-file" type="file" accept="application/json,.json"></label><label>Interpretation JSON<textarea id="rl-import-json" rows="12" maxlength="100000" placeholder="Paste mingstreet.research-interpretation.v2 JSON">' + esc(text) + '</textarea></label><div class="rl-inline">' + button('preview-import', 'Verify evidence pointers') + button('approve-import', 'Approve commentary', importPreview ? '' : 'disabled') + button('reject-import', 'Reject commentary', importPreview ? '' : 'disabled') + '</div><div id="rl-import-preview"></div></section>';
+    if (importPreview) renderImportPreview();
+  }
+  function renderImportPreview() {
+    const el = root.querySelector('#rl-import-preview'); if (!el || !importPreview) return;
+    el.innerHTML = importPreview.warnings.map(warning).join('') + '<p>' + esc(importInput.summary) + '</p>' +
+      table(['Metric', 'Canonical value', 'Unit', 'Pointer'], importPreview.verified.map(v => [v.metric_id, num(v.canonical_value), v.unit, 'Verified · narrative unverified'])) +
+      '<h4>Unverified interpretations</h4>' + importInput.interpretations.map(warning).join('') + '<h4>Unknowns</h4>' + importInput.unknowns.map(warning).join('') +
+      '<h4>Proposed follow-ups</h4>' + importInput.proposed_tests.map((t, i) => '<article class="rl-exp"><h4>' + esc(t.title) + '</h4><p>' + esc(t.rationale) + '</p>' + button('draft-followup', 'Create editable draft', 'data-index="' + i + '"') + '</article>').join('');
+    root.querySelector('[data-rl="approve-import"]').disabled = false; root.querySelector('[data-rl="reject-import"]').disabled = false;
+  }
+  function renderOperations() {
+    const el = root.querySelector('#rl-operations'); if (!el) return;
+    if (!journalData) { el.innerHTML = '<p class="rl-muted">Load the Journal to inspect operations.</p>'; return; }
+    el.innerHTML = '<section class="rl-panel"><h3>Bounded, on-demand execution</h3><p class="rl-muted">Private R2 checkpoints retain queued work. Each request advances one allowlisted node. Leaving this page pauses the browser worker; resume from a run, or use the standalone worker. No automatic polling of idle research, AI requests, data-provider fetches or scheduled research runs.</p>' +
+      '<div class="rl-metrics">' + Object.entries(journalData.operations).map(([k, v]) => '<div class="rl-metric"><span>' + esc(k.replaceAll('_', ' ')) + '</span><strong>' + num(v) + '</strong></div>').join('') + '</div><p class="rl-muted">Retained runs ' + journalData.quotas.runs + ' / ' + journalData.quotas.max_runs + '. Storage and compute usage apply; no AI API usage.</p><details><summary>Resource ceilings</summary><pre>' + esc(JSON.stringify(contracts.LIMITS, null, 2)) + '</pre></details></section>' +
+      '<section class="rl-panel"><h3>Append-only audit events</h3><div class="rl-log">' + [...journalData.events].reverse().map(e => '<div><b>' + esc(e.type) + '</b> · ' + esc(e.occurred_at) + '<br>' + esc(JSON.stringify(e.payload)) + '</div>').join('') + '</div></section>';
+  }
+  async function action(name, el) {
+    if (['run', 'final', 'replay'].includes(name) && processing) throw new Error('A worker is already advancing a run. Cancel or let it finish first.');
+    if (name === 'save-draft') { saveDraft(); message('Draft saved in this browser under your signed-in owner account. Incomplete graphs can be resumed without running.'); }
+    if (name === 'sources-load') { sources = (await api('sources')).sources; renderSources(); }
+    if (name === 'source-capture' || name === 'evidence-load') { const card = name === 'source-capture' ? await api('source-capture', { source_id: el.dataset.source }) : await api('evidence', undefined, { id: el.dataset.id }); evidenceCards.set(card.id, card); chosenEvidence.add(card.id); renderSources(); message('Frozen source card added. Review its date, limitations and selected fields.'); }
+    if (name === 'attach-evidence') {
+      if (!chosenEvidence.size) throw new Error('Choose at least one source card.');
+      if (chosenEvidence.size > 12) throw new Error('Choose at most 12 evidence cards per experiment.');
+      if (!graph.nodes.some(n => n.type === 'data.site_evidence') && graph.nodes.length >= contracts.LIMITS.nodes) throw new Error('Remove a block before adding an evidence collection.');
+      editGraph(() => {
+        let node = graph.nodes.find(n => n.type === 'data.site_evidence');
+        if (!node) { node = { id: 'context', type: 'data.site_evidence', version: contracts.VERSION, params: {}, position: { x: 620, y: 390 } }; if (graph.nodes.some(n => n.id === node.id)) node.id += win.crypto.randomUUID().slice(0, 8); graph.nodes.push(node); }
+        node.params.evidence_ids = [...chosenEvidence].sort().join(','); selected = node.id;
+        const report = graph.nodes.find(n => n.type === 'output.report'); if (!report) throw new Error('Add a Research report block first.');
+        report.version = '1.1.0';
+        graph.edges = graph.edges.filter(e => e.to !== report.id + '.evidence').concat({ from: node.id + '.evidence', to: report.id + '.evidence' });
+        graph.research_config.as_of = [...chosenEvidence].map(id => evidenceCards.get(id)?.captured_at || graph.research_config.as_of).concat(graph.research_config.as_of).sort().at(-1);
+      }); setView('workspace'); message('Evidence connected to report context. Historical inputs and computed conclusions remain separate.');
+    }
+    if (name === 'capture') {
+      syncForm(); const symbols = root.querySelector('#rl-symbols').value.toUpperCase().split(/[\s,]+/).filter(Boolean);
+      snapshot = await api('snapshot', { symbols }); graph.research_config.snapshot_id = snapshot.id; graph.research_config.as_of = [graph.research_config.as_of, snapshot.captured_at, new Date().toISOString()].sort().at(-1);
+      if (!plan || ![...plan.universe, plan.benchmark].every(s => snapshot.assets[s])) plan = defaultPlan(snapshot);
+      changed(); renderWorkspace(); message('Captured the existing cache. Compatible evaluation settings are preserved. Unchanged inputs keep their original capture time; historical limitations remain attached.');
+    }
+    if (name === 'save') await save();
+    if (name === 'compile') { syncForm(); if (!plan) throw new Error('Capture inputs first.'); contracts.validateGraph(graph); contracts.validatePlan(plan); compiled = await api('compile', { graph, plan }); renderCompile(); message('Graph and evaluation plan accepted. Review the compile preview before running.'); }
+    if (name === 'run' || name === 'final') {
+      if (name === 'final' && !root.querySelector('#rl-final-ack').checked) throw new Error('Read and check the holdout-access acknowledgement in step 4.');
+      if (dirty || !experimentId) await save();
+      const run = await api('queue', { experiment_id: experimentId, revision, stage: name === 'final' ? 'final' : 'discovery', idempotency_key: win.crypto.randomUUID() });
+      await inspectRun(run.id); await drain(run.id);
+    }
+    if (name === 'undo' && history.length) { future.push(JSON.stringify(graph)); graph = JSON.parse(history.pop()); changed(); renderWorkspace(); }
+    if (name === 'redo' && future.length) { history.push(JSON.stringify(graph)); graph = JSON.parse(future.pop()); changed(); renderWorkspace(); }
+    if (name === 'zoom-in' || name === 'zoom-out' || name === 'fit') {
+      const width = root.querySelector('.rl-scroll').clientWidth, maxX = Math.max(...graph.nodes.map(n => n.position.x + 260));
+      graph.viewport.zoom = Math.max(0.3, Math.min(2, name === 'fit' ? width / maxX : graph.viewport.zoom + (name === 'zoom-in' ? 0.1 : -0.1))); changed(); renderCanvas();
+    }
+    if (name === 'delete-node') editGraph(() => { graph.nodes = graph.nodes.filter(n => n.id !== selected); graph.edges = graph.edges.filter(e => e.from.split('.')[0] !== selected && e.to.split('.')[0] !== selected); selected = null; });
+    if (name === 'delete-edge') editGraph(() => graph.edges.splice(Number(el.dataset.index), 1));
+    if (name === 'connect') connect(root.querySelector('#rl-connect-from').value, root.querySelector('#rl-connect-to').value);
+    if (name === 'refresh-run') await inspectRun(currentRun.run.id);
+    if (name === 'resume') await drain(currentRun.run.id);
+    if (name === 'cancel') { await api('cancel', { run_id: currentRun.run.id }); await inspectRun(currentRun.run.id); await refreshJournal(); }
+    if (name === 'replay') {
+      const r = currentRun.run, replay = await api('queue', { experiment_id: r.experiment_id, revision: r.revision, stage: r.stage, replay_of: r.id, idempotency_key: win.crypto.randomUUID() });
+      await inspectRun(replay.id); await drain(replay.id);
+    }
+    if (name === 'node') { const output = await api('node', undefined, { id: currentRun.run.id, node: el.dataset.id }), pre = root.querySelector('#rl-node-output'); pre.hidden = false; pre.textContent = JSON.stringify(output, null, 2).slice(0, 30000) + (output.bytes > 30000 ? '\nDisplay truncated; original immutable artifact retained.' : ''); }
+    if (name === 'journal-refresh') await refreshJournal();
+    if (name === 'open-run') await inspectRun(el.dataset.id);
+    if (name === 'open-exp' || name === 'fork-exp') {
+      const out = await api('experiment', undefined, { id: el.dataset.id, ...(el.dataset.revision ? { revision: el.dataset.revision } : {}) });
+      graph = out.graph; plan = out.plan; experimentId = name === 'fork-exp' ? null : out.experiment.id; revision = name === 'fork-exp' ? 0 : out.revision; latestRevision = out.experiment.revisions.length; familyId = out.experiment.family_id;
+      snapshot = out.snapshot_summary;
+      evidenceCards = new Map((out.evidence || []).map(e => [e.id, e])); chosenEvidence = new Set(evidenceCards.keys()); renderSources();
+      selected = graph.nodes[1]?.id; history = []; future = []; dirty = name === 'fork-exp'; compiled = out.compiled;
+      renderWorkspace(); root.querySelector('#rl-hypothesis').value = out.hypothesis; setView('workspace'); message(name === 'fork-exp' ? 'Forked within the same trial family. Edit and run explicitly.' : 'Opened frozen revision ' + revision);
+    }
+    if (name === 'compare') { const c = await api('compare', { run_ids: selectedRuns, title: 'Research comparison' }); await refreshJournal(); renderComparison(c); }
+    if (name === 'open-comparison') renderComparison(await api('comparison', undefined, { id: el.dataset.id }));
+    if (name === 'open-note') { const detail = await api('interpretation', undefined, { id: el.dataset.id }), pre = root.querySelector('#rl-note-detail'); pre.hidden = false; pre.textContent = JSON.stringify(detail, null, 2); }
+    if (name === 'review-evidence') { if (!currentRun) throw new Error('Inspect a run first.'); await api('review', { experiment_id: currentRun.run.experiment_id, run_id: currentRun.run.id, status: root.querySelector('#rl-review-status').value, reason: root.querySelector('#rl-review-reason').value }); await refreshJournal(); message('Human evidence review appended.'); }
+    if (name === 'export') {
+      if (currentRun?.run.status !== 'SUCCEEDED') throw new Error('Inspect a successful run first.');
+      const res = await api('export', { run_id: currentRun.run.id, profile: root.querySelector('#rl-export-profile')?.value || 'compact' }), blob = await res.blob(), url = win.URL.createObjectURL(blob), a = doc.createElement('a');
+      a.href = url; a.download = 'mingstreet_' + currentRun.run.id + '.zip'; doc.body.append(a); a.click(); a.remove(); win.setTimeout(() => win.URL.revokeObjectURL(url), 1000); message('Evidence ZIP downloaded. Attach it in a new ChatGPT or Claude chat.');
+    }
+    if (name === 'preview-import') { importPreview = null; root.querySelector('[data-rl="approve-import"]').disabled = true; root.querySelector('[data-rl="reject-import"]').disabled = true; importInput = JSON.parse(root.querySelector('#rl-import-json').value); importPreview = await api('validate-import', { interpretation: importInput }); renderImportPreview(); message('Evidence pointers verified. Review the narrative and choose approve or reject.'); }
+    if (name === 'approve-import' || name === 'reject-import') {
+      if (!importPreview) throw new Error('Preview the exact JSON first.');
+      const latest = JSON.parse(root.querySelector('#rl-import-json').value);
+      if (JSON.stringify(latest) !== JSON.stringify(importInput)) throw new Error('The JSON changed. Preview it again.');
+      await api('import', { interpretation: latest, decision: name === 'approve-import' ? 'approved' : 'rejected', preview_sha256: importPreview.input_sha256 }); await refreshJournal(); message('External commentary review appended. Official metrics and evidence status are unchanged.');
+    }
+    if (name === 'draft-followup') { const t = importInput.proposed_tests[Number(el.dataset.index)]; changeTemplate('breadth'); graph.name = t.title; renderWorkspace(); root.querySelector('#rl-hypothesis').value = t.rationale; setView('workspace'); message('Editable proposal created. Choose inputs and unresolved parameters, then validate and run explicitly.'); }
+    if (name === 'forward-freeze') {
+      if (!currentRun || !snapshot) throw new Error('Inspect a successful run and capture a recent snapshot first.');
+      await api('forward', { run_id: currentRun.run.id, asset: root.querySelector('#rl-forward-asset').value.toUpperCase(), target_date: root.querySelector('#rl-forward-date').value, predicted_return: Number(root.querySelector('#rl-forward-return').value) / 100, snapshot_id: snapshot.id }); await refreshJournal();
+    }
+    if (name === 'forward-realize') { if (!snapshot) throw new Error('Capture a current snapshot first.'); await api('forward', { observation_id: el.dataset.id, snapshot_id: snapshot.id }); await refreshJournal(); }
+  }
+  async function safe(fn) { try { await fn(); } catch (e) { message(e.message || String(e), true); } }
+  function addNode(type, position) {
+    if (graph.nodes.length >= contracts.LIMITS.nodes) throw new Error('Node limit reached.');
+    const id = 'n' + win.crypto.randomUUID().replaceAll('-', '').slice(0, 10);
+    editGraph(() => { graph.nodes.push({ id, type, version: type === 'output.report' ? '1.1.0' : contracts.VERSION, params: contracts.defaults(type), position: position || { x: 80 + graph.nodes.length % 4 * 280, y: 350 + Math.floor(graph.nodes.length / 4) * 160 } }); selected = id; });
+  }
+  function bind() {
+    root.addEventListener('click', event => safe(async () => {
+      const actionEl = event.target.closest('[data-rl]'); if (actionEl && !actionEl.disabled) { actionEl.disabled = true; try { await action(actionEl.dataset.rl, actionEl); } finally { if (actionEl.isConnected) actionEl.disabled = false; } return; }
+      const tab = event.target.closest('[data-view]'); if (tab) { if (['journal', 'operations'].includes(tab.dataset.view)) await refreshJournal(); if (tab.dataset.view === 'sources' && !sources) { sources = (await api('sources')).sources; renderSources(); } setView(tab.dataset.view); return; }
+      const add = event.target.closest('[data-add]'); if (add && !add.disabled) { syncForm(); addNode(add.dataset.add); return; }
+      const node = event.target.closest('[data-select-node]'); if (node) { selected = node.dataset.selectNode; renderCanvas(); renderInspector(); return; }
+      const out = event.target.closest('[data-port-out]'); if (out) { pendingPort = out.dataset.portOut; renderCanvas(); message('Choose a compatible input port, or use Keyboard connections.'); return; }
+      const into = event.target.closest('[data-port-in]'); if (into) { if (!pendingPort) throw new Error('Select an output port first.'); connect(pendingPort, into.dataset.portIn); }
+    }));
+    root.addEventListener('input', event => {
+      if (event.target.id === 'rl-source-search') { sourceQuery = event.target.value; renderSources(); const input = root.querySelector('#rl-source-search'); input.focus(); input.setSelectionRange(input.value.length, input.value.length); return; }
+      if (event.target.id === 'rl-library-search') { libraryQuery = event.target.value; renderLibrary(); return; }
+      if (event.target.id === 'rl-import-json') { importPreview = null; root.querySelector('[data-rl="approve-import"]').disabled = true; root.querySelector('[data-rl="reject-import"]').disabled = true; return; }
+      if (event.target.closest('#rl-workspace') && !['rl-final-ack', 'rl-connect-from', 'rl-connect-to'].includes(event.target.id)) changed();
+    });
+    root.addEventListener('change', event => safe(async () => {
+      const el = event.target;
+      if (['rl-source-search', 'rl-source-category', 'rl-source-sort'].includes(el.id)) { sourceQuery = root.querySelector('#rl-source-search').value; sourceCategory = root.querySelector('#rl-source-category').value; sourceSort = root.querySelector('#rl-source-sort').value; renderSources(); }
+      if (el.dataset.evidenceSelect) { if (el.checked) chosenEvidence.add(el.dataset.evidenceSelect); else chosenEvidence.delete(el.dataset.evidenceSelect); }
+      if (el.dataset.param) { const node = graph.nodes.find(n => n.id === selected), p = definition(node).params_schema.properties[el.dataset.param]; syncForm(); editGraph(() => { node.params[el.dataset.param] = p.type === 'string' ? el.value : Number(el.value); }); }
+      if (el.id === 'rl-template' && el.value) { syncForm(); changeTemplate(el.value); }
+      if (el.dataset.compareId) { selectedRuns = selectedRuns.filter(id => id !== el.dataset.compareId); if (el.checked) selectedRuns.push(el.dataset.compareId); }
+      if (el.id === 'rl-journal-search' || el.id === 'rl-journal-filter') { journalQuery = root.querySelector('#rl-journal-search').value; journalFilter = root.querySelector('#rl-journal-filter').value; renderJournal(); }
+      if (el.id === 'rl-import-file') { const file = el.files[0]; if (!file) return; if (file.size > 100000 || !file.name.toLowerCase().endsWith('.json')) throw new Error('Choose a JSON interpretation under 100 KB. ZIP imports are not accepted.'); root.querySelector('#rl-import-json').value = await file.text(); importPreview = null; root.querySelector('[data-rl="approve-import"]').disabled = true; root.querySelector('[data-rl="reject-import"]').disabled = true; root.querySelector('#rl-import-preview').replaceChildren(); }
+    }));
+    root.addEventListener('keydown', event => {
+      if (event.target.matches('[role=tab]') && ['ArrowLeft', 'ArrowRight'].includes(event.key)) { event.preventDefault(); const tabs = [...root.querySelectorAll('[role=tab]')], index = tabs.indexOf(event.target), next = tabs[(index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length]; next.focus(); next.click(); }
+      const nodeEl = event.target.closest('[data-node]');
+      if (nodeEl && event.target === nodeEl && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) {
+        event.preventDefault(); selected = nodeEl.dataset.node;
+        editGraph(() => { const n = graph.nodes.find(n => n.id === selected); n.position.x = Math.max(0, n.position.x + (event.key === 'ArrowLeft' ? -20 : event.key === 'ArrowRight' ? 20 : 0)); n.position.y = Math.max(0, n.position.y + (event.key === 'ArrowUp' ? -20 : event.key === 'ArrowDown' ? 20 : 0)); });
+        root.querySelector('[data-node="' + selected + '"]').focus();
+      }
+    });
+    root.addEventListener('dragstart', e => { const el = e.target.closest('[data-add]'); if (el) e.dataTransfer.setData('text/plain', el.dataset.add); });
+    root.addEventListener('dragover', e => { if (e.target.closest('.rl-scroll')) e.preventDefault(); });
+    root.addEventListener('drop', e => safe(() => { const scroll = e.target.closest('.rl-scroll'); if (!scroll) return; e.preventDefault(); const type = e.dataTransfer.getData('text/plain'), rect = scroll.getBoundingClientRect(); if (contracts.blocks.some(b => b.key === type && b.ready)) addNode(type, { x: Math.max(0, Math.min(5000, (e.clientX - rect.left + scroll.scrollLeft) / graph.viewport.zoom)), y: Math.max(0, Math.min(5000, (e.clientY - rect.top + scroll.scrollTop) / graph.viewport.zoom)) }); }));
+    root.addEventListener('pointerdown', e => {
+      const handle = e.target.closest('[data-select-node]'); if (!handle || e.button !== 0) return;
+      const node = graph.nodes.find(n => n.id === handle.dataset.selectNode), before = JSON.stringify(graph), start = { x: e.clientX, y: e.clientY, px: node.position.x, py: node.position.y }; let moved = false;
+      const move = event => { if (Math.abs(event.clientX - start.x) + Math.abs(event.clientY - start.y) < 5) return; moved = true; node.position = { x: Math.max(0, Math.min(5000, start.px + (event.clientX - start.x) / graph.viewport.zoom)), y: Math.max(0, Math.min(5000, start.py + (event.clientY - start.y) / graph.viewport.zoom)) }; const article = root.querySelector('[data-node="' + node.id + '"]'); article.style.left = node.position.x + 'px'; article.style.top = node.position.y + 'px'; };
+      const up = () => { win.removeEventListener('pointermove', move); win.removeEventListener('pointerup', up); if (moved) { history.push(before); future = []; selected = node.id; changed(); renderCanvas(); renderInspector(); } };
+      win.addEventListener('pointermove', move); win.addEventListener('pointerup', up, { once: true });
+    });
+  }
+  function reset() { if (draftTimer) win.clearTimeout(draftTimer); processing = false; mounted = false; currentRun = null; journalData = null; importInput = null; importPreview = null; graph = contracts.template(); plan = null; snapshot = null; experimentId = null; revision = 0; latestRevision = 0; familyId = null; history = []; future = []; selectedRuns = []; sources = null; evidenceCards.clear(); chosenEvidence.clear(); compiled = null; view = 'workspace'; dirty = true; if (root) root.replaceChildren(); }
+  async function load() {
+    if (!root || !options.allowed()) return;
+    if (!mounted) { const hypothesis = restoreDraft(); mounted = true; shell(); if (hypothesis) { root.querySelector('#rl-hypothesis').value = hypothesis; message('Restored the local draft. Check and save a revision before running.'); } if (!root.dataset.bound) { bind(); root.dataset.bound = '1'; } await safe(refreshJournal); }
+  }
+  return { load, reset };
+})(window, document, {
+    allowed: function(){ return HAS_RESEARCH_LAB; },
+    identity: function(){ return AUTH_ME && AUTH_ME.sub; }
+  }, (function researchContractsFactory() {
+  const VERSION = '1.0.0';
+  const LIMITS = { nodes: 24, edges: 48, assets: 12, rows: 40000, bars: 2600, grid: 81,
+    artifact_bytes: 4 * 1024 * 1024, body_bytes: 160000, runs: 200, experiments: 40,
+    daily_runs: 30, active_runs: 3, node_ms: 8000, run_ms: 120000, attempts: 3, memory_delta_bytes: 128 * 1024 * 1024 };
+  const parameter = (type, defaults, extra = {}) => ({ type, default: defaults, ...extra });
+  const integer = (v, min, max) => parameter('integer', v, { minimum: min, maximum: max });
+  const number = (v, min, max) => parameter('number', v, { minimum: min, maximum: max });
+  const choice = (v, values) => parameter('string', v, { enum: values });
+  const port = (name, dtype, unit) => ({ name, dtype, unit, frequency: 'daily_session', calendar: 'XNYS',
+    currency: 'USD', timezone: 'America/New_York', shape: 'asset_session', null_policy: 'exclude_with_count' });
+  const prices = name => port(name, 'PriceSeries', 'USD');
+  const events = name => port(name, 'Events', 'boolean');
+  const series = name => port(name, 'FactorSeries', 'decimal_return');
+  const standardized = name => port(name, 'StandardizedSeries', 'zscore');
+  const rank = name => port(name, 'RankSeries', 'fraction');
+  const result = name => ({ ...port(name, 'ResearchResult', 'typed_metrics'), shape: 'study' });
+  const evidence = name => ({ ...port(name, 'SiteEvidence', 'research_context'), shape: 'documents', frequency: 'as_of_snapshot' });
+  const block = (key, label, category, inputs, outputs, properties = {}, extra = {}) => ({
+    key, version: VERSION, label, category, inputs, outputs,
+    params_schema: { type: 'object', additionalProperties: false, properties, required: Object.keys(properties) },
+    availability: 'inherit_dependency_history_class', temporal_policy: 'known_after_close_next_session_execution',
+    missing_policy: 'exclude_with_count_no_imputation', dependencies: ['frozen_snapshot'],
+    limits: LIMITS, implementation_ref: key + '@' + VERSION, model_version: VERSION,
+    ready: true, ...extra,
+  });
+  const registry = [
+    block('data.site_evidence', 'Site evidence collection', 'Data', [], [evidence('evidence')],
+      { evidence_ids: parameter('string', 'choose-evidence-first', { minLength: 35, maxLength: 431, pattern: '^ev_[a-f0-9]{32}(,ev_[a-f0-9]{32}){0,11}$' }) },
+      { availability: 'current_context_only', description: 'Frozen, dated source cards. Connect to the report context port; never to historical signal inputs.' }),
+    block('market.prices', 'Cached daily prices', 'Data', [], [prices('prices')], {},
+      { availability: 'EXPLORATORY_NON_PIT', description: 'Frozen existing OHLCV cache. USD, inherited provider adjustments; release and delisting history unverified.' }),
+    block('signal.shock', 'Price decline / rise', 'Signals', [prices('prices')], [events('events')],
+      { lookback_sessions: integer(5, 1, 120), threshold_pct: number(-8, -90, 100), direction: choice('below', ['below', 'above']) }),
+    block('signal.breadth', 'Sample breadth confirmation', 'Signals', [prices('prices')], [events('events')],
+      { window: integer(20, 2, 200), min_fraction: number(0.5, 0, 1) },
+      { description: 'Share of the selected sample above its trailing mean; requires all sample members on that date. Not exchange breadth.' }),
+    block('signal.streak', 'Existing streak model', 'Signals', [prices('prices')], [events('events')],
+      { direction: choice('red', ['red', 'green']), min_days: integer(3, 2, 20) },
+      { description: 'Mingstreet computeStreakForTicker replayed on each historical prefix. Cached inputs remain exploratory.' }),
+    block('transform.returns', 'Trailing returns', 'Transform', [prices('prices')], [series('series')], { sessions: integer(5, 1, 120) }),
+    block('transform.rolling', 'Rolling mean', 'Transform', [series('series')], [series('series')], { window: integer(20, 2, 200) }),
+    block('transform.lag', 'Delay feature', 'Transform', [series('series')], [series('series')], { sessions: integer(1, 1, 120) }),
+    block('transform.winsorize', 'Trailing winsorization', 'Transform', [series('series')], [series('series')],
+      { window: integer(60, 10, 252), tail: number(0.05, 0.01, 0.2) }),
+    block('transform.standardize', 'Trailing standardization', 'Transform', [series('series')], [standardized('standardized')], { window: integer(60, 10, 252) }),
+    block('logic.rank', 'Cross-sectional rank', 'Logic', [series('series')], [rank('rank')]),
+    block('logic.rank_filter', 'Filter rank fraction', 'Logic', [rank('rank')], [events('events')], { min_fraction: number(0.8, 0, 1) }),
+    block('logic.zthreshold', 'Z-score threshold', 'Logic', [standardized('standardized')], [events('events')],
+      { threshold: number(-2, -10, 10), direction: choice('below', ['below', 'above']) }),
+    block('logic.filter_universe', 'Filter selected assets', 'Logic', [events('events')], [events('events')],
+      { symbols: parameter('string', 'AAPL,MSFT', { minLength: 1, maxLength: 100, pattern: '^[A-Z][A-Z0-9.]{0,5}(,[A-Z][A-Z0-9.]{0,5}){0,11}$' }) }),
+    block('logic.event_window', 'Sessions after event', 'Logic', [prices('prices'), events('events')], [events('events')], { start_session: integer(0, 0, 60), end_session: integer(5, 0, 60) }),
+    block('signal.regime', 'Benchmark trend mask', 'Signals', [prices('prices')], [events('events')],
+      { lookback_sessions: integer(20, 2, 120), direction: choice('positive', ['positive', 'negative']) }),
+    block('logic.threshold', 'Return threshold', 'Logic', [series('series')], [events('events')],
+      { threshold: number(-0.08, -1, 2), direction: choice('below', ['below', 'above']) }),
+    block('logic.and', 'Both conditions', 'Logic', [events('a'), events('b')], [events('events')]),
+    block('logic.or', 'Either condition', 'Logic', [events('a'), events('b')], [events('events')]),
+    block('study.forward', 'Forward returns + baseline', 'Validation', [prices('prices'), events('events')], [result('result')],
+      {}, { modes: ['descriptive', 'strategy'], description: 'Next-open study, matched same-date benchmark, purged discovery/final windows, clustered intervals and cost sensitivity.' }),
+    block('scenario.stress', 'Conditional price stress', 'Scenario', [prices('prices')], [result('result')],
+      { shock_pct: number(-20, -95, 200), horizon_sessions: integer(20, 1, 252) }, { modes: ['conditional'] }),
+    block('scenario.reverse', 'Reverse valuation scenario', 'Scenario', [prices('prices')], [result('result')],
+      { target_price: number(80, 0.01, 100000), assumed_eps: number(4, 0.01, 10000), assumed_multiple: number(20, 1, 500) }, { modes: ['conditional'] }),
+    block('scenario.valuation', 'Revenue / margin / multiple shock', 'Scenario', [prices('prices')], [result('result')],
+      { revenue_change_pct: number(-10, -95, 200), margin_change_pct: number(0, -95, 200), multiple_change_pct: number(0, -95, 200) },
+      { modes: ['conditional'], description: 'Assumes constant shares and price proportional to revenue × net margin × earnings multiple. Driver changes are assumptions.' }),
+    block('scenario.rates', 'Rate-duration stress', 'Scenario', [prices('prices')], [result('result')],
+      { rate_change_bps: number(100, -1000, 1000), assumed_duration_years: number(5, 0, 50) },
+      { modes: ['conditional'], description: 'Assumed constant-duration price response exp(−duration × rate change); no empirical rate model or event probability.' }),
+    block('scenario.sensitivity', 'Valuation sensitivity grid', 'Scenario', [prices('prices')], [result('result')],
+      { assumed_eps: number(4, 0.01, 10000), assumed_multiple: number(20, 1, 500), step_pct: number(10, 1, 40), steps: integer(2, 1, 4) }, { modes: ['conditional'] }),
+    block('scenario.monte_carlo', 'Seeded conditional paths', 'Scenario', [prices('prices')], [result('result')],
+      { annual_drift: number(0, -1, 1), annual_volatility: number(0.3, 0.01, 2), horizon_sessions: integer(20, 1, 252), paths: integer(250, 20, 1000) },
+      { modes: ['conditional'], description: 'Assumption-driven lognormal paths. Quantiles describe simulations, never calibrated event probabilities.' }),
+    block('output.report', 'Research report', 'Output', [result('result')], [result('report')]),
+    block('output.report', 'Research report', 'Output', [result('result'), { ...evidence('evidence'), optional: true }], [result('report')], {},
+      { version: '1.1.0', implementation_ref: 'output.report@1.1.0', model_version: '1.1.0' }),
+  ];
+  const unavailable = [
+    ['data.events', 'Earnings event calendar', 'Verified historical release times and as-of peer membership are missing.'],
+    ['data.model_score', 'Grades and pillar history', 'Historical score/pillar availability is not established.'],
+    ['data.fundamentals', 'Fundamentals vintage', 'Historical publication and restatement vintages are not established.'],
+    ['data.macro', 'Macro vintage', 'Latest revised macro observations cannot establish point-in-time vintages.'],
+    ['transform.sector_neutral', 'Sector / factor neutralization', 'As-of sector membership and factor panels are missing.'],
+    ['transform.calendar', 'Calendar resampling / alignment', 'Only XNYS daily-session USD data is supported; other calendars need an audited adapter.'],
+    ['forecast.probability', 'Calibrated probability forecast', 'A trained, frozen PIT model with independent calibration scores is required.'],
+    ['strategy.factor_neutral', 'Factor-neutral strategy', 'Historical factors, borrow and corporate-action-continuous executable prices are required.'],
+    ['strategy.options', 'Options P&L', 'Historically tradable quotes and contract-action continuity are missing.'],
+  ].map(([key, label, reason]) => block(key, label, 'Needs data', [], [], {}, { ready: false, reason }));
+  const blocks = [...registry, ...unavailable];
+  const fail = (code, message) => { const e = new Error(message); e.code = code; throw e; };
+  const object = v => v && typeof v === 'object' && !Array.isArray(v);
+  function keys(value, allowed, label) {
+    if (!object(value)) fail('SCHEMA_INVALID', label + ' must be an object');
+    for (const k of Object.keys(value)) if (!allowed.includes(k)) fail('UNKNOWN_FIELD', label + ': unknown field ' + k);
+  }
+  function text(value, max, label) {
+    if (typeof value !== 'string' || !value.trim() || value.length > max || /[<>\u0000-\u0008]/.test(value)) fail('SCHEMA_INVALID', 'Invalid ' + label);
+    return value;
+  }
+  function defaults(type) {
+    const def = blocks.find(b => b.key === type);
+    if (!def) fail('UNKNOWN_BLOCK', 'Unknown block ' + type);
+    return Object.fromEntries(Object.entries(def.params_schema.properties).map(([k, v]) => [k, v.default]));
+  }
+  function compatible(out, into) {
+    return ['dtype', 'unit', 'shape', 'frequency', 'calendar', 'currency', 'timezone'].every(k => out[k] === into[k]);
+  }
+  function validateGraph(graph) {
+    keys(graph, ['schema_version', 'name', 'nodes', 'edges', 'research_config', 'viewport'], 'graph');
+    if (graph.schema_version !== '1.0') fail('SCHEMA_VERSION', 'Unsupported graph schema');
+    text(graph.name, 160, 'graph name');
+    if (!Array.isArray(graph.nodes) || !graph.nodes.length || graph.nodes.length > LIMITS.nodes || !Array.isArray(graph.edges) || graph.edges.length > LIMITS.edges) fail('RESOURCE_LIMIT', 'Graph exceeds node/edge limits or is empty');
+    const cfg = graph.research_config;
+    keys(cfg, ['snapshot_id', 'as_of', 'random_seed', 'currency', 'base_calendar', 'mode'], 'research_config');
+    if (!/^snap_[a-f0-9]{64}$/.test(cfg.snapshot_id || '')) fail('SNAPSHOT_REQUIRED', 'Capture a data snapshot before compiling');
+    if (!/^\d{4}-\d\d-\d\dT.*(?:Z|[+-]\d\d:\d\d)$/.test(cfg.as_of || '') || !Number.isFinite(Date.parse(cfg.as_of))) fail('SCHEMA_INVALID', 'An explicit as-of timestamp with timezone is required');
+    if (!Number.isSafeInteger(cfg.random_seed) || cfg.random_seed < 1 || cfg.random_seed > 2147483647) fail('SCHEMA_INVALID', 'Seed must be 1..2147483647');
+    if (cfg.currency !== 'USD' || cfg.base_calendar !== 'XNYS') fail('TYPE_MISMATCH', 'Only USD / XNYS daily sessions are supported');
+    if (!['descriptive', 'conditional', 'strategy', 'forecast'].includes(cfg.mode)) fail('MODE_INVALID', 'Unknown experiment family');
+    if (cfg.mode === 'forecast') fail('CALIBRATION_REQUIRED', 'Probability forecasts require a frozen PIT model and independent calibration; none is registered');
+    if (graph.viewport != null) {
+      keys(graph.viewport, ['x', 'y', 'zoom'], 'viewport');
+      for (const [k, v] of Object.entries(graph.viewport)) if (!Number.isFinite(v) || Math.abs(v) > 10000 || (k === 'zoom' && (v < 0.3 || v > 2))) fail('SCHEMA_INVALID', 'Invalid canvas viewport');
+    }
+    const nodes = new Map(), definitions = new Map(), incoming = new Map(), outgoing = new Map();
+    for (const node of graph.nodes) {
+      keys(node, ['id', 'type', 'version', 'params', 'position'], 'node');
+      if (!/^[a-zA-Z][a-zA-Z0-9_-]{0,39}$/.test(node.id || '') || nodes.has(node.id)) fail('DUPLICATE_NODE', 'Node IDs must be unique and safe');
+      const def = blocks.find(b => b.key === node.type && b.version === node.version);
+      if (!def) fail('UNKNOWN_BLOCK', 'Unknown block/version ' + node.type + '@' + node.version);
+      if (!def.ready) fail('ADAPTER_UNAVAILABLE', def.label + ': ' + def.reason);
+      if (def.modes && !def.modes.includes(cfg.mode)) fail('MODE_INVALID', def.label + ' does not support ' + cfg.mode);
+      keys(node.params, Object.keys(def.params_schema.properties), def.label + ' parameters');
+      for (const [k, p] of Object.entries(def.params_schema.properties)) {
+        const v = node.params[k];
+        if (p.type === 'string' ? typeof v !== 'string' || (p.enum ? !p.enum.includes(v) : v.length < p.minLength || v.length > p.maxLength || !new RegExp(p.pattern).test(v)) : !Number.isFinite(v) || (p.type === 'integer' && !Number.isSafeInteger(v)) || v < p.minimum || v > p.maximum) fail('PARAM_INVALID', def.label + ': invalid ' + k);
+      }
+      if (node.type === 'logic.event_window' && node.params.start_session > node.params.end_session) fail('PARAM_INVALID', 'Event-window start must not follow its end');
+      if (node.position) {
+        keys(node.position, ['x', 'y'], 'position');
+        if (![node.position.x, node.position.y].every(v => Number.isFinite(v) && v >= 0 && v <= 5000)) fail('PARAM_INVALID', 'Invalid node position');
+      }
+      nodes.set(node.id, node); definitions.set(node.id, def); incoming.set(node.id, []); outgoing.set(node.id, []);
+    }
+    const targets = new Set();
+    for (const edge of graph.edges) {
+      keys(edge, ['from', 'to'], 'edge');
+      if (typeof edge.from !== 'string' || typeof edge.to !== 'string') fail('PORT_INVALID', 'Named ports required');
+      const [a, ap, ax] = edge.from.split('.'), [b, bp, bx] = edge.to.split('.');
+      const from = definitions.get(a)?.outputs.find(p => p.name === ap), to = definitions.get(b)?.inputs.find(p => p.name === bp);
+      if (ax || bx || !from || !to) fail('PORT_INVALID', 'Unknown port ' + edge.from + ' -> ' + edge.to);
+      if (!compatible(from, to)) fail('TYPE_MISMATCH', edge.from + ' and ' + edge.to + ' have incompatible types or units');
+      if (targets.has(edge.to)) fail('MULTIPLE_INPUT', 'Only one connection may feed ' + edge.to);
+      targets.add(edge.to); incoming.get(b).push(a); outgoing.get(a).push(b);
+    }
+    const degrees = new Map([...incoming].map(([id, xs]) => [id, xs.length])), order = [];
+    const ready = [...nodes.keys()].filter(id => !degrees.get(id)).sort();
+    while (ready.length) {
+      const id = ready.shift(); order.push(id);
+      for (const next of outgoing.get(id)) { degrees.set(next, degrees.get(next) - 1); if (!degrees.get(next)) { ready.push(next); ready.sort(); } }
+    }
+    if (order.length !== nodes.size) fail('GRAPH_CYCLE', 'Connections form a cycle');
+    for (const [id, def] of definitions) for (const p of def.inputs) if (!p.optional && !targets.has(id + '.' + p.name)) fail('MISSING_INPUT', id + '.' + p.name + ' needs a connection');
+    const sinks = graph.nodes.filter(n => n.type === 'output.report');
+    if (sinks.length !== 1) fail('OUTPUT_REQUIRED', 'Connect exactly one Research report block');
+    const used = new Set();
+    const walk = id => { if (!used.has(id)) { used.add(id); incoming.get(id).forEach(walk); } }; walk(sinks[0].id);
+    if (used.size !== nodes.size) fail('REDUNDANT_NODE', 'Remove blocks that do not feed the report');
+    return { order, output_node: sinks[0].id };
+  }
+  function validatePlan(plan) {
+    keys(plan, ['schema', 'target', 'universe', 'discovery', 'holdout', 'horizon_sessions', 'embargo_sessions',
+      'benchmark', 'costs', 'max_trials', 'min_events', 'bootstrap_samples', 'execution', 'primary_metric'], 'evaluation plan');
+    if (plan.schema !== 'mingstreet.evaluation-plan.v2') fail('SCHEMA_VERSION', 'Unsupported evaluation plan');
+    if (!['forward_return', 'benchmark_relative_return'].includes(plan.target) || plan.execution !== 'next_open' || plan.primary_metric !== 'mean_excess_return') fail('PLAN_INVALID', 'Unsupported target, execution or primary metric');
+    if (!Array.isArray(plan.universe) || !plan.universe.length || plan.universe.length > LIMITS.assets || new Set(plan.universe).size !== plan.universe.length || !plan.universe.every(x => /^[A-Z][A-Z0-9.]{0,5}$/.test(x))) fail('PLAN_INVALID', 'Invalid universe');
+    if (!/^[A-Z][A-Z0-9.]{0,5}$/.test(plan.benchmark || '')) fail('PLAN_INVALID', 'Benchmark is required');
+    for (const key of ['discovery', 'holdout']) if (!Array.isArray(plan[key]) || plan[key].length !== 2 || !plan[key].every(x => /^\d{4}-\d\d-\d\d$/.test(x) && Number.isFinite(Date.parse(x + 'T00:00:00Z')) && new Date(x + 'T00:00:00Z').toISOString().slice(0, 10) === x) || plan[key][0] >= plan[key][1]) fail('PLAN_INVALID', 'Invalid ' + key + ' dates');
+    if (plan.discovery[1] >= plan.holdout[0]) fail('HOLDOUT_OVERLAP', 'Discovery and holdout must be distinct and ordered');
+    for (const [k, lo, hi] of [['horizon_sessions', 1, 60], ['embargo_sessions', 2, 120], ['max_trials', 1, 100], ['min_events', 5, 500], ['bootstrap_samples', 100, 1000]]) if (!Number.isSafeInteger(plan[k]) || plan[k] < lo || plan[k] > hi) fail('PLAN_INVALID', 'Invalid ' + k);
+    if (plan.embargo_sessions < plan.horizon_sessions + 1) fail('LABEL_OVERLAP', 'Embargo must cover the outcome horizon plus next-open delay');
+    keys(plan.costs, ['commission_bps', 'slippage_bps'], 'costs');
+    for (const v of Object.values(plan.costs)) if (!Number.isFinite(v) || v < 0 || v > 500) fail('COST_INVALID', 'Costs must be 0..500 basis points per side');
+    if (Object.keys(plan.costs).length !== 2) fail('COST_INVALID', 'Commission and slippage are required');
+    return plan;
+  }
+  function template(kind = 'breadth') {
+    const make = (id, type, x, y, params) => ({ id, type, version: type === 'output.report' ? '1.1.0' : VERSION, params: params || defaults(type), position: { x, y } });
+    const graph = { schema_version: '1.0', name: 'Oversold plus sample breadth', nodes: [make('prices', 'market.prices', 40, 110)], edges: [],
+      research_config: { snapshot_id: '', as_of: new Date().toISOString(), random_seed: 101, currency: 'USD', base_calendar: 'XNYS', mode: 'descriptive' }, viewport: { x: 0, y: 0, zoom: 0.85 } };
+    const edge = (from, to) => graph.edges.push({ from, to });
+    if (['stress', 'reverse', 'sensitivity', 'monte_carlo'].includes(kind)) {
+      graph.name = { stress: 'Price-target stress test', reverse: 'Reverse valuation scenario', sensitivity: 'Valuation sensitivity', monte_carlo: 'Conditional paths' }[kind];
+      graph.research_config.mode = 'conditional'; graph.nodes.push(make('scenario', 'scenario.' + kind, 340, 110), make('report', 'output.report', 640, 110));
+      edge('prices.prices', 'scenario.prices'); edge('scenario.result', 'report.result');
+    } else {
+      graph.nodes.push(make('shock', 'signal.shock', 330, 35)); edge('prices.prices', 'shock.prices');
+      let source = 'shock.events';
+      if (kind === 'breadth') {
+        graph.nodes.push(make('breadth', 'signal.breadth', 330, 270), make('both', 'logic.and', 630, 110));
+        edge('prices.prices', 'breadth.prices'); edge(source, 'both.a'); edge('breadth.events', 'both.b'); source = 'both.events';
+      }
+      graph.nodes.push(make('study', 'study.forward', kind === 'breadth' ? 930 : 630, 110), make('report', 'output.report', kind === 'breadth' ? 1230 : 930, 110));
+      edge('prices.prices', 'study.prices'); edge(source, 'study.events'); edge('study.result', 'report.result');
+      if (kind === 'forward') { graph.name = 'Forward-return study'; graph.nodes.find(n => n.id === 'shock').params.threshold_pct = 0; }
+      if (kind === 'conditional') graph.name = 'Conditional signal test';
+      if (kind === 'strategy') { graph.name = 'Exploratory equity strategy'; graph.research_config.mode = 'strategy'; }
+      if (kind === 'factor') { graph.name = 'Factor-neutral strategy backtest'; graph.nodes.find(n => n.id === 'shock').type = 'strategy.factor_neutral'; }
+      if (kind === 'earnings') { graph.name = 'Earnings-event peer spillover'; graph.nodes.find(n => n.id === 'shock').type = 'data.events'; }
+    }
+    return graph;
+  }
+  return { VERSION, LIMITS, blocks, defaults, compatible, validateGraph, validatePlan, template, fail, keys, text };
+})());
   var ownerMarketBrief = (function ownerMarketBriefClient(window, document, ctx, displayFactory) {
   var display = displayFactory();
   var state = { data:null, loading:false, error:'', request:0, fetchedAt:0, expiryKey:null };
@@ -47961,6 +48617,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       });
       TABS.forEach(function(tt){
         if (OWNER_TABS[tt[0]] && !HAS_OWNER_ACCESS) return;
+        if (tt[0] === 'research-lab' && !HAS_RESEARCH_LAB) return;
         out.push({ type:'tab', label: tt[1], sub: tt[2], action:'open-tab', payload: tt[0] });
       });
       return out;
@@ -49995,7 +50652,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // accessibility trees. The server separately withholds their data.
   function enforceOwnerUi(root){
     if (HAS_OWNER_ACCESS || !root || !root.querySelectorAll) return;
-    var selector = "[data-owner-only],#book-grade-return,.flow-decision,.heatmap-decision,.heatmap-eod-decision,#news-feed-summary,.news-posture-triggers,.news-feed-decision,.news-decision,.brief-decision,.brief-analog,.ers-posture,.ers-search-signal,.ecl-decision,.ecl-plan-posture,.cmd-posture,.cx-posture,.rp-posture,.ic-posture,.bonds-ctx-posture,.fng-decision,.idx-cal-decision,.ma-track-summary,.ma-track-desk,.ma-track-leaders,.ma-track-note,#tickers-decision,#tickers-model-summary,#tickers-model-note,#tickers-ready,.ticker-grade,#tickers-scatter .sc-legend,#cmp-pillars,#cmp-summary,[data-ers-view=\"recovery\"],.recovery-screen,option[value=\"grade\"],#tickers-sort option[value=\"score\"],#tickers-sc-x option[value=\"score\"],#tickers-sc-y option[value=\"score\"],#tickers-sort option[value=\"conviction\"],#tickers-sort option[value=\"ready\"],#cmp-sec-metric option[value=\"call\"],#cmp-sec-metric option[value=\"put\"],[data-grade],[data-scn-grade],[data-f13-grade],.flow-grade-btn,[data-go=\"grade\"],[data-go=\"strategies\"],[data-go=\"narratives\"],[data-page-tab=\"owner-market-brief\"],[data-go=\"owner-market-brief\"],#page-pane-owner-market-brief,[data-page-tab=\"grade\"],[data-go=\"grade\"],#page-pane-grade,[data-page-tab=\"strategies\"],[data-go=\"strategies\"],#page-pane-strategies,[data-page-tab=\"narratives\"],[data-go=\"narratives\"],#page-pane-narratives,[data-page-tab=\"earnings-forecast\"],[data-go=\"earnings-forecast\"],#page-pane-earnings-forecast,[data-page-tab=\"unified-signal-engine\"],[data-go=\"unified-signal-engine\"],#page-pane-unified-signal-engine,[data-page-tab=\"market\"],[data-go=\"market\"],#page-pane-market,[data-page-tab=\"risk\"],[data-go=\"risk\"],#page-pane-risk,[data-page-tab=\"bottom-tracker\"],[data-go=\"bottom-tracker\"],#page-pane-bottom-tracker,[data-page-tab=\"historical-data\"],[data-go=\"historical-data\"],#page-pane-historical-data,[data-page-tab=\"party-tracker\"],[data-go=\"party-tracker\"],#page-pane-party-tracker,[data-page-tab=\"forced-liquidation\"],[data-go=\"forced-liquidation\"],#page-pane-forced-liquidation,[data-page-tab=\"picks\"],[data-go=\"picks\"],#page-pane-picks,[data-page-tab=\"leaps\"],[data-go=\"leaps\"],#page-pane-leaps,[data-page-tab=\"stocks\"],[data-go=\"stocks\"],#page-pane-stocks,[data-page-tab=\"rotation\"],[data-go=\"rotation\"],#page-pane-rotation,[data-page-tab=\"levetf\"],[data-go=\"levetf\"],#page-pane-levetf,[data-page-tab=\"open-picks\"],[data-go=\"open-picks\"],#page-pane-open-picks,[data-page-tab=\"track\"],[data-go=\"track\"],#page-pane-track,[data-page-tab=\"quant\"],[data-go=\"quant\"],#page-pane-quant";
+    var selector = "[data-owner-only],#book-grade-return,.flow-decision,.heatmap-decision,.heatmap-eod-decision,#news-feed-summary,.news-posture-triggers,.news-feed-decision,.news-decision,.brief-decision,.brief-analog,.ers-posture,.ers-search-signal,.ecl-decision,.ecl-plan-posture,.cmd-posture,.cx-posture,.rp-posture,.ic-posture,.bonds-ctx-posture,.fng-decision,.idx-cal-decision,.ma-track-summary,.ma-track-desk,.ma-track-leaders,.ma-track-note,#tickers-decision,#tickers-model-summary,#tickers-model-note,#tickers-ready,.ticker-grade,#tickers-scatter .sc-legend,#cmp-pillars,#cmp-summary,[data-ers-view=\"recovery\"],.recovery-screen,option[value=\"grade\"],#tickers-sort option[value=\"score\"],#tickers-sc-x option[value=\"score\"],#tickers-sc-y option[value=\"score\"],#tickers-sort option[value=\"conviction\"],#tickers-sort option[value=\"ready\"],#cmp-sec-metric option[value=\"call\"],#cmp-sec-metric option[value=\"put\"],[data-grade],[data-scn-grade],[data-f13-grade],.flow-grade-btn,[data-go=\"grade\"],[data-go=\"strategies\"],[data-go=\"narratives\"],[data-page-tab=\"owner-market-brief\"],[data-go=\"owner-market-brief\"],#page-pane-owner-market-brief,[data-page-tab=\"grade\"],[data-go=\"grade\"],#page-pane-grade,[data-page-tab=\"strategies\"],[data-go=\"strategies\"],#page-pane-strategies,[data-page-tab=\"narratives\"],[data-go=\"narratives\"],#page-pane-narratives,[data-page-tab=\"earnings-forecast\"],[data-go=\"earnings-forecast\"],#page-pane-earnings-forecast,[data-page-tab=\"unified-signal-engine\"],[data-go=\"unified-signal-engine\"],#page-pane-unified-signal-engine,[data-page-tab=\"market\"],[data-go=\"market\"],#page-pane-market,[data-page-tab=\"risk\"],[data-go=\"risk\"],#page-pane-risk,[data-page-tab=\"bottom-tracker\"],[data-go=\"bottom-tracker\"],#page-pane-bottom-tracker,[data-page-tab=\"historical-data\"],[data-go=\"historical-data\"],#page-pane-historical-data,[data-page-tab=\"party-tracker\"],[data-go=\"party-tracker\"],#page-pane-party-tracker,[data-page-tab=\"forced-liquidation\"],[data-go=\"forced-liquidation\"],#page-pane-forced-liquidation,[data-page-tab=\"picks\"],[data-go=\"picks\"],#page-pane-picks,[data-page-tab=\"leaps\"],[data-go=\"leaps\"],#page-pane-leaps,[data-page-tab=\"stocks\"],[data-go=\"stocks\"],#page-pane-stocks,[data-page-tab=\"rotation\"],[data-go=\"rotation\"],#page-pane-rotation,[data-page-tab=\"levetf\"],[data-go=\"levetf\"],#page-pane-levetf,[data-page-tab=\"open-picks\"],[data-go=\"open-picks\"],#page-pane-open-picks,[data-page-tab=\"track\"],[data-go=\"track\"],#page-pane-track,[data-page-tab=\"quant\"],[data-go=\"quant\"],#page-pane-quant,[data-page-tab=\"research-lab\"],[data-go=\"research-lab\"],#page-pane-research-lab";
     if (root.matches && root.matches(selector)) { root.remove(); return; }
     root.querySelectorAll(selector).forEach(function(el){ el.remove(); });
   }

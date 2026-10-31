@@ -1,0 +1,63 @@
+{
+  "measured_at": "2026-10-31",
+  "scope": "synthetic 3 assets × 420 sessions, 6-node study plus one compact export; local CPU/objects, not production billing",
+  "ai_api_dollars": 0,
+  "ai_requests": 0,
+  "provider_requests": 0,
+  "measured": {
+    "class_a": 59,
+    "class_b": 82,
+    "put_bytes": 1122292,
+    "retained_bytes": 993480,
+    "objects": 12,
+    "steps": 6,
+    "api_requests": 14,
+    "cpu_seconds": 0.082831,
+    "local_elapsed_ms": 59.876208,
+    "zip_bytes": 40673
+  },
+  "assumptions": {
+    "region": "iad1 illustration, not verified project region",
+    "memory_gb": 2,
+    "allocated_seconds_per_request": 1,
+    "r2_standard_gb_month": 0.015,
+    "r2_a_per_million": 4.5,
+    "r2_b_per_million": 0.36,
+    "vercel_cpu_hour": 0.128,
+    "vercel_memory_gb_hour": 0.0106,
+    "vercel_invocations_per_million": 0.6
+  },
+  "caveats": [
+    "R2 lease protocol modeled as one GET and two PUTs per successful lease. Real retries/publication lookups increase usage.",
+    "Vercel network duration, cold starts, instance concurrency and memory reservation were not measured. One-second requests are an illustrative allocation, not a bill prediction.",
+    "Storage assumes each run retains a separate full fixture footprint for one month; reuse reduces it. Failed/orphan objects can add storage.",
+    "Free allowances and existing account usage are shared. R2 billable units round upward; below are rate-normalized consumption equivalents before allowances, not invoice amounts.",
+    "External ChatGPT/Claude usage follows the user’s own plan; the site makes no model calls."
+  ],
+  "sources": [
+    "https://developers.cloudflare.com/r2/pricing/",
+    "https://vercel.com/docs/functions/usage-and-pricing"
+  ],
+  "scenarios": [
+    {
+      "runs": 100,
+      "retained_gb": 0.099348,
+      "class_a": 5900,
+      "class_b": 8200,
+      "ai_api_dollars": 0,
+      "r2_rate_equivalent_dollars": 0.03099222,
+      "vercel_rate_equivalent_dollars": 0.009378954666666668,
+      "vercel_10_seconds_per_request_rate_equivalent_dollars": 0.08357895466666666
+    },
+    {
+      "runs": 200,
+      "retained_gb": 0.198696,
+      "class_a": 11800,
+      "class_b": 16400,
+      "ai_api_dollars": 0,
+      "r2_rate_equivalent_dollars": 0.06198444,
+      "vercel_rate_equivalent_dollars": 0.018757909333333336,
+      "vercel_10_seconds_per_request_rate_equivalent_dollars": 0.16715790933333333
+    }
+  ]
+}
