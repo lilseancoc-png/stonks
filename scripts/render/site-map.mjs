@@ -104,7 +104,7 @@ export const SITE_SECTIONS = [
       { id: 'open-picks', label: 'Open picks', blurb: 'Every open trade, with lines ready to copy to a broker.' },
       { id: 'track', label: 'Top Picks track record', blurb: 'How every closed pick worked out.' },
       { id: 'quant', label: 'Owner Lab', blurb: 'Research tools and diagnostics.' },
-      { id: 'research-lab', label: 'Research Lab', alias: 'Experiments visual canvas journal offsite ChatGPT Claude', blurb: 'Compose reproducible studies, compare evidence and review research completed offsite.' },
+      { id: 'research-lab', label: 'Research Lab', alias: 'Scenarios evidence puzzle stocks experiments visual canvas journal ChatGPT Claude', blurb: 'Connect stocks, evidence and assumptions, explore possible outcomes and export your research for AI review.' },
     ],
   },
 ];

@@ -98,3 +98,43 @@ account list. `RESEARCH_LAB_ENABLED=0` stops execution and leaves a visible
 disabled message. No paid AI integration,
 new subscription, database migration, scheduled research job or production order
 path was added. CPU, storage and requests still have ordinary usage costs.
+
+## Connected research board, October 31, 2026
+
+Run `npm run test:research-board` and `npm run test:research-board-browser`.
+The browser check uses the real generated app, API boundary and synthetic cache.
+It exercises whole-card movement, panning, deletion with typing protection,
+undo, live connected assumptions, local reload, company-filtered evidence,
+joint government-control filters, PDF/CSV/Markdown imports, byte-identical PDF
+attachment export, JSON roundtrip, corrupted-attachment rejection, pointer
+connections, an actual printable PDF, phone/theme layouts and owner isolation.
+`QA_OUTPUT` selects the screenshot and downloaded-artifact directory. Keep the
+existing Lab browser suite for immutable studies, replay and reviewed exchange.
+
+These are local fixture checks. They do not establish production data coverage,
+real political outcomes, causal effects or live R2 reliability. The board does
+not add AI/provider calls, cron jobs, packages or broker access.
+
+## Follow-up bug, UI, data and export audit
+
+`test:research-lab` also runs `research-board-data-smoke.mjs`, which uses the
+saved producer shapes for company fundamentals, AI CapEx, GPU cloud rates,
+macro changes, earnings and narratives. It verifies units, date gaps, null/zero
+handling, raw-data exclusions, issuer selection, full-capacity placement and
+capture deduplication at the retention ceiling and canonical capture provenance
+after a competing writer commits.
+
+`test:research-board-browser` runs both the original board flow and
+`research-board-audit-browser.mjs`. The additional audit builds a valuation
+scenario from a blank board, adds its required inputs, fills explicit values,
+loads company evidence, and exports it. It exercises valid PDF and Word files,
+atomic batch rejection, attachment-ID collisions through undo/redo, file checksums,
+CSV formula escaping, HTML escaping, directed export diagrams, persistent download
+links, canceled drags,
+malformed local-draft recovery, and mobile Edit controls. A complete NVDA example
+loads all seven stock/source cards, computes its conditional outcome and exports
+the source values/units in a ZIP verified by Python's independent ZIP reader.
+
+Evidence remains synthetic and marked fictional. Producer-format verification
+is not authenticated production coverage, live broker behavior or a prospective
+market-performance result.

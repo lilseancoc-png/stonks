@@ -19,7 +19,7 @@ async function pageAt(width = 1440, theme = 'light') {
 try {
   const page = await pageAt(), errors = []; page.on('pageerror', e => errors.push(e.message));
   await page.goto(preview.base + '/?tab=research-lab');
-  const root = page.locator('#research-lab-root'); await root.locator('#rl-name').waitFor();
+  const root = page.locator('#research-lab-root'); await root.locator('[data-view=workspace]').click(); await root.locator('#rl-name').waitFor();
   check(await page.locator('#page-pane-research-lab').isVisible(), 'Owner deep link');
   check(await root.locator('.rl-node').count() === 6, 'Typed puzzle graph renders');
   await root.locator('summary', { hasText: 'Keyboard connections' }).click();
@@ -100,7 +100,7 @@ try {
   await root.locator('[data-view="results"]').click(); await page.screenshot({ path: resolve(output, 'desktop-results.png'), fullPage: true }); await page.close();
   for (const width of [1440, 768, 390, 320]) for (const theme of ['light', 'dark']) {
     const p = await pageAt(width, theme), errs = []; p.on('pageerror', e => errs.push(e.message));
-    await p.goto(preview.base + '/?tab=research-lab'); await p.locator('#rl-name').waitFor();
+    await p.goto(preview.base + '/?tab=research-lab'); await p.locator('[data-view=workspace]').click(); await p.locator('#rl-name').waitFor();
     check(await p.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 2), 'No page overflow at ' + width + ' ' + theme);
     await p.locator('#rl-tab-workspace').focus(); await p.keyboard.press('ArrowRight'); await p.keyboard.press('ArrowRight');
     check(await p.locator('#rl-tab-results').getAttribute('aria-selected') === 'true', 'Keyboard tabs ' + width + ' ' + theme);
@@ -109,10 +109,10 @@ try {
     check(errs.length === 0, 'No exceptions at ' + width + ' ' + theme); await p.close();
   }
   const draftPage = await pageAt(); await draftPage.goto(preview.base + '/?tab=research-lab');
-  await draftPage.locator('#rl-name').waitFor(); await draftPage.locator('[data-add="transform.lag"]').click();
+  await draftPage.locator('[data-view=workspace]').click(); await draftPage.locator('#rl-name').waitFor(); await draftPage.locator('[data-add="transform.lag"]').click();
   await draftPage.locator('#rl-hypothesis').fill('Recover my unfinished sandbox idea.'); await draftPage.locator('[data-rl="save-draft"]').click();
   const oldRunCount = (await preview.repo.read()).runs.length;
-  await draftPage.reload(); await draftPage.locator('#rl-name').waitFor();
+  await draftPage.reload(); await draftPage.locator('[data-view=workspace]').click(); await draftPage.locator('#rl-name').waitFor();
   check(await draftPage.locator('.rl-node').count() === 7 && await draftPage.locator('#rl-hypothesis').inputValue() === 'Recover my unfinished sandbox idea.', 'Incomplete sandbox draft survives reload');
   check((await preview.repo.read()).runs.length === oldRunCount, 'Draft restoration never runs jobs automatically'); await draftPage.close();
   for (const scenario of ['anonymous', 'partial', 'non-owner']) {
@@ -122,7 +122,7 @@ try {
     check(preview.requests === before, scenario + ' starts no research requests'); await p.close();
   }
   preview.setScenario('second-owner');
-  const second = await pageAt(); await second.goto(preview.base + '/?tab=research-lab'); await second.locator('#rl-name').waitFor();
+  const second = await pageAt(); await second.goto(preview.base + '/?tab=research-lab'); await second.locator('[data-view=workspace]').click(); await second.locator('#rl-name').waitFor();
   check(await second.locator('#page-tab-research-lab').isVisible(), 'Every signed Owner sees Research Lab without an extra account list');
   await second.locator('[data-view="journal"]').click();
   check(!await second.locator('[data-rl="open-exp"]').count(), 'Second owner sees no first-owner experiments'); await second.close();

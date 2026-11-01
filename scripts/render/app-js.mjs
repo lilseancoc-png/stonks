@@ -1,5 +1,7 @@
 import { ownerMarketBriefDisplayFactory } from '../../lib/owner-market-brief-display.mjs';
 import { ownerMarketBriefClient } from './owner-market-brief-client.mjs';
+import { researchBoardClient } from './research-board-client.mjs';
+import { researchBoardFactory } from '../../lib/research-lab/board.mjs';
 import { researchLabClient } from './research-lab-client.mjs';
 import { researchContractsFactory } from '../../lib/research-lab/contracts.mjs';
 import { OWNER_PAGE_IDS, OWNER_UI_SELECTORS } from '../../lib/owner-access-policy.mjs';
@@ -23377,7 +23379,7 @@ ${renderExportBindings()}
     owner: function(){ return HAS_OWNER_ACCESS; },
     allowed: function(){ return HAS_OWNER_ACCESS && AUTH_ME && AUTH_ME.researchLab === true; },
     identity: function(){ return AUTH_ME && AUTH_ME.sub; }
-  }, (${researchContractsFactory.toString()})());
+  }, (${researchContractsFactory.toString()})(), (${researchBoardClient.toString()}), (${researchBoardFactory.toString()})());
   var ownerMarketBrief = (${ownerMarketBriefClient.toString()})(window, document, {
     owner: function(){ return HAS_OWNER_ACCESS; },
     go: function(tab,symbol){ var button = document.getElementById('page-tab-' + tab); if(button) button.click(); if(tab === 'unified-signal-engine' && symbol) unifiedSignal.open(symbol); },

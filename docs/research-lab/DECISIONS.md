@@ -51,3 +51,41 @@ Setting `RESEARCH_LAB_ENABLED=0` stops API/worker execution while keeping the
 Owner destination visible with a disabled message. Retain internal records.
 Live R2 recovery and operational rollback still need staging verification.
 Additive objects need no DB DDL.
+
+## Connected board upgrade, October 31, 2026
+
+Two shapes were sketched against the NVDA workflow before implementation:
+
+- One expanded execution graph: `evidence -> signal -> study -> report`. Every
+  narrative link would require a typed execution meaning. Letting today's
+  earnings or a political assumption drive a historical event would undermine
+  the compiler's existing time and unit checks.
+- A separate reasoning board: `dated evidence -> owner assumption -> possible
+  outcome -> stock`, with supporting and challenging links. Explicit numeric
+  assumptions feed small conditional models. Historical studies remain separate.
+
+The second shape owns the new default experience. A plain list of notes was
+also considered, but does not express the connected puzzle the owner requested.
+The board and execution graph share the existing signed Owner API boundary and
+cached evidence adapter. They keep different schemas and persistence rules.
+
+`lib/research-lab/board.mjs` owns the board schema, templates, link validity,
+conditional calculations and written research brief. The browser client owns
+interaction, owner-scoped IndexedDB drafts, attachments and portable exports.
+The existing evidence service owns read-only, bounded source captures. Its
+company selector filters issuer records before truncation. Its Party tracker
+adapter selects joint-control chapters before projecting fields. Both retain
+source time, capture time, checksum and missingness information.
+
+The board does not require an execution run, price history, an evaluation plan
+or R2 to edit and export local reasoning. Dated site capture still requires the
+existing API/storage service. Local file content is never sent to that API.
+Original PDFs and Word documents remain attachments; automatic extraction would
+require a parser and a separate text/coverage contract. The export says this
+explicitly. Browser print provides PDF output without a new rendering service.
+
+The main risks are loss of browser-local data and overreading a drawn link as
+causation. Portable JSON/ZIP backups address the first. Distinct observed-source,
+assumption and outcome blocks, explicit driver units, missing-input withholding,
+and written relationship explanations address the second. No probabilities or
+political market responses are generated from a connection alone.
