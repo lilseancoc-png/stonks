@@ -1,0 +1,43 @@
+name: Update checker
+
+on:
+  workflow_run:
+    workflows: ["Daily build", "Unusual options flow", "Near-term OI tracker", "Weekly Alt Data refresh", "Close-bake fallback", "Webull end-of-day execution", "Webull paper reconciliation", "Inspect / flatten private data store", "Wipe track record"]
+    types: [completed]
+    branches: [main]
+  schedule:
+    - cron: "17,47 * * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: stonks-update-checker
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    if: ${{ vars.PRIVATE_DATA_ENABLED == '1' && (github.event_name != 'workflow_run' || github.event.workflow_run.head_repository.full_name == github.repository) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # Never check out the triggering run's code or consume its artifacts.
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Record workflow results independently of the data build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: node scripts/collect-update-status.mjs

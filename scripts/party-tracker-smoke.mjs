@@ -16,6 +16,8 @@ import {
 } from '../lib/party-tracker.mjs';
 import { refreshPartyTracker } from './refresh-party-tracker.mjs';
 import { isPremiumKey, roleClaimForKey } from '../lib/premium-keys.mjs';
+import { OWNER_PAGE_IDS } from '../lib/owner-access-policy.mjs';
+import { renderAppJs } from './render/app-js.mjs';
 
 assert.deepEqual(controlGaps(PRESIDENT_CONTROL, STUDY_START, '2029-01-20'), []);
 assert.deepEqual(controlGaps(HOUSE_CONTROL, '2001-01-03', '2027-01-03'), []);
@@ -210,7 +212,10 @@ const sources = await Promise.all([
   readFile(new URL('./verify-data-freshness.mjs', import.meta.url), 'utf8'),
 ]);
 for (const source of sources) assert.match(source, /party-tracker/);
-assert.match(sources[0], /'party-tracker':1/);
+// Assert the emitted access contract, independent of source formatting.
+assert(OWNER_PAGE_IDS.includes('party-tracker'));
+const ownerTabs = JSON.parse(renderAppJs().match(/var OWNER_TABS = (\{[^;]+\});/)[1]);
+assert.equal(ownerTabs['party-tracker'], 1);
 assert.match(sources[1], /id: 'party-tracker'/);
 
 console.log('party tracker smoke ok');
