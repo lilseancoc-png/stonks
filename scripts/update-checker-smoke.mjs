@@ -63,7 +63,7 @@ assert(!('_bars' in publicTicker));assert(publicTicker.priceSeries.c.every(Numbe
 entries.set('TEST.json',Buffer.from(JSON.stringify(publicTicker)));
 let publicScan=await scanPublishedArtifacts(store,new Map(),now);assert(!publicScan.issues.some(i=>i.key==='TEST.json'),'published ticker has no false alarm');
 const brokenTicker={...publicTicker,priceSeries:{t:[1],c:[]}};assert(publishedTickerError(brokenTicker));entries.set('TEST.json',Buffer.from(JSON.stringify(brokenTicker)));publicScan=await scanPublishedArtifacts(store,new Map(),now);assert(publicScan.issues.some(i=>i.key==='TEST.json'),'broken stored series is detected');entries.delete('TEST.json');
-const manifestSpec=UPDATE_FEATURES.find(f=>f.id==='home');assert.equal(inspectFeature(manifestSpec,{symbols:[],_meta:{dataBuiltAtIso:clock}},now).status,'available','manifest uses canonical data provenance');
+const manifestSpec=UPDATE_FEATURES.find(f=>f.id==='home');assert.equal(inspectFeature(manifestSpec,{_meta:{dataBuiltAtIso:clock},unusual:{}},now).status,'available','actual manifest sidecar uses provenance; symbol universe stays in the HTML shell');
 
 const featureScan=await inspectPublishedFeatures(store,now);assert.equal(featureScan.length,UPDATE_FEATURES.length);assert(!featureScan.some(f=>['missing','invalid','unavailable','undated'].includes(f.status)));
 const makeRes=()=>({statusCode:200,headers:{},setHeader(k,v){this.headers[k]=v;},status(n){this.statusCode=n;return this;},json(value){this.body=value;return this;},end(value){this.body=value;return this;}});
