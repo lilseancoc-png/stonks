@@ -128,7 +128,10 @@
     "regen:top-picks-market": "node scripts/regen-top-picks-market.mjs",
     "test:top-picks-market-browser": "node scripts/top-picks-market-browser.mjs",
     "test:research-board": "node scripts/research-board-smoke.mjs",
-    "test:research-board-browser": "node scripts/research-board-browser.mjs && node scripts/research-board-audit-browser.mjs"
+    "test:research-board-browser": "node scripts/research-board-browser.mjs && node scripts/research-board-audit-browser.mjs",
+    "test:update-checker": "node scripts/update-checker-smoke.mjs",
+    "test:update-checker-browser": "node scripts/update-checker-browser.mjs",
+    "regen:update-checker": "node scripts/regen-update-checker.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.15.0",

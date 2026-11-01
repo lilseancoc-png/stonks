@@ -1,0 +1,33 @@
+name: Update Checker verification
+on:
+  pull_request:
+  push:
+    branches: [main, Update-Checker]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Verify feature coverage, log detection and private access
+        run: |
+          npm run test:update-checker
+          npm run test:party-tracker
+          npm run test:site-map
+          npm run test:owner-restrictions
+          npm run test:owner-brief
+          npm run test:research-lab
+          npm run test:api
+          npm run verify:freshness
+      - name: Verify browser behavior
+        run: |
+          npm install --prefix "$RUNNER_TEMP/checker-browser" --no-audit --no-fund playwright@1.64.1
+          "$RUNNER_TEMP/checker-browser/node_modules/.bin/playwright" install --with-deps chromium
+          PLAYWRIGHT_MODULE="$RUNNER_TEMP/checker-browser/node_modules/playwright/index.mjs" npm run test:update-checker-browser

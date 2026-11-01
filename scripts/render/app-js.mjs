@@ -1,3 +1,4 @@
+import { updateCheckerClient } from './update-checker-client.mjs';
 import { ownerMarketBriefDisplayFactory } from '../../lib/owner-market-brief-display.mjs';
 import { ownerMarketBriefClient } from './owner-market-brief-client.mjs';
 import { researchBoardClient } from './research-board-client.mjs';
@@ -163,8 +164,10 @@ ${scenarioEventPhase.toString()}
     // session, or either missing special claim leaves every Owner surface hidden.
     HAS_OWNER_ACCESS = !!(GATE_ON && me && me.authed === true && me.trackRecord === true && me.topPicks === true);
     if ((!HAS_OWNER_ACCESS || me.researchLab !== true) && typeof researchLab !== 'undefined') researchLab.reset();
+    if (HAS_OWNER_ACCESS && typeof updateChecker !== 'undefined') updateChecker.checkSummary();
     window.STONKS_OWNER_ACCESS = HAS_OWNER_ACCESS;
     if (!HAS_OWNER_ACCESS && heatmapState && heatmapState.colorBy === 'grade') heatmapState.colorBy = 'perf';
+    if (!HAS_OWNER_ACCESS && typeof updateChecker !== 'undefined') updateChecker.reset();
     if (!HAS_OWNER_ACCESS && typeof ownerMarketBrief !== 'undefined') ownerMarketBrief.reset();
     if (!HAS_OWNER_ACCESS && typeof earningsForecast !== 'undefined') earningsForecast.reset();
     HAS_TRACK_RECORD = HAS_OWNER_ACCESS;
@@ -3765,7 +3768,7 @@ ${scenarioEventPhase.toString()}
   // resolve the URL's initial tab synchronously at script-evaluation time (the
   // anti-flash pre-select in the boot block) before the /api/auth/me +
   // manifest fetches settle and bind() runs the full selectTab.
-  var PAGE_TAB_IDS = ['home','owner-market-brief','tickers','narratives','brief','news','market','risk','unified-signal-engine','historical-data','party-tracker','earnings-forecast','forced-liquidation','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','research-lab','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','bottom-tracker','open-picks','track','cheatsheet','chart-patterns','timeline','privacy','terms'];
+  var PAGE_TAB_IDS = ['home','update-checker','owner-market-brief','tickers','narratives','brief','news','market','risk','unified-signal-engine','historical-data','party-tracker','earnings-forecast','forced-liquidation','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','research-lab','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','bottom-tracker','open-picks','track','cheatsheet','chart-patterns','timeline','privacy','terms'];
   // Friendly aliases so deep-links people might guess work too.
   // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
   // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -4184,6 +4187,7 @@ ${renderExportBindings()}
       if (name !== 'overnight' && typeof stopOvernightLive === 'function') stopOvernightLive();
       if (name !== 'oi' && typeof stopOiLive === 'function') stopOiLive();
       if (name !== 'ma-tracker' && typeof stopMaTrackerLive === 'function') stopMaTrackerLive();
+      if (name === 'update-checker') updateChecker.load();
       if (name === 'owner-market-brief') ownerMarketBrief.load();
       if (name === 'research-lab') researchLab.load();
       if (name === 'brief' && typeof loadBrief === 'function') loadBrief();
@@ -23380,6 +23384,10 @@ ${renderExportBindings()}
     allowed: function(){ return HAS_OWNER_ACCESS && AUTH_ME && AUTH_ME.researchLab === true; },
     identity: function(){ return AUTH_ME && AUTH_ME.sub; }
   }, (${researchContractsFactory.toString()})(), (${researchBoardClient.toString()}), (${researchBoardFactory.toString()})());
+  var updateChecker = (${updateCheckerClient.toString()})(window, document, {
+    owner: function(){ return HAS_OWNER_ACCESS; },
+    revoke: function(){ applyAuth(null); enforceOwnerUi(document); var home=document.getElementById('page-tab-home'); if(home) home.click(); }
+  });
   var ownerMarketBrief = (${ownerMarketBriefClient.toString()})(window, document, {
     owner: function(){ return HAS_OWNER_ACCESS; },
     go: function(tab,symbol){ var button = document.getElementById('page-tab-' + tab); if(button) button.click(); if(tab === 'unified-signal-engine' && symbol) unifiedSignal.open(symbol); },

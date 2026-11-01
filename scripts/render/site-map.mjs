@@ -105,6 +105,7 @@ export const SITE_SECTIONS = [
       { id: 'track', label: 'Top Picks track record', blurb: 'How every closed pick worked out.' },
       { id: 'quant', label: 'Owner Lab', blurb: 'Research tools and diagnostics.' },
       { id: 'research-lab', label: 'Research Lab', alias: 'Scenarios evidence puzzle stocks experiments visual canvas journal ChatGPT Claude', blurb: 'Connect stocks, evidence and assumptions, explore possible outcomes and export your research for AI review.' },
+      { id: 'update-checker', label: 'Update Checker', alias: 'Build status failures feature health stale missing updates', blurb: 'Build failures and checks of published feature outputs.' },
     ],
   },
 ];

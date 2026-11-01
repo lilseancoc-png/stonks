@@ -230,6 +230,9 @@ function logout(req, res) {
 // --- session probe -----------------------------------------------------------
 async function me(req, res) {
   res.setHeader("Cache-Control", "private, no-store");
+  if (req.query?.checker != null) {
+    return (await import('../../lib/update-checker-http.mjs')).handleUpdateChecker(req,res);
+  }
   if (req.query?.lab != null) {
     return (await import('../../lib/research-lab/http.mjs')).handleResearchRequest(req, res);
   }

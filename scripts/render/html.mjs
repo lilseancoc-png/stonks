@@ -42,6 +42,7 @@ function docPanesHtml() {
 // stylesheet owns all tinting). Stored as bare path data; sideNavItem()
 // wraps each in the shared <svg class="pt-ico"> shell.
 const SIDE_NAV_ICONS = {
+  'update-checker': '<path d="M4 4h16v16H4zM7 12h3l2-5 2 10 2-5h2"/>',
   'owner-market-brief': '<path d="M4 3h16v18H4zM8 7h8M8 11h8M8 15h4"/>',
   'pending-buyouts': '<rect x="2" y="5" width="8" height="14" rx="2"/><rect x="14" y="5" width="8" height="14" rx="2"/><path d="M7 12h10m-3-3 3 3-3 3"/>',
   home: '<path d="m3 9.8 9-7.3 9 7.3V20a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 20Z"/><path d="M9.5 21.5V14h5v7.5"/>',
@@ -2155,6 +2156,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-narratives" role="tabpanel" aria-labelledby="page-tab-narratives" hidden>
   ${narrativesSection()}
+  </div>
+  <div class="page-pane" id="page-pane-update-checker" role="tabpanel" aria-labelledby="page-tab-update-checker" hidden>
+    <section class="card"><h2>Update Checker</h2><p class="hint">Track failed builds and inspect published feature outputs. The checker records workflow failures even when the data build stops early.</p><div id="update-checker-root" aria-live="polite"></div></section>
   </div>
   <div class="page-pane" id="page-pane-owner-market-brief" role="tabpanel" aria-labelledby="page-tab-owner-market-brief" hidden>
     ${ownerMarketBriefSection()}

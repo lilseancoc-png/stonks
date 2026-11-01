@@ -419,6 +419,9 @@ jobs:
         # Offline fixtures only; no SEC, Yahoo, AI or private-store requests.
         run: npm run test:forced-liquidation
 
+      - name: Verify Update Checker contracts
+        run: npm run test:update-checker
+
       - name: Verify party control history
         # Offline fixtures only. Price downloads stay inside the market build.
         run: npm run test:party-tracker
