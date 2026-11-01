@@ -40,6 +40,8 @@ policy in `lib/owner-access-policy.mjs` is authoritative for the page list.
 - **`vercel.json`**: no longer forces a blanket `/data/*` cache header — `api/data` is the authority per tier (public → `public, s-maxage`; Owner → `private, no-store`). Owner content must never be shared-cached.
 - **The two flags** must align: `PRIVATE_DATA_ENABLED=1` in **Vercel env** (router) **and** as a **GitHub Actions repo variable** (workflows). Store credentials must be available to Vercel and Actions. Owner-only Discord/session env (`DISCORD_CLIENT_ID/SECRET`, `DISCORD_GUILD_ID`, `DISCORD_TOPPICKS_ROLE_ID(S)`, `SESSION_SECRET`) are Vercel-only.
 
+**MCP server:** `https://<domain>/mcp` (`lib/mcp/`, spec [`docs/mcp.md`](docs/mcp.md)) lets ChatGPT, Claude and other MCP clients read site research. It is read-only, makes zero AI calls, and is Owner-only by default: OAuth 2.1 with PKCE and stateless dynamic client registration on top of the same Discord owner-role check, through the existing `/api/auth/discord-callback`. `vercel.json` rewrites `/mcp`, `/.well-known/oauth-*` and `/oauth/*` into `api/auth/[action].js` (`mcp`, `mcp-meta`, `mcp-oauth`), so it adds no serverless function. Data access reuses `premium-keys.mjs` / `owner-access-policy.mjs` and the Research Lab feature map. Webull, fills, watchlist, caches and Research Lab records are never readable. Optional env: `MCP_ENABLED=0` (kill switch), `MCP_TOKEN_VERSION` (revoke all), `MCP_PUBLIC_ACCESS=1` (tokenless public tools). Test: `node scripts/mcp-smoke.mjs`.
+
 ## Commands
 
 ```bash

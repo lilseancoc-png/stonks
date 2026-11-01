@@ -13,6 +13,8 @@
 //                       (POST from the build workflow) / its trade log (GET)
 //   track-record-reset -> Owner-only, same-origin wipe of one tracker (POST)
 //   track-record-data  -> Owner-only reporting view, independent of execution
+//   mcp / mcp-meta / mcp-oauth -> the Mingstreet MCP server and its OAuth
+//                       endpoints (lib/mcp/; reached via vercel.json rewrites)
 //
 // Discord auth is intentionally an INTERNAL Owner Lab mechanism. Public site
 // access never requires a login; only principals holding the existing Top Picks
@@ -92,6 +94,24 @@ export default async function handler(req, res) {
       return trackRecordData(req, res);
     case "top-picks":
       return (await import('../top-picks.js')).default(req,res);
+    // Mingstreet MCP server (lib/mcp/). vercel.json rewrites /mcp,
+    // /.well-known/oauth-* and /oauth/* here so it costs no extra function.
+    case "mcp":
+      return (await import("../../lib/mcp/server.mjs")).handleMcpRequest(req, res);
+    case "mcp-meta": {
+      const oauth = await import("../../lib/mcp/oauth.mjs");
+      return req.query?.kind === "resource"
+        ? oauth.protectedResourceMetadata(req, res)
+        : oauth.authorizationServerMetadata(req, res);
+    }
+    case "mcp-oauth": {
+      const oauth = await import("../../lib/mcp/oauth.mjs");
+      const step = req.query?.step;
+      if (step === "register") return oauth.register(req, res);
+      if (step === "authorize") return oauth.authorize(req, res);
+      if (step === "token") return oauth.token(req, res);
+      return res.status(404).json({ error: "not found" });
+    }
     default:
       return res.status(404).json({ error: "not found" });
   }
@@ -188,6 +208,20 @@ async function callback(req, res) {
     const hasOwnerRole = roles.some((r) => topPicksRoleIds.has(r));
     if (!hasOwnerRole) {
       return redirect(res, "/welcome.html?denied=role", clearState);
+    }
+
+    // 3b) An MCP client (ChatGPT, Claude, ...) started this login from
+    // /oauth/authorize: answer it with an authorization code instead of a
+    // site session. Only reached after the same owner role check above.
+    const user0 = member.user || {};
+    if (user0.id) {
+      const { completeMcpAuthorization } = await import("../../lib/mcp/oauth.mjs");
+      const handled = await completeMcpAuthorization(req, res, {
+        discordToken: token,
+        user: { id: String(user0.id), name: user0.global_name || user0.username || "owner" },
+        clearCookies: [clearState],
+      });
+      if (handled) return;
     }
 
     // 4) Mint the session cookie and enter the app. Owner endpoints still
