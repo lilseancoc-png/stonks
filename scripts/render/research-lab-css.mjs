@@ -1,3 +1,4 @@
+import { researchBoardCss } from './research-board-css.mjs';
 export function researchLabCss() { return `
 body:not(.is-owner) [data-page-tab="research-lab"],body:not(.is-owner) #page-pane-research-lab,body:not(.is-owner) [data-go="research-lab"],body:not(.is-owner) a[href="/?tab=research-lab"]{display:none!important}
 .rl{--rl-data:#447c8c;--rl-signal:#a17d37;--rl-result:#6f8771;--rl-scenario:#947092;min-width:0}
@@ -64,4 +65,5 @@ body:not(.is-owner) [data-page-tab="research-lab"],body:not(.is-owner) #page-pan
 @media(min-width:1500px){.rl-workbench{grid-template-columns:190px minmax(300px,1fr) 260px}.rl-scroll{height:550px}}
 @media(max-width:1150px){.rl-workbench{grid-template-columns:145px minmax(220px,1fr)}.rl-inspector{grid-column:1/-1}.rl-library-list{max-height:480px}}
 @media(max-width:650px){.rl-head{display:block}.rl-head h2{font-size:26px}.rl-workbench{grid-template-columns:minmax(0,1fr)}.rl-library-list{display:flex;max-height:120px;overflow:auto}.rl-library button{min-width:150px}.rl-scroll{height:380px}.rl-inspector{grid-column:auto}.rl-fields{grid-template-columns:repeat(2,minmax(0,1fr))}.rl-tabs{gap:5px}.rl-tabs button{font-size:11px;padding:6px 9px}.rl-panel{padding:12px}.rl-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.rl-toolbar button{flex:1 1 40%}.rl-inline>*{max-width:100%}}
+${researchBoardCss()}
 `; }

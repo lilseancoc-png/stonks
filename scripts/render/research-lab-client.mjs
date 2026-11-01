@@ -1,11 +1,11 @@
 // Serialized into the existing buildless app; no external libraries or AI SDKs.
-export function researchLabClient(win, doc, options, contracts) {
+export function researchLabClient(win, doc, options, contracts, mountBoard, boardModel) {
   const root = doc.getElementById('research-lab-root');
-  let mounted = false, view = 'workspace', graph = contracts.template(), plan = null, snapshot = null,
+  let mounted = false, view = 'board', graph = contracts.template(), plan = null, snapshot = null,
     experimentId = null, revision = 0, latestRevision = 0, familyId = null, dirty = true, selected = 'shock', pendingPort = null,
     history = [], future = [], currentRun = null, journalData = null, compiled = null, processing = false,
     selectedRuns = [], importInput = null, importPreview = null, libraryQuery = '', journalQuery = '', journalFilter = 'all',
-    sources = null, evidenceCards = new Map(), chosenEvidence = new Set(), sourceQuery = '', sourceCategory = '', sourceSort = 'category', draftTimer = null;
+    boardUi = null, sources = null, evidenceCards = new Map(), chosenEvidence = new Set(), sourceQuery = '', sourceCategory = '', sourceSort = 'category', draftTimer = null;
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const pct = value => value == null ? 'Unavailable' : (value * 100).toFixed(2) + '%';
   const num = value => value == null ? 'Unavailable' : Number(value).toLocaleString(undefined, { maximumFractionDigits: 4 });
@@ -60,17 +60,20 @@ export function researchLabClient(win, doc, options, contracts) {
       min_events: 10, bootstrap_samples: 300, execution: 'next_open', primary_metric: 'mean_excess_return' };
   }
   function shell() {
-    root.innerHTML = '<div class="rl"><header class="rl-head"><div><div class="rl-eyebrow">Mingstreet / private research</div><h2>Research Lab</h2><p>Build a question. Freeze the evidence. Test what survives.<br>Export a research bundle to ChatGPT or Claude, then review its interpretation here.</p></div><span class="rl-badge">Owner only · no AI API calls</span></header>' +
-      '<div class="rl-toolbar">' + button('save', 'Save revision') + button('save-draft', 'Save local draft') + button('compile', 'Check experiment') + button('run', 'Run discovery') + button('final', 'Run final evaluation') + '</div>' +
+    root.innerHTML = '<div class="rl"><header class="rl-head"><div><div class="rl-eyebrow">Mingstreet / private research</div><h2>Research Lab</h2><p>Connect evidence, explore scenarios and export your research for AI review.</p></div><span class="rl-badge">Owner only · manual AI review</span></header>' +
+      '<div class="rl-toolbar" id="rl-study-toolbar" hidden>' + button('save', 'Save revision') + button('save-draft', 'Save local draft') + button('compile', 'Check experiment') + button('run', 'Run discovery') + button('final', 'Run final evaluation') + '</div>' +
       '<div id="rl-message" class="rl-message" role="status" aria-live="polite"></div><div class="rl-tabs" role="tablist" aria-label="Research Lab views">' +
-      ['workspace', 'sources', 'results', 'journal', 'exchange', 'operations'].map(v => '<button type="button" role="tab" id="rl-tab-' + v + '" aria-controls="rl-' + v + '" data-view="' + v + '" aria-selected="' + (view === v) + '">' + ({ workspace: 'Workspace', sources: 'Research shelf', results: 'Results', journal: 'Journal', exchange: 'Offsite research', operations: 'Operations' }[v]) + '</button>').join('') + '</div>' +
-      ['workspace', 'sources', 'results', 'journal', 'exchange', 'operations'].map(v => '<div role="tabpanel" id="rl-' + v + '" aria-labelledby="rl-tab-' + v + '"' + (view === v ? '' : ' hidden') + '></div>').join('') + '</div>';
+      ['board', 'workspace', 'sources', 'results', 'journal', 'exchange', 'operations'].map(v => '<button type="button" role="tab" id="rl-tab-' + v + '" aria-controls="rl-' + v + '" data-view="' + v + '"' + (view === 'board' && !['board', 'workspace'].includes(v) ? ' hidden' : '') + ' aria-selected="' + (view === v) + '">' + ({ board: 'Research board', workspace: 'Historical studies', sources: 'Research shelf', results: 'Results', journal: 'Journal', exchange: 'AI review', operations: 'Operations' }[v]) + '</button>').join('') + '</div>' +
+      ['board', 'workspace', 'sources', 'results', 'journal', 'exchange', 'operations'].map(v => '<div role="tabpanel" id="rl-' + v + '" aria-labelledby="rl-tab-' + v + '"' + (view === v ? '' : ' hidden') + '></div>').join('') + '</div>';
     renderWorkspace(); renderSources(); renderResults(); renderJournal(); renderExchange(); renderOperations();
+    boardUi = mountBoard(win, doc, root.querySelector('#rl-board'), { api, message, allowed: options.allowed, identity: options.identity }, boardModel);
+    safe(() => boardUi.load());
   }
   function setView(next) {
     view = next;
-    root.querySelectorAll('[data-view]').forEach(el => el.setAttribute('aria-selected', String(el.dataset.view === next)));
-    for (const v of ['workspace', 'sources', 'results', 'journal', 'exchange', 'operations']) root.querySelector('#rl-' + v).hidden = v !== next;
+    root.querySelector('#rl-study-toolbar').hidden = next !== 'workspace';
+    root.querySelectorAll('[data-view]').forEach(el => { el.setAttribute('aria-selected', String(el.dataset.view === next)); el.hidden = next === 'board' && !['board', 'workspace'].includes(el.dataset.view); });
+    for (const v of ['board', 'workspace', 'sources', 'results', 'journal', 'exchange', 'operations']) root.querySelector('#rl-' + v).hidden = v !== next;
   }
   function renderSources() {
     const el = root.querySelector('#rl-sources'); if (!el) return;
@@ -119,7 +122,7 @@ export function researchLabClient(win, doc, options, contracts) {
       '<button type="button" draggable="' + b.ready + '" data-add="' + b.key + '" data-category="' + b.category + '"' + (b.ready ? '' : ' disabled') + ' title="' + esc(b.description || b.reason || b.key) + '">' + esc(b.label) + '<small>' + esc(b.ready ? b.category : b.reason) + '</small></button>').join('');
   }
   const definition = node => contracts.blocks.find(b => b.key === node.type && b.version === node.version);
-  function renderCanvas() {
+  function renderCanvas(edgesOnly = false) {
     const plane = root.querySelector('.rl-plane'); if (!plane) return;
     const w = Math.max(1500, ...graph.nodes.map(n => n.position.x + 300)), h = Math.max(700, ...graph.nodes.map(n => n.position.y + 250));
     const pendingNode = pendingPort && graph.nodes.find(n => n.id === pendingPort.split('.')[0]);
@@ -132,6 +135,7 @@ export function researchLabClient(win, doc, options, contracts) {
         x2 = to.position.x, y2 = to.position.y + 95 + definition(to).inputs.findIndex(p => p.name === bp) * 32;
       return '<path d="M' + x1 + ',' + y1 + ' C' + (x1 + 70) + ',' + y1 + ' ' + (x2 - 70) + ',' + y2 + ' ' + x2 + ',' + y2 + '"/><text x="' + ((x1 + x2) / 2) + '" y="' + ((y1 + y2) / 2 - 8) + '">' + esc(ap) + '</text>';
     }).join('');
+    if (edgesOnly) { const svg = plane.querySelector('.rl-edges'); if (svg) { svg.setAttribute('width', w); svg.setAttribute('height', h); svg.innerHTML = edges; } return; }
     plane.innerHTML = '<svg class="rl-edges" width="' + w + '" height="' + h + '" aria-hidden="true">' + edges + '</svg>' + graph.nodes.map(node => {
       const def = definition(node);
       return '<article class="rl-node' + (node.id === selected ? ' selected' : '') + '" tabindex="0" data-node="' + node.id + '" data-category="' + def.category + '" aria-label="' + esc(def.label + ' node ' + node.id) + '" style="left:' + node.position.x + 'px;top:' + node.position.y + 'px"><button type="button" class="rl-node-title" data-select-node="' + node.id + '">' + esc(def.label) + '</button><div class="rl-node-kind">' + esc(node.id + ' · v' + node.version) + '</div><div class="rl-ports">' +
@@ -379,7 +383,7 @@ export function researchLabClient(win, doc, options, contracts) {
   function bind() {
     root.addEventListener('click', event => safe(async () => {
       const actionEl = event.target.closest('[data-rl]'); if (actionEl && !actionEl.disabled) { actionEl.disabled = true; try { await action(actionEl.dataset.rl, actionEl); } finally { if (actionEl.isConnected) actionEl.disabled = false; } return; }
-      const tab = event.target.closest('[data-view]'); if (tab) { if (['journal', 'operations'].includes(tab.dataset.view)) await refreshJournal(); if (tab.dataset.view === 'sources' && !sources) { sources = (await api('sources')).sources; renderSources(); } setView(tab.dataset.view); return; }
+      const tab = event.target.closest('[data-view]'); if (tab) { setView(tab.dataset.view); if (['journal', 'operations'].includes(tab.dataset.view)) await refreshJournal(); if (tab.dataset.view === 'sources' && !sources) { sources = (await api('sources')).sources; renderSources(); } return; }
       const add = event.target.closest('[data-add]'); if (add && !add.disabled) { syncForm(); addNode(add.dataset.add); return; }
       const node = event.target.closest('[data-select-node]'); if (node) { selected = node.dataset.selectNode; renderCanvas(); renderInspector(); return; }
       const out = event.target.closest('[data-port-out]'); if (out) { pendingPort = out.dataset.portOut; renderCanvas(); message('Choose a compatible input port, or use Keyboard connections.'); return; }
@@ -402,7 +406,8 @@ export function researchLabClient(win, doc, options, contracts) {
       if (el.id === 'rl-import-file') { const file = el.files[0]; if (!file) return; if (file.size > 100000 || !file.name.toLowerCase().endsWith('.json')) throw new Error('Choose a JSON interpretation under 100 KB. ZIP imports are not accepted.'); root.querySelector('#rl-import-json').value = await file.text(); importPreview = null; root.querySelector('[data-rl="approve-import"]').disabled = true; root.querySelector('[data-rl="reject-import"]').disabled = true; root.querySelector('#rl-import-preview').replaceChildren(); }
     }));
     root.addEventListener('keydown', event => {
-      if (event.target.matches('[role=tab]') && ['ArrowLeft', 'ArrowRight'].includes(event.key)) { event.preventDefault(); const tabs = [...root.querySelectorAll('[role=tab]')], index = tabs.indexOf(event.target), next = tabs[(index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length]; next.focus(); next.click(); }
+      if (event.target.matches('[role=tab]') && ['ArrowLeft', 'ArrowRight'].includes(event.key)) { event.preventDefault(); const tabs = [...root.querySelectorAll('[role=tab]')].filter(tab => !tab.hidden), index = tabs.indexOf(event.target), next = tabs[(index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length]; next.focus(); next.click(); }
+      if (view === 'workspace' && !event.target.closest('input,textarea,select,[contenteditable=true]') && ['Delete', 'Backspace'].includes(event.key)) { const focused = event.target.closest('[data-node]'); if (focused) selected = focused.dataset.node; if (selected) { event.preventDefault(); safe(() => action('delete-node')); return; } }
       const nodeEl = event.target.closest('[data-node]');
       if (nodeEl && event.target === nodeEl && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) {
         event.preventDefault(); selected = nodeEl.dataset.node;
@@ -414,14 +419,27 @@ export function researchLabClient(win, doc, options, contracts) {
     root.addEventListener('dragover', e => { if (e.target.closest('.rl-scroll')) e.preventDefault(); });
     root.addEventListener('drop', e => safe(() => { const scroll = e.target.closest('.rl-scroll'); if (!scroll) return; e.preventDefault(); const type = e.dataTransfer.getData('text/plain'), rect = scroll.getBoundingClientRect(); if (contracts.blocks.some(b => b.key === type && b.ready)) addNode(type, { x: Math.max(0, Math.min(5000, (e.clientX - rect.left + scroll.scrollLeft) / graph.viewport.zoom)), y: Math.max(0, Math.min(5000, (e.clientY - rect.top + scroll.scrollTop) / graph.viewport.zoom)) }); }));
     root.addEventListener('pointerdown', e => {
-      const handle = e.target.closest('[data-select-node]'); if (!handle || e.button !== 0) return;
-      const node = graph.nodes.find(n => n.id === handle.dataset.selectNode), before = JSON.stringify(graph), start = { x: e.clientX, y: e.clientY, px: node.position.x, py: node.position.y }; let moved = false;
-      const move = event => { if (Math.abs(event.clientX - start.x) + Math.abs(event.clientY - start.y) < 5) return; moved = true; node.position = { x: Math.max(0, Math.min(5000, start.px + (event.clientX - start.x) / graph.viewport.zoom)), y: Math.max(0, Math.min(5000, start.py + (event.clientY - start.y) / graph.viewport.zoom)) }; const article = root.querySelector('[data-node="' + node.id + '"]'); article.style.left = node.position.x + 'px'; article.style.top = node.position.y + 'px'; };
-      const up = () => { win.removeEventListener('pointermove', move); win.removeEventListener('pointerup', up); if (moved) { history.push(before); future = []; selected = node.id; changed(); renderCanvas(); renderInspector(); } };
-      win.addEventListener('pointermove', move); win.addEventListener('pointerup', up, { once: true });
+      let handle = e.target.closest('[data-node]'); const canvas = e.target.closest('.rl-scroll');
+      if (!canvas || e.button !== 0 || e.target.closest('[data-port-in],[data-port-out],input,textarea,select')) return;
+      if (!handle) {
+        if (e.target.closest('button,a')) return;
+        const start = { x: e.clientX, y: e.clientY, left: canvas.scrollLeft, top: canvas.scrollTop };
+        canvas.setPointerCapture(e.pointerId); canvas.classList.add('is-panning');
+        const move = event => { canvas.scrollLeft = Math.max(0, start.left - (event.clientX - start.x)); canvas.scrollTop = Math.max(0, start.top - (event.clientY - start.y)); graph.viewport.x = canvas.scrollLeft; graph.viewport.y = canvas.scrollTop; };
+        const up = () => { win.removeEventListener('pointermove', move); win.removeEventListener('pointerup', up); win.removeEventListener('pointercancel', up); canvas.classList.remove('is-panning'); if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId); changed(); };
+        win.addEventListener('pointermove', move); win.addEventListener('pointerup', up); win.addEventListener('pointercancel', up); return;
+      }
+      const selectedId = handle.dataset.node; doc.activeElement?.blur(); handle = root.querySelector('[data-node="' + selectedId + '"]'); if (!handle) return;
+      selected = handle.dataset.node; renderInspector();
+      root.querySelectorAll('[data-node]').forEach(el => el.classList.toggle('selected', el === handle));
+      handle.focus({ preventScroll: true });
+      const node = graph.nodes.find(n => n.id === handle.dataset.node), before = JSON.stringify(graph), start = { x: e.clientX, y: e.clientY, px: node.position.x, py: node.position.y }; let moved = false;
+      const move = event => { if (Math.abs(event.clientX - start.x) + Math.abs(event.clientY - start.y) < 5) return; moved = true; node.position = { x: Math.max(0, Math.min(5000, start.px + (event.clientX - start.x) / graph.viewport.zoom)), y: Math.max(0, Math.min(5000, start.py + (event.clientY - start.y) / graph.viewport.zoom)) }; const article = root.querySelector('[data-node="' + node.id + '"]'); article.style.left = node.position.x + 'px'; article.style.top = node.position.y + 'px'; renderCanvas(true); };
+      const up = () => { win.removeEventListener('pointermove', move); win.removeEventListener('pointerup', up); win.removeEventListener('pointercancel', up); if (moved) { history.push(before); future = []; selected = node.id; changed(); renderCanvas(); renderInspector(); } };
+      win.addEventListener('pointermove', move); win.addEventListener('pointerup', up, { once: true }); win.addEventListener('pointercancel', up, { once: true });
     });
   }
-  function reset() { if (draftTimer) win.clearTimeout(draftTimer); processing = false; mounted = false; currentRun = null; journalData = null; importInput = null; importPreview = null; graph = contracts.template(); plan = null; snapshot = null; experimentId = null; revision = 0; latestRevision = 0; familyId = null; history = []; future = []; selectedRuns = []; sources = null; evidenceCards.clear(); chosenEvidence.clear(); compiled = null; view = 'workspace'; dirty = true; if (root) root.replaceChildren(); }
+  function reset() { boardUi?.reset(); boardUi = null; if (draftTimer) win.clearTimeout(draftTimer); processing = false; mounted = false; currentRun = null; journalData = null; importInput = null; importPreview = null; graph = contracts.template(); plan = null; snapshot = null; experimentId = null; revision = 0; latestRevision = 0; familyId = null; history = []; future = []; selectedRuns = []; sources = null; evidenceCards.clear(); chosenEvidence.clear(); compiled = null; view = 'board'; dirty = true; if (root) root.replaceChildren(); }
   async function load() {
     if (!root || !options.owner()) return;
     if (!options.allowed()) {

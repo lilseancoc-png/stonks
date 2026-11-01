@@ -13,3 +13,11 @@ console.log('Research Lab JSON schemas ' + (process.argv.includes('--check') ? '
 const catalog = '// Generated from scripts/render/site-map.mjs; checked by research-lab-schemas.mjs.\nexport const siteCatalog = ' + JSON.stringify(SITE_SECTIONS.flatMap(s => s.items.map(i => ({ id: i.id, label: i.label, description: i.blurb, category: s.label }))), null, 2) + ';\n';
 const catalogPath = new URL('../lib/research-lab/site-catalog.mjs', import.meta.url);
 if (process.argv.includes('--check')) assert.equal(await readFile(catalogPath, 'utf8'), catalog, 'Site catalog drift'); else await writeFile(catalogPath, catalog);
+
+const build = await readFile(new URL('scripts/build.mjs', rootUrl()), 'utf8');
+function rootUrl() { return new URL('../', import.meta.url); }
+const coverage = build.match(/export const TICKERS = \[([\s\S]*?)\];/)[1].replace(/\/\/[^\n]*/g, '');
+const universe = [...coverage.matchAll(/"([A-Z0-9.]+)"/g)].map(m => m[1]);
+const universeBytes = '// Generated from the site coverage list in scripts/build.mjs.\nexport const researchUniverse = ' + JSON.stringify(universe).replaceAll(',', ', ') + ';\n';
+const universePath = new URL('../lib/research-lab/universe.mjs', import.meta.url);
+if (process.argv.includes('--check')) assert.equal(await readFile(universePath, 'utf8'), universeBytes, 'Research universe drift'); else await writeFile(universePath, universeBytes);

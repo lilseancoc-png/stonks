@@ -36,6 +36,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Added
 
+- Research Lab opens with a connected research board for stocks, dated site evidence, assumptions, documents and possible outcomes, with NVDA and divided-government starting maps, issuer and joint-control filters, local autosave, editable links and AI-ready exports. Import PDF, Word, CSV, Markdown, text and JSON; export editable JSON, a ZIP with original files, Markdown, CSV, HTML or a printable PDF. Historical studies retain their separate execution rules.
 - Research Lab adds a searchable, sortable site research shelf, dated evidence cards wired to a separate report-context port, and local recovery of unfinished ideas. Source excerpts stay distinct from historical test inputs and export with frozen provenance.
 - Add an owner-only Research Lab with a typed visual graph, frozen revisions and evaluation plans, resumable R2 jobs, deterministic studies and conditional scenarios, matched comparisons, an append-only Journal, and reviewed ChatGPT/Claude ZIP export and JSON import without site AI calls. Missing PIT histories and calibrated models block unsupported validation claims.
 
@@ -43,6 +44,9 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 - Show Research Lab under Owner with the existing signed Owner session, without extra activation or account settings. An explicit rollback keeps the destination visible with a disabled message while stopping API and worker execution.
 - Research Lab constrains strategy trades to available cash, freezes trial-family budgets, compares complete replay outputs, reuses unchanged snapshots, reduces progress requests, backs off busy workers, preserves selected run views, and prevents stale import approval. Add regression checks and a rerunnable cost estimate with no AI calls.
+- Research Lab reads the actual saved fundamentals, CapEx, GPU rental, macro, earnings and theme formats, preserves native units and missing dates, exposes stale coverage, and reuses existing source cards at the retention ceiling. Board navigation starts with two views, new cards avoid overlap, and outcome helpers wire missing assumptions.
+- Research-board imports reject invalid batches without partial changes, preserve original attachments across reused IDs and undo, retain damaged local drafts for recovery, and persist canceled-drag rollbacks. AI exports include directed diagrams, guarded CSV cells, valid ZIP metadata, checked original files and persistent download links.
+- Research Lab supports whole-card dragging, empty-canvas panning and Delete/Backspace selection removal with typing protection, consistent control typography and sentence-case labels. Switching tabs immediately keeps a slower source request from reopening an earlier tab.
 
 ## 2026-10-30
 

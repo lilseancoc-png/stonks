@@ -6,6 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { handleResearchRequest } from '../lib/research-lab/http.mjs';
 import { researchLabEnabled } from '../lib/research-lab/access.mjs';
 import { createLabRepository } from '../lib/research-lab/repository.mjs';
+import { researchBoardSources } from './fixtures/research-board-sources.mjs';
 import { fixtureSnapshot, memoryStore, sourceFiles, FIXTURE_NOW } from './fixtures/research-lab.mjs';
 
 export async function createResearchLabPreview({ port = 0 } = {}) {
@@ -13,6 +14,11 @@ export async function createResearchLabPreview({ port = 0 } = {}) {
   const shell = JSON.parse(html.match(/window\.STONKS_MANIFEST=(\{.*\});<\/script>/)[1]);
   const store = memoryStore(sourceFiles(fixtureSnapshot())), session = { sub: 'fixture-owner', tr: true, tp: true };
   store.objects.set('market-analysis.json', Buffer.from(JSON.stringify({ builtAtIso: FIXTURE_NOW, macroRegime: { state: 'risk-off', score: 61, fragile: true }, secret: 'DO_NOT_EXPORT_FIXTURE' })));
+  for (const [key, payload] of Object.entries(researchBoardSources(FIXTURE_NOW))) store.objects.set(key, Buffer.from(JSON.stringify(payload)));
+  store.objects.set('party-tracker.json', Buffer.from(JSON.stringify({ builtAtIso: FIXTURE_NOW, timeline: [{ party: 'R', chapters: [
+    { house: 'D', senate: 'D', start: '2007-01-03', end: '2009-01-03', totalPct: -30, annPct: -16, years: 2 },
+    { house: 'D', senate: 'R', start: '2019-01-03', end: '2021-01-03', totalPct: 40, annPct: 18, years: 2 },
+  ] }, { party: 'D', chapters: [{ house: 'D', senate: 'D', start: '2021-01-20', end: '2023-01-03', totalPct: 2, annPct: 1, years: 2 }] }] })));
   const env = { PRIVATE_DATA_ENABLED: '1' };
   let scenario = 'owner', labRequests = 0;
   const repo = createLabRepository({ store, owner: session.sub, clock: () => FIXTURE_NOW });

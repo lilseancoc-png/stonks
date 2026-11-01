@@ -1,11 +1,76 @@
 # Research Lab
 
-An owner-only visual research workspace on `Research-Labatory`. Numerical work
+An owner-only visual workspace for connected research and historical studies. Numerical work
 runs deterministically on the site. Interpretation happens manually in a separate
 ChatGPT or Claude chat. There are no Lab AI API calls, new provider fetches,
 subscriptions, browser dependencies or scheduled research jobs.
 
-## Use the workspace
+## Build a connected research puzzle
+
+**Research board** opens by default. It works before you capture price history or
+register a statistical test. Choose **NVDA & AI spending**, **Election, oil &
+bonds**, or start a blank board.
+
+1. Add stocks or ETFs from the site's full coverage list. Add a question,
+   assumption or possible outcome from the block shelf.
+2. Browse **Every site feature** and add each useful source as its own block.
+   Select a block and click **Load site evidence** to read its existing cache.
+   Choose a symbol to capture that company's records. Missing company coverage
+   remains explicit. Sources without a cached adapter become reference cards.
+3. Drag any card body to move it. Drag empty canvas space to pan. Use **Expand
+   canvas** for a larger working area. Click a right dot and a left dot, or drag
+   between them, to connect blocks. The details panel also has a connection form.
+4. Explain the link and choose **Could affect**, **Supports the reasoning**, or
+   **Challenges the reasoning**. Click a card or link to select it. Delete or
+   Backspace removes the selection; text fields retain normal keyboard editing.
+   **Edit** opens a card’s details and brings them into view on smaller screens.
+   Undo restores blocks with their links. Arrow keys move focused cards.
+5. For a numerical outcome, select its model and use **Add required assumptions**.
+   This creates and connects the missing driver blocks. **Go to next missing
+   piece** takes you to an unfilled assumption or unloaded source. You can also
+   connect assumption blocks directly. Revenue,
+   net margin and earnings-multiple changes multiply with shares unchanged.
+   Margin changes are relative percentages, not percentage points. Bond stress
+   uses an explicitly assumed duration and yield change in basis points. Every
+   required driver needs exactly one filled assumption, including explicit zero
+   for unchanged. Missing or duplicate drivers withhold the result. Qualitative
+   reasoning does not silently become a numeric forecast.
+6. Import PDF, Word, CSV, TXT, Markdown or JSON files as document blocks. PDF and
+   Word originals are retained; text is not automatically extracted. Use notes
+   for relevant passages and interpretations. Text documents accept UTF-8 up to
+   50,000 characters. Attachments stay in this browser, up to 4 MB per document
+   and 8 MB per board. The board supports 60 blocks and 120 links.
+7. Export an **AI review bundle** with the reasoning, graph, evidence excerpts,
+   checksums, readable report, editable board and original attachments. JSON
+   preserves the whole editable project. Markdown, HTML and CSV are additional
+   written exports. **Print / Save PDF** opens the graph and brief in the browser
+   print dialog. Written exports do not embed the original binary attachments.
+   A persistent link to the latest prepared file lets you download it again if
+   the browser blocks or misses the automatic download.
+
+The political example has separate historical evidence blocks for each Senate
+alternative. President, House and Senate selectors match the stored Party
+tracker's actual joint-control chapters. Captures include those periods' dates
+and rounded market returns. They do not infer a tariff change, Iran policy, oil
+response or election probability. Change a filter and load its evidence to
+compare a different combination.
+
+Boards and attachments autosave to IndexedDB under the signed owner identity.
+A damaged saved draft is retained for download and cannot be overwritten by
+automatic saving. Replacing it requires the explicit replacement control.
+**Save board** waits for the local save. Export JSON for a portable backup; this
+board is not a server revision or a cloud-synced record. JSON import previews the
+project and checks attachment hashes before opening it. Opening an imported board
+or replacing a nonempty board with a starting map downloads the current board as
+a backup. Imported source excerpts remain unverified; their checksums do not
+establish authenticity. Document content is treated as source material, never
+instructions to run. No board action executes AI calls or broker actions.
+
+## Run a historical study
+
+Open **Historical studies** for the existing typed experiment tools. These keep
+separate graph, compiler and evaluation-plan rules. A board link does not qualify
+as a historical signal or override a study's metrics.
 
 1. Open **Owner → Research Lab** in your existing signed-in Owner session.
 2. Choose a template and hypothesis. Capture 1–12 symbols from the existing
@@ -159,6 +224,8 @@ not raw market data. Retained server inputs remain available for replay.
 ## Verification and rollback
 
 ```text
+npm run test:research-board
+npm run test:research-board-browser
 npm run test:research-lab
 npm run test:research-lab-browser
 npm run preview:research-lab

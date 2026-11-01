@@ -7,7 +7,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "test:research-lab": "node scripts/research-lab-schemas.mjs --check && node scripts/research-lab-smoke.mjs && node scripts/research-lab-audit-smoke.mjs && node scripts/research-lab-cost-check.mjs",
+    "test:research-lab": "node scripts/research-lab-schemas.mjs --check && node scripts/research-lab-smoke.mjs && node scripts/research-lab-audit-smoke.mjs && node scripts/research-lab-cost-check.mjs && node scripts/research-board-smoke.mjs && node scripts/research-board-data-smoke.mjs",
     "test:research-lab-browser": "node scripts/research-lab-browser.mjs",
     "preview:research-lab": "node scripts/research-lab-preview.mjs",
     "worker:research-lab": "node scripts/research-lab-worker.mjs",
@@ -126,7 +126,9 @@
     "verify:top-picks-isolation": "node scripts/top-picks-isolation-check.mjs",
     "audit:top-picks-market": "node scripts/audit-top-picks-market.mjs",
     "regen:top-picks-market": "node scripts/regen-top-picks-market.mjs",
-    "test:top-picks-market-browser": "node scripts/top-picks-market-browser.mjs"
+    "test:top-picks-market-browser": "node scripts/top-picks-market-browser.mjs",
+    "test:research-board": "node scripts/research-board-smoke.mjs",
+    "test:research-board-browser": "node scripts/research-board-browser.mjs && node scripts/research-board-audit-browser.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.15.0",
