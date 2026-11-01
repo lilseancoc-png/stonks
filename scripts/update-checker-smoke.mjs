@@ -1,3 +1,5 @@
+import { publicChainFilePayload } from './build.mjs';
+import { publishedTickerError } from '../lib/published-ticker-contract.mjs';
 import assert from 'node:assert/strict';
 import { readFile,readdir } from 'node:fs/promises';
 import vm from 'node:vm';
@@ -56,6 +58,13 @@ const store={backend:'r2',async rawGet(key){reads++;return key===UPDATE_STATUS_K
 entries.set('bad-log.json',Buffer.from('{bad'));entries.set('webull-paper-ledger.json',Buffer.from(JSON.stringify({reconciliation:{status:'attention'}})));
 const scan=await scanPublishedArtifacts(store,new Map(),now);assert(scan.issues.some(i=>i.key==='bad-log.json'));assert(scan.issues.some(i=>i.key==='webull-paper-ledger.json'));
 entries.delete('bad-log.json');entries.delete('webull-paper-ledger.json');
+const publicTicker=publicChainFilePayload({spot:100,quoteAsOf:clock,technicals:{},chains:{one:{c:[{}],p:[{}]}},_bars:Array.from({length:30},(_,i)=>({t:new Date(Date.parse('2026-09-01T00:00:00Z')+i*86400000).toISOString().slice(0,10),c:100+i,o:100,h:110,l:90,v:1000}))});
+assert(!('_bars' in publicTicker));assert(publicTicker.priceSeries.c.every(Number.isFinite));assert.equal(publishedTickerError(publicTicker),null,'actual public writer shape passes without transient bars');
+entries.set('TEST.json',Buffer.from(JSON.stringify(publicTicker)));
+let publicScan=await scanPublishedArtifacts(store,new Map(),now);assert(!publicScan.issues.some(i=>i.key==='TEST.json'),'published ticker has no false alarm');
+const brokenTicker={...publicTicker,priceSeries:{t:[1],c:[]}};assert(publishedTickerError(brokenTicker));entries.set('TEST.json',Buffer.from(JSON.stringify(brokenTicker)));publicScan=await scanPublishedArtifacts(store,new Map(),now);assert(publicScan.issues.some(i=>i.key==='TEST.json'),'broken stored series is detected');entries.delete('TEST.json');
+const manifestSpec=UPDATE_FEATURES.find(f=>f.id==='home');assert.equal(inspectFeature(manifestSpec,{symbols:[],_meta:{dataBuiltAtIso:clock}},now).status,'available','manifest uses canonical data provenance');
+
 const featureScan=await inspectPublishedFeatures(store,now);assert.equal(featureScan.length,UPDATE_FEATURES.length);assert(!featureScan.some(f=>['missing','invalid','unavailable','undated'].includes(f.status)));
 const makeRes=()=>({statusCode:200,headers:{},setHeader(k,v){this.headers[k]=v;},status(n){this.statusCode=n;return this;},json(value){this.body=value;return this;},end(value){this.body=value;return this;}});
 reads=0;
