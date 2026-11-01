@@ -1,3 +1,4 @@
+import { describeUpdateFeature } from '../lib/update-checker-catalog.mjs';
 import { publicChainFilePayload } from './build.mjs';
 import { publishedTickerError } from '../lib/published-ticker-contract.mjs';
 import assert from 'node:assert/strict';
@@ -87,6 +88,7 @@ const collected=await collectUpdateStatus({repo,token:'fixture',fetchImpl:fakeFe
 assert.equal(collected.features.length,UPDATE_FEATURES.length);assert.equal(collected.artifacts.complete,true);assert.equal(writes,1);assert(collected.runs[0].diagnostics.findings.length);assert(!JSON.stringify(collected).includes(sensitive));
 await collectUpdateStatus({repo,token:'fixture',fetchImpl:fakeFetch,store,now:()=>clock,dryRun:true});assert.equal(writes,1);
 await assert.rejects(collectUpdateStatus({repo,token:'fixture',fetchImpl:async()=>({ok:false,status:403}),store}),/403/);assert.equal(writes,1);
+assert.throws(()=>describeUpdateFeature({id:'new-unmapped-feature',label:'New'}),/explicit source/,'future features cannot silently become reference pages');
 // Guard coverage against future additions instead of relying on a remembered count.
 assert.deepEqual(UPDATE_FEATURES.map(f=>f.id).sort(),SITE_SECTIONS.flatMap(s=>s.items.map(i=>i.id)).sort());
 for(const [id,key]of Object.entries(SOURCE_KEYS))assert(UPDATE_FEATURES.some(f=>f.id===id && f.key===key),'Feature source covered '+id);
