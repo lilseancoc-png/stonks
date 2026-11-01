@@ -1,3 +1,4 @@
+import { publishedTickerError } from '../lib/published-ticker-contract.mjs';
 // Publish-time proof that the workflow's owned outputs were produced by THIS
 // run. This is ownership-aware: a full bake rebuilds pricing and decision
 // artifacts, while unusual flow, OI and search interest keep their own cadence.
@@ -445,23 +446,8 @@ async function auditBake({ report, dataDir, runStartedAt, now, expectedSymbols }
     try {
       const path = resolve(dataDir, key);
       const [payload, fileStat] = await Promise.all([readJson(dataDir, key), stat(path)]);
-      if (!(Number.isFinite(payload?.spot) && payload.spot > 0)) throw new Error("invalid spot");
-      if (!payload?.chains || typeof payload.chains !== "object") throw new Error("missing chains");
-      if (!payload?.technicals || typeof payload.technicals !== "object") throw new Error("missing technicals");
-      const chainRows = Object.values(payload.chains);
-      const contractCount = chainRows.reduce(
-        (sum, row) => sum + (Array.isArray(row?.c) ? row.c.length : 0) + (Array.isArray(row?.p) ? row.p.length : 0),
-        0,
-      );
-      if (!chainRows.length || contractCount < 2) throw new Error("empty/thin option chain");
-      if (
-        !Array.isArray(payload?.priceSeries?.t) ||
-        !Array.isArray(payload?.priceSeries?.c) ||
-        payload.priceSeries.t.length < 20 ||
-        payload.priceSeries.c.length !== payload.priceSeries.t.length
-      ) {
-        throw new Error("thin/invalid priceSeries");
-      }
+      const tickerError=publishedTickerError(payload);
+      if(tickerError)throw new Error(tickerError);
       if (fileStat.mtimeMs < runStartedAt.getTime() - FILE_MTIME_SLOP_MS) throw new Error("file was not rewritten this run");
       const quoteMs = validMs(payload.quoteAsOf);
       if (quoteMs == null) throw new Error("missing quoteAsOf provenance");

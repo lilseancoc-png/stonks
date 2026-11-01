@@ -57,7 +57,7 @@ The collector enumerates the entire logical published inventory, including
 history, caches, archives, request-time trackers and logs. It validates JSON
 and root shape, checks manifest byte counts, and uses the pinned immutable
 publication objects for its reads. Company artifacts also require a positive
-spot, option chains, quote provenance and price history. Request-time records
+spot, option chains, technicals, quote provenance and compact published price history. The publication verifier and monitor share this contract; internal build-time bars are intentionally absent from published files. Request-time records
 are optional before first use. Stored broker reconciliation flags are read
 without contacting a broker. Research Lab's internal JSON records are checked
 for integrity without exposing owner identifiers or record contents.
