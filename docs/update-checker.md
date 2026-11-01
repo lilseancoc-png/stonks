@@ -40,6 +40,7 @@ not a claim that the monitor has independently reproduced its cause.
 
 The feature catalog is derived from the actual site map and shares source-key
 mappings with Research Lab. Tests fail if a new feature or workflow is omitted.
+Manifest-backed pages validate the sidecar metadata; the symbol list deliberately stays in the HTML shell.
 Every destination has an output contract or an explicit reference, monitor, or
 request-driven designation. Those designations are not automatic evidence that
 every interactive behavior works. Release tests exercise the renderer, API,

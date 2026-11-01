@@ -1,3 +1,4 @@
+import { describeUpdateFeature } from '../lib/update-checker-catalog.mjs';
 import { publicChainFilePayload } from './build.mjs';
 import { publishedTickerError } from '../lib/published-ticker-contract.mjs';
 import assert from 'node:assert/strict';
@@ -63,7 +64,7 @@ assert(!('_bars' in publicTicker));assert(publicTicker.priceSeries.c.every(Numbe
 entries.set('TEST.json',Buffer.from(JSON.stringify(publicTicker)));
 let publicScan=await scanPublishedArtifacts(store,new Map(),now);assert(!publicScan.issues.some(i=>i.key==='TEST.json'),'published ticker has no false alarm');
 const brokenTicker={...publicTicker,priceSeries:{t:[1],c:[]}};assert(publishedTickerError(brokenTicker));entries.set('TEST.json',Buffer.from(JSON.stringify(brokenTicker)));publicScan=await scanPublishedArtifacts(store,new Map(),now);assert(publicScan.issues.some(i=>i.key==='TEST.json'),'broken stored series is detected');entries.delete('TEST.json');
-const manifestSpec=UPDATE_FEATURES.find(f=>f.id==='home');assert.equal(inspectFeature(manifestSpec,{symbols:[],_meta:{dataBuiltAtIso:clock}},now).status,'available','manifest uses canonical data provenance');
+const manifestSpec=UPDATE_FEATURES.find(f=>f.id==='home');assert.equal(inspectFeature(manifestSpec,{_meta:{dataBuiltAtIso:clock},unusual:{}},now).status,'available','actual manifest sidecar uses provenance; symbol universe stays in the HTML shell');
 
 const featureScan=await inspectPublishedFeatures(store,now);assert.equal(featureScan.length,UPDATE_FEATURES.length);assert(!featureScan.some(f=>['missing','invalid','unavailable','undated'].includes(f.status)));
 const makeRes=()=>({statusCode:200,headers:{},setHeader(k,v){this.headers[k]=v;},status(n){this.statusCode=n;return this;},json(value){this.body=value;return this;},end(value){this.body=value;return this;}});
@@ -87,6 +88,7 @@ const collected=await collectUpdateStatus({repo,token:'fixture',fetchImpl:fakeFe
 assert.equal(collected.features.length,UPDATE_FEATURES.length);assert.equal(collected.artifacts.complete,true);assert.equal(writes,1);assert(collected.runs[0].diagnostics.findings.length);assert(!JSON.stringify(collected).includes(sensitive));
 await collectUpdateStatus({repo,token:'fixture',fetchImpl:fakeFetch,store,now:()=>clock,dryRun:true});assert.equal(writes,1);
 await assert.rejects(collectUpdateStatus({repo,token:'fixture',fetchImpl:async()=>({ok:false,status:403}),store}),/403/);assert.equal(writes,1);
+assert.throws(()=>describeUpdateFeature({id:'new-unmapped-feature',label:'New'}),/explicit source/,'future features cannot silently become reference pages');
 // Guard coverage against future additions instead of relying on a remembered count.
 assert.deepEqual(UPDATE_FEATURES.map(f=>f.id).sort(),SITE_SECTIONS.flatMap(s=>s.items.map(i=>i.id)).sort());
 for(const [id,key]of Object.entries(SOURCE_KEYS))assert(UPDATE_FEATURES.some(f=>f.id===id && f.key===key),'Feature source covered '+id);
