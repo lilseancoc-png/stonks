@@ -48,6 +48,19 @@ payload's build time), `generated_at`, `ai_calls: 0`, `warnings` (stale, expired
 `_stonks/*`, retired keys, and any field whose name looks like a secret. `get_feature` reads only the keys mapped
 in `feature-sources.mjs`, so no other store key can be named.
 
+## Read-only by design
+
+- Tools only ever hold a get-only store (`lib/mcp/read-only-store.mjs`). `put`, `del`, `list`, leases and
+  generation publishing all throw `READ_ONLY` before reaching R2, and the handle is frozen.
+- `get_top_picks` runs the site's live market approval (`approvedTopPicks`) on a throwaway overlay
+  (`dryRunStore`). On the site that step saves market holds to `top-picks-approval.json`, which the Webull paper
+  mirror reads; through the MCP the agent sees the same answer and nothing is saved.
+- No tool places orders, triggers the Webull mirror, uploads fills, edits the watchlist, starts a build or calls AI.
+  MCP tokens can't act as the site session cookie, so they can't reach the site's Owner actions either.
+- Yahoo-backed tools (`get_live_quotes`, `get_top_picks`) are capped at 20 calls a minute per token, inside the
+  120-a-minute overall cap, so an agent can't get the site's shared Yahoo access throttled.
+- `scripts/mcp-smoke.mjs` runs every tool against a store whose write methods record any call and asserts none.
+
 ## Access model
 
 - Owner-only payloads follow `lib/premium-keys.mjs`; Owner-only pages follow `lib/owner-access-policy.mjs`.

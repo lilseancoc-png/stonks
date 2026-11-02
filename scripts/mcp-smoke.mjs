@@ -78,8 +78,24 @@ const files = {
   "picks-fills.json": { rows: [{ secret: true }] },
   "webull-paper-ledger.json": { rows: [] },
 };
+// Top Picks fixture that reaches the site's real approval step (which, on the
+// site, saves market holds). A sharp sell-off makes it hold the pick.
+{
+  const { topPicksMarket } = await import("../lib/top-picks-market.mjs");
+  const asOf = new Date(now - 60_000).toISOString();
+  const macroRegime = { state: "neutral", stress: 0, dataQuality: { sufficient: true }, axes: { indexes: { score: 0, available: true }, vix: { score: 0, available: true } },
+    inputs: { indexes: { asOf, spy: { pctChange1d: 0 }, qqq: { pctChange1d: 0 } }, vix: { asOf, value: 18 } } };
+  const assessment = topPicksMarket.assess({ macroRegime, asOf });
+  files["picks.json"] = { builtAtIso: asOf, rosterMeta: { marketAssessment: assessment, actionableBar: 7 },
+    picks: [{ symbol: "NVDA", side: "call", stockConviction: 10, optionAdjustedConviction: 10, tradeScore: 10, total: 10, group: "actionable", entry: { now: true },
+      marketAdjustment: topPicksMarket.score(assessment, { conviction: 10 }), marketApproval: { held: false } }] };
+}
+const shockQuotes = async () => ({ legs: { spy: { pctChange1d: -3, asOf: new Date(now).toISOString() }, qqq: { pctChange1d: -4, asOf: new Date(now).toISOString() }, vix: { value: 35, pctChange1d: 20, asOf: new Date(now).toISOString() } } });
+// Every write-capable method records the attempt; the MCP must never call one.
+const writeAttempts = [];
 const store = { backend: "memory", async get(k) { return k in files ? Buffer.from(JSON.stringify(files[k])) : null; } };
-const deps = (extra = {}) => ({ env: { ...ENV, ...extra }, store, now: () => now, fetchQuote: async (s) => ({ spot: 101, marketState: "REGULAR" }), topPicks: async () => ({ picks: [{ symbol: "NVDA" }] }) });
+for (const m of ["put", "del", "list", "withLease", "publishGeneration", "gcGenerations", "rawPut", "rawDel", "rawList"]) store[m] = async (...a) => { writeAttempts.push([m, a[0]]); return { busy: false, result: null }; };
+const deps = (extra = {}) => ({ env: { ...ENV, ...extra }, store, now: () => now, fetchQuote: async (s) => ({ spot: 101, marketState: "REGULAR" }), topPicksLive: shockQuotes });
 
 // ---- fake Discord -----------------------------------------------------------
 let discordRoles = ["owner-role"];
@@ -303,7 +319,11 @@ async function tool(name, args, opts) {
   assert.equal(tooMany.structuredContent.error.code, "INVALID_INPUT");
 
   const tp = await tool("get_top_picks", {});
+  assert.equal(tp.isError, false, JSON.stringify(tp).slice(0, 400));
   assert.equal(tp.structuredContent.results.picks[0].symbol, "NVDA");
+  assert.equal(tp.structuredContent.results.picks[0].marketApproval.held, true, "the live market check still runs");
+  assert.equal(writeAttempts.length, 0, "the market hold is previewed, never saved: " + JSON.stringify(writeAttempts));
+  assert.ok(tp.structuredContent.limitations.some((l) => /read-only preview/.test(l)));
   const tr = await tool("get_track_record", {});
   assert.equal(tr.isError, false, JSON.stringify(tr));
   const trr = tr.structuredContent.results;
@@ -369,6 +389,58 @@ async function tool(name, args, opts) {
   discordRoles = ["owner-role"];
   const garbage = await call(oauth.token, { method: "POST", body: { grant_type: "refresh_token", refresh_token: accessToken, client_id: clientId } });
   assert.equal(garbage.body.error, "invalid_grant", "an access token is not a refresh token");
+}
+
+// ---- read-only guarantees -------------------------------------------------------
+{
+  const { readOnlyStore, dryRunStore } = await import("../lib/mcp/read-only-store.mjs");
+  const ro = readOnlyStore(store);
+  for (const m of ["put", "del", "list", "withLease", "rawPut", "publishGeneration"]) {
+    await assert.rejects(() => ro[m]("picks-accuracy.json", "{}"), (e) => e.code === "READ_ONLY", m + " is blocked");
+  }
+  assert.ok(Object.isFrozen(ro));
+  assert.throws(() => { ro.put = async () => {}; }, TypeError);
+  const dry = dryRunStore(store);
+  await dry.put("top-picks-approval.json", "{\"x\":1}");
+  assert.equal((await dry.get("top-picks-approval.json")).toString(), "{\"x\":1}", "a dry run sees its own write");
+  assert.equal(await store.get("top-picks-approval.json"), null, "but the real store never does");
+  await assert.rejects(() => dry.del("picks.json"), (e) => e.code === "READ_ONLY");
+  assert.equal(writeAttempts.length, 0, "no tool or helper reached a write method: " + JSON.stringify(writeAttempts));
+
+  // Every advertised tool is annotated read-only and none takes a write-like argument.
+  for (const t of TOOLS) {
+    const props = Object.keys(t.inputSchema.properties || {});
+    assert.ok(!props.some((p) => p.split("_").some((w) => /^(write|delete|update|create|order|trade|post|put|set|remove|place|cancel|buy|sell)$/i.test(w))), t.name + " has no write-like argument");
+    assert.ok(!/^(set|put|post|delete|update|create|place|cancel|buy|sell|write)_/.test(t.name), t.name + " is not a write verb");
+  }
+
+  // Prototype-ish argument names and paths are rejected, not walked.
+  for (const bad of ['{"__proto__":{"x":1},"feature_id":"brief"}', '{"constructor":"x","feature_id":"brief"}', '{"toString":"x","feature_id":"brief"}']) {
+    const r = await call((req, res) => handleMcpRequest(req, res, deps()), { method: "POST", headers: { "content-type": "application/json", ...auth },
+      body: `{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"get_feature","arguments":${bad}}}` });
+    assert.equal(r.body.result.structuredContent.error.code, "INVALID_INPUT", bad);
+  }
+  for (const path of ["constructor", "__proto__", "current.constructor.name", "current.headline.length"]) {
+    assert.equal((await tool("get_feature", { feature_id: "brief", path })).structuredContent.error.code, "NOT_FOUND", path);
+  }
+
+  // An MCP token is not a site session, so it can't reach Owner site actions.
+  const me = await call(authHandler, { query: { action: "me" }, headers: { cookie: `stonks_session=${accessToken}` } });
+  assert.equal(me.body.authed, false, "an MCP token is not a site session cookie");
+  const meBearer = await call(authHandler, { query: { action: "me" }, headers: { authorization: `Bearer ${accessToken}` } });
+  assert.equal(meBearer.body.authed, false);
+  const fills = await call(authHandler, { method: "POST", query: { action: "picks-fills" }, headers: { authorization: `Bearer ${accessToken}`, cookie: `stonks_session=${accessToken}` }, body: { rows: [] } });
+  assert.ok(fills.statusCode >= 400, "an MCP token can't upload fills: " + fills.statusCode);
+  assert.equal(writeAttempts.length, 0);
+
+  // Live (Yahoo) tools have their own tighter per-minute budget.
+  let limited = null;
+  for (let i = 0; i < 25 && !limited; i++) {
+    const r = await tool("get_live_quotes", { tickers: ["NVDA"] });
+    if (r.isError && r.structuredContent.error.code === "QUOTA_EXCEEDED") limited = i;
+  }
+  assert.ok(limited != null && limited <= 20, "live calls are capped at 20 a minute");
+  assert.equal((await tool("get_feature", { feature_id: "brief" })).isError, false, "the cap does not block saved-data tools");
 }
 
 // ---- bounded output ------------------------------------------------------------
