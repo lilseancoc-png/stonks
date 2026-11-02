@@ -4,6 +4,7 @@
 // credentials, account IDs, positions, trade IDs, lock owner tokens or ETags.
 import { pathToFileURL } from "node:url";
 import { describeObjectLease } from "../lib/object-lease.mjs";
+import { mirrorHealth } from "../lib/webull-mirror-health.mjs";
 import { pickTradeId } from "../lib/pick-trade-text.mjs";
 
 export async function diagnoseMirrorStore(store, nowMs = Date.now()) {
@@ -22,10 +23,12 @@ export async function diagnoseMirrorStore(store, nowMs = Date.now()) {
   const goLive = Date.parse(ledger?.goLiveIso);
   const current = Array.isArray(acc?.open) && Number.isFinite(goLive)
     ? acc.open.filter((e) => e.contract && Date.parse(e.entryDate) >= goLive) : null;
+  const executionLock = describeObjectLease(lock.present ? { value: lock.value } : null, nowMs);
   return {
+    health: mirrorHealth({ acc, ledger, executionLock }, nowMs),
     readOnly: true,
     checkedAtIso: new Date(nowMs).toISOString(),
-    executionLock: describeObjectLease(lock.present ? { value: lock.value } : null, nowMs),
+    executionLock,
     ledger: { available: !!ledger && !saved.invalid, lastRunIso: ledger?.lastRunIso ?? null,
       engineSnapshotIso: ledger?.engineSnapshotIso ?? null,
       reconciliationStatus: ledger?.reconciliation?.status ?? null,
@@ -38,7 +41,9 @@ export async function diagnoseMirrorStore(store, nowMs = Date.now()) {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
     const { store } = await import("../lib/datastore.mjs");
-    console.log(JSON.stringify(await diagnoseMirrorStore(store), null, 2));
+    const result = await diagnoseMirrorStore(store);
+    console.log(JSON.stringify(result, null, 2));
+    if (process.argv.includes("--strict") && result.health.status !== "saved-checks-current") process.exitCode = 1;
   } catch {
     console.error("Read-only mirror diagnostics failed. Check R2 configuration and read access; no broker action was attempted.");
     process.exitCode = 1;

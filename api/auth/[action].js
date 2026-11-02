@@ -513,7 +513,8 @@ async function webullMirror(req, res) {
       const { store } = await import("../../lib/datastore.mjs");
       const buf = await store.get(mirror.LEDGER_KEY);
       const { projectWebullLedger, webullEngineRecord, parseReset, RESET_KEYS } = await import('../../lib/track-record-reset.mjs');
-      const ledger = projectWebullLedger(buf == null ? mirror.emptyLedger() : JSON.parse(buf.toString('utf8')), parseReset(await store.get(RESET_KEYS.webull)));
+      const rawLedger = buf == null ? mirror.emptyLedger() : JSON.parse(buf.toString('utf8'));
+      const ledger = projectWebullLedger(rawLedger, parseReset(await store.get(RESET_KEYS.webull)));
       const rows = mirror.ledgerToFillRows(ledger);
       if (req.query?.format === "orders") {
         res.setHeader("Content-Type", "text/csv; charset=utf-8");
@@ -542,9 +543,12 @@ async function webullMirror(req, res) {
       // Webull comparisons use the raw engine record, independently of the
       // on-site reporting exclusions. Never feed a report back to execution.
       const accBuf = await store.get('picks-accuracy.json');
-      const engineRecord = webullEngineRecord(accBuf == null ? {} : JSON.parse(accBuf.toString('utf8')), ledger);
+      const rawRecord = accBuf == null ? {} : JSON.parse(accBuf.toString('utf8'));
+      const engineRecord = webullEngineRecord(rawRecord, ledger);
+      const { mirrorHealth } = await import('../../lib/webull-mirror-health.mjs');
       return res.status(200).json({
         engineRecord,
+        health: mirrorHealth({ acc: rawRecord, ledger: rawLedger, executionLock, enabled: String(process.env.WEBULL_MIRROR || "").trim().toLowerCase() === "on" }),
         executionLock,
         enabled: String(process.env.WEBULL_MIRROR || "").trim().toLowerCase() === "on",
         goLiveIso: ledger.goLiveIso,
