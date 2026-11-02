@@ -12,13 +12,22 @@ import { SPORTS_PAGE_IDS } from '../lib/owner-access-policy.mjs';
 import { store } from '../lib/datastore.mjs';
 import { SESSION_COOKIE, signSession } from '../lib/session.mjs';
 import authHandler from '../api/auth/[action].js';
+import { ingestNfl } from '../lib/sports/ingest-nfl.mjs';
+import { NFLVERSE_URLS } from '../lib/sports/nflverse.mjs';
+import { GAMES, PLAYERS, WEEK_2025, WEEK_2026 } from './fixtures/sports-nfl.mjs';
 
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const root = resolve(fileURLToPath(new URL('../', import.meta.url)));
 const now = new Date('2026-11-02T18:00:00Z');
 process.env.PRIVATE_DATA_ENABLED = '1';
 process.env.SESSION_SECRET = 'sports-browser-fixture-only';
-const objects = new Map([['_stonks/sports/v1/status/nfl.json', JSON.stringify({ state: 'ok', last_success_utc: '2026-11-02T11:05:00Z', last_attempt_utc: '2026-11-02T11:05:00Z', seasons: [2025, 2026], counts: { games: 557, player_games: 39120 } })]]);
+// NFL records come from the real ingest over the shared CSV fixtures (minus
+// the deliberately invalid row), so the page reads exactly what the job writes.
+const objects = new Map();
+const files = new Map([[NFLVERSE_URLS.games, GAMES], [NFLVERSE_URLS.players, PLAYERS], [NFLVERSE_URLS.weekly(2025), WEEK_2025],
+  [NFLVERSE_URLS.weekly(2026), WEEK_2026.split('\n').filter((l) => !l.startsWith('00-0005,')).join('\n')]]);
+await ingestNfl({ store: { rawGet: async (k) => (objects.has(k) ? Buffer.from(objects.get(k)) : null), rawPut: async (k, v) => { objects.set(k, String(v)); } },
+  fetchText: async (u) => files.get(u) ?? null, now: Date.parse('2026-11-02T11:05:00Z') });
 store.rawGet = async (key) => (objects.has(key) ? Buffer.from(objects.get(key)) : null);
 for (const m of ['put', 'del', 'rawPut', 'rawDel', 'publishGeneration']) store[m] = async () => { throw new Error('Sports page attempted a store write: ' + m); };
 store.get = async () => Buffer.from('{}');
@@ -71,11 +80,35 @@ try {
       const text = await pane.innerText();
       assert(/Today/.test(text) && /Tomorrow/.test(text), id + ' shows the active days');
       assert(/Nov 2/.test(text) && /Nov 3/.test(text), id + ' uses the Los Angeles calendar day');
-      if (id === 'sports-nfl') assert(/Up to date/.test(text) && /2025, 2026/.test(text), 'NFL shows its job status');
-      if (id === 'sports-nba') assert(/Not connected yet/.test(text) && /No NBA games loaded yet/.test(text), 'NBA is honest about missing data');
+      if (id === 'sports-nfl') {
+        assert(/Up to date/.test(text) && /2025, 2026/.test(text), 'NFL shows its job status');
+        await page.locator('#sports-nfl-root [data-sp-game="2026_08_chi_sea"]').waitFor();
+        const board = await page.locator('#sports-nfl-root [data-sp-part="board"]').innerText();
+        assert(/CHI\s+at\s+SEA/.test(board) && /5:15\sPM\sPST/.test(board), 'Monday night is on today’s board in Pacific time');
+        assert(/Tomorrow[\s\S]*No games\./.test(board), 'an empty tomorrow says so');
+        await page.locator('#sports-nfl-root [data-sp-game="2026_08_chi_sea"]').click();
+        await page.locator('#sports-nfl-root [data-sp-panel="game"] [data-sp-player="00-0001"]').waitFor();
+        const panel = await page.locator('#sports-nfl-root [data-sp-panel="game"]').innerText();
+        assert(/Geno Smíth/.test(panel) && /Jaxon Smith-Njigba/.test(panel) && /No player games stored for this team/.test(panel), 'the game lists each team’s recent players');
+        await page.locator('#sports-nfl-root [data-sp-search]').fill('kelce');
+        await page.locator('#sports-nfl-root [data-sp-part="results"] [data-sp-player="00-0003"]').click();
+        await page.locator('#sports-nfl-root [data-sp-panel="player"] .sp-log').waitFor();
+        const log = await page.locator('#sports-nfl-root [data-sp-panel="player"]').innerText();
+        assert(/Travis Kelce/.test(log) && /Averages over 1 stored games/i.test(log) && /@ DEN/.test(log), 'player search opens the game log: ' + log.slice(0, 400));
+        assert.equal(await page.locator('#sports-nfl-root [data-sp-search]').inputValue(), 'kelce', 'the search box keeps its text');
+        await page.locator('#sports-nfl-root [data-sp-player="00-0001"]').first().click();
+        await page.locator('#sports-nfl-root [data-sp-panel="player"]').filter({ hasText: 'Geno Smíth' }).waitFor();
+        await page.locator('#sports-nfl-root [data-sp-panel="game"]').scrollIntoViewIfNeeded();
+        checks += 6;
+      }
+      if (id === 'sports-nba') {
+        assert(/Not connected yet/.test(text) && /No NBA games loaded yet/.test(text), 'NBA is honest about missing data');
+        assert(!requests.some((u) => u.includes('sports=board&sport=nba')), 'an unconnected league makes no board request');
+      }
       if (id === 'sports-pick-builder') assert(/Enter the payout/.test(text) && /Paper picks only/.test(text), 'Pick Builder explains the flow');
       assert.equal(await page.locator('[data-nav-group="sports"]').isVisible(), width > 760 ? true : await page.locator('[data-nav-group="sports"]').isVisible());
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      if (id === 'sports-nfl') await page.screenshot({ path: resolve(output, `${id}-log-${width}-${theme}.png`), fullPage: true, animations: 'disabled' });
       assert(overflow <= 1, id + ' has no sideways scroll at ' + width);
       await page.screenshot({ path: resolve(output, `${id}-${width}-${theme}.png`), fullPage: false, animations: 'disabled' });
       checks += 4;
