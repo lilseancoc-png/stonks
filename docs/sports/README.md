@@ -27,6 +27,36 @@ Eastern; the choice is a per-browser convenience in localStorage
 (`stonks-sports-tz-v1`). A 10:30 p.m. Pacific tip-off is still "today" in Los
 Angeles even though it is past midnight in New York.
 
+## Stats
+
+One catalog, `SPORTS_STATS` in `lib/sports/schema.mjs`, lists every stat the
+pages, charts, Pick Builder and MCP take, in three groups:
+
+| League | Main | Combos | More |
+|---|---|---|---|
+| NBA | points\*, rebounds\*, assists, 3-pointers made, steals, blocks, turnovers (plus minutes on the pages) | points + rebounds + assists (PRA), points + rebounds, points + assists, rebounds + assists, blocks + steals, fantasy score | field goals made / attempted, 3-pointers attempted, free throws made / attempted, offensive and defensive rebounds |
+| NFL | passing yards\*, receptions\*, rushing yards, receiving yards, rush + receiving TDs | rush + receiving yards, pass + rush yards | pass completions and attempts, passing TDs, interceptions thrown, rush attempts, targets, rushing TDs, receiving TDs |
+
+\* has a model forecast (`model: true`, which must match `MODEL_SPECS`;
+`sports-smoke` checks it). Every other stat gets averages, charts, history hit
+rates and Pick Builder picks, but no model chance; a pick on one says "no
+forecast for this stat; history only", and a same-game pair that includes one
+stays unpriced because links are measured only between modeled stats.
+
+Combos are worked out when a row is read (`statValue`): a weighted sum of
+stored stats, so no season needs a new download. An NBA combo needs every
+part (a blank part means the row cannot give one). An NFL combo counts a blank
+part as zero while at least one part is there, because nflverse leaves a
+column blank when a player had none of that stat. Defensive rebounds are
+rebounds minus offensive rebounds. The fantasy score uses PrizePicks'
+published NBA weights: points 1, rebounds 1.2, assists 1.5, steals 3,
+blocks 3, turnovers −1. Settlement uses the same sums.
+
+The page gets the catalog's names and groups from `app-js.mjs`
+(`statCatalog`); every stat picker is grouped Main / Combos / More, and the
+player panel's averages and game log and the Player stats table each have a
+**Main / Combos / More / All** switch for their columns.
+
 ## Charts and stats views
 
 Each league page has three views: **Games** (the board, a game's players and
@@ -45,8 +75,8 @@ stored games; the page asks the route for every stored game, `CHART_LIMIT`):
 | Vs minutes / volume | The stat against minutes (NBA) or pass attempts, targets or carries (NFL), with the per-minute or per-target rate the stat model also uses |
 | Splits | Home or away, started or bench (NBA), rest before the game, each opponent and each season |
 
-Every chart takes any stored stat (the modeled ones and the context ones such
-as assists, threes, minutes or targets), a window (last 5, 10 or 20 played
+Every chart takes any stat in the catalog, combos included (and minutes for
+the NBA), a window (last 5, 10 or 20 played
 games, this season or every stored game) and an optional line. A facts strip
 under the chart gives games, average, median, low to high, standard deviation,
 how many games cleared the line (or the average) and the last five against the
@@ -88,17 +118,17 @@ the project at 12).
 - A non-Owner session gets 403. Every response is `private, no-store`.
 - Ops (all `GET`, `lib/sports/read.mjs`):
   - `status`: the day window, time zones, each league's data status and the
-    enabled stats.
+    stat catalog.
   - `board&sport=&tz=`: games starting today or tomorrow in that zone, plus
     the next game after the window.
   - `game&sport=&id=`: the players each team used in its last three games this
-    season, with averages from games before this one.
+    season, with averages of every stat from games before this one.
   - `players&sport=&q=`: player search (accents and punctuation ignored).
   - `player&sport=&id=`: a player's latest 40 stored games, with last 5, last
     10, all stored, median, low and high for each stat.
   - `player` also returns `next_game`: the team's next stored game that has
     not started, which a new pick attaches to, and `forecast`: the stat
-    model's forecast of each enabled stat for that game (see Stat models).
+    model's forecast of each modeled stat for that game (see Stat models).
   - `journal`: every saved paper entry, newest first, settled from the
     stored finals, with the totals (`lib/sports/journal.mjs`).
 - Pick Builder ops are `POST` with a JSON body and must come from the site
@@ -409,9 +439,9 @@ lines are not stored. The joint chance is only as good as the chances typed in.
 ## Schema
 
 `lib/sports/schema.mjs` (version 1) holds the sports, stats, statuses and
-validators. Enabled stats today: NBA points and rebounds; NFL passing yards and
-receptions (each has a model). Others are listed and switched off until their
-models exist.
+validators, and the stat catalog (see Stats). Every catalog stat can be shown
+and picked; `statIds(sport, { modeledOnly: true })` gives the ones with a
+model: NBA points and rebounds, NFL passing yards and receptions.
 `marketSeriesKey` names one line series (operator, game, player, stat, period,
 contract family); the threshold and side are left out so a line that moves
 stays in the same series.
@@ -424,7 +454,12 @@ The Mingstreet MCP (`/mcp`, docs/mcp.md) has six Owner-only Sports tools in
 `sports_get_model_check`. They call the same functions as the pages
 (`leagueView`, `evaluateEntry`, `journalView`, `modelSummary`), so the same
 stored games, model and seed give the same answer. `SPORTS_ENABLED=0` hides
-them.
+them. `sports_get_game` returns each player's averages as one map per
+measure (`last5`, `last10`, `average`, `median`, `low`, `high`,
+`stat_games`), each keyed by stat, for the league's main stats or the
+`stats` named; `sports_evaluate_entry` returns each pick's history as
+`hit_history`. Both shapes keep the numbers inside the MCP's size limit,
+which shortens deep objects and drops keys named `history`.
 
 The intended flow: send a slip screenshot to Claude or ChatGPT; it reads the
 players, lines and payout, finds each player (`sports_find_players`), checks
@@ -485,6 +520,9 @@ One branch and pull request each, from `main`:
 8. `sports-charts`: player charts (bars around the average, trend, hit rates,
    spread, vs minutes or volume, splits), Player stats and Team stats views,
    game-panel and Pick Builder mini charts
+9. `sports-combos`: one stat catalog with every stored stat and the combos
+   (PRA, P+R, P+A, R+A, B+S, fantasy, rush + receiving yards, pass + rush
+   yards) on every page, chart and the Pick Builder
 
 ## Tests
 

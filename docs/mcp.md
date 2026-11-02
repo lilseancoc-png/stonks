@@ -40,9 +40,9 @@ only if you started the connection yourself.
 | `get_track_record` | owner | `readSiteRecord('picks-accuracy.json')`: stats, all-time stats, open trades and recent closes as compact rows (trade ID, contract, entry and model mark, P&L %), trade lines |
 | `sports_list_games` | owner | Owner Sports: today's and tomorrow's NBA or NFL games (`leagueView('board')`), in a chosen US time zone |
 | `sports_find_players` | owner | Owner Sports: player search by name, for the ids the other Sports tools take |
-| `sports_get_game` | owner | Owner Sports: one game, its teams and each team's recent players with averages |
+| `sports_get_game` | owner | Owner Sports: one game, its teams and each team's recent players with averages per measure (`last5`, `last10`, `average`, …), each keyed by stat; main stats unless `stats` names others, combos included |
 | `sports_get_player` | owner | Owner Sports: game log, averages, next game and the stat model's forecast for it |
-| `sports_evaluate_entry` | owner | Owner Sports: a 1-6 pick entry checked by the Pick Builder's own `evaluateEntry` (history, model chance, breakeven, joint chance including same-game links, expected value) plus `pick_builder_link`, a `?tab=sports-pick-builder&entry=` link that fills the entry on the site. Saves nothing |
+| `sports_evaluate_entry` | owner | Owner Sports: a 1-6 pick entry checked by the Pick Builder's own `evaluateEntry` (`hit_history`, model chance, breakeven, joint chance including same-game links, expected value; any catalog stat or combo, with a model chance only for modeled stats) plus `pick_builder_link`, a `?tab=sports-pick-builder&entry=` link that fills the entry on the site. Saves nothing |
 | `sports_get_model_check` | owner | Owner Sports: the stat model's and the same-game links' check on later games, and the paper journal's totals and chance calibration |
 
 **Sports tools** (`lib/mcp/sports-tools.mjs`) call the same functions as the Sports pages, so the same stored

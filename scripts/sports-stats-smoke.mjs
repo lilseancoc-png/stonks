@@ -7,7 +7,8 @@
 import assert from 'node:assert/strict';
 import { nbaModelLeague, SOFT_DEFENSE, TOUGH_DEFENSE } from './fixtures/sports-model.mjs';
 import { packRows } from '../lib/sports/rows.mjs';
-import { buildLeaders, buildTeams, buildPlayerLog, buildGame, CHART_LIMIT, LOG_LIMIT, LEADER_WINDOWS, POSITION_GROUPS, shownStats } from '../lib/sports/read.mjs';
+import { buildLeaders, buildTeams, buildPlayerLog, buildGame, CHART_LIMIT, LOG_LIMIT, LEADER_WINDOWS, POSITION_GROUPS, shownStats, contextStats } from '../lib/sports/read.mjs';
+import { statIds } from '../lib/sports/schema.mjs';
 import { handleSportsRequest } from '../lib/sports/http.mjs';
 import { SPORTS_PREFIX } from '../lib/sports/store.mjs';
 import { positionGroup } from '../lib/sports/models.mjs';
@@ -40,6 +41,10 @@ eq(season.season, 2025, 'an empty newer season falls back to the newest one with
 eq(season.seasons, [2026, 2025], 'every stored season is offered');
 eq(season.players.length, 96, 'every player who played');
 eq(season.stats, shownStats('nba'), 'modeled and context stats');
+eq(shownStats('nba').slice(0, 3), ['points', 'rebounds', 'minutes'], 'modeled stats first, then minutes');
+eq(shownStats('nba').length, statIds('nba').length + 1, 'every catalog stat plus minutes');
+eq(shownStats('nfl'), ['passing_yards', 'receptions', ...statIds('nfl').filter((s) => s !== 'passing_yards' && s !== 'receptions')], 'NFL has no minutes');
+eq(contextStats('nba'), shownStats('nba').slice(2), 'context stats are the shown stats without a forecast');
 eq(season.groups, POSITION_GROUPS.nba);
 eq(season.teams.length, 12);
 const p0 = season.players.find((p) => p.player_id === 'matl0');
@@ -50,6 +55,8 @@ eq(p0.missed, rows0.length - played0.length, 'missed games are counted separatel
 eq(p0.values.points, r1(avg(played0.map((r) => r.stats.points))), 'season average of points');
 eq(p0.values.minutes, r1(avg(played0.map((r) => r.minutes))), 'minutes come from the minutes field');
 eq(p0.values.assists, null, 'a stat the rows never carry is empty, not zero');
+eq(p0.values.pts_reb, r1(avg(played0.map((r) => r.stats.points + r.stats.rebounds))), 'combos average the per-game sums');
+eq(p0.values.pra, null, 'a combo with a part the rows never carry is empty');
 eq(p0.group, 'G');
 const last5 = await buildLeaders({ load, sport: 'nba', seasons: [2025], window: 'last5' });
 const q0 = last5.players.find((p) => p.player_id === 'matl0');
@@ -82,6 +89,7 @@ const okcGames = new Set(L.rows.filter((r) => r.played && r.opponent === 'okc').
 eq(teams.teams.find((t) => t.team === 'okc').against_by.C.rebounds, r1(okcCenters.reduce((a, r) => a + r.stats.rebounds, 0) / okcGames), 'rebounds allowed to centers per game');
 ok(/^[WL]\d+$/.test(soft.streak) && /^\d+-\d+$/.test(soft.last10) && soft.last10.split('-').map(Number).reduce((a, b) => a + b) === 10, 'streak and last 10');
 eq(soft.for.assists, null, 'a stat no row carries is empty for teams too');
+ok(teams.teams.every((t) => Math.abs(t.for.pts_reb - (t.for.points + t.for.rebounds)) < 0.15 && Math.abs(t.against.pts_reb - (t.against.points + t.against.rebounds)) < 0.15), 'team combo totals add up from their parts');
 
 // --- player log: whole seasons and rest days ----------------------------------------------
 const log = await buildPlayerLog({ load, sport: 'nba', playerId: 'matl0', seasons: [2025], nowMs: Date.parse('2026-01-01T00:00:00Z'), limit: CHART_LIMIT });
@@ -95,10 +103,13 @@ ok(log.games.every((g) => typeof g.starter === 'boolean' || g.starter === null),
 const lastGame = L.games[L.games.length - 1];
 const game = await buildGame({ load, sport: 'nba', gameId: lastGame.game_id, seasons: [2025] });
 const gp = game.teams[lastGame.home_team].players[0];
-eq(game.context_stats, ['minutes', 'assists', 'threes', 'pra', 'steals', 'blocks']);
+eq(game.stats, ['points', 'rebounds'], 'the game panel marks the modeled stats');
+eq(game.context_stats, contextStats('nba'), 'and lists every other stat');
+ok(game.context_stats.includes('pts_reb') && game.context_stats.includes('fantasy') && game.context_stats[0] === 'minutes', 'combos are in the game panel');
 ok(gp.recent.points.length === 10 && gp.summaries.minutes.games > 0, 'ten recent values and minutes for each player');
 const before = L.rows.filter((r) => r.player_id === gp.player_id && r.date < lastGame.local_date && r.played).sort((a, b) => b.date.localeCompare(a.date));
 eq(gp.recent.points, before.slice(0, 10).map((r) => r.stats.points), 'recent values are the last ten played, newest first');
+eq(gp.recent.pts_reb, before.slice(0, 10).map((r) => r.stats.points + r.stats.rebounds), 'combo values for the small charts');
 
 // --- the route --------------------------------------------------------------------------
 const store = { backend: 'r2', rawGet: async (k) => (recs[k] ? Buffer.from(JSON.stringify(recs[k])) : null) };

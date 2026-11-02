@@ -5,6 +5,7 @@
 //   node scripts/sports-pick-smoke.mjs
 import assert from 'node:assert/strict';
 import { legResult, poissonBinomial, jointBounds, payoutProblems, evaluatePayout, sameGameGroups, settleFromLegs } from '../lib/sports/payout.mjs';
+import { unpackRows } from '../lib/sports/rows.mjs';
 import { evaluateEntry, saveEntry, reviseEntry, journalView, hitHistory, ownerTag } from '../lib/sports/journal.mjs';
 import { ingestLeague } from '../lib/sports/ingest.mjs';
 import { NBA_SOURCE, HOOPR_URLS } from '../lib/sports/hoopr.mjs';
@@ -100,7 +101,18 @@ const wrong = await evaluateEntry({ load: load(), body: { legs: [lebron('4019000
 ok(/LeBron James is not on either team/.test(wrong.warnings[0]), 'a player not in the game is flagged');
 await rejects(evaluateEntry({ load: load(), body: { legs: [curry('401900003'), curry('401900003', { side: 'under' })] }, now: NOW }), 400, /cancel out/, 'over and under on the same line');
 await rejects(evaluateEntry({ load: load(), body: { legs: Array.from({ length: 7 }, (_, i) => curry('401900003', { threshold: i + 0.5 })) }, now: NOW }), 400, /1 to 6/, 'at most six picks');
-await rejects(evaluateEntry({ load: load(), body: { legs: [curry('401900003', { stat: 'assists' })] }, now: NOW }), 400, /not available/, 'only enabled stats');
+await rejects(evaluateEntry({ load: load(), body: { legs: [curry('401900003', { stat: 'passing_yards' })] }, now: NOW }), 400, /not available/, 'stats belong to the league');
+await rejects(evaluateEntry({ load: load(), body: { legs: [curry('401900003', { stat: 'minutes' })] }, now: NOW }), 400, /not available/, 'minutes is not a pick stat');
+// Every catalog stat and combo can be picked: history from the stored rows,
+// a model chance only for the stats with a forecast.
+const combo = await evaluateEntry({ load: load(), body: { legs: [curry('401900003', { threshold: 0.5 }), curry('401900003', { stat: 'rebounds', threshold: 0.5 }), curry('401900003', { stat: 'pts_reb', threshold: 30.5 }), curry('401900003', { stat: 'assists', threshold: 5.5 })] }, now: NOW });
+const [cPts, cReb, cPR, cAst] = combo.legs;
+eq(cPR.recent.map((r) => r.date), cPts.recent.map((r) => r.date), 'the combo uses the same played games');
+eq(cPR.recent.map((r) => r.value), cPts.recent.map((r, i) => r.value + cReb.recent[i].value), 'points + rebounds is summed per game');
+eq(cPR.history.all.hits, cPR.recent.filter((r) => r.value > 30.5).length, 'combo history counts the summed values');
+eq([cAst.model.status, cAst.model.reason], ['not_calculated', 'stat'], 'a stat without a forecast says so');
+ok(cAst.history.all.games > 0, 'and still gets history');
+ok(combo.legs.every((l) => l.recent.length === cPts.recent.length), 'every stat has the same stored games here');
 await rejects(evaluateEntry({ load: load(), body: { legs: [curry('401900003', { threshold: 24.3 })] }, now: NOW }), 400, /whole or half/, 'lines are whole or half numbers');
 await rejects(evaluateEntry({ load: load(), body: { legs: [curry('401999999')] }, now: NOW }), 400, /not stored/, 'unknown games are refused');
 await rejects(evaluateEntry({ load: load(), body: { legs: [curry('401900003', { probability: 1 })] }, now: NOW }), 400, /between 0% and 100%/, 'a chance of 100% is refused');
@@ -218,5 +230,14 @@ const log = await call('GET', { sports: 'player', sport: 'nba', id: '3975' });
 eq([log.body.next_game.game_id, log.body.next_game.home_team], ['401900003', 'gs'], 'the player view names the next game for Pick Builder');
 const kelce = await call('GET', { sports: 'player', sport: 'nfl', id: '00-0003' });
 eq(kelce.body.next_game.week, 9, 'NFL: the team’s next game');
+
+// --- a combo pick settles from the summed final stats ------------------------------------------
+const settleSt = fakeR2();
+for (const adapter of [NBA_SOURCE, NFL_SOURCE]) await ingestLeague({ adapter, store: settleSt, fetchText: async (u) => files.get(u) ?? null, now: NOW });
+const PR = await saveEntry({ store: settleSt, load: recordLoader(settleSt), body: entryBody([pod('401900002', { stat: 'pts_reb', threshold: 25.5 })]), now: EARLY, sub: OWNER });
+const prRow = unpackRows(JSON.parse(settleSt.objects.get(SPORTS_PREFIX + 'nba/player-games/2026.json')), { playerId: '4433' }).find((r) => r.game_id === '401900002');
+const prLeg = (await journalView({ load: recordLoader(settleSt), now: NOW, sub: OWNER })).entries.find((e) => e.entry_id === PR.entry_id).legs[0];
+eq(prLeg.actual, prRow.stats.points + prRow.stats.rebounds, 'the settled value is points + rebounds');
+eq(prLeg.result, prLeg.actual > 25.5 ? 'win' : 'loss');
 
 console.log(`Sports Pick Builder smoke passed (${checks} checks).`);

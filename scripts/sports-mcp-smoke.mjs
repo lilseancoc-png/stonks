@@ -86,11 +86,21 @@ ok((await tool('sports_find_players', { sport: 'nba', name: 'zzzz' })).structure
 const game = await tool('sports_get_game', { sport: 'nba', game_id: 'mnext1' });
 ok(game.structuredContent.results.game.game_id === 'mnext1' && game.structuredContent.results.teams, 'one game with its teams');
 const gamePlayers = Object.values(game.structuredContent.results.teams).flatMap((t) => t.players);
-ok(gamePlayers.length > 0 && gamePlayers.every((p) => !('recent' in p) && p.summaries.points), 'the page’s chart values stay off the MCP; averages stay');
+ok(gamePlayers.length > 0 && gamePlayers.every((p) => !('recent' in p) && !('summaries' in p) && typeof p.average.points === 'number' && typeof p.last5.points === 'number' && p.stat_games.points > 0), 'the page’s chart values stay off the MCP; averages stay as numbers');
 eq(JSON.parse((await tool('sports_get_game', { sport: 'nba', game_id: 'nope' })).content[0].text).error.code, 'NOT_FOUND');
+eq(game.structuredContent.results.shown_stats, ['minutes', 'points', 'rebounds', 'assists', 'threes', 'steals', 'blocks', 'turnovers'], 'averages of the main stats by default');
+ok(gamePlayers.every((p) => Object.keys(p.average).every((st) => game.structuredContent.results.shown_stats.includes(st))), 'and nothing else');
+const comboGame = (await tool('sports_get_game', { sport: 'nba', game_id: 'mnext1', stats: ['pts_reb', 'fantasy'] })).structuredContent.results;
+const comboPlayer = Object.values(comboGame.teams).flatMap((t) => t.players)[0];
+eq(Object.keys(comboPlayer.average), ['pts_reb', 'fantasy'], 'or the stats asked for, combos included');
+ok(comboPlayer.stat_games.pts_reb > 0 && typeof comboPlayer.average.pts_reb === 'number', 'combo averages come from the stored rows');
+ok(!JSON.stringify(comboGame).includes('object with'), 'nothing is cut by the size limit');
+eq(JSON.parse((await tool('sports_get_game', { sport: 'nba', game_id: 'mnext1', stats: ['passing_yards'] })).content[0].text).error.code, 'INVALID_INPUT', 'stats from the other league are refused');
 const player = await tool('sports_get_player', { sport: 'nba', player_id: gsStar.player_id, games: 5 });
 const P = player.structuredContent.results;
 eq([P.next_game.game_id, P.games.length, P.forecast.forecasts.points.status], ['mnext1', 5, 'ok'], 'log, next game and its forecast');
+ok(!/\[omitted|object with|more keys/.test(JSON.stringify(P)), 'the player view is not cut by the size limit');
+ok(typeof P.games[0].stats.pts_reb === 'number' && typeof P.summaries.pts_reb.average === 'number' && P.summaries.fantasy.average === null, 'the log carries combos (fantasy needs assists, which this made-up league has none of)');
 
 // --- evaluate: the same answer as the Pick Builder ---------------------------------
 const legs = [
@@ -131,6 +141,12 @@ const badLine = await errCode({ legs: [{ ...legs[0], threshold: 15.3 }] });
 ok(badLine.code === 'INVALID_INPUT' && /whole or half/.test(badLine.message), 'the Pick Builder’s own reasons come through: ' + badLine.message);
 eq((await errCode({ legs: [{ ...legs[0], game_id: 'nope' }] })).code, 'INVALID_INPUT', 'an unknown game');
 ok(validateArgs(TOOLS.find((t) => t.name === 'sports_evaluate_entry').inputSchema, { legs, use_model_chances: false }), 'a valid entry passes the schema check');
+const comboRaw = await tool('sports_evaluate_entry', { legs: [{ sport: 'nba', player_id: gsStar.player_id, game_id: 'mnext1', stat: 'pts_reb', side: 'over', threshold: 20.5 }] });
+const comboEv = comboRaw.structuredContent.results;
+ok(comboEv.legs[0].hit_history.all.games > 0 && comboEv.legs[0].model.reason === 'stat', 'a combo pick gets history and says it has no forecast');
+ok(E.legs.every((l) => Number.isInteger(l.hit_history.last10.hits) && Number.isInteger(l.hit_history.all.games)), 'history hit counts come through as numbers');
+ok(decodePrefill(comboEv.pick_builder_link.split('entry=')[1]).legs[0].stat === 'pts_reb', 'and the Pick Builder link keeps the combo');
+eq((await errCode({ legs: [{ ...legs[0], stat: 'goals' }] })).code, 'INVALID_INPUT', 'an unknown stat is refused');
 
 // --- model check -------------------------------------------------------------------
 const mc = (await tool('sports_get_model_check', { sport: 'nba' })).structuredContent.results;

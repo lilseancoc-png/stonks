@@ -29522,26 +29522,24 @@ function scenarioEventPhase(ev, now = Date.now()) {
   const leagueOf = (page) => page === 'sports-nba' ? 'nba' : page === 'sports-nfl' ? 'nfl' : null;
   const root = (page) => doc.getElementById(page + '-root');
   const part = (page, name) => root(page)?.querySelector('[data-sp-part="' + name + '"]') || null;
-  const STAT_LABELS = {
-    passing_yards: 'Passing yards', receptions: 'Receptions', completions: 'Completions', attempts: 'Pass attempts',
-    targets: 'Targets', carries: 'Carries', rushing_yards: 'Rushing yards', receiving_yards: 'Receiving yards',
-    touchdowns: 'Rush + catch TDs', points: 'Points', rebounds: 'Rebounds', assists: 'Assists', threes: '3-pointers made', minutes: 'Minutes',
-    pra: 'Points + rebounds + assists', steals: 'Steals', blocks: 'Blocks',
-  };
-  const SHORT = {
-    passing_yards: 'Pass yds', receptions: 'Rec', completions: 'Cmp', attempts: 'Att', targets: 'Tgt', carries: 'Car',
-    rushing_yards: 'Rush yds', receiving_yards: 'Rec yds', touchdowns: 'TD', points: 'Pts', rebounds: 'Reb', assists: 'Ast', threes: '3PM', minutes: 'Min',
-    pra: 'PRA', steals: 'Stl', blocks: 'Blk',
-  };
+  // Stat names, short column heads and groups come from the one catalog in
+  // lib/sports/schema.mjs (SPORTS_STATS), passed in by app-js.mjs.
+  const CATALOG = (options && options.statCatalog) || {};
+  const STAT_SETS = [['main', 'Main'], ['combo', 'Combos'], ['more', 'More']];
+  const STAT_LABELS = { minutes: 'Minutes' }, SHORT = { minutes: 'Min' }, STAT_GROUP = { minutes: 'main' };
+  Object.keys(CATALOG).forEach((lg) => (CATALOG[lg] || []).forEach((st) => { STAT_LABELS[st.id] = st.label; SHORT[st.id] = st.short; STAT_GROUP[st.id] = st.group; }));
+  const statGroup = (st) => STAT_GROUP[st] || 'more';
+  const inSet = (st, set) => set === 'all' || statGroup(st) === set;
+  const SET_CHOICES = STAT_SETS.concat([['all', 'All']]);
   const label = (st) => STAT_LABELS[st] || st;
   const lgOf = (src) => (src && src.sport) || '';
   const team = (t) => escape(String(t || '').toUpperCase());
   const num = (v) => (v == null ? '—' : escape(String(v)));
   const league = (lg) => state.leagues[lg] || (state.leagues[lg] = {
     board: null, boardErr: null, game: null, gameId: null, gameErr: null, results: null, query: '', player: null, playerId: null, playerErr: null,
-    view: 'games', gameStat: '', logAll: false,
+    view: 'games', gameStat: '', logAll: false, logSet: 'main',
     chart: { stat: null, n: 10, kind: 'bars', line: '' },
-    leaders: { data: null, err: null, key: null, cache: {}, season: null, window: 'season', sort: null, dir: 'desc', team: '', group: '', min: null, all: false, mode: 'table' },
+    leaders: { data: null, err: null, key: null, cache: {}, season: null, window: 'season', sort: null, dir: 'desc', team: '', group: '', min: null, all: false, mode: 'table', set: 'main' },
     teams: { data: null, err: null, key: null, cache: {}, season: null, stat: null, side: 'against', sort: 'win_pct', dir: 'desc', mode: 'table' },
   });
 
@@ -29660,8 +29658,11 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
 
   function statList(stats) {
-    return '<div class="sp-stats"><h3>Stats for picks</h3><ul>' + stats.map((st) =>
-      '<li class="' + (st.enabled ? 'sp-on' : 'sp-later') + '">' + escape(st.label) + (st.enabled ? '' : ' <span>later</span>') + '</li>').join('') + '</ul></div>';
+    return '<div class="sp-stats"><h3>Stats</h3>' + STAT_SETS.map(([g, name]) => {
+      const list = stats.filter((st) => st.group === g);
+      return list.length ? '<p class="sp-label">' + escape(name) + '</p><ul>' + list.map((st) =>
+        '<li class="' + (st.model ? 'sp-on' : '') + '">' + escape(st.label) + (st.model ? ' <span>forecast</span>' : '') + '</li>').join('') + '</ul>' : '';
+    }).join('') + '<p class="sp-note">Every stat has averages, charts, hit rates and the Pick Builder. The marked ones also get a model forecast; the rest are history only.</p></div>';
   }
 
   function emptyBox(title, text) {
@@ -29728,7 +29729,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     }).join('');
     return '<div class="sp-panel" data-sp-panel="game"><div class="sp-panel-head"><h4>' + team(g.away_team) + ' at ' + team(g.home_team) + '</h4>' +
       '<button type="button" class="sp-close" data-sp-close="game" aria-label="Close game">×</button></div>' +
-      '<div class="sp-ctl">' + selectHtml('data-sp-game-stat', 'Stat', [['', 'Each player’s main stat']].concat(all.map((st) => [st, label(st)])), pick) + '</div>' +
+      '<div class="sp-ctl">' + statSelectHtml('data-sp-game-stat', 'Stat', all, pick, [['', 'Each player’s main stat']]) + '</div>' +
       '<p class="sp-note">Players each team used in its last three games this season, with their averages this season before this game. Bars: the last 10 games, oldest first, green above the player’s own average of them and red below. Select a column to sort, a name for charts and the game log.</p>' +
       '<div class="sp-teams">' + teams + '</div></div>';
   }
@@ -29743,19 +29744,36 @@ function scenarioEventPhase(ev, now = Date.now()) {
       '<li><button type="button" class="sp-link" data-sp-player="' + escape(p.player_id) + '">' + escape(p.name) + '</button> <span class="sp-muted">' +
       escape([p.position, p.team ? String(p.team).toUpperCase() : null, p.last_season].filter(Boolean).join(' · ')) + '</span></li>').join('') + '</ul>';
   }
-  function playerPanelHtml(lg) {
-    const L = league(lg);
-    if (!L.playerId) return '';
-    if (L.playerErr) return errorBox(L.playerErr, 'player');
-    if (!L.player) return '<p class="sp-loading">Loading game log…</p>';
-    const P = L.player, cols = P.stats.concat(P.context_stats);
-    const summary = '<div class="sp-table-wrap"><table class="sp-table"><thead><tr><th>Stat</th><th class="sp-n">Last 5</th><th class="sp-n">Last 10</th><th class="sp-n">All stored</th><th class="sp-n">Median</th><th class="sp-n">Low – high</th><th class="sp-n">Games</th></tr></thead><tbody>' +
+  // The averages table and game log, limited to one stat set (Main, Combos,
+  // More or All). Repainted alone when the set or "show all" changes.
+  function playerTablesHtml(lg) {
+    const L = league(lg), P = L.player;
+    if (!P) return '';
+    const cols = P.stats.concat(P.context_stats).filter((st) => inSet(st, L.logSet));
+    const summary = seg('data-sp-logset', SET_CHOICES, L.logSet, 'Stats shown in the averages and game log') + '<div class="sp-table-wrap"><table class="sp-table"><thead><tr><th>Stat</th><th class="sp-n">Last 5</th><th class="sp-n">Last 10</th><th class="sp-n">All stored</th><th class="sp-n">Median</th><th class="sp-n">Low – high</th><th class="sp-n">Games</th></tr></thead><tbody>' +
       cols.map((st) => {
         const s = P.summaries[st] || {};
         return '<tr' + (P.stats.indexOf(st) >= 0 ? ' class="sp-key"' : '') + '><td>' + escape(label(st)) + '</td><td class="sp-n">' + num(s.last5) + '</td><td class="sp-n">' + num(s.last10) + '</td><td class="sp-n">' + num(s.average) +
           '</td><td class="sp-n">' + num(s.median) + '</td><td class="sp-n">' + (s.games ? num(s.low) + ' – ' + num(s.high) : '—') + '</td><td class="sp-n">' + num(s.games) + '</td></tr>';
       }).join('') + '</tbody></table></div>';
     const logCols = cols.filter((st) => st !== 'minutes');
+    const logGames = L.logAll ? P.games : P.games.slice(0, LOG_ROWS);
+    const log = P.games.length ? '<div class="sp-table-wrap"><table class="sp-table sp-log"><thead><tr><th>Date</th><th>Game</th>' + (lg === 'nba' ? '<th class="sp-n">Min</th>' : '') +
+      logCols.map((st) => '<th class="sp-n" title="' + escape(label(st)) + '">' + escape(SHORT[st] || st) + '</th>').join('') + '</tr></thead><tbody>' +
+      logGames.map((r) => '<tr' + (r.played ? '' : ' class="sp-dnp"') + '><td>' + escape(fmtDay(r.date)) + ' <span class="sp-muted">' + escape(String(r.date).slice(0, 4)) + '</span></td><td>' + (r.home ? 'vs ' : '@ ') + team(r.opponent) +
+        (r.week != null ? ' <span class="sp-muted">' + (r.season_type === 'POST' ? 'playoffs' : 'wk ' + escape(r.week)) + '</span>' : '') + (r.played ? '' : ' <span class="sp-muted">did not play' + (r.dnp_reason ? ': ' + escape(String(r.dnp_reason).toLowerCase()) : '') + '</span>') + '</td>' +
+        (lg === 'nba' ? '<td class="sp-n">' + num(r.minutes) + '</td>' : '') +
+        logCols.map((st) => '<td class="sp-n">' + num(r.stats[st]) + '</td>').join('') + '</tr>').join('') + '</tbody></table></div>' +
+      (P.games.length > logGames.length ? '<button type="button" class="sp-btn sp-more" data-sp-logall>Show all ' + P.games.length + ' games</button>' : '')
+      : '<p class="sp-muted">No games stored for this player.</p>';
+    return summary + '<h5>Game log' + (P.total_games > logGames.length ? ' (latest ' + logGames.length + ' of ' + P.total_games + ')' : '') + '</h5>' + log;
+  }
+  function playerPanelHtml(lg) {
+    const L = league(lg);
+    if (!L.playerId) return '';
+    if (L.playerErr) return errorBox(L.playerErr, 'player');
+    if (!L.player) return '<p class="sp-loading">Loading game log…</p>';
+    const P = L.player;
     const F = P.forecast, G = P.next_game;
     let forecast = '';
     if (G && F) {
@@ -29774,21 +29792,11 @@ function scenarioEventPhase(ev, now = Date.now()) {
         (any ? '<p class="sp-note">Built from ' + escape(any.games) + ' stored games: about ' + escape(any.expected_opportunity) + ' ' + escape(any.unit) + ' expected' + (any.regular_role ? '' : ' (a smaller role than the check covers, so it stays experimental)') +
           ', opponent factor ' + escape(any.opponent_factor) + ', ' + (F.home ? 'home' : 'away') + '. Model fitted on games through ' + escape(any.as_of_date ? fmtDay(any.as_of_date) + ' ' + any.as_of_date.slice(0, 4) : '—') + '. A forecast, not a promise: injuries, rest and role changes are not in the data.</p>' : '');
     } else if (G) forecast = '<h5>Model forecast for the next game</h5><p class="sp-muted">The model has not been fitted yet.</p>';
-    const logGames = L.logAll ? P.games : P.games.slice(0, LOG_ROWS);
-    const log = P.games.length ? '<div class="sp-table-wrap"><table class="sp-table sp-log"><thead><tr><th>Date</th><th>Game</th>' + (lg === 'nba' ? '<th class="sp-n">Min</th>' : '') +
-      logCols.map((st) => '<th class="sp-n" title="' + escape(label(st)) + '">' + escape(SHORT[st] || st) + '</th>').join('') + '</tr></thead><tbody>' +
-      logGames.map((r) => '<tr' + (r.played ? '' : ' class="sp-dnp"') + '><td>' + escape(fmtDay(r.date)) + ' <span class="sp-muted">' + escape(String(r.date).slice(0, 4)) + '</span></td><td>' + (r.home ? 'vs ' : '@ ') + team(r.opponent) +
-        (r.week != null ? ' <span class="sp-muted">' + (r.season_type === 'POST' ? 'playoffs' : 'wk ' + escape(r.week)) + '</span>' : '') + (r.played ? '' : ' <span class="sp-muted">did not play' + (r.dnp_reason ? ': ' + escape(String(r.dnp_reason).toLowerCase()) : '') + '</span>') + '</td>' +
-        (lg === 'nba' ? '<td class="sp-n">' + num(r.minutes) + '</td>' : '') +
-        logCols.map((st) => '<td class="sp-n">' + num(r.stats[st]) + '</td>').join('') + '</tr>').join('') + '</tbody></table></div>' +
-      (P.games.length > logGames.length ? '<button type="button" class="sp-btn sp-more" data-sp-logall>Show all ' + P.games.length + ' games</button>' : '')
-      : '<p class="sp-muted">No games stored for this player.</p>';
     return '<div class="sp-panel" data-sp-panel="player"><div class="sp-panel-head"><h4>' + escape(P.player.name) + ' <span>' + escape([P.player.position, P.player.team ? String(P.player.team).toUpperCase() : null].filter(Boolean).join(' · ')) + '</span></h4>' +
       '<button type="button" class="sp-close" data-sp-close="player" aria-label="Close player">×</button></div>' +
       forecast + (chartStats(P).length ? '<h5>Charts</h5><div class="sp-charts" data-sp-part="chart">' + chartHtml(lg) + '</div>' : '') +
       '<h5>Add a pick</h5>' + pickFormHtml(lg, P, 'league') +
-      '<h5>Averages over ' + num(P.total_games) + ' stored games</h5>' + summary +
-      '<h5>Game log' + (P.total_games > logGames.length ? ' (latest ' + logGames.length + ' of ' + P.total_games + ')' : '') + '</h5>' + log +
+      '<h5>Averages over ' + num(P.total_games) + ' stored games</h5><div data-sp-part="logset">' + playerTablesHtml(lg) + '</div>' +
       '<p class="sp-note">' + (lg === 'nba'
         ? 'Games the player missed are listed as did not play and left out of the averages.'
         : 'Games where the player recorded no stat are not in the provider’s file, so they are missing here, not counted as zero.') + '</p></div>';
@@ -29809,7 +29817,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   const f1 = (v) => (isNum(v) ? (Math.round(v * 10) / 10).toFixed(1) : '—');
   const fv = (v) => (isNum(v) ? (Number.isInteger(v) ? String(v) : (Math.round(v * 10) / 10).toFixed(1)) : '—');
   const sideCls = (v, ref) => (ref == null ? 'is-at' : v > ref ? 'is-over' : v < ref ? 'is-under' : 'is-at');
-  const unitWord = (st) => ({ pra: 'PRA', threes: 'threes', touchdowns: 'TDs' })[st] || label(st).toLowerCase();
+  const unitWord = (st) => ({ threes: 'threes', touchdowns: 'TDs', fantasy: 'fantasy points' })[st] || (statGroup(st) === 'combo' ? SHORT[st] : label(st).toLowerCase());
   const seasonLabel = (lg, y) => (lg === 'nba' ? y + '–' + String(y + 1).slice(2) : String(y));
   function niceStep(raw, steps) {
     if (!(raw > 0) || !Number.isFinite(raw)) return 1;
@@ -29946,7 +29954,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
 
   // The stat against the playing time (NBA) or the volume behind it (NFL).
-  const OPPORTUNITY = { passing_yards: 'attempts', completions: 'attempts', receptions: 'targets', receiving_yards: 'targets', rushing_yards: 'carries' };
+  const OPPORTUNITY = { passing_yards: 'attempts', completions: 'attempts', passing_tds: 'attempts', interceptions: 'attempts', receptions: 'targets', receiving_yards: 'targets', receiving_tds: 'targets', rushing_yards: 'carries', rushing_tds: 'carries' };
   const UNIT_ONE = { minutes: 'minute', attempts: 'pass attempt', targets: 'target', carries: 'carry' };
   const UNIT_MANY = { minutes: 'minutes', attempts: 'pass attempts', targets: 'targets', carries: 'carries' };
   function opportunityStat(lg, stat) { return lg === 'nba' ? (stat === 'minutes' ? null : 'minutes') : OPPORTUNITY[stat] || null; }
@@ -30103,7 +30111,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (!stats.length) return '';
     const stat = chartStat(P, C, lg), os = opportunityStat(lg, stat);
     const kinds = KINDS.map(([k, t]) => [k, k === 'volume' ? (lg === 'nba' ? 'Vs minutes' : os ? 'Vs ' + label(os).toLowerCase() : 'Vs volume') : t]);
-    return '<div class="sp-ch-controls"><label class="sp-field"><span>Stat</span><select data-sp-chart-stat>' + stats.map((st) => '<option value="' + escape(st) + '"' + (st === stat ? ' selected' : '') + '>' + escape(label(st)) + '</option>').join('') + '</select></label>' +
+    return '<div class="sp-ch-controls">' + statSelectHtml('data-sp-chart-stat', 'Stat', stats, stat) +
       '<label class="sp-field sp-line-field"><span>Compare to a line</span><input type="number" min="0" max="1000" step="0.5" inputmode="decimal" placeholder="Average" data-sp-chart-line value="' + escape(C.line) + '"></label></div>' +
       seg('data-sp-chart-n', WINDOWS, C.n, 'Games shown') +
       seg('data-sp-chart-kind', kinds, C.kind === 'volume' && !os ? 'bars' : C.kind, 'Chart', (k) => (k === 'volume' && !os ? 'No volume stat for ' + label(stat).toLowerCase() : '')) +
@@ -30140,6 +30148,16 @@ function scenarioEventPhase(ev, now = Date.now()) {
   function selectHtml(attr, labelText, opts, current) {
     return '<label class="sp-field"><span>' + escape(labelText) + '</span><select ' + attr + '>' + opts.map(([v, t]) => '<option value="' + escape(v) + '"' + (String(v) === String(current) ? ' selected' : '') + '>' + escape(t) + '</option>').join('') + '</select></label>';
   }
+  // A stat picker grouped as Main / Combos / More. `lead` adds plain options
+  // before the groups (the game panel's "each player's main stat").
+  function statSelectHtml(attr, labelText, stats, current, lead) {
+    const opt = (v, t) => '<option value="' + escape(v) + '"' + (String(v) === String(current) ? ' selected' : '') + '>' + escape(t) + '</option>';
+    const groups = STAT_SETS.map(([g, name]) => {
+      const list = stats.filter((st) => statGroup(st) === g);
+      return list.length ? '<optgroup label="' + escape(name) + '">' + list.map((st) => opt(st, label(st))).join('') + '</optgroup>' : '';
+    }).join('');
+    return '<label class="sp-field"><span>' + escape(labelText) + '</span><select ' + attr + '>' + (lead || []).map(([v, t]) => opt(v, t)).join('') + groups + '</select></label>';
+  }
   const MIN_GAMES = [1, 2, 3, 5, 10, 20, 40];
   function defaultMinGames(lg, players) {
     const top = Math.max(0, ...players.map((p) => p.games));
@@ -30159,9 +30177,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
       selectHtml('data-sp-lead-team', 'Team', [['', 'All teams']].concat(D.teams.map((t) => [t, String(t).toUpperCase()])), Q.team) +
       selectHtml('data-sp-lead-group', 'Position', [['', 'All positions']].concat(D.groups.map((g) => [g, GROUP_NAMES[g] || g])), Q.group) +
       selectHtml('data-sp-lead-min', 'Played at least', MIN_GAMES.map((m) => [m, m + ' game' + (m === 1 ? '' : 's')]), Q.min) +
-      selectHtml('data-sp-lead-sort', 'Rank by', D.stats.map((st) => [st, label(st)]), D.stats.indexOf(Q.sort) >= 0 ? Q.sort : D.stats[0]) +
+      statSelectHtml('data-sp-lead-sort', 'Rank by', D.stats, D.stats.indexOf(Q.sort) >= 0 ? Q.sort : D.stats[0]) +
       '</div>' + seg('data-sp-lead-window', [['season', 'Whole season'], ['last10', 'Last 10 games'], ['last5', 'Last 5 games']], D.window, 'Games counted') +
-      seg('data-sp-lead-mode', [['table', 'Table'], ['chart', 'Chart']], Q.mode, 'Show as');
+      seg('data-sp-lead-mode', [['table', 'Table'], ['chart', 'Chart']], Q.mode, 'Show as') +
+      (Q.mode === 'table' ? seg('data-sp-lead-set', SET_CHOICES, Q.set, 'Stat columns') : '');
     return '<h3>Player stats <span class="sp-muted">' + escape(seasonLabel(lg, D.season)) + '</span></h3>' + controls + '<div data-sp-part="lead-body">' + leadersBody(lg) + '</div>';
   }
   function leadersBody(lg) {
@@ -30183,7 +30202,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     const sorted = Q.sort === 'name' || Q.sort === 'team' ? sortList(rows, (p) => (Q.sort === 'name' ? p.name : p.team), Q.dir) : Q.sort === 'games' ? sortList(rows, (p) => p.games, Q.dir) : sortList(rows, (p) => p.values[Q.sort], Q.dir);
     const shown = Q.all ? sorted : sorted.slice(0, 50);
     const th = (k, t, title, cls) => sortTh('data-sp-lsort', k, t, Q.sort, Q.dir, title, cls);
-    const cols = D.stats.filter((st) => st === 'minutes').concat(D.stats.filter((st) => st !== 'minutes'));
+    const cols = D.stats.filter((st) => st === 'minutes').concat(D.stats.filter((st) => st !== 'minutes')).filter((st) => inSet(st, Q.set) || st === Q.sort);
     return '<div class="sp-table-wrap"><table class="sp-table sp-lead" data-nosort><thead><tr><th class="sp-n">#</th>' + th('name', 'Player', null, 'sp-l') + th('team', 'Team', null, 'sp-l') + '<th>Pos</th>' + th('games', 'GP', 'Games played this season') +
       cols.map((st) => th(st, SHORT[st] || st, label(st))).join('') + '</tr></thead><tbody>' +
       shown.map((p, i) => '<tr><td class="sp-n sp-muted">' + (i + 1) + '</td><td><button type="button" class="sp-link" data-sp-player="' + escape(p.player_id) + '">' + escape(p.name) + '</button></td><td>' + team(p.team) + '</td><td>' + escape(p.position || '') + '</td>' +
@@ -30200,7 +30219,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     const sides = [['for', 'Scored by the team'], ['against', 'Allowed to opponents']].concat(D.groups.map((g) => ['to:' + g, 'Allowed to ' + (GROUP_NAMES[g] || g).toLowerCase()]));
     const controls = '<div class="sp-ctl">' +
       (D.seasons.length > 1 ? selectHtml('data-sp-team-season', 'Season', D.seasons.map((y) => [y, seasonLabel(lg, y)]), D.season) : '') +
-      selectHtml('data-sp-team-stat', 'Stat', D.stats.map((st) => [st, label(st)]), Q.stat) +
+      statSelectHtml('data-sp-team-stat', 'Stat', D.stats, Q.stat) +
       (Q.mode === 'chart' ? selectHtml('data-sp-team-side', 'Show', sides, Q.side) : '') +
       '</div>' + seg('data-sp-team-mode', [['table', 'Table'], ['chart', 'Chart']], Q.mode, 'Show as');
     return '<h3>Team stats <span class="sp-muted">' + escape(seasonLabel(lg, D.season)) + '</span></h3>' + controls + '<div data-sp-part="team-body">' + teamsBody(lg) + '</div>';
@@ -30332,11 +30351,11 @@ function scenarioEventPhase(ev, now = Date.now()) {
   function pickFormHtml(sport, P, where) {
     const g = P.next_game, name = P.player.name;
     if (!g) return '<p class="sp-muted">No upcoming game is stored for ' + escape(name) + '’s team yet, so a pick cannot be attached.</p>';
-    const stats = ((state.status && state.status.stats[sport]) || []).filter((st) => st.enabled);
+    const stats = (CATALOG[sport] || []).map((st) => st.id);
     return '<div class="sp-pickform" data-sp-pickform="' + escape(where) + '">' +
       '<p class="sp-pick-game">Next game: ' + team(g.away_team) + ' at ' + team(g.home_team) + ' · ' + (g.time_tbd ? escape(fmtDay(g.local_date)) + ', time TBD' : escape(fmtWhen(g.start_utc, zone()))) + '</p>' +
       '<div class="sp-pick-row">' +
-      '<label class="sp-field"><span>Stat</span><select name="stat">' + stats.map((st) => '<option value="' + escape(st.id) + '">' + escape(st.label) + '</option>').join('') + '</select></label>' +
+      statSelectHtml('name="stat"', 'Stat', stats, stats[0]) +
       '<label class="sp-field"><span>Side</span><select name="side"><option value="over">Over</option><option value="under">Under</option></select></label>' +
       '<label class="sp-field sp-line-field"><span>Line</span><input name="line" type="number" min="0" max="1000" step="0.5" inputmode="decimal" placeholder="24.5"></label>' +
       '<button type="button" class="sp-btn" data-sp-addpick>' + (where === 'league' ? 'Add to Pick Builder' : 'Add to entry') + '</button></div>' +
@@ -30433,6 +30452,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (r === 'position') return 'Model: ' + (lg === 'nfl' ? 'passing yards are modeled for quarterbacks, receptions for receivers, tight ends and running backs.' : 'not modeled for this player.');
     if (r === 'team') return 'Model: the player is not on either team in this game by the stored logs.';
     if (r === 'no_model') return 'Model: not fitted yet.';
+    if (r === 'stat') return 'Model: no forecast for this stat; history only.';
     return 'Model: no forecast for this pick.';
   }
   function modelLineHtml(i, e) {
@@ -30884,7 +30904,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if ((b = t.closest('[data-sp-view]'))) { showView(page, lg, b.getAttribute('data-sp-view')); return true; }
     if ((b = t.closest('[data-sp-chart-n]'))) { const v = b.getAttribute('data-sp-chart-n'); L.chart.n = /^\d+$/.test(v) ? Number(v) : v; paint(page, 'chart', chartHtml(lg)); return true; }
     if ((b = t.closest('[data-sp-chart-kind]'))) { L.chart.kind = b.getAttribute('data-sp-chart-kind'); paint(page, 'chart', chartHtml(lg)); return true; }
-    if (t.closest('[data-sp-logall]')) { L.logAll = true; paint(page, 'player', playerPanelHtml(lg)); return true; }
+    if (t.closest('[data-sp-logall]')) { L.logAll = true; paint(page, 'logset', playerTablesHtml(lg)); return true; }
+    if ((b = t.closest('[data-sp-logset]'))) { L.logSet = b.getAttribute('data-sp-logset'); paint(page, 'logset', playerTablesHtml(lg)); return true; }
+    if ((b = t.closest('[data-sp-lead-set]'))) { Q.set = b.getAttribute('data-sp-lead-set'); paint(page, 'view', viewHtml(lg)); return true; }
     if ((b = t.closest('[data-sp-lead-window]'))) { Q.window = b.getAttribute('data-sp-lead-window'); Q.all = false; loadTable(page, lg, 'leaders'); return true; }
     if ((b = t.closest('[data-sp-lead-mode]'))) { Q.mode = b.getAttribute('data-sp-lead-mode'); paint(page, 'view', viewHtml(lg)); return true; }
     if (t.closest('[data-sp-lead-all]')) { Q.all = true; paint(page, 'lead-body', leadersBody(lg)); return true; }
@@ -31154,7 +31176,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
     payouts,
     legs,
   };
-}
+},
+    statCatalog: {"nba":[{"id":"points","label":"Points","short":"Pts","group":"main","model":true},{"id":"rebounds","label":"Rebounds","short":"Reb","group":"main","model":true},{"id":"assists","label":"Assists","short":"Ast","group":"main","model":false},{"id":"threes","label":"3-pointers made","short":"3PM","group":"main","model":false},{"id":"steals","label":"Steals","short":"Stl","group":"main","model":false},{"id":"blocks","label":"Blocks","short":"Blk","group":"main","model":false},{"id":"turnovers","label":"Turnovers","short":"TO","group":"main","model":false},{"id":"pra","label":"Points + rebounds + assists","short":"PRA","group":"combo","model":false},{"id":"pts_reb","label":"Points + rebounds","short":"P+R","group":"combo","model":false},{"id":"pts_ast","label":"Points + assists","short":"P+A","group":"combo","model":false},{"id":"reb_ast","label":"Rebounds + assists","short":"R+A","group":"combo","model":false},{"id":"blk_stl","label":"Blocks + steals","short":"B+S","group":"combo","model":false},{"id":"fantasy","label":"Fantasy score (PrizePicks scoring)","short":"Fan","group":"combo","model":false},{"id":"field_goals_made","label":"Field goals made","short":"FGM","group":"more","model":false},{"id":"field_goals_attempted","label":"Field goals attempted","short":"FGA","group":"more","model":false},{"id":"three_attempts","label":"3-pointers attempted","short":"3PA","group":"more","model":false},{"id":"free_throws_made","label":"Free throws made","short":"FTM","group":"more","model":false},{"id":"free_throws_attempted","label":"Free throws attempted","short":"FTA","group":"more","model":false},{"id":"offensive_rebounds","label":"Offensive rebounds","short":"OReb","group":"more","model":false},{"id":"defensive_rebounds","label":"Defensive rebounds","short":"DReb","group":"more","model":false}],"nfl":[{"id":"passing_yards","label":"Passing yards","short":"Pass yds","group":"main","model":true},{"id":"receptions","label":"Receptions","short":"Rec","group":"main","model":true},{"id":"rushing_yards","label":"Rushing yards","short":"Rush yds","group":"main","model":false},{"id":"receiving_yards","label":"Receiving yards","short":"Rec yds","group":"main","model":false},{"id":"touchdowns","label":"Rush + rec TDs","short":"TD","group":"main","model":false},{"id":"rush_rec_yards","label":"Rush + rec yards","short":"R+R yds","group":"combo","model":false},{"id":"pass_rush_yards","label":"Pass + rush yards","short":"P+R yds","group":"combo","model":false},{"id":"completions","label":"Pass completions","short":"Cmp","group":"more","model":false},{"id":"attempts","label":"Pass attempts","short":"Att","group":"more","model":false},{"id":"passing_tds","label":"Passing TDs","short":"Pass TD","group":"more","model":false},{"id":"interceptions","label":"Interceptions thrown","short":"INT","group":"more","model":false},{"id":"carries","label":"Rush attempts","short":"Car","group":"more","model":false},{"id":"targets","label":"Targets","short":"Tgt","group":"more","model":false},{"id":"rushing_tds","label":"Rushing TDs","short":"Rush TD","group":"more","model":false},{"id":"receiving_tds","label":"Receiving TDs","short":"Rec TD","group":"more","model":false}]}
   });
   var earningsForecast = (function earningsForecastFactory(host,doc,options,scenarioFactory,researchFactory,valuationFactory){
   const scenarios=scenarioFactory();
