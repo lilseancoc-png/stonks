@@ -71,7 +71,7 @@ the project at 12).
 JSON files in the private R2 store under `_stonks/sports/v1/`
 (`lib/sports/store.mjs`). That prefix is outside the published data
 generations: `/data/*` refuses it, `sync-data.mjs` never pushes or deletes it,
-and the MCP key filter refuses it. Each read is capped at 24 MB.
+and the MCP’s general key filter refuses it (only the Sports MCP tools’ own reader can read Sports records, below). Each read is capped at 24 MB.
 
 | Kind | Key | Written by |
 |---|---|---|
@@ -222,8 +222,9 @@ baseline can be checked against what happened.
 the draft (`lib/sports/prefill.mjs`: `encodePrefill` / `decodePrefill`; the
 page reads the parameter once and removes it). Fields: `v: 1`, `operator`,
 `format`, `stake`, `payouts`, and `legs` of `sport`, `player_id`, `game_id`,
-`stat`, `side`, `threshold`. The MCP (`sports-mcp`) will hand these out after
-Claude or ChatGPT reads a screenshot. The owner still checks and saves.
+`stat`, `side`, `threshold`. The MCP's `sports_evaluate_entry` hands these
+out after Claude or ChatGPT reads a screenshot. The owner still checks and
+saves.
 
 **Browser storage.** The unsaved draft lives in sessionStorage
 (`stonks-sports-draft-v1`) and is gone when the tab closes. Saved entries are
@@ -368,11 +369,35 @@ models exist.
 contract family); the threshold and side are left out so a line that moves
 stays in the same series.
 
+## MCP tools
+
+The Mingstreet MCP (`/mcp`, docs/mcp.md) has six Owner-only Sports tools in
+`lib/mcp/sports-tools.mjs`: `sports_list_games`, `sports_find_players`,
+`sports_get_game`, `sports_get_player`, `sports_evaluate_entry` and
+`sports_get_model_check`. They call the same functions as the pages
+(`leagueView`, `evaluateEntry`, `journalView`, `modelSummary`), so the same
+stored games, model and seed give the same answer. `SPORTS_ENABLED=0` hides
+them.
+
+The intended flow: send a slip screenshot to Claude or ChatGPT; it reads the
+players, lines and payout, finds each player (`sports_find_players`), checks
+the entry (`sports_evaluate_entry`, which can leave out `game_id` to use the
+player's next stored game and says so) and gives back `pick_builder_link`. The
+owner opens it, checks every pick and payout against the app, enters or copies
+chances and saves. There is no save tool, the link never carries chances, a
+chance is passed only when the owner gave one, and `use_model_chances` copies
+the model's chance only when asked.
+
+Their store handle reads only the Sports game, player, model, status and
+journal records; captured lines and anything outside `_stonks/sports/v1/` are
+refused, and every write throws (`sportsReadOnlyStore`).
+
 ## Kept apart from market research
 
 Sports is not market evidence. The Owner Market Brief, Research Lab evidence
-(`sourceCatalog` drops the `Sports` category) and the MCP feature list do not
-read it. The Update Checker lists the pages as on-demand.
+(`sourceCatalog` drops the `Sports` category) and the MCP feature list
+(`list_features`) do not read it; Sports has its own MCP tools above. The
+Update Checker lists the pages as on-demand.
 
 ## Data sources
 
@@ -408,13 +433,13 @@ One branch and pull request each, from `main`:
    player pages and Pick Builder picks
 6. `sports-joint`: same-game chances from measured links (Gaussian copula,
    seeded simulation, held-out check per kind of pair)
-7. `sports-mcp`: read-only MCP tools; evaluate returns a Pick Builder link to
-   save from (no MCP save tool)
+7. `sports-mcp`: six read-only Owner MCP tools; evaluate returns a Pick
+   Builder link to save from (no MCP save tool)
 
 ## Tests
 
 ```bash
-npm run test:sports           # access, route, time zones, keys, schema, wiring, both adapters, ingest, views, payout math, the journal, the stat models and same-game chances
+npm run test:sports           # access, route, time zones, keys, schema, wiring, both adapters, ingest, views, payout math, the journal, the stat models, same-game chances and the MCP tools
 npm run test:sports-browser   # Owner / member / signed-out at 1440 and 390, boards, games, logs, forecasts, the model check, the Pick Builder flow and a same-game estimate
 node scripts/regen-sports.mjs # rebuild index.html / app.js / styles.css without data/
 ```
