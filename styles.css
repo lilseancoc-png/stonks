@@ -638,6 +638,10 @@ body:not(.is-owner) [data-page-tab="research-lab"],body:not(.is-owner) #page-pan
 .sp-pos { color: var(--pos); }
 .sp-neg { color: var(--neg); }
 .sp-dist { font-size: calc(12.5px * var(--ts, 1)); color: var(--muted-strong); font-variant-numeric: tabular-nums; }
+.sp-links { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 6px; font-size: calc(13px * var(--ts, 1)); }
+.sp-links li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; }
+.sp-link-val { font-variant-numeric: tabular-nums; color: var(--muted-strong); }
+.sp-link-val i { font-style: normal; color: var(--muted); }
 .sp-save { margin-top: 14px; display: grid; gap: 10px; }
 .sp-note-field input { width: 100%; }
 .sp-note-field { display: flex; }

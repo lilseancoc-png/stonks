@@ -29618,7 +29618,14 @@ function scenarioEventPhase(ev, now = Date.now()) {
           '. Chances off by ' + (v.ece == null ? '—' : (v.ece * 100).toFixed(1) + ' points') + ' on average.</span>' : '<span class="sp-muted">' + escape(v.reason || 'Not enough past games to check yet.') + '</span>') +
         (v.status !== 'validated' && v.test_n && v.reason ? '<span class="sp-muted">Why experimental: ' + escape(v.reason) + '.</span>' : '') + '</li>';
     }).join('');
-    return '<div class="sp-source sp-model"><h3>Model check</h3><ul class="sp-model-list">' + rows + '</ul>' +
+    const links = (M.links || []).filter((l) => l.test_pairs > 0 || l.status === 'validated');
+    const linkRows = links.length ? '<p class="sp-label">Same-game links</p><ul class="sp-model-list">' + links.map((l) => {
+      const bc = l.both_cleared || {};
+      return '<li><div class="sp-model-head"><b>' + escape(linkName(l.stats, l.relation)) + '</b>' + qualityBadge(l.status) + '</div><span>Link ' + signedLink(l.link) + '. ' +
+        (l.test_pairs ? Number(l.test_pairs).toLocaleString('en-US') + ' later pairs: both cleared ' + pct(bc.observed) + ', link said ' + pct(bc.copula) + ', unrelated said ' + pct(bc.independent) + '.' : '') + '</span>' +
+        (l.status !== 'validated' && l.reason ? '<span class="sp-muted">Why experimental: ' + escape(l.reason) + '.</span>' : '') + '</li>';
+    }).join('') + '</ul>' : '';
+    return '<div class="sp-source sp-model"><h3>Model check</h3><ul class="sp-model-list">' + rows + '</ul>' + linkRows +
       '<p class="sp-note">Each stat is forecast from games before the day it was played, then scored on the later games it never saw. To pass it needs 300+ games, a better score than both simple baselines, and chances off by 3 points or less. Past lines are not stored, so each check uses the player’s last-10 average as a stand-in line. Fitted on ' +
       escape((M.seasons || []).map((y) => (lgOf(src) === 'nba' ? y + '–' + String(y + 1).slice(2) : y)).join(', ') || 'stored seasons') + ' · ' + escape(M.model_version) + '.</p></div>';
   }
@@ -30006,16 +30013,19 @@ function scenarioEventPhase(ev, now = Date.now()) {
     const E = ev.evaluation, n = ev.legs.length, warn = [];
     ev.warnings.forEach((w) => warn.push(escape(w) + '.'));
     if (ev.locked) warn.push('A game in this entry has started. Paper picks are saved before the games.');
-    ev.same_game.forEach((g) => warn.push('Picks ' + joinList(g.legs.map((i) => String(i + 1))) + ' are from the same game. Their results move together, so the site does not calculate a chance of all of them hitting.'));
+    ev.same_game.forEach((g) => warn.push('Picks ' + joinList(g.legs.map((i) => String(i + 1))) + ' are from the same game. Their results move together, so ' +
+      (E.status === 'joint_estimate' ? 'they are priced with how such picks moved together in past games (below).' : 'they are priced only when every pair has a measured link.')));
     const be = E.breakeven_probability != null ? '<p>Breakeven: all ' + n + ' must hit together at least <b>' + pct(E.breakeven_probability) + '</b> of the time to pay back the stake on average.</p>' : '';
     let body = '';
     if (E.status === 'needs_payout') {
       const first = String(E.problems[0] || '');
       body = '<p><b>' + escape(first.charAt(0).toUpperCase() + first.slice(1)) + '.</b></p>' + be;
     } else if (E.status === 'not_calculated') {
-      body = be + '<p class="sp-muted">Picks from one game need a model of how they move together. That comes in a later update.</p>';
+      body = be + '<p class="sp-muted">No chance of all of them hitting is shown. ' + escape(E.detail || 'Picks from one game need a measured link between them.') + '</p>';
     } else if (E.status === 'needs_probabilities') {
       body = be + '<p class="sp-muted">Enter your chance for every pick to see the expected value.</p>';
+    } else if (E.status === 'joint_estimate') {
+      body = jointHtml(ev, E, n);
     } else {
       const tile = (name, value, sub) => '<div class="sp-tile"><span>' + name + '</span><b>' + value + '</b>' + (sub ? '<i>' + sub + '</i>' : '') + '</div>';
       const tiles = [
@@ -30031,6 +30041,32 @@ function scenarioEventPhase(ev, now = Date.now()) {
         '<p class="sp-note">Independence baseline: it assumes no pick affects another, using the chances entered above' + (fromHistory ? ' (some copied from history rates)' : '') + '. A starting point, not a forecast.</p>';
     }
     return '<div class="sp-eval">' + (warn.length ? '<ul class="sp-warn">' + warn.map((w) => '<li>' + w + '</li>').join('') + '</ul>' : '') + body + '</div>';
+  }
+  // Same-game estimate: the measured links between picks from one game,
+  // priced with the chances entered above (lib/sports/joint.mjs).
+  const RELATION_TEXT = { same_player: 'one player', teammate: 'teammates', opponent: 'opponents' };
+  function linkName(stats, relation) {
+    return (stats[0] === stats[1] ? label(stats[0]) : label(stats[0]) + ' and ' + label(stats[1]).toLowerCase()) + ', ' + RELATION_TEXT[relation];
+  }
+  const signedLink = (x) => (x > 0 ? '+' : x < 0 ? '−' : '') + Math.abs(x).toFixed(2);
+  function jointHtml(ev, E, n) {
+    const tile = (name, value, sub) => '<div class="sp-tile"><span>' + name + '</span><b>' + value + '</b>' + (sub ? '<i>' + sub + '</i>' : '') + '</div>';
+    const netRange = E.expected_net_range ? signedMoney(E.expected_net_range.low) + ' to ' + signedMoney(E.expected_net_range.high) + ' across the range' : null;
+    const tiles = [
+      tile('All ' + n + ' hit', pct(E.joint_probability), 'same-game estimate ' + qualityBadge(E.quality)),
+      tile('Range', pct(E.range.low) + ' – ' + pct(E.range.high), 'from how sure each link is'),
+      tile('If unrelated', pct(E.independent_probability), 'chances multiplied'),
+      E.breakeven_probability != null ? tile('Breakeven', pct(E.breakeven_probability), 'all ' + n + ' hit') : '',
+      tile('Expected back', money(E.expected_gross), 'on ' + money(ev.stake) + ' paper'),
+      tile('Expected profit', '<span class="' + (E.expected_net > 0 ? 'sp-pos' : E.expected_net < 0 ? 'sp-neg' : '') + '">' + signedMoney(E.expected_net) + '</span>', netRange || ((E.expected_roi > 0 ? '+' : '') + (E.expected_roi * 100).toFixed(1) + '% return')),
+    ].join('');
+    const dist = ev.format === 'flex' ? '<p class="sp-dist">Chance of each result: ' + E.distribution.map((p, k) => ({ p, k })).reverse().map((x) => x.k + ' hit ' + pct(x.p)).join(' · ') + '</p>' : '';
+    const links = '<ul class="sp-links">' + E.links.map((l) => '<li><b>Picks ' + (l.legs[0] + 1) + ' and ' + (l.legs[1] + 1) + '</b><span>' + escape(linkName(l.stats, l.relation)) + '</span>' +
+      '<span class="sp-link-val">link ' + signedLink(l.link) + ' <i>(95%: ' + signedLink(l.low) + ' to ' + signedLink(l.high) + ')</i></span>' + qualityBadge(l.status) + '</li>').join('') + '</ul>';
+    const why = E.quality === 'validated' ? '' : '<p class="sp-muted">Experimental: ' + escape(E.quality_reason || 'a link has not passed its check') + '.</p>';
+    return '<div class="sp-tiles">' + tiles + '</div>' + dist + '<p class="sp-label">How these picks moved together in past games</p>' + links + why +
+      '<p class="sp-note">The link runs from −1 to +1: above 0 means the two results went up and down together, 0 means unrelated. It is measured on the model’s misses in stored games (' + escape(E.as_of_date ? 'through ' + fmtDay(E.as_of_date) + ' ' + E.as_of_date.slice(0, 4) : 'stored seasons') +
+      ') and applied to the chances entered above, in ' + Number(E.simulation.draws).toLocaleString('en-US') + ' simulated games (seed ' + escape(E.simulation.seed) + ').' + (E.simulation.adjusted ? ' The links did not fit together exactly, so they were pulled slightly toward 0.' : '') + ' Picks from different games are treated as unrelated.</p>';
   }
   function canSave() {
     const ev = pb.evaluation;
@@ -30137,6 +30173,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   function savedEvalText(E) {
     if (!E) return '';
     if (E.status === 'independence_baseline') return 'At save: ' + pct(E.joint_probability) + ' all hit (independence baseline), expected ' + signedMoney(E.expected_net) + '.';
+    if (E.status === 'joint_estimate') return 'At save: ' + pct(E.joint_probability) + ' all hit (same-game estimate, ' + (E.quality === 'validated' ? 'passed the check' : 'experimental') + '), expected ' + signedMoney(E.expected_net) + '.';
     if (E.status === 'not_calculated') return 'At save: same-game picks, not priced.';
     if (E.status === 'needs_probabilities') return 'At save: no chances entered' + (E.breakeven_probability != null ? '; breakeven ' + pct(E.breakeven_probability) : '') + '.';
     return '';

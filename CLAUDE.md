@@ -33,7 +33,7 @@ by the daily `sports-data.yml` job (`scripts/sports-ingest.mjs`, one shared
 ingest in `lib/sports/ingest.mjs`; NFL from nflverse with sportsbook columns
 dropped, NBA from hoopR / ESPN box scores). The Pick Builder prices entries
 from typed-in payouts and owner chances (`lib/sports/payout.mjs`: breakeven,
-independence baseline, Fréchet range; same-game picks are not priced) and
+independence baseline, Fréchet range; same-game picks priced only with measured links) and
 keeps an append-only paper journal in R2 under a lease
 (`lib/sports/journal.mjs`, POST `evaluate` / `save-entry` / `revise-entry`,
 same-origin only); `?entry=` prefill links come from `lib/sports/prefill.mjs`. Stat forecasts
@@ -42,6 +42,10 @@ job into `_stonks/sports/v1/<sport>/model.json` with a dated holdout check
 (validated only with 300+ games, a better score than both baselines and
 calibration error ≤ 0.03); NFL keeps three extra finished seasons for the model
 only (`modelHistory`).
+The same refit measures same-game links (`lib/sports/joint.mjs`, stored as
+`joint` in `model.json`, checked on later games against independence); the
+Pick Builder prices same-game picks with them (Gaussian copula, seeded draws)
+and leaves a pair with no measured link unpriced.
 No AI, sportsbook or PrizePicks API calls, no line scraping, no bets. The Owner Market
 Brief, Research Lab evidence and MCP feature list leave Sports out. See
 `docs/sports/README.md`.

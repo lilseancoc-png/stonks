@@ -86,8 +86,11 @@ eq([leg.player_name, leg.matchup, leg.team, leg.opponent, leg.team_in_game], ['S
 eq(leg.history.all, { hits: 3, pushes: 0, games: 4 }, 'history: 31, 22, 28 and 27 against 24.5; the missed game is left out');
 eq(draft.locked, false);
 const same = await evaluateEntry({ load: load(), body: { legs: [curry('401900003'), pod('401900003')], operator: 'prizepicks', format: 'power', stake: 10, payouts: { 2: 3 } }, now: NOW });
-eq([same.evaluation.status, same.evaluation.reason, same.evaluation.breakeven_probability], ['not_calculated', 'same_game', 0.333333], 'same-game picks get no joint number, only the breakeven');
+eq([same.evaluation.status, same.evaluation.breakeven_probability], ['needs_probabilities', 0.333333], 'same-game picks without chances: only the breakeven');
 eq(same.same_game, [{ game: '401900003', legs: [0, 1] }]);
+const sameP = await evaluateEntry({ load: load(), body: { legs: [curry('401900003', { probability: 0.6 }), pod('401900003', { probability: 0.5 })], operator: 'prizepicks', format: 'power', stake: 10, payouts: { 2: 3 } }, now: NOW });
+eq([sameP.evaluation.status, sameP.evaluation.reason, sameP.evaluation.breakeven_probability, sameP.evaluation.joint_probability], ['not_calculated', 'same_game', 0.333333, undefined], 'no measured link in this small fixture: no joint number');
+ok(/no measured link|not been measured/.test(sameP.evaluation.detail), 'and the reason says why: ' + sameP.evaluation.detail);
 const priced = await evaluateEntry({ load: load(), body: { legs: [curry('401900003', { probability: 0.6 }), lebron('401900004', { probability: 0.55, probability_source: 'history' })], operator: 'betr', format: 'power', stake: 10, payouts: { 2: 3 } }, now: NOW });
 eq([priced.evaluation.status, priced.evaluation.joint_probability, priced.evaluation.expected_gross, priced.evaluation.expected_net], ['independence_baseline', 0.33, 9.9, -0.1], 'two games: the independence baseline');
 eq(priced.legs.map((l) => l.probability_source), ['owner', 'history'], 'where each chance came from is kept');
@@ -119,7 +122,7 @@ const D = await saveEntry({ store: st, load: load(), body: entryBody([curry('401
 const N = await saveEntry({ store: st, load: load(), body: { legs: [{ sport: 'nfl', player_id: '00-0007', game_id: KC_DEN, stat: 'receptions', side: 'over', threshold: 0.5 }], operator: 'other', format: 'power', stake: 5, payouts: { 1: 1.8 } }, now: EARLY, sub: OTHER });
 const E = await saveEntry({ store: st, load: load(), body: entryBody([curry('401900003')]), now: NOW, sub: OWNER }); // tonight
 ok(/^pe_[a-f0-9]{18}$/.test(A.entry_id) && A.by === ownerTag(OWNER) && !JSON.stringify(A).includes(OWNER), 'saved with an owner tag, never the Discord id');
-eq(A.evaluation.status, 'not_calculated', 'the same-game entry is saved without a joint number');
+eq(A.evaluation.status, 'needs_probabilities', 'the same-game entry without chances is saved without a joint number');
 eq([C.evaluation.status, C.evaluation.expected_net], ['independence_baseline', 1.5], 'the priced entry keeps its expected value');
 const journalRec = JSON.parse(st.objects.get(SPORTS_PREFIX + 'journal/entries.json'));
 eq(journalRec.events.length, 6, 'six entries appended');

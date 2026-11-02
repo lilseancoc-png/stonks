@@ -41,7 +41,10 @@ const ROLES = [
 
 // `days` game days from `start`, every team playing once a day (six games).
 // Returns rows (lib/sports/schema.mjs player games), games and players.
-export function nbaModelLeague({ seed = 7, days = 80, start = '2025-10-21', season = 2025 } = {}) {
+// `pace` > 0 gives each game a shared speed (a scoring multiplier with that
+// spread, for both teams), so points in one game move together; the
+// same-game tests use it. The default 0 leaves the league as it was.
+export function nbaModelLeague({ seed = 7, days = 80, start = '2025-10-21', season = 2025, pace = 0 } = {}) {
   const rand = rng(seed);
   const players = [];
   for (const team of MODEL_TEAMS) {
@@ -63,12 +66,13 @@ export function nbaModelLeague({ seed = 7, days = 80, start = '2025-10-21', seas
       const home = order[g], away = order[g + 1];
       const game_id = 'm' + season + String(d).padStart(3, '0') + g;
       const score = { [home]: 0, [away]: 0 };
+      const speed = pace > 0 ? Math.exp(pace * gauss(rand) - pace * pace / 2) : 1;
       for (const team of [home, away]) {
         const opp = team === home ? away : home;
         for (const p of players.filter((x) => x.team === team)) {
           const played = rand() > 0.02;
           const minutes = played ? Math.max(4, Math.min(46, Math.round(p.minutes + gauss(rand) * 3.5))) : 0;
-          const mu = minutes * p.pts * effect(opp) * (team === home ? 1.03 : 0.97);
+          const mu = minutes * p.pts * effect(opp) * (team === home ? 1.03 : 0.97) * speed;
           const points = played ? poisson(rand, mu * gammaMean1(rand, 6)) : null;
           const rebounds = played ? poisson(rand, minutes * p.reb * gammaMean1(rand, 12)) : null;
           if (played) score[team] += points;
