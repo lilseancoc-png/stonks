@@ -162,6 +162,16 @@ eq((await call({ sports: 'player', sport: 'nfl', id: '../status' })).statusCode,
 eq((await call({ sports: 'player', sport: 'nfl', id: '00-9999' })).statusCode, 404, 'unknown player is 404');
 eq((await call({ sports: 'player', sport: 'nfl', id: '00-0006' })).body.total_games, 3, 'player log through the route');
 eq((await call({ sports: 'game', sport: 'nfl', id: '2026_08_CHI_SEA' })).body.game.game_id, '2026_08_chi_sea', 'game ids are case-insensitive');
+// The older finished seasons the job keeps for the model add to the meetings
+// (most NFL pairs do not meet every season); the player numbers stay on the
+// two stored seasons.
+eq((await call({ sports: 'game', sport: 'nfl', id: '2026_08_chi_sea' })).body.matchup.meetings.filter((m) => m.season < 2025).length, 0, 'no older meetings stored yet');
+st.objects.set(SPORTS_PREFIX + 'nfl/games/2023.json', JSON.stringify({ schema_version: 1, sport: 'nfl', season: 2023, games: [
+  { sport: 'nfl', game_id: '2023_05_sea_chi', season: 2023, week: 5, season_type: 'REG', start_utc: '2023-10-08T17:00:00Z', local_date: '2023-10-08', home_team: 'chi', away_team: 'sea', status: 'final', home_score: 20, away_score: 17 },
+  { sport: 'nfl', game_id: '2023_06_kc_den', season: 2023, week: 6, season_type: 'REG', start_utc: '2023-10-12T00:15:00Z', local_date: '2023-10-11', home_team: 'den', away_team: 'kc', status: 'final', home_score: 8, away_score: 19 }] }));
+const oldMeet = (await call({ sports: 'game', sport: 'nfl', id: '2026_08_chi_sea' })).body.matchup;
+eq(oldMeet.meetings.filter((m) => m.season === 2023).map((m) => m.game_id), ['2023_05_sea_chi'], 'meetings reach into the older seasons kept for the model');
+eq(oldMeet.meeting_summary.wins.chi >= 1, true, 'and count in the series record');
 eq((await call({ sports: 'players', sport: 'nfl', q: 'kelce' })).body.players[0].name, 'Travis Kelce', 'search through the route');
 eq((await call({ sports: 'board', sport: 'nfl' }, deps({ sub: 'm', tr: false, tp: false }))).statusCode, 403, 'members never reach league views');
 const brokenStore = { rawGet: async () => Buffer.from('{not json'), backend: 'mem' };

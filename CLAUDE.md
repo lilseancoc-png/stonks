@@ -31,7 +31,10 @@ stat the pages, charts, Pick Builder and MCP take comes from one catalog,
 `SPORTS_STATS` in `lib/sports/schema.mjs` (groups Main / Combos / More;
 `model: true` must match `MODEL_SPECS`); combos such as PRA or rush +
 receiving yards are summed from stored stats as rows are read (`statValue`),
-so adding one needs no re-ingest.
+so adding one needs no re-ingest. Each game panel has a Matchup section
+(`matchupView`, the two teams before that game with league ranks, what each
+defense allows by position, stored meetings) and each player's average
+against that opponent.
 `SPORTS_ENABLED=0` is the kill switch. Records are JSON in
 `_stonks/sports/v1/` (raw internal prefix, never published or synced), written
 by the daily `sports-data.yml` job (`scripts/sports-ingest.mjs`, one shared

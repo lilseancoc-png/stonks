@@ -97,7 +97,32 @@ Sort any column, or chart one measure for every team against the league
 average. Selecting a team opens its players in Player stats.
 
 The game panel can switch every player to one stat and shows each player's
-last ten games as small bars around their own average. Each Pick Builder pick
+last ten games as small bars around their own average, and a **vs opponent**
+column: the player's average against tonight's opponent over this season and
+last, with the number of games.
+
+**Matchup** (top of the game panel, `matchupView` in `lib/sports/read.mjs`;
+everything is this season before this game):
+
+- Both teams side by side: record, home and away records, last 10, streak,
+  points scored and allowed per game and point difference from final scores,
+  then the chosen stat (or rebounds, assists and threes for the NBA; passing,
+  rushing and receiving yards for the NFL) scored and allowed per game.
+- What each defense allows to each position group (NBA guards / forwards /
+  centers, NFL QB / RB / WR / TE) for the chosen stat, or each group's usual
+  stat (points; passing, rushing or receiving yards), next to the league
+  average.
+- Each number carries its league rank: 1st is the best record, the most
+  scored and the **fewest allowed** (the toughest defense). The top fifth of
+  defenses is tagged "tough" and the bottom fifth "soft".
+- The last 10 stored meetings between the two teams (both stored seasons,
+  plus the three older NFL seasons the job keeps for the model, since most
+  NFL pairs do not meet every season; playoffs included) with the series
+  record and average total. Only the meetings reach into those older
+  seasons; player numbers stay on the two stored seasons.
+
+Team numbers come from the same pure `teamTable` as the Team stats view, cut
+to games before this one, so an old game shows what was known then. Each Pick Builder pick
 shows its last ten games against its own line (green would have won); those
 values are not saved with an entry.
 
@@ -122,7 +147,9 @@ the project at 12).
   - `board&sport=&tz=`: games starting today or tomorrow in that zone, plus
     the next game after the window.
   - `game&sport=&id=`: the players each team used in its last three games this
-    season, with averages of every stat from games before this one.
+    season, with averages of every stat from games before this one and each
+    player's averages against this opponent (`vs_opp`, this season and
+    last), plus `matchup` (below).
   - `players&sport=&q=`: player search (accents and punctuation ignored).
   - `player&sport=&id=`: a player's latest 40 stored games, with last 5, last
     10, all stored, median, low and high for each stat.
@@ -457,7 +484,8 @@ stored games, model and seed give the same answer. `SPORTS_ENABLED=0` hides
 them. `sports_get_game` returns each player's averages as one map per
 measure (`last5`, `last10`, `average`, `median`, `low`, `high`,
 `stat_games`), each keyed by stat, for the league's main stats or the
-`stats` named; `sports_evaluate_entry` returns each pick's history as
+`stats` named, with `vs_opp_avg` / `vs_opp_games`, and the `matchup`
+limited to the same stats; `sports_evaluate_entry` returns each pick's history as
 `hit_history`. Both shapes keep the numbers inside the MCP's size limit,
 which shortens deep objects and drops keys named `history`.
 
@@ -523,6 +551,9 @@ One branch and pull request each, from `main`:
 9. `sports-combos`: one stat catalog with every stored stat and the combos
    (PRA, P+R, P+A, R+A, B+S, fantasy, rush + receiving yards, pass + rush
    yards) on every page, chart and the Pick Builder
+10. `sports-matchup`: the game panel's Matchup section (both teams with
+    league ranks, what each defense allows by position, recent meetings) and
+    each player's averages against the opponent
 
 ## Tests
 
