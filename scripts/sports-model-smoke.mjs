@@ -236,7 +236,7 @@ const nfl = await ingestLeague({ adapter: NFL_SOURCE, store: job, fetchText, now
 eq(NFL_SOURCE.modelHistory, 3, 'NFL keeps three older seasons for the model');
 const noHistory = await ingestLeague({ adapter: { ...NFL_SOURCE, modelHistory: 0 }, store: fakeR2(), fetchText, now: INGEST_NOW });
 eq([nfl.status.state, nfl.status.seasons, nfl.status.counts], [noHistory.status.state, [2025, 2026], noHistory.status.counts], 'missing older seasons never fail the run or change the pages');
-ok(/2022 history for the model is unavailable/.test(nfl.status.message), 'and are noted');
+ok(/older seasons for the model are unavailable: 2022, 2023, 2024(;|$)/.test(nfl.status.message), 'and are noted in one line');
 const keys = [...job.objects.keys()].map((k) => k.slice(SPORTS_PREFIX.length));
 ok(keys.includes('nfl/model.json') && !keys.some((k) => /\/(2022|2023|2024)\.json$/.test(k)), 'nothing is stored for a missing older season');
 // A finished older season already in the store is used as is: no download.
@@ -250,7 +250,7 @@ const withHistory = await ingestLeague({ adapter: NFL_SOURCE, store: job2, fetch
 eq(withHistory.status.seasons, [2025, 2026], 'pages still read two seasons');
 eq(withHistory.status.model.seasons, [2024, 2025, 2026], 'the model also reads the stored older season');
 ok(!asked.includes(NFLVERSE_URLS.weekly(2024)), 'a stored finished season is not downloaded again');
-ok(/2023 history for the model is unavailable/.test(withHistory.status.message) && !/2024 history/.test(withHistory.status.message), 'only the missing one is noted (no 2023 schedule in the fixture, so its stats are not even asked for)');
+ok(/older seasons for the model are unavailable: 2022, 2023(;|$)/.test(withHistory.status.message), 'only the missing ones are noted (no 2023 schedule in the fixture, so its stats are not even asked for)');
 ok(!asked.includes(NFLVERSE_URLS.weekly(2023)));
 
 console.log(`Sports model smoke passed (${checks} checks).`);
