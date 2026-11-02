@@ -60,6 +60,8 @@ export function renderSportsCss() {
 .sp-table .sp-n { text-align: right; }
 .sp-table tr.sp-key td:first-child { font-weight: 600; }
 .sp-table tr.sp-dnp td { color: var(--muted-strong); }
+.sp-table td.sp-wrap { white-space: normal; min-width: 14em; }
+.sp-fc-none { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13px; }
 .sp-link { font: inherit; color: var(--accent); background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
 .sp-link:hover { text-decoration: underline; }
 .sp-search { margin-top: 18px; }

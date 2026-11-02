@@ -188,6 +188,8 @@ try {
         await form.locator('[data-sp-addpick]').click();
         assert(/Added\. The entry has 1 pick\./.test(await form.locator('[data-sp-pick-msg]').innerText()), 'the pick goes into the Pick Builder draft');
         assert(/Model forecast for the next game[\s\S]*fewer than 5 stored games/i.test(nbaLog), 'too few games: the model says so instead of guessing: ' + nbaLog.slice(0, 700));
+        assert.equal(await page.locator('#sports-nba-root [data-sp-panel="player"] .sp-fc-none li').count(), 2, 'no forecast at all: a short list per stat, not a table of empty columns');
+        assert.equal(await page.locator('#sports-nba-root [data-sp-panel="player"] table.sp-fc').count(), 0);
         const side = await page.locator('#sports-nba-root .sp-model').innerText();
         assert(/Model check/i.test(side) && /Points\s*Passed the check/.test(side) && /Rebounds\s*Experimental/.test(side) && /did not beat both simple baselines/.test(side) && /sports-model-1/.test(side), 'the model check card: ' + side);
         assert(/Same-game links/i.test(side) && /Points and rebounds, one player/.test(side) && /later pairs: both cleared/.test(side), 'the card lists the same-game links and their check: ' + side);

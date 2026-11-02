@@ -29739,13 +29739,16 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (G && F) {
       const fr = P.stats.map((st) => {
         const f = F.forecasts[st] || {};
-        if (f.status !== 'ok') return '<tr><td>' + escape(label(st)) + '</td><td colspan="3" class="sp-muted">' + escape(modelReason(f, lg)) + '</td></tr>';
+        if (f.status !== 'ok') return '<tr><td>' + escape(label(st)) + '</td><td colspan="3" class="sp-muted sp-wrap">' + escape(modelReason(f, lg)) + '</td></tr>';
         return '<tr><td>' + escape(label(st)) + ' ' + qualityBadge(f.quality) + '</td><td class="sp-n"><b>' + escape(Number(f.mean).toFixed(1)) + '</b></td><td class="sp-n">' + escape(f.low) + ' – ' + escape(f.high) + '</td><td class="sp-lines">' +
           (f.lines || []).map((x) => '<span>' + escape(x.threshold) + ' <b>' + pct(x.over) + '</b></span>').join('') + '</td></tr>';
       }).join('');
       const any = P.stats.map((st) => F.forecasts[st]).find((f) => f && f.status === 'ok');
-      forecast = '<h5>Model forecast for the next game</h5><p class="sp-muted sp-fc-game">' + (F.home ? 'vs ' : '@ ') + team(F.opponent) + ' · ' + escape(fmtWhen(G.start_utc, zone())) + '</p>' +
-        '<div class="sp-table-wrap"><table class="sp-table sp-fc" data-nosort><thead><tr><th>Stat</th><th class="sp-n">Expected</th><th class="sp-n">80% range</th><th>Chance of the over at each line</th></tr></thead><tbody>' + fr + '</tbody></table></div>' +
+      // With no forecast at all, a plain list reads better than a table of
+      // empty columns (and does not run off a phone screen).
+      const table = any ? '<div class="sp-table-wrap"><table class="sp-table sp-fc" data-nosort><thead><tr><th>Stat</th><th class="sp-n">Expected</th><th class="sp-n">80% range</th><th>Chance of the over at each line</th></tr></thead><tbody>' + fr + '</tbody></table></div>'
+        : '<ul class="sp-fc-none">' + P.stats.map((st) => '<li><b>' + escape(label(st)) + '</b> <span class="sp-muted">' + escape(modelReason(F.forecasts[st] || {}, lg)) + '</span></li>').join('') + '</ul>';
+      forecast = '<h5>Model forecast for the next game</h5><p class="sp-muted sp-fc-game">' + (F.home ? 'vs ' : '@ ') + team(F.opponent) + ' · ' + escape(fmtWhen(G.start_utc, zone())) + '</p>' + table +
         (any ? '<p class="sp-note">Built from ' + escape(any.games) + ' stored games: about ' + escape(any.expected_opportunity) + ' ' + escape(any.unit) + ' expected' + (any.regular_role ? '' : ' (a smaller role than the check covers, so it stays experimental)') +
           ', opponent factor ' + escape(any.opponent_factor) + ', ' + (F.home ? 'home' : 'away') + '. Model fitted on games through ' + escape(any.as_of_date ? fmtDay(any.as_of_date) + ' ' + any.as_of_date.slice(0, 4) : '—') + '. A forecast, not a promise: injuries, rest and role changes are not in the data.</p>' : '');
     } else if (G) forecast = '<h5>Model forecast for the next game</h5><p class="sp-muted">The model has not been fitted yet.</p>';
@@ -29997,7 +30000,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       return [name, rows];
     });
     const max = Math.max(D.ref || 0, ...built.flatMap((g) => g[1].map((x) => x.avg))) || 1;
-    const refPct = isNum(D.ref) ? Math.min(100, (D.ref / max) * 100) : null;
+    const refPct = isNum(D.ref) ? Math.max(0, Math.min(100, (D.ref / max) * 100)) : null;
     const word = isNum(D.line) ? 'over ' + fv(D.line) : 'above avg';
     return built.filter((g) => g[1].length).map(([name, rows]) => '<div class="sp-split"><h6>' + escape(name) + '</h6><ul>' + rows.map((x) =>
       '<li><span class="sp-split-name">' + escape(x.lab) + '</span><span class="sp-split-track"><i class="sp-split-bar ' + sideCls(x.avg, D.ref) + '" style="width:' + Math.max(1, (Math.max(0, x.avg) / max) * 100).toFixed(1) + '%"></i>' +
@@ -30148,10 +30151,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (Q.mode === 'chart') {
       const st = Q.sort, list = sortList(rows, (p) => p.values[st], 'desc').filter((p) => isNum(p.values[st])).slice(0, 20);
       if (!list.length) return emptyBox('No ' + label(st).toLowerCase() + ' stored for these players.');
-      const vals = rows.map((p) => p.values[st]).filter(isNum), a = avgOf(vals), max = Math.max(...list.map((p) => p.values[st]), a) || 1;
+      const vals = rows.map((p) => p.values[st]).filter(isNum), a = avgOf(vals), max = Math.max(...list.map((p) => p.values[st]), a, 0) || 1;
       return '<p class="sp-ch-legend"><span><i class="sp-swatch is-over"></i>Above the average of all ' + vals.length + ' players shown</span><span><i class="sp-swatch is-under"></i>Below</span><span><i class="sp-key-line sp-key-avg"></i>Average ' + escape(f1(a)) + '</span></p>' +
         '<ol class="sp-hbars">' + list.map((p, i) => '<li><span class="sp-hb-rank">' + (i + 1) + '</span><span class="sp-hb-name"><button type="button" class="sp-link" data-sp-player="' + escape(p.player_id) + '">' + escape(p.name) + '</button> <small>' + team(p.team) + ' · ' + escape(p.position || '') + '</small></span>' +
-          '<span class="sp-hb-track"><i class="sp-hb-bar ' + sideCls(p.values[st], a) + '" style="width:' + ((Math.max(0, p.values[st]) / max) * 100).toFixed(1) + '%"></i><i class="sp-split-ref" style="left:' + ((a / max) * 100).toFixed(1) + '%"></i></span>' +
+          '<span class="sp-hb-track"><i class="sp-hb-bar ' + sideCls(p.values[st], a) + '" style="width:' + ((Math.max(0, p.values[st]) / max) * 100).toFixed(1) + '%"></i><i class="sp-split-ref" style="left:' + Math.max(0, Math.min(100, (a / max) * 100)).toFixed(1) + '%"></i></span>' +
           '<span class="sp-hb-val">' + escape(f1(p.values[st])) + '</span></li>').join('') + '</ol>' +
         '<p class="sp-note">Top 20 by ' + escape(label(st).toLowerCase()) + ', ' + escape(per) + '. Select a name for charts and the game log.</p>';
     }
@@ -30196,11 +30199,11 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (Q.mode === 'chart') {
       const side = Q.side, list = sortList(D.teams, (t) => teamValue(t, side, st), 'desc').filter((t) => isNum(teamValue(t, side, st)));
       if (!list.length) return emptyBox('No ' + label(st).toLowerCase() + ' stored for this season.');
-      const vals = list.map((t) => teamValue(t, side, st)), a = avgOf(vals), max = Math.max(...vals, a) || 1;
+      const vals = list.map((t) => teamValue(t, side, st)), a = avgOf(vals), max = Math.max(...vals, a, 0) || 1;
       const what = side === 'for' ? 'scored per game' : side === 'against' ? 'allowed per game' : 'allowed to ' + (GROUP_NAMES[side.slice(3)] || side.slice(3)).toLowerCase() + ' per game';
       return '<p class="sp-ch-legend"><span><i class="sp-swatch is-over"></i>Above the league average</span><span><i class="sp-swatch is-under"></i>Below</span><span><i class="sp-key-line sp-key-avg"></i>Average ' + escape(f1(a)) + '</span></p>' +
         '<ol class="sp-hbars">' + list.map((t, i) => '<li><span class="sp-hb-rank">' + (i + 1) + '</span><span class="sp-hb-name"><button type="button" class="sp-link" data-sp-team-pick="' + escape(t.team) + '">' + team(t.team) + '</button> <small>' + escape(t.wins + '-' + t.losses + (t.ties ? '-' + t.ties : '')) + '</small></span>' +
-          '<span class="sp-hb-track"><i class="sp-hb-bar ' + sideCls(teamValue(t, side, st), a) + '" style="width:' + ((Math.max(0, teamValue(t, side, st)) / max) * 100).toFixed(1) + '%"></i><i class="sp-split-ref" style="left:' + ((a / max) * 100).toFixed(1) + '%"></i></span>' +
+          '<span class="sp-hb-track"><i class="sp-hb-bar ' + sideCls(teamValue(t, side, st), a) + '" style="width:' + ((Math.max(0, teamValue(t, side, st)) / max) * 100).toFixed(1) + '%"></i><i class="sp-split-ref" style="left:' + Math.max(0, Math.min(100, (a / max) * 100)).toFixed(1) + '%"></i></span>' +
           '<span class="sp-hb-val">' + escape(f1(teamValue(t, side, st))) + '</span></li>').join('') + '</ol>' +
         '<p class="sp-note">' + escape(label(st)) + ' ' + escape(what) + ', summed over each team’s players.' + (side === 'for' ? '' : ' Higher means the defense gives up more, which favors overs against it.') + ' Select a team to see its players.</p>';
     }
