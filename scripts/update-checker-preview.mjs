@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { resolve,extname } from 'node:path';
 import { fileURLToPath,pathToFileURL } from 'node:url';
-import { UPDATE_FEATURES } from '../lib/update-checker.mjs';
+import { UPDATE_FEATURES,inspectFeature } from '../lib/update-checker.mjs';
 import { fixtureReport,CHECKER_FIXTURE_TIME } from './fixtures/update-checker.mjs';
 export { CHECKER_FIXTURE_TIME } from './fixtures/update-checker.mjs';
 import { handleUpdateChecker } from '../lib/update-checker-http.mjs';
@@ -15,13 +15,21 @@ export async function createUpdateCheckerPreview({port=0}={}) {
   let scenario='owner',requests=0;
   const store={async rawGet(){
     if(scenario==='unknown')return null;
-    const report=fixtureReport(['feature-only','healthy','stale-monitor','stuck'].includes(scenario));
+    const report=fixtureReport(['feature-only','healthy','stale-monitor','stuck','sources'].includes(scenario));
     if(scenario==='stale-monitor')report.checkedAt='2026-11-01T16:00:00Z';
     if(scenario==='stuck')report.runs.unshift({...report.runs[0],id:101,status:'in_progress',conclusion:'pending',startedAt:'2026-11-01T16:00:00Z'});
-    if(!['healthy','stale-monitor','stuck'].includes(scenario))for(const f of report.features){
+    if(!['healthy','stale-monitor','stuck','sources'].includes(scenario))for(const f of report.features){
       if(f.id==='owner-market-brief')Object.assign(f,{status:'missing',detail:'No published output found.'});
       if(f.id==='calendar')Object.assign(f,{status:'invalid',detail:'Published output contains invalid JSON.'});
       if(f.id==='heatmap')Object.assign(f,{status:'stale',detail:'The output exceeds its freshness window.'});
+    }
+    if(scenario==='sources'){
+      const payloads={
+        calendar:{events:[],coverage:{officialSources:{'ism-2026':false}}},
+        news:{sourceHealth:[{id:'ir-lly',label:'PRIVATE_SENTINEL',status:'error',error:'HTTP 403 PRIVATE_SENTINEL'}]},
+        'owner-market-brief':{coverage:[{key:'ram-prices.json',status:'degraded'}]},
+      };
+      report.features=report.features.map(row=>payloads[row.id]?inspectFeature(UPDATE_FEATURES.find(s=>s.id===row.id),{builtAtIso:CHECKER_FIXTURE_TIME,...payloads[row.id]},Date.parse(CHECKER_FIXTURE_TIME)):row);
     }
     if(scenario==='logs')report.runs[0].diagnostics.findings=[{kind:'ai-down',detail:'AI calls failed; cached output may have been reused.',count:2}];
     return Buffer.from(JSON.stringify(report));

@@ -11,6 +11,7 @@ function esc(value) {
 }
 
 function num(value) {
+  if(value==null || (typeof value==='string' && !value.trim()) || typeof value==='boolean')return null;
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
 }
@@ -153,6 +154,7 @@ const state = {
   ivLookup: "",
   streakQuery: "",
   earnQuery: "",
+  earnRange: "focus",
   narrQuery: "",
   spillQuery: "",
   breadthQuery: "",
@@ -255,7 +257,7 @@ function scatterHtml(opts) {
   }
   const xs = points.map((point) => point.x);
   const ys = points.map((point) => point.y);
-  const [x0, x1] = padRange(Math.min(...xs), Math.max(...xs));
+  const [x0, x1] = opts.xDomain || padRange(Math.min(...xs), Math.max(...xs));
   const [y0, y1] = padRange(Math.min(...ys), Math.max(...ys));
   const W = 640;
   const H = 280;
@@ -305,13 +307,13 @@ function scatterHtml(opts) {
   }).join("");
   const xLabels = axisTicks(x0, x1, x0 < 0 && x1 > 0 ? [0] : []).slice().reverse();
   const hoverHits = query ? hover.filter((row) => String(row[2] || "").toUpperCase().startsWith(query)) : hover;
-  const svg = `<svg class="book-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="${esc(opts.aria)}" data-ch-xy="1" data-ch="${esc(JSON.stringify(hoverHits.length ? hoverHits : hover))}">${guides}${marks}</svg>`;
+  const svg = `<svg class="book-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="${esc(opts.aria)}" data-x-min="${x0}" data-x-max="${x1}" data-ch-xy="1" data-ch="${esc(JSON.stringify(hoverHits.length ? hoverHits : hover))}">${guides}${marks}</svg>`;
   const hits = query ? points.filter((point) => point.symbol && point.symbol.startsWith(query)) : [];
   const hitHtml = !query ? "" : hits.length
     ? `<ul class="book-hits">${hits.slice(0, 8).map((point) => `<li><b>${esc(point.symbol)}</b><span>${esc(point.hit || "")}</span></li>`).join("")}</ul>` +
       (hits.length > 8 ? `<p class="book-note">${hits.length - 8} more matches. Keep typing.</p>` : "")
     : `<p class="book-note">No plotted name starts with ${esc(query)}.</p>`;
-  return `<div class="book-plot"><div class="book-y" aria-hidden="true">${yLabels}</div><div class="book-plot-main">${svg}<div class="book-x">${xLabels.map((tick) => `<span>${esc(opts.xFmt(tick))}</span>`).join("")}</div><div class="book-axis-caption"><span>${esc(opts.xName)}</span><span>${esc(opts.yName)}</span></div></div></div>` +
+  return `<div class="book-plot book-scatter"><div class="book-y-axis"><div class="book-axis-y-title">${esc(opts.yName)}</div><div class="book-y" aria-hidden="true">${yLabels}</div></div><div class="book-plot-main">${svg}<div class="book-x" aria-hidden="true">${xLabels.map(tick => `<span class="${tick===x0?'is-first':tick===x1?'is-last':''}" data-axis-value="${tick}" style="left:${(xAt(tick)/W*100).toFixed(3)}%">${esc(opts.xFmt(tick))}</span>`).join("")}</div><div class="book-axis-x-title">${esc(opts.xName)}</div></div></div>` +
     hitHtml + (opts.legend || "");
 }
 
@@ -1502,15 +1504,20 @@ async function renderEarnings() {
       });
     }
     if (gen !== earningsGen) return;
+    const focused=state.earnRange==='focus';
+    const visible=focused?points.filter(p=>Math.abs(p.x)<=50):points;
+    const outside=points.length-visible.length;
     mount(id, shell(
       id,
       "Surprise against the report-day move",
-      `<div class="book-controls">${searchField("earn-query", "Ticker", state.earnQuery, "ACN")}<span class="book-count">${esc(season.fiscal || season.key || "Season")} · ${points.length} prints${missing ? " · " + missing + " missing a surprise or a move" : ""}</span></div>` +
+      `<div class="book-controls">${searchField("earn-query", "Ticker", state.earnQuery, "ACN")}${selectControl('earn-range','Range',state.earnRange,[['focus','Typical surprises (±50%)'],['all','All reports']])}<span class="book-count">${esc(season.fiscal || season.key || "Season")} · ${visible.length} of ${points.length} reports shown${missing ? " · " + missing + " missing a surprise or a move" : ""}</span></div>` +
+        (outside?`<p class="book-note">${outside} report${outside===1?' is':'s are'} outside ±50% EPS surprise. Choose All reports to include ${outside===1?'it':'them'}. The season table retains every report.</p>`:'')+
         scatterHtml({
-          points,
+          points:visible,
+          xDomain:focused?[-50,50]:null,
           query: state.earnQuery,
-          xName: "EPS surprise, stored percent",
-          yName: "Report-day move",
+          xName: "EPS surprise (%) · missed ← 0 → beat",
+          yName: "Share-price reaction (%)",
           xFmt: (value) => pct(value, 0),
           yFmt: (value) => pct(value, 0),
           aria: "EPS surprise against report-day move for " + (season.fiscal || "the season"),
@@ -1523,7 +1530,7 @@ async function renderEarnings() {
             { color: EARNINGS_COLOR["miss-rose"], label: "Missed, then rose" },
           ]),
         }),
-      "Vertical guides sit at the tracker’s existing ±1% in-line band. Dot color uses the stored EPS read and the stored report-day move, the same beat-but-fell and missed-but-rose split as the scoreboard. This plot follows the season selected above.",
+      "Horizontal axis: reported EPS versus the analyst estimate. Vertical axis: the share-price close-to-close move on the reaction session, the same day for before-open reports and the next trading session for after-close reports. The dashed ±1% surprise guides mark in-line results. Hover a dot or look up a ticker for its values. Missing values are excluded rather than shown as zero.",
     ));
   } catch (err) {
     fail(id, "Surprise against the report-day move", "The earnings plot could not be loaded (" + err.message + ").");
@@ -1901,6 +1908,7 @@ function boot() {
     if (name === "iv-lookup") { state.ivLookup = control.value; renderIvHist(); }
     if (name === "streak-query") { state.streakQuery = control.value; renderStreaks(); }
     if (name === "earn-query") { state.earnQuery = control.value; renderEarnings(); }
+    if (name === "earn-range") { state.earnRange = control.value==='all'?'all':'focus'; renderEarnings(); }
     if (name === "narr-query") { state.narrQuery = control.value; renderNarratives(); }
     if (name === "spill-query") { state.spillQuery = control.value; renderSpill(); }
     if (name === "breadth-query") { state.breadthQuery = control.value; renderBreadth(); }

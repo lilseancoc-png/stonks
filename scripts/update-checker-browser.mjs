@@ -45,6 +45,14 @@ try {
   }
   preview.setScenario('feature-only');let extra=await pageAt();await extra.goto(preview.base+'/?tab=home');await extra.locator('#update-checker-notice').waitFor();check((await extra.locator('#update-checker-notice').innerText()).includes('3 checks'),'Feature-only issues notify owners away from checker');await extra.close();
   preview.setScenario('healthy');extra=await pageAt();await extra.goto(preview.base+'/?tab=update-checker');await extra.locator('.uc-all-clear').waitFor();check((await extra.locator('#update-checker-root').innerText()).includes('No issues detected'),'Healthy run and outputs');check(!(await extra.locator('#update-checker-notice').isVisible()),'Healthy state clears notice');await extra.close();
+  preview.setScenario('sources');extra=await pageAt(390);await extra.goto(preview.base+'/?tab=update-checker');
+  const sources=extra.locator('#update-checker-root');await sources.locator('.uc-feature:visible').first().waitFor();
+  const sourceText=await sources.innerText();
+  check(sourceText.includes('Eli Lilly (HTTP 403)') && sourceText.includes('ISM') && sourceText.includes('Memory chip prices'),'Actual inspection details reach the status page');
+  check(!sourceText.includes('PRIVATE_SENTINEL'),'Private error text is withheld through API and browser');
+  check(await sources.locator('.uc-feature:visible').count()===3,'Source failures appear under Needs review');
+  preview.setScenario('healthy');await sources.locator('[data-uc-refresh]').click();await sources.locator('.uc-all-clear').waitFor();
+  check(await sources.locator('.uc-feature:visible').count()===0,'Recovered source checks clear on refresh');await extra.close();
   for(const [scenario,message] of [['stale-monitor','90-minute heartbeat'],['stuck','queued or running for over 90 minutes'],['logs','AI calls failed']]){
     preview.setScenario(scenario);const diagnosticPage=await pageAt();await diagnosticPage.goto(preview.base+'/?tab=update-checker');await diagnosticPage.locator('#update-checker-root h3').first().waitFor();check((await diagnosticPage.locator('#update-checker-root').innerText()).includes(message),scenario+' surfaced');check(await diagnosticPage.locator('#update-checker-notice').isVisible(),scenario+' notice');await diagnosticPage.close();
   }

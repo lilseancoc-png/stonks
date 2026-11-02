@@ -36,7 +36,7 @@ export async function createPartyPreview({ port = 0, payload = null } = {}) {
     const key = url.searchParams.get('data');
     if (url.pathname === '/api/auth/me' && !key) {
       const open = !['anonymous', 'tp-only', 'tr-only', 'disabled'].includes(scenario);
-      return json({ enabled: scenario !== 'disabled', trackRecord: open, topPicks: open, authenticated: scenario !== 'anonymous' });
+      return json({ enabled: scenario !== 'disabled', trackRecord: open, topPicks: open, authed: scenario !== 'anonymous', authenticated: scenario !== 'anonymous' });
     }
     if (key === 'party-tracker.json') {
       if (['anonymous', 'tp-only', 'tr-only', 'disabled'].includes(scenario)) return json({ error: 'Owner role required' }, 401);

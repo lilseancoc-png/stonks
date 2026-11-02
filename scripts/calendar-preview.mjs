@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve, extname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { buildCalendarPayload } from './build.mjs';
+import { ismBaselineEvents,ISM_SCHEDULE_VERIFIED_AT } from '../lib/calendar-sources.mjs';
 
 export async function createCalendarPreview({ port = 0, asOfIso = null } = {}) {
   const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -24,6 +25,7 @@ export async function createCalendarPreview({ port = 0, asOfIso = null } = {}) {
   // even before a new calendar snapshot has been published.
   payload.events.push({ type: 'earnings', date: today, symbol: 'RDDT', title: 'RDDT earnings' });
   const companyPayload=buildCalendarPayload({},[],now,{});
+  const fallbackPayload=buildCalendarPayload({},[],now,{companyCalendar:{events:[],status:{}},officialCalendar:{events:ismBaselineEvents(2026,Date.parse(now)),status:{'ism-2026':false},fallbacks:{'ism-2026':{kind:'published-schedule',verifiedAt:ISM_SCHEDULE_VERIFIED_AT,validThrough:'2026-12-31'}}}});
   let scenario = 'normal';
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, 'http://127.0.0.1');
@@ -32,6 +34,7 @@ export async function createCalendarPreview({ port = 0, asOfIso = null } = {}) {
     if (url.pathname === '/api/auth/me') return json({ enabled: false, authenticated: false });
     const key = url.searchParams.get('data') || (/^\/(?:api\/)?data\//.test(url.pathname) ? url.pathname.replace(/^\/(?:api\/)?data\//, '') : null);
     if (key === 'calendar.json') {
+      if (scenario === 'fallback') return json(fallbackPayload);
       if (scenario === 'company') return json(companyPayload);
       if (scenario === 'error') return json({ error: 'Synthetic outage' }, 503);
       if (scenario === 'stale') return json({ ...payload, builtAtIso: '2026-01-01T00:00:00Z' });

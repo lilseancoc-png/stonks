@@ -705,6 +705,7 @@ function newsFeedSection() {
     ${infoNote('How news priority works', `<p><b>High impact</b> surfaces hard company events plus major inflation, labor, Fed and policy catalysts. <b>Notable</b> catches analyst actions, launches, restructuring, growth data and fast-moving market context; everything else stays <b>Context</b>. Freshness, source type and materiality can move a story up. Repeated distribution does not establish independent confirmation. For articles, the green / red <b>Headline</b> chip is read only from the headline wording; the AI news take that feeds each stock&rsquo;s grade reads the stories separately, so the two can differ. For a published economic print it stays <b>Unclear</b>, because hotter, cooler, stronger or weaker data is factual evidence &mdash; not a universal bullish or bearish verdict.</p><p><b>Active tape</b> means a related ticker or broad index is moving materially or trading unusually heavy at the same time; it does <em>not</em> prove the headline caused that move. Use it as a verification queue: open the source, confirm the event is new, then check whether price and volume agree. Carried-forward context is labeled, unconfirmed stories are labeled, and exact duplicate links are collapsed without removing distinct coverage of the same event.</p>`) }
     ${infoNote('Official-source coverage', `<p>Company announcements and FDA records are collected only through reviewed mappings to the covered stock universe. The available issuer and FDA mappings are shown below; unmapped companies are not represented as fully covered. Routine marketing and duplicate distribution are filtered. EIA rows retain their weekly period and units, with no universal bullish/bearish verdict. New official-source items are labeled <b>Context only · not scored</b>. An unavailable source is not the same as no news.</p>`)}
     <div id="news-feed-summary" class="news-feed-summary" aria-live="polite"></div>
+    <div id="news-source-health" aria-live="polite"></div>
     <div class="news-feed-toolbar" role="search" aria-label="Filter news">
       <label class="news-feed-search-wrap">
         <span class="sr-only">Search headlines, tickers, or publishers</span>
@@ -2224,6 +2225,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
           <span class="heatmap-control-label">View</span>
           <select id="heatmap-layout-select" aria-label="Heatmap layout">
             <option value="map">Map</option>
+            <option value="list">Sortable list</option>
             <option value="bars">Ranked bars</option>
             <option value="periods">Two periods</option>
           </select>
