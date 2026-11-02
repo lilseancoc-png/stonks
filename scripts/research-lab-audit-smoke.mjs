@@ -1,3 +1,4 @@
+import { SPORTS_PAGE_IDS } from '../lib/owner-access-policy.mjs';
 import assert from 'node:assert/strict';
 import { contracts } from '../lib/research-lab/contracts.mjs';
 import { sha, numericEquivalent } from '../lib/research-lab/canonical.mjs';
@@ -19,7 +20,7 @@ let now = FIXTURE_NOW;
 const repo = createLabRepository({ store, owner: 'audit-owner', clock: () => now });
 store.objects.set('market-analysis.json', Buffer.from(JSON.stringify({ builtAtIso: FIXTURE_NOW, macroRegime: { state: 'risk-off', score: 67, fragile: true }, secret: 'SECRET_SENTINEL', account: { score: 12345 }, paragraph: 'LICENSED_ARTICLE_SENTINEL', spot: 99999 })));
 const ids = sourceCatalog().map(s => s.id).sort();
-check(JSON.stringify(ids) === JSON.stringify(SITE_SECTIONS.flatMap(s => s.items.map(i => i.id)).filter(id => id !== 'research-lab').sort()), 'Every site feature is browsable through the shared catalog');
+check(JSON.stringify(ids) === JSON.stringify(SITE_SECTIONS.flatMap(s => s.items.map(i => i.id)).filter(id => id !== 'research-lab' && !SPORTS_PAGE_IDS.includes(id)).sort()), 'Every market feature is browsable through the shared catalog; Sports stays separate');
 const a = await service.capture(repo, store, ['AAA', 'BBB', 'SPY']); now = '2026-10-31T00:30:00.000Z';
 const b = await service.capture(repo, store, ['AAA', 'BBB', 'SPY']);
 check(a.id === b.id && a.captured_at === b.captured_at, 'Repeated unchanged captures reuse immutable data and retain its original date');
