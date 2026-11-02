@@ -7,7 +7,7 @@
 import assert from 'node:assert/strict';
 import { nbaModelLeague, SOFT_DEFENSE, TOUGH_DEFENSE } from './fixtures/sports-model.mjs';
 import { packRows } from '../lib/sports/rows.mjs';
-import { buildLeaders, buildTeams, buildPlayerLog, buildGame, CHART_LIMIT, LOG_LIMIT, LEADER_WINDOWS, POSITION_GROUPS, shownStats, contextStats } from '../lib/sports/read.mjs';
+import { buildLeaders, buildTeams, buildPlayerLog, buildGame, CHART_LIMIT, LOG_LIMIT, LEADER_WINDOWS, POSITION_GROUPS, shownStats, contextStats, matchupView, teamTable, MEETINGS_LIMIT } from '../lib/sports/read.mjs';
 import { statIds } from '../lib/sports/schema.mjs';
 import { handleSportsRequest } from '../lib/sports/http.mjs';
 import { SPORTS_PREFIX } from '../lib/sports/store.mjs';
@@ -110,6 +110,58 @@ ok(gp.recent.points.length === 10 && gp.summaries.minutes.games > 0, 'ten recent
 const before = L.rows.filter((r) => r.player_id === gp.player_id && r.date < lastGame.local_date && r.played).sort((a, b) => b.date.localeCompare(a.date));
 eq(gp.recent.points, before.slice(0, 10).map((r) => r.stats.points), 'recent values are the last ten played, newest first');
 eq(gp.recent.pts_reb, before.slice(0, 10).map((r) => r.stats.points + r.stats.rebounds), 'combo values for the small charts');
+
+// --- matchup ------------------------------------------------------------------------------
+// The latest game whose two teams had met before, so meetings and the
+// players' averages against this opponent have something to show.
+const pairKey = (g) => [g.home_team, g.away_team].sort().join();
+const repeat = L.games.filter((g) => g.status === 'final' && L.games.some((h) => h.status === 'final' && pairKey(h) === pairKey(g) && h.local_date < g.local_date)).pop();
+const rg = await buildGame({ load, sport: 'nba', gameId: repeat.game_id, seasons: [2025] });
+const M = rg.matchup, [AW, HM] = [repeat.away_team, repeat.home_team];
+const priorFinals = L.games.filter((g) => g.status === 'final' && g.local_date < repeat.local_date);
+eq(M.teams_ranked, 12, 'every team is ranked');
+eq(M.teams[HM].games, priorFinals.filter((g) => g.home_team === HM || g.away_team === HM).length, 'team numbers stop before this game');
+const met = priorFinals.filter((g) => pairKey(g) === pairKey(repeat)).sort((a, b) => b.start_utc.localeCompare(a.start_utc));
+ok(met.length > 0, 'the fixture has an earlier meeting');
+eq(M.meetings.map((m) => m.game_id), met.slice(0, MEETINGS_LIMIT).map((g) => g.game_id), 'the stored meetings, newest first');
+eq(M.meeting_summary.wins[AW] + M.meeting_summary.wins[HM] + M.meeting_summary.ties, M.meetings.length, 'each meeting is a win or a tie');
+eq(M.meeting_summary.avg_total, r1(avg(M.meetings.map((m) => m.home_score + m.away_score))), 'average total points');
+ok(Object.keys(M.stats[HM].for).includes('pts_reb') && !Object.keys(M.stats[HM].for).includes('minutes'), 'team stats cover the catalog, not minutes');
+eq(Object.keys(M.allowed_by[HM]), POSITION_GROUPS.nba, 'allowed to each position group');
+// vs this opponent: the player's played games against the other team before this one.
+const hp = rg.teams[HM].players[0];
+const vsRows = L.rows.filter((r) => r.player_id === hp.player_id && r.played && r.opponent === AW && r.date < repeat.local_date);
+ok(vsRows.length > 0, 'the player has faced this opponent');
+eq([hp.vs_opp.games, hp.vs_opp.values.points, hp.vs_opp.values.pts_reb], [vsRows.length, r1(avg(vsRows.map((r) => r.stats.points))), r1(avg(vsRows.map((r) => r.stats.points + r.stats.rebounds)))], 'averages against this opponent');
+ok(rg.teams[HM].players.every((p) => p.vs_opp === null || p.vs_opp.games > 0), 'no opponent games reads as null, never zeros');
+// Early in a new season: meetings and the averages against this opponent
+// reach back into last season; team numbers stay this season's.
+const N = nbaModelLeague({ days: 6, start: '2026-10-21', season: 2026, seed: 11 });
+const two = { ...recs,
+  [SPORTS_PREFIX + 'nba/player-games/2026.json']: { schema_version: 1, sport: 'nba', season: 2026, ...packRows(N.rows) },
+  [SPORTS_PREFIX + 'nba/games/2026.json']: { schema_version: 1, sport: 'nba', season: 2026, games: N.games } };
+const load2 = async (kind, opts = {}) => two[SPORTS_PREFIX + (kind === 'players' ? 'nba/players.json' : 'nba/' + kind + '/' + opts.season + '.json')] ?? null;
+const ng = N.games[N.games.length - 1];
+const nv = await buildGame({ load: load2, sport: 'nba', gameId: ng.game_id, seasons: [2025, 2026] });
+const both = (g) => [g.home_team, g.away_team].sort().join() === [ng.home_team, ng.away_team].sort().join();
+ok(nv.matchup.meetings.some((m) => m.season === 2025), 'meetings include last season');
+eq(nv.matchup.meetings.length, Math.min(MEETINGS_LIMIT, L.games.concat(N.games).filter((g) => g.status === 'final' && both(g) && g.local_date < ng.local_date).length));
+eq(nv.matchup.teams[ng.home_team].games, N.games.filter((g) => g.status === 'final' && g.local_date < ng.local_date && (g.home_team === ng.home_team || g.away_team === ng.home_team)).length, 'team numbers are this season only');
+const np = nv.teams[ng.home_team].players[0];
+const npRows = L.rows.concat(N.rows).filter((r) => r.player_id === np.player_id && r.played && r.opponent === ng.away_team && r.date < ng.local_date);
+eq(np.vs_opp.games, npRows.length, 'a player’s games against this opponent include last season');
+ok(npRows.some((r) => r.season === 2025), 'and some of them are from last season');
+// Ranks on a made-up game between the soft and tough defenses, over the whole season.
+const table = teamTable({ sport: 'nba', rows: L.rows, games: L.games, players: new Map(players.map((p) => [p.player_id, p])), stats: shownStats('nba').filter((st) => st !== 'minutes') });
+const SM = matchupView({ sport: 'nba', game: { away_team: SOFT_DEFENSE, home_team: TOUGH_DEFENSE }, gameDate: '2099-01-01', allGames: L.games, table, stats: shownStats('nba').filter((st) => st !== 'minutes') });
+eq([SM.stats[TOUGH_DEFENSE].allowed_rank.points, SM.stats[SOFT_DEFENSE].allowed_rank.points], [1, 12], 'rank 1 allows the fewest points, 12 the most');
+eq(SM.teams[TOUGH_DEFENSE].rank.points_against, 1, 'points allowed from final scores rank the same way');
+const best = table.slice().sort((a, b) => b.win_pct - a.win_pct)[0];
+eq(matchupView({ sport: 'nba', game: { away_team: best.team, home_team: SOFT_DEFENSE }, gameDate: '2099-01-01', allGames: L.games, table, stats: ['points'] }).teams[best.team].rank.win_pct, 1, 'the best record ranks first');
+ok(Math.abs(SM.league.allowed.points - avg(table.map((t) => t.against.points))) < 0.051, 'league average of points allowed');
+ok(SM.allowed_by_rank[SOFT_DEFENSE].G.points >= 10 && SM.allowed_by_rank[TOUGH_DEFENSE].G.points <= 3, 'soft and tough by position too');
+const early = await buildGame({ load, sport: 'nba', gameId: L.games.find((g) => g.status === 'final').game_id, seasons: [2025] });
+ok(Object.values(early.matchup.teams).every((t) => t === null) && early.matchup.meetings.length === 0, 'the first game has no prior numbers or meetings');
 
 // --- the route --------------------------------------------------------------------------
 const store = { backend: 'r2', rawGet: async (k) => (recs[k] ? Buffer.from(JSON.stringify(recs[k])) : null) };

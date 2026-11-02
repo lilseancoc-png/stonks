@@ -216,22 +216,83 @@ export function sportsFactory(host, doc, options) {
     const pick = all.indexOf(L.gameStat) >= 0 ? L.gameStat : '';
     const teams = [g.away_team, g.home_team].map((t) => {
       const info = L.game.teams[t] || { players: [] };
+      const opp = t === g.home_team ? g.away_team : g.home_team;
       const rows = info.players.map((p) => {
-        const st = pick || p.main_stat, s = p.summaries[st] || {};
+        const st = pick || p.main_stat, s = p.summaries[st] || {}, vs = p.vs_opp;
+        const vsCell = vs && vs.values && vs.values[st] != null
+          ? '<td class="sp-n" title="' + escape(label(st) + ' against ' + String(opp).toUpperCase() + ', ' + vs.games + ' game' + (vs.games === 1 ? '' : 's') + ' this season and last') + '">' + num(vs.values[st]) + ' <small class="sp-muted">' + vs.games + 'g</small></td>'
+          : '<td class="sp-n sp-muted">—</td>';
         return '<tr><td><button type="button" class="sp-link" data-sp-player="' + escape(p.player_id) + '">' + escape(p.name) + '</button>' + (p.out_last_game ? ' <span class="sp-out">out last game</span>' : '') + '</td><td>' + escape(p.position || '') + '</td>' +
           (pick ? '' : '<td>' + escape(SHORT[st] || st) + '</td>') + '<td class="sp-spark-cell">' + sparkSvg((p.recent || {})[st], p.name + ' ' + label(st).toLowerCase() + ', last ' + ((p.recent || {})[st] || []).length + ' games') + '</td>' +
-          '<td class="sp-n">' + num(s.last5) + '</td><td class="sp-n">' + num(s.last10) + '</td><td class="sp-n">' + num(s.average) + '</td><td class="sp-n">' + num(s.high) + '</td><td class="sp-n">' + num(s.games) + '</td></tr>';
+          '<td class="sp-n">' + num(s.last5) + '</td><td class="sp-n">' + num(s.last10) + '</td><td class="sp-n">' + num(s.average) + '</td>' + vsCell + '<td class="sp-n">' + num(s.high) + '</td><td class="sp-n">' + num(s.games) + '</td></tr>';
       }).join('');
       return '<div class="sp-team"><h5>' + team(t) + (t === g.home_team ? ' <span>home</span>' : '') + '</h5>' +
-        (rows ? '<div class="sp-table-wrap"><table class="sp-table" data-ts-key="sp-game-' + escape(lg) + '"><thead><tr><th>Player</th><th>Pos</th>' + (pick ? '' : '<th>Stat</th>') + '<th data-nosort>Last 10 games</th><th class="sp-n">Last 5</th><th class="sp-n">Last 10</th><th class="sp-n">Season</th><th class="sp-n">High</th><th class="sp-n">Games</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
+        (rows ? '<div class="sp-table-wrap"><table class="sp-table" data-ts-key="sp-game-' + escape(lg) + '"><thead><tr><th>Player</th><th>Pos</th>' + (pick ? '' : '<th>Stat</th>') + '<th data-nosort>Last 10 games</th><th class="sp-n">Last 5</th><th class="sp-n">Last 10</th><th class="sp-n">Season</th><th class="sp-n" title="Average against ' + team(opp) + ' this season and last, with games played">vs ' + team(opp) + '</th><th class="sp-n">High</th><th class="sp-n">Games</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
           : '<p class="sp-muted">No player games stored for this team this season.</p>') + '</div>';
     }).join('');
     return '<div class="sp-panel" data-sp-panel="game"><div class="sp-panel-head"><h4>' + team(g.away_team) + ' at ' + team(g.home_team) + '</h4>' +
       '<button type="button" class="sp-close" data-sp-close="game" aria-label="Close game">×</button></div>' +
       '<div class="sp-ctl">' + statSelectHtml('data-sp-game-stat', 'Stat', all, pick, [['', 'Each player’s main stat']]) + '</div>' +
-      '<p class="sp-note">Players each team used in its last three games this season, with their averages this season before this game. Bars: the last 10 games, oldest first, green above the player’s own average of them and red below. Select a column to sort, a name for charts and the game log.</p>' +
+      matchupHtml(lg, pick) +
+      '<p class="sp-note">Players each team used in its last three games this season, with their averages this season before this game, and against this opponent this season and last. Bars: the last 10 games, oldest first, green above the player’s own average of them and red below. Select a column to sort, a name for charts and the game log.</p>' +
       '<div class="sp-teams">' + teams + '</div></div>';
   }
+
+  // ---- Matchup: the two teams side by side ----------------------------------
+  const ord = (n) => { const k = n % 100, e = k >= 11 && k <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' })[n % 10] || 'th'; return n + e; };
+  // Default stats when the game panel shows each player's main stat.
+  // (NBA points are already in the rows from final scores.)
+  const MATCHUP_STATS = { nba: ['rebounds', 'assists', 'threes'], nfl: ['passing_yards', 'rushing_yards', 'receiving_yards'] };
+  const GROUP_STAT = { QB: 'passing_yards', RB: 'rushing_yards', WR: 'receiving_yards', TE: 'receiving_yards' };
+  function matchupHtml(lg, pick) {
+    const M = L_matchup(lg), g = league(lg).game.game;
+    if (!M) return '';
+    const pair = [g.away_team, g.home_team], N = M.teams_ranked || 0;
+    const rk = (r, what) => (r == null || !N ? '' : ' <small class="sp-rank" title="' + escape(what + ': ' + ord(r) + ' of ' + N + ' teams') + '">' + ord(r) + '</small>');
+    const tag = (r) => (r == null || N < 6 ? '' : r <= Math.ceil(N / 5) ? ' <span class="sp-tag sp-tag-tough">tough</span>' : r > N - Math.ceil(N / 5) ? ' <span class="sp-tag sp-tag-soft">soft</span>' : '');
+    const T = (t) => M.teams[t] || null;
+    const cell = (t, fn) => '<td class="sp-n">' + (T(t) ? fn(T(t), t) : '<span class="sp-muted">—</span>') + '</td>';
+    const signed = (v) => (v == null ? '—' : (v > 0 ? '+' : v < 0 ? '−' : '±') + escape(Math.abs(v).toFixed(1)));
+    const rec = (x) => escape(x.wins + '-' + x.losses + (x.ties ? '-' + x.ties : ''));
+    const stats = pick ? [pick].filter((st) => st !== 'minutes') : MATCHUP_STATS[lg] || [];
+    const S = (t) => M.stats[t] || {};
+    const rows = [
+      ['Record', (x) => rec(x) + rk(x.rank.win_pct, 'Win share')],
+      ['Home · away', (x) => escape(x.home) + ' · ' + escape(x.away)],
+      ['Last 10 · streak', (x) => escape(x.last10) + ' · ' + escape(x.streak || '—')],
+      ['Points per game', (x) => escape(f1(x.points_for)) + rk(x.rank.points_for, 'Points scored per game (1st = most)')],
+      ['Allowed per game', (x) => escape(f1(x.points_against)) + rk(x.rank.points_against, 'Points allowed per game (1st = fewest)')],
+      ['Point difference', (x) => '<span class="' + (x.diff > 0 ? 'sp-pos' : x.diff < 0 ? 'sp-neg' : '') + '">' + signed(x.diff) + '</span>' + rk(x.rank.diff, 'Point difference per game')],
+    ].map(([name, fn]) => '<tr><th scope="row">' + escape(name) + '</th>' + pair.map((t) => cell(t, fn)).join('') + '</tr>').join('') +
+      stats.map((st) => '<tr><th scope="row">' + escape(label(st)) + (st === 'points' ? ' per game (box scores)' : ' per game') + '</th>' + pair.map((t) => cell(t, () => escape(f1(S(t).for && S(t).for[st])) + rk(S(t).for_rank && S(t).for_rank[st], label(st) + ' per game (1st = most)'))).join('') + '</tr>' +
+        '<tr><th scope="row">' + escape(label(st)) + ' allowed</th>' + pair.map((t) => cell(t, () => escape(f1(S(t).allowed && S(t).allowed[st])) + rk(S(t).allowed_rank && S(t).allowed_rank[st], label(st) + ' allowed per game (1st = fewest)'))).join('') + '</tr>').join('');
+    const compare = '<div class="sp-table-wrap"><table class="sp-table sp-mx-table" data-nosort><thead><tr><th>Before this game</th>' + pair.map((t) => '<th class="sp-n">' + team(t) + (t === g.home_team ? ' <span class="sp-muted">home</span>' : '') + '</th>').join('') + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+    // What each defense allows to each position group, for the chosen stat
+    // (or each group's usual stat), with its rank and the league average.
+    const groups = Object.keys(M.allowed_by[pair[0]] || M.allowed_by[pair[1]] || {});
+    const gStat = (grp) => pick && pick !== 'minutes' ? pick : lg === 'nfl' ? GROUP_STAT[grp] || 'receiving_yards' : 'points';
+    const dvp = groups.length ? '<h6>What each defense allows by position</h6><div class="sp-table-wrap"><table class="sp-table sp-mx-table" data-nosort><thead><tr><th>Position</th>' +
+      pair.map((t) => '<th class="sp-n">' + team(t) + ' allows</th>').join('') + '<th class="sp-n">League</th></tr></thead><tbody>' +
+      groups.map((grp) => {
+        const st = gStat(grp);
+        return '<tr><th scope="row">' + escape(GROUP_NAMES[grp] || grp) + (pick ? '' : ' <small class="sp-muted">' + escape(SHORT[st] || st) + '</small>') + '</th>' +
+          pair.map((t) => { const v = ((M.allowed_by[t] || {})[grp] || {})[st], r = ((M.allowed_by_rank[t] || {})[grp] || {})[st]; return '<td class="sp-n">' + escape(f1(v)) + rk(r, label(st) + ' allowed to ' + (GROUP_NAMES[grp] || grp).toLowerCase() + ' (1st = fewest)') + tag(r) + '</td>'; }).join('') +
+          '<td class="sp-n sp-muted">' + escape(f1(((M.league.allowed_by || {})[grp] || {})[st])) + '</td></tr>';
+      }).join('') + '</tbody></table></div>' : '';
+    const MS = M.meeting_summary || {}, list = M.meetings || [];
+    const lead = MS.games ? (MS.wins[pair[0]] === MS.wins[pair[1]] ? 'Even at ' + MS.wins[pair[0]] + '-' + MS.wins[pair[1]] : team(MS.wins[pair[0]] > MS.wins[pair[1]] ? pair[0] : pair[1]) + ' leads ' + Math.max(MS.wins[pair[0]], MS.wins[pair[1]]) + '-' + Math.min(MS.wins[pair[0]], MS.wins[pair[1]])) + (MS.ties ? ' with ' + MS.ties + ' tie' + (MS.ties === 1 ? '' : 's') : '') + ' · average total ' + escape(f1(MS.avg_total)) : '';
+    const meetings = '<h6>Recent meetings</h6>' + (list.length
+      ? '<p class="sp-muted">' + lead + ' (last ' + list.length + ' stored).</p><ul class="sp-meetings">' + list.map((m) => {
+          const hw = m.home_score > m.away_score, aw = m.away_score > m.home_score;
+          return '<li><span class="sp-muted">' + escape(fmtDay(m.date)) + ' ' + escape(String(m.date).slice(0, 4)) + (m.season_type === 'POST' ? ' · playoffs' : '') + '</span> <span class="' + (aw ? 'sp-win' : '') + '">' + team(m.away_team) + ' ' + num(m.away_score) + '</span> @ <span class="' + (hw ? 'sp-win' : '') + '">' + team(m.home_team) + ' ' + num(m.home_score) + '</span></li>';
+        }).join('') + '</ul>'
+      : '<p class="sp-muted">No meetings between these teams in the stored seasons.</p>');
+    const none = !T(pair[0]) && !T(pair[1]);
+    return '<details class="sp-matchup" open><summary>Matchup</summary>' +
+      (none ? '<p class="sp-muted">Neither team has a final game stored this season before this one.</p>' : compare + dvp) + meetings +
+      '<p class="sp-note">This season before this game. Ranks are among ' + N + ' teams: 1st is the best record, the most scored and the fewest allowed, so a “soft” defense (bottom fifth) gives up the most. Stat totals are summed over each side’s players' + (lg === 'nfl' ? '; a player with no stat in a game is not in the provider’s file and counts as zero' : '') + '.</p></details>';
+  }
+  const L_matchup = (lg) => (league(lg).game && league(lg).game.matchup) || null;
 
   // ---- Player search and game log ---------------------------------------
   function resultsHtml(lg) {

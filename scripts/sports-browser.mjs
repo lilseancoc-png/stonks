@@ -172,7 +172,25 @@ try {
         assert(/PHX\s+at\s+GS/.test(board) && /7:00\sPM\sPST/.test(board) && /LAL\s+at\s+PHX/.test(board), 'tonight and tomorrow on the NBA board');
         await page.locator('#sports-nba-root [data-sp-game="401900003"]').click();
         await page.locator('#sports-nba-root [data-sp-panel="game"] svg.sp-spark').first().waitFor();
+        // The matchup: both teams before this game, what each defense allows by
+        // position, the stored meetings, and each player's games against this opponent.
+        const GP = '#sports-nba-root [data-sp-panel="game"] ';
+        const mx = await page.locator(GP + '.sp-matchup').innerText();
+        assert(/Matchup/i.test(mx) && /Record/.test(mx) && /Points per game/.test(mx) && /Allowed per game/.test(mx) && /PHX[\s\S]*GS/.test(mx), 'the matchup compares both teams: ' + mx.slice(0, 400));
+        assert(/What each defense allows by position/.test(mx) && /Guards/.test(mx) && /Centers/.test(mx) && /League/.test(mx), 'what each defense allows to guards, forwards and centers');
+        assert(/Recent meetings/.test(mx) && (/leads|Even at/.test(mx) || /No meetings between these teams/.test(mx)), 'meetings, or a plain note when none are stored');
+        assert(/\d+(st|nd|rd|th)/.test(mx), 'league ranks are shown');
+        const heads = await page.$$eval(GP + '.sp-team thead th', (ths) => ths.map((th) => th.textContent.trim()));
+        assert(heads.some((h) => /^vs PHX/.test(h)), 'the GS table has a column against PHX (PHX has no stored players here): ' + heads.join(','));
+        await page.locator(GP + '.sp-matchup > summary').click();
+        assert.equal(await page.locator(GP + '.sp-matchup').getAttribute('open'), null, 'the matchup folds away');
+        await page.locator(GP + '.sp-matchup > summary').click();
+        await page.locator(GP).screenshot({ path: resolve(output, `game-matchup-${width}-${theme}.png`), animations: 'disabled' });
+        const mxOv = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+        assert(mxOv <= 1, 'the matchup has no sideways page scroll at ' + width);
+        checks += 6;
         await page.locator('#sports-nba-root [data-sp-game-stat]').selectOption('rebounds');
+        assert(/Rebounds per game/.test(await page.locator(GP + '.sp-matchup').innerText()), 'the matchup follows the chosen stat');
         assert(/Rebounds/.test(await page.locator('#sports-nba-root [data-sp-game-stat] option:checked').innerText()) && (await page.locator('#sports-nba-root [data-sp-panel="game"] thead th', { hasText: /^Stat$/ }).count()) === 0, 'the game panel switches every player to one stat');
         await page.locator('#sports-nba-root [data-sp-panel="game"] [data-sp-player="3975"]').click();
         await page.locator('#sports-nba-root [data-sp-panel="player"] .sp-log').waitFor();
