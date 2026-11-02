@@ -19,7 +19,7 @@ export const wk = (pid, pos, group, season, week, gid, team, opp, s) =>
   [pid, 'x', 'x', pos, group, '"https://img, x"', season, week, 'REG', gid, team, opp, s.cmp ?? 0, s.att ?? 0, s.py ?? 0, s.ptd ?? 0, s.int ?? 0, s.car ?? 0, s.ry ?? 0, s.rtd ?? 0, s.rec ?? 0, s.tgt ?? 0, s.recy ?? 0, s.rectd ?? 0].join(',');
 export const WEEK_2026 = [WEEK_HEAD,
   wk('00-0001', 'QB', 'QB', 2026, 7, '2026_07_CHI_SEA', 'SEA', 'CHI', { cmp: 20, att: 30, py: 250, ptd: 2 }),
-  wk('00-0001', 'QB', 'QB', 2026, 8, '', 'SEA', 'CHI', { cmp: 1, att: 1, py: 9 }), // game_id missing → but week 8 game is not final yet; still recovered
+  wk('00-0001', 'QB', 'QB', 2026, 8, '', 'SEA', 'CHI', { cmp: 1, att: 1, py: 9 }), // game_id missing → recovered from the schedule; that game is not final yet, so the ingest holds the row back
   wk('00-0002', 'WR', 'WR', 2026, 7, '2026_07_CHI_SEA', 'SEA', 'CHI', { rec: 6, tgt: 9, recy: 88, rectd: 1 }),
   wk('00-0003', 'TE', 'TE', 2026, 8, '2026_08_KC_DEN', 'KC', 'DEN', { rec: 7, tgt: 8, recy: 70 }),
   wk('00-0004', 'K', 'SPEC', 2026, 8, '2026_08_KC_DEN', 'KC', 'DEN', {}),

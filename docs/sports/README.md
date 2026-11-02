@@ -89,6 +89,10 @@ adapter `lib/sports/nflverse.mjs`):
   are converted from US Eastern to UTC.
 - Drops the sportsbook spreads, totals and moneylines that the schedule file
   carries.
+- Stores a player's line only once the schedule marks that game final. A
+  line for a game still in progress (or one the schedule has not caught up
+  with) waits for the next run, so a partial stat line never reaches the
+  logs, averages or charts.
 - Writes data first and the status record last. If a refreshed season would
   lose more than 20% of its stored rows, or a download fails, nothing is
   replaced: the status record shows the failure and keeps the last good time.

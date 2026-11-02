@@ -84,6 +84,8 @@ eq(st.order.at(-1), SPORTS_PREFIX + 'status/nfl.json', 'status is written last')
 ok(st.order.every((k) => k.startsWith(SPORTS_PREFIX)), 'every write stays under the Sports prefix');
 const stored2025 = JSON.parse(st.objects.get(SPORTS_PREFIX + 'nfl/player-games/2025.json'));
 ok(stored2025.complete === true && stored2025.rows.length === 2, 'a finished season is marked complete');
+const stored2026 = JSON.parse(st.objects.get(SPORTS_PREFIX + 'nfl/player-games/2026.json'));
+ok(stored2026.rows.length === 4 && !stored2026.rows.some((r) => r.game_id === '2026_08_chi_sea'), 'a row for a game that is not final yet waits for the next run');
 fetched.length = 0;
 const st2 = st; // second run on the same store
 await ingestNfl({ store: st2, fetchText, now: NOW + 86400000 });
