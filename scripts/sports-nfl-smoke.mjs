@@ -4,8 +4,8 @@
 //   node scripts/sports-nfl-smoke.mjs
 import assert from 'node:assert/strict';
 import { parseCsv } from '../lib/sports/csv.mjs';
-import { normalizeNflGames, normalizeNflPlayerGames, normalizeNflPlayers, NFLVERSE_URLS, nflGameId } from '../lib/sports/nflverse.mjs';
-import { ingestNfl } from '../lib/sports/ingest-nfl.mjs';
+import { normalizeNflGames, normalizeNflPlayerGames, normalizeNflPlayers, NFLVERSE_URLS, NFL_SOURCE, nflGameId } from '../lib/sports/nflverse.mjs';
+import { ingestLeague } from '../lib/sports/ingest.mjs';
 import { buildBoard, buildGame, searchPlayers, buildPlayerLog, summarizeStat, foldName } from '../lib/sports/read.mjs';
 import { handleSportsRequest, recordLoader } from '../lib/sports/http.mjs';
 import { zonedTimeUtc, seasonFor } from '../lib/sports/time.mjs';
@@ -76,7 +76,7 @@ const fetched = [];
 const fetchText = async (url) => { fetched.push(url); return files.has(url) ? files.get(url) : null; };
 const NOW = Date.parse('2026-11-02T18:00:00Z');
 const st = memStore();
-const run1 = await ingestNfl({ store: st, fetchText, now: NOW });
+const run1 = await ingestLeague({ adapter: NFL_SOURCE,  store: st, fetchText, now: NOW });
 eq(run1.status.state, 'degraded', 'a rejected row marks the run as partly updated');
 ok(/failed validation/.test(run1.status.message), 'the status says why');
 eq(run1.status.seasons, [2025, 2026], 'two seasons stored');
@@ -88,29 +88,29 @@ const stored2026 = JSON.parse(st.objects.get(SPORTS_PREFIX + 'nfl/player-games/2
 ok(stored2026.rows.length === 4 && !stored2026.rows.some((r) => r.game_id === '2026_08_chi_sea'), 'a row for a game that is not final yet waits for the next run');
 fetched.length = 0;
 const st2 = st; // second run on the same store
-await ingestNfl({ store: st2, fetchText, now: NOW + 86400000 });
+await ingestLeague({ adapter: NFL_SOURCE,  store: st2, fetchText, now: NOW + 86400000 });
 ok(!fetched.includes(NFLVERSE_URLS.weekly(2025)), 'a finished season is not downloaded again');
 ok(fetched.includes(NFLVERSE_URLS.weekly(2026)), 'the current season refreshes every run');
 
 // shrink guard: the current season loses most rows upstream
 const big = memStore();
 const many = [WEEK_HEAD, ...Array.from({ length: 60 }, (_, i) => wk('00-1' + String(i).padStart(3, '0'), 'WR', 'WR', 2026, 7, '2026_07_CHI_SEA', 'SEA', 'CHI', { rec: 1, tgt: 2 }))].join('\n');
-await ingestNfl({ store: big, fetchText: async (u) => (u === NFLVERSE_URLS.weekly(2026) ? many : fetchText(u)), now: NOW });
+await ingestLeague({ adapter: NFL_SOURCE,  store: big, fetchText: async (u) => (u === NFLVERSE_URLS.weekly(2026) ? many : fetchText(u)), now: NOW });
 const goodCount = JSON.parse(big.objects.get(SPORTS_PREFIX + 'nfl/player-games/2026.json')).rows.length;
-await assert.rejects(ingestNfl({ store: big, fetchText: async (u) => (u === NFLVERSE_URLS.weekly(2026) ? WEEK_HEAD + '\n' : fetchText(u)), now: NOW }), /shrank/); checks++;
+await assert.rejects(ingestLeague({ adapter: NFL_SOURCE,  store: big, fetchText: async (u) => (u === NFLVERSE_URLS.weekly(2026) ? WEEK_HEAD + '\n' : fetchText(u)), now: NOW }), /shrank/); checks++;
 eq(JSON.parse(big.objects.get(SPORTS_PREFIX + 'nfl/player-games/2026.json')).rows.length, goodCount, 'a shrunken upstream file never replaces stored rows');
 const failedStatus = JSON.parse(big.objects.get(SPORTS_PREFIX + 'status/nfl.json'));
 ok(failedStatus.state === 'failed' && failedStatus.last_success_utc && failedStatus.counts, 'a failed run keeps the last good time and counts');
 
 // upstream outage and off-season
 const down = memStore();
-await assert.rejects(ingestNfl({ store: down, fetchText: async () => null, now: NOW }), /schedule file/); checks++;
+await assert.rejects(ingestLeague({ adapter: NFL_SOURCE,  store: down, fetchText: async () => null, now: NOW }), /schedule file/); checks++;
 eq([...down.objects.keys()], [SPORTS_PREFIX + 'status/nfl.json'], 'an outage writes only the failed status');
 const early = memStore();
-const r3 = await ingestNfl({ store: early, fetchText: async (u) => (u === NFLVERSE_URLS.weekly(2026) ? null : fetchText(u)), now: NOW });
+const r3 = await ingestLeague({ adapter: NFL_SOURCE,  store: early, fetchText: async (u) => (u === NFLVERSE_URLS.weekly(2026) ? null : fetchText(u)), now: NOW });
 ok(/no 2026 player stats published yet/.test(r3.status.message), 'no current-season file yet is a note, not a failure');
 const dry = memStore();
-await ingestNfl({ store: dry, fetchText, now: NOW, dryRun: true });
+await ingestLeague({ adapter: NFL_SOURCE,  store: dry, fetchText, now: NOW, dryRun: true });
 eq(dry.objects.size, 0, 'a dry run writes nothing');
 
 // --- read views ----------------------------------------------------------------
