@@ -9,7 +9,9 @@ import { isPremiumKey, roleClaimForKey } from '../lib/premium-keys.mjs';
 import { signSession, SESSION_COOKIE } from '../lib/session.mjs';
 import handler from '../api/auth/[action].js';
 
-const now = new Date('2026-10-29T20:00:00.000Z'), day = 86400000;
+// Anchor every age to the same current instant. The HTTP preview uses its
+// real default clock, so the future row must stay in the future on later runs.
+const now = new Date(), day = 86400000;
 const ages = [.5, 1, 1 + 1/day, 7, 7 + 1/day, 30, 30 + 1/day, 90, 90 + 1/day, 400, -1, null];
 const trades = ages.map((age, i) => ({ symbol: 'TEST' + i, side: 'call', entryDate: age === null ? null : new Date(+now - age * day).toISOString(),
   exitDate: now.toISOString(), outcome: i % 2 ? 'loss' : 'win', optionPnlPct: i % 2 ? -10 : 20,
@@ -167,6 +169,8 @@ try {
   const paperAfter = await request({ method: 'GET', action: 'webull-mirror' });
   // Future-dated synthetic rows are outside every bounded confirmation.
   assert.equal(paperAfter.body.trades.length, 1);
+  assert.equal(paperAfter.body.health.counts.openPicks, accuracy.open.length, 'reporting wipes cannot hide execution readiness');
+  assert.equal(paperAfter.body.health.counts.mirroredOpenPicks, 1, 'health reads the raw execution ledger after a report wipe');
   assert.equal(paperAfter.body.engineRecord.closed.length, 0, 'no wiped comparison rows may leak back through the report');
   const fills = await request({ method: 'GET', action: 'picks-fills' });
   assert(fills.body.rows.some(r => r.trade_id === 'upload'), 'uploaded fills survive both wipe buttons');

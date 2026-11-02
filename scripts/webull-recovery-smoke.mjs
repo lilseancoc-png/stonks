@@ -79,6 +79,10 @@ try {
   const owner = response(); await handler({ method: "GET", query: { action: "webull-mirror" }, headers: { cookie: `${SESSION_COOKIE}=${token}` } }, owner);
   assert.equal(owner.statusCode, 200); assert.equal(owner.body.trades[0].filledQty, 3); assert.equal(owner.body.reconciliation.status, "matched"); assert.equal(owner.body.engineSnapshotIso, iso);
   assert.equal(owner.body.executionLock.state, "released");
+  assert.equal(owner.body.health.source, "Open Picks: picks-accuracy.json");
+  assert.equal(owner.body.health.brokerVerified, false);
+  assert.equal(owner.body.health.counts.openPicks, 1);
+  assert.ok(!JSON.stringify(owner.body.health).includes("PAPER1"));
   assert.equal(owner.body.executionLock.owner, undefined);
   const orderCsv = response(); await handler({ method: "GET", query: { action: "webull-mirror", format: "orders" }, headers: { cookie: `${SESSION_COOKIE}=${token}` } }, orderCsv);
   assert.equal(orderCsv.statusCode, 200); assert.match(orderCsv.text, /cumulative_filled_qty/); assert.match(orderCsv.text, /observations_json/);

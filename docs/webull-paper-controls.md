@@ -197,6 +197,8 @@ Review the mirror step and Owner trade log. GitHub
 notification preferences govern notifications; this code sends no external
 messages.
 
+Read [Check the Open Picks mirror](webull-mirror-check.md) for the complete offline audit and read-only saved-state readiness check.
+
 ### Diagnosing an execution lock
 
 Owner `GET /api/auth/webull-mirror` also reads the execution lock without
