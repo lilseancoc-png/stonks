@@ -38,6 +38,21 @@ only if you started the connection yourself.
 | `get_live_quotes` | any | Live Yahoo quotes (`lib/yahoo.mjs`), ≤10 covered symbols |
 | `get_top_picks` | owner | `approvedTopPicks()`, the same payload as the Top Picks tab |
 | `get_track_record` | owner | `readSiteRecord('picks-accuracy.json')`: stats, all-time stats, open trades and recent closes as compact rows (trade ID, contract, entry and model mark, P&L %), trade lines |
+| `sports_list_games` | owner | Owner Sports: today's and tomorrow's NBA or NFL games (`leagueView('board')`), in a chosen US time zone |
+| `sports_find_players` | owner | Owner Sports: player search by name, for the ids the other Sports tools take |
+| `sports_get_game` | owner | Owner Sports: one game, its teams and each team's recent players with averages |
+| `sports_get_player` | owner | Owner Sports: game log, averages, next game and the stat model's forecast for it |
+| `sports_evaluate_entry` | owner | Owner Sports: a 1-6 pick entry checked by the Pick Builder's own `evaluateEntry` (history, model chance, breakeven, joint chance including same-game links, expected value) plus `pick_builder_link`, a `?tab=sports-pick-builder&entry=` link that fills the entry on the site. Saves nothing |
+| `sports_get_model_check` | owner | Owner Sports: the stat model's and the same-game links' check on later games, and the paper journal's totals and chance calibration |
+
+**Sports tools** (`lib/mcp/sports-tools.mjs`) call the same functions as the Sports pages, so the same stored
+games, model and seed give the same number on the site and here. They are listed only for an Owner token and
+disappear with `SPORTS_ENABLED=0`. Their store handle (`sportsReadOnlyStore`) reads only Sports game, player,
+model, status and journal records under `_stonks/sports/v1/`; captured lines and every other raw key are refused,
+and every write throws. There is deliberately **no save tool**: Claude or ChatGPT reads a slip screenshot, finds
+the players (`sports_find_players`), checks the entry (`sports_evaluate_entry`) and hands back the Pick Builder
+link; the Owner checks it on the site and saves it. Chances are passed only when the Owner gave them, and
+`use_model_chances` copies the model's chance only when asked; the link never carries chances.
 
 Every result is a JSON envelope: `schema_version`, `tool`, `source` (store key and page), `access`, `as_of` (the
 payload's build time), `generated_at`, `ai_calls: 0`, `warnings` (stale, expired `validUntil`, trimmed, no match), `limitations`,
@@ -45,7 +60,7 @@ payload's build time), `generated_at`, `ai_calls: 0`, `warnings` (stale, expired
 
 **Never reachable**, even for the Owner: `picks-fills.json`, `webull-paper-ledger.json`,
 `picks-watchlist.json`, AI caches and accounting, track-record reset markers, Research Lab records,
-`_stonks/*`, retired keys, and any field whose name looks like a secret. `get_feature` reads only the keys mapped
+`_stonks/*` (except the Sports records the Sports tools read), retired keys, and any field whose name looks like a secret. `get_feature` reads only the keys mapped
 in `feature-sources.mjs`, so no other store key can be named.
 
 ## Read-only by design
@@ -59,7 +74,8 @@ in `feature-sources.mjs`, so no other store key can be named.
   MCP tokens can't act as the site session cookie, so they can't reach the site's Owner actions either.
 - Yahoo-backed tools (`get_live_quotes`, `get_top_picks`) are capped at 20 calls a minute per token, inside the
   120-a-minute overall cap, so an agent can't get the site's shared Yahoo access throttled.
-- `scripts/mcp-smoke.mjs` runs every tool against a store whose write methods record any call and asserts none.
+- `scripts/mcp-smoke.mjs` runs every tool against a store whose write methods record any call and asserts none;
+  `scripts/sports-mcp-smoke.mjs` does the same for the Sports tools and checks they match the Pick Builder route.
 
 ## Access model
 
@@ -115,5 +131,6 @@ variables. No Discord app change is needed.
 
 ## Not in v1
 
-Research Lab runs and journal writes, option chains, and any write or broker action. These are deferred from the
+Research Lab runs and journal writes, Sports paper-pick saves (by decision: the Pick Builder link instead), option
+chains, and any write or broker action. These are deferred from the
 2026-11-01 blueprint review: the heavy studies are already precomputed by the bake, and Hobby has no job queue.
