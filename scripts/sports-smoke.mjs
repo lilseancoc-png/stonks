@@ -6,7 +6,8 @@ import { readFileSync } from 'node:fs';
 import { sportsEnabled } from '../lib/sports/access.mjs';
 import { handleSportsRequest, sportsStatus, sameOrigin } from '../lib/sports/http.mjs';
 import { sportsDayWindow, activeDayOf, zonedMidnightUtc, localDate, resolveTimeZone, SPORTS_DEFAULT_TIME_ZONE } from '../lib/sports/time.mjs';
-import { validateGame, validatePlayer, validatePlayerGame, validateMarketObservation, marketSeriesKey, statIds, SPORTS_STATS } from '../lib/sports/schema.mjs';
+import { MODEL_SPECS } from '../lib/sports/models.mjs';
+import { validateGame, validatePlayer, validatePlayerGame, validateMarketObservation, marketSeriesKey, statIds, statValue, SPORTS_STATS, STAT_GROUPS } from '../lib/sports/schema.mjs';
 import { sportsKey, isSportsKey, readSportsJson, writeSportsJson, SPORTS_PREFIX } from '../lib/sports/store.mjs';
 import { OWNER_PAGE_IDS, SPORTS_PAGE_IDS } from '../lib/owner-access-policy.mjs';
 import { SITE_SECTIONS } from './render/site-map.mjs';
@@ -162,9 +163,43 @@ ok(!validateMarketObservation({ ...obs, operator: 'draftkings' }).ok, 'operators
 eq(marketSeriesKey(obs), marketSeriesKey({ ...obs, threshold: 21.5, side: 'under' }), 'a market keeps its id as the line moves');
 ok(marketSeriesKey(obs) !== marketSeriesKey({ ...obs, operator: 'betr' }), 'each operator is its own market');
 ok(/^ms_[a-f0-9]{24}$/.test(marketSeriesKey(obs)));
-eq(statIds('nba', { enabledOnly: true }), ['points', 'rebounds'], 'first NBA markets');
-eq(statIds('nfl', { enabledOnly: true }), ['passing_yards', 'receptions'], 'first NFL markets');
+eq(statIds('nba', { modeledOnly: true }), ['points', 'rebounds'], 'NBA stats with a forecast');
+eq(statIds('nfl', { modeledOnly: true }), ['passing_yards', 'receptions'], 'NFL stats with a forecast');
 ok(Object.keys(SPORTS_STATS).join() === 'nba,nfl');
+// The catalog: every stat the pages and Pick Builder take. Forecast flags
+// must match the fitted model list, ids must pass the prefill link check,
+// and every combo part must be a stored stat of the same league.
+for (const sp of ['nba', 'nfl']) {
+  eq(statIds(sp, { modeledOnly: true }), Object.keys(MODEL_SPECS[sp]), sp + ': forecast flags match MODEL_SPECS');
+  const list = SPORTS_STATS[sp], ids = list.map((s) => s.id);
+  eq(new Set(ids).size, ids.length, sp + ': stat ids are unique');
+  ok(list.every((s) => /^[a-z_]{1,40}$/.test(s.id) && s.label && s.short && STAT_GROUPS.some(([g]) => g === s.group)), sp + ': ids, labels, short names and groups');
+  ok(list.filter((s) => s.parts).every((s) => s.parts.every(([part, w]) => ids.includes(part) && !list.find((x) => x.id === part).parts && Number.isFinite(w))), sp + ': combo parts are stored stats');
+  ok(!ids.includes('minutes'), sp + ': minutes is not a pick stat');
+}
+ok(['pra', 'pts_reb', 'pts_ast', 'reb_ast', 'blk_stl', 'fantasy'].every((id) => statIds('nba').includes(id)), 'NBA combos');
+ok(['rush_rec_yards', 'pass_rush_yards'].every((id) => statIds('nfl').includes(id)), 'NFL combos');
+// statValue: stored stats, combos summed from parts, minutes.
+const nbaStats = { points: 21, rebounds: 9, assists: 6, steals: 2, blocks: 1, turnovers: 3, offensive_rebounds: 4, threes: 3 };
+const nbaPlayed = { played: true, minutes: 33.5, stats: nbaStats };
+eq(statValue(nbaPlayed, 'points'), 21);
+eq(statValue(nbaPlayed, 'minutes'), 33.5);
+eq(statValue(nbaPlayed, 'pra'), 36, 'PRA sums points, rebounds and assists');
+eq(statValue(nbaPlayed, 'pts_reb'), 30);
+eq(statValue(nbaPlayed, 'pts_ast'), 27);
+eq(statValue(nbaPlayed, 'reb_ast'), 15);
+eq(statValue(nbaPlayed, 'blk_stl'), 3);
+eq(statValue(nbaPlayed, 'defensive_rebounds'), 5, 'defensive rebounds are rebounds minus offensive');
+eq(statValue(nbaPlayed, 'fantasy'), 21 + 9 * 1.2 + 6 * 1.5 + 2 * 3 + 1 * 3 - 3, 'fantasy score uses the published weights');
+eq(statValue({ played: true, stats: { ...nbaStats, assists: null } }, 'pra'), null, 'an NBA combo needs every part');
+eq(statValue({ played: true, stats: { ...nbaStats, assists: null } }, 'pts_reb'), 30, 'a combo without the missing part still works');
+eq(statValue({ played: false, minutes: 0, stats: {} }, 'points'), null, 'a DNP row has no value');
+eq(statValue({ stats: { rushing_yards: 41, receiving_yards: null } }, 'rush_rec_yards'), 41, 'NFL combos count a blank part as zero');
+eq(statValue({ stats: { rushing_yards: null, receiving_yards: null } }, 'rush_rec_yards'), null, 'but not when every part is blank');
+eq(statValue({ stats: { passing_yards: 251, rushing_yards: 18 } }, 'pass_rush_yards'), 269);
+eq(statValue({ stats: { passing_yards: 'x' } }, 'passing_yards'), null, 'non-numbers are not values');
+eq(statValue(null, 'points'), null);
+ok(validateMarketObservation({ ...obs, stat: 'pra' }).ok, 'a combo line can be captured');
 
 // --- pages and isolation -------------------------------------------------------------
 const sportsSection = SITE_SECTIONS.find((s) => s.id === 'sports');

@@ -179,7 +179,25 @@ try {
         const nbaLog = await page.locator('#sports-nba-root [data-sp-panel="player"]').innerText();
         assert(/out last game/.test(await page.locator('#sports-nba-root [data-sp-panel="game"]').innerText()), 'a player who sat out is flagged');
         assert(/did not play: left ankle sprain/.test(nbaLog) && /Minutes/.test(nbaLog) && /\bMin\b/.test(nbaLog), 'the NBA log shows minutes and the missed game with its reason');
+        // Stat sets: Combos shows the summed lines, All shows every stat.
+        const PL = '#sports-nba-root [data-sp-panel="player"] ';
+        await page.locator(PL + '[data-sp-logset="combo"]').click();
+        const comboHeads = await page.$$eval(PL + '.sp-log thead th', (ths) => ths.map((th) => th.textContent.replace(/[▲▼↕]/g, '').trim()));
+        assert(['PRA', 'P+R', 'P+A', 'R+A', 'B+S', 'Fan'].every((h) => comboHeads.includes(h)) && !comboHeads.includes('Pts'), 'the Combos set shows the combo columns only: ' + comboHeads.join(','));
+        assert(/Points \+ rebounds \+ assists/.test(await page.locator(PL + '[data-sp-part="logset"]').innerText()), 'and their averages');
+        await page.locator(PL + '[data-sp-logset="all"]').click();
+        const sums = await page.$$eval(PL + '.sp-log', (tables) => {
+          const t = tables[0], heads = [...t.querySelectorAll('thead th')].map((th) => th.textContent.replace(/[▲▼↕]/g, '').trim());
+          const row = [...t.querySelectorAll('tbody tr:not(.sp-dnp)')][0], cell = (h) => Number(row.children[heads.indexOf(h)].textContent);
+          return { pra: cell('PRA'), pts: cell('Pts'), reb: cell('Reb'), ast: cell('Ast'), pr: cell('P+R'), dreb: cell('DReb'), oreb: cell('OReb') };
+        });
+        assert(sums.pra === sums.pts + sums.reb + sums.ast && sums.pr === sums.pts + sums.reb, 'PRA and P+R in the log are summed from the same game: ' + JSON.stringify(sums));
+        assert(Number.isFinite(sums.oreb) ? sums.dreb === sums.reb - sums.oreb : !Number.isFinite(sums.dreb), 'defensive rebounds are rebounds minus offensive, blank when offensive is: ' + JSON.stringify(sums));
+        await page.locator(PL + '[data-sp-logset="main"]').click();
         const form = page.locator('#sports-nba-root [data-sp-panel="player"] [data-sp-pickform]');
+        assert.deepEqual(await form.locator('[name="stat"] optgroup').evaluateAll((gs) => gs.map((g) => g.label)), ['Main', 'Combos', 'More'], 'the pick form lists every stat in groups');
+        assert((await form.locator('[name="stat"] option').evaluateAll((os) => os.map((o) => o.value))).includes('pra'), 'combos can be picked');
+        checks += 6;
         assert(/Next game: PHX at GS/.test(await form.innerText()), 'the pick form names the next game');
         await form.locator('[name="line"]').fill('24.3');
         await form.locator('[data-sp-addpick]').click();
@@ -264,6 +282,11 @@ try {
         await page.locator(NR + '[data-sp-lsort="rebounds"]').click();
         const rebs = await page.$$eval(NR + '.sp-lead tbody tr', (trs) => trs.map((tr) => Number(tr.querySelector('td.is-sorted').textContent)));
         assert(rebs.length === 50 && rebs.every((v, i) => i === 0 || v <= rebs[i - 1]), 'rebounds sort high to low, 50 at a time');
+        await page.locator(NR + '[data-sp-lead-set="combo"]').click();
+        const leadHeads = await page.$$eval(NR + '.sp-lead thead th', (ths) => ths.map((th) => th.textContent.replace(/[▲▼]/g, '').trim()));
+        assert(leadHeads.includes('PRA') && leadHeads.includes('Reb') && !leadHeads.includes('Pts'), 'Combos columns, and the sorted column stays: ' + leadHeads.join(','));
+        await page.locator(NR + '[data-sp-lead-set="main"]').click();
+        checks += 1;
         const allN = Number((await page.locator(NR + '[data-sp-lead-all]').innerText()).match(/Show all (\d+) players/)[1]);
         await page.locator(NR + '[data-sp-lead-all]').click();
         assert(allN >= 96 && (await page.locator(NR + '.sp-lead tbody tr').count()) === allN, 'show all lists every player with enough games');

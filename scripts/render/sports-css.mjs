@@ -24,8 +24,10 @@ export function renderSportsCss() {
 .sp-stats ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
 .sp-stats li { font-size: 12px; padding: 4px 8px; border-radius: 999px; border: 1px solid var(--border); }
 .sp-stats li.sp-on { border-color: var(--accent); color: var(--text); }
-.sp-stats li.sp-later { color: var(--muted-strong); }
 .sp-stats li span { font-size: 11px; opacity: .8; }
+.sp-stats .sp-label { margin: 10px 0 6px; }
+.sp-stats .sp-label:first-of-type { margin-top: 0; }
+.sp-stats .sp-note { margin-top: 10px; }
 .sp-steps { margin: 0 0 18px; padding-left: 20px; display: grid; gap: 10px; }
 .sp-steps li { font-size: 13px; line-height: 1.6; color: var(--muted-strong); }
 .sp-steps b { display: block; color: var(--text); font-weight: 600; }

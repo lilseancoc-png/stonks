@@ -21,6 +21,9 @@ import { historicalDataFactory } from './historical-data-client.mjs';
 import { partyTrackerFactory } from './party-tracker-client.mjs';
 import { sportsFactory } from './sports-client.mjs';
 import { decodePrefill as sportsDecodePrefill } from '../../lib/sports/prefill.mjs';
+import { SPORTS_STATS } from '../../lib/sports/schema.mjs';
+// The Sports pages' stat names and groups (no combo recipes: the server sums those).
+const SPORTS_STAT_CATALOG = Object.fromEntries(Object.entries(SPORTS_STATS).map(([lg, list]) => [lg, list.map((s) => ({ id: s.id, label: s.label, short: s.short, group: s.group, model: !!s.model }))]));
 import { earningsForecastFactory } from './earnings-forecast-client.mjs';
 import { companyResearchClientFactory } from './company-research-client.mjs';
 import { fullYearValuationFactory } from '../../lib/full-year-valuation.mjs';
@@ -23441,7 +23444,8 @@ ${renderExportBindings()}
     owner: function(){ return HAS_OWNER_ACCESS; },
     go: function(id){ var tab = document.querySelector('[data-page-tab="' + id + '"]'); if (tab) tab.click(); },
     hover: chHoverAttr,
-    decodePrefill: ${sportsDecodePrefill.toString()}
+    decodePrefill: ${sportsDecodePrefill.toString()},
+    statCatalog: ${JSON.stringify(SPORTS_STAT_CATALOG)}
   });
   var earningsForecast = (${earningsForecastFactory.toString()})(window, document, { owner: function(){ return HAS_OWNER_ACCESS; } }, ${earningsScenarioFactory.toString()}, ${companyResearchClientFactory.toString()}, ${fullYearValuationFactory.toString()});
   var forcedLiquidation = (${forcedLiquidationFactory.toString()})(window, document, {

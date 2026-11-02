@@ -26,7 +26,12 @@ policy in `lib/owner-access-policy.mjs` is authoritative for the page list.
 **Sports:** `sports-nba`, `sports-nfl` and `sports-pick-builder` are Owner pages
 in their own **Sports** sidebar group (`SPORTS_PAGE_IDS`), for private NBA/NFL
 research and paper pick'em entries. Same signed Owner session, through
-`/api/auth/me?sports=...` (`lib/sports/http.mjs`, no new function).
+`/api/auth/me?sports=...` (`lib/sports/http.mjs`, no new function). Every
+stat the pages, charts, Pick Builder and MCP take comes from one catalog,
+`SPORTS_STATS` in `lib/sports/schema.mjs` (groups Main / Combos / More;
+`model: true` must match `MODEL_SPECS`); combos such as PRA or rush +
+receiving yards are summed from stored stats as rows are read (`statValue`),
+so adding one needs no re-ingest.
 `SPORTS_ENABLED=0` is the kill switch. Records are JSON in
 `_stonks/sports/v1/` (raw internal prefix, never published or synced), written
 by the daily `sports-data.yml` job (`scripts/sports-ingest.mjs`, one shared
