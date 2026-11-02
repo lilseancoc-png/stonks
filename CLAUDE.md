@@ -31,8 +31,13 @@ research and paper pick'em entries. Same signed Owner session, through
 `_stonks/sports/v1/` (raw internal prefix, never published or synced), written
 by the daily `sports-data.yml` job (`scripts/sports-ingest.mjs`, one shared
 ingest in `lib/sports/ingest.mjs`; NFL from nflverse with sportsbook columns
-dropped, NBA from hoopR / ESPN box scores). No AI,
-sportsbook or PrizePicks API calls, no line scraping, no bets. The Owner Market
+dropped, NBA from hoopR / ESPN box scores). The Pick Builder prices entries
+from typed-in payouts and owner chances (`lib/sports/payout.mjs`: breakeven,
+independence baseline, Fréchet range; same-game picks are not priced) and
+keeps an append-only paper journal in R2 under a lease
+(`lib/sports/journal.mjs`, POST `evaluate` / `save-entry` / `revise-entry`,
+same-origin only); `?entry=` prefill links come from `lib/sports/prefill.mjs`.
+No AI, sportsbook or PrizePicks API calls, no line scraping, no bets. The Owner Market
 Brief, Research Lab evidence and MCP feature list leave Sports out. See
 `docs/sports/README.md`.
 

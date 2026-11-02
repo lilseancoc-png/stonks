@@ -83,7 +83,7 @@
     "test:leaps-score": "node scripts/leaps-score-smoke.mjs",
     "test:private-store": "node scripts/private-store-smoke.mjs",
     "test:render": "node scripts/render-smoke.mjs",
-    "test:sports": "node scripts/sports-smoke.mjs && node scripts/sports-nfl-smoke.mjs && node scripts/sports-nba-smoke.mjs",
+    "test:sports": "node scripts/sports-smoke.mjs && node scripts/sports-nfl-smoke.mjs && node scripts/sports-nba-smoke.mjs && node scripts/sports-pick-smoke.mjs",
     "test:sports-browser": "node scripts/sports-browser.mjs",
     "test:chart-hover": "node scripts/chart-hover-smoke.mjs",
     "test:chart-ui-browser": "node scripts/chart-ui-browser.mjs",

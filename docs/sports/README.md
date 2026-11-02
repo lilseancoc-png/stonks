@@ -49,8 +49,20 @@ the project at 12).
   - `players&sport=&q=`: player search (accents and punctuation ignored).
   - `player&sport=&id=`: a player's latest 40 stored games, with last 5, last
     10, all stored, median, low and high for each stat.
-- There are no write ops yet; a same-origin check is in place for the later
-  Pick Builder saves.
+  - `player` also returns `next_game`: the team's next stored game that has
+    not started, which a new pick attaches to.
+  - `journal`: every saved paper entry, newest first, settled from the
+    stored finals, with the totals (`lib/sports/journal.mjs`).
+- Pick Builder ops are `POST` with a JSON body and must come from the site
+  itself (same-origin check). Bodies over 16 KB are refused.
+  - `evaluate`: read-only. Checks the picks against stored games and
+    players, adds each pick's history hit counts and prices the entry.
+  - `save-entry`: saves a paper entry (only before every game starts).
+  - `revise-entry`: `{ entry_id, action: "settle", gross, note }` or
+    `{ entry_id, action: "withdraw" }`.
+  A request the owner can fix (a bad line, a started game, a missing payout)
+  comes back as 400 / 403 / 404 / 409 with a short reason the page shows.
+  Anything else is a plain 502 with no detail.
 
 ## Storage
 
@@ -133,6 +145,78 @@ Dry runs on 2026-11-02:
 | NFL (2025, 2026) | 557 | 9,111 | 748 | about 1.4 MB |
 | NBA (2025-26, 2026-27) | 2,526 | 37,182 | 655 | about 5.3 MB |
 
+## Pick Builder
+
+Payout math lives in `lib/sports/payout.mjs`; checks, saving and settlement
+in `lib/sports/journal.mjs`.
+
+**Payouts are typed in.** The owner enters the gross multiplier the app shows
+for this exact entry (stake included: 3× on $10 pays back $30). Power pays only
+when every pick hits; flex can pay for fewer. The site never derives a payout
+from the number of picks. Payouts clear when the picks or the entry type
+change.
+
+**Chances are the owner's.** Each pick shows how often the player cleared the
+line in stored games before this one (last 5, last 10, all stored). A rate can
+be copied into the chance box only from 5 or more games and when it is not 0%
+or 100%, and it is labeled "from history". Nothing fills a chance in by
+itself. A shared link never carries chances.
+
+**What the page computes** (roadmap V4 §5):
+
+- Breakeven for power: `1 / M`, the chance all picks must hit together to pay
+  back the stake on average.
+- Independence baseline: `P(k hit)` from the Poisson-binomial over the
+  entered chances, `expected back = stake × Σ P(k) × payout(k)`, expected
+  profit and return. Fixture: $1, 9% to hit both, 55× pays +$3.95 expected,
+  +395%, breakeven 1.81818%; at 53× it is +$3.77.
+- Range under any link between picks (Fréchet bounds):
+  `max(0, Σp − (n − 1)) ≤ P(all hit) ≤ min p`.
+- Picks from the same game are flagged and **not priced**: their results move
+  together, so multiplying chances would be wrong. The page shows the
+  breakeven only, until the joint engine (`sports-joint`) exists.
+
+**Saving.** A paper entry needs the app, the entry type, a stake and the
+payout; chances are optional. Every game must still be ahead. The entry keeps
+the evaluation it had at save. Each pick is also appended to
+`markets/observations.json` as a captured line (`source: "manual"`). Both
+files are append-only and written under an R2 lease (`withLease`), so two
+saves cannot overwrite each other; a busy lease answers "try again". Entries
+carry an owner tag (a hash of the session subject), never the Discord id.
+
+**Settling** happens when the journal is read, from the stored finals:
+
+| Case | Result |
+|---|---|
+| Final, stat above / below / equal to the line | hit / missed / push |
+| NBA player did not play, or has no row | void |
+| NFL player has no row (the file leaves out players with no stat) | stays open |
+| Game postponed or canceled | void |
+
+A power entry with any miss is lost. Any push or void sends the entry to
+"needs your payout", because each app handles those its own way; the owner
+types what the app paid. That typed amount can also close an NFL pick with no
+row. It is allowed only after every game has started, never overrides an
+entry the finals already settled, and can be corrected. **Withdraw** is for an
+entry saved by mistake and works only before any game starts. Only the owner
+who saved an entry can change it. Outcomes: won (more back than staked),
+stake back, partly paid, lost.
+
+The journal totals settled entries (paper profit and return) and, next to
+them, the sum of the expected profit those entries had at save, so the
+baseline can be checked against what happened.
+
+**Shared links.** `/?tab=sports-pick-builder&entry=<base64url JSON>` fills
+the draft (`lib/sports/prefill.mjs`: `encodePrefill` / `decodePrefill`; the
+page reads the parameter once and removes it). Fields: `v: 1`, `operator`,
+`format`, `stake`, `payouts`, and `legs` of `sport`, `player_id`, `game_id`,
+`stat`, `side`, `threshold`. The MCP (`sports-mcp`) will hand these out after
+Claude or ChatGPT reads a screenshot. The owner still checks and saves.
+
+**Browser storage.** The unsaved draft lives in sessionStorage
+(`stonks-sports-draft-v1`) and is gone when the tab closes. Saved entries are
+only in R2.
+
 ## Schema
 
 `lib/sports/schema.mjs` (version 1) holds the sports, stats, statuses and
@@ -175,7 +259,9 @@ One branch and pull request each, from `main`:
    one shared ingest for both leagues, packed row storage. An owner CSV import
    was planned here; hoopR covers the data, so it is left for later if a
    source goes missing.
-4. `sports-pick-builder`: entered payouts, EV and the paper journal
+4. `sports-pick-builder`: entered payouts, breakeven, the independence
+   baseline with its range, same-game flags, the paper journal with
+   settlement from final stats, and shared prefill links
 5. `sports-models`: per-stat probability models
 6. `sports-joint`: the joint-probability engine for correlated picks
 7. `sports-mcp`: read-only MCP tools; evaluate returns a Pick Builder link to
@@ -184,7 +270,7 @@ One branch and pull request each, from `main`:
 ## Tests
 
 ```bash
-npm run test:sports           # access, route, time zones, keys, schema, wiring, both adapters, ingest and views
-npm run test:sports-browser   # Owner / member / signed-out at 1440 and 390, NFL and NBA boards, games and logs
+npm run test:sports           # access, route, time zones, keys, schema, wiring, both adapters, ingest, views, payout math and the journal
+npm run test:sports-browser   # Owner / member / signed-out at 1440 and 390, boards, games, logs, and the Pick Builder flow
 node scripts/regen-sports.mjs # rebuild index.html / app.js / styles.css without data/
 ```

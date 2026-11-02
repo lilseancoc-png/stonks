@@ -62,7 +62,8 @@ eq((await call({ session: null })).statusCode, 403, 'signed-out visitor gets 403
 eq((await call({ session: { ...owner, tp: false } })).statusCode, 403, 'non-Owner gets 403');
 eq((await call({ env: {} })).statusCode, 404, 'private data off hides Sports');
 eq((await call({ env: { ...on, SPORTS_ENABLED: '0' } })).statusCode, 404, 'kill switch hides Sports');
-eq((await call({ query: { sports: 'journal' } })).statusCode, 405, 'unknown op is refused');
+eq((await call({ query: { sports: 'bets' } })).statusCode, 405, 'unknown op is refused');
+eq((await call({ query: { sports: 'save-entry' } })).statusCode, 405, 'writes are POST only');
 eq((await call({ query: { sports: 'status', data: 'picks.json' } })).statusCode, 400, 'ambiguous request is refused');
 eq((await call({ method: 'POST', headers: { origin: 'https://evil.example', host: 'mingstreet.app' } })).statusCode, 403, 'cross-site POST is refused');
 eq((await call({ method: 'POST', headers: { origin: 'https://mingstreet.app', host: 'mingstreet.app' } })).statusCode, 405, 'status is GET-only');
@@ -176,7 +177,9 @@ ok(SPORTS_PAGE_IDS.every((id) => ownerTabs[id] === 1), 'app.js gates every Sport
 ok(app.includes("sports.load(name)") && app.includes("'/api/auth/me?sports=' + encodeURIComponent(op)"), 'pages load only through the gated route');
 ok((sportsFactory.toString().match(/host\.fetch\(/g) || []).length === 1, 'the Sports pages have exactly one network call site');
 ok(app.includes("document.querySelectorAll('[data-role-group=\"owner\"]')"), 'both Owner groups are revealed or removed');
-ok(!/localStorage\.setItem\(TZ_KEY, (?!tz\))/.test(app), 'only the chosen time zone is stored in the browser');
+ok(!/localStorage\.setItem\(TZ_KEY, (?!tz\))/.test(app), 'only the chosen time zone is stored in localStorage');
+const storageWrites = sportsFactory.toString().match(/(local|session)Storage\.setItem\([A-Z_]+/g) || [];
+eq(storageWrites, ['localStorage.setItem(TZ_KEY', 'sessionStorage.setItem(DRAFT_KEY'], 'the browser keeps only the zone and the unsaved draft');
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 ok(/<details class="side-nav-group" data-nav-group="sports" data-role-group="owner" open hidden>/.test(html), 'the Sports group ships hidden until the Owner check');
 for (const id of SPORTS_PAGE_IDS) ok(html.includes('id="page-pane-' + id + '"') && html.includes('id="' + id + '-root"'), id + ' pane ships');
