@@ -291,6 +291,10 @@ async function me(req, res) {
   if (req.query?.lab != null) {
     return (await import('../../lib/research-lab/http.mjs')).handleResearchRequest(req, res);
   }
+  // Owner Sports section (lib/sports/). Same signed Owner session, no new function.
+  if (req.query?.sports != null) {
+    return (await import('../../lib/sports/http.mjs')).handleSportsRequest(req, res);
+  }
   // Authenticated data compatibility mode. Production has delivered the
   // session cookie to this exact /api/auth/me function while a near-simultaneous
   // /api/data/* invocation received no cookie and falsely returned 401. The app

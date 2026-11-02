@@ -19,7 +19,7 @@
   }
 
 
-  var SITE_MAP = [["today","Today","Today","What is happening in the market right now",0,[["home","Home","","A one-screen overview of the market and every part of the site.",0],["brief","Market brief","Brief","A short digest of what moved, why, and what is coming up next.",0],["news","News","News desk","Market-moving stock and economic headlines, most important first.",0],["heatmap","Heatmap","","Every tracked stock as a tile: size is company value, color is how much it moved.",0],["calendar","Calendar","","Upcoming earnings reports, economic releases and Fed meetings.",0],["overnight","Overnight markets","","How Asian and European markets traded before the US open, and which US stocks they tend to lead.",0]]],["stocks","Stocks","Stocks","Look up, compare and follow companies",0,[["tickers","All stocks","Tickers","Every stock the site follows, with its price, returns and sector.",0],["grade","Look up a stock","Grade a ticker stock report","One stock in depth: its chart, grade, fundamentals, options and news.",0],["compare","Compare stocks","Compare companies","Line up a few companies side by side on price, growth and valuation.",0],["earnings","Earnings results","Earnings tracker","Which companies beat or missed expectations this season, and how their stocks reacted.",0],["calls","Earnings calls","","What management said on each company’s latest earnings call, and what changed.",0],["f13","Who owns what","SEC ownership 13F Form 4 insider","What big investment funds bought and sold last quarter, plus recent insider trades.",0],["pending-buyouts","Pending buyouts","M&A mergers","Announced and rumored takeovers, and how far along each deal is.",0]]],["market","Market & economy","Market","The big picture: mood, rates, money and themes",0,[["fear-greed","Market mood","Fear & Greed","CNN’s Fear & Greed index: whether investors are acting scared or greedy, from 0 to 100.",0],["bonds-usd","Rates & the dollar","Bonds & USD Fed","Treasury yields, the US dollar and what the Fed is expected to do next.",0],["commodities","Commodities","","Oil, gold, copper and other raw materials, and the stocks that move with them.",0],["central-bank-gold","Central-bank gold","","How much gold the world’s central banks are buying or selling.",0],["capital-raises","Capital markets","Capital raises share sales buybacks IPOs credit issuance debt","Companies selling stock or debt or buying shares back, upcoming IPOs, and how easily companies and households can borrow.",0],["narratives","Market themes","Narratives","The big stories driving money right now, such as AI spending, and which stocks ride them.",0]]],["options","Options activity","Options","Where traders are placing bets",0,[["flow","Unusual options trades","Unusual flow","Option trades far bigger than normal for that stock, a sign someone expects a move.",0],["volume","Trading volume","Volume","Days when a stock traded much more or less than usual.",0],["oi","Options walls","Gamma exposure GEX","Price levels where large option positions can slow a stock down or speed it up.",0],["iv-trend","Rising volatility","Trending IV implied volatility","Stocks whose options are pricing in a bigger move than usual.",0],["strategies","Strategy builder","Strategies","Pick a stock and build a defined-risk options trade, with its profit and loss at expiry.",0]]],["signals","Charts & signals","Signals","Price trends and repeating patterns",0,[["ma-tracker","Moving averages","MA tracker crossover","Stocks sitting close to their 20, 50, 100 or 200-day average price.",0],["streaks","Up/down streaks","Streaks green red","Stocks on a run of up days or down days in a row.",0],["pattern-lab","Pattern lab","Seasonality","Repeating patterns such as seasonality and how stocks behave after big moves.",0],["spillover","Earnings ripple effects","Event spillover","How one company’s earnings tend to move the other stocks in its industry.",0],["index-cal","Index calendar","","A month view of the major index funds, showing which days the whole market joined in.",0]]],["industry","Industry trends","Industry","Real-world data behind the AI and chip trade",0,[["ai-capex","AI spending","AI CapEx","How much the biggest tech companies are spending on AI data centers.",0],["ram-prices","Memory chip prices","RAM prices DRAM","Weekly prices for computer memory, a read on the chip cycle.",0],["accelerator-prices","GPU cloud prices","Accelerator","What it costs to rent AI chips by the hour, a read on AI demand.",0],["search-interest","Search trends","Search interest Google","Which market themes people are searching for more or less this week.",0]]],["learn","Learn & help","Learn","Guides, definitions and site info",0,[["cheatsheet","Options guide","Buyer's manual","A plain-English guide to buying options: calls, puts, risk and timing.",0],["chart-patterns","Chart patterns","","What common chart shapes look like and how traders read them.",0],["timeline","When data updates","Refresh schedule timeline","When each part of the site refreshes during the trading day.",0],["privacy","Privacy Policy","","What this site collects and how it is used.",0],["terms","Terms of Use","","The terms for using this site. Nothing here is investment advice.",0]]],["owner","Owner","Owner","Private research",1,[["owner-market-brief","Owner Market Brief","Private digest outlook predictions scenarios research","The full site read, with private research, conditional paths, counterevidence and a curated review shortlist.",0],["unified-signal-engine","Unified Signal Engine","","Existing decisions with separate investment and trading perspectives.",0],["market","Market analysis","","The cross-asset tape, risk barometer and regime history.",0],["risk","Risk analysis","","Seven risk desks read together, with the reason when they disagree.",0],["bottom-tracker","Bottom tracker","","Signs the market is washing out and turning.",0],["historical-data","Historical Data","","The stored history behind the private research.",0],["party-tracker","Party tracker","Party-Tracker Democrats Republicans president house senate","How the market and each sector did when Democrats or Republicans held the presidency, the House, or the Senate.",0],["earnings-forecast","Earnings Forecast","Quarterly full-year valuation company history revenue EPS industry model","Quarterly forecasts for the top 20 covered companies, company history, full-year valuation and linked industry evidence.",0],["forced-liquidation","Forced Liquidation Tracker","Pledged shares collateral leverage margin","SEC stock pledges, loan terms and estimated price thresholds, with missing terms kept visible.",0],["picks","Top picks","","The model’s highest-conviction option contracts for today.",0],["leaps","LEAPS","","Names scored for a one- to two-year options hold.",0],["stocks","Stock picks","","Quality companies on a dip, as shares rather than options.",0],["rotation","Sector rotation","","Strong names sold with their sector that are now turning back up.",0],["levetf","Leveraged ETFs","","Leveraged ETF setups from the same engine.",0],["open-picks","Open picks","","Every open trade, with lines ready to copy to a broker.",0],["track","Top Picks track record","","How every closed pick worked out.",0],["quant","Owner Lab","","Research tools and diagnostics.",0],["research-lab","Research Lab","Scenarios evidence puzzle stocks experiments visual canvas journal ChatGPT Claude","Connect stocks, evidence and assumptions, explore possible outcomes and export your research for AI review.",0],["update-checker","Update Checker","Build status failures feature health stale missing updates","Build failures and checks of published feature outputs.",0]]]];
+  var SITE_MAP = [["today","Today","Today","What is happening in the market right now",0,[["home","Home","","A one-screen overview of the market and every part of the site.",0],["brief","Market brief","Brief","A short digest of what moved, why, and what is coming up next.",0],["news","News","News desk","Market-moving stock and economic headlines, most important first.",0],["heatmap","Heatmap","","Every tracked stock as a tile: size is company value, color is how much it moved.",0],["calendar","Calendar","","Upcoming earnings reports, economic releases and Fed meetings.",0],["overnight","Overnight markets","","How Asian and European markets traded before the US open, and which US stocks they tend to lead.",0]]],["stocks","Stocks","Stocks","Look up, compare and follow companies",0,[["tickers","All stocks","Tickers","Every stock the site follows, with its price, returns and sector.",0],["grade","Look up a stock","Grade a ticker stock report","One stock in depth: its chart, grade, fundamentals, options and news.",0],["compare","Compare stocks","Compare companies","Line up a few companies side by side on price, growth and valuation.",0],["earnings","Earnings results","Earnings tracker","Which companies beat or missed expectations this season, and how their stocks reacted.",0],["calls","Earnings calls","","What management said on each company’s latest earnings call, and what changed.",0],["f13","Who owns what","SEC ownership 13F Form 4 insider","What big investment funds bought and sold last quarter, plus recent insider trades.",0],["pending-buyouts","Pending buyouts","M&A mergers","Announced and rumored takeovers, and how far along each deal is.",0]]],["market","Market & economy","Market","The big picture: mood, rates, money and themes",0,[["fear-greed","Market mood","Fear & Greed","CNN’s Fear & Greed index: whether investors are acting scared or greedy, from 0 to 100.",0],["bonds-usd","Rates & the dollar","Bonds & USD Fed","Treasury yields, the US dollar and what the Fed is expected to do next.",0],["commodities","Commodities","","Oil, gold, copper and other raw materials, and the stocks that move with them.",0],["central-bank-gold","Central-bank gold","","How much gold the world’s central banks are buying or selling.",0],["capital-raises","Capital markets","Capital raises share sales buybacks IPOs credit issuance debt","Companies selling stock or debt or buying shares back, upcoming IPOs, and how easily companies and households can borrow.",0],["narratives","Market themes","Narratives","The big stories driving money right now, such as AI spending, and which stocks ride them.",0]]],["options","Options activity","Options","Where traders are placing bets",0,[["flow","Unusual options trades","Unusual flow","Option trades far bigger than normal for that stock, a sign someone expects a move.",0],["volume","Trading volume","Volume","Days when a stock traded much more or less than usual.",0],["oi","Options walls","Gamma exposure GEX","Price levels where large option positions can slow a stock down or speed it up.",0],["iv-trend","Rising volatility","Trending IV implied volatility","Stocks whose options are pricing in a bigger move than usual.",0],["strategies","Strategy builder","Strategies","Pick a stock and build a defined-risk options trade, with its profit and loss at expiry.",0]]],["signals","Charts & signals","Signals","Price trends and repeating patterns",0,[["ma-tracker","Moving averages","MA tracker crossover","Stocks sitting close to their 20, 50, 100 or 200-day average price.",0],["streaks","Up/down streaks","Streaks green red","Stocks on a run of up days or down days in a row.",0],["pattern-lab","Pattern lab","Seasonality","Repeating patterns such as seasonality and how stocks behave after big moves.",0],["spillover","Earnings ripple effects","Event spillover","How one company’s earnings tend to move the other stocks in its industry.",0],["index-cal","Index calendar","","A month view of the major index funds, showing which days the whole market joined in.",0]]],["industry","Industry trends","Industry","Real-world data behind the AI and chip trade",0,[["ai-capex","AI spending","AI CapEx","How much the biggest tech companies are spending on AI data centers.",0],["ram-prices","Memory chip prices","RAM prices DRAM","Weekly prices for computer memory, a read on the chip cycle.",0],["accelerator-prices","GPU cloud prices","Accelerator","What it costs to rent AI chips by the hour, a read on AI demand.",0],["search-interest","Search trends","Search interest Google","Which market themes people are searching for more or less this week.",0]]],["learn","Learn & help","Learn","Guides, definitions and site info",0,[["cheatsheet","Options guide","Buyer's manual","A plain-English guide to buying options: calls, puts, risk and timing.",0],["chart-patterns","Chart patterns","","What common chart shapes look like and how traders read them.",0],["timeline","When data updates","Refresh schedule timeline","When each part of the site refreshes during the trading day.",0],["privacy","Privacy Policy","","What this site collects and how it is used.",0],["terms","Terms of Use","","The terms for using this site. Nothing here is investment advice.",0]]],["owner","Owner","Owner","Private research",1,[["owner-market-brief","Owner Market Brief","Private digest outlook predictions scenarios research","The full site read, with private research, conditional paths, counterevidence and a curated review shortlist.",0],["unified-signal-engine","Unified Signal Engine","","Existing decisions with separate investment and trading perspectives.",0],["market","Market analysis","","The cross-asset tape, risk barometer and regime history.",0],["risk","Risk analysis","","Seven risk desks read together, with the reason when they disagree.",0],["bottom-tracker","Bottom tracker","","Signs the market is washing out and turning.",0],["historical-data","Historical Data","","The stored history behind the private research.",0],["party-tracker","Party tracker","Party-Tracker Democrats Republicans president house senate","How the market and each sector did when Democrats or Republicans held the presidency, the House, or the Senate.",0],["earnings-forecast","Earnings Forecast","Quarterly full-year valuation company history revenue EPS industry model","Quarterly forecasts for the top 20 covered companies, company history, full-year valuation and linked industry evidence.",0],["forced-liquidation","Forced Liquidation Tracker","Pledged shares collateral leverage margin","SEC stock pledges, loan terms and estimated price thresholds, with missing terms kept visible.",0],["picks","Top picks","","The model’s highest-conviction option contracts for today.",0],["leaps","LEAPS","","Names scored for a one- to two-year options hold.",0],["stocks","Stock picks","","Quality companies on a dip, as shares rather than options.",0],["rotation","Sector rotation","","Strong names sold with their sector that are now turning back up.",0],["levetf","Leveraged ETFs","","Leveraged ETF setups from the same engine.",0],["open-picks","Open picks","","Every open trade, with lines ready to copy to a broker.",0],["track","Top Picks track record","","How every closed pick worked out.",0],["quant","Owner Lab","","Research tools and diagnostics.",0],["research-lab","Research Lab","Scenarios evidence puzzle stocks experiments visual canvas journal ChatGPT Claude","Connect stocks, evidence and assumptions, explore possible outcomes and export your research for AI review.",0],["update-checker","Update Checker","Build status failures feature health stale missing updates","Build failures and checks of published feature outputs.",0]]],["sports","Sports","Sports","Private NBA and NFL research",1,[["sports-nba","NBA","Basketball players props points rebounds games","Today’s and tomorrow’s NBA games, player game logs and the lines you have captured.",0],["sports-nfl","NFL","Football players props passing yards receptions games","Today’s and tomorrow’s NFL games, player game logs and the lines you have captured.",0],["sports-pick-builder","Pick Builder","Sports picks entry payout paper journal PrizePicks Betr","Build a 1 to 6 pick entry with its real payout, see the odds and save it as a paper pick.",0]]]];
   var RECENT_KEY = 'stonks-recent-v1';
   function wfReadRecent(){
     try {
@@ -2031,7 +2031,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // the Owner analysis/idea/record desks and Owner Lab; this UI boundary keeps
   // destinations hidden until the owner session's compatibility claims resolve.
   // Discord mints both only after verifying the existing Top Picks owner role.
-  var OWNER_TABS = {"update-checker":1,"owner-market-brief":1,"grade":1,"strategies":1,"narratives":1,"earnings-forecast":1,"unified-signal-engine":1,"market":1,"risk":1,"bottom-tracker":1,"historical-data":1,"party-tracker":1,"forced-liquidation":1,"picks":1,"leaps":1,"stocks":1,"rotation":1,"levetf":1,"open-picks":1,"track":1,"quant":1,"research-lab":1};
+  var OWNER_TABS = {"update-checker":1,"owner-market-brief":1,"grade":1,"strategies":1,"narratives":1,"earnings-forecast":1,"unified-signal-engine":1,"market":1,"risk":1,"bottom-tracker":1,"historical-data":1,"party-tracker":1,"forced-liquidation":1,"picks":1,"leaps":1,"stocks":1,"rotation":1,"levetf":1,"open-picks":1,"track":1,"quant":1,"research-lab":1,"sports-nba":1,"sports-nfl":1,"sports-pick-builder":1};
   var GATE_ON = false;
   var HAS_TRACK_RECORD = false;
   var HAS_TOP_PICKS = false;
@@ -5651,7 +5651,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // resolve the URL's initial tab synchronously at script-evaluation time (the
   // anti-flash pre-select in the boot block) before the /api/auth/me +
   // manifest fetches settle and bind() runs the full selectTab.
-  var PAGE_TAB_IDS = ['home','update-checker','owner-market-brief','tickers','narratives','brief','news','market','risk','unified-signal-engine','historical-data','party-tracker','earnings-forecast','forced-liquidation','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','research-lab','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','bottom-tracker','open-picks','track','cheatsheet','chart-patterns','timeline','privacy','terms'];
+  var PAGE_TAB_IDS = ['home','update-checker','owner-market-brief','tickers','narratives','brief','news','market','risk','unified-signal-engine','historical-data','party-tracker','earnings-forecast','forced-liquidation','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','research-lab','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','bottom-tracker','open-picks','track','sports-nba','sports-nfl','sports-pick-builder','cheatsheet','chart-patterns','timeline','privacy','terms'];
   // Friendly aliases so deep-links people might guess work too.
   // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
   // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -5660,6 +5660,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     unified: 'unified-signal-engine', signals: 'unified-signal-engine', 'signal-engine': 'unified-signal-engine',
     historical: 'historical-data', history: 'historical-data', 'historical-data': 'historical-data',
     party: 'party-tracker', parties: 'party-tracker', 'party-tracker': 'party-tracker', democrats: 'party-tracker', republicans: 'party-tracker',
+    sports: 'sports-nba', nba: 'sports-nba', basketball: 'sports-nba', nfl: 'sports-nfl', football: 'sports-nfl', 'pick-builder': 'sports-pick-builder', 'sports-picks': 'sports-pick-builder', 'paper-picks': 'sports-pick-builder',
     forecast: 'earnings-forecast', 'earnings-forecast': 'earnings-forecast',
     liquidation: 'forced-liquidation', 'forced-liquidation-tracker': 'forced-liquidation', 'forced-liquidation': 'forced-liquidation',
     unusual: 'flow', 'unusual-flow': 'flow',
@@ -7405,6 +7406,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         if (name === 'bottom-tracker' && typeof loadBottomTracker === 'function') loadBottomTracker();
         if (name === 'historical-data') historicalData.load();
         if (name === 'party-tracker') partyTracker.load();
+        if (name === 'sports-nba' || name === 'sports-nfl' || name === 'sports-pick-builder') sports.load(name);
         if (name === 'earnings-forecast') earningsForecast.load();
         if (name === 'forced-liquidation') forcedLiquidation.load();
         if (name === 'unified-signal-engine') unifiedSignal.load();
@@ -29480,6 +29482,160 @@ function scenarioEventPhase(ev, now = Date.now()) {
     owner: function(){ return HAS_OWNER_ACCESS; },
     url: function(){ return '/api/auth/me?data=party-tracker.json'; }
   });
+  // Owner Sports section (NBA, NFL, Pick Builder): gated /api/auth/me?sports=... only.
+  var sports = (function sportsFactory(host, doc, options) {
+  const TZ_KEY = 'stonks-sports-tz-v1';
+  const state = { status: null, pending: null, error: null, page: null, bound: {} };
+  const escape = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
+  const leagueOf = (page) => page === 'sports-nba' ? 'nba' : page === 'sports-nfl' ? 'nfl' : null;
+  const root = (page) => doc.getElementById(page + '-root');
+
+  function savedZone() {
+    try { return host.localStorage.getItem(TZ_KEY) || ''; } catch (_) { return ''; }
+  }
+  function saveZone(tz) {
+    try { host.localStorage.setItem(TZ_KEY, tz); } catch (_) {}
+  }
+  function fmtDay(dateStr, tz) {
+    try {
+      const [y, m, d] = dateStr.split('-').map(Number);
+      return new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric' }).format(new Date(Date.UTC(y, m - 1, d, 12)));
+    } catch (_) { return dateStr; }
+  }
+  function fmtWhen(iso, tz) {
+    if (!iso) return '—';
+    try { return new Intl.DateTimeFormat('en-US', { timeZone: tz, month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).format(new Date(iso)); }
+    catch (_) { return iso; }
+  }
+
+  function fetchStatus(force) {
+    if (state.pending) return state.pending;
+    if (state.status && !force) return Promise.resolve(state.status);
+    const tz = savedZone();
+    const url = '/api/auth/me?sports=status' + (tz ? '&tz=' + encodeURIComponent(tz) : '');
+    state.error = null;
+    state.pending = host.fetch(url, { credentials: 'same-origin', cache: 'no-store' })
+      .then((res) => {
+        if (res.status === 401 || res.status === 403) throw Object.assign(new Error('signed-out'), { code: 'auth' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      })
+      .then((data) => {
+        if (!data || data.schema_version !== 1 || !data.window || !data.sources) throw new Error('Unexpected Sports response');
+        state.status = data;
+        return data;
+      })
+      .catch((err) => { state.error = err; throw err; })
+      .finally(() => { state.pending = null; });
+    return state.pending;
+  }
+
+  function zonePicker(s) {
+    const current = s.window.time_zone;
+    const zones = s.time_zones.slice();
+    if (!zones.some((z) => z.id === current)) zones.push({ id: current, label: current });
+    return '<label class="sp-zone">Day boundary <select data-sp-zone>' +
+      zones.map((z) => '<option value="' + escape(z.id) + '"' + (z.id === current ? ' selected' : '') + '>' + escape(z.label) + ' time</option>').join('') +
+      '</select></label>';
+  }
+
+  function dayStrip(s) {
+    const w = s.window;
+    return '<div class="sp-days" role="group" aria-label="Active days">' +
+      '<span class="sp-day"><b>Today</b> ' + escape(fmtDay(w.today)) + '</span>' +
+      '<span class="sp-day"><b>Tomorrow</b> ' + escape(fmtDay(w.tomorrow)) + '</span>' +
+      zonePicker(s) + '</div>';
+  }
+
+  function sourceCard(src, tz) {
+    const connected = src.state !== 'not_connected';
+    const stateText = { ok: 'Up to date', degraded: 'Partly updated', failed: 'Last update failed', unknown: 'Unknown', not_connected: 'Not connected yet' }[src.state] || 'Unknown';
+    const rows = [
+      ['Source', '<a href="' + escape(src.url) + '" target="_blank" rel="noopener noreferrer">' + escape(src.provider) + '</a>'],
+      ['Status', '<span class="sp-state sp-state-' + escape(src.state) + '">' + escape(stateText) + '</span>'],
+      ['Last good update', connected ? escape(fmtWhen(src.last_success_utc, tz)) : '—'],
+      ['Seasons stored', src.seasons && src.seasons.length ? escape(src.seasons.join(', ')) : '—'],
+      ['Refresh', escape(src.refresh)],
+      ['Terms', escape(src.license)],
+    ];
+    return '<div class="sp-source"><h3>Data</h3><dl>' + rows.map((r) => '<dt>' + r[0] + '</dt><dd>' + r[1] + '</dd>').join('') + '</dl>' +
+      (src.message ? '<p class="sp-note">' + escape(src.message) + '</p>' : '') + '</div>';
+  }
+
+  function statList(stats) {
+    return '<div class="sp-stats"><h3>Stats covered</h3><ul>' + stats.map((st) =>
+      '<li class="' + (st.enabled ? 'sp-on' : 'sp-later') + '">' + escape(st.label) + (st.enabled ? '' : ' <span>later</span>') + '</li>').join('') + '</ul></div>';
+  }
+
+  function leagueHtml(s, league) {
+    const src = s.sources[league], tz = s.window.time_zone;
+    const name = league.toUpperCase();
+    const coming = league === 'nfl'
+      ? 'The next update connects nflverse: schedules, two seasons of player game logs, and a daily refresh in season.'
+      : 'A later update connects NBA game logs (hoopR and other free sources) and adds CSV import for your own files.';
+    const board = src.state === 'not_connected'
+      ? '<div class="sp-empty"><b>No ' + name + ' games loaded yet.</b><p>' + escape(coming) + '</p></div>'
+      : '<div class="sp-empty"><b>Games will appear here.</b><p>The board lists games starting today or tomorrow in ' + escape(tz) + '.</p></div>';
+    return dayStrip(s) + '<div class="sp-grid"><div class="sp-board"><h3>Games</h3>' + board + '</div>' +
+      '<aside class="sp-side">' + sourceCard(src, tz) + statList(s.stats[league] || []) + '</aside></div>' +
+      '<p class="sp-foot">Private research for the two owners. No sportsbook is connected, nothing is placed, and no AI model is called by this page.</p>';
+  }
+
+  function builderHtml(s) {
+    const steps = [
+      ['Add picks', 'Add 1 to 6 player picks from the NBA and NFL pages, or type them in: player, stat, over or under, and the line.'],
+      ['Enter the payout', 'Type the payout your app shows for this exact entry (power or flex). The site never guesses a payout from the number of picks.'],
+      ['See the odds', 'Each pick gets a chance of hitting from the player’s history. Picks from the same game are flagged, because they move together.'],
+      ['Save a paper pick', 'Save the entry before the games start. After the games it is graded from the final stats, and the journal keeps your record.'],
+      ['Screenshots', 'Send a slip screenshot to Claude or ChatGPT; it reads the picks and opens this page with them filled in for you to check and save.'],
+    ];
+    return dayStrip(s) + '<ol class="sp-steps">' + steps.map((st) => '<li><b>' + escape(st[0]) + '</b><span>' + escape(st[1]) + '</span></li>').join('') + '</ol>' +
+      '<div class="sp-empty"><b>The Pick Builder arrives in a later update.</b><p>This page is reserved for it now so the section, its access and its storage are in place first.</p></div>' +
+      '<p class="sp-foot">Paper picks only. No sportsbook login, no API and no automatic bets.</p>';
+  }
+
+  function render(page) {
+    const el = root(page);
+    if (!el) return;
+    if (!options.owner()) { el.innerHTML = '<div class="sp-empty"><b>Owner sign-in required.</b></div>'; return; }
+    if (state.error && !state.status) {
+      const auth = state.error.code === 'auth';
+      el.innerHTML = '<div class="sp-empty"><b>' + (auth ? 'Your Owner session has ended.' : 'The Sports data could not be loaded.') + '</b>' +
+        (auth ? '<p><a href="/welcome.html">Sign in again</a></p>' : '<p><button type="button" class="sp-retry" data-sp-retry>Try again</button></p>') + '</div>';
+      return;
+    }
+    if (!state.status) { el.textContent = 'Loading…'; return; }
+    el.innerHTML = page === 'sports-pick-builder' ? builderHtml(state.status) : leagueHtml(state.status, leagueOf(page));
+  }
+
+  function bind(page) {
+    const el = root(page);
+    if (!el || state.bound[page]) return;
+    state.bound[page] = true;
+    el.addEventListener('change', (event) => {
+      const sel = event.target.closest('[data-sp-zone]');
+      if (!sel) return;
+      saveZone(sel.value);
+      state.status = null;
+      load(page, true);
+    });
+    el.addEventListener('click', (event) => {
+      if (event.target.closest('[data-sp-retry]')) load(page, true);
+    });
+  }
+
+  function load(page, force) {
+    state.page = page;
+    bind(page);
+    render(page);
+    if (!options.owner()) return;
+    fetchStatus(force).then(() => render(page), () => render(page));
+  }
+
+  return { load };
+})(window, document, {
+    owner: function(){ return HAS_OWNER_ACCESS; }
+  });
   var earningsForecast = (function earningsForecastFactory(host,doc,options,scenarioFactory,researchFactory,valuationFactory){
   const scenarios=scenarioFactory();
   const research=researchFactory?researchFactory(host,doc,{owner:options.owner,download:(value,name)=>download(value,name)},valuationFactory):null;
@@ -51372,7 +51528,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // accessibility trees. The server separately withholds their data.
   function enforceOwnerUi(root){
     if (HAS_OWNER_ACCESS || !root || !root.querySelectorAll) return;
-    var selector = "[data-owner-only],#book-grade-return,.flow-decision,.heatmap-decision,.heatmap-eod-decision,#news-feed-summary,.news-posture-triggers,.news-feed-decision,.news-decision,.brief-decision,.brief-analog,.ers-posture,.ers-search-signal,.ecl-decision,.ecl-plan-posture,.cmd-posture,.cx-posture,.rp-posture,.ic-posture,.bonds-ctx-posture,.fng-decision,.idx-cal-decision,.ma-track-summary,.ma-track-desk,.ma-track-leaders,.ma-track-note,#tickers-decision,#tickers-model-summary,#tickers-model-note,#tickers-ready,.ticker-grade,#tickers-scatter .sc-legend,#cmp-pillars,#cmp-summary,[data-ers-view=\"recovery\"],.recovery-screen,option[value=\"grade\"],#tickers-sort option[value=\"score\"],#tickers-sc-x option[value=\"score\"],#tickers-sc-y option[value=\"score\"],#tickers-sort option[value=\"conviction\"],#tickers-sort option[value=\"ready\"],#cmp-sec-metric option[value=\"call\"],#cmp-sec-metric option[value=\"put\"],[data-grade],[data-scn-grade],[data-f13-grade],.flow-grade-btn,[data-go=\"grade\"],[data-go=\"strategies\"],[data-go=\"narratives\"],[data-page-tab=\"update-checker\"],[data-go=\"update-checker\"],#page-pane-update-checker,[data-page-tab=\"owner-market-brief\"],[data-go=\"owner-market-brief\"],#page-pane-owner-market-brief,[data-page-tab=\"grade\"],[data-go=\"grade\"],#page-pane-grade,[data-page-tab=\"strategies\"],[data-go=\"strategies\"],#page-pane-strategies,[data-page-tab=\"narratives\"],[data-go=\"narratives\"],#page-pane-narratives,[data-page-tab=\"earnings-forecast\"],[data-go=\"earnings-forecast\"],#page-pane-earnings-forecast,[data-page-tab=\"unified-signal-engine\"],[data-go=\"unified-signal-engine\"],#page-pane-unified-signal-engine,[data-page-tab=\"market\"],[data-go=\"market\"],#page-pane-market,[data-page-tab=\"risk\"],[data-go=\"risk\"],#page-pane-risk,[data-page-tab=\"bottom-tracker\"],[data-go=\"bottom-tracker\"],#page-pane-bottom-tracker,[data-page-tab=\"historical-data\"],[data-go=\"historical-data\"],#page-pane-historical-data,[data-page-tab=\"party-tracker\"],[data-go=\"party-tracker\"],#page-pane-party-tracker,[data-page-tab=\"forced-liquidation\"],[data-go=\"forced-liquidation\"],#page-pane-forced-liquidation,[data-page-tab=\"picks\"],[data-go=\"picks\"],#page-pane-picks,[data-page-tab=\"leaps\"],[data-go=\"leaps\"],#page-pane-leaps,[data-page-tab=\"stocks\"],[data-go=\"stocks\"],#page-pane-stocks,[data-page-tab=\"rotation\"],[data-go=\"rotation\"],#page-pane-rotation,[data-page-tab=\"levetf\"],[data-go=\"levetf\"],#page-pane-levetf,[data-page-tab=\"open-picks\"],[data-go=\"open-picks\"],#page-pane-open-picks,[data-page-tab=\"track\"],[data-go=\"track\"],#page-pane-track,[data-page-tab=\"quant\"],[data-go=\"quant\"],#page-pane-quant,[data-page-tab=\"research-lab\"],[data-go=\"research-lab\"],#page-pane-research-lab";
+    var selector = "[data-owner-only],#book-grade-return,.flow-decision,.heatmap-decision,.heatmap-eod-decision,#news-feed-summary,.news-posture-triggers,.news-feed-decision,.news-decision,.brief-decision,.brief-analog,.ers-posture,.ers-search-signal,.ecl-decision,.ecl-plan-posture,.cmd-posture,.cx-posture,.rp-posture,.ic-posture,.bonds-ctx-posture,.fng-decision,.idx-cal-decision,.ma-track-summary,.ma-track-desk,.ma-track-leaders,.ma-track-note,#tickers-decision,#tickers-model-summary,#tickers-model-note,#tickers-ready,.ticker-grade,#tickers-scatter .sc-legend,#cmp-pillars,#cmp-summary,[data-ers-view=\"recovery\"],.recovery-screen,option[value=\"grade\"],#tickers-sort option[value=\"score\"],#tickers-sc-x option[value=\"score\"],#tickers-sc-y option[value=\"score\"],#tickers-sort option[value=\"conviction\"],#tickers-sort option[value=\"ready\"],#cmp-sec-metric option[value=\"call\"],#cmp-sec-metric option[value=\"put\"],[data-grade],[data-scn-grade],[data-f13-grade],.flow-grade-btn,[data-go=\"grade\"],[data-go=\"strategies\"],[data-go=\"narratives\"],[data-page-tab=\"update-checker\"],[data-go=\"update-checker\"],#page-pane-update-checker,[data-page-tab=\"owner-market-brief\"],[data-go=\"owner-market-brief\"],#page-pane-owner-market-brief,[data-page-tab=\"grade\"],[data-go=\"grade\"],#page-pane-grade,[data-page-tab=\"strategies\"],[data-go=\"strategies\"],#page-pane-strategies,[data-page-tab=\"narratives\"],[data-go=\"narratives\"],#page-pane-narratives,[data-page-tab=\"earnings-forecast\"],[data-go=\"earnings-forecast\"],#page-pane-earnings-forecast,[data-page-tab=\"unified-signal-engine\"],[data-go=\"unified-signal-engine\"],#page-pane-unified-signal-engine,[data-page-tab=\"market\"],[data-go=\"market\"],#page-pane-market,[data-page-tab=\"risk\"],[data-go=\"risk\"],#page-pane-risk,[data-page-tab=\"bottom-tracker\"],[data-go=\"bottom-tracker\"],#page-pane-bottom-tracker,[data-page-tab=\"historical-data\"],[data-go=\"historical-data\"],#page-pane-historical-data,[data-page-tab=\"party-tracker\"],[data-go=\"party-tracker\"],#page-pane-party-tracker,[data-page-tab=\"forced-liquidation\"],[data-go=\"forced-liquidation\"],#page-pane-forced-liquidation,[data-page-tab=\"picks\"],[data-go=\"picks\"],#page-pane-picks,[data-page-tab=\"leaps\"],[data-go=\"leaps\"],#page-pane-leaps,[data-page-tab=\"stocks\"],[data-go=\"stocks\"],#page-pane-stocks,[data-page-tab=\"rotation\"],[data-go=\"rotation\"],#page-pane-rotation,[data-page-tab=\"levetf\"],[data-go=\"levetf\"],#page-pane-levetf,[data-page-tab=\"open-picks\"],[data-go=\"open-picks\"],#page-pane-open-picks,[data-page-tab=\"track\"],[data-go=\"track\"],#page-pane-track,[data-page-tab=\"quant\"],[data-go=\"quant\"],#page-pane-quant,[data-page-tab=\"research-lab\"],[data-go=\"research-lab\"],#page-pane-research-lab,[data-page-tab=\"sports-nba\"],[data-go=\"sports-nba\"],#page-pane-sports-nba,[data-page-tab=\"sports-nfl\"],[data-go=\"sports-nfl\"],#page-pane-sports-nfl,[data-page-tab=\"sports-pick-builder\"],[data-go=\"sports-pick-builder\"],#page-pane-sports-pick-builder";
     if (root.matches && root.matches(selector)) { root.remove(); return; }
     root.querySelectorAll(selector).forEach(function(el){ el.remove(); });
   }
@@ -51404,11 +51560,11 @@ function scenarioEventPhase(ev, now = Date.now()) {
       document.dispatchEvent(new CustomEvent('stonks-owner-ready'));
       // Routes are pruned above before bind() collects allowed destinations.
       // The whole group starts hidden to prevent an entitlement-check flash.
-      var ownerGroup = document.querySelector('[data-role-group="owner"]');
-      if (ownerGroup) {
+      // Owner and Sports are both Owner-only groups; reveal or remove each.
+      Array.prototype.forEach.call(document.querySelectorAll('[data-role-group="owner"]'), function(ownerGroup){
         if (HAS_OWNER_ACCESS && ownerGroup.querySelector('[data-page-tab]')) ownerGroup.hidden = false;
         else if (ownerGroup.parentNode) ownerGroup.parentNode.removeChild(ownerGroup);
-      }
+      });
       try { renderAuthChip(); } catch (_) {}
       try { VIEWS.start(); } catch (_) {}
       bind();

@@ -19,6 +19,7 @@ import { trackRecordResetClient } from './track-record-reset-client.mjs';
 import {topPicksMarketClientFactory} from './top-picks-market-client.mjs';
 import { historicalDataFactory } from './historical-data-client.mjs';
 import { partyTrackerFactory } from './party-tracker-client.mjs';
+import { sportsFactory } from './sports-client.mjs';
 import { earningsForecastFactory } from './earnings-forecast-client.mjs';
 import { companyResearchClientFactory } from './company-research-client.mjs';
 import { fullYearValuationFactory } from '../../lib/full-year-valuation.mjs';
@@ -3768,7 +3769,7 @@ ${scenarioEventPhase.toString()}
   // resolve the URL's initial tab synchronously at script-evaluation time (the
   // anti-flash pre-select in the boot block) before the /api/auth/me +
   // manifest fetches settle and bind() runs the full selectTab.
-  var PAGE_TAB_IDS = ['home','update-checker','owner-market-brief','tickers','narratives','brief','news','market','risk','unified-signal-engine','historical-data','party-tracker','earnings-forecast','forced-liquidation','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','research-lab','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','bottom-tracker','open-picks','track','cheatsheet','chart-patterns','timeline','privacy','terms'];
+  var PAGE_TAB_IDS = ['home','update-checker','owner-market-brief','tickers','narratives','brief','news','market','risk','unified-signal-engine','historical-data','party-tracker','earnings-forecast','forced-liquidation','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','research-lab','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','bottom-tracker','open-picks','track','sports-nba','sports-nfl','sports-pick-builder','cheatsheet','chart-patterns','timeline','privacy','terms'];
   // Friendly aliases so deep-links people might guess work too.
   // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
   // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -3777,6 +3778,7 @@ ${scenarioEventPhase.toString()}
     unified: 'unified-signal-engine', signals: 'unified-signal-engine', 'signal-engine': 'unified-signal-engine',
     historical: 'historical-data', history: 'historical-data', 'historical-data': 'historical-data',
     party: 'party-tracker', parties: 'party-tracker', 'party-tracker': 'party-tracker', democrats: 'party-tracker', republicans: 'party-tracker',
+    sports: 'sports-nba', nba: 'sports-nba', basketball: 'sports-nba', nfl: 'sports-nfl', football: 'sports-nfl', 'pick-builder': 'sports-pick-builder', 'sports-picks': 'sports-pick-builder', 'paper-picks': 'sports-pick-builder',
     forecast: 'earnings-forecast', 'earnings-forecast': 'earnings-forecast',
     liquidation: 'forced-liquidation', 'forced-liquidation-tracker': 'forced-liquidation', 'forced-liquidation': 'forced-liquidation',
     unusual: 'flow', 'unusual-flow': 'flow',
@@ -4261,6 +4263,7 @@ ${renderExportBindings()}
         if (name === 'bottom-tracker' && typeof loadBottomTracker === 'function') loadBottomTracker();
         if (name === 'historical-data') historicalData.load();
         if (name === 'party-tracker') partyTracker.load();
+        if (name === 'sports-nba' || name === 'sports-nfl' || name === 'sports-pick-builder') sports.load(name);
         if (name === 'earnings-forecast') earningsForecast.load();
         if (name === 'forced-liquidation') forcedLiquidation.load();
         if (name === 'unified-signal-engine') unifiedSignal.load();
@@ -23424,6 +23427,10 @@ ${renderExportBindings()}
   var partyTracker = (${partyTrackerFactory.toString()})(window, document, {
     owner: function(){ return HAS_OWNER_ACCESS; },
     url: function(){ return '/api/auth/me?data=party-tracker.json'; }
+  });
+  // Owner Sports section (NBA, NFL, Pick Builder): gated /api/auth/me?sports=... only.
+  var sports = (${sportsFactory.toString()})(window, document, {
+    owner: function(){ return HAS_OWNER_ACCESS; }
   });
   var earningsForecast = (${earningsForecastFactory.toString()})(window, document, { owner: function(){ return HAS_OWNER_ACCESS; } }, ${earningsScenarioFactory.toString()}, ${companyResearchClientFactory.toString()}, ${fullYearValuationFactory.toString()});
   var forcedLiquidation = (${forcedLiquidationFactory.toString()})(window, document, {
@@ -44201,11 +44208,11 @@ ${renderExportBindings()}
       document.dispatchEvent(new CustomEvent('stonks-owner-ready'));
       // Routes are pruned above before bind() collects allowed destinations.
       // The whole group starts hidden to prevent an entitlement-check flash.
-      var ownerGroup = document.querySelector('[data-role-group="owner"]');
-      if (ownerGroup) {
+      // Owner and Sports are both Owner-only groups; reveal or remove each.
+      Array.prototype.forEach.call(document.querySelectorAll('[data-role-group="owner"]'), function(ownerGroup){
         if (HAS_OWNER_ACCESS && ownerGroup.querySelector('[data-page-tab]')) ownerGroup.hidden = false;
         else if (ownerGroup.parentNode) ownerGroup.parentNode.removeChild(ownerGroup);
-      }
+      });
       try { renderAuthChip(); } catch (_) {}
       try { VIEWS.start(); } catch (_) {}
       bind();
