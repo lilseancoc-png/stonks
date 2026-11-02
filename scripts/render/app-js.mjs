@@ -23433,6 +23433,7 @@ ${renderExportBindings()}
   var sports = (${sportsFactory.toString()})(window, document, {
     owner: function(){ return HAS_OWNER_ACCESS; },
     go: function(id){ var tab = document.querySelector('[data-page-tab="' + id + '"]'); if (tab) tab.click(); },
+    hover: chHoverAttr,
     decodePrefill: ${sportsDecodePrefill.toString()}
   });
   var earningsForecast = (${earningsForecastFactory.toString()})(window, document, { owner: function(){ return HAS_OWNER_ACCESS; } }, ${earningsScenarioFactory.toString()}, ${companyResearchClientFactory.toString()}, ${fullYearValuationFactory.toString()});

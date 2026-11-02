@@ -36,7 +36,12 @@ from typed-in payouts and owner chances (`lib/sports/payout.mjs`: breakeven,
 independence baseline, Fréchet range; same-game picks priced only with measured links) and
 keeps an append-only paper journal in R2 under a lease
 (`lib/sports/journal.mjs`, POST `evaluate` / `save-entry` / `revise-entry`,
-same-origin only); `?entry=` prefill links come from `lib/sports/prefill.mjs`. Stat forecasts
+same-origin only); `?entry=` prefill links come from `lib/sports/prefill.mjs`. Player charts
+(bars around the average, trend, hit rates, spread, vs minutes/volume, splits)
+are drawn in `sports-client.mjs` from the player route's full log
+(`CHART_LIMIT`); the Player stats and Team stats views read
+`?sports=leaders` / `?sports=teams` (`buildLeaders` / `buildTeams` in
+`lib/sports/read.mjs`). Stat forecasts
 (`lib/sports/models.mjs`, deterministic, no AI) are refit by the same daily
 job into `_stonks/sports/v1/<sport>/model.json` with a dated holdout check
 (validated only with 300+ games, a better score than both baselines and
