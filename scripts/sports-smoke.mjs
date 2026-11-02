@@ -91,7 +91,7 @@ ok(sameOrigin({ headers: { 'sec-fetch-site': 'same-origin' } }) && !sameOrigin({
 eq(sportsKey('games', { sport: 'nfl', season: 2026 }), '_stonks/sports/v1/nfl/games/2026.json');
 eq(sportsKey('player-games', { sport: 'nba', season: 2025 }), '_stonks/sports/v1/nba/player-games/2025.json');
 eq(sportsKey('journal'), '_stonks/sports/v1/journal/entries.json');
-for (const kind of ['status', 'players', 'games', 'player-games', 'observations', 'journal']) {
+for (const kind of ['status', 'players', 'games', 'player-games', 'model', 'observations', 'journal']) {
   ok(sportsKey(kind, { sport: 'nba', season: 2026 }).startsWith(SPORTS_PREFIX), kind + ' stays in the private Sports namespace');
 }
 assert.throws(() => sportsKey('games', { sport: 'mlb', season: 2026 })); checks++;

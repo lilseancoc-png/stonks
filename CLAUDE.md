@@ -36,7 +36,12 @@ from typed-in payouts and owner chances (`lib/sports/payout.mjs`: breakeven,
 independence baseline, Fréchet range; same-game picks are not priced) and
 keeps an append-only paper journal in R2 under a lease
 (`lib/sports/journal.mjs`, POST `evaluate` / `save-entry` / `revise-entry`,
-same-origin only); `?entry=` prefill links come from `lib/sports/prefill.mjs`.
+same-origin only); `?entry=` prefill links come from `lib/sports/prefill.mjs`. Stat forecasts
+(`lib/sports/models.mjs`, deterministic, no AI) are refit by the same daily
+job into `_stonks/sports/v1/<sport>/model.json` with a dated holdout check
+(validated only with 300+ games, a better score than both baselines and
+calibration error ≤ 0.03); NFL keeps three extra finished seasons for the model
+only (`modelHistory`).
 No AI, sportsbook or PrizePicks API calls, no line scraping, no bets. The Owner Market
 Brief, Research Lab evidence and MCP feature list leave Sports out. See
 `docs/sports/README.md`.

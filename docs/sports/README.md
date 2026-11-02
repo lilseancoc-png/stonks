@@ -50,13 +50,15 @@ the project at 12).
   - `player&sport=&id=`: a player's latest 40 stored games, with last 5, last
     10, all stored, median, low and high for each stat.
   - `player` also returns `next_game`: the team's next stored game that has
-    not started, which a new pick attaches to.
+    not started, which a new pick attaches to, and `forecast`: the stat
+    model's forecast of each enabled stat for that game (see Stat models).
   - `journal`: every saved paper entry, newest first, settled from the
     stored finals, with the totals (`lib/sports/journal.mjs`).
 - Pick Builder ops are `POST` with a JSON body and must come from the site
   itself (same-origin check). Bodies over 16 KB are refused.
   - `evaluate`: read-only. Checks the picks against stored games and
-    players, adds each pick's history hit counts and prices the entry.
+    players, adds each pick's history hit counts and the model's chance for
+    the typed line, and prices the entry.
   - `save-entry`: saves a paper entry (only before every game starts).
   - `revise-entry`: `{ entry_id, action: "settle", gross, note }` or
     `{ entry_id, action: "withdraw" }`.
@@ -77,6 +79,7 @@ and the MCP key filter refuses it. Each read is capped at 24 MB.
 | `players` | `{sport}/players.json` | data jobs (players plus provider ids) |
 | `games` | `{sport}/games/{season}.json` | data jobs |
 | `player-games` | `{sport}/player-games/{season}.json` | data jobs (packed rows, below) |
+| `model` | `{sport}/model.json` | data jobs (stat model numbers and their check, about 8 KB) |
 | `observations` | `markets/observations.json` | Pick Builder (captured lines, append-only) |
 | `journal` | `journal/entries.json` | Pick Builder (paper entries, append-only revisions) |
 
@@ -112,6 +115,12 @@ ingest (`lib/sports/ingest.mjs`) with a small adapter per provider
   replaced: the status record shows the failure and keeps the last good time.
 - The status record also names the latest stored game, so a provider that
   lags shows on the page.
+- After the data, the job refits the stat models on the stored seasons and
+  writes `<sport>/model.json`; the status record carries the check (see Stat
+  models). A failed refit keeps the stored model and is noted; the game data
+  still lands. NFL also keeps three older finished seasons for the model only
+  (`modelHistory: 3`, about 6,500 rows each, downloaded once); the pages still
+  read two seasons. A missing older season is noted and never fails the run.
 - Logs counts only, because workflow logs are public.
 
 **NFL** (`lib/sports/nflverse.mjs`) reads three nflverse release files:
@@ -218,11 +227,80 @@ Claude or ChatGPT reads a screenshot. The owner still checks and saves.
 (`stonks-sports-draft-v1`) and is gone when the tab closes. Saved entries are
 only in R2.
 
+## Stat models
+
+`lib/sports/models.mjs` (`sports-model-1`). Deterministic and AI-free: the
+same stored games always give the same numbers.
+
+**Forecast.** expected stat = expected opportunity × rate per opportunity ×
+opponent factor × home/away factor, then a straight-line correction.
+
+| Stat | Opportunity | Who | Curve |
+|---|---|---|---|
+| NBA points, rebounds | minutes | everyone | negative binomial |
+| NFL passing yards | pass attempts | QBs | normal |
+| NFL receptions | targets | WR, TE, RB | negative binomial |
+
+- Opportunity: the player's recent games, recency weighted (NBA last 10,
+  half-life 5; NFL last 8, half-life 4), pulled toward his own longer average.
+- Rate: recency weighted over a longer window and shrunk toward the league
+  rate for his position group.
+- Opponent: what that team allowed in its recent games against the league
+  average, shrunk hard by sample size (NBA 30 games, NFL 20).
+- Correction: `x ≈ a + b × forecast`, fitted on past forecasts (slope held to
+  0.6-1.2). It pulls back forecasts that ran high.
+- Spread: variance = `a + b × forecast`, fitted on past misses. Counts use the
+  negative binomial with that variance (a Poisson when it is not above the
+  mean); passing yards are not skewed like a count, so they use a normal curve
+  on whole-yard bands. A whole-number line gets a push chance.
+- Fewer than 5 stored games with the stat, a player not on either team, or a
+  position outside the table: no forecast, and the page says why.
+
+**Check.** `buildModel` walks the stored seasons day by day and forecasts
+each game from earlier days only. The first 60% of days fit the correction and
+spread; the last 40% are held out and scored against the last-10 hit rate
+(smoothed) and the plain average. Only regular-role games are scored (20+
+expected minutes; 20+ attempts; 3+ targets), the players lines are posted for.
+No past lines are stored, so each check uses the player's last-10 average
+rounded to a half point as a stand-in line. A stat is `validated` only with
+300+ held-out games, a lower Brier score than both baselines and chances off
+by 3 points or less on average (expected calibration error, 10 bins);
+otherwise `experimental`, with the reason. A forecast for a smaller role than
+the check covers is always shown as experimental.
+
+**Tuning (2026-11-02, real seasons).** The first cut shrank minutes and
+targets toward the position-group average, which pulled stars down and lost
+to both baselines. Dropping that, pulling toward the player's own longer
+average, harder opponent shrink, the correction line, the straight-line
+spread and the normal curve for passing yards gave:
+
+| Stat | Seasons | Held out | Brier: model / last-10 / average | Off by |
+|---|---|---|---|---|
+| NBA points | 2025-26 + 2026-27 to date | 5,200 | 0.242 / 0.255 / 0.254 | 1.6 pts |
+| NBA rebounds | same | 5,200 | 0.237 / 0.253 / 0.242 | 0.9 pts |
+| NFL passing yards | 2022-2026 | 890 | 0.247 / 0.261 / 0.251 | 3.0 pts (just over the bar) |
+| NFL receptions | 2022-2026 | 3,867 | 0.234 / 0.249 / 0.252 | 1.3 pts |
+
+The structural choices were made looking at these holdouts, so the numbers
+flatter the model a little; the daily refit re-checks it on new games. With
+only two NFL seasons, passing yards had 239 held-out games, which is why NFL
+keeps older seasons. Forecasts know nothing about injuries, rest or news.
+
+**Where it shows.** Player pages: the next game's forecast for each enabled
+stat (expected, 80% range, chance of the over at five lines). Pick Builder:
+each pick's model chance for the typed line, with its range and the ±10%
+opportunity check, and a button to use it (`probability_source: "model"`,
+kept only when the number is exactly the model's). Saved picks keep a small
+snapshot of the model's read. The journal shows, for settled picks, the model
+chances and the chances used against what happened (count, average chance,
+hit rate, Brier). Each league page has a Model check card.
+
 ## Schema
 
 `lib/sports/schema.mjs` (version 1) holds the sports, stats, statuses and
 validators. Enabled stats today: NBA points and rebounds; NFL passing yards and
-receptions. Others are listed and switched off until their models exist.
+receptions (each has a model). Others are listed and switched off until their
+models exist.
 `marketSeriesKey` names one line series (operator, game, player, stat, period,
 contract family); the threshold and side are left out so a line that moves
 stays in the same series.
@@ -263,7 +341,8 @@ One branch and pull request each, from `main`:
 4. `sports-pick-builder`: entered payouts, breakeven, the independence
    baseline with its range, same-game flags, the paper journal with
    settlement from final stats, and shared prefill links
-5. `sports-models`: per-stat probability models
+5. `sports-models`: per-stat forecasts with a dated holdout check, on the
+   player pages and Pick Builder picks
 6. `sports-joint`: the joint-probability engine for correlated picks
 7. `sports-mcp`: read-only MCP tools; evaluate returns a Pick Builder link to
    save from (no MCP save tool)
@@ -271,7 +350,7 @@ One branch and pull request each, from `main`:
 ## Tests
 
 ```bash
-npm run test:sports           # access, route, time zones, keys, schema, wiring, both adapters, ingest, views, payout math and the journal
-npm run test:sports-browser   # Owner / member / signed-out at 1440 and 390, boards, games, logs, and the Pick Builder flow
+npm run test:sports           # access, route, time zones, keys, schema, wiring, both adapters, ingest, views, payout math, the journal and the stat models
+npm run test:sports-browser   # Owner / member / signed-out at 1440 and 390, boards, games, logs, forecasts, the model check and the Pick Builder flow
 node scripts/regen-sports.mjs # rebuild index.html / app.js / styles.css without data/
 ```

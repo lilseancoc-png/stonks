@@ -29604,6 +29604,25 @@ function scenarioEventPhase(ev, now = Date.now()) {
       (src.message ? '<p class="sp-note">' + escape(src.message) + '</p>' : '') + '</div>';
   }
 
+  const MODEL_STATUS = { validated: 'Passed the check', experimental: 'Experimental' };
+  const qualityBadge = (q) => '<span class="sp-q sp-q-' + escape(q) + '">' + escape(MODEL_STATUS[q] || q) + '</span>';
+  function modelCard(src) {
+    const M = src.model;
+    if (!M) return src.state === 'not_connected' ? '' : '<div class="sp-source sp-model"><h3>Model check</h3><p class="sp-muted">The forecasts have not been fitted yet; the next daily data run fits them.</p></div>';
+    const b3 = (x) => (x == null ? '—' : x.toFixed(3));
+    const rows = Object.keys(M.stats).map((st) => {
+      const v = M.stats[st], B = v.brier || {};
+      return '<li><div class="sp-model-head"><b>' + escape(label(st)) + '</b>' + qualityBadge(v.status) + '</div>' +
+        (v.test_n ? '<span>' + Number(v.test_n).toLocaleString('en-US') + ' later games held out' + (v.split_date ? ' (from ' + escape(fmtDay(v.split_date)) + ' ' + escape(v.split_date.slice(0, 4)) + ')' : '') +
+          '. Score (lower is better): model <b>' + b3(B.model) + '</b>, last-10 hit rate ' + b3(B.last10_hit_rate) + ', plain average ' + b3(B.plain_average) +
+          '. Chances off by ' + (v.ece == null ? '—' : (v.ece * 100).toFixed(1) + ' points') + ' on average.</span>' : '<span class="sp-muted">' + escape(v.reason || 'Not enough past games to check yet.') + '</span>') +
+        (v.status !== 'validated' && v.test_n && v.reason ? '<span class="sp-muted">Why experimental: ' + escape(v.reason) + '.</span>' : '') + '</li>';
+    }).join('');
+    return '<div class="sp-source sp-model"><h3>Model check</h3><ul class="sp-model-list">' + rows + '</ul>' +
+      '<p class="sp-note">Each stat is forecast from games before the day it was played, then scored on the later games it never saw. To pass it needs 300+ games, a better score than both simple baselines, and chances off by 3 points or less. Past lines are not stored, so each check uses the player’s last-10 average as a stand-in line. Fitted on ' +
+      escape((M.seasons || []).map((y) => (lgOf(src) === 'nba' ? y + '–' + String(y + 1).slice(2) : y)).join(', ') || 'stored seasons') + ' · ' + escape(M.model_version) + '.</p></div>';
+  }
+
   function statList(stats) {
     return '<div class="sp-stats"><h3>Stats for picks</h3><ul>' + stats.map((st) =>
       '<li class="' + (st.enabled ? 'sp-on' : 'sp-later') + '">' + escape(st.label) + (st.enabled ? '' : ' <span>later</span>') + '</li>').join('') + '</ul></div>';
@@ -29697,6 +29716,21 @@ function scenarioEventPhase(ev, now = Date.now()) {
           '</td><td class="sp-n">' + num(s.median) + '</td><td class="sp-n">' + (s.games ? num(s.low) + ' – ' + num(s.high) : '—') + '</td><td class="sp-n">' + num(s.games) + '</td></tr>';
       }).join('') + '</tbody></table></div>';
     const logCols = cols.filter((st) => st !== 'minutes');
+    const F = P.forecast, G = P.next_game;
+    let forecast = '';
+    if (G && F) {
+      const fr = P.stats.map((st) => {
+        const f = F.forecasts[st] || {};
+        if (f.status !== 'ok') return '<tr><td>' + escape(label(st)) + '</td><td colspan="3" class="sp-muted">' + escape(modelReason(f, lg)) + '</td></tr>';
+        return '<tr><td>' + escape(label(st)) + ' ' + qualityBadge(f.quality) + '</td><td class="sp-n"><b>' + escape(Number(f.mean).toFixed(1)) + '</b></td><td class="sp-n">' + escape(f.low) + ' – ' + escape(f.high) + '</td><td class="sp-lines">' +
+          (f.lines || []).map((x) => '<span>' + escape(x.threshold) + ' <b>' + pct(x.over) + '</b></span>').join('') + '</td></tr>';
+      }).join('');
+      const any = P.stats.map((st) => F.forecasts[st]).find((f) => f && f.status === 'ok');
+      forecast = '<h5>Model forecast for the next game</h5><p class="sp-muted sp-fc-game">' + (F.home ? 'vs ' : '@ ') + team(F.opponent) + ' · ' + escape(fmtWhen(G.start_utc, zone())) + '</p>' +
+        '<div class="sp-table-wrap"><table class="sp-table sp-fc" data-nosort><thead><tr><th>Stat</th><th class="sp-n">Expected</th><th class="sp-n">80% range</th><th>Chance of the over at each line</th></tr></thead><tbody>' + fr + '</tbody></table></div>' +
+        (any ? '<p class="sp-note">Built from ' + escape(any.games) + ' stored games: about ' + escape(any.expected_opportunity) + ' ' + escape(any.unit) + ' expected' + (any.regular_role ? '' : ' (a smaller role than the check covers, so it stays experimental)') +
+          ', opponent factor ' + escape(any.opponent_factor) + ', ' + (F.home ? 'home' : 'away') + '. Model fitted on games through ' + escape(any.as_of_date ? fmtDay(any.as_of_date) + ' ' + any.as_of_date.slice(0, 4) : '—') + '. A forecast, not a promise: injuries, rest and role changes are not in the data.</p>' : '');
+    } else if (G) forecast = '<h5>Model forecast for the next game</h5><p class="sp-muted">The model has not been fitted yet.</p>';
     const log = P.games.length ? '<div class="sp-table-wrap"><table class="sp-table sp-log"><thead><tr><th>Date</th><th>Game</th>' + (lg === 'nba' ? '<th class="sp-n">Min</th>' : '') +
       logCols.map((st) => '<th class="sp-n" title="' + escape(label(st)) + '">' + escape(SHORT[st] || st) + '</th>').join('') + '</tr></thead><tbody>' +
       P.games.map((r) => '<tr' + (r.played ? '' : ' class="sp-dnp"') + '><td>' + escape(fmtDay(r.date)) + ' <span class="sp-muted">' + escape(String(r.date).slice(0, 4)) + '</span></td><td>' + (r.home ? 'vs ' : '@ ') + team(r.opponent) +
@@ -29706,7 +29740,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       : '<p class="sp-muted">No games stored for this player.</p>';
     return '<div class="sp-panel" data-sp-panel="player"><div class="sp-panel-head"><h4>' + escape(P.player.name) + ' <span>' + escape([P.player.position, P.player.team ? String(P.player.team).toUpperCase() : null].filter(Boolean).join(' · ')) + '</span></h4>' +
       '<button type="button" class="sp-close" data-sp-close="player" aria-label="Close player">×</button></div>' +
-      '<h5>Add a pick</h5>' + pickFormHtml(lg, P, 'league') +
+      forecast + '<h5>Add a pick</h5>' + pickFormHtml(lg, P, 'league') +
       '<h5>Averages over ' + num(P.total_games) + ' stored games</h5>' + summary +
       '<h5>Game log' + (P.total_games > P.games.length ? ' (latest ' + P.games.length + ')' : '') + '</h5>' + log +
       '<p class="sp-note">' + (lg === 'nba'
@@ -29726,7 +29760,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         ? 'The daily nflverse job has not written its first records yet.'
         : 'The daily hoopR job has not written its first records yet.'));
     return dayStrip(s) + '<div class="sp-grid"><div class="sp-board"><h3>Games</h3>' + board + '</div>' +
-      '<aside class="sp-side">' + sourceCard(src, tz) + statList(s.stats[lg] || []) + '</aside></div>' +
+      '<aside class="sp-side">' + sourceCard(src, tz) + modelCard(src) + statList(s.stats[lg] || []) + '</aside></div>' +
       '<p class="sp-foot">Private research for the two owners. No sportsbook is connected, nothing is placed, and no AI model is called by this page.</p>';
   }
 
@@ -29888,18 +29922,37 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (!c || c.games < MIN_RATE_GAMES || c.hits === 0 || c.hits === c.games) return null;
     return Math.min(99, Math.max(1, Math.round((c.hits / c.games) * 100)));
   }
+  function modelReason(m, lg) {
+    const r = m && m.reason;
+    if (r === 'too_few_games') return 'Model: fewer than 5 stored games with this stat.';
+    if (r === 'position') return 'Model: ' + (lg === 'nfl' ? 'passing yards are modeled for quarterbacks, receptions for receivers, tight ends and running backs.' : 'not modeled for this player.');
+    if (r === 'team') return 'Model: the player is not on either team in this game by the stored logs.';
+    if (r === 'no_model') return 'Model: not fitted yet.';
+    return 'Model: no forecast for this pick.';
+  }
+  function modelLineHtml(i, e) {
+    const m = e.model;
+    if (!m || m.status !== 'ok') return '<span class="sp-model-line sp-muted">' + escape(modelReason(m, e.sport)) + '</span>';
+    const S = m.sensitivity || {};
+    const push = m.push > 0 ? ' · push ' + pct(m.push) : '';
+    return '<span class="sp-model-line">Model: <b>' + pct(m.probability) + '</b> ' + sideWord(e.side) + ' ' + escape(e.threshold) + push + ' ' + qualityBadge(m.quality) +
+      ' · expects ' + escape(Number(m.mean).toFixed(1)) + ' (80% range ' + escape(m.low) + '–' + escape(m.high) + ') on ' + escape(m.expected_opportunity) + ' ' + escape(m.unit) +
+      ' · ' + escape(m.unit) + ' 10% lower: ' + pct(S.opportunity_down_10) + ', 10% higher: ' + pct(S.opportunity_up_10) + '</span>' +
+      (m.probability > 0.005 && m.probability < 0.995 ? '<span class="sp-hist-use"><button type="button" class="sp-chip" data-sp-usemodel="' + i + '" data-prob="' + escape(m.probability) + '">Use ' + Math.round(m.probability * 100) + '% (model)</button></span>' : '');
+  }
   function histHtml(i) {
     const e = evalLeg(i);
     if (!e) return pb.evalErr ? '' : '<span class="sp-muted">Checking history…</span>';
     const h = e.history;
-    if (!h.all.games) return '<span class="sp-muted">No stored games before this one.</span>';
+    if (!h.all.games) return '<span class="sp-muted">No stored games before this one.</span>' + modelLineHtml(i, e);
     const c = (name, x) => name + ' <b>' + x.hits + '/' + x.games + '</b>';
     const pushes = h.all.pushes ? ' <span class="sp-muted">(' + h.all.pushes + ' push' + (h.all.pushes === 1 ? '' : 'es') + ')</span>' : '';
     const use = (key, name) => { const r = rateOf(h[key]); return r == null ? '' : '<button type="button" class="sp-chip" data-sp-usehist="' + i + '" data-rate="' + r + '">Use ' + r + '% (' + name + ')</button>'; };
     const uses = use('last10', 'last 10') + use('all', 'all stored');
     return '<span class="sp-hist-line">Cleared ' + sideWord(e.side) + ' ' + escape(e.threshold) + ' before this game: ' + c('last 5', h.last5) + ' · ' + c('last 10', h.last10) + ' · ' + c('all stored', h.all) + pushes + '</span>' +
-      (uses ? '<span class="sp-hist-use">' + uses + '</span>' : h.all.games < MIN_RATE_GAMES ? '<span class="sp-muted">Too few games to copy a rate.</span>' : '');
+      (uses ? '<span class="sp-hist-use">' + uses + '</span>' : h.all.games < MIN_RATE_GAMES ? '<span class="sp-muted">Too few games to copy a rate.</span>' : '') + modelLineHtml(i, e);
   }
+  const SOURCE_TEXT = { history: 'from history', model: 'from model', owner: 'typed' };
   function legHtml(l, i) {
     const nameShown = l.player_name || l.player_id;
     return '<li class="sp-leg" data-sp-leg="' + i + '"><div class="sp-leg-head"><span class="sp-leg-name"><i>' + (i + 1) + '</i>' + escape(nameShown) +
@@ -29910,7 +29963,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       '<select data-sp-leg-side aria-label="Over or under for pick ' + (i + 1) + '"><option value="over"' + (l.side === 'over' ? ' selected' : '') + '>Over</option><option value="under"' + (l.side === 'under' ? ' selected' : '') + '>Under</option></select>' +
       '<input data-sp-leg-line type="number" min="0" max="1000" step="0.5" inputmode="decimal" value="' + escape(l.threshold) + '" aria-label="Line for pick ' + (i + 1) + '">' +
       '<label class="sp-chance"><span>Your chance</span><input data-sp-leg-chance type="number" min="1" max="99" step="1" inputmode="numeric" value="' + (l.probability != null ? Math.round(l.probability * 100) : '') + '" aria-label="Your chance for pick ' + (i + 1) + ', percent"><i>%</i></label>' +
-      '<span class="sp-src" data-sp-src>' + (l.probability_source === 'history' ? 'from history' : l.probability != null ? 'typed' : '') + '</span></div>' +
+      '<span class="sp-src" data-sp-src>' + (SOURCE_TEXT[l.probability_source] || (l.probability != null ? 'typed' : '')) + '</span></div>' +
       '<div class="sp-hist" data-sp-hist="' + i + '">' + histHtml(i) + '</div></li>';
   }
   function legsHtml() {
@@ -29918,8 +29971,12 @@ function scenarioEventPhase(ev, now = Date.now()) {
     const banner = pb.prefill === 'ok' ? '<p class="sp-banner">Filled in from a shared link. Check every pick, line and payout against your app before saving.</p>'
       : pb.prefill === 'bad' ? '<p class="sp-banner sp-bad">The shared link could not be read, so nothing was filled in.</p>' : '';
     if (!d.legs.length) return banner + emptyBox('No picks yet.', 'Add 1 to 6 picks below, or from a player on the NBA and NFL pages.');
-    return banner + '<ol class="sp-legs">' + d.legs.map(legHtml).join('') + '</ol>' +
-      '<p class="sp-note">History rates show how often the player cleared this line in stored games. They ignore minutes, opponent and role, so they are a starting point, not a forecast. The chance you enter is yours.</p>';
+    return banner + '<ol class="sp-legs">' + d.legs.map(legHtml).join('') + '</ol>' + '<div data-sp-part="use-all">' + useAllHtml() + '</div>' +
+      '<p class="sp-note">History rates show how often the player cleared this line in stored games; they ignore minutes, opponent and role. The model reads minutes or targets, the opponent and home or away, and is checked on past games (see the Model check on the NBA and NFL pages). Neither knows about injuries or news. The chance you enter is yours.</p>';
+  }
+  function useAllHtml() {
+    const d = draft(), ready = d.legs.filter((l, i) => { const e = evalLeg(i); return e && e.model && e.model.status === 'ok'; }).length;
+    return ready > 1 ? '<button type="button" class="sp-btn" data-sp-usemodel-all>Use the model’s chance for ' + (ready === d.legs.length ? 'every pick' : 'the ' + ready + ' picks it covers') + '</button>' : '';
   }
   function settingsHtml() {
     const d = draft();
@@ -29999,7 +30056,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // list is repainted only when a pick from a shared link gets its name.
   function paintChecked(namesFilled) {
     if (namesFilled) paint(BUILDER, 'legs', legsHtml());
-    else draft().legs.forEach((_, i) => { const el = root(BUILDER)?.querySelector('[data-sp-hist="' + i + '"]'); if (el) el.innerHTML = histHtml(i); });
+    else {
+      draft().legs.forEach((_, i) => { const el = root(BUILDER)?.querySelector('[data-sp-hist="' + i + '"]'); if (el) el.innerHTML = histHtml(i); });
+      paint(BUILDER, 'use-all', useAllHtml());
+    }
     paint(BUILDER, 'eval', evalHtml());
     const btn = root(BUILDER)?.querySelector('[data-sp-save]');
     if (btn) btn.disabled = !canSave();
@@ -30102,7 +30162,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   function entryCardHtml(e) {
     const st = e.settlement;
     const legs = e.legs.map((l) => '<li><span>' + escape(l.player_name || l.player_id) + ' · ' + escape(label(l.stat)) + ' ' + sideWord(l.side) + ' ' + escape(l.threshold) +
-      ' <span class="sp-muted">' + matchupText(l.matchup) + '</span></span>' + legResultHtml(l) + '</li>').join('');
+      ' <span class="sp-muted">' + matchupText(l.matchup) + (l.model && l.model.status === 'ok' ? ' · model ' + pct(l.model.probability) : '') + (l.probability != null ? ' · used ' + pct(l.probability) + (l.probability_source ? ' ' + escape(SOURCE_TEXT[l.probability_source] || '') : '') : '') + '</span></span>' + legResultHtml(l) + '</li>').join('');
     const money2 = st.state === 'settled' ? '<p class="sp-entry-money">Paid back ' + money(st.gross) + ' · <b class="' + (st.net > 0 ? 'sp-pos' : st.net < 0 ? 'sp-neg' : '') + '">' + signedMoney(st.net) + '</b>' + (st.manual ? ' <span class="sp-muted">entered by hand' + (st.note ? ': ' + escape(st.note) : '') + '</span>' : '') + '</p>'
       : st.state === 'review' ? '<p class="sp-entry-money">' + escape(st.reason || 'Enter what the app paid.') + '</p>' : '';
     return '<li class="sp-entry' + (st.state === 'withdrawn' ? ' is-withdrawn' : '') + '" data-sp-entry="' + escape(e.entry_id) + '"><div class="sp-entry-head"><span>' + escape(fmtWhen(e.created_utc, zone())) + ' · ' + escape(OPERATOR_NAMES[e.operator] || e.operator) + ' · ' + (e.format === 'flex' ? 'Flex' : 'Power') + ' · ' + money(e.stake) + ' paper</span>' + badgeHtml(st) + '</div>' +
@@ -30122,8 +30182,12 @@ function scenarioEventPhase(ev, now = Date.now()) {
       tile('Settled', escape(S.settled), S.wins + ' won') +
       tile('Paper profit', '<span class="' + (S.net > 0 ? 'sp-pos' : S.net < 0 ? 'sp-neg' : '') + '">' + signedMoney(S.net) + '</span>', S.roi == null ? 'nothing settled yet' : (S.roi > 0 ? '+' : '') + (S.roi * 100).toFixed(1) + '% on ' + money(S.staked)) +
       (S.priced_settled ? tile('Expected at save', signedMoney(S.expected_net_settled), 'on the ' + S.priced_settled + ' settled entr' + (S.priced_settled === 1 ? 'y' : 'ies') + ' with chances') : '') + '</div>';
+    const C = J.calibration || {};
+    const check = (name, x) => x && x.picks ? '<li><b>' + name + '</b> ' + x.picks + ' settled pick' + (x.picks === 1 ? '' : 's') + ': average chance ' + pct(x.mean_chance) + ', hit ' + pct(x.hit_rate) + ', score ' + x.brier.toFixed(3) + '</li>' : '';
+    const calib = check('Model chances', C.model) + check('Chances used', C.used);
+    const calibHtml = calib ? '<ul class="sp-calib">' + calib + '</ul><p class="sp-note">Score is the average squared miss (lower is better; always guessing 50% scores 0.250). Pushes and voids are left out. A few dozen picks say little.</p>' : '';
     const shown = pb.journalAll ? J.entries : J.entries.slice(0, 30);
-    return tiles + '<ul class="sp-entries">' + shown.map(entryCardHtml).join('') + '</ul>' +
+    return tiles + calibHtml + '<ul class="sp-entries">' + shown.map(entryCardHtml).join('') + '</ul>' +
       (shown.length < J.entries.length ? '<button type="button" class="sp-btn" data-sp-journal-all>Show all ' + J.entries.length + ' entries</button>' : '');
   }
   function loadJournal() {
@@ -30146,7 +30210,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     const steps = [
       ['Add picks', 'Add 1 to 6 player picks here or from a player on the NBA and NFL pages: stat, over or under, and the line.'],
       ['Enter the payout', 'Type the payout your app shows for this exact entry, power or flex. The site never guesses one.'],
-      ['Check the odds', 'Each pick shows how often the player cleared the line before. Enter your own chance to see the expected value; picks from one game are flagged.'],
+      ['Check the odds', 'Each pick shows how often the player cleared the line before and the model’s chance. Enter your own chance or copy one to see the expected value; picks from one game are flagged.'],
       ['Save a paper pick', 'Save before the games start. The journal grades it from the final stats.'],
       ['Screenshots', 'Send a slip screenshot to Claude or ChatGPT; it can open this page with the picks filled in for you to check and save.'],
     ];
@@ -30313,6 +30377,16 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (input) input.value = '';
     if (src) src.textContent = '';
   }
+  // The model's own number is kept exactly, so the saved pick can say "from model".
+  function useModel(i, p) {
+    const l = draft().legs[i], legEl = root(BUILDER)?.querySelector('[data-sp-leg="' + i + '"]');
+    if (!l || !(p > 0 && p < 1)) return;
+    l.probability = p; l.probability_source = 'model';
+    if (legEl) {
+      legEl.querySelector('[data-sp-leg-chance]').value = String(Math.round(p * 100));
+      legEl.querySelector('[data-sp-src]').textContent = SOURCE_TEXT.model;
+    }
+  }
   function builderClick(t) {
     const d = draft();
     const hit = (sel) => t.closest(sel);
@@ -30333,6 +30407,17 @@ function scenarioEventPhase(ev, now = Date.now()) {
         legEl.querySelector('[data-sp-src]').textContent = 'from history';
         saveDraft(); scheduleEval(0);
       }
+      return;
+    }
+    if ((b = hit('[data-sp-usemodel]'))) {
+      const i = Number(b.getAttribute('data-sp-usemodel'));
+      useModel(i, Number(b.getAttribute('data-prob')));
+      saveDraft(); scheduleEval(0);
+      return;
+    }
+    if (hit('[data-sp-usemodel-all]')) {
+      d.legs.forEach((l, i) => { const e = evalLeg(i); if (e && e.model && e.model.status === 'ok') useModel(i, e.model.probability); });
+      saveDraft(); scheduleEval(0);
       return;
     }
     if (hit('[data-sp-save]')) { saveEntry(); return; }

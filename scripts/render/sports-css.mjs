@@ -112,6 +112,18 @@ export function renderSportsCss() {
 .sp-hist { margin-top: 10px; font-size: 12.5px; color: var(--muted-strong); display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
 .sp-hist b { color: var(--text); font-variant-numeric: tabular-nums; }
 .sp-hist-use { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.sp-model-line { flex-basis: 100%; line-height: 1.5; }
+.sp-q { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted-strong); white-space: nowrap; vertical-align: 1px; }
+.sp-q-validated { color: var(--pos); border-color: currentColor; }
+.sp-model-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; font-size: 12.5px; }
+.sp-model-list li { display: grid; gap: 3px; }
+.sp-model-list b { font-variant-numeric: tabular-nums; }
+.sp-model-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.sp-fc-game { margin: -4px 0 6px; font-size: 12.5px; }
+.sp-lines { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12.5px; color: var(--muted-strong); }
+.sp-lines span { white-space: nowrap; }
+.sp-lines b { color: var(--text); font-variant-numeric: tabular-nums; }
+.sp-calib { list-style: none; margin: 0 0 6px; padding: 0; font-size: 13px; display: grid; gap: 4px; }
 .sp-settings { margin: 14px 0 0; }
 .sp-payouts { margin-top: 14px; }
 .sp-label { margin: 0 0 6px; font-size: 12px; font-weight: 600; color: var(--muted-strong); }

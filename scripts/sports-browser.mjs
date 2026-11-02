@@ -20,6 +20,9 @@ import { SCHEDULE_2026, SCHEDULE_2027, BOX_2026, BOX_2027 } from './fixtures/spo
 import { handleSportsRequest } from '../lib/sports/http.mjs';
 import { SPORTS_PREFIX } from '../lib/sports/store.mjs';
 import { encodePrefill } from '../lib/sports/prefill.mjs';
+import { buildModel, modelSummary } from '../lib/sports/models.mjs';
+import { packRows, unpackRows } from '../lib/sports/rows.mjs';
+import { nbaModelLeague } from './fixtures/sports-model.mjs';
 
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const root = resolve(fileURLToPath(new URL('../', import.meta.url)));
@@ -36,6 +39,25 @@ await ingestLeague({ adapter: NFL_SOURCE,  store: { rawGet: async (k) => (object
 const nbaFiles = new Map([[HOOPR_URLS.schedule(2025), SCHEDULE_2026], [HOOPR_URLS.schedule(2026), SCHEDULE_2027], [HOOPR_URLS.box(2025), BOX_2026], [HOOPR_URLS.box(2026), BOX_2027]]);
 await ingestLeague({ adapter: NBA_SOURCE, store: { rawGet: async (k) => (objects.has(k) ? Buffer.from(objects.get(k)) : null), rawPut: async (k, v) => { objects.set(k, String(v)); } },
   fetchText: async (u) => nbaFiles.get(u) ?? null, now: Date.parse('2026-11-02T11:10:00Z') });
+// Stat model: fitted on the made-up league (the fixture seasons are too short
+// to check), plus twelve earlier made-up games for LeBron so his picks get a
+// forecast. Curry keeps his four real fixture games: too few for the model.
+{
+  const league = nbaModelLeague({});
+  const model = buildModel({ sport: 'nba', rows: league.rows, now: Date.parse('2026-11-02T11:10:00Z') });
+  const key = SPORTS_PREFIX + 'nba/player-games/2025.json';
+  const rec = JSON.parse(objects.get(key));
+  const rows = unpackRows(rec);
+  for (let i = 0; i < 12; i++) {
+    const date = '2026-03-' + String(10 + i).padStart(2, '0');
+    rows.push({ sport: 'nba', season: 2025, player_id: '1966', game_id: 'fixture-lal-' + i, date, team: 'lal', opponent: i % 2 ? 'gs' : 'phx', home: i % 2 === 0, played: true, starter: true,
+      minutes: 33 + (i % 4), position: 'F', week: null, season_type: 'REG', dnp_reason: null, stats: { points: 22 + ((i * 7) % 11), rebounds: 6 + (i % 5), assists: 7, threes: 2, pra: 35, steals: 1, blocks: 1 } });
+  }
+  objects.set(key, JSON.stringify({ ...rec, ...packRows(rows) }));
+  objects.set(SPORTS_PREFIX + 'nba/model.json', JSON.stringify({ schema_version: 1, ...model, seasons: [2025] }));
+  const status = JSON.parse(objects.get(SPORTS_PREFIX + 'status/nba.json'));
+  objects.set(SPORTS_PREFIX + 'status/nba.json', JSON.stringify({ ...status, model: modelSummary({ ...model, seasons: [2025] }) }));
+}
 store.rawGet = async (key) => (objects.has(key) ? Buffer.from(objects.get(key)) : null);
 for (const m of ['put', 'del', 'rawPut', 'rawDel', 'publishGeneration']) store[m] = async () => { throw new Error('Sports page attempted a store write: ' + m); };
 store.get = async () => Buffer.from('{}');
@@ -153,7 +175,16 @@ try {
         await form.locator('[name="line"]').fill('24.5');
         await form.locator('[data-sp-addpick]').click();
         assert(/Added\. The entry has 1 pick\./.test(await form.locator('[data-sp-pick-msg]').innerText()), 'the pick goes into the Pick Builder draft');
-        checks += 3;
+        assert(/Model forecast for the next game[\s\S]*fewer than 5 stored games/i.test(nbaLog), 'too few games: the model says so instead of guessing: ' + nbaLog.slice(0, 700));
+        const side = await page.locator('#sports-nba-root .sp-model').innerText();
+        assert(/Model check/i.test(side) && /Points\s*Passed the check/.test(side) && /Rebounds\s*Experimental/.test(side) && /did not beat both simple baselines/.test(side) && /sports-model-1/.test(side), 'the model check card: ' + side);
+        await page.locator('#sports-nba-root [data-sp-search]').fill('lebron');
+        await page.locator('#sports-nba-root [data-sp-part="results"] [data-sp-player="1966"]').click();
+        await page.locator('#sports-nba-root [data-sp-panel="player"] .sp-fc').waitFor();
+        const fcText = await page.locator('#sports-nba-root [data-sp-panel="player"]').innerText();
+        assert(/Model forecast for the next game/i.test(fcText) && /@ PHX/.test(fcText) && /80% range/i.test(fcText) && /Passed the check/.test(fcText) && /minutes expected/.test(fcText), 'LeBron gets a forecast for his next game: ' + fcText.slice(0, 600));
+        assert.equal(await page.locator('#sports-nba-root .sp-fc tbody tr').first().locator('.sp-lines span').count(), 5, 'five lines with the chance of the over');
+        checks += 6;
         if (width > 760) await page.screenshot({ path: resolve(output, `${id}-log-${width}-${theme}.png`), fullPage: true, animations: 'disabled' });
         checks += 4;
       }
@@ -174,6 +205,15 @@ try {
         await addForm.locator('[name="line"]').fill('25.5');
         await addForm.locator('[data-sp-addpick]').click();
         await page.locator(R + '[data-sp-leg="1"]').filter({ hasText: 'Cleared over 25.5' }).waitFor();
+        const leg1 = page.locator(R + '[data-sp-leg="1"]');
+        await leg1.locator('[data-sp-usemodel]').waitFor();
+        const l1 = await leg1.innerText();
+        assert(/Model: \d+(\.\d)?% over 25\.5/.test(l1) && /80% range/.test(l1) && /minutes 10% lower/.test(l1), 'the model reads the typed line: ' + l1);
+        assert(/Model: fewer than 5 stored games/.test(await leg0.innerText()), 'and says when it cannot');
+        const usePct = (await leg1.locator('[data-sp-usemodel]').innerText()).match(/Use (\d+)%/)[1];
+        await leg1.locator('[data-sp-usemodel]').click();
+        assert.equal(await leg1.locator('[data-sp-leg-chance]').inputValue(), usePct, 'the model chance fills the box');
+        assert.equal(await leg1.locator('[data-sp-src]').innerText(), 'from model');
         await page.locator(R + '[data-sp-payout="2"]').fill('3');
         await page.locator(R + '[data-sp-part="eval"]').filter({ hasText: 'Breakeven' }).waitFor();
         assert(/33\.3%/.test(await page.locator(R + '[data-sp-part="eval"]').innerText()), '3x on two picks breaks even at 33.3%');
@@ -198,7 +238,7 @@ try {
         await card.locator('[data-sp-withdraw-yes]').click();
         await page.locator(R + '.sp-entry').first().filter({ hasText: 'Withdrawn' }).waitFor();
         assert(!requests.some((u) => /prizepicks|betr\.app|sportsbook|odds/i.test(new URL(u).hostname)), 'no request leaves the site');
-        checks += 10;
+        checks += 14;
       }
       assert.equal(await page.locator('[data-nav-group="sports"]').isVisible(), width > 760 ? true : await page.locator('[data-nav-group="sports"]').isVisible());
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
