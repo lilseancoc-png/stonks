@@ -11,6 +11,7 @@ import { sportsKey, isSportsKey, readSportsJson, writeSportsJson, SPORTS_PREFIX 
 import { OWNER_PAGE_IDS, SPORTS_PAGE_IDS } from '../lib/owner-access-policy.mjs';
 import { SITE_SECTIONS } from './render/site-map.mjs';
 import { renderAppJs } from './render/app-js.mjs';
+import { sportsFactory } from './render/sports-client.mjs';
 import { sourceCatalog } from '../lib/research-lab/evidence.mjs';
 import { UPDATE_FEATURES } from '../lib/update-checker-catalog.mjs';
 
@@ -172,7 +173,8 @@ ok(SPORTS_PAGE_IDS.every((id) => OWNER_PAGE_IDS.includes(id)), 'every Sports pag
 const app = renderAppJs({});
 const ownerTabs = JSON.parse(app.match(/var OWNER_TABS = (\{[^;]+\});/)[1]);
 ok(SPORTS_PAGE_IDS.every((id) => ownerTabs[id] === 1), 'app.js gates every Sports page');
-ok(app.includes("sports.load(name)") && app.includes("'/api/auth/me?sports=status'"), 'pages load only through the gated route');
+ok(app.includes("sports.load(name)") && app.includes("'/api/auth/me?sports=' + encodeURIComponent(op)"), 'pages load only through the gated route');
+ok((sportsFactory.toString().match(/host\.fetch\(/g) || []).length === 1, 'the Sports pages have exactly one network call site');
 ok(app.includes("document.querySelectorAll('[data-role-group=\"owner\"]')"), 'both Owner groups are revealed or removed');
 ok(!/localStorage\.setItem\(TZ_KEY, (?!tz\))/.test(app), 'only the chosen time zone is stored in the browser');
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');

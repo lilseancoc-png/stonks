@@ -28,7 +28,9 @@ in their own **Sports** sidebar group (`SPORTS_PAGE_IDS`), for private NBA/NFL
 research and paper pick'em entries. Same signed Owner session, through
 `/api/auth/me?sports=...` (`lib/sports/http.mjs`, no new function).
 `SPORTS_ENABLED=0` is the kill switch. Records are JSON in
-`_stonks/sports/v1/` (raw internal prefix, never published or synced). No AI,
+`_stonks/sports/v1/` (raw internal prefix, never published or synced), written
+by the daily `sports-data.yml` job (`scripts/sports-ingest.mjs`; NFL from
+nflverse, sportsbook columns dropped). No AI,
 sportsbook or PrizePicks API calls, no line scraping, no bets. The Owner Market
 Brief, Research Lab evidence and MCP feature list leave Sports out. See
 `docs/sports/README.md`.
