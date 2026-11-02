@@ -9,6 +9,7 @@ export function sportsFactory(host, doc, options) {
   const DRAFT_KEY = 'stonks-sports-draft-v1';
   const BUILDER = 'sports-pick-builder';
   const MAX_PICKS = 6;
+  const LOG_ROWS = 40;
   const OPERATOR_NAMES = { prizepicks: 'PrizePicks', betr: 'Betr', other: 'Other app' };
   const state = { status: null, pending: null, error: null, page: null, bound: {}, leagues: {}, draft: null };
   const pb = {
@@ -35,7 +36,13 @@ export function sportsFactory(host, doc, options) {
   const lgOf = (src) => (src && src.sport) || '';
   const team = (t) => escape(String(t || '').toUpperCase());
   const num = (v) => (v == null ? '—' : escape(String(v)));
-  const league = (lg) => state.leagues[lg] || (state.leagues[lg] = { board: null, boardErr: null, game: null, gameId: null, gameErr: null, results: null, query: '', player: null, playerId: null, playerErr: null });
+  const league = (lg) => state.leagues[lg] || (state.leagues[lg] = {
+    board: null, boardErr: null, game: null, gameId: null, gameErr: null, results: null, query: '', player: null, playerId: null, playerErr: null,
+    view: 'games', gameStat: '', logAll: false,
+    chart: { stat: null, n: 10, kind: 'bars', line: '' },
+    leaders: { data: null, err: null, key: null, cache: {}, season: null, window: 'season', sort: null, dir: 'desc', team: '', group: '', min: null, all: false, mode: 'table' },
+    teams: { data: null, err: null, key: null, cache: {}, season: null, stat: null, side: 'against', sort: 'win_pct', dir: 'desc', mode: 'table' },
+  });
 
   function savedZone() {
     try { return host.localStorage.getItem(TZ_KEY) || ''; } catch (_) { return ''; }
@@ -204,20 +211,24 @@ export function sportsFactory(host, doc, options) {
     if (L.gameErr) return errorBox(L.gameErr, 'game');
     if (!L.game) return '<p class="sp-loading">Loading players…</p>';
     const g = L.game.game;
+    const all = (L.game.stats || []).concat(L.game.context_stats || []);
+    const pick = all.indexOf(L.gameStat) >= 0 ? L.gameStat : '';
     const teams = [g.away_team, g.home_team].map((t) => {
       const info = L.game.teams[t] || { players: [] };
       const rows = info.players.map((p) => {
-        const s = p.summaries[p.main_stat] || {};
+        const st = pick || p.main_stat, s = p.summaries[st] || {};
         return '<tr><td><button type="button" class="sp-link" data-sp-player="' + escape(p.player_id) + '">' + escape(p.name) + '</button>' + (p.out_last_game ? ' <span class="sp-out">out last game</span>' : '') + '</td><td>' + escape(p.position || '') + '</td>' +
-          '<td>' + escape(SHORT[p.main_stat] || p.main_stat) + '</td><td class="sp-n">' + num(s.last5) + '</td><td class="sp-n">' + num(s.last10) + '</td><td class="sp-n">' + num(s.games) + '</td></tr>';
+          (pick ? '' : '<td>' + escape(SHORT[st] || st) + '</td>') + '<td class="sp-spark-cell">' + sparkSvg((p.recent || {})[st], p.name + ' ' + label(st).toLowerCase() + ', last ' + ((p.recent || {})[st] || []).length + ' games') + '</td>' +
+          '<td class="sp-n">' + num(s.last5) + '</td><td class="sp-n">' + num(s.last10) + '</td><td class="sp-n">' + num(s.average) + '</td><td class="sp-n">' + num(s.high) + '</td><td class="sp-n">' + num(s.games) + '</td></tr>';
       }).join('');
       return '<div class="sp-team"><h5>' + team(t) + (t === g.home_team ? ' <span>home</span>' : '') + '</h5>' +
-        (rows ? '<div class="sp-table-wrap"><table class="sp-table"><thead><tr><th>Player</th><th>Pos</th><th>Stat</th><th class="sp-n">Last 5</th><th class="sp-n">Last 10</th><th class="sp-n">Games</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
+        (rows ? '<div class="sp-table-wrap"><table class="sp-table" data-ts-key="sp-game-' + escape(lg) + '"><thead><tr><th>Player</th><th>Pos</th>' + (pick ? '' : '<th>Stat</th>') + '<th data-nosort>Last 10 games</th><th class="sp-n">Last 5</th><th class="sp-n">Last 10</th><th class="sp-n">Season</th><th class="sp-n">High</th><th class="sp-n">Games</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
           : '<p class="sp-muted">No player games stored for this team this season.</p>') + '</div>';
     }).join('');
     return '<div class="sp-panel" data-sp-panel="game"><div class="sp-panel-head"><h4>' + team(g.away_team) + ' at ' + team(g.home_team) + '</h4>' +
       '<button type="button" class="sp-close" data-sp-close="game" aria-label="Close game">×</button></div>' +
-      '<p class="sp-note">Players each team used in its last three games this season, with their averages before this game. Select a name for the full game log.</p>' +
+      '<div class="sp-ctl">' + selectHtml('data-sp-game-stat', 'Stat', [['', 'Each player’s main stat']].concat(all.map((st) => [st, label(st)])), pick) + '</div>' +
+      '<p class="sp-note">Players each team used in its last three games this season, with their averages this season before this game. Bars: the last 10 games, oldest first, green above the player’s own average of them and red below. Select a column to sort, a name for charts and the game log.</p>' +
       '<div class="sp-teams">' + teams + '</div></div>';
   }
 
@@ -249,31 +260,498 @@ export function sportsFactory(host, doc, options) {
     if (G && F) {
       const fr = P.stats.map((st) => {
         const f = F.forecasts[st] || {};
-        if (f.status !== 'ok') return '<tr><td>' + escape(label(st)) + '</td><td colspan="3" class="sp-muted">' + escape(modelReason(f, lg)) + '</td></tr>';
+        if (f.status !== 'ok') return '<tr><td>' + escape(label(st)) + '</td><td colspan="3" class="sp-muted sp-wrap">' + escape(modelReason(f, lg)) + '</td></tr>';
         return '<tr><td>' + escape(label(st)) + ' ' + qualityBadge(f.quality) + '</td><td class="sp-n"><b>' + escape(Number(f.mean).toFixed(1)) + '</b></td><td class="sp-n">' + escape(f.low) + ' – ' + escape(f.high) + '</td><td class="sp-lines">' +
           (f.lines || []).map((x) => '<span>' + escape(x.threshold) + ' <b>' + pct(x.over) + '</b></span>').join('') + '</td></tr>';
       }).join('');
       const any = P.stats.map((st) => F.forecasts[st]).find((f) => f && f.status === 'ok');
-      forecast = '<h5>Model forecast for the next game</h5><p class="sp-muted sp-fc-game">' + (F.home ? 'vs ' : '@ ') + team(F.opponent) + ' · ' + escape(fmtWhen(G.start_utc, zone())) + '</p>' +
-        '<div class="sp-table-wrap"><table class="sp-table sp-fc" data-nosort><thead><tr><th>Stat</th><th class="sp-n">Expected</th><th class="sp-n">80% range</th><th>Chance of the over at each line</th></tr></thead><tbody>' + fr + '</tbody></table></div>' +
+      // With no forecast at all, a plain list reads better than a table of
+      // empty columns (and does not run off a phone screen).
+      const table = any ? '<div class="sp-table-wrap"><table class="sp-table sp-fc" data-nosort><thead><tr><th>Stat</th><th class="sp-n">Expected</th><th class="sp-n">80% range</th><th>Chance of the over at each line</th></tr></thead><tbody>' + fr + '</tbody></table></div>'
+        : '<ul class="sp-fc-none">' + P.stats.map((st) => '<li><b>' + escape(label(st)) + '</b> <span class="sp-muted">' + escape(modelReason(F.forecasts[st] || {}, lg)) + '</span></li>').join('') + '</ul>';
+      forecast = '<h5>Model forecast for the next game</h5><p class="sp-muted sp-fc-game">' + (F.home ? 'vs ' : '@ ') + team(F.opponent) + ' · ' + escape(fmtWhen(G.start_utc, zone())) + '</p>' + table +
         (any ? '<p class="sp-note">Built from ' + escape(any.games) + ' stored games: about ' + escape(any.expected_opportunity) + ' ' + escape(any.unit) + ' expected' + (any.regular_role ? '' : ' (a smaller role than the check covers, so it stays experimental)') +
           ', opponent factor ' + escape(any.opponent_factor) + ', ' + (F.home ? 'home' : 'away') + '. Model fitted on games through ' + escape(any.as_of_date ? fmtDay(any.as_of_date) + ' ' + any.as_of_date.slice(0, 4) : '—') + '. A forecast, not a promise: injuries, rest and role changes are not in the data.</p>' : '');
     } else if (G) forecast = '<h5>Model forecast for the next game</h5><p class="sp-muted">The model has not been fitted yet.</p>';
+    const logGames = L.logAll ? P.games : P.games.slice(0, LOG_ROWS);
     const log = P.games.length ? '<div class="sp-table-wrap"><table class="sp-table sp-log"><thead><tr><th>Date</th><th>Game</th>' + (lg === 'nba' ? '<th class="sp-n">Min</th>' : '') +
       logCols.map((st) => '<th class="sp-n" title="' + escape(label(st)) + '">' + escape(SHORT[st] || st) + '</th>').join('') + '</tr></thead><tbody>' +
-      P.games.map((r) => '<tr' + (r.played ? '' : ' class="sp-dnp"') + '><td>' + escape(fmtDay(r.date)) + ' <span class="sp-muted">' + escape(String(r.date).slice(0, 4)) + '</span></td><td>' + (r.home ? 'vs ' : '@ ') + team(r.opponent) +
+      logGames.map((r) => '<tr' + (r.played ? '' : ' class="sp-dnp"') + '><td>' + escape(fmtDay(r.date)) + ' <span class="sp-muted">' + escape(String(r.date).slice(0, 4)) + '</span></td><td>' + (r.home ? 'vs ' : '@ ') + team(r.opponent) +
         (r.week != null ? ' <span class="sp-muted">' + (r.season_type === 'POST' ? 'playoffs' : 'wk ' + escape(r.week)) + '</span>' : '') + (r.played ? '' : ' <span class="sp-muted">did not play' + (r.dnp_reason ? ': ' + escape(String(r.dnp_reason).toLowerCase()) : '') + '</span>') + '</td>' +
         (lg === 'nba' ? '<td class="sp-n">' + num(r.minutes) + '</td>' : '') +
-        logCols.map((st) => '<td class="sp-n">' + num(r.stats[st]) + '</td>').join('') + '</tr>').join('') + '</tbody></table></div>'
+        logCols.map((st) => '<td class="sp-n">' + num(r.stats[st]) + '</td>').join('') + '</tr>').join('') + '</tbody></table></div>' +
+      (P.games.length > logGames.length ? '<button type="button" class="sp-btn sp-more" data-sp-logall>Show all ' + P.games.length + ' games</button>' : '')
       : '<p class="sp-muted">No games stored for this player.</p>';
     return '<div class="sp-panel" data-sp-panel="player"><div class="sp-panel-head"><h4>' + escape(P.player.name) + ' <span>' + escape([P.player.position, P.player.team ? String(P.player.team).toUpperCase() : null].filter(Boolean).join(' · ')) + '</span></h4>' +
       '<button type="button" class="sp-close" data-sp-close="player" aria-label="Close player">×</button></div>' +
-      forecast + '<h5>Add a pick</h5>' + pickFormHtml(lg, P, 'league') +
+      forecast + (chartStats(P).length ? '<h5>Charts</h5><div class="sp-charts" data-sp-part="chart">' + chartHtml(lg) + '</div>' : '') +
+      '<h5>Add a pick</h5>' + pickFormHtml(lg, P, 'league') +
       '<h5>Averages over ' + num(P.total_games) + ' stored games</h5>' + summary +
-      '<h5>Game log' + (P.total_games > P.games.length ? ' (latest ' + P.games.length + ')' : '') + '</h5>' + log +
+      '<h5>Game log' + (P.total_games > logGames.length ? ' (latest ' + logGames.length + ' of ' + P.total_games + ')' : '') + '</h5>' + log +
       '<p class="sp-note">' + (lg === 'nba'
         ? 'Games the player missed are listed as did not play and left out of the averages.'
         : 'Games where the player recorded no stat are not in the provider’s file, so they are missing here, not counted as zero.') + '</p></div>';
+  }
+
+  // ---- Charts --------------------------------------------------------------
+  // Drawn as plain SVG and HTML (the page has no chart library). Hover and
+  // tap readouts use the site's shared engine when the page passes it in
+  // (options.hover). Every chart reads only the player's stored games.
+  const hoverAttr = (pts) => (options.hover ? options.hover(pts) : '');
+  const narrowScreen = () => (host.innerWidth || 1024) < 560;
+  const gv = (g, st) => (st === 'minutes' ? g.minutes : g.stats ? g.stats[st] : null);
+  const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
+  const sum = (xs) => xs.reduce((a, b) => a + b, 0);
+  const avgOf = (xs) => (xs.length ? sum(xs) / xs.length : null);
+  const sdOf = (xs) => { const m = avgOf(xs); return xs.length > 1 ? Math.sqrt(sum(xs.map((x) => (x - m) * (x - m))) / (xs.length - 1)) : 0; };
+  const medianOf = (xs) => { if (!xs.length) return null; const s = xs.slice().sort((a, b) => a - b), k = s.length >> 1; return s.length % 2 ? s[k] : (s[k - 1] + s[k]) / 2; };
+  const f1 = (v) => (isNum(v) ? (Math.round(v * 10) / 10).toFixed(1) : '—');
+  const fv = (v) => (isNum(v) ? (Number.isInteger(v) ? String(v) : (Math.round(v * 10) / 10).toFixed(1)) : '—');
+  const sideCls = (v, ref) => (ref == null ? 'is-at' : v > ref ? 'is-over' : v < ref ? 'is-under' : 'is-at');
+  const unitWord = (st) => ({ pra: 'PRA', threes: 'threes', touchdowns: 'TDs' })[st] || label(st).toLowerCase();
+  const seasonLabel = (lg, y) => (lg === 'nba' ? y + '–' + String(y + 1).slice(2) : String(y));
+  function niceStep(raw, steps) {
+    if (!(raw > 0) || !Number.isFinite(raw)) return 1;
+    const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    for (const s of steps || [1, 2, 2.5, 5, 10]) if (s * mag >= raw - 1e-9) return s * mag;
+    return 10 * mag;
+  }
+  function axisTicks(lo, hi, target) {
+    const step = niceStep((hi - lo) / Math.max(1, target - 1));
+    const out = [];
+    for (let v = Math.ceil(lo / step - 1e-9) * step; v <= hi + 1e-9 && out.length < 12; v += step) out.push(Math.round(v * 1000) / 1000);
+    return out;
+  }
+  // A line or dot chart does not need zero on its axis: pad the data range
+  // and stop at zero only when the data is near it.
+  function tightRange(xs) {
+    let lo = Math.min(...xs), hi = Math.max(...xs);
+    const pad = Math.max((hi - lo) * 0.12, Math.abs(hi) * 0.04, 0.5);
+    lo -= pad; hi += pad;
+    if (Math.min(...xs) >= 0 && lo < 0) lo = 0;
+    return [lo, hi];
+  }
+  function frame() {
+    const narrow = narrowScreen();
+    return { narrow, W: narrow ? 360 : 720, H: narrow ? 230 : 260, L: 38, R: 46, T: 14, B: 36 };
+  }
+  const svgOpen = (f, label, extra) => '<svg class="sp-ch" viewBox="0 0 ' + f.W + ' ' + f.H + '" style="max-width:' + f.W + 'px" role="img" aria-label="' + escape(label) + '"' + (extra || '') + '>';
+  function yAxis(f, lo, hi) {
+    const ih = f.H - f.T - f.B;
+    const y = (v) => f.T + ((hi - v) / (hi - lo)) * ih;
+    const grid = axisTicks(lo, hi, f.narrow ? 4 : 6).map((t) => '<line class="sp-ch-grid' + (t === 0 ? ' is-zero' : '') + '" x1="' + f.L + '" x2="' + (f.W - f.R) + '" y1="' + y(t).toFixed(1) + '" y2="' + y(t).toFixed(1) + '"/>' +
+      '<text class="sp-ch-axis" x="' + (f.L - 6) + '" y="' + (y(t) + 3.5).toFixed(1) + '" text-anchor="end">' + escape(fv(t)) + '</text>').join('');
+    return { y, grid };
+  }
+  // The average (dashed) and the typed line (solid) across the plot, each
+  // with its value in the right-hand margin.
+  function refLines(f, y, D) {
+    const x2 = f.W - f.R;
+    const tags = [];
+    let h = '';
+    if (isNum(D.avg)) { h += '<line class="sp-ch-avg" x1="' + f.L + '" x2="' + x2 + '" y1="' + y(D.avg).toFixed(1) + '" y2="' + y(D.avg).toFixed(1) + '"/>'; tags.push(['sp-ch-tag-avg', y(D.avg), f1(D.avg)]); }
+    if (isNum(D.line)) { h += '<line class="sp-ch-ref" x1="' + f.L + '" x2="' + x2 + '" y1="' + y(D.line).toFixed(1) + '" y2="' + y(D.line).toFixed(1) + '"/>'; tags.push(['sp-ch-tag-ref', y(D.line), fv(D.line)]); }
+    if (tags.length === 2 && Math.abs(tags[0][1] - tags[1][1]) < 12) {
+      const up = tags[0][1] <= tags[1][1] ? 0 : 1;
+      tags[up][1] -= 6; tags[1 - up][1] += 6;
+    }
+    return h + tags.map((t) => '<text class="sp-ch-tag ' + t[0] + '" x="' + (x2 + 4) + '" y="' + (t[1] + 3.5).toFixed(1) + '">' + escape(t[2]) + '</text>').join('');
+  }
+  function legendHtml(D, extra) {
+    const over = isNum(D.line) ? 'Over ' + fv(D.line) : 'Above the average', under = isNum(D.line) ? 'Under' : 'Below';
+    return '<p class="sp-ch-legend"><span><i class="sp-swatch is-over"></i>' + escape(over) + '</span><span><i class="sp-swatch is-under"></i>' + escape(under) + '</span>' +
+      '<span><i class="sp-key-line sp-key-avg"></i>Average ' + escape(f1(D.avg)) + '</span>' +
+      (isNum(D.line) ? '<span><i class="sp-key-line sp-key-ref"></i>Line ' + escape(fv(D.line)) + '</span>' : '') + (extra || '') + '</p>';
+  }
+  function tipText(D, it) {
+    const word = isNum(D.line) ? (it.v > D.line ? 'over ' + fv(D.line) : it.v < D.line ? 'under ' + fv(D.line) : 'on the line') : (it.v > D.avg ? 'above the average' : it.v < D.avg ? 'below the average' : 'on the average');
+    return it.when + '\n' + fv(it.v) + ' ' + unitWord(D.stat) + ' · ' + word;
+  }
+
+  // Bars: one per game, oldest on the left. Green above the average (or the
+  // typed line), red below.
+  function barsSvg(D) {
+    const f = frame(), n = D.items.length, vals = D.vals;
+    let lo = Math.min(0, ...vals), hi = Math.max(...vals, D.avg, isNum(D.line) ? D.line : -Infinity);
+    if (!(hi > lo)) hi = lo + 1;
+    hi += (hi - lo) * 0.12;
+    const { y, grid } = yAxis(f, lo, hi);
+    const iw = f.W - f.L - f.R, slot = iw / n, bw = Math.max(2, Math.min(44, slot * 0.68));
+    const showVals = n <= (f.narrow ? 10 : 20), showOpp = n <= (f.narrow ? 10 : 20), showDate = !f.narrow && n <= 12;
+    let bars = '', vl = '', xl = '';
+    const hov = [];
+    D.items.forEach((it, i) => {
+      const cx = f.L + slot * (i + 0.5), y0 = y(0), yv = y(it.v);
+      const top = Math.min(y0, yv), h = Math.max(1.5, Math.abs(yv - y0));
+      bars += '<rect class="sp-bar ' + sideCls(it.v, D.ref) + '" x="' + (cx - bw / 2).toFixed(1) + '" y="' + (it.v === 0 ? y0 - 1.5 : top).toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + h.toFixed(1) + '" rx="2"/>';
+      if (showVals) vl += '<text class="sp-ch-val" x="' + cx.toFixed(1) + '" y="' + (it.v >= 0 ? top - 4 : top + h + 11).toFixed(1) + '" text-anchor="middle">' + escape(fv(it.v)) + '</text>';
+      if (showOpp) xl += '<text class="sp-ch-axis" x="' + cx.toFixed(1) + '" y="' + (f.H - f.B + 14) + '" text-anchor="middle">' + (it.home ? '' : '@') + team(it.opp) + '</text>';
+      if (showDate) xl += '<text class="sp-ch-axis sp-ch-sub" x="' + cx.toFixed(1) + '" y="' + (f.H - f.B + 27) + '" text-anchor="middle">' + escape(shortDate(it.date)) + '</text>';
+      hov.push({ x: cx, y: Math.min(yv, y0), label: tipText(D, it) });
+    });
+    if (!showOpp) xl = dateTicks(f, D.items, (i) => f.L + slot * (i + 0.5));
+    return svgOpen(f, label(D.stat) + ' by game, ' + n + ' games, average ' + f1(D.avg), hoverAttr(hov)) + grid + bars + refLines(f, y, D) + vl + xl + '</svg>';
+  }
+  function shortDate(d) { const p = String(d).split('-'); return Number(p[1]) + '/' + Number(p[2]); }
+  function dateTicks(f, items, xOf) {
+    const n = items.length, idx = [...new Set([0, Math.round((n - 1) / 3), Math.round((2 * (n - 1)) / 3), n - 1])];
+    return idx.map((i) => '<text class="sp-ch-axis" x="' + xOf(i).toFixed(1) + '" y="' + (f.H - f.B + 14) + '" text-anchor="' + (i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle') + '">' + escape(shortDate(items[i].date) + '/' + String(items[i].date).slice(2, 4)) + '</text>').join('');
+  }
+
+  // Trend: the game-by-game line, a five-game moving average and the reference.
+  function trendSvg(D) {
+    const f = frame(), n = D.items.length, vals = D.vals, rolls = D.items.map((it) => it.roll);
+    const [lo, hi] = tightRange(vals.concat(rolls, [D.avg], isNum(D.line) ? [D.line] : []));
+    const { y, grid } = yAxis(f, lo, hi);
+    const iw = f.W - f.L - f.R;
+    const x = (i) => (n === 1 ? f.L + iw / 2 : f.L + (i * iw) / (n - 1));
+    const line = D.items.map((it, i) => x(i).toFixed(1) + ',' + y(it.v).toFixed(1)).join(' ');
+    const roll = D.items.map((it, i) => x(i).toFixed(1) + ',' + y(it.roll).toFixed(1)).join(' ');
+    const r = n > 40 ? 2.5 : 3.5;
+    const dots = D.items.map((it, i) => '<circle class="sp-dot ' + sideCls(it.v, D.ref) + '" cx="' + x(i).toFixed(1) + '" cy="' + y(it.v).toFixed(1) + '" r="' + r + '"/>').join('');
+    const hov = D.items.map((it, i) => ({ x: x(i), y: y(it.v), label: tipText(D, it) + '\n5-game average ' + f1(it.roll) }));
+    return svgOpen(f, label(D.stat) + ' trend over ' + n + ' games', hoverAttr(hov)) + grid + refLines(f, y, D) +
+      (n > 1 ? '<polyline class="sp-ch-roll" points="' + roll + '"/><polyline class="sp-ch-line" points="' + line + '"/>' : '') + dots + dateTicks(f, D.items, x) + '</svg>';
+  }
+
+  // Spread: how many games landed in each range of values.
+  function spreadSvg(D) {
+    const f = frame(), vals = D.vals;
+    const mn = Math.min(...vals), mx = Math.max(...vals);
+    const whole = vals.every((v) => Number.isInteger(v));
+    let step = niceStep((mx - mn) / (f.narrow ? 6 : 9), [1, 2, 5, 10]);
+    if (whole) step = Math.max(1, Math.round(step));
+    const start = Math.floor(mn / step) * step;
+    const bins = [];
+    for (let b = start; b <= mx + 1e-9 && bins.length < 40; b += step) bins.push({ b, n: 0 });
+    vals.forEach((v) => { const k = Math.min(bins.length - 1, Math.floor((v - start) / step + 1e-9)); bins[k].n++; });
+    const end = start + bins.length * step, top = Math.max(...bins.map((x) => x.n));
+    const { y, grid } = yAxis(f, 0, top + Math.max(1, top * 0.15));
+    const iw = f.W - f.L - f.R, bw = iw / bins.length;
+    const xv = (v) => f.L + ((v - start) / (end - start)) * iw;
+    const range = (b) => (whole ? (step === 1 ? fv(b) : fv(b) + '–' + fv(b + step - 1)) : fv(b) + ' to ' + fv(b + step));
+    const cls = (b) => (D.ref == null ? 'is-at' : b + (whole ? step - 1 : step) < D.ref ? 'is-under' : b > D.ref ? 'is-over' : 'is-at');
+    const every = bins.length > (f.narrow ? 7 : 12) ? 2 : 1;
+    let h = '';
+    const hov = [];
+    bins.forEach((x, i) => {
+      const x0 = f.L + i * bw, yy = y(x.n);
+      if (x.n) h += '<rect class="sp-bar ' + cls(x.b) + '" x="' + (x0 + 1.5).toFixed(1) + '" y="' + yy.toFixed(1) + '" width="' + Math.max(1, bw - 3).toFixed(1) + '" height="' + (y(0) - yy).toFixed(1) + '" rx="2"/>';
+      if (i % every === 0) h += '<text class="sp-ch-axis" x="' + (x0 + bw / 2).toFixed(1) + '" y="' + (f.H - f.B + 14) + '" text-anchor="middle">' + escape(fv(x.b)) + '</text>';
+      hov.push({ x: x0 + bw / 2, y: yy, label: range(x.b) + ' ' + unitWord(D.stat) + '\n' + x.n + ' of ' + vals.length + ' games (' + Math.round((x.n / vals.length) * 100) + '%)' });
+    });
+    const vline = (v, c) => (isNum(v) && v >= start && v <= end ? '<line class="' + c + '" x1="' + xv(v).toFixed(1) + '" x2="' + xv(v).toFixed(1) + '" y1="' + f.T + '" y2="' + (f.H - f.B) + '"/>' : '');
+    return svgOpen(f, label(D.stat) + ': how often each range happened', hoverAttr(hov)) + grid + h + vline(D.avg, 'sp-ch-avg') + vline(D.line, 'sp-ch-ref') + '</svg>';
+  }
+
+  // The stat against the playing time (NBA) or the volume behind it (NFL).
+  const OPPORTUNITY = { passing_yards: 'attempts', completions: 'attempts', receptions: 'targets', receiving_yards: 'targets', rushing_yards: 'carries' };
+  const UNIT_ONE = { minutes: 'minute', attempts: 'pass attempt', targets: 'target', carries: 'carry' };
+  const UNIT_MANY = { minutes: 'minutes', attempts: 'pass attempts', targets: 'targets', carries: 'carries' };
+  function opportunityStat(lg, stat) { return lg === 'nba' ? (stat === 'minutes' ? null : 'minutes') : OPPORTUNITY[stat] || null; }
+  function volumeSvg(D, lg) {
+    const os = opportunityStat(lg, D.stat);
+    const pts = D.items.map((it) => ({ it, x: gv(it.g, os) })).filter((p) => isNum(p.x));
+    if (pts.length < 3) return '<p class="sp-muted">Too few games with ' + escape(label(os).toLowerCase()) + ' to draw this.</p>';
+    const f = frame(), xs = pts.map((p) => p.x), ys = pts.map((p) => p.it.v);
+    let xlo = Math.max(0, Math.min(...xs) * 0.9), xhi = Math.max(...xs) * 1.05;
+    if (!(xhi > xlo)) xhi = xlo + 1;
+    const [lo, hi] = tightRange(ys.concat([D.avg], isNum(D.line) ? [D.line] : []));
+    const { y, grid } = yAxis(f, lo, hi);
+    const iw = f.W - f.L - f.R;
+    const x = (v) => f.L + ((v - xlo) / (xhi - xlo)) * iw;
+    const sx = sum(xs), rate = sx > 0 ? sum(ys) / sx : null;
+    const xt = axisTicks(xlo, xhi, f.narrow ? 4 : 6).map((t) => '<text class="sp-ch-axis" x="' + x(t).toFixed(1) + '" y="' + (f.H - f.B + 14) + '" text-anchor="middle">' + escape(fv(t)) + '</text>').join('');
+    // The rate line, drawn only where it stays inside the plot.
+    let fit = '';
+    if (rate != null && rate > 0) {
+      const a = Math.max(xlo, lo / rate), b = Math.min(xhi, hi / rate);
+      if (b > a) fit = '<line class="sp-ch-fit" x1="' + x(a).toFixed(1) + '" y1="' + y(rate * a).toFixed(1) + '" x2="' + x(b).toFixed(1) + '" y2="' + y(rate * b).toFixed(1) + '"/>';
+    }
+    const dots = pts.map((p) => '<circle class="sp-dot ' + sideCls(p.it.v, D.ref) + '" cx="' + x(p.x).toFixed(1) + '" cy="' + y(p.it.v).toFixed(1) + '" r="4"/>').join('');
+    const unit = UNIT_MANY[os];
+    const hov = pts.map((p) => ({ x: x(p.x), y: y(p.it.v), label: p.it.when + '\n' + fv(p.x) + ' ' + unit + ' · ' + fv(p.it.v) + ' ' + unitWord(D.stat) }));
+    const svg = svgOpen(f, label(D.stat) + ' against ' + label(os).toLowerCase(), ' data-ch-xy' + hoverAttr(hov)) + grid + refLines(f, y, D) + fit + dots + xt +
+      '<text class="sp-ch-axis" x="' + (f.W - f.R) + '" y="' + (f.H - 4) + '" text-anchor="end">' + escape(label(os)) + ' →</text></svg>';
+    const per = rate != null ? '<p class="sp-note">' + escape(rate < 10 ? rate.toFixed(2) : f1(rate)) + ' ' + escape(unitWord(D.stat)) + ' per ' + escape(UNIT_ONE[os]) +
+      ' over these games (the dotted line). ' + escape(lg === 'nba' ? 'Playing time' : 'Volume') + ' averaged ' + escape(f1(avgOf(xs))) + ' ' + escape(unit) + '. The stat model works the same way: expected ' + escape(unit) + ' times a rate.</p>' : '';
+    return svg + per;
+  }
+
+  // Hit rates: how often the player cleared each line, in the games shown.
+  function hitsHtml(D) {
+    const vals = D.vals, n = vals.length;
+    const s = Math.max(1, Math.round(niceStep(Math.max(0.5, sdOf(vals) / 4), [1, 2, 5, 10])));
+    const center = Math.round((D.ref ?? D.avg) / s) * s;
+    let lines = [];
+    for (let k = -7; k <= 7; k++) { const t = center + k * s - 0.5; if (t > 0) lines.push(t); }
+    if (isNum(D.line) && !lines.includes(D.line)) lines.push(D.line);
+    lines = [...new Set(lines)].sort((a, b) => a - b);
+    // Keep one line where every game cleared and one where none did.
+    const overAt = (t) => vals.filter((v) => v > t).length;
+    while (lines.length > 3 && overAt(lines[1]) === n && lines[1] !== D.line && lines[0] !== D.line) lines.shift();
+    while (lines.length > 3 && overAt(lines[lines.length - 2]) === 0 && lines[lines.length - 2] !== D.line && lines[lines.length - 1] !== D.line) lines.pop();
+    const near = lines.reduce((best, t) => (Math.abs(t - D.avg) < Math.abs(best - D.avg) ? t : best), lines[0]);
+    const rows = lines.map((t) => {
+      const over = vals.filter((v) => v > t).length, under = vals.filter((v) => v < t).length, push = n - over - under;
+      const po = (over / n) * 100, pu = (under / n) * 100;
+      return '<li class="sp-hit' + (t === D.line ? ' is-line' : '') + '"><span class="sp-hit-t">Over ' + escape(fv(t)) + (t === near ? ' <small>near avg</small>' : '') + '</span>' +
+        '<span class="sp-hit-bar" role="img" aria-label="' + over + ' over, ' + under + ' under' + (push ? ', ' + push + ' on the line' : '') + '"><i class="is-over" style="width:' + po.toFixed(1) + '%"></i><i class="is-under" style="width:' + pu.toFixed(1) + '%"></i></span>' +
+        '<span class="sp-hit-n"><b>' + over + '/' + n + '</b> ' + Math.round(po) + '%' + (push ? ' <small>' + push + ' push</small>' : '') + '</span></li>';
+    }).join('');
+    return '<ul class="sp-hits">' + rows + '</ul><p class="sp-note">Share of these ' + n + ' games above each line (green) and below it (red). What happened, not a forecast.</p>';
+  }
+
+  // Splits: the same games grouped by place, role, rest, opponent and season.
+  function splitsHtml(D, lg) {
+    const it = D.items;
+    const groups = [['Home or away', [['Home', (x) => x.home], ['Away', (x) => !x.home]]]];
+    if (lg === 'nba' && it.some((x) => x.g.starter === true) && it.some((x) => x.g.starter === false)) groups.push(['Role', [['Started', (x) => x.g.starter === true], ['Off the bench', (x) => x.g.starter === false]]]);
+    const r = (x) => x.g.rest_days;
+    groups.push(['Rest before the game', lg === 'nba'
+      ? [['Back-to-back', (x) => r(x) === 1], ['One day off', (x) => r(x) === 2], ['Two or more days off', (x) => r(x) >= 3]]
+      : [['Short week (5 days or less)', (x) => r(x) != null && r(x) <= 5], ['Normal week (6–8 days)', (x) => r(x) >= 6 && r(x) <= 8], ['Extra rest (9+ days)', (x) => r(x) >= 9]]]);
+    const opps = [...new Set(it.map((x) => x.opp))];
+    groups.push(['Opponent', opps.map((o) => ['vs ' + String(o).toUpperCase(), (x) => x.opp === o]), true]);
+    const seasons = [...new Set(it.map((x) => x.g.season))];
+    if (seasons.length > 1) groups.push(['Season', seasons.sort().map((s) => [seasonLabel(lg, s), (x) => x.g.season === s])]);
+    const built = groups.map(([name, defs, ranked]) => {
+      const rows = defs.map(([lab, fn]) => { const v = it.filter(fn).map((x) => x.v); return { lab, n: v.length, avg: avgOf(v), over: D.ref == null ? 0 : v.filter((a) => a > D.ref).length }; }).filter((x) => x.n);
+      if (ranked) rows.sort((a, b) => b.avg - a.avg || b.n - a.n);
+      return [name, rows];
+    });
+    const max = Math.max(D.ref || 0, ...built.flatMap((g) => g[1].map((x) => x.avg))) || 1;
+    const refPct = isNum(D.ref) ? Math.max(0, Math.min(100, (D.ref / max) * 100)) : null;
+    const word = isNum(D.line) ? 'over ' + fv(D.line) : 'above avg';
+    return built.filter((g) => g[1].length).map(([name, rows]) => '<div class="sp-split"><h6>' + escape(name) + '</h6><ul>' + rows.map((x) =>
+      '<li><span class="sp-split-name">' + escape(x.lab) + '</span><span class="sp-split-track"><i class="sp-split-bar ' + sideCls(x.avg, D.ref) + '" style="width:' + Math.max(1, (Math.max(0, x.avg) / max) * 100).toFixed(1) + '%"></i>' +
+      (refPct != null ? '<i class="sp-split-ref" style="left:' + refPct.toFixed(1) + '%"></i>' : '') + '</span>' +
+      '<span class="sp-split-val"><b>' + escape(f1(x.avg)) + '</b> <small>' + x.n + ' g · ' + x.over + ' ' + escape(word) + '</small></span></li>').join('') + '</ul></div>').join('') +
+      '<p class="sp-note">Average in each group of the games shown; the thin mark is ' + (isNum(D.line) ? 'the line' : 'the average of all of them') + '. Small groups swing a lot.' +
+      (lg === 'nfl' ? ' Rest is days since the team’s previous game.' : ' Rest counts days since the team’s previous game; a back-to-back is the second of two days in a row.') + '</p>';
+  }
+
+  function factsHtml(D) {
+    const v = D.vals, n = v.length;
+    const ref = isNum(D.line) ? D.line : D.avg;
+    const over = v.filter((x) => x > ref).length;
+    const recent = D.items.slice(-5).map((x) => x.v);
+    const facts = [
+      ['Games', n + (D.missed ? ' <small>+' + D.missed + ' missed</small>' : '')],
+      ['Average', escape(f1(D.avg))], ['Median', escape(fv(medianOf(v)))],
+      ['Low – high', escape(fv(Math.min(...v))) + '–' + escape(fv(Math.max(...v)))], ['Std dev', escape(f1(sdOf(v)))],
+      [isNum(D.line) ? 'Over ' + escape(fv(D.line)) : 'Above avg', over + ' of ' + n + ' <small>' + Math.round((over / n) * 100) + '%</small>'],
+    ];
+    if (n > 5) { const r5 = avgOf(recent), d = r5 - D.avg; facts.push(['Last 5', escape(f1(r5)) + ' <small class="' + (d > 0 ? 'sp-pos' : d < 0 ? 'sp-neg' : '') + '">' + (d > 0 ? '+' : d < 0 ? '−' : '±') + escape(f1(Math.abs(d))) + '</small>']); }
+    return '<dl class="sp-facts">' + facts.map((x) => '<div><dt>' + x[0] + '</dt><dd>' + x[1] + '</dd></div>').join('') + '</dl>';
+  }
+
+  const WINDOWS = [[5, 'Last 5'], [10, 'Last 10'], [20, 'Last 20'], ['season', 'Season'], ['all', 'All']];
+  const KINDS = [['bars', 'Bars'], ['trend', 'Trend'], ['hits', 'Hit rates'], ['spread', 'Spread'], ['volume', 'Volume'], ['splits', 'Splits']];
+  function chartStats(P) {
+    return P.stats.concat(P.context_stats).filter((st) => P.games.some((g) => g.played && isNum(gv(g, st))));
+  }
+  function chartStat(P, C, lg) {
+    const list = chartStats(P);
+    if (C.stat && list.indexOf(C.stat) >= 0) return C.stat;
+    const pos = String(P.player.position || '').toUpperCase();
+    const pref = lg === 'nfl' ? (pos === 'QB' ? 'passing_yards' : pos === 'RB' ? 'rushing_yards' : 'receptions') : 'points';
+    return list.indexOf(pref) >= 0 ? pref : list[0] || null;
+  }
+  function chartData(P, lg) {
+    const C = league(lg).chart, stat = chartStat(P, C, lg);
+    if (!stat) return null;
+    const all = P.games;
+    const played = all.filter((g) => g.played && isNum(gv(g, stat)));
+    const latest = all.length ? all[0].season : null;
+    const list = C.n === 'season' ? played.filter((g) => g.season === latest) : C.n === 'all' ? played : played.slice(0, C.n);
+    const items = list.map((g) => {
+      const i = played.indexOf(g), w = played.slice(i, i + 5).map((x) => gv(x, stat));
+      return { g, v: gv(g, stat), home: g.home, opp: g.opponent, date: g.date, when: fmtDay(g.date) + ' ' + String(g.date).slice(0, 4) + ' · ' + (g.home ? 'vs ' : '@ ') + String(g.opponent).toUpperCase(), roll: avgOf(w) };
+    }).reverse();
+    const vals = items.map((x) => x.v), avg = avgOf(vals);
+    const raw = String(C.line == null ? '' : C.line).trim(), num = Number(raw);
+    const line = raw !== '' && Number.isFinite(num) && num >= 0 ? num : null;
+    const oldest = list.length ? list[list.length - 1].date : null;
+    return { stat, items, vals, avg, line, ref: line != null ? line : avg, missed: oldest ? all.filter((g) => !g.played && g.date >= oldest).length : 0, available: played.length };
+  }
+  function chartBodyHtml(lg) {
+    const L = league(lg), P = L.player, D = chartData(P, lg);
+    if (!D) return '';
+    if (!D.items.length) return '<p class="sp-muted">No games with ' + escape(label(D.stat).toLowerCase()) + ' in this window.</p>';
+    const kind = L.chart.kind === 'volume' && !opportunityStat(lg, D.stat) ? 'bars' : L.chart.kind;
+    const short = typeof L.chart.n === 'number' && D.items.length < L.chart.n ? '<p class="sp-note">Only ' + D.items.length + ' stored game' + (D.items.length === 1 ? '' : 's') + ' with this stat.</p>' : '';
+    let body;
+    if (kind === 'trend') body = legendHtml(D, '<span><i class="sp-key-line sp-key-roll"></i>5-game average</span>') + trendSvg(D);
+    else if (kind === 'hits') body = hitsHtml(D);
+    else if (kind === 'spread') body = legendHtml(D, '<span>Bar height: games</span>') + spreadSvg(D);
+    else if (kind === 'volume') body = legendHtml(D, '<span><i class="sp-key-line sp-key-fit"></i>Rate</span>') + volumeSvg(D, lg);
+    else if (kind === 'splits') body = splitsHtml(D, lg);
+    else body = legendHtml(D) + barsSvg(D);
+    return '<div class="sp-ch-wrap">' + body + '</div>' + factsHtml(D) + short;
+  }
+  function seg(attr, list, current, aria, disabled) {
+    return '<div class="sp-seg" role="group" aria-label="' + escape(aria) + '">' + list.map(([v, t]) => {
+      const off = disabled && disabled(v);
+      return '<button type="button" ' + attr + '="' + escape(v) + '" aria-pressed="' + (String(v) === String(current) ? 'true' : 'false') + '"' + (off ? ' disabled title="' + escape(off) + '"' : '') + '>' + escape(t) + '</button>';
+    }).join('') + '</div>';
+  }
+  function chartHtml(lg) {
+    const L = league(lg), P = L.player, C = L.chart;
+    const stats = chartStats(P);
+    if (!stats.length) return '';
+    const stat = chartStat(P, C, lg), os = opportunityStat(lg, stat);
+    const kinds = KINDS.map(([k, t]) => [k, k === 'volume' ? (lg === 'nba' ? 'Vs minutes' : os ? 'Vs ' + label(os).toLowerCase() : 'Vs volume') : t]);
+    return '<div class="sp-ch-controls"><label class="sp-field"><span>Stat</span><select data-sp-chart-stat>' + stats.map((st) => '<option value="' + escape(st) + '"' + (st === stat ? ' selected' : '') + '>' + escape(label(st)) + '</option>').join('') + '</select></label>' +
+      '<label class="sp-field sp-line-field"><span>Compare to a line</span><input type="number" min="0" max="1000" step="0.5" inputmode="decimal" placeholder="Average" data-sp-chart-line value="' + escape(C.line) + '"></label></div>' +
+      seg('data-sp-chart-n', WINDOWS, C.n, 'Games shown') +
+      seg('data-sp-chart-kind', kinds, C.kind === 'volume' && !os ? 'bars' : C.kind, 'Chart', (k) => (k === 'volume' && !os ? 'No volume stat for ' + label(stat).toLowerCase() : '')) +
+      '<div data-sp-part="chart-body">' + chartBodyHtml(lg) + '</div>';
+  }
+
+  // A small ten-game bar chart for a table row, coloured against the row's
+  // own average of those games.
+  function sparkSvg(vals, what) {
+    const v = (vals || []).filter(isNum).slice().reverse();
+    if (!v.length) return '<span class="sp-muted">—</span>';
+    const a = avgOf(v), W = 74, H = 22, n = v.length, slot = W / 10;
+    const lo = Math.min(0, ...v), hi = Math.max(...v, a, 1);
+    const y = (x) => 1 + ((hi - x) / (hi - lo)) * (H - 2);
+    const bars = v.map((x, i) => { const top = Math.min(y(x), y(0)); return '<rect class="sp-bar ' + sideCls(x, a) + '" x="' + (W - (n - i) * slot + 1).toFixed(1) + '" y="' + top.toFixed(1) + '" width="' + (slot - 2).toFixed(1) + '" height="' + Math.max(1, Math.abs(y(x) - y(0))).toFixed(1) + '"/>'; }).join('');
+    return '<svg class="sp-spark" viewBox="0 0 ' + W + ' ' + H + '" width="' + W + '" height="' + H + '" role="img" aria-label="' + escape(what + ', oldest to newest: ' + v.join(', ') + '; average ' + f1(a)) + '">' + bars +
+      '<line class="sp-ch-avg" x1="0" x2="' + W + '" y1="' + y(a).toFixed(1) + '" y2="' + y(a).toFixed(1) + '"/></svg>';
+  }
+
+  // ---- Player and team stats views ------------------------------------------
+  const VIEWS_LIST = [['games', 'Games'], ['players', 'Player stats'], ['teams', 'Team stats']];
+  function sortTh(attr, key, text, cur, dir, title, cls) {
+    const on = cur === key;
+    return '<th class="' + (cls || 'sp-n') + '" aria-sort="' + (on ? (dir === 'asc' ? 'ascending' : 'descending') : 'none') + '"><button type="button" class="sp-th' + (on ? ' is-on' : '') + '" ' + attr + '="' + escape(key) + '"' + (title ? ' title="' + escape(title) + '"' : '') + '>' + escape(text) + '<i aria-hidden="true">' + (on ? (dir === 'asc' ? '▲' : '▼') : '') + '</i></button></th>';
+  }
+  function sortList(list, get, dir) {
+    return list.map((x, i) => ({ x, i, v: get(x) })).sort((a, b) => {
+      const ma = a.v == null || a.v === '' || (typeof a.v === 'number' && !Number.isFinite(a.v)), mb = b.v == null || b.v === '' || (typeof b.v === 'number' && !Number.isFinite(b.v));
+      if (ma || mb) return ma && mb ? a.i - b.i : ma ? 1 : -1;
+      const c = typeof a.v === 'string' ? a.v.localeCompare(b.v) : a.v - b.v;
+      return (dir === 'asc' ? c : -c) || a.i - b.i;
+    }).map((o) => o.x);
+  }
+  function selectHtml(attr, labelText, opts, current) {
+    return '<label class="sp-field"><span>' + escape(labelText) + '</span><select ' + attr + '>' + opts.map(([v, t]) => '<option value="' + escape(v) + '"' + (String(v) === String(current) ? ' selected' : '') + '>' + escape(t) + '</option>').join('') + '</select></label>';
+  }
+  const MIN_GAMES = [1, 2, 3, 5, 10, 20, 40];
+  function defaultMinGames(lg, players) {
+    const top = Math.max(0, ...players.map((p) => p.games));
+    const want = lg === 'nfl' ? (top >= 8 ? 4 : top >= 4 ? 2 : 1) : (top >= 20 ? 10 : top >= 8 ? 5 : top >= 3 ? 2 : 1);
+    return want;
+  }
+  const GROUP_NAMES = { G: 'Guards', F: 'Forwards', C: 'Centers', QB: 'Quarterbacks', RB: 'Running backs', WR: 'Wide receivers', TE: 'Tight ends' };
+
+  function leadersView(lg) {
+    const Q = league(lg).leaders, D = Q.data;
+    if (Q.err) return errorBox(Q.err, 'leaders');
+    if (!D) return '<p class="sp-loading">Loading player stats…</p>';
+    if (Q.min == null) Q.min = defaultMinGames(lg, D.players);
+    if (!Q.sort) Q.sort = D.stats.filter((st) => st !== 'minutes')[0];
+    const controls = '<div class="sp-ctl">' +
+      (D.seasons.length > 1 ? selectHtml('data-sp-lead-season', 'Season', D.seasons.map((y) => [y, seasonLabel(lg, y)]), D.season) : '') +
+      selectHtml('data-sp-lead-team', 'Team', [['', 'All teams']].concat(D.teams.map((t) => [t, String(t).toUpperCase()])), Q.team) +
+      selectHtml('data-sp-lead-group', 'Position', [['', 'All positions']].concat(D.groups.map((g) => [g, GROUP_NAMES[g] || g])), Q.group) +
+      selectHtml('data-sp-lead-min', 'Played at least', MIN_GAMES.map((m) => [m, m + ' game' + (m === 1 ? '' : 's')]), Q.min) +
+      selectHtml('data-sp-lead-sort', 'Rank by', D.stats.map((st) => [st, label(st)]), D.stats.indexOf(Q.sort) >= 0 ? Q.sort : D.stats[0]) +
+      '</div>' + seg('data-sp-lead-window', [['season', 'Whole season'], ['last10', 'Last 10 games'], ['last5', 'Last 5 games']], D.window, 'Games counted') +
+      seg('data-sp-lead-mode', [['table', 'Table'], ['chart', 'Chart']], Q.mode, 'Show as');
+    return '<h3>Player stats <span class="sp-muted">' + escape(seasonLabel(lg, D.season)) + '</span></h3>' + controls + '<div data-sp-part="lead-body">' + leadersBody(lg) + '</div>';
+  }
+  function leadersBody(lg) {
+    const Q = league(lg).leaders, D = Q.data;
+    if (!D) return '';
+    const rows = D.players.filter((p) => (!Q.team || p.team === Q.team) && (!Q.group || p.group === Q.group) && p.games >= Q.min);
+    if (!rows.length) return emptyBox('No players match.', escape(D.players.length ? 'Lower the games played or clear a filter.' : 'No games are stored for this season yet.'));
+    const per = D.window === 'season' ? 'per game this season' : 'per game over each player’s ' + (D.window === 'last10' ? 'last 10' : 'last 5') + ' games';
+    if (Q.mode === 'chart') {
+      const st = Q.sort, list = sortList(rows, (p) => p.values[st], 'desc').filter((p) => isNum(p.values[st])).slice(0, 20);
+      if (!list.length) return emptyBox('No ' + label(st).toLowerCase() + ' stored for these players.');
+      const vals = rows.map((p) => p.values[st]).filter(isNum), a = avgOf(vals), max = Math.max(...list.map((p) => p.values[st]), a, 0) || 1;
+      return '<p class="sp-ch-legend"><span><i class="sp-swatch is-over"></i>Above the average of all ' + vals.length + ' players shown</span><span><i class="sp-swatch is-under"></i>Below</span><span><i class="sp-key-line sp-key-avg"></i>Average ' + escape(f1(a)) + '</span></p>' +
+        '<ol class="sp-hbars">' + list.map((p, i) => '<li><span class="sp-hb-rank">' + (i + 1) + '</span><span class="sp-hb-name"><button type="button" class="sp-link" data-sp-player="' + escape(p.player_id) + '">' + escape(p.name) + '</button> <small>' + team(p.team) + ' · ' + escape(p.position || '') + '</small></span>' +
+          '<span class="sp-hb-track"><i class="sp-hb-bar ' + sideCls(p.values[st], a) + '" style="width:' + ((Math.max(0, p.values[st]) / max) * 100).toFixed(1) + '%"></i><i class="sp-split-ref" style="left:' + Math.max(0, Math.min(100, (a / max) * 100)).toFixed(1) + '%"></i></span>' +
+          '<span class="sp-hb-val">' + escape(f1(p.values[st])) + '</span></li>').join('') + '</ol>' +
+        '<p class="sp-note">Top 20 by ' + escape(label(st).toLowerCase()) + ', ' + escape(per) + '. Select a name for charts and the game log.</p>';
+    }
+    const sorted = Q.sort === 'name' || Q.sort === 'team' ? sortList(rows, (p) => (Q.sort === 'name' ? p.name : p.team), Q.dir) : Q.sort === 'games' ? sortList(rows, (p) => p.games, Q.dir) : sortList(rows, (p) => p.values[Q.sort], Q.dir);
+    const shown = Q.all ? sorted : sorted.slice(0, 50);
+    const th = (k, t, title, cls) => sortTh('data-sp-lsort', k, t, Q.sort, Q.dir, title, cls);
+    const cols = D.stats.filter((st) => st === 'minutes').concat(D.stats.filter((st) => st !== 'minutes'));
+    return '<div class="sp-table-wrap"><table class="sp-table sp-lead" data-nosort><thead><tr><th class="sp-n">#</th>' + th('name', 'Player', null, 'sp-l') + th('team', 'Team', null, 'sp-l') + '<th>Pos</th>' + th('games', 'GP', 'Games played this season') +
+      cols.map((st) => th(st, SHORT[st] || st, label(st))).join('') + '</tr></thead><tbody>' +
+      shown.map((p, i) => '<tr><td class="sp-n sp-muted">' + (i + 1) + '</td><td><button type="button" class="sp-link" data-sp-player="' + escape(p.player_id) + '">' + escape(p.name) + '</button></td><td>' + team(p.team) + '</td><td>' + escape(p.position || '') + '</td>' +
+        '<td class="sp-n">' + p.games + (p.missed ? ' <small class="sp-muted" title="Games missed">+' + p.missed + '</small>' : '') + '</td>' + cols.map((st) => '<td class="sp-n' + (st === Q.sort ? ' is-sorted' : '') + '">' + escape(f1(p.values[st])) + '</td>').join('') + '</tr>').join('') + '</tbody></table></div>' +
+      (sorted.length > shown.length ? '<button type="button" class="sp-btn sp-more" data-sp-lead-all>Show all ' + sorted.length + ' players</button>' : '') +
+      '<p class="sp-note">Averages ' + escape(per) + '; missed games are left out (+N). Select a column to sort, a name for charts and the game log.</p>';
+  }
+
+  function teamsView(lg) {
+    const Q = league(lg).teams, D = Q.data;
+    if (Q.err) return errorBox(Q.err, 'teams');
+    if (!D) return '<p class="sp-loading">Loading team stats…</p>';
+    if (!Q.stat || D.stats.indexOf(Q.stat) < 0) Q.stat = D.stats[0];
+    const sides = [['for', 'Scored by the team'], ['against', 'Allowed to opponents']].concat(D.groups.map((g) => ['to:' + g, 'Allowed to ' + (GROUP_NAMES[g] || g).toLowerCase()]));
+    const controls = '<div class="sp-ctl">' +
+      (D.seasons.length > 1 ? selectHtml('data-sp-team-season', 'Season', D.seasons.map((y) => [y, seasonLabel(lg, y)]), D.season) : '') +
+      selectHtml('data-sp-team-stat', 'Stat', D.stats.map((st) => [st, label(st)]), Q.stat) +
+      (Q.mode === 'chart' ? selectHtml('data-sp-team-side', 'Show', sides, Q.side) : '') +
+      '</div>' + seg('data-sp-team-mode', [['table', 'Table'], ['chart', 'Chart']], Q.mode, 'Show as');
+    return '<h3>Team stats <span class="sp-muted">' + escape(seasonLabel(lg, D.season)) + '</span></h3>' + controls + '<div data-sp-part="team-body">' + teamsBody(lg) + '</div>';
+  }
+  function teamValue(t, key, st) {
+    if (key === 'team') return t.team;
+    if (key === 'diff') return t.points_for != null && t.points_against != null ? t.points_for - t.points_against : null;
+    if (key === 'for') return t.for[st];
+    if (key === 'against') return t.against[st];
+    if (key.indexOf('to:') === 0) return (t.against_by[key.slice(3)] || {})[st];
+    return t[key];
+  }
+  function teamsBody(lg) {
+    const Q = league(lg).teams, D = Q.data;
+    if (!D) return '';
+    if (!D.teams.length) return emptyBox('No team games stored for this season yet.');
+    const st = Q.stat, s = SHORT[st] || st;
+    if (Q.mode === 'chart') {
+      const side = Q.side, list = sortList(D.teams, (t) => teamValue(t, side, st), 'desc').filter((t) => isNum(teamValue(t, side, st)));
+      if (!list.length) return emptyBox('No ' + label(st).toLowerCase() + ' stored for this season.');
+      const vals = list.map((t) => teamValue(t, side, st)), a = avgOf(vals), max = Math.max(...vals, a, 0) || 1;
+      const what = side === 'for' ? 'scored per game' : side === 'against' ? 'allowed per game' : 'allowed to ' + (GROUP_NAMES[side.slice(3)] || side.slice(3)).toLowerCase() + ' per game';
+      return '<p class="sp-ch-legend"><span><i class="sp-swatch is-over"></i>Above the league average</span><span><i class="sp-swatch is-under"></i>Below</span><span><i class="sp-key-line sp-key-avg"></i>Average ' + escape(f1(a)) + '</span></p>' +
+        '<ol class="sp-hbars">' + list.map((t, i) => '<li><span class="sp-hb-rank">' + (i + 1) + '</span><span class="sp-hb-name"><button type="button" class="sp-link" data-sp-team-pick="' + escape(t.team) + '">' + team(t.team) + '</button> <small>' + escape(t.wins + '-' + t.losses + (t.ties ? '-' + t.ties : '')) + '</small></span>' +
+          '<span class="sp-hb-track"><i class="sp-hb-bar ' + sideCls(teamValue(t, side, st), a) + '" style="width:' + ((Math.max(0, teamValue(t, side, st)) / max) * 100).toFixed(1) + '%"></i><i class="sp-split-ref" style="left:' + Math.max(0, Math.min(100, (a / max) * 100)).toFixed(1) + '%"></i></span>' +
+          '<span class="sp-hb-val">' + escape(f1(teamValue(t, side, st))) + '</span></li>').join('') + '</ol>' +
+        '<p class="sp-note">' + escape(label(st)) + ' ' + escape(what) + ', summed over each team’s players.' + (side === 'for' ? '' : ' Higher means the defense gives up more, which favors overs against it.') + ' Select a team to see its players.</p>';
+    }
+    const th = (k, t, title, cls) => sortTh('data-sp-tsort', k, t, Q.sort, Q.dir, title, cls);
+    const sorted = sortList(D.teams, (t) => teamValue(t, Q.sort, st), Q.dir);
+    return '<div class="sp-table-wrap"><table class="sp-table sp-teamtable" data-nosort><thead><tr>' + th('team', 'Team', null, 'sp-l') + '<th>Record</th>' + th('win_pct', 'Win %') + '<th>Home</th><th>Away</th><th>Last 10</th><th>Streak</th>' +
+      th('points_for', 'Pts/g', 'Points scored per game (final scores)') + th('points_against', 'Opp/g', 'Points allowed per game (final scores)') + th('diff', 'Diff', 'Point difference per game') +
+      th('for', s + ' for', label(st) + ' by the team per game') + th('against', s + ' allowed', label(st) + ' allowed per game') +
+      D.groups.map((g) => th('to:' + g, 'to ' + g, label(st) + ' allowed to ' + (GROUP_NAMES[g] || g).toLowerCase() + ' per game')).join('') + '</tr></thead><tbody>' +
+      sorted.map((t) => {
+        const diff = teamValue(t, 'diff');
+        return '<tr><td><button type="button" class="sp-link" data-sp-team-pick="' + escape(t.team) + '">' + team(t.team) + '</button></td><td>' + escape(t.wins + '-' + t.losses + (t.ties ? '-' + t.ties : '')) + '</td>' +
+          '<td class="sp-n">' + (t.win_pct == null ? '—' : escape(t.win_pct.toFixed(3).replace(/^0/, ''))) + '</td><td>' + escape(t.home) + '</td><td>' + escape(t.away) + '</td><td>' + escape(t.last10) + '</td><td>' + escape(t.streak || '—') + '</td>' +
+          '<td class="sp-n">' + escape(f1(t.points_for)) + '</td><td class="sp-n">' + escape(f1(t.points_against)) + '</td><td class="sp-n ' + (diff > 0 ? 'sp-pos' : diff < 0 ? 'sp-neg' : '') + '">' + (diff == null ? '—' : (diff > 0 ? '+' : diff < 0 ? '−' : '') + escape(f1(Math.abs(diff)))) + '</td>' +
+          '<td class="sp-n">' + escape(f1(t.for[st])) + '</td><td class="sp-n">' + escape(f1(t.against[st])) + '</td>' + D.groups.map((g) => '<td class="sp-n">' + escape(f1((t.against_by[g] || {})[st])) + '</td>').join('') + '</tr>';
+      }).join('') + '</tbody></table></div>' +
+      '<p class="sp-note">Records and points from final scores. Stat columns are per game, summed over each side’s players' + (lg === 'nfl' ? ' (a player with no stat in a game is not in the provider’s file and counts as zero)' : '') + '. “to G” is what opponents at that position put up. Select a column to sort, a team to see its players.</p>';
+  }
+
+  function gamesView(lg) {
+    return '<h3>Games</h3><div data-sp-part="board" aria-live="polite">' + boardHtml(lg) + '</div><div data-sp-part="game">' + gamePanelHtml(lg) + '</div>' +
+      '<div class="sp-search"><h3>Players</h3><label class="sp-find"><span>Find a player</span><input type="search" data-sp-search autocomplete="off" spellcheck="false" placeholder="Name, at least 2 letters" value="' + escape(league(lg).query) + '"></label>' +
+      '<div data-sp-part="results" aria-live="polite">' + resultsHtml(lg) + '</div></div>';
+  }
+  function viewHtml(lg) {
+    const v = league(lg).view;
+    return v === 'players' ? leadersView(lg) : v === 'teams' ? teamsView(lg) : gamesView(lg);
   }
 
   function leagueHtml(s, lg) {
@@ -281,13 +759,11 @@ export function sportsFactory(host, doc, options) {
     const name = lg.toUpperCase();
     const connected = src.state !== 'not_connected';
     const board = connected
-      ? '<div data-sp-part="board" aria-live="polite">' + boardHtml(lg) + '</div><div data-sp-part="game">' + gamePanelHtml(lg) + '</div>' +
-        '<div class="sp-search"><h3>Players</h3><label class="sp-find"><span>Find a player</span><input type="search" data-sp-search autocomplete="off" spellcheck="false" placeholder="Name, at least 2 letters" value="' + escape(league(lg).query) + '"></label>' +
-        '<div data-sp-part="results" aria-live="polite">' + resultsHtml(lg) + '</div></div><div data-sp-part="player">' + playerPanelHtml(lg) + '</div>'
-      : emptyBox('No ' + name + ' games loaded yet.', escape(lg === 'nfl'
+      ? seg('data-sp-view', VIEWS_LIST, league(lg).view, 'View') + '<div data-sp-part="view">' + viewHtml(lg) + '</div><div data-sp-part="player">' + playerPanelHtml(lg) + '</div>'
+      : '<h3>Games</h3>' + emptyBox('No ' + name + ' games loaded yet.', escape(lg === 'nfl'
         ? 'The daily nflverse job has not written its first records yet.'
         : 'The daily hoopR job has not written its first records yet.'));
-    return dayStrip(s) + '<div class="sp-grid"><div class="sp-board"><h3>Games</h3>' + board + '</div>' +
+    return dayStrip(s) + '<div class="sp-grid"><div class="sp-board">' + board + '</div>' +
       '<aside class="sp-side">' + sourceCard(src, tz) + modelCard(src) + statList(s.stats[lg] || []) + '</aside></div>' +
       '<p class="sp-foot">Private research for the two owners. No sportsbook is connected, nothing is placed, and no AI model is called by this page.</p>';
   }
@@ -468,6 +944,28 @@ export function sportsFactory(host, doc, options) {
       ' · ' + escape(m.unit) + ' 10% lower: ' + pct(S.opportunity_down_10) + ', 10% higher: ' + pct(S.opportunity_up_10) + '</span>' +
       (m.probability > 0.005 && m.probability < 0.995 ? '<span class="sp-hist-use"><button type="button" class="sp-chip" data-sp-usemodel="' + i + '" data-prob="' + escape(m.probability) + '">Use ' + Math.round(m.probability * 100) + '% (model)</button></span>' : '');
   }
+  // The pick's last ten games against its own line: green would have won,
+  // red would have lost (for an under, a game below the line is a win).
+  function legChartHtml(e) {
+    const r = (e.recent || []).slice().reverse();
+    if (r.length < 2) return '';
+    const t = Number(e.threshold), W = 200, H = 44, slot = W / 10, n = r.length;
+    const vals = r.map((x) => x.value);
+    const lo = Math.min(0, ...vals), hi = Math.max(...vals, t, 1) * 1.08;
+    const y = (v) => 2 + ((hi - v) / (hi - lo)) * (H - 4);
+    const res = (v) => (v === t ? 'is-at' : (e.side === 'under' ? v < t : v > t) ? 'is-over' : 'is-under');
+    const word = { 'is-at': 'push', 'is-over': 'would have won', 'is-under': 'would have lost' };
+    const hov = [];
+    const bars = r.map((x, i) => {
+      const cx = W - (n - i - 0.5) * slot, top = Math.min(y(x.value), y(0));
+      hov.push({ x: cx, y: top, label: fmtDay(x.date) + ' ' + String(x.date).slice(0, 4) + ' · ' + (x.home ? 'vs ' : '@ ') + String(x.opponent).toUpperCase() + '\n' + fv(x.value) + ' · ' + word[res(x.value)] });
+      return '<rect class="sp-bar ' + res(x.value) + '" x="' + (cx - slot / 2 + 2).toFixed(1) + '" y="' + top.toFixed(1) + '" width="' + (slot - 4).toFixed(1) + '" height="' + Math.max(1.5, Math.abs(y(x.value) - y(0))).toFixed(1) + '" rx="1.5"/>';
+    }).join('');
+    const won = r.filter((x) => res(x.value) === 'is-over').length;
+    return '<span class="sp-leg-chart"><svg class="sp-legspark" viewBox="0 0 ' + W + ' ' + H + '" width="' + W + '" height="' + H + '" role="img" aria-label="' + escape('Last ' + n + ' games, oldest first: ' + vals.join(', ') + '; line ' + fv(t)) + '"' + hoverAttr(hov) + '>' + bars +
+      '<line class="sp-ch-ref" x1="0" x2="' + W + '" y1="' + y(t).toFixed(1) + '" y2="' + y(t).toFixed(1) + '"/></svg>' +
+      '<small>Last ' + n + ' against ' + escape(sideWord(e.side)) + ' ' + escape(fv(t)) + ': <b>' + won + ' of ' + n + '</b> would have won (green).</small></span>';
+  }
   function histHtml(i) {
     const e = evalLeg(i);
     if (!e) return pb.evalErr ? '' : '<span class="sp-muted">Checking history…</span>';
@@ -477,7 +975,7 @@ export function sportsFactory(host, doc, options) {
     const pushes = h.all.pushes ? ' <span class="sp-muted">(' + h.all.pushes + ' push' + (h.all.pushes === 1 ? '' : 'es') + ')</span>' : '';
     const use = (key, name) => { const r = rateOf(h[key]); return r == null ? '' : '<button type="button" class="sp-chip" data-sp-usehist="' + i + '" data-rate="' + r + '">Use ' + r + '% (' + name + ')</button>'; };
     const uses = use('last10', 'last 10') + use('all', 'all stored');
-    return '<span class="sp-hist-line">Cleared ' + sideWord(e.side) + ' ' + escape(e.threshold) + ' before this game: ' + c('last 5', h.last5) + ' · ' + c('last 10', h.last10) + ' · ' + c('all stored', h.all) + pushes + '</span>' +
+    return legChartHtml(e) + '<span class="sp-hist-line">Cleared ' + sideWord(e.side) + ' ' + escape(e.threshold) + ' before this game: ' + c('last 5', h.last5) + ' · ' + c('last 10', h.last10) + ' · ' + c('all stored', h.all) + pushes + '</span>' +
       (uses ? '<span class="sp-hist-use">' + uses + '</span>' : h.all.games < MIN_RATE_GAMES ? '<span class="sp-muted">Too few games to copy a rate.</span>' : '') + modelLineHtml(i, e);
   }
   const SOURCE_TEXT = { history: 'from history', model: 'from model', owner: 'typed' };
@@ -817,7 +1315,7 @@ export function sportsFactory(host, doc, options) {
   }
   function openPlayer(page, lg, id) {
     const L = league(lg);
-    L.playerId = id; L.player = null; L.playerErr = null;
+    L.playerId = id; L.player = null; L.playerErr = null; L.logAll = false;
     paint(page, 'player', playerPanelHtml(lg));
     const el = part(page, 'player');
     if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
@@ -836,6 +1334,88 @@ export function sportsFactory(host, doc, options) {
     }, 250);
   }
 
+  // Player and team stats load once per season and window, then sort and
+  // filter in the page.
+  function loadTable(page, lg, which) {
+    const Q = league(lg)[which];
+    const key = (Q.season || '') + '|' + (which === 'leaders' ? Q.window : '');
+    Q.key = key; Q.err = null;
+    if (Q.cache[key]) { Q.data = Q.cache[key]; paint(page, 'view', viewHtml(lg)); return; }
+    Q.data = null;
+    paint(page, 'view', viewHtml(lg));
+    const params = { sport: lg };
+    if (Q.season) params.season = Q.season;
+    if (which === 'leaders') params.window = Q.window;
+    api(which, params).then((data) => { Q.cache[key] = data; if (Q.key === key) Q.data = data; }, (err) => { if (Q.key === key) Q.err = err; })
+      .then(() => { if (state.page === page && league(lg).view === (which === 'leaders' ? 'players' : 'teams') && Q.key === key) paint(page, 'view', viewHtml(lg)); });
+  }
+  function showView(page, lg, v) {
+    const L = league(lg);
+    L.view = v;
+    root(page)?.querySelectorAll('[data-sp-view]').forEach((b) => b.setAttribute('aria-pressed', b.getAttribute('data-sp-view') === v ? 'true' : 'false'));
+    if (v === 'players' && !L.leaders.data) loadTable(page, lg, 'leaders');
+    else if (v === 'teams' && !L.teams.data) loadTable(page, lg, 'teams');
+    else paint(page, 'view', viewHtml(lg));
+    if (v === 'games' && !L.board && !L.boardErr) loadBoard(page, lg);
+  }
+  let lineTimer = null;
+  // League page controls (charts, game panel, player and team stats).
+  function leagueChange(page, lg, t) {
+    const L = league(lg);
+    if (t.matches('[data-sp-chart-stat]')) { L.chart.stat = t.value; paint(page, 'chart', chartHtml(lg)); return true; }
+    if (t.matches('[data-sp-game-stat]')) { L.gameStat = t.value; paint(page, 'game', gamePanelHtml(lg)); return true; }
+    const Q = L.leaders, T = L.teams;
+    if (t.matches('[data-sp-lead-season]')) { Q.season = Number(t.value); Q.all = false; loadTable(page, lg, 'leaders'); return true; }
+    if (t.matches('[data-sp-lead-team]')) { Q.team = t.value; Q.all = false; }
+    else if (t.matches('[data-sp-lead-group]')) { Q.group = t.value; Q.all = false; }
+    else if (t.matches('[data-sp-lead-min]')) { Q.min = Number(t.value); Q.all = false; }
+    else if (t.matches('[data-sp-lead-sort]')) { Q.sort = t.value; Q.dir = 'desc'; }
+    else if (t.matches('[data-sp-team-season]')) { T.season = Number(t.value); loadTable(page, lg, 'teams'); return true; }
+    else if (t.matches('[data-sp-team-stat]')) { T.stat = t.value; paint(page, 'team-body', teamsBody(lg)); return true; }
+    else if (t.matches('[data-sp-team-side]')) { T.side = t.value; paint(page, 'team-body', teamsBody(lg)); return true; }
+    else return false;
+    paint(page, 'lead-body', leadersBody(lg));
+    return true;
+  }
+  function leagueClick(page, lg, t) {
+    const L = league(lg), Q = L.leaders, T = L.teams;
+    let b;
+    if ((b = t.closest('[data-sp-view]'))) { showView(page, lg, b.getAttribute('data-sp-view')); return true; }
+    if ((b = t.closest('[data-sp-chart-n]'))) { const v = b.getAttribute('data-sp-chart-n'); L.chart.n = /^\d+$/.test(v) ? Number(v) : v; paint(page, 'chart', chartHtml(lg)); return true; }
+    if ((b = t.closest('[data-sp-chart-kind]'))) { L.chart.kind = b.getAttribute('data-sp-chart-kind'); paint(page, 'chart', chartHtml(lg)); return true; }
+    if (t.closest('[data-sp-logall]')) { L.logAll = true; paint(page, 'player', playerPanelHtml(lg)); return true; }
+    if ((b = t.closest('[data-sp-lead-window]'))) { Q.window = b.getAttribute('data-sp-lead-window'); Q.all = false; loadTable(page, lg, 'leaders'); return true; }
+    if ((b = t.closest('[data-sp-lead-mode]'))) { Q.mode = b.getAttribute('data-sp-lead-mode'); paint(page, 'view', viewHtml(lg)); return true; }
+    if (t.closest('[data-sp-lead-all]')) { Q.all = true; paint(page, 'lead-body', leadersBody(lg)); return true; }
+    if ((b = t.closest('[data-sp-lsort]'))) {
+      const k = b.getAttribute('data-sp-lsort');
+      Q.dir = Q.sort === k ? (Q.dir === 'asc' ? 'desc' : 'asc') : k === 'name' || k === 'team' ? 'asc' : 'desc';
+      Q.sort = k;
+      paint(page, 'view', viewHtml(lg));
+      return true;
+    }
+    if ((b = t.closest('[data-sp-team-mode]'))) { T.mode = b.getAttribute('data-sp-team-mode'); paint(page, 'view', viewHtml(lg)); return true; }
+    if ((b = t.closest('[data-sp-tsort]'))) {
+      const k = b.getAttribute('data-sp-tsort');
+      T.dir = T.sort === k ? (T.dir === 'asc' ? 'desc' : 'asc') : k === 'team' ? 'asc' : 'desc';
+      T.sort = k;
+      paint(page, 'team-body', teamsBody(lg));
+      return true;
+    }
+    if ((b = t.closest('[data-sp-team-pick]'))) {
+      Q.team = b.getAttribute('data-sp-team-pick'); Q.group = ''; Q.all = false;
+      if (T.data && T.data.season !== (Q.data && Q.data.season)) Q.season = T.data.season;
+      L.view = 'players';
+      root(page)?.querySelectorAll('[data-sp-view]').forEach((x) => x.setAttribute('aria-pressed', x.getAttribute('data-sp-view') === 'players' ? 'true' : 'false'));
+      const key = (Q.season || '') + '|' + Q.window;
+      if (Q.data && Q.key === key) paint(page, 'view', viewHtml(lg)); else loadTable(page, lg, 'leaders');
+      const el = part(page, 'view');
+      if (el && el.scrollIntoView) el.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      return true;
+    }
+    return false;
+  }
+
   function bind(page) {
     const el = root(page);
     if (!el || state.bound[page]) return;
@@ -850,6 +1430,7 @@ export function sportsFactory(host, doc, options) {
         load(page, true);
         return;
       }
+      if (lg) { leagueChange(page, lg, t); return; }
       if (page !== BUILDER) return;
       const d = draft();
       const legEl = t.closest('[data-sp-leg]');
@@ -869,6 +1450,12 @@ export function sportsFactory(host, doc, options) {
       const t = event.target;
       const box = t.closest('[data-sp-search]');
       if (box && lg) { search(page, lg, box.value); return; }
+      if (t.matches('[data-sp-chart-line]') && lg) {
+        league(lg).chart.line = t.value;
+        host.clearTimeout(lineTimer);
+        lineTimer = host.setTimeout(() => { if (league(lg).player) paint(page, 'chart-body', chartBodyHtml(lg)); }, 150);
+        return;
+      }
       if (page !== BUILDER) return;
       const d = draft();
       const legEl = t.closest('[data-sp-leg]');
@@ -896,6 +1483,7 @@ export function sportsFactory(host, doc, options) {
         else if (what === 'game' && L) openGame(page, lg, L.gameId);
         else if (what === 'player' && L) openPlayer(page, lg, L.playerId);
         else if (what === 'search' && L) search(page, lg, L.query);
+        else if ((what === 'leaders' || what === 'teams') && L) loadTable(page, lg, what);
         else if (what === 'journal') { paint(BUILDER, 'journal', '<p class="sp-loading">Loading the journal…</p>'); loadJournal(); }
         else if (what === 'evaluate') scheduleEval(0);
         else if (what === 'add-search') addSearch(pb.add.query);
@@ -917,6 +1505,7 @@ export function sportsFactory(host, doc, options) {
         return;
       }
       if (page === BUILDER) { builderClick(t); return; }
+      if (lg && leagueClick(page, lg, t)) return;
       const game = t.closest('[data-sp-game]');
       if (game && lg) { openGame(page, lg, game.getAttribute('data-sp-game')); return; }
       const player = t.closest('[data-sp-player]');
@@ -1009,7 +1598,12 @@ export function sportsFactory(host, doc, options) {
     fetchStatus(force).then((s) => {
       render(page);
       const lg = leagueOf(page);
-      if (lg && s.sources[lg] && s.sources[lg].state !== 'not_connected' && (force || !league(lg).board)) loadBoard(page, lg);
+      if (lg && s.sources[lg] && s.sources[lg].state !== 'not_connected') {
+        const L = league(lg);
+        if (force || !L.board) loadBoard(page, lg);
+        if (L.view === 'players' && !L.leaders.data) loadTable(page, lg, 'leaders');
+        if (L.view === 'teams' && !L.teams.data) loadTable(page, lg, 'teams');
+      }
       if (page === BUILDER) {
         loadJournal();
         if (draft().legs.length) scheduleEval(0);

@@ -85,6 +85,8 @@ ok(found.structuredContent.results.players.some((p) => p.player_id === gsStar.pl
 ok((await tool('sports_find_players', { sport: 'nba', name: 'zzzz' })).structuredContent.warnings.some((w) => /NO_MATCH/.test(w)), 'no match is said');
 const game = await tool('sports_get_game', { sport: 'nba', game_id: 'mnext1' });
 ok(game.structuredContent.results.game.game_id === 'mnext1' && game.structuredContent.results.teams, 'one game with its teams');
+const gamePlayers = Object.values(game.structuredContent.results.teams).flatMap((t) => t.players);
+ok(gamePlayers.length > 0 && gamePlayers.every((p) => !('recent' in p) && p.summaries.points), 'the page’s chart values stay off the MCP; averages stay');
 eq(JSON.parse((await tool('sports_get_game', { sport: 'nba', game_id: 'nope' })).content[0].text).error.code, 'NOT_FOUND');
 const player = await tool('sports_get_player', { sport: 'nba', player_id: gsStar.player_id, games: 5 });
 const P = player.structuredContent.results;

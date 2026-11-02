@@ -84,6 +84,8 @@ eq(draft.evaluation.status, 'needs_payout', 'a draft without a payout still gets
 const leg = draft.legs[0];
 eq([leg.player_name, leg.matchup, leg.team, leg.opponent, leg.team_in_game], ['Stephen Curry', 'phx@gs', 'gs', 'phx', true], 'the pick is filled from stored records');
 eq(leg.history.all, { hits: 3, pushes: 0, games: 4 }, 'history: 31, 22, 28 and 27 against 24.5; the missed game is left out');
+eq(leg.recent.map((r) => r.value).slice().sort((a, b) => a - b), [22, 27, 28, 31], 'the small chart gets the same four played games');
+ok(leg.recent.every((r, i) => i === 0 || r.date <= leg.recent[i - 1].date) && leg.recent.every((r) => r.opponent && typeof r.home === 'boolean'), 'newest first, with the opponent');
 eq(draft.locked, false);
 const same = await evaluateEntry({ load: load(), body: { legs: [curry('401900003'), pod('401900003')], operator: 'prizepicks', format: 'power', stake: 10, payouts: { 2: 3 } }, now: NOW });
 eq([same.evaluation.status, same.evaluation.breakeven_probability], ['needs_probabilities', 0.333333], 'same-game picks without chances: only the breakeven');
@@ -122,6 +124,7 @@ const D = await saveEntry({ store: st, load: load(), body: entryBody([curry('401
 const N = await saveEntry({ store: st, load: load(), body: { legs: [{ sport: 'nfl', player_id: '00-0007', game_id: KC_DEN, stat: 'receptions', side: 'over', threshold: 0.5 }], operator: 'other', format: 'power', stake: 5, payouts: { 1: 1.8 } }, now: EARLY, sub: OTHER });
 const E = await saveEntry({ store: st, load: load(), body: entryBody([curry('401900003')]), now: NOW, sub: OWNER }); // tonight
 ok(/^pe_[a-f0-9]{18}$/.test(A.entry_id) && A.by === ownerTag(OWNER) && !JSON.stringify(A).includes(OWNER), 'saved with an owner tag, never the Discord id');
+ok(A.legs.every((l) => !('recent' in l) && l.history), 'chart values are not saved with the entry');
 eq(A.evaluation.status, 'needs_probabilities', 'the same-game entry without chances is saved without a joint number');
 eq([C.evaluation.status, C.evaluation.expected_net], ['independence_baseline', 1.5], 'the priced entry keeps its expected value');
 const journalRec = JSON.parse(st.objects.get(SPORTS_PREFIX + 'journal/entries.json'));

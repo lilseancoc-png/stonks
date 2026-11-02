@@ -11,7 +11,7 @@ ChatGPT outside the site.
 
 | Page | `?tab=` | What it shows |
 |---|---|---|
-| NBA | `sports-nba` | Today's and tomorrow's games, player game logs, captured lines |
+| NBA | `sports-nba` | Today's and tomorrow's games, player charts and game logs, player and team stats |
 | NFL | `sports-nfl` | The same for the NFL |
 | Pick Builder | `sports-pick-builder` | A 1 to 6 pick entry with its real payout, the odds, and a paper journal |
 
@@ -26,6 +26,53 @@ other Owner page: no group, pane, palette entry or request unless
 Eastern; the choice is a per-browser convenience in localStorage
 (`stonks-sports-tz-v1`). A 10:30 p.m. Pacific tip-off is still "today" in Los
 Angeles even though it is past midnight in New York.
+
+## Charts and stats views
+
+Each league page has three views: **Games** (the board, a game's players and
+player search), **Player stats** and **Team stats**. A player opened from any
+of them gets the same panel.
+
+**Player charts** (in the player panel, drawn in the page from the player's
+stored games; the page asks the route for every stored game, `CHART_LIMIT`):
+
+| Chart | What it shows |
+|---|---|
+| Bars | One bar per game, oldest first, a dashed line at the average of the games shown. Green above it, red below. With a typed line, colors follow the line instead and both lines are drawn |
+| Trend | The game-by-game line with a five-game moving average |
+| Hit rates | For a ladder of half-point lines around the average (and the typed line): how many of the games went over |
+| Spread | How many games landed in each range of values |
+| Vs minutes / volume | The stat against minutes (NBA) or pass attempts, targets or carries (NFL), with the per-minute or per-target rate the stat model also uses |
+| Splits | Home or away, started or bench (NBA), rest before the game, each opponent and each season |
+
+Every chart takes any stored stat (the modeled ones and the context ones such
+as assists, threes, minutes or targets), a window (last 5, 10 or 20 played
+games, this season or every stored game) and an optional line. A facts strip
+under the chart gives games, average, median, low to high, standard deviation,
+how many games cleared the line (or the average) and the last five against the
+window. Missed games are left out and counted. Rest days are days since the
+team's previous stored game, so NFL players with no stat in a game do not
+look rested.
+
+**Player stats** (`?sports=leaders`): every player's per-game averages for one
+season, over the whole season or each player's last 10 or 5 played games.
+Filter by team, position group (NBA guards / forwards / centers; NFL QB, RB,
+WR, TE) and games played; sort any column, or show the top 20 as bars against
+the average of the players shown.
+
+**Team stats** (`?sports=teams`): records, home, away and last-10 records,
+streak and points per game from final scores, and for any stat what each team
+put up per game, what it allowed, and what it allowed to each position group.
+Sort any column, or chart one measure for every team against the league
+average. Selecting a team opens its players in Player stats.
+
+The game panel can switch every player to one stat and shows each player's
+last ten games as small bars around their own average. Each Pick Builder pick
+shows its last ten games against its own line (green would have won); those
+values are not saved with an entry.
+
+All of it reads stored box scores only. Nothing here is a forecast except the
+model section, which is labeled.
 
 ## Server route
 
@@ -435,11 +482,14 @@ One branch and pull request each, from `main`:
    seeded simulation, held-out check per kind of pair)
 7. `sports-mcp`: six read-only Owner MCP tools; evaluate returns a Pick
    Builder link to save from (no MCP save tool)
+8. `sports-charts`: player charts (bars around the average, trend, hit rates,
+   spread, vs minutes or volume, splits), Player stats and Team stats views,
+   game-panel and Pick Builder mini charts
 
 ## Tests
 
 ```bash
-npm run test:sports           # access, route, time zones, keys, schema, wiring, both adapters, ingest, views, payout math, the journal, the stat models, same-game chances and the MCP tools
-npm run test:sports-browser   # Owner / member / signed-out at 1440 and 390, boards, games, logs, forecasts, the model check, the Pick Builder flow and a same-game estimate
+npm run test:sports           # access, route, time zones, keys, schema, wiring, both adapters, ingest, views, payout math, the journal, the stat models, same-game chances, the MCP tools and the player / team stats
+npm run test:sports-browser   # Owner / member / signed-out at 1440 and 390, boards, games, logs, forecasts, every chart, the stats views, the model check, the Pick Builder flow and a same-game estimate
 node scripts/regen-sports.mjs # rebuild index.html / app.js / styles.css without data/
 ```
