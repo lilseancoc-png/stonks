@@ -151,6 +151,11 @@ const np = nv.teams[ng.home_team].players[0];
 const npRows = L.rows.concat(N.rows).filter((r) => r.player_id === np.player_id && r.played && r.opponent === ng.away_team && r.date < ng.local_date);
 eq(np.vs_opp.games, npRows.length, 'a player’s games against this opponent include last season');
 ok(npRows.some((r) => r.season === 2025), 'and some of them are from last season');
+// `history` seasons only add meetings: with last season passed as history
+// (not a stored season) the player averages stay on this season.
+const hv = await buildGame({ load: load2, sport: 'nba', gameId: ng.game_id, seasons: [2026], history: [2025] });
+eq(hv.matchup.meetings.map((m) => m.game_id), nv.matchup.meetings.map((m) => m.game_id), 'history seasons add to the meetings');
+ok(Object.values(hv.teams).flatMap((t) => t.players).every((p) => !p.vs_opp || p.vs_opp.games <= N.rows.filter((r) => r.player_id === p.player_id && r.played).length), 'but not to the players’ numbers');
 // Ranks on a made-up game between the soft and tough defenses, over the whole season.
 const table = teamTable({ sport: 'nba', rows: L.rows, games: L.games, players: new Map(players.map((p) => [p.player_id, p])), stats: shownStats('nba').filter((st) => st !== 'minutes') });
 const SM = matchupView({ sport: 'nba', game: { away_team: SOFT_DEFENSE, home_team: TOUGH_DEFENSE }, gameDate: '2099-01-01', allGames: L.games, table, stats: shownStats('nba').filter((st) => st !== 'minutes') });

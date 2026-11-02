@@ -550,30 +550,40 @@ body:not(.is-owner) [data-page-tab="research-lab"],body:not(.is-owner) #page-pan
 .sp-panel { margin: 12px 0 18px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); min-width: 0; }
 .sp-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .sp-panel h5, .sp-team h5 { margin: 14px 0 6px; font-size: calc(12px * var(--ts, 1)); font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted-strong); }
-.sp-matchup { margin: 12px 0 4px; border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px 4px; }
+.sp-matchup { margin: 12px 0 4px; border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px 4px; container: sp-mx / inline-size; }
 .sp-matchup > summary { cursor: pointer; font-size: calc(12px * var(--ts, 1)); font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted-strong); padding: 4px 0; }
 .sp-matchup h6 { margin: 14px 0 6px; font-size: calc(12px * var(--ts, 1)); font-weight: 600; color: var(--muted-strong); }
 .sp-mx-table th[scope="row"] { font-weight: 500; text-align: left; white-space: nowrap; }
 .sp-mx-table td { white-space: nowrap; }
+.sp-nw { white-space: nowrap; }
 .sp-rank { font-size: calc(11px * var(--ts, 1)); color: var(--muted-strong); margin-left: 2px; }
 .sp-tag { display: inline-block; font-size: calc(10px * var(--ts, 1)); line-height: 1.5; padding: 0 6px; margin-left: 4px; border-radius: 999px; border: 1px solid var(--border); vertical-align: 1px; }
 .sp-tag-soft { color: var(--pos); border-color: var(--pos); }
 .sp-tag-tough { color: var(--neg); border-color: var(--neg); }
 .sp-meetings { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: calc(13px * var(--ts, 1)); font-variant-numeric: tabular-nums; }
 .sp-meetings .sp-win { font-weight: 700; color: var(--text); }
-@media (max-width: 560px) {
-  .sp-matchup { padding: 6px 8px 2px; }
+@media (max-width: 560px) { .sp-matchup { padding: 6px 8px 2px; } }
+/* The matchup can sit in a narrow column (a phone, or beside the board on a
+   small laptop), so it follows its own width, not the window's. */
+@container sp-mx (max-width: 520px) {
   .sp-table.sp-mx-table th { white-space: normal; }
   .sp-table.sp-mx-table th, .sp-table.sp-mx-table td { padding-left: 4px; padding-right: 4px; font-size: calc(12px * var(--ts, 1)); }
   .sp-table.sp-mx-table td { white-space: normal; }
   .sp-mx-table .sp-rank { display: block; margin: 0; }
 }
+/* Game panel player tables: names may wrap and cells sit a little closer so
+   the whole table fits beside the board on a desktop. */
+.sp-table.sp-game-table th, .sp-table.sp-game-table td { padding-left: 5px; padding-right: 5px; }
+.sp-table.sp-game-table td.sp-pl { white-space: normal; min-width: 8.5em; }
 .sp-close { font: inherit; font-size: calc(18px * var(--ts, 1)); line-height: 1; color: var(--muted-strong); background: transparent; border: 1px solid var(--border); border-radius: 6px; width: 30px; height: 30px; cursor: pointer; }
 .sp-teams { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
 .sp-table-wrap { overflow-x: auto; max-width: 100%; }
 .sp-table { width: 100%; border-collapse: collapse; font-size: calc(12.5px * var(--ts, 1)); font-variant-numeric: tabular-nums; }
 .sp-table th, .sp-table td { padding: 5px 8px; border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; }
 .sp-table th { font-weight: 600; color: var(--muted-strong); font-size: calc(11.5px * var(--ts, 1)); }
+/* Muted notes inside a table keep the cell's size; a <small> note is smaller. */
+.sp-table .sp-muted { font-size: inherit; }
+.sp-table small.sp-muted { font-size: calc(11px * var(--ts, 1)); font-weight: 400; }
 .sp-table .sp-n { text-align: right; }
 .sp-table tr.sp-key td:first-child { font-weight: 600; }
 .sp-table tr.sp-dnp td { color: var(--muted-strong); }

@@ -116,7 +116,10 @@ everything is this season before this game):
   scored and the **fewest allowed** (the toughest defense). The top fifth of
   defenses is tagged "tough" and the bottom fifth "soft".
 - The last 10 stored meetings between the two teams (both stored seasons,
-  playoffs included) with the series record and average total.
+  plus the three older NFL seasons the job keeps for the model, since most
+  NFL pairs do not meet every season; playoffs included) with the series
+  record and average total. Only the meetings reach into those older
+  seasons; player numbers stay on the two stored seasons.
 
 Team numbers come from the same pure `teamTable` as the Team stats view, cut
 to games before this one, so an old game shows what was known then. Each Pick Builder pick

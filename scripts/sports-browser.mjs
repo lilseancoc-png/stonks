@@ -157,6 +157,8 @@ try {
         await page.locator('#sports-nfl-root [data-sp-panel="player"] .sp-log').waitFor();
         const log = await page.locator('#sports-nfl-root [data-sp-panel="player"]').innerText();
         assert(/Travis Kelce/.test(log) && /Averages over 1 stored games/i.test(log) && /@ DEN/.test(log), 'player search opens the game log: ' + log.slice(0, 400));
+        const kStat = page.locator('#sports-nfl-root [data-sp-panel="player"] [data-sp-pickform] [name="stat"]');
+        if (await kStat.count()) assert.equal(await kStat.inputValue(), 'receptions', 'a tight end’s pick starts on receptions, not passing yards');
         assert.equal(await page.locator('#sports-nfl-root [data-sp-search]').inputValue(), 'kelce', 'the search box keeps its text');
         const tops = await page.$$eval('#sports-nfl-root [data-sp-panel="player"] .sp-table:not(.sp-fc):not(.sp-log) tbody tr', (trs) => trs.map((tr) => tr.getBoundingClientRect().top));
         assert(tops.length > 2 && tops.every((t, i) => i === 0 || t > tops[i - 1] + 10), 'the averages table rows sit one under another: ' + tops);
@@ -215,6 +217,7 @@ try {
         const form = page.locator('#sports-nba-root [data-sp-panel="player"] [data-sp-pickform]');
         assert.deepEqual(await form.locator('[name="stat"] optgroup').evaluateAll((gs) => gs.map((g) => g.label)), ['Main', 'Combos', 'More'], 'the pick form lists every stat in groups');
         assert((await form.locator('[name="stat"] option').evaluateAll((os) => os.map((o) => o.value))).includes('pra'), 'combos can be picked');
+        assert.equal(await form.locator('[name="stat"]').inputValue(), 'points', 'the pick form starts on the player’s main stat');
         checks += 6;
         assert(/Next game: PHX at GS/.test(await form.innerText()), 'the pick form names the next game');
         await form.locator('[name="line"]').fill('24.3');

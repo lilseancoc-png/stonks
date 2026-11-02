@@ -29718,17 +29718,22 @@ function scenarioEventPhase(ev, now = Date.now()) {
     const teams = [g.away_team, g.home_team].map((t) => {
       const info = L.game.teams[t] || { players: [] };
       const opp = t === g.home_team ? g.away_team : g.home_team;
+      // Every NBA player's main stat is points: name it once in the team
+      // heading instead of a column, so the table fits beside the board.
+      const mains = info.players.map((p) => p.main_stat).filter((st, i, a) => a.indexOf(st) === i);
+      const one = !pick && mains.length === 1 ? mains[0] : '';
+      const statCol = !pick && !one;
       const rows = info.players.map((p) => {
         const st = pick || p.main_stat, s = p.summaries[st] || {}, vs = p.vs_opp;
         const vsCell = vs && vs.values && vs.values[st] != null
           ? '<td class="sp-n" title="' + escape(label(st) + ' against ' + String(opp).toUpperCase() + ', ' + vs.games + ' game' + (vs.games === 1 ? '' : 's') + ' this season and last') + '">' + num(vs.values[st]) + ' <small class="sp-muted">' + vs.games + 'g</small></td>'
           : '<td class="sp-n sp-muted">—</td>';
-        return '<tr><td><button type="button" class="sp-link" data-sp-player="' + escape(p.player_id) + '">' + escape(p.name) + '</button>' + (p.out_last_game ? ' <span class="sp-out">out last game</span>' : '') + '</td><td>' + escape(p.position || '') + '</td>' +
-          (pick ? '' : '<td>' + escape(SHORT[st] || st) + '</td>') + '<td class="sp-spark-cell">' + sparkSvg((p.recent || {})[st], p.name + ' ' + label(st).toLowerCase() + ', last ' + ((p.recent || {})[st] || []).length + ' games') + '</td>' +
+        return '<tr><td class="sp-pl"><button type="button" class="sp-link" data-sp-player="' + escape(p.player_id) + '">' + escape(p.name) + '</button>' + (p.out_last_game ? ' <span class="sp-out">out last game</span>' : '') + '</td><td>' + escape(p.position || '') + '</td>' +
+          (statCol ? '<td>' + escape(SHORT[st] || st) + '</td>' : '') + '<td class="sp-spark-cell">' + sparkSvg((p.recent || {})[st], p.name + ' ' + label(st).toLowerCase() + ', last ' + ((p.recent || {})[st] || []).length + ' games') + '</td>' +
           '<td class="sp-n">' + num(s.last5) + '</td><td class="sp-n">' + num(s.last10) + '</td><td class="sp-n">' + num(s.average) + '</td>' + vsCell + '<td class="sp-n">' + num(s.high) + '</td><td class="sp-n">' + num(s.games) + '</td></tr>';
       }).join('');
-      return '<div class="sp-team"><h5>' + team(t) + (t === g.home_team ? ' <span>home</span>' : '') + '</h5>' +
-        (rows ? '<div class="sp-table-wrap"><table class="sp-table" data-ts-key="sp-game-' + escape(lg) + '"><thead><tr><th>Player</th><th>Pos</th>' + (pick ? '' : '<th>Stat</th>') + '<th data-nosort>Last 10 games</th><th class="sp-n">Last 5</th><th class="sp-n">Last 10</th><th class="sp-n">Season</th><th class="sp-n" title="Average against ' + team(opp) + ' this season and last, with games played">vs ' + team(opp) + '</th><th class="sp-n">High</th><th class="sp-n">Games</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
+      return '<div class="sp-team"><h5>' + team(t) + (t === g.home_team ? ' <span>home</span>' : '') + (one && rows ? ' <span>· ' + escape(label(one).toLowerCase()) + '</span>' : '') + '</h5>' +
+        (rows ? '<div class="sp-table-wrap"><table class="sp-table sp-game-table" data-ts-key="sp-game-' + escape(lg) + '"><thead><tr><th>Player</th><th>Pos</th>' + (statCol ? '<th>Stat</th>' : '') + '<th data-nosort>Last 10 games</th><th class="sp-n">Last 5</th><th class="sp-n">Last 10</th><th class="sp-n">Season</th><th class="sp-n" title="Average against ' + team(opp) + ' this season and last, with games played">vs ' + team(opp) + '</th><th class="sp-n">High</th><th class="sp-n" title="Games played this season before this game">GP</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
           : '<p class="sp-muted">No player games stored for this team this season.</p>') + '</div>';
     }).join('');
     return '<div class="sp-panel" data-sp-panel="game"><div class="sp-panel-head"><h4>' + team(g.away_team) + ' at ' + team(g.home_team) + '</h4>' +
@@ -29754,13 +29759,15 @@ function scenarioEventPhase(ev, now = Date.now()) {
     const T = (t) => M.teams[t] || null;
     const cell = (t, fn) => '<td class="sp-n">' + (T(t) ? fn(T(t), t) : '<span class="sp-muted">—</span>') + '</td>';
     const signed = (v) => (v == null ? '—' : (v > 0 ? '+' : v < 0 ? '−' : '±') + escape(Math.abs(v).toFixed(1)));
-    const rec = (x) => escape(x.wins + '-' + x.losses + (x.ties ? '-' + x.ties : ''));
+    const nw = (v) => '<span class="sp-nw">' + escape(v) + '</span>';
+    const rec = (x) => nw(x.wins + '-' + x.losses + (x.ties ? '-' + x.ties : ''));
     const stats = pick ? [pick].filter((st) => st !== 'minutes') : MATCHUP_STATS[lg] || [];
     const S = (t) => M.stats[t] || {};
     const rows = [
       ['Record', (x) => rec(x) + rk(x.rank.win_pct, 'Win share')],
-      ['Home · away', (x) => escape(x.home) + ' · ' + escape(x.away)],
-      ['Last 10 · streak', (x) => escape(x.last10) + ' · ' + escape(x.streak || '—')],
+      // Records break only at the dot on a narrow screen, never inside "2-1".
+      ['Home · away', (x) => nw(x.home) + ' · ' + nw(x.away)],
+      ['Last 10 · streak', (x) => nw(x.last10) + ' · ' + nw(x.streak || '—')],
       ['Points per game', (x) => escape(f1(x.points_for)) + rk(x.rank.points_for, 'Points scored per game (1st = most)')],
       ['Allowed per game', (x) => escape(f1(x.points_against)) + rk(x.rank.points_against, 'Points allowed per game (1st = fewest)')],
       ['Point difference', (x) => '<span class="' + (x.diff > 0 ? 'sp-pos' : x.diff < 0 ? 'sp-neg' : '') + '">' + signed(x.diff) + '</span>' + rk(x.rank.diff, 'Point difference per game')],
@@ -30413,10 +30420,14 @@ function scenarioEventPhase(ev, now = Date.now()) {
     const g = P.next_game, name = P.player.name;
     if (!g) return '<p class="sp-muted">No upcoming game is stored for ' + escape(name) + '’s team yet, so a pick cannot be attached.</p>';
     const stats = (CATALOG[sport] || []).map((st) => st.id);
+    // Start on the player's main stat (rushing yards for a running back),
+    // the same one the charts open on, not the first stat in the list.
+    const main = P.stats && P.games ? chartStat(P, {}, sport) : null;
+    const first = stats.indexOf(main) >= 0 ? main : stats[0];
     return '<div class="sp-pickform" data-sp-pickform="' + escape(where) + '">' +
       '<p class="sp-pick-game">Next game: ' + team(g.away_team) + ' at ' + team(g.home_team) + ' · ' + (g.time_tbd ? escape(fmtDay(g.local_date)) + ', time TBD' : escape(fmtWhen(g.start_utc, zone()))) + '</p>' +
       '<div class="sp-pick-row">' +
-      statSelectHtml('name="stat"', 'Stat', stats, stats[0]) +
+      statSelectHtml('name="stat"', 'Stat', stats, first) +
       '<label class="sp-field"><span>Side</span><select name="side"><option value="over">Over</option><option value="under">Under</option></select></label>' +
       '<label class="sp-field sp-line-field"><span>Line</span><input name="line" type="number" min="0" max="1000" step="0.5" inputmode="decimal" placeholder="24.5"></label>' +
       '<button type="button" class="sp-btn" data-sp-addpick>' + (where === 'league' ? 'Add to Pick Builder' : 'Add to entry') + '</button></div>' +
