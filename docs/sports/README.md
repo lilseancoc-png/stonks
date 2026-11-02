@@ -189,7 +189,8 @@ carry an owner tag (a hash of the session subject), never the Discord id.
 | Case | Result |
 |---|---|
 | Final, stat above / below / equal to the line | hit / missed / push |
-| NBA player did not play, or has no row | void |
+| NBA player did not play, or has no row once the game's box score is stored | void |
+| NBA game final but its box score not stored yet | stays open |
 | NFL player has no row (the file leaves out players with no stat) | stays open |
 | Game postponed or canceled | void |
 

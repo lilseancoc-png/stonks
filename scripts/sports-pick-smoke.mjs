@@ -139,6 +139,20 @@ eq(byId(view, D.entry_id).settlement.state, 'review', 'D: a pick that did not pl
 eq(byId(view, D.entry_id).legs[0].result, 'void');
 eq(byId(view, D.entry_id).actions, ['settle'], 'only the payout can be entered once the game has started');
 eq([byId(view, N.entry_id).settlement.state, byId(view, N.entry_id).legs[0].result], ['pending', null], 'NFL: a player missing from the final file stays open');
+// The schedule says final but the box score has not landed yet: NBA picks
+// on that game stay open instead of reading as did-not-play.
+const noBox = (() => {
+  const base = load();
+  return async (kind, opts) => {
+    const rec = await base(kind, opts);
+    if (kind !== 'player-games' || opts.sport !== 'nba' || !rec) return rec;
+    const gi = rec.columns.indexOf('game_id');
+    return { ...rec, rows: rec.rows.filter((a) => a[gi] !== '401900002') };
+  };
+})();
+const early = await journalView({ load: noBox, now: NOW, sub: OWNER });
+eq([byId(early, D.entry_id).legs[0].result, byId(early, D.entry_id).settlement.state], [null, 'pending'], 'NBA: a final game with no stored box score yet stays open, not void');
+eq(byId(early, A.entry_id).settlement.state, 'pending');
 eq([byId(view, N.entry_id).mine, byId(view, N.entry_id).actions], [false, []], 'the other owner cannot change it');
 eq(byId(view, E.entry_id).actions, ['withdraw'], 'tonight: can still be withdrawn');
 eq([view.summary.entries, view.summary.settled, view.summary.pending, view.summary.review, view.summary.wins], [6, 3, 2, 1, 1]);
