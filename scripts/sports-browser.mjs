@@ -178,13 +178,14 @@ try {
         assert(/Model forecast for the next game[\s\S]*fewer than 5 stored games/i.test(nbaLog), 'too few games: the model says so instead of guessing: ' + nbaLog.slice(0, 700));
         const side = await page.locator('#sports-nba-root .sp-model').innerText();
         assert(/Model check/i.test(side) && /Points\s*Passed the check/.test(side) && /Rebounds\s*Experimental/.test(side) && /did not beat both simple baselines/.test(side) && /sports-model-1/.test(side), 'the model check card: ' + side);
+        assert(/Same-game links/i.test(side) && /Points and rebounds, one player/.test(side) && /later pairs: both cleared/.test(side), 'the card lists the same-game links and their check: ' + side);
         await page.locator('#sports-nba-root [data-sp-search]').fill('lebron');
         await page.locator('#sports-nba-root [data-sp-part="results"] [data-sp-player="1966"]').click();
         await page.locator('#sports-nba-root [data-sp-panel="player"] .sp-fc').waitFor();
         const fcText = await page.locator('#sports-nba-root [data-sp-panel="player"]').innerText();
         assert(/Model forecast for the next game/i.test(fcText) && /@ PHX/.test(fcText) && /80% range/i.test(fcText) && /Passed the check/.test(fcText) && /minutes expected/.test(fcText), 'LeBron gets a forecast for his next game: ' + fcText.slice(0, 600));
         assert.equal(await page.locator('#sports-nba-root .sp-fc tbody tr').first().locator('.sp-lines span').count(), 5, 'five lines with the chance of the over');
-        checks += 6;
+        checks += 7;
         if (width > 760) await page.screenshot({ path: resolve(output, `${id}-log-${width}-${theme}.png`), fullPage: true, animations: 'disabled' });
         checks += 4;
       }
@@ -262,13 +263,19 @@ try {
       assert.equal(await page.locator(R + '[data-sp-operator]').inputValue(), 'betr');
       await page.locator(R + '[data-sp-payout="2"]').fill('3');
       await page.locator(R + '[data-sp-part="eval"]').filter({ hasText: 'same game' }).waitFor();
-      assert(/Picks 1 and 2 are from the same game/.test(await page.locator(R + '[data-sp-part="eval"]').innerText()), 'same-game picks are flagged and not priced');
+      assert(/Picks 1 and 2 are from the same game[\s\S]*Enter your chance for every pick/.test(await page.locator(R + '[data-sp-part="eval"]').innerText()), 'same-game picks are flagged and need every chance');
+      await page.locator(R + '[data-sp-leg="0"] [data-sp-leg-chance]').fill('60');
+      await page.locator(R + '[data-sp-leg="1"] [data-sp-leg-chance]').fill('55');
+      await page.locator(R + '[data-sp-part="eval"] .sp-links').waitFor();
+      const joint = await page.locator(R + '[data-sp-part="eval"]').innerText();
+      assert(/How these picks moved together in past games/.test(joint) && /Points and rebounds, teammates/.test(joint) && /link [+−]?\d\.\d\d/.test(joint) && /If unrelated/.test(joint) && /Experimental/.test(joint) && /simulated games \(seed \d+\)/.test(joint),
+        'two teammates in one game are priced with the measured link: ' + joint);
       if (width > 760) await page.screenshot({ path: resolve(output, `sports-pick-builder-same-game-${width}-${theme}.png`), fullPage: true, animations: 'disabled' });
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
       assert(overflow <= 1, 'a filled Pick Builder has no sideways scroll at ' + width);
       await page.goto(base + '/?tab=sports-pick-builder&entry=not-a-real-link');
       await page.locator(R + '.sp-banner.sp-bad').waitFor();
-      checks += 7;
+      checks += 8;
       await page.goto(base + '/?tab=sports-nba');
       await page.locator('#sports-nba-root [data-sp-zone]').waitFor();
       await page.locator('#sports-nba-root [data-sp-zone]').selectOption('America/New_York');

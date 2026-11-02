@@ -79,7 +79,7 @@ and the MCP key filter refuses it. Each read is capped at 24 MB.
 | `players` | `{sport}/players.json` | data jobs (players plus provider ids) |
 | `games` | `{sport}/games/{season}.json` | data jobs |
 | `player-games` | `{sport}/player-games/{season}.json` | data jobs (packed rows, below) |
-| `model` | `{sport}/model.json` | data jobs (stat model numbers and their check, about 8 KB) |
+| `model` | `{sport}/model.json` | data jobs (stat model numbers and their check, plus the same-game links as `joint`; about 12 KB) |
 | `observations` | `markets/observations.json` | Pick Builder (captured lines, append-only) |
 | `journal` | `journal/entries.json` | Pick Builder (paper entries, append-only revisions) |
 
@@ -181,9 +181,11 @@ itself. A shared link never carries chances.
   +395%, breakeven 1.81818%; at 53× it is +$3.77.
 - Range under any link between picks (Fréchet bounds):
   `max(0, Σp − (n − 1)) ≤ P(all hit) ≤ min p`.
-- Picks from the same game are flagged and **not priced**: their results move
-  together, so multiplying chances would be wrong. The page shows the
-  breakeven only, until the joint engine (`sports-joint`) exists.
+- Picks from the same game are flagged: their results move together, so
+  multiplying chances would be wrong. They are priced with the measured links
+  between them (see "Same-game chances" below) once every pick has a chance.
+  When a pair has no measured link, or a player's team is not known, the page
+  shows the breakeven and the reason, never a combined number.
 
 **Saving.** A paper entry needs the app, the entry type, a stake and the
 payout; chances are optional. Every game must still be ahead. The entry keeps
@@ -293,7 +295,68 @@ opportunity check, and a button to use it (`probability_source: "model"`,
 kept only when the number is exactly the model's). Saved picks keep a small
 snapshot of the model's read. The journal shows, for settled picks, the model
 chances and the chances used against what happened (count, average chance,
-hit rate, Brier). Each league page has a Model check card.
+hit rate, Brier). Each league page has a Model check card, which also lists the same-game links and their check.
+
+## Same-game chances
+
+`lib/sports/joint.mjs` (`sports-joint-1`, method `gaussian-copula`), with the
+normal-curve helpers in `lib/sports/normal.mjs`. Deterministic and AI-free.
+
+**What it measures.** Every scored forecast in the stat-model check leaves a
+miss. Each miss becomes a normal score: where the result fell on that
+forecast's own curve (the middle of its whole-number step). For every kind of
+pair in one game (the same player's two stats, teammates, opponents; for each
+two stats) the **link** is the correlation of those scores. That one number
+already holds the shared conditions roadmap §5.3 lists (pace, minutes, game
+script, shared targets), measured from the stored games instead of simulated
+play by play. A link needs 30+ games; its 95% interval uses Fisher's z and
+counts games, not pairs (pairs from one game share players, so this errs
+wide). Links are refit with the model every day and stored in `model.json` as
+`joint.pairs["<stat>|<stat>|<relation>"]`.
+
+**How an entry is priced.** Each pick wins when its own normal score lands
+past the point that gives the chance the owner entered (over: the top `p`;
+under: the bottom `p`). The scores of picks from one game are drawn together
+with the measured links, 100,000 seeded draws per game (Cholesky; links that
+do not fit together are pulled toward 0 and the page says so). That gives the
+chance all picks hit and the chance of exactly k hits for flex. Picks from
+different games are independent, so the games' results are combined by
+convolution. The **range** re-runs the same draws with every link at the low
+and the high end of its 95% interval (a higher link between two winning
+directions always raises the all-hit chance) and stays inside the any-link
+bounds. The page also shows the chance with the picks treated as unrelated.
+The result carries `joint_probability`, `range`, `independent_probability`,
+`bounds`, `distribution`, the expected payback, `links`, `model_version`,
+`as_of_date` and `simulation: { draws, seed }` (the seed is a hash of the
+picks, chances and links, so the same entry always gives the same number).
+
+**Check.** Links are fitted on the earlier 60% of days and scored on the later
+40% (the same split as each stat's check). For each later pair, the copula's
+four outcomes (both cleared their stand-in line, only one, neither) are scored
+(Brier) against treating the two as unrelated. A link is `validated` only with
+300+ later pairs, a score no worse than independence, and a both-cleared rate
+within 2 points of what happened; otherwise `experimental` with the reason. A
+link near 0 can pass: then the check says treating that kind of pair as
+unrelated was right. An entry is `validated` only when every link in it is
+and every same-game pick has a regular-role forecast (the links were measured
+on regular-role players).
+
+**Real seasons (2026-11-02).** The links that matter:
+
+| Pair | Seasons | Link | Later pairs: both cleared / link said / unrelated said | Check |
+|---|---|---|---|---|
+| NBA one player's points and rebounds | 2025-26 + 2026-27 to date | +0.28 | 5,200: 24.7% / 23.8% / 20.0% | passed |
+| NFL QB passing yards and a teammate's receptions | 2022-2026 | +0.24 | 3,759: 25.0% / 23.5% / 20.0% | passed |
+| NFL opposing QBs' passing yards | 2022-2026 | +0.11 | 424 pairs, scored worse than unrelated | experimental |
+| NBA teammates' or opponents' points | 2025-26 + 2026-27 to date | about 0 (−0.01, +0.02) | treating them as unrelated was about right | mixed |
+
+Two QBs on one team (a mid-game change) show −0.72 but have too few pairs to
+check. The link is one number per kind of pair: a particular star duo may move
+together more or less than teammates in general.
+
+**Limits.** No play-by-play game simulation, no pace or injury inputs beyond
+what the links already carry, and the check uses stand-in lines because past
+lines are not stored. The joint chance is only as good as the chances typed in.
 
 ## Schema
 
@@ -343,14 +406,15 @@ One branch and pull request each, from `main`:
    settlement from final stats, and shared prefill links
 5. `sports-models`: per-stat forecasts with a dated holdout check, on the
    player pages and Pick Builder picks
-6. `sports-joint`: the joint-probability engine for correlated picks
+6. `sports-joint`: same-game chances from measured links (Gaussian copula,
+   seeded simulation, held-out check per kind of pair)
 7. `sports-mcp`: read-only MCP tools; evaluate returns a Pick Builder link to
    save from (no MCP save tool)
 
 ## Tests
 
 ```bash
-npm run test:sports           # access, route, time zones, keys, schema, wiring, both adapters, ingest, views, payout math, the journal and the stat models
-npm run test:sports-browser   # Owner / member / signed-out at 1440 and 390, boards, games, logs, forecasts, the model check and the Pick Builder flow
+npm run test:sports           # access, route, time zones, keys, schema, wiring, both adapters, ingest, views, payout math, the journal, the stat models and same-game chances
+npm run test:sports-browser   # Owner / member / signed-out at 1440 and 390, boards, games, logs, forecasts, the model check, the Pick Builder flow and a same-game estimate
 node scripts/regen-sports.mjs # rebuild index.html / app.js / styles.css without data/
 ```
