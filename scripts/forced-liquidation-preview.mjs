@@ -17,7 +17,7 @@ export async function createLiquidationPreview({port=0,payloadFile=null}={}){
     const json=(body,status=200)=>{res.writeHead(status,{'Content-Type':'application/json'});res.end(JSON.stringify(body));};
     if(req.method!=='GET')return json({error:'Read-only preview'},405);
     const key=url.searchParams.get('data')||(url.pathname.startsWith('/data/')?url.pathname.slice(6):null);
-    if(url.pathname==='/api/auth/me'&&!key)return json({enabled:scenario!=='disabled',authenticated:scenario!=='anonymous',trackRecord:!['anonymous','tp-only'].includes(scenario),topPicks:!['anonymous','tr-only'].includes(scenario)});
+    if(url.pathname==='/api/auth/me'&&!key)return json({enabled:scenario!=='disabled',authed:scenario!=='anonymous',authenticated:scenario!=='anonymous',trackRecord:!['anonymous','tp-only'].includes(scenario),topPicks:!['anonymous','tr-only'].includes(scenario)});
     if(key==='forced-liquidation.json'){
       requests++;if(['anonymous','tp-only','tr-only','disabled'].includes(scenario))return json({error:'Owner role required'},401);
       if(scenario==='error')return json({error:'Test source outage'},503);

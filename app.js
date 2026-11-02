@@ -252,25 +252,41 @@ function recoveryEvidence(row, data, now = Date.now()) {
 
 function calendarSourceLabel(key) {
   const labels = { bls: 'BLS', bea: 'BEA', 'kc-fed-jackson-hole': 'Kansas City Fed · Jackson Hole' };
-  if (labels[key]) return labels[key];
+  if (Object.hasOwn(labels,key)) return labels[key];
   const annual = /^(census|ism)-(\d{4})$/.exec(key);
   if (annual) return (annual[1] === 'ism' ? 'ISM' : 'Census') + ' · ' + annual[2];
   const fed = /^fed-board-(\d{4})-(\d{2})$/.exec(key);
-  if (fed) return 'Federal Reserve · ' + new Date(fed[1] + '-' + fed[2] + '-01T12:00:00Z').toLocaleDateString('en-US', {month:'long', year:'numeric', timeZone:'UTC'});
-  return key;
+  if (fed && Number(fed[2])>=1 && Number(fed[2])<=12) return 'Federal Reserve · ' + new Date(fed[1] + '-' + fed[2] + '-01T12:00:00Z').toLocaleDateString('en-US', {month:'long', year:'numeric', timeZone:'UTC'});
+  return 'Unrecognized official schedule';
+}
+function calendarScheduleFallbackUsable(verifiedAt, nowMs, validThrough) {
+  const date = value => /^\d{4}-\d{2}-\d{2}$/.test(value || '') && Number.isFinite(Date.parse(value+'T00:00:00Z')) && new Date(value+'T00:00:00Z').toISOString().slice(0,10)===value;
+  if(!date(verifiedAt) || !date(validThrough))return false;
+  const age=nowMs-Date.parse(verifiedAt+'T00:00:00Z');
+  return age>=0 && age<30*86400000 && nowMs<=Date.parse(validThrough+'T23:59:59.999Z');
 }
 function calendarHealth(data, nowMs = Date.now()) {
   const coverage = data?.coverage || {};
   const builtMs = Date.parse(data?.builtAtIso || '');
   const ageHours = Number.isFinite(builtMs) ? (nowMs - builtMs) / 3600000 : null;
   const failedSources = Object.entries(coverage.officialSources || {}).filter(([, ok]) => ok === false).map(([key]) => key);
-  const warnings = [];
+  const warnings = [], notices = [];
   if (ageHours === null || ageHours > 96 || ageHours < -1) warnings.push('Calendar snapshot needs a refresh.');
-  if (failedSources.length) warnings.push('Official schedules unavailable: ' + failedSources.map(calendarSourceLabel).join(', ') + '.');
+  const uncovered=failedSources.filter(key=>{
+    const fallback=coverage.officialFallbacks?.[key];
+    if(!/^ism-\d{4}$/.test(key) || fallback?.kind!=='published-schedule' || !calendarScheduleFallbackUsable(fallback.verifiedAt,nowMs,fallback.validThrough) || (data?.events || []).some(e=>e?.sourceKey===key && e.stale===true))return true;
+    notices.push(calendarSourceLabel(key)+': live check unavailable; using published dates verified '+fallback.verifiedAt+'. Cached dates do not establish new report figures.');
+    return false;
+  });
+  if (uncovered.length) warnings.push('Official schedules unavailable: ' + uncovered.map(calendarSourceLabel).join(', ') + '.');
   if (coverage.nasdaq?.status === 'partial' || coverage.nasdaq?.status === 'unavailable') warnings.push('Nasdaq earnings lookup is incomplete.');
   if (coverage.reportSources?.forexFactory === 'partial' || coverage.reportSources?.forexFactory === 'unavailable') warnings.push('Weekly economic event feed is incomplete.');
   if (coverage.staleReportSubtypes?.length) warnings.push('Some report figures were carried forward from the previous calendar.');
-  return { ageHours, failedSources, warnings };
+  const today=new Date(nowMs).toLocaleDateString('en-CA',{timeZone:'America/New_York'});
+  const company=(data?.events || []).filter(e=>e?.companyEvent && e.sourceCheckFailed && (e.endDate || e.date)>=today);
+  if(company.some(e=>!calendarScheduleFallbackUsable(e.verifiedAt,nowMs,e.endDate || e.date)))warnings.push('Some company-event pages are unavailable and their verified-date fallback has expired.');
+  else if(company.length)notices.push('Company-event live checks are unavailable; previously verified dates remain visible with their original verification dates.');
+  return { ageHours, failedSources, warnings, notices };
 }
 function calendarForDisplay(data, symbols, stockSymbols, nowMs = Date.now()) {
   const tracked = new Set(symbols), stocks = new Set(stockSymbols);
@@ -21996,7 +22012,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (g === 'up') return '<span class="ers-chip ers-chip-pos">raised</span>';
     if (g === 'down') return '<span class="ers-chip ers-chip-neg">cut</span>';
     if (g === 'inline') return '<span class="ers-chip ers-chip-flat">in line</span>';
-    return '<span class="ers-dim" title="No guidance read captured for this print">—</span>';
+    return '<span class="ers-missing" title="No guidance read was captured from a matched call summary or recent news. This does not mean the company issued no guidance.">Not captured</span>';
   }
   // Pre-earnings drift bucket chip — past tense for resolved prints, present
   // tense for the live drift into an upcoming print. Flat band is ±2% on the
@@ -22495,7 +22511,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
         var tableMatch = !tableQuery || tableHaystack.indexOf(tableQuery) >= 0;
         if (tableMatch) tableVisible++;
         var epsTxt = ersNum(rw.epsActual) ? rw.epsActual.toFixed(2) + (ersNum(rw.epsEstimate) ? ' <span class="ers-dim">vs ' + rw.epsEstimate.toFixed(2) + '</span>' : '') : '<span class="ers-dim">—</span>';
-        var revTxt = ersNum(rw.revenueActual) ? escapeHtml(ersRevenueAmount(rw.revenueActual, rw.revenueCurrency) || '—') : '<span class="ers-dim">—</span>';
+        var revTxt = ersNum(rw.revenueActual) ? escapeHtml(ersRevenueAmount(rw.revenueActual, rw.revenueCurrency) || '—') : '<span class="ers-missing" title="Quarterly revenue is not available from the saved financials or a matching official filing yet.">Unavailable</span>';
+        if (ersNum(rw.revenueActual) && rw.revenueSource && String(rw.revenueSource.sourceUrl || '').indexOf('https://www.sec.gov/Archives/') === 0) revTxt = '<a class="ers-source" target="_blank" rel="noopener noreferrer" href="' + escapeHtml(rw.revenueSource.sourceUrl) + '" title="SEC filing · quarter ended ' + escapeHtml(rw.revenueSource.periodEnd || '') + ' · filed ' + escapeHtml(rw.revenueSource.filed || '') + '">' + revTxt + ' <small>SEC ↗</small></a>';
+        var weekTxt = ersNum(rw.week1Pct) ? ersPct(rw.week1Pct) : '<span class="ers-missing" title="' + (rw.week1Status === 'pending' ? 'Five trading sessions after the reaction are required; window ends ' + escapeHtml(rw.week1DueDate || '') + '. Available after that close and a data refresh.' : rw.week1Status === 'unavailable' ? 'The return window has passed, but the required closing prices have not been collected.' : 'Requires five trading sessions after the reaction and a subsequent data refresh.') + '">' + (rw.week1Status === 'unavailable' ? 'Unavailable' : rw.week1Status === 'pending' ? 'Pending' : 'Awaiting data') + '</span>';
         var surTxt = ersNum(rw.surprisePct) ? '<span class="' + (rw.surprisePct > 0 ? 'ers-pos' : rw.surprisePct < 0 ? 'ers-neg' : '') + '">' + (rw.surprisePct >= 0 ? '+' : '') + rw.surprisePct.toFixed(1) + '%</span>' : '<span class="ers-dim">—</span>';
         var impTxt = ersNum(rw.impliedMovePct)
           ? (rw.impliedEst
@@ -22510,14 +22528,14 @@ function scenarioEventPhase(ev, now = Date.now()) {
           '<td class="ers-td-date">' + ersDate(rw.date) + (rw.session === 'AM' ? ' <span class="ers-dim">AM</span>' : rw.session === 'PM' ? ' <span class="ers-dim">PM</span>' : '') + '</td>' +
           '<td>' + ersEpsChip(rw.eps) + '</td>' +
           '<td class="ers-td-num">' + epsTxt + '</td>' +
-          '<td class="ers-td-num">' + revTxt + '</td>' +
+          '<td class="ers-td-num" data-sort="' + (ersNum(rw.revenueActual) ? rw.revenueActual : '') + '">' + revTxt + '</td>' +
           '<td class="ers-td-num">' + surTxt + '</td>' +
-          '<td>' + ersGuidChip(rw.guidance) + '</td>' +
+          '<td data-sort="' + escapeHtml(rw.guidance || '') + '">' + ersGuidChip(rw.guidance) + '</td>' +
           '<td class="ers-td-num' + ersToneCls(preVal) + '" title="' + preTitle + '">' + ersPct(preVal) + '</td>' +
           '<td class="ers-td-num' + ersToneCls(rw.gapPct) + '">' + ersPct(rw.gapPct) + '</td>' +
           '<td class="ers-td-num' + ersToneCls(rw.movePct) + '">' + ersPct(rw.movePct) + '</td>' +
           '<td class="ers-td-num">' + impTxt + '</td>' +
-          '<td class="ers-td-num' + ersToneCls(rw.week1Pct) + '">' + ersPct(rw.week1Pct) + '</td>' +
+          '<td class="ers-td-num' + ersToneCls(rw.week1Pct) + '" data-sort="' + (ersNum(rw.week1Pct) ? rw.week1Pct : '') + '">' + weekTxt + '</td>' +
         '</tr>';
       }
       var tableSummary = tableQuery
@@ -22526,8 +22544,12 @@ function scenarioEventPhase(ev, now = Date.now()) {
       var tableStatus = tableQuery
         ? tableVisible + ' matching ' + tableQuery
         : rowsArr.length + ' reports shown';
+      var revCount = rowsArr.filter(function(r){ return ersNum(r.revenueActual); }).length;
+      var guideCount = rowsArr.filter(function(r){ return !!r.guidance; }).length;
+      var weekCount = rowsArr.filter(function(r){ return ersNum(r.week1Pct); }).length;
       html += '<details class="ers-table-details"' + (earningsState.tableOpen ? ' open' : '') + '>' +
         '<summary><span>Review every reported name</span><small data-ers-table-summary>' + tableSummary + '</small></summary>' +
+        '<div class="ers-data-coverage"><b>Data coverage for this season</b><span>Revenue ' + revCount + '/' + rowsArr.length + ' · Guidance ' + guideCount + '/' + rowsArr.length + ' · One-week return ' + weekCount + '/' + rowsArr.length + '</span><p>Revenue needs matching quarterly financials or an official filing. Guidance needs a captured call-summary or news read; missing does not mean no guidance was issued. One-week returns need five trading sessions after the reaction, then a data refresh. Hover a missing value for its status.</p></div>' +
         '<div class="ers-searchbar ers-table-searchbar" role="search">' +
           '<label for="ers-season-table-search"><span>Search this season</span><small>ticker or company</small></label>' +
           '<div class="ers-search-actions"><div class="ers-search-input-wrap"><input id="ers-season-table-search" class="ers-search-input" type="search" value="' + escapeHtml(earningsState.tableSearch || '') + '" placeholder="Search ticker or company" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-controls="ers-season-table-body">' +
@@ -34724,7 +34746,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
   function renderNewsFeed(){
     var root = $('news-feed-root'), empty = $('news-feed-empty'), more = $('news-feed-more');
-    var summary = $('news-feed-summary'), eyebrow = $('news-feed-eyebrow');
+    var summary = $('news-feed-summary'), sourceHealthHost = $('news-source-health'), eyebrow = $('news-feed-eyebrow');
+    if(sourceHealthHost && !newsFeedState.data)sourceHealthHost.innerHTML='';
     if (!root) return;
     bindNewsFeedControls();
     if (newsFeedState.loading && !newsFeedState.data){
@@ -34796,20 +34819,22 @@ function scenarioEventPhase(ev, now = Date.now()) {
           (newsFeedState.collapsed ? ' · ' + newsFeedState.collapsed + ' repeated link' + (newsFeedState.collapsed === 1 ? '' : 's') + ' collapsed' : '') + '</div>';
     }
     var sourceCoverage = newsFeedState.data && newsFeedState.data.sourceCoverage;
-    if (summary && sourceHealth.length && sourceCoverage){
-      summary.innerHTML += '<p class="news-feed-status">Official company feeds: ' + escapeHtml((sourceCoverage.issuerSymbols || []).join(', ') || 'none mapped') +
+    if(sourceHealthHost)sourceHealthHost.innerHTML='';
+    if (sourceHealthHost && sourceHealth.length && sourceCoverage){
+      sourceHealthHost.innerHTML = '<p class="news-feed-status">Official company feeds: ' + escapeHtml((sourceCoverage.issuerSymbols || []).join(', ') || 'none mapped') +
         '. FDA sponsor coverage: ' + escapeHtml((sourceCoverage.fdaSymbols || []).join(', ') || 'none mapped') +
         '. New official-source items are context only.' + (unavailable ? ' ' + unavailable + ' official source check(s) unavailable; earlier context may remain.' : '') +
         (partial ? ' ' + partial + ' source check(s) have incomplete coverage.' : '') + '</p>';
-      summary.innerHTML += '<details class="news-more-filters"><summary>Official source checks</summary><ul class="news-feed-status">' + sourceHealth.map(function(s){
+      sourceHealthHost.innerHTML += '<details class="news-more-filters"><summary>Official source checks</summary><ul class="news-feed-status">' + sourceHealth.map(function(s){
         var label = ({ok:'Checked',cached:'Cached check',unchanged:'Unchanged',partial:'Incomplete',error:'Unavailable'})[s.status] || 'Unverified';
+        if(s.fallback && s.status!=='error')label += ' · alternate official feed; primary unavailable';
         var checked = s.checkedAt && new Date(s.checkedAt);
         var stamp = checked && !isNaN(checked.getTime()) ? formatDisplayInstant(checked,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : 'check time unavailable';
         return '<li>' + escapeHtml(s.label || 'Official source') + ' · ' + label + ' · ' + escapeHtml(stamp) + '</li>';
       }).join('') + '</ul></details>';
     }
-    if (summary && newsFeedState.error && newsFeedState.data){
-      summary.innerHTML += '<p class="news-feed-status news-feed-error">News refresh failed. Showing the earlier collected slate with its original dates.</p>';
+    if (sourceHealthHost && newsFeedState.error && newsFeedState.data){
+      sourceHealthHost.innerHTML += '<p class="news-feed-status news-feed-error">News refresh failed. Showing the earlier collected slate with its original dates.</p>';
     }
     if (eyebrow){
       var built = newsFeedState.data && (newsFeedState.data.generatedAtIso || newsFeedState.data.builtAtIso);
@@ -36097,6 +36122,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     host.hidden = false;
     host.innerHTML = '<p>' + escapeHtml(summary) + ' Updated ' + escapeHtml(data.builtAtIso ? new Date(data.builtAtIso).toLocaleString('en-US', {timeZone:'America/New_York'}) + ' ET' : 'at an unknown time') + '.</p>' +
       (health.warnings.length ? '<p role="status">' + escapeHtml(health.warnings.join(' ')) + '</p>' : '') +
+      (health.notices.length ? '<p>' + escapeHtml(health.notices.join(' ')) + '</p>' : '') +
       '<details><summary>Sources &amp; coverage gaps</summary>' +
       (missing.length ? '<p>No upcoming earnings date found: ' + escapeHtml(missing.join(', ')) + '. A company may have reported already or may not have announced its next date.</p>' : '') +
       (c.tickerInputsMissing && c.tickerInputsMissing.length ? '<p>Ticker inputs unavailable: ' + escapeHtml(c.tickerInputsMissing.join(', ')) + '.</p>' : '') +
@@ -36106,7 +36132,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       '<p>Nasdaq lookup: ' + escapeHtml(c.nasdaq ? c.nasdaq.status : 'not measured') + '. Weekly economic feed: ' + escapeHtml(c.reportSources ? c.reportSources.forexFactory : 'not measured') + '.</p>' +
       (c.companyEvents ? '<p>Company schedules: ' + escapeHtml(String(c.companyEvents.scheduled)) + ' events across ' + escapeHtml(String(c.companyEvents.symbols.length)) + ' stocks. Recent company events stay available for 90 days.</p>' : '') +
       (c.companyEvents && Object.values(c.companyEvents.sourceChecks || {}).some(function(status){return status === 'unavailable';}) ? '<p>Some company event pages could not be checked. Their previously published dates remain visible.</p>' : '') +
-      '<p>Catalysts combine selected company schedules with dated news and are not exhaustive. Weekly additions cover this week and next week. Estimated dates and cached rows need reconfirmation. An empty day does not rule out unscheduled news, filings, policy announcements or other market events.</p></details>';
+      '<p>Catalysts combine selected company schedules with dated news and are not exhaustive. Weekly additions cover the current week; official schedules extend the horizon. Estimated dates and cached rows need reconfirmation. An empty day does not rule out unscheduled news, filings, policy announcements or other market events.</p></details>';
   }
   function renderCalendarBriefing(data){
     var host = $('calendar-briefing');
@@ -36321,7 +36347,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     // from the prior calendar.json when BLS + FRED both come back empty
     // (each carried row gets ev.stale=true). Surface it so traders know
     // the figures may not reflect today's release schedule.
-    var scheduleTag = e.scheduleEstimated ? '<span class="cal-chip-stale" title="Date follows a baseline schedule and has not been confirmed by a live publisher calendar">Estimated date</span>' : '';
+    var scheduleTag = e.scheduleEstimated ? '<span class="cal-chip-stale" title="Date follows a baseline schedule and has not been confirmed by a live publisher calendar">Estimated date</span>' : e.scheduleFallback ? '<span class="cal-chip-stale" title="Live source unavailable; published schedule verified ' + escapeHtml(e.scheduleVerifiedAt || e.verifiedAt || 'at an unknown time') + '">Cached schedule</span>' : '';
     var staleTag = e.stale
       ? '<span class="cal-chip-stale" title="Source unavailable this build. This event was carried forward from the previous calendar">Stale</span>'
       : '';
@@ -37214,7 +37240,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
           var end = e.endDate || e.date;
           var phase = end < todayYmd ? 'Past' : e.date <= todayYmd ? 'Ongoing' : 'Upcoming';
           var span = fmtCalendarDateShort(e.date) + (e.endDate ? ' – ' + fmtCalendarDateShort(e.endDate) : '');
-          label += '<span class="cal-company-meta">' + escapeHtml(phase + ' · ' + span + (e.time ? ' · ' + e.time : '') + (e.sourceCheckFailed ? ' · source check unavailable' : '')) + '</span>';
+          label += '<span class="cal-company-meta">' + escapeHtml(phase + ' · ' + span + (e.time ? ' · ' + e.time : '') + (e.sourceCheckFailed ? ' · live check unavailable; dates verified ' + (e.verifiedAt || 'at an unknown time') + (e.stale ? ' · cached dates expired' : '') : '')) + '</span>';
         }
         var src = calendarSourceMarkup(e);
         var icon = '<span class="cal-chip-ico">' + calEventIcon(e.type) + '</span>';
@@ -39450,7 +39476,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     loading: false,
     groupBy: 'sector',
     colorBy: VIEWS.choose('heatmap.color', 'perf', ['perf', 'rvol', 'grade', 'iv']),   // 'perf' | 'rvol' | 'grade' (grade score) | 'iv' (IV vs own average)
-    layout: VIEWS.choose('heatmap.layout', 'map', ['map', 'bars', 'periods']),
+    layout: VIEWS.choose('heatmap.layout', 'map', ['map', 'list', 'bars', 'periods']),
     periodB: VIEWS.choose('heatmap.periodB', '1m', ['1d', '1w', '1m', '3m', 'ytd', '1y']),
     gradeMap: null, gradeLoading: false, ivMap: null, ivLoading: false,
     period: '1d',      // '1d' | '1w' | '1m' | '3m' | 'ytd' | '1y'
@@ -39565,7 +39591,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (layoutSel){
       layoutSel.value = heatmapState.layout;
       layoutSel.addEventListener('change', function(){
-        heatmapState.layout = (layoutSel.value === 'bars' || layoutSel.value === 'periods') ? layoutSel.value : 'map';
+        heatmapState.layout = ['list','bars','periods'].includes(layoutSel.value) ? layoutSel.value : 'map';
         VIEWS.set('heatmap.layout', heatmapState.layout === 'map' ? null : heatmapState.layout);
         renderHeatmap();
       });
@@ -39856,7 +39882,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     return sign + p.toFixed(2) + '%';
   }
   function heatmapFmtRvol(rv){
-    if (rv == null || !isFinite(rv) || rv <= 0) return '—';
+    if (rv == null || !isFinite(rv) || rv < 0) return '—';
     return (rv >= 10 ? Math.round(rv) : rv.toFixed(1)) + '×';
   }
   // Map a relative-volume reading to a 0..1 saturation: 1× (average) reads
@@ -40266,8 +40292,27 @@ function scenarioEventPhase(ev, now = Date.now()) {
     alt.hidden = !useAlt;
     if (!useAlt){ alt.innerHTML = ''; return false; }
     var rows = heatmapState.data && Array.isArray(heatmapState.data.tickers) ? heatmapState.data.tickers : [];
-    alt.innerHTML = heatmapState.layout === 'periods' ? heatmapPeriodsHtml(rows) : heatmapBarsHtml(rows);
+    alt.innerHTML = heatmapState.layout === 'list' ? heatmapListHtml(rows) : heatmapState.layout === 'periods' ? heatmapPeriodsHtml(rows) : heatmapBarsHtml(rows);
     return true;
+  }
+  function heatmapListHtml(all){
+    var rows=heatmapVisibleRows(all), period=heatmapState.period, mode=heatmapState.colorBy;
+    function valueCell(v,kind){
+      if(v==null || !isFinite(v))return '<span class="vt-na" title="Not available in this snapshot">—</span>';
+      return '<span class="'+(kind==='return'?(v>0?'pos':v<0?'neg':''):'')+'">'+escapeHtml(kind==='return'?heatmapFmtPct(v):kind==='money'?fmtMoney(v):kind==='cap'?fmtBigCurrency(v,'USD'):kind==='rvol'?heatmapFmtRvol(v):heatmapMetricText(v,mode))+'</span>';
+    }
+    var cols=[
+      {label:'Ticker',cell:function(t){return '<a href="'+symGradeHref(t.t)+'" title="'+escapeHtml(t.n||t.t)+'">'+escapeHtml(t.t)+'</a>';},sort:function(t){return t.t;}},
+      {label:'Company',cell:function(t){return escapeHtml(t.n||t.t);},sort:function(t){return t.n||t.t;}},
+      {label:heatmapState.groupBy==='industry'?'Industry':'Sector',cell:function(t){return escapeHtml((heatmapState.groupBy==='industry'?t.i:t.s)||t.s||'');},sort:function(t){return (heatmapState.groupBy==='industry'?t.i:t.s)||t.s||null;}},
+      {label:'Price',num:true,cell:function(t){var o=heatmapOverlayFor(t.t);return valueCell(o&&o.sp!=null?o.sp:t.sp,'money');},sort:function(t){var o=heatmapOverlayFor(t.t);return o&&o.sp!=null?o.sp:t.sp;}},
+    ];
+    ['1d','1w','1m','3m','ytd','1y'].forEach(function(p){cols.push({label:HEATMAP_PERIOD_LABEL[p],num:true,title:'Price return over '+HEATMAP_PERIOD_LABEL[p],cell:function(t){return valueCell(heatmapEffectiveCh(t,p),'return');},sort:function(t){return heatmapEffectiveCh(t,p);}});});
+    cols.push({label:'Rel. volume',num:true,cell:function(t){return valueCell(heatmapEffectiveRvol(t),'rvol');},sort:heatmapEffectiveRvol});
+    cols.push({label:'Market cap',num:true,cell:function(t){return valueCell(t.mc,'cap');},sort:function(t){return t.mc;}});
+    if(mode==='grade' || mode==='iv')cols.push({label:heatmapMetricLabel(mode,period),num:true,cell:function(t){return valueCell(heatmapMetric(t,mode,period),'metric');},sort:function(t){return heatmapMetric(t,mode,period);}});
+    var sorted=VIEWS.sortBy(rows,function(t){return heatmapMetric(t,mode,period);},false);
+    return '<section class="hm-list" aria-label="Sortable ticker list"><p class="hint">'+rows.length+' tickers · click a column to sort; click again to reverse. Missing values stay last. Price and returns use the same saved or live data as the map.</p>'+VIEWS.tableHtml(cols,sorted,{key:'heatmap-list',empty:'No tickers match the search.'})+'</section>';
   }
   function heatmapMetric(t, colorBy, period){
     if (colorBy === 'rvol') return heatmapEffectiveRvol(t);

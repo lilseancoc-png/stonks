@@ -5,8 +5,10 @@ import { parseOwnership13FXml, ownershipXmlTag, buildOwnershipFund, aggregateOwn
 import { computePicksAccuracyStats, computeBaselineStats } from "../lib/track-record-stats.mjs";
 export { computePicksAccuracyStats, computeBaselineStats };
 import { PUBLISHED_COMPANY_EVENTS, COMPANY_EVENTS_VERSION, companyEventsInWindow, fetchCompanyCalendar, COMPANY_EVENT_LOOKBACK_DAYS, coveredByCompanySchedule } from "../lib/company-events.mjs";
-import { calendarCoverage, calendarEventsForUniverse } from "../lib/calendar-policy.mjs";
-import { ISM_CALENDAR_URL, censusCalendarUrl, parseCensusCalendar, parseIsmCalendar, ismBaselineEvents, supplementalWeeklyReports, marketSessionCalendarEvents, scheduledPolicyCalendarEvents } from "../lib/calendar-sources.mjs";
+import { calendarCoverage, calendarEventsForUniverse, calendarScheduleFallbackUsable } from "../lib/calendar-policy.mjs";
+import { producerReportsFailure } from "../lib/producer-health.mjs";
+import { backfillEarningsRevenue,earningsWeek1DueDate } from "../lib/earnings-data.mjs";
+import { ISM_CALENDAR_URL, ISM_SCHEDULE_VERIFIED_AT, censusCalendarUrl, parseCensusCalendar, parseIsmCalendar, ismBaselineEvents, supplementalWeeklyReports, marketSessionCalendarEvents, scheduledPolicyCalendarEvents } from "../lib/calendar-sources.mjs";
 import { computeStreakForTicker } from "../lib/streaks.mjs";
 export { computeStreakForTicker } from "../lib/streaks.mjs";
 import { PATTERN_HISTORY_DAYS, splitPatternHistory } from "../lib/pattern-history.mjs";
@@ -6913,8 +6915,8 @@ function revenueActualForEarningsEvent(data, dateIso) {
     const row = history[i];
     if (!row?.date || row.date > dateIso) continue;
     const gap = Date.parse(dateIso) - Date.parse(row.date);
-    const value = Number(row.value);
-    return gap <= 100 * 86400000 && Number.isFinite(value) ? value : null;
+    const value = row.value;
+    return gap >= 0 && gap <= 100 * 86400000 && typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
   }
   return null;
 }
@@ -7241,6 +7243,7 @@ export function attachEarningsHx(chains, store, nowMs = Date.now()) {
         epsEstimate: ev.epsEstimate ?? null,
         surprisePct: ev.surprisePct ?? null,
         revenueActual: ev.revenueActual ?? revenueActualForEarningsEvent(data, ev.date),
+        revenueSource: ev.revenueSource || null,
         ivPre: ev.ivPre ?? null,
         ivPost: ev.ivPost ?? null,
         impliedMovePct: ev.impliedMovePct ?? null,
@@ -7521,6 +7524,7 @@ export async function buildEarningsTrackerPayload(store, chains, builtAtIso, pri
         && typeof ev.impliedMoveEstPct === "number" && isFinite(ev.impliedMoveEstPct) && ev.impliedMoveEstPct > 0
         ? ev.impliedMoveEstPct : null;
       const implied = impliedReal ?? impliedEst;
+      const week1DueDate = earningsWeek1DueDate(ev.date,ev.session);
       const row = {
         sym,
         name: data?.fundamentals?.name || sym,
@@ -7534,12 +7538,15 @@ export async function buildEarningsTrackerPayload(store, chains, builtAtIso, pri
           ? ev.revenueActual
           : revenueActualForEarningsEvent(data, ev.date),
         revenueCurrency: data?.fundamentals?.financialCurrency || null,
+        revenueSource: ev.revenueSource || null,
         eps: earningsEpsVerdict(ev),                    // beat | miss | inline | null
         guidance: earningsGuidanceBucket(ev.guidance),  // up | inline | down | null
         guidanceSrc: ev.guidanceSrc || null, // recovery research distinguishes call evidence from news interpretation
         movePct: hasMove ? ev.movePct : null,           // fractions, like earningsHx
         gapPct: typeof ev.gapPct === "number" && isFinite(ev.gapPct) ? ev.gapPct : null,
         week1Pct: typeof ev.week1Pct === "number" && isFinite(ev.week1Pct) ? ev.week1Pct : null,
+        week1DueDate,
+        week1Status: typeof ev.week1Pct === 'number' && Number.isFinite(ev.week1Pct) ? 'available' : week1DueDate && week1DueDate >= todayIso ? 'pending' : 'unavailable',
         impliedMovePct: implied,
         impliedEst: impliedEst != null,
         exceededImplied: implied != null && hasMove ? Math.abs(ev.movePct) > implied : null,
@@ -9089,7 +9096,8 @@ export function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras)
     const ms = Date.parse(ev.date + "T00:00:00Z");
     const endMs = Date.parse((ev.endDate || ev.date) + "T00:00:00Z");
     if (!Number.isFinite(ms) || endMs < startMs || ms > cutoffMs) continue;
-    events.push({ ...ev, stale: true });
+    const cachedIsm=/^ism-\d{4}$/.test(ev.sourceKey) && calendarScheduleFallbackUsable(ev.scheduleVerifiedAt,Date.parse(builtAtIso),ev.sourceKey.slice(4)+'-12-31');
+    events.push({ ...ev, stale: !cachedIsm, ...(cachedIsm?{scheduleFallback:true}:{}) });
   }
 
   // Salvage each missing detailed series independently. A successful weekly
@@ -9143,6 +9151,14 @@ export function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras)
   events.push(...marketSessionCalendarEvents(startMs, cutoffMs), ...scheduledPolicyCalendarEvents(startMs, cutoffMs));
   const dedupedEvents = dedupeCalendarEvents(calendarEventsForUniverse(events, TICKERS));
   dedupedEvents.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : (a.symbol || a.title || "").localeCompare(b.symbol || b.title || "")));
+  const officialFallbacks={...(officialCalendar.fallbacks || {})};
+  for(const [key,ok] of Object.entries(officialStatus)){
+    if(ok!==false || !/^ism-\d{4}$/.test(key))continue;
+    const rows=events.filter(e=>e.sourceKey===key);
+    if(rows.length && rows.every(e=>!e.stale && calendarScheduleFallbackUsable(e.scheduleVerifiedAt,Date.parse(builtAtIso),key.slice(4)+'-12-31'))){
+      officialFallbacks[key]={kind:'published-schedule',verifiedAt:rows.map(e=>e.scheduleVerifiedAt).sort()[0],validThrough:key.slice(4)+'-12-31'};
+    }
+  }
   // Attach per-meeting consensus divergence (futures vs Kalshi vs Polymarket) to
   // the prediction-market block so the widget can flag where the sources disagree.
   const pmFomc = (predictionMarkets && predictionMarkets.fomc) || {};
@@ -9171,6 +9187,7 @@ export function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras)
       staleReportSubtypes: [...staleReportSubtypes].sort(),
       nasdaqSweepDays: NASDAQ_EARNINGS_SWEEP_DAYS,
       officialSources: officialStatus,
+      officialFallbacks,
     },
     // Per-subtype recent metric history ({ "<subtype>": { unit, points:[{m,v}] } })
     // for the click-through bar chart on report chips.
@@ -14149,8 +14166,9 @@ function calendarMonthsInWindow(startMs, cutoffMs) {
   return out;
 }
 
-export async function fetchOfficialCalendarEvents(startMs, cutoffMs) {
+export async function fetchOfficialCalendarEvents(startMs, cutoffMs, {nowMs=Date.now()}={}) {
   const status = {};
+  const fallbacks = {};
   const events = [];
   const addInWindow = (rows) => {
     for (const ev of rows || []) {
@@ -14199,15 +14217,20 @@ export async function fetchOfficialCalendarEvents(startMs, cutoffMs) {
     }),
     (async () => {
       const years = [...new Set(calendarMonthsInWindow(startMs, cutoffMs).map(m => m.year))];
+      const usePublished = year => {
+        const rows=ismBaselineEvents(year,nowMs);
+        addInWindow(rows);
+        if(rows.length)fallbacks[`ism-${year}`]={kind:'published-schedule',verifiedAt:ISM_SCHEDULE_VERIFIED_AT,validThrough:year+'-12-31'};
+      };
       try {
-        const parsed = parseIsmCalendar(await fetchTextCalendar(ISM_CALENDAR_URL));
+        const parsed = parseIsmCalendar(await fetchTextCalendar(ISM_CALENDAR_URL)).map(e=>({...e,scheduleVerifiedAt:new Date(nowMs).toISOString().slice(0,10)}));
         for (const year of years) {
           status[`ism-${year}`] = parsed.some(e => e.date.startsWith(String(year)));
-          if (!status[`ism-${year}`]) addInWindow(ismBaselineEvents(year));
+          if (!status[`ism-${year}`]) usePublished(year);
         }
         addInWindow(parsed);
       } catch (err) {
-        for (const year of years) { status[`ism-${year}`] = false; addInWindow(ismBaselineEvents(year)); }
+        for (const year of years) { status[`ism-${year}`] = false; usePublished(year); }
         console.log(`    ⚠ ISM schedule failed: ${err.message}`);
       }
     })(),
@@ -14258,7 +14281,7 @@ export async function fetchOfficialCalendarEvents(startMs, cutoffMs) {
       }
     })(),
   ]);
-  return { events: dedupeCalendarEvents(events), status };
+  return { events: dedupeCalendarEvents(events), status, fallbacks };
 }
 
 // === Official FOMC vote map ==========================================
@@ -15750,7 +15773,11 @@ export async function fetchNasdaqEarningsSessions(startMs, windowDays, explicitD
       const res = await fetch(url, { headers, signal: AbortSignal.timeout(12000) });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
-      const rows = json?.data?.rows;
+      // Nasdaq explicitly returns data:null/code 1002 for a successful lookup
+      // with no announced records. Other missing/null bodies remain failures.
+      const noRecords = json?.data === null && json?.status?.rCode === 200
+        && json.status.bCodeMessage?.some(m => m?.code === 1002 && m.errorMessage === "Earnings Calendar: No record found.");
+      const rows = noRecords ? [] : json?.data?.rows;
       if (!Array.isArray(rows)) throw new Error("missing earnings rows");
       coverage.succeeded++;
       for (const r of rows) {
@@ -15778,16 +15805,18 @@ export async function fetchNasdaqEarningsSessions(startMs, windowDays, explicitD
 // Consensus + Forecast fields on the Macro reports. Updated continuously,
 // so subsequent daily builds pick up forecast revisions and actuals as
 // they print.
-async function fetchForexFactoryCalendar() {
+export async function fetchForexFactoryCalendar(fetchImpl = fetch) {
+  // The publisher's Calendar → Weekly Export links only this week's feed.
+  // ff_calendar_nextweek.json is not an export endpoint (HTTP 404). Official
+  // calendars supply the longer horizon; consensus stays absent until supplied.
   const urls = [
     "https://nfs.faireconomy.media/ff_calendar_thisweek.json",
-    "https://nfs.faireconomy.media/ff_calendar_nextweek.json",
   ];
   const out = [];
   let succeeded = 0;
   for (const url of urls) {
     try {
-      const res = await fetch(url, {
+      const res = await fetchImpl(url, {
         headers: {
           "user-agent":
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -31928,8 +31957,8 @@ export const BRIEF_TOOL_SOURCES = [
   { key: "raises", file: "capital-raises.json", label: "Capital raises", tab: "capital-raises", maxAgeHours: 48 },
   { key: "credit", file: "ipo-credit.json", label: "IPOs & credit", tab: "capital-raises", maxAgeHours: 48 },
   { key: "capex", file: "ai-capex.json", label: "AI CapEx", tab: "ai-capex", maxAgeHours: 48 },
-  { key: "ram", file: "ram-prices.json", label: "RAM prices", tab: "ram-prices", maxAgeHours: 48 },
-  { key: "accelerators", file: "accelerator-prices.json", label: "GPU cloud prices", tab: "accelerator-prices", maxAgeHours: 48 },
+  { key: "ram", file: "ram-prices.json", label: "RAM prices", tab: "ram-prices", maxAgeHours: 240 },
+  { key: "accelerators", file: "accelerator-prices.json", label: "GPU cloud prices", tab: "accelerator-prices", maxAgeHours: 240 },
   { key: "central-bank-gold", file: "central-bank-gold.json", label: "Central-bank gold", tab: "central-bank-gold", maxAgeHours: 48 },
   { key: "search", file: "search-interest.json", label: "Search interest", tab: "search-interest", maxAgeHours: 240 },
   { key: "ownership", file: "13f.json", label: "SEC ownership", tab: "f13", maxAgeHours: 24 * 120 },
@@ -32323,7 +32352,7 @@ function briefToolStamp(payload) {
 }
 
 function briefToolSourceIsCurrent(source, payload, nowMs = Date.now()) {
-  if (!payload || payload.stale === true) return false;
+  if (!payload || payload.stale === true || producerReportsFailure(payload)) return false;
   if (!Number.isFinite(source.maxAgeHours)) return true;
   const stamp = briefToolStamp(payload);
   if (!stamp) return true; // some accumulated payloads predate source stamps
@@ -32636,7 +32665,11 @@ export async function collectBriefSiteTools({ kind = "intraday", narratives = nu
   const missing = loaded.filter((x) => !x.current).map((x) => x.source.label);
   if (!Array.isArray(narratives)) missing.push("Narratives");
   return {
-    sources: loaded.map(({source,payload,current})=>({label:source.label,asOf:payload ? briefToolStamp(payload) : null,maxHours:source.maxAgeHours,status:current ? 'available' : 'missing'})),
+    sources: loaded.map(({source,payload,current})=>{
+      const asOf=payload ? briefToolStamp(payload) : null;
+      const status=current?'available':!payload?'missing':!Number.isFinite(Date.parse(asOf))?'undated':Date.parse(asOf)>nowMs+5*60000?'future':producerReportsFailure(payload)?'degraded':'stale';
+      return {key:source.file,label:source.label,asOf,maxHours:source.maxAgeHours,status};
+    }),
     checked: [...new Set(checked)],
     missing,
     total: BRIEF_TOOL_SOURCES.length + 1,
@@ -37256,6 +37289,10 @@ async function main() {
   } catch (err) {
     console.log(`Earnings-history update failed (keeping prior store): ${err.message}`);
   }
+  try{
+    const revenue=await backfillEarningsRevenue({store:earningsHxStore,chains:Object.fromEntries(Object.entries(chains).map(([s,d])=>[s,{...d,sector:SECTORS[s]}])),cikMap:await fetchCikMap(),readSec:readOwnershipSec,asOf:etDateKey()});
+    console.log(`Earnings revenue: ${revenue.filled} missing observations filled from SEC; ${revenue.requests} source requests`);
+  }catch(err){console.log(`Earnings revenue backfill unavailable: ${err.message}`);}
   attachEarningsHx(chains, earningsHxStore);
   // Same pattern for the heatmap's EOD recap — generated by the hourly
   // refresh script and stored in data/heatmap.json. Snapshot it before

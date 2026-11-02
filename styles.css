@@ -4487,7 +4487,7 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
    The value track is fixed too: each row is its own grid, so max-content would
    resize per row and shift the chip / plan anchors when percentages differ. */
 .ers-up-ldrs { grid-template-columns: 1fr; margin-bottom: 0; }
-.ers-up-ldrs.ers-up-two { grid-template-columns: 1fr 1fr; }
+.ers-up-ldrs.ers-up-two { grid-template-columns: minmax(0,1fr) minmax(0,1fr); }
 .ers-up-row {
   display: grid;
   grid-template-columns: 52px minmax(0, 1fr) 94px 76px;
@@ -4526,7 +4526,9 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
   text-transform: uppercase; letter-spacing: .06em;
 }
 .ers-recent-ldrs { grid-template-columns: 1fr; margin-bottom: 0; }
-.ers-recent-ldrs.ers-recent-two { grid-template-columns: 1fr 1fr; }
+.ers-recent-ldrs.ers-recent-two { grid-template-columns: minmax(0,1fr) minmax(0,1fr); }
+.ers-ldr-col { min-width:0; }
+.ers-up-row > *, .ers-recent-row > * { min-width:0; }
 .ers-recent-row {
   display: grid;
   grid-template-columns: 52px minmax(0, 1fr) 120px 82px;
@@ -4538,13 +4540,23 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 .ers-recent-row > .ers-sym { grid-area: sym; }
 .ers-recent-row > .ers-ldr-name { grid-area: name; }
 .ers-recent-result { grid-area: result; display: inline-flex; align-items: center; justify-content: flex-start; gap: 4px; }
-.ers-recent-date { grid-area: date; font: 400 calc(11px * var(--ts, 1))/1.2 var(--font-sans); white-space: nowrap; }
+.ers-recent-date { grid-area: date; font: 400 calc(11px * var(--ts, 1))/1.4 var(--font-sans); white-space: normal; overflow-wrap:anywhere; }
 .ers-recent-eps {
   grid-area: eps; display: flex; align-items: baseline; justify-content: flex-end; gap: 6px;
-  min-width: 0; color: var(--text); font: 600 calc(10px * var(--ts, 1))/1.2 var(--font-mono); white-space: nowrap;
+  min-width: 0; color: var(--text); font: 600 calc(10px * var(--ts, 1))/1.4 var(--font-mono); white-space: normal; flex-wrap:wrap;
 }
 .ers-recent-eps small { color: var(--muted); font: 500 calc(9px * var(--ts, 1))/1.2 var(--font-mono); }
 .ers-recent-row > .ers-ldr-val { grid-area: move; width: 100%; justify-self: stretch; }
+.ers-recent-row .ers-ldr-day { white-space:normal; font-size:calc(10px * var(--ts, 1)); line-height:1.35; overflow-wrap:normal; }
+.ers-up-date { white-space:normal; line-height:1.4; }
+.ers-up-plan { flex-wrap:wrap; }
+.ers-up-plan b, .ers-up-plan small { white-space:normal; }
+@media (min-width:701px) and (max-width:1250px) {
+  .ers-recent-ldrs.ers-recent-two, .ers-up-ldrs.ers-up-two { grid-template-columns:minmax(0,1fr); }
+}
+.hm-list .vt-table { min-width:1040px; }
+.hm-list .vt-table td:nth-child(2) { max-width:180px; overflow:hidden; text-overflow:ellipsis; }
+.hm-list .vt-table th:first-child, .hm-list .vt-table td:first-child { position:sticky; left:0; background:var(--surface); z-index:1; }
 @media (max-width: 700px) {
   .ers-searchbar { align-items: stretch; flex-direction: column; gap: 8px; }
   .ers-searchbar > label { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
@@ -4649,6 +4661,11 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 }
 .ers-table-empty b { color: var(--text-strong); }
 .ers-table-wrap { overflow-x: auto; }
+.ers-data-coverage { padding: 12px 14px; display: grid; gap: 5px; font: 400 calc(12px * var(--ts, 1))/1.5 var(--font-sans); color: var(--text-muted); border-bottom: 1px solid var(--border); }
+.ers-data-coverage b { color: var(--text-strong); }
+.ers-data-coverage p { margin: 0; max-width: 90ch; }
+.ers-missing { color: var(--text-muted); font-size: calc(11px * var(--ts, 1)); cursor: help; }
+.ers-source small { font-size: calc(9px * var(--ts, 1)); color: var(--text-muted); }
 .ers-table { width: 100%; border-collapse: collapse; font: 400 calc(12px * var(--ts, 1))/1.35 var(--font-sans); }
 .ers-table th {
   font: 600 calc(10.5px * var(--ts, 1))/1 var(--font-sans); text-transform: uppercase; letter-spacing: 0.04em;
@@ -26657,6 +26674,15 @@ html.is-embed #freshness-banner { margin-top: 8px; padding-block: 6px; }
 .book-x, .book-axis-caption { display: flex; justify-content: space-between; gap: 8px; margin-top: 4px; color: var(--muted); font: 500 calc(10px * var(--ts, 1))/1.3 var(--font-mono); font-variant-numeric: tabular-nums; }
 .book-axis-caption { font-family: var(--font-sans); letter-spacing: .02em; }
 .book-axis-caption span:last-child { text-align: right; }
+.book-scatter { grid-template-columns:94px minmax(0,1fr); }
+.book-y-axis { display:grid; grid-template-columns:22px minmax(0,1fr); gap:5px; height:220px; }
+.book-axis-y-title { writing-mode:vertical-rl; transform:rotate(180deg); text-align:center; justify-self:center; color:var(--text-strong); font:600 calc(11px * var(--ts, 1))/1.3 var(--font-sans); }
+.book-scatter .book-x { display:block; position:relative; height:20px; margin-top:6px; }
+.book-scatter .book-x span { position:absolute; top:0; transform:translateX(-50%); white-space:nowrap; }
+.book-scatter .book-x span.is-first { transform:none; }
+.book-scatter .book-x span.is-last { transform:translateX(-100%); }
+.book-axis-x-title { text-align:center; color:var(--text-strong); font:600 calc(12px * var(--ts, 1))/1.4 var(--font-sans); margin-top:2px; }
+@media(max-width:640px){ .book-plot.book-scatter {grid-template-columns:74px minmax(0,1fr);} .book-axis-y-title {font-size:calc(10px * var(--ts, 1));} }
 .book-legend { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 10px; }
 .book-legend span { display: inline-flex; align-items: center; gap: 6px; color: var(--muted-strong); font: 500 calc(11px * var(--ts, 1))/1.2 var(--font-sans); }
 .book-legend i { width: 9px; height: 9px; border-radius: 2px; display: block; }

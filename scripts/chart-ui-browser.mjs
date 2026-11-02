@@ -152,7 +152,7 @@ try {
     const apple = { t: 'AAPL', n: 'Apple', s: 'Mega-cap tech', mc: 1e12, sp: 100, ch: 1, rv: 1, av20: 1000, stale: true, perf: { '1w': 5 }, perfStart: { '1w': '2026-10-16' } };
     const heatmap = { builtAtIso: liquidationFixtureNow, tickers: [apple, { ...apple }, { ...apple, t: 'MSFT', n: 'Microsoft', stale: false, sp: 200, ch: 2 }] };
     await page.route('**/data/heatmap.json*', r => r.fulfill({ json: heatmap }));
-    await page.route('**/api/auth/me?data=heatmap.json', r => r.fulfill({ json: heatmap }));
+    await page.route('**/api/auth/me?data=heatmap.json*', r => r.fulfill({ json: heatmap }));
     let release, requested;
     const pending = new Promise(resolve => { requested = resolve; });
     const gate = new Promise(resolve => { release = resolve; });

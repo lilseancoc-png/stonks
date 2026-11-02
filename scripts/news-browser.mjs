@@ -21,11 +21,11 @@ const events=[
 ];
 const olderDay=new Date(now.getTime()-6*86400000).toISOString().slice(0,10);
 events.push({...events[2],eventId:'qa:eia:previous-week-stock',publishedAt:olderDay+'T12:00:00Z',title:'Commercial crude inventories excluding SPR: 415,577 thousand barrels; prior reporting week '+olderDay});
-let sourceError=false, emptySlate=false, sourcePartial=false, apiError=false, malformedPayload=false, energyOnly=false;
+let sourceError=false, emptySlate=false, sourcePartial=false, apiError=false, malformedPayload=false, energyOnly=false,sourceFallback=false,owner=true;
 function payload(){
   const sources={};
   for(const e of events){
-    const source=sources[e.sourceId] ||= {label:e.publisher,status:sourceError?'error':sourcePartial?'partial':'ok',partial:sourcePartial,checkedAt:now.toISOString(),events:[],...(sourceError?{error:'offline',lastSuccessAt:publishedAt}:{})};
+    const source=sources[e.sourceId] ||= {label:e.publisher,status:sourceError?'error':sourcePartial?'partial':'ok',partial:sourcePartial,fallback:sourceFallback && e.sourceId==='ir-aapl',checkedAt:now.toISOString(),events:[],...(sourceError?{error:'offline',lastSuccessAt:publishedAt}:{})};
     if(!emptySlate && (!energyOnly || e.sourceId==='eia-crude'))source.events.push(e);
   }
   const state=reconcileNewsEvidence(null,sources,['AAPL','LLY','USO'],now);
@@ -37,7 +37,7 @@ const manifest=JSON.parse(html.match(/window\.STONKS_MANIFEST=(\{.*\});<\/script
 const server=createServer(async(req,res)=>{
   const u=new URL(req.url,'http://localhost');
   const json=v=>{res.setHeader('Content-Type','application/json');res.end(JSON.stringify(v));};
-  if(u.pathname==='/api/auth/me'&&!u.searchParams.has('data'))return json({enabled:true,member:true,trackRecord:true,topPicks:true,role:'owner'});
+  if(u.pathname==='/api/auth/me'&&!u.searchParams.has('data'))return json({enabled:true,authed:owner,trackRecord:owner,topPicks:owner});
   const name=u.searchParams.get('data') || (u.pathname.startsWith('/data/')?u.pathname.slice(6):null);
   if(name==='news-feed.json'){if(apiError){res.statusCode=503;return json({error:'offline'});}const malformed={missing:{unexpected:true},rows:{items:[null]},health:{items:[],sourceHealth:[null]},coverage:{items:[],sourceCoverage:{issuerSymbols:'AAPL'}}};return json(malformedPayload?malformed[malformedPayload]:payload());}
   if(name==='manifest.json'||name==='manifest-free.json')return json(manifest);
@@ -66,7 +66,7 @@ try{
     assert.equal(await page.locator('#news-feed-root').getByText('Context only · not scored',{exact:true}).count(),4);
     assert.equal(await page.locator('#news-feed-root').getByText('Company announcement',{exact:true}).count(),1);
     assert.equal(await page.locator('#news-feed-root').getByText('Recorded FDA action',{exact:true}).count(),1);
-    assert.match(await page.locator('#news-feed-summary').innerText(),/FDA sponsor coverage: LLY/);
+    assert.match(await page.locator('#news-source-health').innerText(),/FDA sponsor coverage: LLY/);
     const eia=page.locator('.news-feed-item').filter({hasText:'412,517 thousand barrels'});
     assert.match(await eia.innerText(),/unclear/i);
     assert.match(await eia.locator('time').getAttribute('title'),/publication date only/);
@@ -84,17 +84,21 @@ try{
     await page.locator('#news-feed-sort').selectOption('latest');
     assert.equal(await page.locator('#news-feed-root .news-feed-item').count(),4);
     await page.getByText('Official source checks',{exact:true}).click();
-    assert.equal(await page.locator('#news-feed-summary li').count(),3);
+    assert.equal(await page.locator('#news-source-health li').count(),3);
     for(const size of [width,1920,390,width]){
       await page.setViewportSize({width:size,height:1000});
       await page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));
       assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),size+'px no page overflow');
     }
     await page.screenshot({path:resolve(output,'news-'+width+'-'+theme+'.png'),fullPage:false});
-    sourceError=true;
+    sourceFallback=true;await page.reload();await page.locator('#news-feed-root .news-feed-item').first().waitFor();
+    await page.getByText('Official source checks',{exact:true}).click();
+    assert.match(await page.locator('#news-source-health').innerText(),/alternate official feed; primary unavailable/);
+    assert.doesNotMatch(await page.locator('#news-source-health').innerText(),/official source check\(s\) unavailable/);
+    sourceFallback=false;sourceError=true;
     await page.reload();
     await page.locator('#news-feed-root .news-feed-item').first().waitFor();
-    assert.match(await page.locator('#news-feed-summary').innerText(),/3 official source check\(s\) unavailable/);
+    assert.match(await page.locator('#news-source-health').innerText(),/3 official source check\(s\) unavailable/);
     assert.equal(await page.locator('#news-feed-root').getByText('Carried forward',{exact:true}).count(),4);
     emptySlate=true;
     await page.reload();
@@ -138,5 +142,13 @@ try{
     console.log(width+'px '+theme+': labels, dates, filters, same-link releases, resize, empty/partial/outage/malformed states and refresh recovery passed');
     await context.close();
   }
+  owner=false;sourceFallback=true;
+  const publicPage=await browser.newPage();
+  await publicPage.route('**/*',route=>new URL(route.request().url()).origin===base?route.continue():route.abort());
+  await publicPage.goto(base+'/?tab=news');await publicPage.locator('#news-source-health .news-feed-status').first().waitFor();
+  assert.equal(await publicPage.locator('#news-feed-summary').count(),0,'Owner posture stays private');
+  await publicPage.getByText('Official source checks',{exact:true}).click();
+  assert.match(await publicPage.locator('#news-source-health').innerText(),/alternate official feed; primary unavailable/,'factual source coverage stays visible to public readers');
+  await publicPage.close();
   console.log('Browser screenshots: '+output);
 }finally{await browser.close();await new Promise(r=>server.close(r));}

@@ -70,6 +70,12 @@ try {
     assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
     await page.evaluate(()=>{ if(document.activeElement instanceof HTMLElement) document.activeElement.blur(); scrollTo(0,0); });
     await page.screenshot({path:resolve(output,'company-events-'+width+'-'+theme+'.png'),fullPage:false});
+    preview.setScenario('fallback'); await page.reload(); await coverage.waitFor({state:'visible'});
+    assert.match(await coverage.innerText(),/live check unavailable; using published dates verified 2026-10-28/);
+    await page.locator('.calendar-pill[data-cal-type="reports"]').click();
+    await root.locator('[data-cal-nav="next"]').click();await root.locator('[data-cal-day="2026-11-04"]').click();
+    assert.match(await root.locator('.cal-detail').innerText(),/Cached schedule/i);
+    assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
     preview.setScenario('stale'); await page.reload(); await coverage.waitFor({ state: 'visible' });
     assert.match(await coverage.innerText(), /snapshot needs a refresh/);
     preview.setScenario('error'); await page.reload(); await coverage.waitFor({ state: 'visible' });

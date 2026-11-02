@@ -110,12 +110,12 @@ try {
   const map = await fetchNasdaqEarningsSessions(Date.parse('2026-10-28'), 2, []);
   assert.equal(map.coverage.status, 'partial'); assert.deepEqual(map.coverage.failedDates, ['2026-10-28']);
   globalThis.fetch = async () => ({ ok: true, status: 200, text: async () => '<html>Access denied</html>' });
-  const calendars = await fetchOfficialCalendarEvents(start, Date.parse('2026-10-31'));
+  const calendars = await fetchOfficialCalendarEvents(start, Date.parse('2026-10-31'),{nowMs:Date.parse(built)});
   assert.equal(calendars.status.bea, false); assert.equal(calendars.status.bls, false);
   assert.equal(calendars.status['fed-board-2026-10'], false);
   assert.equal(calendars.status['census-2026'], false); assert.equal(calendars.status['ism-2026'], false);
-  const yearEnd = await fetchOfficialCalendarEvents(start, end);
-  assert(yearEnd.events.some(e => e.subtype === 'ism-services' && e.date === '2026-11-04' && e.stale), 'blocked ISM source retains its published dated baseline');
+  const yearEnd = await fetchOfficialCalendarEvents(start, end,{nowMs:Date.parse(built)});
+  assert(yearEnd.events.some(e => e.subtype === 'ism-services' && e.date === '2026-11-04' && e.scheduleFallback && !e.stale), 'blocked ISM source uses its recently verified published dates');
   const priorIsm = {type:'report',subtype:'ism-services',title:'ISM Services PMI',date:'2026-11-05',official:true,sourceKey:'ism-2026'};
   const priorPreferred = buildCalendarPayload({}, [], built, {officialCalendar:yearEnd,priorCalendar:{events:[priorIsm]}});
   assert(!priorPreferred.events.some(e => e.subtype === 'ism-services' && e.date === '2026-11-04'), 'last successful publisher date supersedes an older static baseline');
