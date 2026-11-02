@@ -12,9 +12,11 @@ import { SPORTS_PAGE_IDS } from '../lib/owner-access-policy.mjs';
 import { store } from '../lib/datastore.mjs';
 import { SESSION_COOKIE, signSession } from '../lib/session.mjs';
 import authHandler from '../api/auth/[action].js';
-import { ingestNfl } from '../lib/sports/ingest-nfl.mjs';
-import { NFLVERSE_URLS } from '../lib/sports/nflverse.mjs';
+import { ingestLeague } from '../lib/sports/ingest.mjs';
+import { NFLVERSE_URLS, NFL_SOURCE } from '../lib/sports/nflverse.mjs';
 import { GAMES, PLAYERS, WEEK_2025, WEEK_2026 } from './fixtures/sports-nfl.mjs';
+import { NBA_SOURCE, HOOPR_URLS } from '../lib/sports/hoopr.mjs';
+import { SCHEDULE_2026, SCHEDULE_2027, BOX_2026, BOX_2027 } from './fixtures/sports-nba.mjs';
 
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const root = resolve(fileURLToPath(new URL('../', import.meta.url)));
@@ -26,8 +28,11 @@ process.env.SESSION_SECRET = 'sports-browser-fixture-only';
 const objects = new Map();
 const files = new Map([[NFLVERSE_URLS.games, GAMES], [NFLVERSE_URLS.players, PLAYERS], [NFLVERSE_URLS.weekly(2025), WEEK_2025],
   [NFLVERSE_URLS.weekly(2026), WEEK_2026.split('\n').filter((l) => !l.startsWith('00-0005,')).join('\n')]]);
-await ingestNfl({ store: { rawGet: async (k) => (objects.has(k) ? Buffer.from(objects.get(k)) : null), rawPut: async (k, v) => { objects.set(k, String(v)); } },
+await ingestLeague({ adapter: NFL_SOURCE,  store: { rawGet: async (k) => (objects.has(k) ? Buffer.from(objects.get(k)) : null), rawPut: async (k, v) => { objects.set(k, String(v)); } },
   fetchText: async (u) => files.get(u) ?? null, now: Date.parse('2026-11-02T11:05:00Z') });
+const nbaFiles = new Map([[HOOPR_URLS.schedule(2025), SCHEDULE_2026], [HOOPR_URLS.schedule(2026), SCHEDULE_2027], [HOOPR_URLS.box(2025), BOX_2026], [HOOPR_URLS.box(2026), BOX_2027]]);
+await ingestLeague({ adapter: NBA_SOURCE, store: { rawGet: async (k) => (objects.has(k) ? Buffer.from(objects.get(k)) : null), rawPut: async (k, v) => { objects.set(k, String(v)); } },
+  fetchText: async (u) => nbaFiles.get(u) ?? null, now: Date.parse('2026-11-02T11:10:00Z') });
 store.rawGet = async (key) => (objects.has(key) ? Buffer.from(objects.get(key)) : null);
 for (const m of ['put', 'del', 'rawPut', 'rawDel', 'publishGeneration']) store[m] = async () => { throw new Error('Sports page attempted a store write: ' + m); };
 store.get = async () => Buffer.from('{}');
@@ -102,8 +107,18 @@ try {
         checks += 6;
       }
       if (id === 'sports-nba') {
-        assert(/Not connected yet/.test(text) && /No NBA games loaded yet/.test(text), 'NBA is honest about missing data');
-        assert(!requests.some((u) => u.includes('sports=board&sport=nba')), 'an unconnected league makes no board request');
+        assert(/Up to date/.test(text) && /2025–26, 2026–27/.test(text) && /Sun, Nov 1/.test(text), 'NBA shows its job status, seasons and latest game');
+        await page.locator('#sports-nba-root [data-sp-game="401900003"]').waitFor();
+        const board = await page.locator('#sports-nba-root [data-sp-part="board"]').innerText();
+        assert(/PHX\s+at\s+GS/.test(board) && /7:00\sPM\sPST/.test(board) && /LAL\s+at\s+PHX/.test(board), 'tonight and tomorrow on the NBA board');
+        await page.locator('#sports-nba-root [data-sp-game="401900003"]').click();
+        await page.locator('#sports-nba-root [data-sp-panel="game"] [data-sp-player="3975"]').click();
+        await page.locator('#sports-nba-root [data-sp-panel="player"] .sp-log').waitFor();
+        const nbaLog = await page.locator('#sports-nba-root [data-sp-panel="player"]').innerText();
+        assert(/out last game/.test(await page.locator('#sports-nba-root [data-sp-panel="game"]').innerText()), 'a player who sat out is flagged');
+        assert(/did not play: left ankle sprain/.test(nbaLog) && /Minutes/.test(nbaLog) && /\bMin\b/.test(nbaLog), 'the NBA log shows minutes and the missed game with its reason');
+        if (width > 760) await page.screenshot({ path: resolve(output, `${id}-log-${width}-${theme}.png`), fullPage: true, animations: 'disabled' });
+        checks += 4;
       }
       if (id === 'sports-pick-builder') assert(/Enter the payout/.test(text) && /Paper picks only/.test(text), 'Pick Builder explains the flow');
       assert.equal(await page.locator('[data-nav-group="sports"]').isVisible(), width > 760 ? true : await page.locator('[data-nav-group="sports"]').isVisible());

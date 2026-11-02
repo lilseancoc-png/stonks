@@ -4,15 +4,16 @@
 // .github/workflows/sports-data.yml; never touches data/ or the repo.
 //
 //   node scripts/sports-ingest.mjs --sport=nfl              # needs R2_* env
-//   node scripts/sports-ingest.mjs --sport=nfl --dry-run    # fetch + check, write nothing
+//   node scripts/sports-ingest.mjs --sport=nba --dry-run    # fetch + check, write nothing
 //   node scripts/sports-ingest.mjs --sport=nfl --source-dir=DIR --dry-run
-//       reads games.csv, players.csv and stats_player_week_<season>.csv
-//       from DIR instead of the network (offline checks)
+//       reads the provider files (same file names as the release URLs) from
+//       DIR instead of the network (offline checks)
 //
 // Logs carry counts and status only; the workflow log is public.
 import { readFile } from 'node:fs/promises';
 import { resolve, basename } from 'node:path';
-import { ingestNfl } from '../lib/sports/ingest-nfl.mjs';
+import { ingestLeague } from '../lib/sports/ingest.mjs';
+import { LEAGUE_SOURCES } from '../lib/sports/leagues.mjs';
 
 const MAX_BYTES = 80 * 1024 * 1024;
 const args = Object.fromEntries(process.argv.slice(2).map((a) => {
@@ -51,7 +52,8 @@ function localFetcher(dir) {
 
 async function main() {
   const sport = args.sport;
-  if (sport !== 'nfl') throw new Error('--sport must be nfl (NBA arrives in a later update)');
+  const adapter = LEAGUE_SOURCES[sport];
+  if (!adapter) throw new Error('--sport must be nfl or nba');
   const dryRun = args['dry-run'] === true;
   let store;
   if (dryRun) {
@@ -62,7 +64,7 @@ async function main() {
     if (store.backend !== 'r2') throw new Error('Sports records need the R2 store (set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET)');
   }
   const fetcher = args['source-dir'] ? localFetcher(String(args['source-dir'])) : (url) => fetchText(url);
-  const result = await ingestNfl({ store, fetchText: fetcher, log: (m) => console.log(m), dryRun });
+  const result = await ingestLeague({ adapter, store, fetchText: fetcher, log: (m) => console.log(m), dryRun });
   for (const w of result.writes) console.log(`${dryRun ? 'would write' : 'wrote'} ${w.key.replace(/^_stonks\/sports\/v1\//, '')} (${Math.round(w.bytes / 1024)} KB)`);
 }
 

@@ -29494,12 +29494,15 @@ function scenarioEventPhase(ev, now = Date.now()) {
     passing_yards: 'Passing yards', receptions: 'Receptions', completions: 'Completions', attempts: 'Pass attempts',
     targets: 'Targets', carries: 'Carries', rushing_yards: 'Rushing yards', receiving_yards: 'Receiving yards',
     touchdowns: 'Rush + catch TDs', points: 'Points', rebounds: 'Rebounds', assists: 'Assists', threes: '3-pointers made', minutes: 'Minutes',
+    pra: 'Points + rebounds + assists', steals: 'Steals', blocks: 'Blocks',
   };
   const SHORT = {
     passing_yards: 'Pass yds', receptions: 'Rec', completions: 'Cmp', attempts: 'Att', targets: 'Tgt', carries: 'Car',
     rushing_yards: 'Rush yds', receiving_yards: 'Rec yds', touchdowns: 'TD', points: 'Pts', rebounds: 'Reb', assists: 'Ast', threes: '3PM', minutes: 'Min',
+    pra: 'PRA', steals: 'Stl', blocks: 'Blk',
   };
   const label = (st) => STAT_LABELS[st] || st;
+  const lgOf = (src) => (src && src.sport) || '';
   const team = (t) => escape(String(t || '').toUpperCase());
   const num = (v) => (v == null ? '—' : escape(String(v)));
   const league = (lg) => state.leagues[lg] || (state.leagues[lg] = { board: null, boardErr: null, game: null, gameId: null, gameErr: null, results: null, query: '', player: null, playerId: null, playerErr: null });
@@ -29580,8 +29583,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
       ['Source', '<a href="' + escape(src.url) + '" target="_blank" rel="noopener noreferrer">' + escape(src.provider) + '</a>'],
       ['Status', '<span class="sp-state sp-state-' + escape(src.state) + '">' + escape(stateText) + '</span>'],
       ['Last good update', connected ? escape(fmtWhen(src.last_success_utc, tz)) : '—'],
-      ['Seasons stored', src.seasons && src.seasons.length ? escape(src.seasons.join(', ')) : '—'],
+      ['Seasons stored', src.seasons && src.seasons.length ? escape(src.seasons.map((y) => (lgOf(src) === 'nba' ? y + '–' + String(y + 1).slice(2) : y)).join(', ')) : '—'],
     ];
+    if (src.latest_game_date) rows.push(['Latest game stored', escape(fmtDay(src.latest_game_date))]);
     if (counts && Number.isFinite(counts.player_games)) rows.push(['Stored', escape(Number(counts.games || 0).toLocaleString('en-US') + ' games, ' + Number(counts.player_games).toLocaleString('en-US') + ' player games')]);
     rows.push(['Refresh', escape(src.refresh)], ['Terms', escape(src.license)]);
     return '<div class="sp-source"><h3>Data</h3><dl>' + rows.map((r) => '<dt>' + r[0] + '</dt><dd>' + r[1] + '</dd>').join('') + '</dl>' +
@@ -29589,7 +29593,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
 
   function statList(stats) {
-    return '<div class="sp-stats"><h3>Stats covered</h3><ul>' + stats.map((st) =>
+    return '<div class="sp-stats"><h3>Stats for picks</h3><ul>' + stats.map((st) =>
       '<li class="' + (st.enabled ? 'sp-on' : 'sp-later') + '">' + escape(st.label) + (st.enabled ? '' : ' <span>later</span>') + '</li>').join('') + '</ul></div>';
   }
 
@@ -29645,7 +29649,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       const info = L.game.teams[t] || { players: [] };
       const rows = info.players.map((p) => {
         const s = p.summaries[p.main_stat] || {};
-        return '<tr><td><button type="button" class="sp-link" data-sp-player="' + escape(p.player_id) + '">' + escape(p.name) + '</button></td><td>' + escape(p.position || '') + '</td>' +
+        return '<tr><td><button type="button" class="sp-link" data-sp-player="' + escape(p.player_id) + '">' + escape(p.name) + '</button>' + (p.out_last_game ? ' <span class="sp-out">out last game</span>' : '') + '</td><td>' + escape(p.position || '') + '</td>' +
           '<td>' + escape(SHORT[p.main_stat] || p.main_stat) + '</td><td class="sp-n">' + num(s.last5) + '</td><td class="sp-n">' + num(s.last10) + '</td><td class="sp-n">' + num(s.games) + '</td></tr>';
       }).join('');
       return '<div class="sp-team"><h5>' + team(t) + (t === g.home_team ? ' <span>home</span>' : '') + '</h5>' +
@@ -29684,7 +29688,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     const log = P.games.length ? '<div class="sp-table-wrap"><table class="sp-table sp-log"><thead><tr><th>Date</th><th>Game</th>' + (lg === 'nba' ? '<th class="sp-n">Min</th>' : '') +
       logCols.map((st) => '<th class="sp-n" title="' + escape(label(st)) + '">' + escape(SHORT[st] || st) + '</th>').join('') + '</tr></thead><tbody>' +
       P.games.map((r) => '<tr' + (r.played ? '' : ' class="sp-dnp"') + '><td>' + escape(fmtDay(r.date)) + ' <span class="sp-muted">' + escape(String(r.date).slice(0, 4)) + '</span></td><td>' + (r.home ? 'vs ' : '@ ') + team(r.opponent) +
-        (r.week != null ? ' <span class="sp-muted">' + (r.season_type === 'POST' ? 'playoffs' : 'wk ' + escape(r.week)) + '</span>' : '') + (r.played ? '' : ' <span class="sp-muted">did not play</span>') + '</td>' +
+        (r.week != null ? ' <span class="sp-muted">' + (r.season_type === 'POST' ? 'playoffs' : 'wk ' + escape(r.week)) + '</span>' : '') + (r.played ? '' : ' <span class="sp-muted">did not play' + (r.dnp_reason ? ': ' + escape(String(r.dnp_reason).toLowerCase()) : '') + '</span>') + '</td>' +
         (lg === 'nba' ? '<td class="sp-n">' + num(r.minutes) + '</td>' : '') +
         logCols.map((st) => '<td class="sp-n">' + num(r.stats[st]) + '</td>').join('') + '</tr>').join('') + '</tbody></table></div>'
       : '<p class="sp-muted">No games stored for this player.</p>';
@@ -29692,7 +29696,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
       '<button type="button" class="sp-close" data-sp-close="player" aria-label="Close player">×</button></div>' +
       '<h5>Averages over ' + num(P.total_games) + ' stored games</h5>' + summary +
       '<h5>Game log' + (P.total_games > P.games.length ? ' (latest ' + P.games.length + ')' : '') + '</h5>' + log +
-      '<p class="sp-note">Games where the player recorded no stat are not in the provider’s file, so they are missing here, not counted as zero.</p></div>';
+      '<p class="sp-note">' + (lg === 'nba'
+        ? 'Games the player missed are listed as did not play and left out of the averages.'
+        : 'Games where the player recorded no stat are not in the provider’s file, so they are missing here, not counted as zero.') + '</p></div>';
   }
 
   function leagueHtml(s, lg) {
@@ -29705,7 +29711,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         '<div data-sp-part="results" aria-live="polite">' + resultsHtml(lg) + '</div></div><div data-sp-part="player">' + playerPanelHtml(lg) + '</div>'
       : emptyBox('No ' + name + ' games loaded yet.', escape(lg === 'nfl'
         ? 'The daily nflverse job has not written its first records yet.'
-        : 'A later update connects NBA game logs (hoopR and other free sources) and adds CSV import for your own files.'));
+        : 'The daily hoopR job has not written its first records yet.'));
     return dayStrip(s) + '<div class="sp-grid"><div class="sp-board"><h3>Games</h3>' + board + '</div>' +
       '<aside class="sp-side">' + sourceCard(src, tz) + statList(s.stats[lg] || []) + '</aside></div>' +
       '<p class="sp-foot">Private research for the two owners. No sportsbook is connected, nothing is placed, and no AI model is called by this page.</p>';

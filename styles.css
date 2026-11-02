@@ -549,7 +549,7 @@ body:not(.is-owner) [data-page-tab="research-lab"],body:not(.is-owner) #page-pan
 .sp-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .sp-panel h5, .sp-team h5 { margin: 14px 0 6px; font-size: calc(12px * var(--ts, 1)); font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted-strong); }
 .sp-close { font: inherit; font-size: calc(18px * var(--ts, 1)); line-height: 1; color: var(--muted-strong); background: transparent; border: 1px solid var(--border); border-radius: 6px; width: 30px; height: 30px; cursor: pointer; }
-.sp-teams { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.sp-teams { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
 .sp-table-wrap { overflow-x: auto; max-width: 100%; }
 .sp-table { width: 100%; border-collapse: collapse; font-size: calc(12.5px * var(--ts, 1)); font-variant-numeric: tabular-nums; }
 .sp-table th, .sp-table td { padding: 5px 8px; border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; }
@@ -562,11 +562,11 @@ body:not(.is-owner) [data-page-tab="research-lab"],body:not(.is-owner) #page-pan
 .sp-search { margin-top: 18px; }
 .sp-find { display: flex; flex-direction: column; gap: 4px; font-size: calc(12px * var(--ts, 1)); color: var(--muted-strong); max-width: 360px; }
 .sp-find input { font: inherit; font-size: calc(14px * var(--ts, 1)); color: var(--text); background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; }
+.sp-out { font-size: calc(11px * var(--ts, 1)); color: var(--neg); margin-left: 4px; white-space: nowrap; }
 .sp-results { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 6px; font-size: calc(13px * var(--ts, 1)); }
 @media (max-width: 760px) {
   .sp-grid { grid-template-columns: minmax(0, 1fr); }
   .sp-zone { margin-left: 0; }
-  .sp-teams { grid-template-columns: minmax(0, 1fr); }
   .sp-game { grid-template-columns: minmax(0, 1fr) auto; }
   .sp-time { grid-column: 1 / -1; font-size: calc(12px * var(--ts, 1)); }
 }

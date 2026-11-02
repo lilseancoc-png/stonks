@@ -1,11 +1,13 @@
 name: Sports data refresh
 
 # Owner Sports section (docs/sports/README.md). Once a day, downloads free
-# public game data (nflverse releases, CC BY 4.0) and writes private JSON
+# public game data (nflverse releases for NFL, hoopR / ESPN box scores for
+# NBA) and writes private JSON
 # records under `_stonks/sports/v1/` in the R2 store. It writes nothing to the
 # repo or data/, makes no AI or sportsbook calls, and logs counts only
-# (workflow logs are public). 13:20 UTC is early morning US time, after
-# nflverse's overnight update and after Sunday and Monday night games.
+# (workflow logs are public). 13:20 UTC is early morning US time, after the
+# providers' overnight updates and after the previous night's games. Each
+# league is its own job, so one provider's outage never blocks the other.
 on:
   schedule:
     - cron: "20 13 * * *"
@@ -46,3 +48,31 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
         run: node scripts/sports-ingest.mjs --sport=nfl
+
+  nba:
+    if: ${{ vars.PRIVATE_DATA_ENABLED == '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Check the Sports code
+        run: npm run test:sports
+
+      - name: Refresh NBA records
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: node scripts/sports-ingest.mjs --sport=nba

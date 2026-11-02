@@ -64,31 +64,33 @@ and the MCP key filter refuses it. Each read is capped at 24 MB.
 | `status` | `status/{sport}.json` | each league's data job (last run, seasons, counts) |
 | `players` | `{sport}/players.json` | data jobs (players plus provider ids) |
 | `games` | `{sport}/games/{season}.json` | data jobs |
-| `player-games` | `{sport}/player-games/{season}.json` | data jobs |
+| `player-games` | `{sport}/player-games/{season}.json` | data jobs (packed rows, below) |
 | `observations` | `markets/observations.json` | Pick Builder (captured lines, append-only) |
 | `journal` | `journal/entries.json` | Pick Builder (paper entries, append-only revisions) |
 
 JSON was chosen over a database for now: the data is small, written by one
 scheduled job per league plus two owners, and R2 stays inside its free tier.
 
-## NFL data job
+Player-game rows are stored packed (`lib/sports/rows.mjs`): one `columns`
+list and an array per row, instead of repeating every key. A full NBA season
+went from 16 MB to 4 MB. `unpackRows` returns the plain records the schema
+defines and can unpack a single player without the rest of the season.
+
+## Data jobs
 
 `.github/workflows/sports-data.yml` runs once a day at 13:20 UTC (early
-morning in the US, after nflverse's overnight update and after Sunday and
-Monday night games) and on demand. It runs `npm run test:sports`, then
-`node scripts/sports-ingest.mjs --sport=nfl` (`lib/sports/ingest-nfl.mjs`,
-adapter `lib/sports/nflverse.mjs`):
+morning in the US, after the providers' overnight updates and the previous
+night's games) and on demand. NFL and NBA are separate jobs, so one provider's
+outage never blocks the other. Each runs `npm run test:sports`, then
+`node scripts/sports-ingest.mjs --sport=<league>`. Both leagues share one
+ingest (`lib/sports/ingest.mjs`) with a small adapter per provider
+(`lib/sports/leagues.mjs`):
 
-- Downloads three nflverse release files: `schedules/games.csv`,
-  `stats_player/stats_player_week_<season>.csv` and `players/players.csv`.
-- Keeps the current and previous season (seasons are labeled by the year they
-  start). The current season refreshes every run. A finished season is
-  stored once with `complete: true` and is not downloaded again unless the
-  adapter version changes.
-- Keeps quarterbacks, running backs, receivers and tight ends. Kickoff times
-  are converted from US Eastern to UTC.
-- Drops the sportsbook spreads, totals and moneylines that the schedule file
-  carries.
+- Keeps the current and previous season. Sports labels a season by the year
+  it starts (NFL 2026 = Sept 2026 to Feb 2027; NBA 2026 = 2026-27). The
+  current season refreshes every run. A finished season is stored once with
+  `complete: true` and is not downloaded again unless the adapter version
+  changes. Postponed games do not hold a season open.
 - Stores a player's line only once the schedule marks that game final. A
   line for a game still in progress (or one the schedule has not caught up
   with) waits for the next run, so a partial stat line never reaches the
@@ -96,21 +98,40 @@ adapter `lib/sports/nflverse.mjs`):
 - Writes data first and the status record last. If a refreshed season would
   lose more than 20% of its stored rows, or a download fails, nothing is
   replaced: the status record shows the failure and keeps the last good time.
+- The status record also names the latest stored game, so a provider that
+  lags shows on the page.
 - Logs counts only, because workflow logs are public.
 
-nflverse lists a player only for games where he recorded a stat, so a missed
-game is absent from the log rather than a zero. The page says so under every
-game log.
+**NFL** (`lib/sports/nflverse.mjs`) reads three nflverse release files:
+`schedules/games.csv`, `stats_player/stats_player_week_<season>.csv` and
+`players/players.csv`. It keeps quarterbacks, running backs, receivers and
+tight ends, converts kickoff times from US Eastern to UTC, and drops the
+sportsbook spreads, totals and moneylines the schedule file carries. nflverse
+lists a player only for games where he recorded a stat, so a missed game is
+absent from the log rather than a zero. The page says so under every game log.
+
+**NBA** (`lib/sports/hoopr.mjs`) reads the hoopR release files from
+`sportsdataverse-data`: `espn_nba_schedules/nba_schedule_<year>.csv` and
+`espn_nba_player_boxscores/player_box_<year>.csv`, where hoopR's `<year>` is
+the year the season ENDS (Sports season + 1). It keeps regular season,
+play-in and playoff games of the 30 NBA teams (All-Star and exhibition teams
+are skipped). Did-not-play rows are kept with their reason and null stats, and
+are left out of averages. Player names come from the box scores. hoopR's files
+usually run a day or two behind the latest games.
 
 Local checks without credentials:
 
 ```bash
 node scripts/sports-ingest.mjs --sport=nfl --dry-run                  # network, writes nothing
-node scripts/sports-ingest.mjs --sport=nfl --dry-run --source-dir=DIR # local CSV copies
+node scripts/sports-ingest.mjs --sport=nba --dry-run --source-dir=DIR # local CSV copies
 ```
 
-A full dry run on 2026-11-02 read 557 games, 9,111 player games and 748
-players (about 4 MB of JSON across five records).
+Dry runs on 2026-11-02:
+
+| League | Games | Player games | Players | Stored size |
+|---|---|---|---|---|
+| NFL (2025, 2026) | 557 | 9,111 | 748 | about 1.4 MB |
+| NBA (2025-26, 2026-27) | 2,526 | 37,182 | 655 | about 5.3 MB |
 
 ## Schema
 
@@ -132,7 +153,7 @@ read it. The Update Checker lists the pages as on-demand.
 | League | Source | Terms | Branch |
 |---|---|---|---|
 | NFL | [nflverse](https://github.com/nflverse/nflverse-data) releases, daily scheduled job | CC BY 4.0 (FTN charting is CC BY-SA and is not used) | `sports-nfl-data` |
-| NBA | [hoopR](https://hoopr.sportsdataverse.org/) / ESPN box scores, plus an owner CSV import | Private research only | `sports-nba-data` |
+| NBA | [hoopR](https://hoopr.sportsdataverse.org/) / ESPN box scores (sportsdataverse-data releases), daily scheduled job | Private research only | `sports-nba-data` |
 | Lines | Typed in, or read from a screenshot by Claude/ChatGPT | — | `sports-pick-builder` |
 
 NBA.com's terms bar gambling use. This section is private research for the
@@ -150,7 +171,10 @@ One branch and pull request each, from `main`:
 1. `sports-shell`: pages, Owner gate, route, storage keys, schema
 2. `sports-nfl-data`: nflverse job, the NFL games board, game players, player
    search and game logs
-3. `sports-nba-data`: hoopR / ESPN job, CSV import and the NBA games board
+3. `sports-nba-data`: hoopR / ESPN job, the NBA board, players and game logs,
+   one shared ingest for both leagues, packed row storage. An owner CSV import
+   was planned here; hoopR covers the data, so it is left for later if a
+   source goes missing.
 4. `sports-pick-builder`: entered payouts, EV and the paper journal
 5. `sports-models`: per-stat probability models
 6. `sports-joint`: the joint-probability engine for correlated picks
@@ -160,7 +184,7 @@ One branch and pull request each, from `main`:
 ## Tests
 
 ```bash
-npm run test:sports           # access, route, time zones, keys, schema, wiring, NFL adapter, ingest and views
-npm run test:sports-browser   # Owner / member / signed-out at 1440 and 390, NFL board, game and log
+npm run test:sports           # access, route, time zones, keys, schema, wiring, both adapters, ingest and views
+npm run test:sports-browser   # Owner / member / signed-out at 1440 and 390, NFL and NBA boards, games and logs
 node scripts/regen-sports.mjs # rebuild index.html / app.js / styles.css without data/
 ```
