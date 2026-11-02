@@ -43,6 +43,9 @@ function docPanesHtml() {
 // wraps each in the shared <svg class="pt-ico"> shell.
 const SIDE_NAV_ICONS = {
   'update-checker': '<path d="M4 4h16v16H4zM7 12h3l2-5 2 10 2-5h2"/>',
+  'sports-nba': '<circle cx="12" cy="12" r="9.5"/><path d="M2.5 12h19M12 2.5v19"/><path d="M5.3 5.3c2.6 2.4 2.6 11 0 13.4M18.7 5.3c-2.6 2.4-2.6 11 0 13.4"/>',
+  'sports-nfl': '<path d="M20.5 3.5c-6-1-12.6.9-15.7 4S2.5 17.5 3.5 20.5c3 1 10-.2 13.2-3.3s4.8-9.7 3.8-13.7z"/><path d="m9 15 6-6M10.5 10.5l3 3M12.5 8.5l3 3M8.5 12.5l3 3"/>',
+  'sports-pick-builder': '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/><path d="m15 16 1.5 1.5L19 15"/>',
   'owner-market-brief': '<path d="M4 3h16v18H4zM8 7h8M8 11h8M8 15h4"/>',
   'pending-buyouts': '<rect x="2" y="5" width="8" height="14" rx="2"/><rect x="14" y="5" width="8" height="14" rx="2"/><path d="M7 12h10m-3-3 3 3-3 3"/>',
   home: '<path d="m3 9.8 9-7.3 9 7.3V20a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 20Z"/><path d="M9.5 21.5V14h5v7.5"/>',
@@ -2300,6 +2303,27 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-research-lab" role="tabpanel" aria-labelledby="page-tab-research-lab" hidden>
     <div id="research-lab-root"></div>
+  </div>
+  <div class="page-pane" id="page-pane-sports-nba" role="tabpanel" aria-labelledby="page-tab-sports-nba" hidden>
+    <section class="card sp-section" id="sports-nba-section">
+      <header class="card-header"><h2 class="card-title">NBA</h2><span class="card-eyebrow">Owner · sports research</span></header>
+      <p class="use-intro">Today’s and tomorrow’s games, player game logs and the lines you have captured. Private research and paper picks only.</p>
+      <div id="sports-nba-root" aria-live="polite">Open this view to load the NBA board.</div>
+    </section>
+  </div>
+  <div class="page-pane" id="page-pane-sports-nfl" role="tabpanel" aria-labelledby="page-tab-sports-nfl" hidden>
+    <section class="card sp-section" id="sports-nfl-section">
+      <header class="card-header"><h2 class="card-title">NFL</h2><span class="card-eyebrow">Owner · sports research</span></header>
+      <p class="use-intro">Today’s and tomorrow’s games, player game logs and the lines you have captured. Private research and paper picks only.</p>
+      <div id="sports-nfl-root" aria-live="polite">Open this view to load the NFL board.</div>
+    </section>
+  </div>
+  <div class="page-pane" id="page-pane-sports-pick-builder" role="tabpanel" aria-labelledby="page-tab-sports-pick-builder" hidden>
+    <section class="card sp-section" id="sports-pick-builder-section">
+      <header class="card-header"><h2 class="card-title">Pick Builder</h2><span class="card-eyebrow">Owner · paper picks</span></header>
+      <p class="use-intro">Put 1 to 6 picks together with the payout your app shows, see the chance it hits and what it is worth, and save it as a paper pick. Nothing is ever placed with a sportsbook.</p>
+      <div id="sports-pick-builder-root" aria-live="polite">Open this view to load the Pick Builder.</div>
+    </section>
   </div>
   <div class="page-pane" id="page-pane-unified-signal-engine" role="tabpanel" aria-labelledby="page-tab-unified-signal-engine" hidden>
     <section class="card" id="unified-signal-section">

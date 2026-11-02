@@ -272,6 +272,7 @@ async function tool(name, args, opts) {
   assert.equal(lf.isError, false);
   const feats = lf.structuredContent.results.features;
   assert.ok(feats.find((f) => f.id === "market" && f.access === "owner"));
+  assert.ok(!feats.some((f) => f.id.startsWith("sports-")), "Sports pages stay out of the MCP feature list");
   assert.ok(lf.structuredContent.results.covered_symbols.includes("NVDA"));
 
   const brief = await tool("get_feature", { feature_id: "brief" });

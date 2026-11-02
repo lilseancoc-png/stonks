@@ -13,6 +13,7 @@ import { renderViewsCss } from './views-css.mjs';
 import { renderRecoveryCss } from './recovery-css.mjs';
 import { renderHistoricalDataCss } from './historical-data-css.mjs';
 import { renderPartyTrackerCss } from './party-tracker-css.mjs';
+import { renderSportsCss } from './sports-css.mjs';
 import { renderEarningsForecastCss } from './earnings-forecast-css.mjs';
 import { renderForcedLiquidationCss } from './forced-liquidation-css.mjs';
 import { renderUnifiedSignalCss } from './unified-signal-css.mjs';
@@ -28,6 +29,7 @@ ${renderOwnershipExplorerCss()}
 ${renderRecoveryCss()}
 ${renderHistoricalDataCss()}
 ${renderPartyTrackerCss()}
+${renderSportsCss()}
 ${renderEarningsForecastCss()}
 ${renderForcedLiquidationCss()}
 ${renderUnifiedSignalCss()}
