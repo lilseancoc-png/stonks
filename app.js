@@ -29485,7 +29485,16 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // Owner Sports section (NBA, NFL, Pick Builder): gated /api/auth/me?sports=... only.
   var sports = (function sportsFactory(host, doc, options) {
   const TZ_KEY = 'stonks-sports-tz-v1';
-  const state = { status: null, pending: null, error: null, page: null, bound: {}, leagues: {} };
+  const DRAFT_KEY = 'stonks-sports-draft-v1';
+  const BUILDER = 'sports-pick-builder';
+  const MAX_PICKS = 6;
+  const OPERATOR_NAMES = { prizepicks: 'PrizePicks', betr: 'Betr', other: 'Other app' };
+  const state = { status: null, pending: null, error: null, page: null, bound: {}, leagues: {}, draft: null };
+  const pb = {
+    evaluation: null, evalErr: null, evalSeq: 0, evalTimer: null, saving: false, msg: null, prefill: null,
+    journal: null, journalErr: null, journalAll: false, settleOpen: null, confirmWithdraw: null, revising: null, reviseErr: null,
+    add: { sport: 'nba', query: '', results: null, searchErr: null, playerId: null, player: null, playerErr: null, msg: null },
+  };
   const escape = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
   const leagueOf = (page) => page === 'sports-nba' ? 'nba' : page === 'sports-nfl' ? 'nfl' : null;
   const root = (page) => doc.getElementById(page + '-root');
@@ -29530,18 +29539,21 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
   function zone() { return state.status?.window?.time_zone || savedZone() || 'America/Los_Angeles'; }
 
-  function api(op, params) {
+  // The one request path. A body makes it a POST (Pick Builder); a refused
+  // request carries the server's own short reason as err.detail.
+  function api(op, params, body) {
     let url = '/api/auth/me?sports=' + encodeURIComponent(op);
     Object.keys(params || {}).forEach((k) => { if (params[k] != null && params[k] !== '') url += '&' + k + '=' + encodeURIComponent(params[k]); });
-    return host.fetch(url, { credentials: 'same-origin', cache: 'no-store' }).then((res) => {
-      if (res.status === 401 || res.status === 403) throw Object.assign(new Error('signed-out'), { code: 'auth' });
-      if (res.status === 404) throw Object.assign(new Error('not found'), { code: 'missing' });
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      return res.json();
-    }).then((data) => {
+    const init = { credentials: 'same-origin', cache: 'no-store' };
+    if (body) { init.method = 'POST'; init.headers = { 'Content-Type': 'application/json' }; init.body = JSON.stringify(body); }
+    return host.fetch(url, init).then((res) => res.json().catch(() => null).then((data) => {
+      const reason = data && typeof data.error === 'string' ? data.error : '';
+      if (res.status === 401 || (res.status === 403 && (!body || /unavailable for this session/.test(reason)))) throw Object.assign(new Error('signed-out'), { code: 'auth' });
+      if (res.status === 404 && !body) throw Object.assign(new Error('not found'), { code: 'missing' });
+      if (!res.ok) throw Object.assign(new Error(reason || 'HTTP ' + res.status), { status: res.status, detail: reason });
       if (!data || data.schema_version !== 1) throw new Error('Unexpected Sports response');
       return data;
-    });
+    }));
   }
 
   function fetchStatus(force) {
@@ -29694,6 +29706,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       : '<p class="sp-muted">No games stored for this player.</p>';
     return '<div class="sp-panel" data-sp-panel="player"><div class="sp-panel-head"><h4>' + escape(P.player.name) + ' <span>' + escape([P.player.position, P.player.team ? String(P.player.team).toUpperCase() : null].filter(Boolean).join(' · ')) + '</span></h4>' +
       '<button type="button" class="sp-close" data-sp-close="player" aria-label="Close player">×</button></div>' +
+      '<h5>Add a pick</h5>' + pickFormHtml(lg, P, 'league') +
       '<h5>Averages over ' + num(P.total_games) + ' stored games</h5>' + summary +
       '<h5>Game log' + (P.total_games > P.games.length ? ' (latest ' + P.games.length + ')' : '') + '</h5>' + log +
       '<p class="sp-note">' + (lg === 'nba'
@@ -29717,17 +29730,435 @@ function scenarioEventPhase(ev, now = Date.now()) {
       '<p class="sp-foot">Private research for the two owners. No sportsbook is connected, nothing is placed, and no AI model is called by this page.</p>';
   }
 
+  // ---- Pick Builder: draft ---------------------------------------------------
+  function blankDraft(keep) {
+    return { legs: [], operator: (keep && keep.operator) || 'prizepicks', format: (keep && keep.format) || 'power', stake: keep && keep.stake > 0 ? keep.stake : 10, payouts: {}, note: '' };
+  }
+  function draft() {
+    if (state.draft) return state.draft;
+    let d = null;
+    try { d = JSON.parse(host.sessionStorage.getItem(DRAFT_KEY) || 'null'); } catch (_) {}
+    state.draft = d && Array.isArray(d.legs) ? Object.assign(blankDraft(), d, { legs: d.legs.slice(0, MAX_PICKS), payouts: d.payouts && typeof d.payouts === 'object' ? d.payouts : {} }) : blankDraft();
+    return state.draft;
+  }
+  function saveDraft() {
+    try { host.sessionStorage.setItem(DRAFT_KEY, JSON.stringify(draft())); } catch (_) {}
+  }
+  // A shared link (?entry=...) from Claude or ChatGPT replaces the draft once,
+  // then leaves the address bar. It never carries chances.
+  function applyPrefill() {
+    let raw = null;
+    try { raw = new URLSearchParams(host.location.search).get('entry'); } catch (_) {}
+    if (!raw) return;
+    try {
+      const u = new URL(host.location.href);
+      u.searchParams.delete('entry');
+      host.history.replaceState(host.history.state, '', u.pathname + u.search + u.hash);
+    } catch (_) {}
+    const decoded = options.decodePrefill ? options.decodePrefill(raw) : null;
+    if (!decoded) { pb.prefill = 'bad'; return; }
+    const d = blankDraft(draft());
+    if (decoded.operator) d.operator = decoded.operator;
+    d.format = decoded.format;
+    if (decoded.stake) d.stake = decoded.stake;
+    d.payouts = decoded.payouts;
+    d.legs = decoded.legs.map((l) => Object.assign({}, l, { probability: null, probability_source: null }));
+    state.draft = d;
+    saveDraft();
+    pb.prefill = 'ok'; pb.evaluation = null; pb.msg = null;
+  }
+  function draftBody() {
+    const d = draft(), n = d.legs.length, payouts = {};
+    Object.keys(d.payouts || {}).forEach((k) => {
+      const v = d.payouts[k];
+      if (v === '' || v == null) return;
+      if (d.format === 'power' ? Number(k) === n : Number(k) <= n) payouts[k] = Number(v);
+    });
+    return {
+      legs: d.legs.map((l) => ({ sport: l.sport, player_id: l.player_id, game_id: l.game_id, stat: l.stat, side: l.side, threshold: l.threshold, probability: l.probability, probability_source: l.probability_source })),
+      operator: d.operator, format: d.format, stake: d.stake, payouts, note: d.note,
+    };
+  }
+  function money(v) { return (v < 0 ? '−$' : '$') + Math.abs(v).toFixed(2); }
+  function signedMoney(v) { return (v > 0 ? '+$' : v < 0 ? '−$' : '$') + Math.abs(v).toFixed(2); }
+  function pct(p) { return p == null ? '—' : (p * 100).toFixed(p > 0 && p < 0.1 ? 2 : 1) + '%'; }
+  function joinList(xs) { return xs.length < 2 ? xs.join('') : xs.slice(0, -1).join(', ') + ' and ' + xs[xs.length - 1]; }
+  function sideWord(side) { return side === 'under' ? 'under' : 'over'; }
+  function matchupText(m) { const p = String(m || '').split('@'); return p.length === 2 ? team(p[0]) + ' at ' + team(p[1]) : escape(m || ''); }
+
+  // ---- Pick Builder: adding a pick -------------------------------------------
+  // One form for both places a pick starts: a player on the NBA / NFL page, or
+  // the Pick Builder's own player search. A pick attaches to the team's next
+  // stored game that has not started.
+  function pickFormHtml(sport, P, where) {
+    const g = P.next_game, name = P.player.name;
+    if (!g) return '<p class="sp-muted">No upcoming game is stored for ' + escape(name) + '’s team yet, so a pick cannot be attached.</p>';
+    const stats = ((state.status && state.status.stats[sport]) || []).filter((st) => st.enabled);
+    return '<div class="sp-pickform" data-sp-pickform="' + escape(where) + '">' +
+      '<p class="sp-pick-game">Next game: ' + team(g.away_team) + ' at ' + team(g.home_team) + ' · ' + (g.time_tbd ? escape(fmtDay(g.local_date)) + ', time TBD' : escape(fmtWhen(g.start_utc, zone()))) + '</p>' +
+      '<div class="sp-pick-row">' +
+      '<label class="sp-field"><span>Stat</span><select name="stat">' + stats.map((st) => '<option value="' + escape(st.id) + '">' + escape(st.label) + '</option>').join('') + '</select></label>' +
+      '<label class="sp-field"><span>Side</span><select name="side"><option value="over">Over</option><option value="under">Under</option></select></label>' +
+      '<label class="sp-field sp-line-field"><span>Line</span><input name="line" type="number" min="0" max="1000" step="0.5" inputmode="decimal" placeholder="24.5"></label>' +
+      '<button type="button" class="sp-btn" data-sp-addpick>' + (where === 'league' ? 'Add to Pick Builder' : 'Add to entry') + '</button></div>' +
+      '<p class="sp-pick-msg" data-sp-pick-msg aria-live="polite"></p></div>';
+  }
+  function addPickFrom(form, P, sport) {
+    const msg = form.querySelector('[data-sp-pick-msg]');
+    const say = (html, bad) => { if (msg) { msg.innerHTML = html; msg.className = 'sp-pick-msg' + (bad ? ' sp-bad' : ''); } };
+    const g = P && P.next_game;
+    if (!g) return false;
+    const stat = form.querySelector('[name="stat"]').value, side = form.querySelector('[name="side"]').value;
+    const lineRaw = form.querySelector('[name="line"]').value, line = Number(lineRaw);
+    if (lineRaw === '' || !Number.isFinite(line) || line < 0 || line > 1000 || Math.round(line * 2) !== line * 2) { say('Enter the line as a whole or half number, like 24.5.', true); return false; }
+    const d = draft();
+    if (d.legs.length >= MAX_PICKS) { say('An entry has at most 6 picks.', true); return false; }
+    const clash = d.legs.find((l) => l.sport === sport && l.player_id === P.player.player_id && l.stat === stat);
+    if (clash) { say('That player and stat is already in the entry.', true); return false; }
+    d.legs.push({
+      sport, player_id: P.player.player_id, player_name: P.player.name, team: P.player.team || null,
+      game_id: g.game_id, matchup: g.away_team + '@' + g.home_team, game_start_utc: g.start_utc,
+      stat, side, threshold: line, probability: null, probability_source: null,
+    });
+    d.payouts = {};
+    saveDraft();
+    form.querySelector('[name="line"]').value = '';
+    const n = d.legs.length;
+    say(where(form) === 'league'
+      ? 'Added. The entry has ' + n + ' pick' + (n === 1 ? '' : 's') + '. <button type="button" class="sp-link" data-sp-goto="' + BUILDER + '">Open Pick Builder</button>'
+      : 'Added as pick ' + n + '.');
+    return true;
+  }
+  function where(form) { return form.getAttribute('data-sp-pickform'); }
+
+  function addHtml() {
+    const A = pb.add;
+    return '<div class="sp-add"><div class="sp-add-row">' +
+      '<label class="sp-field"><span>League</span><select data-sp-add-sport><option value="nba"' + (A.sport === 'nba' ? ' selected' : '') + '>NBA</option><option value="nfl"' + (A.sport === 'nfl' ? ' selected' : '') + '>NFL</option></select></label>' +
+      '<label class="sp-find"><span>Player</span><input type="search" data-sp-add-search autocomplete="off" spellcheck="false" placeholder="Name, at least 2 letters" value="' + escape(A.query) + '"></label></div>' +
+      '<div data-sp-part="add-results" aria-live="polite">' + addResultsHtml() + '</div>' +
+      '<div data-sp-part="add-form">' + addFormHtml() + '</div></div>';
+  }
+  function addResultsHtml() {
+    const A = pb.add;
+    if (A.searchErr) return errorBox(A.searchErr, 'add-search');
+    if (!A.results) return '';
+    if (!A.results.players.length) return '<p class="sp-muted">No stored player matches “' + escape(A.query) + '”.</p>';
+    return '<ul class="sp-results">' + A.results.players.map((p) =>
+      '<li><button type="button" class="sp-link" data-sp-add-player="' + escape(p.player_id) + '">' + escape(p.name) + '</button> <span class="sp-muted">' +
+      escape([p.position, p.team ? String(p.team).toUpperCase() : null].filter(Boolean).join(' · ')) + '</span></li>').join('') + '</ul>';
+  }
+  function addFormHtml() {
+    const A = pb.add;
+    if (!A.playerId) return '';
+    if (A.playerErr) return errorBox(A.playerErr, 'add-player');
+    if (!A.player) return '<p class="sp-loading">Loading player…</p>';
+    return '<div class="sp-add-pick"><h4>' + escape(A.player.player.name) + ' <span>' + escape([A.player.player.position, A.player.player.team ? String(A.player.player.team).toUpperCase() : null].filter(Boolean).join(' · ')) + '</span></h4>' +
+      pickFormHtml(A.sport, A.player, 'builder') + '</div>';
+  }
+  let addTimer = null;
+  function addSearch(q) {
+    const A = pb.add;
+    A.query = q;
+    host.clearTimeout(addTimer);
+    if (q.trim().length < 2) { A.results = null; A.searchErr = null; paint(BUILDER, 'add-results', ''); return; }
+    const sport = A.sport;
+    addTimer = host.setTimeout(() => {
+      api('players', { sport, q }).then((data) => { if (A.query === q && A.sport === sport) { A.results = data; A.searchErr = null; } }, (err) => { if (A.query === q) A.searchErr = err; })
+        .then(() => { if (state.page === BUILDER && A.query === q) paint(BUILDER, 'add-results', addResultsHtml()); });
+    }, 250);
+  }
+  function addOpenPlayer(id) {
+    const A = pb.add, sport = A.sport;
+    A.playerId = id; A.player = null; A.playerErr = null; A.results = null;
+    paint(BUILDER, 'add-results', ''); paint(BUILDER, 'add-form', addFormHtml());
+    api('player', { sport, id }).then((data) => { if (A.playerId === id) A.player = data; }, (err) => { if (A.playerId === id) A.playerErr = err; })
+      .then(() => { if (state.page === BUILDER && A.playerId === id) paint(BUILDER, 'add-form', addFormHtml()); });
+  }
+
+  // ---- Pick Builder: the entry ---------------------------------------------------
+  function evalLeg(i) {
+    const ev = pb.evaluation, l = draft().legs[i], e = ev && ev.legs && ev.legs[i];
+    return e && l && e.player_id === l.player_id && e.game_id === l.game_id && e.stat === l.stat && e.side === l.side && Number(e.threshold) === Number(l.threshold) ? e : null;
+  }
+  // A history rate can be copied only from 5+ games and only when it is not
+  // 0% or 100%: a tiny or one-sided sample is shown, never offered as a chance.
+  const MIN_RATE_GAMES = 5;
+  function rateOf(c) {
+    if (!c || c.games < MIN_RATE_GAMES || c.hits === 0 || c.hits === c.games) return null;
+    return Math.min(99, Math.max(1, Math.round((c.hits / c.games) * 100)));
+  }
+  function histHtml(i) {
+    const e = evalLeg(i);
+    if (!e) return pb.evalErr ? '' : '<span class="sp-muted">Checking history…</span>';
+    const h = e.history;
+    if (!h.all.games) return '<span class="sp-muted">No stored games before this one.</span>';
+    const c = (name, x) => name + ' <b>' + x.hits + '/' + x.games + '</b>';
+    const pushes = h.all.pushes ? ' <span class="sp-muted">(' + h.all.pushes + ' push' + (h.all.pushes === 1 ? '' : 'es') + ')</span>' : '';
+    const use = (key, name) => { const r = rateOf(h[key]); return r == null ? '' : '<button type="button" class="sp-chip" data-sp-usehist="' + i + '" data-rate="' + r + '">Use ' + r + '% (' + name + ')</button>'; };
+    const uses = use('last10', 'last 10') + use('all', 'all stored');
+    return '<span class="sp-hist-line">Cleared ' + sideWord(e.side) + ' ' + escape(e.threshold) + ' before this game: ' + c('last 5', h.last5) + ' · ' + c('last 10', h.last10) + ' · ' + c('all stored', h.all) + pushes + '</span>' +
+      (uses ? '<span class="sp-hist-use">' + uses + '</span>' : h.all.games < MIN_RATE_GAMES ? '<span class="sp-muted">Too few games to copy a rate.</span>' : '');
+  }
+  function legHtml(l, i) {
+    const nameShown = l.player_name || l.player_id;
+    return '<li class="sp-leg" data-sp-leg="' + i + '"><div class="sp-leg-head"><span class="sp-leg-name"><i>' + (i + 1) + '</i>' + escape(nameShown) +
+      (l.team ? ' <span>' + team(l.team) + '</span>' : '') + '</span>' +
+      '<button type="button" class="sp-close" data-sp-remove="' + i + '" aria-label="Remove pick ' + (i + 1) + '">×</button></div>' +
+      '<p class="sp-leg-game">' + escape(String(l.sport).toUpperCase()) + ' · ' + (l.matchup ? matchupText(l.matchup) : 'game ' + escape(l.game_id)) + (l.game_start_utc ? ' · ' + escape(fmtWhen(l.game_start_utc, zone())) : '') + '</p>' +
+      '<div class="sp-leg-line"><span class="sp-leg-stat">' + escape(label(l.stat)) + '</span>' +
+      '<select data-sp-leg-side aria-label="Over or under for pick ' + (i + 1) + '"><option value="over"' + (l.side === 'over' ? ' selected' : '') + '>Over</option><option value="under"' + (l.side === 'under' ? ' selected' : '') + '>Under</option></select>' +
+      '<input data-sp-leg-line type="number" min="0" max="1000" step="0.5" inputmode="decimal" value="' + escape(l.threshold) + '" aria-label="Line for pick ' + (i + 1) + '">' +
+      '<label class="sp-chance"><span>Your chance</span><input data-sp-leg-chance type="number" min="1" max="99" step="1" inputmode="numeric" value="' + (l.probability != null ? Math.round(l.probability * 100) : '') + '" aria-label="Your chance for pick ' + (i + 1) + ', percent"><i>%</i></label>' +
+      '<span class="sp-src" data-sp-src>' + (l.probability_source === 'history' ? 'from history' : l.probability != null ? 'typed' : '') + '</span></div>' +
+      '<div class="sp-hist" data-sp-hist="' + i + '">' + histHtml(i) + '</div></li>';
+  }
+  function legsHtml() {
+    const d = draft();
+    const banner = pb.prefill === 'ok' ? '<p class="sp-banner">Filled in from a shared link. Check every pick, line and payout against your app before saving.</p>'
+      : pb.prefill === 'bad' ? '<p class="sp-banner sp-bad">The shared link could not be read, so nothing was filled in.</p>' : '';
+    if (!d.legs.length) return banner + emptyBox('No picks yet.', 'Add 1 to 6 picks below, or from a player on the NBA and NFL pages.');
+    return banner + '<ol class="sp-legs">' + d.legs.map(legHtml).join('') + '</ol>' +
+      '<p class="sp-note">History rates show how often the player cleared this line in stored games. They ignore minutes, opponent and role, so they are a starting point, not a forecast. The chance you enter is yours.</p>';
+  }
+  function settingsHtml() {
+    const d = draft();
+    const opt = (v, text, cur) => '<option value="' + v + '"' + (v === cur ? ' selected' : '') + '>' + text + '</option>';
+    return '<div class="sp-settings">' +
+      '<label class="sp-field"><span>App</span><select data-sp-operator>' + Object.keys(OPERATOR_NAMES).map((k) => opt(k, OPERATOR_NAMES[k], d.operator)).join('') + '</select></label>' +
+      '<label class="sp-field"><span>Entry type</span><select data-sp-format>' + opt('power', 'Power: every pick must hit', d.format) + opt('flex', 'Flex: pays with some misses', d.format) + '</select></label>' +
+      '<label class="sp-field"><span>Paper stake</span><span class="sp-money"><i>$</i><input data-sp-stake type="number" min="0.01" max="100000" step="0.01" inputmode="decimal" value="' + escape(d.stake) + '"></span></label></div>';
+  }
+  function payoutsHtml() {
+    const d = draft(), n = d.legs.length;
+    if (!n) return '';
+    const ks = d.format === 'power' ? [n] : [n, n - 1, n - 2].filter((k) => k >= 1);
+    return '<div class="sp-payouts"><p class="sp-label">Payout from your app</p><div class="sp-payout-row">' + ks.map((k) =>
+      '<label class="sp-field"><span>' + (n === 1 ? 'Pick hits' : k === n ? 'All ' + n + ' hit' : k + ' of ' + n + ' hit') + '</span><span class="sp-money"><input data-sp-payout="' + k + '" type="number" min="0" max="100000" step="0.01" inputmode="decimal" value="' + escape(d.payouts[k] ?? '') + '"><i>×</i></span></label>').join('') + '</div>' +
+      '<p class="sp-note">Type the multiplier your app shows for this exact entry, stake included (3× on $10 pays back $30).' + (d.format === 'flex' ? ' Leave a row empty if it pays nothing.' : '') + ' Payouts clear when the picks or entry type change.</p></div>';
+  }
+  function evalHtml() {
+    const d = draft();
+    if (!d.legs.length) return '';
+    if (pb.evalErr) {
+      const text = pb.evalErr.code === 'auth' ? 'Your Owner session has ended.' : pb.evalErr.detail || 'The entry could not be checked.';
+      return '<div class="sp-eval sp-eval-bad"><b>' + escape(text) + '</b>' + (pb.evalErr.detail ? '' : ' <button type="button" class="sp-retry" data-sp-retry="evaluate">Try again</button>') + '</div>';
+    }
+    const ev = pb.evaluation;
+    if (!ev) return '<div class="sp-eval"><p class="sp-muted">Checking the entry…</p></div>';
+    const E = ev.evaluation, n = ev.legs.length, warn = [];
+    ev.warnings.forEach((w) => warn.push(escape(w) + '.'));
+    if (ev.locked) warn.push('A game in this entry has started. Paper picks are saved before the games.');
+    ev.same_game.forEach((g) => warn.push('Picks ' + joinList(g.legs.map((i) => String(i + 1))) + ' are from the same game. Their results move together, so the site does not calculate a chance of all of them hitting.'));
+    const be = E.breakeven_probability != null ? '<p>Breakeven: all ' + n + ' must hit together at least <b>' + pct(E.breakeven_probability) + '</b> of the time to pay back the stake on average.</p>' : '';
+    let body = '';
+    if (E.status === 'needs_payout') {
+      const first = String(E.problems[0] || '');
+      body = '<p><b>' + escape(first.charAt(0).toUpperCase() + first.slice(1)) + '.</b></p>' + be;
+    } else if (E.status === 'not_calculated') {
+      body = be + '<p class="sp-muted">Picks from one game need a model of how they move together. That comes in a later update.</p>';
+    } else if (E.status === 'needs_probabilities') {
+      body = be + '<p class="sp-muted">Enter your chance for every pick to see the expected value.</p>';
+    } else {
+      const tile = (name, value, sub) => '<div class="sp-tile"><span>' + name + '</span><b>' + value + '</b>' + (sub ? '<i>' + sub + '</i>' : '') + '</div>';
+      const tiles = [
+        tile('All ' + n + ' hit', pct(E.joint_probability), 'if the picks are independent'),
+        tile('Possible range', pct(E.bounds.low) + ' – ' + pct(E.bounds.high), 'under any link between picks'),
+        E.breakeven_probability != null ? tile('Breakeven', pct(E.breakeven_probability), 'all ' + n + ' hit') : '',
+        tile('Expected back', money(E.expected_gross), 'on ' + money(ev.stake) + ' paper'),
+        tile('Expected profit', '<span class="' + (E.expected_net > 0 ? 'sp-pos' : E.expected_net < 0 ? 'sp-neg' : '') + '">' + signedMoney(E.expected_net) + '</span>', (E.expected_roi > 0 ? '+' : '') + (E.expected_roi * 100).toFixed(1) + '% return'),
+      ].join('');
+      const dist = ev.format === 'flex' ? '<p class="sp-dist">Chance of each result: ' + E.distribution.map((p, k) => ({ p, k })).reverse().map((x) => x.k + ' hit ' + pct(x.p)).join(' · ') + '</p>' : '';
+      const fromHistory = ev.legs.some((l) => l.probability_source === 'history');
+      body = '<div class="sp-tiles">' + tiles + '</div>' + dist +
+        '<p class="sp-note">Independence baseline: it assumes no pick affects another, using the chances entered above' + (fromHistory ? ' (some copied from history rates)' : '') + '. A starting point, not a forecast.</p>';
+    }
+    return '<div class="sp-eval">' + (warn.length ? '<ul class="sp-warn">' + warn.map((w) => '<li>' + w + '</li>').join('') + '</ul>' : '') + body + '</div>';
+  }
+  function canSave() {
+    const ev = pb.evaluation;
+    return !pb.saving && draft().legs.length > 0 && !!ev && !pb.evalErr && ev.evaluation.status !== 'needs_payout' && !ev.locked;
+  }
+  function saveHtml() {
+    const d = draft();
+    return '<div class="sp-save"' + (d.legs.length ? '' : ' hidden') + '><label class="sp-field sp-note-field"><span>Note (optional)</span><input data-sp-note maxlength="500" value="' + escape(d.note) + '" placeholder="Why this entry"></label>' +
+      '<div class="sp-save-row"><button type="button" class="sp-btn sp-btn-primary" data-sp-save' + (canSave() ? '' : ' disabled') + '>' + (pb.saving ? 'Saving…' : 'Save paper pick') + '</button>' +
+      '<button type="button" class="sp-btn" data-sp-clear>Clear entry</button></div></div>';
+  }
+  function saveMsgHtml() {
+    return pb.msg ? '<p class="sp-pick-msg' + (pb.msg.ok ? '' : ' sp-bad') + '">' + escape(pb.msg.text) + '</p>' : '';
+  }
+  function paintEntry() {
+    paint(BUILDER, 'legs', legsHtml());
+    paint(BUILDER, 'payouts', payoutsHtml());
+    paint(BUILDER, 'eval', evalHtml());
+    paint(BUILDER, 'save', saveHtml());
+    paint(BUILDER, 'save-msg', saveMsgHtml());
+  }
+  // After a check: refresh the parts that do not hold the cursor. The picks
+  // list is repainted only when a pick from a shared link gets its name.
+  function paintChecked(namesFilled) {
+    if (namesFilled) paint(BUILDER, 'legs', legsHtml());
+    else draft().legs.forEach((_, i) => { const el = root(BUILDER)?.querySelector('[data-sp-hist="' + i + '"]'); if (el) el.innerHTML = histHtml(i); });
+    paint(BUILDER, 'eval', evalHtml());
+    const btn = root(BUILDER)?.querySelector('[data-sp-save]');
+    if (btn) btn.disabled = !canSave();
+  }
+  function scheduleEval(delay) {
+    host.clearTimeout(pb.evalTimer);
+    pb.evaluation = null;
+    const btn = root(BUILDER)?.querySelector('[data-sp-save]');
+    if (btn) btn.disabled = true;
+    pb.evalTimer = host.setTimeout(runEval, delay == null ? 350 : delay);
+  }
+  function runEval() {
+    const d = draft(), seq = ++pb.evalSeq;
+    pb.evalErr = null;
+    if (!d.legs.length) { pb.evaluation = null; if (state.page === BUILDER) paintChecked(false); return; }
+    api('evaluate', null, draftBody()).then((data) => {
+      if (seq !== pb.evalSeq) return;
+      pb.evaluation = data;
+      let filled = false;
+      data.legs.forEach((e, i) => {
+        const l = d.legs[i];
+        if (l && l.player_id === e.player_id && l.game_id === e.game_id && !l.player_name) {
+          Object.assign(l, { player_name: e.player_name, team: e.team, matchup: e.matchup, game_start_utc: e.game_start_utc });
+          filled = true;
+        }
+      });
+      if (filled) saveDraft();
+      if (state.page === BUILDER) paintChecked(filled);
+    }, (err) => {
+      if (seq !== pb.evalSeq) return;
+      pb.evaluation = null; pb.evalErr = err;
+      if (state.page === BUILDER) paintChecked(false);
+    });
+  }
+  function saveEntry() {
+    if (!canSave()) return;
+    pb.saving = true; pb.msg = null;
+    paint(BUILDER, 'save', saveHtml()); paint(BUILDER, 'save-msg', '');
+    api('save-entry', null, draftBody()).then(() => {
+      state.draft = blankDraft(draft());
+      saveDraft();
+      pb.evaluation = null; pb.prefill = null;
+      pb.msg = { ok: true, text: 'Saved to the paper journal. It is graded from the final stats after the games.' };
+      loadJournal();
+    }, (err) => {
+      pb.msg = { ok: false, text: err.code === 'auth' ? 'Your Owner session has ended. Sign in again, then save.' : err.detail || 'The entry could not be saved. Try again.' };
+    }).then(() => {
+      pb.saving = false;
+      if (state.page === BUILDER) paintEntry();
+    });
+  }
+
+  // ---- Pick Builder: paper journal ------------------------------------------------
+  const RESULT_TEXT = { win: 'Hit', loss: 'Missed', push: 'Push', void: 'Void' };
+  const OUTCOME_TEXT = { win: 'Won', loss: 'Lost', partial: 'Partly paid', refund: 'Stake back' };
+  function payoutText(e) {
+    const n = e.legs.length;
+    const keys = Object.keys(e.payouts).map(Number).sort((a, b) => b - a);
+    return keys.map((k) => escape(e.payouts[k]) + '× ' + (k === n ? (n === 1 ? 'if it hits' : 'all ' + n + ' hit') : k + ' of ' + n)).join(' · ');
+  }
+  function legResultHtml(l) {
+    if (l.result) {
+      const actual = l.actual != null ? ' · ' + escape(l.actual) : '';
+      const why = l.result === 'void' ? (l.game_status === 'final' ? ' · did not play' : ' · game ' + escape(l.game_status)) : '';
+      return '<span class="sp-res sp-res-' + escape(l.result) + '">' + RESULT_TEXT[l.result] + actual + why + '</span>';
+    }
+    const started = Date.parse(l.game_start_utc) <= Date.now();
+    return '<span class="sp-res">' + (started ? (l.sport === 'nfl' && l.game_status === 'final' ? 'No stat in the final file' : 'Waiting for the final stats') : 'Not started') + '</span>';
+  }
+  function badgeHtml(st) {
+    if (st.state === 'settled') return '<span class="sp-badge sp-badge-' + escape(st.outcome) + '">' + escape(OUTCOME_TEXT[st.outcome] || st.outcome) + '</span>';
+    const text = { pending: 'Open', review: 'Needs your payout', withdrawn: 'Withdrawn' }[st.state] || st.state;
+    return '<span class="sp-badge sp-badge-' + escape(st.state) + '">' + escape(text) + '</span>';
+  }
+  function savedEvalText(E) {
+    if (!E) return '';
+    if (E.status === 'independence_baseline') return 'At save: ' + pct(E.joint_probability) + ' all hit (independence baseline), expected ' + signedMoney(E.expected_net) + '.';
+    if (E.status === 'not_calculated') return 'At save: same-game picks, not priced.';
+    if (E.status === 'needs_probabilities') return 'At save: no chances entered' + (E.breakeven_probability != null ? '; breakeven ' + pct(E.breakeven_probability) : '') + '.';
+    return '';
+  }
+  function entryActionsHtml(e) {
+    const id = e.entry_id, acts = e.actions || [], busy = pb.revising === id;
+    let out = '';
+    if (acts.indexOf('settle') >= 0) {
+      out += pb.settleOpen === id
+        ? '<div class="sp-settle"><label class="sp-field"><span>The app paid back</span><span class="sp-money"><i>$</i><input data-sp-settle-gross type="number" min="0" step="0.01" inputmode="decimal"></span></label>' +
+          '<label class="sp-field"><span>Note (optional)</span><input data-sp-settle-note maxlength="300"></label>' +
+          '<button type="button" class="sp-btn sp-btn-primary" data-sp-settle-save="' + escape(id) + '"' + (busy ? ' disabled' : '') + '>Save payout</button><button type="button" class="sp-btn" data-sp-settle-cancel>Cancel</button></div>'
+        : '<button type="button" class="sp-btn" data-sp-settle="' + escape(id) + '">' + (e.settlement.manual ? 'Correct the payout' : 'Enter what the app paid') + '</button>';
+    }
+    if (acts.indexOf('withdraw') >= 0) {
+      out += pb.confirmWithdraw === id
+        ? '<span class="sp-confirm">Withdraw this entry? <button type="button" class="sp-btn" data-sp-withdraw-yes="' + escape(id) + '"' + (busy ? ' disabled' : '') + '>Withdraw</button><button type="button" class="sp-btn" data-sp-withdraw-no>Keep it</button></span>'
+        : '<button type="button" class="sp-btn" data-sp-withdraw="' + escape(id) + '">Withdraw (saved by mistake)</button>';
+    }
+    const err = pb.reviseErr && pb.reviseErr.id === id ? '<p class="sp-pick-msg sp-bad">' + escape(pb.reviseErr.text) + '</p>' : '';
+    return out || err ? '<div class="sp-entry-actions">' + out + '</div>' + err : '';
+  }
+  function entryCardHtml(e) {
+    const st = e.settlement;
+    const legs = e.legs.map((l) => '<li><span>' + escape(l.player_name || l.player_id) + ' · ' + escape(label(l.stat)) + ' ' + sideWord(l.side) + ' ' + escape(l.threshold) +
+      ' <span class="sp-muted">' + matchupText(l.matchup) + '</span></span>' + legResultHtml(l) + '</li>').join('');
+    const money2 = st.state === 'settled' ? '<p class="sp-entry-money">Paid back ' + money(st.gross) + ' · <b class="' + (st.net > 0 ? 'sp-pos' : st.net < 0 ? 'sp-neg' : '') + '">' + signedMoney(st.net) + '</b>' + (st.manual ? ' <span class="sp-muted">entered by hand' + (st.note ? ': ' + escape(st.note) : '') + '</span>' : '') + '</p>'
+      : st.state === 'review' ? '<p class="sp-entry-money">' + escape(st.reason || 'Enter what the app paid.') + '</p>' : '';
+    return '<li class="sp-entry' + (st.state === 'withdrawn' ? ' is-withdrawn' : '') + '" data-sp-entry="' + escape(e.entry_id) + '"><div class="sp-entry-head"><span>' + escape(fmtWhen(e.created_utc, zone())) + ' · ' + escape(OPERATOR_NAMES[e.operator] || e.operator) + ' · ' + (e.format === 'flex' ? 'Flex' : 'Power') + ' · ' + money(e.stake) + ' paper</span>' + badgeHtml(st) + '</div>' +
+      '<p class="sp-entry-pay">' + payoutText(e) + '</p><ul class="sp-entry-legs">' + legs + '</ul>' + money2 +
+      (savedEvalText(e.evaluation) ? '<p class="sp-note">' + escape(savedEvalText(e.evaluation)) + '</p>' : '') +
+      (e.note ? '<p class="sp-entry-note">' + escape(e.note) + '</p>' : '') +
+      (e.mine ? '' : '<p class="sp-muted">Saved by the other owner.</p>') + entryActionsHtml(e) + '</li>';
+  }
+  function journalHtml() {
+    if (pb.journalErr) return errorBox(pb.journalErr, 'journal');
+    if (!pb.journal) return '<p class="sp-loading">Loading the journal…</p>';
+    const J = pb.journal, S = J.summary;
+    if (!J.entries.length) return emptyBox('No paper picks saved yet.', 'Saved entries are graded here from the final stats.');
+    const tile = (name, value, sub) => '<div class="sp-tile"><span>' + name + '</span><b>' + value + '</b>' + (sub ? '<i>' + sub + '</i>' : '') + '</div>';
+    const tiles = '<div class="sp-tiles">' +
+      tile('Entries', escape(S.entries), S.pending + ' open' + (S.review ? ', ' + S.review + ' need a payout' : '')) +
+      tile('Settled', escape(S.settled), S.wins + ' won') +
+      tile('Paper profit', '<span class="' + (S.net > 0 ? 'sp-pos' : S.net < 0 ? 'sp-neg' : '') + '">' + signedMoney(S.net) + '</span>', S.roi == null ? 'nothing settled yet' : (S.roi > 0 ? '+' : '') + (S.roi * 100).toFixed(1) + '% on ' + money(S.staked)) +
+      (S.priced_settled ? tile('Expected at save', signedMoney(S.expected_net_settled), 'on the ' + S.priced_settled + ' settled entr' + (S.priced_settled === 1 ? 'y' : 'ies') + ' with chances') : '') + '</div>';
+    const shown = pb.journalAll ? J.entries : J.entries.slice(0, 30);
+    return tiles + '<ul class="sp-entries">' + shown.map(entryCardHtml).join('') + '</ul>' +
+      (shown.length < J.entries.length ? '<button type="button" class="sp-btn" data-sp-journal-all>Show all ' + J.entries.length + ' entries</button>' : '');
+  }
+  function loadJournal() {
+    pb.journalErr = null;
+    api('journal').then((data) => { pb.journal = data; }, (err) => { pb.journalErr = err; })
+      .then(() => { if (state.page === BUILDER) paint(BUILDER, 'journal', journalHtml()); });
+  }
+  function revise(body) {
+    pb.revising = body.entry_id; pb.reviseErr = null;
+    paint(BUILDER, 'journal', journalHtml());
+    api('revise-entry', null, body).then(() => {
+      pb.settleOpen = null; pb.confirmWithdraw = null;
+      loadJournal();
+    }, (err) => {
+      pb.reviseErr = { id: body.entry_id, text: err.code === 'auth' ? 'Your Owner session has ended.' : err.detail || 'That could not be saved. Try again.' };
+    }).then(() => { pb.revising = null; if (state.page === BUILDER) paint(BUILDER, 'journal', journalHtml()); });
+  }
+
   function builderHtml(s) {
     const steps = [
-      ['Add picks', 'Add 1 to 6 player picks from the NBA and NFL pages, or type them in: player, stat, over or under, and the line.'],
-      ['Enter the payout', 'Type the payout your app shows for this exact entry (power or flex). The site never guesses a payout from the number of picks.'],
-      ['See the odds', 'Each pick gets a chance of hitting from the player’s history. Picks from the same game are flagged, because they move together.'],
-      ['Save a paper pick', 'Save the entry before the games start. After the games it is graded from the final stats, and the journal keeps your record.'],
-      ['Screenshots', 'Send a slip screenshot to Claude or ChatGPT; it reads the picks and opens this page with them filled in for you to check and save.'],
+      ['Add picks', 'Add 1 to 6 player picks here or from a player on the NBA and NFL pages: stat, over or under, and the line.'],
+      ['Enter the payout', 'Type the payout your app shows for this exact entry, power or flex. The site never guesses one.'],
+      ['Check the odds', 'Each pick shows how often the player cleared the line before. Enter your own chance to see the expected value; picks from one game are flagged.'],
+      ['Save a paper pick', 'Save before the games start. The journal grades it from the final stats.'],
+      ['Screenshots', 'Send a slip screenshot to Claude or ChatGPT; it can open this page with the picks filled in for you to check and save.'],
     ];
-    return dayStrip(s) + '<ol class="sp-steps">' + steps.map((st) => '<li><b>' + escape(st[0]) + '</b><span>' + escape(st[1]) + '</span></li>').join('') + '</ol>' +
-      '<div class="sp-empty"><b>The Pick Builder arrives in a later update.</b><p>This page is reserved for it now so the section, its access and its storage are in place first.</p></div>' +
-      '<p class="sp-foot">Paper picks only. No sportsbook login, no API and no automatic bets.</p>';
+    return dayStrip(s) + '<div class="sp-grid"><div class="sp-board">' +
+      '<h3>Add a pick</h3><div data-sp-part="add">' + addHtml() + '</div>' +
+      '<h3 class="sp-gap">Entry</h3><div data-sp-part="legs">' + legsHtml() + '</div>' + settingsHtml() +
+      '<div data-sp-part="payouts">' + payoutsHtml() + '</div>' +
+      '<div data-sp-part="eval" aria-live="polite">' + evalHtml() + '</div>' +
+      '<div data-sp-part="save">' + saveHtml() + '</div><div data-sp-part="save-msg" aria-live="polite">' + saveMsgHtml() + '</div></div>' +
+      '<aside class="sp-side"><h3>How it works</h3><ol class="sp-steps">' + steps.map((st) => '<li><b>' + escape(st[0]) + '</b><span>' + escape(st[1]) + '</span></li>').join('') + '</ol></aside></div>' +
+      '<section class="sp-journal"><h3>Paper journal</h3><div data-sp-part="journal" aria-live="polite">' + journalHtml() + '</div></section>' +
+      '<p class="sp-foot">Paper picks only. No sportsbook login, no API, no automatic bets and no AI model is called by this page.</p>';
   }
 
   function paint(page, name, html) {
@@ -29789,19 +30220,53 @@ function scenarioEventPhase(ev, now = Date.now()) {
     state.bound[page] = true;
     const lg = leagueOf(page);
     el.addEventListener('change', (event) => {
-      const sel = event.target.closest('[data-sp-zone]');
-      if (!sel) return;
-      saveZone(sel.value);
-      state.status = null;
-      Object.keys(state.leagues).forEach((k) => { state.leagues[k].board = null; });
-      load(page, true);
+      const t = event.target;
+      if (t.closest('[data-sp-zone]')) {
+        saveZone(t.value);
+        state.status = null;
+        Object.keys(state.leagues).forEach((k) => { state.leagues[k].board = null; });
+        load(page, true);
+        return;
+      }
+      if (page !== BUILDER) return;
+      const d = draft();
+      const legEl = t.closest('[data-sp-leg]');
+      if (t.matches('[data-sp-leg-side]') && legEl) {
+        const l = d.legs[Number(legEl.getAttribute('data-sp-leg'))];
+        if (l) { l.side = t.value; clearChance(legEl, l); saveDraft(); scheduleEval(); }
+      } else if (t.matches('[data-sp-operator]')) { d.operator = t.value; saveDraft(); scheduleEval(); }
+      else if (t.matches('[data-sp-format]')) { d.format = t.value; d.payouts = {}; saveDraft(); paint(BUILDER, 'payouts', payoutsHtml()); scheduleEval(); }
+      else if (t.matches('[data-sp-add-sport]')) {
+        const A = pb.add;
+        A.sport = t.value; A.results = null; A.playerId = null; A.player = null;
+        paint(BUILDER, 'add-results', ''); paint(BUILDER, 'add-form', '');
+        if (A.query.trim().length >= 2) addSearch(A.query);
+      }
     });
     el.addEventListener('input', (event) => {
-      const box = event.target.closest('[data-sp-search]');
-      if (box && lg) search(page, lg, box.value);
+      const t = event.target;
+      const box = t.closest('[data-sp-search]');
+      if (box && lg) { search(page, lg, box.value); return; }
+      if (page !== BUILDER) return;
+      const d = draft();
+      const legEl = t.closest('[data-sp-leg]');
+      const l = legEl ? d.legs[Number(legEl.getAttribute('data-sp-leg'))] : null;
+      if (t.matches('[data-sp-add-search]')) addSearch(t.value);
+      else if (t.matches('[data-sp-leg-line]') && l) { l.threshold = t.value === '' ? '' : Number(t.value); clearChance(legEl, l); saveDraft(); scheduleEval(); }
+      else if (t.matches('[data-sp-leg-chance]') && l) {
+        const v = Number(t.value);
+        l.probability = t.value !== '' && v >= 1 && v <= 99 ? Math.round(v) / 100 : null;
+        l.probability_source = l.probability == null ? null : 'owner';
+        const src = legEl.querySelector('[data-sp-src]');
+        if (src) src.textContent = l.probability == null ? '' : 'typed';
+        saveDraft(); scheduleEval();
+      } else if (t.matches('[data-sp-stake]')) { d.stake = t.value === '' ? null : Number(t.value); saveDraft(); scheduleEval(); }
+      else if (t.matches('[data-sp-payout]')) { d.payouts[t.getAttribute('data-sp-payout')] = t.value === '' ? '' : Number(t.value); saveDraft(); scheduleEval(); }
+      else if (t.matches('[data-sp-note]')) { d.note = t.value; saveDraft(); }
     });
     el.addEventListener('click', (event) => {
-      const retry = event.target.closest('[data-sp-retry]');
+      const t = event.target;
+      const retry = t.closest('[data-sp-retry]');
       if (retry) {
         const what = retry.getAttribute('data-sp-retry');
         const L = lg ? league(lg) : null;
@@ -29809,14 +30274,32 @@ function scenarioEventPhase(ev, now = Date.now()) {
         else if (what === 'game' && L) openGame(page, lg, L.gameId);
         else if (what === 'player' && L) openPlayer(page, lg, L.playerId);
         else if (what === 'search' && L) search(page, lg, L.query);
+        else if (what === 'journal') { paint(BUILDER, 'journal', '<p class="sp-loading">Loading the journal…</p>'); loadJournal(); }
+        else if (what === 'evaluate') scheduleEval(0);
+        else if (what === 'add-search') addSearch(pb.add.query);
+        else if (what === 'add-player') addOpenPlayer(pb.add.playerId);
         else load(page, true);
         return;
       }
-      const game = event.target.closest('[data-sp-game]');
+      const goto = t.closest('[data-sp-goto]');
+      if (goto) { if (options.go) options.go(goto.getAttribute('data-sp-goto')); return; }
+      const addBtn = t.closest('[data-sp-addpick]');
+      if (addBtn) {
+        const form = addBtn.closest('[data-sp-pickform]');
+        const fromBuilder = where(form) === 'builder';
+        const P = fromBuilder ? pb.add.player : lg && league(lg).player;
+        if (form && P && addPickFrom(form, P, fromBuilder ? pb.add.sport : lg) && fromBuilder) {
+          pb.msg = null; pb.prefill = null;
+          paintEntry(); scheduleEval(0);
+        }
+        return;
+      }
+      if (page === BUILDER) { builderClick(t); return; }
+      const game = t.closest('[data-sp-game]');
       if (game && lg) { openGame(page, lg, game.getAttribute('data-sp-game')); return; }
-      const player = event.target.closest('[data-sp-player]');
+      const player = t.closest('[data-sp-player]');
       if (player && lg) { openPlayer(page, lg, player.getAttribute('data-sp-player')); return; }
-      const close = event.target.closest('[data-sp-close]');
+      const close = t.closest('[data-sp-close]');
       if (close && lg) {
         const L = league(lg);
         if (close.getAttribute('data-sp-close') === 'game') { L.gameId = null; L.game = null; paint(page, 'game', ''); paint(page, 'board', boardHtml(lg)); }
@@ -29824,22 +30307,115 @@ function scenarioEventPhase(ev, now = Date.now()) {
       }
     });
   }
+  function clearChance(legEl, l) {
+    l.probability = null; l.probability_source = null;
+    const input = legEl.querySelector('[data-sp-leg-chance]'), src = legEl.querySelector('[data-sp-src]');
+    if (input) input.value = '';
+    if (src) src.textContent = '';
+  }
+  function builderClick(t) {
+    const d = draft();
+    const hit = (sel) => t.closest(sel);
+    let b;
+    if ((b = hit('[data-sp-add-player]'))) { addOpenPlayer(b.getAttribute('data-sp-add-player')); return; }
+    if ((b = hit('[data-sp-remove]'))) {
+      d.legs.splice(Number(b.getAttribute('data-sp-remove')), 1);
+      d.payouts = {}; saveDraft(); pb.msg = null;
+      paintEntry(); scheduleEval(0);
+      return;
+    }
+    if ((b = hit('[data-sp-usehist]'))) {
+      const legEl = b.closest('[data-sp-leg]'), l = d.legs[Number(b.getAttribute('data-sp-usehist'))];
+      const r = Number(b.getAttribute('data-rate'));
+      if (l && legEl && r >= 1 && r <= 99) {
+        l.probability = r / 100; l.probability_source = 'history';
+        legEl.querySelector('[data-sp-leg-chance]').value = String(r);
+        legEl.querySelector('[data-sp-src]').textContent = 'from history';
+        saveDraft(); scheduleEval(0);
+      }
+      return;
+    }
+    if (hit('[data-sp-save]')) { saveEntry(); return; }
+    if (hit('[data-sp-clear]')) {
+      state.draft = blankDraft(d); saveDraft();
+      pb.evaluation = null; pb.evalErr = null; pb.msg = null; pb.prefill = null; pb.evalSeq++;
+      paintEntry();
+      return;
+    }
+    if (hit('[data-sp-journal-all]')) { pb.journalAll = true; paint(BUILDER, 'journal', journalHtml()); return; }
+    if ((b = hit('[data-sp-settle]'))) { pb.settleOpen = b.getAttribute('data-sp-settle'); pb.confirmWithdraw = null; pb.reviseErr = null; paint(BUILDER, 'journal', journalHtml()); const i = root(BUILDER)?.querySelector('[data-sp-settle-gross]'); if (i) i.focus(); return; }
+    if (hit('[data-sp-settle-cancel]')) { pb.settleOpen = null; paint(BUILDER, 'journal', journalHtml()); return; }
+    if ((b = hit('[data-sp-settle-save]'))) {
+      const box = b.closest('.sp-settle');
+      const gross = box.querySelector('[data-sp-settle-gross]').value, note = box.querySelector('[data-sp-settle-note]').value;
+      if (gross === '' || !(Number(gross) >= 0)) { pb.reviseErr = { id: b.getAttribute('data-sp-settle-save'), text: 'Enter the total the app paid back, from $0.' }; paint(BUILDER, 'journal', journalHtml()); return; }
+      revise({ entry_id: b.getAttribute('data-sp-settle-save'), action: 'settle', gross: Number(gross), note });
+      return;
+    }
+    if ((b = hit('[data-sp-withdraw]'))) { pb.confirmWithdraw = b.getAttribute('data-sp-withdraw'); pb.settleOpen = null; pb.reviseErr = null; paint(BUILDER, 'journal', journalHtml()); return; }
+    if (hit('[data-sp-withdraw-no]')) { pb.confirmWithdraw = null; paint(BUILDER, 'journal', journalHtml()); return; }
+    if ((b = hit('[data-sp-withdraw-yes]'))) { revise({ entry_id: b.getAttribute('data-sp-withdraw-yes'), action: 'withdraw' }); }
+  }
 
   function load(page, force) {
     state.page = page;
     bind(page);
+    if (page === BUILDER && options.owner()) { applyPrefill(); pb.evaluation = null; pb.evalErr = null; }
     render(page);
     if (!options.owner()) return;
     fetchStatus(force).then((s) => {
       render(page);
       const lg = leagueOf(page);
       if (lg && s.sources[lg] && s.sources[lg].state !== 'not_connected' && (force || !league(lg).board)) loadBoard(page, lg);
+      if (page === BUILDER) {
+        loadJournal();
+        if (draft().legs.length) scheduleEval(0);
+      }
     }, () => render(page));
   }
 
   return { load };
 })(window, document, {
-    owner: function(){ return HAS_OWNER_ACCESS; }
+    owner: function(){ return HAS_OWNER_ACCESS; },
+    go: function(id){ var tab = document.querySelector('[data-page-tab="' + id + '"]'); if (tab) tab.click(); },
+    decodePrefill: function decodePrefill(param) {
+  const ID = /^[a-z0-9][a-z0-9_.:-]{0,95}$/;
+  if (typeof param !== 'string' || !param || param.length > 4000 || !/^[A-Za-z0-9_-]+$/.test(param)) return null;
+  let data;
+  try {
+    const b64 = param.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((param.length + 3) % 4);
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    data = JSON.parse(new TextDecoder().decode(bytes));
+  } catch (_) { return null; }
+  if (!data || data.v !== 1 || !Array.isArray(data.legs) || data.legs.length < 1 || data.legs.length > 6) return null;
+  const legs = [];
+  for (const l of data.legs) {
+    if (!l || (l.sport !== 'nba' && l.sport !== 'nfl')) return null;
+    const player = String(l.player_id || '').toLowerCase(), game = String(l.game_id || '').toLowerCase();
+    const t = Number(l.threshold);
+    if (!ID.test(player) || !ID.test(game) || typeof l.stat !== 'string' || !/^[a-z_]{1,40}$/.test(l.stat)) return null;
+    if (l.side !== 'over' && l.side !== 'under') return null;
+    if (!(l.threshold != null && l.threshold !== '' && Number.isFinite(t) && t >= 0 && t <= 1000 && Math.round(t * 2) === t * 2)) return null;
+    legs.push({ sport: l.sport, player_id: player, game_id: game, stat: l.stat, side: l.side, threshold: t });
+  }
+  const payouts = {};
+  if (data.payouts && typeof data.payouts === 'object' && !Array.isArray(data.payouts)) {
+    Object.keys(data.payouts).forEach((k) => {
+      const n = Number(k), m = Number(data.payouts[k]);
+      if (Number.isInteger(n) && n >= 0 && n <= legs.length && Number.isFinite(m) && m >= 0 && m <= 100000) payouts[n] = m;
+    });
+  }
+  const stake = Number(data.stake);
+  return {
+    operator: ['prizepicks', 'betr', 'other'].indexOf(data.operator) >= 0 ? data.operator : null,
+    format: data.format === 'flex' ? 'flex' : 'power',
+    stake: stake > 0 && stake <= 100000 ? Math.round(stake * 100) / 100 : null,
+    payouts,
+    legs,
+  };
+}
   });
   var earningsForecast = (function earningsForecastFactory(host,doc,options,scenarioFactory,researchFactory,valuationFactory){
   const scenarios=scenarioFactory();

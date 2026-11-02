@@ -20,6 +20,7 @@ import {topPicksMarketClientFactory} from './top-picks-market-client.mjs';
 import { historicalDataFactory } from './historical-data-client.mjs';
 import { partyTrackerFactory } from './party-tracker-client.mjs';
 import { sportsFactory } from './sports-client.mjs';
+import { decodePrefill as sportsDecodePrefill } from '../../lib/sports/prefill.mjs';
 import { earningsForecastFactory } from './earnings-forecast-client.mjs';
 import { companyResearchClientFactory } from './company-research-client.mjs';
 import { fullYearValuationFactory } from '../../lib/full-year-valuation.mjs';
@@ -23430,7 +23431,9 @@ ${renderExportBindings()}
   });
   // Owner Sports section (NBA, NFL, Pick Builder): gated /api/auth/me?sports=... only.
   var sports = (${sportsFactory.toString()})(window, document, {
-    owner: function(){ return HAS_OWNER_ACCESS; }
+    owner: function(){ return HAS_OWNER_ACCESS; },
+    go: function(id){ var tab = document.querySelector('[data-page-tab="' + id + '"]'); if (tab) tab.click(); },
+    decodePrefill: ${sportsDecodePrefill.toString()}
   });
   var earningsForecast = (${earningsForecastFactory.toString()})(window, document, { owner: function(){ return HAS_OWNER_ACCESS; } }, ${earningsScenarioFactory.toString()}, ${companyResearchClientFactory.toString()}, ${fullYearValuationFactory.toString()});
   var forcedLiquidation = (${forcedLiquidationFactory.toString()})(window, document, {
