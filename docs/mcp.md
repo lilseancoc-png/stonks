@@ -31,16 +31,16 @@ only if you started the connection yourself.
 | Tool | Access | What it reads |
 |---|---|---|
 | `list_features` | any | Site catalog (`lib/research-lab/site-catalog.mjs`), which tool reads each page, covered symbols |
-| `get_feature` | per feature | The saved payload behind a page (`lib/research-lab/feature-sources.mjs`), trimmed; `ticker`/`path`/`max_items` narrow it |
+| `get_feature` | per feature | The saved payload behind a page (`lib/research-lab/feature-sources.mjs`), trimmed; `ticker`/`path`/`max_items` narrow it. `dataset` reads a page's other files (`FEATURE_DATASETS` in `lib/mcp/tools.mjs`, listed per page by `list_features`): histories and logs, the Owner Top Picks files, and per-stock files (`calls` → `transcript`, `iv-trend` → `iv-history`, `grade` → `fundamentals-history`) that need `ticker` |
 | `get_stock` | owner | `<SYMBOL>.json`: compact sections by default, named `sections` on request |
 | `get_price_history` | any | `priceSeries` (daily, ≤252) or `intradaySeries` (30m) from `<SYMBOL>.json` |
 | `get_stock_grades` | owner | `grades.json`, flattened and sortable |
 | `get_live_quotes` | any | Live Yahoo quotes (`lib/yahoo.mjs`), ≤10 covered symbols |
 | `get_top_picks` | owner | `approvedTopPicks()`, the same payload as the Top Picks tab |
-| `get_track_record` | owner | `readSiteRecord('picks-accuracy.json')`: stats, open trades, recent closes, trade lines |
+| `get_track_record` | owner | `readSiteRecord('picks-accuracy.json')`: stats, all-time stats, open trades and recent closes as compact rows (trade ID, contract, entry and model mark, P&L %), trade lines |
 
 Every result is a JSON envelope: `schema_version`, `tool`, `source` (store key and page), `access`, `as_of` (the
-payload's build time), `generated_at`, `ai_calls: 0`, `warnings` (stale, trimmed, no match), `limitations`,
+payload's build time), `generated_at`, `ai_calls: 0`, `warnings` (stale, expired `validUntil`, trimmed, no match), `limitations`,
 `results`. Results are capped at about 48 KB.
 
 **Never reachable**, even for the Owner: `picks-fills.json`, `webull-paper-ledger.json`,
@@ -69,7 +69,7 @@ Mingstreet acts as both the resource server and a minimal authorization server, 
   `/api/auth/discord-callback`. The callback runs the normal owner-role check. When a pending MCP request
   (cookie, bound to that Discord `state`) is present, it returns an encrypted 5-minute code instead of a site
   session.
-- `POST /oauth/token`: `authorization_code` (PKCE checked, client and redirect bound) or `refresh_token`.
+- `POST /oauth/token` (`client_id` in the body, or HTTP Basic with an empty secret): `authorization_code` (PKCE checked, client and redirect bound) or `refresh_token`.
   Access tokens last 1 hour, with audience `<origin>/mcp`. Refresh tokens last 30 days, are encrypted, and carry
   the Discord refresh token, so **every refresh re-checks the owner role with Discord**.
 
@@ -89,10 +89,11 @@ Required and already set: `PRIVATE_DATA_ENABLED=1`, the R2 keys, `SESSION_SECRET
 variables. No Discord app change is needed.
 
 - **Routing.** `vercel.json` rewrites `/mcp`, `/.well-known/oauth-*` and `/oauth/*` to `api/auth/[action].js`
-  (`mcp`, `mcp-meta`, `mcp-oauth`), so the MCP uses no extra serverless function (Hobby limit 12).
+  (`mcp`, `mcp-meta`, `mcp-oauth`), so the MCP uses no extra serverless function (Hobby limit 12). The handler routes by `req.query.action` and falls
+  back to the request path (`mcpRouteOf`), so it works whichever form of the URL Vercel passes after a rewrite.
 - **Protocol.** Stateless Streamable HTTP with JSON responses and no `Mcp-Session-Id`. It serves 2026-07-28
-  (`server/discover`, `Mcp-Method`/`Mcp-Name` checked against the body) and 2025-03-26 / 2025-06-18 /
-  2025-11-25 (`initialize` negotiates). `GET /mcp` returns 405 because there is no server push. Batches are
+  (`server/discover`, `Mcp-Method`/`Mcp-Name` checked against the body) and 2024-11-05 / 2025-03-26 /
+  2025-06-18 / 2025-11-25 (`initialize` negotiates). `GET /mcp` returns 405 because there is no server push. Batches are
   rejected. Bodies are limited to 64 KB. Browser `Origin`s are allowlisted.
 - **Logs.** One JSON line per call (`evt: mcp.call`): tool, outcome, ms, a hashed subject and client. No
   arguments or data.

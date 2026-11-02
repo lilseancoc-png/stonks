@@ -72,8 +72,29 @@ function parseRoleIds(single, list) {
   );
 }
 
+// The MCP routes arrive through vercel.json rewrites. Read the action (and
+// the metadata kind / OAuth step) from the query when Vercel fills it in, and
+// from the request path otherwise, whether that is the original public path
+// (/mcp, /.well-known/..., /oauth/...) or the /api/auth/... destination.
+export function mcpRouteOf(req) {
+  let path = "", sp = new URLSearchParams();
+  try { const u = new URL(req.url || "/", "http://x"); path = u.pathname; sp = u.searchParams; } catch { path = ""; }
+  const q = { kind: sp.get("kind") || undefined, step: sp.get("step") || undefined, ...(req.query || {}) };
+  path = path.replace(/\/+$/, "") || "/";
+  if (q.action === "mcp" || path === "/mcp" || path === "/api/auth/mcp") return { action: "mcp" };
+  const meta = /^\/\.well-known\/oauth-(protected-resource|authorization-server)(\/mcp)?$/.exec(path);
+  if (q.action === "mcp-meta" || meta || path === "/api/auth/mcp-meta") {
+    const kind = q.kind || (meta ? (meta[1] === "protected-resource" ? "resource" : "as") : "as");
+    return { action: "mcp-meta", kind };
+  }
+  const step = /^\/oauth\/(register|authorize|token)$/.exec(path);
+  if (q.action === "mcp-oauth" || step || path === "/api/auth/mcp-oauth") return { action: "mcp-oauth", step: q.step || step?.[1] || "" };
+  return null;
+}
+
 export default async function handler(req, res) {
-  switch (req.query?.action) {
+  const mcpRoute = mcpRouteOf(req);
+  switch (mcpRoute?.action || req.query?.action) {
     case "discord-login":
       return login(req, res);
     case "discord-callback":
@@ -100,13 +121,13 @@ export default async function handler(req, res) {
       return (await import("../../lib/mcp/server.mjs")).handleMcpRequest(req, res);
     case "mcp-meta": {
       const oauth = await import("../../lib/mcp/oauth.mjs");
-      return req.query?.kind === "resource"
+      return mcpRoute.kind === "resource"
         ? oauth.protectedResourceMetadata(req, res)
         : oauth.authorizationServerMetadata(req, res);
     }
     case "mcp-oauth": {
       const oauth = await import("../../lib/mcp/oauth.mjs");
-      const step = req.query?.step;
+      const step = mcpRoute.step;
       if (step === "register") return oauth.register(req, res);
       if (step === "authorize") return oauth.authorize(req, res);
       if (step === "token") return oauth.token(req, res);

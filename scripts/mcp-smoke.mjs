@@ -63,7 +63,18 @@ const files = {
     news: Array.from({ length: 30 }, (_, i) => ({ title: "n" + i })), sessionToken: "must-not-leak",
     priceSeries: { t: ["2026-10-30", "2026-10-31", "2026-11-02"], o: [1, 2, 3], h: [1, 2, 3], l: [1, 2, 3], c: [190, 195, 200], v: [10, 20, 30] },
     bigSection: { rows: Array.from({ length: 500 }, (_, i) => ({ i, note: "y".repeat(50) })) } },
-  "picks-accuracy.json": { builtAtIso: "2026-11-02T14:00:00Z", open: [{ symbol: "NVDA", side: "call", optionPnlPct: 12 }], closed: [{ symbol: "AAPL", outcome: "win", optionPnlPct: 25, closedAt: "2026-10-30" }] },
+  "picks-accuracy.json": { builtAtIso: "2026-11-02T14:00:00Z",
+    open: [{ symbol: "NVDA", side: "call", entryDate: "2026-10-28T15:05:00Z", optionPnlPct: 12, entrySpot: 190, lastSpot: 200,
+      contract: { structure: "long", strike: 200, expiry: 1797638400, mid: 10 }, marks: Array.from({ length: 400 }, (_, i) => ({ i, note: "m".repeat(80) })) }],
+    closed: [
+      { symbol: "AAPL", side: "put", status: "hit-target", outcome: "win", optionPnlPct: 25, entryDate: "2026-10-20T15:05:00Z", exitDate: "2026-10-30T19:30:00Z", contract: { structure: "debit_vertical", longStrike: 230, shortStrike: 220, netDebit: 4, expiry: 1797638400 } },
+      { symbol: "MSFT", side: "call", status: "hit-stop", outcome: "loss", optionPnlPct: -50, entryDate: "2026-10-01T15:05:00Z", exitDate: "2026-10-10T19:30:00Z", contract: { structure: "long", strike: 500, mid: 8, expiry: 1797638400 } },
+    ],
+    allTimeStats: { closed: 40 } },
+  "transcript-NVDA.json": { builtAtIso: "2026-11-02T14:00:00Z", symbol: "NVDA", quarter: "Q3 2026", summary: "Strong quarter", session: "regular" },
+  "picks-changes.json": { builtAtIso: "2026-11-02T14:00:00Z", events: [{ symbol: "NVDA", kind: "in" }] },
+  "regime-history.json": { builtAtIso: "2026-11-02T14:00:00Z", days: [{ d: "2026-11-02", band: "risk-on" }] },
+  "unified-signal.json": { builtAtIso: "2026-11-02T14:00:00Z", validUntil: "2026-11-02T14:30:00Z", rows: [] },
   "picks-fills.json": { rows: [{ secret: true }] },
   "webull-paper-ledger.json": { rows: [] },
 };
@@ -212,6 +223,7 @@ async function rpc(method, params, { headers = auth, extra = {} } = {}) {
   const init = await rpc("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "1" } });
   assert.equal(init.body.result.protocolVersion, "2025-06-18");
   assert.equal(init.headers["mcp-session-id"], undefined);
+  assert.equal((await rpc("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "old", version: "1" } })).body.result.protocolVersion, "2024-11-05");
   const initUnknown = await rpc("initialize", { protocolVersion: "1999-01-01" });
   assert.equal(initUnknown.body.result.protocolVersion, "2025-11-25");
   const disc = await rpc("server/discover", { _meta: { "io.modelcontextprotocol/clientInfo": { name: "t", version: "1" } } }, { headers: { ...auth, "mcp-protocol-version": "2026-07-28", "mcp-method": "server/discover" } });
@@ -294,8 +306,35 @@ async function tool(name, args, opts) {
   assert.equal(tp.structuredContent.results.picks[0].symbol, "NVDA");
   const tr = await tool("get_track_record", {});
   assert.equal(tr.isError, false, JSON.stringify(tr));
-  assert.equal(tr.structuredContent.results.open_count, 1);
-  assert.equal(tr.structuredContent.results.stats.wins, 1);
+  const trr = tr.structuredContent.results;
+  assert.equal(trr.open_count, 1);
+  assert.equal(trr.stats.wins, 1);
+  assert.equal(trr.all_time_stats.closed, 40);
+  assert.equal(trr.open_trades[0].id, "NVDA-C-10/28/26-11:05");
+  assert.equal(trr.open_trades[0].entry_price, 10);
+  assert.equal(trr.open_trades[0].mark_price, 11.2);
+  assert.equal(trr.open_trades[0].marks, undefined, "compact rows drop mark histories");
+  assert.deepEqual(trr.recent_closed.map((r) => r.symbol), ["AAPL", "MSFT"], "newest close first");
+  assert.equal(trr.recent_closed[0].long_strike, 230);
+  assert.ok(trr.trade_lines.includes("NVDA-C-10/28/26-11:05"));
+
+  // ---- page datasets ----
+  const lf2 = await tool("list_features", {});
+  assert.ok(lf2.structuredContent.results.features.find((f) => f.id === "calls").datasets.includes("transcript"));
+  const tx = await tool("get_feature", { feature_id: "calls", dataset: "transcript", ticker: "nvda" });
+  assert.equal(tx.isError, false, JSON.stringify(tx));
+  assert.equal(tx.structuredContent.results.summary, "Strong quarter", "per-stock dataset returned whole, not ticker-filtered");
+  assert.equal(tx.structuredContent.results.session, "regular", "a plain 'session' field is not treated as a secret");
+  assert.equal((await tool("get_feature", { feature_id: "calls", dataset: "transcript" })).structuredContent.error.code, "INVALID_INPUT");
+  assert.equal((await tool("get_feature", { feature_id: "calls", dataset: "transcript", ticker: "ZZZZ" })).structuredContent.error.code, "NOT_COVERED");
+  assert.equal((await tool("get_feature", { feature_id: "calls", dataset: "nope" })).structuredContent.error.code, "NOT_FOUND");
+  const ch = await tool("get_feature", { feature_id: "track", dataset: "changes" });
+  assert.equal(ch.isError, false, "a dedicated page's extra dataset is readable");
+  assert.equal(ch.structuredContent.access, "owner");
+  const rh = await tool("get_feature", { feature_id: "market", dataset: "regime-history" });
+  assert.equal(rh.structuredContent.results.days[0].band, "risk-on");
+  const use = await tool("get_feature", { feature_id: "unified-signal-engine" });
+  assert.ok(use.structuredContent.warnings.some((w) => w.startsWith("EXPIRED")), "validUntil in the past is flagged");
 }
 
 // ---- anonymous public mode (off by default) ----------------------------------
@@ -313,11 +352,15 @@ async function tool(name, args, opts) {
   const guess = await rpc("tools/call", { name: "get_track_record", arguments: {} }, pub);
   assert.equal(guess.body.error.code, -32602, "owner tool name guess looks like an unknown tool");
   assert.equal((await tool("get_feature", { feature_id: "brief" }, pub)).isError, false);
+  assert.equal((await tool("get_feature", { feature_id: "calls", dataset: "transcript", ticker: "NVDA" }, pub)).isError, false);
+  assert.equal((await tool("get_feature", { feature_id: "track", dataset: "changes" }, pub)).structuredContent.error.code, "FORBIDDEN");
+  assert.equal((await tool("get_feature", { feature_id: "market", dataset: "regime-history" }, pub)).structuredContent.error.code, "FORBIDDEN");
 }
 
 // ---- refresh re-checks the owner role ----------------------------------------
 {
-  const ok = await call(oauth.token, { method: "POST", body: { grant_type: "refresh_token", refresh_token: refreshToken, client_id: clientId } });
+  const basic = "Basic " + Buffer.from(encodeURIComponent(clientId) + ":").toString("base64");
+  const ok = await call(oauth.token, { method: "POST", headers: { authorization: basic }, body: { grant_type: "refresh_token", refresh_token: refreshToken, resource: `${ORIGIN}/mcp/` } });
   assert.equal(ok.statusCode, 200, JSON.stringify(ok.body));
   assert.ok(ok.body.access_token && ok.body.refresh_token);
   discordRoles = [];
