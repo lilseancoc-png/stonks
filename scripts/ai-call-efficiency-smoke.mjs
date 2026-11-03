@@ -14,6 +14,7 @@ import {
 import {
   aiDailyCallCapReached,
   aiReserveBlocks,
+  headlineIsAboutSubject,
   newMaterialAiHeadlineCount,
   tickerJudgmentSignature,
 } from "./build.mjs";
@@ -253,5 +254,50 @@ assert.equal(spend("pick"), false);
 for (let i = 0; i < NARRATIVE_RESERVE; i++) assert.equal(spend("reserved"), true);
 assert.equal(consumed, CAP);
 assert.equal(spend("reserved"), false);
+
+// Production default (2026-11-03): re-read after 4+ new ordinary headlines.
+const threeNew = [...signed.titles, "afternoon trading wrap", "desk marks the close", "sector movers recap"];
+expectReason("three new ordinary headlines stay inside the production tolerance", {
+  titles: threeNew,
+  sig: "three-new-headlines",
+  newsTolerance: 3,
+}, null);
+expectReason("four new ordinary headlines re-read at the production tolerance", {
+  titles: [...threeNew, "five stocks to watch"],
+  sig: "four-new-headlines",
+  newsTolerance: 3,
+}, "news-count");
+expectReason("a material headline still re-reads inside the production tolerance", {
+  titles: [...signed.titles, "acme raises full-year guidance"],
+  sig: "material-at-three",
+  newsTolerance: 3,
+  materialFresh: 1,
+}, "material-headline");
+
+// Material words force an early re-read only when the headline is about the stock.
+const costco = { symbol: "COST", name: "Costco Wholesale Corporation" };
+assert.equal(headlineIsAboutSubject("SharkNinja Still Looks Sharp Heading Into Earnings", costco), false);
+assert.equal(headlineIsAboutSubject("Marvell doubles down on AI boom with costly $115 billion Lumentum deal", costco), false);
+assert.equal(headlineIsAboutSubject("Costco October sales results beat estimates", costco), true);
+assert.equal(headlineIsAboutSubject("Wholesale club giant (COST) raises dividend", costco), true);
+assert.equal(headlineIsAboutSubject("Is $COST a buy after earnings?", costco), true);
+const apple = { symbol: "AAPL", name: "Apple Inc." };
+assert.equal(headlineIsAboutSubject("Apple earnings live updates: New CEO John Ternus faces first Wall Street test", apple), true);
+assert.equal(headlineIsAboutSubject("Micron Falls 4% as Kioxia's Cautious Outlook Hits Memory Stocks", apple), false);
+const amd = { symbol: "AMD", name: "Advanced Micro Devices, Inc." };
+assert.equal(headlineIsAboutSubject("AMD Could Swing $90.7 Billion After Earnings", amd), true, "bare ticker word");
+assert.equal(headlineIsAboutSubject("Google earnings beat as cloud grows", { symbol: "GOOGL", name: "Alphabet Inc." }), true, "brand alias");
+assert.equal(headlineIsAboutSubject("Memory cost pressure hits margins after earnings", costco), false, "word tickers need the name");
+// Funds, missing names and ticker-only names keep the any-title rule.
+assert.equal(headlineIsAboutSubject("Fed cuts rates by a quarter point", { symbol: "TLT", name: "iShares 20+ Year Treasury Bond ETF" }), true);
+assert.equal(headlineIsAboutSubject("Fed cuts rates by a quarter point", { symbol: "SPY", name: "SPDR S&P 500 ETF Trust" }), true);
+assert.equal(headlineIsAboutSubject("Some company cuts outlook", { symbol: "XYZ", name: null }), true);
+assert.equal(headlineIsAboutSubject("Some company cuts outlook", { symbol: "XYZ", name: "XYZ" }), true);
+const costTitles = ["costco stock looks fully priced"];
+assert.equal(newMaterialAiHeadlineCount(costTitles, [...costTitles, "sharkninja still looks sharp heading into earnings"], costco), 0,
+  "an off-topic material headline counts toward the tolerance, not as material");
+assert.equal(newMaterialAiHeadlineCount(costTitles, [...costTitles, "sharkninja still looks sharp heading into earnings"]), 1,
+  "without a subject the old any-title rule holds");
+assert.equal(newMaterialAiHeadlineCount(costTitles, [...costTitles, "costco raises membership fee"], costco), 1);
 
 console.log("ai-call-efficiency smoke: ok");

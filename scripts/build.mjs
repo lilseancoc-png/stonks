@@ -35526,10 +35526,14 @@ const TICKER_JUDGMENT_SPOT_DRIFT = Number(process.env.AI_TICKER_CACHE_DRIFT ?? 0
 // accumulate against the ORIGINAL cached title set (a reuse carries the entry
 // forward untouched), so a drip of articles re-reads as soon as the cumulative
 // drip crosses the tolerance. 0 restores exact-match-only reuse.
-// Default one-title tolerance is guarded by the material-headline classifier
-// below: earnings, guidance, analyst, capital, legal, management, product, and
-// contract developments still force an immediate re-read.
-const TICKER_JUDGMENT_NEWS_TOLERANCE = Math.max(0, Number(process.env.AI_TICKER_CACHE_NEWS_TOLERANCE ?? 1));
+// Default three-title tolerance (owner decision 2026-11-03, was 1): a name is
+// re-read once 4+ new ordinary headlines have landed since its last read. On
+// 2026-11-02 the 2-headline trigger caused 223 of 344 fresh reads, mostly from
+// routine Google News churn. The tolerance stays guarded by the
+// material-headline classifier below: earnings, guidance, analyst, capital,
+// legal, management, product, and contract developments still force an
+// immediate re-read, as do spot drift and fundamentals changes.
+const TICKER_JUDGMENT_NEWS_TOLERANCE = Math.max(0, Number(process.env.AI_TICKER_CACHE_NEWS_TOLERANCE ?? 3));
 
 // Titles are compared case-/whitespace-insensitively so a publisher touching
 // up capitalization doesn't count as "new news".
@@ -35546,11 +35550,38 @@ const MATERIAL_AI_HEADLINE_RE = /\b(?:earnings|results?|revenue|eps|guidance|out
 export function isMaterialAiHeadline(title) {
   return MATERIAL_AI_HEADLINE_RE.test(String(title || ""));
 }
-export function newMaterialAiHeadlineCount(cachedTitles, freshTitles) {
+// A "material" word only forces an early re-read when the headline is about
+// this stock. The Google News "TICKER stock" search returns many headlines
+// about other companies ("SharkNinja ... Heading Into Earnings" under COST), and
+// those used to bypass the headline tolerance. They still count toward it.
+// Funds and names without a usable company name keep the any-title rule:
+// macro news ("Fed cuts rates") is material for TLT without naming it.
+const MATERIAL_SUBJECT_FUND_RE = /\b(?:etf|etn|fund|trust|ishares|spdr|proshares|index)\b/i;
+// Tickers that are also everyday words never count as a bare-word mention.
+const MATERIAL_SUBJECT_WORD_TICKERS = new Set(["now", "cost", "arm", "team", "snow", "dram", "dis", "be", "hood", "tgt"]);
+// Brand names headlines use instead of the legal name.
+const MATERIAL_SUBJECT_ALIASES = { googl: ["google"], goog: ["google"], tsm: ["tsmc"], meta: ["facebook", "instagram"] };
+export function headlineIsAboutSubject(title, subject) {
+  const symbol = String(subject?.symbol || "").trim().toLowerCase();
+  const name = String(subject?.name || "").trim();
+  if (!name || name.toLowerCase() === symbol || MATERIAL_SUBJECT_FUND_RE.test(name)) return true;
+  if (capitalRaiseIssuerNameParts(name).length === 0) return true;
+  const t = normalizeHeadlineTitle(title);
+  if (symbol) {
+    const esc = symbol.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (t.includes(`(${symbol})`) || new RegExp(`\\$${esc}\\b`).test(t) ||
+        new RegExp(`\\b(?:nasdaq|nyse|amex)\\s*:\\s*${esc}\\b`).test(t)) return true;
+    if (symbol.length >= 3 && !MATERIAL_SUBJECT_WORD_TICKERS.has(symbol) && new RegExp(`\\b${esc}\\b`).test(t)) return true;
+    if ((MATERIAL_SUBJECT_ALIASES[symbol] || []).some((alias) => new RegExp(`\\b${alias}\\b`).test(t))) return true;
+  }
+  return capitalRaiseHeadlineNamesCompany(name, t);
+}
+export function newMaterialAiHeadlineCount(cachedTitles, freshTitles, subject = null) {
   const cached = new Set((cachedTitles || []).map(normalizeHeadlineTitle));
   return (freshTitles || [])
     .map(normalizeHeadlineTitle)
-    .filter((title) => title && !cached.has(title) && isMaterialAiHeadline(title))
+    .filter((title) => title && !cached.has(title) && isMaterialAiHeadline(title) &&
+      (!subject || headlineIsAboutSubject(title, subject)))
     .length;
 }
 
@@ -35694,6 +35725,7 @@ async function attachTickerJudgments(chains, macroBackdrop, priorCache = {}) {
         // body-enrichment fetches and the Gemini call.
         const { sig, metaSig, titles, fundHash, headlineContent } = tickerJudgmentSignature(rawHeadlines, data.fundamentals);
         const prior = AI_TICKER_CACHE ? priorCache[sym] : null;
+        const materialSubject = { symbol: sym, name: data.fundamentals?.name || null };
         const spotOk = prior &&
           Number.isFinite(prior.spot) && prior.spot > 0 && Number.isFinite(data.spot) &&
           Math.abs(data.spot - prior.spot) / prior.spot <= TICKER_JUDGMENT_SPOT_DRIFT;
@@ -35708,7 +35740,7 @@ async function attachTickerJudgments(chains, macroBackdrop, priorCache = {}) {
           ) {
             const cachedTitles = new Set(prior.titles);
             const freshCount = titles.filter((t) => !cachedTitles.has(t)).length;
-            const materialFresh = newMaterialAiHeadlineCount(prior.titles, titles);
+            const materialFresh = newMaterialAiHeadlineCount(prior.titles, titles, materialSubject);
             if (freshCount <= TICKER_JUDGMENT_NEWS_TOLERANCE && materialFresh === 0) {
               reuseWhy = `${freshCount} new headline(s) within tolerance ${TICKER_JUDGMENT_NEWS_TOLERANCE}`;
             }
@@ -35730,7 +35762,7 @@ async function attachTickerJudgments(chains, macroBackdrop, priorCache = {}) {
           let miss = { reason: "other", driftPct: null };
           try {
             const materialFresh = prior && Array.isArray(prior.titles)
-              ? newMaterialAiHeadlineCount(prior.titles, titles)
+              ? newMaterialAiHeadlineCount(prior.titles, titles, materialSubject)
               : 0;
             miss = classifyTickerJudgmentMiss({
               prior,
