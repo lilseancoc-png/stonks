@@ -41,6 +41,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ### Changed
 
 - Re-read a stock's AI news read after 4 new ordinary headlines instead of 2 (`AI_TICKER_CACHE_NEWS_TOLERANCE` default 1 → 3). Material headlines (earnings, guidance, analyst, deals, legal, management), a price move over 2% and fundamentals changes still trigger an immediate re-read. Cuts routine headline re-reads to lower daily Gemini spend.
+- A "material" headline (earnings, outlook, deal and similar words) now forces an early news re-read only when it names the stock: its company name, a brand alias, or the ticker. Off-topic results from the Google News search, such as another company's earnings under COST, count toward the 4-headline bar instead. Funds and names without a company name keep the old rule.
 
 ## 2026-11-02
 
