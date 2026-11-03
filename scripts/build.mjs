@@ -35526,10 +35526,14 @@ const TICKER_JUDGMENT_SPOT_DRIFT = Number(process.env.AI_TICKER_CACHE_DRIFT ?? 0
 // accumulate against the ORIGINAL cached title set (a reuse carries the entry
 // forward untouched), so a drip of articles re-reads as soon as the cumulative
 // drip crosses the tolerance. 0 restores exact-match-only reuse.
-// Default one-title tolerance is guarded by the material-headline classifier
-// below: earnings, guidance, analyst, capital, legal, management, product, and
-// contract developments still force an immediate re-read.
-const TICKER_JUDGMENT_NEWS_TOLERANCE = Math.max(0, Number(process.env.AI_TICKER_CACHE_NEWS_TOLERANCE ?? 1));
+// Default three-title tolerance (owner decision 2026-11-03, was 1): a name is
+// re-read once 4+ new ordinary headlines have landed since its last read. On
+// 2026-11-02 the 2-headline trigger caused 223 of 344 fresh reads, mostly from
+// routine Google News churn. The tolerance stays guarded by the
+// material-headline classifier below: earnings, guidance, analyst, capital,
+// legal, management, product, and contract developments still force an
+// immediate re-read, as do spot drift and fundamentals changes.
+const TICKER_JUDGMENT_NEWS_TOLERANCE = Math.max(0, Number(process.env.AI_TICKER_CACHE_NEWS_TOLERANCE ?? 3));
 
 // Titles are compared case-/whitespace-insensitively so a publisher touching
 // up capitalization doesn't count as "new news".
