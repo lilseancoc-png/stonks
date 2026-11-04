@@ -60,12 +60,78 @@ export function renderWayfindingBindings() {
     function wfLink(cls, id, inner, extra){
       return '<button type="button" class="' + cls + '" data-wf-go="' + id + '"' + (extra || '') + '>' + inner + '</button>';
     }
+    // The page header replaces the first card's own title, intro text and
+    // "How to read" box, which repeated the page name and summary. A page
+    // with one card loses that card's title (the header names the page); the
+    // card's status line moves up beside the page title. Intro paragraphs and
+    // the first explainer move into the header's About panel, closed by
+    // default. Nothing is deleted, and moved nodes keep their ids, so the
+    // code that fills them keeps working.
+    function wfAdoptFirstCard(pane, head){
+      var cards = Array.prototype.filter.call(pane.children, function(c){ return c.classList && (c.classList.contains('card') || c.classList.contains('doc-host')); });
+      var card = cards[0];
+      if (!card || !card.classList.contains('card')) return;
+      var single = cards.length === 1;
+      var about = head.querySelector('.wf-about');
+      var meta = head.querySelector('.wf-meta');
+      var btn = head.querySelector('.wf-about-btn');
+      var title = card.querySelector(':scope > .card-header .card-title, :scope > header .card-title');
+      if (single){
+        pane.classList.add('wf-merged');
+        var eyebrow = card.querySelector(':scope > .card-header > .card-eyebrow, :scope > header > .card-eyebrow');
+        if (eyebrow && meta) meta.appendChild(eyebrow);
+      }
+      var moved = 0;
+      var label = !single && title ? title.textContent.trim() : '';
+      if (label){
+        var h = document.createElement('h2');
+        h.className = 'wf-about-h';
+        h.textContent = label;
+        about.appendChild(h);
+      }
+      // Leading intro paragraphs (before the card's first real content).
+      var kids = Array.prototype.slice.call(card.children);
+      for (var i = 0; i < kids.length; i++){
+        var k = kids[i];
+        if (k.matches('.card-header, header')) continue;
+        if (k.matches('p.hint')){ about.appendChild(k); moved++; continue; }
+        if (k.matches('details.info-note')){
+          var body = k.querySelector(':scope > .info-note-body');
+          var sum = k.querySelector(':scope > summary');
+          var h3 = document.createElement('h3');
+          h3.className = 'wf-about-h';
+          h3.textContent = sum ? sum.textContent.trim() : 'How to read this page';
+          about.appendChild(h3);
+          if (body) about.appendChild(body);
+          k.remove();
+          moved++;
+          break;
+        }
+        break;
+      }
+      if (moved && btn){
+        btn.hidden = false;
+        btn.addEventListener('click', function(){
+          var open = about.hidden;
+          about.hidden = !open;
+          btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        });
+      } else if (label) {
+        about.innerHTML = '';
+      }
+    }
     // Section header: "Section > Page", the sibling pages as chips, and the
     // plain one-line summary. Previous / next links close the page.
     function renderWayfinding(name){
       if (document.body) document.body.setAttribute('data-active-tab', name);
       syncPhoneTabBar(name);
-      if (name === 'home') return;
+      if (name === 'home'){
+        // Home keeps the freshness line above its hero.
+        var homeFresh = document.getElementById('freshness-banner');
+        var homePane = document.getElementById('page-pane-home');
+        if (homeFresh && homePane && homeFresh.parentNode !== homePane) homePane.insertBefore(homeFresh, homePane.firstChild);
+        return;
+      }
       var hit = wfSectionOf(name);
       var pane = document.getElementById('page-pane-' + name);
       if (!hit || !pane) return;
@@ -79,14 +145,38 @@ export function renderWayfindingBindings() {
       }
       var siblings = wfSectionItems(sec);
       var firstInSection = siblings[0] ? siblings[0][0] : name;
-      head.innerHTML =
-        '<div class="wf-crumb">' + wfLink('wf-crumb-link', 'home', 'Home') + '<span aria-hidden="true">/</span>' +
-          wfLink('wf-crumb-link', firstInSection, escapeHtml(sec[1])) + '<span aria-hidden="true">/</span>' +
-          '<span class="wf-crumb-here" aria-current="page">' + escapeHtml(item[1]) + '</span></div>' +
-        (item[3] ? '<p class="wf-blurb">' + escapeHtml(item[3]) + '</p>' : '') +
-        (siblings.length > 1 ? '<div class="wf-sibs" role="list" aria-label="More in ' + escapeHtml(sec[1]) + '">' + siblings.map(function(it){
-          return wfLink('wf-sib' + (it[0] === name ? ' is-here' : ''), it[0], escapeHtml(it[1]), ' role="listitem"' + (it[0] === name ? ' aria-current="page"' : ''));
-        }).join('') + '</div>' : '');
+      // One page header everywhere: crumb, title (with the page's live status
+      // and an About button), the one-line summary, then sibling pages. The
+      // header is built once per pane; the crumb and siblings refresh on
+      // every visit because the Owner gate can change what is linkable.
+      if (!head.querySelector('.wf-titlebar')){
+        head.innerHTML = '<div class="wf-crumb"></div>' +
+          '<div class="wf-titlebar"><h1 class="wf-title"></h1>' +
+            '<button type="button" class="wf-about-btn" aria-expanded="false" hidden>' +
+              '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>' +
+              '<span>About this page</span></button>' +
+            '<div class="wf-meta"></div></div>' +
+          '<p class="wf-blurb"></p>' +
+          '<div class="wf-about" role="region" hidden></div>' +
+          '<div class="wf-sibs" role="list"></div>';
+        wfAdoptFirstCard(pane, head);
+      }
+      head.querySelector('.wf-crumb').innerHTML = wfLink('wf-crumb-link', 'home', 'Home') + '<span aria-hidden="true">/</span>' +
+        wfLink('wf-crumb-link', firstInSection, escapeHtml(sec[1]));
+      head.querySelector('.wf-title').textContent = item[1];
+      var blurb = head.querySelector('.wf-blurb');
+      blurb.textContent = item[3] || '';
+      blurb.hidden = !item[3];
+      var sibs = head.querySelector('.wf-sibs');
+      sibs.setAttribute('aria-label', 'More in ' + sec[1]);
+      sibs.innerHTML = siblings.length > 1 ? siblings.map(function(it){
+        return wfLink('wf-sib' + (it[0] === name ? ' is-here' : ''), it[0], escapeHtml(it[1]), ' role="listitem"' + (it[0] === name ? ' aria-current="page"' : ''));
+      }).join('') : '';
+      sibs.hidden = siblings.length < 2;
+      // The data-freshness chip follows the open page into its header.
+      var fresh = document.getElementById('freshness-banner');
+      var meta = head.querySelector('.wf-meta');
+      if (fresh && meta && fresh.parentNode !== meta) meta.insertBefore(fresh, meta.firstChild);
       var foot = pane.querySelector(':scope > .wf-foot');
       if (!foot){
         foot = document.createElement('nav');
@@ -166,6 +256,13 @@ export function renderWayfindingBindings() {
         if (first) first.focus({ preventScroll: true });
       });
       group.classList.remove('is-flash'); void group.offsetWidth; group.classList.add('is-flash');
+    });
+    // The sidebar search button opens the one site search (stocks, pages, themes).
+    var navSearchBtn = document.getElementById('nav-search-btn');
+    if (navSearchBtn) navSearchBtn.addEventListener('click', function(){
+      if (!isDesktopNav() && sideNavVisible()) closeSideNavDrawer();
+      var trigger = document.getElementById('cmd-palette-trigger');
+      if (trigger) trigger.click();
     });
     // Recently viewed (this browser only): pages and stocks, newest first.
     var recentSection = document.getElementById('workspace-recent');

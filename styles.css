@@ -110,8 +110,8 @@ body.is-owner [data-public-only]{display:none!important;}
 .uc-deployment{border:1px solid var(--border);border-radius:12px;padding:16px;margin:16px 0}.uc-warning{border-left:3px solid #d29e49;padding:12px 16px;background:var(--surface-2)}.uc-workflows{margin:24px 0}.uc-workflows summary{cursor:pointer;font-weight:600;margin-bottom:12px}.uc-workflows article{margin-bottom:10px}.uc-workflows h4{margin:0}
 .uc-features{border-top:1px solid var(--border);padding-top:24px;margin-top:24px}.uc-features label{display:flex;align-items:center;gap:10px;font-size:var(--t-13);margin:16px 0}.uc-features select{background:var(--surface-2);color:var(--text);border:1px solid var(--border);padding:8px;border-radius:8px}
 .uc-feature-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.uc-feature>div{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}.uc-feature h4{margin:0;font-size:var(--t-14)}.uc-feature p{font-size:var(--t-13);line-height:1.6;margin:12px 0 0}.uc-feature[hidden],.uc-notice[hidden],.uc-all-clear[hidden]{display:none}
-.uc-limitation{border-top:1px solid var(--border);padding-top:20px;margin-top:24px}.uc-notice{position:fixed;bottom:26px;right:24px;z-index:90;max-width:min(360px,calc(100vw - 48px));padding:12px 16px;border:1px solid #d29e49;border-radius:8px;background:var(--surface-2);color:var(--text);font:600 var(--t-12)/1.5 var(--font-sans);box-shadow: var(--elev-2);text-decoration:none}body:not(.is-owner) .uc-notice{display:none!important}
-@media(max-width:700px){.uc-builds,.uc-feature-list{grid-template-columns:1fr}.uc-notice{bottom:82px;right:16px;max-width:calc(100vw - 32px)}.uc-feature>div{flex-wrap:wrap}}
+.uc-limitation{border-top:1px solid var(--border);padding-top:20px;margin-top:24px}.uc-notice{display:flex;align-items:center;gap:8px;width:100%;margin-top:8px;min-height:32px;padding:6px 10px;box-sizing:border-box;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--muted-strong);font:500 var(--t-12)/1.3 var(--font-sans);text-decoration:none}.uc-notice::before{content:'';flex:0 0 8px;width:8px;height:8px;border-radius:50%;background:var(--warn)}.uc-notice[data-status="unknown"]::before,.uc-notice[data-status="stale"]::before{background:var(--muted)}.uc-notice[data-status="failed"]::before,.uc-notice[data-status="stuck"]::before{background:var(--neg)}.uc-notice:hover{border-color:var(--accent-line);color:var(--text-strong)}body:not(.is-owner) .uc-notice{display:none!important}
+@media(max-width:700px){.uc-builds,.uc-feature-list{grid-template-columns:1fr}.uc-feature>div{flex-wrap:wrap}}
 
 
 body:not(.is-owner) [data-page-tab="research-lab"],body:not(.is-owner) #page-pane-research-lab,body:not(.is-owner) [data-go="research-lab"],body:not(.is-owner) a[href="/?tab=research-lab"]{display:none!important}
@@ -26562,27 +26562,50 @@ a.hm-rank-name:hover b { color: var(--accent); }
 /* Only Home keeps the site-wide subtitle; every other page has its own summary. */
 body:not([data-active-tab="home"]) .page-sub { display: none; }
 
-/* Section header at the top of each page. */
-.wf-head { display: grid; gap: 8px; margin: 2px 0 14px; }
+/* One page header everywhere: crumb, title with status and About, summary, siblings. */
+.wf-head { display: grid; gap: 8px; margin: 2px 0 16px; }
 .wf-crumb { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font: 500 var(--t-12)/1.4 var(--font-sans); color: var(--muted); }
 .wf-crumb > span[aria-hidden] { opacity: .55; }
 .wf-crumb-link { padding: 2px 0; border: 0; background: none; color: var(--muted-strong); font: inherit; cursor: pointer; }
 .wf-crumb-link:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
-.wf-crumb-here { color: var(--text-strong); font-weight: 600; }
-.wf-blurb { margin: 0; max-width: 78ch; font: 400 var(--t-15)/1.5 var(--font-sans); color: var(--text); }
+.wf-titlebar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; min-width: 0; }
+.wf-title { margin: 0; font: 650 var(--t-28)/1.15 var(--font-sans); letter-spacing: -0.015em; color: var(--text-strong); }
+.wf-about-btn { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 4px 10px; border: 1px solid var(--border); border-radius: 999px; background: transparent; color: var(--muted-strong); font: 500 var(--t-12)/1 var(--font-sans); cursor: pointer; }
+.wf-about-btn:hover, .wf-about-btn[aria-expanded="true"] { border-color: var(--accent-line); color: var(--text-strong); }
+.wf-about-btn[hidden] { display: none; }
+.wf-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-left: auto; min-width: 0; font: 500 var(--t-12)/1.4 var(--font-sans); color: var(--muted); }
+.wf-meta:empty { display: none; }
+.wf-meta .card-eyebrow { margin: 0; font: 500 var(--t-12)/1.4 var(--font-sans); color: var(--muted); text-transform: none; letter-spacing: 0; }
+/* The freshness line, folded into the header as one quiet status chip. */
+.wf-meta .freshness, #page-pane-home > .freshness { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; max-width: none; margin: 0; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; font: 500 var(--t-12)/1.4 var(--font-sans); color: var(--muted); }
+#page-pane-home > .freshness { margin: 0 0 10px; }
+.wf-meta .freshness .freshness-detail { display: none; }
+.wf-meta .market-status, #page-pane-home > .freshness .market-status { margin: 0; padding: 2px 8px; font-size: var(--t-12); }
+.wf-blurb { margin: 0; max-width: 78ch; font: 400 var(--t-15)/1.5 var(--font-sans); color: var(--muted-strong); }
+.wf-about { display: grid; gap: 8px; max-width: 92ch; padding: 12px 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.wf-about[hidden] { display: none; }
+.wf-about .hint, .wf-about p { margin: 0; padding: 0; border: 0; font: 400 var(--t-14)/1.55 var(--font-sans); font-style: normal; color: var(--text); background: none; }
+.wf-about .wf-about-h { margin: 4px 0 0; font: 600 var(--t-13)/1.3 var(--font-sans); color: var(--text-strong); }
+.wf-about .info-note-body { display: grid; gap: 8px; padding: 0; border: 0; }
 .wf-sibs { display: flex; flex-wrap: wrap; gap: 6px; }
+.wf-sibs[hidden] { display: none; }
 .wf-sib { min-height: 30px; padding: 4px 11px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--muted-strong); font: 500 var(--t-13)/1.2 var(--font-sans); cursor: pointer; white-space: nowrap; }
 .wf-sib:hover { border-color: var(--accent-line); color: var(--text-strong); }
 .wf-sib.is-here { background: var(--accent-tint-2); border-color: var(--accent-line); color: var(--text-strong); cursor: default; }
-.wf-crumb-link:focus-visible, .wf-sib:focus-visible, .wf-step:focus-visible, .topic-title:focus-visible, .topic-link:focus-visible, .recent-chip:focus-visible, .phone-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.wf-crumb-link:focus-visible, .wf-sib:focus-visible, .wf-step:focus-visible, .wf-about-btn:focus-visible, .topic-title:focus-visible, .topic-link:focus-visible, .recent-chip:focus-visible, .phone-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* A one-card page: the header names the page, so the card drops its own title. */
+.page-pane.wf-merged > .card > .card-header .card-title,
+.page-pane.wf-merged > .card > header > .card-title { display: none; }
+.page-pane.wf-merged > .card > .card-header:not(:has(> :not(.card-title):not([hidden]))),
+.page-pane.wf-merged > .card > header:not(:has(> :not(.card-title):not([hidden]))) { display: none; }
 
 /* Previous / next at the bottom of each page. */
-.wf-foot { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 22px 0 8px; }
-.wf-step { display: grid; gap: 3px; min-width: 0; padding: 12px 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--text-strong); text-align: left; cursor: pointer; }
+.wf-foot { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 22px 0 8px; padding-top: 14px; border-top: 1px solid var(--hairline); }
+.wf-step { display: grid; gap: 2px; min-width: 0; padding: 4px 0; border: 0; border-radius: 0; background: none; color: var(--text-strong); text-align: left; cursor: pointer; }
 .wf-step-next { text-align: right; grid-column: 2; }
 .wf-step small { font: 500 var(--t-12)/1.3 var(--font-sans); color: var(--muted); }
 .wf-step b { font: 600 var(--t-15)/1.3 var(--font-sans); overflow-wrap: anywhere; }
-.wf-step:hover { border-color: var(--accent-line); background: var(--surface-2); }
+.wf-step:hover b { color: var(--accent); }
 
 /* Home: Explore by topic. */
 .landing-topics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
@@ -26640,11 +26663,13 @@ body:not([data-active-tab="home"]) .page-sub { display: none; }
   body.sidenav-open .phone-tabbar { z-index: 1200; }
   .side-nav { padding-bottom: calc(66px + env(safe-area-inset-bottom, 0px)); }
   .wf-head { margin-top: 0; }
+  .wf-title { font-size: var(--t-24); }
+  .wf-meta { margin-left: 0; width: 100%; }
   .wf-blurb { font-size: var(--t-14); }
+  .wf-step { padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
   .wf-sibs { flex-wrap: nowrap; overflow-x: auto; margin: 0 -2px; padding: 0 2px 4px; scrollbar-width: none; }
   .wf-sibs::-webkit-scrollbar { display: none; }
-  .wf-foot { gap: 8px; }
-  .wf-step { padding: 10px 12px; }
+  .wf-foot { gap: 8px; border-top: 0; padding-top: 0; }
   .wf-step b { font-size: var(--t-14); }
 }
 @media (max-width: 560px) {
@@ -27249,6 +27274,49 @@ html.is-embed #freshness-banner { margin-top: 8px; padding-block: 6px; }
 .tpm-table th,.tpm-table td { text-align:left; padding:10px; border-bottom:1px solid var(--border); min-width:90px; }
 #an-market-policy p { line-height:1.65; margin:12px 0; }
 #an-market-policy details { margin-top:16px; }
+
+
+/* === UI overhaul: foundations (scripts/render/overhaul-css.mjs) === */
+/* One site search: the sidebar button opens the same search as the header. */
+.nav-search-btn { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 38px; padding: 0 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--muted); font: 400 var(--t-13)/1 var(--font-sans); text-align: left; cursor: pointer; }
+.nav-search-btn > span { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-search-btn:hover { border-color: var(--border-strong); color: var(--text); }
+.nav-search-btn:focus-visible { outline: none; border-color: var(--accent); box-shadow: var(--focus-ring); }
+.nav-filter-box[hidden] { display: none !important; }
+
+/* Header: Discord and Support read as quiet links, so search leads. */
+.site-nav .discord-btn, .site-nav .donate-btn { white-space: nowrap; height: 32px; padding: 0 10px; border: 1px solid transparent; background: transparent; box-shadow: none; color: var(--muted-strong); font-weight: 600; }
+.site-nav .discord-btn svg { color: #5865f2; }
+.site-nav .donate-btn svg { color: var(--neg); }
+.site-nav .discord-btn:hover, .site-nav .donate-btn:hover { color: var(--text-strong); background: var(--surface-2); border-color: var(--border); filter: none; transform: none; }
+/* The time-zone picker never truncates ("Loca"). */
+.time-zone-control { flex: 0 0 auto; }
+.time-zone-control select { width: 70px; flex: 0 0 auto; }
+@media (max-width: 1240px) {
+  .site-nav .discord-btn span, .site-nav .donate-btn span { display: none; }
+  .site-nav .discord-btn, .site-nav .donate-btn { width: 34px; padding: 0; justify-content: center; }
+}
+/* Owners have more header controls; the two links drop their words sooner. */
+@media (max-width: 1600px) {
+  body.is-owner .site-nav .discord-btn span, body.is-owner .site-nav .donate-btn span { display: none; }
+  body.is-owner .site-nav .discord-btn, body.is-owner .site-nav .donate-btn { width: 34px; padding: 0; justify-content: center; }
+  .auth-chip .auth-name { max-width: 90px; }
+  .auth-chip, .auth-chip .auth-logout { white-space: nowrap; }
+}
+
+/* Footer: one link colour. */
+.site-footer a.foot-discord, .site-footer a.foot-support { color: var(--muted-strong); border-bottom-color: var(--border); }
+.site-footer a.foot-discord:hover, .site-footer a.foot-support:hover { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* The repeated confirm / invalidate / "do not infer" boxes. */
+.flow-decision-rules, .heatmap-decision-rules, .bonds-ctx-rules, .f13-rules, .tickers-decision-rules,
+.rp-rules, .narr-decision-rules, .ic-rules, .cx-rules, .cr-rules, .cmd-rules { display: none !important; }
+
+/* Phone tab bar: the open section is easy to spot. */
+@media (max-width: 760px) {
+  .phone-tab.is-on { background: var(--accent-tint-2); }
+  .phone-tab.is-on span { font-weight: 700; }
+}
 
 
 /* Feature pages read one step larger (see scripts/render/text-scale.mjs). */

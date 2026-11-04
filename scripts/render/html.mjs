@@ -2051,15 +2051,21 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
 <div class="side-nav-backdrop" id="side-nav-backdrop" hidden></div>
 <aside class="side-nav" id="side-nav">
   <div class="nav-tools">
-    <div class="nav-tools-heading"><span>Workspace</span><button type="button" class="icon-btn nav-drawer-close" id="nav-drawer-close" aria-label="Close navigation">&times;</button></div>
-    <div class="nav-filter-box">
+    <div class="nav-tools-heading"><span>Pages</span><button type="button" class="icon-btn nav-drawer-close" id="nav-drawer-close" aria-label="Close navigation">&times;</button></div>
+    <!-- One search for the whole site: this opens the same search as the
+         header (stocks, pages and themes). The old page filter input stays in
+         the DOM, hidden, for code that reads its value. -->
+    <button type="button" class="nav-search-btn" id="nav-search-btn" aria-label="Search stocks, pages and themes">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg>
-      <input id="nav-filter" type="search" placeholder="Find a workspace…" aria-label="Filter navigation" aria-controls="workspace-tabs" autocomplete="off" spellcheck="false">
+      <span>Search the site</span><kbd class="cmd-palette-trigger-kbd">⌘K</kbd>
+    </button>
+    <div class="nav-filter-box" hidden>
+      <input id="nav-filter" type="search" aria-label="Filter navigation" aria-controls="workspace-tabs" autocomplete="off" spellcheck="false" tabindex="-1">
       <button type="button" id="nav-filter-clear" aria-label="Clear navigation filter" hidden>&times;</button>
     </div>
-    <button type="button" id="workspace-pin" class="workspace-pin-toggle" aria-pressed="false">Pin this workspace</button>
+    <button type="button" id="workspace-pin" class="workspace-pin-toggle" aria-pressed="false">Pin this page</button>
     <p id="nav-filter-status" class="nav-filter-status" role="status" aria-live="polite" hidden></p>
-    <section id="workspace-pinned" class="workspace-pinned" aria-label="Pinned workspaces" hidden><h2>Pinned</h2><div id="workspace-pinned-list"></div></section>
+    <section id="workspace-pinned" class="workspace-pinned" aria-label="Pinned pages" hidden><h2>Pinned</h2><div id="workspace-pinned-list"></div></section>
     <section id="workspace-recent" class="workspace-recent" aria-label="Recently viewed" hidden><h2>Recently viewed</h2><div id="workspace-recent-list" class="workspace-recent-list"></div></section>
   </div>
 <nav class="page-tabs" id="workspace-tabs" role="tablist" aria-orientation="vertical" aria-label="Page sections">

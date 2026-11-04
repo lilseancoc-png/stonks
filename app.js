@@ -19,7 +19,7 @@
   }
 
 
-  var SITE_MAP = [["today","Today","Today","What is happening in the market right now",0,[["home","Home","","A one-screen overview of the market and every part of the site.",0],["brief","Market brief","Brief","A short digest of what moved, why, and what is coming up next.",0],["news","News","News desk","Market-moving stock and economic headlines, most important first.",0],["heatmap","Heatmap","","Every tracked stock as a tile: size is company value, color is how much it moved.",0],["calendar","Calendar","","Upcoming earnings reports, economic releases and Fed meetings.",0],["overnight","Overnight markets","","How Asian and European markets traded before the US open, and which US stocks they tend to lead.",0]]],["stocks","Stocks","Stocks","Look up, compare and follow companies",0,[["tickers","All stocks","Tickers","Every stock the site follows, with its price, returns and sector.",0],["grade","Look up a stock","Grade a ticker stock report","One stock in depth: its chart, grade, fundamentals, options and news.",0],["compare","Compare stocks","Compare companies","Line up a few companies side by side on price, growth and valuation.",0],["earnings","Earnings results","Earnings tracker","Which companies beat or missed expectations this season, and how their stocks reacted.",0],["calls","Earnings calls","","What management said on each company’s latest earnings call, and what changed.",0],["f13","Who owns what","SEC ownership 13F Form 4 insider","What big investment funds bought and sold last quarter, plus recent insider trades.",0],["pending-buyouts","Pending buyouts","M&A mergers","Announced and rumored takeovers, and how far along each deal is.",0]]],["market","Market & economy","Market","The big picture: mood, rates, money and themes",0,[["fear-greed","Market mood","Fear & Greed","CNN’s Fear & Greed index: whether investors are acting scared or greedy, from 0 to 100.",0],["bonds-usd","Rates & the dollar","Bonds & USD Fed","Treasury yields, the US dollar and what the Fed is expected to do next.",0],["commodities","Commodities","","Oil, gold, copper and other raw materials, and the stocks that move with them.",0],["central-bank-gold","Central-bank gold","","How much gold the world’s central banks are buying or selling.",0],["capital-raises","Capital markets","Capital raises share sales buybacks IPOs credit issuance debt","Companies selling stock or debt or buying shares back, upcoming IPOs, and how easily companies and households can borrow.",0],["narratives","Market themes","Narratives","The big stories driving money right now, such as AI spending, and which stocks ride them.",0]]],["options","Options activity","Options","Where traders are placing bets",0,[["flow","Unusual options trades","Unusual flow","Option trades far bigger than normal for that stock, a sign someone expects a move.",0],["volume","Trading volume","Volume","Days when a stock traded much more or less than usual.",0],["oi","Options walls","Gamma exposure GEX","Price levels where large option positions can slow a stock down or speed it up.",0],["iv-trend","Rising volatility","Trending IV implied volatility","Stocks whose options are pricing in a bigger move than usual.",0],["strategies","Strategy builder","Strategies","Pick a stock and build a defined-risk options trade, with its profit and loss at expiry.",0]]],["signals","Charts & signals","Signals","Price trends and repeating patterns",0,[["ma-tracker","Moving averages","MA tracker crossover","Stocks sitting close to their 20, 50, 100 or 200-day average price.",0],["streaks","Up/down streaks","Streaks green red","Stocks on a run of up days or down days in a row.",0],["pattern-lab","Pattern lab","Seasonality","Repeating patterns such as seasonality and how stocks behave after big moves.",0],["spillover","Earnings ripple effects","Event spillover","How one company’s earnings tend to move the other stocks in its industry.",0],["index-cal","Index calendar","","A month view of the major index funds, showing which days the whole market joined in.",0]]],["industry","Industry trends","Industry","Real-world data behind the AI and chip trade",0,[["ai-capex","AI spending","AI CapEx","How much the biggest tech companies are spending on AI data centers.",0],["ram-prices","Memory chip prices","RAM prices DRAM","Weekly prices for computer memory, a read on the chip cycle.",0],["accelerator-prices","GPU cloud prices","Accelerator","What it costs to rent AI chips by the hour, a read on AI demand.",0],["search-interest","Search trends","Search interest Google","Which market themes people are searching for more or less this week.",0]]],["learn","Learn & help","Learn","Guides, definitions and site info",0,[["cheatsheet","Options guide","Buyer's manual","A plain-English guide to buying options: calls, puts, risk and timing.",0],["chart-patterns","Chart patterns","","What common chart shapes look like and how traders read them.",0],["timeline","When data updates","Refresh schedule timeline","When each part of the site refreshes during the trading day.",0],["privacy","Privacy Policy","","What this site collects and how it is used.",0],["terms","Terms of Use","","The terms for using this site. Nothing here is investment advice.",0]]],["owner","Owner","Owner","Private research",1,[["owner-market-brief","Owner Market Brief","Private digest outlook predictions scenarios research","The full site read, with private research, conditional paths, counterevidence and a curated review shortlist.",0],["unified-signal-engine","Unified Signal Engine","","Existing decisions with separate investment and trading perspectives.",0],["market","Market analysis","","The cross-asset tape, risk barometer and regime history.",0],["risk","Risk analysis","","Seven risk desks read together, with the reason when they disagree.",0],["bottom-tracker","Bottom tracker","","Signs the market is washing out and turning.",0],["historical-data","Historical Data","","The stored history behind the private research.",0],["party-tracker","Party tracker","Party-Tracker Democrats Republicans president house senate","How the market and each sector did when Democrats or Republicans held the presidency, the House, or the Senate.",0],["earnings-forecast","Earnings Forecast","Quarterly full-year valuation company history revenue EPS industry model","Quarterly forecasts for the top 20 covered companies, company history, full-year valuation and linked industry evidence.",0],["forced-liquidation","Forced Liquidation Tracker","Pledged shares collateral leverage margin","SEC stock pledges, loan terms and estimated price thresholds, with missing terms kept visible.",0],["picks","Top picks","","The model’s highest-conviction option contracts for today.",0],["leaps","LEAPS","","Names scored for a one- to two-year options hold.",0],["stocks","Stock picks","","Quality companies on a dip, as shares rather than options.",0],["rotation","Sector rotation","","Strong names sold with their sector that are now turning back up.",0],["levetf","Leveraged ETFs","","Leveraged ETF setups from the same engine.",0],["open-picks","Open picks","","Every open trade, with lines ready to copy to a broker.",0],["track","Top Picks track record","","How every closed pick worked out.",0],["quant","Owner Lab","","Research tools and diagnostics.",0],["research-lab","Research Lab","Scenarios evidence puzzle stocks experiments visual canvas journal ChatGPT Claude","Connect stocks, evidence and assumptions, explore possible outcomes and export your research for AI review.",0],["update-checker","Update Checker","Build status failures feature health stale missing updates","Build failures and checks of published feature outputs.",0]]],["sports","Sports","Sports","Private NBA and NFL research",1,[["sports-nba","NBA","Basketball players props points rebounds games","Today’s and tomorrow’s NBA games, player game logs and the lines you have captured.",0],["sports-nfl","NFL","Football players props passing yards receptions games","Today’s and tomorrow’s NFL games, player game logs and the lines you have captured.",0],["sports-pick-builder","Pick Builder","Sports picks entry payout paper journal PrizePicks Betr","Build a 1 to 6 pick entry with its real payout, see the odds and save it as a paper pick.",0]]]];
+  var SITE_MAP = [["today","Today","Today","What is happening in the market right now",0,[["home","Home","","A one-screen overview of the market and every part of the site.",0],["brief","Market brief","Brief","A short digest of what moved, why, and what is coming up next.",0],["news","News","News desk","Market-moving stock and economic headlines, most important first.",0],["heatmap","Heatmap","","Every tracked stock as a tile: size is company value, color is how much it moved.",0],["calendar","Calendar","","Upcoming earnings reports, economic releases and Fed meetings.",0],["overnight","Overnight markets","","How Asian and European markets traded before the US open, and which US stocks they tend to lead.",0]]],["stocks","Stocks","Stocks","Look up, compare and follow companies",0,[["tickers","All stocks","Tickers","Every stock the site follows, with its price, returns and sector.",0],["grade","Look up a stock","Grade a ticker stock report","One stock in depth: its chart, grade, fundamentals, options and news.",0],["compare","Compare stocks","Compare companies","Line up a few companies side by side on price, growth and valuation.",0],["earnings","Earnings results","Earnings tracker","Which companies beat or missed expectations this season, and how their stocks reacted.",0],["calls","Earnings calls","","What management said on each company’s latest earnings call, and what changed.",0],["f13","Who owns what","SEC ownership 13F Form 4 insider","What big investment funds bought and sold last quarter, plus recent insider trades.",0],["pending-buyouts","Pending buyouts","M&A mergers","Announced and rumored takeovers, and how far along each deal is.",0]]],["market","Market & economy","Market","The big picture: mood, rates, money and themes",0,[["fear-greed","Market mood","Fear & Greed","CNN’s Fear & Greed index: whether investors are acting scared or greedy, from 0 to 100.",0],["bonds-usd","Rates & the dollar","Bonds & USD Fed","Treasury yields, the US dollar and what the Fed is expected to do next.",0],["commodities","Commodities","","Oil, gold, copper and other raw materials, and the stocks that move with them.",0],["central-bank-gold","Central-bank gold","","How much gold the world’s central banks are buying or selling.",0],["capital-raises","Capital markets","Capital raises share sales buybacks IPOs credit issuance debt","Companies selling stock or debt or buying shares back, upcoming IPOs, and how easily companies and households can borrow.",0],["narratives","Market themes","Narratives","The big stories driving money right now, such as AI spending, and which stocks ride them.",0]]],["options","Options activity","Options","Where traders are placing bets",0,[["flow","Unusual options trades","Unusual flow","Option trades far bigger than normal for that stock, a sign someone expects a move.",0],["volume","Trading volume","Volume","Days when a stock traded much more or less than usual.",0],["oi","Options walls","Gamma exposure GEX","Price levels where large option positions can slow a stock down or speed it up.",0],["iv-trend","Rising volatility","Trending IV implied volatility","Stocks whose options are pricing in a bigger move than usual.",0],["strategies","Strategy builder","Strategies","Pick a stock and build a defined-risk options trade, with its profit and loss at expiry.",0]]],["signals","Charts & signals","Signals","Price trends and repeating patterns",0,[["ma-tracker","Moving averages","MA tracker crossover","Stocks sitting close to their 20, 50, 100 or 200-day average price.",0],["streaks","Up/down streaks","Streaks green red","Stocks on a run of up days or down days in a row.",0],["pattern-lab","Pattern lab","Seasonality","Repeating patterns such as seasonality and how stocks behave after big moves.",0],["spillover","Earnings ripple effects","Event spillover","How one company’s earnings tend to move the other stocks in its industry.",0],["index-cal","Index calendar","","A month view of the major index funds, showing which days the whole market joined in.",0]]],["industry","Industry trends","Industry","Real-world data behind the AI and chip trade",0,[["ai-capex","AI spending","AI CapEx","How much the biggest tech companies are spending on AI data centers.",0],["ram-prices","Memory chip prices","RAM prices DRAM","Weekly prices for computer memory, a read on the chip cycle.",0],["accelerator-prices","GPU cloud prices","Accelerator","What it costs to rent AI chips by the hour, a read on AI demand.",0],["search-interest","Search trends","Search interest Google","Which market themes people are searching for more or less this week.",0]]],["learn","Learn & help","Learn","Guides, definitions and site info",0,[["cheatsheet","Options guide","Buyer's manual","A plain-English guide to buying options: calls, puts, risk and timing.",0],["chart-patterns","Chart patterns","","What common chart shapes look like and how traders read them.",0],["timeline","When data updates","Refresh schedule timeline","When each part of the site refreshes during the trading day.",0],["privacy","Privacy Policy","","What this site collects and how it is used.",0],["terms","Terms of Use","","The terms for using this site. Nothing here is investment advice.",0]]],["owner","Owner · Daily desk","Owner","The private daily read",1,[["owner-market-brief","Owner Market Brief","Private digest outlook predictions scenarios research","The full site read, with private research, conditional paths, counterevidence and a curated review shortlist.",0],["unified-signal-engine","Unified Signal Engine","","Existing decisions with separate investment and trading perspectives.",0],["market","Market analysis","","The cross-asset tape, risk barometer and regime history.",0],["risk","Risk analysis","","Seven risk desks read together, with the reason when they disagree.",0]]],["owner-ideas","Owner · Ideas","Ideas","Trade ideas and how they worked out",1,[["picks","Top picks","","The model’s highest-conviction option contracts for today.",0],["open-picks","Open picks","","Every open trade, with lines ready to copy to a broker.",0],["track","Top Picks track record","","How every closed pick worked out.",0],["leaps","LEAPS","","Names scored for a one- to two-year options hold.",0],["stocks","Stock picks","","Quality companies on a dip, as shares rather than options.",0],["levetf","Leveraged ETFs","","Leveraged ETF setups from the same engine.",0],["rotation","Sector rotation","","Strong names sold with their sector that are now turning back up.",0]]],["owner-research","Owner · Research","Research","Private studies and data",1,[["historical-data","Historical Data","","The stored history behind the private research.",0],["earnings-forecast","Earnings Forecast","Quarterly full-year valuation company history revenue EPS industry model","Quarterly forecasts for the top 20 covered companies, company history, full-year valuation and linked industry evidence.",0],["forced-liquidation","Forced Liquidation Tracker","Pledged shares collateral leverage margin","SEC stock pledges, loan terms and estimated price thresholds, with missing terms kept visible.",0],["bottom-tracker","Bottom tracker","","Signs the market is washing out and turning.",0],["party-tracker","Party tracker","Party-Tracker Democrats Republicans president house senate","How the market and each sector did when Democrats or Republicans held the presidency, the House, or the Senate.",0],["research-lab","Research Lab","Scenarios evidence puzzle stocks experiments visual canvas journal ChatGPT Claude","Connect stocks, evidence and assumptions, explore possible outcomes and export your research for AI review.",0]]],["owner-admin","Owner · Admin","Admin","Diagnostics and build health",1,[["quant","Owner Lab","","Research tools and diagnostics.",0],["update-checker","Update Checker","Build status failures feature health stale missing updates","Build failures and checks of published feature outputs.",0]]],["sports","Sports","Sports","Private NBA and NFL research",1,[["sports-nba","NBA","Basketball players props points rebounds games","Today’s and tomorrow’s NBA games, player game logs and the lines you have captured.",0],["sports-nfl","NFL","Football players props passing yards receptions games","Today’s and tomorrow’s NFL games, player game logs and the lines you have captured.",0],["sports-pick-builder","Pick Builder","Sports picks entry payout paper journal PrizePicks Betr","Build a 1 to 6 pick entry with its real payout, see the odds and save it as a paper pick.",0]]]];
   var RECENT_KEY = 'stonks-recent-v1';
   function wfReadRecent(){
     try {
@@ -5819,14 +5819,14 @@ function scenarioEventPhase(ev, now = Date.now()) {
       if (!isDesktopNav() && sideNavVisible()) {
         closeWorkspaceSettings(false);
         requestAnimationFrame(function(){
-          if (!isDesktopNav() && sideNavVisible()) document.getElementById('nav-filter').focus();
+          if (!isDesktopNav() && sideNavVisible()) { var nsb = document.getElementById('nav-search-btn'); if (nsb) nsb.focus(); }
         });
         // The header becomes inert during the opening pointer event. Restore
         // focus after that event and the drawer transition settle, without
         // stealing focus if the user has already moved within the drawer.
         setTimeout(function(){
           var drawer = document.getElementById('side-nav');
-          if (!isDesktopNav() && sideNavVisible() && drawer && !drawer.contains(document.activeElement)) document.getElementById('nav-filter').focus();
+          if (!isDesktopNav() && sideNavVisible() && drawer && !drawer.contains(document.activeElement)) { var nsb2 = document.getElementById('nav-search-btn'); if (nsb2) nsb2.focus(); }
         }, 250);
       }
     }
@@ -5895,10 +5895,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
       var active = document.querySelector('[data-page-tab][aria-selected="true"]');
       var current = active && active.getAttribute('data-page-tab');
       var isPinned = pinnedIds.indexOf(current) >= 0;
-      pinButton.textContent = isPinned ? 'Unpin this workspace' : 'Pin this workspace';
+      pinButton.textContent = isPinned ? 'Unpin this page' : 'Pin this page';
       pinButton.setAttribute('aria-pressed', String(isPinned));
       pinButton.disabled = !workspaceDestination(current) || (!isPinned && pinnedIds.length >= 8);
-      pinButton.title = pinnedIds.length >= 8 && !isPinned ? 'Unpin a workspace to add another (maximum 8)' : 'Saved in this browser';
+      pinButton.title = pinnedIds.length >= 8 && !isPinned ? 'Unpin a page to add another (maximum 8)' : 'Saved in this browser';
       pinnedList.replaceChildren();
       pinnedIds.forEach(function(id){
         var source = workspaceDestination(id);
@@ -5951,12 +5951,78 @@ function scenarioEventPhase(ev, now = Date.now()) {
     function wfLink(cls, id, inner, extra){
       return '<button type="button" class="' + cls + '" data-wf-go="' + id + '"' + (extra || '') + '>' + inner + '</button>';
     }
+    // The page header replaces the first card's own title, intro text and
+    // "How to read" box, which repeated the page name and summary. A page
+    // with one card loses that card's title (the header names the page); the
+    // card's status line moves up beside the page title. Intro paragraphs and
+    // the first explainer move into the header's About panel, closed by
+    // default. Nothing is deleted, and moved nodes keep their ids, so the
+    // code that fills them keeps working.
+    function wfAdoptFirstCard(pane, head){
+      var cards = Array.prototype.filter.call(pane.children, function(c){ return c.classList && (c.classList.contains('card') || c.classList.contains('doc-host')); });
+      var card = cards[0];
+      if (!card || !card.classList.contains('card')) return;
+      var single = cards.length === 1;
+      var about = head.querySelector('.wf-about');
+      var meta = head.querySelector('.wf-meta');
+      var btn = head.querySelector('.wf-about-btn');
+      var title = card.querySelector(':scope > .card-header .card-title, :scope > header .card-title');
+      if (single){
+        pane.classList.add('wf-merged');
+        var eyebrow = card.querySelector(':scope > .card-header > .card-eyebrow, :scope > header > .card-eyebrow');
+        if (eyebrow && meta) meta.appendChild(eyebrow);
+      }
+      var moved = 0;
+      var label = !single && title ? title.textContent.trim() : '';
+      if (label){
+        var h = document.createElement('h2');
+        h.className = 'wf-about-h';
+        h.textContent = label;
+        about.appendChild(h);
+      }
+      // Leading intro paragraphs (before the card's first real content).
+      var kids = Array.prototype.slice.call(card.children);
+      for (var i = 0; i < kids.length; i++){
+        var k = kids[i];
+        if (k.matches('.card-header, header')) continue;
+        if (k.matches('p.hint')){ about.appendChild(k); moved++; continue; }
+        if (k.matches('details.info-note')){
+          var body = k.querySelector(':scope > .info-note-body');
+          var sum = k.querySelector(':scope > summary');
+          var h3 = document.createElement('h3');
+          h3.className = 'wf-about-h';
+          h3.textContent = sum ? sum.textContent.trim() : 'How to read this page';
+          about.appendChild(h3);
+          if (body) about.appendChild(body);
+          k.remove();
+          moved++;
+          break;
+        }
+        break;
+      }
+      if (moved && btn){
+        btn.hidden = false;
+        btn.addEventListener('click', function(){
+          var open = about.hidden;
+          about.hidden = !open;
+          btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        });
+      } else if (label) {
+        about.innerHTML = '';
+      }
+    }
     // Section header: "Section > Page", the sibling pages as chips, and the
     // plain one-line summary. Previous / next links close the page.
     function renderWayfinding(name){
       if (document.body) document.body.setAttribute('data-active-tab', name);
       syncPhoneTabBar(name);
-      if (name === 'home') return;
+      if (name === 'home'){
+        // Home keeps the freshness line above its hero.
+        var homeFresh = document.getElementById('freshness-banner');
+        var homePane = document.getElementById('page-pane-home');
+        if (homeFresh && homePane && homeFresh.parentNode !== homePane) homePane.insertBefore(homeFresh, homePane.firstChild);
+        return;
+      }
       var hit = wfSectionOf(name);
       var pane = document.getElementById('page-pane-' + name);
       if (!hit || !pane) return;
@@ -5970,14 +6036,38 @@ function scenarioEventPhase(ev, now = Date.now()) {
       }
       var siblings = wfSectionItems(sec);
       var firstInSection = siblings[0] ? siblings[0][0] : name;
-      head.innerHTML =
-        '<div class="wf-crumb">' + wfLink('wf-crumb-link', 'home', 'Home') + '<span aria-hidden="true">/</span>' +
-          wfLink('wf-crumb-link', firstInSection, escapeHtml(sec[1])) + '<span aria-hidden="true">/</span>' +
-          '<span class="wf-crumb-here" aria-current="page">' + escapeHtml(item[1]) + '</span></div>' +
-        (item[3] ? '<p class="wf-blurb">' + escapeHtml(item[3]) + '</p>' : '') +
-        (siblings.length > 1 ? '<div class="wf-sibs" role="list" aria-label="More in ' + escapeHtml(sec[1]) + '">' + siblings.map(function(it){
-          return wfLink('wf-sib' + (it[0] === name ? ' is-here' : ''), it[0], escapeHtml(it[1]), ' role="listitem"' + (it[0] === name ? ' aria-current="page"' : ''));
-        }).join('') + '</div>' : '');
+      // One page header everywhere: crumb, title (with the page's live status
+      // and an About button), the one-line summary, then sibling pages. The
+      // header is built once per pane; the crumb and siblings refresh on
+      // every visit because the Owner gate can change what is linkable.
+      if (!head.querySelector('.wf-titlebar')){
+        head.innerHTML = '<div class="wf-crumb"></div>' +
+          '<div class="wf-titlebar"><h1 class="wf-title"></h1>' +
+            '<button type="button" class="wf-about-btn" aria-expanded="false" hidden>' +
+              '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>' +
+              '<span>About this page</span></button>' +
+            '<div class="wf-meta"></div></div>' +
+          '<p class="wf-blurb"></p>' +
+          '<div class="wf-about" role="region" hidden></div>' +
+          '<div class="wf-sibs" role="list"></div>';
+        wfAdoptFirstCard(pane, head);
+      }
+      head.querySelector('.wf-crumb').innerHTML = wfLink('wf-crumb-link', 'home', 'Home') + '<span aria-hidden="true">/</span>' +
+        wfLink('wf-crumb-link', firstInSection, escapeHtml(sec[1]));
+      head.querySelector('.wf-title').textContent = item[1];
+      var blurb = head.querySelector('.wf-blurb');
+      blurb.textContent = item[3] || '';
+      blurb.hidden = !item[3];
+      var sibs = head.querySelector('.wf-sibs');
+      sibs.setAttribute('aria-label', 'More in ' + sec[1]);
+      sibs.innerHTML = siblings.length > 1 ? siblings.map(function(it){
+        return wfLink('wf-sib' + (it[0] === name ? ' is-here' : ''), it[0], escapeHtml(it[1]), ' role="listitem"' + (it[0] === name ? ' aria-current="page"' : ''));
+      }).join('') : '';
+      sibs.hidden = siblings.length < 2;
+      // The data-freshness chip follows the open page into its header.
+      var fresh = document.getElementById('freshness-banner');
+      var meta = head.querySelector('.wf-meta');
+      if (fresh && meta && fresh.parentNode !== meta) meta.insertBefore(fresh, meta.firstChild);
       var foot = pane.querySelector(':scope > .wf-foot');
       if (!foot){
         foot = document.createElement('nav');
@@ -6057,6 +6147,13 @@ function scenarioEventPhase(ev, now = Date.now()) {
         if (first) first.focus({ preventScroll: true });
       });
       group.classList.remove('is-flash'); void group.offsetWidth; group.classList.add('is-flash');
+    });
+    // The sidebar search button opens the one site search (stocks, pages, themes).
+    var navSearchBtn = document.getElementById('nav-search-btn');
+    if (navSearchBtn) navSearchBtn.addEventListener('click', function(){
+      if (!isDesktopNav() && sideNavVisible()) closeSideNavDrawer();
+      var trigger = document.getElementById('cmd-palette-trigger');
+      if (trigger) trigger.click();
     });
     // Recently viewed (this browser only): pages and stocks, newest first.
     var recentSection = document.getElementById('workspace-recent');
@@ -28146,9 +28243,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
   function notice(monitor,issues){
     var el=document.getElementById('update-checker-notice');
     if(!ctx.owner()){if(el)el.remove();return;}
-    if(!el){el=document.createElement('a');el.id='update-checker-notice';el.className='uc-notice';el.href='/?tab=update-checker';document.body.appendChild(el);}
-    el.hidden=monitor.status==='available' && issues===0;
+    if(!el){el=document.createElement('a');el.id='update-checker-notice';el.className='uc-notice';el.href='/?tab=update-checker';var host=document.querySelector('#side-nav .nav-tools');var pin=document.getElementById('workspace-pin');if(host&&pin&&pin.parentNode===host)host.insertBefore(el,pin.nextSibling);else if(host)host.appendChild(el);else document.body.appendChild(el);}
+    el.hidden=monitor.status==='available' && issues===0;el.setAttribute('data-status',issues>0 && monitor.status==='available'?'review':String(monitor.status||'unknown'));
     el.textContent=issues>0 && monitor.status==='available'?'Update Checker: '+issues+' checks need review':monitor.status==='failed'?'Update Checker: a workflow failed':monitor.status==='stuck'?'Update Checker: a workflow is stuck':monitor.status==='degraded'?'Update Checker: degraded output or log errors':monitor.status==='deployment'?'Update Checker: code deployment needs review':monitor.status==='overdue'?'Update Checker: full data build overdue':monitor.status==='stale'?'Update Checker: monitor out of date':'Update Checker: status unavailable';
+    el.title=el.textContent;
   }
   function reset(){generation++;summarySerial++;if(controller)controller.abort();if(summaryController)summaryController.abort();summaryBusy=false;data=null;error='';loading=false;var el=document.getElementById('update-checker-root');if(el)el.innerHTML='';el=document.getElementById('update-checker-notice');if(el)el.remove();}
   function runCard(run){

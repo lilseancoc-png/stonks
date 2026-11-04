@@ -65,10 +65,10 @@ export function renderWorkspaceBindings() {
       var active = document.querySelector('[data-page-tab][aria-selected="true"]');
       var current = active && active.getAttribute('data-page-tab');
       var isPinned = pinnedIds.indexOf(current) >= 0;
-      pinButton.textContent = isPinned ? 'Unpin this workspace' : 'Pin this workspace';
+      pinButton.textContent = isPinned ? 'Unpin this page' : 'Pin this page';
       pinButton.setAttribute('aria-pressed', String(isPinned));
       pinButton.disabled = !workspaceDestination(current) || (!isPinned && pinnedIds.length >= 8);
-      pinButton.title = pinnedIds.length >= 8 && !isPinned ? 'Unpin a workspace to add another (maximum 8)' : 'Saved in this browser';
+      pinButton.title = pinnedIds.length >= 8 && !isPinned ? 'Unpin a page to add another (maximum 8)' : 'Saved in this browser';
       pinnedList.replaceChildren();
       pinnedIds.forEach(function(id){
         var source = workspaceDestination(id);

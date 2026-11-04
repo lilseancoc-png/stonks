@@ -11,27 +11,50 @@ export function renderWayfindingCss() {
 /* Only Home keeps the site-wide subtitle; every other page has its own summary. */
 body:not([data-active-tab="home"]) .page-sub { display: none; }
 
-/* Section header at the top of each page. */
-.wf-head { display: grid; gap: 8px; margin: 2px 0 14px; }
+/* One page header everywhere: crumb, title with status and About, summary, siblings. */
+.wf-head { display: grid; gap: 8px; margin: 2px 0 16px; }
 .wf-crumb { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font: 500 12px/1.4 var(--font-sans); color: var(--muted); }
 .wf-crumb > span[aria-hidden] { opacity: .55; }
 .wf-crumb-link { padding: 2px 0; border: 0; background: none; color: var(--muted-strong); font: inherit; cursor: pointer; }
 .wf-crumb-link:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
-.wf-crumb-here { color: var(--text-strong); font-weight: 600; }
-.wf-blurb { margin: 0; max-width: 78ch; font: 400 14.5px/1.5 var(--font-sans); color: var(--text); }
+.wf-titlebar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; min-width: 0; }
+.wf-title { margin: 0; font: 650 28px/1.15 var(--font-sans); letter-spacing: -0.015em; color: var(--text-strong); }
+.wf-about-btn { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 4px 10px; border: 1px solid var(--border); border-radius: 999px; background: transparent; color: var(--muted-strong); font: 500 12px/1 var(--font-sans); cursor: pointer; }
+.wf-about-btn:hover, .wf-about-btn[aria-expanded="true"] { border-color: var(--accent-line); color: var(--text-strong); }
+.wf-about-btn[hidden] { display: none; }
+.wf-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-left: auto; min-width: 0; font: 500 12px/1.4 var(--font-sans); color: var(--muted); }
+.wf-meta:empty { display: none; }
+.wf-meta .card-eyebrow { margin: 0; font: 500 12px/1.4 var(--font-sans); color: var(--muted); text-transform: none; letter-spacing: 0; }
+/* The freshness line, folded into the header as one quiet status chip. */
+.wf-meta .freshness, #page-pane-home > .freshness { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; max-width: none; margin: 0; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; font: 500 12px/1.4 var(--font-sans); color: var(--muted); }
+#page-pane-home > .freshness { margin: 0 0 10px; }
+.wf-meta .freshness .freshness-detail { display: none; }
+.wf-meta .market-status, #page-pane-home > .freshness .market-status { margin: 0; padding: 2px 8px; font-size: 12px; }
+.wf-blurb { margin: 0; max-width: 78ch; font: 400 15px/1.5 var(--font-sans); color: var(--muted-strong); }
+.wf-about { display: grid; gap: 8px; max-width: 92ch; padding: 12px 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.wf-about[hidden] { display: none; }
+.wf-about .hint, .wf-about p { margin: 0; padding: 0; border: 0; font: 400 14px/1.55 var(--font-sans); font-style: normal; color: var(--text); background: none; }
+.wf-about .wf-about-h { margin: 4px 0 0; font: 600 13px/1.3 var(--font-sans); color: var(--text-strong); }
+.wf-about .info-note-body { display: grid; gap: 8px; padding: 0; border: 0; }
 .wf-sibs { display: flex; flex-wrap: wrap; gap: 6px; }
-.wf-sib { min-height: 30px; padding: 4px 11px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--muted-strong); font: 500 12.5px/1.2 var(--font-sans); cursor: pointer; white-space: nowrap; }
+.wf-sibs[hidden] { display: none; }
+.wf-sib { min-height: 30px; padding: 4px 11px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--muted-strong); font: 500 13px/1.2 var(--font-sans); cursor: pointer; white-space: nowrap; }
 .wf-sib:hover { border-color: var(--accent-line); color: var(--text-strong); }
 .wf-sib.is-here { background: var(--accent-tint-2); border-color: var(--accent-line); color: var(--text-strong); cursor: default; }
-.wf-crumb-link:focus-visible, .wf-sib:focus-visible, .wf-step:focus-visible, .topic-title:focus-visible, .topic-link:focus-visible, .recent-chip:focus-visible, .phone-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.wf-crumb-link:focus-visible, .wf-sib:focus-visible, .wf-step:focus-visible, .wf-about-btn:focus-visible, .topic-title:focus-visible, .topic-link:focus-visible, .recent-chip:focus-visible, .phone-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* A one-card page: the header names the page, so the card drops its own title. */
+.page-pane.wf-merged > .card > .card-header .card-title,
+.page-pane.wf-merged > .card > header > .card-title { display: none; }
+.page-pane.wf-merged > .card > .card-header:not(:has(> :not(.card-title):not([hidden]))),
+.page-pane.wf-merged > .card > header:not(:has(> :not(.card-title):not([hidden]))) { display: none; }
 
 /* Previous / next at the bottom of each page. */
-.wf-foot { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 22px 0 8px; }
-.wf-step { display: grid; gap: 3px; min-width: 0; padding: 12px 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text-strong); text-align: left; cursor: pointer; }
+.wf-foot { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 22px 0 8px; padding-top: 14px; border-top: 1px solid var(--hairline); }
+.wf-step { display: grid; gap: 2px; min-width: 0; padding: 4px 0; border: 0; border-radius: 0; background: none; color: var(--text-strong); text-align: left; cursor: pointer; }
 .wf-step-next { text-align: right; grid-column: 2; }
 .wf-step small { font: 500 11.5px/1.3 var(--font-sans); color: var(--muted); }
 .wf-step b { font: 600 14.5px/1.3 var(--font-sans); overflow-wrap: anywhere; }
-.wf-step:hover { border-color: var(--accent-line); background: var(--surface-2); }
+.wf-step:hover b { color: var(--accent); }
 
 /* Home: Explore by topic. */
 .landing-topics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
@@ -89,11 +112,13 @@ body:not([data-active-tab="home"]) .page-sub { display: none; }
   body.sidenav-open .phone-tabbar { z-index: 1200; }
   .side-nav { padding-bottom: calc(66px + env(safe-area-inset-bottom, 0px)); }
   .wf-head { margin-top: 0; }
+  .wf-title { font-size: 24px; }
+  .wf-meta { margin-left: 0; width: 100%; }
   .wf-blurb { font-size: 14px; }
+  .wf-step { padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
   .wf-sibs { flex-wrap: nowrap; overflow-x: auto; margin: 0 -2px; padding: 0 2px 4px; scrollbar-width: none; }
   .wf-sibs::-webkit-scrollbar { display: none; }
-  .wf-foot { gap: 8px; }
-  .wf-step { padding: 10px 12px; }
+  .wf-foot { gap: 8px; border-top: 0; padding-top: 0; }
   .wf-step b { font-size: 13.5px; }
 }
 @media (max-width: 560px) {

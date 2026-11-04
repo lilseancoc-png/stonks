@@ -3926,14 +3926,14 @@ ${scenarioEventPhase.toString()}
       if (!isDesktopNav() && sideNavVisible()) {
         closeWorkspaceSettings(false);
         requestAnimationFrame(function(){
-          if (!isDesktopNav() && sideNavVisible()) document.getElementById('nav-filter').focus();
+          if (!isDesktopNav() && sideNavVisible()) { var nsb = document.getElementById('nav-search-btn'); if (nsb) nsb.focus(); }
         });
         // The header becomes inert during the opening pointer event. Restore
         // focus after that event and the drawer transition settle, without
         // stealing focus if the user has already moved within the drawer.
         setTimeout(function(){
           var drawer = document.getElementById('side-nav');
-          if (!isDesktopNav() && sideNavVisible() && drawer && !drawer.contains(document.activeElement)) document.getElementById('nav-filter').focus();
+          if (!isDesktopNav() && sideNavVisible() && drawer && !drawer.contains(document.activeElement)) { var nsb2 = document.getElementById('nav-search-btn'); if (nsb2) nsb2.focus(); }
         }, 250);
       }
     }

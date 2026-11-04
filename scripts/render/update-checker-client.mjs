@@ -9,9 +9,10 @@ export function updateCheckerClient(window, document, ctx) {
   function notice(monitor,issues){
     var el=document.getElementById('update-checker-notice');
     if(!ctx.owner()){if(el)el.remove();return;}
-    if(!el){el=document.createElement('a');el.id='update-checker-notice';el.className='uc-notice';el.href='/?tab=update-checker';document.body.appendChild(el);}
-    el.hidden=monitor.status==='available' && issues===0;
+    if(!el){el=document.createElement('a');el.id='update-checker-notice';el.className='uc-notice';el.href='/?tab=update-checker';var host=document.querySelector('#side-nav .nav-tools');var pin=document.getElementById('workspace-pin');if(host&&pin&&pin.parentNode===host)host.insertBefore(el,pin.nextSibling);else if(host)host.appendChild(el);else document.body.appendChild(el);}
+    el.hidden=monitor.status==='available' && issues===0;el.setAttribute('data-status',issues>0 && monitor.status==='available'?'review':String(monitor.status||'unknown'));
     el.textContent=issues>0 && monitor.status==='available'?'Update Checker: '+issues+' checks need review':monitor.status==='failed'?'Update Checker: a workflow failed':monitor.status==='stuck'?'Update Checker: a workflow is stuck':monitor.status==='degraded'?'Update Checker: degraded output or log errors':monitor.status==='deployment'?'Update Checker: code deployment needs review':monitor.status==='overdue'?'Update Checker: full data build overdue':monitor.status==='stale'?'Update Checker: monitor out of date':'Update Checker: status unavailable';
+    el.title=el.textContent;
   }
   function reset(){generation++;summarySerial++;if(controller)controller.abort();if(summaryController)summaryController.abort();summaryBusy=false;data=null;error='';loading=false;var el=document.getElementById('update-checker-root');if(el)el.innerHTML='';el=document.getElementById('update-checker-notice');if(el)el.remove();}
   function runCard(run){
