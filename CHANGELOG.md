@@ -38,7 +38,17 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## 2026-11-04
 
+### Added
+
+- Add a public stock page (`?tab=stock&s=NVDA`, sidebar "Look up a stock"). It shows the name, price and day change (live while the market is open), a price chart (line or candles, volume, 50- and 200-day lines, 5D to 1Y), key numbers with a 52-week range bar, and tabs for Overview, News, Earnings (last 8 reports and the latest call), Options (IV percentile, expected move, walls, unusual trades), Ownership (13F fund moves, Form 4 insider trades) and Similar stocks. Owners also get an Owner desk tab with the grade and the stock's Top Picks trades. A Watch button keeps a watchlist in this browser.
+- Add one chart kit (`scripts/render/chart-kit-js.mjs`) built on TradingView Lightweight Charts 4.2.3, vendored in `js/vendor/` and loaded on first use. Every chart gets the same crosshair readout, range buttons, source line, loading skeleton and theme colours.
+
 ### Changed
+
+- Send public stock links, search results and recently viewed stocks to the stock page instead of the Heatmap. Owners keep the Grade tool for desk links; the search shows a separate Grade row for them.
+- Group search results under Stocks, Pages and Themes, with company names beside each ticker.
+- Open All stocks as a table on desktop (cards on phones; a saved choice wins), with company names, 1W / 1M / YTD returns, market value and one industry label. Cards show the company name, one label instead of "SEMIS · SEMICONDUCTORS", a dash when there is no day change, and "+ Compare" only on hover.
+- Rename the Owner Grade page in the sidebar to "Grade a stock".
 
 - Put every page on one design system: text sizes snap to one 15-step scale (feature pages read one step larger), corners to 4 / 8 / 12 px or a pill, plain drop shadows to three elevations, and numbers use the interface font (its digits are equal width). JetBrains Mono stays for code, keyboard hints and trade lines. Upper-case labels lose the wide letter spacing (`scripts/render/design-system.mjs`).
 - Give every page one header: crumb, title, one line of description and the freshness chip on one row. The card title and "How to read" notes that repeated it move behind an "About this page" button, and the bottom Previous / Next links are a thin row on desktop.

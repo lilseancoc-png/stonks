@@ -27444,6 +27444,12 @@ html.is-embed #freshness-banner { margin-top: 8px; padding-block: 6px; }
 .stp-pick-sym { grid-area: sym; font: 700 var(--t-14)/1.2 var(--font-sans); color: var(--text-strong); }
 .stp-pick .stp-chg { grid-area: chg; font-size: var(--t-13); }
 .stp-pick-name { grid-area: name; font-size: var(--t-12); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* === Search: grouped results === */
+.cmd-palette-group { list-style: none; padding: 10px 10px 4px; font: 600 var(--t-12)/1.2 var(--font-sans); color: var(--muted); }
+.cmd-palette-group:first-child { padding-top: 4px; }
+.cmd-palette-row-type { font-family: var(--font-sans); letter-spacing: 0; min-width: 46px; text-align: center; }
+.cmd-type-grade { background: var(--surface-3); color: var(--text-strong); }
+
 /* === All stocks: names, one label, compare on hover === */
 .ticker-name { display: block; min-width: 0; font-size: var(--t-12); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ticker-name:empty { display: none; }

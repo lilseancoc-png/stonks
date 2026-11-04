@@ -52274,18 +52274,32 @@ function scenarioEventPhase(ev, now = Date.now()) {
           .slice(0, 30)
           .map(function(x){ return x.it; });
       }
+      // Group the matches: Stocks, then Pages, then Themes (best match first
+      // inside each group). Recently viewed keeps its own order.
+      if (q){
+        var rank = { ticker: 0, grade: 1, tab: 2, narrative: 3 };
+        filtered = filtered.map(function(it, i){ return { it: it, i: i }; })
+          .sort(function(a, b){ return (rank[a.it.type] - rank[b.it.type]) || (a.i - b.i); })
+          .map(function(x){ return x.it; });
+      }
       selectedIdx = 0;
       renderList();
     }
+    var CMD_GROUP = { ticker: 'Stocks', grade: 'Grade (Owner)', tab: 'Pages', narrative: 'Themes' };
     function renderList(){
       if (!filtered.length){
         results.innerHTML = '<li class="cmd-palette-empty" role="option" aria-selected="false">No matches</li>';
         return;
       }
+      var grouped = !!(input.value || '').trim();
+      var lastGroup = null;
       results.innerHTML = filtered.map(function(it, i){
         var typeLbl = it.type === 'ticker' ? 'Stock' : it.type === 'grade' ? 'Grade' : it.type === 'narrative' ? 'Theme' : 'Page';
         var sub = it.sub ? '<span class="cmd-palette-row-sub">' + escapeHtml(it.sub) + '</span>' : '';
-        return '<li class="cmd-palette-row' + (i === selectedIdx ? ' is-active' : '') + '" role="option" data-cmd-idx="' + i + '" aria-selected="' + (i === selectedIdx ? 'true' : 'false') + '">' +
+        var head = '';
+        var g = grouped ? CMD_GROUP[it.type] : (i === 0 ? 'Recent and suggested' : null);
+        if (g && g !== lastGroup){ head = '<li class="cmd-palette-group" role="presentation">' + escapeHtml(g) + '</li>'; lastGroup = g; }
+        return head + '<li class="cmd-palette-row' + (i === selectedIdx ? ' is-active' : '') + '" role="option" data-cmd-idx="' + i + '" aria-selected="' + (i === selectedIdx ? 'true' : 'false') + '">' +
           '<span class="cmd-palette-row-type cmd-type-' + it.type + '">' + typeLbl + '</span>' +
           '<span class="cmd-palette-row-label">' + escapeHtml(it.label) + '</span>' +
           sub +

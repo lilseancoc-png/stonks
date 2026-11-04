@@ -123,6 +123,12 @@ export function renderStockPageCss() {
 .stp-pick-sym { grid-area: sym; font: 700 14px/1.2 var(--font-sans); color: var(--text-strong); }
 .stp-pick .stp-chg { grid-area: chg; font-size: 13px; }
 .stp-pick-name { grid-area: name; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* === Search: grouped results === */
+.cmd-palette-group { list-style: none; padding: 10px 10px 4px; font: 600 12px/1.2 var(--font-sans); color: var(--muted); }
+.cmd-palette-group:first-child { padding-top: 4px; }
+.cmd-palette-row-type { font-family: var(--font-sans); letter-spacing: 0; min-width: 46px; text-align: center; }
+.cmd-type-grade { background: var(--surface-3); color: var(--text-strong); }
+
 /* === All stocks: names, one label, compare on hover === */
 .ticker-name { display: block; min-width: 0; font-size: 12px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ticker-name:empty { display: none; }

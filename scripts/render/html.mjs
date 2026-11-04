@@ -1994,7 +1994,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     <nav class="site-nav">
       <button id="cmd-palette-trigger" class="cmd-palette-trigger" type="button" aria-label="Search ticker, narrative, or tab" title="Jump to ticker, narrative, or tab (⌘K / Ctrl+K)">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-        <span class="cmd-palette-trigger-label">Search ticker, narrative, tab…</span>
+        <span class="cmd-palette-trigger-label">Search stocks, pages and themes…</span>
         <kbd class="cmd-palette-trigger-kbd">⌘K</kbd>
       </button>
       <a class="discord-btn" href="${DISCORD_INVITE_URL}" target="_blank" rel="noopener" aria-label="Join the Ming Street Discord to discuss market research" title="Join the Discord to discuss market research">
@@ -2745,7 +2745,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     <h2 id="cmd-palette-title" class="cmd-palette-srtitle">Command palette</h2>
     <div class="cmd-palette-input-wrap">
       <svg class="cmd-palette-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-      <input type="text" id="cmd-palette-input" placeholder="Jump to ticker, narrative, or tab…" autocomplete="off" spellcheck="false" aria-label="Jump to ticker, narrative, or tab" aria-controls="cmd-palette-results" aria-expanded="true" />
+      <input type="text" id="cmd-palette-input" placeholder="Find a stock (NVDA, Apple), a page or a theme…" autocomplete="off" spellcheck="false" aria-label="Search stocks, pages and themes" aria-controls="cmd-palette-results" aria-expanded="true" />
       <kbd class="cmd-palette-kbd">esc</kbd>
     </div>
     <ul id="cmd-palette-results" class="cmd-palette-results" role="listbox" aria-label="Command palette results"></ul>
