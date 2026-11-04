@@ -142,8 +142,17 @@ export function viewsFactory(win, doc) {
   // A tab may offer extra layouts beyond Cards / Table (for example a chart):
   // pass them as [[mode, label], ...] to both viewMode and viewToggleHtml.
   var VIEW_MODE_RE = /^[a-z][a-z0-9-]{0,15}$/;
+  // Lists that open as a table on wider screens (phones keep cards). A saved
+  // choice on this device always wins.
+  var TABLE_FIRST = {};
+  function tableFirst(keys) { for (var i = 0; i < keys.length; i++) TABLE_FIRST[keys[i]] = 1; }
+  function defaultView(key) {
+    if (!TABLE_FIRST[key]) return 'cards';
+    try { if (win.matchMedia && win.matchMedia('(max-width: 760px)').matches) return 'cards'; } catch (e) {}
+    return 'table';
+  }
   function viewMode(key, extras) {
-    var m = get('view:' + key, 'cards');
+    var m = get('view:' + key, defaultView(key));
     if (m === 'table') return 'table';
     if (extras) for (var i = 0; i < extras.length; i++) if (extras[i][0] === m) return m;
     return 'cards';
@@ -401,7 +410,7 @@ export function viewsFactory(win, doc) {
         var vkey = vt.getAttribute('data-view-toggle');
         var mode = vt.getAttribute('data-view-mode') || 'cards';
         if (!VIEW_MODE_RE.test(mode)) mode = 'cards';
-        set('view:' + vkey, mode === 'cards' ? null : mode);
+        set('view:' + vkey, mode === defaultView(vkey) ? null : mode);
         var btns = doc.querySelectorAll('[data-view-toggle="' + vkey + '"]');
         for (var j = 0; j < btns.length; j++) {
           var isOn = btns[j].getAttribute('data-view-mode') === mode;
@@ -443,7 +452,7 @@ export function viewsFactory(win, doc) {
     get: get, set: set, choose: choose, clearAll: clearAll,
     reversed: reversed, applyDir: applyDir, flipHtml: flipHtml, withFlip: withFlip, attachFlip: attachFlip, onFlip: onFlip,
     remember: remember, sortBy: sortBy, sortMenuHtml: sortMenuHtml,
-    viewMode: viewMode, viewToggleHtml: viewToggleHtml, onView: onView, tableHtml: tableHtml,
+    viewMode: viewMode, tableFirst: tableFirst, viewToggleHtml: viewToggleHtml, onView: onView, tableHtml: tableHtml,
     parseCell: parseCell, sortTable: sortTable, rescan: queueScan,
     start: start
   };

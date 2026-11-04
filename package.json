@@ -91,6 +91,7 @@
     "test:chart-hover": "node scripts/chart-hover-smoke.mjs",
     "test:chart-ui-browser": "node scripts/chart-ui-browser.mjs",
     "test:site-map": "node scripts/site-map-smoke.mjs",
+    "test:stock-page": "node scripts/stock-page-smoke.mjs",
     "test:export": "node scripts/export-smoke.mjs",
     "test:export-browser": "node scripts/export-browser.mjs",
     "test:risk-stack": "node scripts/risk-stack-smoke.mjs",

@@ -93,6 +93,7 @@ const SIDE_NAV_ICONS = {
   'bottom-tracker': '<path d="M3 16.5c2.2 0 3.2-7 5.5-7s2.8 8 5.2 8 2.6-6 4.8-6 2.5 3 2.5 3"/><path d="M3 20h18"/>',
   commodities: '<path d="M3 20.5c0-6 3.5-9.5 9-9.5s9 3.5 9 9.5"/><path d="M12 11V3.5"/><path d="M12 3.5c2.5 0 4.5 1.5 5 3.5-2.5.5-4.5-.5-5-3.5zM12 3.5c-2.5 0-4.5 1.5-5 3.5 2.5.5 4.5-.5 5-3.5z"/>',
   f13: '<path d="M14 2.5H6.5A1.5 1.5 0 0 0 5 4v16a1.5 1.5 0 0 0 1.5 1.5h11A1.5 1.5 0 0 0 19 20V7.5z"/><path d="M14 2.5v5h5"/><path d="M9 13h6M9 17h6"/>',
+  stock: '<path d="M3.5 3.5v17h17"/><path d="m7 15 3.5-4.5 3 2.5 4.5-6"/><circle cx="18" cy="7" r="1.6"/>',
   grade: '<circle cx="12" cy="8.5" r="5.5"/><path d="m8.8 13.2-1.3 8 4.5-2.7 4.5 2.7-1.3-8"/>',
   compare: '<rect x="3" y="3.5" width="18" height="17" rx="2"/><path d="M12 3.5v17"/>',
   strategies: '<circle cx="12" cy="12" r="9.5"/><path d="m15.8 8.2-2 5.6-5.6 2 2-5.6z"/>',
@@ -171,12 +172,15 @@ function tickersSection({ symbols, sectors, industries }) {
     const sec = sectors[sym] || "";
     const ind = industries[sym] || "";
     const grp = sectorGroupOfLabel(sec) || "";
-    const subtitle = [sec, ind].filter(Boolean).join(" · ");
+    // One label per card: the industry when known ("Semiconductors"), else
+    // the sector. "SEMIS · SEMICONDUCTORS" said the same thing twice.
+    const subtitle = ind || sec;
     return `<a class="ticker-card" href="?s=${encodeURIComponent(sym)}" data-ticker="${htmlEscape(sym)}" data-sector="${htmlEscape(sec)}" data-sector-group="${htmlEscape(grp)}" data-industry="${htmlEscape(ind)}">
       <span class="ticker-card-head">
         <span class="ticker-sym">${htmlEscape(sym)}</span>
         <span class="ticker-grade" data-grade-for="${htmlEscape(sym)}" hidden></span>
       </span>
+      <span class="ticker-name" data-name-for="${htmlEscape(sym)}"></span>
       <span class="ticker-card-row">
         <span class="ticker-spot" data-spot-for="${htmlEscape(sym)}"></span>
         <span class="ticker-chg" data-chg-for="${htmlEscape(sym)}" hidden></span>
@@ -2164,6 +2168,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   <div class="page-pane" id="page-pane-tickers" role="tabpanel" aria-labelledby="page-tab-tickers" hidden>
   ${tickersSection({ symbols, sectors: SECTORS, industries: INDUSTRY_OF_TICKER })}
   </div>
+  <div class="page-pane" id="page-pane-stock" role="tabpanel" aria-labelledby="page-tab-stock" hidden>
+    <div class="stp-page" id="stock-root" aria-live="polite"><p class="stp-loading">Loading…</p></div>
+  </div>
   <div class="page-pane" id="page-pane-narratives" role="tabpanel" aria-labelledby="page-tab-narratives" hidden>
   ${narrativesSection()}
   </div>
@@ -2722,6 +2729,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   <div><a class="foot-discord" href="${DISCORD_INVITE_URL}" target="_blank" rel="noopener">Discuss the research in our Discord</a></div>
   <div><a class="foot-support" href="${KO_FI_URL}" target="_blank" rel="noopener">Support stonks on Ko-fi</a></div>
   <div><a href="/?tab=privacy">Privacy Policy</a> · <a href="/?tab=terms">Terms of Use</a></div>
+  <div class="muted">Price charts by <a href="https://www.tradingview.com/lightweight-charts/" target="_blank" rel="noopener">TradingView Lightweight Charts&trade;</a>, Copyright &copy; 2025 TradingView, Inc.</div>
 </footer>
 <!-- Phone tab bar (hidden on wider screens): each button opens the sidebar at
      that section; Search opens the command palette. -->

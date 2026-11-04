@@ -120,3 +120,24 @@ for (const pane of panes) {
 }
 
 console.log("views smoke passed");
+
+// Table-first lists: a table on wide screens, cards on phones, and a saved
+// choice always wins.
+{
+  const st = {};
+  let phone = false;
+  const w = {
+    localStorage: { getItem: (k) => (k in st ? st[k] : null), setItem: (k, v) => { st[k] = String(v); }, removeItem: (k) => { delete st[k]; } },
+    matchMedia: () => ({ matches: phone }),
+  };
+  const T = viewsFactory(w, {});
+  T.tableFirst(["list"]);
+  assert.equal(T.viewMode("list"), "table");
+  assert.equal(T.viewMode("other"), "cards");
+  phone = true;
+  assert.equal(T.viewMode("list"), "cards");
+  phone = false;
+  T.set("view:list", "cards");
+  assert.equal(T.viewMode("list"), "cards");
+}
+console.log("views-smoke: table-first default ok");

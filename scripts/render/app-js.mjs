@@ -40,6 +40,8 @@ import { renderSplitViewBindings, renderSplitViewHelpers } from './split-view-js
 import { renderExportBindings } from './export-js.mjs';
 import { renderRecoveryHelpers } from './recovery-js.mjs';
 import { viewsFactory } from './views-client.mjs';
+import { renderChartKitJs } from './chart-kit-js.mjs';
+import { renderStockPageJs } from './stock-page-js.mjs';
 import { ivRichnessFactory } from '../../lib/iv-richness.mjs';
 import { overnightToneFactory } from '../../lib/overnight-tone.mjs';
 import { sectorGroupsFactory } from '../../lib/sector-groups.mjs';
@@ -70,6 +72,8 @@ ${renderWorkspaceHelpers()}
 ${renderWayfindingHelpers()}
 ${renderSplitViewHelpers()}
 ${renderRecoveryHelpers()}
+${renderChartKitJs()}
+${renderStockPageJs()}
 ${calendarSourceLabel.toString()}
 ${calendarScheduleFallbackUsable.toString()}
 ${calendarHealth.toString()}
@@ -96,6 +100,8 @@ ${validNewsFeedPayload.toString()}
   function sectorGroupOf(sym){ return SECTOR_GROUPS.of(SECTORS[sym] || null); }
   // Shared sort / view helpers (source: scripts/render/views-client.mjs).
   var VIEWS = (${viewsFactory.toString()})(window, document);
+  // Long lists open as a table on wider screens; phones keep cards.
+  VIEWS.tableFirst(['tickers']);
   // js/streaks.js (a separate module) reads the same helpers + grade index.
   VIEWS.gradeTotal = function(sym, rerender){ return gradeTotalFor(sym, rerender); };
   VIEWS.sectorGroupOf = sectorGroupOf;
@@ -3774,7 +3780,7 @@ ${scenarioEventPhase.toString()}
   // resolve the URL's initial tab synchronously at script-evaluation time (the
   // anti-flash pre-select in the boot block) before the /api/auth/me +
   // manifest fetches settle and bind() runs the full selectTab.
-  var PAGE_TAB_IDS = ['home','update-checker','owner-market-brief','tickers','narratives','brief','news','market','risk','unified-signal-engine','historical-data','party-tracker','earnings-forecast','forced-liquidation','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','research-lab','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','bottom-tracker','open-picks','track','sports-nba','sports-nfl','sports-pick-builder','cheatsheet','chart-patterns','timeline','privacy','terms'];
+  var PAGE_TAB_IDS = ['home','update-checker','owner-market-brief','tickers','stock','narratives','brief','news','market','risk','unified-signal-engine','historical-data','party-tracker','earnings-forecast','forced-liquidation','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','research-lab','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','bottom-tracker','open-picks','track','sports-nba','sports-nfl','sports-pick-builder','cheatsheet','chart-patterns','timeline','privacy','terms'];
   // Friendly aliases so deep-links people might guess work too.
   // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
   // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -3847,7 +3853,8 @@ ${scenarioEventPhase.toString()}
       var params = new URLSearchParams(window.location.search);
       var qTab = resolvePageTabId(params.get('tab'), validList);
       if (qTab) tab = qTab;
-      else if (params.get('s')) tab = 'grade';
+      // Owners land on the Grade tool; everyone else on the stock page.
+      else if (params.get('s')) tab = (HAS_OWNER_ACCESS && validList.indexOf('grade') >= 0) ? 'grade' : 'stock';
     } catch (_) {}
     return tab;
   }
@@ -4198,6 +4205,7 @@ ${renderExportBindings()}
       if (name === 'owner-market-brief') ownerMarketBrief.load();
       if (name === 'research-lab') researchLab.load();
       if (name === 'brief' && typeof loadBrief === 'function') loadBrief();
+      if (name === 'stock') STOCK_PAGE.load();
         if (name === 'news' && typeof loadNewsFeed === 'function') loadNewsFeed();
         if ((name === 'calendar' || name === 'bonds-usd') && typeof loadCalendar === 'function') loadCalendar();
         if (name === 'index-cal' && typeof loadIndexCal === 'function') loadIndexCal();
@@ -27802,7 +27810,7 @@ ${renderExportBindings()}
   // click opens the ticker in a new tab like any link; a plain click is
   // intercepted for the in-page SPA jump (calGoToTicker).
   function symGradeHref(sym){
-    if (!HAS_OWNER_ACCESS) return '?tab=heatmap&heatmapSearch=' + encodeURIComponent(String(sym || '').toUpperCase());
+    if (!HAS_OWNER_ACCESS) return STOCK_PAGE.href(sym);
     return '?s=' + encodeURIComponent(String(sym || '').toUpperCase());
   }
   // Shared ticker-link binder: any anchor carrying a data-sym jumps to the
@@ -29355,14 +29363,9 @@ ${renderExportBindings()}
   // Navigate to the Grade tab and load a ticker (reuses the combobox). Shared
   // by the clickable earnings/catalyst symbols and the overview cards.
   function calGoToTicker(sym){
+    // Public visitors open the stock page; owners keep the Grade tool.
     if (!HAS_OWNER_ACCESS) {
-      if (!sym) return;
-      heatmapState.search = String(sym).toUpperCase();
-      var field = $('heatmap-search');
-      if (field) field.value = heatmapState.search;
-      var heatmapTab = document.querySelector('[data-page-tab="heatmap"]');
-      if (heatmapTab) heatmapTab.click();
-      applyHeatmapSearch();
+      if (sym) STOCK_PAGE.open(sym);
       return;
     }
     if (!sym) return;
@@ -42170,7 +42173,9 @@ ${renderExportBindings()}
     function buildCorpus(){
       var out = [];
       SYMBOLS.forEach(function(sym){
-        out.push({ type:'ticker', label: sym, sub: INDUSTRIES[sym] || '', action:'open-ticker', payload: sym });
+        var nm = STOCK_PAGE.nameOf(sym);
+        out.push({ type:'ticker', label: sym, sub: (nm ? nm + ' · ' : '') + (INDUSTRIES[sym] || ''), action:'open-ticker', payload: sym });
+        if (HAS_OWNER_ACCESS) out.push({ type:'grade', label: sym, sub: 'Grade' + (nm ? ' · ' + nm : ''), action:'open-grade', payload: sym });
       });
       (NARRATIVES || []).forEach(function(n){
         var firstTicker = (n.longs && n.longs[0]) || (n.shorts && n.shorts[0]);
@@ -42232,7 +42237,7 @@ ${renderExportBindings()}
         return;
       }
       results.innerHTML = filtered.map(function(it, i){
-        var typeLbl = it.type === 'ticker' ? 'TICKER' : it.type === 'narrative' ? 'THEME' : 'TAB';
+        var typeLbl = it.type === 'ticker' ? 'Stock' : it.type === 'grade' ? 'Grade' : it.type === 'narrative' ? 'Theme' : 'Page';
         var sub = it.sub ? '<span class="cmd-palette-row-sub">' + escapeHtml(it.sub) + '</span>' : '';
         return '<li class="cmd-palette-row' + (i === selectedIdx ? ' is-active' : '') + '" role="option" data-cmd-idx="' + i + '" aria-selected="' + (i === selectedIdx ? 'true' : 'false') + '">' +
           '<span class="cmd-palette-row-type cmd-type-' + it.type + '">' + typeLbl + '</span>' +
@@ -42254,6 +42259,8 @@ ${renderExportBindings()}
         var btn = document.querySelector('[data-page-tab="' + it.payload + '"]');
         if (btn) btn.click();
       } else if (it.action === 'open-ticker'){
+        STOCK_PAGE.open(it.payload);
+      } else if (it.action === 'open-grade'){
         calGoToTicker(it.payload);
       } else if (it.action === 'open-narrative'){
         var nbtn = document.querySelector('[data-page-tab="narratives"]');
@@ -42265,6 +42272,9 @@ ${renderExportBindings()}
       modal.hidden = false;
       document.body.classList.add('cmd-palette-open');
       input.value = '';
+      // Rebuild on open so Owner rows and company names are current.
+      corpus = buildCorpus();
+      STOCK_PAGE.names().then(function(){ corpus = buildCorpus(); if (!modal.hidden) update(); });
       update();
       setTimeout(function(){ try { input.focus(); } catch (_){} }, 0);
     }
@@ -43523,6 +43533,21 @@ ${renderExportBindings()}
           var rows = j && Array.isArray(j.tickers) ? j.tickers : [];
           for (var i = 0; i < rows.length; i++) if (rows[i] && rows[i].t) map[rows[i].t] = rows[i];
           tickerMarket = map;
+          // Company names on the cards, and a plain dash (not a blank) when a
+          // symbol has no day change yet.
+          cards.forEach(function(card){
+            var sym = cardAlpha(card);
+            var row = map[sym];
+            var nameEl = card.querySelector('.ticker-name');
+            if (nameEl && row && row.n) nameEl.textContent = row.n;
+            var chgEl = card.querySelector('.ticker-chg');
+            if (chgEl && chgEl.hidden && !card.hasAttribute('data-tracker-only') && !(row && row.ch != null && isFinite(row.ch))){
+              chgEl.textContent = '—';
+              chgEl.className = 'ticker-chg is-flat';
+              chgEl.title = 'No day change reported for ' + sym + ' yet';
+              chgEl.hidden = false;
+            }
+          });
           applyView();
         })
         .catch(function(){ tickerMarket = {}; });
@@ -43585,6 +43610,11 @@ ${renderExportBindings()}
       var v = m && m.perf ? m.perf['1m'] : null;
       return v != null && isFinite(v) ? Number(v) : null;
     }
+    function cardPerf(card, key){
+      var m = cardMarket(card);
+      var v = m && m.perf ? m.perf[key] : null;
+      return v != null && isFinite(v) ? Number(v) : null;
+    }
     function cardMcap(card){
       var m = cardMarket(card);
       return m && Number(m.mc) > 0 ? Number(m.mc) : null;
@@ -43629,13 +43659,18 @@ ${renderExportBindings()}
     function renderTickerTable(shownCards){
       if (!tableHost) return;
       var cols = [
-        { label: 'Ticker', cell: function(c){ return '<a href="' + escapeHtml(c.getAttribute('href') || ('?s=' + encodeURIComponent(cardAlpha(c)))) + '">' + escapeHtml(cardAlpha(c)) + '</a>'; }, sort: cardAlpha },
-        { label: 'Sector', cell: function(c){ return escapeHtml(c.getAttribute('data-sector') || ''); }, sort: function(c){ return c.getAttribute('data-sector') || null; } },
-        { label: 'Industry', cell: function(c){ return escapeHtml(c.getAttribute('data-industry') || ''); }, sort: function(c){ return c.getAttribute('data-industry') || null; } },
+        { label: 'Stock', cell: function(c){
+            var m = cardMarket(c);
+            return '<a class="vt-sym" href="' + escapeHtml(c.getAttribute('href') || ('?s=' + encodeURIComponent(cardAlpha(c)))) + '">' + escapeHtml(cardAlpha(c)) + '</a>' +
+              (m && m.n ? '<span class="vt-name">' + escapeHtml(m.n) + '</span>' : '');
+          }, sort: cardAlpha },
         { label: 'Price', num: true, cell: function(c){ var el = c.querySelector('.ticker-spot'); return el ? escapeHtml(el.textContent || '') : ''; }, sort: function(c){ var el = c.querySelector('.ticker-spot'); var p = el ? VIEWS.parseCell(el) : null; return p && p.kind === 'num' ? p.v : null; } },
-        { label: 'Day', num: true, cell: function(c){ return fmtTickerPct(cardMove1d(c)); }, sort: cardMove1d },
-        { label: '1M', num: true, cell: function(c){ return fmtTickerPct(cardMove1m(c)); }, sort: cardMove1m },
-        { label: 'Mkt cap', num: true, cell: function(c){ return fmtTickerCap(cardMcap(c)); }, sort: cardMcap },
+        { label: 'Day', num: true, cell: function(c){ var v = cardMove1d(c); return v == null ? '<span class="muted" title="No day change reported yet">—</span>' : fmtTickerPct(v); }, sort: cardMove1d },
+        { label: '1W', num: true, title: 'One week', cell: function(c){ return fmtTickerPct(cardPerf(c, '1w')); }, sort: function(c){ return cardPerf(c, '1w'); } },
+        { label: '1M', num: true, title: 'One month', cell: function(c){ return fmtTickerPct(cardMove1m(c)); }, sort: cardMove1m },
+        { label: 'YTD', num: true, title: 'Since the start of the year', cell: function(c){ return fmtTickerPct(cardPerf(c, 'ytd')); }, sort: function(c){ return cardPerf(c, 'ytd'); } },
+        { label: 'Market value', num: true, cell: function(c){ return fmtTickerCap(cardMcap(c)); }, sort: cardMcap },
+        { label: 'Industry', cell: function(c){ var ind = c.getAttribute('data-industry') || '', sec = c.getAttribute('data-sector') || ''; return '<span title="' + escapeHtml(sec) + '">' + escapeHtml(ind || sec) + '</span>'; }, sort: function(c){ return c.getAttribute('data-industry') || c.getAttribute('data-sector') || null; } },
         { label: 'Grade', num: true, title: 'Signed grade score: positive leans call, negative leans put', cell: function(c){
             var v = cardScore(c); if (v == null) return '';
             var side = c.getAttribute('data-model-side') || 'neutral';

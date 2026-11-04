@@ -41,6 +41,11 @@ export function renderOverhaulCss() {
 .flow-decision-rules, .heatmap-decision-rules, .bonds-ctx-rules, .f13-rules, .tickers-decision-rules,
 .rp-rules, .narr-decision-rules, .ic-rules, .cx-rules, .cr-rules, .cmd-rules { display: none !important; }
 
+/* Table headers and layout switches read in sentence case, not as
+   letter-spaced capitals. */
+.vt-table th { font-family: var(--font-sans); text-transform: none; letter-spacing: 0; font-weight: 600; }
+.view-toggle button { text-transform: none; letter-spacing: 0; font-family: var(--font-sans); }
+
 /* Phone tab bar: the open section is easy to spot. */
 @media (max-width: 760px) {
   .phone-tab.is-on { background: var(--accent-tint-2); }

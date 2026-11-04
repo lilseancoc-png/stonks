@@ -274,7 +274,7 @@ export function renderWayfindingBindings() {
       var html = wfReadRecent().filter(function(entry){
         var kind = entry.slice(0, 4), id = entry.slice(4);
         if (kind === 'tab:') return id !== current && wfAllowed(id) && !!wfItem(id);
-        return kind === 'sym:' && SYMBOLS.indexOf(id) >= 0 && wfAllowed('grade');
+        return kind === 'sym:' && SYMBOLS.indexOf(id) >= 0 && (wfAllowed('grade') || wfAllowed('stock'));
       }).slice(0, 4).map(function(entry){
         var id = entry.slice(4);
         if (entry.slice(0, 4) === 'sym:') return '<button type="button" class="recent-chip is-sym" data-wf-sym="' + escapeHtml(id) + '">' + escapeHtml(id) + '</button>';
@@ -286,6 +286,7 @@ export function renderWayfindingBindings() {
     }
     document.addEventListener('stonks-recent', renderRecent);
     function wfOpenTicker(sym){
+      if (!HAS_OWNER_ACCESS) { STOCK_PAGE.open(sym); return; }
       selectTab('grade');
       setTimeout(function(){ try { combo.commit(sym); } catch (_) {} }, 0);
     }
