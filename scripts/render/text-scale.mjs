@@ -6,6 +6,8 @@
 // chart labels, whose px sizes are viewBox units and would crowd the axes.
 export const PAGE_TEXT_SCALE = 1.1;
 
+import { applyDesignSystem, designSystemCss } from './design-system.mjs';
+
 const SMALL_PX = 18;
 const SMALL_REM = 1.15;
 const SMALL_LINE_PX = 26;
@@ -46,7 +48,10 @@ function scaleDecls(body) {
     });
 }
 
-export function applyPageTextScale(css) {
+export function applyPageTextScale(rawCss) {
+  // Snap sizes, corners and fonts onto the shared scale first; sizes then
+  // follow the page scale through the --t-<n> tokens (design-system.mjs).
+  const css = applyDesignSystem(rawCss);
   // Innermost rule blocks only: "selector { declarations }" with no braces inside.
   const out = css.replace(/([^{}]*)\{([^{}]*)\}/g, (m, selector, body) => {
     const sel = selector.replace(/\/\*[\s\S]*?\*\//g, ' ').trim();
@@ -58,11 +63,9 @@ export function applyPageTextScale(css) {
 /* Feature pages read one step larger (see scripts/render/text-scale.mjs). */
 .page-pane {
   --ts: ${PAGE_TEXT_SCALE};
-  font-size: calc(1em * var(--ts));
-  --fs-2xs: calc(10px * var(--ts)); --fs-xs: calc(11px * var(--ts)); --fs-sm: calc(13px * var(--ts));
-  --fs-md: calc(15px * var(--ts)); --fs-lg: calc(16px * var(--ts));
+  font-size: var(--t-15);
 }
 /* Fixed-size tiles and badges keep their sizes so their labels still fit. */
 .page-pane :is(.ticker-grade, .vol-cal-cell, .heatmap-tile, .heatmap-sector-label) { --ts: 1; }
-`;
+` + designSystemCss();
 }

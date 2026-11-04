@@ -75,7 +75,12 @@ assert.ok(!indexHtml.includes("side-nav-group-desc"), "Sidebar sections carry no
 assert.ok(appJs.includes("}).slice(0, 4).map(function(entry){"), "The sidebar shows four recently viewed pages");
 const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 assert.match(css, /\.page-pane \{\n  --ts: 1\.1;/, "Feature pages set the text scale");
-assert.match(css, /font-size: calc\(13px \* var\(--ts, 1\)\)/, "Small sizes follow the text scale");
+assert.match(css, /font-size: var\(--t-13\)/, "Small sizes use the shared type scale");
+assert.match(css, /\.page-pane \{ --t-10:11px; --t-11:12px; --t-12:13px; --t-13:14px;/, "Feature pages read one whole-pixel step larger");
+{
+  const sizes = new Set([...css.matchAll(/font-size\s*:\s*([\d.]+)(px|rem)\b/g)].map((m) => m[0]));
+  assert.ok(sizes.size <= 12, `Raw px/rem font sizes stay rare (found ${sizes.size}); use the --t-<n> scale`);
+}
 assert.ok(!/(^|\n)\s*:root \{[^}]*--ts:/.test(css), "The header and sidebar keep scale 1");
 
 console.log("site map smoke passed");
