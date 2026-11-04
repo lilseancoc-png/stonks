@@ -36,6 +36,19 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Request an uncompressed R2 lock with a strong ETag so a released Webull paper lock can be acquired conditionally; fail closed on malformed locks or repeated conflicts, expose Owner-only diagnostics, and report mirror failures in a separate workflow health job.
 - Reconcile Webull grouped option positions using confirmed broker order legs and stable position identities; prepare manual spread adoption without replaying its entry, retain separate overlapping manual holdings, and exclude manual entries from automatic fill timing and slippage.
 
+## 2026-11-04
+
+### Changed
+
+- Put every page on one design system: text sizes snap to one 15-step scale (feature pages read one step larger), corners to 4 / 8 / 12 px or a pill, plain drop shadows to three elevations, and numbers use the interface font (its digits are equal width). JetBrains Mono stays for code, keyboard hints and trade lines. Upper-case labels lose the wide letter spacing (`scripts/render/design-system.mjs`).
+- Give every page one header: crumb, title, one line of description and the freshness chip on one row. The card title and "How to read" notes that repeated it move behind an "About this page" button, and the bottom Previous / Next links are a thin row on desktop.
+- Split the Owner sidebar into Daily desk, Ideas, Research and Admin, so each Owner page shows only its own group's sibling links.
+- Merge the sidebar page filter into the site search: the sidebar button opens the same ⌘K search as the header. "Workspace" now reads "Pages" / "Pin this page".
+- Make the header quieter: Discord and Support are plain links that drop their words on narrower screens, the time-zone picker no longer truncates, and the footer uses one link colour.
+- Show the Update Checker status as a row in the sidebar instead of a toast over the page.
+- Hide the repeated "Confirms when / Invalidates when / Required before acting / Do not infer" boxes; each page keeps its status line and the footer disclaimer.
+- Use plain words on public pages: "last close" for "baked close", "dealer gamma (est.)" for "GEX proxy", "tends to damp / amplify moves" for "stabilizing / amplifying bias", and clearer Streaks labels.
+
 ## 2026-11-03
 
 ### Changed
