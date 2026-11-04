@@ -743,11 +743,11 @@ function snappedPanelHtml(snapped, total, sectors, filterActive) {
       <span class="streaks-snapped-toggle" aria-hidden="true"></span>
     </summary>
     <div class="streaks-snapped-body">
-      <p class="streaks-snapped-sub">Material runs that broke in the latest 3 sessions. Watch for a bounce after red, or a pullback after green.</p>
+      <p class="streaks-snapped-sub">Runs that ended in the last 3 sessions. Watch for a bounce after red, or a pullback after green.</p>
       <p class="streaks-snapped-sub">Filters and sort apply here too. Run metrics describe the ended run; close and Grade use the latest data.</p>
       <div class="streaks-snapped-list" role="region" aria-label="Just snapped stocks" tabindex="0">
         ${snapped.length ? snapped.map((t) => snappedEntry(t, sectors)).join("")
-          : `<p class="streaks-empty">${filterActive ? "No snapped runs match these filters." : "No material runs snapped in the latest 3 sessions."}</p>`}
+          : `<p class="streaks-empty">${filterActive ? "No snapped runs match these filters." : "No runs ended in the last 3 sessions."}</p>`}
       </div>
     </div>
   </details>`;
@@ -757,7 +757,7 @@ function movingAverageContextHtml(t) {
   const context = t.maContext;
   const levels = context?.levels || [];
   const nearest = levels.find(level => level.period === context.nearestPeriod);
-  if (!nearest) return '<p class="streaks-ma-unavailable">MA context unavailable for this snapshot.</p>';
+  if (!nearest) return '';
   const side = level => Math.abs(level.distancePct) < 0.005 ? "at" : level.distancePct > 0 ? "above" : "below";
   const read = level => `${Math.abs(level.distancePct).toFixed(1)}% ${side(level)} · ${level.slope || "slope unavailable"}`;
   const events = levels.filter(level => level.event).map(level => `${level.event === "reclaimed" ? "Reclaimed" : "Lost"} ${level.period}D`).join(" · ");
@@ -943,7 +943,7 @@ function entry(t, sectors) {
   const atRisk = isCounted && Math.max(bankPct, counterPct) >= 66;
   const tolMeter = isCounted ? `
     <div class="streaks-tol-meter${atRisk ? " is-at-risk" : ""}" title="Counter-day tolerance bank: ${tol.toFixed(2)}% used of ${tolBreak.toFixed(1)}% · ${counterDays} of ${counterBreak} counter days">
-      <span class="streaks-tol-label">${atRisk ? "fragile" : "tol used"}</span>
+      <span class="streaks-tol-label">${atRisk ? "fragile" : "pullback room used"}</span>
       <span class="streaks-tol-bar"><span class="streaks-tol-fill" style="--w:${bankPct.toFixed(0)}%"></span></span>
       <span class="streaks-tol-val">${tol.toFixed(2)}% / ${tolBreak.toFixed(1)}%</span>
       <span class="streaks-tol-counter-pill">${counterDays}/${counterBreak}d</span>
@@ -962,7 +962,7 @@ function entry(t, sectors) {
         </span>
         <span class="streaks-stat-block">
           <span class="streaks-stat-num">${signalDays}<span class="streaks-stat-unit">d</span></span>
-          <span class="streaks-stat-lbl">${windowDays > signalDays ? `green/red in ${windowDays}` : "streak"}</span>
+          <span class="streaks-stat-lbl">${windowDays > signalDays ? `up/down of ${windowDays}` : "in a row"}</span>
         </span>
       </div>
       <div class="streaks-spark" role="img" aria-label="${escapeHtml(sparkLabel)}">${spark}</div>

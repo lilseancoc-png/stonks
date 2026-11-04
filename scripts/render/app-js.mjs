@@ -8759,8 +8759,8 @@ ${renderExportBindings()}
       '</span>';
     }
     return '<div class="flow-gex" title="Open-interest gamma proxy from the latest baked chain; dealer inventory sign is not observable">' +
-      '<span class="flow-gex-tag">GEX proxy</span>' +
-      metric('Net', gexFmtSigned(g.net), pos ? 'is-pos' : 'is-neg', pos ? 'stabilizing bias' : 'amplifying bias') +
+      '<span class="flow-gex-tag">Dealer gamma (est.)</span>' +
+      metric('Net', gexFmtSigned(g.net), pos ? 'is-pos' : 'is-neg', pos ? 'tends to damp moves' : 'tends to amplify moves') +
       metric('Flip', fmtOiStrike(g.flip), '', flipSub) +
       metric('Gamma call wall', g.callWall ? fmtOiStrike(g.callWall.strike) : '—', 'is-pos', '') +
       metric('Gamma put wall', g.putWall ? fmtOiStrike(g.putWall.strike) : '—', 'is-neg', '') +
@@ -15233,7 +15233,7 @@ ${renderExportBindings()}
   function gexVerdictHeader(v){
     if (!v) return '';
     var arrow = v.dir === 'bull' ? '▲' : (v.dir === 'bear' ? '▼' : (v.dir === 'volatile' ? '⚡' : '●'));
-    var regimeLabel = v.posGamma ? 'Positive proxy · stabilizing bias' : 'Negative proxy · amplifying bias';
+    var regimeLabel = v.posGamma ? 'Positive · tends to damp moves' : 'Negative · tends to amplify moves';
     var posTxt = v.callShare >= 0.58 ? 'Call-heavy' : (v.callShare <= 0.42 ? 'Put-heavy' : 'Balanced');
     var posPct = isFinite(v.callShare) ? Math.round(v.callShare * 100) + '% call γ' : '';
     var posClass = v.callShare >= 0.58 ? 'is-pos' : (v.callShare <= 0.42 ? 'is-neg' : '');
@@ -15276,8 +15276,8 @@ ${renderExportBindings()}
       // sign, which only coincides with spot≥flip in the canonical single-
       // crossing case and would otherwise contradict the badge in one card.
       bits.push(spot >= d.flip
-        ? 'The proxy stays in its stabilizing zone while spot remains above the <strong>' + fmtOiStrike(d.flip) + '</strong> gamma flip; losing it shifts the model toward sharper swings.'
-        : 'Reclaiming the <strong>' + fmtOiStrike(d.flip) + '</strong> gamma flip shifts the proxy back toward a dampening regime.');
+        ? 'Dealer hedging tends to damp moves while the price stays above the <strong>' + fmtOiStrike(d.flip) + '</strong> gamma flip; falling below it points to sharper swings.'
+        : 'Getting back above the <strong>' + fmtOiStrike(d.flip) + '</strong> gamma flip would point back to calmer moves.');
     }
     var levels = [];
     if (d.callWall && d.callWall.strike >= spot) levels.push('resistance at the ' + fmtOiStrike(d.callWall.strike) + ' gamma call wall');
@@ -15296,7 +15296,7 @@ ${renderExportBindings()}
       spotExtra = ' <span class="gex-spot-chg ' + (up ? 'is-up' : 'is-dn') + '">' + (up ? '▲' : '▼') + ' ' +
         (up ? '+' : '') + gexState.liveChange.toFixed(2) + (pct ? ' · ' + pct : '') + '</span>';
     }
-    var regime = d.totalNet >= 0 ? 'positive proxy — stabilizing bias' : 'negative proxy — amplifying bias';
+    var regime = d.totalNet >= 0 ? 'positive · tends to damp moves' : 'negative · tends to amplify moves';
     var flipSub = d.flip != null ? (spot >= d.flip ? 'spot above flip' : 'spot below flip') : '';
     var pinSub = (v && v.pinDistPct != null)
       ? (Math.abs(v.pinDistPct) < 0.6 ? 'at spot' : (v.pinDistPct > 0 ? '+' : '') + v.pinDistPct.toFixed(1) + '% away')
@@ -15310,7 +15310,7 @@ ${renderExportBindings()}
     var emSub = (v && v.evMoveAbs != null) ? '≈ ' + fmtOiStrike(v.evMoveAbs) + '/day' + (v.atmIv > 0 ? ' · ' + (v.atmIv * 100).toFixed(0) + '% IV' : '') : '1-session, ATM IV';
     var tiles = [
       gexMetricTile('Spot', fmtOiStrike(spot) + spotExtra, '', gexState.spotSource === 'live' ? 'live' : 'last session'),
-      gexMetricTile('Net GEX proxy', gexFmtSigned(d.totalNet), d.totalNet >= 0 ? 'is-pos' : 'is-neg', regime),
+      gexMetricTile('Net dealer gamma (est.)', gexFmtSigned(d.totalNet), d.totalNet >= 0 ? 'is-pos' : 'is-neg', regime),
       gexMetricTile('Gamma flip', d.flip != null ? fmtOiStrike(d.flip) : '—', '', flipSub),
       gexMetricTile(pinLabel, (v && v.pinStrike != null) ? fmtOiStrike(v.pinStrike) : '—', pinClass, pinSub),
       gexMetricTile('Gamma call wall', d.callWall ? fmtOiStrike(d.callWall.strike) : '—', 'is-pos', d.callWall ? gexFmtSigned(d.callWall.net) : 'most net call gamma'),
@@ -27434,8 +27434,8 @@ ${renderExportBindings()}
       var pos = g.regime === 'positive';
       var sub = briefGexFmtNet(g.net) + (g.flip != null ? ' · spot ' + (g.flipSide || '') + ' ' + g.flip + ' flip' : '');
       var tip = pos
-        ? 'Positive call-minus-put OI gamma proxy — stabilizing bias under the conventional sign assumption'
-        : 'Negative call-minus-put OI gamma proxy — amplifying bias under the conventional sign assumption';
+        ? 'Positive dealer gamma (estimated from open interest): hedging tends to damp moves'
+        : 'Negative dealer gamma (estimated from open interest): hedging tends to amplify moves';
       return '<span class="brief-chip ' + (pos ? 'pos' : 'neg') + ' info" title="' + briefEsc(tip) + '">' +
         briefEsc(g.sym) + ' <span>' + briefEsc(sub) + '</span></span>';
     }).join('') + '</div>';
@@ -27778,7 +27778,7 @@ ${renderExportBindings()}
     }
     // GEX proxy — SPY/QQQ conventional-sign OI gamma + flip (both briefs).
     if (Array.isArray(b.gex) && b.gex.length){
-      blocks.push(briefBlock('GEX proxy', briefGexChips(b.gex)));
+      blocks.push(briefBlock('Dealer gamma (est.)', briefGexChips(b.gex)));
     }
     // Calendar.
     if (Array.isArray(b.events) && b.events.length){
@@ -34052,7 +34052,7 @@ ${renderExportBindings()}
             stateEl.className = 'heatmap-live-state';
             var sessionLabel = marketState === 'PRE' ? 'Pre-market' :
               ((marketState === 'POST' || marketState === 'POSTPOST') ? 'After hours' : 'Market closed');
-            stateEl.textContent = sessionLabel + ' · showing baked close';
+            stateEl.textContent = sessionLabel + ' · showing last close';
           }
           return;
         }
@@ -34115,7 +34115,7 @@ ${renderExportBindings()}
         renderHeatmapDecision();
         if (stateEl){
           stateEl.className = 'heatmap-live-state is-error';
-          stateEl.textContent = 'Live unavailable — showing baked close';
+          stateEl.textContent = 'Live prices unavailable · showing last close';
         }
       });
   }
@@ -42479,7 +42479,7 @@ ${renderExportBindings()}
         : 'Reference only',
       detail: source === 'live'
         ? (liveCount + '/5 fast legs live · updated ' + bondsAgeText(ageHours))
-        : ('Build snapshot updated ' + bondsAgeText(ageHours)),
+        : ('Last updated ' + bondsAgeText(ageHours)),
     };
   }
   function loadBondsHistory(){

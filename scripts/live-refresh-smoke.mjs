@@ -113,7 +113,7 @@ export async function verifyLiveRefresh(appJs) {
   assert.equal(Object.keys(heatmap.heatmapState.liveOverlay).length, 0);
   heatmap.heatmapState.period = "1w";
   assert.equal(heatmap.heatmapEffectiveCh(row), 5, "long horizons also drop the stale live spot");
-  assert.match(label.textContent, /showing baked close/);
+  assert.match(label.textContent, /showing last close/);
   failHeatmap = false;
   heatmap.heatmapState.period = "1d";
   heatmap.pollHeatmapLiveOnce();
