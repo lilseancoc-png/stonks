@@ -101,7 +101,7 @@ try{
       await page.locator('#tickers-search').fill('NO_SUCH_TICKER');
       await page.locator('#tickers-empty-reset').click();
       assert.equal(await page.locator('#tickers-sort').inputValue(),'alpha','Reset cannot restore a private grade sort');
-      assert.equal(await page.locator('a.ticker-card[data-ticker="AAPL"]').getAttribute('href'),'?tab=heatmap&heatmapSearch=AAPL');
+      assert.equal(await page.locator('a.ticker-card[data-ticker="AAPL"]').getAttribute('href'),'?tab=stock&s=AAPL','Public stock links open the stock page');
     }
     const text=await page.locator('.page-pane:not([hidden])').innerText();assert(!text.includes(marker),id+' private content');
     const lines=text.split('\n').filter(t=>/buy now|sell now|take the trade|ready to enter|trade posture|highest.*grade|our grade|strong call|strong put|entry-ready|crossover priority|favor pullback/i.test(t));if(lines.length)leaks.push({id,lines});
@@ -111,7 +111,9 @@ try{
    assert(!requests.some(u=>/data=(grades|grades-daily)\.json|\/data\/grades/.test(u)),'No grade fetch for '+role);
    await page.goto(base+'/?tab=heatmap');await page.waitForFunction(()=>document.body.hasAttribute('data-active-tab'));await page.locator('.heatmap-tile').first().waitFor();
    await page.locator('.heatmap-tile[data-sym="AAPL"]').click();
-   assert.equal(await page.locator('#heatmap-search').inputValue(),'AAPL');
+   // A public tile click opens the public stock page, never the Owner grade.
+   await page.waitForFunction(()=>document.body.getAttribute('data-active-tab')==='stock');
+   assert(new URL(page.url()).searchParams.get('s')==='AAPL','Tile click opens the AAPL stock page');
    assert.equal(await page.locator('#page-pane-grade').count(),0);
    await page.goto(base+'/?tab=heatmap&heatmapSearch=MSFT');
    await page.waitForFunction(()=>document.body.hasAttribute('data-active-tab'));
