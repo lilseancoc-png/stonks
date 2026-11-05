@@ -151,5 +151,15 @@ export function renderStockPageCss() {
   .stp-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .stp-stat-range { grid-column: 1 / -1; }
 }
+
+/* Owner Grade tab: the grade tool moves in from its old page. The stock page
+   already shows the name, price, chart and Compare button, so the tool's own
+   title, ticker search and price chart are hidden here. */
+.stp-tab-body.is-grade { display: block; margin-top: 0; }
+.stp-tab-body.is-grade > #opt-eval-section { border: 0; background: none; box-shadow: none; padding: 0; margin: 0; }
+.stp-tab-body.is-grade > #opt-eval-section > .card-header,
+.stp-tab-body.is-grade > #opt-eval-section > .hint,
+.stp-tab-body.is-grade > #opt-eval-section > .opt-controls,
+.stp-tab-body.is-grade #opt-price-host { display: none !important; }
 `;
 }

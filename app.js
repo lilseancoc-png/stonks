@@ -19,7 +19,7 @@
   }
 
 
-  var SITE_MAP = [["today","Today","Today","What is happening in the market right now",0,[["home","Home","","A one-screen overview of the market and every part of the site.",0],["brief","Market brief","Brief","A short digest of what moved, why, and what is coming up next.",0],["news","News","News desk","Market-moving stock and economic headlines, most important first.",0],["heatmap","Heatmap","","Every tracked stock as a tile: size is company value, color is how much it moved.",0],["calendar","Calendar","","Upcoming earnings reports, economic releases and Fed meetings.",0],["overnight","Overnight markets","","How Asian and European markets traded before the US open, and which US stocks they tend to lead.",0]]],["stocks","Stocks","Stocks","Look up, compare and follow companies",0,[["tickers","All stocks","Tickers","Every stock the site follows, with its price, returns and sector.",0],["stock","Look up a stock","Stock page quote ticker company chart","One company: its price chart, key numbers, news, earnings, options and who owns it.",0],["grade","Grade a stock","Grade a ticker stock report Look up","One stock in depth: its grade, setup signals, fundamentals and the option contract to trade.",0],["compare","Compare stocks","Compare companies","Line up a few companies side by side on price, growth and valuation.",0],["earnings","Earnings results","Earnings tracker","Which companies beat or missed expectations this season, and how their stocks reacted.",0],["calls","Earnings calls","","What management said on each company’s latest earnings call, and what changed.",0],["f13","Who owns what","SEC ownership 13F Form 4 insider","What big investment funds bought and sold last quarter, plus recent insider trades.",0],["pending-buyouts","Pending buyouts","M&A mergers","Announced and rumored takeovers, and how far along each deal is.",0]]],["market","Market & economy","Market","The big picture: mood, rates, money and themes",0,[["fear-greed","Market mood","Fear & Greed","CNN’s Fear & Greed index: whether investors are acting scared or greedy, from 0 to 100.",0],["bonds-usd","Rates & the dollar","Bonds & USD Fed","Treasury yields, the US dollar and what the Fed is expected to do next.",0],["commodities","Commodities","","Oil, gold, copper and other raw materials, and the stocks that move with them.",0],["central-bank-gold","Central-bank gold","","How much gold the world’s central banks are buying or selling.",0],["capital-raises","Capital markets","Capital raises share sales buybacks IPOs credit issuance debt","Companies selling stock or debt or buying shares back, upcoming IPOs, and how easily companies and households can borrow.",0],["narratives","Market themes","Narratives","The big stories driving money right now, such as AI spending, and which stocks ride them.",0]]],["options","Options activity","Options","Where traders are placing bets",0,[["flow","Unusual options trades","Unusual flow","Option trades far bigger than normal for that stock, a sign someone expects a move.",0],["volume","Trading volume","Volume","Days when a stock traded much more or less than usual.",0],["oi","Options walls","Gamma exposure GEX","Price levels where large option positions can slow a stock down or speed it up.",0],["iv-trend","Rising volatility","Trending IV implied volatility","Stocks whose options are pricing in a bigger move than usual.",0],["strategies","Strategy builder","Strategies","Pick a stock and build a defined-risk options trade, with its profit and loss at expiry.",0]]],["signals","Charts & signals","Signals","Price trends and repeating patterns",0,[["ma-tracker","Moving averages","MA tracker crossover","Stocks sitting close to their 20, 50, 100 or 200-day average price.",0],["streaks","Up/down streaks","Streaks green red","Stocks on a run of up days or down days in a row.",0],["pattern-lab","Pattern lab","Seasonality","Repeating patterns such as seasonality and how stocks behave after big moves.",0],["spillover","Earnings ripple effects","Event spillover","How one company’s earnings tend to move the other stocks in its industry.",0],["index-cal","Index calendar","","A month view of the major index funds, showing which days the whole market joined in.",0]]],["industry","Industry trends","Industry","Real-world data behind the AI and chip trade",0,[["ai-capex","AI spending","AI CapEx","How much the biggest tech companies are spending on AI data centers.",0],["ram-prices","Memory chip prices","RAM prices DRAM","Weekly prices for computer memory, a read on the chip cycle.",0],["accelerator-prices","GPU cloud prices","Accelerator","What it costs to rent AI chips by the hour, a read on AI demand.",0],["search-interest","Search trends","Search interest Google","Which market themes people are searching for more or less this week.",0]]],["learn","Learn & help","Learn","Guides, definitions and site info",0,[["cheatsheet","Options guide","Buyer's manual","A plain-English guide to buying options: calls, puts, risk and timing.",0],["chart-patterns","Chart patterns","","What common chart shapes look like and how traders read them.",0],["timeline","When data updates","Refresh schedule timeline","When each part of the site refreshes during the trading day.",0],["privacy","Privacy Policy","","What this site collects and how it is used.",0],["terms","Terms of Use","","The terms for using this site. Nothing here is investment advice.",0]]],["owner","Owner · Daily desk","Owner","The private daily read",1,[["owner-market-brief","Owner Market Brief","Private digest outlook predictions scenarios research","The full site read, with private research, conditional paths, counterevidence and a curated review shortlist.",0],["unified-signal-engine","Unified Signal Engine","","Existing decisions with separate investment and trading perspectives.",0],["market","Market analysis","","The cross-asset tape, risk barometer and regime history.",0],["risk","Risk analysis","","Seven risk desks read together, with the reason when they disagree.",0]]],["owner-ideas","Owner · Ideas","Ideas","Trade ideas and how they worked out",1,[["picks","Top picks","","The model’s highest-conviction option contracts for today.",0],["open-picks","Open picks","","Every open trade, with lines ready to copy to a broker.",0],["track","Top Picks track record","","How every closed pick worked out.",0],["leaps","LEAPS","","Names scored for a one- to two-year options hold.",0],["stocks","Stock picks","","Quality companies on a dip, as shares rather than options.",0],["levetf","Leveraged ETFs","","Leveraged ETF setups from the same engine.",0],["rotation","Sector rotation","","Strong names sold with their sector that are now turning back up.",0]]],["owner-research","Owner · Research","Research","Private studies and data",1,[["historical-data","Historical Data","","The stored history behind the private research.",0],["earnings-forecast","Earnings Forecast","Quarterly full-year valuation company history revenue EPS industry model","Quarterly forecasts for the top 20 covered companies, company history, full-year valuation and linked industry evidence.",0],["forced-liquidation","Forced Liquidation Tracker","Pledged shares collateral leverage margin","SEC stock pledges, loan terms and estimated price thresholds, with missing terms kept visible.",0],["bottom-tracker","Bottom tracker","","Signs the market is washing out and turning.",0],["party-tracker","Party tracker","Party-Tracker Democrats Republicans president house senate","How the market and each sector did when Democrats or Republicans held the presidency, the House, or the Senate.",0],["research-lab","Research Lab","Scenarios evidence puzzle stocks experiments visual canvas journal ChatGPT Claude","Connect stocks, evidence and assumptions, explore possible outcomes and export your research for AI review.",0]]],["owner-admin","Owner · Admin","Admin","Diagnostics and build health",1,[["quant","Owner Lab","","Research tools and diagnostics.",0],["update-checker","Update Checker","Build status failures feature health stale missing updates","Build failures and checks of published feature outputs.",0]]],["sports","Sports","Sports","Private NBA and NFL research",1,[["sports-nba","NBA","Basketball players props points rebounds games","Today’s and tomorrow’s NBA games, player game logs and the lines you have captured.",0],["sports-nfl","NFL","Football players props passing yards receptions games","Today’s and tomorrow’s NFL games, player game logs and the lines you have captured.",0],["sports-pick-builder","Pick Builder","Sports picks entry payout paper journal PrizePicks Betr","Build a 1 to 6 pick entry with its real payout, see the odds and save it as a paper pick.",0]]]];
+  var SITE_MAP = [["today","Today","Today","What is happening in the market right now",0,[["home","Home","","A one-screen overview of the market and every part of the site.",0],["brief","Market brief","Brief","A short digest of what moved, why, and what is coming up next.",0],["news","News","News desk","Market-moving stock and economic headlines, most important first.",0],["heatmap","Heatmap","","Every tracked stock as a tile: size is company value, color is how much it moved.",0],["calendar","Calendar","","Upcoming earnings reports, economic releases and Fed meetings.",0],["overnight","Overnight markets","","How Asian and European markets traded before the US open, and which US stocks they tend to lead.",0]]],["stocks","Stocks","Stocks","Look up, compare and follow companies",0,[["tickers","All stocks","Tickers","Every stock the site follows, with its price, returns and sector.",0],["stock","Look up a stock","Stock page quote ticker company chart","One company: its price chart, key numbers, news, earnings, options and who owns it.",0],["grade","Grade a stock","Grade a ticker stock report Look up","One stock in depth: its grade, setup signals, fundamentals and the option contract to trade.",1],["compare","Compare stocks","Compare companies","Line up a few companies side by side on price, growth and valuation.",0],["f13","Who owns what","SEC ownership 13F Form 4 insider","What big investment funds bought and sold last quarter, plus recent insider trades.",0],["pending-buyouts","Pending buyouts","M&A mergers","Announced and rumored takeovers, and how far along each deal is.",0]]],["earnings","Earnings","Earnings","Results, what management said, and how peers react",0,[["earnings","Earnings results","Earnings tracker","Which companies beat or missed expectations this season, and how their stocks reacted.",0],["calls","Earnings calls","","What management said on each company’s latest earnings call, and what changed.",0],["spillover","Earnings ripple effects","Event spillover","How one company’s earnings tend to move the other stocks in its industry.",0]]],["market","Market & economy","Market","The big picture: mood, rates, money and themes",0,[["fear-greed","Market mood","Fear & Greed","CNN’s Fear & Greed index: whether investors are acting scared or greedy, from 0 to 100.",0],["bonds-usd","Rates & the dollar","Bonds & USD Fed","Treasury yields, the US dollar and what the Fed is expected to do next.",0],["commodities","Commodities","","Oil, gold, copper and other raw materials, and the stocks that move with them.",0],["central-bank-gold","Central-bank gold","","How much gold the world’s central banks are buying or selling.",0],["capital-raises","Capital markets","Capital raises share sales buybacks IPOs credit issuance debt","Companies selling stock or debt or buying shares back, upcoming IPOs, and how easily companies and households can borrow.",0],["narratives","Market themes","Narratives","The big stories driving money right now, such as AI spending, and which stocks ride them.",0]]],["options","Options activity","Options","Where traders are placing bets",0,[["flow","Unusual options trades","Unusual flow","Option trades far bigger than normal for that stock, a sign someone expects a move.",0],["oi","Options walls","Gamma exposure GEX","Price levels where large option positions can slow a stock down or speed it up.",0],["iv-trend","Rising volatility","Trending IV implied volatility","Stocks whose options are pricing in a bigger move than usual.",0],["strategies","Strategy builder","Strategies","Pick a stock and build a defined-risk options trade, with its profit and loss at expiry.",0]]],["signals","Price signals","Signals","Price trends, trading volume and repeating patterns",0,[["ma-tracker","Moving averages","MA tracker crossover","Stocks sitting close to their 20, 50, 100 or 200-day average price.",0],["streaks","Up/down streaks","Streaks green red","Stocks on a run of up days or down days in a row.",0],["volume","Trading volume","Volume shares","Days when a stock traded many more or fewer shares than usual.",0],["pattern-lab","Pattern lab","Seasonality","Repeating patterns such as seasonality and how stocks behave after big moves.",0],["index-cal","Daily index moves","Index calendar","A month grid of the major index funds’ daily moves, showing which days the whole market joined in.",0]]],["industry","Industry trends","Industry","Real-world data behind the AI and chip trade",0,[["ai-capex","AI spending","AI CapEx","How much the biggest tech companies are spending on AI data centers.",0],["ram-prices","Memory chip prices","RAM prices DRAM","Weekly prices for computer memory, a read on the chip cycle.",0],["accelerator-prices","GPU cloud prices","Accelerator","What it costs to rent AI chips by the hour, a read on AI demand.",0],["search-interest","Search trends","Search interest Google","Which market themes people are searching for more or less this week.",0]]],["learn","Learn & help","Learn","Guides and when the data updates",0,[["cheatsheet","Options guide","Buyer's manual","A plain-English guide to buying options: calls, puts, risk and timing.",0],["chart-patterns","Chart patterns","","What common chart shapes look like and how traders read them.",0],["timeline","When data updates","Refresh schedule timeline","When each part of the site refreshes during the trading day.",0],["privacy","Privacy Policy","","What this site collects and how it is used.",1],["terms","Terms of Use","","The terms for using this site. Nothing here is investment advice.",1]]],["owner","Owner · Daily desk","Owner","The private daily read",1,[["owner-market-brief","Owner Market Brief","Private digest outlook predictions scenarios research","The full site read, with private research, conditional paths, counterevidence and a curated review shortlist.",0],["unified-signal-engine","Unified Signal Engine","","Existing decisions with separate investment and trading perspectives.",0],["market","Market analysis","","The cross-asset tape, risk barometer and regime history.",0],["risk","Risk analysis","","Seven risk desks read together, with the reason when they disagree.",0]]],["owner-ideas","Owner · Ideas","Ideas","Trade ideas and how they worked out",1,[["picks","Top picks","","The model’s highest-conviction option contracts for today.",0],["open-picks","Open picks","","Every open trade, with lines ready to copy to a broker.",0],["track","Top Picks track record","","How every closed pick worked out.",0],["leaps","LEAPS","","Names scored for a one- to two-year options hold.",0],["stocks","Stock picks","","Quality companies on a dip, as shares rather than options.",0],["levetf","Leveraged ETFs","","Leveraged ETF setups from the same engine.",0],["rotation","Sector rotation","","Strong names sold with their sector that are now turning back up.",0]]],["owner-research","Owner · Research","Research","Private studies and data",1,[["historical-data","Historical Data","","The stored history behind the private research.",0],["earnings-forecast","Earnings Forecast","Quarterly full-year valuation company history revenue EPS industry model","Quarterly forecasts for the top 20 covered companies, company history, full-year valuation and linked industry evidence.",0],["forced-liquidation","Forced Liquidation Tracker","Pledged shares collateral leverage margin","SEC stock pledges, loan terms and estimated price thresholds, with missing terms kept visible.",0],["bottom-tracker","Bottom tracker","","Signs the market is washing out and turning.",0],["party-tracker","Party tracker","Party-Tracker Democrats Republicans president house senate","How the market and each sector did when Democrats or Republicans held the presidency, the House, or the Senate.",0],["research-lab","Research Lab","Scenarios evidence puzzle stocks experiments visual canvas journal ChatGPT Claude","Connect stocks, evidence and assumptions, explore possible outcomes and export your research for AI review.",0]]],["owner-admin","Owner · Admin","Admin","Diagnostics and build health",1,[["quant","Owner Lab","","Research tools and diagnostics.",0],["update-checker","Update Checker","Build status failures feature health stale missing updates","Build failures and checks of published feature outputs.",0]]],["sports","Sports","Sports","Private NBA and NFL research",1,[["sports-nba","NBA","Basketball players props points rebounds games","Today’s and tomorrow’s NBA games, player game logs and the lines you have captured.",0],["sports-nfl","NFL","Football players props passing yards receptions games","Today’s and tomorrow’s NFL games, player game logs and the lines you have captured.",0],["sports-pick-builder","Pick Builder","Sports picks entry payout paper journal PrizePicks Betr","Build a 1 to 6 pick entry with its real payout, see the odds and save it as a paper pick.",0]]]];
   var RECENT_KEY = 'stonks-recent-v1';
   function wfReadRecent(){
     try {
@@ -658,37 +658,114 @@ function recoveryEvidence(row, data, now = Date.now()) {
       return '<a class="stp-sym-link" href="?tab=stock&s=' + encodeURIComponent(sym) + '" data-stock-sym="' + escapeHtml(sym) + '">' + escapeHtml(label || sym) + '</a>';
     }
     // --- navigation ----------------------------------------------------------
+    function onGrade(){ return state.tab === 'grade' && HAS_OWNER_ACCESS; }
     function setUrl(sym, replace){
       try {
         var url = new URL(window.location.href);
         url.searchParams.set('tab', 'stock');
+        // The grade's contract (exp/k/t) stays in the link only while the
+        // Grade tab shows that same stock.
+        var keepContract = onGrade() && sym && url.searchParams.get('s') === sym;
         if (sym) url.searchParams.set('s', sym); else url.searchParams.delete('s');
-        ['exp', 'k', 't'].forEach(function(k){ url.searchParams.delete(k); });
+        if (!keepContract) ['exp', 'k', 't'].forEach(function(k){ url.searchParams.delete(k); });
+        if (onGrade()) url.searchParams.set('view', 'grade'); else url.searchParams.delete('view');
         var next = url.pathname + url.search + url.hash;
         if (next !== window.location.pathname + window.location.search + window.location.hash){
           if (replace) history.replaceState(null, '', next); else history.pushState(null, '', next);
         }
       } catch (_) {}
     }
-    function open(sym){
+    function open(sym, tab){
       var s = cleanSym(sym);
       if (!s) return;
+      if (tab) showTab(tab, true);
       state.sym = s;
+      // Start at the top; a requested tab then scrolls into view as it shows.
+      try { window.scrollTo({ top: 0, behavior: 'auto' }); } catch (_) {}
       var btn = document.querySelector('[data-page-tab="stock"]');
       var pane = document.getElementById('page-pane-stock');
-      if (pane && pane.hidden && btn){ btn.click(); setUrl(s, true); }
+      // Opening from another page: the page loads this stock, not an older
+      // ?s= still sitting in the address bar.
+      if (pane && pane.hidden && btn){ openingSym = s; btn.click(); openingSym = null; setUrl(s, true); }
       else { setUrl(s, false); load(); }
-      try { window.scrollTo({ top: 0, behavior: 'auto' }); } catch (_) {}
     }
+    var openingSym = null;
     function urlSym(){
       try { return cleanSym(new URLSearchParams(window.location.search).get('s')); } catch (_) { return null; }
+    }
+    function urlView(){
+      try { return new URLSearchParams(window.location.search).get('view') || ''; } catch (_) { return ''; }
+    }
+    // Pick the tab the page opens on next. Old "Grade a stock" links and
+    // buttons call this with 'grade' before the page loads.
+    // jump: the visitor asked for this tab from elsewhere (a Grade button or
+    // an old Grade link), so the page scrolls down to the tabs once it shows.
+    var jumpToTabs = false;
+    function showTab(tab, jump){
+      if (tab === 'grade' && !HAS_OWNER_ACCESS) return;
+      state.tab = tab;
+      if (jump) jumpToTabs = true;
+      try { localStorage.setItem(TAB_KEY, tab); } catch (_) {}
+    }
+    function maybeJumpToTabs(){
+      if (!jumpToTabs) return;
+      jumpToTabs = false;
+      // The chart and key numbers above can still grow for a moment, so the
+      // jump repeats twice more unless the visitor has scrolled since.
+      var last = -1;
+      function jump(){
+        var strip = document.querySelector('#stock-root .stp-tabs');
+        if (!strip || (last >= 0 && Math.abs(window.pageYOffset - last) > 2)) return;
+        try {
+          var top = Math.max(0, Math.round(strip.getBoundingClientRect().top + window.pageYOffset - 72));
+          window.scrollTo({ top: top, behavior: 'auto' });
+          last = window.pageYOffset;
+        } catch (_) {}
+      }
+      jump();
+      setTimeout(jump, 350);
+      setTimeout(jump, 1000);
+    }
+    // The grade tool lives in the Grade tab. Before any re-render it goes back
+    // to its own hidden pane so innerHTML never destroys it, and its live
+    // quote polling stops while it is out of view.
+    function parkGrade(){
+      var sec = document.getElementById('opt-eval-section');
+      var home = document.getElementById('page-pane-grade');
+      if (sec && home && sec.parentNode !== home){
+        home.appendChild(sec);
+        if (typeof gradeHidden === 'function') gradeHidden();
+      }
+      var body = document.getElementById('stp-tab-body');
+      if (body) body.classList.remove('is-grade');
+    }
+    function mountGrade(body){
+      var sec = document.getElementById('opt-eval-section');
+      if (!sec || !HAS_OWNER_ACCESS){ body.innerHTML = '<p class="stp-empty">The grade is not available.</p>'; return; }
+      body.innerHTML = '';
+      body.classList.add('is-grade');
+      body.appendChild(sec);
+      if (typeof gradeShowSymbol === 'function') gradeShowSymbol(state.sym);
+      maybeJumpToTabs();
+    }
+    // Code that loads a ticker into the grade tool (Top Picks cards, Brief
+    // chips, the calendar, saved links) brings the stock page along with it.
+    function follow(sym){
+      var s = cleanSym(sym);
+      var pane = document.getElementById('page-pane-stock');
+      if (!s || !pane || pane.hidden || s === state.sym) return;
+      state.sym = s;
+      setUrl(s, true);
+      load();
     }
     // --- loading -------------------------------------------------------------
     function load(){
       var root = document.getElementById('stock-root');
       if (!root) return;
-      var fromUrl = urlSym();
+      var fromUrl = openingSym || urlSym();
       if (fromUrl) state.sym = fromUrl;
+      if (!openingSym && urlView() === 'grade') showTab('grade');
+      parkGrade();
       names().then(function(){ if (!state.sym) renderPicker(root); });
       if (!state.sym){ renderPicker(root); return; }
       var sym = state.sym;
@@ -705,6 +782,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
           liveQuote(sym, token);
         }).catch(function(){
           if (token !== state.token) return;
+          parkGrade();
           root.innerHTML = '<div class="stp-missing"><p>We could not load <b>' + escapeHtml(sym) + '</b>. It may not be one of the stocks this site follows.</p><p><a href="?tab=tickers" data-go-tab="tickers">See all stocks</a></p></div>';
         });
       } else {
@@ -733,6 +811,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
       try { document.title = title + ' · stonks'; } catch (_) {}
     }
     function renderPicker(root){
+      parkGrade();
       setHeader('Look up a stock', 'Price, chart, key numbers, news, earnings, options and owners for any stock this site follows.');
       var watch = readWatch();
       var list = SYMBOLS.slice().sort();
@@ -778,6 +857,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
       });
     }
     function renderShell(root, sym){
+      parkGrade();
       setHeader(sym, '');
       root.innerHTML = '<div class="stp-head"><div class="stp-id"><span class="stp-ticker">' + escapeHtml(sym) + '</span></div></div>' +
         '<div class="stp-chart-card"><div class="ck-host"><div class="ck-skeleton" style="height:340px" aria-hidden="true"></div></div></div>';
@@ -815,8 +895,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
       var sector = INDUSTRIES[sym] || f.industry || SECTORS[sym] || f.sector || '';
       var watching = readWatch().indexOf(sym) >= 0;
       var actions = '<button type="button" class="stp-btn stp-watch' + (watching ? ' is-on' : '') + '" data-stock-watch aria-pressed="' + (watching ? 'true' : 'false') + '">' + (watching ? '★ Watching' : '☆ Watch') + '</button>' +
-        (typeof cmpToggleHtml === 'function' ? cmpToggleHtml(sym, 'stp-btn') : '') +
-        (HAS_OWNER_ACCESS ? '<button type="button" class="stp-btn" data-stock-grade>Grade this stock</button>' : '');
+        (typeof cmpToggleHtml === 'function' ? cmpToggleHtml(sym, 'stp-btn') : '');
       setHeader(name + ' (' + sym + ')', sector);
       return '<div class="stp-head">' +
         '<div class="stp-id"><span class="stp-ticker">' + escapeHtml(sym) + '</span>' +
@@ -866,7 +945,8 @@ function recoveryEvidence(row, data, now = Date.now()) {
     var TABS = [['overview', 'Overview'], ['news', 'News'], ['earnings', 'Earnings'], ['options', 'Options'], ['ownership', 'Ownership'], ['similar', 'Similar stocks']];
     function tabsHtml(){
       var list = TABS.slice();
-      if (HAS_OWNER_ACCESS) list.push(['owner', 'Owner desk']);
+      // Owners: the full grade sits second, the stock's Top Picks trades last.
+      if (HAS_OWNER_ACCESS){ list.splice(1, 0, ['grade', 'Grade']); list.push(['owner', 'Top Picks trades']); }
       if (!list.some(function(t){ return t[0] === state.tab; })) state.tab = 'overview';
       return '<div class="stp-tabs" role="tablist" aria-label="Stock sections">' + list.map(function(t){
         var on = t[0] === state.tab;
@@ -875,6 +955,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
     }
     function render(root){
       var d = state.data || {};
+      parkGrade();
       root.innerHTML = headerHtml() +
         '<div class="stp-chart-card">' +
           '<div class="stp-chart-tools"><div class="stp-kind" role="group" aria-label="Chart style">' +
@@ -941,6 +1022,8 @@ function recoveryEvidence(row, data, now = Date.now()) {
       var body = document.getElementById('stp-tab-body');
       if (!body) return;
       var t = state.tab;
+      if (t === 'grade' && HAS_OWNER_ACCESS){ mountGrade(body); return; }
+      parkGrade();
       var fn = t === 'news' ? tabNews : t === 'earnings' ? tabEarnings : t === 'options' ? tabOptions : t === 'ownership' ? tabOwnership : t === 'similar' ? tabSimilar : t === 'owner' ? tabOwner : tabOverview;
       body.innerHTML = '<p class="stp-loading">Loading…</p>';
       var token = state.token;
@@ -1184,23 +1267,10 @@ function recoveryEvidence(row, data, now = Date.now()) {
     function tabOwner(){
       if (!HAS_OWNER_ACCESS) return '';
       var sym = state.sym;
-      if (!cache.gradesP) cache.gradesP = getJson('grades.json').catch(function(){ return null; });
       if (!cache.accP) cache.accP = getJson('picks-accuracy.json').catch(function(){ return null; });
-      return Promise.all([cache.gradesP, cache.accP]).then(function(res){
-        var g = res[0] && res[0].grades && res[0].grades[sym];
-        var acc = res[1] || {};
+      return cache.accP.then(function(res){
+        var acc = res || {};
         var html = '';
-        if (g){
-          var p = g.pillars || {};
-          var rec = g.recommendation || {};
-          html += '<section class="stp-sec"><h3 class="stp-h3">Grade</h3><div class="stp-stats stp-stats-3">' +
-            '<div class="stp-stat"><span class="stp-stat-k">Total</span><b>' + (g.total != null ? (g.total > 0 ? '+' : '') + num(g.total, 1) : '—') + '</b><span class="stp-stat-sub">' + escapeHtml(rec.label || '') + '</span></div>' +
-            ['fundamentals', 'technicals', 'mechanicals', 'narrative'].map(function(k){
-              var v = p[k] && p[k].score;
-              return '<div class="stp-stat"><span class="stp-stat-k">' + k.charAt(0).toUpperCase() + k.slice(1) + '</span><b>' + (v != null ? (v > 0 ? '+' : '') + num(v, 1) : '—') + '</b></div>';
-            }).join('') +
-          '</div><p class="stp-src"><button type="button" class="stp-btn" data-stock-grade>Open the full grade</button></p></section>';
-        }
         var trades = (acc.open || []).map(function(r){ return { r: r, open: true }; }).concat((acc.closed || []).map(function(r){ return { r: r, open: false }; }))
           .filter(function(x){ return x.r && x.r.symbol === sym; })
           .sort(function(a, b){ return String(b.r.entryDate || '').localeCompare(String(a.r.entryDate || '')); }).slice(0, 12);
@@ -1212,12 +1282,12 @@ function recoveryEvidence(row, data, now = Date.now()) {
               return '<tr><td>' + escapeHtml(dateLabel(r.entryDate)) + '</td><td>' + escapeHtml(r.side === 'put' ? 'Put' : 'Call') + '</td><td>' + escapeHtml(x.open ? 'Open' : String(r.status || 'Closed').replace(/-/g, ' ')) + '</td><td class="num">' + chg(pnl, 1) + '</td></tr>';
             }).join('') + '</tbody></table></div><p class="stp-src"><a href="?tab=track" data-go-tab="track">Open Track record</a></p></section>';
         }
-        return html || '<p class="stp-empty">No grade or Top Picks trades for this stock yet.</p>';
+        return html || '<p class="stp-empty">No Top Picks trades in ' + escapeHtml(sym) + ' yet. The Grade tab shows its current grade.</p>';
       });
     }
     // --- events ----------------------------------------------------------------
     document.addEventListener('click', function(ev){
-      var t = ev.target && ev.target.closest ? ev.target.closest('[data-stock-sym], [data-stock-tab], [data-stock-kind], [data-stock-watch], [data-stock-grade], [data-go-tab], a[href^="?tab=stock&s="]') : null;
+      var t = ev.target && ev.target.closest ? ev.target.closest('[data-stock-sym], [data-stock-tab], [data-stock-kind], [data-stock-watch], [data-go-tab], a[href^="?tab=stock&s="]') : null;
       if (!t) return;
       if (t.tagName === 'A' && !t.hasAttribute('data-stock-sym') && !t.hasAttribute('data-go-tab') && /^\?tab=stock&s=/.test(t.getAttribute('href') || '')){
         // Any stock-page link on the site opens in place, without a reload.
@@ -1233,13 +1303,13 @@ function recoveryEvidence(row, data, now = Date.now()) {
         ev.preventDefault();
         open(t.getAttribute('data-stock-sym'));
       } else if (t.hasAttribute('data-stock-tab')){
-        state.tab = t.getAttribute('data-stock-tab');
-        try { localStorage.setItem(TAB_KEY, state.tab); } catch (_) {}
+        showTab(t.getAttribute('data-stock-tab'));
         document.querySelectorAll('#stock-root .stp-tab').forEach(function(b){
           var on = b.getAttribute('data-stock-tab') === state.tab;
           b.classList.toggle('is-on', on);
           b.setAttribute('aria-selected', on ? 'true' : 'false');
         });
+        setUrl(state.sym, true);
         paintTab();
       } else if (t.hasAttribute('data-stock-kind')){
         state.kind = t.getAttribute('data-stock-kind');
@@ -1250,12 +1320,6 @@ function recoveryEvidence(row, data, now = Date.now()) {
         t.classList.toggle('is-on', on);
         t.setAttribute('aria-pressed', on ? 'true' : 'false');
         t.textContent = on ? '★ Watching' : '☆ Watch';
-      } else if (t.hasAttribute('data-stock-grade')){
-        if (!HAS_OWNER_ACCESS) return;
-        var g = document.querySelector('[data-page-tab="grade"]');
-        if (g) g.click();
-        var s = state.sym;
-        setTimeout(function(){ try { combo.commit(s); } catch (_) {} }, 0);
       } else if (t.hasAttribute('data-go-tab')){
         if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.button === 1) return;
         var btn = document.querySelector('[data-page-tab="' + t.getAttribute('data-go-tab') + '"]');
@@ -1266,9 +1330,13 @@ function recoveryEvidence(row, data, now = Date.now()) {
     });
     window.addEventListener('popstate', function(){
       var pane = document.getElementById('page-pane-stock');
-      if (pane && !pane.hidden){ var s = urlSym(); if (s !== state.sym){ state.sym = s; load(); } }
+      if (!pane || pane.hidden) return;
+      var s = urlSym();
+      var wantGrade = urlView() === 'grade' && HAS_OWNER_ACCESS;
+      if (s !== state.sym){ state.sym = s; if (!wantGrade && state.tab === 'grade') state.tab = 'overview'; load(); }
+      else if (wantGrade !== (state.tab === 'grade')){ state.tab = wantGrade ? 'grade' : 'overview'; load(); }
     });
-    return { open: open, load: load, names: names, nameOf: nameOf, watchlist: readWatch, href: function(sym){ return '?tab=stock&s=' + encodeURIComponent(String(sym || '').toUpperCase()); } };
+    return { open: open, load: load, showTab: showTab, follow: follow, names: names, nameOf: nameOf, watchlist: readWatch, href: function(sym){ return '?tab=stock&s=' + encodeURIComponent(String(sym || '').toUpperCase()); } };
   })();
 
 function calendarSourceLabel(key) {
@@ -1510,22 +1578,22 @@ function validNewsFeedPayload(data) {
   const PAIR = {
     'fear-greed|gamma': 'Fear & Greed is how scared or crowded positioning has been. Gamma is whether SPY’s listed open interest would dampen or amplify the next price move. A fearful mood and a pinning gamma book can sit together: people are hedged, and the options complex would tend to mute the next swing rather than extend it.',
     'fear-greed|heatmap': 'Fear & Greed blends momentum, breadth, options, volatility, havens, and credit into a slow mood score. The heatmap counts whether tracked stocks are up today and whether the largest names agree. Extreme fear with a neutral or green tape means sentiment is ahead of price. The score is not a crash call and not a buy until breadth and volume confirm.',
-    'fear-greed|index-cal': 'The index calendar is the month’s path for the risk sleeves. Fear & Greed can sit at an extreme inside a month that is still mixed, or look calm after a month that already bled. The month is the path already traveled. The score is how crowded the mood is now.',
+    'fear-greed|index-cal': 'Daily index moves are the month’s path for the risk sleeves. Fear & Greed can sit at an extreme inside a month that is still mixed, or look calm after a month that already bled. The month is the path already traveled. The score is how crowded the mood is now.',
     'fear-greed|market': 'Market analysis re-votes from indexes, volatility, the dollar, yields, the Fed, commodities, geopolitics, and the global tape. Fear & Greed moves slower. It can stay extreme after that vote has stabilized, or lag a regime that just turned. They disagree when the clock or the evidence differs.',
     'fear-greed|overnight': 'Overnight is the last foreign session and futures into the US open. Fear & Greed does not see that session. A defensive lead with a calm composite, or extreme fear with a quiet overseas tape, is a lead-versus-mood split. The cash session decides which one sticks.',
     'fear-greed|volume': 'Volume only speaks for names that already printed unusual volume. Fear & Greed is the broad mood. Heavy fear with a mixed volume book means positioning is scared and the unusual-volume tape has not confirmed a liquidation.',
     'gamma|heatmap': 'Gamma does not contradict the tape’s direction. A weak heatmap with positive SPY gamma means stocks are down, but listed hedging would tend to dampen the next leg. A calm heatmap with negative gamma means price looks orderly and a break has more room to travel.',
-    'gamma|index-cal': 'The calendar is the month already traveled. Gamma is how the next move is likely to behave. A defensive month does not say whether the next swing gets pinned or extended.',
+    'gamma|index-cal': 'The daily index grid is the month already traveled. Gamma is how the next move is likely to behave. A defensive month does not say whether the next swing gets pinned or extended.',
     'gamma|market': 'The regime is the directional stress vote. SPY gamma is the mechanical bias under the next move. Severe risk-off with positive gamma means the macro stack is defensive and listed hedging would lean against a crash extension. Severe risk-off with negative gamma means the stress and the options complex agree that a down move can travel.',
     'gamma|overnight': 'Overnight sets the lead into the open. Gamma says whether that lead, if the cash session follows it, gets damped or extended. A weak overseas tape with positive gamma is a lead without much listed fuel behind it.',
     'gamma|volume': 'Volume says whether unusual participation is confirming a direction. Gamma says whether the options complex would dampen or chase that direction. Bearish volume with positive gamma is real selling without mechanical fuel to extend it. Quiet volume with negative gamma is fuel waiting for a break.',
-    'heatmap|index-cal': 'The heatmap is the latest session. The calendar compounds the month. A defensive month with a neutral day is a bounce that has not repaired the path. A weak day inside a constructive month is one session, not a new regime.',
+    'heatmap|index-cal': 'The heatmap is the latest session. The daily index grid compounds the month. A defensive month with a neutral day is a bounce that has not repaired the path. A weak day inside a constructive month is one session, not a new regime.',
     'heatmap|market': 'Market analysis can be severe because volatility, the dollar, yields, the Fed, or commodities are stressed while most tracked stocks are flat. The heatmap does not see those axes. A severe regime with a neutral heatmap means the wind has shifted and the stock tape has not followed. Size for the regime. A flat map is not an all-clear, and the regime label is not proof a broad selloff is already underway.',
     'heatmap|overnight': 'Overnight can be risk-off into the open while the cash heatmap is neutral because the US session reversed the lead, or because cash has not broken. During US hours the heatmap is the position. Overnight is the gap risk into the next open.',
     'heatmap|volume': 'The heatmap is the whole tracked universe. Volume is only the names with unusual volume. Bearish volume inside a neutral heatmap means the names that are trading heavily are offered, while the rest of the universe is not in a broad breakdown.',
-    'index-cal|market': 'The calendar is how the risk sleeves have done this month, with VIX as confirmation. The regime can flip inside a mixed month because it re-votes from live cross-asset axes. A defensive month and a neutral regime means the damage is already in the path and today’s stress vote is not coordinated. A severe regime inside a mixed month means the stress is new relative to the month’s scoreboard.',
-    'index-cal|overnight': 'Overnight is the latest lead. The calendar is the month. A weak overseas tape does not rewrite a constructive month, and a calm overnight does not repair a defensive month.',
-    'index-cal|volume': 'Volume is this session’s unusual participation. The calendar does not see it. A bearish volume day inside a mixed month is one session of heavy trading in the flagged names, not a change in the month’s regime.',
+    'index-cal|market': 'The daily index grid is how the risk sleeves have done this month, with VIX as confirmation. The regime can flip inside a mixed month because it re-votes from live cross-asset axes. A defensive month and a neutral regime means the damage is already in the path and today’s stress vote is not coordinated. A severe regime inside a mixed month means the stress is new relative to the month’s scoreboard.',
+    'index-cal|overnight': 'Overnight is the latest lead. The daily index grid is the month. A weak overseas tape does not rewrite a constructive month, and a calm overnight does not repair a defensive month.',
+    'index-cal|volume': 'Volume is this session’s unusual participation. The daily index grid does not see it. A bearish volume day inside a mixed month is one session of heavy trading in the flagged names, not a change in the month’s regime.',
     'market|overnight': 'The regime already includes the global tape as one axis. It can still be severe from volatility, the dollar, yields, or the Fed when the overseas lead was quiet — or the reverse, if futures dumped and the slower axes have not followed. The stack is the position. Overnight is what can gap the next open.',
     'market|volume': 'Volume only covers names that already traded unusually, and a lean is weaker than a broad breakdown. A severe regime can sit next to volume that is quiet, mixed, or only leaning. That does not cancel the regime. It means participation has not confirmed the stress at the same strength.',
     'overnight|volume': 'Overnight is the lead into the cash session. Volume is whether unusual participation has shown up in US names. A defensive overnight read with mixed volume means the foreign lead has not turned into a heavy US tape.',
@@ -3268,7 +3336,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         var url = new URL(window.location.href);
         if (activeTab && activeTab !== 'home') url.searchParams.set('tab', activeTab);
         else if (activeTab === 'home') url.searchParams.delete('tab');
-        if (activeTab === 'grade' && state.symbol) {
+        if (gradeIsShown() && state.symbol) {
           var contractUrl = new URL(buildShareUrl());
           ['s', 'exp', 'k', 't'].forEach(function(key){
             var value = contractUrl.searchParams.get(key);
@@ -4333,6 +4401,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
       liveLastRefreshAt = null;
       state.symbol = sym;
       loadChain();
+      // The grade tool sits in the stock page's Grade tab: keep that page on
+      // the same stock.
+      try { if (typeof STOCK_PAGE !== 'undefined') STOCK_PAGE.follow(sym); } catch (_) {}
     }
   };
 
@@ -4371,8 +4442,11 @@ function scenarioEventPhase(ev, now = Date.now()) {
     // view) round-trips back to that tab on reload — otherwise pushUrlState
     // overwrites the URL with just s/exp/k/t and the tab param is lost.
     try {
-      var existingTab = new URLSearchParams(window.location.search).get('tab');
+      var existingParams = new URLSearchParams(window.location.search);
+      var existingTab = existingParams.get('tab');
       if (existingTab) p.set('tab', existingTab);
+      // ?tab=stock&view=grade reopens the stock page on its Grade tab.
+      if (existingParams.get('view')) p.set('view', existingParams.get('view'));
     } catch (_) {}
     return window.location.origin + window.location.pathname + '?' + p.toString();
   }
@@ -4391,14 +4465,34 @@ function scenarioEventPhase(ev, now = Date.now()) {
       wfNoteRecent('sym:' + state.symbol);
     } catch (_) {}
   }
+  // The grade tool (#opt-eval-section) is shown inside the stock page's Grade
+  // tab (stock-page-js.mjs moves it there and back).
+  function gradeIsShown(){
+    var sec = $('opt-eval-section');
+    return !!sec && !!sec.closest('#page-pane-stock') && !sec.closest('[hidden]');
+  }
+  function gradeShowSymbol(sym){
+    if (!HAS_OWNER_ACCESS || !sym) return;
+    if (state.symbol !== sym){
+      // A saved contract link (?s=&exp=&k=&t=) for this stock still restores.
+      var fromUrl = parseUrlState();
+      if (!pendingUrlState && fromUrl && fromUrl.sym === sym && (fromUrl.exp || fromUrl.k || fromUrl.t)) pendingUrlState = fromUrl;
+      combo.commit(sym);
+      return;
+    }
+    pushUrlState();
+    if (typeof startLivePolling === 'function') startLivePolling();
+  }
+  function gradeHidden(){
+    if (typeof stopLivePolling === 'function') stopLivePolling();
+  }
   function pushUrlState(){
     if (suppressUrlWrite) return;
     if (!state.symbol) return;
     // A Grade fetch may finish after the user has already navigated Home (or
-    // elsewhere). Keep warming its state/cache, but never let the hidden pane
-    // resurrect contract params or its document title in the current URL.
-    var gradePane = $('page-pane-grade');
-    if (gradePane && gradePane.hidden) return;
+    // elsewhere). Keep warming its state/cache, but never let the hidden
+    // grade resurrect contract params or its document title in the current URL.
+    if (!gradeIsShown()) return;
     try {
       var url = buildShareUrl();
       window.history.replaceState(null, '', url);
@@ -6897,6 +6991,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
     forecast: 'earnings-forecast', 'earnings-forecast': 'earnings-forecast',
     liquidation: 'forced-liquidation', 'forced-liquidation-tracker': 'forced-liquidation', 'forced-liquidation': 'forced-liquidation',
     unusual: 'flow', 'unusual-flow': 'flow',
+    // Grade is a tab of the stock page now. Owners still resolve 'grade'
+    // (selectTab moves it to the stock page's Grade tab); for everyone else an
+    // old Grade link opens the stock page.
+    grade: 'stock', 'index-calendar': 'index-cal', 'daily-index-moves': 'index-cal',
     ma: 'ma-tracker', 'moving-average': 'ma-tracker', 'moving-averages': 'ma-tracker', 'ma-cross': 'ma-tracker',
     'pattern-lab': 'pattern-lab', 'pattern-recognition': 'pattern-lab', seasonality: 'pattern-lab', 'lead-lag': 'pattern-lab',
     fear: 'fear-greed', greed: 'fear-greed', 'fear-and-greed': 'fear-greed',
@@ -7395,9 +7493,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
     }
     document.addEventListener('stonks-recent', renderRecent);
     function wfOpenTicker(sym){
-      if (!HAS_OWNER_ACCESS) { STOCK_PAGE.open(sym); return; }
-      selectTab('grade');
-      setTimeout(function(){ try { combo.commit(sym); } catch (_) {} }, 0);
+      // Owners open the stock page on its Grade tab.
+      STOCK_PAGE.open(sym, HAS_OWNER_ACCESS ? 'grade' : null);
     }
     // One delegated listener serves every wayfinding link on the page.
     document.addEventListener('click', function(ev){
@@ -8499,9 +8596,11 @@ function scenarioEventPhase(ev, now = Date.now()) {
         if (name === 'home') {
           // Home is the canonical bare landing state. Grade contract params
           // must leave with it or a reload re-opens Grade via ?s=.
-          ['tab', 's', 'exp', 'k', 't'].forEach(function(key){ url.searchParams.delete(key); });
+          ['tab', 's', 'exp', 'k', 't', 'view'].forEach(function(key){ url.searchParams.delete(key); });
         } else url.searchParams.set('tab', name);
         if (name !== 'compare') url.searchParams.delete('cmp');
+        // view=grade belongs to the stock page's Grade tab only.
+        if (name !== 'stock') url.searchParams.delete('view');
         var next = url.pathname + (url.search || '') + (url.hash || '');
         if (next !== window.location.pathname + window.location.search + window.location.hash) {
           if (replace) history.replaceState(null, '', next);
@@ -8655,6 +8754,13 @@ function scenarioEventPhase(ev, now = Date.now()) {
       });
     }
     function selectTab(name, nav){
+      // "Grade a stock" is now the Grade tab of the stock page. Old links,
+      // buttons and saved pins that still ask for 'grade' land there (public
+      // visitors get the same stock page without the Owner tab).
+      if (name === 'grade'){
+        if (HAS_OWNER_ACCESS && typeof STOCK_PAGE !== 'undefined') STOCK_PAGE.showTab('grade', true);
+        name = 'stock';
+      }
       // nav.replace: sync the URL with replaceState instead of pushState —
       // set by boot + popstate (restoring state, not navigating).
       // Bounce stale/deep-linked Owner destinations before persisting or
@@ -18155,13 +18261,13 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
   function riskIndexCalDesk(){
     var base = {
-      id: 'index-cal', name: 'Index calendar', tab: 'index-cal', layer: 'backdrop', horizon: 'Month-to-date sleeves',
+      id: 'index-cal', name: 'Daily index moves', tab: 'index-cal', layer: 'backdrop', horizon: 'Month-to-date sleeves',
       measures: 'The month-to-date path of SPY, QQQ, IWM, SMH, DIA, and VXUS, confirmed by whether VIX is higher or lower. One session does not rewrite it.'
     };
     var data = indexCalState.data;
     if (!data || !Array.isArray(data.days)) {
-      if (indexCalState.error && riskStackState.asked.indexCal) return Object.assign(base, { status: 'missing', stance: null, label: 'Unavailable', why: 'The index calendar could not be read.' });
-      return Object.assign(base, { status: 'loading', stance: null, label: 'Loading', why: 'Waiting for the index calendar.' });
+      if (indexCalState.error && riskStackState.asked.indexCal) return Object.assign(base, { status: 'missing', stance: null, label: 'Unavailable', why: 'Daily index moves could not be read.' });
+      return Object.assign(base, { status: 'loading', stance: null, label: 'Loading', why: 'Waiting for daily index moves.' });
     }
     var days = data.days;
     var today = calEtTodayYmd();
@@ -40604,20 +40710,15 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (type) return type;
     return String(a && (a.symbol || a.title) || '').localeCompare(String(b && (b.symbol || b.title) || ''));
   }
-  // Navigate to the Grade tab and load a ticker (reuses the combobox). Shared
-  // by the clickable earnings/catalyst symbols and the overview cards.
+  // Open a ticker's stock page. Shared by the clickable earnings/catalyst
+  // symbols and the overview cards. Owners land on its Grade tab.
   function calGoToTicker(sym){
-    // Public visitors open the stock page; owners keep the Grade tool.
     if (!HAS_OWNER_ACCESS) {
       if (sym) STOCK_PAGE.open(sym);
       return;
     }
     if (!sym) return;
-    try {
-      var gt = document.querySelector('[data-page-tab="grade"]');
-      if (gt) gt.click();
-      setTimeout(function(){ if (typeof combo !== 'undefined' && combo && combo.commit) combo.commit(sym); }, 0);
-    } catch (_) {}
+    STOCK_PAGE.open(sym, 'grade');
   }
   // Clickable ticker pill used inside earnings/catalyst chips.
   function calChipSymBtn(sym){
@@ -42620,7 +42721,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       return;
     }
     if (indexCalState.error && !days.length){
-      root.innerHTML = '<div class="idx-cal-empty">Couldn’t load the index calendar — refresh the page to try again.</div>';
+      root.innerHTML = '<div class="idx-cal-empty">Couldn’t load daily index moves — refresh the page to try again.</div>';
       if (eyebrow) eyebrow.textContent = '';
       return;
     }

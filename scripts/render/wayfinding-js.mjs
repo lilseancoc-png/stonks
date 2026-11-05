@@ -286,9 +286,8 @@ export function renderWayfindingBindings() {
     }
     document.addEventListener('stonks-recent', renderRecent);
     function wfOpenTicker(sym){
-      if (!HAS_OWNER_ACCESS) { STOCK_PAGE.open(sym); return; }
-      selectTab('grade');
-      setTimeout(function(){ try { combo.commit(sym); } catch (_) {} }, 0);
+      // Owners open the stock page on its Grade tab.
+      STOCK_PAGE.open(sym, HAS_OWNER_ACCESS ? 'grade' : null);
     }
     // One delegated listener serves every wayfinding link on the page.
     document.addEventListener('click', function(ev){

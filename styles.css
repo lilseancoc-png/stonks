@@ -27611,6 +27611,16 @@ html.is-embed #freshness-banner { margin-top: 8px; padding-block: 6px; }
   .stp-stat-range { grid-column: 1 / -1; }
 }
 
+/* Owner Grade tab: the grade tool moves in from its old page. The stock page
+   already shows the name, price, chart and Compare button, so the tool's own
+   title, ticker search and price chart are hidden here. */
+.stp-tab-body.is-grade { display: block; margin-top: 0; }
+.stp-tab-body.is-grade > #opt-eval-section { border: 0; background: none; box-shadow: none; padding: 0; margin: 0; }
+.stp-tab-body.is-grade > #opt-eval-section > .card-header,
+.stp-tab-body.is-grade > #opt-eval-section > .hint,
+.stp-tab-body.is-grade > #opt-eval-section > .opt-controls,
+.stp-tab-body.is-grade #opt-price-host { display: none !important; }
+
 
 /* === Step-axis line chart (lineSvgHtml in app-js.mjs) === */
 .ln-svg { display: block; width: 100%; height: auto; overflow: visible; }
@@ -28363,6 +28373,19 @@ button.idea-record-chip:hover { border-color: var(--accent-line); }
   .narr-pulse-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
+/* One search box on desktop: the header search stays, and the sidebar copy
+   only shows in the menu drawer on smaller screens. */
+@media (min-width: 1024px) {
+  .nav-search-btn { display: none; }
+}
+
+/* Home "Explore by topic": a topic left alone on the last row fills it. */
+@media (min-width: 1280px) {
+  .landing-topics > .topic-tile:last-child:nth-child(3n+1) { grid-column: 1 / -1; }
+}
+@media (min-width: 561px) and (max-width: 1279px) {
+  .landing-topics > .topic-tile:last-child:nth-child(odd) { grid-column: 1 / -1; }
+}
 
 
 /* Feature pages read one step larger (see scripts/render/text-scale.mjs). */

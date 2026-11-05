@@ -66,7 +66,13 @@ try {
   assert.deepEqual(navTabs, mapTabs, "Sidebar order must follow the site map");
   assert.equal(new Set(mapTabs).size, mapTabs.length, "A page may appear in only one section");
   const optionsNav = html.match(/<details class="side-nav-group" data-nav-group="options"[\s\S]*?<\/details>/)?.[0] || "";
-  assert.match(optionsNav, /data-page-tab="flow"[\s\S]*?data-page-tab="volume"[\s\S]*?data-page-tab="oi"/);
+  assert.match(optionsNav, /data-page-tab="flow"[\s\S]*?data-page-tab="oi"/);
+  assert.doesNotMatch(optionsNav, /data-page-tab="volume"/, "Trading volume is share volume, so it sits under Price signals");
+  const signalsNav = html.match(/<details class="side-nav-group" data-nav-group="signals"[\s\S]*?<\/details>/)?.[0] || "";
+  assert.match(signalsNav, /Price signals[\s\S]*?data-page-tab="volume"[\s\S]*?data-page-tab="index-cal"[^>]*data-nav-alias="Index calendar"/);
+  const earningsNav = html.match(/<details class="side-nav-group" data-nav-group="earnings"[\s\S]*?<\/details>/)?.[0] || "";
+  assert.match(earningsNav, /data-page-tab="earnings"[\s\S]*?data-page-tab="calls"[\s\S]*?data-page-tab="spillover"/);
+  for (const id of ["grade", "privacy", "terms"]) assert.match(html, new RegExp('data-page-tab="' + id + '"[^>]*data-nav-hidden="1"'), id + " stays linkable but out of the visible menu");
   assert.match(optionsNav, /data-nav-alias="Unusual flow"/, "Older page names stay searchable");
   assert.doesNotMatch(optionsNav, /data-page-tab="(?:picks|stocks|rotation|levetf|track)"/);
   assert.doesNotMatch(html.match(/<details class="side-nav-group" data-nav-group="today"[\s\S]*?<\/details>/)?.[0] || "", /data-page-tab="market"/);
@@ -109,7 +115,7 @@ try {
   assert.match(appJs, /local: \{ label: 'Local', timeZone: null \}[\s\S]*?et: \{ label: 'ET', timeZone: 'America\/New_York' \}[\s\S]*?pt: \{ label: 'PT', timeZone: 'America\/Los_Angeles' \}[\s\S]*?utc: \{ label: 'UTC', timeZone: 'UTC' \}/);
   assert.match(appJs, /function formatDisplayInstant\(value, options\)[\s\S]*?opts\.timeZoneName = 'short'/);
   assert.match(appJs, /function bindTimeZoneSelect\(\)[\s\S]*?localStorage\.setItem\(DISPLAY_TIME_ZONE_KEY, next\)[\s\S]*?activePane = document\.querySelector\('\.page-pane:not\(\[hidden\]\)\[id\^="page-pane-"\]'\)[\s\S]*?url\.searchParams\.set\('tab', activeTab\)/);
-  assert.match(appJs, /activeTab === 'grade' && state\.symbol[\s\S]*?buildShareUrl\(\)[\s\S]*?localStorage\.setItem\('stonks-theme', currentTheme\)[\s\S]*?select\.blur\(\)[\s\S]*?window\.setTimeout\(function\(\)\{ window\.location\.reload\(\); \}, 150\)/);
+  assert.match(appJs, /gradeIsShown\(\) && state\.symbol[\s\S]*?buildShareUrl\(\)[\s\S]*?localStorage\.setItem\('stonks-theme', currentTheme\)[\s\S]*?select\.blur\(\)[\s\S]*?window\.setTimeout\(function\(\)\{ window\.location\.reload\(\); \}, 150\)/);
   assert.match(appJs, /function renderFooterBuiltTime\(\)[\s\S]*?formatDisplayInstant\(iso,[\s\S]*?el\.textContent = label/);
   assert.ok((appJs.match(/formatDisplayInstant\(/g) || []).length >= 20, "timestamped desks must use the shared display-timezone formatter");
   assert.doesNotMatch(appJs, /function fmtTapeTime\(iso\)\{[\s\S]{0,220}?America\/New_York/, "tape timestamps must use the user display zone");
@@ -281,8 +287,8 @@ try {
 
   // Client regression coverage: URL cleanup, DST-aware option expiry, stale
   // requests, retryable tab loads, market-session filtering, and POST logout.
-  assert.match(appJs, /\['tab', 's', 'exp', 'k', 't'\]\.forEach\(function\(key\)\{ url\.searchParams\.delete\(key\); \}\)/);
-  assert.match(appJs, /function pushUrlState\(\)\{[\s\S]*?var gradePane = \$\('page-pane-grade'\);[\s\S]*?if \(gradePane && gradePane\.hidden\) return;/);
+  assert.match(appJs, /\['tab', 's', 'exp', 'k', 't', 'view'\]\.forEach\(function\(key\)\{ url\.searchParams\.delete\(key\); \}\)/);
+  assert.match(appJs, /function pushUrlState\(\)\{[\s\S]*?if \(!gradeIsShown\(\)\) return;/);
   assert.doesNotMatch(appJs, /EXPIRY_CLOSE_OFFSET/);
   const expiryHelperSource = appJs.match(/function etCloseEpochSec\(yyyymmdd\)\{[\s\S]*?function chainExpiryCloseEpochSec\(epochSec\)\{[\s\S]*?\n  \}/)?.[0] || "";
   assert.ok(expiryHelperSource, "generated expiry helpers must exist");

@@ -1,8 +1,9 @@
 // The public stock page (?tab=stock&s=NVDA). One company on one page: price
 // and change (live while the market is open), the price chart, key numbers,
 // then tabs for Overview, News, Earnings, Options, Ownership and Similar
-// stocks. Owners get one more tab with the stock's grade and its Top Picks
-// trades. Every stock link for public visitors lands here.
+// stocks. Owners get two more tabs: Grade (the full grade tool, which used to
+// be its own "Grade a stock" page and now moves in here) and Top Picks trades.
+// Every stock link lands here; old ?tab=grade links open the Grade tab.
 //
 // Data: the public per-ticker JSON (price history, fundamentals, news,
 // earnings history, IV rank, option chains), heatmap.json (names and day
@@ -109,37 +110,114 @@ export function renderStockPageJs() {
       return '<a class="stp-sym-link" href="?tab=stock&s=' + encodeURIComponent(sym) + '" data-stock-sym="' + escapeHtml(sym) + '">' + escapeHtml(label || sym) + '</a>';
     }
     // --- navigation ----------------------------------------------------------
+    function onGrade(){ return state.tab === 'grade' && HAS_OWNER_ACCESS; }
     function setUrl(sym, replace){
       try {
         var url = new URL(window.location.href);
         url.searchParams.set('tab', 'stock');
+        // The grade's contract (exp/k/t) stays in the link only while the
+        // Grade tab shows that same stock.
+        var keepContract = onGrade() && sym && url.searchParams.get('s') === sym;
         if (sym) url.searchParams.set('s', sym); else url.searchParams.delete('s');
-        ['exp', 'k', 't'].forEach(function(k){ url.searchParams.delete(k); });
+        if (!keepContract) ['exp', 'k', 't'].forEach(function(k){ url.searchParams.delete(k); });
+        if (onGrade()) url.searchParams.set('view', 'grade'); else url.searchParams.delete('view');
         var next = url.pathname + url.search + url.hash;
         if (next !== window.location.pathname + window.location.search + window.location.hash){
           if (replace) history.replaceState(null, '', next); else history.pushState(null, '', next);
         }
       } catch (_) {}
     }
-    function open(sym){
+    function open(sym, tab){
       var s = cleanSym(sym);
       if (!s) return;
+      if (tab) showTab(tab, true);
       state.sym = s;
+      // Start at the top; a requested tab then scrolls into view as it shows.
+      try { window.scrollTo({ top: 0, behavior: 'auto' }); } catch (_) {}
       var btn = document.querySelector('[data-page-tab="stock"]');
       var pane = document.getElementById('page-pane-stock');
-      if (pane && pane.hidden && btn){ btn.click(); setUrl(s, true); }
+      // Opening from another page: the page loads this stock, not an older
+      // ?s= still sitting in the address bar.
+      if (pane && pane.hidden && btn){ openingSym = s; btn.click(); openingSym = null; setUrl(s, true); }
       else { setUrl(s, false); load(); }
-      try { window.scrollTo({ top: 0, behavior: 'auto' }); } catch (_) {}
     }
+    var openingSym = null;
     function urlSym(){
       try { return cleanSym(new URLSearchParams(window.location.search).get('s')); } catch (_) { return null; }
+    }
+    function urlView(){
+      try { return new URLSearchParams(window.location.search).get('view') || ''; } catch (_) { return ''; }
+    }
+    // Pick the tab the page opens on next. Old "Grade a stock" links and
+    // buttons call this with 'grade' before the page loads.
+    // jump: the visitor asked for this tab from elsewhere (a Grade button or
+    // an old Grade link), so the page scrolls down to the tabs once it shows.
+    var jumpToTabs = false;
+    function showTab(tab, jump){
+      if (tab === 'grade' && !HAS_OWNER_ACCESS) return;
+      state.tab = tab;
+      if (jump) jumpToTabs = true;
+      try { localStorage.setItem(TAB_KEY, tab); } catch (_) {}
+    }
+    function maybeJumpToTabs(){
+      if (!jumpToTabs) return;
+      jumpToTabs = false;
+      // The chart and key numbers above can still grow for a moment, so the
+      // jump repeats twice more unless the visitor has scrolled since.
+      var last = -1;
+      function jump(){
+        var strip = document.querySelector('#stock-root .stp-tabs');
+        if (!strip || (last >= 0 && Math.abs(window.pageYOffset - last) > 2)) return;
+        try {
+          var top = Math.max(0, Math.round(strip.getBoundingClientRect().top + window.pageYOffset - 72));
+          window.scrollTo({ top: top, behavior: 'auto' });
+          last = window.pageYOffset;
+        } catch (_) {}
+      }
+      jump();
+      setTimeout(jump, 350);
+      setTimeout(jump, 1000);
+    }
+    // The grade tool lives in the Grade tab. Before any re-render it goes back
+    // to its own hidden pane so innerHTML never destroys it, and its live
+    // quote polling stops while it is out of view.
+    function parkGrade(){
+      var sec = document.getElementById('opt-eval-section');
+      var home = document.getElementById('page-pane-grade');
+      if (sec && home && sec.parentNode !== home){
+        home.appendChild(sec);
+        if (typeof gradeHidden === 'function') gradeHidden();
+      }
+      var body = document.getElementById('stp-tab-body');
+      if (body) body.classList.remove('is-grade');
+    }
+    function mountGrade(body){
+      var sec = document.getElementById('opt-eval-section');
+      if (!sec || !HAS_OWNER_ACCESS){ body.innerHTML = '<p class="stp-empty">The grade is not available.</p>'; return; }
+      body.innerHTML = '';
+      body.classList.add('is-grade');
+      body.appendChild(sec);
+      if (typeof gradeShowSymbol === 'function') gradeShowSymbol(state.sym);
+      maybeJumpToTabs();
+    }
+    // Code that loads a ticker into the grade tool (Top Picks cards, Brief
+    // chips, the calendar, saved links) brings the stock page along with it.
+    function follow(sym){
+      var s = cleanSym(sym);
+      var pane = document.getElementById('page-pane-stock');
+      if (!s || !pane || pane.hidden || s === state.sym) return;
+      state.sym = s;
+      setUrl(s, true);
+      load();
     }
     // --- loading -------------------------------------------------------------
     function load(){
       var root = document.getElementById('stock-root');
       if (!root) return;
-      var fromUrl = urlSym();
+      var fromUrl = openingSym || urlSym();
       if (fromUrl) state.sym = fromUrl;
+      if (!openingSym && urlView() === 'grade') showTab('grade');
+      parkGrade();
       names().then(function(){ if (!state.sym) renderPicker(root); });
       if (!state.sym){ renderPicker(root); return; }
       var sym = state.sym;
@@ -156,6 +234,7 @@ export function renderStockPageJs() {
           liveQuote(sym, token);
         }).catch(function(){
           if (token !== state.token) return;
+          parkGrade();
           root.innerHTML = '<div class="stp-missing"><p>We could not load <b>' + escapeHtml(sym) + '</b>. It may not be one of the stocks this site follows.</p><p><a href="?tab=tickers" data-go-tab="tickers">See all stocks</a></p></div>';
         });
       } else {
@@ -184,6 +263,7 @@ export function renderStockPageJs() {
       try { document.title = title + ' · stonks'; } catch (_) {}
     }
     function renderPicker(root){
+      parkGrade();
       setHeader('Look up a stock', 'Price, chart, key numbers, news, earnings, options and owners for any stock this site follows.');
       var watch = readWatch();
       var list = SYMBOLS.slice().sort();
@@ -229,6 +309,7 @@ export function renderStockPageJs() {
       });
     }
     function renderShell(root, sym){
+      parkGrade();
       setHeader(sym, '');
       root.innerHTML = '<div class="stp-head"><div class="stp-id"><span class="stp-ticker">' + escapeHtml(sym) + '</span></div></div>' +
         '<div class="stp-chart-card"><div class="ck-host"><div class="ck-skeleton" style="height:340px" aria-hidden="true"></div></div></div>';
@@ -266,8 +347,7 @@ export function renderStockPageJs() {
       var sector = INDUSTRIES[sym] || f.industry || SECTORS[sym] || f.sector || '';
       var watching = readWatch().indexOf(sym) >= 0;
       var actions = '<button type="button" class="stp-btn stp-watch' + (watching ? ' is-on' : '') + '" data-stock-watch aria-pressed="' + (watching ? 'true' : 'false') + '">' + (watching ? '★ Watching' : '☆ Watch') + '</button>' +
-        (typeof cmpToggleHtml === 'function' ? cmpToggleHtml(sym, 'stp-btn') : '') +
-        (HAS_OWNER_ACCESS ? '<button type="button" class="stp-btn" data-stock-grade>Grade this stock</button>' : '');
+        (typeof cmpToggleHtml === 'function' ? cmpToggleHtml(sym, 'stp-btn') : '');
       setHeader(name + ' (' + sym + ')', sector);
       return '<div class="stp-head">' +
         '<div class="stp-id"><span class="stp-ticker">' + escapeHtml(sym) + '</span>' +
@@ -317,7 +397,8 @@ export function renderStockPageJs() {
     var TABS = [['overview', 'Overview'], ['news', 'News'], ['earnings', 'Earnings'], ['options', 'Options'], ['ownership', 'Ownership'], ['similar', 'Similar stocks']];
     function tabsHtml(){
       var list = TABS.slice();
-      if (HAS_OWNER_ACCESS) list.push(['owner', 'Owner desk']);
+      // Owners: the full grade sits second, the stock's Top Picks trades last.
+      if (HAS_OWNER_ACCESS){ list.splice(1, 0, ['grade', 'Grade']); list.push(['owner', 'Top Picks trades']); }
       if (!list.some(function(t){ return t[0] === state.tab; })) state.tab = 'overview';
       return '<div class="stp-tabs" role="tablist" aria-label="Stock sections">' + list.map(function(t){
         var on = t[0] === state.tab;
@@ -326,6 +407,7 @@ export function renderStockPageJs() {
     }
     function render(root){
       var d = state.data || {};
+      parkGrade();
       root.innerHTML = headerHtml() +
         '<div class="stp-chart-card">' +
           '<div class="stp-chart-tools"><div class="stp-kind" role="group" aria-label="Chart style">' +
@@ -392,6 +474,8 @@ export function renderStockPageJs() {
       var body = document.getElementById('stp-tab-body');
       if (!body) return;
       var t = state.tab;
+      if (t === 'grade' && HAS_OWNER_ACCESS){ mountGrade(body); return; }
+      parkGrade();
       var fn = t === 'news' ? tabNews : t === 'earnings' ? tabEarnings : t === 'options' ? tabOptions : t === 'ownership' ? tabOwnership : t === 'similar' ? tabSimilar : t === 'owner' ? tabOwner : tabOverview;
       body.innerHTML = '<p class="stp-loading">Loading…</p>';
       var token = state.token;
@@ -635,23 +719,10 @@ export function renderStockPageJs() {
     function tabOwner(){
       if (!HAS_OWNER_ACCESS) return '';
       var sym = state.sym;
-      if (!cache.gradesP) cache.gradesP = getJson('grades.json').catch(function(){ return null; });
       if (!cache.accP) cache.accP = getJson('picks-accuracy.json').catch(function(){ return null; });
-      return Promise.all([cache.gradesP, cache.accP]).then(function(res){
-        var g = res[0] && res[0].grades && res[0].grades[sym];
-        var acc = res[1] || {};
+      return cache.accP.then(function(res){
+        var acc = res || {};
         var html = '';
-        if (g){
-          var p = g.pillars || {};
-          var rec = g.recommendation || {};
-          html += '<section class="stp-sec"><h3 class="stp-h3">Grade</h3><div class="stp-stats stp-stats-3">' +
-            '<div class="stp-stat"><span class="stp-stat-k">Total</span><b>' + (g.total != null ? (g.total > 0 ? '+' : '') + num(g.total, 1) : '—') + '</b><span class="stp-stat-sub">' + escapeHtml(rec.label || '') + '</span></div>' +
-            ['fundamentals', 'technicals', 'mechanicals', 'narrative'].map(function(k){
-              var v = p[k] && p[k].score;
-              return '<div class="stp-stat"><span class="stp-stat-k">' + k.charAt(0).toUpperCase() + k.slice(1) + '</span><b>' + (v != null ? (v > 0 ? '+' : '') + num(v, 1) : '—') + '</b></div>';
-            }).join('') +
-          '</div><p class="stp-src"><button type="button" class="stp-btn" data-stock-grade>Open the full grade</button></p></section>';
-        }
         var trades = (acc.open || []).map(function(r){ return { r: r, open: true }; }).concat((acc.closed || []).map(function(r){ return { r: r, open: false }; }))
           .filter(function(x){ return x.r && x.r.symbol === sym; })
           .sort(function(a, b){ return String(b.r.entryDate || '').localeCompare(String(a.r.entryDate || '')); }).slice(0, 12);
@@ -663,12 +734,12 @@ export function renderStockPageJs() {
               return '<tr><td>' + escapeHtml(dateLabel(r.entryDate)) + '</td><td>' + escapeHtml(r.side === 'put' ? 'Put' : 'Call') + '</td><td>' + escapeHtml(x.open ? 'Open' : String(r.status || 'Closed').replace(/-/g, ' ')) + '</td><td class="num">' + chg(pnl, 1) + '</td></tr>';
             }).join('') + '</tbody></table></div><p class="stp-src"><a href="?tab=track" data-go-tab="track">Open Track record</a></p></section>';
         }
-        return html || '<p class="stp-empty">No grade or Top Picks trades for this stock yet.</p>';
+        return html || '<p class="stp-empty">No Top Picks trades in ' + escapeHtml(sym) + ' yet. The Grade tab shows its current grade.</p>';
       });
     }
     // --- events ----------------------------------------------------------------
     document.addEventListener('click', function(ev){
-      var t = ev.target && ev.target.closest ? ev.target.closest('[data-stock-sym], [data-stock-tab], [data-stock-kind], [data-stock-watch], [data-stock-grade], [data-go-tab], a[href^="?tab=stock&s="]') : null;
+      var t = ev.target && ev.target.closest ? ev.target.closest('[data-stock-sym], [data-stock-tab], [data-stock-kind], [data-stock-watch], [data-go-tab], a[href^="?tab=stock&s="]') : null;
       if (!t) return;
       if (t.tagName === 'A' && !t.hasAttribute('data-stock-sym') && !t.hasAttribute('data-go-tab') && /^\\?tab=stock&s=/.test(t.getAttribute('href') || '')){
         // Any stock-page link on the site opens in place, without a reload.
@@ -684,13 +755,13 @@ export function renderStockPageJs() {
         ev.preventDefault();
         open(t.getAttribute('data-stock-sym'));
       } else if (t.hasAttribute('data-stock-tab')){
-        state.tab = t.getAttribute('data-stock-tab');
-        try { localStorage.setItem(TAB_KEY, state.tab); } catch (_) {}
+        showTab(t.getAttribute('data-stock-tab'));
         document.querySelectorAll('#stock-root .stp-tab').forEach(function(b){
           var on = b.getAttribute('data-stock-tab') === state.tab;
           b.classList.toggle('is-on', on);
           b.setAttribute('aria-selected', on ? 'true' : 'false');
         });
+        setUrl(state.sym, true);
         paintTab();
       } else if (t.hasAttribute('data-stock-kind')){
         state.kind = t.getAttribute('data-stock-kind');
@@ -701,12 +772,6 @@ export function renderStockPageJs() {
         t.classList.toggle('is-on', on);
         t.setAttribute('aria-pressed', on ? 'true' : 'false');
         t.textContent = on ? '★ Watching' : '☆ Watch';
-      } else if (t.hasAttribute('data-stock-grade')){
-        if (!HAS_OWNER_ACCESS) return;
-        var g = document.querySelector('[data-page-tab="grade"]');
-        if (g) g.click();
-        var s = state.sym;
-        setTimeout(function(){ try { combo.commit(s); } catch (_) {} }, 0);
       } else if (t.hasAttribute('data-go-tab')){
         if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.button === 1) return;
         var btn = document.querySelector('[data-page-tab="' + t.getAttribute('data-go-tab') + '"]');
@@ -717,9 +782,13 @@ export function renderStockPageJs() {
     });
     window.addEventListener('popstate', function(){
       var pane = document.getElementById('page-pane-stock');
-      if (pane && !pane.hidden){ var s = urlSym(); if (s !== state.sym){ state.sym = s; load(); } }
+      if (!pane || pane.hidden) return;
+      var s = urlSym();
+      var wantGrade = urlView() === 'grade' && HAS_OWNER_ACCESS;
+      if (s !== state.sym){ state.sym = s; if (!wantGrade && state.tab === 'grade') state.tab = 'overview'; load(); }
+      else if (wantGrade !== (state.tab === 'grade')){ state.tab = wantGrade ? 'grade' : 'overview'; load(); }
     });
-    return { open: open, load: load, names: names, nameOf: nameOf, watchlist: readWatch, href: function(sym){ return '?tab=stock&s=' + encodeURIComponent(String(sym || '').toUpperCase()); } };
+    return { open: open, load: load, showTab: showTab, follow: follow, names: names, nameOf: nameOf, watchlist: readWatch, href: function(sym){ return '?tab=stock&s=' + encodeURIComponent(String(sym || '').toUpperCase()); } };
   })();
 `;
 }
