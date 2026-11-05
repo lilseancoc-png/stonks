@@ -50,6 +50,18 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Add "Who bought and who sold" to Who owns what: each manager's biggest adds and cuts last quarter as bars, valued as shares changed × the quarter-end price so a holding that only rose in price doesn't count as buying.
 - Add a table view to Options walls (one row per stock, with a bar showing where the price sits between its put wall and call wall; the strike ladder opens under the row) and to Unusual options trades (the flagged trades themselves: stock, contract, time, tape, premium, contracts this hour, volume vs open interest and repeats).
 - Add "Every stock against its averages" to Moving averages: each stock's distance from its 20, 50, 100 and 200-day averages as small bars on one centred axis.
+- Add "Your desk" to Home for the Owner: open trades, the time of the next Top Picks run (11:00 or 15:30 ET) and what changed in the Owner brief. Public visitors never see it.
+- Add a weekly timeline to Capital markets: debt, convertibles, share sales, buybacks and IPOs by week as stacked bars, with filters and a list of each week's events (two-line rows on phones).
+- Add a shared table to LEAPS, Stock picks, Sector rotation and Leveraged ETFs (idea, side, horizon, risk note, record) and a track-record chip under each title. The LEAPS chip reads the LEAPS paper record; Stock picks says it has no record yet.
+- Add "What changed vs last call" to Earnings calls: guidance, tone and risks next to the previous call's brief. The bake keeps a compact copy of the prior brief in each transcript file (`prior`); it fills in as each name reports its next quarter.
+- Add the last four earnings-day moves to each Calendar earnings row, next to the implied move (`lastMoves`, read from the stored earnings history).
+- Add a "New" badge to News stories published since your last visit (kept per browser, `stonks-news-seen`), and group stories into Market-moving, Company and market, and Macro and economy.
+- Add a month-by-year heatmap to Pattern lab (30 years of monthly returns) and a year strip to the index calendar.
+- Add a ripple table to Event spillover: each peer's average move after the lead stock's event, in one sortable list.
+- Add a trend strip with a small history line to AI CapEx, RAM prices, GPU cloud prices and Search interest, and a timeline of one trading day's site updates (08:00 to 20:00 ET, one row per job) to the Update checker.
+- Add a top strip to Market Analysis, Risk Analysis and the Bottom tracker with the few numbers each page is about, and a contents list to the long Learn & help guides.
+- Add a forecast-against-actual chart to Earnings Forecast, a table view with the deal spread to Pending buyouts, and a table view to Commodities.
+- Add the average win and average loss to the Track Record scorecard.
 
 ### Changed
 
@@ -69,9 +81,16 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Long lists open as a table on wider screens: Up/down streaks, Leveraged ETFs, Open picks, Options walls and Unusual options trades join All stocks (phones keep cards, and a saved choice still wins). Long tables keep their header in view, and on phones the first column stays put while the rest scrolls sideways.
 - Rising volatility shows each stock's IV percentile as a bar and the shared Cheap / Rich / Very rich label.
 - The Owner Grade page shows its indicators as one grouped table (momentum, moving averages, volume, support and resistance) instead of eleven tiles, with shorter notes.
+- Narratives show compact cards with up to eight long and short names as chips; the full thesis, names and evidence open on click.
+- The weekly Alt Data pages (RAM prices, GPU cloud prices, Search interest) say "weekly data, updated Fridays 11:30 ET" with the date of the next run, instead of a daily-build age.
+- Trading volume puts each chart's legend in its header, uses blue for below-average days (the hint already said blue), and uses one type scale for the page.
+- Sector rotation draws each sector as a point on the strength-vs-momentum map without tails (there is no weekly history to draw them from).
+- Owner pages share one sub-tab style (Historical Data, Forced Liquidation, Earnings Forecast, Sports, Owner brief). The Unified Signal Engine lays its signals out as a matrix, and the Owner brief labels each change by kind and since when.
+- Forced Liquidation leads with compact headline numbers; Sports shows when its data last updated and draws a break-even bar on Pick Builder entries; the Strategy builder shows the payoff chart first; the Heatmap toolbar sits on one row; Update checker statuses are pills; the sector split bars open by default.
 
 ### Fixed
 
+- On phones, the Home index tiles sit two to a row instead of overlapping, and the Market themes summary card (market tilt, story counts, leading stories) fits the screen instead of running off the right edge.
 - Restore regex escapes that the generated app.js was silently dropping. GPU cloud prices now drop the "NVIDIA" prefix from model names and Commodities driver notes show their first sentence again; three other spots (RAM price text, Pending buyouts dates, export file names) happened to work and are fixed for safety. `npm run test:charts` fails on any new single-backslash escape in the generated scripts.
 
 ## 2026-11-04

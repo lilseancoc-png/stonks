@@ -9,4 +9,13 @@ export const updateCheckerCss = `
 .uc-feature-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.uc-feature>div{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}.uc-feature h4{margin:0;font-size:14px}.uc-feature p{font-size:13px;line-height:1.6;margin:12px 0 0}.uc-feature[hidden],.uc-notice[hidden],.uc-all-clear[hidden]{display:none}
 .uc-limitation{border-top:1px solid var(--border);padding-top:20px;margin-top:24px}.uc-notice{display:flex;align-items:center;gap:8px;width:100%;margin-top:8px;min-height:32px;padding:6px 10px;box-sizing:border-box;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--muted-strong);font:500 12px/1.3 var(--font-sans);text-decoration:none}.uc-notice::before{content:'';flex:0 0 8px;width:8px;height:8px;border-radius:50%;background:var(--warn)}.uc-notice[data-status="unknown"]::before,.uc-notice[data-status="stale"]::before{background:var(--muted)}.uc-notice[data-status="failed"]::before,.uc-notice[data-status="stuck"]::before{background:var(--neg)}.uc-notice:hover{border-color:var(--accent-line);color:var(--text-strong)}body:not(.is-owner) .uc-notice{display:none!important}
 @media(max-width:700px){.uc-builds,.uc-feature-list{grid-template-columns:1fr}.uc-feature>div{flex-wrap:wrap}}
+.uc-pills { list-style:none; display:grid; grid-template-columns:repeat(auto-fill,minmax(190px,1fr)); gap:8px; margin:0 0 16px; padding:0; }
+.uc-pill { display:grid; grid-template-columns:auto minmax(0,1fr); column-gap:8px; align-items:center; padding:8px 10px; border:1px solid var(--border); border-radius:10px; min-width:0; }
+.uc-pill i { grid-row:span 2; width:9px; height:9px; border-radius:50%; background:var(--muted); }
+.uc-pill b { font-size:13px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.uc-pill span { font-size:11px; color:var(--muted-strong); font-variant-numeric:tabular-nums; }
+.uc-pill[data-tone=ok] i { background:var(--pos); }
+.uc-pill[data-tone=bad] { border-color:color-mix(in srgb,var(--neg) 45%,var(--border)); }
+.uc-pill[data-tone=bad] i { background:var(--neg); }
+.uc-pill[data-tone=warn] i, .uc-pill[data-tone=running] i { background:var(--warn); }
 `;
