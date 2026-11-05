@@ -89,6 +89,7 @@
     "test:sports": "node scripts/sports-smoke.mjs && node scripts/sports-nfl-smoke.mjs && node scripts/sports-nba-smoke.mjs && node scripts/sports-pick-smoke.mjs && node scripts/sports-model-smoke.mjs && node scripts/sports-joint-smoke.mjs && node scripts/sports-mcp-smoke.mjs && node scripts/sports-stats-smoke.mjs",
     "test:sports-browser": "node scripts/sports-browser.mjs",
     "test:chart-hover": "node scripts/chart-hover-smoke.mjs",
+    "test:charts": "node scripts/charts-smoke.mjs",
     "test:chart-ui-browser": "node scripts/chart-ui-browser.mjs",
     "test:site-map": "node scripts/site-map-smoke.mjs",
     "test:stock-page": "node scripts/stock-page-smoke.mjs",
