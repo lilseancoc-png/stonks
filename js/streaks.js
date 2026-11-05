@@ -958,11 +958,11 @@ function entry(t, sectors) {
         ${rarityBadge}
         <span class="streaks-stat-block">
           <span class="streaks-stat-num ${cumCls}">${fmtPct(t.current.cumulativePct)}</span>
-          <span class="streaks-stat-lbl">cum</span>
+          <span class="streaks-stat-lbl">run move</span>
         </span>
-        <span class="streaks-stat-block">
-          <span class="streaks-stat-num">${signalDays}<span class="streaks-stat-unit">d</span></span>
-          <span class="streaks-stat-lbl">${windowDays > signalDays ? `up/down of ${windowDays}` : "in a row"}</span>
+        <span class="streaks-stat-block" title="${windowDays > signalDays ? `${signalDays} of the last ${windowDays} sessions closed ${isGreen ? "up" : "down"}` : `${signalDays} sessions in a row closed ${isGreen ? "up" : "down"}`}">
+          <span class="streaks-stat-num">${windowDays > signalDays ? `${signalDays}<span class="streaks-stat-unit">/${windowDays}</span>` : `${signalDays}<span class="streaks-stat-unit">d</span>`}</span>
+          <span class="streaks-stat-lbl">${windowDays > signalDays ? (isGreen ? "days up" : "days down") : "in a row"}</span>
         </span>
       </div>
       <div class="streaks-spark" role="img" aria-label="${escapeHtml(sparkLabel)}">${spark}</div>

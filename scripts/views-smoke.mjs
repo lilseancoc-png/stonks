@@ -77,6 +77,15 @@ assert.match(V.viewToggleHtml("x"), /data-view-toggle="x"[\s\S]*data-view-mode="
 const t = V.tableHtml([{ label: "N", num: true, cell: (r) => String(r.n), sort: (r) => r.n }], [{ n: 3 }], { key: "k" });
 assert.match(t, /data-ts-key="k"/);
 assert.match(t, /data-sort="3"/);
+// Detail rows sit under their row (hidden, full width) and long tables get
+// the scrolling box that keeps the header in view.
+const rows20 = Array.from({ length: 20 }, (_, i) => ({ n: i }));
+const td = V.tableHtml([{ label: "N", cell: (r) => V.expandHtml() + r.n }, { label: "X", nosort: true, cell: () => "x" }], rows20, { detail: (r) => (r.n % 2 ? "more " + r.n : "") });
+assert.match(td, /class="vt-wrap vt-tall"/);
+assert.match(td, /<th data-nosort>X<\/th>/);
+assert.equal((td.match(/class="vt-detail" hidden><td colspan="2">more /g) || []).length, 10);
+assert.match(td, /data-vt-expand aria-expanded="false"/);
+assert.doesNotMatch(V.tableHtml([{ label: "N", cell: (r) => String(r.n) }], [{ n: 1 }]), /vt-tall/);
 
 win.localStorage.setItem('stonks-acc-view', JSON.stringify({ eqSplit: 'sector', cmpPreset: 'structure' }));
 V.clearAll();
@@ -120,3 +129,24 @@ for (const pane of panes) {
 }
 
 console.log("views smoke passed");
+
+// Table-first lists: a table on wide screens, cards on phones, and a saved
+// choice always wins.
+{
+  const st = {};
+  let phone = false;
+  const w = {
+    localStorage: { getItem: (k) => (k in st ? st[k] : null), setItem: (k, v) => { st[k] = String(v); }, removeItem: (k) => { delete st[k]; } },
+    matchMedia: () => ({ matches: phone }),
+  };
+  const T = viewsFactory(w, {});
+  T.tableFirst(["list"]);
+  assert.equal(T.viewMode("list"), "table");
+  assert.equal(T.viewMode("other"), "cards");
+  phone = true;
+  assert.equal(T.viewMode("list"), "cards");
+  phone = false;
+  T.set("view:list", "cards");
+  assert.equal(T.viewMode("list"), "cards");
+}
+console.log("views-smoke: table-first default ok");

@@ -26,7 +26,8 @@ export const SITE_SECTIONS = [
     id: 'stocks', label: 'Stocks', short: 'Stocks', desc: 'Look up, compare and follow companies',
     items: [
       { id: 'tickers', label: 'All stocks', alias: 'Tickers', blurb: 'Every stock the site follows, with its price, returns and sector.' },
-      { id: 'grade', label: 'Look up a stock', alias: 'Grade a ticker stock report', blurb: 'One stock in depth: its chart, grade, fundamentals, options and news.' },
+      { id: 'stock', label: 'Look up a stock', alias: 'Stock page quote ticker company chart', blurb: 'One company: its price chart, key numbers, news, earnings, options and who owns it.' },
+      { id: 'grade', label: 'Grade a stock', alias: 'Grade a ticker stock report Look up', blurb: 'One stock in depth: its grade, setup signals, fundamentals and the option contract to trade.' },
       { id: 'compare', label: 'Compare stocks', alias: 'Compare companies', blurb: 'Line up a few companies side by side on price, growth and valuation.' },
       { id: 'earnings', label: 'Earnings results', alias: 'Earnings tracker', blurb: 'Which companies beat or missed expectations this season, and how their stocks reacted.' },
       { id: 'calls', label: 'Earnings calls', blurb: 'What management said on each company’s latest earnings call, and what changed.' },
