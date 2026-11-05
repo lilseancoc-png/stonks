@@ -307,13 +307,15 @@ function recoveryEvidence(row, data, now = Date.now()) {
         autoSize: true,
         layout: { background: { type: 'solid', color: 'transparent' }, textColor: c.text, fontFamily: c.font, fontSize: 12, attributionLogo: true },
         grid: { vertLines: { visible: false }, horzLines: { color: c.grid } },
-        rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.12, bottom: opts.volume ? 0.24 : 0.08 } },
-        leftPriceScale: { visible: false },
+        rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.12, bottom: (opts.volume || opts.lowerPane) ? 0.3 : 0.08 } },
+        leftPriceScale: { visible: !!opts.leftAxis, borderVisible: false, scaleMargins: { top: 0.12, bottom: 0.08 } },
         timeScale: { borderVisible: false, timeVisible: !!opts.intraday, secondsVisible: false, fixLeftEdge: true, fixRightEdge: true, lockVisibleTimeRangeOnResize: true },
         crosshair: { mode: 1, vertLine: { color: withAlpha(c.strong, 0.35), labelBackgroundColor: c.border }, horzLine: { color: withAlpha(c.strong, 0.35), labelBackgroundColor: c.border } },
         handleScroll: { mouseWheel: false, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
         handleScale: { mouseWheel: false, pinch: true, axisPressedMouseMove: { time: true, price: false } },
-        localization: { priceFormatter: opts.format || function(v){ return fmtAxis(v, opts); } }
+        // Per-series formats (two units on one chart) only apply when no
+        // chart-wide formatter is set.
+        localization: opts.seriesFormats ? {} : { priceFormatter: opts.format || function(v){ return fmtAxis(v, opts); } }
       };
     }
     function fmtAxis(v, opts){
@@ -378,13 +380,16 @@ function recoveryEvidence(row, data, now = Date.now()) {
       el.innerHTML = '<p class="ck-empty">' + escapeHtml(text || 'No chart data yet.') + '</p>';
     }
     // mount(el, opts) draws a chart into el and returns a handle.
-    //   opts.series: [{ name, type: 'area'|'line'|'candles'|'histogram', data: [{time, value} | {time, open, high, low, close}], color }]
+    //   opts.series: [{ name, type: 'area'|'line'|'baseline'|'candles'|'histogram', data: [{time, value} | {time, open, high, low, close}], color }]
     //   opts.volume: [{ time, value, up }]   optional volume bars under the price
     //   opts.ranges: ['1M','3M','6M','YTD','1Y'], opts.range: default range key
     //   opts.height, opts.intraday, opts.percent, opts.signed, opts.decimals, opts.prefix
     //   opts.source: text for the bottom-left corner
     //   opts.markers: [{ time, text, color, position }] on the first series
     //   opts.bands: [{ value, color, title }] horizontal price lines on the first series
+    //   series[i].axis = 'left' puts that line on a left axis; series[i].pane =
+    //   'lower' draws it in a short strip under the main chart; series[i].format
+    //   formats its axis label and readout.
     function mount(el, opts){
       if (!el) return null;
       opts = opts || {};
@@ -393,6 +398,12 @@ function recoveryEvidence(row, data, now = Date.now()) {
       var handle = { el: el, chart: null, series: [], destroyed: false, setRange: function(){}, destroy: function(){ handle.destroyed = true; } };
       var allSeries = (opts.series || []).filter(function(s){ return s && s.data && s.data.length; });
       if (!allSeries.length){ emptyState(el, opts.empty); return handle; }
+      // A series can sit on the left axis (two units on one chart, such as a
+      // yield and the dollar) or in a short lower pane (a drawdown under an
+      // equity curve).
+      opts.leftAxis = allSeries.some(function(s){ return s.axis === 'left'; });
+      opts.lowerPane = allSeries.some(function(s){ return s.pane === 'lower'; });
+      opts.seriesFormats = !opts.format && allSeries.some(function(s){ return typeof s.format === 'function'; });
       ready().then(function(LC){
         if (handle.destroyed) return;
         var c = colors();
@@ -418,9 +429,17 @@ function recoveryEvidence(row, data, now = Date.now()) {
         allSeries.forEach(function(s, i){
           var col = s.color || c.series[i % c.series.length];
           var common = { priceLineVisible: i === 0 && opts.priceLine !== false, lastValueVisible: s.lastValue !== false, title: allSeries.length > 1 ? (s.short || '') : '' };
+          if (s.axis === 'left') common.priceScaleId = 'left';
+          if (s.pane === 'lower') { common.priceScaleId = 'ck-low'; common.priceLineVisible = false; }
+          if (s.format) common.priceFormat = { type: 'custom', minMove: 0.0001, formatter: s.format };
           var series;
           if (s.type === 'candles'){
             series = chart.addCandlestickSeries(Object.assign(common, { upColor: c.up, downColor: c.down, borderVisible: false, wickUpColor: c.up, wickDownColor: c.down }));
+          } else if (s.type === 'baseline'){
+            // Shaded between zero and the line (a drawdown under an equity curve).
+            series = chart.addBaselineSeries(Object.assign(common, { baseValue: { type: 'price', price: 0 }, lineWidth: 1.5,
+              topLineColor: col, topFillColor1: withAlpha(col, 0), topFillColor2: withAlpha(col, 0),
+              bottomLineColor: col, bottomFillColor1: withAlpha(col, 0.08), bottomFillColor2: withAlpha(col, 0.4) }));
           } else if (s.type === 'histogram'){
             series = chart.addHistogramSeries(Object.assign(common, { color: col, priceLineVisible: false }));
           } else if (s.type === 'line'){
@@ -429,6 +448,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
             series = chart.addAreaSeries(Object.assign(common, { lineColor: col, topColor: withAlpha(col, 0.22), bottomColor: withAlpha(col, 0.0), lineWidth: 2, crosshairMarkerRadius: 3 }));
           }
           series.setData(clean(s.data));
+          if (s.pane === 'lower') chart.priceScale('ck-low').applyOptions({ scaleMargins: { top: 0.76, bottom: 0 } });
           made.push({ def: s, api: series, color: col });
         });
         handle.series = made;
@@ -439,7 +459,16 @@ function recoveryEvidence(row, data, now = Date.now()) {
           handle.volume = vol;
         }
         if (made[0] && opts.markers && opts.markers.length){
-          var mk = opts.markers.map(function(m){ return { time: toTime(m.time), position: m.position || 'aboveBar', color: m.color || c.accent, shape: m.shape || 'circle', text: m.text || '' }; })
+          // A marker dated between two points moves to the next point, so a
+          // rule change on a day with no close still shows.
+          var times = made[0].api.data().map(function(d){ return d.time; });
+          var snap = function(t){
+            if (t == null) return null;
+            var k = timeKey(t);
+            for (var ti = 0; ti < times.length; ti++) if (timeKey(times[ti]) >= k) return times[ti];
+            return null;
+          };
+          var mk = opts.markers.map(function(m){ return { time: snap(toTime(m.time)), position: m.position || 'aboveBar', color: m.color || c.accent, shape: m.shape || 'circle', text: m.text || '', size: m.size || 1 }; })
             .filter(function(m){ return m.time != null; })
             .sort(function(a, b){ return timeKey(a.time) - timeKey(b.time); });
           try { made[0].api.setMarkers(mk); } catch (_) {}
@@ -466,11 +495,12 @@ function recoveryEvidence(row, data, now = Date.now()) {
         function paintLegend(param){
           if (!legend) return;
           var parts = [];
-          var t = param && param.time != null ? param.time : null;
+          var hovered = !!(param && param.time != null && param.seriesData);
+          var t = hovered ? param.time : null;
           made.forEach(function(m){
             var data = m.api.data();
-            var v = t != null && param.seriesData ? param.seriesData.get(m.api) : data[data.length - 1];
-            if (t == null && data.length) t = data[data.length - 1].time;
+            var v = hovered ? param.seriesData.get(m.api) : data[data.length - 1];
+            if (!hovered && t == null && data.length) t = data[data.length - 1].time;
             parts.push('<span class="ck-leg-item"><i style="background:' + m.color + '"></i>' + (made.length > 1 || m.def.name ? '<span>' + escapeHtml(m.def.name || '') + '</span> ' : '') + '<b>' + escapeHtml(valueText(v, m.def)) + '</b></span>');
           });
           legend.innerHTML = '<span class="ck-leg-time">' + escapeHtml(timeText(t)) + '</span>' + parts.join('');
@@ -517,7 +547,8 @@ function recoveryEvidence(row, data, now = Date.now()) {
         };
         live.push(handle);
         if (typeof opts.onReady === 'function') opts.onReady(handle);
-      }).catch(function(){
+      }).catch(function(err){
+        try { console.warn('Chart failed', err); } catch (_) {}
         if (!handle.destroyed) emptyState(el, 'The chart could not load. Check your connection and refresh.');
       });
       return handle;
@@ -3364,7 +3395,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     // Phones get a narrower drawing box so axis text stays readable when the
     // chart is scaled down to the screen.
     var narrow = typeof window !== 'undefined' && window.innerWidth && window.innerWidth < 560;
-    var W = opts.w || (narrow ? 380 : 640), H = Math.round((opts.h || 360) * (narrow ? 0.85 : 1)), padL = 46, padR = 12, padT = 12, padB = 38;
+    var W = opts.w || (narrow ? 380 : 640), H = Math.round((opts.h || 360) * (narrow ? 0.85 : 1)), padL = opts.yLabel ? 58 : 46, padR = 12, padT = 12, padB = 38;
     var tx = opts.logX ? function(v){ return v > 0 ? Math.log(v) / Math.LN10 : null; } : function(v){ return v; };
     var pts = [];
     for (var i = 0; i < (points || []).length; i++){
@@ -3429,6 +3460,108 @@ function scenarioEventPhase(ev, now = Date.now()) {
       hov.push({ x: cx, y: cy, label: q.p.label || '' });
     }
     return '<svg class="sc-svg' + (opts.cls ? ' ' + opts.cls : '') + '" style="max-width:' + W + 'px" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + escapeHtml(opts.ariaLabel || 'Scatter chart') + '" data-ch-xy' + chHoverAttr(hov) + '>' + g + dots + '</svg>';
+  }
+  // Shared line chart over named steps (yield-curve tenors, days after an
+  // event). opts: { labels: [...], series: [{ name, values: [...], cls, dashed,
+  // dots }], band: { lo: [...], hi: [...], name }, yFmt(v), xEvery, w, h,
+  // ariaLabel, zero }. Series 0 carries the hover readout, which lists every
+  // series (and the band) at that step. Colours come from the .ln-s<n> classes.
+  function lineSvgHtml(opts){
+    opts = opts || {};
+    var labels = opts.labels || [];
+    var n = labels.length;
+    var series = (opts.series || []).filter(function(sr){ return sr && sr.values && sr.values.some(function(v){ return v != null && isFinite(v); }); });
+    if (n < 2 || !series.length) return '';
+    var narrow = typeof window !== 'undefined' && window.innerWidth && window.innerWidth < 560;
+    var W = opts.w || (narrow ? 380 : 680), H = Math.round((opts.h || 260) * (narrow ? 0.9 : 1)), padL = 48, padR = 14, padT = 14, padB = 28;
+    var vals = [];
+    series.forEach(function(sr){ sr.values.forEach(function(v){ if (v != null && isFinite(v)) vals.push(+v); }); });
+    if (opts.band){ (opts.band.lo || []).concat(opts.band.hi || []).forEach(function(v){ if (v != null && isFinite(v)) vals.push(+v); }); }
+    if (opts.zero) vals.push(0);
+    var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+    if (hi === lo){ lo -= 1; hi += 1; }
+    var pad = (hi - lo) * 0.08; lo -= pad; hi += pad;
+    var ticks = niceTicks(lo, hi, 5);
+    if (ticks.values.length > 1){
+      // Snap the range out to whole steps so the top and bottom carry labels.
+      var step = ticks.values[1] - ticks.values[0];
+      lo = Math.floor(lo / step + 1e-9) * step; hi = Math.ceil(hi / step - 1e-9) * step;
+      ticks = niceTicks(lo, hi, Math.round((hi - lo) / step) + 1);
+    }
+    var yFmt = opts.yFmt || function(v){ return v.toFixed(ticks.decimals); };
+    function X(i){ return padL + (W - padL - padR) * (i / (n - 1)); }
+    function Y(v){ return padT + (H - padT - padB) * (1 - (v - lo) / (hi - lo)); }
+    var g = '';
+    ticks.values.forEach(function(t){
+      g += '<line class="ln-grid" x1="' + padL + '" x2="' + (W - padR) + '" y1="' + Y(t).toFixed(1) + '" y2="' + Y(t).toFixed(1) + '"/>' +
+        '<text class="ln-tick" x="' + (padL - 6) + '" y="' + (Y(t) + 4).toFixed(1) + '" text-anchor="end">' + escapeHtml(yFmt(t)) + '</text>';
+    });
+    if (opts.zero && lo < 0 && hi > 0) g += '<line class="ln-zero" x1="' + padL + '" x2="' + (W - padR) + '" y1="' + Y(0).toFixed(1) + '" y2="' + Y(0).toFixed(1) + '"/>';
+    var every = opts.xEvery || Math.max(1, Math.ceil(n / (narrow ? 6 : 13)));
+    for (var i = 0; i < n; i++){
+      if (i % every !== 0 && i !== n - 1) continue;
+      g += '<text class="ln-tick" x="' + X(i).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle">' + escapeHtml(labels[i]) + '</text>';
+    }
+    function path(values){
+      var d = '', on = false;
+      for (var k = 0; k < n; k++){
+        var v = values[k];
+        if (v == null || !isFinite(v)){ on = false; continue; }
+        d += (on ? 'L' : 'M') + X(k).toFixed(1) + ',' + Y(v).toFixed(1);
+        on = true;
+      }
+      return d;
+    }
+    if (opts.band && opts.band.lo && opts.band.hi){
+      var top = [], bot = [];
+      for (var b = 0; b < n; b++){
+        var a1 = opts.band.hi[b], a2 = opts.band.lo[b];
+        if (a1 == null || a2 == null || !isFinite(a1) || !isFinite(a2)) continue;
+        top.push(X(b).toFixed(1) + ',' + Y(a1).toFixed(1));
+        bot.unshift(X(b).toFixed(1) + ',' + Y(a2).toFixed(1));
+      }
+      if (top.length > 1) g += '<polygon class="ln-band" points="' + top.concat(bot).join(' ') + '"/>';
+    }
+    var lines = '';
+    for (var si = series.length - 1; si >= 0; si--){
+      var sr = series[si];
+      lines += '<path class="ln-line ' + (sr.cls || 'ln-s' + si) + (sr.dashed ? ' ln-dashed' : '') + '" d="' + path(sr.values) + '"/>';
+      if (sr.dots){
+        for (var di = 0; di < n; di++){
+          var dv = sr.values[di];
+          if (dv == null || !isFinite(dv)) continue;
+          lines += '<circle class="ln-dot ' + (sr.cls || 'ln-s' + si) + '" cx="' + X(di).toFixed(1) + '" cy="' + Y(dv).toFixed(1) + '" r="3"/>';
+        }
+      }
+    }
+    var fmtV = opts.valueFmt || yFmt;
+    var hov = [];
+    for (var h = 0; h < n; h++){
+      var lead = series[0].values[h];
+      if (lead == null || !isFinite(lead)) continue;
+      var lab = labels[h];
+      series.forEach(function(sr2){
+        var v2 = sr2.values[h];
+        if (v2 != null && isFinite(v2)) lab += '\n' + (sr2.name || '') + ' ' + fmtV(+v2);
+      });
+      if (opts.band && opts.band.lo && opts.band.hi && opts.band.lo[h] != null && opts.band.hi[h] != null) lab += '\n' + (opts.band.name || 'Range') + ' ' + fmtV(+opts.band.lo[h]) + ' to ' + fmtV(+opts.band.hi[h]);
+      hov.push({ x: X(h), y: Y(lead), label: lab });
+    }
+    return '<svg class="ln-svg' + (opts.cls ? ' ' + opts.cls : '') + '" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + escapeHtml(opts.ariaLabel || 'Line chart') + '"' + chHoverAttr(hov) + '>' + g + lines + '</svg>';
+  }
+  // "2026-11-04" -> "Nov 4, 2026", read as a calendar day (no time-zone shift).
+  function fmtDayUtc(iso){
+    var t = Date.parse(String(iso || '').slice(0, 10) + 'T12:00:00Z');
+    if (!isFinite(t)) return String(iso || '');
+    return new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+  }
+  // Legend chips for lineSvgHtml: [{ name, cls, dashed }] plus an optional band.
+  function lineLegendHtml(series, band){
+    var out = (series || []).map(function(sr, i){
+      return '<span class="ln-key"><i class="ln-swatch ' + (sr.cls || 'ln-s' + i) + (sr.dashed ? ' ln-dashed' : '') + '"></i>' + escapeHtml(sr.name || '') + '</span>';
+    });
+    if (band) out.push('<span class="ln-key"><i class="ln-swatch ln-band-swatch"></i>' + escapeHtml(band) + '</span>');
+    return '<div class="ln-legend">' + out.join('') + '</div>';
   }
   // Enter / Space on a focusable scatter dot acts like a click.
   document.addEventListener('keydown', function(e){
@@ -6342,6 +6475,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
     // Individual panes still hide themselves when their data is missing.
     var shell = $('opt-analysis');
     if (shell) shell.hidden = !state.symbol;
+    var priceHost = $('opt-price-host');
+    if (priceHost && !state.symbol){ priceHost.hidden = true; priceHost.innerHTML = ''; }
   }
 
   // --- Implied vol tab --------------------------------------------------
@@ -7710,7 +7845,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         var rows = f.items.slice(0, 5000).map(function(o){ return exportFlatRow(o, '', {}, 0); });
         var head = [];
         rows.slice(0, 300).forEach(function(r){ Object.keys(r).forEach(function(k){ if (head.indexOf(k) === -1 && head.length < 80) head.push(k); }); });
-        var base = file.replace(/.json$/, '');
+        var base = file.replace(/\.json$/, '');
         return { name: f.path ? base + ' ' + f.path : base, head: head, rows: rows.map(function(r){ return head.map(function(h){ return r[h] == null ? '' : r[h]; }); }) };
       });
     }
@@ -8172,7 +8307,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       exportBusy = true;
       exportStatus('Getting ' + key + '…');
       exportLoadSource(key).then(function(json){
-        exportSave(new Blob([JSON.stringify(json, null, 2)], { type: 'application/json' }), 'mingstreet-' + key.replace(/[^A-Za-z0-9.-]+/g, '-').replace(/.json$/, '') + '-' + exportStamp() + '.json');
+        exportSave(new Blob([JSON.stringify(json, null, 2)], { type: 'application/json' }), 'mingstreet-' + key.replace(/[^A-Za-z0-9.-]+/g, '-').replace(/\.json$/, '') + '-' + exportStamp() + '.json');
         exportBusy = false;
         exportStatus('Saved ' + key + '.');
       }).catch(function(err){ exportBusy = false; exportStatus('Could not get ' + key + ': ' + err.message + '.', true); });
@@ -8285,6 +8420,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
           // must leave with it or a reload re-opens Grade via ?s=.
           ['tab', 's', 'exp', 'k', 't'].forEach(function(key){ url.searchParams.delete(key); });
         } else url.searchParams.set('tab', name);
+        if (name !== 'compare') url.searchParams.delete('cmp');
         var next = url.pathname + (url.search || '') + (url.hash || '');
         if (next !== window.location.pathname + window.location.search + window.location.hash) {
           if (replace) history.replaceState(null, '', next);
@@ -10118,7 +10254,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var grid = $('opt-tech-grid');
     if (!box || !grid) return;
     var t = state.technicals;
-    if (!t){ box.hidden = true; grid.innerHTML = ''; return; }
+    var priceHost = $('opt-price-host');
+    if (!t){ box.hidden = true; grid.innerHTML = ''; if (priceHost){ priceHost.hidden = true; priceHost.innerHTML = ''; } return; }
     var spot = state.spot;
     var rsiSt = rsiState(t.rsi);
     var macdSt = macdState(t.macd);
@@ -10141,7 +10278,14 @@ function scenarioEventPhase(ev, now = Date.now()) {
         fund.targetHighPrice >= fund.targetLowPrice && (fund.numberOfAnalystOpinions || 0) >= 3){
       forecast = { high: fund.targetHighPrice, avg: fund.targetMeanPrice, low: fund.targetLowPrice, n: fund.numberOfAnalystOpinions };
     }
-    if (state && (state.priceSeries || state.intradaySeries)) html += priceChartCard(state.priceSeries, state.intradaySeries, spot, forecast);
+    // The chart leads the page (its own host above the grade and the setup
+    // tabs); older pages without the host keep it at the top of this grid.
+    var priceCardHtml = (state && (state.priceSeries || state.intradaySeries)) ? priceChartCard(state.priceSeries, state.intradaySeries, spot, forecast) : '';
+    if (priceHost){
+      priceHost.innerHTML = priceCardHtml;
+      priceHost.hidden = !priceCardHtml;
+      if (priceCardHtml) attachPriceChartHover(priceHost);
+    } else html += priceCardHtml;
 
     html += techCard(
       'RSI (14)',
@@ -10922,7 +11066,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (events.length){
       events.reverse();
       var rows = events.map(function(e){
-        var qLabel = e.qEnd ? 'Q end ' + fmtShortDate(e.qEnd) : '—';
+        var qLabel = e.qEnd ? 'Q end ' + fmtDayUtc(e.qEnd) : '—';
         var eps = '';
         if (isNum(e.epsActual)){
           eps = ' title="EPS ' + e.epsActual.toFixed(2) +
@@ -12601,6 +12745,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         w.forEach(function(fn){ try { fn(gradesDailyLoad.data); } catch (_) {} });
       });
   }
+  var gradeHistSpan = VIEWS.choose('grade.histSpan', '1m', ['1m', '3m', 'all']);
   function renderGradeHistory(sym){
     var host = $('opt-grade-hist');
     if (!host) return;
@@ -12616,7 +12761,12 @@ function scenarioEventPhase(ev, now = Date.now()) {
         host.innerHTML = '<div class="ogh-head"><b>Grade score over time</b></div><p class="ogh-empty">' + (pts.length ? 'Only one day of saved grade scores for ' + escapeHtml(sym) + ' so far. The line starts once a second day is saved.' : 'No saved daily grade scores for ' + escapeHtml(sym) + ' yet.') + '</p>';
         return;
       }
-      var W = window.innerWidth < 560 ? 380 : 640, H = 150, padL = 34, padR = 10, padT = 10, padB = 22;
+      var allDays = pts.length;
+      var span = gradeHistSpan;
+      if (span === '1m' && pts.length > 21) pts = pts.slice(-21);
+      else if (span === '3m' && pts.length > 63) pts = pts.slice(-63);
+      var narrowG = window.innerWidth < 560;
+      var W = narrowG ? 380 : (window.innerWidth >= 1200 ? 960 : 760), H = 170, padL = 34, padR = 10, padT = 10, padB = 22;
       var lo = Math.min(-5, Math.min.apply(null, pts.map(function(p){ return p.v; }))), hi = Math.max(5, Math.max.apply(null, pts.map(function(p){ return p.v; })));
       lo = Math.floor(lo - 0.5); hi = Math.ceil(hi + 0.5);
       var X = function(i){ return padL + i * (W - padL - padR) / (pts.length - 1); };
@@ -12625,6 +12775,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
       // Shaded zones beyond the actionable bars (±4): call lean above, put below.
       g += '<rect class="ogh-zone call" x="' + padL + '" y="' + Y(hi).toFixed(1) + '" width="' + (W - padL - padR) + '" height="' + Math.max(0, Y(4) - Y(hi)).toFixed(1) + '"/>';
       g += '<rect class="ogh-zone put" x="' + padL + '" y="' + Y(-4).toFixed(1) + '" width="' + (W - padL - padR) + '" height="' + Math.max(0, Y(lo) - Y(-4)).toFixed(1) + '"/>';
+      g += '<text class="ogh-zone-lbl call" x="' + (padL + 6) + '" y="' + (Y(hi) + 13).toFixed(1) + '">Call lean, +4 and up</text>' +
+        '<text class="ogh-zone-lbl put" x="' + (padL + 6) + '" y="' + (Y(lo) - 6).toFixed(1) + '">Put lean, −4 and below</text>';
       [-4, 0, 4].forEach(function(t){
         g += '<line class="' + (t === 0 ? 'sc-zero' : 'sc-grid') + '" x1="' + padL + '" x2="' + (W - padR) + '" y1="' + Y(t).toFixed(1) + '" y2="' + Y(t).toFixed(1) + '"/>' +
           '<text class="sc-tick" x="' + (padL - 5) + '" y="' + (Y(t) + 3.5).toFixed(1) + '" text-anchor="end">' + (t > 0 ? '+' : '') + t + '</text>';
@@ -12646,11 +12798,23 @@ function scenarioEventPhase(ev, now = Date.now()) {
         var d = last.v - pts[pts.length - 1 - n].v;
         return '<span class="ogh-chip ' + (d > 0 ? 'pos' : d < 0 ? 'neg' : '') + '">' + (d > 0 ? '+' : d < 0 ? '−' : '±') + Math.abs(d).toFixed(1) + ' over ' + n + ' days</span>';
       }
+      var spanBtns = [['1m', '1M'], ['3m', '3M'], ['all', 'All']].map(function(o){
+        return '<button type="button" data-ogh-span="' + o[0] + '"' + (o[0] === span ? ' class="is-active" aria-pressed="true"' : ' aria-pressed="false"') + '>' + o[1] + '</button>';
+      }).join('');
       host.hidden = false;
-      host.innerHTML = '<div class="ogh-head"><b>Grade score over time</b><span class="ogh-now ' + (last.v >= 4 ? 'pos' : last.v <= -4 ? 'neg' : '') + '">' + (last.v > 0 ? '+' : '') + last.v.toFixed(1) + ' on ' + escapeHtml(last.date) + '</span>' + delta(5) + delta(20) + '</div>' +
+      host.innerHTML = '<div class="ogh-head"><b>Grade score over time</b><span class="ogh-now ' + (last.v >= 4 ? 'pos' : last.v <= -4 ? 'neg' : '') + '">' + (last.v > 0 ? '+' : '') + last.v.toFixed(1) + ' on ' + escapeHtml(last.date) + '</span>' + delta(5) + delta(20) +
+          (allDays > 21 ? '<span class="ogh-span cbg-span" role="group" aria-label="Chart span">' + spanBtns + '</span>' : '') + '</div>' +
         '<svg class="ogh-svg" style="max-width:' + W + 'px" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + escapeHtml(sym) + ' grade score by day"' + chHoverAttr(hov) + '>' + g +
         '<polyline class="ogh-line" points="' + poly + '" fill="none"/></svg>' +
-        '<p class="ogh-note">One saved score per trading day (' + pts.length + ' days). Above +4 the model leans call, below −4 it leans put. Drag across the chart to measure a change.</p>';
+        '<p class="ogh-note">One saved score per trading day (' + pts.length + (pts.length < allDays ? ' of ' + allDays : '') + ' days shown). Drag across the chart to measure a change.</p>';
+      host.querySelectorAll('[data-ogh-span]').forEach(function(btn){
+        btn.addEventListener('click', function(){
+          var v = btn.getAttribute('data-ogh-span');
+          if (v === gradeHistSpan) return;
+          gradeHistSpan = v; VIEWS.set('grade.histSpan', v === '1m' ? null : v);
+          renderGradeHistory(sym);
+        });
+      });
     });
   }
   function renderTickerNarrativeChips(sym){
@@ -22089,10 +22253,52 @@ function scenarioEventPhase(ev, now = Date.now()) {
     sel.innerHTML = html;
     sel.setAttribute('data-ready', '1');
   }
+  // A Compare set travels in the link as ?cmp=AAPL,MSFT so it can be shared.
+  function cmpParseList(raw){
+    var out = [];
+    String(raw || '').toUpperCase().split(',').forEach(function(t){
+      t = t.replace(/[^A-Z0-9.]/g, '');
+      if (t && t.length <= 6 && out.indexOf(t) === -1 && out.length < CMP_MAX) out.push(t);
+    });
+    return out;
+  }
+  function cmpSyncUrl(){
+    var pane = document.getElementById('page-pane-compare');
+    if (!pane || pane.hidden) return;
+    try {
+      var url = new URL(window.location.href);
+      if (compareState.tickers.length) url.searchParams.set('cmp', compareState.tickers.join(','));
+      else url.searchParams.delete('cmp');
+      var next = url.pathname + url.search.replace(/%2C/gi, ',') + url.hash;
+      if (next !== window.location.pathname + window.location.search + window.location.hash) history.replaceState(null, '', next);
+    } catch (_) {}
+  }
+  // First open: a shared link wins, then names queued from "+ Compare", then
+  // the last set this browser compared, then the four largest companies.
+  function cmpStartingSet(){
+    var fromUrl = [];
+    try { fromUrl = cmpParseList(new URLSearchParams(window.location.search).get('cmp')); } catch (_) {}
+    if (fromUrl.length) return fromUrl;
+    if (compareState.tickers.length) return compareState.tickers.slice();
+    var saved = cmpParseList(VIEWS.get('compare.tickers', ''));
+    if (saved.length) return saved;
+    return CMP_MEGA4.slice();
+  }
   function initCompare(){
     if (!HAS_OWNER_ACCESS && compareState.mode === 'grade') compareState.mode = 'return';
     if (!compareState.inited){
       compareState.inited = true;
+      compareState.tickers = cmpStartingSet();
+      var share = $('cmp-share');
+      if (share) share.addEventListener('click', function(){
+        cmpSyncUrl();
+        var link = window.location.href;
+        var done = function(){ cmpStatus('Link copied. It opens Compare with these ' + compareState.tickers.length + ' names.'); };
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(link).then(done, function(){ cmpStatus('Copy this link: ' + link); });
+          else cmpStatus('Copy this link: ' + link);
+        } catch (_) { cmpStatus('Copy this link: ' + link); }
+      });
       cmpSearch.init();
       cmpFillSectorSelect();
       var sectorSel = $('cmp-sector');
@@ -22350,6 +22556,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
   window.addEventListener('resize', cmpTraySpace);
   function cmpTraySync(note){
     var list = compareState.tickers;
+    // Remember the set once Compare has opened (so the boot-time sync can't
+    // wipe a saved set before the page reads it back).
+    if (compareState.inited) VIEWS.set('compare.tickers', list.length ? list.join(',') : null);
     var btns = document.querySelectorAll('[data-cmp-toggle]');
     for (var i = 0; i < btns.length; i++){
       var sym = btns[i].getAttribute('data-cmp-toggle');
@@ -22720,8 +22929,11 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (span < 1){ lo -= (1 - span) / 2; hi += (1 - span) / 2; span = hi - lo; }
     var pad = Math.max(0.45, span * 0.08);
     lo -= pad; hi += pad;
+    // Snap the range out to round steps so the axis reads 0%, 10%, 20%...
+    var nt = niceTicks(lo, hi, 5), ystep = nt.values.length > 1 ? nt.values[1] - nt.values[0] : 0;
+    if (ystep > 0){ lo = Math.floor(lo / ystep + 1e-9) * ystep; hi = Math.ceil(hi / ystep - 1e-9) * ystep; }
     return {
-      W: 1000, H: 320, dates: dates, series: series, mode: mode,
+      W: 1000, H: 320, dates: dates, series: series, mode: mode, yStep: ystep,
       yMin: lo, yMax: hi, requested: requested, rangeLabel: rangeLabel,
       shortened: available < requested, available: available,
     };
@@ -22869,11 +23081,16 @@ function scenarioEventPhase(ev, now = Date.now()) {
     function xAt(i){ return model.dates.length === 1 ? 0 : (i / (model.dates.length - 1)) * model.W; }
     function yAt(v){ return (1 - (v - model.yMin) / (model.yMax - model.yMin)) * model.H; }
     var grid = '', yLabels = '', gridN = 5;
+    var yStepN = model.yStep > 0 ? Math.round((model.yMax - model.yMin) / model.yStep) : 0;
+    if (yStepN >= 2 && yStepN <= 10) gridN = yStepN + 1;
     for (var g=0; g<gridN; g++){
       var frac = g / (gridN - 1), y = frac * model.H;
       var val = model.yMax - frac * (model.yMax - model.yMin);
+      if (Math.abs(val) < 1e-9) val = 0;
       grid += '<line class="cmp-chart-grid" x1="0" y1="' + y.toFixed(1) + '" x2="' + model.W + '" y2="' + y.toFixed(1) + '" />';
-      yLabels += '<span class="cmp-y-label' + (Math.abs(val) < 0.05 ? ' is-zero' : '') + '" style="top:' + (frac * 100).toFixed(2) + '%">' + escapeHtml(cmpFmtMode(model.mode, val)) + '</span>';
+      var yLbl = cmpFmtMode(model.mode, val);
+      if (model.yStep >= 1) yLbl = yLbl.replace(/\.0(?=%|$)/, '');
+      yLabels += '<span class="cmp-y-label' + (Math.abs(val) < 0.05 ? ' is-zero' : '') + '" style="top:' + (frac * 100).toFixed(2) + '%">' + escapeHtml(yLbl) + '</span>';
     }
     var zeroY = model.yMin <= 0 && model.yMax >= 0 ? yAt(0) : -10;
     var paths = '';
@@ -22936,6 +23153,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
   function renderCompare(){
     cmpTraySync();
+    cmpSyncUrl();
     var syms = compareState.tickers.slice();
     if (!compareState.refSym || syms.indexOf(compareState.refSym) === -1) compareState.refSym = syms[0] || null;
     var chipsEl = $('cmp-chips'); if (chipsEl) chipsEl.innerHTML = cmpChipsHtml();
@@ -23173,6 +23391,53 @@ function scenarioEventPhase(ev, now = Date.now()) {
       bar += '<span class="ers-seg ' + segs[j].cls + '" style="flex-grow:' + n + '" title="' + escapeHtml(segs[j].label + ': ' + n) + '">' + (n / total >= 0.12 ? n : '') + '</span>';
     }
     return '<div class="ers-bar" role="img" aria-label="' + escapeHtml(segs.map(function(s){ return s.label + ' ' + (s.n || 0); }).join(', ')) + '">' + bar + '</div>';
+  }
+  // One dot per report: EPS surprise across, the stock's move on the reaction
+  // day up the side. Surprises past ±50% are drawn at the edge (the readout
+  // keeps the true number) so one huge beat on a tiny estimate doesn't squash
+  // the rest. The six biggest moves carry their ticker.
+  function ersReactionScatter(rows){
+    var CLIP = 50;
+    var pts = [];
+    var q = { beatUp: 0, beatDown: 0, missUp: 0, missDown: 0 };
+    for (var i = 0; i < rows.length; i++){
+      var r = rows[i];
+      if (!r || !ersNum(r.surprisePct) || !ersNum(r.movePct)) continue;
+      var sp = +r.surprisePct, mv = +r.movePct * 100;
+      if (sp > 0 && mv > 0) q.beatUp++; else if (sp > 0 && mv < 0) q.beatDown++;
+      else if (sp < 0 && mv > 0) q.missUp++; else if (sp < 0 && mv < 0) q.missDown++;
+      pts.push({
+        x: Math.max(-CLIP, Math.min(CLIP, sp)), y: mv, abs: Math.abs(mv),
+        cls: mv > 0 ? 'call' : mv < 0 ? 'put' : 'neutral',
+        href: symGradeHref(r.sym),
+        sym: r.sym,
+        label: r.sym + (r.name ? ' · ' + r.name : '') + '\nEPS surprise ' + (sp >= 0 ? '+' : '') + sp.toFixed(1) + '%' +
+          '\nReaction day ' + (mv >= 0 ? '+' : '') + mv.toFixed(1) + '%' + (r.date ? '\n' + ersDate(r.date) : '')
+      });
+    }
+    if (pts.length < 6) return '';
+    pts.slice().sort(function(a, b){ return b.abs - a.abs; }).slice(0, 6).forEach(function(p){ p.text = p.sym; });
+    var svg = scatterSvgHtml(pts, {
+      xLabel: 'EPS surprise vs estimate', yLabel: 'Move on the reaction day',
+      xFmt: function(v){ return (v > 0 ? '+' : '') + Math.round(v) + '%'; },
+      yFmt: function(v){ return (v > 0 ? '+' : '') + Math.round(v) + '%'; },
+      zeroX: true, zeroY: true, w: (window.innerWidth && window.innerWidth < 560) ? null : 760, h: 340, ariaLabel: 'EPS surprise against the stock move for each report this season'
+    });
+    if (!svg) return '';
+    var n = pts.length;
+    function share(k){ return n ? Math.round(q[k] / n * 100) + '%' : '—'; }
+    return '<section class="ers-scatter">' +
+      '<div class="chart-head"><h3>Beat or miss, and how the stock reacted</h3>' +
+        '<span class="sc-legend"><i class="sc-key call"></i>Closed up <i class="sc-key put"></i>Closed down</span></div>' +
+      '<div class="ers-scatter-plot">' + svg + '</div>' +
+      '<div class="ers-quads">' +
+        '<div class="ers-quad"><b class="ers-pos">' + q.beatUp + '</b><span>beat and rose</span><small>' + share('beatUp') + '</small></div>' +
+        '<div class="ers-quad"><b class="ers-neg">' + q.beatDown + '</b><span>beat but fell</span><small>' + share('beatDown') + '</small></div>' +
+        '<div class="ers-quad"><b class="ers-pos">' + q.missUp + '</b><span>missed but rose</span><small>' + share('missUp') + '</small></div>' +
+        '<div class="ers-quad"><b class="ers-neg">' + q.missDown + '</b><span>missed and fell</span><small>' + share('missDown') + '</small></div>' +
+      '</div>' +
+      '<p class="chart-foot">' + n + ' reports with both an EPS estimate and a reaction-day close. Surprises beyond ±' + CLIP + '% sit on the edge; hover a dot for the exact number, click it to open the stock.</p>' +
+    '</section>';
   }
   function ersSymBtn(sym){
     return '<a class="ers-sym" data-sym="' + escapeHtml(sym) + '" href="' + symGradeHref(sym) + '" title="Open ' + escapeHtml(sym) + ' in the Grade tab">' + escapeHtml(sym) + '</a>';
@@ -23602,6 +23867,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         (gapDown ? '<div class="ers-ldr-col"><div class="ers-ldr-head ers-neg">Biggest ' + (gapMode ? 'gap-downs' : 'down moves') + '</div>' + gapDown + '</div>' : '') +
       '</div>';
     }
+    html += ersReactionScatter(Array.isArray(season.rows) ? season.rows : []);
     // Full season table.
     var rowsArr = Array.isArray(season.rows) ? season.rows : [];
     if (rowsArr.length){
@@ -25006,7 +25272,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
   function rpPrice(v){
     if (v == null || !isFinite(v)) return '—';
-    return '$' + (v >= 100 ? Math.round(v).toLocaleString() : v.toFixed(2).replace(/.00$/, ''));
+    return '$' + (v >= 100 ? Math.round(v).toLocaleString() : v.toFixed(2).replace(/\.00$/, ''));
   }
   function rpDateLabel(p){
     var ms = Date.parse(p.date); if (!isFinite(ms)) return '';
@@ -25560,7 +25826,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var currentTable = '<details class="ap-current" open><summary><span><small>Current market</small><b>' + escapeHtml(selected.model) + ' provider quotes</b></span><strong>' + selectedQuotes.length + ' lanes</strong></summary><div class="ap-current-body">' +
       (quoteRows || '<p class="ap-no-rows">No quotes match this market filter.</p>') + '</div></details>';
     var cards = benchmarks.map(function(row){
-      return '<button type="button" class="ap-benchmark' + (row.modelId === selected.modelId ? ' active' : '') + '" data-ap-pick="' + escapeHtml(row.modelId) + '"><span><b>' + escapeHtml(row.model.replace(/^NVIDIAs+/,'')) + '</b><small>' + (row.vramGb ? Number(row.vramGb).toFixed(0) + 'GB' : 'VRAM n/a') + '</small></span><div><em>Spot ' + apPrice(row.spot && row.spot.low) + '</em><em>On-demand ' + apPrice(row.onDemand && row.onDemand.low) + '</em></div>' + apPct(row.change30dPct, '30d') + '</button>';
+      return '<button type="button" class="ap-benchmark' + (row.modelId === selected.modelId ? ' active' : '') + '" data-ap-pick="' + escapeHtml(row.modelId) + '"><span><b>' + escapeHtml(row.model.replace(/^NVIDIA\s+/,'')) + '</b><small>' + (row.vramGb ? Number(row.vramGb).toFixed(0) + 'GB' : 'VRAM n/a') + '</small></span><div><em>Spot ' + apPrice(row.spot && row.spot.low) + '</em><em>On-demand ' + apPrice(row.onDemand && row.onDemand.low) + '</em></div>' + apPct(row.change30dPct, '30d') + '</button>';
     }).join('');
     var overview = '<details class="ap-overview"><summary><span><small>Full comparison</small><b>All accelerator benchmarks</b></span><strong>' + benchmarks.length + ' models</strong></summary><div class="ap-benchmark-grid">' + cards + '</div></details>';
     var sources = (Array.isArray(data.sources) ? data.sources : []).map(function(source){
@@ -25579,7 +25845,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // --- Central-bank gold (Alt data section) -------------------------------
   // Country holdings are reported official reserves; the global demand chart
   // is a separate estimated net-purchase series. The UI never adds the two.
-  var centralBankGoldState = { data: null, loading: false, countryIso: null, search: '', sort: 'holdings', showAll: false };
+  var centralBankGoldState = { data: null, loading: false, countryIso: null, search: '', sort: 'holdings', showAll: false, span: VIEWS.choose('cbg.span', '10y', ['5y', '10y', 'all']) };
   function cbgNumber(value, digits){
     if (value == null || value === '') return '&mdash;';
     var n = Number(value);
@@ -25607,31 +25873,58 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (!isFinite(ms)) return String(value || 'date unavailable');
     return new Date(ms).toLocaleDateString('en-US', { timeZone:'UTC', month:'short', day:'numeric', year:'numeric' });
   }
+  // Net tonnes bought by all central banks, one bar per quarter, on round
+  // tonne steps with a dashed line at the average of the quarters shown and
+  // the latest quarter in a stronger colour. 5Y / 10Y / All switch the span.
   function cbgDemandChart(rows){
-    var history = (Array.isArray(rows) ? rows : []).slice(-24);
-    if (history.length < 2) return '<div class="cbg-chart-empty">Demand history is unavailable.</div>';
-    var values = history.map(function(row){ return Number(row.tonnes); }).filter(isFinite);
-    var lo = Math.min(0, Math.min.apply(null, values));
-    var hi = Math.max(0, Math.max.apply(null, values));
-    var span = Math.max(1, hi - lo);
-    var zeroY = 112 - ((0 - lo) / span) * 96;
-    var slot = 276 / history.length;
-    var width = Math.max(3, slot * 0.68);
-    var bars = '', tips = [];
-    history.forEach(function(row, index){
-      var value = Number(row.tonnes);
-      var x = 12 + index * slot + (slot - width) / 2;
-      var y = 112 - ((value - lo) / span) * 96;
-      var top = Math.min(y, zeroY), height = Math.max(1, Math.abs(zeroY - y));
-      bars += '<rect class="cbg-demand-bar ' + (value < 0 ? 'is-negative' : '') + '" x="' + x.toFixed(1) + '" y="' + top.toFixed(1) + '" width="' + width.toFixed(1) + '" height="' + height.toFixed(1) + '" rx="1.5"/>';
-      tips.push({ x:x + width / 2, y:y, label:row.period + '\nNet demand: ' + cbgNumber(value, 2) + ' tonnes', value:value, time:row.endDate });
+    var all = (Array.isArray(rows) ? rows : []).filter(function(row){ return row && isFinite(Number(row.tonnes)); });
+    if (all.length < 2) return '<div class="cbg-chart-empty">Demand history is unavailable.</div>';
+    var span = centralBankGoldState.span || '10y';
+    var take = span === '5y' ? 20 : span === 'all' ? all.length : 40;
+    var history = all.slice(-take);
+    var values = history.map(function(row){ return Number(row.tonnes); });
+    var lo = Math.min(0, Math.min.apply(null, values)), hi = Math.max(0, Math.max.apply(null, values));
+    var nt = niceTicks(lo, hi * 1.04, 5), step = nt.values.length > 1 ? nt.values[1] - nt.values[0] : 100;
+    // The top snaps up to a round step; a small dip below zero only gets the
+    // room it needs, not a whole empty step.
+    hi = Math.ceil(hi * 1.04 / step - 1e-9) * step;
+    lo = lo < 0 ? lo - (hi - lo) * 0.04 : 0;
+    if (hi <= lo) hi = lo + step;
+    var narrow = window.innerWidth && window.innerWidth < 560;
+    var W = narrow ? 380 : (window.innerWidth >= 1200 ? 960 : 760), H = narrow ? 210 : 240, padL = 44, padR = 10, padT = 10, padB = 26;
+    var plotW = W - padL - padR, plotH = H - padT - padB;
+    function Y(v){ return padT + plotH * (1 - (v - lo) / (hi - lo)); }
+    var slot = plotW / history.length, bw = Math.max(2, slot * (history.length > 30 ? 0.72 : 0.62));
+    var g = '';
+    for (var t = Math.ceil(lo / step - 1e-9) * step; t <= hi + step * 1e-6; t += step){
+      var ty = Y(t);
+      g += '<line class="' + (Math.abs(t) < step * 1e-6 ? 'cbg-zero' : 'cbg-grid') + '" x1="' + padL + '" x2="' + (W - padR) + '" y1="' + ty.toFixed(1) + '" y2="' + ty.toFixed(1) + '"/>' +
+        '<text class="cbg-tick" x="' + (padL - 6) + '" y="' + (ty + 3.5).toFixed(1) + '" text-anchor="end">' + Math.round(t) + 't</text>';
+    }
+    var bars = '', tips = [], xlab = '', lastLabX = -1e9;
+    var sum = values.reduce(function(acc, v){ return acc + v; }, 0), avg = sum / values.length;
+    history.forEach(function(row, i){
+      var v = Number(row.tonnes), x = padL + i * slot + (slot - bw) / 2;
+      var y0 = Y(0), y1 = Y(v), top = Math.min(y0, y1), h = Math.max(1, Math.abs(y0 - y1));
+      var isLast = i === history.length - 1;
+      bars += '<rect class="cbg-demand-bar' + (v < 0 ? ' is-negative' : '') + (isLast ? ' is-latest' : '') + '" x="' + x.toFixed(1) + '" y="' + top.toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + h.toFixed(1) + '" rx="1.5"/>';
+      tips.push({ x: x + bw / 2, y: y1, label: row.period + '\n' + (v >= 0 ? 'Net bought ' : 'Net sold ') + cbgNumber(Math.abs(v), 1) + ' tonnes', value: v, time: row.endDate });
+      // Year labels under each Q1, thinned so they never touch.
+      var cx = x + bw / 2;
+      if (Number(row.quarter) === 1 && cx - lastLabX > (narrow ? 30 : 36)){
+        xlab += '<text class="cbg-tick" x="' + cx.toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle">' + (narrow ? "'" + String(row.year).slice(2) : row.year) + '</text>';
+        lastLabX = cx;
+      }
     });
-    var first = history[0], last = history[history.length - 1];
-    return '<div class="cbg-chart-head"><div><small>Estimated global demand</small><b>Quarterly central-bank net purchases</b></div><span>tonnes</span></div>' +
-      '<div class="cbg-chart-wrap"><span class="cbg-axis cbg-axis-hi">' + cbgTonnes(hi) + '</span><span class="cbg-axis cbg-axis-lo">' + cbgTonnes(lo) + '</span>' +
-      '<svg class="cbg-demand-svg" viewBox="0 0 300 125" preserveAspectRatio="none" role="img" aria-label="Quarterly central-bank net gold purchases"' + chHoverAttr(tips) + '>' +
-      '<path d="M12 16H288M12 64H288M12 112H288" class="cbg-grid"/><path d="M12 ' + zeroY.toFixed(1) + 'H288" class="cbg-zero"/>' + bars + '</svg>' +
-      '<span class="cbg-date cbg-date-first">' + escapeHtml(first.period) + '</span><span class="cbg-date cbg-date-last">' + escapeHtml(last.period) + '</span></div>';
+    var ay = Y(avg);
+    var avgLine = '<line class="cbg-avg" x1="' + padL + '" x2="' + (W - padR) + '" y1="' + ay.toFixed(1) + '" y2="' + ay.toFixed(1) + '"/>';
+    var last = history[history.length - 1];
+    var spans = [['5y', '5Y'], ['10y', '10Y'], ['all', 'All']].map(function(o){
+      return '<button type="button" data-cbg-span="' + o[0] + '"' + (o[0] === span ? ' class="is-active" aria-pressed="true"' : ' aria-pressed="false"') + '>' + o[1] + '</button>';
+    }).join('');
+    return '<div class="cbg-chart-head"><div><small>Estimated global demand</small><b>Net tonnes bought by central banks, each quarter</b></div><div class="cbg-span" role="group" aria-label="Chart span">' + spans + '</div></div>' +
+      '<svg class="cbg-demand-svg2" viewBox="0 0 ' + W + ' ' + H + '" style="max-width:' + W + 'px" role="img" aria-label="Quarterly central-bank net gold purchases"' + chHoverAttr(tips) + '>' + g + bars + avgLine + xlab + '</svg>' +
+      '<p class="chart-foot"><span class="cbg-key cbg-key-latest"></span>' + escapeHtml(last.period) + ': <strong>' + cbgNumber(Number(last.tonnes), 1) + 't</strong> · <span class="cbg-key cbg-key-avg"></span>average of the ' + history.length + ' quarters shown: <strong>' + cbgNumber(avg, 0) + 't</strong></p>';
   }
   function cbgCountryChart(country){
     var history = country && Array.isArray(country.history) ? country.history : [];
@@ -25710,6 +26003,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var countrySelect = root.querySelector('[data-cbg-country]'); if (countrySelect) countrySelect.addEventListener('change', function(){ centralBankGoldState.countryIso = countrySelect.value; renderCentralBankGold(); });
     var searchInput = root.querySelector('[data-cbg-search]'); if (searchInput) searchInput.addEventListener('input', function(){ centralBankGoldState.search = searchInput.value; centralBankGoldState.showAll = false; renderCentralBankGold(); var next = root.querySelector('[data-cbg-search]'); if (next){ next.focus(); next.setSelectionRange(next.value.length,next.value.length); } });
     var sortSelect = root.querySelector('[data-cbg-sort]'); if (sortSelect) sortSelect.addEventListener('change', function(){ centralBankGoldState.sort = sortSelect.value; centralBankGoldState.showAll = false; renderCentralBankGold(); });
+    root.querySelectorAll('[data-cbg-span]').forEach(function(btn){ btn.addEventListener('click', function(){ var v = btn.getAttribute('data-cbg-span'); if (v === centralBankGoldState.span) return; centralBankGoldState.span = v; VIEWS.set('cbg.span', v === '10y' ? null : v); renderCentralBankGold(); }); });
     var more = root.querySelector('[data-cbg-more]'); if (more) more.addEventListener('click', function(){ centralBankGoldState.showAll = true; renderCentralBankGold(); });
   }
 
@@ -26118,9 +26412,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
       return '<a class="cmd-driver-watch" data-sym="' + escapeHtml(sym) + '" href="' + symGradeHref(sym) + '" title="Open ' + escapeHtml(sym) + ' in Grade">' + escapeHtml(sym) + '</a>';
     }).join('');
     var note = String(it.note || 'Use the exposed equities to confirm whether the commodity move is transmitting.');
-    var firstSentence = note.match(/^[sS]*?[.!?](?:s|$)/);
+    var firstSentence = note.match(/^[\s\S]*?[.!?](?:\s|$)/);
     var sentence = firstSentence ? firstSentence[0].trim() : note;
-    if (sentence.length > 168) sentence = sentence.slice(0, 165).replace(/s+S*$/, '') + '…';
+    if (sentence.length > 168) sentence = sentence.slice(0, 165).replace(/\s+\S*$/, '') + '…';
     return '<article class="cmd-driver ' + (up ? 'cmd-driver-up' : 'cmd-driver-down') + '">' +
       '<div class="cmd-driver-top"><span>' + escapeHtml(cmdGroupLabel(it.group)) + '</span>' +
         (it.kind === 'proxy' ? '<em>proxy</em>' : it.cadence === 'monthly' ? '<em>monthly</em>' : '<em>market</em>') + '</div>' +
@@ -26752,7 +27046,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     return value == null || !isFinite(value) ? 'Not disclosed' : escapeHtml(fmtBigCurrency(Number(value), code || 'USD') || 'Not disclosed');
   }
   function pbDate(value){
-    var ms = Date.parse(String(value || '') + (/^d{4}-d{2}-d{2}$/.test(String(value || '')) ? 'T12:00:00Z' : ''));
+    var ms = Date.parse(String(value || '') + (/^\d{4}-\d{2}-\d{2}$/.test(String(value || '')) ? 'T12:00:00Z' : ''));
     if (!isFinite(ms)) return 'No signed timeline';
     return new Date(ms).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric', timeZone:'UTC' });
   }
@@ -30022,6 +30316,34 @@ function scenarioEventPhase(ev, now = Date.now()) {
     const caption = s.peak ? 'Returns are cumulative from the peak close, in trading sessions (1 month = 20, 3 months = 60, 1 year = 250). Price only, no dividends.' : 'Returns are cumulative from the close before the first session, in trading sessions (1 week = 5, 1 month = 20, 3 months = 60, 1 year = 250). "Sessions to regain" counts to the first close back at or above that close, looking up to 750 sessions (about three years). Price only, no dividends.' + (extra ? ' ' + (extra[0] === 'oil20Pct' ? 'WTI spot is the FRED daily series, from 1986.' : 'KRE starts in 2006.') : '');
     return '<p class="h-caption">' + escape(caption) + '</p><div class="h-table-wrap"><table class="h-table h-event-table"><thead><tr>' + head.map(h => '<th scope="col">' + escape(h) + '</th>').join('') + '</tr></thead><tbody>' + (rows || '<tr><td colspan="' + head.length + '">No episodes in this snapshot.</td></tr>') + '</tbody></table></div>';
   }
+  // Median path after the event with the middle half of episodes shaded,
+  // session by session (summary.path from lib/historical-events.mjs).
+  function pathChart(s) {
+    const band = s.summary && s.summary.path;
+    if (!band || !Array.isArray(band.p50) || band.p50.filter(v => v != null).length < 3) return '';
+    const narrow = (host.innerWidth || 1024) < 560, n = band.p50.length, W = narrow ? 380 : 680, H = narrow ? 220 : 230, padL = 46, padR = 12, padT = 12, padB = 28;
+    const vals = band.p25.concat(band.p75, band.p50, [0]).filter(v => typeof v === 'number' && Number.isFinite(v));
+    let lo = Math.min(...vals), hi = Math.max(...vals);
+    if (hi === lo) { lo -= 1; hi += 1; }
+    const raw = (hi - lo) / 4, mag = Math.pow(10, Math.floor(Math.log10(raw))), step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(v => v >= raw) || mag * 10;
+    lo = Math.floor(lo / step) * step; hi = Math.ceil(hi / step) * step;
+    const X = i => padL + (W - padL - padR) * (i / (n - 1)), Y = v => padT + (H - padT - padB) * (1 - (v - lo) / (hi - lo));
+    const dp = step < 1 ? 1 : 0;
+    let g = '';
+    for (let t = lo; t <= hi + step / 2; t += step) g += '<line class="ln-grid" x1="' + padL + '" x2="' + (W - padR) + '" y1="' + Y(t).toFixed(1) + '" y2="' + Y(t).toFixed(1) + '"/><text class="ln-tick" x="' + (padL - 6) + '" y="' + (Y(t) + 4).toFixed(1) + '" text-anchor="end">' + (t > 0 ? '+' : '') + t.toFixed(dp) + '%</text>';
+    if (lo < 0 && hi > 0) g += '<line class="ln-zero" x1="' + padL + '" x2="' + (W - padR) + '" y1="' + Y(0).toFixed(1) + '" y2="' + Y(0).toFixed(1) + '"/>';
+    [[0, s.peak ? 'Peak' : 'Day 0'], [20, '1 month'], [40, '2 months'], [60, '3 months']].forEach(([i, label]) => { if (i < n) g += '<text class="ln-tick" x="' + X(i).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="' + (i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle') + '">' + label + '</text>'; });
+    const top = [], bottom = [];
+    for (let i = 0; i < n; i++) if (band.p25[i] != null && band.p75[i] != null) { top.push(X(i).toFixed(1) + ',' + Y(band.p75[i]).toFixed(1)); bottom.unshift(X(i).toFixed(1) + ',' + Y(band.p25[i]).toFixed(1)); }
+    let d = '', on = false;
+    for (let i = 0; i < n; i++) { if (band.p50[i] == null) { on = false; continue; } d += (on ? 'L' : 'M') + X(i).toFixed(1) + ',' + Y(band.p50[i]).toFixed(1); on = true; }
+    const hover = chartHover(band.p50.flatMap((v, i) => v == null ? [] : [{ x: X(i), y: Y(v), label: (i === 0 ? (s.peak ? 'Peak close' : 'Close before the event') : 'Session ' + i) + '\n' + 'Median ' + pct(v) + (band.p25[i] != null ? '\n' + 'Middle half ' + pct(band.p25[i]) + ' to ' + pct(band.p75[i]) : '') + '\n' + band.n[i] + ' episodes' }]));
+    const last = band.p50[n - 1];
+    return '<figure class="h-path"><figcaption><b>' + (s.peak ? 'After the peak' : 'After the event') + ', first 60 sessions</b><span class="ln-legend"><span class="ln-key"><i class="ln-swatch ln-s0"></i>Median</span><span class="ln-key"><i class="ln-swatch ln-band-swatch"></i>Middle half of episodes</span></span></figcaption>' +
+      '<svg class="ln-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + escape('Median path after ' + s.name + (last != null ? ', ' + pct(last) + ' after 60 sessions' : '')) + '"' + hover + '>' + g +
+      (top.length > 1 ? '<polygon class="ln-band" points="' + top.concat(bottom).join(' ') + '"/>' : '') + '<path class="ln-line ln-s0" d="' + d + '"/></svg>' +
+      '<p class="h-caption">Change from the ' + (s.peak ? 'peak close' : 'close before the event') + ', in trading sessions. The shaded band holds the middle half of episodes; ' + (band.n[n - 1] || 0) + ' of ' + (band.n[1] || 0) + ' episodes reach session 60.</p></figure>';
+  }
   function eventDetail(s, ev) {
     const horizons = Array.isArray(ev.horizons) ? ev.horizons : [];
     const head = '<header class="h-study-head"><div><span class="h-kicker">' + escape(((s.markets && s.markets.length > 1 ? s.markets.join(' and ') : s.marketLabel || s.market) || '') + ' · ' + ({ dated: 'Dated episodes', rule: 'Every qualifying day', nasdaq: 'Every qualifying day', witching: 'Every expiration', wwdc: 'Every keynote', fomc: 'Every scheduled decision', econ: 'Every scheduled release' })[s.kind]) + '</span><h3>' + escape(s.name) + '</h3></div></header><p class="h-claim">' + escape(s.claim) + '</p>' + (s.definition ? '<p class="h-definition">' + escape(s.definition) + '</p>' : '') + (s.note ? '<p class="h-caption">' + escape(s.note) + '</p>' : '');
@@ -30029,7 +30351,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       const m = s.summary || {}, at = h => m['d' + h] || {};
       const black = s.blackMonday ? '<section class="h-comparison"><span class="h-kicker">1987 Black Monday · ' + escape(s.blackMonday.date) + '</span><p>Day 1 <b class="' + sign(s.blackMonday.d1) + '">' + pct(s.blackMonday.d1) + '</b> · 1 month ' + pct(s.blackMonday.d20) + ' · 1 year ' + pct(s.blackMonday.d250) + ' · regained the pre-crash close (' + escape(s.blackMonday.baseline) + ') after ' + escape(s.blackMonday.recoverySessions == null ? 'more than 750 sessions' : s.blackMonday.recoverySessions + ' sessions') + '.</p></section>' : '';
       return head + (s.peak ? '<div class="h-metrics">' + metric('Median lowest close', pct(m.medianTroughPct), 'From the peak, within 1,500 sessions (about six years)', sign(m.medianTroughPct)) + metric('3 months after peak', pct(at(60).medianPct), share(at(60).positivePct) + ' positive', sign(at(60).medianPct)) + metric('1 year after peak', pct(at(250).medianPct), share(at(250).positivePct) + ' positive', sign(at(250).medianPct)) + metric('Regained the peak', share(m.recoveredPct), 'Within 1,500 sessions' + (m.medianRecoverySessions == null ? '' : '; median ' + number(m.medianRecoverySessions, 0))) + '</div>'
-        : '<div class="h-metrics">' + metric('Day 1 median', pct(at(1).medianPct), share(at(1).positivePct) + ' positive', sign(at(1).medianPct)) + metric('1 month median', pct(at(20).medianPct), share(at(20).positivePct) + ' positive', sign(at(20).medianPct)) + metric('3 months median', pct(at(60).medianPct), share(at(60).positivePct) + ' positive', sign(at(60).medianPct)) + metric('1 year median', pct(at(250).medianPct), share(at(250).positivePct) + ' positive', sign(at(250).medianPct)) + '</div><p class="h-caption">Median worst close within 60 sessions ' + pct(m.medianDrawdown60Pct) + '. ' + share(m.recoveredPct) + ' regained the pre-event close within 750 sessions' + (m.medianRecoverySessions == null ? '' : ' (median ' + number(m.medianRecoverySessions, 0) + ' sessions, counting 0 for episodes that never closed below it)') + '. ' + (m.n || 0) + ' episodes' + (s.kind === 'rule' ? ' (first in each cluster)' : '') + (s.markets && s.markets.length > 1 ? '; medians mix ' + s.markets.join(' and ') + ' episodes' : '') + '; small samples, read each row.</p>') + black + episodeTable(s, horizons);
+        : '<div class="h-metrics">' + metric('Day 1 median', pct(at(1).medianPct), share(at(1).positivePct) + ' positive', sign(at(1).medianPct)) + metric('1 month median', pct(at(20).medianPct), share(at(20).positivePct) + ' positive', sign(at(20).medianPct)) + metric('3 months median', pct(at(60).medianPct), share(at(60).positivePct) + ' positive', sign(at(60).medianPct)) + metric('1 year median', pct(at(250).medianPct), share(at(250).positivePct) + ' positive', sign(at(250).medianPct)) + '</div><p class="h-caption">Median worst close within 60 sessions ' + pct(m.medianDrawdown60Pct) + '. ' + share(m.recoveredPct) + ' regained the pre-event close within 750 sessions' + (m.medianRecoverySessions == null ? '' : ' (median ' + number(m.medianRecoverySessions, 0) + ' sessions, counting 0 for episodes that never closed below it)') + '. ' + (m.n || 0) + ' episodes' + (s.kind === 'rule' ? ' (first in each cluster)' : '') + (s.markets && s.markets.length > 1 ? '; medians mix ' + s.markets.join(' and ') + ' episodes' : '') + '; small samples, read each row.</p>') + pathChart(s) + black + episodeTable(s, horizons);
     }
     if (s.kind === 'nasdaq') {
       const a = s.all || {}, f = s.firstInCluster || {};
@@ -41333,6 +41655,66 @@ function scenarioEventPhase(ev, now = Date.now()) {
     });
   }
 
+  // Who bought and who sold, by manager: each manager's 20 biggest adds and 20
+  // biggest cuts, priced as shares changed × the quarter-end share price, so a
+  // stock that merely rose in value doesn't count as buying. Bars to the right
+  // are buys, to the left sells; the figure on the right is the net.
+  function f13FlowChartHtml(perFirm, fmtMoney, fmtSigned){
+    if (!perFirm || typeof perFirm !== 'object') return '';
+    function px(r){
+      var sn = Number(r.sharesNow), vn = Number(r.valueNow), sp = Number(r.sharesPrior), vp = Number(r.valuePrior);
+      if (sn > 0 && isFinite(vn)) return vn / sn;
+      if (sp > 0 && isFinite(vp)) return vp / sp;
+      return null;
+    }
+    function flow(r){
+      var sc = Number(r.shareChange), p = px(r);
+      if (isFinite(sc) && p != null && isFinite(p)) return sc * p;
+      var vc = Number(r.valueChange);
+      return isFinite(vc) ? vc : 0;
+    }
+    var firms = [];
+    Object.keys(perFirm).forEach(function(name){
+      var f = perFirm[name] || {};
+      var bought = 0, sold = 0, nb = 0, ns = 0, topB = null, topS = null;
+      (Array.isArray(f.topBought) ? f.topBought : []).forEach(function(r){
+        var v = flow(r); if (!(v > 0)) return;
+        bought += v; nb++; if (!topB || v > topB.v) topB = { t: tickerOrFallback(r), v: v };
+      });
+      (Array.isArray(f.topSold) ? f.topSold : []).forEach(function(r){
+        var v = flow(r); if (!(v < 0)) return;
+        sold += v; ns++; if (!topS || v < topS.v) topS = { t: tickerOrFallback(r), v: v };
+      });
+      if (!nb && !ns) return;
+      firms.push({ name: f.firm || name, bought: bought, sold: sold, net: bought + sold, nb: nb, ns: ns, topB: topB, topS: topS });
+    });
+    if (firms.length < 2) return '';
+    firms.sort(function(a, b){ return b.net - a.net; });
+    var maxSide = 0;
+    firms.forEach(function(f){ maxSide = Math.max(maxSide, f.bought, -f.sold); });
+    if (!(maxSide > 0)) return '';
+    var netBuyers = firms.filter(function(f){ return f.net > 0; }).length;
+    var rows = firms.map(function(f){
+      var tip = f.name + ' · bought about ' + fmtMoney(f.bought) + ' across ' + f.nb + ' names' + (f.topB ? ' (largest ' + f.topB.t + ' ' + fmtSigned(f.topB.v) + ')' : '') +
+        ' · sold about ' + fmtMoney(-f.sold) + ' across ' + f.ns + ' names' + (f.topS ? ' (largest ' + f.topS.t + ' ' + fmtSigned(f.topS.v) + ')' : '') +
+        ' · net ' + fmtSigned(f.net);
+      return '<div class="f13mv-row" title="' + escapeHtml(tip) + '">' +
+        '<span class="f13mv-name">' + escapeHtml(f.name) + '</span>' +
+        '<span class="f13mv-track">' +
+          '<span class="f13mv-half f13mv-sell"><i style="width:' + (-f.sold / maxSide * 100).toFixed(1) + '%"></i></span>' +
+          '<span class="f13mv-half f13mv-buy"><i style="width:' + (f.bought / maxSide * 100).toFixed(1) + '%"></i></span>' +
+        '</span>' +
+        '<span class="f13mv-net ' + (f.net > 0 ? 'is-pos' : f.net < 0 ? 'is-neg' : '') + '">' + escapeHtml(fmtSigned(f.net)) + '</span>' +
+      '</div>';
+    }).join('');
+    return '<section class="f13mv" aria-label="Buying and selling by manager">' +
+      '<div class="chart-head"><h3>Who bought and who sold</h3>' +
+        '<span class="f13mv-key"><i class="is-neg"></i>Sold <i class="is-pos"></i>Bought</span></div>' +
+      '<p class="f13mv-sub">' + netBuyers + ' of ' + firms.length + ' managers added more than they cut last quarter. Hover a row for the biggest single move.</p>' +
+      '<div class="f13mv-rows">' + rows + '</div>' +
+      '<p class="chart-foot">Each manager\u2019s 20 biggest adds and 20 biggest cuts, valued as shares changed × the quarter-end price, so a holding that only rose in price does not count as buying. Smaller moves are left out.</p>' +
+    '</section>';
+  }
   function renderF13(){
     var root = $('f13-root');
     var empty = $('f13-empty');
@@ -41508,6 +41890,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         '<p class="f13-lag-note"><strong>Lag check:</strong> 13F positions are delayed snapshots, not live flows.' + lagAge + ' Treat consensus as research context, then confirm the current chart, catalyst, and valuation.</p>' +
       '</section>';
     }
+    html += f13FlowChartHtml(d.perFirm, fmtBigDollarsF13, fmtSignedDollarsF13);
     // === Form 4 insider tape =============================================
     // Kept visibly separate from quarterly 13F ownership. P/S open-market
     // transactions are the decision-first rows; grants/exercises/withholding
@@ -41880,10 +42263,11 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // without re-deriving the layout. Positions are stored as % of the plot box
   // (the SVG stretches to fill it via preserveAspectRatio="none").
   var fngSparkGeom = [];
-  function fngSparkline(points){
+  function fngSparkline(points, opts){
+    opts = opts || {};
     fngSparkGeom = [];
     if (!Array.isArray(points) || points.length < 2) return '';
-    var w = 600, h = 80, padX = 4, padY = 6;
+    var w = 600, h = opts.h || 80, padX = 4, padY = 6;
     var n = points.length;
     var xs = points.map(function(_, i){ return padX + (w - padX * 2) * (i / (n - 1)); });
     var ys = points.map(function(p){
@@ -41916,6 +42300,13 @@ function scenarioEventPhase(ev, now = Date.now()) {
     }).join('');
     var first = points[0].date || '';
     var last = points[n - 1].date || '';
+    var mid = points[Math.floor((n - 1) / 2)].date || '';
+    // Band names down the right edge, as HTML so the stretched SVG can't
+    // distort the text.
+    var bandLabels = opts.labels ? [[87.5, 'Extreme greed'], [65, 'Greed'], [49.5, 'Neutral'], [34, 'Fear'], [12, 'Extreme fear']].map(function(z){
+      var yPct = (padY + (h - padY * 2) * (1 - z[0] / 100)) / h * 100;
+      return '<span class="fng-spark-ylab" style="top:' + yPct.toFixed(1) + '%">' + z[1] + '</span>';
+    }).join('') : '';
     // .fng-spark-plot is the mouse target + positioning context; the cursor
     // guide, marker dot and tooltip are absolutely-positioned siblings of the
     // (stretched) SVG so they stay un-distorted and track the pointer.
@@ -41932,8 +42323,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
         '<div class="fng-spark-cursor" hidden></div>' +
         '<div class="fng-spark-dot" hidden></div>' +
         '<div class="fng-spark-tip" role="status" hidden></div>' +
+        bandLabels +
       '</div>' +
-      '<div class="fng-spark-axis"><span>' + escapeHtml(first) + '</span><span>' + escapeHtml(last) + '</span></div>' +
+      '<div class="fng-spark-axis"><span>' + escapeHtml(fmtDayUtc(first) || first) + '</span>' + (opts.labels ? '<span>' + escapeHtml(fmtDayUtc(mid) || mid) + '</span>' : '') + '<span>' + escapeHtml(fmtDayUtc(last) || last) + '</span></div>' +
     '</div>';
   }
   // Wire up hover/touch scrubbing on the composite-history sparkline: a
@@ -42215,26 +42607,38 @@ function scenarioEventPhase(ev, now = Date.now()) {
         '<div class="fng-card-body"><p class="fng-card-blurb">' + escapeHtml(spec.blurb) + '</p></div>' +
       '</details>';
     }).join('') + '</div>';
-    var sparkHtml = '';
-    if (Array.isArray(d.history) && d.history.length > 1) {
-      sparkHtml = '<section class="fng-spark-section">' +
-        '<div class="fng-section-head">' +
-          '<h3 class="fng-section-title">1-year composite history</h3>' +
-          '<span class="fng-section-hint">Hover for any day\'s reading</span>' +
-        '</div>' +
-        fngSparkline(d.history) +
-      '</section>';
-    }
-    var staleTag = !freshness.current
-      ? '<span class="fng-stale-tag" title="This sentiment snapshot is too old or carried forward from the last good CNN response.">reference only</span>'
+    // Lead with the picture: the gauge, the past year against the Fear and
+    // Greed bands, and the seven parts as small bars.
+    var ovHistory = (Array.isArray(d.history) && d.history.length > 1)
+      ? '<div class="fng-ov-history"><div class="chart-head"><h3>The past year</h3><span class="fng-section-hint">Hover for any day</span></div>' + fngSparkline(d.history, { h: 170, labels: true }) + '</div>'
       : '';
+    var ovRows = COMPONENTS.map(function(spec){
+      var entry = c[spec.key];
+      var ok = entry && isFinite(Number(entry.score));
+      var v = ok ? Math.round(Number(entry.score)) : null;
+      var b = ok ? fngBandFromScore(v) : 'neutral';
+      return '<button type="button" class="fng-ov-row' + (ok ? ' fng-band-' + b : ' is-empty') + '" data-fng-component="' + escapeHtml(spec.key) + '" title="' + escapeHtml(spec.blurb) + '">' +
+        '<span class="fng-ov-name">' + escapeHtml(spec.title) + '</span>' +
+        (ok ? fngComponentBarHtml(v) + '<span class="fng-ov-band">' + escapeHtml(fngBandLabel(b)) + '</span>' : '<span class="fng-ov-band">No reading</span>') +
+      '</button>';
+    }).join('');
+    var overviewHtml = '<section class="fng-overview">' +
+        '<div class="fng-ov-gauge fng-band-' + band + '">' +
+          fngGaugeSvg(d.score) +
+          '<div class="fng-rating">' + escapeHtml(fngBandLabel(band)) + (!freshness.current ? ' <span class="fng-stale-tag">reference only</span>' : '') + '</div>' +
+          '<div class="fng-ov-source">CNN Fear &amp; Greed Index · ' + escapeHtml(fmtFngTimestamp(d.asOf)) + '</div>' +
+        '</div>' +
+        ovHistory +
+      '</section>' +
+      '<section class="fng-ov-parts"><div class="chart-head"><h3>The seven parts</h3><span class="fng-section-hint">' + escapeHtml(fearCount + ' fear · ' + neutralCount + ' neutral · ' + greedCount + ' greed') + '</span></div>' +
+        '<div class="fng-ov-rows">' + ovRows + '</div></section>';
     var breadthSummary = fearCount + ' fear · ' + neutralCount + ' neutral · ' + greedCount + ' greed';
     var weakBand = weakest ? fngBandFromScore(weakest.score) : 'neutral';
     var strongBand = strongest ? fngBandFromScore(strongest.score) : 'neutral';
     var primaryAction = freshness.current && weakest
       ? '<button type="button" class="flow-decision-action is-primary" data-fng-component="' + escapeHtml(weakest.spec.key) + '">Review ' + escapeHtml(weakest.spec.title) + '</button>'
       : '<button type="button" class="flow-decision-action is-primary" data-fng-tab="heatmap">Open Heatmap</button>';
-    root.innerHTML =
+    root.innerHTML = overviewHtml + stripHtml +
       '<section class="fng-decision fng-band-' + band + (!freshness.current ? ' is-reference' : '') + '">' +
         '<div class="fng-decision-lead">' +
           '<div class="fng-score-lockup">' +
@@ -42279,28 +42683,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
           '<button type="button" class="flow-decision-action" data-fng-tab="volume">Open Volume</button>' +
         '</div>' +
       '</section>' +
-      stripHtml +
-      '<details class="fng-disclosure fng-composite-details">' +
-        '<summary>' +
-          '<span class="fng-disclosure-title">Composite gauge &amp; 1-year history</span>' +
-          '<span class="fng-disclosure-meta">Score ' + Math.round(Number(d.score) || 0) + ' · ' + escapeHtml(fngBandLabel(band)) + '</span>' +
-          '<span class="fng-disclosure-chevron" aria-hidden="true"></span>' +
-        '</summary>' +
-        '<div class="fng-disclosure-body">' +
-          '<div class="fng-headline fng-band-' + band + '">' +
-            fngGaugeSvg(d.score) +
-            '<div class="fng-headline-meta">' +
-              '<div class="fng-rating">' + escapeHtml(fngBandLabel(band)) + (staleTag ? ' ' + staleTag : '') + '</div>' +
-              '<div class="fng-headline-sub">CNN composite · ' + escapeHtml(fmtFngTimestamp(d.asOf)) + '</div>' +
-              '<p class="fng-gauge-note">The composite blends price momentum, breadth, options, volatility, safe havens, and credit appetite into a 0–100 sentiment reading.</p>' +
-            '</div>' +
-          '</div>' +
-          sparkHtml +
-        '</div>' +
-      '</details>' +
       '<details class="fng-disclosure fng-components-section">' +
         '<summary>' +
-          '<span class="fng-disclosure-title">Seven component readings</span>' +
+          '<span class="fng-disclosure-title">What each part measures</span>' +
           '<span class="fng-disclosure-meta">' + escapeHtml(breadthSummary) + '</span>' +
           '<span class="fng-disclosure-chevron" aria-hidden="true"></span>' +
         '</summary>' +
@@ -46122,6 +46507,63 @@ function scenarioEventPhase(ev, now = Date.now()) {
       '<circle class="acc-eq-dot ' + dir + '" cx="' + xy[n - 1][0].toFixed(1) + '" cy="' + xy[n - 1][1].toFixed(1) + '" r="3.5"></circle>' +
     '</svg>';
   }
+  // Equity curve with the drawdown underneath, on the shared chart kit. One
+  // point per close day (the day's last running total). Rule changes from
+  // ACC_RULE_NOTES are marked on the curve, since the record is never reset.
+  function accEquityChartHtml(points, opts){
+    opts = opts || {};
+    if (!points || points.length < 2) return '<p class="muted acc-an-note">Need at least 2 resolved trades to plot an equity curve.</p>';
+    var changes = accRuleChangesIn(points);
+    return '<div class="acc-eq-chart" data-acc-eq-chart="' + escapeHtml(opts.key || 'eq') + '"></div>' +
+      (opts.note === false ? '' : '<p class="acc-eq-chart-note">Top: running total. Bottom: how far it sits below its last high.' +
+        (changes.length ? ' Dots mark rule changes (the record was kept, not reset): ' + changes.map(function(c){ return '<span class="acc-eq-change"><b>' + escapeHtml(fmtDayUtc(c.date).replace(/, \d{4}$/, '')) + '</b> ' + escapeHtml(c.notes.join('; ')) + '</span>'; }).join(' · ') : '') + '</p>');
+  }
+  // Rule changes (ACC_RULE_NOTES) dated inside a curve's span, one per day.
+  function accRuleChangesIn(points){
+    var days = (points || []).map(function(p){ return String(p.date || '').slice(0, 10); }).filter(function(d){ return /^\d{4}-\d{2}-\d{2}$/.test(d); }).sort();
+    if (days.length < 2) return [];
+    var byDay = {};
+    Object.keys(ACC_RULE_NOTES).forEach(function(dim){
+      Object.keys(ACC_RULE_NOTES[dim]).forEach(function(v){
+        var n = ACC_RULE_NOTES[dim][v];
+        if (!n || !n.since || n.since <= days[0] || n.since > days[days.length - 1]) return;
+        (byDay[n.since] = byDay[n.since] || []).push(n.note || 'Rule change');
+      });
+    });
+    return Object.keys(byDay).sort().map(function(d){ return { date: d, notes: byDay[d] }; });
+  }
+  var accEqCharts = {};
+  function accMountEquityChart(box, points, opts){
+    opts = opts || {};
+    var host = box && box.querySelector('[data-acc-eq-chart="' + (opts.key || 'eq') + '"]');
+    if (!host || !points || points.length < 2) return;
+    var key = opts.key || 'eq';
+    if (accEqCharts[key]) { try { accEqCharts[key].destroy(); } catch (_) {} }
+    var eq = [], dd = [], peak = -Infinity;
+    points.forEach(function(p){
+      var day = String(p.date || '').slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !isFinite(p.value)) return;
+      if (p.value > peak) peak = p.value;
+      var ddPct = (opts.dollars || !(peak > 0)) ? (p.value - peak) : (p.value / peak - 1) * 100;
+      eq.push({ time: day, value: p.value });
+      dd.push({ time: day, value: ddPct });
+    });
+    if (eq.length < 2) { host.innerHTML = '<p class="muted acc-an-note">Not enough dated closes to draw the curve.</p>'; return; }
+    var marks = accRuleChangesIn(points).map(function(ch){ return { time: ch.date, text: '', position: 'aboveBar', shape: 'circle', size: 0.6 }; });
+    var money = opts.formatValue || function(v){ return accMoney(v, false); };
+    var c = CHART_KIT.colors();
+    var up = eq[eq.length - 1].value >= eq[0].value;
+    accEqCharts[key] = CHART_KIT.mount(host, {
+      series: [
+        { name: opts.label || 'Equity', type: 'area', data: eq, color: up ? c.up : c.down, format: money },
+        { name: 'Below high', type: 'baseline', pane: 'lower', data: dd, color: c.down, lastValue: false,
+          format: function(v){ return v == null ? '—' : (opts.dollars || !(peak > 0)) ? (v < 0 ? '-' + money(-v) : money(0)) : (v < 0 ? v.toFixed(1) + '%' : '0%'); } }
+      ],
+      markers: marks, height: opts.height || 320, priceLine: false,
+      ranges: ['1M', '3M', '6M', 'All'], range: 'All',
+      source: opts.source || 'Closed trades, by close day · modeled results'
+    });
+  }
   function accBarsSvg(bins, opts){
     opts = opts || {};
     if (!bins || bins.length < 2) return '';
@@ -46647,7 +47089,16 @@ function scenarioEventPhase(ev, now = Date.now()) {
         '<ul class="acc-why-list">' + head + '</ul>' +
         (rest.length ? '<details class="acc-why-more"><summary>Show ' + rest.length + ' older resolution' + (rest.length === 1 ? '' : 's') + '</summary><ul class="acc-why-list">' + rest.map(rowFor).join('') + '</ul></details>' : '');
     }
-    box.innerHTML = lead + banner + accountabilityBlock + lossBlock + winBlock + colsBlock + diagBlock + whyBlock;
+    // The equity curve leads the Summary: the record at a glance, with rule
+    // changes marked, before the narrative.
+    var sumCurve = buildEquityCurve(closed, { basis: 'notional' });
+    var eqBlock = sumCurve.points.length >= 2
+      ? '<section class="acc-sum-equity"><div class="chart-head"><h3>Running total, $' + ACC_NOTIONAL.toLocaleString() + ' per trade</h3><span class="chart-foot">' +
+          escapeHtml(accMoney(sumCurve.finalEquity - sumCurve.base, true)) + ' after ' + (sumCurve.points.length - 1) + ' closes · max drawdown ' + (sumCurve.maxDDpct > 0 ? '-' + Math.round(sumCurve.maxDDpct * 100) + '%' : 'none') + '</span></div>' +
+          accEquityChartHtml(sumCurve.points, { key: 'summary' }) + '</section>'
+      : '';
+    box.innerHTML = lead + eqBlock + banner + accountabilityBlock + lossBlock + winBlock + colsBlock + diagBlock + whyBlock;
+    if (eqBlock) accMountEquityChart(box, sumCurve.points, { key: 'summary' });
     bindBriefChips(box);
     var accOpen = box.querySelectorAll('[data-acc-open]');
     for (var ai = 0; ai < accOpen.length; ai++) accOpen[ai].addEventListener('click', function(){
@@ -47023,11 +47474,13 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var splitLens = paper ? { splitKey: 'wbEqSplit', splitId: 'acc-wb-eq-split', chartBasis: basis, hint: (basis === 'account' ? 'Paper-account running total for each group, on one time axis.' : 'Running total for each group on the selected dollar basis, on one time axis.') } : null;
     box.innerHTML = toggles +
       '<p class="hint acc-an-lead">' + lead + '</p>' + accountNote +
-      tiles + accEquitySvg(ec.points, { formatValue: function(v){ return accMoney(v, false); } }) +
+      tiles + accEquityChartHtml(ec.points, { key: paper ? 'paper' : 'equity' }) +
       (function(){
         var dec = accDecided(trades);
         return accSplitCurvesHtml(dec, splitLens) + accPnlHistogramHtml(dec, paper ? { title: 'How big each paper trade was (P&amp;L %)' } : null) + accPnlCalendarHtml(dec, paper ? basis : undefined);
       })();
+    accMountEquityChart(box, ec.points, { key: paper ? 'paper' : 'equity', dollars: account, label: account ? 'Paper P&L' : 'Equity',
+      source: paper ? 'Webull paper fills, by close day' : 'Closed trades, by close day · ' + basisLbl });
   }
 
   // --- Breakdowns sub-tab (#an-breakdowns) ---------------------------------
@@ -52574,6 +53027,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
           })
           .filter(function(v){ return v != null; });
         bondsHist.series = series;
+        bondsHist.rates = (j && j.rates && typeof j.rates === 'object') ? j.rates : null;
       })
       .catch(function(){ /* sparklines are best-effort */ })
       .finally(function(){ bondsHist.loaded = true; bondsHist.loading = false; renderBondsLive(); });
@@ -52958,6 +53412,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     }
     grid.innerHTML = html || '<p class="bonds-live-empty">No live macro data was captured in the last build.</p>';
     renderBondsCurve(macro);
+    renderBondsHistory();
     renderBondsContext();
     renderFomcDayHistory();
     var pane = document.getElementById('page-pane-bonds-usd');
@@ -52965,12 +53420,40 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
 
   // --- Bonds & USD: Treasury yield-curve chart ----------------------------
-  // A compact SVG of the curve shape across 2Y/10Y/30Y — today's line vs the
-  // prior session's close (macro.previousClose) — so steepening / flattening /
-  // inversion reads at a glance. Hidden unless all three legs are present.
+  // The whole Treasury curve (1 month to 30 years) today, a month ago and a
+  // year ago, from macro-history.json's rates block. Until that block exists
+  // it falls back to the 2Y / 10Y / 30Y legs against the prior close.
   function renderBondsCurve(macro){
     var host = document.getElementById('bonds-curve');
     if (!host) return;
+    var rc = bondsHist.rates && bondsHist.rates.curve;
+    if (rc && rc.tenors && rc.tenors.length >= 4 && rc.lines && rc.lines.length){
+      var labels = rc.tenors.map(function(t){ return t.label; });
+      var cls = { today: 'ln-s0', month: 'ln-s1', year: 'ln-s2' };
+      var series = rc.lines.map(function(l){
+        return { name: l.name + (l.date ? ' (' + fmtDayUtc(l.date) + ')' : ''), values: l.values, cls: cls[l.key] || '', dashed: l.key === 'year', dots: l.key === 'today' };
+      });
+      var today = rc.lines[0];
+      var at = function(line, label){ var i = labels.indexOf(label); return (line && i >= 0) ? line.values[i] : null; };
+      var t2 = at(today, '2Y'), t10 = at(today, '10Y'), t3m = at(today, '3M');
+      var spread = (t2 != null && t10 != null) ? Math.round((t10 - t2) * 100) : null;
+      var spread3m = (t3m != null && t10 != null) ? Math.round((t10 - t3m) * 100) : null;
+      var shape = spread == null ? '' : spread < 0 ? 'inverted (short rates above long rates)' : spread < 50 ? 'fairly flat' : 'upward sloping';
+      var yearLine = rc.lines.filter(function(l){ return l.key === 'year'; })[0];
+      var y10 = at(yearLine, '10Y');
+      host.hidden = false;
+      var cw = host.clientWidth || 0;
+      host.innerHTML =
+        '<div class="bonds-chart-head"><h3>Treasury yield curve</h3>' + lineLegendHtml(series) + '</div>' +
+        lineSvgHtml({ labels: labels, series: series, yFmt: function(v){ return v.toFixed(1) + '%'; }, valueFmt: function(v){ return v.toFixed(2) + '%'; }, xEvery: cw && cw < 420 ? 2 : 1, w: cw ? Math.max(320, Math.min(760, cw)) : null, h: cw && cw < 420 ? 220 : 260, ariaLabel: 'US Treasury yield curve from 1 month to 30 years' }) +
+        '<p class="bonds-chart-foot">' +
+          (spread != null ? '10Y minus 2Y <strong>' + (spread >= 0 ? '+' : '') + spread + ' bps</strong> · ' + escapeHtml(shape) : '') +
+          (spread3m != null ? ' · 10Y minus 3M ' + (spread3m >= 0 ? '+' : '') + spread3m + ' bps' : '') +
+          (y10 != null && t10 != null ? ' · 10Y ' + ((t10 - y10) >= 0 ? 'up ' : 'down ') + Math.abs(Math.round((t10 - y10) * 100)) + ' bps in a year' : '') +
+        '</p>' +
+        '<p class="ck-source">' + escapeHtml((rc.source || 'US Treasury') + (today && today.date ? ' · ' + fmtDayUtc(today.date) : '') + (rc.stale ? ' · last good copy' : '')) + '</p>';
+      return;
+    }
     var prev = macro.previousClose || null;
     var defs = [
       { label: '2Y',  key: 'twoY' },
@@ -52988,44 +53471,42 @@ function scenarioEventPhase(ev, now = Date.now()) {
     }
     if (!haveAll){ host.hidden = true; host.innerHTML = ''; return; }
     host.hidden = false;
-    var W = 320, H = 134, padL = 22, padR = 22, padT = 20, padB = 26;
-    var xs = defs.map(function(_, i){ return padL + (W - padL - padR) * (i / (defs.length - 1)); });
-    var all = cur.concat(pvv).filter(function(v){ return v != null && isFinite(v); });
-    var mn = Math.min.apply(null, all), mx = Math.max.apply(null, all);
-    var span = (mx - mn) || 1; mn -= span * 0.18; mx += span * 0.22; span = mx - mn;
-    function yFor(v){ return padT + (H - padT - padB) * (1 - (v - mn) / span); }
-    function poly(arr){
-      var out = [];
-      for (var i = 0; i < arr.length; i++){ if (arr[i] == null) continue; out.push(xs[i].toFixed(1) + ',' + yFor(arr[i]).toFixed(1)); }
-      return out.join(' ');
-    }
-    var prevLine = pvv.every(function(v){ return v != null; })
-      ? '<polyline class="bonds-curve-prev" points="' + poly(pvv) + '" />' : '';
-    var curLine = '<polyline class="bonds-curve-cur" points="' + poly(cur) + '" />';
-    var marks = '';
-    for (var j = 0; j < defs.length; j++){
-      var cy = yFor(cur[j]);
-      marks += '<circle class="bonds-curve-dot" cx="' + xs[j].toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="3" />';
-      marks += '<text class="bonds-curve-val" x="' + xs[j].toFixed(1) + '" y="' + (cy - 8).toFixed(1) + '">' + cur[j].toFixed(2) + '</text>';
-      marks += '<text class="bonds-curve-axis" x="' + xs[j].toFixed(1) + '" y="' + (H - 8) + '">' + defs[j].label + '</text>';
-    }
+    var fallback = [{ name: 'Today', values: cur, cls: 'ln-s0', dots: true }];
+    if (pvv.every(function(x){ return x != null; })) fallback.push({ name: 'Prior close', values: pvv, cls: 'ln-s1' });
     var bps = (cur[1] - cur[0]) * 100;
-    var shape = bps < 0 ? 'inverted (classic recession signal)' : bps < 50 ? 'flat' : 'upward-sloping';
-    var hover = chHoverAttr(defs.map(function(d, di){
-      var delta = (pvv[di] != null) ? (cur[di] - pvv[di]) * 100 : null;
-      return { x: xs[di], y: yFor(cur[di]),
-        label: d.label + ' ' + cur[di].toFixed(2) + '%' +
-          (pvv[di] != null ? '\nprev ' + pvv[di].toFixed(2) + '% (' + (delta >= 0 ? '+' : '') + Math.round(delta) + ' bps)' : '') };
-    }));
-    var svg = '<svg class="bonds-curve-svg"' + hover + ' viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="US Treasury yield curve, 2-year to 30-year">' +
-      prevLine + curLine + marks + '</svg>';
+    var fshape = bps < 0 ? 'inverted (short rates above long rates)' : bps < 50 ? 'fairly flat' : 'upward sloping';
     host.innerHTML =
-      '<div class="bonds-curve-head">' +
-        '<span class="bonds-curve-title">Yield curve</span>' +
-        '<span class="bonds-curve-legend"><span class="bonds-curve-key cur"></span>today' +
-          (prevLine ? '<span class="bonds-curve-key prev"></span>prev close' : '') + '</span>' +
-      '</div>' + svg +
-      '<div class="bonds-curve-foot">2Y10Y <strong>' + (bps >= 0 ? '+' : '') + Math.round(bps) + ' bps</strong> · ' + shape + '</div>';
+      '<div class="bonds-chart-head"><h3>Treasury yield curve</h3>' + lineLegendHtml(fallback) + '</div>' +
+      lineSvgHtml({ labels: defs.map(function(d){ return d.label; }), series: fallback, yFmt: function(x){ return x.toFixed(2) + '%'; }, xEvery: 1, h: 200, ariaLabel: 'US Treasury yield curve, 2-year to 30-year' }) +
+      '<p class="bonds-chart-foot">10Y minus 2Y <strong>' + (bps >= 0 ? '+' : '') + Math.round(bps) + ' bps</strong> · ' + fshape + '</p>';
+  }
+  // A year of daily yields and the dollar index on one chart: 2Y and 10Y on
+  // the right axis in percent, the dollar index on the left.
+  var bondsHistoryChart = null;
+  function renderBondsHistory(){
+    var host = document.getElementById('bonds-history');
+    if (!host) return;
+    var daily = bondsHist.rates && bondsHist.rates.daily;
+    if (!daily || !daily.dates || daily.dates.length < 20){
+      if (bondsHist.loaded) host.innerHTML = '<p class="bonds-live-empty">The one-year history appears after the next full build.</p>';
+      return;
+    }
+    if (host.getAttribute('data-built') === (daily.dates[daily.dates.length - 1] + ':' + daily.dates.length) && bondsHistoryChart) return;
+    host.setAttribute('data-built', daily.dates[daily.dates.length - 1] + ':' + daily.dates.length);
+    var pts = function(arr){ return daily.dates.map(function(d, i){ return { time: d, value: arr ? arr[i] : null }; }); };
+    var pct = function(v){ return v == null ? '—' : v.toFixed(2) + '%'; };
+    if (bondsHistoryChart) bondsHistoryChart.destroy();
+    host.innerHTML = '<div class="bonds-chart-head"><h3>Yields and the dollar, past year</h3></div><div class="bonds-history-chart"></div>';
+    var c = CHART_KIT.colors();
+    bondsHistoryChart = CHART_KIT.mount(host.querySelector('.bonds-history-chart'), {
+      series: [
+        { name: '10Y', short: '10Y', type: 'line', data: pts(daily.tenY), color: c.series[0], format: pct },
+        { name: '2Y', short: '2Y', type: 'line', data: pts(daily.twoY), color: c.series[1], format: pct },
+        { name: 'Dollar index', short: 'DXY', type: 'line', data: pts(daily.dxy), color: c.series[2], axis: 'left', width: 1.5, format: function(v){ return v == null ? '—' : v.toFixed(2); } }
+      ],
+      ranges: ['1M', '3M', '6M', '1Y'], range: '1Y', height: 280, priceLine: false,
+      source: 'Yields: US Treasury par curve (Yahoo where a day is missing) · Dollar index: Yahoo · daily closes' + (daily.stale ? ' · last good copy' : '')
+    });
   }
 
   // --- FOMC decision-day event study --------------------------------------

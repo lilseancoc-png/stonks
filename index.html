@@ -17,7 +17,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..600;1,9..144,400..600&family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="styles.css?v=sha256-dd73e9a690613b36">
+<link rel="stylesheet" href="styles.css?v=sha256-311f8035ce86a313">
 <script>/* Split-view pane: hide the site chrome before first paint. */try{if(window.self!==window.top)document.documentElement.classList.add('is-embed')}catch(e){document.documentElement.classList.add('is-embed')}</script>
 </head>
 <body>
@@ -2291,6 +2291,7 @@
     <div id="opt-live-quote" class="opt-live" hidden aria-live="polite"></div>
     <div id="opt-live-refresh" class="opt-live-refresh" hidden aria-live="polite"></div>
     <div id="opt-narr-chips" class="opt-narr-chips" hidden aria-label="Narratives this ticker rides"></div>
+    <div id="opt-price-host" class="opt-price-host" hidden></div>
     <div id="opt-grade-hist" class="opt-grade-hist" hidden aria-live="polite"></div>
     <div id="opt-analysis" class="opt-analysis" hidden>
       <div class="opt-direction" aria-label="Directional thesis">
@@ -2518,6 +2519,7 @@
       <button type="button" class="cmp-btn" id="cmp-add" aria-label="Add ticker">Add</button>
       <button type="button" class="cmp-btn cmp-btn-quick" id="cmp-quick-mega4" title="Compare AAPL, MSFT, GOOGL and AMZN">Mega 4</button>
       <button type="button" class="cmp-btn cmp-btn-ghost" id="cmp-clear">Clear</button>
+      <button type="button" class="cmp-btn cmp-btn-ghost" id="cmp-share" title="Copy a link that opens Compare with these names">Copy link</button>
     </div>
     <div id="cmp-chips" class="cmp-chips" aria-label="Selected companies"></div>
     <div id="cmp-ref" class="cmp-ref" hidden>
@@ -2790,15 +2792,6 @@
     </section>
   </div>
   <div class="page-pane" id="page-pane-bonds-usd" role="tabpanel" aria-labelledby="page-tab-bonds-usd" hidden>
-    <section class="card bonds-context-card" id="bonds-context-card">
-      <header class="card-header">
-        <h2 class="card-title">Rates decision desk</h2>
-        <span class="card-eyebrow" id="bonds-context-eyebrow">Freshness · confirmation · equity lens</span>
-      </header>
-      <div id="bonds-context" class="bonds-context">Reading today&rsquo;s drivers&hellip;</div>
-      <p class="hint">This is a deterministic cross-asset read, not a claim of causation. A catalyst that points against the observed move is shown as conflict, not confirmation.</p>
-    </section>
-
     <section class="card" id="bonds-live-card">
       <header class="card-header">
         <h2 class="card-title">Rates &amp; dollar monitor</h2>
@@ -2813,17 +2806,25 @@
       </div>
       <details class="bonds-monitor-notes">
         <summary>
-          <span>Curve &amp; data notes</span>
-          <span class="bonds-monitor-notes-hint">Yield shape, alert thresholds and source cadence</span>
+          <span>Data notes</span>
+          <span class="bonds-monitor-notes-hint">Alert thresholds and source cadence</span>
         </summary>
         <div class="bonds-monitor-notes-body">
-          <div class="bonds-curve" id="bonds-curve" hidden>
-            <!-- Treasury yield-curve chart injected client-side from the 2Y/10Y/30Y legs -->
-          </div>
           <p class="hint">The 10Y, 30Y and DXY come from the latest build with a best-effort live quote overlay. The 2Y uses the latest official U.S. Treasury daily par-yield close because there is no reliable free cash-2Y intraday index; a 2Y yield future is not substituted. On an FOMC decision day the open tab refreshes the rates monitor every five minutes so available meeting-day moves stay current. Tiles show the 1-day move (basis points for yields, % for DXY), movement band, and 5-day trend. A <span class="bonds-live-alert" aria-hidden="true">!</span> chip marks DXY ±0.6% or the 10Y ±10 bps on a daily close.</p>
           <p class="hint"><strong>CPI and unemployment</strong> are monthly BLS prints, not live quotes. The unemployment tile&rsquo;s Sahm read compares the 3-month average with its prior-year low; ≥0.5pp is the classic recession-onset threshold.</p>
         </div>
       </details>
+    </section>
+
+    <section class="card bonds-charts-card" id="bonds-charts-card">
+      <header class="card-header">
+        <h2 class="card-title">Yield curve and the dollar</h2>
+        <span class="card-eyebrow">Today against a month and a year ago</span>
+      </header>
+      <div class="bonds-charts">
+        <div class="bonds-curve" id="bonds-curve" hidden></div>
+        <div class="bonds-history" id="bonds-history"><p class="bonds-live-empty">Loading a year of yields&hellip;</p></div>
+      </div>
     </section>
 
     <section class="card" id="bonds-fed-policy-card">
@@ -2832,6 +2833,15 @@
         <span class="card-eyebrow">Effective rate &middot; meeting odds &middot; official votes</span>
       </header>
       <div id="fomc-widget" class="fomc-widget" hidden></div>
+    </section>
+
+    <section class="card bonds-context-card" id="bonds-context-card">
+      <header class="card-header">
+        <h2 class="card-title">Rates decision desk</h2>
+        <span class="card-eyebrow" id="bonds-context-eyebrow">Freshness · confirmation · equity lens</span>
+      </header>
+      <div id="bonds-context" class="bonds-context">Reading today&rsquo;s drivers&hellip;</div>
+      <p class="hint">This is a deterministic cross-asset read, not a claim of causation. A catalyst that points against the observed move is shown as conflict, not confirmation.</p>
     </section>
 
     <section class="card fomc-day-card" id="fomc-day-card">
@@ -4828,7 +4838,7 @@ h1{ font-size:clamp(30px,4.5vw,44px) !important; }
 <script>window.STONKS_MANIFEST={"builtAt":"Nov 4, 2026, 4:12 PM","builtAtIso":"2026-11-04T21:12:54.328Z","symbols":["AAPL","ACN","ADBE","AMAT","AMD","AMZN","ANET","ARM","ASML","ASTS","AVGO","AXP","BABA","BAC","BE","C","CBRS","COST","CRM","CRWD","CRWV","DDOG","DELL","DIS","DRAM","EWY","FTNT","GLD","GOOGL","GS","HD","HOOD","IBM","INTC","INTU","IWM","JPM","KWEB","LLY","MA","MDB","META","MRK","MRNA","MRVL","MS","MSFT","MU","NFLX","NKE","NOW","NVDA","NVO","OKTA","ORCL","PANW","PLTR","PYPL","QCOM","QQQ","RKLB","SBUX","SCHW","SHOP","SLV","SMCI","SMH","SNDK","SNOW","SPCX","SPY","TEAM","TGT","TLT","TSLA","TSM","TXN","UNH","USO","UVXY","V","VRT","VST","WDC","WMT"],"sectors":{"SPY":"ETF","QQQ":"ETF","IWM":"ETF","SMH":"ETF","UVXY":"ETF","TLT":"ETF","USO":"ETF","GLD":"ETF","SLV":"ETF","KWEB":"ETF","EWY":"ETF","AAPL":"Mega-cap tech","MSFT":"Mega-cap tech","NVDA":"Mega-cap tech","AMZN":"Mega-cap tech","GOOGL":"Mega-cap tech","META":"Mega-cap tech","TSLA":"Mega-cap tech","AMD":"Semis","NFLX":"Mega-cap tech","AVGO":"Semis","TSM":"Semis","ORCL":"Software","ASML":"Semis","QCOM":"Semis","TXN":"Semis","MRVL":"Semis","AMAT":"Semis","LRCX":"Semis","MU":"Semis","INTC":"Semis","NXPI":"Semis","ON":"Semis","SMCI":"Semis","ALAB":"Semis","TSEM":"Semis","DRAM":"Semis","SWKS":"Semis","SNDK":"Storage","STX":"Storage","WDC":"Storage","GLW":"Semis","LITE":"Semis","ARM":"Semis","CBRS":"Semis","COHR":"Semis","DELL":"Hardware","CSCO":"Networking","ANET":"Networking","IBM":"Tech services","CRM":"Software","ADBE":"Software","ACN":"IT services","INTU":"Software","NOW":"Software","SNOW":"Software","NET":"Software","DDOG":"Software","CRWD":"Software","ZS":"Software","MDB":"Software","OKTA":"Software","PANW":"Software","WDAY":"Software","ZM":"Software","DOCU":"Software","TEAM":"Software","FTNT":"Software","TTD":"Software","U":"Software","APP":"Software","TWLO":"Software","CRWV":"Software","CEG":"Power","VST":"Power","TLN":"Power","VRT":"Data center","CLS":"Data center","BE":"Clean energy","JPM":"Bank","BAC":"Bank","WFC":"Bank","USB":"Bank","MS":"Bank","COF":"Bank","GS":"Bank","C":"Bank","HSBC":"Bank","UBS":"Bank","V":"Payments","MA":"Payments","AXP":"Payments","PYPL":"Payments","XYZ":"Payments","SCHW":"Broker","IBKR":"Broker","HOOD":"Broker","AFRM":"Fintech","APO":"Asset mgmt","BX":"Asset mgmt","WMT":"Retail","COST":"Retail","TGT":"Retail","HD":"Retail","LOW":"Retail","NKE":"Apparel","LULU":"Apparel","ONON":"Apparel","ELF":"Beauty","W":"E-commerce","EBAY":"E-commerce","MCD":"Restaurants","SBUX":"Restaurants","DIS":"Media","LEN":"Homebuilder","BA":"Industrial","CAT":"Industrial","DE":"Industrial","MMM":"Industrial","GD":"Defense","LMT":"Defense","RTX":"Defense","NOC":"Defense","FDX":"Logistics","UPS":"Logistics","NVO":"Pharma","LLY":"Pharma","MRNA":"Pharma","MRK":"Pharma","UNH":"Insurance","JNJ":"Pharma","PFE":"Pharma","TMO":"Medical","CI":"Insurance","ELV":"Insurance","MOH":"Insurance","CVS":"Pharmacy","BSX":"Medical","VZ":"Telecom","CHTR":"Cable","XOM":"Energy","CVX":"Energy","OXY":"Energy","UBER":"Consumer","ABNB":"Consumer","DASH":"Consumer","BABA":"China tech","BIDU":"China tech","JD":"China tech","PDD":"China tech","TCEHY":"China tech","BILI":"China tech","NIO":"China tech","COIN":"Crypto","PLTR":"Software","SHOP":"Software","GME":"Meme","AMC":"Meme","RDDT":"Social","RKLB":"Space","ASTS":"Space","SPCX":"Space"},"industries":{"MSFT":"Software Infrastructure","ORCL":"Software Infrastructure","SNOW":"Software Infrastructure","CRWD":"Software Infrastructure","MDB":"Software Infrastructure","OKTA":"Software Infrastructure","PANW":"Software Infrastructure","FTNT":"Software Infrastructure","PLTR":"Software Infrastructure","CRWV":"Software Infrastructure","CRM":"Software Applications","ADBE":"Software Applications","NOW":"Software Applications","DDOG":"Software Applications","TEAM":"Software Applications","INTU":"Software Applications","SHOP":"Software Applications","NVDA":"Semiconductors","AMD":"Semiconductors","AVGO":"Semiconductors","TSM":"Semiconductors","MU":"Semiconductors","INTC":"Semiconductors","MRVL":"Semiconductors","QCOM":"Semiconductors","TXN":"Semiconductors","SNDK":"Semiconductors","SMCI":"Semiconductors","DRAM":"Semiconductors","ARM":"Semiconductors","CBRS":"Semiconductors","AMAT":"Semiconductor Equipment & Materials","ASML":"Semiconductor Equipment & Materials","ANET":"Communication Equipment","DELL":"Computer Hardware","WDC":"Computer Hardware","AAPL":"Consumer Electronics","ACN":"Information Technology Services","IBM":"Information Technology Services","AMZN":"Internet Retail","BABA":"Internet Retail","HD":"Specialty Retail","NKE":"Apparel Retail","SBUX":"Restaurants","TSLA":"Auto Manufacturers","GOOGL":"Internet Content & Information","META":"Internet Content & Information","NFLX":"Entertainment","DIS":"Entertainment","RKLB":"Aerospace & Defense","ASTS":"Aerospace & Defense","SPCX":"Aerospace & Defense","VRT":"Electrical Equipment & Parts","MRNA":"Biotechnology","NVO":"Drug Manufacturers - General","LLY":"Drug Manufacturers - General","MRK":"Drug Manufacturers - General","UNH":"Healthcare Plans","JPM":"Banks - Diversified","BAC":"Banks - Diversified","C":"Banks - Diversified","V":"Credit Services","MA":"Credit Services","AXP":"Credit Services","PYPL":"Credit Services","GS":"Capital Markets","MS":"Capital Markets","SCHW":"Capital Markets","HOOD":"Capital Markets","WMT":"Discount Stores","COST":"Discount Stores","TGT":"Discount Stores","VST":"Utilities - Independent Power Producers","BE":"Utilities - Renewable","GLD":"Gold","SLV":"Silver"},"sectorOrder":["Technology","Consumer Cyclical","Communication Services","Industrials","Healthcare","Financials","Consumer Defensive","Utilities","Precious Metals"],"industriesBySector":{"Technology":["Software Infrastructure","Software Applications","Semiconductors","Semiconductor Equipment & Materials","Communication Equipment","Computer Hardware","Consumer Electronics","Information Technology Services"],"Consumer Cyclical":["Internet Retail","Specialty Retail","Apparel Retail","Restaurants","Auto Manufacturers"],"Communication Services":["Internet Content & Information","Entertainment","Advertising Agencies"],"Industrials":["Aerospace & Defense","Electrical Equipment & Parts","Specialty Industrial Machinery"],"Healthcare":["Biotechnology","Drug Manufacturers - General","Healthcare Plans"],"Financials":["Banks - Diversified","Credit Services","Capital Markets"],"Consumer Defensive":["Discount Stores"],"Utilities":["Utilities - Independent Power Producers","Utilities - Renewable"],"Precious Metals":["Gold","Silver"]},"volumeFlagsMeta":{"scannedAt":"2026-11-04T21:00:35.539Z","etDate":"2026-11-04","marketState":"POST"},"nextFomcDates":["2026-12-09","2027-01-27"],"oiMeta":{"scannedAt":"2026-11-04T22:00:43.298Z","scanType":"eod"},"deferred":true};</script>
 <script>window.va=window.va||function(){(window.vaq=window.vaq||[]).push(arguments)};</script>
 <script defer data-disable-auto-track="1" src="/_vercel/insights/script.js"></script>
-<script src="app.js?v=sha256-35206c072aae2924" defer></script>
+<script src="app.js?v=sha256-1a015abbd226ae2f" defer></script>
 <script type="module" src="js/streaks.js?v=sha256-264de2813220368d"></script>
 <script type="module" src="js/book-views.js?v=sha256-e52835049ece3a16"></script>
 </body>

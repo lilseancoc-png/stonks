@@ -1425,6 +1425,7 @@ function compareCompaniesSection() {
       <button type="button" class="cmp-btn" id="cmp-add" aria-label="Add ticker">Add</button>
       <button type="button" class="cmp-btn cmp-btn-quick" id="cmp-quick-mega4" title="Compare AAPL, MSFT, GOOGL and AMZN">Mega 4</button>
       <button type="button" class="cmp-btn cmp-btn-ghost" id="cmp-clear">Clear</button>
+      <button type="button" class="cmp-btn cmp-btn-ghost" id="cmp-share" title="Copy a link that opens Compare with these names">Copy link</button>
     </div>
     <div id="cmp-chips" class="cmp-chips" aria-label="Selected companies"></div>
     <div id="cmp-ref" class="cmp-ref" hidden>
@@ -1505,6 +1506,7 @@ function optionEvalSection() {
     <div id="opt-live-quote" class="opt-live" hidden aria-live="polite"></div>
     <div id="opt-live-refresh" class="opt-live-refresh" hidden aria-live="polite"></div>
     <div id="opt-narr-chips" class="opt-narr-chips" hidden aria-label="Narratives this ticker rides"></div>
+    <div id="opt-price-host" class="opt-price-host" hidden></div>
     <div id="opt-grade-hist" class="opt-grade-hist" hidden aria-live="polite"></div>
     <div id="opt-analysis" class="opt-analysis" hidden>
       <div class="opt-direction" aria-label="Directional thesis">
@@ -2467,15 +2469,6 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     </section>
   </div>
   <div class="page-pane" id="page-pane-bonds-usd" role="tabpanel" aria-labelledby="page-tab-bonds-usd" hidden>
-    <section class="card bonds-context-card" id="bonds-context-card">
-      <header class="card-header">
-        <h2 class="card-title">Rates decision desk</h2>
-        <span class="card-eyebrow" id="bonds-context-eyebrow">Freshness · confirmation · equity lens</span>
-      </header>
-      <div id="bonds-context" class="bonds-context">Reading today&rsquo;s drivers&hellip;</div>
-      <p class="hint">This is a deterministic cross-asset read, not a claim of causation. A catalyst that points against the observed move is shown as conflict, not confirmation.</p>
-    </section>
-
     <section class="card" id="bonds-live-card">
       <header class="card-header">
         <h2 class="card-title">Rates &amp; dollar monitor</h2>
@@ -2490,17 +2483,25 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
       </div>
       <details class="bonds-monitor-notes">
         <summary>
-          <span>Curve &amp; data notes</span>
-          <span class="bonds-monitor-notes-hint">Yield shape, alert thresholds and source cadence</span>
+          <span>Data notes</span>
+          <span class="bonds-monitor-notes-hint">Alert thresholds and source cadence</span>
         </summary>
         <div class="bonds-monitor-notes-body">
-          <div class="bonds-curve" id="bonds-curve" hidden>
-            <!-- Treasury yield-curve chart injected client-side from the 2Y/10Y/30Y legs -->
-          </div>
           <p class="hint">The 10Y, 30Y and DXY come from the latest build with a best-effort live quote overlay. The 2Y uses the latest official U.S. Treasury daily par-yield close because there is no reliable free cash-2Y intraday index; a 2Y yield future is not substituted. On an FOMC decision day the open tab refreshes the rates monitor every five minutes so available meeting-day moves stay current. Tiles show the 1-day move (basis points for yields, % for DXY), movement band, and 5-day trend. A <span class="bonds-live-alert" aria-hidden="true">!</span> chip marks DXY ±0.6% or the 10Y ±10 bps on a daily close.</p>
           <p class="hint"><strong>CPI and unemployment</strong> are monthly BLS prints, not live quotes. The unemployment tile&rsquo;s Sahm read compares the 3-month average with its prior-year low; ≥0.5pp is the classic recession-onset threshold.</p>
         </div>
       </details>
+    </section>
+
+    <section class="card bonds-charts-card" id="bonds-charts-card">
+      <header class="card-header">
+        <h2 class="card-title">Yield curve and the dollar</h2>
+        <span class="card-eyebrow">Today against a month and a year ago</span>
+      </header>
+      <div class="bonds-charts">
+        <div class="bonds-curve" id="bonds-curve" hidden></div>
+        <div class="bonds-history" id="bonds-history"><p class="bonds-live-empty">Loading a year of yields&hellip;</p></div>
+      </div>
     </section>
 
     <section class="card" id="bonds-fed-policy-card">
@@ -2509,6 +2510,15 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
         <span class="card-eyebrow">Effective rate &middot; meeting odds &middot; official votes</span>
       </header>
       <div id="fomc-widget" class="fomc-widget" hidden></div>
+    </section>
+
+    <section class="card bonds-context-card" id="bonds-context-card">
+      <header class="card-header">
+        <h2 class="card-title">Rates decision desk</h2>
+        <span class="card-eyebrow" id="bonds-context-eyebrow">Freshness · confirmation · equity lens</span>
+      </header>
+      <div id="bonds-context" class="bonds-context">Reading today&rsquo;s drivers&hellip;</div>
+      <p class="hint">This is a deterministic cross-asset read, not a claim of causation. A catalyst that points against the observed move is shown as conflict, not confirmation.</p>
     </section>
 
     <section class="card fomc-day-card" id="fomc-day-card">

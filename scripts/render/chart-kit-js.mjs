@@ -71,13 +71,15 @@ export function renderChartKitJs() {
         autoSize: true,
         layout: { background: { type: 'solid', color: 'transparent' }, textColor: c.text, fontFamily: c.font, fontSize: 12, attributionLogo: true },
         grid: { vertLines: { visible: false }, horzLines: { color: c.grid } },
-        rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.12, bottom: opts.volume ? 0.24 : 0.08 } },
-        leftPriceScale: { visible: false },
+        rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.12, bottom: (opts.volume || opts.lowerPane) ? 0.3 : 0.08 } },
+        leftPriceScale: { visible: !!opts.leftAxis, borderVisible: false, scaleMargins: { top: 0.12, bottom: 0.08 } },
         timeScale: { borderVisible: false, timeVisible: !!opts.intraday, secondsVisible: false, fixLeftEdge: true, fixRightEdge: true, lockVisibleTimeRangeOnResize: true },
         crosshair: { mode: 1, vertLine: { color: withAlpha(c.strong, 0.35), labelBackgroundColor: c.border }, horzLine: { color: withAlpha(c.strong, 0.35), labelBackgroundColor: c.border } },
         handleScroll: { mouseWheel: false, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
         handleScale: { mouseWheel: false, pinch: true, axisPressedMouseMove: { time: true, price: false } },
-        localization: { priceFormatter: opts.format || function(v){ return fmtAxis(v, opts); } }
+        // Per-series formats (two units on one chart) only apply when no
+        // chart-wide formatter is set.
+        localization: opts.seriesFormats ? {} : { priceFormatter: opts.format || function(v){ return fmtAxis(v, opts); } }
       };
     }
     function fmtAxis(v, opts){
@@ -142,13 +144,16 @@ export function renderChartKitJs() {
       el.innerHTML = '<p class="ck-empty">' + escapeHtml(text || 'No chart data yet.') + '</p>';
     }
     // mount(el, opts) draws a chart into el and returns a handle.
-    //   opts.series: [{ name, type: 'area'|'line'|'candles'|'histogram', data: [{time, value} | {time, open, high, low, close}], color }]
+    //   opts.series: [{ name, type: 'area'|'line'|'baseline'|'candles'|'histogram', data: [{time, value} | {time, open, high, low, close}], color }]
     //   opts.volume: [{ time, value, up }]   optional volume bars under the price
     //   opts.ranges: ['1M','3M','6M','YTD','1Y'], opts.range: default range key
     //   opts.height, opts.intraday, opts.percent, opts.signed, opts.decimals, opts.prefix
     //   opts.source: text for the bottom-left corner
     //   opts.markers: [{ time, text, color, position }] on the first series
     //   opts.bands: [{ value, color, title }] horizontal price lines on the first series
+    //   series[i].axis = 'left' puts that line on a left axis; series[i].pane =
+    //   'lower' draws it in a short strip under the main chart; series[i].format
+    //   formats its axis label and readout.
     function mount(el, opts){
       if (!el) return null;
       opts = opts || {};
@@ -157,6 +162,12 @@ export function renderChartKitJs() {
       var handle = { el: el, chart: null, series: [], destroyed: false, setRange: function(){}, destroy: function(){ handle.destroyed = true; } };
       var allSeries = (opts.series || []).filter(function(s){ return s && s.data && s.data.length; });
       if (!allSeries.length){ emptyState(el, opts.empty); return handle; }
+      // A series can sit on the left axis (two units on one chart, such as a
+      // yield and the dollar) or in a short lower pane (a drawdown under an
+      // equity curve).
+      opts.leftAxis = allSeries.some(function(s){ return s.axis === 'left'; });
+      opts.lowerPane = allSeries.some(function(s){ return s.pane === 'lower'; });
+      opts.seriesFormats = !opts.format && allSeries.some(function(s){ return typeof s.format === 'function'; });
       ready().then(function(LC){
         if (handle.destroyed) return;
         var c = colors();
@@ -182,9 +193,17 @@ export function renderChartKitJs() {
         allSeries.forEach(function(s, i){
           var col = s.color || c.series[i % c.series.length];
           var common = { priceLineVisible: i === 0 && opts.priceLine !== false, lastValueVisible: s.lastValue !== false, title: allSeries.length > 1 ? (s.short || '') : '' };
+          if (s.axis === 'left') common.priceScaleId = 'left';
+          if (s.pane === 'lower') { common.priceScaleId = 'ck-low'; common.priceLineVisible = false; }
+          if (s.format) common.priceFormat = { type: 'custom', minMove: 0.0001, formatter: s.format };
           var series;
           if (s.type === 'candles'){
             series = chart.addCandlestickSeries(Object.assign(common, { upColor: c.up, downColor: c.down, borderVisible: false, wickUpColor: c.up, wickDownColor: c.down }));
+          } else if (s.type === 'baseline'){
+            // Shaded between zero and the line (a drawdown under an equity curve).
+            series = chart.addBaselineSeries(Object.assign(common, { baseValue: { type: 'price', price: 0 }, lineWidth: 1.5,
+              topLineColor: col, topFillColor1: withAlpha(col, 0), topFillColor2: withAlpha(col, 0),
+              bottomLineColor: col, bottomFillColor1: withAlpha(col, 0.08), bottomFillColor2: withAlpha(col, 0.4) }));
           } else if (s.type === 'histogram'){
             series = chart.addHistogramSeries(Object.assign(common, { color: col, priceLineVisible: false }));
           } else if (s.type === 'line'){
@@ -193,6 +212,7 @@ export function renderChartKitJs() {
             series = chart.addAreaSeries(Object.assign(common, { lineColor: col, topColor: withAlpha(col, 0.22), bottomColor: withAlpha(col, 0.0), lineWidth: 2, crosshairMarkerRadius: 3 }));
           }
           series.setData(clean(s.data));
+          if (s.pane === 'lower') chart.priceScale('ck-low').applyOptions({ scaleMargins: { top: 0.76, bottom: 0 } });
           made.push({ def: s, api: series, color: col });
         });
         handle.series = made;
@@ -203,7 +223,16 @@ export function renderChartKitJs() {
           handle.volume = vol;
         }
         if (made[0] && opts.markers && opts.markers.length){
-          var mk = opts.markers.map(function(m){ return { time: toTime(m.time), position: m.position || 'aboveBar', color: m.color || c.accent, shape: m.shape || 'circle', text: m.text || '' }; })
+          // A marker dated between two points moves to the next point, so a
+          // rule change on a day with no close still shows.
+          var times = made[0].api.data().map(function(d){ return d.time; });
+          var snap = function(t){
+            if (t == null) return null;
+            var k = timeKey(t);
+            for (var ti = 0; ti < times.length; ti++) if (timeKey(times[ti]) >= k) return times[ti];
+            return null;
+          };
+          var mk = opts.markers.map(function(m){ return { time: snap(toTime(m.time)), position: m.position || 'aboveBar', color: m.color || c.accent, shape: m.shape || 'circle', text: m.text || '', size: m.size || 1 }; })
             .filter(function(m){ return m.time != null; })
             .sort(function(a, b){ return timeKey(a.time) - timeKey(b.time); });
           try { made[0].api.setMarkers(mk); } catch (_) {}
@@ -230,11 +259,12 @@ export function renderChartKitJs() {
         function paintLegend(param){
           if (!legend) return;
           var parts = [];
-          var t = param && param.time != null ? param.time : null;
+          var hovered = !!(param && param.time != null && param.seriesData);
+          var t = hovered ? param.time : null;
           made.forEach(function(m){
             var data = m.api.data();
-            var v = t != null && param.seriesData ? param.seriesData.get(m.api) : data[data.length - 1];
-            if (t == null && data.length) t = data[data.length - 1].time;
+            var v = hovered ? param.seriesData.get(m.api) : data[data.length - 1];
+            if (!hovered && t == null && data.length) t = data[data.length - 1].time;
             parts.push('<span class="ck-leg-item"><i style="background:' + m.color + '"></i>' + (made.length > 1 || m.def.name ? '<span>' + escapeHtml(m.def.name || '') + '</span> ' : '') + '<b>' + escapeHtml(valueText(v, m.def)) + '</b></span>');
           });
           legend.innerHTML = '<span class="ck-leg-time">' + escapeHtml(timeText(t)) + '</span>' + parts.join('');
@@ -281,7 +311,8 @@ export function renderChartKitJs() {
         };
         live.push(handle);
         if (typeof opts.onReady === 'function') opts.onReady(handle);
-      }).catch(function(){
+      }).catch(function(err){
+        try { console.warn('Chart failed', err); } catch (_) {}
         if (!handle.destroyed) emptyState(el, 'The chart could not load. Check your connection and refresh.');
       });
       return handle;
