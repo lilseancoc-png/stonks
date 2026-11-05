@@ -25,6 +25,9 @@ export function updateCheckerClient(window, document, ctx) {
     if(run.status && run.status!=='completed')html+='<p>'+esc(run.status)+' since '+esc(time(run.startedAt))+'</p>';
     return html+link(run);
   }
+  function tone(w){var r=w.latest,c=w.latestCompleted;if(r&&r.status&&r.status!=='completed')return 'running';if(!c)return 'none';return ['success','neutral','skipped'].indexOf(c.conclusion)>=0?'ok':['failure','timed_out','startup_failure','action_required'].indexOf(c.conclusion)>=0?'bad':'warn';}
+  function ago(v){var n=Date.parse(v);if(!isFinite(n))return 'no run';var m=Math.max(0,Math.round((Date.now()-n)/60000));return m<60?m+' min ago':m<2880?Math.round(m/60)+' h ago':Math.round(m/1440)+' d ago';}
+  function jobPills(m){var ws=m.workflows||[];if(!ws.length)return '';var word={ok:'Passed',bad:'Failed',warn:'Needs review',running:'Running',none:'No run'};return '<ul class="uc-pills" aria-label="Data jobs">'+ws.map(function(w){var t=tone(w),r=w.latest||w.latestCompleted,name=r&&r.name?r.name:String(w.path).replace(/\.yml$/,'');return '<li class="uc-pill" data-tone="'+t+'" title="'+esc(word[t]+(r?' · '+(r.conclusion||r.status)+' · '+time(r.createdAt):''))+'"><i aria-hidden="true"></i><b>'+esc(name)+'</b><span>'+esc(word[t])+(r?' · '+esc(ago(r.createdAt)):'')+'</span></li>';}).join('')+'</ul>';}
   function render(){
     var root=document.getElementById('update-checker-root');if(!root || !ctx.owner())return;
     var html='<div class="uc-toolbar"><button type="button" class="book-more" data-uc-refresh'+(loading?' disabled':'')+'>'+(loading?'Checking…':'Refresh status')+'</button><span class="uc-muted">'+(data?'Observed '+esc(time(data.observedAt)):'')+'</span></div>';
@@ -32,6 +35,7 @@ export function updateCheckerClient(window, document, ctx) {
     if(!data){root.innerHTML=html+'<p>'+(loading?'Reading build history and published outputs…':'No status loaded.')+'</p>';bind(root);return;}
     var m=data.monitor;
     html+='<div class="uc-lead"><h3>'+esc(data.status==='available'?'No issues detected':'Updates need attention')+'</h3><p>'+esc(m.detail)+'</p><p>'+data.issues+' of '+data.features.length+' site features need review.</p></div>';
+    html+=jobPills(m);
     if(m.monitorStale)html+='<p class="uc-warning">Workflow history is out of date. Newer failures may be missing.</p>';
     html+='<p class="uc-muted">Independent scan '+esc(time(m.checkedAt))+'. Times use your local timezone.</p>';
     html+='<div class="uc-builds"><section><h3>Latest full data build</h3>'+runCard(m.fullBuild)+'</section><section><h3>Last successful full data build</h3>'+runCard(m.lastSuccessfulFullBuild)+'</section></div>';

@@ -8798,12 +8798,39 @@ export async function updateEarningsCallsData({ prior = null, earningsHxStore = 
   return { index: finishIndex(), details, keyless: false };
 }
 
+// The previous call's brief, trimmed to what the "vs last call" diff reads.
+// `old` is the detail on disk, `next` the one about to replace it.
+export function earningsCallPriorSnapshot(old, next) {
+  if (!old || typeof old !== "object" || !old.summary) return null;
+  const sameCall = (old.callDate && old.callDate === next?.callDate) || (old.quarter && old.quarter === next?.quarter);
+  if (sameCall) return old.prior || null;
+  const s = old.summary || {};
+  const label = (t) => (t && typeof t === "object" ? t.label || null : t || null);
+  return {
+    quarter: old.quarter || null,
+    callDate: old.callDate || null,
+    epsVerdict: s.epsVerdict || null,
+    mgmtTone: label(s.mgmtTone),
+    analystTone: label(s.analystTone),
+    guidance: (s.guidance || []).filter((g) => g && g.metric).slice(0, 12).map((g) => ({ metric: g.metric, period: g.period || null, value: g.value || null, change: g.change || null })),
+    risks: (s.risks || []).map((r) => (typeof r === "string" ? r : r?.risk || r?.text || r?.label || "")).filter(Boolean).slice(0, 8),
+  };
+}
+
 // Write the index + any newly-minted per-ticker details. Details are
 // upsert-only flat keys (data/transcript-<SYM>.json) — past details live in
 // the private store and are never re-written (or deleted) here.
 export async function writeEarningsCallsFiles({ prior = null, earningsHxStore = null, builtAtIso = null, skipSummarize = false } = {}) {
   const { index, details, keyless } = await updateEarningsCallsData({ prior, earningsHxStore, builtAtIso, skipSummarize });
   for (const d of details) {
+    // Keep a compact copy of the previous call's brief so the page can show
+    // "What changed vs last call". A re-summary of the same call carries the
+    // older snapshot forward unchanged. No AI, no extra fetch.
+    try {
+      const old = JSON.parse(await readFile(resolve(DATA_DIR, transcriptKeyForSym(d.sym)), "utf8"));
+      const prev = earningsCallPriorSnapshot(old, d);
+      if (prev) d.prior = prev;
+    } catch (_) { /* first brief for this name */ }
     await writeFile(resolve(DATA_DIR, transcriptKeyForSym(d.sym)), JSON.stringify(d), "utf8");
   }
   const json = JSON.stringify(index);
@@ -9001,6 +9028,14 @@ export function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras)
     // Absent for most names — Polymarket only lists earnings markets for a few
     // mega-caps in season — so the chip is unchanged when nothing matched.
     const earnPred = predictionMarkets?.earnings ? predictionMarkets.earnings[sym + "|" + date] : null;
+    // The last four earnings-day moves (close before → close after), so the
+    // calendar row shows how the stock usually reacts next to today's
+    // implied move. Read from the per-ticker earningsHx already attached.
+    const lastMoves = (Array.isArray(data?.earningsHx?.events) ? data.earningsHx.events : [])
+      .filter((ev) => ev && typeof ev.date === "string" && ev.date < date && Number.isFinite(ev.movePct))
+      .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+      .slice(-4)
+      .map((ev) => ({ date: ev.date, movePct: Number(ev.movePct.toFixed(4)) }));
     events.push({
       type: "earnings",
       date,
@@ -9009,6 +9044,7 @@ export function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras)
       session,
       source: nasdaq ? "Nasdaq" : "Yahoo Finance",
       ...(implied ? { impliedMovePct: implied.pct } : {}),
+      ...(lastMoves.length ? { lastMoves } : {}),
       ...(earnPred ? { predictions: [earnPred] } : {}),
     });
   }

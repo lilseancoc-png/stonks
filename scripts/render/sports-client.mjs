@@ -105,12 +105,25 @@ export function sportsFactory(host, doc, options) {
       '</select></label>';
   }
 
-  function dayStrip(s) {
+  function dayStrip(s, extra) {
     const w = s.window;
     return '<div class="sp-days" role="group" aria-label="Active days">' +
       '<span class="sp-day"><b>Today</b> ' + escape(fmtDay(w.today)) + '</span>' +
       '<span class="sp-day"><b>Tomorrow</b> ' + escape(fmtDay(w.tomorrow)) + '</span>' +
-      zonePicker(s) + '</div>';
+      zonePicker(s) + (extra || '') + '</div>';
+  }
+
+  // Compact status chip beside the active days; the full Data card sits
+  // folded in the side column.
+  const DATA_STATE_TEXT = { ok: 'Up to date', degraded: 'Partly updated', failed: 'Last update failed', unknown: 'Unknown', not_connected: 'Not connected yet' };
+  function dataChip(src, tz) {
+    if (!src) return '';
+    const connected = src.state !== 'not_connected';
+    const parts = [escape(DATA_STATE_TEXT[src.state] || 'Unknown')];
+    if (src.seasons && src.seasons.length) parts.push(escape(src.seasons.map((y) => (lgOf(src) === 'nba' ? y + '–' + String(y + 1).slice(2) : y)).join(', ')) + ' seasons');
+    if (src.latest_game_date) parts.push('latest game ' + escape(fmtDay(src.latest_game_date)));
+    const title = connected ? 'Last good update ' + fmtWhen(src.last_success_utc, tz) : 'Not connected yet';
+    return '<span class="sp-data-chip sp-state-' + escape(src.state) + '" title="' + escape(title) + '"><i aria-hidden="true"></i>' + parts.join(' · ') + '</span>';
   }
 
   function sourceCard(src, tz) {
@@ -126,8 +139,8 @@ export function sportsFactory(host, doc, options) {
     if (src.latest_game_date) rows.push(['Latest game stored', escape(fmtDay(src.latest_game_date))]);
     if (counts && Number.isFinite(counts.player_games)) rows.push(['Stored', escape(Number(counts.games || 0).toLocaleString('en-US') + ' games, ' + Number(counts.player_games).toLocaleString('en-US') + ' player games')]);
     rows.push(['Refresh', escape(src.refresh)], ['Terms', escape(src.license)]);
-    return '<div class="sp-source"><h3>Data</h3><dl>' + rows.map((r) => '<dt>' + r[0] + '</dt><dd>' + r[1] + '</dd>').join('') + '</dl>' +
-      (src.message ? '<p class="sp-note">' + escape(src.message) + '</p>' : '') + '</div>';
+    return '<details class="sp-source sp-source-fold"' + (src.state === 'ok' ? '' : ' open') + '><summary><h3>Data source</h3></summary><dl>' + rows.map((r) => '<dt>' + r[0] + '</dt><dd>' + r[1] + '</dd>').join('') + '</dl>' +
+      (src.message ? '<p class="sp-note">' + escape(src.message) + '</p>' : '') + '</details>';
   }
 
   const MODEL_STATUS = { validated: 'Passed the check', experimental: 'Experimental' };
@@ -850,7 +863,7 @@ export function sportsFactory(host, doc, options) {
       : '<h3>Games</h3>' + emptyBox('No ' + name + ' games loaded yet.', escape(lg === 'nfl'
         ? 'The daily nflverse job has not written its first records yet.'
         : 'The daily hoopR job has not written its first records yet.'));
-    return dayStrip(s) + '<div class="sp-grid"><div class="sp-board">' + board + '</div>' +
+    return dayStrip(s, dataChip(src, tz)) + '<div class="sp-grid"><div class="sp-board">' + board + '</div>' +
       '<aside class="sp-side">' + sourceCard(src, tz) + modelCard(src) + statList(s.stats[lg] || []) + '</aside></div>' +
       '<p class="sp-foot">Private research for the two owners. No sportsbook is connected, nothing is placed, and no AI model is called by this page.</p>';
   }
@@ -1148,7 +1161,7 @@ export function sportsFactory(host, doc, options) {
       ].join('');
       const dist = ev.format === 'flex' ? '<p class="sp-dist">Chance of each result: ' + E.distribution.map((p, k) => ({ p, k })).reverse().map((x) => x.k + ' hit ' + pct(x.p)).join(' · ') + '</p>' : '';
       const fromHistory = ev.legs.some((l) => l.probability_source === 'history');
-      body = '<div class="sp-tiles">' + tiles + '</div>' + dist +
+      body = beBarHtml(E.joint_probability, E.breakeven_probability, E.bounds) + '<div class="sp-tiles">' + tiles + '</div>' + dist +
         '<p class="sp-note">Independence baseline: it assumes no pick affects another, using the chances entered above' + (fromHistory ? ' (some copied from history rates)' : '') + '. A starting point, not a forecast.</p>';
     }
     return '<div class="sp-eval">' + (warn.length ? '<ul class="sp-warn">' + warn.map((w) => '<li>' + w + '</li>').join('') + '</ul>' : '') + body + '</div>';
@@ -1175,9 +1188,22 @@ export function sportsFactory(host, doc, options) {
     const links = '<ul class="sp-links">' + E.links.map((l) => '<li><b>Picks ' + (l.legs[0] + 1) + ' and ' + (l.legs[1] + 1) + '</b><span>' + escape(linkName(l.stats, l.relation)) + '</span>' +
       '<span class="sp-link-val">link ' + signedLink(l.link) + ' <i>(95%: ' + signedLink(l.low) + ' to ' + signedLink(l.high) + ')</i></span>' + qualityBadge(l.status) + '</li>').join('') + '</ul>';
     const why = E.quality === 'validated' ? '' : '<p class="sp-muted">Experimental: ' + escape(E.quality_reason || 'a link has not passed its check') + '.</p>';
-    return '<div class="sp-tiles">' + tiles + '</div>' + dist + '<p class="sp-label">How these picks moved together in past games</p>' + links + why +
+    return beBarHtml(E.joint_probability, E.breakeven_probability, E.range) + '<div class="sp-tiles">' + tiles + '</div>' + dist + '<p class="sp-label">How these picks moved together in past games</p>' + links + why +
       '<p class="sp-note">The link runs from −1 to +1: above 0 means the two results went up and down together, 0 means unrelated. It is measured on the model’s misses in stored games (' + escape(E.as_of_date ? 'through ' + fmtDay(E.as_of_date) + ' ' + E.as_of_date.slice(0, 4) : 'stored seasons') +
       ') and applied to the chances entered above, in ' + Number(E.simulation.draws).toLocaleString('en-US') + ' simulated games (seed ' + escape(E.simulation.seed) + ').' + (E.simulation.adjusted ? ' The links did not fit together exactly, so they were pulled slightly toward 0.' : '') + ' Picks from different games are treated as unrelated.</p>';
+  }
+  // Break-even vs chance: one bar so the gap reads at a glance.
+  function beBarHtml(chance, breakeven, range) {
+    if (!(chance >= 0) || !(breakeven > 0)) return '';
+    const hi = range && range.high > 0 ? range.high : chance;
+    const top = Math.min(1, Math.max(chance, breakeven, hi) * 1.25) || 1;
+    const x = (v) => Math.max(0, Math.min(100, (v / top) * 100)).toFixed(1) + '%';
+    const ahead = chance >= breakeven;
+    const band = range && range.low >= 0 && range.high > range.low ? '<span class="sp-be-band" style="left:' + x(range.low) + ';width:calc(' + x(range.high) + ' - ' + x(range.low) + ')"></span>' : '';
+    return '<div class="sp-be" role="img" aria-label="' + escape('Chance ' + pct(chance) + ' against break-even ' + pct(breakeven)) + '">' +
+      '<div class="sp-be-head"><span>Chance all hit <b class="' + (ahead ? 'sp-pos' : 'sp-neg') + '">' + pct(chance) + '</b></span><span>Break-even <b>' + pct(breakeven) + '</b></span></div>' +
+      '<div class="sp-be-track">' + band + '<span class="sp-be-fill ' + (ahead ? 'is-ahead' : 'is-behind') + '" style="width:' + x(chance) + '"></span><span class="sp-be-mark" style="left:' + x(breakeven) + '"></span></div>' +
+      '<div class="sp-be-scale"><span>0%</span><span>' + (ahead ? 'Above break-even by ' : 'Short of break-even by ') + (Math.abs(chance - breakeven) * 100).toFixed(1) + ' pts</span><span>' + pct(top) + '</span></div></div>';
   }
   function canSave() {
     const ev = pb.evaluation;

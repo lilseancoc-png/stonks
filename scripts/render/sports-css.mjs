@@ -92,7 +92,8 @@ export function renderSportsCss() {
 .sp-table tr.sp-dnp td { color: var(--muted-strong); }
 .sp-table td.sp-wrap { white-space: normal; min-width: 14em; }
 .sp-fc-none { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13px; }
-.sp-link { font: inherit; color: var(--accent); background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
+.sp-link { font: inherit; color: var(--text); font-weight: 500; background: none; border: 0; padding: 0; cursor: pointer; text-align: left; text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--muted-strong) 45%, transparent); text-underline-offset: 3px; }
+.sp-link:hover { color: var(--accent); text-decoration-color: var(--accent); }
 .sp-link:hover { text-decoration: underline; }
 .sp-search { margin-top: 18px; }
 .sp-find { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted-strong); max-width: 360px; }
@@ -311,5 +312,26 @@ export function renderSportsCss() {
   .sp-game { grid-template-columns: minmax(0, 1fr) auto; }
   .sp-time { grid-column: 1 / -1; font-size: 12px; }
 }
+.sp-data-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 3px 10px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted-strong); font-variant-numeric: tabular-nums; }
+.sp-data-chip i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: none; }
+.sp-data-chip.sp-state-ok { color: var(--text); }
+.sp-data-chip.sp-state-ok i { color: var(--pos); }
+.sp-data-chip.sp-state-failed i { color: var(--neg); }
+.sp-source-fold > summary { cursor: pointer; list-style: none; display: flex; align-items: center; justify-content: space-between; }
+.sp-source-fold > summary::-webkit-details-marker { display: none; }
+.sp-source-fold > summary h3 { margin: 0; }
+.sp-source-fold > summary::after { content: '\\25BE'; color: var(--muted-strong); font-size: 12px; }
+.sp-source-fold[open] > summary::after { content: '\\25B4'; }
+.sp-source-fold[open] > summary { margin-bottom: 8px; }
+.sp-be { margin: 4px 0 14px; }
+.sp-be-head, .sp-be-scale { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; color: var(--muted-strong); font-variant-numeric: tabular-nums; }
+.sp-be-head b { color: var(--text); font-weight: 600; margin-left: 4px; }
+.sp-be-head b.sp-pos { color: var(--pos); } .sp-be-head b.sp-neg { color: var(--neg); }
+.sp-be-track { position: relative; height: 12px; margin: 6px 0 4px; border-radius: 999px; background: color-mix(in srgb, var(--border) 70%, transparent); overflow: hidden; }
+.sp-be-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 999px; }
+.sp-be-fill.is-ahead { background: color-mix(in srgb, var(--pos) 75%, transparent); }
+.sp-be-fill.is-behind { background: color-mix(in srgb, var(--neg) 70%, transparent); }
+.sp-be-band { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, var(--muted-strong) 22%, transparent); }
+.sp-be-mark { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--text); }
 `;
 }
