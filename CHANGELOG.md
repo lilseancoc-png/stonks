@@ -36,6 +36,86 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Request an uncompressed R2 lock with a strong ETag so a released Webull paper lock can be acquired conditionally; fail closed on malformed locks or repeated conflicts, expose Owner-only diagnostics, and report mirror failures in a separate workflow health job.
 - Reconcile Webull grouped option positions using confirmed broker order legs and stable position identities; prepare manual spread adoption without replaying its entry, retain separate overlapping manual holdings, and exclude manual entries from automatic fill timing and slippage.
 
+## 2026-11-05
+
+### Added
+
+- Add a stop, spot and target bar to each Top pick card and each open pick (stop on the left, target on the right, entry and now marked), and show when each open pick was opened in ET ("Opened 3d ago · Jun 13, 3:43 PM ET"). The Open picks table gains "Opened (ET)" and "Stop → target" columns.
+- Add a "Watching" list to Top picks on days with no pick: the names that came closest and the rule that held each one back.
+- Add a Fed path strip to Rates & the dollar: cut, hold and hike odds as one stacked bar for each of the next three meetings.
+- Add charts to the Rates & the dollar page: the full Treasury yield curve today against a month and a year ago (from the Treasury par-yield feed the build already reads, `lib/rates-history.mjs`), and about a year of daily 2-year and 10-year yields with the dollar index on its own axis (1M / 3M / 6M / 1Y). Both ride in `macro-history.json`; a failed feed keeps the last good copy, marked stale.
+- Add a running total to the Track Record: daily paper equity at $10,000 per trade with a "below the high" drawdown pane under it and dated marks where the grade, entry or exit rules changed (1M / 3M / 6M / All). The Site equity view uses the same chart.
+- Add an event path to each Historical Data event study: the median move over the 60 sessions after the event, with the middle half of past episodes shaded.
+- Add a "Beat or miss, and how the stock reacted" scatter to Earnings results, with counts for beat and rose, beat but fell, missed but rose and missed and fell.
+- Add "Who bought and who sold" to Who owns what: each manager's biggest adds and cuts last quarter as bars, valued as shares changed × the quarter-end price so a holding that only rose in price doesn't count as buying.
+- Add a table view to Options walls (one row per stock, with a bar showing where the price sits between its put wall and call wall; the strike ladder opens under the row) and to Unusual options trades (the flagged trades themselves: stock, contract, time, tape, premium, contracts this hour, volume vs open interest and repeats).
+- Add "Every stock against its averages" to Moving averages: each stock's distance from its 20, 50, 100 and 200-day averages as small bars on one centred axis.
+- Add "Your desk" to Home for the Owner: open trades, the time of the next Top Picks run (11:00 or 15:30 ET) and what changed in the Owner brief. Public visitors never see it.
+- Add a weekly timeline to Capital markets: debt, convertibles, share sales, buybacks and IPOs by week as stacked bars, with filters and a list of each week's events (two-line rows on phones).
+- Add a shared table to LEAPS, Stock picks, Sector rotation and Leveraged ETFs (idea, side, horizon, risk note, record) and a track-record chip under each title. The LEAPS chip reads the LEAPS paper record; Stock picks says it has no record yet.
+- Add "What changed vs last call" to Earnings calls: guidance, tone and risks next to the previous call's brief. The bake keeps a compact copy of the prior brief in each transcript file (`prior`); it fills in as each name reports its next quarter.
+- Add the last four earnings-day moves to each Calendar earnings row, next to the implied move (`lastMoves`, read from the stored earnings history).
+- Add a "New" badge to News stories published since your last visit (kept per browser, `stonks-news-seen`), and group stories into Market-moving, Company and market, and Macro and economy.
+- Add a month-by-year heatmap to Pattern lab (30 years of monthly returns) and a year strip to the index calendar.
+- Add a ripple table to Event spillover: each peer's average move after the lead stock's event, in one sortable list.
+- Add a trend strip with a small history line to AI CapEx, RAM prices, GPU cloud prices and Search interest, and a timeline of one trading day's site updates (08:00 to 20:00 ET, one row per job) to the Update checker.
+- Add a top strip to Market Analysis, Risk Analysis and the Bottom tracker with the few numbers each page is about, and a contents list to the long Learn & help guides.
+- Add a forecast-against-actual chart to Earnings Forecast, a table view with the deal spread to Pending buyouts, and a table view to Commodities.
+- Add the average win and average loss to the Track Record scorecard.
+
+### Changed
+
+- Home index tiles show the price, the day change and a small line of the last session (the bake now saves each index's 30-minute closes and last month of daily closes), "At a glance" fills whole rows, the News tile shows the top story, and "Explore by topic" starts folded on wide screens.
+- Market brief: ticker mentions in the summary and takeaways are chips that open the stock page, and the stat strip sits under the headline as context.
+- Heatmap tiles use the sans font and seven colour steps clipped at the period's scale, so small moves on large tiles show a clear tint.
+- Calendar opens on an agenda of the next 14 days grouped by day; the month grid is the other layout and the choice is remembered.
+- Overnight markets puts US futures first and open, adds one table of every market with region chips (default on wider screens), and moves the correlation note behind an ⓘ.
+- Who owns what puts the stock and fund search after the summary and the buy-sell chart, and turns the five research sections at the bottom into tabs.
+- Rates & the dollar tiles show the value, the change and a 1-month line; the weekly change and the prior reading move into the tooltip, and the "normal" badge is hidden.
+- Options walls opens on the first default name whose chain has open interest (SPY, then QQQ, NVDA, AAPL, MSFT) instead of an empty chart.
+- Up/down streaks cards label their stats "run move" and "8/10 days up" on one line.
+- Compare stocks opens with the last set you compared (or the four largest companies the first time), keeps the set in the link (`?tab=compare&cmp=AAPL,MSFT`) with a Copy link button, and labels the chart axis in round steps.
+- Market mood leads with the gauge, the past year against the Fear and Greed bands, and the seven parts as small bars; the playbook and part explanations follow.
+- Central-bank gold shows net tonnes bought each quarter on round tonne steps with year labels, the latest quarter highlighted, a dashed average line and 5Y / 10Y / All.
+- The Owner Grade page shows the price chart at the top, above the grade. Grade score over time uses the full width, labels the call and put zones on the chart, and opens on the last month (1M / 3M / All).
+- Long lists open as a table on wider screens: Up/down streaks, Leveraged ETFs, Open picks, Options walls and Unusual options trades join All stocks (phones keep cards, and a saved choice still wins). Long tables keep their header in view, and on phones the first column stays put while the rest scrolls sideways.
+- Rising volatility shows each stock's IV percentile as a bar and the shared Cheap / Rich / Very rich label.
+- The Owner Grade page shows its indicators as one grouped table (momentum, moving averages, volume, support and resistance) instead of eleven tiles, with shorter notes.
+- Narratives show compact cards with up to eight long and short names as chips; the full thesis, names and evidence open on click.
+- The weekly Alt Data pages (RAM prices, GPU cloud prices, Search interest) say "weekly data, updated Fridays 11:30 ET" with the date of the next run, instead of a daily-build age.
+- Trading volume puts each chart's legend in its header, uses blue for below-average days (the hint already said blue), and uses one type scale for the page.
+- Sector rotation draws each sector as a point on the strength-vs-momentum map without tails (there is no weekly history to draw them from).
+- Owner pages share one sub-tab style (Historical Data, Forced Liquidation, Earnings Forecast, Sports, Owner brief). The Unified Signal Engine lays its signals out as a matrix, and the Owner brief labels each change by kind and since when.
+- Forced Liquidation leads with compact headline numbers; Sports shows when its data last updated and draws a break-even bar on Pick Builder entries; the Strategy builder shows the payoff chart first; the Heatmap toolbar sits on one row; Update checker statuses are pills; the sector split bars open by default.
+
+### Fixed
+
+- On phones, the Home index tiles sit two to a row instead of overlapping, and the Market themes summary card (market tilt, story counts, leading stories) fits the screen instead of running off the right edge.
+- Restore regex escapes that the generated app.js was silently dropping. GPU cloud prices now drop the "NVIDIA" prefix from model names and Commodities driver notes show their first sentence again; three other spots (RAM price text, Pending buyouts dates, export file names) happened to work and are fixed for safety. `npm run test:charts` fails on any new single-backslash escape in the generated scripts.
+
+## 2026-11-04
+
+### Added
+
+- Add a public stock page (`?tab=stock&s=NVDA`, sidebar "Look up a stock"). It shows the name, price and day change (live while the market is open), a price chart (line or candles, volume, 50- and 200-day lines, 5D to 1Y), key numbers with a 52-week range bar, and tabs for Overview, News, Earnings (last 8 reports and the latest call), Options (IV percentile, expected move, walls, unusual trades), Ownership (13F fund moves, Form 4 insider trades) and Similar stocks. Owners also get an Owner desk tab with the grade and the stock's Top Picks trades. A Watch button keeps a watchlist in this browser.
+- Add one chart kit (`scripts/render/chart-kit-js.mjs`) built on TradingView Lightweight Charts 4.2.3, vendored in `js/vendor/` and loaded on first use. Every chart gets the same crosshair readout, range buttons, source line, loading skeleton and theme colours.
+
+### Changed
+
+- Send public stock links, search results and recently viewed stocks to the stock page instead of the Heatmap. Owners keep the Grade tool for desk links; the search shows a separate Grade row for them.
+- Group search results under Stocks, Pages and Themes, with company names beside each ticker.
+- Open All stocks as a table on desktop (cards on phones; a saved choice wins), with company names, 1W / 1M / YTD returns, market value and one industry label. Cards show the company name, one label instead of "SEMIS · SEMICONDUCTORS", a dash when there is no day change, and "+ Compare" only on hover.
+- Rename the Owner Grade page in the sidebar to "Grade a stock".
+
+- Put every page on one design system: text sizes snap to one 15-step scale (feature pages read one step larger), corners to 4 / 8 / 12 px or a pill, plain drop shadows to three elevations, and numbers use the interface font (its digits are equal width). JetBrains Mono stays for code, keyboard hints and trade lines. Upper-case labels lose the wide letter spacing (`scripts/render/design-system.mjs`).
+- Give every page one header: crumb, title, one line of description and the freshness chip on one row. The card title and "How to read" notes that repeated it move behind an "About this page" button, and the bottom Previous / Next links are a thin row on desktop.
+- Split the Owner sidebar into Daily desk, Ideas, Research and Admin, so each Owner page shows only its own group's sibling links.
+- Merge the sidebar page filter into the site search: the sidebar button opens the same ⌘K search as the header. "Workspace" now reads "Pages" / "Pin this page".
+- Make the header quieter: Discord and Support are plain links that drop their words on narrower screens, the time-zone picker no longer truncates, and the footer uses one link colour.
+- Show the Update Checker status as a row in the sidebar instead of a toast over the page.
+- Hide the repeated "Confirms when / Invalidates when / Required before acting / Do not infer" boxes; each page keeps its status line and the footer disclaimer.
+- Use plain words on public pages: "last close" for "baked close", "dealer gamma (est.)" for "GEX proxy", "tends to damp / amplify moves" for "stabilizing / amplifying bias", and clearer Streaks labels.
+
 ## 2026-11-03
 
 ### Changed

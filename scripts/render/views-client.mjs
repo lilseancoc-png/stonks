@@ -142,8 +142,17 @@ export function viewsFactory(win, doc) {
   // A tab may offer extra layouts beyond Cards / Table (for example a chart):
   // pass them as [[mode, label], ...] to both viewMode and viewToggleHtml.
   var VIEW_MODE_RE = /^[a-z][a-z0-9-]{0,15}$/;
+  // Lists that open as a table on wider screens (phones keep cards). A saved
+  // choice on this device always wins.
+  var TABLE_FIRST = {};
+  function tableFirst(keys) { for (var i = 0; i < keys.length; i++) TABLE_FIRST[keys[i]] = 1; }
+  function defaultView(key) {
+    if (!TABLE_FIRST[key]) return 'cards';
+    try { if (win.matchMedia && win.matchMedia('(max-width: 760px)').matches) return 'cards'; } catch (e) {}
+    return 'table';
+  }
   function viewMode(key, extras) {
-    var m = get('view:' + key, 'cards');
+    var m = get('view:' + key, defaultView(key));
     if (m === 'table') return 'table';
     if (extras) for (var i = 0; i < extras.length; i++) if (extras[i][0] === m) return m;
     return 'cards';
@@ -158,12 +167,22 @@ export function viewsFactory(win, doc) {
     if (extras) for (var i = 0; i < extras.length; i++) h += b(extras[i][0], extras[i][1]);
     return '<span class="view-toggle" role="group" aria-label="Layout">' + h + '</span>';
   }
-  // cols: [{ label, num, cell(row) -> html, sort(row) -> number|string|null, title }]
+  // cols: [{ label, num, cell(row) -> html, sort(row) -> number|string|null,
+  //          title, cls, nosort }]
+  // opts: { key, cls, rowAttr(row), empty, detail(row) -> html|'' , tall }
+  // A detail row sits under its row (hidden until a [data-vt-expand] button in
+  // that row opens it) and travels with it when a header sorts the table.
+  // Long tables scroll inside their own box on wide screens so the header
+  // stays in view; on phones the first column stays put while the rest
+  // scrolls sideways.
+  var VT_TALL_ROWS = 16;
   function tableHtml(cols, rows, opts) {
     opts = opts || {};
-    var h = '<div class="vt-wrap"><table class="vt-table' + (opts.cls ? ' ' + opts.cls : '') + '"' + (opts.key ? ' data-ts-key="' + esc(opts.key) + '"' : '') + '><thead><tr>';
+    var tall = opts.tall != null ? !!opts.tall : rows.length > VT_TALL_ROWS;
+    var h = '<div class="vt-wrap' + (tall ? ' vt-tall' : '') + '"><table class="vt-table vt-sticky1' + (opts.cls ? ' ' + opts.cls : '') + '"' + (opts.key ? ' data-ts-key="' + esc(opts.key) + '"' : '') + '><thead><tr>';
     for (var c = 0; c < cols.length; c++) {
-      h += '<th' + (cols[c].num ? ' class="num"' : '') + (cols[c].title ? ' title="' + esc(cols[c].title) + '"' : '') + '>' + esc(cols[c].label) + '</th>';
+      var thCls = (cols[c].num ? 'num' : '') + (cols[c].cls ? (cols[c].num ? ' ' : '') + cols[c].cls : '');
+      h += '<th' + (thCls ? ' class="' + esc(thCls) + '"' : '') + (cols[c].nosort ? ' data-nosort' : '') + (cols[c].title ? ' title="' + esc(cols[c].title) + '"' : '') + '>' + esc(cols[c].label) + '</th>';
     }
     h += '</tr></thead><tbody>';
     for (var r = 0; r < rows.length; r++) {
@@ -173,13 +192,30 @@ export function viewsFactory(win, doc) {
         var col = cols[k];
         var sv = col.sort ? col.sort(row) : null;
         var sAttr = sv == null || (typeof sv === 'number' && !isFinite(sv)) ? ' data-sort=""' : ' data-sort="' + esc(sv) + '"';
-        h += '<td' + (col.num ? ' class="num"' : '') + sAttr + '>' + (col.cell(row) || '<span class="vt-na">—</span>') + '</td>';
+        var tdCls = (col.num ? 'num' : '') + (col.cls ? (col.num ? ' ' : '') + col.cls : '');
+        h += '<td' + (tdCls ? ' class="' + esc(tdCls) + '"' : '') + sAttr + '>' + (col.cell(row) || '<span class="vt-na">—</span>') + '</td>';
       }
       h += '</tr>';
+      var extra = opts.detail ? opts.detail(row) : '';
+      if (extra) h += '<tr class="vt-detail" hidden><td colspan="' + cols.length + '">' + extra + '</td></tr>';
     }
     h += '</tbody></table></div>';
     if (!rows.length) h += '<p class="vt-empty">' + esc(opts.empty || 'Nothing to show.') + '</p>';
     return h;
+  }
+  // The small open/close button for a row that has a detail row.
+  function expandHtml(label) {
+    return '<button type="button" class="vt-expand" data-vt-expand aria-expanded="false" aria-label="' + esc(label || 'Show details') + '" title="' + esc(label || 'Show details') + '">' +
+      '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg></button>';
+  }
+  function toggleDetail(btn) {
+    var tr = btn.closest('tr');
+    var next = tr && tr.nextElementSibling;
+    if (!next || !next.classList.contains('vt-detail')) return;
+    var open = next.hidden;
+    next.hidden = !open;
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    tr.classList.toggle('is-open', open);
   }
 
   // ---- Click-a-header table sorting ----------------------------------------
@@ -382,6 +418,8 @@ export function viewsFactory(win, doc) {
     doc.addEventListener('click', function (ev) {
       var t = ev.target && ev.target.closest ? ev.target : null;
       if (!t) return;
+      var exp = t.closest('[data-vt-expand]');
+      if (exp) { toggleDetail(exp); return; }
       var flip = t.closest('[data-sort-flip]');
       if (flip) {
         clearHeaderSort(flip);
@@ -401,7 +439,7 @@ export function viewsFactory(win, doc) {
         var vkey = vt.getAttribute('data-view-toggle');
         var mode = vt.getAttribute('data-view-mode') || 'cards';
         if (!VIEW_MODE_RE.test(mode)) mode = 'cards';
-        set('view:' + vkey, mode === 'cards' ? null : mode);
+        set('view:' + vkey, mode === defaultView(vkey) ? null : mode);
         var btns = doc.querySelectorAll('[data-view-toggle="' + vkey + '"]');
         for (var j = 0; j < btns.length; j++) {
           var isOn = btns[j].getAttribute('data-view-mode') === mode;
@@ -443,7 +481,7 @@ export function viewsFactory(win, doc) {
     get: get, set: set, choose: choose, clearAll: clearAll,
     reversed: reversed, applyDir: applyDir, flipHtml: flipHtml, withFlip: withFlip, attachFlip: attachFlip, onFlip: onFlip,
     remember: remember, sortBy: sortBy, sortMenuHtml: sortMenuHtml,
-    viewMode: viewMode, viewToggleHtml: viewToggleHtml, onView: onView, tableHtml: tableHtml,
+    viewMode: viewMode, tableFirst: tableFirst, viewToggleHtml: viewToggleHtml, onView: onView, tableHtml: tableHtml, expandHtml: expandHtml,
     parseCell: parseCell, sortTable: sortTable, rescan: queueScan,
     start: start
   };

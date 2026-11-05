@@ -1,6 +1,6 @@
 // Owner-only lazy view. Stores display preferences, never decision payloads.
 export function unifiedSignalClientFactory(host, doc, options, policy) {
-  const state = { data: null, loading: false, error: '', symbol: '', query: '', filter: 'all', view: 'decision', bound: false, timer: null, records: {}, investments: {} };
+  const state = { data: null, loading: false, error: '', symbol: '', query: '', filter: 'all', view: 'decision', layout: 'detail', bound: false, timer: null, records: {}, investments: {} };
   const VIEWS = ['decision','investment','trading','evidence','prices','vehicles','record'];
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[c]);
   const num = (value, digits = 2) => typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString('en-US', { maximumFractionDigits: digits, minimumFractionDigits: digits }) : 'Unavailable';
@@ -11,13 +11,14 @@ export function unifiedSignalClientFactory(host, doc, options, policy) {
     ? ['Refresh the published snapshot before considering an entry. The prior entry check is expired or could not be revalidated.', ...row.blocks] : row.blocks;
   const money = (value, currency) => typeof value !== 'number' || !Number.isFinite(value) ? 'Unavailable' : num(value) + (currency ? ' ' + currency : ' · currency unverified');
   const time = value => { if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value + ' · date only'; const ms = Date.parse(value || ''); return Number.isFinite(ms) ? new Date(ms).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + ' ET' : 'Time unverified'; };
-  function save() { try { host.localStorage.setItem('stonks-unified-view', JSON.stringify({ symbol: state.symbol, filter: state.filter, view: state.view })); } catch {} }
+  function save() { try { host.localStorage.setItem('stonks-unified-view', JSON.stringify({ symbol: state.symbol, filter: state.filter, view: state.view, layout: state.layout })); } catch {} }
   function restore() {
     try {
       const saved = JSON.parse(host.localStorage.getItem('stonks-unified-view') || '{}');
       if (typeof saved.symbol === 'string' && /^[A-Z][A-Z0-9.]{0,5}$/.test(saved.symbol)) state.symbol = saved.symbol;
       if (['all','eligible','wait','watch','avoid','insufficient-data'].includes(saved.filter)) state.filter = saved.filter;
       if (VIEWS.includes(saved.view)) state.view = saved.view;
+      if (saved.layout === 'matrix' || saved.layout === 'detail') state.layout = saved.layout;
     } catch {}
   }
   const pill = (label, tone) => '<span class="use-tag use-tone-' + esc(tone || 'context') + '">' + esc(label) + '</span>';
@@ -124,6 +125,27 @@ export function unifiedSignalClientFactory(host, doc, options, policy) {
       if (box) box.innerHTML = '<p class="use-muted">The stored records could not be loaded. Try Refresh snapshot.</p>';
     });
   }
+  // All names x signal families: each cell counts the family's signals that
+  // support (+) or challenge (-) the stock's direction. A row opens the
+  // ticker's Company record.
+  const FAMILY_ORDER = ['Business', 'Price structure', 'Positioning', 'News and catalysts', 'Events', 'Market context', 'Sector context', 'Quant context', 'Company relationships'];
+  function matrixHtml(rows) {
+    const scored = e => !e.unavailable && (e.effect === 'supports' || e.effect === 'opposes');
+    const fams = FAMILY_ORDER.filter(f => rows.some(r => r.evidence.some(e => e.family === f && scored(e))));
+    const extra = [...new Set(rows.flatMap(r => r.evidence.filter(scored).map(e => e.family)))].filter(f => !fams.includes(f)).slice(0, Math.max(0, 8 - fams.length));
+    const cols = fams.concat(extra);
+    const cell = (row, fam) => {
+      let sup = 0, opp = 0;
+      row.evidence.forEach(e => { if (e.family === fam && scored(e)) { if (e.effect === 'supports') sup++; else opp++; } });
+      const net = sup - opp, cls = !sup && !opp ? 'is-none' : net > 0 ? 'is-sup' : net < 0 ? 'is-opp' : 'is-mixed';
+      const label = !sup && !opp ? '·' : (sup ? '+' + sup : '') + (sup && opp ? ' ' : '') + (opp ? '−' + opp : '');
+      return '<td class="use-mx-cell ' + cls + '" title="' + esc(fam + ': ' + sup + ' supporting, ' + opp + ' challenging') + '">' + label + '</td>';
+    };
+    return '<p class="use-muted use-mx-note">Each cell counts the signals in that family that support (+) or challenge (−) the stock’s direction. Green leans with the call, red against it. Click a row to open its company record.</p>' +
+      '<div class="use-mx-wrap"><table class="use-mx"><thead><tr><th scope="col" class="use-mx-sym">Ticker</th><th scope="col">Status</th><th scope="col" class="num">Grade</th>' + cols.map(f => '<th scope="col">' + esc(f) + '</th>').join('') + '</tr></thead><tbody>' +
+      rows.map(row => '<tr data-use-row="' + esc(row.symbol) + '"' + (row.symbol === state.symbol ? ' class="is-selected"' : '') + '><th scope="row" class="use-mx-sym"><button type="button" data-use-symbol="' + esc(row.symbol) + '" data-use-view="record" data-use-open-record><b>' + esc(row.symbol) + '</b><small>' + esc(row.direction) + '</small></button></th><td>' + pill(policy.label(currentStatus(row)), currentStatus(row)) + '</td><td class="num">' + (typeof row.grade === 'number' ? (row.grade > 0 ? '+' : '') + row.grade.toFixed(1) : '—') + '</td>' + cols.map(f => cell(row, f)).join('') + '</tr>').join('') +
+      '</tbody></table></div>';
+  }
   function render() {
     const target = root();
     if (!target) return;
@@ -142,11 +164,12 @@ export function unifiedSignalClientFactory(host, doc, options, policy) {
     if (selected) state.symbol = selected.symbol;
     const quoteExpired = selected?.status === 'eligible' && currentStatus(selected) === 'wait';
     const notices = state.error ? '<p class="use-notice" role="alert">' + esc(state.error) + ' Previous snapshot is reference only.</p>' : expired || quoteExpired ? '<p class="use-notice" role="status">Reference snapshot. The entry check has expired or the regular session has closed. Refresh checks for a newer published decision; it does not fetch live quotes.</p>' : '';
-    target.innerHTML = '<div class="use-toolbar"><label>Find ticker or sector<input type="search" data-use-search value="' + esc(state.query) + '" placeholder="Search symbols" autocomplete="off"></label><label>Show<select data-use-filter>' + [['all','All research'],['eligible','Entry qualified'],['wait','Waiting'],['watch','Research watch'],['avoid','Avoid'],['insufficient-data','Missing data']].map(([value,label]) => '<option value="' + value + '"' + (state.filter === value ? ' selected' : '') + '>' + label + '</option>').join('') + '</select></label><button type="button" class="use-button" data-use-refresh' + (state.loading ? ' disabled' : '') + '>' + (state.loading ? 'Checking…' : 'Refresh snapshot') + '</button></div>' +
+    const layoutSwitch = '<div class="use-layout-switch" role="group" aria-label="Layout">' + [['detail','One stock'],['matrix','All names']].map(([key,label]) => '<button type="button" data-use-layout="' + key + '" aria-pressed="' + (state.layout === key) + '">' + label + '</button>').join('') + '</div>';
+    target.innerHTML = '<div class="use-toolbar">' + layoutSwitch + '<label>Find ticker or sector<input type="search" data-use-search value="' + esc(state.query) + '" placeholder="Search symbols" autocomplete="off"></label><label>Show<select data-use-filter>' + [['all','All research'],['eligible','Entry qualified'],['wait','Waiting'],['watch','Research watch'],['avoid','Avoid'],['insufficient-data','Missing data']].map(([value,label]) => '<option value="' + value + '"' + (state.filter === value ? ' selected' : '') + '>' + label + '</option>').join('') + '</select></label><button type="button" class="use-button" data-use-refresh' + (state.loading ? ' disabled' : '') + '>' + (state.loading ? 'Checking…' : 'Refresh snapshot') + '</button></div>' +
       '<p class="use-snapshot-meta" role="status">' + visible.length + ' of ' + all.length + ' tickers · ' + esc(time(state.data.builtAtIso)) + ' · ' + esc(state.data.cadence) + '</p>' + notices +
-      (selected ? '<div class="use-layout"><aside class="use-library" aria-label="Unified Signal Engine research list">' + visible.map(row => '<button type="button" data-use-symbol="' + esc(row.symbol) + '" class="use-candidate' + (row.symbol === selected.symbol ? ' is-selected' : '') + '" aria-pressed="' + (row.symbol === selected.symbol) + '"><span><b>' + esc(row.symbol) + '</b><small>' + esc(row.direction) + '</small></span><small>' + esc(policy.label(currentStatus(row))) + '</small></button>').join('') + '</aside><section class="use-detail" aria-label="Ticker assessment"><header class="use-decision-head"><div><span class="use-kicker">Existing decision · ' + esc(state.data.horizon.label) + '</span><h3>' + esc(selected.symbol) + ' <span>' + esc(selected.direction) + '</span></h3><p>' + esc(selected.sector || 'Sector unverified') + '</p></div><div>' + pill(policy.label(currentStatus(selected)), currentStatus(selected)) + '<p class="use-price">' + esc(money(selected.quote.value,selected.quote.currency)) + '</p></div></header><nav class="use-view-tabs" aria-label="Assessment views">' + [['decision','Decision'],['investment','Investment outlook'],['trading','Trading outlook'],['evidence','Evidence'],['prices','Price explanations'],['vehicles','Trade comparison'],['record','Company record']].map(([view,label]) => '<button type="button" data-use-view="' + view + '" aria-pressed="' + (state.view === view) + '">' + label + '</button>').join('') + '</nav><div class="use-view">' + (state.view === 'investment' ? investmentView(selected) : state.view === 'trading' ? tradingView(selected) : state.view === 'evidence' ? evidenceView(selected) : state.view === 'prices' ? pricesView(selected) : state.view === 'vehicles' ? vehiclesView(selected) : state.view === 'record' ? recordView(selected) : decisionView(selected)) + '</div></section></div>' : '<div class="use-empty"><h3>No matching research</h3><p>Change the ticker search or policy filter to inspect other assessments.</p></div>') +
+      (selected && state.layout === 'matrix' ? matrixHtml(visible) : selected ? '<div class="use-layout"><aside class="use-library" aria-label="Unified Signal Engine research list">' + visible.map(row => '<button type="button" data-use-symbol="' + esc(row.symbol) + '" class="use-candidate' + (row.symbol === selected.symbol ? ' is-selected' : '') + '" aria-pressed="' + (row.symbol === selected.symbol) + '"><span><b>' + esc(row.symbol) + '</b><small>' + esc(row.direction) + '</small></span><small>' + esc(policy.label(currentStatus(row))) + '</small></button>').join('') + '</aside><section class="use-detail" aria-label="Ticker assessment"><header class="use-decision-head"><div><span class="use-kicker">Existing decision · ' + esc(state.data.horizon.label) + '</span><h3>' + esc(selected.symbol) + ' <span>' + esc(selected.direction) + '</span></h3><p>' + esc(selected.sector || 'Sector unverified') + '</p></div><div>' + pill(policy.label(currentStatus(selected)), currentStatus(selected)) + '<p class="use-price">' + esc(money(selected.quote.value,selected.quote.currency)) + '</p></div></header><nav class="use-view-tabs" aria-label="Assessment views">' + [['decision','Decision'],['investment','Investment outlook'],['trading','Trading outlook'],['evidence','Evidence'],['prices','Price explanations'],['vehicles','Trade comparison'],['record','Company record']].map(([view,label]) => '<button type="button" data-use-view="' + view + '" aria-pressed="' + (state.view === view) + '">' + label + '</button>').join('') + '</nav><div class="use-view">' + (state.view === 'investment' ? investmentView(selected) : state.view === 'trading' ? tradingView(selected) : state.view === 'evidence' ? evidenceView(selected) : state.view === 'prices' ? pricesView(selected) : state.view === 'vehicles' ? vehiclesView(selected) : state.view === 'record' ? recordView(selected) : decisionView(selected)) + '</div></section></div>' : '<div class="use-empty"><h3>No matching research</h3><p>Change the ticker search or policy filter to inspect other assessments.</p></div>') +
       '<footer class="use-footer"><p>' + esc(state.data.validation) + ' No live account sizing or order execution is connected.</p><details><summary>Method and saved decision</summary><p>' + esc(state.data.ranking) + '</p><p>Shared evidence is shown once in the rubric. Measurements and related desks remain context. Policy eligibility comes from a matching current owner trade and cannot override its entry or risk gates.</p><p>Snapshot ' + esc(state.data.snapshotId) + '</p><p>Engine ' + esc(state.data.engineVersion) + ' · entry policy ' + esc(state.data.entryPolicyVersion) + '</p></details></footer>';
-    if (selected && state.view === 'record') fillRecord(selected.symbol);
+    if (selected && state.layout !== 'matrix' && state.view === 'record') fillRecord(selected.symbol);
     const library = target.querySelector('.use-library');
     if (library) library.scrollTop = libraryScroll;
     for (const [key,open] of disclosures) {
@@ -183,10 +206,14 @@ export function unifiedSignalClientFactory(host, doc, options, policy) {
     if (state.bound || !root()) return;
     state.bound = true; restore();
     root().addEventListener('click', event => {
+      const rowHit = !event.target.closest('button,a,input,select') ? event.target.closest('tr[data-use-row]') : null;
+      if (rowHit) { rowHit.querySelector('[data-use-open-record]')?.click(); return; }
       const button = event.target.closest('button');
       if (!button) return;
       if (button.hasAttribute('data-use-refresh')) { load(true); return; }
       if (button.hasAttribute('data-use-investment-reset')) { delete state.investments[state.symbol]; render(); return; }
+      if (button.dataset.useLayout) { state.layout = button.dataset.useLayout === 'matrix' ? 'matrix' : 'detail'; save(); render(); root().querySelector('[data-use-layout="' + state.layout + '"]')?.focus({preventScroll:true}); return; }
+      if (button.hasAttribute('data-use-open-record')) { state.layout = 'detail'; state.symbol = button.dataset.useSymbol; state.view = 'record'; save(); render(); root().querySelector('.use-decision-head')?.scrollIntoView({block:'start'}); return; }
       const selectedTicker = !!button.dataset.useSymbol;
       if (selectedTicker) state.symbol = button.dataset.useSymbol;
       if (VIEWS.includes(button.dataset.useView)) state.view = button.dataset.useView;

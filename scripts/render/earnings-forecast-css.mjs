@@ -73,4 +73,21 @@ export function renderEarningsForecastCss(){return `
 @media(max-width:700px) { .ef-workbench .ef-controls,.ef-row-controls { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media(max-width:600px) { .ef-live-summary .ef-metric strong { font-size:16px; }.ef-live-summary .ef-metric > span,.ef-live-summary .ef-metric small { font-size:10px; }.ef-live-summary { padding:0 9px; } }
 @media(max-width:600px) { .ef-columns { grid-template-columns:minmax(0,1fr); }.ef-companies { display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:2px; }.ef-companies button { min-width:0;padding:7px 6px; }.ef-companies button > span:last-child { display:none; }.ef-companies .ef-badge { margin-left:3px;padding:0 4px; }.ef-company-head h3 { font-size:19px; }.ef-metric strong { font-size:20px; }.ef-controls label { width:100%;min-width:0; }.ef-table { font-size:11px; }.ef-table th,.ef-table td { padding:8px 6px; }.ef-foot { align-items:flex-start; }.ef-workbench .ef-controls { grid-template-columns:minmax(0,1fr); }.ef-mix-lines article { padding:12px; }.ef-scenario-results { grid-template-columns:minmax(0,1fr); } }
+
+.ef-fva-grid-wrap { display:grid; grid-template-columns:minmax(0,1fr); gap:14px; align-items:start; margin:12px 0; }
+.ef-fva-grid-wrap > .ef-fva { max-width:760px; }
+.ef-fva { margin:0; padding:12px 14px; border:1px solid var(--border); border-radius:10px; background:var(--surface); }
+.ef-fva figcaption { font:650 14px/1.3 var(--font-sans); color:var(--text-strong); }
+.ef-fva svg { display:block; width:100%; height:auto; margin-top:6px; }
+.ef-fva-grid { stroke:var(--border); stroke-width:1; }
+.ef-fva-axis { fill:var(--muted); font:500 11px var(--font-sans); }
+.ef-fva-bar { fill:color-mix(in srgb, var(--text) 22%, transparent); }
+.ef-fva-dot { stroke:var(--surface); stroke-width:2; }
+.ef-fva-dot.is-beat { fill:var(--pos); }
+.ef-fva-dot.is-miss { fill:var(--neg); }
+.ef-fva-key { display:inline-block; width:10px; height:10px; margin:0 4px 0 10px; vertical-align:-1px; border-radius:50%; }
+.ef-fva-key:first-child { margin-left:0; }
+.ef-fva-key.is-bar { border-radius:2px; background:color-mix(in srgb, var(--text) 22%, transparent); }
+.ef-fva-key.is-beat { background:var(--pos); }
+.ef-fva-key.is-miss { background:var(--neg); }
 `;}

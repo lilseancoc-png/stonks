@@ -26,7 +26,8 @@ export const SITE_SECTIONS = [
     id: 'stocks', label: 'Stocks', short: 'Stocks', desc: 'Look up, compare and follow companies',
     items: [
       { id: 'tickers', label: 'All stocks', alias: 'Tickers', blurb: 'Every stock the site follows, with its price, returns and sector.' },
-      { id: 'grade', label: 'Look up a stock', alias: 'Grade a ticker stock report', blurb: 'One stock in depth: its chart, grade, fundamentals, options and news.' },
+      { id: 'stock', label: 'Look up a stock', alias: 'Stock page quote ticker company chart', blurb: 'One company: its price chart, key numbers, news, earnings, options and who owns it.' },
+      { id: 'grade', label: 'Grade a stock', alias: 'Grade a ticker stock report Look up', blurb: 'One stock in depth: its grade, setup signals, fundamentals and the option contract to trade.' },
       { id: 'compare', label: 'Compare stocks', alias: 'Compare companies', blurb: 'Line up a few companies side by side on price, growth and valuation.' },
       { id: 'earnings', label: 'Earnings results', alias: 'Earnings tracker', blurb: 'Which companies beat or missed expectations this season, and how their stocks reacted.' },
       { id: 'calls', label: 'Earnings calls', blurb: 'What management said on each company’s latest earnings call, and what changed.' },
@@ -84,27 +85,44 @@ export const SITE_SECTIONS = [
       { id: 'terms', label: 'Terms of Use', blurb: 'The terms for using this site. Nothing here is investment advice.' },
     ],
   },
+  // The Owner pages sit in four groups, so each page header lists only its
+  // neighbours rather than all eighteen. Ids never change, only the grouping.
   {
-    id: 'owner', label: 'Owner', short: 'Owner', desc: 'Private research', owner: true,
+    id: 'owner', label: 'Owner · Daily desk', short: 'Owner', desc: 'The private daily read', owner: true,
     items: [
       { id: 'owner-market-brief', label: 'Owner Market Brief', alias: 'Private digest outlook predictions scenarios research', blurb: 'The full site read, with private research, conditional paths, counterevidence and a curated review shortlist.' },
       { id: 'unified-signal-engine', label: 'Unified Signal Engine', blurb: 'Existing decisions with separate investment and trading perspectives.' },
       { id: 'market', label: 'Market analysis', blurb: 'The cross-asset tape, risk barometer and regime history.' },
       { id: 'risk', label: 'Risk analysis', blurb: 'Seven risk desks read together, with the reason when they disagree.' },
-      { id: 'bottom-tracker', label: 'Bottom tracker', blurb: 'Signs the market is washing out and turning.' },
-      { id: 'historical-data', label: 'Historical Data', blurb: 'The stored history behind the private research.' },
-      { id: 'party-tracker', label: 'Party tracker', alias: 'Party-Tracker Democrats Republicans president house senate', blurb: 'How the market and each sector did when Democrats or Republicans held the presidency, the House, or the Senate.' },
-      { id: 'earnings-forecast', label: 'Earnings Forecast', alias: 'Quarterly full-year valuation company history revenue EPS industry model', blurb: 'Quarterly forecasts for the top 20 covered companies, company history, full-year valuation and linked industry evidence.' },
-      { id: 'forced-liquidation', label: 'Forced Liquidation Tracker', alias: 'Pledged shares collateral leverage margin', blurb: 'SEC stock pledges, loan terms and estimated price thresholds, with missing terms kept visible.' },
+    ],
+  },
+  {
+    id: 'owner-ideas', label: 'Owner · Ideas', short: 'Ideas', desc: 'Trade ideas and how they worked out', owner: true,
+    items: [
       { id: 'picks', label: 'Top picks', blurb: 'The model’s highest-conviction option contracts for today.' },
-      { id: 'leaps', label: 'LEAPS', blurb: 'Names scored for a one- to two-year options hold.' },
-      { id: 'stocks', label: 'Stock picks', blurb: 'Quality companies on a dip, as shares rather than options.' },
-      { id: 'rotation', label: 'Sector rotation', blurb: 'Strong names sold with their sector that are now turning back up.' },
-      { id: 'levetf', label: 'Leveraged ETFs', blurb: 'Leveraged ETF setups from the same engine.' },
       { id: 'open-picks', label: 'Open picks', blurb: 'Every open trade, with lines ready to copy to a broker.' },
       { id: 'track', label: 'Top Picks track record', blurb: 'How every closed pick worked out.' },
-      { id: 'quant', label: 'Owner Lab', blurb: 'Research tools and diagnostics.' },
+      { id: 'leaps', label: 'LEAPS', blurb: 'Names scored for a one- to two-year options hold.' },
+      { id: 'stocks', label: 'Stock picks', blurb: 'Quality companies on a dip, as shares rather than options.' },
+      { id: 'levetf', label: 'Leveraged ETFs', blurb: 'Leveraged ETF setups from the same engine.' },
+      { id: 'rotation', label: 'Sector rotation', blurb: 'Strong names sold with their sector that are now turning back up.' },
+    ],
+  },
+  {
+    id: 'owner-research', label: 'Owner · Research', short: 'Research', desc: 'Private studies and data', owner: true,
+    items: [
+      { id: 'historical-data', label: 'Historical Data', blurb: 'The stored history behind the private research.' },
+      { id: 'earnings-forecast', label: 'Earnings Forecast', alias: 'Quarterly full-year valuation company history revenue EPS industry model', blurb: 'Quarterly forecasts for the top 20 covered companies, company history, full-year valuation and linked industry evidence.' },
+      { id: 'forced-liquidation', label: 'Forced Liquidation Tracker', alias: 'Pledged shares collateral leverage margin', blurb: 'SEC stock pledges, loan terms and estimated price thresholds, with missing terms kept visible.' },
+      { id: 'bottom-tracker', label: 'Bottom tracker', blurb: 'Signs the market is washing out and turning.' },
+      { id: 'party-tracker', label: 'Party tracker', alias: 'Party-Tracker Democrats Republicans president house senate', blurb: 'How the market and each sector did when Democrats or Republicans held the presidency, the House, or the Senate.' },
       { id: 'research-lab', label: 'Research Lab', alias: 'Scenarios evidence puzzle stocks experiments visual canvas journal ChatGPT Claude', blurb: 'Connect stocks, evidence and assumptions, explore possible outcomes and export your research for AI review.' },
+    ],
+  },
+  {
+    id: 'owner-admin', label: 'Owner · Admin', short: 'Admin', desc: 'Diagnostics and build health', owner: true,
+    items: [
+      { id: 'quant', label: 'Owner Lab', blurb: 'Research tools and diagnostics.' },
       { id: 'update-checker', label: 'Update Checker', alias: 'Build status failures feature health stale missing updates', blurb: 'Build failures and checks of published feature outputs.' },
     ],
   },

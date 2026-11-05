@@ -25,7 +25,9 @@ try {
     check(text.includes('Verify party control history'),'Failed step visible');
     check(text.includes('Site generation: skipped'),'Skipped build explained');
     check(text.includes('missing')&&text.includes('invalid')&&text.includes('stale'),'Partial output failures visible together');
-    check(await page.locator('#update-checker-notice').isVisible(),'Owner notice visible');
+    // The notice is a sidebar row: visible beside the page on desktop, inside
+    // the closed menu drawer on phones.
+    check(width>=1024?await page.locator('#side-nav #update-checker-notice').isVisible():(await page.locator('#side-nav #update-checker-notice').count())===1,'Owner notice visible');
     check(await root.locator('.uc-feature:visible').count()===3,'Issues filter');
     await root.locator('[data-uc-filter]').selectOption('all');
     check(await root.locator('.uc-feature:visible').count()===UPDATE_FEATURES.length,'Every feature is accounted for');

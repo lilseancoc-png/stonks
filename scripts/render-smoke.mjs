@@ -53,7 +53,7 @@ try {
   assert.equal(contentAssetVersion("same\r\nlines\r\n"), contentAssetVersion("same\nlines\n"));
   assert.equal((html.match(/id="picks-position"/g) || []).length, 1);
   assert.ok(html.indexOf('id="picks-position"') > html.indexOf('id="quant-section"'));
-  assert.match(html, /data-nav-group="owner"[\s\S]*?side-nav-group-label">Owner[\s\S]*?data-page-tab="market"[\s\S]*?data-page-tab="risk"[\s\S]*?data-page-tab="picks"[\s\S]*?data-page-tab="leaps"[\s\S]*?data-page-tab="stocks"[\s\S]*?data-page-tab="rotation"[\s\S]*?data-page-tab="levetf"[\s\S]*?data-page-tab="open-picks"[\s\S]*?data-page-tab="track"[\s\S]*?data-page-tab="quant"/);
+  assert.match(html, /data-nav-group="owner"[\s\S]*?side-nav-group-label">Owner · Daily desk[\s\S]*?data-page-tab="market"[\s\S]*?data-page-tab="risk"[\s\S]*?data-nav-group="owner-ideas"[\s\S]*?data-page-tab="picks"[\s\S]*?data-page-tab="open-picks"[\s\S]*?data-page-tab="track"[\s\S]*?data-page-tab="leaps"[\s\S]*?data-page-tab="stocks"[\s\S]*?data-page-tab="levetf"[\s\S]*?data-page-tab="rotation"[\s\S]*?data-nav-group="owner-admin"[\s\S]*?data-page-tab="quant"/);
   assert.match(html, /id="page-pane-open-picks"[^>]*hidden>[\s\S]*?id="open-picks-root"/);
   assert.doesNotMatch(html, /data-page-tab="daytrade"|data-page-tab="daytrack"|Day Trading Track Record/);
   const navGroups = html.match(/<details class="side-nav-group"[^>]*>/g) || [];
@@ -258,7 +258,8 @@ try {
   assert.ok(isPremiumKey('signal-decisions/2026-10-23T15-05-00-000Z-0123456789abcdef.json'));
   assert.match(html, /id="page-pane-unified-signal-engine"/);
   assert.match(appJs, /data=unified-signal\.json/);
-  const ownerNav = html.match(/data-role-group="owner"[\s\S]*?<\/details>/)?.[0] || "";
+  // Owner pages span several Owner groups (Daily desk, Ideas, Research, Admin).
+  const ownerNav = (html.match(/<details[^>]*data-role-group="owner"[\s\S]*?<\/details>/g) || []).join("\n");
   assert.match(ownerNav, /data-page-tab="bottom-tracker"/);
   assert.match(ownerNav, /data-page-tab="risk"/);
   const marketNav = html.match(/data-nav-group="market"[\s\S]*?<\/details>/)?.[0] || "";
@@ -325,7 +326,7 @@ try {
   assert.match(appJs, /data-ers-recent-window="7"/);
 
   assert.match(appJs, /opts\.onQuotes\(quotes\.filter\(isRegularMarketQuote\), marketState\)/);
-  assert.match(appJs, /quotes = quotes\.filter\(isRegularMarketQuote\);[\s\S]*?showing baked close/);
+  assert.match(appJs, /quotes = quotes\.filter\(isRegularMarketQuote\);[\s\S]*?showing last close/);
   assert.match(appJs, /var live = liveCandidate && liveCandidate\.marketState === 'REGULAR' \? liveCandidate : null;/);
   assert.match(appJs, /if \(lv && lv\.marketState === 'REGULAR' && lv\.changePct/);
   assert.match(appJs, /var regularSession = String\(q\.marketState \|\| ''\)\.toUpperCase\(\) === 'REGULAR';/);

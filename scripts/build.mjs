@@ -12,6 +12,7 @@ import { ISM_CALENDAR_URL, ISM_SCHEDULE_VERIFIED_AT, censusCalendarUrl, parseCen
 import { computeStreakForTicker } from "../lib/streaks.mjs";
 export { computeStreakForTicker } from "../lib/streaks.mjs";
 import { PATTERN_HISTORY_DAYS, splitPatternHistory } from "../lib/pattern-history.mjs";
+import { buildRatesHistory } from "../lib/rates-history.mjs";
 // Renders index.html — a single-purpose Option Contract Rater.
 //
 // Build-time: fetches Yahoo's option chain for a curated ticker list
@@ -3546,7 +3547,10 @@ export async function readMacroHistory() {
     const raw = await readFile(resolve(DATA_DIR, MACRO_HISTORY_FILE), "utf8");
     const parsed = JSON.parse(raw);
     if (parsed && Array.isArray(parsed.entries)) {
-      return { entries: parsed.entries.slice().sort((a, b) => String(a.date).localeCompare(String(b.date))) };
+      return {
+        entries: parsed.entries.slice().sort((a, b) => String(a.date).localeCompare(String(b.date))),
+        rates: parsed.rates && typeof parsed.rates === "object" ? parsed.rates : null,
+      };
     }
   } catch (_) { /* missing or unreadable */ }
   return { entries: [] };
@@ -3760,7 +3764,46 @@ function twoYearLegFromObs(obs, source) {
 // failure returns null and the caller falls through to FRED DGS2.
 const TREASURY_YIELD_XML =
   "https://home.treasury.gov/resource-center/data-chart-center/interest-rates/pages/xml?data=daily_treasury_yield_curve&field_tdr_date_value=";
-async function fetchTreasuryParYear(year) {
+// Every tenor on the Treasury par curve, as the feed names them. The Rates
+// page draws the whole curve (today, a month ago, a year ago) from these.
+export const TREASURY_TENORS = Object.freeze([
+  ["1M", "BC_1MONTH", 1 / 12], ["2M", "BC_2MONTH", 2 / 12], ["3M", "BC_3MONTH", 0.25], ["4M", "BC_4MONTH", 4 / 12],
+  ["6M", "BC_6MONTH", 0.5], ["1Y", "BC_1YEAR", 1], ["2Y", "BC_2YEAR", 2], ["3Y", "BC_3YEAR", 3], ["5Y", "BC_5YEAR", 5],
+  ["7Y", "BC_7YEAR", 7], ["10Y", "BC_10YEAR", 10], ["20Y", "BC_20YEAR", 20], ["30Y", "BC_30YEAR", 30],
+]);
+// Parse one year of the Treasury par-yield Atom feed. Exported for tests.
+export function parseTreasuryParXml(xml) {
+  const out = [];
+  for (const chunk of String(xml || "").split(/<entry[\s>]/).slice(1)) {
+    const dm = chunk.match(/<d:NEW_DATE[^>]*>([^<]+)<\/d:NEW_DATE>/);
+    if (!dm) continue;
+    const date = dm[1].slice(0, 10);
+    const curve = {};
+    for (const [label, tag] of TREASURY_TENORS) {
+      const m = chunk.match(new RegExp("<d:" + tag + "[^>]*>([^<]*)</d:" + tag + ">"));
+      const v = m && m[1] !== "" ? Number(m[1]) : NaN;
+      if (Number.isFinite(v)) curve[label] = v;
+    }
+    const value = curve["2Y"];
+    if (!date || !Number.isFinite(value)) continue;
+    out.push({
+      date,
+      value,
+      value10y: Number.isFinite(curve["10Y"]) ? curve["10Y"] : null,
+      value30y: Number.isFinite(curve["30Y"]) ? curve["30Y"] : null,
+      curve,
+    });
+  }
+  return out;
+}
+// One fetch per year per run: the 2Y tile, the overnight 2Y and the Rates
+// curve all read the same feed.
+const treasuryYearCache = new Map();
+function fetchTreasuryParYear(year) {
+  if (!treasuryYearCache.has(year)) treasuryYearCache.set(year, fetchTreasuryParYearOnce(year));
+  return treasuryYearCache.get(year);
+}
+async function fetchTreasuryParYearOnce(year) {
   try {
     const res = await fetch(`${TREASURY_YIELD_XML}${year}`, {
       headers: {
@@ -3774,28 +3817,11 @@ async function fetchTreasuryParYear(year) {
       console.log(`    ⚠ Treasury par-yield ${year} HTTP ${res.status}`);
       return [];
     }
-    const xml = await res.text();
-    const out = [];
     // OData/Atom: one <entry> per business day. Keep 2Y for the existing
-    // front-end tile plus 10Y/30Y history to repair Yahoo's occasional thin
-    // yield-index chart response used by Overnight's 20-session view.
-    for (const chunk of xml.split(/<entry[\s>]/).slice(1)) {
-      const dm = chunk.match(/<d:NEW_DATE[^>]*>([^<]+)<\/d:NEW_DATE>/);
-      const vm = chunk.match(/<d:BC_2YEAR[^>]*>([^<]*)<\/d:BC_2YEAR>/);
-      const ten = chunk.match(/<d:BC_10YEAR[^>]*>([^<]*)<\/d:BC_10YEAR>/);
-      const thirty = chunk.match(/<d:BC_30YEAR[^>]*>([^<]*)<\/d:BC_30YEAR>/);
-      if (!dm || !vm) continue;
-      const date = dm[1].slice(0, 10);
-      const value = Number(vm[1]);
-      if (!date || !Number.isFinite(value)) continue;
-      out.push({
-        date,
-        value,
-        value10y: ten?.[1] !== "" && Number.isFinite(Number(ten?.[1])) ? Number(ten[1]) : null,
-        value30y: thirty?.[1] !== "" && Number.isFinite(Number(thirty?.[1])) ? Number(thirty[1]) : null,
-      });
-    }
-    return out;
+    // front-end tile, 10Y/30Y history to repair Yahoo's occasional thin
+    // yield-index chart response used by Overnight's 20-session view, and the
+    // whole curve for the Rates page.
+    return parseTreasuryParXml(await res.text());
   } catch (err) {
     console.log(`    ⚠ Treasury par-yield ${year} failed: ${err.message}`);
     return [];
@@ -4178,6 +4204,20 @@ function buildPriceSeries(bars) {
 // full ~1-month 30m window lets the client draw red/green candles, directional
 // volume and per-range Fibonacci retracements while still slicing 1W locally.
 const INTRADAY_SERIES_BARS = 320; // ~22 trading days * ~13 regular-session 30m bars
+function marketBackdropSparkDay(bars) {
+  if (!Array.isArray(bars) || bars.length < 2) return null;
+  const day = (b) => String(b && b.t || "").slice(0, 10);
+  const last = day(bars[bars.length - 1]);
+  if (!last) return null;
+  const out = bars.filter((b) => day(b) === last && Number.isFinite(b.c)).map((b) => Math.round(b.c * 100) / 100);
+  return out.length >= 2 ? out : null;
+}
+function marketBackdropSpark1m(bars) {
+  if (!Array.isArray(bars) || bars.length < 2) return null;
+  const out = bars.slice(-22).map((b) => (b && Number.isFinite(b.c) ? Math.round(b.c * 100) / 100 : null)).filter((v) => v != null);
+  return out.length >= 2 ? out : null;
+}
+export { marketBackdropSparkDay, marketBackdropSpark1m };
 function buildIntradaySeries(bars) {
   if (!Array.isArray(bars) || bars.length < 2) return null;
   const tail = bars.slice(-INTRADAY_SERIES_BARS);
@@ -8758,12 +8798,39 @@ export async function updateEarningsCallsData({ prior = null, earningsHxStore = 
   return { index: finishIndex(), details, keyless: false };
 }
 
+// The previous call's brief, trimmed to what the "vs last call" diff reads.
+// `old` is the detail on disk, `next` the one about to replace it.
+export function earningsCallPriorSnapshot(old, next) {
+  if (!old || typeof old !== "object" || !old.summary) return null;
+  const sameCall = (old.callDate && old.callDate === next?.callDate) || (old.quarter && old.quarter === next?.quarter);
+  if (sameCall) return old.prior || null;
+  const s = old.summary || {};
+  const label = (t) => (t && typeof t === "object" ? t.label || null : t || null);
+  return {
+    quarter: old.quarter || null,
+    callDate: old.callDate || null,
+    epsVerdict: s.epsVerdict || null,
+    mgmtTone: label(s.mgmtTone),
+    analystTone: label(s.analystTone),
+    guidance: (s.guidance || []).filter((g) => g && g.metric).slice(0, 12).map((g) => ({ metric: g.metric, period: g.period || null, value: g.value || null, change: g.change || null })),
+    risks: (s.risks || []).map((r) => (typeof r === "string" ? r : r?.risk || r?.text || r?.label || "")).filter(Boolean).slice(0, 8),
+  };
+}
+
 // Write the index + any newly-minted per-ticker details. Details are
 // upsert-only flat keys (data/transcript-<SYM>.json) — past details live in
 // the private store and are never re-written (or deleted) here.
 export async function writeEarningsCallsFiles({ prior = null, earningsHxStore = null, builtAtIso = null, skipSummarize = false } = {}) {
   const { index, details, keyless } = await updateEarningsCallsData({ prior, earningsHxStore, builtAtIso, skipSummarize });
   for (const d of details) {
+    // Keep a compact copy of the previous call's brief so the page can show
+    // "What changed vs last call". A re-summary of the same call carries the
+    // older snapshot forward unchanged. No AI, no extra fetch.
+    try {
+      const old = JSON.parse(await readFile(resolve(DATA_DIR, transcriptKeyForSym(d.sym)), "utf8"));
+      const prev = earningsCallPriorSnapshot(old, d);
+      if (prev) d.prior = prev;
+    } catch (_) { /* first brief for this name */ }
     await writeFile(resolve(DATA_DIR, transcriptKeyForSym(d.sym)), JSON.stringify(d), "utf8");
   }
   const json = JSON.stringify(index);
@@ -8961,6 +9028,14 @@ export function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras)
     // Absent for most names — Polymarket only lists earnings markets for a few
     // mega-caps in season — so the chip is unchanged when nothing matched.
     const earnPred = predictionMarkets?.earnings ? predictionMarkets.earnings[sym + "|" + date] : null;
+    // The last four earnings-day moves (close before → close after), so the
+    // calendar row shows how the stock usually reacts next to today's
+    // implied move. Read from the per-ticker earningsHx already attached.
+    const lastMoves = (Array.isArray(data?.earningsHx?.events) ? data.earningsHx.events : [])
+      .filter((ev) => ev && typeof ev.date === "string" && ev.date < date && Number.isFinite(ev.movePct))
+      .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+      .slice(-4)
+      .map((ev) => ({ date: ev.date, movePct: Number(ev.movePct.toFixed(4)) }));
     events.push({
       type: "earnings",
       date,
@@ -8969,6 +9044,7 @@ export function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras)
       session,
       source: nasdaq ? "Nasdaq" : "Yahoo Finance",
       ...(implied ? { impliedMovePct: implied.pct } : {}),
+      ...(lastMoves.length ? { lastMoves } : {}),
       ...(earnPred ? { predictions: [earnPred] } : {}),
     });
   }
@@ -37228,6 +37304,28 @@ async function main() {
   } catch (err) {
     console.log(`Global markets sweep failed: ${err.message}`);
   }
+  // The Rates page's long view: the whole Treasury curve today, a month ago
+  // and a year ago, plus a year of daily 2Y / 10Y / 30Y and the dollar index.
+  // Reuses the Treasury feed (the overnight 2Y already fetched this year) and
+  // the sweep's daily bars; rides in macro-history.json. A miss keeps the
+  // last good copy.
+  try {
+    const ratesYear = new Date().getUTCFullYear();
+    const treasuryRows = [...(await fetchTreasuryParYear(ratesYear - 1)), ...(await fetchTreasuryParYear(ratesYear))];
+    const rates = buildRatesHistory({
+      treasury: treasuryRows,
+      tenors: TREASURY_TENORS,
+      dxyBars: globalMarkets["DX-Y.NYB"]?.bars,
+      tnxBars: globalMarkets["^TNX"]?.bars,
+      tyxBars: globalMarkets["^TYX"]?.bars,
+      prior: macroHistoryPrev.rates,
+    });
+    if (rates) macroHistoryNext = { ...macroHistoryNext, rates };
+    console.log(`Rates history: ${rates?.curve ? rates.curve.lines.length + " curve lines" : "no curve"}, ${rates?.daily ? rates.daily.dates.length + " daily rows" : "no daily rows"}.`);
+  } catch (err) {
+    console.log(`Rates history failed: ${err.message}`);
+    if (macroHistoryPrev.rates) macroHistoryNext = { ...macroHistoryNext, rates: macroHistoryPrev.rates };
+  }
   // Cross-build ticker-judgment cache: read BEFORE writeChainFiles wipes data/
   // (persisted after the wipe). Only the
   // combined path caches — the legacy split path (AI_COMBINED=0) carries the
@@ -37681,6 +37779,10 @@ async function main() {
       rvol: vol.rvol ?? null,
       s20: t.sr?.s20 ?? null,
       r20: t.sr?.r20 ?? null,
+      // Home index tiles: the last session's 30-minute closes and the last
+      // month of daily closes, so each tile can draw a small line.
+      sparkDay: marketBackdropSparkDay(c._intraday),
+      spark1m: marketBackdropSpark1m(c._bars),
     };
   }
   // Next two FOMC dates — used by the Execute card to defer entries when

@@ -38,8 +38,12 @@ try {
     assert.match(csv, /Synthetic developer event/); assert(!csv.includes('RDDT'));
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'no horizontal overflow');
     await page.screenshot({ path: resolve(output, 'calendar-' + width + '-' + theme + '.png'), fullPage: true });
+    assert.equal(await page.locator('#calendar-root .cal-agenda').count(), 1, 'the next 14 days are the default layout');
+    await page.locator('#calendar-root [data-cal-layout="month"]').click();
+    assert.equal(await page.locator('#calendar-root .cal-agenda').count(), 0, 'the month grid replaces the agenda');
     preview.setScenario('company'); await page.reload(); await coverage.waitFor({state:'visible'});
     const root=page.locator('#calendar-root');
+    assert.equal(await root.locator('.cal-agenda').count(), 0, 'the month layout is remembered after a reload');
     await page.locator('.calendar-pill[data-cal-type="catalysts"]').click();
     await root.locator('[data-cal-day="2026-10-28"]').click();
     assert.match(await root.locator('.cal-detail').innerText(), /Oracle AI World/);
