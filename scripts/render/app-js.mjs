@@ -101,7 +101,30 @@ ${validNewsFeedPayload.toString()}
   // Shared sort / view helpers (source: scripts/render/views-client.mjs).
   var VIEWS = (${viewsFactory.toString()})(window, document);
   // Long lists open as a table on wider screens; phones keep cards.
-  VIEWS.tableFirst(['tickers']);
+  VIEWS.tableFirst(['tickers', 'streaks', 'levetf', 'open-picks', 'oi', 'flow']);
+  // Cell bars shared by the list tables. vtBarHtml: a 0..1 fill (for example
+  // an IV percentile). vtCbarHtml: a signed value on a centred axis that
+  // clips at +/-range (for example % from a moving average).
+  function vtBarHtml(frac, cls, label){
+    if (frac == null || !isFinite(frac)) return '';
+    var f = Math.max(0, Math.min(1, Number(frac)));
+    return '<span class="vt-bar"><span class="vt-bar-track" aria-hidden="true"><span class="vt-bar-fill' + (cls ? ' ' + cls : '') + '" style="width:' + (f * 100).toFixed(1) + '%"></span></span>' + (label != null ? '<b>' + label + '</b>' : '') + '</span>';
+  }
+  function vtCbarHtml(v, range, label){
+    if (v == null || !isFinite(v)) return '';
+    var r = range > 0 ? range : 10;
+    var c = Math.max(-r, Math.min(r, Number(v)));
+    var w = Math.abs(c) / r * 50;
+    var left = c >= 0 ? 50 : 50 - w;
+    return '<span class="vt-cbar-cell"><span class="vt-cbar" aria-hidden="true"><i class="' + (v >= 0 ? 'pos' : 'neg') + '" style="left:' + left.toFixed(1) + '%;width:' + Math.max(w, 1.5).toFixed(1) + '%"></i></span>' + (label != null ? '<b class="' + (v >= 0 ? 'pos' : 'neg') + '">' + label + '</b>' : '') + '</span>';
+  }
+  // The shared Cheap / Normal / Rich / Very rich read from IV_RICHNESS.
+  function ivBandPillHtml(band){
+    var b = String(band || '');
+    var label = b === 'very-rich' ? 'Very rich' : b === 'rich' ? 'Rich' : b === 'cheap' ? 'Cheap' : b === 'normal' ? 'Normal' : '';
+    if (!label) return '';
+    return '<span class="iv-band-pill iv-band-' + b + '" title="' + (b === 'cheap' ? 'Bottom fifth of its own IV history' : b === 'normal' ? 'Middle of its own IV history, or not above recent real moves' : 'Top ' + (b === 'very-rich' ? 'tenth' : 'fifth') + ' of its own IV history and above its 30-day realized moves') + '">' + label + '</span>';
+  }
   // js/streaks.js (a separate module) reads the same helpers + grade index.
   VIEWS.gradeTotal = function(sym, rerender){ return gradeTotalFor(sym, rerender); };
   VIEWS.sectorGroupOf = sectorGroupOf;
@@ -5982,6 +6005,13 @@ ${renderExportBindings()}
     var rsiSt = rsiState(t.rsi);
     var macdSt = macdState(t.macd);
     var html = '';
+    // The indicators read as one compact table (indicator, value, read)
+    // instead of a wall of tiles: each techCard call below adds a row.
+    var techRows = [];
+    function techCard(label, valueHtml, stateHtml, noteHtml, tip){
+      techRows.push({ label: label, value: valueHtml, state: stateHtml, note: noteHtml, tip: tip });
+      return '';
+    }
 
     // The AI chart-pattern read was retired (2026-10-19: its confirmed calls
     // were right about half the time). A small link keeps the reference page
@@ -6046,16 +6076,14 @@ ${renderExportBindings()}
           var above = pct >= 0;
           pill = '<span class="opt-tech-pill ' + (above ? 'pos' : 'warn') + '">' +
             (above ? '+' : '') + pct.toFixed(1) + '% ' + (above ? 'above' : 'below') + '</span>';
-          note = above
-            ? 'Spot is above the ' + label + ' — this average is acting as support'
-            : 'Spot is below the ' + label + ' — this average is acting as resistance';
+          note = above ? 'Acting as support' : 'Acting as resistance';
         }
         return techCard(label, '<span class="opt-tech-num">$' + fmt(val) + '</span>', pill, note, TIPS.sma);
       }
-      html += smaCard('20D SMA', t.sma.sma20);
-      html += smaCard('50D SMA', t.sma.sma50);
-      html += smaCard('100D SMA', t.sma.sma100);
-      html += smaCard('200D SMA', t.sma.sma200);
+      html += smaCard('20-day average', t.sma.sma20);
+      html += smaCard('50-day average', t.sma.sma50);
+      html += smaCard('100-day average', t.sma.sma100);
+      html += smaCard('200-day average', t.sma.sma200);
     }
 
     if (t.volume && t.volume.today != null){
@@ -6117,12 +6145,12 @@ ${renderExportBindings()}
         var note;
         if (isSupport){
           note = broken
-            ? 'Spot is below the ' + primaryLbl + ' low — buyers haven\\'t defended this level yet'
-            : 'Recent floor — buyers stepped in here; a break below is a meaningful technical event';
+            ? 'Price is below the ' + primaryLbl + ' low; buyers have not defended it yet'
+            : 'Recent floor; a close below it would matter';
         } else {
           note = broken
-            ? 'Spot is above the ' + primaryLbl + ' high — fresh breakout; watch for follow-through'
-            : 'Recent ceiling — sellers showed up here; a clean break above is a meaningful technical event';
+            ? 'Price is above the ' + primaryLbl + ' high, a fresh breakout; watch for follow-through'
+            : 'Recent ceiling; a close above it would matter';
         }
         return techCard(
           label,
@@ -6138,6 +6166,27 @@ ${renderExportBindings()}
       html += srCard('Resistance (long)', 'resistance', t.sr.r100, '100d', t.sr.r200, '200d', TIPS.resistance);
     }
 
+    var techGroups = [
+      ['Momentum', /^(RSI|MACD)/],
+      ['Moving averages', /average/],
+      ['Volume', /^Volume/],
+      ['Support and resistance', /^(Support|Resistance)/]
+    ];
+    var techBody = '';
+    techGroups.forEach(function(g){
+      var rowsIn = techRows.filter(function(r){ return g[1].test(r.label); });
+      if (!rowsIn.length) return;
+      techBody += '<tr class="opt-tech-t-grp"><td colspan="3">' + g[0] + '</td></tr>';
+      rowsIn.forEach(function(r){
+        techBody += '<tr><td class="opt-tech-t-label">' + r.label + tipChip(r.tip) + '</td>' +
+          '<td class="num opt-tech-t-value">' + r.value + '</td>' +
+          '<td class="opt-tech-t-read">' + (r.state || '') + (r.note ? '<span class="opt-tech-t-note">' + r.note + '</span>' : '') + '</td></tr>';
+      });
+    });
+    if (techBody){
+      html += '<div class="opt-tech-table-wrap"><div class="vt-wrap"><table class="vt-table opt-tech-table" data-nosort>' +
+        '<thead><tr><th>Indicator</th><th class="num">Value</th><th>Read</th></tr></thead><tbody>' + techBody + '</tbody></table></div></div>';
+    }
     grid.innerHTML = html;
     attachPriceChartHover(grid);
     var patternRef = grid.querySelector('[data-tech-pattern-ref]');
@@ -9350,6 +9399,69 @@ ${renderExportBindings()}
         '<span class="flow-sum-leg is-put"><span class="flow-sum-dot"></span>Puts ' + escapeHtml(putStr) + ' ask-side before quality filters · ' + putPct + '% · ' + putN + ' tagged</span>' +
       '</div>';
   }
+  // Table view: the flagged trades themselves, one row per contract, across
+  // every stock that passes the filters. The note, GEX strip and price path
+  // open under the row.
+  function flowShortDollars(v){
+    var a = Math.abs(Number(v));
+    if (!isFinite(a)) return '';
+    if (a >= 1e9) return '$' + (v / 1e9).toFixed(2) + 'B';
+    if (a >= 1e6) return '$' + (v / 1e6).toFixed(2) + 'M';
+    if (a >= 1e3) return '$' + Math.round(v / 1e3) + 'K';
+    return '$' + Math.round(v);
+  }
+  function flowTradesTableHtml(tickers){
+    var trades = [];
+    tickers.forEach(function(t){
+      (t.contracts || []).forEach(function(c){ trades.push({ t: t, c: c }); });
+    });
+    var key = flowState.sort || 'delta';
+    function prem(x){ var c = x.c; return c.deltaPremium != null ? c.deltaPremium : c.premium; }
+    var getters = {
+      delta: function(x){ return x.c.deltaVol; },
+      premium: prem,
+      volume: function(x){ return x.c.vol; },
+      contracts: function(x){ return x.c.repeatCount || 0; },
+      repeats: function(x){ return x.c.repeatCount || 0; },
+      calls: function(x){ return (x.c.side === 'call' ? 1e15 : 0) + (prem(x) || 0); },
+      puts: function(x){ return (x.c.side === 'put' ? 1e15 : 0) + (prem(x) || 0); },
+      expiry: function(x){ return x.c.dte; },
+      sector: function(x){ return sectorGroupOf(x.t.symbol) || '~'; },
+      alpha: function(x){ return x.t.symbol; }
+    };
+    var get = getters[key] || getters.delta;
+    trades = VIEWS.sortBy(trades, get, key === 'expiry', 'flow');
+    var cols = [
+      { label: 'Stock', cell: function(x){ return VIEWS.expandHtml('Show details for this trade') + '<a href="' + symGradeHref(x.t.symbol) + '">' + escapeHtml(x.t.symbol) + '</a>'; }, sort: function(x){ return x.t.symbol; } },
+      { label: 'Contract', cell: function(x){
+          var c = x.c;
+          var otm = fmtOtm(c.otmPct);
+          return '<span class="vt-tag ' + (c.side === 'put' ? 'put' : 'call') + '">' + (c.side === 'put' ? 'Put' : 'Call') + '</span> ' +
+            escapeHtml((c.strike != null ? '$' + Number(c.strike) : '') + ' · ' + fmtExpiry(c.expSec)) +
+            '<span class="vt-sub">' + (c.dte != null ? Number(c.dte) + ' days' : '') + (otm ? ' · ' + escapeHtml(otm) + ' out of the money' : '') + '</span>';
+        }, sort: function(x){ return x.c.dte; } },
+      { label: 'Flagged', cell: function(x){ return escapeHtml(fmtFlaggedTime(x.c.firstSeen)); }, sort: function(x){ return x.c.firstSeen ? Date.parse(x.c.firstSeen) : null; } },
+      { label: 'Tape', title: 'Where the last print traded against the bid and ask', cell: function(x){ var l = tapeLabel(x.c.tape); return l ? '<span class="flow-tape tape-' + String(x.c.tape || '').replace(/[^a-z0-9_-]/gi, '') + '" title="' + escapeHtml(tapeTitle(x.c.tape)) + '">' + escapeHtml(l) + '</span>' : ''; }, sort: function(x){ return { ask: 5, abv: 4, mid: 3, blw: 2, bid: 1 }[x.c.tape] || null; } },
+      { label: 'Premium', num: true, title: 'Premium that traded this hour (contracts this hour × last × 100); the day total when the hourly figure is missing', cell: function(x){ var v = prem(x); return v != null ? escapeHtml(flowShortDollars(v)) + (x.c.deltaPremium == null ? '<span class="vt-sub">day total</span>' : '') : ''; }, sort: prem },
+      { label: 'This hour', num: true, title: 'Contracts traded since the last hourly scan', cell: function(x){ return x.c.deltaVol != null ? escapeHtml(fmtDelta(x.c.deltaVol)) : ''; }, sort: function(x){ return x.c.deltaVol; } },
+      { label: 'Vol / OI', num: true, title: 'Volume today divided by open interest. Above 1× means new positions.', cell: function(x){
+          var c = x.c;
+          if (c.oi === 0 && c.vol > 0) return '<span class="flow-voi flow-voi-new">new strike</span>';
+          if (!(c.oi > 0) || c.vol == null) return '';
+          var r = c.vol / c.oi;
+          return (r >= 10 ? Math.round(r) : (Math.round(r * 10) / 10)) + '×<span class="vt-sub">' + escapeHtml(fmtVolume(c.vol)) + ' / ' + escapeHtml(fmtVolume(c.oi)) + '</span>';
+        }, sort: function(x){ return x.c.oi > 0 && x.c.vol != null ? x.c.vol / x.c.oi : (x.c.vol > 0 ? 1e6 : null); } },
+      { label: 'Repeat', num: true, title: 'Times this contract was flagged in the last 5 trading days', cell: function(x){ var n = Number(x.c.repeatCount) || 0; return n >= 2 ? '<span class="flow-repeat">\u{1F525} ×' + n + '</span>' : ''; }, sort: function(x){ return Number(x.c.repeatCount) || 0; } }
+    ];
+    return VIEWS.tableHtml(cols, trades, {
+      key: 'flow-trades', cls: 'flow-vt',
+      rowAttr: function(x){ return 'data-symbol="' + escapeHtml(x.t.symbol) + '"'; },
+      detail: function(x){
+        return '<div class="flow-vt-detail">' + flowContractHtml(x.c, x.t.symbol) + '</div>';
+      },
+      empty: 'No trades match these filters.'
+    });
+  }
   function renderUnusualFlow(){
     var list = $('flow-list');
     var empty = $('flow-empty');
@@ -9407,6 +9519,12 @@ ${renderExportBindings()}
     if (noResults) noResults.hidden = true;
     renderFlowDecision(tickers, { filtered: hasFilters });
     renderFlowSummary(tickers);
+    var flowAsTable = VIEWS.viewMode('flow') === 'table';
+    list.setAttribute('role', flowAsTable ? 'region' : 'list');
+    list.classList.toggle('is-table', flowAsTable);
+    var flowExpand = $('flow-expand-toggle');
+    if (flowExpand) flowExpand.hidden = flowAsTable;
+    if (flowAsTable){ list.innerHTML = flowTradesTableHtml(tickers); return; }
     list.innerHTML = tickers.map(function(t){
       var spot = t.spot != null ? '$' + Number(t.spot).toFixed(2) : '';
       var topTier = deltaTier(t.topDelta || 0);
@@ -9444,7 +9562,7 @@ ${renderExportBindings()}
           renderUnusualFlow();
           requestAnimationFrame(function(){
             var row = null;
-            var rows = document.querySelectorAll('.flow-row[data-symbol]');
+            var rows = document.querySelectorAll('#flow-list [data-symbol]');
             for (var i = 0; i < rows.length; i++){
               if (String(rows[i].getAttribute('data-symbol') || '').toUpperCase() === focusSym){ row = rows[i]; break; }
             }
@@ -9539,6 +9657,13 @@ ${renderExportBindings()}
       VIEWS.attachFlip(sortSelect, 'flow', renderUnusualFlow);
       if (flowState.sort !== 'delta' || VIEWS.reversed('flow')) renderUnusualFlow();
     }
+    var flowControls = document.querySelector('#page-pane-flow .flow-controls');
+    if (flowControls && !flowControls.querySelector('.view-toggle')){
+      var csvBtn = $('flow-export-csv');
+      if (csvBtn) csvBtn.insertAdjacentHTML('beforebegin', VIEWS.viewToggleHtml('flow'));
+      else flowControls.insertAdjacentHTML('beforeend', VIEWS.viewToggleHtml('flow'));
+    }
+    VIEWS.onView('flow', renderUnusualFlow);
     var expandToggle = $('flow-expand-toggle');
     if (expandToggle){
       expandToggle.addEventListener('click', function(){
@@ -14123,11 +14248,13 @@ ${renderExportBindings()}
       var sym = String(t.symbol).toUpperCase();
       var q = oiLive.quotes[sym];
       if (!q || q.spot == null || !isFinite(q.spot)) continue;
-      var row = list.querySelector('.oi-row[data-symbol="' + sym + '"]');
+      var row = list.querySelector('[data-symbol="' + sym + '"]');
       if (!row) continue;
       var spot = Number(q.spot);
       var spotEl = row.querySelector('.oi-spot');
       if (spotEl) spotEl.textContent = '$' + spot.toFixed(2);
+      var rangeEl = row.querySelector('[data-oi-range]');
+      if (rangeEl) rangeEl.innerHTML = oiRangeInner(t, spot);
       var liveEl = row.querySelector('[data-oi-live]');
       if (!liveEl) continue;
       var bits = [];
@@ -14668,31 +14795,8 @@ ${renderExportBindings()}
     }
     return oiState.allCollapsed;
   }
-  function oiTickerRowHtml(t){
-    var spot = t.spot != null ? '$' + Number(t.spot).toFixed(2) : '';
+  function oiLadderHtml(t, cw, pw){
     var spotVal = Number(t.spot);
-    var score = t.score || 0;
-    var tier = oiScoreTier(score);
-    var collapsed = oiIsRowCollapsed(t.symbol);
-    var cw = t.callWall;
-    var pw = t.putWall;
-    var cwHtml = cw
-      ? '<span class="oi-wall oi-wall-call" title="Open-interest call wall: the strike with the most call contracts open (front two expirations). The gamma wall above can differ because it weighs gamma across eight expirations.">OI call wall ' + fmtOiStrike(cw.strike) + ' · ' + fmtOiNum(cw.oi) + '</span>'
-      : '';
-    var pwHtml = pw
-      ? '<span class="oi-wall oi-wall-put" title="Open-interest put wall: the strike with the most put contracts open (front two expirations). The gamma wall above can differ because it weighs gamma across eight expirations.">OI put wall ' + fmtOiStrike(pw.strike) + ' · ' + fmtOiNum(pw.oi) + '</span>'
-      : '';
-    var cpHtml = t.cpRatio != null
-      ? '<span class="oi-cp" title="Total call OI ÷ total put OI across the short-dated chain">C/P ' + Number(t.cpRatio).toFixed(2) + ':1</span>'
-      : '';
-    var si = t.shortInterest || null;
-    var siHtml = si && si.percentFloat != null
-      ? '<span class="oi-short" title="FINRA twice-monthly short interest; secondary squeeze context, not part of the 0–5 gamma score">Short ' +
-        Number(si.percentFloat).toFixed(1) + '% float' +
-        (si.daysToCover != null ? ' · ' + Number(si.daysToCover).toFixed(1) + 'd cover' : '') +
-        (si.changePct != null ? ' · ' + (Number(si.changePct) >= 0 ? '+' : '') + Number(si.changePct).toFixed(1) + '% prior' : '') +
-        '</span>'
-      : '';
     // Split top-12 strikes into calls and puts, then sort each side by
     // absolute distance from spot (closest first, extending outwards).
     // Falls back to raw |strike - spot| when fromSpotPct is missing so a
@@ -14719,6 +14823,34 @@ ${renderExportBindings()}
           oiLadderColHtml('put', puts, pw ? pw.strike : null, maxOi) +
         '</div>'
       : '';
+    return ladderHtml;
+  }
+  function oiTickerRowHtml(t){
+    var spot = t.spot != null ? '$' + Number(t.spot).toFixed(2) : '';
+    var spotVal = Number(t.spot);
+    var score = t.score || 0;
+    var tier = oiScoreTier(score);
+    var collapsed = oiIsRowCollapsed(t.symbol);
+    var cw = t.callWall;
+    var pw = t.putWall;
+    var cwHtml = cw
+      ? '<span class="oi-wall oi-wall-call" title="Open-interest call wall: the strike with the most call contracts open (front two expirations). The gamma wall above can differ because it weighs gamma across eight expirations.">OI call wall ' + fmtOiStrike(cw.strike) + ' · ' + fmtOiNum(cw.oi) + '</span>'
+      : '';
+    var pwHtml = pw
+      ? '<span class="oi-wall oi-wall-put" title="Open-interest put wall: the strike with the most put contracts open (front two expirations). The gamma wall above can differ because it weighs gamma across eight expirations.">OI put wall ' + fmtOiStrike(pw.strike) + ' · ' + fmtOiNum(pw.oi) + '</span>'
+      : '';
+    var cpHtml = t.cpRatio != null
+      ? '<span class="oi-cp" title="Total call OI ÷ total put OI across the short-dated chain">C/P ' + Number(t.cpRatio).toFixed(2) + ':1</span>'
+      : '';
+    var si = t.shortInterest || null;
+    var siHtml = si && si.percentFloat != null
+      ? '<span class="oi-short" title="FINRA twice-monthly short interest; secondary squeeze context, not part of the 0–5 gamma score">Short ' +
+        Number(si.percentFloat).toFixed(1) + '% float' +
+        (si.daysToCover != null ? ' · ' + Number(si.daysToCover).toFixed(1) + 'd cover' : '') +
+        (si.changePct != null ? ' · ' + (Number(si.changePct) >= 0 ? '+' : '') + Number(si.changePct).toFixed(1) + '% prior' : '') +
+        '</span>'
+      : '';
+    var ladderHtml = oiLadderHtml(t, cw, pw);
     var scoreBadge =
       '<span class="oi-score ' + tier + (t.flagged ? ' is-flagged' : '') + '" ' +
         'title="Gamma Squeeze Score (0-5). 4-5 = strong potential setup.">' +
@@ -14742,6 +14874,60 @@ ${renderExportBindings()}
     '</article>';
   }
 
+  // Table view: one row per stock, with a small bar showing where the price
+  // sits between its OI put wall and OI call wall. The strike ladder opens
+  // under the row.
+  function oiRangeInner(t, spot){
+    var pw = t.putWall && Number(t.putWall.strike), cw = t.callWall && Number(t.callWall.strike);
+    var sp = Number(spot);
+    if (!(pw > 0) || !(cw > 0) || !(sp > 0) || !(cw > pw)) return '<span class="vt-na">—</span>';
+    var f = (sp - pw) / (cw - pw);
+    var out = f < 0 ? 'below' : f > 1 ? 'above' : '';
+    var pos = Math.max(0, Math.min(1, f)) * 100;
+    var tip = out === 'above' ? 'Price is above the OI call wall' : out === 'below' ? 'Price is below the OI put wall' : 'Price sits ' + Math.round(f * 100) + '% of the way from the put wall to the call wall';
+    return '<span class="oi-range' + (out ? ' is-' + out : '') + '" title="' + escapeHtml(tip) + '"><i class="oi-range-dot" style="left:' + pos.toFixed(1) + '%"></i></span>';
+  }
+  function oiTableHtml(tickers){
+    function wallCell(t, key){
+      var w = t[key];
+      if (!w || w.strike == null) return '';
+      var d = oiWallDistPct(t, key);
+      return fmtOiStrike(w.strike) + '<span class="vt-sub">' + (d != null ? d.toFixed(1) + '% away · ' : '') + fmtOiNum(w.oi) + ' OI</span>';
+    }
+    function topDelta(t){
+      var m = null;
+      (Array.isArray(t.strikes) ? t.strikes : []).forEach(function(x){
+        if (x && x.oiDeltaPct != null && isFinite(x.oiDeltaPct) && (m == null || x.oiDeltaPct > m)) m = Number(x.oiDeltaPct);
+      });
+      return m;
+    }
+    function rangePos(t){
+      var pw = t.putWall && Number(t.putWall.strike), cw = t.callWall && Number(t.callWall.strike), sp = Number(t.spot);
+      return pw > 0 && cw > pw && sp > 0 ? (sp - pw) / (cw - pw) : null;
+    }
+    var cols = [
+      { label: 'Stock', cell: function(t){ return VIEWS.expandHtml('Show the strike ladder for ' + t.symbol) + '<a href="' + symGradeHref(t.symbol) + '">' + escapeHtml(t.symbol) + '</a>'; }, sort: function(t){ return t.symbol; } },
+      { label: 'Price', num: true, cell: function(t){ return t.spot != null ? '<span class="oi-spot">$' + Number(t.spot).toFixed(2) + '</span>' : ''; }, sort: function(t){ return t.spot; } },
+      { label: 'Score', num: true, title: 'Gamma squeeze score, 0 to 5. 4 or more is a potential setup, not an entry.', cell: function(t){ var sc = t.score || 0; return '<span class="oi-score ' + oiScoreTier(sc) + (t.flagged ? ' is-flagged' : '') + '">' + sc + '/5' + (t.flagged ? ' ⚠' : '') + '</span>'; }, sort: function(t){ return t.score || 0; } },
+      { label: 'Put wall', num: true, title: 'Strike with the most put contracts open (front two expirations)', cell: function(t){ return wallCell(t, 'putWall'); }, sort: function(t){ return oiWallDistPct(t, 'putWall'); } },
+      { label: 'Price between the walls', cls: 'oi-range-col', title: 'Left end: OI put wall. Right end: OI call wall. The dot is the price.', cell: function(t){ return '<span data-oi-range>' + oiRangeInner(t, t.spot) + '</span>'; }, sort: rangePos },
+      { label: 'Call wall', title: 'Strike with the most call contracts open (front two expirations)', cell: function(t){ return wallCell(t, 'callWall'); }, sort: function(t){ return oiWallDistPct(t, 'callWall'); } },
+      { label: 'C/P', num: true, title: 'Total call OI divided by total put OI', cell: function(t){ return t.cpRatio != null ? Number(t.cpRatio).toFixed(2) : ''; }, sort: function(t){ return t.cpRatio; } },
+      { label: 'Total OI', num: true, cell: function(t){ return fmtOiNum((t.callOiTotal || 0) + (t.putOiTotal || 0)); }, sort: function(t){ return (t.callOiTotal || 0) + (t.putOiTotal || 0); } },
+      { label: 'Biggest ΔOI', num: true, title: 'Largest day-over-day open interest change among the top strikes', cell: function(t){ var d = topDelta(t); return d == null ? '' : '<span class="' + (d >= 0 ? 'pos' : 'neg') + '">' + fmtOiPct(d, true) + '</span>'; }, sort: topDelta },
+      { label: 'Short', num: true, title: 'FINRA short interest, % of float', cell: function(t){ var si = t.shortInterest; return si && si.percentFloat != null ? Number(si.percentFloat).toFixed(1) + '%' : ''; }, sort: function(t){ return t.shortInterest ? t.shortInterest.percentFloat : null; } }
+    ];
+    return VIEWS.tableHtml(cols, tickers, {
+      key: 'oi-walls', cls: 'oi-vt',
+      rowAttr: function(t){ return 'class="oi-trow' + (t.flagged ? ' is-flagged' : '') + '" data-symbol="' + escapeHtml(t.symbol) + '"'; },
+      detail: function(t){
+        var ladder = oiLadderHtml(t, t.callWall, t.putWall);
+        var reasons = oiReasonChipsHtml(t.reasons);
+        return reasons || ladder ? '<div class="oi-vt-detail">' + reasons + ladder + '</div>' : '';
+      },
+      empty: 'No tickers match these filters.'
+    });
+  }
   function renderOI(){
     var list = $('oi-list');
     var empty = $('oi-empty');
@@ -14796,7 +14982,12 @@ ${renderExportBindings()}
     }
     if (noResults) noResults.hidden = true;
     renderOiDecision(tickers, { filtered: !!(oiState.search || oiState.flaggedOnly) });
-    list.innerHTML = tickers.map(oiTickerRowHtml).join('');
+    var oiAsTable = VIEWS.viewMode('oi') === 'table';
+    list.setAttribute('role', oiAsTable ? 'region' : 'list');
+    list.classList.toggle('is-table', oiAsTable);
+    var oiExpand = $('oi-expand-toggle');
+    if (oiExpand) oiExpand.hidden = oiAsTable;
+    list.innerHTML = oiAsTable ? oiTableHtml(tickers) : tickers.map(oiTickerRowHtml).join('');
     // Re-apply the live spot/wall-distance overlay — a filter/sort re-render
     // would otherwise blank it until the next 30s poll.
     if (typeof applyOiLive === 'function') applyOiLive();
@@ -14818,7 +15009,7 @@ ${renderExportBindings()}
           renderOI();
           requestAnimationFrame(function(){
             var row = null;
-            var rows = document.querySelectorAll('.oi-row[data-symbol]');
+            var rows = document.querySelectorAll('#oi-list [data-symbol]');
             for (var i = 0; i < rows.length; i++){
               if (String(rows[i].getAttribute('data-symbol') || '').toUpperCase() === focusSym){ row = rows[i]; break; }
             }
@@ -14889,6 +15080,9 @@ ${renderExportBindings()}
       VIEWS.attachFlip(sortSel, 'oi', renderOI);
       if (oiState.sort !== 'score' || VIEWS.reversed('oi')) renderOI();
     }
+    var oiControls = document.querySelector('#page-pane-oi .oi-controls');
+    if (oiControls && !oiControls.querySelector('.view-toggle')) oiControls.insertAdjacentHTML('beforeend', VIEWS.viewToggleHtml('oi'));
+    VIEWS.onView('oi', renderOI);
     var expandBtn = $('oi-expand-toggle');
     if (expandBtn){
       expandBtn.addEventListener('click', function(){
@@ -20386,6 +20580,41 @@ ${renderExportBindings()}
       '<td data-owner-only><span class="ma-track-score ' + read.status + '">' + Math.round(read.score) + '</span><small>' + read.status + '</small></td>' +
       '<td class="dt-wrap">' + escapeHtml(approach) + '<small>' + escapeHtml(eta) + '</small></td><td>' + (isFinite(read.aligned5dPct) ? (read.aligned5dPct > 0 ? '+' : '') + read.aligned5dPct.toFixed(2) + '%' : '—') + '<small>5D toward level</small></td><td>' + (isFinite(read.rvol) ? read.rvol.toFixed(2) + '×' : '—') + '<small>relative volume</small></td></tr>';
   }
+  // Every tracked stock against its 20 / 50 / 100 / 200-day averages, as
+  // small bars on a centred axis (clipped at +/-20%), so the whole universe
+  // reads as one picture. The crossover table above keeps only the names
+  // inside the 5% band.
+  var MA_ALL_RANGE = 20;
+  function maTrackerAllHtml(){
+    var d = maTrackerState.data || {};
+    var periods = (d.periods || [20, 50, 100, 200]).filter(function(p){ return p > 0; });
+    var rows = (d.tickers || []).map(function(row){
+      var live = maTrackerState.live && maTrackerState.live[row.symbol];
+      var spot = live && live.spot > 0 ? Number(live.spot) : Number(row.spot);
+      var dist = {};
+      periods.forEach(function(p){
+        var lvl = row.levels && Number(row.levels[p]);
+        dist[p] = spot > 0 && lvl > 0 ? (spot / lvl - 1) * 100 : null;
+      });
+      return { symbol: row.symbol, sector: row.sector, spot: spot, live: !!(live && live.spot > 0), dist: dist };
+    }).filter(function(r){ return r.symbol && r.spot > 0; });
+    if (!rows.length) return '';
+    rows = VIEWS.sortBy(rows, function(r){ return r.dist[200] != null ? r.dist[200] : r.dist[50]; });
+    var aboveAll = rows.filter(function(r){ return periods.every(function(p){ return r.dist[p] == null || r.dist[p] >= 0; }); }).length;
+    var belowAll = rows.filter(function(r){ return periods.every(function(p){ return r.dist[p] == null || r.dist[p] < 0; }); }).length;
+    var cols = [
+      { label: 'Stock', cell: function(r){ return '<a href="' + symGradeHref(r.symbol) + '">' + escapeHtml(r.symbol) + '</a>'; }, sort: function(r){ return r.symbol; } },
+      { label: 'Price', num: true, cell: function(r){ return fmtMoney(r.spot); }, sort: function(r){ return r.spot; } }
+    ];
+    periods.forEach(function(p){
+      cols.push({ label: p + '-day', num: true, title: 'Price vs its ' + p + '-day average. Bars clip at ' + MA_ALL_RANGE + '% either way.',
+        cell: function(r){ var v = r.dist[p]; return v == null ? '' : vtCbarHtml(v, MA_ALL_RANGE, (v > 0 ? '+' : '') + v.toFixed(1) + '%'); },
+        sort: function(r){ return r.dist[p]; } });
+    });
+    return '<section class="ma-all"><div class="ma-all-head"><h3>Every stock against its averages</h3>' +
+      '<p>' + rows.length + ' stocks · ' + aboveAll + ' above all four · ' + belowAll + ' below all four · sorted by distance from the 200-day</p></div>' +
+      VIEWS.tableHtml(cols, rows, { key: 'ma-all', cls: 'ma-all-vt' }) + '</section>';
+  }
   function renderMaTracker(){
     var root = $('ma-tracker-root'); var empty = $('ma-tracker-empty'); var eye = $('ma-tracker-eyebrow');
     if (!root) return; var d = maTrackerState.data;
@@ -20393,7 +20622,7 @@ ${renderExportBindings()}
     var rows = maTrackerCandidates();
     if (!HAS_OWNER_ACCESS) rows.sort(function(a,b){ return a.absDistancePct - b.absDistancePct || a.symbol.localeCompare(b.symbol); });
     if (eye) eye.textContent = rows.length + ' levels · ' + new Set(rows.map(function(row){ return row.symbol; })).size + ' stocks' + (maTrackerState.marketState === 'REGULAR' ? ' · live' : ' · build prices');
-    if (!rows.length){ root.hidden = true; if (empty) empty.hidden = false; return; }
+    if (!rows.length){ var maAllOnly = maTrackerAllHtml(); root.hidden = !maAllOnly; root.innerHTML = maAllOnly; if (empty) empty.hidden = false; return; }
     root.hidden = false; if (empty) empty.hidden = true;
     var above = rows.filter(function(row){ return row.direction === 'above'; });
     var below = rows.filter(function(row){ return row.direction === 'below'; });
@@ -20409,7 +20638,7 @@ ${renderExportBindings()}
     };
     var leaders = '<div class="ma-track-leaders">' + leaderPanel('Most likely to cross above', above, 'is-above') + leaderPanel('Most likely to cross below', below, 'is-below') + '</div>';
     var table = '<div class="ma-track-table-wrap"><table class="ma-track-table"><thead><tr><th>Stock</th><th>Average</th><th>Price</th><th>Level / gap</th><th data-owner-only>Priority</th><th>Approach</th><th>Momentum</th><th>Volume</th></tr></thead><tbody>' + rows.map(maTrackerRow).join('') + '</tbody></table></div>';
-    root.innerHTML = summary + leaders + '<p class="ma-track-note"><b>Interpretation:</b> ranking measures evidence of an approaching cross; it does not estimate the probability that a cross will hold. Confirm with a daily close and volume before acting.</p>' + table;
+    root.innerHTML = summary + leaders + '<p class="ma-track-note"><b>Interpretation:</b> ranking measures evidence of an approaching cross; it does not estimate the probability that a cross will hold. Confirm with a daily close and volume before acting.</p>' + table + maTrackerAllHtml();
   }
   function loadMaTracker(){
     if (maTrackerState.data || maTrackerState.loading){ renderMaTracker(); return; }
@@ -24490,10 +24719,11 @@ ${renderExportBindings()}
       var tierMeta = w.tier && IVT_TIER_META[w.tier] ? IVT_TIER_META[w.tier] : null;
       rows += '<div class="ivt-trow' + (tierMeta ? ' ' + tierMeta.cls : '') + '">' +
         '<span class="ivt-trow-sym"><a class="ivt-trow-symbtn" data-sym="' + escapeHtml(w.symbol || '') + '" href="' + symGradeHref(w.symbol) + '" title="Open ' + escapeHtml(w.symbol || '') + ' in the Grade tab">' + escapeHtml(w.symbol || '') + '</a>' +
-          (tierMeta ? ' <em class="ivt-trow-tier" title="' + (w.provisional ? 'Provisional: fewer than 60 comparable IV sessions' : '') + '">' + tierMeta.label + (w.provisional ? '*' : '') + '</em>' : (w.elevated ? ' <em class="ivt-trow-tier ivt-elev" title="Rich: top fifth of its own IV history and above 30-day realized moves, but not currently climbing">Rich</em>' : '')) + '</span>' +
+          (tierMeta ? ' <em class="ivt-trow-tier" title="' + (w.provisional ? 'Provisional: fewer than 60 comparable IV sessions' : '') + '">' + tierMeta.label + (w.provisional ? '*' : '') + '</em>' : '') +
+          (w.band && w.band !== 'normal' ? ' ' + ivBandPillHtml(w.band) : (!tierMeta && w.elevated ? ' ' + ivBandPillHtml('rich') : '')) + '</span>' +
         '<span class="ivt-trow-num">' + ivtIvPct(w.iv) + '</span>' +
         '<span class="ivt-trow-num">' + (w.z == null ? '—' : (w.z >= 0 ? '+' : '') + w.z.toFixed(1) + 'σ') + '</span>' +
-        '<span class="ivt-trow-num">' + (w.pctile == null ? '—' : w.pctile) + '</span>' +
+        '<span class="ivt-trow-num ivt-trow-pct" title="Where today\\'s IV sits in its own history: 0 is the lowest, 100 the highest">' + (w.pctile == null ? '—' : vtBarHtml(w.pctile / 100, w.pctile >= 80 ? 'warn' : w.pctile <= 20 ? 'pos' : 'mid', String(w.pctile))) + '</span>' +
         '<span class="ivt-trow-num' + (w.chg5dPct == null ? '' : (w.chg5dPct >= 0 ? ' cx-up' : ' cx-down')) + '">' + (w.chg5dPct == null ? '—' : (w.chg5dPct >= 0 ? '+' : '') + w.chg5dPct.toFixed(1) + '%') + '</span>' +
         '<span class="ivt-trow-num' + (w.chg20dPct == null ? '' : (w.chg20dPct >= 0 ? ' cx-up' : ' cx-down')) + '">' + (w.chg20dPct == null ? '—' : (w.chg20dPct >= 0 ? '+' : '') + w.chg20dPct.toFixed(1) + '%') + '</span>' +
         '<span class="ivt-trow-earn">' + (w.earnings && w.earnings.date ? escapeHtml(ivtDateLabel(w.earnings.date)) + (w.earnings.inDays != null ? ' · ' + w.earnings.inDays + 'd' : '') : '—') + '</span>' +
