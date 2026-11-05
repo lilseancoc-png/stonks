@@ -60,6 +60,52 @@ th.ts-th[aria-sort="descending"], th.ts-th[aria-sort="ascending"] { color: var(-
 .vt-tag.call { color: var(--pos); background: var(--pos-soft); }
 .vt-tag.put { color: var(--neg); background: var(--neg-soft); }
 .vt-empty { grid-column: 1 / -1; color: var(--muted); font-size: 13px; margin: 8px 2px; }
+/* Long tables keep their header in view: on wide screens the table scrolls
+   inside its own box; on phones the first column stays put while the rest
+   scrolls sideways. */
+.vt-table th { z-index: 2; }
+@media (min-width: 761px) {
+  .vt-wrap.vt-tall { max-height: min(76vh, 960px); overflow: auto; overscroll-behavior: contain; }
+}
+@media (max-width: 760px) {
+  .vt-table.vt-sticky1 th:first-child, .vt-table.vt-sticky1 td:first-child {
+    position: sticky; left: 0; z-index: 1; background: var(--surface);
+    box-shadow: inset -1px 0 0 var(--hairline, var(--border));
+  }
+  .vt-table.vt-sticky1 th:first-child { z-index: 3; background: var(--surface-2); }
+  .vt-table.vt-sticky1 tr.vt-detail td:first-child { position: static; box-shadow: none; }
+  .vt-table tr.vt-detail > td > * { position: sticky; left: 12px; max-width: calc(100vw - 58px); }
+}
+.vt-table tbody tr.vt-detail td { white-space: normal; background: var(--surface-2); padding: 10px 12px 12px; }
+.vt-table tbody tr.vt-detail:hover td { background: var(--surface-2); }
+.vt-table tr.is-open td { border-bottom-color: transparent; }
+.vt-expand {
+  display: inline-grid; place-items: center; width: 22px; height: 22px; margin: -2px 6px -2px -4px; padding: 0;
+  border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--muted-strong);
+  cursor: pointer; vertical-align: middle;
+}
+.vt-expand svg { transition: transform .15s ease; }
+.vt-expand[aria-expanded="true"] svg { transform: rotate(90deg); }
+.vt-expand:hover { color: var(--accent); border-color: var(--accent-line, var(--accent)); }
+.vt-expand:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.vt-sub { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; font-weight: 500; }
+/* Small horizontal bars inside table cells. */
+.vt-bar { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.vt-bar-track { position: relative; display: inline-block; width: 72px; height: 6px; border-radius: 3px; background: var(--surface-3, var(--surface-2)); overflow: hidden; flex: 0 0 auto; }
+.vt-bar-fill { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 3px; background: var(--accent); }
+.vt-bar-fill.pos { background: var(--pos); }
+.vt-bar-fill.neg { background: var(--neg); }
+.vt-bar-fill.warn { background: var(--warn, #d97706); }
+.vt-bar-fill.mid { background: var(--muted, #8a8f98); }
+/* Centred bar for a signed value (for example distance from an average). */
+.vt-cbar { position: relative; display: inline-block; width: 84px; height: 10px; vertical-align: middle; }
+.vt-cbar::before { content: ""; position: absolute; left: 0; right: 0; top: 4px; height: 2px; border-radius: 1px; background: var(--surface-3, var(--surface-2)); }
+.vt-cbar::after { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--border-strong, var(--border)); }
+.vt-cbar > i { position: absolute; top: 2px; height: 6px; border-radius: 3px; }
+.vt-cbar > i.pos { background: var(--pos); }
+.vt-cbar > i.neg { background: var(--neg); }
+.vt-cbar-cell { display: inline-flex; align-items: center; gap: 8px; justify-content: flex-end; }
+.vt-cbar-cell b { min-width: 52px; text-align: right; font-weight: 600; }
 
 /* ---- Track Record extra views -------------------------------------------- */
 .acc-cal { display: flex; gap: 6px; margin: 6px 0 14px; min-width: 0; }

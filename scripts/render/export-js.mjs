@@ -342,7 +342,7 @@ export function renderExportBindings() {
         var rows = f.items.slice(0, 5000).map(function(o){ return exportFlatRow(o, '', {}, 0); });
         var head = [];
         rows.slice(0, 300).forEach(function(r){ Object.keys(r).forEach(function(k){ if (head.indexOf(k) === -1 && head.length < 80) head.push(k); }); });
-        var base = file.replace(/\.json$/, '');
+        var base = file.replace(/\\.json$/, '');
         return { name: f.path ? base + ' ' + f.path : base, head: head, rows: rows.map(function(r){ return head.map(function(h){ return r[h] == null ? '' : r[h]; }); }) };
       });
     }
@@ -804,7 +804,7 @@ export function renderExportBindings() {
       exportBusy = true;
       exportStatus('Getting ' + key + '\u2026');
       exportLoadSource(key).then(function(json){
-        exportSave(new Blob([JSON.stringify(json, null, 2)], { type: 'application/json' }), 'mingstreet-' + key.replace(/[^A-Za-z0-9.-]+/g, '-').replace(/\.json$/, '') + '-' + exportStamp() + '.json');
+        exportSave(new Blob([JSON.stringify(json, null, 2)], { type: 'application/json' }), 'mingstreet-' + key.replace(/[^A-Za-z0-9.-]+/g, '-').replace(/\\.json$/, '') + '-' + exportStamp() + '.json');
         exportBusy = false;
         exportStatus('Saved ' + key + '.');
       }).catch(function(err){ exportBusy = false; exportStatus('Could not get ' + key + ': ' + err.message + '.', true); });
