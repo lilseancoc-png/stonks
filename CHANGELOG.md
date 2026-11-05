@@ -45,6 +45,8 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Add an event path to each Historical Data event study: the median move over the 60 sessions after the event, with the middle half of past episodes shaded.
 - Add a "Beat or miss, and how the stock reacted" scatter to Earnings results, with counts for beat and rose, beat but fell, missed but rose and missed and fell.
 - Add "Who bought and who sold" to Who owns what: each manager's biggest adds and cuts last quarter as bars, valued as shares changed × the quarter-end price so a holding that only rose in price doesn't count as buying.
+- Add a table view to Options walls (one row per stock, with a bar showing where the price sits between its put wall and call wall; the strike ladder opens under the row) and to Unusual options trades (the flagged trades themselves: stock, contract, time, tape, premium, contracts this hour, volume vs open interest and repeats).
+- Add "Every stock against its averages" to Moving averages: each stock's distance from its 20, 50, 100 and 200-day averages as small bars on one centred axis.
 
 ### Changed
 
@@ -52,6 +54,9 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Market mood leads with the gauge, the past year against the Fear and Greed bands, and the seven parts as small bars; the playbook and part explanations follow.
 - Central-bank gold shows net tonnes bought each quarter on round tonne steps with year labels, the latest quarter highlighted, a dashed average line and 5Y / 10Y / All.
 - The Owner Grade page shows the price chart at the top, above the grade. Grade score over time uses the full width, labels the call and put zones on the chart, and opens on the last month (1M / 3M / All).
+- Long lists open as a table on wider screens: Up/down streaks, Leveraged ETFs, Open picks, Options walls and Unusual options trades join All stocks (phones keep cards, and a saved choice still wins). Long tables keep their header in view, and on phones the first column stays put while the rest scrolls sideways.
+- Rising volatility shows each stock's IV percentile as a bar and the shared Cheap / Rich / Very rich label.
+- The Owner Grade page shows its indicators as one grouped table (momentum, moving averages, volume, support and resistance) instead of eleven tiles, with shorter notes.
 
 ### Fixed
 
