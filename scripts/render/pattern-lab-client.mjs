@@ -7,7 +7,7 @@ export function patternLabFactory(host, doc, views, symbolHref, dataUrl, openSym
   const pct = value => finite(value) ? (value > 0 ? '+' : '') + number(value) + '%' : '—';
   const store = (key, fallback) => views.get('pattern-lab.' + key, fallback);
   const valid = (value, values, fallback) => values.includes(value) ? value : fallback;
-  const names = {volatility:'Volatility clustering', seasonality:'Index seasonality', leadLag:'Cross-asset relationships', divergences:'Price divergences', breadth:'Breadth disagreement', sentiment:'Sentiment disagreement'};
+  const names = {seasonality:'Index seasonality', volatility:'Volatility clustering', leadLag:'Cross-asset relationships', divergences:'Price divergences', breadth:'Breadth disagreement', sentiment:'Sentiment disagreement'};
   const state = {data:null, pending:false, error:null, bound:false,
     view:valid(store('view','overview'), ['overview','charts','tables'], 'overview'),
     study:valid(store('study','all'), ['all',...Object.keys(names)], 'all'),
@@ -87,11 +87,42 @@ export function patternLabFactory(host, doc, views, symbolHref, dataUrl, openSym
       {...column('Relevant t-stat','t'),cell:row=>number(peerRead(row).t),sort:row=>peerRead(row).t},
       column('Corr 60','corr60'),column('Corr 120','corr120'),column('Read','read')], limit ? rows.slice(0,limit) : rows, 'leads', 'No peer observations match this view.');
   }
+  // Month x year heatmap: one cell per finished calendar month, coloured by
+  // the return (green up, red down, stronger = bigger), with the long-run
+  // average and the share of up years as the footer rows.
+  function monthHeat(season) {
+    const grid = Array.isArray(season.monthGrid) ? season.monthGrid.filter(row => row && Array.isArray(row.m)) : [];
+    if (!grid.length) return '';
+    const values = grid.flatMap(row => row.m).filter(finite).map(Math.abs).sort((a, b) => a - b);
+    const scale = Math.max(2, values[Math.floor(values.length * .9)] || 0);
+    const short = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const now = season.active?.date ? Number(season.active.date.slice(5, 7)) - 1 : -1;
+    const cell = (value, title, extra = '') => {
+      if (!finite(value)) return '<td class="pat-heat-empty' + extra + '" title="' + escape(title + ': not a full month on the window rules') + '">·</td>';
+      const strength = Math.round(Math.min(1, Math.abs(value) / scale) * 70 + 8);
+      return '<td class="' + (value < 0 ? 'is-neg' : 'is-pos') + extra + '" style="--heat:' + strength + '%" title="' + escape(title + ': ' + pct(value)) + '">' + (Math.abs(value) < .05 ? '0.0' : (value > 0 ? '+' : '') + value.toFixed(1)) + '</td>';
+    };
+    const head = '<tr><th scope="col">Year</th>' + short.map((m, i) => '<th scope="col"' + (i === now ? ' class="is-now"' : '') + '>' + m + '</th>').join('') + '<th scope="col">Year</th></tr>';
+    const body = grid.map(row => {
+      let total = 1, any = false;
+      row.m.forEach(v => { if (finite(v)) { total *= 1 + v / 100; any = true; } });
+      const full = row.m.every(finite);
+      return '<tr><th scope="row">' + escape(row.year) + '</th>' + row.m.map((v, i) => cell(v, short[i] + ' ' + row.year, i === now ? ' is-now' : '')).join('') +
+        (any ? cell((total - 1) * 100, row.year + (full ? ' full year' : ' so far'), ' pat-heat-year') : '<td class="pat-heat-empty pat-heat-year">·</td>') + '</tr>';
+    }).join('');
+    const months = season.months || [];
+    const avg = '<tr class="pat-heat-foot"><th scope="row">Average</th>' + short.map((m, i) => cell(months[i]?.avgPct, m + ' average since ' + (season.firstDate || '').slice(0, 4) + ' (n=' + (months[i]?.n ?? 0) + ')', i === now ? ' is-now' : '')).join('') + '<td></td></tr>';
+    const up = '<tr class="pat-heat-foot"><th scope="row">Up years</th>' + short.map((m, i) => '<td class="pat-heat-rate' + (i === now ? ' is-now' : '') + '">' + (finite(months[i]?.hitRatePct) ? Math.round(months[i].hitRatePct) + '%' : '—') + '</td>').join('') + '<td></td></tr>';
+    return '<figure class="pat-heat"><figcaption>Month by month, last ' + grid.length + ' years</figcaption>' +
+      '<p class="pat-note">Each cell is that month\'s price return. Green is up, red is down; darker means a bigger move (full colour at ±' + number(scale, 1) + '%). The bottom rows use every year since ' + escape((season.firstDate || '').slice(0, 4)) + '.</p>' +
+      '<div class="pat-heat-scroll" tabindex="0" role="region" aria-label="Monthly returns by year"><table class="pat-heat-table" data-nosort><thead>' + head + '</thead><tbody>' + body + '</tbody><tfoot>' + avg + up + '</tfoot></table></div></figure>';
+  }
   function seasonality(pieces) {
     const season = pieces.seasonality?.[state.symbol] || {};
     if (season.unavailable || !season.months?.length) return '<p class="pat-note">Seasonal history is unavailable for this index.</p>';
     if (state.view === 'tables') return evidenceTable(summaryRows(pieces).filter(row => row.study === 'seasonality'),'seasonality');
     const note = 'Prior complete calendar years; price returns exclude cash distributions. These are seasonal descriptions, not forecasts.';
+    const heat = monthHeat(season);
     const active = season.active || {}, inside = [active.inTurnOfMonth && 'turn of month', active.inOpexWeek && 'expiration week', active.inSanta && 'the Santa window', active.midtermYear && 'a midterm year'].filter(Boolean);
     const compare = [['turnOfMonth','Turn of month','other sessions','outsideAvgPct'],['opexWeek','Expiration week','other sessions','outsideAvgPct'],['midterm','Midterm years','other years','otherAvgPct']]
       .filter(([key,,,field]) => finite(season[key]?.avgPct) && finite(season[key]?.[field]))
@@ -99,7 +130,8 @@ export function patternLabFactory(host, doc, views, symbolHref, dataUrl, openSym
     return '<p class="pat-note">' + escape(state.symbol) + ' · ' + number(season.years,1) + ' years · ' + (season.sessions || 0) + ' sessions. Calendar history is separate from the two-year stock studies.</p>' +
       (active.date ? '<p class="pat-note">Latest session ' + escape(active.date) + (inside.length ? ' is inside ' + escape(inside.join(', ')) + '.' : ' is not inside any recurring window.') + '</p>' : '') +
       (compare.length ? '<p class="pat-note">' + escape(compare.join(' · ')) + '.</p>' : '') +
-      bars('Monthly returns', (season.months || []).map(row=>({label:row.name,n:row.n,value:row.avgPct,provisional:row.provisional})), 'Mean full-month return (%)', note) +
+      (heat || '') +
+      (!heat || state.view === 'charts' ? bars('Monthly returns', (season.months || []).map(row=>({label:row.name,n:row.n,value:row.avgPct,provisional:row.provisional})), 'Mean full-month return (%)', note) : '') +
       (state.view === 'charts' ? bars('Weekday returns',(season.weekdays || []).map(row=>({label:row.name,n:row.n,value:row.avgPct,provisional:row.provisional})),'Mean daily return (%)', note) +
         bars('Recurring windows', ['turnOfMonth','opexWeek','santa','midterm'].map(key=>({label:{turnOfMonth:'Turn of month',opexWeek:'Expiration week',santa:'Santa window',midterm:'Midterm year'}[key],n:season[key]?.n,value:season[key]?.avgPct,provisional:season[key]?.provisional})),'Mean full-window return (%)','Window lengths differ; compare each with its own history, rather than ranking them as interchangeable signals.') : '');
   }

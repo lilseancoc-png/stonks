@@ -4204,6 +4204,20 @@ function buildPriceSeries(bars) {
 // full ~1-month 30m window lets the client draw red/green candles, directional
 // volume and per-range Fibonacci retracements while still slicing 1W locally.
 const INTRADAY_SERIES_BARS = 320; // ~22 trading days * ~13 regular-session 30m bars
+function marketBackdropSparkDay(bars) {
+  if (!Array.isArray(bars) || bars.length < 2) return null;
+  const day = (b) => String(b && b.t || "").slice(0, 10);
+  const last = day(bars[bars.length - 1]);
+  if (!last) return null;
+  const out = bars.filter((b) => day(b) === last && Number.isFinite(b.c)).map((b) => Math.round(b.c * 100) / 100);
+  return out.length >= 2 ? out : null;
+}
+function marketBackdropSpark1m(bars) {
+  if (!Array.isArray(bars) || bars.length < 2) return null;
+  const out = bars.slice(-22).map((b) => (b && Number.isFinite(b.c) ? Math.round(b.c * 100) / 100 : null)).filter((v) => v != null);
+  return out.length >= 2 ? out : null;
+}
+export { marketBackdropSparkDay, marketBackdropSpark1m };
 function buildIntradaySeries(bars) {
   if (!Array.isArray(bars) || bars.length < 2) return null;
   const tail = bars.slice(-INTRADAY_SERIES_BARS);
@@ -8784,12 +8798,39 @@ export async function updateEarningsCallsData({ prior = null, earningsHxStore = 
   return { index: finishIndex(), details, keyless: false };
 }
 
+// The previous call's brief, trimmed to what the "vs last call" diff reads.
+// `old` is the detail on disk, `next` the one about to replace it.
+export function earningsCallPriorSnapshot(old, next) {
+  if (!old || typeof old !== "object" || !old.summary) return null;
+  const sameCall = (old.callDate && old.callDate === next?.callDate) || (old.quarter && old.quarter === next?.quarter);
+  if (sameCall) return old.prior || null;
+  const s = old.summary || {};
+  const label = (t) => (t && typeof t === "object" ? t.label || null : t || null);
+  return {
+    quarter: old.quarter || null,
+    callDate: old.callDate || null,
+    epsVerdict: s.epsVerdict || null,
+    mgmtTone: label(s.mgmtTone),
+    analystTone: label(s.analystTone),
+    guidance: (s.guidance || []).filter((g) => g && g.metric).slice(0, 12).map((g) => ({ metric: g.metric, period: g.period || null, value: g.value || null, change: g.change || null })),
+    risks: (s.risks || []).map((r) => (typeof r === "string" ? r : r?.risk || r?.text || r?.label || "")).filter(Boolean).slice(0, 8),
+  };
+}
+
 // Write the index + any newly-minted per-ticker details. Details are
 // upsert-only flat keys (data/transcript-<SYM>.json) — past details live in
 // the private store and are never re-written (or deleted) here.
 export async function writeEarningsCallsFiles({ prior = null, earningsHxStore = null, builtAtIso = null, skipSummarize = false } = {}) {
   const { index, details, keyless } = await updateEarningsCallsData({ prior, earningsHxStore, builtAtIso, skipSummarize });
   for (const d of details) {
+    // Keep a compact copy of the previous call's brief so the page can show
+    // "What changed vs last call". A re-summary of the same call carries the
+    // older snapshot forward unchanged. No AI, no extra fetch.
+    try {
+      const old = JSON.parse(await readFile(resolve(DATA_DIR, transcriptKeyForSym(d.sym)), "utf8"));
+      const prev = earningsCallPriorSnapshot(old, d);
+      if (prev) d.prior = prev;
+    } catch (_) { /* first brief for this name */ }
     await writeFile(resolve(DATA_DIR, transcriptKeyForSym(d.sym)), JSON.stringify(d), "utf8");
   }
   const json = JSON.stringify(index);
@@ -8987,6 +9028,14 @@ export function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras)
     // Absent for most names — Polymarket only lists earnings markets for a few
     // mega-caps in season — so the chip is unchanged when nothing matched.
     const earnPred = predictionMarkets?.earnings ? predictionMarkets.earnings[sym + "|" + date] : null;
+    // The last four earnings-day moves (close before → close after), so the
+    // calendar row shows how the stock usually reacts next to today's
+    // implied move. Read from the per-ticker earningsHx already attached.
+    const lastMoves = (Array.isArray(data?.earningsHx?.events) ? data.earningsHx.events : [])
+      .filter((ev) => ev && typeof ev.date === "string" && ev.date < date && Number.isFinite(ev.movePct))
+      .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+      .slice(-4)
+      .map((ev) => ({ date: ev.date, movePct: Number(ev.movePct.toFixed(4)) }));
     events.push({
       type: "earnings",
       date,
@@ -8995,6 +9044,7 @@ export function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras)
       session,
       source: nasdaq ? "Nasdaq" : "Yahoo Finance",
       ...(implied ? { impliedMovePct: implied.pct } : {}),
+      ...(lastMoves.length ? { lastMoves } : {}),
       ...(earnPred ? { predictions: [earnPred] } : {}),
     });
   }
@@ -37729,6 +37779,10 @@ async function main() {
       rvol: vol.rvol ?? null,
       s20: t.sr?.s20 ?? null,
       r20: t.sr?.r20 ?? null,
+      // Home index tiles: the last session's 30-minute closes and the last
+      // month of daily closes, so each tile can draw a small line.
+      sparkDay: marketBackdropSparkDay(c._intraday),
+      spark1m: marketBackdropSpark1m(c._bars),
     };
   }
   // Next two FOMC dates — used by the Execute card to defer entries when

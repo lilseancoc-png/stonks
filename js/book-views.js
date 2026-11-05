@@ -92,7 +92,7 @@ function fail(id, title, detail) {
 }
 
 function shell(id, title, body, note) {
-  const open = id.startsWith('book-') && ['book-link','book-evidence','book-rejections'].includes(id) ? state.open[id] === true : state.open[id] !== false;
+  const open = id.startsWith('book-') && ['book-link','book-evidence','book-rejections','book-cal-density'].includes(id) ? state.open[id] === true : state.open[id] !== false;
   return `<details class="book-details" data-book-panel="${esc(id)}"${open ? " open" : ""}>` +
     `<summary class="book-summary"><span class="book-kicker">Additional view</span><span class="book-title">${esc(title)}</span></summary>` +
     `<div class="book-body">${note ? `<p class="book-note">${note}</p>` : ""}${body}</div></details>`;
