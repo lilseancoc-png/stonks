@@ -4204,6 +4204,20 @@ function buildPriceSeries(bars) {
 // full ~1-month 30m window lets the client draw red/green candles, directional
 // volume and per-range Fibonacci retracements while still slicing 1W locally.
 const INTRADAY_SERIES_BARS = 320; // ~22 trading days * ~13 regular-session 30m bars
+function marketBackdropSparkDay(bars) {
+  if (!Array.isArray(bars) || bars.length < 2) return null;
+  const day = (b) => String(b && b.t || "").slice(0, 10);
+  const last = day(bars[bars.length - 1]);
+  if (!last) return null;
+  const out = bars.filter((b) => day(b) === last && Number.isFinite(b.c)).map((b) => Math.round(b.c * 100) / 100);
+  return out.length >= 2 ? out : null;
+}
+function marketBackdropSpark1m(bars) {
+  if (!Array.isArray(bars) || bars.length < 2) return null;
+  const out = bars.slice(-22).map((b) => (b && Number.isFinite(b.c) ? Math.round(b.c * 100) / 100 : null)).filter((v) => v != null);
+  return out.length >= 2 ? out : null;
+}
+export { marketBackdropSparkDay, marketBackdropSpark1m };
 function buildIntradaySeries(bars) {
   if (!Array.isArray(bars) || bars.length < 2) return null;
   const tail = bars.slice(-INTRADAY_SERIES_BARS);
@@ -37729,6 +37743,10 @@ async function main() {
       rvol: vol.rvol ?? null,
       s20: t.sr?.s20 ?? null,
       r20: t.sr?.r20 ?? null,
+      // Home index tiles: the last session's 30-minute closes and the last
+      // month of daily closes, so each tile can draw a small line.
+      sparkDay: marketBackdropSparkDay(c._intraday),
+      spark1m: marketBackdropSpark1m(c._bars),
     };
   }
   // Next two FOMC dates — used by the Execute card to defer entries when

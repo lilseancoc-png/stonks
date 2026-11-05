@@ -763,7 +763,7 @@ function overnightSection() {
     <div id="overnight-decision"></div>
     <div id="overnight-broad" class="overnight-broad" aria-label="Global backdrop"></div>
     <div id="overnight-root" class="overnight-root">Loading overnight markets&hellip;</div>
-    <p class="hint">Correlation (r) and sensitivity (&beta;) are computed from up to 150 trading days of daily-return overlap (sample size <em>n</em> is shown &mdash; faint / asterisked low-n fits are noisier); &beta; &times; the peer&rsquo;s move is a rough implied read, not a forecast. Yield moves are shown in basis points. Foreign closes can lag the US session by up to a day. Not financial advice.</p>
+    <p class="hint ovn-footnote">How the US links are measured <span class="tip" tabindex="0" role="button" aria-label="How correlation and sensitivity are measured" data-tip="Correlation (r) and sensitivity (&beta;) are computed from up to 150 trading days of daily-return overlap (sample size n is shown; faint or asterisked low-n fits are noisier). &beta; &times; the peer&rsquo;s move is a rough implied read, not a forecast. Yield moves are shown in basis points. Foreign closes can lag the US session by up to a day.">i</span> &middot; Not financial advice.</p>
   </section>`;
 }
 
@@ -2121,9 +2121,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
           <small class="landing-glance-sub" id="land-sub-bonds">yields and the dollar</small>
         </button>
         <button type="button" class="landing-glance-tile" data-go="news" aria-label="Open News">
-          <span class="landing-glance-label">News</span>
-          <b class="landing-glance-stat" id="land-stat-news">Ranked</b>
-          <small class="landing-glance-sub" id="land-sub-news">market-moving headlines</small>
+          <span class="landing-glance-label" id="land-lbl-news">News</span>
+          <b class="landing-glance-stat" id="land-stat-news">Headlines</b>
+          <small class="landing-glance-sub" id="land-sub-news">ranked by market impact</small>
         </button>
         <button type="button" class="landing-glance-tile" data-go="flow" aria-label="Open Unusual options trades">
           <span class="landing-glance-label">Unusual options trades</span>
@@ -2153,11 +2153,13 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
       </div>
     </section>
     <section class="landing-section landing-topics-section" aria-labelledby="landing-topics-title">
-      <header class="landing-section-head">
-        <h2 class="landing-section-title" id="landing-topics-title">Explore by topic</h2>
-        <p class="landing-section-sub">Everything on the site, grouped by the question you are asking.</p>
-      </header>
-      <div id="landing-topics" class="landing-topics"></div>
+      <details class="landing-topics-fold" id="landing-topics-fold" open>
+        <summary class="landing-section-head">
+          <h2 class="landing-section-title" id="landing-topics-title">Explore by topic</h2>
+          <p class="landing-section-sub">Everything on the site, grouped by the question you are asking.</p>
+        </summary>
+        <div id="landing-topics" class="landing-topics"></div>
+      </details>
     </section>
     <p class="landing-foot">Use the navigation menu or press <kbd>⌘K</kbd> to jump to available research.</p>
   </div>

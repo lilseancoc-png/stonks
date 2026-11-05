@@ -40,6 +40,9 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Added
 
+- Add a stop, spot and target bar to each Top pick card and each open pick (stop on the left, target on the right, entry and now marked), and show when each open pick was opened in ET ("Opened 3d ago · Jun 13, 3:43 PM ET"). The Open picks table gains "Opened (ET)" and "Stop → target" columns.
+- Add a "Watching" list to Top picks on days with no pick: the names that came closest and the rule that held each one back.
+- Add a Fed path strip to Rates & the dollar: cut, hold and hike odds as one stacked bar for each of the next three meetings.
 - Add charts to the Rates & the dollar page: the full Treasury yield curve today against a month and a year ago (from the Treasury par-yield feed the build already reads, `lib/rates-history.mjs`), and about a year of daily 2-year and 10-year yields with the dollar index on its own axis (1M / 3M / 6M / 1Y). Both ride in `macro-history.json`; a failed feed keeps the last good copy, marked stale.
 - Add a running total to the Track Record: daily paper equity at $10,000 per trade with a "below the high" drawdown pane under it and dated marks where the grade, entry or exit rules changed (1M / 3M / 6M / All). The Site equity view uses the same chart.
 - Add an event path to each Historical Data event study: the median move over the 60 sessions after the event, with the middle half of past episodes shaded.
@@ -50,6 +53,15 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Changed
 
+- Home index tiles show the price, the day change and a small line of the last session (the bake now saves each index's 30-minute closes and last month of daily closes), "At a glance" fills whole rows, the News tile shows the top story, and "Explore by topic" starts folded on wide screens.
+- Market brief: ticker mentions in the summary and takeaways are chips that open the stock page, and the stat strip sits under the headline as context.
+- Heatmap tiles use the sans font and seven colour steps clipped at the period's scale, so small moves on large tiles show a clear tint.
+- Calendar opens on an agenda of the next 14 days grouped by day; the month grid is the other layout and the choice is remembered.
+- Overnight markets puts US futures first and open, adds one table of every market with region chips (default on wider screens), and moves the correlation note behind an ⓘ.
+- Who owns what puts the stock and fund search after the summary and the buy-sell chart, and turns the five research sections at the bottom into tabs.
+- Rates & the dollar tiles show the value, the change and a 1-month line; the weekly change and the prior reading move into the tooltip, and the "normal" badge is hidden.
+- Options walls opens on the first default name whose chain has open interest (SPY, then QQQ, NVDA, AAPL, MSFT) instead of an empty chart.
+- Up/down streaks cards label their stats "run move" and "8/10 days up" on one line.
 - Compare stocks opens with the last set you compared (or the four largest companies the first time), keeps the set in the link (`?tab=compare&cmp=AAPL,MSFT`) with a Copy link button, and labels the chart axis in round steps.
 - Market mood leads with the gauge, the past year against the Fear and Greed bands, and the seven parts as small bars; the playbook and part explanations follow.
 - Central-bank gold shows net tonnes bought each quarter on round tonne steps with year labels, the latest quarter highlighted, a dashed average line and 5Y / 10Y / All.

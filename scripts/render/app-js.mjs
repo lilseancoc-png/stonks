@@ -101,7 +101,7 @@ ${validNewsFeedPayload.toString()}
   // Shared sort / view helpers (source: scripts/render/views-client.mjs).
   var VIEWS = (${viewsFactory.toString()})(window, document);
   // Long lists open as a table on wider screens; phones keep cards.
-  VIEWS.tableFirst(['tickers', 'streaks', 'levetf', 'open-picks', 'oi', 'flow']);
+  VIEWS.tableFirst(['tickers', 'streaks', 'levetf', 'open-picks', 'oi', 'flow', 'overnight']);
   // Cell bars shared by the list tables. vtBarHtml: a 0..1 fill (for example
   // an IV percentile). vtCbarHtml: a signed value on a centred axis that
   // clips at +/-range (for example % from a moving average).
@@ -4533,6 +4533,30 @@ ${renderExportBindings()}
         })
         .catch(function(){});
 
+      // "At a glance" fills whole rows: the grid takes its column count from
+      // the tiles left after the role gate.
+      var glance = document.querySelector('.landing-glance');
+      if (glance){
+        var glanceTiles = glance.querySelectorAll('.landing-glance-tile:not([hidden])').length;
+        if (glanceTiles) glance.setAttribute('data-count', String(glanceTiles));
+      }
+      // "Explore by topic" repeats the sidebar on wide screens, so it starts
+      // folded there (open on phones and tablets). A choice is remembered.
+      var topicsFold = document.getElementById('landing-topics-fold');
+      if (topicsFold){
+        var wideHome = false;
+        try { wideHome = window.matchMedia('(min-width: 1024px)').matches; } catch (_) {}
+        var topicsSaved = VIEWS.get('home.topics', null);
+        topicsFold.open = typeof topicsSaved === 'boolean' ? topicsSaved : !wideHome;
+        topicsFold.addEventListener('toggle', function(){ VIEWS.set('home.topics', topicsFold.open === !wideHome ? null : topicsFold.open); });
+      }
+      // The News tile's top story comes from the news slate; fetch it once
+      // the Home page has settled (the News page reuses the same copy).
+      setTimeout(function(){
+        var home = document.getElementById('page-pane-home');
+        if (home && !home.hidden && !newsFeedState.data && !newsFeedState.loading) loadNewsFeed();
+      }, 1500);
+
       // Market-pulse strip — the major index ETFs baked into the manifest's
       // marketBackdrop, with their last-close 1-day move colored green/red.
       // UVXY is a VIX proxy so its coloring is inverted (rising vol = risk-off
@@ -4558,11 +4582,18 @@ ${renderExportBindings()}
           var tone = meta.invert ? -mv : mv;
           var cls = tone > 0.05 ? 'is-up' : (tone < -0.05 ? 'is-dn' : 'is-flat');
           var sign = mv > 0 ? '+' : '';
-          html += '<div class="pulse-item ' + cls + '" role="listitem">'
+          // Price and a small line: the last session's 30-minute closes, or
+          // the last month of daily closes on older builds without them.
+          var spark = Array.isArray(b.sparkDay) && b.sparkDay.length >= 3 ? b.sparkDay : (Array.isArray(b.spark1m) ? b.spark1m : null);
+          var sparkSvg = spark ? tapeSparkSvg(spark, { w: 88, h: 26, tone: (spark[spark.length - 1] >= spark[0]) !== !!meta.invert ? 'on' : 'off' }) : '';
+          var sparkLbl = spark === b.sparkDay ? 'last session' : 'last month';
+          html += '<a class="pulse-item ' + cls + '" role="listitem" href="' + symGradeHref(sym) + '" aria-label="' + meta.name + ' (' + sym + ')' + (b.spot != null ? ' $' + Number(b.spot).toFixed(2) : '') + ', ' + sign + mv.toFixed(2) + '%">'
                 + '<span class="pulse-name">' + meta.name + '</span>'
                 + '<span class="pulse-sym">' + sym + '</span>'
+                + (b.spot != null && isFinite(b.spot) ? '<span class="pulse-price">$' + Number(b.spot).toFixed(2) + '</span>' : '')
                 + '<span class="pulse-move"><span class="move-arrow" aria-hidden="true">' + (mv > 0 ? '▲' : mv < 0 ? '▼' : '') + '</span>' + sign + mv.toFixed(2) + '%</span>'
-                + '</div>';
+                + (sparkSvg ? '<span class="pulse-spark" title="' + sparkLbl + '">' + sparkSvg + '</span>' : '')
+                + '</a>';
         });
         if (html) { wrap.innerHTML = html; wrap.hidden = false; }
       })();
@@ -15353,7 +15384,14 @@ ${renderExportBindings()}
       // Seed the default ticker so the field (and gexState) isn't blank.
       var syms = SYMBOLS.slice().sort();
       var def = syms.indexOf('SPY') >= 0 ? 'SPY' : (syms[0] || '');
-      if (def){ gexState.symbol = def; this.input.value = def; }
+      if (def){
+        gexState.symbol = def;
+        this.input.value = def;
+        // A seeded default may move on to the next liquid name if its chain
+        // has no open interest (gexTryNextDefault).
+        gexState.autoPicked = true;
+        gexState.autoQueue = ['QQQ', 'NVDA', 'AAPL', 'MSFT'].filter(function(x){ return x !== def && SYMBOLS.indexOf(x) >= 0; });
+      }
     },
     rank: function(q){
       q = (q || '').trim().toUpperCase();
@@ -15420,6 +15458,7 @@ ${renderExportBindings()}
       this.close();
       if (sym === gexState.symbol && gexState.data) return; // re-pick of the loaded name — no-op
       gexState.symbol = sym;
+      gexState.autoPicked = false;
       loadGex();
     }
   };
@@ -15432,12 +15471,40 @@ ${renderExportBindings()}
     if (empty){ empty.hidden = false; empty.textContent = msg; }
   }
 
+  // The default ticker had no open interest: move to the next default.
+  function gexTryNextDefault(){
+    if (!gexState.autoPicked) return false;
+    if (!gexState.autoFirst) gexState.autoFirst = gexState.symbol;
+    if (!gexState.autoQueue || !gexState.autoQueue.length){
+      // None of the defaults had open interest: show the first one's message.
+      gexState.autoPicked = false;
+      if (gexState.autoFirst && gexState.symbol !== gexState.autoFirst){
+        gexState.symbol = gexState.autoFirst;
+        var firstInput = $('gex-symbol');
+        if (firstInput) firstInput.value = gexState.symbol;
+      }
+      return false;
+    }
+    gexState.symbol = gexState.autoQueue.shift();
+    gexState.data = null;
+    var gexInput = $('gex-symbol');
+    if (gexInput) gexInput.value = gexState.symbol;
+    loadGex();
+    return true;
+  }
   function loadGex(){
     var input = $('gex-symbol');
     if (!gexState.symbol){
       var typed = input && input.value ? input.value.trim().toUpperCase() : '';
-      gexState.symbol = (typed && SYMBOLS.indexOf(typed) >= 0 ? typed : null) ||
-        (SYMBOLS.indexOf('SPY') >= 0 ? 'SPY' : SYMBOLS[0]) || null;
+      if (typed && SYMBOLS.indexOf(typed) >= 0) gexState.symbol = typed;
+      else {
+        // Nothing picked yet: open on the first liquid name whose chain has
+        // open interest (SPY first), so the page never opens on an empty grid.
+        gexState.autoQueue = ['SPY', 'QQQ', 'NVDA', 'AAPL', 'MSFT'].filter(function(x){ return SYMBOLS.indexOf(x) >= 0; });
+        if (!gexState.autoQueue.length && SYMBOLS[0]) gexState.autoQueue = [SYMBOLS[0]];
+        gexState.symbol = gexState.autoQueue.shift() || null;
+        gexState.autoPicked = true;
+      }
     }
     if (input && gexState.symbol && input.value !== gexState.symbol) input.value = gexState.symbol;
     var sym = gexState.symbol;
@@ -15448,7 +15515,7 @@ ${renderExportBindings()}
     fetchChain(sym).then(function(entry){
       if (token !== gexState.token) return; // user switched tickers mid-flight
       gexState.loading = false;
-      if (!entry || !entry.chains){ gexShowEmpty('No chain data for ' + sym + '.'); return; }
+      if (!entry || !entry.chains){ if (gexTryNextDefault()) return; gexShowEmpty('No chain data for ' + sym + '.'); return; }
       var spot = Number(entry.spot);
       if (!(spot > 0)){ gexShowEmpty('No spot price for ' + sym + '.'); return; }
       gexState.entry = entry;
@@ -15778,6 +15845,7 @@ ${renderExportBindings()}
     if (!grid || !summary) return;
     var d = gexState.data;
     if (!d || !d.strikes.length){
+      if (gexTryNextDefault()) return;
       gexShowEmpty('No open interest to plot for ' + (gexState.symbol || 'this ticker') + '.');
       gexSetEyebrow('');
       return;
@@ -27902,6 +27970,34 @@ ${renderExportBindings()}
     }
     return chips.length ? '<div class="brief-stats">' + chips.join('') + '</div>' : '';
   }
+  // Ticker mentions in the Brief's prose become chips that open the stock
+  // page (Owners: the Grade tool). Only tracked symbols are linked; one-letter
+  // symbols and "MA" (moving average) stay plain text because they collide
+  // with ordinary words.
+  var BRIEF_SYM_SKIP = { MA: 1 };
+  var briefSymSet = null;
+  function briefKnownSyms(){
+    if (briefSymSet) return briefSymSet;
+    briefSymSet = {};
+    (MANIFEST.symbols || []).forEach(function(sym){
+      var s = String(sym || '').toUpperCase();
+      if (s.length > 1 && !BRIEF_SYM_SKIP[s]) briefSymSet[s] = 1;
+    });
+    return briefSymSet;
+  }
+  function briefLinkTickers(text){
+    var known = briefKnownSyms();
+    var parts = String(text == null ? '' : text).split(/(\\b[A-Z][A-Z0-9.]{1,5}\\b)/);
+    return parts.map(function(part, i){
+      if (i % 2 === 1){
+        var sym = part.replace(/\\.$/, '');
+        if (known[sym]){
+          return '<a class="brief-chip brief-tk" href="' + briefEsc(symGradeHref(sym)) + '" data-sym="' + briefEsc(sym) + '">' + briefEsc(sym) + '</a>' + briefEsc(part.slice(sym.length));
+        }
+      }
+      return briefEsc(part);
+    }).join('');
+  }
   function briefBlock(title, inner){
     if (!inner) return '';
     return '<div class="brief-block"><h4 class="brief-block-title">' + briefEsc(title) + '</h4>' + inner + '</div>';
@@ -28080,14 +28176,14 @@ ${renderExportBindings()}
       '</div>' +
       (b.headline ? '<h3 class="brief-headline">' + briefEsc(b.headline) + '</h3>' : '') +
     '</header>';
-    var summary = b.summary ? '<p class="brief-summary">' + briefEsc(b.summary) + '</p>' : '';
+    var summary = b.summary ? '<p class="brief-summary">' + briefLinkTickers(b.summary) + '</p>' : '';
     var stats = briefStatStrip(b);
     var toolScan = briefToolScanPanel(b);
     var highlights = '';
     if (Array.isArray(b.highlights) && b.highlights.length){
       highlights = '<ul class="brief-highlights">' + b.highlights.map(function(h){
         return '<li class="brief-hl">' + (h.label ? '<span class="brief-hl-label">' + briefEsc(h.label) + '</span>' : '') +
-          '<span class="brief-hl-text">' + briefEsc(h.text) + '</span></li>';
+          '<span class="brief-hl-text">' + briefLinkTickers(h.text) + '</span></li>';
       }).join('') + '</ul>';
     }
     var blocks = [];
@@ -28289,13 +28385,13 @@ ${renderExportBindings()}
       }).join('');
       blocks.push(briefBlock(b.kind === 'morning' ? 'On the calendar' : 'Coming up', '<div class="brief-events">' + events + '</div>'));
     }
-    // Editorial flow: lead with the story (headline + standfirst summary + the
-    // key takeaways), then the at-a-glance stat strip, then the detailed data
-    // blocks grouped together below a rule so the prose reads first.
+    // Editorial flow: the stat strip (Fear & Greed, rates, breadth) sits under
+    // the headline as context, then the playbook, the summary and the key
+    // takeaways, then the detailed data blocks folded below.
     var blocksHtml = blocks.filter(Boolean).join('');
     var evidenceHtml = blocksHtml ? '<details class="brief-evidence"><summary>Open evidence &amp; watchlists <span>' + blocks.filter(Boolean).length + ' sections</span></summary><div class="brief-blocks">' + blocksHtml + '</div></details>' : '';
     return '<article class="brief-card" data-kind="' + briefEsc(b.kind || '') + '">' +
-      head + briefDecisionCard(b) + summary + highlights + toolScan + stats + evidenceHtml +
+      head + stats + briefDecisionCard(b) + summary + highlights + toolScan + evidenceHtml +
     '</article>';
   }
   // Real hyperlink target for a ticker jump — the Grade tab's ?s= deep link.
@@ -28706,16 +28802,26 @@ ${renderExportBindings()}
       var when = built ? new Date(built) : null;
       eyebrow.textContent = all.length + ' stor' + (all.length === 1 ? 'y' : 'ies') + (when && !isNaN(when.getTime()) ? ' · updated ' + formatDisplayInstant(when, { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }) : '');
     }
-    var landStat = $('land-stat-news'), landSub = $('land-sub-news');
-    if (landStat) landStat.textContent = all.length ? String(all.length) : 'Ranked';
-    if (landSub && all.length){
-      var macroTotal = all.filter(function(i){ return newsFeedDesk(i) === 'macro'; }).length;
-      landSub.textContent = macroTotal + ' macro · ' + high + ' high impact';
+    // Home's News tile shows the top story: the first high-impact item from
+    // the last 24 hours, else the newest item.
+    var landStat = $('land-stat-news'), landSub = $('land-sub-news'), landLbl = $('land-lbl-news');
+    var topStory = high24[0] || fresh24[0] || all[0] || null;
+    if (landStat && topStory && topStory.title){
+      landStat.textContent = String(topStory.title);
+      landStat.classList.add('is-headline');
+      landStat.title = String(topStory.title);
+      if (landLbl) landLbl.textContent = 'Top story';
+      if (landSub){
+        var srcName = (topStory.sources && topStory.sources[0]) || topStory.source || '';
+        var topAgo = newsFeedTimeAgo(topStory);
+        landSub.textContent = (srcName ? srcName + ' · ' : '') + (/^[0-9]+[mhd]$/.test(topAgo) ? topAgo + ' ago' : topAgo) + (all.length > 1 ? ' · ' + all.length + ' stories' : '');
+      }
     }
   }
 
   var OVERNIGHT_LIVE_POLL_MS = 60 * 1000;
-  var overnightState = { data: null, loading: false, horizon: '1d', selectedMarket: null, liveTimer: null, liveInFlight: false };
+  var overnightState = { data: null, loading: false, horizon: '1d', selectedMarket: null, liveTimer: null, liveInFlight: false, region: '' };
+  VIEWS.onView('overnight', function(){ renderOvernight(); });
   // Freshest session date across the loaded markets — set in renderOvernight,
   // read by overnightTile for its "as of" lag badge (#2).
   var ovnMaxAsOf = null;
@@ -29294,11 +29400,7 @@ ${renderExportBindings()}
         if (e && e.stopPropagation) e.stopPropagation();
         var s = b.getAttribute('data-go-ticker');
         if (!s) return;
-        try {
-          var gt = document.querySelector('[data-page-tab="grade"]');
-          if (gt) gt.click();
-          if (typeof combo !== 'undefined' && combo && combo.commit) combo.commit(s);
-        } catch (_) {}
+        calGoToTicker(s);
       });
     });
   }
@@ -29328,6 +29430,12 @@ ${renderExportBindings()}
     });
     var close = rootEl.querySelector('[data-ovn-close]');
     if (close) close.addEventListener('click', function(){ overnightState.selectedMarket = null; renderOvernight(); });
+    rootEl.querySelectorAll('[data-ovn-region]').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        overnightState.region = btn.getAttribute('data-ovn-region') || '';
+        renderOvernight();
+      });
+    });
   }
   function renderOvernight(){
     var root = document.getElementById('overnight-root');
@@ -29389,6 +29497,11 @@ ${renderExportBindings()}
     if (singletons.length){
       regionSpecs.push({ region: 'Other markets', syms: ovnSortByMove(singletons) });
     }
+    // US futures lead the region list and start open: they are the market
+    // the open trades against.
+    regionSpecs.sort(function(a, b){
+      return (/^US\\b/.test(b.region) ? 1 : 0) - (/^US\\b/.test(a.region) ? 1 : 0);
+    });
     // One strongest market per region prevents a single country cluster from
     // monopolizing the desk. Rank those representatives by absolute move.
     var driverSpecs = regionSpecs.map(function(spec){
@@ -29403,7 +29516,7 @@ ${renderExportBindings()}
       var flags = overnightFlagsFor(spec.sym).filter(function(f){ return ovnSignif(f.corr, f.n); }).slice(0, 3);
       var watch = flags.length
         ? '<div class="ovn-driver-watch"><span>US watch</span>' + flags.map(function(f){
-            return '<button type="button" data-go-ticker="' + ovnEsc(f.sym) + '" title="Open ' + ovnEsc(f.sym) + ' in Grade">' + ovnEsc(f.sym) + '</button>';
+            return '<button type="button" data-go-ticker="' + ovnEsc(f.sym) + '" title="Open ' + ovnEsc(f.sym) + '">' + ovnEsc(f.sym) + '</button>';
           }).join('') + '</div>'
         : '<div class="ovn-driver-watch ovn-driver-context"><span>Cross-market context</span></div>';
       var lvl = ovnLevelStr(m);
@@ -29418,14 +29531,49 @@ ${renderExportBindings()}
     var desk = driverSpecs.length
       ? '<section class="ovn-desk" aria-label="Largest cross-market drivers"><div class="ovn-desk-head"><div><span class="ovn-desk-kicker">' + (horizon === '1d' ? 'Into the open' : ovnHorizonLabel(horizon) + ' context') + '</span><h3>Largest cross-market drivers</h3></div><small>One leader per region · ranked by ' + ovnHorizonLabel(horizon) + ' move</small></div><div class="ovn-desk-grid">' + driverSpecs.map(ovnDriverCard).join('') + '</div></section>'
       : '';
+    // Every market in one table (default on wider screens) with region
+    // chips; the region cards stay as the other layout.
+    var ovnAsTable = VIEWS.viewMode('overnight') === 'table';
+    var regionNames = regionSpecs.map(function(spec){ return spec.region; });
+    if (overnightState.region && regionNames.indexOf(overnightState.region) < 0) overnightState.region = '';
+    var regionChips = '<div class="ovn-region-chips" role="group" aria-label="Region">' +
+      [''].concat(regionNames).map(function(name){
+        var on = (overnightState.region || '') === name;
+        return '<button type="button" class="ovn-region-chip' + (on ? ' is-on' : '') + '" data-ovn-region="' + ovnEsc(name) + '" aria-pressed="' + (on ? 'true' : 'false') + '">' + ovnEsc(name || 'All') + '</button>';
+      }).join('') + '</div>';
+    var marketsHead = '<div class="ovn-markets-head"><h3>All markets</h3>' + (ovnAsTable ? regionChips : '') + VIEWS.viewToggleHtml('overnight') + '</div>';
+    var tableRows = [];
+    regionSpecs.forEach(function(spec){
+      if (overnightState.region && spec.region !== overnightState.region) return;
+      spec.syms.forEach(function(sym){ tableRows.push({ sym: sym, region: spec.region, m: d.markets[sym] }); });
+    });
+    var marketsTable = VIEWS.tableHtml([
+      { label: 'Market', cell: function(r){ return '<b>' + ovnEsc(r.m.name) + '</b> ' + ovnClassTag(r.m.sessionClass); }, sort: function(r){ return r.m.name; } },
+      { label: 'Region', cell: function(r){ return ovnEsc(r.region); }, sort: function(r){ return r.region; } },
+      { label: 'Level', num: true, cell: function(r){ return ovnEsc(ovnLevelStr(r.m) || ''); }, nosort: true },
+      { label: ovnHorizonLabel(horizon), num: true, cell: function(r){ return '<span class="' + ovnMoveCls(ovnMoveValue(r.m, horizon)) + '">' + ovnMoveStr(r.m, horizon) + '</span>'; }, sort: function(r){ var v = ovnMoveValue(r.m, horizon); return v == null || !isFinite(v) ? null : v; } },
+      { label: 'US names to watch', nosort: true, cell: function(r){
+        var fl = overnightFlagsFor(r.sym).filter(function(f){ return ovnSignif(f.corr, f.n); }).slice(0, 4);
+        return fl.map(function(f){ return '<button type="button" class="ovn-flag" data-go-ticker="' + ovnEsc(f.sym) + '" title="r ' + f.corr + ' · n ' + (f.n == null ? '—' : f.n) + '">' + ovnEsc(f.sym) + '</button>'; }).join('');
+      } },
+      { label: 'As of', cell: function(r){ return ovnEsc(r.m.asOf ? ovnShortDate(r.m.asOf) : ''); }, sort: function(r){ return r.m.asOf || null; } }
+    ], tableRows, {
+      key: 'overnight',
+      cls: 'ovn-markets-table',
+      rowAttr: function(r){ return 'data-ovn-market="' + ovnEsc(r.sym) + '" tabindex="0"' + (overnightState.selectedMarket === r.sym ? ' class="is-selected"' : ''); },
+      empty: 'No markets in this region.'
+    });
     var regionHtml = regionSpecs.map(function(spec){
       var leader = d.markets[spec.syms[0]];
       var tiles = spec.syms.map(overnightTile).join('');
-      return '<details class="ovn-region"><summary><span><b>' + ovnEsc(spec.region) + '</b><small>' + spec.syms.length + ' market' + (spec.syms.length === 1 ? '' : 's') + '</small></span>' +
+      return '<details class="ovn-region"' + (/^US\\b/.test(spec.region) ? ' open' : '') + '><summary><span><b>' + ovnEsc(spec.region) + '</b><small>' + spec.syms.length + ' market' + (spec.syms.length === 1 ? '' : 's') + '</small></span>' +
         '<span class="ovn-region-lead"><em>' + ovnEsc(leader.name) + '</em><strong class="' + ovnMoveCls(ovnMoveValue(leader, horizon)) + '">' + ovnMoveStr(leader, horizon) + '</strong></span></summary>' +
         '<div class="ovn-region-body"><div class="ovn-region-grid">' + tiles + '</div></div></details>';
     }).join('');
-    root.innerHTML = overnightRecordHtml(d) + overnightContextHtml(d) + overnightDetailHtml(d) + desk + (regionHtml ? '<div class="ovn-region-list">' + regionHtml + '</div>' : '<p class="overnight-empty">No overnight markets available.</p>');
+    var marketsHtml = !regionHtml
+      ? '<p class="overnight-empty">No overnight markets available.</p>'
+      : '<section class="ovn-markets" aria-label="All overnight markets">' + marketsHead + (ovnAsTable ? marketsTable : '<div class="ovn-region-list">' + regionHtml + '</div>') + '</section>';
+    root.innerHTML = overnightRecordHtml(d) + overnightContextHtml(d) + overnightDetailHtml(d) + desk + marketsHtml;
     if (eyebrow){
       var rangeTxt = ovnMaxAsOf
         ? (minAsOf && minAsOf !== ovnMaxAsOf ? ('sessions ' + ovnShortDate(minAsOf) + ' – ' + ovnShortDate(ovnMaxAsOf)) : ('sessions through ' + ovnShortDate(ovnMaxAsOf)))
@@ -29517,6 +29665,7 @@ ${renderExportBindings()}
 
   // --- Calendar + shared Fed-policy data ---------------------------------
   var calendarState = { data: null, loading: false, type: 'all' };
+  var CAL_AGENDA_DAYS = 14;
   function renderCalendarConsumers(){
     var data = calendarState.data || { events: [] };
     renderCalendar();
@@ -30713,8 +30862,31 @@ ${renderExportBindings()}
           '</div>' +
           '<div class="fomc-hl-bar">' + hlSeg(hCut, 'cut', 'Cut') + hlSeg(hHold, 'hold', 'Hold') + hlSeg(hHike, 'hike', 'Hike') + '</div>' +
           '<div class="fomc-hl-keys">' + hlKey(hCut, 'cut', 'cut') + hlKey(hHold, 'hold', 'hold') + hlKey(hHike, 'hike', 'hike') + '</div>' +
+          fomcPathHtml() +
         '</div>';
       }
+    }
+    // The next few meetings as one stacked bar each (cumulative cut / hold /
+    // hike vs today), so the path reads at a glance without opening the ladder.
+    function fomcPathHtml(){
+      var later = meetingsAll.slice(1, 4).filter(function(m){ return cumProbs[m.date] && cumProbs[m.date].now; });
+      if (!later.length) return '';
+      return '<div class="fomc-path" aria-label="Odds at the next meetings">' + later.map(function(m){
+        var pb = cumProbs[m.date].now;
+        var pk = normProb(pb, 'hike') || 0, ph = normProb(pb, 'hold') || 0, pc = normProb(pb, 'cut') || 0;
+        var pt = pk + ph + pc; if (pt <= 0) pt = 1;
+        var seg = function(val, cls, lbl){
+          var frac = val / pt;
+          if (frac <= 0.001) return '';
+          return '<span class="fomc-hl-seg ' + cls + '" style="flex:' + frac.toFixed(4) + '" title="' + lbl + ' ' + Math.round(frac * 100) + '%"></span>';
+        };
+        var lead = pc >= ph && pc >= pk ? ['cut', pc] : pk >= ph ? ['hike', pk] : ['hold', ph];
+        return '<div class="fomc-path-row">' +
+          '<span class="fomc-path-label">' + escapeHtml(m.label) + '</span>' +
+          '<span class="fomc-hl-bar fomc-path-bar">' + seg(pc, 'cut', 'Cut') + seg(ph, 'hold', 'Hold') + seg(pk, 'hike', 'Hike') + '</span>' +
+          '<span class="fomc-path-lead ' + lead[0] + '">' + Math.round((lead[1] / pt) * 100) + '% ' + lead[0] + '</span>' +
+        '</div>';
+      }).join('') + '</div>';
     }
     var rows = ['hike','hold','cut'];
     var rowLabel = { hike: 'Hike', hold: 'Hold', cut: 'Cut' };
@@ -30999,11 +31171,23 @@ ${renderExportBindings()}
       viewYm = todayYm < minYm ? minYm : (todayYm > maxYm ? maxYm : todayYm);
     }
     calendarState.viewYm = viewYm;
-    // Per-type pill counts, scoped to the VIEWED MONTH so the badges match the
-    // grid the user is looking at.
+    // Agenda (the next 14 days, grouped by day) is the default layout; the
+    // month grid is the other choice and is remembered per device.
+    var layout = VIEWS.get('calendar.layout', 'agenda') === 'month' ? 'month' : 'agenda';
+    function inAgenda(date){ var dd = calDaysFromToday(date, todayMs); return dd != null && dd >= 0 && dd < CAL_AGENDA_DAYS; }
+    // A jump from the overview or briefing to a day past the agenda window
+    // shows the month grid for that one render.
+    var jumpDate = calendarState.jumpDate || null;
+    calendarState.jumpDate = null;
+    if (layout === 'agenda' && jumpDate && !inAgenda(jumpDate)) layout = 'month';
+    function inScope(e){
+      return calEventDateKeys(e).some(function(date){ return layout === 'agenda' ? inAgenda(date) : date.slice(0, 7) === viewYm; });
+    }
+    // Per-type pill counts, scoped to what is on screen (the next 14 days, or
+    // the VIEWED MONTH) so the badges match the list or grid.
     var counts = { all: 0, earnings: 0, catalysts: 0, reports: 0, fomc: 0, macro: 0 };
     data.events.forEach(function(e){
-      if (!calEventDateKeys(e).some(function(date){ return date.slice(0, 7) === viewYm; })) return;
+      if (!inScope(e)) return;
       counts.all++;
       if (e.type === 'earnings') counts.earnings++;
       else if (e.type === 'catalyst') counts.catalysts++;
@@ -31064,8 +31248,8 @@ ${renderExportBindings()}
     calendarState.selectedDate = sel;
     // Render one date row (date header + its event chips) — reused verbatim in
     // the selected-day detail panel below the grid.
-    function renderDayRow(date){
-      var rows = groups[date].map(function(e){
+    function renderDayRow(date, list){
+      var rows = (list || groups[date]).map(function(e){
         if (e.type === 'report') return renderReportChip(e);
         var cls = 'cal-chip cal-' + e.type + (e.companyEvent ? ' cal-company-event' : '');
         var label;
@@ -31130,6 +31314,45 @@ ${renderExportBindings()}
         '<div class="cal-chips">' + rows + '</div>' +
       '</div>';
     }
+    var layoutToggle = '<span class="view-toggle cal-layout-toggle" role="group" aria-label="Calendar layout">' +
+      [['agenda', 'Next 14 days'], ['month', 'Month']].map(function(m){
+        return '<button type="button" data-cal-layout="' + m[0] + '" aria-pressed="' + (layout === m[0] ? 'true' : 'false') + '" class="' + (layout === m[0] ? 'is-on' : '') + '">' + m[1] + '</button>';
+      }).join('') + '</span>';
+    if (layout === 'agenda'){
+      var agenda = {};
+      var agendaDates = [];
+      var agendaCount = 0;
+      data.events.forEach(function(e){
+        if (!calendarTypeMatches(e.type, calendarState.type)) return;
+        var hit = false;
+        calEventDateKeys(e).forEach(function(date){
+          if (!inAgenda(date)) return;
+          hit = true;
+          if (!agenda[date]){ agenda[date] = []; agendaDates.push(date); }
+          agenda[date].push(e);
+        });
+        if (hit) agendaCount++;
+      });
+      agendaDates.sort();
+      Object.keys(agenda).forEach(function(date){ agenda[date].sort(calEventPriorityCompare); });
+      var agendaBar = '<div class="cal-monthbar cal-agendabar">' + layoutToggle +
+          '<span class="cal-monthbar-count">' + agendaCount + ' event' + (agendaCount === 1 ? '' : 's') + ' in the next 14 days</span>' +
+        '</div>';
+      var agendaBody;
+      if (agendaDates.length){
+        agendaBody = '<div class="cal-agenda">' + agendaDates.map(function(date){
+          var row = renderDayRow(date, agenda[date]);
+          return date === jumpDate ? row.replace('class="cal-day', 'class="cal-day is-jump') : row;
+        }).join('') + '</div>';
+      } else {
+        var whatA = calendarState.type === 'all' ? '' : '“' + escapeHtml(calendarPillLabel(calendarState.type)) + '” ';
+        agendaBody = '<div class="cal-detail cal-detail-empty">' +
+          (data.loadError ? 'Couldn’t load the calendar — refresh the page to try again.' : 'No ' + whatA + 'events in the next 14 days. Switch to Month to look further out.') +
+        '</div>';
+      }
+      root.innerHTML = agendaBar + agendaBody;
+      return;
+    }
     // --- Month grid: a 7-column wall calendar for the viewed month ----------
     function calDayCell(date, dayNum){
       var evs = groups[date] || [];
@@ -31164,7 +31387,7 @@ ${renderExportBindings()}
     while (cells.length % 7 !== 0){
       cells.push('<div class="cal-cell is-out" aria-hidden="true"><span class="cal-cell-num">' + (trail++) + '</span></div>');
     }
-    var monthbar = '<div class="cal-monthbar">' +
+    var monthbar = '<div class="cal-monthbar">' + layoutToggle +
         '<button type="button" class="cal-nav-btn" data-cal-nav="prev"' + (viewYm <= minYm ? ' disabled' : '') + ' aria-label="Previous month">‹</button>' +
         '<span class="cal-monthbar-label">' + escapeHtml(fmtCalendarMonth(viewYm)) + '</span>' +
         '<button type="button" class="cal-nav-btn" data-cal-nav="next"' + (viewYm >= maxYm ? ' disabled' : '') + ' aria-label="Next month">›</button>' +
@@ -31246,6 +31469,14 @@ ${renderExportBindings()}
         // Report chip → open the bar-chart + summary modal.
         var rcChip = ev.target.closest('.cal-report[data-report-subtype]');
         if (rcChip){ openReportModal(findReportEvent(rcChip.getAttribute('data-report-subtype'), rcChip.getAttribute('data-report-date'))); return; }
+        // Agenda / Month layout switch.
+        var layoutBtn = ev.target.closest('[data-cal-layout]');
+        if (layoutBtn){
+          var nextLayout = layoutBtn.getAttribute('data-cal-layout') === 'month' ? 'month' : 'agenda';
+          VIEWS.set('calendar.layout', nextLayout === 'agenda' ? null : nextLayout);
+          renderCalendar();
+          return;
+        }
         // Month navigation: step a month or jump back to today.
         var navBtn = ev.target.closest('[data-cal-nav]');
         if (navBtn){
@@ -31325,6 +31556,7 @@ ${renderExportBindings()}
           if (jumpDay.length === 10){
             calendarState.viewYm = jumpDay.slice(0, 7);
             calendarState.selectedDate = jumpDay;
+            calendarState.jumpDate = jumpDay;
           }
           var pill = document.querySelector('.calendar-type-filter .calendar-pill[data-cal-type="' + filterType + '"]');
           if (pill) pill.click();
@@ -31351,7 +31583,7 @@ ${renderExportBindings()}
         if (filterBtn){
           var jump = filterBtn.getAttribute('data-cal-brief-date') || '';
           var type = filterBtn.getAttribute('data-cal-brief-filter') || 'all';
-          if (jump.length === 10){ calendarState.viewYm = jump.slice(0, 7); calendarState.selectedDate = jump; }
+          if (jump.length === 10){ calendarState.viewYm = jump.slice(0, 7); calendarState.selectedDate = jump; calendarState.jumpDate = jump; }
           var pill = document.querySelector('.calendar-type-filter .calendar-pill[data-cal-type="' + type + '"]');
           if (pill) pill.click();
           else { calendarState.type = type; renderCalendar(); }
@@ -32118,6 +32350,56 @@ ${renderExportBindings()}
       '<p class="chart-foot">Each manager\\u2019s 20 biggest adds and 20 biggest cuts, valued as shares changed × the quarter-end price, so a holding that only rose in price does not count as buying. Smaller moves are left out.</p>' +
     '</section>';
   }
+  // Turn a run of folded sections (<details> with a <summary> holding <b>Name</b>
+  // and an optional count) into one row of underlined tabs. The chosen tab
+  // is remembered per device under viewKey.
+  function uiTabsFromDetails(root, selector, viewKey, label){
+    var list = root ? Array.prototype.slice.call(root.querySelectorAll(selector)) : [];
+    if (list.length < 2) return;
+    var saved = VIEWS.get(viewKey, null);
+    var items = list.map(function(det, i){
+      var sum = det.querySelector('summary');
+      var name = sum && sum.querySelector('b') ? sum.querySelector('b').textContent : ('Section ' + (i + 1));
+      var countEl = sum ? sum.querySelector('[class*="count"]') : null;
+      var subEl = sum ? sum.querySelector('small') : null;
+      return { det: det, sum: sum, name: name, count: countEl ? countEl.textContent : '', sub: subEl ? subEl.textContent : '' };
+    });
+    var current = 0;
+    items.forEach(function(it, i){ if (it.name === saved) current = i; });
+    var wrap = document.createElement('section');
+    wrap.className = 'ui-tabs-block';
+    wrap.setAttribute('aria-label', label || 'Sections');
+    var bar = '<div class="ui-tabs" role="tablist">' + items.map(function(it, i){
+      return '<button type="button" role="tab" class="ui-tab' + (i === current ? ' is-on' : '') + '" data-ui-tab="' + i + '" aria-selected="' + (i === current ? 'true' : 'false') + '">' +
+        escapeHtml(it.name) + (it.count ? ' <span class="ui-tab-count">' + escapeHtml(it.count) + '</span>' : '') + '</button>';
+    }).join('') + '</div>';
+    wrap.innerHTML = bar;
+    list[0].parentNode.insertBefore(wrap, list[0]);
+    items.forEach(function(it, i){
+      var panel = document.createElement('div');
+      panel.className = 'ui-tab-panel';
+      panel.setAttribute('role', 'tabpanel');
+      if (i !== current) panel.hidden = true;
+      if (it.sub) panel.innerHTML = '<p class="ui-tab-sub">' + escapeHtml(it.sub) + '</p>';
+      if (it.sum) it.det.removeChild(it.sum);
+      while (it.det.firstChild) panel.appendChild(it.det.firstChild);
+      it.det.parentNode.removeChild(it.det);
+      wrap.appendChild(panel);
+    });
+    wrap.addEventListener('click', function(ev){
+      var btn = ev.target.closest ? ev.target.closest('[data-ui-tab]') : null;
+      if (!btn || btn.parentNode.parentNode !== wrap) return;
+      var idx = Number(btn.getAttribute('data-ui-tab'));
+      var tabs = wrap.querySelectorAll(':scope > .ui-tabs > .ui-tab');
+      var panels = wrap.querySelectorAll(':scope > .ui-tab-panel');
+      for (var k = 0; k < tabs.length; k++){
+        tabs[k].classList.toggle('is-on', k === idx);
+        tabs[k].setAttribute('aria-selected', k === idx ? 'true' : 'false');
+        panels[k].hidden = k !== idx;
+      }
+      VIEWS.set(viewKey, idx === 0 ? null : items[idx].name);
+    });
+  }
   function renderF13(){
     var root = $('f13-root');
     var empty = $('f13-empty');
@@ -32187,7 +32469,6 @@ ${renderExportBindings()}
         ? '<a class="f13-sym" data-sym="' + escapeHtml(tk) + '" href="' + symGradeHref(tk) + '" title="Open ' + escapeHtml(tk) + ' in the Grade tab">' + escapeHtml(tk) + '</a>'
         : '<span>' + escapeHtml(tk) + '</span>';
     }
-    html += '<div id="ownership-explorer-root"></div>';
     // Decision-first preview: show the broadest cross-manager accumulation
     // and distribution before the directory and full research tables.
     if ((Array.isArray(d.overallTopBought) && d.overallTopBought.length) ||
@@ -32294,6 +32575,8 @@ ${renderExportBindings()}
       '</section>';
     }
     html += f13FlowChartHtml(d.perFirm, fmtBigDollarsF13, fmtSignedDollarsF13);
+    // The stock / fund search follows the summary and the buy-sell chart.
+    html += '<div id="ownership-explorer-root"></div>';
     // === Form 4 insider tape =============================================
     // Kept visibly separate from quarterly 13F ownership. P/S open-market
     // transactions are the decision-first rows; grants/exercises/withholding
@@ -32569,6 +32852,7 @@ ${renderExportBindings()}
       '</div>';
     }
     root.innerHTML = html;
+    uiTabsFromDetails(root, 'details.f13-disclosure', 'f13.tab', 'Filing research');
     mountOwnershipExplorer($('ownership-explorer-root'), d, ownershipModel, f13State.explorer, ownershipBooks);
     bindBriefChips(root);
     bindF13Actions(root);
@@ -33593,7 +33877,17 @@ ${renderExportBindings()}
       var base = heatmapColorParts(ch, period);
       return { dir: base.dir, intensity: heatmapRvolIntensity(rv) };
     }
-    return heatmapColorParts(ch, period);
+    var parts = heatmapColorParts(ch, period);
+    return { dir: parts.dir, intensity: heatmapStepIntensity(parts.intensity) };
+  }
+  // Return colours use seven steps (three shades each way and flat), clipped
+  // at the period's scale (±3% for a day), so a small move still shows a
+  // clear tint instead of near-grey.
+  var HEATMAP_STEPS = [[1 / 60, 0], [1 / 6, 0.32], [1 / 2, 0.6], [Infinity, 0.92]];
+  function heatmapStepIntensity(i){
+    if (!(i > 0)) return 0;
+    for (var k = 0; k < HEATMAP_STEPS.length; k++) if (i <= HEATMAP_STEPS[k][0]) return HEATMAP_STEPS[k][1];
+    return 0.92;
   }
   function heatmapBakedReturn(t, period){
     if (!t) return null;
@@ -33867,9 +34161,19 @@ ${renderExportBindings()}
         '<span class="heatmap-legend-note">gray = quiet (≤1× avg) · saturation = relative volume</span>';
     } else {
       var sat = HEATMAP_PCT_SAT[heatmapState.period] || HEATMAP_PCT_SAT['1d'];
+      var stepCuts = [sat / 2, sat / 6, sat / 60];
+      var stepFmt = function(v){ return (Math.round(v * 100) / 100).toString(); };
       host.innerHTML =
         '<span class="heatmap-legend-label">−' + sat + '%</span>' +
-        '<span class="heatmap-legend-bar"></span>' +
+        '<span class="heatmap-legend-steps" role="img" aria-label="Seven colour steps from down ' + sat + '% or more to up ' + sat + '% or more">' +
+          '<i class="neg" style="--hm-intensity:0.92" title="down more than ' + stepFmt(stepCuts[0]) + '%"></i>' +
+          '<i class="neg" style="--hm-intensity:0.6" title="down ' + stepFmt(stepCuts[1]) + '% to ' + stepFmt(stepCuts[0]) + '%"></i>' +
+          '<i class="neg" style="--hm-intensity:0.32" title="down up to ' + stepFmt(stepCuts[1]) + '%"></i>' +
+          '<i class="zero" title="flat"></i>' +
+          '<i class="pos" style="--hm-intensity:0.32" title="up to ' + stepFmt(stepCuts[1]) + '%"></i>' +
+          '<i class="pos" style="--hm-intensity:0.6" title="up ' + stepFmt(stepCuts[1]) + '% to ' + stepFmt(stepCuts[0]) + '%"></i>' +
+          '<i class="pos" style="--hm-intensity:0.92" title="up more than ' + stepFmt(stepCuts[0]) + '%"></i>' +
+        '</span>' +
         '<span class="heatmap-legend-label">+' + sat + '%</span>' +
         '<span class="heatmap-legend-note">' + heatmapPeriodLabel() + ' return · ● = heavy volume (≥' + HEATMAP_HOT_RVOL + '× avg)</span>';
     }
@@ -34183,6 +34487,7 @@ ${renderExportBindings()}
             'data-ind="' + escapeHtml(rect.i || '') + '" ' +
             (isStale ? 'data-stale="1" ' : '') +
             'data-dir="' + color.dir + '" ' +
+            (color.intensity < 0.4 ? 'data-faint="1" ' : '') +
             'style="' +
               '--x:' + rect.x.toFixed(3) + ';' +
               '--y:' + rect.y.toFixed(3) + ';' +
@@ -34706,6 +35011,7 @@ ${renderExportBindings()}
       var rv = heatmapEffectiveRvol(bakedRow);
       var color = heatmapPaintParts(ch, rv, colorBy, period, sym);
       tile.setAttribute('data-dir', color.dir);
+      if (color.intensity < 0.4) tile.setAttribute('data-faint', '1'); else tile.removeAttribute('data-faint');
       tile.style.setProperty('--hm-intensity', color.intensity.toFixed(3));
       tile.setAttribute('data-ch', ch);
       tile.setAttribute('data-rv', rv == null ? '' : rv);
@@ -38450,6 +38756,65 @@ ${renderExportBindings()}
     if (!e || e.realFillPnlPct == null || !isFinite(rf)) return '';
     return ' <span class="acc-since acc-since-real ' + (rf >= 0 ? 'sig-pos' : 'sig-neg') + '" title="Ask in, bid out, from the live option quotes' + (e.realFillBasis === 'model' ? ' (no live quote this run: model less half the entry spread)' : '') + '.">' + accPct(rf) + ' <span class="acc-since-tag">real fill</span></span>';
   }
+  // "Opened 3d ago · Jun 13, 3:43 PM ET": the open time always in ET, because
+  // the picks run and the Robinhood checks are scheduled in ET.
+  var accEtFmt = null;
+  function accOpenedEt(iso){
+    var t = Date.parse(iso);
+    if (!isFinite(t)) return iso ? String(iso).slice(0, 10) : '—';
+    if (accEtFmt === null){
+      try { accEtFmt = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); }
+      catch (_){ accEtFmt = false; }
+    }
+    var abs = accEtFmt ? accEtFmt.format(new Date(t)) + ' ET' : new Date(t).toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
+    var mins = Math.max(0, Math.round((Date.now() - t) / 60000));
+    var rel = mins < 60 ? mins + 'm ago' : mins < 1440 ? Math.round(mins / 60) + 'h ago' : Math.round(mins / 1440) + 'd ago';
+    return rel + ' · ' + abs;
+  }
+  // Where the stock sits between the stock stop and the take-profit level:
+  // stop on the left, target on the right (flipped for puts), with entry and
+  // now marked. Hidden when either level is missing.
+  // How far the stock has gone from the stop (0) to the target (1).
+  function accRangeProgress(e){
+    var tp = e.takeProfit != null ? Number(e.takeProfit) : NaN, ct = e.cut != null ? Number(e.cut) : NaN;
+    var now = Number(e.lastSpot) > 0 ? Number(e.lastSpot) : Number(e.entrySpot);
+    if (!isFinite(tp) || !isFinite(ct) || !(now > 0) || tp === ct) return null;
+    return (now - ct) / (tp - ct);
+  }
+  function accRangeBarHtml(e, compact, nowLabel){
+    var isCall = e.side !== 'put';
+    var tp = e.takeProfit != null ? Number(e.takeProfit) : NaN;
+    var ct = e.cut != null ? Number(e.cut) : NaN;
+    var entry = Number(e.entrySpot), now = Number(e.lastSpot);
+    if (!isFinite(tp) || !isFinite(ct) || !(entry > 0) || tp === ct) return '';
+    if (!(now > 0)) now = entry;
+    function pos(v){ return Math.max(0, Math.min(100, (v - ct) / (tp - ct) * 100)); }
+    var pEntry = pos(entry), pNow = pos(now);
+    var gain = isCall ? now >= entry : now <= entry;
+    var lo = Math.min(pEntry, pNow), hi = Math.max(pEntry, pNow);
+    var beyond = (now - ct) / (tp - ct) > 1 ? ' is-past-target' : (now - ct) / (tp - ct) < 0 ? ' is-past-stop' : '';
+    var title = 'Stock stop $' + ct.toFixed(2) + ' · entry $' + entry.toFixed(2) + ' · now $' + now.toFixed(2) + ' · target $' + tp.toFixed(2);
+    if (compact){
+      return '<span class="acc-range acc-range-mini' + beyond + '" role="img" aria-label="' + escapeHtml(title) + '" title="' + escapeHtml(title) + '"><span class="acc-range-track">' +
+        '<span class="acc-range-fill ' + (gain ? 'is-gain' : 'is-loss') + '" style="left:' + lo.toFixed(1) + '%;width:' + (hi - lo).toFixed(1) + '%"></span>' +
+        '<span class="acc-range-mark is-entry" style="left:' + pEntry.toFixed(1) + '%"></span>' +
+        '<span class="acc-range-mark is-now ' + (gain ? 'is-gain' : 'is-loss') + '" style="left:' + pNow.toFixed(1) + '%"></span>' +
+      '</span></span>';
+    }
+    // Spans throughout so the bar can sit inside a card that is a <button>.
+    return '<span class="acc-range' + beyond + '" role="img" aria-label="' + escapeHtml(title) + '" title="' + escapeHtml(title) + '">' +
+      '<span class="acc-range-track">' +
+        '<span class="acc-range-fill ' + (gain ? 'is-gain' : 'is-loss') + '" style="left:' + lo.toFixed(1) + '%;width:' + (hi - lo).toFixed(1) + '%"></span>' +
+        '<span class="acc-range-mark is-entry" style="left:' + pEntry.toFixed(1) + '%"></span>' +
+        '<span class="acc-range-mark is-now ' + (gain ? 'is-gain' : 'is-loss') + '" style="left:' + pNow.toFixed(1) + '%"></span>' +
+      '</span>' +
+      '<span class="acc-range-labels">' +
+        '<span class="acc-range-stop">Stop $' + ct.toFixed(2) + '</span>' +
+        '<span class="acc-range-now">' + (nowLabel || 'Now') + ' $' + now.toFixed(2) + '</span>' +
+        '<span class="acc-range-tp">Target $' + tp.toFixed(2) + '</span>' +
+      '</span>' +
+    '</span>';
+  }
   function accOpenRow(e){
     var nowMs = Date.now();
     var isCall = e.side !== 'put';
@@ -38489,12 +38854,12 @@ ${renderExportBindings()}
         headPnl +
       '</div>' +
       '<div class="acc-row-meta">' +
-        '<span class="acc-when">Opened ' + accDateTime(e.entryDate) + ' @ $' + entry.toFixed(2) + '</span>' +
+        '<span class="acc-when">Opened ' + escapeHtml(accOpenedEt(e.entryDate)) + ' @ $' + entry.toFixed(2) + '</span>' +
         '<span>Now $' + last.toFixed(2) + (entry > 0 ? ' · stock ' + accPct(chg) : '') + '</span>' +
         (dleft != null && isFinite(dleft) ? '<span>' + (dleft >= 0 ? dleft + 'd left' : 'expired') + '</span>' : '') +
         peakDip +
       '</div>' +
-      (targets ? '<div class="acc-targets">' + targets + '</div>' : '') +
+      (accRangeBarHtml(e) || (targets ? '<div class="acc-targets">' + targets + '</div>' : '')) +
       accStrategyBlock(e, false) +
       accCheckpointsBlock(e) +
     '</div>';
@@ -38812,7 +39177,8 @@ ${renderExportBindings()}
       { label: 'Strike', num: true, cell: function(o){ var c = o.contract || {}; return c.strike != null ? '$' + escapeHtml(String(c.strike)) : ''; }, sort: function(o){ var c = o.contract || {}; return isFinite(Number(c.strike)) ? Number(c.strike) : null; } },
       { label: 'Expiry', cell: function(o){ var c = o.contract || {}; return escapeHtml(c.expiryLabel || ''); }, sort: function(o){ var c = o.contract || {}; return Number(c.expiry) > 0 ? Number(c.expiry) : null; } },
       { label: 'DTE', num: true, cell: function(o){ var v = openPickDte(o); return v == null ? '' : String(v); }, sort: openPickDte },
-      { label: 'Opened', cell: function(o){ return o.entryDate ? escapeHtml(accDateTime(o.entryDate)) : ''; }, sort: function(o){ var t = Date.parse(o.entryDate); return isFinite(t) ? t : null; } },
+      { label: 'Opened (ET)', cell: function(o){ return o.entryDate ? escapeHtml(accOpenedEt(o.entryDate)) : ''; }, sort: function(o){ var t = Date.parse(o.entryDate); return isFinite(t) ? t : null; } },
+      { label: 'Stop → target', title: 'Where the stock sits between the stock stop and the take-profit level', cell: function(o){ return accRangeBarHtml(o, true); }, sort: accRangeProgress },
       { label: 'Days held', num: true, cell: function(o){ var d = openPickDays(o.entryDate); return d == null ? '' : d.toFixed(d < 10 ? 1 : 0); }, sort: function(o){ return openPickDays(o.entryDate); } },
       { label: 'Entry', num: true, title: 'Entry premium per share', cell: function(o){ var c = o.contract || {}; return money(c.netDebit != null ? c.netDebit : c.mid); }, sort: function(o){ var c = o.contract || {}; var v = Number(c.netDebit != null ? c.netDebit : c.mid); return isFinite(v) ? v : null; } },
       { label: 'Mark', num: true, title: 'Latest model price per share', cell: function(o){ return money(o.optionPremiumLast); }, sort: function(o){ var v = Number(o.optionPremiumLast); return isFinite(v) ? v : null; } },
@@ -40140,6 +40506,13 @@ ${renderExportBindings()}
     var bar = sel.closest ? sel.closest('.picks-controls') : null;
     if (bar && !bar.querySelector('.view-toggle')) bar.insertAdjacentHTML('beforeend', VIEWS.viewToggleHtml('picks', PICKS_VIEW_EXTRAS));
     VIEWS.onView('picks', function(){ renderPicks(); });
+    var picksGrid = $('picks-grid');
+    if (picksGrid) picksGrid.addEventListener('click', function(ev){
+      var chip = ev.target && ev.target.closest ? ev.target.closest('[data-ta-sym]') : null;
+      if (!chip || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
+      ev.preventDefault();
+      calGoToTicker(chip.getAttribute('data-ta-sym'));
+    });
   }
 
   // --- "Check a position you hold" tool -----------------------------------
@@ -41890,11 +42263,25 @@ ${renderExportBindings()}
       TOP_PICKS_MARKET_UI.scores(p) + thesisLine +
       entryLine +
       econ +
+      pickRangeHtml(p) +
       (metaBits.length ? '<span class="ptc-meta">' + metaBits.join(' · ') + '</span>' : '') +
       '<span class="ptc-cta">View judgment →</span>' +
     '</button>';
   }
 
+  // The card's stop / spot / target bar, from the pick's exit plan (stock
+  // levels). Uses the live spot when the live poller has one.
+  function pickRangeHtml(p){
+    var ep = p && p.exitPlan;
+    var tp = ep && ep.takeProfit ? Number(ep.takeProfit.price) : NaN;
+    var ct = ep && ep.cut ? Number(ep.cut.price) : NaN;
+    var spot = Number(p && p.spot);
+    if (!isFinite(tp) || !isFinite(ct) || !(spot > 0)) return '';
+    var q = picksLive && picksLive.quotes ? picksLive.quotes[String(p.symbol || '').toUpperCase()] : null;
+    var live = q && q.spot != null ? Number(q.spot) : NaN;
+    var now = live > 0 ? live : spot;
+    return accRangeBarHtml({ side: p.side, takeProfit: tp, cut: ct, entrySpot: spot, lastSpot: now }, false, live > 0 ? 'Live' : 'Spot');
+  }
   // Render the detail page for one ticker into the (stable) detail container.
   function renderPickDetailCard(sym){
     var holder = $('picks-detail-card');
@@ -42262,6 +42649,34 @@ ${renderExportBindings()}
   // detail page back to the list — used by the watchlist toggle, which can
   // fire from inside the detail view. Normal callers omit it: leaving and
   // returning to the tab should land on the menu, not a stale detail page.
+  function picksTurnedAwayHtml(rm){
+    var rows = rm && Array.isArray(rm.turnedAway) ? rm.turnedAway : [];
+    if (!rows.length) return '';
+    var groups = {}, order = [], seen = {};
+    rows.forEach(function(r){
+      if (!r || !r.sym) return;
+      var key = r.sym + ':' + (r.side || '');
+      if (seen[key]) return;
+      seen[key] = 1;
+      var g = r.gate || 'other';
+      if (!groups[g]){ groups[g] = []; order.push(g); }
+      groups[g].push(r);
+    });
+    order.sort(function(a, b){ return groups[b].length - groups[a].length; });
+    return '<section class="picks-turned-away" aria-label="Names the rules turned away">' +
+      '<header><h3>Watching</h3><p>Names that reached the scoring bar this run, and the rule that kept each one off the list.</p></header>' +
+      order.map(function(g){
+        var list = groups[g].slice().sort(function(a, b){ return Math.abs(Number(b.total) || 0) - Math.abs(Number(a.total) || 0); });
+        return '<div class="picks-ta-row"><span class="picks-ta-gate">' + escapeHtml(ACC_GATE_LABEL[g] || g) + '</span><span class="picks-ta-chips">' +
+          list.map(function(r){
+            var t = Number(r.total);
+            return '<a class="picks-ta-chip ' + (r.side === 'put' ? 'is-put' : 'is-call') + '" href="' + escapeHtml(symGradeHref(r.sym)) + '" data-ta-sym="' + escapeHtml(r.sym) + '">' +
+              escapeHtml(r.sym) + ' <small>' + (r.side === 'put' ? 'PUT' : 'CALL') + (isFinite(t) ? ' ' + (t > 0 ? '+' : '') + t.toFixed(1) : '') + '</small></a>';
+          }).join('') +
+        '</span></div>';
+      }).join('') +
+    '</section>';
+  }
   function renderPicks(keepView){
     bindPicksControls();
     bindPicksNav();
@@ -42309,8 +42724,10 @@ ${renderExportBindings()}
     if (!keepView) closePickDetail();
     if (!picks.length){
       // The user-saved watchlist still renders on an empty roster — a frozen
-      // idea outliving the list is exactly what it is for.
-      grid.innerHTML = watchlistHtml;
+      // idea outliving the list is exactly what it is for. Below it, the names
+      // the rules turned away this run, grouped by the rule, so an empty day
+      // still shows what the engine was looking at.
+      grid.innerHTML = watchlistHtml + (data.loadError || staleBuild ? '' : picksTurnedAwayHtml(data.rosterMeta));
       try { applyLiveEntryChips(); } catch (_){}
       if (summaryEl) summaryEl.innerHTML = '';
       if (empty){
@@ -43188,8 +43605,8 @@ ${renderExportBindings()}
         label: (Math.round(val * 100) / 100) + '\\n' + (back === 0 ? 'latest session' : back + ' sessions back'),
         value: val, time: back === 0 ? 'latest session' : back + ' sessions back' };
     }));
-    return '<svg class="bonds-spark"' + hover + ' width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" aria-hidden="true">' +
-      sparkAreaHtml(pts, h) + '<polyline points="' + pts + '" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/></svg>';
+    return '<svg class="bonds-spark"' + hover + ' width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" aria-hidden="true">' +
+      sparkAreaHtml(pts, h) + '<polyline points="' + pts + '" fill="none" stroke="currentColor" stroke-width="1.4" vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round"/></svg>';
   }
   function startBondsLivePolling(){
     var pane = document.getElementById('page-pane-bonds-usd');
@@ -43304,28 +43721,27 @@ ${renderExportBindings()}
         : (leg.bpsChange1d != null ? Math.abs(leg.bpsChange1d) : null);
       var band = classifyMove(absDaily, scale);
       var alerting = isAlerting(scale, absDaily);
-      var badge = band
+      // A normal-sized move needs no label; only a notable or larger one shows.
+      var badge = band && band.key !== 'normal'
         ? '<span class="bonds-live-band band-' + band.key + '">' + escapeHtml(band.label) + '</span>'
         : '';
       var alertChip = alerting
         ? '<span class="bonds-live-alert" title="Alert threshold reached">!</span>'
         : '';
-      var prevLine = '';
+      var prevText = '';
       if (leg.liveSource) {
         var sourceShort = leg.liveSource === 'U.S. Treasury Daily Par Yield Curve' ? 'Treasury close' : leg.liveSource;
-        prevLine = '<span class="bonds-live-prev" title="' + escapeHtml(leg.liveSource) + ' — latest official observation, not a futures proxy">' +
-          escapeHtml(sourceShort + (leg.liveAsOf ? ' ' + leg.liveAsOf : '')) +
-          (leg.livePrevClose != null ? ' · Prev: ' + escapeHtml(valFmt(leg.livePrevClose)) : '') + '</span>';
+        prevText = sourceShort + (leg.liveAsOf ? ' ' + leg.liveAsOf : '') + ' (official observation)' + (leg.livePrevClose != null ? ' · prev ' + valFmt(leg.livePrevClose) : '');
       } else if (leg.livePrevClose != null) {
-        prevLine = '<span class="bonds-live-prev" title="Previous session close (live quote)">Prev close: ' +
-          escapeHtml(valFmt(leg.livePrevClose)) + '</span>';
+        prevText = 'Prev close ' + valFmt(leg.livePrevClose);
       } else if (prev && prev[key] != null && prev.date) {
-        prevLine = '<span class="bonds-live-prev" title="Previous EOD close from data/macro-history.json">Prev ' +
-          escapeHtml(prev.date) + ': ' + escapeHtml(valFmt(prev[key])) +
-        '</span>';
+        prevText = 'Prev close ' + prev.date + ': ' + valFmt(prev[key]);
       }
       var sparkHtml = (bondsHist.series && key) ? bondsSparkSvg(bondsHist.series[key]) : '';
-      return '<div class="bonds-live-tile' + (alerting ? ' is-alerting' : '') + '" data-bonds-key="' + escapeHtml(key || scale) + '" tabindex="-1">' +
+      // Value, 1-day change and the sparkline show; the 5-day move and the
+      // previous close sit in the tile's tooltip.
+      var tileTip = [weekly ? weekly.text : '', band ? band.label + ' 1-day move' : '', prevText].filter(Boolean).join(' · ');
+      return '<div class="bonds-live-tile' + (alerting ? ' is-alerting' : '') + '" data-bonds-key="' + escapeHtml(key || scale) + '" tabindex="-1"' + (tileTip ? ' title="' + escapeHtml(tileTip) + '"' : '') + '>' +
         '<div class="bonds-live-tile-head">' +
           '<span class="bonds-live-label">' + escapeHtml(label) + '</span>' +
           alertChip +
@@ -43333,8 +43749,6 @@ ${renderExportBindings()}
         '<span class="bonds-live-value">' + escapeHtml(valFmt(leg.value)) + '</span>' +
         (daily ? '<span class="bonds-live-change ' + daily.dirClass + '">' + escapeHtml(daily.text) + '</span>' : '') +
         (badge ? '<div class="bonds-live-band-row">' + badge + '</div>' : '') +
-        (weekly ? '<span class="bonds-live-change bonds-live-change--sub ' + weekly.dirClass + '">' + escapeHtml(weekly.text) + '</span>' : '') +
-        prevLine +
         sparkHtml +
       '</div>';
     }
@@ -43425,24 +43839,18 @@ ${renderExportBindings()}
       var alerting = !!(regime && regime.key === 'very-large');
       var badge = regime ? '<span class="bonds-live-band band-' + regime.key + '">' + escapeHtml(regime.label) + '</span>' : '';
       var alertChip = alerting ? '<span class="bonds-live-alert" title="VIX in a high-fear regime">!</span>' : '';
-      var prevLine = '';
-      if (leg.livePrevClose != null) {
-        prevLine = '<span class="bonds-live-prev" title="Previous session close (live quote)">Prev close: ' +
-          escapeHtml(leg.livePrevClose.toFixed(2)) + '</span>';
-      } else if (prev && prev.vix != null && prev.date) {
-        prevLine = '<span class="bonds-live-prev" title="Previous EOD close from data/macro-history.json">Prev ' +
-          escapeHtml(prev.date) + ': ' + escapeHtml(prev.vix.toFixed(2)) + '</span>';
-      }
+      var prevText = '';
+      if (leg.livePrevClose != null) prevText = 'Prev close ' + leg.livePrevClose.toFixed(2);
+      else if (prev && prev.vix != null && prev.date) prevText = 'Prev close ' + prev.date + ': ' + prev.vix.toFixed(2);
+      var vixTip = [weekly ? weekly.text : '', prevText].filter(Boolean).join(' · ');
       var sparkHtml = (bondsHist.series) ? bondsSparkSvg(bondsHist.series.vix) : '';
-      return '<div class="bonds-live-tile' + (alerting ? ' is-alerting' : '') + '">' +
+      return '<div class="bonds-live-tile' + (alerting ? ' is-alerting' : '') + '"' + (vixTip ? ' title="' + escapeHtml(vixTip) + '"' : '') + '>' +
         '<div class="bonds-live-tile-head">' +
           '<span class="bonds-live-label">VIX</span>' + alertChip +
         '</div>' +
         '<span class="bonds-live-value">' + escapeHtml(leg.value.toFixed(2)) + '</span>' +
         (daily ? '<span class="bonds-live-change ' + daily.dirClass + '">' + escapeHtml(daily.text) + '</span>' : '') +
         (badge ? '<div class="bonds-live-band-row">' + badge + '</div>' : '') +
-        (weekly ? '<span class="bonds-live-change bonds-live-change--sub ' + weekly.dirClass + '">' + escapeHtml(weekly.text) + '</span>' : '') +
-        prevLine +
         sparkHtml +
       '</div>';
     }
