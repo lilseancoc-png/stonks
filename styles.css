@@ -27822,8 +27822,14 @@ html.is-embed #freshness-banner { margin-top: 8px; padding-block: 6px; }
 .landing-pulse .pulse-spark svg { display: block; width: 88px; height: 26px; overflow: visible; }
 .landing-pulse .pulse-item:not(:has(.pulse-spark)) .pulse-price { grid-column: 1 / -1; }
 @media (max-width: 1279px) { .landing-pulse .pulse-spark svg { width: 64px; } }
+/* Phones and small tablets: two tiles per row (the last one spans both when
+   the count is odd), so the price and its line never overlap the next tile. */
 @media (max-width: 760px) {
-  .landing-pulse .pulse-item { min-width: 168px; }
+  .landing-pulse { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .landing-pulse .pulse-item { grid-column: auto; min-width: 0; border-left: 0; border-top: 1px solid var(--border); }
+  .landing-pulse .pulse-item:nth-child(-n+2) { border-top: 0; }
+  .landing-pulse .pulse-item:nth-child(even) { border-left: 1px solid var(--border); }
+  .landing-pulse .pulse-item:last-child:nth-child(odd) { grid-column: 1 / -1; }
 }
 
 /* ---- Home: "At a glance" fills its rows ----------------------------------- */
@@ -28344,6 +28350,17 @@ button.idea-record-chip:hover { border-color: var(--accent-line); }
 .idea-table thead th:nth-child(-n+5) { color: var(--text); }
 @media (max-width: 640px) {
   .idea-record-chip { white-space: normal; }
+}
+
+/* ---- Market themes: the summary card fits a phone ------------------------- */
+@media (max-width: 720px) {
+  .narr-pulse { grid-template-columns: minmax(0, 1fr); }
+  .narr-pulse > * { min-width: 0; }
+  .narr-pulse-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .narr-pulse-leader { max-width: 100%; min-width: 0; }
+}
+@media (max-width: 480px) {
+  .narr-pulse-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 

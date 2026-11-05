@@ -90,6 +90,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Fixed
 
+- On phones, the Home index tiles sit two to a row instead of overlapping, and the Market themes summary card (market tilt, story counts, leading stories) fits the screen instead of running off the right edge.
 - Restore regex escapes that the generated app.js was silently dropping. GPU cloud prices now drop the "NVIDIA" prefix from model names and Commodities driver notes show their first sentence again; three other spots (RAM price text, Pending buyouts dates, export file names) happened to work and are fixed for safety. `npm run test:charts` fails on any new single-backslash escape in the generated scripts.
 
 ## 2026-11-04
