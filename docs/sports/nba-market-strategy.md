@@ -19,7 +19,8 @@ prices and sportsbook payout odds.
 - Only pregame, full-game, coherent Over/Under pairs from the same operator,
   market delivery, player and threshold qualify. One-sided N+ ladders,
   withdrawn selections, suspended/boosted markets, contradictory duplicates,
-  invalid odds and stale data are excluded. No best-price mixing across
+  invalid odds and stale data are excluded. NBA PrizePicks lines must
+  explicitly identify their DFS type as standard; unknown types are excluded. No best-price mixing across
   operators or deliveries is used to remove margin.
 - Both sides must be offered within five minutes and within thirty seconds
   of each other. An outcome that missed its market's latest delivery is
@@ -152,7 +153,9 @@ are not automatically the true closing sportsbook price or proof of profit.
 
 Paper ROI uses the entered payout only on fully resolved win/loss pairs;
 push/void pairs are excluded because operator settlement/reboot rules are
-not reconstructed. Missing final stats remain pending. Positive screens and
+not reconstructed. Missing final stats or player rows remain pending; a partial NBA box score
+  never supplies an inferred DNP. Observed cancellations/postponements remain
+  excluded even if a later schedule reopens the game. Positive screens and
 pass entries have separate paper-return breakdowns. Never select new cutoffs
 using the already-inspected historical holdout; these new, frozen decisions
 provide a fresh prospective sample instead.
