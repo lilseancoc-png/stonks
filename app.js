@@ -51050,7 +51050,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
   // A trade block: { kind: 'OPEN'|'CLOSE', id, rows: [[label, value], ...] }.
   function tlBlock(kind, e, fields){
-    return { kind: kind, id: tlTradeId(e), rows: fields.filter(function(f){ return f[1]; }) };
+    return { kind: kind, id: tlTradeId(e), rows: fields.filter(function(f){ return f[1]; }), entry: e };
   }
   function tlOpenBlock(e, nowMs){
     var c = (e && e.contract) || {};
@@ -51119,10 +51119,85 @@ function scenarioEventPhase(ev, now = Date.now()) {
     ].concat(tlSection('OPEN TRADES (' + opens.length + ')', opens, 'None open right now.'), [''],
       tlSection('CLOSED IN THE LAST 7 DAYS (' + closes.length + ')', closes, 'None.')).join('\n') + '\n';
   }
+  // Two-leg close ticket for a vertical spread (HTML only; the copied feed
+  // text stays the same as lib/pick-trade-text.mjs). Each leg gets its own
+  // line and Copy button; opening the ticket reads live leg quotes from
+  // /api/contract so each limit sits at the current mid.
+  function tlLegText(e, strike){
+    var c = (e && e.contract) || {};
+    return e.symbol + ' ' + tlExpiry(c.expiry) + ' ' + tlStrike(strike) + ' ' + ((c.optionType || e.side) === 'put' ? 'put' : 'call');
+  }
+  function tlTicketHtml(b){
+    var e = b.entry, c = (e && e.contract) || {};
+    if (b.kind === 'CLOSE' && e && e.status === 'expired') return '';
+    if (c.structure !== 'debit_vertical' && c.structure !== 'credit_vertical') return '';
+    if (tlNum(c.longStrike) == null || tlNum(c.shortStrike) == null || tlNum(c.expiry) == null) return '';
+    var type = (c.optionType || e.side) === 'put' ? 'put' : 'call';
+    var mark = tlMarkPrice(e);
+    var credit = c.structure === 'credit_vertical';
+    var leg = function(role, action, strike){
+      var text = tlLegText(e, strike);
+      return '<li data-tl-leg="' + role + '" data-strike="' + escapeHtml(String(strike)) + '" data-text="' + escapeHtml(action + ' 1 ' + text) + '">' +
+        '<b>' + action + '</b> 1 <code>' + escapeHtml(text) + '</code> · limit <span data-tl-leg-px>near the mid</span>' +
+        '<button type="button" class="acc-mark-btn tl-ticket-copy" data-tl-leg-copy>Copy</button></li>';
+    };
+    return '<details class="tl-ticket" data-tl-ticket data-sym="' + escapeHtml(e.symbol) + '" data-type="' + type + '" data-exp="' + escapeHtml(String(c.expiry)) + '" data-credit="' + (credit ? '1' : '0') + '">' +
+      '<summary class="tl-ticket-head">Close ticket · 2 legs</summary>' +
+      '<ol>' + leg('short', 'Buy to close', c.shortStrike) + leg('long', 'Sell to close', c.longStrike) + '</ol>' +
+      '<p data-tl-net>' + (credit ? 'Closing costs a net debit' : 'Closing brings in a net credit') + (mark != null ? ' of about ' + tlMoney(mark) + ' per share on the Mingstreet model.' : '.') + '</p>' +
+      '<p>Best: enter both legs as one spread order at a net limit near the mid. If your broker takes one leg at a time, buy back the short leg first so you are never short an uncovered option.' + (b.kind === 'OPEN' ? ' Use this when the trade’s CLOSE line appears.' : '') + '</p>' +
+    '</details>';
+  }
+  function tlTicketLoad(box){
+    if (!box || box.getAttribute('data-tl-loaded')) return;
+    box.setAttribute('data-tl-loaded', '1');
+    var sym = box.getAttribute('data-sym'), type = box.getAttribute('data-type'), exp = box.getAttribute('data-exp');
+    var legs = box.querySelectorAll('[data-tl-leg]');
+    var mids = {};
+    var jobs = Array.prototype.map.call(legs, function(li){
+      var strike = li.getAttribute('data-strike');
+      return fetch('/api/contract?symbol=' + encodeURIComponent(sym) + '&side=' + encodeURIComponent(type) + '&exp=' + encodeURIComponent(exp) + '&strike=' + encodeURIComponent(strike), { cache: 'no-store' })
+        .then(function(r){ if (!r.ok) throw new Error('http'); return r.json(); })
+        .then(function(q){
+          var bid = Number(q && q.b), ask = Number(q && q.a);
+          var px = li.querySelector('[data-tl-leg-px]');
+          if (!(bid >= 0) || !(ask > 0) || ask < bid){ if (px) px.textContent = 'near the mid (no live quote)'; return; }
+          var mid = Math.round((bid + ask) / 2 * 100) / 100;
+          mids[li.getAttribute('data-tl-leg')] = mid;
+          if (px) px.textContent = '$' + mid.toFixed(2) + ' (bid ' + bid.toFixed(2) + ' / ask ' + ask.toFixed(2) + ')';
+          li.setAttribute('data-text', li.getAttribute('data-text').replace(/(, limit \$[\d.]+)?$/, '') + ', limit $' + mid.toFixed(2));
+        })
+        .catch(function(){ var px = li.querySelector('[data-tl-leg-px]'); if (px) px.textContent = 'near the mid (live quote unavailable)'; });
+    });
+    Promise.all(jobs).then(function(){
+      if (mids.long == null || mids.short == null) return;
+      var credit = box.getAttribute('data-credit') === '1';
+      var net = credit ? mids.short - mids.long : mids.long - mids.short;
+      var p = box.querySelector('[data-tl-net]');
+      if (p) p.textContent = (credit ? 'Closing costs a net debit of about $' : 'Closing brings in a net credit of about $') + Math.max(0, net).toFixed(2) + ' per share at the live mids' + (net < 0 ? ' (the mids cross; use the broker’s spread quote).' : '.');
+    });
+  }
+  document.addEventListener('toggle', function(ev){
+    var t = ev.target;
+    if (t && t.matches && t.matches('[data-tl-ticket]') && t.open) tlTicketLoad(t);
+  }, true);
+  document.addEventListener('click', function(ev){
+    var btn = ev.target && ev.target.closest ? ev.target.closest('[data-tl-leg-copy]') : null;
+    if (!btn) return;
+    ev.preventDefault();
+    var li = btn.closest('[data-tl-leg]');
+    var text = li ? li.getAttribute('data-text') : '';
+    if (!text) return;
+    if (!/, limit \$/.test(text)) text += ', limit near the mid';
+    var done = function(ok){ btn.textContent = ok ? 'Copied' : 'Copy failed'; setTimeout(function(){ btn.textContent = 'Copy'; }, 1600); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function(){ done(true); }, function(){ done(false); });
+    else { try { window.prompt('Copy this order', text); done(true); } catch (_){ done(false); } }
+  });
   function tlBlockHtml(b){
     return '<li class="tl-card">' +
       '<div class="tl-card-head"><span class="tl-kind tl-kind-' + b.kind.toLowerCase() + '">' + b.kind + '</span> <span class="tl-id">' + escapeHtml(b.id) + '</span></div>' +
       '<dl class="tl-rows">' + b.rows.map(function(r){ return '<dt>' + escapeHtml(r[0]) + '</dt><dd>' + escapeHtml(r[1]) + '</dd>'; }).join('') + '</dl>' +
+      tlTicketHtml(b) +
     '</li>';
   }
   // The Open picks tab's copy block, below the cards and collapsed by default:

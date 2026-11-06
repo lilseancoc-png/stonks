@@ -100,7 +100,8 @@ export function renderSiteNextCss() {
 
 /* ---- Two-leg close ticket (Open picks) ------------------------------------ */
 .tl-ticket { margin-top: 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-2); background: var(--surface-2); }
-.tl-ticket-head { font: 650 13px/1.3 var(--font-sans); color: var(--text-strong); margin-bottom: 6px; }
+.tl-ticket-head { font: 650 13px/1.3 var(--font-sans); color: var(--text-strong); cursor: pointer; }
+.tl-ticket[open] .tl-ticket-head { margin-bottom: 8px; }
 .tl-ticket ol { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
 .tl-ticket li { font: 400 13px/1.45 var(--font-sans); }
 .tl-ticket code { font: 500 12px/1.4 var(--font-mono); word-break: break-word; }

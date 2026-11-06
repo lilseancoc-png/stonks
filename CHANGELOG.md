@@ -61,6 +61,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Tap-to-define words: dotted terms such as Calls per put, OI change, Squeeze score, IV percentile and Implied move open a short plain-English meaning, and a new **Words used on this site** page (Learn & help) lists them all, from one list in `lib/glossary.mjs`.
 - Compact one-line rows on phones: All stocks, Up/down streaks, Options walls and Moving averages open on a phone as a table with one line per row (sub-lines hidden), so the longest card pages shrink to a scrollable list; a "Compact rows" button turns it off and Cards stays one tap away.
 - Press ? (or the footer's "Keyboard shortcuts" link) for a list of the site's shortcuts: ⌘K / Ctrl K and / for search, arrow keys and Enter in results and table headers, Esc to close.
+- Open picks trade lines carry a two-leg close ticket for each spread: buy back the short leg and sell the long leg, one line and Copy button each, with limits at the live mid (read from `/api/contract` when the ticket opens) and the net credit or debit; it advises one spread order, or the short leg first when legging out. The copied feed text is unchanged.
 
 ### Changed
 
