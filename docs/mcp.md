@@ -37,6 +37,7 @@ only if you started the connection yourself.
 | `get_stock_grades` | owner | `grades.json`, flattened and sortable |
 | `get_live_quotes` | any | Live Yahoo quotes (`lib/yahoo.mjs`), ≤10 covered symbols |
 | `get_top_picks` | owner | `approvedTopPicks()`, the same payload as the Top Picks tab |
+| `get_near_misses` | owner | "Why no picks today": the names that came closest in the last run and the first rule that stopped each (`lib/no-picks.mjs` over `rosterMeta.turnedAway`, the approved roster as in `get_top_picks`, topped up from `grades.json` under the score bar), plus how many names each rule stopped |
 | `get_track_record` | owner | `readSiteRecord('picks-accuracy.json')`: stats, all-time stats, open trades and recent closes as compact rows (trade ID, contract, entry and model mark, P&L %), trade lines |
 | `sports_list_games` | owner | Owner Sports: today's and tomorrow's NBA or NFL games (`leagueView('board')`), in a chosen US time zone |
 | `sports_find_players` | owner | Owner Sports: player search by name, for the ids the other Sports tools take |
@@ -67,12 +68,12 @@ in `feature-sources.mjs`, so no other store key can be named.
 
 - Tools only ever hold a get-only store (`lib/mcp/read-only-store.mjs`). `put`, `del`, `list`, leases and
   generation publishing all throw `READ_ONLY` before reaching R2, and the handle is frozen.
-- `get_top_picks` runs the site's live market approval (`approvedTopPicks`) on a throwaway overlay
+- `get_top_picks` and `get_near_misses` run the site's live market approval (`approvedTopPicks`) on a throwaway overlay
   (`dryRunStore`). On the site that step saves market holds to `top-picks-approval.json`, which the Webull paper
   mirror reads; through the MCP the agent sees the same answer and nothing is saved.
 - No tool places orders, triggers the Webull mirror, uploads fills, edits the watchlist, starts a build or calls AI.
   MCP tokens can't act as the site session cookie, so they can't reach the site's Owner actions either.
-- Yahoo-backed tools (`get_live_quotes`, `get_top_picks`) are capped at 20 calls a minute per token, inside the
+- Yahoo-backed tools (`get_live_quotes`, `get_top_picks`, `get_near_misses`) are capped at 20 calls a minute per token, inside the
   120-a-minute overall cap, so an agent can't get the site's shared Yahoo access throttled.
 - `scripts/mcp-smoke.mjs` runs every tool against a store whose write methods record any call and asserts none;
   `scripts/sports-mcp-smoke.mjs` does the same for the Sports tools and checks they match the Pick Builder route.

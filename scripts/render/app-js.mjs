@@ -48,6 +48,7 @@ import { refreshScheduleFactory } from '../../lib/refresh-schedule.mjs';
 import { ownerWatchlistFactory } from '../../lib/owner-watchlist.mjs';
 import { watchlistAlertsFactory } from '../../lib/watchlist-alerts.mjs';
 import { weekRecapFactory } from '../../lib/week-recap.mjs';
+import { noPicksFactory } from '../../lib/no-picks.mjs';
 import { GLOSSARY } from '../../lib/glossary.mjs';
 import { overnightToneFactory } from '../../lib/overnight-tone.mjs';
 import { sectorGroupsFactory } from '../../lib/sector-groups.mjs';
@@ -102,6 +103,7 @@ ${validNewsFeedPayload.toString()}
   // Owner watchlist alert rules (source: lib/watchlist-alerts.mjs).
   var WATCH_ALERTS = (${watchlistAlertsFactory.toString()})();
   var WEEK_RECAP = (${weekRecapFactory.toString()})();
+  var NO_PICKS = (${noPicksFactory.toString()})();
   var GLOSSARY = ${JSON.stringify(GLOSSARY)};
   // One overnight risk-on/off scorer (source: lib/overnight-tone.mjs), the same
   // one the bake uses for the saved pre-open call and the Top Picks tape axis.
@@ -36601,18 +36603,9 @@ ${renderExportBindings()}
   // What each open-pick rule turned away (picks-accuracy.json gateStats): the
   // stock move in the trade's direction 5 / 10 / 20 trading days after a rule
   // kept a name off the open-pick path, next to the names that opened.
-  var ACC_GATE_LABEL = {
-    'opened':'Opened on the Track Record', 'book-full':'Picked, but the 20-trade book was full',
-    'losing-streak-bar':'Losing-streak bar (needs 8+)', 'below-strong':'Score below 7',
-    'confluence':'Fewer than 2 pillars agree', 'no-ai-slot':'No AI review slot',
-    'ai-reject':'AI rejected', 'ai-not-strong':'AI grade not strong', 'thesis-not-strong':'Thesis not strong (no AI grade)',
-    'ai-wait':'AI said wait', 'timing-checks':'Entry timing checks', 'avoid-timing':'Avoid timing (knife or chase)',
-    'scenario':'Market scenario gate', 'slots-full':'Top Picks slots full', 'no-contract':'No tradeable contract',
-    'collateral-stress':'Pledged-stock collateral stress near an estimated threshold',
-    'pending-buyout':'Signed takeover target (price pinned to the deal)',
-    'option-economics':'Option target does not support the profit exit after quote costs',
-    'sector-cap':'Sector cap', 'factor-cap':'Factor cap', 'factor-run-cap':'Same-group limit (2 new per run)', 'factor-trend':'Weak factor trend', 'side-cap':'Call / put cap'
-  };
+  // One label per rule (lib/no-picks.mjs), shared with the Top Picks
+  // "Why no picks today" card and the MCP get_near_misses tool.
+  var ACC_GATE_LABEL = NO_PICKS.GATE_LABEL;
   function accGateStatsHtml(stats){
     if (!Array.isArray(stats) || !stats.length) return '';
     function cell(a){
@@ -44218,6 +44211,34 @@ ${renderExportBindings()}
       }).join('') +
     '</section>';
   }
+  // "Why no picks today": when nothing is ready to buy, the five names that
+  // came closest this run and the rule that stopped each (lib/no-picks.mjs).
+  function picksNoPicksHtml(data){
+    if (!data || data.loadError || data.stale === true) return '';
+    var nm = NO_PICKS.nearMisses(data, picksState.grades || null, { isReady: function(p){ return pickDisplayDecision(p).ready; } });
+    if (nm.readyCount > 0) return '';
+    // Fewer than five reached the bar: fill from grades.json once (Owner tab).
+    if (nm.misses.length < 5 && !picksState.gradesTried){
+      picksState.gradesTried = true;
+      fetch(dataUrl('grades.json'), { cache: 'no-cache' }).then(function(r){ return r.ok ? r.json() : null; })
+        .then(function(g){ if (g && g.grades){ picksState.grades = g; renderPicks(true); } }).catch(function(){});
+    }
+    if (!nm.misses.length) return '';
+    var when = '';
+    if (nm.builtAtIso){ var bd = new Date(nm.builtAtIso); if (!isNaN(bd.getTime())) when = ' after the ' + formatDisplayInstant(bd, { hour: 'numeric', minute: '2-digit', hour12: true }) + ' run'; }
+    var items = nm.misses.map(function(m){
+      var sc = m.score == null ? '' : ' <small>score ' + (m.score > 0 ? '+' : '') + m.score.toFixed(1) + '</small>';
+      return '<li><a href="' + escapeHtml(symGradeHref(m.symbol)) + '"><b>' + escapeHtml(m.symbol) + '</b></a> ' + m.side + sc +
+        ' <span class="nopick-gate">' + escapeHtml(m.label) + '</span>' + (m.next ? '<br><span class="muted">' + escapeHtml(m.next) + '</span>' : '') + '</li>';
+    }).join('');
+    var top = nm.gates.slice(0, 3).map(function(g){ return escapeHtml(g.label) + ' (' + g.n + ')'; }).join(', ');
+    return '<section class="nopick-card" aria-label="Why no picks today">' +
+      '<h3>' + (nm.listed ? 'Why nothing is ready to buy' : 'Why no picks today') + '</h3>' +
+      '<p>Nothing cleared every rule' + escapeHtml(when) + '. These ' + nm.misses.length + ' came closest' + (nm.misses.some(function(m){ return m.source === 'grades'; }) ? ' (names under the score bar of ' + nm.bar + ' come from the grades)' : '') + ', each with the rule that stopped it.</p>' +
+      '<ol>' + items + '</ol>' +
+      '<p class="nopick-foot">' + (nm.gates.length && nm.gates[0].n > 1 ? 'Most names this run stopped at: ' + top + '. ' : '') + 'Top Picks runs at 11:00 and 15:30 ET on trading days.</p>' +
+    '</section>';
+  }
   function renderPicks(keepView){
     bindPicksControls();
     bindPicksNav();
@@ -44268,7 +44289,7 @@ ${renderExportBindings()}
       // idea outliving the list is exactly what it is for. Below it, the names
       // the rules turned away this run, grouped by the rule, so an empty day
       // still shows what the engine was looking at.
-      grid.innerHTML = watchlistHtml + (data.loadError || staleBuild ? '' : picksTurnedAwayHtml(data.rosterMeta));
+      grid.innerHTML = picksNoPicksHtml(data) + watchlistHtml + (data.loadError || staleBuild ? '' : picksTurnedAwayHtml(data.rosterMeta));
       try { applyLiveEntryChips(); } catch (_){}
       if (summaryEl) summaryEl.innerHTML = '';
       if (empty){
@@ -44407,7 +44428,7 @@ ${renderExportBindings()}
       sectionHtml += groupHead('Ideas · watch', watchList.length, 'Not a buy right now — strong picks waiting for entry, moderate grades, or thinner theses; a strategy is shown only where it’s earned', 'picks-group-watch');
       sectionHtml += watchList.map(function(p, i){ return pickTabCardHtml(p, i); }).join('');
     }
-    grid.innerHTML = watchlistHtml + rosterNote + sectionHtml;
+    grid.innerHTML = picksNoPicksHtml(data) + watchlistHtml + rosterNote + sectionHtml;
     // Re-apply the live entry-trigger overlays on the freshly-rendered chips —
     // a sort toggle or watchlist change otherwise shows baked chips until the
     // next 30s poll lands.

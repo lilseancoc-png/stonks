@@ -8,6 +8,8 @@ import { ownerWatchlistFactory, applyOwnerWatchlistRequest, readOwnerWatchlistDo
 import { watchlistAlertsFactory } from "../lib/watchlist-alerts.mjs";
 import { buildCalendarIcs, parseIcsSymbols } from "../lib/calendar-ics.mjs";
 import { weekRecapFactory } from "../lib/week-recap.mjs";
+import { noPicksFactory } from "../lib/no-picks.mjs";
+import { pickDisplayDecision } from "../lib/research-display.mjs";
 import { buildEarningsWeek, buildEarningsWeekPlan, pastEarningsMoves, impliedVsHistory, seasonSoFar } from "../lib/earnings-week.mjs";
 
 let checks = 0;
@@ -206,5 +208,32 @@ ok(txt.includes("Biggest miss: TSLA put, entry score 8.8, closed -50.0% (premium
 ok(WR.build({}, { nowIso: "2026-11-06T22:00:00Z" }).opened.length === 0, "an empty record still builds");
 ok(WR.recapReady("2026-11-06T21:05:00Z") && WR.recapReady("2026-11-08T15:00:00Z"), "the Home tile shows Friday after 4 PM ET and on the weekend");
 ok(!WR.recapReady("2026-11-06T19:00:00Z") && !WR.recapReady("2026-11-09T15:00:00Z"), "not before Friday's close or on Monday");
+
+// --- Why no picks today ------------------------------------------------------
+const NP = noPicksFactory();
+const runPicks = {
+  builtAtIso: "2026-11-06T16:05:00Z",
+  picks: [{ symbol: "NVDA", side: "call", group: "watch", entry: { now: false }, contract: {} }],
+  rosterMeta: { minConviction: 4, turnedAway: [
+    { sym: "AMD", side: "call", total: 6.5, gate: "below-strong" },
+    { sym: "NVDA", side: "call", total: 9.1, gate: "ai-wait" },
+    { sym: "TSLA", side: "put", total: -7.4, gate: "sector-cap" },
+    { sym: "AMD", side: "call", total: 6.5, gate: "timing-checks" },
+    { sym: "META", side: "call", total: 8, gate: "picked" },
+  ] },
+};
+const gradesDoc = { grades: {
+  AAPL: { symbol: "AAPL", total: 3.6 }, MSFT: { symbol: "MSFT", total: -3.9 }, META: { symbol: "META", total: 8 },
+  AMD: { symbol: "AMD", total: 6.5 }, XOM: { symbol: "XOM", total: 1 }, KO: { symbol: "KO", total: 0 },
+} };
+const nm = NP.nearMisses(runPicks, gradesDoc, { isReady: (p) => pickDisplayDecision(p).ready });
+eq(nm.readyCount, 0, "a watch-only roster has nothing ready to buy");
+eq(nm.misses.map((m) => `${m.symbol}:${m.gate}`), ["NVDA:ai-wait", "TSLA:sector-cap", "AMD:below-strong", "MSFT:below-bar", "AAPL:below-bar"], "the run's near misses first, closest first, then the strongest scores under the bar");
+ok(nm.misses[3].side === "put" && /4 or more/.test(nm.misses[3].next), "a negative score under the bar is a put and says what it needs");
+eq(nm.gates.find((g) => g.gate === "below-strong").n, 1, "each rule counts the names it stopped");
+ok(!nm.misses.some((m) => m.symbol === "META"), "a picked name is never a near miss");
+eq(NP.nearMisses(runPicks, null, { n: 2 }).misses.length, 2, "n caps the list");
+eq(NP.nearMisses({ picks: [{ group: "actionable", entry: { now: true }, contract: {}, strategy: { type: "long" }, optionEconomics: { eligible: true } }] }, null, { isReady: (p) => pickDisplayDecision(p).ready }).readyCount, 1, "a ready pick counts");
+ok(Object.keys(NP.GATE_NEXT).every((k) => NP.GATE_LABEL[k]), "every rule with advice has a label");
 
 console.log(`site-next smoke passed (${checks} checks)`);

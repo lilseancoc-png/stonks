@@ -219,6 +219,8 @@ export function renderSiteNextCss() {
 .nopick-card p { margin: 0 0 8px; font: 400 13px/1.45 var(--font-sans); color: var(--muted-strong); }
 .nopick-card ol { margin: 0; padding-left: 20px; display: grid; gap: 4px; font: 400 13px/1.45 var(--font-sans); }
 .nopick-card ol b { font-family: var(--font-mono); }
+.nopick-card ol li a { color: inherit; }
+.nopick-card .nopick-foot { margin: 8px 0 0; font-size: 12px; color: var(--muted); }
 .nopick-gate { display: inline-block; margin-left: 4px; padding: 0 6px; border-radius: var(--r-pill); font: 600 11px/1.5 var(--font-sans); background: var(--surface-2); color: var(--muted-strong); }
 
 /* ---- Home-screen app: offline note ---------------------------------------- */

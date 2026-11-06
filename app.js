@@ -2576,6 +2576,109 @@ function validNewsFeedPayload(data) {
   }
   return { KINDS: KINDS, KIND_LABEL: KIND_LABEL, etKey: etKey, weekOf: weekOf, recapReady: recapReady, shiftWeek: shiftWeek, dayLabel: dayLabel, build: build, text: text };
 })();
+  var NO_PICKS = (function noPicksFactory() {
+  var GATE_LABEL = {
+    'opened': 'Opened on the Track Record', 'book-full': 'Picked, but the 20-trade book was full',
+    'losing-streak-bar': 'Losing-streak bar (needs 8+)', 'below-strong': 'Score below 7',
+    'confluence': 'Fewer than 2 pillars agree', 'no-ai-slot': 'No AI review slot',
+    'ai-reject': 'AI rejected', 'ai-not-strong': 'AI grade not strong', 'thesis-not-strong': 'Thesis not strong (no AI grade)',
+    'ai-wait': 'AI said wait', 'timing-checks': 'Entry timing checks', 'avoid-timing': 'Avoid timing (knife or chase)',
+    'scenario': 'Market scenario gate', 'slots-full': 'Top Picks slots full', 'no-contract': 'No tradeable contract',
+    'collateral-stress': 'Pledged-stock collateral stress near an estimated threshold',
+    'pending-buyout': 'Signed takeover target (price pinned to the deal)',
+    'option-economics': 'Option target does not support the profit exit after quote costs',
+    'sector-cap': 'Sector cap', 'factor-cap': 'Factor cap', 'factor-run-cap': 'Same-group limit (2 new per run)', 'factor-trend': 'Weak factor trend', 'side-cap': 'Call / put cap',
+    'event-cap': 'Event-trade limit reached', 'below-bar': 'Score below the bar'
+  };
+  // What it would take to get through, in plain words.
+  var GATE_NEXT = {
+    'book-full': 'A slot opens when one of the 20 record trades closes.',
+    'losing-streak-bar': 'While the record is on a losing streak a pick needs a score of 8 or more.',
+    'below-strong': 'A pick needs a score of 7 or more.',
+    'confluence': 'At least 2 of the 4 pillars have to point its way.',
+    'no-ai-slot': 'Only the 6 highest scores get the AI review each run.',
+    'ai-reject': 'The AI review read the case as weak this run.',
+    'ai-not-strong': 'It needs a strong grade from the AI review.',
+    'thesis-not-strong': 'It needs a strong thesis.',
+    'ai-wait': 'The AI review wants a better entry; it looks again next run.',
+    'timing-checks': 'It waits for a cleaner entry price.',
+    'avoid-timing': 'It is falling hard or has run too far; it waits for the move to settle.',
+    'scenario': 'The market check is holding this side back for now.',
+    'slots-full': 'Every Top Picks slot is taken this run.',
+    'no-contract': 'No option had enough trading and a tight enough spread.',
+    'collateral-stress': 'Pledged shares near a lender threshold block new bullish picks.',
+    'pending-buyout': 'A signed takeover pins the price to the deal.',
+    'option-economics': 'After the bid/ask cost the option cannot reach the profit target.',
+    'sector-cap': 'Its sector already holds the most picks allowed.',
+    'factor-cap': 'Its factor group already holds the most picks allowed.',
+    'factor-run-cap': 'Two names from its group already opened this run.',
+    'factor-trend': 'Its factor group has been trending the wrong way.',
+    'side-cap': 'The book already holds the most calls or puts allowed.',
+    'event-cap': 'The limit on event trades is reached for now.'
+  };
+  function num(v) {
+    if (v == null || v === '') return null;
+    var n = Number(v);
+    return isFinite(n) ? n : null;
+  }
+  // A pick ready to buy now; callers pass the site's own rule
+  // (pickDisplayDecision in lib/research-display.mjs) as opts.isReady.
+  function ready(p) {
+    return !!p && p.group === 'actionable' && !!p.entry && p.entry.now === true;
+  }
+  // picks: picks.json; grades: grades.json (optional); opts: { n (default 5,
+  // max 20), isReady }. Returns { builtAtIso, readyCount, listed, bar,
+  // misses: [{ symbol, side, score, gate, label, next, source }],
+  // gates: [{ gate, label, n }], traced }.
+  function nearMisses(picks, grades, opts) {
+    picks = picks || {};
+    opts = opts || {};
+    var n = Math.max(1, Math.min(20, Number(opts.n) || 5));
+    var isReady = typeof opts.isReady === 'function' ? opts.isReady : ready;
+    var rm = picks.rosterMeta || {};
+    var list = Array.isArray(picks.picks) ? picks.picks : [];
+    var readyCount = 0;
+    for (var i = 0; i < list.length; i++) if (isReady(list[i])) readyCount++;
+    var bar = num(rm.minConviction) || num(rm.tradeCut) || 4;
+    var seen = {}, rows = [], counts = {};
+    var trace = Array.isArray(rm.turnedAway) ? rm.turnedAway : [];
+    for (i = 0; i < trace.length; i++) {
+      var t = trace[i];
+      if (!t || !t.sym || !t.gate) continue;
+      var key = t.sym + ':' + (t.side === 'put' ? 'put' : 'call');
+      if (t.gate === 'picked') { seen[key] = 1; continue; }
+      counts[t.gate] = (counts[t.gate] || 0) + 1;
+      if (seen[key]) continue;
+      seen[key] = 1;
+      rows.push({ symbol: t.sym, side: t.side === 'put' ? 'put' : 'call', score: num(t.total), gate: t.gate,
+        label: GATE_LABEL[t.gate] || t.gate, next: GATE_NEXT[t.gate] || '', source: 'run' });
+    }
+    rows.sort(function (a, b) { return Math.abs(b.score || 0) - Math.abs(a.score || 0); });
+    rows = rows.slice(0, n);
+    // Fewer than n names reached the bar: the strongest scores under it.
+    if (rows.length < n && grades && grades.grades && typeof grades.grades === 'object') {
+      var below = [];
+      var g = grades.grades;
+      for (var sym in g) {
+        if (!Object.prototype.hasOwnProperty.call(g, sym)) continue;
+        var r = g[sym] || {};
+        var tot = num(r.total);
+        if (tot == null || tot === 0) continue;
+        var side = tot < 0 ? 'put' : 'call';
+        if (seen[sym + ':' + side]) continue;
+        if (Math.abs(tot) >= bar) continue;
+        below.push({ symbol: r.symbol || sym, side: side, score: tot, gate: 'below-bar', label: GATE_LABEL['below-bar'],
+          next: 'A name has to score ' + bar + ' or more (either way) before the other rules look at it.', source: 'grades' });
+      }
+      below.sort(function (a, b) { return Math.abs(b.score) - Math.abs(a.score); });
+      rows = rows.concat(below.slice(0, n - rows.length));
+    }
+    var gates = Object.keys(counts).map(function (k) { return { gate: k, label: GATE_LABEL[k] || k, n: counts[k] }; })
+      .sort(function (a, b) { return b.n - a.n || (a.gate < b.gate ? -1 : 1); });
+    return { builtAtIso: picks.builtAtIso || picks.generatedAt || null, readyCount: readyCount, listed: list.length, bar: bar, misses: rows, gates: gates, traced: trace.length > 0 };
+  }
+  return { GATE_LABEL: GATE_LABEL, GATE_NEXT: GATE_NEXT, nearMisses: nearMisses };
+})();
   var GLOSSARY = {"oi":{"term":"Open interest (OI)","def":"How many option contracts are still open at a strike. It updates once a day, after the exchange settles the prior session.","tab":"oi"},"dOi":{"term":"OI change (ΔOI)","def":"How much open interest grew or shrank since the prior trading day. A big rise means new positions were opened at that strike.","tab":"oi"},"cp":{"term":"Calls per put (C/P)","def":"Open call contracts divided by open put contracts in the near-term chain. 2:1 means twice as many calls as puts are open.","tab":"oi"},"volOi":{"term":"Volume ÷ OI (Vol/OI)","def":"Contracts traded today divided by contracts already open. Above 1 means today’s trading is larger than the existing positions, often new money.","tab":"oi"},"callWall":{"term":"Call wall / put wall","def":"The strike with the most open calls (or puts). Price often stalls near these strikes because dealers hedge around them. These are open-interest walls.","tab":"oi"},"gammaWall":{"term":"Gamma wall","def":"The strike where dealers’ estimated hedging is largest (dealer gamma). It is worked out from open interest and each option’s gamma, so it can differ from the OI wall.","tab":"oi"},"squeeze":{"term":"Squeeze score (gamma squeeze score)","def":"A 0 to 5 count of signs that call buying could push the stock up fast: heavy calls near the price, many calls per put, busy call-wall trading, a nearby call wall and buying at the ask. 4 or 5 is a setup to watch, not a reason to buy.","tab":"oi"},"iv":{"term":"Implied volatility (IV)","def":"How big a yearly move option prices are paying for, in percent. Higher IV means more expensive options.","tab":"cheatsheet"},"ivPct":{"term":"IV percentile","def":"The share of the stock’s own past days (about 18 months) when its IV was lower than today. 85 means options cost more today than on 85% of those days.","tab":"iv-trend"},"ivRank":{"term":"IV rank","def":"Where today’s IV sits between the lowest (0) and highest (100) IV of the stock’s own saved history.","tab":"iv-trend"},"rv":{"term":"Realized volatility (RV30)","def":"How much the stock actually moved over the last 30 trading days, as a yearly percent. When IV is above it, options are charging more than the stock has been moving."},"vrp":{"term":"Volatility premium (VRP)","def":"IV minus realized volatility. Positive means options are priced for bigger moves than the stock has been making."},"dte":{"term":"Days to expiry (DTE)","def":"Calendar days until an option expires."},"atm":{"term":"At the money (ATM)","def":"The strike closest to the current stock price."},"delta":{"term":"Delta (Δ)","def":"About how much an option’s price moves for a $1 move in the stock, and a rough chance it ends in the money. 0.55 Δ is a little in the money."},"impliedMove":{"term":"Implied move","def":"The move, up or down, that option prices expect around an event such as earnings. It comes from the at-the-money straddle.","tab":"earnings-week"},"debit":{"term":"Debit spread","def":"Buy one option and sell a further one of the same type. It costs less than buying alone, and both the gain and the loss are capped.","tab":"strategies"},"credit":{"term":"Credit spread","def":"Sell one option and buy a further one as protection. You collect money up front; the most you can lose is the gap between strikes minus that credit.","tab":"strategies"}};
   // One overnight risk-on/off scorer (source: lib/overnight-tone.mjs), the same
   // one the bake uses for the saved pre-open call and the Top Picks tape axis.
@@ -47480,18 +47583,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // What each open-pick rule turned away (picks-accuracy.json gateStats): the
   // stock move in the trade's direction 5 / 10 / 20 trading days after a rule
   // kept a name off the open-pick path, next to the names that opened.
-  var ACC_GATE_LABEL = {
-    'opened':'Opened on the Track Record', 'book-full':'Picked, but the 20-trade book was full',
-    'losing-streak-bar':'Losing-streak bar (needs 8+)', 'below-strong':'Score below 7',
-    'confluence':'Fewer than 2 pillars agree', 'no-ai-slot':'No AI review slot',
-    'ai-reject':'AI rejected', 'ai-not-strong':'AI grade not strong', 'thesis-not-strong':'Thesis not strong (no AI grade)',
-    'ai-wait':'AI said wait', 'timing-checks':'Entry timing checks', 'avoid-timing':'Avoid timing (knife or chase)',
-    'scenario':'Market scenario gate', 'slots-full':'Top Picks slots full', 'no-contract':'No tradeable contract',
-    'collateral-stress':'Pledged-stock collateral stress near an estimated threshold',
-    'pending-buyout':'Signed takeover target (price pinned to the deal)',
-    'option-economics':'Option target does not support the profit exit after quote costs',
-    'sector-cap':'Sector cap', 'factor-cap':'Factor cap', 'factor-run-cap':'Same-group limit (2 new per run)', 'factor-trend':'Weak factor trend', 'side-cap':'Call / put cap'
-  };
+  // One label per rule (lib/no-picks.mjs), shared with the Top Picks
+  // "Why no picks today" card and the MCP get_near_misses tool.
+  var ACC_GATE_LABEL = NO_PICKS.GATE_LABEL;
   function accGateStatsHtml(stats){
     if (!Array.isArray(stats) || !stats.length) return '';
     function cell(a){
@@ -55301,6 +55395,34 @@ function scenarioEventPhase(ev, now = Date.now()) {
       }).join('') +
     '</section>';
   }
+  // "Why no picks today": when nothing is ready to buy, the five names that
+  // came closest this run and the rule that stopped each (lib/no-picks.mjs).
+  function picksNoPicksHtml(data){
+    if (!data || data.loadError || data.stale === true) return '';
+    var nm = NO_PICKS.nearMisses(data, picksState.grades || null, { isReady: function(p){ return pickDisplayDecision(p).ready; } });
+    if (nm.readyCount > 0) return '';
+    // Fewer than five reached the bar: fill from grades.json once (Owner tab).
+    if (nm.misses.length < 5 && !picksState.gradesTried){
+      picksState.gradesTried = true;
+      fetch(dataUrl('grades.json'), { cache: 'no-cache' }).then(function(r){ return r.ok ? r.json() : null; })
+        .then(function(g){ if (g && g.grades){ picksState.grades = g; renderPicks(true); } }).catch(function(){});
+    }
+    if (!nm.misses.length) return '';
+    var when = '';
+    if (nm.builtAtIso){ var bd = new Date(nm.builtAtIso); if (!isNaN(bd.getTime())) when = ' after the ' + formatDisplayInstant(bd, { hour: 'numeric', minute: '2-digit', hour12: true }) + ' run'; }
+    var items = nm.misses.map(function(m){
+      var sc = m.score == null ? '' : ' <small>score ' + (m.score > 0 ? '+' : '') + m.score.toFixed(1) + '</small>';
+      return '<li><a href="' + escapeHtml(symGradeHref(m.symbol)) + '"><b>' + escapeHtml(m.symbol) + '</b></a> ' + m.side + sc +
+        ' <span class="nopick-gate">' + escapeHtml(m.label) + '</span>' + (m.next ? '<br><span class="muted">' + escapeHtml(m.next) + '</span>' : '') + '</li>';
+    }).join('');
+    var top = nm.gates.slice(0, 3).map(function(g){ return escapeHtml(g.label) + ' (' + g.n + ')'; }).join(', ');
+    return '<section class="nopick-card" aria-label="Why no picks today">' +
+      '<h3>' + (nm.listed ? 'Why nothing is ready to buy' : 'Why no picks today') + '</h3>' +
+      '<p>Nothing cleared every rule' + escapeHtml(when) + '. These ' + nm.misses.length + ' came closest' + (nm.misses.some(function(m){ return m.source === 'grades'; }) ? ' (names under the score bar of ' + nm.bar + ' come from the grades)' : '') + ', each with the rule that stopped it.</p>' +
+      '<ol>' + items + '</ol>' +
+      '<p class="nopick-foot">' + (nm.gates.length && nm.gates[0].n > 1 ? 'Most names this run stopped at: ' + top + '. ' : '') + 'Top Picks runs at 11:00 and 15:30 ET on trading days.</p>' +
+    '</section>';
+  }
   function renderPicks(keepView){
     bindPicksControls();
     bindPicksNav();
@@ -55351,7 +55473,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       // idea outliving the list is exactly what it is for. Below it, the names
       // the rules turned away this run, grouped by the rule, so an empty day
       // still shows what the engine was looking at.
-      grid.innerHTML = watchlistHtml + (data.loadError || staleBuild ? '' : picksTurnedAwayHtml(data.rosterMeta));
+      grid.innerHTML = picksNoPicksHtml(data) + watchlistHtml + (data.loadError || staleBuild ? '' : picksTurnedAwayHtml(data.rosterMeta));
       try { applyLiveEntryChips(); } catch (_){}
       if (summaryEl) summaryEl.innerHTML = '';
       if (empty){
@@ -55490,7 +55612,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       sectionHtml += groupHead('Ideas · watch', watchList.length, 'Not a buy right now — strong picks waiting for entry, moderate grades, or thinner theses; a strategy is shown only where it’s earned', 'picks-group-watch');
       sectionHtml += watchList.map(function(p, i){ return pickTabCardHtml(p, i); }).join('');
     }
-    grid.innerHTML = watchlistHtml + rosterNote + sectionHtml;
+    grid.innerHTML = picksNoPicksHtml(data) + watchlistHtml + rosterNote + sectionHtml;
     // Re-apply the live entry-trigger overlays on the freshly-rendered chips —
     // a sort toggle or watchlist change otherwise shows baked chips until the
     // next 30s poll lands.
