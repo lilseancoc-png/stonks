@@ -17,3 +17,19 @@ export function streaksFixture() {
   }));
   return {builtAtIso: '2026-10-28T00:00:00.000Z', tickers};
 }
+
+// The same desk with four active 4-day runs, one per trend read, so the
+// read chips, the "what a run usually means" tiles and the read filter have
+// something to show.
+export function streaksReadsFixture() {
+  const base = streaksFixture();
+  const reads = [['SN01', 'green', 'uptrend-run', 1, 1], ['SN03', 'green', 'bear-rally', -1, -1],
+    ['SN04', 'red', 'downtrend-slide', -1, -1], ['SN06', 'red', 'uptrend-dip', 0, 1]];
+  for (const [sym, color, kind, vote, trend] of reads) {
+    const t = base.tickers.find((x) => x.symbol === sym);
+    t.current = {...t.current, color, days: 4, sameDays: 4, windowDays: 4,
+      cumulativePct: color === 'green' ? 4.2 : -4.2, volumeTrend: kind === 'uptrend-run' ? 'rising' : 'steady'};
+    t.trendRead = {kind, vote, trend};
+  }
+  return base;
+}

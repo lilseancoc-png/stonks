@@ -3254,7 +3254,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
   // surfaces non-fresh sources so traders know the anchor is degraded.
-  var RFR_META = {"source":"fresh","asOf":"2026-11-05","ageDays":null};
+  var RFR_META = {"source":"cached","asOf":"2026-11-05","ageDays":1};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, intradaySeries: null, fundamentals: null, social: null, chainRequestSeq: 0 };
   var ownerAutoPicks = { data: null, pending: null };
@@ -46612,7 +46612,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
     grade: {
       '2026-10-no-chart-pattern': { since:'2026-10-19', note:'Chart-pattern vote removed' },
       '2026-10-sector-growth': { since:'2026-10-20', note:'Growth judged against sector norms' },
-      '2026-10-iv-rule': { since:'2026-10-26', note:'One expensive-options rule; credit spreads only when IV is very rich' }
+      '2026-10-iv-rule': { since:'2026-10-26', note:'One expensive-options rule; credit spreads only when IV is very rich' },
+      '2026-11-price-pillar': { since:'2026-11-06', note:'Price signals fixed: real breakouts vote, streaks read with the trend, MACD and 52-week votes dropped' }
     },
     exit: { '2026-10-22-tp25': { since:'2026-10-22', note:'Take-profit raised to +25%' } },
     entry: { '2026-10-23-reviewed-entry-v3': { since:'2026-10-23', note:'Entries must pass an option-price check' } },
@@ -53530,8 +53531,12 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var sideLabel = p.side === 'put' ? 'PUT' : 'CALL';
     var spot = p.spot != null ? '$' + Number(p.spot).toFixed(2) : '';
     var sectorTag = p.sector ? '<span class="pick-sector">' + escapeHtml(p.sector) + '</span>' : '';
+    // The streak read with the moving averages (lib/streaks.mjs), the same
+    // rule as the technicals streak vote, as a tooltip on the chip.
+    var STREAK_READ_TIP = { 'uptrend-run': 'Up run above its averages (+1)', 'uptrend-run-thin': 'Up run on fading volume (no vote)', 'bear-rally': 'Bounce below its averages (−1)', 'downtrend-slide': 'Slide below its averages (−1)', 'uptrend-dip': 'Dip inside an uptrend (no vote)', 'no-trend': 'No clear trend (no vote)', 'short': 'Under 3 days (no vote)' };
+    var streakTip = p.streak && STREAK_READ_TIP[p.streak.read] ? ' title="Streak read: ' + escapeHtml(STREAK_READ_TIP[p.streak.read]) + '"' : '';
     var streakHtml = p.streak
-      ? '<span class="pick-streak pick-streak-' + escapeHtml(p.streak.color) + '">' +
+      ? '<span class="pick-streak pick-streak-' + escapeHtml(p.streak.color) + '"' + streakTip + '>' +
           p.streak.days + 'd ' + (p.streak.color === 'green' ? '▲' : '▼') +
           ' ' + (p.streak.cumulativePct >= 0 ? '+' : '') + p.streak.cumulativePct.toFixed(1) + '%' +
         '</span>'

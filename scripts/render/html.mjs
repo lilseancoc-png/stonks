@@ -2474,7 +2474,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
         <h2 class="card-title">Daily green / red streaks</h2>
         <span class="card-eyebrow" id="streaks-eyebrow" aria-live="polite"></span>
       </header>
-      ${infoNote('How streaks are counted', `<p>Daily moves first pass an adaptive noise floor based on the ticker's own recent median absolute move (bounded at 0.08–0.35%), so microscopic closes do not create streaks. Counter-day and cumulative-tolerance break bars also scale with that volatility, within conservative bounds. A same-direction close partially heals the tolerance bank and one counter day rather than erasing all prior damage. The displayed streak count is the number of same-direction days; when tolerated counter/flat days occur, the sparkline may span a longer session window. Cumulative return is compounded, not summed. “Just snapped” only includes a material prior run (3+ same-direction days plus length or move significance) with a meaningful reversal, which keeps ordinary two-day noise out of the mean-reversion queue. The collapsible “Just snapped” column shares the ticker, minimum-run, sector, and sorting controls. Its length, move, volume, and tolerance sorts use the ended run; last close and Grade use the latest data. Flat sessions interrupt the consecutive counter-day count without healing the tolerance bank. Moving-average context uses the same completed closes as the streak. It shows the nearest 20/50/100/200-day simple average, its five-session slope, and any reclaim or loss on the latest close; this context does not add scoring points.</p>`)}
+      ${infoNote('How streaks are counted', `<p>Daily moves first pass an adaptive noise floor based on the ticker's own recent median absolute move (bounded at 0.08–0.35%), so microscopic closes do not create streaks. Counter-day and cumulative-tolerance break bars also scale with that volatility, within conservative bounds. A same-direction close partially heals the tolerance bank and one counter day rather than erasing all prior damage. The displayed streak count is the number of same-direction days; when tolerated counter/flat days occur, the sparkline may span a longer session window. Cumulative return is compounded, not summed.</p><p><b>Trend read.</b> A run of 3+ days is read with the stock's 20/50/100-day averages. An up run above most of the averages with volume holding up is the bullish read. A bounce below the averages and a slide below them are the bearish reads. A dip inside an uptrend, an up run on falling volume, and a run with no clear trend are neutral. In a replay of 135 stocks (Sep 2025 to May 2026) the trend decided what came next, not the run length: bounces below the averages lagged the group over the next 10 sessions and dips inside an uptrend beat it.</p><p>“Recently ended” only includes a material prior run (3+ same-direction days plus length or move significance) with a meaningful reversal. In the same replay the old direction usually resumed: ended down runs kept lagging and ended up runs kept leading, so this is not a reversal queue.</p><p data-owner-only>Top Picks uses the same read as its streak vote: +1 for an up run with the trend, −1 for a bounce or a slide below the averages, and no vote otherwise.</p><p>“Recently ended” shares the ticker, minimum-run, sector, read, and sorting controls. Its length, move, volume, and tolerance sorts use the ended run; last close and Grade use the latest data. Flat sessions interrupt the consecutive counter-day count without healing the tolerance bank. Moving-average context uses the same completed closes as the streak. It shows the nearest 20/50/100/200-day simple average, its five-session slope, and any reclaim or loss on the latest close; this context does not add scoring points.</p>`)}
       <div class="streaks-controls" role="toolbar" aria-label="Filter and sort streaks">
         <label class="streaks-field streaks-field-search">
           <span class="streaks-field-label">Find</span>
@@ -2495,10 +2495,23 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
             <option value="">All sectors</option>
           </select>
         </label>
+        <label class="streaks-field">
+          <span class="streaks-field-label">Read</span>
+          <select id="streaks-read-select" aria-label="Filter by trend read">
+            <option value="">All reads</option>
+            <option value="uptrend-run">Up run with the trend</option>
+            <option value="bear-rally">Bounce below the averages</option>
+            <option value="downtrend-slide">Slide with the trend</option>
+            <option value="uptrend-dip">Dip in an uptrend</option>
+            <option value="uptrend-run-thin">Up run on fading volume</option>
+            <option value="no-trend">No clear trend</option>
+          </select>
+        </label>
         <label class="streaks-sort">
           <span class="streaks-sort-label">Sort</span>
           <select id="streaks-sort-select" aria-label="Sort streaks">
             <option value="streak">Longest streak</option>
+            <option value="read">Trend read (strongest first)</option>
             <option value="cum">Biggest cumulative move</option>
             <option value="vol">Volume trend</option>
             <option value="last">Last close</option>

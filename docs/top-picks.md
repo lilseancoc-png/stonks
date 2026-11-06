@@ -81,10 +81,11 @@ chip on the card (`{key,label,score,value,note}`).
 **Technicals** (trend & momentum — the core read for a ~2-week option):
 RSI movement (±1), RSI extreme reading (contrarian, reversal-confirmed, asymmetric:
 oversold-and-turning +2, overbought-and-turning −1),
-MACD (±1), moving-average trend (±1), streak (±1), support/resistance break
-(±2), 52-week position (contrarian, ±1), and a capped **standardized-move**
-family. (The AI chart-pattern vote was removed on 2026-10-19:
-`GRADE_MODEL_VERSION = "2026-10-no-chart-pattern"`.)
+moving-average trend (±1), streak read with the trend (±1), support/resistance
+break against the **prior** 20/100-day range (±2), and a capped
+**standardized-move** family. (The AI chart-pattern vote was removed on
+2026-10-19; the MACD and 52-week votes on 2026-11-06, see "Price pillar
+fixes" below. `GRADE_MODEL_VERSION = "2026-11-price-pillar"`.)
 
 The standardized-move family computes trailing return z-scores at 5, 10 and 20
 sessions plus a volume z-score, with ATR-normalized distance or Bollinger `%B`
@@ -1267,3 +1268,74 @@ reason to wait on an event play.
 
 Tests: `npm run test:event-play` (rules, caps, roster wiring, enrollment, both
 exits) and the event checks in `scripts/picks-smoke.mjs`.
+
+**Bottom tracker guard (added the same day).** `shockLaneState(macroRegime,
+indexes, bottom)` keeps the post-shock lane shut while the Bottom tracker
+(`macroBackdrop.bottomTracker`, the verdict the bake just wrote; `regen-picks`
+reads `bottom-tracker.json`) reads `potential`, `emerging` or `confirmed`
+(`SHOCK_LANE_BOTTOM_STAGES`). New puts that late in a selloff chase a turn.
+`rosterMeta.shockLane` then carries `{ active: false, bottomHeld, reason }`.
+
+## Price pillar fixes and the entry snapshot, November 6, 2026
+
+From the inputs audit (replay of 135 stocks, Sep 2025 to May 2026, 10-day
+returns against the group). `GRADE_MODEL_VERSION = "2026-11-price-pillar"`, a
+dated Track Record divider; the record is not reset.
+
+**Support/resistance break.** `computeTechnicals` now also stores `srPrior`,
+the 20/50/100-day support and resistance computed **without the latest bar**.
+`srBreak` compares the close with those levels (+2 above the prior 20-day high,
++1 above the prior 100-day high only, mirrored for breakdowns). The old vote
+used a range that included the same day, so the close could never be outside
+it and the vote never fired. `priorSupportResistance(data)` falls back to the
+stored `priceSeries` highs and lows for older payloads. The display `sr`
+levels are unchanged.
+
+**Streak read with the trend.** One rule in `lib/streaks.mjs`
+(`streakTrendRead`, `STREAK_TREND_READS`), used by the grade, the
+`streaks.json` rows (`trendRead`, `endedRead`) and the Streaks page:
+
+| Run (3+ days) | Trend (most of the 20/50/100-day averages) | Vote | Replay, next 10 sessions |
+|---|---|---|---|
+| Up | above, volume not falling | +1 | +0.94% |
+| Up | above, volume falling | 0 | −0.31% |
+| Up | below (bounce) | −1 | −1.6%, 34% beat the group |
+| Down | below (slide) | −1 | −1.24% |
+| Down | above (dip in an uptrend) | 0 | +0.79% |
+| Any | mixed | 0 | — |
+
+The grade uses the `smaStack` vote as the trend; the Streaks page uses the
+moving-average context (`streakTrendFromMa`). Runs shorter than 3 days get no
+vote. Ended runs usually kept their old direction (5+ day red runs that ended
+lagged by 1.07%), so the page no longer calls them a reversal queue.
+
+**Dropped votes.** MACD added nothing on top of RSI and the moving-average
+trend, and the 52-week vote pointed the wrong way (names near the high kept
+leading). `RETIRED_SIGNAL_KEYS` lists both. The per-mark thesis check ignores
+them, so an open trade whose only entry drivers were MACD or 52-week does not
+close as `thesis-broken` when those votes disappear. `buildPickForecast` reads
+`rsiMomentum`, `smaStack`, `srBreak`, `guidance`, `analystRevisions` and
+`sectorNarrative`.
+
+**Entry snapshot instead of a shadow log.** `updatePicksAccuracyFile` freezes
+`entrySnapshot` (`lib/trade-snapshot.mjs`, `buildEntrySnapshot`, under 1 KB)
+on every new record trade: `pillars` (f/t/m/n/iv/rg/tm), every available
+signal's vote by key (zeros kept), `ctx` (RSI, MACD histogram, distance from
+the 20/50/200-day averages, rvol, the prior 20-day high and low, the streak and
+its read), `retired` (what the MACD and 52-week votes would have said),
+`heavy` (the latest move's z-score and volume z-score), `ped` (the latest
+print's date, session, move and the drift since) and the day's `shadow` row
+from `grades-daily.json`. `compactClosedForArchive` keeps it, so archived
+trades carry it too. The Webull mirror ignores it.
+
+**Grader context.** `graderContextBuilder(opts)` adds two prompt lines from
+payloads the bake already holds (no new calls), both part of the thesis cache
+signature: `PEER EARNINGS IN THE HOLD` (validated ripple pairs from the Earnings
+ripple matrix whose driver reports within `GRADER_PEER_EVENT_DAYS` = 14 days,
+with the typical move on this stock) and `SITE EARNINGS FORECAST` (the Earnings
+Forecast desk's revenue/EPS point forecast when the stock reports inside the
+hold). The streak line in `TECHNICAL STRUCTURE` now names the trend read, and
+the support/resistance line names the prior 20-day levels.
+
+Tests: `npm run test:price-pillar`, `node scripts/event-play-smoke.mjs` (the
+Bottom tracker guard), `node scripts/streaks-browser.mjs` (the page).

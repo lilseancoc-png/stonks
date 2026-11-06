@@ -9,7 +9,7 @@ import { calendarCoverage, calendarEventsForUniverse, calendarScheduleFallbackUs
 import { producerReportsFailure } from "../lib/producer-health.mjs";
 import { backfillEarningsRevenue,earningsWeek1DueDate } from "../lib/earnings-data.mjs";
 import { ISM_CALENDAR_URL, ISM_SCHEDULE_VERIFIED_AT, censusCalendarUrl, parseCensusCalendar, parseIsmCalendar, ismBaselineEvents, supplementalWeeklyReports, marketSessionCalendarEvents, scheduledPolicyCalendarEvents } from "../lib/calendar-sources.mjs";
-import { computeStreakForTicker } from "../lib/streaks.mjs";
+import { computeStreakForTicker, streakTrendRead } from "../lib/streaks.mjs";
 export { computeStreakForTicker } from "../lib/streaks.mjs";
 import { PATTERN_HISTORY_DAYS, splitPatternHistory } from "../lib/pattern-history.mjs";
 import { buildRatesHistory } from "../lib/rates-history.mjs";
@@ -103,6 +103,7 @@ import { readForecastState, readForecastFiles, restoreForecastFiles, prepareEarn
 import { forcedLiquidationContext } from "../lib/forced-liquidation.mjs";
 import { buyoutContextFor } from "../lib/pending-buyout-guard.mjs";
 import { buildShadowSignals } from "../lib/shadow-signals.mjs";
+import { buildEntrySnapshot } from "../lib/trade-snapshot.mjs";
 import { readForcedLiquidation, refreshForcedLiquidation, writeForcedLiquidation } from './refresh-forced-liquidation.mjs';
 import { fetchPartyBars, refreshPartyTracker } from './refresh-party-tracker.mjs';
 import { emptyLeverageDistress, readLeverageDistress, refreshLeverageDistress, writeLeverageDistress } from './refresh-leverage-distress.mjs';
@@ -1675,6 +1676,11 @@ function computeTechnicals(bars) {
   const rsi5d = closes.length >= 21 ? computeRSI(closes.slice(0, -5), 14) : null;
   const macd = computeMACD(closes, 12, 26, 9);
   const sr = computeSupportResistance(bars);
+  // Prior-session levels (the window ending at the bar BEFORE the latest one).
+  // The break vote reads these: the latest bar sits inside its own window, so
+  // spot can never close above a high that includes today's high (the old
+  // vote never fired in a 137-stock replay). Display levels keep `sr`.
+  const srPrior = computeSupportResistance(bars.slice(0, -1));
   const sma = computeMovingAverages(closes);
   const volRegime = computeVolRegime(bars, 30);
   const volume = computeVolumeStats(bars);
@@ -1692,6 +1698,13 @@ function computeTechnicals(bars) {
           s50: round2(sr.s50), r50: round2(sr.r50),
           s100: round2(sr.s100), r100: round2(sr.r100),
           s200: round2(sr.s200), r200: round2(sr.r200),
+        }
+      : null,
+    srPrior: srPrior
+      ? {
+          s20: round2(srPrior.s20), r20: round2(srPrior.r20),
+          s50: round2(srPrior.s50), r50: round2(srPrior.r50),
+          s100: round2(srPrior.s100), r100: round2(srPrior.r100),
         }
       : null,
     sma: {
@@ -17810,7 +17823,11 @@ export const PICKS_ACCURACY_RESET_EPOCH = "2026-08-08.top-picks-v3";
 // 2026-10-20: revenue and EPS growth are judged against sector norms.
 // 2026-10-26: IV cost and the spread choice read one shared IV rule
 // (lib/iv-richness.mjs): Rich -2, Cheap +1, credit spreads only when Very rich.
-export const GRADE_MODEL_VERSION = "2026-10-iv-rule";
+export const GRADE_MODEL_VERSION = "2026-11-price-pillar";
+// Signal keys the grade no longer scores. Open trades whose entry drivers
+// include them skip those keys in the thesis re-score (see the thesis check
+// in updatePicksAccuracyFile).
+export const RETIRED_SIGNAL_KEYS = new Set(["macd", "fiftyTwoWeek"]);
 // Hard cap on the concurrently-tracked open book. Each build ships <=10
 // actionable picks, but re-entry suppression means every build surfaces NEW
 // names while the previously-enrolled ones stay open until an exit rule fires —
@@ -18632,6 +18649,33 @@ function scoreFundamentals(data, sectorMedianPE, sectorCapex = null, isEtf = fal
   return { score, signals: out, trajectory, capexQuality: { ...capexQuality, peerMedianPct: capexPeer } };
 }
 
+// Prior-session 20/50/100-day high/low for the break vote. The bake stores
+// them as technicals.srPrior; per-ticker files written before 2026-11-06 lack
+// it, so rebuild from priceSeries (dropping the latest bar, as the bake does).
+export function priorSupportResistance(data) {
+  const t = data?.technicals || {};
+  if (t.srPrior && (t.srPrior.r20 != null || t.srPrior.s20 != null)) return t.srPrior;
+  const ps = data?.priceSeries;
+  if (!ps || !Array.isArray(ps.h) || !Array.isArray(ps.l)) return null;
+  const bars = [];
+  for (let i = 0; i < ps.h.length; i++) {
+    const h = pnum(ps.h[i]), l = pnum(ps.l[i]);
+    if (h > 0 && l > 0) bars.push({ h, l });
+  }
+  if (bars.length < 21) return null;
+  const lv = computeSupportResistance(bars.slice(0, -1));
+  return lv ? { s20: lv.s20, r20: lv.r20, s50: lv.s50, r50: lv.r50, s100: lv.s100, r100: lv.r100 } : null;
+}
+
+// The streak-with-trend read for a scored row, using the same moving-average
+// vote the technicals pillar scored (one rule: lib/streaks.mjs).
+function streakReadForRow(r) {
+  const cs = r?.streakRow?.current;
+  if (!cs) return null;
+  const stackSig = (r.pillars?.technicals?.signals || []).find((x) => x?.key === "smaStack");
+  return streakTrendRead(cs, stackSig?.available ? stackSig.score : 0);
+}
+
 function scoreTechnicals(data, streakRow, regime = "neutral") {
   const t = data?.technicals || {};
   const out = [];
@@ -18660,10 +18704,10 @@ function scoreTechnicals(data, streakRow, regime = "neutral") {
   }
   out.push(sig("rsiReading", "RSI reading", rsiRead, rsiReadVal, "Overbought/oversold extreme", rsi != null));
 
-  // MACD.
-  const mh = pnum(t.macd?.hist), ml = pnum(t.macd?.line), ms = pnum(t.macd?.signal);
-  let macd = 0; if (mh != null && ml != null && ms != null) { if (ml > ms && mh > 0) macd = 1; else if (ml < ms && mh < 0) macd = -1; }
-  out.push(sig("macd", "MACD", macd, mh == null ? null : r2(mh), "Trend/signal cross", mh != null));
+  // MACD is no longer a vote (2026-11-06 price-pillar fix): in a 135-stock
+  // replay it ranked stocks no better than chance and repeated the RSI and
+  // moving-average votes, so dropping it improved the pillar. The value still
+  // rides the Track Record entry snapshot and the RSI-reading turn check.
 
   // SMA stack (one collinear read, +/-1).
   const sma20 = pnumN(t.sma?.sma20), sma50 = pnumN(t.sma?.sma50), sma100 = pnumN(t.sma?.sma100);
@@ -18676,35 +18720,34 @@ function scoreTechnicals(data, streakRow, regime = "neutral") {
   }
   out.push(sig("smaStack", "Moving-average trend", stack, stackOk ? (stack > 0 ? "above" : stack < 0 ? "below" : "mixed") : null, "Price vs 20/50/100D SMAs", stackOk));
 
-  // Streak.
+  // Streak, read WITH the trend (lib/streaks.mjs streakTrendRead — the same
+  // rule the Streaks page shows). A bare 3-day run no longer votes: an up run
+  // only counts above the averages on volume that is not falling, an up run
+  // below them is a bounce that tends to fade (-1), and a dip inside an
+  // uptrend gets no vote.
   const cs = streakRow?.current || null;
-  let streak = 0;
-  if (cs && pnum(cs.sameDays) != null && cs.sameDays >= 3) streak = cs.color === "green" ? 1 : cs.color === "red" ? -1 : 0;
-  out.push(sig("streak", "Streak", streak, cs ? (cs.sameDays + "d " + cs.color) : null, ">=3 same-direction days", !!cs));
+  const streakRead = cs ? streakTrendRead(cs, stackOk ? stack : 0) : null;
+  out.push(sig("streak", "Streak", streakRead ? streakRead.vote : 0,
+    cs ? `${cs.sameDays}d ${cs.color} · ${streakRead.short.toLowerCase()}` : null,
+    "3+ day run read with the moving-average trend", !!cs));
 
-  // Support/resistance break (confirmed).
-  const sr = t.sr || {};
+  // Support/resistance break against the PRIOR sessions' 20- and 100-day
+  // range (technicals.srPrior; older files fall back to priceSeries).
+  const sr = priorSupportResistance(data);
   let srScore = 0, srVal = null;
-  if (spot > 0) {
+  if (spot > 0 && sr) {
     const r20 = pnumN(sr.r20), s20 = pnumN(sr.s20), r100 = pnumN(sr.r100), s100 = pnumN(sr.s100);
-    if (r20 != null && spot > r20) { srScore += 1; srVal = "above 20D R"; }
-    else if (s20 != null && spot < s20) { srScore -= 1; srVal = "below 20D S"; }
-    if (r100 != null && spot > r100) { srScore += 1; srVal = "above 100D R"; }
-    else if (s100 != null && spot < s100) { srScore -= 1; srVal = "below 100D S"; }
+    if (r20 != null && spot > r20) { srScore += 1; srVal = "above prior 20D high"; }
+    else if (s20 != null && spot < s20) { srScore -= 1; srVal = "below prior 20D low"; }
+    if (r100 != null && spot > r100) { srScore += 1; srVal = "above prior 100D high"; }
+    else if (s100 != null && spot < s100) { srScore -= 1; srVal = "below prior 100D low"; }
   }
-  out.push(sig("srBreak", "Support/Resistance", clamp(srScore, -2, 2), srVal, "Confirmed level breaks", !!(sr.r20 || sr.s20)));
+  out.push(sig("srBreak", "Support/Resistance", clamp(srScore, -2, 2), srVal, "Break of the prior 20/100-day range", !!(sr && (sr.r20 || sr.s20))));
 
-  // 52-week position (contrarian, mild).
-  const f = data?.fundamentals || {};
-  const hi = pnum(f.fiftyTwoWeekHigh), lo = pnum(f.fiftyTwoWeekLow);
-  let fw = 0, fwVal = null;
-  if (spot > 0 && hi > 0 && lo > 0 && hi > lo) {
-    const pos = (spot - lo) / (hi - lo);
-    fwVal = Math.round(pos * 100) + "% of range";
-    if (spot >= hi * 0.95) fw = -1;
-    else if (spot <= lo * 1.05) { const greenBar = (rsi5 != null && rsi != null && rsi > rsi5); if (greenBar) fw = 1; }
-  }
-  out.push(sig("fiftyTwoWeek", "52-week position", fw, fwVal, "Near high (extended) / low (washed)", hi > 0 && lo > 0));
+  // The 52-week position vote is gone (2026-11-06): near-high stocks beat the
+  // group and near-low stocks lagged it in both halves of the replay, the
+  // opposite of the contrarian vote. The range position still rides the Track
+  // Record entry snapshot.
 
   // Standardized move (one capped family, never 5d+10d+20d stacking). This
   // replaces the old unsigned raw-rvol point, which could reward a crash day
@@ -21681,7 +21724,7 @@ export function prepareTopPicksScoring(preScored, macroBackdrop, assessment) {
   if (!assessment || preScored?.marketPolicyVersion) return preScored;
   const mr = macroBackdrop?.macroRegime;
   const regime = mr?.state==='severe-risk-off'?'severe':mr?.state||'neutral';
-  const shock = shockLaneState(mr, macroBackdrop?.indexes);
+  const shock = shockLaneState(mr, macroBackdrop?.indexes, macroBackdrop?.bottomTracker);
   return {...preScored,marketPolicyVersion:topPicksMarket.VERSION,scored:(preScored?.scored||[]).map(r=>{
     const side=(r.preRegimeTotal??r.total)>=0?'call':'put';
     const kind=macroKindOf(r.sym,r.data), exposure=kind==='volLong'?-1:['gold','bondProxy'].includes(kind)?0:1;
@@ -21737,12 +21780,13 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   // Event plays (lib/event-play.mjs): caps count what is already on the book.
   const nowIsoForEvents = typeof opts.builtAtIso === "string" ? opts.builtAtIso : new Date().toISOString();
   const eventCounts = eventPlayCounts([...(opts.openPositions || []), ...(opts.priorClosed || [])], nowIsoForEvents);
-  const shockLane = PICKS_EVENT_AWARE ? shockLaneState(macroBackdrop?.macroRegime, macroBackdrop?.indexes) : { active: false };
+  const shockLane = PICKS_EVENT_AWARE ? shockLaneState(macroBackdrop?.macroRegime, macroBackdrop?.indexes, macroBackdrop?.bottomTracker) : { active: false };
   meta.eventPlayVersion = PICKS_EVENT_AWARE ? EVENT_PLAY_VERSION : null;
   meta.eventPlays = [];
   meta.eventCapped = [];
   meta.eventWaits = [];
-  meta.shockLane = shockLane.active ? { active: true, state: shockLane.state, indexesScore: shockLane.indexesScore, reason: shockLane.reason } : null;
+  meta.shockLane = shockLane.active ? { active: true, state: shockLane.state, indexesScore: shockLane.indexesScore, reason: shockLane.reason }
+    : shockLane.bottomHeld ? { active: false, state: shockLane.state, bottomHeld: shockLane.bottomHeld, reason: shockLane.reason } : null;
   meta.eventLimits = PICKS_EVENT_AWARE ? { ...EVENT_PLAY_LIMITS, openWeek: eventCounts.week, shockOpen: eventCounts.shockOpen } : null;
   const traceGate = (r, side, gate) => {
     turnedAway.push({ sym: r.sym, side, total: r2(pnum(r.total) ?? 0), gate, spot: r2(pnum(r.data?.spot)) });
@@ -22141,7 +22185,7 @@ function buildPickObject(r, side, contract, exitPlan, entryPlan, peers, peerGrou
     // Event play (lib/event-play.mjs): frozen onto the track-record entry.
     eventPlay: compactEventPlay(r.timing?.eventPlay),
     tactical: !!tactical, firstSeen: null,
-    streak: cs ? { color: cs.color, days: cs.sameDays, cumulativePct: cs.cumulativePct } : null,
+    streak: cs ? { color: cs.color, days: cs.sameDays, cumulativePct: cs.cumulativePct, volumeTrend: cs.volumeTrend || null, read: streakReadForRow(r)?.kind || null } : null,
     catalysts: Array.isArray(r.data?.catalysts) ? r.data.catalysts : [],
     peers: (peers || []).filter((p) => p.symbol !== r.sym).slice(0, 5), peerGroup,
     entryPlan, exitPlan,
@@ -22186,7 +22230,7 @@ const THESIS_INVALIDATION = {
   srBreak: "the support/resistance break fails and price snaps back",
   fiftyTwoWeek: "price retreats from the 52-week extreme",
   volumeConfirm: "the move loses its volume confirmation",
-  streak: "the daily streak snaps",
+  streak: "the daily streak snaps or the stock loses its moving averages",
   earningsSurprise: "the next earnings print disappoints",
   epsGrowth: "forward EPS estimates roll over",
   revGrowth: "revenue growth stalls",
@@ -27375,12 +27419,23 @@ export function buildThesisUserMessage(r, side, macroRegime, extras = {}) {
     const s = pnum(v);
     if (s != null && s > 0 && spot != null) struct.push(`${lbl} SMA $${s.toFixed(2)} (spot ${pct((spot / s - 1) * 100)})`);
   }
-  if (pnum(t.sr?.s20) != null) struct.push(`nearest support ~$${pnum(t.sr.s20).toFixed(2)}`);
-  if (pnum(t.sr?.r20) != null) struct.push(`nearest resistance ~$${pnum(t.sr.r20).toFixed(2)}`);
+  // Levels from the sessions BEFORE today (technicals.srPrior). The old line
+  // quoted a 20-day range that included today's own bar, so "support" was
+  // often just today's low.
+  const srp = priorSupportResistance(d);
+  const s20p = pnum(srp?.s20), r20p = pnum(srp?.r20);
+  if (s20p != null && spot != null) struct.push(spot < s20p ? `broke below the prior 20-day low $${s20p.toFixed(2)}` : `prior 20-day low (support) $${s20p.toFixed(2)}`);
+  if (r20p != null && spot != null) struct.push(spot > r20p ? `broke above the prior 20-day high $${r20p.toFixed(2)}` : `prior 20-day high (resistance) $${r20p.toFixed(2)}`);
   const rvNow = pnum(t.volume?.rvol);
   if (rvNow != null) struct.push(`volume ${rvNow.toFixed(1)}x normal`);
   const cs = r.streakRow?.current;
-  if (cs && pnum(cs.sameDays) >= 2) struct.push(`${cs.sameDays}-day ${cs.color} streak (${pct(cs.cumulativePct)} cumulative)`);
+  if (cs && pnum(cs.sameDays) >= 2) {
+    // Name the KIND of streak (lib/streaks.mjs): a 3-day bounce below the
+    // averages tends to fade, a run above them tends to keep going.
+    const kind = streakReadForRow(r);
+    const dist20 = pnum(t.sma?.sma20) > 0 && spot != null ? (spot / pnum(t.sma.sma20) - 1) * 100 : null;
+    struct.push(`${cs.sameDays}-day ${cs.color} streak (${pct(cs.cumulativePct)} cumulative) — ${kind.label.toLowerCase()}${dist20 != null ? `, ${pct(dist20)} vs the 20-day average` : ""}${cs.volumeTrend ? `, volume ${cs.volumeTrend}` : ""}`);
+  }
   if (struct.length) L.push(`TECHNICAL STRUCTURE: ${struct.join("; ")}.`);
 
   // Near-term open-interest map (scanner-owned, front two expirations — exactly
@@ -27458,6 +27513,26 @@ export function buildThesisUserMessage(r, side, macroRegime, extras = {}) {
     const soFar = pnum(hx.next.pre15Pct) ?? pnum(hx.next.pre10Pct);
     if (soFar != null) db.push(`current run-up into this print: ${pct(soFar)} so far`);
     if (db.length) L.push(`PRE-EARNINGS DRIFT (the hold window overlaps the run-up into the ${String(hx.next.date).slice(0, 10)} print): ${db.join("; ")}.`);
+  }
+  // The site's own revenue/EPS forecast (Earnings Forecast desk, uncalibrated
+  // point forecast) when this name reports inside the hold.
+  const efc = extras.earningsForecast;
+  if (efc && nextDays != null && nextDays <= PICKS_THESIS_DRIFT_DAYS) {
+    const rev = pnum(efc.outputs?.revenue), base = pnum(efc.baseline?.revenue), eps = pnum(efc.outputs?.eps);
+    const bits = [];
+    const money = (v) => Math.abs(v) >= 1e9 ? `$${(v / 1e9).toFixed(2)}B` : `$${(v / 1e6).toFixed(0)}M`;
+    // The baseline is the same fiscal quarter a year ago when the history has
+    // one, else the latest quarter; name its end date rather than assume.
+    const baseEnd = efc.sourcePeriod?.end ? String(efc.sourcePeriod.end).slice(0, 10) : null;
+    if (rev != null) bits.push(`revenue ${money(rev)}${base > 0 ? ` (${pct((rev / base - 1) * 100)} vs ${baseEnd ? `the quarter ending ${baseEnd}` : "the baseline quarter"})` : ""}`);
+    if (eps != null) bits.push(`EPS $${eps.toFixed(2)}`);
+    if (bits.length) L.push(`SITE EARNINGS FORECAST (our own model from SEC filings, no analyst consensus; an uncalibrated point forecast${efc.target?.end ? ` for the quarter ending ${String(efc.target.end).slice(0, 10)}` : ""}): ${bits.join(", ")}.`);
+  }
+  // Validated driver peers reporting inside the hold (Earnings ripple
+  // effects): this stock has historically moved with their prints.
+  const pe = Array.isArray(extras.peerEvents) ? extras.peerEvents : [];
+  if (pe.length) {
+    L.push(`PEER EARNINGS IN THE HOLD (validated ripple pairs): ${pe.map((e) => `${e.driver} reports ${String(e.date).slice(0, 10)}${e.session && e.session !== "TBD" ? ` ${e.session}` : ""} (${e.daysUntil}d)${e.expMovePct != null ? `, typical ripple ±${Math.abs(e.expMovePct).toFixed(1)}% here` : ""}`).join("; ")} — a peer print can move this stock before its own news does.`);
   }
 
   const ax = (macroRegime && macroRegime.axes) || {};
@@ -27578,7 +27653,7 @@ function parseThesisResponse(text) {
 // performs fresh web research + a full-quality grade/entry decision. This keeps
 // duplicate/retry dispatches cheap without letting a prior-hour verdict decide
 // against current evidence.
-export function thesisCacheSig(r, side, kind, macroRegime, macroCalendar = null, ivRow = null) {
+export function thesisCacheSig(r, side, kind, macroRegime, macroCalendar = null, ivRow = null, context = {}) {
   // Sorted: membership + sign is the semantic intent — two drivers swapping
   // magnitude rank is not a material change worth a re-grade.
   const works = (r.drivers || []).filter((x) => x && x.score).slice(0, 5).map((x) => `${x.key}${Math.sign(x.score) > 0 ? "+" : "-"}`).sort().join(",");
@@ -27625,7 +27700,7 @@ export function thesisCacheSig(r, side, kind, macroRegime, macroCalendar = null,
   // technical levels, IV momentum, and every scored value all participate even
   // when their coarse material buckets above did not change.
   const basePromptHash = createHash("sha256")
-    .update(buildThesisUserMessage(r, side, macroRegime, { macroCalendar, ivRow }))
+    .update(buildThesisUserMessage(r, side, macroRegime, { macroCalendar, ivRow, ...context }))
     .digest("hex")
     .slice(0, 24);
   const instructionSig = thesisInstructionSignature().slice(0, 24);
@@ -27835,6 +27910,33 @@ export function aiGraderCandidates(preScored, macroBackdrop, opts = {}) {
   return cands;
 }
 
+// Per-symbol extra grader context from payloads the bake already holds.
+// opts.spillover: the Earnings ripple matrix (upcoming[] with qualified
+// followers); opts.earningsForecast: earnings-forecast.json's payload.
+export const GRADER_PEER_EVENT_DAYS = 14;
+export function graderContextBuilder(opts = {}) {
+  const peers = {};
+  for (const ev of Array.isArray(opts.spillover?.upcoming) ? opts.spillover.upcoming : []) {
+    const d = pnum(ev?.daysUntil);
+    if (!ev?.driver || d == null || d < 0 || d > GRADER_PEER_EVENT_DAYS) continue;
+    for (const f of Array.isArray(ev.followers) ? ev.followers : []) {
+      if (!f?.follower || !f.pairQualified) continue;
+      (peers[f.follower] ||= []).push({ driver: ev.driver, date: ev.date, session: ev.session || null, daysUntil: d, expMovePct: pnum(f.expB) ?? pnum(f.expA), impliedMovePct: pnum(ev.impliedMovePct) });
+    }
+  }
+  const forecasts = {};
+  for (const c of Array.isArray(opts.earningsForecast?.companies) ? opts.earningsForecast.companies : []) {
+    const fc = c?.forecast;
+    if (c?.symbol && fc && fc.status !== "stale" && pnum(fc.outputs?.revenue) != null) forecasts[c.symbol] = fc;
+  }
+  return (sym) => {
+    const out = {};
+    if (peers[sym]) out.peerEvents = peers[sym].sort((a, b) => a.daysUntil - b.daysUntil).slice(0, 3);
+    if (forecasts[sym]) out.earningsForecast = forecasts[sym];
+    return out;
+  };
+}
+
 export async function generateAiTheses(preScored, macroBackdrop, opts = {}, priorCache = {}) {
   const next = {}, map = {};
   const scored = preScored?.scored || [];
@@ -27847,6 +27949,10 @@ export async function generateAiTheses(preScored, macroBackdrop, opts = {}, prio
   const macroCalendar = Array.isArray(macroBackdrop?.macroCalendar) && macroBackdrop.macroCalendar.length ? macroBackdrop.macroCalendar : null;
   const ivBySym = {};
   for (const row of (opts.ivTrending?.tickers || [])) if (row && row.symbol) ivBySym[row.symbol] = row;
+  // Two cheap context lines (no new calls): validated driver peers that report
+  // inside the hold (Earnings ripple effects), and the site's own Earnings
+  // Forecast when the name's print falls inside the hold.
+  const contextFor = graderContextBuilder(opts);
   const edgeGate = opts.priorClosed ? edgeGatedConviction(opts.priorClosed, opts.builtAtIso) : null;
   const strongBar = edgeGate?.strongBar ?? PICKS_TIER_STRONG;
   const cands = aiGraderCandidates(preScored, macroBackdrop, opts);
@@ -27879,7 +27985,7 @@ export async function generateAiTheses(preScored, macroBackdrop, opts = {}, prio
   for (const { r, side } of gated) {
     const k = `${r.sym}:${side}`;
     const kind = macroKindOf(r.sym, r.data);
-    const sig = thesisCacheSig(r, side, kind, macroRegime, macroCalendar, ivBySym[r.sym] || null);
+    const sig = thesisCacheSig(r, side, kind, macroRegime, macroCalendar, ivBySym[r.sym] || null, contextFor(r.sym));
     const decisionGuardSig = thesisDecisionGuardSig(r, side, kind, macroRegime, macroCalendar);
     const prior = priorCache[k];
     const canReuse = canReuseThesisCache(prior, sig, Date.now(), THESIS_CACHE_MAX_AGE_MS, decisionGuardSig);
@@ -27902,7 +28008,7 @@ export async function generateAiTheses(preScored, macroBackdrop, opts = {}, prio
     try {
       // Step 1 — grounded research (live Google Search); null degrades to ungrounded.
       const research = AI_THESIS_SEARCH ? await fetchThesisWebResearch(ai, r, side) : null;
-      const userMsg = buildThesisUserMessage(r, side, macroRegime, { macroCalendar, ivRow: ivBySym[r.sym] || null }) +
+      const userMsg = buildThesisUserMessage(r, side, macroRegime, { macroCalendar, ivRow: ivBySym[r.sym] || null, ...contextFor(r.sym) }) +
         (research ? `\n\nWEB RESEARCH (live Google Search, run moments ago — FRESHER than the news read / headlines above; weigh it in your grade and entry call):\n${research.text}` : "");
       let response = null;
       for (let attempt = 0; attempt < AI_MAX_ATTEMPTS; attempt++) {
@@ -28437,7 +28543,9 @@ export function buildPickForecast(entry, side = null) {
   if (!entry) return { direction: null, confidence: "low", earningsCatalyst: false };
   const sign = side ? (side === "put" ? -1 : 1) : ((entry.total || 0) >= 0 ? 1 : -1);
   let momentum = 0;
-  const keys = { rsiMomentum: 1, smaStack: 1, macd: 1, srBreak: 1, guidance: 1, analystRevisions: 1, sectorNarrative: 1 };
+  // macd left this list with the 2026-11-06 price-pillar fix (no longer a
+  // vote); srBreak now reads the prior-session range, so it can fire.
+  const keys = { rsiMomentum: 1, smaStack: 1, srBreak: 1, guidance: 1, analystRevisions: 1, sectorNarrative: 1 };
   for (const pillar of Object.values(entry.pillars || {})) for (const s of (pillar.signals || [])) if (keys[s.key]) momentum += (s.score || 0) * sign;
   const earningsCatalyst = !!entry.contract?.earningsInWindow;
   return { direction: momentum > 1 ? "upgrade" : momentum < -1 ? "downgrade" : "hold", confidence: Math.abs(momentum) >= 3 ? "high" : Math.abs(momentum) >= 1 ? "medium" : "low", earningsCatalyst };
@@ -29012,7 +29120,11 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
     // on-track / mixed / broken. Needs the freshly-built gradesIndex (passed in).
     if (e.thesis) {
       const g = gradesIndex ? gradesIndex[e.symbol] : null;
-      const driverKeys = Array.isArray(e.thesis.driverKeys) ? e.thesis.driverKeys : [];
+      // Votes retired from the grade (RETIRED_SIGNAL_KEYS) can never fire
+      // again, so they must not count as "gone quiet" on trades opened
+      // before the change — a trade whose drivers were all retired votes
+      // would otherwise close as thesis-broken the next build.
+      const driverKeys = (Array.isArray(e.thesis.driverKeys) ? e.thesis.driverKeys : []).filter((k) => !RETIRED_SIGNAL_KEYS.has(k));
       let driversActive = null, gradeNow = null, gradeFlip = false;
       if (g) {
         const supportSign = isCall ? 1 : -1;
@@ -29197,6 +29309,10 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
         aiGrade: p.thesisCard.ai?.grade || null,
         aiConfidence: p.thesisCard.ai?.confidence || null,
       } : null,
+      // Everything the engine saw at entry (lib/trade-snapshot.mjs): every
+      // signal's vote, each pillar, the retired MACD / 52-week votes, the
+      // unscored candidate inputs. The record is the log; no shadow file.
+      entrySnapshot: buildEntrySnapshot(p, chains?.[p.symbol] || null, { shadow: opts.shadow || null }),
       optionPnlPct: 0, mfePct: 0, maePct: 0, optHiPct: 0, optLoPct: 0,
       // The quote time of the chain the pick was priced from.
       quoteAsOf: chains?.[p.symbol]?.quoteAsOf ?? null,
@@ -38142,6 +38258,8 @@ async function main() {
       builtAtIso,
     });
     console.log(`wrote data/bottom-tracker.json — ${bottomInfo.verdict} as of ${bottomInfo.asOf || "—"}, ${bottomInfo.bytes} bytes`);
+    // The post-shock put lane reads the stage (lib/event-play.mjs).
+    if (macroBackdrop) macroBackdrop.bottomTracker = { verdict: bottomInfo.verdict || null, asOf: bottomInfo.asOf || null };
   } catch (err) {
     console.log(`  · bottom tracker failed (non-fatal): ${err.message}`);
   }
@@ -38669,6 +38787,10 @@ async function main() {
     // Trending-IV payload (written just above) — the AI final grader's prompt
     // cites each candidate's IV momentum (1d/5d/20d + rising streak) from it.
     ivTrending: ivTrendingForBrief,
+    // Grader context lines (graderContextBuilder): ripple peers reporting in
+    // the hold, and the site's Earnings Forecast for names reporting in it.
+    spillover: scenarioSpilloverMatrix || null,
+    earningsForecast: earningsForecastPrepared?.payload || null,
     flowLog: scoringUnusual ? unusualLog : null,
     correlations: correlationsInfo?.payload?.stale ? null : (correlationsInfo?.payload || null),
     // §9.6 IC bridge — per-signal forward IC from the prior accuracy stats, so the
@@ -38816,10 +38938,12 @@ async function main() {
   // Daily grade snapshot (universe-IC substrate): upsert today's ET row with every
   // name's total, so scripts/diagnose-grade-ic.mjs can measure the grade's forward
   // IC on the whole universe instead of the ~5-per-build enrolled roster.
+  let shadowSignalsToday = null;
   try {
     let shadow = null;
     try {
       shadow = buildShadowSignals(chains, { builtAtIso, groupOf: spilloverGroupOf, oiTracker: scoringOiTracker, spillover: scenarioSpilloverMatrix });
+      shadowSignalsToday = shadow;
     } catch (err) {
       console.warn(`[grades] shadow signals skipped — ${String(err?.message || err).split("\n")[0]}`);
     }
@@ -38958,7 +39082,7 @@ async function main() {
   // wiped data/). Degrades to a no-op on a first run / missing files.
   if (refreshTopPicks) {
     try {
-      const acc = await updatePicksAccuracyFile(chains, builtAtIso, picksAccuracyPrev, gradesIndex);
+      const acc = await updatePicksAccuracyFile(chains, builtAtIso, picksAccuracyPrev, gradesIndex, { shadow: shadowSignalsToday });
       console.log(`wrote data/${PICKS_ACCURACY_FILE} — ${acc.open} open, ${acc.closed} closed${acc.winRate != null ? `, ${(acc.winRate * 100).toFixed(0)}% win rate` : ""}`);
     } catch (err) {
       console.warn(`[picks] accuracy tracker skipped — ${String(err?.message || err).split("\n")[0]}`);

@@ -1,6 +1,12 @@
 // Streaks tab: renders data/streaks.json -- per-ticker daily green/red
 // streak runs computed at build time from Yahoo daily closes. Active runs
-// share filters and sorting with a collapsible recently-snapped watchlist.
+// share filters and sorting with a collapsible recently-ended list.
+//
+// Since 2026-11-06 every run also carries a trend read (row.trendRead, from
+// lib/streaks.mjs streakTrendRead, the same rule the Top Picks streak vote
+// uses): an up run only counts above most of the 20/50/100-day averages, an
+// up run below them is a bounce that tends to fade, and a dip inside an
+// uptrend gets no vote. The page groups and labels runs by that read.
 
 const $ = (id) => document.getElementById(id);
 
@@ -51,10 +57,39 @@ function streaksSkeleton() {
   return `<div class="streaks-cols">${col(3)}${col(3)}</div>`;
 }
 
+// What each trend read meant in the 2026-11-06 replay (135 stocks, Sep 2025
+// to May 2026): the average return over the next 10 sessions against the
+// 135-stock average. The kinds come from the build (lib/streaks.mjs).
+const STREAK_READS = {
+  "uptrend-run": { label: "Up run with the trend", tone: "bull", vote: 1, evidence: 0.94,
+    note: "3+ up days above most of the 20/50/100-day averages, volume holding up." },
+  "bear-rally": { label: "Bounce below the averages", tone: "bear", vote: -1, evidence: -1.6,
+    note: "3+ up days while below most of the averages. These bounces tended to fade; only 34% beat the group." },
+  "downtrend-slide": { label: "Slide with the trend", tone: "bear", vote: -1, evidence: -1.24,
+    note: "3+ down days below most of the averages. Slides like this tended to keep going." },
+  "uptrend-dip": { label: "Dip in an uptrend", tone: "neutral", vote: 0, evidence: 0.79,
+    note: "3+ down days while above most of the averages. These dips usually recovered, so they are not a sell signal." },
+  "uptrend-run-thin": { label: "Up run on fading volume", tone: "neutral", vote: 0, evidence: -0.31,
+    note: "Above the averages, but volume is falling. Up runs on falling volume lagged slightly." },
+  "no-trend": { label: "No clear trend", tone: "neutral", vote: 0, evidence: null,
+    note: "The averages are mixed, so the run gets no vote." },
+  short: { label: "Too short to read", tone: "neutral", vote: 0, evidence: null,
+    note: "Fewer than 3 same-direction days." },
+};
+const STREAK_READ_TILES = ["uptrend-run", "bear-rally", "downtrend-slide", "uptrend-dip"];
+function streakRead(t) {
+  const kind = t && t.trendRead && t.trendRead.kind;
+  return kind && STREAK_READS[kind] ? { kind, ...STREAK_READS[kind] } : null;
+}
+function fmtVote(v) {
+  return v > 0 ? "Top Picks +1" : v < 0 ? "Top Picks −1" : "no Top Picks vote";
+}
+
 const streaksState = {
   sort: "streak",
   minStreak: 2,
   sector: "",
+  read: "",
   query: "",
   data: null,
   sortBound: false,
@@ -93,6 +128,7 @@ function saveStreakControls() {
   views.set("sel:streaks.sort", streaksState.sort);
   views.set("sel:streaks.min", String(streaksState.minStreak));
   views.set("sel:streaks.sector", streaksState.sector);
+  views.set("sel:streaks.read", streaksState.read);
   views.set("rev:streaks", false);
   const flip = document.querySelector('[data-sort-flip="streaks"]');
   if (flip) flip.outerHTML = views.flipHtml("streaks");
@@ -133,6 +169,17 @@ function bindStreaksControls() {
   if (sectorSel) {
     sectorSel.addEventListener("change", () => {
       streaksState.sector = sectorSel.value || "";
+      rerender();
+    });
+  }
+
+  const readSel = $("streaks-read-select");
+  if (readSel) {
+    if (views) streaksState.read = views.remember(readSel, "streaks.read") || "";
+    if (streaksState.read && !STREAK_READS[streaksState.read]) streaksState.read = "";
+    readSel.value = streaksState.read;
+    readSel.addEventListener("change", () => {
+      streaksState.read = readSel.value || "";
       rerender();
     });
   }
@@ -195,7 +242,7 @@ function streakWindowDays(t) {
 
 // Shared sort / view helpers from app.js (absent if app.js failed to load).
 const V = () => window.STONKS_VIEWS || null;
-const STREAK_SORTS = ["streak", "cum", "vol", "last", "tol", "up", "down", "grade", "sector", "alpha"];
+const STREAK_SORTS = ["streak", "read", "cum", "vol", "last", "tol", "up", "down", "grade", "sector", "alpha"];
 function streakGrade(t) {
   const v = V();
   return v && v.gradeTotal ? v.gradeTotal(String(t.symbol || "").toUpperCase(), rerender) : null;
@@ -227,6 +274,16 @@ function makeSorter(mode, runFor = (t) => t.current) {
   }
   if (mode === "alpha") {
     return (a, b) => String(a.symbol || "").localeCompare(String(b.symbol || ""));
+  }
+  if (mode === "read") {
+    // Strongest evidence first: the replay's 10-day average, bullish reads
+    // on top and bearish reads at the bottom; runs with no read sink.
+    const ev = (t) => { const r = streakRead(t); return r && r.evidence != null ? r.evidence : null; };
+    return (a, b) => {
+      const x = ev(a), y = ev(b);
+      if (x == null || y == null) return x == null ? (y == null ? days(b) - days(a) : 1) : -1;
+      return y - x || days(b) - days(a);
+    };
   }
   if (mode === "cum") {
     return (a, b) => Math.abs(runFor(b).cumulativePct || 0) - Math.abs(runFor(a).cumulativePct || 0)
@@ -343,16 +400,26 @@ function streakCandidateMeta(t) {
     && !fragile;
   const stretched = days >= 5 || Math.abs(cum) >= 8;
   const snapped = hasRecentSnap(t);
+  const read = streakRead(t);
+  // Ranking follows the evidence: runs whose trend read carried a vote in the
+  // replay come first, then runs near their break, then recently ended runs
+  // (which more often resumed their old direction than reversed), then dips
+  // inside an uptrend and stretched runs.
+  const evidenced = !!(read && read.vote !== 0 && days >= 3);
   let rank = days * 100 + Math.abs(cum) * 20;
-  if (snapped) {
-    rank += 100000
+  if (evidenced) {
+    rank += 100000 + (cur.volumeTrend === "rising" ? 3000 : 0) + Math.abs(read.evidence || 0) * 500;
+  } else if (fragile) {
+    rank += 80000 + bankPct * 20;
+  } else if (snapped) {
+    rank += 60000
       + Math.max(0, 2 - Number(ended.sessionsAgo || 0)) * 2000
       + Number(ended.days || 0) * 200
       + Math.abs(Number(ended.cumulativePct || 0)) * 30;
-  } else if (fragile) {
-    rank += 80000 + bankPct * 20;
   } else if (continuation) {
-    rank += 60000 + volumeRatio * 100;
+    rank += 50000 + volumeRatio * 100;
+  } else if (read && read.kind === "uptrend-dip") {
+    rank += 45000;
   } else if (stretched) {
     rank += 40000;
   }
@@ -373,6 +440,8 @@ function streakCandidateMeta(t) {
     stretched,
     snapped,
     ended,
+    read,
+    evidenced,
     rank,
   };
 }
@@ -386,6 +455,7 @@ function streakDecisionStats(tickers) {
     continuation: candidates.filter((c) => c.continuation).length,
     stretched: candidates.filter((c) => c.stretched).length,
     snapped: candidates.filter((c) => c.snapped).length,
+    evidenced: candidates.filter((c) => c.evidenced).length,
   };
 }
 
@@ -406,31 +476,60 @@ function renderStreakDecision(tickers, builtAtIso, breadth, filterActive) {
   const freshness = streakFreshnessMeta(builtAtIso);
   const anchor = isFinite(top.lastClose) ? fmtMoney(top.lastClose) : "No close";
   const ended = top.ended || {};
-  const state = top.snapped
-    ? "snapped"
+  const state = top.evidenced
+    ? top.read.kind
     : top.fragile
       ? "fragile"
-      : top.continuation
-        ? "continuation"
-        : top.stretched
-          ? "stretched"
-          : "context";
-  const runColor = top.snapped ? (ended.color === "red" ? "red" : "green") : top.color;
+      : top.snapped
+        ? "snapped"
+        : top.continuation
+          ? "continuation"
+          : top.read && top.read.kind === "uptrend-dip"
+            ? "uptrend-dip"
+            : top.stretched
+              ? "stretched"
+              : "context";
+  const runColor = state === "snapped" ? (ended.color === "red" ? "red" : "green") : top.color;
   const reversal = runColor === "red" ? "bounce" : "pullback";
-  const confirmAbove = state === "snapped" || state === "fragile"
-    ? runColor === "red"
-    : runColor === "green";
+  // Ended runs and bounces below the averages are read in the old / trend
+  // direction, not as reversals.
+  const confirmAbove = state === "fragile" ? runColor === "red"
+    : state === "bear-rally" ? false
+      : state === "uptrend-dip" ? true
+        : runColor === "green";
   const confirmSide = confirmAbove ? "above" : "below";
   const failSide = confirmAbove ? "below" : "above";
   let headline = "";
   let copy = "";
   let confirm = "";
   let invalidate = "";
-  if (state === "snapped") {
-    headline = `${top.symbol}'s ${ended.days}d ${runColor} streak snapped; the ${reversal} is on watch.`;
-    copy = `The prior run moved ${fmtPct(ended.cumulativePct)} before breaking ${fmtSessionsAgo(ended.sessionsAgo)}. A snapped streak creates a mean-reversion candidate, not an automatic entry.`;
-    confirm = `The next daily close holds ${confirmSide} ${anchor}, and the Grade plus Volume tabs agree with the ${reversal} direction.`;
-    invalidate = `Price closes back ${failSide} ${anchor}, the old ${runColor} streak restarts, or the reversal lacks participation.`;
+  const avgMa = "the 20/50/100-day averages";
+  const evid = (r) => r && r.evidence != null ? `${r.evidence >= 0 ? "beat" : "lagged"} the group by ${Math.abs(r.evidence).toFixed(1)}% over the next 10 sessions` : "";
+  if (state === "uptrend-run") {
+    headline = `${top.symbol}'s ${top.days}-day up run is above its moving averages${top.volumeTrend === "rising" ? " on rising volume" : ""}.`;
+    copy = `In the replay, up runs above ${avgMa} with volume holding up ${evid(top.read)} on average. Top Picks counts this run +1 for a call.`;
+    confirm = `The next daily close holds above ${anchor} and stays above most of ${avgMa}, with volume at or above normal.`;
+    invalidate = `A close back below the 20-day average or fading volume removes the vote; it is no longer an up run with the trend.`;
+  } else if (state === "bear-rally") {
+    headline = `${top.symbol}'s ${top.days}-day up run is a bounce below its moving averages.`;
+    copy = `In the replay, bounces like this ${evid(top.read)}, and only about a third beat it. Top Picks counts it −1: it is not a reason to buy.`;
+    confirm = `The bounce stalls below the 20 and 50-day averages and the next close slips below ${anchor}.`;
+    invalidate = `Price reclaims most of ${avgMa}, which makes it an up run with the trend.`;
+  } else if (state === "downtrend-slide") {
+    headline = `${top.symbol}'s ${top.days}-day down run is a slide below its moving averages.`;
+    copy = `In the replay, slides below ${avgMa} ${evid(top.read)}. Top Picks counts this −1 for a call and in favor of a put.`;
+    confirm = `Closes keep printing below ${anchor} while the stock stays under most of its averages.`;
+    invalidate = `A close back above the 20-day average, or most of the averages, ends the slide read.`;
+  } else if (state === "uptrend-dip") {
+    headline = `${top.symbol}'s ${top.days}-day down run is a dip inside an uptrend.`;
+    copy = `In the replay, dips like this ${evid(top.read)}, so a short red run above the averages is not a sell signal. Top Picks gives it no vote.`;
+    confirm = `The stock holds above most of ${avgMa} and the next close prints above ${anchor}.`;
+    invalidate = `A close below most of the averages turns the dip into a slide with the trend.`;
+  } else if (state === "snapped") {
+    headline = `${top.symbol}'s ${ended.days}-day ${runColor} run ended ${fmtSessionsAgo(ended.sessionsAgo)}.`;
+    copy = `The run moved ${fmtPct(ended.cumulativePct)} before the break. In the replay, ended runs more often resumed their old direction than reversed: stocks whose 5+ day down run ended still lagged the group by 1.1% over 10 sessions. Read the break as a pause, not a ${reversal} signal.`;
+    confirm = `A new ${runColor} run starts, or the trend read on the moving averages agrees with the old direction.`;
+    invalidate = `A new run forms the other way and lifts the stock ${runColor === "red" ? "above" : "below"} most of its averages.`;
   } else if (state === "fragile") {
     headline = `${top.symbol}'s ${top.days}d ${top.color} run is near its break threshold.`;
     copy = `${top.bankPct.toFixed(0)}% of the tolerance tripwire is used. The fade is not active until a daily close confirms against the run.`;
@@ -448,27 +547,31 @@ function renderStreakDecision(tickers, builtAtIso, breadth, filterActive) {
     invalidate = `A trade taken before either daily-close condition is met has no defined streak trigger.`;
   } else {
     headline = "No streak trade is ready from this view alone.";
-    copy = `${top.symbol} has the strongest remaining run, but it is neither volume-confirmed, fragile, stretched, nor freshly snapped.`;
-    confirm = `A clean continuation, fragile break, or fresh snap develops and another screen supplies direction and risk levels.`;
+    copy = `${top.symbol} has the strongest remaining run, but it has no trend read with a vote, and it is not fragile, stretched or recently ended.`;
+    confirm = `A 3+ day run forms with the moving-average trend, and another screen supplies direction and risk levels.`;
     invalidate = `The run remains short and ordinary, or its only evidence is cumulative color without participation.`;
   }
   if (!freshness.current) {
     headline = "This streak map is reference only.";
-    copy = `${top.symbol} was the strongest setup in an older daily-close snapshot. Run length and snap status must be rebuilt before using the anchor.`;
-    confirm = "A current daily build reproduces the same continuation, fragility, or snap state and the live Grade tab confirms the setup.";
-    invalidate = "Fresh closes change the run color, anchor, tolerance bank, or snapped status.";
+    copy = `${top.symbol} was the strongest setup in an older daily-close snapshot. Run length and trend read must be rebuilt before using the anchor.`;
+    confirm = "A current daily build reproduces the same run and trend read, and the stock page confirms the setup.";
+    invalidate = "Fresh closes change the run color, anchor, tolerance bank, or trend read.";
   }
-  const runDays = top.snapped ? Number(ended.days || 0) : top.days;
-  const runCum = top.snapped ? Number(ended.cumulativePct || 0) : top.cumulativePct;
-  const quality = top.snapped
-    ? `Snapped ${fmtSessionsAgo(ended.sessionsAgo)}`
+  const runDays = state === "snapped" ? Number(ended.days || 0) : top.days;
+  const runCum = state === "snapped" ? Number(ended.cumulativePct || 0) : top.cumulativePct;
+  const quality = state === "snapped"
+    ? `Ended ${fmtSessionsAgo(ended.sessionsAgo)}`
+    : top.read && top.days >= 3
+      ? top.read.label
     : top.fragile
       ? `${top.bankPct.toFixed(0)}% tripwire used`
       : top.volumeTrend && isFinite(top.volumeRatio)
         ? `${top.volumeRatio.toFixed(2)}× volume`
         : "No volume confirmation";
-  const qualitySub = top.snapped
-    ? String(ended.brokeBy || "fresh reversal close")
+  const qualitySub = state === "snapped"
+    ? String(ended.brokeBy || "break close")
+    : top.read && top.days >= 3
+      ? fmtVote(top.read.vote)
     : top.fragile
       ? `${top.counterDays} counter day${top.counterDays === 1 ? "" : "s"}`
       : top.volumeTrend
@@ -494,16 +597,16 @@ function renderStreakDecision(tickers, builtAtIso, breadth, filterActive) {
           <small>Daily closes define the streak; intraday direction must be confirmed elsewhere.</small>
         </div>
         <div class="flow-decision-metrics">
-          <div><span>Top focus</span><b>${escapeHtml(top.symbol)}</b><small>${escapeHtml(state === "snapped" ? `fresh ${reversal} watch` : state)}</small></div>
+          <div><span>Top focus</span><b>${escapeHtml(top.symbol)}</b><small>${escapeHtml(state === "snapped" ? "recently ended run" : (STREAK_READS[state] ? STREAK_READS[state].label : state).toLowerCase())}</small></div>
           <div><span>Run</span><b>${runDays}d ${escapeHtml(runColor)}</b><small>${escapeHtml(fmtPct(runCum))} cumulative</small></div>
           <div><span>Daily anchor</span><b>${escapeHtml(anchor)}</b><small>next close must hold ${escapeHtml(confirmSide)}</small></div>
           <div><span>Run quality</span><b>${escapeHtml(quality)}</b><small>${escapeHtml(qualitySub)}</small></div>
         </div>
-        <p class="flow-decision-context"><b>Desk breadth:</b> ${breadth.bull || 0} bullish · ${breadth.bear || 0} bearish · ${breadth.continuation || 0} continuation quality · ${breadth.fragile || 0} fragile · ${breadth.snapped || 0} freshly snapped.</p>
+        <p class="flow-decision-context"><b>Desk breadth:</b> ${breadth.bull || 0} up runs · ${breadth.bear || 0} down runs · ${breadth.evidenced || 0} with a Top Picks vote · ${breadth.fragile || 0} fragile · ${breadth.snapped || 0} recently ended.</p>
         <div class="flow-decision-actions">
-          ${freshness.current ? `<button type="button" class="flow-decision-action is-primary" data-streak-focus="${escapeHtml(top.symbol)}">${state === "snapped" ? "Review" : "Focus"} ${escapeHtml(top.symbol)}${state === "snapped" ? " snap" : ""}</button>` : ""}
+          ${freshness.current ? `<button type="button" class="flow-decision-action is-primary" data-streak-focus="${escapeHtml(top.symbol)}">${state === "snapped" ? "Review" : "Focus"} ${escapeHtml(top.symbol)}${state === "snapped" ? " ended run" : ""}</button>` : ""}
           <button type="button" class="flow-decision-action" data-streak-sort="tol">Sort fragile runs</button>
-          <button type="button" class="flow-decision-action${freshness.current ? "" : " is-primary"}" data-grade="${escapeHtml(top.symbol)}">Open Grade</button>
+          <button type="button" class="flow-decision-action${freshness.current ? "" : " is-primary"}" data-streak-open="${escapeHtml(top.symbol)}">Open ${escapeHtml(top.symbol)}</button>
           ${filterActive ? '<button type="button" class="flow-decision-action" data-streak-reset>Reset filters</button>' : ""}
         </div>
       </aside>
@@ -534,7 +637,9 @@ function render(root, footer, eyebrow, { builtAtIso, tickers }) {
     if (sectorPick && sectorGroupFor(sectors, sym) !== sectorPick) return false;
     return true;
   };
-  const filterActive = !!q || minRun > 2 || !!sectorPick;
+  const readPick = streaksState.read;
+  const matchesRead = (t) => !readPick || (streakRead(t) && streakRead(t).kind === readPick);
+  const filterActive = !!q || minRun > 2 || !!sectorPick || !!readPick;
 
   const sorter = makeSorter(streaksState.sort);
   const views = V();
@@ -544,7 +649,7 @@ function render(root, footer, eyebrow, { builtAtIso, tickers }) {
       : streaksState.sort === "tol" ? runFor(t)?.tolerancePct == null : false;
     return views ? views.applyDir(arr, "streaks", missing) : arr;
   };
-  const passes = (t) => streakSignalDays(t) >= minRun && matchesIdentity(t);
+  const passes = (t) => streakSignalDays(t) >= minRun && matchesIdentity(t) && matchesRead(t);
   const greens = flip(allGreens.filter(passes).sort(sorter));
   const reds = flip(allReds.filter(passes).sort(sorter));
   const allSnapped = tickers.filter((t) => hasRecentSnap(t));
@@ -553,7 +658,7 @@ function render(root, footer, eyebrow, { builtAtIso, tickers }) {
   const asTable = !!(views && views.viewMode("streaks") === "table");
   const decisionUniverse = tickers.filter((t) => streakSignalDays(t) >= 2 || hasRecentSnap(t));
   const decisionTickers = decisionUniverse
-    .filter((t) => matchesIdentity(t) && (streakSignalDays(t) >= minRun || hasRecentSnap(t, minRun)))
+    .filter((t) => matchesIdentity(t) && matchesRead(t) && (streakSignalDays(t) >= minRun || hasRecentSnap(t, minRun)))
     .map((t) => hasRecentSnap(t, minRun) ? t : { ...t, lastEnded: null });
   const fullDecisionStats = streakDecisionStats(decisionUniverse);
   const decision = renderStreakDecision(decisionTickers, builtAtIso, {
@@ -562,10 +667,11 @@ function render(root, footer, eyebrow, { builtAtIso, tickers }) {
     continuation: fullDecisionStats.continuation,
     fragile: fullDecisionStats.fragile,
     snapped: fullDecisionStats.snapped,
+    evidenced: fullDecisionStats.evidenced,
   }, filterActive);
 
   if (eyebrow) {
-    eyebrow.textContent = `${allGreens.length} bullish · ${allReds.length} bearish · ${allSnapped.length} snapped`;
+    eyebrow.textContent = `${allGreens.length} up runs · ${allReds.length} down runs · ${allSnapped.length} recently ended`;
   }
 
   // Section summary — shows the shape of today's streaks at a glance:
@@ -611,7 +717,8 @@ function render(root, footer, eyebrow, { builtAtIso, tickers }) {
         <span class="streaks-summary-lbl">avg bear cum</span>
       </div>
     </div>
-    ${distribution(flagged)}`;
+    ${distribution(flagged)}
+    ${readTilesHtml(flagged)}`;
 
   // Column headers carry an inline count, and reflect the active filter
   // ("3 of 24") so the user knows a narrowed list isn't the whole picture.
@@ -669,8 +776,8 @@ function render(root, footer, eyebrow, { builtAtIso, tickers }) {
     }
   }
 
-  root.querySelectorAll("[data-grade]").forEach((btn) => {
-    btn.addEventListener("click", () => jumpToGrade(btn.dataset.grade));
+  root.querySelectorAll("[data-streak-open]").forEach((btn) => {
+    btn.addEventListener("click", () => jumpToGrade(btn.dataset.streakOpen));
   });
   root.querySelectorAll("[data-streak-focus]").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -680,8 +787,8 @@ function render(root, footer, eyebrow, { builtAtIso, tickers }) {
       if (hasRecentSnap(match, streaksState.minStreak)) {
         const panel = $("streaks-snapped");
         setSnappedOpen(true);
-        const button = [...panel.querySelectorAll("[data-grade]")]
-          .find((el) => el.dataset.grade === sym);
+        const button = [...panel.querySelectorAll("[data-streak-open]")]
+          .find((el) => el.dataset.streakOpen === sym);
         if (button) {
           button.focus({ preventScroll: true });
           button.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -693,9 +800,9 @@ function render(root, footer, eyebrow, { builtAtIso, tickers }) {
       if (input) input.value = sym;
       rerender();
       requestAnimationFrame(() => {
-        const gradeButtons = root.querySelectorAll(".streaks-active [data-grade]");
+        const gradeButtons = root.querySelectorAll(".streaks-active [data-streak-open]");
         for (const gradeButton of gradeButtons) {
-          if (String(gradeButton.dataset.grade || "").toUpperCase() === sym) {
+          if (String(gradeButton.dataset.streakOpen || "").toUpperCase() === sym) {
             gradeButton.closest(".streaks-row")?.scrollIntoView({ behavior: "smooth", block: "center" });
             break;
           }
@@ -712,19 +819,32 @@ function render(root, footer, eyebrow, { builtAtIso, tickers }) {
       rerender();
     });
   });
+  root.querySelectorAll("[data-streak-read]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const kind = btn.dataset.streakRead || "";
+      streaksState.read = streaksState.read === kind ? "" : kind;
+      const select = $("streaks-read-select");
+      if (select) select.value = streaksState.read;
+      saveStreakControls();
+      rerender();
+    });
+  });
   root.querySelectorAll("[data-streak-reset]").forEach((btn) => {
     btn.addEventListener("click", () => {
       streaksState.sort = "streak";
       streaksState.minStreak = 2;
       streaksState.sector = "";
+      streaksState.read = "";
       streaksState.query = "";
       const sortSelect = $("streaks-sort-select");
       const minSelect = $("streaks-min-select");
       const sectorSelect = $("streaks-sector-select");
+      const readSelect = $("streaks-read-select");
       const search = $("streaks-search");
       if (sortSelect) sortSelect.value = "streak";
       if (minSelect) minSelect.value = "2";
       if (sectorSelect) sectorSelect.value = "";
+      if (readSelect) readSelect.value = "";
       if (search) search.value = "";
       saveStreakControls();
       rerender();
@@ -738,16 +858,16 @@ function snappedPanelHtml(snapped, total, sectors, filterActive) {
   const count = filterActive ? `${snapped.length} of ${total}` : String(total);
   return `<details id="streaks-snapped" class="streaks-snapped"${streaksState.snappedCollapsed ? "" : " open"}>
     <summary class="streaks-snapped-head">
-      <span class="streaks-snapped-title">Just snapped</span>
+      <span class="streaks-snapped-title">Recently ended</span>
       <span class="streaks-snapped-count">${count}</span>
       <span class="streaks-snapped-toggle" aria-hidden="true"></span>
     </summary>
     <div class="streaks-snapped-body">
-      <p class="streaks-snapped-sub">Runs that ended in the last 3 sessions. Watch for a bounce after red, or a pullback after green.</p>
+      <p class="streaks-snapped-sub">Runs that ended in the last 3 sessions. A break is usually a pause: in the replay, ended runs more often resumed their old direction than reversed, and stocks whose 5+ day down run ended still lagged the group by 1.1% over the next 10 sessions.</p>
       <p class="streaks-snapped-sub">Filters and sort apply here too. Run metrics describe the ended run; close and Grade use the latest data.</p>
-      <div class="streaks-snapped-list" role="region" aria-label="Just snapped stocks" tabindex="0">
+      <div class="streaks-snapped-list" role="region" aria-label="Recently ended runs" tabindex="0">
         ${snapped.length ? snapped.map((t) => snappedEntry(t, sectors)).join("")
-          : `<p class="streaks-empty">${filterActive ? "No snapped runs match these filters." : "No runs ended in the last 3 sessions."}</p>`}
+          : `<p class="streaks-empty">${filterActive ? "No ended runs match these filters." : "No runs ended in the last 3 sessions."}</p>`}
       </div>
     </div>
   </details>`;
@@ -789,16 +909,50 @@ function snappedEntry(t, sectors) {
     ${sector ? `<div class="streaks-sector">${escapeHtml(sector)}</div>` : ""}
     <div class="streaks-snap-stats">
       <b class="streaks-${wasGreen ? "pos" : "neg"}">${days}d ${side} · ${fmtPct(e.cumulativePct)}</b>
-      <span>${wasGreen ? "Watch pullback" : "Watch bounce"}</span>
+      <span>${wasGreen ? "Up runs that ended often kept rising" : "Down runs that ended often kept lagging"}</span>
     </div>
     <p class="streaks-snap-break">${escapeHtml(e.brokeBy || "Run ended")}${e.reversalPct != null ? ` · break-day move ${fmtPct(e.reversalPct)}` : ""}${e.windowDays > days ? ` · ${e.windowDays}-session run` : ""}</p>
     <div class="streaks-meta">Ended-run volume ${volume > 0 ? `${volume.toFixed(2)}×` : "unavailable"}</div>
     ${movingAverageContextHtml(t)}
     <div class="streaks-foot">
       <span class="streaks-last">last <b>${escapeHtml(fmtMoney(t.lastClose))}</b></span>
-      <button type="button" class="streaks-btn" data-grade="${escapeHtml(sym)}">Grade ${escapeHtml(sym)} →</button>
+      <button type="button" class="streaks-btn" data-streak-open="${escapeHtml(sym)}" title="Open the ${escapeHtml(sym)} stock page">Open ${escapeHtml(sym)} →</button>
     </div>
   </article>`;
+}
+
+// Trend-read chip on an active card: what the run means read with the
+// moving averages, and the vote it gives Top Picks.
+function readChipHtml(t) {
+  const r = streakRead(t);
+  if (!r || streakSignalDays(t) < 3) return "";
+  const ev = r.evidence != null ? ` In the replay these ${r.evidence >= 0 ? "beat" : "lagged"} the group by ${Math.abs(r.evidence).toFixed(1)}% over the next 10 sessions.` : "";
+  return `<div class="streaks-read is-${r.tone}" title="${escapeHtml(r.note + ev)}">
+    <span class="streaks-read-label">${escapeHtml(r.label)}</span>
+    <span class="streaks-read-vote" data-owner-only>${escapeHtml(fmtVote(r.vote))}</span>
+  </div>`;
+}
+
+// "What a streak usually means" — one tile per trend read with today's count
+// and the replay's 10-session result. A tile click filters to that read.
+function readTilesHtml(flagged) {
+  const withRead = flagged.filter((t) => streakRead(t) && streakSignalDays(t) >= 3);
+  if (!withRead.length) return "";
+  const count = (kind) => withRead.filter((t) => streakRead(t).kind === kind).length;
+  const tiles = STREAK_READ_TILES.map((kind) => {
+    const r = STREAK_READS[kind];
+    const on = streaksState.read === kind;
+    return `<button type="button" class="streaks-read-tile is-${r.tone}${on ? " is-on" : ""}" data-streak-read="${kind}" aria-pressed="${on}">
+      <span class="streaks-read-tile-head"><b>${escapeHtml(r.label)}</b><em>${count(kind)} today</em></span>
+      <span class="streaks-read-tile-num">${r.evidence >= 0 ? "+" : "−"}${Math.abs(r.evidence).toFixed(1)}%</span>
+      <span class="streaks-read-tile-sub">avg next 10 sessions vs the group<span data-owner-only> · ${escapeHtml(fmtVote(r.vote))}</span></span>
+    </button>`;
+  }).join("");
+  return `<section class="streaks-reads" aria-label="What a streak usually means">
+    <p class="streaks-reads-title">What a 3+ day run usually means, read with its moving averages</p>
+    <div class="streaks-read-tiles">${tiles}</div>
+    <p class="streaks-reads-note">Replay of 135 stocks, Sep 2025 to May 2026. A short run on its own says little; the trend around it does.<span data-owner-only> Top Picks uses the same rule for its streak vote.</span></p>
+  </section>`;
 }
 
 // Length-mix distribution — a compact stacked bar (2d / 3d / 4d / 5d+) so the
@@ -842,19 +996,23 @@ function streakTableHtml(list, sectors, views) {
     if (!isFinite(n)) return "";
     return `<span class="${n >= 0 ? "pos" : "neg"}">${n >= 0 ? "+" : "−"}${Math.abs(n).toFixed(2)}%</span>`;
   };
+  // Grade and the Top Picks vote are Owner-only reads; public tables skip them.
+  const owner = window.STONKS_OWNER_ACCESS === true;
   const cols = [
-    { label: "Ticker", cell: (t) => `<button type="button" class="vt-link" data-grade="${escapeHtml(String(t.symbol || "").toUpperCase())}">${escapeHtml(String(t.symbol || "").toUpperCase())}</button>`, sort: (t) => String(t.symbol || "") || null },
+    { label: "Ticker", cell: (t) => `<button type="button" class="vt-link" data-streak-open="${escapeHtml(String(t.symbol || "").toUpperCase())}">${escapeHtml(String(t.symbol || "").toUpperCase())}</button>`, sort: (t) => String(t.symbol || "") || null },
     { label: "Direction", cell: (t) => t.current.color === "green" ? '<span class="vt-tag call">Up</span>' : '<span class="vt-tag put">Down</span>', sort: (t) => t.current.color === "green" ? "up" : "down" },
     { label: "Days", num: true, cell: (t) => String(streakSignalDays(t)), sort: (t) => streakSignalDays(t) },
     { label: "Cumulative", num: true, cell: (t) => pct(t.current.cumulativePct), sort: (t) => { const n = Number(t.current.cumulativePct); return isFinite(n) ? n : null; } },
+    { label: "Trend read", title: "The run read with its 20/50/100-day averages", cell: (t) => { const r = streakRead(t); return r ? `<span class="streaks-read-tag is-${r.tone}">${escapeHtml(r.label)}</span>` : ""; }, sort: (t) => { const r = streakRead(t); return r && r.evidence != null ? r.evidence : null; } },
+    owner && { label: "Top Picks vote", num: true, cell: (t) => { const r = streakRead(t); return r ? (r.vote > 0 ? "+1" : r.vote < 0 ? "−1" : "0") : ""; }, sort: (t) => { const r = streakRead(t); return r ? r.vote : null; } },
     { label: "Nearest MA", cell: (t) => { const m = t.maContext?.levels?.find(x => x.period === t.maContext.nearestPeriod); return m ? `${escapeHtml(m.period)}D · ${fmtPct(m.distancePct)} · ${escapeHtml(m.slope || "slope unavailable")}` : "Unavailable"; }, sort: (t) => { const m = t.maContext?.levels?.find(x => x.period === t.maContext.nearestPeriod); const n = Number(m?.distancePct); return m?.distancePct != null && isFinite(n) ? n : null; } },
     { label: "Last close", num: true, cell: (t) => isFinite(Number(t.lastClose)) ? fmtMoney(Number(t.lastClose)) : "", sort: (t) => { const n = Number(t.lastClose); return isFinite(n) ? n : null; } },
     { label: "Volume trend", num: true, title: "Volume during the run vs normal", cell: (t) => isFinite(Number(t.current.volumeRatio)) && Number(t.current.volumeRatio) > 0 ? Number(t.current.volumeRatio).toFixed(2) + "×" : "", sort: (t) => { const n = Number(t.current.volumeRatio); return isFinite(n) && n > 0 ? n : null; } },
     { label: "Break risk", num: true, title: "Share of the counter-move tolerance already used", cell: (t) => { const tb = Number(t.current.toleranceBreakPct || 1.5); const n = tb > 0 ? Number(t.current.tolerancePct || 0) / tb * 100 : null; return n == null ? "" : Math.round(n) + "%"; }, sort: (t) => { const tb = Number(t.current.toleranceBreakPct || 1.5); return tb > 0 ? Number(t.current.tolerancePct || 0) / tb : null; } },
     { label: "Sector", cell: (t) => escapeHtml(sectors[String(t.symbol || "").toUpperCase()] || ""), sort: (t) => sectors[String(t.symbol || "").toUpperCase()] || null },
-    { label: "Grade", num: true, cell: (t) => { const g = streakGrade(t); return g == null ? "" : (g > 0 ? "+" : g < 0 ? "−" : "") + Math.abs(g).toFixed(1); }, sort: streakGrade },
+    owner && { label: "Grade", num: true, cell: (t) => { const g = streakGrade(t); return g == null ? "" : (g > 0 ? "+" : g < 0 ? "−" : "") + Math.abs(g).toFixed(1); }, sort: streakGrade },
   ];
-  return views.tableHtml(cols, list, { key: "streaks-table", empty: "No streaks match this filter." });
+  return views.tableHtml(cols.filter(Boolean), list, { key: "streaks-table", empty: "No streaks match this filter." });
 }
 
 function entry(t, sectors) {
@@ -966,6 +1124,7 @@ function entry(t, sectors) {
         </span>
       </div>
       <div class="streaks-spark" role="img" aria-label="${escapeHtml(sparkLabel)}">${spark}</div>
+      ${readChipHtml(t)}
       ${tolMeter}
       ${movingAverageContextHtml(t)}
       <div class="streaks-meta">
@@ -974,7 +1133,7 @@ function entry(t, sectors) {
       </div>
       <div class="streaks-foot">
         <span class="streaks-last">last <b>${escapeHtml(fmtMoney(t.lastClose))}</b></span>
-        <button type="button" class="streaks-btn" data-grade="${escapeHtml(sym)}">Grade ${escapeHtml(sym)} →</button>
+        <button type="button" class="streaks-btn" data-streak-open="${escapeHtml(sym)}" title="Open the ${escapeHtml(sym)} stock page">Open ${escapeHtml(sym)} →</button>
       </div>
     </article>`;
 }
@@ -983,15 +1142,19 @@ function entry(t, sectors) {
 // does (app.js parseUrlState/initial path). A full navigation is simpler
 // than calling the IIFE-scoped combo.commit() from this module and the
 // existing auto-load handler picks the symbol up on the next page render.
-// ?tab= must be forced to grade: the Streaks tab mirrors itself into the
-// URL (?tab=streaks) and app.js gives ?tab= priority over ?s= when it
-// resolves the initial tab, so a stale tab param would land the reload
-// right back on Streaks. (localStorage no longer drives tab restore.)
+// ?tab= must be forced: the Streaks tab mirrors itself into the URL
+// (?tab=streaks) and app.js gives ?tab= priority over ?s= when it resolves
+// the initial tab, so a stale tab param would land the reload right back on
+// Streaks. Owners land on the stock page's Grade view; everyone else on the
+// public stock page. (The buttons use data-streak-open, not data-grade,
+// because the Owner gate strips [data-grade] for public visitors.)
 function jumpToGrade(symbol) {
   if (!symbol) return;
   const url = new URL(window.location.href);
   url.searchParams.set("s", symbol);
-  url.searchParams.set("tab", "grade");
+  url.searchParams.set("tab", "stock");
+  if (window.STONKS_OWNER_ACCESS === true) url.searchParams.set("view", "grade");
+  else url.searchParams.delete("view");
   url.searchParams.delete("exp");
   url.searchParams.delete("k");
   url.searchParams.delete("t");

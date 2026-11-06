@@ -2412,7 +2412,7 @@ const gradeOne = (data, opts = {}, unusual = null) => buildGradesIndex({ ONE: da
   ok("sector growth: names without a profile keep the legacy bars",
     sigOf(gradeOne(mkTicker({ fundamentals: { revenueGrowthYoy: 8 } })), "fundamentals", "revGrowth")?.score === 1
     && sigOf(gradeOne(mkTicker({ fundamentals: { revenueGrowthYoy: 8 } })), "fundamentals", "revGrowth")?.growthProfile === undefined);
-  ok("grade version is 2026-10-iv-rule (shared IV rule)", GRADE_MODEL_VERSION === "2026-10-iv-rule");
+  ok("grade version is 2026-11-price-pillar (price-pillar fix)", GRADE_MODEL_VERSION === "2026-11-price-pillar");
 }
 {
   const nowMs = Date.now();

@@ -63,6 +63,20 @@ await check('shock lane needs a risk-off tape, the index axis at -2 and both ind
   assert.equal(shockLaneState(mr('risk-off', -2), { spy: { aboveSma20: false }, qqq: { aboveSma20: true } }).active, false);
 });
 
+await check('shock lane closes once the Bottom tracker reads a potential bottom or later', () => {
+  const mr = { state: 'risk-off', axes: { indexes: { score: -2 } } };
+  const below = { spy: { aboveSma20: false }, qqq: { aboveSma20: false } };
+  for (const verdict of ['potential', 'emerging', 'confirmed']) {
+    const s = shockLaneState(mr, below, { verdict });
+    assert.equal(s.active, false, verdict);
+    assert.equal(s.bottomHeld, verdict);
+    assert.match(s.reason, /Bottom tracker/);
+  }
+  for (const verdict of ['stress', 'slowing', 'pullback', null]) assert.equal(shockLaneState(mr, below, { verdict }).active, true, String(verdict));
+  assert.equal(shockLaneState(mr, below, null).active, true, 'no tracker read keeps the lane as before');
+  assert.equal(shockLaneState({ state: 'neutral', axes: { indexes: { score: 0 } } }, below, { verdict: 'potential' }).bottomHeld, null, 'no break, nothing to hold');
+});
+
 await check('caps: per event, per week and post-shock puts at once', () => {
   const key = 'macro:FOMC decision:2026-11-10';
   const rows = [

@@ -179,6 +179,11 @@ if (macroBackdrop) {
     });
   } catch {}
   macroBackdrop.indexes = buildIndexAxisInput(chains);
+  // Bottom tracker stage for the post-shock put lane (same read as the bake).
+  try {
+    const bt = JSON.parse(await readFile(resolve(DATA_DIR, "bottom-tracker.json"), "utf8"));
+    macroBackdrop.bottomTracker = { verdict: bt?.verdict || null, asOf: bt?.asOf || null };
+  } catch {}
   // Universe breadth + put/call recomputed from the loaded chains (same as the
   // bake); 2Y / MOVE / HY credit ride macroBackdrop from macro.json (offline).
   macroBackdrop.breadth = buildBreadthAxisInput(chains);
