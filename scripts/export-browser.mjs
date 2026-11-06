@@ -38,7 +38,10 @@ let owner = true;
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   const json = (value, status = 200) => { res.statusCode = status; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(value)); };
-  if (url.pathname === '/api/auth/me' && !url.searchParams.has('data')) return json(owner ? { enabled: true, member: true, trackRecord: true, topPicks: true, role: 'owner' } : { enabled: true, member: false });
+  // An Owner session reports authed plus both claims (applyAuth in app-js.mjs).
+  if (url.pathname === '/api/auth/me' && !url.searchParams.has('data')) return json(owner ? { enabled: true, authed: true, member: true, trackRecord: true, topPicks: true, role: 'owner' } : { enabled: true, authed: false, member: false });
+  // The Top Picks tab reads the approved roster from this route.
+  if (url.pathname === '/api/auth/top-picks') return owner ? json(fixtures['picks.json']) : json({ error: 'auth required' }, 401);
   const name = url.searchParams.get('data') || (url.pathname.startsWith('/data/') ? url.pathname.slice(6) : null);
   if (name) return name in fixtures ? json(fixtures[name]) : json({}, 404);
   if (url.pathname.startsWith('/api/')) return json({ quotes: [], items: [], entries: [] });

@@ -325,9 +325,13 @@ try {
   if (priorSecret == null) delete process.env.SESSION_SECRET;
   else process.env.SESSION_SECRET = priorSecret;
 }
-const stamped = freshness.match(/const BAKE_STAMPED_FILES = \[([\s\S]*?)\];/)?.[1] || "";
-const required = freshness.match(/const BAKE_REQUIRED_REWRITTEN_FILES = \[([\s\S]*?)\];/)?.[1] || "";
-assert.match(required, /"link-map\.json"/);
-assert.doesNotMatch(stamped, /link-map/);
+// The required-rewrite list moved to lib/publication-outputs.mjs (shared with
+// the publish step); the freshness check re-exports it. Read the lists as
+// values, not source text, so a move can't hide a missing key.
+const { BAKE_REQUIRED_REWRITTEN_FILES } = await import("../lib/publication-outputs.mjs");
+const { BAKE_STAMPED_FILES } = await import("./verify-data-freshness.mjs");
+assert.ok(BAKE_REQUIRED_REWRITTEN_FILES.includes("link-map.json"), "the bake must rewrite link-map.json every run");
+assert.ok(!BAKE_STAMPED_FILES.some((k) => /link-map/.test(k)), "link-map.json carries no build stamp");
+assert.match(freshness, /BAKE_REQUIRED_REWRITTEN_FILES/);
 
 console.log(`link-map smoke passed (${real.edges.length} edges, ${Object.keys(real.nodes).length} nodes, sources ${real.sources.join(", ")})`);

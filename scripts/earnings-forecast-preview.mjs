@@ -30,7 +30,7 @@ export async function createEarningsPreview({port=0,payloadFile=null}={}){
     if(req.method!=='GET')return json({error:'Read-only local preview'},405);
     const key=u.searchParams.get('data')||(u.pathname.startsWith('/data/')?u.pathname.slice(6):null);
     const denied=['anonymous','tr-only','tp-only','disabled'].includes(scenario);
-    if(u.pathname==='/api/auth/me'&&!key)return json({enabled:scenario!=='disabled',authenticated:scenario!=='anonymous',trackRecord:!['anonymous','tp-only'].includes(scenario),topPicks:!['anonymous','tr-only'].includes(scenario),role:'owner'});
+    if(u.pathname==='/api/auth/me'&&!key)return json({enabled:scenario!=='disabled',authed:scenario!=='anonymous',authenticated:scenario!=='anonymous',trackRecord:!['anonymous','tp-only'].includes(scenario),topPicks:!['anonymous','tr-only'].includes(scenario),role:'owner'});
     if(key==='earnings-forecast.json'){
       requests++;res.setHeader('Cache-Control','private, no-store');if(denied)return json({error:'Owner required'},401);
       if(scenario==='error')return json({error:'Fixture unavailable'},503);if(scenario==='missing')return json({error:'Not yet built'},404);if(scenario==='malformed')return json({version:1,companies:[null]});

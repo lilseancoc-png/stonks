@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {readFile,mkdir} from 'node:fs/promises';
+import {existsSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {tmpdir} from 'node:os';
 import {createStreaksPreview} from './streaks-preview.mjs';
@@ -70,8 +71,11 @@ try {
  preview.setScenario('error');const page=await browser.newPage();await page.route('**/*',r=>new URL(r.request().url()).origin===preview.base?r.continue():r.fulfill({body:''}));
  await page.goto(preview.base+'/?tab=pattern-lab');await page.getByText('Pattern Lab could not load.').waitFor();preview.setScenario('normal');await page.locator('[data-pat-retry]').click();await page.locator('[data-pat-study]').waitFor();
  console.log('PASS failed request and retry');
- const cached=await createStreaksPreview();
- try {
+ // The cached-snapshot check needs a hydrated data/ folder (sync-data pull); skip it without one, like streaks-browser.
+ const hasCache=['streaks.json','pattern-recognition.json'].every(f=>existsSync(new URL('../data/'+f,import.meta.url)));
+ const cached=hasCache?await createStreaksPreview():null;
+ if(!cached)console.log('SKIP older cached snapshot (no data/streaks.json or data/pattern-recognition.json)');
+ if(cached) try {
   const actual=await browser.newPage(),errors=[];actual.on('pageerror',e=>errors.push(e.message));
   await actual.route('**/*',r=>new URL(r.request().url()).origin===cached.base?r.continue():r.fulfill({body:''}));
   await actual.goto(cached.base+'/?tab=pattern-lab');const root=actual.locator('#pattern-lab-root');await root.locator('[data-pat-study]').waitFor();

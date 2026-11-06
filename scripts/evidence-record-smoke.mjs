@@ -39,8 +39,9 @@ const BAKE = "2026-10-13";
   assert.equal(isRoleRestrictedKey("evidence/2026-10-13.json"), true);
   assert.deepEqual(roleClaimForKey("evidence/2026-10-13.json"), ["tr", "tp"]);
   assert.deepEqual(roleClaimForKey(EVIDENCE_LATEST_KEY), ["tr", "tp"]);
-  assert.equal(isPremiumKey("grades.json"), false);
-  assert.equal(roleClaimForKey("grades.json"), null);
+  // Grades are Owner-only since #757 (lib/premium-keys.mjs).
+  assert.equal(isPremiumKey("grades.json"), true);
+  assert.deepEqual(roleClaimForKey("grades.json"), ["tr", "tp"]);
 }
 
 {
