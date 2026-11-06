@@ -4,9 +4,9 @@ import { readFile } from 'node:fs/promises';
 import { resolve, extname, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { patternLabFixture } from './fixtures/pattern-lab.mjs';
-import { streaksFixture } from './fixtures/streaks.mjs';
+import { streaksFixture, streaksReadsFixture } from './fixtures/streaks.mjs';
 
-export async function createStreaksPreview({port = 0, fixture = false} = {}) {
+export async function createStreaksPreview({port = 0, fixture = false, owner = false} = {}) {
   const root = fileURLToPath(new URL('../', import.meta.url));
   const html = await readFile(resolve(root, 'index.html'), 'utf8');
   const shell = JSON.parse(html.match(/window\.STONKS_MANIFEST=(\{.*\});<\/script>/)[1]);
@@ -14,7 +14,8 @@ export async function createStreaksPreview({port = 0, fixture = false} = {}) {
   const pattern = fixture ? patternLabFixture() : JSON.parse(await readFile(resolve(root, 'data/pattern-recognition.json'), 'utf8'));
   const sectors = fixture ? Object.fromEntries(payload.tickers.map((t, i) => [t.symbol, i % 2 ? 'Technology' : 'Healthcare'])) : shell.sectors;
   const manifest = {...shell, sectors, symbols: [], narratives: [], deferred: false};
-  let scenario = 'normal';
+  let scenario = 'normal', asOwner = owner;
+  const readsPayload = fixture ? streaksReadsFixture() : null;
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, 'http://127.0.0.1');
     res.setHeader('Cache-Control', 'no-store');
@@ -22,9 +23,10 @@ export async function createStreaksPreview({port = 0, fixture = false} = {}) {
     if (req.method !== 'GET') return json({error: 'Read-only preview'}, 405);
     const key = url.searchParams.get('data') || (url.pathname.startsWith('/data/') ? url.pathname.slice(6) : null);
     if (key === 'pattern-recognition.json') return scenario === 'error' ? json({}, 503) : json(pattern);
-    if (key === 'streaks.json') return scenario === 'error' ? json({}, 503) : json(scenario === 'empty' ? {...payload, tickers: []} : payload);
+    if (key === 'streaks.json') return scenario === 'error' ? json({}, 503) : json(scenario === 'empty' ? {...payload, tickers: []} : scenario === 'reads' && readsPayload ? readsPayload : payload);
     if (key === 'manifest.json' || key === 'manifest-free.json') return json(manifest);
-    if (url.pathname === '/api/auth/me') return json({enabled: false, authenticated: false});
+    // owner: true simulates the signed Owner session (grade sort, decision desk).
+    if (url.pathname === '/api/auth/me') return json(asOwner ? {enabled: true, authed: true, trackRecord: true, topPicks: true} : {enabled: false, authenticated: false});
     if (key || url.pathname.startsWith('/api/')) return json({});
     if (url.pathname.startsWith('/_vercel/')) return res.end('');
     const path = resolve(root, '.' + (url.pathname === '/' ? '/index.html' : url.pathname));
@@ -37,7 +39,7 @@ export async function createStreaksPreview({port = 0, fixture = false} = {}) {
     } catch { json({}, 404); }
   });
   await new Promise(r => server.listen(port, '127.0.0.1', r));
-  return {server, base: 'http://127.0.0.1:' + server.address().port, payload, setScenario(value) { scenario = value; }};
+  return {server, base: 'http://127.0.0.1:' + server.address().port, payload, setScenario(value) { scenario = value; }, setOwner(value) { asOwner = !!value; }};
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const preview = await createStreaksPreview({port: Number(process.env.STREAKS_PREVIEW_PORT || 4193), fixture: process.env.STREAKS_PREVIEW_FIXTURE === '1'});

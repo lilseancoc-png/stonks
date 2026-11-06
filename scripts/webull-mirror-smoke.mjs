@@ -164,6 +164,28 @@ const accWith = (open = [], closed = [], builtAtIso = "2026-10-21T15:02:00Z") =>
   ok("csv: commas and quotes inside cells are escaped", fillRowsToCsv([{ trade_id: 'a,b', notes: 'say "hi"' }]).split("\n")[1].startsWith('"a,b",') && fillRowsToCsv([{ notes: 'say "hi"' }]).includes('"say ""hi"""'));
 }
 
+// 4a2. A record trade carrying the 2026-11-06 fields (entry snapshot, streak
+// read, event-play tag) enters and closes on a thesis-broken exit unchanged.
+{
+  const wb = fakeWebull();
+  const e = longCall({ symbol: "MSFT", gradeModelVersion: "2026-11-price-pillar",
+    streak: { color: "green", days: 4, cumulativePct: 3.1, volumeTrend: "rising", read: "uptrend-run" },
+    eventPlay: { kind: "earnings", event: "MSFT earnings", date: "2026-10-28" },
+    entrySnapshot: { v: 1, pillars: { f: 1.5, t: 2, m: 0.5, n: 1, iv: 0, rg: 0, tm: 0 }, signals: { srBreak: 2, streak: 1 }, retired: { macd: 1, fw: 0 } } });
+  const id = pickTradeId(e);
+  let { ledger, summary } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger: null, nowMs: T0 });
+  ok("new fields: entry placed as usual", summary.placed === 1 && wb.placed[0].legs[0].symbol === "MSFT" && wb.placed[0].limit_price === "5.00");
+  wb.fill(wb.placed[0].client_order_id, 5);
+  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger, nowMs: T0 + 2 * H }));
+  const closedE = { ...e, status: "thesis-broken", exitDate: "2026-10-22T15:00:00.000Z", optionPnlPct: -10 };
+  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([], [closedE]), ledger, nowMs: T0 + 24 * H }));
+  ok("new fields: thesis-broken exit placed at the engine price", wb.placed[1]?.side === "SELL" && wb.placed[1]?.limit_price === "4.50", wb.placed[1]?.limit_price);
+  wb.fill(wb.placed[1].client_order_id, 4.5);
+  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([], [closedE]), ledger, nowMs: T0 + 26 * H }));
+  ok("new fields: trade closes with the engine reason", ledger.trades[id].state === "closed" && ledger.trades[id].engineCloseReason === "thesis-broken");
+  ok("new fields: the ledger copies no snapshot", !JSON.stringify(ledger).includes("entrySnapshot"));
+}
+
 // 4b. Not filled -> re-price to the mid inside the band -> still not filled -> missed.
 {
   const wb = fakeWebull();

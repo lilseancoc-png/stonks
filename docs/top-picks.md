@@ -81,10 +81,11 @@ chip on the card (`{key,label,score,value,note}`).
 **Technicals** (trend & momentum — the core read for a ~2-week option):
 RSI movement (±1), RSI extreme reading (contrarian, reversal-confirmed, asymmetric:
 oversold-and-turning +2, overbought-and-turning −1),
-MACD (±1), moving-average trend (±1), streak (±1), support/resistance break
-(±2), 52-week position (contrarian, ±1), and a capped **standardized-move**
-family. (The AI chart-pattern vote was removed on 2026-10-19:
-`GRADE_MODEL_VERSION = "2026-10-no-chart-pattern"`.)
+moving-average trend (±1), streak read with the trend (±1), support/resistance
+break against the **prior** 20/100-day range (±2), and a capped
+**standardized-move** family. (The AI chart-pattern vote was removed on
+2026-10-19; the MACD and 52-week votes on 2026-11-06, see "Price pillar
+fixes" below. `GRADE_MODEL_VERSION = "2026-11-price-pillar"`.)
 
 The standardized-move family computes trailing return z-scores at 5, 10 and 20
 sessions plus a volume z-score, with ATR-normalized distance or Bollinger `%B`
@@ -237,7 +238,7 @@ The five capped component groups are:
 | **Extension / exhaustion** | Prior-ATR distance and five-session impulse, with percentage floors, set mild `−1` and soft `−2…−3` bands. RSI heat remains supporting evidence. A hard `−6…−8` top guard requires multiple extreme readings **plus** a momentum rollover or ≥1.8× volume climax, unless one reading is catastrophic. Extension alone is not exhaustion. |
 | **Pullback / setup** | Detects a real prior impulse over 20 sessions, requiring at least 4% or 2 ATR. An orderly 25–50% impulse retracement (or 0.75–1.75 ATR) that holds structure earns `+1`; drying pullback volume ≤0.90× adds another `+1`. Deep/stale pullbacks lose points. |
 | **Momentum confirmation** | MACD histogram turning with the trade on the correct side of SMA20, RSI recovery from the opposite extreme, and a directional ≥1.3× turn day are correlated evidence and therefore cap at `+2`. Strongly adverse momentum is `−2`; mixed RSI/MACD is `−1`. |
-| **Events** | A scheduled earnings release or major macro event inside the **next two trading sessions** is a hard Wait. Session distance, not calendar-day distance, controls the veto so a Monday event is treated correctly on Friday. The next near-term tier is a moderate penalty; distant events are neutral/context only. A hard event cannot be averaged away or cleared by the AI. |
+| **Events** | A scheduled earnings release or major macro event inside the **next two trading sessions** is a hard Wait for the shared grade. Top Picks may instead trade through it as an **event play** when the evidence agrees (see "Event plays, November 6, 2026" below). Session distance, not calendar-day distance, controls the veto so a Monday event is treated correctly on Friday. The next near-term tier is a moderate penalty; distant events are neutral/context only. A hard event cannot be averaged away or cleared by the AI. |
 | **Structure / payoff** | A nearby support/resistance level defining invalidation within 2 ATR earns `+1`; level confluence adds `+1`; unclear structure is `−1`. A call invalidation must be below entry and a put invalidation above entry before risk or R:R is computed. Go additionally requires estimated reward/risk ≥1.5:1. |
 
 Falling-knife logic is an override, not just another negative row. With prior
@@ -1216,3 +1217,125 @@ after it shows the right sign at 5 and 10 days, stays positive after the
 grade, and reaches t ≈ 2 on non-overlapping days. Only the newest 130 rows
 keep their shadow block. `regen-picks` keeps the day's block when it rewrites
 the totals.
+
+## Event plays, November 6, 2026
+
+Owner directive: the engine should trade events and earnings, not sit them
+out. The rules live in `lib/event-play.mjs`; `computeEntryTiming` applies them
+only under `topPicksPolicy` (the shared grade keeps the old waits), and
+`PICKS_EVENT_AWARE=0` turns the whole thing off. The entry-timing version is
+5, with a dated Track Record divider.
+
+**Macro events (FOMC, CPI, PPI, jobs inside two sessions).** The hard wait
+becomes a trade-through when the tape agrees with the side: calls in a
+risk-on or neutral tape, puts in a risk-off or severe tape, and never when
+the broad regime fights the trade. Otherwise the wait stands.
+
+**Earnings (the stock's own print inside seven sessions).** Three votes on the
+trade's side: the stock's reaction record (+1 at 60%+ of prints moving the
+trade's way, −1 at 40% or less; the 10-year count when it has 8+ prints), this
+season's reactions from `buildTopPicksMarketContext` (+1/−1 on the same 60/40
+split, needs 8+ prints), and the run-in (`earningsHx.next.pre10Pct`: −1 when the
+stock already ran 6%+ the trade's way; a put gets +1 for a 6%+ run-up into a
+season that sells prints). Trade through when the votes total +1 or more and
+the stock's own record is not against the trade. Fewer than 4 priced prints
+waits.
+
+**Post-shock lane.** When `shockLaneState` sees a risk-off or severe tape, the
+SPY/QQQ axis at −2 and both indexes below their 20-day average, equity puts
+are tagged `shock` and `classifyPick` opens them at the regular trade bar
+(normally 4) with a strong or moderate thesis, instead of the Strong bar.
+Confluence, the AI grade and a confirmed entry still bind.
+
+**Structure, caps and tag.** `selectStrategy` already forces a debit spread
+inside an event window. `buildTopPicks` caps event plays at 2 open picks per
+macro event, 4 event opens in 7 days and 2 open post-shock puts
+(`rosterMeta.eventCapped`, gate `event-cap`). The play is frozen on the record
+as `eventPlay` (kind, label, date, session, key, release time, reason).
+`rosterMeta.eventPlays` and `eventWaits` list what traded and what waited.
+
+**Exits.** After every price exit, `eventPlayExit` runs one post-event review
+once the event has resolved (macro: release time + 15 minutes; AM print: 10:00
+ET that day; PM print: the next ET date). If the live grade on the trade's
+side is below 4 the trade closes as `event-review`; otherwise the review is
+stamped on `eventPlay.reviewed` and the trade is held under the normal rules.
+Post-shock puts close as `shock-time` after 10 trading sessions, because the
+historical follow-through after a broad drop fades within about 20 sessions.
+
+**AI grader.** The prompt carries an `EVENT PLAY` line (or `EVENT CHECK` when the
+engine kept a wait) and tells the grader an upcoming event is not by itself a
+reason to wait on an event play.
+
+Tests: `npm run test:event-play` (rules, caps, roster wiring, enrollment, both
+exits) and the event checks in `scripts/picks-smoke.mjs`.
+
+**Bottom tracker guard (added the same day).** `shockLaneState(macroRegime,
+indexes, bottom)` keeps the post-shock lane shut while the Bottom tracker
+(`macroBackdrop.bottomTracker`, the verdict the bake just wrote; `regen-picks`
+reads `bottom-tracker.json`) reads `potential`, `emerging` or `confirmed`
+(`SHOCK_LANE_BOTTOM_STAGES`). New puts that late in a selloff chase a turn.
+`rosterMeta.shockLane` then carries `{ active: false, bottomHeld, reason }`.
+
+## Price pillar fixes and the entry snapshot, November 6, 2026
+
+From the inputs audit (replay of 135 stocks, Sep 2025 to May 2026, 10-day
+returns against the group). `GRADE_MODEL_VERSION = "2026-11-price-pillar"`, a
+dated Track Record divider; the record is not reset.
+
+**Support/resistance break.** `computeTechnicals` now also stores `srPrior`,
+the 20/50/100-day support and resistance computed **without the latest bar**.
+`srBreak` compares the close with those levels (+2 above the prior 20-day high,
++1 above the prior 100-day high only, mirrored for breakdowns). The old vote
+used a range that included the same day, so the close could never be outside
+it and the vote never fired. `priorSupportResistance(data)` falls back to the
+stored `priceSeries` highs and lows for older payloads. The display `sr`
+levels are unchanged.
+
+**Streak read with the trend.** One rule in `lib/streaks.mjs`
+(`streakTrendRead`, `STREAK_TREND_READS`), used by the grade, the
+`streaks.json` rows (`trendRead`, `endedRead`) and the Streaks page:
+
+| Run (3+ days) | Trend (most of the 20/50/100-day averages) | Vote | Replay, next 10 sessions |
+|---|---|---|---|
+| Up | above, volume not falling | +1 | +0.94% |
+| Up | above, volume falling | 0 | −0.31% |
+| Up | below (bounce) | −1 | −1.6%, 34% beat the group |
+| Down | below (slide) | −1 | −1.24% |
+| Down | above (dip in an uptrend) | 0 | +0.79% |
+| Any | mixed | 0 | — |
+
+The grade uses the `smaStack` vote as the trend; the Streaks page uses the
+moving-average context (`streakTrendFromMa`). Runs shorter than 3 days get no
+vote. Ended runs usually kept their old direction (5+ day red runs that ended
+lagged by 1.07%), so the page no longer calls them a reversal queue.
+
+**Dropped votes.** MACD added nothing on top of RSI and the moving-average
+trend, and the 52-week vote pointed the wrong way (names near the high kept
+leading). `RETIRED_SIGNAL_KEYS` lists both. The per-mark thesis check ignores
+them, so an open trade whose only entry drivers were MACD or 52-week does not
+close as `thesis-broken` when those votes disappear. `buildPickForecast` reads
+`rsiMomentum`, `smaStack`, `srBreak`, `guidance`, `analystRevisions` and
+`sectorNarrative`.
+
+**Entry snapshot instead of a shadow log.** `updatePicksAccuracyFile` freezes
+`entrySnapshot` (`lib/trade-snapshot.mjs`, `buildEntrySnapshot`, under 1 KB)
+on every new record trade: `pillars` (f/t/m/n/iv/rg/tm), every available
+signal's vote by key (zeros kept), `ctx` (RSI, MACD histogram, distance from
+the 20/50/200-day averages, rvol, the prior 20-day high and low, the streak and
+its read), `retired` (what the MACD and 52-week votes would have said),
+`heavy` (the latest move's z-score and volume z-score), `ped` (the latest
+print's date, session, move and the drift since) and the day's `shadow` row
+from `grades-daily.json`. `compactClosedForArchive` keeps it, so archived
+trades carry it too. The Webull mirror ignores it.
+
+**Grader context.** `graderContextBuilder(opts)` adds two prompt lines from
+payloads the bake already holds (no new calls), both part of the thesis cache
+signature: `PEER EARNINGS IN THE HOLD` (validated ripple pairs from the Earnings
+ripple matrix whose driver reports within `GRADER_PEER_EVENT_DAYS` = 14 days,
+with the typical move on this stock) and `SITE EARNINGS FORECAST` (the Earnings
+Forecast desk's revenue/EPS point forecast when the stock reports inside the
+hold). The streak line in `TECHNICAL STRUCTURE` now names the trend read, and
+the support/resistance line names the prior 20-day levels.
+
+Tests: `npm run test:price-pillar`, `node scripts/event-play-smoke.mjs` (the
+Bottom tracker guard), `node scripts/streaks-browser.mjs` (the page).

@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createStreaksPreview } from './streaks-preview.mjs';
 const {chromium} = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
-const preview = await createStreaksPreview({fixture: true});
+// The Owner session sees the decision desk, Grade sort and Grade column;
+// the public pass further down checks what a signed-out visitor gets.
+const preview = await createStreaksPreview({fixture: true, owner: true});
 const out = resolve(tmpdir(), 'stonks-streaks-browser');
 await mkdir(out, {recursive: true});
 const browser = await chromium.launch({headless: true, ...(process.env.CHROMIUM_PATH ? {executablePath: process.env.CHROMIUM_PATH} : {})});
@@ -25,6 +28,8 @@ try {
     await rows.first().locator('.streaks-ma-context summary').click();
     assert.equal(await rows.first().locator('.streaks-ma-context li').count(), 4);
     assert.match(await rows.first().locator('.streaks-ma-context').innerText(), /200D/);
+    // Wide screens open Streaks as a table; the moving-average context lives on the cards.
+    await page.locator('[data-view-toggle="streaks"][data-view-mode="cards"]').click();
     assert(await page.locator('.streaks-active .streaks-ma-context').count() > 0);
 
     const symbols = () => rows.evaluateAll(nodes => nodes.map(n => n.dataset.snappedSymbol));
@@ -48,7 +53,7 @@ try {
     assert.equal(await rows.count(), 18);
     await page.locator('#streaks-search').fill('SN00');
     assert.equal(await rows.count(), 0);
-    assert.match(await panel.innerText(), /No snapped runs match/);
+    assert.match(await panel.innerText(), /No ended runs match/);
     await page.locator('#streaks-min-select').selectOption('2');
     assert.deepEqual(await symbols(), ['SN00']);
     await page.locator('#streaks-search').fill('');
@@ -81,7 +86,7 @@ try {
     await panel.locator('.streaks-snapped-head').click();
     await page.locator('[data-streak-focus]').click();
     await page.waitForFunction(() => document.querySelector('#streaks-snapped').open);
-    assert.equal(await panel.locator('[data-grade]:focus').count(), 1, 'decision action opens and focuses snapped stock');
+    assert.equal(await panel.locator('[data-streak-open]:focus').count(), 1, 'decision action opens and focuses snapped stock');
     if (width === 1440 && theme === 'dark') {
       await page.locator('#streaks-min-select').selectOption('5');
       await page.locator('[data-sort-flip="streaks"]').click();
@@ -96,9 +101,75 @@ try {
     await context.close();
     console.log('PASS browser ' + width + ' ' + theme);
   }
-  // Exercise the shipped page with the existing cached payload as well.
-  const cached = await createStreaksPreview();
-  try {
+  // Trend reads: one active 4-day run per read (fixture streaksReadsFixture).
+  preview.setScenario('reads');
+  for (const width of [1440, 390]) {
+    const page = await browser.newPage({viewport: {width, height: 1000}}), errors = [];
+    page.on('pageerror', e => errors.push(e.message));
+    await page.clock.install({time: new Date(preview.payload.builtAtIso)});
+    await page.route('**/*', r => new URL(r.request().url()).origin === preview.base ? r.continue() : r.fulfill({body: ''}));
+    await page.goto(preview.base + '/?tab=streaks');
+    await page.locator('[data-snapped-symbol]').first().waitFor();
+    const cards = page.locator('[data-view-toggle="streaks"][data-view-mode="cards"]');
+    if (await cards.count()) await cards.click();
+    const tiles = page.locator('.streaks-read-tile');
+    assert.equal(await tiles.count(), 4, 'one tile per read');
+    assert.match(await tiles.first().innerText(), /1 today/);
+    assert.equal(await page.locator('.streaks-active .streaks-read').count(), 4, 'read chip on each 3+ day run');
+    assert.match(await page.locator('#streaks-root .flow-decision').first().innerText(), /SN01/, 'evidenced up run leads the desk');
+    await page.locator('[data-streak-read="bear-rally"]').click();
+    assert.equal(await page.locator('#streaks-read-select').inputValue(), 'bear-rally');
+    assert.equal(await page.locator('.streaks-active .streaks-row').count(), 1, 'tile filters to that read');
+    assert.match(await page.locator('.streaks-active').innerText(), /SN03/);
+    await page.locator('#streaks-read-select').selectOption('');
+    assert.equal(await page.locator('.streaks-active .streaks-read').count(), 4);
+    await page.locator('[data-view-toggle="streaks"][data-view-mode="table"]').click();
+    await page.locator('#streaks-sort-select').selectOption('read');
+    const firstRow = page.locator('.streaks-active tbody tr').first();
+    assert.match(await firstRow.innerText(), /SN01/, 'read sort puts the strongest read first');
+    assert.match(await page.locator('.streaks-active thead').innerText(), /Trend read/);
+    assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'no page overflow at ' + width);
+    await page.locator('[data-view-toggle="streaks"][data-view-mode="cards"]').click();
+    await page.evaluate(() => scrollTo(0, document.querySelector('#streaks-root').getBoundingClientRect().top + scrollY - 90));
+    await page.screenshot({path: resolve(out, 'streaks-reads-' + width + '.png')});
+    assert.deepEqual(errors, []);
+    await page.close();
+    console.log('PASS trend reads ' + width);
+  }
+  // Public visitor: no Top Picks wording, no Grade sort or decision desk, but
+  // the ticker cells, read tiles and stock-page buttons all stay.
+  preview.setOwner(false);
+  for (const width of [1440, 390]) {
+    const page = await browser.newPage({viewport: {width, height: 1000}}), errors = [];
+    page.on('pageerror', e => errors.push(e.message));
+    await page.clock.install({time: new Date(preview.payload.builtAtIso)});
+    await page.route('**/*', r => new URL(r.request().url()).origin === preview.base ? r.continue() : r.fulfill({body: ''}));
+    await page.goto(preview.base + '/?tab=streaks');
+    await page.locator('[data-snapped-symbol]').first().waitFor();
+    assert.equal(await page.locator('#streaks-sort-select option[value="grade"]').count(), 0, 'grade sort is Owner-only');
+    assert.equal(await page.locator('#page-pane-streaks .flow-decision').count(), 0, 'decision desk is Owner-only');
+    assert.equal(await page.locator('.streaks-read-tile').count(), 4, 'read tiles are public');
+    assert.doesNotMatch(await page.locator('#page-pane-streaks').innerText(), /Top Picks/, 'no Top Picks wording for the public');
+    await page.locator('[data-view-toggle="streaks"][data-view-mode="table"]').click();
+    const tickerCells = await page.locator('.streaks-active tbody tr td:first-child').allInnerTexts();
+    assert(tickerCells.length > 0 && tickerCells.every(t => /^SN\d\d/.test(t.trim())), 'public table keeps its ticker column');
+    assert.doesNotMatch(await page.locator('.streaks-active thead').innerText(), /Grade|Top Picks/);
+    await page.locator('[data-view-toggle="streaks"][data-view-mode="cards"]').click();
+    const open = page.locator('.streaks-active [data-streak-open]').first();
+    const sym = await open.getAttribute('data-streak-open');
+    await open.click();
+    await page.waitForURL(url => url.searchParams.get('s') === sym && url.searchParams.get('tab') === 'stock' && !url.searchParams.get('view'));
+    assert.deepEqual(errors, []);
+    await page.close();
+    console.log('PASS public visitor ' + width);
+  }
+  preview.setOwner(true);
+  preview.setScenario('normal');
+  // Exercise the shipped page with the existing cached payload as well
+  // (skipped when no hydrated data/ folder is present).
+  const cached = existsSync(resolve(process.cwd(), 'data/streaks.json')) ? await createStreaksPreview() : null;
+  if (!cached) console.log('SKIP cached payload (no data/streaks.json)');
+  if (cached) try {
     const page = await browser.newPage({viewport: {width: 1440, height: 1000}}), errors = [];
     page.on('pageerror', e => errors.push(e.message));
     await page.route('**/*', r => new URL(r.request().url()).origin === cached.base ? r.continue() : r.fulfill({body: ''}));
@@ -114,8 +185,8 @@ try {
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'collapsed board does not overflow');
     await page.screenshot({path: resolve(out, 'streaks-cached-collapsed.png')});
     await panel.locator('.streaks-snapped-head').click();
-    const first = await panel.locator('[data-grade]').first().getAttribute('data-grade');
-    await panel.locator('[data-grade]').first().click();
+    const first = await panel.locator('[data-streak-open]').first().getAttribute('data-streak-open');
+    await panel.locator('[data-streak-open]').first().click();
     await page.waitForURL(url => url.searchParams.get('s') === first && url.searchParams.get('tab') === 'stock' && url.searchParams.get('view') === 'grade');
     assert.deepEqual(errors, []);
     console.log('PASS cached payload and Grade navigation');

@@ -36222,7 +36222,7 @@ ${renderExportBindings()}
   // time stop, the pre-earnings close and the weekly reset) kept only so
   // legacy resolved rows still label + sort; new closes use 'thesis-broken'
   // for the invalidation path.
-  var ACC_EXIT_ORDER = ['hit-tp-prem','trail-stop','hit-stop-prem','hit-stop-under','thesis-broken','theta-stop','timed-out','pre-earnings','expired','dropped','left-coverage','reset'];
+  var ACC_EXIT_ORDER = ['hit-tp-prem','trail-stop','hit-stop-prem','hit-stop-under','thesis-broken','event-review','shock-time','theta-stop','timed-out','pre-earnings','expired','dropped','left-coverage','reset'];
   // Sort a copy of the closed[] list per accClosedSort. Rows missing the sort
   // key (no modeled P&L / unparsable dates) sink to the bottom in either
   // direction; ties fall back to newest-resolved-first so the order is stable.
@@ -36379,11 +36379,12 @@ ${renderExportBindings()}
     grade: {
       '2026-10-no-chart-pattern': { since:'2026-10-19', note:'Chart-pattern vote removed' },
       '2026-10-sector-growth': { since:'2026-10-20', note:'Growth judged against sector norms' },
-      '2026-10-iv-rule': { since:'2026-10-26', note:'One expensive-options rule; credit spreads only when IV is very rich' }
+      '2026-10-iv-rule': { since:'2026-10-26', note:'One expensive-options rule; credit spreads only when IV is very rich' },
+      '2026-11-price-pillar': { since:'2026-11-06', note:'Price signals fixed: real breakouts vote, streaks read with the trend, MACD and 52-week votes dropped' }
     },
     exit: { '2026-10-22-tp25': { since:'2026-10-22', note:'Take-profit raised to +25%' } },
     entry: { '2026-10-23-reviewed-entry-v3': { since:'2026-10-23', note:'Entries must pass an option-price check' } },
-    timing: { '4': { since:'2026-10-23', note:'Volatility-aware entry timing' } }
+    timing: { '4': { since:'2026-10-23', note:'Volatility-aware entry timing' }, '5': { since:'2026-11-06', note:'Event-aware: trades through macro events and earnings when the evidence agrees' } }
   };
   function accRuleSegments(list){
     var firstSeen = {};
@@ -36811,6 +36812,7 @@ ${renderExportBindings()}
         exitPolicy: rec.exitPolicy,
         entryPolicyVersion: rec.entryPolicyVersion,
         entryTimingVersion: rec.entryTimingVersion,
+        eventPlay: rec.eventPlay || null,
         contract: contract,
         realFillPnlPct: rec.realFillPnlPct
       });
@@ -37362,6 +37364,7 @@ ${renderExportBindings()}
     regime:     { label: 'Market regime', key: function(e){ return e.entryRegime || 'Unknown'; }, lab: function(k){ return ACC_REGIME_LABEL[k] || k; }, order: ACC_REGIME_ORDER },
     sector:     { label: 'Sector', key: accSectorOf, lab: function(k){ return k; }, order: null },
     side:       { label: 'Side', key: function(e){ return e.side === 'put' ? 'put' : 'call'; }, lab: function(k){ return k === 'put' ? 'Put' : 'Call'; }, order: ['call','put'] },
+    event:      { label: 'Event play', key: function(e){ var k = e && e.eventPlay && e.eventPlay.kind; return k === 'macro' || k === 'earnings' || k === 'shock' ? k : 'none'; }, lab: function(k){ return ({ none:'Ordinary entry', macro:'Through a macro event', earnings:'Through earnings', shock:'Post-shock put' })[k] || k; }, order: ['none','macro','earnings','shock'] },
     structure:  { label: 'Structure', key: function(e){ return (e.contract && e.contract.structure) || 'long'; }, lab: function(k){ return ({ long:'Purchased option', debit_vertical:'Debit vertical', credit_vertical:'Credit vertical' })[k] || k; }, order: ['long','debit_vertical','credit_vertical'] },
   };
   // Order a set of bucket keys by a dim's declared order (unknowns/extras last).
@@ -38174,7 +38177,7 @@ ${renderExportBindings()}
   // the persisted side-adjusted underlyingPnlPct vs optionPnlPct), winner
   // anatomy, the best/worst segments across every breakdown dimension, a fired-
   // diagnostics "what to fix next" list, and a per-pick why-it-won/lost feed.
-  var ACC_STATUS_LABEL = { 'hit-tp-prem':'take-profit', 'trail-stop':'trail stop (half banked)', 'hit-stop-prem':'premium stop', 'hit-stop-under':'stock stop', 'thesis-broken':'thesis broken', 'theta-stop':'theta stop', 'timed-out':'14-day time stop (retired)', 'expired':'expired', 'pre-earnings':'pre-earnings exit (retired)', 'dropped':'left universe', 'left-coverage':'name left coverage (not counted)', 'reset':'weekly reset close (retired)', 'open-mark':'open mark' };
+  var ACC_STATUS_LABEL = { 'hit-tp-prem':'take-profit', 'trail-stop':'trail stop (half banked)', 'hit-stop-prem':'premium stop', 'hit-stop-under':'stock stop', 'thesis-broken':'thesis broken', 'event-review':'event review', 'shock-time':'post-shock time limit', 'theta-stop':'theta stop', 'timed-out':'14-day time stop (retired)', 'expired':'expired', 'pre-earnings':'pre-earnings exit (retired)', 'dropped':'left universe', 'left-coverage':'name left coverage (not counted)', 'reset':'weekly reset close (retired)', 'open-mark':'open mark' };
   // Loss-attribution thresholds (mirror diagnose-pick-losses.mjs): a side-
   // adjusted stock move <= -3% against the trade is clearly direction-driven;
   // >= -1% (flat or favorable) with a red option is pure vehicle bleed.
@@ -39004,7 +39007,8 @@ ${renderExportBindings()}
     var tables = section('By days-to-expiration (DTE)', 'dte') +
       section('By modeled probability-of-profit (PoP)', 'pop') +
       section('By conviction tier', 'conviction') +
-      section('By thesis category', 'thesis', { total: true });
+      section('By thesis category', 'thesis', { total: true }) +
+      (dec.some(function(e){ return e && e.eventPlay && e.eventPlay.kind; }) ? section('By event play (macro events, earnings, post-shock puts)', 'event', { total: true }) : '');
     var dimOpts = Object.keys(ACC_DIMS).map(function(k){ return { value: k, label: ACC_DIMS[k].label }; });
     function sel(setKey, cur){ var h = '<select class="acc-xsel" data-acc-set="' + setKey + '">'; dimOpts.forEach(function(o){ h += '<option value="' + o.value + '"' + (o.value === cur ? ' selected' : '') + '>' + escapeHtml(o.label) + '</option>'; }); return h + '</select>'; }
     var a = accView[xtabAKey], b = accView[xtabBKey]; if (a === b){ b = (a === 'conviction') ? 'thesis' : 'conviction'; }
@@ -39900,10 +39904,24 @@ ${renderExportBindings()}
         (dleft != null && isFinite(dleft) ? '<span>' + (dleft >= 0 ? dleft + 'd left' : 'expired') + '</span>' : '') +
         peakDip +
       '</div>' +
+      accEventPlayLine(e) +
       (accRangeBarHtml(e) || (targets ? '<div class="acc-targets">' + targets + '</div>' : '')) +
       accStrategyBlock(e, false) +
       accCheckpointsBlock(e) +
     '</div>';
+  }
+  // Event play tag frozen on the trade (lib/event-play.mjs): which event it is
+  // trading through, and the post-event review once it has run.
+  function accEventPlayLine(e){
+    var ep = e && e.eventPlay;
+    if (!ep || !ep.kind) return '';
+    var what = ep.kind === 'earnings' ? 'Trading through earnings' + (ep.date ? ' on ' + ep.date : '')
+      : ep.kind === 'shock' ? 'Post-shock put, closes after 10 sessions at the latest'
+      : 'Trading through ' + (ep.label || 'a macro event') + (ep.date ? ' on ' + ep.date : '');
+    var review = ep.kind === 'shock' ? ''
+      : ep.reviewed ? ' · passed the post-event review (grade ' + (Number(ep.reviewed.sideGrade) >= 0 ? '+' : '') + Number(ep.reviewed.sideGrade).toFixed(1) + ' its way)'
+      : ' · reviewed after the event: closes if the grade its way falls below 4';
+    return '<div class="acc-event-play" title="' + escapeHtml(ep.reason || '') + '">' + escapeHtml(what + review) + '</div>';
   }
   function accOpenRowsHtml(open, presorted){
     // Group by ticker. Entries sort newest-first (or in the Open picks tab's
@@ -39961,7 +39979,7 @@ ${renderExportBindings()}
   // text, and "Copy all" copies exactly what the feed link shows). Change one,
   // change the other. Ids and times are always ET so the tab matches the feed.
   var TL_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  var TL_CLOSE_REASON = { 'hit-tp-prem':'take-profit hit', 'trail-stop':'trail stop', 'hit-stop-prem':'premium stop hit', 'hit-stop-under':'stock stop hit', 'thesis-broken':'thesis broken', 'theta-stop':'theta stop', 'expired':'contract expired', 'dropped':'name left the universe', 'left-coverage':'name left coverage (not counted in the record)' };
+  var TL_CLOSE_REASON = { 'hit-tp-prem':'take-profit hit', 'trail-stop':'trail stop', 'hit-stop-prem':'premium stop hit', 'hit-stop-under':'stock stop hit', 'thesis-broken':'thesis broken', 'event-review':'closed at the post-event review', 'shock-time':'post-shock time limit', 'theta-stop':'theta stop', 'expired':'contract expired', 'dropped':'name left the universe', 'left-coverage':'name left coverage (not counted in the record)' };
   var TL_RULE = '============================================================';
   var TL_LABEL_W = 10;
   var tlFmt = null;
@@ -43076,8 +43094,12 @@ ${renderExportBindings()}
     var sideLabel = p.side === 'put' ? 'PUT' : 'CALL';
     var spot = p.spot != null ? '$' + Number(p.spot).toFixed(2) : '';
     var sectorTag = p.sector ? '<span class="pick-sector">' + escapeHtml(p.sector) + '</span>' : '';
+    // The streak read with the moving averages (lib/streaks.mjs), the same
+    // rule as the technicals streak vote, as a tooltip on the chip.
+    var STREAK_READ_TIP = { 'uptrend-run': 'Up run above its averages (+1)', 'uptrend-run-thin': 'Up run on fading volume (no vote)', 'bear-rally': 'Bounce below its averages (−1)', 'downtrend-slide': 'Slide below its averages (−1)', 'uptrend-dip': 'Dip inside an uptrend (no vote)', 'no-trend': 'No clear trend (no vote)', 'short': 'Under 3 days (no vote)' };
+    var streakTip = p.streak && STREAK_READ_TIP[p.streak.read] ? ' title="Streak read: ' + escapeHtml(STREAK_READ_TIP[p.streak.read]) + '"' : '';
     var streakHtml = p.streak
-      ? '<span class="pick-streak pick-streak-' + escapeHtml(p.streak.color) + '">' +
+      ? '<span class="pick-streak pick-streak-' + escapeHtml(p.streak.color) + '"' + streakTip + '>' +
           p.streak.days + 'd ' + (p.streak.color === 'green' ? '▲' : '▼') +
           ' ' + (p.streak.cumulativePct >= 0 ? '+' : '') + p.streak.cumulativePct.toFixed(1) + '%' +
         '</span>'
