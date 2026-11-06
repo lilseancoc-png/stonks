@@ -91,7 +91,7 @@ ok("Jackson Hole retains the Aug. 29 end date", jackson?.endDate === "2026-08-29
 ok("Jackson Hole is a Federal-policy event with official provenance", jackson?.type === "fed" && jackson?.source === "Kansas City Fed");
 
 const appJs = renderAppJs({});
-const calendarDisplayHelpers = appJs.match(/function calEventDateKeys\(e\)\{[\s\S]*?(?=\n  \/\/ Navigate to the Grade tab)/)?.[0] || "";
+const calendarDisplayHelpers = appJs.match(/function calEventDateKeys\(e\)\{[\s\S]*?(?=\n  \/\/ Open a ticker's stock page)/)?.[0] || "";
 ok("Calendar display helpers are emitted", !!calendarDisplayHelpers);
 const display = new Function(`${calendarDisplayHelpers}\nreturn { calEventDateKeys, calEventPriorityCompare };`)();
 ok("multi-day events paint every covered date", JSON.stringify(display.calEventDateKeys(jackson)) === JSON.stringify([

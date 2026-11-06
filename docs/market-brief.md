@@ -54,7 +54,7 @@ as unavailable rather than a successful empty check.
 The fact sheet takes one material finding per source before repeat findings,
 with a maximum of 32 facts and 320 characters per fact. The visible panel keeps
 ten standouts. Quiet tools add no filler. Public page links follow the current
-site map, including Index calendar and the combined Capital markets page.
+site map, including Daily index moves (the old Index calendar) and the combined Capital markets page.
 These changes reuse existing data and the scheduled Brief model call.
 
 ## Verification

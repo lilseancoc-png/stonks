@@ -320,7 +320,7 @@ ${scenarioEventPhase.toString()}
         var url = new URL(window.location.href);
         if (activeTab && activeTab !== 'home') url.searchParams.set('tab', activeTab);
         else if (activeTab === 'home') url.searchParams.delete('tab');
-        if (activeTab === 'grade' && state.symbol) {
+        if (gradeIsShown() && state.symbol) {
           var contractUrl = new URL(buildShareUrl());
           ['s', 'exp', 'k', 't'].forEach(function(key){
             var value = contractUrl.searchParams.get(key);
@@ -1385,6 +1385,9 @@ ${scenarioEventPhase.toString()}
       liveLastRefreshAt = null;
       state.symbol = sym;
       loadChain();
+      // The grade tool sits in the stock page's Grade tab: keep that page on
+      // the same stock.
+      try { if (typeof STOCK_PAGE !== 'undefined') STOCK_PAGE.follow(sym); } catch (_) {}
     }
   };
 
@@ -1423,8 +1426,11 @@ ${scenarioEventPhase.toString()}
     // view) round-trips back to that tab on reload — otherwise pushUrlState
     // overwrites the URL with just s/exp/k/t and the tab param is lost.
     try {
-      var existingTab = new URLSearchParams(window.location.search).get('tab');
+      var existingParams = new URLSearchParams(window.location.search);
+      var existingTab = existingParams.get('tab');
       if (existingTab) p.set('tab', existingTab);
+      // ?tab=stock&view=grade reopens the stock page on its Grade tab.
+      if (existingParams.get('view')) p.set('view', existingParams.get('view'));
     } catch (_) {}
     return window.location.origin + window.location.pathname + '?' + p.toString();
   }
@@ -1443,14 +1449,34 @@ ${scenarioEventPhase.toString()}
       wfNoteRecent('sym:' + state.symbol);
     } catch (_) {}
   }
+  // The grade tool (#opt-eval-section) is shown inside the stock page's Grade
+  // tab (stock-page-js.mjs moves it there and back).
+  function gradeIsShown(){
+    var sec = $('opt-eval-section');
+    return !!sec && !!sec.closest('#page-pane-stock') && !sec.closest('[hidden]');
+  }
+  function gradeShowSymbol(sym){
+    if (!HAS_OWNER_ACCESS || !sym) return;
+    if (state.symbol !== sym){
+      // A saved contract link (?s=&exp=&k=&t=) for this stock still restores.
+      var fromUrl = parseUrlState();
+      if (!pendingUrlState && fromUrl && fromUrl.sym === sym && (fromUrl.exp || fromUrl.k || fromUrl.t)) pendingUrlState = fromUrl;
+      combo.commit(sym);
+      return;
+    }
+    pushUrlState();
+    if (typeof startLivePolling === 'function') startLivePolling();
+  }
+  function gradeHidden(){
+    if (typeof stopLivePolling === 'function') stopLivePolling();
+  }
   function pushUrlState(){
     if (suppressUrlWrite) return;
     if (!state.symbol) return;
     // A Grade fetch may finish after the user has already navigated Home (or
-    // elsewhere). Keep warming its state/cache, but never let the hidden pane
-    // resurrect contract params or its document title in the current URL.
-    var gradePane = $('page-pane-grade');
-    if (gradePane && gradePane.hidden) return;
+    // elsewhere). Keep warming its state/cache, but never let the hidden
+    // grade resurrect contract params or its document title in the current URL.
+    if (!gradeIsShown()) return;
     try {
       var url = buildShareUrl();
       window.history.replaceState(null, '', url);
@@ -3949,6 +3975,10 @@ ${scenarioEventPhase.toString()}
     forecast: 'earnings-forecast', 'earnings-forecast': 'earnings-forecast',
     liquidation: 'forced-liquidation', 'forced-liquidation-tracker': 'forced-liquidation', 'forced-liquidation': 'forced-liquidation',
     unusual: 'flow', 'unusual-flow': 'flow',
+    // Grade is a tab of the stock page now. Owners still resolve 'grade'
+    // (selectTab moves it to the stock page's Grade tab); for everyone else an
+    // old Grade link opens the stock page.
+    grade: 'stock', 'index-calendar': 'index-cal', 'daily-index-moves': 'index-cal',
     ma: 'ma-tracker', 'moving-average': 'ma-tracker', 'moving-averages': 'ma-tracker', 'ma-cross': 'ma-tracker',
     'pattern-lab': 'pattern-lab', 'pattern-recognition': 'pattern-lab', seasonality: 'pattern-lab', 'lead-lag': 'pattern-lab',
     fear: 'fear-greed', greed: 'fear-greed', 'fear-and-greed': 'fear-greed',
@@ -4192,9 +4222,11 @@ ${renderExportBindings()}
         if (name === 'home') {
           // Home is the canonical bare landing state. Grade contract params
           // must leave with it or a reload re-opens Grade via ?s=.
-          ['tab', 's', 'exp', 'k', 't'].forEach(function(key){ url.searchParams.delete(key); });
+          ['tab', 's', 'exp', 'k', 't', 'view'].forEach(function(key){ url.searchParams.delete(key); });
         } else url.searchParams.set('tab', name);
         if (name !== 'compare') url.searchParams.delete('cmp');
+        // view=grade belongs to the stock page's Grade tab only.
+        if (name !== 'stock') url.searchParams.delete('view');
         var next = url.pathname + (url.search || '') + (url.hash || '');
         if (next !== window.location.pathname + window.location.search + window.location.hash) {
           if (replace) history.replaceState(null, '', next);
@@ -4348,6 +4380,13 @@ ${renderExportBindings()}
       });
     }
     function selectTab(name, nav){
+      // "Grade a stock" is now the Grade tab of the stock page. Old links,
+      // buttons and saved pins that still ask for 'grade' land there (public
+      // visitors get the same stock page without the Owner tab).
+      if (name === 'grade'){
+        if (HAS_OWNER_ACCESS && typeof STOCK_PAGE !== 'undefined') STOCK_PAGE.showTab('grade', true);
+        name = 'stock';
+      }
       // nav.replace: sync the URL with replaceState instead of pushState —
       // set by boot + popstate (restoring state, not navigating).
       // Bounce stale/deep-linked Owner destinations before persisting or
@@ -13756,13 +13795,13 @@ ${renderExportBindings()}
   }
   function riskIndexCalDesk(){
     var base = {
-      id: 'index-cal', name: 'Index calendar', tab: 'index-cal', layer: 'backdrop', horizon: 'Month-to-date sleeves',
+      id: 'index-cal', name: 'Daily index moves', tab: 'index-cal', layer: 'backdrop', horizon: 'Month-to-date sleeves',
       measures: 'The month-to-date path of SPY, QQQ, IWM, SMH, DIA, and VXUS, confirmed by whether VIX is higher or lower. One session does not rewrite it.'
     };
     var data = indexCalState.data;
     if (!data || !Array.isArray(data.days)) {
-      if (indexCalState.error && riskStackState.asked.indexCal) return Object.assign(base, { status: 'missing', stance: null, label: 'Unavailable', why: 'The index calendar could not be read.' });
-      return Object.assign(base, { status: 'loading', stance: null, label: 'Loading', why: 'Waiting for the index calendar.' });
+      if (indexCalState.error && riskStackState.asked.indexCal) return Object.assign(base, { status: 'missing', stance: null, label: 'Unavailable', why: 'Daily index moves could not be read.' });
+      return Object.assign(base, { status: 'loading', stance: null, label: 'Loading', why: 'Waiting for daily index moves.' });
     }
     var days = data.days;
     var today = calEtTodayYmd();
@@ -30927,20 +30966,15 @@ ${renderExportBindings()}
     if (type) return type;
     return String(a && (a.symbol || a.title) || '').localeCompare(String(b && (b.symbol || b.title) || ''));
   }
-  // Navigate to the Grade tab and load a ticker (reuses the combobox). Shared
-  // by the clickable earnings/catalyst symbols and the overview cards.
+  // Open a ticker's stock page. Shared by the clickable earnings/catalyst
+  // symbols and the overview cards. Owners land on its Grade tab.
   function calGoToTicker(sym){
-    // Public visitors open the stock page; owners keep the Grade tool.
     if (!HAS_OWNER_ACCESS) {
       if (sym) STOCK_PAGE.open(sym);
       return;
     }
     if (!sym) return;
-    try {
-      var gt = document.querySelector('[data-page-tab="grade"]');
-      if (gt) gt.click();
-      setTimeout(function(){ if (typeof combo !== 'undefined' && combo && combo.commit) combo.commit(sym); }, 0);
-    } catch (_) {}
+    STOCK_PAGE.open(sym, 'grade');
   }
   // Clickable ticker pill used inside earnings/catalyst chips.
   function calChipSymBtn(sym){
@@ -32943,7 +32977,7 @@ ${renderExportBindings()}
       return;
     }
     if (indexCalState.error && !days.length){
-      root.innerHTML = '<div class="idx-cal-empty">Couldn’t load the index calendar — refresh the page to try again.</div>';
+      root.innerHTML = '<div class="idx-cal-empty">Couldn’t load daily index moves — refresh the page to try again.</div>';
       if (eyebrow) eyebrow.textContent = '';
       return;
     }

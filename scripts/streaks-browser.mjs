@@ -116,7 +116,7 @@ try {
     await panel.locator('.streaks-snapped-head').click();
     const first = await panel.locator('[data-grade]').first().getAttribute('data-grade');
     await panel.locator('[data-grade]').first().click();
-    await page.waitForURL(url => url.searchParams.get('s') === first && url.searchParams.get('tab') === 'grade');
+    await page.waitForURL(url => url.searchParams.get('s') === first && url.searchParams.get('tab') === 'stock' && url.searchParams.get('view') === 'grade');
     assert.deepEqual(errors, []);
     console.log('PASS cached payload and Grade navigation');
   } finally { await new Promise(r => cached.server.close(r)); }

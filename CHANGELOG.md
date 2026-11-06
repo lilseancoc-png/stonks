@@ -65,6 +65,11 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Changed
 
+- Regroup the menu so each section answers one question: a new **Earnings** section (Earnings results, Earnings calls, Earnings ripple effects), "Charts & signals" becomes **Price signals** and takes Trading volume, the Index calendar is renamed **Daily index moves**, and Privacy and Terms leave the menu (they stay in the footer and in search). Page ids, pins and old links are unchanged, and the old names still find each page in search.
+- Fold "Grade a stock" into the stock page: Owners get a **Grade** tab next to Overview (the full grade tool, with its live prices and contract picker), the separate menu item goes away, and old `?tab=grade` links, the Calendar, the heatmap and the "Jump to a ticker" chips open that tab for the chosen stock. The Owner tab on the stock page is now "Top Picks trades". Public visitors see the stock page as before.
+- Show one search box on desktop: the header search stays and the sidebar's "Search the site" button only appears in the menu drawer on smaller screens.
+- Home "Explore by topic": a topic left alone on the last row spans the full row.
+
 - Home index tiles show the price, the day change and a small line of the last session (the bake now saves each index's 30-minute closes and last month of daily closes), "At a glance" fills whole rows, the News tile shows the top story, and "Explore by topic" starts folded on wide screens.
 - Market brief: ticker mentions in the summary and takeaways are chips that open the stock page, and the stat strip sits under the headline as context.
 - Heatmap tiles use the sans font and seven colour steps clipped at the period's scale, so small moves on large tiles show a clear tint.

@@ -27,12 +27,20 @@ export const SITE_SECTIONS = [
     items: [
       { id: 'tickers', label: 'All stocks', alias: 'Tickers', blurb: 'Every stock the site follows, with its price, returns and sector.' },
       { id: 'stock', label: 'Look up a stock', alias: 'Stock page quote ticker company chart', blurb: 'One company: its price chart, key numbers, news, earnings, options and who owns it.' },
-      { id: 'grade', label: 'Grade a stock', alias: 'Grade a ticker stock report Look up', blurb: 'One stock in depth: its grade, setup signals, fundamentals and the option contract to trade.' },
+      // The grade is a tab of the stock page now; this id stays so old links
+      // and pins redirect there (selectTab in app-js.mjs).
+      { id: 'grade', label: 'Grade a stock', navHidden: true, alias: 'Grade a ticker stock report Look up', blurb: 'One stock in depth: its grade, setup signals, fundamentals and the option contract to trade.' },
       { id: 'compare', label: 'Compare stocks', alias: 'Compare companies', blurb: 'Line up a few companies side by side on price, growth and valuation.' },
-      { id: 'earnings', label: 'Earnings results', alias: 'Earnings tracker', blurb: 'Which companies beat or missed expectations this season, and how their stocks reacted.' },
-      { id: 'calls', label: 'Earnings calls', blurb: 'What management said on each company’s latest earnings call, and what changed.' },
       { id: 'f13', label: 'Who owns what', alias: 'SEC ownership 13F Form 4 insider', blurb: 'What big investment funds bought and sold last quarter, plus recent insider trades.' },
       { id: 'pending-buyouts', label: 'Pending buyouts', alias: 'M&A mergers', blurb: 'Announced and rumored takeovers, and how far along each deal is.' },
+    ],
+  },
+  {
+    id: 'earnings', label: 'Earnings', short: 'Earnings', desc: 'Results, what management said, and how peers react',
+    items: [
+      { id: 'earnings', label: 'Earnings results', alias: 'Earnings tracker', blurb: 'Which companies beat or missed expectations this season, and how their stocks reacted.' },
+      { id: 'calls', label: 'Earnings calls', blurb: 'What management said on each company’s latest earnings call, and what changed.' },
+      { id: 'spillover', label: 'Earnings ripple effects', alias: 'Event spillover', blurb: 'How one company’s earnings tend to move the other stocks in its industry.' },
     ],
   },
   {
@@ -50,20 +58,20 @@ export const SITE_SECTIONS = [
     id: 'options', label: 'Options activity', short: 'Options', desc: 'Where traders are placing bets',
     items: [
       { id: 'flow', label: 'Unusual options trades', alias: 'Unusual flow', blurb: 'Option trades far bigger than normal for that stock, a sign someone expects a move.' },
-      { id: 'volume', label: 'Trading volume', alias: 'Volume', blurb: 'Days when a stock traded much more or less than usual.' },
       { id: 'oi', label: 'Options walls', alias: 'Gamma exposure GEX', blurb: 'Price levels where large option positions can slow a stock down or speed it up.' },
       { id: 'iv-trend', label: 'Rising volatility', alias: 'Trending IV implied volatility', blurb: 'Stocks whose options are pricing in a bigger move than usual.' },
       { id: 'strategies', label: 'Strategy builder', alias: 'Strategies', blurb: 'Pick a stock and build a defined-risk options trade, with its profit and loss at expiry.' },
     ],
   },
   {
-    id: 'signals', label: 'Charts & signals', short: 'Signals', desc: 'Price trends and repeating patterns',
+    // id stays 'signals' (older saved choices use it); the label changed from "Charts & signals".
+    id: 'signals', label: 'Price signals', short: 'Signals', desc: 'Price trends, trading volume and repeating patterns',
     items: [
       { id: 'ma-tracker', label: 'Moving averages', alias: 'MA tracker crossover', blurb: 'Stocks sitting close to their 20, 50, 100 or 200-day average price.' },
       { id: 'streaks', label: 'Up/down streaks', alias: 'Streaks green red', blurb: 'Stocks on a run of up days or down days in a row.' },
+      { id: 'volume', label: 'Trading volume', alias: 'Volume shares', blurb: 'Days when a stock traded many more or fewer shares than usual.' },
       { id: 'pattern-lab', label: 'Pattern lab', alias: 'Seasonality', blurb: 'Repeating patterns such as seasonality and how stocks behave after big moves.' },
-      { id: 'spillover', label: 'Earnings ripple effects', alias: 'Event spillover', blurb: 'How one company’s earnings tend to move the other stocks in its industry.' },
-      { id: 'index-cal', label: 'Index calendar', blurb: 'A month view of the major index funds, showing which days the whole market joined in.' },
+      { id: 'index-cal', label: 'Daily index moves', alias: 'Index calendar', blurb: 'A month grid of the major index funds’ daily moves, showing which days the whole market joined in.' },
     ],
   },
   {
@@ -76,13 +84,15 @@ export const SITE_SECTIONS = [
     ],
   },
   {
-    id: 'learn', label: 'Learn & help', short: 'Learn', desc: 'Guides, definitions and site info',
+    id: 'learn', label: 'Learn & help', short: 'Learn', desc: 'Guides and when the data updates',
     items: [
       { id: 'cheatsheet', label: 'Options guide', alias: "Buyer's manual", blurb: 'A plain-English guide to buying options: calls, puts, risk and timing.' },
       { id: 'chart-patterns', label: 'Chart patterns', blurb: 'What common chart shapes look like and how traders read them.' },
       { id: 'timeline', label: 'When data updates', alias: 'Refresh schedule timeline', blurb: 'When each part of the site refreshes during the trading day.' },
-      { id: 'privacy', label: 'Privacy Policy', blurb: 'What this site collects and how it is used.' },
-      { id: 'terms', label: 'Terms of Use', blurb: 'The terms for using this site. Nothing here is investment advice.' },
+      // Privacy and Terms are linked from the footer, so they stay out of the
+      // visible menu but remain searchable and linkable.
+      { id: 'privacy', label: 'Privacy Policy', navHidden: true, blurb: 'What this site collects and how it is used.' },
+      { id: 'terms', label: 'Terms of Use', navHidden: true, blurb: 'The terms for using this site. Nothing here is investment advice.' },
     ],
   },
   // The Owner pages sit in four groups, so each page header lists only its

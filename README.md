@@ -15,16 +15,17 @@ question a visitor tends to ask.
 | Section | What it answers | Pages |
 |---|---|---|
 | **Today** | What is happening in the market right now? | Home, Market brief, News, Heatmap, Calendar, Overnight markets |
-| **Stocks** | How is a company doing? | All stocks, Look up a stock, Compare stocks, Earnings results, Earnings calls, Who owns what, Pending buyouts, Share sales & buybacks |
-| **Market & economy** | What is the big picture? | Market mood (Fear & Greed), Rates & the dollar, Commodities, IPOs & credit, Market themes |
-| **Options activity** | Where are traders placing bets? | Unusual options trades, Trading volume, Options walls (gamma exposure), Rising volatility, Strategy builder |
-| **Charts & signals** | What do price trends and patterns say? | Moving averages, Up/down streaks, Pattern lab, Earnings ripple effects, Index calendar |
-| **Industry trends** | What does real-world data say about the AI and chip trade? | AI spending, Memory chip prices, GPU cloud prices, Central-bank gold, Search trends |
-| **Learn & help** | How do I read all this? | Options guide, Chart patterns, When data updates, Privacy Policy, Terms of Use |
+| **Stocks** | How is a company doing? | All stocks, Look up a stock (Owners also see the grade here), Compare stocks, Who owns what, Pending buyouts |
+| **Earnings** | How did companies report, and what did they say? | Earnings results, Earnings calls, Earnings ripple effects |
+| **Market & economy** | What is the big picture? | Market mood (Fear & Greed), Rates & the dollar, Commodities, Central-bank gold, Capital markets, Market themes |
+| **Options activity** | Where are traders placing bets? | Unusual options trades, Options walls (gamma exposure), Rising volatility, Strategy builder |
+| **Price signals** | What do price trends, volume and patterns say? | Moving averages, Up/down streaks, Trading volume, Pattern lab, Daily index moves |
+| **Industry trends** | What does real-world data say about the AI and chip trade? | AI spending, Memory chip prices, GPU cloud prices, Search trends |
+| **Learn & help** | How do I read all this? | Options guide, Chart patterns, When data updates (Privacy Policy and Terms of Use are in the footer) |
 
 Ways to move around:
 
-- **Sidebar** with a filter box. Older page names still work in the filter
+- **Sidebar** of sections. Older page names still work in search
   (typing "Fear & Greed" finds Market mood).
 - **Search** (⌘K / Ctrl+K, or the magnifier) jumps to any stock, market theme
   or page. With an empty search it lists what you viewed recently.

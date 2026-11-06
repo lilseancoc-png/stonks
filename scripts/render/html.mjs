@@ -345,7 +345,7 @@ function riskAnalysisSection() {
       <h2 class="card-title">Risk analysis</h2>
       <span class="card-eyebrow" id="risk-eyebrow" aria-live="polite">Seven desks, one position</span>
     </header>
-    ${infoNote('How to read a disagreement', `<p>Each desk measures a different layer. <b>Market analysis</b> is the cross-asset regime. <b>Fear &amp; Greed</b> is slow sentiment. <b>The index calendar</b> is the month's path. <b>Heatmap</b>, <b>volume</b>, and <b>overnight markets</b> are today's tape. <b>Gamma</b> says whether the next move is more likely to be pinned or extended. A severe label and a neutral label can both be true. This page explains the gap. It does not average them into a new score or change position limits.</p>`)}
+    ${infoNote('How to read a disagreement', `<p>Each desk measures a different layer. <b>Market analysis</b> is the cross-asset regime. <b>Fear &amp; Greed</b> is slow sentiment. <b>Daily index moves</b> show the month's path. <b>Heatmap</b>, <b>volume</b>, and <b>overnight markets</b> are today's tape. <b>Gamma</b> says whether the next move is more likely to be pinned or extended. A severe label and a neutral label can both be true. This page explains the gap. It does not average them into a new score or change position limits.</p>`)}
     <div id="risk-stack" class="risk-stack" aria-live="polite"></div>
   </section>`;
 }
@@ -580,7 +580,7 @@ function calendarSection() {
   return `<section class="card" id="calendar-section">
     <header class="card-header">
       <h2 class="card-title">Calendar</h2>
-      <button type="button" class="card-jump" id="calendar-idxcal-link" data-go="index-cal" title="Open the Index calendar">Index calendar &rarr;</button>
+      <button type="button" class="card-jump" id="calendar-idxcal-link" data-go="index-cal" title="Open Daily index moves">Daily index moves &rarr;</button>
       <span class="card-eyebrow" id="calendar-eyebrow" aria-live="polite"></span>
     </header>
     ${infoNote("What's on this calendar?", `<p>A month-at-a-time view of every dated market event, opening on the <b>current month</b> — use <b>&lsaquo;</b> / <b>&rsaquo;</b> to step between months (or <b>Today</b> to jump back), and tap any day to see its full details below the grid. It tracks: available earnings dates (with AM/PM session tagging) for the current stock universe, cross-checked against a rolling 21-day Nasdaq sweep; ticker-specific catalysts (company conferences, product launches, FDA dates, contract decisions, court rulings and investor days from published company schedules and dated news, with 90 days of recent company-event history); official <b>BLS</b>, <b>BEA</b>, <b>Census</b> and <b>ISM</b> release schedules; selected economic events from this week and next week; U.S. stock market closures and early closes; the Federal Reserve Board calendar (speeches, testimony, minutes, conferences, and statistical releases); the Kansas City Fed&rsquo;s Jackson Hole symposium; detailed market-moving reports with Actual / Previous / Consensus values; and upcoming FOMC decisions. Official source labels open the publisher&rsquo;s calendar. Effective Fed Funds, FedWatch probabilities, the official vote map, and the full rate path live together in <b>Bonds &amp; USD</b>. Ticker chips are clickable.</p>`)}
@@ -615,11 +615,11 @@ function indexCalSection() {
   // tab activation by loadIndexCal() in app.js).
   return `<section class="card" id="index-cal-section">
     <header class="card-header">
-      <h2 class="card-title">Index calendar</h2>
+      <h2 class="card-title">Daily index moves</h2>
       <span class="card-eyebrow" id="index-cal-eyebrow" aria-live="polite"></span>
     </header>
-    ${infoNote('How to read the index calendar', `<p>Use the month grid as a <b>cross-asset participation record</b>: SPY, QQQ, IWM, SMH, DIA and VXUS show whether equity strength is broad or concentrated; TLT, GLD and VIX add rate, defensive and stress context. Click a day to compare all nine instruments. Beneath it, the <b>First &amp; last hour tracker</b> logs SPY / QQQ / IWM from regular-session 30-minute bars: previous close&rarr;open gap, 9:30&rarr;10:30&nbsp;ET return/range/volume, 10:30&rarr;close recovery or continuation, 3:00&rarr;4:00&nbsp;ET return, open&rarr;close result, and whether the day&rsquo;s high or low first printed in the opening hour, middle, or closing hour. Conditional cards answer what followed an opening move of at least your chosen threshold; gap and prior-close VIX filters add regime context. Green means up except for VIX, where green means volatility eased. Today begins populating after 10:30 and finalizes after the close. Not financial advice.</p>`)}
-    <div id="index-cal-root" class="idx-cal-root">Loading index calendar&hellip;</div>
+    ${infoNote('How to read daily index moves', `<p>Use the month grid as a <b>cross-asset participation record</b>: SPY, QQQ, IWM, SMH, DIA and VXUS show whether equity strength is broad or concentrated; TLT, GLD and VIX add rate, defensive and stress context. Click a day to compare all nine instruments. Beneath it, the <b>First &amp; last hour tracker</b> logs SPY / QQQ / IWM from regular-session 30-minute bars: previous close&rarr;open gap, 9:30&rarr;10:30&nbsp;ET return/range/volume, 10:30&rarr;close recovery or continuation, 3:00&rarr;4:00&nbsp;ET return, open&rarr;close result, and whether the day&rsquo;s high or low first printed in the opening hour, middle, or closing hour. Conditional cards answer what followed an opening move of at least your chosen threshold; gap and prior-close VIX filters add regime context. Green means up except for VIX, where green means volatility eased. Today begins populating after 10:30 and finalizes after the close. Not financial advice.</p>`)}
+    <div id="index-cal-root" class="idx-cal-root">Loading daily index moves&hellip;</div>
   </section>`;
 }
 
@@ -1228,7 +1228,7 @@ function patternLabSection() {
       <h2 class="card-title">Pattern lab</h2>
       <span class="card-eyebrow" id="pattern-lab-eyebrow" aria-live="polite"></span>
     </header>
-    ${infoNote('How to read this page', '<p>Six research studies with Overview, Charts, and sortable Tables views. Stock studies request two years of daily closes; actual coverage is listed in the page. Index seasonality keeps its separate long history. Nothing here replaces a grade, the index calendar, or overnight markets, and nothing here is a position. Seasonality is the close-to-close price change, without dividends. Counts can include overlapping observations. Read the unit on each figure: a full month, a full window, or one day.</p>')}
+    ${infoNote('How to read this page', '<p>Six research studies with Overview, Charts, and sortable Tables views. Stock studies request two years of daily closes; actual coverage is listed in the page. Index seasonality keeps its separate long history. Nothing here replaces a grade, Daily index moves, or Overnight markets, and nothing here is a position. Seasonality is the close-to-close price change, without dividends. Counts can include overlapping observations. Read the unit on each figure: a full month, a full window, or one day.</p>')}
     <div id="pattern-lab-root" class="pat-root">Loading pattern lab&hellip;</div>
   </section>`;
 }

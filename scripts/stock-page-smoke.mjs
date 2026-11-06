@@ -32,7 +32,12 @@ assert.match(app, /else if \(params\.get\('s'\)\) tab = \(HAS_OWNER_ACCESS && va
 // The Owner tab reads Owner-only files only behind the Owner check.
 const ownerTab = app.slice(app.indexOf("function tabOwner()"), app.indexOf("// --- events", app.indexOf("function tabOwner()")));
 assert.match(ownerTab, /if \(!HAS_OWNER_ACCESS\) return '';/);
-assert.ok(ownerTab.indexOf("grades.json") > ownerTab.indexOf("HAS_OWNER_ACCESS"), "grades.json is fetched after the Owner check");
+assert.ok(ownerTab.indexOf("picks-accuracy.json") > ownerTab.indexOf("HAS_OWNER_ACCESS"), "picks-accuracy.json is fetched after the Owner check");
+// The grade tool is the stock page's Grade tab for Owners only; old Grade links redirect.
+assert.match(app, /if \(HAS_OWNER_ACCESS\)\{ list\.splice\(1, 0, \['grade', 'Grade'\]\); list\.push\(\['owner', 'Top Picks trades'\]\); \}/);
+assert.match(app, /function mountGrade\(body\)\{[\s\S]*?if \(!sec \|\| !HAS_OWNER_ACCESS\)/, "the grade only mounts for Owners");
+assert.match(app, /if \(name === 'grade'\)\{\s*if \(HAS_OWNER_ACCESS && typeof STOCK_PAGE !== 'undefined'\) STOCK_PAGE\.showTab\('grade', true\);\s*name = 'stock';/, "old Grade links open the stock page");
+assert.match(app, /function render\(root\)\{[\s\S]*?parkGrade\(\);\s*root\.innerHTML/, "the grade tool is parked before the page re-renders");
 // Generated script parses.
 new Function(app);
 console.log("stock-page-smoke: ok");
