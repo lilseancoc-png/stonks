@@ -45,6 +45,8 @@ import { renderStockPageJs } from './stock-page-js.mjs';
 import { renderEarningsWeekJs } from './earnings-week-client.mjs';
 import { ivRichnessFactory } from '../../lib/iv-richness.mjs';
 import { refreshScheduleFactory } from '../../lib/refresh-schedule.mjs';
+import { ownerWatchlistFactory } from '../../lib/owner-watchlist.mjs';
+import { watchlistAlertsFactory } from '../../lib/watchlist-alerts.mjs';
 import { GLOSSARY } from '../../lib/glossary.mjs';
 import { overnightToneFactory } from '../../lib/overnight-tone.mjs';
 import { sectorGroupsFactory } from '../../lib/sector-groups.mjs';
@@ -94,6 +96,10 @@ ${validNewsFeedPayload.toString()}
   // same one the grade, Top Picks and Trending IV use at bake time.
   var IV_RICHNESS = (${ivRichnessFactory.toString()})();
   var REFRESH_SCHEDULE = (${refreshScheduleFactory.toString()})();
+  // Owner watchlist merge rules (source: lib/owner-watchlist.mjs).
+  var OWNER_WATCH = (${ownerWatchlistFactory.toString()})();
+  // Owner watchlist alert rules (source: lib/watchlist-alerts.mjs).
+  var WATCH_ALERTS = (${watchlistAlertsFactory.toString()})();
   var GLOSSARY = ${JSON.stringify(GLOSSARY)};
   // One overnight risk-on/off scorer (source: lib/overnight-tone.mjs), the same
   // one the bake uses for the saved pre-open call and the Top Picks tape axis.
@@ -46878,6 +46884,73 @@ ${renderExportBindings()}
     grid.innerHTML = tiles.join('');
     sec.hidden = false;
   }
+  // --- Owner watchlist alerts ------------------------------------------------
+  // Crosses of the 50/200-day average, options walls reached and unusual
+  // trades today, for the names on the Owner's stock watchlist
+  // (lib/watchlist-alerts.mjs). Owner only: nothing loads for a public visitor.
+  var watchAlertsState = { ma: null, oi: null, quotes: {}, loaded: false, loading: false, timer: null, quotesAt: 0 };
+  function watchAlertList(){
+    if (!HAS_OWNER_ACCESS || !STOCK_PAGE || !STOCK_PAGE.watchlist) return [];
+    var st = watchAlertsState;
+    return WATCH_ALERTS.build({ watch: STOCK_PAGE.watchlist(), ma: st.ma, oi: st.oi, unusual: UNUSUAL, quotes: st.quotes });
+  }
+  function watchAlertsHtml(opts){
+    opts = opts || {};
+    if (!HAS_OWNER_ACCESS) return '';
+    var watch = STOCK_PAGE && STOCK_PAGE.watchlist ? STOCK_PAGE.watchlist() : [];
+    var head = '<div class="wla-head"><h3>' + (opts.title || 'Watchlist alerts') + '</h3><span class="wla-sync">Owner only · 50/200-day crosses, options walls, unusual trades</span></div>';
+    if (!watch.length) return head + '<p class="hint">Add names with <b>☆ Watch</b> on a stock page to get alerts here.</p>';
+    if (!watchAlertsState.loaded) return head + '<p class="hint">Checking your ' + watch.length + ' watched name' + (watch.length === 1 ? '' : 's') + '…</p>';
+    var list = watchAlertList();
+    if (!list.length) return head + '<p class="hint">Nothing new on your ' + watch.length + ' watched name' + (watch.length === 1 ? '' : 's') + ': no average crossed, no wall reached and no unusual trades today.</p>';
+    var max = opts.limit || 8;
+    var label = { ma: 'Average', wall: 'Wall', flow: 'Unusual trade' };
+    return head + '<ul class="wla-list">' + list.slice(0, max).map(function(a){
+      var when = a.live ? 'live price' : a.at ? fmtScannedAt(a.at) : '';
+      return '<li class="wla-item"><a class="wla-sym" href="' + STOCK_PAGE.href(a.symbol) + '">' + escapeHtml(a.symbol) + '</a>' +
+        '<span class="wla-what"><span class="wla-kind' + (a.dir ? ' ' + a.dir : '') + '">' + label[a.kind] + '</span>' + escapeHtml(a.text) + '</span>' +
+        '<span class="wla-when">' + escapeHtml(when) + '</span></li>';
+    }).join('') + '</ul>' + (list.length > max ? '<p class="hint">+' + (list.length - max) + ' more on your watched names.</p>' : '');
+  }
+  function renderWatchAlerts(){
+    var box = document.getElementById('landing-desk-alerts');
+    if (box){ box.hidden = !HAS_OWNER_ACCESS; box.innerHTML = HAS_OWNER_ACCESS ? watchAlertsHtml() : ''; }
+    var pick = document.querySelector('[data-watch-alerts]');
+    if (pick) pick.innerHTML = HAS_OWNER_ACCESS ? watchAlertsHtml({ title: 'Alerts on your watchlist', limit: 12 }) : '';
+  }
+  function watchAlertQuotes(){
+    var syms = STOCK_PAGE && STOCK_PAGE.watchlist ? STOCK_PAGE.watchlist() : [];
+    if (!syms.length) return Promise.resolve();
+    return fetch('api/quotes?symbols=' + encodeURIComponent(syms.join(',')), { cache: 'no-store' })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(j){
+        var map = {};
+        // Only regular-session prices count as live; otherwise the build price stands.
+        ((j && j.quotes) || []).forEach(function(q){ if (isRegularMarketQuote(q) && q.symbol && q.spot > 0) map[String(q.symbol).toUpperCase()] = q; });
+        watchAlertsState.quotes = map; watchAlertsState.quotesAt = Date.now();
+      })
+      .catch(function(){});
+  }
+  function loadWatchAlerts(){
+    if (!HAS_OWNER_ACCESS) { renderWatchAlerts(); return; }
+    var st = watchAlertsState;
+    renderWatchAlerts();
+    if (st.loading) return;
+    if (st.loaded){ watchAlertQuotes().then(renderWatchAlerts); return; }
+    st.loading = true;
+    var get = function(key){ return fetch(dataUrl(key), { cache: 'no-cache' }).then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; }); };
+    Promise.all([maTrackerState.data && !maTrackerState.data.loadError ? maTrackerState.data : get('ma-tracker.json'), OI || get('oi-tracker.json'), watchAlertQuotes()]).then(function(res){
+      st.ma = res[0]; st.oi = res[1]; st.loaded = true; st.loading = false;
+      renderWatchAlerts();
+    });
+    // Live prices refresh every two minutes while Home or the stock picker is on screen.
+    if (!st.timer) st.timer = setInterval(function(){
+      var home = document.getElementById('page-pane-home'), stock = document.getElementById('page-pane-stock');
+      if ((home && !home.hidden) || (stock && !stock.hidden && document.querySelector('[data-watch-alerts]'))) watchAlertQuotes().then(renderWatchAlerts);
+    }, 120000);
+  }
+  document.addEventListener('stonks-owner-ready', function(){ if (HAS_OWNER_ACCESS) loadWatchAlerts(); });
+  document.addEventListener('stonks-watchlist-changed', function(){ if (HAS_OWNER_ACCESS && watchAlertsState.loaded) watchAlertQuotes().then(renderWatchAlerts); else renderWatchAlerts(); });
   function loadHomeDesk(){
     if (!HAS_OWNER_ACCESS) { renderHomeDesk(); return; }
     renderHomeDesk();

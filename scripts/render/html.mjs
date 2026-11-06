@@ -2224,9 +2224,10 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     <section class="landing-section landing-desk-section" id="landing-desk" aria-labelledby="landing-desk-title" data-owner-only hidden>
       <header class="landing-section-head">
         <h2 class="landing-section-title" id="landing-desk-title">Your desk</h2>
-        <p class="landing-section-sub">Owner only. Open trades, the next Top Picks run and what changed in the Owner brief.</p>
+        <p class="landing-section-sub">Owner only. Open trades, the next Top Picks run, what changed in the Owner brief and alerts on your watchlist.</p>
       </header>
       <div class="landing-glance landing-desk" id="landing-desk-tiles" data-count="4"></div>
+      <div class="wla-box" id="landing-desk-alerts" hidden></div>
     </section>
     <section class="landing-section landing-topics-section" aria-labelledby="landing-topics-title">
       <details class="landing-topics-fold" id="landing-topics-fold" open>

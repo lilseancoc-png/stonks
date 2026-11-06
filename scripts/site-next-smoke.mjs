@@ -4,6 +4,8 @@
 import assert from "node:assert/strict";
 import { refreshScheduleFactory } from "../lib/refresh-schedule.mjs";
 import { GLOSSARY } from "../lib/glossary.mjs";
+import { ownerWatchlistFactory, applyOwnerWatchlistRequest, readOwnerWatchlistDoc } from "../lib/owner-watchlist.mjs";
+import { watchlistAlertsFactory } from "../lib/watchlist-alerts.mjs";
 import { buildEarningsWeek, buildEarningsWeekPlan, pastEarningsMoves, impliedVsHistory, seasonSoFar } from "../lib/earnings-week.mjs";
 
 let checks = 0;
@@ -80,5 +82,44 @@ ok(["trade-through", "wait"].includes(plan.plans.AAA.action), "an actionable gra
 ok(plan.plans.AAA.openTrade, "open trades are flagged");
 ok(/prints/.test(plan.plans.AAA.reason), "the plan carries the engine's reason");
 eq(plan.engineSeason, { n: 10, negativeShare: 0.3 }, "the plan records the season read it used");
+
+// --- Owner watchlist sync --------------------------------------------------
+const W = ownerWatchlistFactory();
+eq(W.clean(["aapl", "AAPL", "bad ticker", "MSFT"]), ["AAPL", "MSFT"], "clean uppercases, dedupes and drops bad symbols");
+eq(W.merge(["AAPL", "MSFT"], ["NVDA"], null), ["AAPL", "MSFT", "NVDA"], "first sync keeps both lists");
+eq(W.merge(["AAPL"], ["AAPL", "NVDA"], ["AAPL", "MSFT", "NVDA"]), ["AAPL"], "a removal on another device sticks");
+eq(W.merge(["AAPL", "MSFT"], ["TSLA", "AAPL"], ["AAPL", "MSFT"]), ["TSLA", "AAPL"], "local adds and removes apply to the server list");
+eq(W.apply(["AAPL"], { op: "add", symbol: "nvda" }), ["NVDA", "AAPL"], "add puts the name first");
+eq(W.apply(["AAPL", "NVDA"], { op: "remove", symbol: "AAPL" }), ["NVDA"], "remove drops the name");
+eq(W.clean(Array.from({ length: 60 }, (_, i) => "Q" + i)).length, 40, "the list caps at 40");
+ok(applyOwnerWatchlistRequest([], { op: "add", symbol: "<x>" }).error, "a bad symbol is refused");
+ok(applyOwnerWatchlistRequest([], { op: "sync", local: "AAPL" }).error, "a bad sync body is refused");
+eq(applyOwnerWatchlistRequest(["AAPL"], { op: "sync", local: ["AAPL", "META"], base: ["AAPL"] }).list, ["META", "AAPL"], "sync merges on the server");
+eq(readOwnerWatchlistDoc("not json"), { version: 1, users: {} }, "a broken record reads as empty");
+
+// --- Owner watchlist alerts ------------------------------------------------
+const A = watchlistAlertsFactory();
+const alerts = A.build({
+  watch: ["AAA", "BBB", "CCC", "DDD"],
+  ma: { builtAtIso: "2026-11-06T15:00:00Z", tickers: [
+    { symbol: "AAA", spot: 101, levels: { 50: 100, 200: 90 }, previousDistances: { 50: -0.5, 200: 9 } },
+    { symbol: "BBB", spot: 99, levels: { 50: 95, 200: 100 }, previousDistances: { 50: 3, 200: 0.4 } },
+    { symbol: "DDD", spot: 50, levels: { 50: 49, 200: 40 }, previousDistances: { 50: 2, 200: 20 } } ] },
+  oi: { scannedAt: "2026-11-06T13:30:00Z", tickers: [
+    { symbol: "CCC", spot: 120, callWall: { strike: 120.5 }, putWall: { strike: 100 } },
+    { symbol: "DDD", spot: 50, callWall: { strike: 60 }, putWall: { strike: 50 } } ] },
+  unusual: { scannedAt: "2026-11-06T16:00:00Z", tickers: [{ symbol: "CCC", contracts: [{ side: "call", strike: 130, expiryLabel: "Dec 18", premium: 2.4e6 }, { side: "put", strike: 110, premium: 1e5 }, { side: "call", strike: 125, premium: 3e5 }] }] },
+  quotes: { DDD: { spot: 48.5 } },
+});
+const kinds = alerts.map((x) => `${x.symbol}:${x.kind}:${x.dir}`);
+ok(kinds.includes("AAA:ma:up"), "a close back above the 50-day is a cross up");
+ok(kinds.includes("BBB:ma:down"), "a drop under the 200-day is a cross down");
+eq(kinds.filter((k) => k.startsWith("AAA:ma")).length, 1, "no cross when the side did not change (AAA stays above its 200-day)");
+ok(kinds.includes("CCC:wall:up"), "within 0.75% of the call wall counts as at the wall");
+ok(kinds.includes("CCC:flow:up"), "unusual trades today, mostly calls");
+ok(/biggest \$130 call Dec 18, \$2\.4M premium/.test(alerts.find((x) => x.kind === "flow").text), "the flow alert names the biggest trade");
+ok(kinds.includes("DDD:ma:down") && kinds.includes("DDD:wall:down"), "a live price below the 50-day and the put wall raises both");
+ok(alerts.find((x) => x.symbol === "DDD" && x.kind === "wall").live, "live prices are marked live");
+eq(A.build({ watch: [] }), [], "no watchlist, no alerts");
 
 console.log(`site-next smoke passed (${checks} checks)`);

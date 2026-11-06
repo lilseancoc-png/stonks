@@ -13,6 +13,8 @@
 //                       (POST from the build workflow) / its trade log (GET)
 //   track-record-reset -> Owner-only, same-origin wipe of one tracker (POST)
 //   track-record-data  -> Owner-only reporting view, independent of execution
+//   owner-watchlist  -> the Owner's stock-page watchlist, synced across devices
+//                       (GET / same-origin POST; lib/owner-watchlist.mjs)
 //   mcp / mcp-meta / mcp-oauth -> the Mingstreet MCP server and its OAuth
 //                       endpoints (lib/mcp/; reached via vercel.json rewrites)
 //
@@ -113,6 +115,8 @@ export default async function handler(req, res) {
       return trackRecordReset(req, res);
     case "track-record-data":
       return trackRecordData(req, res);
+    case "owner-watchlist":
+      return ownerWatchlist(req, res);
     case "top-picks":
       return (await import('../top-picks.js')).default(req,res);
     // Mingstreet MCP server (lib/mcp/). vercel.json rewrites /mcp,
@@ -494,6 +498,53 @@ async function picksFills(req, res) {
   } catch (err) {
     console.error("picks fills failed", { message: String(err?.message || err) });
     return res.status(502).json({ error: "fills unavailable" });
+  }
+}
+
+// --- Owner watchlist ----------------------------------------------------------
+// GET  /api/auth/owner-watchlist  -> { symbols, updatedAt }
+// POST /api/auth/owner-watchlist  { op: add|remove, symbol } or
+//                                 { op: sync, local, base } (same-origin only)
+// One list per Discord account (keyed by a hash of the session's user id) in
+// owner-watchlist.json, which is Owner-only and request-time-owned: no
+// workflow pushes or deletes it.
+function ownerWatchKey(session) {
+  return createHash("sha256").update("owner-watchlist:" + String(session?.sub || "owner")).digest("hex").slice(0, 24);
+}
+
+async function ownerWatchlist(req, res) {
+  res.setHeader("Cache-Control", "private, no-store");
+  if (process.env.PRIVATE_DATA_ENABLED !== "1") return res.status(404).json({ error: "not found" });
+  const session = await getSession(req).catch(() => null);
+  if (!session) return res.status(401).json({ error: "auth required" });
+  if (session.tr !== true || session.tp !== true) return res.status(401).json({ error: "role required" });
+  if (req.method !== "GET" && req.method !== "POST") {
+    res.setHeader("Allow", "GET, POST");
+    return res.status(405).json({ error: "method not allowed" });
+  }
+  if (req.method === "POST" && !isSameOriginRequest(req)) return res.status(403).json({ error: "forbidden" });
+  const { OWNER_WATCHLIST_KEY, readOwnerWatchlistDoc, applyOwnerWatchlistRequest, ownerWatchlistFactory } = await import("../../lib/owner-watchlist.mjs");
+  // Validate the request before anything is read or stored.
+  if (req.method === "POST") {
+    const check = applyOwnerWatchlistRequest([], req.body);
+    if (check.error) return res.status(400).json({ error: check.error });
+  }
+  try {
+    const { store } = await import("../../lib/datastore.mjs");
+    const doc = readOwnerWatchlistDoc(await store.get(OWNER_WATCHLIST_KEY));
+    const key = ownerWatchKey(session);
+    const mine = doc.users[key] || { symbols: [], updatedAt: null };
+    const current = ownerWatchlistFactory().clean(mine.symbols);
+    if (req.method === "GET") return res.status(200).json({ symbols: current, updatedAt: mine.updatedAt || null });
+    const out = applyOwnerWatchlistRequest(current, req.body);
+    if (out.error) return res.status(400).json({ error: out.error });
+    const updatedAt = new Date().toISOString();
+    doc.users[key] = { symbols: out.list, updatedAt };
+    await store.put(OWNER_WATCHLIST_KEY, JSON.stringify(doc));
+    return res.status(200).json({ symbols: out.list, updatedAt });
+  } catch (err) {
+    console.error("owner watchlist failed", { message: String(err?.message || err) });
+    return res.status(502).json({ error: "watchlist unavailable" });
   }
 }
 

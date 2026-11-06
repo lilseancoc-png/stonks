@@ -603,13 +603,74 @@ function recoveryEvidence(row, data, now = Date.now()) {
     function readWatch(){
       try { var v = JSON.parse(localStorage.getItem(WATCH_KEY) || '[]'); return Array.isArray(v) ? v.filter(cleanSym).slice(0, 40) : []; } catch (_) { return []; }
     }
+    function writeWatch(list){ try { localStorage.setItem(WATCH_KEY, JSON.stringify(list)); } catch (_) {} }
+    // Owners: the list is also saved privately on the server
+    // (/api/auth/owner-watchlist) so it follows them across devices.
+    // WATCH_BASE_KEY holds the list this device and the server last agreed on,
+    // so a removal on another device sticks (lib/owner-watchlist.mjs merge).
+    var WATCH_BASE_KEY = 'stonks-watch-base-v1';
+    var watchSync = { state: 'local', at: null, busy: false };
+    function readWatchBase(){
+      try { var v = JSON.parse(localStorage.getItem(WATCH_BASE_KEY) || 'null'); return Array.isArray(v) ? v : null; } catch (_) { return null; }
+    }
+    function adoptWatch(j){
+      if (!j || !Array.isArray(j.symbols)){ watchSync.state = 'error'; repaintWatch(); return; }
+      var list = OWNER_WATCH.clean(j.symbols);
+      writeWatch(list);
+      try { localStorage.setItem(WATCH_BASE_KEY, JSON.stringify(list)); } catch (_) {}
+      watchSync.state = 'synced'; watchSync.at = j.updatedAt || null;
+      repaintWatch();
+    }
+    function watchRequest(method, body){
+      return fetch('/api/auth/owner-watchlist', method === 'GET' ? { cache: 'no-store', credentials: 'same-origin' } :
+        { method: 'POST', cache: 'no-store', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+        .then(function(r){ return r.ok ? r.json() : null; });
+    }
+    function syncWatch(){
+      if (!HAS_OWNER_ACCESS || watchSync.busy) return;
+      watchSync.busy = true; watchSync.state = 'syncing';
+      watchRequest('GET').then(function(j){
+        if (!j || !Array.isArray(j.symbols)) return j;
+        var merged = OWNER_WATCH.merge(j.symbols, readWatch(), readWatchBase());
+        if (merged.join(',') === OWNER_WATCH.clean(j.symbols).join(',')) return j;
+        return watchRequest('POST', { op: 'sync', local: readWatch(), base: readWatchBase() });
+      }).then(adoptWatch, function(){ watchSync.state = 'error'; repaintWatch(); })
+        .then(function(){ watchSync.busy = false; });
+    }
     function toggleWatch(sym){
       var list = readWatch();
       var i = list.indexOf(sym);
       if (i >= 0) list.splice(i, 1); else list.unshift(sym);
-      try { localStorage.setItem(WATCH_KEY, JSON.stringify(list)); } catch (_) {}
+      writeWatch(list);
+      if (HAS_OWNER_ACCESS){
+        watchSync.state = 'syncing';
+        watchRequest('POST', { op: i < 0 ? 'add' : 'remove', symbol: sym }).then(adoptWatch, function(){ watchSync.state = 'error'; repaintWatch(); });
+      }
+      try { document.dispatchEvent(new CustomEvent('stonks-watchlist-changed')); } catch (_) {}
       return i < 0;
     }
+    function watchNoteHtml(){
+      if (!HAS_OWNER_ACCESS) return '';
+      var txt = watchSync.state === 'synced' ? 'Saved to your Owner account, so it follows you to other devices.' :
+        watchSync.state === 'syncing' ? 'Saving to your Owner account…' :
+        watchSync.state === 'error' ? 'Could not reach your saved list; this device keeps its copy and syncs next time.' : '';
+      return txt ? '<span class="wla-sync' + (watchSync.state === 'error' ? ' err' : '') + '" data-watch-sync>' + txt + '</span>' : '';
+    }
+    // Re-draw whatever shows the list: the picker's watchlist, the open
+    // stock's Watch button, and listeners such as the Owner alerts on Home.
+    function repaintWatch(){
+      var pane = document.getElementById('page-pane-stock');
+      var root = document.getElementById('stock-root');
+      var block = pane && !pane.hidden && root && !state.sym ? root.querySelector('[data-stp-watch-block]') : null;
+      if (block) block.innerHTML = watchBlockHtml();
+      var btn = document.querySelector('[data-stock-watch]');
+      if (btn && state.sym){
+        var on = readWatch().indexOf(state.sym) >= 0;
+        btn.classList.toggle('is-on', on); btn.setAttribute('aria-pressed', on ? 'true' : 'false'); btn.textContent = on ? '★ Watching' : '☆ Watch';
+      }
+      try { document.dispatchEvent(new CustomEvent('stonks-watchlist-changed')); } catch (_) {}
+    }
+    document.addEventListener('stonks-owner-ready', function(){ if (HAS_OWNER_ACCESS) syncWatch(); });
     // --- formatting --------------------------------------------------------
     function num(v, d){ return (v == null || !isFinite(v)) ? '—' : Number(v).toLocaleString(undefined, { minimumFractionDigits: d == null ? 2 : d, maximumFractionDigits: d == null ? 2 : d }); }
     function money(v){ return (v == null || !isFinite(v)) ? '—' : '$' + num(v, Math.abs(v) >= 1000 ? 0 : 2); }
@@ -810,25 +871,30 @@ function recoveryEvidence(row, data, now = Date.now()) {
       if (b) b.textContent = blurb || '';
       try { document.title = title + ' · stonks'; } catch (_) {}
     }
+    function pickTiles(syms){
+      return '<div class="stp-pick-grid">' + syms.map(function(s){
+        var n = cache.names && cache.names[s];
+        return '<a class="stp-pick" href="?tab=stock&s=' + encodeURIComponent(s) + '" data-stock-sym="' + escapeHtml(s) + '">' +
+          '<span class="stp-pick-sym">' + escapeHtml(s) + '</span>' +
+          '<span class="stp-pick-name">' + escapeHtml(n && n.n || INDUSTRIES[s] || SECTORS[s] || '') + '</span>' +
+          (n && n.ch != null ? chg(n.ch) : '') + '</a>';
+      }).join('') + '</div>';
+    }
+    function watchBlockHtml(){
+      var watch = readWatch();
+      return watch.length ? '<h3 class="stp-h3">Your watchlist</h3>' + watchNoteHtml() + pickTiles(watch) +
+        (HAS_OWNER_ACCESS ? '<div class="wla-box" data-watch-alerts>' + (typeof watchAlertsHtml === 'function' ? watchAlertsHtml({ title: 'Alerts on your watchlist', limit: 12 }) : '') + '</div>' : '') : '';
+    }
     function renderPicker(root){
       parkGrade();
       setHeader('Look up a stock', 'Price, chart, key numbers, news, earnings, options and owners for any stock this site follows.');
-      var watch = readWatch();
       var list = SYMBOLS.slice().sort();
-      var tiles = function(syms){
-        return '<div class="stp-pick-grid">' + syms.map(function(s){
-          var n = cache.names && cache.names[s];
-          return '<a class="stp-pick" href="?tab=stock&s=' + encodeURIComponent(s) + '" data-stock-sym="' + escapeHtml(s) + '">' +
-            '<span class="stp-pick-sym">' + escapeHtml(s) + '</span>' +
-            '<span class="stp-pick-name">' + escapeHtml(n && n.n || INDUSTRIES[s] || SECTORS[s] || '') + '</span>' +
-            (n && n.ch != null ? chg(n.ch) : '') + '</a>';
-        }).join('') + '</div>';
-      };
+      var tiles = pickTiles;
       var big8 = Object.keys(cache.names || {}).map(function(k){ return cache.names[k]; })
         .sort(function(a, b){ return (b.mc || 0) - (a.mc || 0); }).slice(0, 12).map(function(t){ return t.t; });
       root.innerHTML =
         searchBox() +
-        (watch.length ? '<h3 class="stp-h3">Your watchlist</h3>' + tiles(watch) : '') +
+        '<div data-stp-watch-block>' + watchBlockHtml() + '</div>' +
         (big8.length ? '<h3 class="stp-h3">Largest companies</h3>' + tiles(big8) : '') +
         '<h3 class="stp-h3">Every stock A to Z</h3>' + tiles(list);
       bindSearch(root);
@@ -1336,7 +1402,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
       if (s !== state.sym){ state.sym = s; if (!wantGrade && state.tab === 'grade') state.tab = 'overview'; load(); }
       else if (wantGrade !== (state.tab === 'grade')){ state.tab = wantGrade ? 'grade' : 'overview'; load(); }
     });
-    return { open: open, load: load, showTab: showTab, follow: follow, names: names, nameOf: nameOf, watchlist: readWatch, href: function(sym){ return '?tab=stock&s=' + encodeURIComponent(String(sym || '').toUpperCase()); } };
+    return { open: open, load: load, showTab: showTab, follow: follow, names: names, nameOf: nameOf, watchlist: readWatch, watchNoteHtml: watchNoteHtml, href: function(sym){ return '?tab=stock&s=' + encodeURIComponent(String(sym || '').toUpperCase()); } };
   })();
 
 
@@ -2174,6 +2240,141 @@ function validNewsFeedPayload(data) {
     return DOW[d.getUTCDay()] + ' ' + MON[d.getUTCMonth()] + ' ' + d.getUTCDate() + ', ' + t;
   }
   return { JOBS: JOBS, TAB_JOB: TAB_JOB, jobFor: jobFor, nextRun: nextRun, nextLabel: nextLabel, clock: clock };
+})();
+  // Owner watchlist merge rules (source: lib/owner-watchlist.mjs).
+  var OWNER_WATCH = (function ownerWatchlistFactory() {
+  var MAX = 40;
+  var SYM_RE = /^[A-Z][A-Z0-9.]{0,5}$/;
+  function cleanSym(s) {
+    var v = String(s == null ? '' : s).trim().toUpperCase();
+    return SYM_RE.test(v) ? v : null;
+  }
+  function clean(list) {
+    var out = [];
+    if (!list || typeof list.length !== 'number') return out;
+    for (var i = 0; i < list.length && out.length < MAX; i++) {
+      var s = cleanSym(list[i]);
+      if (s && out.indexOf(s) < 0) out.push(s);
+    }
+    return out;
+  }
+  // Three-way merge. base is the list this device and the server last agreed
+  // on: symbols added here since then are added to the server's list, symbols
+  // removed here are removed from it, and everything else follows the server
+  // (so a removal on another device sticks). With no base (first sync on this
+  // device) nothing is removed: the result is the server list plus this
+  // device's extra names.
+  function merge(server, local, base) {
+    server = clean(server); local = clean(local);
+    if (!base) {
+      var u = server.slice();
+      for (var i = 0; i < local.length; i++) if (u.indexOf(local[i]) < 0) u.push(local[i]);
+      return u.slice(0, MAX);
+    }
+    base = clean(base);
+    var added = local.filter(function (s) { return base.indexOf(s) < 0; });
+    var removed = base.filter(function (s) { return local.indexOf(s) < 0; });
+    var out = server.filter(function (s) { return removed.indexOf(s) < 0; });
+    for (var j = added.length - 1; j >= 0; j--) if (out.indexOf(added[j]) < 0) out.unshift(added[j]);
+    return out.slice(0, MAX);
+  }
+  // op: { op: 'add'|'remove', symbol } -> the new list (newest first).
+  function apply(list, op) {
+    var out = clean(list);
+    var s = cleanSym(op && op.symbol);
+    if (!s) return out;
+    var i = out.indexOf(s);
+    if (op.op === 'remove') { if (i >= 0) out.splice(i, 1); return out; }
+    if (op.op === 'add') { if (i >= 0) out.splice(i, 1); out.unshift(s); return out.slice(0, MAX); }
+    return out;
+  }
+  return { MAX: MAX, cleanSym: cleanSym, clean: clean, merge: merge, apply: apply };
+})();
+  // Owner watchlist alert rules (source: lib/watchlist-alerts.mjs).
+  var WATCH_ALERTS = (function watchlistAlertsFactory() {
+  // Within this distance of a wall counts as "at the wall".
+  var WALL_NEAR_PCT = 0.75;
+  var MA_PERIODS = [50, 200];
+  function num(v) {
+    if (v == null || v === '') return null;
+    var n = Number(v);
+    return isFinite(n) ? n : null;
+  }
+  function money(v) {
+    return '$' + v.toFixed(2);
+  }
+  function strike(v) {
+    return '$' + (Math.round(v) === v ? String(v) : v.toFixed(2).replace(/0+$/, '').replace(/\.$/, ''));
+  }
+  function bySymbol(list) {
+    var out = {};
+    for (var i = 0; list && i < list.length; i++) if (list[i] && list[i].symbol) out[String(list[i].symbol).toUpperCase()] = list[i];
+    return out;
+  }
+  function premiumText(p) {
+    if (!(p > 0)) return '';
+    if (p >= 1e6) return '$' + (p / 1e6).toFixed(p >= 1e7 ? 0 : 1) + 'M';
+    if (p >= 1e3) return '$' + Math.round(p / 1e3) + 'K';
+    return '$' + Math.round(p);
+  }
+  // input: { watch: [sym], ma, oi, unusual, quotes: { SYM: { spot } } }
+  // Returns [{ symbol, kind: 'ma'|'wall'|'flow', dir: 'up'|'down'|null, text, at }]
+  // in watchlist order, crosses first within a name.
+  function build(input) {
+    input = input || {};
+    var watch = input.watch || [];
+    var ma = bySymbol(input.ma && input.ma.tickers);
+    var oi = bySymbol(input.oi && input.oi.tickers);
+    var flow = bySymbol(input.unusual && input.unusual.tickers);
+    var quotes = input.quotes || {};
+    var out = [];
+    for (var i = 0; i < watch.length; i++) {
+      var sym = String(watch[i] || '').toUpperCase();
+      if (!sym) continue;
+      var live = quotes[sym] && num(quotes[sym].spot) > 0 ? num(quotes[sym].spot) : null;
+      var m = ma[sym];
+      if (m && m.levels) {
+        var spot = live || num(m.spot);
+        for (var k = 0; k < MA_PERIODS.length; k++) {
+          var p = MA_PERIODS[k];
+          var lvl = num(m.levels[p]);
+          var prev = num(m.previousDistances && m.previousDistances[p]);
+          if (!(spot > 0) || !(lvl > 0) || prev == null) continue;
+          var now = (spot / lvl - 1) * 100;
+          if (prev < 0 && now >= 0) out.push({ symbol: sym, kind: 'ma', dir: 'up', at: input.ma.builtAtIso || null, live: !!live,
+            text: 'Crossed above its ' + p + '-day average (' + money(lvl) + '); price ' + money(spot) + ', ' + (now >= 0 ? '+' : '') + now.toFixed(1) + '%.' });
+          else if (prev >= 0 && now < 0) out.push({ symbol: sym, kind: 'ma', dir: 'down', at: input.ma.builtAtIso || null, live: !!live,
+            text: 'Crossed below its ' + p + '-day average (' + money(lvl) + '); price ' + money(spot) + ', ' + now.toFixed(1) + '%.' });
+        }
+      }
+      var o = oi[sym];
+      if (o) {
+        var s2 = live || num(o.spot);
+        var cw = num(o.callWall && o.callWall.strike), pw = num(o.putWall && o.putWall.strike);
+        if (s2 > 0 && cw > 0 && s2 >= cw * (1 - WALL_NEAR_PCT / 100)) out.push({ symbol: sym, kind: 'wall', dir: 'up', at: input.oi.scannedAt || null, live: !!live,
+          text: (s2 > cw ? 'Above its call wall at ' : 'At its call wall, ') + strike(cw) + ' (price ' + money(s2) + '). Calls there can slow a rise.' });
+        if (s2 > 0 && pw > 0 && s2 <= pw * (1 + WALL_NEAR_PCT / 100)) out.push({ symbol: sym, kind: 'wall', dir: 'down', at: input.oi.scannedAt || null, live: !!live,
+          text: (s2 < pw ? 'Below its put wall at ' : 'At its put wall, ') + strike(pw) + ' (price ' + money(s2) + '). Puts there can slow a fall.' });
+      }
+      var f = flow[sym];
+      var cs = f && f.contracts && f.contracts.length ? f.contracts : null;
+      if (cs) {
+        var top = null, calls = 0, puts = 0;
+        for (var j = 0; j < cs.length; j++) {
+          var c = cs[j] || {};
+          if (c.side === 'put') puts++; else calls++;
+          if (!top || (num(c.premium) || 0) > (num(top.premium) || 0)) top = c;
+        }
+        var desc = top && num(top.strike) != null ? strike(num(top.strike)) + ' ' + (top.side === 'put' ? 'put' : 'call') + (top.expiryLabel ? ' ' + top.expiryLabel : '') : '';
+        var prem = premiumText(num(top && top.premium));
+        out.push({ symbol: sym, kind: 'flow', dir: calls > puts ? 'up' : puts > calls ? 'down' : null, at: input.unusual.scannedAt || null, live: false,
+          text: cs.length + ' unusual option trade' + (cs.length === 1 ? '' : 's') + ' today (' + calls + ' call' + (calls === 1 ? '' : 's') + ', ' + puts + ' put' + (puts === 1 ? '' : 's') + ')' +
+            (desc ? '; biggest ' + desc + (prem ? ', ' + prem + ' premium' : '') : '') + '.' });
+      }
+    }
+    return out;
+  }
+  return { WALL_NEAR_PCT: WALL_NEAR_PCT, MA_PERIODS: MA_PERIODS, build: build };
 })();
   var GLOSSARY = {"oi":{"term":"Open interest (OI)","def":"How many option contracts are still open at a strike. It updates once a day, after the exchange settles the prior session.","tab":"oi"},"dOi":{"term":"OI change (ΔOI)","def":"How much open interest grew or shrank since the prior trading day. A big rise means new positions were opened at that strike.","tab":"oi"},"cp":{"term":"Calls per put (C/P)","def":"Open call contracts divided by open put contracts in the near-term chain. 2:1 means twice as many calls as puts are open.","tab":"oi"},"volOi":{"term":"Volume ÷ OI (Vol/OI)","def":"Contracts traded today divided by contracts already open. Above 1 means today’s trading is larger than the existing positions, often new money.","tab":"oi"},"callWall":{"term":"Call wall / put wall","def":"The strike with the most open calls (or puts). Price often stalls near these strikes because dealers hedge around them. These are open-interest walls.","tab":"oi"},"gammaWall":{"term":"Gamma wall","def":"The strike where dealers’ estimated hedging is largest (dealer gamma). It is worked out from open interest and each option’s gamma, so it can differ from the OI wall.","tab":"oi"},"squeeze":{"term":"Squeeze score (gamma squeeze score)","def":"A 0 to 5 count of signs that call buying could push the stock up fast: heavy calls near the price, many calls per put, busy call-wall trading, a nearby call wall and buying at the ask. 4 or 5 is a setup to watch, not a reason to buy.","tab":"oi"},"iv":{"term":"Implied volatility (IV)","def":"How big a yearly move option prices are paying for, in percent. Higher IV means more expensive options.","tab":"cheatsheet"},"ivPct":{"term":"IV percentile","def":"The share of the stock’s own past days (about 18 months) when its IV was lower than today. 85 means options cost more today than on 85% of those days.","tab":"iv-trend"},"ivRank":{"term":"IV rank","def":"Where today’s IV sits between the lowest (0) and highest (100) IV of the stock’s own saved history.","tab":"iv-trend"},"rv":{"term":"Realized volatility (RV30)","def":"How much the stock actually moved over the last 30 trading days, as a yearly percent. When IV is above it, options are charging more than the stock has been moving."},"vrp":{"term":"Volatility premium (VRP)","def":"IV minus realized volatility. Positive means options are priced for bigger moves than the stock has been making."},"dte":{"term":"Days to expiry (DTE)","def":"Calendar days until an option expires."},"atm":{"term":"At the money (ATM)","def":"The strike closest to the current stock price."},"delta":{"term":"Delta (Δ)","def":"About how much an option’s price moves for a $1 move in the stock, and a rough chance it ends in the money. 0.55 Δ is a little in the money."},"impliedMove":{"term":"Implied move","def":"The move, up or down, that option prices expect around an event such as earnings. It comes from the at-the-money straddle.","tab":"earnings-week"},"debit":{"term":"Debit spread","def":"Buy one option and sell a further one of the same type. It costs less than buying alone, and both the gain and the loss are capped.","tab":"strategies"},"credit":{"term":"Credit spread","def":"Sell one option and buy a further one as protection. You collect money up front; the most you can lose is the gap between strikes minus that credit.","tab":"strategies"}};
   // One overnight risk-on/off scorer (source: lib/overnight-tone.mjs), the same
@@ -57568,6 +57769,73 @@ function scenarioEventPhase(ev, now = Date.now()) {
     grid.innerHTML = tiles.join('');
     sec.hidden = false;
   }
+  // --- Owner watchlist alerts ------------------------------------------------
+  // Crosses of the 50/200-day average, options walls reached and unusual
+  // trades today, for the names on the Owner's stock watchlist
+  // (lib/watchlist-alerts.mjs). Owner only: nothing loads for a public visitor.
+  var watchAlertsState = { ma: null, oi: null, quotes: {}, loaded: false, loading: false, timer: null, quotesAt: 0 };
+  function watchAlertList(){
+    if (!HAS_OWNER_ACCESS || !STOCK_PAGE || !STOCK_PAGE.watchlist) return [];
+    var st = watchAlertsState;
+    return WATCH_ALERTS.build({ watch: STOCK_PAGE.watchlist(), ma: st.ma, oi: st.oi, unusual: UNUSUAL, quotes: st.quotes });
+  }
+  function watchAlertsHtml(opts){
+    opts = opts || {};
+    if (!HAS_OWNER_ACCESS) return '';
+    var watch = STOCK_PAGE && STOCK_PAGE.watchlist ? STOCK_PAGE.watchlist() : [];
+    var head = '<div class="wla-head"><h3>' + (opts.title || 'Watchlist alerts') + '</h3><span class="wla-sync">Owner only · 50/200-day crosses, options walls, unusual trades</span></div>';
+    if (!watch.length) return head + '<p class="hint">Add names with <b>☆ Watch</b> on a stock page to get alerts here.</p>';
+    if (!watchAlertsState.loaded) return head + '<p class="hint">Checking your ' + watch.length + ' watched name' + (watch.length === 1 ? '' : 's') + '…</p>';
+    var list = watchAlertList();
+    if (!list.length) return head + '<p class="hint">Nothing new on your ' + watch.length + ' watched name' + (watch.length === 1 ? '' : 's') + ': no average crossed, no wall reached and no unusual trades today.</p>';
+    var max = opts.limit || 8;
+    var label = { ma: 'Average', wall: 'Wall', flow: 'Unusual trade' };
+    return head + '<ul class="wla-list">' + list.slice(0, max).map(function(a){
+      var when = a.live ? 'live price' : a.at ? fmtScannedAt(a.at) : '';
+      return '<li class="wla-item"><a class="wla-sym" href="' + STOCK_PAGE.href(a.symbol) + '">' + escapeHtml(a.symbol) + '</a>' +
+        '<span class="wla-what"><span class="wla-kind' + (a.dir ? ' ' + a.dir : '') + '">' + label[a.kind] + '</span>' + escapeHtml(a.text) + '</span>' +
+        '<span class="wla-when">' + escapeHtml(when) + '</span></li>';
+    }).join('') + '</ul>' + (list.length > max ? '<p class="hint">+' + (list.length - max) + ' more on your watched names.</p>' : '');
+  }
+  function renderWatchAlerts(){
+    var box = document.getElementById('landing-desk-alerts');
+    if (box){ box.hidden = !HAS_OWNER_ACCESS; box.innerHTML = HAS_OWNER_ACCESS ? watchAlertsHtml() : ''; }
+    var pick = document.querySelector('[data-watch-alerts]');
+    if (pick) pick.innerHTML = HAS_OWNER_ACCESS ? watchAlertsHtml({ title: 'Alerts on your watchlist', limit: 12 }) : '';
+  }
+  function watchAlertQuotes(){
+    var syms = STOCK_PAGE && STOCK_PAGE.watchlist ? STOCK_PAGE.watchlist() : [];
+    if (!syms.length) return Promise.resolve();
+    return fetch('api/quotes?symbols=' + encodeURIComponent(syms.join(',')), { cache: 'no-store' })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(j){
+        var map = {};
+        // Only regular-session prices count as live; otherwise the build price stands.
+        ((j && j.quotes) || []).forEach(function(q){ if (isRegularMarketQuote(q) && q.symbol && q.spot > 0) map[String(q.symbol).toUpperCase()] = q; });
+        watchAlertsState.quotes = map; watchAlertsState.quotesAt = Date.now();
+      })
+      .catch(function(){});
+  }
+  function loadWatchAlerts(){
+    if (!HAS_OWNER_ACCESS) { renderWatchAlerts(); return; }
+    var st = watchAlertsState;
+    renderWatchAlerts();
+    if (st.loading) return;
+    if (st.loaded){ watchAlertQuotes().then(renderWatchAlerts); return; }
+    st.loading = true;
+    var get = function(key){ return fetch(dataUrl(key), { cache: 'no-cache' }).then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; }); };
+    Promise.all([maTrackerState.data && !maTrackerState.data.loadError ? maTrackerState.data : get('ma-tracker.json'), OI || get('oi-tracker.json'), watchAlertQuotes()]).then(function(res){
+      st.ma = res[0]; st.oi = res[1]; st.loaded = true; st.loading = false;
+      renderWatchAlerts();
+    });
+    // Live prices refresh every two minutes while Home or the stock picker is on screen.
+    if (!st.timer) st.timer = setInterval(function(){
+      var home = document.getElementById('page-pane-home'), stock = document.getElementById('page-pane-stock');
+      if ((home && !home.hidden) || (stock && !stock.hidden && document.querySelector('[data-watch-alerts]'))) watchAlertQuotes().then(renderWatchAlerts);
+    }, 120000);
+  }
+  document.addEventListener('stonks-owner-ready', function(){ if (HAS_OWNER_ACCESS) loadWatchAlerts(); });
+  document.addEventListener('stonks-watchlist-changed', function(){ if (HAS_OWNER_ACCESS && watchAlertsState.loaded) watchAlertQuotes().then(renderWatchAlerts); else renderWatchAlerts(); });
   function loadHomeDesk(){
     if (!HAS_OWNER_ACCESS) { renderHomeDesk(); return; }
     renderHomeDesk();

@@ -164,6 +164,12 @@ export function renderSiteNextCss() {
 .ewb-table .vt-sub { display: block; color: var(--muted); font-size: 12px; font-weight: 400; }
 
 /* ---- Owner watchlist alerts ----------------------------------------------- */
+.wla-box { margin: 14px 0 0; }
+.wla-box[hidden] { display: none; }
+.wla-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; }
+.wla-head h3 { margin: 0; font: 650 15px/1.3 var(--font-sans); color: var(--text-strong); }
+.wla-box .hint { margin: 6px 0 0; }
+.wla-sym { text-decoration: none; }
 .wla-list { display: grid; gap: 8px; margin: 8px 0 0; padding: 0; list-style: none; }
 .wla-item { display: grid; grid-template-columns: auto 1fr auto; gap: 4px 10px; align-items: baseline; padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--r-2); background: var(--surface); }
 .wla-sym { font: 700 14px/1.2 var(--font-mono); color: var(--text-strong); }

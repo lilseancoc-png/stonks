@@ -205,6 +205,30 @@ try {
     }, res);
     assert.equal(res.statusCode, 400);
   }
+  // The Owner watchlist: same session rules; bad requests stop before the store.
+  res = mockResponse();
+  await authHandler({ query: { action: "owner-watchlist" }, method: "GET", headers: { host: "example.test" } }, res);
+  assert.equal(res.statusCode, 401);
+  res = mockResponse();
+  await authHandler({ query: { action: "owner-watchlist" }, method: "GET", headers: { host: "example.test", cookie: `${SESSION_COOKIE}=${partial}` } }, res);
+  assert.equal(res.statusCode, 401);
+  res = mockResponse();
+  await authHandler({
+    query: { action: "owner-watchlist" }, method: "POST",
+    headers: { host: "example.test", "x-forwarded-proto": "https", origin: "https://evil.test", cookie: `${SESSION_COOKIE}=${token}` },
+    body: { op: "add", symbol: "AAPL" },
+  }, res);
+  assert.equal(res.statusCode, 403);
+  for (const body of [{ op: "add", symbol: "not a ticker" }, { op: "drop", symbol: "AAPL" }, { op: "sync", local: "AAPL" }]) {
+    res = mockResponse();
+    await authHandler({
+      query: { action: "owner-watchlist" }, method: "POST",
+      headers: { host: "example.test", "x-forwarded-proto": "https", origin: "https://example.test", cookie: `${SESSION_COOKIE}=${token}` },
+      body,
+    }, res);
+    assert.equal(res.statusCode, 400);
+    assert.equal(res.headers["cache-control"], "private, no-store");
+  }
 } finally {
   if (priorFlag == null) delete process.env.PRIVATE_DATA_ENABLED;
   else process.env.PRIVATE_DATA_ENABLED = priorFlag;

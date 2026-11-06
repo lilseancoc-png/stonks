@@ -62,6 +62,8 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Compact one-line rows on phones: All stocks, Up/down streaks, Options walls and Moving averages open on a phone as a table with one line per row (sub-lines hidden), so the longest card pages shrink to a scrollable list; a "Compact rows" button turns it off and Cards stays one tap away.
 - Press ? (or the footer's "Keyboard shortcuts" link) for a list of the site's shortcuts: ⌘K / Ctrl K and / for search, arrow keys and Enter in results and table headers, Esc to close.
 - Open picks trade lines carry a two-leg close ticket for each spread: buy back the short leg and sell the long leg, one line and Copy button each, with limits at the live mid (read from `/api/contract` when the ticket opens) and the net credit or debit; it advises one spread order, or the short leg first when legging out. The copied feed text is unchanged.
+- Owners' stock watchlist (☆ Watch on a stock page) now syncs across devices: it is saved privately per Discord account in `owner-watchlist.json` (Owner-only, request-time-owned, never readable through the MCP) through `/api/auth/owner-watchlist`, with a three-way merge so a removal on one device sticks (`lib/owner-watchlist.mjs`). Public visitors keep their list in the browser as before.
+- Owner-only watchlist alerts on Home ("Your desk") and the stock picker: a watched name that crossed its 50- or 200-day average since the prior close, reached or passed its options call or put wall, or printed unusual option trades today. Rules in `lib/watchlist-alerts.mjs`, read from the public moving-average, options-wall and unusual-trade files plus live regular-session prices; no AI and nothing is sent anywhere.
 
 ### Changed
 
