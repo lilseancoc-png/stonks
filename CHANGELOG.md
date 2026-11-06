@@ -38,6 +38,8 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Fixed
 
+- Replay NBA source-outage snapshots through the original no-pick gate, preserving exact research verification when a feed is unavailable.
+
 - Require each game’s two recommended props to include one player from each team, including later track record slot fills (#756).
 
 - Match Rams props to nflverse’s team id, close cached picks at the earliest known kickoff, use the prop’s actual workload, honor explicit injury clearances and stable athlete ids, and download complete prop records in bounded consistent pages.
