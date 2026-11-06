@@ -159,6 +159,9 @@ export function renderSiteNextCss() {
 .ewb-plan-why { margin: 6px 0 0; font: 400 13px/1.5 var(--font-sans); color: var(--muted-strong); }
 .ewb-plan-why b { color: var(--text-strong); }
 .ewb-table td, .ewb-table th { white-space: nowrap; }
+.ewb-table td.ewb-plan-col { white-space: normal; min-width: 120px; }
+.ewb-table td.ewb-stock-col, .ewb-table td.ewb-stock-col .vt-sub { white-space: normal; }
+.ewb-table td.ewb-stock-col .ewb-reported { white-space: nowrap; }
 .ewb-empty { padding: 12px 0; color: var(--muted); font: 400 13px/1.5 var(--font-sans); }
 .ewb-season { margin: 0 0 8px; font: 400 13px/1.5 var(--font-sans); color: var(--muted-strong); }
 .ewb-season b { color: var(--text-strong); }
@@ -215,7 +218,7 @@ export function renderSiteNextCss() {
 @media (max-width: 640px) { .recap-nav h3 { font-size: 14px; } .recap-nav .ics-btn { padding: 4px 8px; } }
 
 /* ---- "Why no picks today" card -------------------------------------------- */
-.nopick-card { margin: 10px 0 14px; padding: 12px 14px; border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: var(--r-2); background: var(--surface); }
+.nopick-card { grid-column: 1 / -1; max-width: 760px; margin: 10px 0 14px; padding: 12px 14px; border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: var(--r-2); background: var(--surface); }
 .nopick-card h3 { margin: 0 0 4px; font: 650 15px/1.3 var(--font-sans); color: var(--text-strong); }
 .nopick-card p { margin: 0 0 8px; font: 400 13px/1.45 var(--font-sans); color: var(--muted-strong); }
 .nopick-card ol { margin: 0; padding-left: 20px; display: grid; gap: 4px; font: 400 13px/1.45 var(--font-sans); }

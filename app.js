@@ -1466,7 +1466,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
   function ewbSeasonHtml(s){
     if (!s || !s.reported) return '<p class="hint">No reports in this season yet.</p>';
     var parts = [];
-    parts.push('<b>' + s.reported + '</b> covered reports this season');
+    parts.push('<b>' + s.reported + '</b> covered report' + (s.reported === 1 ? '' : 's') + ' this season');
     if (s.beatRate != null) parts.push('<b>' + Math.round(s.beatRate * 100) + '%</b> beat on earnings per share (' + s.beats + ' of ' + s.epsKnown + ')');
     if (s.fellShare != null) parts.push('<b>' + Math.round(s.fellShare * 100) + '%</b> fell the next session');
     if (s.avgAbsMovePct != null) parts.push('average move <b>' + ewbPct(s.avgAbsMovePct) + '</b> (net ' + ewbPct(s.avgMovePct, true) + ')');
@@ -1481,7 +1481,8 @@ function recoveryEvidence(row, data, now = Date.now()) {
     var owner = HAS_OWNER_ACCESS && st.plan && st.plan.plans;
     var cols = [
       { label: 'Date', cell: function(r){ return '<b>' + ewbDate(r.date) + '</b><small class="vt-sub">' + escapeHtml(ewbSession(r.session)) + '</small>'; }, sort: function(r){ return r.date + (String(r.session).toUpperCase() === 'PM' ? 'b' : 'a'); } },
-      { label: 'Stock', cell: function(r){ return VIEWS.expandHtml('Show past moves') + ' <a href="' + STOCK_PAGE.href(r.symbol) + '"><b>' + escapeHtml(r.symbol) + '</b></a><small class="vt-sub">' + escapeHtml(r.name || '') + '</small>'; }, sort: function(r){ return r.symbol; } },
+      { label: 'Stock', cls: 'ewb-stock-col', cell: function(r){ return VIEWS.expandHtml('Show past moves') + ' <a href="' + STOCK_PAGE.href(r.symbol) + '"><b>' + escapeHtml(r.symbol) + '</b></a><small class="vt-sub">' + escapeHtml(r.name || '') + '</small>' +
+        (r.reported ? '<small class="vt-sub ewb-reported" title="The report is out; the move is from the close before it to the latest price">Reported' + (r.reactionPct != null ? ': <span class="' + (r.reactionPct >= 0 ? 'pos' : 'neg') + '">' + ewbPct(r.reactionPct, true) + '</span>' : '') + '</small>' : ''); }, sort: function(r){ return r.symbol; } },
       { label: 'Options expect ±', num: true, title: 'Implied move: the move, up or down, the at-the-money straddle prices for the report', cell: function(r){ return r.impliedMovePct != null ? '<span class="ewb-move">' + ewbMoveBar(r.impliedMovePct, r.avgMovePct) + ewbPct(r.impliedMovePct) + '</span>' : ''; }, sort: function(r){ return r.impliedMovePct; } },
       { label: 'Usual move', num: true, title: 'Average size of the next-session move over the stock’s last ' + ((d.rules && d.rules.history) || 8) + ' reports', cell: function(r){ return r.avgMovePct != null ? ewbPct(r.avgMovePct) + '<small class="vt-sub">' + r.prints + ' reports · max ' + ewbPct(r.maxMovePct) + '</small>' : ''; }, sort: function(r){ return r.avgMovePct; } },
       { label: 'vs usual', title: 'Options price compared with the stock’s usual report move', cell: function(r){ return ewbVsTag(r.vsHistory); }, sort: function(r){ return r.impliedMovePct > 0 && r.avgMovePct > 0 ? r.impliedMovePct / r.avgMovePct : null; } },

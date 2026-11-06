@@ -365,7 +365,8 @@ Everything here is deterministic, adds no AI call and no serverless function, an
 - **Why no picks today**: when no pick is ready, Top Picks shows the five names that came closest and the rule that stopped each (`lib/no-picks.mjs`, read from `rosterMeta.turnedAway`, topped up from `grades.json`); the same read is the Owner MCP tool `get_near_misses`. `GATE_LABEL` there is the one label list for every open-pick rule.
 - **Freshness line and glossary**: `lib/refresh-schedule.mjs` is the one schedule behind "Updated X min ago · next update HH:MM ET" and the offline note, so change it with the cron-job.org times. `lib/glossary.mjs` feeds the tap-to-define terms and the Glossary page.
 - **Installable app (PWA)**: `manifest.webmanifest`, `icons/*.png` (drawn by `scripts/make-app-icons.mjs`) and a hand-written `sw.js`. The service worker caches only the app shell and the two public manifest sidecars, network-first, and skips anything marked `private` or `no-store`, so Owner data is never cached; every `/api/` call and every other `/data/` key passes through. Bump `VERSION` in `sw.js` when you change what it caches. `vercel.json` serves `sw.js` with `max-age=0, must-revalidate`.
-- Tests: `node scripts/site-next-smoke.mjs` (plus `api-smoke` and `mcp-smoke` for the two actions and the MCP tool).
+- The MCP's `earnings-week` feature returns the public board, plus the Owner plan for an Owner token. A report that printed earlier the same day shows its reaction (`reported`, `reactionPct`) and gets no event plan.
+- Tests: `node scripts/site-next-smoke.mjs` (plus `api-smoke` and `mcp-smoke` for the two actions and the MCP tool), and `npm run test:site-next-browser` for the pages in a real browser (Owner and public, desktop and phone).
 
 ### Browser runtime layers
 

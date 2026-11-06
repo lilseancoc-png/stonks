@@ -74,6 +74,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Friday recap: a Week recap tab on the Owner Track Record (`lib/week-recap.mjs`, no AI) shows the trades opened and closed Monday to Friday, win rate by entry type this week and to date, the biggest miss (the losing close with the highest entry score), the best close and the rule that turned away the most names, with week back/forward and Copy recap. Home's Your desk links to it from Friday 4 PM ET through the weekend.
 - "Why no picks today": when nothing is ready to buy, the Owner Top Picks tab leads with the five names that came closest in the last run, the rule that stopped each and what it would take to get through (`lib/no-picks.mjs`, read from the run's own gate trace, topped up from the grades under the score bar). The same read is the Owner MCP tool `get_near_misses`, and the rule labels now come from one place for the card, the Track Record and the Week recap.
 - Home-screen app: the site can be added to a phone's home screen (`manifest.webmanifest`, icons in `icons/`, drawn by `scripts/make-app-icons.mjs`) and opens with no connection, showing the last public copy with an offline note. The service worker (`sw.js`) keeps only the page shell, code, icons and the two public manifest sidecars, always tries the network first, and never stores `/api/` answers or other `/data/` files, so no Owner data stays on the device.
+- Earnings week ahead is readable through the MCP (get_feature earnings-week, Owner dataset plan) and Research Lab evidence; new browser check scripts/site-next-browser.mjs (npm run test:site-next-browser) (#760).
 
 ### Changed
 
@@ -91,6 +92,11 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - The public Streaks table lost its ticker column, and the cards their Open buttons, because the Owner gate strips Grade links; they now open the public stock page (owners still land on the Grade view). The Grade column and Grade sort show only for owners (#757).
 - A table's third header click (original order) now restores the page's own order exactly; rows with a missing value in the sorted column no longer stay at the bottom.
 - Main's failing checks pass again: the link-map, evidence-record and LEAPS paper tests read the current owner-only grades rule and the shared output lists; the cost check compares against the branch point and counts new AI or network calls, not data writes; the browser tests sign in the way the site now checks (authed), serve Top Picks from its owner route, pin dated fixtures to their own clock, wait for the new equity chart, and skip the cached-data pass when no data folder is present.
+- Owner watchlist: a save now runs under the store lease, and the browser sends one save at a time and keeps only the newest reply, so two quick clicks or two devices can't drop a name (#760).
+- Watchlist alerts say "today" only when the flow scan ran today (else they name the date), and show the trade's real expiry date (#760).
+- Earnings week ahead: a report that printed this morning shows as Reported with its move and the move options priced going in, no longer counts in its own history, and gets no Top Picks plan; the Owner plan reads open trades from before the bake clears data/ (#760).
+- Week recap to-date rates include archived trades; a second took / skipped tap while one is saving now waits its turn instead of being dropped (#760).
+- The calendar feed keeps tonight's events until midnight in New York, not 8 PM; the no-picks card reuses the cached grade index; the Glossary has no refresh time; the Options walls card no longer nests a button in a button (#760).
 
 ### Docs
 

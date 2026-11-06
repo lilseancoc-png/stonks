@@ -47,6 +47,8 @@ const chains = {
   BBB: { spot: 50, fundamentals: { name: "Beta", nextEarningsDate: "2026-11-09", nextEarningsSession: "AM" },
     earningsHx: { events: [ev("2026-08-01", 0.10), ev("2026-11-02", 0.12, { surprisePct: -5, epsActual: 0.9 })], next: { date: "2026-11-09" } } },
   CCC: { spot: 20, fundamentals: { nextEarningsDate: "2026-12-20" }, earningsHx: { events: [] } },
+  DDD: { spot: 250, fundamentals: { name: "Delta", nextEarningsDate: "2026-11-06", nextEarningsSession: "AM" },
+    earningsHx: { events: [ev("2026-07-31", 0.01), ev("2026-11-06", 0.071, { impliedMovePct: 0.088 })], next: null } },
   SPY: { spot: 600, fundamentals: { nextEarningsDate: "2026-11-09" } },
 };
 const board = buildEarningsWeek(chains, {
@@ -57,7 +59,10 @@ const board = buildEarningsWeek(chains, {
   verdictOf: (e) => (e.surprisePct > 1 ? "beat" : e.surprisePct < -1 ? "miss" : "inline"),
   isFund: (s) => s === "SPY",
 });
-eq(board.rows.map((r) => r.symbol), ["BBB", "AAA"], "only reports in the next 10 days, soonest first, funds left out");
+eq(board.rows.map((r) => r.symbol), ["DDD", "BBB", "AAA"], "only reports in the next 10 days, soonest first, funds left out");
+const dd = board.rows.find((r) => r.symbol === "DDD");
+ok(dd.reported && dd.reactionPct === 7.1, "a report that printed this morning is marked reported with its move");
+eq([dd.impliedMovePct, dd.prints, dd.avgMovePct], [8.8, 1, 1], "it shows what options priced going in, and its own move is left out of its history");
 const a = board.rows.find((r) => r.symbol === "AAA");
 eq(a.impliedMovePct, 9, "a stamped straddle move wins");
 eq(a.impliedSource, "stamped", "the source of the implied move is recorded");
@@ -69,9 +74,9 @@ const b = board.rows.find((r) => r.symbol === "BBB");
 eq(b.impliedSource, "chain", "an unstamped print reads the chain");
 eq(b.vsHistory, "cheap", "5% against an 11% usual move is cheap");
 eq(board.season.key, "2026Q4", "season key follows the build date");
-eq(board.season.reported, 2, "season counts this quarter's prints so far");
-eq(board.season.beats, 1, "season beat count");
-eq(board.season.fellShare, 0.5, "season share that fell");
+eq(board.season.reported, 3, "season counts this quarter's prints so far");
+eq(board.season.beats, 2, "season beat count");
+eq(board.season.fellShare, 0.333, "season share that fell");
 eq(impliedVsHistory(5, 5), "in-line", "equal moves read as usual");
 eq(impliedVsHistory(null, 5), null, "no implied move, no read");
 eq(pastEarningsMoves({ events: [] }).n, 0, "no history is an empty record");
@@ -165,6 +170,7 @@ ok(unfolded.includes("BEGIN:VTIMEZONE") && unfolded.includes("TZID:America/New_Y
 ok(/DTSTART;VALUE=DATE:20261110\r\nDTEND;VALUE=DATE:20261111/.test(unfolded), "earnings are all-day events");
 ok(buildCalendarIcs({ events: [] }, { symbols: [], nowIso: "2026-11-06T12:00:00Z", name: "A, B; C" }).includes("X-WR-CALNAME:A\\, B\\; C"), "text is escaped");
 ok(!buildCalendarIcs(cal, { symbols: [], nowIso: "2026-11-06T12:00:00Z" }).includes("earnings-"), "no watchlist: macro dates only");
+ok(buildCalendarIcs({ events: [{ type: "earnings", symbol: "AAPL", date: "2026-11-06", session: "PM" }] }, { symbols: ["AAPL"], nowIso: "2026-11-07T02:00:00Z" }).includes("UID:earnings-AAPL-2026-11-06@"), "9 PM ET still counts as the same New York day");
 
 // --- Friday recap ------------------------------------------------------------
 const WR = weekRecapFactory();
