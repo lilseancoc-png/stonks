@@ -49,7 +49,8 @@ on:
         type: boolean
 
 permissions:
-  actions: read
+  # write: the 15:30 ET Top Picks build dispatches webull-eod.yml (below).
+  actions: write
   contents: write
   # The "AI health alert" step opens/updates/closes the ai-health incident
   # issue (issue creation is what emails the owner — the AI layer degrading
@@ -605,6 +606,24 @@ jobs:
           WEBULL_MIRROR_STRICT: '1'
           WEBULL_MIRROR_FOLLOW_UPS: '4'
         run: node scripts/webull-mirror-trigger.mjs
+
+      - name: Start the Webull end-of-day window
+        # GitHub's cron for webull-eod.yml has fired hours late (after the
+        # close) every day, so the closing window never ran. This build is
+        # dispatched on time by cron-job.org; when it is the last Top Picks
+        # refresh before the close, start the end-of-day workflow now. It
+        # waits for the final 20 minutes itself.
+        if: ${{ always() && vars.PRIVATE_DATA_ENABLED == '1' && needs.route.outputs.refresh_top_picks == 'true' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if node --input-type=module -e 'import { marketSession } from "./lib/us-equity-calendar.mjs"; const s = marketSession(Date.now()); process.exit(s.trading && s.closeMinute - s.minute <= 65 ? 0 : 1);'; then
+            gh workflow run webull-eod.yml --ref "${GITHUB_REF_NAME:-main}"
+            echo "Webull end-of-day: dispatched."
+          else
+            echo "Webull end-of-day: not the last Top Picks build before the close; nothing to start."
+          fi
 
       - name: Commit verified private-store build
         if: ${{ vars.PRIVATE_DATA_ENABLED == '1' }}

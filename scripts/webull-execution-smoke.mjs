@@ -304,7 +304,7 @@ assert.equal(interrupted.ledger.lastEndOfDayAudit.deadlineObserved, false, "a cl
 
 // Execute the actual workflow entry point with a virtual clock and fake fetch.
 // This verifies exit status and delayed-dispatch reporting without credentials.
-function eodCli(at, schedule = "40,50 19 * * 1-5", summary = { endOfDayDeadlineObserved: true }) {
+function eodCli(at, schedule = "40,50 19 * * 1-5", summary = { endOfDayDeadlineObserved: true }, extraEnv = {}) {
   const code = `
     let at = Date.parse(process.env.FAKE_NOW), calls = 0;
     Date.now = () => at;
@@ -318,7 +318,7 @@ function eodCli(at, schedule = "40,50 19 * * 1-5", summary = { endOfDayDeadlineO
     console.log(JSON.stringify({ calls }));
   `;
   const r = spawnSync(process.execPath, ["--input-type=module", "-e", code], { cwd: new URL("../", import.meta.url), encoding: "utf8",
-    env: { ...process.env, R2_SECRET_ACCESS_KEY: "offline-test-secret", WEBULL_EOD_SCHEDULE: schedule, FAKE_NOW: at, FAKE_SUMMARY: JSON.stringify(summary) } });
+    env: { ...process.env, R2_SECRET_ACCESS_KEY: "offline-test-secret", WEBULL_EOD_SCHEDULE: schedule, FAKE_NOW: at, FAKE_SUMMARY: JSON.stringify(summary), ...extraEnv } });
   return { ...r, calls: JSON.parse(r.stdout.trim().split("\n").at(-1)).calls };
 }
 const closingRun = eodCli("2026-10-28T19:59:00Z");
@@ -331,4 +331,12 @@ assert.equal(eodCli("2026-10-28T19:59:00Z", undefined, {}).status, 1, "a run sta
 assert.equal(eodCli("2028-07-03T16:59:00Z", "40,50 16 * * 1-5").status, 0);
 assert.equal(eodCli("2026-11-26T20:50:00Z", "40,50 20 * * 1-5").calls, 0);
 assert.equal(eodCli("2026-10-28T18:50:00Z", "40,50 18 * * 1-5").calls, 0);
+// The 15:30 ET build dispatches the workflow before the window; it must wait
+// for the final 20 minutes, not skip. An 11:00 ET dispatch must not wait.
+const waitEnv = { WEBULL_EOD_WAIT_FOR_WINDOW: "1" };
+const dispatched = eodCli("2026-11-06T20:36:00Z", "", undefined, waitEnv);
+assert.equal(dispatched.status, 0); assert.ok(dispatched.calls >= 2, "a pre-window dispatch waits and then monitors the close");
+assert.equal(eodCli("2026-11-06T16:05:00Z", "", undefined, waitEnv).calls, 0, "a morning dispatch exits without waiting");
+assert.equal(eodCli("2026-11-06T20:36:00Z", "", undefined, {}).calls, 0, "without the wait flag a pre-window run still skips");
+assert.equal(eodCli("2026-11-27T17:30:00Z", "", undefined, waitEnv).calls >= 2, true, "early close: waits for 12:40 ET");
 console.log("Webull execution policy: caps, quote clipping, cancellation lag/races, EOD entry/exit, real fill provenance, stale entries, and early-close monitoring passed offline.");
