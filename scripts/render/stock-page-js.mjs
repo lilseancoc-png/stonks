@@ -55,13 +55,93 @@ export function renderStockPageJs() {
     function readWatch(){
       try { var v = JSON.parse(localStorage.getItem(WATCH_KEY) || '[]'); return Array.isArray(v) ? v.filter(cleanSym).slice(0, 40) : []; } catch (_) { return []; }
     }
+    function writeWatch(list){ try { localStorage.setItem(WATCH_KEY, JSON.stringify(list)); } catch (_) {} }
+    // Owners: the list is also saved privately on the server
+    // (/api/auth/owner-watchlist) so it follows them across devices.
+    // WATCH_BASE_KEY holds the list this device and the server last agreed on,
+    // so a removal on another device sticks (lib/owner-watchlist.mjs merge).
+    var WATCH_BASE_KEY = 'stonks-watch-base-v1';
+    var watchSync = { state: 'local', at: null, busy: false, icsToken: null };
+    function readWatchBase(){
+      try { var v = JSON.parse(localStorage.getItem(WATCH_BASE_KEY) || 'null'); return Array.isArray(v) ? v : null; } catch (_) { return null; }
+    }
+    // POSTs go out one at a time and only the newest reply is adopted, so a
+    // slow reply to an older click can't drop a name added after it.
+    var watchQueue = Promise.resolve(), watchSeq = 0;
+    function adoptWatch(j){
+      if (!j || !Array.isArray(j.symbols)){ watchSync.state = 'error'; repaintWatch(false); return; }
+      var list = OWNER_WATCH.clean(j.symbols);
+      var changed = list.join(',') !== readWatch().join(',');
+      writeWatch(list);
+      try { localStorage.setItem(WATCH_BASE_KEY, JSON.stringify(list)); } catch (_) {}
+      watchSync.state = 'synced'; watchSync.at = j.updatedAt || null;
+      // The private calendar link for this Owner's saved list (GET only).
+      var newToken = typeof j.icsToken === 'string' && j.icsToken && j.icsToken !== watchSync.icsToken;
+      if (newToken) watchSync.icsToken = j.icsToken;
+      repaintWatch(changed || newToken);
+    }
+    function watchFailed(){ watchSync.state = 'error'; repaintWatch(false); }
+    function watchRequest(method, body){
+      return fetch('/api/auth/owner-watchlist', method === 'GET' ? { cache: 'no-store', credentials: 'same-origin' } :
+        { method: 'POST', cache: 'no-store', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+        .then(function(r){ return r.ok ? r.json() : null; });
+    }
+    // Queue a request; its reply is adopted only if nothing newer was queued.
+    function queueWatch(run){
+      var seq = ++watchSeq;
+      watchQueue = watchQueue.then(run).then(function(j){ if (seq === watchSeq) adoptWatch(j); }, function(){ if (seq === watchSeq) watchFailed(); });
+      return watchQueue;
+    }
+    function syncWatch(){
+      if (!HAS_OWNER_ACCESS || watchSync.busy) return;
+      watchSync.busy = true; watchSync.state = 'syncing';
+      queueWatch(function(){
+        return watchRequest('GET').then(function(j){
+          if (!j || !Array.isArray(j.symbols)) return j;
+          var merged = OWNER_WATCH.merge(j.symbols, readWatch(), readWatchBase());
+          if (merged.join(',') === OWNER_WATCH.clean(j.symbols).join(',')) return j;
+          return watchRequest('POST', { op: 'sync', local: readWatch(), base: readWatchBase() }).then(function(k){
+            if (k && !k.icsToken && j.icsToken) k.icsToken = j.icsToken;
+            return k;
+          });
+        });
+      }).then(function(){ watchSync.busy = false; });
+    }
     function toggleWatch(sym){
       var list = readWatch();
       var i = list.indexOf(sym);
       if (i >= 0) list.splice(i, 1); else list.unshift(sym);
-      try { localStorage.setItem(WATCH_KEY, JSON.stringify(list)); } catch (_) {}
+      writeWatch(list);
+      if (HAS_OWNER_ACCESS){
+        watchSync.state = 'syncing';
+        var body = { op: i < 0 ? 'add' : 'remove', symbol: sym };
+        queueWatch(function(){ return watchRequest('POST', body); });
+      }
+      try { document.dispatchEvent(new CustomEvent('stonks-watchlist-changed')); } catch (_) {}
       return i < 0;
     }
+    function watchNoteHtml(){
+      if (!HAS_OWNER_ACCESS) return '';
+      var txt = watchSync.state === 'synced' ? 'Saved to your Owner account, so it follows you to other devices.' :
+        watchSync.state === 'syncing' ? 'Saving to your Owner account…' :
+        watchSync.state === 'error' ? 'Could not reach your saved list; this device keeps its copy and syncs next time.' : '';
+      return txt ? '<span class="wla-sync' + (watchSync.state === 'error' ? ' err' : '') + '" data-watch-sync>' + txt + '</span>' : '';
+    }
+    // Re-draw whatever shows the list: the picker's watchlist, the open
+    // stock's Watch button, and listeners such as the Owner alerts on Home.
+    function repaintWatch(listChanged){
+      var pane = document.getElementById('page-pane-stock');
+      var root = document.getElementById('stock-root');
+      var block = pane && !pane.hidden && root && !state.sym ? root.querySelector('[data-stp-watch-block]') : null;
+      if (block) block.innerHTML = watchBlockHtml();
+      var btn = document.querySelector('[data-stock-watch]');
+      if (btn && state.sym){
+        var on = readWatch().indexOf(state.sym) >= 0;
+        btn.classList.toggle('is-on', on); btn.setAttribute('aria-pressed', on ? 'true' : 'false'); btn.textContent = on ? '★ Watching' : '☆ Watch';
+      }
+      if (listChanged) { try { document.dispatchEvent(new CustomEvent('stonks-watchlist-changed')); } catch (_) {} }
+    }
+    document.addEventListener('stonks-owner-ready', function(){ if (HAS_OWNER_ACCESS) syncWatch(); });
     // --- formatting --------------------------------------------------------
     function num(v, d){ return (v == null || !isFinite(v)) ? '—' : Number(v).toLocaleString(undefined, { minimumFractionDigits: d == null ? 2 : d, maximumFractionDigits: d == null ? 2 : d }); }
     function money(v){ return (v == null || !isFinite(v)) ? '—' : '$' + num(v, Math.abs(v) >= 1000 ? 0 : 2); }
@@ -262,25 +342,30 @@ export function renderStockPageJs() {
       if (b) b.textContent = blurb || '';
       try { document.title = title + ' · stonks'; } catch (_) {}
     }
+    function pickTiles(syms){
+      return '<div class="stp-pick-grid">' + syms.map(function(s){
+        var n = cache.names && cache.names[s];
+        return '<a class="stp-pick" href="?tab=stock&s=' + encodeURIComponent(s) + '" data-stock-sym="' + escapeHtml(s) + '">' +
+          '<span class="stp-pick-sym">' + escapeHtml(s) + '</span>' +
+          '<span class="stp-pick-name">' + escapeHtml(n && n.n || INDUSTRIES[s] || SECTORS[s] || '') + '</span>' +
+          (n && n.ch != null ? chg(n.ch) : '') + '</a>';
+      }).join('') + '</div>';
+    }
+    function watchBlockHtml(){
+      var watch = readWatch();
+      return watch.length ? '<h3 class="stp-h3">Your watchlist</h3>' + watchNoteHtml() + pickTiles(watch) +
+        (HAS_OWNER_ACCESS ? '<div class="wla-box" data-watch-alerts>' + (typeof watchAlertsHtml === 'function' ? watchAlertsHtml({ title: 'Alerts on your watchlist', limit: 12 }) : '') + '</div>' : '') : '';
+    }
     function renderPicker(root){
       parkGrade();
       setHeader('Look up a stock', 'Price, chart, key numbers, news, earnings, options and owners for any stock this site follows.');
-      var watch = readWatch();
       var list = SYMBOLS.slice().sort();
-      var tiles = function(syms){
-        return '<div class="stp-pick-grid">' + syms.map(function(s){
-          var n = cache.names && cache.names[s];
-          return '<a class="stp-pick" href="?tab=stock&s=' + encodeURIComponent(s) + '" data-stock-sym="' + escapeHtml(s) + '">' +
-            '<span class="stp-pick-sym">' + escapeHtml(s) + '</span>' +
-            '<span class="stp-pick-name">' + escapeHtml(n && n.n || INDUSTRIES[s] || SECTORS[s] || '') + '</span>' +
-            (n && n.ch != null ? chg(n.ch) : '') + '</a>';
-        }).join('') + '</div>';
-      };
+      var tiles = pickTiles;
       var big8 = Object.keys(cache.names || {}).map(function(k){ return cache.names[k]; })
         .sort(function(a, b){ return (b.mc || 0) - (a.mc || 0); }).slice(0, 12).map(function(t){ return t.t; });
       root.innerHTML =
         searchBox() +
-        (watch.length ? '<h3 class="stp-h3">Your watchlist</h3>' + tiles(watch) : '') +
+        '<div data-stp-watch-block>' + watchBlockHtml() + '</div>' +
         (big8.length ? '<h3 class="stp-h3">Largest companies</h3>' + tiles(big8) : '') +
         '<h3 class="stp-h3">Every stock A to Z</h3>' + tiles(list);
       bindSearch(root);
@@ -788,7 +873,7 @@ export function renderStockPageJs() {
       if (s !== state.sym){ state.sym = s; if (!wantGrade && state.tab === 'grade') state.tab = 'overview'; load(); }
       else if (wantGrade !== (state.tab === 'grade')){ state.tab = wantGrade ? 'grade' : 'overview'; load(); }
     });
-    return { open: open, load: load, showTab: showTab, follow: follow, names: names, nameOf: nameOf, watchlist: readWatch, href: function(sym){ return '?tab=stock&s=' + encodeURIComponent(String(sym || '').toUpperCase()); } };
+    return { open: open, load: load, showTab: showTab, follow: follow, names: names, nameOf: nameOf, watchlist: readWatch, watchNoteHtml: watchNoteHtml, icsToken: function(){ return HAS_OWNER_ACCESS ? watchSync.icsToken : null; }, href: function(sym){ return '?tab=stock&s=' + encodeURIComponent(String(sym || '').toUpperCase()); } };
   })();
 `;
 }

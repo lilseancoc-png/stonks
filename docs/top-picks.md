@@ -10,9 +10,11 @@ described in this reference. No other research desk adopts this new policy.
 
 The canonical spec for how a name becomes a **Top Pick**. The engine is a clean
 rebuild (it replaced a 263-knob, four-document tangle of nine self-contradicting
-reworks). It lives entirely in the `// TOP PICKS ENGINE` block of
+reworks). It lives in the `// TOP PICKS ENGINE` block of
 [`scripts/build.mjs`](../scripts/build.mjs); every threshold below is a named
-constant there. **If the code and this doc disagree, the code wins — fix the doc.**
+constant in [`lib/top-picks-config.mjs`](../lib/top-picks-config.mjs) (moved
+there 2026-11-06 with no change in values) or, for the sector / factor /
+same-run caps, [`lib/top-picks-caps.mjs`](../lib/top-picks-caps.mjs). **If the code and this doc disagree, the code wins — fix the doc.**
 
 > **Scope.** "Top Picks" = the ≤6 *actionable* trades the engine will put on
 > today (`picks.json`). It is **not** the grade-any-ticker search (`grades.json`,
@@ -675,6 +677,15 @@ skips spreads — its single-leg model would mislead.)
 7. **Require a tradeable contract** (else drop).
 8. **Sector cap** ≤3 per sector + a correlation-factor cap (the tech/AI complex),
    ETFs uncapped; plus a per-side cap so the book isn't wildly one-way.
+   **Same-run factor limit** (since 2026-11-06, live): one run opens at most
+   `PICKS_MAX_NEW_PER_FACTOR_RUN` (2) new trades from one factor. Every
+   actionable pick in a run is a new entry (open names are dropped by
+   re-entry suppression), so the limit applies to the actionable roster and
+   to the AI-slot priority pass; watch ideas keep the 5-per-factor cap. Names
+   held back trace as gate `factor-run-cap` (`rosterMeta.factorRunCapped`).
+   Trades carry `capsVersion` so the Track Record draws a dated divider. The
+   caps live in `lib/top-picks-caps.mjs`. Why: on 2026-10-28 15:33 ET one run
+   opened WDC, TSM, MU and ORCL calls together and all four were stopped.
 9. **Factor-trend gate** (`computeFactorTrendHealth`): the resolved track record's
    worst loss was a long-Tech/AI-call book wiped while the *broad* tape barely moved
    (SPY ≈ −1.5%, the picks ≈ −9.6%) — a factor-specific drawdown the broad
@@ -1076,8 +1087,8 @@ as the fallback grade, so the engine still grades, gates, and ships a full card.
 
 ## 10. The constants you'll reach for
 
-Existing knobs live in the `// TOP PICKS ENGINE` constant block at the top of
-the engine. Rows without a code-style knob name are required controls whose
+Existing knobs live in `lib/top-picks-config.mjs` (the caps in
+`lib/top-picks-caps.mjs`); `build.mjs` imports them. Rows without a code-style knob name are required controls whose
 implementation must expose the stated value and audit fields:
 
 | Knob | Default | Effect |
@@ -1094,7 +1105,8 @@ implementation must expose the stated value and audit fields:
 | `ENTRY_VOLATILITY_POLICY` / `PICKS_ENTRY_CHASE_RSI_HARD` | prior-ATR bands / 80 | volatility-aware exhaustion confluence; legacy percentage bands apply only when prior ATR is unavailable |
 | `PICKS_ENTRY_PULLBACK_ATR_MULT` | 1.5 | wait-pullback trigger = a ~1.5×ATR dip (clamped 2–5%), floored at the 20D when nearer — reachable, never the raw 20D far below spot |
 | `PICKS_MAX_PER_SECTOR` | 3 | correlation cap |
-| `PICKS_MAX_PER_FACTOR` | 5 | tech/AI-complex correlation cap |
+| `PICKS_MAX_PER_FACTOR` | 5 | tech/AI-complex correlation cap (watch ideas) |
+| `PICKS_MAX_NEW_PER_FACTOR_RUN` | 2 | new trades one run may open from one factor (actionable roster) |
 | `PICKS_FACTOR_WEAK_SHARE` / `PICKS_FACTOR_WEAK_RET5` | 0.6 / −3 | factor-trend gate: suppress new calls in a rolling-over factor |
 | `PICKS_OPT_TP_PCT` / `PICKS_OPT_STOP_PCT` | 0.25 / 0.50 | +25% take-profit / −50% stop (not env-tunable — code constants) |
 | `PICKS_OPT_SCALE_OUT` | off | 1 = bank half + trail the runner at the TP instead of the flat take-profit |
@@ -1162,7 +1174,7 @@ reset/stamps. To regenerate from a hydrated `data/`, first run
 
 ## 12. Pointers
 
-- Engine: the `// TOP PICKS ENGINE` block in `scripts/build.mjs`.
+- Engine: the `// TOP PICKS ENGINE` block in `scripts/build.mjs`; settings in `lib/top-picks-config.mjs`, caps in `lib/top-picks-caps.mjs`.
 - Offline rebuild: `scripts/regen-picks.mjs`. Smoke test: `scripts/picks-smoke.mjs`.
 - Browser render: `loadPicks`/`renderPicks` + the grade-search + Track-record
   views in `scripts/render/app-js.mjs` (read `picks.json` / `grades.json` /

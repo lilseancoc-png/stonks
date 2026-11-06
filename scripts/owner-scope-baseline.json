@@ -1,0 +1,31 @@
+{
+  "note": "Fingerprints for scripts/owner-scope-smoke.mjs. Update with --update only for a deliberate change, and say why in the PR.",
+  "files": {
+    "scripts/build.mjs": "748c38cb88e0b6e0c5c4ee13f657e241d53c51a8ec866f2d15c1e99147bcbaf2",
+    "lib/top-picks-config.mjs": "62a6a4975c4eca6253daf83f1b510c67154d62560bcb9ef485a7423f41bae6e5",
+    "lib/datastore.mjs": "a1d12f4ad95025a0cfb9166a0c53b875ae1bf690466b6e579ea755dda250b630",
+    "lib/data-ownership.mjs": "e914126e0df674e2c9d62f359e7747abdd2efa21f18d281c4c43d975a3415420",
+    "scripts/sync-data.mjs": "cc5066b53a0bcb3ef344b040bb1b1fdb9832838f4bc7eef0102d1f972c6695d7",
+    "lib/webull-mirror.mjs": "4371df1da1cba2e487d90d37661d8b3a36b1acbab1d6374187ade32e79e25aa7",
+    "lib/grade-research.mjs": "74fb6c5acbe68820937758cdbd963cc669aba3b74fda28e74181c37e12e773a4"
+  },
+  "calculators": {
+    "gradeSpread": "cc24b0ff411b6ea0f8b37ba1a76524629f71aa4dd18f76b6e9c03f88c8b7b075",
+    "gradeLiquidity": "39a8870618446d964623b287cba4aaae157772ee24b584e61498f772bf94f70b",
+    "gradeVolRegime": "1f38b89b4e5656d8d3b3cfc99977e5b5b9989e0cf271a905e74d1f99a8c49320",
+    "gradeDelta": "5c5fb0c5700f9593130cad03e3598e958d97c4bfeb1df99e6852a7838690278c",
+    "gradeTheta": "787daa3b55e15d4fe603e6613f57538a422deb913d717b5658e4ee63f2f8b886",
+    "shouldBuy": "25f4d6ad1b6587bdab1f17c8dcf52291805f7210f2901a625367e637d3516cfd",
+    "findAlternative": "ef76141078a1a94c483dd6c4f1ea306610e9048b7ee67568f5631c607e06841e",
+    "reconcileVerdict": "9fc841cb981ee602e4058a0f03c2e72e8422576098ebc2b056b46df1703f2740",
+    "buildResultHtml": "b65a98389456bbd47731692c0f767520644a0a050987dc0137941f14e6f6ed2e",
+    "computeMaxPain": "98053a6f7765240515cf5f809b3e44a9b2934ba5cd50fbdcec292836541b56d2",
+    "computeTermStructure": "7ff7ef5d84570db0912ab0b187e1a571c83aa31b95dd34d0a8e6f0edfc3c18fa",
+    "computeLiveMacroRegime": "5eb3aaed29585af9f3a05b3ca994a26935cb010b2c0da7e4f1b79abab394c298",
+    "computeGexFlip": "3c267bc3483dab4ac871e70ff319cf819684bc30cb2b706b6a70d610fbff7ba7",
+    "computeGex": "c6ddf031ea47f210744ca3465ef38b4cda45d47e695eb5bc648670ecf280ad34",
+    "maTrackerScore": "5cb2eb551fd1283b892692d7c4a98a12db860888a8e4906229bfa26d36fbaf49",
+    "heatmapSquarify": "3588c8bd76335235904311020e07c2956c1f6f1702fe95261b01f852280cf4df",
+    "heatmapColorParts": "b7ea306b8a011007ad913d1fa049b4d730f2d0200833fd35f26c4128d12c2fc6"
+  }
+}

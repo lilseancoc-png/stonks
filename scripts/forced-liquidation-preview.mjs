@@ -37,7 +37,7 @@ export async function createLiquidationPreview({port=0,payloadFile=null}={}){
       return json(leverageDistressFixture(payload.builtAtIso));
     }
     if(key==='manifest.json'||key==='manifest-free.json')return json(manifest);
-    if(key==='picks.json')return json({builtAtIso:payload.builtAtIso,picks:[],rosterMeta:{forcedLiquidationWatch:payload.rows.filter(r=>r.state!=='debt-context').map(r=>({symbol:r.symbol,state:r.state,distancePct:r.distancePct,engineEligible:r.engineEligible,vetoLong:r.vetoLong}))}});
+    if(key==='picks.json'||url.pathname==='/api/auth/top-picks')return json({builtAtIso:payload.builtAtIso,picks:[],rosterMeta:{forcedLiquidationWatch:payload.rows.filter(r=>r.state!=='debt-context').map(r=>({symbol:r.symbol,state:r.state,distancePct:r.distancePct,engineEligible:r.engineEligible,vetoLong:r.vetoLong}))}});
     if(key)return json({});
     if(url.pathname.startsWith('/api/'))return json({entries:[],items:[]});
     if(url.pathname.startsWith('/_vercel/'))return res.end('');

@@ -13,6 +13,11 @@
 //                       (POST from the build workflow) / its trade log (GET)
 //   track-record-reset -> Owner-only, same-origin wipe of one tracker (POST)
 //   track-record-data  -> Owner-only reporting view, independent of execution
+//   owner-watchlist  -> the Owner's stock-page watchlist, synced across devices
+//                       (GET / same-origin POST; lib/owner-watchlist.mjs)
+//   calendar-ics     -> .ics feed of watchlist earnings, CPI, jobs and FOMC
+//                       (?s=SYMBOLS for anyone, ?o=<signed token> for an
+//                       Owner's synced watchlist; lib/calendar-ics.mjs)
 //   mcp / mcp-meta / mcp-oauth -> the Mingstreet MCP server and its OAuth
 //                       endpoints (lib/mcp/; reached via vercel.json rewrites)
 //
@@ -20,7 +25,7 @@
 // access never requires a login; only principals holding the existing Top Picks
 // owner role can mint a session.
 
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { researchLabEnabled } from '../../lib/research-lab/access.mjs';
 import {
   serializeCookie,
@@ -113,6 +118,10 @@ export default async function handler(req, res) {
       return trackRecordReset(req, res);
     case "track-record-data":
       return trackRecordData(req, res);
+    case "owner-watchlist":
+      return ownerWatchlist(req, res);
+    case "calendar-ics":
+      return calendarIcs(req, res);
     case "top-picks":
       return (await import('../top-picks.js')).default(req,res);
     // Mingstreet MCP server (lib/mcp/). vercel.json rewrites /mcp,
@@ -379,8 +388,10 @@ async function picksFeed(req, res) {
 }
 
 // --- Owner trade log (paper / real fills) -----------------------------------
-// GET  /api/auth/picks-fills         -> { rows, updatedAt, errors }
-// POST /api/auth/picks-fills { csv } -> replaces the stored log, same shape
+// GET  /api/auth/picks-fills         -> { rows, updatedAt, errors, marks }
+// POST /api/auth/picks-fills { csv } -> replaces the stored rows (marks kept)
+// POST /api/auth/picks-fills { mark: { trade_id, took, reason } | { trade_id, clear } }
+//                                    -> saves one took / skipped mark
 // The Track Record joins these rows to the record by trade ID (Scorecard,
 // "Your fills vs the record"). Owner session with both claims required; POST
 // must be same-origin. Stored under the request-time key picks-fills.json,
@@ -463,19 +474,153 @@ async function picksFills(req, res) {
       return res.status(405).json({ error: "method not allowed" });
     }
     if (!isSameOriginRequest(req)) return res.status(403).json({ error: "forbidden" });
-    const { parseFillsCsv, FILLS_MAX_BYTES } = await import("../../lib/track-record-fills.mjs");
+    const { parseFillsCsv, FILLS_MAX_BYTES, applyTradeMark } = await import("../../lib/track-record-fills.mjs");
+    const readPrev = async () => {
+      const prevBuf = await store.get(FILLS_KEY);
+      return prevBuf == null ? { rows: [], updatedAt: null, errors: [] } : JSON.parse(prevBuf.toString("utf8"));
+    };
+    // One "took it / skipped it" mark (POST { mark: { trade_id, took, reason } }).
+    // Marks live beside the uploaded rows and survive the next CSV upload.
+    if (req.body && typeof req.body === "object" && req.body.mark) {
+      if (applyTradeMark({}, req.body.mark).error) return res.status(400).json({ error: applyTradeMark({}, req.body.mark).error });
+      const prev = await readPrev();
+      const applied = applyTradeMark(prev.marks, req.body.mark);
+      const out = { ...prev, marks: applied.marks };
+      await store.put(FILLS_KEY, JSON.stringify(out));
+      const mirrored = await webullFillRows(store);
+      return res.status(200).json(mirrored.length ? { ...out, rows: [...mirrored, ...(Array.isArray(out.rows) ? out.rows : [])] } : out);
+    }
     const csv = req.body && typeof req.body === "object" ? req.body.csv : null;
     if (typeof csv !== "string" || !csv.trim()) return res.status(400).json({ error: "no csv" });
     if (csv.length > FILLS_MAX_BYTES) return res.status(413).json({ error: "file too large" });
     const { rows, errors } = parseFillsCsv(csv);
     if (!rows.length) return res.status(400).json({ error: "no usable rows", errors });
-    const out = { rows, errors, updatedAt: new Date().toISOString() };
+    const prev = await readPrev();
+    const out = { rows, errors, updatedAt: new Date().toISOString(), ...(prev.marks ? { marks: prev.marks } : {}) };
     await store.put(FILLS_KEY, JSON.stringify(out));
     const mirrored = await webullFillRows(store);
     return res.status(200).json(mirrored.length ? { ...out, rows: [...mirrored, ...rows] } : out);
   } catch (err) {
     console.error("picks fills failed", { message: String(err?.message || err) });
     return res.status(502).json({ error: "fills unavailable" });
+  }
+}
+
+// --- Owner watchlist ----------------------------------------------------------
+// GET  /api/auth/owner-watchlist  -> { symbols, updatedAt }
+// POST /api/auth/owner-watchlist  { op: add|remove, symbol } or
+//                                 { op: sync, local, base } (same-origin only)
+// One list per Discord account (keyed by a hash of the session's user id) in
+// owner-watchlist.json, which is Owner-only and request-time-owned: no
+// workflow pushes or deletes it.
+function ownerWatchKey(session) {
+  return createHash("sha256").update("owner-watchlist:" + String(session?.sub || "owner")).digest("hex").slice(0, 24);
+}
+// A calendar app can't send the session cookie, so an Owner's calendar link
+// carries a signed token for their watchlist key instead. It reveals only that
+// Owner's watched symbols plus public dates; rotating SESSION_SECRET revokes it.
+function ownerIcsToken(userKey) {
+  const secret = process.env.SESSION_SECRET || "";
+  if (secret.length < 16 || !/^[0-9a-f]{24}$/.test(userKey)) return null;
+  return userKey + "." + createHmac("sha256", secret).update("calendar-ics:" + userKey).digest("hex").slice(0, 32);
+}
+function ownerIcsKeyOf(token) {
+  const m = /^([0-9a-f]{24})\.([0-9a-f]{32})$/.exec(String(token || ""));
+  if (!m) return null;
+  const expected = ownerIcsToken(m[1]);
+  return expected && keyMatches(token, expected) ? m[1] : null;
+}
+
+// GET /api/auth/calendar-ics?s=AAPL,MSFT[&dl=1]  or  ?o=<Owner token>
+async function calendarIcs(req, res) {
+  res.setHeader("X-Robots-Tag", "noindex, nofollow");
+  if (process.env.PRIVATE_DATA_ENABLED !== "1") { res.setHeader("Cache-Control", "no-store"); return res.status(404).json({ error: "not found" }); }
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    res.setHeader("Allow", "GET, HEAD");
+    return res.status(405).json({ error: "method not allowed" });
+  }
+  const { parseIcsSymbols, buildCalendarIcs } = await import("../../lib/calendar-ics.mjs");
+  const token = req.query?.o;
+  const ownerKey = token ? ownerIcsKeyOf(token) : null;
+  if (token && !ownerKey) { res.setHeader("Cache-Control", "no-store"); return res.status(404).json({ error: "not found" }); }
+  try {
+    const { store } = await import("../../lib/datastore.mjs");
+    let symbols = parseIcsSymbols(req.query?.s);
+    if (ownerKey) {
+      const { OWNER_WATCHLIST_KEY, readOwnerWatchlistDoc } = await import("../../lib/owner-watchlist.mjs");
+      const doc = readOwnerWatchlistDoc(await store.get(OWNER_WATCHLIST_KEY));
+      symbols = parseIcsSymbols((doc.users[ownerKey]?.symbols || []).join(","));
+    }
+    const buf = await store.get("calendar.json");
+    const calendar = buf == null ? {} : JSON.parse(buf.toString("utf8"));
+    const text = buildCalendarIcs(calendar, { symbols, siteUrl: baseUrl(req) });
+    res.setHeader("Content-Type", "text/calendar; charset=utf-8");
+    res.setHeader("Cache-Control", ownerKey ? "private, max-age=1800" : "public, max-age=1800, s-maxage=3600");
+    if (ownerKey) res.setHeader("Referrer-Policy", "no-referrer");
+    if (req.query?.dl === "1") res.setHeader("Content-Disposition", 'attachment; filename="mingstreet-calendar.ics"');
+    res.statusCode = 200;
+    return res.end(req.method === "HEAD" ? undefined : text);
+  } catch (err) {
+    console.error("calendar ics failed", { message: String(err?.message || err) });
+    res.setHeader("Cache-Control", "no-store");
+    return res.status(502).json({ error: "calendar unavailable" });
+  }
+}
+
+async function ownerWatchlist(req, res) {
+  res.setHeader("Cache-Control", "private, no-store");
+  if (process.env.PRIVATE_DATA_ENABLED !== "1") return res.status(404).json({ error: "not found" });
+  const session = await getSession(req).catch(() => null);
+  if (!session) return res.status(401).json({ error: "auth required" });
+  if (session.tr !== true || session.tp !== true) return res.status(401).json({ error: "role required" });
+  if (req.method !== "GET" && req.method !== "POST") {
+    res.setHeader("Allow", "GET, POST");
+    return res.status(405).json({ error: "method not allowed" });
+  }
+  if (req.method === "POST" && !isSameOriginRequest(req)) return res.status(403).json({ error: "forbidden" });
+  const { OWNER_WATCHLIST_KEY, readOwnerWatchlistDoc, applyOwnerWatchlistRequest, ownerWatchlistFactory } = await import("../../lib/owner-watchlist.mjs");
+  // Validate the request before anything is read or stored.
+  if (req.method === "POST") {
+    const check = applyOwnerWatchlistRequest([], req.body);
+    if (check.error) return res.status(400).json({ error: check.error });
+  }
+  try {
+    const { store } = await import("../../lib/datastore.mjs");
+    const key = ownerWatchKey(session);
+    const readMine = async () => {
+      const doc = readOwnerWatchlistDoc(await store.get(OWNER_WATCHLIST_KEY));
+      const mine = doc.users[key] || { symbols: [], updatedAt: null };
+      return { doc, mine, current: ownerWatchlistFactory().clean(mine.symbols) };
+    };
+    if (req.method === "GET") {
+      const { mine, current } = await readMine();
+      return res.status(200).json({ symbols: current, updatedAt: mine.updatedAt || null, icsToken: ownerIcsToken(key) });
+    }
+    // Read, change and save under the store's lease so two devices (or two
+    // quick clicks) saving at once can't drop each other's change.
+    const save = async (guard) => {
+      const { doc, current } = await readMine();
+      const out = applyOwnerWatchlistRequest(current, req.body);
+      if (out.error) return out;
+      const updatedAt = new Date().toISOString();
+      doc.users[key] = { symbols: out.list, updatedAt };
+      if (guard) guard();
+      await store.put(OWNER_WATCHLIST_KEY, JSON.stringify(doc));
+      return { symbols: out.list, updatedAt };
+    };
+    let out;
+    if (store.backend === "r2" && typeof store.withLease === "function") {
+      let leased;
+      try { leased = await store.withLease("owner-watchlist", save); }
+      catch (err) { if (err?.code === "LEASE_CONFLICT") return res.status(409).json({ error: "busy, try again" }); throw err; }
+      if (leased?.busy) return res.status(409).json({ error: "busy, try again" });
+      out = leased.result;
+    } else out = await save(null);
+    if (out.error) return res.status(400).json({ error: out.error });
+    return res.status(200).json(out);
+  } catch (err) {
+    console.error("owner watchlist failed", { message: String(err?.message || err) });
+    return res.status(502).json({ error: "watchlist unavailable" });
   }
 }
 

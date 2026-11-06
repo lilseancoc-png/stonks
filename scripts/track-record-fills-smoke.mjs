@@ -6,6 +6,7 @@
 import {
   outcomeFromPnl, positionLegs, legQuote, entryFillCost, realFillMark, exitDetailFor,
   compactClosedForArchive, mergeArchive, parseFillsCsv, fillPnlPct, entrySlippagePct,
+  applyTradeMark, TRADE_MARK_REASONS, TRADE_MARKS_MAX,
 } from "../lib/track-record-fills.mjs";
 import {
   resolvePickOutcome, computePicksAccuracyStats, advancePicksBaseline, computeBaselineStats,
@@ -162,6 +163,23 @@ ok("fills: missing trade_id column is rejected", parseFillsCsv("symbol,fill_pric
 ok("fills: control characters are stripped", parseFillsCsv("trade_id,notes\nX-1,a\u0007b").rows[0].notes === "a b");
 ok("fills: slippage falls back to the record mid", near(entrySlippagePct({ fill_price: 5.2, structure: "long" }, 5), 4));
 ok("fills: no close price -> no P&L yet", fillPnlPct({ fill_price: 5 }) == null);
+
+// --- Took / skipped marks -------------------------------------------------------
+{
+  const at = "2026-11-06T16:00:00.000Z";
+  const took = applyTradeMark({}, { trade_id: "nvda-c-11/06/26-11:03", took: true, reason: "ignored" }, at);
+  ok("mark: took saves with the id upper-cased and no reason", took.marks && took.marks["NVDA-C-11/06/26-11:03"]?.took === true && took.marks["NVDA-C-11/06/26-11:03"].reason === null);
+  const skip = applyTradeMark(took.marks, { trade_id: "MU-C-10/28/26-15:33", took: false, reason: TRADE_MARK_REASONS[0] }, at);
+  ok("mark: skipped keeps its reason and the earlier mark", skip.marks["MU-C-10/28/26-15:33"].reason === "Price moved too far" && skip.marks["NVDA-C-11/06/26-11:03"]);
+  ok("mark: skipped needs a reason", !!applyTradeMark({}, { trade_id: "MU-C-10/28/26-15:33", took: false }).error);
+  ok("mark: bad ids are refused", !!applyTradeMark({}, { trade_id: "../picks", took: true }).error && !!applyTradeMark({}, { trade_id: "MU-261028-1533", took: true }).error);
+  ok("mark: clear removes one", !applyTradeMark(skip.marks, { trade_id: "MU-C-10/28/26-15:33", clear: true }).marks["MU-C-10/28/26-15:33"]);
+  ok("mark: reasons are trimmed to 120 characters", applyTradeMark({}, { trade_id: "MU-C-10/28/26-15:33", took: false, reason: "x".repeat(400) }).marks["MU-C-10/28/26-15:33"].reason.length === 120);
+  const many = {};
+  for (let i = 0; i < TRADE_MARKS_MAX; i++) many[`A${i}-C-01/01/26-11:00`.slice(0, 22)] = { took: true, reason: null, at: new Date(Date.UTC(2026, 0, 1) + i * 1000).toISOString() };
+  const capped = applyTradeMark(many, { trade_id: "NEWX-C-11/06/26-11:03", took: true }, "2027-01-01T00:00:00.000Z");
+  ok("mark: the store keeps the newest marks", Object.keys(capped.marks).length <= TRADE_MARKS_MAX && capped.marks["NEWX-C-11/06/26-11:03"]);
+}
 
 console.log(`\n${pass}/${pass + fail} checks passed.`);
 if (fail) process.exit(1);

@@ -7,7 +7,12 @@
 <title>stonks</title>
 <meta name="description" content="Track stock prices, market data, company fundamentals, earnings and sourced market news." />
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
-<link rel="apple-touch-icon" href="favicon.svg">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0c0b09">
+<meta name="apple-mobile-web-app-title" content="Mingstreet">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta property="og:type" content="website">
 <meta property="og:title" content="stonks">
 <meta property="og:description" content="Track stock prices, market data, company fundamentals, earnings and sourced market news.">
@@ -17,10 +22,11 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..600;1,9..144,400..600&family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="styles.css?v=sha256-0098e4c7b6fdee15">
+<link rel="stylesheet" href="styles.css?v=sha256-35258f6d22f97670">
 <script>/* Split-view pane: hide the site chrome before first paint. */try{if(window.self!==window.top)document.documentElement.classList.add('is-embed')}catch(e){document.documentElement.classList.add('is-embed')}</script>
 </head>
 <body>
+<div class="pwa-offline" id="pwa-offline" role="status" aria-live="polite" hidden></div>
 <a class="skip-content" href="#main-content">Skip to content</a>
 <header class="site-header">
   <div class="site-header-inner">
@@ -145,6 +151,7 @@
     <div class="side-nav-group-items">
       <button type="button" class="page-tab" role="tab" data-page-tab="earnings" aria-selected="false" aria-controls="page-pane-earnings" id="page-tab-earnings" data-nav-alias="Earnings tracker"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4.5" width="18" height="17" rx="2"/><path d="M16 2.5v4M8 2.5v4M3 10.5h18"/><path d="m6.5 17.5 3-3.5 2.5 2 4-4.5"/><path d="M13.5 11.5H16V14"/></svg><span class="pt-label">Earnings results</span></button>
       <button type="button" class="page-tab" role="tab" data-page-tab="calls" aria-selected="false" aria-controls="page-pane-calls" id="page-tab-calls"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.9 8.9 0 0 1-3.9-.9L3 20l1-4.9a8.4 8.4 0 0 1-1-4A8.4 8.4 0 0 1 12 3a8.4 8.4 0 0 1 9 8.5Z"/><path d="M8 10.5h8M8 14h5"/></svg><span class="pt-label">Earnings calls</span></button>
+      <button type="button" class="page-tab" role="tab" data-page-tab="earnings-week" aria-selected="false" aria-controls="page-pane-earnings-week" id="page-tab-earnings-week" data-nav-alias="Earnings board implied move expected move straddle this week"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4.5" width="18" height="16.5" rx="2"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4"/><path d="M7 14h2v4H7zM11 12.5h2V18h-2zM15 15h2v3h-2z"/></svg><span class="pt-label">Earnings week ahead</span></button>
       <button type="button" class="page-tab" role="tab" data-page-tab="spillover" aria-selected="false" aria-controls="page-pane-spillover" id="page-tab-spillover" data-nav-alias="Event spillover"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="2.5"/><path d="M12 5.5a6.5 6.5 0 0 1 6.5 6.5"/><path d="M12 2a10 10 0 0 1 10 10"/></svg><span class="pt-label">Earnings ripple effects</span></button>
     </div>
   </details>
@@ -193,6 +200,7 @@
       <button type="button" class="page-tab" role="tab" data-page-tab="cheatsheet" aria-selected="false" aria-controls="page-pane-cheatsheet" id="page-tab-cheatsheet" data-nav-alias="Buyer&#39;s manual"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4.5H8a4 4 0 0 1 4 4v13a3 3 0 0 0-3-3H2.5zM21.5 4.5H16a4 4 0 0 0-4 4v13a3 3 0 0 1 3-3h6.5z"/></svg><span class="pt-label">Options guide</span></button>
       <button type="button" class="page-tab" role="tab" data-page-tab="chart-patterns" aria-selected="false" aria-controls="page-pane-chart-patterns" id="page-tab-chart-patterns"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 3.5v17h17"/><path d="m7.5 14 3.5-4 3 3 5-6.5"/></svg><span class="pt-label">Chart patterns</span></button>
       <button type="button" class="page-tab" role="tab" data-page-tab="timeline" aria-selected="false" aria-controls="page-pane-timeline" id="page-tab-timeline" data-nav-alias="Refresh schedule timeline"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M12 6.5V12l3.5 2"/></svg><span class="pt-label">When data updates</span></button>
+      <button type="button" class="page-tab" role="tab" data-page-tab="glossary" aria-selected="false" aria-controls="page-pane-glossary" id="page-tab-glossary" data-nav-alias="Words terms definitions meaning C/P OI IV percentile gamma"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4.5h11a3 3 0 0 1 3 3v12.5H7a3 3 0 0 1-3-3z"/><path d="M4 17a3 3 0 0 1 3-3h11"/><path d="M8.5 8.5h6M8.5 11h4"/></svg><span class="pt-label">Glossary</span></button>
       <button type="button" class="page-tab" role="tab" data-page-tab="privacy" aria-selected="false" aria-controls="page-pane-privacy" id="page-tab-privacy" data-nav-hidden="1"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21.5s7.5-3.7 7.5-9.5V5.5L12 2.5l-7.5 3V12c0 5.8 7.5 9.5 7.5 9.5z"/></svg><span class="pt-label">Privacy Policy</span></button>
       <button type="button" class="page-tab" role="tab" data-page-tab="terms" aria-selected="false" aria-controls="page-pane-terms" id="page-tab-terms" data-nav-hidden="1"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18M7 21h10"/><path d="M4 7h2.5c1.8 0 3.8-.7 5.5-1.7C13.7 6.3 15.7 7 17.5 7H20"/><path d="m6.5 7-2.8 6.7c.8.6 1.8.9 2.8.9s2-.3 2.8-.9zM17.5 7l-2.8 6.7c.8.6 1.8.9 2.8.9s2-.3 2.8-.9z"/></svg><span class="pt-label">Terms of Use</span></button>
     </div>
@@ -323,9 +331,10 @@
     <section class="landing-section landing-desk-section" id="landing-desk" aria-labelledby="landing-desk-title" data-owner-only hidden>
       <header class="landing-section-head">
         <h2 class="landing-section-title" id="landing-desk-title">Your desk</h2>
-        <p class="landing-section-sub">Owner only. Open trades, the next Top Picks run and what changed in the Owner brief.</p>
+        <p class="landing-section-sub">Owner only. Open trades, the next Top Picks run, what changed in the Owner brief and alerts on your watchlist.</p>
       </header>
       <div class="landing-glance landing-desk" id="landing-desk-tiles" data-count="4"></div>
+      <div class="wla-box" id="landing-desk-alerts" hidden></div>
     </section>
     <section class="landing-section landing-topics-section" aria-labelledby="landing-topics-title">
       <details class="landing-topics-fold" id="landing-topics-fold" open>
@@ -1662,6 +1671,7 @@
     </dialog>
     <div class="acc-tabs" role="tablist" aria-label="Track record view">
       <button type="button" class="acc-tab" role="tab" aria-selected="true" aria-controls="acc-pane-summary" id="acc-tab-summary" data-acc-tab="summary">Summary</button>
+      <button type="button" class="acc-tab" role="tab" aria-selected="false" aria-controls="acc-pane-recap" id="acc-tab-recap" data-acc-tab="recap">Week&nbsp;recap</button>
       <button type="button" class="acc-tab" role="tab" aria-selected="false" aria-controls="acc-pane-scorecard" id="acc-tab-scorecard" data-acc-tab="scorecard">Scorecard</button>
       <button type="button" class="acc-tab" role="tab" aria-selected="false" aria-controls="acc-pane-webull" id="acc-tab-webull" data-acc-tab="webull">Real&nbsp;fills</button>
       <button type="button" class="acc-tab" role="tab" aria-selected="false" aria-controls="acc-pane-webull-equity" id="acc-tab-webull-equity" data-acc-tab="webull-equity">Webull&nbsp;Equity</button>
@@ -1679,6 +1689,9 @@
     <div class="acc-pane" role="tabpanel" id="acc-pane-summary" aria-labelledby="acc-tab-summary">
       <div id="acc-sum-summary" class="acc-pane-sum-slot"></div>
       <div id="an-summary" class="acc-analytics">Loading engine summary…</div>
+    </div>
+    <div class="acc-pane" role="tabpanel" id="acc-pane-recap" aria-labelledby="acc-tab-recap" hidden>
+      <div id="acc-recap" class="acc-recap">Loading the week…</div>
     </div>
     <div class="acc-pane" role="tabpanel" id="acc-pane-scorecard" aria-labelledby="acc-tab-scorecard" hidden>
       <div id="acc-sum-scorecard" class="acc-pane-sum-slot"></div>
@@ -1862,6 +1875,7 @@
       </div>
       <button type="button" id="calendar-export-csv" class="csv-export-btn" title="Download visible events as CSV">Export CSV</button>
     </div>
+    <div class="ics-box" id="ics-box" hidden></div>
     <div id="calendar-coverage" class="calendar-coverage" hidden aria-live="polite"></div>
     <div id="calendar-root" class="calendar-root">Loading calendar…</div>
     <div id="calendar-empty" class="calendar-empty" hidden>No upcoming events.</div>
@@ -2363,8 +2377,8 @@
           <select id="oi-sort-select" aria-label="Sort">
             <option value="score">Gamma score</option>
             <option value="oi">Total OI</option>
-            <option value="cp">Highest C/P ratio</option>
-            <option value="delta">Biggest ΔOI %</option>
+            <option value="cp">Most calls per put</option>
+            <option value="delta">Biggest OI change %</option>
             <option value="callwall">Nearest OI call wall</option>
             <option value="putwall">Nearest OI put wall</option>
             <option value="sector">Sector</option>
@@ -3322,6 +3336,20 @@
       <article class="refresh-schedule-card"><span>About every 30 seconds while open</span><h3>Live browser overlays</h3><p>Relevant tabs poll live quotes/chains only while visible and the market is regular. These overlays do not replace the stamped build or scanner snapshot and pause outside the session.</p><em>Best-effort request-time data</em></article>
     </div>
     <div class="refresh-schedule-rule"><b>How to verify freshness:</b> use the timestamp inside the service you are reading, not the footer alone. The footer describes the generated shell; scanner-owned data can be newer.</div>
+  </section>
+  </div>
+  <div class="page-pane" id="page-pane-glossary" role="tabpanel" aria-labelledby="page-tab-glossary" hidden>
+  <section class="card" id="glossary-section">
+    <header class="card-header"><div><span class="card-eyebrow">Learn &amp; help</span><h2 class="card-title">Words used on this site</h2></div></header>
+    <p class="hint">Tap a dotted word anywhere on the site to see its meaning. This is the full list.</p>
+    <dl class="gl-list"><div id="gl-atm"><dt>At the money (ATM)</dt><dd>The strike closest to the current stock price.</dd></div><div id="gl-callWall"><dt>Call wall / put wall</dt><dd>The strike with the most open calls (or puts). Price often stalls near these strikes because dealers hedge around them. These are open-interest walls. <a href="/?tab=oi">See it in use</a></dd></div><div id="gl-cp"><dt>Calls per put (C/P)</dt><dd>Open call contracts divided by open put contracts in the near-term chain. 2:1 means twice as many calls as puts are open. <a href="/?tab=oi">See it in use</a></dd></div><div id="gl-credit"><dt>Credit spread</dt><dd>Sell one option and buy a further one as protection. You collect money up front; the most you can lose is the gap between strikes minus that credit. <a href="/?tab=strategies">See it in use</a></dd></div><div id="gl-dte"><dt>Days to expiry (DTE)</dt><dd>Calendar days until an option expires.</dd></div><div id="gl-debit"><dt>Debit spread</dt><dd>Buy one option and sell a further one of the same type. It costs less than buying alone, and both the gain and the loss are capped. <a href="/?tab=strategies">See it in use</a></dd></div><div id="gl-delta"><dt>Delta (Δ)</dt><dd>About how much an option’s price moves for a $1 move in the stock, and a rough chance it ends in the money. 0.55 Δ is a little in the money.</dd></div><div id="gl-gammaWall"><dt>Gamma wall</dt><dd>The strike where dealers’ estimated hedging is largest (dealer gamma). It is worked out from open interest and each option’s gamma, so it can differ from the OI wall. <a href="/?tab=oi">See it in use</a></dd></div><div id="gl-impliedMove"><dt>Implied move</dt><dd>The move, up or down, that option prices expect around an event such as earnings. It comes from the at-the-money straddle. <a href="/?tab=earnings-week">See it in use</a></dd></div><div id="gl-iv"><dt>Implied volatility (IV)</dt><dd>How big a yearly move option prices are paying for, in percent. Higher IV means more expensive options. <a href="/?tab=cheatsheet">See it in use</a></dd></div><div id="gl-ivPct"><dt>IV percentile</dt><dd>The share of the stock’s own past days (about 18 months) when its IV was lower than today. 85 means options cost more today than on 85% of those days. <a href="/?tab=iv-trend">See it in use</a></dd></div><div id="gl-ivRank"><dt>IV rank</dt><dd>Where today’s IV sits between the lowest (0) and highest (100) IV of the stock’s own saved history. <a href="/?tab=iv-trend">See it in use</a></dd></div><div id="gl-dOi"><dt>OI change (ΔOI)</dt><dd>How much open interest grew or shrank since the prior trading day. A big rise means new positions were opened at that strike. <a href="/?tab=oi">See it in use</a></dd></div><div id="gl-oi"><dt>Open interest (OI)</dt><dd>How many option contracts are still open at a strike. It updates once a day, after the exchange settles the prior session. <a href="/?tab=oi">See it in use</a></dd></div><div id="gl-rv"><dt>Realized volatility (RV30)</dt><dd>How much the stock actually moved over the last 30 trading days, as a yearly percent. When IV is above it, options are charging more than the stock has been moving.</dd></div><div id="gl-squeeze"><dt>Squeeze score (gamma squeeze score)</dt><dd>A 0 to 5 count of signs that call buying could push the stock up fast: heavy calls near the price, many calls per put, busy call-wall trading, a nearby call wall and buying at the ask. 4 or 5 is a setup to watch, not a reason to buy. <a href="/?tab=oi">See it in use</a></dd></div><div id="gl-vrp"><dt>Volatility premium (VRP)</dt><dd>IV minus realized volatility. Positive means options are priced for bigger moves than the stock has been making.</dd></div><div id="gl-volOi"><dt>Volume ÷ OI (Vol/OI)</dt><dd>Contracts traded today divided by contracts already open. Above 1 means today’s trading is larger than the existing positions, often new money. <a href="/?tab=oi">See it in use</a></dd></div></dl>
+  </section>
+  </div>
+  <div class="page-pane" id="page-pane-earnings-week" role="tabpanel" aria-labelledby="page-tab-earnings-week" hidden>
+  <section class="card" id="earnings-week-section">
+    <header class="card-header"><div><span class="card-eyebrow">Earnings · next 10 days</span><h2 class="card-title">Earnings week ahead</h2></div></header>
+    <div id="ewb-root"><p class="ewb-empty">Loading the earnings week&hellip;</p></div>
+    <p class="hint">Rebuilt at every full build from the option chains and the stored earnings history. The expected move is read from the at-the-money straddle. Past moves are the next-session close-to-close change. Not investment advice.</p>
   </section>
   </div>
   <div class="page-pane doc-pane" id="page-pane-cheatsheet" role="tabpanel" aria-labelledby="page-tab-cheatsheet" hidden><div class="doc-host" data-doc="cheatsheet"></div><template data-doc-tpl="cheatsheet"><style>:host{position:relative;display:block}
@@ -4944,7 +4972,7 @@ h1{ font-size:clamp(30px,4.5vw,44px) !important; }
   <div class="muted">All analytical and editorial content is AI-generated or algorithmically produced and may be wrong. Verify independently. Data: third-party sources. For information only — not investment advice.</div>
   <div><a class="foot-discord" href="https://discord.gg/drTq2gkf6j" target="_blank" rel="noopener">Discuss the research in our Discord</a></div>
   <div><a class="foot-support" href="https://ko-fi.com/mingstreetapp" target="_blank" rel="noopener">Support stonks on Ko-fi</a></div>
-  <div><a href="/?tab=privacy">Privacy Policy</a> · <a href="/?tab=terms">Terms of Use</a></div>
+  <div><a href="/?tab=privacy">Privacy Policy</a> · <a href="/?tab=terms">Terms of Use</a> · <a href="/?tab=glossary">Words used on this site</a> · <button type="button" class="link-btn foot-kb" data-kb-help>Keyboard shortcuts</button></div>
   <div class="muted">Price charts by <a href="https://www.tradingview.com/lightweight-charts/" target="_blank" rel="noopener">TradingView Lightweight Charts&trade;</a>, Copyright &copy; 2025 TradingView, Inc.</div>
 </footer>
 <!-- Phone tab bar (hidden on wider screens): each button opens the sidebar at
@@ -4975,7 +5003,7 @@ h1{ font-size:clamp(30px,4.5vw,44px) !important; }
 <script>window.STONKS_MANIFEST={"builtAt":"Nov 6, 2026, 11:03 AM","builtAtIso":"2026-11-06T16:03:43.751Z","symbols":["AAPL","ACN","ADBE","AMAT","AMD","AMZN","ANET","ARM","ASML","ASTS","AVGO","AXP","BABA","BAC","BE","C","CBRS","COST","CRM","CRWD","CRWV","DDOG","DELL","DIS","DRAM","EWY","FTNT","GLD","GOOGL","GS","HD","HOOD","IBM","INTC","INTU","IWM","JPM","KWEB","LLY","MA","MDB","META","MRK","MRNA","MRVL","MS","MSFT","MU","NFLX","NKE","NOW","NVDA","NVO","OKTA","ORCL","PANW","PLTR","PYPL","QCOM","QQQ","RKLB","SBUX","SCHW","SHOP","SLV","SMCI","SMH","SNDK","SNOW","SPCX","SPY","TEAM","TGT","TLT","TSLA","TSM","TXN","UNH","USO","UVXY","V","VRT","VST","WDC","WMT"],"sectors":{"SPY":"ETF","QQQ":"ETF","IWM":"ETF","SMH":"ETF","UVXY":"ETF","TLT":"ETF","USO":"ETF","GLD":"ETF","SLV":"ETF","KWEB":"ETF","EWY":"ETF","AAPL":"Mega-cap tech","MSFT":"Mega-cap tech","NVDA":"Mega-cap tech","AMZN":"Mega-cap tech","GOOGL":"Mega-cap tech","META":"Mega-cap tech","TSLA":"Mega-cap tech","AMD":"Semis","NFLX":"Mega-cap tech","AVGO":"Semis","TSM":"Semis","ORCL":"Software","ASML":"Semis","QCOM":"Semis","TXN":"Semis","MRVL":"Semis","AMAT":"Semis","LRCX":"Semis","MU":"Semis","INTC":"Semis","NXPI":"Semis","ON":"Semis","SMCI":"Semis","ALAB":"Semis","TSEM":"Semis","DRAM":"Semis","SWKS":"Semis","SNDK":"Storage","STX":"Storage","WDC":"Storage","GLW":"Semis","LITE":"Semis","ARM":"Semis","CBRS":"Semis","COHR":"Semis","DELL":"Hardware","CSCO":"Networking","ANET":"Networking","IBM":"Tech services","CRM":"Software","ADBE":"Software","ACN":"IT services","INTU":"Software","NOW":"Software","SNOW":"Software","NET":"Software","DDOG":"Software","CRWD":"Software","ZS":"Software","MDB":"Software","OKTA":"Software","PANW":"Software","WDAY":"Software","ZM":"Software","DOCU":"Software","TEAM":"Software","FTNT":"Software","TTD":"Software","U":"Software","APP":"Software","TWLO":"Software","CRWV":"Software","CEG":"Power","VST":"Power","TLN":"Power","VRT":"Data center","CLS":"Data center","BE":"Clean energy","JPM":"Bank","BAC":"Bank","WFC":"Bank","USB":"Bank","MS":"Bank","COF":"Bank","GS":"Bank","C":"Bank","HSBC":"Bank","UBS":"Bank","V":"Payments","MA":"Payments","AXP":"Payments","PYPL":"Payments","XYZ":"Payments","SCHW":"Broker","IBKR":"Broker","HOOD":"Broker","AFRM":"Fintech","APO":"Asset mgmt","BX":"Asset mgmt","WMT":"Retail","COST":"Retail","TGT":"Retail","HD":"Retail","LOW":"Retail","NKE":"Apparel","LULU":"Apparel","ONON":"Apparel","ELF":"Beauty","W":"E-commerce","EBAY":"E-commerce","MCD":"Restaurants","SBUX":"Restaurants","DIS":"Media","LEN":"Homebuilder","BA":"Industrial","CAT":"Industrial","DE":"Industrial","MMM":"Industrial","GD":"Defense","LMT":"Defense","RTX":"Defense","NOC":"Defense","FDX":"Logistics","UPS":"Logistics","NVO":"Pharma","LLY":"Pharma","MRNA":"Pharma","MRK":"Pharma","UNH":"Insurance","JNJ":"Pharma","PFE":"Pharma","TMO":"Medical","CI":"Insurance","ELV":"Insurance","MOH":"Insurance","CVS":"Pharmacy","BSX":"Medical","VZ":"Telecom","CHTR":"Cable","XOM":"Energy","CVX":"Energy","OXY":"Energy","UBER":"Consumer","ABNB":"Consumer","DASH":"Consumer","BABA":"China tech","BIDU":"China tech","JD":"China tech","PDD":"China tech","TCEHY":"China tech","BILI":"China tech","NIO":"China tech","COIN":"Crypto","PLTR":"Software","SHOP":"Software","GME":"Meme","AMC":"Meme","RDDT":"Social","RKLB":"Space","ASTS":"Space","SPCX":"Space"},"industries":{"MSFT":"Software Infrastructure","ORCL":"Software Infrastructure","SNOW":"Software Infrastructure","CRWD":"Software Infrastructure","MDB":"Software Infrastructure","OKTA":"Software Infrastructure","PANW":"Software Infrastructure","FTNT":"Software Infrastructure","PLTR":"Software Infrastructure","CRWV":"Software Infrastructure","CRM":"Software Applications","ADBE":"Software Applications","NOW":"Software Applications","DDOG":"Software Applications","TEAM":"Software Applications","INTU":"Software Applications","SHOP":"Software Applications","NVDA":"Semiconductors","AMD":"Semiconductors","AVGO":"Semiconductors","TSM":"Semiconductors","MU":"Semiconductors","INTC":"Semiconductors","MRVL":"Semiconductors","QCOM":"Semiconductors","TXN":"Semiconductors","SNDK":"Semiconductors","SMCI":"Semiconductors","DRAM":"Semiconductors","ARM":"Semiconductors","CBRS":"Semiconductors","AMAT":"Semiconductor Equipment & Materials","ASML":"Semiconductor Equipment & Materials","ANET":"Communication Equipment","DELL":"Computer Hardware","WDC":"Computer Hardware","AAPL":"Consumer Electronics","ACN":"Information Technology Services","IBM":"Information Technology Services","AMZN":"Internet Retail","BABA":"Internet Retail","HD":"Specialty Retail","NKE":"Apparel Retail","SBUX":"Restaurants","TSLA":"Auto Manufacturers","GOOGL":"Internet Content & Information","META":"Internet Content & Information","NFLX":"Entertainment","DIS":"Entertainment","RKLB":"Aerospace & Defense","ASTS":"Aerospace & Defense","SPCX":"Aerospace & Defense","VRT":"Electrical Equipment & Parts","MRNA":"Biotechnology","NVO":"Drug Manufacturers - General","LLY":"Drug Manufacturers - General","MRK":"Drug Manufacturers - General","UNH":"Healthcare Plans","JPM":"Banks - Diversified","BAC":"Banks - Diversified","C":"Banks - Diversified","V":"Credit Services","MA":"Credit Services","AXP":"Credit Services","PYPL":"Credit Services","GS":"Capital Markets","MS":"Capital Markets","SCHW":"Capital Markets","HOOD":"Capital Markets","WMT":"Discount Stores","COST":"Discount Stores","TGT":"Discount Stores","VST":"Utilities - Independent Power Producers","BE":"Utilities - Renewable","GLD":"Gold","SLV":"Silver"},"sectorOrder":["Technology","Consumer Cyclical","Communication Services","Industrials","Healthcare","Financials","Consumer Defensive","Utilities","Precious Metals"],"industriesBySector":{"Technology":["Software Infrastructure","Software Applications","Semiconductors","Semiconductor Equipment & Materials","Communication Equipment","Computer Hardware","Consumer Electronics","Information Technology Services"],"Consumer Cyclical":["Internet Retail","Specialty Retail","Apparel Retail","Restaurants","Auto Manufacturers"],"Communication Services":["Internet Content & Information","Entertainment","Advertising Agencies"],"Industrials":["Aerospace & Defense","Electrical Equipment & Parts","Specialty Industrial Machinery"],"Healthcare":["Biotechnology","Drug Manufacturers - General","Healthcare Plans"],"Financials":["Banks - Diversified","Credit Services","Capital Markets"],"Consumer Defensive":["Discount Stores"],"Utilities":["Utilities - Independent Power Producers","Utilities - Renewable"],"Precious Metals":["Gold","Silver"]},"volumeFlagsMeta":{"scannedAt":"2026-11-06T17:00:34.860Z","etDate":"2026-11-06","marketState":"REGULAR"},"nextFomcDates":["2026-12-09","2027-01-27"],"oiMeta":{"scannedAt":"2026-11-06T13:31:30.703Z","scanType":"premarket"},"deferred":true};</script>
 <script>window.va=window.va||function(){(window.vaq=window.vaq||[]).push(arguments)};</script>
 <script defer data-disable-auto-track="1" src="/_vercel/insights/script.js"></script>
-<script src="app.js?v=sha256-61f9f75f883c1f17" defer></script>
+<script src="app.js?v=sha256-9cbb45160ace3590" defer></script>
 <script type="module" src="js/streaks.js?v=sha256-d943f7322b0db45a"></script>
 <script type="module" src="js/book-views.js?v=sha256-8eed96a3e0496663"></script>
 </body>

@@ -18,7 +18,7 @@ const server = createServer(async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   function json(value, status = 200) { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(value)); }
   if (req.method !== 'GET') return json({ error: 'Read-only synthetic preview' }, 405);
-  if (url.pathname === '/api/auth/me' && !url.searchParams.has('data')) return json({ enabled: true, trackRecord: true, topPicks: true, authenticated: true, user: { name: 'Synthetic preview' } });
+  if (url.pathname === '/api/auth/me' && !url.searchParams.has('data')) return json({ enabled: true, authed: true, trackRecord: true, topPicks: true, authenticated: true, user: { name: 'Synthetic preview' } });
   if (url.pathname === '/api/auth/webull-mirror') {
     if (previewCase === 'retry' && retryRequests++ === 0) return json({ error: 'Synthetic one-time load failure' }, 503);
     if (url.searchParams.get('format') === 'orders') { res.writeHead(200, { 'Content-Type': 'text/csv', 'Content-Disposition': 'attachment; filename="synthetic-webull-orders.csv"' }); return res.end(fixture.ordersCsv || 'trade_id,phase,attempt\n'); }

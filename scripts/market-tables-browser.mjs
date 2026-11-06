@@ -49,6 +49,14 @@ try {
     check((await symbols())[0]!==first[0],'Return sort reverses');
     await header('Market cap').click();await settle();
     check((await symbols()).length===6,'Market cap sort retains all rows');
+    const reset=page.locator('.hm-list .vt-reset');
+    check(await reset.isVisible(),'A header sort shows the table reset link');
+    check(/Market cap/.test(await reset.innerText()),'Reset link names the sorted column');
+    await reset.click();await settle();
+    check(await reset.isHidden(),'Reset link hides after resetting');
+    check(await table.locator('th[aria-sort="ascending"],th[aria-sort="descending"]').count()===0,'Reset clears the header sort');
+    check(!(await page.evaluate(()=>localStorage.getItem('stonks-views-v1')||'')).includes('Market cap'),'Reset forgets the saved header sort');
+    await header('Market cap').click();await settle();
     await page.locator('#heatmap-search').fill('MS');await settle();
     assert.deepEqual(await symbols(),['MSFT']);checks++;
     await page.locator('#heatmap-search').fill('');await settle();

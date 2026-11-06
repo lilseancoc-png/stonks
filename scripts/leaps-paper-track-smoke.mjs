@@ -492,7 +492,7 @@ const contract = keyFor(base);
 assert.equal(OWNERSHIP_KEY, LEAPS_PAPER_KEY);
 assert.equal(isPremiumKey(LEAPS_PAPER_KEY), true);
 assert.deepEqual(roleClaimForKey(LEAPS_PAPER_KEY), ["tr", "tp"]);
-assert.equal(isPremiumKey("grades.json"), false);
+assert.equal(isPremiumKey("grades.json"), true, "grades are Owner-only since #757");
 assert.equal(isBakeOwnedKey(LEAPS_PAPER_KEY), true);
 assert.equal(REQUEST_TIME_EXCLUSIVE_KEYS.has(LEAPS_PAPER_KEY), false);
 assert.equal(SCANNER_EXCLUSIVE_KEYS.has(LEAPS_PAPER_KEY), false);

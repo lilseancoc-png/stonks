@@ -70,7 +70,8 @@ try {
     await root.locator('.wb-execution-history').first().waitFor();
     assert.equal(await root.locator('.wb-execution-history').count(), 4);
     await page.locator('#acc-tab-webull-equity').click();
-    await page.locator('#an-webull-equity .acc-eq-svg').first().waitFor();
+    // The equity line is a chart-kit canvas now (it was an inline SVG).
+    await page.locator('#an-webull-equity .acc-eq-chart canvas').first().waitFor();
     assert.match(await page.locator('#acc-sum-webull-equity').innerText(), /20\.24/);
     await page.locator('#acc-tab-webull-breakdown').click();
     assert.match(await page.locator('#an-webull-breakdown').innerText(), /recorded dollars after known fees/);

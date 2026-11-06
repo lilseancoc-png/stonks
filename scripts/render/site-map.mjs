@@ -40,6 +40,7 @@ export const SITE_SECTIONS = [
     items: [
       { id: 'earnings', label: 'Earnings results', alias: 'Earnings tracker', blurb: 'Which companies beat or missed expectations this season, and how their stocks reacted.' },
       { id: 'calls', label: 'Earnings calls', blurb: 'What management said on each company’s latest earnings call, and what changed.' },
+      { id: 'earnings-week', label: 'Earnings week ahead', alias: 'Earnings board implied move expected move straddle this week', blurb: 'Every covered report in the next 10 days: the move options expect next to the stock’s own past moves.' },
       { id: 'spillover', label: 'Earnings ripple effects', alias: 'Event spillover', blurb: 'How one company’s earnings tend to move the other stocks in its industry.' },
     ],
   },
@@ -89,6 +90,7 @@ export const SITE_SECTIONS = [
       { id: 'cheatsheet', label: 'Options guide', alias: "Buyer's manual", blurb: 'A plain-English guide to buying options: calls, puts, risk and timing.' },
       { id: 'chart-patterns', label: 'Chart patterns', blurb: 'What common chart shapes look like and how traders read them.' },
       { id: 'timeline', label: 'When data updates', alias: 'Refresh schedule timeline', blurb: 'When each part of the site refreshes during the trading day.' },
+      { id: 'glossary', label: 'Glossary', alias: 'Words terms definitions meaning C/P OI IV percentile gamma', blurb: 'Plain-English meanings for the options and market words used on this site.' },
       // Privacy and Terms are linked from the footer, so they stay out of the
       // visible menu but remain searchable and linkable.
       { id: 'privacy', label: 'Privacy Policy', navHidden: true, blurb: 'What this site collects and how it is used.' },

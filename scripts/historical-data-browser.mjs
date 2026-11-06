@@ -12,6 +12,8 @@ try {
   for (const width of [1440, 390]) for (const theme of ['dark', 'light']) {
     const context = await browser.newContext({ viewport: { width, height: 1000 }, acceptDownloads: true });
     const page = await context.newPage(), errors = [];
+    // The fixture is dated; pin the viewer clock to it so freshness reads do not age with the calendar.
+    await page.clock.install({ time: new Date(preview.payload.builtAtIso) });
     await page.addInitScript(t => localStorage.setItem('stonks-theme', t), theme);
     await page.route('**/*', route => new URL(route.request().url()).origin === preview.base ? route.continue() : route.fulfill({ body: '' }));
     page.on('pageerror', e => errors.push(e.message));

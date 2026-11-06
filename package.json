@@ -99,6 +99,8 @@
     "test:charts": "node scripts/charts-smoke.mjs",
     "test:chart-ui-browser": "node scripts/chart-ui-browser.mjs",
     "test:site-map": "node scripts/site-map-smoke.mjs",
+    "test:site-next": "node scripts/site-next-smoke.mjs",
+    "test:site-next-browser": "node scripts/site-next-browser.mjs",
     "test:stock-page": "node scripts/stock-page-smoke.mjs",
     "test:export": "node scripts/export-smoke.mjs",
     "test:export-browser": "node scripts/export-browser.mjs",

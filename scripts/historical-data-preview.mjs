@@ -27,7 +27,7 @@ export async function createHistoricalPreview({ historyFile = null, port = 0 } =
     const json = (value, status = 200) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(value)); };
     if (req.method !== 'GET') return json({ error: 'Read-only local preview' }, 405);
     const key = url.searchParams.get('data') || (url.pathname.startsWith('/data/') ? url.pathname.slice(6) : null);
-    if (url.pathname === '/api/auth/me' && !key) return json({ enabled: scenario !== 'disabled', trackRecord: !['anonymous','tp-only'].includes(scenario), topPicks: !['anonymous','tr-only'].includes(scenario), authenticated: scenario !== 'anonymous', role: 'owner' });
+    if (url.pathname === '/api/auth/me' && !key) return json({ enabled: scenario !== 'disabled', trackRecord: !['anonymous','tp-only'].includes(scenario), topPicks: !['anonymous','tr-only'].includes(scenario), authed: scenario !== 'anonymous', authenticated: scenario !== 'anonymous', role: 'owner' });
     if (key === 'historical-data.json') {
       requests++;
       if (['anonymous','tp-only','tr-only','disabled'].includes(scenario)) return json({ error: 'Owner role required' }, 401);

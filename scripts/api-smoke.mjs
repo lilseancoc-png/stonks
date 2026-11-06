@@ -2,6 +2,7 @@
 
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { createHmac } from "node:crypto";
 import quotesHandler from "../api/quotes.js";
 import authHandler from "../api/auth/[action].js";
 import macroLiveHandler, { parseTreasuryTwoYearXml } from "../api/macro-live.js";
@@ -195,6 +196,63 @@ try {
   }, res);
   assert.equal(res.statusCode, 400);
   assert.equal(res.headers["cache-control"], "private, no-store");
+  // A took / skipped mark is validated before anything is read or stored.
+  for (const mark of [{ trade_id: "not an id", took: true }, { trade_id: "NVDA-C-11/06/26-11:03", took: false }, { trade_id: "NVDA-C-11/06/26-11:03", took: "yes" }]) {
+    res = mockResponse();
+    await authHandler({
+      query: { action: "picks-fills" }, method: "POST",
+      headers: { host: "example.test", "x-forwarded-proto": "https", origin: "https://example.test", cookie: `${SESSION_COOKIE}=${token}` },
+      body: { mark },
+    }, res);
+    assert.equal(res.statusCode, 400);
+  }
+  // The Owner watchlist: same session rules; bad requests stop before the store.
+  res = mockResponse();
+  await authHandler({ query: { action: "owner-watchlist" }, method: "GET", headers: { host: "example.test" } }, res);
+  assert.equal(res.statusCode, 401);
+  res = mockResponse();
+  await authHandler({ query: { action: "owner-watchlist" }, method: "GET", headers: { host: "example.test", cookie: `${SESSION_COOKIE}=${partial}` } }, res);
+  assert.equal(res.statusCode, 401);
+  res = mockResponse();
+  await authHandler({
+    query: { action: "owner-watchlist" }, method: "POST",
+    headers: { host: "example.test", "x-forwarded-proto": "https", origin: "https://evil.test", cookie: `${SESSION_COOKIE}=${token}` },
+    body: { op: "add", symbol: "AAPL" },
+  }, res);
+  assert.equal(res.statusCode, 403);
+  for (const body of [{ op: "add", symbol: "not a ticker" }, { op: "drop", symbol: "AAPL" }, { op: "sync", local: "AAPL" }]) {
+    res = mockResponse();
+    await authHandler({
+      query: { action: "owner-watchlist" }, method: "POST",
+      headers: { host: "example.test", "x-forwarded-proto": "https", origin: "https://example.test", cookie: `${SESSION_COOKIE}=${token}` },
+      body,
+    }, res);
+    assert.equal(res.statusCode, 400);
+    assert.equal(res.headers["cache-control"], "private, no-store");
+  }
+  // Calendar subscribe: GET/HEAD only; a forged Owner link is a plain 404
+  // (before anything is read), and the route is off with the store flag.
+  res = mockResponse();
+  await authHandler({ query: { action: "calendar-ics", s: "AAPL" }, method: "POST", headers: { host: "example.test" } }, res);
+  assert.equal(res.statusCode, 405);
+  for (const o of ["0123456789abcdef01234567.0123456789abcdef0123456789abcdef", "not-a-token", "../owner"]) {
+    res = mockResponse();
+    await authHandler({ query: { action: "calendar-ics", o }, method: "GET", headers: { host: "example.test" } }, res);
+    assert.equal(res.statusCode, 404);
+    assert.equal(res.headers["cache-control"], "no-store");
+  }
+  // A genuine Owner link passes the check and reaches the store (no store
+  // here, so it ends at 502 rather than the forged-link 404).
+  const icsKey = "0123456789abcdef01234567";
+  const icsToken = icsKey + "." + createHmac("sha256", process.env.SESSION_SECRET).update("calendar-ics:" + icsKey).digest("hex").slice(0, 32);
+  res = mockResponse();
+  await authHandler({ query: { action: "calendar-ics", o: icsToken }, method: "GET", headers: { host: "example.test" } }, res);
+  assert.notEqual(res.statusCode, 404);
+  process.env.PRIVATE_DATA_ENABLED = "0";
+  res = mockResponse();
+  await authHandler({ query: { action: "calendar-ics", s: "AAPL" }, method: "GET", headers: { host: "example.test" } }, res);
+  assert.equal(res.statusCode, 404);
+  process.env.PRIVATE_DATA_ENABLED = "1";
 } finally {
   if (priorFlag == null) delete process.env.PRIVATE_DATA_ENABLED;
   else process.env.PRIVATE_DATA_ENABLED = priorFlag;

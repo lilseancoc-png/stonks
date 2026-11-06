@@ -42,7 +42,15 @@ import { renderRecoveryHelpers } from './recovery-js.mjs';
 import { viewsFactory } from './views-client.mjs';
 import { renderChartKitJs } from './chart-kit-js.mjs';
 import { renderStockPageJs } from './stock-page-js.mjs';
+import { renderEarningsWeekJs } from './earnings-week-client.mjs';
 import { ivRichnessFactory } from '../../lib/iv-richness.mjs';
+import { refreshScheduleFactory } from '../../lib/refresh-schedule.mjs';
+import { ownerWatchlistFactory } from '../../lib/owner-watchlist.mjs';
+import { watchlistAlertsFactory } from '../../lib/watchlist-alerts.mjs';
+import { weekRecapFactory } from '../../lib/week-recap.mjs';
+import { noPicksFactory } from '../../lib/no-picks.mjs';
+import { GLOSSARY } from '../../lib/glossary.mjs';
+import { TRADE_MARK_REASONS } from '../../lib/track-record-fills.mjs';
 import { overnightToneFactory } from '../../lib/overnight-tone.mjs';
 import { sectorGroupsFactory } from '../../lib/sector-groups.mjs';
 import { currentNewsSentiment, newsDateIsCurrent, validNewsFeedPayload } from '../../lib/news-policy.mjs';
@@ -74,6 +82,7 @@ ${renderSplitViewHelpers()}
 ${renderRecoveryHelpers()}
 ${renderChartKitJs()}
 ${renderStockPageJs()}
+${renderEarningsWeekJs()}
 ${calendarSourceLabel.toString()}
 ${calendarScheduleFallbackUsable.toString()}
 ${calendarHealth.toString()}
@@ -89,6 +98,14 @@ ${validNewsFeedPayload.toString()}
   // One "are the options expensive?" rule (source: lib/iv-richness.mjs), the
   // same one the grade, Top Picks and Trending IV use at bake time.
   var IV_RICHNESS = (${ivRichnessFactory.toString()})();
+  var REFRESH_SCHEDULE = (${refreshScheduleFactory.toString()})();
+  // Owner watchlist merge rules (source: lib/owner-watchlist.mjs).
+  var OWNER_WATCH = (${ownerWatchlistFactory.toString()})();
+  // Owner watchlist alert rules (source: lib/watchlist-alerts.mjs).
+  var WATCH_ALERTS = (${watchlistAlertsFactory.toString()})();
+  var WEEK_RECAP = (${weekRecapFactory.toString()})();
+  var NO_PICKS = (${noPicksFactory.toString()})();
+  var GLOSSARY = ${JSON.stringify(GLOSSARY)};
   // One overnight risk-on/off scorer (source: lib/overnight-tone.mjs), the same
   // one the bake uses for the saved pre-open call and the Top Picks tape axis.
   var OVERNIGHT = (${overnightToneFactory.toString()})();
@@ -102,6 +119,8 @@ ${validNewsFeedPayload.toString()}
   var VIEWS = (${viewsFactory.toString()})(window, document);
   // Long lists open as a table on wider screens; phones keep cards.
   VIEWS.tableFirst(['tickers', 'streaks', 'levetf', 'open-picks', 'oi', 'flow', 'overnight', 'commodities', 'pending-buyouts']);
+  // The longest card pages open on phones as compact one-line rows.
+  VIEWS.phoneRows({ tickers: 'page-pane-tickers', streaks: 'page-pane-streaks', oi: 'page-pane-oi', 'ma-tracker': 'page-pane-ma-tracker' });
   // Cell bars shared by the list tables. vtBarHtml: a 0..1 fill (for example
   // an IV percentile). vtCbarHtml: a signed value on a centred axis that
   // clips at +/-range (for example % from a moving average).
@@ -354,6 +373,123 @@ ${scenarioEventPhase.toString()}
       return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[ch];
     });
   }
+  // ---------------------------------------------------------------------
+  // Tap-to-define (lib/glossary.mjs). glTerm(key, text) marks a word; a tap,
+  // click or Enter opens its meaning. Not for sortable table headers (a click
+  // there sorts): those keep a plain name and a title.
+  function glTerm(key, text){
+    var g = GLOSSARY[key];
+    var label = text == null ? (g ? g.term : key) : text;
+    if (!g) return escapeHtml(label);
+    return '<button type="button" class="gl-term" data-gl="' + escapeHtml(key) + '" aria-haspopup="dialog" title="' + escapeHtml(g.def) + '">' + escapeHtml(label) + '</button>';
+  }
+  // The same word inside a button or link (a nested button is invalid HTML):
+  // the meaning rides the title only.
+  function glPlain(key, text){
+    var g = GLOSSARY[key];
+    var label = text == null ? (g ? g.term : key) : text;
+    if (!g) return escapeHtml(label);
+    return '<span class="gl-term-plain" title="' + escapeHtml(g.def) + '">' + escapeHtml(label) + '</span>';
+  }
+  (function initGlossary(){
+    var pop = null, owner = null;
+    function close(){
+      if (pop && pop.parentNode) pop.parentNode.removeChild(pop);
+      if (owner) owner.setAttribute('aria-expanded', 'false');
+      pop = null; owner = null;
+    }
+    function open(btn){
+      var key = btn.getAttribute('data-gl'), g = GLOSSARY[key];
+      if (!g) return;
+      if (owner === btn){ close(); return; }
+      close();
+      pop = document.createElement('div');
+      pop.className = 'gl-pop';
+      pop.setAttribute('role', 'dialog');
+      pop.setAttribute('aria-label', g.term);
+      pop.innerHTML = '<b>' + escapeHtml(g.term) + '</b>' + escapeHtml(g.def) +
+        '<br><a href="?tab=glossary#gl-' + escapeHtml(key) + '" data-gl-more>All words used on this site</a>';
+      document.body.appendChild(pop);
+      var r = btn.getBoundingClientRect(), w = pop.offsetWidth, h = pop.offsetHeight;
+      var left = Math.max(16, Math.min(window.innerWidth - w - 16, r.left));
+      var top = r.bottom + 6;
+      if (top + h > window.innerHeight - 8 && r.top - h - 6 > 8) top = r.top - h - 6;
+      pop.style.left = left + 'px';
+      pop.style.top = top + 'px';
+      owner = btn;
+      btn.setAttribute('aria-expanded', 'true');
+    }
+    document.addEventListener('click', function(ev){
+      var t = ev.target && ev.target.closest ? ev.target : null;
+      if (!t) return;
+      var btn = t.closest('.gl-term');
+      if (btn){ ev.preventDefault(); ev.stopPropagation(); open(btn); return; }
+      if (pop && !t.closest('.gl-pop')) close();
+      else if (t.closest('[data-gl-more]')) close();
+    }, true);
+    document.addEventListener('keydown', function(ev){ if (ev.key === 'Escape' && pop){ var o = owner; close(); if (o) o.focus(); } });
+    window.addEventListener('scroll', function(){ if (pop) close(); }, { passive: true, capture: true });
+    window.addEventListener('resize', function(){ if (pop) close(); });
+  })();
+  // Keyboard help: "?" (or the footer link) lists the site's shortcuts.
+  (function initKeyboardHelp(){
+    var back = null, lastFocus = null;
+    var mac = /Mac|iPhone|iPad/.test((navigator.platform || '') + ' ' + (navigator.userAgent || ''));
+    var ROWS = [
+      [[mac ? '⌘' : 'Ctrl', 'K'], 'Search stocks, pages and themes'],
+      [['/'], 'Open the same search'],
+      [['↑', '↓'], 'Move through the search results'],
+      [['Enter'], 'Open the highlighted result, or sort a table by the focused column header'],
+      [['Esc'], 'Close the search, the side menu, a word meaning or this list'],
+      [['←', '→'], 'Move between tabs in a row of tabs'],
+      [['Tab'], 'Move between links and buttons; the first Tab offers Skip to content'],
+      [['?'], 'Show this list']
+    ];
+    function typing(t){
+      if (!t) return false;
+      var tag = (t.tagName || '').toUpperCase();
+      return !!t.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+    }
+    function close(){
+      if (!back) return;
+      if (back.parentNode) back.parentNode.removeChild(back);
+      back = null;
+      document.body.classList.remove('kb-help-open');
+      if (lastFocus && lastFocus.focus) { try { lastFocus.focus(); } catch (_){} }
+      lastFocus = null;
+    }
+    function open(){
+      if (back) return;
+      lastFocus = document.activeElement;
+      back = document.createElement('div');
+      back.className = 'kb-help-backdrop';
+      back.innerHTML = '<div class="kb-help" role="dialog" aria-modal="true" aria-labelledby="kb-help-title">' +
+        '<h2 id="kb-help-title">Keyboard shortcuts</h2><table><tbody>' +
+        ROWS.map(function(r){ return '<tr><td>' + r[0].map(function(k){ return '<kbd>' + escapeHtml(k) + '</kbd>'; }).join(' ') + '</td><td>' + escapeHtml(r[1]) + '</td></tr>'; }).join('') +
+        '</tbody></table><button type="button" class="acc-mark-btn kb-help-close">Close</button></div>';
+      document.body.appendChild(back);
+      document.body.classList.add('kb-help-open');
+      var btn = back.querySelector('.kb-help-close');
+      if (btn) btn.focus();
+    }
+    document.addEventListener('keydown', function(e){
+      if (back){
+        if (e.key === 'Escape' || e.key === '?'){ e.preventDefault(); e.stopPropagation(); close(); return; }
+        if (e.key === 'Tab'){ e.preventDefault(); var b = back.querySelector('.kb-help-close'); if (b) b.focus(); }
+        return;
+      }
+      if (e.key !== '?' || e.metaKey || e.ctrlKey || e.altKey || typing(e.target)) return;
+      if (document.body.classList.contains('cmd-palette-open')) return;
+      e.preventDefault();
+      open();
+    }, true);
+    document.addEventListener('click', function(e){
+      var t = e.target && e.target.closest ? e.target : null;
+      if (!t) return;
+      if (t.closest('[data-kb-help]')){ e.preventDefault(); open(); return; }
+      if (back && (t === back || t.closest('.kb-help-close'))) close();
+    });
+  })();
   // ---------------------------------------------------------------------
   // CSV export — used by Unusual Flow, Calendar, and Top Picks "Export
   // CSV" buttons. Quotes per RFC 4180 (double the quote, wrap if a comma
@@ -1004,6 +1140,9 @@ ${scenarioEventPhase.toString()}
     if (WEEKLY_ALT_TABS[tab]) {
       return { iso: weeklyAltDataIso(tab), label: 'weekly data, updated Fridays 11:30 ET · next ' + nextAltDataFridayLabel(), weekly: true };
     }
+    if (tab === 'picks' && typeof picksState !== 'undefined' && picksState.data && picksState.data.builtAtIso) {
+      return { iso: picksState.data.builtAtIso, label: 'Top Picks run' };
+    }
     if (tab === 'flow' && UNUSUAL && UNUSUAL.scannedAt) {
       return { iso: UNUSUAL.scannedAt, label: 'hourly unusual-flow scan' };
     }
@@ -1039,6 +1178,16 @@ ${scenarioEventPhase.toString()}
     }
     return null;
   }
+  // " · next update 15:30 ET" for the page on screen, from the one shared
+  // schedule (lib/refresh-schedule.mjs). Empty for pages with no schedule.
+  function freshnessNextHtml(tab){
+    var job = REFRESH_SCHEDULE.jobFor(tab || 'home');
+    if (!job || job === 'weekly') return '';
+    var et = etNowParts();
+    if (!et) return '';
+    var label = REFRESH_SCHEDULE.nextLabel(job, { dateKey: et.dateKey, minutes: Math.round(et.hour * 60) }, MARKET_HOLIDAYS);
+    return label ? ' <span class="freshness-detail freshness-next">· next update ' + escapeHtml(label) + '</span>' : '';
+  }
   function renderFreshness(activeTab){
     if (activeTab) freshnessActiveTab = activeTab;
     else activeTab = freshnessActiveTab;
@@ -1061,17 +1210,18 @@ ${scenarioEventPhase.toString()}
       // Per-tab override — show the source label, never escalate to the
       // bad/warn states (those track the daily build, not this signal).
       bannerText.innerHTML = 'Updated ' + freshnessRelLabel(ageH) +
-        ' <span class="freshness-detail">· ' + override.label + '</span>';
+        ' <span class="freshness-detail">· ' + override.label + '</span>' + (override.weekly ? '' : freshnessNextHtml(activeTab));
       return;
     }
     if (ageH > 24*7) {
       banner.classList.add('bad');
-      bannerText.innerHTML = 'Very stale — last refreshed ' + dateLabel + '. <span class="freshness-detail">Verify quotes on your broker before trading.</span>';
+      bannerText.innerHTML = 'Very stale — last updated ' + dateLabel + '. <span class="freshness-detail">Verify quotes on your broker before trading.</span>';
     } else if (ageH > 36) {
       banner.classList.add('warn');
-      bannerText.innerHTML = 'Stale data — last refreshed ' + dateLabel + '. <span class="freshness-detail">Verify quotes on your broker before trading.</span>';
+      bannerText.innerHTML = 'Stale data — last updated ' + dateLabel + '. <span class="freshness-detail">Verify quotes on your broker before trading.</span>' + freshnessNextHtml(activeTab);
     } else {
-      bannerText.innerHTML = 'Refreshed ' + freshnessRelLabel(ageH) + ' <span class="freshness-detail">· end-of-session quotes from Yahoo</span>';
+      bannerText.innerHTML = 'Updated ' + freshnessRelLabel(ageH) + freshnessNextHtml(activeTab);
+      bannerText.title = 'Prices are the quotes from Yahoo at the last build; live pages add live quotes while the market is open.';
     }
   }
   function renderFooterBuiltTime(){
@@ -3890,7 +4040,7 @@ ${scenarioEventPhase.toString()}
       var band = IV_RICHNESS.classify({ pctile: stats.percentile, iv: stats.today, rv30: vr ? vr.rv30 : null });
       var label = band.rich ? 'rich' : band.cheap ? 'cheap' : 'normal';
       var rvTxt = band.rv30 != null ? ' vs realized ' + (band.rv30 * 100).toFixed(0) + '%' : '';
-      rankBox.textContent = 'IV percentile ' + pctStr + ' · ' + band.label.toLowerCase() + ' · IV rank ' + stats.rank.toFixed(0) + ' (' + stats.count + 'd · today ' + (stats.today * 100).toFixed(0) + '%' + rvTxt + ')';
+      rankBox.innerHTML = glTerm('ivPct', 'IV percentile') + ' ' + escapeHtml(pctStr + ' · ' + band.label.toLowerCase() + ' · ') + glTerm('ivRank', 'IV rank') + ' ' + escapeHtml(stats.rank.toFixed(0) + ' (' + stats.count + 'd · today ' + (stats.today * 100).toFixed(0) + '%' + rvTxt + ')');
       rankBox.title = band.note;
       rankBox.className = 'opt-iv-rank opt-iv-rank-' + label;
     });
@@ -3940,7 +4090,7 @@ ${scenarioEventPhase.toString()}
   function bindAccuracyTabs(){
     var tabs = document.querySelectorAll('.acc-tab');
     if (!tabs.length) return;
-    var KEYS = ['summary','scorecard','webull','webull-equity','top10','activity','picks','equity','breakdowns','webull-breakdown','sim','montecarlo','research','market-policy'];
+    var KEYS = ['summary','recap','scorecard','webull','webull-equity','top10','activity','picks','equity','breakdowns','webull-breakdown','sim','montecarlo','research','market-policy'];
     function selectAccTab(name){
       try { localStorage.setItem('stonks-acc-tab', name); } catch (_) {}
       tabs.forEach(function(btn){
@@ -3956,13 +4106,15 @@ ${scenarioEventPhase.toString()}
     });
     var saved = null;
     try { saved = localStorage.getItem('stonks-acc-tab'); } catch (_) {}
+    // ?tab=track&acc=recap opens a sub-tab directly (the Home desk's recap link).
+    try { var fromUrl = new URLSearchParams(location.search).get('acc'); if (fromUrl && KEYS.indexOf(fromUrl) >= 0) saved = fromUrl; } catch (_) {}
     selectAccTab(saved && KEYS.indexOf(saved) >= 0 ? saved : 'summary');
   }
   // Sidebar page-tab registry — hoisted out of bindPageTabs so the boot can
   // resolve the URL's initial tab synchronously at script-evaluation time (the
   // anti-flash pre-select in the boot block) before the /api/auth/me +
   // manifest fetches settle and bind() runs the full selectTab.
-  var PAGE_TAB_IDS = ['home','update-checker','owner-market-brief','tickers','stock','narratives','brief','news','market','risk','unified-signal-engine','historical-data','party-tracker','earnings-forecast','forced-liquidation','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','research-lab','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','bottom-tracker','open-picks','track','sports-nba','sports-nfl','sports-pick-builder','cheatsheet','chart-patterns','timeline','privacy','terms'];
+  var PAGE_TAB_IDS = ['home','update-checker','owner-market-brief','tickers','stock','narratives','brief','news','market','risk','unified-signal-engine','historical-data','party-tracker','earnings-forecast','forced-liquidation','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','research-lab','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','bottom-tracker','open-picks','track','sports-nba','sports-nfl','sports-pick-builder','cheatsheet','chart-patterns','timeline','glossary','earnings-week','privacy','terms'];
   // Friendly aliases so deep-links people might guess work too.
   // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
   // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -4018,6 +4170,7 @@ ${scenarioEventPhase.toString()}
     'buyers-manual': 'cheatsheet', 'buyer-manual': 'cheatsheet', cheat: 'cheatsheet', 'cheat-sheet': 'cheatsheet', manual: 'cheatsheet',
     patterns: 'chart-patterns', chartpatterns: 'chart-patterns', 'chart-pattern': 'chart-patterns',
     timeline: 'timeline', schedule: 'timeline', refresh: 'timeline', 'refresh-schedule': 'timeline', 'build-timeline': 'timeline',
+    glossary: 'glossary', words: 'glossary', definitions: 'glossary', 'earnings-week': 'earnings-week', 'earnings-board': 'earnings-week', 'implied-move': 'earnings-week',
     privacypolicy: 'privacy', 'privacy-policy': 'privacy',
     tos: 'terms', 'terms-of-use': 'terms', 'terms-of-service': 'terms',
   };
@@ -4460,6 +4613,7 @@ ${renderExportBindings()}
       if (name === 'stock') STOCK_PAGE.load();
         if (name === 'news' && typeof loadNewsFeed === 'function') loadNewsFeed();
         if ((name === 'calendar' || name === 'bonds-usd') && typeof loadCalendar === 'function') loadCalendar();
+        if (name === 'calendar' && typeof renderIcsBox === 'function') renderIcsBox();
         if (name === 'index-cal' && typeof loadIndexCal === 'function') loadIndexCal();
         if (name === 'picks' && typeof loadPicks === 'function') loadPicks();
         if (name === 'leaps' && typeof loadLeaps === 'function') loadLeaps();
@@ -4516,6 +4670,7 @@ ${renderExportBindings()}
         else if (typeof cmpTraySync === 'function') cmpTraySync();
         if (name === 'earnings' && typeof loadEarningsTracker === 'function') loadEarningsTracker();
         if (name === 'calls' && typeof loadEarningsCalls === 'function') loadEarningsCalls();
+        if (name === 'earnings-week' && typeof loadEarningsWeek === 'function') loadEarningsWeek();
         if (name === 'ai-capex' && typeof loadAiCapex === 'function') loadAiCapex();
         if (name === 'ram-prices' && typeof loadRamPrices === 'function') loadRamPrices();
         if (name === 'accelerator-prices' && typeof loadAcceleratorPrices === 'function') loadAcceleratorPrices();
@@ -14878,8 +15033,8 @@ ${renderExportBindings()}
         '<div class="flow-decision-metrics">' +
           '<div><span>Top focus</span><b>' + escapeHtml(top.symbol) + ' · ' + top.score + '/5</b><small>' + escapeHtml(focusStatus) + '</small></div>' +
           '<div><span>OI call wall</span><b>' + escapeHtml(callWallText) + '</b><small>' + escapeHtml(wallDistance) + '</small></div>' +
-          '<div><span>Call-wall Vol/OI</span><b>' + escapeHtml(volOiText) + '</b><small>C/P ' + escapeHtml(cpText) + '</small></div>' +
-          '<div><span>ΔOI coverage</span><b>' + escapeHtml(freshOiValue) + '</b><small>' + escapeHtml(freshOiSub) + '</small></div>' +
+          '<div><span>' + glTerm('volOi', 'Call-wall Vol/OI') + '</span><b>' + escapeHtml(volOiText) + '</b><small>' + glTerm('cp', 'Calls per put') + ' ' + escapeHtml(cpText) + '</small></div>' +
+          '<div><span>' + glTerm('dOi', 'OI change') + ' coverage</span><b>' + escapeHtml(freshOiValue) + '</b><small>' + escapeHtml(freshOiSub) + '</small></div>' +
           '<div><span>Short interest</span><b>' + escapeHtml(shortValue) + '</b><small>' + escapeHtml(shortSub) + ' · secondary context</small></div>' +
         '</div>' +
         '<p class="flow-decision-context"><b>Desk breadth:</b> ' + stats.flagged + ' flagged · ' + stats.watch + ' score-3 watches · ' +
@@ -14927,12 +15082,12 @@ ${renderExportBindings()}
     var pct = (maxOi > 0 && s.oi > 0) ? Math.max(2, Math.round((s.oi / maxOi) * 100)) : 0;
     var chips = [];
     if (s.flagOiBig) chips.push('<span class="oi-chip oi-chip-big" title="OI &gt; 1000">OI 1K+</span>');
-    if (s.flagOiDelta100) chips.push('<span class="oi-chip oi-chip-delta100" title="ΔOI ≥ +100% — very aggressive new buying">ΔOI +100%+</span>');
-    else if (s.flagOiDelta30) chips.push('<span class="oi-chip oi-chip-delta30" title="ΔOI ≥ +30% — new buying">ΔOI +30%+</span>');
+    if (s.flagOiDelta100) chips.push('<span class="oi-chip oi-chip-delta100" title="OI change (ΔOI) ≥ +100% — very aggressive new buying">OI +100%+</span>');
+    else if (s.flagOiDelta30) chips.push('<span class="oi-chip oi-chip-delta30" title="OI change (ΔOI) ≥ +30% — new buying">OI +30%+</span>');
     if (volOiHot) chips.push('<span class="oi-chip oi-chip-volhot" title="Vol &gt; 1.5× OI — likely new positions opening today">Vol&gt;&gt;OI</span>');
     var chipsHtml = chips.length ? '<div class="oi-rung-chips">' + chips.join('') + '</div>' : '';
     var deltaHtml = deltaTxt != null
-      ? '<span class="oi-rung-delta' + deltaCls + '" title="ΔOI vs prior trading-day snapshot' + (deltaAbs ? ' (' + deltaAbs + ')' : '') + '">ΔOI ' + deltaTxt + '</span>'
+      ? '<span class="oi-rung-delta' + deltaCls + '" title="ΔOI vs prior trading-day snapshot' + (deltaAbs ? ' (' + deltaAbs + ')' : '') + '">OI change ' + deltaTxt + '</span>'
       : '';
     var volHtml = s.vol > 0
       ? '<span class="oi-rung-vol" title="Today\\'s session volume on this strike">Vol ' + fmtOiNum(s.vol) + (volOiTxt ? ' · ' + volOiTxt : '') + '</span>'
@@ -15036,7 +15191,7 @@ ${renderExportBindings()}
       ? '<span class="oi-wall oi-wall-put" title="Open-interest put wall: the strike with the most put contracts open (front two expirations). The gamma wall above can differ because it weighs gamma across eight expirations.">OI put wall ' + fmtOiStrike(pw.strike) + ' · ' + fmtOiNum(pw.oi) + '</span>'
       : '';
     var cpHtml = t.cpRatio != null
-      ? '<span class="oi-cp" title="Total call OI ÷ total put OI across the short-dated chain">C/P ' + Number(t.cpRatio).toFixed(2) + ':1</span>'
+      ? '<span class="oi-cp">' + glPlain('cp', 'Calls per put') + ' ' + Number(t.cpRatio).toFixed(2) + ':1</span>'
       : '';
     var si = t.shortInterest || null;
     var siHtml = si && si.percentFloat != null
@@ -15104,13 +15259,13 @@ ${renderExportBindings()}
     var cols = [
       { label: 'Stock', cell: function(t){ return VIEWS.expandHtml('Show the strike ladder for ' + t.symbol) + '<a href="' + symGradeHref(t.symbol) + '">' + escapeHtml(t.symbol) + '</a>'; }, sort: function(t){ return t.symbol; } },
       { label: 'Price', num: true, cell: function(t){ return t.spot != null ? '<span class="oi-spot">$' + Number(t.spot).toFixed(2) + '</span>' : ''; }, sort: function(t){ return t.spot; } },
-      { label: 'Score', num: true, title: 'Gamma squeeze score, 0 to 5. 4 or more is a potential setup, not an entry.', cell: function(t){ var sc = t.score || 0; return '<span class="oi-score ' + oiScoreTier(sc) + (t.flagged ? ' is-flagged' : '') + '">' + sc + '/5' + (t.flagged ? ' ⚠' : '') + '</span>'; }, sort: function(t){ return t.score || 0; } },
+      { label: 'Squeeze score', num: true, title: 'Gamma squeeze score, 0 to 5. 4 or more is a potential setup, not an entry.', cell: function(t){ var sc = t.score || 0; return '<span class="oi-score ' + oiScoreTier(sc) + (t.flagged ? ' is-flagged' : '') + '">' + sc + '/5' + (t.flagged ? ' ⚠' : '') + '</span>'; }, sort: function(t){ return t.score || 0; } },
       { label: 'Put wall', num: true, title: 'Strike with the most put contracts open (front two expirations)', cell: function(t){ return wallCell(t, 'putWall'); }, sort: function(t){ return oiWallDistPct(t, 'putWall'); } },
       { label: 'Price between the walls', cls: 'oi-range-col', title: 'Left end: OI put wall. Right end: OI call wall. The dot is the price.', cell: function(t){ return '<span data-oi-range>' + oiRangeInner(t, t.spot) + '</span>'; }, sort: rangePos },
       { label: 'Call wall', title: 'Strike with the most call contracts open (front two expirations)', cell: function(t){ return wallCell(t, 'callWall'); }, sort: function(t){ return oiWallDistPct(t, 'callWall'); } },
-      { label: 'C/P', num: true, title: 'Total call OI divided by total put OI', cell: function(t){ return t.cpRatio != null ? Number(t.cpRatio).toFixed(2) : ''; }, sort: function(t){ return t.cpRatio; } },
+      { label: 'Calls per put', num: true, title: 'Calls per put (C/P): total call OI divided by total put OI', cell: function(t){ return t.cpRatio != null ? Number(t.cpRatio).toFixed(2) : ''; }, sort: function(t){ return t.cpRatio; } },
       { label: 'Total OI', num: true, cell: function(t){ return fmtOiNum((t.callOiTotal || 0) + (t.putOiTotal || 0)); }, sort: function(t){ return (t.callOiTotal || 0) + (t.putOiTotal || 0); } },
-      { label: 'Biggest ΔOI', num: true, title: 'Largest day-over-day open interest change among the top strikes', cell: function(t){ var d = topDelta(t); return d == null ? '' : '<span class="' + (d >= 0 ? 'pos' : 'neg') + '">' + fmtOiPct(d, true) + '</span>'; }, sort: topDelta },
+      { label: 'Biggest OI change', num: true, title: 'Largest day-over-day open interest change (ΔOI) among the top strikes', cell: function(t){ var d = topDelta(t); return d == null ? '' : '<span class="' + (d >= 0 ? 'pos' : 'neg') + '">' + fmtOiPct(d, true) + '</span>'; }, sort: topDelta },
       { label: 'Short', num: true, title: 'FINRA short interest, % of float', cell: function(t){ var si = t.shortInterest; return si && si.percentFloat != null ? Number(si.percentFloat).toFixed(1) + '%' : ''; }, sort: function(t){ return t.shortInterest ? t.shortInterest.percentFloat : null; } }
     ];
     return VIEWS.tableHtml(cols, tickers, {
@@ -17221,7 +17376,7 @@ ${renderExportBindings()}
     var t = stratState.technicals;
     if (t && t.rsi != null) parts.push('<span>RSI ' + t.rsi.toFixed(1) + '</span>');
     if (t && t.macd && t.macd.hist != null) parts.push('<span>MACD ' + (t.macd.hist >= 0 ? '+' : '') + t.macd.hist.toFixed(3) + '</span>');
-    if (stratState.ivLabel) parts.push('<span>IV percentile ' + stratState.ivLabel + '</span>');
+    if (stratState.ivLabel) parts.push('<span>' + glTerm('ivPct', 'IV percentile') + ' ' + escapeHtml(stratState.ivLabel) + '</span>');
     box.innerHTML = parts.join(' · ');
   }
 
@@ -17582,6 +17737,9 @@ ${renderExportBindings()}
     mode: VIEWS.choose('compare.mode', 'return', ['return','drawdown','vol','iv','grade']), bench: VIEWS.choose('compare.bench', '', ['','SPY','QQQ','IWM','SMH','avg','sector']), gradesDaily: null, sectorLoading: false };
   var CMP_MAX = 6;
   var CMP_MEGA4 = ['AAPL','MSFT','GOOGL','AMZN'];
+  // The compare list survives a reload: the tray and the "✓ Compare" buttons
+  // come back with the names this browser last queued or compared.
+  compareState.tickers = cmpParseList(VIEWS.get('compare.tickers', ''));
   // Daily-session windows. The chart intersects normalized YYYY-MM-DD keys
   // across every ready ticker before taking the tail, so all lines share the
   // exact same baseline and every point is a true like-for-like session.
@@ -18333,15 +18491,14 @@ ${renderExportBindings()}
       if (next !== window.location.pathname + window.location.search + window.location.hash) history.replaceState(null, '', next);
     } catch (_) {}
   }
-  // First open: a shared link wins, then names queued from "+ Compare", then
-  // the last set this browser compared, then the four largest companies.
+  // First open: a shared link wins, then names queued from "+ Compare" (the
+  // saved set is read back into that list at boot), then the four largest
+  // companies.
   function cmpStartingSet(){
     var fromUrl = [];
     try { fromUrl = cmpParseList(new URLSearchParams(window.location.search).get('cmp')); } catch (_) {}
     if (fromUrl.length) return fromUrl;
     if (compareState.tickers.length) return compareState.tickers.slice();
-    var saved = cmpParseList(VIEWS.get('compare.tickers', ''));
-    if (saved.length) return saved;
     return CMP_MEGA4.slice();
   }
   function initCompare(){
@@ -18616,9 +18773,8 @@ ${renderExportBindings()}
   window.addEventListener('resize', cmpTraySpace);
   function cmpTraySync(note){
     var list = compareState.tickers;
-    // Remember the set once Compare has opened (so the boot-time sync can't
-    // wipe a saved set before the page reads it back).
-    if (compareState.inited) VIEWS.set('compare.tickers', list.length ? list.join(',') : null);
+    // The saved set is read back at boot (above), so every change is saved.
+    VIEWS.set('compare.tickers', list.length ? list.join(',') : null);
     var btns = document.querySelectorAll('[data-cmp-toggle]');
     for (var i = 0; i < btns.length; i++){
       var sym = btns[i].getAttribute('data-cmp-toggle');
@@ -20869,7 +21025,7 @@ ${renderExportBindings()}
     var approach = read.gapChangePct == null ? 'prior gap unavailable' : read.gapChangePct > 0 ? 'gap narrowed ' + read.gapChangePct.toFixed(2) + ' pts' : 'gap widened ' + Math.abs(read.gapChangePct).toFixed(2) + ' pts';
     var eta = read.projectedSessions ? '~' + read.projectedSessions + ' session' + (read.projectedSessions === 1 ? '' : 's') + ' at recent approach rate' : 'no stable approach rate';
     return '<tr class="ma-track-row' + tone + '"><td><a class="quant-sym" href="' + symGradeHref(read.symbol) + '">' + escapeHtml(read.symbol) + '</a><small>' + escapeHtml(read.sector || '') + '</small></td>' +
-      '<td><b>' + read.period + 'D</b><small>' + move + '</small></td><td>' + fmtMoney(read.spot) + '<small>' + (read.live ? 'live regular session' : 'build price') + '</small></td>' +
+      '<td><b>' + read.period + 'D</b><small class="ma-dir">' + move + '</small></td><td>' + fmtMoney(read.spot) + '<small>' + (read.live ? 'live regular session' : 'build price') + '</small></td>' +
       '<td>' + fmtMoney(read.level) + '<small class="' + (read.direction === 'above' ? 'quant-pos' : 'quant-neg') + '">' + (read.distancePct > 0 ? '+' : '') + read.distancePct.toFixed(2) + '% vs MA</small></td>' +
       '<td data-owner-only><span class="ma-track-score ' + read.status + '">' + Math.round(read.score) + '</span><small>' + read.status + '</small></td>' +
       '<td class="dt-wrap">' + escapeHtml(approach) + '<small>' + escapeHtml(eta) + '</small></td><td>' + (isFinite(read.aligned5dPct) ? (read.aligned5dPct > 0 ? '+' : '') + read.aligned5dPct.toFixed(2) + '%' : '—') + '<small>5D toward level</small></td><td>' + (isFinite(read.rvol) ? read.rvol.toFixed(2) + '×' : '—') + '<small>relative volume</small></td></tr>';
@@ -20879,7 +21035,7 @@ ${renderExportBindings()}
   // reads as one picture. The crossover table above keeps only the names
   // inside the 5% band.
   var MA_ALL_RANGE = 20;
-  function maTrackerAllHtml(){
+  function maTrackerAllHtml(withToggle){
     var d = maTrackerState.data || {};
     var periods = (d.periods || [20, 50, 100, 200]).filter(function(p){ return p > 0; });
     var rows = (d.tickers || []).map(function(row){
@@ -20905,7 +21061,7 @@ ${renderExportBindings()}
         cell: function(r){ var v = r.dist[p]; return v == null ? '' : vtCbarHtml(v, MA_ALL_RANGE, (v > 0 ? '+' : '') + v.toFixed(1) + '%'); },
         sort: function(r){ return r.dist[p]; } });
     });
-    return '<section class="ma-all"><div class="ma-all-head"><h3>Every stock against its averages</h3>' +
+    return '<section class="ma-all"><div class="ma-all-head"><h3>Every stock against its averages</h3>' + (withToggle ? VIEWS.compactToggleHtml('ma-tracker') : '') +
       '<p>' + rows.length + ' stocks · ' + aboveAll + ' above all four · ' + belowAll + ' below all four · sorted by distance from the 200-day</p></div>' +
       VIEWS.tableHtml(cols, rows, { key: 'ma-all', cls: 'ma-all-vt' }) + '</section>';
   }
@@ -20916,7 +21072,7 @@ ${renderExportBindings()}
     var rows = maTrackerCandidates();
     if (!HAS_OWNER_ACCESS) rows.sort(function(a,b){ return a.absDistancePct - b.absDistancePct || a.symbol.localeCompare(b.symbol); });
     if (eye) eye.textContent = rows.length + ' levels · ' + new Set(rows.map(function(row){ return row.symbol; })).size + ' stocks' + (maTrackerState.marketState === 'REGULAR' ? ' · live' : ' · build prices');
-    if (!rows.length){ var maAllOnly = maTrackerAllHtml(); root.hidden = !maAllOnly; root.innerHTML = maAllOnly; if (empty) empty.hidden = false; return; }
+    if (!rows.length){ var maAllOnly = maTrackerAllHtml(true); root.hidden = !maAllOnly; root.innerHTML = maAllOnly; if (empty) empty.hidden = false; return; }
     root.hidden = false; if (empty) empty.hidden = true;
     var above = rows.filter(function(row){ return row.direction === 'above'; });
     var below = rows.filter(function(row){ return row.direction === 'below'; });
@@ -20931,7 +21087,7 @@ ${renderExportBindings()}
         }).join('') : '<p>No stock in the 5% band.</p>') + '</section>';
     };
     var leaders = '<div class="ma-track-leaders">' + leaderPanel('Most likely to cross above', above, 'is-above') + leaderPanel('Most likely to cross below', below, 'is-below') + '</div>';
-    var table = '<div class="ma-track-table-wrap"><table class="ma-track-table"><thead><tr><th>Stock</th><th>Average</th><th>Price</th><th>Level / gap</th><th data-owner-only>Priority</th><th>Approach</th><th>Momentum</th><th>Volume</th></tr></thead><tbody>' + rows.map(maTrackerRow).join('') + '</tbody></table></div>';
+    var table = '<div class="ma-track-tools">' + VIEWS.compactToggleHtml('ma-tracker') + '</div><div class="ma-track-table-wrap"><table class="ma-track-table"><thead><tr><th>Stock</th><th>Average</th><th>Price</th><th>Level / gap</th><th data-owner-only>Priority</th><th>Approach</th><th>Momentum</th><th>Volume</th></tr></thead><tbody>' + rows.map(maTrackerRow).join('') + '</tbody></table></div>';
     root.innerHTML = summary + leaders + '<p class="ma-track-note"><b>Interpretation:</b> ranking measures evidence of an approaching cross; it does not estimate the probability that a cross will hold. Confirm with a daily close and volume before acting.</p>' + table + maTrackerAllHtml();
   }
   function loadMaTracker(){
@@ -36109,6 +36265,7 @@ ${renderExportBindings()}
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(json){
         picksState.data = (json && Array.isArray(json.picks)) ? json : { picks: [] };
+        if (freshnessActiveTab === 'picks') renderFreshness();
         picksMarketLast=Date.now();
         return pAcc;
       })
@@ -36371,7 +36528,9 @@ ${renderExportBindings()}
     { key:'timing', get:function(e){
       if (e && e.entryTimingVersion != null) return String(e.entryTimingVersion);
       return e && e.entryPolicyVersion ? '4' : '';
-    } }
+    } },
+    // Exposure caps (lib/top-picks-caps.mjs), stamped from Nov 6.
+    { key:'caps', get:function(e){ return (e && e.capsVersion) || ''; } }
   ];
   // When each version took effect and what it changed (shown on its divider).
   // A version missing here dates from its earliest trade and shows no note.
@@ -36384,7 +36543,8 @@ ${renderExportBindings()}
     },
     exit: { '2026-10-22-tp25': { since:'2026-10-22', note:'Take-profit raised to +25%' } },
     entry: { '2026-10-23-reviewed-entry-v3': { since:'2026-10-23', note:'Entries must pass an option-price check' } },
-    timing: { '4': { since:'2026-10-23', note:'Volatility-aware entry timing' }, '5': { since:'2026-11-06', note:'Event-aware: trades through macro events and earnings when the evidence agrees' } }
+    timing: { '4': { since:'2026-10-23', note:'Volatility-aware entry timing' }, '5': { since:'2026-11-06', note:'Event-aware: trades through macro events and earnings when the evidence agrees' } },
+    caps: { '2026-11-06-factor-run-2': { since:'2026-11-06', note:'At most 2 new trades per run from one stock group (the tech/AI group)' } }
   };
   function accRuleSegments(list){
     var firstSeen = {};
@@ -36452,18 +36612,9 @@ ${renderExportBindings()}
   // What each open-pick rule turned away (picks-accuracy.json gateStats): the
   // stock move in the trade's direction 5 / 10 / 20 trading days after a rule
   // kept a name off the open-pick path, next to the names that opened.
-  var ACC_GATE_LABEL = {
-    'opened':'Opened on the Track Record', 'book-full':'Picked, but the 20-trade book was full',
-    'losing-streak-bar':'Losing-streak bar (needs 8+)', 'below-strong':'Score below 7',
-    'confluence':'Fewer than 2 pillars agree', 'no-ai-slot':'No AI review slot',
-    'ai-reject':'AI rejected', 'ai-not-strong':'AI grade not strong', 'thesis-not-strong':'Thesis not strong (no AI grade)',
-    'ai-wait':'AI said wait', 'timing-checks':'Entry timing checks', 'avoid-timing':'Avoid timing (knife or chase)',
-    'scenario':'Market scenario gate', 'slots-full':'Top Picks slots full', 'no-contract':'No tradeable contract',
-    'collateral-stress':'Pledged-stock collateral stress near an estimated threshold',
-    'pending-buyout':'Signed takeover target (price pinned to the deal)',
-    'option-economics':'Option target does not support the profit exit after quote costs',
-    'sector-cap':'Sector cap', 'factor-cap':'Factor cap', 'factor-trend':'Weak factor trend', 'side-cap':'Call / put cap'
-  };
+  // One label per rule (lib/no-picks.mjs), shared with the Top Picks
+  // "Why no picks today" card and the MCP get_near_misses tool.
+  var ACC_GATE_LABEL = NO_PICKS.GATE_LABEL;
   function accGateStatsHtml(stats){
     if (!Array.isArray(stats) || !stats.length) return '';
     function cell(a){
@@ -36478,6 +36629,69 @@ ${renderExportBindings()}
       '<p class="hint acc-research-note">Each Top Picks run logs the first rule that kept a candidate from opening, then follows the stock in the trade direction. These are stock moves, not option P&amp;L. A rule earns its place when the names it turned away did worse than the ones that opened. Moves fill in as 5, 10 and 20 trading days pass.</p>' +
       '<div class="acc-tscroll"><table class="acc-qtable"><thead><tr><th>Rule</th><th>Names</th><th>5 days</th><th>10 days</th><th>20 days</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
     '</div></details>';
+  }
+  // --- How sure is a win rate? (2026-11-06) ----------------------------------
+  // A 95% Wilson range for w wins out of n decided trades, so a 3-trade row
+  // can't read like a finding. ACC_JUDGE_N is roughly how many closed trades
+  // it takes before the record can be judged (the 140-240 estimate in
+  // docs/top-picks.md); the Scorecard shows progress toward it.
+  var ACC_JUDGE_N = 140;
+  var ACC_FEW_N = 10;
+  function accWilson(w, n){
+    w = Number(w); n = Number(n);
+    if (!(n > 0) || !isFinite(w)) return null;
+    var z = 1.96, p = Math.max(0, Math.min(1, w / n)), z2 = z * z, d = 1 + z2 / n;
+    var c = (p + z2 / (2 * n)) / d;
+    var h = z * Math.sqrt(p * (1 - p) / n + z2 / (4 * n * n)) / d;
+    return { lo: Math.max(0, c - h), hi: Math.min(1, c + h) };
+  }
+  function accRangeText(w, n){
+    var r = accWilson(w, n);
+    return r ? Math.round(r.lo * 100) + '–' + Math.round(r.hi * 100) + '%' : '';
+  }
+  function accRangeTip(w, n){
+    var r = accRangeText(w, n);
+    return r ? 'With ' + n + ' decided trade' + (n === 1 ? '' : 's') + ', the true win rate is likely (95%) between ' + r + '. Fewer trades means a wider range.' : '';
+  }
+  // Decided trades (win or loss) by rule set, newest rules first: one row per
+  // Track Record divider. Flat closes and "left coverage" closes don't count.
+  function accVersionTableHtml(closed){
+    var decided = (closed || []).filter(function(e){ return e && (e.outcome === 'win' || e.outcome === 'loss') && e.counted !== false; });
+    if (!decided.length) return '';
+    var segs = accRuleSegments(decided);
+    var rows = segs.map(function(seg, i){
+      var w = 0, pnl = [], real = [], first = null, last = null;
+      seg.items.forEach(function(e){
+        if (e.outcome === 'win') w++;
+        var v = Number(e.optionPnlPct); if (isFinite(v)) pnl.push(v);
+        var rf = Number(e.realFillPnlPct); if (e.realFillPnlPct != null && isFinite(rf)) real.push(rf);
+        var d = accDateShort(e.entryDate);
+        if (d !== '—'){ if (!first || d < first) first = d; if (!last || d > last) last = d; }
+      });
+      var n = seg.items.length;
+      var older = segs[i + 1] || null;
+      var notes = [];
+      ACC_RULE_DIMS.forEach(function(dim){
+        var a = seg.versions[dim.key], b = older ? older.versions[dim.key] : null;
+        if (!a || a === b) return;
+        var nt = ACC_RULE_NOTES[dim.key] && ACC_RULE_NOTES[dim.key][a];
+        if (nt && nt.note) notes.push(nt.note);
+      });
+      var rate = n ? w / n : null;
+      var cls = rate == null ? '' : rate >= 0.5 ? 'sig-pos' : 'sig-neg';
+      var avg = pnl.length ? accMean(pnl) : null;
+      return '<tr>' +
+        '<td><b>' + (i === segs.length - 1 && !notes.length ? 'Earliest rules' : 'Rules from ' + escapeHtml(seg.dates[0] || first || '—')) + '</b>' + (notes.length ? '<br><small>' + escapeHtml(notes.join(' · ')) + '</small>' : '') + '</td>' +
+        '<td>' + escapeHtml(first || '—') + (last && last !== first ? ' to ' + escapeHtml(last) : '') + '</td>' +
+        '<td>' + n + (n < ACC_FEW_N ? ' <span class="acc-few" title="Fewer than ' + ACC_FEW_N + ' decided trades: too few to judge.">few</span>' : '') + '</td>' +
+        '<td><span class="' + cls + '">' + (rate == null ? '—' : Math.round(rate * 100) + '%') + '</span> <small title="' + escapeHtml(accRangeTip(w, n)) + '">' + accRangeText(w, n) + '</small></td>' +
+        '<td>' + (avg == null ? '—' : '<span class="' + (avg >= 0 ? 'sig-pos' : 'sig-neg') + '">' + accPct(avg) + '</span>') + '</td>' +
+        '<td>' + (real.length ? accPct(accMean(real)) + ' <small>(' + real.length + ')</small>' : '—') + '</td>' +
+      '</tr>';
+    }).join('');
+    return '<div class="accuracy-tiers acc-version-table"><div class="accuracy-tiers-head">Win rate by rule set <span class="acc-an-tag">one row per divider</span></div>' +
+      '<p class="hint">The record is never reset when a rule changes. Each row is one set of rules, newest first, so you can compare them side by side.</p>' +
+      '<div class="acc-tscroll"><table class="acc-qtable"><thead><tr><th>Rule set</th><th>Trades opened</th><th>Decided</th><th>Win rate (likely range)</th><th>Avg P&amp;L (model)</th><th>Avg real fill</th></tr></thead><tbody>' + rows + '</tbody></table></div></div>';
   }
   function accPct(n){
     if (n == null || !isFinite(n)) return '—';
@@ -36583,6 +36797,8 @@ ${renderExportBindings()}
     if (bs && bs.paired && bs.paired.n) bits.push('picks vs SPY ' + accPct(bs.paired.edgePct) + ' (' + bs.paired.n + ')');
     var nFills = (accFills.rows || []).length;
     if (nFills) bits.push(nFills + ' logged fill' + (nFills === 1 ? '' : 's'));
+    var nMarks = accFills.marks ? Object.keys(accFills.marks).length : 0;
+    if (nMarks) bits.push(nMarks + ' trade' + (nMarks === 1 ? '' : 's') + ' marked took / skipped');
     return '<p class="hint acc-realfills-line"><b>Real trading:</b> ' + (bits.length ? bits.join(' · ') : 'no closed trades with real fills yet') +
       '. <button type="button" class="link-btn" data-acc-action="open-realfills">Open Real fills</button></p>';
   }
@@ -36591,7 +36807,7 @@ ${renderExportBindings()}
   // The Owner's own paper / real trade log, uploaded as CSV to
   // /api/auth/picks-fills and joined to the record by trade ID (tlTradeId, the
   // same id the feed and Copy all print).
-  var accFills = { loaded: false, loading: false, rows: [], errors: [], updatedAt: null, error: null, busy: false, open: null };
+  var accFills = { loaded: false, loading: false, rows: [], errors: [], updatedAt: null, error: null, busy: false, open: null, marks: {}, markBusy: null, markError: null };
   var ACC_FILL_COLUMNS = 'trade_id,account,symbol,side,structure,legs,qty,mingstreet_run_time_et,mingstreet_entry_mid,order_sent_time_et,stock_price_at_order,bid_at_order,ask_at_order,order_type,limit_steps,fill_price,fill_time_et,skipped,skip_reason,close_reason_feed,feed_exit_pnl_pct,close_order_time_et,bid_at_close,ask_at_close,close_fill_price,close_fill_time_et,fees,close_trigger,notes';
   function loadAccFills(){
     if (accFills.loaded || accFills.loading) return;
@@ -36602,6 +36818,7 @@ ${renderExportBindings()}
         accFills.rows = (j && Array.isArray(j.rows)) ? j.rows : [];
         accFills.errors = (j && Array.isArray(j.errors)) ? j.errors : [];
         accFills.updatedAt = (j && j.updatedAt) || null;
+        accFills.marks = (j && j.marks && typeof j.marks === 'object') ? j.marks : {};
         accFills.error = null;
         accFills.loaded = true;
       })
@@ -36611,7 +36828,111 @@ ${renderExportBindings()}
         // flaky network can't loop render -> fetch -> render.
         accFills.loaded = true;
       })
-      .then(function(){ accFills.loading = false; if (accuracyState.data) renderAccuracy(); });
+      .then(function(){ accFills.loading = false; accFillsRerender(); });
+  }
+  function accFillsRerender(){
+    if (accuracyState.data) renderAccuracy();
+    if (openPicksState.data && $('open-picks-root')) renderOpenPicks();
+  }
+  // --- Took it / skipped it (2026-11-06) --------------------------------------
+  // One tap per trade, saved to the Owner's picks-fills.json (marks survive a
+  // CSV upload). The Real fills tab compares the trades you took with the ones
+  // you skipped, so the real-vs-model gap covers every trade.
+  // The server accepts only these reasons (lib/track-record-fills.mjs).
+  var ACC_MARK_REASONS = ${JSON.stringify(TRADE_MARK_REASONS)};
+  function accMarkOf(e){ return accFills.marks ? accFills.marks[accFillKey(tlTradeId(e))] || null : null; }
+  function accMarkHtml(e){
+    if (accFills.error === 'off' || !e || !e.symbol || !e.entryDate) return '';
+    var id = accFillKey(tlTradeId(e));
+    var m = accMarkOf(e);
+    var busy = accFills.markBusy === id || (accFills.markQueue || []).some(function(q){ return q.trade_id === id; });
+    var inner;
+    if (m) {
+      inner = '<span class="acc-mark-state ' + (m.took ? 'took' : 'skipped') + '">' + (m.took ? 'You took this trade' : 'You skipped it: ' + escapeHtml(m.reason || '')) + '</span>' +
+        ' <button type="button" class="link-btn" data-acc-mark="clear" data-acc-mark-id="' + escapeHtml(id) + '"' + (busy ? ' disabled' : '') + '>Change</button>';
+    } else if (accFills.markPicking === id) {
+      inner = '<label class="acc-mark-reason">Why did you skip it? <select data-acc-mark-reason data-acc-mark-id="' + escapeHtml(id) + '"' + (busy ? ' disabled' : '') + '><option value="">Pick a reason</option>' +
+        ACC_MARK_REASONS.map(function(r){ return '<option>' + escapeHtml(r) + '</option>'; }).join('') + '</select></label>' +
+        ' <button type="button" class="link-btn" data-acc-mark="cancel" data-acc-mark-id="' + escapeHtml(id) + '">Cancel</button>';
+    } else {
+      inner = '<span class="acc-mark-ask">Did you trade it?</span>' +
+        ' <button type="button" class="acc-mark-btn" data-acc-mark="took" data-acc-mark-id="' + escapeHtml(id) + '"' + (busy ? ' disabled' : '') + '>I took it</button>' +
+        ' <button type="button" class="acc-mark-btn" data-acc-mark="skip" data-acc-mark-id="' + escapeHtml(id) + '"' + (busy ? ' disabled' : '') + '>I skipped it</button>';
+    }
+    return '<div class="acc-mark" data-acc-mark-row="' + escapeHtml(id) + '">' + inner +
+      (accFills.markError && accFills.markError.id === id ? ' <span class="acc-mark-err" role="status">' + escapeHtml(accFills.markError.msg) + '</span>' : '') + '</div>';
+  }
+  // Saves go out one at a time; a tap while another save is in flight waits
+  // its turn instead of being dropped.
+  function accSaveMark(mark){
+    if (accFills.markBusy){
+      accFills.markQueue = (accFills.markQueue || []).filter(function(q){ return q.trade_id !== mark.trade_id; });
+      accFills.markQueue.push(mark);
+      accFillsRerender();
+      return;
+    }
+    accFills.markBusy = mark.trade_id; accFills.markError = null;
+    accFillsRerender();
+    fetch('/api/auth/picks-fills', {
+      method: 'POST', credentials: 'same-origin', cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mark: mark })
+    })
+      .then(function(r){ return r.json().then(function(j){ return { ok: r.ok, j: j }; }, function(){ return { ok: r.ok, j: null }; }); })
+      .then(function(res){
+        if (!res.ok){ accFills.markError = { id: mark.trade_id, msg: 'Not saved' + (res.j && res.j.error ? ': ' + res.j.error : '') + '.' }; return; }
+        accFills.marks = (res.j && res.j.marks) || {};
+        if (res.j && Array.isArray(res.j.rows)) accFills.rows = res.j.rows;
+        if (accFills.markPicking === mark.trade_id) accFills.markPicking = null;
+      })
+      .catch(function(){ accFills.markError = { id: mark.trade_id, msg: 'Not saved. Try again.' }; })
+      .then(function(){
+        accFills.markBusy = null;
+        var next = accFills.markQueue && accFills.markQueue.shift();
+        if (next) accSaveMark(next); else accFillsRerender();
+      });
+  }
+  document.addEventListener('click', function(ev){
+    var btn = ev.target && ev.target.closest ? ev.target.closest('[data-acc-mark]') : null;
+    if (!btn) return;
+    var id = btn.getAttribute('data-acc-mark-id'), act = btn.getAttribute('data-acc-mark');
+    if (!id) return;
+    ev.preventDefault();
+    if (act === 'took') accSaveMark({ trade_id: id, took: true });
+    else if (act === 'skip'){ accFills.markPicking = id; accFillsRerender(); var sel = document.querySelector('select[data-acc-mark-reason][data-acc-mark-id="' + id.replace(/"/g, '') + '"]'); if (sel) sel.focus(); }
+    else if (act === 'cancel'){ accFills.markPicking = null; accFillsRerender(); }
+    else if (act === 'clear') accSaveMark({ trade_id: id, clear: true });
+  });
+  document.addEventListener('change', function(ev){
+    var sel = ev.target && ev.target.matches && ev.target.matches('select[data-acc-mark-reason]') ? ev.target : null;
+    if (!sel || !sel.value) return;
+    accSaveMark({ trade_id: sel.getAttribute('data-acc-mark-id'), took: false, reason: sel.value });
+  });
+  // Real fills: the trades you took vs the ones you skipped, on the record's
+  // modeled P&L, plus the most common skip reasons.
+  function accMarksSummaryHtml(d){
+    if (accFills.error === 'off') return '';
+    var closed = ((d && d.closed) || []).filter(function(e){ return e && (e.outcome === 'win' || e.outcome === 'loss') && e.counted !== false; });
+    var open = (d && d.open) || [];
+    var took = [], skipped = [], unmarked = 0, reasons = {};
+    closed.forEach(function(e){
+      var m = accMarkOf(e), v = Number(e.optionPnlPct);
+      if (!m){ unmarked++; return; }
+      (m.took ? took : skipped).push({ e: e, v: isFinite(v) ? v : null });
+      if (!m.took) reasons[m.reason || 'Other'] = (reasons[m.reason || 'Other'] || 0) + 1;
+    });
+    var openMarked = open.filter(function(e){ return !!accMarkOf(e); }).length;
+    function side(list, label){
+      if (!list.length) return '<li><b>' + label + '</b>: none yet</li>';
+      var w = list.filter(function(x){ return x.e.outcome === 'win'; }).length;
+      var vals = list.map(function(x){ return x.v; }).filter(function(v){ return v != null; });
+      return '<li><b>' + label + '</b>: ' + list.length + ' closed · ' + Math.round(w / list.length * 100) + '% won (likely ' + accRangeText(w, list.length) + ')' +
+        (vals.length ? ' · model avg ' + accPct(accMean(vals)) : '') + '</li>';
+    }
+    var reasonTxt = Object.keys(reasons).sort(function(a, b){ return reasons[b] - reasons[a]; }).map(function(r){ return escapeHtml(r) + ' (' + reasons[r] + ')'; }).join(', ');
+    return '<div class="accuracy-tiers acc-marks-summary"><div class="accuracy-tiers-head">Trades you took vs skipped <span class="acc-an-tag">your marks</span></div>' +
+      '<p class="hint">Mark each trade with "I took it" or "I skipped it" on Open picks or the Picks list. ' + (closed.length - unmarked) + ' of ' + closed.length + ' closed trades are marked' + (open.length ? ', and ' + openMarked + ' of ' + open.length + ' open ones' : '') + '.</p>' +
+      '<ul class="acc-fills-summary">' + side(took, 'Took') + side(skipped, 'Skipped') + (reasonTxt ? '<li><b>Why skipped</b>: ' + reasonTxt + '</li>' : '') + '</ul></div>';
   }
   function uploadAccFills(file){
     if (!file || accFills.busy) return;
@@ -39908,6 +40229,7 @@ ${renderExportBindings()}
       (accRangeBarHtml(e) || (targets ? '<div class="acc-targets">' + targets + '</div>' : '')) +
       accStrategyBlock(e, false) +
       accCheckpointsBlock(e) +
+      accMarkHtml(e) +
     '</div>';
   }
   // Event play tag frozen on the trade (lib/event-play.mjs): which event it is
@@ -40063,7 +40385,7 @@ ${renderExportBindings()}
   }
   // A trade block: { kind: 'OPEN'|'CLOSE', id, rows: [[label, value], ...] }.
   function tlBlock(kind, e, fields){
-    return { kind: kind, id: tlTradeId(e), rows: fields.filter(function(f){ return f[1]; }) };
+    return { kind: kind, id: tlTradeId(e), rows: fields.filter(function(f){ return f[1]; }), entry: e };
   }
   function tlOpenBlock(e, nowMs){
     var c = (e && e.contract) || {};
@@ -40132,10 +40454,85 @@ ${renderExportBindings()}
     ].concat(tlSection('OPEN TRADES (' + opens.length + ')', opens, 'None open right now.'), [''],
       tlSection('CLOSED IN THE LAST 7 DAYS (' + closes.length + ')', closes, 'None.')).join('\\n') + '\\n';
   }
+  // Two-leg close ticket for a vertical spread (HTML only; the copied feed
+  // text stays the same as lib/pick-trade-text.mjs). Each leg gets its own
+  // line and Copy button; opening the ticket reads live leg quotes from
+  // /api/contract so each limit sits at the current mid.
+  function tlLegText(e, strike){
+    var c = (e && e.contract) || {};
+    return e.symbol + ' ' + tlExpiry(c.expiry) + ' ' + tlStrike(strike) + ' ' + ((c.optionType || e.side) === 'put' ? 'put' : 'call');
+  }
+  function tlTicketHtml(b){
+    var e = b.entry, c = (e && e.contract) || {};
+    if (b.kind === 'CLOSE' && e && e.status === 'expired') return '';
+    if (c.structure !== 'debit_vertical' && c.structure !== 'credit_vertical') return '';
+    if (tlNum(c.longStrike) == null || tlNum(c.shortStrike) == null || tlNum(c.expiry) == null) return '';
+    var type = (c.optionType || e.side) === 'put' ? 'put' : 'call';
+    var mark = tlMarkPrice(e);
+    var credit = c.structure === 'credit_vertical';
+    var leg = function(role, action, strike){
+      var text = tlLegText(e, strike);
+      return '<li data-tl-leg="' + role + '" data-strike="' + escapeHtml(String(strike)) + '" data-text="' + escapeHtml(action + ' 1 ' + text) + '">' +
+        '<b>' + action + '</b> 1 <code>' + escapeHtml(text) + '</code> · limit <span data-tl-leg-px>near the mid</span>' +
+        '<button type="button" class="acc-mark-btn tl-ticket-copy" data-tl-leg-copy>Copy</button></li>';
+    };
+    return '<details class="tl-ticket" data-tl-ticket data-sym="' + escapeHtml(e.symbol) + '" data-type="' + type + '" data-exp="' + escapeHtml(String(c.expiry)) + '" data-credit="' + (credit ? '1' : '0') + '">' +
+      '<summary class="tl-ticket-head">Close ticket · 2 legs</summary>' +
+      '<ol>' + leg('short', 'Buy to close', c.shortStrike) + leg('long', 'Sell to close', c.longStrike) + '</ol>' +
+      '<p data-tl-net>' + (credit ? 'Closing costs a net debit' : 'Closing brings in a net credit') + (mark != null ? ' of about ' + tlMoney(mark) + ' per share on the Mingstreet model.' : '.') + '</p>' +
+      '<p>Best: enter both legs as one spread order at a net limit near the mid. If your broker takes one leg at a time, buy back the short leg first so you are never short an uncovered option.' + (b.kind === 'OPEN' ? ' Use this when the trade’s CLOSE line appears.' : '') + '</p>' +
+    '</details>';
+  }
+  function tlTicketLoad(box){
+    if (!box || box.getAttribute('data-tl-loaded')) return;
+    box.setAttribute('data-tl-loaded', '1');
+    var sym = box.getAttribute('data-sym'), type = box.getAttribute('data-type'), exp = box.getAttribute('data-exp');
+    var legs = box.querySelectorAll('[data-tl-leg]');
+    var mids = {};
+    var jobs = Array.prototype.map.call(legs, function(li){
+      var strike = li.getAttribute('data-strike');
+      return fetch('/api/contract?symbol=' + encodeURIComponent(sym) + '&side=' + encodeURIComponent(type) + '&exp=' + encodeURIComponent(exp) + '&strike=' + encodeURIComponent(strike), { cache: 'no-store' })
+        .then(function(r){ if (!r.ok) throw new Error('http'); return r.json(); })
+        .then(function(q){
+          var bid = Number(q && q.b), ask = Number(q && q.a);
+          var px = li.querySelector('[data-tl-leg-px]');
+          if (!(bid >= 0) || !(ask > 0) || ask < bid){ if (px) px.textContent = 'near the mid (no live quote)'; return; }
+          var mid = Math.round((bid + ask) / 2 * 100) / 100;
+          mids[li.getAttribute('data-tl-leg')] = mid;
+          if (px) px.textContent = '$' + mid.toFixed(2) + ' (bid ' + bid.toFixed(2) + ' / ask ' + ask.toFixed(2) + ')';
+          li.setAttribute('data-text', li.getAttribute('data-text').replace(/(, limit \\$[\\d.]+)?$/, '') + ', limit $' + mid.toFixed(2));
+        })
+        .catch(function(){ var px = li.querySelector('[data-tl-leg-px]'); if (px) px.textContent = 'near the mid (live quote unavailable)'; });
+    });
+    Promise.all(jobs).then(function(){
+      if (mids.long == null || mids.short == null) return;
+      var credit = box.getAttribute('data-credit') === '1';
+      var net = credit ? mids.short - mids.long : mids.long - mids.short;
+      var p = box.querySelector('[data-tl-net]');
+      if (p) p.textContent = (credit ? 'Closing costs a net debit of about $' : 'Closing brings in a net credit of about $') + Math.max(0, net).toFixed(2) + ' per share at the live mids' + (net < 0 ? ' (the mids cross; use the broker’s spread quote).' : '.');
+    });
+  }
+  document.addEventListener('toggle', function(ev){
+    var t = ev.target;
+    if (t && t.matches && t.matches('[data-tl-ticket]') && t.open) tlTicketLoad(t);
+  }, true);
+  document.addEventListener('click', function(ev){
+    var btn = ev.target && ev.target.closest ? ev.target.closest('[data-tl-leg-copy]') : null;
+    if (!btn) return;
+    ev.preventDefault();
+    var li = btn.closest('[data-tl-leg]');
+    var text = li ? li.getAttribute('data-text') : '';
+    if (!text) return;
+    if (!/, limit \\$/.test(text)) text += ', limit near the mid';
+    var done = function(ok){ btn.textContent = ok ? 'Copied' : 'Copy failed'; setTimeout(function(){ btn.textContent = 'Copy'; }, 1600); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function(){ done(true); }, function(){ done(false); });
+    else { try { window.prompt('Copy this order', text); done(true); } catch (_){ done(false); } }
+  });
   function tlBlockHtml(b){
     return '<li class="tl-card">' +
       '<div class="tl-card-head"><span class="tl-kind tl-kind-' + b.kind.toLowerCase() + '">' + b.kind + '</span> <span class="tl-id">' + escapeHtml(b.id) + '</span></div>' +
       '<dl class="tl-rows">' + b.rows.map(function(r){ return '<dt>' + escapeHtml(r[0]) + '</dt><dd>' + escapeHtml(r[1]) + '</dd>'; }).join('') + '</dl>' +
+      tlTicketHtml(b) +
     '</li>';
   }
   // The Open picks tab's copy block, below the cards and collapsed by default:
@@ -40294,9 +40691,87 @@ ${renderExportBindings()}
       { val: calls + ' · ' + (open.length - calls), lbl: 'calls · puts' },
       marks.length ? { val: accPct(accMean(marks)), lbl: 'avg open mark · ' + greens + '/' + marks.length + ' green', cls: accMean(marks) >= 0 ? 'sig-pos' : 'sig-neg', tip: 'Average modeled contract P&L across the open book (unrealized).' } : null,
     ]);
+    loadAccFills();
     var opSort = VIEWS.choose('open-picks.sort', 'newest', OPEN_PICK_SORTS.map(function(o){ return o[0]; }));
     root.innerHTML = openPicksControlsHtml(opSort) + accOpenGroupHtml(open, opSort, VIEWS.viewMode('open-picks') === 'table') + tradeLinesHtml(open, Array.isArray(d.closed) ? d.closed : [], d.builtAtIso);
   }
+  // --- Week recap (Friday recap, 2026-11-06) ---------------------------------
+  // lib/week-recap.mjs: the week's opens and closes, win rate by entry type,
+  // the most confident losing close and the rule that turned away the most.
+  // Templated from picks-accuracy.json; no AI.
+  var recapView = { weekOf: null };
+  function recapTradeTable(rows, closed){
+    if (!rows.length) return '<p class="muted">' + (closed ? 'Nothing closed this week.' : 'Nothing opened this week.') + '</p>';
+    var head = closed ? '<th>Trade</th><th>Closed</th><th>Option P&amp;L</th><th>Why</th><th>Held</th><th>Entry type</th>'
+      : '<th>Trade</th><th>Opened</th><th>Score</th><th>Entry type</th><th>Now</th>';
+    var body = rows.map(function(x){
+      var name = '<b>' + escapeHtml(x.symbol) + '</b> ' + accSidePill(x.side);
+      var kind = escapeHtml(WEEK_RECAP.KIND_LABEL[x.kind] || x.kind);
+      var pnl = x.pnl == null ? '—' : '<span class="' + (x.pnl >= 0 ? 'sig-pos' : 'sig-neg') + '">' + accPct(x.pnl) + '</span>';
+      if (closed) return '<tr><td>' + name + '</td><td>' + escapeHtml(WEEK_RECAP.dayLabel(x.exitKey)) + '</td><td>' + pnl + '</td><td>' + escapeHtml(x.reason || '—') + '</td><td>' + (x.held == null ? '—' : x.held + 'd') + '</td><td>' + kind + '</td></tr>';
+      return '<tr><td>' + name + '</td><td>' + escapeHtml(WEEK_RECAP.dayLabel(x.entryKey)) + '</td><td>' + (x.score == null ? '—' : x.score.toFixed(1)) + '</td><td>' + kind + '</td><td>' + (x.exitKey ? 'Closed ' + pnl : 'Open ' + pnl) + '</td></tr>';
+    }).join('');
+    return '<div class="acc-tscroll"><table class="acc-qtable recap-table" data-nosort><thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody></table></div>';
+  }
+  function recapRateCell(t, withRange){
+    if (!t.n) return '<td>—</td>';
+    var r = withRange ? accWilson(t.wins, t.n) : null;
+    return '<td>' + t.wins + '–' + t.losses + ' <small>(' + Math.round(t.rate * 100) + '%' + (r && t.n < ACC_FEW_N ? ', likely ' + Math.round(r.lo * 100) + '–' + Math.round(r.hi * 100) + '%' : '') + ')</small></td>';
+  }
+  function renderWeekRecap(){
+    var el = $('acc-recap'); if (!el) return;
+    var d = accuracyState.data;
+    if (!d) { el.textContent = 'Loading the week…'; return; }
+    if (d.loadError) { el.innerHTML = '<p class="muted">Couldn’t load the track record. Re-open this tab to try again.</p>'; return; }
+    var r = WEEK_RECAP.build(d, { weekOf: recapView.weekOf });
+    if (!r) { el.innerHTML = ''; return; }
+    var t = r.record;
+    var kpi = function(v, l, cls){ return '<div class="recap-kpi"><b' + (cls ? ' class="' + cls + '"' : '') + '>' + v + '</b><span>' + l + '</span></div>'; };
+    var events = r.byEvent.length ? '<h4>Win rate by entry type</h4><div class="acc-tscroll"><table class="acc-qtable recap-table" data-nosort><thead><tr><th>Entry type</th><th>Opened</th><th>This week</th><th>To date</th></tr></thead><tbody>' +
+      r.byEvent.map(function(b){ return '<tr><td>' + escapeHtml(b.label) + '</td><td>' + b.opened + '</td>' + recapRateCell(b.week, false) + recapRateCell(b.all, true) + '</tr>'; }).join('') +
+      '</tbody></table></div>' : '';
+    var miss = r.miss
+      ? '<b>' + escapeHtml(r.miss.symbol) + ' ' + r.miss.side + '</b>' + (r.miss.score != null ? ', entry score ' + r.miss.score.toFixed(1) : '') + ', closed <span class="sig-neg">' + accPct(r.miss.pnl) + '</span>' + (r.miss.reason ? ' (' + escapeHtml(r.miss.reason) + ')' : '') + (r.miss.held != null ? ' after ' + r.miss.held + ' day' + (r.miss.held === 1 ? '' : 's') : '') + '. The losing close the model was surest about.'
+      : 'No losing closes this week.';
+    var gate = r.topGate
+      ? '<b>' + escapeHtml(ACC_GATE_LABEL[r.topGate.gate] || r.topGate.gate) + '</b>, ' + r.topGate.n + ' name' + (r.topGate.n === 1 ? '' : 's') + ': ' + escapeHtml(r.topGate.names.slice(0, 8).join(', ') + (r.topGate.names.length > 8 ? ', and more' : '')) + '.' +
+        (r.gates.length > 1 ? ' <small class="muted">Next: ' + r.gates.slice(1, 4).map(function(g){ return escapeHtml(ACC_GATE_LABEL[g.gate] || g.gate) + ' (' + g.n + ')'; }).join(', ') + '.</small>' : '')
+      : (r.gateLogged ? 'No candidate was turned away this week.' : 'The rule log is not in this record yet.');
+    el.innerHTML = '<section class="recap-week" aria-label="Week recap">' +
+      '<div class="recap-nav"><button type="button" class="ics-btn" data-recap-week="-1" aria-label="Previous week">‹ Previous</button>' +
+      '<h3>Week of ' + escapeHtml(r.label) + '</h3>' +
+      '<button type="button" class="ics-btn" data-recap-week="1" aria-label="Next week"' + (r.current ? ' disabled' : '') + '>Next ›</button></div>' +
+      '<p class="recap-sub">' + (r.complete ? 'Final for the week.' : 'Week in progress: it fills in after each Top Picks run (11:00 and 15:30 ET), and Friday’s 15:30 run closes it out.') + ' Option P&amp;L is the model’s mid price, not your fills.</p>' +
+      '<div class="recap-kpis">' +
+        kpi(String(r.opened.length), 'opened') +
+        kpi(String(r.closed.length), 'closed') +
+        kpi(t.n ? t.wins + '–' + t.losses : '—', t.n ? Math.round(t.rate * 100) + '% won this week' : 'none decided', t.n ? (t.rate >= 0.5 ? 'sig-pos' : 'sig-neg') : '') +
+        kpi(r.avgPnl == null ? '—' : accPct(r.avgPnl), 'average close', r.avgPnl == null ? '' : (r.avgPnl >= 0 ? 'sig-pos' : 'sig-neg')) +
+        (r.current ? kpi(String(r.openNow), 'open now') : '') +
+      '</div>' +
+      '<h4>Biggest miss</h4><p class="recap-line">' + miss + '</p>' +
+      (r.best ? '<p class="recap-line">Best close: <b>' + escapeHtml(r.best.symbol) + ' ' + r.best.side + '</b> <span class="sig-pos">' + accPct(r.best.pnl) + '</span>' + (r.best.reason ? ' (' + escapeHtml(r.best.reason) + ')' : '') + '.</p>' : '') +
+      '<h4>Rule that turned away the most</h4><p class="recap-line">' + gate + '</p>' +
+      events +
+      '<h4>Opened this week</h4>' + recapTradeTable(r.opened, false) +
+      '<h4>Closed this week</h4>' + recapTradeTable(r.closed, true) +
+      '<div class="recap-actions"><button type="button" class="ics-btn" data-recap-copy>Copy recap</button></div>' +
+    '</section>';
+  }
+  document.addEventListener('click', function(ev){
+    var nav = ev.target && ev.target.closest ? ev.target.closest('[data-recap-week]') : null;
+    if (nav && !nav.disabled){
+      var cur = WEEK_RECAP.build(accuracyState.data || {}, { weekOf: recapView.weekOf });
+      if (cur) { recapView.weekOf = WEEK_RECAP.shiftWeek(cur.week.start, Number(nav.getAttribute('data-recap-week'))); renderWeekRecap(); }
+      return;
+    }
+    var cp = ev.target && ev.target.closest ? ev.target.closest('[data-recap-copy]') : null;
+    if (!cp) return;
+    var txt = WEEK_RECAP.text(WEEK_RECAP.build(accuracyState.data || {}, { weekOf: recapView.weekOf }), ACC_GATE_LABEL);
+    var done = function(ok){ cp.textContent = ok ? 'Copied' : 'Copy failed'; setTimeout(function(){ cp.textContent = 'Copy recap'; }, 1800); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(function(){ done(true); }, function(){ done(false); });
+    else done(false);
+  });
   function renderAccuracy(){
     var root = $('accuracy-root'); if (!root) return;
     var statsEl = $('accuracy-stats');
@@ -40358,6 +40833,7 @@ ${renderExportBindings()}
     renderSimulation();
     renderMonteCarlo(accView.mcRan === true);  // re-render a completed run (deterministic) instead of wiping it
     renderGradeEdge();
+    renderWeekRecap();
 
     renderWebullTest();
     renderWebullEquity();
@@ -40425,7 +40901,14 @@ ${renderExportBindings()}
     if (st.optionWinRate != null) {
       chips += '<div class="accuracy-chip' + (st.optionWinRate >= 0.5 ? ' accuracy-chip-good' : ' accuracy-chip-bad') + '" title="' + optTip + '">' +
         '<span class="accuracy-chip-num">' + Math.round(st.optionWinRate * 100) + '%</span>' +
-        '<span class="accuracy-chip-lbl">win rate · option (modeled · ' + (st.optionDecided || 0) + ')</span>' +
+        '<span class="accuracy-chip-lbl">win rate · option (modeled · ' + (st.optionDecided || 0) + ')' + (st.optionDecided ? ' · likely ' + accRangeText(Math.round(st.optionWinRate * st.optionDecided), st.optionDecided) : '') + '</span>' +
+      '</div>';
+      // Progress toward a sample big enough to judge the record.
+      var judgeN = st.optionDecided || 0;
+      chips += '<div class="accuracy-chip acc-judge-chip" title="Roughly how many closed trades it takes before the win rate can be trusted (an estimate of 140 to 240). Until then, read every rate with its range.">' +
+        '<span class="accuracy-chip-num">' + judgeN + ' of ~' + ACC_JUDGE_N + '</span>' +
+        '<span class="accuracy-chip-lbl">trades needed to judge the record</span>' +
+        '<span class="acc-judge-bar" aria-hidden="true"><i style="width:' + Math.min(100, Math.round(judgeN / ACC_JUDGE_N * 100)) + '%"></i></span>' +
       '</div>';
     }
     if (st.optionExpectancyPct != null) {
@@ -40533,6 +41016,7 @@ ${renderExportBindings()}
         '<span class="acc-tier-bar"><i class="' + barCls + '" style="width:' + (rate == null ? 0 : rate) + '%"></i></span>' +
         '<span class="acc-tier-rate ' + barCls + '">' + (rate == null ? '—' : rate + '%') + '</span>' +
         '<span class="acc-tier-n">' + row.wins + '/' + row.n + '</span>' +
+        '<span class="acc-tier-range" title="' + escapeHtml(accRangeTip(row.wins, row.n)) + '">' + accRangeText(row.wins, row.n) + (row.n < ACC_FEW_N ? ' <span class="acc-few">few</span>' : '') + '</span>' +
       '</div>';
     }
     var tierBlock = tierRows
@@ -40540,7 +41024,7 @@ ${renderExportBindings()}
       : '';
     // Generic cohort renderer (sector / regime / gate A/B) — same bar layout as
     // the tier block. Suppresses cohorts with <1 decided and labels are escaped.
-    function cohortBlock(title, obj){
+    function cohortBlock(title, obj, foot){
       if (!obj) return '';
       var keys = Object.keys(obj).sort(function(a, b){ return (obj[b].n || 0) - (obj[a].n || 0); });
       var rows = '';
@@ -40554,12 +41038,19 @@ ${renderExportBindings()}
           '<span class="acc-tier-bar"><i class="' + cls + '" style="width:' + (rate == null ? 0 : rate) + '%"></i></span>' +
           '<span class="acc-tier-rate ' + cls + '">' + (rate == null ? '—' : rate + '%') + '</span>' +
           '<span class="acc-tier-n">' + row.wins + '/' + row.n + '</span>' +
+          '<span class="acc-tier-range" title="' + escapeHtml(accRangeTip(row.wins, row.n)) + '">' + accRangeText(row.wins, row.n) + (row.n < ACC_FEW_N ? ' <span class="acc-few">few</span>' : '') + '</span>' +
         '</div>';
       }
-      return rows ? '<div class="accuracy-tiers"><div class="accuracy-tiers-head">' + title + '</div>' + rows + '</div>' : '';
+      return rows ? '<div class="accuracy-tiers"><div class="accuracy-tiers-head">' + title + '</div>' + rows + (foot || '') + '</div>' : '';
     }
     var sectorBlock = cohortBlock('Win rate by sector', st.bySector);
-    var regimeBlock = cohortBlock('Win rate by market regime', st.byRegime);
+    // The regime split is a timing read, not the intended bullish lean, so it
+    // sits on the Scorecard itself with its ranges (2026-11-06).
+    var riskOnN = st.byRegime && st.byRegime['risk-on'] ? st.byRegime['risk-on'].n : 0;
+    var regimeBlock = cohortBlock('Win rate by market regime', st.byRegime,
+      '<p class="hint acc-regime-note">The regime is the market tape when the trade opened. Read it with the ranges: ' +
+      (riskOnN < 30 ? 'risk-on has ' + riskOnN + ' decided trade' + (riskOnN === 1 ? '' : 's') + ', so revisit this split at 30.' : 'risk-on now has ' + riskOnN + ' decided trades.') + '</p>');
+    var versionBlock = accVersionTableHtml(closed);
     // gate A/B only when both arms have data (PICKS_ACCURACY_AB enabled long enough)
     var abBlock = (st.byCohort && Object.keys(st.byCohort).length > 1) ? cohortBlock('Gate A/B — endorsed (go) vs deferred (wait)', st.byCohort) : '';
     // Macro-event exposure A/B — did entering near an FOMC / major print cost us, and
@@ -40570,18 +41061,18 @@ ${renderExportBindings()}
     // and win-rate-by-tier, not a wall of bars.
     var advancedInner = '';
     if (researchChips) advancedInner += '<div class="accuracy-chips accuracy-chips-research">' + researchChips + '</div>';
-    advancedInner += sectorBlock + regimeBlock + abBlock + eventBlock;
+    advancedInner += sectorBlock + abBlock + eventBlock;
     var advancedBlock = advancedInner
       ? '<details class="accuracy-advanced"><summary class="accuracy-advanced-summary">Advanced &amp; research stats</summary><div class="accuracy-advanced-body">' + advancedInner + '</div></details>'
       : '';
     var gateBlock = accGateStatsHtml(d.gateStats);
     if (statsEl) statsEl.innerHTML = '<div id="accuracy-profit" class="accuracy-profit"></div>' +
       '<div class="acc-an-subhead acc-pctlens-head">Modeled % lens <span class="acc-an-tag">option return, resolved</span></div>' +
-      '<div class="accuracy-chips">' + chips + '</div>' + accRealFillsLine(d) + payoffBlock + tierBlock + advancedBlock + gateBlock;
+      '<div class="accuracy-chips">' + chips + '</div>' + accRealFillsLine(d) + payoffBlock + tierBlock + regimeBlock + versionBlock + advancedBlock + gateBlock;
     // The full real-trading comparison and the trade-log upload live in the
     // Real fills sub-tab; the Scorecard keeps the one line above.
     var realBox = $('acc-realfills');
-    if (realBox) realBox.innerHTML = accRealityHtml(d) + accFillsHtml(d);
+    if (realBox) realBox.innerHTML = accRealityHtml(d) + accMarksSummaryHtml(d) + accFillsHtml(d);
     bindAccFills();
     loadAccFills();
     renderProfitBlock();
@@ -40630,6 +41121,7 @@ ${renderExportBindings()}
         '</div>' +
         accStrategyBlock(e, true) +
         accCheckpointsBlock(e) +
+        accMarkHtml(e) +
       '</div>';
     }
     if (closed.length){
@@ -43740,6 +44232,35 @@ ${renderExportBindings()}
       }).join('') +
     '</section>';
   }
+  // "Why no picks today": when nothing is ready to buy, the five names that
+  // came closest this run and the rule that stopped each (lib/no-picks.mjs).
+  function picksNoPicksHtml(data){
+    if (!data || data.loadError || data.stale === true) return '';
+    var gradesIdx = picksGradesState.data && !picksGradesState.data.loadError ? picksGradesState.data : null;
+    var nm = NO_PICKS.nearMisses(data, gradesIdx, { isReady: function(p){ return pickDisplayDecision(p).ready; } });
+    if (nm.readyCount > 0) return '';
+    // Fewer than five reached the bar: fill from the shared grade index (the
+    // same cached grades.json the grade search uses), once per page load.
+    if (nm.misses.length < 5 && !gradesIdx && !picksState.gradesTried){
+      picksState.gradesTried = true;
+      loadGradesIndex(function(g){ if (g && g.grades && !g.loadError) renderPicks(true); });
+    }
+    if (!nm.misses.length) return '';
+    var when = '';
+    if (nm.builtAtIso){ var bd = new Date(nm.builtAtIso); if (!isNaN(bd.getTime())) when = ' after the ' + formatDisplayInstant(bd, { hour: 'numeric', minute: '2-digit', hour12: true }) + ' run'; }
+    var items = nm.misses.map(function(m){
+      var sc = m.score == null ? '' : ' <small>score ' + (m.score > 0 ? '+' : '') + m.score.toFixed(1) + '</small>';
+      return '<li><a href="' + escapeHtml(symGradeHref(m.symbol)) + '"><b>' + escapeHtml(m.symbol) + '</b></a> ' + m.side + sc +
+        ' <span class="nopick-gate">' + escapeHtml(m.label) + '</span>' + (m.next ? '<br><span class="muted">' + escapeHtml(m.next) + '</span>' : '') + '</li>';
+    }).join('');
+    var top = nm.gates.slice(0, 3).map(function(g){ return escapeHtml(g.label) + ' (' + g.n + ')'; }).join(', ');
+    return '<section class="nopick-card" aria-label="Why no picks today">' +
+      '<h3>' + (nm.listed ? 'Why nothing is ready to buy' : 'Why no picks today') + '</h3>' +
+      '<p>Nothing cleared every rule' + escapeHtml(when) + '. These ' + nm.misses.length + ' came closest' + (nm.misses.some(function(m){ return m.source === 'grades'; }) ? ' (names under the score bar of ' + nm.bar + ' come from the grades)' : '') + ', each with the rule that stopped it.</p>' +
+      '<ol>' + items + '</ol>' +
+      '<p class="nopick-foot">' + (nm.gates.length && nm.gates[0].n > 1 ? 'Most names this run stopped at: ' + top + '. ' : '') + 'Top Picks runs at 11:00 and 15:30 ET on trading days.</p>' +
+    '</section>';
+  }
   function renderPicks(keepView){
     bindPicksControls();
     bindPicksNav();
@@ -43790,7 +44311,7 @@ ${renderExportBindings()}
       // idea outliving the list is exactly what it is for. Below it, the names
       // the rules turned away this run, grouped by the rule, so an empty day
       // still shows what the engine was looking at.
-      grid.innerHTML = watchlistHtml + (data.loadError || staleBuild ? '' : picksTurnedAwayHtml(data.rosterMeta));
+      grid.innerHTML = picksNoPicksHtml(data) + watchlistHtml + (data.loadError || staleBuild ? '' : picksTurnedAwayHtml(data.rosterMeta));
       try { applyLiveEntryChips(); } catch (_){}
       if (summaryEl) summaryEl.innerHTML = '';
       if (empty){
@@ -43872,6 +44393,7 @@ ${renderExportBindings()}
     if (picks.length < 10) noteBits.push('Only <b>' + picks.length + '</b> research idea' + (picks.length === 1 ? '' : 's') + ' on the roster');
     if (rm && rm.sectorCapped && rm.sectorCapped.length) noteBits.push('<b>' + rm.sectorCapped.length + '</b> skipped to cap sector concentration');
     if (rm && rm.factorCapped && rm.factorCapped.length) noteBits.push('<b>' + rm.factorCapped.length + '</b> skipped to cap factor concentration');
+    if (rm && rm.factorRunCapped && rm.factorRunCapped.length) noteBits.push('<b>' + rm.factorRunCapped.length + '</b> held back — at most ' + (rm.factorRunLimit || 2) + ' new trades per run from one stock group (' + rm.factorRunCapped.map(escapeHtml).join(', ') + ')');
     if (rm && rm.factorTrendGated && rm.factorTrendGated.length) noteBits.push('<b>' + rm.factorTrendGated.length + '</b> long' + (rm.factorTrendGated.length === 1 ? '' : 's') + ' stood down — their sector is rolling over (no chasing a falling factor)');
     if (rm && rm.macroCallCapped && rm.macroCallCapped.length) noteBits.push('<b>' + rm.macroCallCapped.length + '</b> call' + (rm.macroCallCapped.length === 1 ? '' : 's') + ' capped — severe risk-off tape');
     if (rm && rm.sideCapped && rm.sideCapped.length){
@@ -43928,7 +44450,7 @@ ${renderExportBindings()}
       sectionHtml += groupHead('Ideas · watch', watchList.length, 'Not a buy right now — strong picks waiting for entry, moderate grades, or thinner theses; a strategy is shown only where it’s earned', 'picks-group-watch');
       sectionHtml += watchList.map(function(p, i){ return pickTabCardHtml(p, i); }).join('');
     }
-    grid.innerHTML = watchlistHtml + rosterNote + sectionHtml;
+    grid.innerHTML = picksNoPicksHtml(data) + watchlistHtml + rosterNote + sectionHtml;
     // Re-apply the live entry-trigger overlays on the freshly-rendered chips —
     // a sort toggle or watchlist change otherwise shows baked chips until the
     // next 30s poll lands.
@@ -46484,10 +47006,127 @@ ${renderExportBindings()}
       tiles.push(homeDeskTile('owner-market-brief', 'Owner brief', nCh ? nCh + (nCh === 1 ? ' change' : ' changes') : 'No changes',
         escapeHtml((b.headline ? b.headline : 'latest read') + since)));
     }
+    // Friday after the close and over the weekend: the week's recap.
+    if (WEEK_RECAP.recapReady()) tiles.push(homeDeskTile('track', 'Week recap', 'Ready', 'opens, closes, the biggest miss and the busiest rule').replace('data-go="track"', 'data-go="track" data-acc-pref="recap"'));
     grid.setAttribute('data-count', String(tiles.length));
     grid.innerHTML = tiles.join('');
     sec.hidden = false;
   }
+  // A Home tile can open a Track Record sub-tab (after the page switch).
+  document.addEventListener('click', function(ev){
+    var t = ev.target && ev.target.closest ? ev.target.closest('[data-acc-pref]') : null;
+    if (!t) return;
+    var key = t.getAttribute('data-acc-pref');
+    try { localStorage.setItem('stonks-acc-tab', key); } catch (_) {}
+    setTimeout(function(){ var b = document.getElementById('acc-tab-' + key); if (b) b.click(); }, 0);
+  });
+  // --- Owner watchlist alerts ------------------------------------------------
+  // Crosses of the 50/200-day average, options walls reached and unusual
+  // trades today, for the names on the Owner's stock watchlist
+  // (lib/watchlist-alerts.mjs). Owner only: nothing loads for a public visitor.
+  var watchAlertsState = { ma: null, oi: null, quotes: {}, loaded: false, loading: false, timer: null, quotesAt: 0 };
+  function watchAlertList(){
+    if (!HAS_OWNER_ACCESS || !STOCK_PAGE || !STOCK_PAGE.watchlist) return [];
+    var st = watchAlertsState;
+    return WATCH_ALERTS.build({ watch: STOCK_PAGE.watchlist(), ma: st.ma, oi: st.oi, unusual: UNUSUAL, quotes: st.quotes });
+  }
+  function watchAlertsHtml(opts){
+    opts = opts || {};
+    if (!HAS_OWNER_ACCESS) return '';
+    var watch = STOCK_PAGE && STOCK_PAGE.watchlist ? STOCK_PAGE.watchlist() : [];
+    var head = '<div class="wla-head"><h3>' + (opts.title || 'Watchlist alerts') + '</h3><span class="wla-sync">Owner only · 50/200-day crosses, options walls, unusual trades</span></div>';
+    if (!watch.length) return head + '<p class="hint">Add names with <b>☆ Watch</b> on a stock page to get alerts here.</p>';
+    if (!watchAlertsState.loaded) return head + '<p class="hint">Checking your ' + watch.length + ' watched name' + (watch.length === 1 ? '' : 's') + '…</p>';
+    var list = watchAlertList();
+    if (!list.length) return head + '<p class="hint">Nothing new on your ' + watch.length + ' watched name' + (watch.length === 1 ? '' : 's') + ': no average crossed, no wall reached and no unusual trades today.</p>';
+    var max = opts.limit || 8;
+    var label = { ma: 'Average', wall: 'Wall', flow: 'Unusual trade' };
+    return head + '<ul class="wla-list">' + list.slice(0, max).map(function(a){
+      var when = a.live ? 'live price' : a.at ? fmtScannedAt(a.at) : '';
+      return '<li class="wla-item"><a class="wla-sym" href="' + STOCK_PAGE.href(a.symbol) + '">' + escapeHtml(a.symbol) + '</a>' +
+        '<span class="wla-what"><span class="wla-kind' + (a.dir ? ' ' + a.dir : '') + '">' + label[a.kind] + '</span>' + escapeHtml(a.text) + '</span>' +
+        '<span class="wla-when">' + escapeHtml(when) + '</span></li>';
+    }).join('') + '</ul>' + (list.length > max ? '<p class="hint">+' + (list.length - max) + ' more on your watched names.</p>' : '');
+  }
+  function renderWatchAlerts(){
+    var box = document.getElementById('landing-desk-alerts');
+    if (box){ box.hidden = !HAS_OWNER_ACCESS; box.innerHTML = HAS_OWNER_ACCESS ? watchAlertsHtml() : ''; }
+    var pick = document.querySelector('[data-watch-alerts]');
+    if (pick) pick.innerHTML = HAS_OWNER_ACCESS ? watchAlertsHtml({ title: 'Alerts on your watchlist', limit: 12 }) : '';
+  }
+  function watchAlertQuotes(){
+    var syms = STOCK_PAGE && STOCK_PAGE.watchlist ? STOCK_PAGE.watchlist() : [];
+    if (!syms.length) return Promise.resolve();
+    return fetch('api/quotes?symbols=' + encodeURIComponent(syms.join(',')), { cache: 'no-store' })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(j){
+        var map = {};
+        // Only regular-session prices count as live; otherwise the build price stands.
+        ((j && j.quotes) || []).forEach(function(q){ if (isRegularMarketQuote(q) && q.symbol && q.spot > 0) map[String(q.symbol).toUpperCase()] = q; });
+        watchAlertsState.quotes = map; watchAlertsState.quotesAt = Date.now();
+      })
+      .catch(function(){});
+  }
+  function loadWatchAlerts(){
+    if (!HAS_OWNER_ACCESS) { renderWatchAlerts(); return; }
+    var st = watchAlertsState;
+    renderWatchAlerts();
+    if (st.loading) return;
+    if (st.loaded){ watchAlertQuotes().then(renderWatchAlerts); return; }
+    st.loading = true;
+    var get = function(key){ return fetch(dataUrl(key), { cache: 'no-cache' }).then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; }); };
+    Promise.all([maTrackerState.data && !maTrackerState.data.loadError ? maTrackerState.data : get('ma-tracker.json'), OI || get('oi-tracker.json'), watchAlertQuotes()]).then(function(res){
+      st.ma = res[0]; st.oi = res[1]; st.loaded = true; st.loading = false;
+      renderWatchAlerts();
+    });
+    // Live prices refresh every two minutes while Home or the stock picker is on screen.
+    if (!st.timer) st.timer = setInterval(function(){
+      var home = document.getElementById('page-pane-home'), stock = document.getElementById('page-pane-stock');
+      if ((home && !home.hidden) || (stock && !stock.hidden && document.querySelector('[data-watch-alerts]'))) watchAlertQuotes().then(renderWatchAlerts);
+    }, 120000);
+  }
+  document.addEventListener('stonks-owner-ready', function(){ if (HAS_OWNER_ACCESS) loadWatchAlerts(); });
+  document.addEventListener('stonks-watchlist-changed', function(){ if (HAS_OWNER_ACCESS && watchAlertsState.loaded) watchAlertQuotes().then(renderWatchAlerts); else renderWatchAlerts(); });
+  // Calendar subscribe (.ics): watchlist earnings plus the CPI and jobs
+  // reports and FOMC decisions (lib/calendar-ics.mjs, served by
+  // /api/auth/calendar-ics). Owners get a private link that reads their saved
+  // Owner watchlist; everyone else gets a link that lists this device's names.
+  function icsLink(){
+    var base = location.origin + '/api/auth/calendar-ics';
+    var tok = HAS_OWNER_ACCESS && STOCK_PAGE.icsToken ? STOCK_PAGE.icsToken() : null;
+    if (tok) return { url: base + '?o=' + encodeURIComponent(tok), owner: true, names: STOCK_PAGE.watchlist() };
+    var names = STOCK_PAGE.watchlist();
+    return { url: base + (names.length ? '?s=' + names.map(encodeURIComponent).join(',') : ''), owner: false, names: names };
+  }
+  function renderIcsBox(){
+    var box = document.getElementById('ics-box');
+    if (!box) return;
+    // The feed reads the private store, so it exists only when the store does.
+    if (!GATE_ON || IS_EMBED) { box.hidden = true; box.innerHTML = ''; return; }
+    var l = icsLink();
+    var waiting = HAS_OWNER_ACCESS && !l.owner;
+    var who = l.names.length ? l.names.length + ' watched stock' + (l.names.length === 1 ? '' : 's') : 'no watched stocks yet';
+    var text = l.owner
+      ? '<b>Add to your calendar.</b> Earnings for your saved watchlist (' + who + '), plus CPI, jobs reports and FOMC decisions. This private link follows your Owner watchlist, so names you add later show up on their own. Keep it to yourself.'
+      : '<b>Add to your calendar.</b> CPI, jobs reports and FOMC decisions' + (l.names.length ? ', plus earnings for the ' + who + ' on this device (' + escapeHtml(l.names.slice(0, 6).join(', ') + (l.names.length > 6 ? '…' : '')) + '). If you change your watchlist, add the calendar again.' : '. Add stocks with ☆ Watch on a stock page to include their earnings too.') +
+        (waiting ? ' <span class="ics-wait">Your private Owner link loads once your saved list syncs.</span>' : '');
+    var webcal = l.url.replace(/^https?:/, 'webcal:');
+    box.innerHTML = '<p>' + text + '</p><div class="ics-actions">' +
+      '<a class="ics-btn is-primary" href="' + escapeHtml(webcal) + '" data-ics-subscribe>Subscribe</a>' +
+      '<a class="ics-btn" href="' + escapeHtml(l.url + (l.url.indexOf('?') >= 0 ? '&' : '?') + 'dl=1') + '" download="mingstreet-calendar.ics">Download .ics</a>' +
+      '<button type="button" class="ics-btn" data-ics-copy data-url="' + escapeHtml(l.url) + '" title="Paste this link into Google Calendar (Other calendars, From URL) or Outlook">Copy link</button></div>';
+    box.hidden = false;
+  }
+  document.addEventListener('click', function(ev){
+    var b = ev.target && ev.target.closest ? ev.target.closest('[data-ics-copy]') : null;
+    if (!b) return;
+    var url = b.getAttribute('data-url') || '';
+    var done = function(ok){ b.textContent = ok ? 'Copied' : 'Copy failed'; setTimeout(function(){ b.textContent = 'Copy link'; }, 1800); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(url).then(function(){ done(true); }, function(){ done(false); });
+    else done(false);
+  });
+  document.addEventListener('stonks-owner-ready', renderIcsBox);
+  document.addEventListener('stonks-watchlist-changed', renderIcsBox);
   function loadHomeDesk(){
     if (!HAS_OWNER_ACCESS) { renderHomeDesk(); return; }
     renderHomeDesk();
@@ -46558,6 +47197,29 @@ ${renderExportBindings()}
       }
     }
   } catch (_) {}
+  // --- Home-screen app (PWA, 2026-11-06) -------------------------------------
+  // sw.js keeps the last public copy of the page shell and the two public
+  // manifest sidecars, so the site opens with no connection; it never stores
+  // /api/ answers or any other /data/ file, so no Owner data is kept on the
+  // device. Registered on https only and never inside a split-view pane.
+  (function initPwa(){
+    var note = document.getElementById('pwa-offline');
+    function sync(){
+      if (!note) return;
+      var off = navigator.onLine === false;
+      var iso = MANIFEST && MANIFEST.builtAtIso;
+      var when = iso ? formatDisplayInstant(iso, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }) : '';
+      note.hidden = !off;
+      note.textContent = off ? 'You are offline. This is the last saved copy' + (when ? ', from ' + when : '') + '. Live prices, sign-in and Owner pages come back when you reconnect.' : '';
+    }
+    window.addEventListener('online', sync);
+    window.addEventListener('offline', sync);
+    sync();
+    if (IS_EMBED || !('serviceWorker' in navigator)) return;
+    if (location.protocol !== 'https:' && !window.STONKS_SW_TEST) return;
+    var reg = function(){ navigator.serviceWorker.register('/sw.js').catch(function(){}); };
+    if (document.readyState === 'complete') reg(); else window.addEventListener('load', reg);
+  })();
   // Boot: resolve membership + merge the manifest sidecars BEFORE first paint so
   // selectTab() sees the Owner claims and both public manifest sidecars are
   // present before first paint.

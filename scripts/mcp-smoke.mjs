@@ -86,7 +86,8 @@ const files = {
   const macroRegime = { state: "neutral", stress: 0, dataQuality: { sufficient: true }, axes: { indexes: { score: 0, available: true }, vix: { score: 0, available: true } },
     inputs: { indexes: { asOf, spy: { pctChange1d: 0 }, qqq: { pctChange1d: 0 } }, vix: { asOf, value: 18 } } };
   const assessment = topPicksMarket.assess({ macroRegime, asOf });
-  files["picks.json"] = { builtAtIso: asOf, rosterMeta: { marketAssessment: assessment, actionableBar: 7 },
+  files["picks.json"] = { builtAtIso: asOf, rosterMeta: { marketAssessment: assessment, actionableBar: 7, turnedAway: [
+    { sym: "AMD", side: "call", total: 6.5, gate: "below-strong" }, { sym: "NVDA", side: "call", total: 10, gate: "picked" }, { sym: "TSLA", side: "put", total: -7.2, gate: "ai-wait" }, { sym: "AMD", side: "call", total: 6.5, gate: "sector-cap" }] },
     picks: [{ symbol: "NVDA", side: "call", stockConviction: 10, optionAdjustedConviction: 10, tradeScore: 10, total: 10, group: "actionable", entry: { now: true },
       marketAdjustment: topPicksMarket.score(assessment, { conviction: 10 }), marketApproval: { held: false } }] };
 }
@@ -325,6 +326,14 @@ async function tool(name, args, opts) {
   assert.equal(tp.structuredContent.results.picks[0].marketApproval.held, true, "the live market check still runs");
   assert.equal(writeAttempts.length, 0, "the market hold is previewed, never saved: " + JSON.stringify(writeAttempts));
   assert.ok(tp.structuredContent.limitations.some((l) => /read-only preview/.test(l)));
+  const nm = await tool("get_near_misses", {});
+  assert.equal(nm.isError, false, JSON.stringify(nm).slice(0, 400));
+  const nmr = nm.structuredContent.results;
+  assert.equal(nmr.ready_to_buy, 0, "the held pick is not ready, as on the tab");
+  assert.deepEqual(nmr.near_misses.map((m) => `${m.symbol}:${m.gate}`), ["TSLA:ai-wait", "AMD:below-strong"], "closest first, one row per name, picked names left out");
+  assert.ok(nmr.near_misses[0].next.includes("next run"));
+  assert.equal(nmr.stopped_by_rule.length, 3);
+  assert.equal(writeAttempts.length, 0, "near misses save nothing");
   const tr = await tool("get_track_record", {});
   assert.equal(tr.isError, false, JSON.stringify(tr));
   const trr = tr.structuredContent.results;
@@ -364,7 +373,7 @@ async function tool(name, args, opts) {
   const list = await rpc("tools/list", {}, pub);
   assert.equal(list.statusCode, 200);
   const names = list.body.result.tools.map((t) => t.name);
-  for (const owner of ["get_stock", "get_stock_grades", "get_top_picks", "get_track_record"]) assert.ok(!names.includes(owner), owner + " hidden");
+  for (const owner of ["get_stock", "get_stock_grades", "get_top_picks", "get_near_misses", "get_track_record"]) assert.ok(!names.includes(owner), owner + " hidden");
   assert.ok(!JSON.stringify(list.body).includes("track record"), "owner descriptions hidden");
   const lf = await tool("list_features", {}, pub);
   assert.ok(lf.structuredContent.results.features.every((f) => f.access === "public"));
