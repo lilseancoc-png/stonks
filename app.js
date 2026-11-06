@@ -33062,7 +33062,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   const league = (lg) => state.leagues[lg] || (state.leagues[lg] = {
     board: null, boardErr: null, game: null, gameId: null, gameErr: null, results: null, query: '', player: null, playerId: null, playerErr: null,
     props: null, propsErr: null, propsSeq: 0, boardSeq: 0, propsPending: false, propsTimer: null, propsMsg: '', record: null, recordErr: null, recordSeq: 0,
-    recordExportPending: false, recordExportErr: null,
+    recordExportPending: false, recordExportErr: null, nbaPairs: {},
     view: 'games', gameStat: '', logAll: false, logSet: 'main',
     chart: { stat: null, n: 10, kind: 'bars', line: '' },
     leaders: { data: null, err: null, key: null, cache: {}, season: null, window: 'season', sort: null, dir: 'desc', team: '', group: '', min: null, all: false, mode: 'table', set: 'main' },
@@ -33094,19 +33094,21 @@ function scenarioEventPhase(ev, now = Date.now()) {
 
   // The one request path. A body makes it a POST (Pick Builder); a refused
   // request carries the server's own short reason as err.detail.
-  function api(op, params, body) {
+  function api(op, params, body, binary) {
     let url = '/api/auth/me?sports=' + encodeURIComponent(op);
     Object.keys(params || {}).forEach((k) => { if (params[k] != null && params[k] !== '') url += '&' + k + '=' + encodeURIComponent(params[k]); });
     const init = { credentials: 'same-origin', cache: 'no-store' };
     if (body) { init.method = 'POST'; init.headers = { 'Content-Type': 'application/json' }; init.body = JSON.stringify(body); }
-    return host.fetch(url, init).then((res) => res.json().catch(() => null).then((data) => {
+    return host.fetch(url, init).then((res) => {
+      if (binary && res.ok) { if (!res.headers.get('content-type')?.includes('application/gzip')) throw new Error('Unexpected research download'); return res.blob(); }
+      return res.json().catch(() => null).then((data) => {
       const reason = data && typeof data.error === 'string' ? data.error : '';
       if (res.status === 401 || (res.status === 403 && (!body || /unavailable for this session/.test(reason)))) throw Object.assign(new Error('signed-out'), { code: 'auth' });
       if (res.status === 404 && !body) throw Object.assign(new Error('not found'), { code: 'missing' });
       if (!res.ok) throw Object.assign(new Error(reason || 'HTTP ' + res.status), { status: res.status, detail: reason });
       if (!data || data.schema_version !== 1) throw new Error('Unexpected Sports response');
       return data;
-    }));
+    }); });
   }
 
   function fetchStatus(force) {
@@ -33222,17 +33224,64 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (Date.parse(g.start_utc) <= Date.now()) return '<span class="sp-muted">Started · result after the next refresh</span>';
     return '<span class="sp-muted">' + (g.week != null ? (g.season_type === 'POST' ? 'Playoffs' : 'Week ' + escape(g.week)) : '') + '</span>';
   }
+  const nbaPct = (p) => p == null ? '—' : (p * 100).toFixed(1) + '%';
+  function nbaComparisonHtml(p) {
+    const M = p.market, R = p.role;
+    if (!M) return '';
+    const american = (n) => n > 0 ? '+' + n : String(n);
+    const rows = (M.books || []).map((b) => { const q = b.lower_quote, opposite = b.upper_quote;
+      return '<tr><td>' + escape(b.book) + '</td><td>' + num(q.threshold) + (opposite && opposite.threshold !== q.threshold ? '–' + num(opposite.threshold) : '') + '</td><td>' + escape(american(q.sides.over.price)) + ' / ' + escape(american(q.sides.under.price)) + '</td><td>' + (b.method === 'exact' ? '' : '≥') + nbaPct(b.low) + '</td><td>' + escape(fmtTime(q.observed_utc, zone())) + (q.sides.over.book_updated_at ? '<br>Book: ' + escape(fmtTime(q.sides.over.book_updated_at, zone())) : '') + '</td></tr>'; }).join('');
+    return '<h4>Sportsbook comparison</h4><p class="sp-note">' + escape(M.reason || M.note) + '</p>' +
+      (M.movement?.watch ? '<p class="sp-note"><b>Repricing watch:</b> ' + M.movement.later_operators + ' reference operators changed their price after this PrizePicks selection. ' + escape(M.movement.note) + '</p>' : '') +
+      (rows ? '<div class="sp-table-wrap"><table class="sp-table"><thead><tr><th>Book</th><th>Ref. line</th><th>More / Less price</th><th>Fair ' + (p.side === 'over' ? 'More' : 'Less') + '</th><th>Received</th></tr></thead><tbody>' + rows + '</tbody></table></div>' : '') +
+      (R?.projected_minutes != null ? '<h4>Minutes & role scenario</h4><p>' + num(R.projected_minutes) + ' minutes; historical range ' + num(R.minutes_range.low) + '–' + num(R.minutes_range.high) + '. Scenario ' + escape(label(p.stat).toLowerCase()) + ': ' + num(R.scenario_stat_mean) + '.</p><p class="sp-note">Usage ' + num(R.usage_pct) + '% · possessions proxy: team ' + num(R.possessions_proxy?.team) + ', opponent ' + num(R.possessions_proxy?.opponent) + '.</p><p class="sp-note">' + escape(R.note) + ' Starting lineup unconfirmed.</p>' +
+        R.absence_splits.map((a) => '<p class="sp-note">' + escape(a.name) + ' out: ' + a.observed_without_games + ' measured DNP games; ' + num(a.without_minutes) + ' player minutes in that split.</p>').join('') : '');
+  }
+  function nbaPairHtml(G, P) {
+    const L = league('nba'), d = L.nbaPairs[G.game_id] || (L.nbaPairs[G.game_id] = { value: '', seq: 0 });
+    if (d.snapshot !== G.research_snapshot_id) { d.snapshot = G.research_snapshot_id; d.result = null; d.error = null; d.seq++; d.pending = false; }
+    const S = d.result?.screen || G.pair, enabled = P.research_tracking?.state === 'ok' && G.research_snapshot_id && G.picks.length === 2;
+    const stateName = S?.state === 'positive_screen' ? 'Experimental screen passes' : S?.state === 'payout_needed' ? 'Research pair · payout needed' : 'Pass · no verified edge';
+    return '<section class="sp-nba-pair" data-sp-pair-game="' + escape(G.game_id) + '"><h4>' + stateName + '</h4><p class="sp-note">' + escape(S?.reason || 'Not enough market evidence.') + '</p>' +
+      (S?.low != null ? '<p>Pair estimate range: <b>' + nbaPct(S.low) + '–' + nbaPct(S.high) + '</b>. ' + (S.method === 'copula_sensitivity' ? 'Includes measured same-game links.' : 'Uses bounds without assuming independent outcomes.') + '</p>' : '') +
+      '<p class="sp-note">Market estimates and role scenarios are experimental. Quote ranges are not confidence intervals. Enter the actual total payout shown for these two players; no payout is assumed.</p>' +
+      '<label>Actual 2-pick total payout (×) <input type="number" min="1.01" max="100" step="0.01" inputmode="decimal" data-sp-nba-payout="' + escape(G.game_id) + '" placeholder="e.g. 3" value="' + escape(d.value) + '"></label>' +
+      '<p><button type="button" class="sp-btn" data-sp-nba-evaluate="' + escape(G.game_id) + '"' + (!enabled || d.pending ? ' disabled' : '') + '>Evaluate pair</button> <button type="button" class="sp-btn" data-sp-nba-save="' + escape(G.game_id) + '"' + (!enabled || d.pending || G.paper_pair_saved || d.result?.saved ? ' disabled' : '') + '>Save paper pair</button></p>' +
+      '<div data-sp-pair-result role="status">' + (d.error ? '<p>' + escape(d.error) + '</p>' : d.result ? '<p>Entered payout ' + num(S.payout_multiplier) + '×; break-even ' + nbaPct(S.breakeven_probability) + '. Estimated net return: ' + nbaPct(S.return_per_unit.low) + ' to ' + nbaPct(S.return_per_unit.high) + '.</p>' : '') +
+      (G.paper_pair_saved || d.result?.saved ? '<p>Paper pair saved' + (G.paper_pair_payout != null ? ' at ' + num(G.paper_pair_payout) + '×' : '') + '. Its original players, line and entered payout stay fixed.</p>' : '') + '</div>' +
+      (!enabled ? '<p class="sp-note">' + escape(P.research_tracking?.message || 'Complete evidence is not ready for pair evaluation.') + '</p>' : '<p><button type="button" class="sp-link" data-sp-nba-export="' + escape(G.game_id) + '" data-sp-nba-season="' + G.season + '">Download complete research</button></p>') + '</section>';
+  }
+  function evaluateNBAPair(page, gameId, save) {
+    const L = league('nba'), G = L.props?.games.find((g) => g.game_id === gameId), d = L.nbaPairs[gameId];
+    if (!G || !d || d.pending) return;
+    const snapshot = G.research_snapshot_id, seq = ++d.seq; d.pending = true; d.error = null;
+    const repaint = () => { if (state.page === page && L.view === 'games') paint(page, 'board', boardHtml('nba')); };
+    repaint();
+    api('nba-pair', null, { sport: 'nba', game_id: gameId, season: G.season, snapshot_id: snapshot, payout_multiplier: d.value === '' ? null : Number(d.value), save })
+      .then((data) => { if (d.seq === seq && L.props?.games.find((g) => g.game_id === gameId)?.research_snapshot_id === snapshot) { d.result = data; if (data.saved) { G.paper_pair_saved = true; G.paper_pair_payout = data.entry?.payout_multiplier; L.record = null; } } },
+        (err) => { if (d.seq === seq) d.error = err.detail || 'Pair evaluation could not be completed.'; })
+      .then(() => { if (d.seq === seq) { d.pending = false; repaint(); } });
+  }
+  async function exportNBAResearch(page, gameId, season) {
+    const L = league('nba');
+    try {
+      const blob = await api('nba-research', { sport: 'nba', id: gameId, season }, null, true);
+      if (!options.owner()) return;
+      const url = host.URL.createObjectURL(blob), a = doc.createElement('a'); a.href = url; a.download = 'nba-research-' + gameId + '.json.gz'; a.click(); host.setTimeout(() => host.URL.revokeObjectURL(url), 1000);
+    } catch (err) { L.propsMsg = err.message; L.recordExportErr = err.message; if (state.page === page) paint(page, 'view', viewHtml('nba')); }
+  }
   function propsHeader(lg) {
     const L = league(lg), P = L.props;
     const refresh = '<button type="button" class="sp-link" data-sp-props-refresh' + (L.propsPending ? ' disabled' : '') + '>Refresh lines & injuries</button>';
     if (L.propsErr) return '<div class="sp-props-status">The prop analysis could not be loaded. ' + refresh + '</div>';
     if (!P) return '<div class="sp-props-status">Checking PrizePicks lines and player availability… ' + refresh + '</div>';
     const S = P.sources;
-    return '<div class="sp-props-status"><b>Best 2 player props per game</b><p>' +
+    return '<div class="sp-props-status"><b>' + (lg === 'nba' ? 'NBA market research · one player from each team' : 'Best 2 player props per game') + '</b><p>' +
       (S.lines.state === 'ok' ? escape(S.lines.count + ' current standard selections checked · refreshed ' + fmtTime(P.generated_utc, zone())) : escape(S.lines.message || 'Line feed unavailable.')) + '</p>' +
       '<p><a href="https://prop-line.com/odds-api/book/prizepicks" target="_blank" rel="noopener noreferrer">PrizePicks via PropLine</a> · <a href="https://www.espn.com/' + lg + '/injuries" target="_blank" rel="noopener noreferrer">ESPN injuries</a>' +
       (S.injuries.observed_utc ? ' · report ' + escape(fmtTime(S.injuries.observed_utc, zone())) : ' · injury report unavailable') + '</p>' + refresh +
-      '<p class="sp-note">Ranks combine recent form, workload, opponent defense, splits, rest and availability. A rank score is not a win chance. Each pair needs one player from each team; uncovered slots stay open. Refreshes every 2 minutes while this page is visible.</p>' +
+      (lg === 'nba' ? '<p class="sp-note">' + escape(S.reference?.state === 'ok' ? S.reference.count + ' fresh two-way reference quotes checked. At least three operators are needed per prop.' : S.reference?.message || 'Sportsbook comparisons unavailable; research only.') + '</p>' : '') +
+      '<p class="sp-note">' + (lg === 'nba' ? 'NBA candidates compare PrizePicks with sportsbook prices and current role context. The estimates are experimental. ' : 'Ranks combine recent form, workload, opponent defense, splits, rest and availability. A rank score is not a win chance. ') + 'Each pair needs one player from each team; uncovered slots stay open. Refreshes every 2 minutes while this page is visible.</p>' +
       '<p class="sp-note">' + escape(P.tracking?.state === 'ok' ? 'Track record saves the first pair per game. Live rankings can change; the recorded lines and reasoning stay fixed.' : P.tracking?.message || 'Recording status unavailable.') + ' <button type="button" class="sp-link" data-sp-view="record">View prop track record</button></p>' +
       (L.propsMsg ? '<p role="status">' + escape(L.propsMsg) + ' <button type="button" class="sp-link" data-sp-goto="' + BUILDER + '">Open Pick Builder</button></p>' : '') + '</div>';
   }
@@ -33245,12 +33294,12 @@ function scenarioEventPhase(ev, now = Date.now()) {
     const G = P.games.find((v) => v.game_id === g.game_id);
     if (!G) return '<p class="sp-prop-empty">No analysis for this game yet.</p>';
     const picks = (G.picks || []).map((p, i) => '<article class="sp-prop"><div class="sp-prop-title"><span class="sp-prop-number">' + (i + 1) + '</span><div><button type="button" class="sp-link" data-sp-player="' + escape(p.player_id) + '">' + escape(p.player_name) + '</button>' +
-      '<strong>' + (p.side === 'over' ? 'More' : 'Less') + ' than ' + num(p.threshold) + ' ' + escape(label(p.stat).toLowerCase()) + '</strong></div><span class="sp-prop-score">Rank ' + num(p.rank_score) + '/100<small>' + (p.basis === 'model_and_history' ? 'Model + history' : 'History only') + '</small></span></div>' +
+      '<strong>' + (p.side === 'over' ? 'More' : 'Less') + ' than ' + num(p.threshold) + ' ' + escape(label(p.stat).toLowerCase()) + '</strong></div><span class="sp-prop-score">' + (lg === 'nba' && p.market?.low != null ? 'Market ≥' + nbaPct(p.market.low) : 'Rank ' + num(p.rank_score) + '/100') + '<small>' + (lg === 'nba' ? (p.market?.book_count || 0) + ' books · estimate' : p.basis === 'model_and_history' ? 'Model + history' : 'History only') + '</small></span></div>' +
       '<p class="sp-note">' + team(p.team) + ' vs ' + team(p.opponent) + ' · cleared ' + p.last10.hits + '/' + p.last10.games + ' last 10 · line checked ' + escape(fmtTime(p.observed_utc, zone())) + '</p>' +
-      '<details><summary>Why this pick</summary><dl>' + p.evidence.map((e) => '<dt>' + escape(e.label) + '</dt><dd>' + escape(e.text) + '</dd>').join('') + '</dl><p class="sp-note">History through ' + escape(p.latest_game_date) + '. ' + (p.model ? 'Model through ' + escape(p.model.as_of_date) + '.' : 'This stat has no current fitted forecast; the rank uses historical evidence.') + '</p></details>' +
+      '<details><summary>Why this pick</summary>' + (lg === 'nba' ? nbaComparisonHtml(p) : '') + '<dl>' + p.evidence.map((e) => '<dt>' + escape(e.label) + '</dt><dd>' + escape(e.text) + '</dd>').join('') + '</dl><p class="sp-note">History through ' + escape(p.latest_game_date) + '. ' + (p.model ? 'Model through ' + escape(p.model.as_of_date) + '.' : 'This stat has no current fitted forecast; the rank uses historical evidence.') + '</p></details>' +
       '<button type="button" class="sp-btn" data-sp-prop-add="' + escape(g.game_id) + '" data-sp-prop-index="' + i + '">Add to Pick Builder</button></article>').join('');
     const availability = (G.availability || []).length ? '<details class="sp-prop-injuries"><summary>Players in / out & injury reports (' + G.availability.length + ')</summary><ul>' + G.availability.map((p) => '<li><b>' + escape(p.name) + '</b> · ' + team(p.team) + ' · ' + escape(p.status) + '<p>' + escape(p.detail) + (p.report_utc ? ' (' + escape(fmtWhen(p.report_utc, zone())) + ')' : '') + '</p></li>').join('') + '</ul></details>' : '';
-    return '<div class="sp-props">' + picks + (G.message ? '<p class="sp-prop-empty">' + escape(G.message) + '</p>' : '') + availability +
+    return '<div class="sp-props">' + picks + (lg === 'nba' ? nbaPairHtml(G, P) : '') + (G.message ? '<p class="sp-prop-empty">' + escape(G.message) + '</p>' : '') + availability +
       (picks ? '<p class="sp-note">Individual picks. Same-game outcomes are linked; use Pick Builder to evaluate an entry with its actual payout.</p>' : '') + '</div>';
   }
   function gameRow(g, tz, selected, lg) {
@@ -33919,14 +33968,26 @@ function scenarioEventPhase(ev, now = Date.now()) {
     const metrics = [['Wins', S.wins], ['Busts', S.losses], ['Win rate', S.win_rate == null ? '—' : (S.win_rate * 100).toFixed(1) + '%'], ['Pushes / voids', S.pushes + ' / ' + S.voids], ['Pending', S.pending]];
     const rows = R.records.map((p) => '<tr><td>' + escape(fmtWhen(p.game_start_utc, zone())) + '</td><td><b>' + escape(p.player_name) + '</b><br>' + (p.side === 'over' ? 'More' : 'Less') + ' ' + num(p.threshold) + ' ' + escape(label(p.stat)) + '</td>' +
       '<td class="sp-n">' + num(p.actual) + '</td><td class="' + (p.result === 'win' ? 'sp-pos' : p.result === 'loss' ? 'sp-neg' : '') + '">' + escape(results[p.result] || p.result) + '</td><td class="sp-n">' + num(p.rank_score) + '</td><td><details><summary>Saved analysis</summary><p>' + escape(p.basis === 'history_only' ? 'History only' : 'Model + history') + ' · ' + escape(p.rank_version || '') + '</p>' +
-      '<p>Issued ' + escape(fmtWhen(p.issued_utc, zone())) + ' · line observed ' + escape(fmtWhen(p.observed_utc, zone())) + '</p>' + p.evidence.map((e) => '<p><b>' + escape(e.label) + ':</b> ' + escape(e.text) + '</p>').join('') + '</details></td></tr>').join('');
+      '<p>Issued ' + escape(fmtWhen(p.issued_utc, zone())) + ' · line observed ' + escape(fmtWhen(p.observed_utc, zone())) + '</p>' + (lg === 'nba' && p.market ? nbaComparisonHtml(p) : '') + p.evidence.map((e) => '<p><b>' + escape(e.label) + ':</b> ' + escape(e.text) + '</p>').join('') + '</details></td></tr>').join('');
     const breakdown = Object.entries(R.by_stat).map(([st, s]) => '<tr><td>' + escape(label(st)) + '</td><td class="sp-n">' + s.wins + '</td><td class="sp-n">' + s.losses + '</td><td class="sp-n">' + (s.win_rate == null ? '—' : (s.win_rate * 100).toFixed(1) + '%') + '</td></tr>').join('');
-    return '<section class="sp-prop-record"><h3>Prop track record</h3><dl class="sp-facts">' + metrics.map(([k, v]) => '<div><dt>' + escape(k) + '</dt><dd>' + escape(v) + '</dd></div>').join('') + '</dl>' +
+    return '<section class="sp-prop-record"><h3>Prop track record</h3>' + (lg === 'nba' ? nbaResearchStatsHtml(R.nba_research) : '') + '<dl class="sp-facts">' + metrics.map(([k, v]) => '<div><dt>' + escape(k) + '</dt><dd>' + escape(v) + '</dd></div>').join('') + '</dl>' +
       '<p class="sp-note">' + escape(R.note) + '</p><p><button type="button" class="sp-link" data-sp-record-refresh>Refresh results</button> · <button type="button" class="sp-link" data-sp-record-export' + (L.recordExportPending ? ' disabled' : '') + '>' + (L.recordExportPending ? 'Preparing download…' : 'Download all research data (JSON)') + '</button></p>' +
       (L.recordExportErr ? '<p class="sp-note" role="alert">' + escape(L.recordExportErr) + '</p>' : '') +
       (rows ? '<div class="sp-table-wrap"><table class="sp-table"><thead><tr><th>Game time</th><th>Original pick</th><th>Actual</th><th>Result</th><th>Rank</th><th>Evidence</th></tr></thead><tbody>' + rows + '</tbody></table></div><p class="sp-note">Showing ' + R.records.length + ' of ' + R.total + ' saved props. The download includes every saved line, analysis and current result.</p>' : emptyBox('No issued props yet.', 'The next successful pregame scan records each game’s first pair automatically.')) +
       (breakdown ? '<h4>Results by stat</h4><div class="sp-table-wrap"><table class="sp-table"><thead><tr><th>Stat</th><th>Wins</th><th>Busts</th><th>Win rate</th></tr></thead><tbody>' + breakdown + '</tbody></table></div>' : '') +
       '<p class="sp-note">Model-only Brier score (lower is better): ' + (S.model_check.brier == null ? 'not enough resolved modeled picks' : S.model_check.brier.toFixed(3) + ' across ' + S.model_check.samples + ' picks') + '. Rank scores are not treated as probabilities. Results update when the daily data job stores final box scores.</p></section>';
+  }
+  function nbaResearchStatsHtml(R) {
+    if (!R) return '';
+    const C = R.closing_value, P = R.paper;
+    const bins = R.calibration.bins.map((b) => '<tr><td>' + b.bin + '–' + (b.bin + 9) + '%</td><td>' + b.n + '</td><td>' + nbaPct(b.predicted) + '</td><td>' + nbaPct(b.observed) + '</td><td>' + (b.status === 'insufficient_sample' ? 'Small sample' : 'Descriptive') + '</td></tr>').join('');
+    return '<section class="sp-nba-research"><h4>NBA research · prospective record</h4><p class="sp-note">All research picks are counted, including pass games. Paper entries and positive screens are measured separately below.</p><p>' + R.games + ' games · ' + R.captures + ' recorded snapshots · ' + R.wins + ' wins / ' + R.losses + ' busts · ' + R.pending + ' pending.</p>' +
+      '<p>Both props won: ' + R.both_win + '/' + R.resolved_pairs + ' (' + nbaPct(R.both_win_rate) + '). Market calibration: ' + R.calibration.n + ' exact-price samples; Brier ' + num(R.calibration.brier) + '.</p>' +
+      '<p>Closing comparison: ' + C.n + ' samples; average probability change ' + (C.average_probability_change == null ? '—' : (C.average_probability_change * 100).toFixed(2) + ' points') + '. ' + escape(C.note) + '</p>' +
+      '<p>Paper pairs: ' + P.saved + ' saved, ' + P.resolved + ' resolved; ' + num(P.net_units) + ' net units, ROI ' + nbaPct(P.roi) + '. ' + P.excluded_push_void + ' excluded for push/void settlement.</p>' +
+      Object.entries(R.paper_by_screen || {}).map(([k, s]) => '<p class="sp-note">' + escape(k === 'positive_screen' ? 'Positive screens' : 'Pass screens saved for research') + ': ' + s.saved + ' saved, ' + s.resolved + ' resolved; ROI ' + nbaPct(s.roi) + '.</p>').join('') +
+      '<p class="sp-note">' + escape(R.note) + '</p>' + (bins ? '<details><summary>Calibration by market probability</summary><div class="sp-table-wrap"><table class="sp-table"><thead><tr><th>Bin</th><th>Samples</th><th>Predicted</th><th>Observed</th><th>Status</th></tr></thead><tbody>' + bins + '</tbody></table></div></details>' : '') +
+      '<details><summary>Paper pairs & complete game research</summary><ul>' + R.recent_games.map((g) => '<li>' + escape(fmtWhen(g.start_utc, zone())) + (g.paper ? '<p>' + escape(g.paper.players.join(' + ')) + ' · ' + num(g.paper.payout) + '× · ' + escape(({ win: 'Won', loss: 'Lost', pending: 'Pending', excluded: 'Push/void · excluded from ROI' })[g.paper.result]) + '</p>' : '') + ' <button type="button" class="sp-link" data-sp-nba-export="' + escape(g.game_id) + '" data-sp-nba-season="' + g.season + '">Download game research</button></li>').join('') + '</ul></details></section>';
   }
   function loadPropRecord(page, lg) {
     const L = league(lg), seq = ++L.recordSeq; L.recordErr = null;
@@ -34618,6 +34679,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
   function leagueClick(page, lg, t) {
     const L = league(lg), Q = L.leaders, T = L.teams;
     let b;
+    if (lg === 'nba' && (b = t.closest('[data-sp-nba-export]'))) { exportNBAResearch(page, b.getAttribute('data-sp-nba-export'), b.getAttribute('data-sp-nba-season')); return true; }
+    if (lg === 'nba' && (b = t.closest('[data-sp-nba-evaluate], [data-sp-nba-save]'))) { evaluateNBAPair(page, b.getAttribute('data-sp-nba-evaluate') || b.getAttribute('data-sp-nba-save'), b.hasAttribute('data-sp-nba-save')); return true; }
     if (t.closest('[data-sp-record-export]')) { exportPropRecord(page, lg); return true; }
     if (t.closest('[data-sp-record-refresh]')) { loadPropRecord(page, lg); return true; }
     if (t.closest('[data-sp-props-refresh]')) { loadBoard(page, lg); return true; }
@@ -34707,6 +34770,11 @@ function scenarioEventPhase(ev, now = Date.now()) {
     });
     el.addEventListener('input', (event) => {
       const t = event.target;
+      if (lg === 'nba' && t.matches('[data-sp-nba-payout]')) {
+        const d = league('nba').nbaPairs[t.getAttribute('data-sp-nba-payout')];
+        if (d) { d.value = t.value; d.seq++; d.result = null; d.error = null; d.pending = false; const status = t.closest('.sp-nba-pair')?.querySelector('[data-sp-pair-result]'); if (status) status.textContent = 'Evaluate the entered payout before saving a paper pair.'; }
+        return;
+      }
       const box = t.closest('[data-sp-search]');
       if (box && lg) { search(page, lg, box.value); return; }
       if (t.matches('[data-sp-chart-line]') && lg) {

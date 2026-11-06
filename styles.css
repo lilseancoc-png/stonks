@@ -568,6 +568,12 @@ body:not(.is-owner) [data-page-tab="research-lab"],body:not(.is-owner) #page-pan
 .sp-prop-number { color: var(--accent); font-size: var(--t-14); font-weight: 700; }
 .sp-prop-score { text-align: right; font-size: var(--t-12); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .sp-prop-score small { display: block; margin-top: 3px; color: var(--muted-strong); font-size: var(--t-11); }
+.sp-nba-pair, .sp-nba-research { min-width: 0; padding: 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); font-size: var(--t-13); line-height: 1.6; }
+.sp-nba-pair h4, .sp-nba-research h4 { margin: 0 0 8px; }
+.sp-nba-pair label { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.sp-nba-pair input { min-width: 0; width: 110px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; }
+.sp-nba-pair .sp-btn { margin: 4px 5px 4px 0; }
+.sp-nba-research { margin-bottom: 18px; }
 .sp-prop details { margin: 10px 0; font-size: var(--t-13); }
 .sp-prop summary, .sp-prop-injuries summary { cursor: pointer; color: var(--muted-strong); font-size: var(--t-12); }
 .sp-prop dl { margin: 10px 0; }

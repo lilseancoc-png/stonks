@@ -24,6 +24,8 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Added
 
+- Anchor NBA research pairs to fresh sportsbook prices, show minutes/usage/absence scenarios and explicit pass states, evaluate owner-entered payouts, and retain private reproducible decision snapshots with prospective calibration, closing comparisons and frozen paper returns (#758).
+
 - Add a reproducible walk-forward replay of archived PrizePicks lines, with separate validation/test dates, team-constrained pairs, coverage and uncertainty reporting, and checks against future-data leakage (#756).
 
 - Show each NBA/NFL game's two strongest eligible PrizePicks player props using a free PropLine feed, current injuries, player form, workload, defense, splits and rest; preserve the first issued pair in a private win/bust track record with original lines, saved reasoning, stat breakdowns and a research-data export (#753).
@@ -35,6 +37,10 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Market briefs include public streak reversals and moving averages, Pattern lab outcomes with sample limits, saved overnight calls, insider purchases, financing and buybacks, CapEx guidance changes, wholesale memory prices and Rich option premium. Owner research stays excluded; source freshness and public page links have regression checks.
 
 ### Fixed
+
+- Replay NBA source-outage snapshots through the original no-pick gate, preserving exact research verification when a feed is unavailable (#759).
+
+- Keep NBA collection in its own workflow queue and defer busy writes safely so frequent NBA scans cannot displace pending NFL updates (#759).
 
 - Require each game’s two recommended props to include one player from each team, including later track record slot fills (#756).
 

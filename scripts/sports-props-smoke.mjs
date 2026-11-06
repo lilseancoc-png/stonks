@@ -27,6 +27,7 @@ assert.equal(normalizeOdds([{ ...event, live: true }], 'nba', now).length, 0);
 assert.equal(normalizeOdds([{ ...event, sport_key: 'football_nfl' }], 'nba', now).length, 0);
 assert.equal(normalizeOdds([event, event], 'nba', now).length, 1);
 
+assert.equal(linesFor({ ...market, outcomes: [{ ...outcome, dfs_odds_type: undefined }] }).length, 0, 'NBA refuses unknown DFS line types');
 const normalized = normalizeOdds([event], 'nba', now)[0];
 assert.ok(lineMatchesGame(normalized, game, 'nba'));
 assert.ok(!lineMatchesGame({ ...normalized, start_utc: '2026-11-06T23:00:00Z' }, game, 'nba'));
@@ -86,7 +87,7 @@ assert.equal(sources.lines.lines.length, 1);
 assert.equal(sources.injuries.state, 'ok');
 assert.ok(calls.every((c) => !c.url.includes('fixture-secret')), 'key travels in a header, never in a URL');
 assert.ok(!JSON.stringify(sources).includes('fixture-secret'), 'key never reaches the response');
-assert.equal(calls.filter((c) => c.url.includes('prop-line')).length, 1, 'one bulk request, not a request per game');
+assert.equal(calls.filter((c) => c.url.includes('prop-line')).length, 2, 'NBA uses two bulk requests: PrizePicks and sportsbook references, never one per game');
 const failed = await loadPropSources({ sport: 'nba', now, env: { PROPLINE_API_KEY: 'fixture-secret' }, fetchImpl: async () => new Response('{}', { status: 429 }) });
 assert.equal(failed.lines.state, 'rate_limited');
 assert.equal(failed.lines.lines.length, 0);

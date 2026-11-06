@@ -1,7 +1,7 @@
 name: Sports prop picks
 
 # Sports uses its own scheduler, separate from the market-data bakes.
-# Two bulk line requests per run (96/day) leave room on the free 1,000/day
+# Three bulk line requests per run (144/day: two NBA, one NFL) leave room on the free 1,000/day
 # feed for Owner page refreshes. No AI, sportsbook account or bets.
 on:
   schedule:
