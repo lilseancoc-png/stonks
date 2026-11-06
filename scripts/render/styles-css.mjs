@@ -17066,6 +17066,7 @@ body.tape-axm-open { overflow: hidden; }
 }
 .acc-target-tp { color: var(--pos); background: color-mix(in srgb, var(--pos) 10%, var(--surface)); }
 .acc-target-cut { color: var(--neg); background: color-mix(in srgb, var(--neg) 10%, var(--surface)); }
+.acc-event-play { margin: 6px 0 2px; padding: 4px 8px; border-radius: 6px; font-size: 12px; color: var(--text); background: color-mix(in srgb, var(--accent, #6b7cff) 10%, var(--surface)); border-left: 3px solid var(--accent, #6b7cff); }
 .acc-contract {
   font: 600 11px/1 var(--font-mono);
   font-variant-numeric: tabular-nums;

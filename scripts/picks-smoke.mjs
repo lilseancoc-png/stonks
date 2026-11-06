@@ -597,7 +597,7 @@ ok("grades: timing pillar has state", !!grades.BULLA.pillars.timing.state);
 ok("grades: timing is execution-only (not folded into conviction)", grades.BULLA.pillars.timing.executionOnly === true);
 ok("grades: ivCost pillar present", grades.BULLA.pillars.ivCost && grades.BULLA.pillars.ivCost.signals.length === 1);
 ok("model epoch: grades metadata stamps the new decision era",
-  grades.modelEpoch === "2026-08-08.top-picks-v3" && grades.entryTimingVersion === 4);
+  grades.modelEpoch === "2026-08-08.top-picks-v3" && grades.entryTimingVersion === 5);
 const capexAsOfIso = "2026-08-08T16:00:00.000Z";
 const capexDates = ["2025-03-31", "2025-06-30", "2025-09-30", "2025-12-31", "2026-03-31", "2026-06-30"];
 const capexRows = (values, dates = capexDates) => dates.map((date, index) => ({ date, value: values[index] }));
@@ -884,6 +884,39 @@ for (const sessionsOut of [3, 5, 7]) {
       && soft.components.event.macroSoftScore === (sessionsOut <= 3 ? -2 : -1)
       && soft.reasons.some((x) => /^- CPI in \d+ trading sessions \(noted; entry not held back\)/.test(x)));
 }
+// --- Event-aware Top Picks (2026-11-06) ----------------------------------
+// The shared grade (no topPicksPolicy) keeps the waits above; the Top Picks
+// timing call trades through when lib/event-play.mjs agrees.
+const fomcRisk = { active: true, label: "FOMC decision", date: inEtSessions(1), daysOut: 1, sessionsOut: 1 };
+const tpMacroCall = computeEntryTiming("call", mkTicker({ spot: 100 }), 100, { eventRisk: fomcRisk, regime: "neutral", topPicksPolicy: true });
+ok("events: a call trades through FOMC in a neutral tape (Top Picks only)",
+  !tpMacroCall.hardWait && tpMacroCall.eventPlay?.kind === "macro" && tpMacroCall.eventPlay.ok
+  && tpMacroCall.components.event.score === 0 && tpMacroCall.reasons.some((x) => /trading through it/.test(x)));
+const tpMacroPutNeutral = computeEntryTiming("put", mkTicker({ spot: 100 }), 100, { eventRisk: fomcRisk, regime: "neutral", topPicksPolicy: true });
+ok("events: a put does not trade through FOMC in a neutral tape",
+  tpMacroPutNeutral.hardWait === "event" && !tpMacroPutNeutral.eventPlay && tpMacroPutNeutral.eventReads.some((x) => !x.ok));
+const tpMacroCallRiskOff = computeEntryTiming("call", mkTicker({ spot: 100 }), 100, { eventRisk: fomcRisk, regime: "risk-off", topPicksPolicy: true });
+ok("events: a call into FOMC in a risk-off tape keeps the hard wait", tpMacroCallRiskOff.hardWait === "event");
+const sharedMacro = computeEntryTiming("call", mkTicker({ spot: 100 }), 100, { eventRisk: fomcRisk, regime: "neutral" });
+ok("events: the shared grade (no Top Picks policy) keeps the macro wait", sharedMacro.hardWait === "event" && sharedMacro.eventPlay === undefined);
+const hxUp = { events: [0.04, 0.03, -0.01, 0.05, 0.02, 0.03].map((m, i) => ({ date: `2025-0${i + 1}-15`, movePct: m })), next: { date: inEtSessions(1), session: "PM", pre10Pct: 0.01 } };
+const hxDown = { events: [-0.04, -0.03, 0.01, -0.05, -0.02, -0.03].map((m, i) => ({ date: `2025-0${i + 1}-15`, movePct: m })), next: { date: inEtSessions(1), session: "PM", pre10Pct: 0.08 } };
+const goodSeason = { n: 30, negativeShare: 0.3 }, sellSeason = { n: 30, negativeShare: 0.76 };
+const tpEarnCall = computeEntryTiming("call", { ...mkTicker({ spot: 100, fundamentals: { nextEarningsDate: inEtSessions(1) } }), earningsHx: hxUp }, 100, { regime: "neutral", topPicksPolicy: true, earningsSeason: goodSeason, symbol: "UP" });
+ok("events: a call trades through earnings when its record and the season agree",
+  !tpEarnCall.hardWait && tpEarnCall.eventPlay?.kind === "earnings" && tpEarnCall.eventPlay.votes.total >= 1);
+const tpEarnCallSold = computeEntryTiming("call", { ...mkTicker({ spot: 100, fundamentals: { nextEarningsDate: inEtSessions(1) } }), earningsHx: hxUp }, 100, { regime: "neutral", topPicksPolicy: true, earningsSeason: sellSeason, symbol: "UP" });
+ok("events: a call into a season that sells prints waits when only its own record agrees",
+  tpEarnCallSold.hardWait === "earnings" && !tpEarnCallSold.eventPlay);
+const tpEarnPut = computeEntryTiming("put", { ...mkTicker({ spot: 100, fundamentals: { nextEarningsDate: inEtSessions(1) } }), earningsHx: hxDown }, 100, { regime: "neutral", topPicksPolicy: true, earningsSeason: sellSeason, symbol: "DN" });
+ok("events: a put trades through earnings after a run-up into a season that sells prints",
+  !tpEarnPut.hardWait && tpEarnPut.eventPlay?.kind === "earnings" && tpEarnPut.eventPlay.votes.runIn === 1);
+const tpEarnThin = computeEntryTiming("call", { ...mkTicker({ spot: 100, fundamentals: { nextEarningsDate: inEtSessions(1) } }), earningsHx: { events: hxUp.events.slice(0, 2), next: hxUp.next } }, 100, { regime: "neutral", topPicksPolicy: true, earningsSeason: goodSeason, symbol: "THIN" });
+ok("events: a thin earnings record keeps the hard wait", tpEarnThin.hardWait === "earnings");
+ok("events: classifyPick opens a post-shock put at the regular trade bar",
+  classifyPick(-5, "moderate", false, { shockLane: true, minConv: 4, pillarsAligned: 2, aiGraded: true, aiActive: true, entryConfirmed: true }).group === "actionable"
+  && classifyPick(-5, "moderate", false, { strongBar: 7, pillarsAligned: 2, aiGraded: true, aiActive: true, entryConfirmed: true }).group === "watch"
+  && classifyPick(-5, "weak", false, { shockLane: true, minConv: 4, pillarsAligned: 2, aiGraded: true, aiActive: true, entryConfirmed: true }).group === "watch");
 const earnLater = mkTicker({ spot: 100, fundamentals: { nextEarningsDate: inEtSessions(5) } });
 const earnLaterTiming = computeEntryTiming("call", earnLater, 100, {});
 ok("entry-v2: earnings 4-7 sessions out is a soft -2 event penalty, not a hard defer", earnLaterTiming.components.event.score === -2 && !earnLaterTiming.hardWait);

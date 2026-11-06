@@ -96,6 +96,7 @@ import { buildBottomTracker } from "../lib/bottom-tracker.mjs";
 import { writeHistoricalDataFile } from "./refresh-historical-data.mjs";
 import { readHistoricalSourceCache, refreshHistoricalSourceCache, loadFreeFredHistory, loadFreeMarketHistory, loadFredReleaseDates } from "./collect-historical-sources.mjs";
 import { FOMC_DECISIONS, headlineHits, wwdcKeynote, WWDC_WINDOW_DAYS } from "../lib/historical-events.mjs";
+import { EVENT_PLAY_VERSION, EVENT_PLAY_LIMITS, macroEventPlay, earningsEventPlay, shockLaneState, eventPlayCounts, eventPlayCapHit, eventPlayCountAdd, eventPlayExit } from "../lib/event-play.mjs";
 import { cleanHistoricalBars, cleanLongBars, confirmedMarketBars } from "../lib/historical-market-history.mjs";
 import { HISTORICAL_MARKETS, HISTORICAL_SOURCE_KEY } from "../lib/historical-sources.mjs";
 import { readForecastState, readForecastFiles, restoreForecastFiles, prepareEarningsForecast, writeEarningsForecast } from './refresh-earnings-forecast.mjs';
@@ -3487,6 +3488,14 @@ const RFR_HISTORY_FILE = "rfr-history.json";
 // reference on each tile that survives a Yahoo chart flake.
 const MACRO_HISTORY_FILE = "macro-history.json";
 const MACRO_HISTORY_MAX_ENTRIES = 90;
+
+// ET wall-clock minutes since midnight for a Date (null if it cannot be read).
+export function etMinutesOf(d = new Date()) {
+  try {
+    const [h, mn] = d.toLocaleTimeString("en-GB", { timeZone: "America/New_York", hour12: false, hour: "2-digit", minute: "2-digit" }).split(":").map(Number);
+    return Number.isFinite(h) && Number.isFinite(mn) ? (h === 24 ? 0 : h) * 60 + mn : null;
+  } catch { return null; }
+}
 
 export function etDateKey(d = new Date()) {
   return new Intl.DateTimeFormat("en-CA", {
@@ -17537,6 +17546,12 @@ const PICKS_TIMING_PULLBACK_BAND = 3;          // retained for the live client g
 // 1 = the 3–7 session macro-event drag counts toward the timing score again
 // (pre-2026-10-27 behavior). The 0–2 session hard wait always applies.
 const PICKS_EVENT_SOFT_BLOCKS = process.env.PICKS_EVENT_SOFT_BLOCKS === "1";
+// Event-aware Top Picks (2026-11-06): open picks may enter THROUGH a macro
+// event or the stock's own earnings when lib/event-play.mjs says the evidence
+// agrees, instead of always waiting for the event to clear; plus the
+// post-shock put lane. Top Picks only (topPicksPolicy); the shared grade and
+// every other caller keep the old waits. PICKS_EVENT_AWARE=0 restores them.
+const PICKS_EVENT_AWARE = process.env.PICKS_EVENT_AWARE !== "0";
 // 0 = call the AI grader even when no candidate can become an open pick.
 const PICKS_AI_SKIP_WHEN_NONE_READY = process.env.PICKS_AI_SKIP_WHEN_NONE_READY !== "0";
 const PICKS_ENTRY_READY_BAR = 2;               // execution score bar; prerequisites also bind
@@ -17558,7 +17573,7 @@ const PICKS_TIMING_MIN_RR = 1.5;
 const PICKS_TIMING_EARNINGS_HARD_DAYS = 2;
 const PICKS_TIMING_EARNINGS_DEFER_DAYS = 7;
 const PICKS_TIMING_EVENT_HARD_DAYS = 2;
-export const PICKS_ENTRY_TIMING_VERSION = 4;
+export const PICKS_ENTRY_TIMING_VERSION = 5;
 export const PICKS_TIMING_THRESHOLDS = Object.freeze({
   volatility: ENTRY_VOLATILITY_POLICY,
   knifeRet1d: PICKS_TIMING_KNIFE_RET1D,
@@ -19162,12 +19177,22 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
 
   // ---- Event/calendar risk -------------------------------------------------
   let eventScore = 0, macroSoftScore = 0;
+  const eventAware = !!(opts.topPicksPolicy && PICKS_EVENT_AWARE);
+  let eventPlay = null;
+  const eventReads = [];
   const eventDays = eventRisk?.active ? pnumN(eventRisk.daysOut) : null;
   const eventSessions = eventRisk?.active ? (pnumN(eventRisk.sessionsOut) ?? eventDays) : null;
   if (eventSessions != null && eventSessions >= 0 && eventSessions <= PICKS_TIMING_EVENT_DEFER_DAYS) {
-    if (eventSessions <= PICKS_TIMING_EVENT_HARD_DAYS) {
+    const macroPlay = eventAware && eventSessions <= PICKS_TIMING_EVENT_HARD_DAYS
+      ? macroEventPlay({ side, regime, eventRisk, sessionsOut: eventSessions }) : null;
+    if (macroPlay?.ok && fightsTape) { macroPlay.ok = false; macroPlay.reason = "the broad tape fights the trade"; }
+    if (macroPlay) eventReads.push(macroPlay);
+    if (macroPlay?.ok) {
+      eventPlay = macroPlay;
+      reasons.push(`- ${eventRisk.label || "major macro event"} in ${Math.round(eventSessions)} trading session${eventSessions === 1 ? "" : "s"} — trading through it (${macroPlay.reason}; defined-risk spread)`);
+    } else if (eventSessions <= PICKS_TIMING_EVENT_HARD_DAYS) {
       eventScore = -4; hardWait = "event"; deferKind = "event";
-      reasons.push(`${eventRisk.label || "major macro event"} in ${Math.round(eventSessions)} trading session${eventSessions === 1 ? "" : "s"} — wait for the binary event to clear`);
+      reasons.push(`${eventRisk.label || "major macro event"} in ${Math.round(eventSessions)} trading session${eventSessions === 1 ? "" : "s"} — wait for the binary event to clear${macroPlay ? ` (${macroPlay.reason})` : ""}`);
     } else {
       // 3–7 sessions out: selectStrategy already prefers a debit spread inside
       // the window, so the drag is informational unless PICKS_EVENT_SOFT_BLOCKS=1.
@@ -19183,14 +19208,24 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
     ? tradingSessionsBetween(etDateKey(), data.fundamentals.nextEarningsDate)
     : null;
   if (earningsSessions != null && earningsSessions >= 0 && earningsSessions <= PICKS_TIMING_EARNINGS_DEFER_DAYS) {
-    if (earningsSessions <= PICKS_TIMING_EARNINGS_HARD_DAYS) {
+    const earnPlay = eventAware
+      ? earningsEventPlay({ side, earningsHx: data?.earningsHx, season: opts.earningsSeason, sessionsOut: earningsSessions, date: String(data.fundamentals.nextEarningsDate).slice(0, 10), symbol: opts.symbol })
+      : null;
+    if (earnPlay) eventReads.push(earnPlay);
+    if (earnPlay?.ok) {
+      // One event tag per trade: the stock's own print outranks a macro one.
+      eventPlay = earnPlay;
+      reasons.push(`- earnings in ${Math.round(earningsSessions)} trading session${Math.round(earningsSessions) === 1 ? "" : "s"} — ${earnPlay.reason} (defined-risk spread)`);
+    } else if (earningsSessions <= PICKS_TIMING_EARNINGS_HARD_DAYS) {
       eventScore = Math.min(eventScore, -4); hardWait = "earnings"; deferKind = "earnings";
-      reasons.push(`earnings in ${Math.round(earningsSessions)} trading session${Math.round(earningsSessions) === 1 ? "" : "s"} — long-premium IV-crush risk`);
+      reasons.push(`earnings in ${Math.round(earningsSessions)} trading session${Math.round(earningsSessions) === 1 ? "" : "s"} — long-premium IV-crush risk${earnPlay ? ` (${earnPlay.reason})` : ""}`);
     } else {
       eventScore = Math.min(eventScore, -2);
-      reasons.push(`- earnings in ${Math.round(earningsSessions)} trading sessions`);
+      reasons.push(`- earnings in ${Math.round(earningsSessions)} trading sessions${earnPlay ? ` (${earnPlay.reason})` : ""}`);
     }
   }
+  // A macro play that loses to an earnings wait is not an event play.
+  if (eventPlay && hardWait) eventPlay = null;
   components.event = { score: eventScore, macroSoftScore, daysOut: ed, sessionsOut: earningsSessions, macroDaysOut: eventDays, macroSessionsOut: eventSessions };
 
   // ---- Extension/exhaustion -----------------------------------------------
@@ -19430,6 +19465,7 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
     contribution: 0,
     executionOnly: true,
     deferKind, hardVeto, hardWait, fightsTape, crowdedAligned,
+    ...(eventAware ? { eventPlay, eventReads } : {}),
     extensionTier, setupKind, headline, reasons, components, structure,
     readiness: {
       score, bar: PICKS_ENTRY_READY_BAR, independentFamilies, directionConfirmed,
@@ -21645,6 +21681,7 @@ export function prepareTopPicksScoring(preScored, macroBackdrop, assessment) {
   if (!assessment || preScored?.marketPolicyVersion) return preScored;
   const mr = macroBackdrop?.macroRegime;
   const regime = mr?.state==='severe-risk-off'?'severe':mr?.state||'neutral';
+  const shock = shockLaneState(mr, macroBackdrop?.indexes);
   return {...preScored,marketPolicyVersion:topPicksMarket.VERSION,scored:(preScored?.scored||[]).map(r=>{
     const side=(r.preRegimeTotal??r.total)>=0?'call':'put';
     const kind=macroKindOf(r.sym,r.data), exposure=kind==='volLong'?-1:['gold','bondProxy'].includes(kind)?0:1;
@@ -21653,7 +21690,12 @@ export function prepareTopPicksScoring(preScored, macroBackdrop, assessment) {
     const adjustment=topPicksMarket.score(assessment,{conviction:stockConviction,optionAdjusted:pre,side,exposure,tradeFloor:PICKS_MIN_CONVICTION,strongBar:PICKS_TIER_STRONG});
     // Non-equity instruments follow their own profile, not equity call/put direction.
     const timingRegime=exposure===0?'neutral':exposure<0?(regime==='risk-on'?'risk-off':['risk-off','severe'].includes(regime)?'risk-on':'neutral'):regime;
-    const timing=computeEntryTiming(side,r.data,r.data?.spot,{regime:timingRegime,eventRisk:macroBackdrop?.eventRisk,topPicksPolicy:true});
+    const timing=computeEntryTiming(side,r.data,r.data?.spot,{regime:timingRegime,eventRisk:macroBackdrop?.eventRisk,topPicksPolicy:true,earningsSeason:assessment.earnings||null,symbol:r.sym});
+    // Post-shock lane: an equity put after a confirmed index break is tagged
+    // as an event play (opens at the regular put bar, 10-session limit).
+    if(PICKS_EVENT_AWARE&&shock.active&&side==='put'&&exposure===1&&!timing.eventPlay&&!timing.hardWait){
+      timing.eventPlay={kind:'shock',label:'index break',date:etDateKey(),key:shock.key,ok:true,reason:shock.reason,version:EVENT_PLAY_VERSION};
+    }
     return {...r,preRegimeTotal:pre,legacyTotal:r.total,legacyTiming:r.timing,legacyRegimeOverlay:r.regimeOverlay,stockConviction:adjustment.stockConviction,optionAdjustedConviction:pre,
       tradeScore:adjustment.tradeScore,total:adjustment.tradeScore,side,recommendation:tierForScore(adjustment.tradeScore),
       timing,pillars:{...r.pillars,timing:{...r.pillars?.timing,...timing,executionOnly:true}},
@@ -21692,6 +21734,16 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   meta.forcedLiquidationWatch = collateralWatch;
   meta.buyoutGated = [];
   meta.buyoutWatch = scored.map((r) => r.pendingBuyout).filter(Boolean);
+  // Event plays (lib/event-play.mjs): caps count what is already on the book.
+  const nowIsoForEvents = typeof opts.builtAtIso === "string" ? opts.builtAtIso : new Date().toISOString();
+  const eventCounts = eventPlayCounts([...(opts.openPositions || []), ...(opts.priorClosed || [])], nowIsoForEvents);
+  const shockLane = PICKS_EVENT_AWARE ? shockLaneState(macroBackdrop?.macroRegime, macroBackdrop?.indexes) : { active: false };
+  meta.eventPlayVersion = PICKS_EVENT_AWARE ? EVENT_PLAY_VERSION : null;
+  meta.eventPlays = [];
+  meta.eventCapped = [];
+  meta.eventWaits = [];
+  meta.shockLane = shockLane.active ? { active: true, state: shockLane.state, indexesScore: shockLane.indexesScore, reason: shockLane.reason } : null;
+  meta.eventLimits = PICKS_EVENT_AWARE ? { ...EVENT_PLAY_LIMITS, openWeek: eventCounts.week, shockOpen: eventCounts.shockOpen } : null;
   const traceGate = (r, side, gate) => {
     turnedAway.push({ sym: r.sym, side, total: r2(pnum(r.total) ?? 0), gate, spot: r2(pnum(r.data?.spot)) });
   };
@@ -21818,7 +21870,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     if (r.marketAdjustment && !r.marketAdjustment.eligible) {
       entry.now = false; entry.signal = 'wait-market'; entry.headline = 'Wait — current index and volatility evidence is required';
     }
-    const entryConfirmed = entryBlocked ? false : aiVerdict ? aiVerdict === "buy-now" : entry.now === true;
+    let entryConfirmed = entryBlocked ? false : aiVerdict ? aiVerdict === "buy-now" : entry.now === true;
     const heldBackBefore = meta.aiEntryHeldBack.length;
     if (aiVerdict) {
       entry.ai = { verdict: aiVerdict, reason: aiThesis.entryReason || null, blocked: entryBlocked, overrode: !entryBlocked && (aiVerdict === "buy-now") !== (entry.now === true) };
@@ -21856,7 +21908,24 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
         if (note) aiRejectionNotes.push(note);
       }
     }
-    let { classification, group, demotion } = classifyPick(r.total, thesisQuality.tier, tactical, { strongBar, pillarsAligned: thesisQuality.pillarsAligned, aiGraded: thesisQuality.aiGraded, aiActive, entryConfirmed });
+    // EVENT PLAY CAPS: at most EVENT_PLAY_LIMITS.perEvent open picks through
+    // one macro event, perWeek event opens a week, shockOpen post-shock puts at
+    // once. Applied after the AI overlay so a buy-now verdict cannot undo it.
+    const eventPlay = r.timing?.eventPlay?.ok ? r.timing.eventPlay : null;
+    let eventCap = null;
+    if (eventPlay && entryConfirmed) {
+      eventCap = eventPlayCapHit(eventPlay, eventCounts);
+      if (eventCap) {
+        entryConfirmed = false;
+        meta.eventCapped.push(r.sym);
+        entry.now = false; entry.signal = "wait-event-cap"; entry.basis = "event-cap";
+        entry.trigger = null; entry.zone = null;
+        entry.headline = `Hold off — event-trade limit reached (${eventCap === "week" ? `${EVENT_PLAY_LIMITS.perWeek} event opens a week` : eventCap === "shock" ? `${EVENT_PLAY_LIMITS.shockOpen} post-shock puts at once` : `${EVENT_PLAY_LIMITS.perEvent} picks per event`})`;
+      }
+    }
+    for (const read of (r.timing?.eventReads || [])) if (!read.ok) meta.eventWaits.push({ sym: r.sym, side, kind: read.kind, reason: read.reason });
+    const shockPut = !tactical && side === "put" && eventPlay?.kind === "shock" && shockLane.active;
+    let { classification, group, demotion } = classifyPick(r.total, thesisQuality.tier, tactical, { strongBar, pillarsAligned: thesisQuality.pillarsAligned, aiGraded: thesisQuality.aiGraded, aiActive, entryConfirmed, shockLane: shockPut, minConv });
     if (demotion === "edge-bar") meta.edgeBarDemoted.push(r.sym);
     else if (demotion === "confluence") meta.confluenceDemoted.push(r.sym);
     else if (demotion === "ai-ungraded") meta.aiUngraded.push(r.sym);
@@ -21865,7 +21934,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       const gate = demotion === "edge-bar" ? "losing-streak-bar"
         : demotion === "confluence" ? "confluence"
         : demotion === "ai-ungraded" ? "no-ai-slot"
-        : demotion === "entry-wait" ? (!entryBlocked && aiVerdict === "wait" ? "ai-wait" : "timing-checks")
+        : demotion === "entry-wait" ? (eventCap ? "event-cap" : !entryBlocked && aiVerdict === "wait" ? "ai-wait" : "timing-checks")
         : Math.abs(pnum(r.total) ?? 0) < PICKS_TIER_STRONG ? "below-strong"
         : thesisQuality.aiGraded ? "ai-not-strong" : "thesis-not-strong";
       traceGate(r, side, gate);
@@ -21936,7 +22005,10 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     }
     const pg = peerGroupOf(r.sym, r.data);
     picks.push(buildPickObject(r, side, contract, exitPlan, entryPlan, peerIndex[pg], pg, tactical, stratFinal, macroRegime, { marketRead, works, thesisQuality, classification, group, aiThesis, entry }));
-    if (group === "actionable") { actN++; traceGate(r, side, "picked"); } else watchN++;
+    if (group === "actionable") {
+      actN++; traceGate(r, side, "picked");
+      if (eventPlay) { eventPlayCountAdd(eventPlay, eventCounts); meta.eventPlays.push({ sym: r.sym, side, kind: eventPlay.kind, label: eventPlay.label, date: eventPlay.date }); }
+    } else watchN++;
   }
   meta.turnedAway = turnedAway;
 
@@ -22066,12 +22138,23 @@ function buildPickObject(r, side, contract, exitPlan, entryPlan, peers, peerGrou
       hardWait: r.timing.hardWait || null,
       structure: r.timing.structure || null,
     },
+    // Event play (lib/event-play.mjs): frozen onto the track-record entry.
+    eventPlay: compactEventPlay(r.timing?.eventPlay),
     tactical: !!tactical, firstSeen: null,
     streak: cs ? { color: cs.color, days: cs.sameDays, cumulativePct: cs.cumulativePct } : null,
     catalysts: Array.isArray(r.data?.catalysts) ? r.data.catalysts : [],
     peers: (peers || []).filter((p) => p.symbol !== r.sym).slice(0, 5), peerGroup,
     entryPlan, exitPlan,
     sizing: null,
+  };
+}
+
+export function compactEventPlay(ep) {
+  if (!ep || !ep.ok || !ep.kind) return null;
+  return {
+    kind: ep.kind, label: ep.label || null, date: ep.date || null, session: ep.session || null,
+    key: ep.key || null, releaseEtMin: ep.releaseEtMin ?? null, reason: ep.reason || null,
+    version: ep.version || EVENT_PLAY_VERSION,
   };
 }
 
@@ -22687,6 +22770,17 @@ export function classifyPick(total, thesisTier, tactical, gates = null) {
   // A tactical put is a tape-driven DEFENSIVE idea (it ships below the grade bar on
   // a confirmed risk-off tape) — always a watch idea, never "no strategy".
   if (tactical) return { classification: "moderate", group: "watch", demotion: null };
+  // Post-shock lane: a put after a confirmed index break opens at the regular
+  // trade bar with a strong or moderate thesis; every other gate still binds.
+  if (gates && gates.shockLane) {
+    const bar = Math.max(PICKS_MIN_CONVICTION, pnum(gates.minConv) ?? PICKS_MIN_CONVICTION);
+    if (Math.abs(pnum(total) ?? 0) >= bar && (thesisTier === "strong" || thesisTier === "moderate")) {
+      if (gates.pillarsAligned != null && gates.pillarsAligned < 2) return { classification: "moderate", group: "watch", demotion: "confluence" };
+      if (gates.aiActive && !gates.aiGraded) return { classification: "moderate", group: "watch", demotion: "ai-ungraded" };
+      if (gates.entryConfirmed === false) return { classification: "waitEntry", group: "watch", demotion: "entry-wait" };
+      return { classification: "actionable", group: "actionable", demotion: null };
+    }
+  }
   const gradeStrong = Math.abs(pnum(total) ?? 0) >= PICKS_TIER_STRONG;
   if (thesisTier === "weak") return { classification: gradeStrong ? "highGradeWeakThesis" : "idea", group: "watch", demotion: null };
   if (gradeStrong && thesisTier === "strong") {
@@ -27185,7 +27279,7 @@ const THESIS_SYSTEM =
   "invalidation = 3–4 SPECIFIC, observable conditions that would prove the thesis wrong (a named driver reversing, a price level breaking, a macro shift, a catalyst disappointing) — never generic 'the stock could fall'. " +
   "strategyRationale = 1–3 sentences justifying the OPTION STRUCTURE from the IV environment: when implied vol is ELEVATED/RICH, premium is expensive so favour SELLING premium on the bias side (a credit spread) or a defined-risk debit spread over a naked long; when IV is CHEAP, favour BUYING premium (a debit spread or naked long); always prefer DEFINED-RISK into an imminent earnings/event. Explain the IV-vs-structure logic the way the example does. " +
   "confidence = your honest read of the thesis strength. " +
-  "ENTRY CALL — you also make the final IS-NOW-THE-TIME-TO-BUY call. entryVerdict = buy-now | wait. The context includes a deterministic price-based entry read (trigger levels, momentum/pullback/volume factors) — treat it as ONE input, not the answer: weigh it together with everything else you see (how fresh and urgent the catalyst is, what's on the calendar, the macro tape, the IV environment, whether the move has already run). buy-now means a subscriber opening the position at the CURRENT price, immediately, is following the plan — say it only when entering right now genuinely beats waiting. wait means there is a better entry to be had (a pullback, a confirming close, an event clearing, a stretched move cooling off) — a strong thesis whose entry isn't ready ships as a watch idea, not a recommendation, so be honest. entryReason = one short, specific sentence: what makes RIGHT NOW the moment (or exactly what to wait for). Hard risk rules are enforced outside your call, but they only cover the true EXTREMES — a parabolic stretch, a blow-off RSI, a falling knife, an imminent earnings IV crush. Everything short of those is YOUR judgment. In particular, a name that is moderately EXTENDED past its 20-day average is NOT automatically a wait: strong names in a momentum regime with a live catalyst routinely stay extended for weeks, and the 'wait for the pullback to the mean' entry never fills — decide whether the extension is a momentum ride (fresh catalyst, expanding story, confirming volume → buy-now can be right) or a late chase (the catalyst already played out, the move is exhaustion, volume fading → wait), and say which in entryReason. If you do call wait, name a REALISTIC nearby level or condition (a 2-5% dip, a confirming close, an event clearing) — never a mean-reversion target far below a trending price. " +
+  "ENTRY CALL — you also make the final IS-NOW-THE-TIME-TO-BUY call. entryVerdict = buy-now | wait. The context includes a deterministic price-based entry read (trigger levels, momentum/pullback/volume factors) — treat it as ONE input, not the answer: weigh it together with everything else you see (how fresh and urgent the catalyst is, what's on the calendar, the macro tape, the IV environment, whether the move has already run). buy-now means a subscriber opening the position at the CURRENT price, immediately, is following the plan — say it only when entering right now genuinely beats waiting. wait means there is a better entry to be had (a pullback, a confirming close, an event clearing, a stretched move cooling off) — a strong thesis whose entry isn't ready ships as a watch idea, not a recommendation, so be honest. entryReason = one short, specific sentence: what makes RIGHT NOW the moment (or exactly what to wait for). Hard risk rules are enforced outside your call, but they only cover the true EXTREMES — a parabolic stretch, a blow-off RSI, a falling knife, and an imminent print or macro release the engine's own event check did not clear. Everything short of those is YOUR judgment. EVENT PLAYS — this engine trades events on purpose. When the context has an EVENT PLAY line, the engine has already checked that the evidence lines up for entering THROUGH that event (the market tape for a macro release; the stock's own reaction record, this season's reactions and the run-in for an earnings print; a confirmed index break for a post-shock put), the position is a defined-risk spread, the number of event trades is capped, and the trade is reviewed right after the event. So an upcoming event is NOT by itself a reason to wait: call wait on an event play only when something specific in the context argues against this trade going into it (for example the catalyst already played out, or the stock's own guidance trend contradicts the side), and say what. In particular, a name that is moderately EXTENDED past its 20-day average is NOT automatically a wait: strong names in a momentum regime with a live catalyst routinely stay extended for weeks, and the 'wait for the pullback to the mean' entry never fills — decide whether the extension is a momentum ride (fresh catalyst, expanding story, confirming volume → buy-now can be right) or a late chase (the catalyst already played out, the move is exhaustion, volume fading → wait), and say which in entryReason. If you do call wait, name a REALISTIC nearby level or condition (a 2-5% dip, a confirming close, an event clearing) — never a mean-reversion target far below a trending price. " +
   "FINAL GRADE — you are the FINAL GRADER. A quantitative engine pre-screened this name on the raw data (fundamentals, technicals, flow, narrative) and it CLEARED that screen; now YOU decide whether the thesis actually holds together as a trade. " +
   "grade = strong | moderate | weak | reject. " +
   "strong = a clear, multi-factor, testable case with the macro tape NOT fighting it and a concrete catalyst changing now (an Actionable top pick). " +
@@ -27425,6 +27519,12 @@ export function buildThesisUserMessage(r, side, macroRegime, extras = {}) {
   if (r.timing?.state) detBits.push(`timing gate: ${r.timing.state}${r.timing.headline ? ` — ${r.timing.headline}` : ""}`);
   if (detEntry.readiness) detBits.push(`readiness ${detEntry.readiness.score}/${detEntry.readiness.bar} (${(detEntry.checks || []).filter((c) => c.pass && c.max > 0).map((c) => c.short).join(", ") || "no factors confirmed"})`);
   L.push(`ENTRY TIMING (deterministic — one input to YOUR entry call, not the answer): ${detBits.join("; ")}.`);
+  const ep = r.timing?.eventPlay;
+  if (ep && ep.ok) {
+    L.push(`EVENT PLAY: ${ep.kind === "shock" ? "post-shock put after a confirmed index break (10-session limit)" : `entering through ${ep.kind === "earnings" ? "this stock's earnings" : ep.label}${ep.date ? ` on ${ep.date}` : ""}`} — ${ep.reason}. Defined-risk spread; reviewed after the event.`);
+  } else if (Array.isArray(r.timing?.eventReads) && r.timing.eventReads.some((x) => !x.ok)) {
+    L.push(`EVENT CHECK: ${r.timing.eventReads.filter((x) => !x.ok).map((x) => `${x.kind === "earnings" ? "earnings" : x.label} — ${x.reason}`).join("; ")}.`);
+  }
   L.push(`FINAL GRADE + ENTRY CALL: this name cleared the deterministic data screen. Decide whether the thesis truly holds as a 1–2 week ${bull ? "bullish" : "bearish"} trade and assign grade (strong/moderate/weak/reject) + score 0–100 + gradeReason, AND make the final entry call (entryVerdict buy-now/wait + entryReason) — is opening this position at the current price, right now, the correct move, or is there a better entry to wait for? Reject the name if the case is incoherent, contradicted by the data, already played out, or the macro tape directly fights it — standing down is allowed.`);
   return L.join("\n");
 }
@@ -28937,7 +29037,22 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
       };
     }
     marked.exitPolicy = e.exitPolicy || pickExitPolicy(e.contract?.structure);
-    const res = resolvePickOutcome({ exitPolicy: marked.exitPolicy, isCall, cur: spot, ref: e.entrySpot, expSec: e.contract?.expiry, entrySec: Math.floor(Date.parse(e.entryDate) / 1000), nowSec, inUniverse: !!data || (e.missingBuilds || 0) < PICKS_DROPPED_MIN_MISSES, modeledOptPnlPct: optionPnlPct, thetaPctDay: e.contract?.thetaDay && e.contract?.mid ? Math.abs(e.contract.thetaDay) / e.contract.mid : null, structure: e.contract?.structure || "long", scaledOutPnlPct: scaleOut ? scaleOut.pnlPct : null, peakPnlPct: Number.isFinite(optHiPct) ? optHiPct : null, stopUnder: pnum(e.cut), vehicleStopUnder: pnumN(e.vehicleCut), thesisBroken: marked.thesisStatus ? marked.thesisStatus.verdict === "broken" : false });
+    let res = resolvePickOutcome({ exitPolicy: marked.exitPolicy, isCall, cur: spot, ref: e.entrySpot, expSec: e.contract?.expiry, entrySec: Math.floor(Date.parse(e.entryDate) / 1000), nowSec, inUniverse: !!data || (e.missingBuilds || 0) < PICKS_DROPPED_MIN_MISSES, modeledOptPnlPct: optionPnlPct, thetaPctDay: e.contract?.thetaDay && e.contract?.mid ? Math.abs(e.contract.thetaDay) / e.contract.mid : null, structure: e.contract?.structure || "long", scaledOutPnlPct: scaleOut ? scaleOut.pnlPct : null, peakPnlPct: Number.isFinite(optHiPct) ? optHiPct : null, stopUnder: pnum(e.cut), vehicleStopUnder: pnumN(e.vehicleCut), thesisBroken: marked.thesisStatus ? marked.thesisStatus.verdict === "broken" : false });
+    // EVENT PLAY exits (lib/event-play.mjs), checked after every price exit:
+    // one post-event review (the live grade on the trade's side must still
+    // clear the trade bar once the event has resolved) and the post-shock
+    // time limit. A reviewed trade that passes is stamped and held.
+    if (!res && e.eventPlay && e.eventPlay.kind) {
+      const builtAt = new Date(builtAtIso);
+      const todayEt = etDateKey(builtAt);
+      const ex = eventPlayExit(marked, {
+        todayIso: todayEt, etNowMin: etMinutesOf(builtAt),
+        gradeNow: gradesIndex && gradesIndex[e.symbol] ? pnum(gradesIndex[e.symbol].total) : null,
+        heldSessions: tradingSessionsBetween(etDateKey(new Date(e.entryDate)), todayEt),
+      });
+      if (ex && ex.status) res = { status: ex.status, outcome: outcomeFromPnl(scaleOut && pnum(optionPnlPct) != null ? scaleOut.pnlPct / 2 + optionPnlPct / 2 : pnum(optionPnlPct)) };
+      else if (ex && ex.reviewed) marked.eventPlay = { ...e.eventPlay, reviewed: ex.reviewed };
+    }
     // A scaled-out entry closes at the BLEND of the banked half and the runner's
     // exit — that blend is the position's true P/L and what the stats consume.
     const closedPnl = (scaleOut && pnum(optionPnlPct) != null) ? r1(scaleOut.pnlPct / 2 + optionPnlPct / 2) : marked.optionPnlPct;
@@ -28995,6 +29110,10 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
       // dated divider when the entry-timing rules change.
       entryTimingVersion: PICKS_ENTRY_TIMING_VERSION,
       exitPolicy: pickExitPolicy(p.contract?.structure),
+      // Event play tag, frozen at entry (macro / earnings / shock). Drives the
+      // one post-event review and the shock time limit, and the Track Record's
+      // event split. Null for an ordinary entry.
+      ...(p.eventPlay && p.eventPlay.kind ? { eventPlay: { ...p.eventPlay } } : {}),
       symbol: p.symbol, side: p.side, tier: p.recommendation?.tier || null, label: p.recommendation?.label || null,
       score: p.total, entryDate: builtAtIso, entrySpot: r2(p.spot), lastSpot: r2(p.spot),
       ...(p.marketAdjustment?{stockConviction:p.stockConviction,tradeScore:p.tradeScore,marketAdjustment:p.marketAdjustment,marketApproval:p.marketApproval}:{}),

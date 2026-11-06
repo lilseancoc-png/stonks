@@ -237,7 +237,7 @@ The five capped component groups are:
 | **Extension / exhaustion** | Prior-ATR distance and five-session impulse, with percentage floors, set mild `−1` and soft `−2…−3` bands. RSI heat remains supporting evidence. A hard `−6…−8` top guard requires multiple extreme readings **plus** a momentum rollover or ≥1.8× volume climax, unless one reading is catastrophic. Extension alone is not exhaustion. |
 | **Pullback / setup** | Detects a real prior impulse over 20 sessions, requiring at least 4% or 2 ATR. An orderly 25–50% impulse retracement (or 0.75–1.75 ATR) that holds structure earns `+1`; drying pullback volume ≤0.90× adds another `+1`. Deep/stale pullbacks lose points. |
 | **Momentum confirmation** | MACD histogram turning with the trade on the correct side of SMA20, RSI recovery from the opposite extreme, and a directional ≥1.3× turn day are correlated evidence and therefore cap at `+2`. Strongly adverse momentum is `−2`; mixed RSI/MACD is `−1`. |
-| **Events** | A scheduled earnings release or major macro event inside the **next two trading sessions** is a hard Wait. Session distance, not calendar-day distance, controls the veto so a Monday event is treated correctly on Friday. The next near-term tier is a moderate penalty; distant events are neutral/context only. A hard event cannot be averaged away or cleared by the AI. |
+| **Events** | A scheduled earnings release or major macro event inside the **next two trading sessions** is a hard Wait for the shared grade. Top Picks may instead trade through it as an **event play** when the evidence agrees (see "Event plays, November 6, 2026" below). Session distance, not calendar-day distance, controls the veto so a Monday event is treated correctly on Friday. The next near-term tier is a moderate penalty; distant events are neutral/context only. A hard event cannot be averaged away or cleared by the AI. |
 | **Structure / payoff** | A nearby support/resistance level defining invalidation within 2 ATR earns `+1`; level confluence adds `+1`; unclear structure is `−1`. A call invalidation must be below entry and a put invalidation above entry before risk or R:R is computed. Go additionally requires estimated reward/risk ≥1.5:1. |
 
 Falling-knife logic is an override, not just another negative row. With prior
@@ -1216,3 +1216,54 @@ after it shows the right sign at 5 and 10 days, stays positive after the
 grade, and reaches t ≈ 2 on non-overlapping days. Only the newest 130 rows
 keep their shadow block. `regen-picks` keeps the day's block when it rewrites
 the totals.
+
+## Event plays, November 6, 2026
+
+Owner directive: the engine should trade events and earnings, not sit them
+out. The rules live in `lib/event-play.mjs`; `computeEntryTiming` applies them
+only under `topPicksPolicy` (the shared grade keeps the old waits), and
+`PICKS_EVENT_AWARE=0` turns the whole thing off. The entry-timing version is
+5, with a dated Track Record divider.
+
+**Macro events (FOMC, CPI, PPI, jobs inside two sessions).** The hard wait
+becomes a trade-through when the tape agrees with the side: calls in a
+risk-on or neutral tape, puts in a risk-off or severe tape, and never when
+the broad regime fights the trade. Otherwise the wait stands.
+
+**Earnings (the stock's own print inside seven sessions).** Three votes on the
+trade's side: the stock's reaction record (+1 at 60%+ of prints moving the
+trade's way, −1 at 40% or less; the 10-year count when it has 8+ prints), this
+season's reactions from `buildTopPicksMarketContext` (+1/−1 on the same 60/40
+split, needs 8+ prints), and the run-in (`earningsHx.next.pre10Pct`: −1 when the
+stock already ran 6%+ the trade's way; a put gets +1 for a 6%+ run-up into a
+season that sells prints). Trade through when the votes total +1 or more and
+the stock's own record is not against the trade. Fewer than 4 priced prints
+waits.
+
+**Post-shock lane.** When `shockLaneState` sees a risk-off or severe tape, the
+SPY/QQQ axis at −2 and both indexes below their 20-day average, equity puts
+are tagged `shock` and `classifyPick` opens them at the regular trade bar
+(normally 4) with a strong or moderate thesis, instead of the Strong bar.
+Confluence, the AI grade and a confirmed entry still bind.
+
+**Structure, caps and tag.** `selectStrategy` already forces a debit spread
+inside an event window. `buildTopPicks` caps event plays at 2 open picks per
+macro event, 4 event opens in 7 days and 2 open post-shock puts
+(`rosterMeta.eventCapped`, gate `event-cap`). The play is frozen on the record
+as `eventPlay` (kind, label, date, session, key, release time, reason).
+`rosterMeta.eventPlays` and `eventWaits` list what traded and what waited.
+
+**Exits.** After every price exit, `eventPlayExit` runs one post-event review
+once the event has resolved (macro: release time + 15 minutes; AM print: 10:00
+ET that day; PM print: the next ET date). If the live grade on the trade's
+side is below 4 the trade closes as `event-review`; otherwise the review is
+stamped on `eventPlay.reviewed` and the trade is held under the normal rules.
+Post-shock puts close as `shock-time` after 10 trading sessions, because the
+historical follow-through after a broad drop fades within about 20 sessions.
+
+**AI grader.** The prompt carries an `EVENT PLAY` line (or `EVENT CHECK` when the
+engine kept a wait) and tells the grader an upcoming event is not by itself a
+reason to wait on an event play.
+
+Tests: `npm run test:event-play` (rules, caps, roster wiring, enrollment, both
+exits) and the event checks in `scripts/picks-smoke.mjs`.

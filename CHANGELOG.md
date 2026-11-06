@@ -46,6 +46,12 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Request an uncompressed R2 lock with a strong ETag so a released Webull paper lock can be acquired conditionally; fail closed on malformed locks or repeated conflicts, expose Owner-only diagnostics, and report mirror failures in a separate workflow health job.
 - Reconcile Webull grouped option positions using confirmed broker order legs and stable position identities; prepare manual spread adoption without replaying its entry, retain separate overlapping manual holdings, and exclude manual entries from automatic fill timing and slippage.
 
+## 2026-11-06
+
+### Changed
+
+- Top Picks now trades events instead of always waiting them out. An open pick can enter through an FOMC decision or a CPI, PPI or jobs report inside two sessions when the market tape agrees with its side (calls in a risk-on or neutral tape, puts in a risk-off one), and through the stock's own earnings when its reaction record, this season's reactions and the run-in add up on its side. After a confirmed index break (risk-off tape, SPY/QQQ axis at -2, both under their 20-day average) puts can open at the regular put bar instead of the Strong bar. Event trades stay on defined-risk spreads, are capped at 2 per macro event, 4 a week and 2 post-shock puts at once, carry an event tag in the record, close at a post-event review when the grade on their side falls below 4, and post-shock puts close after 10 sessions. `PICKS_EVENT_AWARE=0` turns it off. The Track Record shows a dated divider (entry timing v5), an "event play" split, and an event line on each open pick; the AI grader is told not to wait only because an event is ahead.
+
 ## 2026-11-05
 
 ### Added
