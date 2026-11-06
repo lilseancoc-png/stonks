@@ -46604,7 +46604,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
     { key:'timing', get:function(e){
       if (e && e.entryTimingVersion != null) return String(e.entryTimingVersion);
       return e && e.entryPolicyVersion ? '4' : '';
-    } }
+    } },
+    // Exposure caps (lib/top-picks-caps.mjs), stamped from Nov 6.
+    { key:'caps', get:function(e){ return (e && e.capsVersion) || ''; } }
   ];
   // When each version took effect and what it changed (shown on its divider).
   // A version missing here dates from its earliest trade and shows no note.
@@ -46617,7 +46619,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
     },
     exit: { '2026-10-22-tp25': { since:'2026-10-22', note:'Take-profit raised to +25%' } },
     entry: { '2026-10-23-reviewed-entry-v3': { since:'2026-10-23', note:'Entries must pass an option-price check' } },
-    timing: { '4': { since:'2026-10-23', note:'Volatility-aware entry timing' }, '5': { since:'2026-11-06', note:'Event-aware: trades through macro events and earnings when the evidence agrees' } }
+    timing: { '4': { since:'2026-10-23', note:'Volatility-aware entry timing' }, '5': { since:'2026-11-06', note:'Event-aware: trades through macro events and earnings when the evidence agrees' } },
+    caps: { '2026-11-06-factor-run-2': { since:'2026-11-06', note:'At most 2 new trades per run from one stock group (the tech/AI group)' } }
   };
   function accRuleSegments(list){
     var firstSeen = {};
@@ -46695,7 +46698,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     'collateral-stress':'Pledged-stock collateral stress near an estimated threshold',
     'pending-buyout':'Signed takeover target (price pinned to the deal)',
     'option-economics':'Option target does not support the profit exit after quote costs',
-    'sector-cap':'Sector cap', 'factor-cap':'Factor cap', 'factor-trend':'Weak factor trend', 'side-cap':'Call / put cap'
+    'sector-cap':'Sector cap', 'factor-cap':'Factor cap', 'factor-run-cap':'Same-group limit (2 new per run)', 'factor-trend':'Weak factor trend', 'side-cap':'Call / put cap'
   };
   function accGateStatsHtml(stats){
     if (!Array.isArray(stats) || !stats.length) return '';
@@ -54309,6 +54312,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (picks.length < 10) noteBits.push('Only <b>' + picks.length + '</b> research idea' + (picks.length === 1 ? '' : 's') + ' on the roster');
     if (rm && rm.sectorCapped && rm.sectorCapped.length) noteBits.push('<b>' + rm.sectorCapped.length + '</b> skipped to cap sector concentration');
     if (rm && rm.factorCapped && rm.factorCapped.length) noteBits.push('<b>' + rm.factorCapped.length + '</b> skipped to cap factor concentration');
+    if (rm && rm.factorRunCapped && rm.factorRunCapped.length) noteBits.push('<b>' + rm.factorRunCapped.length + '</b> held back — at most ' + (rm.factorRunLimit || 2) + ' new trades per run from one stock group (' + rm.factorRunCapped.map(escapeHtml).join(', ') + ')');
     if (rm && rm.factorTrendGated && rm.factorTrendGated.length) noteBits.push('<b>' + rm.factorTrendGated.length + '</b> long' + (rm.factorTrendGated.length === 1 ? '' : 's') + ' stood down — their sector is rolling over (no chasing a falling factor)');
     if (rm && rm.macroCallCapped && rm.macroCallCapped.length) noteBits.push('<b>' + rm.macroCallCapped.length + '</b> call' + (rm.macroCallCapped.length === 1 ? '' : 's') + ' capped — severe risk-off tape');
     if (rm && rm.sideCapped && rm.sideCapped.length){

@@ -675,6 +675,15 @@ skips spreads — its single-leg model would mislead.)
 7. **Require a tradeable contract** (else drop).
 8. **Sector cap** ≤3 per sector + a correlation-factor cap (the tech/AI complex),
    ETFs uncapped; plus a per-side cap so the book isn't wildly one-way.
+   **Same-run factor limit** (since 2026-11-06, live): one run opens at most
+   `PICKS_MAX_NEW_PER_FACTOR_RUN` (2) new trades from one factor. Every
+   actionable pick in a run is a new entry (open names are dropped by
+   re-entry suppression), so the limit applies to the actionable roster and
+   to the AI-slot priority pass; watch ideas keep the 5-per-factor cap. Names
+   held back trace as gate `factor-run-cap` (`rosterMeta.factorRunCapped`).
+   Trades carry `capsVersion` so the Track Record draws a dated divider. The
+   caps live in `lib/top-picks-caps.mjs`. Why: on 2026-10-28 15:33 ET one run
+   opened WDC, TSM, MU and ORCL calls together and all four were stopped.
 9. **Factor-trend gate** (`computeFactorTrendHealth`): the resolved track record's
    worst loss was a long-Tech/AI-call book wiped while the *broad* tape barely moved
    (SPY ≈ −1.5%, the picks ≈ −9.6%) — a factor-specific drawdown the broad
@@ -1094,7 +1103,8 @@ implementation must expose the stated value and audit fields:
 | `ENTRY_VOLATILITY_POLICY` / `PICKS_ENTRY_CHASE_RSI_HARD` | prior-ATR bands / 80 | volatility-aware exhaustion confluence; legacy percentage bands apply only when prior ATR is unavailable |
 | `PICKS_ENTRY_PULLBACK_ATR_MULT` | 1.5 | wait-pullback trigger = a ~1.5×ATR dip (clamped 2–5%), floored at the 20D when nearer — reachable, never the raw 20D far below spot |
 | `PICKS_MAX_PER_SECTOR` | 3 | correlation cap |
-| `PICKS_MAX_PER_FACTOR` | 5 | tech/AI-complex correlation cap |
+| `PICKS_MAX_PER_FACTOR` | 5 | tech/AI-complex correlation cap (watch ideas) |
+| `PICKS_MAX_NEW_PER_FACTOR_RUN` | 2 | new trades one run may open from one factor (actionable roster) |
 | `PICKS_FACTOR_WEAK_SHARE` / `PICKS_FACTOR_WEAK_RET5` | 0.6 / −3 | factor-trend gate: suppress new calls in a rolling-over factor |
 | `PICKS_OPT_TP_PCT` / `PICKS_OPT_STOP_PCT` | 0.25 / 0.50 | +25% take-profit / −50% stop (not env-tunable — code constants) |
 | `PICKS_OPT_SCALE_OUT` | off | 1 = bank half + trail the runner at the TP instead of the flat take-profit |

@@ -104,6 +104,7 @@ import { forcedLiquidationContext } from "../lib/forced-liquidation.mjs";
 import { buyoutContextFor } from "../lib/pending-buyout-guard.mjs";
 import { buildShadowSignals } from "../lib/shadow-signals.mjs";
 import { buildEntrySnapshot } from "../lib/trade-snapshot.mjs";
+import { PICKS_MAX_PER_SECTOR, PICKS_MAX_NEW_PER_FACTOR_RUN, PICKS_CAPS_VERSION, factorOfSectorLabel, exposureCapBlock, countExposure } from "../lib/top-picks-caps.mjs";
 import { readForcedLiquidation, refreshForcedLiquidation, writeForcedLiquidation } from './refresh-forced-liquidation.mjs';
 import { fetchPartyBars, refreshPartyTracker } from './refresh-party-tracker.mjs';
 import { emptyLeverageDistress, readLeverageDistress, refreshLeverageDistress, writeLeverageDistress } from './refresh-leverage-distress.mjs';
@@ -17349,7 +17350,8 @@ const PICKS_WATCH_COUNT = Number(process.env.PICKS_WATCH_COUNT ?? 6); // max IDE
 // (buildTopPicks falls back like a keyless build; classifyPick's ai-ungraded
 // demotion keeps it out of actionable while the grader is live).
 export const PICKS_MAX_AI_THESES = Number(process.env.PICKS_MAX_AI_THESES ?? PICKS_COUNT);
-export const PICKS_MAX_PER_SECTOR = 3;        // correlation cap (ETFs uncapped)
+// Sector / factor caps live in lib/top-picks-caps.mjs (re-exported here).
+export { PICKS_MAX_PER_SECTOR, PICKS_MAX_NEW_PER_FACTOR_RUN, PICKS_CAPS_VERSION };
 const PICKS_MAX_PER_SIDE = 8;                 // don't ship an all-one-way book
 
 // ---- The conviction scale (absolute, fixed forever) ------------------------
@@ -17881,20 +17883,9 @@ const PICKS_CHANGES_KEEP_DAYS = 30;
 const PICKS_CHANGES_MAX = 200;
 const PICKS_ROSTER_FILE = "picks-roster.json";
 
-// Correlation-factor cap: the semis/software/mega-cap-tech/data-center-power
-// complex trades as ONE beta across several GICS sectors, so cap it on top of
-// the per-sector cap. Everything else relies on the sector cap.
-const PICKS_MAX_PER_FACTOR = 5;
-const FACTOR_OF_SECTOR = {
-  "Mega-cap tech": "Tech/AI growth", "Semis": "Tech/AI growth", "Storage": "Tech/AI growth",
-  "Software": "Tech/AI growth", "Hardware": "Tech/AI growth", "Networking": "Tech/AI growth",
-  "Tech services": "Tech/AI growth", "IT services": "Tech/AI growth", "Data center": "Tech/AI growth",
-  "Power": "Tech/AI growth", "Clean energy": "Tech/AI growth", "Nuclear": "Tech/AI growth",
-};
+// Correlation-factor cap + the same-run factor limit: lib/top-picks-caps.mjs.
 function factorOfTicker(sym) {
-  const curated = SECTORS[sym];
-  if (!curated || curated === "ETF") return null;
-  return FACTOR_OF_SECTOR[curated] || null;
+  return factorOfSectorLabel(SECTORS[sym]);
 }
 
 // ---- Factor-trend gate -----------------------------------------------------
@@ -21668,18 +21659,18 @@ export function openPickPrecheck(r, side, tactical, ctx = {}) {
 // its original rank order.
 export function prioritizeAiSlots(cands, ctx = {}) {
   const ready = [], rest = [];
-  const sectorCount = {}, factorCount = {};
+  // Ready names become this run's open picks, so they count against the
+  // same-run factor limit exactly as buildTopPicks' actionable roster does.
+  const counts = { sector: {}, factor: {} };
   let callN = 0, putN = 0;
   for (const c of cands) {
     let block = openPickPrecheck(c.r, c.side, !!c.tactical, ctx);
     if (!block) {
-      const sec = sectorGroupOf(c.r.sym) || c.r.data?.fundamentals?.sector || null;
-      const fac = factorOfTicker(c.r.sym);
-      if (sec && sec !== "ETF" && (sectorCount[sec] || 0) >= PICKS_MAX_PER_SECTOR) block = "sector-cap";
-      else if (fac && (factorCount[fac] || 0) >= PICKS_MAX_PER_FACTOR) block = "factor-cap";
-      else if (c.side === "call" ? callN >= PICKS_MAX_PER_SIDE : putN >= PICKS_MAX_PER_SIDE) block = "side-cap";
+      const exposure = { sector: sectorGroupOf(c.r.sym) || c.r.data?.fundamentals?.sector || null, factor: factorOfTicker(c.r.sym), actionable: true };
+      block = exposureCapBlock(exposure, counts);
+      if (!block && (c.side === "call" ? callN >= PICKS_MAX_PER_SIDE : putN >= PICKS_MAX_PER_SIDE)) block = "side-cap";
       if (!block) {
-        if (sec && sec !== "ETF") { sectorCount[sec] = (sectorCount[sec] || 0) + 1; if (fac) factorCount[fac] = (factorCount[fac] || 0) + 1; }
+        countExposure(exposure, counts);
         if (c.side === "call") callN++; else putN++;
       }
     }
@@ -21765,7 +21756,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   const minConv = edgeGate.bar;
   const strongBar = edgeGate.strongBar ?? PICKS_TIER_STRONG;
 
-  const meta = { modelEpoch: PICKS_ACCURACY_RESET_EPOCH, entryPolicyVersion: OPTION_ENTRY_POLICY_VERSION, gradeModelVersion: GRADE_MODEL_VERSION, entryTimingVersion: PICKS_ENTRY_TIMING_VERSION, tradeCut: minConv, strongCut: PICKS_TIER_STRONG, actionableBar: strongBar, minConviction: minConv, baseTradeCut: PICKS_MIN_CONVICTION, edgeGate: edgeGate.bar > PICKS_MIN_CONVICTION ? edgeGate : null, regimeBand: regime, macroRegime: macroBackdrop?.macroRegime || null, sectorCapped: [], factorCapped: [], factorTrendGated: [], factorTrend: factorHealth, sideCapped: [], timingGated: [], primaryScenarioGated: [], earningsRiskCapped: [], eventDeferred: [], confluenceSkipped: [], edgeBarDemoted: [], confluenceDemoted: [], aiUngraded: [], entryDemoted: [], aiEntryPromoted: [], aiEntryHeldBack: [], reentrySuppressed: [], aiVetoed: [], vetoed: 0, sectorCounts: {}, eventRisk: macroBackdrop?.eventRisk || null };
+  const meta = { modelEpoch: PICKS_ACCURACY_RESET_EPOCH, entryPolicyVersion: OPTION_ENTRY_POLICY_VERSION, gradeModelVersion: GRADE_MODEL_VERSION, entryTimingVersion: PICKS_ENTRY_TIMING_VERSION, tradeCut: minConv, strongCut: PICKS_TIER_STRONG, actionableBar: strongBar, minConviction: minConv, baseTradeCut: PICKS_MIN_CONVICTION, edgeGate: edgeGate.bar > PICKS_MIN_CONVICTION ? edgeGate : null, regimeBand: regime, macroRegime: macroBackdrop?.macroRegime || null, sectorCapped: [], factorCapped: [], factorRunCapped: [], factorRunLimit: PICKS_MAX_NEW_PER_FACTOR_RUN, capsVersion: PICKS_CAPS_VERSION, factorTrendGated: [], factorTrend: factorHealth, sideCapped: [], timingGated: [], primaryScenarioGated: [], earningsRiskCapped: [], eventDeferred: [], confluenceSkipped: [], edgeBarDemoted: [], confluenceDemoted: [], aiUngraded: [], entryDemoted: [], aiEntryPromoted: [], aiEntryHeldBack: [], reentrySuppressed: [], aiVetoed: [], vetoed: 0, sectorCounts: {}, eventRisk: macroBackdrop?.eventRisk || null };
 
   // GATE TRACE (measurement only): the first rule that kept each candidate off
   // the open-pick path, plus the names that made it ("picked"). The Track
@@ -22029,10 +22020,12 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       const sides = sideCounts[isAct ? "actionable" : "watch"];
       const sec = sectorGroupOf(r.sym) || r.data?.fundamentals?.sector || null;
       const fac = factorOfTicker(r.sym);
-      if (sec && sec !== "ETF") {
-        if ((sectors[sec] || 0) >= PICKS_MAX_PER_SECTOR) { meta.sectorCapped.push(r.sym); if (isAct) traceGate(r, side, "sector-cap"); continue; }
-        if (fac && (factors[fac] || 0) >= PICKS_MAX_PER_FACTOR) { meta.factorCapped.push(r.sym); if (isAct) traceGate(r, side, "factor-cap"); continue; }
-      }
+      // Actionable picks are this run's NEW entries: at most
+      // PICKS_MAX_NEW_PER_FACTOR_RUN from one factor (lib/top-picks-caps.mjs).
+      const capBlock = exposureCapBlock({ sector: sec, factor: fac, actionable: isAct }, { sector: sectors, factor: factors });
+      if (capBlock === "sector-cap") { meta.sectorCapped.push(r.sym); if (isAct) traceGate(r, side, "sector-cap"); continue; }
+      if (capBlock === "factor-cap") { meta.factorCapped.push(r.sym); if (isAct) traceGate(r, side, "factor-cap"); continue; }
+      if (capBlock === "factor-run-cap") { meta.factorRunCapped.push(r.sym); traceGate(r, side, "factor-run-cap"); continue; }
       // GATE: factor-trend — don't keep buying CALLS into a correlated factor whose
       // OWN trend is rolling over. Puts unaffected; only a strong-tier go-timed call survives.
       if (side === "call" && fac && factorHealth[fac]?.weak) {
@@ -22042,7 +22035,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       // GATE: don't ship a wildly one-sided book.
       if (side === "call" && sides.call >= PICKS_MAX_PER_SIDE) { meta.sideCapped.push(r.sym); if (isAct) traceGate(r, side, "side-cap"); continue; }
       if (side === "put" && sides.put >= PICKS_MAX_PER_SIDE) { meta.sideCapped.push(r.sym); if (isAct) traceGate(r, side, "side-cap"); continue; }
-      if (sec && sec !== "ETF") { sectors[sec] = (sectors[sec] || 0) + 1; if (fac) factors[fac] = (factors[fac] || 0) + 1; }
+      countExposure({ sector: sec, factor: fac }, { sector: sectors, factor: factors });
       sides[side]++;
       const spot = pnum(r.data.spot);
       entryPlan = buildEntryPlan(side, spot, r.data, contract, r.total);
@@ -29221,6 +29214,9 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
       // Stamped per trade (since 2026-10-26) so the Track Record can draw a
       // dated divider when the entry-timing rules change.
       entryTimingVersion: PICKS_ENTRY_TIMING_VERSION,
+      // Exposure-cap rule set (lib/top-picks-caps.mjs), stamped since
+      // 2026-11-06 so the Track Record can draw a divider at the change.
+      capsVersion: PICKS_CAPS_VERSION,
       exitPolicy: pickExitPolicy(p.contract?.structure),
       // Event play tag, frozen at entry (macro / earnings / shock). Drives the
       // one post-event review and the shock time limit, and the Track Record's

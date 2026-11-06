@@ -1,8 +1,9 @@
 // Offline synthetic smoke test for the rebuilt Top Picks engine. No Yahoo, no
 // data/, no AI — builds fake chains and asserts the engine's behaviour + the
 // output shapes the UI/serialization depend on. Run: node scripts/picks-smoke.mjs
+import { factorCapFor, exposureCapBlock } from "../lib/top-picks-caps.mjs";
 import {
-  TICKERS, SECTORS,
+  TICKERS, SECTORS, PICKS_MAX_NEW_PER_FACTOR_RUN, PICKS_CAPS_VERSION,
   buildTopPicks, buildGradesIndex, pickContractForPick, pickVerticalForPick, markOptionToMarket, computeEntryTiming, computeEntrySignal,
   entryPromotionBlocked,
   computeStandardizedMove, computeCapexQualityMetrics,
@@ -1231,6 +1232,28 @@ const healthyUniverse = { NVDA: mkHealthyTechCall("NVDA"), AVGO: mkHealthyTechCa
 const healthyPicks = buildTopPicks(healthyUniverse, [], null, null, null, null, 0.045, {});
 ok("factor-trend: a healthy factor gates nothing", healthyPicks.rosterMeta.factorTrend["Tech/AI growth"]?.weak === false && healthyPicks.rosterMeta.factorTrendGated.length === 0);
 ok("factor-trend: a healthy factor ships more calls than the weak one", healthyPicks.length >= weakPicks.filter((p) => FACTOR_TECH(p.symbol)).length);
+
+// --- 4d. same-run factor limit (2026-11-06): one run opens at most
+// PICKS_MAX_NEW_PER_FACTOR_RUN new trades from one factor, across sectors
+// (Oct 28 15:33 ET opened WDC, TSM, MU and ORCL together; all four stopped).
+{
+  const crossTech = { NVDA: mkHealthyTechCall("NVDA"), AMD: mkHealthyTechCall("AMD"), ORCL: mkHealthyTechCall("ORCL"), CRM: mkHealthyTechCall("CRM"), WDC: mkHealthyTechCall("WDC"), DELL: mkHealthyTechCall("DELL") };
+  const ct = buildTopPicks(crossTech, [], null, null, null, null, 0.045, {});
+  const act = ct.filter((p) => p.group === "actionable");
+  ok("factor run cap: at most 2 new tech/AI trades in one run", act.filter((p) => FACTOR_TECH(p.symbol)).length <= PICKS_MAX_NEW_PER_FACTOR_RUN && PICKS_MAX_NEW_PER_FACTOR_RUN === 2);
+  ok("factor run cap: the held-back names trace as factor-run-cap", ct.rosterMeta.factorRunCapped.every((s) => ct.rosterMeta.turnedAway.some((t) => t.sym === s && t.gate === "factor-run-cap")));
+  ok("factor run cap: the limit and rule version ship in rosterMeta", ct.rosterMeta.factorRunLimit === 2 && ct.rosterMeta.capsVersion === PICKS_CAPS_VERSION);
+  if (act.length >= 2) ok("factor run cap: it bites when 3+ tech names could open", ct.rosterMeta.factorRunCapped.length >= 1 || act.length <= 2);
+  const pr = prioritizeAiSlots(Object.keys(crossTech).map((sym) => scoreAllTickers(crossTech, [], null, null, null, null, {}).scored.find((r) => r.sym === sym)).filter(Boolean).map((r) => ({ r, side: "call" })), { rfr: 0.045 });
+  ok("factor run cap: AI slots count the same limit", pr.ready <= 2 && pr.ordered.slice(pr.ready).every((c) => c.precheck));
+  // Watch ideas keep the wider factor cap; the caps module agrees.
+  ok("factor run cap: actionable limit 2, watch cap 5", factorCapFor(true) === 2 && factorCapFor(false) === 5);
+  ok("factor run cap: exposureCapBlock names the rule",
+    exposureCapBlock({ sector: "Software", factor: "Tech/AI growth", actionable: true }, { sector: { Semis: 2 }, factor: { "Tech/AI growth": 2 } }) === "factor-run-cap"
+      && exposureCapBlock({ sector: "Software", factor: "Tech/AI growth", actionable: false }, { sector: { Semis: 2 }, factor: { "Tech/AI growth": 2 } }) === null
+      && exposureCapBlock({ sector: "Semis", factor: "Tech/AI growth", actionable: true }, { sector: { Semis: 3 }, factor: { "Tech/AI growth": 1 } }) === "sector-cap"
+      && exposureCapBlock({ sector: "ETF", factor: null, actionable: true }, { sector: { ETF: 9 }, factor: {} }) === null);
+}
 
 // --- 5. regime tilt -------------------------------------------------------
 const riskOff = { indexes: { spy: { pctChange1d: -1.5 }, qqq: { pctChange1d: -1.7 } }, vix: { value: 26, trend: "rising" }, dxy: { pctChange1d: 0.8 }, tenY: { bpsChange1d: 12 } };
