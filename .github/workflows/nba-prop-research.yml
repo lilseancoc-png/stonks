@@ -1,0 +1,38 @@
+name: NBA prop research
+
+# Fill the gaps between the existing :07/:37 NBA+NFL collector. This adds
+# 300 bulk requests/day; with the existing job the baseline is 444/1,000.
+# UTC window covers ordinary NBA afternoon/evening slates. The old collector
+# still runs around the clock. Games close using real clocks, never the cron.
+on:
+  schedule:
+    - cron: '2,12,17,22,27,32,42,47,52,57 0-7,17-23 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: stonks-sports-props
+  cancel-in-progress: false
+jobs:
+  research:
+    if: ${{ vars.PRIVATE_DATA_ENABLED == '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run test:nba-alpha
+      - name: Capture NBA decision evidence
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          PROPLINE_API_KEY: ${{ secrets.PROPLINE_API_KEY }}
+        run: node scripts/refresh-sports-props.mjs --sport=nba

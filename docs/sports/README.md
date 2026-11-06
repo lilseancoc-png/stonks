@@ -9,6 +9,12 @@ calls. Pick Builder still accepts lines typed by hand or read from a screenshot.
 
 ## Best two props per game
 
+**NBA now uses [`nba-market-1`](nba-market-strategy.md):** a shortlist anchored
+to fresh sportsbook prices, one player from each team, measured role scenarios,
+explicit pass states, actual-payout evaluation, and complete private research
+snapshots. This is an experimental prospective strategy, not a claimed accuracy
+gain. NFL keeps `props-rank-3` and the historical ranking described below.
+
 Set **`PROPLINE_API_KEY` in Vercel** (server-side only). Get a free key from
 [PropLine](https://prop-line.com/odds-api/book/prizepicks); its published free
 plan includes 1,000 requests/day, no card. Do not commit a key. For local

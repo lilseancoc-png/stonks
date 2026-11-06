@@ -60,14 +60,14 @@ const originalFetch = globalThis.fetch; let fetches = 0;
 globalThis.fetch = async (url) => {
   fetches++;
   return new Response(JSON.stringify(String(url).includes('prop-line') ? [{ id: 'cache-event', home_team: 'Los Angeles Lakers', away_team: 'Golden State Warriors', commence_time: early,
-    bookmakers: [{ key: 'prizepicks', markets: [{ key: 'player_points', last_update: at, outcomes: [{ description: players[0].name, name: 'Over', point: 15.5 }] }] }] }]
+    bookmakers: [{ key: 'prizepicks', markets: [{ key: 'player_points', last_update: at, outcomes: [{ description: players[0].name, name: 'Over', point: 15.5, dfs_odds_type: 'standard' }] }] }] }]
     : { status: 'success', timestamp: at, injuries: [] }));
 };
 try {
   const params = { sport: 'nba', now, env: { PROPLINE_API_KEY: 'fixture-cache-boundary' } };
   assert.equal((await loadPropSources(params)).lines.lines.length, 1);
   assert.equal((await loadPropSources({ ...params, now: now + 60000 })).lines.lines.length, 0);
-  assert.equal(fetches, 2, 'the second request reuses the cache but still closes started events');
+  assert.equal(fetches, 3, 'NBA reuses both bulk quote requests and the injury cache but still closes started events');
 } finally { globalThis.fetch = originalFetch; }
 
 // A real-size research dataset exceeds one function response. Every page
