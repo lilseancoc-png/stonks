@@ -2038,7 +2038,12 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
 <title>stonks</title>
 <meta name="description" content="Track stock prices, market data, company fundamentals, earnings and sourced market news." />
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
-<link rel="apple-touch-icon" href="favicon.svg">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0c0b09">
+<meta name="apple-mobile-web-app-title" content="Mingstreet">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta property="og:type" content="website">
 <meta property="og:title" content="stonks">
 <meta property="og:description" content="Track stock prices, market data, company fundamentals, earnings and sourced market news.">
@@ -2052,6 +2057,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
 <script>/* Split-view pane: hide the site chrome before first paint. */try{if(window.self!==window.top)document.documentElement.classList.add('is-embed')}catch(e){document.documentElement.classList.add('is-embed')}</script>
 </head>
 <body>
+<div class="pwa-offline" id="pwa-offline" role="status" aria-live="polite" hidden></div>
 <a class="skip-content" href="#main-content">Skip to content</a>
 <header class="site-header">
   <div class="site-header-inner">

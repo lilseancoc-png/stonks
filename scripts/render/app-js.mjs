@@ -47175,6 +47175,29 @@ ${renderExportBindings()}
       }
     }
   } catch (_) {}
+  // --- Home-screen app (PWA, 2026-11-06) -------------------------------------
+  // sw.js keeps the last public copy of the page shell and the two public
+  // manifest sidecars, so the site opens with no connection; it never stores
+  // /api/ answers or any other /data/ file, so no Owner data is kept on the
+  // device. Registered on https only and never inside a split-view pane.
+  (function initPwa(){
+    var note = document.getElementById('pwa-offline');
+    function sync(){
+      if (!note) return;
+      var off = navigator.onLine === false;
+      var iso = MANIFEST && MANIFEST.builtAtIso;
+      var when = iso ? formatDisplayInstant(iso, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }) : '';
+      note.hidden = !off;
+      note.textContent = off ? 'You are offline. This is the last saved copy' + (when ? ', from ' + when : '') + '. Live prices, sign-in and Owner pages come back when you reconnect.' : '';
+    }
+    window.addEventListener('online', sync);
+    window.addEventListener('offline', sync);
+    sync();
+    if (IS_EMBED || !('serviceWorker' in navigator)) return;
+    if (location.protocol !== 'https:' && !window.STONKS_SW_TEST) return;
+    var reg = function(){ navigator.serviceWorker.register('/sw.js').catch(function(){}); };
+    if (document.readyState === 'complete') reg(); else window.addEventListener('load', reg);
+  })();
   // Boot: resolve membership + merge the manifest sidecars BEFORE first paint so
   // selectTab() sees the Owner claims and both public manifest sidecars are
   // present before first paint.

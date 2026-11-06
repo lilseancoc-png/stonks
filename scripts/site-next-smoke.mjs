@@ -236,4 +236,46 @@ eq(NP.nearMisses(runPicks, null, { n: 2 }).misses.length, 2, "n caps the list");
 eq(NP.nearMisses({ picks: [{ group: "actionable", entry: { now: true }, contract: {}, strategy: { type: "long" }, optionEconomics: { eligible: true } }] }, null, { isReady: (p) => pickDisplayDecision(p).ready }).readyCount, 1, "a ready pick counts");
 ok(Object.keys(NP.GATE_NEXT).every((k) => NP.GATE_LABEL[k]), "every rule with advice has a label");
 
+// --- Home-screen app (PWA) -------------------------------------------------------
+{
+  const { readFileSync, existsSync } = await import("node:fs");
+  const vm = await import("node:vm");
+  const rootUrl = new URL("../", import.meta.url);
+  const read = (p) => readFileSync(new URL(p, rootUrl), "utf8");
+  const manifest = JSON.parse(read("manifest.webmanifest"));
+  ok(manifest.start_url === "/" && manifest.display === "standalone", "the app opens the site full screen");
+  for (const icon of manifest.icons) {
+    const buf = readFileSync(new URL("." + icon.src, rootUrl));
+    const [w, h] = [buf.readUInt32BE(16), buf.readUInt32BE(20)];
+    ok(buf.slice(1, 4).toString() === "PNG" && `${w}x${h}` === icon.sizes, `${icon.src} is a ${icon.sizes} PNG`);
+  }
+  ok(manifest.icons.some((i) => i.purpose === "maskable"), "a maskable icon for Android");
+  const staged = read("scripts/prepare-vercel.mjs");
+  for (const f of ["manifest.webmanifest", "sw.js", "icons/icon-192.png", "icons/icon-512.png", "icons/icon-maskable-512.png", "icons/apple-touch-icon.png"]) ok(staged.includes(`"${f}"`) && existsSync(new URL(f, rootUrl)), `${f} ships`);
+  const vercel = JSON.parse(read("vercel.json"));
+  const sw = vercel.headers.find((h) => h.source === "/sw.js");
+  ok(sw && sw.headers.some((x) => x.key === "Cache-Control" && /max-age=0/.test(x.value)), "sw.js is never held in a long cache");
+  ok(read("index.html").includes('rel="manifest"'), "the page links the manifest");
+  // Run sw.js in a sandbox and see which requests it answers.
+  const handlers = {};
+  const sandbox = { self: { addEventListener: (t, f) => { handlers[t] = f; }, location: { origin: "https://mingstreet.app" }, clients: { claim: async () => {} }, skipWaiting: async () => {} },
+    caches: { open: async () => ({ addAll: async () => {}, keys: async () => [], put: async () => {}, delete: async () => {} }), keys: async () => [], match: async () => null, delete: async () => {} },
+    fetch: async () => new Response("{}"), URL, Response, Set, Promise };
+  vm.runInNewContext(read("sw.js"), sandbox);
+  const answers = (url, mode = "cors", method = "GET") => {
+    let hit = false;
+    handlers.fetch({ request: { url, mode, method }, respondWith: () => { hit = true; }, waitUntil: () => {} });
+    return hit;
+  };
+  ok(answers("https://mingstreet.app/", "navigate") && answers("https://mingstreet.app/?tab=calendar", "navigate"), "the page itself works offline");
+  ok(answers("https://mingstreet.app/app.js?v=sha256-1") && answers("https://mingstreet.app/js/streaks.js?v=1") && answers("https://mingstreet.app/styles.css?v=2"), "the code and styles work offline");
+  ok(answers("https://mingstreet.app/api/auth/me?data=manifest-free.json") && answers("https://mingstreet.app/data/manifest.json"), "the public manifest sidecars work offline");
+  for (const u of ["https://mingstreet.app/api/auth/me", "https://mingstreet.app/api/auth/me?data=picks-accuracy.json&owner=1", "https://mingstreet.app/data/picks.json",
+    "https://mingstreet.app/api/quotes?symbols=AAPL", "https://mingstreet.app/api/auth/owner-watchlist", "https://mingstreet.app/api/auth/calendar-ics?o=x", "https://fonts.gstatic.com/x.woff2"]) {
+    ok(!answers(u), `never kept: ${u}`);
+  }
+  ok(!answers("https://mingstreet.app/app.js", "cors", "POST"), "only GET requests");
+  ok(!answers("https://mingstreet.app/welcome.html", "navigate"), "the sign-in page always goes to the network");
+}
+
 console.log(`site-next smoke passed (${checks} checks)`);
