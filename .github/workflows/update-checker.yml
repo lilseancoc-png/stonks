@@ -2,7 +2,7 @@ name: Update checker
 
 on:
   workflow_run:
-    workflows: ["Daily build", "Unusual options flow", "Near-term OI tracker", "Weekly Alt Data refresh", "Close-bake fallback", "Webull end-of-day execution", "Webull paper reconciliation", "Inspect / flatten private data store", "Wipe track record", "Sports data refresh"]
+    workflows: ["Daily build", "Unusual options flow", "Near-term OI tracker", "Weekly Alt Data refresh", "Close-bake fallback", "Webull end-of-day execution", "Webull paper reconciliation", "Inspect / flatten private data store", "Wipe track record", "Sports data refresh", "Sports prop picks"]
     types: [completed]
     branches: [main]
   schedule:
