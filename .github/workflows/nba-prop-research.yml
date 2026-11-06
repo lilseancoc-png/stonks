@@ -11,7 +11,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: stonks-sports-props
+  group: stonks-nba-prop-research
   cancel-in-progress: false
 jobs:
   research:

@@ -162,6 +162,9 @@ provide a fresh prospective sample instead.
 
 The existing half-hour collector remains in place, with NFL unchanged. A
 new NBA-only workflow fills five-minute gaps during UTC 17:00–07:59. Baseline
+workflow queues are separate so NBA runs cannot displace a pending NFL scan;
+shared R2 leases coordinate actual writes. A busy collector defers safely
+while the combined collector continues to NFL. Baseline
 traffic is 144 requests/day from the old job plus 300 from the new one, within
 the existing free key's 1,000/day allowance before interactive use. GitHub
 schedule delays can leave closing coverage incomplete; timestamps determine
