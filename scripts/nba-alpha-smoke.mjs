@@ -144,6 +144,10 @@ const summary = await nbaResearchSummary({ load: recordLoader(store), seasons: [
 assert.equal(summary.wins, 2); assert.equal(summary.both_win, 1); assert.equal(summary.calibration.n, 2);
 assert.equal(summary.paper.net_units, 2); assert.equal(summary.paper_by_screen.positive_screen.resolved, 1);
 assert.equal(summary.closing_value.n, 2); assert.ok(summary.closing_value.average_probability_change > 0);
+put('player-games', { rows: finalRows.slice(0, 1) }, { season: 2026 });
+const incomplete = await nbaResearchSummary({ load: recordLoader(store), seasons: [2026], now: Date.parse(game.start_utc) + 1000 });
+assert.equal(incomplete.pending, 1); assert.equal(incomplete.voids, 0); assert.equal(incomplete.paper.resolved, 0, 'missing NBA rows do not invent settlement or profit');
+put('player-games', { rows: finalRows }, { season: 2026 });
 const original = objects.get(key);
 await captureNBAResearch({ store, view: v, now: Date.parse(game.start_utc) + 1, clock: () => Date.parse(game.start_utc) + 1 });
 assert.equal(objects.get(key), original, 'post-kickoff capture never alters pregame evidence');
