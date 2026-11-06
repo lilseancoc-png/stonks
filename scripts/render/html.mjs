@@ -497,6 +497,7 @@ export function trackRecordSection() {
     </dialog>
     <div class="acc-tabs" role="tablist" aria-label="Track record view">
       <button type="button" class="acc-tab" role="tab" aria-selected="true" aria-controls="acc-pane-summary" id="acc-tab-summary" data-acc-tab="summary">Summary</button>
+      <button type="button" class="acc-tab" role="tab" aria-selected="false" aria-controls="acc-pane-recap" id="acc-tab-recap" data-acc-tab="recap">Week&nbsp;recap</button>
       <button type="button" class="acc-tab" role="tab" aria-selected="false" aria-controls="acc-pane-scorecard" id="acc-tab-scorecard" data-acc-tab="scorecard">Scorecard</button>
       <button type="button" class="acc-tab" role="tab" aria-selected="false" aria-controls="acc-pane-webull" id="acc-tab-webull" data-acc-tab="webull">Real&nbsp;fills</button>
       <button type="button" class="acc-tab" role="tab" aria-selected="false" aria-controls="acc-pane-webull-equity" id="acc-tab-webull-equity" data-acc-tab="webull-equity">Webull&nbsp;Equity</button>
@@ -514,6 +515,9 @@ export function trackRecordSection() {
     <div class="acc-pane" role="tabpanel" id="acc-pane-summary" aria-labelledby="acc-tab-summary">
       <div id="acc-sum-summary" class="acc-pane-sum-slot"></div>
       <div id="an-summary" class="acc-analytics">Loading engine summary…</div>
+    </div>
+    <div class="acc-pane" role="tabpanel" id="acc-pane-recap" aria-labelledby="acc-tab-recap" hidden>
+      <div id="acc-recap" class="acc-recap">Loading the week…</div>
     </div>
     <div class="acc-pane" role="tabpanel" id="acc-pane-scorecard" aria-labelledby="acc-tab-scorecard" hidden>
       <div id="acc-sum-scorecard" class="acc-pane-sum-slot"></div>

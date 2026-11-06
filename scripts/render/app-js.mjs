@@ -47,6 +47,7 @@ import { ivRichnessFactory } from '../../lib/iv-richness.mjs';
 import { refreshScheduleFactory } from '../../lib/refresh-schedule.mjs';
 import { ownerWatchlistFactory } from '../../lib/owner-watchlist.mjs';
 import { watchlistAlertsFactory } from '../../lib/watchlist-alerts.mjs';
+import { weekRecapFactory } from '../../lib/week-recap.mjs';
 import { GLOSSARY } from '../../lib/glossary.mjs';
 import { overnightToneFactory } from '../../lib/overnight-tone.mjs';
 import { sectorGroupsFactory } from '../../lib/sector-groups.mjs';
@@ -100,6 +101,7 @@ ${validNewsFeedPayload.toString()}
   var OWNER_WATCH = (${ownerWatchlistFactory.toString()})();
   // Owner watchlist alert rules (source: lib/watchlist-alerts.mjs).
   var WATCH_ALERTS = (${watchlistAlertsFactory.toString()})();
+  var WEEK_RECAP = (${weekRecapFactory.toString()})();
   var GLOSSARY = ${JSON.stringify(GLOSSARY)};
   // One overnight risk-on/off scorer (source: lib/overnight-tone.mjs), the same
   // one the bake uses for the saved pre-open call and the Top Picks tape axis.
@@ -4077,7 +4079,7 @@ ${scenarioEventPhase.toString()}
   function bindAccuracyTabs(){
     var tabs = document.querySelectorAll('.acc-tab');
     if (!tabs.length) return;
-    var KEYS = ['summary','scorecard','webull','webull-equity','top10','activity','picks','equity','breakdowns','webull-breakdown','sim','montecarlo','research','market-policy'];
+    var KEYS = ['summary','recap','scorecard','webull','webull-equity','top10','activity','picks','equity','breakdowns','webull-breakdown','sim','montecarlo','research','market-policy'];
     function selectAccTab(name){
       try { localStorage.setItem('stonks-acc-tab', name); } catch (_) {}
       tabs.forEach(function(btn){
@@ -4093,6 +4095,8 @@ ${scenarioEventPhase.toString()}
     });
     var saved = null;
     try { saved = localStorage.getItem('stonks-acc-tab'); } catch (_) {}
+    // ?tab=track&acc=recap opens a sub-tab directly (the Home desk's recap link).
+    try { var fromUrl = new URLSearchParams(location.search).get('acc'); if (fromUrl && KEYS.indexOf(fromUrl) >= 0) saved = fromUrl; } catch (_) {}
     selectAccTab(saved && KEYS.indexOf(saved) >= 0 ? saved : 'summary');
   }
   // Sidebar page-tab registry — hoisted out of bindPageTabs so the boot can
@@ -40677,6 +40681,83 @@ ${renderExportBindings()}
     var opSort = VIEWS.choose('open-picks.sort', 'newest', OPEN_PICK_SORTS.map(function(o){ return o[0]; }));
     root.innerHTML = openPicksControlsHtml(opSort) + accOpenGroupHtml(open, opSort, VIEWS.viewMode('open-picks') === 'table') + tradeLinesHtml(open, Array.isArray(d.closed) ? d.closed : [], d.builtAtIso);
   }
+  // --- Week recap (Friday recap, 2026-11-06) ---------------------------------
+  // lib/week-recap.mjs: the week's opens and closes, win rate by entry type,
+  // the most confident losing close and the rule that turned away the most.
+  // Templated from picks-accuracy.json; no AI.
+  var recapView = { weekOf: null };
+  function recapTradeTable(rows, closed){
+    if (!rows.length) return '<p class="muted">' + (closed ? 'Nothing closed this week.' : 'Nothing opened this week.') + '</p>';
+    var head = closed ? '<th>Trade</th><th>Closed</th><th>Option P&amp;L</th><th>Why</th><th>Held</th><th>Entry type</th>'
+      : '<th>Trade</th><th>Opened</th><th>Score</th><th>Entry type</th><th>Now</th>';
+    var body = rows.map(function(x){
+      var name = '<b>' + escapeHtml(x.symbol) + '</b> ' + accSidePill(x.side);
+      var kind = escapeHtml(WEEK_RECAP.KIND_LABEL[x.kind] || x.kind);
+      var pnl = x.pnl == null ? '—' : '<span class="' + (x.pnl >= 0 ? 'sig-pos' : 'sig-neg') + '">' + accPct(x.pnl) + '</span>';
+      if (closed) return '<tr><td>' + name + '</td><td>' + escapeHtml(WEEK_RECAP.dayLabel(x.exitKey)) + '</td><td>' + pnl + '</td><td>' + escapeHtml(x.reason || '—') + '</td><td>' + (x.held == null ? '—' : x.held + 'd') + '</td><td>' + kind + '</td></tr>';
+      return '<tr><td>' + name + '</td><td>' + escapeHtml(WEEK_RECAP.dayLabel(x.entryKey)) + '</td><td>' + (x.score == null ? '—' : x.score.toFixed(1)) + '</td><td>' + kind + '</td><td>' + (x.exitKey ? 'Closed ' + pnl : 'Open ' + pnl) + '</td></tr>';
+    }).join('');
+    return '<div class="acc-tscroll"><table class="acc-qtable recap-table" data-nosort><thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody></table></div>';
+  }
+  function recapRateCell(t, withRange){
+    if (!t.n) return '<td>—</td>';
+    var r = withRange ? accWilson(t.wins, t.n) : null;
+    return '<td>' + t.wins + '–' + t.losses + ' <small>(' + Math.round(t.rate * 100) + '%' + (r && t.n < ACC_FEW_N ? ', likely ' + Math.round(r.lo * 100) + '–' + Math.round(r.hi * 100) + '%' : '') + ')</small></td>';
+  }
+  function renderWeekRecap(){
+    var el = $('acc-recap'); if (!el) return;
+    var d = accuracyState.data;
+    if (!d) { el.textContent = 'Loading the week…'; return; }
+    if (d.loadError) { el.innerHTML = '<p class="muted">Couldn’t load the track record. Re-open this tab to try again.</p>'; return; }
+    var r = WEEK_RECAP.build(d, { weekOf: recapView.weekOf });
+    if (!r) { el.innerHTML = ''; return; }
+    var t = r.record;
+    var kpi = function(v, l, cls){ return '<div class="recap-kpi"><b' + (cls ? ' class="' + cls + '"' : '') + '>' + v + '</b><span>' + l + '</span></div>'; };
+    var events = r.byEvent.length ? '<h4>Win rate by entry type</h4><div class="acc-tscroll"><table class="acc-qtable recap-table" data-nosort><thead><tr><th>Entry type</th><th>Opened</th><th>This week</th><th>To date</th></tr></thead><tbody>' +
+      r.byEvent.map(function(b){ return '<tr><td>' + escapeHtml(b.label) + '</td><td>' + b.opened + '</td>' + recapRateCell(b.week, false) + recapRateCell(b.all, true) + '</tr>'; }).join('') +
+      '</tbody></table></div>' : '';
+    var miss = r.miss
+      ? '<b>' + escapeHtml(r.miss.symbol) + ' ' + r.miss.side + '</b>' + (r.miss.score != null ? ', entry score ' + r.miss.score.toFixed(1) : '') + ', closed <span class="sig-neg">' + accPct(r.miss.pnl) + '</span>' + (r.miss.reason ? ' (' + escapeHtml(r.miss.reason) + ')' : '') + (r.miss.held != null ? ' after ' + r.miss.held + ' day' + (r.miss.held === 1 ? '' : 's') : '') + '. The losing close the model was surest about.'
+      : 'No losing closes this week.';
+    var gate = r.topGate
+      ? '<b>' + escapeHtml(ACC_GATE_LABEL[r.topGate.gate] || r.topGate.gate) + '</b>, ' + r.topGate.n + ' name' + (r.topGate.n === 1 ? '' : 's') + ': ' + escapeHtml(r.topGate.names.slice(0, 8).join(', ') + (r.topGate.names.length > 8 ? ', and more' : '')) + '.' +
+        (r.gates.length > 1 ? ' <small class="muted">Next: ' + r.gates.slice(1, 4).map(function(g){ return escapeHtml(ACC_GATE_LABEL[g.gate] || g.gate) + ' (' + g.n + ')'; }).join(', ') + '.</small>' : '')
+      : (r.gateLogged ? 'No candidate was turned away this week.' : 'The rule log is not in this record yet.');
+    el.innerHTML = '<section class="recap-week" aria-label="Week recap">' +
+      '<div class="recap-nav"><button type="button" class="ics-btn" data-recap-week="-1" aria-label="Previous week">‹ Previous</button>' +
+      '<h3>Week of ' + escapeHtml(r.label) + '</h3>' +
+      '<button type="button" class="ics-btn" data-recap-week="1" aria-label="Next week"' + (r.current ? ' disabled' : '') + '>Next ›</button></div>' +
+      '<p class="recap-sub">' + (r.complete ? 'Final for the week.' : 'Week in progress: it fills in after each Top Picks run (11:00 and 15:30 ET), and Friday’s 15:30 run closes it out.') + ' Option P&amp;L is the model’s mid price, not your fills.</p>' +
+      '<div class="recap-kpis">' +
+        kpi(String(r.opened.length), 'opened') +
+        kpi(String(r.closed.length), 'closed') +
+        kpi(t.n ? t.wins + '–' + t.losses : '—', t.n ? Math.round(t.rate * 100) + '% won this week' : 'none decided', t.n ? (t.rate >= 0.5 ? 'sig-pos' : 'sig-neg') : '') +
+        kpi(r.avgPnl == null ? '—' : accPct(r.avgPnl), 'average close', r.avgPnl == null ? '' : (r.avgPnl >= 0 ? 'sig-pos' : 'sig-neg')) +
+        (r.current ? kpi(String(r.openNow), 'open now') : '') +
+      '</div>' +
+      '<h4>Biggest miss</h4><p class="recap-line">' + miss + '</p>' +
+      (r.best ? '<p class="recap-line">Best close: <b>' + escapeHtml(r.best.symbol) + ' ' + r.best.side + '</b> <span class="sig-pos">' + accPct(r.best.pnl) + '</span>' + (r.best.reason ? ' (' + escapeHtml(r.best.reason) + ')' : '') + '.</p>' : '') +
+      '<h4>Rule that turned away the most</h4><p class="recap-line">' + gate + '</p>' +
+      events +
+      '<h4>Opened this week</h4>' + recapTradeTable(r.opened, false) +
+      '<h4>Closed this week</h4>' + recapTradeTable(r.closed, true) +
+      '<div class="recap-actions"><button type="button" class="ics-btn" data-recap-copy>Copy recap</button></div>' +
+    '</section>';
+  }
+  document.addEventListener('click', function(ev){
+    var nav = ev.target && ev.target.closest ? ev.target.closest('[data-recap-week]') : null;
+    if (nav && !nav.disabled){
+      var cur = WEEK_RECAP.build(accuracyState.data || {}, { weekOf: recapView.weekOf });
+      if (cur) { recapView.weekOf = WEEK_RECAP.shiftWeek(cur.week.start, Number(nav.getAttribute('data-recap-week'))); renderWeekRecap(); }
+      return;
+    }
+    var cp = ev.target && ev.target.closest ? ev.target.closest('[data-recap-copy]') : null;
+    if (!cp) return;
+    var txt = WEEK_RECAP.text(WEEK_RECAP.build(accuracyState.data || {}, { weekOf: recapView.weekOf }), ACC_GATE_LABEL);
+    var done = function(ok){ cp.textContent = ok ? 'Copied' : 'Copy failed'; setTimeout(function(){ cp.textContent = 'Copy recap'; }, 1800); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(function(){ done(true); }, function(){ done(false); });
+    else done(false);
+  });
   function renderAccuracy(){
     var root = $('accuracy-root'); if (!root) return;
     var statsEl = $('accuracy-stats');
@@ -40738,6 +40819,7 @@ ${renderExportBindings()}
     renderSimulation();
     renderMonteCarlo(accView.mcRan === true);  // re-render a completed run (deterministic) instead of wiping it
     renderGradeEdge();
+    renderWeekRecap();
 
     renderWebullTest();
     renderWebullEquity();
@@ -46881,10 +46963,20 @@ ${renderExportBindings()}
       tiles.push(homeDeskTile('owner-market-brief', 'Owner brief', nCh ? nCh + (nCh === 1 ? ' change' : ' changes') : 'No changes',
         escapeHtml((b.headline ? b.headline : 'latest read') + since)));
     }
+    // Friday after the close and over the weekend: the week's recap.
+    if (WEEK_RECAP.recapReady()) tiles.push(homeDeskTile('track', 'Week recap', 'Ready', 'opens, closes, the biggest miss and the busiest rule').replace('data-go="track"', 'data-go="track" data-acc-pref="recap"'));
     grid.setAttribute('data-count', String(tiles.length));
     grid.innerHTML = tiles.join('');
     sec.hidden = false;
   }
+  // A Home tile can open a Track Record sub-tab (after the page switch).
+  document.addEventListener('click', function(ev){
+    var t = ev.target && ev.target.closest ? ev.target.closest('[data-acc-pref]') : null;
+    if (!t) return;
+    var key = t.getAttribute('data-acc-pref');
+    try { localStorage.setItem('stonks-acc-tab', key); } catch (_) {}
+    setTimeout(function(){ var b = document.getElementById('acc-tab-' + key); if (b) b.click(); }, 0);
+  });
   // --- Owner watchlist alerts ------------------------------------------------
   // Crosses of the 50/200-day average, options walls reached and unusual
   // trades today, for the names on the Owner's stock watchlist

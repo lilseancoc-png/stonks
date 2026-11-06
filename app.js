@@ -2380,6 +2380,202 @@ function validNewsFeedPayload(data) {
   }
   return { WALL_NEAR_PCT: WALL_NEAR_PCT, MA_PERIODS: MA_PERIODS, build: build };
 })();
+  var WEEK_RECAP = (function weekRecapFactory() {
+  var KINDS = ['none', 'macro', 'earnings', 'shock'];
+  var KIND_LABEL = { none: 'Ordinary entry', macro: 'Through a macro event', earnings: 'Through earnings', shock: 'Post-shock put' };
+  var CLOSE_REASON = {
+    'hit-tp-prem': 'take-profit hit', 'trail-stop': 'trail stop', 'hit-stop-prem': 'premium stop hit',
+    'hit-stop-under': 'stock stop hit', 'thesis-broken': 'thesis broken', 'theta-stop': 'theta stop',
+    'event-review': 'event review', 'shock-time': 'post-shock time limit', 'expired': 'contract expired',
+    'dropped': 'left the universe', 'left-coverage': 'left coverage (not counted)'
+  };
+  var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  var DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  var fmt = null;
+  function num(v) {
+    if (v == null || v === '') return null;
+    var n = Number(v);
+    return isFinite(n) ? n : null;
+  }
+  function etParts(iso) {
+    var d = new Date(iso);
+    if (!iso || isNaN(d.getTime())) return null;
+    if (!fmt) fmt = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+    var p = {};
+    var parts = fmt.formatToParts(d);
+    for (var i = 0; i < parts.length; i++) p[parts[i].type] = parts[i].value;
+    return { key: p.year + '-' + p.month + '-' + p.day, minutes: Number(p.hour) * 60 + Number(p.minute) };
+  }
+  // The ET calendar date of an ISO time, as YYYY-MM-DD.
+  function etKey(iso) { var p = etParts(iso); return p ? p.key : null; }
+  function keyMs(key) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(key || ''));
+    return m ? Date.UTC(+m[1], +m[2] - 1, +m[3]) : null;
+  }
+  function msKey(ms) { return new Date(ms).toISOString().slice(0, 10); }
+  // Monday to Friday of the week holding dateKey. A Saturday or Sunday belongs
+  // to the week that just ended, so the weekend shows Friday's recap.
+  function weekOf(dateKey) {
+    var t = keyMs(dateKey);
+    if (t == null) return null;
+    var dow = new Date(t).getUTCDay();
+    var mon = t - ((dow + 6) % 7) * 86400000;
+    return { start: msKey(mon), end: msKey(mon + 4 * 86400000) };
+  }
+  function shiftWeek(dateKey, weeks) {
+    var w = weekOf(dateKey);
+    return w ? msKey(keyMs(w.start) + weeks * 7 * 86400000) : null;
+  }
+  function dayLabel(key) {
+    var t = keyMs(key);
+    if (t == null) return '';
+    var d = new Date(t);
+    return DAYS[d.getUTCDay()] + ' ' + MONTHS[d.getUTCMonth()] + ' ' + d.getUTCDate();
+  }
+  function rangeLabel(w) {
+    var a = new Date(keyMs(w.start)), b = new Date(keyMs(w.end));
+    var left = MONTHS[a.getUTCMonth()] + ' ' + a.getUTCDate();
+    var right = (a.getUTCMonth() === b.getUTCMonth() ? '' : MONTHS[b.getUTCMonth()] + ' ') + b.getUTCDate();
+    return left + ' to ' + right + ', ' + b.getUTCFullYear();
+  }
+  function kindOf(e) {
+    var k = e && e.eventPlay && e.eventPlay.kind;
+    return k === 'macro' || k === 'earnings' || k === 'shock' ? k : 'none';
+  }
+  function within(key, w) { return !!key && key >= w.start && key <= w.end; }
+  function tally(list) {
+    var w = 0, l = 0;
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].outcome === 'win') w++;
+      else if (list[i].outcome === 'loss') l++;
+    }
+    return { wins: w, losses: l, n: w + l, rate: w + l ? w / (w + l) : null };
+  }
+  function heldDays(e) {
+    var a = Date.parse(e.entryDate), b = Date.parse(e.exitDate);
+    return isFinite(a) && isFinite(b) && b >= a ? Math.round((b - a) / 86400000) : null;
+  }
+  function row(e) {
+    return {
+      symbol: String(e.symbol || '?'), side: e.side === 'put' ? 'put' : 'call', kind: kindOf(e),
+      score: num(e.score), entryDate: e.entryDate || null, exitDate: e.exitDate || null,
+      entryKey: etKey(e.entryDate), exitKey: etKey(e.exitDate),
+      pnl: num(e.optionPnlPct), outcome: e.outcome || null, status: e.status || null,
+      reason: CLOSE_REASON[e.status] || (e.status ? String(e.status).replace(/-/g, ' ') : ''),
+      held: heldDays(e), structure: e.contract && e.contract.structure || 'long'
+    };
+  }
+  // acc: the picks-accuracy.json payload. opts.weekOf: any date in the week
+  // (YYYY-MM-DD, ET); opts.nowIso picks the current week when weekOf is unset.
+  function build(acc, opts) {
+    opts = opts || {};
+    acc = acc || {};
+    var now = etParts(opts.nowIso || new Date().toISOString());
+    var today = now && now.key;
+    var w = weekOf(opts.weekOf || today);
+    if (!w) return null;
+    var thisWeek = weekOf(today);
+    var open = Array.isArray(acc.open) ? acc.open : [];
+    var closed = Array.isArray(acc.closed) ? acc.closed : [];
+    var opened = [], closedWk = [], allClosed = [];
+    var i;
+    for (i = 0; i < open.length; i++) { var o = row(open[i]); if (within(o.entryKey, w)) opened.push(o); }
+    for (i = 0; i < closed.length; i++) {
+      var c = row(closed[i]);
+      allClosed.push(c);
+      if (within(c.entryKey, w)) opened.push(c);
+      if (within(c.exitKey, w)) closedWk.push(c);
+    }
+    opened.sort(function (a, b) { return String(a.entryDate).localeCompare(String(b.entryDate)); });
+    closedWk.sort(function (a, b) { return String(a.exitDate).localeCompare(String(b.exitDate)); });
+    var byEvent = [];
+    for (i = 0; i < KINDS.length; i++) {
+      var k = KINDS[i];
+      var wk = tally(closedWk.filter(function (x) { return x.kind === k; }));
+      var all = tally(allClosed.filter(function (x) { return x.kind === k; }));
+      var openedN = opened.filter(function (x) { return x.kind === k; }).length;
+      if (wk.n || all.n || openedN) byEvent.push({ kind: k, label: KIND_LABEL[k], opened: openedN, week: wk, all: all });
+    }
+    // Biggest miss: the losing close the model was surest about (highest
+    // entry score), then the deepest loss.
+    var miss = null;
+    for (i = 0; i < closedWk.length; i++) {
+      var x = closedWk[i];
+      if (x.outcome !== 'loss') continue;
+      if (!miss || Math.abs(x.score || 0) > Math.abs(miss.score || 0) ||
+        (Math.abs(x.score || 0) === Math.abs(miss.score || 0) && (x.pnl == null ? 0 : x.pnl) < (miss.pnl == null ? 0 : miss.pnl))) miss = x;
+    }
+    var best = null;
+    for (i = 0; i < closedWk.length; i++) if (closedWk[i].outcome === 'win' && (!best || (closedWk[i].pnl || 0) > (best.pnl || 0))) best = closedWk[i];
+    // The rule that turned away the most names (first blocking rule per
+    // candidate; a repeat block within a few days is logged once).
+    var gates = {}, log = Array.isArray(acc.gateLog) ? acc.gateLog : [];
+    for (i = 0; i < log.length; i++) {
+      var g = log[i];
+      if (!g || !g.gate || g.gate === 'opened' || !within(String(g.date || '').slice(0, 10), w)) continue;
+      if (!gates[g.gate]) gates[g.gate] = { gate: g.gate, n: 0, names: [] };
+      gates[g.gate].n++;
+      var nm = String(g.sym || '') + (g.side === 'put' ? ' put' : ' call');
+      if (gates[g.gate].names.indexOf(nm) < 0) gates[g.gate].names.push(nm);
+    }
+    var gateList = Object.keys(gates).map(function (key) { return gates[key]; })
+      .sort(function (a, b) { return b.n - a.n || (a.gate < b.gate ? -1 : 1); });
+    var pnls = closedWk.map(function (x) { return x.pnl; }).filter(function (v) { return v != null; });
+    var avg = pnls.length ? pnls.reduce(function (s, v) { return s + v; }, 0) / pnls.length : null;
+    return {
+      week: w, label: rangeLabel(w), current: thisWeek && thisWeek.start === w.start,
+      future: !!thisWeek && w.start > thisWeek.start,
+      // Final once Friday's last Top Picks run (15:30 ET) is done.
+      complete: !!today && (today > w.end || (today === w.end && now.minutes >= 16 * 60)),
+      opened: opened, closed: closedWk, record: tally(closedWk), avgPnl: avg,
+      openNow: open.length, byEvent: byEvent, miss: miss, best: best,
+      gates: gateList, topGate: gateList[0] || null, gateLogged: log.length > 0
+    };
+  }
+  function pct(v) { return v == null ? '?' : (v >= 0 ? '+' : '') + v.toFixed(1) + '%'; }
+  function rate(t) { return t.n ? Math.round(t.rate * 100) + '%' : 'none decided'; }
+  function tradeName(x) { return x.symbol + ' ' + x.side; }
+  // Plain-text recap, for Copy. gateLabels maps a gate id to its label.
+  function text(r, gateLabels) {
+    if (!r) return '';
+    gateLabels = gateLabels || {};
+    var L = ['Mingstreet Top Picks recap: ' + r.label + (r.complete ? '' : ' (week in progress)')];
+    L.push('');
+    L.push('Opened ' + r.opened.length + (r.opened.length ? ': ' + r.opened.map(function (x) {
+      return tradeName(x) + ' (' + dayLabel(x.entryKey).slice(0, 3) + (x.score != null ? ', score ' + x.score.toFixed(1) : '') + (x.kind !== 'none' ? ', ' + KIND_LABEL[x.kind].toLowerCase() : '') + ')';
+    }).join('; ') : '') + '.');
+    L.push('Closed ' + r.closed.length + (r.closed.length ? ': ' + r.record.wins + ' won, ' + r.record.losses + ' lost' + (r.record.n ? ' (' + rate(r.record) + ' win rate)' : '') + (r.avgPnl != null ? ', average ' + pct(r.avgPnl) : '') : '') + '.');
+    for (var i = 0; i < r.closed.length; i++) {
+      var c = r.closed[i];
+      L.push('  ' + tradeName(c) + ' ' + pct(c.pnl) + (c.reason ? ', ' + c.reason : '') + (c.held != null ? ', held ' + c.held + ' day' + (c.held === 1 ? '' : 's') : ''));
+    }
+    if (r.byEvent.length) {
+      L.push('');
+      L.push('Win rate by entry type (this week / to date):');
+      for (i = 0; i < r.byEvent.length; i++) {
+        var b = r.byEvent[i];
+        L.push('  ' + b.label + ': ' + b.week.wins + '-' + b.week.losses + ' / ' + b.all.wins + '-' + b.all.losses + (b.all.n ? ' (' + rate(b.all) + ')' : ''));
+      }
+    }
+    L.push('');
+    L.push(r.miss ? 'Biggest miss: ' + tradeName(r.miss) + (r.miss.score != null ? ', entry score ' + r.miss.score.toFixed(1) : '') + ', closed ' + pct(r.miss.pnl) + (r.miss.reason ? ' (' + r.miss.reason + ')' : '') + '.' : 'Biggest miss: no losing closes this week.');
+    if (r.best) L.push('Best close: ' + tradeName(r.best) + ' ' + pct(r.best.pnl) + (r.best.reason ? ' (' + r.best.reason + ')' : '') + '.');
+    L.push(r.topGate ? 'Rule that turned away the most: ' + (gateLabels[r.topGate.gate] || r.topGate.gate) + ', ' + r.topGate.n + ' name' + (r.topGate.n === 1 ? '' : 's') + ' (' + r.topGate.names.slice(0, 6).join(', ') + (r.topGate.names.length > 6 ? ', and more' : '') + ').' :
+      'Rule that turned away the most: none logged this week.');
+    L.push('');
+    L.push('Model prices, not fills. Not investment advice.');
+    return L.join('\n');
+  }
+  // Friday after the last Top Picks run, and the weekend: the Home desk
+  // points at the finished week's recap.
+  function recapReady(nowIso) {
+    var p = etParts(nowIso || new Date().toISOString());
+    if (!p) return false;
+    var dow = new Date(keyMs(p.key)).getUTCDay();
+    return dow === 6 || dow === 0 || (dow === 5 && p.minutes >= 16 * 60);
+  }
+  return { KINDS: KINDS, KIND_LABEL: KIND_LABEL, etKey: etKey, weekOf: weekOf, recapReady: recapReady, shiftWeek: shiftWeek, dayLabel: dayLabel, build: build, text: text };
+})();
   var GLOSSARY = {"oi":{"term":"Open interest (OI)","def":"How many option contracts are still open at a strike. It updates once a day, after the exchange settles the prior session.","tab":"oi"},"dOi":{"term":"OI change (ΔOI)","def":"How much open interest grew or shrank since the prior trading day. A big rise means new positions were opened at that strike.","tab":"oi"},"cp":{"term":"Calls per put (C/P)","def":"Open call contracts divided by open put contracts in the near-term chain. 2:1 means twice as many calls as puts are open.","tab":"oi"},"volOi":{"term":"Volume ÷ OI (Vol/OI)","def":"Contracts traded today divided by contracts already open. Above 1 means today’s trading is larger than the existing positions, often new money.","tab":"oi"},"callWall":{"term":"Call wall / put wall","def":"The strike with the most open calls (or puts). Price often stalls near these strikes because dealers hedge around them. These are open-interest walls.","tab":"oi"},"gammaWall":{"term":"Gamma wall","def":"The strike where dealers’ estimated hedging is largest (dealer gamma). It is worked out from open interest and each option’s gamma, so it can differ from the OI wall.","tab":"oi"},"squeeze":{"term":"Squeeze score (gamma squeeze score)","def":"A 0 to 5 count of signs that call buying could push the stock up fast: heavy calls near the price, many calls per put, busy call-wall trading, a nearby call wall and buying at the ask. 4 or 5 is a setup to watch, not a reason to buy.","tab":"oi"},"iv":{"term":"Implied volatility (IV)","def":"How big a yearly move option prices are paying for, in percent. Higher IV means more expensive options.","tab":"cheatsheet"},"ivPct":{"term":"IV percentile","def":"The share of the stock’s own past days (about 18 months) when its IV was lower than today. 85 means options cost more today than on 85% of those days.","tab":"iv-trend"},"ivRank":{"term":"IV rank","def":"Where today’s IV sits between the lowest (0) and highest (100) IV of the stock’s own saved history.","tab":"iv-trend"},"rv":{"term":"Realized volatility (RV30)","def":"How much the stock actually moved over the last 30 trading days, as a yearly percent. When IV is above it, options are charging more than the stock has been moving."},"vrp":{"term":"Volatility premium (VRP)","def":"IV minus realized volatility. Positive means options are priced for bigger moves than the stock has been making."},"dte":{"term":"Days to expiry (DTE)","def":"Calendar days until an option expires."},"atm":{"term":"At the money (ATM)","def":"The strike closest to the current stock price."},"delta":{"term":"Delta (Δ)","def":"About how much an option’s price moves for a $1 move in the stock, and a rough chance it ends in the money. 0.55 Δ is a little in the money."},"impliedMove":{"term":"Implied move","def":"The move, up or down, that option prices expect around an event such as earnings. It comes from the at-the-money straddle.","tab":"earnings-week"},"debit":{"term":"Debit spread","def":"Buy one option and sell a further one of the same type. It costs less than buying alone, and both the gain and the loss are capped.","tab":"strategies"},"credit":{"term":"Credit spread","def":"Sell one option and buy a further one as protection. You collect money up front; the most you can lose is the gap between strikes minus that credit.","tab":"strategies"}};
   // One overnight risk-on/off scorer (source: lib/overnight-tone.mjs), the same
   // one the bake uses for the saved pre-open call and the Top Picks tape axis.
@@ -7545,7 +7741,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   function bindAccuracyTabs(){
     var tabs = document.querySelectorAll('.acc-tab');
     if (!tabs.length) return;
-    var KEYS = ['summary','scorecard','webull','webull-equity','top10','activity','picks','equity','breakdowns','webull-breakdown','sim','montecarlo','research','market-policy'];
+    var KEYS = ['summary','recap','scorecard','webull','webull-equity','top10','activity','picks','equity','breakdowns','webull-breakdown','sim','montecarlo','research','market-policy'];
     function selectAccTab(name){
       try { localStorage.setItem('stonks-acc-tab', name); } catch (_) {}
       tabs.forEach(function(btn){
@@ -7561,6 +7757,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
     });
     var saved = null;
     try { saved = localStorage.getItem('stonks-acc-tab'); } catch (_) {}
+    // ?tab=track&acc=recap opens a sub-tab directly (the Home desk's recap link).
+    try { var fromUrl = new URLSearchParams(location.search).get('acc'); if (fromUrl && KEYS.indexOf(fromUrl) >= 0) saved = fromUrl; } catch (_) {}
     selectAccTab(saved && KEYS.indexOf(saved) >= 0 ? saved : 'summary');
   }
   // Sidebar page-tab registry — hoisted out of bindPageTabs so the boot can
@@ -51566,6 +51764,83 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var opSort = VIEWS.choose('open-picks.sort', 'newest', OPEN_PICK_SORTS.map(function(o){ return o[0]; }));
     root.innerHTML = openPicksControlsHtml(opSort) + accOpenGroupHtml(open, opSort, VIEWS.viewMode('open-picks') === 'table') + tradeLinesHtml(open, Array.isArray(d.closed) ? d.closed : [], d.builtAtIso);
   }
+  // --- Week recap (Friday recap, 2026-11-06) ---------------------------------
+  // lib/week-recap.mjs: the week's opens and closes, win rate by entry type,
+  // the most confident losing close and the rule that turned away the most.
+  // Templated from picks-accuracy.json; no AI.
+  var recapView = { weekOf: null };
+  function recapTradeTable(rows, closed){
+    if (!rows.length) return '<p class="muted">' + (closed ? 'Nothing closed this week.' : 'Nothing opened this week.') + '</p>';
+    var head = closed ? '<th>Trade</th><th>Closed</th><th>Option P&amp;L</th><th>Why</th><th>Held</th><th>Entry type</th>'
+      : '<th>Trade</th><th>Opened</th><th>Score</th><th>Entry type</th><th>Now</th>';
+    var body = rows.map(function(x){
+      var name = '<b>' + escapeHtml(x.symbol) + '</b> ' + accSidePill(x.side);
+      var kind = escapeHtml(WEEK_RECAP.KIND_LABEL[x.kind] || x.kind);
+      var pnl = x.pnl == null ? '—' : '<span class="' + (x.pnl >= 0 ? 'sig-pos' : 'sig-neg') + '">' + accPct(x.pnl) + '</span>';
+      if (closed) return '<tr><td>' + name + '</td><td>' + escapeHtml(WEEK_RECAP.dayLabel(x.exitKey)) + '</td><td>' + pnl + '</td><td>' + escapeHtml(x.reason || '—') + '</td><td>' + (x.held == null ? '—' : x.held + 'd') + '</td><td>' + kind + '</td></tr>';
+      return '<tr><td>' + name + '</td><td>' + escapeHtml(WEEK_RECAP.dayLabel(x.entryKey)) + '</td><td>' + (x.score == null ? '—' : x.score.toFixed(1)) + '</td><td>' + kind + '</td><td>' + (x.exitKey ? 'Closed ' + pnl : 'Open ' + pnl) + '</td></tr>';
+    }).join('');
+    return '<div class="acc-tscroll"><table class="acc-qtable recap-table" data-nosort><thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody></table></div>';
+  }
+  function recapRateCell(t, withRange){
+    if (!t.n) return '<td>—</td>';
+    var r = withRange ? accWilson(t.wins, t.n) : null;
+    return '<td>' + t.wins + '–' + t.losses + ' <small>(' + Math.round(t.rate * 100) + '%' + (r && t.n < ACC_FEW_N ? ', likely ' + Math.round(r.lo * 100) + '–' + Math.round(r.hi * 100) + '%' : '') + ')</small></td>';
+  }
+  function renderWeekRecap(){
+    var el = $('acc-recap'); if (!el) return;
+    var d = accuracyState.data;
+    if (!d) { el.textContent = 'Loading the week…'; return; }
+    if (d.loadError) { el.innerHTML = '<p class="muted">Couldn’t load the track record. Re-open this tab to try again.</p>'; return; }
+    var r = WEEK_RECAP.build(d, { weekOf: recapView.weekOf });
+    if (!r) { el.innerHTML = ''; return; }
+    var t = r.record;
+    var kpi = function(v, l, cls){ return '<div class="recap-kpi"><b' + (cls ? ' class="' + cls + '"' : '') + '>' + v + '</b><span>' + l + '</span></div>'; };
+    var events = r.byEvent.length ? '<h4>Win rate by entry type</h4><div class="acc-tscroll"><table class="acc-qtable recap-table" data-nosort><thead><tr><th>Entry type</th><th>Opened</th><th>This week</th><th>To date</th></tr></thead><tbody>' +
+      r.byEvent.map(function(b){ return '<tr><td>' + escapeHtml(b.label) + '</td><td>' + b.opened + '</td>' + recapRateCell(b.week, false) + recapRateCell(b.all, true) + '</tr>'; }).join('') +
+      '</tbody></table></div>' : '';
+    var miss = r.miss
+      ? '<b>' + escapeHtml(r.miss.symbol) + ' ' + r.miss.side + '</b>' + (r.miss.score != null ? ', entry score ' + r.miss.score.toFixed(1) : '') + ', closed <span class="sig-neg">' + accPct(r.miss.pnl) + '</span>' + (r.miss.reason ? ' (' + escapeHtml(r.miss.reason) + ')' : '') + (r.miss.held != null ? ' after ' + r.miss.held + ' day' + (r.miss.held === 1 ? '' : 's') : '') + '. The losing close the model was surest about.'
+      : 'No losing closes this week.';
+    var gate = r.topGate
+      ? '<b>' + escapeHtml(ACC_GATE_LABEL[r.topGate.gate] || r.topGate.gate) + '</b>, ' + r.topGate.n + ' name' + (r.topGate.n === 1 ? '' : 's') + ': ' + escapeHtml(r.topGate.names.slice(0, 8).join(', ') + (r.topGate.names.length > 8 ? ', and more' : '')) + '.' +
+        (r.gates.length > 1 ? ' <small class="muted">Next: ' + r.gates.slice(1, 4).map(function(g){ return escapeHtml(ACC_GATE_LABEL[g.gate] || g.gate) + ' (' + g.n + ')'; }).join(', ') + '.</small>' : '')
+      : (r.gateLogged ? 'No candidate was turned away this week.' : 'The rule log is not in this record yet.');
+    el.innerHTML = '<section class="recap-week" aria-label="Week recap">' +
+      '<div class="recap-nav"><button type="button" class="ics-btn" data-recap-week="-1" aria-label="Previous week">‹ Previous</button>' +
+      '<h3>Week of ' + escapeHtml(r.label) + '</h3>' +
+      '<button type="button" class="ics-btn" data-recap-week="1" aria-label="Next week"' + (r.current ? ' disabled' : '') + '>Next ›</button></div>' +
+      '<p class="recap-sub">' + (r.complete ? 'Final for the week.' : 'Week in progress: it fills in after each Top Picks run (11:00 and 15:30 ET), and Friday’s 15:30 run closes it out.') + ' Option P&amp;L is the model’s mid price, not your fills.</p>' +
+      '<div class="recap-kpis">' +
+        kpi(String(r.opened.length), 'opened') +
+        kpi(String(r.closed.length), 'closed') +
+        kpi(t.n ? t.wins + '–' + t.losses : '—', t.n ? Math.round(t.rate * 100) + '% won this week' : 'none decided', t.n ? (t.rate >= 0.5 ? 'sig-pos' : 'sig-neg') : '') +
+        kpi(r.avgPnl == null ? '—' : accPct(r.avgPnl), 'average close', r.avgPnl == null ? '' : (r.avgPnl >= 0 ? 'sig-pos' : 'sig-neg')) +
+        (r.current ? kpi(String(r.openNow), 'open now') : '') +
+      '</div>' +
+      '<h4>Biggest miss</h4><p class="recap-line">' + miss + '</p>' +
+      (r.best ? '<p class="recap-line">Best close: <b>' + escapeHtml(r.best.symbol) + ' ' + r.best.side + '</b> <span class="sig-pos">' + accPct(r.best.pnl) + '</span>' + (r.best.reason ? ' (' + escapeHtml(r.best.reason) + ')' : '') + '.</p>' : '') +
+      '<h4>Rule that turned away the most</h4><p class="recap-line">' + gate + '</p>' +
+      events +
+      '<h4>Opened this week</h4>' + recapTradeTable(r.opened, false) +
+      '<h4>Closed this week</h4>' + recapTradeTable(r.closed, true) +
+      '<div class="recap-actions"><button type="button" class="ics-btn" data-recap-copy>Copy recap</button></div>' +
+    '</section>';
+  }
+  document.addEventListener('click', function(ev){
+    var nav = ev.target && ev.target.closest ? ev.target.closest('[data-recap-week]') : null;
+    if (nav && !nav.disabled){
+      var cur = WEEK_RECAP.build(accuracyState.data || {}, { weekOf: recapView.weekOf });
+      if (cur) { recapView.weekOf = WEEK_RECAP.shiftWeek(cur.week.start, Number(nav.getAttribute('data-recap-week'))); renderWeekRecap(); }
+      return;
+    }
+    var cp = ev.target && ev.target.closest ? ev.target.closest('[data-recap-copy]') : null;
+    if (!cp) return;
+    var txt = WEEK_RECAP.text(WEEK_RECAP.build(accuracyState.data || {}, { weekOf: recapView.weekOf }), ACC_GATE_LABEL);
+    var done = function(ok){ cp.textContent = ok ? 'Copied' : 'Copy failed'; setTimeout(function(){ cp.textContent = 'Copy recap'; }, 1800); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(function(){ done(true); }, function(){ done(false); });
+    else done(false);
+  });
   function renderAccuracy(){
     var root = $('accuracy-root'); if (!root) return;
     var statsEl = $('accuracy-stats');
@@ -51627,6 +51902,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     renderSimulation();
     renderMonteCarlo(accView.mcRan === true);  // re-render a completed run (deterministic) instead of wiping it
     renderGradeEdge();
+    renderWeekRecap();
 
     renderWebullTest();
     renderWebullEquity();
@@ -57770,10 +58046,20 @@ function scenarioEventPhase(ev, now = Date.now()) {
       tiles.push(homeDeskTile('owner-market-brief', 'Owner brief', nCh ? nCh + (nCh === 1 ? ' change' : ' changes') : 'No changes',
         escapeHtml((b.headline ? b.headline : 'latest read') + since)));
     }
+    // Friday after the close and over the weekend: the week's recap.
+    if (WEEK_RECAP.recapReady()) tiles.push(homeDeskTile('track', 'Week recap', 'Ready', 'opens, closes, the biggest miss and the busiest rule').replace('data-go="track"', 'data-go="track" data-acc-pref="recap"'));
     grid.setAttribute('data-count', String(tiles.length));
     grid.innerHTML = tiles.join('');
     sec.hidden = false;
   }
+  // A Home tile can open a Track Record sub-tab (after the page switch).
+  document.addEventListener('click', function(ev){
+    var t = ev.target && ev.target.closest ? ev.target.closest('[data-acc-pref]') : null;
+    if (!t) return;
+    var key = t.getAttribute('data-acc-pref');
+    try { localStorage.setItem('stonks-acc-tab', key); } catch (_) {}
+    setTimeout(function(){ var b = document.getElementById('acc-tab-' + key); if (b) b.click(); }, 0);
+  });
   // --- Owner watchlist alerts ------------------------------------------------
   // Crosses of the 50/200-day average, options walls reached and unusual
   // trades today, for the names on the Owner's stock watchlist

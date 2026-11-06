@@ -202,6 +202,16 @@ export function renderSiteNextCss() {
 .recap-kpi span { font: 500 12px/1.3 var(--font-sans); color: var(--muted); }
 .recap-week ul { margin: 6px 0 0; padding-left: 18px; font: 400 13px/1.5 var(--font-sans); }
 .recap-week h4 { margin: 12px 0 4px; font: 650 13px/1.3 var(--font-sans); color: var(--text-strong); }
+.recap-nav { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 4px; }
+.recap-nav h3 { margin: 0; text-align: center; flex: 1 1 auto; }
+.recap-nav .ics-btn[disabled] { opacity: .45; cursor: default; }
+.recap-line { margin: 0 0 6px; font: 400 13px/1.5 var(--font-sans); color: var(--muted-strong); }
+.recap-table th, .recap-table td:first-child { white-space: nowrap; }
+.recap-table td { vertical-align: top; }
+.recap-actions { margin-top: 12px; }
+.recap-week .ics-btn { display: inline-flex; align-items: center; min-height: 34px; padding: 4px 12px; border: 1px solid var(--border); border-radius: var(--r-2); background: transparent; color: var(--text); font: 600 13px/1 var(--font-sans); cursor: pointer; }
+.recap-week .ics-btn:hover:not([disabled]) { background: var(--surface-2); border-color: var(--border-strong); }
+@media (max-width: 640px) { .recap-nav h3 { font-size: 14px; } .recap-nav .ics-btn { padding: 4px 8px; } }
 
 /* ---- "Why no picks today" card -------------------------------------------- */
 .nopick-card { margin: 10px 0 14px; padding: 12px 14px; border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: var(--r-2); background: var(--surface); }

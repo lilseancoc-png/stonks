@@ -7,6 +7,7 @@ import { GLOSSARY } from "../lib/glossary.mjs";
 import { ownerWatchlistFactory, applyOwnerWatchlistRequest, readOwnerWatchlistDoc } from "../lib/owner-watchlist.mjs";
 import { watchlistAlertsFactory } from "../lib/watchlist-alerts.mjs";
 import { buildCalendarIcs, parseIcsSymbols } from "../lib/calendar-ics.mjs";
+import { weekRecapFactory } from "../lib/week-recap.mjs";
 import { buildEarningsWeek, buildEarningsWeekPlan, pastEarningsMoves, impliedVsHistory, seasonSoFar } from "../lib/earnings-week.mjs";
 
 let checks = 0;
@@ -157,5 +158,53 @@ ok(unfolded.includes("BEGIN:VTIMEZONE") && unfolded.includes("TZID:America/New_Y
 ok(/DTSTART;VALUE=DATE:20261110\r\nDTEND;VALUE=DATE:20261111/.test(unfolded), "earnings are all-day events");
 ok(buildCalendarIcs({ events: [] }, { symbols: [], nowIso: "2026-11-06T12:00:00Z", name: "A, B; C" }).includes("X-WR-CALNAME:A\\, B\\; C"), "text is escaped");
 ok(!buildCalendarIcs(cal, { symbols: [], nowIso: "2026-11-06T12:00:00Z" }).includes("earnings-"), "no watchlist: macro dates only");
+
+// --- Friday recap ------------------------------------------------------------
+const WR = weekRecapFactory();
+eq(WR.weekOf("2026-11-06"), { start: "2026-11-02", end: "2026-11-06" }, "a Friday's week runs Monday to Friday");
+eq(WR.weekOf("2026-11-08"), { start: "2026-11-02", end: "2026-11-06" }, "Sunday shows the week that just ended");
+eq(WR.shiftWeek("2026-11-04", -1), "2026-10-26", "previous week starts the Monday before");
+eq(WR.etKey("2026-11-07T03:30:00Z"), "2026-11-06", "late evening UTC is still Friday in New York");
+const acc = {
+  open: [
+    { symbol: "NVDA", side: "call", score: 7.4, entryDate: "2026-11-03T16:05:00Z", optionPnlPct: 6.2 },
+    { symbol: "MSFT", side: "call", score: 7.1, entryDate: "2026-10-28T19:35:00Z", optionPnlPct: -3 },
+  ],
+  closed: [
+    { symbol: "AAPL", side: "call", score: 7.6, entryDate: "2026-10-29T15:05:00Z", exitDate: "2026-11-04T15:05:00Z", optionPnlPct: 25.4, outcome: "win", status: "hit-tp-prem" },
+    { symbol: "TSLA", side: "put", score: 8.8, entryDate: "2026-11-02T16:05:00Z", exitDate: "2026-11-05T20:35:00Z", optionPnlPct: -50, outcome: "loss", status: "hit-stop-prem", eventPlay: { kind: "earnings" } },
+    { symbol: "AMD", side: "call", score: 7.2, entryDate: "2026-10-20T15:05:00Z", exitDate: "2026-11-06T20:35:00Z", optionPnlPct: -51, outcome: "loss", status: "hit-stop-prem" },
+    { symbol: "META", side: "call", score: 7.9, entryDate: "2026-10-12T15:05:00Z", exitDate: "2026-10-20T15:05:00Z", optionPnlPct: 30, outcome: "win", status: "hit-tp-prem", eventPlay: { kind: "earnings" } },
+  ],
+  gateLog: [
+    { date: "2026-11-03", sym: "AMZN", side: "call", gate: "ai-wait" },
+    { date: "2026-11-04", sym: "GOOGL", side: "call", gate: "ai-wait" },
+    { date: "2026-11-05", sym: "AVGO", side: "put", gate: "sector-cap" },
+    { date: "2026-11-03", sym: "NVDA", side: "call", gate: "opened" },
+    { date: "2026-10-27", sym: "ORCL", side: "call", gate: "sector-cap" },
+  ],
+};
+const rc = WR.build(acc, { nowIso: "2026-11-06T22:00:00Z" });
+eq(rc.opened.map((x) => x.symbol), ["TSLA", "NVDA"], "opened this week, open or since closed, in order");
+eq(rc.closed.map((x) => x.symbol), ["AAPL", "TSLA", "AMD"], "closed this week, whenever they opened");
+eq([rc.record.wins, rc.record.losses], [1, 2], "this week's record");
+eq(rc.miss.symbol, "TSLA", "the biggest miss is the losing close with the highest entry score");
+eq(rc.best.symbol, "AAPL", "best close");
+eq(rc.topGate.gate, "ai-wait", "the rule that turned away the most this week");
+eq(rc.topGate.names, ["AMZN call", "GOOGL call"], "the names it turned away");
+const earn = rc.byEvent.find((b) => b.kind === "earnings");
+eq([earn.week.wins, earn.week.losses, earn.all.wins, earn.all.losses], [0, 1, 1, 1], "entry type split, this week and to date");
+ok(rc.current && rc.complete, "Friday evening: the current week, closed out");
+ok(!WR.build(acc, { nowIso: "2026-11-04T15:00:00Z" }).complete, "Wednesday: week in progress");
+const prior = WR.build(acc, { nowIso: "2026-11-06T22:00:00Z", weekOf: "2026-10-28" });
+eq(prior.opened.map((x) => x.symbol), ["MSFT", "AAPL"], "the week before");
+ok(!prior.current, "an earlier week is not the current one");
+const txt = WR.text(rc, { "ai-wait": "AI said wait" });
+ok(/Opened 2: TSLA put \(Mon, score 8\.8, through earnings\); NVDA call/.test(txt), "recap text lists the opens");
+ok(txt.includes("Closed 3: 1 won, 2 lost (33% win rate), average -25.2%."), "recap text sums the closes");
+ok(txt.includes("Biggest miss: TSLA put, entry score 8.8, closed -50.0% (premium stop hit).") && txt.includes("Rule that turned away the most: AI said wait, 2 names (AMZN call, GOOGL call)."), "recap text names the miss and the rule");
+ok(WR.build({}, { nowIso: "2026-11-06T22:00:00Z" }).opened.length === 0, "an empty record still builds");
+ok(WR.recapReady("2026-11-06T21:05:00Z") && WR.recapReady("2026-11-08T15:00:00Z"), "the Home tile shows Friday after 4 PM ET and on the weekend");
+ok(!WR.recapReady("2026-11-06T19:00:00Z") && !WR.recapReady("2026-11-09T15:00:00Z"), "not before Friday's close or on Monday");
 
 console.log(`site-next smoke passed (${checks} checks)`);
