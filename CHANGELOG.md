@@ -38,7 +38,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Fixed
 
-- Replay NBA source-outage snapshots through the original no-pick gate, preserving exact research verification when a feed is unavailable.
+- Replay NBA source-outage snapshots through the original no-pick gate, preserving exact research verification when a feed is unavailable (#759).
 
 - Require each game’s two recommended props to include one player from each team, including later track record slot fills (#756).
 
