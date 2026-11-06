@@ -108,7 +108,9 @@ older season files remain retained privately for future research.
 `.github/workflows/sports-props.yml` scans both leagues every 30 minutes
 (plus manual dispatch), even when no Owner has the site open. It runs
 `scripts/refresh-sports-props.mjs`, shares the exact page ranking and capture
-code, and logs only counts. Two bulk requests/run = 96/day, plus page usage.
+code, and logs only counts. Three bulk requests/run = 144/day (two NBA, one
+NFL), plus page usage. The NBA-only five-minute-gap collector adds 300/day;
+the baseline total is 444/day before interactive use.
 Both production and Actions need the free line-feed key; Actions also uses
 the existing R2 secrets and `PRIVATE_DATA_ENABLED` repository variable.
 

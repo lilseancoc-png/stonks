@@ -23,6 +23,7 @@ for (const sport of requested ? [requested] : ['nba', 'nfl']) {
       if (evidence.state !== 'ok') throw new Error('NBA research recording is unavailable or busy');
     }
     if (!feedsOk) throw new Error('a current feed is unavailable; NBA outage evidence retained');
+    if (sport === 'nba' && sources.reference?.state !== 'ok') throw new Error('NBA reference feed unavailable; outage evidence retained');
     const result = await capturePropPicks({ store, view, clock: Date.now });
     if (result.state !== 'ok') throw new Error('recording is unavailable or busy');
     console.log(`${sport}: ${view.games.length} games checked; ${result.added} pregame props recorded`);
