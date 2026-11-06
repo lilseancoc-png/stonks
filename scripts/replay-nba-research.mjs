@@ -15,6 +15,13 @@ for (const p of data.research.points) {
   if (createHash('sha256').update(JSON.stringify(unsigned)).digest('hex') !== snapshotId) throw new Error('Changed decision snapshot');
   const input = data.inputs[p.input_hash];
   if (!input || createHash('sha256').update(JSON.stringify(input)).digest('hex') !== p.input_hash) throw new Error('Missing or changed frozen inputs');
+  // The live board stops before scoring when its PrizePicks source fails.
+  // Reproduce that gate instead of manufacturing a different empty pair.
+  if (p.sources?.lines?.state !== 'ok') {
+    const same = p.picks.length === 0 && p.candidates.length === 0 && p.decisions.length === 0 && (p.pair == null || p.pair.state === 'pass');
+    results.push({ snapshot_id: p.snapshot_id, evaluated_utc: p.evaluated_utc, matched: same, declined_source: true });
+    continue;
+  }
   const rows = input.records.flatMap((r) => unpackRows(r.rows)), games = input.records.flatMap((r) => r.games?.games || []), now = Date.parse(p.evaluated_utc);
   const ranked = rankGameProps({ sport: 'nba', game: p.game, lines: p.offered_lines, injuries: p.injuries, players: input.people?.players || [], rows,
     model: input.model, matchup: p.matchup, allGames: games, now, includeCandidates: true, nbaResearch: true });

@@ -20,11 +20,13 @@ for (const sport of requested ? [requested] : ['nba', 'nfl']) {
     const view = await recommendationsView({ load: recordLoader(store), sport, now, tz: 'America/Los_Angeles', sources });
     if (sport === 'nba') {
       const evidence = await captureNBAResearch({ store, view, now, clock: Date.now });
+      if (evidence.state === 'busy') { console.log('nba: another collector is recording evidence; existing records preserved'); continue; }
       if (evidence.state !== 'ok') throw new Error('NBA research recording is unavailable or busy');
     }
     if (!feedsOk) throw new Error('a current feed is unavailable; NBA outage evidence retained');
     if (sport === 'nba' && sources.reference?.state !== 'ok') throw new Error('NBA reference feed unavailable; outage evidence retained');
     const result = await capturePropPicks({ store, view, clock: Date.now });
+    if (result.state === 'busy') { console.log(`${sport}: another scan is recording picks; existing records preserved`); continue; }
     if (result.state !== 'ok') throw new Error('recording is unavailable or busy');
     console.log(`${sport}: ${view.games.length} games checked; ${result.added} pregame props recorded`);
   } catch { failed = true; console.error(`${sport}: prop refresh failed; existing record preserved`); }

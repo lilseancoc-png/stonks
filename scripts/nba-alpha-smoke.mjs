@@ -136,7 +136,16 @@ assert.ok(decodeNBAResearch(JSON.parse(clone.get(key))).paper);
 await captureNBAResearch({ store: interrupted, view: v, now: Date.parse(game.start_utc) + 1, clock: () => Date.parse(game.start_utc) + 1 });
 assert.equal(JSON.parse(clone.get(indexKey)).games[game.game_id].paper.snapshot_id, v.games[0].research_snapshot_id);
 const dir = await mkdtemp(join(tmpdir(), 'nba-alpha-'));
-try { const file = join(dir, 'research.json.gz'); await writeFile(file, exported); execFileSync(process.execPath, ['scripts/replay-nba-research.mjs', file], { cwd: new URL('..', import.meta.url), stdio: 'pipe' }); }
+try {
+  const file = join(dir, 'research.json.gz'); await writeFile(file, exported); execFileSync(process.execPath, ['scripts/replay-nba-research.mjs', file], { cwd: new URL('..', import.meta.url), stdio: 'pipe' });
+  const outageObjects = new Map(objects), outageStore = { ...store, rawGet: async (k) => outageObjects.has(k) ? Buffer.from(outageObjects.get(k)) : null, rawPut: async (k, value) => outageObjects.set(k, String(value)) };
+  const failedSources = sources(); failedSources.lines = { state: 'unavailable', lines: [], message: 'Fixture outage' };
+  const outageView = await recommendationsView({ load: recordLoader(outageStore), sport: 'nba', now: now + 30000, tz: 'America/Los_Angeles', sources: failedSources });
+  assert.equal((await captureNBAResearch({ store: outageStore, view: outageView, now: now + 30000 })).state, 'ok');
+  const outageFile = join(dir, 'outage.json.gz'); await writeFile(outageFile, await exportNBAResearch({ store: outageStore, season: 2026, gameId: game.game_id }));
+  const replay = JSON.parse(execFileSync(process.execPath, ['scripts/replay-nba-research.mjs', outageFile], { cwd: new URL('..', import.meta.url), encoding: 'utf8' }));
+  assert.equal(replay.snapshots, 3); assert.equal(replay.matched, 3); assert.equal(replay.results.filter((r) => r.declined_source).length, 1, 'outage evidence reproduces the original source gate');
+}
 finally { await rm(dir, { recursive: true, force: true }); }
 const finalRows = saved.issued.map((p) => ({ player_id: p.player_id, game_id: game.game_id, played: true, stats: { points: 25 } }));
 put('games', { games: [{ ...game, status: 'final' }] }, { season: 2026 }); put('player-games', { rows: finalRows }, { season: 2026 });
