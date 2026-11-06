@@ -207,7 +207,7 @@ export function sportsFactory(host, doc, options) {
       (S.lines.state === 'ok' ? escape(S.lines.count + ' current standard selections checked · refreshed ' + fmtTime(P.generated_utc, zone())) : escape(S.lines.message || 'Line feed unavailable.')) + '</p>' +
       '<p><a href="https://prop-line.com/odds-api/book/prizepicks" target="_blank" rel="noopener noreferrer">PrizePicks via PropLine</a> · <a href="https://www.espn.com/' + lg + '/injuries" target="_blank" rel="noopener noreferrer">ESPN injuries</a>' +
       (S.injuries.observed_utc ? ' · report ' + escape(fmtTime(S.injuries.observed_utc, zone())) : ' · injury report unavailable') + '</p>' + refresh +
-      '<p class="sp-note">Ranks combine recent form, workload, opponent defense, splits, rest and availability. A rank score is not a win chance. Each game needs two eligible players; uncovered slots stay open. Refreshes every 2 minutes while this page is visible.</p>' +
+      '<p class="sp-note">Ranks combine recent form, workload, opponent defense, splits, rest and availability. A rank score is not a win chance. Each pair needs one player from each team; uncovered slots stay open. Refreshes every 2 minutes while this page is visible.</p>' +
       '<p class="sp-note">' + escape(P.tracking?.state === 'ok' ? 'Track record saves the first pair per game. Live rankings can change; the recorded lines and reasoning stay fixed.' : P.tracking?.message || 'Recording status unavailable.') + ' <button type="button" class="sp-link" data-sp-view="record">View prop track record</button></p>' +
       (L.propsMsg ? '<p role="status">' + escape(L.propsMsg) + ' <button type="button" class="sp-link" data-sp-goto="' + BUILDER + '">Open Pick Builder</button></p>' : '') + '</div>';
   }

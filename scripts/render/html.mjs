@@ -2380,14 +2380,14 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   <div class="page-pane" id="page-pane-sports-nba" role="tabpanel" aria-labelledby="page-tab-sports-nba" hidden>
     <section class="card sp-section" id="sports-nba-section">
       <header class="card-header"><h2 class="card-title">NBA</h2><span class="card-eyebrow">Owner · sports research</span></header>
-      <p class="use-intro">Two PrizePicks props per game, player analysis and a win/bust track record. Private research and paper picks only.</p>
+      <p class="use-intro">One PrizePicks prop from each team per game, player analysis and a win/bust track record. Private research and paper picks only.</p>
       <div id="sports-nba-root" aria-live="polite">Open this view to load the NBA board.</div>
     </section>
   </div>
   <div class="page-pane" id="page-pane-sports-nfl" role="tabpanel" aria-labelledby="page-tab-sports-nfl" hidden>
     <section class="card sp-section" id="sports-nfl-section">
       <header class="card-header"><h2 class="card-title">NFL</h2><span class="card-eyebrow">Owner · sports research</span></header>
-      <p class="use-intro">Two PrizePicks props per game, player analysis and a win/bust track record. Private research and paper picks only.</p>
+      <p class="use-intro">One PrizePicks prop from each team per game, player analysis and a win/bust track record. Private research and paper picks only.</p>
       <div id="sports-nfl-root" aria-live="polite">Open this view to load the NFL board.</div>
     </section>
   </div>

@@ -60,15 +60,19 @@ injury feed itself must be current within 30 minutes. "Not listed" is not
 presented as a confirmed starting lineup. Injury text and both source times
 are visible on every game.
 
-Select the highest ranks on **two different players**; fewer than two stay
+Select the highest rank on **one player from each team**; fewer than two stay
 explicitly unfilled if no posted line or sufficient evidence is available.
 The **experimental rank score is not a calibrated win probability**. Stats
-without a current fitted model are labeled **History only**. This ranking
-has not been validated against historical PrizePicks lines. The individual
+without a current fitted model are labeled **History only**. A limited
+[archived-line backtest](prop-backtest-2026-11-05.md) checks the statistical
+selector; the full injury-aware live system remains unvalidated. The individual
 picks are not a priced same-game entry: Add to Pick Builder copies the
 player, game, stat, side and line, leaving chance and payout for that page's
 normal evaluation. No paper entry is saved automatically.
-Ranking version `props-rank-2` fixes NFL workload selection: receiving props
+Ranking version `props-rank-3` requires one player from each team in both
+live selection and recording, including a later fill of an empty second
+slot. Earlier records remain immutable. Version `props-rank-2` fixes NFL
+workload selection: receiving props
 use targets, rushing props use carries, passing props use pass attempts, and
 combined yardage uses the relevant combined opportunities. Existing issued
 picks retain their original version and analysis.
@@ -78,9 +82,9 @@ Offline checks: `npm run test:sports-props` (also part of `test:sports`).
 ## Prop track record
 
 The **Prop track record** view on both league pages is independent of the
-manual Pick Builder journal. It freezes the **first two distinct-player
-picks issued per game**, adding a second slot later if the first scan only
-found one. Later live rankings cannot replace a tracked player or change
+manual Pick Builder journal. It freezes the **first issued picks per game
+(from `props-rank-3`, one player from each team)**, adding a second slot later
+if the first scan only found one. Later live rankings cannot replace a tracked player or change
 the recorded line, direction, score or evidence. Every record includes its
 pregame issue time, source observation times, version, injury statuses and
 original reasoning. Only actual pregame issues are recorded; historical
