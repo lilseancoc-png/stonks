@@ -75,6 +75,8 @@ the recorded line, direction, score or evidence. Every record includes its
 pregame issue time, source observation times, version, injury statuses and
 original reasoning. Only actual pregame issues are recorded; historical
 games are never backfilled with hindsight picks.
+New snapshots also keep numerical workload, defense, rest and split features
+as structured fields for later analysis, alongside the readable evidence.
 
 Records live at `_stonks/sports/v1/{sport}/prop-record/{season}.json`,
 outside stock generations, under an R2 lease shared by the page and the

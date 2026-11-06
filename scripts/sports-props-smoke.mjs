@@ -56,6 +56,7 @@ assert.equal(ranked.availability[0].status, 'Out');
 assert.ok(ranked.picks.every((p) => p.basis === 'history_only' && p.model === null));
 assert.ok(ranked.picks[0].evidence.some((e) => e.label === 'Opponent defense'));
 assert.ok(ranked.picks[0].evidence.some((e) => e.label === 'Workload & rest'));
+assert.equal(ranked.picks[0].features.workload.last5, 32, 'research snapshot includes numeric features, not only prose');
 assert.equal(ranked.picks[0].history.games, 20);
 assert.deepEqual(rankGameProps({ ...args, rows: rows.concat({ ...rows[0], date: '2026-11-05', stats: { points: 9999 } }) }).picks, ranked.picks, 'target-day rows cannot leak into history');
 assert.equal(rankGameProps({ ...args, injuries: { ...injuries, state: 'stale' } }).state, 'waiting');
