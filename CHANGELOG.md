@@ -55,6 +55,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - The Streaks page reads each 3+ day run with its 20/50/100-day averages: a chip on each card, a "Trend read" column and sort, a Read filter, and four tiles with how each read did over the next 10 sessions in a 135-stock replay. Owners also see the Top Picks vote and a decision desk led by the runs that carry one; "Just snapped" is now "Recently ended", because ended runs usually kept their old direction (#757).
 - The Track Record shows a likely range next to every win rate (95% Wilson range, with a "few" tag under 10 trades), a "36 of ~140 trades needed to judge the record" chip, the win rate by market regime on the Scorecard, and one table with a row per rule set (each dated divider) so grade and rule versions can be compared side by side.
 - Each Top Picks trade on the Track Record and Open picks can be marked "I took it" or "I skipped it" with a reason. Marks are saved privately in `picks-fills.json`, and Real fills compares the trades you took with the ones you skipped.
+- Every sortable table shows a small "Reset sort" link (naming the sorted column) while a header sort is on; it puts the rows back in the page's own order and forgets that table's saved sort.
 
 ### Changed
 
@@ -62,10 +63,12 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - No new post-shock puts open while the Bottom tracker reads a potential bottom or later; the Top Picks meta says why the lane is shut (#757).
 - Top Picks now trades events instead of always waiting them out. An open pick can enter through an FOMC decision or a CPI, PPI or jobs report inside two sessions when the market tape agrees with its side (calls in a risk-on or neutral tape, puts in a risk-off one), and through the stock's own earnings when its reaction record, this season's reactions and the run-in add up on its side. After a confirmed index break (risk-off tape, SPY/QQQ axis at -2, both under their 20-day average) puts can open at the regular put bar instead of the Strong bar. Event trades stay on defined-risk spreads, are capped at 2 per macro event, 4 a week and 2 post-shock puts at once, carry an event tag in the record, close at a post-event review when the grade on their side falls below 4, and post-shock puts close after 10 sessions. `PICKS_EVENT_AWARE=0` turns it off. The Track Record shows a dated divider (entry timing v5), an "event play" split, and an event line on each open pick; the AI grader is told not to wait only because an event is ahead.
 - Top Picks opens at most 2 new trades per run from one stock group (the tech/AI group: semis, software, mega-cap tech, storage, data-center power). On Oct 28 one run opened WDC, TSM, MU and ORCL together and all four were stopped. Names held back show as "Same-group limit" in the gate log; watch ideas keep the wider 5-per-group cap. The caps now live in `lib/top-picks-caps.mjs`, and new trades carry `capsVersion` for a dated Track Record divider (no reset).
+- The Compare list now survives a reload: the tray and the "✓ Compare" buttons come back with the names this browser last queued or compared, even if Compare was never opened.
 
 ### Fixed
 
 - The public Streaks table lost its ticker column, and the cards their Open buttons, because the Owner gate strips Grade links; they now open the public stock page (owners still land on the Grade view). The Grade column and Grade sort show only for owners (#757).
+- A table's third header click (original order) now restores the page's own order exactly; rows with a missing value in the sorted column no longer stay at the bottom.
 
 ## 2026-11-05
 

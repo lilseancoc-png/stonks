@@ -303,11 +303,12 @@ export function viewsFactory(win, doc) {
       var numeric = numN >= textN;
       var idx = groups.map(function (g, i) { return i; });
       idx.sort(function (a, z) {
+        // No direction = the page's own order, missing values included.
+        if (!dir) return groups[a].orig - groups[z].orig;
         var va = vals[a], vz = vals[z];
         var ma = va.kind === 'missing' || (numeric && va.kind !== 'num');
         var mz = vz.kind === 'missing' || (numeric && vz.kind !== 'num');
         if (ma || mz) return ma && mz ? groups[a].orig - groups[z].orig : (ma ? 1 : -1);
-        if (!dir) return groups[a].orig - groups[z].orig;
         var c = numeric ? va.v - vz.v : (va.v < vz.v ? -1 : va.v > vz.v ? 1 : 0);
         if (dir === 'desc') c = -c;
         return c || groups[a].orig - groups[z].orig;
@@ -335,6 +336,45 @@ export function viewsFactory(win, doc) {
       }
       if (th.getAttribute('aria-sort') !== want) th.setAttribute('aria-sort', want);
     }
+    syncReset(table, state);
+  }
+  // A small "Reset sort" link above a table whose header sort is on. It puts
+  // the rows back in the page's own order and forgets that table's sort.
+  function resetAnchor(table) {
+    var p = table.parentNode;
+    if (p && p.children && p.children.length === 1 && !(p.id && p.id.indexOf('page-pane-') === 0) && p.tagName !== 'TD') return p;
+    return table;
+  }
+  function syncReset(table, state) {
+    var anchor = resetAnchor(table);
+    if (!anchor.parentNode) return;
+    var prev = anchor.previousElementSibling;
+    var btn = prev && prev.classList && prev.classList.contains('vt-reset') ? prev : null;
+    var on = !!(state && typeof state.col === 'number');
+    if (!btn) {
+      if (!on) return;
+      btn = doc.createElement('button');
+      btn.type = 'button';
+      btn.className = 'vt-reset';
+      btn.setAttribute('data-vt-reset', '');
+      btn.textContent = 'Reset sort';
+      btn.title = 'Put this table back in its original order';
+      anchor.parentNode.insertBefore(btn, anchor);
+    }
+    var hr = headerRow(table);
+    var colName = on && hr && hr.cells[state.col] ? cellText(hr.cells[state.col]) : '';
+    var label = on ? 'Reset sort' + (colName ? ' (' + colName + ')' : '') : 'Reset sort';
+    if (btn.textContent !== label) btn.textContent = label;
+    if (btn.hidden === on) btn.hidden = !on;
+  }
+  function resetActivate(btn) {
+    var next = btn.nextElementSibling;
+    if (!next) return;
+    var table = next.tagName === 'TABLE' ? next : next.querySelector('table');
+    if (!table) return;
+    set('tsort:' + tableKey(table), null);
+    sortTable(table, 0, null);
+    markHeaders(table, null);
   }
   function enhanceTable(table) {
     if (table.matches(TS_SKIP) || !headerRow(table)) return;
@@ -420,6 +460,8 @@ export function viewsFactory(win, doc) {
       if (!t) return;
       var exp = t.closest('[data-vt-expand]');
       if (exp) { toggleDetail(exp); return; }
+      var rs = t.closest('[data-vt-reset]');
+      if (rs) { resetActivate(rs); return; }
       var flip = t.closest('[data-sort-flip]');
       if (flip) {
         clearHeaderSort(flip);

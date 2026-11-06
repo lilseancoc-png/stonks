@@ -2845,11 +2845,12 @@ function validNewsFeedPayload(data) {
       var numeric = numN >= textN;
       var idx = groups.map(function (g, i) { return i; });
       idx.sort(function (a, z) {
+        // No direction = the page's own order, missing values included.
+        if (!dir) return groups[a].orig - groups[z].orig;
         var va = vals[a], vz = vals[z];
         var ma = va.kind === 'missing' || (numeric && va.kind !== 'num');
         var mz = vz.kind === 'missing' || (numeric && vz.kind !== 'num');
         if (ma || mz) return ma && mz ? groups[a].orig - groups[z].orig : (ma ? 1 : -1);
-        if (!dir) return groups[a].orig - groups[z].orig;
         var c = numeric ? va.v - vz.v : (va.v < vz.v ? -1 : va.v > vz.v ? 1 : 0);
         if (dir === 'desc') c = -c;
         return c || groups[a].orig - groups[z].orig;
@@ -2877,6 +2878,45 @@ function validNewsFeedPayload(data) {
       }
       if (th.getAttribute('aria-sort') !== want) th.setAttribute('aria-sort', want);
     }
+    syncReset(table, state);
+  }
+  // A small "Reset sort" link above a table whose header sort is on. It puts
+  // the rows back in the page's own order and forgets that table's sort.
+  function resetAnchor(table) {
+    var p = table.parentNode;
+    if (p && p.children && p.children.length === 1 && !(p.id && p.id.indexOf('page-pane-') === 0) && p.tagName !== 'TD') return p;
+    return table;
+  }
+  function syncReset(table, state) {
+    var anchor = resetAnchor(table);
+    if (!anchor.parentNode) return;
+    var prev = anchor.previousElementSibling;
+    var btn = prev && prev.classList && prev.classList.contains('vt-reset') ? prev : null;
+    var on = !!(state && typeof state.col === 'number');
+    if (!btn) {
+      if (!on) return;
+      btn = doc.createElement('button');
+      btn.type = 'button';
+      btn.className = 'vt-reset';
+      btn.setAttribute('data-vt-reset', '');
+      btn.textContent = 'Reset sort';
+      btn.title = 'Put this table back in its original order';
+      anchor.parentNode.insertBefore(btn, anchor);
+    }
+    var hr = headerRow(table);
+    var colName = on && hr && hr.cells[state.col] ? cellText(hr.cells[state.col]) : '';
+    var label = on ? 'Reset sort' + (colName ? ' (' + colName + ')' : '') : 'Reset sort';
+    if (btn.textContent !== label) btn.textContent = label;
+    if (btn.hidden === on) btn.hidden = !on;
+  }
+  function resetActivate(btn) {
+    var next = btn.nextElementSibling;
+    if (!next) return;
+    var table = next.tagName === 'TABLE' ? next : next.querySelector('table');
+    if (!table) return;
+    set('tsort:' + tableKey(table), null);
+    sortTable(table, 0, null);
+    markHeaders(table, null);
   }
   function enhanceTable(table) {
     if (table.matches(TS_SKIP) || !headerRow(table)) return;
@@ -2962,6 +3002,8 @@ function validNewsFeedPayload(data) {
       if (!t) return;
       var exp = t.closest('[data-vt-expand]');
       if (exp) { toggleDetail(exp); return; }
+      var rs = t.closest('[data-vt-reset]');
+      if (rs) { resetActivate(rs); return; }
       var flip = t.closest('[data-sort-flip]');
       if (flip) {
         clearHeaderSort(flip);
@@ -22048,6 +22090,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
     mode: VIEWS.choose('compare.mode', 'return', ['return','drawdown','vol','iv','grade']), bench: VIEWS.choose('compare.bench', '', ['','SPY','QQQ','IWM','SMH','avg','sector']), gradesDaily: null, sectorLoading: false };
   var CMP_MAX = 6;
   var CMP_MEGA4 = ['AAPL','MSFT','GOOGL','AMZN'];
+  // The compare list survives a reload: the tray and the "✓ Compare" buttons
+  // come back with the names this browser last queued or compared.
+  compareState.tickers = cmpParseList(VIEWS.get('compare.tickers', ''));
   // Daily-session windows. The chart intersects normalized YYYY-MM-DD keys
   // across every ready ticker before taking the tail, so all lines share the
   // exact same baseline and every point is a true like-for-like session.
@@ -22799,15 +22844,14 @@ function scenarioEventPhase(ev, now = Date.now()) {
       if (next !== window.location.pathname + window.location.search + window.location.hash) history.replaceState(null, '', next);
     } catch (_) {}
   }
-  // First open: a shared link wins, then names queued from "+ Compare", then
-  // the last set this browser compared, then the four largest companies.
+  // First open: a shared link wins, then names queued from "+ Compare" (the
+  // saved set is read back into that list at boot), then the four largest
+  // companies.
   function cmpStartingSet(){
     var fromUrl = [];
     try { fromUrl = cmpParseList(new URLSearchParams(window.location.search).get('cmp')); } catch (_) {}
     if (fromUrl.length) return fromUrl;
     if (compareState.tickers.length) return compareState.tickers.slice();
-    var saved = cmpParseList(VIEWS.get('compare.tickers', ''));
-    if (saved.length) return saved;
     return CMP_MEGA4.slice();
   }
   function initCompare(){
@@ -23082,9 +23126,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
   window.addEventListener('resize', cmpTraySpace);
   function cmpTraySync(note){
     var list = compareState.tickers;
-    // Remember the set once Compare has opened (so the boot-time sync can't
-    // wipe a saved set before the page reads it back).
-    if (compareState.inited) VIEWS.set('compare.tickers', list.length ? list.join(',') : null);
+    // The saved set is read back at boot (above), so every change is saved.
+    VIEWS.set('compare.tickers', list.length ? list.join(',') : null);
     var btns = document.querySelectorAll('[data-cmp-toggle]');
     for (var i = 0; i < btns.length; i++){
       var sym = btns[i].getAttribute('data-cmp-toggle');

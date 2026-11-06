@@ -17582,6 +17582,9 @@ ${renderExportBindings()}
     mode: VIEWS.choose('compare.mode', 'return', ['return','drawdown','vol','iv','grade']), bench: VIEWS.choose('compare.bench', '', ['','SPY','QQQ','IWM','SMH','avg','sector']), gradesDaily: null, sectorLoading: false };
   var CMP_MAX = 6;
   var CMP_MEGA4 = ['AAPL','MSFT','GOOGL','AMZN'];
+  // The compare list survives a reload: the tray and the "✓ Compare" buttons
+  // come back with the names this browser last queued or compared.
+  compareState.tickers = cmpParseList(VIEWS.get('compare.tickers', ''));
   // Daily-session windows. The chart intersects normalized YYYY-MM-DD keys
   // across every ready ticker before taking the tail, so all lines share the
   // exact same baseline and every point is a true like-for-like session.
@@ -18333,15 +18336,14 @@ ${renderExportBindings()}
       if (next !== window.location.pathname + window.location.search + window.location.hash) history.replaceState(null, '', next);
     } catch (_) {}
   }
-  // First open: a shared link wins, then names queued from "+ Compare", then
-  // the last set this browser compared, then the four largest companies.
+  // First open: a shared link wins, then names queued from "+ Compare" (the
+  // saved set is read back into that list at boot), then the four largest
+  // companies.
   function cmpStartingSet(){
     var fromUrl = [];
     try { fromUrl = cmpParseList(new URLSearchParams(window.location.search).get('cmp')); } catch (_) {}
     if (fromUrl.length) return fromUrl;
     if (compareState.tickers.length) return compareState.tickers.slice();
-    var saved = cmpParseList(VIEWS.get('compare.tickers', ''));
-    if (saved.length) return saved;
     return CMP_MEGA4.slice();
   }
   function initCompare(){
@@ -18616,9 +18618,8 @@ ${renderExportBindings()}
   window.addEventListener('resize', cmpTraySpace);
   function cmpTraySync(note){
     var list = compareState.tickers;
-    // Remember the set once Compare has opened (so the boot-time sync can't
-    // wipe a saved set before the page reads it back).
-    if (compareState.inited) VIEWS.set('compare.tickers', list.length ? list.join(',') : null);
+    // The saved set is read back at boot (above), so every change is saved.
+    VIEWS.set('compare.tickers', list.length ? list.join(',') : null);
     var btns = document.querySelectorAll('[data-cmp-toggle]');
     for (var i = 0; i < btns.length; i++){
       var sym = btns[i].getAttribute('data-cmp-toggle');
