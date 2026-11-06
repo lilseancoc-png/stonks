@@ -100,7 +100,10 @@ const server = createServer(async (req, res) => {
       let raw = ''; for await (const chunk of req) raw += chunk;
       try { req.body = JSON.parse(raw); } catch { req.body = raw; }
     }
-    if (query.sports != null) return handleSportsRequest(req, res, { now: fixtureNow });
+    if (query.sports != null) return handleSportsRequest(req, res, { now: fixtureNow, loadPropSources: async () => ({
+      lines: { state: 'not_configured', lines: [], message: 'Fixture: no line feed configured.' },
+      injuries: { state: 'unavailable', reports: [] },
+    }) });
     return authHandler(req, res);
   }
   if (url.pathname.startsWith('/api/')) return json({});

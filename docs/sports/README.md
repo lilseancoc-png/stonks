@@ -2,10 +2,112 @@
 
 Private NBA and NFL research for the two site owners. It collects game and
 player history and helps judge pick'em lines (PrizePicks- or Betr-style
-entries of 1 to 6 picks) **on paper only**. It never places a bet, never
-calls a sportsbook or PrizePicks API, never scrapes a line site, and makes no
-AI calls. Lines are typed in by hand, or read from a screenshot by Claude or
-ChatGPT outside the site.
+entries of 1 to 6 picks) **on paper only**. Each game also ranks up to two
+player props from current PrizePicks lines supplied by PropLine and ESPN
+injury reports. It never places a bet, signs into a sportsbook or makes AI
+calls. Pick Builder still accepts lines typed by hand or read from a screenshot.
+
+## Best two props per game
+
+Set **`PROPLINE_API_KEY` in Vercel** (server-side only). Get a free key from
+[PropLine](https://prop-line.com/odds-api/book/prizepicks); its published free
+plan includes 1,000 requests/day, no card. Do not commit a key. For local
+checks, use an ignored `sports.env` with `node --env-file=sports.env ...`.
+No extra Vercel function is needed. The background recording job also needs
+the same key as the Actions secret `PROPLINE_API_KEY`.
+
+The NBA/NFL game boards call `GET /api/auth/me?sports=props&sport=nba|nfl&tz=...`.
+The existing signed Owner gate runs **before** any provider request. Every
+response is `private, no-store`; only server-side calls carry the feed key,
+in the `X-API-Key` header. One bulk request per league gets its supported
+markets, not one request per player or game. Concurrent warm-function calls
+share a two-minute cache. The visible page refreshes every two minutes;
+manual refresh uses that same cache. Hidden pages stop polling. Provider
+quota/access/outage errors get explicit empty states, without stale picks.
+
+`lib/sports/prop-sources.mjs` normalizes PropLine's odds-compatible format
+and ESPN's public league injury endpoint. Only PrizePicks full-game, main,
+standard selections are eligible. Suspended, alternate, goblin/demon,
+restricted sides, started events and lines last observed more than ten
+minutes ago are excluded. Numeric `+100` prices in a DFS feed are synthetic
+and **never** treated as a market probability or an entry payout. New lines
+replace the prior snapshot; this feature does not buy the provider's paid
+historical-line service. A missing `PROPLINE_API_KEY` produces a setup state.
+
+`lib/sports/props.mjs` joins the exact home/away franchises and kickoff
+(within ten minutes), then joins an ESPN player ID when present or an
+unambiguous normalized player name **on one of those teams**. It uses the
+player's current team stint, requires eight usable played games, and ranks
+only games not yet started. History stops before the target game's date.
+
+Each candidate uses a sample-discounted last-20 hit rate; where a fresh
+fitted model covers the stat, the rank combines that history with the model's
+worst chance under a ±10% workload change (experimental models receive a
+penalty). Other evidence includes last 5/10 form, minutes or opportunities,
+opponent defense by position and its league rank, player/opponent and
+home/away splits, rest/back-to-backs, current injuries, and teammate DNP
+splits when at least three relevant games exist. Defense is not counted
+twice when the fitted model already includes it. Missing inputs are stated.
+Unresolved teammates and a falling workload reduce the rank; unavailable,
+questionable, day-to-day or restricted players cannot be selected. The
+injury feed itself must be current within 30 minutes. "Not listed" is not
+presented as a confirmed starting lineup. Injury text and both source times
+are visible on every game.
+
+Select the highest ranks on **two different players**; fewer than two stay
+explicitly unfilled if no posted line or sufficient evidence is available.
+The **experimental rank score is not a calibrated win probability**. Stats
+without a current fitted model are labeled **History only**. This ranking
+has not been validated against historical PrizePicks lines. The individual
+picks are not a priced same-game entry: Add to Pick Builder copies the
+player, game, stat, side and line, leaving chance and payout for that page's
+normal evaluation. No paper entry is saved automatically.
+
+Offline checks: `npm run test:sports-props` (also part of `test:sports`).
+
+## Prop track record
+
+The **Prop track record** view on both league pages is independent of the
+manual Pick Builder journal. It freezes the **first two distinct-player
+picks issued per game**, adding a second slot later if the first scan only
+found one. Later live rankings cannot replace a tracked player or change
+the recorded line, direction, score or evidence. Every record includes its
+pregame issue time, source observation times, version, injury statuses and
+original reasoning. Only actual pregame issues are recorded; historical
+games are never backfilled with hindsight picks.
+New snapshots also keep numerical workload, defense, rest and split features
+as structured fields for later analysis, alongside the readable evidence.
+
+Records live at `_stonks/sports/v1/{sport}/prop-record/{season}.json`,
+outside stock generations, under an R2 lease shared by the page and the
+background job. A record failure is visible on the board. Files are capped
+at 5,000 picks per season and the store's 24 MB limit; the code never drops
+old picks to make room. The UI reads the current and previous stored season;
+older season files remain retained privately for future research.
+
+`.github/workflows/sports-props.yml` scans both leagues every 30 minutes
+(plus manual dispatch), even when no Owner has the site open. It runs
+`scripts/refresh-sports-props.mjs`, shares the exact page ranking and capture
+code, and logs only counts. Two bulk requests/run = 96/day, plus page usage.
+Both production and Actions need the free line-feed key; Actions also uses
+the existing R2 secrets and `PRIVATE_DATA_ENABLED` repository variable.
+
+`GET ...?sports=props-record&sport=nba|nfl` grades the frozen picks against
+the latest stored **final** box scores (refreshed by the daily Sports data
+job), so stat corrections naturally appear on the next read. More/less
+strictly above/below the line = win/bust; equal = push; canceled/postponed
+games and recorded DNPs = void. Missing final box scores remain pending.
+NBA missing players become void only once that game's box scores are
+present; missing NFL rows remain awaiting stats, never an assumed zero.
+These are stat results, not operator-specific reboot/payout settlements.
+
+Win rate excludes push, void and pending rows. Results are broken down by
+stat; the JSON also includes model/history-only and rank-band breakdowns,
+plus Brier scores only for saved **model probabilities**, never for rank
+scores. The latest 100 picks show in the table; **Download all research
+data** (`download=1`) includes all picks in the loaded seasons with original
+evidence and current results. Both reads/export retain the Owner gate.
+The results are a research substrate; no automatic retuning runs on them.
 
 ## Pages
 

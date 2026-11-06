@@ -36,6 +36,7 @@ export function sportsFactory(host, doc, options) {
   const num = (v) => (v == null ? '—' : escape(String(v)));
   const league = (lg) => state.leagues[lg] || (state.leagues[lg] = {
     board: null, boardErr: null, game: null, gameId: null, gameErr: null, results: null, query: '', player: null, playerId: null, playerErr: null,
+    props: null, propsErr: null, propsSeq: 0, boardSeq: 0, propsPending: false, propsTimer: null, propsMsg: '', record: null, recordErr: null,
     view: 'games', gameStat: '', logAll: false, logSet: 'main',
     chart: { stat: null, n: 10, kind: 'bars', line: '' },
     leaders: { data: null, err: null, key: null, cache: {}, season: null, window: 'season', sort: null, dir: 'desc', team: '', group: '', min: null, all: false, mode: 'table', set: 'main' },
@@ -195,11 +196,42 @@ export function sportsFactory(host, doc, options) {
     if (Date.parse(g.start_utc) <= Date.now()) return '<span class="sp-muted">Started · result after the next refresh</span>';
     return '<span class="sp-muted">' + (g.week != null ? (g.season_type === 'POST' ? 'Playoffs' : 'Week ' + escape(g.week)) : '') + '</span>';
   }
-  function gameRow(g, tz, selected) {
+  function propsHeader(lg) {
+    const L = league(lg), P = L.props;
+    const refresh = '<button type="button" class="sp-link" data-sp-props-refresh' + (L.propsPending ? ' disabled' : '') + '>Refresh lines & injuries</button>';
+    if (L.propsErr) return '<div class="sp-props-status">The prop analysis could not be loaded. ' + refresh + '</div>';
+    if (!P) return '<div class="sp-props-status">Checking PrizePicks lines and player availability… ' + refresh + '</div>';
+    const S = P.sources;
+    return '<div class="sp-props-status"><b>Best 2 player props per game</b><p>' +
+      (S.lines.state === 'ok' ? escape(S.lines.count + ' current standard selections checked · refreshed ' + fmtTime(P.generated_utc, zone())) : escape(S.lines.message || 'Line feed unavailable.')) + '</p>' +
+      '<p><a href="https://prop-line.com/odds-api/book/prizepicks" target="_blank" rel="noopener noreferrer">PrizePicks via PropLine</a> · <a href="https://www.espn.com/' + lg + '/injuries" target="_blank" rel="noopener noreferrer">ESPN injuries</a>' +
+      (S.injuries.observed_utc ? ' · report ' + escape(fmtTime(S.injuries.observed_utc, zone())) : ' · injury report unavailable') + '</p>' + refresh +
+      '<p class="sp-note">Ranks combine recent form, workload, opponent defense, splits, rest and availability. A rank score is not a win chance. Each game needs two eligible players; uncovered slots stay open. Refreshes every 2 minutes while this page is visible.</p>' +
+      '<p class="sp-note">' + escape(P.tracking?.state === 'ok' ? 'Track record saves the first pair per game. Live rankings can change; the recorded lines and reasoning stay fixed.' : P.tracking?.message || 'Recording status unavailable.') + ' <button type="button" class="sp-link" data-sp-view="record">View prop track record</button></p>' +
+      (L.propsMsg ? '<p role="status">' + escape(L.propsMsg) + ' <button type="button" class="sp-link" data-sp-goto="' + BUILDER + '">Open Pick Builder</button></p>' : '') + '</div>';
+  }
+  function propsForGame(lg, g) {
+    const L = league(lg), P = L.props;
+    if (g.status !== 'scheduled' || Date.parse(g.start_utc) <= Date.now()) return '';
+    if (L.propsErr) return '<p class="sp-prop-empty">Prop analysis unavailable.</p>';
+    if (!P) return '<p class="sp-prop-empty">Checking props…</p>';
+    if (Date.parse(P.expires_utc) <= Date.now()) return '<p class="sp-prop-empty">This analysis expired. Refresh lines and injuries.</p>';
+    const G = P.games.find((v) => v.game_id === g.game_id);
+    if (!G) return '<p class="sp-prop-empty">No analysis for this game yet.</p>';
+    const picks = (G.picks || []).map((p, i) => '<article class="sp-prop"><div class="sp-prop-title"><span class="sp-prop-number">' + (i + 1) + '</span><div><button type="button" class="sp-link" data-sp-player="' + escape(p.player_id) + '">' + escape(p.player_name) + '</button>' +
+      '<strong>' + (p.side === 'over' ? 'More' : 'Less') + ' than ' + num(p.threshold) + ' ' + escape(label(p.stat).toLowerCase()) + '</strong></div><span class="sp-prop-score">Rank ' + num(p.rank_score) + '/100<small>' + (p.basis === 'model_and_history' ? 'Model + history' : 'History only') + '</small></span></div>' +
+      '<p class="sp-note">' + team(p.team) + ' vs ' + team(p.opponent) + ' · cleared ' + p.last10.hits + '/' + p.last10.games + ' last 10 · line checked ' + escape(fmtTime(p.observed_utc, zone())) + '</p>' +
+      '<details><summary>Why this pick</summary><dl>' + p.evidence.map((e) => '<dt>' + escape(e.label) + '</dt><dd>' + escape(e.text) + '</dd>').join('') + '</dl><p class="sp-note">History through ' + escape(p.latest_game_date) + '. ' + (p.model ? 'Model through ' + escape(p.model.as_of_date) + '.' : 'This stat has no current fitted forecast; the rank uses historical evidence.') + '</p></details>' +
+      '<button type="button" class="sp-btn" data-sp-prop-add="' + escape(g.game_id) + '" data-sp-prop-index="' + i + '">Add to Pick Builder</button></article>').join('');
+    const availability = (G.availability || []).length ? '<details class="sp-prop-injuries"><summary>Players in / out & injury reports (' + G.availability.length + ')</summary><ul>' + G.availability.map((p) => '<li><b>' + escape(p.name) + '</b> · ' + team(p.team) + ' · ' + escape(p.status) + '<p>' + escape(p.detail) + (p.report_utc ? ' (' + escape(fmtWhen(p.report_utc, zone())) + ')' : '') + '</p></li>').join('') + '</ul></details>' : '';
+    return '<div class="sp-props">' + picks + (G.message ? '<p class="sp-prop-empty">' + escape(G.message) + '</p>' : '') + availability +
+      (picks ? '<p class="sp-note">Individual picks. Same-game outcomes are linked; use Pick Builder to evaluate an entry with its actual payout.</p>' : '') + '</div>';
+  }
+  function gameRow(g, tz, selected, lg) {
     return '<li><button type="button" class="sp-game' + (selected ? ' is-on' : '') + '" data-sp-game="' + escape(g.game_id) + '" aria-pressed="' + (selected ? 'true' : 'false') + '">' +
       '<span class="sp-time">' + (g.time_tbd ? 'Time TBD' : escape(fmtTime(g.start_utc, tz))) + '</span>' +
       '<span class="sp-match">' + team(g.away_team) + ' <i>at</i> ' + team(g.home_team) + '</span>' +
-      '<span class="sp-gstat">' + gameStatus(g, tz) + '</span></button></li>';
+      '<span class="sp-gstat">' + gameStatus(g, tz) + '</span></button>' + propsForGame(lg, g) + '</li>';
   }
   function boardHtml(lg) {
     const L = league(lg), tz = zone();
@@ -211,10 +243,10 @@ export function sportsFactory(host, doc, options) {
       return emptyBox('No ' + lg.toUpperCase() + ' games today or tomorrow.', next ? 'Next game: ' + team(next.away_team) + ' at ' + team(next.home_team) + ', ' + escape(fmtWhen(next.start_utc, tz)) + '.' : 'No later games are stored yet.');
     }
     const groups = [['today', 'Today'], ['tomorrow', 'Tomorrow']];
-    return groups.map(([day, name]) => {
+    return propsHeader(lg) + groups.map(([day, name]) => {
       const list = games.filter((g) => g.day === day);
       return '<div class="sp-day-group"><h4>' + name + ' <span>' + escape(fmtDay(L.board.window[day])) + '</span></h4>' +
-        (list.length ? '<ul class="sp-games">' + list.map((g) => gameRow(g, tz, g.game_id === L.gameId)).join('') + '</ul>' : '<p class="sp-muted sp-none">No games.</p>') + '</div>';
+        (list.length ? '<ul class="sp-games">' + list.map((g) => gameRow(g, tz, g.game_id === L.gameId, lg)).join('') + '</ul>' : '<p class="sp-muted sp-none">No games.</p>') + '</div>';
     }).join('');
   }
 
@@ -712,7 +744,7 @@ export function sportsFactory(host, doc, options) {
   }
 
   // ---- Player and team stats views ------------------------------------------
-  const VIEWS_LIST = [['games', 'Games'], ['players', 'Player stats'], ['teams', 'Team stats']];
+  const VIEWS_LIST = [['games', 'Games'], ['players', 'Player stats'], ['teams', 'Team stats'], ['record', 'Prop track record']];
   function sortTh(attr, key, text, cur, dir, title, cls) {
     const on = cur === key;
     return '<th class="' + (cls || 'sp-n') + '" aria-sort="' + (on ? (dir === 'asc' ? 'ascending' : 'descending') : 'none') + '"><button type="button" class="sp-th' + (on ? ' is-on' : '') + '" ' + attr + '="' + escape(key) + '"' + (title ? ' title="' + escape(title) + '"' : '') + '>' + escape(text) + '<i aria-hidden="true">' + (on ? (dir === 'asc' ? '▲' : '▼') : '') + '</i></button></th>';
@@ -851,7 +883,27 @@ export function sportsFactory(host, doc, options) {
   }
   function viewHtml(lg) {
     const v = league(lg).view;
-    return v === 'players' ? leadersView(lg) : v === 'teams' ? teamsView(lg) : gamesView(lg);
+    return v === 'record' ? propRecordHtml(lg) : v === 'players' ? leadersView(lg) : v === 'teams' ? teamsView(lg) : gamesView(lg);
+  }
+  function propRecordHtml(lg) {
+    const L = league(lg), R = L.record;
+    if (L.recordErr) return errorBox(L.recordErr, 'props-record');
+    if (!R) return '<p class="sp-loading">Loading the prop track record…</p>';
+    const S = R.summary, results = { win: 'Win', loss: 'Bust', push: 'Push', void: 'Void', pending: 'Pending', awaiting_stats: 'Waiting for stats' };
+    const metrics = [['Wins', S.wins], ['Busts', S.losses], ['Win rate', S.win_rate == null ? '—' : (S.win_rate * 100).toFixed(1) + '%'], ['Pushes / voids', S.pushes + ' / ' + S.voids], ['Pending', S.pending]];
+    const rows = R.records.map((p) => '<tr><td>' + escape(fmtWhen(p.game_start_utc, zone())) + '</td><td><b>' + escape(p.player_name) + '</b><br>' + (p.side === 'over' ? 'More' : 'Less') + ' ' + num(p.threshold) + ' ' + escape(label(p.stat)) + '</td>' +
+      '<td class="sp-n">' + num(p.actual) + '</td><td class="' + (p.result === 'win' ? 'sp-pos' : p.result === 'loss' ? 'sp-neg' : '') + '">' + escape(results[p.result] || p.result) + '</td><td class="sp-n">' + num(p.rank_score) + '</td><td><details><summary>Saved analysis</summary><p>' + escape(p.basis === 'history_only' ? 'History only' : 'Model + history') + ' · ' + escape(p.rank_version || '') + '</p>' +
+      '<p>Issued ' + escape(fmtWhen(p.issued_utc, zone())) + ' · line observed ' + escape(fmtWhen(p.observed_utc, zone())) + '</p>' + p.evidence.map((e) => '<p><b>' + escape(e.label) + ':</b> ' + escape(e.text) + '</p>').join('') + '</details></td></tr>').join('');
+    const breakdown = Object.entries(R.by_stat).map(([st, s]) => '<tr><td>' + escape(label(st)) + '</td><td class="sp-n">' + s.wins + '</td><td class="sp-n">' + s.losses + '</td><td class="sp-n">' + (s.win_rate == null ? '—' : (s.win_rate * 100).toFixed(1) + '%') + '</td></tr>').join('');
+    return '<section class="sp-prop-record"><h3>Prop track record</h3><dl class="sp-facts">' + metrics.map(([k, v]) => '<div><dt>' + escape(k) + '</dt><dd>' + escape(v) + '</dd></div>').join('') + '</dl>' +
+      '<p class="sp-note">' + escape(R.note) + '</p><p><button type="button" class="sp-link" data-sp-record-refresh>Refresh results</button> · <a class="sp-link" href="/api/auth/me?sports=props-record&sport=' + lg + '&download=1">Download all research data (JSON)</a></p>' +
+      (rows ? '<div class="sp-table-wrap"><table class="sp-table"><thead><tr><th>Game time</th><th>Original pick</th><th>Actual</th><th>Result</th><th>Rank</th><th>Evidence</th></tr></thead><tbody>' + rows + '</tbody></table></div><p class="sp-note">Showing ' + R.records.length + ' of ' + R.total + ' saved props. The download includes every saved line, analysis and current result.</p>' : emptyBox('No issued props yet.', 'The next successful pregame scan records each game’s first pair automatically.')) +
+      (breakdown ? '<h4>Results by stat</h4><div class="sp-table-wrap"><table class="sp-table"><thead><tr><th>Stat</th><th>Wins</th><th>Busts</th><th>Win rate</th></tr></thead><tbody>' + breakdown + '</tbody></table></div>' : '') +
+      '<p class="sp-note">Model-only Brier score (lower is better): ' + (S.model_check.brier == null ? 'not enough resolved modeled picks' : S.model_check.brier.toFixed(3) + ' across ' + S.model_check.samples + ' picks') + '. Rank scores are not treated as probabilities. Results update when the daily data job stores final box scores.</p></section>';
+  }
+  function loadPropRecord(page, lg) {
+    const L = league(lg); L.recordErr = null;
+    api('props-record', { sport: lg }).then((data) => { L.record = data; }, (err) => { L.recordErr = err; }).then(() => { if (state.page === page && L.view === 'record') paint(page, 'view', viewHtml(lg)); });
   }
 
   function leagueHtml(s, lg) {
@@ -865,7 +917,7 @@ export function sportsFactory(host, doc, options) {
         : 'The daily hoopR job has not written its first records yet.'));
     return dayStrip(s, dataChip(src, tz)) + '<div class="sp-grid"><div class="sp-board">' + board + '</div>' +
       '<aside class="sp-side">' + sourceCard(src, tz) + modelCard(src) + statList(s.stats[lg] || []) + '</aside></div>' +
-      '<p class="sp-foot">Private research for the two owners. No sportsbook is connected, nothing is placed, and no AI model is called by this page.</p>';
+      '<p class="sp-foot">Private research for the two owners. PrizePicks lines come from PropLine; player availability comes from ESPN. Nothing is placed and no AI model is called by this page.</p>';
   }
 
   // ---- Pick Builder: draft ---------------------------------------------------
@@ -1396,7 +1448,7 @@ export function sportsFactory(host, doc, options) {
       '<div data-sp-part="save">' + saveHtml() + '</div><div data-sp-part="save-msg" aria-live="polite">' + saveMsgHtml() + '</div></div>' +
       '<aside class="sp-side"><h3>How it works</h3><ol class="sp-steps">' + steps.map((st) => '<li><b>' + escape(st[0]) + '</b><span>' + escape(st[1]) + '</span></li>').join('') + '</ol></aside></div>' +
       '<section class="sp-journal"><h3>Paper journal</h3><div data-sp-part="journal" aria-live="polite">' + journalHtml() + '</div></section>' +
-      '<p class="sp-foot">Paper picks only. No sportsbook login, no API, no automatic bets and no AI model is called by this page.</p>';
+      '<p class="sp-foot">Paper picks only. The game pages read lines through PropLine. Nothing is placed and no AI model is called by this page.</p>';
   }
 
   function paint(page, name, html) {
@@ -1419,10 +1471,28 @@ export function sportsFactory(host, doc, options) {
   }
 
   function loadBoard(page, lg) {
-    const L = league(lg);
+    const L = league(lg), seq = ++L.boardSeq;
     L.boardErr = null;
-    api('board', { sport: lg, tz: zone() }).then((data) => { L.board = data; }, (err) => { L.boardErr = err; })
-      .then(() => { if (state.page === page) paint(page, 'board', boardHtml(lg)); });
+    api('board', { sport: lg, tz: zone() }).then((data) => { if (seq === L.boardSeq) L.board = data; }, (err) => { if (seq === L.boardSeq) L.boardErr = err; })
+      .then(() => { if (state.page === page && seq === L.boardSeq) paint(page, 'board', boardHtml(lg)); });
+    loadProps(page, lg);
+  }
+  function loadProps(page, lg) {
+    const L = league(lg), seq = ++L.propsSeq;
+    host.clearTimeout(L.propsTimer);
+    L.propsPending = true; L.propsErr = null;
+    api('props', { sport: lg, tz: zone() }).then((data) => {
+      if (seq === L.propsSeq) { L.props = data; L.propsErr = null; }
+    }, (err) => { if (seq === L.propsSeq) { L.propsErr = err; L.props = null; } }).then(() => {
+      if (seq !== L.propsSeq) return;
+      L.propsPending = false;
+      if (state.page === page) paint(page, 'board', boardHtml(lg));
+      const delay = L.props ? Math.max(1000, Math.min(120000, Date.parse(L.props.expires_utc) - Date.now())) : 120000;
+      L.propsTimer = host.setTimeout(() => {
+        const pane = doc.getElementById('page-pane-' + page);
+        if (state.page === page && L.view === 'games' && pane && !pane.hidden && !doc.hidden && options.owner()) { loadBoard(page, lg); }
+      }, delay);
+    });
   }
   function openGame(page, lg, id) {
     const L = league(lg);
@@ -1474,7 +1544,8 @@ export function sportsFactory(host, doc, options) {
     if (v === 'players' && !L.leaders.data) loadTable(page, lg, 'leaders');
     else if (v === 'teams' && !L.teams.data) loadTable(page, lg, 'teams');
     else paint(page, 'view', viewHtml(lg));
-    if (v === 'games' && !L.board && !L.boardErr) loadBoard(page, lg);
+    if (v === 'record') loadPropRecord(page, lg);
+    if (v === 'games' && ((!L.board && !L.boardErr) || !L.props || Date.parse(L.props.expires_utc) <= Date.now())) loadBoard(page, lg);
   }
   let lineTimer = null;
   // League page controls (charts, game panel, player and team stats).
@@ -1498,6 +1569,24 @@ export function sportsFactory(host, doc, options) {
   function leagueClick(page, lg, t) {
     const L = league(lg), Q = L.leaders, T = L.teams;
     let b;
+    if (t.closest('[data-sp-record-refresh]')) { loadPropRecord(page, lg); return true; }
+    if (t.closest('[data-sp-props-refresh]')) { loadBoard(page, lg); return true; }
+    if ((b = t.closest('[data-sp-prop-add]'))) {
+      const gameId = b.getAttribute('data-sp-prop-add'), P = L.props;
+      const game = L.board?.games.find((g) => g.game_id === gameId);
+      const p = P?.games.find((g) => g.game_id === gameId)?.picks[Number(b.getAttribute('data-sp-prop-index'))];
+      const d = draft();
+      if (!p || !game || Date.parse(game.start_utc) <= Date.now() || Date.parse(P.expires_utc) <= Date.now()) { L.propsMsg = 'This pick expired. Refresh the lines before adding it.'; }
+      else if (d.legs.length >= MAX_PICKS) L.propsMsg = 'The entry already has 6 picks.';
+      else if (d.legs.some((l) => l.sport === lg && l.player_id === p.player_id && l.stat === p.stat)) L.propsMsg = 'That player and stat is already in the entry.';
+      else {
+        d.legs.push({ sport: lg, player_id: p.player_id, player_name: p.player_name, team: p.team, game_id: gameId,
+          matchup: game.away_team + '@' + game.home_team, game_start_utc: game.start_utc,
+          stat: p.stat, side: p.side, threshold: p.threshold, probability: null, probability_source: null });
+        d.payouts = {}; saveDraft(); L.propsMsg = 'Added ' + p.player_name + '. Enter the actual entry payout in Pick Builder.';
+      }
+      paint(page, 'board', boardHtml(lg)); return true;
+    }
     if ((b = t.closest('[data-sp-view]'))) { showView(page, lg, b.getAttribute('data-sp-view')); return true; }
     if ((b = t.closest('[data-sp-chart-n]'))) { const v = b.getAttribute('data-sp-chart-n'); L.chart.n = /^\d+$/.test(v) ? Number(v) : v; paint(page, 'chart', chartHtml(lg)); return true; }
     if ((b = t.closest('[data-sp-chart-kind]'))) { L.chart.kind = b.getAttribute('data-sp-chart-kind'); paint(page, 'chart', chartHtml(lg)); return true; }
@@ -1546,7 +1635,7 @@ export function sportsFactory(host, doc, options) {
       if (t.closest('[data-sp-zone]')) {
         saveZone(t.value);
         state.status = null;
-        Object.keys(state.leagues).forEach((k) => { state.leagues[k].board = null; });
+        Object.keys(state.leagues).forEach((k) => { const L = state.leagues[k]; L.board = null; L.props = null; L.propsSeq++; L.boardSeq++; host.clearTimeout(L.propsTimer); });
         load(page, true);
         return;
       }
@@ -1600,6 +1689,7 @@ export function sportsFactory(host, doc, options) {
         const what = retry.getAttribute('data-sp-retry');
         const L = lg ? league(lg) : null;
         if (what === 'board' && L) { paint(page, 'board', '<p class="sp-loading">Loading games…</p>'); loadBoard(page, lg); }
+        else if (what === 'props-record' && L) loadPropRecord(page, lg);
         else if (what === 'game' && L) openGame(page, lg, L.gameId);
         else if (what === 'player' && L) openPlayer(page, lg, L.playerId);
         else if (what === 'search' && L) search(page, lg, L.query);
@@ -1721,8 +1811,10 @@ export function sportsFactory(host, doc, options) {
       if (lg && s.sources[lg] && s.sources[lg].state !== 'not_connected') {
         const L = league(lg);
         if (force || !L.board) loadBoard(page, lg);
+        else if (!L.props || Date.parse(L.props.expires_utc) <= Date.now()) loadProps(page, lg);
         if (L.view === 'players' && !L.leaders.data) loadTable(page, lg, 'leaders');
         if (L.view === 'teams' && !L.teams.data) loadTable(page, lg, 'teams');
+        if (L.view === 'record') loadPropRecord(page, lg);
       }
       if (page === BUILDER) {
         loadJournal();

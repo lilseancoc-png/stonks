@@ -40,6 +40,25 @@ export function renderSportsCss() {
 .sp-day-group h4 span, .sp-panel h4 span, .sp-team h5 span { color: var(--muted-strong); font-weight: 400; font-size: 12px; margin-left: 4px; }
 .sp-none { margin: 0; }
 .sp-games { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.sp-props-status { padding: 14px; margin-bottom: 18px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); font-size: 13px; }
+.sp-props-status p { margin: 7px 0; line-height: 1.6; }
+.sp-props-status a { color: var(--accent); }
+.sp-props { padding: 10px 6px 18px; display: grid; gap: 8px; }
+.sp-prop { padding: 12px; border: 1px solid var(--border); border-radius: 8px; min-width: 0; }
+.sp-prop-title { display: flex; gap: 9px; align-items: start; }
+.sp-prop-title > div { min-width: 0; flex: 1; }
+.sp-prop-title strong { display: block; font-size: 14px; margin-top: 4px; overflow-wrap: anywhere; }
+.sp-prop-number { color: var(--accent); font-size: 14px; font-weight: 700; }
+.sp-prop-score { text-align: right; font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.sp-prop-score small { display: block; margin-top: 3px; color: var(--muted-strong); font-size: 11px; }
+.sp-prop details { margin: 10px 0; font-size: 13px; }
+.sp-prop summary, .sp-prop-injuries summary { cursor: pointer; color: var(--muted-strong); font-size: 12px; }
+.sp-prop dl { margin: 10px 0; }
+.sp-prop dt { font-weight: 600; margin-top: 9px; }
+.sp-prop dd { margin: 4px 0 0; color: var(--muted-strong); line-height: 1.6; }
+.sp-prop-empty { color: var(--muted-strong); font-size: 12px; margin: 5px 10px; line-height: 1.6; }
+.sp-prop-injuries ul { padding-left: 18px; font-size: 12px; }
+.sp-prop-injuries p { margin: 4px 0 10px; line-height: 1.6; color: var(--muted-strong); }
 .sp-game { width: 100%; display: grid; grid-template-columns: 96px minmax(0, 1fr) auto; gap: 10px; align-items: center; text-align: left; font: inherit; font-size: 13px; color: var(--text); background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 9px 12px; cursor: pointer; font-variant-numeric: tabular-nums; }
 .sp-game:hover { border-color: var(--border-strong); }
 .sp-game.is-on { border-color: var(--accent); }
