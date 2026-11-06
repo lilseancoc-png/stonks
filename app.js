@@ -613,33 +613,47 @@ function recoveryEvidence(row, data, now = Date.now()) {
     function readWatchBase(){
       try { var v = JSON.parse(localStorage.getItem(WATCH_BASE_KEY) || 'null'); return Array.isArray(v) ? v : null; } catch (_) { return null; }
     }
+    // POSTs go out one at a time and only the newest reply is adopted, so a
+    // slow reply to an older click can't drop a name added after it.
+    var watchQueue = Promise.resolve(), watchSeq = 0;
     function adoptWatch(j){
-      if (!j || !Array.isArray(j.symbols)){ watchSync.state = 'error'; repaintWatch(); return; }
+      if (!j || !Array.isArray(j.symbols)){ watchSync.state = 'error'; repaintWatch(false); return; }
       var list = OWNER_WATCH.clean(j.symbols);
       var changed = list.join(',') !== readWatch().join(',');
       writeWatch(list);
       try { localStorage.setItem(WATCH_BASE_KEY, JSON.stringify(list)); } catch (_) {}
       watchSync.state = 'synced'; watchSync.at = j.updatedAt || null;
       // The private calendar link for this Owner's saved list (GET only).
-      if (typeof j.icsToken === 'string' && j.icsToken) watchSync.icsToken = j.icsToken;
-      repaintWatch();
-      if (changed || j.icsToken) { try { document.dispatchEvent(new CustomEvent('stonks-watchlist-changed')); } catch (_) {} }
+      var newToken = typeof j.icsToken === 'string' && j.icsToken && j.icsToken !== watchSync.icsToken;
+      if (newToken) watchSync.icsToken = j.icsToken;
+      repaintWatch(changed || newToken);
     }
+    function watchFailed(){ watchSync.state = 'error'; repaintWatch(false); }
     function watchRequest(method, body){
       return fetch('/api/auth/owner-watchlist', method === 'GET' ? { cache: 'no-store', credentials: 'same-origin' } :
         { method: 'POST', cache: 'no-store', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
         .then(function(r){ return r.ok ? r.json() : null; });
     }
+    // Queue a request; its reply is adopted only if nothing newer was queued.
+    function queueWatch(run){
+      var seq = ++watchSeq;
+      watchQueue = watchQueue.then(run).then(function(j){ if (seq === watchSeq) adoptWatch(j); }, function(){ if (seq === watchSeq) watchFailed(); });
+      return watchQueue;
+    }
     function syncWatch(){
       if (!HAS_OWNER_ACCESS || watchSync.busy) return;
       watchSync.busy = true; watchSync.state = 'syncing';
-      watchRequest('GET').then(function(j){
-        if (!j || !Array.isArray(j.symbols)) return j;
-        var merged = OWNER_WATCH.merge(j.symbols, readWatch(), readWatchBase());
-        if (merged.join(',') === OWNER_WATCH.clean(j.symbols).join(',')) return j;
-        return watchRequest('POST', { op: 'sync', local: readWatch(), base: readWatchBase() });
-      }).then(adoptWatch, function(){ watchSync.state = 'error'; repaintWatch(); })
-        .then(function(){ watchSync.busy = false; });
+      queueWatch(function(){
+        return watchRequest('GET').then(function(j){
+          if (!j || !Array.isArray(j.symbols)) return j;
+          var merged = OWNER_WATCH.merge(j.symbols, readWatch(), readWatchBase());
+          if (merged.join(',') === OWNER_WATCH.clean(j.symbols).join(',')) return j;
+          return watchRequest('POST', { op: 'sync', local: readWatch(), base: readWatchBase() }).then(function(k){
+            if (k && !k.icsToken && j.icsToken) k.icsToken = j.icsToken;
+            return k;
+          });
+        });
+      }).then(function(){ watchSync.busy = false; });
     }
     function toggleWatch(sym){
       var list = readWatch();
@@ -648,7 +662,8 @@ function recoveryEvidence(row, data, now = Date.now()) {
       writeWatch(list);
       if (HAS_OWNER_ACCESS){
         watchSync.state = 'syncing';
-        watchRequest('POST', { op: i < 0 ? 'add' : 'remove', symbol: sym }).then(adoptWatch, function(){ watchSync.state = 'error'; repaintWatch(); });
+        var body = { op: i < 0 ? 'add' : 'remove', symbol: sym };
+        queueWatch(function(){ return watchRequest('POST', body); });
       }
       try { document.dispatchEvent(new CustomEvent('stonks-watchlist-changed')); } catch (_) {}
       return i < 0;
@@ -662,7 +677,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
     }
     // Re-draw whatever shows the list: the picker's watchlist, the open
     // stock's Watch button, and listeners such as the Owner alerts on Home.
-    function repaintWatch(){
+    function repaintWatch(listChanged){
       var pane = document.getElementById('page-pane-stock');
       var root = document.getElementById('stock-root');
       var block = pane && !pane.hidden && root && !state.sym ? root.querySelector('[data-stp-watch-block]') : null;
@@ -672,7 +687,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
         var on = readWatch().indexOf(state.sym) >= 0;
         btn.classList.toggle('is-on', on); btn.setAttribute('aria-pressed', on ? 'true' : 'false'); btn.textContent = on ? '★ Watching' : '☆ Watch';
       }
-      try { document.dispatchEvent(new CustomEvent('stonks-watchlist-changed')); } catch (_) {}
+      if (listChanged) { try { document.dispatchEvent(new CustomEvent('stonks-watchlist-changed')); } catch (_) {} }
     }
     document.addEventListener('stonks-owner-ready', function(){ if (HAS_OWNER_ACCESS) syncWatch(); });
     // --- formatting --------------------------------------------------------
@@ -2192,7 +2207,7 @@ function validNewsFeedPayload(data) {
     'calls': 'calls',
     'ram-prices': 'weekly', 'accelerator-prices': 'weekly', 'search-interest': 'weekly',
     'sports-nba': null, 'sports-nfl': null, 'sports-pick-builder': null, 'research-lab': null,
-    'learn': null, 'cheatsheet': null, 'chart-patterns': null, 'timeline': null, 'privacy': null, 'terms': null, 'update-checker': null
+    'glossary': null, 'cheatsheet': null, 'chart-patterns': null, 'timeline': null, 'privacy': null, 'terms': null, 'update-checker': null
   };
   function jobFor(tab) {
     if (tab && Object.prototype.hasOwnProperty.call(TAB_JOB, tab)) return TAB_JOB[tab];
@@ -2310,6 +2325,26 @@ function validNewsFeedPayload(data) {
   function strike(v) {
     return '$' + (Math.round(v) === v ? String(v) : v.toFixed(2).replace(/0+$/, '').replace(/\.$/, ''));
   }
+  var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  // Option expirations are epoch seconds at 00:00 UTC on the expiry date.
+  function expiryText(c) {
+    var sec = num(c && c.expSec);
+    if (sec > 0) { var d = new Date(sec * 1000); return MONTHS[d.getUTCMonth()] + ' ' + d.getUTCDate(); }
+    return c && c.expiryLabel ? String(c.expiryLabel) : '';
+  }
+  function etDate(ms) {
+    if (!(ms > 0)) return null;
+    try { return new Date(ms).toLocaleDateString('en-CA', { timeZone: 'America/New_York' }); } catch (e) { return null; }
+  }
+  // "today" when the scan ran on the current ET date, else "on Nov 5".
+  function whenText(scannedAt, nowMs) {
+    var at = Date.parse(scannedAt || '');
+    var day = etDate(at), today = etDate(nowMs);
+    if (!day) return '';
+    if (day === today) return ' today';
+    var p = day.split('-');
+    return ' on ' + MONTHS[Number(p[1]) - 1] + ' ' + Number(p[2]);
+  }
   function bySymbol(list) {
     var out = {};
     for (var i = 0; list && i < list.length; i++) if (list[i] && list[i].symbol) out[String(list[i].symbol).toUpperCase()] = list[i];
@@ -2321,7 +2356,7 @@ function validNewsFeedPayload(data) {
     if (p >= 1e3) return '$' + Math.round(p / 1e3) + 'K';
     return '$' + Math.round(p);
   }
-  // input: { watch: [sym], ma, oi, unusual, quotes: { SYM: { spot } } }
+  // input: { watch: [sym], ma, oi, unusual, quotes: { SYM: { spot } }, now (ms) }
   // Returns [{ symbol, kind: 'ma'|'wall'|'flow', dir: 'up'|'down'|null, text, at }]
   // in watchlist order, crosses first within a name.
   function build(input) {
@@ -2331,6 +2366,7 @@ function validNewsFeedPayload(data) {
     var oi = bySymbol(input.oi && input.oi.tickers);
     var flow = bySymbol(input.unusual && input.unusual.tickers);
     var quotes = input.quotes || {};
+    var nowMs = num(input.now) || Date.now();
     var out = [];
     for (var i = 0; i < watch.length; i++) {
       var sym = String(watch[i] || '').toUpperCase();
@@ -2369,10 +2405,11 @@ function validNewsFeedPayload(data) {
           if (c.side === 'put') puts++; else calls++;
           if (!top || (num(c.premium) || 0) > (num(top.premium) || 0)) top = c;
         }
-        var desc = top && num(top.strike) != null ? strike(num(top.strike)) + ' ' + (top.side === 'put' ? 'put' : 'call') + (top.expiryLabel ? ' ' + top.expiryLabel : '') : '';
+        var exp = expiryText(top);
+        var desc = top && num(top.strike) != null ? strike(num(top.strike)) + ' ' + (top.side === 'put' ? 'put' : 'call') + (exp ? ' ' + exp : '') : '';
         var prem = premiumText(num(top && top.premium));
         out.push({ symbol: sym, kind: 'flow', dir: calls > puts ? 'up' : puts > calls ? 'down' : null, at: input.unusual.scannedAt || null, live: false,
-          text: cs.length + ' unusual option trade' + (cs.length === 1 ? '' : 's') + ' today (' + calls + ' call' + (calls === 1 ? '' : 's') + ', ' + puts + ' put' + (puts === 1 ? '' : 's') + ')' +
+          text: cs.length + ' unusual option trade' + (cs.length === 1 ? '' : 's') + whenText(input.unusual.scannedAt, nowMs) + ' (' + calls + ' call' + (calls === 1 ? '' : 's') + ', ' + puts + ' put' + (puts === 1 ? '' : 's') + ')' +
             (desc ? '; biggest ' + desc + (prem ? ', ' + prem + ' premium' : '') : '') + '.' });
       }
     }
@@ -2477,11 +2514,18 @@ function validNewsFeedPayload(data) {
     var thisWeek = weekOf(today);
     var open = Array.isArray(acc.open) ? acc.open : [];
     var closed = Array.isArray(acc.closed) ? acc.closed : [];
-    var opened = [], closedWk = [], allClosed = [];
+    // Trades past the 120-day / 250-trade window live in the slim archive;
+    // they count toward the to-date rates (and an old week's recap) too.
+    var archive = Array.isArray(acc.archive) ? acc.archive : [];
+    var opened = [], closedWk = [], allClosed = [], seen = {};
     var i;
     for (i = 0; i < open.length; i++) { var o = row(open[i]); if (within(o.entryKey, w)) opened.push(o); }
-    for (i = 0; i < closed.length; i++) {
-      var c = row(closed[i]);
+    var past = closed.concat(archive);
+    for (i = 0; i < past.length; i++) {
+      var id = past[i] ? past[i].symbol + ':' + past[i].side + ':' + past[i].entryDate : '';
+      if (!past[i] || seen[id]) continue;
+      seen[id] = true;
+      var c = row(past[i]);
       allClosed.push(c);
       if (within(c.entryKey, w)) opened.push(c);
       if (within(c.exitKey, w)) closedWk.push(c);
@@ -4014,12 +4058,12 @@ function scenarioEventPhase(ev, now = Date.now()) {
     return m;
   })();
   var ACTIVE_SECTOR = SECTOR_ORDER[0] || 'Technology';
-  var RFR = 0.03987;
+  var RFR = 0.04003;
   // Provenance for the risk-free rate baked above. source is
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
   // surfaces non-fresh sources so traders know the anchor is degraded.
-  var RFR_META = {"source":"cached","asOf":"2026-11-05","ageDays":1};
+  var RFR_META = {"source":"fresh","asOf":"2026-11-06","ageDays":null};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, intradaySeries: null, fundamentals: null, social: null, chainRequestSeq: 0 };
   var ownerAutoPicks = { data: null, pending: null };
@@ -4144,6 +4188,14 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var label = text == null ? (g ? g.term : key) : text;
     if (!g) return escapeHtml(label);
     return '<button type="button" class="gl-term" data-gl="' + escapeHtml(key) + '" aria-haspopup="dialog" title="' + escapeHtml(g.def) + '">' + escapeHtml(label) + '</button>';
+  }
+  // The same word inside a button or link (a nested button is invalid HTML):
+  // the meaning rides the title only.
+  function glPlain(key, text){
+    var g = GLOSSARY[key];
+    var label = text == null ? (g ? g.term : key) : text;
+    if (!g) return escapeHtml(label);
+    return '<span class="gl-term-plain" title="' + escapeHtml(g.def) + '">' + escapeHtml(label) + '</span>';
   }
   (function initGlossary(){
     var pop = null, owner = null;
@@ -20395,7 +20447,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       ? '<span class="oi-wall oi-wall-put" title="Open-interest put wall: the strike with the most put contracts open (front two expirations). The gamma wall above can differ because it weighs gamma across eight expirations.">OI put wall ' + fmtOiStrike(pw.strike) + ' · ' + fmtOiNum(pw.oi) + '</span>'
       : '';
     var cpHtml = t.cpRatio != null
-      ? '<span class="oi-cp">' + glTerm('cp', 'Calls per put') + ' ' + Number(t.cpRatio).toFixed(2) + ':1</span>'
+      ? '<span class="oi-cp">' + glPlain('cp', 'Calls per put') + ' ' + Number(t.cpRatio).toFixed(2) + ':1</span>'
       : '';
     var si = t.shortInterest || null;
     var siHtml = si && si.percentFloat != null
@@ -47877,13 +47929,14 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // One tap per trade, saved to the Owner's picks-fills.json (marks survive a
   // CSV upload). The Real fills tab compares the trades you took with the ones
   // you skipped, so the real-vs-model gap covers every trade.
-  var ACC_MARK_REASONS = ["Price moved too far", "Saw it too late", "Didn't like the setup", "Already had enough risk on", "Couldn't place the order", "Other"];
+  // The server accepts only these reasons (lib/track-record-fills.mjs).
+  var ACC_MARK_REASONS = ["Price moved too far","Saw it too late","Didn't like the setup","Already had enough risk on","Couldn't place the order","Other"];
   function accMarkOf(e){ return accFills.marks ? accFills.marks[accFillKey(tlTradeId(e))] || null : null; }
   function accMarkHtml(e){
     if (accFills.error === 'off' || !e || !e.symbol || !e.entryDate) return '';
     var id = accFillKey(tlTradeId(e));
     var m = accMarkOf(e);
-    var busy = accFills.markBusy === id;
+    var busy = accFills.markBusy === id || (accFills.markQueue || []).some(function(q){ return q.trade_id === id; });
     var inner;
     if (m) {
       inner = '<span class="acc-mark-state ' + (m.took ? 'took' : 'skipped') + '">' + (m.took ? 'You took this trade' : 'You skipped it: ' + escapeHtml(m.reason || '')) + '</span>' +
@@ -47900,8 +47953,15 @@ function scenarioEventPhase(ev, now = Date.now()) {
     return '<div class="acc-mark" data-acc-mark-row="' + escapeHtml(id) + '">' + inner +
       (accFills.markError && accFills.markError.id === id ? ' <span class="acc-mark-err" role="status">' + escapeHtml(accFills.markError.msg) + '</span>' : '') + '</div>';
   }
+  // Saves go out one at a time; a tap while another save is in flight waits
+  // its turn instead of being dropped.
   function accSaveMark(mark){
-    if (accFills.markBusy) return;
+    if (accFills.markBusy){
+      accFills.markQueue = (accFills.markQueue || []).filter(function(q){ return q.trade_id !== mark.trade_id; });
+      accFills.markQueue.push(mark);
+      accFillsRerender();
+      return;
+    }
     accFills.markBusy = mark.trade_id; accFills.markError = null;
     accFillsRerender();
     fetch('/api/auth/picks-fills', {
@@ -47914,10 +47974,14 @@ function scenarioEventPhase(ev, now = Date.now()) {
         if (!res.ok){ accFills.markError = { id: mark.trade_id, msg: 'Not saved' + (res.j && res.j.error ? ': ' + res.j.error : '') + '.' }; return; }
         accFills.marks = (res.j && res.j.marks) || {};
         if (res.j && Array.isArray(res.j.rows)) accFills.rows = res.j.rows;
-        accFills.markPicking = null;
+        if (accFills.markPicking === mark.trade_id) accFills.markPicking = null;
       })
       .catch(function(){ accFills.markError = { id: mark.trade_id, msg: 'Not saved. Try again.' }; })
-      .then(function(){ accFills.markBusy = null; accFillsRerender(); });
+      .then(function(){
+        accFills.markBusy = null;
+        var next = accFills.markQueue && accFills.markQueue.shift();
+        if (next) accSaveMark(next); else accFillsRerender();
+      });
   }
   document.addEventListener('click', function(ev){
     var btn = ev.target && ev.target.closest ? ev.target.closest('[data-acc-mark]') : null;
@@ -55467,13 +55531,14 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // came closest this run and the rule that stopped each (lib/no-picks.mjs).
   function picksNoPicksHtml(data){
     if (!data || data.loadError || data.stale === true) return '';
-    var nm = NO_PICKS.nearMisses(data, picksState.grades || null, { isReady: function(p){ return pickDisplayDecision(p).ready; } });
+    var gradesIdx = picksGradesState.data && !picksGradesState.data.loadError ? picksGradesState.data : null;
+    var nm = NO_PICKS.nearMisses(data, gradesIdx, { isReady: function(p){ return pickDisplayDecision(p).ready; } });
     if (nm.readyCount > 0) return '';
-    // Fewer than five reached the bar: fill from grades.json once (Owner tab).
-    if (nm.misses.length < 5 && !picksState.gradesTried){
+    // Fewer than five reached the bar: fill from the shared grade index (the
+    // same cached grades.json the grade search uses), once per page load.
+    if (nm.misses.length < 5 && !gradesIdx && !picksState.gradesTried){
       picksState.gradesTried = true;
-      fetch(dataUrl('grades.json'), { cache: 'no-cache' }).then(function(r){ return r.ok ? r.json() : null; })
-        .then(function(g){ if (g && g.grades){ picksState.grades = g; renderPicks(true); } }).catch(function(){});
+      loadGradesIndex(function(g){ if (g && g.grades && !g.loadError) renderPicks(true); });
     }
     if (!nm.misses.length) return '';
     var when = '';
