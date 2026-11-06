@@ -2,6 +2,21 @@ import { mirrorTriggerToken } from "../lib/webull-mirror.mjs";
 import { endOfDayWindow, scheduledClosingWindow } from "../lib/webull-execution-policy.mjs";
 import { runEndOfDayWindow } from "../lib/webull-mirror-window.mjs";
 
+// GitHub's own schedule has run 1.5-4.5 hours late (every November run so far
+// arrived after the close), so the 15:30 ET Top Picks build dispatches this
+// workflow right after its mirror step. That dispatch sets
+// WEBULL_EOD_WAIT_FOR_WINDOW and lands a few minutes before the final 20
+// minutes; wait for the window instead of skipping it. Bounded: only when the
+// window opens within WAIT_LIMIT_MIN, so an early dispatch exits quickly.
+const WAIT_LIMIT_MIN = 45;
+if (process.env.WEBULL_EOD_WAIT_FOR_WINDOW === "1") {
+  const s = endOfDayWindow(Date.now());
+  const minutesToWindow = s.trading ? s.closeMinute - 20 - s.minute : null;
+  if (minutesToWindow > 0 && minutesToWindow <= WAIT_LIMIT_MIN) {
+    console.log(`Webull end-of-day: waiting ${minutesToWindow} min for the closing window.`);
+    while (!endOfDayWindow(Date.now()).monitor && endOfDayWindow(Date.now()).trading) await new Promise((r) => setTimeout(r, 15000));
+  }
+}
 const current = endOfDayWindow(Date.now());
 const lateDispatch = !current.trading && current.known && current.open && current.minute >= current.closeMinute && scheduledClosingWindow(Date.now(), process.env.WEBULL_EOD_SCHEDULE);
 if (!current.monitor && !lateDispatch) {

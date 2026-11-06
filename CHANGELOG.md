@@ -89,6 +89,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Fixed
 
+- The Webull end-of-day closing check runs on time again: the 15:30 ET Top Picks build now starts it and it waits for the final 20 minutes. GitHub's own schedule had been starting it 1.5 to 4.5 hours late, after the close, so every day's last run failed (#761).
 - The public Streaks table lost its ticker column, and the cards their Open buttons, because the Owner gate strips Grade links; they now open the public stock page (owners still land on the Grade view). The Grade column and Grade sort show only for owners (#757).
 - A table's third header click (original order) now restores the page's own order exactly; rows with a missing value in the sorted column no longer stay at the bottom.
 - Main's failing checks pass again: the link-map, evidence-record and LEAPS paper tests read the current owner-only grades rule and the shared output lists; the cost check compares against the branch point and counts new AI or network calls, not data writes; the browser tests sign in the way the site now checks (authed), serve Top Picks from its owner route, pin dated fixtures to their own clock, wait for the new equity chart, and skip the cached-data pass when no data folder is present.
