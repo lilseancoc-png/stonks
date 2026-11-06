@@ -59,6 +59,8 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - An **Earnings week ahead** page (Earnings section) lists every covered report in the next 10 days: the move options price for the print next to the stock's own usual move over its last 8 reports (Pricey / Cheap / About usual at ±15%), how often it beat the priced move, how often it rose, the 10-day run-in, and this season's beat rate and reactions. Owners also see a Top Picks plan column from the same event rule the live engine runs (`earnings-week-plan.json`, Owner-only). Built from the chains and earnings history the bake already holds; no new fetches or AI calls.
 - Every page's freshness line now says when it updates next ("Updated 14 min ago · next update 15:30 ET"), from one schedule in `lib/refresh-schedule.mjs` that the Update checker timeline also reads; holidays and weekends are skipped.
 - Tap-to-define words: dotted terms such as Calls per put, OI change, Squeeze score, IV percentile and Implied move open a short plain-English meaning, and a new **Words used on this site** page (Learn & help) lists them all, from one list in `lib/glossary.mjs`.
+- Compact one-line rows on phones: All stocks, Up/down streaks, Options walls and Moving averages open on a phone as a table with one line per row (sub-lines hidden), so the longest card pages shrink to a scrollable list; a "Compact rows" button turns it off and Cards stays one tap away.
+- Press ? (or the footer's "Keyboard shortcuts" link) for a list of the site's shortcuts: ⌘K / Ctrl K and / for search, arrow keys and Enter in results and table headers, Esc to close.
 
 ### Changed
 

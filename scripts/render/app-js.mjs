@@ -108,6 +108,8 @@ ${validNewsFeedPayload.toString()}
   var VIEWS = (${viewsFactory.toString()})(window, document);
   // Long lists open as a table on wider screens; phones keep cards.
   VIEWS.tableFirst(['tickers', 'streaks', 'levetf', 'open-picks', 'oi', 'flow', 'overnight', 'commodities', 'pending-buyouts']);
+  // The longest card pages open on phones as compact one-line rows.
+  VIEWS.phoneRows({ tickers: 'page-pane-tickers', streaks: 'page-pane-streaks', oi: 'page-pane-oi', 'ma-tracker': 'page-pane-ma-tracker' });
   // Cell bars shared by the list tables. vtBarHtml: a 0..1 fill (for example
   // an IV percentile). vtCbarHtml: a signed value on a centred axis that
   // clips at +/-range (for example % from a moving average).
@@ -409,6 +411,65 @@ ${scenarioEventPhase.toString()}
     document.addEventListener('keydown', function(ev){ if (ev.key === 'Escape' && pop){ var o = owner; close(); if (o) o.focus(); } });
     window.addEventListener('scroll', function(){ if (pop) close(); }, { passive: true, capture: true });
     window.addEventListener('resize', function(){ if (pop) close(); });
+  })();
+  // Keyboard help: "?" (or the footer link) lists the site's shortcuts.
+  (function initKeyboardHelp(){
+    var back = null, lastFocus = null;
+    var mac = /Mac|iPhone|iPad/.test((navigator.platform || '') + ' ' + (navigator.userAgent || ''));
+    var ROWS = [
+      [[mac ? '⌘' : 'Ctrl', 'K'], 'Search stocks, pages and themes'],
+      [['/'], 'Open the same search'],
+      [['↑', '↓'], 'Move through the search results'],
+      [['Enter'], 'Open the highlighted result, or sort a table by the focused column header'],
+      [['Esc'], 'Close the search, the side menu, a word meaning or this list'],
+      [['←', '→'], 'Move between tabs in a row of tabs'],
+      [['Tab'], 'Move between links and buttons; the first Tab offers Skip to content'],
+      [['?'], 'Show this list']
+    ];
+    function typing(t){
+      if (!t) return false;
+      var tag = (t.tagName || '').toUpperCase();
+      return !!t.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+    }
+    function close(){
+      if (!back) return;
+      if (back.parentNode) back.parentNode.removeChild(back);
+      back = null;
+      document.body.classList.remove('kb-help-open');
+      if (lastFocus && lastFocus.focus) { try { lastFocus.focus(); } catch (_){} }
+      lastFocus = null;
+    }
+    function open(){
+      if (back) return;
+      lastFocus = document.activeElement;
+      back = document.createElement('div');
+      back.className = 'kb-help-backdrop';
+      back.innerHTML = '<div class="kb-help" role="dialog" aria-modal="true" aria-labelledby="kb-help-title">' +
+        '<h2 id="kb-help-title">Keyboard shortcuts</h2><table><tbody>' +
+        ROWS.map(function(r){ return '<tr><td>' + r[0].map(function(k){ return '<kbd>' + escapeHtml(k) + '</kbd>'; }).join(' ') + '</td><td>' + escapeHtml(r[1]) + '</td></tr>'; }).join('') +
+        '</tbody></table><button type="button" class="acc-mark-btn kb-help-close">Close</button></div>';
+      document.body.appendChild(back);
+      document.body.classList.add('kb-help-open');
+      var btn = back.querySelector('.kb-help-close');
+      if (btn) btn.focus();
+    }
+    document.addEventListener('keydown', function(e){
+      if (back){
+        if (e.key === 'Escape' || e.key === '?'){ e.preventDefault(); e.stopPropagation(); close(); return; }
+        if (e.key === 'Tab'){ e.preventDefault(); var b = back.querySelector('.kb-help-close'); if (b) b.focus(); }
+        return;
+      }
+      if (e.key !== '?' || e.metaKey || e.ctrlKey || e.altKey || typing(e.target)) return;
+      if (document.body.classList.contains('cmd-palette-open')) return;
+      e.preventDefault();
+      open();
+    }, true);
+    document.addEventListener('click', function(e){
+      var t = e.target && e.target.closest ? e.target : null;
+      if (!t) return;
+      if (t.closest('[data-kb-help]')){ e.preventDefault(); open(); return; }
+      if (back && (t === back || t.closest('.kb-help-close'))) close();
+    });
   })();
   // ---------------------------------------------------------------------
   // CSV export — used by Unusual Flow, Calendar, and Top Picks "Export
@@ -20942,7 +21003,7 @@ ${renderExportBindings()}
     var approach = read.gapChangePct == null ? 'prior gap unavailable' : read.gapChangePct > 0 ? 'gap narrowed ' + read.gapChangePct.toFixed(2) + ' pts' : 'gap widened ' + Math.abs(read.gapChangePct).toFixed(2) + ' pts';
     var eta = read.projectedSessions ? '~' + read.projectedSessions + ' session' + (read.projectedSessions === 1 ? '' : 's') + ' at recent approach rate' : 'no stable approach rate';
     return '<tr class="ma-track-row' + tone + '"><td><a class="quant-sym" href="' + symGradeHref(read.symbol) + '">' + escapeHtml(read.symbol) + '</a><small>' + escapeHtml(read.sector || '') + '</small></td>' +
-      '<td><b>' + read.period + 'D</b><small>' + move + '</small></td><td>' + fmtMoney(read.spot) + '<small>' + (read.live ? 'live regular session' : 'build price') + '</small></td>' +
+      '<td><b>' + read.period + 'D</b><small class="ma-dir">' + move + '</small></td><td>' + fmtMoney(read.spot) + '<small>' + (read.live ? 'live regular session' : 'build price') + '</small></td>' +
       '<td>' + fmtMoney(read.level) + '<small class="' + (read.direction === 'above' ? 'quant-pos' : 'quant-neg') + '">' + (read.distancePct > 0 ? '+' : '') + read.distancePct.toFixed(2) + '% vs MA</small></td>' +
       '<td data-owner-only><span class="ma-track-score ' + read.status + '">' + Math.round(read.score) + '</span><small>' + read.status + '</small></td>' +
       '<td class="dt-wrap">' + escapeHtml(approach) + '<small>' + escapeHtml(eta) + '</small></td><td>' + (isFinite(read.aligned5dPct) ? (read.aligned5dPct > 0 ? '+' : '') + read.aligned5dPct.toFixed(2) + '%' : '—') + '<small>5D toward level</small></td><td>' + (isFinite(read.rvol) ? read.rvol.toFixed(2) + '×' : '—') + '<small>relative volume</small></td></tr>';
@@ -20952,7 +21013,7 @@ ${renderExportBindings()}
   // reads as one picture. The crossover table above keeps only the names
   // inside the 5% band.
   var MA_ALL_RANGE = 20;
-  function maTrackerAllHtml(){
+  function maTrackerAllHtml(withToggle){
     var d = maTrackerState.data || {};
     var periods = (d.periods || [20, 50, 100, 200]).filter(function(p){ return p > 0; });
     var rows = (d.tickers || []).map(function(row){
@@ -20978,7 +21039,7 @@ ${renderExportBindings()}
         cell: function(r){ var v = r.dist[p]; return v == null ? '' : vtCbarHtml(v, MA_ALL_RANGE, (v > 0 ? '+' : '') + v.toFixed(1) + '%'); },
         sort: function(r){ return r.dist[p]; } });
     });
-    return '<section class="ma-all"><div class="ma-all-head"><h3>Every stock against its averages</h3>' +
+    return '<section class="ma-all"><div class="ma-all-head"><h3>Every stock against its averages</h3>' + (withToggle ? VIEWS.compactToggleHtml('ma-tracker') : '') +
       '<p>' + rows.length + ' stocks · ' + aboveAll + ' above all four · ' + belowAll + ' below all four · sorted by distance from the 200-day</p></div>' +
       VIEWS.tableHtml(cols, rows, { key: 'ma-all', cls: 'ma-all-vt' }) + '</section>';
   }
@@ -20989,7 +21050,7 @@ ${renderExportBindings()}
     var rows = maTrackerCandidates();
     if (!HAS_OWNER_ACCESS) rows.sort(function(a,b){ return a.absDistancePct - b.absDistancePct || a.symbol.localeCompare(b.symbol); });
     if (eye) eye.textContent = rows.length + ' levels · ' + new Set(rows.map(function(row){ return row.symbol; })).size + ' stocks' + (maTrackerState.marketState === 'REGULAR' ? ' · live' : ' · build prices');
-    if (!rows.length){ var maAllOnly = maTrackerAllHtml(); root.hidden = !maAllOnly; root.innerHTML = maAllOnly; if (empty) empty.hidden = false; return; }
+    if (!rows.length){ var maAllOnly = maTrackerAllHtml(true); root.hidden = !maAllOnly; root.innerHTML = maAllOnly; if (empty) empty.hidden = false; return; }
     root.hidden = false; if (empty) empty.hidden = true;
     var above = rows.filter(function(row){ return row.direction === 'above'; });
     var below = rows.filter(function(row){ return row.direction === 'below'; });
@@ -21004,7 +21065,7 @@ ${renderExportBindings()}
         }).join('') : '<p>No stock in the 5% band.</p>') + '</section>';
     };
     var leaders = '<div class="ma-track-leaders">' + leaderPanel('Most likely to cross above', above, 'is-above') + leaderPanel('Most likely to cross below', below, 'is-below') + '</div>';
-    var table = '<div class="ma-track-table-wrap"><table class="ma-track-table"><thead><tr><th>Stock</th><th>Average</th><th>Price</th><th>Level / gap</th><th data-owner-only>Priority</th><th>Approach</th><th>Momentum</th><th>Volume</th></tr></thead><tbody>' + rows.map(maTrackerRow).join('') + '</tbody></table></div>';
+    var table = '<div class="ma-track-tools">' + VIEWS.compactToggleHtml('ma-tracker') + '</div><div class="ma-track-table-wrap"><table class="ma-track-table"><thead><tr><th>Stock</th><th>Average</th><th>Price</th><th>Level / gap</th><th data-owner-only>Priority</th><th>Approach</th><th>Momentum</th><th>Volume</th></tr></thead><tbody>' + rows.map(maTrackerRow).join('') + '</tbody></table></div>';
     root.innerHTML = summary + leaders + '<p class="ma-track-note"><b>Interpretation:</b> ranking measures evidence of an approaching cross; it does not estimate the probability that a cross will hold. Confirm with a daily close and volume before acting.</p>' + table + maTrackerAllHtml();
   }
   function loadMaTracker(){

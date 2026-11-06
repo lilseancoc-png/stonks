@@ -2838,7 +2838,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   <div class="muted">All analytical and editorial content is AI-generated or algorithmically produced and may be wrong. Verify independently. Data: third-party sources. For information only — not investment advice.</div>
   <div><a class="foot-discord" href="${DISCORD_INVITE_URL}" target="_blank" rel="noopener">Discuss the research in our Discord</a></div>
   <div><a class="foot-support" href="${KO_FI_URL}" target="_blank" rel="noopener">Support stonks on Ko-fi</a></div>
-  <div><a href="/?tab=privacy">Privacy Policy</a> · <a href="/?tab=terms">Terms of Use</a></div>
+  <div><a href="/?tab=privacy">Privacy Policy</a> · <a href="/?tab=terms">Terms of Use</a> · <a href="/?tab=glossary">Words used on this site</a> · <button type="button" class="link-btn foot-kb" data-kb-help>Keyboard shortcuts</button></div>
   <div class="muted">Price charts by <a href="https://www.tradingview.com/lightweight-charts/" target="_blank" rel="noopener">TradingView Lightweight Charts&trade;</a>, Copyright &copy; 2025 TradingView, Inc.</div>
 </footer>
 <!-- Phone tab bar (hidden on wider screens): each button opens the sidebar at

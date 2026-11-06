@@ -115,12 +115,29 @@ export function renderSiteNextCss() {
 .vt-reset[hidden] { display: none; }
 
 /* ---- Compact one-line phone rows ------------------------------------------ */
-.compact-toggle { margin-left: 8px; }
+/* All stocks, Up/down streaks, Options walls and Moving averages open on
+   phones as a table with one line per row; "Compact rows" turns it off. */
+.compact-toggle {
+  min-height: 30px; padding: 3px 10px; border: 1px solid var(--border); border-radius: var(--r-pill);
+  background: var(--surface); color: var(--muted-strong); font: 600 12px/1 var(--font-sans); cursor: pointer;
+}
+.compact-toggle.is-on { background: var(--surface-2); color: var(--text-strong); border-color: var(--accent-line, var(--border)); }
+.view-toggle + .compact-toggle { margin-left: 6px; }
+.view-toggle:has([data-view-mode="cards"].is-on) + .compact-toggle { display: none; }
+.ma-track-tools { display: none; margin: 0 0 6px; }
+@media (min-width: 641px) { .compact-toggle { display: none; } }
 @media (max-width: 640px) {
-  .is-compact .vt-table td, .is-compact .vt-table th { padding-top: 5px; padding-bottom: 5px; }
-  .is-compact .vt-table td { white-space: nowrap; font-size: 13px; }
-  .is-compact .vt-table td small, .is-compact .vt-table td .hint, .is-compact .vt-table td .vt-sub { display: none; }
+  .ma-track-tools { display: flex; justify-content: flex-end; }
+  .is-compact .vt-table th, .is-compact .vt-table td,
+  .is-compact .ma-track-table th, .is-compact .ma-track-table td { padding-top: 5px; padding-bottom: 5px; line-height: 1.3; }
+  .is-compact .vt-table td, .is-compact .ma-track-table td { white-space: nowrap; font-size: 13px; }
+  .is-compact .vt-table td small, .is-compact .vt-table td .vt-sub, .is-compact .vt-table td .hint,
+  .is-compact .ma-track-table td small { display: none; }
+  .is-compact .ma-track-table td small.ma-dir, .is-compact .ma-track-table td small.quant-pos,
+  .is-compact .ma-track-table td small.quant-neg { display: inline; margin-left: 5px; font-size: 12px; }
   .is-compact .vt-table td svg { max-height: 18px; }
+  .is-compact .vt-table .vt-expand { width: 24px; height: 24px; min-width: 24px; min-height: 24px; }
+  .is-compact .vt-table button.vt-link { min-height: 0; line-height: 1.3; }
 }
 
 /* ---- Earnings week board -------------------------------------------------- */

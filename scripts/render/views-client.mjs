@@ -146,10 +146,37 @@ export function viewsFactory(win, doc) {
   // choice on this device always wins.
   var TABLE_FIRST = {};
   function tableFirst(keys) { for (var i = 0; i < keys.length; i++) TABLE_FIRST[keys[i]] = 1; }
+  // Long card pages that open on phones as compact one-line table rows
+  // (key -> the page pane that carries the is-compact class). The "Compact
+  // rows" button turns the one-line layout off; Cards stays one tap away.
+  var PHONE_ROWS = {};
+  function narrow(px) {
+    try { return !!(win.matchMedia && win.matchMedia('(max-width: ' + px + 'px)').matches); } catch (e) { return false; }
+  }
   function defaultView(key) {
+    if (PHONE_ROWS[key] && narrow(760)) return 'table';
     if (!TABLE_FIRST[key]) return 'cards';
-    try { if (win.matchMedia && win.matchMedia('(max-width: 760px)').matches) return 'cards'; } catch (e) {}
+    if (narrow(760)) return 'cards';
     return 'table';
+  }
+  function compactOn(key) { return get('compact:' + key, true) !== false; }
+  function syncCompact(key) {
+    var pane = PHONE_ROWS[key] ? doc.getElementById(PHONE_ROWS[key]) : null;
+    var on = compactOn(key);
+    if (pane) pane.classList.toggle('is-compact', on);
+    var btns = doc.querySelectorAll('[data-compact-toggle="' + key + '"]');
+    for (var i = 0; i < btns.length; i++) {
+      btns[i].setAttribute('aria-pressed', on ? 'true' : 'false');
+      btns[i].classList.toggle('is-on', on);
+    }
+  }
+  function phoneRows(map) {
+    for (var k in map) if (Object.prototype.hasOwnProperty.call(map, k)) { PHONE_ROWS[k] = map[k]; syncCompact(k); }
+  }
+  function compactToggleHtml(key) {
+    if (!PHONE_ROWS[key]) return '';
+    var on = compactOn(key);
+    return '<button type="button" class="compact-toggle' + (on ? ' is-on' : '') + '" data-compact-toggle="' + esc(key) + '" aria-pressed="' + (on ? 'true' : 'false') + '" title="One line per row on a phone">Compact rows</button>';
   }
   function viewMode(key, extras) {
     var m = get('view:' + key, defaultView(key));
@@ -165,7 +192,7 @@ export function viewsFactory(win, doc) {
     }
     var h = b('cards', 'Cards') + b('table', 'Table');
     if (extras) for (var i = 0; i < extras.length; i++) h += b(extras[i][0], extras[i][1]);
-    return '<span class="view-toggle" role="group" aria-label="Layout">' + h + '</span>';
+    return '<span class="view-toggle" role="group" aria-label="Layout">' + h + '</span>' + compactToggleHtml(key);
   }
   // cols: [{ label, num, cell(row) -> html, sort(row) -> number|string|null,
   //          title, cls, nosort }]
@@ -476,6 +503,13 @@ export function viewsFactory(win, doc) {
         if (flipHandlers[key]) flipHandlers[key]();
         return;
       }
+      var ct = t.closest('[data-compact-toggle]');
+      if (ct) {
+        var ckey = ct.getAttribute('data-compact-toggle');
+        set('compact:' + ckey, compactOn(ckey) ? false : null);
+        syncCompact(ckey);
+        return;
+      }
       var vt = t.closest('[data-view-toggle]');
       if (vt) {
         var vkey = vt.getAttribute('data-view-toggle');
@@ -523,7 +557,7 @@ export function viewsFactory(win, doc) {
     get: get, set: set, choose: choose, clearAll: clearAll,
     reversed: reversed, applyDir: applyDir, flipHtml: flipHtml, withFlip: withFlip, attachFlip: attachFlip, onFlip: onFlip,
     remember: remember, sortBy: sortBy, sortMenuHtml: sortMenuHtml,
-    viewMode: viewMode, tableFirst: tableFirst, viewToggleHtml: viewToggleHtml, onView: onView, tableHtml: tableHtml, expandHtml: expandHtml,
+    viewMode: viewMode, tableFirst: tableFirst, phoneRows: phoneRows, compactToggleHtml: compactToggleHtml, viewToggleHtml: viewToggleHtml, onView: onView, tableHtml: tableHtml, expandHtml: expandHtml,
     parseCell: parseCell, sortTable: sortTable, rescan: queueScan,
     start: start
   };
