@@ -46715,6 +46715,69 @@ function scenarioEventPhase(ev, now = Date.now()) {
       '<div class="acc-tscroll"><table class="acc-qtable"><thead><tr><th>Rule</th><th>Names</th><th>5 days</th><th>10 days</th><th>20 days</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
     '</div></details>';
   }
+  // --- How sure is a win rate? (2026-11-06) ----------------------------------
+  // A 95% Wilson range for w wins out of n decided trades, so a 3-trade row
+  // can't read like a finding. ACC_JUDGE_N is roughly how many closed trades
+  // it takes before the record can be judged (the 140-240 estimate in
+  // docs/top-picks.md); the Scorecard shows progress toward it.
+  var ACC_JUDGE_N = 140;
+  var ACC_FEW_N = 10;
+  function accWilson(w, n){
+    w = Number(w); n = Number(n);
+    if (!(n > 0) || !isFinite(w)) return null;
+    var z = 1.96, p = Math.max(0, Math.min(1, w / n)), z2 = z * z, d = 1 + z2 / n;
+    var c = (p + z2 / (2 * n)) / d;
+    var h = z * Math.sqrt(p * (1 - p) / n + z2 / (4 * n * n)) / d;
+    return { lo: Math.max(0, c - h), hi: Math.min(1, c + h) };
+  }
+  function accRangeText(w, n){
+    var r = accWilson(w, n);
+    return r ? Math.round(r.lo * 100) + '–' + Math.round(r.hi * 100) + '%' : '';
+  }
+  function accRangeTip(w, n){
+    var r = accRangeText(w, n);
+    return r ? 'With ' + n + ' decided trade' + (n === 1 ? '' : 's') + ', the true win rate is likely (95%) between ' + r + '. Fewer trades means a wider range.' : '';
+  }
+  // Decided trades (win or loss) by rule set, newest rules first: one row per
+  // Track Record divider. Flat closes and "left coverage" closes don't count.
+  function accVersionTableHtml(closed){
+    var decided = (closed || []).filter(function(e){ return e && (e.outcome === 'win' || e.outcome === 'loss') && e.counted !== false; });
+    if (!decided.length) return '';
+    var segs = accRuleSegments(decided);
+    var rows = segs.map(function(seg, i){
+      var w = 0, pnl = [], real = [], first = null, last = null;
+      seg.items.forEach(function(e){
+        if (e.outcome === 'win') w++;
+        var v = Number(e.optionPnlPct); if (isFinite(v)) pnl.push(v);
+        var rf = Number(e.realFillPnlPct); if (e.realFillPnlPct != null && isFinite(rf)) real.push(rf);
+        var d = accDateShort(e.entryDate);
+        if (d !== '—'){ if (!first || d < first) first = d; if (!last || d > last) last = d; }
+      });
+      var n = seg.items.length;
+      var older = segs[i + 1] || null;
+      var notes = [];
+      ACC_RULE_DIMS.forEach(function(dim){
+        var a = seg.versions[dim.key], b = older ? older.versions[dim.key] : null;
+        if (!a || a === b) return;
+        var nt = ACC_RULE_NOTES[dim.key] && ACC_RULE_NOTES[dim.key][a];
+        if (nt && nt.note) notes.push(nt.note);
+      });
+      var rate = n ? w / n : null;
+      var cls = rate == null ? '' : rate >= 0.5 ? 'sig-pos' : 'sig-neg';
+      var avg = pnl.length ? accMean(pnl) : null;
+      return '<tr>' +
+        '<td><b>' + (i === segs.length - 1 && !notes.length ? 'Earliest rules' : 'Rules from ' + escapeHtml(seg.dates[0] || first || '—')) + '</b>' + (notes.length ? '<br><small>' + escapeHtml(notes.join(' · ')) + '</small>' : '') + '</td>' +
+        '<td>' + escapeHtml(first || '—') + (last && last !== first ? ' to ' + escapeHtml(last) : '') + '</td>' +
+        '<td>' + n + (n < ACC_FEW_N ? ' <span class="acc-few" title="Fewer than ' + ACC_FEW_N + ' decided trades: too few to judge.">few</span>' : '') + '</td>' +
+        '<td><span class="' + cls + '">' + (rate == null ? '—' : Math.round(rate * 100) + '%') + '</span> <small title="' + escapeHtml(accRangeTip(w, n)) + '">' + accRangeText(w, n) + '</small></td>' +
+        '<td>' + (avg == null ? '—' : '<span class="' + (avg >= 0 ? 'sig-pos' : 'sig-neg') + '">' + accPct(avg) + '</span>') + '</td>' +
+        '<td>' + (real.length ? accPct(accMean(real)) + ' <small>(' + real.length + ')</small>' : '—') + '</td>' +
+      '</tr>';
+    }).join('');
+    return '<div class="accuracy-tiers acc-version-table"><div class="accuracy-tiers-head">Win rate by rule set <span class="acc-an-tag">one row per divider</span></div>' +
+      '<p class="hint">The record is never reset when a rule changes. Each row is one set of rules, newest first, so you can compare them side by side.</p>' +
+      '<div class="acc-tscroll"><table class="acc-qtable"><thead><tr><th>Rule set</th><th>Trades opened</th><th>Decided</th><th>Win rate (likely range)</th><th>Avg P&amp;L (model)</th><th>Avg real fill</th></tr></thead><tbody>' + rows + '</tbody></table></div></div>';
+  }
   function accPct(n){
     if (n == null || !isFinite(n)) return '—';
     return (n >= 0 ? '+' : '') + Number(n).toFixed(1) + '%';
@@ -46819,6 +46882,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (bs && bs.paired && bs.paired.n) bits.push('picks vs SPY ' + accPct(bs.paired.edgePct) + ' (' + bs.paired.n + ')');
     var nFills = (accFills.rows || []).length;
     if (nFills) bits.push(nFills + ' logged fill' + (nFills === 1 ? '' : 's'));
+    var nMarks = accFills.marks ? Object.keys(accFills.marks).length : 0;
+    if (nMarks) bits.push(nMarks + ' trade' + (nMarks === 1 ? '' : 's') + ' marked took / skipped');
     return '<p class="hint acc-realfills-line"><b>Real trading:</b> ' + (bits.length ? bits.join(' · ') : 'no closed trades with real fills yet') +
       '. <button type="button" class="link-btn" data-acc-action="open-realfills">Open Real fills</button></p>';
   }
@@ -46827,7 +46892,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // The Owner's own paper / real trade log, uploaded as CSV to
   // /api/auth/picks-fills and joined to the record by trade ID (tlTradeId, the
   // same id the feed and Copy all print).
-  var accFills = { loaded: false, loading: false, rows: [], errors: [], updatedAt: null, error: null, busy: false, open: null };
+  var accFills = { loaded: false, loading: false, rows: [], errors: [], updatedAt: null, error: null, busy: false, open: null, marks: {}, markBusy: null, markError: null };
   var ACC_FILL_COLUMNS = 'trade_id,account,symbol,side,structure,legs,qty,mingstreet_run_time_et,mingstreet_entry_mid,order_sent_time_et,stock_price_at_order,bid_at_order,ask_at_order,order_type,limit_steps,fill_price,fill_time_et,skipped,skip_reason,close_reason_feed,feed_exit_pnl_pct,close_order_time_et,bid_at_close,ask_at_close,close_fill_price,close_fill_time_et,fees,close_trigger,notes';
   function loadAccFills(){
     if (accFills.loaded || accFills.loading) return;
@@ -46838,6 +46903,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         accFills.rows = (j && Array.isArray(j.rows)) ? j.rows : [];
         accFills.errors = (j && Array.isArray(j.errors)) ? j.errors : [];
         accFills.updatedAt = (j && j.updatedAt) || null;
+        accFills.marks = (j && j.marks && typeof j.marks === 'object') ? j.marks : {};
         accFills.error = null;
         accFills.loaded = true;
       })
@@ -46847,7 +46913,99 @@ function scenarioEventPhase(ev, now = Date.now()) {
         // flaky network can't loop render -> fetch -> render.
         accFills.loaded = true;
       })
-      .then(function(){ accFills.loading = false; if (accuracyState.data) renderAccuracy(); });
+      .then(function(){ accFills.loading = false; accFillsRerender(); });
+  }
+  function accFillsRerender(){
+    if (accuracyState.data) renderAccuracy();
+    if (openPicksState.data && $('open-picks-root')) renderOpenPicks();
+  }
+  // --- Took it / skipped it (2026-11-06) --------------------------------------
+  // One tap per trade, saved to the Owner's picks-fills.json (marks survive a
+  // CSV upload). The Real fills tab compares the trades you took with the ones
+  // you skipped, so the real-vs-model gap covers every trade.
+  var ACC_MARK_REASONS = ["Price moved too far", "Saw it too late", "Didn't like the setup", "Already had enough risk on", "Couldn't place the order", "Other"];
+  function accMarkOf(e){ return accFills.marks ? accFills.marks[accFillKey(tlTradeId(e))] || null : null; }
+  function accMarkHtml(e){
+    if (accFills.error === 'off' || !e || !e.symbol || !e.entryDate) return '';
+    var id = accFillKey(tlTradeId(e));
+    var m = accMarkOf(e);
+    var busy = accFills.markBusy === id;
+    var inner;
+    if (m) {
+      inner = '<span class="acc-mark-state ' + (m.took ? 'took' : 'skipped') + '">' + (m.took ? 'You took this trade' : 'You skipped it: ' + escapeHtml(m.reason || '')) + '</span>' +
+        ' <button type="button" class="link-btn" data-acc-mark="clear" data-acc-mark-id="' + escapeHtml(id) + '"' + (busy ? ' disabled' : '') + '>Change</button>';
+    } else if (accFills.markPicking === id) {
+      inner = '<label class="acc-mark-reason">Why did you skip it? <select data-acc-mark-reason data-acc-mark-id="' + escapeHtml(id) + '"' + (busy ? ' disabled' : '') + '><option value="">Pick a reason</option>' +
+        ACC_MARK_REASONS.map(function(r){ return '<option>' + escapeHtml(r) + '</option>'; }).join('') + '</select></label>' +
+        ' <button type="button" class="link-btn" data-acc-mark="cancel" data-acc-mark-id="' + escapeHtml(id) + '">Cancel</button>';
+    } else {
+      inner = '<span class="acc-mark-ask">Did you trade it?</span>' +
+        ' <button type="button" class="acc-mark-btn" data-acc-mark="took" data-acc-mark-id="' + escapeHtml(id) + '"' + (busy ? ' disabled' : '') + '>I took it</button>' +
+        ' <button type="button" class="acc-mark-btn" data-acc-mark="skip" data-acc-mark-id="' + escapeHtml(id) + '"' + (busy ? ' disabled' : '') + '>I skipped it</button>';
+    }
+    return '<div class="acc-mark" data-acc-mark-row="' + escapeHtml(id) + '">' + inner +
+      (accFills.markError && accFills.markError.id === id ? ' <span class="acc-mark-err" role="status">' + escapeHtml(accFills.markError.msg) + '</span>' : '') + '</div>';
+  }
+  function accSaveMark(mark){
+    if (accFills.markBusy) return;
+    accFills.markBusy = mark.trade_id; accFills.markError = null;
+    accFillsRerender();
+    fetch('/api/auth/picks-fills', {
+      method: 'POST', credentials: 'same-origin', cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mark: mark })
+    })
+      .then(function(r){ return r.json().then(function(j){ return { ok: r.ok, j: j }; }, function(){ return { ok: r.ok, j: null }; }); })
+      .then(function(res){
+        if (!res.ok){ accFills.markError = { id: mark.trade_id, msg: 'Not saved' + (res.j && res.j.error ? ': ' + res.j.error : '') + '.' }; return; }
+        accFills.marks = (res.j && res.j.marks) || {};
+        if (res.j && Array.isArray(res.j.rows)) accFills.rows = res.j.rows;
+        accFills.markPicking = null;
+      })
+      .catch(function(){ accFills.markError = { id: mark.trade_id, msg: 'Not saved. Try again.' }; })
+      .then(function(){ accFills.markBusy = null; accFillsRerender(); });
+  }
+  document.addEventListener('click', function(ev){
+    var btn = ev.target && ev.target.closest ? ev.target.closest('[data-acc-mark]') : null;
+    if (!btn) return;
+    var id = btn.getAttribute('data-acc-mark-id'), act = btn.getAttribute('data-acc-mark');
+    if (!id) return;
+    ev.preventDefault();
+    if (act === 'took') accSaveMark({ trade_id: id, took: true });
+    else if (act === 'skip'){ accFills.markPicking = id; accFillsRerender(); var sel = document.querySelector('select[data-acc-mark-reason][data-acc-mark-id="' + id.replace(/"/g, '') + '"]'); if (sel) sel.focus(); }
+    else if (act === 'cancel'){ accFills.markPicking = null; accFillsRerender(); }
+    else if (act === 'clear') accSaveMark({ trade_id: id, clear: true });
+  });
+  document.addEventListener('change', function(ev){
+    var sel = ev.target && ev.target.matches && ev.target.matches('select[data-acc-mark-reason]') ? ev.target : null;
+    if (!sel || !sel.value) return;
+    accSaveMark({ trade_id: sel.getAttribute('data-acc-mark-id'), took: false, reason: sel.value });
+  });
+  // Real fills: the trades you took vs the ones you skipped, on the record's
+  // modeled P&L, plus the most common skip reasons.
+  function accMarksSummaryHtml(d){
+    if (accFills.error === 'off') return '';
+    var closed = ((d && d.closed) || []).filter(function(e){ return e && (e.outcome === 'win' || e.outcome === 'loss') && e.counted !== false; });
+    var open = (d && d.open) || [];
+    var took = [], skipped = [], unmarked = 0, reasons = {};
+    closed.forEach(function(e){
+      var m = accMarkOf(e), v = Number(e.optionPnlPct);
+      if (!m){ unmarked++; return; }
+      (m.took ? took : skipped).push({ e: e, v: isFinite(v) ? v : null });
+      if (!m.took) reasons[m.reason || 'Other'] = (reasons[m.reason || 'Other'] || 0) + 1;
+    });
+    var openMarked = open.filter(function(e){ return !!accMarkOf(e); }).length;
+    function side(list, label){
+      if (!list.length) return '<li><b>' + label + '</b>: none yet</li>';
+      var w = list.filter(function(x){ return x.e.outcome === 'win'; }).length;
+      var vals = list.map(function(x){ return x.v; }).filter(function(v){ return v != null; });
+      return '<li><b>' + label + '</b>: ' + list.length + ' closed · ' + Math.round(w / list.length * 100) + '% won (likely ' + accRangeText(w, list.length) + ')' +
+        (vals.length ? ' · model avg ' + accPct(accMean(vals)) : '') + '</li>';
+    }
+    var reasonTxt = Object.keys(reasons).sort(function(a, b){ return reasons[b] - reasons[a]; }).map(function(r){ return escapeHtml(r) + ' (' + reasons[r] + ')'; }).join(', ');
+    return '<div class="accuracy-tiers acc-marks-summary"><div class="accuracy-tiers-head">Trades you took vs skipped <span class="acc-an-tag">your marks</span></div>' +
+      '<p class="hint">Mark each trade with "I took it" or "I skipped it" on Open picks or the Picks list. ' + (closed.length - unmarked) + ' of ' + closed.length + ' closed trades are marked' + (open.length ? ', and ' + openMarked + ' of ' + open.length + ' open ones' : '') + '.</p>' +
+      '<ul class="acc-fills-summary">' + side(took, 'Took') + side(skipped, 'Skipped') + (reasonTxt ? '<li><b>Why skipped</b>: ' + reasonTxt + '</li>' : '') + '</ul></div>';
   }
   function uploadAccFills(file){
     if (!file || accFills.busy) return;
@@ -50348,6 +50506,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       (accRangeBarHtml(e) || (targets ? '<div class="acc-targets">' + targets + '</div>' : '')) +
       accStrategyBlock(e, false) +
       accCheckpointsBlock(e) +
+      accMarkHtml(e) +
     '</div>';
   }
   // Event play tag frozen on the trade (lib/event-play.mjs): which event it is
@@ -50734,6 +50893,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       { val: calls + ' · ' + (open.length - calls), lbl: 'calls · puts' },
       marks.length ? { val: accPct(accMean(marks)), lbl: 'avg open mark · ' + greens + '/' + marks.length + ' green', cls: accMean(marks) >= 0 ? 'sig-pos' : 'sig-neg', tip: 'Average modeled contract P&L across the open book (unrealized).' } : null,
     ]);
+    loadAccFills();
     var opSort = VIEWS.choose('open-picks.sort', 'newest', OPEN_PICK_SORTS.map(function(o){ return o[0]; }));
     root.innerHTML = openPicksControlsHtml(opSort) + accOpenGroupHtml(open, opSort, VIEWS.viewMode('open-picks') === 'table') + tradeLinesHtml(open, Array.isArray(d.closed) ? d.closed : [], d.builtAtIso);
   }
@@ -50865,7 +51025,14 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (st.optionWinRate != null) {
       chips += '<div class="accuracy-chip' + (st.optionWinRate >= 0.5 ? ' accuracy-chip-good' : ' accuracy-chip-bad') + '" title="' + optTip + '">' +
         '<span class="accuracy-chip-num">' + Math.round(st.optionWinRate * 100) + '%</span>' +
-        '<span class="accuracy-chip-lbl">win rate · option (modeled · ' + (st.optionDecided || 0) + ')</span>' +
+        '<span class="accuracy-chip-lbl">win rate · option (modeled · ' + (st.optionDecided || 0) + ')' + (st.optionDecided ? ' · likely ' + accRangeText(Math.round(st.optionWinRate * st.optionDecided), st.optionDecided) : '') + '</span>' +
+      '</div>';
+      // Progress toward a sample big enough to judge the record.
+      var judgeN = st.optionDecided || 0;
+      chips += '<div class="accuracy-chip acc-judge-chip" title="Roughly how many closed trades it takes before the win rate can be trusted (an estimate of 140 to 240). Until then, read every rate with its range.">' +
+        '<span class="accuracy-chip-num">' + judgeN + ' of ~' + ACC_JUDGE_N + '</span>' +
+        '<span class="accuracy-chip-lbl">trades needed to judge the record</span>' +
+        '<span class="acc-judge-bar" aria-hidden="true"><i style="width:' + Math.min(100, Math.round(judgeN / ACC_JUDGE_N * 100)) + '%"></i></span>' +
       '</div>';
     }
     if (st.optionExpectancyPct != null) {
@@ -50973,6 +51140,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         '<span class="acc-tier-bar"><i class="' + barCls + '" style="width:' + (rate == null ? 0 : rate) + '%"></i></span>' +
         '<span class="acc-tier-rate ' + barCls + '">' + (rate == null ? '—' : rate + '%') + '</span>' +
         '<span class="acc-tier-n">' + row.wins + '/' + row.n + '</span>' +
+        '<span class="acc-tier-range" title="' + escapeHtml(accRangeTip(row.wins, row.n)) + '">' + accRangeText(row.wins, row.n) + (row.n < ACC_FEW_N ? ' <span class="acc-few">few</span>' : '') + '</span>' +
       '</div>';
     }
     var tierBlock = tierRows
@@ -50980,7 +51148,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       : '';
     // Generic cohort renderer (sector / regime / gate A/B) — same bar layout as
     // the tier block. Suppresses cohorts with <1 decided and labels are escaped.
-    function cohortBlock(title, obj){
+    function cohortBlock(title, obj, foot){
       if (!obj) return '';
       var keys = Object.keys(obj).sort(function(a, b){ return (obj[b].n || 0) - (obj[a].n || 0); });
       var rows = '';
@@ -50994,12 +51162,19 @@ function scenarioEventPhase(ev, now = Date.now()) {
           '<span class="acc-tier-bar"><i class="' + cls + '" style="width:' + (rate == null ? 0 : rate) + '%"></i></span>' +
           '<span class="acc-tier-rate ' + cls + '">' + (rate == null ? '—' : rate + '%') + '</span>' +
           '<span class="acc-tier-n">' + row.wins + '/' + row.n + '</span>' +
+          '<span class="acc-tier-range" title="' + escapeHtml(accRangeTip(row.wins, row.n)) + '">' + accRangeText(row.wins, row.n) + (row.n < ACC_FEW_N ? ' <span class="acc-few">few</span>' : '') + '</span>' +
         '</div>';
       }
-      return rows ? '<div class="accuracy-tiers"><div class="accuracy-tiers-head">' + title + '</div>' + rows + '</div>' : '';
+      return rows ? '<div class="accuracy-tiers"><div class="accuracy-tiers-head">' + title + '</div>' + rows + (foot || '') + '</div>' : '';
     }
     var sectorBlock = cohortBlock('Win rate by sector', st.bySector);
-    var regimeBlock = cohortBlock('Win rate by market regime', st.byRegime);
+    // The regime split is a timing read, not the intended bullish lean, so it
+    // sits on the Scorecard itself with its ranges (2026-11-06).
+    var riskOnN = st.byRegime && st.byRegime['risk-on'] ? st.byRegime['risk-on'].n : 0;
+    var regimeBlock = cohortBlock('Win rate by market regime', st.byRegime,
+      '<p class="hint acc-regime-note">The regime is the market tape when the trade opened. Read it with the ranges: ' +
+      (riskOnN < 30 ? 'risk-on has ' + riskOnN + ' decided trade' + (riskOnN === 1 ? '' : 's') + ', so revisit this split at 30.' : 'risk-on now has ' + riskOnN + ' decided trades.') + '</p>');
+    var versionBlock = accVersionTableHtml(closed);
     // gate A/B only when both arms have data (PICKS_ACCURACY_AB enabled long enough)
     var abBlock = (st.byCohort && Object.keys(st.byCohort).length > 1) ? cohortBlock('Gate A/B — endorsed (go) vs deferred (wait)', st.byCohort) : '';
     // Macro-event exposure A/B — did entering near an FOMC / major print cost us, and
@@ -51010,18 +51185,18 @@ function scenarioEventPhase(ev, now = Date.now()) {
     // and win-rate-by-tier, not a wall of bars.
     var advancedInner = '';
     if (researchChips) advancedInner += '<div class="accuracy-chips accuracy-chips-research">' + researchChips + '</div>';
-    advancedInner += sectorBlock + regimeBlock + abBlock + eventBlock;
+    advancedInner += sectorBlock + abBlock + eventBlock;
     var advancedBlock = advancedInner
       ? '<details class="accuracy-advanced"><summary class="accuracy-advanced-summary">Advanced &amp; research stats</summary><div class="accuracy-advanced-body">' + advancedInner + '</div></details>'
       : '';
     var gateBlock = accGateStatsHtml(d.gateStats);
     if (statsEl) statsEl.innerHTML = '<div id="accuracy-profit" class="accuracy-profit"></div>' +
       '<div class="acc-an-subhead acc-pctlens-head">Modeled % lens <span class="acc-an-tag">option return, resolved</span></div>' +
-      '<div class="accuracy-chips">' + chips + '</div>' + accRealFillsLine(d) + payoffBlock + tierBlock + advancedBlock + gateBlock;
+      '<div class="accuracy-chips">' + chips + '</div>' + accRealFillsLine(d) + payoffBlock + tierBlock + regimeBlock + versionBlock + advancedBlock + gateBlock;
     // The full real-trading comparison and the trade-log upload live in the
     // Real fills sub-tab; the Scorecard keeps the one line above.
     var realBox = $('acc-realfills');
-    if (realBox) realBox.innerHTML = accRealityHtml(d) + accFillsHtml(d);
+    if (realBox) realBox.innerHTML = accRealityHtml(d) + accMarksSummaryHtml(d) + accFillsHtml(d);
     bindAccFills();
     loadAccFills();
     renderProfitBlock();
@@ -51070,6 +51245,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         '</div>' +
         accStrategyBlock(e, true) +
         accCheckpointsBlock(e) +
+        accMarkHtml(e) +
       '</div>';
     }
     if (closed.length){

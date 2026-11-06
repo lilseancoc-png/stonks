@@ -195,6 +195,16 @@ try {
   }, res);
   assert.equal(res.statusCode, 400);
   assert.equal(res.headers["cache-control"], "private, no-store");
+  // A took / skipped mark is validated before anything is read or stored.
+  for (const mark of [{ trade_id: "not an id", took: true }, { trade_id: "NVDA-C-11/06/26-11:03", took: false }, { trade_id: "NVDA-C-11/06/26-11:03", took: "yes" }]) {
+    res = mockResponse();
+    await authHandler({
+      query: { action: "picks-fills" }, method: "POST",
+      headers: { host: "example.test", "x-forwarded-proto": "https", origin: "https://example.test", cookie: `${SESSION_COOKIE}=${token}` },
+      body: { mark },
+    }, res);
+    assert.equal(res.statusCode, 400);
+  }
 } finally {
   if (priorFlag == null) delete process.env.PRIVATE_DATA_ENABLED;
   else process.env.PRIVATE_DATA_ENABLED = priorFlag;
