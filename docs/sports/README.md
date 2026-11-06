@@ -9,6 +9,12 @@ calls. Pick Builder still accepts lines typed by hand or read from a screenshot.
 
 ## Best two props per game
 
+**NBA now uses [`nba-market-1`](nba-market-strategy.md):** a shortlist anchored
+to fresh sportsbook prices, one player from each team, measured role scenarios,
+explicit pass states, actual-payout evaluation, and complete private research
+snapshots. This is an experimental prospective strategy, not a claimed accuracy
+gain. NFL keeps `props-rank-3` and the historical ranking described below.
+
 Set **`PROPLINE_API_KEY` in Vercel** (server-side only). Get a free key from
 [PropLine](https://prop-line.com/odds-api/book/prizepicks); its published free
 plan includes 1,000 requests/day, no card. Do not commit a key. For local
@@ -102,7 +108,9 @@ older season files remain retained privately for future research.
 `.github/workflows/sports-props.yml` scans both leagues every 30 minutes
 (plus manual dispatch), even when no Owner has the site open. It runs
 `scripts/refresh-sports-props.mjs`, shares the exact page ranking and capture
-code, and logs only counts. Two bulk requests/run = 96/day, plus page usage.
+code, and logs only counts. Three bulk requests/run = 144/day (two NBA, one
+NFL), plus page usage. The NBA-only five-minute-gap collector adds 300/day;
+the baseline total is 444/day before interactive use.
 Both production and Actions need the free line-feed key; Actions also uses
 the existing R2 secrets and `PRIVATE_DATA_ENABLED` repository variable.
 
