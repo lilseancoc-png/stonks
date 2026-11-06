@@ -24,7 +24,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Added
 
-- Add a reproducible walk-forward replay of archived PrizePicks lines, with separate validation/test dates, team-constrained pairs, coverage and uncertainty reporting, and checks against future-data leakage.
+- Add a reproducible walk-forward replay of archived PrizePicks lines, with separate validation/test dates, team-constrained pairs, coverage and uncertainty reporting, and checks against future-data leakage (#756).
 
 - Show each NBA/NFL game's two strongest eligible PrizePicks player props using a free PropLine feed, current injuries, player form, workload, defense, splits and rest; preserve the first issued pair in a private win/bust track record with original lines, saved reasoning, stat breakdowns and a research-data export (#753).
 
@@ -36,7 +36,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Fixed
 
-- Require each game’s two recommended props to include one player from each team, including later track record slot fills.
+- Require each game’s two recommended props to include one player from each team, including later track record slot fills (#756).
 
 - Match Rams props to nflverse’s team id, close cached picks at the earliest known kickoff, use the prop’s actual workload, honor explicit injury clearances and stable athlete ids, and download complete prop records in bounded consistent pages.
 
