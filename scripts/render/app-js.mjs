@@ -50,6 +50,7 @@ import { watchlistAlertsFactory } from '../../lib/watchlist-alerts.mjs';
 import { weekRecapFactory } from '../../lib/week-recap.mjs';
 import { noPicksFactory } from '../../lib/no-picks.mjs';
 import { GLOSSARY } from '../../lib/glossary.mjs';
+import { TRADE_MARK_REASONS } from '../../lib/track-record-fills.mjs';
 import { overnightToneFactory } from '../../lib/overnight-tone.mjs';
 import { sectorGroupsFactory } from '../../lib/sector-groups.mjs';
 import { currentNewsSentiment, newsDateIsCurrent, validNewsFeedPayload } from '../../lib/news-policy.mjs';
@@ -381,6 +382,14 @@ ${scenarioEventPhase.toString()}
     var label = text == null ? (g ? g.term : key) : text;
     if (!g) return escapeHtml(label);
     return '<button type="button" class="gl-term" data-gl="' + escapeHtml(key) + '" aria-haspopup="dialog" title="' + escapeHtml(g.def) + '">' + escapeHtml(label) + '</button>';
+  }
+  // The same word inside a button or link (a nested button is invalid HTML):
+  // the meaning rides the title only.
+  function glPlain(key, text){
+    var g = GLOSSARY[key];
+    var label = text == null ? (g ? g.term : key) : text;
+    if (!g) return escapeHtml(label);
+    return '<span class="gl-term-plain" title="' + escapeHtml(g.def) + '">' + escapeHtml(label) + '</span>';
   }
   (function initGlossary(){
     var pop = null, owner = null;
@@ -15182,7 +15191,7 @@ ${renderExportBindings()}
       ? '<span class="oi-wall oi-wall-put" title="Open-interest put wall: the strike with the most put contracts open (front two expirations). The gamma wall above can differ because it weighs gamma across eight expirations.">OI put wall ' + fmtOiStrike(pw.strike) + ' · ' + fmtOiNum(pw.oi) + '</span>'
       : '';
     var cpHtml = t.cpRatio != null
-      ? '<span class="oi-cp">' + glTerm('cp', 'Calls per put') + ' ' + Number(t.cpRatio).toFixed(2) + ':1</span>'
+      ? '<span class="oi-cp">' + glPlain('cp', 'Calls per put') + ' ' + Number(t.cpRatio).toFixed(2) + ':1</span>'
       : '';
     var si = t.shortInterest || null;
     var siHtml = si && si.percentFloat != null
@@ -36829,13 +36838,14 @@ ${renderExportBindings()}
   // One tap per trade, saved to the Owner's picks-fills.json (marks survive a
   // CSV upload). The Real fills tab compares the trades you took with the ones
   // you skipped, so the real-vs-model gap covers every trade.
-  var ACC_MARK_REASONS = ["Price moved too far", "Saw it too late", "Didn't like the setup", "Already had enough risk on", "Couldn't place the order", "Other"];
+  // The server accepts only these reasons (lib/track-record-fills.mjs).
+  var ACC_MARK_REASONS = ${JSON.stringify(TRADE_MARK_REASONS)};
   function accMarkOf(e){ return accFills.marks ? accFills.marks[accFillKey(tlTradeId(e))] || null : null; }
   function accMarkHtml(e){
     if (accFills.error === 'off' || !e || !e.symbol || !e.entryDate) return '';
     var id = accFillKey(tlTradeId(e));
     var m = accMarkOf(e);
-    var busy = accFills.markBusy === id;
+    var busy = accFills.markBusy === id || (accFills.markQueue || []).some(function(q){ return q.trade_id === id; });
     var inner;
     if (m) {
       inner = '<span class="acc-mark-state ' + (m.took ? 'took' : 'skipped') + '">' + (m.took ? 'You took this trade' : 'You skipped it: ' + escapeHtml(m.reason || '')) + '</span>' +
@@ -36852,8 +36862,15 @@ ${renderExportBindings()}
     return '<div class="acc-mark" data-acc-mark-row="' + escapeHtml(id) + '">' + inner +
       (accFills.markError && accFills.markError.id === id ? ' <span class="acc-mark-err" role="status">' + escapeHtml(accFills.markError.msg) + '</span>' : '') + '</div>';
   }
+  // Saves go out one at a time; a tap while another save is in flight waits
+  // its turn instead of being dropped.
   function accSaveMark(mark){
-    if (accFills.markBusy) return;
+    if (accFills.markBusy){
+      accFills.markQueue = (accFills.markQueue || []).filter(function(q){ return q.trade_id !== mark.trade_id; });
+      accFills.markQueue.push(mark);
+      accFillsRerender();
+      return;
+    }
     accFills.markBusy = mark.trade_id; accFills.markError = null;
     accFillsRerender();
     fetch('/api/auth/picks-fills', {
@@ -36866,10 +36883,14 @@ ${renderExportBindings()}
         if (!res.ok){ accFills.markError = { id: mark.trade_id, msg: 'Not saved' + (res.j && res.j.error ? ': ' + res.j.error : '') + '.' }; return; }
         accFills.marks = (res.j && res.j.marks) || {};
         if (res.j && Array.isArray(res.j.rows)) accFills.rows = res.j.rows;
-        accFills.markPicking = null;
+        if (accFills.markPicking === mark.trade_id) accFills.markPicking = null;
       })
       .catch(function(){ accFills.markError = { id: mark.trade_id, msg: 'Not saved. Try again.' }; })
-      .then(function(){ accFills.markBusy = null; accFillsRerender(); });
+      .then(function(){
+        accFills.markBusy = null;
+        var next = accFills.markQueue && accFills.markQueue.shift();
+        if (next) accSaveMark(next); else accFillsRerender();
+      });
   }
   document.addEventListener('click', function(ev){
     var btn = ev.target && ev.target.closest ? ev.target.closest('[data-acc-mark]') : null;
@@ -44215,13 +44236,14 @@ ${renderExportBindings()}
   // came closest this run and the rule that stopped each (lib/no-picks.mjs).
   function picksNoPicksHtml(data){
     if (!data || data.loadError || data.stale === true) return '';
-    var nm = NO_PICKS.nearMisses(data, picksState.grades || null, { isReady: function(p){ return pickDisplayDecision(p).ready; } });
+    var gradesIdx = picksGradesState.data && !picksGradesState.data.loadError ? picksGradesState.data : null;
+    var nm = NO_PICKS.nearMisses(data, gradesIdx, { isReady: function(p){ return pickDisplayDecision(p).ready; } });
     if (nm.readyCount > 0) return '';
-    // Fewer than five reached the bar: fill from grades.json once (Owner tab).
-    if (nm.misses.length < 5 && !picksState.gradesTried){
+    // Fewer than five reached the bar: fill from the shared grade index (the
+    // same cached grades.json the grade search uses), once per page load.
+    if (nm.misses.length < 5 && !gradesIdx && !picksState.gradesTried){
       picksState.gradesTried = true;
-      fetch(dataUrl('grades.json'), { cache: 'no-cache' }).then(function(r){ return r.ok ? r.json() : null; })
-        .then(function(g){ if (g && g.grades){ picksState.grades = g; renderPicks(true); } }).catch(function(){});
+      loadGradesIndex(function(g){ if (g && g.grades && !g.loadError) renderPicks(true); });
     }
     if (!nm.misses.length) return '';
     var when = '';

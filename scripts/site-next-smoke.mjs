@@ -28,6 +28,7 @@ ok(/^Fri Nov 13, 11:30 ET$/.test(R.nextLabel("weekly", { dateKey: "2026-11-06", 
 eq(R.jobFor("track"), "picks", "Track Record follows the Top Picks runs");
 eq(R.jobFor("tickers"), "build", "unlisted pages follow the full build");
 eq(R.jobFor("privacy"), null, "reference pages have no schedule");
+eq(R.jobFor("glossary"), null, "the Glossary has no schedule");
 
 // --- Glossary --------------------------------------------------------------
 for (const [key, g] of Object.entries(GLOSSARY)) {
@@ -112,8 +113,9 @@ const alerts = A.build({
   oi: { scannedAt: "2026-11-06T13:30:00Z", tickers: [
     { symbol: "CCC", spot: 120, callWall: { strike: 120.5 }, putWall: { strike: 100 } },
     { symbol: "DDD", spot: 50, callWall: { strike: 60 }, putWall: { strike: 50 } } ] },
-  unusual: { scannedAt: "2026-11-06T16:00:00Z", tickers: [{ symbol: "CCC", contracts: [{ side: "call", strike: 130, expiryLabel: "Dec 18", premium: 2.4e6 }, { side: "put", strike: 110, premium: 1e5 }, { side: "call", strike: 125, premium: 3e5 }] }] },
+  unusual: { scannedAt: "2026-11-06T16:00:00Z", tickers: [{ symbol: "CCC", contracts: [{ side: "call", strike: 130, expSec: Date.UTC(2026, 11, 18) / 1000, premium: 2.4e6 }, { side: "put", strike: 110, premium: 1e5 }, { side: "call", strike: 125, premium: 3e5 }] }] },
   quotes: { DDD: { spot: 48.5 } },
+  now: Date.parse("2026-11-06T18:00:00Z"),
 });
 const kinds = alerts.map((x) => `${x.symbol}:${x.kind}:${x.dir}`);
 ok(kinds.includes("AAA:ma:up"), "a close back above the 50-day is a cross up");
@@ -124,6 +126,9 @@ ok(kinds.includes("CCC:flow:up"), "unusual trades today, mostly calls");
 ok(/biggest \$130 call Dec 18, \$2\.4M premium/.test(alerts.find((x) => x.kind === "flow").text), "the flow alert names the biggest trade");
 ok(kinds.includes("DDD:ma:down") && kinds.includes("DDD:wall:down"), "a live price below the 50-day and the put wall raises both");
 ok(alerts.find((x) => x.symbol === "DDD" && x.kind === "wall").live, "live prices are marked live");
+ok(/trades today/.test(alerts.find((x) => x.kind === "flow").text), "a scan from the same ET day says today");
+const lateFlow = A.build({ watch: ["CCC"], unusual: { scannedAt: "2026-11-05T20:00:00Z", tickers: [{ symbol: "CCC", contracts: [{ side: "put", strike: 110, premium: 1e5 }] }] }, now: Date.parse("2026-11-06T14:00:00Z") });
+ok(/trade on Nov 5 \(/.test(lateFlow[0].text) && !/today/.test(lateFlow[0].text), "yesterday's scan names its date instead of saying today");
 eq(A.build({ watch: [] }), [], "no watchlist, no alerts");
 
 // --- Calendar subscribe (.ics) ---------------------------------------------
@@ -196,6 +201,12 @@ eq(rc.topGate.gate, "ai-wait", "the rule that turned away the most this week");
 eq(rc.topGate.names, ["AMZN call", "GOOGL call"], "the names it turned away");
 const earn = rc.byEvent.find((b) => b.kind === "earnings");
 eq([earn.week.wins, earn.week.losses, earn.all.wins, earn.all.losses], [0, 1, 1, 1], "entry type split, this week and to date");
+const withArchive = WR.build({ ...acc, archive: [
+  { symbol: "ORCL", side: "call", entryDate: "2026-06-01T15:05:00Z", exitDate: "2026-06-05T15:05:00Z", optionPnlPct: 25, outcome: "win", status: "hit-tp-prem", eventPlay: { kind: "earnings" }, archived: true },
+  { ...acc.closed[3], archived: true },
+] }, { nowIso: "2026-11-06T22:00:00Z" });
+const earnAll = withArchive.byEvent.find((b) => b.kind === "earnings").all;
+eq([earnAll.wins, earnAll.losses], [2, 1], "archived trades count toward the to-date split, once each");
 ok(rc.current && rc.complete, "Friday evening: the current week, closed out");
 ok(!WR.build(acc, { nowIso: "2026-11-04T15:00:00Z" }).complete, "Wednesday: week in progress");
 const prior = WR.build(acc, { nowIso: "2026-11-06T22:00:00Z", weekOf: "2026-10-28" });

@@ -21445,7 +21445,10 @@ export function structuralVeto(r, side) {
 
 export const EARNINGS_WEEK_FILE = "earnings-week.json";
 export const EARNINGS_WEEK_PLAN_FILE = "earnings-week-plan.json";
-export async function writeEarningsWeekFiles(chains, grades, builtAtIso) {
+// openTrades: the Track Record's open rows read BEFORE the bake wipes data/
+// (picksAccuracyPrev.open in main()), since picks-accuracy.json is only
+// written back later in the run.
+export async function writeEarningsWeekFiles(chains, grades, builtAtIso, openTrades = []) {
   const todayIso = etDateKey(new Date(builtAtIso));
   const board = buildEarningsWeek(chains, {
     builtAtIso, todayIso,
@@ -21456,11 +21459,7 @@ export async function writeEarningsWeekFiles(chains, grades, builtAtIso) {
     isFund: (sym) => SECTORS[sym] === "ETF",
     sectorOf: (sym) => sectorGroupOf(sym) || SECTORS[sym] || null,
   });
-  let openSymbols = [];
-  try {
-    const acc = JSON.parse(await readFile(resolve(DATA_DIR, "picks-accuracy.json"), "utf8"));
-    openSymbols = (acc?.open || []).map((r) => r?.symbol).filter(Boolean);
-  } catch { /* no record yet */ }
+  const openSymbols = (Array.isArray(openTrades) ? openTrades : []).map((r) => r?.symbol).filter(Boolean);
   const plan = buildEarningsWeekPlan(board, chains, {
     grades, engineSeason: recentEarningsReactions(chains, builtAtIso),
     minConviction: grades?.tierCutoffs?.tradeCut ?? PICKS_MIN_CONVICTION, openSymbols,
@@ -38640,7 +38639,7 @@ async function main() {
   // season) and the Owner-only engine plan. Rebuilt every bake from data
   // already in hand; no AI and no new fetches. Non-fatal.
   try {
-    const info = await writeEarningsWeekFiles(chains, gradesIndex, builtAtIso);
+    const info = await writeEarningsWeekFiles(chains, gradesIndex, builtAtIso, picksAccuracyPrev?.open ?? []);
     console.log(`wrote data/${EARNINGS_WEEK_FILE} + ${EARNINGS_WEEK_PLAN_FILE} — ${info.rows} reports in the next ${EARNINGS_WEEK_DAYS} days, ${info.bytes} bytes`);
   } catch (err) {
     console.log(`  ⚠ Earnings-week step failed (non-fatal): ${err.message}`);

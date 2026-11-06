@@ -586,17 +586,38 @@ async function ownerWatchlist(req, res) {
   }
   try {
     const { store } = await import("../../lib/datastore.mjs");
-    const doc = readOwnerWatchlistDoc(await store.get(OWNER_WATCHLIST_KEY));
     const key = ownerWatchKey(session);
-    const mine = doc.users[key] || { symbols: [], updatedAt: null };
-    const current = ownerWatchlistFactory().clean(mine.symbols);
-    if (req.method === "GET") return res.status(200).json({ symbols: current, updatedAt: mine.updatedAt || null, icsToken: ownerIcsToken(key) });
-    const out = applyOwnerWatchlistRequest(current, req.body);
+    const readMine = async () => {
+      const doc = readOwnerWatchlistDoc(await store.get(OWNER_WATCHLIST_KEY));
+      const mine = doc.users[key] || { symbols: [], updatedAt: null };
+      return { doc, mine, current: ownerWatchlistFactory().clean(mine.symbols) };
+    };
+    if (req.method === "GET") {
+      const { mine, current } = await readMine();
+      return res.status(200).json({ symbols: current, updatedAt: mine.updatedAt || null, icsToken: ownerIcsToken(key) });
+    }
+    // Read, change and save under the store's lease so two devices (or two
+    // quick clicks) saving at once can't drop each other's change.
+    const save = async (guard) => {
+      const { doc, current } = await readMine();
+      const out = applyOwnerWatchlistRequest(current, req.body);
+      if (out.error) return out;
+      const updatedAt = new Date().toISOString();
+      doc.users[key] = { symbols: out.list, updatedAt };
+      if (guard) guard();
+      await store.put(OWNER_WATCHLIST_KEY, JSON.stringify(doc));
+      return { symbols: out.list, updatedAt };
+    };
+    let out;
+    if (store.backend === "r2" && typeof store.withLease === "function") {
+      let leased;
+      try { leased = await store.withLease("owner-watchlist", save); }
+      catch (err) { if (err?.code === "LEASE_CONFLICT") return res.status(409).json({ error: "busy, try again" }); throw err; }
+      if (leased?.busy) return res.status(409).json({ error: "busy, try again" });
+      out = leased.result;
+    } else out = await save(null);
     if (out.error) return res.status(400).json({ error: out.error });
-    const updatedAt = new Date().toISOString();
-    doc.users[key] = { symbols: out.list, updatedAt };
-    await store.put(OWNER_WATCHLIST_KEY, JSON.stringify(doc));
-    return res.status(200).json({ symbols: out.list, updatedAt });
+    return res.status(200).json(out);
   } catch (err) {
     console.error("owner watchlist failed", { message: String(err?.message || err) });
     return res.status(502).json({ error: "watchlist unavailable" });

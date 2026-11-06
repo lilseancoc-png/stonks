@@ -67,6 +67,7 @@ export function renderSiteNextCss() {
   border: 0; padding: 0; margin: 0; background: none; color: inherit; font: inherit; cursor: help;
   text-decoration: underline dotted color-mix(in srgb, var(--muted) 70%, transparent); text-underline-offset: 3px;
 }
+.gl-term-plain { cursor: help; text-decoration: underline dotted color-mix(in srgb, var(--muted) 70%, transparent); text-underline-offset: 3px; }
 .gl-pop {
   position: fixed; z-index: 1200; max-width: min(320px, calc(100vw - 32px)); padding: 10px 12px;
   border: 1px solid var(--border); border-radius: var(--r-2); background: var(--surface);

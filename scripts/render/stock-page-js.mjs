@@ -65,33 +65,47 @@ export function renderStockPageJs() {
     function readWatchBase(){
       try { var v = JSON.parse(localStorage.getItem(WATCH_BASE_KEY) || 'null'); return Array.isArray(v) ? v : null; } catch (_) { return null; }
     }
+    // POSTs go out one at a time and only the newest reply is adopted, so a
+    // slow reply to an older click can't drop a name added after it.
+    var watchQueue = Promise.resolve(), watchSeq = 0;
     function adoptWatch(j){
-      if (!j || !Array.isArray(j.symbols)){ watchSync.state = 'error'; repaintWatch(); return; }
+      if (!j || !Array.isArray(j.symbols)){ watchSync.state = 'error'; repaintWatch(false); return; }
       var list = OWNER_WATCH.clean(j.symbols);
       var changed = list.join(',') !== readWatch().join(',');
       writeWatch(list);
       try { localStorage.setItem(WATCH_BASE_KEY, JSON.stringify(list)); } catch (_) {}
       watchSync.state = 'synced'; watchSync.at = j.updatedAt || null;
       // The private calendar link for this Owner's saved list (GET only).
-      if (typeof j.icsToken === 'string' && j.icsToken) watchSync.icsToken = j.icsToken;
-      repaintWatch();
-      if (changed || j.icsToken) { try { document.dispatchEvent(new CustomEvent('stonks-watchlist-changed')); } catch (_) {} }
+      var newToken = typeof j.icsToken === 'string' && j.icsToken && j.icsToken !== watchSync.icsToken;
+      if (newToken) watchSync.icsToken = j.icsToken;
+      repaintWatch(changed || newToken);
     }
+    function watchFailed(){ watchSync.state = 'error'; repaintWatch(false); }
     function watchRequest(method, body){
       return fetch('/api/auth/owner-watchlist', method === 'GET' ? { cache: 'no-store', credentials: 'same-origin' } :
         { method: 'POST', cache: 'no-store', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
         .then(function(r){ return r.ok ? r.json() : null; });
     }
+    // Queue a request; its reply is adopted only if nothing newer was queued.
+    function queueWatch(run){
+      var seq = ++watchSeq;
+      watchQueue = watchQueue.then(run).then(function(j){ if (seq === watchSeq) adoptWatch(j); }, function(){ if (seq === watchSeq) watchFailed(); });
+      return watchQueue;
+    }
     function syncWatch(){
       if (!HAS_OWNER_ACCESS || watchSync.busy) return;
       watchSync.busy = true; watchSync.state = 'syncing';
-      watchRequest('GET').then(function(j){
-        if (!j || !Array.isArray(j.symbols)) return j;
-        var merged = OWNER_WATCH.merge(j.symbols, readWatch(), readWatchBase());
-        if (merged.join(',') === OWNER_WATCH.clean(j.symbols).join(',')) return j;
-        return watchRequest('POST', { op: 'sync', local: readWatch(), base: readWatchBase() });
-      }).then(adoptWatch, function(){ watchSync.state = 'error'; repaintWatch(); })
-        .then(function(){ watchSync.busy = false; });
+      queueWatch(function(){
+        return watchRequest('GET').then(function(j){
+          if (!j || !Array.isArray(j.symbols)) return j;
+          var merged = OWNER_WATCH.merge(j.symbols, readWatch(), readWatchBase());
+          if (merged.join(',') === OWNER_WATCH.clean(j.symbols).join(',')) return j;
+          return watchRequest('POST', { op: 'sync', local: readWatch(), base: readWatchBase() }).then(function(k){
+            if (k && !k.icsToken && j.icsToken) k.icsToken = j.icsToken;
+            return k;
+          });
+        });
+      }).then(function(){ watchSync.busy = false; });
     }
     function toggleWatch(sym){
       var list = readWatch();
@@ -100,7 +114,8 @@ export function renderStockPageJs() {
       writeWatch(list);
       if (HAS_OWNER_ACCESS){
         watchSync.state = 'syncing';
-        watchRequest('POST', { op: i < 0 ? 'add' : 'remove', symbol: sym }).then(adoptWatch, function(){ watchSync.state = 'error'; repaintWatch(); });
+        var body = { op: i < 0 ? 'add' : 'remove', symbol: sym };
+        queueWatch(function(){ return watchRequest('POST', body); });
       }
       try { document.dispatchEvent(new CustomEvent('stonks-watchlist-changed')); } catch (_) {}
       return i < 0;
@@ -114,7 +129,7 @@ export function renderStockPageJs() {
     }
     // Re-draw whatever shows the list: the picker's watchlist, the open
     // stock's Watch button, and listeners such as the Owner alerts on Home.
-    function repaintWatch(){
+    function repaintWatch(listChanged){
       var pane = document.getElementById('page-pane-stock');
       var root = document.getElementById('stock-root');
       var block = pane && !pane.hidden && root && !state.sym ? root.querySelector('[data-stp-watch-block]') : null;
@@ -124,7 +139,7 @@ export function renderStockPageJs() {
         var on = readWatch().indexOf(state.sym) >= 0;
         btn.classList.toggle('is-on', on); btn.setAttribute('aria-pressed', on ? 'true' : 'false'); btn.textContent = on ? '★ Watching' : '☆ Watch';
       }
-      try { document.dispatchEvent(new CustomEvent('stonks-watchlist-changed')); } catch (_) {}
+      if (listChanged) { try { document.dispatchEvent(new CustomEvent('stonks-watchlist-changed')); } catch (_) {} }
     }
     document.addEventListener('stonks-owner-ready', function(){ if (HAS_OWNER_ACCESS) syncWatch(); });
     // --- formatting --------------------------------------------------------
