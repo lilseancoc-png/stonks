@@ -185,7 +185,12 @@ export function renderSiteNextCss() {
 /* ---- Calendar subscribe --------------------------------------------------- */
 .ics-box { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 10px 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-2); background: var(--surface); }
 .ics-box p { margin: 0; flex: 1 1 260px; font: 400 13px/1.45 var(--font-sans); color: var(--muted-strong); }
-.ics-box .btn, .ics-box button { min-height: 34px; }
+.ics-box .ics-btn { display: inline-flex; align-items: center; min-height: 34px; padding: 4px 12px; border: 1px solid var(--border); border-radius: var(--r-2); background: transparent; color: var(--text); font: 600 13px/1 var(--font-sans); text-decoration: none; cursor: pointer; }
+.ics-box .ics-btn:hover { background: var(--surface-2); border-color: var(--border-strong); }
+.ics-box .ics-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.ics-box .ics-btn.is-primary { border-color: var(--accent); color: var(--accent); }
+.ics-box .ics-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.ics-box .ics-wait { color: var(--muted); }
 
 /* ---- Friday recap --------------------------------------------------------- */
 .recap-week { margin: 0 0 14px; padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--r-2); background: var(--surface); }

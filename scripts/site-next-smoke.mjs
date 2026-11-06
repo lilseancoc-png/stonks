@@ -6,6 +6,7 @@ import { refreshScheduleFactory } from "../lib/refresh-schedule.mjs";
 import { GLOSSARY } from "../lib/glossary.mjs";
 import { ownerWatchlistFactory, applyOwnerWatchlistRequest, readOwnerWatchlistDoc } from "../lib/owner-watchlist.mjs";
 import { watchlistAlertsFactory } from "../lib/watchlist-alerts.mjs";
+import { buildCalendarIcs, parseIcsSymbols } from "../lib/calendar-ics.mjs";
 import { buildEarningsWeek, buildEarningsWeekPlan, pastEarningsMoves, impliedVsHistory, seasonSoFar } from "../lib/earnings-week.mjs";
 
 let checks = 0;
@@ -121,5 +122,40 @@ ok(/biggest \$130 call Dec 18, \$2\.4M premium/.test(alerts.find((x) => x.kind =
 ok(kinds.includes("DDD:ma:down") && kinds.includes("DDD:wall:down"), "a live price below the 50-day and the put wall raises both");
 ok(alerts.find((x) => x.symbol === "DDD" && x.kind === "wall").live, "live prices are marked live");
 eq(A.build({ watch: [] }), [], "no watchlist, no alerts");
+
+// --- Calendar subscribe (.ics) ---------------------------------------------
+eq(parseIcsSymbols("aapl, MSFT,msft,<x>,BRK.B"), ["AAPL", "MSFT", "BRK.B"], "ics symbols are cleaned and deduped");
+const cal = {
+  events: [
+    { type: "earnings", symbol: "AAPL", date: "2026-11-10", session: "PM", impliedMovePct: 0.045, source: "Nasdaq" },
+    { type: "earnings", symbol: "TSLA", date: "2026-11-11", session: "AM" },
+    { type: "earnings", symbol: "AAPL", date: "2026-11-01", session: "PM" },
+    { type: "report", subtype: "cpi-headline", title: "Consumer Price Index (October)", date: "2026-11-12", time: "08:30 ET", source: "BLS" },
+    { type: "report", subtype: "core-cpi-mom", title: "Core CPI m/m", date: "2026-11-12", time: "08:30 ET" },
+    { type: "report", subtype: "nfp", title: "Employment Situation", date: "2026-11-06", time: "08:30 ET" },
+    { type: "report", subtype: "adp", title: "ADP employment", date: "2026-11-06" },
+    { type: "report", subtype: "ppi", title: "Producer Price Index", date: "2026-11-13" },
+    { type: "fomc", title: "FOMC decision", date: "2026-12-09", time: "14:00 ET" },
+  ],
+  fomc: { meetings: [{ date: "2026-12-09", label: "Dec 8-9" }, { date: "2027-01-27", label: "Jan 26-27" }, { date: "2026-10-28" }] },
+};
+const ics = buildCalendarIcs(cal, { symbols: ["AAPL"], nowIso: "2026-11-06T12:00:00Z", siteUrl: "https://mingstreet.app" });
+const unfolded = ics.replace(/\r\n /g, "");
+ok(ics.startsWith("BEGIN:VCALENDAR\r\n") && ics.endsWith("END:VCALENDAR\r\n"), "the feed is one VCALENDAR with CRLF lines");
+ok(ics.split("\r\n").every((line) => Buffer.byteLength(line, "utf8") <= 75), "every line folds at 75 octets");
+ok(unfolded.includes("UID:earnings-AAPL-2026-11-10@mingstreet.app"), "a watched name's earnings is in");
+ok(!unfolded.includes("TSLA"), "an unwatched name's earnings is left out");
+ok(!unfolded.includes("2026-11-01") && !unfolded.includes("20261101"), "past events are dropped");
+ok(unfolded.includes("SUMMARY:AAPL earnings (after the close)"), "the earnings title says when it reports");
+ok(unfolded.includes("about ±4.5%"), "the implied move rides along");
+eq((unfolded.match(/UID:cpi-2026-11-12@/g) || []).length, 1, "CPI headline and core are one event");
+ok(unfolded.includes("UID:jobs-2026-11-06@") && unfolded.includes("DTSTART;TZID=America/New_York:20261106T083000"), "the jobs report is 8:30 ET");
+ok(!/ADP|Producer/.test(unfolded), "ADP and PPI are not in the feed");
+eq((unfolded.match(/UID:fomc-2026-12-09@/g) || []).length, 1, "an FOMC date in both lists shows once");
+ok(unfolded.includes("UID:fomc-2027-01-27@") && unfolded.includes("DTEND;TZID=America/New_York:20270127T150000"), "FOMC past the event window comes from the meeting list, 2:00 to 3:00 PM ET");
+ok(unfolded.includes("BEGIN:VTIMEZONE") && unfolded.includes("TZID:America/New_York"), "the New York time zone is defined");
+ok(/DTSTART;VALUE=DATE:20261110\r\nDTEND;VALUE=DATE:20261111/.test(unfolded), "earnings are all-day events");
+ok(buildCalendarIcs({ events: [] }, { symbols: [], nowIso: "2026-11-06T12:00:00Z", name: "A, B; C" }).includes("X-WR-CALNAME:A\\, B\\; C"), "text is escaped");
+ok(!buildCalendarIcs(cal, { symbols: [], nowIso: "2026-11-06T12:00:00Z" }).includes("earnings-"), "no watchlist: macro dates only");
 
 console.log(`site-next smoke passed (${checks} checks)`);

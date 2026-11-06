@@ -604,6 +604,7 @@ function calendarSection() {
       </div>
       <button type="button" id="calendar-export-csv" class="csv-export-btn" title="Download visible events as CSV">Export CSV</button>
     </div>
+    <div class="ics-box" id="ics-box" hidden></div>
     <div id="calendar-coverage" class="calendar-coverage" hidden aria-live="polite"></div>
     <div id="calendar-root" class="calendar-root">Loading calendar…</div>
     <div id="calendar-empty" class="calendar-empty" hidden>No upcoming events.</div>

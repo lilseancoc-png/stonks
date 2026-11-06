@@ -4598,6 +4598,7 @@ ${renderExportBindings()}
       if (name === 'stock') STOCK_PAGE.load();
         if (name === 'news' && typeof loadNewsFeed === 'function') loadNewsFeed();
         if ((name === 'calendar' || name === 'bonds-usd') && typeof loadCalendar === 'function') loadCalendar();
+        if (name === 'calendar' && typeof renderIcsBox === 'function') renderIcsBox();
         if (name === 'index-cal' && typeof loadIndexCal === 'function') loadIndexCal();
         if (name === 'picks' && typeof loadPicks === 'function') loadPicks();
         if (name === 'leaps' && typeof loadLeaps === 'function') loadLeaps();
@@ -46951,6 +46952,46 @@ ${renderExportBindings()}
   }
   document.addEventListener('stonks-owner-ready', function(){ if (HAS_OWNER_ACCESS) loadWatchAlerts(); });
   document.addEventListener('stonks-watchlist-changed', function(){ if (HAS_OWNER_ACCESS && watchAlertsState.loaded) watchAlertQuotes().then(renderWatchAlerts); else renderWatchAlerts(); });
+  // Calendar subscribe (.ics): watchlist earnings plus the CPI and jobs
+  // reports and FOMC decisions (lib/calendar-ics.mjs, served by
+  // /api/auth/calendar-ics). Owners get a private link that reads their saved
+  // Owner watchlist; everyone else gets a link that lists this device's names.
+  function icsLink(){
+    var base = location.origin + '/api/auth/calendar-ics';
+    var tok = HAS_OWNER_ACCESS && STOCK_PAGE.icsToken ? STOCK_PAGE.icsToken() : null;
+    if (tok) return { url: base + '?o=' + encodeURIComponent(tok), owner: true, names: STOCK_PAGE.watchlist() };
+    var names = STOCK_PAGE.watchlist();
+    return { url: base + (names.length ? '?s=' + names.map(encodeURIComponent).join(',') : ''), owner: false, names: names };
+  }
+  function renderIcsBox(){
+    var box = document.getElementById('ics-box');
+    if (!box) return;
+    // The feed reads the private store, so it exists only when the store does.
+    if (!GATE_ON || IS_EMBED) { box.hidden = true; box.innerHTML = ''; return; }
+    var l = icsLink();
+    var waiting = HAS_OWNER_ACCESS && !l.owner;
+    var who = l.names.length ? l.names.length + ' watched stock' + (l.names.length === 1 ? '' : 's') : 'no watched stocks yet';
+    var text = l.owner
+      ? '<b>Add to your calendar.</b> Earnings for your saved watchlist (' + who + '), plus CPI, jobs reports and FOMC decisions. This private link follows your Owner watchlist, so names you add later show up on their own. Keep it to yourself.'
+      : '<b>Add to your calendar.</b> CPI, jobs reports and FOMC decisions' + (l.names.length ? ', plus earnings for the ' + who + ' on this device (' + escapeHtml(l.names.slice(0, 6).join(', ') + (l.names.length > 6 ? '…' : '')) + '). If you change your watchlist, add the calendar again.' : '. Add stocks with ☆ Watch on a stock page to include their earnings too.') +
+        (waiting ? ' <span class="ics-wait">Your private Owner link loads once your saved list syncs.</span>' : '');
+    var webcal = l.url.replace(/^https?:/, 'webcal:');
+    box.innerHTML = '<p>' + text + '</p><div class="ics-actions">' +
+      '<a class="ics-btn is-primary" href="' + escapeHtml(webcal) + '" data-ics-subscribe>Subscribe</a>' +
+      '<a class="ics-btn" href="' + escapeHtml(l.url + (l.url.indexOf('?') >= 0 ? '&' : '?') + 'dl=1') + '" download="mingstreet-calendar.ics">Download .ics</a>' +
+      '<button type="button" class="ics-btn" data-ics-copy data-url="' + escapeHtml(l.url) + '" title="Paste this link into Google Calendar (Other calendars, From URL) or Outlook">Copy link</button></div>';
+    box.hidden = false;
+  }
+  document.addEventListener('click', function(ev){
+    var b = ev.target && ev.target.closest ? ev.target.closest('[data-ics-copy]') : null;
+    if (!b) return;
+    var url = b.getAttribute('data-url') || '';
+    var done = function(ok){ b.textContent = ok ? 'Copied' : 'Copy failed'; setTimeout(function(){ b.textContent = 'Copy link'; }, 1800); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(url).then(function(){ done(true); }, function(){ done(false); });
+    else done(false);
+  });
+  document.addEventListener('stonks-owner-ready', renderIcsBox);
+  document.addEventListener('stonks-watchlist-changed', renderIcsBox);
   function loadHomeDesk(){
     if (!HAS_OWNER_ACCESS) { renderHomeDesk(); return; }
     renderHomeDesk();

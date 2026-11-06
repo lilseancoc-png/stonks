@@ -609,17 +609,21 @@ function recoveryEvidence(row, data, now = Date.now()) {
     // WATCH_BASE_KEY holds the list this device and the server last agreed on,
     // so a removal on another device sticks (lib/owner-watchlist.mjs merge).
     var WATCH_BASE_KEY = 'stonks-watch-base-v1';
-    var watchSync = { state: 'local', at: null, busy: false };
+    var watchSync = { state: 'local', at: null, busy: false, icsToken: null };
     function readWatchBase(){
       try { var v = JSON.parse(localStorage.getItem(WATCH_BASE_KEY) || 'null'); return Array.isArray(v) ? v : null; } catch (_) { return null; }
     }
     function adoptWatch(j){
       if (!j || !Array.isArray(j.symbols)){ watchSync.state = 'error'; repaintWatch(); return; }
       var list = OWNER_WATCH.clean(j.symbols);
+      var changed = list.join(',') !== readWatch().join(',');
       writeWatch(list);
       try { localStorage.setItem(WATCH_BASE_KEY, JSON.stringify(list)); } catch (_) {}
       watchSync.state = 'synced'; watchSync.at = j.updatedAt || null;
+      // The private calendar link for this Owner's saved list (GET only).
+      if (typeof j.icsToken === 'string' && j.icsToken) watchSync.icsToken = j.icsToken;
       repaintWatch();
+      if (changed || j.icsToken) { try { document.dispatchEvent(new CustomEvent('stonks-watchlist-changed')); } catch (_) {} }
     }
     function watchRequest(method, body){
       return fetch('/api/auth/owner-watchlist', method === 'GET' ? { cache: 'no-store', credentials: 'same-origin' } :
@@ -1402,7 +1406,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
       if (s !== state.sym){ state.sym = s; if (!wantGrade && state.tab === 'grade') state.tab = 'overview'; load(); }
       else if (wantGrade !== (state.tab === 'grade')){ state.tab = wantGrade ? 'grade' : 'overview'; load(); }
     });
-    return { open: open, load: load, showTab: showTab, follow: follow, names: names, nameOf: nameOf, watchlist: readWatch, watchNoteHtml: watchNoteHtml, href: function(sym){ return '?tab=stock&s=' + encodeURIComponent(String(sym || '').toUpperCase()); } };
+    return { open: open, load: load, showTab: showTab, follow: follow, names: names, nameOf: nameOf, watchlist: readWatch, watchNoteHtml: watchNoteHtml, icsToken: function(){ return HAS_OWNER_ACCESS ? watchSync.icsToken : null; }, href: function(sym){ return '?tab=stock&s=' + encodeURIComponent(String(sym || '').toUpperCase()); } };
   })();
 
 
@@ -9420,6 +9424,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       if (name === 'stock') STOCK_PAGE.load();
         if (name === 'news' && typeof loadNewsFeed === 'function') loadNewsFeed();
         if ((name === 'calendar' || name === 'bonds-usd') && typeof loadCalendar === 'function') loadCalendar();
+        if (name === 'calendar' && typeof renderIcsBox === 'function') renderIcsBox();
         if (name === 'index-cal' && typeof loadIndexCal === 'function') loadIndexCal();
         if (name === 'picks' && typeof loadPicks === 'function') loadPicks();
         if (name === 'leaps' && typeof loadLeaps === 'function') loadLeaps();
@@ -57836,6 +57841,46 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
   document.addEventListener('stonks-owner-ready', function(){ if (HAS_OWNER_ACCESS) loadWatchAlerts(); });
   document.addEventListener('stonks-watchlist-changed', function(){ if (HAS_OWNER_ACCESS && watchAlertsState.loaded) watchAlertQuotes().then(renderWatchAlerts); else renderWatchAlerts(); });
+  // Calendar subscribe (.ics): watchlist earnings plus the CPI and jobs
+  // reports and FOMC decisions (lib/calendar-ics.mjs, served by
+  // /api/auth/calendar-ics). Owners get a private link that reads their saved
+  // Owner watchlist; everyone else gets a link that lists this device's names.
+  function icsLink(){
+    var base = location.origin + '/api/auth/calendar-ics';
+    var tok = HAS_OWNER_ACCESS && STOCK_PAGE.icsToken ? STOCK_PAGE.icsToken() : null;
+    if (tok) return { url: base + '?o=' + encodeURIComponent(tok), owner: true, names: STOCK_PAGE.watchlist() };
+    var names = STOCK_PAGE.watchlist();
+    return { url: base + (names.length ? '?s=' + names.map(encodeURIComponent).join(',') : ''), owner: false, names: names };
+  }
+  function renderIcsBox(){
+    var box = document.getElementById('ics-box');
+    if (!box) return;
+    // The feed reads the private store, so it exists only when the store does.
+    if (!GATE_ON || IS_EMBED) { box.hidden = true; box.innerHTML = ''; return; }
+    var l = icsLink();
+    var waiting = HAS_OWNER_ACCESS && !l.owner;
+    var who = l.names.length ? l.names.length + ' watched stock' + (l.names.length === 1 ? '' : 's') : 'no watched stocks yet';
+    var text = l.owner
+      ? '<b>Add to your calendar.</b> Earnings for your saved watchlist (' + who + '), plus CPI, jobs reports and FOMC decisions. This private link follows your Owner watchlist, so names you add later show up on their own. Keep it to yourself.'
+      : '<b>Add to your calendar.</b> CPI, jobs reports and FOMC decisions' + (l.names.length ? ', plus earnings for the ' + who + ' on this device (' + escapeHtml(l.names.slice(0, 6).join(', ') + (l.names.length > 6 ? '…' : '')) + '). If you change your watchlist, add the calendar again.' : '. Add stocks with ☆ Watch on a stock page to include their earnings too.') +
+        (waiting ? ' <span class="ics-wait">Your private Owner link loads once your saved list syncs.</span>' : '');
+    var webcal = l.url.replace(/^https?:/, 'webcal:');
+    box.innerHTML = '<p>' + text + '</p><div class="ics-actions">' +
+      '<a class="ics-btn is-primary" href="' + escapeHtml(webcal) + '" data-ics-subscribe>Subscribe</a>' +
+      '<a class="ics-btn" href="' + escapeHtml(l.url + (l.url.indexOf('?') >= 0 ? '&' : '?') + 'dl=1') + '" download="mingstreet-calendar.ics">Download .ics</a>' +
+      '<button type="button" class="ics-btn" data-ics-copy data-url="' + escapeHtml(l.url) + '" title="Paste this link into Google Calendar (Other calendars, From URL) or Outlook">Copy link</button></div>';
+    box.hidden = false;
+  }
+  document.addEventListener('click', function(ev){
+    var b = ev.target && ev.target.closest ? ev.target.closest('[data-ics-copy]') : null;
+    if (!b) return;
+    var url = b.getAttribute('data-url') || '';
+    var done = function(ok){ b.textContent = ok ? 'Copied' : 'Copy failed'; setTimeout(function(){ b.textContent = 'Copy link'; }, 1800); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(url).then(function(){ done(true); }, function(){ done(false); });
+    else done(false);
+  });
+  document.addEventListener('stonks-owner-ready', renderIcsBox);
+  document.addEventListener('stonks-watchlist-changed', renderIcsBox);
   function loadHomeDesk(){
     if (!HAS_OWNER_ACCESS) { renderHomeDesk(); return; }
     renderHomeDesk();

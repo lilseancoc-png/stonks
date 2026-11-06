@@ -61,17 +61,21 @@ export function renderStockPageJs() {
     // WATCH_BASE_KEY holds the list this device and the server last agreed on,
     // so a removal on another device sticks (lib/owner-watchlist.mjs merge).
     var WATCH_BASE_KEY = 'stonks-watch-base-v1';
-    var watchSync = { state: 'local', at: null, busy: false };
+    var watchSync = { state: 'local', at: null, busy: false, icsToken: null };
     function readWatchBase(){
       try { var v = JSON.parse(localStorage.getItem(WATCH_BASE_KEY) || 'null'); return Array.isArray(v) ? v : null; } catch (_) { return null; }
     }
     function adoptWatch(j){
       if (!j || !Array.isArray(j.symbols)){ watchSync.state = 'error'; repaintWatch(); return; }
       var list = OWNER_WATCH.clean(j.symbols);
+      var changed = list.join(',') !== readWatch().join(',');
       writeWatch(list);
       try { localStorage.setItem(WATCH_BASE_KEY, JSON.stringify(list)); } catch (_) {}
       watchSync.state = 'synced'; watchSync.at = j.updatedAt || null;
+      // The private calendar link for this Owner's saved list (GET only).
+      if (typeof j.icsToken === 'string' && j.icsToken) watchSync.icsToken = j.icsToken;
       repaintWatch();
+      if (changed || j.icsToken) { try { document.dispatchEvent(new CustomEvent('stonks-watchlist-changed')); } catch (_) {} }
     }
     function watchRequest(method, body){
       return fetch('/api/auth/owner-watchlist', method === 'GET' ? { cache: 'no-store', credentials: 'same-origin' } :
@@ -854,7 +858,7 @@ export function renderStockPageJs() {
       if (s !== state.sym){ state.sym = s; if (!wantGrade && state.tab === 'grade') state.tab = 'overview'; load(); }
       else if (wantGrade !== (state.tab === 'grade')){ state.tab = wantGrade ? 'grade' : 'overview'; load(); }
     });
-    return { open: open, load: load, showTab: showTab, follow: follow, names: names, nameOf: nameOf, watchlist: readWatch, watchNoteHtml: watchNoteHtml, href: function(sym){ return '?tab=stock&s=' + encodeURIComponent(String(sym || '').toUpperCase()); } };
+    return { open: open, load: load, showTab: showTab, follow: follow, names: names, nameOf: nameOf, watchlist: readWatch, watchNoteHtml: watchNoteHtml, icsToken: function(){ return HAS_OWNER_ACCESS ? watchSync.icsToken : null; }, href: function(sym){ return '?tab=stock&s=' + encodeURIComponent(String(sym || '').toUpperCase()); } };
   })();
 `;
 }
