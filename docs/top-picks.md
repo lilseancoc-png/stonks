@@ -10,9 +10,11 @@ described in this reference. No other research desk adopts this new policy.
 
 The canonical spec for how a name becomes a **Top Pick**. The engine is a clean
 rebuild (it replaced a 263-knob, four-document tangle of nine self-contradicting
-reworks). It lives entirely in the `// TOP PICKS ENGINE` block of
+reworks). It lives in the `// TOP PICKS ENGINE` block of
 [`scripts/build.mjs`](../scripts/build.mjs); every threshold below is a named
-constant there. **If the code and this doc disagree, the code wins — fix the doc.**
+constant in [`lib/top-picks-config.mjs`](../lib/top-picks-config.mjs) (moved
+there 2026-11-06 with no change in values) or, for the sector / factor /
+same-run caps, [`lib/top-picks-caps.mjs`](../lib/top-picks-caps.mjs). **If the code and this doc disagree, the code wins — fix the doc.**
 
 > **Scope.** "Top Picks" = the ≤6 *actionable* trades the engine will put on
 > today (`picks.json`). It is **not** the grade-any-ticker search (`grades.json`,
@@ -1085,8 +1087,8 @@ as the fallback grade, so the engine still grades, gates, and ships a full card.
 
 ## 10. The constants you'll reach for
 
-Existing knobs live in the `// TOP PICKS ENGINE` constant block at the top of
-the engine. Rows without a code-style knob name are required controls whose
+Existing knobs live in `lib/top-picks-config.mjs` (the caps in
+`lib/top-picks-caps.mjs`); `build.mjs` imports them. Rows without a code-style knob name are required controls whose
 implementation must expose the stated value and audit fields:
 
 | Knob | Default | Effect |
@@ -1172,7 +1174,7 @@ reset/stamps. To regenerate from a hydrated `data/`, first run
 
 ## 12. Pointers
 
-- Engine: the `// TOP PICKS ENGINE` block in `scripts/build.mjs`.
+- Engine: the `// TOP PICKS ENGINE` block in `scripts/build.mjs`; settings in `lib/top-picks-config.mjs`, caps in `lib/top-picks-caps.mjs`.
 - Offline rebuild: `scripts/regen-picks.mjs`. Smoke test: `scripts/picks-smoke.mjs`.
 - Browser render: `loadPicks`/`renderPicks` + the grade-search + Track-record
   views in `scripts/render/app-js.mjs` (read `picks.json` / `grades.json` /

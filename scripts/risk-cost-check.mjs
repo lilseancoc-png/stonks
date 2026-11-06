@@ -22,13 +22,17 @@ const root=fileURLToPath(new URL('..',import.meta.url));
 const git=(...args)=>execFileSync('git',args,{cwd:root,encoding:'utf8',maxBuffer:32*1024*1024,stdio:['ignore','pipe','pipe']}).trim();
 const tryGit=(...args)=>{ try { return git(...args); } catch { return null; } };
 const ref=process.argv[2]||tryGit('merge-base','HEAD','origin/main')||tryGit('rev-parse','origin/main');
-const original=ref?tryGit('show',ref+':scripts/build.mjs'):null;
+// Top Picks settings moved to lib/top-picks-config.mjs (2026-11-06); read both
+// files so the budget constants and call counts cover the same code either side.
+const PRODUCER_FILES=['scripts/build.mjs','lib/top-picks-config.mjs'];
+const originalParts=ref?PRODUCER_FILES.map(f=>tryGit('show',ref+':'+f)):[null];
+const original=originalParts[0]==null?null:originalParts.filter(x=>x!=null).join('\n');
 if(original==null){
   console.log(JSON.stringify({skipped:true,reason:'Baseline '+(ref||'origin/main')+' is not in this clone (shallow checkout). Fetch it, or pass a ref, to run the cost check.'}));
   process.exit(0);
 }
-const working=await readFile(resolve(root,'scripts/build.mjs'),'utf8');
-const constant=(source,name)=>source.split('\n').find(line=>new RegExp('^(export )?const '+name+'\\b').test(line));
+const working=(await Promise.all(PRODUCER_FILES.map(f=>readFile(resolve(root,f),'utf8').catch(()=>'')))).join('\n');
+const constant=(source,name)=>{const line=source.split('\n').find(line=>new RegExp('^(export )?const '+name+'\\b').test(line));return line&&line.replace(/^export /,'');};
 for(const name of ['PICKS_MAX_AI_THESES','AI_THESIS_MODEL','THESIS_CACHE_MAX_AGE_MS','PICKS_MIN_DTE','PICKS_MAX_DTE']){
   assert(constant(original,name),'baseline constant required: '+name);
   assert.equal(constant(working,name),constant(original,name),name+' must retain its existing budget / data window');
