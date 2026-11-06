@@ -39,6 +39,12 @@ historical-line service. A missing `PROPLINE_API_KEY` produces a setup state.
 unambiguous normalized player name **on one of those teams**. It uses the
 player's current team stint, requires eight usable played games, and ranks
 only games not yet started. History stops before the target game's date.
+NFL Rams lines and injury reports normalize to nflverse's `la` team id.
+Provider kickoff times are checked on cache hits, at ranking and again when
+recording; the earlier known kickoff closes a selection and expires its UI.
+Exact ESPN athlete ids take precedence over similar names in injury reports.
+An explicit clearance such as "no minutes restriction" does not exclude an
+available player; actual restrictions still do.
 
 Each candidate uses a sample-discounted last-20 hit rate; where a fresh
 fitted model covers the stat, the rank combines that history with the model's
@@ -62,6 +68,10 @@ has not been validated against historical PrizePicks lines. The individual
 picks are not a priced same-game entry: Add to Pick Builder copies the
 player, game, stat, side and line, leaving chance and payout for that page's
 normal evaluation. No paper entry is saved automatically.
+Ranking version `props-rank-2` fixes NFL workload selection: receiving props
+use targets, rushing props use carries, passing props use pass attempts, and
+combined yardage uses the relevant combined opportunities. Existing issued
+picks retain their original version and analysis.
 
 Offline checks: `npm run test:sports-props` (also part of `test:sports`).
 
@@ -104,9 +114,19 @@ These are stat results, not operator-specific reboot/payout settlements.
 Win rate excludes push, void and pending rows. Results are broken down by
 stat; the JSON also includes model/history-only and rank-band breakdowns,
 plus Brier scores only for saved **model probabilities**, never for rank
-scores. The latest 100 picks show in the table; **Download all research
-data** (`download=1`) includes all picks in the loaded seasons with original
-evidence and current results. Both reads/export retain the Owner gate.
+scores. The latest 100 picks show in the table (fewer if a response's byte
+limit is reached). **Download all research data** assembles every pick in the
+loaded seasons in the browser from bounded authenticated pages, preserving
+full original evidence and current results. Each server reply holds at most
+250 picks and about 1 MB of record data, below Vercel's response limit.
+
+Programmatic readers use `download=1&offset=...` and follow `next_offset`;
+the first response provides `as_of` and `snapshot`, which every subsequent
+page must send unchanged. Newer issues are excluded from that snapshot. A
+late historical write or changed final stat returns 409 and asks for a fresh
+download; the browser never offers a partial or mixed research file. Both
+reads/export retain the Owner gate. Slower older view responses cannot
+replace newer settled results.
 The results are a research substrate; no automatic retuning runs on them.
 
 ## Pages

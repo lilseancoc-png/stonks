@@ -36,7 +36,8 @@ export function sportsFactory(host, doc, options) {
   const num = (v) => (v == null ? '—' : escape(String(v)));
   const league = (lg) => state.leagues[lg] || (state.leagues[lg] = {
     board: null, boardErr: null, game: null, gameId: null, gameErr: null, results: null, query: '', player: null, playerId: null, playerErr: null,
-    props: null, propsErr: null, propsSeq: 0, boardSeq: 0, propsPending: false, propsTimer: null, propsMsg: '', record: null, recordErr: null,
+    props: null, propsErr: null, propsSeq: 0, boardSeq: 0, propsPending: false, propsTimer: null, propsMsg: '', record: null, recordErr: null, recordSeq: 0,
+    recordExportPending: false, recordExportErr: null,
     view: 'games', gameStat: '', logAll: false, logSet: 'main',
     chart: { stat: null, n: 10, kind: 'bars', line: '' },
     leaders: { data: null, err: null, key: null, cache: {}, season: null, window: 'season', sort: null, dir: 'desc', team: '', group: '', min: null, all: false, mode: 'table', set: 'main' },
@@ -896,14 +897,37 @@ export function sportsFactory(host, doc, options) {
       '<p>Issued ' + escape(fmtWhen(p.issued_utc, zone())) + ' · line observed ' + escape(fmtWhen(p.observed_utc, zone())) + '</p>' + p.evidence.map((e) => '<p><b>' + escape(e.label) + ':</b> ' + escape(e.text) + '</p>').join('') + '</details></td></tr>').join('');
     const breakdown = Object.entries(R.by_stat).map(([st, s]) => '<tr><td>' + escape(label(st)) + '</td><td class="sp-n">' + s.wins + '</td><td class="sp-n">' + s.losses + '</td><td class="sp-n">' + (s.win_rate == null ? '—' : (s.win_rate * 100).toFixed(1) + '%') + '</td></tr>').join('');
     return '<section class="sp-prop-record"><h3>Prop track record</h3><dl class="sp-facts">' + metrics.map(([k, v]) => '<div><dt>' + escape(k) + '</dt><dd>' + escape(v) + '</dd></div>').join('') + '</dl>' +
-      '<p class="sp-note">' + escape(R.note) + '</p><p><button type="button" class="sp-link" data-sp-record-refresh>Refresh results</button> · <a class="sp-link" href="/api/auth/me?sports=props-record&sport=' + lg + '&download=1">Download all research data (JSON)</a></p>' +
+      '<p class="sp-note">' + escape(R.note) + '</p><p><button type="button" class="sp-link" data-sp-record-refresh>Refresh results</button> · <button type="button" class="sp-link" data-sp-record-export' + (L.recordExportPending ? ' disabled' : '') + '>' + (L.recordExportPending ? 'Preparing download…' : 'Download all research data (JSON)') + '</button></p>' +
+      (L.recordExportErr ? '<p class="sp-note" role="alert">' + escape(L.recordExportErr) + '</p>' : '') +
       (rows ? '<div class="sp-table-wrap"><table class="sp-table"><thead><tr><th>Game time</th><th>Original pick</th><th>Actual</th><th>Result</th><th>Rank</th><th>Evidence</th></tr></thead><tbody>' + rows + '</tbody></table></div><p class="sp-note">Showing ' + R.records.length + ' of ' + R.total + ' saved props. The download includes every saved line, analysis and current result.</p>' : emptyBox('No issued props yet.', 'The next successful pregame scan records each game’s first pair automatically.')) +
       (breakdown ? '<h4>Results by stat</h4><div class="sp-table-wrap"><table class="sp-table"><thead><tr><th>Stat</th><th>Wins</th><th>Busts</th><th>Win rate</th></tr></thead><tbody>' + breakdown + '</tbody></table></div>' : '') +
       '<p class="sp-note">Model-only Brier score (lower is better): ' + (S.model_check.brier == null ? 'not enough resolved modeled picks' : S.model_check.brier.toFixed(3) + ' across ' + S.model_check.samples + ' picks') + '. Rank scores are not treated as probabilities. Results update when the daily data job stores final box scores.</p></section>';
   }
   function loadPropRecord(page, lg) {
-    const L = league(lg); L.recordErr = null;
-    api('props-record', { sport: lg }).then((data) => { L.record = data; }, (err) => { L.recordErr = err; }).then(() => { if (state.page === page && L.view === 'record') paint(page, 'view', viewHtml(lg)); });
+    const L = league(lg), seq = ++L.recordSeq; L.recordErr = null;
+    api('props-record', { sport: lg }).then((data) => { if (seq === L.recordSeq) L.record = data; }, (err) => { if (seq === L.recordSeq) L.recordErr = err; }).then(() => { if (seq === L.recordSeq && state.page === page && L.view === 'record') paint(page, 'view', viewHtml(lg)); });
+  }
+  async function exportPropRecord(page, lg) {
+    const L = league(lg);
+    if (L.recordExportPending) return;
+    const repaint = () => { if (state.page === page && L.view === 'record') paint(page, 'view', viewHtml(lg)); };
+    L.recordExportPending = true; L.recordExportErr = null; repaint();
+    try {
+      const records = []; let offset = 0, first = null;
+      do {
+        const data = await api('props-record', { sport: lg, download: '1', offset, as_of: first?.as_of, snapshot: first?.snapshot });
+        if (!first) first = data;
+        if (!Array.isArray(data.records) || data.offset !== offset || data.snapshot !== first.snapshot || data.total !== first.total || data.next_offset != null && !(data.next_offset > offset)) throw new Error('Incomplete prop record');
+        records.push(...data.records); offset = data.next_offset;
+        if (records.length > first.total || records.length > 10000) throw new Error('Unexpected prop record size');
+      } while (offset != null);
+      if (records.length !== first.total || !options.owner()) throw new Error('Incomplete prop record');
+      const { offset: _offset, page_size: _size, next_offset: _next, ...metadata } = first;
+      const url = host.URL.createObjectURL(new host.Blob([JSON.stringify({ ...metadata, exported_utc: new Date().toISOString(), records }, null, 2)], { type: 'application/json' }));
+      const a = doc.createElement('a'); a.href = url; a.download = lg + '-prop-record.json'; a.click();
+      host.setTimeout(() => host.URL.revokeObjectURL(url), 1000);
+    } catch (err) { L.recordExportErr = err.detail || 'The full prop record could not be downloaded. Please try again.'; }
+    finally { L.recordExportPending = false; repaint(); }
   }
 
   function leagueHtml(s, lg) {
@@ -1569,6 +1593,7 @@ export function sportsFactory(host, doc, options) {
   function leagueClick(page, lg, t) {
     const L = league(lg), Q = L.leaders, T = L.teams;
     let b;
+    if (t.closest('[data-sp-record-export]')) { exportPropRecord(page, lg); return true; }
     if (t.closest('[data-sp-record-refresh]')) { loadPropRecord(page, lg); return true; }
     if (t.closest('[data-sp-props-refresh]')) { loadBoard(page, lg); return true; }
     if ((b = t.closest('[data-sp-prop-add]'))) {
@@ -1576,7 +1601,7 @@ export function sportsFactory(host, doc, options) {
       const game = L.board?.games.find((g) => g.game_id === gameId);
       const p = P?.games.find((g) => g.game_id === gameId)?.picks[Number(b.getAttribute('data-sp-prop-index'))];
       const d = draft();
-      if (!p || !game || Date.parse(game.start_utc) <= Date.now() || Date.parse(P.expires_utc) <= Date.now()) { L.propsMsg = 'This pick expired. Refresh the lines before adding it.'; }
+      if (!p || !game || game.status !== 'scheduled' || game.time_tbd || Date.parse(game.start_utc) <= Date.now() || Date.parse(p.start_utc) <= Date.now() || Date.parse(P.expires_utc) <= Date.now()) { L.propsMsg = 'This pick expired. Refresh the lines before adding it.'; }
       else if (d.legs.length >= MAX_PICKS) L.propsMsg = 'The entry already has 6 picks.';
       else if (d.legs.some((l) => l.sport === lg && l.player_id === p.player_id && l.stat === p.stat)) L.propsMsg = 'That player and stat is already in the entry.';
       else {
