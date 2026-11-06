@@ -8,7 +8,7 @@ import { handleSportsRequest } from '../lib/sports/http.mjs';
 import { sportsKey } from '../lib/sports/store.mjs';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const root = resolve(new URL('..', import.meta.url).pathname), now = Date.parse('2026-11-05T18:00Z');
-const at = new Date(now).toISOString();
+const at = new Date(now).toISOString(); let serverNow = now;
 const game = { game_id: 'g1', season: 2026, local_date: '2026-11-05', start_utc: '2026-11-05T23:00Z', home_team: 'lal', away_team: 'gs', status: 'scheduled' };
 const players = ['One', 'Two', 'Out'].map((n, i) => ({ sport: 'nba', player_id: 'p' + i, name: 'Fixture ' + n, position: 'G', team: 'lal', provider_ids: { espn: String(i + 1) } }));
 const rows = players.flatMap((p) => Array.from({ length: 20 }, (_, i) => ({ player_id: p.player_id, game_id: 'old' + i, sport: 'nba', season: 2026,
@@ -28,7 +28,7 @@ const server = createServer(async (req, res) => {
   res.status = (s) => { res.statusCode = s; return res; }; res.json = (b) => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(b)); };
   if (url.pathname === '/api/auth/me') {
     req.query = Object.fromEntries(url.searchParams);
-    if (req.query.sports) return handleSportsRequest(req, res, { store, now: () => now, env: { PRIVATE_DATA_ENABLED: '1' }, getSession: async () => ({ sub: 'fixture-owner', tr: true, tp: true }), loadPropSources: sources });
+    if (req.query.sports) return handleSportsRequest(req, res, { store, now: () => serverNow, env: { PRIVATE_DATA_ENABLED: '1' }, getSession: async () => ({ sub: 'fixture-owner', tr: true, tp: true }), loadPropSources: sources });
     return res.json({ enabled: true, authed: true, trackRecord: true, topPicks: true, user: { name: 'Fixture Owner' } });
   }
   if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/data/')) return res.json({});
@@ -78,8 +78,18 @@ try {
     put('games', { games: [game] }, { season: 2026 }); put('player-games', { rows }, { season: 2026 });
   }
   const context = await browser.newContext(), page = await context.newPage();
-  await page.clock.install({ time: now }); feedState = 'rate_limited';
+  await page.clock.install({ time: now });
   await page.route('**/*', (route) => new URL(route.request().url()).origin === base ? route.continue() : route.fulfill({ body: '' }));
+  await page.goto(base + '/?tab=sports-nba'); await page.locator('.sp-prop').first().waitFor();
+  await page.evaluate(() => Object.defineProperty(document, 'hidden', { configurable: true, value: true }));
+  const beforeHidden = sourceCalls;
+  await page.clock.fastForward(121000);
+  assert.equal(sourceCalls, beforeHidden, 'hidden page stops line polling');
+  serverNow = now + 121000;
+  await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, value: false }); document.dispatchEvent(new Event('visibilitychange')); });
+  await page.waitForFunction(() => document.querySelector('.sp-props-status')?.textContent.includes('10:02'));
+  assert.ok(sourceCalls > beforeHidden, 'returning to a hidden tab resumes the scan');
+  serverNow = now; feedState = 'rate_limited';
   await page.goto(base + '/?tab=sports-nba'); await page.getByText('Fixture feed unavailable').first().waitFor();
   assert.equal(await page.locator('.sp-prop').count(), 0, 'outage never displays cached recommendations');
   assert.equal(JSON.parse(objects.get(sportsKey('prop-record', { sport: 'nba', season: 2026 }))).picks.length, 2, 'outage does not erase record');

@@ -33954,6 +33954,15 @@ function scenarioEventPhase(ev, now = Date.now()) {
     }, () => render(page));
   }
 
+  // A hidden tab stops its timer. Returning to it must restart the live
+  // scan (or refresh settled results) even without a navigation click.
+  doc.addEventListener('visibilitychange', () => {
+    const page = state.page, lg = leagueOf(page), pane = doc.getElementById('page-pane-' + page);
+    if (doc.hidden || !lg || !pane || pane.hidden || !options.owner()) return;
+    const L = league(lg);
+    if (L.view === 'record') loadPropRecord(page, lg);
+    else if (L.view === 'games' && !L.propsPending) { loadBoard(page, lg); paint(page, 'board', boardHtml(lg)); }
+  });
   return { load };
 })(window, document, {
     owner: function(){ return HAS_OWNER_ACCESS; },
