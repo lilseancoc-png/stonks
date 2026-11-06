@@ -42,7 +42,10 @@ import { renderRecoveryHelpers } from './recovery-js.mjs';
 import { viewsFactory } from './views-client.mjs';
 import { renderChartKitJs } from './chart-kit-js.mjs';
 import { renderStockPageJs } from './stock-page-js.mjs';
+import { renderEarningsWeekJs } from './earnings-week-client.mjs';
 import { ivRichnessFactory } from '../../lib/iv-richness.mjs';
+import { refreshScheduleFactory } from '../../lib/refresh-schedule.mjs';
+import { GLOSSARY } from '../../lib/glossary.mjs';
 import { overnightToneFactory } from '../../lib/overnight-tone.mjs';
 import { sectorGroupsFactory } from '../../lib/sector-groups.mjs';
 import { currentNewsSentiment, newsDateIsCurrent, validNewsFeedPayload } from '../../lib/news-policy.mjs';
@@ -74,6 +77,7 @@ ${renderSplitViewHelpers()}
 ${renderRecoveryHelpers()}
 ${renderChartKitJs()}
 ${renderStockPageJs()}
+${renderEarningsWeekJs()}
 ${calendarSourceLabel.toString()}
 ${calendarScheduleFallbackUsable.toString()}
 ${calendarHealth.toString()}
@@ -89,6 +93,8 @@ ${validNewsFeedPayload.toString()}
   // One "are the options expensive?" rule (source: lib/iv-richness.mjs), the
   // same one the grade, Top Picks and Trending IV use at bake time.
   var IV_RICHNESS = (${ivRichnessFactory.toString()})();
+  var REFRESH_SCHEDULE = (${refreshScheduleFactory.toString()})();
+  var GLOSSARY = ${JSON.stringify(GLOSSARY)};
   // One overnight risk-on/off scorer (source: lib/overnight-tone.mjs), the same
   // one the bake uses for the saved pre-open call and the Top Picks tape axis.
   var OVERNIGHT = (${overnightToneFactory.toString()})();
@@ -354,6 +360,56 @@ ${scenarioEventPhase.toString()}
       return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[ch];
     });
   }
+  // ---------------------------------------------------------------------
+  // Tap-to-define (lib/glossary.mjs). glTerm(key, text) marks a word; a tap,
+  // click or Enter opens its meaning. Not for sortable table headers (a click
+  // there sorts): those keep a plain name and a title.
+  function glTerm(key, text){
+    var g = GLOSSARY[key];
+    var label = text == null ? (g ? g.term : key) : text;
+    if (!g) return escapeHtml(label);
+    return '<button type="button" class="gl-term" data-gl="' + escapeHtml(key) + '" aria-haspopup="dialog" title="' + escapeHtml(g.def) + '">' + escapeHtml(label) + '</button>';
+  }
+  (function initGlossary(){
+    var pop = null, owner = null;
+    function close(){
+      if (pop && pop.parentNode) pop.parentNode.removeChild(pop);
+      if (owner) owner.setAttribute('aria-expanded', 'false');
+      pop = null; owner = null;
+    }
+    function open(btn){
+      var key = btn.getAttribute('data-gl'), g = GLOSSARY[key];
+      if (!g) return;
+      if (owner === btn){ close(); return; }
+      close();
+      pop = document.createElement('div');
+      pop.className = 'gl-pop';
+      pop.setAttribute('role', 'dialog');
+      pop.setAttribute('aria-label', g.term);
+      pop.innerHTML = '<b>' + escapeHtml(g.term) + '</b>' + escapeHtml(g.def) +
+        '<br><a href="?tab=glossary#gl-' + escapeHtml(key) + '" data-gl-more>All words used on this site</a>';
+      document.body.appendChild(pop);
+      var r = btn.getBoundingClientRect(), w = pop.offsetWidth, h = pop.offsetHeight;
+      var left = Math.max(16, Math.min(window.innerWidth - w - 16, r.left));
+      var top = r.bottom + 6;
+      if (top + h > window.innerHeight - 8 && r.top - h - 6 > 8) top = r.top - h - 6;
+      pop.style.left = left + 'px';
+      pop.style.top = top + 'px';
+      owner = btn;
+      btn.setAttribute('aria-expanded', 'true');
+    }
+    document.addEventListener('click', function(ev){
+      var t = ev.target && ev.target.closest ? ev.target : null;
+      if (!t) return;
+      var btn = t.closest('.gl-term');
+      if (btn){ ev.preventDefault(); ev.stopPropagation(); open(btn); return; }
+      if (pop && !t.closest('.gl-pop')) close();
+      else if (t.closest('[data-gl-more]')) close();
+    }, true);
+    document.addEventListener('keydown', function(ev){ if (ev.key === 'Escape' && pop){ var o = owner; close(); if (o) o.focus(); } });
+    window.addEventListener('scroll', function(){ if (pop) close(); }, { passive: true, capture: true });
+    window.addEventListener('resize', function(){ if (pop) close(); });
+  })();
   // ---------------------------------------------------------------------
   // CSV export — used by Unusual Flow, Calendar, and Top Picks "Export
   // CSV" buttons. Quotes per RFC 4180 (double the quote, wrap if a comma
@@ -1004,6 +1060,9 @@ ${scenarioEventPhase.toString()}
     if (WEEKLY_ALT_TABS[tab]) {
       return { iso: weeklyAltDataIso(tab), label: 'weekly data, updated Fridays 11:30 ET · next ' + nextAltDataFridayLabel(), weekly: true };
     }
+    if (tab === 'picks' && typeof picksState !== 'undefined' && picksState.data && picksState.data.builtAtIso) {
+      return { iso: picksState.data.builtAtIso, label: 'Top Picks run' };
+    }
     if (tab === 'flow' && UNUSUAL && UNUSUAL.scannedAt) {
       return { iso: UNUSUAL.scannedAt, label: 'hourly unusual-flow scan' };
     }
@@ -1039,6 +1098,16 @@ ${scenarioEventPhase.toString()}
     }
     return null;
   }
+  // " · next update 15:30 ET" for the page on screen, from the one shared
+  // schedule (lib/refresh-schedule.mjs). Empty for pages with no schedule.
+  function freshnessNextHtml(tab){
+    var job = REFRESH_SCHEDULE.jobFor(tab || 'home');
+    if (!job || job === 'weekly') return '';
+    var et = etNowParts();
+    if (!et) return '';
+    var label = REFRESH_SCHEDULE.nextLabel(job, { dateKey: et.dateKey, minutes: Math.round(et.hour * 60) }, MARKET_HOLIDAYS);
+    return label ? ' <span class="freshness-detail freshness-next">· next update ' + escapeHtml(label) + '</span>' : '';
+  }
   function renderFreshness(activeTab){
     if (activeTab) freshnessActiveTab = activeTab;
     else activeTab = freshnessActiveTab;
@@ -1061,17 +1130,18 @@ ${scenarioEventPhase.toString()}
       // Per-tab override — show the source label, never escalate to the
       // bad/warn states (those track the daily build, not this signal).
       bannerText.innerHTML = 'Updated ' + freshnessRelLabel(ageH) +
-        ' <span class="freshness-detail">· ' + override.label + '</span>';
+        ' <span class="freshness-detail">· ' + override.label + '</span>' + (override.weekly ? '' : freshnessNextHtml(activeTab));
       return;
     }
     if (ageH > 24*7) {
       banner.classList.add('bad');
-      bannerText.innerHTML = 'Very stale — last refreshed ' + dateLabel + '. <span class="freshness-detail">Verify quotes on your broker before trading.</span>';
+      bannerText.innerHTML = 'Very stale — last updated ' + dateLabel + '. <span class="freshness-detail">Verify quotes on your broker before trading.</span>';
     } else if (ageH > 36) {
       banner.classList.add('warn');
-      bannerText.innerHTML = 'Stale data — last refreshed ' + dateLabel + '. <span class="freshness-detail">Verify quotes on your broker before trading.</span>';
+      bannerText.innerHTML = 'Stale data — last updated ' + dateLabel + '. <span class="freshness-detail">Verify quotes on your broker before trading.</span>' + freshnessNextHtml(activeTab);
     } else {
-      bannerText.innerHTML = 'Refreshed ' + freshnessRelLabel(ageH) + ' <span class="freshness-detail">· end-of-session quotes from Yahoo</span>';
+      bannerText.innerHTML = 'Updated ' + freshnessRelLabel(ageH) + freshnessNextHtml(activeTab);
+      bannerText.title = 'Prices are the quotes from Yahoo at the last build; live pages add live quotes while the market is open.';
     }
   }
   function renderFooterBuiltTime(){
@@ -3890,7 +3960,7 @@ ${scenarioEventPhase.toString()}
       var band = IV_RICHNESS.classify({ pctile: stats.percentile, iv: stats.today, rv30: vr ? vr.rv30 : null });
       var label = band.rich ? 'rich' : band.cheap ? 'cheap' : 'normal';
       var rvTxt = band.rv30 != null ? ' vs realized ' + (band.rv30 * 100).toFixed(0) + '%' : '';
-      rankBox.textContent = 'IV percentile ' + pctStr + ' · ' + band.label.toLowerCase() + ' · IV rank ' + stats.rank.toFixed(0) + ' (' + stats.count + 'd · today ' + (stats.today * 100).toFixed(0) + '%' + rvTxt + ')';
+      rankBox.innerHTML = glTerm('ivPct', 'IV percentile') + ' ' + escapeHtml(pctStr + ' · ' + band.label.toLowerCase() + ' · ') + glTerm('ivRank', 'IV rank') + ' ' + escapeHtml(stats.rank.toFixed(0) + ' (' + stats.count + 'd · today ' + (stats.today * 100).toFixed(0) + '%' + rvTxt + ')');
       rankBox.title = band.note;
       rankBox.className = 'opt-iv-rank opt-iv-rank-' + label;
     });
@@ -3962,7 +4032,7 @@ ${scenarioEventPhase.toString()}
   // resolve the URL's initial tab synchronously at script-evaluation time (the
   // anti-flash pre-select in the boot block) before the /api/auth/me +
   // manifest fetches settle and bind() runs the full selectTab.
-  var PAGE_TAB_IDS = ['home','update-checker','owner-market-brief','tickers','stock','narratives','brief','news','market','risk','unified-signal-engine','historical-data','party-tracker','earnings-forecast','forced-liquidation','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','research-lab','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','bottom-tracker','open-picks','track','sports-nba','sports-nfl','sports-pick-builder','cheatsheet','chart-patterns','timeline','privacy','terms'];
+  var PAGE_TAB_IDS = ['home','update-checker','owner-market-brief','tickers','stock','narratives','brief','news','market','risk','unified-signal-engine','historical-data','party-tracker','earnings-forecast','forced-liquidation','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','research-lab','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','bottom-tracker','open-picks','track','sports-nba','sports-nfl','sports-pick-builder','cheatsheet','chart-patterns','timeline','glossary','earnings-week','privacy','terms'];
   // Friendly aliases so deep-links people might guess work too.
   // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
   // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -4018,6 +4088,7 @@ ${scenarioEventPhase.toString()}
     'buyers-manual': 'cheatsheet', 'buyer-manual': 'cheatsheet', cheat: 'cheatsheet', 'cheat-sheet': 'cheatsheet', manual: 'cheatsheet',
     patterns: 'chart-patterns', chartpatterns: 'chart-patterns', 'chart-pattern': 'chart-patterns',
     timeline: 'timeline', schedule: 'timeline', refresh: 'timeline', 'refresh-schedule': 'timeline', 'build-timeline': 'timeline',
+    glossary: 'glossary', words: 'glossary', definitions: 'glossary', 'earnings-week': 'earnings-week', 'earnings-board': 'earnings-week', 'implied-move': 'earnings-week',
     privacypolicy: 'privacy', 'privacy-policy': 'privacy',
     tos: 'terms', 'terms-of-use': 'terms', 'terms-of-service': 'terms',
   };
@@ -4516,6 +4587,7 @@ ${renderExportBindings()}
         else if (typeof cmpTraySync === 'function') cmpTraySync();
         if (name === 'earnings' && typeof loadEarningsTracker === 'function') loadEarningsTracker();
         if (name === 'calls' && typeof loadEarningsCalls === 'function') loadEarningsCalls();
+        if (name === 'earnings-week' && typeof loadEarningsWeek === 'function') loadEarningsWeek();
         if (name === 'ai-capex' && typeof loadAiCapex === 'function') loadAiCapex();
         if (name === 'ram-prices' && typeof loadRamPrices === 'function') loadRamPrices();
         if (name === 'accelerator-prices' && typeof loadAcceleratorPrices === 'function') loadAcceleratorPrices();
@@ -14878,8 +14950,8 @@ ${renderExportBindings()}
         '<div class="flow-decision-metrics">' +
           '<div><span>Top focus</span><b>' + escapeHtml(top.symbol) + ' · ' + top.score + '/5</b><small>' + escapeHtml(focusStatus) + '</small></div>' +
           '<div><span>OI call wall</span><b>' + escapeHtml(callWallText) + '</b><small>' + escapeHtml(wallDistance) + '</small></div>' +
-          '<div><span>Call-wall Vol/OI</span><b>' + escapeHtml(volOiText) + '</b><small>C/P ' + escapeHtml(cpText) + '</small></div>' +
-          '<div><span>ΔOI coverage</span><b>' + escapeHtml(freshOiValue) + '</b><small>' + escapeHtml(freshOiSub) + '</small></div>' +
+          '<div><span>' + glTerm('volOi', 'Call-wall Vol/OI') + '</span><b>' + escapeHtml(volOiText) + '</b><small>' + glTerm('cp', 'Calls per put') + ' ' + escapeHtml(cpText) + '</small></div>' +
+          '<div><span>' + glTerm('dOi', 'OI change') + ' coverage</span><b>' + escapeHtml(freshOiValue) + '</b><small>' + escapeHtml(freshOiSub) + '</small></div>' +
           '<div><span>Short interest</span><b>' + escapeHtml(shortValue) + '</b><small>' + escapeHtml(shortSub) + ' · secondary context</small></div>' +
         '</div>' +
         '<p class="flow-decision-context"><b>Desk breadth:</b> ' + stats.flagged + ' flagged · ' + stats.watch + ' score-3 watches · ' +
@@ -14927,12 +14999,12 @@ ${renderExportBindings()}
     var pct = (maxOi > 0 && s.oi > 0) ? Math.max(2, Math.round((s.oi / maxOi) * 100)) : 0;
     var chips = [];
     if (s.flagOiBig) chips.push('<span class="oi-chip oi-chip-big" title="OI &gt; 1000">OI 1K+</span>');
-    if (s.flagOiDelta100) chips.push('<span class="oi-chip oi-chip-delta100" title="ΔOI ≥ +100% — very aggressive new buying">ΔOI +100%+</span>');
-    else if (s.flagOiDelta30) chips.push('<span class="oi-chip oi-chip-delta30" title="ΔOI ≥ +30% — new buying">ΔOI +30%+</span>');
+    if (s.flagOiDelta100) chips.push('<span class="oi-chip oi-chip-delta100" title="OI change (ΔOI) ≥ +100% — very aggressive new buying">OI +100%+</span>');
+    else if (s.flagOiDelta30) chips.push('<span class="oi-chip oi-chip-delta30" title="OI change (ΔOI) ≥ +30% — new buying">OI +30%+</span>');
     if (volOiHot) chips.push('<span class="oi-chip oi-chip-volhot" title="Vol &gt; 1.5× OI — likely new positions opening today">Vol&gt;&gt;OI</span>');
     var chipsHtml = chips.length ? '<div class="oi-rung-chips">' + chips.join('') + '</div>' : '';
     var deltaHtml = deltaTxt != null
-      ? '<span class="oi-rung-delta' + deltaCls + '" title="ΔOI vs prior trading-day snapshot' + (deltaAbs ? ' (' + deltaAbs + ')' : '') + '">ΔOI ' + deltaTxt + '</span>'
+      ? '<span class="oi-rung-delta' + deltaCls + '" title="ΔOI vs prior trading-day snapshot' + (deltaAbs ? ' (' + deltaAbs + ')' : '') + '">OI change ' + deltaTxt + '</span>'
       : '';
     var volHtml = s.vol > 0
       ? '<span class="oi-rung-vol" title="Today\\'s session volume on this strike">Vol ' + fmtOiNum(s.vol) + (volOiTxt ? ' · ' + volOiTxt : '') + '</span>'
@@ -15036,7 +15108,7 @@ ${renderExportBindings()}
       ? '<span class="oi-wall oi-wall-put" title="Open-interest put wall: the strike with the most put contracts open (front two expirations). The gamma wall above can differ because it weighs gamma across eight expirations.">OI put wall ' + fmtOiStrike(pw.strike) + ' · ' + fmtOiNum(pw.oi) + '</span>'
       : '';
     var cpHtml = t.cpRatio != null
-      ? '<span class="oi-cp" title="Total call OI ÷ total put OI across the short-dated chain">C/P ' + Number(t.cpRatio).toFixed(2) + ':1</span>'
+      ? '<span class="oi-cp">' + glTerm('cp', 'Calls per put') + ' ' + Number(t.cpRatio).toFixed(2) + ':1</span>'
       : '';
     var si = t.shortInterest || null;
     var siHtml = si && si.percentFloat != null
@@ -15104,13 +15176,13 @@ ${renderExportBindings()}
     var cols = [
       { label: 'Stock', cell: function(t){ return VIEWS.expandHtml('Show the strike ladder for ' + t.symbol) + '<a href="' + symGradeHref(t.symbol) + '">' + escapeHtml(t.symbol) + '</a>'; }, sort: function(t){ return t.symbol; } },
       { label: 'Price', num: true, cell: function(t){ return t.spot != null ? '<span class="oi-spot">$' + Number(t.spot).toFixed(2) + '</span>' : ''; }, sort: function(t){ return t.spot; } },
-      { label: 'Score', num: true, title: 'Gamma squeeze score, 0 to 5. 4 or more is a potential setup, not an entry.', cell: function(t){ var sc = t.score || 0; return '<span class="oi-score ' + oiScoreTier(sc) + (t.flagged ? ' is-flagged' : '') + '">' + sc + '/5' + (t.flagged ? ' ⚠' : '') + '</span>'; }, sort: function(t){ return t.score || 0; } },
+      { label: 'Squeeze score', num: true, title: 'Gamma squeeze score, 0 to 5. 4 or more is a potential setup, not an entry.', cell: function(t){ var sc = t.score || 0; return '<span class="oi-score ' + oiScoreTier(sc) + (t.flagged ? ' is-flagged' : '') + '">' + sc + '/5' + (t.flagged ? ' ⚠' : '') + '</span>'; }, sort: function(t){ return t.score || 0; } },
       { label: 'Put wall', num: true, title: 'Strike with the most put contracts open (front two expirations)', cell: function(t){ return wallCell(t, 'putWall'); }, sort: function(t){ return oiWallDistPct(t, 'putWall'); } },
       { label: 'Price between the walls', cls: 'oi-range-col', title: 'Left end: OI put wall. Right end: OI call wall. The dot is the price.', cell: function(t){ return '<span data-oi-range>' + oiRangeInner(t, t.spot) + '</span>'; }, sort: rangePos },
       { label: 'Call wall', title: 'Strike with the most call contracts open (front two expirations)', cell: function(t){ return wallCell(t, 'callWall'); }, sort: function(t){ return oiWallDistPct(t, 'callWall'); } },
-      { label: 'C/P', num: true, title: 'Total call OI divided by total put OI', cell: function(t){ return t.cpRatio != null ? Number(t.cpRatio).toFixed(2) : ''; }, sort: function(t){ return t.cpRatio; } },
+      { label: 'Calls per put', num: true, title: 'Calls per put (C/P): total call OI divided by total put OI', cell: function(t){ return t.cpRatio != null ? Number(t.cpRatio).toFixed(2) : ''; }, sort: function(t){ return t.cpRatio; } },
       { label: 'Total OI', num: true, cell: function(t){ return fmtOiNum((t.callOiTotal || 0) + (t.putOiTotal || 0)); }, sort: function(t){ return (t.callOiTotal || 0) + (t.putOiTotal || 0); } },
-      { label: 'Biggest ΔOI', num: true, title: 'Largest day-over-day open interest change among the top strikes', cell: function(t){ var d = topDelta(t); return d == null ? '' : '<span class="' + (d >= 0 ? 'pos' : 'neg') + '">' + fmtOiPct(d, true) + '</span>'; }, sort: topDelta },
+      { label: 'Biggest OI change', num: true, title: 'Largest day-over-day open interest change (ΔOI) among the top strikes', cell: function(t){ var d = topDelta(t); return d == null ? '' : '<span class="' + (d >= 0 ? 'pos' : 'neg') + '">' + fmtOiPct(d, true) + '</span>'; }, sort: topDelta },
       { label: 'Short', num: true, title: 'FINRA short interest, % of float', cell: function(t){ var si = t.shortInterest; return si && si.percentFloat != null ? Number(si.percentFloat).toFixed(1) + '%' : ''; }, sort: function(t){ return t.shortInterest ? t.shortInterest.percentFloat : null; } }
     ];
     return VIEWS.tableHtml(cols, tickers, {
@@ -17221,7 +17293,7 @@ ${renderExportBindings()}
     var t = stratState.technicals;
     if (t && t.rsi != null) parts.push('<span>RSI ' + t.rsi.toFixed(1) + '</span>');
     if (t && t.macd && t.macd.hist != null) parts.push('<span>MACD ' + (t.macd.hist >= 0 ? '+' : '') + t.macd.hist.toFixed(3) + '</span>');
-    if (stratState.ivLabel) parts.push('<span>IV percentile ' + stratState.ivLabel + '</span>');
+    if (stratState.ivLabel) parts.push('<span>' + glTerm('ivPct', 'IV percentile') + ' ' + escapeHtml(stratState.ivLabel) + '</span>');
     box.innerHTML = parts.join(' · ');
   }
 
@@ -36110,6 +36182,7 @@ ${renderExportBindings()}
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(json){
         picksState.data = (json && Array.isArray(json.picks)) ? json : { picks: [] };
+        if (freshnessActiveTab === 'picks') renderFreshness();
         picksMarketLast=Date.now();
         return pAcc;
       })

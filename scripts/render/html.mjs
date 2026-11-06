@@ -1,4 +1,6 @@
 import { writeFileSync } from 'node:fs';
+import { refreshScheduleFactory } from '../../lib/refresh-schedule.mjs';
+import { GLOSSARY } from '../../lib/glossary.mjs';
 import { resolve } from 'node:path';
 import {
   VALID_INDUSTRY_SET,
@@ -100,6 +102,8 @@ const SIDE_NAV_ICONS = {
   cheatsheet: '<path d="M2.5 4.5H8a4 4 0 0 1 4 4v13a3 3 0 0 0-3-3H2.5zM21.5 4.5H16a4 4 0 0 0-4 4v13a3 3 0 0 1 3-3h6.5z"/>',
   'chart-patterns': '<path d="M3.5 3.5v17h17"/><path d="m7.5 14 3.5-4 3 3 5-6.5"/>',
   timeline: '<circle cx="12" cy="12" r="9.5"/><path d="M12 6.5V12l3.5 2"/>',
+  glossary: '<path d="M4 4.5h11a3 3 0 0 1 3 3v12.5H7a3 3 0 0 1-3-3z"/><path d="M4 17a3 3 0 0 1 3-3h11"/><path d="M8.5 8.5h6M8.5 11h4"/>',
+  'earnings-week': '<rect x="3" y="4.5" width="18" height="16.5" rx="2"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4"/><path d="M7 14h2v4H7zM11 12.5h2V18h-2zM15 15h2v3h-2z"/>',
   privacy: '<path d="M12 21.5s7.5-3.7 7.5-9.5V5.5L12 2.5l-7.5 3V12c0 5.8 7.5 9.5 7.5 9.5z"/>',
   terms: '<path d="M12 3v18M7 21h10"/><path d="M4 7h2.5c1.8 0 3.8-.7 5.5-1.7C13.7 6.3 15.7 7 17.5 7H20"/><path d="m6.5 7-2.8 6.7c.8.6 1.8.9 2.8.9s2-.3 2.8-.9zM17.5 7l-2.8 6.7c.8.6 1.8.9 2.8.9s2-.3 2.8-.9z"/>',
 };
@@ -1053,15 +1057,14 @@ function quantSection() {
 
 // One trading day across (08:00 to 20:00 ET), one row per job, a dot at
 // each scheduled start. The shaded band is the regular session.
-const REFRESH_DAY_JOBS = [
-  ['Market brief', [[8.5, '08:30'], [11, '11:00'], [13.5, '13:30'], [16 + 10 / 60, '16:10']]],
-  ['Full market build', [[10, '10:00'], [11, '11:00'], [13.5, '13:30'], [15.5, '15:30'], [16 + 10 / 60, '16:10']]],
-  ['Top Picks and swing desks', [[11, '11:00'], [15.5, '15:30']]],
-  ['Flow, volume and heatmap', [9, 10, 11, 12, 13, 14, 15, 16].map((h) => [h, String(h).padStart(2, '0') + ':00'])],
-  ['Near-term open interest', [[8.5, '~08:30'], [17, '~17:00']]],
-  ['Earnings calls and pre-open call', [[9, '09:00'], [19, '19:00 (calls only)']]],
-  ['Weekly Alt Data (Fridays)', [[11.5, 'Fri 11:30']]],
-];
+// The dots come from the same schedule the header's "next update" line reads.
+const REFRESH_SCHEDULE = refreshScheduleFactory();
+const REFRESH_DAY_JOBS = ['brief', 'build', 'picks', 'flow', 'oi', 'calls', 'weekly'].map((key) => {
+  const job = REFRESH_SCHEDULE.JOBS[key];
+  const tag = (min) => (key === 'weekly' ? 'Fri ' : '') + (job.approx ? '~' : '') + REFRESH_SCHEDULE.clock(min) +
+    (key === 'calls' && min >= 19 * 60 ? ' (calls only)' : '');
+  return [job.label, job.runs.map((min) => [min / 60, tag(min)])];
+});
 function refreshDayTimelineHtml() {
   const from = 8, to = 20, pct = (h) => ((h - from) / (to - from) * 100).toFixed(2) + '%';
   const ticks = [];
@@ -1072,6 +1075,25 @@ function refreshDayTimelineHtml() {
       ${rows}
       <figcaption>Each dot is a scheduled start, Eastern Time. The shaded band is the regular session (9:30 a.m. to 4:00 p.m.). Hover a dot for its time.</figcaption>
     </figure>`;
+}
+
+// Learn & help: every word the tap-to-define popovers explain, in one list.
+function glossarySection() {
+  const rows = Object.entries(GLOSSARY).sort((a, b) => a[1].term.localeCompare(b[1].term)).map(([key, g]) =>
+    `<div id="gl-${key}"><dt>${htmlEscape(g.term)}</dt><dd>${htmlEscape(g.def)}${g.tab ? ` <a href="/?tab=${g.tab}">See it in use</a>` : ''}</dd></div>`).join('');
+  return `<section class="card" id="glossary-section">
+    <header class="card-header"><div><span class="card-eyebrow">Learn &amp; help</span><h2 class="card-title">Words used on this site</h2></div></header>
+    <p class="hint">Tap a dotted word anywhere on the site to see its meaning. This is the full list.</p>
+    <dl class="gl-list">${rows}</dl>
+  </section>`;
+}
+
+function earningsWeekSection() {
+  return `<section class="card" id="earnings-week-section">
+    <header class="card-header"><div><span class="card-eyebrow">Earnings · next 10 days</span><h2 class="card-title">Earnings week ahead</h2></div></header>
+    <div id="ewb-root"><p class="ewb-empty">Loading the earnings week&hellip;</p></div>
+    <p class="hint">Rebuilt at every full build from the option chains and the stored earnings history. The expected move is read from the at-the-money straddle. Past moves are the next-session close-to-close change. Not investment advice.</p>
+  </section>`;
 }
 
 function buildTimelineSection() {
@@ -1327,8 +1349,8 @@ function oiTrackerSection() {
           <select id="oi-sort-select" aria-label="Sort">
             <option value="score">Gamma score</option>
             <option value="oi">Total OI</option>
-            <option value="cp">Highest C/P ratio</option>
-            <option value="delta">Biggest ΔOI %</option>
+            <option value="cp">Most calls per put</option>
+            <option value="delta">Biggest OI change %</option>
             <option value="callwall">Nearest OI call wall</option>
             <option value="putwall">Nearest OI put wall</option>
             <option value="sector">Sector</option>
@@ -2802,6 +2824,12 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-timeline" role="tabpanel" aria-labelledby="page-tab-timeline" hidden>
   ${buildTimelineSection()}
+  </div>
+  <div class="page-pane" id="page-pane-glossary" role="tabpanel" aria-labelledby="page-tab-glossary" hidden>
+  ${glossarySection()}
+  </div>
+  <div class="page-pane" id="page-pane-earnings-week" role="tabpanel" aria-labelledby="page-tab-earnings-week" hidden>
+  ${earningsWeekSection()}
   </div>
   ${docPanesHtml()}
 </main>

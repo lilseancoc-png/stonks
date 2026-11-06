@@ -105,6 +105,7 @@ import { buyoutContextFor } from "../lib/pending-buyout-guard.mjs";
 import { buildShadowSignals } from "../lib/shadow-signals.mjs";
 import { buildEntrySnapshot } from "../lib/trade-snapshot.mjs";
 import { PICKS_MAX_PER_SECTOR, PICKS_MAX_NEW_PER_FACTOR_RUN, PICKS_CAPS_VERSION, factorOfSectorLabel, exposureCapBlock, countExposure } from "../lib/top-picks-caps.mjs";
+import { buildEarningsWeek, buildEarningsWeekPlan, EARNINGS_WEEK_DAYS } from "../lib/earnings-week.mjs";
 import { readForcedLiquidation, refreshForcedLiquidation, writeForcedLiquidation } from './refresh-forced-liquidation.mjs';
 import { fetchPartyBars, refreshPartyTracker } from './refresh-party-tracker.mjs';
 import { emptyLeverageDistress, readLeverageDistress, refreshLeverageDistress, writeLeverageDistress } from './refresh-leverage-distress.mjs';
@@ -21691,7 +21692,38 @@ export function structuralVeto(r, side) {
   return null;
 }
 
-export function buildTopPicksMarketContext(chains, macroBackdrop, builtAtIso, sources = {}) {
+export const EARNINGS_WEEK_FILE = "earnings-week.json";
+export const EARNINGS_WEEK_PLAN_FILE = "earnings-week-plan.json";
+export async function writeEarningsWeekFiles(chains, grades, builtAtIso) {
+  const todayIso = etDateKey(new Date(builtAtIso));
+  const board = buildEarningsWeek(chains, {
+    builtAtIso, todayIso,
+    impliedMoveFor: computeImpliedMoveForDate,
+    sessionsBetween: tradingSessionsBetween,
+    seasonKeyOf: earningsSeasonKey,
+    verdictOf: earningsEpsVerdict,
+    isFund: (sym) => SECTORS[sym] === "ETF",
+    sectorOf: (sym) => sectorGroupOf(sym) || SECTORS[sym] || null,
+  });
+  let openSymbols = [];
+  try {
+    const acc = JSON.parse(await readFile(resolve(DATA_DIR, "picks-accuracy.json"), "utf8"));
+    openSymbols = (acc?.open || []).map((r) => r?.symbol).filter(Boolean);
+  } catch { /* no record yet */ }
+  const plan = buildEarningsWeekPlan(board, chains, {
+    grades, engineSeason: recentEarningsReactions(chains, builtAtIso),
+    minConviction: grades?.tierCutoffs?.tradeCut ?? PICKS_MIN_CONVICTION, openSymbols,
+  });
+  const json = JSON.stringify(board);
+  await writeFile(resolve(DATA_DIR, EARNINGS_WEEK_FILE), json, "utf8");
+  await writeFile(resolve(DATA_DIR, EARNINGS_WEEK_PLAN_FILE), JSON.stringify(plan), "utf8");
+  return { rows: board.rows.length, bytes: json.length };
+}
+
+// The last week's earnings reactions across the universe: the "season" read
+// the event engine's earnings vote uses (and the Earnings week plan, so the
+// two never disagree).
+export function recentEarningsReactions(chains, builtAtIso) {
   const moves = [];
   const cutoff = Date.parse(builtAtIso) - 7 * 86400000;
   for (const [symbol, data] of Object.entries(chains || {})) {
@@ -21701,8 +21733,12 @@ export function buildTopPicksMarketContext(chains, macroBackdrop, builtAtIso, so
     if (event) moves.push({symbol,date:event.date,movePct:event.movePct*100});
   }
   const sorted = moves.map(e=>e.movePct).sort((a,b)=>a-b);
-  const earnings = {n:moves.length,negativeShare:moves.length?moves.filter(e=>e.movePct<0).length/moves.length:null,
+  return {n:moves.length,negativeShare:moves.length?moves.filter(e=>e.movePct<0).length/moves.length:null,
     medianMovePct:sorted.length?picksMedian(sorted):null,asOf:builtAtIso,rows:moves};
+}
+
+export function buildTopPicksMarketContext(chains, macroBackdrop, builtAtIso, sources = {}) {
+  const earnings = recentEarningsReactions(chains, builtAtIso);
   const gamma = chains?.SPY ? computeGexSummary(chains.SPY.chains, chains.SPY.spot, {now:Date.parse(builtAtIso)}) : null;
   const context = topPicksMarketSources({macro:macroBackdrop,asOf:builtAtIso,
     heatmap:buildHeatmapPayload(chains,builtAtIso),volume:sources.volume?{...sources.volume,tickers:(sources.volume.tickers||[]).map(r=>({...r,sector:sectorGroupOf(r.symbol)||r.sector}))}:null,
@@ -38849,6 +38885,15 @@ async function main() {
   const gradesIndex = buildGradesIndex(chains, scoringNarratives, streaksInfo.map, scoringUnusual, macroBackdrop, scoringVolumeFlags, { builtAtIso, priorGrades: gradesHistoryPrev?.latest ?? null, priorClosed: picksAccuracyPrev?.closed ?? null, ...scannerExtras });
   const gradesInfo = await writeGradesFile(chains, scoringNarratives, builtAtIso, scoringUnusual, macroBackdrop, scoringVolumeFlags, gradesIndex);
   console.log(`wrote data/grades.json — ${gradesInfo.count} tickers, ${gradesInfo.bytes} bytes`);
+  // Earnings week ahead: the public board (implied vs past moves, this
+  // season) and the Owner-only engine plan. Rebuilt every bake from data
+  // already in hand; no AI and no new fetches. Non-fatal.
+  try {
+    const info = await writeEarningsWeekFiles(chains, gradesIndex, builtAtIso);
+    console.log(`wrote data/${EARNINGS_WEEK_FILE} + ${EARNINGS_WEEK_PLAN_FILE} — ${info.rows} reports in the next ${EARNINGS_WEEK_DAYS} days, ${info.bytes} bytes`);
+  } catch (err) {
+    console.log(`  ⚠ Earnings-week step failed (non-fatal): ${err.message}`);
+  }
   const refreshSwingDesks = !/^(?:0|false)$/i.test(process.env.REFRESH_SWING_DESKS || "1");
   if (refreshSwingDesks) {
   // Shares-only Stock Picks (premium tab): the deterministic quality-dip

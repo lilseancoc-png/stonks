@@ -19,7 +19,7 @@
   }
 
 
-  var SITE_MAP = [["today","Today","Today","What is happening in the market right now",0,[["home","Home","","A one-screen overview of the market and every part of the site.",0],["brief","Market brief","Brief","A short digest of what moved, why, and what is coming up next.",0],["news","News","News desk","Market-moving stock and economic headlines, most important first.",0],["heatmap","Heatmap","","Every tracked stock as a tile: size is company value, color is how much it moved.",0],["calendar","Calendar","","Upcoming earnings reports, economic releases and Fed meetings.",0],["overnight","Overnight markets","","How Asian and European markets traded before the US open, and which US stocks they tend to lead.",0]]],["stocks","Stocks","Stocks","Look up, compare and follow companies",0,[["tickers","All stocks","Tickers","Every stock the site follows, with its price, returns and sector.",0],["stock","Look up a stock","Stock page quote ticker company chart","One company: its price chart, key numbers, news, earnings, options and who owns it.",0],["grade","Grade a stock","Grade a ticker stock report Look up","One stock in depth: its grade, setup signals, fundamentals and the option contract to trade.",1],["compare","Compare stocks","Compare companies","Line up a few companies side by side on price, growth and valuation.",0],["f13","Who owns what","SEC ownership 13F Form 4 insider","What big investment funds bought and sold last quarter, plus recent insider trades.",0],["pending-buyouts","Pending buyouts","M&A mergers","Announced and rumored takeovers, and how far along each deal is.",0]]],["earnings","Earnings","Earnings","Results, what management said, and how peers react",0,[["earnings","Earnings results","Earnings tracker","Which companies beat or missed expectations this season, and how their stocks reacted.",0],["calls","Earnings calls","","What management said on each company’s latest earnings call, and what changed.",0],["spillover","Earnings ripple effects","Event spillover","How one company’s earnings tend to move the other stocks in its industry.",0]]],["market","Market & economy","Market","The big picture: mood, rates, money and themes",0,[["fear-greed","Market mood","Fear & Greed","CNN’s Fear & Greed index: whether investors are acting scared or greedy, from 0 to 100.",0],["bonds-usd","Rates & the dollar","Bonds & USD Fed","Treasury yields, the US dollar and what the Fed is expected to do next.",0],["commodities","Commodities","","Oil, gold, copper and other raw materials, and the stocks that move with them.",0],["central-bank-gold","Central-bank gold","","How much gold the world’s central banks are buying or selling.",0],["capital-raises","Capital markets","Capital raises share sales buybacks IPOs credit issuance debt","Companies selling stock or debt or buying shares back, upcoming IPOs, and how easily companies and households can borrow.",0],["narratives","Market themes","Narratives","The big stories driving money right now, such as AI spending, and which stocks ride them.",0]]],["options","Options activity","Options","Where traders are placing bets",0,[["flow","Unusual options trades","Unusual flow","Option trades far bigger than normal for that stock, a sign someone expects a move.",0],["oi","Options walls","Gamma exposure GEX","Price levels where large option positions can slow a stock down or speed it up.",0],["iv-trend","Rising volatility","Trending IV implied volatility","Stocks whose options are pricing in a bigger move than usual.",0],["strategies","Strategy builder","Strategies","Pick a stock and build a defined-risk options trade, with its profit and loss at expiry.",0]]],["signals","Price signals","Signals","Price trends, trading volume and repeating patterns",0,[["ma-tracker","Moving averages","MA tracker crossover","Stocks sitting close to their 20, 50, 100 or 200-day average price.",0],["streaks","Up/down streaks","Streaks green red","Stocks on a run of up days or down days in a row.",0],["volume","Trading volume","Volume shares","Days when a stock traded many more or fewer shares than usual.",0],["pattern-lab","Pattern lab","Seasonality","Repeating patterns such as seasonality and how stocks behave after big moves.",0],["index-cal","Daily index moves","Index calendar","A month grid of the major index funds’ daily moves, showing which days the whole market joined in.",0]]],["industry","Industry trends","Industry","Real-world data behind the AI and chip trade",0,[["ai-capex","AI spending","AI CapEx","How much the biggest tech companies are spending on AI data centers.",0],["ram-prices","Memory chip prices","RAM prices DRAM","Weekly prices for computer memory, a read on the chip cycle.",0],["accelerator-prices","GPU cloud prices","Accelerator","What it costs to rent AI chips by the hour, a read on AI demand.",0],["search-interest","Search trends","Search interest Google","Which market themes people are searching for more or less this week.",0]]],["learn","Learn & help","Learn","Guides and when the data updates",0,[["cheatsheet","Options guide","Buyer's manual","A plain-English guide to buying options: calls, puts, risk and timing.",0],["chart-patterns","Chart patterns","","What common chart shapes look like and how traders read them.",0],["timeline","When data updates","Refresh schedule timeline","When each part of the site refreshes during the trading day.",0],["privacy","Privacy Policy","","What this site collects and how it is used.",1],["terms","Terms of Use","","The terms for using this site. Nothing here is investment advice.",1]]],["owner","Owner · Daily desk","Owner","The private daily read",1,[["owner-market-brief","Owner Market Brief","Private digest outlook predictions scenarios research","The full site read, with private research, conditional paths, counterevidence and a curated review shortlist.",0],["unified-signal-engine","Unified Signal Engine","","Existing decisions with separate investment and trading perspectives.",0],["market","Market analysis","","The cross-asset tape, risk barometer and regime history.",0],["risk","Risk analysis","","Seven risk desks read together, with the reason when they disagree.",0]]],["owner-ideas","Owner · Ideas","Ideas","Trade ideas and how they worked out",1,[["picks","Top picks","","The model’s highest-conviction option contracts for today.",0],["open-picks","Open picks","","Every open trade, with lines ready to copy to a broker.",0],["track","Top Picks track record","","How every closed pick worked out.",0],["leaps","LEAPS","","Names scored for a one- to two-year options hold.",0],["stocks","Stock picks","","Quality companies on a dip, as shares rather than options.",0],["levetf","Leveraged ETFs","","Leveraged ETF setups from the same engine.",0],["rotation","Sector rotation","","Strong names sold with their sector that are now turning back up.",0]]],["owner-research","Owner · Research","Research","Private studies and data",1,[["historical-data","Historical Data","","The stored history behind the private research.",0],["earnings-forecast","Earnings Forecast","Quarterly full-year valuation company history revenue EPS industry model","Quarterly forecasts for the top 20 covered companies, company history, full-year valuation and linked industry evidence.",0],["forced-liquidation","Forced Liquidation Tracker","Pledged shares collateral leverage margin","SEC stock pledges, loan terms and estimated price thresholds, with missing terms kept visible.",0],["bottom-tracker","Bottom tracker","","Signs the market is washing out and turning.",0],["party-tracker","Party tracker","Party-Tracker Democrats Republicans president house senate","How the market and each sector did when Democrats or Republicans held the presidency, the House, or the Senate.",0],["research-lab","Research Lab","Scenarios evidence puzzle stocks experiments visual canvas journal ChatGPT Claude","Connect stocks, evidence and assumptions, explore possible outcomes and export your research for AI review.",0]]],["owner-admin","Owner · Admin","Admin","Diagnostics and build health",1,[["quant","Owner Lab","","Research tools and diagnostics.",0],["update-checker","Update Checker","Build status failures feature health stale missing updates","Build failures and checks of published feature outputs.",0]]],["sports","Sports","Sports","Private NBA and NFL research",1,[["sports-nba","NBA","Basketball players props points rebounds games win bust track record PrizePicks","NBA games, the best two PrizePicks props per game, supporting analysis and the prop track record.",0],["sports-nfl","NFL","Football players props passing yards receptions games win bust track record PrizePicks","NFL games, the best two PrizePicks props per game, supporting analysis and the prop track record.",0],["sports-pick-builder","Pick Builder","Sports picks entry payout paper journal PrizePicks Betr","Build a 1 to 6 pick entry with its real payout, see the odds and save it as a paper pick.",0]]]];
+  var SITE_MAP = [["today","Today","Today","What is happening in the market right now",0,[["home","Home","","A one-screen overview of the market and every part of the site.",0],["brief","Market brief","Brief","A short digest of what moved, why, and what is coming up next.",0],["news","News","News desk","Market-moving stock and economic headlines, most important first.",0],["heatmap","Heatmap","","Every tracked stock as a tile: size is company value, color is how much it moved.",0],["calendar","Calendar","","Upcoming earnings reports, economic releases and Fed meetings.",0],["overnight","Overnight markets","","How Asian and European markets traded before the US open, and which US stocks they tend to lead.",0]]],["stocks","Stocks","Stocks","Look up, compare and follow companies",0,[["tickers","All stocks","Tickers","Every stock the site follows, with its price, returns and sector.",0],["stock","Look up a stock","Stock page quote ticker company chart","One company: its price chart, key numbers, news, earnings, options and who owns it.",0],["grade","Grade a stock","Grade a ticker stock report Look up","One stock in depth: its grade, setup signals, fundamentals and the option contract to trade.",1],["compare","Compare stocks","Compare companies","Line up a few companies side by side on price, growth and valuation.",0],["f13","Who owns what","SEC ownership 13F Form 4 insider","What big investment funds bought and sold last quarter, plus recent insider trades.",0],["pending-buyouts","Pending buyouts","M&A mergers","Announced and rumored takeovers, and how far along each deal is.",0]]],["earnings","Earnings","Earnings","Results, what management said, and how peers react",0,[["earnings","Earnings results","Earnings tracker","Which companies beat or missed expectations this season, and how their stocks reacted.",0],["calls","Earnings calls","","What management said on each company’s latest earnings call, and what changed.",0],["earnings-week","Earnings week ahead","Earnings board implied move expected move straddle this week","Every covered report in the next 10 days: the move options expect next to the stock’s own past moves.",0],["spillover","Earnings ripple effects","Event spillover","How one company’s earnings tend to move the other stocks in its industry.",0]]],["market","Market & economy","Market","The big picture: mood, rates, money and themes",0,[["fear-greed","Market mood","Fear & Greed","CNN’s Fear & Greed index: whether investors are acting scared or greedy, from 0 to 100.",0],["bonds-usd","Rates & the dollar","Bonds & USD Fed","Treasury yields, the US dollar and what the Fed is expected to do next.",0],["commodities","Commodities","","Oil, gold, copper and other raw materials, and the stocks that move with them.",0],["central-bank-gold","Central-bank gold","","How much gold the world’s central banks are buying or selling.",0],["capital-raises","Capital markets","Capital raises share sales buybacks IPOs credit issuance debt","Companies selling stock or debt or buying shares back, upcoming IPOs, and how easily companies and households can borrow.",0],["narratives","Market themes","Narratives","The big stories driving money right now, such as AI spending, and which stocks ride them.",0]]],["options","Options activity","Options","Where traders are placing bets",0,[["flow","Unusual options trades","Unusual flow","Option trades far bigger than normal for that stock, a sign someone expects a move.",0],["oi","Options walls","Gamma exposure GEX","Price levels where large option positions can slow a stock down or speed it up.",0],["iv-trend","Rising volatility","Trending IV implied volatility","Stocks whose options are pricing in a bigger move than usual.",0],["strategies","Strategy builder","Strategies","Pick a stock and build a defined-risk options trade, with its profit and loss at expiry.",0]]],["signals","Price signals","Signals","Price trends, trading volume and repeating patterns",0,[["ma-tracker","Moving averages","MA tracker crossover","Stocks sitting close to their 20, 50, 100 or 200-day average price.",0],["streaks","Up/down streaks","Streaks green red","Stocks on a run of up days or down days in a row.",0],["volume","Trading volume","Volume shares","Days when a stock traded many more or fewer shares than usual.",0],["pattern-lab","Pattern lab","Seasonality","Repeating patterns such as seasonality and how stocks behave after big moves.",0],["index-cal","Daily index moves","Index calendar","A month grid of the major index funds’ daily moves, showing which days the whole market joined in.",0]]],["industry","Industry trends","Industry","Real-world data behind the AI and chip trade",0,[["ai-capex","AI spending","AI CapEx","How much the biggest tech companies are spending on AI data centers.",0],["ram-prices","Memory chip prices","RAM prices DRAM","Weekly prices for computer memory, a read on the chip cycle.",0],["accelerator-prices","GPU cloud prices","Accelerator","What it costs to rent AI chips by the hour, a read on AI demand.",0],["search-interest","Search trends","Search interest Google","Which market themes people are searching for more or less this week.",0]]],["learn","Learn & help","Learn","Guides and when the data updates",0,[["cheatsheet","Options guide","Buyer's manual","A plain-English guide to buying options: calls, puts, risk and timing.",0],["chart-patterns","Chart patterns","","What common chart shapes look like and how traders read them.",0],["timeline","When data updates","Refresh schedule timeline","When each part of the site refreshes during the trading day.",0],["glossary","Glossary","Words terms definitions meaning C/P OI IV percentile gamma","Plain-English meanings for the options and market words used on this site.",0],["privacy","Privacy Policy","","What this site collects and how it is used.",1],["terms","Terms of Use","","The terms for using this site. Nothing here is investment advice.",1]]],["owner","Owner · Daily desk","Owner","The private daily read",1,[["owner-market-brief","Owner Market Brief","Private digest outlook predictions scenarios research","The full site read, with private research, conditional paths, counterevidence and a curated review shortlist.",0],["unified-signal-engine","Unified Signal Engine","","Existing decisions with separate investment and trading perspectives.",0],["market","Market analysis","","The cross-asset tape, risk barometer and regime history.",0],["risk","Risk analysis","","Seven risk desks read together, with the reason when they disagree.",0]]],["owner-ideas","Owner · Ideas","Ideas","Trade ideas and how they worked out",1,[["picks","Top picks","","The model’s highest-conviction option contracts for today.",0],["open-picks","Open picks","","Every open trade, with lines ready to copy to a broker.",0],["track","Top Picks track record","","How every closed pick worked out.",0],["leaps","LEAPS","","Names scored for a one- to two-year options hold.",0],["stocks","Stock picks","","Quality companies on a dip, as shares rather than options.",0],["levetf","Leveraged ETFs","","Leveraged ETF setups from the same engine.",0],["rotation","Sector rotation","","Strong names sold with their sector that are now turning back up.",0]]],["owner-research","Owner · Research","Research","Private studies and data",1,[["historical-data","Historical Data","","The stored history behind the private research.",0],["earnings-forecast","Earnings Forecast","Quarterly full-year valuation company history revenue EPS industry model","Quarterly forecasts for the top 20 covered companies, company history, full-year valuation and linked industry evidence.",0],["forced-liquidation","Forced Liquidation Tracker","Pledged shares collateral leverage margin","SEC stock pledges, loan terms and estimated price thresholds, with missing terms kept visible.",0],["bottom-tracker","Bottom tracker","","Signs the market is washing out and turning.",0],["party-tracker","Party tracker","Party-Tracker Democrats Republicans president house senate","How the market and each sector did when Democrats or Republicans held the presidency, the House, or the Senate.",0],["research-lab","Research Lab","Scenarios evidence puzzle stocks experiments visual canvas journal ChatGPT Claude","Connect stocks, evidence and assumptions, explore possible outcomes and export your research for AI review.",0]]],["owner-admin","Owner · Admin","Admin","Diagnostics and build health",1,[["quant","Owner Lab","","Research tools and diagnostics.",0],["update-checker","Update Checker","Build status failures feature health stale missing updates","Build failures and checks of published feature outputs.",0]]],["sports","Sports","Sports","Private NBA and NFL research",1,[["sports-nba","NBA","Basketball players props points rebounds games win bust track record PrizePicks","NBA games, the best two PrizePicks props per game, supporting analysis and the prop track record.",0],["sports-nfl","NFL","Football players props passing yards receptions games win bust track record PrizePicks","NFL games, the best two PrizePicks props per game, supporting analysis and the prop track record.",0],["sports-pick-builder","Pick Builder","Sports picks entry payout paper journal PrizePicks Betr","Build a 1 to 6 pick entry with its real payout, see the odds and save it as a paper pick.",0]]]];
   var RECENT_KEY = 'stonks-recent-v1';
   function wfReadRecent(){
     try {
@@ -1339,6 +1339,114 @@ function recoveryEvidence(row, data, now = Date.now()) {
     return { open: open, load: load, showTab: showTab, follow: follow, names: names, nameOf: nameOf, watchlist: readWatch, href: function(sym){ return '?tab=stock&s=' + encodeURIComponent(String(sym || '').toUpperCase()); } };
   })();
 
+
+  var earningsWeekState = { data: null, plan: null, loading: false, planLoading: false, error: false };
+  function ewbPct(v, signed){
+    if (v == null || !isFinite(v)) return '—';
+    return (signed && v > 0 ? '+' : '') + Number(v).toFixed(1) + '%';
+  }
+  function ewbSession(s){
+    var k = String(s || 'TBD').toUpperCase();
+    return k === 'AM' || k === 'BMO' ? 'before the open' : k === 'PM' || k === 'AMC' ? 'after the close' : 'time not set';
+  }
+  function ewbDate(iso){
+    var t = Date.parse(String(iso || '') + 'T12:00:00Z');
+    if (!isFinite(t)) return escapeHtml(iso || '');
+    var d = new Date(t);
+    return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getUTCDay()] + ' ' + ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getUTCMonth()] + ' ' + d.getUTCDate();
+  }
+  function ewbMoveBar(implied, avg){
+    if (!(implied > 0) && !(avg > 0)) return '';
+    var top = Math.max(implied || 0, avg || 0) * 1.15 || 1;
+    var w = implied > 0 ? Math.min(100, implied / top * 100) : 0;
+    var mark = avg > 0 ? Math.min(100, avg / top * 100) : null;
+    return '<span class="ewb-move-bar" aria-hidden="true"><i style="width:' + w.toFixed(1) + '%"></i>' + (mark != null ? '<b style="left:calc(' + mark.toFixed(1) + '% - 1px)"></b>' : '') + '</span>';
+  }
+  function ewbVsTag(v){
+    if (v === 'rich') return '<span class="ewb-tag rich" title="Options price a bigger move than the stock usually makes">Pricey</span>';
+    if (v === 'cheap') return '<span class="ewb-tag cheap" title="Options price a smaller move than the stock usually makes">Cheap</span>';
+    if (v === 'in-line') return '<span class="ewb-tag" title="Options price about the stock’s usual move">About usual</span>';
+    return '';
+  }
+  function ewbPlanHead(p){
+    return p.action === 'trade-through' ? 'Trade through it' : p.action === 'wait' ? 'Wait for the print' : 'No trade';
+  }
+  function ewbPlanHtml(p){
+    if (!p) return '';
+    var bits = [];
+    if (p.side) bits.push((p.side === 'call' ? 'calls' : 'puts') + (p.conviction != null ? ' · grade ' + escapeHtml(String(p.conviction)) : ''));
+    if (p.openTrade) bits.push('open trade');
+    return '<span class="ewb-plan ewb-plan-' + escapeHtml(p.action || 'none') + '" title="' + escapeHtml(p.reason || '') + '"><b>' + ewbPlanHead(p) + '</b>' + (bits.length ? '<small class="vt-sub">' + bits.join(' · ') + '</small>' : '') + '</span>';
+  }
+  function ewbSeasonHtml(s){
+    if (!s || !s.reported) return '<p class="hint">No reports in this season yet.</p>';
+    var parts = [];
+    parts.push('<b>' + s.reported + '</b> covered reports this season');
+    if (s.beatRate != null) parts.push('<b>' + Math.round(s.beatRate * 100) + '%</b> beat on earnings per share (' + s.beats + ' of ' + s.epsKnown + ')');
+    if (s.fellShare != null) parts.push('<b>' + Math.round(s.fellShare * 100) + '%</b> fell the next session');
+    if (s.avgAbsMovePct != null) parts.push('average move <b>' + ewbPct(s.avgAbsMovePct) + '</b> (net ' + ewbPct(s.avgMovePct, true) + ')');
+    return '<p class="ewb-season">' + parts.join(' · ') + '</p>';
+  }
+  function renderEarningsWeek(){
+    var root = document.getElementById('ewb-root');
+    if (!root) return;
+    var st = earningsWeekState, d = st.data;
+    if (!d){ root.innerHTML = '<p class="ewb-empty">' + (st.error ? 'The earnings week board could not load. Try again later.' : 'Loading the earnings week…') + '</p>'; return; }
+    var rows = Array.isArray(d.rows) ? d.rows : [];
+    var owner = HAS_OWNER_ACCESS && st.plan && st.plan.plans;
+    var cols = [
+      { label: 'Date', cell: function(r){ return '<b>' + ewbDate(r.date) + '</b><small class="vt-sub">' + escapeHtml(ewbSession(r.session)) + '</small>'; }, sort: function(r){ return r.date + (String(r.session).toUpperCase() === 'PM' ? 'b' : 'a'); } },
+      { label: 'Stock', cell: function(r){ return VIEWS.expandHtml('Show past moves') + ' <a href="' + STOCK_PAGE.href(r.symbol) + '"><b>' + escapeHtml(r.symbol) + '</b></a><small class="vt-sub">' + escapeHtml(r.name || '') + '</small>'; }, sort: function(r){ return r.symbol; } },
+      { label: 'Options expect ±', num: true, title: 'Implied move: the move, up or down, the at-the-money straddle prices for the report', cell: function(r){ return r.impliedMovePct != null ? '<span class="ewb-move">' + ewbMoveBar(r.impliedMovePct, r.avgMovePct) + ewbPct(r.impliedMovePct) + '</span>' : ''; }, sort: function(r){ return r.impliedMovePct; } },
+      { label: 'Usual move', num: true, title: 'Average size of the next-session move over the stock’s last ' + ((d.rules && d.rules.history) || 8) + ' reports', cell: function(r){ return r.avgMovePct != null ? ewbPct(r.avgMovePct) + '<small class="vt-sub">' + r.prints + ' reports · max ' + ewbPct(r.maxMovePct) + '</small>' : ''; }, sort: function(r){ return r.avgMovePct; } },
+      { label: 'vs usual', title: 'Options price compared with the stock’s usual report move', cell: function(r){ return ewbVsTag(r.vsHistory); }, sort: function(r){ return r.impliedMovePct > 0 && r.avgMovePct > 0 ? r.impliedMovePct / r.avgMovePct : null; } },
+      { label: 'Beat priced', num: true, title: 'Past reports where the stock moved more than options had priced', cell: function(r){ return r.exceededOf ? r.exceeded + ' of ' + r.exceededOf : ''; }, sort: function(r){ return r.exceededOf ? r.exceeded / r.exceededOf : null; } },
+      { label: 'Up after', num: true, title: 'Past reports where the stock rose the next session', cell: function(r){ return r.prints ? r.upPrints + ' of ' + r.prints : ''; }, sort: function(r){ return r.prints ? r.upPrints / r.prints : null; } },
+      { label: 'Run-in', num: true, title: 'How far the stock moved over the last 10 trading days into the report', cell: function(r){ return r.runInPct != null ? '<span class="' + (r.runInPct >= 0 ? 'pos' : 'neg') + '">' + ewbPct(r.runInPct, true) + '</span>' : ''; }, sort: function(r){ return r.runInPct; } }
+    ];
+    if (owner) cols.push({ label: 'Top Picks plan', cls: 'ewb-plan-col', title: 'What the Top Picks event engine would do with this report (Owner only)', cell: function(r){ return ewbPlanHtml(st.plan.plans[r.symbol]); }, sort: function(r){ var p = st.plan.plans[r.symbol]; return p ? (p.action === 'trade-through' ? 2 : p.action === 'wait' ? 1 : 0) : null; } });
+    var detail = function(r){
+      var moves = Array.isArray(r.moves) ? r.moves : [];
+      var out = !moves.length ? '<p class="hint">No past report moves on record.</p>' :
+        '<p class="hint">Next-session moves after the last ' + moves.length + ' reports, oldest first:</p><p>' + moves.map(function(m){
+          return '<span class="ewb-tag ' + (m.movePct >= 0 ? 'cheap' : 'rich') + '" title="' + escapeHtml(m.date) + '">' + ewbPct(m.movePct, true) + '</span>';
+        }).join(' ') + '</p>';
+      var p = owner ? st.plan.plans[r.symbol] : null;
+      if (p && p.reason) out += '<p class="ewb-plan-why"><b>Top Picks plan: ' + ewbPlanHead(p) + '.</b> ' + escapeHtml(p.reason.charAt(0).toUpperCase() + p.reason.slice(1).replace(/[.\s]+$/, '')) + '.</p>';
+      return out;
+    };
+    var range = d.from && d.to ? ewbDate(d.from) + ' to ' + ewbDate(d.to) : 'the next ' + (d.windowDays || 10) + ' days';
+    root.innerHTML =
+      '<div class="ewb-head"><h3>' + rows.length + ' report' + (rows.length === 1 ? '' : 's') + ', ' + range + '</h3>' +
+        (HAS_OWNER_ACCESS && st.planLoading ? '<span class="hint">Loading the Top Picks plan…</span>' : '') + '</div>' +
+      ewbSeasonHtml(d.season) +
+      '<p class="hint">' + glTerm('impliedMove', 'Options expect ±') + ' is the move the options market prices for the report. "Usual move" is the stock’s own average over its last ' + ((d.rules && d.rules.history) || 8) + ' reports. Options are called pricey when they expect at least 15% more than usual, and cheap at 15% less.</p>' +
+      VIEWS.tableHtml(cols, rows, { key: 'earnings-week', cls: 'ewb-table', detail: detail, empty: 'No covered company reports in the next ' + (d.windowDays || 10) + ' days.' });
+  }
+  function loadEarningsWeekPlan(){
+    if (!HAS_OWNER_ACCESS || earningsWeekState.plan || earningsWeekState.planLoading) return;
+    earningsWeekState.planLoading = true;
+    fetch(dataUrl('earnings-week-plan.json'), { cache: 'no-cache', credentials: 'same-origin' })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .catch(function(){ return null; })
+      .then(function(j){ earningsWeekState.plan = j && j.plans ? j : null; earningsWeekState.planLoading = false; renderEarningsWeek(); });
+  }
+  function loadEarningsWeek(){
+    loadEarningsWeekPlan();
+    if (earningsWeekState.data || earningsWeekState.loading){ renderEarningsWeek(); return; }
+    earningsWeekState.loading = true; earningsWeekState.error = false;
+    renderEarningsWeek();
+    fetch(dataUrl('earnings-week.json'), { cache: 'no-cache' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(j){ earningsWeekState.data = j && Array.isArray(j.rows) ? j : { rows: [] }; })
+      .catch(function(){ earningsWeekState.error = true; })
+      .then(function(){ earningsWeekState.loading = false; renderEarningsWeek(); });
+  }
+  document.addEventListener('stonks-owner-ready', function(){
+    var pane = document.getElementById('page-pane-earnings-week');
+    if (HAS_OWNER_ACCESS && pane && !pane.hidden) loadEarningsWeek();
+  });
+
 function calendarSourceLabel(key) {
   const labels = { bls: 'BLS', bea: 'BEA', 'kc-fed-jackson-hole': 'Kansas City Fed · Jackson Hole' };
   if (Object.hasOwn(labels,key)) return labels[key];
@@ -1993,6 +2101,81 @@ function validNewsFeedPayload(data) {
     classify: classify
   };
 })();
+  var REFRESH_SCHEDULE = (function refreshScheduleFactory() {
+  function hm(h, m) { return h * 60 + (m || 0); }
+  var JOBS = {
+    brief: { label: 'Market brief', runs: [hm(8, 30), hm(11), hm(13, 30), hm(16, 10)] },
+    build: { label: 'Full market build', runs: [hm(10), hm(11), hm(13, 30), hm(15, 30), hm(16, 10)] },
+    picks: { label: 'Top Picks and swing desks', runs: [hm(11), hm(15, 30)] },
+    flow: { label: 'Flow, volume and heatmap', runs: [hm(9), hm(10), hm(11), hm(12), hm(13), hm(14), hm(15), hm(16)] },
+    oi: { label: 'Near-term open interest', runs: [hm(8, 30), hm(17)], approx: true },
+    calls: { label: 'Earnings calls and pre-open call', runs: [hm(9), hm(19)] },
+    weekly: { label: 'Weekly Alt Data (Fridays)', runs: [hm(11, 30)], fridayOnly: true }
+  };
+  // Which job refreshes the data on each page. Pages not listed follow the
+  // full build. Live-only pages (no stamped snapshot) return null.
+  var TAB_JOB = {
+    'brief': 'brief',
+    'picks': 'picks', 'open-picks': 'picks', 'track': 'picks', 'stocks': 'picks', 'rotation': 'picks', 'levetf': 'picks', 'leaps': 'picks',
+    'flow': 'flow', 'volume': 'flow', 'heatmap': 'flow',
+    'oi': 'oi',
+    'calls': 'calls',
+    'ram-prices': 'weekly', 'accelerator-prices': 'weekly', 'search-interest': 'weekly',
+    'sports-nba': null, 'sports-nfl': null, 'sports-pick-builder': null, 'research-lab': null,
+    'learn': null, 'cheatsheet': null, 'chart-patterns': null, 'timeline': null, 'privacy': null, 'terms': null, 'update-checker': null
+  };
+  function jobFor(tab) {
+    if (tab && Object.prototype.hasOwnProperty.call(TAB_JOB, tab)) return TAB_JOB[tab];
+    return 'build';
+  }
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+  function clock(min) { return pad(Math.floor(min / 60)) + ':' + pad(min % 60); }
+  function dateKeyAdd(key, days) {
+    var t = Date.parse(key + 'T12:00:00Z');
+    if (!isFinite(t)) return null;
+    var d = new Date(t + days * 86400000);
+    return d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate());
+  }
+  function dowOf(key) {
+    var t = Date.parse(key + 'T12:00:00Z');
+    return isFinite(t) ? new Date(t).getUTCDay() : -1;
+  }
+  // et: { dateKey: 'YYYY-MM-DD', minutes: ET minutes after midnight }.
+  // holidays: { 'YYYY-MM-DD': name } full closures. Returns the next scheduled
+  // start strictly after now: { dateKey, minutes, clock, dayOffset } or null.
+  function nextRun(jobKey, et, holidays) {
+    var job = JOBS[jobKey];
+    if (!job || !et || !et.dateKey || !isFinite(et.minutes)) return null;
+    holidays = holidays || {};
+    for (var add = 0; add < 14; add++) {
+      var key = add ? dateKeyAdd(et.dateKey, add) : et.dateKey;
+      if (!key) return null;
+      var dow = dowOf(key);
+      if (dow === 0 || dow === 6 || holidays[key]) continue;
+      if (job.fridayOnly && dow !== 5) continue;
+      for (var i = 0; i < job.runs.length; i++) {
+        if (add === 0 && job.runs[i] <= et.minutes) continue;
+        return { dateKey: key, minutes: job.runs[i], clock: clock(job.runs[i]), dayOffset: add, approx: !!job.approx };
+      }
+    }
+    return null;
+  }
+  var DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  var MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  // "15:30 ET", "tomorrow 10:00 ET", "Mon 10:00 ET".
+  function nextLabel(jobKey, et, holidays) {
+    var n = nextRun(jobKey, et, holidays);
+    if (!n) return '';
+    var t = (n.approx ? '~' : '') + n.clock + ' ET';
+    if (n.dayOffset === 0) return t;
+    if (n.dayOffset === 1) return 'tomorrow ' + t;
+    if (n.dayOffset < 6) return DOW[dowOf(n.dateKey)] + ' ' + t;
+    var d = new Date(Date.parse(n.dateKey + 'T12:00:00Z'));
+    return DOW[d.getUTCDay()] + ' ' + MON[d.getUTCMonth()] + ' ' + d.getUTCDate() + ', ' + t;
+  }
+  return { JOBS: JOBS, TAB_JOB: TAB_JOB, jobFor: jobFor, nextRun: nextRun, nextLabel: nextLabel, clock: clock };
+})();
+  var GLOSSARY = {"oi":{"term":"Open interest (OI)","def":"How many option contracts are still open at a strike. It updates once a day, after the exchange settles the prior session.","tab":"oi"},"dOi":{"term":"OI change (ΔOI)","def":"How much open interest grew or shrank since the prior trading day. A big rise means new positions were opened at that strike.","tab":"oi"},"cp":{"term":"Calls per put (C/P)","def":"Open call contracts divided by open put contracts in the near-term chain. 2:1 means twice as many calls as puts are open.","tab":"oi"},"volOi":{"term":"Volume ÷ OI (Vol/OI)","def":"Contracts traded today divided by contracts already open. Above 1 means today’s trading is larger than the existing positions, often new money.","tab":"oi"},"callWall":{"term":"Call wall / put wall","def":"The strike with the most open calls (or puts). Price often stalls near these strikes because dealers hedge around them. These are open-interest walls.","tab":"oi"},"gammaWall":{"term":"Gamma wall","def":"The strike where dealers’ estimated hedging is largest (dealer gamma). It is worked out from open interest and each option’s gamma, so it can differ from the OI wall.","tab":"oi"},"squeeze":{"term":"Squeeze score (gamma squeeze score)","def":"A 0 to 5 count of signs that call buying could push the stock up fast: heavy calls near the price, many calls per put, busy call-wall trading, a nearby call wall and buying at the ask. 4 or 5 is a setup to watch, not a reason to buy.","tab":"oi"},"iv":{"term":"Implied volatility (IV)","def":"How big a yearly move option prices are paying for, in percent. Higher IV means more expensive options.","tab":"cheatsheet"},"ivPct":{"term":"IV percentile","def":"The share of the stock’s own past days (about 18 months) when its IV was lower than today. 85 means options cost more today than on 85% of those days.","tab":"iv-trend"},"ivRank":{"term":"IV rank","def":"Where today’s IV sits between the lowest (0) and highest (100) IV of the stock’s own saved history.","tab":"iv-trend"},"rv":{"term":"Realized volatility (RV30)","def":"How much the stock actually moved over the last 30 trading days, as a yearly percent. When IV is above it, options are charging more than the stock has been moving."},"vrp":{"term":"Volatility premium (VRP)","def":"IV minus realized volatility. Positive means options are priced for bigger moves than the stock has been making."},"dte":{"term":"Days to expiry (DTE)","def":"Calendar days until an option expires."},"atm":{"term":"At the money (ATM)","def":"The strike closest to the current stock price."},"delta":{"term":"Delta (Δ)","def":"About how much an option’s price moves for a $1 move in the stock, and a rough chance it ends in the money. 0.55 Δ is a little in the money."},"impliedMove":{"term":"Implied move","def":"The move, up or down, that option prices expect around an event such as earnings. It comes from the at-the-money straddle.","tab":"earnings-week"},"debit":{"term":"Debit spread","def":"Buy one option and sell a further one of the same type. It costs less than buying alone, and both the gain and the loss are capped.","tab":"strategies"},"credit":{"term":"Credit spread","def":"Sell one option and buy a further one as protection. You collect money up front; the most you can lose is the gap between strikes minus that credit.","tab":"strategies"}};
   // One overnight risk-on/off scorer (source: lib/overnight-tone.mjs), the same
   // one the bake uses for the saved pre-open call and the Top Picks tape axis.
   var OVERNIGHT = (function overnightToneFactory() {
@@ -3413,6 +3596,56 @@ function scenarioEventPhase(ev, now = Date.now()) {
     });
   }
   // ---------------------------------------------------------------------
+  // Tap-to-define (lib/glossary.mjs). glTerm(key, text) marks a word; a tap,
+  // click or Enter opens its meaning. Not for sortable table headers (a click
+  // there sorts): those keep a plain name and a title.
+  function glTerm(key, text){
+    var g = GLOSSARY[key];
+    var label = text == null ? (g ? g.term : key) : text;
+    if (!g) return escapeHtml(label);
+    return '<button type="button" class="gl-term" data-gl="' + escapeHtml(key) + '" aria-haspopup="dialog" title="' + escapeHtml(g.def) + '">' + escapeHtml(label) + '</button>';
+  }
+  (function initGlossary(){
+    var pop = null, owner = null;
+    function close(){
+      if (pop && pop.parentNode) pop.parentNode.removeChild(pop);
+      if (owner) owner.setAttribute('aria-expanded', 'false');
+      pop = null; owner = null;
+    }
+    function open(btn){
+      var key = btn.getAttribute('data-gl'), g = GLOSSARY[key];
+      if (!g) return;
+      if (owner === btn){ close(); return; }
+      close();
+      pop = document.createElement('div');
+      pop.className = 'gl-pop';
+      pop.setAttribute('role', 'dialog');
+      pop.setAttribute('aria-label', g.term);
+      pop.innerHTML = '<b>' + escapeHtml(g.term) + '</b>' + escapeHtml(g.def) +
+        '<br><a href="?tab=glossary#gl-' + escapeHtml(key) + '" data-gl-more>All words used on this site</a>';
+      document.body.appendChild(pop);
+      var r = btn.getBoundingClientRect(), w = pop.offsetWidth, h = pop.offsetHeight;
+      var left = Math.max(16, Math.min(window.innerWidth - w - 16, r.left));
+      var top = r.bottom + 6;
+      if (top + h > window.innerHeight - 8 && r.top - h - 6 > 8) top = r.top - h - 6;
+      pop.style.left = left + 'px';
+      pop.style.top = top + 'px';
+      owner = btn;
+      btn.setAttribute('aria-expanded', 'true');
+    }
+    document.addEventListener('click', function(ev){
+      var t = ev.target && ev.target.closest ? ev.target : null;
+      if (!t) return;
+      var btn = t.closest('.gl-term');
+      if (btn){ ev.preventDefault(); ev.stopPropagation(); open(btn); return; }
+      if (pop && !t.closest('.gl-pop')) close();
+      else if (t.closest('[data-gl-more]')) close();
+    }, true);
+    document.addEventListener('keydown', function(ev){ if (ev.key === 'Escape' && pop){ var o = owner; close(); if (o) o.focus(); } });
+    window.addEventListener('scroll', function(){ if (pop) close(); }, { passive: true, capture: true });
+    window.addEventListener('resize', function(){ if (pop) close(); });
+  })();
+  // ---------------------------------------------------------------------
   // CSV export — used by Unusual Flow, Calendar, and Top Picks "Export
   // CSV" buttons. Quotes per RFC 4180 (double the quote, wrap if a comma
   // / newline / quote is present).
@@ -4062,6 +4295,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (WEEKLY_ALT_TABS[tab]) {
       return { iso: weeklyAltDataIso(tab), label: 'weekly data, updated Fridays 11:30 ET · next ' + nextAltDataFridayLabel(), weekly: true };
     }
+    if (tab === 'picks' && typeof picksState !== 'undefined' && picksState.data && picksState.data.builtAtIso) {
+      return { iso: picksState.data.builtAtIso, label: 'Top Picks run' };
+    }
     if (tab === 'flow' && UNUSUAL && UNUSUAL.scannedAt) {
       return { iso: UNUSUAL.scannedAt, label: 'hourly unusual-flow scan' };
     }
@@ -4097,6 +4333,16 @@ function scenarioEventPhase(ev, now = Date.now()) {
     }
     return null;
   }
+  // " · next update 15:30 ET" for the page on screen, from the one shared
+  // schedule (lib/refresh-schedule.mjs). Empty for pages with no schedule.
+  function freshnessNextHtml(tab){
+    var job = REFRESH_SCHEDULE.jobFor(tab || 'home');
+    if (!job || job === 'weekly') return '';
+    var et = etNowParts();
+    if (!et) return '';
+    var label = REFRESH_SCHEDULE.nextLabel(job, { dateKey: et.dateKey, minutes: Math.round(et.hour * 60) }, MARKET_HOLIDAYS);
+    return label ? ' <span class="freshness-detail freshness-next">· next update ' + escapeHtml(label) + '</span>' : '';
+  }
   function renderFreshness(activeTab){
     if (activeTab) freshnessActiveTab = activeTab;
     else activeTab = freshnessActiveTab;
@@ -4119,17 +4365,18 @@ function scenarioEventPhase(ev, now = Date.now()) {
       // Per-tab override — show the source label, never escalate to the
       // bad/warn states (those track the daily build, not this signal).
       bannerText.innerHTML = 'Updated ' + freshnessRelLabel(ageH) +
-        ' <span class="freshness-detail">· ' + override.label + '</span>';
+        ' <span class="freshness-detail">· ' + override.label + '</span>' + (override.weekly ? '' : freshnessNextHtml(activeTab));
       return;
     }
     if (ageH > 24*7) {
       banner.classList.add('bad');
-      bannerText.innerHTML = 'Very stale — last refreshed ' + dateLabel + '. <span class="freshness-detail">Verify quotes on your broker before trading.</span>';
+      bannerText.innerHTML = 'Very stale — last updated ' + dateLabel + '. <span class="freshness-detail">Verify quotes on your broker before trading.</span>';
     } else if (ageH > 36) {
       banner.classList.add('warn');
-      bannerText.innerHTML = 'Stale data — last refreshed ' + dateLabel + '. <span class="freshness-detail">Verify quotes on your broker before trading.</span>';
+      bannerText.innerHTML = 'Stale data — last updated ' + dateLabel + '. <span class="freshness-detail">Verify quotes on your broker before trading.</span>' + freshnessNextHtml(activeTab);
     } else {
-      bannerText.innerHTML = 'Refreshed ' + freshnessRelLabel(ageH) + ' <span class="freshness-detail">· end-of-session quotes from Yahoo</span>';
+      bannerText.innerHTML = 'Updated ' + freshnessRelLabel(ageH) + freshnessNextHtml(activeTab);
+      bannerText.title = 'Prices are the quotes from Yahoo at the last build; live pages add live quotes while the market is open.';
     }
   }
   function renderFooterBuiltTime(){
@@ -6948,7 +7195,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       var band = IV_RICHNESS.classify({ pctile: stats.percentile, iv: stats.today, rv30: vr ? vr.rv30 : null });
       var label = band.rich ? 'rich' : band.cheap ? 'cheap' : 'normal';
       var rvTxt = band.rv30 != null ? ' vs realized ' + (band.rv30 * 100).toFixed(0) + '%' : '';
-      rankBox.textContent = 'IV percentile ' + pctStr + ' · ' + band.label.toLowerCase() + ' · IV rank ' + stats.rank.toFixed(0) + ' (' + stats.count + 'd · today ' + (stats.today * 100).toFixed(0) + '%' + rvTxt + ')';
+      rankBox.innerHTML = glTerm('ivPct', 'IV percentile') + ' ' + escapeHtml(pctStr + ' · ' + band.label.toLowerCase() + ' · ') + glTerm('ivRank', 'IV rank') + ' ' + escapeHtml(stats.rank.toFixed(0) + ' (' + stats.count + 'd · today ' + (stats.today * 100).toFixed(0) + '%' + rvTxt + ')');
       rankBox.title = band.note;
       rankBox.className = 'opt-iv-rank opt-iv-rank-' + label;
     });
@@ -7020,7 +7267,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // resolve the URL's initial tab synchronously at script-evaluation time (the
   // anti-flash pre-select in the boot block) before the /api/auth/me +
   // manifest fetches settle and bind() runs the full selectTab.
-  var PAGE_TAB_IDS = ['home','update-checker','owner-market-brief','tickers','stock','narratives','brief','news','market','risk','unified-signal-engine','historical-data','party-tracker','earnings-forecast','forced-liquidation','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','research-lab','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','bottom-tracker','open-picks','track','sports-nba','sports-nfl','sports-pick-builder','cheatsheet','chart-patterns','timeline','privacy','terms'];
+  var PAGE_TAB_IDS = ['home','update-checker','owner-market-brief','tickers','stock','narratives','brief','news','market','risk','unified-signal-engine','historical-data','party-tracker','earnings-forecast','forced-liquidation','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','research-lab','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','bottom-tracker','open-picks','track','sports-nba','sports-nfl','sports-pick-builder','cheatsheet','chart-patterns','timeline','glossary','earnings-week','privacy','terms'];
   // Friendly aliases so deep-links people might guess work too.
   // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
   // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -7076,6 +7323,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     'buyers-manual': 'cheatsheet', 'buyer-manual': 'cheatsheet', cheat: 'cheatsheet', 'cheat-sheet': 'cheatsheet', manual: 'cheatsheet',
     patterns: 'chart-patterns', chartpatterns: 'chart-patterns', 'chart-pattern': 'chart-patterns',
     timeline: 'timeline', schedule: 'timeline', refresh: 'timeline', 'refresh-schedule': 'timeline', 'build-timeline': 'timeline',
+    glossary: 'glossary', words: 'glossary', definitions: 'glossary', 'earnings-week': 'earnings-week', 'earnings-board': 'earnings-week', 'implied-move': 'earnings-week',
     privacypolicy: 'privacy', 'privacy-policy': 'privacy',
     tos: 'terms', 'terms-of-use': 'terms', 'terms-of-service': 'terms',
   };
@@ -8932,6 +9180,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         else if (typeof cmpTraySync === 'function') cmpTraySync();
         if (name === 'earnings' && typeof loadEarningsTracker === 'function') loadEarningsTracker();
         if (name === 'calls' && typeof loadEarningsCalls === 'function') loadEarningsCalls();
+        if (name === 'earnings-week' && typeof loadEarningsWeek === 'function') loadEarningsWeek();
         if (name === 'ai-capex' && typeof loadAiCapex === 'function') loadAiCapex();
         if (name === 'ram-prices' && typeof loadRamPrices === 'function') loadRamPrices();
         if (name === 'accelerator-prices' && typeof loadAcceleratorPrices === 'function') loadAcceleratorPrices();
@@ -19386,8 +19635,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
         '<div class="flow-decision-metrics">' +
           '<div><span>Top focus</span><b>' + escapeHtml(top.symbol) + ' · ' + top.score + '/5</b><small>' + escapeHtml(focusStatus) + '</small></div>' +
           '<div><span>OI call wall</span><b>' + escapeHtml(callWallText) + '</b><small>' + escapeHtml(wallDistance) + '</small></div>' +
-          '<div><span>Call-wall Vol/OI</span><b>' + escapeHtml(volOiText) + '</b><small>C/P ' + escapeHtml(cpText) + '</small></div>' +
-          '<div><span>ΔOI coverage</span><b>' + escapeHtml(freshOiValue) + '</b><small>' + escapeHtml(freshOiSub) + '</small></div>' +
+          '<div><span>' + glTerm('volOi', 'Call-wall Vol/OI') + '</span><b>' + escapeHtml(volOiText) + '</b><small>' + glTerm('cp', 'Calls per put') + ' ' + escapeHtml(cpText) + '</small></div>' +
+          '<div><span>' + glTerm('dOi', 'OI change') + ' coverage</span><b>' + escapeHtml(freshOiValue) + '</b><small>' + escapeHtml(freshOiSub) + '</small></div>' +
           '<div><span>Short interest</span><b>' + escapeHtml(shortValue) + '</b><small>' + escapeHtml(shortSub) + ' · secondary context</small></div>' +
         '</div>' +
         '<p class="flow-decision-context"><b>Desk breadth:</b> ' + stats.flagged + ' flagged · ' + stats.watch + ' score-3 watches · ' +
@@ -19435,12 +19684,12 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var pct = (maxOi > 0 && s.oi > 0) ? Math.max(2, Math.round((s.oi / maxOi) * 100)) : 0;
     var chips = [];
     if (s.flagOiBig) chips.push('<span class="oi-chip oi-chip-big" title="OI &gt; 1000">OI 1K+</span>');
-    if (s.flagOiDelta100) chips.push('<span class="oi-chip oi-chip-delta100" title="ΔOI ≥ +100% — very aggressive new buying">ΔOI +100%+</span>');
-    else if (s.flagOiDelta30) chips.push('<span class="oi-chip oi-chip-delta30" title="ΔOI ≥ +30% — new buying">ΔOI +30%+</span>');
+    if (s.flagOiDelta100) chips.push('<span class="oi-chip oi-chip-delta100" title="OI change (ΔOI) ≥ +100% — very aggressive new buying">OI +100%+</span>');
+    else if (s.flagOiDelta30) chips.push('<span class="oi-chip oi-chip-delta30" title="OI change (ΔOI) ≥ +30% — new buying">OI +30%+</span>');
     if (volOiHot) chips.push('<span class="oi-chip oi-chip-volhot" title="Vol &gt; 1.5× OI — likely new positions opening today">Vol&gt;&gt;OI</span>');
     var chipsHtml = chips.length ? '<div class="oi-rung-chips">' + chips.join('') + '</div>' : '';
     var deltaHtml = deltaTxt != null
-      ? '<span class="oi-rung-delta' + deltaCls + '" title="ΔOI vs prior trading-day snapshot' + (deltaAbs ? ' (' + deltaAbs + ')' : '') + '">ΔOI ' + deltaTxt + '</span>'
+      ? '<span class="oi-rung-delta' + deltaCls + '" title="ΔOI vs prior trading-day snapshot' + (deltaAbs ? ' (' + deltaAbs + ')' : '') + '">OI change ' + deltaTxt + '</span>'
       : '';
     var volHtml = s.vol > 0
       ? '<span class="oi-rung-vol" title="Today\'s session volume on this strike">Vol ' + fmtOiNum(s.vol) + (volOiTxt ? ' · ' + volOiTxt : '') + '</span>'
@@ -19544,7 +19793,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       ? '<span class="oi-wall oi-wall-put" title="Open-interest put wall: the strike with the most put contracts open (front two expirations). The gamma wall above can differ because it weighs gamma across eight expirations.">OI put wall ' + fmtOiStrike(pw.strike) + ' · ' + fmtOiNum(pw.oi) + '</span>'
       : '';
     var cpHtml = t.cpRatio != null
-      ? '<span class="oi-cp" title="Total call OI ÷ total put OI across the short-dated chain">C/P ' + Number(t.cpRatio).toFixed(2) + ':1</span>'
+      ? '<span class="oi-cp">' + glTerm('cp', 'Calls per put') + ' ' + Number(t.cpRatio).toFixed(2) + ':1</span>'
       : '';
     var si = t.shortInterest || null;
     var siHtml = si && si.percentFloat != null
@@ -19612,13 +19861,13 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var cols = [
       { label: 'Stock', cell: function(t){ return VIEWS.expandHtml('Show the strike ladder for ' + t.symbol) + '<a href="' + symGradeHref(t.symbol) + '">' + escapeHtml(t.symbol) + '</a>'; }, sort: function(t){ return t.symbol; } },
       { label: 'Price', num: true, cell: function(t){ return t.spot != null ? '<span class="oi-spot">$' + Number(t.spot).toFixed(2) + '</span>' : ''; }, sort: function(t){ return t.spot; } },
-      { label: 'Score', num: true, title: 'Gamma squeeze score, 0 to 5. 4 or more is a potential setup, not an entry.', cell: function(t){ var sc = t.score || 0; return '<span class="oi-score ' + oiScoreTier(sc) + (t.flagged ? ' is-flagged' : '') + '">' + sc + '/5' + (t.flagged ? ' ⚠' : '') + '</span>'; }, sort: function(t){ return t.score || 0; } },
+      { label: 'Squeeze score', num: true, title: 'Gamma squeeze score, 0 to 5. 4 or more is a potential setup, not an entry.', cell: function(t){ var sc = t.score || 0; return '<span class="oi-score ' + oiScoreTier(sc) + (t.flagged ? ' is-flagged' : '') + '">' + sc + '/5' + (t.flagged ? ' ⚠' : '') + '</span>'; }, sort: function(t){ return t.score || 0; } },
       { label: 'Put wall', num: true, title: 'Strike with the most put contracts open (front two expirations)', cell: function(t){ return wallCell(t, 'putWall'); }, sort: function(t){ return oiWallDistPct(t, 'putWall'); } },
       { label: 'Price between the walls', cls: 'oi-range-col', title: 'Left end: OI put wall. Right end: OI call wall. The dot is the price.', cell: function(t){ return '<span data-oi-range>' + oiRangeInner(t, t.spot) + '</span>'; }, sort: rangePos },
       { label: 'Call wall', title: 'Strike with the most call contracts open (front two expirations)', cell: function(t){ return wallCell(t, 'callWall'); }, sort: function(t){ return oiWallDistPct(t, 'callWall'); } },
-      { label: 'C/P', num: true, title: 'Total call OI divided by total put OI', cell: function(t){ return t.cpRatio != null ? Number(t.cpRatio).toFixed(2) : ''; }, sort: function(t){ return t.cpRatio; } },
+      { label: 'Calls per put', num: true, title: 'Calls per put (C/P): total call OI divided by total put OI', cell: function(t){ return t.cpRatio != null ? Number(t.cpRatio).toFixed(2) : ''; }, sort: function(t){ return t.cpRatio; } },
       { label: 'Total OI', num: true, cell: function(t){ return fmtOiNum((t.callOiTotal || 0) + (t.putOiTotal || 0)); }, sort: function(t){ return (t.callOiTotal || 0) + (t.putOiTotal || 0); } },
-      { label: 'Biggest ΔOI', num: true, title: 'Largest day-over-day open interest change among the top strikes', cell: function(t){ var d = topDelta(t); return d == null ? '' : '<span class="' + (d >= 0 ? 'pos' : 'neg') + '">' + fmtOiPct(d, true) + '</span>'; }, sort: topDelta },
+      { label: 'Biggest OI change', num: true, title: 'Largest day-over-day open interest change (ΔOI) among the top strikes', cell: function(t){ var d = topDelta(t); return d == null ? '' : '<span class="' + (d >= 0 ? 'pos' : 'neg') + '">' + fmtOiPct(d, true) + '</span>'; }, sort: topDelta },
       { label: 'Short', num: true, title: 'FINRA short interest, % of float', cell: function(t){ var si = t.shortInterest; return si && si.percentFloat != null ? Number(si.percentFloat).toFixed(1) + '%' : ''; }, sort: function(t){ return t.shortInterest ? t.shortInterest.percentFloat : null; } }
     ];
     return VIEWS.tableHtml(cols, tickers, {
@@ -21729,7 +21978,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var t = stratState.technicals;
     if (t && t.rsi != null) parts.push('<span>RSI ' + t.rsi.toFixed(1) + '</span>');
     if (t && t.macd && t.macd.hist != null) parts.push('<span>MACD ' + (t.macd.hist >= 0 ? '+' : '') + t.macd.hist.toFixed(3) + '</span>');
-    if (stratState.ivLabel) parts.push('<span>IV percentile ' + stratState.ivLabel + '</span>');
+    if (stratState.ivLabel) parts.push('<span>' + glTerm('ivPct', 'IV percentile') + ' ' + escapeHtml(stratState.ivLabel) + '</span>');
     box.innerHTML = parts.join(' · ');
   }
 
@@ -46311,6 +46560,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(json){
         picksState.data = (json && Array.isArray(json.picks)) ? json : { picks: [] };
+        if (freshnessActiveTab === 'picks') renderFreshness();
         picksMarketLast=Date.now();
         return pAcc;
       })

@@ -73,6 +73,8 @@ export const BAKE_STAMPED_FILES = [
   "streaks.json",
   "market-analysis.json",
   "ma-tracker.json",
+  "earnings-week.json",
+  "earnings-week-plan.json",
   "stock-picks.json",
   "sector-rotation.json",
   "leveraged-etfs.json",

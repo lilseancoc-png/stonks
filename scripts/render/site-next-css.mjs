@@ -58,14 +58,9 @@ export function renderSiteNextCss() {
 .acc-marks-summary .acc-qtable { margin: 6px 0; }
 
 /* ---- Freshness line (one per page) ---------------------------------------- */
-.page-fresh {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px;
-  margin: 0 0 12px; font: 500 12px/1.4 var(--font-sans); color: var(--muted);
-}
-.page-fresh-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--pos); flex: 0 0 auto; }
-.page-fresh.is-stale .page-fresh-dot { background: var(--warn, #c78a00); }
-.page-fresh.is-old .page-fresh-dot { background: var(--neg); }
-.page-fresh b { color: var(--muted-strong); font-weight: 600; }
+/* The page header folds the freshness line into one quiet chip and hides its
+   details; the next-update time stays visible there. */
+.wf-meta .freshness .freshness-detail.freshness-next { display: inline; }
 
 /* ---- Glossary: tap a term for its meaning --------------------------------- */
 .gl-term {
@@ -133,15 +128,22 @@ export function renderSiteNextCss() {
 .ewb-head h3 { margin: 0; font: 650 16px/1.3 var(--font-sans); color: var(--text-strong); }
 .ewb-table td { font-variant-numeric: tabular-nums; }
 .ewb-move { display: inline-flex; align-items: center; gap: 6px; }
-.ewb-move-bar { position: relative; display: inline-block; width: 70px; height: 7px; border-radius: var(--r-pill); background: color-mix(in srgb, var(--muted) 18%, var(--surface)); }
+.ewb-move-bar { position: relative; display: inline-block; width: 48px; height: 7px; border-radius: var(--r-pill); background: color-mix(in srgb, var(--muted) 18%, var(--surface)); }
 .ewb-move-bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: var(--r-pill); background: var(--accent); }
 .ewb-move-bar b { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--text-strong); }
 .ewb-tag { display: inline-block; padding: 1px 6px; border-radius: var(--r-pill); font: 600 11px/1.4 var(--font-sans); background: var(--surface-2); color: var(--muted-strong); }
 .ewb-tag.rich { color: var(--neg); background: color-mix(in srgb, var(--neg) 12%, transparent); }
 .ewb-tag.cheap { color: var(--pos); background: color-mix(in srgb, var(--pos) 12%, transparent); }
-.ewb-plan { font: 400 12px/1.4 var(--font-sans); color: var(--muted-strong); white-space: normal; min-width: 160px; }
-.ewb-plan b { color: var(--text-strong); }
+.ewb-plan { display: inline-block; min-width: 128px; font: 400 12px/1.35 var(--font-sans); color: var(--muted-strong); }
+.ewb-plan b { color: var(--text-strong); font-weight: 600; }
+.ewb-plan-trade-through b { color: var(--pos); }
+.ewb-plan-why { margin: 6px 0 0; font: 400 13px/1.5 var(--font-sans); color: var(--muted-strong); }
+.ewb-plan-why b { color: var(--text-strong); }
+.ewb-table td, .ewb-table th { white-space: nowrap; }
 .ewb-empty { padding: 12px 0; color: var(--muted); font: 400 13px/1.5 var(--font-sans); }
+.ewb-season { margin: 0 0 8px; font: 400 13px/1.5 var(--font-sans); color: var(--muted-strong); }
+.ewb-season b { color: var(--text-strong); }
+.ewb-table .vt-sub { display: block; color: var(--muted); font-size: 12px; font-weight: 400; }
 
 /* ---- Owner watchlist alerts ----------------------------------------------- */
 .wla-list { display: grid; gap: 8px; margin: 8px 0 0; padding: 0; list-style: none; }
