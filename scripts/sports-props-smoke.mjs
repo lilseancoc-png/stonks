@@ -35,10 +35,10 @@ assert.ok(!lineMatchesGame({ ...normalized, home_team: 'Los Angeles Clippers' },
 const injured = normalizeInjuries({ status: 'success', timestamp: at, injuries: [{ displayName: 'Los Angeles Lakers', injuries: [{ status: 'Out', date: at, shortComment: 'Fixture absence', athlete: { displayName: 'Test Out', team: { abbreviation: 'LAL' }, links: [{ rel: ['playercard'], href: 'https://www.espn.com/nba/player/_/id/3/test-out' }] } }] }] }, 'nba');
 assert.equal(injured[0].espn_id, '3');
 assert.equal(injured[0].team, 'lal');
-const players = ['One', 'Two', 'Out'].map((n, i) => ({ player_id: 'p' + i, name: 'Test ' + n, team: 'lal', position: 'G', provider_ids: { espn: String(i + 1) } }));
+const players = ['One', 'Two', 'Out'].map((n, i) => ({ player_id: 'p' + i, name: 'Test ' + n, team: i === 1 ? 'gs' : 'lal', position: 'G', provider_ids: { espn: String(i + 1) } }));
 const rows = players.flatMap((p) => Array.from({ length: 20 }, (_, i) => ({
   player_id: p.player_id, game_id: 'old' + i, date: new Date(Date.parse('2026-10-16T12:00Z') + i * 86400000).toISOString().slice(0, 10),
-  team: 'lal', opponent: 'gs', played: true, home: i % 2 === 0, minutes: 32, position: 'G', season: 2026,
+  team: p.team, opponent: p.team === 'lal' ? 'gs' : 'lal', played: true, home: i % 2 === 0, minutes: 32, position: 'G', season: 2026,
   stats: { points: 20 + i % 4, rebounds: 8, assists: 6 },
 })));
 const lines = players.flatMap((p) => [
@@ -51,6 +51,10 @@ const args = { sport: 'nba', game, lines, injuries, players, rows, model: null, 
 const ranked = rankGameProps(args);
 assert.equal(ranked.picks.length, 2);
 assert.equal(new Set(ranked.picks.map((p) => p.player_id)).size, 2);
+assert.deepEqual(new Set(ranked.picks.map((p) => p.team)), new Set(['lal', 'gs']));
+const oneTeam = rankGameProps({ ...args, rows: rows.map((r) => ({ ...r, team: 'lal', opponent: 'gs' })) });
+assert.equal(oneTeam.picks.length, 1, 'never fill the opponent slot with a second teammate');
+assert.equal(oneTeam.state, 'limited');
 assert.ok(!ranked.picks.some((p) => p.player_name === 'Test Out'));
 assert.equal(ranked.availability[0].status, 'Out');
 assert.ok(ranked.picks.every((p) => p.basis === 'history_only' && p.model === null));
@@ -135,4 +139,21 @@ assert.ok(record.records.every((p) => Array.isArray(p.evidence)), 'research expo
 assert.equal(record.summary.model_check.samples, 0, 'rank scores are not probability forecasts');
 const nflRecord = await propRecordView({ load, sport: 'nfl', seasons: [2026], now, all: true });
 assert.equal(nflRecord.records.find((p) => p.game_id === 'pending-game').result, 'awaiting_stats', 'missing NFL row is never assumed zero');
+const fillObjects = new Map(), fillStore = { ...store,
+  rawGet: async (k) => fillObjects.has(k) ? Buffer.from(fillObjects.get(k)) : null,
+  rawPut: async (k, value) => { fillObjects.set(k, String(value)); } };
+const homePick = ranked.picks.find((p) => p.team === game.home_team), awayPick = ranked.picks.find((p) => p.team === game.away_team);
+const fillView = (picks) => ({ ...view, games: [{ ...view.games[0], picks }] });
+assert.equal((await capturePropPicks({ store: fillStore, view: fillView([homePick]), now })).added, 1);
+assert.equal((await capturePropPicks({ store: fillStore, view: fillView([
+  { ...homePick, player_id: 'another-teammate', rank_score: 99 },
+  { ...homePick, player_id: 'outsider', team: 'bos' }, awayPick,
+]), now })).added, 1, 'later fills reject a teammate and any player outside the game');
+const filled = JSON.parse(fillObjects.get(recordKey));
+assert.deepEqual(filled.picks.map((p) => p.player_id), [homePick.player_id, awayPick.player_id]);
+assert.deepEqual(new Set(filled.picks.map((p) => p.team)), new Set([game.home_team, game.away_team]));
+const legacy = { ...filled, picks: filled.picks.map((p) => ({ ...p, team: 'lal', rank_version: 'props-rank-2' })) };
+fillObjects.set(recordKey, JSON.stringify(legacy));
+assert.equal((await capturePropPicks({ store: fillStore, view, now })).added, 0);
+assert.equal(fillObjects.get(recordKey), JSON.stringify(legacy), 'the new rule never rewrites legacy issues');
 console.log('Sports props smoke passed (feed normalization, ranking, injuries, time boundaries, quota failures and Owner access).');

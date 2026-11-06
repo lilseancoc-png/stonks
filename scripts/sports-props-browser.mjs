@@ -10,9 +10,9 @@ const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright')
 const root = resolve(new URL('..', import.meta.url).pathname), now = Date.parse('2026-11-05T18:00Z');
 const at = new Date(now).toISOString(); let serverNow = now;
 const game = { game_id: 'g1', season: 2026, local_date: '2026-11-05', start_utc: '2026-11-05T23:00Z', home_team: 'lal', away_team: 'gs', status: 'scheduled' };
-const players = ['One', 'Two', 'Out'].map((n, i) => ({ sport: 'nba', player_id: 'p' + i, name: 'Fixture ' + n, position: 'G', team: 'lal', provider_ids: { espn: String(i + 1) } }));
+const players = ['One', 'Two', 'Out'].map((n, i) => ({ sport: 'nba', player_id: 'p' + i, name: 'Fixture ' + n, position: 'G', team: i === 1 ? 'gs' : 'lal', provider_ids: { espn: String(i + 1) } }));
 const rows = players.flatMap((p) => Array.from({ length: 20 }, (_, i) => ({ player_id: p.player_id, game_id: 'old' + i, sport: 'nba', season: 2026,
-  date: new Date(Date.parse('2026-10-16T12:00Z') + i * 86400000).toISOString().slice(0, 10), team: 'lal', opponent: 'gs', home: true, played: true, position: 'G', minutes: 32, stats: { points: 25, rebounds: 7, assists: 5 } })));
+  date: new Date(Date.parse('2026-10-16T12:00Z') + i * 86400000).toISOString().slice(0, 10), team: p.team, opponent: p.team === 'lal' ? 'gs' : 'lal', home: p.team === 'lal', played: true, position: 'G', minutes: 32, stats: { points: 25, rebounds: 7, assists: 5 } })));
 const objects = new Map();
 const put = (kind, value, opts = {}) => objects.set(sportsKey(kind, { sport: 'nba', ...opts }), JSON.stringify(value));
 put('status', { state: 'ok', seasons: [2026], last_success_utc: at, latest_game_date: '2026-11-04' });

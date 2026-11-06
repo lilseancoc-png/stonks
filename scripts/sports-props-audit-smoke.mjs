@@ -7,9 +7,9 @@ import { handleSportsRequest } from '../lib/sports/http.mjs';
 
 const now = Date.parse('2026-11-05T18:00Z'), at = new Date(now).toISOString();
 const game = { game_id: 'g', season: 2026, status: 'scheduled', local_date: '2026-11-05', start_utc: '2026-11-05T23:00Z', home_team: 'lal', away_team: 'gs' };
-const players = ['One', 'Two'].map((name, i) => ({ player_id: 'p' + i, name: 'Test ' + name, position: 'G', team: 'lal', provider_ids: { espn: String(i + 1) } }));
+const players = ['One', 'Two'].map((name, i) => ({ player_id: 'p' + i, name: 'Test ' + name, position: 'G', team: i === 0 ? 'lal' : 'gs', provider_ids: { espn: String(i + 1) } }));
 const rows = players.flatMap((p) => Array.from({ length: 20 }, (_, i) => ({ sport: 'nba', season: 2026, player_id: p.player_id, game_id: 'old-' + i,
-  date: new Date(now - (20 - i) * 86400000).toISOString().slice(0, 10), team: 'lal', opponent: 'gs', home: true, played: true, position: 'G', minutes: 32, stats: { points: 25 } })));
+  date: new Date(now - (20 - i) * 86400000).toISOString().slice(0, 10), team: p.team, opponent: p.team === 'lal' ? 'gs' : 'lal', home: p.team === 'lal', played: true, position: 'G', minutes: 32, stats: { points: 25 } })));
 const lines = players.map((p) => ({ player_name: p.name, stat: 'points', threshold: 15.5, side: 'over', home_team: 'Los Angeles Lakers', away_team: 'Golden State Warriors', start_utc: game.start_utc, observed_utc: at }));
 const injuries = { state: 'ok', observed_utc: at, reports: [] };
 const args = { sport: 'nba', game, players, rows, lines, injuries, model: null, matchup: null, allGames: [], now };
@@ -19,8 +19,8 @@ assert.equal(teamCode('LAR', 'nfl'), 'la', 'use the actual nflverse Rams id');
 for (const [home, away] of [['Los Angeles Rams', 'Seattle Seahawks'], ['Seattle Seahawks', 'Los Angeles Rams']]) {
   assert.ok(lineMatchesGame({ home_team: home, away_team: away, start_utc: game.start_utc }, { ...game, home_team: home.startsWith('Los') ? 'la' : 'sea', away_team: away.startsWith('Los') ? 'la' : 'sea' }, 'nfl'));
 }
-const nflPlayers = players.map((p) => ({ ...p, team: 'la', position: 'RB' }));
-const nflRows = rows.map((r, i) => ({ ...r, sport: 'nfl', team: 'la', opponent: 'sea', position: 'RB', stats: { receiving_yards: 40, rushing_yards: 35, targets: i % 20 >= 15 ? 8 : 2, carries: i % 20 >= 15 ? 1 : 20 } }));
+const nflPlayers = players.map((p) => ({ ...p, team: p.team === 'lal' ? 'la' : 'sea', position: 'RB' }));
+const nflRows = rows.map((r, i) => ({ ...r, sport: 'nfl', team: r.team === 'lal' ? 'la' : 'sea', opponent: r.team === 'lal' ? 'sea' : 'la', position: 'RB', stats: { receiving_yards: 40, rushing_yards: 35, targets: i % 20 >= 15 ? 8 : 2, carries: i % 20 >= 15 ? 1 : 20 } }));
 const nflArgs = { ...args, sport: 'nfl', game: { ...game, home_team: 'la', away_team: 'sea' }, players: nflPlayers, rows: nflRows,
   lines: lines.map((l) => ({ ...l, home_team: 'Los Angeles Rams', away_team: 'Seattle Seahawks', stat: 'receiving_yards', threshold: 25.5 })) };
 const nfl = rankGameProps(nflArgs);
