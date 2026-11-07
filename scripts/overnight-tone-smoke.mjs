@@ -136,6 +136,8 @@ const series = {
   "HG=F": { daily: dailyPath(4.5, days, 7), intraday: intraday(winFrom, cutoff, 4.5, priorClose + 7200000, 1.2) },
   "^N225": { daily: dailyPath(38000, days, 8) },
   "^HSI": { daily: dailyPath(20000, days.filter((t) => t <= priorDate), 9) },
+  // CSI 300 often arrives as one bar with no history: a data gap, not a holiday.
+  "000300.SS": { daily: [{ t: callDate, o: 4000, c: 4010 }] },
   "^GDAXI": { daily: dailyPath(19000, days.filter((t) => t < callDate), 10), intraday: intraday(etWallMs(callDate, 3, 0), cutoff, 19000) },
   "^VIX": { daily: dailyPath(16, days, 11), intraday: intraday(priorClose - 3600000, priorClose + 900000, 16) },
 };
@@ -156,6 +158,9 @@ assert.equal(call.tone.gap.call, "up");
 assert.equal(call.session.call, "no-edge");
 assert.ok(call.events.some((e) => e.kind === "us-event"));
 assert.ok(call.events.some((e) => e.kind === "holiday" && /Hang Seng/.test(e.label)));
+assert.equal(built.inputs["000300.SS"].fresh, false);
+assert.equal(built.inputs["000300.SS"].staleWhy, "no prior close in the data feed");
+assert.ok(!call.events.some((e) => e.kind === "holiday" && /CSI 300/.test(e.label)), "a one-bar feed is not 'Closed overnight'");
 assert.ok(call.inputs["ES=F"].f === true && call.inputs["^HSI"].f === false);
 
 // No look-ahead: the read uses nothing after the cutoff.

@@ -22,6 +22,14 @@ jobs:
   ensure-close-bake:
     runs-on: ubuntu-latest
     steps:
+      # The NYSE holiday table only: the daily router skips holiday bakes, so
+      # this fallback must not force one either.
+      - name: Check out the market calendar
+        uses: actions/checkout@v5
+        with:
+          sparse-checkout: lib/us-equity-calendar.mjs
+          sparse-checkout-cone-mode: false
+
       - name: Dispatch missing 16:10 ET bake
         env:
           GH_TOKEN: ${{ github.token }}
@@ -33,6 +41,11 @@ jobs:
           ET_MIN=$((10#$ET_HOUR * 60 + 10#$ET_MINUTE))
           if [ "$ET_DAY" -gt 5 ] || [ "$ET_MIN" -lt 975 ] || [ "$ET_MIN" -gt 1230 ]; then
             echo "Not the delay-tolerant 16:15-20:30 ET watchdog window; no-op."
+            exit 0
+          fi
+          MARKET_SESSION=$(node --input-type=module -e 'import("./lib/us-equity-calendar.mjs").then((m) => { const s = m.sessionForDate(process.argv[1]); console.log(!s ? "unknown" : s.open ? String(s.closeMinute) : "closed"); }).catch(() => console.log("unknown"))' "$(TZ=America/New_York date +%F)" 2>/dev/null || echo unknown)
+          if [ "$MARKET_SESSION" = "closed" ]; then
+            echo "Market holiday (NYSE closed); no close bake is due. No-op."
             exit 0
           fi
 

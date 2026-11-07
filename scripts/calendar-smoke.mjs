@@ -14,6 +14,8 @@ import {
   applyEmploymentPrintsToReports,
   jacksonHoleIsPast,
   seriesIdxForReferenceMonth,
+  pickMacroPrediction,
+  buildCalendarPayload,
 } from "./build.mjs";
 import { renderAppJs } from "./render/app-js.mjs";
 
@@ -162,6 +164,37 @@ ok("live annual CPI chip is dropped from Inflation MoM", !predictionChipMatchesR
 ok("live annual CPI chip is dropped from Core MoM", !predictionChipMatchesReport({ subtype: "core-cpi-mom", date: "2026-09-11" }, liveCpiChip));
 ok("live annual CPI chip is dropped from Core YoY", !predictionChipMatchesReport({ subtype: "core-cpi-yoy", date: "2026-09-11" }, liveCpiChip));
 ok("October CPI does not keep the August annual chip", !predictionChipMatchesReport({ subtype: "cpi-yoy", date: "2026-10-14" }, liveCpiChip));
+
+// A distributional CPI market shows its MOST LIKELY bucket, not the busiest
+// long shot (October 2026 showed "≤0.1% · 8%" on CPI MoM).
+const octMonthly = {
+  title: "October Inflation US Monthly", slug: "october-inflation-us-monthly", endDate: "2026-11-10",
+  markets: [
+    { groupItemTitle: "≤0.1%", outcomes: '["Yes","No"]', outcomePrices: '["0.075","0.925"]', volume: 11671 },
+    { groupItemTitle: "0.2%", outcomes: '["Yes","No"]', outcomePrices: '["0.21","0.79"]', volume: 4200 },
+    { groupItemTitle: "0.3%", outcomes: '["Yes","No"]', outcomePrices: '["0.46","0.54"]', volume: 3900 },
+    { groupItemTitle: "≥0.4%", outcomes: '["Yes","No"]', outcomePrices: '["0.255","0.745"]', volume: 2100 },
+  ],
+};
+const cpiMomChip = pickMacroPrediction({ subtype: "cpi-mom", date: "2026-11-10" }, [octMonthly]);
+ok("CPI MoM chip shows the most likely bucket", cpiMomChip && cpiMomChip.label === "0.3%" && Math.abs(cpiMomChip.prob - 0.46) < 1e-9);
+ok("CPI MoM chip keeps the bucket's own volume for the thin flag", cpiMomChip && cpiMomChip.vol === 3900);
+ok("no matching market, no chip", pickMacroPrediction({ subtype: "cpi-mom", date: "2026-12-10" }, [octMonthly]) === null);
+
+// A report that already printed shows its stored pre-print implied move, not
+// the post-print straddle (MRNA's Nov 6 AM row read 1.3% after the open).
+const printedChains = {
+  MRNA: {
+    fundamentals: { nextEarningsDate: "2026-11-06", nextEarningsSession: "AM" },
+    earningsHx: { events: [{ date: "2026-11-06", session: "AM", impliedMovePct: 0.0812, movePct: 0.0132 }] },
+  },
+};
+const mrnaRow = (iso) => (buildCalendarPayload(printedChains, [], iso, { sessionMap: new Map([["MRNA|2026-11-06", "AM"]]) }).events || [])
+  .find((e) => e.type === "earnings" && e.symbol === "MRNA");
+const afterPrint = mrnaRow("2026-11-06T21:12:00Z");
+ok("printed AM report keeps the stored pre-print implied move", afterPrint && afterPrint.impliedMovePct === 0.0812);
+const beforePrint = mrnaRow("2026-11-05T21:12:00Z");
+ok("upcoming report never reads the stored stamp", beforePrint && beforePrint.impliedMovePct == null);
 
 const jobsHeadline = "Payroll employment increases by 162,000 in August; unemployment rate unchanged at 4.1%";
 const parsedJobs = parseEmploymentSituationHeadline(jobsHeadline);

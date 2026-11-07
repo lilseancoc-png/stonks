@@ -86,6 +86,11 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Unusual options trades shows "—" (with a hover note) for a stock with no option expiring that day, and 0% when one is listed but barely traded.
 - The fear map tags only upcoming earnings, What changed no longer colors a streak that ended on a flat close as a drop and writes "an 8-day", Past days leaves ETFs out of its stock map and labels a trade's P&L as "now" or "closed at", and percentiles read 1st / 2nd / 3rd / 82nd instead of "82th" (stock page, fear map and the VIX rank lines).
 - `npm run verify:risk-cost` runs again. Since the Top Picks settings moved to their own file on Nov 6, it pasted that file into the old build it compares against and stopped with a duplicate-import error on every branch.
+- Market holidays no longer run a full build. The Daily build router reads the NYSE holiday table (the one the Top Picks watchdog uses) and skips the build, Brief, Top Picks and Webull mirror on a weekday holiday (Labor Day ran all of them); the earnings-call transcript slots still run, and `force=true` still builds on purpose. The close-bake fallback no longer forces a holiday bake. On a 13:00 ET half day there is no 15:30 Top Picks run after the bell (#770).
+- AM earnings reports use the real 09:30 ET open as their print time in both seasons. In summer the old fixed time was 10:30 ET, so the 10:00 ET bake re-stamped the "going in" IV and implied move after the open, which made summer AM implied moves too small (AXP Oct 23: 1.7%) and the Earnings results "beat the implied move" count too high. A one-time pass drops those post-open stamps (only where the "pre" IV is no higher than the post-print IV) and rebuilds an estimate from the IV crush (#770).
+- The Calendar shows the stored pre-print implied move for a report that already came out, instead of the post-print straddle (MRNA's Nov 6 row read 1.3%) (#770).
+- Calendar market-odds chips on CPI and PPI rows show the most likely outcome of the busiest matching market, not its busiest bucket ("≤0.1% · 8%" on October CPI MoM) (#770).
+- Overnight markets no longer lists CSI 300 as "Closed overnight" every morning. The feed sends it as one bar with no prior close; that now reads "no prior close in the data feed" and raises no holiday event (#770).
 
 ### Docs
 
