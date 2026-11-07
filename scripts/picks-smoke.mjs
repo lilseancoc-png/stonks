@@ -2,6 +2,7 @@
 // data/, no AI — builds fake chains and asserts the engine's behaviour + the
 // output shapes the UI/serialization depend on. Run: node scripts/picks-smoke.mjs
 import { factorCapFor, exposureCapBlock } from "../lib/top-picks-caps.mjs";
+import { marketModeBlocks, marketModeForRun, readTopPicksModeDoc, applyTopPicksModeRequest } from "../lib/top-picks-mode.mjs";
 import {
   TICKERS, SECTORS, PICKS_MAX_NEW_PER_FACTOR_RUN, PICKS_CAPS_VERSION,
   buildTopPicks, buildGradesIndex, pickContractForPick, pickVerticalForPick, markOptionToMarket, computeEntryTiming, computeEntrySignal,
@@ -1260,6 +1261,51 @@ ok("factor-trend: a healthy factor ships more calls than the weak one", healthyP
       && exposureCapBlock({ sector: "Software", factor: "Tech/AI growth", actionable: false }, { sector: { Semis: 2 }, factor: { "Tech/AI growth": 2 } }) === null
       && exposureCapBlock({ sector: "Semis", factor: "Tech/AI growth", actionable: true }, { sector: { Semis: 3 }, factor: { "Tech/AI growth": 1 } }) === "sector-cap"
       && exposureCapBlock({ sector: "ETF", factor: null, actionable: true }, { sector: { ETF: 9 }, factor: {} }) === null);
+}
+
+// --- 4e. market mode (2026-11-07): the Owner's switch holds back NEW trades
+// by side (lib/top-picks-mode.mjs). Auto changes nothing.
+{
+  const universe = { NVDA: mkHealthyTechCall("NVDA"), AMD: mkHealthyTechCall("AMD"), MEHP: mkTicker({ spot: 40, sector: "Pharma" }), MEHQ: mkTicker({ spot: 55, sector: "Retail" }) };
+  const keyOf = (rows) => rows.filter((p) => p.group === "actionable").map((p) => p.symbol + ":" + p.side).sort().join(",");
+  const base = buildTopPicks(universe, [], null, null, null, null, 0.045, {});
+  const autoRun = buildTopPicks(universe, [], null, null, null, null, 0.045, { marketMode: marketModeForRun({ mode: "auto" }) });
+  const noPuts = buildTopPicks(universe, [], null, null, null, null, 0.045, { marketMode: marketModeForRun({ mode: "no-puts" }) });
+  const noCalls = buildTopPicks(universe, [], null, null, null, null, 0.045, { marketMode: marketModeForRun({ mode: "no-calls" }) });
+  const pause = buildTopPicks(universe, [], null, null, null, null, 0.045, { marketMode: marketModeForRun({ mode: "pause" }) });
+  const baseCalls = base.filter((p) => p.group === "actionable" && p.side === "call").map((p) => p.symbol);
+  ok("market mode: the fixture opens at least one call under the plain rules", baseCalls.length >= 1);
+  ok("market mode: Auto gives the same open picks as no mode", keyOf(autoRun) === keyOf(base) && autoRun.rosterMeta.marketModeHeld.length === 0);
+  ok("market mode: the mode ships in rosterMeta", autoRun.rosterMeta.marketMode?.mode === "auto" && noCalls.rosterMeta.marketMode?.mode === "no-calls" && noCalls.rosterMeta.marketMode?.label === "No new calls");
+  ok("market mode: no mode leaves rosterMeta.marketMode unset", base.rosterMeta.marketMode === undefined);
+  ok("market mode: No new puts leaves calls alone", keyOf(noPuts).split(",").filter((k) => k.endsWith(":call")).join(",") === keyOf(base).split(",").filter((k) => k.endsWith(":call")).join(","));
+  ok("market mode: No new puts opens no put", noPuts.every((p) => !(p.group === "actionable" && p.side === "put")));
+  ok("market mode: No new calls opens no call", noCalls.every((p) => !(p.group === "actionable" && p.side === "call")));
+  ok("market mode: every call that would have opened is held back", baseCalls.every((s) => noCalls.rosterMeta.marketModeHeld.includes(s)));
+  ok("market mode: held names trace as market-mode", noCalls.rosterMeta.marketModeHeld.every((s) => noCalls.rosterMeta.turnedAway.some((t) => t.sym === s && t.gate === "market-mode")));
+  ok("market mode: held names stay on the page as watch ideas with the reason", noCalls.rosterMeta.marketModeHeld.every((s) => {
+    const p = noCalls.find((x) => x.symbol === s && x.side === "call");
+    return p && p.group === "watch" && p.entry?.now === false && p.entry?.signal === "wait-mode" && /No new calls/.test(p.entry?.headline || "");
+  }));
+  ok("market mode: Pause opens nothing", pause.filter((p) => p.group === "actionable").length === 0 && baseCalls.every((s) => pause.rosterMeta.marketModeHeld.includes(s)));
+  const scoredRows = scoreAllTickers(universe, [], null, null, null, null, {}).scored.map((r) => ({ r, side: r.total >= 0 ? "call" : "put" }));
+  const slotsPaused = prioritizeAiSlots(scoredRows, { rfr: 0.045, marketMode: "pause" });
+  const slotsNoCalls = prioritizeAiSlots(scoredRows, { rfr: 0.045, marketMode: "no-calls" });
+  ok("market mode: Pause leaves no AI slot ready (the grader can skip new calls)", slotsPaused.ready === 0 && slotsPaused.ordered.every((c) => c.precheck === "market-mode"));
+  ok("market mode: held-back calls never take an AI slot ahead of a ready name", slotsNoCalls.ordered.filter((c) => c.side === "call").every((c) => c.precheck === "market-mode"));
+  ok("market mode: the precheck names the rule", openPickPrecheck(scoredRows[0].r, "put", false, { marketMode: "no-puts" }) === "market-mode" && openPickPrecheck(scoredRows[0].r, "put", true, { marketMode: "no-puts" }) === "tactical");
+  // Shared rules (lib/top-picks-mode.mjs).
+  ok("market mode: blocks() by side", marketModeBlocks("no-puts", "put") && !marketModeBlocks("no-puts", "call") && marketModeBlocks("no-calls", "call") && !marketModeBlocks("no-calls", "put")
+    && marketModeBlocks("pause", "call") && marketModeBlocks("pause", "put") && !marketModeBlocks("auto", "put") && !marketModeBlocks(null, "call") && !marketModeBlocks("bogus", "put"));
+  ok("market mode: a missing or bad file reads as Auto", readTopPicksModeDoc(null).mode === "auto" && readTopPicksModeDoc("{not json").mode === "auto" && readTopPicksModeDoc(JSON.stringify({ mode: "sell-everything" })).mode === "auto");
+  const saved = applyTopPicksModeRequest(null, { mode: "no-puts" }, { at: "2026-11-07T12:00:00.000Z", by: "Owner" });
+  ok("market mode: a save records the mode, time, who and history", saved.doc?.mode === "no-puts" && saved.doc.updatedAt === "2026-11-07T12:00:00.000Z" && saved.doc.by === "Owner" && saved.doc.history.length === 1);
+  ok("market mode: a bad mode is refused", applyTopPicksModeRequest(saved.doc, { mode: "yolo" }).error === "bad mode" && applyTopPicksModeRequest(saved.doc, null).error === "bad mode");
+  ok("market mode: saving the same mode again changes nothing", applyTopPicksModeRequest(saved.doc, { mode: "no-puts" }).unchanged === true);
+  let hist = saved.doc;
+  for (let i = 0; i < 30; i++) hist = applyTopPicksModeRequest(hist, { mode: i % 2 ? "auto" : "pause" }, { at: new Date(Date.UTC(2026, 10, 7, 13, i)).toISOString() }).doc;
+  ok("market mode: history keeps the last 20 changes", hist.history.length === 20 && readTopPicksModeDoc(JSON.stringify(hist)).history.length === 20);
+  ok("market mode: the engine view of a stored record", marketModeForRun(readTopPicksModeDoc(JSON.stringify(saved.doc))).label === "No new puts" && marketModeForRun(null).mode === "auto");
 }
 
 // --- 5. regime tilt -------------------------------------------------------

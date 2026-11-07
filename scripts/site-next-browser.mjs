@@ -81,6 +81,8 @@ const oiTracker = { scannedAt: '2026-11-06T13:31:30Z', tickers: [
   { symbol: 'NVDA', spot: 188.3, callWall: { strike: 210, oi: 172731, expSec: 1794182400 }, putWall: { strike: 190, oi: 43477, expSec: 1793923200 }, cpRatio: 1.4, strikes: [] },
   { symbol: 'MU', spot: 686.35, callWall: { strike: 720, oi: 9000, expSec: 1793923200 }, putWall: { strike: 680, oi: 12000, expSec: 1793923200 }, cpRatio: 0.9, strikes: [] } ] };
 const fills = { rows: [], marks: {} };
+// The Owner's Top Picks market mode (lib/top-picks-mode.mjs), saved by a POST.
+let pickMode = { mode: 'auto', label: 'Auto', updatedAt: null, by: null, history: [] };
 const ownerWatch = { symbols: ['NVDA', 'MU', 'MRNA'], updatedAt: '2026-11-06T15:00:00Z', icsToken: 'a'.repeat(24) + '.' + 'b'.repeat(32) };
 
 // --- server --------------------------------------------------------------------
@@ -97,6 +99,13 @@ const server = createServer(async (req, res) => {
     let body = ''; for await (const c of req) body += c;
     posts.push({ path: url.pathname, body: JSON.parse(body || '{}') });
     if (url.pathname === '/api/auth/owner-watchlist') return json(ownerWatch);
+    if (url.pathname === '/api/auth/top-picks-mode') {
+      const m = posts[posts.length - 1].body.mode;
+      const labels = { auto: 'Auto', 'no-puts': 'No new puts', 'no-calls': 'No new calls', pause: 'Pause new trades' };
+      if (!labels[m]) return json({ error: 'bad mode' }, 400);
+      pickMode = { mode: m, label: labels[m], updatedAt: NOW, by: 'Synthetic owner', history: [{ mode: m, at: NOW, by: 'Synthetic owner' }] };
+      return json(pickMode);
+    }
     if (url.pathname === '/api/auth/picks-fills') {
       await new Promise((r) => setTimeout(r, 150)); // a save takes a moment
       const m = posts[posts.length - 1].body.mark || {};
@@ -108,6 +117,7 @@ const server = createServer(async (req, res) => {
   if (url.pathname === '/api/auth/me' && !url.searchParams.has('data')) return json(owner ? { enabled: true, authed: true, authenticated: true, trackRecord: true, topPicks: true, user: { name: 'Synthetic owner' } } : { enabled: true, authed: false, authenticated: false });
   if (url.pathname === '/api/auth/top-picks') return owner ? json(picks) : json({ error: 'auth required' }, 401);
   if (url.pathname === '/api/auth/owner-watchlist') return owner ? json(ownerWatch) : json({ error: 'auth required' }, 401);
+  if (url.pathname === '/api/auth/top-picks-mode') return owner ? json(pickMode) : json({ error: 'auth required' }, 401);
   if (url.pathname === '/api/auth/picks-fills') return owner ? json(fills) : json({ error: 'auth required' }, 401);
   if (url.pathname === '/api/quotes') return json({ quotes: [] });
   if (url.pathname === '/api/auth/track-record-data') {
@@ -195,7 +205,26 @@ try {
     ok(/EWY/.test(ct) && /Entry timing checks/.test(ct), 'the closest name and its rule show');
     await s.page.waitForFunction(() => /DRAM/.test(document.querySelector('.nopick-card')?.innerText || ''), null, { timeout: 5000 });
     ok(true, 'the list is topped up from the shared grade index');
-    await card.scrollIntoViewIfNeeded();
+    // Market mode switch (Owner): shows the saved mode, and a click saves it.
+    const modeBox = s.page.locator('#picks-mode');
+    await modeBox.locator('.picks-mode-btn.is-on').waitFor({ state: 'visible', timeout: 5000 });
+    ok(/Market mode/.test(await modeBox.innerText()) && (await modeBox.locator('.picks-mode-btn.is-on').innerText()) === 'Auto', 'the market mode switch shows the saved mode (Auto)');
+    ok((await modeBox.locator('.picks-mode-btn').count()) === 4, 'the switch offers four modes');
+    if ((width === 1440 && theme === 'light') || (width === 390 && theme === 'dark')) {
+      s.page.once('dialog', (d) => d.accept());
+      await modeBox.locator('[data-picks-mode="no-puts"]').click();
+      await s.page.waitForFunction(() => document.querySelector('#picks-mode .picks-mode-btn.is-on')?.textContent === 'No new puts', null, { timeout: 5000 });
+      ok(posts.some((p) => p.path === '/api/auth/top-picks-mode' && p.body.mode === 'no-puts'), 'a click saves the mode');
+      const mt = await modeBox.innerText();
+      ok(/New puts are held back/.test(mt) && /Mon 11:00 ET run/.test(mt) && /Synthetic owner/.test(mt), 'it says what the mode does, who set it and when it starts: ' + mt);
+      ok(await modeBox.evaluate((el) => el.classList.contains('is-hold')), 'a held mode is marked on the page');
+      await modeBox.scrollIntoViewIfNeeded();
+      await finish(s, 'picks-mode-' + tag);
+      pickMode = { mode: 'auto', label: 'Auto', updatedAt: null, by: null, history: [] };
+      s = await open(width, theme, 'picks');
+      await s.page.locator('.nopick-card').waitFor({ state: 'visible', timeout: 15000 });
+    }
+    await s.page.locator('.nopick-card').scrollIntoViewIfNeeded();
     await finish(s, 'picks-nopicks-' + tag);
     // Calendar subscribe box (Owner link once the saved list syncs).
     s = await open(width, theme, 'calendar');

@@ -56,6 +56,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Added
 
+- Top Picks has an Owner market-mode switch on its page: Auto (default, today's rules), No new puts, No new calls, or Pause new trades. It applies from the next 11:00 or 15:30 ET run after it is saved, only holds back new trades (open trades keep their exits), keeps held-back names on the page as watch ideas with the reason, and keeps held-back sides out of the AI review slots. Each new record trade carries the mode it opened under. Saved in the Owner-only, request-time `top-picks-mode.json`; a missing or bad file reads as Auto.
 - Every Top Picks decision run (11:00 and 15:30 ET) now saves the whole scored universe to an Owner-only day file, `picks-run-YYYY-MM-DD.json`: each name's total, pillars, signal votes, entry timing, the AI grader's verdict, the single option it would buy with bid and ask, and what the run did with it, plus each shipped pick's real contract. Measurement only; picks are unchanged. `PICKS_RUN_ARCHIVE=0` turns it off.
 
 ### Changed
