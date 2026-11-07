@@ -1,0 +1,32 @@
+name: Research long history (backtest data)
+# Research-only: runs only on pushes to the backtest-data-long branch. Downloads
+# public Yahoo daily bars and FRED CSV series and commits them to this branch.
+# No secrets, no private store, nothing published to the site.
+on:
+  push:
+    branches: [backtest-data-long]
+    paths: [research/long-history/collect.mjs, .github/workflows/research-long-history.yml]
+permissions:
+  contents: write
+concurrency:
+  group: research-long-history
+  cancel-in-progress: true
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: node research/long-history/collect.mjs
+      - name: Commit data
+        run: |
+          git config user.name "research-bot"
+          git config user.email "research-bot@users.noreply.github.com"
+          git add research/long-history/data
+          git commit -m "Research: long daily history for the macro/cycle backtest" || echo "nothing to commit"
+          git push origin HEAD:backtest-data-long
