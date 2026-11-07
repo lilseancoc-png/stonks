@@ -235,6 +235,9 @@ try {
         const side = await page.locator('#sports-nba-root .sp-model').innerText();
         assert(/Model check/i.test(side) && /Points\s*Passed the check/.test(side) && /Rebounds\s*Experimental/.test(side) && /did not beat both simple baselines/.test(side) && /sports-model-1/.test(side), 'the model check card: ' + side);
         assert(/Same-game links/i.test(side) && /Points and rebounds, one player/.test(side) && /later pairs: both cleared/.test(side), 'the card lists the same-game links and their check: ' + side);
+        // Calibration: each model stat draws stated chance vs how often it happened.
+        assert(await page.locator('#sports-nba-root .sp-model .sp-rel-svg').count() >= 1 && await page.locator('#sports-nba-root .sp-model .sp-rel-dot').count() >= 3, 'the model card draws a calibration chart');
+        await page.locator('#sports-nba-root .sp-model').screenshot({ path: resolve(output, `model-calibration-${width}-${theme}.png`), animations: 'disabled' });
         await page.locator('#sports-nba-root [data-sp-search]').fill('lebron');
         await page.locator('#sports-nba-root [data-sp-part="results"] [data-sp-player="1966"]').click();
         await page.locator('#sports-nba-root [data-sp-panel="player"] .sp-fc').waitFor();

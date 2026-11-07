@@ -103,6 +103,9 @@ const SIDE_NAV_ICONS = {
   'chart-patterns': '<path d="M3.5 3.5v17h17"/><path d="m7.5 14 3.5-4 3 3 5-6.5"/>',
   timeline: '<circle cx="12" cy="12" r="9.5"/><path d="M12 6.5V12l3.5 2"/>',
   glossary: '<path d="M4 4.5h11a3 3 0 0 1 3 3v12.5H7a3 3 0 0 1-3-3z"/><path d="M4 17a3 3 0 0 1 3-3h11"/><path d="M8.5 8.5h6M8.5 11h4"/>',
+  'market-map': '<rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="5" rx="1.5"/><rect x="13" y="10" width="8" height="11" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/>',
+  'whats-changed': '<path d="M4 7h11l-3-3M20 17H9l3 3"/><circle cx="18.5" cy="7" r="1.5"/><circle cx="5.5" cy="17" r="1.5"/>',
+  'past-day': '<path d="M3 12a9 9 0 1 0 2.6-6.4L3 8"/><path d="M3 3v5h5"/><path d="M8.5 15.5h7M8.5 12h7M8.5 8.5h4"/>',
   'earnings-week': '<rect x="3" y="4.5" width="18" height="16.5" rx="2"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4"/><path d="M7 14h2v4H7zM11 12.5h2V18h-2zM15 15h2v3h-2z"/>',
   privacy: '<path d="M12 21.5s7.5-3.7 7.5-9.5V5.5L12 2.5l-7.5 3V12c0 5.8 7.5 9.5 7.5 9.5z"/>',
   terms: '<path d="M12 3v18M7 21h10"/><path d="M4 7h2.5c1.8 0 3.8-.7 5.5-1.7C13.7 6.3 15.7 7 17.5 7H20"/><path d="m6.5 7-2.8 6.7c.8.6 1.8.9 2.8.9s2-.3 2.8-.9zM17.5 7l-2.8 6.7c.8.6 1.8.9 2.8.9s2-.3 2.8-.9z"/>',
@@ -605,6 +608,7 @@ function calendarSection() {
         <button type="button" class="calendar-pill" data-cal-type="reports" role="radio" aria-checked="false">Reports<span class="calendar-pill-count" aria-hidden="true"></span></button>
         <button type="button" class="calendar-pill" data-cal-type="fomc" role="radio" aria-checked="false">Fed<span class="calendar-pill-count" aria-hidden="true"></span></button>
         <button type="button" class="calendar-pill" data-cal-type="macro" role="radio" aria-checked="false">Macro<span class="calendar-pill-count" aria-hidden="true"></span></button>
+        <button type="button" class="calendar-pill" data-cal-type="market" role="radio" aria-checked="false" title="Options expirations, index rebalances, VIX expiry and estimated IPO lockup ends">Market dates<span class="calendar-pill-count" aria-hidden="true"></span></button>
       </div>
       <button type="button" id="calendar-export-csv" class="csv-export-btn" title="Download visible events as CSV">Export CSV</button>
     </div>
@@ -1090,6 +1094,37 @@ function glossarySection() {
     <header class="card-header"><div><span class="card-eyebrow">Learn &amp; help</span><h2 class="card-title">Words used on this site</h2></div></header>
     <p class="hint">Tap a dotted word anywhere on the site to see its meaning. This is the full list.</p>
     <dl class="gl-list">${rows}</dl>
+  </section>`;
+}
+
+function marketMapSection() {
+  return `<section class="card" id="market-map-section">
+    <header class="card-header"><div><span class="card-eyebrow">Stocks · every tracked name</span><h2 class="card-title">Market map</h2></div><span class="card-eyebrow" id="mm-asof"></span></header>
+    <div id="mm-root"><p class="mm-empty">Loading the market map&hellip;</p></div>
+    <p class="hint">Rebuilt at every full build from daily closes, the option chains and FINRA short interest. Hover or tap a dot, a cell or a chart for the numbers; click a stock to open it. Not investment advice.</p>
+  </section>`;
+}
+
+function whatsChangedSection() {
+  return `<section class="card" id="whats-changed-section">
+    <header class="card-header"><div><span class="card-eyebrow">Today · since the previous trading day</span><h2 class="card-title">What changed</h2></div><span class="card-eyebrow" id="wc-asof"></span></header>
+    <div id="wc-root"><p class="wc-empty">Loading what changed&hellip;</p></div>
+    <p class="hint">Each full build saves a small snapshot of what the site shows. This page compares the newest one with the last one from the previous trading day. Not investment advice.</p>
+  </section>`;
+}
+
+function pastDaySection() {
+  return `<section class="card" id="past-day-section">
+    <header class="card-header"><div><span class="card-eyebrow">Today · the last year of trading days</span><h2 class="card-title">Past days</h2></div><span class="card-eyebrow" id="pd-asof"></span></header>
+    <div id="pd-root"><p class="pd-empty">Loading past days&hellip;</p></div>
+    <p class="hint">Daily close-to-close moves for every tracked stock. Tiles are sized by today&rsquo;s company value and grouped by today&rsquo;s sectors, so a past day reads on the same map as today. Not investment advice.</p>
+  </section>`;
+}
+
+function zeroDteSection() {
+  return `<section class="card zdte-card" id="zero-dte-section">
+    <header class="card-header"><div><span class="card-eyebrow">Options volume by time to expiry</span><h2 class="card-title">How short-dated is the trading?</h2></div><span class="card-eyebrow" id="zdte-asof"></span></header>
+    <div id="zdte-root"><p class="zdte-empty">Loading option volume by expiry&hellip;</p></div>
   </section>`;
 }
 
@@ -2478,6 +2513,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-flow" role="tabpanel" aria-labelledby="page-tab-flow" hidden>
   ${unusualFlowSection()}
+  ${zeroDteSection()}
   </div>
   <div class="page-pane" id="page-pane-ma-tracker" role="tabpanel" aria-labelledby="page-tab-ma-tracker" hidden>
   ${movingAverageTrackerSection()}
@@ -2606,6 +2642,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
       <div class="bonds-charts">
         <div class="bonds-curve" id="bonds-curve" hidden></div>
         <div class="bonds-history" id="bonds-history"><p class="bonds-live-empty">Loading a year of yields&hellip;</p></div>
+        <div class="bonds-history bonds-liquidity" id="bonds-liquidity"><p class="bonds-live-empty">Loading the Fed liquidity line&hellip;</p></div>
       </div>
     </section>
 
@@ -2839,6 +2876,15 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-glossary" role="tabpanel" aria-labelledby="page-tab-glossary" hidden>
   ${glossarySection()}
+  </div>
+  <div class="page-pane" id="page-pane-market-map" role="tabpanel" aria-labelledby="page-tab-market-map" hidden>
+  ${marketMapSection()}
+  </div>
+  <div class="page-pane" id="page-pane-whats-changed" role="tabpanel" aria-labelledby="page-tab-whats-changed" hidden>
+  ${whatsChangedSection()}
+  </div>
+  <div class="page-pane" id="page-pane-past-day" role="tabpanel" aria-labelledby="page-tab-past-day" hidden>
+  ${pastDaySection()}
   </div>
   <div class="page-pane" id="page-pane-earnings-week" role="tabpanel" aria-labelledby="page-tab-earnings-week" hidden>
   ${earningsWeekSection()}

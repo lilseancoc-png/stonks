@@ -177,6 +177,12 @@ export function renderSportsCss() {
 .sp-model-list li { display: grid; gap: 3px; }
 .sp-model-list b { font-variant-numeric: tabular-nums; }
 .sp-model-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.sp-rel { margin: 4px 0 0; display: flex; align-items: center; gap: 10px; }
+.sp-rel figcaption { font-size: 11.5px; color: var(--muted); max-width: 160px; }
+.sp-rel-svg { flex: none; overflow: visible; }
+.sp-rel-diag { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; }
+.sp-rel-dot { fill: var(--accent); fill-opacity: .75; stroke: var(--surface); stroke-width: 1; }
+.sp-rel-dot.is-off { fill: var(--warn, var(--neg)); }
 .sp-fc-game { margin: -4px 0 6px; font-size: 12.5px; }
 .sp-lines { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12.5px; color: var(--muted-strong); }
 .sp-lines span { white-space: nowrap; }

@@ -1,4 +1,5 @@
 import { fetchCompanyCalendar } from "../lib/company-events.mjs";
+import { ipoListingsFrom } from "../lib/market-dates.mjs";
 // One-shot helper to regenerate data/calendar.json with the extended
 // schema (earnings AM/PM session, structured macro reports, FOMC widget
 // data, CME FedWatch snapshots) without re-running the full Yahoo +
@@ -174,6 +175,12 @@ async function main() {
     if (Array.isArray(trends.macroHeadlines)) macroHeadlines = trends.macroHeadlines;
   } catch (_) { /* no trends.json yet — ok */ }
 
+  // IPO listings for the estimated lockup-end dates (lib/market-dates.mjs).
+  let ipoListings = [];
+  try {
+    ipoListings = ipoListingsFrom(JSON.parse(await readFile(resolve(DATA_DIR, "ipo-credit.json"), "utf8")));
+  } catch (_) { /* no ipo-credit.json yet — ok */ }
+
   const fomcVoteHistory = await fomcVoteHistoryPromise;
   const info = await build.writeCalendarFile(chains, macroHeadlines, new Date().toISOString(), {
     reportEvents,
@@ -185,6 +192,7 @@ async function main() {
     macroHistory,
     sessionMap,
     officialCalendar,
+    ipoListings,
     companyCalendar,
     predictionMarkets,
     priorCalendar,

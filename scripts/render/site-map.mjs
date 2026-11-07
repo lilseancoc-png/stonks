@@ -16,16 +16,19 @@ export const SITE_SECTIONS = [
     items: [
       { id: 'home', label: 'Home', blurb: 'A one-screen overview of the market and every part of the site.' },
       { id: 'brief', label: 'Market brief', alias: 'Brief', blurb: 'A short digest of what moved, why, and what is coming up next.' },
+      { id: 'whats-changed', label: 'What changed', alias: 'Since yesterday diff changes new walls crosses streaks insiders', blurb: 'What is new since the previous trading day: option walls and trades, average crosses, streaks, filings and insider trades.' },
       { id: 'news', label: 'News', alias: 'News desk', blurb: 'Market-moving stock and economic headlines, most important first.' },
       { id: 'heatmap', label: 'Heatmap', blurb: 'Every tracked stock as a tile: size is company value, color is how much it moved.' },
       { id: 'calendar', label: 'Calendar', blurb: 'Upcoming earnings reports, economic releases and Fed meetings.' },
       { id: 'overnight', label: 'Overnight markets', blurb: 'How Asian and European markets traded before the US open, and which US stocks they tend to lead.' },
+      { id: 'past-day', label: 'Past days', alias: 'Time machine history date picker archive replay', blurb: 'Pick an earlier trading day and see the heatmap and index moves as they were.' },
     ],
   },
   {
     id: 'stocks', label: 'Stocks', short: 'Stocks', desc: 'Look up, compare and follow companies',
     items: [
       { id: 'tickers', label: 'All stocks', alias: 'Tickers', blurb: 'Every stock the site follows, with its price, returns and sector.' },
+      { id: 'market-map', label: 'Market map', alias: 'Fear map scatter chart wall sparklines correlation crowding breadth short interest crowded shorts', blurb: 'Every tracked stock on one screen: options fear, any two numbers, every chart, what moves together, breadth and short interest.' },
       { id: 'stock', label: 'Look up a stock', alias: 'Stock page quote ticker company chart', blurb: 'One company: its price chart, key numbers, news, earnings, options and who owns it.' },
       // The grade is a tab of the stock page now; this id stays so old links
       // and pins redirect there (selectTab in app-js.mjs).
