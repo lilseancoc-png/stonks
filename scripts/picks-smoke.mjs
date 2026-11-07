@@ -40,7 +40,13 @@ import {
   reconcileLevEtfLog, levEtfEntryInUniverse,
   scoreAllTickers, openPickPrecheck, prioritizeAiSlots, structuralVeto, aiGraderCandidates,
   appendGateLog, gateRowMoves, foldGateLog, computeGateStats, GATE_LOG_KEEP_DAYS, GATE_LOG_REPEAT_DAYS,
+  PICKS_SINGLES_DEFAULT, PICKS_SINGLE_MAX_COST, PICKS_STRUCTURE_POLICY_VERSION, singleContractCost,
 } from "./build.mjs";
+// Single options by default (2026-11-07) changes which structures some checks
+// expect. `npm run test:picks` runs this file twice: once as shipped and once
+// with PICKS_SINGLES_DEFAULT=0 (the earlier engine mix).
+const SD = PICKS_SINGLES_DEFAULT;
+console.log(`Structure policy: ${SD ? `singles by default (${PICKS_STRUCTURE_POLICY_VERSION}, cap $${PICKS_SINGLE_MAX_COST})` : "earlier engine mix (PICKS_SINGLES_DEFAULT=0)"}`);
 import { buildFlowExplanation } from "../lib/flow-explanation.mjs";
 import { computeGexSummary } from "../lib/gex.mjs";
 import { expiryCloseEpochSec, yearsToExpiry } from "../lib/greeks.mjs";
@@ -1593,6 +1599,11 @@ ok("edge gate: buildTopPicks raises rosterMeta.tradeCut on a losing book",
 ok("strategy: every pick carries a strategy {type}", picks.length === 0 || picks.every((p) => p.strategy && ["long", "debit", "credit", "none"].includes(p.strategy.type)));
 ok("strategy: a recommended pick has a known contract structure", picks.every((p) => p.strategy.type === "none" ? p.contract == null : ["long", "debit_vertical", "credit_vertical"].includes(p.contract.structure)));
 ok("strategy: every shipped debit vertical pays >= 1x its risk", picks.every((p) => p.contract?.structure !== "debit_vertical" || (p.contract.rewardRisk >= 1 && p.contract.maxProfit >= p.contract.maxLoss)));
+ok("strategy: rosterMeta.structurePolicy names the structure rule in force",
+  picks.rosterMeta?.structurePolicy?.singlesDefault === SD && picks.rosterMeta.structurePolicy.version === PICKS_STRUCTURE_POLICY_VERSION
+    && Array.isArray(picks.rosterMeta.costCapped));
+ok("strategy: no shipped single costs more than the per-contract cap",
+  !SD || !(PICKS_SINGLE_MAX_COST > 0) || picks.every((p) => p.contract?.structure !== "long" || (singleContractCost(p.contract) ?? 0) <= PICKS_SINGLE_MAX_COST));
 ok("thesis: thesisCard has marketRead/conviction/hasSolidThesis", picks.every((p) => p.thesisCard && p.thesisCard.marketRead && typeof p.thesisCard.hasSolidThesis === "boolean" && !!p.thesisCard.conviction));
 ok("thesis: marketRead.support is a known verdict", picks.every((p) => ["supports", "against", "neutral"].includes(p.thesisCard.marketRead.support)));
 ok("thesis: thesisCard.strategy mirrors the pick strategy", picks.every((p) => p.thesisCard.strategy && p.thesisCard.strategy.type === p.strategy.type));
@@ -1629,12 +1640,14 @@ const gateHighBelowRv = selectStrategy(mkR(8, { iv: { z: 2.4, pctile: 93, iv: 0.
 const gateOldBand = selectStrategy(mkR(6, { iv: { z: 1.6, pctile: 66 } }), "call", { thesisTier: "moderate" });
 const gateNoRv = selectStrategy(mkR(6, { iv: { pctile: 93, iv: 0.6 } }), "call", { thesisTier: "moderate" });
 ok("strategy gate: Very rich IV (93rd, above realized) → credit", gateVeryRich.type === "credit" && gateVeryRich.ivTier === "highly-elevated" && gateVeryRich.ivBand === "very-rich");
-ok("strategy gate: Rich IV (85th, above realized) → debit, never credit or naked", gateRich.type === "debit" && gateRich.ivTier === "elevated");
+ok(SD ? "strategy gate: Rich IV (85th, above realized) → single by default, never credit" : "strategy gate: Rich IV (85th, above realized) → debit, never credit or naked",
+  gateRich.type === (SD ? "long" : "debit") && gateRich.ivTier === "elevated");
 ok("strategy gate: a high percentile with IV below realized vol is Normal → strong setup may go naked", gateHighBelowRv.type === "long" && gateHighBelowRv.ivTier === "reasonable");
 ok("strategy gate: the old 60th-percentile / 1.5σ credit band no longer sells premium", gateOldBand.type !== "credit");
 ok("strategy gate: missing realized vol lets the percentile decide alone", gateNoRv.type === "credit");
 ok("strategy gate: low IV + strong grade + strong thesis → naked", selectStrategy(mkR(8, { iv: { z: 0, pctile: 30 } }), "call", { thesisTier: "strong" }).type === "long");
-ok("strategy gate: low IV + only moderate thesis → debit (naked needs strong)", selectStrategy(mkR(8, { iv: { z: 0, pctile: 30 } }), "call", { thesisTier: "moderate" }).type === "debit");
+ok(SD ? "strategy gate: low IV + moderate thesis → single by default" : "strategy gate: low IV + only moderate thesis → debit (naked needs strong)",
+  selectStrategy(mkR(8, { iv: { z: 0, pctile: 30 } }), "call", { thesisTier: "moderate" }).type === (SD ? "long" : "debit"));
 const richCallSkew = selectStrategy(mkR(8, { iv: { z: 0, pctile: 30 }, surface: { skew25: -0.08, skewZ: -2 } }), "call", { thesisTier: "strong" });
 const richPutSkew = selectStrategy(mkR(-8, { iv: { z: 0, pctile: 30 }, surface: { skew25: 0.08, skewZ: 2 } }), "put", { thesisTier: "strong" });
 const supportiveCallSkew = selectStrategy(mkR(8, { iv: { z: 0, pctile: 30 }, surface: { skew25: 0.08, skewZ: 2 } }), "call", { thesisTier: "strong" });
@@ -1935,8 +1948,13 @@ for (const side of ["call", "put"]) {
     selectStrategy(row({ z: 2, pctile: 95 }), side, { thesisTier: "strong" }),
     selectStrategy(row({ z: 2, pctile: 85 }), side, { thesisTier: "strong" }),
   ];
-  ok(`strategy safety ${side}: IV, events, skew and thesis restrictions never fall back to long`,
-    restrictions.every((s) => ["debit", "credit"].includes(s.type) && buildPickContract(side, oneLegData, 0.045, s) === null));
+  // Singles by default: a macro event (3), a moderate thesis (4) and Rich IV
+  // (7) no longer force a spread; the rest still do.
+  const mustSpread = SD ? restrictions.filter((_, i) => ![3, 4, 7].includes(i)) : restrictions;
+  ok(`strategy safety ${side}: IV, ${SD ? "earnings" : "events"}, skew${SD ? "" : " and thesis"} restrictions never fall back to long`,
+    mustSpread.every((s) => ["debit", "credit"].includes(s.type) && buildPickContract(side, oneLegData, 0.045, s) === null));
+  if (SD) ok(`singles default ${side}: a macro event, a moderate thesis and Rich IV each pick a single`,
+    [3, 4, 7].every((i) => restrictions[i].type === "long" && buildPickContract(side, oneLegData, 0.045, restrictions[i])?.contract.structure === "long"));
   const earnings = restrictions[2];
   ok(`strategy safety ${side}: eligible earnings debit still builds when both legs exist`,
     buildPickContract(side, bsData, 0.045, earnings)?.contract.structure === "debit_vertical");
@@ -1957,6 +1975,52 @@ for (const side of ["call", "put"]) {
   const creditFallback = buildPickContract(side, sameSideData, 0.045, restrictions[6]);
   ok(`strategy safety ${side}: unavailable credit may still fall back to a permitted debit`,
     creditFallback?.contract.structure === "debit_vertical" && creditFallback.strategy.fallback && creditFallback.strategy.requested === "credit");
+}
+
+// --- Singles by default (2026-11-07): the rule and the $5,000 cap ----------
+{
+  const strongRow = (side, iv, extra = {}) => mkR(side === "call" ? 8 : -8, { iv, ...extra });
+  const veryRichIv = { iv: { z: 2.4, pctile: 93, iv: 0.6 }, rv30: 0.4 };
+  ok("singles default: singleContractCost is mid x 100, else ask, else null",
+    singleContractCost({ mid: 12.345 }) === 1235 && singleContractCost({ mid: null, ask: 3 }) === 300
+      && singleContractCost({}) === null && singleContractCost(null) === null && singleContractCost({ mid: 0 }) === null);
+  const plain = selectStrategy(strongRow("call", { z: 0, pctile: 30 }), "call", { thesisTier: "strong" });
+  const pricey = { spot: 1500, chains: mkBsChain(1500, 0.4), fundamentals: {} };
+  const topPricey = pickContractForPick("call", pricey, 0.045, { requireClean: true });
+  ok("cost cap fixture: the top single on a $1,500 stock costs over $5,000", singleContractCost(topPricey) > 5000);
+  if (SD) {
+    for (const side of ["call", "put"]) {
+      const macro = selectStrategy(strongRow(side, { z: 0, pctile: 30 }), side, { thesisTier: "strong", eventRisk: { active: true } });
+      ok(`singles default ${side}: a macro event alone keeps the single and says so`, macro.type === "long" && /macro event/i.test(macro.reason));
+      const vrClear = selectStrategy(mkR(side === "call" ? 8 : -8, veryRichIv), side, { thesisTier: "strong" });
+      ok(`singles default ${side}: very rich IV with no event still sells a credit spread`, vrClear.type === "credit");
+      const vrEvent = selectStrategy(mkR(side === "call" ? 8 : -8, veryRichIv), side, { thesisTier: "strong", eventRisk: { active: true } });
+      ok(`singles default ${side}: very rich IV that an event keeps from a credit spread uses a debit spread`, vrEvent.type === "debit" && /credit spread is off/.test(vrEvent.reason));
+      const vrEarn = selectStrategy(mkR(side === "call" ? 8 : -8, veryRichIv), side, { thesisTier: "strong", earningsInWindow: true });
+      ok(`singles default ${side}: earnings inside the hold use a debit spread and say so`, vrEarn.type === "debit" && /earnings fall inside the planned hold/i.test(vrEarn.reason));
+      const weakTactical = selectStrategy(strongRow(side, { z: 0, pctile: 30 }), side, { thesisTier: "weak", tactical: true });
+      ok(`singles default ${side}: a tactical put/call with a thin thesis gets a single (still defined risk)`, weakTactical.type === "long");
+      ok(`singles default ${side}: a weak thesis still recommends nothing`, selectStrategy(strongRow(side, { z: 0, pctile: 30 }), side, { thesisTier: "weak" }).type === "none");
+    }
+    const capped = buildPickContract("call", pricey, 0.045, plain);
+    ok("cost cap: a single over $5,000 becomes a debit spread, with the cost on the strategy",
+      capped?.contract.structure === "debit_vertical" && capped.strategy.type === "debit" && capped.strategy.requested === "long"
+        && capped.strategy.costCap?.cap === PICKS_SINGLE_MAX_COST && capped.strategy.costCap.cost > PICKS_SINGLE_MAX_COST
+        && /over the \$5,000 cap/.test(capped.strategy.reason) && !capped.strategy.fallback);
+    const cappedEcon = buildPickContract("call", pricey, 0.045, plain, { evaluateEconomics: true });
+    ok("cost cap: the economics search never ships a single over the cap",
+      !cappedEcon || cappedEcon.contract.structure !== "long" || singleContractCost(cappedEcon.contract) <= PICKS_SINGLE_MAX_COST);
+    const underCap = buildPickContract("call", bsData, 0.045, plain);
+    ok("cost cap: a single under the cap stays a single", underCap?.contract.structure === "long" && !underCap.strategy.costCap
+      && singleContractCost(underCap.contract) <= PICKS_SINGLE_MAX_COST);
+    const debitAsked = selectStrategy(strongRow("call", { z: 0, pctile: 30 }), "call", { thesisTier: "strong", earningsInWindow: true });
+    ok("cost cap: a spread request is not touched by the cap", !buildPickContract("call", pricey, 0.045, debitAsked)?.strategy.costCap);
+  } else {
+    ok("engine mix: a macro event forces a debit spread",
+      selectStrategy(strongRow("call", { z: 0, pctile: 30 }), "call", { thesisTier: "strong", eventRisk: { active: true } }).type === "debit");
+    ok("engine mix: no per-contract cap, the $1,500 stock still gets a single",
+      buildPickContract("call", pricey, 0.045, plain)?.contract.structure === "long");
+  }
 }
 
 // Structure-aware exit resolution (credit spreads decay → different gates).
@@ -2204,12 +2268,18 @@ const routeOldBand = buildTopPicks({ OLDIV: mkStratTicker(0.55, 1.6, 65) }, [], 
 const routeDebit = buildTopPicks({ DBTIV: mkStratTicker(0.45, 0.4, 45, { fundamentals: { nextEarningsDate: inEtDays(10) } }) }, [], null, null, null, null, 0.045, {}).find((p) => p.symbol === "DBTIV");
 const routeNaked = buildTopPicks({ LOWIV: mkStratTicker(0.30, 0.0, 25) }, [], null, null, null, null, 0.045, {}).find((p) => p.symbol === "LOWIV");
 ok("route: Very rich IV (94th pctile) → credit vertical (sells premium)", routeRich && routeRich.strategy.type === "credit" && routeRich.contract.structure === "credit_vertical" && routeRich.contract.optionType === "put");
-ok("route: Rich IV (85th pctile) → debit vertical, not credit", routeElevated && routeElevated.strategy.type === "debit" && routeElevated.contract.structure === "debit_vertical");
+ok(SD ? "route: Rich IV (85th pctile) → the rule asks for a single, never a credit spread (this fixture's single fails the option-price check, so it falls back to a debit)"
+  : "route: Rich IV (85th pctile) → debit vertical, not credit",
+  routeElevated && routeElevated.strategy.type !== "credit" && (SD
+    ? (routeElevated.strategy.type === "long" || routeElevated.strategy.requested === "long")
+    : routeElevated.strategy.type === "debit" && routeElevated.contract.structure === "debit_vertical"));
 ok("route: the 65th percentile (old credit band) no longer sells premium", routeOldBand && routeOldBand.strategy.type !== "credit");
 ok("route: low IV + imminent earnings → debit vertical (defined-risk, no naked/credit)", routeDebit && routeDebit.strategy.type === "debit" && routeDebit.contract.structure === "debit_vertical");
 ok("route: strong + reasonable IV + strong thesis → naked long", routeNaked && Math.abs(routeNaked.total) >= PICKS_TIER_STRONG && routeNaked.strategy.type === "long" && routeNaked.contract.structure === "long");
 ok("route: low IV never sells a credit spread", routeNaked && routeNaked.strategy.type !== "credit");
-ok("route: a naked-long pick is always strong-tier", [routeRich, routeElevated, routeDebit, routeNaked].filter(Boolean).filter((p) => p.strategy.type === "long").every((p) => Math.abs(p.total) >= PICKS_TIER_STRONG));
+// Singles by default lets a moderate grade buy a single, so the strong-tier
+// rule applies only to the earlier engine mix.
+if (!SD) ok("route: a naked-long pick is always strong-tier", [routeRich, routeElevated, routeDebit, routeNaked].filter(Boolean).filter((p) => p.strategy.type === "long").every((p) => Math.abs(p.total) >= PICKS_TIER_STRONG));
 // A credit spread must be sized by its capital at risk (maxLoss = width − credit),
 // NOT the small credit it collects (which would suggest far too many contracts).
 if (routeRich && routeRich.strategy.type === "credit" && routeRich.sizing) {

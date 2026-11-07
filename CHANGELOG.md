@@ -52,6 +52,12 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Request an uncompressed R2 lock with a strong ETag so a released Webull paper lock can be acquired conditionally; fail closed on malformed locks or repeated conflicts, expose Owner-only diagnostics, and report mirror failures in a separate workflow health job.
 - Reconcile Webull grouped option positions using confirmed broker order legs and stable position identities; prepare manual spread adoption without replaying its entry, retain separate overlapping manual holdings, and exclude manual entries from automatic fill timing and slippage.
 
+## 2026-11-07
+
+### Changed
+
+- Top Picks buys a single call or put by default. A debit spread is used only when earnings fall inside the hold, one contract would cost more than $5,000, very rich IV can't go to a credit spread because an event is close, IV history is missing, or skew is adverse; macro events, Rich IV and a moderate grade no longer force a spread, and credit spreads are unchanged. New trades carry a structure-rule version, so the Track Record shows a dated divider (no reset), and the Scorecard adds a "Singles vs spreads" table. `PICKS_SINGLES_DEFAULT=0` restores the earlier mix; `PICKS_SINGLE_MAX_COST` sets the cap.
+
 ## 2026-11-06
 
 ### Added
