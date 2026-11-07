@@ -50,6 +50,7 @@ import {
   isDynamicBakeKey as sharedIsDynamicBakeKey,
   isEvidenceRecordKey,
   isUnifiedSignalKey,
+  isPicksRunArchiveKey,
   isLocalOnlyKey,
   isRetainedRemoteBakeKey,
   isSeedableKey,
@@ -359,6 +360,7 @@ const SEED_PUBLISHABLE_OWNER_SAMPLES = Object.freeze([
   "evidence/2026-01-02.json",
   "ai-rejections-latest.json",
   "ai-rejections/2026-01-02.json",
+  "picks-run-2026-01-02.json",
 ]);
 
 // Fail closed before seed uploads. A publishable evidence or AI-rejection key
@@ -369,7 +371,7 @@ export function assertSeedOwnerKeys(localKeys, isPremium = isPremiumKey) {
   if (!Array.isArray(localKeys)) throw new Error("seed: owner-key check requires the local key list");
   const problems = [];
   for (const key of SEED_PUBLISHABLE_OWNER_SAMPLES) {
-    const recognized = isEvidenceRecordKey(key) || isAiRejectionKey(key) || isUnifiedSignalKey(key);
+    const recognized = isEvidenceRecordKey(key) || isAiRejectionKey(key) || isUnifiedSignalKey(key) || isPicksRunArchiveKey(key);
     if (!recognized) problems.push(`missing owner classification for ${key}`);
     else if (!isPremium(key)) problems.push(`public copy of ${key}`);
     else if (!isSeedableKey(key) || isLocalOnlyKey(key)) problems.push(`missing seedable owner copy of ${key}`);
@@ -388,7 +390,7 @@ export function assertSeedOwnerKeys(localKeys, isPremium = isPremiumKey) {
       if (isSeedableKey(key) || isBakeOwnedKey(key)) problems.push(`local-only ${key} would be published`);
       continue;
     }
-    if (!(isEvidenceRecordKey(key) || isAiRejectionKey(key) || isUnifiedSignalKey(key))) continue;
+    if (!(isEvidenceRecordKey(key) || isAiRejectionKey(key) || isUnifiedSignalKey(key) || isPicksRunArchiveKey(key))) continue;
     if (!isPremium(key)) problems.push(`public copy of ${key}`);
     else if (!isSeedableKey(key)) problems.push(`missing seedable owner copy of ${key}`);
   }

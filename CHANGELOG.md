@@ -52,6 +52,12 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Request an uncompressed R2 lock with a strong ETag so a released Webull paper lock can be acquired conditionally; fail closed on malformed locks or repeated conflicts, expose Owner-only diagnostics, and report mirror failures in a separate workflow health job.
 - Reconcile Webull grouped option positions using confirmed broker order legs and stable position identities; prepare manual spread adoption without replaying its entry, retain separate overlapping manual holdings, and exclude manual entries from automatic fill timing and slippage.
 
+## 2026-11-07
+
+### Added
+
+- Every Top Picks decision run (11:00 and 15:30 ET) now saves the whole scored universe to an Owner-only day file, `picks-run-YYYY-MM-DD.json`: each name's total, pillars, signal votes, entry timing, the AI grader's verdict, the single option it would buy with bid and ask, and what the run did with it, plus each shipped pick's real contract. Measurement only; picks are unchanged. `PICKS_RUN_ARCHIVE=0` turns it off.
+
 ## 2026-11-06
 
 ### Added
