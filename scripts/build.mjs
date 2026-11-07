@@ -17343,7 +17343,8 @@ import {
   PICKS_CREDIT_WIDTH_FRAC_MIN, PICKS_CREDIT_SHORT_DELTA, PICKS_DEBIT_SHORT_DELTA,
   PICKS_DEBIT_MIN_RR, PICKS_VERT_MIN_WIDTH_PCT, PICKS_VERT_MAX_SPREAD_PCT, PICKS_VERT_MIN_OI,
   PICKS_VERT_DELTA_BAND, PICKS_IVRANK_STD_MIN_N, PICKS_STRATEGY_EARNINGS_DAYS,
-  PICKS_CREDIT_INTO_MACRO_EVENT, PICKS_THESIS_STRONG_SCORE, PICKS_THESIS_MOD_SCORE,
+  PICKS_CREDIT_INTO_MACRO_EVENT, PICKS_SINGLES_DEFAULT, PICKS_SINGLE_MAX_COST,
+  PICKS_STRUCTURE_POLICY_VERSION, PICKS_THESIS_STRONG_SCORE, PICKS_THESIS_MOD_SCORE,
   PICKS_OPT_TP_PCT, PICKS_OPT_STOP_PCT, PICKS_OPT_SCALE_OUT, PICKS_OPT_TRAIL_GIVEBACK_PCT,
   PICKS_UNDERLYING_STOP, PICKS_THETA_STOP_PCT, PICKS_THETA_STOP_MIN_HOLD, PICKS_CREDIT_TP_PCT,
   PICKS_CREDIT_STOP_PCT, PICKS_GROSS_TARGET, PICKS_DISPLAY_ACCOUNT, PICKS_SIZE_FULL_ROSTER_N,
@@ -17368,6 +17369,7 @@ import {
 export {
   PICKS_MAX_AI_THESES, PICKS_MIN_CONVICTION, PICKS_TIER_STRONG, PICKS_TACTICAL_SIZE_MULT,
   PICKS_ENTRY_TIMING_VERSION, PICKS_TIMING_THRESHOLDS,
+  PICKS_SINGLES_DEFAULT, PICKS_SINGLE_MAX_COST, PICKS_STRUCTURE_POLICY_VERSION,
 };
 // Sector / factor caps live in lib/top-picks-caps.mjs (re-exported here).
 export { PICKS_MAX_PER_SECTOR, PICKS_MAX_NEW_PER_FACTOR_RUN, PICKS_CAPS_VERSION };
@@ -18976,7 +18978,7 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
     if (macroPlay) eventReads.push(macroPlay);
     if (macroPlay?.ok) {
       eventPlay = macroPlay;
-      reasons.push(`- ${eventRisk.label || "major macro event"} in ${Math.round(eventSessions)} trading session${eventSessions === 1 ? "" : "s"} — trading through it (${macroPlay.reason}; defined-risk spread)`);
+      reasons.push(`- ${eventRisk.label || "major macro event"} in ${Math.round(eventSessions)} trading session${eventSessions === 1 ? "" : "s"} — trading through it (${macroPlay.reason}${PICKS_SINGLES_DEFAULT ? "" : "; defined-risk spread"})`);
     } else if (eventSessions <= PICKS_TIMING_EVENT_HARD_DAYS) {
       eventScore = -4; hardWait = "event"; deferKind = "event";
       reasons.push(`${eventRisk.label || "major macro event"} in ${Math.round(eventSessions)} trading session${eventSessions === 1 ? "" : "s"} — wait for the binary event to clear${macroPlay ? ` (${macroPlay.reason})` : ""}`);
@@ -20701,6 +20703,40 @@ export function selectStrategy(r, side, opts = {}) {
       `${ivBasis} — sell the expensive premium on the ${side === "call" ? "bullish" : "bearish"} side; very rich IV mean-reverts and time decay works for you while price stays on your side of the short strike.`);
   }
 
+  const debitLabel = (side === "call" ? "Bull" : "Bear") + " debit spread";
+  const unknownIvDebit = () => mk("debit", debitLabel,
+    "Current IV history is unavailable — relative premium value is unknown. Use a debit spread to limit premium outlay; a single long is not eligible.");
+  const adverseSkewDebit = () => {
+    const skewRichness = skewZ != null
+      ? `${Math.abs(skewZ).toFixed(1)}σ rich versus its own history`
+      : `${(Math.abs(skew25) * 100).toFixed(1)} volatility points rich while history matures`;
+    return mk("debit", debitLabel,
+      `Recommended: 25-delta ${side} skew is ${skewRichness}; cap premium outlay with a debit spread instead of a naked long.`);
+  };
+
+  // SINGLES BY DEFAULT (2026-11-07, PICKS_SINGLES_DEFAULT; lib/top-picks-config.mjs).
+  // After costs, single options beat debit spreads in every backtest window, so
+  // a spread is used only where it has a measurable reason: earnings inside the
+  // hold (IV crush), very rich IV the credit rule could not sell, unknown IV
+  // history, or adverse skew. Macro events, Rich IV and a moderate grade no
+  // longer force a spread. The per-contract cost cap is applied in
+  // buildPickContract once the single's price is known.
+  if (PICKS_SINGLES_DEFAULT) {
+    if (earningsInWindow) {
+      return mk("debit", debitLabel,
+        `Recommended: earnings fall inside the planned hold (within ${PICKS_STRATEGY_EARNINGS_DAYS} days). The post-report IV crush hits a single option hardest, so use a debit spread.`);
+    }
+    if (ivHighlyElevated) {
+      return mk("debit", debitLabel,
+        `Recommended: ${ivBasis}, but ${eventImminent ? "a macro event is close" : "a print is close"}, so the credit spread is off. Buy a debit spread rather than a single option at the richest premium.`);
+    }
+    if (!ivKnown) return unknownIvDebit();
+    if (adverseSkew) return adverseSkewDebit();
+    const macroNote = eventImminent ? " A macro event is close; it no longer forces a spread (the event rules decide whether to trade through it)." : "";
+    return mk("long", "Long " + side,
+      `Single ${side} by default: ${ivBasis}, no earnings inside the hold and no adverse skew. After costs, singles beat debit spreads in every backtest window.${macroNote}`);
+  }
+
   // 2) RARE: very-high grade (Strong tier) AND a STRONG thesis AND IV Cheap or
   //    Normal -> naked long for maximum delta/gamma + uncapped upside.
   if (strong && thesisTier === "strong" && ivReasonable && !eventImminent && !earningsInWindow && !adverseSkew) {
@@ -20710,24 +20746,20 @@ export function selectStrategy(r, side, opts = {}) {
 
   // 3) Default: a grounded directional view without extreme conviction (or into an
   //    event, or a strong view into Rich-but-not-Very-rich IV) -> defined-risk debit.
-  if (!ivKnown) {
-    return mk("debit", (side === "call" ? "Bull" : "Bear") + " debit spread",
-      "Current IV history is unavailable — relative premium value is unknown. Use a debit spread to limit premium outlay; a single long is not eligible.");
-  }
-  if (adverseSkew) {
-    const skewRichness = skewZ != null
-      ? `${Math.abs(skewZ).toFixed(1)}σ rich versus its own history`
-      : `${(Math.abs(skew25) * 100).toFixed(1)} volatility points rich while history matures`;
-    return mk(
-      "debit",
-      (side === "call" ? "Bull" : "Bear") + " debit spread",
-      `Recommended: 25-delta ${side} skew is ${skewRichness}; cap premium outlay with a debit spread instead of a naked long.`,
-    );
-  }
+  if (!ivKnown) return unknownIvDebit();
+  if (adverseSkew) return adverseSkewDebit();
   const why = eventImminent || earningsInWindow
     ? `a ${earningsInWindow ? "print" : "macro event"} is imminent — defined-risk only (a naked long eats the IV crush + gap)`
     : `a grounded ${side === "call" ? "bullish" : "bearish"} view without extreme conviction and ${ivBasis} — a debit spread delivers the direction at a lower cost with slower net theta than a naked long`;
-  return mk("debit", (side === "call" ? "Bull" : "Bear") + " debit spread", `Recommended: ${why}.`);
+  return mk("debit", debitLabel, `Recommended: ${why}.`);
+}
+
+// Dollars for one contract at the engine's price (mid, else ask), or null when
+// the quote is missing. Used by the $5,000 cap. A debit spread's mid is its net
+// debit, so the same helper prices one spread contract.
+export function singleContractCost(contract) {
+  const px = pnumN(contract?.mid) ?? pnumN(contract?.ask);
+  return px != null && px > 0 ? Math.round(px * 100) : null;
 }
 
 // Compact per-leg fields the renderer + mark-to-market read.
@@ -20916,15 +20948,49 @@ export function rankVerticalPickContracts(side, data, rfr = FALLBACK_RISK_FREE_R
 // a debit spread instead, and a credit spread can use a debit spread instead.
 // A spread recommendation never falls back to a single long: doing so would
 // undo the IV, event, skew, or conviction rule that selected the spread.
-export function buildPickContract(side, data, rfr, strategy, opts = {}) {
-  const want = strategy?.type;
+export function buildPickContract(side, data, rfr, strategyIn, opts = {}) {
+  let strategy = strategyIn;
+  let want = strategy?.type;
   if (!["long", "debit", "credit"].includes(want)) return null;
-  const permitted = want === "debit" ? ["debit"] : [want, "debit"];
+  let permitted = want === "debit" ? ["debit"] : [want, "debit"];
   const rankers = {
     long: () => rankSinglePickContracts(side, data, rfr, { requireClean: true, ...(opts.evaluateEconomics ? {} : { limit: 1 }) }),
     debit: () => rankVerticalPickContracts(side, data, rfr, { type: "debit", minDte: PICKS_MIN_DTE, expand: !!opts.evaluateEconomics }),
     credit: () => rankVerticalPickContracts(side, data, rfr, { type: "credit", minDte: PICKS_MIN_DTE, expand: !!opts.evaluateEconomics }),
   };
+  // Per-contract cost cap (singles by default, 2026-11-07): when one contract
+  // of the single the engine would buy costs more than PICKS_SINGLE_MAX_COST,
+  // use a debit spread instead. A single is never shipped over the cap.
+  if (want === "long" && PICKS_SINGLES_DEFAULT && PICKS_SINGLE_MAX_COST > 0) {
+    const singles = rankers.long();
+    const topCost = singleContractCost(singles[0]);
+    if (topCost != null && topCost > PICKS_SINGLE_MAX_COST) {
+      want = "debit";
+      permitted = ["debit"];
+      strategy = { ...strategy, type: "debit", label: (side === "call" ? "Bull" : "Bear") + " debit spread", requested: "long",
+        costCap: { cost: topCost, cap: PICKS_SINGLE_MAX_COST },
+        reason: `Recommended: one contract of the single ${side} costs about $${topCost.toLocaleString("en-US")}, over the $${PICKS_SINGLE_MAX_COST.toLocaleString("en-US")} cap, so use a debit spread.` };
+    } else {
+      const underCap = singles.filter(c => { const cost = singleContractCost(c); return cost == null || cost <= PICKS_SINGLE_MAX_COST; });
+      rankers.long = () => underCap;
+    }
+  }
+  // The same cap on the spread side: a debit spread uses a width that costs no
+  // more than the cap a contract when one exists. When none does, the engine's
+  // usual spread stands and the strategy says it is over the cap (below).
+  const capOn = PICKS_SINGLES_DEFAULT && PICKS_SINGLE_MAX_COST > 0;
+  if (capOn) {
+    const rankDebit = rankers.debit;
+    let debits = null;
+    rankers.debit = () => {
+      if (!debits) {
+        const all = rankDebit();
+        const under = all.filter(c => { const cost = singleContractCost(c); return cost == null || cost <= PICKS_SINGLE_MAX_COST; });
+        debits = under.length ? under : all;
+      }
+      return debits;
+    };
+  }
   const key = c => [c.structure, c.expiry, c.strike, c.shortStrike ?? "", c.longStrike ?? ""].join(":");
   let first = null, preferred = null, selected = null, evaluated = 0;
   const checkedTypes = [];
@@ -20953,8 +21019,16 @@ export function buildPickContract(side, data, rfr, strategy, opts = {}) {
   const fallback = used !== want;
   const labelFor = type => type === "credit" ? "credit spread" : type === "debit" ? "debit spread" : "single option";
   const fallbackWhy = preferred?.economics && !preferred.economics.eligible ? "no economically feasible preferred contract" : "no clean preferred contract";
-  const stratOut = fallback ? { ...strategy, type: used, label: (side === "call" ? "Bull" : "Bear") + " debit spread", fallback: true, requested: want,
+  let stratOut = fallback ? { ...strategy, type: used, label: (side === "call" ? "Bull" : "Bear") + " debit spread", fallback: true, requested: want,
     reason: (strategy.reason || "") + ` (${fallbackWhy}; used an already-permitted ${labelFor(used)}).` } : strategy;
+  if (capOn && used === "debit") {
+    const spreadCost = singleContractCost(contract);
+    const overCap = spreadCost != null && spreadCost > PICKS_SINGLE_MAX_COST;
+    if (stratOut.costCap || overCap) {
+      stratOut = { ...stratOut, costCap: { ...(stratOut.costCap || {}), cap: PICKS_SINGLE_MAX_COST, spreadCost, ...(overCap ? { overCap: true } : {}) } };
+      if (overCap) stratOut.reason = (stratOut.reason || "") + ` No debit spread here costs under the $${PICKS_SINGLE_MAX_COST.toLocaleString("en-US")} cap; this one costs about $${spreadCost.toLocaleString("en-US")} a contract.`;
+    }
+  }
   if (economics) economics.comparison = {
     requested: want, permitted, checkedTypes, evaluated,
     changed: changed || fallback,
@@ -21543,7 +21617,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   const minConv = edgeGate.bar;
   const strongBar = edgeGate.strongBar ?? PICKS_TIER_STRONG;
 
-  const meta = { modelEpoch: PICKS_ACCURACY_RESET_EPOCH, entryPolicyVersion: OPTION_ENTRY_POLICY_VERSION, gradeModelVersion: GRADE_MODEL_VERSION, entryTimingVersion: PICKS_ENTRY_TIMING_VERSION, tradeCut: minConv, strongCut: PICKS_TIER_STRONG, actionableBar: strongBar, minConviction: minConv, baseTradeCut: PICKS_MIN_CONVICTION, edgeGate: edgeGate.bar > PICKS_MIN_CONVICTION ? edgeGate : null, regimeBand: regime, macroRegime: macroBackdrop?.macroRegime || null, sectorCapped: [], factorCapped: [], factorRunCapped: [], factorRunLimit: PICKS_MAX_NEW_PER_FACTOR_RUN, capsVersion: PICKS_CAPS_VERSION, factorTrendGated: [], factorTrend: factorHealth, sideCapped: [], timingGated: [], primaryScenarioGated: [], earningsRiskCapped: [], eventDeferred: [], confluenceSkipped: [], edgeBarDemoted: [], confluenceDemoted: [], aiUngraded: [], entryDemoted: [], aiEntryPromoted: [], aiEntryHeldBack: [], reentrySuppressed: [], aiVetoed: [], vetoed: 0, sectorCounts: {}, eventRisk: macroBackdrop?.eventRisk || null };
+  const meta = { modelEpoch: PICKS_ACCURACY_RESET_EPOCH, entryPolicyVersion: OPTION_ENTRY_POLICY_VERSION, gradeModelVersion: GRADE_MODEL_VERSION, entryTimingVersion: PICKS_ENTRY_TIMING_VERSION, tradeCut: minConv, strongCut: PICKS_TIER_STRONG, actionableBar: strongBar, minConviction: minConv, baseTradeCut: PICKS_MIN_CONVICTION, edgeGate: edgeGate.bar > PICKS_MIN_CONVICTION ? edgeGate : null, regimeBand: regime, macroRegime: macroBackdrop?.macroRegime || null, sectorCapped: [], factorCapped: [], factorRunCapped: [], factorRunLimit: PICKS_MAX_NEW_PER_FACTOR_RUN, capsVersion: PICKS_CAPS_VERSION, structurePolicy: { version: PICKS_STRUCTURE_POLICY_VERSION, singlesDefault: PICKS_SINGLES_DEFAULT, maxSingleCost: PICKS_SINGLES_DEFAULT ? PICKS_SINGLE_MAX_COST : null }, costCapped: [], factorTrendGated: [], factorTrend: factorHealth, sideCapped: [], timingGated: [], primaryScenarioGated: [], earningsRiskCapped: [], eventDeferred: [], confluenceSkipped: [], edgeBarDemoted: [], confluenceDemoted: [], aiUngraded: [], entryDemoted: [], aiEntryPromoted: [], aiEntryHeldBack: [], reentrySuppressed: [], aiVetoed: [], vetoed: 0, sectorCounts: {}, eventRisk: macroBackdrop?.eventRisk || null };
 
   // GATE TRACE (measurement only): the first rule that kept each candidate off
   // the open-pick path, plus the names that made it ("picked"). The Track
@@ -21783,6 +21857,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       if (!built || !built.contract) { meta.vetoed++; if (isAct) traceGate(r, side, "no-contract"); continue; }  // can't act on a recommended structure -> drop
       contract = built.contract;
       stratFinal = built.strategy;
+      if (stratFinal?.costCap) meta.costCapped.push({ sym: r.sym, side, cost: stratFinal.costCap.cost ?? null, spreadCost: stratFinal.costCap.spreadCost ?? null, ...(stratFinal.costCap.overCap ? { overCap: true } : {}) });
       exitPlan = buildExitPlan(side, pnum(r.data.spot), r.data, contract, { stockPlan: r.timing?.structure });
       entry.economics = built.economics;
       if (!entry.economics.eligible && entry.now) {
@@ -26957,7 +27032,7 @@ async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload 
           grade: GRADE_MODEL_VERSION, entryPolicy: OPTION_ENTRY_POLICY_VERSION, entryTiming: PICKS_ENTRY_TIMING_VERSION,
           modelEpoch: PICKS_ACCURACY_RESET_EPOCH, caps: PICKS_CAPS_VERSION, eventPlay: PICKS_EVENT_AWARE ? EVENT_PLAY_VERSION : null,
           exit: pickExitPolicy("long").version, marketPolicy: topScored?.marketPolicyVersion || null,
-          strategyAuto: PICKS_STRATEGY_AUTO,
+          strategyAuto: PICKS_STRATEGY_AUTO, structure: PICKS_STRUCTURE_POLICY_VERSION, singleMaxCost: PICKS_SINGLES_DEFAULT ? PICKS_SINGLE_MAX_COST : null,
         },
       });
     } catch (err) {
@@ -27110,8 +27185,12 @@ const THESIS_SCHEMA = {
 // depth/specificity, never copies the content.
 const THESIS_GOLD_EXAMPLES =
   "STANDARD TO EMULATE — two reference theses that hit the bar. Match their depth, specificity, and structure; never copy their content (they are about other names). " +
-  "EXAMPLE 1 — BEARISH on an oil producer. Summary: bearish because the Strait of Hormuz reopening lets supply catch back up to demand and pressures crude — confirmed by both sides standing down and tankers resuming transit. Story: the stock rallied ~40% YTD almost entirely on the Iran-conflict supply-disruption premium; with the war ending and the Strait reopening, that premium is being removed — already visible in lower crude futures and rising tanker traffic — so the single driver of the rally is gone and the stock (down ~10% on the week) should give back much of the YTD gain as the market reprices cheaper oil. Invalidation: tensions re-escalate or a new disruption emerges; crude futures stabilize or rise despite the reopening; the company prints results strong enough to offset lower oil. Strategy: high directional conviction with IV NOT extremely elevated → buy PUT DEBIT spreads (naked puts only if conviction is exceptional) for defined-risk downside that costs less than outright puts. " +
-  "EXAMPLE 2 — BEARISH on gold (GLD). Summary: bearish because the two pillars under the rally — the geopolitical risk premium (Iran) and expectations of aggressive Fed cuts — are BOTH reversing; gold pays no yield, so easing tension and higher-for-longer rates lift its opportunity cost. Story: the rally was geopolitics + cut expectations; with the war ending and the market now pricing fewer cuts (even a small hike tail), real yields (TIPS) are rising and haven flows into gold ETFs are fading — early confirmation the supports have deteriorated, so expect further downside over the coming weeks. Invalidation: the Fed clearly re-signals aggressive cuts; new geopolitical tension flares; gold breaks above recent highs on strong volume; inflation prints much hotter, reviving the hedge bid. Strategy: gold-option IV is currently ELEVATED → SELL premium via a bear (put) CREDIT spread (sell the higher-strike put, buy a further-OTM put for protection) to harvest the rich IV while staying bearish; if IV were neutral/low, prefer a put DEBIT spread instead. " +
+  "EXAMPLE 1 — BEARISH on an oil producer. Summary: bearish because the Strait of Hormuz reopening lets supply catch back up to demand and pressures crude — confirmed by both sides standing down and tankers resuming transit. Story: the stock rallied ~40% YTD almost entirely on the Iran-conflict supply-disruption premium; with the war ending and the Strait reopening, that premium is being removed — already visible in lower crude futures and rising tanker traffic — so the single driver of the rally is gone and the stock (down ~10% on the week) should give back much of the YTD gain as the market reprices cheaper oil. Invalidation: tensions re-escalate or a new disruption emerges; crude futures stabilize or rise despite the reopening; the company prints results strong enough to offset lower oil. " + (PICKS_SINGLES_DEFAULT
+    ? "Strategy: a clear bearish view with IV not very rich and no earnings inside the hold → buy a single PUT (the default; after costs, singles beat put debit spreads); a put debit spread only if earnings fell inside the hold or one contract cost more than the cap. "
+    : "Strategy: high directional conviction with IV NOT extremely elevated → buy PUT DEBIT spreads (naked puts only if conviction is exceptional) for defined-risk downside that costs less than outright puts. ") +
+  "EXAMPLE 2 — BEARISH on gold (GLD). Summary: bearish because the two pillars under the rally — the geopolitical risk premium (Iran) and expectations of aggressive Fed cuts — are BOTH reversing; gold pays no yield, so easing tension and higher-for-longer rates lift its opportunity cost. Story: the rally was geopolitics + cut expectations; with the war ending and the market now pricing fewer cuts (even a small hike tail), real yields (TIPS) are rising and haven flows into gold ETFs are fading — early confirmation the supports have deteriorated, so expect further downside over the coming weeks. Invalidation: the Fed clearly re-signals aggressive cuts; new geopolitical tension flares; gold breaks above recent highs on strong volume; inflation prints much hotter, reviving the hedge bid. " + (PICKS_SINGLES_DEFAULT
+    ? "Strategy: gold-option IV is VERY RICH (top tenth of its own history and above realized moves) with no event close → SELL premium via a bear (put) CREDIT spread (sell the higher-strike put, buy a further-OTM put for protection) to harvest the rich IV while staying bearish; if IV were normal or cheap, buy a single put instead. "
+    : "Strategy: gold-option IV is currently ELEVATED → SELL premium via a bear (put) CREDIT spread (sell the higher-strike put, buy a further-OTM put for protection) to harvest the rich IV while staying bearish; if IV were neutral/low, prefer a put DEBIT spread instead. ") +
   "WHAT MAKES A GOOD THESIS: answer 'why does this setup have an EDGE right now, and what has to happen for us to be right?' A high grade alone won't carry a trader through normal noise or a drawdown — the thesis must give a REASON to enter, a way to MONITOR whether it's working, and clear INVALIDATION so they know when to exit. Never just restate the grade — explain the NARRATIVE behind why the grade is high and why the trade fits current conditions. Be CLEAR, logically cause→effect, SPECIFIC (not vague/generic), TESTABLE (explicit confirmation + invalidation), and ACTIONABLE (it leads to a specific strategy). The thesis COMPLEMENTS the grade. ";
 
 const THESIS_SYSTEM =
@@ -27129,9 +27208,11 @@ const THESIS_SYSTEM =
   "macroSupport = does the cross-asset macro tape SUPPORT, work AGAINST, or stay NEUTRAL to this trade's DIRECTION (a bullish trade is 'supports' only when macro is a tailwind for upside — be honest and say 'against' when macro fights it). " +
   "macroRead = one sentence on the macro backdrop's bearing on this trade. macroDrivers = the specific macro factors you cited. " +
   "invalidation = 3–4 SPECIFIC, observable conditions that would prove the thesis wrong (a named driver reversing, a price level breaking, a macro shift, a catalyst disappointing) — never generic 'the stock could fall'. " +
-  "strategyRationale = 1–3 sentences justifying the OPTION STRUCTURE from the IV environment: when implied vol is ELEVATED/RICH, premium is expensive so favour SELLING premium on the bias side (a credit spread) or a defined-risk debit spread over a naked long; when IV is CHEAP, favour BUYING premium (a debit spread or naked long); always prefer DEFINED-RISK into an imminent earnings/event. Explain the IV-vs-structure logic the way the example does. " +
+  (PICKS_SINGLES_DEFAULT
+    ? "strategyRationale = 1–3 sentences on the OPTION STRUCTURE from the IV environment. The engine buys a single call or put by default (after costs, singles beat debit spreads in its backtests). It uses a debit spread only when earnings fall inside the hold, when one contract would cost more than the per-contract cap, when IV is very rich but an event blocks the credit spread, when IV history is missing, or when skew is adverse; it sells a credit spread only when IV is very rich with no event close. A macro event alone does not change the structure. Explain the IV-vs-structure logic the way the example does. "
+    : "strategyRationale = 1–3 sentences justifying the OPTION STRUCTURE from the IV environment: when implied vol is ELEVATED/RICH, premium is expensive so favour SELLING premium on the bias side (a credit spread) or a defined-risk debit spread over a naked long; when IV is CHEAP, favour BUYING premium (a debit spread or naked long); always prefer DEFINED-RISK into an imminent earnings/event. Explain the IV-vs-structure logic the way the example does. ") +
   "confidence = your honest read of the thesis strength. " +
-  "ENTRY CALL — you also make the final IS-NOW-THE-TIME-TO-BUY call. entryVerdict = buy-now | wait. The context includes a deterministic price-based entry read (trigger levels, momentum/pullback/volume factors) — treat it as ONE input, not the answer: weigh it together with everything else you see (how fresh and urgent the catalyst is, what's on the calendar, the macro tape, the IV environment, whether the move has already run). buy-now means a subscriber opening the position at the CURRENT price, immediately, is following the plan — say it only when entering right now genuinely beats waiting. wait means there is a better entry to be had (a pullback, a confirming close, an event clearing, a stretched move cooling off) — a strong thesis whose entry isn't ready ships as a watch idea, not a recommendation, so be honest. entryReason = one short, specific sentence: what makes RIGHT NOW the moment (or exactly what to wait for). Hard risk rules are enforced outside your call, but they only cover the true EXTREMES — a parabolic stretch, a blow-off RSI, a falling knife, and an imminent print or macro release the engine's own event check did not clear. Everything short of those is YOUR judgment. EVENT PLAYS — this engine trades events on purpose. When the context has an EVENT PLAY line, the engine has already checked that the evidence lines up for entering THROUGH that event (the market tape for a macro release; the stock's own reaction record, this season's reactions and the run-in for an earnings print; a confirmed index break for a post-shock put), the position is a defined-risk spread, the number of event trades is capped, and the trade is reviewed right after the event. So an upcoming event is NOT by itself a reason to wait: call wait on an event play only when something specific in the context argues against this trade going into it (for example the catalyst already played out, or the stock's own guidance trend contradicts the side), and say what. In particular, a name that is moderately EXTENDED past its 20-day average is NOT automatically a wait: strong names in a momentum regime with a live catalyst routinely stay extended for weeks, and the 'wait for the pullback to the mean' entry never fills — decide whether the extension is a momentum ride (fresh catalyst, expanding story, confirming volume → buy-now can be right) or a late chase (the catalyst already played out, the move is exhaustion, volume fading → wait), and say which in entryReason. If you do call wait, name a REALISTIC nearby level or condition (a 2-5% dip, a confirming close, an event clearing) — never a mean-reversion target far below a trending price. " +
+  "ENTRY CALL — you also make the final IS-NOW-THE-TIME-TO-BUY call. entryVerdict = buy-now | wait. The context includes a deterministic price-based entry read (trigger levels, momentum/pullback/volume factors) — treat it as ONE input, not the answer: weigh it together with everything else you see (how fresh and urgent the catalyst is, what's on the calendar, the macro tape, the IV environment, whether the move has already run). buy-now means a subscriber opening the position at the CURRENT price, immediately, is following the plan — say it only when entering right now genuinely beats waiting. wait means there is a better entry to be had (a pullback, a confirming close, an event clearing, a stretched move cooling off) — a strong thesis whose entry isn't ready ships as a watch idea, not a recommendation, so be honest. entryReason = one short, specific sentence: what makes RIGHT NOW the moment (or exactly what to wait for). Hard risk rules are enforced outside your call, but they only cover the true EXTREMES — a parabolic stretch, a blow-off RSI, a falling knife, and an imminent print or macro release the engine's own event check did not clear. Everything short of those is YOUR judgment. EVENT PLAYS — this engine trades events on purpose. When the context has an EVENT PLAY line, the engine has already checked that the evidence lines up for entering THROUGH that event (the market tape for a macro release; the stock's own reaction record, this season's reactions and the run-in for an earnings print; a confirmed index break for a post-shock put), " + (PICKS_SINGLES_DEFAULT ? "an earnings trade is a defined-risk spread" : "the position is a defined-risk spread") + ", the number of event trades is capped, and the trade is reviewed right after the event. So an upcoming event is NOT by itself a reason to wait: call wait on an event play only when something specific in the context argues against this trade going into it (for example the catalyst already played out, or the stock's own guidance trend contradicts the side), and say what. In particular, a name that is moderately EXTENDED past its 20-day average is NOT automatically a wait: strong names in a momentum regime with a live catalyst routinely stay extended for weeks, and the 'wait for the pullback to the mean' entry never fills — decide whether the extension is a momentum ride (fresh catalyst, expanding story, confirming volume → buy-now can be right) or a late chase (the catalyst already played out, the move is exhaustion, volume fading → wait), and say which in entryReason. If you do call wait, name a REALISTIC nearby level or condition (a 2-5% dip, a confirming close, an event clearing) — never a mean-reversion target far below a trending price. " +
   "FINAL GRADE — you are the FINAL GRADER. A quantitative engine pre-screened this name on the raw data (fundamentals, technicals, flow, narrative) and it CLEARED that screen; now YOU decide whether the thesis actually holds together as a trade. " +
   "grade = strong | moderate | weak | reject. " +
   "strong = a clear, multi-factor, testable case with the macro tape NOT fighting it and a concrete catalyst changing now (an Actionable top pick). " +
@@ -27369,8 +27450,14 @@ export function buildThesisUserMessage(r, side, macroRegime, extras = {}) {
     const sharedIv = r.marketAdjustment ? IV_RICHNESS.classify({pctile:ivp,iv:d.ivRank?.iv,rv30:d.technicals?.volRegime?.rv30}) : null;
     const rich = sharedIv ? sharedIv.rich : (ivz != null && ivz >= 1.5) || (ivp != null && ivp >= 60);
     const cheap = sharedIv ? sharedIv.cheap : (ivz != null && ivz <= -0.5) || (ivp != null && ivp <= 30);
+    const veryRich = sharedIv ? sharedIv.veryRich : (ivp != null && ivp >= 90);
     const favors = eventSoon
       ? "an imminent earnings/event → use DEFINED-RISK only (a spread), never a naked long that eats the IV crush"
+      : PICKS_SINGLES_DEFAULT
+        ? (veryRich ? "very rich; premium is rich → the engine sells a credit spread on the bias side unless an event is close (then a debit spread)"
+          : rich ? "elevated; premium is rich → the engine still buys a single option by default; weigh what the premium costs"
+          : cheap ? "cheap → buying premium (a single option, the default) is favored"
+          : "moderate → a single option is the default")
       : rich ? "elevated; premium is rich → favor SELLING premium on the bias side (credit spread) or a defined-risk debit spread over a naked long"
       : cheap ? "cheap → favor BUYING premium (a debit spread or a naked long)"
       : "moderate → a defined-risk debit spread is the default";
@@ -29032,6 +29119,10 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
       // Exposure-cap rule set (lib/top-picks-caps.mjs), stamped since
       // 2026-11-06 so the Track Record can draw a divider at the change.
       capsVersion: PICKS_CAPS_VERSION,
+      // Option-structure rule set (singles by default since 2026-11-07),
+      // stamped so the Track Record draws a divider. Unset while
+      // PICKS_SINGLES_DEFAULT=0 (the earlier engine mix).
+      ...(PICKS_STRUCTURE_POLICY_VERSION ? { structurePolicyVersion: PICKS_STRUCTURE_POLICY_VERSION } : {}),
       exitPolicy: pickExitPolicy(p.contract?.structure),
       // Event play tag, frozen at entry (macro / earnings / shock). Drives the
       // one post-event review and the shock time limit, and the Track Record's

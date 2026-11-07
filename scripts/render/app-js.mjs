@@ -36530,7 +36530,9 @@ ${renderExportBindings()}
       return e && e.entryPolicyVersion ? '4' : '';
     } },
     // Exposure caps (lib/top-picks-caps.mjs), stamped from Nov 6.
-    { key:'caps', get:function(e){ return (e && e.capsVersion) || ''; } }
+    { key:'caps', get:function(e){ return (e && e.capsVersion) || ''; } },
+    // Option-structure rule (singles by default), stamped from its first trade.
+    { key:'structure', get:function(e){ return (e && e.structurePolicyVersion) || ''; } }
   ];
   // When each version took effect and what it changed (shown on its divider).
   // A version missing here dates from its earliest trade and shows no note.
@@ -36544,7 +36546,9 @@ ${renderExportBindings()}
     exit: { '2026-10-22-tp25': { since:'2026-10-22', note:'Take-profit raised to +25%' } },
     entry: { '2026-10-23-reviewed-entry-v3': { since:'2026-10-23', note:'Entries must pass an option-price check' } },
     timing: { '4': { since:'2026-10-23', note:'Volatility-aware entry timing' }, '5': { since:'2026-11-06', note:'Event-aware: trades through macro events and earnings when the evidence agrees' } },
-    caps: { '2026-11-06-factor-run-2': { since:'2026-11-06', note:'At most 2 new trades per run from one stock group (the tech/AI group)' } }
+    caps: { '2026-11-06-factor-run-2': { since:'2026-11-06', note:'At most 2 new trades per run from one stock group (the tech/AI group)' } },
+    // No fixed date: the divider dates from the first trade under the rule.
+    structure: { '2026-11-singles-default': { note:'Single calls and puts by default; a debit spread only for earnings inside the hold or one contract over $5,000' } }
   };
   function accRuleSegments(list){
     var firstSeen = {};
@@ -36599,7 +36603,7 @@ ${renderExportBindings()}
     var notes = changed.map(function(c){ return c.note; }).filter(Boolean);
     var gradeOnly = changed.length > 0 && changed.every(function(c){ return c.key === 'grade'; });
     var label = (gradeOnly ? 'Updated grade formula from ' : 'New rules from ') + when;
-    return '<div class="acc-grade-divider" role="separator" title="A rule changed (grade formula, entry, exit or timing). The track record was kept, not reset; trades are split by the rules they ran under.">' +
+    return '<div class="acc-grade-divider" role="separator" title="A rule changed (grade formula, entry, exit, timing, caps or option structure). The track record was kept, not reset; trades are split by the rules they ran under.">' +
       '<span class="acc-grade-divider-label">' + escapeHtml(label) + (notes.length ? ' · ' + escapeHtml(notes.join(' · ')) : '') + '</span>' +
       '<span class="acc-grade-divider-note">Above: trades under the newer rules · Below: earlier trades</span>' +
     '</div>';
@@ -36692,6 +36696,43 @@ ${renderExportBindings()}
     return '<div class="accuracy-tiers acc-version-table"><div class="accuracy-tiers-head">Win rate by rule set <span class="acc-an-tag">one row per divider</span></div>' +
       '<p class="hint">The record is never reset when a rule changes. Each row is one set of rules, newest first, so you can compare them side by side.</p>' +
       '<div class="acc-tscroll"><table class="acc-qtable"><thead><tr><th>Rule set</th><th>Trades opened</th><th>Decided</th><th>Win rate (likely range)</th><th>Avg P&amp;L (model)</th><th>Avg real fill</th></tr></thead><tbody>' + rows + '</tbody></table></div></div>';
+  }
+  // Decided trades by option structure: single option, debit spread, credit
+  // spread. Added with "single options by default" (2026-11-07) so the switch
+  // can be judged on the record: singles should beat the earlier spreads per
+  // trade, and real fills should land close to the model's price.
+  function accStructureKind(e){
+    var st = e && e.contract && e.contract.structure;
+    return st === 'debit_vertical' ? 'debit' : st === 'credit_vertical' ? 'credit' : 'long';
+  }
+  function accStructureTableHtml(closed){
+    var decided = (closed || []).filter(function(e){ return e && (e.outcome === 'win' || e.outcome === 'loss') && e.counted !== false; });
+    if (!decided.length) return '';
+    var kinds = [['long', 'Single options'], ['debit', 'Debit spreads'], ['credit', 'Credit spreads']];
+    var rows = kinds.map(function(k){
+      var list = decided.filter(function(e){ return accStructureKind(e) === k[0]; });
+      if (!list.length) return '';
+      var w = 0, pnl = [], real = [], gap = [];
+      list.forEach(function(e){
+        if (e.outcome === 'win') w++;
+        var v = Number(e.optionPnlPct), hasV = e.optionPnlPct != null && isFinite(v);
+        if (hasV) pnl.push(v);
+        var rf = Number(e.realFillPnlPct);
+        if (e.realFillPnlPct != null && isFinite(rf)){ real.push(rf); if (hasV) gap.push(rf - v); }
+      });
+      var n = list.length, rate = w / n, avg = pnl.length ? accMean(pnl) : null, g = gap.length ? accMean(gap) : null;
+      return '<tr><td><b>' + k[1] + '</b></td>' +
+        '<td>' + n + (n < ACC_FEW_N ? ' <span class="acc-few" title="Fewer than ' + ACC_FEW_N + ' decided trades: too few to judge.">few</span>' : '') + '</td>' +
+        '<td><span class="' + (rate >= 0.5 ? 'sig-pos' : 'sig-neg') + '">' + Math.round(rate * 100) + '%</span> <small title="' + escapeHtml(accRangeTip(w, n)) + '">' + accRangeText(w, n) + '</small></td>' +
+        '<td>' + (avg == null ? '—' : '<span class="' + (avg >= 0 ? 'sig-pos' : 'sig-neg') + '">' + accPct(avg) + '</span>') + '</td>' +
+        '<td>' + (real.length ? accPct(accMean(real)) + ' <small>(' + real.length + ')</small>' : '—') + '</td>' +
+        '<td>' + (g == null ? '—' : '<span class="' + (g >= 0 ? 'sig-pos' : 'sig-neg') + '">' + (g >= 0 ? '+' : '') + g.toFixed(1) + ' pts</span>') + '</td>' +
+      '</tr>';
+    }).join('');
+    if (!rows) return '';
+    return '<div class="accuracy-tiers acc-version-table acc-structure-table"><div class="accuracy-tiers-head">Singles vs spreads <span class="acc-an-tag">by option structure</span></div>' +
+      '<p class="hint">Since Nov 7 the engine buys a single call or put by default and uses a debit spread only for earnings inside the hold or a contract over $5,000. The switch stays if singles beat the earlier spreads per trade and real fills land within a few points of the model. Real minus model is the average gap on trades with a real fill.</p>' +
+      '<div class="acc-tscroll"><table class="acc-qtable"><thead><tr><th>Structure</th><th>Decided</th><th>Win rate (likely range)</th><th>Avg P&amp;L (model)</th><th>Avg real fill</th><th>Real minus model</th></tr></thead><tbody>' + rows + '</tbody></table></div></div>';
   }
   function accPct(n){
     if (n == null || !isFinite(n)) return '—';
@@ -41050,11 +41091,12 @@ ${renderExportBindings()}
     var regimeBlock = cohortBlock('Win rate by market regime', st.byRegime,
       '<p class="hint acc-regime-note">The regime is the market tape when the trade opened. Read it with the ranges: ' +
       (riskOnN < 30 ? 'risk-on has ' + riskOnN + ' decided trade' + (riskOnN === 1 ? '' : 's') + ', so revisit this split at 30.' : 'risk-on now has ' + riskOnN + ' decided trades.') + '</p>');
-    var versionBlock = accVersionTableHtml(closed);
+    var versionBlock = accVersionTableHtml(closed) + accStructureTableHtml(closed);
     // gate A/B only when both arms have data (PICKS_ACCURACY_AB enabled long enough)
     var abBlock = (st.byCohort && Object.keys(st.byCohort).length > 1) ? cohortBlock('Gate A/B — endorsed (go) vs deferred (wait)', st.byCohort) : '';
     // Macro-event exposure A/B — did entering near an FOMC / major print cost us, and
-    // did the defined-risk verticals the engine now forces into events beat naked longs?
+    // did the defined-risk verticals the engine forced into events (until the
+    // Nov 7 singles-by-default rule) beat naked longs?
     var eventBlock = (st.byEvent && Object.keys(st.byEvent).length > 1) ? cohortBlock('Macro-event exposure — entered near an FOMC / major print vs not', st.byEvent) : '';
     // Demote the research-y chips + cohort breakdowns into a collapsed "Advanced"
     // disclosure so the Scorecard leads with the headline win rate / expectancy
@@ -44409,7 +44451,8 @@ ${renderExportBindings()}
     } else if (rm && rm.eventRisk){
       var evL = escapeHtml(rm.eventRisk.label || 'a macro event');
       var evD = (rm.eventRisk.daysOut === 0 || rm.eventRisk.daysOut) ? rm.eventRisk.daysOut : null;
-      noteBits.push(evL + (evD != null ? ' in ' + evD + 'd' : '') + ' — defined-risk spreads only');
+      var sdPolicy = rm.structurePolicy && rm.structurePolicy.singlesDefault;
+      noteBits.push(evL + (evD != null ? ' in ' + evD + 'd' : '') + (sdPolicy ? ' — noted; single options stay the default (earnings trades use a debit spread)' : ' — defined-risk spreads only'));
     }
     if (rm && rm.timingGated && rm.timingGated.length) noteBits.push('<b>' + rm.timingGated.length + '</b> deferred for a clean entry (no ‘go’ yet)');
     if (rm && rm.edgeBarDemoted && rm.edgeBarDemoted.length) noteBits.push('<b>' + rm.edgeBarDemoted.length + '</b> strong pick' + (rm.edgeBarDemoted.length === 1 ? '' : 's') + ' held to watch — the record is losing, so opening a pick needs a score of ' + (rm.actionableBar || 8) + '+');

@@ -202,6 +202,8 @@ ok("bake: the archive is written after picks.json, inside the Top Picks run", pe
 const recordAt = src.indexOf("picksRun = buildPicksRunRecord({");
 const rosterAt = src.indexOf("const picks = buildTopPicks(chains, narratives, streaksMap");
 ok("bake: the record is built after the roster, so it cannot feed it", recordAt > rosterAt && rosterAt > 0);
+ok("bake: each run names the option-structure rule and the per-contract cap in force",
+  /structure: PICKS_STRUCTURE_POLICY_VERSION, singleMaxCost: PICKS_SINGLES_DEFAULT \? PICKS_SINGLE_MAX_COST : null/.test(src.slice(recordAt, recordAt + 2000)));
 const fresh = await readFile(resolve(ROOT, "scripts/verify-data-freshness.mjs"), "utf8");
 ok("freshness: today's file has a publication policy", /isCurrentPicksRunPublishKey\(key, etDateKey\(now\)\)/.test(fresh));
 

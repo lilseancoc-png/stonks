@@ -12,7 +12,7 @@ import {
 } from '../lib/event-play.mjs';
 import { topPicksMarket } from '../lib/top-picks-market.mjs';
 import { entryPolicyFixture } from './entry-policy-smoke.mjs';
-import { buildTopPicks, etDateKey } from './build.mjs';
+import { buildTopPicks, etDateKey, PICKS_SINGLES_DEFAULT } from './build.mjs';
 
 let checks = 0;
 const check = async (name, fn) => { await fn(); checks++; console.log('PASS ' + name); };
@@ -132,12 +132,14 @@ const fomc = { active: true, label: 'FOMC decision', date: eventDate, daysOut: 1
 const roster = (extra = {}) => buildTopPicks({ FIXTURE: data }, [], null, null, { macroRegime: macro(), eventRisk: fomc }, null, .045,
   { preScored: { scored: [structuredClone(row)], peerIndex: {}, regimeBand: 'neutral' }, marketAssessment: assess(), aiThesisMap: { 'FIXTURE:call': aiThesis }, builtAtIso: now, ...extra });
 
-await check('roster: a confirmed call trades through FOMC on a debit spread and carries the tag', () => {
+// Since 2026-11-07 a macro event no longer forces a spread (single options by
+// default); PICKS_SINGLES_DEFAULT=0 restores the debit spread.
+await check(`roster: a confirmed call trades through FOMC on a ${PICKS_SINGLES_DEFAULT ? 'single option' : 'debit spread'} and carries the tag`, () => {
   const p = roster();
   assert.equal(p[0].group, 'actionable');
   assert.equal(p[0].eventPlay.kind, 'macro');
   assert.equal(p[0].eventPlay.key, `macro:FOMC decision:${eventDate}`);
-  assert.equal(p[0].strategy.type, 'debit');
+  assert.equal(p[0].strategy.type, PICKS_SINGLES_DEFAULT ? 'long' : 'debit');
   assert.equal(p[0].entryTiming.hardWait, null);
   assert.equal(p.rosterMeta.eventPlays.length, 1);
 });
@@ -179,6 +181,8 @@ try {
     assert.equal(first.open.length, 1);
     assert.equal(first.open[0].eventPlay.kind, 'macro');
     assert.equal(first.open[0].entryTimingVersion, 5);
+    // The option-structure rule is stamped only while singles are the default.
+    assert.equal(first.open[0].structurePolicyVersion, PICKS_SINGLES_DEFAULT ? '2026-11-singles-default' : undefined);
   });
   const driverKeys = first.open[0].thesis?.driverKeys || [];
   const grade = (total) => ({ AAPL: { total, drivers: driverKeys.map((key) => ({ key, score: 1 })) } });

@@ -64,7 +64,9 @@ let attempts=0;
 const savedFetch=globalThis.fetch;
 globalThis.fetch=async()=>{attempts++;throw new Error('Cost check prohibits network requests');};
 try{
-  const moduleSource=original.replace(/^((?:import|export)(?:\s*\{[^}]*\}|\s+[^\n;]+?)\s+from\s+)(["'])([^"']+)\2/gm,(whole,prefix,quote,specifier)=>{
+  // Only build.mjs becomes the baseline module: it imports lib/top-picks-config.mjs
+  // itself, and pasting the config in too would declare its imports twice.
+  const moduleSource=originalParts[0].replace(/^((?:import|export)(?:\s*\{[^}]*\}|\s+[^\n;]+?)\s+from\s+)(["'])([^"']+)\2/gm,(whole,prefix,quote,specifier)=>{
     if(specifier.startsWith('node:'))return whole;
     const url=specifier.startsWith('.') ? new URL(specifier,new URL('scripts/build.mjs',pathToFileURL(root))).href : import.meta.resolve(specifier);
     return prefix+quote+url+quote;

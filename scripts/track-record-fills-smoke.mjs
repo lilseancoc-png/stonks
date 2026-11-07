@@ -124,6 +124,9 @@ const slim = compactClosedForArchive(full);
 const entryAudit = { entryPolicyVersion: '2026-10-23-plan-economics-v1', entryEconomics: { eligible: true, horizonDays: 14 }, entryInvalidation: 195, entryTarget: 180, vehicleCut: 197 };
 const auditedSlim = compactClosedForArchive({ ...full, ...entryAudit });
 ok("archive: entry policy, economics and frozen levels survive compaction", Object.entries(entryAudit).every(([key,value]) => JSON.stringify(auditedSlim[key]) === JSON.stringify(value)));
+ok("archive: the option-structure rule stamp survives compaction and stays absent when unset",
+  compactClosedForArchive({ ...full, structurePolicyVersion: "2026-11-singles-default" }).structurePolicyVersion === "2026-11-singles-default"
+    && !("structurePolicyVersion" in slim));
 ok("archive: slim copy keeps the numbers and drops the narrative", slim.optionPnlPct === -51 && slim.aiGrade === "strong" && slim.thesis === undefined && slim.strategy === undefined && slim.archived === true);
 const merged = mergeArchive([slim], [full, { ...full, entryDate: "2026-06-10T15:00:00Z", exitDate: "2026-06-12T15:00:00Z" }]);
 ok("archive: dedupes by symbol:side:entryDate and sorts newest first", merged.length === 2 && merged[0].entryDate === "2026-06-10T15:00:00Z");

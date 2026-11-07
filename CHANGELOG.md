@@ -58,6 +58,14 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 - Every Top Picks decision run (11:00 and 15:30 ET) now saves the whole scored universe to an Owner-only day file, `picks-run-YYYY-MM-DD.json`: each name's total, pillars, signal votes, entry timing, the AI grader's verdict, the single option it would buy with bid and ask, and what the run did with it, plus each shipped pick's real contract. Measurement only; picks are unchanged. `PICKS_RUN_ARCHIVE=0` turns it off.
 
+### Changed
+
+- Top Picks buys a single call or put by default. A debit spread is used only when earnings fall inside the hold, one contract would cost more than $5,000, very rich IV can't go to a credit spread because an event is close, IV history is missing, or skew is adverse; macro events, Rich IV and a moderate grade no longer force a spread, and credit spreads are unchanged. New trades carry a structure-rule version, so the Track Record shows a dated divider (no reset), and the Scorecard adds a "Singles vs spreads" table. Debit spreads use a width that costs $5,000 or less a contract when one exists. The AI grader's instructions and its two worked examples describe the same rule. `PICKS_SINGLES_DEFAULT=0` restores the earlier mix; `PICKS_SINGLE_MAX_COST` sets the cap.
+
+### Fixed
+
+- `npm run verify:risk-cost` runs again. Since the Top Picks settings moved to their own file on Nov 6, it pasted that file into the old build it compares against and stopped with a duplicate-import error on every branch.
+
 ## 2026-11-06
 
 ### Added

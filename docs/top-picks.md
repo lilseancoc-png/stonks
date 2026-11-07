@@ -547,6 +547,11 @@ skew are separate routing inputs. Top Picks consumes only the bounded term
 penalty and one-way skew router specified here; the full term/skew surfaces and
 history remain Quant Lab context rather than a new alpha pillar.
 
+> **Since 2026-11-07 the default is a single option** (`PICKS_SINGLES_DEFAULT`,
+> on). See "Single options by default, November 7, 2026" at the end of this
+> file for the rule that applies now. The table below is the earlier engine
+> mix, which `PICKS_SINGLES_DEFAULT=0` restores.
+
 The decision tree is checked top-down (first match wins):
 
 | # | Condition | Structure | Why |
@@ -579,8 +584,9 @@ second time. The own-history skew z-score is preferred once mature; while that
 history is collecting, a raw intended-side premium of at least five volatility
 points is the documented fail-closed fallback that still blocks a naked long.
 
-A binary **earnings date within `PICKS_STRATEGY_EARNINGS_DAYS` (14d)** or an
-active scheduled macro-event window forces row 3 — defined-risk only, no naked
+In the earlier engine mix, a binary **earnings date within
+`PICKS_STRATEGY_EARNINGS_DAYS` (14d)** or an active scheduled macro-event window
+forces row 3 (with singles by default, only the earnings date does) — defined-risk only, no naked
 long into the IV crush, no credit spread
 into the gap. This broader structure window is distinct from §3's hard GO veto
 inside the next two trading sessions. A `none` pick carries **no contract** and
@@ -882,8 +888,10 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   playing out), **`outlook`** (the forward expectation over the ~1–2-week horizon) —
   plus the **`drivers`** it judged load-bearing, an **`invalidation`** list (3–4
   specific, observable conditions), a **`strategyRationale`** that justifies the
-  option structure from the IV environment (elevated IV → sell premium /
-  defined-risk; cheap IV → buy a debit; defined-risk into events), a **`macroRead`**
+  option structure from the IV environment (with singles by default it describes
+  that rule, and the two reference theses' structure lines follow it; under
+  `PICKS_SINGLES_DEFAULT=0`: elevated IV → sell premium / defined-risk; cheap IV →
+  buy a debit; defined-risk into events), a **`macroRead`**
   + **`macroSupport`** verdict, and the AI's own **`confidence`**. The system prompt
   carries two **gold-standard reference theses** (`THESIS_GOLD_EXAMPLES` — a bearish
   oil-producer read and a bearish gold read) plus the *"what makes a good thesis"*
@@ -1118,6 +1126,8 @@ implementation must expose the stated value and audit fields:
 | `PICKS_DELTA_MIN/MAX/IDEAL` | 0.30 / 0.50 / 0.55; single ideal 0.40 | independent single/spread delta targets |
 | `PICKS_MIN_DTE` / `PICKS_MAX_DTE` | 30 / 90 | contract clock (ideal 45–75 — the 2026-07-10 hold-longer window) |
 | `PICKS_STRATEGY_AUTO` | on | structure auto-select (off = always naked long) |
+| `PICKS_SINGLES_DEFAULT` | on | single call or put by default; a debit spread only for earnings inside the hold, a contract over the cap, very rich IV an event keeps from a credit spread, unknown IV or adverse skew (0 = the earlier engine mix) |
+| `PICKS_SINGLE_MAX_COST` | 5000 | dollars per contract (mid × 100) above which a single becomes a debit spread; a debit spread also uses a width at or under it when one exists; 0 turns the cap off |
 | IV band cut-offs (`lib/iv-richness.mjs`) | cheap ≤20th; rich ≥80th; very rich ≥90th; earnings tag 14d | the site's one "expensive options" rule, over the name's OWN IV history, with `rich`/`very-rich` also requiring IV above 30-day realized vol. IV Cost points: −2 rich/very rich, +1 cheap, else 0. A rank whose `asOf` ≠ the universe snapshot is dropped, not reused |
 | CapEx quality bounds / eligibility | −2 / +1; 5 quarters; ≤200d old | confirmed CapEx burden/efficiency sub-signal inside Fundamentals; thin/stale history, unavailable backlog, or true ROIC evidence stays explicitly unavailable and never becomes zero/false evidence |
 | standardized move windows | 5 / 10 / 20 sessions | capped return z-scores are interpreted with volume z; unsigned raw volume contributes no points |
@@ -1379,7 +1389,8 @@ kept. Each record holds:
   strategy and reason, the real contract with every leg's bid and ask, the
   entry signal and sizing.
 - Run context: `versions` (grade, entry policy, entry timing, model epoch,
-  caps, event play, exit policy, market policy, strategy-auto), `bars`
+  caps, event play, exit policy, market policy, strategy-auto, the option
+  structure rule and the per-contract cap), `bars`
   (trade/strong/actionable cuts), `regime` (state, stress, axis votes), `ai`
   (active / skipped / graded count), `open` (the book at run time) and
   `lists` (every rosterMeta list of symbols, such as `sectorCapped`).
@@ -1408,3 +1419,55 @@ gates) can be replayed on the inputs and quotes the engine really had.
 Tests: `node scripts/picks-run-archive-smoke.mjs` (keys, privacy, hydration,
 merge, file round trip, a real roster through the real engine, bake wiring)
 and `node scripts/data-hydration-smoke.mjs` (the pull boundary).
+
+## Single options by default, November 7, 2026
+
+The Jan 2 to Nov 6 backtest found debit spreads trailing single options by 5
+to 8 points a trade after costs in every window (about 12 points round trip
+for a spread against 3.5 for a single; before costs the two were about even).
+The owner approved buying singles by default (plan "Top Picks changes from the
+backtest", Change 1, with a $5,000 per-contract cap).
+
+With `PICKS_SINGLES_DEFAULT` on (the default), `selectStrategy` checks, top
+down:
+
+| # | Condition | Structure |
+|---|---|---|
+| 0 | Thesis tier `weak` (not a tactical put) | none (unchanged) |
+| 1 | IV **very rich** and no event or earnings close | credit vertical (unchanged) |
+| 2 | Earnings within `PICKS_STRATEGY_EARNINGS_DAYS` (14 days, the planned hold) | debit vertical |
+| 3 | IV very rich but an event keeps it from a credit spread | debit vertical |
+| 4 | IV history unknown or stale | debit vertical (unchanged) |
+| 5 | Adverse 25-delta skew on the intended side | debit vertical (unchanged) |
+| 6 | Everything else, including a macro event, Rich IV and a moderate grade or thesis | **single option** |
+
+Then `buildPickContract` applies the cost cap: when one contract of the single
+the engine would buy costs more than `PICKS_SINGLE_MAX_COST` dollars (mid × 100,
+`singleContractCost`), the pick becomes a debit spread and `strategy.costCap`
+records `{cost, cap, spreadCost}`; `rosterMeta.costCapped` lists those names.
+Every debit spread follows the same cap: the engine uses a width whose net debit
+is at or under it when one exists (on the November 6 chains this kept ASML, MU
+and SNDK spreads under $5,000 instead of $5,200 to $11,000). When none is, the
+usual spread stands, `strategy.costCap` adds `overCap: true` and the reason says
+the spread is over the cap. The economics
+search never ships a single over the cap. A single that cannot be built (or
+fails the option-price check) may still fall back to a debit spread as before.
+
+Macro events no longer force a spread: the event plays (§ "Event plays") decide
+whether to trade through one, and an earnings trade still uses a debit spread
+through row 2. `rosterMeta.structurePolicy` names the rule in force, and every
+new record trade carries `structurePolicyVersion: "2026-11-singles-default"`,
+so the Track Record draws a dated divider (no reset) and its Scorecard shows a
+"Singles vs spreads" table (decided trades, win rate with its range, model
+P&L, real fill, real minus model). Exits are unchanged: +25% take profit and
+-50% stop on singles and debit spreads.
+
+The AI final grader's prompt describes the same rule for its
+`strategyRationale`, so the card's AI line and the deterministic reason agree.
+
+**Judging it.** After about 40 closed trades under the new rule: it stays if
+singles beat the earlier spreads per trade and real fills land within a few
+points of the model's 3.5-point cost. Otherwise set `PICKS_SINGLES_DEFAULT=0`.
+
+Tests: `npm run test:picks` runs `scripts/picks-smoke.mjs` twice, as shipped
+and with `PICKS_SINGLES_DEFAULT=0`.
