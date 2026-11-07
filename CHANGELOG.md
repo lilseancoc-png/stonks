@@ -24,6 +24,8 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Added
 
+- Add a "Send us a message" box in Learn & help: anyone can send a title, message and optional emails or social links; only the Owner can read, mark and delete them in an inbox under the form. Messages stay in the private store, with spam limits and no IP addresses kept (#770).
+
 - Anchor NBA research pairs to fresh sportsbook prices, show minutes/usage/absence scenarios and explicit pass states, evaluate owner-entered payouts, and retain private reproducible decision snapshots with prospective calibration, closing comparisons and frozen paper returns (#758).
 
 - Add a reproducible walk-forward replay of archived PrizePicks lines, with separate validation/test dates, team-constrained pairs, coverage and uncertainty reporting, and checks against future-data leakage (#756).

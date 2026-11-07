@@ -172,5 +172,7 @@ export function contactClient(window, document, ctx) {
     if(ctx.owner()) loadInbox();
   }
   function reset(){ inbox=null; var box=$('contact-inbox'); if(box) box.hidden=true; renderInbox(); }
+  // Sign-in can finish after the page opened; show the inbox then.
+  document.addEventListener('stonks-owner-ready', function(){ var pane=$('page-pane-contact'); if(ctx.owner() && pane && !pane.hidden) loadInbox(); });
   return { load:load, reset:reset };
 }
