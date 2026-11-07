@@ -50,8 +50,11 @@ withheld. Missing fiscal periods, currencies or numerical outputs cannot
 supply an earnings expectation.
 
 The whole report expires after at most 24 hours, or earlier when a contributing
-Owner snapshot, dated public desk, scenario, forecast cutoff or public narrative
-reaches its age limit. Source observation dates take precedence over envelope
+Owner snapshot, scenario, forecast cutoff or public narrative reaches its age
+limit. A dated public desk bounds only its own line in the public research scan:
+each fact carries `validUntil` (its source time plus that desk's window), and the
+browser hides it once that passes, so an hourly desk such as Volume cannot blank
+the whole brief in the evening. Source observation dates take precedence over envelope
 build times; date-only observations retain their original calendar day. The public narrative has a 36-hour limit. The browser checks the earlier of each quote’s expiry and its source
 approval expiry separately and updates the display when it crosses that limit.
 Refreshing the page reads the stored report; it does not run the research desks.

@@ -1,3 +1,4 @@
+import { sessionForDate } from "../lib/us-equity-calendar.mjs";
 import { isOwnershipBookKey } from "../lib/data-ownership.mjs";
 import { createOwnershipSecReader, expandOwnershipSubmissions, ownershipPrimaryUrl, ownershipNotice, ownershipRequestSignal } from "../lib/ownership-sec.mjs";
 import { packOwnershipBooks, ownershipBookClientFactory, retainOwnershipBooks } from "../lib/ownership-books.mjs";
@@ -15899,6 +15900,9 @@ export async function fetchNasdaqEarningsSessions(startMs, windowDays, explicitD
     if (!/^\d{4}-\d{2}-\d{2}$/.test(ds) || seen.has(ds)) return;
     const wd = new Date(ds + "T00:00:00Z").getUTCDay();
     if (wd === 0 || wd === 6) return;
+    // A market holiday has no earnings sessions; asking Nasdaq for one only
+    // records a failed date and marks the calendar lookup incomplete.
+    if (sessionForDate(ds)?.open === false) return;
     seen.add(ds);
     dates.push(ds);
   };
@@ -32750,8 +32754,13 @@ function briefToolFacts(source, p, kind, nowMs) {
   } else if (source.key === "earnings") {
     const ai = p.ai;
     if (ai?.headline && ai?.tone && ai.tone !== "mixed") add(`${ai.headline}${ai.summary ? ` — ${ai.summary}` : ""}`, 77, ai.tone === "positive" ? "positive" : "risk", (ai.standouts || []).map((x) => x.ticker));
-    const u = (p.upcoming || []).slice().sort((a, b) => Math.max(Math.abs(b.pre10Pct || 0), b.impliedMovePct || 0) - Math.max(Math.abs(a.pre10Pct || 0), a.impliedMovePct || 0))[0];
-    if (u && (Math.abs(u.pre10Pct || 0) >= 10 || Number(u.impliedMovePct) >= 8)) add(`${u.sym} reports ${u.date}${u.session ? ` ${u.session}` : ""}: ${u.pre10Pct != null ? `${briefToolPct(u.pre10Pct)} over 10 sessions` : ""}${u.pre10Pct != null && u.impliedMovePct != null ? ", " : ""}${u.impliedMovePct != null ? `±${u.impliedMovePct}% implied` : ""}.`, 80, "watch", [u.sym]);
+    // earnings-tracker.json stores the run-up and implied move as fractions
+    // (0.187 = 18.7%); compare and print them in percent.
+    const pct = (v) => (typeof v === "number" && Number.isFinite(v) ? v * 100 : null);
+    const size = (r) => Math.max(Math.abs(pct(r.pre10Pct) ?? 0), pct(r.impliedMovePct) ?? 0);
+    const u = (p.upcoming || []).filter(Boolean).slice().sort((a, b) => size(b) - size(a))[0];
+    const uPre = u ? pct(u.pre10Pct) : null, uImplied = u ? pct(u.impliedMovePct) : null;
+    if (u && (Math.abs(uPre ?? 0) >= 10 || (uImplied ?? 0) >= 8)) add(`${u.sym} reports ${u.date}${u.session ? ` ${u.session}` : ""}: ${uPre != null ? `${briefToolPct(uPre)} over 10 sessions` : ""}${uPre != null && uImplied != null ? ", " : ""}${uImplied != null ? `±${uImplied.toFixed(1)}% implied` : ""}.`, 80, "watch", [u.sym]);
   } else if (source.key === "calls") {
     const rows = Object.entries(p.calls || {}).map(([sym, row]) => ({ sym, ...row })).sort((a, b) => String(b.callDate || b.updatedAt || "").localeCompare(String(a.callDate || a.updatedAt || "")));
     const c = rows.find((r) => r.headline && r.callDate && nowMs - Date.parse(r.callDate + "T20:00:00Z") <= 4 * 86400000);
@@ -32761,7 +32770,7 @@ function briefToolFacts(source, p, kind, nowMs) {
     const e = (p.upcoming || []).find((r) => r?.daysUntil <= 3 && r?.isolation?.status !== "conflict" && (r.followers || []).some((f) => f.pairQualified));
     if (e) {
       const followers = (e.followers || []).filter((f) => f.pairQualified).slice(0, 3).map((f) => f.follower);
-      add(`${e.driver} earnings in ${e.daysUntil}d has qualified historical read-throughs to ${followers.join(", ")}${e.impliedMovePct != null ? ` off a ±${e.impliedMovePct}% implied move` : ""}.`, 83, "watch", [e.driver, ...followers]);
+      add(`${e.driver} earnings in ${e.daysUntil}d has qualified historical read-throughs to ${followers.join(", ")}${Number.isFinite(Number(e.impliedMovePct)) && e.impliedMovePct !== null ? ` off a ±${Number(e.impliedMovePct).toFixed(1)}% implied move` : ""}.`, 83, "watch", [e.driver, ...followers]);
     }
   } else if (source.key === "index-calendar") {
     const day = (p.days || []).findLast((d) => d?.date === etDateKey(new Date(nowMs)));
@@ -32845,7 +32854,7 @@ function briefToolFacts(source, p, kind, nowMs) {
       const best = Math.max(r.eod?.ratio || 0, ...(r.bucketHits || []).map((h) => h?.volRatio || 0));
       return { r, sr, best };
     }).sort((a, b) => Number(!!b.sr) - Number(!!a.sr) || b.best - a.best)[0];
-    if (rows && (rows.sr || rows.best >= 2.5)) add(`${rows.r.symbol} volume reached ${rows.best.toFixed(1)}x expected${rows.sr ? ` and confirmed a ${rows.sr.srBreak.type} break of ${rows.sr.srBreak.level}` : ""}.`, rows.sr ? 88 : 76, rows.sr?.srBreak?.type === "lower" ? "risk" : rows.sr ? "positive" : "watch", [rows.r.symbol]);
+    if (rows && (rows.sr || rows.best >= 2.5)) add(`${rows.r.symbol} volume reached ${rows.best.toFixed(1)}x expected${rows.sr ? ` and confirmed ${rows.sr.srBreak.type === "upper" ? "an upper" : `a ${rows.sr.srBreak.type}`} break of ${rows.sr.srBreak.level}` : ""}.`, rows.sr ? 88 : 76, rows.sr?.srBreak?.type === "lower" ? "risk" : rows.sr ? "positive" : "watch", [rows.r.symbol]);
   } else if (source.key === "oi") {
     const r = (p.tickers || []).filter((x) => x?.flagged).sort((a, b) => (b.score || 0) - (a.score || 0))[0];
     if (r) add(`${r.symbol} has the strongest OI/gamma flag: ${(r.reasons || []).slice(0, 2).map((x) => x.label).filter(Boolean).join("; ")}.`, 82, "watch", [r.symbol]);

@@ -17,7 +17,7 @@ import { sectorGroupOfLabel } from '../../lib/sector-groups.mjs';
 import { DISCORD_INVITE_URL, KO_FI_URL } from '../../lib/links.mjs';
 
 export function ownerMarketBriefSection() {
-  return `<section class="card" id="owner-market-brief-section"><h2>Owner Market Brief <span class="omb-badge">Owner only</span></h2><p class="hint">The public market read expanded with private research. Review conditional outcomes, suggested next steps and the evidence that could change them. Source timestamps, entry restrictions and uncertainty stay visible.</p><div id="owner-market-brief-root" aria-live="polite"></div></section>`;
+  return `<section class="card" id="owner-market-brief-section"><header class="card-header"><h2 class="card-title">Owner Market Brief</h2><span class="card-eyebrow">Owner only</span></header><p class="hint">The public market read expanded with private research. Review conditional outcomes, suggested next steps and the evidence that could change them. Source timestamps, entry restrictions and uncertainty stay visible.</p><div id="owner-market-brief-root" aria-live="polite"></div></section>`;
 }
 
 // Reference / legal / info pages (Buyer's manual, Chart patterns, Privacy, and
@@ -2302,7 +2302,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   ${narrativesSection()}
   </div>
   <div class="page-pane" id="page-pane-update-checker" role="tabpanel" aria-labelledby="page-tab-update-checker" hidden>
-    <section class="card"><h2>Update Checker</h2><p class="hint">Track failed builds and inspect published feature outputs. The checker records workflow failures even when the data build stops early.</p><div id="update-checker-root" aria-live="polite"></div></section>
+    <section class="card"><header class="card-header"><h2 class="card-title">Update Checker</h2></header><p class="hint">Track failed builds and inspect published feature outputs. The checker records workflow failures even when the data build stops early.</p><div id="update-checker-root" aria-live="polite"></div></section>
   </div>
   <div class="page-pane" id="page-pane-owner-market-brief" role="tabpanel" aria-labelledby="page-tab-owner-market-brief" hidden>
     ${ownerMarketBriefSection()}

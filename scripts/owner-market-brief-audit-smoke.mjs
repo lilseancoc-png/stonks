@@ -64,7 +64,11 @@ for(const mutate of [f=>f.payloads['earnings-forecast.json'].enabled=false,f=>de
 const emptyCounts=test(f=>delete f.payloads['leverage-distress.json'].hotFunds.counts);
 check(emptyCounts.findings.find(f=>f.tab==='forced-liquidation'&&f.source==='Leverage distress').title.includes('needs review'),'Unknown leverage pressure is not zero');
 const deadline=test(f=>f.publicScan.sources=[{label:'Heatmap',asOf:new Date(now-29.5*3600000).toISOString(),maxHours:30}]);
-check(Date.parse(deadline.validUntil)===now+0.5*3600000,'Public desk age contributes to report expiry');
+check(Date.parse(deadline.validUntil)>now+0.5*3600000,'A short public desk window does not void the whole Owner read');
+const heatFact=deadline.publicFacts.find(f=>f.source==='Heatmap');
+check(Date.parse(heatFact.validUntil)===now+0.5*3600000,'Public desk age bounds its own fact');
+check(display.factCurrent(heatFact,now)&&!display.factCurrent(heatFact,now+0.5*3600000),'A public fact hides once its source window lapses');
+check(display.expiryKey(deadline,now)!==display.expiryKey(deadline,now+0.5*3600000),'A lapsing public fact re-renders the page');
 check(display.expired(original,Date.parse(original.validUntil)),'Report expiry is exclusive');
 const malformedUnified=test(f=>f.payloads['unified-signal.json'].decisions=[null]);
 check(malformedUnified.ideas.length===0&&malformedUnified.coverage.find(s=>s.id==='unified-signal-engine').status==='invalid','Malformed source decisions are withheld at the owning boundary');

@@ -39,6 +39,11 @@ try {
     globalThis.fetch = async () => new Response(JSON.stringify(payload));
     assert.equal((await fetchNasdaqEarningsSessions(Date.parse('2026-12-23'),0,['2026-12-23'])).coverage.status,'unavailable', 'unknown null response cannot masquerade as empty');
   }
+  const asked=[];
+  globalThis.fetch = async url => {asked.push(String(url));return new Response(JSON.stringify({data:{rows:[]}}));};
+  const holiday = await fetchNasdaqEarningsSessions(Date.parse('2026-11-26T12:00:00Z'),2,['2026-12-25']);
+  assert.deepEqual(asked.map(u=>u.slice(-10)),['2026-11-27'],'market holidays are not requested');
+  assert.equal(holiday.coverage.status,'ok','a holiday cannot make the earnings lookup incomplete');
   const urls=[];
   const rows=[{title:'Unemployment Claims',country:'USD',date:'2026-11-05T08:30:00-05:00',forecast:'200K'}];
   const ff = await fetchForexFactoryCalendar(async url=>{urls.push(url);return new Response(JSON.stringify(rows));});
