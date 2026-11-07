@@ -12,6 +12,7 @@ import {
   htmlEscape,
 } from '../build.mjs';
 import { DOC_PAGES, DOC_ORDER, DOC_THEME_OVERRIDE } from './docs.mjs';
+import { contactSection } from './contact-client.mjs';
 import { SITE_SECTIONS, TAB_BAR_SECTIONS } from './site-map.mjs';
 import { sectorGroupOfLabel } from '../../lib/sector-groups.mjs';
 import { DISCORD_INVITE_URL, KO_FI_URL } from '../../lib/links.mjs';
@@ -102,6 +103,7 @@ const SIDE_NAV_ICONS = {
   cheatsheet: '<path d="M2.5 4.5H8a4 4 0 0 1 4 4v13a3 3 0 0 0-3-3H2.5zM21.5 4.5H16a4 4 0 0 0-4 4v13a3 3 0 0 1 3-3h6.5z"/>',
   'chart-patterns': '<path d="M3.5 3.5v17h17"/><path d="m7.5 14 3.5-4 3 3 5-6.5"/>',
   timeline: '<circle cx="12" cy="12" r="9.5"/><path d="M12 6.5V12l3.5 2"/>',
+  contact: '<path d="M4 5.5h16a1.5 1.5 0 0 1 1.5 1.5v10a1.5 1.5 0 0 1-1.5 1.5H9l-4.5 3v-3H4A1.5 1.5 0 0 1 2.5 17V7A1.5 1.5 0 0 1 4 5.5z"/><path d="M7 10h10M7 13.5h6"/>',
   glossary: '<path d="M4 4.5h11a3 3 0 0 1 3 3v12.5H7a3 3 0 0 1-3-3z"/><path d="M4 17a3 3 0 0 1 3-3h11"/><path d="M8.5 8.5h6M8.5 11h4"/>',
   'market-map': '<rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="5" rx="1.5"/><rect x="13" y="10" width="8" height="11" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/>',
   'whats-changed': '<path d="M4 7h11l-3-3M20 17H9l3 3"/><circle cx="18.5" cy="7" r="1.5"/><circle cx="5.5" cy="17" r="1.5"/>',
@@ -2874,6 +2876,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   <div class="page-pane" id="page-pane-timeline" role="tabpanel" aria-labelledby="page-tab-timeline" hidden>
   ${buildTimelineSection()}
   </div>
+  <div class="page-pane" id="page-pane-contact" role="tabpanel" aria-labelledby="page-tab-contact" hidden>
+  ${contactSection()}
+  </div>
   <div class="page-pane" id="page-pane-glossary" role="tabpanel" aria-labelledby="page-tab-glossary" hidden>
   ${glossarySection()}
   </div>
@@ -2896,7 +2901,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   <div class="muted">All analytical and editorial content is AI-generated or algorithmically produced and may be wrong. Verify independently. Data: third-party sources. For information only — not investment advice.</div>
   <div><a class="foot-discord" href="${DISCORD_INVITE_URL}" target="_blank" rel="noopener">Discuss the research in our Discord</a></div>
   <div><a class="foot-support" href="${KO_FI_URL}" target="_blank" rel="noopener">Support stonks on Ko-fi</a></div>
-  <div><a href="/?tab=privacy">Privacy Policy</a> · <a href="/?tab=terms">Terms of Use</a> · <a href="/?tab=glossary">Words used on this site</a> · <button type="button" class="link-btn foot-kb" data-kb-help>Keyboard shortcuts</button></div>
+  <div><a href="/?tab=privacy">Privacy Policy</a> · <a href="/?tab=terms">Terms of Use</a> · <a href="/?tab=glossary">Words used on this site</a> · <a href="/?tab=contact">Send us a message</a> · <button type="button" class="link-btn foot-kb" data-kb-help>Keyboard shortcuts</button></div>
   <div class="muted">Price charts by <a href="https://www.tradingview.com/lightweight-charts/" target="_blank" rel="noopener">TradingView Lightweight Charts&trade;</a>, Copyright &copy; 2025 TradingView, Inc.</div>
 </footer>
 <!-- Phone tab bar (hidden on wider screens): each button opens the sidebar at
