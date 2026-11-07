@@ -40,6 +40,9 @@ export function renderOverhaulCss() {
 /* The repeated confirm / invalidate / "do not infer" boxes. */
 .flow-decision-rules, .heatmap-decision-rules, .bonds-ctx-rules, .f13-rules, .tickers-decision-rules,
 .rp-rules, .narr-decision-rules, .ic-rules, .cx-rules, .cr-rules, .cmd-rules { display: none !important; }
+/* Not a repeated box: the Overnight desk's gap call and session call are the
+   page's answer, so they stay visible. */
+.overnight-decision .flow-decision-rules.ovn-calls { display: grid !important; }
 
 /* Table headers and layout switches read in sentence case, not as
    letter-spaced capitals. */

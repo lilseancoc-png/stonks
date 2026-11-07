@@ -7724,6 +7724,9 @@ ${renderExportBindings()}
   var NARR_PREV_STRENGTH = null;
   var NARR_PREV_LOADING = false;
   function loadPrevStrengths(onReady){
+    // Market themes and trends-history.json are Owner-only (#723); bind()
+    // runs after the sign-in check, so a public visit never asks for it.
+    if (!HAS_OWNER_ACCESS) return;
     if (NARR_PREV_STRENGTH || NARR_PREV_LOADING) {
       if (NARR_PREV_STRENGTH && onReady) onReady();
       return;
@@ -18514,8 +18517,12 @@ ${renderExportBindings()}
   function cmpStartingSet(){
     var fromUrl = [];
     try { fromUrl = cmpParseList(new URLSearchParams(window.location.search).get('cmp')); } catch (_) {}
-    if (fromUrl.length) return fromUrl;
+    // A shared link or the four-company starter is not a list the visitor
+    // built, so it is neither saved nor shown in the tray on other pages
+    // until they change it (starterKey, read by cmpTraySync).
+    if (fromUrl.length){ compareState.starterKey = fromUrl.join(','); return fromUrl; }
     if (compareState.tickers.length) return compareState.tickers.slice();
+    compareState.starterKey = CMP_MEGA4.join(',');
     return CMP_MEGA4.slice();
   }
   function initCompare(){
@@ -18761,6 +18768,7 @@ ${renderExportBindings()}
   }
   function cmpSetTickers(list){
     cmpStatus('');
+    compareState.starterKey = null;
     compareState.tickers = (list || []).slice(0, CMP_MAX);
     cmpLoadAndRender();
   }
@@ -18775,6 +18783,13 @@ ${renderExportBindings()}
   }
   function cmpToggleTicker(sym){
     if (!sym) return;
+    var cmpPane = document.getElementById('page-pane-compare');
+    // "+ Compare" away from the Compare page starts the visitor's own list
+    // rather than adding to the untouched starter set.
+    if ((!cmpPane || cmpPane.hidden) && compareState.starterKey && compareState.starterKey === compareState.tickers.join(',')){
+      compareState.tickers = [];
+      compareState.starterKey = null;
+    }
     if (compareState.tickers.indexOf(sym) !== -1) compareState.tickers = compareState.tickers.filter(function(t){ return t !== sym; });
     else if (compareState.tickers.length >= CMP_MAX){ cmpTraySync('Compare holds up to ' + CMP_MAX + ' names. Remove one first.'); return; }
     else compareState.tickers.push(sym);
@@ -18790,8 +18805,12 @@ ${renderExportBindings()}
   window.addEventListener('resize', cmpTraySpace);
   function cmpTraySync(note){
     var list = compareState.tickers;
+    // The untouched starter set (cmpStartingSet) stays out of the saved list
+    // and the tray; the first change makes it the visitor's own.
+    var starter = !!compareState.starterKey && compareState.starterKey === list.join(',');
+    if (!starter) compareState.starterKey = null;
     // The saved set is read back at boot (above), so every change is saved.
-    VIEWS.set('compare.tickers', list.length ? list.join(',') : null);
+    if (!starter) VIEWS.set('compare.tickers', list.length ? list.join(',') : null);
     var btns = document.querySelectorAll('[data-cmp-toggle]');
     for (var i = 0; i < btns.length; i++){
       var sym = btns[i].getAttribute('data-cmp-toggle');
@@ -18803,7 +18822,7 @@ ${renderExportBindings()}
     }
     var tray = document.getElementById('cmp-tray');
     if (!tray){
-      if (!list.length) return;
+      if (!list.length || (starter && !note)) return;
       tray = document.createElement('div');
       tray.id = 'cmp-tray';
       tray.className = 'cmp-tray';
@@ -18825,7 +18844,7 @@ ${renderExportBindings()}
     }
     var pane = document.getElementById('page-pane-compare');
     var onCompare = pane && !pane.hidden;
-    tray.hidden = onCompare || (!list.length && !note);
+    tray.hidden = onCompare || ((!list.length || starter) && !note);
     if (tray.hidden){ cmpTraySpace(); return; }
     tray.innerHTML = '<span class="cmp-tray-label">Compare</span>' +
       '<span class="cmp-tray-chips">' + list.map(function(sym){
@@ -30333,7 +30352,7 @@ ${renderExportBindings()}
         '<div class="flow-decision-head"><span>Overnight handoff</span><em>' + ovnEsc(ovnSourceLabel(tone) || freshness.label) + '</em></div>' +
         '<h3>' + ovnEsc(headline) + '</h3>' +
         '<p>' + ovnEsc(copy) + '</p>' +
-        '<div class="flow-decision-rules">' +
+        '<div class="flow-decision-rules ovn-calls">' +
           '<div><span>Gap call (open vs prior close)</span><b>' + ovnEsc(gapWord + (gap.movePct != null ? ' · futures ' + ovnSignPct(gap.movePct, 2) : '')) + '</b><small>Right on ' + ovnEsc(gapRate) + '</small></div>' +
           '<div><span>Session call (open to close)</span><b>' + ovnEsc(session.call === 'no-edge' ? 'No edge' : (session.call === 'up' ? 'Lean up' : 'Lean down')) + '</b><small>' + ovnEsc(session.note) + '</small></div>' +
         '</div>' +
