@@ -57,6 +57,7 @@ import {
   loadAiRejectionContext,
   persistAiRejections,
 } from "../lib/ai-rejections.mjs";
+import { buildPicksRunRecord, loadPicksRunDay, persistPicksRun, picksRunArchiveEnabled } from "../lib/picks-run-archive.mjs";
 import { createFileEvidenceStore, loadEvidenceWindow, runEvidenceRecord } from "../lib/evidence-record.mjs";
 import { ownerBriefCalendar } from '../lib/owner-market-brief.mjs';
 import { publishOwnerMarketBrief } from './publish-owner-market-brief.mjs';
@@ -27011,6 +27012,34 @@ async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload 
   }
   const picks = buildTopPicks(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, rfr, { ...baseOpts, preScored:topScored, aiThesisMap: aiThesis.map, aiGraderSkipped: !!aiThesis.skipped });
   const picksPath = resolve(DATA_DIR, PICKS_FILE);
+  // Run archive (lib/picks-run-archive.mjs): the scored universe exactly as
+  // this run saw it, with each name's single-option quote and the grader's
+  // verdict. Measurement only; it is built after the roster and never feeds it.
+  let picksRun = null;
+  if (picksRunArchiveEnabled()) {
+    try {
+      const aiMap = aiThesis?.map || null;
+      picksRun = buildPicksRunRecord({
+        builtAtIso,
+        scored: topScored?.scored || [],
+        picks,
+        aiMap,
+        aiActive: !!(aiMap && Object.keys(aiMap).length) || !!aiThesis?.skipped,
+        aiSkipped: !!aiThesis?.skipped,
+        openPositions: priorOpen || [],
+        contractFor: (sym, side) => (chains?.[sym] ? pickContractForPick(side, chains[sym], rfr) : null),
+        versions: {
+          grade: GRADE_MODEL_VERSION, entryPolicy: OPTION_ENTRY_POLICY_VERSION, entryTiming: PICKS_ENTRY_TIMING_VERSION,
+          modelEpoch: PICKS_ACCURACY_RESET_EPOCH, caps: PICKS_CAPS_VERSION, eventPlay: PICKS_EVENT_AWARE ? EVENT_PLAY_VERSION : null,
+          exit: pickExitPolicy("long").version, marketPolicy: topScored?.marketPolicyVersion || null,
+          strategyAuto: PICKS_STRATEGY_AUTO, structure: PICKS_STRUCTURE_POLICY_VERSION, singleMaxCost: PICKS_SINGLES_DEFAULT ? PICKS_SINGLE_MAX_COST : null,
+        },
+      });
+    } catch (err) {
+      console.warn(`[picks-run] record skipped — ${String(err?.message || err).split("\n")[0]}`);
+      picksRun = null;
+    }
+  }
 
   let priorPayload = priorPicks;
   if (!priorPayload) { try { priorPayload = JSON.parse(await readFile(picksPath, "utf8")); } catch { priorPayload = null; } }
@@ -27036,7 +27065,7 @@ async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload 
   if (sharedResearch) payload.sharedResearch=sharedResearch;
   const json = JSON.stringify(payload);
   await writeFile(picksPath, json, "utf8");
-  return { bytes: json.length, count: picks.length, lean: pickSideLean(picks), thesisProseCache, aiRejectionCapture: picks.aiRejectionCapture || null, leapsWritten };
+  return { bytes: json.length, count: picks.length, lean: pickSideLean(picks), thesisProseCache, aiRejectionCapture: picks.aiRejectionCapture || null, leapsWritten, picksRun };
 }
 
 export async function readPriorPicks() {
@@ -37929,6 +37958,16 @@ async function main() {
     console.warn(`[ai-rejections] history unavailable (${message})`);
     aiRejectionContext = { today: null, prior: [], error: message };
   }
+  // Top Picks run archive: today's day file (the only one the bake hydrates)
+  // is read BEFORE writeChainFiles wipes data/, so the 15:30 run appends to
+  // the 11:00 one. A missing file is a fresh day, not a failed bake.
+  let picksRunContext = { today: null };
+  try {
+    picksRunContext = await loadPicksRunDay(DATA_DIR, etDateKey(new Date(builtAtIso)));
+    if (picksRunContext?.error) console.warn(`[picks-run] today's file unreadable (${picksRunContext.error}); this run starts the day over`);
+  } catch (err) {
+    picksRunContext = { today: null, error: String(err?.message || err).split("\n")[0] };
+  }
   // Evidence history is read BEFORE writeChainFiles wipes data/. Only the
   // latest pointer and the last 60 dated keys are opened — older evidence
   // files stay in the store and are never loaded or delete-staled.
@@ -38691,6 +38730,18 @@ async function main() {
       else if (!logged?.skipped) console.log(`wrote data/${logged.key} — ${logged.count} AI rejection/wait row(s)`);
     } catch (err) {
       console.warn(`[ai-rejections] log skipped — ${String(err?.message || err).split("\n")[0]}`);
+    }
+    try {
+      const archived = await persistPicksRun({
+        dataDir: DATA_DIR,
+        bakeDate: etDateKey(new Date(builtAtIso)),
+        run: picksInfo?.picksRun || null,
+        context: picksRunContext,
+      });
+      if (archived?.error) console.warn(`[picks-run] archive skipped — ${archived.error}`);
+      else if (!archived?.skipped) console.log(`wrote data/${archived.key} — run ${archived.runs} of the day, ${archived.rows} name(s), ${archived.bytes} bytes`);
+    } catch (err) {
+      console.warn(`[picks-run] archive skipped — ${String(err?.message || err).split("\n")[0]}`);
     }
   } else {
     const missing = topPicksCarryFiles.filter((file) => !topPicksCarry[file]);

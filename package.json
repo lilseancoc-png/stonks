@@ -61,6 +61,7 @@
     "test:news-accuracy": "node scripts/news-accuracy.mjs",
     "test:ai-capex": "node scripts/ai-capex-smoke.mjs",
     "test:ai-rejections": "node scripts/ai-rejections-smoke.mjs",
+    "test:picks-run-archive": "node scripts/picks-run-archive-smoke.mjs",
     "test:ma-tracker": "node scripts/ma-tracker-smoke.mjs",
     "test:heatmap": "node scripts/heatmap-smoke.mjs",
     "test:market-tables-browser": "node scripts/market-tables-browser.mjs",
