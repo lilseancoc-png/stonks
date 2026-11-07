@@ -19,6 +19,10 @@ name: Daily build
 # in ET, so it — not
 # this workflow — owns DST. A separate close-bake-fallback.yml watchdog
 # dispatches only when the 16:10 bake is absent.
+# A Top Picks watchdog retry names itself in the run title so the watchdog
+# (scripts/top-picks-watchdog.mjs) can tell it apart from a scheduled run.
+run-name: ${{ inputs.reason || 'Daily build' }}
+
 on:
   workflow_dispatch:
     inputs:
@@ -47,6 +51,11 @@ on:
         required: false
         default: false
         type: boolean
+      reason:
+        description: "Run title. The Top Picks watchdog sets it on a retry; leave blank otherwise"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   # write: the 15:30 ET Top Picks build dispatches webull-eod.yml (below).
@@ -583,6 +592,7 @@ jobs:
         run: node scripts/verify-data-freshness.mjs --owner=bake
 
       - name: Flush verified data to private store
+        id: flush
         # Publish data before the static commit that triggers Vercel. If the
         # upload fails, production stays on the prior coherent deployment.
         if: ${{ vars.PRIVATE_DATA_ENABLED == '1' }}
@@ -641,6 +651,7 @@ jobs:
           git push origin "HEAD:$BRANCH"
 
       - name: Commit refreshed site (legacy public data)
+        id: legacy_commit
         if: ${{ vars.PRIVATE_DATA_ENABLED != '1' }}
         env:
           # Flag-off (default): commit data/ to the repo as today. Flag-on
@@ -707,6 +718,24 @@ jobs:
           done
           echo "Push failed after 3 attempts." >&2
           exit 1
+
+      - name: Top Picks watchdog
+        # On-time check of today's 11:00 / 15:30 ET Top Picks runs (cron-job.org
+        # dispatches this build; top-picks-watchdog.yml is the GitHub-cron
+        # backup). A Top Picks build that failed before publishing gets one
+        # retry right away while the session allows; a later build catches a
+        # dispatch that never came. Opens / closes the top-picks-run issue.
+        # No AI, no market data. Never fails the build.
+        if: ${{ always() }}
+        continue-on-error: true
+        timeout-minutes: 3
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TOP_PICKS_WATCHDOG: ${{ vars.TOP_PICKS_WATCHDOG || 'on' }}
+          WATCHDOG_REF: ${{ github.event.repository.default_branch }}
+          WATCHDOG_CURRENT_RUN_ID: ${{ github.run_id }}
+          WATCHDOG_CURRENT_PUBLISHED: ${{ steps.flush.outcome == 'success' || steps.legacy_commit.outcome == 'success' }}
+        run: node scripts/top-picks-watchdog.mjs
 
   webull-health:
     needs: build

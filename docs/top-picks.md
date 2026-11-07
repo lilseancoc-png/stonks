@@ -1471,3 +1471,65 @@ points of the model's 3.5-point cost. Otherwise set `PICKS_SINGLES_DEFAULT=0`.
 
 Tests: `npm run test:picks` runs `scripts/picks-smoke.mjs` twice, as shipped
 and with `PICKS_SINGLES_DEFAULT=0`.
+
+## Missed-run watchdog, similar-setup odds and the edge panel, November 7, 2026
+
+Three Owner additions that change no pick, grade, exit or record rule. None
+calls an AI model or adds a serverless function.
+
+**Missed-run watchdog.** cron-job.org dispatches the 11:00 and 15:30 ET Top
+Picks builds. Until now a dispatch that never arrived, or a build that failed
+before publishing, left the record unmarked until the next slot with nobody
+told. `lib/top-picks-watchdog.mjs` decides, per slot, whether it published:
+the slot's run is the `workflow_dispatch` Daily build received at exactly
+11:00 or 15:30 ET (the same minute rule the router uses), and it published
+when its build job's "Flush verified data to private store" step (or the
+legacy commit step) succeeded. Then, at most once per slot:
+
+| Slot state | Action |
+|---|---|
+| No run 5+ minutes after the slot, or the run failed or was cancelled | one retry: a forced Daily build with the Top Picks refresh on, titled `Top Picks retry <slot> ET <date>`, while the session allows (11:00 until 15:00 ET; 15:30 until 15:45 ET; 15 minutes before an early close) |
+| Still running 45 minutes after the slot | alert only (a retry would queue behind it) |
+| Retry also failed, or the retry window has passed | alert only |
+| The latest due slot published (on time or through its retry) | close the alert |
+
+The alert is one GitHub issue labeled `top-picks-run` (creating it emails the
+repo's watchers; later checks refresh the body). The repo is public, so the
+issue holds slot times, run states and run links only, never picks or record
+numbers. The check runs as the last step of every Daily build (on time,
+because cron-job.org dispatches those) and from `top-picks-watchdog.yml` on a
+GitHub cron as a backup. `TOP_PICKS_WATCHDOG` (repo variable): `on` (default),
+`alert` (issue only) or `off`. A retry opens and closes record trades exactly
+as the scheduled run would have; it is a later run of the same rules.
+
+**Similar-setup odds.** Each Top Picks run builds `setupOdds`
+(`lib/setup-odds.mjs`) into `picks-open.json` and `picks-accuracy.json`: for
+each roster pick and open trade, how past decided Top Picks trades (current
+window plus archive, every rule set, win or loss only) with a similar setup
+turned out. "Similar" is the same side, the same grade band (under 7, 7, 8,
+9+) and the same market type at entry (risk-on, neutral, risk-off; severe
+counts as risk-off), loosened one step at a time until at least 8 trades
+match: side + band + market, side + band, side + market, side. The card shows
+wins of matched trades, the likely win-rate range (Wilson 95%), the average
+modeled P&L, and "few" under 10 trades. Open trades use their setup frozen at
+entry. This is a description of the record, not a forecast; the grade itself
+is unchanged.
+
+**"Do we have an edge yet?"** The Scorecard now opens with one panel: the
+average modeled P&L per closed trade with a resampled 95% range, the same for
+real fills (ask in, bid out) and for each pick minus the SPY option opened at
+the same run, the win rate against the rate the average win and loss need to
+break even, the newest rule set on its own, a running-average chart, and
+roughly how many more closed trades would settle the question at today's
+average and spread. It reads "Edge showing" only with 30+ closed trades, the
+whole range of the average above zero and the SPY comparison not below zero;
+"Losing so far" when the whole range is below zero; otherwise "Not yet clear"
+(or "Too early to say" under 10).
+
+**Run health.** Home's "Next Top Picks run" tile says when the last run
+published, and Open picks shows a note when the latest due run has not
+published 45 minutes after its slot (or published late). Both read the run's
+own timestamp in the Owner files only a Top Picks run writes.
+
+Tests: `npm run test:top-picks-watchdog`, `npm run test:setup-odds` and
+`npm run test:edge-odds-browser`.

@@ -44,6 +44,7 @@ import { renderChartKitJs } from './chart-kit-js.mjs';
 import { renderStockPageJs } from './stock-page-js.mjs';
 import { renderEarningsWeekJs } from './earnings-week-client.mjs';
 import { renderViewsNextJs } from './views-next-client.mjs';
+import { renderEdgeOddsJs } from './edge-odds-client.mjs';
 import { ivRichnessFactory } from '../../lib/iv-richness.mjs';
 import { refreshScheduleFactory } from '../../lib/refresh-schedule.mjs';
 import { ownerWatchlistFactory } from '../../lib/owner-watchlist.mjs';
@@ -85,6 +86,7 @@ ${renderChartKitJs()}
 ${renderStockPageJs()}
 ${renderEarningsWeekJs()}
 ${renderViewsNextJs()}
+${renderEdgeOddsJs()}
 ${calendarSourceLabel.toString()}
 ${calendarScheduleFallbackUsable.toString()}
 ${calendarHealth.toString()}
@@ -36293,6 +36295,8 @@ ${renderExportBindings()}
       })
       .then(function(acc){
         picksState.live = buildPicksLiveMap(acc);
+        // Similar-setup odds ride in picks-open.json (lib/setup-odds.mjs).
+        picksState.odds = (acc && acc.setupOdds) || null;
         picksState.loading = false;
         renderPicks();
         // The live poller may have started before picks.json landed (its
@@ -40498,6 +40502,7 @@ ${renderExportBindings()}
         peakDip +
       '</div>' +
       accEventPlayLine(e) +
+      oddsLineHtml(oddsLookup(oddsTableNow(), e.symbol, e.side), false) +
       (accRangeBarHtml(e) || (targets ? '<div class="acc-targets">' + targets + '</div>' : '')) +
       accStrategyBlock(e, false) +
       accCheckpointsBlock(e) +
@@ -40863,6 +40868,14 @@ ${renderExportBindings()}
       .catch(function(){ openPicksState.data = { open: [], loadError: true }; })
       .then(function(){ openPicksState.loading = false; renderOpenPicks(); });
   }
+  // A note at the top of Open picks when the latest Top Picks run did not
+  // publish (or published late): the marks below are from the run before.
+  // picks-accuracy.json is written only by a Top Picks run.
+  function openPicksRunHealth(root, d){
+    if (d && d.loadError) return;
+    var note = runHealthNoteHtml(topPicksRunHealth(d && d.builtAtIso));
+    if (note) root.insertAdjacentHTML('afterbegin', note);
+  }
   // --- Open picks: sort keys, flip, Cards / Table ---------------------------
   var OPEN_PICK_SORTS = [['newest', 'Newest first'], ['pnl', 'P&L now'], ['held', 'Days held'], ['expiry', 'Days to expiry'], ['ticker', 'Ticker A–Z'], ['side', 'Side (calls first)'], ['structure', 'Structure']];
   function openPickDays(iso){ var t = Date.parse(iso); return isFinite(t) ? Math.max(0, (Date.now() - t) / 86400000) : null; }
@@ -40912,6 +40925,7 @@ ${renderExportBindings()}
       { label: 'Entry', num: true, title: 'Entry premium per share', cell: function(o){ var c = o.contract || {}; return money(c.netDebit != null ? c.netDebit : c.mid); }, sort: function(o){ var c = o.contract || {}; var v = Number(c.netDebit != null ? c.netDebit : c.mid); return isFinite(v) ? v : null; } },
       { label: 'Mark', num: true, title: 'Latest model price per share', cell: function(o){ return money(o.optionPremiumLast); }, sort: function(o){ var v = Number(o.optionPremiumLast); return isFinite(v) ? v : null; } },
       { label: 'P&L', num: true, cell: function(o){ var v = Number(o.optionPnlPct); return isFinite(v) ? '<span class="' + (v >= 0 ? 'pos' : 'neg') + '">' + accPct(v) + '</span>' : ''; }, sort: function(o){ var v = Number(o.optionPnlPct); return isFinite(v) ? v : null; } },
+      { label: 'Like this', title: 'Past closed Top Picks trades with the same side, grade band and market type at entry: wins / matched · average P&L', cell: function(o){ return oddsCellHtml(oddsLookup(oddsTableNow(), o.symbol, o.side)); }, sort: function(o){ var od = oddsLookup(oddsTableNow(), o.symbol, o.side); return od && od.n ? od.winPct : null; } },
       { label: 'Sector', cell: function(o){ return escapeHtml(o.sector || ''); }, sort: function(o){ return o.sector || null; } },
       { label: 'Conviction', cell: function(o){ return escapeHtml(o.conviction || o.label || ''); }, sort: function(o){ var v = Number(o.score); return isFinite(v) ? Math.abs(v) : null; } }
     ];
@@ -40951,6 +40965,7 @@ ${renderExportBindings()}
     if (eyebrow) eyebrow.textContent = d.builtAtIso ? 'marked ' + accDateTime(d.builtAtIso) : '';
     if (!open.length){
       root.innerHTML = '<p class="acc-pane-empty">No Top Picks trades are open right now. New ones open at the 11:00 and 15:30 ET Top Picks runs.</p>' + tradeLinesHtml([], Array.isArray(d.closed) ? d.closed : [], d.builtAtIso);
+      openPicksRunHealth(root, d);
       accPaneSummary('open-picks-sum', [{ val: '0', lbl: 'open positions' }]);
       return;
     }
@@ -40969,6 +40984,7 @@ ${renderExportBindings()}
     loadAccFills();
     var opSort = VIEWS.choose('open-picks.sort', 'newest', OPEN_PICK_SORTS.map(function(o){ return o[0]; }));
     root.innerHTML = bookRiskHtml(open) + openPicksControlsHtml(opSort) + accOpenGroupHtml(open, opSort, VIEWS.viewMode('open-picks') === 'table') + tradeLinesHtml(open, Array.isArray(d.closed) ? d.closed : [], d.builtAtIso);
+    openPicksRunHealth(root, d);
   }
   // --- Book risk (Owner, 2026-11-07) -----------------------------------------
   // The open book as one position: dollar delta and daily decay (one contract
@@ -41448,7 +41464,7 @@ ${renderExportBindings()}
       ? '<details class="accuracy-advanced"><summary class="accuracy-advanced-summary">Advanced &amp; research stats</summary><div class="accuracy-advanced-body">' + advancedInner + '</div></details>'
       : '';
     var gateBlock = accGateStatsHtml(d.gateStats);
-    if (statsEl) statsEl.innerHTML = '<div id="accuracy-profit" class="accuracy-profit"></div>' +
+    if (statsEl) statsEl.innerHTML = edgePanelHtml(d) + '<div id="accuracy-profit" class="accuracy-profit"></div>' +
       '<div class="acc-an-subhead acc-pctlens-head">Modeled % lens <span class="acc-an-tag">option return, resolved</span></div>' +
       '<div class="accuracy-chips">' + chips + '</div>' + accRealFillsLine(d) + payoffBlock + tierBlock + regimeBlock + versionBlock + advancedBlock + gateBlock;
     // The full real-trading comparison and the trade-log upload live in the
@@ -44062,7 +44078,7 @@ ${renderExportBindings()}
           fiftyHtml +
           watchBtnHtml +
         '</div>' +
-        TOP_PICKS_MARKET_UI.scores(p) + TOP_PICKS_MARKET_UI.explain(p) + pickPlanSummaryHtml(p) + bodyHtml +
+        TOP_PICKS_MARKET_UI.scores(p) + TOP_PICKS_MARKET_UI.explain(p) + oddsLineHtml(oddsLookup(oddsTableNow(), p.symbol, p.side), false) + pickPlanSummaryHtml(p) + bodyHtml +
       '</div>' +
     '</article>';
   }
@@ -44188,6 +44204,7 @@ ${renderExportBindings()}
     // the legacy prose gloss; absent entirely on keyless / pre-upgrade payloads.
     var aiSum = (p.thesisCard && p.thesisCard.ai && p.thesisCard.ai.summary) ? p.thesisCard.ai.summary : (p.thesisCard && p.thesisCard.prose ? p.thesisCard.prose : '');
     var thesisLine = aiSum ? '<span class="ptc-thesis" title="' + escapeHtml(aiSum) + '">' + escapeHtml(aiSum) + '</span>' : '';
+    var oddsChip = oddsLineHtml(oddsLookup(oddsTableNow(), p.symbol, p.side), true);
     return '<button type="button" class="pick-tab-card ' + sideCls + (noRec ? ' ptc-norec-card' : '') + '" data-pick-open="' + escapeHtml(p.symbol) + '">' +
       '<span class="ptc-rank">' + (idx + 1) + '</span>' +
       '<span class="ptc-head"><span class="ptc-sym">' + escapeHtml(p.symbol) + '</span>' +
@@ -44202,7 +44219,9 @@ ${renderExportBindings()}
       entryLine +
       econ +
       pickRangeHtml(p) +
-      (metaBits.length ? '<span class="ptc-meta">' + metaBits.join(' · ') + '</span>' : '') +
+      // Similar-setup odds sit in the meta row (own line) so the tile's grid
+      // areas stay as they are.
+      (metaBits.length || oddsChip ? '<span class="ptc-meta">' + metaBits.join(' · ') + oddsChip + '</span>' : '') +
       '<span class="ptc-cta">View judgment →</span>' +
     '</button>';
   }
@@ -47407,6 +47426,12 @@ ${renderExportBindings()}
     var run = nextPickRunEt();
     var runSub = 'runs 11:00 and 15:30 ET on trading days';
     if (run) runSub = run.running ? 'running now' : escapeHtml(run.day) + (run.mins ? ' · in ' + (run.mins >= 60 ? Math.floor(run.mins / 60) + 'h' + (run.mins % 60 ? ' ' + (run.mins % 60) + 'm' : '') : run.mins + 'm') : '');
+    // Did the latest run publish? picks-open.json is written only by a Top
+    // Picks run, so its stamp is the last one (edge-odds-client.mjs).
+    var health = topPicksRunHealth(st.open && st.open.builtAtIso);
+    if (health && health.state === 'missed') runSub += ' · <span class="sig-neg">the ' + escapeHtml(runHealthRunName(health)) + ' did not publish</span>';
+    else if (health && health.state === 'late') runSub += ' · last run published late (' + escapeHtml(health.lastText) + ')';
+    else if (health && health.state === 'ok') runSub += ' · last ran ' + escapeHtml(health.lastText);
     tiles.push(homeDeskTile('picks', 'Next Top Picks run', run ? escapeHtml(run.time + ' ET') : '—', runSub));
     if (open){
       var flags = [];
