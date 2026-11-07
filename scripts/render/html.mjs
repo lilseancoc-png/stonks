@@ -370,6 +370,7 @@ export function topPicksSection() {
       <button type="button" id="picks-export-csv" class="csv-export-btn" title="Download picks as CSV">Export CSV</button>
     </header>
     <div id="picks-market-note" class="picks-market-note" role="status" aria-live="polite" hidden></div>
+    <div id="picks-mode" class="picks-mode" hidden></div>
     <div id="picks-market-evidence"></div>
     <div id="picks-live-board" class="picks-live-board" hidden></div>
     <div id="picks-listview" class="picks-listview">

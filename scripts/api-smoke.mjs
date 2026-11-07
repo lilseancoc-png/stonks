@@ -230,6 +230,35 @@ try {
     assert.equal(res.statusCode, 400);
     assert.equal(res.headers["cache-control"], "private, no-store");
   }
+  // The Top Picks market mode: Owner session only, same-origin POST, and a
+  // bad mode is refused before anything is read or stored.
+  res = mockResponse();
+  await authHandler({ query: { action: "top-picks-mode" }, method: "GET", headers: { host: "example.test" } }, res);
+  assert.equal(res.statusCode, 401);
+  assert.equal(res.headers["cache-control"], "private, no-store");
+  res = mockResponse();
+  await authHandler({ query: { action: "top-picks-mode" }, method: "GET", headers: { host: "example.test", cookie: `${SESSION_COOKIE}=${partial}` } }, res);
+  assert.equal(res.statusCode, 401);
+  res = mockResponse();
+  await authHandler({ query: { action: "top-picks-mode" }, method: "DELETE", headers: { host: "example.test", cookie: `${SESSION_COOKIE}=${token}` } }, res);
+  assert.equal(res.statusCode, 405);
+  res = mockResponse();
+  await authHandler({
+    query: { action: "top-picks-mode" }, method: "POST",
+    headers: { host: "example.test", "x-forwarded-proto": "https", origin: "https://evil.test", cookie: `${SESSION_COOKIE}=${token}` },
+    body: { mode: "pause" },
+  }, res);
+  assert.equal(res.statusCode, 403);
+  for (const body of [{ mode: "sell-everything" }, { mode: "" }, {}, null]) {
+    res = mockResponse();
+    await authHandler({
+      query: { action: "top-picks-mode" }, method: "POST",
+      headers: { host: "example.test", "x-forwarded-proto": "https", origin: "https://example.test", cookie: `${SESSION_COOKIE}=${token}` },
+      body,
+    }, res);
+    assert.equal(res.statusCode, 400);
+    assert.equal(res.headers["cache-control"], "private, no-store");
+  }
   // Calendar subscribe: GET/HEAD only; a forged Owner link is a plain 404
   // (before anything is read), and the route is off with the store flag.
   res = mockResponse();

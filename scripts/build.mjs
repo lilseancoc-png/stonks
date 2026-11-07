@@ -106,6 +106,7 @@ import { buyoutContextFor } from "../lib/pending-buyout-guard.mjs";
 import { buildShadowSignals } from "../lib/shadow-signals.mjs";
 import { buildEntrySnapshot } from "../lib/trade-snapshot.mjs";
 import { PICKS_MAX_PER_SECTOR, PICKS_MAX_NEW_PER_FACTOR_RUN, PICKS_CAPS_VERSION, factorOfSectorLabel, exposureCapBlock, countExposure } from "../lib/top-picks-caps.mjs";
+import { TOP_PICKS_MODE_KEY, readTopPicksModeDoc, marketModeForRun, marketModeBlocks, topPicksModeFactory } from "../lib/top-picks-mode.mjs";
 import { buildEarningsWeek, buildEarningsWeekPlan, EARNINGS_WEEK_DAYS } from "../lib/earnings-week.mjs";
 import { readForcedLiquidation, refreshForcedLiquidation, writeForcedLiquidation } from './refresh-forced-liquidation.mjs';
 import { fetchPartyBars, refreshPartyTracker } from './refresh-party-tracker.mjs';
@@ -21460,6 +21461,9 @@ export function edgeGatedConviction(closed, nowIso = null) {
 export function openPickPrecheck(r, side, tactical, ctx = {}) {
   if (tactical) return "tactical";
   if (!r || !r.data) return "no-data";
+  // The Owner's market mode (lib/top-picks-mode.mjs) holds this side back, so
+  // a grader slot spent here could never open a trade.
+  if (ctx.marketMode && marketModeBlocks(ctx.marketMode, side)) return "market-mode";
   if (r.marketAdjustment && !r.marketAdjustment.eligible) return "market-unavailable";
   if (Math.abs(pnum(r.total) ?? 0) < (ctx.strongBar ?? PICKS_TIER_STRONG)) return "below-bar";
   if (pillarsAlignedFor(r, side) < 2) return "confluence";
@@ -21625,6 +21629,12 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   // picks-accuracy.json), so every rule can be judged on what it turned away.
   const turnedAway = [];
   if (opts.marketAssessment) meta.marketAssessment = opts.marketAssessment;
+  // MARKET MODE (lib/top-picks-mode.mjs, 2026-11-07): the Owner's switch on
+  // the Top Picks page. Auto changes nothing; another mode keeps new trades on
+  // the held side out of the actionable roster (they stay watch ideas).
+  const marketMode = opts.marketMode && opts.marketMode.mode ? opts.marketMode : null;
+  if (marketMode) meta.marketMode = { mode: marketMode.mode, label: marketMode.label || null, setAt: marketMode.setAt || null };
+  meta.marketModeHeld = [];
   meta.collateralGated = [];
   meta.forcedLiquidationWatch = collateralWatch;
   meta.buyoutGated = [];
@@ -21820,6 +21830,16 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       }
     }
     for (const read of (r.timing?.eventReads || [])) if (!read.ok) meta.eventWaits.push({ sym: r.sym, side, kind: read.kind, reason: read.reason });
+    // MARKET MODE: applied last, after the AI verdict and the event caps, so
+    // nothing can open a trade on a side the Owner has held back.
+    const modeHeld = !!(marketMode && entryConfirmed && marketModeBlocks(marketMode.mode, side));
+    if (modeHeld) {
+      entryConfirmed = false;
+      meta.marketModeHeld.push(r.sym);
+      entry.now = false; entry.signal = "wait-mode"; entry.basis = "market-mode";
+      entry.trigger = null; entry.zone = null;
+      entry.headline = topPicksModeFactory().heldHeadline(marketMode.mode, side);
+    }
     const shockPut = !tactical && side === "put" && eventPlay?.kind === "shock" && shockLane.active;
     let { classification, group, demotion } = classifyPick(r.total, thesisQuality.tier, tactical, { strongBar, pillarsAligned: thesisQuality.pillarsAligned, aiGraded: thesisQuality.aiGraded, aiActive, entryConfirmed, shockLane: shockPut, minConv });
     if (demotion === "edge-bar") meta.edgeBarDemoted.push(r.sym);
@@ -21830,7 +21850,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       const gate = demotion === "edge-bar" ? "losing-streak-bar"
         : demotion === "confluence" ? "confluence"
         : demotion === "ai-ungraded" ? "no-ai-slot"
-        : demotion === "entry-wait" ? (eventCap ? "event-cap" : !entryBlocked && aiVerdict === "wait" ? "ai-wait" : "timing-checks")
+        : demotion === "entry-wait" ? (modeHeld ? "market-mode" : eventCap ? "event-cap" : !entryBlocked && aiVerdict === "wait" ? "ai-wait" : "timing-checks")
         : Math.abs(pnum(r.total) ?? 0) < PICKS_TIER_STRONG ? "below-strong"
         : thesisQuality.aiGraded ? "ai-not-strong" : "thesis-not-strong";
       traceGate(r, side, gate);
@@ -26981,7 +27001,8 @@ async function publishLeapsAfterShortTermGrader(preScored, builtAtIso) {
 }
 
 async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload = null, macroBackdrop = null, priorPicks = null, volumeFlags = null, rfr = FALLBACK_RISK_FREE_RATE, priorClosed = null, priorGrades = null, scannerExtras = null, priorOpen = null, reentryCooldown = true, thesisProsePrior = null, streaksMap = null) {
-  const baseOpts = { priorClosed, priorGrades, openPositions: priorOpen, builtAtIso, reentryCooldown, ...(scannerExtras || {}) };
+  const { marketMode = null, ...extras } = scannerExtras || {};
+  const baseOpts = { priorClosed, priorGrades, openPositions: priorOpen, builtAtIso, reentryCooldown, ...extras };
   // Score the universe ONCE, then run the two-stage pipeline:
   //   1. DATA GATE — the deterministic 4-pillar score (conviction bar) + the cheap
   //      data-screen gates (re-entry, avoid-timing) pick the candidates.
@@ -26998,7 +27019,9 @@ async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload 
     ? await generateAiTheses(preScored, macroBackdrop, {...baseOpts,rfr}, thesisProsePrior || {})
     : null;
   const topScored = prepareTopPicksScoring(preScored, macroBackdrop, baseOpts.marketAssessment);
-  const aiThesis = await generateAiTheses(topScored, macroBackdrop, { ...baseOpts, rfr }, baseOpts.marketAssessment ? thesisProsePrior?.__topPicksMarket || {} : thesisProsePrior || {});
+  // The Owner's market mode applies to the Top Picks decision only; the
+  // legacy research pass above and below keeps the plain rules.
+  const aiThesis = await generateAiTheses(topScored, macroBackdrop, { ...baseOpts, rfr, marketMode }, baseOpts.marketAssessment ? thesisProsePrior?.__topPicksMarket || {} : thesisProsePrior || {});
   // LEAPS reads the full preScored universe after the short-term grader.
   // It clones pillars, writes leaps-picks.json only, and does not change
   // preScored, the thesis map, or picks.json. A failure here stays off that path.
@@ -27010,7 +27033,7 @@ async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload 
   } catch (err) {
     console.warn(`[leaps] score skipped — ${String(err?.message || err).split("\n")[0]}`);
   }
-  const picks = buildTopPicks(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, rfr, { ...baseOpts, preScored:topScored, aiThesisMap: aiThesis.map, aiGraderSkipped: !!aiThesis.skipped });
+  const picks = buildTopPicks(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, rfr, { ...baseOpts, preScored:topScored, aiThesisMap: aiThesis.map, aiGraderSkipped: !!aiThesis.skipped, marketMode });
   const picksPath = resolve(DATA_DIR, PICKS_FILE);
   // Run archive (lib/picks-run-archive.mjs): the scored universe exactly as
   // this run saw it, with each name's single-option quote and the grader's
@@ -27033,6 +27056,7 @@ async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload 
           modelEpoch: PICKS_ACCURACY_RESET_EPOCH, caps: PICKS_CAPS_VERSION, eventPlay: PICKS_EVENT_AWARE ? EVENT_PLAY_VERSION : null,
           exit: pickExitPolicy("long").version, marketPolicy: topScored?.marketPolicyVersion || null,
           strategyAuto: PICKS_STRATEGY_AUTO, structure: PICKS_STRUCTURE_POLICY_VERSION, singleMaxCost: PICKS_SINGLES_DEFAULT ? PICKS_SINGLE_MAX_COST : null,
+          marketMode: marketMode?.mode || "auto",
         },
       });
     } catch (err) {
@@ -27686,6 +27710,14 @@ export function canReuseThesisCache(
   return exactHit || stableSwingHit;
 }
 
+// The Owner's Top Picks market mode (lib/top-picks-mode.mjs). A missing or
+// unreadable file reads as Auto, so a bad copy never holds trades back.
+export async function readTopPicksMarketMode(dataDir = DATA_DIR) {
+  let raw = null;
+  try { raw = await readFile(resolve(dataDir, TOP_PICKS_MODE_KEY), "utf8"); } catch { raw = null; }
+  return marketModeForRun(readTopPicksModeDoc(raw));
+}
+
 async function readPickThesisCache() {
   try { const raw = await readFile(resolve(DATA_DIR, PICK_THESIS_CACHE_FILE), "utf8"); const p = JSON.parse(raw); if (p && typeof p === "object" && !Array.isArray(p)) return p; } catch (_) { /* missing / first build */ }
   return {};
@@ -27862,6 +27894,7 @@ export async function generateAiTheses(preScored, macroBackdrop, opts = {}, prio
   const { ordered, ready } = prioritizeAiSlots(cands, {
     strongBar, rfr: opts.rfr, eventRisk: macroBackdrop?.eventRisk || null,
     factorHealth: computeFactorTrendHealth(scored),
+    marketMode: opts.marketMode?.mode || null,
   });
   const gated = ordered.slice(0, PICKS_MAX_AI_THESES);
   // NOTHING CAN OPEN (2026-10-27, owner decision): when no candidate clears the
@@ -29091,6 +29124,9 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
     // watch) are shown but not the recommended trade, so they don't belong in the
     // scorecard — only the picks the engine actually puts on are graded here.
     if (p.group !== "actionable") continue;
+    // Market mode (lib/top-picks-mode.mjs): a held-back side never enrolls,
+    // even from a roster written before the guard in buildTopPicks.
+    if (marketModeBlocks(picksPayload?.rosterMeta?.marketMode?.mode, p.side)) continue;
     // Watch-only ideas (weak thesis -> "no recommendation", no contract) are NOT
     // tracked trades — there's nothing to mark to market, and enrolling them would
     // leak an unresolvable "open" entry that also blocks legitimate re-entry.
@@ -29123,6 +29159,8 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
       // stamped so the Track Record draws a divider. Unset while
       // PICKS_SINGLES_DEFAULT=0 (the earlier engine mix).
       ...(PICKS_STRUCTURE_POLICY_VERSION ? { structurePolicyVersion: PICKS_STRUCTURE_POLICY_VERSION } : {}),
+      // The Owner's market mode when the trade opened (since 2026-11-07).
+      ...(picksPayload?.rosterMeta?.marketMode?.mode ? { marketMode: picksPayload.rosterMeta.marketMode.mode } : {}),
       exitPolicy: pickExitPolicy(p.contract?.structure),
       // Event play tag, frozen at entry (macro / earnings / shock). Drives the
       // one post-event review and the shock time limit, and the Track Record's
@@ -37499,6 +37537,10 @@ async function main() {
   // the picks file is written below). Carries the AI gloss across builds so it
   // only re-calls when a pick's thesis composition changes.
   const thesisProseCachePrev = await readPickThesisCache();
+  // The Owner's Top Picks market mode (request-time-owned, hydrated by the
+  // pull): read BEFORE writeChainFiles wipes data/. Missing/bad file = Auto.
+  const topPicksMarketMode = await readTopPicksMarketMode();
+  if (topPicksMarketMode.mode !== "auto") console.log(`Top Picks market mode: ${topPicksMarketMode.label} (set ${topPicksMarketMode.setAt || "unknown"})`);
   // Read trend history + the latest unusual-flow scan BEFORE writeChainFiles
   // wipes data/. Narrative extraction references yesterday's names for
   // continuity; the unusual snapshot is rewritten after the wipe so the page
@@ -38712,7 +38754,7 @@ async function main() {
   };
   const refreshTopPicks = !/^(?:0|false)$/i.test(process.env.REFRESH_TOP_PICKS || "1");
   if (refreshTopPicks) {
-    const picksInfo = await writeTopPicksFile(chains, scoringNarratives, builtAtIso, scoringUnusual, macroBackdrop, picksPrev, scoringVolumeFlags, riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE, picksAccuracyPrev?.closed ?? null, gradesHistoryPrev?.latest ?? null, {...scannerExtras,marketAssessment}, picksAccuracyPrev?.open ?? null, true, thesisProseCachePrev, streaksInfo.map);
+    const picksInfo = await writeTopPicksFile(chains, scoringNarratives, builtAtIso, scoringUnusual, macroBackdrop, picksPrev, scoringVolumeFlags, riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE, picksAccuracyPrev?.closed ?? null, gradesHistoryPrev?.latest ?? null, {...scannerExtras,marketAssessment,marketMode:topPicksMarketMode}, picksAccuracyPrev?.open ?? null, true, thesisProseCachePrev, streaksInfo.map);
     if (!picksInfo?.leapsWritten && leapsScoreCarry) {
       await writeFile(resolve(DATA_DIR, LEAPS_PICKS_KEY), leapsScoreCarry, "utf8");
     }
