@@ -63,6 +63,7 @@ import {
   persistAiRejections,
 } from "../lib/ai-rejections.mjs";
 import { buildPicksRunRecord, loadPicksRunDay, persistPicksRun, picksRunArchiveEnabled } from "../lib/picks-run-archive.mjs";
+import { buildSetupOdds } from "../lib/setup-odds.mjs";
 import { createFileEvidenceStore, loadEvidenceWindow, runEvidenceRecord } from "../lib/evidence-record.mjs";
 import { ownerBriefCalendar } from '../lib/owner-market-brief.mjs';
 import { publishOwnerMarketBrief } from './publish-owner-market-brief.mjs';
@@ -29352,8 +29353,17 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
   const studyPublication=enrollNewPicks&&!!picksPayload?.rosterMeta?.marketAssessment&&picksPayload.rosterMeta.marketPublication!=='offline-research';
   const studyReport=await refreshTopPicksMarketStudy(state,{chains,builtAtIso,publication:studyPublication,
     decisions:picksPayload?.rosterMeta?.marketDecisions||[],assessment:picksPayload?.rosterMeta?.marketAssessment});
+  // Similar-setup odds (lib/setup-odds.mjs): how past closed trades with the
+  // same side, grade band and market type turned out, for every roster pick
+  // and open trade. Read by the Top Picks cards and the Open picks page.
+  let setupOdds = null;
+  try {
+    setupOdds = buildSetupOdds({ closed, archive, roster: picksPayload?.picks || [], rosterRegime: picksPayload?.rosterMeta?.regimeBand || null, open, builtAtIso });
+  } catch (err) {
+    console.warn(`  picks-accuracy: setup odds skipped — ${String(err?.message || err).split("\n")[0]}`);
+  }
   const payload = { builtAtIso, resetEpoch: PICKS_ACCURACY_RESET_EPOCH, entryTimingVersion: PICKS_ENTRY_TIMING_VERSION, open, closed, stats, allTimeStats, gateLog, gateTotals, gateStats, baseline, baselineStats, archive,
-    ...(studyReport?{marketStudy:studyReport}:{}) };
+    ...(studyReport?{marketStudy:studyReport}:{}), ...(setupOdds ? { setupOdds } : {}) };
   await writeFile(accPath, JSON.stringify(payload), "utf8");
   // Separate open-marks file for the Top Picks tab's "since it appeared" chip
   // (pickLiveChip + pickThesisStatusFor in app.js). It carries ONLY the
@@ -29367,7 +29377,7 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
     symbol: e.symbol, side: e.side, entryDate: e.entryDate,
     optionPnlPct: e.optionPnlPct, thesisStatus: e.thesisStatus || null,
   }));
-  await writeFile(resolve(DATA_DIR, "picks-open.json"), JSON.stringify({ builtAtIso, open: openMarks }), "utf8");
+  await writeFile(resolve(DATA_DIR, "picks-open.json"), JSON.stringify({ builtAtIso, open: openMarks, ...(setupOdds ? { setupOdds } : {}) }), "utf8");
   return { bytes: 0, open: open.length, closed: closed.length, ...stats };
 }
 

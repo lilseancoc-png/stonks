@@ -1,0 +1,43 @@
+name: Top Picks watchdog
+
+# cron-job.org dispatches the 11:00 and 15:30 ET Top Picks builds. If one of
+# those dispatches never arrives, or the build fails before it publishes,
+# this watchdog sends ONE retry (a forced Daily build with the Top Picks
+# refresh on) while there is still time in the session, and opens a
+# top-picks-run issue. The same check also runs as the last step of every
+# Daily build, which is the on-time path; GitHub cron here is the backup for a
+# dispatch that never came. Slots: ~11:10 and ~11:35 ET for the 11:00 run,
+# ~15:38 ET for the 15:30 run, listed for both UTC offsets. The script reads
+# the ET clock and the exchange calendar itself, so an off-season slot is a
+# quiet no-op. No AI, no market data, no private store.
+# Repo variable TOP_PICKS_WATCHDOG: on (default) | alert (issues only) | off.
+on:
+  schedule:
+    - cron: "10,35 15,16 * * 1-5"
+    - cron: "38 19,20 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+  issues: write
+
+concurrency:
+  group: top-picks-watchdog
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+      - name: Check today's Top Picks runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TOP_PICKS_WATCHDOG: ${{ vars.TOP_PICKS_WATCHDOG || 'on' }}
+          WATCHDOG_REF: ${{ github.event.repository.default_branch }}
+        run: node scripts/top-picks-watchdog.mjs
