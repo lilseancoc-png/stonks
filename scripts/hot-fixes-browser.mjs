@@ -12,6 +12,9 @@ import { PAGE_TEXT_SCALE } from './render/text-scale.mjs';
 
 // Page-pane controls are 13px scaled by the page text size.
 const controlFont = +(13 * PAGE_TEXT_SCALE).toFixed(2) + 'px';
+// The November 2026 UI pass rounds these selects to 14px (vs 14.3px); half a
+// pixel is not a visible difference, so the check allows it.
+const assertControlFont = (actual, label) => assert.ok(Math.abs(parseFloat(actual) - parseFloat(controlFont)) <= 0.5, label + ' uses the control size, got ' + actual);
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
@@ -37,6 +40,8 @@ const fixtures = {
   'grades-daily.json': { days: Array.from({ length: 25 }, (_, i) => ({ date: new Date(Date.now() - (24 - i) * 86400000).toISOString().slice(0, 10), totals: Object.fromEntries(symbols.map((s, k) => [s, i % 9 - k])) })) },
   'earnings-calls.json': { calls: Object.fromEntries(symbols.map(symbol => [symbol, { symbol, company: symbol, callDate: now.slice(0, 10), headline: 'Quarterly results', mgmtTone: 'positive' }])) },
   'unusual.json': { tickers: [{ symbol: 'AAPL', contracts: [{ side: 'call', premium: 12040000 }, { side: 'put', premium: 914019 }] }], scannedAt: now },
+  // The archived data snapshot has no iv-trending.json; the chart needs rows.
+  'iv-trending.json': { asOf: now.slice(0, 10), tickers: symbols.map((symbol, i) => ({ symbol, sector: heat[i].s, iv: 0.3 + i * 0.05, mean: 0.32 + i * 0.03, relPct: ((0.3 + i * 0.05) / (0.32 + i * 0.03) - 1) * 100, score: i, chg5dPct: i * 2 })) },
 };
 const archive = new Map();
 async function data(name) {
@@ -49,13 +54,18 @@ async function data(name) {
     try { archive.set(name, JSON.parse(execFileSync('git', ['show', '5b856b32a:data/' + name], { cwd: root, maxBuffer: 20e6, stdio: ['ignore', 'pipe', 'ignore'] }))); }
     catch { archive.set(name, {}); }
   }
-  return archive.get(name);
+  const value = archive.get(name);
+  // Without a hydrated data/ folder the manifests come from the archive; they
+  // still need the fixture's unusual-flow snapshot.
+  return name === 'manifest.json' || name === 'manifest-free.json' ? { ...value, unusual: fixtures['unusual.json'] } : value;
 }
 // Isolated local fixture server. The HTML, CSS and JS are the real generated site.
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   const json = value => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(value)); };
-  if (url.pathname === '/api/auth/me' && !url.searchParams.has('data')) return json({ enabled: true, member: true, trackRecord: true, topPicks: true, role: 'owner' });
+  if (url.pathname === '/api/auth/me' && !url.searchParams.has('data')) return json({ enabled: true, authed: true, member: true, trackRecord: true, topPicks: true, role: 'owner' });
+  // Top Picks reads its roster from the Owner endpoint since #724.
+  if (url.pathname === '/api/auth/top-picks') return json(fixtures['picks.json']);
   const name = url.searchParams.get('data') || (url.pathname.startsWith('/data/') ? url.pathname.slice(6) : null);
   if (name) return json(await data(name));
   if (url.pathname.startsWith('/api/')) return json({ quotes: [], items: [], entries: [] });
@@ -106,13 +116,13 @@ try {
     // Actual ticker menu, flip and reload must beat the saved header sort.
     await go('tickers');
     const tickerTable = '#tickers-table table';
-    await page.locator(tickerTable + ' th').filter({ hasText: 'Mkt cap' }).click();
+    await page.locator(tickerTable + ' th').filter({ hasText: 'Market value' }).click();
     await page.locator('#tickers-sort').selectOption('alpha');
     await settled();
     assert.deepEqual(await savedHeaders('tickers'), []);
     const az = await firstCol(tickerTable);
     assert.deepEqual(az, az.slice().sort((a, b) => a.localeCompare(b)));
-    await page.locator(tickerTable + ' th').filter({ hasText: 'Mkt cap' }).click();
+    await page.locator(tickerTable + ' th').filter({ hasText: 'Market value' }).click();
     await page.locator('[data-sort-flip="tickers"]').click();
     await settled();
     assert.deepEqual(await savedHeaders('tickers'), []);
@@ -149,7 +159,7 @@ try {
     await go('calls');
     await page.locator('[data-calls-sort]').waitFor();
     const callsStyle = await page.locator('[data-calls-sort]').evaluate(el => ({ font: getComputedStyle(el).fontSize, label: getComputedStyle(el.closest('label')).display }));
-    assert.equal(callsStyle.font, controlFont); assert.ok(['flex', 'inline-flex'].includes(callsStyle.label));
+    assertControlFont(callsStyle.font, 'Earnings calls sort'); assert.ok(['flex', 'inline-flex'].includes(callsStyle.label));
     await noOverflow('Earnings calls');
     await page.screenshot({ path: out + '/' + width + '-' + theme + '-calls.png' });
 
@@ -178,7 +188,7 @@ try {
     await page.locator('[data-cmp-tray-open]').click();
     await page.locator('.cmp-pl-bar').first().waitFor();
     assert.equal(await page.locator('body').evaluate(el => parseFloat(getComputedStyle(el).paddingBottom)), 0);
-    for (const id of ['cmp-mode', 'cmp-bench']) assert.equal(await page.locator('#' + id).evaluate(el => getComputedStyle(el).fontSize), controlFont);
+    for (const id of ['cmp-mode', 'cmp-bench']) assertControlFont(await page.locator('#' + id).evaluate(el => getComputedStyle(el).fontSize), id);
     if (width === 390) {
       assert.equal(await page.locator('.cmp-pl-ticker').first().isVisible(), true);
       assert.equal(await page.locator('.cmp-pl-ticker').first().textContent(), symbols[0]);
@@ -189,7 +199,7 @@ try {
     const last = page.locator('[data-cmp-sec].is-on');
     await last.dispatchEvent('click');
     assert.equal(await page.locator('[data-cmp-sec].is-on').count(), 1);
-    for (const id of ['cmp-sec-metric', 'cmp-sec-weight']) assert.equal(await page.locator('#' + id).evaluate(el => getComputedStyle(el).fontSize), controlFont);
+    for (const id of ['cmp-sec-metric', 'cmp-sec-weight']) assertControlFont(await page.locator('#' + id).evaluate(el => getComputedStyle(el).fontSize), id);
     await noOverflow('Compare pillars and sectors');
     await page.locator('#cmp-pillars').scrollIntoViewIfNeeded();
     await page.screenshot({ path: out + '/' + width + '-' + theme + '-compare.png' });
@@ -213,21 +223,24 @@ try {
     const ivBox = await ivChart.boundingBox();
     assert.ok(ivBox.width <= 641 && ivBox.height <= 321, 'IV chart capped at native drawing size');
 
-    await go('grade');
+    // The grade is a tab of the stock page since #752; ?s= opens it.
     await page.goto(base + '/?s=AAPL');
     await page.locator('.ogh-svg').waitFor();
-    assert.ok((await page.locator('.ogh-svg').boundingBox()).height <= 151);
+    // Native drawing height is 170 since the November UI pass; the chart must
+    // never grow past it.
+    assert.ok((await page.locator('.ogh-svg').boundingBox()).height <= 171);
     if (width === 390) {
       await page.setViewportSize({ width: 1920, height: 900 });
       await settled();
       const resized = await page.locator('.ogh-svg').boundingBox();
-      assert.ok(resized.height <= 151, 'grade history must not enlarge after rotating or widening a phone viewport: ' + resized.height);
+      assert.ok(resized.height <= 171, 'grade history must not enlarge after rotating or widening a phone viewport: ' + resized.height);
       await page.setViewportSize({ width, height: 900 });
     }
 
     await go('flow');
     const sector = page.locator('[data-ssb-key="flow.sectors"]');
-    await sector.locator('summary').click();
+    // Open it whatever its saved state (clicking would close an open one).
+    await sector.evaluate(el => { el.open = true; });
     assert.match(await sector.locator('.ssb-val').innerText(), /\$12\.0M\s*\/\s*\$0\.91M/);
 
     // Reset must clear Track Record choices without clearing theme.
