@@ -271,7 +271,7 @@ try {
   const marketNav = html.match(/data-nav-group="market"[\s\S]*?<\/details>/)?.[0] || "";
   assert.doesNotMatch(marketNav, /bottom-tracker/);
   assert.match(appJs, /name === 'open-picks' && HAS_TRACK_RECORD && typeof loadOpenPicks === 'function'/);
-  assert.match(appJs, /root\.innerHTML = openPicksControlsHtml\(opSort\) \+ accOpenGroupHtml\(open, opSort, /);
+  assert.match(appJs, /root\.innerHTML = bookRiskHtml\(open\) \+ openPicksControlsHtml\(opSort\) \+ accOpenGroupHtml\(open, opSort, /);
   assert.doesNotMatch(appJs, /day-trading\.json|day-trading-history\.json|loadDayTrading/);
   assert.match(appJs, /HAS_TRACK_RECORD = HAS_OWNER_ACCESS/);
   assert.match(appJs, /HAS_TOP_PICKS = HAS_OWNER_ACCESS/);

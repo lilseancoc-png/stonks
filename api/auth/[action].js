@@ -392,6 +392,8 @@ async function picksFeed(req, res) {
 // POST /api/auth/picks-fills { csv } -> replaces the stored rows (marks kept)
 // POST /api/auth/picks-fills { mark: { trade_id, took, reason } | { trade_id, clear } }
 //                                    -> saves one took / skipped mark
+// POST /api/auth/picks-fills { note: { trade_id | ticker, text, tags } | { ..., clear } }
+//                                    -> saves one trade-journal note (notes kept on upload)
 // The Track Record joins these rows to the record by trade ID (Scorecard,
 // "Your fills vs the record"). Owner session with both claims required; POST
 // must be same-origin. Stored under the request-time key picks-fills.json,
@@ -474,7 +476,7 @@ async function picksFills(req, res) {
       return res.status(405).json({ error: "method not allowed" });
     }
     if (!isSameOriginRequest(req)) return res.status(403).json({ error: "forbidden" });
-    const { parseFillsCsv, FILLS_MAX_BYTES, applyTradeMark } = await import("../../lib/track-record-fills.mjs");
+    const { parseFillsCsv, FILLS_MAX_BYTES, applyTradeMark, applyTradeNote } = await import("../../lib/track-record-fills.mjs");
     const readPrev = async () => {
       const prevBuf = await store.get(FILLS_KEY);
       return prevBuf == null ? { rows: [], updatedAt: null, errors: [] } : JSON.parse(prevBuf.toString("utf8"));
@@ -490,13 +492,24 @@ async function picksFills(req, res) {
       const mirrored = await webullFillRows(store);
       return res.status(200).json(mirrored.length ? { ...out, rows: [...mirrored, ...(Array.isArray(out.rows) ? out.rows : [])] } : out);
     }
+    // One trade-journal note (POST { note: { trade_id | ticker, text, tags } }).
+    if (req.body && typeof req.body === "object" && req.body.note) {
+      const check = applyTradeNote({}, req.body.note);
+      if (check.error) return res.status(400).json({ error: check.error });
+      const prev = await readPrev();
+      const applied = applyTradeNote(prev.notes, req.body.note);
+      const out = { ...prev, notes: applied.notes };
+      await store.put(FILLS_KEY, JSON.stringify(out));
+      const mirrored = await webullFillRows(store);
+      return res.status(200).json(mirrored.length ? { ...out, rows: [...mirrored, ...(Array.isArray(out.rows) ? out.rows : [])] } : out);
+    }
     const csv = req.body && typeof req.body === "object" ? req.body.csv : null;
     if (typeof csv !== "string" || !csv.trim()) return res.status(400).json({ error: "no csv" });
     if (csv.length > FILLS_MAX_BYTES) return res.status(413).json({ error: "file too large" });
     const { rows, errors } = parseFillsCsv(csv);
     if (!rows.length) return res.status(400).json({ error: "no usable rows", errors });
     const prev = await readPrev();
-    const out = { rows, errors, updatedAt: new Date().toISOString(), ...(prev.marks ? { marks: prev.marks } : {}) };
+    const out = { rows, errors, updatedAt: new Date().toISOString(), ...(prev.marks ? { marks: prev.marks } : {}), ...(prev.notes ? { notes: prev.notes } : {}) };
     await store.put(FILLS_KEY, JSON.stringify(out));
     const mirrored = await webullFillRows(store);
     return res.status(200).json(mirrored.length ? { ...out, rows: [...mirrored, ...rows] } : out);

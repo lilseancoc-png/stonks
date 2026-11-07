@@ -56,6 +56,16 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Added
 
+- New ways to see the data, all public unless marked Owner. **Market map** page (Stocks): a fear map (each stock's IV percentile against its put-skew z-score), a two-number scatter lens (Owners can put the grade on an axis), a chart wall of small price lines, a crowding map of which stocks move together (Owners see their open-trade pairs highlighted), a breadth panel (share of stocks above their 50/200-day lines, new 52-week highs and lows, up-day volume) and a crowded-shorts screen from FINRA short interest. **What changed** page (Today): what differs from the previous trading day's last build (new options walls, new unusual trades, 50/200-day crosses, streaks started or broken, IV turning rich or cheap, new 13F filings and insider trades); Owners also see grade moves of 2 points or more. **Past days** page (Today): the heatmap, movers and SPY/QQQ/IWM for any of the last ~252 sessions; Owners also get that day's briefs. Built by `lib/market-map.mjs`, `lib/site-changes.mjs` and `lib/market-days.mjs`; `market-days-briefs.json` is Owner-only.
+- The stock page gains an expected-move cone on the price chart (one and two standard deviations to each listed expiry, with the next earnings report marked), small charts of the last eight earnings reactions, an option-chain heat grid (open interest and volume by strike and expiry), a **Story** tab that lines up price, news, earnings and flow on one timeline (Owners also see grade changes and Top Picks trades), FINRA short interest with days to cover, and a chatter-vs-price chart.
+- Market-structure dates on the Calendar and in the .ics feed: monthly and quarterly option expirations, VIX expiration, the S&P 500 quarterly rebalance, the Nasdaq-100 reconstitution, and estimated IPO lockup ends (`lib/market-dates.mjs`). A **Market dates** filter chip groups them.
+- Fed liquidity line on Rates & the dollar: Fed assets minus the Treasury's cash account minus reverse repo, weekly from FRED, with 4-week, 13-week and one-year changes (`lib/fed-liquidity.mjs`, stored in `macro-history.json`).
+- Unusual options trades shows how short-dated the trading is: the share of contracts expiring the same day, within a week, within a month and later, overall and per stock.
+- Owner: a grade calibration chart and a daily rank-correlation (IC) line on the Track Record's Grade edge tab, from the stored daily grades (`gradeCalibration` in `lib/grade-research.mjs`).
+- Owner: each open-pick rule in "What each open-pick rule turned away" gets a plain **Did it help?** verdict (Helped / Cost trades / No clear difference / Too few yet) against the trades that opened.
+- Owner: a **Book risk** panel on Open picks with net and gross stock exposure (delta dollars), daily time decay, the largest name, exposure by sector group, and an expiry ladder that flags earnings and Fed, CPI and jobs dates before each expiry.
+- Owner: a trade journal. A note and tags (from a fixed list) per trade and per ticker, on Open picks (cards and the table's expand row), the Track Record's closed trades and the stock page's Top Picks tab. Saved in the Owner's `picks-fills.json` under `notes` (`applyTradeNote` in `lib/track-record-fills.mjs`); a CSV upload keeps them.
+- Owner Sports: each model stat's check now draws a calibration chart (what the model said against how often it happened), passed through the status route.
 - Every Top Picks decision run (11:00 and 15:30 ET) now saves the whole scored universe to an Owner-only day file, `picks-run-YYYY-MM-DD.json`: each name's total, pillars, signal votes, entry timing, the AI grader's verdict, the single option it would buy with bid and ask, and what the run did with it, plus each shipped pick's real contract. Measurement only; picks are unchanged. `PICKS_RUN_ARCHIVE=0` turns it off.
 
 ### Changed
@@ -64,7 +74,17 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Fixed
 
+- Line charts no longer print the last date label on top of the one before it.
+- Rates & the dollar draws the one-year history and the Fed liquidity line even when the build has no live macro snapshot.
+- The Calendar keeps a VIX expiration that falls before that month's option expiration when the window ends between the two.
+- The stock page's Timeline and Past days read Top Picks trades and grade changes through the Track Record's copy, so a period the Owner wiped from the record stays out of them too.
+- Unusual options trades shows "—" (with a hover note) for a stock with no option expiring that day, and 0% when one is listed but barely traded.
+- The fear map tags only upcoming earnings, What changed no longer colors a streak that ended on a flat close as a drop and writes "an 8-day", Past days leaves ETFs out of its stock map and labels a trade's P&L as "now" or "closed at", and percentiles read 1st / 2nd / 3rd / 82nd instead of "82th" (stock page, fear map and the VIX rank lines).
 - `npm run verify:risk-cost` runs again. Since the Top Picks settings moved to their own file on Nov 6, it pasted that file into the old build it compares against and stopped with a duplicate-import error on every branch.
+
+### Docs
+
+- CLAUDE.md describes the new pages, files, Owner/public split and the `test:views-next` / `test:views-next-browser` checks.
 
 ## 2026-11-06
 

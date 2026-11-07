@@ -149,7 +149,9 @@ export function renderChartKitJs() {
     //   opts.ranges: ['1M','3M','6M','YTD','1Y'], opts.range: default range key
     //   opts.height, opts.intraday, opts.percent, opts.signed, opts.decimals, opts.prefix
     //   opts.source: text for the bottom-left corner
-    //   opts.markers: [{ time, text, color, position }] on the first series
+    //   opts.markers: [{ time, text, color, position }] on the first series;
+    //   series[i].markers on that series. opts.extendRange keeps a series
+    //   that runs past the first one in view when a range button is pressed.
     //   opts.bands: [{ value, color, title }] horizontal price lines on the first series
     //   series[i].axis = 'left' puts that line on a left axis; series[i].pane =
     //   'lower' draws it in a short strip under the main chart; series[i].format
@@ -222,21 +224,26 @@ export function renderChartKitJs() {
           vol.setData(clean(opts.volume.map(function(v){ return { time: v.time, value: v.value, color: withAlpha(v.up === false ? c.down : c.up, 0.35) }; })));
           handle.volume = vol;
         }
-        if (made[0] && opts.markers && opts.markers.length){
-          // A marker dated between two points moves to the next point, so a
-          // rule change on a day with no close still shows.
-          var times = made[0].api.data().map(function(d){ return d.time; });
+        // A marker dated between two points moves to the next point, so a
+        // rule change on a day with no close still shows. opts.markers go on
+        // the first series; series[i].markers on that series.
+        function placeMarkers(api, list){
+          var times = api.data().map(function(d){ return d.time; });
           var snap = function(t){
             if (t == null) return null;
             var k = timeKey(t);
             for (var ti = 0; ti < times.length; ti++) if (timeKey(times[ti]) >= k) return times[ti];
             return null;
           };
-          var mk = opts.markers.map(function(m){ return { time: snap(toTime(m.time)), position: m.position || 'aboveBar', color: m.color || c.accent, shape: m.shape || 'circle', text: m.text || '', size: m.size || 1 }; })
+          var mk = list.map(function(m){ return { time: snap(toTime(m.time)), position: m.position || 'aboveBar', color: m.color || c.accent, shape: m.shape || 'circle', text: m.text || '', size: m.size || 1 }; })
             .filter(function(m){ return m.time != null; })
             .sort(function(a, b){ return timeKey(a.time) - timeKey(b.time); });
-          try { made[0].api.setMarkers(mk); } catch (_) {}
+          try { api.setMarkers(mk); } catch (_) {}
         }
+        made.forEach(function(m, mi){
+          var list = (mi === 0 && opts.markers ? opts.markers : []).concat(m.def.markers || []);
+          if (list.length) placeMarkers(m.api, list);
+        });
         if (made[0] && opts.bands){
           opts.bands.forEach(function(b){
             if (b == null || b.value == null || !isFinite(b.value)) return;
@@ -274,11 +281,15 @@ export function renderChartKitJs() {
         // Ranges
         var firstData = made[0].api.data();
         var lastKey = firstData.length ? timeKey(firstData[firstData.length - 1].time) : null;
+        // opts.extendRange: a series that runs past the first one (a forward
+        // cone) stays in view; the range still counts back from the first.
+        var endKey = lastKey;
+        if (opts.extendRange) made.forEach(function(m){ var dd = m.api.data(); if (dd.length){ var k = timeKey(dd[dd.length - 1].time); if (endKey == null || k > endKey) endKey = k; } });
         handle.setRange = function(key){
           var from = lastKey != null ? rangeStart(key, lastKey) : null;
           if (from == null || key === 'All'){ chart.timeScale().fitContent(); }
           else {
-            var to = lastKey;
+            var to = endKey;
             var fromT = from, toT = to;
             if (typeof firstData[0].time === 'string'){
               fromT = new Date(from * 1000).toISOString().slice(0, 10);

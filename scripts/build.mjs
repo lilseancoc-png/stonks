@@ -49,6 +49,11 @@ import { NEWS_EVIDENCE_KEY, evidenceFeedRows, evidenceSourceHealth } from "../li
 import { computeGexSummary } from "../lib/gex.mjs";
 import { issuerCreditRatingFor } from "../lib/issuer-credit-ratings.mjs";
 import { fetchFinraMarketStructure, attachShortInterestToChains } from "../lib/market-structure.mjs";
+import { marketStructureCalendarEvents, ipoListingsFrom } from "../lib/market-dates.mjs";
+import { buildFedLiquidity } from "../lib/fed-liquidity.mjs";
+import { buildMarketMap, MARKET_MAP_FILE } from "../lib/market-map.mjs";
+import { buildSiteSnapshot, nextSiteChanges, SITE_CHANGES_FILE } from "../lib/site-changes.mjs";
+import { buildMarketDays, buildMarketDayBriefs, MARKET_DAYS_FILE, MARKET_DAYS_BRIEFS_FILE } from "../lib/market-days.mjs";
 import { appendScenarioHistory, buildScenarioEngine, scenarioOverlayForSymbol } from "../lib/scenario-engine.mjs";
 import { isPremiumKey } from "../lib/premium-keys.mjs";
 import {
@@ -3575,6 +3580,7 @@ export async function readMacroHistory() {
       return {
         entries: parsed.entries.slice().sort((a, b) => String(a.date).localeCompare(String(b.date))),
         rates: parsed.rates && typeof parsed.rates === "object" ? parsed.rates : null,
+        liquidity: parsed.liquidity && typeof parsed.liquidity === "object" ? parsed.liquidity : null,
       };
     }
   } catch (_) { /* missing or unreadable */ }
@@ -6786,6 +6792,33 @@ export function computeEarningsReaction(bars, dateIso, session) {
   return out;
 }
 
+// Pure: the price path around one print for the stock page's earnings mini
+// charts (2026-11-07): closes from 10 sessions before the reaction session to
+// 5 after it, each as a fraction from the close before the print (the same
+// anchor as computeEarningsReaction). Index 10 is the reaction session; a
+// missing session is null. Null when the bars don't reach the print.
+export const EARNINGS_PATH_BEFORE = 10;
+export const EARNINGS_PATH_AFTER = 5;
+export function earningsPathFromBars(bars, dateIso, session) {
+  if (!Array.isArray(bars) || bars.length < 2 || typeof dateIso !== "string") return null;
+  const isAm = session === "AM";
+  let rIdx = -1;
+  for (let i = 0; i < bars.length; i++) {
+    const t = bars[i]?.t;
+    if (!t) continue;
+    if (isAm ? t >= dateIso : t > dateIso) { rIdx = i; break; }
+  }
+  if (rIdx <= 0) return null;
+  const base = bars[rIdx - 1]?.c;
+  if (!(base > 0)) return null;
+  const out = [];
+  for (let k = -EARNINGS_PATH_BEFORE; k <= EARNINGS_PATH_AFTER; k++) {
+    const b = bars[rIdx + k];
+    out.push(b?.c > 0 ? Math.round((b.c / base - 1) * 10000) / 10000 : null);
+  }
+  return out.some((v) => v != null) ? out : null;
+}
+
 // Pre-earnings run-up windows, in TRADING days: does a name trend higher, stay
 // flat, or trend lower over the ~2 weeks (10 bars) / ~3 weeks (15 bars) leading
 // INTO its print? Measured close-to-close, ending at the same "close before"
@@ -7327,6 +7360,9 @@ export function attachEarningsHx(chains, store, nowMs = Date.now()) {
         // market narrative deterministically.
         guidance: ev.guidance ?? null,
         guidanceSrc: ev.guidanceSrc ?? null,
+        // -10..+5 sessions around the print, fractions from the close before
+        // (earningsPathFromBars). Two years of bars cover the last 8 prints.
+        path: earningsPathFromBars(data._patternBars || data._bars, ev.date, ev.session),
       })),
       longRun: earningsLongRun(past),
       next,
@@ -9250,6 +9286,9 @@ export function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras)
   applyEmploymentPrintsToReports(events, macroHeadlines);
 
   events.push(...marketSessionCalendarEvents(startMs, cutoffMs), ...scheduledPolicyCalendarEvents(startMs, cutoffMs));
+  // Options expirations, index rebalances, VIX expiry and estimated IPO
+  // lockup ends (lib/market-dates.mjs). Rule-based; no fetch.
+  events.push(...marketStructureCalendarEvents(startMs, cutoffMs, { ipos: extras?.ipoListings || [] }));
   const dedupedEvents = dedupeCalendarEvents(calendarEventsForUniverse(events, TICKERS));
   dedupedEvents.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : (a.symbol || a.title || "").localeCompare(b.symbol || b.title || "")));
   const officialFallbacks={...(officialCalendar.fallbacks || {})};
@@ -21523,6 +21562,54 @@ export const EARNINGS_WEEK_PLAN_FILE = "earnings-week-plan.json";
 // openTrades: the Track Record's open rows read BEFORE the bake wipes data/
 // (picksAccuracyPrev.open in main()), since picks-accuracy.json is only
 // written back later in the run.
+// The three files behind the 2026-11-07 views. market-map.json,
+// site-changes.json and market-days.json are public; market-days-briefs.json
+// (the Brief's prose per day) is Owner-only in lib/premium-keys.mjs.
+export async function writeNewViewFiles({ chains, oiTracker, unusual, builtAtIso, priorSiteChanges = null, priorMarketDays = null, priorMarketDayBriefs = null }) {
+  const symbols = TICKERS.filter((s) => chains?.[s]);
+  const ivBand = (input) => IV_RICHNESS.classify(input);
+  const readDisk = async (file) => { try { return JSON.parse(await readFile(resolve(DATA_DIR, file), "utf8")); } catch { return null; } };
+  const out = {};
+  try {
+    const map = buildMarketMap({ chains, symbols, sectorOf: (s) => SECTORS[s] || null, groupOf: sectorGroupOf, isEtf: (s) => SECTORS[s] === "ETF", ivBand, builtAtIso });
+    const json = JSON.stringify(map);
+    await writeFile(resolve(DATA_DIR, MARKET_MAP_FILE), json, "utf8");
+    out.marketMap = json.length;
+    console.log(`wrote data/${MARKET_MAP_FILE} — ${map.rows.length} names, ${map.corr ? map.corr.syms.length + "-name correlation map" : "no correlation map"}, ${map.breadth ? map.breadth.dates.length + " breadth days" : "no breadth"}, ${json.length} bytes`);
+  } catch (err) {
+    console.warn(`[market-map] skipped — ${String(err?.message || err).split("\n")[0]}`);
+  }
+  try {
+    const f13 = await readDisk("13f.json");
+    const snap = buildSiteSnapshot({ chains: Object.fromEntries(symbols.map((s) => [s, chains[s]])), oi: oiTracker, unusual, f13, ivBand, builtAtIso });
+    const changes = nextSiteChanges(priorSiteChanges, snap);
+    const json = JSON.stringify(changes);
+    await writeFile(resolve(DATA_DIR, SITE_CHANGES_FILE), json, "utf8");
+    out.siteChanges = json.length;
+    console.log(`wrote data/${SITE_CHANGES_FILE} — ${changes.items.length} change(s) since ${changes.since || "(first snapshot)"}, ${json.length} bytes`);
+  } catch (err) {
+    console.warn(`[site-changes] skipped — ${String(err?.message || err).split("\n")[0]}`);
+    if (priorSiteChanges) await writeFile(resolve(DATA_DIR, SITE_CHANGES_FILE), JSON.stringify(priorSiteChanges), "utf8").catch(() => {});
+  }
+  try {
+    const days = buildMarketDays({ chains, symbols, prior: priorMarketDays, builtAtIso });
+    if (days) {
+      const json = JSON.stringify(days);
+      await writeFile(resolve(DATA_DIR, MARKET_DAYS_FILE), json, "utf8");
+      out.marketDays = json.length;
+      console.log(`wrote data/${MARKET_DAYS_FILE} — ${days.dates.length} sessions, ${Object.keys(days.moves).length} names, ${json.length} bytes`);
+    }
+    const briefs = await readDisk(BRIEFS_FILE);
+    const log = buildMarketDayBriefs({ prior: priorMarketDayBriefs, brief: briefs?.current || null, policyVersion: BRIEF_ACCESS_POLICY_VERSION, builtAtIso });
+    await writeFile(resolve(DATA_DIR, MARKET_DAYS_BRIEFS_FILE), JSON.stringify(log), "utf8");
+    console.log(`wrote data/${MARKET_DAYS_BRIEFS_FILE} — ${log.briefs.length} brief(s) on file`);
+  } catch (err) {
+    console.warn(`[market-days] skipped — ${String(err?.message || err).split("\n")[0]}`);
+    if (priorMarketDayBriefs) await writeFile(resolve(DATA_DIR, MARKET_DAYS_BRIEFS_FILE), JSON.stringify(priorMarketDayBriefs), "utf8").catch(() => {});
+  }
+  return out;
+}
+
 export async function writeEarningsWeekFiles(chains, grades, builtAtIso, openTrades = []) {
   const todayIso = etDateKey(new Date(builtAtIso));
   const board = buildEarningsWeek(chains, {
@@ -37737,6 +37824,13 @@ async function main() {
   // is minted at 08:30, 11:00, 13:30 and 16:10 ET; other full builds restore
   // the exact prior payload rather than silently restamping old prose.
   const briefsPrev = await readPriorBriefs();
+  // New-views sidecars (2026-11-07): "What changed" keeps the last few days'
+  // snapshots and Past days keeps the Owner-only brief log, so both are read
+  // before the wipe. market-map.json and market-days.json rebuild from bars.
+  const readJsonPrior = async (file) => { try { return JSON.parse(await readFile(resolve(DATA_DIR, file), "utf8")); } catch { return null; } };
+  const priorSiteChanges = await readJsonPrior(SITE_CHANGES_FILE);
+  const priorMarketDays = await readJsonPrior(MARKET_DAYS_FILE);
+  const priorMarketDayBriefs = await readJsonPrior(MARKET_DAYS_BRIEFS_FILE);
   const briefsCarry = await readFile(resolve(DATA_DIR, BRIEFS_FILE), "utf8").catch(() => null);
   // Prior free news feed — recent rows carry through a transient RSS outage or
   // keyless build instead of blanking the desk. Fresh raw headlines collected
@@ -38098,6 +38192,21 @@ async function main() {
   // home card go blank between full builds.
   if (macroBackdrop) {
     await writeFile(resolve(DATA_DIR, "macro.json"), JSON.stringify(macroBackdrop, null, 2), "utf8");
+  }
+  // Fed liquidity line for the Rates page (lib/fed-liquidity.mjs): Fed
+  // assets minus Treasury cash minus reverse repo, from the FRED series the
+  // shared history cache already holds (read before the wipe). No download.
+  try {
+    const liquidity = buildFedLiquidity({
+      walcl: sharedFredRows(historicalSourcePrev, "WALCL"),
+      tga: sharedFredRows(historicalSourcePrev, "WTREGEN"),
+      rrp: sharedFredRows(historicalSourcePrev, "RRPONTSYD"),
+      prior: macroHistoryPrev.liquidity || null,
+    });
+    if (liquidity) macroHistoryNext = { ...macroHistoryNext, liquidity };
+  } catch (err) {
+    console.log(`Fed liquidity line failed: ${err.message}`);
+    if (macroHistoryPrev.liquidity) macroHistoryNext = { ...macroHistoryNext, liquidity: { ...macroHistoryPrev.liquidity, stale: true } };
   }
   // Rolling EOD macro history. Always rewritten so prior days survive the
   // data/ wipe, even when today's fetch fails (we just don't upsert today).
@@ -38639,6 +38748,7 @@ async function main() {
     macroHistory: macroHistoryNext,
     sessionMap,
     officialCalendar,
+    ipoListings: ipoListingsFrom(priorIpoCredit),
     companyCalendar,
     priorCalendar,
   });
@@ -39163,6 +39273,10 @@ async function main() {
   } else {
     console.log("keeping baseline data/13f.json — EDGAR returned no usable holdings or Form 4 transactions.");
   }
+  // New views (2026-11-07): Market map, What changed and Past days. Built
+  // from data already in memory or just written; no fetch, no AI. Each is
+  // non-fatal and leaves the prior copy (or nothing) on failure.
+  await writeNewViewFiles({ chains, oiTracker, unusual, builtAtIso, priorSiteChanges, priorMarketDays, priorMarketDayBriefs });
   // Join registries that already exist in this bake. No fetch and no model call.
   // A bad map still leaves a valid file behind so publication can continue.
   try {

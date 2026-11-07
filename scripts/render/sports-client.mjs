@@ -147,6 +147,28 @@ export function sportsFactory(host, doc, options) {
       (src.message ? '<p class="sp-note">' + escape(src.message) + '</p>' : '') + '</details>';
   }
 
+  // Calibration (reliability) chart: each dot is a band of forecasts, placed
+  // at what the model said (across) against how often it happened (up). On
+  // the diagonal = honest chances; dot size = games in the band.
+  function reliabilitySvg(bins, name) {
+    const pts = (bins || []).filter((b) => b && b.n > 0 && Number.isFinite(b.p) && Number.isFinite(b.y));
+    if (pts.length < 2) return '';
+    const S = 132, P = 16;
+    const x = (v) => P + v * (S - 2 * P), y = (v) => S - P - v * (S - 2 * P);
+    const maxN = Math.max(...pts.map((b) => b.n));
+    const p1 = (v) => Math.round(v * 100) + '%';
+    const hov = pts.map((b) => ({ x: x(b.p), y: y(b.y), label: 'Model said ' + p1(b.p) + '\nHappened ' + p1(b.y) + '\n' + Number(b.n).toLocaleString('en-US') + ' games' }));
+    const grid = [0, 0.5, 1].map((t) => '<line class="sp-ch-grid" x1="' + x(0) + '" x2="' + x(1) + '" y1="' + y(t) + '" y2="' + y(t) + '"/>').join('');
+    const dots = pts.map((b) => {
+      const r = 2.5 + 4.5 * Math.sqrt(b.n / maxN);
+      const off = Math.abs(b.p - b.y);
+      return '<circle class="sp-rel-dot' + (off > 0.05 ? ' is-off' : '') + '" cx="' + x(b.p).toFixed(1) + '" cy="' + y(b.y).toFixed(1) + '" r="' + r.toFixed(1) + '"/>';
+    }).join('');
+    return '<figure class="sp-rel"><svg class="sp-rel-svg" viewBox="0 0 ' + S + ' ' + S + '" width="' + S + '" height="' + S + '" role="img" aria-label="' + escape(name + ' calibration: ' + pts.map((b) => 'said ' + p1(b.p) + ', happened ' + p1(b.y)).join('; ')) + '"' + hoverAttr(hov) + '>' +
+      grid + '<line class="sp-rel-diag" x1="' + x(0) + '" y1="' + y(0) + '" x2="' + x(1) + '" y2="' + y(1) + '"/>' + dots +
+      '<text class="sp-ch-axis" x="' + x(0) + '" y="' + (S - 3) + '">0%</text><text class="sp-ch-axis" x="' + x(1) + '" y="' + (S - 3) + '" text-anchor="end">Said 100%</text>' +
+      '<text class="sp-ch-axis" x="2" y="' + (y(1) + 3) + '">100%</text></svg><figcaption>Dots on the line: the chances were honest.</figcaption></figure>';
+  }
   const MODEL_STATUS = { validated: 'Passed the check', experimental: 'Experimental' };
   const qualityBadge = (q) => '<span class="sp-q sp-q-' + escape(q) + '">' + escape(MODEL_STATUS[q] || q) + '</span>';
   function modelCard(src) {
@@ -159,7 +181,8 @@ export function sportsFactory(host, doc, options) {
         (v.test_n ? '<span>' + Number(v.test_n).toLocaleString('en-US') + ' later games held out' + (v.split_date ? ' (from ' + escape(fmtDay(v.split_date)) + ' ' + escape(v.split_date.slice(0, 4)) + ')' : '') +
           '. Score (lower is better): model <b>' + b3(B.model) + '</b>, last-10 hit rate ' + b3(B.last10_hit_rate) + ', plain average ' + b3(B.plain_average) +
           '. Chances off by ' + (v.ece == null ? '—' : (v.ece * 100).toFixed(1) + ' points') + ' on average.</span>' : '<span class="sp-muted">' + escape(v.reason || 'Not enough past games to check yet.') + '</span>') +
-        (v.status !== 'validated' && v.test_n && v.reason ? '<span class="sp-muted">Why experimental: ' + escape(v.reason) + '.</span>' : '') + '</li>';
+        (v.status !== 'validated' && v.test_n && v.reason ? '<span class="sp-muted">Why experimental: ' + escape(v.reason) + '.</span>' : '') +
+        reliabilitySvg(v.reliability, label(st)) + '</li>';
     }).join('');
     const links = (M.links || []).filter((l) => l.test_pairs > 0 || l.status === 'validated');
     const linkRows = links.length ? '<p class="sp-label">Same-game links</p><ul class="sp-model-list">' + links.map((l) => {
