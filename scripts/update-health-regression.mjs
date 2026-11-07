@@ -59,8 +59,8 @@ const cal=inspectFeature(calendar,{builtAtIso:now.toISOString(),events:[],covera
 assert.equal(cal.status,'degraded');assert.match(cal.detail,/ISM/);
 assert(!inspectFeature(calendar,{builtAtIso:now.toISOString(),events:[],coverage:{officialSources:{PRIVATE_SENTINEL:false}}},now.getTime()).detail.includes('PRIVATE_SENTINEL'));
 const news=UPDATE_FEATURES.find(s=>s.id==='news');
-const feed=inspectFeature(news,{builtAtIso:now.toISOString(),sourceHealth:[{id:'ir-lly',label:'PRIVATE_SENTINEL',status:'error',error:'HTTP 403 PRIVATE_SENTINEL'}]},now.getTime());
-assert.equal(feed.status,'degraded');assert.match(feed.detail,/Eli Lilly.*403/);assert(!feed.detail.includes('PRIVATE_SENTINEL'));
+const feed=inspectFeature(news,{builtAtIso:now.toISOString(),sourceHealth:[{id:'ir-amd',label:'PRIVATE_SENTINEL',status:'error',error:'HTTP 403 PRIVATE_SENTINEL'}]},now.getTime());
+assert.equal(feed.status,'degraded');assert.match(feed.detail,/AMD.*403/);assert(!feed.detail.includes('PRIVATE_SENTINEL'));
 const brief=UPDATE_FEATURES.find(s=>s.id==='owner-market-brief');
 const warning=inspectFeature(brief,{builtAtIso:now.toISOString(),coverage:[{key:'ram-prices.json',label:'RAM prices',status:'stale'}]},now.getTime());
 assert.equal(warning.status,'degraded');assert.match(warning.detail,/Memory chip prices/);
@@ -82,7 +82,7 @@ for (const failure of [{error:'PRIVATE_SENTINEL'},{errors:['PRIVATE_SENTINEL']},
 for (const failure of [{error:null,errors:[]},{error:false,errors:{fetch:0,details:[]}}]) {
   assert.equal(inspectFeature(pattern,{builtAtIso:now.toISOString(),...failure},now.getTime()).status,'available','empty error fields are allowed');
 }
-for (const sourceHealth of [[null],{},[{id:'ir-lly'}],[{id:'ir-lly',status:123}],[{id:'ir-lly',status:'unexpected'}]]) {
+for (const sourceHealth of [[null],{},[{id:'ir-amd'}],[{id:'ir-amd',status:123}],[{id:'ir-amd',status:'unexpected'}]]) {
   assert.equal(inspectFeature(news,{builtAtIso:now.toISOString(),sourceHealth},now.getTime()).status,'invalid','malformed news health cannot pass');
 }
 for (const officialSources of [{bls:'false'},[],{bls:null}]) {

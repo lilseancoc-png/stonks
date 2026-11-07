@@ -66,7 +66,7 @@ import {
 import { buildPicksRunRecord, loadPicksRunDay, persistPicksRun, picksRunArchiveEnabled } from "../lib/picks-run-archive.mjs";
 import { buildSetupOdds } from "../lib/setup-odds.mjs";
 import { createFileEvidenceStore, loadEvidenceWindow, runEvidenceRecord } from "../lib/evidence-record.mjs";
-import { ownerBriefCalendar } from '../lib/owner-market-brief.mjs';
+import { ownerBriefCalendar, ownerBriefRunsOn } from '../lib/owner-market-brief.mjs';
 import { publishOwnerMarketBrief } from './publish-owner-market-brief.mjs';
 import { BRIEF_ACCESS_POLICY_VERSION } from "../lib/public-data-policy.mjs";
 import { buildBriefExtendedHours, extendedSessionForKind } from "../lib/brief-extended-hours.mjs";
@@ -39375,7 +39375,11 @@ async function main() {
   }
   // Owner synthesis is isolated from the public prompt and runs only after all
   // research publishers. It consumes local snapshots; no paid/provider calls.
-  try {
+  // Market days only: a weekend or holiday build leaves the stored market-day
+  // brief untouched (it is an optional bake key, so the store keeps it).
+  if (!ownerBriefRunsOn(Date.now())) {
+    console.log('[owner-brief] skipped — the market is closed today; the last market-day brief stays readable');
+  } else try {
     const ownerBriefNow = new Date();
     const kind = briefKindForHour(etHourNY(ownerBriefNow));
     const publicScan = await collectBriefSiteTools({ kind, narratives: [], now: ownerBriefNow });

@@ -49,9 +49,16 @@ than 45 days old. Former, awaiting-source, disabled, resolved and unavailable fo
 withheld. Missing fiscal periods, currencies or numerical outputs cannot
 supply an earnings expectation.
 
-The whole report expires after at most 24 hours, or earlier when a contributing
-Owner snapshot, scenario, forecast cutoff or public narrative reaches its age
-limit. A dated public desk bounds only its own line in the public research scan:
+The whole report expires after at most one open market day (24 hours), or
+earlier when a contributing Owner snapshot, scenario, forecast cutoff or public
+narrative reaches its age limit. Every one of these windows counts open market
+days only (`openDayExpiry`): each closed ET date (weekend or exchange holiday)
+adds a day, so the Friday 16:10 brief stays readable until Monday 16:10, after
+Monday's builds have replaced it. Each coverage row carries the matching
+`staleAt`, so sources do not turn stale over a weekend either. The brief is
+built on market days only (`ownerBriefRunsOn`); a weekend or holiday build
+leaves the stored brief in place. The serialized contract caps a report's life
+at five days. A dated public desk bounds only its own line in the public research scan:
 each fact carries `validUntil` (its source time plus that desk's window), and the
 browser hides it once that passes, so an hourly desk such as Volume cannot blank
 the whole brief in the evening. Source observation dates take precedence over envelope

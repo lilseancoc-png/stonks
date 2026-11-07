@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { contentAssetVersion } from '../lib/asset-version.mjs';
 import { ownerBriefFixture } from './fixtures/owner-market-brief.mjs';
-import { buildOwnerMarketBrief, ownerBriefCalendar, sourceStatus } from '../lib/owner-market-brief.mjs';
+import { buildOwnerMarketBrief, openDayExpiry, ownerBriefCalendar, ownerBriefRunsOn, sourceStatus } from '../lib/owner-market-brief.mjs';
 import { ownerMarketBriefDisplayFactory } from '../lib/owner-market-brief-display.mjs';
 import { buildCalendarPayload, buildLeveragedEtfPicks, gatherBriefSignals } from './build.mjs';
 const display=ownerMarketBriefDisplayFactory();
@@ -70,6 +70,18 @@ check(Date.parse(heatFact.validUntil)===now+0.5*3600000,'Public desk age bounds 
 check(display.factCurrent(heatFact,now)&&!display.factCurrent(heatFact,now+0.5*3600000),'A public fact hides once its source window lapses');
 check(display.expiryKey(deadline,now)!==display.expiryKey(deadline,now+0.5*3600000),'A lapsing public fact re-renders the page');
 check(display.expired(original,Date.parse(original.validUntil)),'Report expiry is exclusive');
+// Weekends and holidays (2026-11-07): windows count open market days only.
+const etIso=(s)=>Date.parse(s);
+check(openDayExpiry(etIso('2026-11-06T21:10:00Z'),24)===etIso('2026-11-09T21:10:00Z'),'Friday 16:10 brief reads until Monday 16:10');
+check(openDayExpiry(etIso('2026-11-06T21:10:00Z'),36)===etIso('2026-11-10T09:10:00Z'),'A 36-hour public window skips the weekend');
+check(openDayExpiry(etIso('2026-11-25T21:10:00Z'),24)===etIso('2026-11-27T21:10:00Z'),'Thanksgiving adds one day');
+check(openDayExpiry(etIso('2026-11-10T15:00:00Z'),24)===etIso('2026-11-11T15:00:00Z'),'A weekday window is unchanged');
+check(openDayExpiry(etIso('2030-03-08T21:10:00Z'),24)===etIso('2030-03-09T21:10:00Z'),'An unlisted year counts every day');
+check(Date.parse(original.validUntil)===etIso('2026-10-26T15:05:00Z'),'Friday fixture brief stays readable through the weekend');
+check(!display.expired(original,etIso('2026-10-25T18:00:00Z'))&&display.expired(original,etIso('2026-10-26T15:05:00Z')),'Weekend read stays visible, Monday expiry still applies');
+check(original.coverage.every(s=>s.status!=='available'||!s.staleAt||display.coverageStatus(s,etIso('2026-10-25T18:00:00Z'))==='available'),'Sources do not turn stale over the weekend');
+check(display.valid(original)&&!display.valid({...structuredClone(original),validUntil:new Date(now+5*86400000+1).toISOString()}),'Life is capped at five days');
+check(!ownerBriefRunsOn(etIso('2026-11-07T16:00:00Z'))&&!ownerBriefRunsOn(etIso('2026-11-26T16:00:00Z'))&&ownerBriefRunsOn(etIso('2026-11-09T15:00:00Z'))&&ownerBriefRunsOn(etIso('2030-03-09T16:00:00Z')),'Briefs build on market days only');
 const malformedUnified=test(f=>f.payloads['unified-signal.json'].decisions=[null]);
 check(malformedUnified.ideas.length===0&&malformedUnified.coverage.find(s=>s.id==='unified-signal-engine').status==='invalid','Malformed source decisions are withheld at the owning boundary');
 const malformedPublic=test(f=>f.payloads['briefs.json'].current.indexes={});

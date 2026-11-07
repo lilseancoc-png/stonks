@@ -84,7 +84,11 @@ try {
   await root.locator('.omb-warning').waitFor();
   check(await root.locator('.omb-idea').count()>0,'Malformed refresh preserves the last readable report');
   check(errors.length===0,'Malformed nested refresh causes no page errors');
+  // The fixture is a Friday build: it stays readable over the weekend and
+  // expires one open market day later, on Monday.
   await page.clock.fastForward(24*3600000);
+  check(await root.locator('.omb-findings article').count()>0,'A Friday brief stays readable on Saturday');
+  await page.clock.fastForward(48*3600000);
   check(await root.locator('.brief-decision').count()===0,'Open report expiry removes the foundation playbook');
   check(await root.locator('.omb-findings article').count()===0,'Open report expiry removes saved instructions');
   preview.setScenario('no-narrative');await page.clock.setFixedTime(new Date(OWNER_BRIEF_FIXTURE_TIME));
