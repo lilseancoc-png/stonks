@@ -40,8 +40,9 @@ import {
   reconcileLevEtfLog, levEtfEntryInUniverse,
   scoreAllTickers, openPickPrecheck, prioritizeAiSlots, structuralVeto, aiGraderCandidates,
   appendGateLog, gateRowMoves, foldGateLog, computeGateStats, GATE_LOG_KEEP_DAYS, GATE_LOG_REPEAT_DAYS,
-  PICKS_SINGLES_DEFAULT, PICKS_SINGLE_MAX_COST, PICKS_STRUCTURE_POLICY_VERSION, singleContractCost,
+  PICKS_SINGLES_DEFAULT, PICKS_SINGLE_MAX_COST, PICKS_STRUCTURE_POLICY_VERSION, singleContractCost, rankVerticalPickContracts,
 } from "./build.mjs";
+import { PICKS_MIN_DTE } from "../lib/top-picks-config.mjs";
 // Single options by default (2026-11-07) changes which structures some checks
 // expect. `npm run test:picks` runs this file twice: once as shipped and once
 // with PICKS_SINGLES_DEFAULT=0 (the earlier engine mix).
@@ -2007,6 +2008,9 @@ for (const side of ["call", "put"]) {
       capped?.contract.structure === "debit_vertical" && capped.strategy.type === "debit" && capped.strategy.requested === "long"
         && capped.strategy.costCap?.cap === PICKS_SINGLE_MAX_COST && capped.strategy.costCap.cost > PICKS_SINGLE_MAX_COST
         && /over the \$5,000 cap/.test(capped.strategy.reason) && !capped.strategy.fallback);
+    ok("cost cap: the spread that replaces a capped single costs no more than the cap, and its cost is recorded",
+      capped && singleContractCost(capped.contract) <= PICKS_SINGLE_MAX_COST
+        && capped.strategy.costCap.spreadCost === singleContractCost(capped.contract) && !capped.strategy.costCap.overCap);
     const cappedEcon = buildPickContract("call", pricey, 0.045, plain, { evaluateEconomics: true });
     ok("cost cap: the economics search never ships a single over the cap",
       !cappedEcon || cappedEcon.contract.structure !== "long" || singleContractCost(cappedEcon.contract) <= PICKS_SINGLE_MAX_COST);
@@ -2014,12 +2018,31 @@ for (const side of ["call", "put"]) {
     ok("cost cap: a single under the cap stays a single", underCap?.contract.structure === "long" && !underCap.strategy.costCap
       && singleContractCost(underCap.contract) <= PICKS_SINGLE_MAX_COST);
     const debitAsked = selectStrategy(strongRow("call", { z: 0, pctile: 30 }), "call", { thesisTier: "strong", earningsInWindow: true });
-    ok("cost cap: a spread request is not touched by the cap", !buildPickContract("call", pricey, 0.045, debitAsked)?.strategy.costCap);
+    const pricyDebits = rankVerticalPickContracts("call", pricey, 0.045, { type: "debit", minDte: PICKS_MIN_DTE, expand: true });
+    ok("cost cap fixture: the $1,500 stock has spreads over and under the cap",
+      pricyDebits.some(c => singleContractCost(c) > PICKS_SINGLE_MAX_COST) && pricyDebits.some(c => singleContractCost(c) <= PICKS_SINGLE_MAX_COST));
+    const pricyEarn = buildPickContract("call", pricey, 0.045, debitAsked, { evaluateEconomics: true });
+    ok("cost cap: an earnings debit spread on a $1,500 stock uses a width under the cap",
+      pricyEarn?.contract.structure === "debit_vertical" && singleContractCost(pricyEarn.contract) <= PICKS_SINGLE_MAX_COST && !pricyEarn.strategy.costCap);
+    const giant = { spot: 9000, chains: mkBsChain(9000, 0.4), fundamentals: {} };
+    const giantDebits = rankVerticalPickContracts("call", giant, 0.045, { type: "debit", minDte: PICKS_MIN_DTE, expand: true });
+    ok("cost cap fixture: no spread on a $9,000 stock is under the cap",
+      giantDebits.length > 0 && giantDebits.every(c => singleContractCost(c) > PICKS_SINGLE_MAX_COST));
+    const giantEarn = buildPickContract("call", giant, 0.045, debitAsked);
+    ok("cost cap: when no spread is under the cap, the usual spread stands and says it is over the cap",
+      giantEarn?.contract.structure === "debit_vertical" && giantEarn.strategy.costCap?.overCap === true
+        && giantEarn.strategy.costCap.spreadCost === singleContractCost(giantEarn.contract)
+        && /No debit spread here costs under the \$5,000 cap/.test(giantEarn.strategy.reason));
   } else {
     ok("engine mix: a macro event forces a debit spread",
       selectStrategy(strongRow("call", { z: 0, pctile: 30 }), "call", { thesisTier: "strong", eventRisk: { active: true } }).type === "debit");
     ok("engine mix: no per-contract cap, the $1,500 stock still gets a single",
       buildPickContract("call", pricey, 0.045, plain)?.contract.structure === "long");
+    const legacyEarn = selectStrategy(strongRow("call", { z: 0, pctile: 30 }), "call", { thesisTier: "strong", earningsInWindow: true });
+    const legacyDebit = buildPickContract("call", pricey, 0.045, legacyEarn);
+    ok("engine mix: debit spreads are not cost-capped",
+      legacyDebit?.contract.structure === "debit_vertical" && !legacyDebit.strategy.costCap
+        && singleContractCost(legacyDebit.contract) === singleContractCost(pickVerticalForPick("call", pricey, 0.045, { type: "debit" })));
   }
 }
 

@@ -20753,8 +20753,9 @@ export function selectStrategy(r, side, opts = {}) {
   return mk("debit", debitLabel, `Recommended: ${why}.`);
 }
 
-// Dollars for one contract of a single option at the engine's price (mid,
-// else ask), or null when the quote is missing. Used by the $5,000 cap.
+// Dollars for one contract at the engine's price (mid, else ask), or null when
+// the quote is missing. Used by the $5,000 cap. A debit spread's mid is its net
+// debit, so the same helper prices one spread contract.
 export function singleContractCost(contract) {
   const px = pnumN(contract?.mid) ?? pnumN(contract?.ask);
   return px != null && px > 0 ? Math.round(px * 100) : null;
@@ -20973,6 +20974,22 @@ export function buildPickContract(side, data, rfr, strategyIn, opts = {}) {
       rankers.long = () => underCap;
     }
   }
+  // The same cap on the spread side: a debit spread uses a width that costs no
+  // more than the cap a contract when one exists. When none does, the engine's
+  // usual spread stands and the strategy says it is over the cap (below).
+  const capOn = PICKS_SINGLES_DEFAULT && PICKS_SINGLE_MAX_COST > 0;
+  if (capOn) {
+    const rankDebit = rankers.debit;
+    let debits = null;
+    rankers.debit = () => {
+      if (!debits) {
+        const all = rankDebit();
+        const under = all.filter(c => { const cost = singleContractCost(c); return cost == null || cost <= PICKS_SINGLE_MAX_COST; });
+        debits = under.length ? under : all;
+      }
+      return debits;
+    };
+  }
   const key = c => [c.structure, c.expiry, c.strike, c.shortStrike ?? "", c.longStrike ?? ""].join(":");
   let first = null, preferred = null, selected = null, evaluated = 0;
   const checkedTypes = [];
@@ -21001,8 +21018,16 @@ export function buildPickContract(side, data, rfr, strategyIn, opts = {}) {
   const fallback = used !== want;
   const labelFor = type => type === "credit" ? "credit spread" : type === "debit" ? "debit spread" : "single option";
   const fallbackWhy = preferred?.economics && !preferred.economics.eligible ? "no economically feasible preferred contract" : "no clean preferred contract";
-  const stratOut = fallback ? { ...strategy, type: used, label: (side === "call" ? "Bull" : "Bear") + " debit spread", fallback: true, requested: want,
+  let stratOut = fallback ? { ...strategy, type: used, label: (side === "call" ? "Bull" : "Bear") + " debit spread", fallback: true, requested: want,
     reason: (strategy.reason || "") + ` (${fallbackWhy}; used an already-permitted ${labelFor(used)}).` } : strategy;
+  if (capOn && used === "debit") {
+    const spreadCost = singleContractCost(contract);
+    const overCap = spreadCost != null && spreadCost > PICKS_SINGLE_MAX_COST;
+    if (stratOut.costCap || overCap) {
+      stratOut = { ...stratOut, costCap: { ...(stratOut.costCap || {}), cap: PICKS_SINGLE_MAX_COST, spreadCost, ...(overCap ? { overCap: true } : {}) } };
+      if (overCap) stratOut.reason = (stratOut.reason || "") + ` No debit spread here costs under the $${PICKS_SINGLE_MAX_COST.toLocaleString("en-US")} cap; this one costs about $${spreadCost.toLocaleString("en-US")} a contract.`;
+    }
+  }
   if (economics) economics.comparison = {
     requested: want, permitted, checkedTypes, evaluated,
     changed: changed || fallback,
@@ -21831,7 +21856,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       if (!built || !built.contract) { meta.vetoed++; if (isAct) traceGate(r, side, "no-contract"); continue; }  // can't act on a recommended structure -> drop
       contract = built.contract;
       stratFinal = built.strategy;
-      if (stratFinal?.costCap) meta.costCapped.push({ sym: r.sym, side, cost: stratFinal.costCap.cost });
+      if (stratFinal?.costCap) meta.costCapped.push({ sym: r.sym, side, cost: stratFinal.costCap.cost ?? null, spreadCost: stratFinal.costCap.spreadCost ?? null, ...(stratFinal.costCap.overCap ? { overCap: true } : {}) });
       exitPlan = buildExitPlan(side, pnum(r.data.spot), r.data, contract, { stockPlan: r.timing?.structure });
       entry.economics = built.economics;
       if (!entry.economics.eligible && entry.now) {
@@ -27131,8 +27156,12 @@ const THESIS_SCHEMA = {
 // depth/specificity, never copies the content.
 const THESIS_GOLD_EXAMPLES =
   "STANDARD TO EMULATE — two reference theses that hit the bar. Match their depth, specificity, and structure; never copy their content (they are about other names). " +
-  "EXAMPLE 1 — BEARISH on an oil producer. Summary: bearish because the Strait of Hormuz reopening lets supply catch back up to demand and pressures crude — confirmed by both sides standing down and tankers resuming transit. Story: the stock rallied ~40% YTD almost entirely on the Iran-conflict supply-disruption premium; with the war ending and the Strait reopening, that premium is being removed — already visible in lower crude futures and rising tanker traffic — so the single driver of the rally is gone and the stock (down ~10% on the week) should give back much of the YTD gain as the market reprices cheaper oil. Invalidation: tensions re-escalate or a new disruption emerges; crude futures stabilize or rise despite the reopening; the company prints results strong enough to offset lower oil. Strategy: high directional conviction with IV NOT extremely elevated → buy PUT DEBIT spreads (naked puts only if conviction is exceptional) for defined-risk downside that costs less than outright puts. " +
-  "EXAMPLE 2 — BEARISH on gold (GLD). Summary: bearish because the two pillars under the rally — the geopolitical risk premium (Iran) and expectations of aggressive Fed cuts — are BOTH reversing; gold pays no yield, so easing tension and higher-for-longer rates lift its opportunity cost. Story: the rally was geopolitics + cut expectations; with the war ending and the market now pricing fewer cuts (even a small hike tail), real yields (TIPS) are rising and haven flows into gold ETFs are fading — early confirmation the supports have deteriorated, so expect further downside over the coming weeks. Invalidation: the Fed clearly re-signals aggressive cuts; new geopolitical tension flares; gold breaks above recent highs on strong volume; inflation prints much hotter, reviving the hedge bid. Strategy: gold-option IV is currently ELEVATED → SELL premium via a bear (put) CREDIT spread (sell the higher-strike put, buy a further-OTM put for protection) to harvest the rich IV while staying bearish; if IV were neutral/low, prefer a put DEBIT spread instead. " +
+  "EXAMPLE 1 — BEARISH on an oil producer. Summary: bearish because the Strait of Hormuz reopening lets supply catch back up to demand and pressures crude — confirmed by both sides standing down and tankers resuming transit. Story: the stock rallied ~40% YTD almost entirely on the Iran-conflict supply-disruption premium; with the war ending and the Strait reopening, that premium is being removed — already visible in lower crude futures and rising tanker traffic — so the single driver of the rally is gone and the stock (down ~10% on the week) should give back much of the YTD gain as the market reprices cheaper oil. Invalidation: tensions re-escalate or a new disruption emerges; crude futures stabilize or rise despite the reopening; the company prints results strong enough to offset lower oil. " + (PICKS_SINGLES_DEFAULT
+    ? "Strategy: a clear bearish view with IV not very rich and no earnings inside the hold → buy a single PUT (the default; after costs, singles beat put debit spreads); a put debit spread only if earnings fell inside the hold or one contract cost more than the cap. "
+    : "Strategy: high directional conviction with IV NOT extremely elevated → buy PUT DEBIT spreads (naked puts only if conviction is exceptional) for defined-risk downside that costs less than outright puts. ") +
+  "EXAMPLE 2 — BEARISH on gold (GLD). Summary: bearish because the two pillars under the rally — the geopolitical risk premium (Iran) and expectations of aggressive Fed cuts — are BOTH reversing; gold pays no yield, so easing tension and higher-for-longer rates lift its opportunity cost. Story: the rally was geopolitics + cut expectations; with the war ending and the market now pricing fewer cuts (even a small hike tail), real yields (TIPS) are rising and haven flows into gold ETFs are fading — early confirmation the supports have deteriorated, so expect further downside over the coming weeks. Invalidation: the Fed clearly re-signals aggressive cuts; new geopolitical tension flares; gold breaks above recent highs on strong volume; inflation prints much hotter, reviving the hedge bid. " + (PICKS_SINGLES_DEFAULT
+    ? "Strategy: gold-option IV is VERY RICH (top tenth of its own history and above realized moves) with no event close → SELL premium via a bear (put) CREDIT spread (sell the higher-strike put, buy a further-OTM put for protection) to harvest the rich IV while staying bearish; if IV were normal or cheap, buy a single put instead. "
+    : "Strategy: gold-option IV is currently ELEVATED → SELL premium via a bear (put) CREDIT spread (sell the higher-strike put, buy a further-OTM put for protection) to harvest the rich IV while staying bearish; if IV were neutral/low, prefer a put DEBIT spread instead. ") +
   "WHAT MAKES A GOOD THESIS: answer 'why does this setup have an EDGE right now, and what has to happen for us to be right?' A high grade alone won't carry a trader through normal noise or a drawdown — the thesis must give a REASON to enter, a way to MONITOR whether it's working, and clear INVALIDATION so they know when to exit. Never just restate the grade — explain the NARRATIVE behind why the grade is high and why the trade fits current conditions. Be CLEAR, logically cause→effect, SPECIFIC (not vague/generic), TESTABLE (explicit confirmation + invalidation), and ACTIONABLE (it leads to a specific strategy). The thesis COMPLEMENTS the grade. ";
 
 const THESIS_SYSTEM =
