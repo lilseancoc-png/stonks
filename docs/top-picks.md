@@ -1351,3 +1351,60 @@ the support/resistance line names the prior 20-day levels.
 
 Tests: `npm run test:price-pillar`, `node scripts/event-play-smoke.mjs` (the
 Bottom tracker guard), `node scripts/streaks-browser.mjs` (the page).
+
+## Run archive, November 7, 2026
+
+Every Top Picks decision run (11:00 and 15:30 ET) now saves what the engine saw
+for the whole universe, not just for the trades it opened. The record is
+measurement only: it is built after the roster and never feeds it.
+
+**File.** One Owner-only file per ET trading day, `picks-run-YYYY-MM-DD.json`
+(`lib/picks-run-archive.mjs`), shaped `{ v, date, runs: [record, ...] }`. The
+15:30 run appends to the 11:00 one; a re-run with the same `builtAtIso`
+replaces its earlier copy, and at most `PICKS_RUN_MAX_PER_DAY` (8) runs are
+kept. Each record holds:
+
+- `rows`: one per scored name. `tot` (total), `side`, `spot`, `out` (what the
+  run did: `pick:<group>`, `gate:<first rule that turned it away>`, `open`
+  for a name already on the book, `below-bar`, or null when the walk never
+  reached it), the `buildEntrySnapshot` fields (`pillars`, `signals`, `ctx`,
+  `retired`, `heavy`, `ped`), `tm` (entry timing state, score, defer kind, hard
+  veto/wait, invalidation, event play), `iv` (ATM IV, percentile, z, 30-day
+  realized vol), `ne` (next earnings), `ai` (the final grader's grade, score,
+  buy-now/wait verdict, confidence, macro support and clipped reasons, only
+  for names it graded) and `c` (the single option `pickContractForPick` would
+  buy on that side: strike, expiry, DTE, bid, ask, mid, IV, delta, OI, spread,
+  earnings-in-window).
+- `picks`: each shipped pick with its group, classification, final grade,
+  strategy and reason, the real contract with every leg's bid and ask, the
+  entry signal and sizing.
+- Run context: `versions` (grade, entry policy, entry timing, model epoch,
+  caps, event play, exit policy, market policy, strategy-auto), `bars`
+  (trade/strong/actionable cuts), `regime` (state, stress, axis votes), `ai`
+  (active / skipped / graded count), `open` (the book at run time) and
+  `lists` (every rosterMeta list of symbols, such as `sectorCapped`).
+
+About 1 KB a name, so about 100 KB a run and 200 KB a day.
+
+**Storage.** `isPicksRunArchiveKey` (`lib/data-ownership.mjs`) marks the keys
+bake-owned and not dynamic, so push never delete-stales an older day.
+`lib/premium-keys.mjs` makes them Owner-only with no flag to flip.
+`lib/data-hydration.mjs` lets the bake download only today's file; scanners
+never download it, and `pull --include-archives` gets every day for research.
+`main()` reads today's file before `writeChainFiles` wipes `data/`, then
+`persistPicksRun` writes it after `picks.json`. The freshness verifier accepts
+only today's file and only when this run rewrote it. Being flat (not nested),
+a signed-in Owner can open `/data/picks-run-<date>.json`.
+
+**Off switch.** `PICKS_RUN_ARCHIVE=0` stops the writer; the files already in
+the store stay. A failed record or write logs `[picks-run]` and never fails the
+bake. An unreadable day file starts the day over.
+
+**Why.** The year-to-date backtest could rebuild only the price half of the
+grade. News, fundamentals, flow, the AI verdict and real option quotes are
+gone once a run ends. With this archive a rule change (structure, exits, bars,
+gates) can be replayed on the inputs and quotes the engine really had.
+
+Tests: `node scripts/picks-run-archive-smoke.mjs` (keys, privacy, hydration,
+merge, file round trip, a real roster through the real engine, bake wiring)
+and `node scripts/data-hydration-smoke.mjs` (the pull boundary).

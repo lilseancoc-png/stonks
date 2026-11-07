@@ -41,6 +41,7 @@ import {
   perSymbolHistorySymbol,
 } from "../lib/data-ownership.mjs";
 import { isCurrentAiRejectionPublishKey } from "../lib/ai-rejections.mjs";
+import { isCurrentPicksRunPublishKey } from "../lib/picks-run-archive.mjs";
 import { unifiedSignalDisplayFactory } from "../lib/unified-signal-display.mjs";
 import {
   MIN_IV_SUCCESS_RATE,
@@ -662,6 +663,13 @@ async function auditBake({ report, dataDir, runStartedAt, now, expectedSymbols }
     // dated keys are not local after the wipe; if one is still on disk it
     // stays unclassified so this run does not republish the archive.
     if (isCurrentAiRejectionPublishKey(key, etDateKey(now))) continue;
+    // Today's Top Picks run archive day file (lib/picks-run-archive.mjs). Not
+    // required (PICKS_RUN_ARCHIVE=0, or a non-decision bake); when present it
+    // must be this run's rewrite. An older day file stays unclassified.
+    if (isCurrentPicksRunPublishKey(key, etDateKey(now))) {
+      await requireRewrittenJson(report, dataDir, key, runStartedAt);
+      continue;
+    }
     if (isUnifiedSignalArchiveKey(key)) {
       const snapshot = await requireRewrittenJson(report, dataDir, key, runStartedAt);
       if (snapshot && (snapshot.snapshotKey !== key || !unifiedSignalDisplayFactory().valid(snapshot))) fail(report, `${key}: invalid unified decision snapshot`);

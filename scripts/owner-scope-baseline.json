@@ -1,11 +1,11 @@
 {
   "note": "Fingerprints for scripts/owner-scope-smoke.mjs. Update with --update only for a deliberate change, and say why in the PR.",
   "files": {
-    "scripts/build.mjs": "748c38cb88e0b6e0c5c4ee13f657e241d53c51a8ec866f2d15c1e99147bcbaf2",
+    "scripts/build.mjs": "72546f8e624e13f45f2e8fcf22f5028e8fe181708890cfce2b783975cca8c1b6",
     "lib/top-picks-config.mjs": "62a6a4975c4eca6253daf83f1b510c67154d62560bcb9ef485a7423f41bae6e5",
     "lib/datastore.mjs": "a1d12f4ad95025a0cfb9166a0c53b875ae1bf690466b6e579ea755dda250b630",
-    "lib/data-ownership.mjs": "e914126e0df674e2c9d62f359e7747abdd2efa21f18d281c4c43d975a3415420",
-    "scripts/sync-data.mjs": "cc5066b53a0bcb3ef344b040bb1b1fdb9832838f4bc7eef0102d1f972c6695d7",
+    "lib/data-ownership.mjs": "6a6a0b43a946a6dc32c5512ad0e01c32af2c9cbbd54bb55a558dbe5908803ac8",
+    "scripts/sync-data.mjs": "702a668d7443d18ef122b0cb43f9e1537eef1c2fb97d697a75dafb2542ad3afd",
     "lib/webull-mirror.mjs": "4371df1da1cba2e487d90d37661d8b3a36b1acbab1d6374187ade32e79e25aa7",
     "lib/grade-research.mjs": "74fb6c5acbe68820937758cdbd963cc669aba3b74fda28e74181c37e12e773a4"
   },

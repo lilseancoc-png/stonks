@@ -22,11 +22,16 @@ assert.equal(policy(`ai-rejections/${ago(60)}.json`), true);
 assert.equal(policy(`ai-rejections/${ago(61)}.json`), false);
 assert.equal(policy("evidence/2026-10-14.json"), false);
 assert.equal(policy("ai-rejections/2026-10-14.json"), false);
+// Top Picks run archive: the bake reopens today's day file only.
+assert.equal(policy(`picks-run-${today}.json`), true);
+assert.equal(policy(`picks-run-${ago(1)}.json`), false);
+for (const owner of ['unusual', 'oi', 'brief', 'transcripts', 'search-interest', 'overnight']) assert.equal(hydrationPolicy({ owner, bakeDate: today })(`picks-run-${today}.json`), false);
 
 const root = await mkdtemp(resolve(tmpdir(), "stonks-hydration-"));
 const objects = new Map([["picks.json", Buffer.from('{}')], ["ai-rejection-scorecard.json", Buffer.from('{}')],
   ["evidence-latest.json", Buffer.from('{}')], ["ai-rejections-latest.json", Buffer.from('{}')], [ownershipPart, Buffer.from('{}')]]);
 for (let day = 0; day < 1000; day++) for (const prefix of ["evidence", "ai-rejections"]) objects.set(`${prefix}/${ago(day)}.json`, Buffer.from('{}'));
+for (let day = 0; day < 300; day++) objects.set(`picks-run-${ago(day)}.json`, Buffer.from('{}'));
 const reads = [];
 let pinned = true;
 const client = {
@@ -45,6 +50,7 @@ try {
       const files = await readdir(dataDir, { recursive: true });
       const archiveReads = reads.filter(key => /^(evidence|ai-rejections)\//.test(key));
       assert.equal(archiveReads.length, owner === "bake" ? 121 : 0);
+      assert.deepEqual(reads.filter(key => key.startsWith("picks-run-")), owner === "bake" ? [`picks-run-${today}.json`] : []);
       assert.ok(files.includes("picks.json"));
       assert.ok(files.includes("evidence-latest.json"));
       assert.ok(files.includes("ai-rejections-latest.json"));
@@ -55,6 +61,7 @@ try {
   reads.length = 0;
   await pull({ storeClient: client, dataDir: resolve(root, "backtest"), includeArchives: true, bakeDate: today });
   assert.equal(reads.filter(key => /^(evidence|ai-rejections)\//.test(key)).length, 2000);
+  assert.equal(reads.filter(key => key.startsWith("picks-run-")).length, 300);
   assert.ok(!reads.includes("ai-rejection-scorecard.json"));
   assert.equal(objects.size, initialSize, "filtering hydration never deletes retained remote history");
 
