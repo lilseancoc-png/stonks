@@ -21,13 +21,17 @@ export function renderStockPageJs() {
     var WATCH_KEY = 'stonks-watch-v1';
     var TAB_KEY = 'stonks-stock-tab-v1';
     var state = { sym: null, data: null, quote: null, tab: 'overview', chart: null, range: '6M', kind: 'area', token: 0, cone: true, afterTab: null, tabCharts: [], grid: { metric: 'oi', side: 'both' } };
-    var cache = { names: null, namesP: null, oi: null, oiP: null, f13: null, f13P: null, calls: {}, grades: null, gradesP: null, acc: null, accP: null, ulog: null, ulogP: null, ghist: null, ghistP: null };
+    var cache = { names: null, namesP: null, oi: null, oiP: null, f13: null, f13P: null, calls: {}, grades: null, gradesP: null, acc: null, accP: null, accRecP: null, ulog: null, ulogP: null, ghist: null, ghistP: null };
     try { if (localStorage.getItem('stonks-stock-cone-v1') === '0') state.cone = false; } catch (_) {}
     try { var savedTab = localStorage.getItem(TAB_KEY); if (savedTab) state.tab = savedTab; } catch (_) {}
 
     function cleanSym(s){
       var v = String(s || '').trim().toUpperCase();
       return SYM_RE.test(v) ? v : null;
+    }
+    function stpOrd(n){
+      var k = Math.round(Number(n)), t = k % 100, u = k % 10;
+      return k + (t >= 11 && t <= 13 ? 'th' : u === 1 ? 'st' : u === 2 ? 'nd' : u === 3 ? 'rd' : 'th');
     }
     function getJson(key, opts){
       return fetch(dataUrl(key), { cache: (opts && opts.cache) || 'no-cache' }).then(function(r){
@@ -773,7 +777,7 @@ export function renderStockPageJs() {
         return '<tr' + (ri === spotRow ? ' class="is-spot"' : '') + '><th scope="row" class="num">' + money(k) + '</th>' + cells + '</tr>';
       }).join('');
       return head + '<div class="stp-table-wrap"><table class="stp-grid" data-nosort><thead><tr><th scope="col" class="num">Strike</th>' + exps.map(function(e){ return '<th scope="col" class="num">' + escapeHtml(lbl(e)) + '</th>'; }).join('') + '</tr></thead><tbody>' + rows + '</tbody></table></div>' +
-        '<p class="stp-src">Darker cells hold more contracts. The line under a row marks the price (' + money(spot) + '). Strikes within 15% of the price, the nearest ' + exps.length + ' expirations, from the last build.</p>';
+        '<p class="stp-src">Stronger color means more contracts. The line between two rows marks the price (' + money(spot) + '). Strikes within 15% of the price, the nearest ' + exps.length + ' expirations, from the last build.</p>';
     }
     function tabOverview(){
       var d = state.data || {};
@@ -910,7 +914,7 @@ export function renderStockPageJs() {
       var em = expectedMove(d);
       html += '<div class="stp-stats stp-stats-3">' +
         '<div class="stp-stat"><span class="stp-stat-k">Implied volatility (30 days)</span><b>' + (iv.iv != null ? ratioPct(iv.iv, 0) : '—') + '</b></div>' +
-        '<div class="stp-stat"><span class="stp-stat-k">Versus its own past year</span><b>' + (iv.pctile != null ? escapeHtml(String(Math.round(iv.pctile))) + 'th percentile' : '—') + '</b>' +
+        '<div class="stp-stat"><span class="stp-stat-k">Versus its own past year</span><b>' + (iv.pctile != null ? escapeHtml(stpOrd(iv.pctile)) + ' percentile' : '—') + '</b>' +
           (iv.pctile != null ? '<span class="stp-stat-sub">' + (iv.pctile >= 80 ? 'Options are expensive for this stock' : iv.pctile <= 20 ? 'Options are cheap for this stock' : 'Options are priced near normal') + '</span>' : '') + '</div>' +
         '<div class="stp-stat"><span class="stp-stat-k">Expected move</span><b>' + (em ? '±' + num(em.pct, 1) + '%' : '—') + '</b>' +
           (em ? '<span class="stp-stat-sub">by ' + escapeHtml(new Date(em.exp * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' })) + ' (about ' + money(em.dollars) + ')</span>' : '') + '</div>' +
@@ -1018,17 +1022,27 @@ export function renderStockPageJs() {
       cache.ulogP = getJson('unusual-log.json').then(function(j){ cache.ulog = j || {}; return cache.ulog; }).catch(function(){ cache.ulog = {}; return cache.ulog; });
       return cache.ulogP;
     }
+    // The Story's grade and trade markers are a reporting view, so they read
+    // the Track Record's copy (which leaves out any wiped period), not the raw
+    // engine files.
+    function recordJson(key){
+      var url = typeof trackRecordDataUrl === 'function' ? trackRecordDataUrl(key) : dataUrl(key);
+      return fetch(url, { cache: 'no-cache', credentials: 'same-origin' }).then(function(r){
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      });
+    }
     function ghistData(){
       if (!HAS_OWNER_ACCESS) return Promise.resolve(null);
       if (cache.ghist) return Promise.resolve(cache.ghist);
       if (cache.ghistP) return cache.ghistP;
-      cache.ghistP = getJson('grades-history.json').then(function(j){ cache.ghist = j || {}; return cache.ghist; }).catch(function(){ cache.ghistP = null; return null; });
+      cache.ghistP = recordJson('grades-history.json').then(function(j){ cache.ghist = j || {}; return cache.ghist; }).catch(function(){ cache.ghistP = null; return null; });
       return cache.ghistP;
     }
     function accData(){
       if (!HAS_OWNER_ACCESS) return Promise.resolve(null);
-      if (!cache.accP) cache.accP = getJson('picks-accuracy.json').catch(function(){ cache.accP = null; return null; });
-      return cache.accP;
+      if (!cache.accRecP) cache.accRecP = recordJson('picks-accuracy.json').catch(function(){ cache.accRecP = null; return null; });
+      return cache.accRecP;
     }
     function etDay(iso){ try { return new Date(iso).toLocaleDateString('en-CA', { timeZone: 'America/New_York' }); } catch (_) { return null; } }
     var STORY_KINDS = {

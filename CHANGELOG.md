@@ -76,6 +76,10 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 - Line charts no longer print the last date label on top of the one before it.
 - Rates & the dollar draws the one-year history and the Fed liquidity line even when the build has no live macro snapshot.
+- The Calendar keeps a VIX expiration that falls before that month's option expiration when the window ends between the two.
+- The stock page's Timeline and Past days read Top Picks trades and grade changes through the Track Record's copy, so a period the Owner wiped from the record stays out of them too.
+- Unusual options trades shows "—" (with a hover note) for a stock with no option expiring that day, and 0% when one is listed but barely traded.
+- The fear map tags only upcoming earnings, What changed no longer colors a streak that ended on a flat close as a drop and writes "an 8-day", Past days leaves ETFs out of its stock map and labels a trade's P&L as "now" or "closed at", and percentiles read 1st / 2nd / 3rd / 82nd instead of "82th" (stock page, fear map and the VIX rank lines).
 - `npm run verify:risk-cost` runs again. Since the Top Picks settings moved to their own file on Nov 6, it pasted that file into the old build it compares against and stopped with a duplicate-import error on every branch.
 
 ### Docs

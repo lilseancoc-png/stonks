@@ -126,7 +126,7 @@ const data = {
 // --- server --------------------------------------------------------------------
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.json': 'application/json', '.webmanifest': 'application/manifest+json' };
 let owner = true;
-const posts = [], publicAsks = [];
+const posts = [], publicAsks = [], recordAsks = [];
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, 'http://127.0.0.1');
   const json = (v, s = 200) => { res.writeHead(s, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(v)); };
@@ -150,6 +150,7 @@ const server = createServer(async (req, res) => {
   if (url.pathname === '/api/auth/track-record-data') {
     const k = url.searchParams.get('key');
     if (!owner) { publicAsks.push('track-record-data'); return json({ error: 'auth required' }, 401); }
+    recordAsks.push(k);
     return k in data ? json(data[k]) : json({});
   }
   if (url.pathname.startsWith('/api/auth/') && url.pathname !== '/api/auth/me') { if (!owner) publicAsks.push(url.pathname); return owner ? json({}) : json({ error: 'auth required' }, 401); }
@@ -236,12 +237,14 @@ try {
         await finish(s, 'wc-' + t, '#wc-root');
       }
       if (want('past-day')) {
+        recordAsks.length = 0;
         const s = await open(width, theme, 'past-day');
         await s.page.locator('#pd-root select, #pd-root [data-pd-date]').first().waitFor({ state: 'visible', timeout: 15000 });
         await s.page.waitForTimeout(500);
         if (owner) await s.page.waitForFunction(() => /Top Picks runs?|Brief/i.test(document.getElementById('pd-root')?.innerText || ''), null, { timeout: 10000 });
         const body = await text(s.page, '#pd-root');
         ok(owner === /TSLA put|Top Picks run/i.test(body), owner ? 'Owners see that day\'s Top Picks run' : 'public Past days has no Top Picks run');
+        if (owner) ok(recordAsks.includes('picks-accuracy.json'), 'Past days reads trades through the Track Record copy (wiped periods stay out)');
         await finish(s, 'pd-' + t, '#pd-root');
       }
       if (want('flow')) {
@@ -269,6 +272,7 @@ try {
         ok(/short interest/i.test(await s.page.locator('body').innerText()), 'short interest stat');
         await finish(s, 'stock-chart-' + t, '#stp-chart');
         for (const tab of ['story', 'earnings', 'options', 'owner'].filter((x) => owner || x !== 'owner')) {
+          recordAsks.length = 0;
           s = await open(width, theme, 'stock', '&s=NVDA');
           const btn = s.page.locator('[data-stock-tab="' + tab + '"]').first();
           await btn.waitFor({ state: 'visible', timeout: 15000 });
@@ -276,7 +280,10 @@ try {
           await s.page.waitForFunction(() => !/Loading…/.test(document.getElementById('stp-tab-body')?.innerText || 'Loading…'), null, { timeout: 15000 });
           await s.page.waitForTimeout(500);
           const body = await text(s.page, '#stp-tab-body');
-          if (tab === 'story') ok(owner === /Top Picks|Grade/.test(body), owner ? 'Owner story shows grade changes and trades' : 'public story has no Owner events');
+          if (tab === 'story') {
+            ok(owner === /Top Picks|Grade/.test(body), owner ? 'Owner story shows grade changes and trades' : 'public story has no Owner events');
+            if (owner) ok(recordAsks.includes('grades-history.json') && recordAsks.includes('picks-accuracy.json'), 'Story reads grades and trades through the Track Record copy');
+          }
           if (tab === 'earnings') ok(await s.page.locator('.stp-em-svg').count() >= 3, 'earnings small multiples');
           if (tab === 'options') ok(await s.page.locator('.stp-grid td').count() > 20, 'chain heat grid');
           if (tab === 'owner') {

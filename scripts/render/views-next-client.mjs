@@ -15,16 +15,27 @@ export function renderViewsNextJs() {
   // One cached fetch per key. An Owner-only key resolves to null without a
   // request unless the Owner session is confirmed; that null is not cached,
   // so the file loads once the session arrives.
+  var VN_RECORD_KEYS = { 'picks-accuracy.json': 1, 'picks-changes.json': 1, 'picks-roster.json': 1, 'grades-history.json': 1 };
   function vnJson(key, ownerOnly){
     if (ownerOnly && !HAS_OWNER_ACCESS) return Promise.resolve(null);
     var ck = key + (ownerOnly ? '|o' : '');
     if (Object.prototype.hasOwnProperty.call(VN.cache, ck)) return Promise.resolve(VN.cache[ck]);
     if (VN.pending[ck]) return VN.pending[ck];
-    VN.pending[ck] = fetch(dataUrl(key), { cache: 'no-cache', credentials: 'same-origin' })
+    // Track Record logs are read through the Track Record's own copy, which
+    // leaves out any period the Owner wiped from reporting.
+    var url = ownerOnly && VN_RECORD_KEYS[key] && typeof trackRecordDataUrl === 'function' ? trackRecordDataUrl(key) : dataUrl(key);
+    VN.pending[ck] = fetch(url, { cache: 'no-cache', credentials: 'same-origin' })
       .then(function(r){ return r.ok ? r.json() : null; })
       .catch(function(){ return null; })
       .then(function(j){ VN.cache[ck] = j; delete VN.pending[ck]; return j; });
     return VN.pending[ck];
+  }
+  // 1st, 2nd, 3rd, 4th … 11th, 12th, 13th, 21st, 22nd.
+  function vnOrd(n){
+    var k = Math.round(Number(n));
+    if (!isFinite(k)) return '—';
+    var t = k % 100, u = k % 10;
+    return k + (t >= 11 && t <= 13 ? 'th' : u === 1 ? 'st' : u === 2 ? 'nd' : u === 3 ? 'rd' : 'th');
   }
   function vnPct(v, d, signed){
     if (v == null || !isFinite(v)) return '—';
@@ -176,8 +187,9 @@ export function renderViewsNextJs() {
     var soon = Date.now() + 14 * 86400000;
     var list = '<ol class="mm-fear-list">' + top.map(function(p){
       var r = p.row;
-      var earn = r.ne && Date.parse(r.ne + 'T12:00:00Z') <= soon ? '<span class="mm-tag">Earnings ' + escapeHtml(r.ne.slice(5)) + '</span>' : '';
-      return '<li>' + vnSym(r.s) + ' <span class="mm-dim">' + escapeHtml(r.n || '') + '</span> <span class="mm-kv">IV ' + r.ivp + 'th pct</span> <span class="mm-kv">skew ' + (useZ ? vnNum(r.skz, 1) + 'σ' : vnNum(p.y, 1) + ' pts') + '</span> ' + ivBandPillHtml(r.ivb) + earn + '</li>';
+      var earnMs = r.ne ? Date.parse(r.ne + 'T12:00:00Z') : NaN;
+      var earn = earnMs >= Date.now() - 86400000 && earnMs <= soon ? '<span class="mm-tag">Earnings ' + escapeHtml(r.ne.slice(5)) + '</span>' : '';
+      return '<li>' + vnSym(r.s) + ' <span class="mm-dim">' + escapeHtml(r.n || '') + '</span> <span class="mm-kv">IV ' + vnOrd(r.ivp) + ' pct</span> <span class="mm-kv">skew ' + (useZ ? vnNum(r.skz, 1) + 'σ' : vnNum(p.y, 1) + ' pts') + '</span> ' + ivBandPillHtml(r.ivb) + earn + '</li>';
     }).join('') + '</ol>';
     return '<div class="mm-tools"><label class="mm-check"><input type="checkbox" data-mm-etf' + (mmView('etf', false) ? ' checked' : '') + '> Include ETFs</label></div>' +
       '<p class="mm-lede">Right means the options cost more than usual for that stock. Up means puts (crash protection) cost more than usual compared with calls. Top right is where traders are paying up for protection.</p>' +
@@ -461,7 +473,7 @@ export function renderViewsNextJs() {
     var rows = (z.rows || []).slice().sort(function(a, b){ return (b.nearPct || 0) - (a.nearPct || 0); }).filter(function(r){ return r.all >= 2000; }).slice(0, 12);
     var cols = [
       { label: 'Stock', cell: function(r){ return vnSym(r.s); }, sort: function(r){ return r.s; } },
-      { label: 'Same day', num: true, cell: function(r){ return r.d0Pct ? vnPct(r.d0Pct, 0, false) : '—'; }, sort: function(r){ return r.d0Pct; } },
+      { label: 'Same day', num: true, cell: function(r){ return r.d0Pct != null ? vnPct(r.d0Pct, 0, false) : '<span title="No option on this stock expires today">—</span>'; }, sort: function(r){ return r.d0Pct; } },
       { label: 'Within a week', num: true, cell: function(r){ return vtBarHtml((r.nearPct || 0) / 100, '', vnPct(r.nearPct, 0, false)); }, sort: function(r){ return r.nearPct; } },
       { label: 'Contracts', num: true, cell: function(r){ return Number(r.all).toLocaleString(); }, sort: function(r){ return r.all; } }
     ];
@@ -588,7 +600,8 @@ export function renderViewsNextJs() {
     return v == null ? null : v / 100;
   }
   function pdTreemapHtml(i){
-    var rows = (pdState.map.rows || []).filter(function(r){ return r && r.mc > 0 && pdState.days.moves[r.s]; });
+    // Stocks only: SPY / QQQ / IWM already have their own tiles above.
+    var rows = (pdState.map.rows || []).filter(function(r){ return r && !r.etf && r.mc > 0 && pdState.days.moves[r.s]; });
     if (!rows.length) return '';
     var groups = {};
     rows.forEach(function(r){ var g = r.g || 'Other'; (groups[g] = groups[g] || { name: g, value: 0, items: [] }); groups[g].items.push(r); groups[g].value += r.mc; });
@@ -608,15 +621,20 @@ export function renderViewsNextJs() {
         var mv = pdMove(t.s, i);
         var pxW = W * gr.w / 100 * t.w / 100, pxH = H * gr.h / 100 * t.h / 100;
         var tiny = pxH < 16 || pxW < 22 ? ' is-tiny is-micro' : (pxH < 34 || pxW < 36 ? ' is-tiny' : '');
-        var dir = mv == null || mv === 0 ? 'zero' : mv > 0 ? 'pos' : 'neg';
-        var inten = mv == null ? 0 : Math.min(1, Math.abs(mv) / 3);
+        // Same color scale as the Heatmap page; pale tiles take dark text in light mode.
+        var cp = typeof heatmapColorParts === 'function' ? heatmapColorParts(mv, '1d') : { dir: mv == null || mv === 0 ? 'zero' : mv > 0 ? 'pos' : 'neg', intensity: mv == null ? 0 : Math.min(1, Math.abs(mv) / 3) };
+        var dir = cp.dir, inten = cp.intensity;
         var sym = Math.min(24, Math.max(9, Math.round(Math.min(pxH * 0.4, pxW * 0.22))));
-        html += '<a class="heatmap-tile pd-tile' + tiny + '" href="' + escapeHtml(vnHref(t.s)) + '" data-dir="' + dir + '" title="' + escapeHtml(t.s + (t.n ? ' · ' + t.n : '') + ': ' + (mv == null ? 'no close' : vnPct(mv, 2))) + '" style="--x:' + t.x.toFixed(3) + ';--y:' + t.y.toFixed(3) + ';--w:' + t.w.toFixed(3) + ';--h:' + t.h.toFixed(3) + ';--hm-intensity:' + inten.toFixed(3) + ';--hm-sym-size:' + sym + 'px;--hm-pct-size:' + Math.max(9, Math.round(sym * 0.72)) + 'px">' +
+        html += '<a class="heatmap-tile pd-tile' + tiny + '" href="' + escapeHtml(vnHref(t.s)) + '" data-dir="' + dir + '"' + (inten < 0.4 ? ' data-faint="1"' : '') + ' title="' + escapeHtml(t.s + (t.n ? ' · ' + t.n : '') + ': ' + (mv == null ? 'no close' : vnPct(mv, 2))) + '" style="--x:' + t.x.toFixed(3) + ';--y:' + t.y.toFixed(3) + ';--w:' + t.w.toFixed(3) + ';--h:' + t.h.toFixed(3) + ';--hm-intensity:' + inten.toFixed(3) + ';--hm-sym-size:' + sym + 'px;--hm-pct-size:' + Math.max(9, Math.round(sym * 0.72)) + 'px">' +
           '<span class="heatmap-tile-sym">' + escapeHtml(t.s) + '</span><span class="heatmap-tile-pct">' + escapeHtml(mv == null ? '—' : vnPct(mv, 1)) + '</span></a>';
       });
       html += '</div>';
     });
     return '<div class="pd-map" style="height:' + H + 'px">' + html + '</div>';
+  }
+  function pdBriefsSince(){
+    var first = pdState.briefs && (pdState.briefs.briefs || []).reduce(function(m, b){ return b && b.date && (!m || b.date < m) ? b.date : m; }, null);
+    return first ? 'Briefs are saved from ' + vnDay(first) + ' on, for about six months.' : 'Briefs are saved from the first build after this page went live, for about six months.';
   }
   function pdOwnerHtml(date){
     if (!HAS_OWNER_ACCESS) return '';
@@ -624,7 +642,7 @@ export function renderViewsNextJs() {
     var briefs = pdState.briefs ? (pdState.briefs.briefs || []).filter(function(b){ return b.date === date; }) : null;
     out += '<h4 class="pd-h4">Market Brief</h4>' + (briefs == null ? '<p class="mm-note">Loading…</p>' : briefs.length ? '<ul class="pd-briefs">' + briefs.map(function(b){
       return '<li><span class="pd-brief-when">' + escapeHtml(vnWhen(b.at) || (b.kind || '')) + '</span><b>' + escapeHtml(b.headline) + '</b>' + (b.summary ? '<p>' + escapeHtml(b.summary) + '</p>' : '') + '</li>';
-    }).join('') + '</ul>' : '<p class="mm-note">No saved Brief for this day. Briefs are kept from Nov 7, 2026 on, for about four months.</p>');
+    }).join('') + '</ul>' : '<p class="mm-note">No saved Brief for this day. ' + pdBriefsSince() + '</p>');
     var run = pdState.runs[date];
     out += '<h4 class="pd-h4">Top Picks runs</h4>';
     if (run === undefined || run === null) out += '<p class="mm-note">Loading…</p>';
@@ -632,7 +650,7 @@ export function renderViewsNextJs() {
     else out += run.runs.map(function(r){
       var picks = Array.isArray(r.picks) ? r.picks : [];
       var shipped = picks.filter(function(p){ return p && p.group === 'actionable'; });
-      return '<div class="pd-run"><b>' + escapeHtml(r.et || vnWhen(r.builtAtIso)) + '</b> · ' + (Array.isArray(r.rows) ? r.rows.length + ' names scored · ' : '') + (shipped.length ? shipped.length + ' ready to buy: ' + shipped.map(function(p){ return '<a class="vn-sym" href="' + escapeHtml(symGradeHref(p.s)) + '">' + escapeHtml(p.s) + '</a> ' + escapeHtml(p.side === 'put' ? 'put' : 'call') + (p.tot != null ? ' (' + Number(p.tot).toFixed(1) + ')' : ''); }).join(', ') : 'nothing ready to buy') +
+      return '<div class="pd-run"><b>' + escapeHtml(r.et || vnWhen(r.builtAtIso)) + '</b> · ' + (Array.isArray(r.rows) && r.rows.length ? r.rows.length + ' names scored · ' : '') + (shipped.length ? shipped.length + ' ready to buy: ' + shipped.map(function(p){ return '<a class="vn-sym" href="' + escapeHtml(symGradeHref(p.s)) + '">' + escapeHtml(p.s) + '</a> ' + escapeHtml(p.side === 'put' ? 'put' : 'call') + (p.tot != null ? ' (' + Number(p.tot).toFixed(1) + ')' : ''); }).join(', ') : 'nothing ready to buy') +
         (picks.length > shipped.length ? '<span class="mm-dim"> · ' + (picks.length - shipped.length) + ' on watch</span>' : '') + '</div>';
     }).join('');
     var acc = pdState.acc;
@@ -642,7 +660,7 @@ export function renderViewsNextJs() {
       var opened = (acc.open || []).concat(acc.closed || []).filter(function(e){ return e && vnEtDate(e.entryDate) === date; });
       var closed = (acc.closed || []).filter(function(e){ return e && vnEtDate(e.exitDate) === date; });
       function line(e, isClose){
-        return '<li><a class="vn-sym" href="' + escapeHtml(symGradeHref(e.symbol)) + '">' + escapeHtml(e.symbol) + '</a> ' + escapeHtml(e.side === 'put' ? 'put' : 'call') + (isClose ? ' closed, ' + escapeHtml(String(e.status || e.outcome || '').replace(/-/g, ' ')) + ' ' : ' opened ') + (e.optionPnlPct != null ? vnChg(e.optionPnlPct, 0) : '') + '</li>';
+        return '<li><a class="vn-sym" href="' + escapeHtml(symGradeHref(e.symbol)) + '">' + escapeHtml(e.symbol) + '</a> ' + escapeHtml(e.side === 'put' ? 'put' : 'call') + (isClose ? ' closed, ' + escapeHtml(String(e.status || e.outcome || '').replace(/-/g, ' ')) + ' ' : ' opened' + (e.optionPnlPct != null ? '<span class="mm-dim"> · ' + (e.exitDate ? 'closed at ' : 'now ') + '</span>' : ' ')) + (e.optionPnlPct != null ? vnChg(e.optionPnlPct, 0) : '') + '</li>';
       }
       out += opened.length || closed.length ? '<ul class="pd-trades">' + opened.map(function(e){ return line(e, false); }).join('') + closed.map(function(e){ return line(e, true); }).join('') + '</ul>' : '<p class="mm-note">No trades opened or closed that day.</p>';
     }

@@ -370,6 +370,13 @@ ${scenarioEventPhase.toString()}
   function fmt(n, d){ if (n == null || !isFinite(n)) return '—'; return Number(n).toFixed(d == null ? 2 : d); }
   function fmtPct(n){ if (n == null || !isFinite(n)) return '—'; return n.toFixed(2) + '%'; }
   function fmtMoney(n){ if (n == null || !isFinite(n)) return '—'; return '$' + Number(n).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}); }
+  // 1st, 2nd, 3rd, 4th … 11th, 12th, 13th, 21st (whole numbers).
+  function ordinalOf(n){
+    var k = Math.round(Number(n));
+    if (!isFinite(k)) return '—';
+    var t = Math.abs(k) % 100, u = Math.abs(k) % 10;
+    return k + (t >= 11 && t <= 13 ? 'th' : u === 1 ? 'st' : u === 2 ? 'nd' : u === 3 ? 'rd' : 'th');
+  }
   function escapeHtml(s){
     return String(s).replace(/[&<>"']/g, function(ch){
       return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[ch];
@@ -2646,7 +2653,7 @@ ${scenarioEventPhase.toString()}
     if (vixLeg) {
       var vixLvl = vixLeg.value;
       var vixRank = (vixLeg.rankPct != null && isFinite(vixLeg.rankPct)) ? vixLeg.rankPct : null;
-      var vixRankTxt = vixRank != null ? ', ' + vixRank + 'th pct over 90d' : '';
+      var vixRankTxt = vixRank != null ? ', ' + ordinalOf(vixRank) + ' pct over 90d' : '';
       var vixWord = vixLvl >= 30 ? 'high-fear' : vixLvl >= 20 ? 'elevated' : vixLvl >= 15 ? 'normal' : 'calm';
       var vixRich  = vixRank != null ? vixRank >= 75 : vixLvl >= 22;
       var vixCheap = vixRank != null ? vixRank <= 25 : vixLvl <= 14;
@@ -2902,7 +2909,7 @@ ${scenarioEventPhase.toString()}
       var vtRank = (vixTone.rankPct != null && isFinite(vixTone.rankPct)) ? vixTone.rankPct : null;
       var vtWord = vtLvl >= 30 ? 'high fear' : vtLvl >= 20 ? 'elevated' : vtLvl >= 15 ? 'normal' : 'calm';
       var vtCls = vtLvl >= 20 ? 'down' : vtLvl <= 14 ? 'up' : 'flat';
-      var vtRankTxt = vtRank != null ? ' · ' + vtRank + 'th pct 90d' : '';
+      var vtRankTxt = vtRank != null ? ' · ' + ordinalOf(vtRank) + ' pct 90d' : '';
       var VIXTONE_TIP = 'CBOE Volatility Index (VIX) — the market\\'s 30-day expected volatility, i.e. ambient fear. Baked at the last build (VIX can\\'t live-refresh). High = rich option premium / risk-off; low = cheap premium / calm tape.';
       // VIX term structure (9-day vs 30-day vs 3-month). Backwardation (front
       // richer than longer-dated) is acute stress — it confirms a risk-off
@@ -45785,7 +45792,7 @@ ${renderExportBindings()}
       var rankPct = (macro.vix && macro.vix.rankPct != null && isFinite(macro.vix.rankPct)) ? macro.vix.rankPct : null;
       if (rankPct != null) {
         var rk = rankPct >= 90 ? 'very-large' : rankPct >= 75 ? 'big' : rankPct >= 40 ? 'notable' : 'normal';
-        return { key: rk, label: rankPct + 'th pct · 90d' };
+        return { key: rk, label: ordinalOf(rankPct) + ' pct · 90d' };
       }
       var v = leg.value;
       if (v == null) return null;

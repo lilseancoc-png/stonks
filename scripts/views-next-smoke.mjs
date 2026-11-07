@@ -38,6 +38,8 @@ eq(kinds("2026-12-18"), ["ndx-recon", "sp-rebalance", "witching"], "December wit
 ok(mdEvents.some((e) => e.subtype === "vix-expiry" && e.date === "2026-11-18"), "VIX expiry on the calendar");
 ok(mdEvents.some((e) => e.subtype === "lockup" && e.ipoSymbol === "BIGCO" && e.estimate), "sizable IPO gets an estimated lockup end");
 ok(!mdEvents.some((e) => e.ipoSymbol === "TINY"), "small IPO is skipped");
+eq(marketStructureCalendarEvents(Date.parse("2026-10-25T12:00:00Z"), Date.parse("2026-11-19T12:00:00Z")).map((e) => e.date + " " + e.subtype),
+  ["2026-11-18 vix-expiry"], "a VIX date before the month's expiration is kept when the window ends in between");
 ok(mdEvents.every((e) => e.type === "market" && !("symbol" in e)), "market events never carry a symbol");
 eq(ipoListingsFrom({ ipos: { byQuarter: [{ items: [{ date: "2026-05-01", symbol: "abc", name: "ABC Acquisition Corp", raised: 2e8 }, { date: "2026-05-02", symbol: "xyz", name: "XYZ Inc", raised: 2e8 }] }] } }).map((r) => r.symbol), ["XYZ"], "SPAC shells are left out");
 const ics = buildCalendarIcs({ events: mdEvents.concat([{ type: "fomc", date: "2026-12-09", title: "FOMC decision" }]) }, { symbols: [], nowIso: "2026-11-07T12:00:00Z" });
@@ -93,6 +95,10 @@ ok(map.corr.m.every((row, i) => row[i] === 100), "correlation diagonal is 100");
 ok(map.breadth.dates.length > 100 && map.breadth.a50.every((v) => v == null || (v >= 0 && v <= 100)), "breadth shares are percentages");
 eq(map.zeroDte.total.d0, 5 * 150, "same-day option volume counted");
 ok(map.zeroDte.total.d0Pct > 0 && map.zeroDte.total.d0Pct < 100, "same-day share is a percentage");
+{
+  const noSameDay = buildMarketMap({ chains: { EEE: { ...chains.AAA, chains: { [expSec + 7 * 86400]: { c: [{ s: 1, v: 10 }], p: [] } } } }, symbols: ["EEE"], builtAtIso: "2026-11-06T21:10:00Z" });
+  eq(noSameDay.zeroDte.rows[0].d0Pct, null, "no option expiring today reads as none listed, not 0%");
+}
 
 // Owner fields never reach a public file, and the public boundary leaves the
 // new files as built.
@@ -120,6 +126,11 @@ eq(Object.keys(changes.snapshots).length, 2, "keeps the recent snapshots for the
 eq(ownerKeysIn(changes), [], "what-changed carries no Owner field");
 const sameDay = nextSiteChanges(changes, { ...snap2, at: "2026-11-06T22:00:00Z" });
 eq(sameDay.since, "2026-11-05", "a later build the same day still diffs against yesterday");
+{
+  const snap = (date, st) => ({ at: date + "T21:10:00Z", date, stocks: { ZZZ: { st } }, flow: [], filings: [], insiders: [] });
+  const ended = nextSiteChanges(nextSiteChanges(null, snap("2026-11-05", 4)), snap("2026-11-06", 0)).items.find((i) => i.kind === "streak");
+  ok(ended && /Ended a 4-day up streak/.test(ended.text) && ended.tone === null, "a streak that ends on a flat close is not colored as a drop");
+}
 
 // --- past days -------------------------------------------------------------------------
 const days = buildMarketDays({ chains, symbols: syms, builtAtIso: "2026-11-06T21:10:00Z" });
