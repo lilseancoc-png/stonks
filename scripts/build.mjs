@@ -1960,6 +1960,11 @@ async function fetchFundamentals(symbol) {
   if (callTime === "BMO" || callTime === "BEFORE MARKET OPEN") nextEarningsSession = "AM";
   else if (callTime === "AMC" || callTime === "AFTER MARKET CLOSE") nextEarningsSession = "PM";
   else if (callTime === "TAS" || callTime === "TNS") nextEarningsSession = "TBD";
+  // No time from Yahoo: a curated before-open name still reports before the
+  // open, so the pre-print IV stamp stops at 09:30 ET, not after the close.
+  if (nextEarnings && (!nextEarningsSession || nextEarningsSession === "TBD")) {
+    nextEarningsSession = curatedEarningsSession(symbol, nextEarnings) || nextEarningsSession;
+  }
 
   // Current-quarter / current-year growth estimates from earningsTrend. The
   // trend array is keyed by period: 0q (current Q), +1q, 0y (current FY), +1y.
@@ -6665,12 +6670,57 @@ const EARNINGS_GUIDANCE_STAMP_DAYS = 14;
 // and Yahoo's per-print session (via the pending stamp) overrides this going
 // forward. Banks/brokers, big-box retail, and large healthcare/pharma all
 // report BMO.
-const EARNINGS_BMO_REPORTERS = new Set([
-  "JPM", "BAC", "C", "GS", "MS", "SCHW",
-  "WMT", "HD", "TGT",
-  "UNH", "LLY", "NVO",
-  "MA", "ACN",
+// Each value is the first report date known to come before the open (null =
+// the whole ten-year window). Disney and PayPal moved from after the close to
+// before the open in spring 2024, and American Express in 2019, so their older
+// prints keep the post-close default. QC of builds #73-#122 (2026-11-08) added
+// MRK, MRNA, AXP, VST, DDOG, SHOP, VRT, TSM, ASML, BABA, DIS and PYPL: their
+// backfilled prints were measured a day late (the next session's move, after
+// the real reaction had already happened).
+const EARNINGS_BMO_REPORTERS = new Map([
+  ["JPM", null], ["BAC", null], ["C", null], ["GS", null], ["MS", null], ["SCHW", null],
+  ["WMT", null], ["HD", null], ["TGT", null],
+  ["UNH", null], ["LLY", null], ["NVO", null], ["MRK", null], ["MRNA", null],
+  ["MA", null], ["ACN", null], ["AXP", "2019-07-01"],
+  ["VST", null], ["DDOG", null], ["SHOP", null], ["VRT", null],
+  ["TSM", null], ["ASML", null], ["BABA", null],
+  ["DIS", "2024-05-01"], ["PYPL", "2024-04-01"],
 ]);
+
+// "AM" when the curated list says this name reported before the open on that
+// date, else null (the caller keeps its own default).
+export function curatedEarningsSession(symbol, dateIso) {
+  const sym = String(symbol || "").toUpperCase();
+  if (!EARNINGS_BMO_REPORTERS.has(sym) || typeof dateIso !== "string") return null;
+  const since = EARNINGS_BMO_REPORTERS.get(sym);
+  return !since || dateIso.slice(0, 10) >= since ? "AM" : null;
+}
+
+// Stored past prints (before today) of a curated before-open name that still
+// carry the post-close default ("TBD"), so their reaction was read a session
+// late. Today's print is left to the resolve pass and re-read tomorrow.
+// A print the bars could not price as AM (amRepairTried) is left alone.
+export function earningsSessionRepairTargets(symbol, events, todayIso) {
+  return (Array.isArray(events) ? events : []).filter((e) => e?.date && e.date < todayIso && !e.amRepairTried
+    && (!e.session || e.session === "TBD") && curatedEarningsSession(symbol, e.date) === "AM");
+}
+
+// Re-reads one such print as a before-open report: the reaction moves to the
+// announcement-day session and the run-up and IV reads around it are cleared
+// so the resolve pass refills them on the right side of the print. Returns
+// false (and changes nothing) when the bars cannot price the AM reaction.
+export function applyAmSessionRepair(ev, bars) {
+  const rx = computeEarningsReaction(bars, ev.date, "AM");
+  if (!rx) return false;
+  Object.assign(ev, rx);
+  ev.session = "AM";
+  delete ev.pre10Pct; delete ev.pre15Pct;
+  delete ev.ivPost;
+  // A live pre-print stamp (impliedMovePct) is real; anything else was read
+  // around the wrong session.
+  if (ev.impliedMovePct == null) { delete ev.ivPre; delete ev.impliedMoveEstPct; }
+  return true;
+}
 
 const ehxRound = (n, places = 4) => {
   const f = 10 ** places;
@@ -6762,7 +6812,7 @@ async function fetchYahooEarningsDates(symbol, size = 20) {
     // nextEarningsDate (fresher, and already session-resolved via Nasdaq).
     if (date > todayIso) continue;
     const type = String(row[iType] || "").toUpperCase();
-    const session = type === "BMO" ? "AM" : type === "AMC" ? "PM" : "TBD";
+    const session = type === "BMO" ? "AM" : type === "AMC" ? "PM" : (curatedEarningsSession(symbol, date) || "TBD");
     const num = (v) => (typeof v === "number" && isFinite(v) ? v : null);
     const ev = {
       date,
@@ -6811,7 +6861,6 @@ async function fetchNasdaqEarningsSurprise(symbol) {
     return Number.isFinite(n) ? n : null;
   };
   const todayIso = etDateKey();
-  const session = EARNINGS_BMO_REPORTERS.has(String(symbol).toUpperCase()) ? "AM" : "TBD";
   const out = [];
   for (const r of rows) {
     const m = String(r?.dateReported || "").trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
@@ -6820,7 +6869,7 @@ async function fetchNasdaqEarningsSurprise(symbol) {
     if (date > todayIso) continue; // past prints only — the next date is owned by fundamentals
     out.push({
       date,
-      session,
+      session: curatedEarningsSession(symbol, date) || "TBD",
       epsActual: parseNum(r?.eps),
       epsEstimate: parseNum(r?.consensusForecast),
       surprisePct: ehxRound(asPctPoints(parseNum(r?.percentageSurprise), "points"), 2),
@@ -7158,8 +7207,10 @@ export async function updateEarningsEventsHistory(store, chains, ivHistoryMap) {
     if (amFixed) console.log(`    ${sym}: dropped ${amFixed} summer AM pre-print stamp(s) taken after the open`);
     let backfillBars = null;
     const deep = entry.deepBackfill !== EARNINGS_DEEP_BACKFILL_VERSION;
+    let backfillRan = false;
     if ((deep || earningsBackfillNeeded(entry, todayIso)) && entry.backfilledAt !== todayIso) {
       entry.backfilledAt = todayIso;
+      backfillRan = true;
       try {
         const got = await fetchYahooEarningsDates(sym, deep ? EARNINGS_DEEP_BACKFILL_ROWS : 20);
         for (const ev of got) if (ev.date >= oldest) upsertEarningsEvent(entry.events, ev);
@@ -7173,31 +7224,50 @@ export async function updateEarningsEventsHistory(store, chains, ivHistoryMap) {
       }
       // Yahoo's visualization endpoint froze in mid-2025, so it no longer
       // returns recent prints — fill the last ~4 quarters from Nasdaq's
-      // per-ticker surprise table (real report dates + EPS). Session stays
-      // "TBD" (resolved as post-close, matching every existing event and the
-      // AMC cadence of the large-caps tracked); the date is the announcement,
-      // so the resolve pass marks the reaction on the right session.
+      // per-ticker surprise table (real report dates + EPS). Session is "AM"
+      // for the curated before-open names, else "TBD" (resolved as
+      // post-close, the AMC cadence of most large-caps tracked); the date is
+      // the announcement, so the resolve pass marks the reaction on the right
+      // session.
       try {
         const surprise = await fetchNasdaqEarningsSurprise(sym);
         for (const ev of surprise) if (ev?.date >= oldest) upsertEarningsEvent(entry.events, ev);
       } catch (err) {
         console.log(`    ⚠ ${sym} Nasdaq earnings-surprise backfill failed: ${err.message}`);
       }
+    }
+    // Stored prints of a curated before-open name that still carry the
+    // post-close default are re-read once as AM (QC #73-#122): one long bar
+    // fetch per affected name, tried at most once per ET day until it lands.
+    const repairTargets = earningsSessionRepairTargets(sym, entry.events, todayIso);
+    const repairNow = repairTargets.length > 0 && entry.sessionRepairAt !== todayIso;
+    if (repairNow) entry.sessionRepairAt = todayIso;
+    if (backfillRan || repairNow) {
       // Events older than the standard 1y bar window need the long fetch.
       const barsStart = data._bars?.find((b) => b?.t)?.t || null;
-      const needsLongBars = entry.events.some(
-        (e) => e?.date && e.date <= todayIso && !e.week1Done && (!barsStart || e.date <= barsStart),
-      );
+      const open = entry.events.filter((e) => e?.date && e.date <= todayIso && !e.week1Done);
+      if (repairNow) open.push(...repairTargets);
+      const needsLongBars = open.some((e) => !barsStart || e.date <= barsStart);
       if (needsLongBars) {
         // Reach the oldest unresolved print plus a month of run-up sessions.
-        const oldestOpen = entry.events.filter((e) => e?.date && e.date <= todayIso && !e.week1Done).reduce((m, e) => (e.date < m ? e.date : m), todayIso);
+        const oldestOpen = open.reduce((m, e) => (e.date < m ? e.date : m), todayIso);
         const reach = Math.ceil((Date.parse(`${todayIso}T00:00:00Z`) - Date.parse(`${oldestOpen}T00:00:00Z`)) / 86400000) + 45;
         try {
           backfillBars = await fetchEarningsBackfillBars(sym, Math.max(EARNINGS_BACKFILL_LOOKBACK_DAYS, reach));
         } catch (err) {
           console.log(`    ⚠ ${sym} earnings backfill bars failed: ${err.message}`);
-          if (deep) delete entry.deepBackfill;
+          if (backfillRan && deep) delete entry.deepBackfill;
         }
+      }
+      if (repairNow && (backfillBars || !needsLongBars)) {
+        const barsStart2 = data._bars?.find((b) => b?.t)?.t || null;
+        let fixed = 0;
+        for (const ev of repairTargets) {
+          const bars = backfillBars && (!barsStart2 || ev.date <= barsStart2) ? backfillBars : data._bars;
+          if (applyAmSessionRepair(ev, bars)) fixed++;
+          else ev.amRepairTried = true;
+        }
+        if (fixed) console.log(`    ${sym}: re-read ${fixed} before-open print(s) on the announcement-day session`);
       }
     }
     // Stamp the upcoming print's "going in" read — refreshed every pre-print
