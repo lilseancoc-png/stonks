@@ -526,9 +526,12 @@ function computeGammaScore({ contracts, spot, callWall, callOiTotal, putOiTotal,
     const otm = otmPct("call", c.strike, spot);
     return otm != null && otm >= 0 && otm <= NEAR_THE_MONEY_OTM_MAX;
   });
-  const concentratedNearMoney = nearMoneyCalls.find(
-    (c) => c.oi >= BIG_OI && (avgCallOi <= 0 || c.oi >= CONCENTRATED_RATIO * avgCallOi),
-  );
+  // Name the HEAVIEST qualifying strike. The first one in chain order is
+  // usually the nearest strike, so the label disagreed with the call wall
+  // (NVDA 2026-11-06: "Heavy call OI at $187.5" beside a $200 call wall).
+  const concentratedNearMoney = nearMoneyCalls
+    .filter((c) => c.oi >= BIG_OI && (avgCallOi <= 0 || c.oi >= CONCENTRATED_RATIO * avgCallOi))
+    .reduce((best, c) => (!best || c.oi > best.oi ? c : best), null);
   if (concentratedNearMoney) {
     score += 1;
     reasons.push({
