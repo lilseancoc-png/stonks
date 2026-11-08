@@ -61,8 +61,12 @@ assert.equal(sparkAreaHtml("5,5", 30), "");
 const indexHtml = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 assert.match(indexHtml, /id="split-toggle"[\s\S]{0,1500}id="theme-toggle"/, "Split view button must sit next to the theme switch");
 // Language picker: right before the theme switch, kept out of translation.
-assert.match(indexHtml, /id="lang-select"[\s\S]{0,500}id="theme-toggle"/, "Language picker must sit next to the theme switch");
-assert.match(indexHtml, /class="lang-control"[^>]*translate="no"/, "Language picker must not translate itself");
+// Checked against the renderer: the committed index.html only picks the
+// picker up at the next scheduled build.
+const htmlSrc = readFileSync(new URL("./render/html.mjs", import.meta.url), "utf8");
+assert.match(htmlSrc, /\$\{i18nPickerHtml\(\)\}\s*<button id="theme-toggle"/, "Language picker must sit next to the theme switch");
+const { i18nPickerHtml } = await import("./render/i18n-client.mjs");
+assert.match(i18nPickerHtml(), /class="lang-control"[^>]*translate="no"/, "Language picker must not translate itself");
 assert.match(indexHtml, /classList\.add\('is-embed'\)/, "Panes must hide the site chrome before first paint");
 assert.ok(appJs.includes("var IS_EMBED = ") && appJs.includes("function splitOpen(") && appJs.includes("splitRestore();"), "Split view code must be in app.js");
 assert.ok(appJs.includes("'&embed=1'"), "Panes must load the site in embed mode");
