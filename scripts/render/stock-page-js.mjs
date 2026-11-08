@@ -685,15 +685,15 @@ export function renderStockPageJs() {
           series: [
             { name: 'Bullish share', short: 'Bull %', type: 'line', data: share, format: function(v){ return Math.round(v) + '%'; } },
             { name: 'Price', short: 'Price', type: 'line', axis: 'left', data: price, dashed: true, width: 1, format: function(v){ return '$' + Number(v).toFixed(2); } },
-            { name: 'Messages (24h)', short: 'Msgs', type: 'histogram', pane: 'lower', data: msgs, format: function(v){ return String(Math.round(v)); } }
+            { name: 'Posts within 24h (of 30 sampled)', short: 'Posts', type: 'histogram', pane: 'lower', data: msgs, format: function(v){ return String(Math.round(v)); } }
           ],
           bands: [{ value: 50, title: '50%', axis: false }],
-          source: 'Stocktwits messages tagged bullish or bearish · last reading each day'
+          source: 'Stocktwits, newest 30 posts per build, tagged bullish or bearish · last reading each day'
         }));
       };
       var last = byDay[days[days.length - 1]];
       return '<section class="stp-sec"><h3 class="stp-h3">What traders are saying vs the price</h3>' +
-        '<p class="stp-src">Latest: ' + num(last.bullishSharePct, 0) + '% of tagged messages bullish' + (last.msgCount24h ? ' · ' + count(last.msgCount24h) + ' messages in 24 hours' : '') + '. Chatter often follows the price rather than leading it.</p>' +
+        '<p class="stp-src">Latest: ' + num(last.bullishSharePct, 0) + '% of tagged messages bullish' + (last.msgCount24h ? ' · ' + count(last.msgCount24h) + ' of the newest 30 posts were within 24 hours' : '') + '. Chatter often follows the price rather than leading it.</p>' +
         '<div id="stp-chatter"></div></section>';
     }
     // --- earnings reactions: small multiples ----------------------------------

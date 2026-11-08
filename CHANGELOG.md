@@ -58,6 +58,8 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Target's and Home Depot's fundamentals charts label quarters by the companies' own fiscal year (they name a year by the year it starts in), so the quarter Target reports on Nov 18 reads Q3 '26, not Q3 '27.
 - Who owns what and the stock pages' fund moves no longer show foreign listing codes as tickers. Lookups before #722 kept the first listing OpenFIGI returned, often a Frankfurt code (Target as DYH, Morgan Stanley as DWD, Citigroup as TRVC), and the saved map was reused forever, so the TGT, MS, C, GLD and QQQ pages found no fund moves. Every saved ticker is now looked up again under the US-only rule, and those five are pinned.
 - Who owns what no longer shows "Curated filing themes": its "most bought / most sold" lists came from the Owner-only Market themes (or fixed filler text), not from the filings. The stored copy is hidden from public readers at once, and the page's Open Narratives button is Owner-only.
+- Earnings reactions for companies that report before the open are measured on the announcement day. Older prints filled in without a report time were all read as after-the-close, so the move counted was the next day's: Datadog's 23% jump on 2025-11-06 showed as +0.2%. Merck, Moderna, American Express, Vistra, Datadog, Shopify, Vertiv, TSMC, ASML, Alibaba, Disney and PayPal join the before-open list (Disney and PayPal from their 2024 switch, American Express from 2019), and stored prints of those names are re-read once on the next build.
+- The Stocktwits chatter count says what it is: how many of the newest 30 posts came in the last 24 hours ("of 30 sampled posts within 24h"), not a day's message total.
 
 ### Docs
 

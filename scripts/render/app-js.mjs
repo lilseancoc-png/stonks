@@ -7676,7 +7676,7 @@ ${renderExportBindings()}
       });
       return {
         x: x, y: y, value: net, time: p.at,
-        label: stamp + '\\n' + (net >= 0 ? '+' : '') + net.toFixed(0) + ' net bullish · ' + (p.msgCount24h || 0) + ' msgs/24h'
+        label: stamp + '\\n' + (net >= 0 ? '+' : '') + net.toFixed(0) + ' net bullish · ' + (p.msgCount24h || 0) + ' of 30 sampled posts within 24h'
       };
     });
     var path = points.map(function(p, i){ return (i ? 'L' : 'M') + p.x.toFixed(1) + ' ' + p.y.toFixed(1); }).join(' ');
@@ -7758,10 +7758,10 @@ ${renderExportBindings()}
       '<div class="opt-social-head">' +
         '<span class="opt-social-label">Retail sentiment tracker' + (stale ? ' <span class="opt-social-stale">stale</span>' : '') + '</span>' +
         '<span class="opt-social-stat">' + (hasDirectional
-          ? bull + '% bullish · ' + bear + '% bearish · ' + msgs + ' msgs/24h'
+          ? bull + '% bullish · ' + bear + '% bearish · ' + msgs + ' of 30 sampled posts within 24h'
           : 'Discussion found · no reliable directional sample') + '</span>' +
       '</div>' +
-      (hasDirectional ? '<div class="opt-social-bar" role="img" aria-label="' + bull + ' percent bullish, ' + bear + ' percent bearish" title="' + bull + '% bullish · ' + bear + '% bearish (' + msgs + ' msgs/24h)">' +
+      (hasDirectional ? '<div class="opt-social-bar" role="img" aria-label="' + bull + ' percent bullish, ' + bear + ' percent bearish" title="' + bull + '% bullish · ' + bear + '% bearish (' + msgs + ' of 30 sampled posts within 24h)">' +
           '<span class="bull" style="width:' + bull + '%"></span>' +
           '<span class="bear" style="width:' + bear + '%"></span>' +
         '</div>' : '') +
@@ -42737,7 +42737,7 @@ ${renderExportBindings()}
     var soc=chain.social;
     if(soc && (soc.msgCount24h||0)>=5 && soc.bullishPct!=null){
       var net=Math.round((soc.bullishPct||0)-(soc.bearishPct||0));
-      if(Math.abs(net)>=15) add('info','Crowd',(net>0?'+':'')+net+'% net '+(net>0?'bullish':'bearish')+' social chatter over the last 24h ('+soc.msgCount24h+' messages) — informational, not scored.');
+      if(Math.abs(net)>=15) add('info','Crowd',(net>0?'+':'')+net+'% net '+(net>0?'bullish':'bearish')+' chatter in the newest Stocktwits posts ('+soc.msgCount24h+' of 30 sampled within 24h) — informational, not scored.');
     }
 
     return { factors:factors };
