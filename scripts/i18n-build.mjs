@@ -3,8 +3,8 @@
 //   node scripts/i18n-build.mjs           # check zh-CN / ja / ko, write zh-TW
 //   node scripts/i18n-build.mjs --check   # check only, exit 1 on a problem
 //
-// zh-CN.json, ja.json and ko.json are written by hand (or by an approved
-// one-time translation pass) as { "strings": { "<English key>": "<text>" } }.
+// zh-CN.json, ja.json and ko.json are written by hand
+// as { "strings": { "<English key>": "<text>" } }.
 // zh-TW.json is made from zh-CN.json with OpenCC (Simplified -> Taiwan
 // Traditional with Taiwan phrasing), then i18n/zh-TW-overrides.json wins for
 // any key it lists. Every entry must keep the key's {0} number slots and
@@ -46,8 +46,15 @@ for (const lang of HAND) {
   if (!checkOnly) await write(lang, done[lang]);
 }
 
-if (!checkOnly) {
-  const OpenCC = await import('opencc-js');
+// opencc-js is not a project dependency (no new package for a rarely run
+// step). Install it for one run with `npm i --no-save opencc-js`; without it
+// the existing zh-TW.json is kept and only checked.
+let OpenCC = null;
+if (!checkOnly) { try { OpenCC = await import('opencc-js'); } catch { console.log('opencc-js not installed; keeping the existing zh-TW.json (npm i --no-save opencc-js to rebuild it).'); } }
+if (!checkOnly && !OpenCC) {
+  clean((await readJson('zh-TW.json', { strings: {} })).strings || {}, 'zh-TW', problems);
+}
+if (!checkOnly && OpenCC) {
   const toTw = OpenCC.Converter({ from: 'cn', to: 'twp' });
   const overrides = (await readJson('zh-TW-overrides.json', { strings: {} })).strings || {};
   // A few Taiwan word choices OpenCC leaves in mainland form.
