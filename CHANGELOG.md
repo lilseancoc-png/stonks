@@ -55,6 +55,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Narrative cards no longer show a "Next" stage written for a stage the story has left. When the risk checks move a story to Challenges or Collapse, the outlook says so, shows the model's own reasoning as the earlier read, and drops its next step.
 - The Track Record roster says a name was "out-ranked off the top 6" (the real list size) instead of "top 10", and its empty note no longer mentions a Top-10 snapshot.
 - The Grade tab's Execute now? card counts earnings and FOMC in market sessions, not calendar days. A Monday print seen on a Friday now gets the "next session" warning (it got none before), holidays are skipped, and an FOMC day stops reading as "today" once the 15:30 ET press conference is over.
+- Target's and Home Depot's fundamentals charts label quarters by the companies' own fiscal year (they name a year by the year it starts in), so the quarter Target reports on Nov 18 reads Q3 '26, not Q3 '27.
 
 ### Docs
 
