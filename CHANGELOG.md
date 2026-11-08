@@ -20,6 +20,12 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
      (same format, plus the archive preamble) and add that month to the
      "Older changelogs" index below. -->
 
+## 2026-11-08
+
+### Changed
+
+- Commodities: the Potash card now reads the World Bank's monthly potassium chloride price (US dollars per metric ton, from the free Pink Sheet workbook, through October 2026) instead of the BLS potash-mining PPI, which stopped in December 2022. The World Bank page is checked at most once a day and the workbook downloaded only when a new monthly release appears; a failed first read shows "no data yet" rather than the old index under the new unit (#774).
+
 ## 2026-11-07
 
 ### Added
