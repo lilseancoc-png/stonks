@@ -73,6 +73,7 @@ const files = {
     allTimeStats: { closed: 40 } },
   "transcript-NVDA.json": { builtAtIso: "2026-11-02T14:00:00Z", symbol: "NVDA", quarter: "Q3 2026", summary: "Strong quarter", session: "regular" },
   "picks-changes.json": { builtAtIso: "2026-11-02T14:00:00Z", events: [{ symbol: "NVDA", kind: "in" }] },
+  "volume-flags.json": { scannedAt: "2026-11-02T15:00:00Z", marketState: "REGULAR", tickers: [] },
   "regime-history.json": { builtAtIso: "2026-11-02T14:00:00Z", days: [{ d: "2026-11-02", band: "risk-on" }] },
   "unified-signal.json": { builtAtIso: "2026-11-02T14:00:00Z", validUntil: "2026-11-02T14:30:00Z", rows: [] },
   "picks-fills.json": { rows: [{ secret: true }] },
@@ -280,6 +281,9 @@ async function tool(name, args, opts) {
   assert.equal(brief.isError, false);
   assert.equal(brief.structuredContent.ai_calls, 0);
   assert.equal(brief.structuredContent.as_of, "2026-11-02T14:00:00Z");
+  const vol = await tool("get_feature", { feature_id: "volume" });
+  assert.equal(vol.structuredContent.as_of, "2026-11-02T15:00:00Z", "scanner payloads are dated by their scan time");
+  assert.ok(!vol.structuredContent.warnings.some((w) => /UNDATED_SOURCE/.test(w)));
   assert.ok(Buffer.byteLength(brief.content[0].text) <= 60_000);
   const briefNvda = await tool("get_feature", { feature_id: "brief", ticker: "nvda" });
   assert.equal(briefNvda.structuredContent.results.matches.length, 1);
