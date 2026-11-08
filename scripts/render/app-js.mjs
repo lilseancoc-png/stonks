@@ -36569,7 +36569,7 @@ ${renderExportBindings()}
       '2026-10-iv-rule': { since:'2026-10-26', note:'One expensive-options rule; credit spreads only when IV is very rich' },
       '2026-11-price-pillar': { since:'2026-11-06', note:'Price signals fixed: real breakouts vote, streaks read with the trend, MACD and 52-week votes dropped' },
       // No fixed date: the macro read is off until the owner turns it on.
-      '2026-11-macro-context': { note:'Macro, cycle and rotation fit added to the grade; Fed axis reads hikes priced; rotation read over a month' }
+      '2026-11-macro-context': { note:'Macro read: trades that fight the rates, credit and rotation backdrop are blocked; Fed vote counts hikes priced; rotation read over a month' }
     },
     exit: { '2026-10-22-tp25': { since:'2026-10-22', note:'Take-profit raised to +25%' } },
     entry: { '2026-10-23-reviewed-entry-v3': { since:'2026-10-23', note:'Entries must pass an option-price check' } },

@@ -1580,10 +1580,19 @@ prediction is a 10-day relative return; 0.222% = one grade point, capped at
 
 **With the switch on:**
 
-- `scoreTicker` adds the fit to the stock's total before the market-regime
-  overlay, under the same never-cross-zero guard as IV cost; funds get none.
-  `macroFit` rides the scored row, the pick, `grades.json` (points and group)
-  and the entry snapshot (`ctx.mx`).
+- Every stock's `macroFit` rides the scored row, the pick, `grades.json`
+  (points and group) and the entry snapshot (`ctx.mx`). Funds get none.
+- **The macro block** (`macroConflict`, inside `structuralVeto`): a call whose
+  fit reads −0.5 or lower, or a put at +0.5 or higher
+  (`PICKS_MACRO_BLOCK_PTS`, 0 turns it off), is kept off the open list and
+  does not take an AI grader slot. It is traced as gate `macro-conflict`
+  ("Fights the macro backdrop") in `rosterMeta.turnedAway`, the Why no picks
+  today list and the Scorecard's rule table, and listed in
+  `rosterMeta.macroBlocked`.
+- The fit is **not** added to the grade unless `PICKS_MACRO_POINTS=1`; then
+  `scoreTicker` adds it before the market-regime overlay, under the same
+  never-cross-zero guard as IV cost. In the replay below the block did better
+  than the points, so the points stay off by default.
 - The Fed-path axis is floored at −1 when hikes are priced (2-year yield at
   least `PICKS_MACRO_FED_PRICED_PTS`, 0.25, over fed funds). The priced level
   called the Fed's next six months right 88% of the time in 2008-2026; one
@@ -1609,6 +1618,16 @@ falls back to FRED's dollar and VIX.
 Picks understand rates and rotations" and in
 `/mnt/project-files/top-picks-review/macro-backtest-2026-11-07/`. Short
 version: the factor read explains same-period sector moves well (rank
-correlation about 0.23), forecasts them weakly (0.02-0.04), adds about 0.1
-points of 10-day move per pick to the replayed price-half grade, and helped in
-11 of 17 years. Test: `npm run test:macro-context`.
+correlation about 0.23) and forecasts them weakly (0.02-0.04). In the replay of
+the price-half grade (top six with a grade of 4 or more, every fifth session,
+10-day stock move in the trade's direction):
+
+| Rule | Avg move | Right way | Years helped of 17 | 2026 real grades |
+|---|---|---|---|---|
+| Grade alone | +0.45% | 52% | | −0.38% |
+| Points added to the grade | +0.56% | 53% | 11 | −0.27% |
+| Block at 0.75 points | +0.60% | 54% | 9 | |
+| Block at 0.5 points (default) | +0.62% | 54% | 12 | −0.23% |
+| Points plus block at 0.5 | +0.60% | 54% | 9 | |
+
+The block keeps about a fifth fewer picks. Test: `npm run test:macro-context`.

@@ -17400,6 +17400,7 @@ import {
   PICKS_TIMING_VOL_CONFIRM, PICKS_TIMING_VOL_DRY, PICKS_TIMING_VOL_CLIMAX,
   PICKS_TIMING_PULLBACK_BAND, PICKS_EVENT_SOFT_BLOCKS, PICKS_EVENT_AWARE,
   PICKS_MACRO_CONTEXT, PICKS_MACRO_ROTATION_PP_20D, PICKS_MACRO_FED_PRICED_PTS,
+  PICKS_MACRO_POINTS, PICKS_MACRO_BLOCK_PTS,
   PICKS_AI_SKIP_WHEN_NONE_READY, PICKS_ENTRY_READY_BAR, PICKS_ENTRY_EXTENDED_DIST,
   PICKS_ENTRY_EXTENDED_HARD, PICKS_ENTRY_CHASE_RSI_HARD, PICKS_ENTRY_EXTREME_DIST,
   PICKS_ENTRY_EXTREME_RSI, PICKS_ENTRY_EXTREME_RET5D, PICKS_ENTRY_PULLBACK_ATR_MULT,
@@ -17413,7 +17414,7 @@ export {
   PICKS_MAX_AI_THESES, PICKS_MIN_CONVICTION, PICKS_TIER_STRONG, PICKS_TACTICAL_SIZE_MULT,
   PICKS_ENTRY_TIMING_VERSION, PICKS_TIMING_THRESHOLDS,
   PICKS_SINGLES_DEFAULT, PICKS_SINGLE_MAX_COST, PICKS_STRUCTURE_POLICY_VERSION,
-  PICKS_MACRO_CONTEXT,
+  PICKS_MACRO_CONTEXT, PICKS_MACRO_POINTS, PICKS_MACRO_BLOCK_PTS,
 };
 // Sector / factor caps live in lib/top-picks-caps.mjs (re-exported here).
 export { PICKS_MAX_PER_SECTOR, PICKS_MAX_NEW_PER_FACTOR_RUN, PICKS_CAPS_VERSION };
@@ -20491,16 +20492,17 @@ function scoreTicker(sym, data, ctx) {
   // IV cost de-rates the implied direction but must never CROSS zero and
   // manufacture conviction on the opposite side.
   // Macro, cycle and rotation fit (PICKS_MACRO_CONTEXT=1 only; stocks only):
-  // at most +/-1.5 points from the learned macro weights, added here so the
-  // market-regime overlay still applies on top, and held by the same
-  // never-cross-zero guard as IV cost.
+  // at most +/-1.5 points from the learned macro weights. Always attached as
+  // macroFit (structuralVeto blocks a trade it points against); added to the
+  // grade only with PICKS_MACRO_POINTS=1, before the market-regime overlay and
+  // held by the same never-cross-zero guard as IV cost.
   const macroFitRaw = PICKS_MACRO_CONTEXT && SECTORS[sym] !== "ETF" ? (macroBackdrop?.macroContext?.fits?.[sym] || null) : null;
   const macroPoints = macroFitRaw && Number.isFinite(macroFitRaw.points) ? macroFitRaw.points : 0;
-  let preRegimeTotal = r1(base + ivContribution + macroPoints);
+  let preRegimeTotal = r1(base + ivContribution + (PICKS_MACRO_POINTS ? macroPoints : 0));
   const provSign = base >= 0 ? 1 : -1;
   if (preRegimeTotal * provSign < 0) preRegimeTotal = 0;
   const macroFit = macroFitRaw ? {
-    points: macroPoints, predRelPct: macroFitRaw.predRelPct, kind: macroFitRaw.kind,
+    points: macroPoints, inGrade: PICKS_MACRO_POINTS, predRelPct: macroFitRaw.predRelPct, kind: macroFitRaw.kind,
     kindLabel: MACRO_KIND_LABELS[macroFitRaw.kind] || macroFitRaw.kind, measured: !!macroFitRaw.measured,
     parts: (macroFitRaw.parts || []).slice(0, 4),
   } : null;
@@ -21663,7 +21665,18 @@ export function prioritizeAiSlots(cands, ctx = {}) {
 export function structuralVeto(r, side) {
   if (side === "call" && r?.forcedLiquidation?.vetoLong) return "collateral-stress";
   if (r?.pendingBuyout?.block) return "pending-buyout";
+  if (macroConflict(r, side)) return "macro-conflict";
   return null;
+}
+// The macro block (PICKS_MACRO_CONTEXT=1, PICKS_MACRO_BLOCK_PTS > 0): a call
+// whose macro fit reads -0.5 or lower, or a put at +0.5 or higher, fights the
+// backdrop. In the 2008-2026 replay this beat adding the points to the grade
+// (docs/top-picks.md). Stocks only; funds carry no fit.
+export function macroConflict(r, side) {
+  if (!PICKS_MACRO_CONTEXT || !(PICKS_MACRO_BLOCK_PTS > 0)) return false;
+  const p = Number(r?.macroFit?.points);
+  if (!Number.isFinite(p)) return false;
+  return (side === "call" && p <= -PICKS_MACRO_BLOCK_PTS) || (side === "put" && p >= PICKS_MACRO_BLOCK_PTS);
 }
 
 export const EARNINGS_WEEK_FILE = "earnings-week.json";
@@ -21825,6 +21838,8 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   meta.forcedLiquidationWatch = collateralWatch;
   meta.buyoutGated = [];
   meta.buyoutWatch = scored.map((r) => r.pendingBuyout).filter(Boolean);
+  meta.macroBlocked = [];
+  meta.macroBlockPts = PICKS_MACRO_CONTEXT && PICKS_MACRO_BLOCK_PTS > 0 ? PICKS_MACRO_BLOCK_PTS : null;
   // Event plays (lib/event-play.mjs): caps count what is already on the book.
   const nowIsoForEvents = typeof opts.builtAtIso === "string" ? opts.builtAtIso : new Date().toISOString();
   const eventCounts = eventPlayCounts([...(opts.openPositions || []), ...(opts.priorClosed || [])], nowIsoForEvents);
@@ -21857,6 +21872,11 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     }
     if (veto === "pending-buyout") {
       meta.buyoutGated.push(r.sym);
+      if (actionable) traceGate(r, r.side, veto);
+      continue;
+    }
+    if (veto === "macro-conflict") {
+      meta.macroBlocked.push({ sym: r.sym, side: actionable ? r.side : "put", points: r.macroFit?.points ?? null });
       if (actionable) traceGate(r, r.side, veto);
       continue;
     }
@@ -27469,7 +27489,8 @@ export function macroGraderLines(r, side, macroContext = null) {
   const L = [];
   if (macroContext) for (const line of macroContextLines(macroContext)) L.push(`MACRO CYCLES — ${line}`);
   if (r?.macroFit) {
-    L.push(`MACRO FIT (${r.macroFit.kindLabel}; learned from 2008-2026 sector history and already inside the grade, at most ±1.5): ${macroFitSentence(r.macroFit, side)} In testing this read explained moves well but forecast them only weakly, so use it to judge whether the trade fights the cycle, not as proof on its own.`);
+    const where = r.macroFit.inGrade ? "already inside the grade" : "not added to the grade";
+    L.push(`MACRO FIT (${r.macroFit.kindLabel}; learned from 2008-2026 sector history, ${where}, at most ±1.5): ${macroFitSentence(r.macroFit, side)} In testing this read explained moves well but forecast them only weakly, so use it to judge whether the trade fights the cycle, not as proof on its own.`);
   }
   return L;
 }

@@ -92,23 +92,40 @@ if (!ON) {
   ok("grader prompt: the base message never carries the macro lines", !/MACRO CYCLES|MACRO FIT/.test(base));
 
   // ---- switch ON in a child process --------------------------------------------
-  const child = spawnSync(process.execPath, [fileURLToPath(import.meta.url), "--on"], { env: { ...process.env, PICKS_MACRO_CONTEXT: "1" }, encoding: "utf8" });
-  process.stdout.write(child.stdout || "");
-  if (child.status !== 0) { failures++; console.log(`FAIL switch-on run exited ${child.status}\n${child.stderr || ""}`); }
-  else passes += Number((child.stdout.match(/ON-PASSES (\d+)/) || [])[1] || 0);
+  ok("switch off: no macro block", B.macroConflict({ macroFit: { points: -1.5 } }, "call") === false && B.structuralVeto({ macroFit: { points: -1.5 } }, "call") === null);
+  for (const [mode, env] of [["--on", { PICKS_MACRO_CONTEXT: "1" }], ["--on-points", { PICKS_MACRO_CONTEXT: "1", PICKS_MACRO_POINTS: "1", PICKS_MACRO_BLOCK_PTS: "0" }]]) {
+    const child = spawnSync(process.execPath, [fileURLToPath(import.meta.url), mode], { env: { ...process.env, PICKS_MACRO_POINTS: "", PICKS_MACRO_BLOCK_PTS: "", ...env }, encoding: "utf8" });
+    process.stdout.write(child.stdout || "");
+    if (child.status !== 0) { failures++; console.log(`FAIL ${mode} run exited ${child.status}\n${child.stderr || ""}`); }
+    else passes += Number((child.stdout.match(/ON-PASSES (\d+)/) || [])[1] || 0);
+  }
   console.log(failures ? `macro-context smoke: ${failures} failed, ${passes} passed` : `macro-context smoke: all ${passes} checks passed`);
   process.exit(failures ? 1 : 0);
 } else {
   const B = await import("./build.mjs");
+  const pointsMode = process.argv.includes("--on-points");
   ok("switch on: version moves so the Track Record splits", B.PICKS_MACRO_CONTEXT === true && B.GRADE_MODEL_VERSION === "2026-11-macro-context");
   const chains = { AXP: { spot: 300, chains: {}, technicals: null, fundamentals: { sector: null } }, SPY: { spot: 500, chains: {}, technicals: null, fundamentals: { quoteType: "ETF" } } };
   const fitsUp = { AXP: { points: 1.2, predRelPct: 0.27, kind: "cardLender", parts: [{ key: "credit", label: "Credit conditions", contributionPct: 0.2 }] }, SPY: { points: 1.5, kind: "broad", parts: [] } };
   const up = B.scoreAllTickers(chains, [], null, null, { macroContext: { fits: fitsUp } }, null, {}).scored;
   const axp = up.find((r) => r.sym === "AXP"), spy = up.find((r) => r.sym === "SPY");
-  ok("switch on: the fit adds its points before the regime overlay", axp.preRegimeTotal === 1.2 && axp.macroFit?.points === 1.2 && axp.macroFit.kindLabel === "card lenders");
-  ok("switch on: funds get no macro points", spy.preRegimeTotal === 0 && !spy.macroFit);
-  const down = B.scoreAllTickers(chains, [], null, null, { macroContext: { fits: { AXP: { ...fitsUp.AXP, points: -1.2 } } } }, null, {}).scored.find((r) => r.sym === "AXP");
-  ok("switch on: the fit never pushes a grade across zero", down.preRegimeTotal === 0);
+  ok("switch on: funds get no macro fit", spy.preRegimeTotal === 0 && !spy.macroFit);
+  if (pointsMode) {
+    ok("points mode: the fit adds its points before the regime overlay", axp.preRegimeTotal === 1.2 && axp.macroFit?.points === 1.2 && axp.macroFit.inGrade === true && axp.macroFit.kindLabel === "card lenders");
+    const down = B.scoreAllTickers(chains, [], null, null, { macroContext: { fits: { AXP: { ...fitsUp.AXP, points: -1.2 } } } }, null, {}).scored.find((r) => r.sym === "AXP");
+    ok("points mode: the fit never pushes a grade across zero", down.preRegimeTotal === 0);
+    ok("points mode with the block at 0: nothing blocked", B.PICKS_MACRO_BLOCK_PTS === 0 && B.structuralVeto({ macroFit: { points: -1.5 } }, "call") === null);
+    ok("points mode: grader line says the fit is in the grade", /already inside the grade/.test(B.macroGraderLines({ macroFit: { ...fitsUp.AXP, kindLabel: "card lenders", inGrade: true } }, "call", null).join("")));
+  } else {
+    ok("default: the fit is shown but adds no points", B.PICKS_MACRO_POINTS === false && axp.preRegimeTotal === 0 && axp.macroFit?.points === 1.2 && axp.macroFit.inGrade === false);
+    ok("default: block at 0.5 points", B.PICKS_MACRO_BLOCK_PTS === 0.5);
+    ok("block: a call the fit reads -0.5 or lower is kept off", B.structuralVeto({ macroFit: { points: -0.5 } }, "call") === "macro-conflict" && B.structuralVeto({ macroFit: { points: -0.49 } }, "call") === null);
+    ok("block: a put the fit reads +0.5 or higher is kept off", B.structuralVeto({ macroFit: { points: 0.73 } }, "put") === "macro-conflict" && B.structuralVeto({ macroFit: { points: -0.9 } }, "put") === null);
+    ok("block: no fit, no block; the older vetoes still come first", B.structuralVeto({}, "call") === null && B.structuralVeto({ pendingBuyout: { block: true }, macroFit: { points: -1 } }, "call") === "pending-buyout");
+    ok("block: grader line says the fit is not in the grade", /not added to the grade/.test(B.macroGraderLines({ macroFit: { ...fitsUp.AXP, kindLabel: "card lenders", inGrade: false } }, "call", null).join("")));
+    const NP = (await import("../lib/no-picks.mjs")).noPicksFactory();
+    ok("block: the gate has a label and a next step", /macro backdrop/.test(NP.GATE_LABEL["macro-conflict"]) && NP.GATE_NEXT["macro-conflict"].length > 20);
+  }
   const mb = { macroContext: { factors: { rates: { detail: { pricedPct: 0.7 } } } }, rotation: { spread: 0.1, spread20d: -9 } };
   const mr = B.computeMacroRegime(mb, null, null, null, []);
   ok("switch on: hikes priced floor the Fed axis at -1", mr.axes.fed.score === -1 && /Hikes priced/.test(mr.axes.fed.label) && mr.axes.fed.pricedPct === 0.7);
