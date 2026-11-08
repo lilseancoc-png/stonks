@@ -52,6 +52,8 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - The live 2-year yield reads last December's close in early January, when Treasury's new-year feed has no row or one row, so the tile keeps its day change on the year's first sessions.
 - The Calendar's FOMC odds read Kalshi again. Kalshi now quotes its markets as dollar strings (`last_price_dollars`) with counts in `volume_fp`, and the old cent fields the build read are gone, so every Kalshi market came back empty and only the futures and Polymarket lines showed. The old cent fields still read as a fallback.
 - The MCP dates the flow, volume and open interest pages by their scan time instead of warning that they are undated.
+- Narrative cards no longer show a "Next" stage written for a stage the story has left. When the risk checks move a story to Challenges or Collapse, the outlook says so, shows the model's own reasoning as the earlier read, and drops its next step.
+- The Track Record roster says a name was "out-ranked off the top 6" (the real list size) instead of "top 10", and its empty note no longer mentions a Top-10 snapshot.
 
 ### Docs
 
