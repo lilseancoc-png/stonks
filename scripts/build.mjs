@@ -17033,6 +17033,29 @@ function kalshiFedEventTicker(meetingDate) {
   return `KXFEDDECISION-${yy}${mon}`;
 }
 
+// One Kalshi market → { label, prob, vol }. Probability: the last trade, else
+// the bid/ask mid. Kalshi now quotes prices as fixed-point dollar strings
+// (`last_price_dollars: "0.5600"`) and counts as `volume_fp`; the old
+// integer-cent fields (`last_price`, `yes_bid`, `yes_ask`, `volume`) are no
+// longer in its market model. Reading only those had left every market NaN, so
+// the Kalshi column was silently empty. Dollar fields first, cents as fallback.
+export function kalshiMarketRow(mk) {
+  const yesProb = (lastKey, bidKey, askKey, scale) => {
+    const last = Number(mk?.[lastKey] ?? NaN), bid = Number(mk?.[bidKey] ?? NaN), ask = Number(mk?.[askKey] ?? NaN);
+    if (Number.isFinite(last) && last > 0) return last / scale;
+    if (Number.isFinite(bid) && Number.isFinite(ask) && (bid > 0 || ask > 0)) return (bid + ask) / 2 / scale;
+    return Number.isFinite(last) ? last / scale : NaN;
+  };
+  let prob = yesProb("last_price_dollars", "yes_bid_dollars", "yes_ask_dollars", 1);
+  if (!Number.isFinite(prob)) prob = yesProb("last_price", "yes_bid", "yes_ask", 100);
+  const vol = Number(mk?.volume_fp ?? mk?.volume ?? NaN);
+  return {
+    label: mk?.yes_sub_title || mk?.subtitle || mk?.yes_subtitle || mk?.title || "",
+    prob,
+    vol: Number.isFinite(vol) ? vol : 0,
+  };
+}
+
 // Remember the Kalshi host that first answered so later meetings hit it directly
 // instead of re-probing every base (a far-out meeting with no market yet would
 // otherwise 404 across all bases every time).
@@ -17049,21 +17072,7 @@ async function fetchKalshiFomc(meetingDate) {
       : Array.isArray(json.event && json.event.markets) ? json.event.markets : null;
     if (!markets) continue; // 200 but unexpected shape — maybe the wrong host
     _kalshiWorkingBase = base;
-    const rows = markets.map((mk) => {
-      // Probability: prefer the last trade, else the bid/ask mid. Kalshi prices
-      // are integer cents (1-99) → /100.
-      let cents = Number(mk.last_price);
-      if (!Number.isFinite(cents) || cents <= 0) {
-        const bid = Number(mk.yes_bid), ask = Number(mk.yes_ask);
-        if (Number.isFinite(bid) && Number.isFinite(ask) && (bid > 0 || ask > 0)) cents = (bid + ask) / 2;
-      }
-      return {
-        label: mk.yes_sub_title || mk.subtitle || mk.yes_subtitle || mk.title || "",
-        prob: Number.isFinite(cents) ? cents / 100 : NaN,
-        vol: Number(mk.volume) || 0,
-      };
-    });
-    const bucketed = bucketRateOutcomes(rows);
+    const bucketed = bucketRateOutcomes(markets.map(kalshiMarketRow));
     // The event existed on this host; whether or not it had classifiable
     // markets, other bases serve the same data, so stop here.
     return bucketed
