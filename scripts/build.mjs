@@ -9653,43 +9653,6 @@ export function currentF13Quarter(asOf) {
   return describeF13QuarterEnd(active.end);
 }
 
-// Derive rotation themes (most bought / most sold sectors) from the
-// active narratives engine output. A bullish narrative on a sector
-// translates to a "most bought" bullet for that sector; a bearish one
-// to a "most sold" bullet. If no narratives are active for a side,
-// fall back to generic Mag-7 / SaaS rotation bullets so the panel
-// never renders empty.
-function deriveF13RotationThemes(narratives) {
-  const buys = [];
-  const sells = [];
-  const seen = { buy: new Set(), sell: new Set() };
-  for (const n of (narratives || [])) {
-    if (!n || !n.name) continue;
-    const sentiment = String(n.sentiment || "").toLowerCase();
-    const longs = Array.isArray(n.longs) ? n.longs.join(", ") : "";
-    const shorts = Array.isArray(n.shorts) ? n.shorts.join(", ") : "";
-    if ((sentiment === "bullish" || sentiment === "positive") && longs && !seen.buy.has(n.name)) {
-      buys.push(`${n.name} — accumulation in ${longs}`);
-      seen.buy.add(n.name);
-    }
-    if ((sentiment === "bearish" || sentiment === "negative") && (shorts || longs) && !seen.sell.has(n.name)) {
-      sells.push(`${n.name} — trims in ${shorts || longs}`);
-      seen.sell.add(n.name);
-    }
-  }
-  if (!buys.length) buys.push(
-    "Strong buying in AI / tech infrastructure (NVDA components, data centers).",
-    "Selected financials and selected consumer names.",
-    "Specific movers often include newer AI plays and selected semiconductors.",
-  );
-  if (!sells.length) sells.push(
-    "Selective trims in software / SaaS (some profit-taking).",
-    "Certain legacy holdings or high-valuation names.",
-    "Energy / oil in some cases depending on macro views.",
-  );
-  return { buys: buys.slice(0, 8), sells: sells.slice(0, 8) };
-}
-
 // === SEC EDGAR 13F holdings collection =============================
 // Collect one completed reporting window for the curated manager directory.
 // A shared paced reader handles submissions, archive pages, raw XML covers,
@@ -10042,13 +10005,65 @@ const F13_CUSIP_TICKER_OVERRIDES = new Map([
   ["F5654L114", "DASTY"],  // Dassault
   ["55903V109", "BABA"],   // Alibaba ADR
   ["G0259H108", "ACN"],    // Accenture PLC
+  // Covered names whose saved mapping was a foreign listing code from the
+  // lookups before #722 (all listings, first match won). The CUSIP and issuer
+  // name pairs come from the filings themselves.
+  ["87612E106", "TGT"],    // Target Corp (was DYH, Frankfurt)
+  ["617446448", "MS"],     // Morgan Stanley (was DWD, Frankfurt)
+  ["172967424", "C"],      // Citigroup Inc (was TRVC, Frankfurt)
+  ["78463V107", "GLD"],    // SPDR Gold Trust (was GQ9, Frankfurt)
+  ["46090E103", "QQQ"],    // Invesco QQQ Trust (was NDQ)
 ]);
+
+// 2 = every saved ticker came from a US-listing lookup. Mappings saved before
+// #722 asked OpenFIGI for every listing and kept the first, often a German or
+// Mexican code (DYH for Target, WBD* for Warner Bros. Discovery). The prior
+// payload's map was then reused forever, so those codes never healed.
+const F13_CUSIP_MAP_VERSION = 2;
+
+// Prior tickers split into trusted ones and ones that still need a US lookup.
+// A book collected before the US-only map began (`cusipMapSinceIso`) still
+// carries its old tickers, and so does a ticker listed in `cusipRecheck`. Such
+// a ticker keeps showing until OpenFIGI answers for its CUSIP; an answer (even
+// "no US listing") replaces it, and an unanswered one goes to the next build's
+// recheck list. Verified overrides always win.
+export function mergeF13CusipMaps(priorPayload, freshMap = new Map()) {
+  const version = Number(priorPayload?.cusipMapVersion) || 1;
+  const since = version >= F13_CUSIP_MAP_VERSION ? String(priorPayload?.cusipMapSinceIso || "") : "";
+  const pending = new Set(since && Array.isArray(priorPayload?.cusipRecheck) ? priorPayload.cusipRecheck : []);
+  const trusted = new Map(), legacy = new Map();
+  for (const f of Object.values(priorPayload?.perFirm || {})) {
+    const current = since && String(f?.collectedAtIso || "") >= since;
+    for (const r of [...(f?.holdings || []), ...(f?.topBought || []), ...(f?.topSold || [])]) {
+      if (!r?.cusip || !r.ticker) continue;
+      (current && !pending.has(r.cusip) ? trusted : legacy).set(r.cusip, r.ticker);
+    }
+  }
+  for (const cusip of trusted.keys()) legacy.delete(cusip);
+  const answered = freshMap.answeredCusips || new Set();
+  const map = new Map(trusted);
+  for (const [cusip, ticker] of legacy) if (!answered.has(cusip)) map.set(cusip, ticker);
+  for (const [cusip, ticker] of freshMap) map.set(cusip, ticker);
+  for (const [cusip, ticker] of F13_CUSIP_TICKER_OVERRIDES) map.set(cusip, ticker);
+  const recheck = [...legacy.keys()].filter(cusip => !answered.has(cusip) && !F13_CUSIP_TICKER_OVERRIDES.has(cusip)).sort();
+  return { trusted, map, recheck, sinceIso: since || null };
+}
+
+// A retained book's change tables take the current map, so a stock page does
+// not keep an old foreign code while that manager's filing is re-collected.
+export function relabelF13Rows(rows, cusipMap) {
+  if (!Array.isArray(rows)) return rows;
+  return rows.map(r => r?.cusip && (r.ticker || cusipMap.has(r.cusip)) ? { ...r, ticker: cusipMap.get(r.cusip) || null } : r);
+}
 
 // US listing mappings avoid substituting a foreign listing for a 13F CUSIP.
 // The caller reuses the prior CUSIP map and rotates unresolved lookup attempts.
 async function fetchOpenFigiCusipMap(cusips, { exchCode = null, deadline = Date.now() + 135000 } = {}) {
   const out = new Map();
   out.attemptedCusips = new Set();
+  // CUSIPs whose batch came back as a list: the answer is known, even when it
+  // holds no listing. A failed batch leaves its CUSIPs out.
+  out.answeredCusips = new Set();
   const unique = [...new Set(cusips.filter(Boolean))];
   if (!unique.length) return out;
   // Pre-seed the overrides so they're already mapped before any network call.
@@ -10106,10 +10121,11 @@ async function fetchOpenFigiCusipMap(cusips, { exchCode = null, deadline = Date.
       if (!Array.isArray(json)) continue;
       for (let j = 0; j < json.length; j++) {
         const entry = json[j];
+        if (chunk[j] && entry && !entry.error) out.answeredCusips.add(chunk[j]);
         // OpenFIGI returns multiple records per CUSIP — bonds, common stock,
         // ADRs, etc. Prefer "Common Stock" / "Depositary Receipt" matches
-        // over bond mappings; otherwise a corporate-bond CUSIP can come back
-        // with a debt-instrument ticker like "DWD" that looks like an equity.
+        // over bond mappings. Without exchCode the records also cover foreign
+        // listings: "DWD" is Morgan Stanley's Frankfurt code, not a US ticker.
         const records = Array.isArray(entry?.data) ? entry.data : [];
         const preferred = records.find((r) => {
           const t = (r?.securityType || r?.securityType2 || "").toLowerCase();
@@ -10338,14 +10354,10 @@ export async function buildPerFirm13FHoldings(asOf = new Date(), { priorPayload 
   const mappingAttempts = { ...(priorPayload?.mappingAttempts || {}) };
   const allCusips = prioritizeOwnershipCusips(mappingWeights, mappingAttempts);
   // Reuse verified prior CUSIP mappings so each build advances the unmapped tail.
-  const cachedMap = new Map();
-  for (const f of Object.values(priorPayload?.perFirm || {})) {
-    for (const r of [...(f?.holdings || []), ...(f?.topBought || []), ...(f?.topSold || [])]) {
-      if (r.cusip && r.ticker) cachedMap.set(r.cusip, r.ticker);
-    }
-  }
+  // Tickers saved before US-only lookups are looked up again first.
+  const { trusted: cachedMap } = mergeF13CusipMaps(priorPayload);
   const freshMap = await cusipMapper(allCusips.filter(c => !cachedMap.has(c)), { exchCode: 'US' });
-  const cusipMap = new Map([...cachedMap, ...freshMap]);
+  const { map: cusipMap, recheck: cusipRecheck, sinceIso: cusipMapSince } = mergeF13CusipMaps(priorPayload, freshMap);
   for (const cusip of freshMap.attemptedCusips || []) mappingAttempts[cusip] = asOf.toISOString();
   // Step 3: retain complete disclosed books independently of whether a
   // predecessor is available for the legacy quarterly change tables.
@@ -10361,7 +10373,8 @@ export async function buildPerFirm13FHoldings(asOf = new Date(), { priorPayload 
       const cached = priorPayload?.periodEndIso === targetQuarter.periodEndIso ? priorPayload.perFirm?.[f.firm] : null;
       collectionIssues[f.firm] = f.collectionError || 'Complete SEC book unavailable';
       perFirm[f.firm] = cached && Array.isArray(cached.holdings) && String(cached.cik) === String(f.cik)
-        ? { ...cached, collectionStatus: 'retained', collectionError: collectionIssues[f.firm],
+        ? { ...cached, topBought: relabelF13Rows(cached.topBought, cusipMap), topSold: relabelF13Rows(cached.topSold, cusipMap),
+            collectionStatus: 'retained', collectionError: collectionIssues[f.firm],
             collectedAtIso: cached.collectedAtIso || priorPayload.builtAtIso || null } : null;
       continue;
     }
@@ -10444,6 +10457,9 @@ export async function buildPerFirm13FHoldings(asOf = new Date(), { priorPayload 
     targetReportDate: targetQuarter.periodEndIso,
     collectionIssues,
     mappingAttempts: Object.fromEntries(Object.entries(mappingAttempts).filter(([cusip]) => !cusipMap.has(cusip))),
+    cusipMapVersion: F13_CUSIP_MAP_VERSION,
+    cusipMapSinceIso: cusipMapSince || asOf.toISOString(),
+    cusipRecheck,
   };
 }
 
@@ -10639,7 +10655,9 @@ export async function buildForm4InsiderTransactions(priorPayload = null, asOf = 
   };
 }
 
-export function build13FPayload(chains, narratives, asOf, perFirmResult) {
+// The second argument is unused: the old "most bought / most sold" themes came
+// from the Owner-only Market themes, not from the filings, and are gone.
+export function build13FPayload(chains, _narratives, asOf, perFirmResult) {
   // Prefer the exact report period used by the holdings fan-out. This keeps the
   // global heading aligned even if a long-running build crosses a quarter's
   // filing-deadline boundary between fetching holdings and writing the file.
@@ -10659,7 +10677,6 @@ export function build13FPayload(chains, narratives, asOf, perFirmResult) {
     kind: f.kind,
     filingDate: deadlineStr,
   }));
-  const themes = deriveF13RotationThemes(narratives);
   // perFirmResult is { perFirm, overallTopBought, overallTopSold } from
   // buildPerFirm13FHoldings. Defend against null/legacy callers.
   const perFirm = perFirmResult && perFirmResult.perFirm ? perFirmResult.perFirm : {};
@@ -10698,6 +10715,10 @@ export function build13FPayload(chains, narratives, asOf, perFirmResult) {
     explorerVersion: 1,
     collectionIssues: perFirmResult?.collectionIssues || {},
     mappingAttempts: perFirmResult?.mappingAttempts || {},
+    // A retained (unrefreshed) book keeps its prior mapping status.
+    cusipMapVersion: Number(perFirmResult?.cusipMapVersion) || 1,
+    cusipMapSinceIso: perFirmResult?.cusipMapSinceIso || null,
+    cusipRecheck: Array.isArray(perFirmResult?.cusipRecheck) ? perFirmResult.cusipRecheck : [],
     ownershipCoverage: {
       fullFunds,
       retainedFunds,
@@ -10706,8 +10727,6 @@ export function build13FPayload(chains, narratives, asOf, perFirmResult) {
       unmappedPositions: Object.values(perFirm).flatMap(f => f?.holdings || []).filter(r => !r.ticker && !r.isExit).length,
     },
     biggestPositions,
-    mostBought: themes.buys,
-    mostSold: themes.sells,
     rankingNote:
       `Cross-firm aggregate sums every qualifying firm's $-change in each CUSIP. ` +
       `Per-firm tables list the top ${F13_TOP_N_PER_SIDE} most-bought and most-sold positions by $ change, ` +
@@ -38496,6 +38515,9 @@ async function main() {
     overallTopSold: [],
     insiderTransactions: priorF13Payload?.insiderTransactions || null,
     mappingAttempts: priorF13Payload?.mappingAttempts || {},
+    cusipMapVersion: priorF13Payload?.cusipMapVersion,
+    cusipMapSinceIso: priorF13Payload?.cusipMapSinceIso,
+    cusipRecheck: priorF13Payload?.cusipRecheck,
     targetPeriod: f13TargetQuarter.period,
     targetReportDate: f13TargetQuarter.periodEndIso,
   };

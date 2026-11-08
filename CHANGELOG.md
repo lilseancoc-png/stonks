@@ -56,6 +56,8 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - The Track Record roster says a name was "out-ranked off the top 6" (the real list size) instead of "top 10", and its empty note no longer mentions a Top-10 snapshot.
 - The Grade tab's Execute now? card counts earnings and FOMC in market sessions, not calendar days. A Monday print seen on a Friday now gets the "next session" warning (it got none before), holidays are skipped, and an FOMC day stops reading as "today" once the 15:30 ET press conference is over.
 - Target's and Home Depot's fundamentals charts label quarters by the companies' own fiscal year (they name a year by the year it starts in), so the quarter Target reports on Nov 18 reads Q3 '26, not Q3 '27.
+- Who owns what and the stock pages' fund moves no longer show foreign listing codes as tickers. Lookups before #722 kept the first listing OpenFIGI returned, often a Frankfurt code (Target as DYH, Morgan Stanley as DWD, Citigroup as TRVC), and the saved map was reused forever, so the TGT, MS, C, GLD and QQQ pages found no fund moves. Every saved ticker is now looked up again under the US-only rule, and those five are pinned.
+- Who owns what no longer shows "Curated filing themes": its "most bought / most sold" lists came from the Owner-only Market themes (or fixed filler text), not from the filings. The stored copy is hidden from public readers at once, and the page's Open Narratives button is Owner-only.
 
 ### Docs
 
