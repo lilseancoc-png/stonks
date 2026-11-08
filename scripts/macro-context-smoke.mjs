@@ -1,14 +1,15 @@
 // Smoke test for the Top Picks macro, cycle and rotation context
 // (lib/macro-context.mjs + lib/macro-weights.json + the PICKS_MACRO_CONTEXT
-// hooks in scripts/build.mjs). Runs the switch-off checks in this process, then
-// re-runs itself with PICKS_MACRO_CONTEXT=1 for the switch-on checks.
+// hooks in scripts/build.mjs). Runs the switch-off checks in this process
+// (PICKS_MACRO_CONTEXT=0, the kill switch), then re-runs itself with the
+// switch at its default (on) and with grade points for the switch-on checks.
 // No network, no data/ files, no AI.
 import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import * as MC from "../lib/macro-context.mjs";
 
-const ON = process.argv.includes("--on");
+const ON = process.argv.some((a) => a === "--on" || a === "--on-points");
 let failures = 0, passes = 0;
 const ok = (name, cond) => { if (cond) passes++; else { failures++; console.log(`FAIL ${name}`); } };
 
@@ -73,8 +74,10 @@ if (!ON) {
   ok("party: tilt from the Party tracker rows", MC.partyTiltFor("XLF", { president: "R", house: "R", senate: "R" }, partyRows) === 2.25 && MC.partyTiltFor("XLK", { president: "R" }, partyRows) === null);
 
   // ---- engine hooks with the switch OFF -------------------------------------------
+  // The settings are read when build.mjs first loads, so the kill switch is set here.
+  process.env.PICKS_MACRO_CONTEXT = "0";
   const B = await import("./build.mjs");
-  ok("switch off by default", B.PICKS_MACRO_CONTEXT === false && B.GRADE_MODEL_VERSION === "2026-11-price-pillar");
+  ok("switch off with PICKS_MACRO_CONTEXT=0", B.PICKS_MACRO_CONTEXT === false && B.GRADE_MODEL_VERSION === "2026-11-price-pillar");
   ok("AXP reads as a card lender in the macro read only", B.macroContextKindOf("AXP") === "cardLender" && B.macroKindOf("AXP", {}) !== "cardLender");
   const chainsOff = { AXP: { spot: 300, chains: {}, technicals: null, fundamentals: { sector: null } } };
   const mbOff = { macroContext: { fits: { AXP: { points: 1.2, predRelPct: 0.27, kind: "cardLender", parts: [] } }, factors: { rates: { detail: { pricedPct: 0.7 } } } }, rotation: { spread: 0.1, spread20d: -9 } };
@@ -83,6 +86,7 @@ if (!ON) {
   const mrOff = B.computeMacroRegime(mbOff, null, null, null, []);
   ok("switch off: the Fed axis ignores hikes priced", mrOff.axes.fed.score === 0);
   ok("switch off: the rotation axis reads one day", mrOff.axes.rotation.score === 0 && !mrOff.axes.rotation.window);
+  ok("switch off: the browser tape keeps the one-day help text", mrOff.thresholds?.macroContextOn === false);
   const ctxB = B.buildMacroContextForBuild({ chains: null });
   ok("switch off: bake helper is safe with nothing", ctxB === null);
   const msg = B.macroGraderLines({ sym: "T10", macroFit: { ...ctx.fits.T10, kindLabel: "card lenders" } }, "call", ctx).join("\n");
@@ -93,8 +97,9 @@ if (!ON) {
 
   // ---- switch ON in a child process --------------------------------------------
   ok("switch off: no macro block", B.macroConflict({ macroFit: { points: -1.5 } }, "call") === false && B.structuralVeto({ macroFit: { points: -1.5 } }, "call") === null);
-  for (const [mode, env] of [["--on", { PICKS_MACRO_CONTEXT: "1" }], ["--on-points", { PICKS_MACRO_CONTEXT: "1", PICKS_MACRO_POINTS: "1", PICKS_MACRO_BLOCK_PTS: "0" }]]) {
-    const child = spawnSync(process.execPath, [fileURLToPath(import.meta.url), mode], { env: { ...process.env, PICKS_MACRO_POINTS: "", PICKS_MACRO_BLOCK_PTS: "", ...env }, encoding: "utf8" });
+  // An undefined value leaves the setting out of the child's environment.
+  for (const [mode, env] of [["--on", {}], ["--on-points", { PICKS_MACRO_POINTS: "1", PICKS_MACRO_BLOCK_PTS: "0" }]]) {
+    const child = spawnSync(process.execPath, [fileURLToPath(import.meta.url), mode], { env: { ...process.env, PICKS_MACRO_CONTEXT: undefined, PICKS_MACRO_POINTS: undefined, PICKS_MACRO_BLOCK_PTS: undefined, ...env }, encoding: "utf8" });
     process.stdout.write(child.stdout || "");
     if (child.status !== 0) { failures++; console.log(`FAIL ${mode} run exited ${child.status}\n${child.stderr || ""}`); }
     else passes += Number((child.stdout.match(/ON-PASSES (\d+)/) || [])[1] || 0);
@@ -104,7 +109,9 @@ if (!ON) {
 } else {
   const B = await import("./build.mjs");
   const pointsMode = process.argv.includes("--on-points");
-  ok("switch on: version moves so the Track Record splits", B.PICKS_MACRO_CONTEXT === true && B.GRADE_MODEL_VERSION === "2026-11-macro-context");
+  ok("switch on by default: version moves so the Track Record splits", B.PICKS_MACRO_CONTEXT === true && B.GRADE_MODEL_VERSION === "2026-11-macro-context");
+  const T = B.computeMacroRegime({}, null, null, null, []).thresholds || {};
+  ok("switch on: the browser tape gets the one-month and hikes-priced settings", T.macroContextOn === true && T.rotationPp20d === 4 && T.fedPricedPts === 0.25);
   const chains = { AXP: { spot: 300, chains: {}, technicals: null, fundamentals: { sector: null } }, SPY: { spot: 500, chains: {}, technicals: null, fundamentals: { quoteType: "ETF" } } };
   const fitsUp = { AXP: { points: 1.2, predRelPct: 0.27, kind: "cardLender", parts: [{ key: "credit", label: "Credit conditions", contributionPct: 0.2 }] }, SPY: { points: 1.5, kind: "broad", parts: [] } };
   const up = B.scoreAllTickers(chains, [], null, null, { macroContext: { fits: fitsUp } }, null, {}).scored;

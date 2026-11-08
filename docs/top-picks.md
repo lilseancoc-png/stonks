@@ -1534,16 +1534,19 @@ own timestamp in the Owner files only a Top Picks run writes.
 Tests: `npm run test:top-picks-watchdog`, `npm run test:setup-odds` and
 `npm run test:edge-odds-browser`.
 
-## Macro, cycle and rotation context, November 8, 2026 (off until approved)
+## Macro, cycle and rotation context, November 8, 2026 (on since the owner approved it)
 
 Built after the owner asked why the engine liked AXP calls while financial
 conditions tightened and more Fed hikes were priced. The market tape
 (`computeMacroRegime`) reads what changed today and applies one market-wide
 tilt; nothing in the grade asked how a card lender, a bank or a chip maker
 usually behaves when rates, credit, inflation or the dollar move. This layer
-adds that. **It is off** (`PICKS_MACRO_CONTEXT` unset). With it off, every
-grade, prompt and output is byte-for-byte what it was (the cost check's
-32-case grade comparison and the prompt guard both pass).
+adds that. The owner approved it on November 8, 2026 ("block at 0.5 plus
+context": the block, the Fed and rotation fixes and the grader lines, without
+adding the points to the grade), so it is **on by default**.
+`PICKS_MACRO_CONTEXT=0` is the kill switch: with it, every grade, prompt and
+output is byte-for-byte what it was before (the macro-context smoke checks the
+off path).
 
 **What it reads** (`lib/macro-context.mjs`, pure, no fetch, no AI):
 
@@ -1578,7 +1581,7 @@ learned walk-forward on 25 sector and industry ETFs, 2008-2026
 prediction is a 10-day relative return; 0.222% = one grade point, capped at
 ±1.5. Weights by environment were tested and did not beat one global set.
 
-**With the switch on:**
+**With the switch on (the default):**
 
 - Every stock's `macroFit` rides the scored row, the pick, `grades.json`
   (points and group) and the entry snapshot (`ctx.mx`). Funds get none.
@@ -1606,6 +1609,10 @@ prediction is a 10-day relative return; 0.222% = one grade point, capped at
   about 250 tokens per graded name.
 - `GRADE_MODEL_VERSION` becomes `2026-11-macro-context`, so the Track Record
   splits there (`ACC_RULE_NOTES`).
+- The browser's market tape carries the Fed and rotation axes from the build
+  (both are slow axes), and its help text reads `macroContextOn`,
+  `rotationPp20d` and `fedPricedPts` from the shipped thresholds so it
+  describes the one-month and hikes-priced reads.
 
 **Data.** Six free FRED series join the shared long-history cache
 (`SHARED_FRED_EXTRA`: DGS3MO, T5YIE, ICSA, NFCI, DRTSCILM, M2SL; last five

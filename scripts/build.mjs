@@ -19687,6 +19687,7 @@ const MACRO_LIVE_THRESHOLDS = {
   creditOn: PICKS_MACRO_CREDIT, creditOas5d: PICKS_MACRO_CREDIT_OAS_5D, creditOas5dStrong: PICKS_MACRO_CREDIT_OAS_5D_STRONG, creditRatio5d: PICKS_MACRO_CREDIT_RATIO_5D, creditOasTight5d: PICKS_MACRO_CREDIT_OAS_TIGHT_5D,
   creditOasStressHi: PICKS_MACRO_CREDIT_OAS_STRESS_HI, creditOasStressVhi: PICKS_MACRO_CREDIT_OAS_STRESS_VHI, creditOasTightLvl: PICKS_MACRO_CREDIT_OAS_TIGHT_LVL,
   rotationOn: PICKS_MACRO_ROTATION, rotationPp: PICKS_MACRO_ROTATION_PP,
+  macroContextOn: PICKS_MACRO_CONTEXT, rotationPp20d: PICKS_MACRO_ROTATION_PP_20D, fedPricedPts: PICKS_MACRO_FED_PRICED_PTS,
   countExclude: [...MACRO_COUNT_EXCLUDED_AXES], // axes kept in stress but out of the effective COUNT — shipped so a non-default override stays server↔browser in sync
   axisWeights: MACRO_AXIS_WEIGHTS, // per-axis composite weights (stress sum + effective counts) — shipped so the live re-port weighs identically; a pre-weights payload ⇒ the browser falls back to 1 (the old flat vote)
 };
