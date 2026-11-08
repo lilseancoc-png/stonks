@@ -59,7 +59,12 @@ The same refit measures same-game links (`lib/sports/joint.mjs`, stored as
 `joint` in `model.json`, checked on later games against independence); the
 Pick Builder prices same-game picks with them (Gaussian copula, seeded draws)
 and leaves a pair with no measured link unpriced.
-No AI, sportsbook or PrizePicks API calls, no line scraping, no bets. The Owner Market
+No AI calls and no bets. The one outside line feed is PropLine's read-only
+odds API (`PROPLINE_API_KEY`, `lib/sports/prop-sources.mjs`): PrizePicks
+lines plus, for NBA, sportsbook reference prices. The owners chose to keep it
+on 2026-11-08. It is read server-side behind the Owner gate and by the prop
+recording job, never signs into a sportsbook or PrizePicks account, scrapes no
+pages and places nothing. The Owner Market
 Brief, Research Lab evidence and MCP feature list leave Sports out; the MCP
 has its own six Owner-only `sports_*` tools (`lib/mcp/sports-tools.mjs`, read
 through `sportsReadOnlyStore`, no save tool: evaluate returns a Pick Builder
