@@ -20,7 +20,7 @@
 // without a cron. Writes are last-writer-wins: fine at this scale, and the
 // worst case is a lost toggle, not corruption.
 //
-// Access is stricter than the now-public picks.json it snapshots: hard-404
+// Access matches the Owner-only picks.json it snapshots: hard-404
 // unless PRIVATE_DATA_ENABLED, valid Owner session required, and both signed
 // compatibility claims (`tr` + `tp`) must be explicitly true. Never
 // shared-cacheable. When

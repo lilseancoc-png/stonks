@@ -28,10 +28,16 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Fixed
 
+- Funds (SPY, QQQ and the other tracked ETFs) no longer carry an earnings history: the earnings lookups skip them and any stored rows are dropped, since SPY showed a made-up 2005 "print". Nasdaq earnings rows older than the ten-year window are also no longer kept.
+- Market Analysis no longer lists the geopolitics input as missing when the news layer was checked and found no risk-off story; a quiet read now counts as checked.
+- Brief standouts read as plain English: the saved pre-open time shows as "Nov 6, 09:01 ET" instead of a raw timestamp, "an up opening gap", "~1 session", a streak "ended today", and a headline amount as "$7.5B" instead of 7500000000. The IV line in the Brief prompt rounds the implied move.
+- Track Record's $100k backtest no longer shows an always-zero "ladder adds" chip; ladder adds and winner rotation are skipped on purpose (they would need each trade's path).
+- Stock Picks rounds the planned-entry price in its payload.
 - Buyer's manual: an option no longer reads as worthless after expiration; one in the money is usually exercised automatically, and only an out-of-the-money one expires worthless (#772).
 
 ### Docs
 
+- CLAUDE.md and `api/watchlist.js`: the shared watchlist needs a signed Owner session with both claims and fails closed (the old wording said fail-open and called picks.json public); the FedWatch live line says it tracks CME between bakes, not hourly builds.
 - CLAUDE.md: the Sports rule now names PropLine's read-only odds feed (PrizePicks lines, plus sportsbook reference prices for NBA) as the one allowed outside line source, which the owners chose to keep, replacing the old "no sportsbook or PrizePicks API calls" line (#772).
 
 ## 2026-11-07

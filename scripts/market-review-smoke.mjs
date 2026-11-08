@@ -46,6 +46,12 @@ check('OAS alone owns the credit vote and an ETF-only read remains missing',()=>
  b.credit.oas=8;const r=computeMacroRegime(b);assert.equal(r.axes.credit.score,-2);assert.equal(marketAnalysis.contributions(r,r.thresholds).find(x=>x.key==='credit').contribution,-2.5);
  b.credit.oas=null;assert.equal(computeMacroRegime(b).axes.credit.available,false);
 });
+check('a quiet geopolitical read counts as checked, not missing',()=>{
+ const quiet=[{name:'AI data-center buildout',status:'active',strength:80,sentiment:'bullish'}];
+ const r=computeMacroRegime(healthy(),null,quiet);
+ assert.equal(r.axes.geo.score,0);assert.equal(r.axes.geo.available,true);assert(!r.dataQuality.missing.includes('geo'));
+ assert.equal(computeMacroRegime(healthy(),null,[]).axes.geo.available,false,'no narratives at all is still missing');
+});
 check('falling yields during a sell-off do not fabricate an easing vote',()=>{
  const b=healthy();b.indexes.spy.pctChange1d=b.indexes.qqq.pctChange1d=-3;b.tenY.bpsChange1d=b.twoY.bpsChange1d=-20;b.vix.value=35;
  const r=computeMacroRegime(b);assert.equal(r.axes.yields.score,0);assert.equal(r.axes.twoY.score,0);
