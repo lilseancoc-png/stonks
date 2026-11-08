@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { classifyPendingBuyoutStage, normalizeBuyoutRumors, parsePendingBuyoutTable } from "./build.mjs";
+import { buyoutQuoteMatches, classifyPendingBuyoutStage, enrichConfirmedBuyouts, normalizeBuyoutRumors, parsePendingBuyoutTable } from "./build.mjs";
 
 const confirmedHtml = `
   <table><tbody><tr>
@@ -64,5 +64,30 @@ assert.equal(classifyPendingBuyoutStage({ ...rumors[0], acquirer: "Undisclosed /
 assert.equal(classifyPendingBuyoutStage({ status: "pending", daysLeft: 70 }, "shareholder vote scheduled ahead of the merger"), "regulatory_vote");
 assert.equal(classifyPendingBuyoutStage({ status: "pending", daysLeft: 20 }, "definitive agreement announced"), "expected_close");
 assert.equal(classifyPendingBuyoutStage({ status: "pending", daysLeft: 90 }, "definitive agreement announced"), "announced");
+
+// A foreign target listed under its home-market code must not borrow a
+// different US security's quote (Ausgold's "AUC" matched a $6.56 listing
+// against a 1.36 offer), and an unmatched row has no known currency.
+const foreign = { targetTicker: "AUC", targetPrice: 1.3, considerationPerShare: 1.36, grossSpreadPct: 4.65 };
+const domestic = { targetTicker: "ZIM", targetPrice: 27.5, considerationPerShare: 35, grossSpreadPct: 27.3 };
+const unknown = { targetTicker: "VAU", targetPrice: 5.84, considerationPerShare: 5.88, grossSpreadPct: 0.7 };
+const enrichQuotes = {
+  AUC: { symbol: "AUC", price: 6.56, marketCap: 145162160, currency: "USD" },
+  ZIM: { symbol: "ZIM", price: 27.96, marketCap: 3373347840, currency: "USD" },
+};
+assert.equal(buyoutQuoteMatches(foreign, enrichQuotes.AUC), false);
+assert.equal(buyoutQuoteMatches(domestic, enrichQuotes.ZIM), true);
+assert.equal(buyoutQuoteMatches({ targetPrice: null }, enrichQuotes.ZIM), true, "no table price: take the quote");
+const [auc, zim, vau] = enrichConfirmedBuyouts([foreign, domestic, unknown], enrichQuotes);
+assert.equal(auc.targetPrice, 1.3, "a mismatched quote keeps the table's own price");
+assert.equal(auc.targetMarketCap, null);
+assert.equal(auc.estimatedEquityValue, null);
+assert.equal(auc.currency, null);
+assert.equal(auc.quoteMatched, false);
+assert.equal(zim.targetPrice, 27.96);
+assert.equal(zim.currency, "USD");
+assert.equal(zim.estimatedEquityValue, Math.round(3373347840 * (35 / 27.96)));
+assert.equal(vau.currency, null, "no quote at all: currency unknown, not USD");
+assert.equal(vau.targetPrice, 5.84);
 
 console.log("pending-buyouts smoke: ok");

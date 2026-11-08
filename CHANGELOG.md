@@ -26,6 +26,10 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 - Add a macro, cycle and rotation read for Top Picks, on by default since the owner approved it (`PICKS_MACRO_CONTEXT=0` turns it off): where the Fed path, inflation, growth, credit, market, liquidity, dollar, oil and party control stand, which groups money is rotating into and out of with a plain-English reason, a rotation vs systemic stress check, and each stock's macro fit (at most ±1.5 points) from weights learned on 2008-2026 sector history. A trade the fit points against by 0.5 points or more is kept off the open list (new gate "Fights the macro backdrop"; `PICKS_MACRO_BLOCK_PTS`, and `PICKS_MACRO_POINTS=1` also adds the points to the grade, off by default), the Fed axis also reads the hikes already priced, the rotation axis reads one month instead of one day, and the AI grader sees the read. The grade version moves to `2026-11-macro-context`, so the Track Record shows a dated divider; the market tape's help text describes the new Fed and rotation reads. Card issuers such as AXP read as lenders, not card networks. Six free FRED series join the shared history cache. Research scripts and results are in `research/macro-backtest/` (#773).
 
+### Changed
+
+- Commodities: the Potash card now reads the World Bank's monthly potassium chloride price (US dollars per metric ton, from the free Pink Sheet workbook, through October 2026) instead of the BLS potash-mining PPI, which stopped in December 2022. The World Bank page is checked at most once a day and the workbook downloaded only when a new monthly release appears; a failed first read shows "no data yet" rather than the old index under the new unit (#774).
+
 ### Fixed
 
 - Buyer's manual: an option no longer reads as worthless after expiration; one in the money is usually exercised automatically, and only an out-of-the-money one expires worthless (#772).
@@ -92,6 +96,12 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - The Calendar shows the stored pre-print implied move for a report that already came out, instead of the post-print straddle (MRNA's Nov 6 row read 1.3%) (#771).
 - Calendar market-odds chips on CPI and PPI rows show the most likely outcome of the busiest matching market, not its busiest bucket ("≤0.1% · 8%" on October CPI MoM) (#771).
 - Overnight markets no longer lists CSI 300 as "Closed overnight" every morning. The feed sends it as one bar with no prior close; that now reads "no prior close in the data feed" and raises no holiday event (#771).
+
+- Pending Buyouts no longer borrows another listing's quote for a foreign target (Ausgold "AUC" showed a US stock's $6.56 against a 1.36 offer, with that company's market cap and a made-up equity value). A quote far from the deal table's own price is ignored, and a row with no matched quote shows its price with no currency sign instead of "$", noted under the table.
+- Commodities flags a reading the source stopped updating as "aged" even when the fetch succeeds (the potash PPI series ended in December 2022 but counted as current), with the date in the badge's tooltip on both cards and the table.
+- IV history keeps one sample per trading session: a forced weekend or holiday build re-prices the last session's chain, and that repeat is dropped when the next build seeds the history, so it no longer counts twice in the IV percentile or shortens a 5-session change.
+- The "next update" line follows the router on market holidays and early closes: the earnings-call runs still show on a weekday holiday, and an early-close day shows no 15:30 Top Picks run. The browser's holiday and half-day tables now come from `lib/us-equity-calendar.mjs` (the workflows' table), which adds 2028.
+- What changed, Market map, Past days and the Calendar's coverage line show build times in the header's time-zone setting, like the rest of the site, instead of always ET (the Calendar line also drops the seconds).
 
 ### Removed
 

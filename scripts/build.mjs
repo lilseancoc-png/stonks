@@ -4573,6 +4573,25 @@ export async function attachIvRanks(chains, historyMap = null) {
 // be dropped from the map and have its entire accumulated series wiped.
 // So: seed the map from every tracked prior file first, then layer today's
 // fresh sample on top only where computeAtm30dIv succeeds.
+// IV history holds one sample per trading session. A weekend or holiday build
+// (a forced run; the router skips them) prices the last session's chain again,
+// so its sample repeats that session, counts twice in the percentile and makes
+// a "5-session" change span four. The next build drops those dates when it
+// seeds the history, so they never pile up; the forced build itself keeps its
+// sample as the newest entry, which its published IV ranks and the freshness
+// check read. Years the NYSE table doesn't list fall back to weekdays.
+export function ivHistorySessionDate(date) {
+  const s = sessionForDate(date);
+  if (s) return s.open;
+  const t = Date.parse(String(date || "") + "T12:00:00Z");
+  if (!Number.isFinite(t)) return false;
+  const dow = new Date(t).getUTCDay();
+  return dow !== 0 && dow !== 6;
+}
+export function ivHistorySessionEntries(entries) {
+  return (entries || []).filter((e) => e && typeof e.date === "string" && ivHistorySessionDate(e.date));
+}
+
 async function collectIvHistory(chains) {
   const today = etDateKey();
   const capturedAtIso = new Date().toISOString();
@@ -4591,8 +4610,8 @@ async function collectIvHistory(chains) {
     // Retire historical Yahoo placeholders as they are encountered. This also
     // self-heals any same-day bad sample written before the quote-quality gate
     // existed, without touching legitimate older observations.
-    const prior = (await loadIvHistoryEntries(sym)).filter((entry) =>
-      entry && typeof entry.date === "string" && isPlausibleOptionIv(entry.iv));
+    const prior = ivHistorySessionEntries(await loadIvHistoryEntries(sym)).filter((entry) =>
+      isPlausibleOptionIv(entry.iv));
     if (prior.length) {
       out.set(sym, {
         symbol: sym,
@@ -11471,8 +11490,9 @@ export async function writeCentralBankGoldFile(builtAtIso, prior = null) {
 // freight (container rates, Baltic Dry) and used-vehicle values (Manheim
 // proxy). Every tracker has a RELIABLE base series through
 // already-proven fetch mechanics — Yahoo futures/ETF daily bars (the same
-// chart() path the GLOBAL_MARKETS sweep uses) or FRED monthly series
-// (fetchFredSeries) — because the "native" sources for three of them (Drewry
+// chart() path the GLOBAL_MARKETS sweep uses), FRED monthly series
+// (fetchFredSeries) or the World Bank's monthly Pink Sheet workbook (potash,
+// fetchCommodityWorldBank) — because the "native" sources for three of them (Drewry
 // WCI, the true BDI, the Manheim index) sit behind bot walls and publish no
 // history. Those three get a BEST-EFFORT scrape overlay that decorates the
 // card when it succeeds, accumulating its own daily history across builds
@@ -11485,7 +11505,8 @@ const COMMODITY_SPARK_POINTS = 90;   // max baked sparkline points per item
 const COMMODITY_FETCH_CONCURRENCY = 3;
 
 // The tracker registry. kind: 'futures' | 'proxy' (both Yahoo daily bars) |
-// 'fred' (monthly index/price series). fmt drives client formatting:
+// 'fred' (monthly index/price series) | 'worldbank' (a monthly Pink Sheet
+// column, `column`). fmt drives client formatting:
 // 'usd0' ($8,124) | 'usd2' ($42.18) | 'cents' (68.42¢/lb) | 'index' (415.3).
 // watch = related tickers (chips link into the Grade tab, which live-fetches
 // any symbol, so they need not be in TICKERS).
@@ -11572,10 +11593,12 @@ export const COMMODITY_TRACKERS = [
     watch: ["DHI", "PHM", "HD"],
   },
   {
-    key: "potash", label: "Potash (fertilizer)", group: "industrial", kind: "fred", cadence: "monthly",
-    series: "PCU212391212391P", unit: "US PPI index (monthly)", fmt: "index",
-    sourceName: "BLS PPI (potash mining) via FRED", sourceUrl: "https://fred.stlouisfed.org/series/PCU212391212391P",
-    note: "Key fertilizer input — a cost signal for agriculture, farm-equipment demand (Deere) and, downstream, food-production costs. Series is the US producer price index for potash mining; there is no free global potash spot feed.",
+    // The BLS potash-mining PPI (FRED PCU212391212391P) this card used to read
+    // stopped at December 2022; the World Bank still publishes a monthly price.
+    key: "potash", label: "Potash (fertilizer)", group: "industrial", kind: "worldbank", cadence: "monthly",
+    symbol: "WB-KCL", column: "Potassium chloride", unit: "USD/metric ton (monthly)", fmt: "usd0",
+    sourceName: "World Bank Pink Sheet (potassium chloride)", sourceUrl: "https://www.worldbank.org/en/research/commodity-markets",
+    note: "Key fertilizer input — a cost signal for agriculture, farm-equipment demand (Deere) and, downstream, food-production costs. Series is the World Bank's monthly potassium chloride (muriate of potash) price in US dollars per metric ton, updated early each month.",
     watch: ["NTR", "MOS"],
   },
   {
@@ -11650,6 +11673,96 @@ async function fetchCommodityFred(def) {
     .map((o) => ({ d: o.date, v: o.value }));
   if (series.length < 2) throw new Error(`FRED ${def.series}: no usable observations`);
   return { series, symbol: def.series };
+}
+
+// --- World Bank Pink Sheet (monthly commodity prices) -------------------------
+// The World Bank's free "Monthly prices" workbook (CMO-Historical-Data-Monthly.xlsx)
+// carries ~70 commodity columns from 1960 on, updated early each month. Its
+// link has a hash that changes every release, so the landing page is read for
+// it. Layout of the "Monthly Prices" sheet: a names row, then a units row
+// ("($/mt)" in most columns), then one row per month labeled "2026M10".
+const PINK_SHEET_PAGE = "https://www.worldbank.org/en/research/commodity-markets";
+const PINK_SHEET_UA = "Mingstreet commodities research https://mingstreet.app";
+const PINK_SHEET_KEEP_MONTHS = 40; // spark (26) + the 1-year compare, with room
+const PINK_SHEET_NA = new Set(["", "..", "...", "\u2026", "n/a", "na", "-"]);
+
+// The newest monthly-workbook link on the landing page, or null.
+export function pinkSheetMonthlyUrl(html) {
+  const links = [...String(html || "").matchAll(/https:\/\/thedocs\.worldbank\.org\/[^"'<>\s]+?\.xlsx/gi)].map((m) => m[0]);
+  return links.find((u) => /historical-data-monthly/i.test(u)) || links.find((u) => /monthly/i.test(u)) || null;
+}
+
+// One column of the "Monthly Prices" sheet as an ascending [{ d: "YYYY-MM-01", v }]
+// series, plus its name and unit text. Throws when the layout is not found.
+export function parsePinkSheetMonthly(buf, columnRe) {
+  const rows = xlsxSheetRows(buf, /^\s*monthly\s+prices\s*$/i);
+  const rowNums = [...rows.keys()].sort((a, b) => a - b);
+  const isUnit = (v) => /^\s*\(.*\)\s*$/.test(String(v));
+  let unitsRow = null, best = 0;
+  for (const rn of rowNums.slice(0, 15)) {
+    const n = Object.entries(rows.get(rn)).filter(([col, v]) => col !== "A" && isUnit(v)).length;
+    if (n > best) { best = n; unitsRow = rn; }
+  }
+  if (unitsRow == null || best < 3) throw new Error("Pink Sheet units row not found");
+  let col = null, name = null;
+  for (const rn of rowNums.filter((r) => r < unitsRow).reverse()) {
+    const hit = Object.entries(rows.get(rn)).find(([c, v]) => c !== "A" && columnRe.test(String(v)));
+    if (hit) { [col, name] = hit; break; }
+  }
+  if (!col) throw new Error(`Pink Sheet column ${columnRe} not found`);
+  const unit = String(rows.get(unitsRow)[col] || "").trim();
+  const series = [];
+  for (const rn of rowNums) {
+    if (rn <= unitsRow) continue;
+    const cells = rows.get(rn);
+    const m = String(cells.A ?? "").trim().match(/^(\d{4})M(\d{2})$/);
+    if (!m) continue;
+    const raw = String(cells[col] ?? "").trim();
+    if (PINK_SHEET_NA.has(raw.toLowerCase())) continue;
+    const v = Number(raw);
+    if (!Number.isFinite(v)) continue;
+    series.push({ d: `${m[1]}-${m[2]}-01`, v: Number(v.toPrecision(6)) });
+  }
+  series.sort((a, b) => (a.d < b.d ? -1 : a.d > b.d ? 1 : 0));
+  return { name: String(name).trim(), unit, series };
+}
+
+// Potash from the Pink Sheet, kept polite: the landing page is read at most
+// once per ET day, and the ~1 MB workbook is downloaded only when its link
+// changes (once a month). The trailing months ride in commodities.json as
+// `sourceCache.<key>` (read before the wipe with the rest of the prior file).
+// `fetchSource` is injectable for tests. Returns { series, symbol, cache }.
+export async function fetchCommodityWorldBank(def, priorCache, etDate, fetchSource = fetchCommoditySource) {
+  const cached = priorCache && Array.isArray(priorCache.series)
+    ? priorCache.series.filter((p) => Array.isArray(p) && p[0] && Number.isFinite(p[1])).map(([d, v]) => ({ d, v }))
+    : [];
+  if (priorCache?.checkedOn === etDate && cached.length >= 2) {
+    return { series: cached, symbol: def.symbol, cache: priorCache };
+  }
+  const html = await fetchSource(PINK_SHEET_PAGE, { userAgent: PINK_SHEET_UA });
+  const file = pinkSheetMonthlyUrl(html);
+  if (!file) throw new Error("monthly workbook link not found on the World Bank page");
+  if (priorCache?.file === file && cached.length >= 2) {
+    return { series: cached, symbol: def.symbol, cache: { ...priorCache, checkedOn: etDate } };
+  }
+  const buf = await fetchSource(file, {
+    binary: true, userAgent: PINK_SHEET_UA, timeoutMs: 45000,
+    accept: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,*/*",
+  });
+  if (!buf || !buf.length) throw new Error("monthly workbook download failed");
+  const escaped = def.column.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const colRe = new RegExp("^\\s*" + escaped + "\\b", "i");
+  const parsed = parsePinkSheetMonthly(buf, colRe);
+  const last = parsed.series[parsed.series.length - 1];
+  // A layout or unit change ships nothing rather than a wrong number.
+  if (!/\$\s*\/\s*mt/i.test(parsed.unit)) throw new Error(`unexpected unit "${parsed.unit}"`);
+  if (parsed.series.length < 24 || !last || !(last.v > 50 && last.v < 3000)) throw new Error("Pink Sheet parse failed sanity bounds");
+  const series = parsed.series.slice(-PINK_SHEET_KEEP_MONTHS);
+  return {
+    series,
+    symbol: def.symbol,
+    cache: { file, checkedOn: etDate, series: series.map((p) => [p.d, p.v]) },
+  };
 }
 
 // The series point closest to `days` back from the last point (at least that
@@ -11742,15 +11855,22 @@ function commoditySpark(series, cadence) {
 // or null. Parsers target PROSE patterns, not markup (publishers keep the
 // sentence shape stable far longer than their DOM), are exported for offline
 // testing, and sanity-bound the captured number so a stray match can't ship.
-async function fetchCommoditySourceHtml(url) {
+// One request path for every commodity source page or file. `binary` returns
+// a Buffer (the Pink Sheet workbook); `userAgent` lets a source that serves
+// plain clients get an honest one.
+async function fetchCommoditySource(url, { binary = false, userAgent = RAM_FETCH_UA, accept = "text/html,application/xhtml+xml", timeoutMs = 20000 } = {}) {
   try {
     const res = await fetch(url, {
-      headers: { "user-agent": RAM_FETCH_UA, accept: "text/html,application/xhtml+xml" },
-      signal: AbortSignal.timeout(20000),
+      headers: { "user-agent": userAgent, accept },
+      signal: AbortSignal.timeout(timeoutMs),
     });
     if (!res.ok) return null;
-    return await res.text();
+    return binary ? Buffer.from(await res.arrayBuffer()) : await res.text();
   } catch { return null; }
+}
+
+function fetchCommoditySourceHtml(url) {
+  return fetchCommoditySource(url);
 }
 
 function commodityHtmlToText(html) {
@@ -11862,6 +11982,18 @@ function commodityMetaFromDef(def) {
   };
 }
 
+// A fetched series can still be old: a monthly FRED series the agency stopped
+// (the potash PPI that card used to read ended Dec 2022) or a daily feed that froze. Same limits as the
+// page's "aged source" badge (cmdItemCurrent in app-js.mjs): 7 days for daily
+// series, 93 for monthly. Saved on the item so the MCP and other readers don't
+// take an old reading as current.
+export const COMMODITY_AGED_DAYS = { daily: 7, monthly: 93 };
+export function commodityAgeDays(asOf, builtAtIso) {
+  const a = Date.parse(asOf), b = Date.parse(builtAtIso);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+  return Math.max(0, Math.floor((b - a) / 86400000));
+}
+
 export function buildCommoditiesPayload({ fetched = {}, overlays = {}, prior = null, builtAtIso }) {
   const etDate = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
   const priorItems = new Map(
@@ -11885,9 +12017,19 @@ export function buildCommoditiesPayload({ fetched = {}, overlays = {}, prior = n
         spark: commoditySpark(f.series, def.cadence),
         stale: false,
       };
+      const ageDays = commodityAgeDays(lastPt.d, builtAtIso);
+      const limit = COMMODITY_AGED_DAYS[def.cadence] ?? COMMODITY_AGED_DAYS.daily;
+      if (ageDays != null && ageDays > limit) {
+        item.aged = true;
+        item.agedWhy = `Latest reading is ${ageDays} days old (${lastPt.d}); the source has published nothing newer.`;
+      }
     } else {
+      // Carry the last good reading forward, but never one from a source the
+      // card no longer reads (the potash PPI index would show as $/mt).
       const p = priorItems.get(def.key);
-      item = (p && p.last != null)
+      const own = [def.symbol, def.series, ...(def.altSymbols || [])].filter(Boolean);
+      const sameSource = !p?.symbol || own.includes(p.symbol);
+      item = (p && p.last != null && sameSource)
         ? { ...p, ...meta, stale: true }
         : { ...meta, missing: true, stale: true };
     }
@@ -12023,6 +12165,20 @@ export async function writeCommoditiesFile(builtAtIso, prior = null, globalMarke
       console.log(`    ⚠ commodity ${def.key} (FRED ${def.series}) fetch failed: ${err.message}`);
     }
   }
+  const etDate = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  const priorSourceCache = (prior?.sourceCache && typeof prior.sourceCache === "object") ? prior.sourceCache : {};
+  const sourceCache = {};
+  for (const def of COMMODITY_TRACKERS.filter((d) => d.kind === "worldbank")) {
+    try {
+      const got = await fetchCommodityWorldBank(def, priorSourceCache[def.key], etDate);
+      fetched[def.key] = { series: got.series, symbol: got.symbol };
+      sourceCache[def.key] = got.cache;
+    } catch (err) {
+      // Keep the cached months so the next day's check can still skip the download.
+      if (priorSourceCache[def.key]) sourceCache[def.key] = priorSourceCache[def.key];
+      console.log(`    ⚠ commodity ${def.key} (World Bank Pink Sheet) fetch failed: ${err.message}`);
+    }
+  }
   const overlays = {};
   for (const [key, fetchFn] of Object.entries(COMMODITY_OVERLAY_FETCHERS)) {
     try {
@@ -12034,6 +12190,7 @@ export async function writeCommoditiesFile(builtAtIso, prior = null, globalMarke
     }
   }
   const payload = buildCommoditiesPayload({ fetched, overlays, prior, builtAtIso });
+  if (Object.keys(sourceCache).length) payload.sourceCache = sourceCache;
   const json = JSON.stringify(payload);
   await writeFile(resolve(DATA_DIR, "commodities.json"), json, "utf8");
   return {
@@ -12977,38 +13134,65 @@ const IC_HHDC_COLUMNS = {
 // Parse the "Page 3 Data" sheet (Total Debt Balance and Its Composition, $T)
 // into an ascending [{ q: "2026Q1", mortgage, heloc, auto, creditCard,
 // student, other, total }] series. Exported for offline testing.
-export function parseHhdcPage3(buf) {
+// One worksheet of an .xlsx as rowNum → { colLetter → value }. Shared,
+// inline and formula strings resolve to text; numbers stay as their stored
+// text. Shared by the NY Fed HHDC and World Bank Pink Sheet parsers.
+function xlsxXmlText(str) {
+  return String(str)
+    .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
+    .replace(/&amp;/g, "&");
+}
+function xlsxRichText(xml) {
+  return xlsxXmlText([...String(xml).matchAll(/<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g)].map((t) => t[1]).join(""));
+}
+function xlsxSheetRows(buf, sheetNameRe) {
   const read = icUnzip(buf);
   const wb = read("xl/workbook.xml");
   if (!wb) throw new Error("no workbook.xml");
-  const sheets = [...wb.matchAll(/<sheet[^>]*name="([^"]+)"[^>]*r:id="(rId\d+)"/g)].map((m) => ({ name: m[1], rid: m[2] }));
-  const target = sheets.find((s) => /page\s*3\s*data/i.test(s.name));
-  if (!target) throw new Error("Page 3 Data sheet not found");
+  const sheets = [...wb.matchAll(/<sheet\b[^>]*>/g)].map((m) => ({
+    name: xlsxXmlText((m[0].match(/\bname="([^"]+)"/) || [])[1] || ""),
+    rid: (m[0].match(/\br:id="([^"]+)"/) || [])[1] || null,
+  }));
+  const target = sheets.find((sh) => sh.rid && sheetNameRe.test(sh.name));
+  if (!target) throw new Error(`sheet ${sheetNameRe} not found`);
   const rels = read("xl/_rels/workbook.xml.rels") || "";
   const relM = rels.match(new RegExp(`Id="${target.rid}"[^>]*Target="([^"]+)"`)) || rels.match(new RegExp(`Target="([^"]+)"[^>]*Id="${target.rid}"`));
   if (!relM) throw new Error("sheet rel not found");
   const sheetXml = read("xl/" + relM[1].replace(/^\/?(xl\/)?/, ""));
   if (!sheetXml) throw new Error("sheet xml missing");
   const ssXml = read("xl/sharedStrings.xml") || "";
-  const ss = [...ssXml.matchAll(/<si>([\s\S]*?)<\/si>/g)]
-    .map((m) => [...m[1].matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)].map((t) => t[1]).join(""));
-  // rows: rowNum → { colLetter → resolved value }
+  const ss = [...ssXml.matchAll(/<si>([\s\S]*?)<\/si>/g)].map((m) => xlsxRichText(m[1]));
   const rows = new Map();
-  for (const rowM of sheetXml.matchAll(/<row[^>]*r="(\d+)"[^>]*>([\s\S]*?)<\/row>/g)) {
+  // A row is either self-closing (<row r="5"/>, empty) or carries its cells.
+  for (const rowM of sheetXml.matchAll(/<row\b([^>]*?)(?:\/>|>([\s\S]*?)<\/row>)/g)) {
+    const rn = Number(((rowM[1] || "").match(/\br="(\d+)"/) || [])[1]);
+    if (!Number.isFinite(rn) || !rowM[2]) continue;
     const cells = {};
     for (const cM of rowM[2].matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
       const attrs = cM[1] || "";
-      const rM = attrs.match(/r="([A-Z]+)\d+"/);
+      const rM = attrs.match(/\br="([A-Z]+)\d+"/);
       if (!rM) continue;
-      const tM = attrs.match(/t="([^"]+)"/);
-      const vM = (cM[2] || "").match(/<v>([\s\S]*?)<\/v>/);
-      if (!vM) continue;
-      let v = vM[1];
-      if (tM && tM[1] === "s") v = ss[Number(v)] ?? "";
+      const type = (attrs.match(/\bt="([^"]+)"/) || [])[1] || "";
+      const body = cM[2] || "";
+      let v;
+      if (type === "inlineStr") {
+        const isM = body.match(/<is>([\s\S]*?)<\/is>/);
+        if (!isM) continue;
+        v = xlsxRichText(isM[1]);
+      } else {
+        const vM = body.match(/<v>([\s\S]*?)<\/v>/);
+        if (!vM) continue;
+        v = type === "s" ? (ss[Number(vM[1])] ?? "") : type === "str" ? xlsxXmlText(vM[1]) : vM[1];
+      }
       cells[rM[1]] = v;
     }
-    if (Object.keys(cells).length) rows.set(Number(rowM[1]), cells);
+    if (Object.keys(cells).length) rows.set(rn, cells);
   }
+  return rows;
+}
+export function parseHhdcPage3(buf) {
+  const rows = xlsxSheetRows(buf, /page\s*3\s*data/i);
   // Header row: the one carrying "Credit Card" AND "Mortgage" labels.
   let colOf = null;
   for (const cells of rows.values()) {
@@ -13410,9 +13594,24 @@ async function fetchBuyoutQuotes(symbols) {
   return out;
 }
 
-function enrichConfirmedBuyouts(rows, quotes) {
+// The deal table lists foreign targets by their home-market code (VAU, RWC,
+// 4626, BNOR), which Yahoo either doesn't know or maps to a different security.
+// A quote whose price is far from the table's own price for the same row is a
+// different listing, so it adds nothing (no price, market cap or currency).
+const BUYOUT_QUOTE_PRICE_BAND = [0.6, 1.6];
+export function buyoutQuoteMatches(row, quote) {
+  const quoted = pnumN(quote?.price);
+  if (!(quoted > 0)) return false;
+  const listed = pnumN(row?.targetPrice);
+  if (!(listed > 0)) return true;
+  const ratio = quoted / listed;
+  return ratio >= BUYOUT_QUOTE_PRICE_BAND[0] && ratio <= BUYOUT_QUOTE_PRICE_BAND[1];
+}
+
+export function enrichConfirmedBuyouts(rows, quotes) {
   return rows.map((row) => {
-    const quote = quotes?.[row.targetTicker] || null;
+    const rawQuote = quotes?.[row.targetTicker] || null;
+    const quote = rawQuote && buyoutQuoteMatches(row, rawQuote) ? rawQuote : null;
     const currentPrice = pnumN(quote?.price) ?? row.targetPrice ?? null;
     const marketCap = pnumN(quote?.marketCap);
     const consideration = pnumN(row.considerationPerShare);
@@ -13423,8 +13622,11 @@ function enrichConfirmedBuyouts(rows, quotes) {
       ...row,
       targetPrice: currentPrice,
       targetMarketCap: marketCap,
-      currency: quote?.currency || "USD",
-      valueCurrency: quote?.currency === "GBp" ? "GBP" : (quote?.currency || "USD"),
+      // No matched quote: the table's prices are in the target's home
+      // currency, which it doesn't name. Leave it unknown rather than "USD".
+      currency: quote ? (quote.currency || "USD") : null,
+      valueCurrency: quote ? (quote.currency === "GBp" ? "GBP" : (quote.currency || "USD")) : null,
+      quoteMatched: !!quote,
       estimatedEquityValue,
       equityValueKind: estimatedEquityValue != null ? "estimated" : null,
       equityValueMethod: estimatedEquityValue != null

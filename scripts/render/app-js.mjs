@@ -1,4 +1,5 @@
 import { updateCheckerClient } from './update-checker-client.mjs';
+import { closureTables } from '../../lib/us-equity-calendar.mjs';
 import { contactClient } from './contact-client.mjs';
 import { ownerMarketBriefDisplayFactory } from '../../lib/owner-market-brief-display.mjs';
 import { ownerMarketBriefClient } from './owner-market-brief-client.mjs';
@@ -1200,7 +1201,7 @@ ${scenarioEventPhase.toString()}
     if (!job || job === 'weekly') return '';
     var et = etNowParts();
     if (!et) return '';
-    var label = REFRESH_SCHEDULE.nextLabel(job, { dateKey: et.dateKey, minutes: Math.round(et.hour * 60) }, MARKET_HOLIDAYS);
+    var label = REFRESH_SCHEDULE.nextLabel(job, { dateKey: et.dateKey, minutes: Math.round(et.hour * 60) }, MARKET_HOLIDAYS, MARKET_HALF_DAYS);
     return label ? ' <span class="freshness-detail freshness-next">· next update ' + escapeHtml(label) + '</span>' : '';
   }
   function renderFreshness(activeTab){
@@ -1255,22 +1256,13 @@ ${scenarioEventPhase.toString()}
   // select a live option contract, and pre-market chains quote $0 bid/ask, so a
   // pre-open build legitimately drops most names — see the picks pipeline's
   // two-sided-quote gate in build.mjs::pickContractForPick).
-  // US equity/options FULL-DAY closures (NYSE/Cboe), explicit YYYY-MM-DD so we
-  // never compute observed-shift rules at runtime. EXTEND ANNUALLY: past the
-  // last listed year the badge degrades to weekday+hours only (an untracked
-  // holiday would read "open" — cosmetic, and never the reverse on a real day).
-  var MARKET_HOLIDAYS = {
-    '2026-01-01':'New Year’s Day','2026-01-19':'MLK Jr. Day','2026-02-16':'Presidents’ Day',
-    '2026-04-03':'Good Friday','2026-05-25':'Memorial Day','2026-06-19':'Juneteenth',
-    '2026-07-03':'Independence Day','2026-09-07':'Labor Day','2026-11-26':'Thanksgiving','2026-12-25':'Christmas',
-    '2027-01-01':'New Year’s Day','2027-01-18':'MLK Jr. Day','2027-02-15':'Presidents’ Day',
-    '2027-03-26':'Good Friday','2027-05-31':'Memorial Day','2027-06-18':'Juneteenth (obs.)',
-    '2027-07-05':'Independence Day (obs.)','2027-09-06':'Labor Day','2027-11-25':'Thanksgiving','2027-12-24':'Christmas (obs.)'
-  };
-  // Early-close (13:00 ET) half-days.
-  var MARKET_HALF_DAYS = {
-    '2026-11-27':'day after Thanksgiving','2026-12-24':'Christmas Eve','2027-11-26':'day after Thanksgiving'
-  };
+  // US equity/options FULL-DAY closures and 13:00 ET early closes, embedded
+  // from lib/us-equity-calendar.mjs (the same table the workflows route on),
+  // so add each new year's rows there. Past the last listed year the badge
+  // degrades to weekday+hours only (an untracked holiday would read "open";
+  // cosmetic, and never the reverse on a real day).
+  var MARKET_HOLIDAYS = ${JSON.stringify(closureTables().holidays)};
+  var MARKET_HALF_DAYS = ${JSON.stringify(closureTables().halfDays)};
   function etNowParts(){
     // Current ET wall-clock (DST-correct via Intl). Returns { dateKey, hour, dow } or null.
     try {
@@ -22431,7 +22423,7 @@ ${renderExportBindings()}
     return Math.max(0, Math.floor((built - asOf) / 86400000));
   }
   function cmdItemCurrent(it, builtAtIso){
-    if (!it || it.missing || it.stale) return false;
+    if (!it || it.missing || it.stale || it.aged) return false;
     var age = cmdAgeDays(it, builtAtIso);
     if (age == null) return true;
     return age <= (it.cadence === 'monthly' ? 93 : 7);
@@ -22572,7 +22564,7 @@ ${renderExportBindings()}
           return '<b>' + escapeHtml(it.label || '') + '</b>' +
             (it.kind === 'proxy' ? ' <span class="cmd-badge cmd-badge-proxy" title="' + escapeHtml(it.proxyNote || 'Tracks an ETF proxy') + '">proxy</span>' : '') +
             (it.cadence === 'monthly' ? ' <span class="cmd-badge" title="Monthly series, published on a lag">monthly</span>' : '') +
-            ((it.stale || it._uiAged) ? ' <span class="cmd-badge cmd-badge-stale">' + (it._uiAged ? 'aged' : 'last-good') + '</span>' : '') +
+            ((it.stale || it._uiAged) ? ' <span class="cmd-badge cmd-badge-stale" title="' + escapeHtml(it._uiAged ? (it.agedWhy || 'Observation is too old for the decision desk') : 'Source unreachable this build, showing the last-good read') + '">' + (it._uiAged ? 'aged' : 'last-good') + '</span>' : '') +
             '<small class="cmd-t-group">' + escapeHtml(cmdGroupLabel(it.group)) + '</small>';
         }, sort: function(it){ return it.label || null; } },
       { label: 'Last', num: true, cell: function(it){ return cmdFmtVal(it.last, it.fmt) + '<small class="cmd-t-unit">' + escapeHtml(it.unit || '') + '</small>'; }, nosort: true },
@@ -22648,7 +22640,7 @@ ${renderExportBindings()}
       (it.kind === 'proxy' ? '<span class="cmd-badge cmd-badge-proxy" title="' + escapeHtml(it.proxyNote || 'Tracks an ETF proxy') + '">proxy</span>' : '') +
       (it.cadence === 'monthly' ? '<span class="cmd-badge" title="Monthly series — publishes on a lag">monthly</span>' : '') +
       ((it.stale || it._uiAged) && !it.missing ? '<span class="cmd-badge cmd-badge-stale" title="' +
-        (it._uiAged ? 'Observation is too old for the decision desk' : 'Source unreachable this build — showing the last-good read') + '">' +
+        escapeHtml(it._uiAged ? (it.agedWhy || 'Observation is too old for the decision desk') : 'Source unreachable this build — showing the last-good read') + '">' +
         (it._uiAged ? 'aged source' : 'last-good') + '</span>' : '') +
       '<span class="cmd-card-toggle">Details</span>' +
     '</div>';
@@ -23622,14 +23614,21 @@ ${renderExportBindings()}
   // Confirmed rows are active announced / filed deals with cited sources;
   // headline rumors remain a separate uncertainty lane with blank terms.
   var pendingBuyoutsState = { data:null, loading:false, status:'all', type:'all', sort:'close', search:'', bound:false };
+  // A null currency means the build could not match the target to a quote
+  // (most foreign listings): the deal table's prices are then in the target's
+  // home currency, so they show without a symbol rather than as dollars.
   function pbFmtShare(value, code){
     if (value == null || !isFinite(value)) return 'Not disclosed';
     var n = Number(value);
-    if (!code || code === 'USD') return '$' + n.toLocaleString(undefined, { minimumFractionDigits:2, maximumFractionDigits:2 });
-    return escapeHtml(code) + ' ' + n.toLocaleString(undefined, { minimumFractionDigits:2, maximumFractionDigits:2 });
+    var num = n.toLocaleString(undefined, { minimumFractionDigits:2, maximumFractionDigits:2 });
+    if (code === 'USD') return '$' + num;
+    if (!code) return num;
+    return escapeHtml(code) + ' ' + num;
   }
   function pbFmtValue(value, code){
-    return value == null || !isFinite(value) ? 'Not disclosed' : escapeHtml(fmtBigCurrency(Number(value), code || 'USD') || 'Not disclosed');
+    if (value == null || !isFinite(value)) return 'Not disclosed';
+    if (!code) return escapeHtml(String(fmtBigDollars(Number(value)) || '').replace(/^\\$/, '') || 'Not disclosed');
+    return escapeHtml(fmtBigCurrency(Number(value), code) || 'Not disclosed');
   }
   function pbDate(value){
     var ms = Date.parse(String(value || '') + (/^\\d{4}-\\d{2}-\\d{2}$/.test(String(value || '')) ? 'T12:00:00Z' : ''));
@@ -23671,7 +23670,7 @@ ${renderExportBindings()}
     var premium = d.reportedPremiumPct != null && isFinite(d.reportedPremiumPct) ? Number(d.reportedPremiumPct).toFixed(1) + '% premium to unaffected' : (rumor ? 'price not disclosed' : 'unaffected premium not captured');
     var currentMove = d.recentMovePct != null && isFinite(d.recentMovePct) ? '1-day ' + (Number(d.recentMovePct) >= 0 ? '+' : '') + Number(d.recentMovePct).toFixed(2) + '%' : 'recent move unavailable';
     var currentVsDeal = rumor ? pbFmtShare(d.targetPrice, d.currency) : pbFmtShare(d.targetPrice, d.currency) + ' vs ' + pbFmtShare(d.considerationPerShare, d.currency);
-    var currentVsNote = rumor ? currentMove : spread + ' spread to reported terms';
+    var currentVsNote = rumor ? currentMove : spread + ' spread to reported terms' + (d.currency ? '' : ' · home-market currency');
     var headline = rumor && d.headline ? '<p class="pb-headline">' + escapeHtml(d.headline) + '</p>' : '';
     var stale = d.stale ? '<span class="pb-stale">last-good</span>' : '';
     var catalyst = d.nextCatalyst || {};
@@ -31301,7 +31300,7 @@ ${renderExportBindings()}
     var sources = Object.entries(c.officialSources || {}).map(function(entry){ return calendarSourceLabel(entry[0]) + ': ' + (entry[1] ? 'loaded' : 'unavailable'); });
     var summary = c.earningsUniverse != null ? c.earningsScheduled + ' of ' + c.earningsUniverse + ' stocks have an earnings date in this window.' : 'Earnings coverage has not been measured for this snapshot.';
     host.hidden = false;
-    host.innerHTML = '<p>' + escapeHtml(summary) + ' Updated ' + escapeHtml(data.builtAtIso ? new Date(data.builtAtIso).toLocaleString('en-US', {timeZone:'America/New_York'}) + ' ET' : 'at an unknown time') + '.</p>' +
+    host.innerHTML = '<p>' + escapeHtml(summary) + ' Updated ' + escapeHtml((data.builtAtIso && formatDisplayInstant(data.builtAtIso, { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' })) || 'at an unknown time') + '.</p>' +
       (health.warnings.length ? '<p role="status">' + escapeHtml(health.warnings.join(' ')) + '</p>' : '') +
       (health.notices.length ? '<p>' + escapeHtml(health.notices.join(' ')) + '</p>' : '') +
       '<details><summary>Sources &amp; coverage gaps</summary>' +
