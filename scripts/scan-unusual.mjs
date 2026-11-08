@@ -184,6 +184,18 @@ function tapeTag(bid, ask, last) {
   return last > mid ? "abv" : "blw";
 }
 
+// Calendar days from the scan's ET date to the expiration date. Yahoo's
+// expiration epoch is 00:00 UTC of the expiry date, i.e. the evening BEFORE
+// it in New York, so subtracting the scan time from it read every contract a
+// day early during market hours (a Monday expiry on Friday as 2 DTE, a
+// next-day expiry as 0 DTE). QC of builds #23-#72 (2026-11-08).
+function flowDte(expSec, nowMs) {
+  const expDate = new Date(Number(expSec) * 1000).toISOString().slice(0, 10);
+  const today = ET_DATE_FMT.format(new Date(nowMs));
+  const days = Math.round((Date.parse(`${expDate}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86400000);
+  return Number.isFinite(days) ? Math.max(0, days) : null;
+}
+
 // Compresses one in-band contract into the candidate record that's used
 // both for flagging logic AND persisted to history. Returns the raw record
 // (no flag decision); caller filters on whether `flagged` is true.
@@ -193,7 +205,7 @@ function buildCandidate(symbol, side, c, expSec, scannedAt, spot, prevVolLookup,
   const strike = c.strike;
   if (strike == null) return null;
   const otmPct = side === "call" ? (strike - spot) / spot : (spot - strike) / spot;
-  const dte = Math.max(0, Math.round((expSec * 1000 - nowMs) / 86400000));
+  const dte = flowDte(expSec, nowMs);
   const last = c.lastPrice ?? null;
   const bid = c.bid ?? null;
   const ask = c.ask ?? null;
@@ -1383,7 +1395,7 @@ function stripCandidate(c) {
 // NOT trigger a live scan — only run main() when invoked directly (mirrors
 // build.mjs's entry guard).
 export {
-  runVolumePass, DATA_DIR,
+  runVolumePass, DATA_DIR, flowDte,
 };
 
 const isEntryPoint = process.argv[1]
