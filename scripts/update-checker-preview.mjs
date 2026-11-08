@@ -26,7 +26,7 @@ export async function createUpdateCheckerPreview({port=0}={}) {
     if(scenario==='sources'){
       const payloads={
         calendar:{events:[],coverage:{officialSources:{'ism-2026':false}}},
-        news:{sourceHealth:[{id:'ir-lly',label:'PRIVATE_SENTINEL',status:'error',error:'HTTP 403 PRIVATE_SENTINEL'}]},
+        news:{sourceHealth:[{id:'ir-amd',label:'PRIVATE_SENTINEL',status:'error',error:'HTTP 403 PRIVATE_SENTINEL'}]},
         'owner-market-brief':{coverage:[{key:'ram-prices.json',status:'degraded'}]},
       };
       report.features=report.features.map(row=>payloads[row.id]?inspectFeature(UPDATE_FEATURES.find(s=>s.id===row.id),{builtAtIso:CHECKER_FIXTURE_TIME,...payloads[row.id]},Date.parse(CHECKER_FIXTURE_TIME)):row);

@@ -42,14 +42,17 @@ ships as `quality` in `historical-data.json`; the Sources view shows it as a
   Composite. Same-day daily returns must correlate at least 0.95 (0.9 for
   QQQ) and better than the same series shifted one day either way; a
   one-day label slip fails.
-- FRED: daily series with weekend dates, monthly or quarterly series not
-  dated on the 1st, and staleness against each series' publishing lag.
+- FRED: daily series with weekend dates (except `DFF`, which FRED publishes
+  for every calendar day), monthly or quarterly series not dated on the 1st,
+  and staleness against each series' publishing lag.
 - Dated lists: FOMC decision days (trading days, sorted, no duplicates, eight
   scheduled meetings a year except 2020, when the March meeting was replaced
   by emergency calls), the FOMC target changes (weekdays, in order, and since
   2016 hike / cut / hold must agree with the effective fed funds rate), WWDC keynotes (Mondays), every event-catalog date and
-  peak, and the CPI and jobs release dates (no weekends; months without a
-  listed date are reported, such as the fall 2025 shutdown gap).
+  peak, and the CPI and jobs release dates (a weekend date since 2000 fails;
+  an older one in FRED's calendar is a warning, since the release study skips
+  days with no close; months without a listed date are reported, such as the
+  fall 2025 shutdown gap).
 
 `node scripts/audit-historical-quality.mjs --dir=<folder>` runs the same
 checks over raw Yahoo chart JSON and FRED CSV downloads, plus the Fed's FOMC

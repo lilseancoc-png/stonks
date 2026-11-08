@@ -97,6 +97,18 @@ assert.equal(atTheLow.verdict, "slowing", JSON.stringify({
 assert.equal(atTheLow.rule.find((row) => row.id === "potential").pass, false);
 assert.ok(atTheLow.blocks.some((line) => /low/i.test(line)));
 assert.equal(atTheLow.indicators.find((row) => row.id === "valuation").stateLabel, "Still expensive");
+// SPY (an ETF) has no forward P/E on Yahoo: the trailing P/E stands in, labeled.
+{
+  const trailingOnly = buildBottomTracker(baseInput({ rest: { forwardPe: null, trailingPe: 23.4 } }));
+  const row = trailingOnly.indicators.find((r) => r.id === "valuation");
+  assert.equal(row.stateLabel, "Still expensive", "a trailing P/E still reads the gap");
+  assert.deepEqual(row.facts[0], { label: "Trailing P/E", value: "23.4" });
+  assert.match(row.summary, /^Trailing P\/E \(no forward P\/E is reported for SPY\) is 23\.4/);
+  assert.match(row.source, /trailing earnings yield/);
+  const none = buildBottomTracker(baseInput({ rest: { forwardPe: null, trailingPe: null } }));
+  assert.equal(none.indicators.find((r) => r.id === "valuation").stateLabel, "Unavailable");
+  assert.equal(atTheLow.indicators.find((r) => r.id === "valuation").facts[0].label, "Forward P/E", "a reported forward P/E wins");
+}
 
 const formingPrices = fill(220, 100).concat(ramp(100, 80, 30), ramp(80, 86, 25));
 const forming = buildBottomTracker(baseInput({

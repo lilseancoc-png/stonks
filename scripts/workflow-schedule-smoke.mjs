@@ -46,6 +46,30 @@ assert.match(closeFallback, /close_end/);
 assert.match(closeFallback, /LATEST_STATUS/);
 assert.match(closeFallback, /LATEST_CONCLUSION/);
 
+// Market holidays and half days: both workflows read the NYSE table in
+// lib/us-equity-calendar.mjs (the same one the Top Picks watchdog uses).
+// Run the actual probe each one embeds.
+const repoRoot = new URL("..", import.meta.url);
+function sessionProbe(src, dateArg) {
+  const script = src.match(new RegExp(`MARKET_SESSION=\\$\\(node --input-type=module -e '([^']*)' ${dateArg}`))?.[1];
+  assert.ok(script, "workflow must probe the NYSE session table");
+  return (date) => spawnSync(process.execPath, ["--input-type=module", "-e", script, date], { cwd: repoRoot, encoding: "utf8" }).stdout.trim();
+}
+const dailySession = sessionProbe(daily, '"\\$ET_DATE"');
+assert.equal(dailySession("2026-11-26"), "closed", "Thanksgiving is a holiday");
+assert.equal(dailySession("2026-11-27"), "780", "day after Thanksgiving closes at 13:00 ET");
+assert.equal(dailySession("2026-11-09"), "960");
+assert.equal(dailySession("2031-01-02"), "unknown", "a year with no table row fails open");
+assert.match(daily, /sparse-checkout: lib\/us-equity-calendar\.mjs/);
+assert.match(daily, /MARKET_CLOSED" = "true" \] && \[ "\$ET_DAY" -le 5 \] && \[ "\$ET_MIN" -ne 540 \] && \[ "\$ET_MIN" -ne 1140 \][\s\S]*?mode=skip/,
+  "a weekday market holiday skips the build and Brief but keeps the transcript slots");
+assert.match(daily, /ET_MIN" -ge "\$CLOSE_MIN" \] && \[ "\$REFRESH_TOP_PICKS" = "true" \][\s\S]*?REFRESH_TOP_PICKS=false[\s\S]*?REFRESH_SWING_DESKS=false/,
+  "no Top Picks run after an early close");
+const fallbackSession = sessionProbe(closeFallback, '"\\$\\(TZ=America/New_York date \\+%F\\)"');
+assert.equal(fallbackSession("2026-12-25"), "closed");
+assert.match(closeFallback, /sparse-checkout: lib\/us-equity-calendar\.mjs/);
+assert.match(closeFallback, /MARKET_SESSION" = "closed" \][\s\S]*?exit 0/, "the close-bake fallback never forces a holiday bake");
+
 // Execute the actual publication predicate embedded in the watchdog, rather
 // than mirroring its logic in a test that could drift from the workflow.
 const publicationCheck = closeFallback.match(/node -e '([\s\S]*?)' <<<"\$JOBS"/)?.[1];

@@ -20,50 +20,25 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
      (same format, plus the archive preamble) and add that month to the
      "Older changelogs" index below. -->
 
-## [Unreleased]
+## 2026-11-08
 
 ### Added
 
-- Add a "Send us a message" box in Learn & help: anyone can send a title, message and optional emails or social links; only the Owner can read, mark and delete them in an inbox under the form. Messages stay in the private store, with spam limits and no IP addresses kept (#770).
-
-- Anchor NBA research pairs to fresh sportsbook prices, show minutes/usage/absence scenarios and explicit pass states, evaluate owner-entered payouts, and retain private reproducible decision snapshots with prospective calibration, closing comparisons and frozen paper returns (#758).
-
-- Add a reproducible walk-forward replay of archived PrizePicks lines, with separate validation/test dates, team-constrained pairs, coverage and uncertainty reporting, and checks against future-data leakage (#756).
-
-- Show each NBA/NFL game's two strongest eligible PrizePicks player props using a free PropLine feed, current injuries, player form, workload, defense, splits and rest; preserve the first issued pair in a private win/bust track record with original lines, saved reasoning, stat breakdowns and a research-data export (#753).
-
-- Add a Mingstreet MCP server at `/mcp` so ChatGPT, Claude and other AI apps can read site research: every page and the extra files behind it (histories, logs, earnings-call transcripts), stock research, price history, grades, live quotes, Top Picks and the track record. It is read-only by construction (tools only get a store that can read, and the Top Picks market check runs as an unsaved preview) with no AI calls, signs in through the Discord owner role (OAuth with PKCE, consent page, role re-checked on every token refresh) and uses no extra Vercel function. Webull, fills and secrets are never exposed. See `docs/mcp.md` (#732).
-
-### Changed
-
-- Market briefs include public streak reversals and moving averages, Pattern lab outcomes with sample limits, saved overnight calls, insider purchases, financing and buybacks, CapEx guidance changes, wholesale memory prices and Rich option premium. Owner research stays excluded; source freshness and public page links have regression checks.
+- Add a macro, cycle and rotation read for Top Picks, on by default since the owner approved it (`PICKS_MACRO_CONTEXT=0` turns it off): where the Fed path, inflation, growth, credit, market, liquidity, dollar, oil and party control stand, which groups money is rotating into and out of with a plain-English reason, a rotation vs systemic stress check, and each stock's macro fit (at most ±1.5 points) from weights learned on 2008-2026 sector history. A trade the fit points against by 0.5 points or more is kept off the open list (new gate "Fights the macro backdrop"; `PICKS_MACRO_BLOCK_PTS`, and `PICKS_MACRO_POINTS=1` also adds the points to the grade, off by default), the Fed axis also reads the hikes already priced, the rotation axis reads one month instead of one day, and the AI grader sees the read. The grade version moves to `2026-11-macro-context`, so the Track Record shows a dated divider; the market tape's help text describes the new Fed and rotation reads. Card issuers such as AXP read as lenders, not card networks. Six free FRED series join the shared history cache. Research scripts and results are in `research/macro-backtest/` (#773).
 
 ### Fixed
 
-- Buyer's manual: an option no longer reads as worthless after expiration; one in the money is usually exercised automatically, and only an out-of-the-money one expires worthless.
-
-- Replay NBA source-outage snapshots through the original no-pick gate, preserving exact research verification when a feed is unavailable (#759).
-
-- Keep NBA collection in its own workflow queue and defer busy writes safely so frequent NBA scans cannot displace pending NFL updates (#759).
-
-- Require each game’s two recommended props to include one player from each team, including later track record slot fills (#756).
-
-- Match Rams props to nflverse’s team id, close cached picks at the earliest known kickoff, use the prop’s actual workload, honor explicit injury clearances and stable athlete ids, and download complete prop records in bounded consistent pages.
-
-- Refresh sports prop lines and track record results when returning to a hidden browser tab.
-
-- Stage only the eight required browser assets in Vercel's public output directory and exclude build/scanner sources, documentation, and repository metadata from deployment uploads. (#707)
-- Request an uncompressed R2 lock with a strong ETag so a released Webull paper lock can be acquired conditionally; fail closed on malformed locks or repeated conflicts, expose Owner-only diagnostics, and report mirror failures in a separate workflow health job.
-- Reconcile Webull grouped option positions using confirmed broker order legs and stable position identities; prepare manual spread adoption without replaying its entry, retain separate overlapping manual holdings, and exclude manual entries from automatic fill timing and slippage.
+- Buyer's manual: an option no longer reads as worthless after expiration; one in the money is usually exercised automatically, and only an out-of-the-money one expires worthless (#772).
 
 ### Docs
 
-- CLAUDE.md: the Sports rule now names PropLine's read-only odds feed (PrizePicks lines, plus sportsbook reference prices for NBA) as the one allowed outside line source, which the owners chose to keep, replacing the old "no sportsbook or PrizePicks API calls" line.
+- CLAUDE.md: the Sports rule now names PropLine's read-only odds feed (PrizePicks lines, plus sportsbook reference prices for NBA) as the one allowed outside line source, which the owners chose to keep, replacing the old "no sportsbook or PrizePicks API calls" line (#772).
 
 ## 2026-11-07
 
 ### Added
 
+- Add a "Send us a message" box in Learn & help: anyone can send a title, message and optional emails or social links; only the Owner can read, mark and delete them in an inbox under the form. Messages stay in the private store, with spam limits and no IP addresses kept (#770).
 - Owner: a **Top Picks missed-run watchdog**. After every Daily build, and from its own GitHub schedule as a backup, `scripts/top-picks-watchdog.mjs` checks whether today's 11:00 and 15:30 ET Top Picks runs published. A run that failed, or a dispatch that never arrived, gets one retry (a forced Daily build titled "Top Picks retry <slot> ET <date>") while the session allows, and one GitHub issue labeled `top-picks-run` opens (which emails the repo's watchers), refreshes on later checks and closes once the latest run publishes. The issue carries only slot times, run states and run links. `TOP_PICKS_WATCHDOG=alert` keeps the issue without the retry; `off` turns it off. Planner in `lib/top-picks-watchdog.mjs`; new workflow `top-picks-watchdog.yml`, which the Update Checker also watches. A Daily build run now takes its title from a new `reason` input.
 - Owner: **"Do we have an edge yet?"** at the top of the Track Record Scorecard: the average P&L per closed trade with a resampled 95% range, the same for real fills and for the picks minus a SPY option on the same entries, the win rate against the rate the win and loss sizes need to break even, the newest rule set on its own, a running-average chart with its band, and about how many more closed trades it would take to settle. Reads the current window plus the archive.
 - Owner: **similar-setup odds** on every Top Picks card and open trade: how past closed Top Picks trades with the same side, grade band and market type at entry turned out (wins of matched trades, likely win-rate range, average P&L), loosened one step at a time until at least 8 trades match and marked "few" under 10. Built once per Top Picks run by `lib/setup-odds.mjs` and saved as `setupOdds` in `picks-open.json` and `picks-accuracy.json`; the Open picks table gains a "Like this" column.
@@ -87,16 +62,44 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Fixed
 
+- Bottom tracker: the valuation card reads SPY's trailing P/E (labeled) when Yahoo reports no forward P/E for the ETF, which it never does, so the card no longer says "Unavailable" every day. The high-yield and investment-grade spreads are checked again every three hours while they are behind the last completed session, so the tracker no longer runs a day behind Market analysis (3.32% vs 3.48% on Nov 5).
+- Historical Data checks: the effective fed funds rate (`DFF`) is published for every calendar day, so its weekend rows are no longer a "fail"; an old weekend date in FRED's CPI or jobs release calendar is a warning (the release study already skips it), and only one since 2000 fails. The check names the weekend dates it found.
+- Risk analysis scenarios: a jobs headline or "Unemployment Rate" row no longer reads as an inflation surprise or a Fed event. The calendar files every BLS release under one data-release type, and the scenario engine now matches the title instead.
+- Market analysis premarket leaders: "Soared" needs a day move of at least 2%; a +0.1% premarket gap that reached +0.6% (COST on Nov 6) now reads "Held".
+- The hot-fixes browser test matches the site again: the Owner sign-in check from #723, the Top Picks endpoint from #724, the Market value column, the grade chart's 170px height and the stock page's Grade tab. It also runs without a hydrated `data/` folder.
+- "Why no picks today" names the rule that really stopped a name when the AI review was skipped because nothing could open (waiting for an economic release, waiting for earnings, the score or losing-streak bar, a cap, no contract) instead of "No AI review slot". Release and earnings waits get their own labels in the Track Record's rule table too.
+- Overnight markets shows its gap call and session call again; the UI overhaul's styles had hidden them.
+- Opening Compare no longer pins its four starter companies to a tray at the bottom of every other page. The tray appears once you add or change names, and "+ Compare" on another page starts your own list.
+- Public visits no longer ask for the Owner-only trends history on every page load (Market themes has been Owner-only since #723).
+- What changed says a stock "moved back above" or "dropped below" its 50- or 200-day average; daytime builds read the current price, not a close.
+- A failed sports prop refresh logs why (its own reason and each feed's state, never lines, names or keys).
+- Browser tests for Overnight markets, Pattern lab and the earlier hot fixes match the Owner-only Overnight desk, the stock page's Grade tab and renamed columns.
 - Line charts no longer print the last date label on top of the one before it.
 - Rates & the dollar draws the one-year history and the Fed liquidity line even when the build has no live macro snapshot.
 - The Calendar keeps a VIX expiration that falls before that month's option expiration when the window ends between the two.
 - The stock page's Timeline and Past days read Top Picks trades and grade changes through the Track Record's copy, so a period the Owner wiped from the record stays out of them too.
 - Unusual options trades shows "—" (with a hover note) for a stock with no option expiring that day, and 0% when one is listed but barely traded.
+- The Owner Market Brief stays readable through the evening. A short-lived public source (the hourly Volume scan, gamma) now hides only its own line when it lapses, instead of blanking the whole brief three hours after the last scan.
+- The Owner Market Brief says "No open model positions" when the model book is flat, writes "1 observation", and ends the market drivers with a full stop before the scenario note.
+- The Market brief's site scan reads upcoming-earnings run-ups and implied moves in the right units, so a large run-up into a report is flagged again ("±18.7% implied", not "±0.1873%"). It also rounds the earnings ripple move and writes "an upper break".
+- The earnings calendar no longer asks Nasdaq about market holidays such as Thanksgiving, which marked the Calendar's earnings lookup incomplete and flagged it in the Update Checker.
+- Owner Market Brief, Update Checker and Research Lab show their title once. The page header carries it, and the intro moves under "About this page".
+- The Owner Market Brief stays readable over weekends and market holidays. Its age limits count open market days only, so the Friday 16:10 brief lasts until Monday's builds replace it, and its sources no longer turn "stale" on a Sunday. The brief is now built on market days only; a weekend or holiday build leaves the last one in place.
 - The fear map tags only upcoming earnings, What changed no longer colors a streak that ended on a flat close as a drop and writes "an 8-day", Past days leaves ETFs out of its stock map and labels a trade's P&L as "now" or "closed at", and percentiles read 1st / 2nd / 3rd / 82nd instead of "82th" (stock page, fear map and the VIX rank lines).
 - `npm run verify:risk-cost` runs again. Since the Top Picks settings moved to their own file on Nov 6, it pasted that file into the old build it compares against and stopped with a duplicate-import error on every branch.
+- Market holidays no longer run a full build. The Daily build router reads the NYSE holiday table (the one the Top Picks watchdog uses) and skips the build, Brief, Top Picks and Webull mirror on a weekday holiday (Labor Day ran the bakes and both Top Picks runs); the earnings-call transcript slots still run, and `force=true` still builds on purpose. The close-bake fallback no longer forces a holiday bake. On a 13:00 ET half day there is no 15:30 Top Picks run after the bell (#771).
+- AM earnings reports use the real 09:30 ET open as their print time in both seasons. In summer the old fixed time was 10:30 ET, so the 10:00 ET bake re-stamped the "going in" IV and implied move after the open, which made summer AM implied moves too small (AXP Oct 23: 1.7%) and the Earnings results "beat the implied move" count too high. A one-time pass drops those post-open stamps (only where the "pre" IV is no higher than the post-print IV) and rebuilds an estimate from the IV crush (#771).
+- The Calendar shows the stored pre-print implied move for a report that already came out, instead of the post-print straddle (MRNA's Nov 6 row read 1.3%) (#771).
+- Calendar market-odds chips on CPI and PPI rows show the most likely outcome of the busiest matching market, not its busiest bucket ("≤0.1% · 8%" on October CPI MoM) (#771).
+- Overnight markets no longer lists CSI 300 as "Closed overnight" every morning. The feed sends it as one bar with no prior close; that now reads "no prior close in the data feed" and raises no holiday event (#771).
+
+### Removed
+
+- Drop Eli Lilly's investor news feed. It and its mirror returned HTTP 403 to every build, so News was always flagged in the Update Checker. Drugs@FDA still covers LLY.
 
 ### Docs
 
+- The undated "Unreleased" changelog entries now sit under the dates they landed (November in this file, October in `docs/changelog/2026-10.md`).
 - CLAUDE.md describes the new pages, files, Owner/public split and the `test:views-next` / `test:views-next-browser` checks.
 - CLAUDE.md and `docs/top-picks.md` describe the missed-run watchdog, similar-setup odds and the edge panel, with their checks (`test:top-picks-watchdog`, `test:setup-odds`, `test:edge-odds-browser`).
 
@@ -123,6 +126,9 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - "Why no picks today": when nothing is ready to buy, the Owner Top Picks tab leads with the five names that came closest in the last run, the rule that stopped each and what it would take to get through (`lib/no-picks.mjs`, read from the run's own gate trace, topped up from the grades under the score bar). The same read is the Owner MCP tool `get_near_misses`, and the rule labels now come from one place for the card, the Track Record and the Week recap.
 - Home-screen app: the site can be added to a phone's home screen (`manifest.webmanifest`, icons in `icons/`, drawn by `scripts/make-app-icons.mjs`) and opens with no connection, showing the last public copy with an offline note. The service worker (`sw.js`) keeps only the page shell, code, icons and the two public manifest sidecars, always tries the network first, and never stores `/api/` answers or other `/data/` files, so no Owner data stays on the device.
 - Earnings week ahead is readable through the MCP (get_feature earnings-week, Owner dataset plan) and Research Lab evidence; new browser check scripts/site-next-browser.mjs (npm run test:site-next-browser) (#760).
+- Anchor NBA research pairs to fresh sportsbook prices, show minutes/usage/absence scenarios and explicit pass states, evaluate owner-entered payouts, and retain private reproducible decision snapshots with prospective calibration, closing comparisons and frozen paper returns (#758).
+- Add a reproducible walk-forward replay of archived PrizePicks lines, with separate validation/test dates, team-constrained pairs, coverage and uncertainty reporting, and checks against future-data leakage (#756).
+- Show each NBA/NFL game's two strongest eligible PrizePicks player props using a free PropLine feed, current injuries, player form, workload, defense, splits and rest; preserve the first issued pair in a private win/bust track record with original lines, saved reasoning, stat breakdowns and a research-data export (#753).
 
 ### Changed
 
@@ -146,6 +152,11 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Earnings week ahead: a report that printed this morning shows as Reported with its move and the move options priced going in, no longer counts in its own history, and gets no Top Picks plan; the Owner plan reads open trades from before the bake clears data/ (#760).
 - Week recap to-date rates include archived trades; a second took / skipped tap while one is saving now waits its turn instead of being dropped (#760).
 - The calendar feed keeps tonight's events until midnight in New York, not 8 PM; the no-picks card reuses the cached grade index; the Glossary has no refresh time; the Options walls card no longer nests a button in a button (#760).
+- Replay NBA source-outage snapshots through the original no-pick gate, preserving exact research verification when a feed is unavailable (#759).
+- Keep NBA collection in its own workflow queue and defer busy writes safely so frequent NBA scans cannot displace pending NFL updates (#759).
+- Require each game’s two recommended props to include one player from each team, including later track record slot fills (#756).
+- Match Rams props to nflverse’s team id, close cached picks at the earliest known kickoff, use the prop’s actual workload, honor explicit injury clearances and stable athlete ids, and download complete prop records in bounded consistent pages.
+- Refresh sports prop lines and track record results when returning to a hidden browser tab.
 
 ### Docs
 
@@ -257,6 +268,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Add six Owner-only Sports tools to the Mingstreet MCP: list today's and tomorrow's games, find players, read a game or a player's log and forecast, check a pick'em entry, and read the model check with the paper journal's totals. A screenshot read by Claude or ChatGPT can now become a checked entry: the evaluate tool gives the same answer as the Pick Builder and returns a link that fills the entry on the site, where the owner saves it. Nothing is saved from the MCP, the link never carries chances, and the tools can read only Sports records. `SPORTS_ENABLED=0` hides them.
 - Cover every stored stat and the common combo lines in the Owner Sports section: NBA assists, threes, steals, blocks, turnovers, shooting and rebound splits, PRA, points + rebounds, points + assists, rebounds + assists, blocks + steals and fantasy score; NFL rushing and receiving yards, touchdowns, completions, attempts, interceptions, carries, targets, rush + receiving yards and pass + rush yards. Each one has averages, charts, hit rates, Player and Team stats columns and Pick Builder picks, which also settle from the summed final stats. Stat pickers are grouped Main / Combos / More, and the game log and Player stats table switch their columns between those groups. Model forecasts still cover NBA points and rebounds and NFL passing yards and receptions; other picks say they are history only. Combos are summed from stored box scores, so nothing is downloaded again. A pick from a player's page starts on that player's main stat (rushing yards for a running back) instead of the first stat in the list.
 - Add a Matchup section to each game on the Owner Sports pages: both teams side by side before the game (record, home and away, last 10, streak, points scored and allowed, point difference and the chosen stat scored and allowed, each with its league rank), what each defense allows to guards, forwards and centers or to QBs, RBs, WRs and TEs next to the league average (the toughest and softest fifth tagged), and the last 10 stored meetings with the series record and average total (NFL meetings also reach into the three older seasons kept for the model, since most NFL teams do not meet every season; with only two seasons about half of this week's NFL games had none). Each player in the game panel also gets their average against tonight's opponent over this season and last. The player tables fit beside the board on a desktop (an NBA team's shared main stat moves into its heading, and "Games" becomes "GP"), and the matchup tables follow their own width, so they fit on a small laptop as well as a phone. The MCP game tool returns the same. Box scores only; no AI calls or new Vercel function.
+- Add a Mingstreet MCP server at `/mcp` so ChatGPT, Claude and other AI apps can read site research: every page and the extra files behind it (histories, logs, earnings-call transcripts), stock research, price history, grades, live quotes, Top Picks and the track record. It is read-only by construction (tools only get a store that can read, and the Top Picks market check runs as an unsaved preview) with no AI calls, signs in through the Discord owner role (OAuth with PKCE, consent page, role re-checked on every token refresh) and uses no extra Vercel function. Webull, fills and secrets are never exposed. See `docs/mcp.md` (#732).
 
 ### Fixed
 

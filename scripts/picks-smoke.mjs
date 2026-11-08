@@ -22,7 +22,7 @@ import {
   buildDcaPlan, DCA_BASE_USD,
   aiSignalsHeadlineSignature, canReuseAiSignals,
   attachIvRanks, computeAtmIvForDte,
-  computeImpliedMoveForDate,
+  computeImpliedMoveForDate, earningsAnchorMs, repairSummerAmStamps,
   narrativeInputSignature, canReuseNarrativeExtraction,
   decisionNarratives, scannerPayloadIsFresh, quarantineScoringInputs, dropStaleMacroLiveLegs,
   socialSentimentIsCurrent,
@@ -1447,6 +1447,23 @@ ok("earnings move: Friday AM print may use same-day expiry", computeImpliedMoveF
 ok("earnings move: BMO alias may use same-day expiry", computeImpliedMoveForDate(earningsMoveFixture, fridayEvent, "BMO")?.expiry === fridayExpiry);
 ok("earnings move: Friday PM print uses following expiry", computeImpliedMoveForDate(earningsMoveFixture, fridayEvent, "PM")?.expiry === followingExpiry);
 ok("earnings move: unknown Friday session conservatively uses following expiry", computeImpliedMoveForDate(earningsMoveFixture, fridayEvent, "TBD")?.expiry === followingExpiry);
+// AM prints anchor to the real 09:30 ET open in both seasons, so the 10:00 ET
+// bake is always after the print and never re-stamps the pre-print straddle.
+ok("earnings anchor: summer AM print = 09:30 EDT (13:30Z)", earningsAnchorMs("2026-10-23", "AM") === Date.parse("2026-10-23T13:30:00Z"));
+ok("earnings anchor: winter AM print = 09:30 EST (14:30Z)", earningsAnchorMs("2026-11-06", "AM") === Date.parse("2026-11-06T14:30:00Z"));
+ok("earnings anchor: summer 10:00 ET bake is after an AM print", earningsAnchorMs("2026-10-23", "AM") < Date.parse("2026-10-23T14:00:00Z"));
+ok("earnings anchor: prior-day 16:10 ET bake is before an AM print", earningsAnchorMs("2026-10-23", "AM") > Date.parse("2026-10-22T20:10:00Z"));
+ok("earnings anchor: PM print unchanged", earningsAnchorMs("2026-10-23", "PM") === Date.parse("2026-10-23T21:00:00Z"));
+const amFixEntry = { events: [
+  { date: "2026-10-23", session: "AM", epsActual: 4.1, ivPre: 0.2848, ivPost: 0.2841, impliedMovePct: 0.0169 },
+  { date: "2026-07-17", session: "AM", epsActual: 3.9, ivPre: 0.36, ivPost: 0.27, impliedMovePct: 0.052 },
+  { date: "2026-01-23", session: "AM", epsActual: 3.6, ivPre: 0.25, ivPost: 0.25, impliedMovePct: 0.02 },
+  { date: "2026-10-22", session: "PM", epsActual: 1.1, ivPre: 0.30, ivPost: 0.30, impliedMovePct: 0.03 },
+] };
+ok("AM stamp repair: drops one post-open summer stamp", repairSummerAmStamps(amFixEntry, "2026-11-07") === 1);
+ok("AM stamp repair: the post-open stamp is cleared for a crush estimate", amFixEntry.events[0].ivPre === undefined && amFixEntry.events[0].impliedMovePct === undefined && amFixEntry.events[0].ivPost === 0.2841);
+ok("AM stamp repair: a real pre-print stamp, a winter print and a PM print are kept", amFixEntry.events[1].impliedMovePct === 0.052 && amFixEntry.events[2].impliedMovePct === 0.02 && amFixEntry.events[3].impliedMovePct === 0.03);
+ok("AM stamp repair: runs once", repairSummerAmStamps(amFixEntry, "2026-11-07") === 0);
 
 const filingFixture = {
   filings: { recent: {
@@ -2528,7 +2545,8 @@ const gradeOne = (data, opts = {}, unusual = null) => buildGradesIndex({ ONE: da
   ok("sector growth: names without a profile keep the legacy bars",
     sigOf(gradeOne(mkTicker({ fundamentals: { revenueGrowthYoy: 8 } })), "fundamentals", "revGrowth")?.score === 1
     && sigOf(gradeOne(mkTicker({ fundamentals: { revenueGrowthYoy: 8 } })), "fundamentals", "revGrowth")?.growthProfile === undefined);
-  ok("grade version is 2026-11-price-pillar (price-pillar fix)", GRADE_MODEL_VERSION === "2026-11-price-pillar");
+  // The macro read (on by default since 2026-11-08) moves the version on top of the price-pillar fix.
+  ok("grade version is 2026-11-macro-context (2026-11-price-pillar with PICKS_MACRO_CONTEXT=0)", GRADE_MODEL_VERSION === (process.env.PICKS_MACRO_CONTEXT === "0" ? "2026-11-price-pillar" : "2026-11-macro-context"));
 }
 {
   const nowMs = Date.now();
@@ -2706,6 +2724,27 @@ const gradeOne = (data, opts = {}, unusual = null) => buildGradesIndex({ ONE: da
   const opened = stats.find((g) => g.gate === "opened");
   ok("gate stats: totals and pending rows combine per rule",
     opened && opened.d20.avgPct === 20 && opened.d20.rightPct === 100 && stats.some((g) => g.gate === "book-full" && g.n === 1));
+}
+
+// "Why no picks today" names the real stop when the AI review was skipped
+// because no name could open (2026-11-07 QC: Nov 6 15:30 showed "No AI review
+// slot" for names that were waiting on CPI).
+{
+  const { aiUngradedGate } = await import("./build.mjs");
+  const { noPicksFactory } = await import("../lib/no-picks.mjs");
+  const labels = noPicksFactory().GATE_LABEL;
+  const r = { sym: "AXP", timing: { deferKind: "event", hardWait: "event" } };
+  ok("ai gate: grader ran -> no AI review slot", aiUngradedGate(r, "call", false, null) === "no-ai-slot");
+  ok("ai gate: grader skipped, macro wait -> event-wait", aiUngradedGate(r, "call", true, { "AXP:call": "timing" }) === "event-wait");
+  ok("ai gate: grader skipped, earnings wait -> earnings-wait", aiUngradedGate({ sym: "X", timing: { deferKind: "earnings" } }, "put", true, { "X:put": "timing" }) === "earnings-wait");
+  ok("ai gate: grader skipped, other check -> that check", aiUngradedGate({ sym: "X" }, "put", true, { "X:put": "option-economics" }) === "option-economics");
+  ok("ai gate: grader skipped, unknown -> ai-skipped", aiUngradedGate({ sym: "X" }, "put", true, {}) === "ai-skipped");
+  ok("ai gate: grader skipped, 7.5 under the raised bar -> losing-streak-bar", aiUngradedGate({ sym: "X", total: 7.5 }, "call", true, { "X:call": "below-bar" }) === "losing-streak-bar");
+  ok("ai gate: grader skipped, 6.5 under the bar -> below-strong", aiUngradedGate({ sym: "X", total: -6.5 }, "put", true, { "X:put": "below-bar" }) === "below-strong");
+  const { timingWaitGate } = await import("./build.mjs");
+  ok("timing gate: plain wait -> timing-checks", timingWaitGate({ timing: { state: "wait" } }) === "timing-checks");
+  ok("timing gate: macro defer -> event-wait", timingWaitGate(r) === "event-wait");
+  ok("ai gate: every new gate has a label", ["event-wait", "earnings-wait", "ai-skipped"].every((g) => !!labels[g]));
 }
 
 console.log(`\n${pass}/${pass + fail} checks passed.`);
