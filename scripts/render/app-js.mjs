@@ -6808,7 +6808,12 @@ ${renderExportBindings()}
     return d;
   }
 
-  function fmtQuarterLabel(date, period, fyeMonth){
+  // Companies that name a fiscal year by the calendar year it STARTS in.
+  // Target's and Home Depot's "fiscal 2025" ended in late January / early
+  // February 2026; most others with a January year end (Walmart, Nvidia,
+  // Salesforce, Dell) name it by the year it ends in.
+  var FISCAL_YEAR_NAMED_BY_START = { HD: true, TGT: true };
+  function fmtQuarterLabel(date, period, fyeMonth, namedByStart){
     if (date){
       var d = new Date(date);
       if (!isNaN(d.getTime())){
@@ -6824,6 +6829,7 @@ ${renderExportBindings()}
           if (m > fyeMonth){ fy = y + 1; pos = m - fyeMonth - 1; }
           else { fy = y; pos = m + 12 - fyeMonth - 1; }
           var fq = Math.floor(pos / 3) + 1;
+          if (namedByStart) fy -= 1;
           return 'Q' + fq + " '" + String(fy).slice(2);
         }
         var q = Math.floor(d.getUTCMonth() / 3) + 1;
@@ -6899,7 +6905,8 @@ ${renderExportBindings()}
     var fmt = opts.formatValue || function(v){ return v.toFixed(2); };
     // Point labels default to fiscal-quarter names (the fundamentals charts);
     // callers plotting calendar-time series (e.g. RAM prices) pass formatLabel.
-    var lblFor = opts.formatLabel || function(p){ return fmtQuarterLabel(p.date, p.period, fyeMonth); };
+    var namedByStart = !!(opts.symbol && FISCAL_YEAR_NAMED_BY_START[opts.symbol]);
+    var lblFor = opts.formatLabel || function(p){ return fmtQuarterLabel(p.date, p.period, fyeMonth, namedByStart); };
 
     var histPts = history.map(function(p, i){ return [xFor(i), yFor(p.value)]; });
     var linePath = smoothPath(histPts);
@@ -7107,6 +7114,7 @@ ${renderExportBindings()}
       forwardPoints: (f && Array.isArray(f.epsForwardEstimates)) ? f.epsForwardEstimates : [],
       formatValue: function(v){ return v.toFixed(2); },
       fiscalYearEndMonth: f && f.fiscalYearEndMonth,
+      symbol: state.symbol,
     });
   }
 
@@ -7270,6 +7278,7 @@ ${renderExportBindings()}
       forwardPoints: f.revenueForwardEstimates || [],
       formatValue: fmtBigDollars,
       fiscalYearEndMonth: fye,
+      symbol: state.symbol,
     });
     renderHistoryChart({
       boxId: 'opt-fund-gross-profit-history',
@@ -7277,6 +7286,7 @@ ${renderExportBindings()}
       points: f.grossProfitHistory || [],
       formatValue: fmtBigDollars,
       fiscalYearEndMonth: fye,
+      symbol: state.symbol,
     });
     renderHistoryChart({
       boxId: 'opt-fund-operating-costs-history',
@@ -7284,6 +7294,7 @@ ${renderExportBindings()}
       points: f.operatingCostsHistory || [],
       formatValue: fmtBigDollars,
       fiscalYearEndMonth: fye,
+      symbol: state.symbol,
     });
     renderHistoryChart({
       boxId: 'opt-fund-net-income-history',
@@ -7291,6 +7302,7 @@ ${renderExportBindings()}
       points: f.netIncomeHistory || [],
       formatValue: fmtBigDollars,
       fiscalYearEndMonth: fye,
+      symbol: state.symbol,
     });
     renderHistoryChart({
       boxId: 'opt-fund-fcf-history',
@@ -7298,6 +7310,7 @@ ${renderExportBindings()}
       points: f.fcfHistory || [],
       formatValue: fmtBigDollars,
       fiscalYearEndMonth: fye,
+      symbol: state.symbol,
     });
     renderHistoryChart({
       boxId: 'opt-fund-net-margin-history',
@@ -7305,6 +7318,7 @@ ${renderExportBindings()}
       points: f.netMarginHistory || [],
       formatValue: function(v){ return v.toFixed(1) + '%'; },
       fiscalYearEndMonth: fye,
+      symbol: state.symbol,
     });
   }
 
