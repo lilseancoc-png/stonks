@@ -50,7 +50,7 @@ try {
   preview.setScenario('sources');extra=await pageAt(390);await extra.goto(preview.base+'/?tab=update-checker');
   const sources=extra.locator('#update-checker-root');await sources.locator('.uc-feature:visible').first().waitFor();
   const sourceText=await sources.innerText();
-  check(sourceText.includes('Eli Lilly (HTTP 403)') && sourceText.includes('ISM') && sourceText.includes('Memory chip prices'),'Actual inspection details reach the status page');
+  check(sourceText.includes('AMD (HTTP 403)') && sourceText.includes('ISM') && sourceText.includes('Memory chip prices'),'Actual inspection details reach the status page');
   check(!sourceText.includes('PRIVATE_SENTINEL'),'Private error text is withheld through API and browser');
   check(await sources.locator('.uc-feature:visible').count()===3,'Source failures appear under Needs review');
   preview.setScenario('healthy');await sources.locator('[data-uc-refresh]').click();await sources.locator('.uc-all-clear').waitFor();

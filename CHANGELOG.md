@@ -60,8 +60,18 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - The Calendar keeps a VIX expiration that falls before that month's option expiration when the window ends between the two.
 - The stock page's Timeline and Past days read Top Picks trades and grade changes through the Track Record's copy, so a period the Owner wiped from the record stays out of them too.
 - Unusual options trades shows "—" (with a hover note) for a stock with no option expiring that day, and 0% when one is listed but barely traded.
+- The Owner Market Brief stays readable through the evening. A short-lived public source (the hourly Volume scan, gamma) now hides only its own line when it lapses, instead of blanking the whole brief three hours after the last scan.
+- The Owner Market Brief says "No open model positions" when the model book is flat, writes "1 observation", and ends the market drivers with a full stop before the scenario note.
+- The Market brief's site scan reads upcoming-earnings run-ups and implied moves in the right units, so a large run-up into a report is flagged again ("±18.7% implied", not "±0.1873%"). It also rounds the earnings ripple move and writes "an upper break".
+- The earnings calendar no longer asks Nasdaq about market holidays such as Thanksgiving, which marked the Calendar's earnings lookup incomplete and flagged it in the Update Checker.
+- Owner Market Brief, Update Checker and Research Lab show their title once. The page header carries it, and the intro moves under "About this page".
+- The Owner Market Brief stays readable over weekends and market holidays. Its age limits count open market days only, so the Friday 16:10 brief lasts until Monday's builds replace it, and its sources no longer turn "stale" on a Sunday. The brief is now built on market days only; a weekend or holiday build leaves the last one in place.
 - The fear map tags only upcoming earnings, What changed no longer colors a streak that ended on a flat close as a drop and writes "an 8-day", Past days leaves ETFs out of its stock map and labels a trade's P&L as "now" or "closed at", and percentiles read 1st / 2nd / 3rd / 82nd instead of "82th" (stock page, fear map and the VIX rank lines).
 - `npm run verify:risk-cost` runs again. Since the Top Picks settings moved to their own file on Nov 6, it pasted that file into the old build it compares against and stopped with a duplicate-import error on every branch.
+
+### Removed
+
+- Drop Eli Lilly's investor news feed. It and its mirror returned HTTP 403 to every build, so News was always flagged in the Update Checker. Drugs@FDA still covers LLY.
 
 ### Docs
 

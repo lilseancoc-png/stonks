@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { buildOwnerMarketBrief, OWNER_BRIEF_KEY, OWNER_BRIEF_SOURCES, sourceStatus } from '../lib/owner-market-brief.mjs';
+import { buildOwnerMarketBrief, OWNER_BRIEF_KEY, OWNER_BRIEF_SOURCES, openDayExpiry, sourceStatus } from '../lib/owner-market-brief.mjs';
 import { OWNER_PAGE_IDS, SPORTS_PAGE_IDS } from '../lib/owner-access-policy.mjs';
 import { isPremiumKey, roleClaimForKey } from '../lib/premium-keys.mjs';
 import { isBakeOwnedKey } from '../lib/data-ownership.mjs';
@@ -21,7 +21,7 @@ assert(!JSON.stringify(report.scenarios).includes('weight'),'Scenario weights ca
 assert(report.findings.some(f=>f.title==='Market and breadth disagree'));
 assert.equal(report.publicRead.summary,fixture.payloads['briefs.json'].current.summary);
 assert.equal(report.ideas[0].symbol,fixture.payloads['unified-signal.json'].decisions[0].symbol);assert(report.ideas[0].challenges.length);assert(report.ideas.some(i=>i.blocks.length));
-assert(Date.parse(report.validUntil)<=Date.parse(fixture.builtAtIso)+24*3600000,'A brief expires within one day');
+assert(Date.parse(report.validUntil)<=openDayExpiry(Date.parse(fixture.builtAtIso),24),'A brief expires within one open market day');
 assert.equal(report.forecasts[0].eps,2.4);assert.equal(report.forecasts[0].cutoffAt,'2026-10-20T12:00:00Z');
 // The on-demand Lab has owner-scoped experiments, not a daily decision feed.
 // Keep it out of scheduled synthesis and AI inputs, including when enabled.
