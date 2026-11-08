@@ -104,6 +104,7 @@
     "test:charts": "node scripts/charts-smoke.mjs",
     "test:chart-ui-browser": "node scripts/chart-ui-browser.mjs",
     "test:site-map": "node scripts/site-map-smoke.mjs",
+    "test:contact": "node scripts/contact-smoke.mjs",
     "test:site-next": "node scripts/site-next-smoke.mjs",
     "test:site-next-browser": "node scripts/site-next-browser.mjs",
     "test:views-next": "node scripts/views-next-smoke.mjs",

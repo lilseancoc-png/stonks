@@ -25,6 +25,7 @@ jobs:
           npm run test:owner-brief
           npm run test:research-lab
           npm run test:api
+          npm run test:contact
           npm run test:sports
           npm run verify:freshness
       - name: Verify browser behavior

@@ -15,7 +15,7 @@ const covered = new Set([...BRIEF_TOOL_SOURCES.map((s) => s.tab), ...BRIEF_CORE_
 // tracker's history, both Brief sources already; the Glossary is reference text.
 // Market map, What changed and Past days redraw prices, option chains, flow,
 // walls, filings and insider trades that the Brief already reads.
-const reference = new Set(['home', 'brief', 'stock', 'cheatsheet', 'chart-patterns', 'timeline', 'privacy', 'terms', 'earnings-week', 'glossary', 'market-map', 'whats-changed', 'past-day']);
+const reference = new Set(['home', 'brief', 'stock', 'cheatsheet', 'chart-patterns', 'timeline', 'privacy', 'terms', 'earnings-week', 'glossary', 'contact', 'market-map', 'whats-changed', 'past-day']);
 assert.deepEqual([...publicTabs].filter((tab) => !covered.has(tab) && !reference.has(tab)), [],
   'A new public evidence page must have Brief coverage or an explicit reference-only exemption');
 for (const source of BRIEF_TOOL_SOURCES) {
