@@ -35,7 +35,8 @@ try {
   await root.locator('[data-pat-view="tables"]').click();
   const current=root.locator('[data-ts-key="pattern-current-divergences"]');
   assert.equal(await current.locator('tbody tr').count(),3);
-  await current.getByRole('columnheader',{name:'Price between pivots',exact:true}).click();
+  // CSS locator: Playwright's role name for this header was intermittently empty while the table re-rendered.
+  await current.locator('thead th').filter({hasText:/^Price between pivots$/}).click();
   const sorted=await current.locator('tbody tr td:last-child').allTextContents();
   assert(['+4.00%,-2.00%,-3.00%','-3.00%,-2.00%,+4.00%'].includes(sorted.join(',')),'table headers sort actual numbers');
   await root.locator('[data-pat-query]').fill('ALFA');

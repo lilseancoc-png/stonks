@@ -2708,5 +2708,26 @@ const gradeOne = (data, opts = {}, unusual = null) => buildGradesIndex({ ONE: da
     opened && opened.d20.avgPct === 20 && opened.d20.rightPct === 100 && stats.some((g) => g.gate === "book-full" && g.n === 1));
 }
 
+// "Why no picks today" names the real stop when the AI review was skipped
+// because no name could open (2026-11-07 QC: Nov 6 15:30 showed "No AI review
+// slot" for names that were waiting on CPI).
+{
+  const { aiUngradedGate } = await import("./build.mjs");
+  const { noPicksFactory } = await import("../lib/no-picks.mjs");
+  const labels = noPicksFactory().GATE_LABEL;
+  const r = { sym: "AXP", timing: { deferKind: "event", hardWait: "event" } };
+  ok("ai gate: grader ran -> no AI review slot", aiUngradedGate(r, "call", false, null) === "no-ai-slot");
+  ok("ai gate: grader skipped, macro wait -> event-wait", aiUngradedGate(r, "call", true, { "AXP:call": "timing" }) === "event-wait");
+  ok("ai gate: grader skipped, earnings wait -> earnings-wait", aiUngradedGate({ sym: "X", timing: { deferKind: "earnings" } }, "put", true, { "X:put": "timing" }) === "earnings-wait");
+  ok("ai gate: grader skipped, other check -> that check", aiUngradedGate({ sym: "X" }, "put", true, { "X:put": "option-economics" }) === "option-economics");
+  ok("ai gate: grader skipped, unknown -> ai-skipped", aiUngradedGate({ sym: "X" }, "put", true, {}) === "ai-skipped");
+  ok("ai gate: grader skipped, 7.5 under the raised bar -> losing-streak-bar", aiUngradedGate({ sym: "X", total: 7.5 }, "call", true, { "X:call": "below-bar" }) === "losing-streak-bar");
+  ok("ai gate: grader skipped, 6.5 under the bar -> below-strong", aiUngradedGate({ sym: "X", total: -6.5 }, "put", true, { "X:put": "below-bar" }) === "below-strong");
+  const { timingWaitGate } = await import("./build.mjs");
+  ok("timing gate: plain wait -> timing-checks", timingWaitGate({ timing: { state: "wait" } }) === "timing-checks");
+  ok("timing gate: macro defer -> event-wait", timingWaitGate(r) === "event-wait");
+  ok("ai gate: every new gate has a label", ["event-wait", "earnings-wait", "ai-skipped"].every((g) => !!labels[g]));
+}
+
 console.log(`\n${pass}/${pass + fail} checks passed.`);
 process.exit(fail ? 1 : 0);

@@ -21550,6 +21550,30 @@ export function prioritizeAiSlots(cands, ctx = {}) {
   return { ordered: ready.concat(rest), ready: ready.length };
 }
 
+// The gate shown for a name the AI grader never read. When the grader ran,
+// the name missed the PICKS_MAX_AI_THESES cut ("no-ai-slot"). When it was
+// skipped because no name could open (generateAiTheses, "none-ready"), the
+// real stop is the non-AI check that blocked it, so name that instead.
+const AI_SKIP_GATE = {
+  "below-bar": "below-strong", "confluence": "confluence", "factor-trend": "factor-trend",
+  "no-contract": "no-contract", "option-economics": "option-economics",
+  "sector-cap": "sector-cap", "factor-cap": "factor-cap", "factor-run-cap": "factor-run-cap", "side-cap": "side-cap",
+};
+// An entry-timing hold: name the scheduled release or earnings report when
+// that is what it waits on, else the general timing checks.
+export function timingWaitGate(r) {
+  const defer = r?.timing?.deferKind || r?.timing?.hardWait || null;
+  return defer === "event" ? "event-wait" : defer === "earnings" ? "earnings-wait" : "timing-checks";
+}
+export function aiUngradedGate(r, side, aiSkipped, blocks) {
+  if (!aiSkipped) return "no-ai-slot";
+  const block = blocks?.[`${r?.sym}:${side}`] || null;
+  if (block === "timing") return timingWaitGate(r);
+  // The precheck bar is the losing-streak bar while that gate is raised.
+  if (block === "below-bar" && Math.abs(pnum(r?.total) ?? 0) >= PICKS_TIER_STRONG) return "losing-streak-bar";
+  return AI_SKIP_GATE[block] || "ai-skipped";
+}
+
 // ============================================================================
 // buildTopPicks — the actionable roster.
 // ============================================================================
@@ -21921,8 +21945,8 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     if (!tactical && group !== "actionable") {
       const gate = demotion === "edge-bar" ? "losing-streak-bar"
         : demotion === "confluence" ? "confluence"
-        : demotion === "ai-ungraded" ? "no-ai-slot"
-        : demotion === "entry-wait" ? (eventCap ? "event-cap" : !entryBlocked && aiVerdict === "wait" ? "ai-wait" : "timing-checks")
+        : demotion === "ai-ungraded" ? aiUngradedGate(r, side, meta.aiGraderSkipped, opts.aiSkipBlocks)
+        : demotion === "entry-wait" ? (eventCap ? "event-cap" : !entryBlocked && aiVerdict === "wait" ? "ai-wait" : timingWaitGate(r))
         : Math.abs(pnum(r.total) ?? 0) < PICKS_TIER_STRONG ? "below-strong"
         : thesisQuality.aiGraded ? "ai-not-strong" : "thesis-not-strong";
       traceGate(r, side, gate);
@@ -27102,7 +27126,7 @@ async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload 
   } catch (err) {
     console.warn(`[leaps] score skipped — ${String(err?.message || err).split("\n")[0]}`);
   }
-  const picks = buildTopPicks(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, rfr, { ...baseOpts, preScored:topScored, aiThesisMap: aiThesis.map, aiGraderSkipped: !!aiThesis.skipped });
+  const picks = buildTopPicks(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, rfr, { ...baseOpts, preScored:topScored, aiThesisMap: aiThesis.map, aiGraderSkipped: !!aiThesis.skipped, aiSkipBlocks: aiThesis.skipped?.blocks || null });
   const picksPath = resolve(DATA_DIR, PICKS_FILE);
   // Run archive (lib/picks-run-archive.mjs): the scored universe exactly as
   // this run saw it, with each name's single-option quote and the grader's
@@ -27961,7 +27985,9 @@ export async function generateAiTheses(preScored, macroBackdrop, opts = {}, prio
   // fresh grade can't change the open book, so skip the new grader calls.
   // Still-valid cached grades are reused for the watch cards.
   const skipNew = ready === 0 && PICKS_AI_SKIP_WHEN_NONE_READY;
-  const skipped = skipNew ? { reason: "none-ready", candidates: cands.length } : null;
+  // blocks: the non-AI check that stopped each candidate, so "Why no picks
+  // today" can name the real rule instead of "No AI review slot".
+  const skipped = skipNew ? { reason: "none-ready", candidates: cands.length, blocks: Object.fromEntries(ordered.map(c => [`${c.r.sym}:${c.side}`, c.precheck || null])) } : null;
   if (skipNew) console.log(`Thesis gate: 0 of ${cands.length} candidate(s) can become open picks this run — skipping new AI grader calls (cached grades reused)`);
   if (cands.length > gated.length) {
     console.log(`Thesis gate: ${gated.length}/${cands.length} data-gate survivors graded (capped at PICKS_MAX_AI_THESES=${PICKS_MAX_AI_THESES}; ${ready} could still become open picks and go first); ${cands.length - gated.length} ship deterministic-only.`);
