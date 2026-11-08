@@ -11385,6 +11385,14 @@ a.cal-chip-source:hover { color: var(--accent); }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* A report with no figure on purpose (October 2026 CPI YoY: no October 2025
+   index to compare with) says why under the figures. */
+.cal-report-note {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--muted);
+}
 @media (max-width: 640px) {
   .cal-report-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
