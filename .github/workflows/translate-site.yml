@@ -1,0 +1,52 @@
+name: Translate site
+# Manual only. Fills the language-picker strings that i18n/zh-CN.json, ja.json
+# and ko.json are missing (scripts/i18n-translate.mjs, Gemini Flash-Lite, one
+# call per 40 strings, hard cap I18N_MAX_CALLS), rebuilds zh-TW with OpenCC,
+# and commits only i18n/*.json. Hand-written translations are never replaced.
+# No schedule: run it once after a big UI change. Reads no private data.
+on:
+  workflow_dispatch:
+    inputs:
+      max_calls:
+        description: "Hard stop on Gemini calls"
+        required: false
+        default: "150"
+permissions:
+  contents: write
+concurrency:
+  group: stonks-data-commit
+  cancel-in-progress: false
+jobs:
+  translate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Fill missing translations
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          I18N_MAX_CALLS: ${{ inputs.max_calls }}
+        run: node scripts/i18n-translate.mjs
+      - name: Check dictionaries
+        run: node scripts/i18n-build.mjs --check
+      - name: Commit translations
+        run: |
+          set -euo pipefail
+          git config user.name "stonks-bot"
+          git config user.email "stonks-bot@users.noreply.github.com"
+          git add i18n/zh-CN.json i18n/zh-TW.json i18n/ja.json i18n/ko.json
+          if git diff --cached --quiet; then
+            echo "No translation change"
+            exit 0
+          fi
+          git commit -m "i18n: fill missing translations"
+          for i in 1 2 3 4; do
+            git pull --rebase origin "${GITHUB_REF_NAME:-main}" && git push origin "HEAD:${GITHUB_REF_NAME:-main}" && exit 0
+            sleep $((2 ** i))
+          done
+          exit 1

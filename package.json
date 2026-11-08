@@ -104,6 +104,7 @@
     "test:charts": "node scripts/charts-smoke.mjs",
     "test:chart-ui-browser": "node scripts/chart-ui-browser.mjs",
     "test:site-map": "node scripts/site-map-smoke.mjs",
+    "test:i18n": "node scripts/i18n-build.mjs --check",
     "test:contact": "node scripts/contact-smoke.mjs",
     "test:site-next": "node scripts/site-next-smoke.mjs",
     "test:site-next-browser": "node scripts/site-next-browser.mjs",
@@ -169,5 +170,8 @@
     "aws4fetch": "^1.0.20",
     "jose": "^6.2.3",
     "yahoo-finance2": "^3.14.0"
+  },
+  "devDependencies": {
+    "opencc-js": "^1.0.5"
   }
 }

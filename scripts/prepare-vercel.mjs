@@ -21,6 +21,10 @@ const assets = [
   "js/streaks.js",
   "js/book-views.js",
   "js/vendor/html-to-image-1.11.11.js",
+  "i18n/zh-CN.json",
+  "i18n/zh-TW.json",
+  "i18n/ja.json",
+  "i18n/ko.json",
 ];
 
 await rm(output, { recursive: true, force: true });
