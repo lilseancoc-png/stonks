@@ -34172,30 +34172,6 @@ ${renderExportBindings()}
         '</ol></div>' +
       '</details>';
     }
-    // === Most bought / most sold (side-by-side on wide viewports) =====
-    if ((Array.isArray(d.mostBought) && d.mostBought.length) ||
-        (Array.isArray(d.mostSold) && d.mostSold.length)){
-      html += '<details class="f13-disclosure f13-context"><summary><span><b>Curated filing themes</b><small>Legacy qualitative net-increase and net-decrease rankings</small></span><span class="f13-disclosure-count">Context</span></summary>' +
-        '<div class="f13-disclosure-body f13-flow-block">' +
-        '<div class="f13-flow-pair">' +
-          (Array.isArray(d.mostBought) && d.mostBought.length
-            ? '<div class="f13-flow-col f13-flow-buy">' +
-                '<h3 class="f13-block-title">20 most bought (net increase)</h3>' +
-                '<ul class="f13-list">' +
-                  d.mostBought.map(function(s){ return '<li>' + escapeHtml(s) + '</li>'; }).join('') +
-                '</ul>' +
-              '</div>' : '') +
-          (Array.isArray(d.mostSold) && d.mostSold.length
-            ? '<div class="f13-flow-col f13-flow-sell">' +
-                '<h3 class="f13-block-title">20 most sold (net decrease)</h3>' +
-                '<ul class="f13-list">' +
-                  d.mostSold.map(function(s){ return '<li>' + escapeHtml(s) + '</li>'; }).join('') +
-                '</ul>' +
-              '</div>' : '') +
-        '</div>' +
-        (d.rankingNote ? '<p class="f13-note">' + escapeHtml(d.rankingNote) + '</p>' : '') +
-      '</div></details>';
-    }
     // === Key observations ==============================================
     if (Array.isArray(d.keyObservations) && d.keyObservations.length){
       html += '<div class="f13-block">' +
