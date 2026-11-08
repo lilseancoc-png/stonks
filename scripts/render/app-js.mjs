@@ -1,4 +1,5 @@
 import { updateCheckerClient } from './update-checker-client.mjs';
+import { contactClient } from './contact-client.mjs';
 import { ownerMarketBriefDisplayFactory } from '../../lib/owner-market-brief-display.mjs';
 import { ownerMarketBriefClient } from './owner-market-brief-client.mjs';
 import { researchBoardClient } from './research-board-client.mjs';
@@ -226,6 +227,7 @@ ${scenarioEventPhase.toString()}
     window.STONKS_OWNER_ACCESS = HAS_OWNER_ACCESS;
     if (!HAS_OWNER_ACCESS && heatmapState && heatmapState.colorBy === 'grade') heatmapState.colorBy = 'perf';
     if (!HAS_OWNER_ACCESS && typeof updateChecker !== 'undefined') updateChecker.reset();
+    if (!HAS_OWNER_ACCESS && typeof contactBox !== 'undefined') contactBox.reset();
     if (!HAS_OWNER_ACCESS && typeof ownerMarketBrief !== 'undefined') ownerMarketBrief.reset();
     if (!HAS_OWNER_ACCESS && typeof earningsForecast !== 'undefined') earningsForecast.reset();
     HAS_TRACK_RECORD = HAS_OWNER_ACCESS;
@@ -4127,7 +4129,7 @@ ${scenarioEventPhase.toString()}
   // resolve the URL's initial tab synchronously at script-evaluation time (the
   // anti-flash pre-select in the boot block) before the /api/auth/me +
   // manifest fetches settle and bind() runs the full selectTab.
-  var PAGE_TAB_IDS = ['home','update-checker','owner-market-brief','tickers','stock','narratives','brief','news','market','risk','unified-signal-engine','historical-data','party-tracker','earnings-forecast','forced-liquidation','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','research-lab','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','bottom-tracker','open-picks','track','sports-nba','sports-nfl','sports-pick-builder','cheatsheet','chart-patterns','timeline','glossary','earnings-week','market-map','whats-changed','past-day','privacy','terms'];
+  var PAGE_TAB_IDS = ['home','update-checker','owner-market-brief','tickers','stock','narratives','brief','news','market','risk','unified-signal-engine','historical-data','party-tracker','earnings-forecast','forced-liquidation','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','research-lab','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','bottom-tracker','open-picks','track','sports-nba','sports-nfl','sports-pick-builder','cheatsheet','chart-patterns','timeline','contact','glossary','earnings-week','market-map','whats-changed','past-day','privacy','terms'];
   // Friendly aliases so deep-links people might guess work too.
   // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
   // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -4183,6 +4185,7 @@ ${scenarioEventPhase.toString()}
     'buyers-manual': 'cheatsheet', 'buyer-manual': 'cheatsheet', cheat: 'cheatsheet', 'cheat-sheet': 'cheatsheet', manual: 'cheatsheet',
     patterns: 'chart-patterns', chartpatterns: 'chart-patterns', 'chart-pattern': 'chart-patterns',
     timeline: 'timeline', schedule: 'timeline', refresh: 'timeline', 'refresh-schedule': 'timeline', 'build-timeline': 'timeline',
+    contact: 'contact', 'contact-us': 'contact', message: 'contact', messages: 'contact', feedback: 'contact', inbox: 'contact',
     glossary: 'glossary', words: 'glossary', definitions: 'glossary', 'earnings-week': 'earnings-week', 'earnings-board': 'earnings-week', 'implied-move': 'earnings-week', 'market-map': 'market-map', 'fear-map': 'market-map', 'chart-wall': 'market-map', 'breadth': 'market-map', 'crowding': 'market-map', 'short-interest': 'market-map', 'whats-changed': 'whats-changed', 'changes': 'whats-changed', 'since-yesterday': 'whats-changed', 'past-day': 'past-day', 'past-days': 'past-day', 'time-machine': 'past-day',
     privacypolicy: 'privacy', 'privacy-policy': 'privacy',
     tos: 'terms', 'terms-of-use': 'terms', 'terms-of-service': 'terms',
@@ -4620,6 +4623,7 @@ ${renderExportBindings()}
       if (name !== 'oi' && typeof stopOiLive === 'function') stopOiLive();
       if (name !== 'ma-tracker' && typeof stopMaTrackerLive === 'function') stopMaTrackerLive();
       if (name === 'update-checker') updateChecker.load();
+      if (name === 'contact') contactBox.load();
       if (name === 'owner-market-brief') ownerMarketBrief.load();
       if (name === 'research-lab') researchLab.load();
       if (name === 'brief' && typeof loadBrief === 'function') loadBrief();
@@ -24910,6 +24914,10 @@ ${renderExportBindings()}
   var updateChecker = (${updateCheckerClient.toString()})(window, document, {
     owner: function(){ return HAS_OWNER_ACCESS; },
     revoke: function(){ applyAuth(null); enforceOwnerUi(document); var home=document.getElementById('page-tab-home'); if(home) home.click(); }
+  });
+  var contactBox = (${contactClient.toString()})(window, document, {
+    owner: function(){ return HAS_OWNER_ACCESS; },
+    revoke: function(){ applyAuth(null); enforceOwnerUi(document); }
   });
   var ownerMarketBrief = (${ownerMarketBriefClient.toString()})(window, document, {
     owner: function(){ return HAS_OWNER_ACCESS; },
