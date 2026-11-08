@@ -141,6 +141,20 @@ reads/export retain the Owner gate. Slower older view responses cannot
 replace newer settled results.
 The results are a research substrate; no automatic retuning runs on them.
 
+**Closing line value** (2026-11-08). Every pregame scan also looks up the
+current PrizePicks line for each saved pick whose game has not started (same
+event, stat and player) and stores it as `closing` on the pick: threshold,
+side, observation time and the lead before the start. The last one seen wins,
+so it is the closing line; the saved line, score and evidence never change.
+The record view adds `clv` to each pick (closing line, points in the pick's
+favor, beat / unchanged / against, lead, `stale` when the closing line was
+seen more than four hours out) and `summary.closing_line` (counts, beat rate,
+average points, a half-point histogram, median lead, and the win rate split
+by line move) plus `by_line_move`. The page shows saved line → close in the
+table, a "Beat the close" fact, the histogram and the split. Test:
+`node scripts/sports-clv-smoke.mjs`. No extra feed call: the scan already
+holds every current line.
+
 ## Pages
 
 | Page | `?tab=` | What it shows |

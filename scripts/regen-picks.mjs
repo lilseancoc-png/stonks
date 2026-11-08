@@ -377,6 +377,7 @@ await writeFile(
     scenarioEngine,
     ...(scenarioHistory ? { scenarioHistory } : {}),
     ...(priorPremarketMovers ? { premarketMovers: priorPremarketMovers } : {}),
+    cycleClock: macroBackdrop?.macroContext?.cycleTrail || priorMarketAnalysis?.cycleClock || null,
   }),
   "utf8",
 );

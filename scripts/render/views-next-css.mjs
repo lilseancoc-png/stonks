@@ -107,6 +107,14 @@ export function renderViewsNextCss() {
 /* ---- Fed liquidity (Rates & the dollar) ---------------------------------------- */
 .bonds-liquidity { margin-top: 16px; }
 .bonds-charts .bonds-liquidity { grid-column: 1 / -1; }
+.bonds-volcurve { margin-top: 16px; }
+.bonds-charts .bonds-volcurve { grid-column: 1 / -1; }
+.bonds-read { display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 999px; font: 650 11px/1.6 var(--font-sans); letter-spacing: .02em; color: var(--muted-strong); background: color-mix(in srgb, var(--muted) 16%, transparent); vertical-align: middle; }
+.bonds-read-weak { color: var(--neg); background: color-mix(in srgb, var(--neg) 14%, transparent); }
+.bonds-read-strong { color: var(--pos); background: color-mix(in srgb, var(--pos) 14%, transparent); }
+.bonds-read-collecting { color: var(--muted); }
+.bonds-auction-head { margin: 0 0 10px; font: 500 14px/1.5 var(--font-sans); color: var(--text); }
+.bonds-auction-chart { margin-top: 12px; }
 .liq-now { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline; margin: 2px 0 8px; font: 500 12.5px/1.4 var(--font-sans); color: var(--muted-strong); }
 .liq-now b { font: 650 18px/1.2 var(--font-mono); color: var(--text-strong); }
 .liq-chg { font: 600 12px/1.3 var(--font-mono); padding: 1px 7px; border-radius: 999px; background: var(--surface-2); }

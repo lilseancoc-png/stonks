@@ -15,6 +15,12 @@ export function webullReviewFactory({ html, pct, money, hover, dateTime = String
     const table = '<div class="acc-tscroll"><table class="acc-qtable"><thead><tr>' + headers.map(h => '<th scope="col">' + html(h) + '</th>').join('') + '</tr></thead><tbody>' + rows.map(r => '<tr>' + r.map(v => '<td>' + html(v) + '</td>').join('') + '</tr>').join('') + '</tbody></table></div>';
     return disclosure ? '<details class="wb-chart-data"><summary>View chart data</summary>' + table + '</details>' : table;
   }
+  function slipTable(by) {
+    const groups = by ? (by.run || []).concat(by.symbol || []) : [];
+    if (!groups.length) return empty('No entry or exit gaps recorded yet.');
+    const gap = v => v == null ? '—' : (v > 0 ? '+' : '') + v.toFixed(2) + '%';
+    return dataTable(['Group', 'Trades', 'Avg entry gap', 'Avg exit gap', 'Worst entry gap'], groups.map(g => [g.label, g.n, gap(g.entry), gap(g.exit), gap(g.worst)]), false);
+  }
   function line(title, points, series, unit, range) {
     if (!points.length || !points.some(p => series.some(s => p[s.key] != null))) return empty('No observations yet for this chart.');
     const W = 720, H = 270, L = 76, R = 18, T = 18, B = 38, w = W - L - R, h = H - T - B;
@@ -70,7 +76,8 @@ export function webullReviewFactory({ html, pct, money, hover, dateTime = String
     } else if (lens === 'engine') {
       metrics = metric(String(s.total), 'Tracked trades', 'Includes labeled manual entries adopted for automated exits') + metric(format(s.bias), 'Paper minus model', s.modelN + ' paired closed returns; percentage points', sign(s.bias)) + metric(s.mae == null ? '—' : s.mae.toFixed(1) + ' pp', 'Mean absolute model error', 'Size of return gaps, regardless of sign') + metric(format(s.within, 'rate'), 'Within 5 percentage points', 'Share of paired closed trade returns');
       charts = card('Execution status', 'Current state of every mirrored trade in this selection. Waiting and open positions are not counted as completed outcomes.', bars('Mirrored trade execution states', r.execution, [{ key: 'value', name: 'Trades', cls: 'paper' }], 'count')) +
-        card('Execution gaps', 'Entry order, oldest first. Positive means worse than the engine price. Entry and exit gaps are each relative to their engine price; missing observations leave a gap.', line('Entry and exit price gaps versus engine', r.slippage, [{ key: 'entry', name: 'Entry gap', cls: 'paper' }, { key: 'exit', name: 'Exit gap', cls: 'engine' }], '%'));
+        card('Execution gaps', 'Entry order, oldest first. Positive means worse than the engine price. Entry and exit gaps are each relative to their engine price; missing observations leave a gap.', line('Entry and exit price gaps versus engine', r.slippage, [{ key: 'entry', name: 'Entry gap', cls: 'paper' }, { key: 'exit', name: 'Exit gap', cls: 'engine' }], '%')) +
+        card('Slippage by name and run', 'Average entry and exit gaps versus the engine price, percent, by Top Picks run and by name. Positive means worse than the engine. A name with one trade is a data point, not a pattern.', slipTable(r.slippageBy), true);
     } else {
       return note;
     }

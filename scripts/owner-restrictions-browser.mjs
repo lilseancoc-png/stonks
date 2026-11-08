@@ -136,9 +136,13 @@ try{
    assert((await page.locator('#opt-eval-result').innerText()).length>0,'Owner contract grading still renders');
    assert(requests.some(url=>url.includes('data=AAPL.json')&&url.includes('owner=1')),'Owner ticker request uses the full private projection');
    checks++;
-   await page.goto(base+'/?tab=compare&cmp=AAPL,MSFT');await page.waitForFunction(()=>document.body.classList.contains('is-owner'));
+   await page.goto(base+'/?tab=compare&cmp=AAPL,MSFT');
+   // Wait for start-up to finish (the tab marker lands after the page's own URL
+   // sync), so the sign-out wait below cannot be satisfied by that same-document
+   // history write; then wait for the full reload, never a history-only change.
+   await page.waitForFunction(()=>document.body.classList.contains('is-owner')&&document.body.hasAttribute('data-active-tab'));
    // A logout/reload must remove the Owner view, including cached local preferences.
-   await context.clearCookies();await Promise.all([page.waitForNavigation({waitUntil:'load'}),page.evaluate(()=>window.dispatchEvent(new Event('focus')))]);await page.waitForFunction(()=>!document.body.classList.contains('is-owner')&&document.body.hasAttribute('data-active-tab'));
+   await context.clearCookies();await Promise.all([page.waitForEvent('load'),page.evaluate(()=>window.dispatchEvent(new Event('focus')))]);await page.waitForFunction(()=>!document.body.classList.contains('is-owner')&&document.body.hasAttribute('data-active-tab'));
    assert.equal(await page.locator('#book-grade-return').count(),0);assert.equal(await page.locator('#page-tab-grade').count(),0);checks++;
   }
   assert.deepEqual(errors,[],role+' browser errors');await context.close();

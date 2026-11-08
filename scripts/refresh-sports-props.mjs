@@ -31,10 +31,10 @@ for (const sport of requested ? [requested] : ['nba', 'nfl']) {
     }
     if (!feedsOk) throw new Error('a current feed is unavailable; NBA outage evidence retained');
     if (sport === 'nba' && sources.reference?.state !== 'ok') throw new Error('NBA reference feed unavailable; outage evidence retained');
-    const result = await capturePropPicks({ store, view, clock: Date.now });
+    const result = await capturePropPicks({ store, view, lines: sources.lines.lines, clock: Date.now });
     if (result.state === 'busy') { console.log(`${sport}: another scan is recording picks; existing records preserved`); continue; }
     if (result.state !== 'ok') throw new Error('recording is unavailable or busy');
-    console.log(`${sport}: ${view.games.length} games checked; ${result.added} pregame props recorded`);
+    console.log(`${sport}: ${view.games.length} games checked; ${result.added} pregame props recorded; ${result.closings || 0} closing lines noted`);
   } catch (err) {
     failed = true;
     const reason = SAFE_REASONS.has(err?.message) ? err.message : `unexpected ${err?.name || 'error'}`;

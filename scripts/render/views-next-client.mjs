@@ -419,15 +419,18 @@ export function renderViewsNextJs() {
       { label: 'Stock', cell: function(r){ return vnSym(r.s) + (r.n ? '<span class="vt-sub">' + escapeHtml(r.n) + '</span>' : ''); }, sort: function(r){ return r.s; } },
       { label: 'Short % of float', num: true, cell: function(r){ return vtBarHtml(Math.min(1, r.si / 25), r.si >= 15 ? 'neg' : '', vnPct(r.si, 1, false)); }, sort: function(r){ return r.si; } },
       { label: 'Days to cover', num: true, title: 'Shares sold short ÷ average daily volume', cell: function(r){ return r.dtc != null ? vnNum(r.dtc, 1) : ''; }, sort: function(r){ return r.dtc; } },
+      { label: 'Implied borrow', num: true, title: 'Borrow cost the option market is pricing, % a year, from put-call parity on the chain nearest 60 days. Inside the noise band it is not distinguishable from zero.', cell: function(r){ if (r.bw == null) return ''; var noisy = r.bwn != null && Math.abs(r.bw) <= r.bwn; return '<span class="' + (r.bw >= 5 && !noisy ? 'vn-neg' : '') + '">' + vnPct(r.bw, 1, true) + '</span>' + (r.bwn != null ? '<span class="vt-sub">±' + vnPct(r.bwn, 1, false) + '</span>' : ''); }, sort: function(r){ return r.bw; } },
       { label: 'Change vs prior report', num: true, cell: function(r){ return r.siChg != null ? vnChg(r.siChg, 0) : ''; }, sort: function(r){ return r.siChg; } },
       { label: '1-month move', num: true, cell: function(r){ return vnChg(r.r1m, 1); }, sort: function(r){ return r.r1m; } },
       { label: 'Settlement date', cell: function(r){ return escapeHtml(r.siDate || ''); }, sort: function(r){ return r.siDate; } }
     ];
     var crowded = rows.filter(function(r){ return r.si >= 10 && r.dtc != null && r.dtc >= 3; });
+    var hardToBorrow = rows.filter(function(r){ return r.bw != null && r.bw >= 5 && !(r.bwn != null && r.bw <= r.bwn); });
     return '<p class="mm-lede">Stocks with the most shares sold short. A big short position plus several days of volume to buy it back is what a short squeeze needs; a high number alone is not a signal.</p>' +
       (crowded.length ? '<p class="mm-callout"><b>Crowded:</b> ' + crowded.map(function(r){ return vnSym(r.s) + ' ' + vnPct(r.si, 0, false); }).join(', ') + ' (10%+ of float and 3+ days to cover).</p>' : '') +
+      (hardToBorrow.length ? '<p class="mm-callout"><b>Priced hard to borrow:</b> ' + hardToBorrow.map(function(r){ return vnSym(r.s) + ' ' + vnPct(r.bw, 0, false); }).join(', ') + ' a year, from the option market, not a broker quote.</p>' : '') +
       VIEWS.tableHtml(cols, rows, { key: 'mm-shorts', empty: 'No readings.' }) +
-      '<p class="mm-note">FINRA short interest, settlement ' + escapeHtml(latest || '—') + '. FINRA publishes it twice a month, about a week after each settlement date. ETFs are left out.</p>';
+      '<p class="mm-note">FINRA short interest, settlement ' + escapeHtml(latest || '—') + '. FINRA publishes it twice a month, about a week after each settlement date. ETFs are left out. Implied borrow is the financing rate in put-call parity at the chain nearest 60 days, less the dividend yield; the ± band is half the bid-ask spread as a yearly rate, so a reading inside it means nothing.</p>';
   }
 
   document.addEventListener('click', function(ev){
