@@ -7068,7 +7068,13 @@ export async function updateEarningsEventsHistory(store, chains, ivHistoryMap) {
     }
     store.ivGuardVersion = 1;
   }
-  const syms = Object.keys(chains).filter((s) => chains[s]);
+  // Funds don't report earnings. Earlier builds still asked Yahoo and Nasdaq
+  // for SPY/QQQ/... and kept whatever came back (SPY showed a 2005 "print"),
+  // so drop any stored fund rows and skip the lookups.
+  for (const sym of Object.keys(store.tickers)) if (SECTORS[sym] === "ETF") delete store.tickers[sym];
+  const syms = Object.keys(chains).filter((s) => chains[s] && SECTORS[s] !== "ETF");
+  // Prints older than the long-run window are not kept, from either source.
+  const oldest = etDateKey(new Date(nowMs - (EARNINGS_DEEP_YEARS + 0.5) * 365.25 * 86400000));
   let backfilled = 0;
   let resolved = 0;
   await runPooled(syms, EARNINGS_BACKFILL_CONCURRENCY, async (sym) => {
@@ -7083,8 +7089,6 @@ export async function updateEarningsEventsHistory(store, chains, ivHistoryMap) {
       entry.backfilledAt = todayIso;
       try {
         const got = await fetchYahooEarningsDates(sym, deep ? EARNINGS_DEEP_BACKFILL_ROWS : 20);
-        // Prints older than the long-run window are not kept.
-        const oldest = etDateKey(new Date(nowMs - (EARNINGS_DEEP_YEARS + 0.5) * 365.25 * 86400000));
         for (const ev of got) if (ev.date >= oldest) upsertEarningsEvent(entry.events, ev);
         if (got.length) backfilled++;
         // A completed call marks the deep pass done, even for a young listing
@@ -7102,7 +7106,7 @@ export async function updateEarningsEventsHistory(store, chains, ivHistoryMap) {
       // so the resolve pass marks the reaction on the right session.
       try {
         const surprise = await fetchNasdaqEarningsSurprise(sym);
-        for (const ev of surprise) upsertEarningsEvent(entry.events, ev);
+        for (const ev of surprise) if (ev?.date >= oldest) upsertEarningsEvent(entry.events, ev);
       } catch (err) {
         console.log(`    ⚠ ${sym} Nasdaq earnings-surprise backfill failed: ${err.message}`);
       }
@@ -7338,7 +7342,7 @@ export function earningsLongRun(past) {
 export function attachEarningsHx(chains, store, nowMs = Date.now()) {
   const todayIso = etDateKey(new Date(nowMs));
   for (const [sym, data] of Object.entries(chains)) {
-    if (!data) continue;
+    if (!data || SECTORS[sym] === "ETF") continue; // funds don't report earnings
     const events = (store?.tickers?.[sym]?.events || []).filter((e) => e?.date);
     if (!events.length) continue;
     const eh = Array.isArray(data.fundamentals?.earningsHistory)
@@ -19715,7 +19719,9 @@ function computeGeoNewsStress(narratives) {
     if (!conflict && !(theme && n.sentiment === "bearish")) continue;
     if (!worst || str > worst.strength) worst = { name, strength: str };
   }
-  if (!worst) return { score: 0, label: "no active risk-off geopolitical narrative" };
+  // A quiet read is a real observation (narratives were checked), so its label
+  // must not start with "no ": coverage() treats that prefix as missing data.
+  if (!worst) return { score: 0, label: "Geopolitics quiet: no active risk-off narrative" };
   const s = worst.strength >= PICKS_MACRO_GEO_STRONG_STR ? -2 : -1;
   return { score: s, label: `Geopolitical news: "${worst.name}" (str ${worst.strength})` };
 }
@@ -24218,7 +24224,7 @@ function buildStockExecution(data, traps) {
     target: target != null ? { price: r2(target), basis: targetBasis } : null,
     payoff: {
       basis: "planned-entry",
-      basisPrice: payoff.basisPrice,
+      basisPrice: payoff.basisPrice != null ? r2(payoff.basisPrice) : null,
       warning: payoff.warning,
       upsidePct: upsidePct != null ? r1(upsidePct) : null,
       reviewPct: reviewPct != null ? r1(reviewPct) : null,
@@ -33131,6 +33137,16 @@ function briefToolClean(text, max = BRIEF_TOOL_FACT_CHARS) {
   return s.length > max ? s.slice(0, max - 1).trim() + "…" : s;
 }
 
+// "Nov 6, 09:01 ET" for a stamp shown inside Brief prose; a raw ISO string
+// reads as machine output.
+let _briefToolEtFmt = null;
+function briefToolEtStamp(iso) {
+  const ms = Date.parse(iso || "");
+  if (!Number.isFinite(ms)) return null;
+  if (!_briefToolEtFmt) _briefToolEtFmt = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+  return `${_briefToolEtFmt.format(new Date(ms))} ET`;
+}
+
 function briefToolPct(v, digits = 1) {
   if (v == null || v === "") return null;
   return Number.isFinite(Number(v)) ? `${Number(v) >= 0 ? "+" : ""}${Number(v).toFixed(digits)}%` : null;
@@ -33154,9 +33170,9 @@ function briefToolFacts(source, p, kind, nowMs) {
     if (tone && tone.label && tone.label !== "insufficient") {
       const gap = tone.gap;
       const session = saved?.session;
-      const stamp = saved?.cutoffIso || saved?.capturedAtIso || briefToolStamp(p);
+      const stamp = briefToolEtStamp(saved?.cutoffIso || saved?.capturedAtIso || briefToolStamp(p));
       const basis = saved ? `${saved.reconstructed ? "Reconstructed" : "Saved"} pre-open read` : "Overnight snapshot";
-      add(`${basis}${stamp ? ` as of ${stamp}` : ""}: ${tone.label}${Number.isFinite(tone.present) ? ` across ${tone.present}/5 independent groups` : ""}${gap?.call && gap.call !== "none" && Number.isFinite(gap.movePct) ? `; futures indicate a ${gap.call} opening gap (${briefToolPct(gap.movePct)})` : ""}${session?.call === "no-edge" ? "; no proven edge for the open-to-close session" : ""}.`, 85, "watch");
+      add(`${basis}${stamp ? ` as of ${stamp}` : ""}: ${tone.label}${Number.isFinite(tone.present) ? ` across ${tone.present}/5 independent groups` : ""}${gap?.call && gap.call !== "none" && Number.isFinite(gap.movePct) ? `; futures indicate ${gap.call === "up" ? "an up" : `a ${gap.call}`} opening gap (${briefToolPct(gap.movePct)})` : ""}${session?.call === "no-edge" ? "; no proven edge for the open-to-close session" : ""}.`, 85, "watch");
       if (tone.chipTape && Math.abs(tone.chipTape.movePct) >= 2) add(`Asian chip shares moved ${briefToolPct(tone.chipTape.movePct)} on average across ${tone.chipTape.n} fresh names; this overlaps the equity group, not an independent vote.`, 73, "watch");
     }
   } else if (source.key === "ma-tracker") {
@@ -33170,7 +33186,7 @@ function briefToolFacts(source, p, kind, nowMs) {
     if (lead) {
       const cross = lead.direction === "below" ? "below" : "above";
       const side = cross === "above" ? "below" : "above";
-      add(`${lead.symbol} has the strongest moving-average watch: ${Number(lead.absDistancePct).toFixed(2)}% ${side} its ${lead.period}-day average, ${lead.status} cross ${cross}, priority ${Math.round(Number(lead.score))}/100${lead.projectedSessions ? ` (~${lead.projectedSessions} sessions at the recent approach rate)` : ""}.`,
+      add(`${lead.symbol} has the strongest moving-average watch: ${Number(lead.absDistancePct).toFixed(2)}% ${side} its ${lead.period}-day average, ${lead.status} cross ${cross}, priority ${Math.round(Number(lead.score))}/100${lead.projectedSessions ? ` (~${lead.projectedSessions} session${Number(lead.projectedSessions) === 1 ? "" : "s"} at the recent approach rate)` : ""}.`,
         lead.status === "likely" ? 79 : 70, cross === "above" ? "positive" : "risk", [lead.symbol]);
     }
   } else if (source.key === "buyouts") {
@@ -33328,7 +33344,7 @@ function briefToolFacts(source, p, kind, nowMs) {
       .sort((a, b) => Math.abs(b.lastEnded.cumulativePct || 0) - Math.abs(a.lastEnded.cumulativePct || 0))[0];
     if (ended) {
       const e = ended.lastEnded;
-      add(`${ended.symbol}'s ${e.sameDays}-day ${e.color} run (${briefToolPct(e.cumulativePct)}) ended ${e.sessionsAgo} sessions ago${Number.isFinite(e.reversalPct) ? ` with a ${briefToolPct(e.reversalPct)} reversal` : ""}${maRead(ended)}. Ended-run metrics are separate from the active streak.`, 78, "watch", [ended.symbol]);
+      add(`${ended.symbol}'s ${e.sameDays}-day ${e.color} run (${briefToolPct(e.cumulativePct)}) ended ${e.sessionsAgo === 0 ? "today" : e.sessionsAgo === 1 ? "1 session ago" : `${e.sessionsAgo} sessions ago`}${Number.isFinite(e.reversalPct) ? ` with a ${briefToolPct(e.reversalPct)} reversal` : ""}${maRead(ended)}. Ended-run metrics are separate from the active streak.`, 78, "watch", [ended.symbol]);
     }
   } else if (source.key === "commodities") {
     const rows = (p.items || []).filter((x) => !x.stale).flatMap((x) => (x.changes || []).map((c) => ({ x, c }))).filter((r) => Number.isFinite(r.c.pct)).sort((a, b) => Math.abs(b.c.pct) - Math.abs(a.c.pct));
@@ -33338,7 +33354,7 @@ function briefToolFacts(source, p, kind, nowMs) {
     const recent = (p.events || []).filter((x) => x?.publishedAt && Date.parse(x.publishedAt) <= nowMs && nowMs - Date.parse(x.publishedAt) <= 7 * 86400000)
       .sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt));
     const events = [recent.find((x) => x.kind !== "buyback"), recent.find((x) => x.kind === "buyback")].filter(Boolean);
-    for (const e of events) add(`${e.ticker}: ${e.kindLabel || e.kind} announced ${e.publishedAt.slice(0, 10)} — ${briefToolClean(e.headline, 130)}${e.headlineAmount ? ` (headline amount: ${e.headlineAmount})` : ""}. ${e.kind === "buyback" ? "Authorization is not completed repurchases." : "Financing terms determine dilution or credit impact."}`, e.kind === "buyback" ? 72 : 78, "watch", [e.ticker]);
+    for (const e of events) add(`${e.ticker}: ${e.kindLabel || e.kind} announced ${e.publishedAt.slice(0, 10)} — ${briefToolClean(e.headline, 130)}${fmtUsdCompact(e.headlineAmount) ? ` (headline amount: ${fmtUsdCompact(e.headlineAmount)})` : ""}. ${e.kind === "buyback" ? "Authorization is not completed repurchases." : "Financing terms determine dilution or credit impact."}`, e.kind === "buyback" ? 72 : 78, "watch", [e.ticker]);
   } else if (source.key === "credit") {
     const b = p.raises?.bonds?.latest;
     if (b && !p.raises.bonds.stale && (Math.abs(b.momPct || 0) >= 20 || Math.abs(b.yoyPct || 0) >= 25)) {
@@ -34070,7 +34086,7 @@ export function briefUserMessage(kind, dateKey, signals) {
       if (v.tier === "rich" && v.richnessNote) bits.push(v.richnessNote);
       if (v.risingStreak >= 2) bits.push(`${v.risingStreak}d rising streak`);
       bits.push(v.earnings
-        ? `earnings ${v.earnings.date}${v.earnings.inDays != null ? ` (${v.earnings.inDays}d out)` : ""}${v.earnings.impliedMovePct != null ? `, ±${v.earnings.impliedMovePct}% implied move` : ""}`
+        ? `earnings ${v.earnings.date}${v.earnings.inDays != null ? ` (${v.earnings.inDays}d out)` : ""}${Number.isFinite(Number(v.earnings.impliedMovePct)) && v.earnings.impliedMovePct !== null ? `, ±${Number(v.earnings.impliedMovePct).toFixed(1)}% implied move` : ""}`
         : v.tier === "rich" ? "no scheduled earnings inside 45d; rich premium, not a rising-trend signal" : "no scheduled earnings inside 45d — unexplained ramp");
       lines.push(`- ${v.sym}: ${String(v.tier).toUpperCase()} — ${bits.join(", ")}`);
     }

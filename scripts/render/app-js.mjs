@@ -31715,7 +31715,7 @@ ${renderExportBindings()}
     var cb = el.querySelector('.cal-rc-close'); if (cb) cb.focus();
   }
   // ====================================================================
-  // Live FedWatch recompute — tracks CME continuously between hourly bakes.
+  // Live FedWatch recompute — tracks CME continuously between bakes.
   // --------------------------------------------------------------------
   // The baked fomc.probabilities[*].now buckets are only as fresh as the last
   // build; CME FedWatch is continuous, so our numbers drift from CME purely on
@@ -31940,7 +31940,7 @@ ${renderExportBindings()}
       var liveT = Date.parse(fomc._liveAsOf);
       if (isFinite(liveT)){
         var liveHhmm = formatDisplayInstant(liveT, { hour: 'numeric', minute: '2-digit' });
-        liveTag = '<span class="fomc-live" title="Odds recomputed in your browser from live ZQ Fed Funds futures — tracks CME between hourly builds">● Live · ' + escapeHtml(liveHhmm) + '</span>';
+        liveTag = '<span class="fomc-live" title="Odds recomputed in your browser from live ZQ Fed Funds futures — tracks CME between site builds">● Live · ' + escapeHtml(liveHhmm) + '</span>';
       }
     }
     var header = '<div class="fomc-head">' +
@@ -38094,7 +38094,7 @@ ${renderExportBindings()}
              curDD: peak - eq, curDDpct: peak > 0 ? (peak - eq) / peak : 0, recovery: recovery, cagr: cagr, windowReturn: windowReturn, spanDays: spanDays };
   }
 
-  // --- $100k portfolio backtest — ONE engine, four sizing run modes --------
+  // --- $100k portfolio backtest — ONE engine, five sizing run modes --------
   // Replays the track record's trades in entry/exit date order against a
   // compounding $100k book. The PORTFOLIO rules are shared by every mode:
   //   • size from MAX LOSS (contracts = floor(risk budget ÷ max loss per
@@ -38103,16 +38103,13 @@ ${renderExportBindings()}
   //   • ≤20 concurrent positions; ≤4 per sector (a 5th is not permitted);
   //   • correlation awareness: with heat already elevated (≥70% of the cap),
   //     a 3rd open same-sector-same-side trade is skipped;
-  //   • rotation: a heat-blocked NEW pick may free room by closing one
-  //     existing winner held >5 days that has been up ≥ +20% on premium
-  //     (closed at +20% — its recorded peak is the "currently profitable"
-  //     proxy, since only entry/exit marks are stored, not the daily path);
-  //     if no qualifying winner frees enough heat, the pick is skipped.
-  // The four RUN MODES only change the per-trade risk fraction:
-  //   fixed    — Very High conviction = full 2% in one tranche; High = a
-  //              staggered ladder (1% now, +1% added mid-hold only after the
-  //              option has confirmed by trading ≥ +10%, the add filled at the
-  //              +10% price, subject to heat room);
+  //   • a heat-blocked NEW pick is skipped. Rotating out a winner would need
+  //     the trade's path, and only entry/exit marks plus the full-life peak are
+  //     stored (using the peak would be look-ahead), so no rotation runs.
+  // The RUN MODES only change the per-trade risk fraction:
+  //   fixed    — Very High conviction = full 2% in one tranche; High = 1% in
+  //              one tranche (the planned +1% add on confirmation is skipped
+  //              for the same look-ahead reason);
   //   vol      — conviction base (2% / 1.5%) scaled by average-entry-IV ÷ this
   //              trade's entry IV (high-vol names size smaller), clamped;
   //   kelly    — conviction base × Half-Kelly multiplier from the WALK-FORWARD
@@ -39710,7 +39707,7 @@ ${renderExportBindings()}
       chip(accMoney(sim.avgPositionSize, false), 'avg $ risked', '', 'Average dollars at risk per tranche (max loss × contracts).') +
       chip(Math.round((sim.maxHeatPct || 0) * 100) + '%', 'peak heat', '', 'Highest total open risk reached, as a % of equity (cap ' + (BT_HEAT_CAP * 100) + '%).') +
       (sim.rotations ? chip(String(sim.rotations), 'winners rotated', '', 'Winning positions closed early (held >' + BT_ROT_MIN_DAYS + 'd, up ≥+' + BT_ROT_MIN_PNL + '%) to free heat for a new pick.') : '') +
-      (mode === 'fixed' ? chip(String(sim.ladderAdds), 'ladder adds', '', 'Second 1% tranches added after the option confirmed by trading ≥ +' + BT_LADDER_CONFIRM + '%.') : '') +
+      (mode === 'fixed' && sim.ladderAdds ? chip(String(sim.ladderAdds), 'ladder adds', '', 'Second 1% tranches added after the option confirmed by trading ≥ +' + BT_LADDER_CONFIRM + '%.') : '') +
       (mode === 'environment' ? chip(sim.environmentMix.full + ' / ' + sim.environmentMix.half, 'full / half-size trades', '', 'Entry-date sizing from Market Analysis regime history.' + (sim.environmentMix.missing ? ' ' + sim.environmentMix.missing + ' entries had no prior snapshot and defaulted to half-size.' : '')) : '') +
       chip(sim.recovery != null ? sim.recovery + ' trades' : (sim.maxDD > 0 ? 'not yet' : '—'), 'recovery periods', '') +
     '</div>';
@@ -45443,7 +45440,7 @@ ${renderExportBindings()}
   }
   // --- Bonds & USD live refresh -------------------------------------------
   // The Live snapshot tiles render from the baked manifest.macro, which goes
-  // stale between hourly bakes (and overnight). While the Bonds & USD pane is
+  // stale between bakes (and overnight). While the Bonds & USD pane is
   // visible we poll /api/macro-live — a fixed server-side symbol
   // set, since the caret indices (^TNX, ^VIX, …) and DX-Y.NYB deliberately
   // fail /api/quotes' SYMBOL_RE — and overlay live value + 1d move onto the

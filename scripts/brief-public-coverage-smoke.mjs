@@ -46,7 +46,7 @@ try {
   assert.match(textFor('Streaks'), /6 green sessions across 8 sessions.*12\.0%.*1\.4x.*reclaimed 20-day average/);
   assert.match(textFor('Streaks'), /ended .*reversal/);
   assert.match(textFor('Pattern lab'), /next-10-session.*\+1\.2% vs \+0\.5% baseline.*n=45.*overlapping.*In-sample/);
-  assert.match(textFor('Overnight markets'), /Saved pre-open.*2026-10-27T13:05:00Z.*opening gap/);
+  assert.match(textFor('Overnight markets'), /Saved pre-open read as of Oct 27, 09:05 ET.*an up opening gap/);
   assert.match(textFor('Overnight markets'), /no proven edge/);
   assert.match(textFor('SEC ownership'), /\$2\.0M open-market purchase dated 2026-10-26/);
   assert.match(textFor('SEC ownership'), /2026-06-30.*Delayed quarterly holdings/);

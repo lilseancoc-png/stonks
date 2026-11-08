@@ -51,4 +51,42 @@ const prompt = briefUserMessage("intraday", "2026-08-16", { toolScan: scan });
 assert.match(prompt, /\[MA tracker\].*ACME/);
 assert.match(prompt, /\[Pending buyouts\].*EXM/);
 
+// Brief prose formatting: whole-English amounts, times and counts, never raw
+// machine values (QC of builds #523-#572).
+const fixedNow = new Date("2026-11-06T15:00:00Z");
+const fixedIso = fixedNow.toISOString();
+const prose = await collectBriefSiteTools({
+  kind: "morning",
+  narratives: [],
+  dataDir: "Z:/brief-smoke-missing-data",
+  now: fixedNow,
+  payloads: {
+    overnight: {
+      builtAtIso: fixedIso,
+      preopen: { today: { date: "2026-11-06", cutoffIso: "2026-11-06T14:01:29.366Z",
+        tone: { label: "leaning risk-off", present: 5, gap: { call: "up", movePct: 0.7 } }, session: { call: "no-edge" } } },
+    },
+    "ma-tracker": {
+      builtAtIso: fixedIso,
+      summary: { topAbove: [], topBelow: [{ symbol: "OKTA", period: 100, direction: "below", absDistancePct: 0.23, score: 93, status: "likely", projectedSessions: 1 }] },
+    },
+    streaks: {
+      builtAtIso: fixedIso,
+      tickers: [{ symbol: "MRVL", lastEnded: { sameDays: 5, color: "red", cumulativePct: -46.9, reversalPct: 5.7, sessionsAgo: 0 } }],
+    },
+    raises: {
+      builtAtIso: fixedIso,
+      events: [{ ticker: "AAPL", kind: "debt", kindLabel: "Debt / notes", publishedAt: "2026-11-06T13:00:00Z",
+        headline: "Apple prices $7.5 billion bond sale", headlineAmount: 7500000000 }],
+    },
+  },
+});
+const factText = (label) => prose.facts.find((row) => row.source === label)?.text || "";
+assert.match(factText("Overnight markets"), /as of Nov 6, 09:01 ET/);
+assert.match(factText("Overnight markets"), /futures indicate an up opening gap/);
+assert.doesNotMatch(factText("Overnight markets"), /\d{4}-\d{2}-\d{2}T/);
+assert.match(factText("MA tracker"), /~1 session at/);
+assert.match(factText("Streaks"), /run \(-46\.9%\) ended today/);
+assert.match(factText("Capital raises"), /headline amount: \$7\.5B/);
+
 console.log("brief cross-tool coverage smoke: ok");
