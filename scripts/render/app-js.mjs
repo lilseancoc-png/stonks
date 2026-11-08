@@ -7977,16 +7977,27 @@ ${renderExportBindings()}
   // only the parts present (older cached narratives without it render nothing).
   // currentStage is the resolved stage so we can flag whether nextStage is a step
   // further down the arc (advancing toward collapse) or a recovery back up it.
-  function lifecycleOutlookHtml(o, currentStage){
-    if (!o || typeof o !== 'object') return '';
+  // baseStage is the model's own stage before the risk checks. When those checks
+  // moved the story (to Challenges or Collapse), the model's "why here" and
+  // "next" were written for the old stage, so they are shown as the earlier
+  // read and the stale next step is dropped.
+  function lifecycleOutlookHtml(o, currentStage, baseStage){
+    var moved = !!baseStage && LIFECYCLE_STAGES.indexOf(baseStage) >= 0 &&
+      LIFECYCLE_STAGES.indexOf(currentStage) >= 0 && baseStage !== currentStage;
+    if ((!o || typeof o !== 'object') && !moved) return '';
+    o = (o && typeof o === 'object') ? o : {};
     var rationale = o.rationale ? String(o.rationale) : '';
     var trigger = o.trigger ? String(o.trigger) : '';
-    var nextStage = (o.nextStage && LIFECYCLE_STAGES.indexOf(String(o.nextStage).toLowerCase()) >= 0)
+    var nextStage = (!moved && o.nextStage && LIFECYCLE_STAGES.indexOf(String(o.nextStage).toLowerCase()) >= 0)
       ? String(o.nextStage).toLowerCase() : '';
-    if (!rationale && !trigger && !nextStage) return '';
+    if (!rationale && !trigger && !nextStage && !moved) return '';
     var rows = '';
-    if (rationale) rows += '<div class="narr-life-outlook-row">' +
+    if (moved) rows += '<div class="narr-life-outlook-row">' +
       '<span class="narr-life-outlook-k">Why here</span>' +
+      '<span class="narr-life-outlook-v">The risk checks moved this story from ' + escapeHtml(LIFECYCLE_LABELS[baseStage] || baseStage) +
+      ' to ' + escapeHtml(LIFECYCLE_LABELS[currentStage] || currentStage) + '. See the risk evidence.</span></div>';
+    if (rationale) rows += '<div class="narr-life-outlook-row">' +
+      '<span class="narr-life-outlook-k">' + (moved ? 'Earlier read' : 'Why here') + '</span>' +
       '<span class="narr-life-outlook-v">' + escapeHtml(rationale) + '</span></div>';
     if (nextStage){
       var curIdx = LIFECYCLE_STAGES.indexOf(currentStage);
@@ -8090,7 +8101,7 @@ ${renderExportBindings()}
     return '<span class="narr-hype-badge is-' + tier + '" title="Fundamentals-to-hype score ' + score + ' / 100">' + label + ' · ' + score + '</span>';
   }
   function narrativeResearchHtml(n){
-    var body = lifecycleOutlookHtml(n.lifecycleOutlook, narrStage(n)) + hypeGaugeHtml(n.hype) + scenariosHtml(n) + watchForHtml(n) + conflictsHtml(n) + narrativeRiskEvidenceHtml(n) + narrativeSourcesHtml(n);
+    var body = lifecycleOutlookHtml(n.lifecycleOutlook, narrStage(n), n.baseLifecycleStage) + hypeGaugeHtml(n.hype) + scenariosHtml(n) + watchForHtml(n) + conflictsHtml(n) + narrativeRiskEvidenceHtml(n) + narrativeSourcesHtml(n);
     if (!body) return '';
     var evidence = [];
     if (n.sources && n.sources.length) evidence.push(n.sources.length + ' sources');
@@ -8303,7 +8314,7 @@ ${renderExportBindings()}
       statsHtml +
       strengthHtml +
       lifecycleStepperHtml(overview.lifecycleStage) +
-      lifecycleOutlookHtml(overview.lifecycleOutlook, overview.lifecycleStage) +
+      lifecycleOutlookHtml(overview.lifecycleOutlook, overview.lifecycleStage, overview.baseLifecycleStage) +
       hypeGaugeHtml(overview.hype) +
       thesisHtml +
       scenariosHtml(overview) +
@@ -8339,7 +8350,7 @@ ${renderExportBindings()}
       hype:overview.hype, watchFor:overview.watchFor || [], stale:overview.stale,
       riskState:overview.riskState || 'none', conflictFlags:overview.conflictFlags || [],
     };
-    var sectorEvidence = lifecycleStepperHtml(overview.lifecycleStage) + lifecycleOutlookHtml(overview.lifecycleOutlook, overview.lifecycleStage) +
+    var sectorEvidence = lifecycleStepperHtml(overview.lifecycleStage) + lifecycleOutlookHtml(overview.lifecycleOutlook, overview.lifecycleStage, overview.baseLifecycleStage) +
       hypeGaugeHtml(overview.hype) + scenariosHtml(overview) + industryGradesHtml(overview.industryGrades) + watchForHtml({ watchFor:overview.watchFor || [] }) + narrativeRiskEvidenceHtml(postureInput);
     var detail = sectorEvidence ? '<details class="narr-sector-detail"><summary><span><b>Sector evidence &amp; scenarios</b>' +
       '<small>Lifecycle, hype, industry grades and invalidation checks</small></span><em aria-hidden="true"></em></summary>' +

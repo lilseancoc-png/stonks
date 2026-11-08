@@ -543,7 +543,7 @@ export function trackRecordSection() {
     <div class="acc-pane" role="tabpanel" id="acc-pane-top10" aria-labelledby="acc-tab-top10" hidden>
       <div id="acc-sum-top10" class="acc-pane-sum-slot"></div>
       <div id="accuracy-roster" class="accuracy-roster"></div>
-      <p class="acc-pane-empty" id="acc-empty-top10" hidden>No Top-10 roster snapshot yet — it appears after the next daily refresh.</p>
+      <p class="acc-pane-empty" id="acc-empty-top10" hidden>No roster snapshot yet. It appears after the next Top Picks run.</p>
     </div>
     <div class="acc-pane" role="tabpanel" id="acc-pane-activity" aria-labelledby="acc-tab-activity" hidden>
       <div id="acc-sum-activity" class="acc-pane-sum-slot"></div>

@@ -29126,7 +29126,7 @@ export function buildPicksRoster(currentPicks, priorPicks, prevLatest, gradesInd
   for (const p of (priorPicks || [])) {
     if (curSyms.has(p.symbol)) continue;
     const g = gradesIndex[p.symbol];
-    exited.push({ symbol: p.symbol, side: p.side, prevTotal: p.total, curTotal: g?.total ?? null, deltaScore: g ? r1((g.total || 0) - (p.total || 0)) : null, sideFlipped: g ? (g.side && g.side !== p.side) : false, stillActionable: g ? Math.abs(g.total) >= bar : false, whyText: g ? (Math.abs(g.total) >= bar ? "out-ranked off the top 10" : "dropped below the actionable bar") : "no longer covered" });
+    exited.push({ symbol: p.symbol, side: p.side, prevTotal: p.total, curTotal: g?.total ?? null, deltaScore: g ? r1((g.total || 0) - (p.total || 0)) : null, sideFlipped: g ? (g.side && g.side !== p.side) : false, stillActionable: g ? Math.abs(g.total) >= bar : false, whyText: g ? (Math.abs(g.total) >= bar ? `out-ranked off the top ${PICKS_COUNT}` : "dropped below the actionable bar") : "no longer covered" });
   }
   return { builtAtIso, count: roster.length, roster, exited, swaps: [], stale };
 }
