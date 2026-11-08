@@ -1366,12 +1366,17 @@ ${scenarioEventPhase.toString()}
   }
   function parseOCC(raw){
     if (raw == null) return null;
-    var s = String(raw).trim().toUpperCase();
+    // The official OCC form pads the root to six characters with spaces
+    // ("AAPL  250117C00150000", as brokers such as IBKR show it), so spaces
+    // are dropped before matching (QC of builds #23-#72).
+    var s = String(raw).replace(/\\s+/g, '').toUpperCase();
     var m = s.match(/^([A-Z][A-Z0-9.]{0,5})(\\d{2})(\\d{2})(\\d{2})([CP])(\\d{8})$/);
     if (!m) return null;
     var yy = parseInt(m[2],10), mm = parseInt(m[3],10), dd = parseInt(m[4],10);
     if (mm<1||mm>12||dd<1||dd>31) return null;
     var year = 2000 + yy;
+    // A day the month does not have (Feb 30) is not a real expiration.
+    if (new Date(Date.UTC(year, mm - 1, dd)).getUTCDate() !== dd) return null;
     var iso = year + '-' + (mm<10?'0':'') + mm + '-' + (dd<10?'0':'') + dd;
     return { root: m[1], type: m[5]==='C' ? 'call' : 'put', strike: parseInt(m[6],10)/1000, expiryISO: iso };
   }
@@ -2043,11 +2048,16 @@ ${scenarioEventPhase.toString()}
     if (oi < 100) return { label:'Light', cls:'fair', note:'modest interest — fills possible but expect some slippage' };
     return { label:'Liquid', cls:'good', note:'plenty of open interest — normal fills expected' };
   }
+  // Realized vol describes how much the STOCK has moved, not what its options
+  // cost: whether premium is cheap or rich is the one IV rule
+  // (lib/iv-richness.mjs, the IV percentile on the Implied vol tab). The old notes called high
+  // realized vol "premiums likely rich", which could contradict that rule on
+  // the same card (QC of builds #23-#72), so the chip stays neutral.
   function gradeVolRegime(pctile){
     if (pctile == null || !isFinite(pctile)) return null;
-    if (pctile <= 30) return { label:'Calm', cls:'good', note:'realized vol in bottom 30% — premiums may be relatively cheap' };
+    if (pctile <= 30) return { label:'Calm', cls:'fair', note:'the stock has moved less than usual over the last 30 days (bottom 30% of its own history); the IV percentile on the Implied vol tab says whether its options are cheap or rich' };
     if (pctile <= 70) return { label:'Normal', cls:'fair', note:'realized vol mid-range vs. this name’s recent history' };
-    return { label:'Elevated', cls:'bad', note:'realized vol in top 30% — premiums likely rich, expect mean reversion' };
+    return { label:'Elevated', cls:'fair', note:'the stock has moved more than usual over the last 30 days (top 30% of its own history); the IV percentile on the Implied vol tab says whether its options are cheap or rich' };
   }
   // Session-aware earnings anchor: the moment the print's IV crush is REALIZED.
   // A date-only ISO at midnight UTC is the prior evening ET, and the old 16:00Z
@@ -5139,7 +5149,7 @@ ${renderExportBindings()}
     if (lGrade && lGrade.cls !== 'good'){
       html += '<li><b>Liquidity:</b> ' + lGrade.note + '.</li>';
     }
-    if (vGrade && vGrade.cls !== 'fair'){
+    if (vGrade && vGrade.label !== 'Normal'){
       html += '<li><b>Vol regime:</b> ' + vGrade.note + '.</li>';
     }
     if (extrinsic != null && mid > 0){
@@ -9106,7 +9116,7 @@ ${renderExportBindings()}
     var voiTag = '';
     if (voiRatio != null && isFinite(voiRatio)){
       voiStr = (voiRatio >= 10 ? Math.round(voiRatio) : Math.round(voiRatio * 10) / 10) + '×';
-      voiTag = '<span class="flow-voi" title="' + escapeHtml('Volume is ' + voiStr + ' open interest — net-new positioning, not closing existing OI') + '">' + escapeHtml(voiStr) + '</span>';
+      voiTag = '<span class="flow-voi" title="' + escapeHtml('Volume is ' + voiStr + ' prior open interest, so at least some of today\u2019s trades opened new positions (some may still be closes)') + '">' + escapeHtml(voiStr) + '</span>';
     } else if (c.oi === 0 && c.vol > 0){
       voiTag = '<span class="flow-voi flow-voi-new" title="No prior open interest — a brand-new strike">new</span>';
     }
