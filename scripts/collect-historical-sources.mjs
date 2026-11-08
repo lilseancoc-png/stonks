@@ -128,7 +128,8 @@ export async function refreshHistoricalSourceCache({ previous = {}, builtAtIso =
     if (loadContext && (force || records[def.id]?.checkedAt?.slice(0, 10) !== today)) sharedJobs.push(async () => {
       const old = records[def.id]; records[def.id] = { ...old, checkedAt: collectedAtIso, error: null }; requests++;
       try {
-        const rows = cleanSourceRows(await invoke(loadContext, def.id));
+        let rows = cleanSourceRows(await invoke(loadContext, def.id));
+        if (def.keepYears) { const cut = new Date(Date.parse(collectedAtIso) - def.keepYears * 365.25 * 86400000).toISOString().slice(0, 10); rows = rows.filter(r => r.t >= cut); }
         if (!rows.length) throw new Error('Download returned no observations');
         context[def.id] = { rows }; records[def.id].lastSuccessAt = collectedAtIso;
       } catch (e) { records[def.id].error = String(e.message).slice(0, 180); }

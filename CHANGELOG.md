@@ -52,6 +52,12 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Request an uncompressed R2 lock with a strong ETag so a released Webull paper lock can be acquired conditionally; fail closed on malformed locks or repeated conflicts, expose Owner-only diagnostics, and report mirror failures in a separate workflow health job.
 - Reconcile Webull grouped option positions using confirmed broker order legs and stable position identities; prepare manual spread adoption without replaying its entry, retain separate overlapping manual holdings, and exclude manual entries from automatic fill timing and slippage.
 
+## 2026-11-08
+
+### Added
+
+- Add a macro, cycle and rotation read for Top Picks, off until the owner turns it on (`PICKS_MACRO_CONTEXT=1`): where the Fed path, inflation, growth, credit, market, liquidity, dollar, oil and party control stand, which groups money is rotating into and out of with a plain-English reason, a rotation vs systemic stress check, and each stock's macro fit (at most ±1.5 grade points) from weights learned on 2008-2026 sector history. With the switch on, the Fed axis also reads the hikes already priced, the rotation axis reads one month instead of one day, and the AI grader sees the read. Card issuers such as AXP read as lenders, not card networks. Six free FRED series join the shared history cache. Research scripts and results are in `research/macro-backtest/`.
+
 ## 2026-11-07
 
 ### Added

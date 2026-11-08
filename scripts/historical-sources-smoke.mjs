@@ -29,8 +29,9 @@ assert.equal(historicalCoverage(brokenRecent).status,'under-ten-years','a recent
 let active=0,maxActive=0, downloads=0;
 const fakeLoad=async()=>{active++;maxActive=Math.max(maxActive,active);downloads++; await new Promise(r=>setTimeout(r,1));active--;return bars;};
 const cache=await refreshHistoricalSourceCache({builtAtIso:now,loadMarket:fakeLoad,loadContext:fakeLoad});
-assert.equal(downloads,44,'17 ETFs, 5 event-study markets, 20 study series and the 2 shared Bottom tracker spreads'); assert(maxActive<=2); assert.equal(cache.cost.providerFeeUsd,0); assert.equal(cache.cost.aiCalls,0); assert.equal(cache.cost.newScheduledJobs,0);
-assert.equal(cache.version,2); assert.equal(cache.cost.maxRequestsPerDay,68);
+assert.equal(downloads,50,'17 ETFs, 5 event-study markets, 20 study series, the 2 shared Bottom tracker spreads and the 6 Top Picks macro-context series'); assert(maxActive<=2); assert.equal(cache.cost.providerFeeUsd,0); assert.equal(cache.cost.aiCalls,0); assert.equal(cache.cost.newScheduledJobs,0);
+assert.equal(cache.version,2); assert.equal(cache.cost.maxRequestsPerDay,74);
+{ const cut=new Date(Date.parse(now)-5*365.25*86400000).toISOString().slice(0,10); assert(cache.context.T5YIE.rows.length>0 && cache.context.T5YIE.rows.every(r=>r.t>=cut),'macro-context series keep only the last five years'); assert(cache.context.BAMLH0A0HYM2.rows.some(r=>r.t<cut),'the Bottom tracker spreads keep their full download'); }
 assert(cache.context.BAMLH0A0HYM2.rows.length>0 && cache.context.BAMLC0A0CM.rows.length>0,'shared credit spreads are cached with the study series');
 assert(!buildSourceCoverage({symbols:cache.symbols,context:cache.context,records:cache.records,cutoff:'2026-10-24'}).context.some(s=>s.id==='BAMLH0A0HYM2'),'shared-only series stay out of Historical Data coverage');
 const shortSpread=await refreshHistoricalSourceCache({builtAtIso:now,loadContext:async(id)=>id.startsWith('BAML')?monthly.slice(-30):bars});

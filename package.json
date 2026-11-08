@@ -16,6 +16,7 @@
     "audit:research-lab-cost": "node scripts/research-lab-cost-benchmark.mjs",
     "collect:earnings-forecast": "node scripts/refresh-earnings-forecast.mjs",
     "audit:earnings-forecast": "node scripts/audit-earnings-forecast.mjs",
+    "test:macro-context": "node scripts/macro-context-smoke.mjs",
     "test:earnings-forecast": "node scripts/earnings-forecast-smoke.mjs",
     "test:earnings-forecast-browser": "node scripts/earnings-forecast-browser.mjs",
     "preview:earnings-forecast": "node scripts/earnings-forecast-preview.mjs",
