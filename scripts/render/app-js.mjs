@@ -9366,10 +9366,19 @@ ${renderExportBindings()}
     if (toDay <= fromDay) return 0;
     var sessions = 0;
     for (var d = new Date(fromDay.getTime() + 86400000); d <= toDay; d = new Date(d.getTime() + 86400000)){
-      var wd = d.getUTCDay();
-      if (wd !== 0 && wd !== 6) sessions++;
+      if (isMarketSessionDay(d)) sessions++;
     }
     return sessions;
+  }
+  // One test for "was this ET calendar date a trading session?": a weekday that
+  // is not a full-day closure in MARKET_HOLIDAYS. d is a UTC Date whose UTC
+  // date is the ET date. Without the holiday check, Thanksgiving counted as a
+  // session, so on the holiday the flow, OI, volume and IV pages called the
+  // day-before data a session old.
+  function isMarketSessionDay(d){
+    var wd = d.getUTCDay();
+    if (wd === 0 || wd === 6) return false;
+    return !MARKET_HOLIDAYS.hasOwnProperty(d.toISOString().slice(0, 10));
   }
   function flowFreshnessMeta(){
     var iso = UNUSUAL && UNUSUAL.scannedAt;
@@ -9386,9 +9395,11 @@ ${renderExportBindings()}
     var ageMin = Math.floor((now.getTime() - scan.getTime()) / 60000);
     var sessionGap = marketSessionGap(iso);
     var nowEt = marketEtDateParts(now);
-    var nowUtcDay = nowEt ? new Date(Date.UTC(nowEt.year, nowEt.month - 1, nowEt.day, 12)).getUTCDay() : 0;
+    var nowDay = nowEt ? new Date(Date.UTC(nowEt.year, nowEt.month - 1, nowEt.day, 12)) : null;
     var nowEtMin = nowEt ? nowEt.hour * 60 + nowEt.minute : -1;
-    var regularNow = nowUtcDay >= 1 && nowUtcDay <= 5 && nowEtMin >= 570 && nowEtMin < 960;
+    // A 13:00 ET early close ends the regular session at 780, not 960.
+    var closeMin = nowDay && MARKET_HALF_DAYS.hasOwnProperty(nowDay.toISOString().slice(0, 10)) ? 780 : 960;
+    var regularNow = !!nowDay && isMarketSessionDay(nowDay) && nowEtMin >= 570 && nowEtMin < closeMin;
     var scanState = String((UNUSUAL && UNUSUAL.marketState) || '').toUpperCase();
     var executable = scanState === 'REGULAR' && regularNow && sessionGap === 0 && ageMin >= -5 && ageMin <= 90;
     if (executable){
@@ -35234,8 +35245,7 @@ ${renderExportBindings()}
     var sessions = 0;
     while (cursor < end){
       cursor += 86400000;
-      var day = new Date(cursor).getUTCDay();
-      if (day !== 0 && day !== 6) sessions++;
+      if (isMarketSessionDay(new Date(cursor))) sessions++;
     }
     return sessions;
   }
