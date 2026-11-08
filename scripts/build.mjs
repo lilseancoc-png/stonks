@@ -4571,6 +4571,25 @@ export async function attachIvRanks(chains, historyMap = null) {
 // be dropped from the map and have its entire accumulated series wiped.
 // So: seed the map from every tracked prior file first, then layer today's
 // fresh sample on top only where computeAtm30dIv succeeds.
+// IV history holds one sample per trading session. A weekend or holiday build
+// (a forced run; the router skips them) prices the last session's chain again,
+// so its sample repeats that session, counts twice in the percentile and makes
+// a "5-session" change span four. The next build drops those dates when it
+// seeds the history, so they never pile up; the forced build itself keeps its
+// sample as the newest entry, which its published IV ranks and the freshness
+// check read. Years the NYSE table doesn't list fall back to weekdays.
+export function ivHistorySessionDate(date) {
+  const s = sessionForDate(date);
+  if (s) return s.open;
+  const t = Date.parse(String(date || "") + "T12:00:00Z");
+  if (!Number.isFinite(t)) return false;
+  const dow = new Date(t).getUTCDay();
+  return dow !== 0 && dow !== 6;
+}
+export function ivHistorySessionEntries(entries) {
+  return (entries || []).filter((e) => e && typeof e.date === "string" && ivHistorySessionDate(e.date));
+}
+
 async function collectIvHistory(chains) {
   const today = etDateKey();
   const capturedAtIso = new Date().toISOString();
@@ -4589,8 +4608,8 @@ async function collectIvHistory(chains) {
     // Retire historical Yahoo placeholders as they are encountered. This also
     // self-heals any same-day bad sample written before the quote-quality gate
     // existed, without touching legitimate older observations.
-    const prior = (await loadIvHistoryEntries(sym)).filter((entry) =>
-      entry && typeof entry.date === "string" && isPlausibleOptionIv(entry.iv));
+    const prior = ivHistorySessionEntries(await loadIvHistoryEntries(sym)).filter((entry) =>
+      isPlausibleOptionIv(entry.iv));
     if (prior.length) {
       out.set(sym, {
         symbol: sym,
@@ -11860,6 +11879,18 @@ function commodityMetaFromDef(def) {
   };
 }
 
+// A fetched series can still be old: a monthly FRED series the agency stopped
+// (the potash PPI ends Dec 2022) or a daily feed that froze. Same limits as the
+// page's "aged source" badge (cmdItemCurrent in app-js.mjs): 7 days for daily
+// series, 93 for monthly. Saved on the item so the MCP and other readers don't
+// take an old reading as current.
+export const COMMODITY_AGED_DAYS = { daily: 7, monthly: 93 };
+export function commodityAgeDays(asOf, builtAtIso) {
+  const a = Date.parse(asOf), b = Date.parse(builtAtIso);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+  return Math.max(0, Math.floor((b - a) / 86400000));
+}
+
 export function buildCommoditiesPayload({ fetched = {}, overlays = {}, prior = null, builtAtIso }) {
   const etDate = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
   const priorItems = new Map(
@@ -11883,6 +11914,12 @@ export function buildCommoditiesPayload({ fetched = {}, overlays = {}, prior = n
         spark: commoditySpark(f.series, def.cadence),
         stale: false,
       };
+      const ageDays = commodityAgeDays(lastPt.d, builtAtIso);
+      const limit = COMMODITY_AGED_DAYS[def.cadence] ?? COMMODITY_AGED_DAYS.daily;
+      if (ageDays != null && ageDays > limit) {
+        item.aged = true;
+        item.agedWhy = `Latest reading is ${ageDays} days old (${lastPt.d}); the source has published nothing newer.`;
+      }
     } else {
       const p = priorItems.get(def.key);
       item = (p && p.last != null)
@@ -13408,9 +13445,24 @@ async function fetchBuyoutQuotes(symbols) {
   return out;
 }
 
-function enrichConfirmedBuyouts(rows, quotes) {
+// The deal table lists foreign targets by their home-market code (VAU, RWC,
+// 4626, BNOR), which Yahoo either doesn't know or maps to a different security.
+// A quote whose price is far from the table's own price for the same row is a
+// different listing, so it adds nothing (no price, market cap or currency).
+const BUYOUT_QUOTE_PRICE_BAND = [0.6, 1.6];
+export function buyoutQuoteMatches(row, quote) {
+  const quoted = pnumN(quote?.price);
+  if (!(quoted > 0)) return false;
+  const listed = pnumN(row?.targetPrice);
+  if (!(listed > 0)) return true;
+  const ratio = quoted / listed;
+  return ratio >= BUYOUT_QUOTE_PRICE_BAND[0] && ratio <= BUYOUT_QUOTE_PRICE_BAND[1];
+}
+
+export function enrichConfirmedBuyouts(rows, quotes) {
   return rows.map((row) => {
-    const quote = quotes?.[row.targetTicker] || null;
+    const rawQuote = quotes?.[row.targetTicker] || null;
+    const quote = rawQuote && buyoutQuoteMatches(row, rawQuote) ? rawQuote : null;
     const currentPrice = pnumN(quote?.price) ?? row.targetPrice ?? null;
     const marketCap = pnumN(quote?.marketCap);
     const consideration = pnumN(row.considerationPerShare);
@@ -13421,8 +13473,11 @@ function enrichConfirmedBuyouts(rows, quotes) {
       ...row,
       targetPrice: currentPrice,
       targetMarketCap: marketCap,
-      currency: quote?.currency || "USD",
-      valueCurrency: quote?.currency === "GBp" ? "GBP" : (quote?.currency || "USD"),
+      // No matched quote: the table's prices are in the target's home
+      // currency, which it doesn't name. Leave it unknown rather than "USD".
+      currency: quote ? (quote.currency || "USD") : null,
+      valueCurrency: quote ? (quote.currency === "GBp" ? "GBP" : (quote.currency || "USD")) : null,
+      quoteMatched: !!quote,
       estimatedEquityValue,
       equityValueKind: estimatedEquityValue != null ? "estimated" : null,
       equityValueMethod: estimatedEquityValue != null

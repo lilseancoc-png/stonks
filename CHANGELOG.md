@@ -79,6 +79,12 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Calendar market-odds chips on CPI and PPI rows show the most likely outcome of the busiest matching market, not its busiest bucket ("≤0.1% · 8%" on October CPI MoM) (#771).
 - Overnight markets no longer lists CSI 300 as "Closed overnight" every morning. The feed sends it as one bar with no prior close; that now reads "no prior close in the data feed" and raises no holiday event (#771).
 
+- Pending Buyouts no longer borrows another listing's quote for a foreign target (Ausgold "AUC" showed a US stock's $6.56 against a 1.36 offer, with that company's market cap and a made-up equity value). A quote far from the deal table's own price is ignored, and a row with no matched quote shows its price with no currency sign instead of "$", noted under the table.
+- Commodities flags a reading the source stopped updating as "aged" even when the fetch succeeds (the potash PPI series ended in December 2022 but counted as current), with the date in the badge's tooltip on both cards and the table.
+- IV history keeps one sample per trading session: a forced weekend or holiday build re-prices the last session's chain, and that repeat is dropped when the next build seeds the history, so it no longer counts twice in the IV percentile or shortens a 5-session change.
+- The "next update" line follows the router on market holidays and early closes: the earnings-call runs still show on a weekday holiday, and an early-close day shows no 15:30 Top Picks run. The browser's holiday and half-day tables now come from `lib/us-equity-calendar.mjs` (the workflows' table), which adds 2028.
+- What changed, Market map, Past days and the Calendar's coverage line show build times in the header's time-zone setting, like the rest of the site, instead of always ET (the Calendar line also drops the seconds).
+
 ### Removed
 
 - Drop Eli Lilly's investor news feed. It and its mirror returned HTTP 403 to every build, so News was always flagged in the Update Checker. Drugs@FDA still covers LLY.

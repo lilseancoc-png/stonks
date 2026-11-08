@@ -60,4 +60,23 @@ assert.equal(
   "a truncated sweep slice falls back to the card's own one-year fetch",
 );
 
+// A fetch that succeeds but returns an old reading is flagged aged, not
+// current: the potash PPI series ended Dec 2022 yet came back "fresh".
+const aged = buildCommoditiesPayload({
+  builtAtIso: "2026-11-06T21:12:42.187Z",
+  fetched: {
+    potash: { symbol: "PCU212391212391P", series: [{ d: "2022-11-01", v: 377 }, { d: "2022-12-01", v: 378 }] },
+    "palm-oil": { symbol: "PPOILUSDM", series: [{ d: "2026-08-01", v: 1132 }, { d: "2026-09-01", v: 1133 }] },
+    gold: { symbol: "GC=F", series: [{ d: "2026-10-20", v: 4000 }, { d: "2026-10-23", v: 4100 }] },
+    silver: { symbol: "SI=F", series: [{ d: "2026-11-05", v: 52 }, { d: "2026-11-06", v: 52.5 }] },
+  },
+});
+const agedItem = (key) => aged.items.find((item) => item.key === key);
+assert.equal(agedItem("potash").aged, true, "a monthly series years behind is aged");
+assert.match(agedItem("potash").agedWhy, /2022-12-01/);
+assert.equal(agedItem("potash").stale, false, "aged is not the same as a failed fetch (last-good)");
+assert.equal(agedItem("palm-oil").aged, undefined, "a two-month-old monthly print is current");
+assert.equal(agedItem("gold").aged, true, "a daily series two weeks behind is aged");
+assert.equal(agedItem("silver").aged, undefined);
+
 console.log("commodities smoke: ok");
