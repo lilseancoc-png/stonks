@@ -1,3 +1,4 @@
+import { sessionForDate } from "../lib/us-equity-calendar.mjs";
 import { isOwnershipBookKey } from "../lib/data-ownership.mjs";
 import { createOwnershipSecReader, expandOwnershipSubmissions, ownershipPrimaryUrl, ownershipNotice, ownershipRequestSignal } from "../lib/ownership-sec.mjs";
 import { packOwnershipBooks, ownershipBookClientFactory, retainOwnershipBooks } from "../lib/ownership-books.mjs";
@@ -65,7 +66,7 @@ import {
 import { buildPicksRunRecord, loadPicksRunDay, persistPicksRun, picksRunArchiveEnabled } from "../lib/picks-run-archive.mjs";
 import { buildSetupOdds } from "../lib/setup-odds.mjs";
 import { createFileEvidenceStore, loadEvidenceWindow, runEvidenceRecord } from "../lib/evidence-record.mjs";
-import { ownerBriefCalendar } from '../lib/owner-market-brief.mjs';
+import { ownerBriefCalendar, ownerBriefRunsOn } from '../lib/owner-market-brief.mjs';
 import { publishOwnerMarketBrief } from './publish-owner-market-brief.mjs';
 import { BRIEF_ACCESS_POLICY_VERSION } from "../lib/public-data-policy.mjs";
 import { buildBriefExtendedHours, extendedSessionForKind } from "../lib/brief-extended-hours.mjs";
@@ -11968,6 +11969,7 @@ async function writeBottomTrackerFile({ chains, indexBars, fred, prior, builtAtI
     dollar,
     dgs10,
     forwardPe: chains?.SPY?.fundamentals?.forwardPE ?? null,
+    trailingPe: chains?.SPY?.fundamentals?.trailingPE ?? null,
     revisions,
     breadthBars,
     history: prior?.history,
@@ -15950,6 +15952,9 @@ export async function fetchNasdaqEarningsSessions(startMs, windowDays, explicitD
     if (!/^\d{4}-\d{2}-\d{2}$/.test(ds) || seen.has(ds)) return;
     const wd = new Date(ds + "T00:00:00Z").getUTCDay();
     if (wd === 0 || wd === 6) return;
+    // A market holiday has no earnings sessions; asking Nasdaq for one only
+    // records a failed date and marks the calendar lookup incomplete.
+    if (sessionForDate(ds)?.open === false) return;
     seen.add(ds);
     dates.push(ds);
   };
@@ -21613,6 +21618,30 @@ export function prioritizeAiSlots(cands, ctx = {}) {
   return { ordered: ready.concat(rest), ready: ready.length };
 }
 
+// The gate shown for a name the AI grader never read. When the grader ran,
+// the name missed the PICKS_MAX_AI_THESES cut ("no-ai-slot"). When it was
+// skipped because no name could open (generateAiTheses, "none-ready"), the
+// real stop is the non-AI check that blocked it, so name that instead.
+const AI_SKIP_GATE = {
+  "below-bar": "below-strong", "confluence": "confluence", "factor-trend": "factor-trend",
+  "no-contract": "no-contract", "option-economics": "option-economics",
+  "sector-cap": "sector-cap", "factor-cap": "factor-cap", "factor-run-cap": "factor-run-cap", "side-cap": "side-cap",
+};
+// An entry-timing hold: name the scheduled release or earnings report when
+// that is what it waits on, else the general timing checks.
+export function timingWaitGate(r) {
+  const defer = r?.timing?.deferKind || r?.timing?.hardWait || null;
+  return defer === "event" ? "event-wait" : defer === "earnings" ? "earnings-wait" : "timing-checks";
+}
+export function aiUngradedGate(r, side, aiSkipped, blocks) {
+  if (!aiSkipped) return "no-ai-slot";
+  const block = blocks?.[`${r?.sym}:${side}`] || null;
+  if (block === "timing") return timingWaitGate(r);
+  // The precheck bar is the losing-streak bar while that gate is raised.
+  if (block === "below-bar" && Math.abs(pnum(r?.total) ?? 0) >= PICKS_TIER_STRONG) return "losing-streak-bar";
+  return AI_SKIP_GATE[block] || "ai-skipped";
+}
+
 // ============================================================================
 // buildTopPicks — the actionable roster.
 // ============================================================================
@@ -21984,8 +22013,8 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     if (!tactical && group !== "actionable") {
       const gate = demotion === "edge-bar" ? "losing-streak-bar"
         : demotion === "confluence" ? "confluence"
-        : demotion === "ai-ungraded" ? "no-ai-slot"
-        : demotion === "entry-wait" ? (eventCap ? "event-cap" : !entryBlocked && aiVerdict === "wait" ? "ai-wait" : "timing-checks")
+        : demotion === "ai-ungraded" ? aiUngradedGate(r, side, meta.aiGraderSkipped, opts.aiSkipBlocks)
+        : demotion === "entry-wait" ? (eventCap ? "event-cap" : !entryBlocked && aiVerdict === "wait" ? "ai-wait" : timingWaitGate(r))
         : Math.abs(pnum(r.total) ?? 0) < PICKS_TIER_STRONG ? "below-strong"
         : thesisQuality.aiGraded ? "ai-not-strong" : "thesis-not-strong";
       traceGate(r, side, gate);
@@ -27165,7 +27194,7 @@ async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload 
   } catch (err) {
     console.warn(`[leaps] score skipped — ${String(err?.message || err).split("\n")[0]}`);
   }
-  const picks = buildTopPicks(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, rfr, { ...baseOpts, preScored:topScored, aiThesisMap: aiThesis.map, aiGraderSkipped: !!aiThesis.skipped });
+  const picks = buildTopPicks(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, rfr, { ...baseOpts, preScored:topScored, aiThesisMap: aiThesis.map, aiGraderSkipped: !!aiThesis.skipped, aiSkipBlocks: aiThesis.skipped?.blocks || null });
   const picksPath = resolve(DATA_DIR, PICKS_FILE);
   // Run archive (lib/picks-run-archive.mjs): the scored universe exactly as
   // this run saw it, with each name's single-option quote and the grader's
@@ -28024,7 +28053,9 @@ export async function generateAiTheses(preScored, macroBackdrop, opts = {}, prio
   // fresh grade can't change the open book, so skip the new grader calls.
   // Still-valid cached grades are reused for the watch cards.
   const skipNew = ready === 0 && PICKS_AI_SKIP_WHEN_NONE_READY;
-  const skipped = skipNew ? { reason: "none-ready", candidates: cands.length } : null;
+  // blocks: the non-AI check that stopped each candidate, so "Why no picks
+  // today" can name the real rule instead of "No AI review slot".
+  const skipped = skipNew ? { reason: "none-ready", candidates: cands.length, blocks: Object.fromEntries(ordered.map(c => [`${c.r.sym}:${c.side}`, c.precheck || null])) } : null;
   if (skipNew) console.log(`Thesis gate: 0 of ${cands.length} candidate(s) can become open picks this run — skipping new AI grader calls (cached grades reused)`);
   if (cands.length > gated.length) {
     console.log(`Thesis gate: ${gated.length}/${cands.length} data-gate survivors graded (capped at PICKS_MAX_AI_THESES=${PICKS_MAX_AI_THESES}; ${ready} could still become open picks and go first); ${cands.length - gated.length} ship deterministic-only.`);
@@ -32817,8 +32848,13 @@ function briefToolFacts(source, p, kind, nowMs) {
   } else if (source.key === "earnings") {
     const ai = p.ai;
     if (ai?.headline && ai?.tone && ai.tone !== "mixed") add(`${ai.headline}${ai.summary ? ` — ${ai.summary}` : ""}`, 77, ai.tone === "positive" ? "positive" : "risk", (ai.standouts || []).map((x) => x.ticker));
-    const u = (p.upcoming || []).slice().sort((a, b) => Math.max(Math.abs(b.pre10Pct || 0), b.impliedMovePct || 0) - Math.max(Math.abs(a.pre10Pct || 0), a.impliedMovePct || 0))[0];
-    if (u && (Math.abs(u.pre10Pct || 0) >= 10 || Number(u.impliedMovePct) >= 8)) add(`${u.sym} reports ${u.date}${u.session ? ` ${u.session}` : ""}: ${u.pre10Pct != null ? `${briefToolPct(u.pre10Pct)} over 10 sessions` : ""}${u.pre10Pct != null && u.impliedMovePct != null ? ", " : ""}${u.impliedMovePct != null ? `±${u.impliedMovePct}% implied` : ""}.`, 80, "watch", [u.sym]);
+    // earnings-tracker.json stores the run-up and implied move as fractions
+    // (0.187 = 18.7%); compare and print them in percent.
+    const pct = (v) => (typeof v === "number" && Number.isFinite(v) ? v * 100 : null);
+    const size = (r) => Math.max(Math.abs(pct(r.pre10Pct) ?? 0), pct(r.impliedMovePct) ?? 0);
+    const u = (p.upcoming || []).filter(Boolean).slice().sort((a, b) => size(b) - size(a))[0];
+    const uPre = u ? pct(u.pre10Pct) : null, uImplied = u ? pct(u.impliedMovePct) : null;
+    if (u && (Math.abs(uPre ?? 0) >= 10 || (uImplied ?? 0) >= 8)) add(`${u.sym} reports ${u.date}${u.session ? ` ${u.session}` : ""}: ${uPre != null ? `${briefToolPct(uPre)} over 10 sessions` : ""}${uPre != null && uImplied != null ? ", " : ""}${uImplied != null ? `±${uImplied.toFixed(1)}% implied` : ""}.`, 80, "watch", [u.sym]);
   } else if (source.key === "calls") {
     const rows = Object.entries(p.calls || {}).map(([sym, row]) => ({ sym, ...row })).sort((a, b) => String(b.callDate || b.updatedAt || "").localeCompare(String(a.callDate || a.updatedAt || "")));
     const c = rows.find((r) => r.headline && r.callDate && nowMs - Date.parse(r.callDate + "T20:00:00Z") <= 4 * 86400000);
@@ -32828,7 +32864,7 @@ function briefToolFacts(source, p, kind, nowMs) {
     const e = (p.upcoming || []).find((r) => r?.daysUntil <= 3 && r?.isolation?.status !== "conflict" && (r.followers || []).some((f) => f.pairQualified));
     if (e) {
       const followers = (e.followers || []).filter((f) => f.pairQualified).slice(0, 3).map((f) => f.follower);
-      add(`${e.driver} earnings in ${e.daysUntil}d has qualified historical read-throughs to ${followers.join(", ")}${e.impliedMovePct != null ? ` off a ±${e.impliedMovePct}% implied move` : ""}.`, 83, "watch", [e.driver, ...followers]);
+      add(`${e.driver} earnings in ${e.daysUntil}d has qualified historical read-throughs to ${followers.join(", ")}${Number.isFinite(Number(e.impliedMovePct)) && e.impliedMovePct !== null ? ` off a ±${Number(e.impliedMovePct).toFixed(1)}% implied move` : ""}.`, 83, "watch", [e.driver, ...followers]);
     }
   } else if (source.key === "index-calendar") {
     const day = (p.days || []).findLast((d) => d?.date === etDateKey(new Date(nowMs)));
@@ -32912,7 +32948,7 @@ function briefToolFacts(source, p, kind, nowMs) {
       const best = Math.max(r.eod?.ratio || 0, ...(r.bucketHits || []).map((h) => h?.volRatio || 0));
       return { r, sr, best };
     }).sort((a, b) => Number(!!b.sr) - Number(!!a.sr) || b.best - a.best)[0];
-    if (rows && (rows.sr || rows.best >= 2.5)) add(`${rows.r.symbol} volume reached ${rows.best.toFixed(1)}x expected${rows.sr ? ` and confirmed a ${rows.sr.srBreak.type} break of ${rows.sr.srBreak.level}` : ""}.`, rows.sr ? 88 : 76, rows.sr?.srBreak?.type === "lower" ? "risk" : rows.sr ? "positive" : "watch", [rows.r.symbol]);
+    if (rows && (rows.sr || rows.best >= 2.5)) add(`${rows.r.symbol} volume reached ${rows.best.toFixed(1)}x expected${rows.sr ? ` and confirmed ${rows.sr.srBreak.type === "upper" ? "an upper" : `a ${rows.sr.srBreak.type}`} break of ${rows.sr.srBreak.level}` : ""}.`, rows.sr ? 88 : 76, rows.sr?.srBreak?.type === "lower" ? "risk" : rows.sr ? "positive" : "watch", [rows.r.symbol]);
   } else if (source.key === "oi") {
     const r = (p.tickers || []).filter((x) => x?.flagged).sort((a, b) => (b.score || 0) - (a.score || 0))[0];
     if (r) add(`${r.symbol} has the strongest OI/gamma flag: ${(r.reasons || []).slice(0, 2).map((x) => x.label).filter(Boolean).join("; ")}.`, 82, "watch", [r.symbol]);
@@ -39433,7 +39469,11 @@ async function main() {
   }
   // Owner synthesis is isolated from the public prompt and runs only after all
   // research publishers. It consumes local snapshots; no paid/provider calls.
-  try {
+  // Market days only: a weekend or holiday build leaves the stored market-day
+  // brief untouched (it is an optional bake key, so the store keeps it).
+  if (!ownerBriefRunsOn(Date.now())) {
+    console.log('[owner-brief] skipped — the market is closed today; the last market-day brief stays readable');
+  } else try {
     const ownerBriefNow = new Date();
     const kind = briefKindForHour(etHourNY(ownerBriefNow));
     const publicScan = await collectBriefSiteTools({ kind, narratives: [], now: ownerBriefNow });

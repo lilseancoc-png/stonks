@@ -93,6 +93,7 @@ export const SITE_SECTIONS = [
       { id: 'cheatsheet', label: 'Options guide', alias: "Buyer's manual", blurb: 'A plain-English guide to buying options: calls, puts, risk and timing.' },
       { id: 'chart-patterns', label: 'Chart patterns', blurb: 'What common chart shapes look like and how traders read them.' },
       { id: 'timeline', label: 'When data updates', alias: 'Refresh schedule timeline', blurb: 'When each part of the site refreshes during the trading day.' },
+      { id: 'contact', label: 'Send us a message', alias: 'Contact us feedback message email support help question bug report', blurb: 'Send the site owners a question, idea or bug report, with an email or social link if you want a reply.' },
       { id: 'glossary', label: 'Glossary', alias: 'Words terms definitions meaning C/P OI IV percentile gamma', blurb: 'Plain-English meanings for the options and market words used on this site.' },
       // Privacy and Terms are linked from the footer, so they stay out of the
       // visible menu but remain searchable and linkable.
