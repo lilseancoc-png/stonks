@@ -44,7 +44,8 @@ const gradeOne = (data, streaks = null) => {
 };
 
 await check('grade version names the price-pillar fix', () => {
-  assert.equal(GRADE_MODEL_VERSION, '2026-11-price-pillar');
+  // The macro read (on by default since 2026-11-08) moves the version on top of this fix.
+  assert.equal(GRADE_MODEL_VERSION, process.env.PICKS_MACRO_CONTEXT === '0' ? '2026-11-price-pillar' : '2026-11-macro-context');
   assert(RETIRED_SIGNAL_KEYS.has('macd') && RETIRED_SIGNAL_KEYS.has('fiftyTwoWeek'));
 });
 
@@ -199,7 +200,7 @@ try {
     assert.equal(snap.signals['test-technicals'], 3);
     assert.equal(snap.pillars.t, 3);
     assert.deepEqual(snap.shadow, { r21: 4.2 });
-    assert.equal(first.open[0].gradeModelVersion, '2026-11-price-pillar');
+    assert.equal(first.open[0].gradeModelVersion, GRADE_MODEL_VERSION);
   });
   await check('record: an open trade whose drivers were all retired votes is not closed as thesis-broken', async () => {
     const state = structuredClone(first);
