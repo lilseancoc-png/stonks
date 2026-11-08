@@ -1533,3 +1533,108 @@ own timestamp in the Owner files only a Top Picks run writes.
 
 Tests: `npm run test:top-picks-watchdog`, `npm run test:setup-odds` and
 `npm run test:edge-odds-browser`.
+
+## Macro, cycle and rotation context, November 8, 2026 (on since the owner approved it)
+
+Built after the owner asked why the engine liked AXP calls while financial
+conditions tightened and more Fed hikes were priced. The market tape
+(`computeMacroRegime`) reads what changed today and applies one market-wide
+tilt; nothing in the grade asked how a card lender, a bank or a chip maker
+usually behaves when rates, credit, inflation or the dollar move. This layer
+adds that. The owner approved it on November 8, 2026 ("block at 0.5 plus
+context": the block, the Fed and rotation fixes and the grader lines, without
+adding the points to the grade), so it is **on by default**.
+`PICKS_MACRO_CONTEXT=0` is the kill switch: with it, every grade, prompt and
+output is byte-for-byte what it was before (the macro-context smoke checks the
+off path).
+
+**What it reads** (`lib/macro-context.mjs`, pure, no fetch, no AI):
+
+| Cycle | Inputs | Labels |
+|---|---|---|
+| Fed path and short rates | 2-year yield minus fed funds (hikes or cuts priced), fed funds change over 6 months, 2-year change over 3 months, 3-month bill minus fed funds | tightening, hikes priced, on hold, cuts priced, easing |
+| Curve, inflation | 10y-2y slope and its change; CPI and core CPI level and direction, 5-year breakevens | hot, warm, cool |
+| Growth | unemployment vs its 12-month low, jobless claims, industrial production, real retail sales | strong, steady, slowing |
+| Credit | junk bonds vs Treasuries, Chicago Fed conditions, bank lending standards, HY spread change | easy, repair, normal, tightening, stress |
+| Market cycle | SPY vs its 200-day, drawdown, 6-month momentum, VIX and its curve | bull, late bull, correction, recovery, bear |
+| Liquidity, dollar, oil | Fed balance sheet minus Treasury cash minus reverse repo, M2; DXY and USO 3-month moves | expanding, steady, draining |
+| Politics | president, House and Senate party (same dates as the Party tracker) | unified, divided |
+
+It also builds a **rotation map** over the stocks' own groups (one-week,
+one-month, quarter and half-year moves against the equal-weight universe, a
+flow score, and a plain-English guess at why money is moving) and a **stress
+check**: normal, rotation (money moving between groups), broad de-risking, or
+systemic (most groups down together with credit or volatility confirming).
+The stress check is context only: in the 2008-2026 replay, blocking calls in
+systemic weeks made results worse because those weeks often sat near lows.
+
+**Per-stock macro fit.** Each stock's exposure to the nine factors is half a
+written playbook (`KIND_EXPOSURES`: a card lender loses when credit tightens,
+a homebuilder when rates rise, energy gains with oil) and half its own
+measured one-year sensitivities. AXP, COF and other card issuers read as
+`cardLender` here only; `macroKindOf` and `MACRO_PROFILES` are unchanged. The
+fit multiplies exposure by each factor's level, its 4-week change and its
+13-week change, adds the group's money flow, its one-week move and its
+party-in-power history, and weighs the 30 inputs with one set of weights
+learned walk-forward on 25 sector and industry ETFs, 2008-2026
+(`lib/macro-weights.json`, refit by `research/macro-backtest/run.mjs`). The
+prediction is a 10-day relative return; 0.222% = one grade point, capped at
+±1.5. Weights by environment were tested and did not beat one global set.
+
+**With the switch on (the default):**
+
+- Every stock's `macroFit` rides the scored row, the pick, `grades.json`
+  (points and group) and the entry snapshot (`ctx.mx`). Funds get none.
+- **The macro block** (`macroConflict`, inside `structuralVeto`): a call whose
+  fit reads −0.5 or lower, or a put at +0.5 or higher
+  (`PICKS_MACRO_BLOCK_PTS`, 0 turns it off), is kept off the open list and
+  does not take an AI grader slot. It is traced as gate `macro-conflict`
+  ("Fights the macro backdrop") in `rosterMeta.turnedAway`, the Why no picks
+  today list and the Scorecard's rule table, and listed in
+  `rosterMeta.macroBlocked`.
+- The fit is **not** added to the grade unless `PICKS_MACRO_POINTS=1`; then
+  `scoreTicker` adds it before the market-regime overlay, under the same
+  never-cross-zero guard as IV cost. In the replay below the block did better
+  than the points, so the points stay off by default.
+- The Fed-path axis is floored at −1 when hikes are priced (2-year yield at
+  least `PICKS_MACRO_FED_PRICED_PTS`, 0.25, over fed funds). The priced level
+  called the Fed's next six months right 88% of the time in 2008-2026; one
+  day of FedWatch drift, 57%.
+- The rotation axis reads the one-month offense-minus-defense spread
+  (`PICKS_MACRO_ROTATION_PP_20D`, 4 points) instead of one day. The one-day
+  spread had almost no link to the next month (correlation 0.01); one month,
+  0.09.
+- The AI grader gets the cycle, politics, rotation and stress lines plus the
+  stock's fit sentence, appended after the base message (`macroGraderLines`),
+  about 250 tokens per graded name.
+- `GRADE_MODEL_VERSION` becomes `2026-11-macro-context`, so the Track Record
+  splits there (`ACC_RULE_NOTES`).
+- The browser's market tape carries the Fed and rotation axes from the build
+  (both are slow axes), and its help text reads `macroContextOn`,
+  `rotationPp20d` and `fedPricedPts` from the shipped thresholds so it
+  describes the one-month and hikes-priced reads.
+
+**Data.** Six free FRED series join the shared long-history cache
+(`SHARED_FRED_EXTRA`: DGS3MO, T5YIE, ICSA, NFCI, DRTSCILM, M2SL; last five
+years kept), downloaded once a day with the rest whether or not the switch is
+on. The bake reads that cache, the chains, the overnight sweep's DXY / VIX /
+VIX3M bars and the Party tracker; `regen-picks` reads the saved cache and
+falls back to FRED's dollar and VIX.
+
+**Test results** are in the owner report linked from the thread "Make Top
+Picks understand rates and rotations" and in
+`/mnt/project-files/top-picks-review/macro-backtest-2026-11-07/`. Short
+version: the factor read explains same-period sector moves well (rank
+correlation about 0.23) and forecasts them weakly (0.02-0.04). In the replay of
+the price-half grade (top six with a grade of 4 or more, every fifth session,
+10-day stock move in the trade's direction):
+
+| Rule | Avg move | Right way | Years helped of 17 | 2026 real grades |
+|---|---|---|---|---|
+| Grade alone | +0.45% | 52% | | −0.38% |
+| Points added to the grade | +0.56% | 53% | 11 | −0.27% |
+| Block at 0.75 points | +0.60% | 54% | 9 | |
+| Block at 0.5 points (default) | +0.62% | 54% | 12 | −0.23% |
+| Points plus block at 0.5 | +0.60% | 54% | 9 | |
+
+The block keeps about a fifth fewer picks. Test: `npm run test:macro-context`.

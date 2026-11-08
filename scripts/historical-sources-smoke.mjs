@@ -29,8 +29,9 @@ assert.equal(historicalCoverage(brokenRecent).status,'under-ten-years','a recent
 let active=0,maxActive=0, downloads=0;
 const fakeLoad=async()=>{active++;maxActive=Math.max(maxActive,active);downloads++; await new Promise(r=>setTimeout(r,1));active--;return bars;};
 const cache=await refreshHistoricalSourceCache({builtAtIso:now,loadMarket:fakeLoad,loadContext:fakeLoad});
-assert.equal(downloads,44,'17 ETFs, 5 event-study markets, 20 study series and the 2 shared Bottom tracker spreads'); assert(maxActive<=2); assert.equal(cache.cost.providerFeeUsd,0); assert.equal(cache.cost.aiCalls,0); assert.equal(cache.cost.newScheduledJobs,0);
-assert.equal(cache.version,2); assert.equal(cache.cost.maxRequestsPerDay,72,'the two shared spreads can be checked up to three times a day while behind');
+assert.equal(downloads,50,'17 ETFs, 5 event-study markets, 20 study series, the 2 shared Bottom tracker spreads and the 6 Top Picks macro-context series'); assert(maxActive<=2); assert.equal(cache.cost.providerFeeUsd,0); assert.equal(cache.cost.aiCalls,0); assert.equal(cache.cost.newScheduledJobs,0);
+assert.equal(cache.version,2); assert.equal(cache.cost.maxRequestsPerDay,82,'the four daily shared series can be checked up to three times a day while behind; the weekly, monthly and quarterly ones once');
+{ const cut=new Date(Date.parse(now)-5*365.25*86400000).toISOString().slice(0,10); assert(cache.context.T5YIE.rows.length>0 && cache.context.T5YIE.rows.every(r=>r.t>=cut),'macro-context series keep only the last five years'); assert(cache.context.BAMLH0A0HYM2.rows.some(r=>r.t<cut),'the Bottom tracker spreads keep their full download'); }
 assert(cache.context.BAMLH0A0HYM2.rows.length>0 && cache.context.BAMLC0A0CM.rows.length>0,'shared credit spreads are cached with the study series');
 assert(!buildSourceCoverage({symbols:cache.symbols,context:cache.context,records:cache.records,cutoff:'2026-10-24'}).context.some(s=>s.id==='BAMLH0A0HYM2'),'shared-only series stay out of Historical Data coverage');
 const shortSpread=await refreshHistoricalSourceCache({builtAtIso:now,loadContext:async(id)=>id.startsWith('BAML')?monthly.slice(-30):bars});
@@ -43,14 +44,14 @@ assert.deepEqual(keptSpread.context.BAMLH0A0HYM2.rows,cache.context.BAMLH0A0HYM2
 {
   const morning='2026-10-26T14:00:00.000Z';
   const records=Object.fromEntries(Object.entries(cache.records).map(([k,v])=>[k,{...v,checkedAt:morning}]));
-  const seeded={...cache,records,context:{...cache.context,BAMLH0A0HYM2:{rows:bars.slice(0,-3).map(b=>({t:b.t,v:b.c}))}}};
+  const seeded={...cache,records,context:{...cache.context,BAMLH0A0HYM2:{rows:bars.slice(0,-3).map(b=>({t:b.t,v:b.c}))},ICSA:{rows:bars.slice(0,-3).map(b=>({t:b.t,v:b.c}))}}};
   assert(seeded.context.BAMLH0A0HYM2.rows.at(-1).t<'2026-10-23','the seeded spread is behind Friday');
   const loadedIds=[];
   const load=async id=>{loadedIds.push(id);return bars;};
   await refreshHistoricalSourceCache({previous:seeded,builtAtIso:'2026-10-26T15:00:00.000Z',loadContext:load});
   assert.deepEqual(loadedIds,[],'no re-check within three hours');
   const rechecked=await refreshHistoricalSourceCache({previous:seeded,builtAtIso:'2026-10-26T17:30:00.000Z',loadContext:load});
-  assert.deepEqual(loadedIds,['BAMLH0A0HYM2'],'only the lagging spread is checked again');
+  assert.deepEqual(loadedIds,['BAMLH0A0HYM2'],'only the lagging spread is checked again; a weekly series behind the session is not');
   assert.equal(rechecked.context.BAMLH0A0HYM2.rows.at(-1).t,bars.at(-1).t);
 }
 const warmed=await refreshHistoricalSourceCache({previous:cache,builtAtIso:now,loadMarket:()=>{throw new Error('should not refetch');},loadContext:()=>{throw new Error('should not refetch');}});

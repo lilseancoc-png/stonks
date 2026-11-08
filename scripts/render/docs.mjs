@@ -377,7 +377,7 @@ export const DOC_PAGES = {
     </div>
     <div class="grid g3" style="margin-top:16px">
       <div class="card"><h3>Strike</h3><p>The fixed price you'd buy or sell at if you exercised.</p></div>
-      <div class="card"><h3>Expiration <span class="tag">DTE</span></h3><p>The deadline. After it, the option is worthless. "DTE" = days to expiration.</p></div>
+      <div class="card"><h3>Expiration <span class="tag">DTE</span></h3><p>The deadline. After it, the option stops trading: one that is in the money is usually exercised automatically, and one that is out of the money expires worthless. "DTE" = days to expiration.</p></div>
       <div class="card"><h3>Exit</h3><p>You almost always <strong>sell the option back</strong> before expiry — you rarely exercise.</p></div>
     </div>
   </section>

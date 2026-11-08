@@ -22,9 +22,21 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## 2026-11-08
 
+### Added
+
+- Add a macro, cycle and rotation read for Top Picks, on by default since the owner approved it (`PICKS_MACRO_CONTEXT=0` turns it off): where the Fed path, inflation, growth, credit, market, liquidity, dollar, oil and party control stand, which groups money is rotating into and out of with a plain-English reason, a rotation vs systemic stress check, and each stock's macro fit (at most ±1.5 points) from weights learned on 2008-2026 sector history. A trade the fit points against by 0.5 points or more is kept off the open list (new gate "Fights the macro backdrop"; `PICKS_MACRO_BLOCK_PTS`, and `PICKS_MACRO_POINTS=1` also adds the points to the grade, off by default), the Fed axis also reads the hikes already priced, the rotation axis reads one month instead of one day, and the AI grader sees the read. The grade version moves to `2026-11-macro-context`, so the Track Record shows a dated divider; the market tape's help text describes the new Fed and rotation reads. Card issuers such as AXP read as lenders, not card networks. Six free FRED series join the shared history cache. Research scripts and results are in `research/macro-backtest/` (#773).
+
 ### Changed
 
 - Commodities: the Potash card now reads the World Bank's monthly potassium chloride price (US dollars per metric ton, from the free Pink Sheet workbook, through October 2026) instead of the BLS potash-mining PPI, which stopped in December 2022. The World Bank page is checked at most once a day and the workbook downloaded only when a new monthly release appears; a failed first read shows "no data yet" rather than the old index under the new unit (#774).
+
+### Fixed
+
+- Buyer's manual: an option no longer reads as worthless after expiration; one in the money is usually exercised automatically, and only an out-of-the-money one expires worthless (#772).
+
+### Docs
+
+- CLAUDE.md: the Sports rule now names PropLine's read-only odds feed (PrizePicks lines, plus sportsbook reference prices for NBA) as the one allowed outside line source, which the owners chose to keep, replacing the old "no sportsbook or PrizePicks API calls" line (#772).
 
 ## 2026-11-07
 

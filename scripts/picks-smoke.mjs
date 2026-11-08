@@ -2545,7 +2545,8 @@ const gradeOne = (data, opts = {}, unusual = null) => buildGradesIndex({ ONE: da
   ok("sector growth: names without a profile keep the legacy bars",
     sigOf(gradeOne(mkTicker({ fundamentals: { revenueGrowthYoy: 8 } })), "fundamentals", "revGrowth")?.score === 1
     && sigOf(gradeOne(mkTicker({ fundamentals: { revenueGrowthYoy: 8 } })), "fundamentals", "revGrowth")?.growthProfile === undefined);
-  ok("grade version is 2026-11-price-pillar (price-pillar fix)", GRADE_MODEL_VERSION === "2026-11-price-pillar");
+  // The macro read (on by default since 2026-11-08) moves the version on top of the price-pillar fix.
+  ok("grade version is 2026-11-macro-context (2026-11-price-pillar with PICKS_MACRO_CONTEXT=0)", GRADE_MODEL_VERSION === (process.env.PICKS_MACRO_CONTEXT === "0" ? "2026-11-price-pillar" : "2026-11-macro-context"));
 }
 {
   const nowMs = Date.now();

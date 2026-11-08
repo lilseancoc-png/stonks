@@ -4,7 +4,7 @@
 import { readFile, writeFile, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildTopPicks, buildGradesIndex, gradeTradeCut, PICKS_MIN_CONVICTION, PICKS_ACCURACY_RESET_EPOCH, PICKS_ENTRY_TIMING_VERSION, FALLBACK_RISK_FREE_RATE, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges, buildPicksRoster, writePicksRoster, attachIvRanks, computeMacroRegime, buildIndexAxisInput, buildBreadthAxisInput, buildPutCallAxisInput, buildRotationAxisInput, deriveGlobalTapeAxis, overnightSnapshotOpts, readRfrHistory, readGradesDaily, appendGradesDaily, writeGradesDaily, readRegimeHistory, appendRegimeHistory, writeRegimeHistory, buildStockPicks, writeStockPicksFile, STOCK_PICKS_FILE, readPriorStockPicks, buildSectorRotationRebounds, writeSectorRotationFile, SECTOR_ROTATION_FILE, readPriorSectorRotationLog, sectorRotationRecordFromLog, buildLeveragedEtfPicks, writeLeveragedEtfsFile, LEVERAGED_ETFS_FILE, readPriorLevEtfLog, levRecordFromLog, SECTORS, macroKindOf, MACRO_PROFILES, pickContractForPick, writeAutoPicksFile, quarantineScoringInputs, dropStaleMacroLiveLegs } from "./build.mjs";
+import { buildTopPicks, buildGradesIndex, gradeTradeCut, PICKS_MIN_CONVICTION, PICKS_ACCURACY_RESET_EPOCH, PICKS_ENTRY_TIMING_VERSION, FALLBACK_RISK_FREE_RATE, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges, buildPicksRoster, writePicksRoster, attachIvRanks, computeMacroRegime, buildIndexAxisInput, buildBreadthAxisInput, buildPutCallAxisInput, buildRotationAxisInput, deriveGlobalTapeAxis, overnightSnapshotOpts, readRfrHistory, readGradesDaily, appendGradesDaily, writeGradesDaily, readRegimeHistory, appendRegimeHistory, writeRegimeHistory, buildStockPicks, writeStockPicksFile, STOCK_PICKS_FILE, readPriorStockPicks, buildSectorRotationRebounds, writeSectorRotationFile, SECTOR_ROTATION_FILE, readPriorSectorRotationLog, sectorRotationRecordFromLog, buildLeveragedEtfPicks, writeLeveragedEtfsFile, LEVERAGED_ETFS_FILE, readPriorLevEtfLog, levRecordFromLog, SECTORS, macroKindOf, MACRO_PROFILES, pickContractForPick, writeAutoPicksFile, quarantineScoringInputs, dropStaleMacroLiveLegs, PICKS_MACRO_CONTEXT, buildMacroContextForBuild } from "./build.mjs";
 import { appendScenarioHistory, buildScenarioEngine } from "../lib/scenario-engine.mjs";
 import { buildGradeResearch, seriesFromChains, writeGradeResearchFile } from "../lib/grade-research.mjs";
 import { readForcedLiquidation } from './refresh-forced-liquidation.mjs';
@@ -189,6 +189,21 @@ if (macroBackdrop) {
   macroBackdrop.breadth = buildBreadthAxisInput(chains);
   macroBackdrop.putCall = buildPutCallAxisInput(chains);
   macroBackdrop.rotation = buildRotationAxisInput(chains);
+  // Macro, cycle and rotation context (PICKS_MACRO_CONTEXT=1 only), from the
+  // saved long-history cache and Party tracker. No overnight sweep offline, so
+  // the dollar and VIX fall back to their FRED series.
+  if (PICKS_MACRO_CONTEXT) {
+    try {
+      const historicalCache = JSON.parse(await readFile(resolve(DATA_DIR, "historical-source-history.json"), "utf8"));
+      let partyTracker = null;
+      try { partyTracker = JSON.parse(await readFile(resolve(DATA_DIR, "party-tracker.json"), "utf8")); } catch {}
+      macroBackdrop.macroContext = buildMacroContextForBuild({ chains, historicalCache, partyTracker, breadthPct200: macroBackdrop.breadth?.pctAbove200 ?? null });
+      if (macroBackdrop.macroContext) console.log(`Macro context ${macroBackdrop.macroContext.asOf}: ${macroBackdrop.macroContext.cycles.bucket.key}, ${Object.keys(macroBackdrop.macroContext.fits).length} fits`);
+    } catch (err) {
+      macroBackdrop.macroContext = null;
+      console.warn(`Macro context skipped: ${err?.message || err}`);
+    }
+  }
   macroBackdrop.macroRegime = computeMacroRegime(macroBackdrop, fedwatchHistory, narratives, fearGreed, trends.macroHeadlines || []);
   if (macroBackdrop.macroRegime && macroBackdrop.macroRegime.state !== "neutral") {
     const m = macroBackdrop.macroRegime;
