@@ -11304,7 +11304,7 @@ ${renderExportBindings()}
       '<button type="button" class="vol-row-head" aria-expanded="' + (expanded ? 'true' : 'false') + '">' +
         '<span class="vol-row-caret" aria-hidden="true">' + (expanded ? '▾' : '▸') + '</span>' +
         '<span class="vol-symbol">' + escapeHtml(sym) + '</span>' +
-        '<span class="vol-sym-go" role="link" tabindex="0" data-sym="' + escapeHtml(sym) + '" title="Open ' + escapeHtml(sym) + ' in the Grade tab">↗</span>' +
+        '<span class="vol-sym-go" role="link" tabindex="0" data-sym="' + escapeHtml(sym) + '" title="' + escapeHtml(symOpenLabel(sym)) + '">↗</span>' +
         (spot ? '<span class="vol-spot">' + spot + '</span>' : '') +
         '<span class="vol-row-summary">' +
           chips.join('') +
@@ -19701,7 +19701,7 @@ ${renderExportBindings()}
     '</section>';
   }
   function ersSymBtn(sym){
-    return '<a class="ers-sym" data-sym="' + escapeHtml(sym) + '" href="' + symGradeHref(sym) + '" title="Open ' + escapeHtml(sym) + ' in the Grade tab">' + escapeHtml(sym) + '</a>';
+    return '<a class="ers-sym" data-sym="' + escapeHtml(sym) + '" href="' + symGradeHref(sym) + '" title="' + escapeHtml(symOpenLabel(sym)) + '">' + escapeHtml(sym) + '</a>';
   }
   function ersDate(iso){
     if (!iso || iso.length < 10) return '—';
@@ -20371,7 +20371,7 @@ ${renderExportBindings()}
     return '';
   }
   function eclSymBtn(sym){
-    return '<a class="ecl-sym" data-sym="' + escapeHtml(sym) + '" href="' + symGradeHref(sym) + '" title="Open ' + escapeHtml(sym) + ' in the Grade tab">' + escapeHtml(sym) + '</a>';
+    return '<a class="ecl-sym" data-sym="' + escapeHtml(sym) + '" href="' + symGradeHref(sym) + '" title="' + escapeHtml(symOpenLabel(sym)) + '">' + escapeHtml(sym) + '</a>';
   }
   function eclDate(iso){
     if (!iso || iso.length < 10) return '—';
@@ -22675,7 +22675,7 @@ ${renderExportBindings()}
     var watch = '';
     var ws = Array.isArray(it.watch) ? it.watch : [];
     for (var w=0; w<ws.length; w++){
-      watch += '<a class="cmd-watch" data-sym="' + escapeHtml(ws[w]) + '" href="' + symGradeHref(ws[w]) + '" title="Open ' + escapeHtml(ws[w]) + ' in the Grade tab">' + escapeHtml(ws[w]) + '</a>';
+      watch += '<a class="cmd-watch" data-sym="' + escapeHtml(ws[w]) + '" href="' + symGradeHref(ws[w]) + '" title="' + escapeHtml(symOpenLabel(ws[w])) + '">' + escapeHtml(ws[w]) + '</a>';
     }
     var src = it.sourceUrl
       ? '<a class="cmd-src" href="' + escapeHtml(it.sourceUrl) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(it.sourceName || 'source') + '</a>'
@@ -23358,7 +23358,7 @@ ${renderExportBindings()}
           ? '<a href="' + escapeHtml(e.link) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(e.headline || '') + '</a>'
           : escapeHtml(e.headline || '');
         var tkr = !e.ticker ? '' : (SYMBOLS.indexOf(e.ticker) !== -1
-          ? '<a class="cr-tkr" data-sym="' + escapeHtml(e.ticker) + '" href="' + symGradeHref(e.ticker) + '" title="Open ' + escapeHtml(e.ticker) + ' in the Grade tab">' + escapeHtml(e.ticker) + '<span class="stk-sym-go" aria-hidden="true">↗</span></a>'
+          ? '<a class="cr-tkr" data-sym="' + escapeHtml(e.ticker) + '" href="' + symGradeHref(e.ticker) + '" title="' + escapeHtml(symOpenLabel(e.ticker)) + '">' + escapeHtml(e.ticker) + '<span class="stk-sym-go" aria-hidden="true">↗</span></a>'
           : '<span class="cr-tkr">' + escapeHtml(e.ticker) + '</span>');
         return '<article class="cr-row cr-tone-' + read.tone + '">' +
           '<div class="cr-row-top">' +
@@ -25668,7 +25668,7 @@ ${renderExportBindings()}
         } else if (st.chg5dPct != null && isFinite(st.chg5dPct)){
           stat = ' <b class="' + (st.chg5dPct >= 0 ? 'cx-up' : 'cx-down') + '">' + (st.chg5dPct >= 0 ? '+' : '') + Number(st.chg5dPct).toFixed(0) + '% 5d</b>';
         }
-        schips += '<a class="ivt-sum-chip' + (kindMeta ? ' ' + kindMeta.cls : (stMeta ? ' ' + stMeta.cls : '')) + '" data-sym="' + escapeHtml(st.symbol || '') + '" href="' + symGradeHref(st.symbol) + '" title="' + escapeHtml(tipBits.join(' · ')) + ' — open in the Grade tab">' +
+        schips += '<a class="ivt-sum-chip' + (kindMeta ? ' ' + kindMeta.cls : (stMeta ? ' ' + stMeta.cls : '')) + '" data-sym="' + escapeHtml(st.symbol || '') + '" href="' + symGradeHref(st.symbol) + '" title="' + escapeHtml(tipBits.join(' · ') + ' — ' + symOpenLabel(st.symbol || '').replace(/^Open/, 'open')) + '">' +
           (kindMeta ? '<em>' + kindMeta.label + '</em>' : (stMeta ? '<em>' + stMeta.label + '</em>' : '')) +
           escapeHtml(st.symbol || '') +
           stat +
@@ -25706,7 +25706,7 @@ ${renderExportBindings()}
         cards += '<article class="ivt-card ' + meta.cls + '">' +
           '<header class="ivt-card-head">' +
             '<span class="ivt-badge">' + meta.label + '</span>' +
-            '<a class="ivt-sym" data-sym="' + escapeHtml(r.symbol || '') + '" href="' + symGradeHref(r.symbol) + '" title="Open ' + escapeHtml(r.symbol || '') + ' in the Grade tab">' + escapeHtml(r.symbol || '') + '<span class="stk-sym-go" aria-hidden="true">↗</span></a>' +
+            '<a class="ivt-sym" data-sym="' + escapeHtml(r.symbol || '') + '" href="' + symGradeHref(r.symbol) + '" title="' + escapeHtml(symOpenLabel(r.symbol || '')) + '">' + escapeHtml(r.symbol || '') + '<span class="stk-sym-go" aria-hidden="true">↗</span></a>' +
             (r.name ? '<span class="ivt-name">' + escapeHtml(r.name) + '</span>' : '') +
             (r.sector ? '<span class="ivt-sector">' + escapeHtml(r.sector) + '</span>' : '') +
           '</header>' +
@@ -25747,7 +25747,7 @@ ${renderExportBindings()}
       var w = shown[t];
       var tierMeta = w.tier && IVT_TIER_META[w.tier] ? IVT_TIER_META[w.tier] : null;
       rows += '<div class="ivt-trow' + (tierMeta ? ' ' + tierMeta.cls : '') + '">' +
-        '<span class="ivt-trow-sym"><a class="ivt-trow-symbtn" data-sym="' + escapeHtml(w.symbol || '') + '" href="' + symGradeHref(w.symbol) + '" title="Open ' + escapeHtml(w.symbol || '') + ' in the Grade tab">' + escapeHtml(w.symbol || '') + '</a>' +
+        '<span class="ivt-trow-sym"><a class="ivt-trow-symbtn" data-sym="' + escapeHtml(w.symbol || '') + '" href="' + symGradeHref(w.symbol) + '" title="' + escapeHtml(symOpenLabel(w.symbol || '')) + '">' + escapeHtml(w.symbol || '') + '</a>' +
           (tierMeta ? ' <em class="ivt-trow-tier" title="' + (w.provisional ? 'Provisional: fewer than 60 comparable IV sessions' : '') + '">' + tierMeta.label + (w.provisional ? '*' : '') + '</em>' : '') +
           (w.band && w.band !== 'normal' ? ' ' + ivBandPillHtml(w.band) : (!tierMeta && w.elevated ? ' ' + ivBandPillHtml('rich') : '')) + '</span>' +
         '<span class="ivt-trow-num">' + ivtIvPct(w.iv) + '</span>' +
@@ -26593,7 +26593,7 @@ ${renderExportBindings()}
     return '<article class="stk-card' + (row.clean ? ' stk-card-clean' : '') + '">' +
       '<header class="stk-head">' +
         '<div class="stk-head-id">' +
-          '<a class="stk-sym" data-sym="' + escapeHtml(row.symbol) + '" href="' + symGradeHref(row.symbol) + '" title="Open ' + escapeHtml(row.symbol) + ' in the Grade tab">' + escapeHtml(row.symbol) + '<span class="stk-sym-go" aria-hidden="true">↗</span></a>' + name + sector +
+          '<a class="stk-sym" data-sym="' + escapeHtml(row.symbol) + '" href="' + symGradeHref(row.symbol) + '" title="' + escapeHtml(symOpenLabel(row.symbol)) + '">' + escapeHtml(row.symbol) + '<span class="stk-sym-go" aria-hidden="true">↗</span></a>' + name + sector +
         '</div>' +
         '<div class="stk-head-badges">' + zone + scoreBadge + crossDeskChip(row.symbol, 'call') + '</div>' +
       '</header>' +
@@ -26658,7 +26658,7 @@ ${renderExportBindings()}
     var stale = ix.stale ? '<span class="stk-dca-stale" title="Bars fetch missed this build — showing the last good read">stale</span>' : '';
     return '<article class="stk-dca-card ' + tierCls + '">' +
       '<header class="stk-dca-head">' +
-        '<div class="stk-dca-id"><a class="stk-dca-sym" data-sym="' + escapeHtml(ix.symbol) + '" href="' + symGradeHref(ix.symbol) + '" title="Open ' + escapeHtml(ix.symbol) + ' in the Grade tab">' + escapeHtml(ix.symbol) + '</a>' +
+        '<div class="stk-dca-id"><a class="stk-dca-sym" data-sym="' + escapeHtml(ix.symbol) + '" href="' + symGradeHref(ix.symbol) + '" title="' + escapeHtml(symOpenLabel(ix.symbol)) + '">' + escapeHtml(ix.symbol) + '</a>' +
           (ix.label ? '<span class="stk-dca-name">' + escapeHtml(ix.label) + '</span>' : '') + stale + '</div>' +
         '<div class="stk-dca-px">' + fmtMoney(ix.price) + chHtml + '</div>' +
       '</header>' +
@@ -29130,7 +29130,7 @@ ${renderExportBindings()}
     return '<div class="brief-chips">' + (list || []).map(function(m){
       var inner = briefEsc(m.label || m.sym) + ' <span>' + briefEsc(briefFmtPct(m.chPct)) + '</span>';
       var cls = 'brief-chip ' + briefPctCls(m.chPct);
-      if (m.sym && /^[A-Z]{1,5}$/.test(m.sym)) return '<a class="' + cls + '" data-sym="' + briefEsc(m.sym) + '" href="' + symGradeHref(m.sym) + '" title="Open ' + briefEsc(m.sym) + ' in the Grade tab">' + inner + '</a>';
+      if (m.sym && /^[A-Z]{1,5}$/.test(m.sym)) return '<a class="' + cls + '" data-sym="' + briefEsc(m.sym) + '" href="' + symGradeHref(m.sym) + '" title="' + briefEsc(symOpenLabel(m.sym)) + '">' + inner + '</a>';
       return '<span class="' + cls + ' info">' + inner + '</span>';
     }).join('') + '</div>';
   }
@@ -29523,6 +29523,12 @@ ${renderExportBindings()}
   function symGradeHref(sym){
     if (!HAS_OWNER_ACCESS) return STOCK_PAGE.href(sym);
     return '?s=' + encodeURIComponent(String(sym || '').toUpperCase());
+  }
+  // Hover text for those links. A public visitor lands on the stock page (the
+  // Grade tab is Owner-only), so only an Owner is told "Grade tab".
+  function symOpenLabel(sym){
+    var s = String(sym || '');
+    return HAS_OWNER_ACCESS ? 'Open ' + s + ' in the Grade tab' : 'Open the ' + s + ' stock page';
   }
   // Shared ticker-link binder: any anchor carrying a data-sym jumps to the
   // Grade tab with that ticker loaded (Brief chips, Track Record symbols,
@@ -31082,6 +31088,13 @@ ${renderExportBindings()}
     if (days <= 27){ var w = Math.round(days / 7); return 'In ' + w + ' week' + (w === 1 ? '' : 's'); }
     return '';
   }
+  // The overview cards' countdown. Unlike the day-row tag, it never goes blank:
+  // the next FOMC meeting is often more than four weeks away (Dec 9 from
+  // Nov 8), and the card's whole job is to say how long until it.
+  function calCountdownLabel(days){
+    if (days == null) return '';
+    return calRelativeLabel(days) || ('In ' + days + ' days');
+  }
   // ET-today as 'YYYY-MM-DD' (derived from the UTC-midnight ET-today ms) — used
   // to highlight today's cell and pick a sensible default selection.
   function calEtTodayYmd(){
@@ -31195,7 +31208,7 @@ ${renderExportBindings()}
   function calChipSymBtn(sym){
     var s = String(sym || '');
     if (!s) return '';
-    return '<a class="cal-chip-sym cal-chip-sym-btn" data-cal-sym="' + escapeHtml(s) + '" href="' + symGradeHref(s) + '" title="Open ' + escapeHtml(s) + ' in the Grade tab">' + escapeHtml(s) + '</a>';
+    return '<a class="cal-chip-sym cal-chip-sym-btn" data-cal-sym="' + escapeHtml(s) + '" href="' + symGradeHref(s) + '" title="' + escapeHtml(symOpenLabel(s)) + '">' + escapeHtml(s) + '</a>';
   }
   // Map an event to the public filter enum so the briefing's action stays in
   // sync with the filter pills that drive the month grid.
@@ -31385,7 +31398,7 @@ ${renderExportBindings()}
       var outcome = probs ? calFomcOutcome(probs.now) : null;
       cards.push({
         kind: 'fomc', iconType: 'fomc', label: 'Next FOMC',
-        value: nextMeetingDays === 0 ? 'Today' : calRelativeLabel(nextMeetingDays),
+        value: calCountdownLabel(nextMeetingDays),
         sub: nextMeeting.label + (outcome ? ' · ' + outcome : ''),
         go: 'bonds-usd',
         scrollTo: 'fomc-widget'
@@ -31403,7 +31416,7 @@ ${renderExportBindings()}
     if (nextReport){
       cards.push({
         kind: 'report', iconType: 'report', label: 'Next data',
-        value: nextReportDays === 0 ? 'Today' : calRelativeLabel(nextReportDays),
+        value: calCountdownLabel(nextReportDays),
         sub: nextReport.title || 'Economic release'
       });
     }
@@ -31424,7 +31437,7 @@ ${renderExportBindings()}
         }
       });
       cards.push({
-        kind: 'earnings', iconType: 'earnings', label: 'Earnings this week',
+        kind: 'earnings', iconType: 'earnings', label: 'Earnings, next 7 days',
         value: String(earn.length),
         sub: top ? (top.symbol + ' ±' + (top.impliedMovePct * 100).toFixed(1) + '% biggest') : ('across ' + earn.length + ' name' + (earn.length === 1 ? '' : 's')),
         // Jump to the month grid filtered to earnings (not the top name's
@@ -31444,7 +31457,7 @@ ${renderExportBindings()}
     if (nextCat){
       cards.push({
         kind: 'catalyst', iconType: 'catalyst', label: 'Next catalyst',
-        value: nextCatDays === 0 ? 'Today' : calRelativeLabel(nextCatDays),
+        value: calCountdownLabel(nextCatDays),
         sub: (nextCat.symbol ? nextCat.symbol + ' · ' : '') + (nextCat.title || 'Catalyst'),
         // Stay on the calendar (like the earnings card): filter the month grid
         // to catalysts and jump to the event's day, instead of leaving for the
@@ -31548,6 +31561,7 @@ ${renderExportBindings()}
         src +
       '</div>' +
       grid +
+      (e.note ? '<p class="cal-report-note">' + escapeHtml(e.note) + '</p>' : '') +
       pmLine +
     '</div>';
   }
@@ -31709,7 +31723,7 @@ ${renderExportBindings()}
     var el = ensureReportModal();
     el.querySelector('.cal-rc-title').textContent = e.title || 'Economic report';
     el.querySelector('.cal-rc-date').textContent = reportDateLabel(e.date);
-    el.querySelector('.cal-rc-summary').textContent = reportSummaryText(e, hist);
+    el.querySelector('.cal-rc-summary').textContent = reportSummaryText(e, hist) + (e.note ? ' ' + e.note : '');
     var chart = (hist && hist.points && hist.points.length >= 2) ? reportBarChartSvg(hist.points, hist.unit, hist.signed) : '';
     el.querySelector('.cal-rc-chart').innerHTML = chart || '<div class="cal-rc-nochart">No historical series is available for this report yet.</div>';
     var fc = function(l, v){ return (v == null || v === '') ? '' : '<div class="cal-rc-fig"><span class="cal-rc-fig-l">' + escapeHtml(l) + '</span><span class="cal-rc-fig-v">' + escapeHtml(String(v)) + '</span></div>'; };
@@ -33724,7 +33738,7 @@ ${renderExportBindings()}
     function f13TickerHtml(row){
       var tk = tickerOrFallback(row);
       return (tk && SYMBOLS.indexOf(tk) !== -1)
-        ? '<a class="f13-sym" data-sym="' + escapeHtml(tk) + '" href="' + symGradeHref(tk) + '" title="Open ' + escapeHtml(tk) + ' in the Grade tab">' + escapeHtml(tk) + '</a>'
+        ? '<a class="f13-sym" data-sym="' + escapeHtml(tk) + '" href="' + symGradeHref(tk) + '" title="' + escapeHtml(symOpenLabel(tk)) + '">' + escapeHtml(tk) + '</a>'
         : '<span>' + escapeHtml(tk) + '</span>';
     }
     // Decision-first preview: show the broadest cross-manager accumulation
@@ -45910,8 +45924,12 @@ ${renderExportBindings()}
         '<span class="bonds-live-value">' + inf.yoy.toFixed(1) + '%</span>' +
         deltaLine +
         '<div class="bonds-live-band-row"><span class="bonds-live-band band-' + band.key + '">' + escapeHtml(band.label) + '</span></div>' +
-        '<span class="bonds-live-prev" title="Monthly BLS print (FRED fallback) — the reference month of the latest reading">' +
+        '<span class="bonds-live-prev" title="' + escapeHtml(inf.gapNote || 'Monthly BLS print (FRED fallback) — the reference month of the latest reading') + '">' +
           escapeHtml(inf.refMonth || '') + ' print · monthly</span>' +
+        // BLS published no 12-month change for the newest month (October 2026:
+        // October 2025 was never collected), so the tile keeps the latest month
+        // that has one and says why.
+        (inf.gapNote ? '<span class="bonds-live-prev">' + escapeHtml(inf.gapNote) + '</span>' : '') +
       '</div>';
     }
     function unemploymentTile(){

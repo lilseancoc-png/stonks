@@ -4057,47 +4057,124 @@ async function fetchMacroBackdrop() {
 // Monthly data — refetched every bake but only changes ~once a month, and a
 // failed leg stays null (graceful: tile hidden, axis reads "no data").
 //
-//   inflation:    { yoy, prevYoy, yoy3mAgo, refMonth, trend } — headline CPI
-//                 YoY off the NSA index (BLS CUUR0000SA0 / FRED CPIAUCNS, the
-//                 same series the calendar's "CPI YoY" row reads).
+//   inflation:    { yoy, prevYoy, yoy3mAgo, refMonth, trend, latestMonth?,
+//                 gapNote? } — headline CPI YoY off the NSA index (BLS
+//                 CUUR0000SA0 / FRED CPIAUCNS, the same series the calendar's
+//                 "CPI YoY" row reads). See cpiInflationRead.
 //   unemployment: { rate, prior, refMonth, sahm, trend } — U-3 rate (BLS
 //                 LNS14000000 / FRED UNRATE). `sahm` is the Sahm-rule read:
 //                 3-month average minus its low over the prior 12 months
 //                 (≥0.5pp is the classic recession-onset signal).
+
+// "2026-10" → "Oct 2026" for the CPI gap notes.
+function ymShortLabel(ym) {
+  const m = /^(\d{4})-(\d{2})/.exec(String(ym || ""));
+  if (!m) return String(ym || "");
+  const names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${names[Number(m[2]) - 1] || m[2]} ${m[1]}`;
+}
+
+// Headline CPI YoY read from an oldest-first monthly index series. Pure;
+// exported for offline testing.
+//
+// For most CPI series BLS never published an October 2025 index (the 2025
+// lapse in appropriations stopped collection), so it publishes no 12-month
+// change for October 2026 either. When the newest month has no year-ago index,
+// the read falls back to the newest month that has one (at most two months
+// back), keeps that month as refMonth, and names the month it skipped in
+// `gapNote`. Without the fallback the whole CPI read (the Rates tile and the
+// market tape's inflation input) would vanish for a month.
+export function cpiInflationRead(cpi) {
+  if (!Array.isArray(cpi) || !cpi.length) return null;
+  const round1 = (v) => (Number.isFinite(v) ? Math.round(v * 10) / 10 : null);
+  const yoyAt = (idx) => {
+    const cur = cpi[idx], prior = yearAgoObs(cpi, idx);
+    return cur && Number.isFinite(cur.value) && prior && Number.isFinite(prior.value) && prior.value !== 0
+      ? ((cur.value - prior.value) / prior.value) * 100
+      : null;
+  };
+  const newest = cpi.length - 1;
+  let i = newest;
+  for (let back = 1; back <= 2 && i >= 0 && yoyAt(i) == null; back++) i = monthsAgoIdx(cpi, newest, back);
+  if (i < 0) return null;
+  const yoy = yoyAt(i);
+  if (yoy == null) return null;
+  // prevYoy / yoy3mAgo anchor the prior-month and 3-months-ago YoY BY DATE
+  // (not the positional i-1 / i-3) so a single missing monthly CPI
+  // observation can't slip the trend's "previous" to the wrong month —
+  // matters because yoy3mAgo feeds the PICKS_MACRO_INFLATION regime axis.
+  const prevIdx = monthsAgoIdx(cpi, i, 1);
+  const yoy3mIdx = monthsAgoIdx(cpi, i, 3);
+  const prevYoy = prevIdx >= 0 ? yoyAt(prevIdx) : null;
+  const yoy3mAgo = yoy3mIdx >= 0 ? yoyAt(yoy3mIdx) : null;
+  const out = {
+    yoy: round1(yoy),
+    prevYoy: round1(prevYoy),
+    yoy3mAgo: round1(yoy3mAgo),
+    refMonth: cpi[i].date.slice(0, 7),
+    trend: prevYoy == null ? "flat"
+      : yoy - prevYoy >= 0.1 ? "rising"
+      : yoy - prevYoy <= -0.1 ? "falling"
+      : "flat",
+  };
+  if (i !== newest) {
+    const latest = cpi[newest].date.slice(0, 7);
+    const yearAgo = `${Number(latest.slice(0, 4)) - 1}${latest.slice(4, 7)}`;
+    out.latestMonth = latest;
+    out.gapNote = `No 12-month change for ${ymShortLabel(latest)}: the ${ymShortLabel(yearAgo)} index was never published.`;
+  }
+  return out;
+}
+
+// U-3 unemployment read with the Sahm rule from an oldest-first monthly series.
+// Pure; exported for offline testing. Every lookback is BY DATE: the household
+// survey was not collected for October 2025, so a positional ue[idx-1] or a
+// 12-position window would average across that gap and reach 13 months back.
+// A 3-month average needs all three calendar months.
+export function unemploymentRead(ue) {
+  if (!Array.isArray(ue) || !ue.length) return null;
+  const round1 = (v) => (Number.isFinite(v) ? Math.round(v * 10) / 10 : null);
+  const j = ue.length - 1;
+  if (!Number.isFinite(ue[j]?.value)) return null;
+  const avg3 = (idx) => {
+    if (idx < 0) return null;
+    const k1 = monthsAgoIdx(ue, idx, 1), k2 = monthsAgoIdx(ue, idx, 2);
+    if (k1 < 0 || k2 < 0) return null;
+    const a = ue[idx].value, b = ue[k1].value, c = ue[k2].value;
+    return Number.isFinite(a) && Number.isFinite(b) && Number.isFinite(c) ? (a + b + c) / 3 : null;
+  };
+  const cur3 = avg3(j);
+  let low3 = null;
+  for (let m = 1; m <= 12; m++) {
+    const v = avg3(monthsAgoIdx(ue, j, m));
+    if (v != null && (low3 == null || v < low3)) low3 = v;
+  }
+  const sahm = cur3 != null && low3 != null ? Math.round((cur3 - low3) * 100) / 100 : null;
+  // Prior month BY DATE (not ue[j-1]) so a missing observation can't make
+  // the trend read against two months back — same fix as the CPI YoY anchor.
+  const priorObs = prevMonthObs(ue, j);
+  const prior = priorObs && Number.isFinite(priorObs.value) ? round1(priorObs.value) : null;
+  const rate = round1(ue[j].value);
+  return {
+    rate,
+    prior,
+    refMonth: ue[j].date.slice(0, 7),
+    sahm,
+    trend: prior == null ? "flat"
+      : rate - prior >= 0.1 ? "rising"
+      : rate - prior <= -0.1 ? "falling"
+      : "flat",
+  };
+}
+
 async function fetchInflationLabor() {
   const out = { inflation: null, unemployment: null };
-  const round1 = (v) => (Number.isFinite(v) ? Math.round(v * 10) / 10 : null);
   try {
     let cpi = await fetchBlsSeries("CUUR0000SA0");
     if (!cpi.length) cpi = await fetchFredSeries("CPIAUCNS");
-    const yoyAt = (idx) => {
-      const cur = cpi[idx], prior = yearAgoObs(cpi, idx);
-      return cur && prior && Number.isFinite(prior.value) && prior.value !== 0
-        ? ((cur.value - prior.value) / prior.value) * 100
-        : null;
-    };
-    const i = cpi.length - 1;
-    const yoy = yoyAt(i);
-    if (yoy != null) {
-      // prevYoy / yoy3mAgo anchor the prior-month and 3-months-ago YoY BY DATE
-      // (not the positional i-1 / i-3) so a single missing monthly CPI
-      // observation can't slip the trend's "previous" to the wrong month —
-      // matters because yoy3mAgo feeds the PICKS_MACRO_INFLATION regime axis.
-      const prevIdx = monthsAgoIdx(cpi, i, 1);
-      const yoy3mIdx = monthsAgoIdx(cpi, i, 3);
-      const prevYoy = prevIdx >= 0 ? yoyAt(prevIdx) : null;
-      const yoy3mAgo = yoy3mIdx >= 0 ? yoyAt(yoy3mIdx) : null;
-      out.inflation = {
-        yoy: round1(yoy),
-        prevYoy: round1(prevYoy),
-        yoy3mAgo: round1(yoy3mAgo),
-        refMonth: cpi[i].date.slice(0, 7),
-        trend: prevYoy == null ? "flat"
-          : yoy - prevYoy >= 0.1 ? "rising"
-          : yoy - prevYoy <= -0.1 ? "falling"
-          : "flat",
-      };
-      console.log(`Macro CPI YoY (${out.inflation.refMonth}): ${out.inflation.yoy}%${out.inflation.prevYoy != null ? ` · prior ${out.inflation.prevYoy}% (${out.inflation.trend})` : ""}`);
+    out.inflation = cpiInflationRead(cpi);
+    if (out.inflation) {
+      console.log(`Macro CPI YoY (${out.inflation.refMonth}): ${out.inflation.yoy}%${out.inflation.prevYoy != null ? ` · prior ${out.inflation.prevYoy}% (${out.inflation.trend})` : ""}${out.inflation.gapNote ? ` · ${out.inflation.gapNote}` : ""}`);
     } else {
       console.warn("Macro CPI: no usable series (BLS + FRED both empty/short)");
     }
@@ -4107,35 +4184,9 @@ async function fetchInflationLabor() {
   try {
     let ue = await fetchBlsSeries("LNS14000000");
     if (!ue.length) ue = await fetchFredSeries("UNRATE");
-    const j = ue.length - 1;
-    if (j >= 0 && Number.isFinite(ue[j].value)) {
-      const avg3 = (idx) => {
-        if (idx < 2) return null;
-        const a = ue[idx].value, b = ue[idx - 1].value, c = ue[idx - 2].value;
-        return Number.isFinite(a) && Number.isFinite(b) && Number.isFinite(c) ? (a + b + c) / 3 : null;
-      };
-      const cur3 = avg3(j);
-      let low3 = null;
-      for (let k = j - 1; k >= Math.max(2, j - 12); k--) {
-        const v = avg3(k);
-        if (v != null && (low3 == null || v < low3)) low3 = v;
-      }
-      const sahm = cur3 != null && low3 != null ? Math.round((cur3 - low3) * 100) / 100 : null;
-      // Prior month BY DATE (not ue[j-1]) so a missing observation can't make
-      // the trend read against two months back — same fix as the CPI YoY anchor.
-      const priorObs = prevMonthObs(ue, j);
-      const prior = priorObs && Number.isFinite(priorObs.value) ? round1(priorObs.value) : null;
-      const rate = round1(ue[j].value);
-      out.unemployment = {
-        rate,
-        prior,
-        refMonth: ue[j].date.slice(0, 7),
-        sahm,
-        trend: prior == null ? "flat"
-          : rate - prior >= 0.1 ? "rising"
-          : rate - prior <= -0.1 ? "falling"
-          : "flat",
-      };
+    out.unemployment = unemploymentRead(ue);
+    if (out.unemployment) {
+      const { rate, prior, sahm } = out.unemployment;
       console.log(`Macro unemployment (${out.unemployment.refMonth}): ${rate}%${prior != null ? ` · prior ${prior}%` : ""}${sahm != null ? ` · Sahm ${sahm >= 0 ? "+" : ""}${sahm}pp` : ""}`);
     } else {
       console.warn("Macro unemployment: no usable series (BLS + FRED both empty)");
@@ -15717,6 +15768,23 @@ export function seriesIdxForReferenceMonth(series, releaseDateStr) {
   return -1;
 }
 
+// A YoY release whose year-ago month is missing INSIDE the series (not a
+// series that simply starts later) has no 12-month change at all: BLS never
+// published October 2025 for most CPI series, so the October 2026 CPI YoY rows
+// stay empty. Returns a short note for the calendar row, else null.
+export function econYoyGapNote(series, releaseDateStr) {
+  if (!Array.isArray(series) || !series.length) return null;
+  const m = /^(\d{4})-(\d{2})-\d{2}$/.exec(String(releaseDateStr || ""));
+  if (!m) return null;
+  const ref = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 2, 1));
+  const refYM = `${ref.getUTCFullYear()}-${String(ref.getUTCMonth() + 1).padStart(2, "0")}`;
+  const yearAgo = `${ref.getUTCFullYear() - 1}-${String(ref.getUTCMonth() + 1).padStart(2, "0")}`;
+  const months = series.map((o) => String(o?.date || "").slice(0, 7)).filter(Boolean);
+  if (!months.length || months.includes(yearAgo)) return null;
+  if (!(months[0] < yearAgo && months[months.length - 1] > yearAgo)) return null;
+  return `No 12-month change for ${ymShortLabel(refYM)}: the ${ymShortLabel(yearAgo)} index was never published.`;
+}
+
 // Format a release value for display, given the format key from the
 // ECON_REPORTS table and a reference into the time series (newest-last).
 // Returns null when we don't have enough history to compute the metric.
@@ -15911,6 +15979,7 @@ export async function fetchMacroReleases(startMs, cutoffMs, asOfMs = Date.now())
         previousIdx = prevObs ? series.indexOf(prevObs) : -1;
       }
       const fredPrevious = previousIdx >= 0 ? formatEconValue(report.format, series, previousIdx) : null;
+      const gapNote = report.format === "yoy" ? econYoyGapNote(series, dateStr) : null;
       // Pull whatever ForexFactory has for this exact (subtype, date).
       // Date matching is exact — FF's dates align with the BLS/BEA release
       // dates we computed from cadence rules.
@@ -15935,6 +16004,8 @@ export async function fetchMacroReleases(startMs, cutoffMs, asOfMs = Date.now())
         // mirror) monthly observation.
         actual: ffActual || fredActual,
         previous: ffPrevious || fredPrevious,
+        // Only while no actual exists: a later ForexFactory figure wins.
+        ...(gapNote && !(ffActual || fredActual) ? { note: gapNote } : {}),
         consensus,
         // Forecast is reserved for a forward-looking estimate distinct
         // from consensus; treat ff.forecast as both for now, since FF

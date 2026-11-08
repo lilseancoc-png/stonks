@@ -43,6 +43,10 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Options walls drops an expiration once it settles at 16:00 ET, the same test the server-side gamma read uses; it had kept the settled 0DTE chain in the walls and gamma flip until about 04:00 ET.
 - The Brief's closing heatmap standout states the cap-weighted move once instead of twice.
 - Options walls' "Heavy call OI" reason names the heaviest qualifying strike, so it matches the call wall more often.
+- October 2026 CPI (out Tue Nov 10) has no 12-month change, because BLS never published an October 2025 index after the shutdown. The Rates inflation tile and the market tape's inflation input now keep the newest month that has one (September) and say why, instead of dropping the whole read; the Calendar's CPI year-over-year rows say the figure is missing and why.
+- The unemployment Sahm read lines its three-month averages up by date, so the missing October 2025 jobs-survey month no longer pulls an older month into the average.
+- Calendar: the "Next FOMC" and "Next report" cards count down past four weeks ("In 31 days") instead of going blank, and the earnings card reads "Earnings, next 7 days".
+- Stock links' hover text tells public visitors they open the stock page; only Owners are told about the Grade tab.
 
 ### Docs
 
