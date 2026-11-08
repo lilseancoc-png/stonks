@@ -953,7 +953,7 @@ function pendingBuyoutsSection() {
       <h2 class="card-title">Pending buyouts</h2>
       <span class="card-eyebrow" id="pending-buyouts-eyebrow" aria-live="polite"></span>
     </header>
-    ${infoNote('How to use the buyout tracker', `<p>The evidence ladder is <b>Rumor &rarr; Reported talks &rarr; Definitive agreement &rarr; Regulatory / vote pending &rarr; Expected close</b>. These are public-source labels, not hard completion probabilities. For cash deals, consideration per share is the stated offer; stock and mixed consideration can move with the buyer&rsquo;s shares. Premium to the unaffected price is shown only when a cited source states it. <b>Estimated equity value</b> is consideration per share multiplied by current implied shares outstanding&mdash;an estimate, not enterprise value. Rumors keep undisclosed price, premium, spread, and close fields blank. A wide deal spread can reflect regulatory, financing, timing, or break risk&mdash;never assume it is free money.</p>`)}
+    ${infoNote('How to use the buyout tracker', `<p>The evidence ladder is <b>Rumor &rarr; Reported talks &rarr; Definitive agreement &rarr; Regulatory / vote pending &rarr; Expected close</b>. These are public-source labels, not hard completion probabilities. For cash deals, consideration per share is the stated offer; stock and mixed consideration can move with the buyer&rsquo;s shares. Premium to the unaffected price is shown only when a cited source states it. <b>Estimated equity value</b> is consideration per share multiplied by current implied shares outstanding&mdash;an estimate, not enterprise value. Rumors keep undisclosed price, premium, spread, and close fields blank. A wide deal spread can reflect regulatory, financing, timing, or break risk&mdash;never assume it is free money. A price shown without a currency sign is in the target&rsquo;s home-market currency (most listings outside the US).</p>`)}
     <div class="pb-summary" id="pending-buyouts-summary" aria-live="polite"></div>
     <div class="pb-controls" role="toolbar" aria-label="Filter pending buyouts">
       <label class="pb-search"><span class="sr-only">Search buyouts</span><input id="pending-buyouts-search" type="search" placeholder="Target, ticker, or buyer&hellip;" autocomplete="off" spellcheck="false" /></label>
@@ -1084,7 +1084,7 @@ function refreshDayTimelineHtml() {
   return `<figure class="rdt" aria-label="Scheduled refresh times on a trading day, Eastern Time">
       <div class="rdt-row rdt-axis"><span class="rdt-label"></span><span class="rdt-track"><span class="rdt-session" style="left:${pct(9.5)};width:calc(${pct(16)} - ${pct(9.5)})"></span>${ticks.join('')}</span></div>
       ${rows}
-      <figcaption>Each dot is a scheduled start, Eastern Time. The shaded band is the regular session (9:30 a.m. to 4:00 p.m.). Hover a dot for its time.</figcaption>
+      <figcaption>Each dot is a scheduled start, Eastern Time. The shaded band is the regular session (9:30 a.m. to 4:00 p.m.). Hover a dot for its time. On a weekday market holiday only the two earnings-call runs go ahead; on a 1:00 p.m. early close there is no 15:30 Top Picks run.</figcaption>
     </figure>`;
 }
 

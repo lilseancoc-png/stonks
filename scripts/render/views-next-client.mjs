@@ -60,6 +60,9 @@ export function renderViewsNextJs() {
   function vnWhen(iso){
     var t = Date.parse(iso);
     if (!isFinite(t)) return '';
+    // Build and Brief times follow the header's time-zone setting, like every
+    // other build stamp; formatDisplayInstant adds the zone name.
+    if (typeof formatDisplayInstant === 'function') return formatDisplayInstant(new Date(t), { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
     try { return new Date(t).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' }) + ' ET'; } catch (_) { return ''; }
   }
   function vnHref(sym){ return typeof STOCK_PAGE !== 'undefined' && STOCK_PAGE.href ? STOCK_PAGE.href(sym) : '?tab=stock&s=' + encodeURIComponent(sym); }
