@@ -1219,6 +1219,19 @@ ${scenarioEventPhase.toString()}
     var label = REFRESH_SCHEDULE.nextLabel(job, { dateKey: et.dateKey, minutes: Math.round(et.hour * 60) }, MARKET_HOLIDAYS, MARKET_HALF_DAYS);
     return label ? ' <span class="freshness-detail freshness-next">· next update ' + escapeHtml(label) + '</span>' : '';
   }
+  // Trading sessions whose builds should have landed since the build at iso.
+  // Today counts only from noon ET (the 10:00 build plus its run time), so a
+  // Friday build read on Saturday, Sunday, a holiday or Monday morning has
+  // missed nothing. Null when it cannot tell (the hour rule then applies).
+  // QC of builds #1-#22: the 36-hour "Stale data" warning fired every
+  // weekend from Saturday 04:10 ET until Monday's first build.
+  function freshnessMissedSessions(iso){
+    var gap = marketSessionGap(iso);
+    if (gap == null) return null;
+    var et = etNowParts();
+    if (et && gap > 0 && et.hour < 12 && isMarketSessionDay(new Date(et.dateKey + 'T12:00:00Z'))) gap -= 1;
+    return Math.max(0, gap);
+  }
   function renderFreshness(activeTab){
     if (activeTab) freshnessActiveTab = activeTab;
     else activeTab = freshnessActiveTab;
@@ -1244,10 +1257,12 @@ ${scenarioEventPhase.toString()}
         ' <span class="freshness-detail">· ' + override.label + '</span>' + (override.weekly ? '' : freshnessNextHtml(activeTab));
       return;
     }
-    if (ageH > 24*7) {
+    var missed = freshnessMissedSessions(iso);
+    var missedAny = missed == null || missed > 0;
+    if (ageH > 24*7 && missedAny) {
       banner.classList.add('bad');
       bannerText.innerHTML = 'Very stale — last updated ' + dateLabel + '. <span class="freshness-detail">Verify quotes on your broker before trading.</span>';
-    } else if (ageH > 36) {
+    } else if (ageH > 36 && missedAny) {
       banner.classList.add('warn');
       bannerText.innerHTML = 'Stale data — last updated ' + dateLabel + '. <span class="freshness-detail">Verify quotes on your broker before trading.</span>' + freshnessNextHtml(activeTab);
     } else {
