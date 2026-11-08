@@ -2045,14 +2045,23 @@ ${scenarioEventPhase.toString()}
   // Session-aware earnings anchor: the moment the print's IV crush is REALIZED.
   // A date-only ISO at midnight UTC is the prior evening ET, and the old 16:00Z
   // is noon ET in summer — both cleared the crush warning hours before a PM
-  // print actually landed. AM (pre-open) prints crush at the open → 14:30Z;
-  // PM/unknown at the close → 21:00Z (both deliberately a touch late; mirrors
-  // build.mjs::earningsAnchorMs — change one, change the other).
+  // print actually landed. AM (pre-open) prints crush at the 09:30 ET open
+  // (13:30Z in summer, 14:30Z in winter); PM/unknown at the close → 21:00Z
+  // (a touch late; mirrors build.mjs::earningsAnchorMs — change one, change
+  // the other).
   function earningsAnchorMsLive(iso, session){
     if (!iso) return null;
     var s = String(iso);
     if (s.length > 10){ var tf = Date.parse(s); return isFinite(tf) ? tf : null; }
-    var t = Date.parse(s + (session === 'AM' ? 'T14:30:00Z' : 'T21:00:00Z'));
+    if (session === 'AM'){
+      var a = Date.parse(s + 'T13:30:00Z');
+      if (!isFinite(a)) return null;
+      try {
+        if (new Intl.DateTimeFormat('en-US', { timeZone:'America/New_York', hour:'2-digit', minute:'2-digit', hourCycle:'h23' }).format(a) === '09:30') return a;
+      } catch (_) {}
+      return a + 3600000;
+    }
+    var t = Date.parse(s + 'T21:00:00Z');
     return isFinite(t) ? t : null;
   }
   // Days-to-earnings context for the verdict card. Expected move is the

@@ -46,6 +46,7 @@ export async function readHistoricalSourceCache(dataDir) {
   catch { return { symbols: {}, context: {}, records: {} }; }
 }
 const RELEASE_REFRESH_DAYS = 7;
+const SHARED_RECHECK_HOURS = 3;
 export async function refreshHistoricalSourceCache({ previous = {}, builtAtIso = new Date().toISOString(), collectedAtIso = builtAtIso, loadMarket, loadContext, loadRelease, force = false, log = () => {}, budgetMs = 60000, clock = Date.now } = {}) {
   const symbols = {}, context = {}, releases = {}, records = { ...(previous.records || {}) }, today = collectedAtIso.slice(0, 10);
   const confirmedThrough = historicalTradingDate(completedCloseCutoff(collectedAtIso));
@@ -118,14 +119,23 @@ export async function refreshHistoricalSourceCache({ previous = {}, builtAtIso =
       log(`${key}: ${records[key].error || 'downloaded'}`);
     });
   }
-  // Shorter shared series (Bottom tracker credit spreads): same daily cadence,
-  // kept when the download has any rows; a failed day keeps the last good rows.
+  // Shorter shared series (Bottom tracker credit spreads, Top Picks macro
+  // context): same daily cadence, kept when the download has any rows; a
+  // failed day keeps the last good rows.
   // Queued ahead of the long downloads: the Bottom tracker's credit gate needs
   // them, and they must not be the jobs the time budget defers.
+  // FRED posts each day's spread the next morning, often after the first
+  // build of the day has checked. A series still behind the last completed
+  // session is checked again at most every SHARED_RECHECK_HOURS, so the
+  // Bottom tracker does not run a session behind Market analysis all day.
+  // Weekly, monthly and quarterly series are always behind the last session,
+  // so only daily series get the extra checks.
   const sharedJobs = [];
   for (const def of SHARED_FRED_EXTRA) {
     context[def.id] = { rows: cleanSourceRows(previous.context?.[def.id]?.rows || []) };
-    if (loadContext && (force || records[def.id]?.checkedAt?.slice(0, 10) !== today)) sharedJobs.push(async () => {
+    const lastRow = context[def.id].rows.at(-1)?.t || null, lastCheck = Date.parse(records[def.id]?.checkedAt || '');
+    const lagging = !!(def.frequency === 'daily' && lastRow && confirmedThrough && lastRow < confirmedThrough && Number.isFinite(lastCheck) && Date.parse(collectedAtIso) - lastCheck >= SHARED_RECHECK_HOURS * 3600000);
+    if (loadContext && (force || records[def.id]?.checkedAt?.slice(0, 10) !== today || lagging)) sharedJobs.push(async () => {
       const old = records[def.id]; records[def.id] = { ...old, checkedAt: collectedAtIso, error: null }; requests++;
       try {
         let rows = cleanSourceRows(await invoke(loadContext, def.id));
@@ -141,7 +151,7 @@ export async function refreshHistoricalSourceCache({ previous = {}, builtAtIso =
   // session; a failed attempt at that same target waits until the next UTC day.
   let cursor = 0;
   await Promise.all([0, 1].map(async () => { while (cursor < jobs.length && clock() - started < budgetMs) await jobs[cursor++](); }));
-  return { version: 2, builtAtIso, symbols, context, releases, records, cost: { providerFeeUsd: 0, requestsThisRun: requests, deferredSources: jobs.length - cursor, refreshBudgetMs: budgetMs, maxRequestsPerDay: 2 * MARKET_DEFS.length + HISTORICAL_CONTEXT.length + SHARED_FRED_EXTRA.length + HISTORICAL_RELEASES.length, newScheduledJobs: 0, aiCalls: 0 } };
+  return { version: 2, builtAtIso, symbols, context, releases, records, cost: { providerFeeUsd: 0, requestsThisRun: requests, deferredSources: jobs.length - cursor, refreshBudgetMs: budgetMs, maxRequestsPerDay: 2 * MARKET_DEFS.length + HISTORICAL_CONTEXT.length + SHARED_FRED_EXTRA.reduce((n, d) => n + (d.frequency === 'daily' ? 3 : 1), 0) + HISTORICAL_RELEASES.length, newScheduledJobs: 0, aiCalls: 0 } };
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const dataDir = fileURLToPath(new URL('../data/', import.meta.url));

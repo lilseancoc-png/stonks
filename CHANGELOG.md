@@ -54,6 +54,11 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Fixed
 
+- Bottom tracker: the valuation card reads SPY's trailing P/E (labeled) when Yahoo reports no forward P/E for the ETF, which it never does, so the card no longer says "Unavailable" every day. The high-yield and investment-grade spreads are checked again every three hours while they are behind the last completed session, so the tracker no longer runs a day behind Market analysis (3.32% vs 3.48% on Nov 5).
+- Historical Data checks: the effective fed funds rate (`DFF`) is published for every calendar day, so its weekend rows are no longer a "fail"; an old weekend date in FRED's CPI or jobs release calendar is a warning (the release study already skips it), and only one since 2000 fails. The check names the weekend dates it found.
+- Risk analysis scenarios: a jobs headline or "Unemployment Rate" row no longer reads as an inflation surprise or a Fed event. The calendar files every BLS release under one data-release type, and the scenario engine now matches the title instead.
+- Market analysis premarket leaders: "Soared" needs a day move of at least 2%; a +0.1% premarket gap that reached +0.6% (COST on Nov 6) now reads "Held".
+- The hot-fixes browser test matches the site again: the Owner sign-in check from #723, the Top Picks endpoint from #724, the Market value column, the grade chart's 170px height and the stock page's Grade tab. It also runs without a hydrated `data/` folder.
 - "Why no picks today" names the rule that really stopped a name when the AI review was skipped because nothing could open (waiting for an economic release, waiting for earnings, the score or losing-streak bar, a cap, no contract) instead of "No AI review slot". Release and earnings waits get their own labels in the Track Record's rule table too.
 - Overnight markets shows its gap call and session call again; the UI overhaul's styles had hidden them.
 - Opening Compare no longer pins its four starter companies to a tray at the bottom of every other page. The tray appears once you add or change names, and "+ Compare" on another page starts your own list.
@@ -74,6 +79,11 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - The Owner Market Brief stays readable over weekends and market holidays. Its age limits count open market days only, so the Friday 16:10 brief lasts until Monday's builds replace it, and its sources no longer turn "stale" on a Sunday. The brief is now built on market days only; a weekend or holiday build leaves the last one in place.
 - The fear map tags only upcoming earnings, What changed no longer colors a streak that ended on a flat close as a drop and writes "an 8-day", Past days leaves ETFs out of its stock map and labels a trade's P&L as "now" or "closed at", and percentiles read 1st / 2nd / 3rd / 82nd instead of "82th" (stock page, fear map and the VIX rank lines).
 - `npm run verify:risk-cost` runs again. Since the Top Picks settings moved to their own file on Nov 6, it pasted that file into the old build it compares against and stopped with a duplicate-import error on every branch.
+- Market holidays no longer run a full build. The Daily build router reads the NYSE holiday table (the one the Top Picks watchdog uses) and skips the build, Brief, Top Picks and Webull mirror on a weekday holiday (Labor Day ran the bakes and both Top Picks runs); the earnings-call transcript slots still run, and `force=true` still builds on purpose. The close-bake fallback no longer forces a holiday bake. On a 13:00 ET half day there is no 15:30 Top Picks run after the bell (#771).
+- AM earnings reports use the real 09:30 ET open as their print time in both seasons. In summer the old fixed time was 10:30 ET, so the 10:00 ET bake re-stamped the "going in" IV and implied move after the open, which made summer AM implied moves too small (AXP Oct 23: 1.7%) and the Earnings results "beat the implied move" count too high. A one-time pass drops those post-open stamps (only where the "pre" IV is no higher than the post-print IV) and rebuilds an estimate from the IV crush (#771).
+- The Calendar shows the stored pre-print implied move for a report that already came out, instead of the post-print straddle (MRNA's Nov 6 row read 1.3%) (#771).
+- Calendar market-odds chips on CPI and PPI rows show the most likely outcome of the busiest matching market, not its busiest bucket ("≤0.1% · 8%" on October CPI MoM) (#771).
+- Overnight markets no longer lists CSI 300 as "Closed overnight" every morning. The feed sends it as one bar with no prior close; that now reads "no prior close in the data feed" and raises no holiday event (#771).
 
 ### Removed
 

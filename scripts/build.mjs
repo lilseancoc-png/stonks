@@ -7056,6 +7056,8 @@ export async function updateEarningsEventsHistory(store, chains, ivHistoryMap) {
     const data = chains[sym];
     const entry = (store.tickers[sym] ||= { events: [] });
     if (!Array.isArray(entry.events)) entry.events = [];
+    const amFixed = repairSummerAmStamps(entry, todayIso);
+    if (amFixed) console.log(`    ${sym}: dropped ${amFixed} summer AM pre-print stamp(s) taken after the open`);
     let backfillBars = null;
     const deep = entry.deepBackfill !== EARNINGS_DEEP_BACKFILL_VERSION;
     if ((deep || earningsBackfillNeeded(entry, todayIso)) && entry.backfilledAt !== todayIso) {
@@ -7233,19 +7235,58 @@ export async function updateEarningsEventsHistory(store, chains, ivHistoryMap) {
 }
 
 // Session-aware epoch (ms) for an earnings print. A bare date string anchors to
-// the crush time: AM (pre-open) -> 14:30Z, PM/unknown (post-close) -> 21:00Z
-// (deliberately a touch late, no DST math, so defer/crush flags never clear
-// early). A full ISO timestamp is parsed as-is. null on missing/invalid input.
+// the crush time: AM (pre-open) -> the 09:30 ET open that day (13:30Z in
+// summer, 14:30Z in winter), PM/unknown (post-close) -> 21:00Z (deliberately a
+// touch late, so defer/crush flags never clear early). The AM anchor used to be
+// a fixed 14:30Z, which is 10:30 ET in summer: the 10:00 ET bake then counted
+// as "before the print" and re-stamped the pre-print straddle and IV from
+// post-print quotes, so summer AM reporters showed a crushed implied move.
+// A full ISO timestamp is parsed as-is. null on missing/invalid input.
 // Used by the earnings-history pipeline (attachEarningsHx + siblings).
-function earningsAnchorMs(earningsIso, session) {
+let _etHmFmt = null;
+export function etOpenAnchorMs(isoDate) {
+  if (!_etHmFmt) _etHmFmt = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+  for (const z of ["13:30:00Z", "14:30:00Z"]) {
+    const t = Date.parse(`${isoDate}T${z}`);
+    if (!Number.isFinite(t)) return null;
+    if (_etHmFmt.format(t) === "09:30") return t;
+  }
+  return Date.parse(`${isoDate}T14:30:00Z`);
+}
+export function earningsAnchorMs(earningsIso, session) {
   if (!earningsIso || typeof earningsIso !== "string") return null;
   if (earningsIso.length > 10) {
     const t = Date.parse(earningsIso);
     return Number.isFinite(t) ? t : null;
   }
-  const tod = session === "AM" ? "14:30:00Z" : "21:00:00Z";
-  const t = Date.parse(`${earningsIso}T${tod}`);
+  if (session === "AM") return etOpenAnchorMs(earningsIso);
+  const t = Date.parse(`${earningsIso}T21:00:00Z`);
   return Number.isFinite(t) ? t : null;
+}
+
+// One-time repair for summer (EDT) AM prints stamped under the old fixed
+// 14:30Z anchor: the 10:00 ET bake re-stamped ivPre / impliedMovePct after the
+// open. Evidence it happened: the "pre" IV is no higher than the post-print IV
+// (a real pre-print IV sits well above it). Those stamps are dropped; the
+// resolve pass then refills ivPre from the IV history and rebuilds an implied
+// move ESTIMATE from the crush (impliedMoveEstPct, shown as ~±). Only real
+// prints (EPS actual or a reaction) are touched, so the ghost prune is unchanged.
+export const EARNINGS_AM_STAMP_FIX_VERSION = 1;
+export function repairSummerAmStamps(entry, todayIso) {
+  if (!entry || entry.amStampFix === EARNINGS_AM_STAMP_FIX_VERSION) return 0;
+  let fixed = 0;
+  for (const ev of Array.isArray(entry.events) ? entry.events : []) {
+    if (!ev || ev.session !== "AM" || !ev.date || ev.date >= todayIso) continue;
+    if (ev.epsActual == null && ev.movePct == null) continue;
+    const open = etOpenAnchorMs(ev.date);
+    if (open == null || open !== Date.parse(`${ev.date}T13:30:00Z`)) continue; // winter: old anchor was right
+    const pre = Number(ev.ivPre), post = Number(ev.ivPost);
+    if (!(pre > 0) || !(post > 0) || pre > post * 1.05) continue;
+    delete ev.ivPre; delete ev.impliedMovePct; delete ev.impliedMoveEstPct;
+    fixed++;
+  }
+  entry.amStampFix = EARNINGS_AM_STAMP_FIX_VERSION;
+  return fixed;
 }
 
 // Attach the browser-facing slice onto each ticker (rides into data/<SYM>.json
@@ -9087,7 +9128,17 @@ export function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras)
       const fresh = sessionMap.get(sym + "|" + date);
       if (fresh) session = fresh;
     }
-    const implied = computeImpliedMoveForDate(data, date, session);
+    // Once the print has landed, the live straddle is the post-print one (the
+    // crush already happened), so a calendar row for a report that already
+    // came out shows the stored pre-print stamp instead, or nothing.
+    const printAnchor = earningsAnchorMs(date, session);
+    const printed = printAnchor != null && printAnchor <= Date.parse(builtAtIso);
+    const storedPre = printed
+      ? (Array.isArray(data?.earningsHx?.events) ? data.earningsHx.events : []).find((ev) => ev && ev.date === date)
+      : null;
+    const implied = printed
+      ? (Number.isFinite(storedPre?.impliedMovePct) ? { pct: storedPre.impliedMovePct } : null)
+      : computeImpliedMoveForDate(data, date, session);
     // Best-effort Polymarket "will they beat?" reading, matched at fetch time and
     // keyed by SYMBOL|date (same overlay object as the macro-report readings).
     // Absent for most names — Polymarket only lists earnings markets for a few
@@ -11920,6 +11971,7 @@ async function writeBottomTrackerFile({ chains, indexBars, fred, prior, builtAtI
     dollar,
     dgs10,
     forwardPe: chains?.SPY?.fundamentals?.forwardPE ?? null,
+    trailingPe: chains?.SPY?.fundamentals?.trailingPE ?? null,
     revisions,
     breadthBars,
     history: prior?.history,
@@ -16884,33 +16936,49 @@ async function fetchMacroPrediction(ev) {
   if (!matcher) return null;
   const events = await loadPolymarketEvents();
   if (!events.length) return null;
+  return pickMacroPrediction(ev, events);
+}
+
+// Choose the chip for one macro release. The busiest matching EVENT wins (by
+// total traded volume over its matched outcomes); inside it the chip shows the
+// MOST LIKELY outcome. Picking the busiest single bucket instead put long-shot
+// rows on the Calendar ("≤0.1% · 8%" on an October CPI MoM row whose likely
+// reading was 0.3%), and its max(p, 1−p) read as a confident crowd in the event
+// timing gate. Exported for the calendar smoke test.
+export function pickMacroPrediction(ev, events) {
+  const matcher = MACRO_PREDICTION_MATCHERS[ev?.subtype];
+  if (!matcher || !Array.isArray(events)) return null;
   const evMs = Date.parse(ev.date + "T00:00:00Z");
-  let best = null, bestVol = -1;
+  let best = null;
   for (const pe of events) {
     const title = String(pe.title || "").toLowerCase();
     if (!matcher.test(title)) continue;
     if (PM_FOREIGN_TITLE_RE.test(title)) continue;
     const endMs = Date.parse(pe.endDate || pe.end_date || "");
     if (Number.isFinite(endMs) && Math.abs(endMs - evMs) > 40 * 86400000) continue; // resolves near this release
+    let totalVol = 0, modal = null;
     for (const mk of (Array.isArray(pe.markets) ? pe.markets : [])) {
       if (!matchesMacroPrediction(ev, pe, mk)) continue;
       const yes = polymarketYesPrice(mk);
       if (yes == null) continue;
       const vol = PM_MARKET_VOL(mk);
-      if (vol > bestVol) {
-        best = {
+      totalVol += vol;
+      if (!modal || yes > modal.prob || (yes === modal.prob && vol > modal.vol)) {
+        modal = {
           platform: "Polymarket",
           label: mk.groupItemTitle || mk.question || pe.title || "",
           prob: yes,
           vol,
           url: pe.slug ? `https://polymarket.com/event/${pe.slug}` : "https://polymarket.com/economy",
         };
-        bestVol = vol;
       }
     }
+    if (modal && (!best || totalVol > best.totalVol)) best = { ...modal, totalVol };
   }
-  if (best) best.thin = pmIsThin(best.vol, PM_POLY_MIN_VOL);
-  return best;
+  if (!best) return null;
+  const { totalVol, ...chip } = best;
+  chip.thin = pmIsThin(chip.vol, PM_POLY_MIN_VOL);
+  return chip;
 }
 
 // --- Earnings "beat" prediction (Polymarket) --------------------------------

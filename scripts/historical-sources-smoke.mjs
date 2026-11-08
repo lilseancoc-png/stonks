@@ -30,7 +30,7 @@ let active=0,maxActive=0, downloads=0;
 const fakeLoad=async()=>{active++;maxActive=Math.max(maxActive,active);downloads++; await new Promise(r=>setTimeout(r,1));active--;return bars;};
 const cache=await refreshHistoricalSourceCache({builtAtIso:now,loadMarket:fakeLoad,loadContext:fakeLoad});
 assert.equal(downloads,50,'17 ETFs, 5 event-study markets, 20 study series, the 2 shared Bottom tracker spreads and the 6 Top Picks macro-context series'); assert(maxActive<=2); assert.equal(cache.cost.providerFeeUsd,0); assert.equal(cache.cost.aiCalls,0); assert.equal(cache.cost.newScheduledJobs,0);
-assert.equal(cache.version,2); assert.equal(cache.cost.maxRequestsPerDay,74);
+assert.equal(cache.version,2); assert.equal(cache.cost.maxRequestsPerDay,82,'the four daily shared series can be checked up to three times a day while behind; the weekly, monthly and quarterly ones once');
 { const cut=new Date(Date.parse(now)-5*365.25*86400000).toISOString().slice(0,10); assert(cache.context.T5YIE.rows.length>0 && cache.context.T5YIE.rows.every(r=>r.t>=cut),'macro-context series keep only the last five years'); assert(cache.context.BAMLH0A0HYM2.rows.some(r=>r.t<cut),'the Bottom tracker spreads keep their full download'); }
 assert(cache.context.BAMLH0A0HYM2.rows.length>0 && cache.context.BAMLC0A0CM.rows.length>0,'shared credit spreads are cached with the study series');
 assert(!buildSourceCoverage({symbols:cache.symbols,context:cache.context,records:cache.records,cutoff:'2026-10-24'}).context.some(s=>s.id==='BAMLH0A0HYM2'),'shared-only series stay out of Historical Data coverage');
@@ -38,6 +38,22 @@ const shortSpread=await refreshHistoricalSourceCache({builtAtIso:now,loadContext
 assert.equal(shortSpread.context.BAMLC0A0CM.rows.length,30,'a short shared series is kept; it is not held to the ten-year study rule');
 const keptSpread=await refreshHistoricalSourceCache({previous:cache,builtAtIso:'2026-10-25T22:00:00Z',loadContext:async()=>{throw new Error('offline');}});
 assert.deepEqual(keptSpread.context.BAMLH0A0HYM2.rows,cache.context.BAMLH0A0HYM2.rows,'a failed day keeps the last good spread rows');
+// A spread still behind the last completed session is checked again three
+// hours later the same day (FRED posts it the next morning); one that is
+// current, or checked less than three hours ago, is not.
+{
+  const morning='2026-10-26T14:00:00.000Z';
+  const records=Object.fromEntries(Object.entries(cache.records).map(([k,v])=>[k,{...v,checkedAt:morning}]));
+  const seeded={...cache,records,context:{...cache.context,BAMLH0A0HYM2:{rows:bars.slice(0,-3).map(b=>({t:b.t,v:b.c}))},ICSA:{rows:bars.slice(0,-3).map(b=>({t:b.t,v:b.c}))}}};
+  assert(seeded.context.BAMLH0A0HYM2.rows.at(-1).t<'2026-10-23','the seeded spread is behind Friday');
+  const loadedIds=[];
+  const load=async id=>{loadedIds.push(id);return bars;};
+  await refreshHistoricalSourceCache({previous:seeded,builtAtIso:'2026-10-26T15:00:00.000Z',loadContext:load});
+  assert.deepEqual(loadedIds,[],'no re-check within three hours');
+  const rechecked=await refreshHistoricalSourceCache({previous:seeded,builtAtIso:'2026-10-26T17:30:00.000Z',loadContext:load});
+  assert.deepEqual(loadedIds,['BAMLH0A0HYM2'],'only the lagging spread is checked again; a weekly series behind the session is not');
+  assert.equal(rechecked.context.BAMLH0A0HYM2.rows.at(-1).t,bars.at(-1).t);
+}
 const warmed=await refreshHistoricalSourceCache({previous:cache,builtAtIso:now,loadMarket:()=>{throw new Error('should not refetch');},loadContext:()=>{throw new Error('should not refetch');}});
 assert.equal(warmed.cost.requestsThisRun,0,'warm builds do not repeat same-day downloads');
 let tick=0;
@@ -84,3 +100,21 @@ for(const study of packed.indexes.SPY.studies) for(const key of ['20y','10y']) {
 }
 assert(JSON.stringify(packed).length<JSON.stringify(payload).length);
 console.log('Historical source checks passed: ten-year coverage, correct medians, immutable close confirmation, post-close refresh, fallback selection, free-only allowlist, concurrency/budgets, retained-source provenance and lossless payload packing.');
+
+// Data checks: DFF is a seven-day series, so weekend rows are not a date slip;
+// an old weekend release date is a warning the study already skips, a modern
+// one fails.
+{
+  const { buildQualityChecks } = await import('../lib/historical-quality.mjs');
+  const days = [];
+  for (let t = Date.parse('2026-09-01'); t <= Date.parse('2026-10-23'); t += 86400000) days.push(new Date(t).toISOString().slice(0, 10));
+  const q = buildQualityChecks({ context: { DFF: { rows: days.map(t => ({ t, v: 4.1 })) }, DGS2: { rows: days.map(t => ({ t, v: 3.9 })) } }, cutoff: '2026-10-23',
+    releases: { cpi: { dates: ['1953-05-23', '1990-01-17', '2026-10-14'] }, jobs: { dates: ['1990-01-05', '2024-06-08'] } } });
+  const by = id => q.checks.find(c => c.id === id);
+  assert.equal(by('fred-DFF').status, 'pass', 'DFF weekend rows are published values');
+  assert.equal(by('fred-DGS2').status, 'fail', 'a business-day series with weekend rows still fails');
+  assert.equal(by('release-cpi').status, 'warn');
+  assert.match(by('release-cpi').detail, /1 dated on weekends \(latest 1953-05-23\); the release study skips them/);
+  assert.equal(by('release-jobs').status, 'fail', 'a weekend release date since 2000 is a date slip');
+  console.log('Historical data checks passed: seven-day DFF, old vs modern weekend release dates.');
+}

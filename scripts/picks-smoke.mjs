@@ -22,7 +22,7 @@ import {
   buildDcaPlan, DCA_BASE_USD,
   aiSignalsHeadlineSignature, canReuseAiSignals,
   attachIvRanks, computeAtmIvForDte,
-  computeImpliedMoveForDate,
+  computeImpliedMoveForDate, earningsAnchorMs, repairSummerAmStamps,
   narrativeInputSignature, canReuseNarrativeExtraction,
   decisionNarratives, scannerPayloadIsFresh, quarantineScoringInputs, dropStaleMacroLiveLegs,
   socialSentimentIsCurrent,
@@ -1447,6 +1447,23 @@ ok("earnings move: Friday AM print may use same-day expiry", computeImpliedMoveF
 ok("earnings move: BMO alias may use same-day expiry", computeImpliedMoveForDate(earningsMoveFixture, fridayEvent, "BMO")?.expiry === fridayExpiry);
 ok("earnings move: Friday PM print uses following expiry", computeImpliedMoveForDate(earningsMoveFixture, fridayEvent, "PM")?.expiry === followingExpiry);
 ok("earnings move: unknown Friday session conservatively uses following expiry", computeImpliedMoveForDate(earningsMoveFixture, fridayEvent, "TBD")?.expiry === followingExpiry);
+// AM prints anchor to the real 09:30 ET open in both seasons, so the 10:00 ET
+// bake is always after the print and never re-stamps the pre-print straddle.
+ok("earnings anchor: summer AM print = 09:30 EDT (13:30Z)", earningsAnchorMs("2026-10-23", "AM") === Date.parse("2026-10-23T13:30:00Z"));
+ok("earnings anchor: winter AM print = 09:30 EST (14:30Z)", earningsAnchorMs("2026-11-06", "AM") === Date.parse("2026-11-06T14:30:00Z"));
+ok("earnings anchor: summer 10:00 ET bake is after an AM print", earningsAnchorMs("2026-10-23", "AM") < Date.parse("2026-10-23T14:00:00Z"));
+ok("earnings anchor: prior-day 16:10 ET bake is before an AM print", earningsAnchorMs("2026-10-23", "AM") > Date.parse("2026-10-22T20:10:00Z"));
+ok("earnings anchor: PM print unchanged", earningsAnchorMs("2026-10-23", "PM") === Date.parse("2026-10-23T21:00:00Z"));
+const amFixEntry = { events: [
+  { date: "2026-10-23", session: "AM", epsActual: 4.1, ivPre: 0.2848, ivPost: 0.2841, impliedMovePct: 0.0169 },
+  { date: "2026-07-17", session: "AM", epsActual: 3.9, ivPre: 0.36, ivPost: 0.27, impliedMovePct: 0.052 },
+  { date: "2026-01-23", session: "AM", epsActual: 3.6, ivPre: 0.25, ivPost: 0.25, impliedMovePct: 0.02 },
+  { date: "2026-10-22", session: "PM", epsActual: 1.1, ivPre: 0.30, ivPost: 0.30, impliedMovePct: 0.03 },
+] };
+ok("AM stamp repair: drops one post-open summer stamp", repairSummerAmStamps(amFixEntry, "2026-11-07") === 1);
+ok("AM stamp repair: the post-open stamp is cleared for a crush estimate", amFixEntry.events[0].ivPre === undefined && amFixEntry.events[0].impliedMovePct === undefined && amFixEntry.events[0].ivPost === 0.2841);
+ok("AM stamp repair: a real pre-print stamp, a winter print and a PM print are kept", amFixEntry.events[1].impliedMovePct === 0.052 && amFixEntry.events[2].impliedMovePct === 0.02 && amFixEntry.events[3].impliedMovePct === 0.03);
+ok("AM stamp repair: runs once", repairSummerAmStamps(amFixEntry, "2026-11-07") === 0);
 
 const filingFixture = {
   filings: { recent: {
