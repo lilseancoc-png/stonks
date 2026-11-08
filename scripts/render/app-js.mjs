@@ -2364,6 +2364,39 @@ ${scenarioEventPhase.toString()}
     return (Date.now() - newest) / 86400000;
   }
 
+  // ET calendar date (YYYY-MM-DD) and minute of the day for a timestamp.
+  function execEtIsoDate(ms){
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date(ms));
+  }
+  function execEtMinuteOfDay(ms){
+    try {
+      var p = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(ms));
+      var h = 0, m = 0;
+      for (var i = 0; i < p.length; i++){ if (p[i].type === 'hour') h = Number(p[i].value) % 24; if (p[i].type === 'minute') m = Number(p[i].value); }
+      return h * 60 + m;
+    } catch (_) { return null; }
+  }
+  // Market sessions after todayIso up to and including eventIso (0 = the
+  // event is today). Weekends and full-day closures are skipped, so Friday to
+  // Monday is one session.
+  function execSessionsUntil(eventIso, todayIso){
+    var ymd = function(s){ return Date.UTC(Number(s.slice(0, 4)), Number(s.slice(5, 7)) - 1, Number(s.slice(8, 10))); };
+    var end = ymd(eventIso), start = ymd(todayIso);
+    if (!isFinite(end) || !isFinite(start) || end <= start) return 0;
+    var n = 0;
+    for (var t = start + 86400000; t <= end && n < 400; t += 86400000){
+      if (isMarketSessionDay(new Date(t))) n++;
+    }
+    return n;
+  }
+  // "today", "tomorrow", or the weekday when the next session is further off.
+  function execEventDayLabel(sessions, eventIso, todayIso){
+    if (sessions === 0) return 'today';
+    var gap = Math.round((Date.parse(eventIso + 'T12:00:00Z') - Date.parse(todayIso + 'T12:00:00Z')) / 86400000);
+    if (gap === 1) return 'tomorrow';
+    var wd = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][new Date(eventIso + 'T12:00:00Z').getUTCDay()];
+    return sessions === 1 ? wd + ' (next session)' : 'on ' + wd;
+  }
   function buildExecuteNowCard(ctx){
     var input = ctx.input || {};
     var buy = ctx.buy || null;
@@ -2717,25 +2750,30 @@ ${scenarioEventPhase.toString()}
     // little when an earnings print or Powell presser ≤2 sessions out is
     // about to repaint the chart. Earnings ≤1d also brings IV-crush risk
     // that can lose money even when direction is right.
-    var fund = input.fundamentals || null;
-    var daysToEarnings = null;
-    if (fund && fund.nextEarningsDate){
-      var earnMs = earningsAnchorMsLive(fund.nextEarningsDate, fund.nextEarningsSession);
-      if (earnMs != null){
-        var dRaw = (earnMs - Date.now()) / 86400000;
-        if (dRaw >= 0) daysToEarnings = Math.max(0, Math.round(dRaw));
-      }
-    }
-    var daysToFomc = null;
+    // Both are counted in market SESSIONS, not calendar days: a Monday print
+    // seen on a Friday is the next session even though it is three days away.
     // ET calendar date, not UTC — after ~8pm ET the UTC date has rolled to
     // tomorrow, which would mislabel an FOMC the evening before as "today".
-    var todayIso = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+    var todayIso = execEtIsoDate(Date.now());
+    var fund = input.fundamentals || null;
+    var daysToEarnings = null, earnDay = null;
+    if (fund && fund.nextEarningsDate){
+      var earnMs = earningsAnchorMsLive(fund.nextEarningsDate, fund.nextEarningsSession);
+      if (earnMs != null && earnMs >= Date.now()){
+        earnDay = execEtIsoDate(earnMs);
+        daysToEarnings = execSessionsUntil(earnDay, todayIso);
+      }
+    }
+    var daysToFomc = null, fomcDay = null;
+    var nowEtMin = execEtMinuteOfDay(Date.now());
     for (var fi = 0; fi < NEXT_FOMC_DATES.length; fi++){
       var fd = NEXT_FOMC_DATES[fi];
       if (!fd || fd < todayIso) continue;
-      var dms = Date.UTC(Number(fd.slice(0,4)), Number(fd.slice(5,7))-1, Number(fd.slice(8,10)));
-      var todayMs2 = Date.UTC(Number(todayIso.slice(0,4)), Number(todayIso.slice(5,7))-1, Number(todayIso.slice(8,10)));
-      daysToFomc = Math.round((dms - todayMs2) / 86400000);
+      // The 14:00 ET statement and the press conference after it are over by
+      // 15:30 ET, so the meeting no longer reads as "today" after that.
+      if (fd === todayIso && nowEtMin != null && nowEtMin >= 930) continue;
+      fomcDay = fd;
+      daysToFomc = execSessionsUntil(fd, todayIso);
       break;
     }
     // --- Fresh news catalyst (side-aware, asymmetric) --------------------
@@ -2769,23 +2807,23 @@ ${scenarioEventPhase.toString()}
     if (daysToEarnings != null && daysToEarnings <= 1){
       catalystImminent = true;
       cons.push({ tag: 'Earnings imminent', strong: true, text:
-        'Earnings ' + (daysToEarnings === 0 ? 'today' : 'tomorrow') +
+        'Earnings ' + execEventDayLabel(daysToEarnings, earnDay, todayIso) +
         ' — IV crush on the next print typically wipes out single-day moves regardless of direction. Wait for the dust to settle.'
       });
     } else if (daysToEarnings != null && daysToEarnings === 2){
-      cons.push({ tag: 'Earnings ≤2d', strong: false, text:
-        'Earnings in 2 days — premium is already running hot into the print; new entries usually get IV-crushed even on a beat.'
+      cons.push({ tag: 'Earnings ≤2 sessions', strong: false, text:
+        'Earnings in 2 sessions — premium is already running hot into the print; new entries usually get IV-crushed even on a beat.'
       });
     }
     if (daysToFomc != null && daysToFomc <= 1){
       catalystImminent = true;
-      cons.push({ tag: 'FOMC ≤1d', strong: true, text:
-        'FOMC decision ' + (daysToFomc === 0 ? 'today' : 'tomorrow') +
-        ' — Powell pressers routinely whipsaw multi-percent intraday. Defer until after the dot plot lands.'
+      cons.push({ tag: 'FOMC imminent', strong: true, text:
+        'FOMC decision ' + execEventDayLabel(daysToFomc, fomcDay, todayIso) +
+        ' — Powell pressers routinely whipsaw multi-percent intraday. Wait until the decision and the press conference are out.'
       });
     } else if (daysToFomc != null && daysToFomc === 2){
-      cons.push({ tag: 'FOMC ≤2d', strong: false, text:
-        'FOMC decision in 2 days — index vol typically expands into the meeting; structure reads degrade as positioning resets.'
+      cons.push({ tag: 'FOMC ≤2 sessions', strong: false, text:
+        'FOMC decision in 2 sessions — index vol typically expands into the meeting; structure reads degrade as positioning resets.'
       });
     }
 
@@ -2838,8 +2876,8 @@ ${scenarioEventPhase.toString()}
       // "fight the tape now"; the right framing is "defer, then re-read".
       verdict = 'WAIT'; vCls = 'fair';
       vHeadline = (daysToEarnings != null && daysToEarnings <= 1)
-        ? 'Earnings ' + (daysToEarnings === 0 ? 'today' : 'tomorrow') + ' — defer entry'
-        : 'FOMC ' + (daysToFomc === 0 ? 'today' : 'tomorrow') + ' — defer entry';
+        ? 'Earnings ' + execEventDayLabel(daysToEarnings, earnDay, todayIso) + ' — defer entry'
+        : 'FOMC ' + execEventDayLabel(daysToFomc, fomcDay, todayIso) + ' — defer entry';
       vBody = 'A scheduled event lands inside the next session. The chart read means little compared to the pending news — and the IV crush around the print can lose money even when direction is right. Wait for the catalyst to clear, then re-read structure.';
     } else if (sideways) {
       verdict = 'WAIT'; vCls = 'fair';
