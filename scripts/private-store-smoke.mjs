@@ -204,6 +204,23 @@ await assert.rejects(
 assert.equal(String(await raw.get(DATA_PUBLICATION_POINTER_KEY)), bakePointer, "failed overlay must leave pointer unchanged");
 raw.setFailPut(null);
 
+// Unchanged content is carried, not uploaded again: the same AAPL bytes keep
+// the prior generation's object path; changed grades get a new one.
+const repeatPublication = await published.publishGeneration({
+  owner: "bake",
+  updates: new Map([
+    ["AAPL.json", Buffer.from(JSON.stringify({ generation: "bake-aapl" }))],
+    ["grades.json", Buffer.from(JSON.stringify({ generation: "bake-grades-2" }))],
+  ]),
+});
+assert.equal(repeatPublication.unchanged, 1, "an identical body is counted as unchanged");
+assert.equal(repeatPublication.uploaded, 1, "a changed body is uploaded");
+assert.equal(repeatPublication.manifest.objects["AAPL.json"].path, bakePublication.manifest.objects["AAPL.json"].path, "unchanged object keeps its immutable path");
+assert.notEqual(repeatPublication.manifest.objects["grades.json"].path, bakePublication.manifest.objects["grades.json"].path, "changed object gets a new path");
+assert.match(repeatPublication.manifest.objects["AAPL.json"].sha256, /^[a-f0-9]{64}$/, "records carry a content hash");
+assert.equal(JSON.parse(String(await published.get("AAPL.json"))).generation, "bake-aapl");
+assert.equal(JSON.parse(String(await published.get("grades.json"))).generation, "bake-grades-2");
+
 const scanPublication = await published.publishGeneration({
   owner: "unusual",
   updates: new Map([["unusual.json", Buffer.from(JSON.stringify({ generation: "scan-unusual" }))]]),

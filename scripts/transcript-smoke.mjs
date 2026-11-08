@@ -161,3 +161,57 @@ assert.deepEqual(
   "transcript probes must run from the latest earnings print to the oldest, with unknown dates last",
 );
 console.log(`transcript smoke passed — ${arraySchemas} arrays keep caps in the prompt and off the API wire schema`);
+
+// ---- Batch mode (lib/transcript-batch.mjs, 2026-11-08) -----------------------
+{
+  const batch = await import("../lib/transcript-batch.mjs");
+  const { parseTranscriptSummaryResponse, transcriptUserMessage } = await import("./build.mjs");
+  assert.equal(batch.transcriptBatchEnabled({}), true, "batch mode is on by default");
+  assert.equal(batch.transcriptBatchEnabled({ TRANSCRIPT_BATCH: "0" }), false);
+  assert.equal(batch.transcriptBatchEnabled({ TRANSCRIPT_BATCH: "off" }), false);
+  assert.equal(batch.transcriptBatchWaitMs({}), 10 * 60_000, "default in-job wait is 10 minutes");
+  assert.equal(batch.transcriptBatchWaitMs({ TRANSCRIPT_BATCH_WAIT_MIN: "90" }), 45 * 60_000, "the wait is capped at 45 minutes");
+  assert.equal(batch.transcriptBatchWaitMs({ TRANSCRIPT_BATCH_WAIT_MIN: "0" }), 0, "a zero wait submits and carries");
+  assert.ok(batch.batchJobDone("JOB_STATE_SUCCEEDED") && batch.batchJobDone("JOB_STATE_FAILED") && batch.batchJobDone("JOB_STATE_EXPIRED") && !batch.batchJobDone("JOB_STATE_RUNNING") && !batch.batchJobDone(undefined));
+  assert.ok(batch.batchJobSucceeded("JOB_STATE_SUCCEEDED") && !batch.batchJobSucceeded("JOB_STATE_FAILED"));
+  const msg = transcriptUserMessage("ACME", { company: "Acme Corp", quarter: "Q3 2026", callDate: "2026-10-30" }, { text: "Operator: welcome." });
+  assert.match(msg, /^ACME — Acme Corp Q3 2026 earnings call, held 2026-10-30\. Complete transcript follows\./);
+  const reqs = batch.buildTranscriptBatchRequests([{ sym: "ACME", userMessage: msg }, { sym: "BAD" }, null], { config: transcriptSummaryGenerateConfig() });
+  assert.equal(reqs.length, 1, "requests need a symbol and a message");
+  assert.equal(reqs[0].metadata.sym, "ACME");
+  assert.equal(reqs[0].contents[0].parts[0].text, msg);
+  assert.equal(reqs[0].config.responseMimeType, "application/json", "each request carries the full summary config");
+  const pending = batch.pendingBatchRecord({ name: "batches/abc", model: "gemini-3.6-flash", submittedAtIso: "2026-11-09T00:05:00.000Z", items: [
+    { sym: "ACME", company: "Acme Corp", quarter: "Q3 2026", callDate: "2026-10-30", published: "2026-10-30", url: "https://example.com/t", source: "The Motley Fool", textLength: 51234, sourceInput: { coverage: 1, originalChars: 51234, suppliedChars: 51234, sourceHash: "h", text: "never stored" } },
+  ] });
+  assert.equal(pending.items[0].sourceInput.sourceHash, "h");
+  assert.ok(!("text" in pending.items[0].sourceInput), "the transcript text is not carried in the index");
+  assert.deepEqual(batch.pendingBatchSymbols(pending), ["ACME"]);
+  assert.equal(batch.pendingBatchRecord({ name: "x", items: [] }), null);
+  assert.equal(batch.pendingBatchTooOld(pending, "2026-11-10T05:00:00.000Z"), false, "29 hours old is still collected");
+  assert.equal(batch.pendingBatchTooOld(pending, "2026-11-10T07:00:00.000Z"), true, "31 hours old is dropped");
+  assert.equal(batch.pendingBatchTooOld({ submittedAtIso: "junk" }, "2026-11-10T07:00:00.000Z"), true);
+  const plain = { candidates: [{ content: { parts: [{ text: "{\"a\":", thought: false }, { text: "1}" }] }, finishReason: "STOP" }], usageMetadata: { promptTokenCount: 10 } };
+  assert.equal(batch.batchResponseText(plain), "{\"a\":1}", "plain-JSON responses are read part by part");
+  assert.equal(batch.batchResponseText({ text: "direct" }), "direct");
+  assert.equal(batch.batchResponseText(null), "");
+  const job = { state: "JOB_STATE_SUCCEEDED", dest: { inlinedResponses: [
+    { metadata: { sym: "BBB" }, response: { candidates: [{ content: { parts: [{ text: "b" }] } }] } },
+    { metadata: { sym: "AAA" }, error: { code: 13, message: "internal" } },
+  ] } };
+  const aligned = batch.extractBatchResponses(job, [{ sym: "AAA" }, { sym: "BBB" }, { sym: "CCC" }]);
+  assert.equal(aligned[0].error, "internal", "a per-item error is kept by name");
+  assert.equal(batch.batchResponseText(aligned[1].response), "b", "responses match by metadata symbol, not position");
+  assert.equal(aligned[2].response, null, "a missing response stays null");
+  const positional = batch.extractBatchResponses({ dest: { inlinedResponses: [{ response: { text: "p0" } }, { response: { text: "p1" } }] } }, [{ sym: "X" }, { sym: "Y" }]);
+  assert.equal(batch.batchResponseText(positional[1].response), "p1", "without metadata the order is used");
+  assert.equal(batch.batchJobFailureReason({ state: "JOB_STATE_FAILED", error: { message: "quota" } }), "quota");
+  assert.equal(batch.batchJobFailureReason({ state: "JOB_STATE_EXPIRED" }), "JOB_STATE_EXPIRED");
+  // The shared response parser reads a batch result exactly like an inline one.
+  const good = parseTranscriptSummaryResponse({ candidates: [{ finishReason: "STOP", content: { parts: [{ text: JSON.stringify(candidate) }] } }] });
+  assert.equal(good.summary.headline, candidate.headline);
+  assert.equal(good.partial, false);
+  assert.throws(() => parseTranscriptSummaryResponse({ candidates: [{ finishReason: "STOP", content: { parts: [{ text: "not json at all" }] } }] }), (err) => err.transcriptContentFailure === true, "unusable content is a content failure (daily cooldown)");
+  assert.throws(() => parseTranscriptSummaryResponse({ candidates: [{ finishReason: "MAX_TOKENS", content: { parts: [] } }] }), /maxOutputTokens/);
+  console.log("transcript batch mode: requests, pending record, response alignment and shared parsing passed");
+}

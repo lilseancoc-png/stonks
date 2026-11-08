@@ -86,6 +86,22 @@ export function renderStockPageCss() {
 .stp-ret { display: inline-flex; align-items: baseline; gap: 8px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); font-variant-numeric: tabular-nums; }
 .stp-ret span:first-child { color: var(--muted); font-size: 13px; }
 .stp-ret b { color: var(--text-strong); }
+.stp-band { padding: 8px 0 4px; }
+.stp-band-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; font-size: 13px; color: var(--muted); }
+.stp-band-head b { color: var(--text-strong); font-variant-numeric: tabular-nums; }
+.stp-band-track { position: relative; height: 12px; margin: 6px 0 4px; border-radius: 6px; background: var(--surface-2); overflow: visible; }
+.stp-band-track i { position: absolute; display: block; }
+.stp-band-peers { top: 0; bottom: 0; border-radius: 6px; background: color-mix(in srgb, var(--accent) 28%, transparent); }
+.stp-band-own { top: 3px; bottom: 3px; border-radius: 3px; background: color-mix(in srgb, var(--muted) 45%, transparent); }
+.stp-band-median { top: -2px; bottom: -2px; width: 2px; margin-left: -1px; background: var(--accent); }
+.stp-band-now { top: -3px; width: 4px; height: 18px; margin-left: -2px; border-radius: 2px; background: var(--text-strong); box-shadow: 0 0 0 1px var(--surface); }
+.stp-band small { display: block; font-size: 12px; line-height: 1.4; }
+.stp-band-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 0 0 4px; color: var(--muted); font-size: 12px; }
+.stp-band-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.stp-band-legend i { position: static; display: inline-block; width: 18px; height: 8px; border-radius: 4px; }
+.stp-band-legend .stp-band-median { width: 2px; height: 12px; }
+.stp-band-legend .stp-band-now { width: 4px; height: 12px; margin: 0; }
+.stp-cluster-line { margin: 0 0 6px; font-size: 14px; line-height: 1.5; }
 .stp-table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
 .stp-table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .stp-sec > .stp-table { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }

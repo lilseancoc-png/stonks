@@ -963,16 +963,20 @@ export function sportsFactory(host, doc, options) {
     if (L.recordErr) return errorBox(L.recordErr, 'props-record');
     if (!R) return '<p class="sp-loading">Loading the prop track record…</p>';
     const S = R.summary, results = { win: 'Win', loss: 'Bust', push: 'Push', void: 'Void', pending: 'Pending', awaiting_stats: 'Waiting for stats' };
-    const metrics = [['Wins', S.wins], ['Busts', S.losses], ['Win rate', S.win_rate == null ? '—' : (S.win_rate * 100).toFixed(1) + '%'], ['Pushes / voids', S.pushes + ' / ' + S.voids], ['Pending', S.pending]];
-    const rows = R.records.map((p) => '<tr><td>' + escape(fmtWhen(p.game_start_utc, zone())) + '</td><td><b>' + escape(p.player_name) + '</b><br>' + (p.side === 'over' ? 'More' : 'Less') + ' ' + num(p.threshold) + ' ' + escape(label(p.stat)) + '</td>' +
+    const CL = S.closing_line || null;
+    const metrics = [['Wins', S.wins], ['Busts', S.losses], ['Win rate', S.win_rate == null ? '—' : (S.win_rate * 100).toFixed(1) + '%'], ['Pushes / voids', S.pushes + ' / ' + S.voids], ['Pending', S.pending],
+      ['Beat the close', CL && CL.beat_rate != null ? (CL.beat_rate * 100).toFixed(0) + '% of ' + (CL.beat + CL.worse) : '—']];
+    const clvCell = (p) => !p.clv ? '<td class="sp-n sp-muted">—</td>' : '<td class="sp-n">' + num(p.threshold) + ' → ' + num(p.clv.line) + (p.clv.points ? ' <span class="' + (p.clv.points > 0 ? 'sp-pos' : 'sp-neg') + '">(' + (p.clv.points > 0 ? '+' : '') + p.clv.points.toFixed(1) + ')</span>' : ' <span class="sp-muted">(same)</span>') + '</td>';
+    const rows = R.records.map((p) => '<tr><td>' + escape(fmtWhen(p.game_start_utc, zone())) + '</td><td><b>' + escape(p.player_name) + '</b><br>' + (p.side === 'over' ? 'More' : 'Less') + ' ' + num(p.threshold) + ' ' + escape(label(p.stat)) + '</td>' + clvCell(p) +
       '<td class="sp-n">' + num(p.actual) + '</td><td class="' + (p.result === 'win' ? 'sp-pos' : p.result === 'loss' ? 'sp-neg' : '') + '">' + escape(results[p.result] || p.result) + '</td><td class="sp-n">' + num(p.rank_score) + '</td><td><details><summary>Saved analysis</summary><p>' + escape(p.basis === 'history_only' ? 'History only' : 'Model + history') + ' · ' + escape(p.rank_version || '') + '</p>' +
       '<p>Issued ' + escape(fmtWhen(p.issued_utc, zone())) + ' · line observed ' + escape(fmtWhen(p.observed_utc, zone())) + '</p>' + (lg === 'nba' && p.market ? nbaComparisonHtml(p) : '') + p.evidence.map((e) => '<p><b>' + escape(e.label) + ':</b> ' + escape(e.text) + '</p>').join('') + '</details></td></tr>').join('');
     const breakdown = Object.entries(R.by_stat).map(([st, s]) => '<tr><td>' + escape(label(st)) + '</td><td class="sp-n">' + s.wins + '</td><td class="sp-n">' + s.losses + '</td><td class="sp-n">' + (s.win_rate == null ? '—' : (s.win_rate * 100).toFixed(1) + '%') + '</td></tr>').join('');
     return '<section class="sp-prop-record"><h3>Prop track record</h3>' + (lg === 'nba' ? nbaResearchStatsHtml(R.nba_research) : '') + '<dl class="sp-facts">' + metrics.map(([k, v]) => '<div><dt>' + escape(k) + '</dt><dd>' + escape(v) + '</dd></div>').join('') + '</dl>' +
       '<p class="sp-note">' + escape(R.note) + '</p><p><button type="button" class="sp-link" data-sp-record-refresh>Refresh results</button> · <button type="button" class="sp-link" data-sp-record-export' + (L.recordExportPending ? ' disabled' : '') + '>' + (L.recordExportPending ? 'Preparing download…' : 'Download all research data (JSON)') + '</button></p>' +
       (L.recordExportErr ? '<p class="sp-note" role="alert">' + escape(L.recordExportErr) + '</p>' : '') +
-      (rows ? '<div class="sp-table-wrap"><table class="sp-table"><thead><tr><th>Game time</th><th>Original pick</th><th>Actual</th><th>Result</th><th>Rank</th><th>Evidence</th></tr></thead><tbody>' + rows + '</tbody></table></div><p class="sp-note">Showing ' + R.records.length + ' of ' + R.total + ' saved props. The download includes every saved line, analysis and current result.</p>' : emptyBox('No issued props yet.', 'The next successful pregame scan records each game’s first pair automatically.')) +
+      (rows ? '<div class="sp-table-wrap"><table class="sp-table"><thead><tr><th>Game time</th><th>Original pick</th><th title="Saved line → last pregame line seen; points in the pick\u2019s favor">Line → close</th><th>Actual</th><th>Result</th><th>Rank</th><th>Evidence</th></tr></thead><tbody>' + rows + '</tbody></table></div><p class="sp-note">Showing ' + R.records.length + ' of ' + R.total + ' saved props. The download includes every saved line, analysis and current result.</p>' : emptyBox('No issued props yet.', 'The next successful pregame scan records each game’s first pair automatically.')) +
       (breakdown ? '<h4>Results by stat</h4><div class="sp-table-wrap"><table class="sp-table"><thead><tr><th>Stat</th><th>Wins</th><th>Busts</th><th>Win rate</th></tr></thead><tbody>' + breakdown + '</tbody></table></div>' : '') +
+      closingLineHtml(CL, R.by_line_move) +
       '<p class="sp-note">Model-only Brier score (lower is better): ' + (S.model_check.brier == null ? 'not enough resolved modeled picks' : S.model_check.brier.toFixed(3) + ' across ' + S.model_check.samples + ' picks') + '. Rank scores are not treated as probabilities. Results update when the daily data job stores final box scores.</p></section>';
   }
   function nbaResearchStatsHtml(R) {
@@ -984,8 +988,37 @@ export function sportsFactory(host, doc, options) {
       '<p>Closing comparison: ' + C.n + ' samples; average probability change ' + (C.average_probability_change == null ? '—' : (C.average_probability_change * 100).toFixed(2) + ' points') + '. ' + escape(C.note) + '</p>' +
       '<p>Paper pairs: ' + P.saved + ' saved, ' + P.resolved + ' resolved; ' + num(P.net_units) + ' net units, ROI ' + nbaPct(P.roi) + '. ' + P.excluded_push_void + ' excluded for push/void settlement.</p>' +
       Object.entries(R.paper_by_screen || {}).map(([k, s]) => '<p class="sp-note">' + escape(k === 'positive_screen' ? 'Positive screens' : 'Pass screens saved for research') + ': ' + s.saved + ' saved, ' + s.resolved + ' resolved; ROI ' + nbaPct(s.roi) + '.</p>').join('') +
-      '<p class="sp-note">' + escape(R.note) + '</p>' + (bins ? '<details><summary>Calibration by market probability</summary><div class="sp-table-wrap"><table class="sp-table"><thead><tr><th>Bin</th><th>Samples</th><th>Predicted</th><th>Observed</th><th>Status</th></tr></thead><tbody>' + bins + '</tbody></table></div></details>' : '') +
+      '<p class="sp-note">' + escape(R.note) + '</p>' + (bins ? '<details><summary>Calibration by market probability</summary>' + reliabilitySvg(R.calibration.bins.map((b) => ({ p: b.predicted, y: b.observed, n: b.n })), 'Market probability') + '<div class="sp-table-wrap"><table class="sp-table"><thead><tr><th>Bin</th><th>Samples</th><th>Predicted</th><th>Observed</th><th>Status</th></tr></thead><tbody>' + bins + '</tbody></table></div></details>' : '') +
       '<details><summary>Paper pairs & complete game research</summary><ul>' + R.recent_games.map((g) => '<li>' + escape(fmtWhen(g.start_utc, zone())) + (g.paper ? '<p>' + escape(g.paper.players.join(' + ')) + ' · ' + num(g.paper.payout) + '× · ' + escape(({ win: 'Won', loss: 'Lost', pending: 'Pending', excluded: 'Push/void · excluded from ROI' })[g.paper.result]) + '</p>' : '') + ' <button type="button" class="sp-link" data-sp-nba-export="' + escape(g.game_id) + '" data-sp-nba-season="' + g.season + '">Download game research</button></li>').join('') + '</ul></details></section>';
+  }
+  // Closing line value (lib/sports/prop-record.mjs closingSummary): how often
+  // the saved line beat the last pregame line, the half-point histogram of the
+  // move in the pick's favor, and the win rate split by which way it moved.
+  function closingLineHtml(CL, byMove) {
+    if (!CL || !CL.n) return '<p class="sp-note">Closing lines appear once a pregame scan has seen a saved pick\u2019s line again before the start.</p>';
+    const keys = Object.keys(CL.histogram || {}).map(Number).filter(Number.isFinite).sort((a, b) => a - b);
+    let hist = '';
+    if (keys.length >= 2) {
+      const W = 300, H = 96, P = 14, bw = Math.max(6, Math.min(26, (W - 2 * P) / ((keys[keys.length - 1] - keys[0]) / 0.5 + 1) - 3));
+      const maxN = Math.max(...keys.map((k) => CL.histogram[(k > 0 ? '+' : '') + k.toFixed(1)] || 0));
+      const x = (k) => P + (k - keys[0]) / Math.max(0.5, keys[keys.length - 1] - keys[0]) * (W - 2 * P - bw);
+      const bars = keys.map((k) => { const n = CL.histogram[(k > 0 ? '+' : '') + k.toFixed(1)] || 0, h = n / maxN * (H - 2 * P - 10);
+        return '<rect class="sp-clv-bar' + (k > 0 ? ' is-for' : k < 0 ? ' is-against' : '') + '" x="' + x(k).toFixed(1) + '" y="' + (H - P - 10 - h).toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + h.toFixed(1) + '"/>'; }).join('');
+      const hov = keys.map((k) => ({ x: x(k) + bw / 2, y: H - P - 10 - (CL.histogram[(k > 0 ? '+' : '') + k.toFixed(1)] || 0) / maxN * (H - 2 * P - 10), label: (k > 0 ? '+' : '') + k.toFixed(1) + ' pts\n' + (CL.histogram[(k > 0 ? '+' : '') + k.toFixed(1)] || 0) + ' picks' }));
+      hist = '<figure class="sp-clv"><svg class="sp-clv-svg" viewBox="0 0 ' + W + ' ' + H + '" width="' + W + '" height="' + H + '" role="img" aria-label="Closing line value histogram"' + hoverAttr(hov) + '>' + bars +
+        '<text class="sp-ch-axis" x="' + P + '" y="' + (H - 2) + '">' + (keys[0] > 0 ? '+' : '') + keys[0].toFixed(1) + '</text><text class="sp-ch-axis" x="' + (W - P) + '" y="' + (H - 2) + '" text-anchor="end">' + (keys[keys.length - 1] > 0 ? '+' : '') + keys[keys.length - 1].toFixed(1) + ' pts</text></svg>' +
+        '<figcaption>Line move in the pick\u2019s favor, half-point bins (clamped at ±3).</figcaption></figure>';
+    }
+    const split = [['Moved for us', CL.when_beat], ['Unchanged', CL.when_unchanged], ['Moved against', CL.when_worse]].filter(([, r]) => r && r.n);
+    let bars = '';
+    if (split.length >= 2) {
+      bars = '<ul class="sp-clv-split">' + split.map(([k, r]) => '<li><span>' + escape(k) + ' <small>' + r.n + '</small></span><span class="sp-clv-track"><i style="width:' + Math.round(r.win_rate * 100) + '%"></i></span><b>' + (r.win_rate * 100).toFixed(0) + '%</b></li>').join('') + '</ul>';
+    }
+    const lead = CL.median_lead_seconds == null ? '' : ' The closing line was typically seen ' + (CL.median_lead_seconds < 90 ? CL.median_lead_seconds + ' seconds' : Math.round(CL.median_lead_seconds / 60) + ' minutes') + ' before the start.';
+    return '<section class="sp-clv-section"><h4>Closing line value</h4><p>' + CL.n + ' picks with a closing line: the saved line beat the close on ' + CL.beat + ', lost to it on ' + CL.worse + ' and matched it on ' + CL.unchanged +
+      (CL.average_points != null ? '; average move ' + (CL.average_points > 0 ? '+' : '') + CL.average_points.toFixed(2) + ' points in the pick\u2019s favor' : '') + '.' + escape(lead) + '</p>' +
+      '<div class="sp-clv-charts">' + hist + (bars ? '<div><p class="sp-label">Win rate by line move</p>' + bars + '</div>' : '') + '</div>' +
+      '<p class="sp-note">' + escape(CL.note) + '</p></section>';
   }
   function loadPropRecord(page, lg) {
     const L = league(lg), seq = ++L.recordSeq; L.recordErr = null;

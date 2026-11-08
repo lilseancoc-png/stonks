@@ -9,6 +9,15 @@ export const updateCheckerCss = `
 .uc-feature-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.uc-feature>div{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}.uc-feature h4{margin:0;font-size:14px}.uc-feature p{font-size:13px;line-height:1.6;margin:12px 0 0}.uc-feature[hidden],.uc-notice[hidden],.uc-all-clear[hidden]{display:none}
 .uc-limitation{border-top:1px solid var(--border);padding-top:20px;margin-top:24px}.uc-notice{display:flex;align-items:center;gap:8px;width:100%;margin-top:8px;min-height:32px;padding:6px 10px;box-sizing:border-box;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--muted-strong);font:500 12px/1.3 var(--font-sans);text-decoration:none}.uc-notice::before{content:'';flex:0 0 8px;width:8px;height:8px;border-radius:50%;background:var(--warn)}.uc-notice[data-status="unknown"]::before,.uc-notice[data-status="stale"]::before{background:var(--muted)}.uc-notice[data-status="failed"]::before,.uc-notice[data-status="stuck"]::before{background:var(--neg)}.uc-notice:hover{border-color:var(--accent-line);color:var(--text-strong)}body:not(.is-owner) .uc-notice{display:none!important}
 @media(max-width:700px){.uc-builds,.uc-feature-list{grid-template-columns:1fr}.uc-feature>div{flex-wrap:wrap}}
+.uc-source-wrap { overflow-x:auto; }
+.uc-source-table { width:100%; border-collapse:collapse; font-size:12.5px; }
+.uc-source-table th, .uc-source-table td { padding:6px 8px; border-bottom:1px solid var(--border); text-align:left; vertical-align:top; }
+.uc-source-table .num { text-align:right; white-space:nowrap; }
+.uc-source-state { display:inline-flex; align-items:center; gap:6px; font-weight:600; }
+.uc-source-state i { width:8px; height:8px; border-radius:50%; background:var(--muted); }
+.uc-source-state[data-tone="ok"] i { background:var(--pos); }
+.uc-source-state[data-tone="warn"] i { background:var(--warn); }
+.uc-source-state[data-tone="bad"] i { background:var(--neg); }
 .uc-pills { list-style:none; display:grid; grid-template-columns:repeat(auto-fill,minmax(190px,1fr)); gap:8px; margin:0 0 16px; padding:0; }
 .uc-pill { display:grid; grid-template-columns:auto minmax(0,1fr); column-gap:8px; align-items:center; padding:8px 10px; border:1px solid var(--border); border-radius:10px; min-width:0; }
 .uc-pill i { grid-row:span 2; width:9px; height:9px; border-radius:50%; background:var(--muted); }

@@ -520,6 +520,13 @@ jobs:
           # back to the current quality-tier defaults in build.mjs.
           AI_MODEL: ${{ vars.AI_MODEL }}
           NARRATIVES_MODEL: ${{ vars.NARRATIVES_MODEL }}
+          # AI final grader switch (2026-11-08). Unset = on. Set the repo
+          # variable AI_THESIS to 0 to run Top Picks without the grader for a
+          # measured period: grades, entries and exits are unchanged, the
+          # grader's calls and tokens stop, and every trade, roster and run
+          # archive record is stamped graderMode off so the Track Record can
+          # compare the two periods. Flip it back by clearing the variable.
+          AI_THESIS: ${{ vars.AI_THESIS }}
           # (PICKS_ACCURACY_AB removed: it was set here but read NOWHERE in the
           # code — the wait-arm cohort it described now enrolls BY DEFAULT,
           # since every actionable pick enrolls cohort-tagged go/wait.)

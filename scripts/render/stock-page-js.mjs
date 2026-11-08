@@ -817,6 +817,7 @@ export function renderStockPageJs() {
           (f.numberOfAnalystOpinions ? '<div class="stp-ret"><span>Analysts</span><b>' + escapeHtml(String(f.numberOfAnalystOpinions)) + '</b></div>' : '') +
           '</div></section>';
       }
+      html += '<section class="stp-sec" id="stp-valuation" hidden></section>';
       html += chatterHtml(d);
       if (f.longBusinessSummary){
         var text = String(f.longBusinessSummary);
@@ -824,6 +825,10 @@ export function renderStockPageJs() {
         html += '<section class="stp-sec"><h3 class="stp-h3">About the company</h3><p class="stp-about">' + escapeHtml(short) +
           (short.length < text.length ? ' <details class="stp-more"><summary>Read more</summary><p>' + escapeHtml(text.slice(short.length)) + '</p></details>' : '') + '</p></section>';
       }
+      // The valuation band fills in once its public file arrives, after any
+      // chart this tab already queued.
+      var prevAfter = state.afterTab, vSym = state.sym, vToken = state.token;
+      state.afterTab = function(){ if (typeof prevAfter === 'function') prevAfter(); fillValuation(vSym, vToken); };
       return html;
     }
     function tabNews(){
@@ -945,6 +950,57 @@ export function renderStockPageJs() {
         return html;
       });
     }
+    // Peer valuation band (public valuation-bands.json, lib/valuation-band.mjs).
+    function valuationData(){
+      if (cache.vb) return Promise.resolve(cache.vb);
+      if (cache.vbP) return cache.vbP;
+      cache.vbP = getJson('valuation-bands.json').then(function(j){ cache.vb = j && j.rows ? j : { rows: {} }; return cache.vb; }).catch(function(){ cache.vb = { rows: {} }; return cache.vb; });
+      return cache.vbP;
+    }
+    function valuationBarHtml(label, m){
+      if (!m || (m.value == null && !m.peers && !m.own)) return '';
+      var lo = Infinity, hi = -Infinity;
+      function take(v){ if (v != null && isFinite(v)){ lo = Math.min(lo, v); hi = Math.max(hi, v); } }
+      take(m.value); if (m.peers){ take(m.peers.lo); take(m.peers.hi); } if (m.own){ take(m.own.lo); take(m.own.hi); }
+      if (!isFinite(lo) || !isFinite(hi)) return '';
+      if (hi === lo){ lo = lo * 0.9; hi = hi * 1.1 || 1; }
+      var pad = (hi - lo) * 0.08; lo -= pad; hi += pad; if (lo < 0) lo = 0;
+      function P(v){ return Math.max(0, Math.min(100, (v - lo) / (hi - lo) * 100)); }
+      function f(v){ return v == null || !isFinite(v) ? '\u2014' : Number(v) >= 100 ? Math.round(v) + '\u00d7' : Number(v).toFixed(1) + '\u00d7'; }
+      var track = '';
+      if (m.peers) track += '<i class="stp-band-peers" style="left:' + P(m.peers.lo).toFixed(1) + '%;width:' + Math.max(0.8, P(m.peers.hi) - P(m.peers.lo)).toFixed(1) + '%" title="Peers ' + f(m.peers.lo) + ' to ' + f(m.peers.hi) + '"></i><i class="stp-band-median" style="left:' + P(m.peers.median).toFixed(1) + '%" title="Peer median ' + f(m.peers.median) + '"></i>';
+      if (m.own) track += '<i class="stp-band-own" style="left:' + P(m.own.lo).toFixed(1) + '%;width:' + Math.max(0.8, P(m.own.hi) - P(m.own.lo)).toFixed(1) + '%" title="Own range ' + f(m.own.lo) + ' to ' + f(m.own.hi) + '"></i>';
+      if (m.value != null) track += '<i class="stp-band-now" style="left:' + P(m.value).toFixed(1) + '%" title="Now ' + f(m.value) + '"></i>';
+      var notes = [];
+      if (m.peers) notes.push('peers ' + f(m.peers.lo) + '\u2013' + f(m.peers.hi) + ', median ' + f(m.peers.median) + (m.peers.pct != null ? ', this stock at the ' + stpOrd(m.peers.pct) + ' percentile' : ''));
+      if (m.own) notes.push('own range ' + f(m.own.lo) + '\u2013' + f(m.own.hi) + ' over ' + m.own.days + ' session' + (m.own.days === 1 ? '' : 's') + (m.own.pct != null ? ', now at the ' + stpOrd(m.own.pct) + ' percentile' : ''));
+      return '<div class="stp-band"><div class="stp-band-head"><span>' + escapeHtml(label) + '</span><b>' + (m.value != null ? f(m.value) : '<span class="stp-dim">not reported</span>') + '</b></div>' +
+        '<div class="stp-band-track" role="img" aria-label="' + escapeHtml(label + ': ' + notes.join('; ')) + '">' + track + '</div>' +
+        '<small class="stp-dim">' + escapeHtml(notes.join(' \u00b7 ') || 'No range yet.') + '</small></div>';
+    }
+    function valuationHtml(vb, sym){
+      var row = vb && vb.rows && vb.rows[sym];
+      if (!row) return '';
+      var labels = {}; (vb.metrics || []).forEach(function(m){ labels[m.key] = m.label; });
+      var bars = ['pe', 'fpe', 'evs', 'ps'].map(function(k){ return row[k] ? valuationBarHtml(labels[k] || k, row[k]) : ''; }).join('');
+      if (!bars) return '';
+      var peers = row.peers || {};
+      var basis = peers.basis === 'industry' ? 'same sub-industry' : peers.basis === 'sector' ? 'same sector' : peers.basis === 'group' ? 'same broad group' : 'no peer group';
+      return '<h3 class="stp-h3">Valuation vs peers and its own range</h3>' +
+        (peers.n ? '<p class="stp-lede">Peers: ' + escapeHtml(peers.label || '') + ' (' + peers.n + ' tracked names, ' + basis + ')' + (peers.members && peers.members.length ? ' \u00b7 ' + peers.members.slice(0, 8).map(function(s){ return symLink(s); }).join(', ') + (peers.members.length > 8 ? ', \u2026' : '') : '') + '</p>' : '<p class="stp-lede">Too few tracked peers for a band; the own range still shows.</p>') +
+        '<div class="stp-band-legend"><span><i class="stp-band-peers"></i>peer range</span><span><i class="stp-band-median"></i>peer median</span><span><i class="stp-band-own"></i>own range so far</span><span><i class="stp-band-now"></i>now</span></div>' +
+        bars +
+        '<p class="stp-src">' + escapeHtml(vb.note || '') + (vb.asOf ? ' As of ' + escapeHtml(dateLabel(vb.asOf)) + '.' : '') + '</p>';
+    }
+    function fillValuation(sym, token){
+      valuationData().then(function(vb){
+        if (state.token !== token || state.sym !== sym) return;
+        var host = document.getElementById('stp-valuation');
+        if (!host) return;
+        var inner = valuationHtml(vb, sym);
+        if (inner){ host.innerHTML = inner; host.hidden = false; }
+      });
+    }
     function f13Data(){
       if (cache.f13) return Promise.resolve(cache.f13);
       if (cache.f13P) return cache.f13P;
@@ -974,6 +1030,13 @@ export function renderStockPageJs() {
         }
         var tx = j.insiderTransactions && Array.isArray(j.insiderTransactions.transactions) ? j.insiderTransactions.transactions : [];
         var mine = tx.filter(function(t){ return t && t.symbol === sym && t.openMarket; }).slice(0, 10);
+        var f4p = j.insiderTransactions || {};
+        var clusterRead = f4p.clusterBuying && Array.isArray(f4p.clusterBuying.rows) ? f4p.clusterBuying : INSIDER_CLUSTER.clusters(tx, { asOf: f4p.asOf });
+        var myCluster = (clusterRead.rows || []).filter(function(r){ return r && r.symbol === sym; })[0];
+        if (myCluster){
+          html += '<section class="stp-sec stp-cluster"><h3 class="stp-h3">Cluster buying</h3><p class="stp-cluster-line"><span class="stp-move is-up">' + myCluster.insiders + ' insiders bought</span> ' + escapeHtml(INSIDER_CLUSTER.sentence(myCluster)) + (myCluster.names && myCluster.names.length ? ' <span class="stp-dim">' + escapeHtml(myCluster.names.slice(0, 5).join(', ')) + '</span>' : '') + '</p>' +
+            '<p class="stp-src">Several insiders buying with their own money inside ' + clusterRead.windowDays + ' days is a stronger read than one purchase. It is an SEC disclosure, not a forecast.</p></section>';
+        }
         if (mine.length){
           html += '<section class="stp-sec"><h3 class="stp-h3">Insider buys and sells</h3><div class="stp-table-wrap"><table class="stp-table"><thead><tr><th scope="col">Date</th><th scope="col">Insider</th><th scope="col">Trade</th><th scope="col" class="num">Shares</th><th scope="col" class="num">Value</th></tr></thead><tbody>' +
             mine.map(function(t){

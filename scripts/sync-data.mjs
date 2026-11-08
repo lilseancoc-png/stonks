@@ -280,7 +280,7 @@ async function publish(owner, keys, { dryRun, deletes = [], label }) {
   const publication = await store.publishGeneration({ owner, updates, deletes });
   console.log(
     `${label}: pointer -> ${publication.manifest.generation} ` +
-    `(${present.length} changed, ${deletes.length} removed, ${Object.keys(publication.manifest.objects).length} logical total)`,
+    `(${present.length} staged: ${publication.uploaded ?? present.length} uploaded, ${publication.unchanged ?? 0} unchanged; ${deletes.length} removed, ${Object.keys(publication.manifest.objects).length} logical total)`,
   );
   // Publication is already complete. GC is deliberately best-effort: a cleanup
   // outage must not turn a successful pointer flip into a misleading failure.

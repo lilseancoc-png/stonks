@@ -1420,6 +1420,17 @@ Tests: `node scripts/picks-run-archive-smoke.mjs` (keys, privacy, hydration,
 merge, file round trip, a real roster through the real engine, bake wiring)
 and `node scripts/data-hydration-smoke.mjs` (the pull boundary).
 
+**Walk-forward replay (November 8, 2026).** `lib/walk-forward.mjs` joins the
+archive's pillar scores with `picks-outcomes.json` (what each name did 1, 5,
+10 and 20 sessions after the run) and walks forward in time: refit pillar
+weights on 20 run days, score the next 5 with them, compare the out-of-sample
+Spearman IC against the fixed total's IC on the same days, slide. The
+in-sample IC sits next to the out-of-sample one so overfitting is visible.
+`node scripts/walk-forward.mjs --horizon=r10 --train=20 --test=5` prints the
+table from a hydrated `data/` (pull with `--include-archives`). It is a read,
+never a rule: no weight, grade or pick changes because of it. Test:
+`npm run test:walk-forward`.
+
 ## Single options by default, November 7, 2026
 
 The Jan 2 to Nov 6 backtest found debit spreads trailing single options by 5

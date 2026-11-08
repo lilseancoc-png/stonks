@@ -35,7 +35,9 @@ import { leveragedEntryPlan, shareEntryPayoff, pickDisplayDecision } from "../li
 import { buildGradeResearch, emptyGradeResearch, seriesFromChains, writeGradeResearchFile } from "../lib/grade-research.mjs";
 import { dirname, resolve } from "node:path";
 import { readFileSync } from "node:fs";
-import { buildMacroContext, CARD_LENDER_SYMS, KIND_LABELS as MACRO_KIND_LABELS, fitSentence as macroFitSentence, contextLines as macroContextLines } from "../lib/macro-context.mjs";
+import { buildMacroContext, buildCycleTrail, CARD_LENDER_SYMS, KIND_LABELS as MACRO_KIND_LABELS, fitSentence as macroFitSentence, contextLines as macroContextLines } from "../lib/macro-context.mjs";
+import { findInsiderClusters } from "../lib/insider-cluster.mjs";
+import { buildValuationBands, VALUATION_BANDS_KEY } from "../lib/valuation-band.mjs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
 import { inflateRawSync } from "node:zlib";
@@ -51,7 +53,9 @@ import { collectFreeNewsSources } from "../lib/free-news-sources.mjs";
 import { NEWS_EVIDENCE_KEY, evidenceFeedRows, evidenceSourceHealth } from "../lib/news-evidence.mjs";
 import { computeGexSummary } from "../lib/gex.mjs";
 import { issuerCreditRatingFor } from "../lib/issuer-credit-ratings.mjs";
-import { fetchFinraMarketStructure, attachShortInterestToChains } from "../lib/market-structure.mjs";
+import { fetchFinraMarketStructure, attachShortInterestToChains, chainPutCallTotals, impliedBorrowRate } from "../lib/market-structure.mjs";
+import { MACRO_HISTORY_KEEP, VIX_RANK_WINDOW, macroLevelsFromBackdrop, macroLevelsLate, mergeMacroLevels } from "../lib/macro-levels.mjs";
+import { TREASURY_AUCTIONS_KEY, TREASURY_AUCTIONS_LOOKBACK_DAYS, treasuryAuctionsUrl, parseTreasuryAuctionRows, parseTreasuryAuctions, emptyTreasuryAuctions, upsertTreasuryAuctions, treasuryAuctionsFetchedToday, summarizeTreasuryAuctions } from "../lib/treasury-auctions.mjs";
 import { marketStructureCalendarEvents, ipoListingsFrom } from "../lib/market-dates.mjs";
 import { buildFedLiquidity } from "../lib/fed-liquidity.mjs";
 import { buildMarketMap, MARKET_MAP_FILE } from "../lib/market-map.mjs";
@@ -66,6 +70,14 @@ import {
   persistAiRejections,
 } from "../lib/ai-rejections.mjs";
 import { buildPicksRunRecord, loadPicksRunDay, persistPicksRun, picksRunArchiveEnabled } from "../lib/picks-run-archive.mjs";
+import { addControlEntries, appendRunOutcomes, drawControlEntries, emptyOutcomesState, fillOutcomes, loadPicksOutcomes, markControlBook, pruneOutcomes, writePicksOutcomes, CONTROL_PER_RUN_MIN } from "../lib/picks-outcomes.mjs";
+import { buildEvidenceBoard, writeEvidenceBoard } from "../lib/evidence-board.mjs";
+import { buildSourceHealth, loadSourceHealth, readSourcePayloads, writeSourceHealth } from "../lib/source-health.mjs";
+import { AI_COST_HISTORY_KEY, parseAiCostHistory, upsertAiCostHistory } from "../lib/ai-cost-history.mjs";
+import {
+  TRANSCRIPT_BATCH_MAX_AGE_HOURS, TRANSCRIPT_BATCH_POLL_MS, batchJobDone, batchJobFailureReason, batchJobSucceeded, batchResponseText, buildTranscriptBatchRequests,
+  extractBatchResponses, pendingBatchRecord, pendingBatchSymbols, pendingBatchTooOld, transcriptBatchEnabled, transcriptBatchWaitMs,
+} from "../lib/transcript-batch.mjs";
 import { buildSetupOdds } from "../lib/setup-odds.mjs";
 import { createFileEvidenceStore, loadEvidenceWindow, runEvidenceRecord } from "../lib/evidence-record.mjs";
 import { ownerBriefCalendar, ownerBriefRunsOn } from '../lib/owner-market-brief.mjs';
@@ -2297,6 +2309,27 @@ async function fetchFundamentals(symbol) {
       if (pct30 == null || pct90 == null) return null;
       return { period: "0y", pct30, pct90 };
     })(),
+    // Estimate revisions (2026-11-08): how many analysts raised or lowered
+    // their EPS estimate for the current quarter / fiscal year in the last 7,
+    // 30 and 90 days, and the estimate's own path vs 7/30/60/90 days ago.
+    // Recorded for the shadow-signal log; not a grade input.
+    epsRevisions: (() => {
+      const rev = (node) => {
+        const r = node?.epsRevisions || {};
+        const up7 = num(r.upLast7days), up30 = num(r.upLast30days), down30 = num(r.downLast30days), down90 = num(r.downLast90days);
+        if (up7 == null && up30 == null && down30 == null && down90 == null) return null;
+        return { up7, up30, down30, down90 };
+      };
+      const path = (node) => {
+        const t = node?.epsTrend || {};
+        const cur = num(t.current);
+        if (cur == null) return null;
+        const chg = (ago) => (ago != null && Math.abs(ago) >= 0.05 ? Math.round(((cur - ago) / Math.abs(ago)) * 10000) / 100 : null);
+        return { current: cur, d7: chg(num(t["7daysAgo"])), d30: chg(num(t["30daysAgo"])), d60: chg(num(t["60daysAgo"])), d90: chg(num(t["90daysAgo"])) };
+      };
+      const out = { q: rev(tq), y: rev(ty), qPath: path(tq), yPath: path(ty) };
+      return out.q || out.y || out.qPath || out.yPath ? out : null;
+    })(),
     lastQuarter,
     earningsHistory: earningsHistory.slice(-8),
     revenueHistory,
@@ -3509,6 +3542,9 @@ async function fetchTickerChain(symbol) {
     chains,
     technicals,
     fundamentals,
+    // When this chain came back from Yahoo (in memory only; the run archive
+    // records the quote age of each scored name from it).
+    _fetchedAt: new Date().toISOString(),
     // _bars stays in memory only -- stripped before writing per-ticker JSON.
     // Used by the streak aggregator (data/streaks.json) so we don't re-hit
     // Yahoo for the same daily closes.
@@ -3539,7 +3575,8 @@ const RFR_HISTORY_FILE = "rfr-history.json";
 // so the 17:00 capture lands on top by close. Used to surface a "prev close"
 // reference on each tile that survives a Yahoo chart flake.
 const MACRO_HISTORY_FILE = "macro-history.json";
-const MACRO_HISTORY_MAX_ENTRIES = 90;
+// One trading year of daily rows since 2026-11-08 (was 90); lib/macro-levels.mjs.
+const MACRO_HISTORY_MAX_ENTRIES = MACRO_HISTORY_KEEP;
 
 // ET wall-clock minutes since midnight for a Date (null if it cannot be read).
 export function etMinutesOf(d = new Date()) {
@@ -3632,6 +3669,9 @@ function upsertMacroHistory(prevHistory, macroBackdrop) {
     thirtyY: macroBackdrop?.thirtyY && macroBackdrop.thirtyY.value != null ? macroBackdrop.thirtyY.value : null,
     dxy:     macroBackdrop?.dxy     && macroBackdrop.dxy.value     != null ? macroBackdrop.dxy.value     : null,
     vix:     macroBackdrop?.vix     && macroBackdrop.vix.value     != null ? macroBackdrop.vix.value     : null,
+    // The levels the market tape reads (VIX curve, crude, gold, MOVE, HY
+    // spread); the late legs (VVIX, put/call, F&G, regime) merge in main().
+    ...macroLevelsFromBackdrop(macroBackdrop),
   };
   const existingIdx = entries.findIndex((e) => e.date === today);
   if (existingIdx >= 0) {
@@ -3640,7 +3680,7 @@ function upsertMacroHistory(prevHistory, macroBackdrop) {
     // defeats this file's "survives a chart flake" purpose. Keep the prior
     // non-null leg; take today's value only when it's present.
     const prev = entries[existingIdx];
-    for (const k of ["twoY", "tenY", "thirtyY", "dxy", "vix"]) {
+    for (const k of Object.keys(prev)) {
       if (todayEntry[k] == null && prev[k] != null) todayEntry[k] = prev[k];
     }
     entries[existingIdx] = todayEntry;
@@ -3674,6 +3714,7 @@ function computeVixRank(history, value, todayKey = etDateKey()) {
   // / EOD re-bakes that all carry today's entry.
   const vals = (history?.entries || [])
     .filter((e) => e && e.date !== todayKey)
+    .slice(-VIX_RANK_WINDOW)
     .map((e) => (e && typeof e.vix === "number" && isFinite(e.vix) ? e.vix : null))
     .filter((v) => v != null);
   if (vals.length < VIX_RANK_MIN_SAMPLES) return { rankPct: null, samples: vals.length };
@@ -4355,7 +4396,7 @@ export async function writeAutoPicksFile(picks, builtAtIso = new Date().toISOStr
 
 // Public per-ticker body. Transient series and the LEAPS tail stay in memory.
 export function publicChainFilePayload(data) {
-  const { _bars, _patternBars, _intraday, _signalHeadlines, _listedExpirations, _leapsChains, autoPick: _legacyAutoPick, ...rest } = data;
+  const { _bars, _patternBars, _intraday, _signalHeadlines, _listedExpirations, _leapsChains, _fetchedAt, autoPick: _legacyAutoPick, ...rest } = data;
   return {
     ...rest,
     priceSeries: buildPriceSeries(_bars),
@@ -4716,6 +4757,16 @@ async function collectIvHistory(chains) {
     if (skew?.skew25 != null) entry.s = Number(skew.skew25.toFixed(4));
     const ivFar = computeAtmIvForDte(data, QUANT_TERM_FAR_DTE);
     if (ivFar != null && isFinite(ivFar)) entry.t = Number((ivFar - iv).toFixed(4));
+    // Daily option-surface points (2026-11-08): ATM IV at ~7 and ~60 days
+    // (`iv` is 30d, `iv + t` is 90d) and the day's put/call volume and OI
+    // ratios across the chain. Same chain, no extra call; about 30 bytes a day.
+    const iv7 = computeAtmIvForDte(data, 7);
+    if (iv7 != null && isFinite(iv7)) entry.i7 = Number(iv7.toFixed(4));
+    const iv60 = computeAtmIvForDte(data, 60);
+    if (iv60 != null && isFinite(iv60)) entry.i60 = Number(iv60.toFixed(4));
+    const pc = chainPutCallTotals(data);
+    if (pc?.volRatio != null) entry.pcv = pc.volRatio;
+    if (pc?.oiRatio != null) entry.pco = pc.oiRatio;
     filtered.push(entry);
     filtered.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
     const capped = filtered.slice(-IV_HISTORY_MAX_ENTRIES);
@@ -7644,6 +7695,65 @@ export function earningsSeasonLabels(key) {
   };
 }
 
+// Season scorecard by broad sector group (brainstorm F8, 2026-11-08): beat
+// rate, guidance raised / cut (from the call brief when one exists, else the
+// news read), average and typical reaction, up-reaction breadth and how many
+// prints exceeded the straddle-implied move. Pure over the season's rows;
+// exported for the smoke test. Groups with fewer than two prints are kept but
+// get no tone.
+export function earningsSeasonBySector(rows, groupOf = sectorGroupOf) {
+  const groups = new Map();
+  for (const r of rows || []) {
+    if (!r?.sym) continue;
+    const name = (typeof groupOf === "function" ? groupOf(r.sym) : null) || r.sector || "Other";
+    let g = groups.get(name);
+    if (!g) {
+      g = { group: name, reported: 0, epsKnown: 0, beat: 0, inline: 0, miss: 0, guidKnown: 0, guidUp: 0, guidInline: 0, guidDown: 0, guidFromCalls: 0,
+        moveKnown: 0, up: 0, down: 0, mvSum: 0, absSum: 0, impliedKnown: 0, exceeded: 0, week1N: 0, week1Sum: 0, syms: [] };
+      groups.set(name, g);
+    }
+    g.reported++;
+    if (!g.syms.includes(r.sym)) g.syms.push(r.sym);
+    if (r.eps) { g.epsKnown++; g[r.eps === "beat" ? "beat" : r.eps === "miss" ? "miss" : "inline"]++; }
+    if (r.guidance) {
+      g.guidKnown++;
+      g[r.guidance === "up" ? "guidUp" : r.guidance === "down" ? "guidDown" : "guidInline"]++;
+      if (r.guidanceSrc === "call") g.guidFromCalls++;
+    }
+    if (typeof r.movePct === "number" && isFinite(r.movePct)) {
+      g.moveKnown++; g.mvSum += r.movePct; g.absSum += Math.abs(r.movePct);
+      if (r.movePct > 0.001) g.up++; else if (r.movePct < -0.001) g.down++;
+    }
+    if (r.exceededImplied != null) { g.impliedKnown++; if (r.exceededImplied) g.exceeded++; }
+    if (typeof r.week1Pct === "number" && isFinite(r.week1Pct)) { g.week1N++; g.week1Sum += r.week1Pct; }
+  }
+  const out = [];
+  for (const g of groups.values()) {
+    const beatRatePct = g.epsKnown ? ehxRound((g.beat / g.epsKnown) * 100, 1) : null;
+    const breadthPct = (g.up + g.down) ? ehxRound((g.up / (g.up + g.down)) * 100, 1) : null;
+    let tone = null;
+    if (g.reported >= 3 && (g.moveKnown >= 3 || g.epsKnown >= 3)) {
+      const score = (breadthPct != null ? (breadthPct - 50) / 10 : 0) + (beatRatePct != null ? (beatRatePct - 60) / 10 : 0)
+        + (g.guidKnown ? (g.guidUp - g.guidDown) / g.guidKnown : 0);
+      tone = score >= 1 ? "positive" : score <= -1 ? "negative" : "mixed";
+    }
+    out.push({
+      group: g.group, reported: g.reported, names: g.syms.length,
+      epsKnown: g.epsKnown, beat: g.beat, inline: g.inline, miss: g.miss, beatRatePct,
+      guidKnown: g.guidKnown, guidUp: g.guidUp, guidInline: g.guidInline, guidDown: g.guidDown, guidFromCalls: g.guidFromCalls,
+      moveKnown: g.moveKnown, up: g.up, down: g.down, breadthPct,
+      avgMovePct: g.moveKnown ? ehxRound(g.mvSum / g.moveKnown) : null,
+      avgAbsMovePct: g.moveKnown ? ehxRound(g.absSum / g.moveKnown) : null,
+      impliedKnown: g.impliedKnown, exceeded: g.exceeded,
+      exceededPct: g.impliedKnown ? ehxRound((g.exceeded / g.impliedKnown) * 100, 1) : null,
+      avgWeek1Pct: g.week1N ? ehxRound(g.week1Sum / g.week1N) : null,
+      tone,
+    });
+  }
+  out.sort((a, b) => b.reported - a.reported || a.group.localeCompare(b.group));
+  return out;
+}
+
 // beat | miss | inline | null (no EPS data). Uses the source's surprise % when
 // present (Yahoo/Nasdaq both supply it), else derives it from actual/estimate.
 export function earningsEpsVerdict(ev) {
@@ -7962,7 +8072,7 @@ export async function buildEarningsTrackerPayload(store, chains, builtAtIso, pri
       tone = score >= 1 ? "positive" : score <= -1 ? "negative" : "mixed";
     }
     const labels = earningsSeasonLabels(key) || { fiscal: key, window: "" };
-    return { key, fiscal: labels.fiscal, window: labels.window, counts: c, stats, leaders, tone, rows };
+    return { key, fiscal: labels.fiscal, window: labels.window, counts: c, stats, leaders, tone, bySector: earningsSeasonBySector(rows), rows };
   });
   // Recently reported tape — newest first across reporting-season boundaries.
   // Keep the full resolved row shape so the compact tape and full-season table
@@ -8720,12 +8830,24 @@ export function normalizeTranscriptSummary(parsed, notes = []) {
   return out;
 }
 
+// The user turn of a transcript brief: one line of context, then the whole
+// (bounded) transcript. Shared by the inline call and the batch request.
+export function transcriptUserMessage(sym, meta, sourceInput) {
+  return `${sym} — ${meta.company || sym} ${meta.quarter || ""} earnings call` +
+    `${meta.callDate ? `, held ${meta.callDate}` : ""}. Complete transcript follows.\n\n---\n\n${sourceInput.text}`;
+}
+
+
+// One ledger write for every earnings-call brief, whether it came back from
+// an inline call or a Batch job (mode "batch"), so the usage tracker and the
+// cost ledger count both the same way.
+function recordTranscriptUsage({ model, symbol, usage, mode = null }) {
+  recordAiUsage({ model, callType: "earnings-call", symbol, usage, ...(mode ? { mode } : {}) });
+}
 async function summarizeEarningsCall(sym, meta) {
   const sourceInput = prepareTranscriptInput(meta.text, transcriptMaxChars());
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: AI_HTTP_TIMEOUT_MS } });
-  const userMessage =
-    `${sym} — ${meta.company || sym} ${meta.quarter || ""} earnings call` +
-    `${meta.callDate ? `, held ${meta.callDate}` : ""}. Complete transcript follows.\n\n---\n\n${sourceInput.text}`;
+  const userMessage = transcriptUserMessage(sym, meta, sourceInput);
   let response, lastErr;
   for (let attempt = 0; attempt < AI_MAX_ATTEMPTS; attempt++) {
     try {
@@ -8735,12 +8857,7 @@ async function summarizeEarningsCall(sym, meta) {
         config: transcriptSummaryGenerateConfig(),
         contents: userMessage,
       });
-      recordAiUsage({
-        model: aiModelForAttempt(AI_TRANSCRIPT_MODEL, attempt),
-        callType: "earnings-call",
-        symbol: sym,
-        usage: response?.usageMetadata,
-      });
+      recordTranscriptUsage({ model: aiModelForAttempt(AI_TRANSCRIPT_MODEL, attempt), symbol: sym, usage: response?.usageMetadata });
       break;
     } catch (err) {
       lastErr = err;
@@ -8750,6 +8867,14 @@ async function summarizeEarningsCall(sym, meta) {
     }
   }
   if (!response) throw lastErr ?? new Error("no response from Gemini");
+  const { summary, notes, partial } = parseTranscriptSummaryResponse(response);
+  return { summary, sourceInput, notes, partial };
+}
+
+// Turn a finished transcript response (inline SDK object or a batch job's
+// plain JSON) into the brief. Throws with `transcriptContentFailure` when the
+// content is unusable, exactly as the inline path always did.
+export function parseTranscriptSummaryResponse(response) {
   // A response that slammed into maxOutputTokens is truncated mid-JSON, and
   // the runaway reproduces on every attempt (UBS did it every bake for days).
   // It has been paid for, so every section that finished before the cut is
@@ -8757,7 +8882,7 @@ async function summarizeEarningsCall(sym, meta) {
   // recoverable is a CONTENT failure (the per-name daily cooldown). Not thrown
   // inside the retry loop: the API call "succeeded", so the model ladder never fires.
   const truncated = response?.candidates?.[0]?.finishReason === "MAX_TOKENS";
-  const text = response.text;
+  const text = batchResponseText(response);
   if (!text) {
     const err = new Error(truncated ? "response hit the maxOutputTokens cap (finishReason MAX_TOKENS) with no text" : "empty Gemini response");
     if (truncated) err.transcriptContentFailure = true;
@@ -8782,7 +8907,7 @@ async function summarizeEarningsCall(sym, meta) {
         notes.push({ path: "$", issue: "malformed JSON; complete sections kept" });
       }
     }
-    return { summary: normalizeTranscriptSummary(parsed, notes), sourceInput, notes, partial: truncated };
+    return { summary: normalizeTranscriptSummary(parsed, notes), notes, partial: truncated };
   } catch (err) {
     // The model answered but the content is unusable (malformed JSON, missing
     // required sections) — deterministic for this transcript, so same-day
@@ -8846,6 +8971,8 @@ export async function updateEarningsCallsData({ prior = null, earningsHxStore = 
   for (const [sym, at] of Object.entries(prior?.fails || {})) {
     if (uniSet.has(sym) && at === todayIso) fails[sym] = at;
   }
+  // A batch job the previous transcript slot left running (lib/transcript-batch.mjs).
+  let pendingBatch = prior?.pendingBatch && typeof prior.pendingBatch === "object" && typeof prior.pendingBatch.name === "string" ? prior.pendingBatch : null;
   const finishIndex = () => ({
     builtAtIso: builtAtIso || nowIso,
     updatedAt: nowIso,
@@ -8855,6 +8982,7 @@ export async function updateEarningsCallsData({ prior = null, earningsHxStore = 
     calls,
     probes,
     fails,
+    ...(pendingBatch ? { pendingBatch } : {}),
   });
 
   // Keyless / off-cadence: no point discovering transcripts we can't summarize —
@@ -8871,11 +8999,110 @@ export async function updateEarningsCallsData({ prior = null, earningsHxStore = 
     return e && e.v === TRANSCRIPT_SUMMARY_VERSION ? e : null;
   };
 
+  const details = [];
+  const summarized = new Set();
+  // Record a finished brief: the per-ticker detail + the index entry.
+  // `meta` is the discovered item's facts (company, quarter, call date,
+  // source) — from the parsed transcript inline, or from the pending record
+  // when the brief comes back from a batch job.
+  const commitTranscript = (meta, { summary, sourceInput, notes, partial }) => {
+    const sourceName = meta.source || (meta.origin === "marketbeat" ? "MarketBeat" : "The Motley Fool");
+    details.push({
+      sym: meta.sym,
+      company: meta.company || meta.sym,
+      quarter: meta.quarter || null,
+      callDate: meta.callDate || null,
+      published: meta.published || null,
+      sourceUrl: meta.url,
+      source: sourceName,
+      generatedAtIso: nowIso,
+      v: TRANSCRIPT_SUMMARY_VERSION,
+      summaryFormat: TRANSCRIPT_BRIEF_FORMAT,
+      sourceInput: { coverage: sourceInput?.coverage ?? null, originalChars: sourceInput?.originalChars ?? null, suppliedChars: sourceInput?.suppliedChars ?? null, sourceHash: sourceInput?.sourceHash ?? null },
+      ...(notes.length ? { responseNotes: notes.slice(0, 40) } : {}),
+      ...(partial ? { partial: true } : {}),
+      ...(meta.batch ? { batch: true } : {}),
+      summary,
+    });
+    if (notes.length) console.log(`  [calls] ${meta.sym} summary kept with ${notes.length} note${notes.length === 1 ? "" : "s"}: ${notes.slice(0, 3).map(n => `${n.path} ${n.issue}`).join("; ")}`);
+    calls[meta.sym] = {
+      sym: meta.sym,
+      company: meta.company || meta.sym,
+      quarter: meta.quarter || null,
+      callDate: meta.callDate || null,
+      published: meta.published || null,
+      source: sourceName,
+      headline: summary.headline,
+      mgmtTone: summary.mgmtTone?.label || null,
+      stance: summary.mgmtTone?.stance || null,
+      analystTone: summary.analystTone?.label || null,
+      epsVerdict: summary.epsVerdict,
+      sourceUrl: meta.url,
+      updatedAt: todayIso,
+      v: TRANSCRIPT_SUMMARY_VERSION,
+    };
+    summarized.add(meta.sym);
+    delete probes[meta.sym];
+    delete fails[meta.sym];
+    console.log(`  [calls] ${meta.sym} ${meta.quarter || ""} summarized${meta.textLength ? ` (${Number(meta.textLength).toLocaleString()} chars in)` : ""}${meta.batch ? " · batch" : ""}`);
+  };
+  // Content failures (MAX_TOKENS runaway, truncated/malformed JSON) are
+  // deterministic for the transcript — stamp the daily cooldown so this
+  // name doesn't re-burn a summarize slot + full-model tokens every bake.
+  // Transient failures (untagged: 5xx storms, timeouts) retry next build.
+  const failTranscript = (sym, err) => {
+    if (err?.transcriptContentFailure) {
+      fails[sym] = todayIso;
+      console.log(`  ⚠ [calls] ${sym} summary failed: ${err.message} — cooling down until the next ET day`);
+    } else {
+      console.log(`  ⚠ [calls] ${sym} summary failed: ${err.message}`);
+    }
+  };
+
+  // 0. A batch job left running by the previous slot. Finished → its briefs
+  //    land now. Failed, expired or over the age limit → dropped, names go
+  //    back to discovery. Still running → carried, names kept out of this run.
+  const pendingSyms = new Set();
+  if (pendingBatch) {
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: AI_HTTP_TIMEOUT_MS } });
+    let job = null, lookupErr = null;
+    try { job = await ai.batches.get({ name: pendingBatch.name }); } catch (err) { lookupErr = err; }
+    if (job && batchJobSucceeded(job.state)) {
+      const results = extractBatchResponses(job, pendingBatch.items);
+      for (const r of results) {
+        const meta = { ...pendingBatch.items.find((it) => it.sym === r.sym), batch: true };
+        if (!r.response) { failTranscript(r.sym, new Error(r.error || "no response in the batch result")); continue; }
+        try {
+          recordTranscriptUsage({ model: pendingBatch.model || AI_TRANSCRIPT_MODEL, symbol: r.sym, usage: r.response?.usageMetadata, mode: "batch" });
+          commitTranscript(meta, { ...parseTranscriptSummaryResponse(r.response), sourceInput: meta.sourceInput });
+        } catch (err) { failTranscript(r.sym, err); }
+      }
+      console.log(`  [calls] batch ${pendingBatch.name} finished — ${results.filter((r) => r.response).length}/${results.length} brief(s) collected`);
+      pendingBatch = null;
+    } else if (job && batchJobDone(job.state)) {
+      console.log(`  ⚠ [calls] batch ${pendingBatch.name} ended ${job.state}: ${batchJobFailureReason(job)} — names return to discovery`);
+      for (const sym of pendingBatchSymbols(pendingBatch)) delete probes[sym];
+      pendingBatch = null;
+    } else if (!job && lookupErr && /not found|404/i.test(String(lookupErr?.message || ""))) {
+      console.log(`  ⚠ [calls] batch ${pendingBatch.name} no longer exists — names return to discovery`);
+      for (const sym of pendingBatchSymbols(pendingBatch)) delete probes[sym];
+      pendingBatch = null;
+    } else if (pendingBatchTooOld(pendingBatch, nowIso)) {
+      console.log(`  ⚠ [calls] batch ${pendingBatch.name} still ${job?.state || "unreachable"} after ${TRANSCRIPT_BATCH_MAX_AGE_HOURS}h — dropped, names return to discovery`);
+      for (const sym of pendingBatchSymbols(pendingBatch)) delete probes[sym];
+      pendingBatch = null;
+    } else {
+      console.log(`  [calls] batch ${pendingBatch.name} still ${job?.state || `unreachable (${String(lookupErr?.message || "").split("\n")[0].slice(0, 80)})`} — carried to the next slot`);
+      for (const sym of pendingBatchSymbols(pendingBatch)) pendingSyms.add(sym);
+    }
+  }
+
   // 1. Listing poll — the ~20 newest publications sitewide, one fetch.
   const queue = new Map();
   const listed = parseFoolTranscriptLinks((await fetchFoolHtml(FOOL_LISTING_URL)) || "");
   for (const item of listed) {
     if (!uniSet.has(item.sym)) continue;
+    if (pendingSyms.has(item.sym)) continue; // its brief is in a running batch job
     if (fails[item.sym]) continue; // summarize failed on content earlier today — retry tomorrow, don't burn a slot
     if (!transcriptCandidateIsNewer(freshEntry(item.sym), item)) continue;
     queue.set(item.sym, item);
@@ -8901,7 +9128,7 @@ export async function updateEarningsCallsData({ prior = null, earningsHxStore = 
   };
   const needsProbe = [];
   for (const sym of universe) {
-    if (queue.has(sym) || fails[sym] || !probeCooldownOk(sym)) continue;
+    if (queue.has(sym) || fails[sym] || pendingSyms.has(sym) || !probeCooldownOk(sym)) continue;
     const cur = freshEntry(sym);
     if (!cur) {
       needsProbe.push(sym);
@@ -8973,15 +9200,13 @@ export async function updateEarningsCallsData({ prior = null, earningsHxStore = 
     await new Promise((r) => setTimeout(r, 200));
   }
 
-  // 3. Fetch + summarize, newest publications first. The slice bounds ATTEMPTS
+  // 3. Fetch + parse, newest publications first. The slice bounds ATTEMPTS
   //    (not successes) so a build-wide AI outage can't grind through the whole
-  //    queue at 6 retries a name. Attempted names run CONCURRENTLY (each item is
-  //    its own symbol — the queue is keyed by sym — so the per-name reads/writes
-  //    below never collide): serial, one sick AI call retrying through the model
-  //    ladder stalled the whole pass for minutes.
+  //    queue at 6 retries a name. Names run CONCURRENTLY (each item is its own
+  //    symbol — the queue is keyed by sym — so the per-name reads/writes never
+  //    collide).
   const items = [...queue.values()].sort((a, b) => (b.published || "").localeCompare(a.published || ""));
-  const details = [];
-  const summarized = new Set();
+  const parsedItems = [];
   await runPooled(items.slice(0, TRANSCRIPTS_PER_BUILD), TRANSCRIPT_CONCURRENCY, async (item) => {
     const pageHtml = (await fetchFoolHtml(item.url)) || "";
     const parsed =
@@ -9004,59 +9229,70 @@ export async function updateEarningsCallsData({ prior = null, earningsHxStore = 
         return;
       }
     }
+    parsedItems.push({ item, parsed, meta: {
+      sym: item.sym, company: parsed.company || item.sym, quarter: parsed.quarter || item.quarter || null,
+      callDate: parsed.callDate || item.published || null, published: item.published || null, url: item.url,
+      source: item.origin === "marketbeat" ? "MarketBeat" : "The Motley Fool", textLength: parsed.text.length,
+    } });
+  });
+
+  // 4. Summarize. Batch mode (default, TRANSCRIPT_BATCH=0 off) sends every
+  //    parsed transcript as ONE batch job at half the inline token price and
+  //    waits up to TRANSCRIPT_BATCH_WAIT_MIN minutes; what is still running is
+  //    carried as `pendingBatch` and collected next slot. A failed batch
+  //    request falls back to the inline calls for the same names right away.
+  let inlineItems = parsedItems;
+  if (parsedItems.length && transcriptBatchEnabled() && !pendingBatch) {
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: AI_HTTP_TIMEOUT_MS } });
+    const prepared = parsedItems.map((p) => {
+      const sourceInput = prepareTranscriptInput(p.parsed.text, transcriptMaxChars());
+      return { ...p, sourceInput, userMessage: transcriptUserMessage(p.item.sym, p.parsed, sourceInput) };
+    });
+    const requests = buildTranscriptBatchRequests(prepared.map((p) => ({ sym: p.item.sym, userMessage: p.userMessage })), { config: transcriptSummaryGenerateConfig() });
+    let job = null;
     try {
-      const { summary, sourceInput, notes, partial } = await summarizeEarningsCall(item.sym, parsed);
-      const quarter = parsed.quarter || item.quarter || null;
-      const callDate = parsed.callDate || item.published || null;
-      const sourceName = item.origin === "marketbeat" ? "MarketBeat" : "The Motley Fool";
-      details.push({
-        sym: item.sym,
-        company: parsed.company || item.sym,
-        quarter,
-        callDate,
-        published: item.published || null,
-        sourceUrl: item.url,
-        source: sourceName,
-        generatedAtIso: nowIso,
-        v: TRANSCRIPT_SUMMARY_VERSION,
-        summaryFormat: TRANSCRIPT_BRIEF_FORMAT,
-        sourceInput: { coverage: sourceInput.coverage, originalChars: sourceInput.originalChars, suppliedChars: sourceInput.suppliedChars, sourceHash: sourceInput.sourceHash },
-        ...(notes.length ? { responseNotes: notes.slice(0, 40) } : {}),
-        ...(partial ? { partial: true } : {}),
-        summary,
-      });
-      if (notes.length) console.log(`  [calls] ${item.sym} summary kept with ${notes.length} note${notes.length === 1 ? "" : "s"}: ${notes.slice(0, 3).map(n => `${n.path} ${n.issue}`).join("; ")}`);
-      calls[item.sym] = {
-        sym: item.sym,
-        company: parsed.company || item.sym,
-        quarter,
-        callDate,
-        published: item.published || null,
-        source: sourceName,
-        headline: summary.headline,
-        mgmtTone: summary.mgmtTone?.label || null,
-        stance: summary.mgmtTone?.stance || null,
-        analystTone: summary.analystTone?.label || null,
-        epsVerdict: summary.epsVerdict,
-        sourceUrl: item.url,
-        updatedAt: todayIso,
-        v: TRANSCRIPT_SUMMARY_VERSION,
-      };
-      summarized.add(item.sym);
-      delete probes[item.sym];
-      delete fails[item.sym];
-      console.log(`  [calls] ${item.sym} ${quarter || ""} summarized (${parsed.text.length.toLocaleString()} chars in)`);
+      await acquireAiSlot();
+      job = await ai.batches.create({ model: AI_TRANSCRIPT_MODEL, src: requests, config: { displayName: `earnings-calls-${nowIso.slice(0, 16).replace(/[:T]/g, "-")}` } });
+      if (!job?.name) throw new Error("batch job created without a name");
+      console.log(`  [calls] batch ${job.name} submitted — ${requests.length} transcript(s) on ${AI_TRANSCRIPT_MODEL}`);
     } catch (err) {
-      // Content failures (MAX_TOKENS runaway, truncated/malformed JSON) are
-      // deterministic for the transcript — stamp the daily cooldown so this
-      // name doesn't re-burn a summarize slot + full-model tokens every bake.
-      // Transient failures (untagged: 5xx storms, timeouts) retry next build.
-      if (err?.transcriptContentFailure) {
-        fails[item.sym] = todayIso;
-        console.log(`  ⚠ [calls] ${item.sym} summary failed: ${err.message} — cooling down until the next ET day`);
-      } else {
-        console.log(`  ⚠ [calls] ${item.sym} summary failed: ${err.message}`);
+      console.log(`  ⚠ [calls] batch submit failed (${String(err?.message || err).split("\n")[0].slice(0, 120)}) — summarizing inline instead`);
+      job = null;
+    }
+    if (job) {
+      const deadline = Date.now() + transcriptBatchWaitMs();
+      while (!batchJobDone(job.state) && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, TRANSCRIPT_BATCH_POLL_MS));
+        try { job = await ai.batches.get({ name: job.name }); } catch (err) { console.log(`  [calls] batch poll failed: ${String(err?.message || err).split("\n")[0].slice(0, 80)}`); }
       }
+      const pendingItems = prepared.map((p) => ({ ...p.meta, sourceInput: p.sourceInput }));
+      if (batchJobSucceeded(job.state)) {
+        const results = extractBatchResponses(job, pendingItems);
+        for (const r of results) {
+          const p = prepared.find((x) => x.item.sym === r.sym);
+          if (!r.response) { failTranscript(r.sym, new Error(r.error || "no response in the batch result")); continue; }
+          try {
+            recordTranscriptUsage({ model: AI_TRANSCRIPT_MODEL, symbol: r.sym, usage: r.response?.usageMetadata, mode: "batch" });
+            commitTranscript({ ...p.meta, batch: true }, { ...parseTranscriptSummaryResponse(r.response), sourceInput: p.sourceInput });
+          } catch (err) { failTranscript(r.sym, err); }
+        }
+        inlineItems = [];
+      } else if (batchJobDone(job.state)) {
+        console.log(`  ⚠ [calls] batch ${job.name} ended ${job.state}: ${batchJobFailureReason(job)} — summarizing inline instead`);
+      } else {
+        pendingBatch = pendingBatchRecord({ name: job.name, model: AI_TRANSCRIPT_MODEL, submittedAtIso: nowIso, items: pendingItems });
+        for (const p of prepared) summarized.add(p.item.sym); // keep the probe stamp: the brief is on its way
+        console.log(`  [calls] batch ${job.name} still ${job.state} after the wait — ${prepared.length} brief(s) will be collected next slot`);
+        inlineItems = [];
+      }
+    }
+  }
+  await runPooled(inlineItems, TRANSCRIPT_CONCURRENCY, async ({ item, parsed, meta }) => {
+    try {
+      const result = await summarizeEarningsCall(item.sym, parsed);
+      commitTranscript(meta, result);
+    } catch (err) {
+      failTranscript(item.sym, err);
     }
   });
   // A discovered transcript that didn't make it to a summary (parse/AI failure,
@@ -10719,6 +10955,10 @@ export async function buildForm4InsiderTransactions(priorPayload = null, asOf = 
     topPurchases,
     topSales,
     transactions: deduped.slice(0, 120),
+    // Cluster buying (lib/insider-cluster.mjs): names where three or more
+    // distinct insiders bought on the open market inside 30 days. Same rule
+    // the browser applies to the rows above, stamped here for other readers.
+    clusterBuying: findInsiderClusters(deduped, { asOf: asOf.toISOString() }),
     sourceNote:
       `SEC EDGAR Form 4 filings, latest ${FORM4_FILINGS_PER_TICKER} filings per tracked issuer inside the ${FORM4_LOOKBACK_DAYS}-day lookback. ` +
       "Open-market code P purchases and code S sales are ranked separately; awards, option exercises, gifts, and tax withholding remain labeled non-market transactions.",
@@ -12304,6 +12544,44 @@ export function commoditySeriesFromSweep(def, globalMarkets) {
   if (series.length < 2) return null;
   const spanDays = (Date.parse(series[series.length - 1].d) - Date.parse(series[0].d)) / 86400000;
   return spanDays >= COMMODITY_SWEEP_MIN_DAYS ? { series, symbol: def.symbol } : null;
+}
+
+// ---------------------------------------------------------------------------
+// Treasury auctions (lib/treasury-auctions.mjs, 2026-11-08). One free official
+// Fiscal Data read per ET day; the file accumulates about two years of
+// results and is public. Read before the wipe, written after it.
+async function readPriorTreasuryAuctions() {
+  try { return parseTreasuryAuctions(await readFile(resolve(DATA_DIR, TREASURY_AUCTIONS_KEY), "utf8")); } catch { return null; }
+}
+export async function fetchTreasuryAuctionRows(sinceDate, fetchImpl = fetch) {
+  const url = treasuryAuctionsUrl(sinceDate);
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 20_000);
+  let res;
+  try {
+    res = await fetchImpl(url, { headers: { Accept: "application/json", "User-Agent": "stonks-research/1.0 (+https://mingstreet.app)" }, signal: ctrl.signal });
+  } finally { clearTimeout(timer); }
+  if (!res.ok) throw new Error(`Fiscal Data auctions HTTP ${res.status}`);
+  const body = await res.json();
+  if (!body || !Array.isArray(body.data)) throw new Error("Fiscal Data auctions: unexpected shape (no data array)");
+  return parseTreasuryAuctionRows(body);
+}
+export async function writeTreasuryAuctionsFile(prior, builtAtIso, { fetchImpl = fetch } = {}) {
+  const today = etDateKey(new Date(builtAtIso || Date.now()));
+  let state = prior || emptyTreasuryAuctions();
+  let fetched = 0, skipped = "";
+  if (treasuryAuctionsFetchedToday(state, today)) skipped = "already read today";
+  else {
+    const since = new Date(Date.parse(`${today}T12:00:00Z`) - TREASURY_AUCTIONS_LOOKBACK_DAYS * 86400000).toISOString().slice(0, 10);
+    const rows = await fetchTreasuryAuctionRows(since, fetchImpl);
+    fetched = rows.length;
+    state = upsertTreasuryAuctions(state, rows, { fetchedDate: today, now: new Date().toISOString() });
+  }
+  const summary = summarizeTreasuryAuctions(state, { today });
+  const payload = { ...state, summary };
+  const json = JSON.stringify(payload);
+  await writeFile(resolve(DATA_DIR, TREASURY_AUCTIONS_KEY), json, "utf8");
+  return { fetched, skipped, total: state.auctions.length, weak: summary.weak, bytes: json.length };
 }
 
 export async function writeCommoditiesFile(builtAtIso, prior = null, globalMarkets = null) {
@@ -20125,7 +20403,11 @@ export function buildMacroContextForBuild({ chains, historicalCache = null, glob
   const stocks = TICKERS.filter((s) => SECTORS[s] !== "ETF" && !MACRO_CONTEXT_FUND_SYMS.has(s) && chains[s])
     .map((sym) => ({ sym, kind: macroContextKindOf(sym), closes: macroCloseSeries(chains[sym]) }));
   const ctx = buildMacroContext({ series, calendar, stocks, weights: MACRO_WEIGHTS, partyRows: partyTracker?.rows || null, breadthPct200 });
-  if (ctx) ctx.inputs = inputs;
+  if (ctx) {
+    ctx.inputs = inputs;
+    // Cycle clock (G4): growth vs inflation at each of the past 12 month ends.
+    try { ctx.cycleTrail = buildCycleTrail({ series, calendar, months: 12 }); } catch { ctx.cycleTrail = null; }
+  }
   return ctx;
 }
 
@@ -22400,6 +22682,8 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   // live, so an ungraded name can't fall through to the deterministic tiers.
   const aiActive = !!(aiMap && Object.keys(aiMap).length) || !!opts.aiGraderSkipped;
   meta.aiGraderSkipped = !!opts.aiGraderSkipped;
+  // live | off (AI_THESIS=0) | keyless; null on a legacy caller.
+  meta.aiGraderMode = opts.aiGraderMode === "live" || opts.aiGraderMode === "off" || opts.aiGraderMode === "keyless" ? opts.aiGraderMode : null;
   candidates.sort((a, b) => compareRegimeCandidates(a.r, b.r, macroBackdrop));
 
   const picks = [];
@@ -27724,7 +28008,7 @@ async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload 
   } catch (err) {
     console.warn(`[leaps] score skipped — ${String(err?.message || err).split("\n")[0]}`);
   }
-  const picks = buildTopPicks(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, rfr, { ...baseOpts, preScored:topScored, aiThesisMap: aiThesis.map, aiGraderSkipped: !!aiThesis.skipped, aiSkipBlocks: aiThesis.skipped?.blocks || null });
+  const picks = buildTopPicks(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, rfr, { ...baseOpts, preScored:topScored, aiThesisMap: aiThesis.map, aiGraderSkipped: !!aiThesis.skipped, aiSkipBlocks: aiThesis.skipped?.blocks || null, aiGraderMode: aiThesis.mode || null });
   const picksPath = resolve(DATA_DIR, PICKS_FILE);
   // Run archive (lib/picks-run-archive.mjs): the scored universe exactly as
   // this run saw it, with each name's single-option quote and the grader's
@@ -27740,6 +28024,7 @@ async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload 
         aiMap,
         aiActive: !!(aiMap && Object.keys(aiMap).length) || !!aiThesis?.skipped,
         aiSkipped: !!aiThesis?.skipped,
+        aiMode: aiThesis?.mode || null,
         openPositions: priorOpen || [],
         contractFor: (sym, side) => (chains?.[sym] ? pickContractForPick(side, chains[sym], rfr) : null),
         versions: {
@@ -27761,7 +28046,7 @@ async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload 
   let sharedResearch = null;
   if (baseOpts.marketAssessment) {
     const legacyPicks = buildTopPicks(chains,narratives,streaksMap,unusualPayload,macroBackdrop,volumeFlags,rfr,
-      {...baseOpts,marketAssessment:null,preScored,aiThesisMap:legacyAi.map,aiGraderSkipped:!!legacyAi.skipped});
+      {...baseOpts,marketAssessment:null,preScored,aiThesisMap:legacyAi.map,aiGraderSkipped:!!legacyAi.skipped,aiGraderMode:legacyAi.mode||null});
     applyPickFirstSeen(legacyPicks,(priorPayload?.sharedResearch||priorPayload)?.picks,builtAtIso);
     sharedResearch=buildTopPicksPayload(legacyPicks,builtAtIso);
   }
@@ -28564,10 +28849,21 @@ export function graderContextBuilder(opts = {}) {
   };
 }
 
+// AI final grader switch (2026-11-08): AI_THESIS=0 (a repo variable passed by
+// daily.yml) turns the grader off while everything else stays the same, so a
+// grader-off period can be compared with a grader-on period on the record.
+// The mode is stamped on rosterMeta, each new trade (graderMode) and the run
+// archive; nothing here changes while the variable is unset.
+export function aiGraderMode(env = process.env) {
+  if (String(env.AI_THESIS ?? "").trim() === "0") return "off";
+  return env.GEMINI_API_KEY ? "live" : "keyless";
+}
+
 export async function generateAiTheses(preScored, macroBackdrop, opts = {}, priorCache = {}) {
   const next = {}, map = {};
+  const mode = aiGraderMode();
   const scored = preScored?.scored || [];
-  if (!scored.length) return { map, cache: next };
+  if (!scored.length) return { map, cache: next, mode };
   const regime = preScored.regimeBand || "neutral";
   const macroRegime = macroBackdrop?.macroRegime || null;
   // Forward macro calendar (main() attaches it next to eventRisk) + the
@@ -28587,7 +28883,7 @@ export async function generateAiTheses(preScored, macroBackdrop, opts = {}, prio
   const edgeGate = opts.priorClosed ? edgeGatedConviction(opts.priorClosed, opts.builtAtIso) : null;
   const strongBar = edgeGate?.strongBar ?? PICKS_TIER_STRONG;
   const cands = aiGraderCandidates(preScored, macroBackdrop, opts);
-  if (!cands.length) return { map, cache: next };
+  if (!cands.length) return { map, cache: next, mode };
 
   // CAP: only the BEST PICKS_MAX_AI_THESES gate survivors get a thesis + final
   // grade. The same bounded, continuation-only alignment nudge used by the final
@@ -28613,7 +28909,7 @@ export async function generateAiTheses(preScored, macroBackdrop, opts = {}, prio
     console.log(`Thesis gate: ${gated.length}/${cands.length} data-gate survivors graded (capped at PICKS_MAX_AI_THESES=${PICKS_MAX_AI_THESES}; ${ready} could still become open picks and go first); ${cands.length - gated.length} ship deterministic-only.`);
   }
 
-  const keyless = !process.env.GEMINI_API_KEY || process.env.AI_THESIS === "0";
+  const keyless = mode !== "live";
   const toCall = [];
   for (const { r, side } of gated) {
     const k = `${r.sym}:${side}`;
@@ -28630,7 +28926,7 @@ export async function generateAiTheses(preScored, macroBackdrop, opts = {}, prio
     else if (skipNew && prior?.ai) next[k] = { ...prior };   // keep it for the next run's reuse check
     // keyless miss → no AI thesis (buildMarketRead falls back to the deterministic read)
   }
-  if (keyless || !toCall.length) return { map, cache: next, skipped };
+  if (keyless || !toCall.length) return { map, cache: next, skipped, mode };
 
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: AI_HTTP_TIMEOUT_MS } });
   console.log(`Writing AI thesis for ${toCall.length} candidate(s)… (${Object.keys(next).length} reused${AI_THESIS_SEARCH ? ", web-search grounded" : ""})`);
@@ -28671,6 +28967,11 @@ export async function generateAiTheses(preScored, macroBackdrop, opts = {}, prio
         // web-grounded verdict is auditable; absent when the research step was
         // disabled or failed. Additive — the client ignores unknown keys.
         if (research) parsed.webResearch = { at: new Date().toISOString(), sources: research.sources };
+        // Audit fields for the run archive (2026-11-08): the model that
+        // answered and the call's token counts. Display-only, never scored.
+        parsed.model = typeof response?.modelVersion === "string" ? response.modelVersion : AI_THESIS_MODEL;
+        const um = response?.usageMetadata || null;
+        if (um) parsed.usage = { in: um.promptTokenCount || 0, out: um.candidatesTokenCount || 0, th: um.thoughtsTokenCount || 0, cached: um.cachedContentTokenCount || 0 };
         map[k] = parsed;
         next[k] = { sig, decisionGuardSig, ai: parsed, generatedAtIso: new Date().toISOString() };
       }
@@ -28683,7 +28984,7 @@ export async function generateAiTheses(preScored, macroBackdrop, opts = {}, prio
       }
     }
   });
-  return { map, cache: next, skipped };
+  return { map, cache: next, skipped, mode };
 }
 
 export function applyPickFirstSeen(picks, priorPicks, builtAtIso) {
@@ -29862,6 +30163,9 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
       // stamped so the Track Record draws a divider. Unset while
       // PICKS_SINGLES_DEFAULT=0 (the earlier engine mix).
       ...(PICKS_STRUCTURE_POLICY_VERSION ? { structurePolicyVersion: PICKS_STRUCTURE_POLICY_VERSION } : {}),
+      // AI final grader mode at entry (live / off / keyless, since
+      // 2026-11-08) so a grader-off period can be compared on the record.
+      ...(picksPayload?.rosterMeta?.aiGraderMode ? { graderMode: picksPayload.rosterMeta.aiGraderMode } : {}),
       exitPolicy: pickExitPolicy(p.contract?.structure),
       // Event play tag, frozen at entry (macro / earnings / shock). Drives the
       // one post-event review and the shock time limit, and the Track Record's
@@ -32537,6 +32841,17 @@ export async function writeAiUsageState() {
   // retryCounters field, so the save does not invent one.
   pruneCollapsedRetryCounters(_aiUsageState, cutoff);
   await writeFile(resolve(DATA_DIR, AI_USAGE_FILE), JSON.stringify(_aiUsageState), "utf8");
+  // Long daily cost ledger (lib/ai-cost-history.mjs): every day the 14-day
+  // usage ledger still carries is upserted into a ~400-day Owner-only file,
+  // priced with the same table as the log summary. Non-fatal.
+  try {
+    let prior = null;
+    try { prior = parseAiCostHistory(await readFile(resolve(DATA_DIR, AI_COST_HISTORY_KEY), "utf8")); } catch { /* first write */ }
+    const hist = upsertAiCostHistory(prior, _aiUsageState, estimateAiBucketCost);
+    await writeFile(resolve(DATA_DIR, AI_COST_HISTORY_KEY), JSON.stringify(hist), "utf8");
+  } catch (err) {
+    console.warn(`[ai-usage] cost history skipped — ${String(err?.message || err).split("\n")[0]}`);
+  }
 }
 
 function logAiUsageSummary() {
@@ -36195,8 +36510,16 @@ async function generateTickerJudgment(ai, symbol, spot, headlines, fundamentals)
     userMessage += `\n\nFundamentals snapshot:\n${formatFundamentalsForPrompt(symbol, spot, fundamentals)}`;
   }
 
-  const systemInstruction = COMBINED_SYSTEM_PROMPT;
   const judgmentSchema = TICKER_JUDGMENT_SCHEMA;
+  // Implicit prompt caching (2026-11-08): the shared ~2,900-token instruction
+  // block rides at the FRONT of `contents`, with the per-ticker message after
+  // it, so every judgment call in a build shares one long prefix. Sent as a
+  // systemInstruction it did not count toward that prefix — the ledger showed
+  // under 1% of input tokens cached across ~4,000 calls. The text is the same
+  // either way, so the cache signature (tickerJudgmentInstructionSignature)
+  // does not change. AI_TICKER_SYSTEM_IN_CONTENTS=0 restores the old shape.
+  // Nothing per-ticker may ever be interpolated into COMBINED_SYSTEM_PROMPT.
+  const promptInContents = !/^(?:0|false)$/i.test(process.env.AI_TICKER_SYSTEM_IN_CONTENTS ?? "1");
 
   let response;
   let lastErr;
@@ -36205,12 +36528,8 @@ async function generateTickerJudgment(ai, symbol, spot, headlines, fundamentals)
       await acquireAiSlot({ judgment: true });
       response = await ai.models.generateContent({
         model: aiModelForAttempt(AI_TICKER_MODEL, attempt),
-        // CRITICAL for caching: systemInstruction is the cache key prefix.
-        // Anything per-ticker MUST stay in `contents`. If a refactor ever
-        // interpolates symbol/spot into COMBINED_SYSTEM_PROMPT the implicit
-        // caching breaks silently.
         config: {
-          systemInstruction,
+          ...(promptInContents ? {} : { systemInstruction: COMBINED_SYSTEM_PROMPT }),
           temperature: 0.3,
           // Wider than the old 600/900 because we're emitting news +
           // fundamentals + catalysts in one response; still well under
@@ -36220,7 +36539,7 @@ async function generateTickerJudgment(ai, symbol, spot, headlines, fundamentals)
           responseSchema: judgmentSchema,
           thinkingConfig: { thinkingBudget: 0 },
         },
-        contents: userMessage,
+        contents: promptInContents ? `${COMBINED_SYSTEM_PROMPT}\n\n${userMessage}` : userMessage,
       });
       recordAiUsage({ model: aiModelForAttempt(AI_TICKER_MODEL, attempt), callType: "ticker-judgment", symbol, usage: response?.usageMetadata });
       break;
@@ -38385,6 +38704,8 @@ async function main() {
   // miss, plus the accumulated scrape-overlay history (Drewry/BDI/Manheim),
   // so it must be pre-read before the wipe like the other histories.
   const priorCommodities = await readPriorCommodities();
+  // Treasury auction results accumulate (one Fiscal Data read per ET day).
+  const priorTreasuryAuctions = await readPriorTreasuryAuctions();
   // Bottom-tracker verdict history is the only accumulating part. The series
   // themselves are refetched. Read it before the wipe or the "same verdict
   // as recent sessions" line resets every build.
@@ -38745,6 +39066,28 @@ async function main() {
   } catch (err) {
     picksRunContext = { today: null, error: String(err?.message || err).split("\n")[0] };
   }
+  // Outcome rows + random control book (lib/picks-outcomes.mjs): read BEFORE
+  // the wipe like every other accumulating file. A missing file is a fresh
+  // start, an unreadable one is logged and starts over (nothing else depends
+  // on it).
+  let picksOutcomesState = emptyOutcomesState();
+  try {
+    const loadedOutcomes = await loadPicksOutcomes(DATA_DIR);
+    picksOutcomesState = loadedOutcomes.state;
+    if (loadedOutcomes.error) console.warn(`[outcomes] picks-outcomes.json unreadable (${loadedOutcomes.error}); starting over`);
+  } catch (err) {
+    console.warn(`[outcomes] history unavailable (${String(err?.message || err).split("\n")[0]})`);
+  }
+  // Data source health (lib/source-health.mjs): the 60-day state history is
+  // read BEFORE the wipe; the table itself is rebuilt at the end of the bake.
+  let priorSourceHealth = null;
+  try {
+    const loadedHealth = await loadSourceHealth(DATA_DIR);
+    priorSourceHealth = loadedHealth.state;
+    if (loadedHealth.error) console.warn(`[source-health] prior history unreadable (${loadedHealth.error}); starting over`);
+  } catch (err) {
+    console.warn(`[source-health] prior history unavailable (${String(err?.message || err).split("\n")[0]})`);
+  }
   // Evidence history is read BEFORE writeChainFiles wipes data/. Only the
   // latest pointer and the last 60 dated keys are opened — older evidence
   // files stay in the store and are never loaded or delete-staled.
@@ -39023,6 +39366,17 @@ async function main() {
   } catch (err) {
     console.log(`  ⚠ Commodities step failed (non-fatal): ${err.message}`);
   }
+  // Treasury auction results (Fiscal Data, free official API) — once per ET
+  // day; a miss keeps the prior file. Non-fatal.
+  try {
+    const ta = await writeTreasuryAuctionsFile(priorTreasuryAuctions, builtAtIso);
+    console.log(`wrote data/${TREASURY_AUCTIONS_KEY} — ${ta.total} auctions (${ta.skipped || `${ta.fetched} rows read`}), ${ta.weak.length ? `soft demand: ${ta.weak.join(", ")}` : "demand normal"}, ${ta.bytes} bytes`);
+  } catch (err) {
+    console.log(`  ⚠ Treasury auctions step failed (non-fatal): ${err.message}`);
+    if (priorTreasuryAuctions) {
+      try { await writeFile(resolve(DATA_DIR, TREASURY_AUCTIONS_KEY), JSON.stringify({ ...priorTreasuryAuctions, summary: summarizeTreasuryAuctions(priorTreasuryAuctions) }), "utf8"); } catch { /* keep going */ }
+    }
+  }
   // IPOs & Credit tracker (stockanalysis IPO calendar + EDGAR prospectus
   // counts + accumulated universe issuance events + FRED G.19/H.8 + NY Fed
   // household credit) — per-section last-good carry-forward (graceful).
@@ -39075,11 +39429,41 @@ async function main() {
   if (oiHistory) {
     await writeFile(resolve(DATA_DIR, OI_HISTORY_FILE), JSON.stringify(oiHistory), "utf8");
   }
+  // Option-implied borrow rate (2026-11-08): put-call parity on the chain
+  // nearest 60 days, recorded on today's iv-history entry (`bw`, % a year) and
+  // on the chain for the Market map's crowded-shorts screen. No fetch.
+  try {
+    let borrowN = 0;
+    for (const [sym, payload] of ivHistory.entries()) {
+      if (!payload?._sampledThisRun || !chains[sym]) continue;
+      const b = impliedBorrowRate(chains[sym], riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE, chains[sym].fundamentals?.dividendYield ?? 0);
+      if (!b) continue;
+      chains[sym].impliedBorrow = b;
+      const last = payload.entries?.[payload.entries.length - 1];
+      if (last) { last.bw = b.ratePct; borrowN++; }
+    }
+    if (borrowN) console.log(`  · implied borrow recorded for ${borrowN} names`);
+  } catch (err) {
+    console.log(`  ⚠ implied borrow skipped (non-fatal): ${err?.message || err}`);
+  }
   const ivHistoryBytes = await writeIvHistory(ivHistory);
   if (ivHistory.size) {
     console.log(`wrote data/iv-history/ — ${ivHistory.size} tickers, ${ivHistoryBytes} bytes total`);
   }
   const fundHistoryBytes = await writeFundamentalsHistory(fundHistory);
+  // Peer valuation band (lib/valuation-band.mjs, public valuation-bands.json):
+  // each name's multiples against its own saved snapshots and its peers. No
+  // fetch; the inputs are the fundamentals already in memory. Non-fatal.
+  try {
+    const bands = buildValuationBands({
+      chains, symbols: TICKERS, industries: INDUSTRY_OF_TICKER, sectors: SECTORS, groupOf: sectorGroupOf,
+      isEtf: (s) => SECTORS[s] === "ETF", history: fundHistory, builtAtIso: new Date().toISOString(), asOf: etDateKey(),
+    });
+    await writeFile(resolve(DATA_DIR, VALUATION_BANDS_KEY), JSON.stringify(bands), "utf8");
+    console.log(`wrote data/${VALUATION_BANDS_KEY} — ${Object.keys(bands.rows).length} names, ${bands.peerGroups} peer groups`);
+  } catch (err) {
+    console.warn(`[valuation] bands skipped — ${String(err?.message || err).split("\n")[0]}`);
+  }
   let earningsForecastInfo = null;
   if (earningsForecastPrepared) {
     try {
@@ -39403,6 +39787,19 @@ async function main() {
       const m = macroBackdrop.macroRegime;
       console.log(`  · market tape: ${m.state} (stress ${m.stress}, ${m.riskOffAxes} risk-off axes)${m.drivers.length ? ` — ${m.drivers.join(", ")}` : ""}`);
     }
+    // Record the tape's late levels on today's macro-history row (VVIX,
+    // put/call, Fear & Greed, the regime verdict) and write the file again.
+    // The first write above already saved the closes, so a failure here
+    // loses only these fields. lib/macro-levels.mjs.
+    try {
+      const late = macroLevelsLate({ globalMarkets, putCall: macroBackdrop.putCall, fearGreed: scoringFearGreed, macroRegime: macroBackdrop.macroRegime });
+      if (Object.keys(late).length) {
+        macroHistoryNext = mergeMacroLevels(macroHistoryNext, etDateKey(), late);
+        await writeMacroHistory(macroHistoryNext);
+      }
+    } catch (err) {
+      console.log(`  ⚠ macro levels record skipped (non-fatal): ${err?.message || err}`);
+    }
   }
   // Quant Lab (docs/quant-lab.md) — deterministic sigma / VRP / pairs /
   // surface / dispersion / post-earnings-drift screens over the data already
@@ -39555,6 +39952,28 @@ async function main() {
       else if (!archived?.skipped) console.log(`wrote data/${archived.key} — run ${archived.runs} of the day, ${archived.rows} name(s), ${archived.bytes} bytes`);
     } catch (err) {
       console.warn(`[picks-run] archive skipped — ${String(err?.message || err).split("\n")[0]}`);
+    }
+    // Outcome rows for every name this run scored, plus the random control
+    // draws. Measurement only: the roster, contracts and record are already
+    // written above and nothing here reads back into them.
+    try {
+      if (picksInfo?.picksRun) {
+        const runDate = etDateKey(new Date(builtAtIso));
+        const added = appendRunOutcomes(picksOutcomesState, picksInfo.picksRun, runDate);
+        const exclude = new Set([
+          ...(picksInfo.picksRun.rows || []).filter((r) => String(r?.out || "").startsWith("pick:")).map((r) => r.s),
+          ...(picksAccuracyPrev?.open || []).map((e) => e?.symbol).filter(Boolean),
+          ...picksOutcomesState.control.open.map((e) => e.symbol),
+        ]);
+        const drawn = drawControlEntries({
+          run: picksInfo.picksRun, chains, exclude, k: CONTROL_PER_RUN_MIN, builtAtIso, exitPolicy: pickExitPolicy("long"),
+          contractFor: (sym, side) => (chains?.[sym] ? pickContractForPick(side, chains[sym], riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE) : null),
+        });
+        const opened = addControlEntries(picksOutcomesState.control, drawn);
+        console.log(`[outcomes] ${added} outcome row(s) appended, ${opened} random control trade(s) opened`);
+      }
+    } catch (err) {
+      console.warn(`[outcomes] run rows skipped — ${String(err?.message || err).split("\n")[0]}`);
     }
   } else {
     const missing = topPicksCarryFiles.filter((file) => !topPicksCarry[file]);
@@ -39734,6 +40153,9 @@ async function main() {
       scenarioEngine,
       ...(scenarioHistory ? { scenarioHistory } : {}),
       ...(priorPremarketMovers ? { premarketMovers: priorPremarketMovers } : {}),
+      // Cycle clock (G4): the macro read's growth-vs-inflation trail. Carried
+      // from the prior payload when this build had no macro context.
+      cycleClock: macroBackdrop?.macroContext?.cycleTrail || priorMarketAnalysis?.cycleClock || null,
     });
     await writeFile(resolve(DATA_DIR, "market-analysis.json"), maJson, "utf8");
     console.log(`wrote data/market-analysis.json — market tape, ${maJson.length} bytes`);
@@ -39858,6 +40280,36 @@ async function main() {
     console.warn(`[research] grade-research failed — ${message}`);
     try { await writeGradeResearchFile(DATA_DIR, emptyGradeResearch(builtAtIso, message)); } catch { /* freshness still prefers a file; the warn above is the signal */ }
   }
+  // Outcomes + evidence board (lib/picks-outcomes.mjs, lib/evidence-board.mjs).
+  // Every full bake fills the horizons that now have a close (the daily bars
+  // are in memory) and rewrites the board; the random control book is marked
+  // only on Top Picks runs, the same schedule as the real book, so the two are
+  // compared like for like. No provider call, no AI call.
+  try {
+    const todayEt = etDateKey(new Date(builtAtIso));
+    const filled = fillOutcomes(picksOutcomesState, chains, { today: todayEt });
+    const pruned = pruneOutcomes(picksOutcomesState);
+    let controlMark = { marked: 0, closed: 0 };
+    if (refreshTopPicks) {
+      controlMark = markControlBook(picksOutcomesState.control, {
+        chains, builtAtIso, markFn: markOptionToMarket, resolveFn: resolvePickOutcome, outcomeFn: outcomeFromPnl, exitPolicy: pickExitPolicy("long"),
+      });
+    }
+    const outInfo = await writePicksOutcomes(DATA_DIR, picksOutcomesState);
+    console.log(`wrote data/${outInfo.key} — ${outInfo.rows} row(s), ${filled} horizon(s) filled${pruned ? `, ${pruned} old row(s) pruned` : ""}, control ${outInfo.controlOpen} open / ${outInfo.controlClosed} closed${controlMark.closed ? ` (${controlMark.closed} closed this run)` : ""}, ${outInfo.bytes} bytes`);
+    let accNow = null, dailyNow = null;
+    try { accNow = JSON.parse(await readFile(resolve(DATA_DIR, PICKS_ACCURACY_FILE), "utf8")); } catch { /* no record yet */ }
+    try { dailyNow = JSON.parse(await readFile(resolve(DATA_DIR, "grades-daily.json"), "utf8")); } catch { /* first run */ }
+    const shadowDays = (dailyNow?.days || []).filter((d) => d?.shadow?.rows && Object.keys(d.shadow.rows).length).length;
+    const board = buildEvidenceBoard({
+      outcomes: picksOutcomesState, closed: accNow?.closed || [], open: accNow?.open || [], shadowDays, builtAtIso, today: todayEt,
+      tradeBar: PICKS_MIN_CONVICTION, gradeModelVersion: GRADE_MODEL_VERSION, structurePolicyVersion: PICKS_STRUCTURE_POLICY_VERSION,
+    });
+    const boardInfo = await writeEvidenceBoard(DATA_DIR, board);
+    console.log(`wrote data/${boardInfo.key} — ${boardInfo.tests} test(s): ${Object.entries(board.counts).filter(([, n]) => n).map(([k, n]) => `${n} ${k}`).join(", ")}${board.next ? `, next ${board.next.id} ${board.next.date}` : ""}`);
+  } catch (err) {
+    console.warn(`[outcomes] skipped — ${String(err?.message || err).split("\n")[0]}`);
+  }
   // Market brief — after the separate 08:30 ET morning mint, the 11:00, 13:30,
   // and 16:10 full builds ship fresh reads. Other builds restore the exact
   // prior payload. Built from the data already in memory: overnight
@@ -39980,6 +40432,19 @@ async function main() {
   // from data already in memory or just written; no fetch, no AI. Each is
   // non-fatal and leaves the prior copy (or nothing) on failure.
   await writeNewViewFiles({ chains, oiTracker, unusual, builtAtIso, priorSiteChanges, priorMarketDays, priorMarketDayBriefs });
+  // Data source health (lib/source-health.mjs): reads the payloads written
+  // above and records what each outside source delivered (newest observation,
+  // carried parts, failed source checks) plus a 60-day day history. Owner-only,
+  // non-fatal; no fetch, no AI.
+  try {
+    const sourcePayloads = await readSourcePayloads(DATA_DIR);
+    const health = buildSourceHealth({ payloads: sourcePayloads, prior: priorSourceHealth, builtAtIso });
+    const healthInfo = await writeSourceHealth(DATA_DIR, health);
+    const flagged = health.sources.filter((r) => r.review).map((r) => `${r.id}:${r.state}`);
+    console.log(`wrote data/${healthInfo.key} — ${health.counts.ok}/${health.counts.sources} sources fresh${flagged.length ? `, review ${flagged.join(", ")}` : ""}, ${healthInfo.bytes} bytes`);
+  } catch (err) {
+    console.warn(`[source-health] skipped — ${String(err?.message || err).split("\n")[0]}`);
+  }
   // Join registries that already exist in this bake. No fetch and no model call.
   // A bad map still leaves a valid file behind so publication can continue.
   try {

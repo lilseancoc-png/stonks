@@ -14,6 +14,8 @@ import { mountOwnershipExplorer } from './ownership-explorer-client.mjs';
 import { patternLabFactory } from './pattern-lab-client.mjs';
 import { marketAnalysisFactory } from '../../lib/market-analysis.mjs';
 import { riskStackFactory } from '../../lib/risk-stack.mjs';
+import { scenarioImpactFactory } from '../../lib/scenario-engine.mjs';
+import { insiderClusterFactory } from '../../lib/insider-cluster.mjs';
 import { marketRefreshFactory } from '../../lib/market-refresh.mjs';
 import { webullAnalyticsFactory } from '../../lib/webull-analytics.mjs';
 import { webullReviewFactory } from './webull-review-client.mjs';
@@ -47,6 +49,9 @@ import { renderStockPageJs } from './stock-page-js.mjs';
 import { renderEarningsWeekJs } from './earnings-week-client.mjs';
 import { renderViewsNextJs } from './views-next-client.mjs';
 import { renderEdgeOddsJs } from './edge-odds-client.mjs';
+import { renderEvidenceJs } from './evidence-client.mjs';
+import { renderOwnerInsightJs } from './owner-insight-client.mjs';
+import { tradePostMortemFactory } from '../../lib/trade-postmortem.mjs';
 import { renderI18nJs, I18N_LANGS } from './i18n-client.mjs';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -104,6 +109,8 @@ ${renderStockPageJs()}
 ${renderEarningsWeekJs()}
 ${renderViewsNextJs()}
 ${renderEdgeOddsJs()}
+${renderEvidenceJs()}
+${renderOwnerInsightJs()}
 ${calendarSourceLabel.toString()}
 ${calendarScheduleFallbackUsable.toString()}
 ${calendarHealth.toString()}
@@ -115,6 +122,10 @@ ${currentNewsSentiment.toString()}
 ${validNewsFeedPayload.toString()}
   var marketAnalysis = (${marketAnalysisFactory.toString()})();
   var RISK_STACK = (${riskStackFactory.toString()})();
+  // One shock-to-move rule for the scenario paths and the What-if dials (source: lib/scenario-engine.mjs).
+  var SCENARIO_IMPACT = (${scenarioImpactFactory.toString()})();
+  // Insider cluster-buying rule (source: lib/insider-cluster.mjs), the same one the bake stamps on 13f.json.
+  var INSIDER_CLUSTER = (${insiderClusterFactory.toString()})();
   var marketRefresh = (${marketRefreshFactory.toString()})();
   // One "are the options expensive?" rule (source: lib/iv-richness.mjs), the
   // same one the grade, Top Picks and Trending IV use at bake time.
@@ -130,6 +141,8 @@ ${validNewsFeedPayload.toString()}
   // One overnight risk-on/off scorer (source: lib/overnight-tone.mjs), the same
   // one the bake uses for the saved pre-open call and the Top Picks tape axis.
   var OVERNIGHT = (${overnightToneFactory.toString()})();
+  // One closed-trade post-mortem read (source: lib/trade-postmortem.mjs).
+  var POST_MORTEM = (${tradePostMortemFactory.toString()})();
   // One broad sector grouping (source: lib/sector-groups.mjs), the same one the
   // sector cap, the heatmap blocks and the sector breadth streaks use. Fine
   // SECTORS labels stay for search and card subtitles; anything that GROUPS
@@ -6024,7 +6037,7 @@ ${renderExportBindings()}
     if (fc){ lo = Math.min(lo, fc.low); hi = Math.max(hi, fc.high); }
     if (!isFinite(lo) || !isFinite(hi) || hi <= lo) return { svg: '', legend: '' };
     var padv = (hi - lo) * 0.05; lo -= padv; hi += padv;
-    var L = pcLayout(), k = L.k || 1;
+    var L = pcLayout(), k = L.k || 1, narrowPc = L === PC_LAYOUT_NARROW;
     var W = L.W, H = L.H, padL = L.padL, padR = L.padR, padT = L.padT, priceBot = L.priceBot, volTop = L.volTop, volBot = L.volBot, rsiTop = L.rsiTop, rsiBot = L.rsiBot;
     var plotW = W - padL - padR;
     // When a forecast cone is present the historical series occupies only the
@@ -6135,7 +6148,9 @@ ${renderExportBindings()}
       for (i = 0; i < rsiLevels.length; i++){
         var lv = rsiLevels[i], ly = yRsi(lv).toFixed(1), mid = lv === 50;
         rsiGrid += '<line class="opt-pc-rsi-grid' + (mid ? ' is-mid' : '') + '" x1="' + padL + '" y1="' + ly + '" x2="' + (W - padR) + '" y2="' + ly + '" />';
-        rsiGrid += '<text class="opt-pc-rsi-ylabel" x="' + (padL - 6) + '" y="' + (yRsi(lv) + 3 * k).toFixed(1) + '">' + lv + '</text>';
+        // Phones: the RSI pane is 56 units tall, so the 70 / 50 / 30 labels
+        // would sit on each other at 14.5px; keep the mid line, drop its label.
+        if (!(narrowPc && mid)) rsiGrid += '<text class="opt-pc-rsi-ylabel" x="' + (padL - 6) + '" y="' + (yRsi(lv) + 3 * k).toFixed(1) + '">' + lv + '</text>';
       }
       // Shade the overbought (>70) and oversold (<30) zones faintly.
       var rsiZones =
@@ -6155,7 +6170,7 @@ ${renderExportBindings()}
       spotEl = '<line class="opt-pc-spot" x1="' + padL + '" y1="' + sy + '" x2="' + spotX2 + '" y2="' + sy + '" />' +
         (fc
           ? '<text class="opt-pc-fan-cur" text-anchor="end" x="' + (padL + histW - 4).toFixed(1) + '" y="' + (yAt(spot) - 4 * k).toFixed(1) + '">$' + fmt(spot) + '</text>'
-          : '<text class="opt-pc-spotlabel" x="' + (W - padR) + '" y="' + (yAt(spot) - 4 * k).toFixed(1) + '">spot $' + fmt(spot) + '</text>');
+          : '<text class="opt-pc-spotlabel" x="' + (W - padR) + '" y="' + (yAt(spot) - (narrowPc ? 9 : 4) * k).toFixed(1) + '">spot $' + fmt(spot) + '</text>');
     }
     // x labels (first / mid / last of the window)
     var xlabels = '';
@@ -13724,6 +13739,68 @@ ${renderExportBindings()}
       '<p>Equal-weight stress estimate only; it does not know share counts, cost basis, options, or hedges.</p>' +
     '</div>';
   }
+  // What-if dials (F5): the Owner moves the S&P, yields, dollar, oil and VIX
+  // and every tracked name's expected move comes from the same betas and
+  // shock rule the scenario paths use (SCENARIO_IMPACT). Display only.
+  function scenarioWhatIfShocks(){
+    var w = scenarioState.whatIf || (scenarioState.whatIf = {});
+    var out = {};
+    SCENARIO_IMPACT.DIALS.forEach(function(d){ var v = Number(w[d.key]); out[d.key] = isFinite(v) ? v : 0; });
+    return out;
+  }
+  function scenarioDialValue(d, v){
+    var n = Number(v) || 0;
+    return (n > 0 ? '+' : n < 0 ? '−' : '') + String(Math.round(Math.abs(n) * 100) / 100) + d.unit;
+  }
+  function scenarioWhatIfResultHtml(engine){
+    var shocks = scenarioWhatIfShocks();
+    var rows = engine.sensitivities || [];
+    if (!rows.length) return '<p class="scenario-empty">Ticker sensitivity data is unavailable for this snapshot.</p>';
+    if (!SCENARIO_IMPACT.anyShock(shocks)) return '<p class="scenario-empty">Move a dial or pick a preset to see each stock’s expected move. Every dial at zero means no shock.</p>';
+    var scored = rows.map(function(row){ return { row: row, imp: SCENARIO_IMPACT.impact(row.vector, row.annualizedVolPct, shocks) }; });
+    scored.sort(function(a, b){ return b.imp.mid - a.imp.mid; });
+    function list(items, tone){
+      return items.map(function(x){
+        var c = x.imp.contributions || {};
+        var keys = Object.keys(c).filter(function(k){ return Math.abs(Number(c[k]) || 0) >= 0.3; })
+          .sort(function(a, b){ return Math.abs(c[b]) - Math.abs(c[a]); }).slice(0, 2);
+        var why = keys.map(function(k){ return k.replace(/([A-Z])/g, ' $1').toLowerCase() + ' ' + scenarioSigned(c[k], '%'); }).join(' · ');
+        return '<button type="button" data-scn-grade="' + escapeHtml(x.row.symbol) + '"><span><b>' + escapeHtml(x.row.symbol) + '</b><small>' + escapeHtml((x.row.sector || '') + (why ? ' · ' + why : '')) + '</small></span>' +
+          '<em class="' + tone + '">' + escapeHtml(scenarioSigned(x.imp.mid, '%')) + '<small>' + escapeHtml(scenarioSigned(x.imp.low, '') + ' to ' + scenarioSigned(x.imp.high, '%')) + '</small></em></button>';
+      }).join('');
+    }
+    var up = scored.filter(function(x){ return x.imp.mid > 0; }).slice(0, 10);
+    var down = scored.filter(function(x){ return x.imp.mid < 0; }).reverse().slice(0, 10);
+    var avg = scored.reduce(function(a, x){ return a + x.imp.mid; }, 0) / scored.length;
+    var basketLine = '';
+    var syms = String(scenarioState.basket || '').toUpperCase().split(/[\\s,]+/).filter(Boolean);
+    if (syms.length){
+      var found = scored.filter(function(x){ return syms.indexOf(x.row.symbol) >= 0; });
+      if (found.length){
+        var bavg = found.reduce(function(a, x){ return a + x.imp.mid; }, 0) / found.length;
+        basketLine = '<p class="scenario-whatif-basket">Your basket (' + found.length + ' matched, equal weight): center <b class="' + (bavg >= 1 ? 'pos' : bavg <= -1 ? 'neg' : 'zero') + '">' + escapeHtml(scenarioSigned(bavg, '%')) + '</b>.</p>';
+      }
+    }
+    return '<p class="scenario-whatif-summary">Tracked universe center <b class="' + (avg >= 1 ? 'pos' : avg <= -1 ? 'neg' : 'zero') + '">' + escapeHtml(scenarioSigned(avg, '%')) + '</b> across ' + scored.length + ' names. Centers are stress estimates over 5–10 sessions, not price targets; the range widens with each name’s own volatility.</p>' + basketLine +
+      '<div class="scenario-exposures scenario-whatif-lists"><section><header><b>Gain most</b><span>center · range</span></header>' + (list(up, 'pos') || '<p class="scenario-empty">No name gains under these dials.</p>') + '</section>' +
+      '<section><header><b>Lose most</b><span>center · range</span></header>' + (list(down, 'neg') || '<p class="scenario-empty">No name loses under these dials.</p>') + '</section></div>';
+  }
+  function scenarioWhatIfSectionHtml(engine){
+    var shocks = scenarioWhatIfShocks();
+    var dials = SCENARIO_IMPACT.DIALS.map(function(d){
+      var v = shocks[d.key];
+      return '<label class="scenario-dial"><span>' + escapeHtml(d.label) + '</span>' +
+        '<input type="range" data-scn-dial="' + escapeHtml(d.key) + '" min="' + d.min + '" max="' + d.max + '" step="' + d.step + '" value="' + v + '" aria-label="' + escapeHtml(d.label) + '">' +
+        '<b data-scn-dial-val="' + escapeHtml(d.key) + '" class="' + (v > 0 ? 'pos' : v < 0 ? 'neg' : 'zero') + '">' + escapeHtml(scenarioDialValue(d, v)) + '</b></label>';
+    }).join('');
+    var presets = SCENARIO_IMPACT.PRESETS.map(function(p){ return '<button type="button" data-scn-preset="' + escapeHtml(p.key) + '">' + escapeHtml(p.label) + '</button>'; }).join('') +
+      '<button type="button" data-scn-preset="reset" class="scenario-preset-reset">Reset dials</button>';
+    return '<section class="scenario-section scenario-whatif"><header><div><small>What if</small><h4>Move the macro dials</h4></div><span>Same betas and shock rule as the paths above</span></header>' +
+      '<div class="scenario-dials">' + dials + '</div>' +
+      '<div class="scenario-presets" role="group" aria-label="Preset shocks">' + presets + '</div>' +
+      '<div id="scenario-whatif-result">' + scenarioWhatIfResultHtml(engine) + '</div>' +
+      '<p class="scenario-whatif-note">A CPI surprise has no measured per-stock beta here, so type it through the 2-year, 10-year and dollar dials. Each name’s betas come from its own daily returns against these markets over the past year, blended with its business profile where the sample is thin.</p></section>';
+  }
   function renderScenarioEngine(){
     var host = document.getElementById('market-scenario-engine');
     if (!host) return;
@@ -13851,6 +13928,7 @@ ${renderExportBindings()}
             '<div class="scenario-exposures"><section><header><b>Most positively exposed</b><span>conditional center</span></header>' + exposureHtml(selected.exposure?.positive, 'pos') + '</section>' +
             '<section><header><b>Most negatively exposed</b><span>conditional center</span></header>' + exposureHtml(selected.exposure?.negative, 'neg') + '</section></div>' +
           '</article></section>' +
+        scenarioWhatIfSectionHtml(engine) +
         '<section class="scenario-section scenario-sensitivity"><header><div><small>Stock-level map</small><h4>Scenario sensitivity lab</h4></div><span>' + (engine.sensitivities || []).length + ' tracked instruments</span></header>' +
           '<div class="scenario-controls"><label><span>Scenario</span><select id="scenario-sens-scenario">' + scenarios.map(function(s){ return '<option value="' + escapeHtml(s.key) + '"' + (s.key === selected.key ? ' selected' : '') + '>' + escapeHtml(s.name) + '</option>'; }).join('') + '</select></label>' +
           '<label><span>Sector</span><select id="scenario-sens-sector"><option value="all">All sectors</option>' + sectors.map(function(s){ return '<option value="' + escapeHtml(s) + '"' + (s === scenarioState.sector ? ' selected' : '') + '>' + escapeHtml(s) + '</option>'; }).join('') + '</select></label>' +
@@ -13874,14 +13952,38 @@ ${renderExportBindings()}
       var basket = ev.target && ev.target.closest ? ev.target.closest('[data-scn-basket]') : null;
       if (select){ scenarioState.selected = select.getAttribute('data-scn-select'); scenarioState.showAll = false; renderScenarioEngine(); return; }
       if (grade){ calGoToTicker(grade.getAttribute('data-scn-grade')); return; }
+      var preset = ev.target && ev.target.closest ? ev.target.closest('[data-scn-preset]') : null;
+      if (preset){
+        var pk = preset.getAttribute('data-scn-preset');
+        var found = SCENARIO_IMPACT.PRESETS.filter(function(p){ return p.key === pk; })[0];
+        scenarioState.whatIf = {};
+        if (found) Object.keys(found.shocks).forEach(function(k){ scenarioState.whatIf[k] = found.shocks[k]; });
+        renderScenarioEngine();
+        return;
+      }
       if (show){ scenarioState.showAll = !scenarioState.showAll; renderScenarioEngine(); return; }
       if (basket){
         var input = document.getElementById('scenario-basket-input');
         scenarioState.basket = input ? input.value : '';
         var result = document.getElementById('scenario-basket-result');
         if (result) result.innerHTML = scenarioBasketResult(engine, selected);
+        var whatIfOut = document.getElementById('scenario-whatif-result');
+        if (whatIfOut) whatIfOut.innerHTML = scenarioWhatIfResultHtml(engine);
       }
     };
+    Array.prototype.forEach.call(host.querySelectorAll('[data-scn-dial]'), function(inp){
+      inp.oninput = function(){
+        var key = inp.getAttribute('data-scn-dial');
+        var v = Number(inp.value);
+        scenarioState.whatIf = scenarioState.whatIf || {};
+        scenarioState.whatIf[key] = isFinite(v) ? v : 0;
+        var d = SCENARIO_IMPACT.DIALS.filter(function(x){ return x.key === key; })[0];
+        var lab = host.querySelector('[data-scn-dial-val="' + key + '"]');
+        if (lab && d){ lab.textContent = scenarioDialValue(d, scenarioState.whatIf[key]); lab.className = v > 0 ? 'pos' : v < 0 ? 'neg' : 'zero'; }
+        var out = document.getElementById('scenario-whatif-result');
+        if (out) out.innerHTML = scenarioWhatIfResultHtml(engine);
+      };
+    });
     var scenarioSelect = document.getElementById('scenario-sens-scenario');
     if (scenarioSelect) scenarioSelect.onchange = function(){ scenarioState.selected = scenarioSelect.value; scenarioState.showAll = false; renderScenarioEngine(); };
     var sectorSelect = document.getElementById('scenario-sens-sector');
@@ -14269,11 +14371,70 @@ ${renderExportBindings()}
     host.innerHTML = marketState.error ? '<p role="alert">' + escapeHtml(marketState.error) + ' <button type="button" data-market-retry>Retry</button></p>' : '<p role="status">' + (marketState.data ? 'Checking for newer analysis…' : 'Loading market analysis…') + '</p>';
     host.onclick = function(ev){ if (ev.target.closest('[data-market-retry]')) loadMarketAnalysis({ retry:true }); };
   }
+  // Cycle clock (G4): growth against inflation, one dot per month end for the
+  // past year, from the macro read the Top Picks grader sees (cycleClock in
+  // market-analysis.json). Quadrant labels follow lib/macro-context.mjs.
+  function renderCycleClock(){
+    var host = document.getElementById('market-cycle-clock');
+    if (!host) return;
+    var cc = marketState.data && marketState.data.cycleClock;
+    var pts = cc && Array.isArray(cc.points) ? cc.points.filter(function(p){ return p && isFinite(Number(p.growth)) && isFinite(Number(p.cpiYoy)); }) : [];
+    var unavailable = pts.length < 2;
+    if (host.parentElement && host.parentElement.classList.contains('market-secondary')) host.parentElement.hidden = unavailable;
+    if (unavailable){ host.hidden = true; host.innerHTML = ''; return; }
+    var T = cc.thresholds || { growthSlowing: -0.75, growthStrong: 0.5, cpiWarm: 2.5, cpiHot: 3.5 };
+    var W = 560, H = 340, padL = 44, padR = 14, padT = 14, padB = 34;
+    var xs = pts.map(function(p){ return Number(p.growth); }), ys = pts.map(function(p){ return Number(p.cpiYoy); });
+    var x0 = Math.min(-2, Math.min.apply(null, xs) - 0.25), x1 = Math.max(2, Math.max.apply(null, xs) + 0.25);
+    var y0 = Math.min(0, Math.min.apply(null, ys) - 0.5), y1 = Math.max(5, Math.max.apply(null, ys) + 0.5);
+    function X(v){ return padL + (v - x0) / (x1 - x0) * (W - padL - padR); }
+    function Y(v){ return H - padB - (v - y0) / (y1 - y0) * (H - padT - padB); }
+    function rect(xa, xb, ya, yb, cls, label){
+      var x = X(xa), y = Y(yb), w = X(xb) - X(xa), h = Y(ya) - Y(yb);
+      if (!(w > 0) || !(h > 0)) return '';
+      return '<rect class="cc-zone ' + cls + '" x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + w.toFixed(1) + '" height="' + h.toFixed(1) + '"/>' +
+        (w > 70 && h > 26 ? '<text class="cc-zone-label" x="' + (x + 6).toFixed(1) + '" y="' + (y + 14).toFixed(1) + '">' + escapeHtml(label) + '</text>' : '');
+    }
+    var zones = rect(x0, T.growthSlowing, T.cpiHot, y1, 'cc-stag', 'stagflation risk') +
+      rect(x0, T.growthSlowing, y0, T.cpiHot, 'cc-slow', 'slowdown') +
+      rect(T.growthSlowing, x1, y0, T.cpiWarm, 'cc-gold', 'goldilocks') +
+      rect(T.growthSlowing, T.growthStrong, T.cpiWarm, y1, 'cc-refl', 'reflation') +
+      rect(T.growthStrong, x1, T.cpiWarm, y1, 'cc-heat', 'overheating');
+    function signed(v){ var n = Number(v); return (n > 0 ? '+' : '') + n.toFixed(2); }
+    function monthLabel(m){
+      var mm = /^(\\d{4})-(\\d{2})/.exec(String(m || ''));
+      if (!mm) return String(m || '');
+      var names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      return names[Number(mm[2]) - 1] + ' ' + mm[1].slice(2);
+    }
+    var axis = '';
+    [-2, -1, 0, 1, 2].forEach(function(v){ if (v >= x0 && v <= x1) axis += '<line x1="' + X(v).toFixed(1) + '" x2="' + X(v).toFixed(1) + '" y1="' + Y(y0).toFixed(1) + '" y2="' + Y(y1).toFixed(1) + '"/><text x="' + X(v).toFixed(1) + '" y="' + (H - padB + 14).toFixed(1) + '" text-anchor="middle">' + (v > 0 ? '+' : '') + v + '</text>'; });
+    for (var yv = Math.ceil(y0); yv <= y1; yv += 1) axis += '<line x1="' + X(x0).toFixed(1) + '" x2="' + X(x1).toFixed(1) + '" y1="' + Y(yv).toFixed(1) + '" y2="' + Y(yv).toFixed(1) + '"/><text x="' + (padL - 6) + '" y="' + (Y(yv) + 3).toFixed(1) + '" text-anchor="end">' + yv + '%</text>';
+    axis += '<text class="cc-axis-title" x="' + ((padL + W - padR) / 2).toFixed(1) + '" y="' + (H - 4) + '" text-anchor="middle">growth score (jobs, claims, industry, real spending)</text>';
+    axis += '<text class="cc-axis-title" transform="rotate(-90)" x="' + (-(padT + (H - padT - padB) / 2)).toFixed(1) + '" y="11" text-anchor="middle">CPI, year over year</text>';
+    var trail = '<polyline class="cc-trail" points="' + pts.map(function(p){ return X(p.growth).toFixed(1) + ',' + Y(p.cpiYoy).toFixed(1); }).join(' ') + '"/>';
+    var dots = pts.map(function(p, i){
+      var last = i === pts.length - 1;
+      var r = last ? 6.5 : 3 + 1.5 * (i / Math.max(1, pts.length - 1));
+      return '<circle class="cc-dot' + (last ? ' cc-dot-now' : '') + '" cx="' + X(p.growth).toFixed(1) + '" cy="' + Y(p.cpiYoy).toFixed(1) + '" r="' + r.toFixed(1) + '" style="opacity:' + (last ? 1 : (0.45 + 0.55 * i / Math.max(1, pts.length - 1)).toFixed(2)) + '"/>';
+    }).join('');
+    var first = pts[0], last = pts[pts.length - 1];
+    var endLabels = '<text class="cc-end" x="' + (X(first.growth) + 7).toFixed(1) + '" y="' + (Y(first.cpiYoy) - 6).toFixed(1) + '">' + escapeHtml(monthLabel(first.month)) + '</text>' +
+      '<text class="cc-end cc-end-now" x="' + (X(last.growth) + 9).toFixed(1) + '" y="' + (Y(last.cpiYoy) + 4).toFixed(1) + '">' + escapeHtml(monthLabel(last.month)) + '</text>';
+    var hover = chHoverAttr(pts.map(function(p){ return { x: X(p.growth), y: Y(p.cpiYoy), label: monthLabel(p.month) + '\\n' + 'growth ' + signed(p.growth) + ' \u00b7 CPI ' + Number(p.cpiYoy).toFixed(1) + '%' + (p.unemployment != null ? ' \u00b7 unemployment ' + p.unemployment + '%' : '') + '\\n' + String(p.quadrant || '') }; }));
+    var now = cc.now || {};
+    host.innerHTML = '<div class="cc-chart"><svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Cycle clock: growth score against CPI inflation, one dot per month end for the past year"' + hover + '>' +
+        zones + '<g class="cc-axis">' + axis + '</g>' + trail + dots + endLabels + '</svg></div>' +
+      '<p class="cc-now">Now: <b>' + escapeHtml(String(now.quadrant || last.quadrant || '\u2014')) + '</b> \u00b7 growth ' + escapeHtml(String(now.growth || last.growthLabel || '')) + ' (' + signed(last.growth) + ') \u00b7 inflation ' + escapeHtml(String(now.inflation || last.inflationLabel || '')) + ' (CPI ' + Number(last.cpiYoy).toFixed(1) + '%)' + (cc.asOf ? ' \u00b7 as of ' + escapeHtml(String(cc.asOf)) + '</p>' : '</p>') +
+      '<p class="cc-note">Each dot is the last session of a month; the big dot is the latest read. Growth below ' + T.growthSlowing + ' reads slowing and above +' + T.growthStrong + ' strong; CPI from ' + T.cpiWarm + '% reads warm and from ' + T.cpiHot + '% hot. The same labels feed the Top Picks grader\u2019s cycle line. Monthly data carry their release lag, so a dot shows what was published by that date.</p>';
+    host.hidden = false;
+  }
   function renderMarketAnalysis(){
     renderMarketLoadStatus();
     renderMarketDeskStrip();
     bindPositionTool();
     renderScenarioEngine();
+    renderCycleClock();
     renderPremarketMovers();
     renderMacroTape();
     if (typeof renderRegimeHistory === 'function') renderRegimeHistory();
@@ -20242,6 +20403,25 @@ ${renderExportBindings()}
         (gapDown ? '<div class="ers-ldr-col"><div class="ers-ldr-head ers-neg">Biggest ' + (gapMode ? 'gap-downs' : 'down moves') + '</div>' + gapDown + '</div>' : '') +
       '</div>';
     }
+    // Season scorecard by sector (F8): beat rate, guidance tone and the average
+    // reaction per broad group, from the same rows as the table below.
+    var bySector = Array.isArray(season.bySector) ? season.bySector.filter(function(g){ return g && g.reported; }) : [];
+    if (bySector.length >= 2){
+      html += '<details class="ers-sectors" open><summary><span>By sector</span><small>' + bySector.length + ' groups \u00b7 beat rate, guidance, reactions</small></summary>' +
+        '<div class="ers-table-wrap"><table class="ers-table ers-sector-table"><thead><tr><th>Sector</th><th class="ers-td-num">Reports</th><th class="ers-td-num">Beat rate</th><th>Guidance</th><th class="ers-td-num">Avg reaction</th><th class="ers-td-num">Up reactions</th><th class="ers-td-num">Beat implied</th><th>Tone</th></tr></thead><tbody>' +
+        bySector.map(function(g){
+          var guid = g.guidKnown ? '<span class="ers-pos">' + g.guidUp + ' raised</span> \u00b7 <span class="ers-neg">' + g.guidDown + ' cut</span>' + (g.guidInline ? ' \u00b7 ' + g.guidInline + ' held' : '') + (g.guidFromCalls ? ' <span class="ers-dim">(' + g.guidFromCalls + ' from calls)</span>' : '') : '<span class="ers-dim">no read</span>';
+          return '<tr><td>' + escapeHtml(g.group) + '<span class="ers-dim"> \u00b7 ' + g.names + ' name' + (g.names === 1 ? '' : 's') + '</span></td>' +
+            '<td class="ers-td-num" data-sort="' + g.reported + '">' + g.reported + '</td>' +
+            '<td class="ers-td-num" data-sort="' + (ersNum(g.beatRatePct) ? g.beatRatePct : '') + '">' + (ersNum(g.beatRatePct) ? g.beatRatePct.toFixed(0) + '%<span class="ers-dim"> of ' + g.epsKnown + '</span>' : '<span class="ers-dim">\u2014</span>') + '</td>' +
+            '<td data-sort="' + (g.guidKnown ? g.guidUp - g.guidDown : '') + '">' + guid + '</td>' +
+            '<td class="ers-td-num' + ersToneCls(g.avgMovePct) + '" data-sort="' + (ersNum(g.avgMovePct) ? g.avgMovePct : '') + '">' + ersPct(g.avgMovePct) + (ersNum(g.avgAbsMovePct) ? '<span class="ers-dim"> \u00b7 \u00b1' + (g.avgAbsMovePct * 100).toFixed(1) + '% typical</span>' : '') + '</td>' +
+            '<td class="ers-td-num" data-sort="' + (ersNum(g.breadthPct) ? g.breadthPct : '') + '">' + (ersNum(g.breadthPct) ? g.breadthPct.toFixed(0) + '%<span class="ers-dim"> of ' + g.moveKnown + '</span>' : '<span class="ers-dim">\u2014</span>') + '</td>' +
+            '<td class="ers-td-num" data-sort="' + (ersNum(g.exceededPct) ? g.exceededPct : '') + '">' + (ersNum(g.exceededPct) ? g.exceededPct.toFixed(0) + '%<span class="ers-dim"> of ' + g.impliedKnown + '</span>' : '<span class="ers-dim">\u2014</span>') + '</td>' +
+            '<td data-sort="' + escapeHtml(g.tone || '') + '">' + (g.tone ? '<span class="ers-chip ' + (g.tone === 'positive' ? 'ers-chip-pos' : g.tone === 'negative' ? 'ers-chip-neg' : 'ers-chip-flat') + '">' + escapeHtml(g.tone) + '</span>' : '<span class="ers-dim">small sample</span>') + '</td></tr>';
+        }).join('') + '</tbody></table></div>' +
+        '<p class="ers-table-note">Beat rate counts EPS beats among prints with an estimate. Guidance comes from the earnings-call brief when one exists, else the news read after the print. Reaction is the close-to-close move on the print day; "beat implied" is the share of prints that moved more than the options had priced.</p></details>';
+    }
     html += ersReactionScatter(Array.isArray(season.rows) ? season.rows : []);
     // Full season table.
     var rowsArr = Array.isArray(season.rows) ? season.rows : [];
@@ -25103,7 +25283,7 @@ ${renderExportBindings()}
   var ownerLabBound = false;
   var quantPairsAll = false;
   function selectOwnerLabView(view){
-    if (['personal','research','diagnostics'].indexOf(view) < 0) return;
+    if (['personal','research','diagnostics','evidence'].indexOf(view) < 0) return;
     ownerLabView = view;
     var section = $('quant-section');
     if (!section) return;
@@ -25114,10 +25294,12 @@ ${renderExportBindings()}
     });
     section.querySelectorAll('[data-owner-panel]').forEach(function(panel){ panel.hidden = panel.getAttribute('data-owner-panel') !== view; });
     var eye = $('quant-eyebrow');
-    if (eye && view !== 'research') eye.textContent = view === 'personal' ? 'Private tools' : 'Stored research records';
+    if (eye && view !== 'research') eye.textContent = view === 'personal' ? 'Private tools' : view === 'evidence' ? 'Tests and gates' : 'Stored research records';
     if (view === 'personal') loadOwnerTools();
     if (view === 'research') loadQuantResearch();
     if (view === 'diagnostics' && window.BookViews) window.BookViews.openTab('quant');
+    if (view === 'diagnostics') loadCostHistory();
+    if (view === 'evidence') loadEvidenceBoard();
   }
   function bindOwnerLab(){
     var section = $('quant-section');
@@ -25127,6 +25309,7 @@ ${renderExportBindings()}
       var view = event.target.closest('[data-owner-view]');
       if (view) selectOwnerLabView(view.getAttribute('data-owner-view'));
       if (event.target.closest('[data-owner-research-refresh]')) loadQuantResearch(true);
+      if (event.target.closest('[data-owner-evidence-refresh]')) loadEvidenceBoard(true);
       // "Company record" link: open the Unified Signal Engine on that view,
       // carrying over a ticker typed into one of the record searches. The
       // button's data-wf-go does the page switch.
@@ -33990,10 +34173,20 @@ ${renderExportBindings()}
       }
       var marketRows = f4.transactions.filter(function(row){ return row && row.openMarket; });
       var otherRows = f4.transactions.filter(function(row){ return row && !row.openMarket; });
+      // Cluster buying (lib/insider-cluster.mjs): the bake stamps clusterBuying;
+      // an older payload gets the same rule applied to the rows it carries.
+      var clusterRead = f4.clusterBuying && Array.isArray(f4.clusterBuying.rows) ? f4.clusterBuying : INSIDER_CLUSTER.clusters(f4.transactions, { asOf: f4.asOf });
+      var clusterRows = clusterRead.rows || [];
+      var clusterHtml = '<div class="f4-clusters' + (clusterRows.length ? '' : ' is-empty') + '"><header><span class="f13-kicker">Cluster buying</span><small>' + clusterRead.minInsiders + '+ different insiders \u00b7 open-market buys inside ' + clusterRead.windowDays + ' days</small></header>' +
+        (clusterRows.length ? '<div class="f4-cluster-grid">' + clusterRows.slice(0, 8).map(function(row){
+          return '<article class="f4-cluster">' + f13TickerHtml(row) + '<b>' + row.insiders + ' insiders</b><span>' + escapeHtml(row.value ? fmtBigDollarsF13(row.value) : 'value not reported') + '</span><small>' + escapeHtml(INSIDER_CLUSTER.sentence(row)) + (row.names && row.names.length ? ' ' + row.names.slice(0, 4).join(', ') + (row.names.length > 4 ? ', \u2026' : '') : '') + '</small></article>';
+        }).join('') + '</div>' : '<p class="f4-none">No cluster buying in the current lookback: no tracked name has ' + clusterRead.minInsiders + ' or more insiders buying on the open market inside ' + clusterRead.windowDays + ' days.</p>') +
+      '</div>';
       html += '<section class="f4-desk" aria-label="Form 4 insider transactions">' +
         '<div class="f4-head"><div><span class="f13-kicker">Form 4 insider tape</span><h3>What insiders actually reported</h3><p>Open-market purchases and sales are separated from grants, exercises, gifts, and tax withholding. A filing is evidence of the transaction—not proof of the insider&rsquo;s motive.</p></div>' +
           '<span class="f13-coverage"><b>' + Number(f4.openMarketCount || marketRows.length) + '</b><small>open-market rows</small></span></div>' +
         '<div class="f13-desk-source"><span><b>SEC EDGAR · ' + Number(f4.lookbackDays || 60) + '-day lookback</b> · ' + Number(f4.transactionCount || f4.transactions.length) + ' total non-derivative transactions</span><small>latest up to ' + Number(f4.filingsPerIssuerCap || 2) + ' filings / issuer · usually filed within two business days</small></div>' +
+        clusterHtml +
         '<div class="f4-grid">' +
           form4Side(f4.topPurchases, 'buy', 'Open-market purchases') +
           form4Side(f4.topSales, 'sell', 'Open-market sales') +
@@ -36700,7 +36893,11 @@ ${renderExportBindings()}
     // Exposure caps (lib/top-picks-caps.mjs), stamped from Nov 6.
     { key:'caps', get:function(e){ return (e && e.capsVersion) || ''; } },
     // Option-structure rule (singles by default), stamped from its first trade.
-    { key:'structure', get:function(e){ return (e && e.structurePolicyVersion) || ''; } }
+    { key:'structure', get:function(e){ return (e && e.structurePolicyVersion) || ''; } },
+    // AI final grader mode (live / off / keyless), stamped from 2026-11-08.
+    // Every earlier record trade ran with the grader live, so an unstamped
+    // trade reads as live and no divider appears until the mode changes.
+    { key:'grader', get:function(e){ return (e && e.graderMode) || 'live'; } }
   ];
   // When each version took effect and what it changed (shown on its divider).
   // A version missing here dates from its earliest trade and shows no note.
@@ -36718,7 +36915,9 @@ ${renderExportBindings()}
     timing: { '4': { since:'2026-10-23', note:'Volatility-aware entry timing' }, '5': { since:'2026-11-06', note:'Event-aware: trades through macro events and earnings when the evidence agrees' } },
     caps: { '2026-11-06-factor-run-2': { since:'2026-11-06', note:'At most 2 new trades per run from one stock group (the tech/AI group)' } },
     // No fixed date: the divider dates from the first trade under the rule.
-    structure: { '2026-11-singles-default': { note:'Single calls and puts by default; a debit spread only for earnings inside the hold or one contract over $5,000' } }
+    structure: { '2026-11-singles-default': { note:'Single calls and puts by default; a debit spread only for earnings inside the hold or one contract over $5,000' } },
+    // No fixed dates: each mode's divider dates from its first trade.
+    grader: { 'off': { note:'AI final grader off (AI_THESIS=0): deterministic grades and entries only' }, 'keyless': { note:'AI final grader had no key: deterministic grades and entries only' }, 'live': { note:'AI final grader back on' } }
   };
   function accRuleSegments(list){
     var firstSeen = {};
@@ -39630,15 +39829,15 @@ ${renderExportBindings()}
       ? '<p class="hint">Each close adds the recorded dollar result after known fees. The line starts at $0. It is not the broker cash balance, so there is no account return or CAGR.</p>'
       : '';
     var splitLens = paper ? { splitKey: 'wbEqSplit', splitId: 'acc-wb-eq-split', chartBasis: basis, hint: (basis === 'account' ? 'Paper-account running total for each group, on one time axis.' : 'Running total for each group on the selected dollar basis, on one time axis.') } : null;
+    var decAll = accDecided(trades);
     box.innerHTML = toggles +
       '<p class="hint acc-an-lead">' + lead + '</p>' + accountNote +
       tiles + accEquityChartHtml(ec.points, { key: paper ? 'paper' : 'equity' }) +
-      (function(){
-        var dec = accDecided(trades);
-        return accSplitCurvesHtml(dec, splitLens) + accPnlHistogramHtml(dec, paper ? { title: 'How big each paper trade was (P&amp;L %)' } : null) + accPnlCalendarHtml(dec, paper ? basis : undefined);
-      })();
+      (paper ? '' : accRollingWinHtml(decAll)) +
+      accSplitCurvesHtml(decAll, splitLens) + accPnlHistogramHtml(decAll, paper ? { title: 'How big each paper trade was (P&amp;L %)' } : null) + accPnlCalendarHtml(decAll, paper ? basis : undefined);
     accMountEquityChart(box, ec.points, { key: paper ? 'paper' : 'equity', dollars: account, label: account ? 'Paper P&L' : 'Equity',
       source: paper ? 'Webull paper fills, by close day' : 'Closed trades, by close day · ' + basisLbl });
+    if (!paper) accMountRollingWin(box, decAll);
   }
 
   // --- Breakdowns sub-tab (#an-breakdowns) ---------------------------------
@@ -41175,8 +41374,9 @@ ${renderExportBindings()}
       rows.push({ o: o, g: g });
       netDelta += g.deltaUsd; grossDelta += Math.abs(g.deltaUsd); theta += g.thetaUsd;
       var grp = sectorGroupOf(o.symbol) || 'Other';
-      var b = groups[grp] = groups[grp] || { delta: 0, n: 0, calls: 0, puts: 0 };
+      var b = groups[grp] = groups[grp] || { delta: 0, n: 0, calls: 0, puts: 0, longUsd: 0, shortUsd: 0 };
       b.delta += g.deltaUsd; b.n++; if (o.side === 'put') b.puts++; else b.calls++;
+      if (g.deltaUsd >= 0) b.longUsd += g.deltaUsd; else b.shortUsd += -g.deltaUsd;
     });
     if (!rows.length) return '';
     function usd(v){ var a = Math.abs(v); return (v < 0 ? '−' : '') + '$' + (a >= 1e6 ? (a / 1e6).toFixed(2) + 'M' : a >= 1e4 ? Math.round(a / 1e3) + 'K' : Math.round(a).toLocaleString()); }
@@ -41225,6 +41425,7 @@ ${renderExportBindings()}
         '<div class="mm-kpi"><span>Largest single name</span><b>' + escapeHtml(top.o.symbol) + ' ' + (grossDelta ? Math.round(Math.abs(top.g.deltaUsd) / grossDelta * 100) + '%' : '') + '</b></div>' +
       '</div>' +
       '<div class="acc-tscroll"><table class="acc-qtable book-table" data-nosort><thead><tr><th>Sector group</th><th class="num">Trades</th><th class="num">Net delta $</th><th class="num">Share of gross</th></tr></thead><tbody>' + groupRows + '</tbody></table></div>' +
+      bookExposureBarsHtml(groups, usd) +
       '<h4 class="pd-h4">Expiry ladder</h4><div class="acc-tscroll"><table class="acc-qtable book-table" data-nosort><thead><tr><th>Expiry</th><th>Trades (E = reports first)</th><th class="num">Decay</th><th>Fed, CPI, jobs before expiry</th></tr></thead><tbody>' + ladder + '</tbody></table></div>' +
       '<p class="hint acc-research-note">One contract per trade, as the record counts it. Delta $ is the stock-equivalent position: if every stock rose 1%, the book would gain about 1% of that amount. Greeks are recomputed from each trade’s last mark' + (missing ? '; ' + missing + ' trade' + (missing === 1 ? '' : 's') + ' without a mark or IV are left out' : '') + '.</p>' +
     '</div></details>';
@@ -41588,7 +41789,7 @@ ${renderExportBindings()}
     var regimeBlock = cohortBlock('Win rate by market regime', st.byRegime,
       '<p class="hint acc-regime-note">The regime is the market tape when the trade opened. Read it with the ranges: ' +
       (riskOnN < 30 ? 'risk-on has ' + riskOnN + ' decided trade' + (riskOnN === 1 ? '' : 's') + ', so revisit this split at 30.' : 'risk-on now has ' + riskOnN + ' decided trades.') + '</p>');
-    var versionBlock = accVersionTableHtml(closed) + accStructureTableHtml(closed);
+    var versionBlock = accVersionTableHtml(closed) + accStructureTableHtml(closed) + accLossCausesHtml(closed);
     // gate A/B only when both arms have data (PICKS_ACCURACY_AB enabled long enough)
     var abBlock = (st.byCohort && Object.keys(st.byCohort).length > 1) ? cohortBlock('Gate A/B — endorsed (go) vs deferred (wait)', st.byCohort) : '';
     // Macro-event exposure A/B — did entering near an FOMC / major print cost us, and
@@ -41660,6 +41861,8 @@ ${renderExportBindings()}
         '</div>' +
         accStrategyBlock(e, true) +
         accCheckpointsBlock(e) +
+        accPostMortemHtml(e) +
+        accReplayHtml(e) +
         accMarkHtml(e) +
         (HAS_OWNER_ACCESS ? '<div class="acc-notes">' + accNoteBoxHtml('trade', accNoteTradeId(e)) + '</div>' : '') +
       '</div>';
@@ -42955,6 +43158,7 @@ ${renderExportBindings()}
     var conv = rec && rec.conviction ? rec.conviction : '';
     var size = pickSizingText(p);
     var sizeTitle = pickSizingTitle(p);
+    var yours = pickSizingYours(p);
     // total is now a cross-sectional float — show one decimal, not a raw long float.
     var scoreStr = (total != null && isFinite(total)) ? ((total >= 0 ? '+' : '') + Number(total).toFixed(1)) : '—';
     return '<div class="pick-tier pick-tier-' + escapeHtml(tier) + '">' +
@@ -42966,6 +43170,7 @@ ${renderExportBindings()}
         ? '<div class="pick-tier-sub">' +
           (conv ? '<span class="pick-tier-conv">Directional grade: ' + escapeHtml(conv) + '</span>' : '') +
           (size ? '<span class="pick-tier-size"' + (sizeTitle ? ' title="' + escapeHtml(sizeTitle) + '"' : '') + '>' + (pickDisplayDecision(p).ready ? 'Model sizing: ' : 'Hypothetical after confirmation: ') + escapeHtml(size) + '</span>' : '') +
+          (size && yours ? '<span class="pick-tier-size pick-tier-yours" title="Your what-if book from the Size for your book box; display only.">' + escapeHtml(yours) + '</span>' : '') +
           '</div>'
         : '') +
     '</div>';
@@ -44822,6 +45027,11 @@ ${renderExportBindings()}
       return;
     }
     var data = picksState.data || { picks: [] };
+    var whatIf = $('picks-whatif');
+    if (whatIf){
+      if (!whatIf.getAttribute('data-bound')){ whatIf.innerHTML = sizingWhatIfHtml(); bindSizingWhatIf(whatIf); }
+      whatIf.hidden = !(data.picks && data.picks.length);
+    }
     var marketEvidence=$('picks-market-evidence');
     if(marketEvidence)TOP_PICKS_MARKET_UI.update(marketEvidence,TOP_PICKS_MARKET_UI.context(data));
     var collateralBox = $('picks-liquidation-watch');
@@ -45559,7 +45769,7 @@ ${renderExportBindings()}
   var BONDS_LIVE_POLL_MS = 30000;
   var BONDS_FOMC_POLL_MS = 5 * 60 * 1000;
   var bondsLive = { timer: null, legs: null, fetchedAt: null, fedRate: null, pollMs: null, nextPollAt: null, inFlight: false };
-  // 90-day macro close history (data/macro-history.json — a FREE key) powers
+  // One-year macro close history (data/macro-history.json — a FREE key; 90 days before 2026-11-08) powers
   // the per-tile sparklines, the 2s10s spread trend, and the yield-curve
   // chart's prior line. Fetched once per pane open (lazy, best-effort): a miss
   // just means the tiles render without their trend lines.
@@ -45698,6 +45908,7 @@ ${renderExportBindings()}
           })
           .filter(function(v){ return v != null; });
         bondsHist.series = series;
+        bondsHist.entries = entries;
         bondsHist.rates = (j && j.rates && typeof j.rates === 'object') ? j.rates : null;
         bondsHist.liquidity = (j && j.liquidity && typeof j.liquidity === 'object') ? j.liquidity : null;
       })
@@ -45796,6 +46007,8 @@ ${renderExportBindings()}
       // The stored history and the Fed liquidity line don't need today's snapshot.
       renderBondsHistory();
       renderBondsLiquidity();
+      renderBondsVolCurve();
+      loadBondsAuctions();
       renderBondsContext();
       renderFomcDayHistory();
       return;
@@ -46084,6 +46297,8 @@ ${renderExportBindings()}
     renderBondsCurve(macro);
     renderBondsHistory();
     renderBondsLiquidity();
+    renderBondsVolCurve();
+    loadBondsAuctions();
     renderBondsContext();
     renderFomcDayHistory();
     var pane = document.getElementById('page-pane-bonds-usd');
@@ -46216,6 +46431,109 @@ ${renderExportBindings()}
       ranges: ['6M', '1Y', '2Y', 'All'], range: '2Y', height: 260, priceLine: false,
       source: (L.source || 'FRED') + ' · weekly, as of ' + fmtDayUtc(L.asOf) + (L.stale ? ' · last good copy' : '')
     });
+  }
+
+
+  // --- Volatility curve (2026-11-08) ---------------------------------------
+  // VIX 9-day / 30-day / 3-month and VVIX, one row per session from
+  // macro-history.json (lib/macro-levels.mjs). The 9d/3m ratio above 1 is an
+  // inverted curve: near-term fear priced above longer-dated fear.
+  var bondsVolChart = null;
+  function renderBondsVolCurve(){
+    var host = document.getElementById('bonds-volcurve');
+    if (!host) return;
+    var rows = (bondsHist.entries || []).filter(function(e){ return e && typeof e.vix === 'number' && isFinite(e.vix); });
+    var withCurve = rows.filter(function(e){ return typeof e.vix3m === 'number' && isFinite(e.vix3m); });
+    if (withCurve.length < 3){
+      if (bondsHist.loaded) host.innerHTML = '<div class="bonds-chart-head"><h3>Volatility curve</h3></div><p class="bonds-live-empty">The VIX curve history starts with the next full build (9-day, 30-day, 3-month and VVIX are recorded once a session).</p>';
+      return;
+    }
+    var last = withCurve[withCurve.length - 1];
+    var key = last.date + ':' + withCurve.length;
+    if (host.getAttribute('data-built') === key && bondsVolChart) return;
+    host.setAttribute('data-built', key);
+    var ratio = last.vix9d != null && last.vix3m > 0 ? last.vix9d / last.vix3m : (last.vix3m > 0 ? last.vix / last.vix3m : null);
+    var inverted = ratio != null && ratio >= 1;
+    var f1 = function(v){ return v == null || !isFinite(v) ? '—' : Number(v).toFixed(1); };
+    var pts = function(k){ return rows.map(function(e){ return { time: e.date, value: (typeof e[k] === 'number' && isFinite(e[k])) ? e[k] : null }; }); };
+    if (bondsVolChart) bondsVolChart.destroy();
+    host.innerHTML = '<div class="bonds-chart-head"><h3>Volatility curve</h3><p class="liq-now">9-day <b>' + f1(last.vix9d) + '</b> · 30-day <b>' + f1(last.vix) + '</b> · 3-month <b>' + f1(last.vix3m) + '</b>' + (last.vvix != null ? ' · VVIX <b>' + f1(last.vvix) + '</b>' : '') +
+      (ratio != null ? ' <span class="bonds-read ' + (inverted ? 'bonds-read-weak' : 'bonds-read-normal') + '">' + (inverted ? 'inverted ' : 'normal ') + ratio.toFixed(2) + 'x</span>' : '') + '</p></div>' +
+      '<p class="hint">The VIX measures expected S&amp;P 500 swings over 30 days; the 9-day and 3-month versions cover shorter and longer windows. Front above back (ratio 1 or more) is acute stress; VVIX is how much the VIX itself is expected to swing, a read on hedging demand. Recorded once a session at build time.</p>' +
+      '<div class="bonds-volcurve-chart"></div>';
+    var c = CHART_KIT.colors();
+    bondsVolChart = CHART_KIT.mount(host.querySelector('.bonds-volcurve-chart'), {
+      series: [
+        { name: 'VIX (30-day)', short: 'VIX', type: 'line', data: pts('vix'), color: c.series[0], format: f1 },
+        { name: 'VIX 9-day', short: '9d', type: 'line', data: pts('vix9d'), color: c.series[1], width: 1.5, format: f1 },
+        { name: 'VIX 3-month', short: '3m', type: 'line', data: pts('vix3m'), color: c.series[2], width: 1.5, format: f1 },
+        { name: 'VVIX', short: 'VVIX', type: 'line', data: pts('vvix'), color: c.series[3] || c.series[0], axis: 'left', width: 1.2, format: f1 }
+      ],
+      ranges: ['1M', '3M', '6M', '1Y'], range: '3M', height: 240, priceLine: false,
+      source: 'Cboe indexes via Yahoo, one close per session from the daily build · ' + last.date
+    });
+  }
+
+  // --- Treasury auctions (2026-11-08) --------------------------------------
+  // treasury-auctions.json (lib/treasury-auctions.mjs): the last two years of
+  // coupon auctions from the Treasury's Fiscal Data API, with each term's
+  // latest bid-to-cover and who took the paper against its recent average.
+  var bondsAuctions = { loading: false, loaded: false, data: null };
+  var bondsAuctionChart = null;
+  function loadBondsAuctions(){
+    if (bondsAuctions.loaded || bondsAuctions.loading){ renderBondsAuctions(); return; }
+    bondsAuctions.loading = true;
+    fetch(dataUrl('treasury-auctions.json'), { cache: 'no-cache' })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(j){ bondsAuctions.data = j && j.summary ? j : null; })
+      .catch(function(){ bondsAuctions.data = null; })
+      .finally(function(){ bondsAuctions.loaded = true; bondsAuctions.loading = false; renderBondsAuctions(); });
+  }
+  function renderBondsAuctions(){
+    var host = document.getElementById('bonds-auctions');
+    if (!host) return;
+    var d = bondsAuctions.data, sm = d && d.summary;
+    if (!sm || !sm.byTerm || !sm.byTerm.length){
+      if (bondsAuctions.loaded) host.innerHTML = '<p class="bonds-live-empty">Auction results appear after the next full build reads the Treasury&rsquo;s Fiscal Data feed.</p>';
+      return;
+    }
+    var key = (sm.asOf || '') + ':' + sm.n;
+    if (host.getAttribute('data-built') === key && bondsAuctionChart) return;
+    host.setAttribute('data-built', key);
+    var num1 = function(v, d2){ return v == null || !isFinite(v) ? '—' : Number(v).toFixed(d2 == null ? 2 : d2); };
+    var pctS = function(v){ return v == null || !isFinite(v) ? '—' : Number(v).toFixed(1) + '%'; };
+    var bn = function(v){ return v == null || !isFinite(v) ? '—' : '$' + (v >= 1e9 ? (v / 1e9).toFixed(0) + 'B' : (v / 1e6).toFixed(0) + 'M'); };
+    var readPill = function(r){ return '<span class="bonds-read bonds-read-' + (r === 'weak' ? 'weak' : r === 'strong' ? 'strong' : r === 'collecting' ? 'collecting' : 'normal') + '">' + (r === 'weak' ? 'soft' : r === 'strong' ? 'strong' : r === 'collecting' ? 'collecting' : 'normal') + '</span>'; };
+    var cols = [
+      { label: 'Term', cell: function(t){ return '<b>' + escapeHtml(t.term) + '</b><span class="vt-sub">' + escapeHtml(t.type + (t.latest.reopening ? ' · reopening' : '')) + '</span>'; }, sort: function(t){ return t.term; } },
+      { label: 'Auction', cell: function(t){ return escapeHtml(t.latest.date); }, sort: function(t){ return t.latest.date; } },
+      { label: 'High yield', num: true, title: 'The yield at which the auction cleared', cell: function(t){ return num1(t.latest.yield, 3) + '%' + (t.yieldChange != null ? '<span class="vt-sub">' + (t.yieldChange >= 0 ? '+' : '') + (t.yieldChange * 100).toFixed(0) + ' bp vs prior</span>' : ''); }, sort: function(t){ return t.latest.yield; } },
+      { label: 'Bid-to-cover', num: true, title: 'Dollars bid per dollar sold; higher is stronger demand', cell: function(t){ return num1(t.latest.btc, 2) + (t.btcAvg != null ? '<span class="vt-sub">avg ' + num1(t.btcAvg, 2) + ' (' + (t.btcGap >= 0 ? '+' : '') + num1(t.btcGap, 2) + ')</span>' : ''); }, sort: function(t){ return t.latest.btc; } },
+      { label: 'Indirect bidders', num: true, title: 'Share taken by indirect bidders, mostly foreign central banks and funds', cell: function(t){ return pctS(t.latest.indirectPct) + (t.indirectAvg != null ? '<span class="vt-sub">avg ' + pctS(t.indirectAvg) + '</span>' : ''); }, sort: function(t){ return t.latest.indirectPct; } },
+      { label: 'Dealers', num: true, title: 'Share left with primary dealers; more than usual means weaker outside demand', cell: function(t){ return pctS(t.latest.dealerPct) + (t.dealerAvg != null ? '<span class="vt-sub">avg ' + pctS(t.dealerAvg) + '</span>' : ''); }, sort: function(t){ return t.latest.dealerPct; } },
+      { label: 'Size', num: true, cell: function(t){ return bn(t.latest.accepted); }, sort: function(t){ return t.latest.accepted; } },
+      { label: 'Read', cell: function(t){ return readPill(t.read); }, sort: function(t){ return t.read; } }
+    ];
+    var upcoming = (sm.upcoming || []).slice(0, 6).map(function(a){ return escapeHtml(a.date + ' ' + a.term + (a.offered ? ' ' + bn(a.offered) : '')); }).join(' · ');
+    host.innerHTML = '<p class="bonds-auction-head">' + escapeHtml(sm.headline || '') + '</p>' +
+      VIEWS.tableHtml(cols, sm.byTerm, { key: 'bonds-auctions', empty: 'No coupon auctions yet.' }) +
+      (upcoming ? '<p class="hint"><b>Announced:</b> ' + upcoming + '</p>' : '') +
+      '<div class="bonds-auction-chart"></div>' +
+      '<p class="hint">US Treasury, Fiscal Data API (auction results), read once a day. The average is the previous six auctions of the same term. "Soft" means fewer bids per dollar than that average by 0.15 or more, or dealers taking 4 points more than usual; it is a demand read, not a forecast of yields.</p>';
+    var terms = ['2-Year', '5-Year', '10-Year', '30-Year'];
+    var c = CHART_KIT.colors();
+    var series = [];
+    terms.forEach(function(term, i){
+      var t = null;
+      for (var k = 0; k < sm.byTerm.length; k++) if (sm.byTerm[k].term === term) t = sm.byTerm[k];
+      if (!t || !t.history || t.history.length < 2) return;
+      series.push({ name: term + ' bid-to-cover', short: term.replace('-Year', 'Y'), type: 'line', data: t.history.map(function(h){ return { time: h.d, value: h.btc }; }), color: c.series[i % c.series.length], format: function(v){ return v == null ? '—' : Number(v).toFixed(2) + 'x'; } });
+    });
+    if (bondsAuctionChart) bondsAuctionChart.destroy();
+    var chartHost = host.querySelector('.bonds-auction-chart');
+    if (series.length && chartHost){
+      bondsAuctionChart = CHART_KIT.mount(chartHost, { series: series, ranges: ['6M', '1Y', '2Y', 'All'], range: '1Y', height: 220, priceLine: false, source: 'Bid-to-cover by auction, coupon terms · Fiscal Data' });
+    } else if (chartHost) chartHost.remove();
   }
 
   // --- FOMC decision-day event study --------------------------------------

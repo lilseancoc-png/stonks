@@ -1,0 +1,36 @@
+name: Stale pull requests
+
+# Weekly reminder of open pull requests nobody has touched for a week. One
+# issue labeled stale-prs is opened (which emails the watchers), refreshed
+# while it stays true, and closed when every open pull request is fresh or
+# merged. Read-only on the pull requests: nothing is commented on, closed or
+# merged. Monday 13:00 UTC = 08:00 ET (09:00 ET in winter). No AI, no market
+# data, no private store; uses only the workflow's own token.
+on:
+  schedule:
+    - cron: "0 13 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: stale-prs
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+      - name: List open pull requests and refresh the alert issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STALE_PR_DAYS: ${{ vars.STALE_PR_DAYS }}
+        run: node scripts/stale-prs.mjs

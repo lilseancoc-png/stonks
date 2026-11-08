@@ -22,7 +22,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..600;1,9..144,400..600&family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="styles.css?v=sha256-35258f6d22f97670">
+<link rel="stylesheet" href="styles.css?v=sha256-6b08175dfa41629f">
+<script>/* Language: apply the saved choice before first paint. */try{var L=localStorage.getItem('stonks-lang');if(L&&L!=='en'&&["en","zh-CN","zh-TW","ja","ko"].indexOf(L)>0){document.documentElement.lang=L;document.documentElement.classList.add('i18n-wait');setTimeout(function(){document.documentElement.classList.remove('i18n-wait')},2500)}}catch(e){}</script>
 <script>/* Split-view pane: hide the site chrome before first paint. */try{if(window.self!==window.top)document.documentElement.classList.add('is-embed')}catch(e){document.documentElement.classList.add('is-embed')}</script>
 </head>
 <body>
@@ -80,6 +81,11 @@
       <button id="split-toggle" class="icon-btn" type="button" aria-pressed="false" aria-label="Split view: show two pages side by side" title="Split view: two pages side by side">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/></svg>
       </button>
+      <label class="lang-control" title="Language" translate="no" data-i18n-skip>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>
+        <span class="sr-only">Language</span>
+        <select id="lang-select" aria-label="Language / 语言 / 語言 / 言語 / 언어"><option value="en" lang="en">English</option><option value="zh-CN" lang="zh-CN">简体中文</option><option value="zh-TW" lang="zh-TW">繁體中文</option><option value="ja" lang="ja">日本語</option><option value="ko" lang="ko">한국어</option></select>
+      </label>
       <button id="theme-toggle" class="icon-btn" aria-label="Toggle theme" type="button">
         <svg class="i-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
         <svg class="i-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
@@ -129,16 +135,19 @@
     <div class="side-nav-group-items">
       <button type="button" class="page-tab" role="tab" data-page-tab="home" aria-selected="true" aria-controls="page-pane-home" id="page-tab-home"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 9.8 9-7.3 9 7.3V20a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 20Z"/><path d="M9.5 21.5V14h5v7.5"/></svg><span class="pt-label">Home</span></button>
       <button type="button" class="page-tab" role="tab" data-page-tab="brief" aria-selected="false" aria-controls="page-pane-brief" id="page-tab-brief" data-nav-alias="Brief"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-4 0V6"/><path d="M18 14h-8M15 18h-5"/><path d="M10 6h8v4h-8V6Z"/></svg><span class="pt-label">Market brief</span></button>
+      <button type="button" class="page-tab" role="tab" data-page-tab="whats-changed" aria-selected="false" aria-controls="page-pane-whats-changed" id="page-tab-whats-changed" data-nav-alias="Since yesterday diff changes new walls crosses streaks insiders"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h11l-3-3M20 17H9l3 3"/><circle cx="18.5" cy="7" r="1.5"/><circle cx="5.5" cy="17" r="1.5"/></svg><span class="pt-label">What changed</span></button>
       <button type="button" class="page-tab" role="tab" data-page-tab="news" aria-selected="false" aria-controls="page-pane-news" id="page-tab-news" data-nav-alias="News desk"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11a9 9 0 0 1 9 9"/><path d="M4 4a16 16 0 0 1 16 16"/><circle cx="5" cy="19" r="1"/></svg><span class="pt-label">News</span></button>
       <button type="button" class="page-tab" role="tab" data-page-tab="heatmap" aria-selected="false" aria-controls="page-pane-heatmap" id="page-tab-heatmap"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7.5" height="7.5" rx="1"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1"/></svg><span class="pt-label">Heatmap</span></button>
       <button type="button" class="page-tab" role="tab" data-page-tab="calendar" aria-selected="false" aria-controls="page-pane-calendar" id="page-tab-calendar"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4.5" width="18" height="17" rx="2"/><path d="M16 2.5v4M8 2.5v4M3 10.5h18"/></svg><span class="pt-label">Calendar</span></button>
       <button type="button" class="page-tab" role="tab" data-page-tab="overnight" aria-selected="false" aria-controls="page-pane-overnight" id="page-tab-overnight"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg><span class="pt-label">Overnight markets</span></button>
+      <button type="button" class="page-tab" role="tab" data-page-tab="past-day" aria-selected="false" aria-controls="page-pane-past-day" id="page-tab-past-day" data-nav-alias="Time machine history date picker archive replay"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 2.6-6.4L3 8"/><path d="M3 3v5h5"/><path d="M8.5 15.5h7M8.5 12h7M8.5 8.5h4"/></svg><span class="pt-label">Past days</span></button>
     </div>
   </details>
   <details class="side-nav-group" data-nav-group="stocks" open>
     <summary class="side-nav-group-label">Stocks</summary>
     <div class="side-nav-group-items">
       <button type="button" class="page-tab" role="tab" data-page-tab="tickers" aria-selected="false" aria-controls="page-pane-tickers" id="page-tab-tickers" data-nav-alias="Tickers"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg><span class="pt-label">All stocks</span></button>
+      <button type="button" class="page-tab" role="tab" data-page-tab="market-map" aria-selected="false" aria-controls="page-pane-market-map" id="page-tab-market-map" data-nav-alias="Fear map scatter chart wall sparklines correlation crowding breadth short interest crowded shorts"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="5" rx="1.5"/><rect x="13" y="10" width="8" height="11" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/></svg><span class="pt-label">Market map</span></button>
       <button type="button" class="page-tab" role="tab" data-page-tab="stock" aria-selected="false" aria-controls="page-pane-stock" id="page-tab-stock" data-nav-alias="Stock page quote ticker company chart"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 3.5v17h17"/><path d="m7 15 3.5-4.5 3 2.5 4.5-6"/><circle cx="18" cy="7" r="1.6"/></svg><span class="pt-label">Look up a stock</span></button>
       <button type="button" class="page-tab" role="tab" data-page-tab="grade" aria-selected="false" aria-controls="page-pane-grade" id="page-tab-grade" data-nav-hidden="1" data-nav-alias="Grade a ticker stock report Look up"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8.5" r="5.5"/><path d="m8.8 13.2-1.3 8 4.5-2.7 4.5 2.7-1.3-8"/></svg><span class="pt-label">Grade a stock</span></button>
       <button type="button" class="page-tab" role="tab" data-page-tab="compare" aria-selected="false" aria-controls="page-pane-compare" id="page-tab-compare" data-nav-alias="Compare companies"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3.5" width="18" height="17" rx="2"/><path d="M12 3.5v17"/></svg><span class="pt-label">Compare stocks</span></button>
@@ -200,6 +209,7 @@
       <button type="button" class="page-tab" role="tab" data-page-tab="cheatsheet" aria-selected="false" aria-controls="page-pane-cheatsheet" id="page-tab-cheatsheet" data-nav-alias="Buyer&#39;s manual"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4.5H8a4 4 0 0 1 4 4v13a3 3 0 0 0-3-3H2.5zM21.5 4.5H16a4 4 0 0 0-4 4v13a3 3 0 0 1 3-3h6.5z"/></svg><span class="pt-label">Options guide</span></button>
       <button type="button" class="page-tab" role="tab" data-page-tab="chart-patterns" aria-selected="false" aria-controls="page-pane-chart-patterns" id="page-tab-chart-patterns"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 3.5v17h17"/><path d="m7.5 14 3.5-4 3 3 5-6.5"/></svg><span class="pt-label">Chart patterns</span></button>
       <button type="button" class="page-tab" role="tab" data-page-tab="timeline" aria-selected="false" aria-controls="page-pane-timeline" id="page-tab-timeline" data-nav-alias="Refresh schedule timeline"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M12 6.5V12l3.5 2"/></svg><span class="pt-label">When data updates</span></button>
+      <button type="button" class="page-tab" role="tab" data-page-tab="contact" aria-selected="false" aria-controls="page-pane-contact" id="page-tab-contact" data-nav-alias="Contact us feedback message email support help question bug report"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5.5h16a1.5 1.5 0 0 1 1.5 1.5v10a1.5 1.5 0 0 1-1.5 1.5H9l-4.5 3v-3H4A1.5 1.5 0 0 1 2.5 17V7A1.5 1.5 0 0 1 4 5.5z"/><path d="M7 10h10M7 13.5h6"/></svg><span class="pt-label">Send us a message</span></button>
       <button type="button" class="page-tab" role="tab" data-page-tab="glossary" aria-selected="false" aria-controls="page-pane-glossary" id="page-tab-glossary" data-nav-alias="Words terms definitions meaning C/P OI IV percentile gamma"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4.5h11a3 3 0 0 1 3 3v12.5H7a3 3 0 0 1-3-3z"/><path d="M4 17a3 3 0 0 1 3-3h11"/><path d="M8.5 8.5h6M8.5 11h4"/></svg><span class="pt-label">Glossary</span></button>
       <button type="button" class="page-tab" role="tab" data-page-tab="privacy" aria-selected="false" aria-controls="page-pane-privacy" id="page-tab-privacy" data-nav-hidden="1"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21.5s7.5-3.7 7.5-9.5V5.5L12 2.5l-7.5 3V12c0 5.8 7.5 9.5 7.5 9.5z"/></svg><span class="pt-label">Privacy Policy</span></button>
       <button type="button" class="page-tab" role="tab" data-page-tab="terms" aria-selected="false" aria-controls="page-pane-terms" id="page-tab-terms" data-nav-hidden="1"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18M7 21h10"/><path d="M4 7h2.5c1.8 0 3.8-.7 5.5-1.7C13.7 6.3 15.7 7 17.5 7H20"/><path d="m6.5 7-2.8 6.7c.8.6 1.8.9 2.8.9s2-.3 2.8-.9zM17.5 7l-2.8 6.7c.8.6 1.8.9 2.8.9s2-.3 2.8-.9z"/></svg><span class="pt-label">Terms of Use</span></button>
@@ -1442,10 +1452,10 @@
   </section>
   </div>
   <div class="page-pane" id="page-pane-update-checker" role="tabpanel" aria-labelledby="page-tab-update-checker" hidden>
-    <section class="card"><h2>Update Checker</h2><p class="hint">Track failed builds and inspect published feature outputs. The checker records workflow failures even when the data build stops early.</p><div id="update-checker-root" aria-live="polite"></div></section>
+    <section class="card"><header class="card-header"><h2 class="card-title">Update Checker</h2></header><p class="hint">Track failed builds and inspect published feature outputs. The checker records workflow failures even when the data build stops early.</p><div id="update-checker-root" aria-live="polite"></div></section>
   </div>
   <div class="page-pane" id="page-pane-owner-market-brief" role="tabpanel" aria-labelledby="page-tab-owner-market-brief" hidden>
-    <section class="card" id="owner-market-brief-section"><h2>Owner Market Brief <span class="omb-badge">Owner only</span></h2><p class="hint">The public market read expanded with private research. Review conditional outcomes, suggested next steps and the evidence that could change them. Source timestamps, entry restrictions and uncertainty stay visible.</p><div id="owner-market-brief-root" aria-live="polite"></div></section>
+    <section class="card" id="owner-market-brief-section"><header class="card-header"><h2 class="card-title">Owner Market Brief</h2><span class="card-eyebrow">Owner only</span></header><p class="hint">The public market read expanded with private research. Review conditional outcomes, suggested next steps and the evidence that could change them. Source timestamps, entry restrictions and uncertainty stay visible.</p><div id="owner-market-brief-root" aria-live="polite"></div></section>
   </div>
   <div class="page-pane" id="page-pane-market" role="tabpanel" aria-labelledby="page-tab-market" hidden>
   <section class="card" id="market-section">
@@ -1465,6 +1475,7 @@
     <div id="picks-barometer" class="picks-barometer" hidden></div>
     <div id="picks-tape" class="picks-tape" hidden></div>
     <details class="market-secondary"><summary>Premarket follow-through</summary><div id="market-premarket-movers" class="market-movers" hidden></div></details>
+    <details class="market-secondary"><summary>Cycle clock</summary><p class="hint">Growth against inflation, one dot per month end for the past year, from the macro read the Top Picks grader sees.</p><div id="market-cycle-clock" class="market-cycle-clock" hidden></div></details>
     <details class="market-secondary"><summary>Forward scenarios and sensitivity tools</summary><p class="hint">Build-time scenario context. These unvalidated weights do not refresh with each quote check.</p><div id="market-scenario-engine" class="market-scenario-engine" hidden></div></details>
     <div id="picks-regime-hist" class="picks-regime-hist" hidden></div>
     <div class="picks-search" role="search">
@@ -1548,6 +1559,7 @@
         </select>
       </label>
     </div>
+      <div id="picks-whatif" class="picks-whatif-host" hidden></div>
       <div id="picks-summary" class="picks-summary"></div>
       <div id="picks-liquidation-watch" class="fl-picks-watch" hidden></div>
       <div id="picks-grid" class="picks-grid">Loading top picks…</div>
@@ -1711,7 +1723,7 @@
     <div class="acc-pane" role="tabpanel" id="acc-pane-top10" aria-labelledby="acc-tab-top10" hidden>
       <div id="acc-sum-top10" class="acc-pane-sum-slot"></div>
       <div id="accuracy-roster" class="accuracy-roster"></div>
-      <p class="acc-pane-empty" id="acc-empty-top10" hidden>No Top-10 roster snapshot yet — it appears after the next daily refresh.</p>
+      <p class="acc-pane-empty" id="acc-empty-top10" hidden>No roster snapshot yet. It appears after the next Top Picks run.</p>
     </div>
     <div class="acc-pane" role="tabpanel" id="acc-pane-activity" aria-labelledby="acc-tab-activity" hidden>
       <div id="acc-sum-activity" class="acc-pane-sum-slot"></div>
@@ -1872,6 +1884,7 @@
         <button type="button" class="calendar-pill" data-cal-type="reports" role="radio" aria-checked="false">Reports<span class="calendar-pill-count" aria-hidden="true"></span></button>
         <button type="button" class="calendar-pill" data-cal-type="fomc" role="radio" aria-checked="false">Fed<span class="calendar-pill-count" aria-hidden="true"></span></button>
         <button type="button" class="calendar-pill" data-cal-type="macro" role="radio" aria-checked="false">Macro<span class="calendar-pill-count" aria-hidden="true"></span></button>
+        <button type="button" class="calendar-pill" data-cal-type="market" role="radio" aria-checked="false" title="Options expirations, index rebalances, VIX expiry and estimated IPO lockup ends">Market dates<span class="calendar-pill-count" aria-hidden="true"></span></button>
       </div>
       <button type="button" id="calendar-export-csv" class="csv-export-btn" title="Download visible events as CSV">Export CSV</button>
     </div>
@@ -1890,7 +1903,7 @@
     </header>
     <details class="info-note">
       <summary>How to use the buyout tracker</summary>
-      <div class="info-note-body"><p>The evidence ladder is <b>Rumor &rarr; Reported talks &rarr; Definitive agreement &rarr; Regulatory / vote pending &rarr; Expected close</b>. These are public-source labels, not hard completion probabilities. For cash deals, consideration per share is the stated offer; stock and mixed consideration can move with the buyer&rsquo;s shares. Premium to the unaffected price is shown only when a cited source states it. <b>Estimated equity value</b> is consideration per share multiplied by current implied shares outstanding&mdash;an estimate, not enterprise value. Rumors keep undisclosed price, premium, spread, and close fields blank. A wide deal spread can reflect regulatory, financing, timing, or break risk&mdash;never assume it is free money.</p></div>
+      <div class="info-note-body"><p>The evidence ladder is <b>Rumor &rarr; Reported talks &rarr; Definitive agreement &rarr; Regulatory / vote pending &rarr; Expected close</b>. These are public-source labels, not hard completion probabilities. For cash deals, consideration per share is the stated offer; stock and mixed consideration can move with the buyer&rsquo;s shares. Premium to the unaffected price is shown only when a cited source states it. <b>Estimated equity value</b> is consideration per share multiplied by current implied shares outstanding&mdash;an estimate, not enterprise value. Rumors keep undisclosed price, premium, spread, and close fields blank. A wide deal spread can reflect regulatory, financing, timing, or break risk&mdash;never assume it is free money. A price shown without a currency sign is in the target&rsquo;s home-market currency (most listings outside the US).</p></div>
     </details>
     <div class="pb-summary" id="pending-buyouts-summary" aria-live="polite"></div>
     <div class="pb-controls" role="toolbar" aria-label="Filter pending buyouts">
@@ -1967,6 +1980,7 @@
       <button type="button" role="tab" id="owner-tab-personal" data-owner-view="personal" aria-controls="owner-panel-personal" aria-selected="true">Personal tools</button>
       <button type="button" role="tab" id="owner-tab-research" data-owner-view="research" aria-controls="owner-panel-research" aria-selected="false" tabindex="-1">Research screens</button>
       <button type="button" role="tab" id="owner-tab-diagnostics" data-owner-view="diagnostics" aria-controls="owner-panel-diagnostics" aria-selected="false" tabindex="-1">Diagnostics</button>
+      <button type="button" role="tab" id="owner-tab-evidence" data-owner-view="evidence" aria-controls="owner-panel-evidence" aria-selected="false" tabindex="-1">Evidence</button>
     </div>
     <section id="owner-panel-personal" class="owner-lab-panel" data-owner-panel="personal" role="tabpanel" aria-labelledby="owner-tab-personal">
     <section class="owner-suite" aria-labelledby="owner-tools-title">
@@ -2029,6 +2043,12 @@
       <section id="book-evidence" class="book-view" hidden></section>
       <section id="book-link" class="book-view" hidden></section>
       <section id="book-rejections" class="book-view" hidden></section>
+      <section class="evb-section" id="cost-history-section" aria-labelledby="cost-history-title"><h3 id="cost-history-title">Daily AI cost against the $1 target</h3><div id="cost-history-root" class="evb-root"><p class="hint">Loads with this view.</p></div></section>
+    </section>
+    <section id="owner-panel-evidence" class="owner-lab-panel" data-owner-panel="evidence" role="tabpanel" aria-labelledby="owner-tab-evidence" hidden>
+      <div class="owner-lab-intro"><div><h3>Tests and gates</h3><p>Every open question about the engine, how much evidence each one has, and when it can be decided. Below the board: what every scored name did after each run, the picks against a random control book, and the AI grader's buy-now call. Nothing here feeds back into a grade or a pick.</p></div><button type="button" class="book-more" data-owner-evidence-refresh>Refresh board</button></div>
+      <p class="hint" id="owner-evidence-status" role="status" aria-live="polite">The board loads on first open.</p>
+      <div id="evidence-board-root" class="evb-root"></div>
     </section>
   </section>
   </div>
@@ -2190,6 +2210,10 @@
       <div id="flow-empty" class="flow-empty" hidden>No unusual flow flagged in the latest scan.</div>
       <div id="flow-no-results" class="flow-empty" hidden>No tickers match these filters.</div>
     </div>
+  </section>
+  <section class="card zdte-card" id="zero-dte-section">
+    <header class="card-header"><div><span class="card-eyebrow">Options volume by time to expiry</span><h2 class="card-title">How short-dated is the trading?</h2></div><span class="card-eyebrow" id="zdte-asof"></span></header>
+    <div id="zdte-root"><p class="zdte-empty">Loading option volume by expiry&hellip;</p></div>
   </section>
   </div>
   <div class="page-pane" id="page-pane-ma-tracker" role="tabpanel" aria-labelledby="page-tab-ma-tracker" hidden>
@@ -2963,7 +2987,17 @@
       <div class="bonds-charts">
         <div class="bonds-curve" id="bonds-curve" hidden></div>
         <div class="bonds-history" id="bonds-history"><p class="bonds-live-empty">Loading a year of yields&hellip;</p></div>
+        <div class="bonds-history bonds-liquidity" id="bonds-liquidity"><p class="bonds-live-empty">Loading the Fed liquidity line&hellip;</p></div>
+        <div class="bonds-history bonds-volcurve" id="bonds-volcurve"><p class="bonds-live-empty">Loading the volatility curve&hellip;</p></div>
       </div>
+    </section>
+
+    <section class="card" id="bonds-auctions-card">
+      <header class="card-header">
+        <h2 class="card-title">Treasury auctions</h2>
+        <span class="card-eyebrow">Demand at the last coupon auctions</span>
+      </header>
+      <div id="bonds-auctions" class="bonds-auctions"><p class="bonds-live-empty">Loading auction results&hellip;</p></div>
     </section>
 
     <section class="card" id="bonds-fed-policy-card">
@@ -3322,7 +3356,7 @@
     <figure class="rdt" aria-label="Scheduled refresh times on a trading day, Eastern Time">
       <div class="rdt-row rdt-axis"><span class="rdt-label"></span><span class="rdt-track"><span class="rdt-session" style="left:12.50%;width:calc(66.67% - 12.50%)"></span><span class="rdt-tick" style="left:0.00%">8a</span><span class="rdt-tick" style="left:16.67%">10a</span><span class="rdt-tick" style="left:33.33%">12p</span><span class="rdt-tick" style="left:50.00%">2p</span><span class="rdt-tick" style="left:66.67%">4p</span><span class="rdt-tick" style="left:83.33%">6p</span><span class="rdt-tick" style="left:100.00%">8p</span></span></div>
       <div class="rdt-row"><span class="rdt-label">Market brief</span><span class="rdt-track"><i class="rdt-dot" style="left:4.17%" title="Market brief: 08:30 ET"></i><i class="rdt-dot" style="left:25.00%" title="Market brief: 11:00 ET"></i><i class="rdt-dot" style="left:45.83%" title="Market brief: 13:30 ET"></i><i class="rdt-dot" style="left:68.06%" title="Market brief: 16:10 ET"></i></span></div><div class="rdt-row"><span class="rdt-label">Full market build</span><span class="rdt-track"><i class="rdt-dot" style="left:16.67%" title="Full market build: 10:00 ET"></i><i class="rdt-dot" style="left:25.00%" title="Full market build: 11:00 ET"></i><i class="rdt-dot" style="left:45.83%" title="Full market build: 13:30 ET"></i><i class="rdt-dot" style="left:62.50%" title="Full market build: 15:30 ET"></i><i class="rdt-dot" style="left:68.06%" title="Full market build: 16:10 ET"></i></span></div><div class="rdt-row"><span class="rdt-label">Top Picks and swing desks</span><span class="rdt-track"><i class="rdt-dot" style="left:25.00%" title="Top Picks and swing desks: 11:00 ET"></i><i class="rdt-dot" style="left:62.50%" title="Top Picks and swing desks: 15:30 ET"></i></span></div><div class="rdt-row"><span class="rdt-label">Flow, volume and heatmap</span><span class="rdt-track"><i class="rdt-dot" style="left:8.33%" title="Flow, volume and heatmap: 09:00 ET"></i><i class="rdt-dot" style="left:16.67%" title="Flow, volume and heatmap: 10:00 ET"></i><i class="rdt-dot" style="left:25.00%" title="Flow, volume and heatmap: 11:00 ET"></i><i class="rdt-dot" style="left:33.33%" title="Flow, volume and heatmap: 12:00 ET"></i><i class="rdt-dot" style="left:41.67%" title="Flow, volume and heatmap: 13:00 ET"></i><i class="rdt-dot" style="left:50.00%" title="Flow, volume and heatmap: 14:00 ET"></i><i class="rdt-dot" style="left:58.33%" title="Flow, volume and heatmap: 15:00 ET"></i><i class="rdt-dot" style="left:66.67%" title="Flow, volume and heatmap: 16:00 ET"></i></span></div><div class="rdt-row"><span class="rdt-label">Near-term open interest</span><span class="rdt-track"><i class="rdt-dot" style="left:4.17%" title="Near-term open interest: ~08:30 ET"></i><i class="rdt-dot" style="left:75.00%" title="Near-term open interest: ~17:00 ET"></i></span></div><div class="rdt-row"><span class="rdt-label">Earnings calls and pre-open call</span><span class="rdt-track"><i class="rdt-dot" style="left:8.33%" title="Earnings calls and pre-open call: 09:00 ET"></i><i class="rdt-dot" style="left:91.67%" title="Earnings calls and pre-open call: 19:00 (calls only) ET"></i></span></div><div class="rdt-row"><span class="rdt-label">Weekly Alt Data (Fridays)</span><span class="rdt-track"><i class="rdt-dot" style="left:29.17%" title="Weekly Alt Data (Fridays): Fri 11:30 ET"></i></span></div>
-      <figcaption>Each dot is a scheduled start, Eastern Time. The shaded band is the regular session (9:30 a.m. to 4:00 p.m.). Hover a dot for its time.</figcaption>
+      <figcaption>Each dot is a scheduled start, Eastern Time. The shaded band is the regular session (9:30 a.m. to 4:00 p.m.). Hover a dot for its time. On a weekday market holiday only the two earnings-call runs go ahead; on a 1:00 p.m. early close there is no 15:30 Top Picks run.</figcaption>
     </figure>
     <div class="refresh-schedule-grid">
       <article class="refresh-schedule-card is-lead"><span>08:30 ET</span><h3>Premarket Brief</h3><p>The lightweight Brief run starts one hour before the bell and refreshes overnight markets, Fear &amp; Greed, macro releases and headlines, then checks every current public evidence desk for material standouts. It becomes live immediately after freshness verification and the private-store push; confirm the timestamp in Brief. The Brief is written again at 11:00, 13:30 and 16:10 (the closing read).</p><em>Brief only &middot; no full chain build</em></article>
@@ -3338,11 +3372,61 @@
     <div class="refresh-schedule-rule"><b>How to verify freshness:</b> use the timestamp inside the service you are reading, not the footer alone. The footer describes the generated shell; scanner-owned data can be newer.</div>
   </section>
   </div>
+  <div class="page-pane" id="page-pane-contact" role="tabpanel" aria-labelledby="page-tab-contact" hidden>
+  <section class="card contact-box" id="contact-section">
+    <h2>Your message</h2>
+    <p class="hint">Questions, ideas, bug reports or anything else. Only the site owners can read what you send. Add an email or a social link if you would like a reply.</p>
+    <form id="contact-form" class="contact-form" novalidate>
+      <label class="contact-field"><span>Title</span>
+        <input type="text" name="title" id="contact-title" maxlength="120" required autocomplete="off" placeholder="What is it about?" /></label>
+      <label class="contact-field"><span>Message</span>
+        <textarea name="message" id="contact-message" rows="7" maxlength="4000" required placeholder="Write your message"></textarea>
+        <small class="contact-count" id="contact-count" aria-live="polite">0 / 4000</small></label>
+      <label class="contact-field"><span>Your name <em>(optional)</em></span>
+        <input type="text" name="name" id="contact-name" maxlength="80" autocomplete="name" /></label>
+      <label class="contact-field"><span>Email or social links <em>(optional, one per line, up to 5)</em></span>
+        <textarea name="contacts" id="contact-contacts" rows="3" maxlength="1005" placeholder="you@example.com&#10;https://x.com/yourname&#10;@yourhandle" autocomplete="off"></textarea></label>
+      <div class="contact-hp" aria-hidden="true"><label>Website <input type="text" name="website" tabindex="-1" autocomplete="off" /></label></div>
+      <div class="contact-actions">
+        <button type="submit" class="contact-send" id="contact-send">Send message</button>
+        <p class="contact-status" id="contact-status" role="status" aria-live="polite"></p>
+      </div>
+      <p class="contact-note">Please do not send passwords, account numbers or other private details.</p>
+    </form>
+  </section>
+  <section class="card contact-inbox" id="contact-inbox" data-owner-only hidden>
+    <div class="contact-inbox-head"><h2>Messages <span class="contact-unread" id="contact-unread"></span></h2>
+      <div class="contact-inbox-tools"><button type="button" class="book-more" data-ci-refresh>Refresh</button><button type="button" class="book-more" data-ci-readall>Mark all read</button></div></div>
+    <p class="hint">Owner only. Messages people sent with the box above, newest first.</p>
+    <div id="contact-inbox-list" aria-live="polite"></div>
+  </section>
+  </div>
   <div class="page-pane" id="page-pane-glossary" role="tabpanel" aria-labelledby="page-tab-glossary" hidden>
   <section class="card" id="glossary-section">
     <header class="card-header"><div><span class="card-eyebrow">Learn &amp; help</span><h2 class="card-title">Words used on this site</h2></div></header>
     <p class="hint">Tap a dotted word anywhere on the site to see its meaning. This is the full list.</p>
     <dl class="gl-list"><div id="gl-atm"><dt>At the money (ATM)</dt><dd>The strike closest to the current stock price.</dd></div><div id="gl-callWall"><dt>Call wall / put wall</dt><dd>The strike with the most open calls (or puts). Price often stalls near these strikes because dealers hedge around them. These are open-interest walls. <a href="/?tab=oi">See it in use</a></dd></div><div id="gl-cp"><dt>Calls per put (C/P)</dt><dd>Open call contracts divided by open put contracts in the near-term chain. 2:1 means twice as many calls as puts are open. <a href="/?tab=oi">See it in use</a></dd></div><div id="gl-credit"><dt>Credit spread</dt><dd>Sell one option and buy a further one as protection. You collect money up front; the most you can lose is the gap between strikes minus that credit. <a href="/?tab=strategies">See it in use</a></dd></div><div id="gl-dte"><dt>Days to expiry (DTE)</dt><dd>Calendar days until an option expires.</dd></div><div id="gl-debit"><dt>Debit spread</dt><dd>Buy one option and sell a further one of the same type. It costs less than buying alone, and both the gain and the loss are capped. <a href="/?tab=strategies">See it in use</a></dd></div><div id="gl-delta"><dt>Delta (Δ)</dt><dd>About how much an option’s price moves for a $1 move in the stock, and a rough chance it ends in the money. 0.55 Δ is a little in the money.</dd></div><div id="gl-gammaWall"><dt>Gamma wall</dt><dd>The strike where dealers’ estimated hedging is largest (dealer gamma). It is worked out from open interest and each option’s gamma, so it can differ from the OI wall. <a href="/?tab=oi">See it in use</a></dd></div><div id="gl-impliedMove"><dt>Implied move</dt><dd>The move, up or down, that option prices expect around an event such as earnings. It comes from the at-the-money straddle. <a href="/?tab=earnings-week">See it in use</a></dd></div><div id="gl-iv"><dt>Implied volatility (IV)</dt><dd>How big a yearly move option prices are paying for, in percent. Higher IV means more expensive options. <a href="/?tab=cheatsheet">See it in use</a></dd></div><div id="gl-ivPct"><dt>IV percentile</dt><dd>The share of the stock’s own past days (about 18 months) when its IV was lower than today. 85 means options cost more today than on 85% of those days. <a href="/?tab=iv-trend">See it in use</a></dd></div><div id="gl-ivRank"><dt>IV rank</dt><dd>Where today’s IV sits between the lowest (0) and highest (100) IV of the stock’s own saved history. <a href="/?tab=iv-trend">See it in use</a></dd></div><div id="gl-dOi"><dt>OI change (ΔOI)</dt><dd>How much open interest grew or shrank since the prior trading day. A big rise means new positions were opened at that strike. <a href="/?tab=oi">See it in use</a></dd></div><div id="gl-oi"><dt>Open interest (OI)</dt><dd>How many option contracts are still open at a strike. It updates once a day, after the exchange settles the prior session. <a href="/?tab=oi">See it in use</a></dd></div><div id="gl-rv"><dt>Realized volatility (RV30)</dt><dd>How much the stock actually moved over the last 30 trading days, as a yearly percent. When IV is above it, options are charging more than the stock has been moving.</dd></div><div id="gl-squeeze"><dt>Squeeze score (gamma squeeze score)</dt><dd>A 0 to 5 count of signs that call buying could push the stock up fast: heavy calls near the price, many calls per put, busy call-wall trading, a nearby call wall and buying at the ask. 4 or 5 is a setup to watch, not a reason to buy. <a href="/?tab=oi">See it in use</a></dd></div><div id="gl-vrp"><dt>Volatility premium (VRP)</dt><dd>IV minus realized volatility. Positive means options are priced for bigger moves than the stock has been making.</dd></div><div id="gl-volOi"><dt>Volume ÷ OI (Vol/OI)</dt><dd>Contracts traded today divided by contracts already open. Above 1 means today’s trading is larger than the existing positions, often new money. <a href="/?tab=oi">See it in use</a></dd></div></dl>
+  </section>
+  </div>
+  <div class="page-pane" id="page-pane-market-map" role="tabpanel" aria-labelledby="page-tab-market-map" hidden>
+  <section class="card" id="market-map-section">
+    <header class="card-header"><div><span class="card-eyebrow">Stocks · every tracked name</span><h2 class="card-title">Market map</h2></div><span class="card-eyebrow" id="mm-asof"></span></header>
+    <div id="mm-root"><p class="mm-empty">Loading the market map&hellip;</p></div>
+    <p class="hint">Rebuilt at every full build from daily closes, the option chains and FINRA short interest. Hover or tap a dot, a cell or a chart for the numbers; click a stock to open it. Not investment advice.</p>
+  </section>
+  </div>
+  <div class="page-pane" id="page-pane-whats-changed" role="tabpanel" aria-labelledby="page-tab-whats-changed" hidden>
+  <section class="card" id="whats-changed-section">
+    <header class="card-header"><div><span class="card-eyebrow">Today · since the previous trading day</span><h2 class="card-title">What changed</h2></div><span class="card-eyebrow" id="wc-asof"></span></header>
+    <div id="wc-root"><p class="wc-empty">Loading what changed&hellip;</p></div>
+    <p class="hint">Each full build saves a small snapshot of what the site shows. This page compares the newest one with the last one from the previous trading day. Not investment advice.</p>
+  </section>
+  </div>
+  <div class="page-pane" id="page-pane-past-day" role="tabpanel" aria-labelledby="page-tab-past-day" hidden>
+  <section class="card" id="past-day-section">
+    <header class="card-header"><div><span class="card-eyebrow">Today · the last year of trading days</span><h2 class="card-title">Past days</h2></div><span class="card-eyebrow" id="pd-asof"></span></header>
+    <div id="pd-root"><p class="pd-empty">Loading past days&hellip;</p></div>
+    <p class="hint">Daily close-to-close moves for every tracked stock. Tiles are sized by today&rsquo;s company value and grouped by today&rsquo;s sectors, so a past day reads on the same map as today. Not investment advice.</p>
   </section>
   </div>
   <div class="page-pane" id="page-pane-earnings-week" role="tabpanel" aria-labelledby="page-tab-earnings-week" hidden>
@@ -3694,7 +3778,7 @@ h1{ font-size:clamp(30px,4.5vw,44px) !important; }
     </div>
     <div class="grid g3" style="margin-top:16px">
       <div class="card"><h3>Strike</h3><p>The fixed price you'd buy or sell at if you exercised.</p></div>
-      <div class="card"><h3>Expiration <span class="tag">DTE</span></h3><p>The deadline. After it, the option is worthless. "DTE" = days to expiration.</p></div>
+      <div class="card"><h3>Expiration <span class="tag">DTE</span></h3><p>The deadline. After it, the option stops trading: one that is in the money is usually exercised automatically, and one that is out of the money expires worthless. "DTE" = days to expiration.</p></div>
       <div class="card"><h3>Exit</h3><p>You almost always <strong>sell the option back</strong> before expiry — you rarely exercise.</p></div>
     </div>
   </section>
@@ -4524,6 +4608,9 @@ h1{ font-size:clamp(30px,4.5vw,44px) !important; }
       </ul>
       <p>We do not receive a Discord password. The OAuth access token used for the internal Owner check is processed during login and is not intentionally retained after the request completes.</p>
 
+      <h3>Messages You Send Us</h3>
+      <p>If you use &ldquo;Send us a message&rdquo; (Learn &amp; help), we store the title, message, optional name and any emails or social links you choose to add, with the time it was sent. Only the site owners can read these messages. To limit spam we keep a salted one-way hash of your IP address for about a day; the IP address itself is not stored with the message. Owners can delete a message at any time.</p>
+
       <h3>Donations</h3>
       <p>Optional donations are handled on Ko-fi. The Site does not receive or store your full payment-card number or billing credentials. Ko-fi processes information under its own terms and privacy policy.</p>
 
@@ -4617,6 +4704,7 @@ h1{ font-size:clamp(30px,4.5vw,44px) !important; }
       <p>If you have any questions or concerns about this Privacy Policy or our data practices, join our Discord and head to the <b>#Support</b> channel.</p>
       <div class="contact-card">
         <div class="row"><span class="lab">Email</span><a href="mailto:dddresearchlabs@gmail.com">dddresearchlabs@gmail.com</a></div>
+        <div class="row"><span class="lab">Message</span><a href="/?tab=contact">Send us a message on this site</a></div>
         <div class="row"><span class="lab">Discord</span><a href="https://discord.gg/drTq2gkf6j" target="_blank" rel="noopener">Join Ming Street &rarr; #Support</a></div>
       </div>
     </section>
@@ -4956,6 +5044,7 @@ h1{ font-size:clamp(30px,4.5vw,44px) !important; }
       <p>For questions about these Terms, join our Discord and head to the <b>#Support</b> channel.</p>
       <div class="contact-card">
         <div class="row"><span class="lab">Email</span><a href="mailto:dddresearchlabs@gmail.com">dddresearchlabs@gmail.com</a></div>
+        <div class="row"><span class="lab">Message</span><a href="/?tab=contact">Send us a message on this site</a></div>
         <div class="row"><span class="lab">Discord</span><a href="https://discord.gg/drTq2gkf6j" target="_blank" rel="noopener">Join Ming Street &rarr; #Support</a></div>
       </div>
     </section>
@@ -4972,7 +5061,7 @@ h1{ font-size:clamp(30px,4.5vw,44px) !important; }
   <div class="muted">All analytical and editorial content is AI-generated or algorithmically produced and may be wrong. Verify independently. Data: third-party sources. For information only — not investment advice.</div>
   <div><a class="foot-discord" href="https://discord.gg/drTq2gkf6j" target="_blank" rel="noopener">Discuss the research in our Discord</a></div>
   <div><a class="foot-support" href="https://ko-fi.com/mingstreetapp" target="_blank" rel="noopener">Support stonks on Ko-fi</a></div>
-  <div><a href="/?tab=privacy">Privacy Policy</a> · <a href="/?tab=terms">Terms of Use</a> · <a href="/?tab=glossary">Words used on this site</a> · <button type="button" class="link-btn foot-kb" data-kb-help>Keyboard shortcuts</button></div>
+  <div><a href="/?tab=privacy">Privacy Policy</a> · <a href="/?tab=terms">Terms of Use</a> · <a href="/?tab=glossary">Words used on this site</a> · <a href="/?tab=contact">Send us a message</a> · <button type="button" class="link-btn foot-kb" data-kb-help>Keyboard shortcuts</button></div>
   <div class="muted">Price charts by <a href="https://www.tradingview.com/lightweight-charts/" target="_blank" rel="noopener">TradingView Lightweight Charts&trade;</a>, Copyright &copy; 2025 TradingView, Inc.</div>
 </footer>
 <!-- Phone tab bar (hidden on wider screens): each button opens the sidebar at
@@ -5003,7 +5092,7 @@ h1{ font-size:clamp(30px,4.5vw,44px) !important; }
 <script>window.STONKS_MANIFEST={"builtAt":"Nov 6, 2026, 4:12 PM","builtAtIso":"2026-11-06T21:12:42.187Z","symbols":["AAPL","ACN","ADBE","AMAT","AMD","AMZN","ANET","ARM","ASML","ASTS","AVGO","AXP","BABA","BAC","BE","C","CBRS","COST","CRM","CRWD","CRWV","DDOG","DELL","DIS","DRAM","EWY","FTNT","GLD","GOOGL","GS","HD","HOOD","IBM","INTC","INTU","IWM","JPM","KWEB","LLY","MA","MDB","META","MRK","MRNA","MRVL","MS","MSFT","MU","NFLX","NKE","NOW","NVDA","NVO","OKTA","ORCL","PANW","PLTR","PYPL","QCOM","QQQ","RKLB","SBUX","SCHW","SHOP","SLV","SMCI","SMH","SNDK","SNOW","SPCX","SPY","TEAM","TGT","TLT","TSLA","TSM","TXN","UNH","USO","UVXY","V","VRT","VST","WDC","WMT"],"sectors":{"SPY":"ETF","QQQ":"ETF","IWM":"ETF","SMH":"ETF","UVXY":"ETF","TLT":"ETF","USO":"ETF","GLD":"ETF","SLV":"ETF","KWEB":"ETF","EWY":"ETF","AAPL":"Mega-cap tech","MSFT":"Mega-cap tech","NVDA":"Mega-cap tech","AMZN":"Mega-cap tech","GOOGL":"Mega-cap tech","META":"Mega-cap tech","TSLA":"Mega-cap tech","AMD":"Semis","NFLX":"Mega-cap tech","AVGO":"Semis","TSM":"Semis","ORCL":"Software","ASML":"Semis","QCOM":"Semis","TXN":"Semis","MRVL":"Semis","AMAT":"Semis","LRCX":"Semis","MU":"Semis","INTC":"Semis","NXPI":"Semis","ON":"Semis","SMCI":"Semis","ALAB":"Semis","TSEM":"Semis","DRAM":"Semis","SWKS":"Semis","SNDK":"Storage","STX":"Storage","WDC":"Storage","GLW":"Semis","LITE":"Semis","ARM":"Semis","CBRS":"Semis","COHR":"Semis","DELL":"Hardware","CSCO":"Networking","ANET":"Networking","IBM":"Tech services","CRM":"Software","ADBE":"Software","ACN":"IT services","INTU":"Software","NOW":"Software","SNOW":"Software","NET":"Software","DDOG":"Software","CRWD":"Software","ZS":"Software","MDB":"Software","OKTA":"Software","PANW":"Software","WDAY":"Software","ZM":"Software","DOCU":"Software","TEAM":"Software","FTNT":"Software","TTD":"Software","U":"Software","APP":"Software","TWLO":"Software","CRWV":"Software","CEG":"Power","VST":"Power","TLN":"Power","VRT":"Data center","CLS":"Data center","BE":"Clean energy","JPM":"Bank","BAC":"Bank","WFC":"Bank","USB":"Bank","MS":"Bank","COF":"Bank","GS":"Bank","C":"Bank","HSBC":"Bank","UBS":"Bank","V":"Payments","MA":"Payments","AXP":"Payments","PYPL":"Payments","XYZ":"Payments","SCHW":"Broker","IBKR":"Broker","HOOD":"Broker","AFRM":"Fintech","APO":"Asset mgmt","BX":"Asset mgmt","WMT":"Retail","COST":"Retail","TGT":"Retail","HD":"Retail","LOW":"Retail","NKE":"Apparel","LULU":"Apparel","ONON":"Apparel","ELF":"Beauty","W":"E-commerce","EBAY":"E-commerce","MCD":"Restaurants","SBUX":"Restaurants","DIS":"Media","LEN":"Homebuilder","BA":"Industrial","CAT":"Industrial","DE":"Industrial","MMM":"Industrial","GD":"Defense","LMT":"Defense","RTX":"Defense","NOC":"Defense","FDX":"Logistics","UPS":"Logistics","NVO":"Pharma","LLY":"Pharma","MRNA":"Pharma","MRK":"Pharma","UNH":"Insurance","JNJ":"Pharma","PFE":"Pharma","TMO":"Medical","CI":"Insurance","ELV":"Insurance","MOH":"Insurance","CVS":"Pharmacy","BSX":"Medical","VZ":"Telecom","CHTR":"Cable","XOM":"Energy","CVX":"Energy","OXY":"Energy","UBER":"Consumer","ABNB":"Consumer","DASH":"Consumer","BABA":"China tech","BIDU":"China tech","JD":"China tech","PDD":"China tech","TCEHY":"China tech","BILI":"China tech","NIO":"China tech","COIN":"Crypto","PLTR":"Software","SHOP":"Software","GME":"Meme","AMC":"Meme","RDDT":"Social","RKLB":"Space","ASTS":"Space","SPCX":"Space"},"industries":{"MSFT":"Software Infrastructure","ORCL":"Software Infrastructure","SNOW":"Software Infrastructure","CRWD":"Software Infrastructure","MDB":"Software Infrastructure","OKTA":"Software Infrastructure","PANW":"Software Infrastructure","FTNT":"Software Infrastructure","PLTR":"Software Infrastructure","CRWV":"Software Infrastructure","CRM":"Software Applications","ADBE":"Software Applications","NOW":"Software Applications","DDOG":"Software Applications","TEAM":"Software Applications","INTU":"Software Applications","SHOP":"Software Applications","NVDA":"Semiconductors","AMD":"Semiconductors","AVGO":"Semiconductors","TSM":"Semiconductors","MU":"Semiconductors","INTC":"Semiconductors","MRVL":"Semiconductors","QCOM":"Semiconductors","TXN":"Semiconductors","SNDK":"Semiconductors","SMCI":"Semiconductors","DRAM":"Semiconductors","ARM":"Semiconductors","CBRS":"Semiconductors","AMAT":"Semiconductor Equipment & Materials","ASML":"Semiconductor Equipment & Materials","ANET":"Communication Equipment","DELL":"Computer Hardware","WDC":"Computer Hardware","AAPL":"Consumer Electronics","ACN":"Information Technology Services","IBM":"Information Technology Services","AMZN":"Internet Retail","BABA":"Internet Retail","HD":"Specialty Retail","NKE":"Apparel Retail","SBUX":"Restaurants","TSLA":"Auto Manufacturers","GOOGL":"Internet Content & Information","META":"Internet Content & Information","NFLX":"Entertainment","DIS":"Entertainment","RKLB":"Aerospace & Defense","ASTS":"Aerospace & Defense","SPCX":"Aerospace & Defense","VRT":"Electrical Equipment & Parts","MRNA":"Biotechnology","NVO":"Drug Manufacturers - General","LLY":"Drug Manufacturers - General","MRK":"Drug Manufacturers - General","UNH":"Healthcare Plans","JPM":"Banks - Diversified","BAC":"Banks - Diversified","C":"Banks - Diversified","V":"Credit Services","MA":"Credit Services","AXP":"Credit Services","PYPL":"Credit Services","GS":"Capital Markets","MS":"Capital Markets","SCHW":"Capital Markets","HOOD":"Capital Markets","WMT":"Discount Stores","COST":"Discount Stores","TGT":"Discount Stores","VST":"Utilities - Independent Power Producers","BE":"Utilities - Renewable","GLD":"Gold","SLV":"Silver"},"sectorOrder":["Technology","Consumer Cyclical","Communication Services","Industrials","Healthcare","Financials","Consumer Defensive","Utilities","Precious Metals"],"industriesBySector":{"Technology":["Software Infrastructure","Software Applications","Semiconductors","Semiconductor Equipment & Materials","Communication Equipment","Computer Hardware","Consumer Electronics","Information Technology Services"],"Consumer Cyclical":["Internet Retail","Specialty Retail","Apparel Retail","Restaurants","Auto Manufacturers"],"Communication Services":["Internet Content & Information","Entertainment","Advertising Agencies"],"Industrials":["Aerospace & Defense","Electrical Equipment & Parts","Specialty Industrial Machinery"],"Healthcare":["Biotechnology","Drug Manufacturers - General","Healthcare Plans"],"Financials":["Banks - Diversified","Credit Services","Capital Markets"],"Consumer Defensive":["Discount Stores"],"Utilities":["Utilities - Independent Power Producers","Utilities - Renewable"],"Precious Metals":["Gold","Silver"]},"volumeFlagsMeta":{"scannedAt":"2026-11-06T21:00:36.356Z","etDate":"2026-11-06","marketState":"POST"},"nextFomcDates":["2026-12-09","2027-01-27"],"oiMeta":{"scannedAt":"2026-11-06T22:00:35.878Z","scanType":"eod"},"deferred":true};</script>
 <script>window.va=window.va||function(){(window.vaq=window.vaq||[]).push(arguments)};</script>
 <script defer data-disable-auto-track="1" src="/_vercel/insights/script.js"></script>
-<script src="app.js?v=sha256-f7528b4bd9ded0de" defer></script>
+<script src="app.js?v=sha256-9f5e37d8dfbbf391" defer></script>
 <script type="module" src="js/streaks.js?v=sha256-d943f7322b0db45a"></script>
 <script type="module" src="js/book-views.js?v=sha256-8eed96a3e0496663"></script>
 </body>

@@ -330,6 +330,7 @@ function marketAnalysisSection() {
     <div id="picks-barometer" class="picks-barometer" hidden></div>
     <div id="picks-tape" class="picks-tape" hidden></div>
     <details class="market-secondary"><summary>Premarket follow-through</summary><div id="market-premarket-movers" class="market-movers" hidden></div></details>
+    <details class="market-secondary"><summary>Cycle clock</summary><p class="hint">Growth against inflation, one dot per month end for the past year, from the macro read the Top Picks grader sees.</p><div id="market-cycle-clock" class="market-cycle-clock" hidden></div></details>
     <details class="market-secondary"><summary>Forward scenarios and sensitivity tools</summary><p class="hint">Build-time scenario context. These unvalidated weights do not refresh with each quote check.</p><div id="market-scenario-engine" class="market-scenario-engine" hidden></div></details>
     <div id="picks-regime-hist" class="picks-regime-hist" hidden></div>
     <div class="picks-search" role="search">
@@ -419,6 +420,7 @@ export function topPicksSection() {
         </select>
       </label>
     </div>
+      <div id="picks-whatif" class="picks-whatif-host" hidden></div>
       <div id="picks-summary" class="picks-summary"></div>
       <div id="picks-liquidation-watch" class="fl-picks-watch" hidden></div>
       <div id="picks-grid" class="picks-grid">Loading top picks…</div>
@@ -1004,6 +1006,7 @@ function quantSection() {
       <button type="button" role="tab" id="owner-tab-personal" data-owner-view="personal" aria-controls="owner-panel-personal" aria-selected="true">Personal tools</button>
       <button type="button" role="tab" id="owner-tab-research" data-owner-view="research" aria-controls="owner-panel-research" aria-selected="false" tabindex="-1">Research screens</button>
       <button type="button" role="tab" id="owner-tab-diagnostics" data-owner-view="diagnostics" aria-controls="owner-panel-diagnostics" aria-selected="false" tabindex="-1">Diagnostics</button>
+      <button type="button" role="tab" id="owner-tab-evidence" data-owner-view="evidence" aria-controls="owner-panel-evidence" aria-selected="false" tabindex="-1">Evidence</button>
     </div>
     <section id="owner-panel-personal" class="owner-lab-panel" data-owner-panel="personal" role="tabpanel" aria-labelledby="owner-tab-personal">
     <section class="owner-suite" aria-labelledby="owner-tools-title">
@@ -1063,6 +1066,12 @@ function quantSection() {
       <section id="book-evidence" class="book-view" hidden></section>
       <section id="book-link" class="book-view" hidden></section>
       <section id="book-rejections" class="book-view" hidden></section>
+      <section class="evb-section" id="cost-history-section" aria-labelledby="cost-history-title"><h3 id="cost-history-title">Daily AI cost against the $1 target</h3><div id="cost-history-root" class="evb-root"><p class="hint">Loads with this view.</p></div></section>
+    </section>
+    <section id="owner-panel-evidence" class="owner-lab-panel" data-owner-panel="evidence" role="tabpanel" aria-labelledby="owner-tab-evidence" hidden>
+      <div class="owner-lab-intro"><div><h3>Tests and gates</h3><p>Every open question about the engine, how much evidence each one has, and when it can be decided. Below the board: what every scored name did after each run, the picks against a random control book, and the AI grader's buy-now call. Nothing here feeds back into a grade or a pick.</p></div><button type="button" class="book-more" data-owner-evidence-refresh>Refresh board</button></div>
+      <p class="hint" id="owner-evidence-status" role="status" aria-live="polite">The board loads on first open.</p>
+      <div id="evidence-board-root" class="evb-root"></div>
     </section>
   </section>`;
 }
@@ -2648,7 +2657,16 @@ ${i18nHeadScript()}
         <div class="bonds-curve" id="bonds-curve" hidden></div>
         <div class="bonds-history" id="bonds-history"><p class="bonds-live-empty">Loading a year of yields&hellip;</p></div>
         <div class="bonds-history bonds-liquidity" id="bonds-liquidity"><p class="bonds-live-empty">Loading the Fed liquidity line&hellip;</p></div>
+        <div class="bonds-history bonds-volcurve" id="bonds-volcurve"><p class="bonds-live-empty">Loading the volatility curve&hellip;</p></div>
       </div>
+    </section>
+
+    <section class="card" id="bonds-auctions-card">
+      <header class="card-header">
+        <h2 class="card-title">Treasury auctions</h2>
+        <span class="card-eyebrow">Demand at the last coupon auctions</span>
+      </header>
+      <div id="bonds-auctions" class="bonds-auctions"><p class="bonds-live-empty">Loading auction results&hellip;</p></div>
     </section>
 
     <section class="card" id="bonds-fed-policy-card">

@@ -183,6 +183,21 @@ export function renderSportsCss() {
 .sp-rel-diag { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; }
 .sp-rel-dot { fill: var(--accent); fill-opacity: .75; stroke: var(--surface); stroke-width: 1; }
 .sp-rel-dot.is-off { fill: var(--warn, var(--neg)); }
+.sp-clv-section { margin: 12px 0 4px; }
+.sp-clv-section h4 { margin: 0 0 4px; }
+.sp-clv-charts { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: flex-start; margin: 6px 0; }
+.sp-clv { margin: 0; }
+.sp-clv-svg { display: block; max-width: 100%; height: auto; overflow: visible; }
+.sp-clv figcaption { font-size: 11.5px; color: var(--muted); }
+.sp-clv-bar { fill: var(--muted); fill-opacity: .55; }
+.sp-clv-bar.is-for { fill: var(--pos); fill-opacity: .7; }
+.sp-clv-bar.is-against { fill: var(--neg); fill-opacity: .7; }
+.sp-clv-split { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 4px; min-width: 240px; }
+.sp-clv-split li { display: grid; grid-template-columns: 9.5em 1fr 3em; align-items: center; gap: 8px; font-size: 12.5px; }
+.sp-clv-split li small { color: var(--muted); }
+.sp-clv-track { display: block; height: 8px; border-radius: 4px; background: color-mix(in srgb, var(--muted) 18%, transparent); overflow: hidden; }
+.sp-clv-track i { display: block; height: 100%; background: var(--accent); border-radius: 4px; }
+.sp-clv-split b { text-align: right; font-variant-numeric: tabular-nums; }
 .sp-fc-game { margin: -4px 0 6px; font-size: 12.5px; }
 .sp-lines { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12.5px; color: var(--muted-strong); }
 .sp-lines span { white-space: nowrap; }
