@@ -11918,6 +11918,7 @@ async function writeBottomTrackerFile({ chains, indexBars, fred, prior, builtAtI
     dollar,
     dgs10,
     forwardPe: chains?.SPY?.fundamentals?.forwardPE ?? null,
+    trailingPe: chains?.SPY?.fundamentals?.trailingPE ?? null,
     revisions,
     breadthBars,
     history: prior?.history,

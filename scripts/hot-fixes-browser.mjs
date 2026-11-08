@@ -54,7 +54,10 @@ async function data(name) {
     try { archive.set(name, JSON.parse(execFileSync('git', ['show', '5b856b32a:data/' + name], { cwd: root, maxBuffer: 20e6, stdio: ['ignore', 'pipe', 'ignore'] }))); }
     catch { archive.set(name, {}); }
   }
-  return archive.get(name);
+  const value = archive.get(name);
+  // Without a hydrated data/ folder the manifests come from the archive; they
+  // still need the fixture's unusual-flow snapshot.
+  return name === 'manifest.json' || name === 'manifest-free.json' ? { ...value, unusual: fixtures['unusual.json'] } : value;
 }
 // Isolated local fixture server. The HTML, CSS and JS are the real generated site.
 const server = createServer(async (req, res) => {

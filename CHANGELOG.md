@@ -48,6 +48,11 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Fixed
 
+- Bottom tracker: the valuation card reads SPY's trailing P/E (labeled) when Yahoo reports no forward P/E for the ETF, which it never does, so the card no longer says "Unavailable" every day. The high-yield and investment-grade spreads are checked again every three hours while they are behind the last completed session, so the tracker no longer runs a day behind Market analysis (3.32% vs 3.48% on Nov 5).
+- Historical Data checks: the effective fed funds rate (`DFF`) is published for every calendar day, so its weekend rows are no longer a "fail"; an old weekend date in FRED's CPI or jobs release calendar is a warning (the release study already skips it), and only one since 2000 fails. The check names the weekend dates it found.
+- Risk analysis scenarios: a jobs headline or "Unemployment Rate" row no longer reads as an inflation surprise or a Fed event. The calendar files every BLS release under one data-release type, and the scenario engine now matches the title instead.
+- Market analysis premarket leaders: "Soared" needs a day move of at least 2%; a +0.1% premarket gap that reached +0.6% (COST on Nov 6) now reads "Held".
+- The hot-fixes browser test matches the site again: the Owner sign-in check from #723, the Top Picks endpoint from #724, the Market value column, the grade chart's 170px height and the stock page's Grade tab. It also runs without a hydrated `data/` folder.
 - "Why no picks today" names the rule that really stopped a name when the AI review was skipped because nothing could open (waiting for an economic release, waiting for earnings, the score or losing-streak bar, a cap, no contract) instead of "No AI review slot". Release and earnings waits get their own labels in the Track Record's rule table too.
 - Overnight markets shows its gap call and session call again; the UI overhaul's styles had hidden them.
 - Opening Compare no longer pins its four starter companies to a tray at the bottom of every other page. The tray appears once you add or change names, and "+ Compare" on another page starts your own list.

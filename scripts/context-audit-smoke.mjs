@@ -41,3 +41,21 @@ assert.equal(briefing.title, 'Holiday schedule tomorrow');
 assert.doesNotMatch(briefing.guidance, /after the release/);
 assert.match(context.scenarioBasketResult({sensitivities:[]}, {}), /unavailable/);
 console.log('Context audit smoke passed: bake coverage, holidays, current countdowns, honest empty state.');
+
+// The calendar files BLS releases and jobs headlines under type "cpi" (one
+// colour for economic data). A jobs headline must read as a labor event, not
+// an inflation surprise; a real CPI row still reads as inflation.
+{
+  const calendar = { events: [
+    { date: '2026-09-07', type: 'cpi', title: 'U.S. economy added 165,000 jobs in October; unemployment rate slips to 4.1%' },
+    { date: '2026-09-07', type: 'report', subtype: 'unrate', title: 'Unemployment Rate' },
+    { date: '2026-09-08', type: 'cpi', title: 'Consumer Price Index rises 0.3% in August' },
+  ] };
+  const eng = buildScenarioEngine({ ...options, calendar, chains: { SPY: { _bars: bars } } });
+  const by = t => eng.catalysts.find(c => c.title.startsWith(t));
+  assert.match(by('U.S. economy').analog, /^Labor-growth/);
+  assert.deepEqual(by('U.S. economy').channels, ['growth', 'rates', 'credit', 'consumer']);
+  assert.deepEqual(by('Unemployment Rate').channels, ['growth', 'rates', 'credit', 'consumer'], '"rate" in a labor title is not a Fed event');
+  assert.match(by('Consumer Price Index').analog, /^Inflation-surprise/);
+  console.log('Scenario catalysts: jobs headlines read as labor, CPI rows as inflation.');
+}
