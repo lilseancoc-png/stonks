@@ -89,4 +89,24 @@ assert.match(factText("MA tracker"), /~1 session at/);
 assert.match(factText("Streaks"), /run \(-46\.9%\) ended today/);
 assert.match(factText("Capital raises"), /headline amount: \$7\.5B/);
 
+// The closing heatmap headline already carries the cap-weighted move; the
+// standout must not repeat it (QC of builds #473-#522).
+const closeNow = new Date("2026-11-06T21:12:00Z");
+const closing = await collectBriefSiteTools({
+  kind: "afternoon",
+  narratives: [],
+  dataDir: "Z:/brief-smoke-missing-data",
+  now: closeNow,
+  payloads: {
+    heatmap: {
+      builtAtIso: closeNow.toISOString(),
+      eodSummary: { date: "2026-11-06", headline: "41 up, 31 down, 1 flat; cap-weighted +1.53%. Leading: Industrials & energy +8.55%.",
+        stats: { avgChangeWeighted: 1.53 } },
+    },
+  },
+});
+const heatFact = closing.facts.find((row) => row.source === "Heatmap")?.text || "";
+assert.match(heatFact, /cap-weighted \+1\.53%/);
+assert.equal((heatFact.match(/cap-weighted/gi) || []).length, 1, "cap-weighted move is stated once");
+
 console.log("brief cross-tool coverage smoke: ok");

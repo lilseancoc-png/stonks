@@ -38,6 +38,11 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Track Record's $100k backtest no longer shows an always-zero "ladder adds" chip; ladder adds and winner rotation are skipped on purpose (they would need each trade's path).
 - Stock Picks rounds the planned-entry price in its payload.
 - Buyer's manual: an option no longer reads as worthless after expiration; one in the money is usually exercised automatically, and only an out-of-the-money one expires worthless (#772).
+- Market Analysis premarket leaders and laggards measure each gap from the last close. Before the bell Yahoo's "previous close" is two sessions back, so a stock that fell the day before could show as a premarket decliner while it was trading higher (SNDK on Nov 6 read -14% at 09:00 ET when it was about +10%).
+- The 16:10 ET bake no longer saves the day's settled option expiration (Yahoo keeps listing it after the close). The stock page's expiration list, IV term structure and max pain no longer show a dead same-day chain overnight, and the slot goes to a live expiration.
+- Options walls drops an expiration once it settles at 16:00 ET, the same test the server-side gamma read uses; it had kept the settled 0DTE chain in the walls and gamma flip until about 04:00 ET.
+- The Brief's closing heatmap standout states the cap-weighted move once instead of twice.
+- Options walls' "Heavy call OI" reason names the heaviest qualifying strike, so it matches the call wall more often.
 
 ### Docs
 

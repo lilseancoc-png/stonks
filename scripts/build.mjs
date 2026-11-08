@@ -1321,6 +1321,18 @@ function toEpochSec(d) {
   return Math.floor((d instanceof Date ? d.getTime() : d) / 1000);
 }
 
+// Yahoo keeps the current day's expiration in expirationDates after it
+// settles at the 16:00 ET close (scan-oi.mjs drops it the same way). Without
+// this the 16:10 ET bake shipped that dead chain until the next morning: the
+// stock page listed it, its IV term structure plotted it as a 0-day point,
+// and it used one of the MAX_EXPIRATIONS slots.
+export function liveExpirationDates(expirationDates, nowSec = Math.floor(Date.now() / 1000)) {
+  return (expirationDates || []).filter((d) => {
+    const sec = toEpochSec(d);
+    return Number.isFinite(sec) && sec > 0 && expiryCloseEpochSec(sec) > nowSec;
+  });
+}
+
 // Yahoo contract → compact shape. Single-letter keys keep each per-ticker
 // payload small. Contract symbol is intentionally omitted — the runtime
 // addresses strikes by array index, not by symbol.
@@ -3399,18 +3411,28 @@ async function fetchTickerChain(symbol) {
     seenExp.add(sec);
     listedExpirations.push(sec);
   }
-  const expirations = allExp.slice(0, MAX_EXPIRATIONS);
+  const expirations = liveExpirationDates(allExp).slice(0, MAX_EXPIRATIONS);
+  if (!expirations.length) throw new Error(`No live expirations for ${symbol}`);
   const minK = spot * (1 - STRIKE_BAND);
   const maxK = spot * (1 + STRIKE_BAND);
   const filterStrike = (c) => c.strike != null && c.strike >= minK && c.strike <= maxK;
+  // initial.options[0] is the chain for the first LISTED expiration, which is
+  // the settled one after the close. Reuse it only when it is a live slot.
+  const utcDay = (d) => {
+    const t = new Date(d instanceof Date ? d.getTime() : d);
+    return Number.isFinite(t.getTime()) ? t.toISOString().slice(0, 10) : null;
+  };
+  const initialEntry = initial.options?.[0] || null;
+  const initialIsFirstLive = !!initialEntry &&
+    utcDay(initialEntry.expirationDate || allExp[0]) === utcDay(expirations[0]);
 
   const chains = {};
   for (let i = 0; i < expirations.length; i++) {
     const exp = expirations[i];
     const expSec = toEpochSec(exp);
     let chainEntry;
-    if (i === 0 && initial.options?.[0]) {
-      chainEntry = initial.options[0];
+    if (i === 0 && initialIsFirstLive) {
+      chainEntry = initialEntry;
     } else {
       // Politeness gap between same-ticker expiration calls. 150ms keeps each
       // worker's request rate (~1 call / 150ms + ~104ms latency ≈ 4/s) below
@@ -33252,7 +33274,11 @@ function briefToolFacts(source, p, kind, nowMs) {
   } else if (source.key === "heatmap") {
     if (kind === "afternoon" && p.eodSummary?.headline &&
         (!p.eodSummary.date || p.eodSummary.date === etDateKey(new Date(nowMs)))) {
-      add(`${p.eodSummary.headline}${p.eodSummary.stats?.avgChangeWeighted != null ? ` Cap-weighted breadth ${briefToolPct(p.eodSummary.stats.avgChangeWeighted)}.` : ""}`, 79, "watch");
+      // The numbers-only headline already states the cap-weighted move; only
+      // add it to an older headline that does not.
+      const capMove = p.eodSummary.stats?.avgChangeWeighted != null && !/cap-weighted/i.test(p.eodSummary.headline)
+        ? ` Cap-weighted move ${briefToolPct(p.eodSummary.stats.avgChangeWeighted)}.` : "";
+      add(`${p.eodSummary.headline}${capMove}`, 79, "watch");
     }
     const streaks = Array.isArray(p.sectorRotation?.alerts) ? p.sectorRotation.alerts.filter((a) => a && a.sector && a.days >= 2) : [];
     if (streaks.length) {

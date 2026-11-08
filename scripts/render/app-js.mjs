@@ -15618,8 +15618,12 @@ ${renderExportBindings()}
     var exps = [];
     for (var i = 0; i < expKeys.length && exps.length < GEX_MAX_EXPS; i++){
       var sec = expKeys[i];
-      var dte = Math.round((chainExpiryCloseEpochSec(sec) * 1000 - now) / dayMs);
-      if (dte < 0) continue; // already expired — drop the dead column
+      var closeMs = chainExpiryCloseEpochSec(sec) * 1000;
+      // Drop an expiration once it has settled at its 16:00 ET close, the
+      // same test as lib/gex.mjs. A rounded day count kept today's settled
+      // 0DTE chain in the walls and flip until about 04:00 ET.
+      if (!isFinite(closeMs) || closeMs <= now) continue;
+      var dte = Math.round((closeMs - now) / dayMs);
       exps.push({ sec: sec, dte: dte, T: gexYearsTo(sec, now), label: fmtOiExpiry(sec) });
     }
     var cellMap = {};     // strike(str) -> expSec -> { call, put, net }  (call/put are positive magnitudes)
