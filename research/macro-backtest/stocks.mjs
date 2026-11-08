@@ -206,6 +206,9 @@ if (fs.existsSync(ENG_FILE)) {
     grade: { v: (g) => g },
     gradePlusMacro: { v: (g, p) => g + p },
     macroVeto: { v: (g) => g, drop: (g, p) => (g > 0 && p <= -0.75) || (g < 0 && p >= 0.75) },
+    macroVeto50: { v: (g) => g, drop: (g, p) => (g > 0 && p <= -0.5) || (g < 0 && p >= 0.5) },
+    gradePlusMacroVeto: { v: (g, p) => g + p, drop: (g, p) => (g > 0 && p <= -0.75) || (g < 0 && p >= 0.75) },
+    gradePlusMacroVeto50: { v: (g, p) => g + p, drop: (g, p) => (g > 0 && p <= -0.5) || (g < 0 && p >= 0.5) },
     gradePlusMacroNoSystemicCalls: { v: (g, p) => g + p, drop: (g, p, r) => g + p > 0 && stateOn(r.date)?.systemic === "systemic" },
     gradeNoSystemicCalls: { v: (g) => g, drop: (g, p, r) => g > 0 && stateOn(r.date)?.systemic === "systemic" },
   };
@@ -261,7 +264,8 @@ if (fs.existsSync(ENG_FILE)) {
     const fwd = {}; for (const h of HS) fwd[h] = Object.fromEntries(names.map((s) => [s, i + h < CAL.length && aligned[s][i + h] > 0 ? (aligned[s][i + h] / aligned[s][i] - 1) * 100 : null]));
     recs26.push({ d: day.d, names, g: day.g, pts, simplePts, fwd });
   }
-  const variants = { grade: (r, s) => r.g[s], gradePlusMacro: (r, s) => r.g[s] + r.pts[s], gradePlusSimple: (r, s) => r.g[s] + r.simplePts[s], macroOnly: (r, s) => r.pts[s] };
+  const variants = { grade: (r, s) => r.g[s], gradePlusMacro: (r, s) => r.g[s] + r.pts[s], gradePlusSimple: (r, s) => r.g[s] + r.simplePts[s], macroOnly: (r, s) => r.pts[s], gradeVeto50: (r, s) => r.g[s] };
+  const blocked50 = (r, s) => (r.g[s] > 0 && r.pts[s] <= -0.5) || (r.g[s] < 0 && r.pts[s] >= 0.5);
   const out = {};
   for (const [vn, fn] of Object.entries(variants)) {
     out[vn] = {};
@@ -271,7 +275,7 @@ if (fs.existsSync(ENG_FILE)) {
         const ok = r.names.filter((s) => r.fwd[h][s] != null); if (ok.length < 15) continue;
         const ic = spearman(ok.map((s) => fn(r, s)), ok.map((s) => r.fwd[h][s])); if (Number.isFinite(ic)) ics.push(ic);
         // trade-like: names that clear the actionable bar of 4 on this variant
-        for (const s of ok) { const v = fn(r, s); if (vn !== "macroOnly" && Math.abs(v) >= 4) trade.push(Math.sign(v) * r.fwd[h][s]); }
+        for (const s of ok) { const v = fn(r, s); if (vn === "gradeVeto50" && blocked50(r, s)) continue; if (vn !== "macroOnly" && Math.abs(v) >= 4) trade.push(Math.sign(v) * r.fwd[h][s]); }
       }
       out[vn][h] = { days: ics.length, ic: r3(mean(ics)), t: r2(nwT(ics, h)), trades: trade.length, avgSignedMovePct: r2(mean(trade)), rightWay: r2(trade.filter((x) => x > 0).length / Math.max(1, trade.length)) };
     }
