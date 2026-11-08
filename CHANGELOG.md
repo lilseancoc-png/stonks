@@ -48,6 +48,8 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - The unemployment Sahm read lines its three-month averages up by date, so the missing October 2025 jobs-survey month no longer pulls an older month into the average.
 - Calendar: the "Next FOMC" and "Next report" cards count down past four weeks ("In 31 days") instead of going blank, and the earnings card reads "Earnings, next 7 days".
 - Stock links' hover text tells public visitors they open the stock page; only Owners are told about the Grade tab.
+- Market holidays no longer count as trading sessions in the freshness labels. On Thanksgiving the flow, volume, open interest and Trending IV pages had called the day-before data one session old, and the heatmap read a session too many after a holiday Monday. Unusual options trades also treats a holiday as closed and ends the regular session at 13:00 ET on a half day.
+- The live 2-year yield reads last December's close in early January, when Treasury's new-year feed has no row or one row, so the tile keeps its day change on the year's first sessions.
 
 ### Docs
 
