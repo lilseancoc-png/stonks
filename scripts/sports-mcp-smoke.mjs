@@ -41,6 +41,16 @@ put('player-games', { sport: 'nba', season: 2025 }, { schema_version: 1, sport: 
 put('players', { sport: 'nba' }, { schema_version: 1, players: L.players });
 put('model', { sport: 'nba' }, { schema_version: 1, ...model, seasons: [2025] });
 put('status', { sport: 'nba' }, { schema_version: 1, sport: 'nba', state: 'ok', last_success_utc: '2026-01-15T10:00:00Z', seasons: [2025], counts: { games: 481, player_games: L.rows.length, players: 96 }, model: modelSummary({ ...model, seasons: [2025] }) });
+{
+  const r0 = L.rows.find((r) => r.played && r.stats.points != null);
+  const r1 = L.rows.find((r) => r.played && r.stats.points != null && r.game_id !== r0.game_id);
+  const pick = (r, threshold, issued, slot) => ({ prop_id: 'p-' + r.game_id + '-' + r.player_id, game_id: r.game_id, player_id: r.player_id, team: r.team, stat: 'points', side: 'over', threshold, slot,
+    rank_score: 64, rank_version: 'nba-test-1', basis: 'model', issued_utc: issued, model: { probability: 0.6 } });
+  put('prop-record', { sport: 'nba', season: 2025 }, { schema_version: 1, sport: 'nba', season: 2025, updated_utc: '2026-01-15T10:00:00Z', picks: [
+    pick(r0, r0.stats.points - 0.5, '2025-10-21T20:00:00Z', 1), pick(r1, r1.stats.points + 0.5, '2025-10-22T20:00:00Z', 1),
+    { ...pick({ ...r0, game_id: 'mnext1' }, 15.5, '2026-01-15T11:00:00Z', 1), prop_id: 'p-next' },
+  ] });
+}
 objects.set(SPORTS_PREFIX + 'markets/observations.json', JSON.stringify({ observations: [{ secret: 'line' }] }));
 objects.set('_stonks/contact/v1/messages.json', '{}');
 
@@ -61,7 +71,7 @@ async function rpc(method, params, { token = ownerToken, env = {} } = {}) {
   return res.body;
 }
 const tool = async (name, args, opts) => (await rpc('tools/call', { name, arguments: args }, opts)).result;
-const SPORTS_TOOLS = ['sports_list_games', 'sports_find_players', 'sports_get_game', 'sports_get_player', 'sports_evaluate_entry', 'sports_get_model_check'];
+const SPORTS_TOOLS = ['sports_list_games', 'sports_find_players', 'sports_get_game', 'sports_get_player', 'sports_evaluate_entry', 'sports_get_model_check', 'sports_get_prop_record', 'sports_get_league_stats'];
 
 // --- who sees the tools ------------------------------------------------------------
 const names = (await rpc('tools/list', {})).result.tools.map((t) => t.name);
@@ -162,6 +172,29 @@ eq(mc.journal.summary.entries, 0, 'paper journal totals');
 const nfl = await tool('sports_get_model_check', { sport: 'nfl' });
 ok(nfl.structuredContent.results.model === null && nfl.structuredContent.warnings.some((w) => /NO_MODEL|NOT_CONNECTED/.test(w)), 'a league without data says so');
 
+// --- prop record and league stats ---------------------------------------------------
+const pr = await tool('sports_get_prop_record', { sport: 'nba', recent: 2 });
+ok(!pr.isError, 'prop record reads: ' + JSON.stringify(pr).slice(0, 300));
+const PR = pr.structuredContent.results;
+eq([PR.total, PR.summary.wins, PR.summary.losses, PR.summary.pending], [3, 1, 1, 1], 'issued props graded against the box scores');
+eq(PR.records.map((r) => r.prop_id)[0], 'p-next', 'newest pick first');
+eq([PR.records.length, PR.next_offset], [2, 2], 'paged');
+ok(PR.by_stat.points && !('snapshot' in PR), 'splits come through; the download snapshot id does not');
+eq((await tool('sports_get_prop_record', { sport: 'nba', recent: 0 })).structuredContent.results.records, [], 'recent 0 gives the totals only');
+ok((await tool('sports_get_prop_record', { sport: 'nfl' })).structuredContent.warnings.some((w) => /NO_PICKS/.test(w)), 'a league with no issued props says so');
+const lead = await tool('sports_get_league_stats', { sport: 'nba', sort_by: 'points', limit: 5 });
+ok(!lead.isError, 'leaders read: ' + JSON.stringify(lead).slice(0, 300));
+const LD = lead.structuredContent.results;
+eq([LD.sorted_by, LD.window, LD.players.length], ['points', 'season', 5], 'leaders sorted and limited');
+ok(LD.players.every((p, i, a) => i === 0 || (a[i - 1].values.points ?? -1) >= (p.values.points ?? -1)), 'highest first');
+const denLead = (await tool('sports_get_league_stats', { sport: 'nba', team: 'DEN', window: 'last5' })).structuredContent.results;
+ok(denLead.players.length > 0 && denLead.players.every((p) => p.team === 'den') && denLead.window === 'last5', 'one team, last five games');
+eq(JSON.parse((await tool('sports_get_league_stats', { sport: 'nba', sort_by: 'passing_yards' })).content[0].text).error.code, 'INVALID_INPUT', 'a stat from the other league is refused');
+const teams = await tool('sports_get_league_stats', { sport: 'nba', view: 'teams' });
+ok(!teams.isError && Array.isArray(teams.structuredContent.results.teams) && teams.structuredContent.results.teams.length > 0, 'teams view: ' + JSON.stringify(teams).slice(0, 300));
+eq(JSON.parse((await tool('sports_get_league_stats', { sport: 'nba', season: 1999 })).content[0].text).error.code, 'NOT_FOUND', 'a season that is not stored');
+eq((await tool('sports_get_league_stats', { sport: 'nba', season: 2025, view: 'teams' })).structuredContent.results.season, 2025, 'a stored season by number');
+
 // --- the store the tools hold ----------------------------------------------------------
 eq(writes, [], 'no tool wrote anything');
 const ro = sportsReadOnlyStore(store);
@@ -171,6 +204,7 @@ await assert.rejects(ro.rawGet(SPORTS_PREFIX + 'nba/../journal/entries.json'), /
 await assert.rejects(ro.rawPut(SPORTS_PREFIX + 'journal/entries.json', '{}'), /read-only/, 'and nothing is writable');
 await assert.rejects(ro.withLease('sports-journal', async () => {}), /read-only/);
 ok((await ro.rawGet(sportsKey('model', { sport: 'nba' }))) != null, 'Sports records are');
+ok((await ro.rawGet(sportsKey('prop-record', { sport: 'nba', season: 2025 }))) != null, 'and so is the issued-props record');
 eq(sportsReadOnlyStore({ get: async () => null }), null, 'a store without raw reads gives no Sports access');
 checks += 6;
 
