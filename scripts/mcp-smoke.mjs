@@ -549,6 +549,8 @@ async function tool(name, args, opts) {
   assert.equal(fs.structuredContent.metadata.as_of, "2026-11-02T14:00:00Z");
   const ff = await tool("fetch", { id: "feature:brief" });
   assert.ok(ff.structuredContent.text.includes("Stocks rise"));
+  assert.ok(ff.structuredContent.metadata.warnings.some((w) => w.includes('get_feature with feature_id "brief"')), "a trimmed fetch points at the tool that can narrow it");
+  assert.ok(!ff.structuredContent.metadata.warnings.some((w) => /Narrow with/.test(w)));
   const fp = await tool("fetch", { id: "feature:picks" });
   assert.equal(fp.isError, false, "a dedicated page fetches through its tool");
   assert.equal(JSON.parse(fp.structuredContent.text).picks[0].symbol, "NVDA");
