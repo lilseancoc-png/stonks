@@ -33361,6 +33361,7 @@ export const BRIEF_TOOL_SOURCES = [
   { key: "central-bank-gold", file: "central-bank-gold.json", label: "Central-bank gold", tab: "central-bank-gold", maxAgeHours: 48 },
   { key: "search", file: "search-interest.json", label: "Search interest", tab: "search-interest", maxAgeHours: 240 },
   { key: "ownership", file: "13f.json", label: "SEC ownership", tab: "f13", maxAgeHours: 24 * 120 },
+  { key: "crowd", file: "crowd.json", label: "Crowd & positioning", tab: "crowd", maxAgeHours: 30 },
 ];
 BRIEF_TOOL_SOURCES.forEach(Object.freeze);
 Object.freeze(BRIEF_TOOL_SOURCES);
@@ -34021,6 +34022,57 @@ function briefToolFacts(source, p, kind, nowMs) {
   } else if (source.key === "search") {
     const b = p.summary?.breakouts || [];
     if (b.length) add(`${p.summary.breakoutCount || b.length} Google Trends breakouts; ${b.slice(0, 3).map((x) => `${x.label}: “${x.query}”`).join("; ")}.`, 64, "watch");
+  } else if (source.key === "crowd") {
+    // Public positioning facts only (lib/crowd/index.mjs): each block carries
+    // its own ok/stale flags, so a carried-forward source adds no fact.
+    const live = (block) => block && block.ok === true && block.stale !== true ? block : null;
+    const count = (n) => Math.abs(Math.round(Number(n))).toLocaleString("en-US");
+    const day = (iso) => /^\d{4}-\d{2}-\d{2}$/.test(iso || "") ? new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "short", day: "numeric" }).format(new Date(`${iso}T12:00:00Z`)) : (iso || "the last session");
+    const month = (ym) => /^\d{4}-\d{2}$/.test(ym || "") ? new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "long", year: "numeric" }).format(new Date(`${ym}-15T12:00:00Z`)) : (ym || "the latest month");
+    const pc = live(p.putCall);
+    const eq = pc?.stats?.equity, tot = pc?.stats?.total;
+    if (eq && Number.isFinite(eq.value)) {
+      const pctile = Number.isFinite(eq.pct250) ? `, ${Math.round(eq.pct250)}th percentile of the past year` : "";
+      const avg = Number.isFinite(eq.avg20) ? `, 20-day average ${eq.avg20.toFixed(2)}` : "";
+      const hot = Number.isFinite(eq.z250) && Math.abs(eq.z250) >= 1.5;
+      add(`Cboe equity put/call ratio ${eq.value.toFixed(2)} on ${day(pc.asOf)}${avg}${pctile}${tot && Number.isFinite(tot.value) ? `; total put/call ${tot.value.toFixed(2)}` : ""}. A volume ratio, not a forecast.`, hot ? 70 : 62, hot ? "watch" : "info");
+    }
+    const cot = live(p.cot), es = cot?.contracts?.ES, lev = es?.groups?.levFund, am = es?.groups?.assetMgr;
+    if (lev && Number.isFinite(lev.net)) {
+      const side = (n) => n < 0 ? "short" : "long";
+      const pct = Number.isFinite(lev.pct3y) ? `, ${Math.round(lev.pct3y)}th percentile of three years` : "";
+      const amText = am && Number.isFinite(am.net) ? `; asset managers net ${side(am.net)} ${count(am.net)}` : "";
+      const chg = Number.isFinite(lev.change) ? ` (${lev.change >= 0 ? "+" : "-"}${count(lev.change)} on the week)` : "";
+      const hot = Number.isFinite(lev.z3y) && Math.abs(lev.z3y) >= 1.5;
+      add(`CFTC: leveraged funds net ${side(lev.net)} ${count(lev.net)} E-mini S&P 500 contracts${chg}${pct}${amText}, as of ${day(es.asOf || cot.asOf)}. Weekly positions, reported with a lag.`, hot ? 68 : 58, hot ? "watch" : "info");
+    }
+    const ks = live(p.kalshi)?.series?.KXINX, kh = ks && ks.ok !== false ? ks.headline : null;
+    if (kh && Number.isFinite(kh.impliedMean)) {
+      const title = String(ks.events?.[0]?.title || "the S&P 500 close").replace(/^S&P 500 close/, "the S&P 500 close");
+      const band = Array.isArray(kh.band80) && kh.band80.length === 2 ? ` with an 80% range of ${count(kh.band80[0])} to ${count(kh.band80[1])}` : "";
+      const likely = kh.mostLikely?.title && Number.isFinite(kh.mostLikely.prob) ? `; most traded bucket ${kh.mostLikely.title} at ${Math.round(kh.mostLikely.prob * 100)}%` : "";
+      add(`Kalshi traders price ${title} at an implied mean of ${count(kh.impliedMean)}${band}${likely}. Prediction-market prices, not a forecast.`, 60, "info");
+    }
+    const md = live(p.marginDebt)?.summary;
+    if (md && Number.isFinite(md.debitUsdM)) {
+      const mom = briefToolPct(md.momPct), yoy = briefToolPct(md.yoyPct);
+      const changes = [mom ? `${mom} on the month` : null, yoy ? `${yoy} on the year` : null].filter(Boolean);
+      const peak = Number.isFinite(md.peak?.fromPeakPct) ? (md.peak.fromPeakPct >= -0.05 ? ", a record high" : `, ${Math.abs(md.peak.fromPeakPct).toFixed(1)}% below its peak`) : "";
+      const hot = Number.isFinite(md.yoyPct) && Math.abs(md.yoyPct) >= 15;
+      add(`FINRA margin debt $${Math.round(md.debitUsdM / 1000).toLocaleString("en-US")}B for ${month(md.month)}${changes.length ? ` (${changes.join(", ")})` : ""}${peak}. Monthly, reported with a lag.`, hot ? 60 : 50, hot ? "watch" : "info");
+    }
+    const sv = live(p.shortVolume)?.market, svLatest = Array.isArray(sv?.latest) ? sv.latest : null;
+    if (svLatest && Number.isFinite(svLatest[1])) {
+      const hist = (sv.history || []).slice(-20).map((r) => r[1]).filter(Number.isFinite);
+      const avg = hist.length >= 5 ? hist.reduce((a, b) => a + b, 0) / hist.length : null;
+      add(`Off-exchange short sale volume was ${svLatest[1].toFixed(1)}% of reported volume on ${day(svLatest[0])} across ${svLatest[2] || "the"} tracked names${avg != null ? ` (20-day average ${avg.toFixed(1)}%)` : ""}. Share of short-marked volume, not short interest.`, 48, "info");
+    }
+    const spx = live(p.perps)?.bySymbol?.SPX;
+    if (spx && Number.isFinite(spx.fundingAnnualPct) && (kind === "morning" || Math.abs(spx.fundingAnnualPct) >= 20)) {
+      const move = kind === "morning" && Number.isFinite(spx.dayChangePct) ? `${briefToolPct(spx.dayChangePct, 2)} over 24 hours, ` : "";
+      const hot = Math.abs(spx.fundingAnnualPct) >= 20;
+      add(`Hyperliquid's S&P 500 perpetual: ${move}funding ${briefToolPct(spx.fundingAnnualPct, 1)} annualized${Number.isFinite(spx.oiUsd) && spx.oiUsd >= 1e6 ? `, $${(spx.oiUsd / 1e6).toFixed(1)}M open interest` : ""}. A thin 24/7 market read.`, hot ? 58 : 46, hot ? "watch" : "info");
+    }
   } else if (source.key === "ownership") {
     const b = (p.overallTopBought || [])[0], s = (p.overallTopSold || [])[0];
     if (b && b.firmCount >= 5) add(`${b.ticker} led active-manager 13F buying across ${b.firmCount} firms${s ? ` while ${s.ticker} led selling across ${s.firmCount} firms` : ""}${p.periodEndIso || p.period ? ` for ${p.periodEndIso || p.period}` : ""}. Delayed quarterly holdings, not today's flows.`, 60, "watch", [b.ticker, s?.ticker]);
