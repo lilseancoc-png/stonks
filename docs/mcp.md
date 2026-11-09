@@ -82,6 +82,17 @@ list is cut, histories and logs stored oldest first keep their **newest** rows (
 and `max_items` is a ceiling at every size budget. Payloads without a build stamp (logs, histories, per-stock files)
 are dated by their Yahoo fetch time or their newest row.
 
+Readable output (`reduceValue`/`tidyDeep` in `lib/mcp/tools.mjs`): every tool rounds float tails (2 decimals from
+1,000 up, 4 from 1, 5 significant digits below 1; rounding alone is not a trim) and turns epoch numbers under
+time-named keys (`expSec`, `closeMs`, `exp`) into ISO dates. The size ladder shortens lists, text and key counts
+before it cuts depth. In `get_feature` (without `ticker`) every cut names the path that reads the rest:
+`{object with 3 keys; read with path "a.b"}`, `…5 more items (paths "x.25" to "x.29", or raise max_items)`, and
+`…44 more keys: k1, k2, …; read one with path "thresholds.k1"`. Large series (`history`, `priceSeries`, chains) and
+internal bookkeeping (forced-liquidation `inspected`, 13F `mappingAttempts`/`holdingsParts`/`ownershipRetainedParts`)
+are left out with a read-with-path note; base64 or compressed blobs become `[encoded data omitted: N characters]`.
+`get_stock` lists series and chains with `read_with` (`get_price_history`, `get_option_chain`), and closed
+`get_track_record` rows carry `close_reason` in words.
+
 **Never reachable**, even for the Owner: `picks-fills.json`, `webull-paper-ledger.json`,
 `picks-watchlist.json`, AI caches and accounting (`ai-usage.json`, `ai-cost-history.json`), the contact inbox
 (visitor messages), the Sports captured lines, track-record reset markers,
