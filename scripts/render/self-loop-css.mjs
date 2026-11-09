@@ -13,6 +13,11 @@ export function renderSelfLoopCss() {
 .slp-h4 { margin: 12px 0 4px; font: 650 12.5px/1.4 var(--font-sans); color: var(--text-strong); }
 .slp-items li { margin: 2px 0; }
 .slp-kpis small { font-weight: 600; margin-left: 4px; }
+.slp-ch { padding: 8px 10px; margin: 8px 0; border: 1px solid var(--border); border-radius: var(--r-2, 10px); }
+.slp-ch-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font: 600 13px/1.4 var(--font-sans); color: var(--text-strong); }
+.slp-checks { display: flex; flex-wrap: wrap; gap: 4px 6px; margin-top: 4px; }
+.slp-check { font: 500 11.5px/1.6 var(--font-sans); padding: 0 8px; border-radius: var(--r-pill, 999px); border: 1px solid var(--border); color: var(--muted-strong); }
+.slp-check.is-ok { color: var(--pos); border-color: color-mix(in srgb, var(--pos) 40%, var(--border)); }
 .slp-section .crd-dim { font: 450 11px/1.4 var(--font-sans); color: var(--muted); }
 `;
 }

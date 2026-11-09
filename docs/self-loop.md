@@ -35,6 +35,7 @@ of that merge undoes it. The kill switch `LOOP=0` (repo variable, passed by
 | The count model behind every stated chance, reliability scoring | `lib/self-loop/calibrate.mjs` |
 | Scorecard and rule audit | `lib/self-loop/scorecard.mjs` |
 | Input decay, market splits, loss patterns, weekly report | `lib/self-loop/diagnose.mjs` |
+| Paper challengers, the promotion check | `lib/self-loop/challengers.mjs` |
 | The two bake hooks, the files, the evidence rows | `lib/self-loop/index.mjs` |
 | Owner Lab "Loop" tab | `scripts/render/self-loop-client.mjs`, `self-loop-css.mjs` |
 | Tests | `scripts/self-loop-smoke.mjs` (`npm run test:self-loop`), `scripts/self-loop-browser.mjs` (`npm run test:self-loop-browser`) |
@@ -73,6 +74,7 @@ outcome rows are written. For every scored name it stores:
 | `pn` | graded rows behind the finest group the estimate came from (0 = the 50% starting point) |
 | `c`, `px` | the planned contract `[strike, expiry, mid, iv]` and the run spot |
 | `sig`, `pl` | the non-zero signal votes and pillar scores (for step 2's input decay read) |
+| `xv` | the stated value of the planned option after costs, in points (for step 3's expected-value challenger) |
 | `o` | the modeled option outcome, filled later |
 
 The stock moves are not stored twice: `joinedRows` joins them from
@@ -131,11 +133,12 @@ after costs. With 20+ names on each side a rule reads **paying** (saved over
 
 ### Evidence board
 
-Two rows in the lane "Self-improving loop":
+Rows in the lane "Self-improving loop":
 
 - `loop-honest-odds`: pass when 400+ fitted 10-session estimates beat the base
   rate's Brier score by more than 1%, fail when they score worse.
 - `loop-gate-audit`: ready once 20 let-through names have a modeled outcome.
+- `loop-challengers` (step 3): see the promotion check below.
 
 ### Bake order
 
@@ -205,6 +208,88 @@ worst setups, rules that cost the book, the shape of the losses, and stated
 odds that score worse than the base rate. Each item names the step-3
 challenger or step-4 setting it points to; nothing is changed by the report.
 
+## Step 3: challenge (C1-C4)
+
+`loopOnBake` adds `challengers` to the view and keeps the book in the state
+(`lib/self-loop/challengers.mjs`). Still measurement only: a challenger is a
+paper book, never a change.
+
+### The menu (C1)
+
+A challenger is one small, named change taken from a fixed menu, never searched
+for:
+
+| Kind | What it does | Step 4 can apply it live |
+|---|---|---|
+| `mute` | take one input's vote out of the total | yes (weight 0) |
+| `up` | count one input's vote half again | yes (weight 1.5) |
+| `bar` | trade bar one point higher, or half a point lower | yes |
+| `ev-gate` | take only names whose stated option value after costs is zero or better | yes |
+| `rule-off` | switch off one open-pick rule | no, it names the code change |
+| `skip` | skip one side in one market type | no, it names the Owner market mode or a code change |
+
+The diagnosis picks what to try, in this order: inputs pointing the wrong way
+(mute), rules that cost the book (rule-off), the worst side x market setup
+(skip), the expected-value gate once the count model is past 200 rows, inputs
+that work (up), fading inputs (mute), then the bar one point up and half a
+point down. At most **three** run at once and at most **one** new one starts a
+week (only on the build that writes the weekly report), so the number of things
+tried stays small. The same change is not tried again within 60 sessions of its
+end.
+
+### Judged forward on the same trades (C2)
+
+A challenger is judged only on runs **after** it started, against a replica of
+the current rules over the same runs: the same planned contracts, the same
+modeled option outcomes, exits and costs (step 1). Both books take one trade
+per name and side at a time, as the engine does (no new trade while the last
+one is still open). The replica takes the names the run let through; a
+challenger starts from those plus the names under the bar, re-scores each one
+(delta method: muting takes the vote out of the untuned total, `up` adds half
+of it again; a re-score that flips the side drops the name), and applies its
+own bar, gate or skip.
+
+Two simplifications, both in the challenger's favor and so worth knowing when a
+result looks good:
+
+- A below-bar name a challenger lifts over the bar is treated as if it had
+  passed every other open-pick rule (those rules were never run on it).
+- Votes are added straight to the total; the real grade clamps each pillar at
+  ±5, so a mute on a name whose pillar sat at the clamp moves the score less in
+  practice than here.
+
+### The promotion check (C3)
+
+A challenger reads **ready** only when all of these hold:
+
+| Check | Bar |
+|---|---|
+| Sessions since the start | 30+ (`MIN_SESSIONS`) |
+| Decided trades in its book | 40+ (`MIN_TRADES`) |
+| Edge over the replica, after costs | 2+ points a trade (`MIN_EDGE`) |
+| Both halves of its time | better than the replica in each |
+| The newest fifth (holdout) | better than the replica |
+| Best three trades dropped | still better than the replica |
+| Costs doubled | its own average still above zero |
+| t value of its edge, 5-session blocks | above the bar for the number of trials |
+
+The t bar is a one-sided 5% test split over every challenger ever started
+(Bonferroni: 1.64 with one trial, 2.33 with five, 2.58 with ten), so trying more
+things raises the bar for all of them. A challenger with enough sessions and
+trades that is not ahead, or one that reaches 60 sessions, is retired as **no
+edge**; a ready one keeps its verdict in the finished list.
+
+### What passing means (C4)
+
+A ready challenger is a recommendation. The Loop tab lists it under "Passed the
+check" with the setting it points to. `mute`, `up`, `bar` and `ev-gate` are the
+ones step 4 can apply, only when switched on and only inside its limits; a
+`rule-off` or `skip` that passes names the code change or the Owner market mode
+to consider, and nothing changes until someone makes it.
+
+The Evidence board gains `loop-challengers`: pass once a challenger passes the
+check, collecting while one runs, waiting before the first starts.
+
 ## What to expect
 
 The loop's first stated chances are the 50% starting point. Ten-session
@@ -212,6 +297,7 @@ outcomes start to land about two weeks after the first run, the model crosses
 200 graded rows within a few more days, and the honesty test needs 400 graded
 estimates (roughly three to four weeks of runs). The early look at direction
 skill is November 23 and the full test December 7, as already planned.
-Better-calibrated odds do not by themselves mean more winners: the loop's job
-is to say how good the engine is, honestly, and to find the parts worth
-changing.
+The first challenger can start with the first weekly report, and none can read
+ready before 30 sessions (about six weeks) after it started. Better-calibrated
+odds do not by themselves mean more winners: the loop's job is to say how good
+the engine is, honestly, and to find the parts worth changing.

@@ -19,6 +19,7 @@ import { cellKeys, estimateFor, fitCalibration, modelTable, reliability, MIN_ROW
 import { buildScorecard, directionRead, gateAudit, historyRows, optionRead, rankSkill, tStat } from "../lib/self-loop/scorecard.mjs";
 import * as Loop from "../lib/self-loop/index.mjs";
 import * as Dg from "../lib/self-loop/diagnose.mjs";
+import * as Ch from "../lib/self-loop/challengers.mjs";
 import { appendRunOutcomes, emptyOutcomesState, fillOutcomes } from "../lib/picks-outcomes.mjs";
 import { isPremiumKey, isRoleRestrictedKey, roleClaimForKey } from "../lib/premium-keys.mjs";
 import { OPTIONAL_BAKE_KEYS, isBakeOwnedKey, isDynamicBakeKey, isLocalOnlyKey } from "../lib/data-ownership.mjs";
@@ -296,7 +297,7 @@ async function main() {
   ok(firstRows.every((r) => r[I.p10] === 50 && r[I.pn] === 0), "the first run had nothing to learn from");
   // Evidence rows.
   const tests = Loop.loopEvidenceTests(view);
-  eq(tests.map((t) => t.id), ["loop-honest-odds", "loop-gate-audit"]);
+  eq(tests.map((t) => t.id), ["loop-honest-odds", "loop-gate-audit", "loop-challengers"]);
   ok(tests.every((t) => t.lane === "loop" && t.progress && t.rule), "each row has a lane, progress and a rule");
   eq(Loop.loopEvidenceTests(null), []);
 
@@ -373,6 +374,85 @@ async function main() {
   ok(view.diagnosis && view.diagnosis.inputs.length > 0, "the view carries the diagnosis");
   ok(view.reports.length >= 5 && view.reports.length <= 8, `weekly reports in the view (${view.reports.length})`);
   ok(state.reports.every((r, i, a) => i === 0 || r.week > a[i - 1].week), "one report per week, in order");
+
+  // ---- step 3: challengers --------------------------------------------------------------
+  ok(Math.abs(Ch.normInv(0.975) - 1.96) < 0.001, "inverse normal");
+  ok(Math.abs(Ch.normInv(0.001) + 3.09) < 0.01, "lower tail");
+  eq(Ch.tBar(1), 1.64);
+  eq(Ch.tBar(10), 2.58, "the bar rises with every challenger tried");
+  const base = { tot0: 5, side: "call", cls: "pick", sig: { bad: 2 }, pl: { f: 1 }, xv: -1, mk: "risk-off", out: "pick:single" };
+  eq(Ch.challengerTakes(base, { kind: "base" }), true);
+  eq(Ch.challengerTakes(base, { kind: "mute", key: "bad" }), false, "muting a +2 vote drops a 5 to 3, under the bar");
+  eq(Ch.challengerTakes(base, { kind: "mute", key: "P:f" }), true, "4 still clears the bar");
+  eq(Ch.challengerTakes({ ...base, tot0: 3.5, cls: "below-bar" }, { kind: "up", key: "bad" }), true, "leaning harder lifts a 3.5 over the bar");
+  eq(Ch.challengerTakes({ ...base, tot0: -1.5, side: "put", cls: "below-bar" }, { kind: "mute", key: "bad" }), false, "a vote that flips the side drops the name");
+  eq(Ch.challengerTakes(base, { kind: "ev-gate" }), false, "negative stated value");
+  eq(Ch.challengerTakes({ ...base, xv: 0.5 }, { kind: "ev-gate" }), true);
+  eq(Ch.challengerTakes(base, { kind: "bar", value: 5.5 }), false);
+  eq(Ch.challengerTakes({ ...base, cls: "gate", out: "gate:losing-streak" }, { kind: "base" }), false, "a gated name is not in the replica");
+  eq(Ch.challengerTakes({ ...base, cls: "gate", out: "gate:losing-streak" }, { kind: "rule-off", key: "losing-streak" }), true, "switching the rule off lets it through");
+  eq(Ch.challengerTakes(base, { kind: "skip", key: "call/risk-off" }), false);
+  eq(Ch.challengerTakes({ ...base, cls: "open" }, { kind: "base" }), false, "an already-open name is never re-entered");
+  // No new trade in a name while the last one is open.
+  const bt = Ch.bookTrades([
+    { d: "2026-06-01", et: "11:00", s: "A", side: "call", cls: "pick", tot0: 5, opt: { net: 10, days: 2 } },
+    { d: "2026-06-01", et: "15:30", s: "A", side: "call", cls: "pick", tot0: 5, opt: { net: 10, days: 2 } },
+    { d: "2026-06-02", et: "11:00", s: "A", side: "call", cls: "pick", tot0: 5, opt: { net: 10, days: 2 } },
+    { d: "2026-06-03", et: "11:00", s: "A", side: "call", cls: "pick", tot0: 5, opt: { net: 10, days: 2 } },
+    { d: "2026-06-04", et: "11:00", s: "A", side: "call", cls: "pick", tot0: 5, opt: { net: 10, days: 2 } },
+  ], (r) => Ch.challengerTakes(r, { kind: "base" }));
+  eq(bt.map((t) => t.d), ["2026-06-01", "2026-06-04"], "held for its two sessions, then free again");
+  // A challenger that drops the names a bad input pushed over the bar.
+  const cRows = [];
+  const cdays = sessions("2026-01-05", 70);
+  cdays.forEach((d, di) => {
+    for (let j = 0; j < 8; j++) {
+      const badVote = j < 3 ? 2 : 0;
+      const net = badVote ? -40 + (di % 5) : 20 + ((di + j) % 7);
+      cRows.push({ d, et: "11:00", s: `N${di}_${j}`, side: "call", cls: "pick", out: "pick:single", tot0: 5, tot: 5, mk: "neutral", sig: { bad: badVote }, opt: { res: net > 0 ? "tp" : "stop", net, days: 1 } });
+    }
+  });
+  const goodCh = Ch.judgeChallenger(cRows, { id: "mute:bad", kind: "mute", key: "bad", start: cdays[0] }, { trials: 3 });
+  eq(goodCh.status, "ready", JSON.stringify(goodCh.checks));
+  ok(goodCh.diff > 20 && goodCh.trades === 350 && goodCh.baseTrades === 560, `mute beats the replica (${goodCh.diff})`);
+  eq(goodCh.live, true, "a mute can be applied live by step 4");
+  const worse = Ch.judgeChallenger(cRows, { id: "bar:5.5", kind: "bar", value: 5.5, start: cdays[0] }, { trials: 3 });
+  eq(worse.trades, 0);
+  eq(worse.status, "no-edge", "70 sessions with nothing to show is retired");
+  const young = Ch.judgeChallenger(cRows, { id: "mute:bad", kind: "mute", key: "bad", start: cdays[50] }, { trials: 3 });
+  eq(young.status, "running", "judged only on runs after it started: 20 sessions is not enough");
+  eq(young.sessions, 20);
+  ok(!young.checks.sessions, "the sessions check fails");
+  // Menu order follows the diagnosis.
+  const menu = Ch.candidateSpecs({ diagnosis: { inputs: [{ key: "late", status: "against", w20: { days: 20 } }, { key: "good", status: "working", w20: { days: 20 } }], losses: { worst: [{ feature: "side x market", value: "put / risk-off", lossRate: 80 }] } }, scorecard: { gates: { gates: [{ gate: "crowd-squeeze", verdict: "costing" }] } }, modelRows: 250 });
+  eq(menu.map((m) => m.id), ["mute:late", "rule-off:crowd-squeeze", "skip:put/risk-off", "ev-gate:", "up:good", "bar:5", "bar:3.5"]);
+  // Stepping: a new challenger only with a weekly report, three at most.
+  const book = Ch.emptyChallengers();
+  const diag = { inputs: [{ key: "bad", status: "against", w20: { days: 20 } }] };
+  const upTo = (i) => cRows.filter((r) => r.d <= cdays[i]);
+  let step = Ch.stepChallengers(book, { rows: upTo(0), diagnosis: diag, today: cdays[0], startNew: false });
+  eq(book.active.length, 0, "nothing starts without a report");
+  step = Ch.stepChallengers(book, { rows: upTo(0), diagnosis: diag, today: cdays[0], startNew: true });
+  eq(step.started.id, "mute:bad");
+  eq(book.trials, 1);
+  Ch.stepChallengers(book, { rows: upTo(5), diagnosis: diag, today: cdays[5], startNew: true });
+  Ch.stepChallengers(book, { rows: upTo(10), diagnosis: diag, today: cdays[10], startNew: true });
+  Ch.stepChallengers(book, { rows: upTo(15), diagnosis: diag, today: cdays[15], startNew: true });
+  eq(book.active.length, 3, "three at most");
+  eq(book.active.map((x) => x.id), ["mute:bad", "bar:5", "bar:3.5"]);
+  eq(book.trials, 3, "a full book starts nothing new");
+  step = Ch.stepChallengers(book, { rows: upTo(45), diagnosis: diag, today: cdays[45], startNew: false });
+  ok(step.ready.some((r) => r.id === "mute:bad"), "the mute passed the check after 45 sessions");
+  ok(book.active.some((x) => x.id === "mute:bad"), "and keeps running until its time limit");
+  ok(book.done.some((x) => x.id === "bar:5"), "the bar at 5 took the same names as the replica (every name is a 5): no edge, retired");
+  step = Ch.stepChallengers(book, { rows: upTo(69), diagnosis: diag, today: cdays[69], startNew: false });
+  ok(book.done.some((x) => x.id === "mute:bad") && !book.active.some((x) => x.id === "mute:bad"), "finished at its time limit, verdict kept");
+  ok(step.ready.some((r) => r.id === "mute:bad"), "a finished ready challenger is still listed as ready");
+  const after = Ch.stepChallengers(book, { rows: upTo(69), diagnosis: diag, today: cdays[69], startNew: true });
+  ok(!after.started || after.started.id !== "mute:bad", "the same change is not tried again right away");
+  eq(Ch.parseChallengers({ active: [{ id: "x", kind: "nope", start: "2026-01-01" }, { id: "mute:a", kind: "mute", key: "a", start: "2026-01-01" }], done: [null], trials: 7 }).active.length, 1, "bad entries dropped");
+  ok(view.challengers && view.challengers.trials >= 1, `the fixture started challengers with its weekly reports (${view.challengers?.trials})`);
+  ok(view.challengers.replica.trades > 0, "the replica book traded");
 
   // ---- files ----------------------------------------------------------------------------
   const dir = await mkdtemp(resolve(tmpdir(), "stonks-self-loop-"));

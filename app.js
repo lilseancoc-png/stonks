@@ -4473,6 +4473,26 @@ function recoveryEvidence(row, data, now = Date.now()) {
       '<h4 class="slp-h4">Setups that lose more than the book</h4>' + (L.worst && L.worst.length ? slpTable(head, rows(L.worst)) : '<p class="evb-note">None yet (needs 15 names in a group and 3 points worse than the book).</p>') +
       '<h4 class="slp-h4">Setups that do better</h4>' + (L.best && L.best.length ? slpTable(head, rows(L.best)) : '<p class="evb-note">None yet.</p>');
   }
+  // ---- Step 3: challengers (C1-C4) ----
+  var SLP_CH_STATUS = { running: ['Running', 'evb-s-collect'], ready: ['Passed the check', 'evb-s-pass'], 'no-edge': ['No edge', 'evb-s-unclear'] };
+  var SLP_CHECKS = [['sessions', '30+ sessions'], ['trades', '40+ trades'], ['edge', '2+ points better'], ['halves', 'Both halves'], ['holdout', 'Newest fifth'], ['dropTop3', 'Without its best 3'], ['doubleCost', 'Costs doubled'], ['t', 't above the bar']];
+  function slpChallengersHtml(d){
+    var c = d.challengers;
+    if (!c) return '<p class="hint">Challengers start with the weekly reports.</p>';
+    var lead = '<p class="evb-lead">Each challenger is one small change from a fixed menu, picked from the weekly report: mute an input, lean harder on one, move the trade bar, keep only names with a positive stated option value, switch off a rule, or skip a side in a market type. It is judged only on runs after it started, on the same modeled options as a replica of the current rules (' + (c.replica ? c.replica.trades + ' trades, average ' + slpPts(c.replica.avg) + ' points' : 'no trades yet') + '). ' + c.trials + ' tried so far, so a passing t value must be ' + slpNum(c.tNeed, 2) + ' or more. Passing is a recommendation, never a change.</p>';
+    var run = c.running || [];
+    var runHtml = run.length ? run.map(function(x){
+      var st = SLP_CH_STATUS[x.status] || SLP_CH_STATUS.running;
+      var checks = SLP_CHECKS.map(function(k){ var okv = x.checks && x.checks[k[0]]; return '<span class="slp-check ' + (okv ? 'is-ok' : 'is-no') + '">' + (okv ? '✓' : '·') + ' ' + k[1] + '</span>'; }).join('');
+      return '<div class="slp-ch"><div class="slp-ch-head"><b>' + escapeHtml(x.label) + '</b> <span class="evb-pill ' + st[1] + '">' + st[0] + '</span></div>' +
+        '<div class="crd-dim">Started ' + escapeHtml(evbDate(x.start)) + ' · ' + x.sessions + ' sessions · ' + x.trades + ' trades against ' + x.baseTrades + ' for the replica · ' + (x.live ? 'step 4 can apply it' : escapeHtml(x.setting || '')) + '</div>' +
+        slpKpis([['Its average', slpPts(x.avg)], ['Replica', slpPts(x.baseAvg)], ['Better by', '<span class="' + slpSign(x.diff) + '">' + slpPts(x.diff) + '</span>'], ['Halves', (x.halves || []).map(function(h){ return slpPts(h); }).join(' / ')], ['t', slpNum(x.t, 2) + ' of ' + slpNum(x.tNeed, 2)]]) +
+        '<div class="slp-checks">' + checks + '</div></div>';
+    }).join('') : '<p class="hint">No challenger is running. The next weekly report starts one if the menu has a candidate.</p>';
+    var ready = (c.ready || []).length ? '<h4 class="slp-h4">Passed the check</h4><ul class="rgl-lines">' + c.ready.map(function(r){ return '<li><b>' + escapeHtml(r.label) + '</b>, ' + slpPts(r.diff) + ' points a trade over the replica. ' + (r.live ? 'Self-tuning can apply it within its limits once switched on.' : 'Needs ' + escapeHtml(r.setting || 'an Owner decision') + '.') + '</li>'; }).join('') + '</ul>' : '';
+    var done = (c.done || []).length ? '<details class="rgl-details slp-details"><summary>Finished (' + c.done.length + ')</summary>' + slpTable([['Challenger'], ['Ran'], ['Sessions', 1], ['Trades', 1], ['Better by', 1], ['Result']], c.done.map(function(x){ var st = SLP_CH_STATUS[x.status] || SLP_CH_STATUS['no-edge']; return '<tr><td>' + escapeHtml(x.label) + '</td><td>' + escapeHtml(evbDate(x.start)) + ' to ' + escapeHtml(evbDate(x.end)) + '</td><td class="num">' + (x.sessions || 0) + '</td><td class="num">' + (x.trades || 0) + '</td><td class="num ' + slpSign(x.diff) + '">' + slpPts(x.diff) + '</td><td><span class="evb-pill ' + st[1] + '">' + st[0] + '</span></td></tr>'; }).join('')) + '</details>' : '';
+    return lead + runHtml + ready + done;
+  }
   function renderSelfLoop(){
     var root = $('self-loop-root'); if (!root) return;
     var d = slpState.data;
@@ -4488,6 +4508,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
       ['slp-inputs', 'Which inputs still work?', slpInputsHtml],
       ['slp-markets', 'Where does the engine work?', slpMarketsHtml],
       ['slp-losses', 'How do the losses happen?', slpLossesHtml],
+      ['slp-challengers', 'Paper challengers', slpChallengersHtml],
       ['slp-model', 'The model behind the odds', slpModelHtml],
       ['slp-history', 'Day by day', slpHistoryHtml],
     ];
