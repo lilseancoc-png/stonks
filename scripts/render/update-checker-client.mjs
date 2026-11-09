@@ -28,6 +28,22 @@ export function updateCheckerClient(window, document, ctx) {
   function tone(w){var r=w.latest,c=w.latestCompleted;if(r&&r.status&&r.status!=='completed')return 'running';if(!c)return 'none';return ['success','neutral','skipped'].indexOf(c.conclusion)>=0?'ok':['failure','timed_out','startup_failure','action_required'].indexOf(c.conclusion)>=0?'bad':'warn';}
   function ago(v){var n=Date.parse(v);if(!isFinite(n))return 'no run';var m=Math.max(0,Math.round((Date.now()-n)/60000));return m<60?m+' min ago':m<2880?Math.round(m/60)+' h ago':Math.round(m/1440)+' d ago';}
   function jobPills(m){var ws=m.workflows||[];if(!ws.length)return '';var word={ok:'Passed',bad:'Failed',warn:'Needs review',running:'Running',none:'No run'};return '<ul class="uc-pills" aria-label="Data jobs">'+ws.map(function(w){var t=tone(w),r=w.latest||w.latestCompleted,name=r&&r.name?r.name:String(w.path).replace(/\.yml$/,'');return '<li class="uc-pill" data-tone="'+t+'" title="'+esc(word[t]+(r?' · '+(r.conclusion||r.status)+' · '+time(r.createdAt):''))+'"><i aria-hidden="true"></i><b>'+esc(name)+'</b><span>'+esc(word[t])+(r?' · '+esc(ago(r.createdAt)):'')+'</span></li>';}).join('')+'</ul>';}
+  // Data sources (source-health.json, written by the bake): what each outside
+  // feed delivered, with the carry-forward streak and the bad days in 30.
+  function sourcesHtml(src){
+    if(!src || !Array.isArray(src.sources) || !src.sources.length)return '';
+    var word={ok:'Fresh',partial:'Partly carried',carried:'Carried forward',aged:'Aged',missing:'Missing',unreadable:'Unreadable'};
+    var review=src.sources.filter(function(r){return r.review;}).length;
+    var rows=src.sources.slice().sort(function(a,b){return (b.review?1:0)-(a.review?1:0)||(b.streak||0)-(a.streak||0)||a.label.localeCompare(b.label);}).map(function(r){
+      var t=r.state==='ok'?'ok':r.state==='partial'?'warn':r.review?'bad':'warn';
+      return '<tr data-uc-review="'+(r.review?'1':'0')+'"><td><b>'+esc(r.label)+'</b><br><span class="uc-muted">'+esc(r.provider)+' · '+esc(r.cadence)+'</span></td>'+
+        '<td><span class="uc-source-state" data-tone="'+t+'"><i aria-hidden="true"></i>'+esc(word[r.state]||r.state)+'</span><br><span class="uc-muted">'+esc(r.detail||'')+'</span></td>'+
+        '<td class="num">'+(r.at?esc(ago(r.at)):'—')+'</td><td class="num">'+(r.streak||0)+'</td><td class="num">'+(r.badDays30||0)+'</td></tr>';
+    }).join('');
+    return '<details class="uc-workflows uc-sources"'+(review?' open':'')+'><summary>Data sources · '+src.sources.length+' feeds'+(review?' · '+review+' to review':' · all fresh')+'</summary>'+
+      '<p class="uc-muted">From the last full build'+(src.builtAtIso?' at '+esc(time(src.builtAtIso)):'')+'. A feed the build could not read keeps its last-good copy and is marked carried; a carry streak of '+esc(src.reviewStreak||3)+' days or more is worth a look at the source.</p>'+
+      '<div class="uc-source-wrap"><table class="uc-source-table"><thead><tr><th scope="col">Source</th><th scope="col">State</th><th scope="col" class="num">Newest data</th><th scope="col" class="num">Carry streak (days)</th><th scope="col" class="num">Bad days in 30</th></tr></thead><tbody>'+rows+'</tbody></table></div></details>';
+  }
   function render(){
     var root=document.getElementById('update-checker-root');if(!root || !ctx.owner())return;
     var html='<div class="uc-toolbar"><button type="button" class="book-more" data-uc-refresh'+(loading?' disabled':'')+'>'+(loading?'Checking…':'Refresh status')+'</button><span class="uc-muted">'+(data?'Observed '+esc(time(data.observedAt)):'')+'</span></div>';
@@ -44,6 +60,7 @@ export function updateCheckerClient(window, document, ctx) {
     if(m.deployment)html+='<section class="uc-deployment"><h3>Code deployment</h3>'+badge(m.deployment.state)+' <span>main '+esc(m.deployment.sha.slice(0,8))+'</span></section>';
     var a=data.artifacts;html+='<details class="uc-workflows"><summary>Stored data and log integrity'+(a?' · '+a.checked+' artifacts checked':' · awaiting scan')+'</summary>';
     if(a){html+='<p>'+a.issueCount+' integrity or stored-log issues. '+(a.researchRecords || 0)+' internal research records checked. '+(a.complete?'Inventory scan completed.':'Inventory coverage is incomplete.')+'</p>';(a.issues||[]).forEach(function(row){html+='<article><h4>'+esc(row.key)+'</h4>'+badge(row.status)+'<p>'+esc(row.detail)+'</p></article>';});}html+='</details>';
+    html+=sourcesHtml(data.sources);
     html+='<details class="uc-workflows"><summary>Monitored workflows</summary>'+(m.workflows||[]).map(function(w){return '<article><h4>'+esc(w.latest?w.latest.name:w.path)+'</h4>'+runCard(w.latest)+'</article>';}).join('')+'</details>';
     html+='<section class="uc-features"><h3>Feature coverage</h3><p class="uc-muted">Every feature has a data check or an explicit reference / request-driven designation. Valid empty results are allowed. Raw log text and private payload values are never included.</p><label>Show <select data-uc-filter><option value="issues">Needs review</option><option value="all">All features</option></select></label><div class="uc-feature-list">';
     data.features.slice().sort(function(a,b){return (!issue(a))-(!issue(b))||a.label.localeCompare(b.label);}).forEach(function(f){html+='<article class="uc-feature" data-uc-available="'+(!issue(f)?'1':'0')+'"'+(!issue(f)?' hidden':'')+'><div><h4>'+esc(f.label)+'</h4>'+badge(f.status)+'</div><p>'+esc(f.detail)+'</p><p class="uc-muted">Content time: '+esc(time(f.asOf))+(f.key?' · '+f.maxHours+'-hour window':'')+'</p></article>';});

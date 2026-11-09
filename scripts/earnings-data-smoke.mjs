@@ -60,5 +60,16 @@ try {
   assert.deepEqual(row.revenueSource,event.revenueSource);
   assert.equal(row.week1DueDate,'2026-11-06');
   assert.equal(data.AMZN.earningsHx.events[0].revenueSource.sourceUrl,event.revenueSource.sourceUrl);
+  // Funds don't report earnings: a stored fund row (SPY carried a 2005 "print")
+  // is dropped, never fetched again, and never attached to the page.
+  const {updateEarningsEventsHistory}=await import('./build.mjs');
+  const fundStore={tickers:{SPY:{events:[{date:'2005-02-15',session:'TBD',epsActual:1.81}]}}};
+  const fundData={SPY:{fundamentals:{name:'SPDR S&P 500'}}};
+  attachEarningsHx(fundData,fundStore);
+  assert.equal(fundData.SPY.earningsHx,undefined,'a fund gets no earnings history');
+  const realFetch=globalThis.fetch;let fetched=0;globalThis.fetch=async()=>{fetched++;throw Error('offline');};
+  try { await updateEarningsEventsHistory(fundStore,fundData,new Map()); } finally { globalThis.fetch=realFetch; }
+  assert.equal(fetched,0,'no earnings lookups for a fund');
+  assert.equal(fundStore.tickers.SPY,undefined,'stored fund rows are dropped');
 } finally { if(key==null)delete process.env.GEMINI_API_KEY;else process.env.GEMINI_API_KEY=key; }
 console.log('Earnings data passed: trading windows, issuer/quarter/currency/filing provenance, YTD rejection, bank revenue, immutable known values, retries and persistent collection budgets.');

@@ -1,29 +1,29 @@
 {
   "note": "Fingerprints for scripts/owner-scope-smoke.mjs. Update with --update only for a deliberate change, and say why in the PR.",
   "files": {
-    "scripts/build.mjs": "f170999ff2f3d6c8864ce8fbd7e1b3a5384529d4f92a6d8bb9da5f807c7c8616",
-    "lib/top-picks-config.mjs": "90dfb86c94d2e4f1ba4f656fc7caa4cc008a1d32271267d46a469876ee73eb18",
-    "lib/datastore.mjs": "a1d12f4ad95025a0cfb9166a0c53b875ae1bf690466b6e579ea755dda250b630",
-    "lib/data-ownership.mjs": "0e38f647f41303e6d4203a85826aa7794981907ae2eaa8a161ce219c26897ba1",
-    "scripts/sync-data.mjs": "702a668d7443d18ef122b0cb43f9e1537eef1c2fb97d697a75dafb2542ad3afd",
+    "scripts/build.mjs": "80735f00a36cf85181ee026dc3adf9cf41dabcfe1870980da4043d04dfb4c6f1",
+    "lib/top-picks-config.mjs": "86dc3d7a3ac49efdd2508c54a55ce8465fc14630bffb4efa0330137a7721be18",
+    "lib/datastore.mjs": "524634a5c6a9e041109b98a9637c70da1911106a20e08eb664c60aea05396fdd",
+    "lib/data-ownership.mjs": "da1e1653653d0a845efc0349cb85fc78c6f7b0fc09d962ab19743d336f80394d",
+    "scripts/sync-data.mjs": "f1689806667ffa73a594b5b6a7565ded57d6db0db2551f7ac5438d0144d1b5bd",
     "lib/webull-mirror.mjs": "4371df1da1cba2e487d90d37661d8b3a36b1acbab1d6374187ade32e79e25aa7",
-    "lib/grade-research.mjs": "74fb6c5acbe68820937758cdbd963cc669aba3b74fda28e74181c37e12e773a4"
+    "lib/grade-research.mjs": "b4691a1c509d647c12af1d7fb22cde0484ae0012d31a5007c233aacb053d6590"
   },
   "calculators": {
     "gradeSpread": "cc24b0ff411b6ea0f8b37ba1a76524629f71aa4dd18f76b6e9c03f88c8b7b075",
     "gradeLiquidity": "39a8870618446d964623b287cba4aaae157772ee24b584e61498f772bf94f70b",
-    "gradeVolRegime": "1f38b89b4e5656d8d3b3cfc99977e5b5b9989e0cf271a905e74d1f99a8c49320",
+    "gradeVolRegime": "4833e3a1ae32e1931077d61088d1be981ab75a8b5edf658b52d6dfea8f96137b",
     "gradeDelta": "5c5fb0c5700f9593130cad03e3598e958d97c4bfeb1df99e6852a7838690278c",
     "gradeTheta": "787daa3b55e15d4fe603e6613f57538a422deb913d717b5658e4ee63f2f8b886",
     "shouldBuy": "25f4d6ad1b6587bdab1f17c8dcf52291805f7210f2901a625367e637d3516cfd",
     "findAlternative": "ef76141078a1a94c483dd6c4f1ea306610e9048b7ee67568f5631c607e06841e",
     "reconcileVerdict": "9fc841cb981ee602e4058a0f03c2e72e8422576098ebc2b056b46df1703f2740",
-    "buildResultHtml": "b65a98389456bbd47731692c0f767520644a0a050987dc0137941f14e6f6ed2e",
+    "buildResultHtml": "ad0a953dd6db727461f7e3fcb6815c37c07a950daa5365fcdefd424b08396f5e",
     "computeMaxPain": "98053a6f7765240515cf5f809b3e44a9b2934ba5cd50fbdcec292836541b56d2",
     "computeTermStructure": "7ff7ef5d84570db0912ab0b187e1a571c83aa31b95dd34d0a8e6f0edfc3c18fa",
     "computeLiveMacroRegime": "5eb3aaed29585af9f3a05b3ca994a26935cb010b2c0da7e4f1b79abab394c298",
     "computeGexFlip": "3c267bc3483dab4ac871e70ff319cf819684bc30cb2b706b6a70d610fbff7ba7",
-    "computeGex": "c6ddf031ea47f210744ca3465ef38b4cda45d47e695eb5bc648670ecf280ad34",
+    "computeGex": "eb9b4f334efd5d3b6c896a18cac55154696bcc8ab979ef96316779b9e22038d0",
     "maTrackerScore": "5cb2eb551fd1283b892692d7c4a98a12db860888a8e4906229bfa26d36fbaf49",
     "heatmapSquarify": "3588c8bd76335235904311020e07c2956c1f6f1702fe95261b01f852280cf4df",
     "heatmapColorParts": "b7ea306b8a011007ad913d1fa049b4d730f2d0200833fd35f26c4128d12c2fc6"

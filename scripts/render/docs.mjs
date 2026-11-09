@@ -377,7 +377,7 @@ export const DOC_PAGES = {
     </div>
     <div class="grid g3" style="margin-top:16px">
       <div class="card"><h3>Strike</h3><p>The fixed price you'd buy or sell at if you exercised.</p></div>
-      <div class="card"><h3>Expiration <span class="tag">DTE</span></h3><p>The deadline. After it, the option is worthless. "DTE" = days to expiration.</p></div>
+      <div class="card"><h3>Expiration <span class="tag">DTE</span></h3><p>The deadline. After it, the option stops trading: one that is in the money is usually exercised automatically, and one that is out of the money expires worthless. "DTE" = days to expiration.</p></div>
       <div class="card"><h3>Exit</h3><p>You almost always <strong>sell the option back</strong> before expiry — you rarely exercise.</p></div>
     </div>
   </section>
@@ -1157,6 +1157,9 @@ export const DOC_PAGES = {
       </ul>
       <p>We do not receive a Discord password. The OAuth access token used for the internal Owner check is processed during login and is not intentionally retained after the request completes.</p>
 
+      <h3>Messages You Send Us</h3>
+      <p>If you use &ldquo;Send us a message&rdquo; (Learn &amp; help), we store the title, message, optional name and any emails or social links you choose to add, with the time it was sent. Only the site owners can read these messages. To limit spam we keep a salted one-way hash of your IP address for about a day; the IP address itself is not stored with the message. Owners can delete a message at any time.</p>
+
       <h3>Donations</h3>
       <p>Optional donations are handled on Ko-fi. The Site does not receive or store your full payment-card number or billing credentials. Ko-fi processes information under its own terms and privacy policy.</p>
 
@@ -1250,6 +1253,7 @@ export const DOC_PAGES = {
       <p>If you have any questions or concerns about this Privacy Policy or our data practices, join our Discord and head to the <b>#Support</b> channel.</p>
       <div class="contact-card">
         <div class="row"><span class="lab">Email</span><a href="mailto:dddresearchlabs@gmail.com">dddresearchlabs@gmail.com</a></div>
+        <div class="row"><span class="lab">Message</span><a href="/?tab=contact">Send us a message on this site</a></div>
         <div class="row"><span class="lab">Discord</span><a href="${DISCORD_INVITE_URL}" target="_blank" rel="noopener">Join Ming Street &rarr; #Support</a></div>
       </div>
     </section>
@@ -1564,6 +1568,7 @@ export const DOC_PAGES = {
       <p>For questions about these Terms, join our Discord and head to the <b>#Support</b> channel.</p>
       <div class="contact-card">
         <div class="row"><span class="lab">Email</span><a href="mailto:dddresearchlabs@gmail.com">dddresearchlabs@gmail.com</a></div>
+        <div class="row"><span class="lab">Message</span><a href="/?tab=contact">Send us a message on this site</a></div>
         <div class="row"><span class="lab">Discord</span><a href="${DISCORD_INVITE_URL}" target="_blank" rel="noopener">Join Ming Street &rarr; #Support</a></div>
       </div>
     </section>

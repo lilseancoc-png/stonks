@@ -43,7 +43,7 @@ export function historicalDataFactory(host, doc, options) {
       if (typeof saved.symbol === 'string' && /^\^?[A-Z]{1,5}$/.test(saved.symbol)) state.symbol = saved.symbol;
       if (['all', '20y', '10y'].includes(saved.range)) state.range = saved.range;
       if (typeof saved.study === 'string') state.study = saved.study;
-      if (['studies','events','context','sources'].includes(saved.view)) state.view = saved.view;
+      if (['studies','events','context','credit','sources'].includes(saved.view)) state.view = saved.view;
       if (typeof saved.event === 'string' && /^[a-z0-9-]+$/.test(saved.event)) state.event = saved.event;
       if (typeof saved.context === 'string') state.context = saved.context;
     } catch {}
@@ -78,7 +78,7 @@ export function historicalDataFactory(host, doc, options) {
     return data;
   }
   function viewTabs() {
-    return '<div class="h-view-tabs" aria-label="Historical Data views">' + [['studies','Seasonal studies'],['events','Events & analogs'],['context','Macro & conditions'],['sources','Sources & coverage']].map(([id,label]) => '<button type="button" data-history-view="' + id + '" aria-pressed="' + (state.view === id) + '" class="' + (state.view === id ? 'is-selected' : '') + '">' + label + '</button>').join('') + '</div>';
+    return '<div class="h-view-tabs" aria-label="Historical Data views">' + [['studies','Seasonal studies'],['events','Events & analogs'],['context','Macro & conditions'],['credit','Credit vs Treasuries'],['sources','Sources & coverage']].map(([id,label]) => '<button type="button" data-history-view="' + id + '" aria-pressed="' + (state.view === id) + '" class="' + (state.view === id ? 'is-selected' : '') + '">' + label + '</button>').join('') + '</div>';
   }
   function coverageStatus(s) {
     if (s.status === 'ready') return '10+ years verified';
@@ -112,6 +112,21 @@ export function historicalDataFactory(host, doc, options) {
     const s = list.find(s=>s.id===state.context) || list[0]; if(!s) return '<p class="h-empty">No context series are catalogued.</p>';
     state.context = s.id;
     return '<div class="h-toolbar"><label>Economic or market series<select data-history-control="context">' + list.map(d=>'<option value="'+escape(d.id)+'"'+(d.id===s.id?' selected':'')+'>'+escape(d.label+' · '+d.id)+'</option>').join('') + '</select></label><button type="button" class="book-more" data-history-retry>Refresh snapshot</button></div><div class="h-source-intro"><span class="h-kicker">'+escape(s.group+' · '+coverageStatus(s))+'</span><h3>'+escape(s.label)+'</h3><p>'+escape(s.note || 'Latest revised observations from the original publisher, distributed by FRED.')+'</p><p class="h-caption">'+escape(s.publisher)+' via FRED · '+escape(s.frequency)+' · usable range '+escape(s.firstDate||'—')+' to '+escape(s.lastDate||'—')+' · '+number(s.years,1)+' years</p></div>' + (sourceStale(s) ? '<p class="h-notice">The latest observation is stale for this series. The value below is the last reported observation, not a current reading.</p>' : '') + (s.error ? '<p class="h-notice">Latest source refresh failed. Any retained history keeps its original observation dates.</p>' : '') + '<div class="h-metrics">'+metric('Latest reported value',number(s.latest),'As of '+(s.lastDate||'unavailable'))+metric('Ten-year median',number(s.median10y),'Ending '+(s.lastDate||'unavailable'))+metric('Ten-year level percentile',s.percentile10y==null?'—':number(s.percentile10y,0)+'%', 'Descriptive rank, not a return')+metric('History coverage',number(s.years,1)+' years',s.observations.toLocaleString()+' observations')+'</div>'+contextChart(s)+'<p class="h-caption">Source: <a href="'+escape(s.url)+'" target="_blank" rel="noopener">'+escape(s.publisher+' · '+s.id)+'</a>. '+escape(s.vintage)+'. Observation periods may precede publication. Ten-year statistics end at the latest reported observation. Trending levels can have high percentiles without an unusual economic change. These charts do not condition return analogs or imply a trade.</p>';
+  }
+  // Credit vs Treasuries (2026-11-08): HYG/IEF and LQD/IEF price ratios since
+  // 2007 from the same close cache (lib/historical-data.mjs buildCreditRatios).
+  function creditView(data) {
+    const cr = data.creditRatios;
+    if (!cr || !Array.isArray(cr.pairs) || !cr.pairs.length) return '<p class="h-empty">Credit ratios appear after the next full build.</p>';
+    const readOf = p => p.percentile == null ? '' : p.percentile <= 10 ? 'Near the bottom of its history: credit has rarely been this weak against Treasuries.' : p.percentile >= 90 ? 'Near the top of its history: credit has rarely been this strong against Treasuries.' : p.z1y != null && p.z1y <= -1.5 ? 'Well below its one-year average: credit is losing to Treasuries this year.' : p.z1y != null && p.z1y >= 1.5 ? 'Well above its one-year average: credit is beating Treasuries this year.' : 'Inside its usual range.';
+    return '<div class="h-source-intro"><h3>Credit against Treasuries since 2007</h3><p>Two bond-fund price ratios the Bottom tracker cannot see on FRED (its spread series cover three years): a falling line means corporate bonds are losing to Treasuries of similar maturity, which is what widening credit spreads look like in prices. Weekly points for the chart; daily closes for the numbers. ' + escape(cr.note || '') + '</p></div>' +
+      cr.pairs.map(p => {
+        if (p.status !== 'ready') return '<section class="h-comparison"><span class="h-kicker">' + escape(p.id) + '</span><h3>' + escape(p.label) + '</h3><p class="h-notice">Not enough common history in the cache yet.</p></section>';
+        const chart = contextChart({ status: 'ready', chart: p.series.map(([t, v]) => ({ t, v })), label: p.label, unit: 'ratio' });
+        return '<section class="h-comparison"><span class="h-kicker">' + escape(p.id) + ' · ' + escape(p.first) + ' to ' + escape(p.asOf) + ' · ' + p.sessions.toLocaleString() + ' sessions</span><h3>' + escape(p.label) + '</h3><p>' + escape(p.note) + ' ' + readOf(p) + '</p>' +
+          '<div class="h-metrics">' + metric('Ratio now', number(p.current, 3), 'Price of the credit fund over the Treasury fund') + metric('Percentile', p.percentile == null ? '—' : number(p.percentile, 0) + 'th', 'Of all daily readings since ' + p.first.slice(0, 4)) + metric('One-year z-score', p.z1y == null ? '—' : (p.z1y > 0 ? '+' : '') + number(p.z1y, 2), 'Against the trailing 252 sessions', sign(p.z1y)) + metric('Change', pct(p.chg20d) + ' · ' + pct(p.chg63d) + ' · ' + pct(p.chg252d), '20 · 63 · 252 sessions', sign(p.chg20d)) + '</div>' + chart + '</section>';
+      }).join('') +
+      '<p class="h-caption">Fund price ratios, not yield spreads: the two funds pay different cash distributions, so the long drift of a ratio is partly those payouts, and the percentile reads a level, not a spread in basis points. Read the direction and the z-score, not the slope over years.</p>';
   }
   // Events & analogs: dated event studies, rule studies and the "resembles
   // now" matches, all computed in the bake (lib/historical-events.mjs).
@@ -286,7 +301,7 @@ export function historicalDataFactory(host, doc, options) {
     doc.addEventListener('visibilitychange', refreshFreshness);
     root().addEventListener('click', event => {
       const button = event.target.closest('button'); if (!button) return;
-      if (['studies','events','context','sources'].includes(button.dataset.historyView)) { state.view = button.dataset.historyView; save(); render(); }
+      if (['studies','events','context','credit','sources'].includes(button.dataset.historyView)) { state.view = button.dataset.historyView; save(); render(); }
       if (button.dataset.historyEvent) { state.event = button.dataset.historyEvent; state.view = 'events'; save(); render(); const next = root().querySelector('.h-library [data-history-event="' + state.event + '"]'); if (next) next.focus({ preventScroll: true }); }
       if (button.dataset.historyGotoStudy) { state.study = button.dataset.historyGotoStudy; state.view = 'studies'; save(); render(); }
       if (button.dataset.historyStudy) { state.study = button.dataset.historyStudy; save(); render(); const next = root().querySelector('[data-history-study="' + state.study + '"]'); if (next) next.focus({ preventScroll: true }); }
@@ -312,6 +327,7 @@ export function historicalDataFactory(host, doc, options) {
     if (state.view === 'sources') { el.innerHTML = viewTabs() + notice + sourceView(data); return; }
     if (state.view === 'context') { el.innerHTML = viewTabs() + notice + contextView(data); return; }
     if (state.view === 'events') { el.innerHTML = viewTabs() + notice + eventsView(data); return; }
+    if (state.view === 'credit') { el.innerHTML = viewTabs() + notice + creditView(data); return; }
     const available = Object.keys(data.indexes);
     if (!available.length) { el.innerHTML = viewTabs() + '<div class="h-empty"><h3>Historical coverage is not ready</h3><p>No market currently meets the ten-year history requirement. Inspect Sources & coverage for actual dates and failures. Missing data is not a zero return.</p><button type="button" class="book-more" data-history-retry>Check again</button></div>'; return; }
     if (!available.includes(state.symbol)) state.symbol = available[0];

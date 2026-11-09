@@ -12,12 +12,14 @@ import {
   htmlEscape,
 } from '../build.mjs';
 import { DOC_PAGES, DOC_ORDER, DOC_THEME_OVERRIDE } from './docs.mjs';
+import { contactSection } from './contact-client.mjs';
 import { SITE_SECTIONS, TAB_BAR_SECTIONS } from './site-map.mjs';
 import { sectorGroupOfLabel } from '../../lib/sector-groups.mjs';
 import { DISCORD_INVITE_URL, KO_FI_URL } from '../../lib/links.mjs';
+import { i18nPickerHtml, i18nHeadScript } from './i18n-client.mjs';
 
 export function ownerMarketBriefSection() {
-  return `<section class="card" id="owner-market-brief-section"><h2>Owner Market Brief <span class="omb-badge">Owner only</span></h2><p class="hint">The public market read expanded with private research. Review conditional outcomes, suggested next steps and the evidence that could change them. Source timestamps, entry restrictions and uncertainty stay visible.</p><div id="owner-market-brief-root" aria-live="polite"></div></section>`;
+  return `<section class="card" id="owner-market-brief-section"><header class="card-header"><h2 class="card-title">Owner Market Brief</h2><span class="card-eyebrow">Owner only</span></header><p class="hint">The public market read expanded with private research. Review conditional outcomes, suggested next steps and the evidence that could change them. Source timestamps, entry restrictions and uncertainty stay visible.</p><div id="owner-market-brief-root" aria-live="polite"></div></section>`;
 }
 
 // Reference / legal / info pages (Buyer's manual, Chart patterns, Privacy, and
@@ -102,7 +104,11 @@ const SIDE_NAV_ICONS = {
   cheatsheet: '<path d="M2.5 4.5H8a4 4 0 0 1 4 4v13a3 3 0 0 0-3-3H2.5zM21.5 4.5H16a4 4 0 0 0-4 4v13a3 3 0 0 1 3-3h6.5z"/>',
   'chart-patterns': '<path d="M3.5 3.5v17h17"/><path d="m7.5 14 3.5-4 3 3 5-6.5"/>',
   timeline: '<circle cx="12" cy="12" r="9.5"/><path d="M12 6.5V12l3.5 2"/>',
+  contact: '<path d="M4 5.5h16a1.5 1.5 0 0 1 1.5 1.5v10a1.5 1.5 0 0 1-1.5 1.5H9l-4.5 3v-3H4A1.5 1.5 0 0 1 2.5 17V7A1.5 1.5 0 0 1 4 5.5z"/><path d="M7 10h10M7 13.5h6"/>',
   glossary: '<path d="M4 4.5h11a3 3 0 0 1 3 3v12.5H7a3 3 0 0 1-3-3z"/><path d="M4 17a3 3 0 0 1 3-3h11"/><path d="M8.5 8.5h6M8.5 11h4"/>',
+  'market-map': '<rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="5" rx="1.5"/><rect x="13" y="10" width="8" height="11" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/>',
+  'whats-changed': '<path d="M4 7h11l-3-3M20 17H9l3 3"/><circle cx="18.5" cy="7" r="1.5"/><circle cx="5.5" cy="17" r="1.5"/>',
+  'past-day': '<path d="M3 12a9 9 0 1 0 2.6-6.4L3 8"/><path d="M3 3v5h5"/><path d="M8.5 15.5h7M8.5 12h7M8.5 8.5h4"/>',
   'earnings-week': '<rect x="3" y="4.5" width="18" height="16.5" rx="2"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4"/><path d="M7 14h2v4H7zM11 12.5h2V18h-2zM15 15h2v3h-2z"/>',
   privacy: '<path d="M12 21.5s7.5-3.7 7.5-9.5V5.5L12 2.5l-7.5 3V12c0 5.8 7.5 9.5 7.5 9.5z"/>',
   terms: '<path d="M12 3v18M7 21h10"/><path d="M4 7h2.5c1.8 0 3.8-.7 5.5-1.7C13.7 6.3 15.7 7 17.5 7H20"/><path d="m6.5 7-2.8 6.7c.8.6 1.8.9 2.8.9s2-.3 2.8-.9zM17.5 7l-2.8 6.7c.8.6 1.8.9 2.8.9s2-.3 2.8-.9z"/>',
@@ -324,6 +330,7 @@ function marketAnalysisSection() {
     <div id="picks-barometer" class="picks-barometer" hidden></div>
     <div id="picks-tape" class="picks-tape" hidden></div>
     <details class="market-secondary"><summary>Premarket follow-through</summary><div id="market-premarket-movers" class="market-movers" hidden></div></details>
+    <details class="market-secondary"><summary>Cycle clock</summary><p class="hint">Growth against inflation, one dot per month end for the past year, from the macro read the Top Picks grader sees.</p><div id="market-cycle-clock" class="market-cycle-clock" hidden></div></details>
     <details class="market-secondary"><summary>Forward scenarios and sensitivity tools</summary><p class="hint">Build-time scenario context. These unvalidated weights do not refresh with each quote check.</p><div id="market-scenario-engine" class="market-scenario-engine" hidden></div></details>
     <div id="picks-regime-hist" class="picks-regime-hist" hidden></div>
     <div class="picks-search" role="search">
@@ -414,6 +421,7 @@ export function topPicksSection() {
         </select>
       </label>
     </div>
+      <div id="picks-whatif" class="picks-whatif-host" hidden></div>
       <div id="picks-summary" class="picks-summary"></div>
       <div id="picks-liquidation-watch" class="fl-picks-watch" hidden></div>
       <div id="picks-grid" class="picks-grid">Loading top picks…</div>
@@ -538,7 +546,7 @@ export function trackRecordSection() {
     <div class="acc-pane" role="tabpanel" id="acc-pane-top10" aria-labelledby="acc-tab-top10" hidden>
       <div id="acc-sum-top10" class="acc-pane-sum-slot"></div>
       <div id="accuracy-roster" class="accuracy-roster"></div>
-      <p class="acc-pane-empty" id="acc-empty-top10" hidden>No Top-10 roster snapshot yet — it appears after the next daily refresh.</p>
+      <p class="acc-pane-empty" id="acc-empty-top10" hidden>No roster snapshot yet. It appears after the next Top Picks run.</p>
     </div>
     <div class="acc-pane" role="tabpanel" id="acc-pane-activity" aria-labelledby="acc-tab-activity" hidden>
       <div id="acc-sum-activity" class="acc-pane-sum-slot"></div>
@@ -606,6 +614,7 @@ function calendarSection() {
         <button type="button" class="calendar-pill" data-cal-type="reports" role="radio" aria-checked="false">Reports<span class="calendar-pill-count" aria-hidden="true"></span></button>
         <button type="button" class="calendar-pill" data-cal-type="fomc" role="radio" aria-checked="false">Fed<span class="calendar-pill-count" aria-hidden="true"></span></button>
         <button type="button" class="calendar-pill" data-cal-type="macro" role="radio" aria-checked="false">Macro<span class="calendar-pill-count" aria-hidden="true"></span></button>
+        <button type="button" class="calendar-pill" data-cal-type="market" role="radio" aria-checked="false" title="Options expirations, index rebalances, VIX expiry and estimated IPO lockup ends">Market dates<span class="calendar-pill-count" aria-hidden="true"></span></button>
       </div>
       <button type="button" id="calendar-export-csv" class="csv-export-btn" title="Download visible events as CSV">Export CSV</button>
     </div>
@@ -948,7 +957,7 @@ function pendingBuyoutsSection() {
       <h2 class="card-title">Pending buyouts</h2>
       <span class="card-eyebrow" id="pending-buyouts-eyebrow" aria-live="polite"></span>
     </header>
-    ${infoNote('How to use the buyout tracker', `<p>The evidence ladder is <b>Rumor &rarr; Reported talks &rarr; Definitive agreement &rarr; Regulatory / vote pending &rarr; Expected close</b>. These are public-source labels, not hard completion probabilities. For cash deals, consideration per share is the stated offer; stock and mixed consideration can move with the buyer&rsquo;s shares. Premium to the unaffected price is shown only when a cited source states it. <b>Estimated equity value</b> is consideration per share multiplied by current implied shares outstanding&mdash;an estimate, not enterprise value. Rumors keep undisclosed price, premium, spread, and close fields blank. A wide deal spread can reflect regulatory, financing, timing, or break risk&mdash;never assume it is free money.</p>`)}
+    ${infoNote('How to use the buyout tracker', `<p>The evidence ladder is <b>Rumor &rarr; Reported talks &rarr; Definitive agreement &rarr; Regulatory / vote pending &rarr; Expected close</b>. These are public-source labels, not hard completion probabilities. For cash deals, consideration per share is the stated offer; stock and mixed consideration can move with the buyer&rsquo;s shares. Premium to the unaffected price is shown only when a cited source states it. <b>Estimated equity value</b> is consideration per share multiplied by current implied shares outstanding&mdash;an estimate, not enterprise value. Rumors keep undisclosed price, premium, spread, and close fields blank. A wide deal spread can reflect regulatory, financing, timing, or break risk&mdash;never assume it is free money. A price shown without a currency sign is in the target&rsquo;s home-market currency (most listings outside the US).</p>`)}
     <div class="pb-summary" id="pending-buyouts-summary" aria-live="polite"></div>
     <div class="pb-controls" role="toolbar" aria-label="Filter pending buyouts">
       <label class="pb-search"><span class="sr-only">Search buyouts</span><input id="pending-buyouts-search" type="search" placeholder="Target, ticker, or buyer&hellip;" autocomplete="off" spellcheck="false" /></label>
@@ -998,6 +1007,8 @@ function quantSection() {
       <button type="button" role="tab" id="owner-tab-personal" data-owner-view="personal" aria-controls="owner-panel-personal" aria-selected="true">Personal tools</button>
       <button type="button" role="tab" id="owner-tab-research" data-owner-view="research" aria-controls="owner-panel-research" aria-selected="false" tabindex="-1">Research screens</button>
       <button type="button" role="tab" id="owner-tab-diagnostics" data-owner-view="diagnostics" aria-controls="owner-panel-diagnostics" aria-selected="false" tabindex="-1">Diagnostics</button>
+      <button type="button" role="tab" id="owner-tab-evidence" data-owner-view="evidence" aria-controls="owner-panel-evidence" aria-selected="false" tabindex="-1">Evidence</button>
+      <button type="button" role="tab" id="owner-tab-regime" data-owner-view="regime" aria-controls="owner-panel-regime" aria-selected="false" tabindex="-1">Regime Lab</button>
     </div>
     <section id="owner-panel-personal" class="owner-lab-panel" data-owner-panel="personal" role="tabpanel" aria-labelledby="owner-tab-personal">
     <section class="owner-suite" aria-labelledby="owner-tools-title">
@@ -1057,6 +1068,17 @@ function quantSection() {
       <section id="book-evidence" class="book-view" hidden></section>
       <section id="book-link" class="book-view" hidden></section>
       <section id="book-rejections" class="book-view" hidden></section>
+      <section class="evb-section" id="cost-history-section" aria-labelledby="cost-history-title"><h3 id="cost-history-title">Daily AI cost against the $1 target</h3><div id="cost-history-root" class="evb-root"><p class="hint">Loads with this view.</p></div></section>
+    </section>
+    <section id="owner-panel-evidence" class="owner-lab-panel" data-owner-panel="evidence" role="tabpanel" aria-labelledby="owner-tab-evidence" hidden>
+      <div class="owner-lab-intro"><div><h3>Tests and gates</h3><p>Every open question about the engine, how much evidence each one has, and when it can be decided. Below the board: what every scored name did after each run, the picks against a random control book, and the AI grader's buy-now call. Nothing here feeds back into a grade or a pick.</p></div><button type="button" class="book-more" data-owner-evidence-refresh>Refresh board</button></div>
+      <p class="hint" id="owner-evidence-status" role="status" aria-live="polite">The board loads on first open.</p>
+      <div id="evidence-board-root" class="evb-root"></div>
+    </section>
+    <section id="owner-panel-regime" class="owner-lab-panel" data-owner-panel="regime" role="tabpanel" aria-labelledby="owner-tab-regime" hidden>
+      <div class="owner-lab-intro"><div><h3>Which market are we in, and what works in it?</h3><p>The market's volatility era and trend character as a six-cell label, computed through the prior close and confirmed over two sessions; the playbook each cell would use, run as paper books beside the live record; today's risk scores and stop ladder; the headline oracle; and the F1-F22 test catalog with the G1-G10 guards. Nothing here changes a pick, a grade or the Track Record.</p></div><button type="button" class="book-more" data-owner-regime-refresh>Refresh lab</button></div>
+      <p class="hint" id="owner-regime-status" role="status" aria-live="polite">The lab loads on first open.</p>
+      <div id="regime-lab-root" class="evb-root rgl-root"></div>
     </section>
   </section>`;
 }
@@ -1079,7 +1101,7 @@ function refreshDayTimelineHtml() {
   return `<figure class="rdt" aria-label="Scheduled refresh times on a trading day, Eastern Time">
       <div class="rdt-row rdt-axis"><span class="rdt-label"></span><span class="rdt-track"><span class="rdt-session" style="left:${pct(9.5)};width:calc(${pct(16)} - ${pct(9.5)})"></span>${ticks.join('')}</span></div>
       ${rows}
-      <figcaption>Each dot is a scheduled start, Eastern Time. The shaded band is the regular session (9:30 a.m. to 4:00 p.m.). Hover a dot for its time.</figcaption>
+      <figcaption>Each dot is a scheduled start, Eastern Time. The shaded band is the regular session (9:30 a.m. to 4:00 p.m.). Hover a dot for its time. On a weekday market holiday only the two earnings-call runs go ahead; on a 1:00 p.m. early close there is no 15:30 Top Picks run.</figcaption>
     </figure>`;
 }
 
@@ -1091,6 +1113,37 @@ function glossarySection() {
     <header class="card-header"><div><span class="card-eyebrow">Learn &amp; help</span><h2 class="card-title">Words used on this site</h2></div></header>
     <p class="hint">Tap a dotted word anywhere on the site to see its meaning. This is the full list.</p>
     <dl class="gl-list">${rows}</dl>
+  </section>`;
+}
+
+function marketMapSection() {
+  return `<section class="card" id="market-map-section">
+    <header class="card-header"><div><span class="card-eyebrow">Stocks · every tracked name</span><h2 class="card-title">Market map</h2></div><span class="card-eyebrow" id="mm-asof"></span></header>
+    <div id="mm-root"><p class="mm-empty">Loading the market map&hellip;</p></div>
+    <p class="hint">Rebuilt at every full build from daily closes, the option chains and FINRA short interest. Hover or tap a dot, a cell or a chart for the numbers; click a stock to open it. Not investment advice.</p>
+  </section>`;
+}
+
+function whatsChangedSection() {
+  return `<section class="card" id="whats-changed-section">
+    <header class="card-header"><div><span class="card-eyebrow">Today · since the previous trading day</span><h2 class="card-title">What changed</h2></div><span class="card-eyebrow" id="wc-asof"></span></header>
+    <div id="wc-root"><p class="wc-empty">Loading what changed&hellip;</p></div>
+    <p class="hint">Each full build saves a small snapshot of what the site shows. This page compares the newest one with the last one from the previous trading day. Not investment advice.</p>
+  </section>`;
+}
+
+function pastDaySection() {
+  return `<section class="card" id="past-day-section">
+    <header class="card-header"><div><span class="card-eyebrow">Today · the last year of trading days</span><h2 class="card-title">Past days</h2></div><span class="card-eyebrow" id="pd-asof"></span></header>
+    <div id="pd-root"><p class="pd-empty">Loading past days&hellip;</p></div>
+    <p class="hint">Daily close-to-close moves for every tracked stock. Tiles are sized by today&rsquo;s company value and grouped by today&rsquo;s sectors, so a past day reads on the same map as today. Not investment advice.</p>
+  </section>`;
+}
+
+function zeroDteSection() {
+  return `<section class="card zdte-card" id="zero-dte-section">
+    <header class="card-header"><div><span class="card-eyebrow">Options volume by time to expiry</span><h2 class="card-title">How short-dated is the trading?</h2></div><span class="card-eyebrow" id="zdte-asof"></span></header>
+    <div id="zdte-root"><p class="zdte-empty">Loading option volume by expiry&hellip;</p></div>
   </section>`;
 }
 
@@ -2055,6 +2108,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..600;1,9..144,400..600&family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="styles.css?v=${cacheBustFor("styles")}">
+${i18nHeadScript()}
 <script>/* Split-view pane: hide the site chrome before first paint. */try{if(window.self!==window.top)document.documentElement.classList.add('is-embed')}catch(e){document.documentElement.classList.add('is-embed')}</script>
 </head>
 <body>
@@ -2112,6 +2166,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
       <button id="split-toggle" class="icon-btn" type="button" aria-pressed="false" aria-label="Split view: show two pages side by side" title="Split view: two pages side by side">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/></svg>
       </button>
+      ${i18nPickerHtml()}
       <button id="theme-toggle" class="icon-btn" aria-label="Toggle theme" type="button">
         <svg class="i-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
         <svg class="i-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
@@ -2268,7 +2323,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   ${narrativesSection()}
   </div>
   <div class="page-pane" id="page-pane-update-checker" role="tabpanel" aria-labelledby="page-tab-update-checker" hidden>
-    <section class="card"><h2>Update Checker</h2><p class="hint">Track failed builds and inspect published feature outputs. The checker records workflow failures even when the data build stops early.</p><div id="update-checker-root" aria-live="polite"></div></section>
+    <section class="card"><header class="card-header"><h2 class="card-title">Update Checker</h2></header><p class="hint">Track failed builds and inspect published feature outputs. The checker records workflow failures even when the data build stops early.</p><div id="update-checker-root" aria-live="polite"></div></section>
   </div>
   <div class="page-pane" id="page-pane-owner-market-brief" role="tabpanel" aria-labelledby="page-tab-owner-market-brief" hidden>
     ${ownerMarketBriefSection()}
@@ -2479,6 +2534,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-flow" role="tabpanel" aria-labelledby="page-tab-flow" hidden>
   ${unusualFlowSection()}
+  ${zeroDteSection()}
   </div>
   <div class="page-pane" id="page-pane-ma-tracker" role="tabpanel" aria-labelledby="page-tab-ma-tracker" hidden>
   ${movingAverageTrackerSection()}
@@ -2607,7 +2663,17 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
       <div class="bonds-charts">
         <div class="bonds-curve" id="bonds-curve" hidden></div>
         <div class="bonds-history" id="bonds-history"><p class="bonds-live-empty">Loading a year of yields&hellip;</p></div>
+        <div class="bonds-history bonds-liquidity" id="bonds-liquidity"><p class="bonds-live-empty">Loading the Fed liquidity line&hellip;</p></div>
+        <div class="bonds-history bonds-volcurve" id="bonds-volcurve"><p class="bonds-live-empty">Loading the volatility curve&hellip;</p></div>
       </div>
+    </section>
+
+    <section class="card" id="bonds-auctions-card">
+      <header class="card-header">
+        <h2 class="card-title">Treasury auctions</h2>
+        <span class="card-eyebrow">Demand at the last coupon auctions</span>
+      </header>
+      <div id="bonds-auctions" class="bonds-auctions"><p class="bonds-live-empty">Loading auction results&hellip;</p></div>
     </section>
 
     <section class="card" id="bonds-fed-policy-card">
@@ -2838,8 +2904,20 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   <div class="page-pane" id="page-pane-timeline" role="tabpanel" aria-labelledby="page-tab-timeline" hidden>
   ${buildTimelineSection()}
   </div>
+  <div class="page-pane" id="page-pane-contact" role="tabpanel" aria-labelledby="page-tab-contact" hidden>
+  ${contactSection()}
+  </div>
   <div class="page-pane" id="page-pane-glossary" role="tabpanel" aria-labelledby="page-tab-glossary" hidden>
   ${glossarySection()}
+  </div>
+  <div class="page-pane" id="page-pane-market-map" role="tabpanel" aria-labelledby="page-tab-market-map" hidden>
+  ${marketMapSection()}
+  </div>
+  <div class="page-pane" id="page-pane-whats-changed" role="tabpanel" aria-labelledby="page-tab-whats-changed" hidden>
+  ${whatsChangedSection()}
+  </div>
+  <div class="page-pane" id="page-pane-past-day" role="tabpanel" aria-labelledby="page-tab-past-day" hidden>
+  ${pastDaySection()}
   </div>
   <div class="page-pane" id="page-pane-earnings-week" role="tabpanel" aria-labelledby="page-tab-earnings-week" hidden>
   ${earningsWeekSection()}
@@ -2851,7 +2929,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   <div class="muted">All analytical and editorial content is AI-generated or algorithmically produced and may be wrong. Verify independently. Data: third-party sources. For information only — not investment advice.</div>
   <div><a class="foot-discord" href="${DISCORD_INVITE_URL}" target="_blank" rel="noopener">Discuss the research in our Discord</a></div>
   <div><a class="foot-support" href="${KO_FI_URL}" target="_blank" rel="noopener">Support stonks on Ko-fi</a></div>
-  <div><a href="/?tab=privacy">Privacy Policy</a> · <a href="/?tab=terms">Terms of Use</a> · <a href="/?tab=glossary">Words used on this site</a> · <button type="button" class="link-btn foot-kb" data-kb-help>Keyboard shortcuts</button></div>
+  <div><a href="/?tab=privacy">Privacy Policy</a> · <a href="/?tab=terms">Terms of Use</a> · <a href="/?tab=glossary">Words used on this site</a> · <a href="/?tab=contact">Send us a message</a> · <button type="button" class="link-btn foot-kb" data-kb-help>Keyboard shortcuts</button></div>
   <div class="muted">Price charts by <a href="https://www.tradingview.com/lightweight-charts/" target="_blank" rel="noopener">TradingView Lightweight Charts&trade;</a>, Copyright &copy; 2025 TradingView, Inc.</div>
 </footer>
 <!-- Phone tab bar (hidden on wider screens): each button opens the sidebar at

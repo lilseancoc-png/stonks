@@ -8,14 +8,18 @@ import { fetchCompanyCalendar,COMPANY_EVENTS_VERSION } from '../lib/company-even
 import { buildCalendarPayload,fetchOfficialCalendarEvents } from './build.mjs';
 import { UPDATE_FEATURES,inspectFeature } from '../lib/update-checker.mjs';
 const now=new Date('2026-11-02T20:42:00Z'),ms=now.getTime();
-const source=ISSUER_NEWS_SOURCES.find(s=>s.id==='ir-lly');
+// The live Lilly feed was dropped 2026-11-07 (HTTP 403 to every build). Its
+// reviewed mirror stays as a fixture so the generic failover path is tested.
+const source={id:'ir-lly',symbol:'LLY',name:'Eli Lilly',url:'https://investor.lilly.com/rss/news-releases.xml',fallbackUrls:['https://lilly.gcs-web.com/rss/news-releases.xml'],hosts:['investor.lilly.com','lilly.gcs-web.com'],canonicalHost:'investor.lilly.com'};
+assert(!ISSUER_NEWS_SOURCES.some(s=>s.symbol==='LLY'),'the blocked Lilly feed is no longer fetched');
+const issuerSources=[source];
 const primary=source.url,mirror=source.fallbackUrls[0];
 const article='/news-releases/news-release-details/lilly-reports-quarterly-results';
 const rss=host=>`<rss><channel><item><title>Lilly reports quarterly results and raises guidance</title><pubDate>2026-10-30T12:00:00Z</pubDate><link>https://${host}${article}</link><description>Company financial results.</description></item></channel></rss>`;
 const response=(text,status=200)=>new Response(text,{status,headers:{etag:'mirror-etag'}});
 const fda=()=>response('{"error":{"code":"NOT_FOUND"}}',404);
 const calls=[];
-const fallback=await collectFreeNewsSources({universe:['LLY'],now,fetchImpl:async(url,opts)=>{
+const fallback=await collectFreeNewsSources({issuerSources,universe:['LLY'],now,fetchImpl:async(url,opts)=>{
   calls.push({url,headers:opts.headers});return url.includes('api.fda.gov')?fda():url===primary?response('blocked',403):response(rss('lilly.gcs-web.com'));
 }});
 assert.equal(calls.length,3,'one primary, one mirror and one FDA request');
@@ -24,23 +28,23 @@ assert.equal(fallback.events.length,1);assert.equal(fallback.events[0].link,'htt
 assert.equal(fallback.events[0].sourceStatus,'current');
 assert(evidenceSourceHealth(fallback).find(s=>s.id==='ir-lly').fallback);
 assert.match(inspectFeature(UPDATE_FEATURES.find(s=>s.id==='news'),{builtAtIso:now.toISOString(),sourceHealth:evidenceSourceHealth(fallback)},ms).detail,/alternate official news feed/);
-const cached=await collectFreeNewsSources({universe:['LLY'],now:new Date(ms+1000),prior:fallback,fetchImpl:async()=>{throw Error('fresh cache should be reused');}});
+const cached=await collectFreeNewsSources({issuerSources,universe:['LLY'],now:new Date(ms+1000),prior:fallback,fetchImpl:async()=>{throw Error('fresh cache should be reused');}});
 assert(cached.sources['ir-lly'].fallback);assert.equal(cached.sources['ir-lly'].checkedAt,now.toISOString());
-const outage=await collectFreeNewsSources({universe:['LLY'],now:new Date(ms+2*3600000),prior:fallback,fetchImpl:async url=>url.includes('api.fda.gov')?fda():response('blocked',403)});
+const outage=await collectFreeNewsSources({issuerSources,universe:['LLY'],now:new Date(ms+2*3600000),prior:fallback,fetchImpl:async url=>url.includes('api.fda.gov')?fda():response('blocked',403)});
 assert.equal(outage.sources['ir-lly'].status,'error');assert.equal(outage.events[0].sourceStatus,'carried');
 assert.equal(outage.events[0].publishedAt,fallback.events[0].publishedAt);
-const recovered=await collectFreeNewsSources({universe:['LLY'],now:new Date(ms+4*3600000),prior:outage,fetchImpl:async url=>url.includes('api.fda.gov')?fda():response(rss('investor.lilly.com'))});
+const recovered=await collectFreeNewsSources({issuerSources,universe:['LLY'],now:new Date(ms+4*3600000),prior:outage,fetchImpl:async url=>url.includes('api.fda.gov')?fda():response(rss('investor.lilly.com'))});
 assert.equal(recovered.sources['ir-lly'].fallback,false);assert.equal(recovered.events.length,1);
 assert.equal(recovered.events[0].eventId,fallback.events[0].eventId);
 assert.equal(recovered.events[0].firstSeenAt,fallback.events[0].firstSeenAt,'failover/recovery never creates a newly observed copy');
 const validators=[];
-const unchanged=await collectFreeNewsSources({universe:['LLY'],now:new Date(ms+2*3600000),prior:fallback,fetchImpl:async(url,opts)=>{
+const unchanged=await collectFreeNewsSources({issuerSources,universe:['LLY'],now:new Date(ms+2*3600000),prior:fallback,fetchImpl:async(url,opts)=>{
   validators.push({url,etag:opts.headers['if-none-match']});return url.includes('api.fda.gov')?fda():url===primary?response('blocked',403):new Response(null,{status:304});
 }});
 assert.equal(validators.find(r=>r.url===primary).etag,undefined,'mirror validators cannot be sent to the primary');
 assert.equal(validators.find(r=>r.url===mirror).etag,'mirror-etag');assert.equal(unchanged.sources['ir-lly'].status,'unchanged');
 for(const text of ['<html>Access denied</html>',rss('fake.example')]) {
-  const bad=await collectFreeNewsSources({universe:['LLY'],now,fetchImpl:async url=>url.includes('api.fda.gov')?fda():url===primary?response('blocked',403):response(text)});
+  const bad=await collectFreeNewsSources({issuerSources,universe:['LLY'],now,fetchImpl:async url=>url.includes('api.fda.gov')?fda():url===primary?response('blocked',403):response(text)});
   assert.equal(bad.sources['ir-lly'].status,'error','invalid mirror content never establishes coverage');
 }
 

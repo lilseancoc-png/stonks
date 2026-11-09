@@ -18,6 +18,10 @@
 //   top-picks-mode   -> the Owner's Top Picks market mode: Auto / No new puts /
 //                       No new calls / Pause new trades (GET / same-origin POST;
 //                       lib/top-picks-mode.mjs)
+//   contact          -> public "Send us a message" box: GET a form ticket,
+//                       same-origin POST a message (lib/contact-messages.mjs)
+//   contact-inbox    -> Owner-only: read the messages (GET) and mark read /
+//                       unread / delete (same-origin POST)
 //   calendar-ics     -> .ics feed of watchlist earnings, CPI, jobs and FOMC
 //                       (?s=SYMBOLS for anyone, ?o=<signed token> for an
 //                       Owner's synced watchlist; lib/calendar-ics.mjs)
@@ -127,6 +131,10 @@ export default async function handler(req, res) {
       return topPicksMode(req, res);
     case "calendar-ics":
       return calendarIcs(req, res);
+    case "contact":
+      return contactSubmit(req, res);
+    case "contact-inbox":
+      return contactInbox(req, res);
     case "top-picks":
       return (await import('../top-picks.js')).default(req,res);
     // Mingstreet MCP server (lib/mcp/). vercel.json rewrites /mcp,
@@ -397,6 +405,8 @@ async function picksFeed(req, res) {
 // POST /api/auth/picks-fills { csv } -> replaces the stored rows (marks kept)
 // POST /api/auth/picks-fills { mark: { trade_id, took, reason } | { trade_id, clear } }
 //                                    -> saves one took / skipped mark
+// POST /api/auth/picks-fills { note: { trade_id | ticker, text, tags } | { ..., clear } }
+//                                    -> saves one trade-journal note (notes kept on upload)
 // The Track Record joins these rows to the record by trade ID (Scorecard,
 // "Your fills vs the record"). Owner session with both claims required; POST
 // must be same-origin. Stored under the request-time key picks-fills.json,
@@ -479,7 +489,7 @@ async function picksFills(req, res) {
       return res.status(405).json({ error: "method not allowed" });
     }
     if (!isSameOriginRequest(req)) return res.status(403).json({ error: "forbidden" });
-    const { parseFillsCsv, FILLS_MAX_BYTES, applyTradeMark } = await import("../../lib/track-record-fills.mjs");
+    const { parseFillsCsv, FILLS_MAX_BYTES, applyTradeMark, applyTradeNote } = await import("../../lib/track-record-fills.mjs");
     const readPrev = async () => {
       const prevBuf = await store.get(FILLS_KEY);
       return prevBuf == null ? { rows: [], updatedAt: null, errors: [] } : JSON.parse(prevBuf.toString("utf8"));
@@ -495,13 +505,24 @@ async function picksFills(req, res) {
       const mirrored = await webullFillRows(store);
       return res.status(200).json(mirrored.length ? { ...out, rows: [...mirrored, ...(Array.isArray(out.rows) ? out.rows : [])] } : out);
     }
+    // One trade-journal note (POST { note: { trade_id | ticker, text, tags } }).
+    if (req.body && typeof req.body === "object" && req.body.note) {
+      const check = applyTradeNote({}, req.body.note);
+      if (check.error) return res.status(400).json({ error: check.error });
+      const prev = await readPrev();
+      const applied = applyTradeNote(prev.notes, req.body.note);
+      const out = { ...prev, notes: applied.notes };
+      await store.put(FILLS_KEY, JSON.stringify(out));
+      const mirrored = await webullFillRows(store);
+      return res.status(200).json(mirrored.length ? { ...out, rows: [...mirrored, ...(Array.isArray(out.rows) ? out.rows : [])] } : out);
+    }
     const csv = req.body && typeof req.body === "object" ? req.body.csv : null;
     if (typeof csv !== "string" || !csv.trim()) return res.status(400).json({ error: "no csv" });
     if (csv.length > FILLS_MAX_BYTES) return res.status(413).json({ error: "file too large" });
     const { rows, errors } = parseFillsCsv(csv);
     if (!rows.length) return res.status(400).json({ error: "no usable rows", errors });
     const prev = await readPrev();
-    const out = { rows, errors, updatedAt: new Date().toISOString(), ...(prev.marks ? { marks: prev.marks } : {}) };
+    const out = { rows, errors, updatedAt: new Date().toISOString(), ...(prev.marks ? { marks: prev.marks } : {}), ...(prev.notes ? { notes: prev.notes } : {}) };
     await store.put(FILLS_KEY, JSON.stringify(out));
     const mirrored = await webullFillRows(store);
     return res.status(200).json(mirrored.length ? { ...out, rows: [...mirrored, ...rows] } : out);
@@ -679,6 +700,107 @@ async function topPicksMode(req, res) {
   } catch (err) {
     console.error("top picks mode failed", { message: String(err?.message || err) });
     return res.status(502).json({ error: "mode unavailable" });
+  }
+}
+
+// --- Contact messages ("Send us a message", Learn & help) ---------------------
+// GET  /api/auth/contact            -> { ticket } (signed form ticket, public)
+// POST /api/auth/contact { ticket, title, message, name?, contacts?, website }
+//   Public and same-origin only. `website` is a hidden honeypot. Messages are
+//   stored in one raw private record (CONTACT_KEY, outside published data)
+//   and only the Owner can read them through contact-inbox.
+async function withContactDoc(store, fn) {
+  const { CONTACT_KEY, CONTACT_LEASE, readContactDoc } = await import("../../lib/contact-messages.mjs");
+  const run = async (guard) => {
+    const doc = readContactDoc(await store.rawGet(CONTACT_KEY));
+    const out = fn(doc);
+    if (out.save) {
+      if (guard) guard();
+      await store.rawPut(CONTACT_KEY, JSON.stringify(out.doc));
+    }
+    return out;
+  };
+  if (store.backend === "r2" && typeof store.withLease === "function") {
+    let leased;
+    try { leased = await store.withLease(CONTACT_LEASE, run); }
+    catch (err) { if (err?.code === "LEASE_CONFLICT") return { busy: true }; throw err; }
+    if (leased?.busy) return { busy: true };
+    return leased.result;
+  }
+  return run(null);
+}
+
+async function contactSubmit(req, res) {
+  res.setHeader("Cache-Control", "private, no-store");
+  res.setHeader("X-Robots-Tag", "noindex, nofollow");
+  if (process.env.PRIVATE_DATA_ENABLED !== "1" || process.env.CONTACT_ENABLED === "0") return res.status(404).json({ error: "The message box is not available right now." });
+  const contact = await import("../../lib/contact-messages.mjs");
+  if (req.method === "GET") {
+    const ticket = contact.issueTicket();
+    if (!ticket) return res.status(503).json({ error: "The message box is not available right now." });
+    return res.status(200).json({ ticket, limits: { title: contact.LIMITS.TITLE_MAX, message: contact.LIMITS.MESSAGE_MAX, contacts: contact.LIMITS.CONTACTS_MAX } });
+  }
+  if (req.method !== "POST") {
+    res.setHeader("Allow", "GET, POST");
+    return res.status(405).json({ error: "method not allowed" });
+  }
+  if (!isSameOriginRequest(req)) return res.status(403).json({ error: "forbidden" });
+  const body = req.body && typeof req.body === "object" ? req.body : null;
+  // Honeypot: people never see this field, simple bots fill it. Pretend it
+  // worked so the bot moves on, and store nothing.
+  if (body && typeof body.website === "string" && body.website.trim()) return res.status(200).json({ ok: true });
+  const ticketProblem = contact.checkTicket(body?.ticket);
+  if (ticketProblem === "unconfigured") return res.status(503).json({ error: "The message box is not available right now." });
+  if (ticketProblem === "too-fast") return res.status(429).json({ error: "That was quick. Wait a few seconds and send again." });
+  if (ticketProblem) return res.status(400).json({ error: "This form has expired. Reload the page and try again.", reload: true });
+  const checked = contact.validateSubmission(body);
+  if (checked.error) return res.status(400).json({ error: checked.error });
+  try {
+    const { store } = await import("../../lib/datastore.mjs");
+    const sender = contact.senderHash(contact.clientIp(req));
+    const out = await withContactDoc(store, (doc) => {
+      const r = contact.addMessage(doc, checked.message, { sender });
+      return { ...r, save: r.status === "saved" };
+    });
+    if (out.busy) return res.status(409).json({ error: "Busy, try again in a moment." });
+    if (out.status === "saved" || out.status === "duplicate") return res.status(200).json({ ok: true });
+    if (out.status === "rate") return res.status(429).json({ error: "You have sent several messages already. Try again later." });
+    return res.status(503).json({ error: "The inbox is full right now. Try again later." });
+  } catch (err) {
+    console.error("contact submit failed", { message: String(err?.message || err) });
+    return res.status(502).json({ error: "Your message could not be sent. Try again." });
+  }
+}
+
+// GET  /api/auth/contact-inbox                      -> { messages, unread }
+// POST /api/auth/contact-inbox { op: read|unread|delete, id } | { op: read-all }
+async function contactInbox(req, res) {
+  res.setHeader("Cache-Control", "private, no-store");
+  if (process.env.PRIVATE_DATA_ENABLED !== "1") return res.status(404).json({ error: "not found" });
+  const session = await getSession(req).catch(() => null);
+  if (!session) return res.status(401).json({ error: "auth required" });
+  if (session.tr !== true || session.tp !== true) return res.status(401).json({ error: "role required" });
+  if (req.method !== "GET" && req.method !== "POST") {
+    res.setHeader("Allow", "GET, POST");
+    return res.status(405).json({ error: "method not allowed" });
+  }
+  if (req.method === "POST" && !isSameOriginRequest(req)) return res.status(403).json({ error: "forbidden" });
+  const contact = await import("../../lib/contact-messages.mjs");
+  try {
+    const { store } = await import("../../lib/datastore.mjs");
+    if (req.method === "GET") {
+      return res.status(200).json(contact.inboxView(contact.readContactDoc(await store.rawGet(contact.CONTACT_KEY))));
+    }
+    const out = await withContactDoc(store, (doc) => {
+      const r = contact.applyInboxOp(doc, req.body);
+      return { ...r, save: !r.error };
+    });
+    if (out.busy) return res.status(409).json({ error: "busy, try again" });
+    if (out.error) return res.status(400).json({ error: out.error });
+    return res.status(200).json(contact.inboxView(out.doc));
+  } catch (err) {
+    console.error("contact inbox failed", { message: String(err?.message || err) });
+    return res.status(502).json({ error: "inbox unavailable" });
   }
 }
 

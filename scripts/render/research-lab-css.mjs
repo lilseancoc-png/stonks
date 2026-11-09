@@ -13,6 +13,8 @@ body:not(.is-owner) [data-page-tab="research-lab"],body:not(.is-owner) #page-pan
 .rl label{display:grid;gap:5px;font-size:12px;color:var(--muted-strong)}
 .rl label small,.rl small{color:var(--muted-strong);line-height:1.5}
 .rl-head{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;margin-bottom:20px}
+/* The page header already names the page and its summary; keep only the badge. */
+.page-pane > .wf-head ~ #research-lab-root .rl-head > div:first-child{display:none}.page-pane > .wf-head ~ #research-lab-root .rl-head{margin-bottom:14px}
 .rl-head h2{margin:6px 0;font-size:30px;letter-spacing:-.04em}.rl-head p{max-width:720px;color:var(--muted-strong);line-height:1.6;margin:8px 0}
 .rl-eyebrow{font-size:11px;letter-spacing:.13em;text-transform:uppercase;color:var(--accent)}
 .rl-badge{display:inline-flex;align-items:center;border:1px solid var(--border-strong);border-radius:20px;padding:5px 9px;font-size:11px;white-space:nowrap}

@@ -25,7 +25,17 @@ jobs:
           npm run test:owner-brief
           npm run test:research-lab
           npm run test:api
+          npm run test:contact
           npm run test:sports
+          npm run test:picks-outcomes
+          npm run test:regime-lab
+          npm run test:ai-cost-history
+          npm run test:recording
+          npm run test:owner-insight
+          npm run test:stale-prs
+          npm run test:source-health
+          npm run test:walk-forward
+          npm run test:features-next
           npm run verify:freshness
       - name: Verify browser behavior
         run: |
@@ -33,3 +43,6 @@ jobs:
           "$RUNNER_TEMP/checker-browser/node_modules/.bin/playwright" install --with-deps chromium
           PLAYWRIGHT_MODULE="$RUNNER_TEMP/checker-browser/node_modules/playwright/index.mjs" npm run test:update-checker-browser
           PLAYWRIGHT_MODULE="$RUNNER_TEMP/checker-browser/node_modules/playwright/index.mjs" npm run test:sports-props-browser
+          PLAYWRIGHT_MODULE="$RUNNER_TEMP/checker-browser/node_modules/playwright/index.mjs" npm run test:outage-drill-browser
+          PLAYWRIGHT_MODULE="$RUNNER_TEMP/checker-browser/node_modules/playwright/index.mjs" LAYOUT_WIDTHS=390,1440 npm run test:layout-browser
+          PLAYWRIGHT_MODULE="$RUNNER_TEMP/checker-browser/node_modules/playwright/index.mjs" npm run test:features-next-browser

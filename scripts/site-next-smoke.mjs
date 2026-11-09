@@ -3,6 +3,7 @@
 // functions only; no network, no store.
 import assert from "node:assert/strict";
 import { refreshScheduleFactory } from "../lib/refresh-schedule.mjs";
+import { closureTables } from "../lib/us-equity-calendar.mjs";
 import { GLOSSARY } from "../lib/glossary.mjs";
 import { ownerWatchlistFactory, applyOwnerWatchlistRequest, readOwnerWatchlistDoc } from "../lib/owner-watchlist.mjs";
 import { watchlistAlertsFactory } from "../lib/watchlist-alerts.mjs";
@@ -25,6 +26,18 @@ eq(R.nextLabel("picks", { dateKey: "2026-11-06", minutes: 16 * 60 }, H), "Mon 11
 eq(R.nextLabel("build", { dateKey: "2026-11-25", minutes: 17 * 60 }, H), "Fri 10:00 ET", "Thanksgiving is skipped");
 eq(R.nextLabel("oi", { dateKey: "2026-11-09", minutes: 9 * 60 }, H), "~17:00 ET", "approximate scan times carry a tilde");
 ok(/^Fri Nov 13, 11:30 ET$/.test(R.nextLabel("weekly", { dateKey: "2026-11-06", minutes: 12 * 60 }, H)), "weekly run a week out shows its date");
+// Holidays and early closes follow the daily.yml router (QC 2026-11-08).
+const T = closureTables();
+eq(T.holidays["2026-11-26"], "Thanksgiving", "closure table names Thanksgiving");
+eq(T.holidays["2026-07-03"], "Independence Day (obs.)", "a holiday moved off a weekend is marked observed");
+ok(T.holidays["2028-12-25"] === "Christmas" && T.halfDays["2028-07-03"], "the browser table reaches 2028 from the one lib table");
+eq(T.halfDays["2026-11-27"], "day after Thanksgiving", "early-close table names the day");
+eq(R.nextLabel("picks", { dateKey: "2026-11-27", minutes: 11 * 60 + 5 }, T.holidays, T.halfDays), "Mon 11:00 ET", "no 15:30 Top Picks run after a 13:00 early close");
+eq(R.nextLabel("picks", { dateKey: "2026-11-27", minutes: 10 * 60 }, T.holidays, T.halfDays), "11:00 ET", "the 11:00 run still goes on an early-close day");
+eq(R.nextLabel("build", { dateKey: "2026-11-27", minutes: 14 * 60 }, T.holidays, T.halfDays), "15:30 ET", "full builds keep their slots on an early-close day");
+eq(R.nextLabel("calls", { dateKey: "2026-11-26", minutes: 8 * 60 }, T.holidays, T.halfDays), "09:00 ET", "earnings-call runs go ahead on a weekday holiday");
+eq(R.nextLabel("build", { dateKey: "2026-11-26", minutes: 8 * 60 }, T.holidays, T.halfDays), "tomorrow 10:00 ET", "full builds skip the holiday");
+eq(R.nextLabel("picks", { dateKey: "2026-11-27", minutes: 11 * 60 + 5 }, T.holidays), "15:30 ET", "without the early-close list the old behavior holds");
 eq(R.jobFor("track"), "picks", "Track Record follows the Top Picks runs");
 eq(R.jobFor("tickers"), "build", "unlisted pages follow the full build");
 eq(R.jobFor("privacy"), null, "reference pages have no schedule");

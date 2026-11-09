@@ -19,6 +19,10 @@ name: Daily build
 # in ET, so it — not
 # this workflow — owns DST. A separate close-bake-fallback.yml watchdog
 # dispatches only when the 16:10 bake is absent.
+# A Top Picks watchdog retry names itself in the run title so the watchdog
+# (scripts/top-picks-watchdog.mjs) can tell it apart from a scheduled run.
+run-name: ${{ inputs.reason || 'Daily build' }}
+
 on:
   workflow_dispatch:
     inputs:
@@ -47,6 +51,11 @@ on:
         required: false
         default: false
         type: boolean
+      reason:
+        description: "Run title. The Top Picks watchdog sets it on a retry; leave blank otherwise"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   # write: the 15:30 ET Top Picks build dispatches webull-eod.yml (below).
@@ -74,6 +83,16 @@ jobs:
       refresh_brief: ${{ steps.route.outputs.refresh_brief }}
       refresh_narratives: ${{ steps.route.outputs.refresh_narratives }}
     steps:
+      # Only the NYSE holiday / half-day table (lib/us-equity-calendar.mjs, the
+      # same one the Top Picks watchdog reads), so the router can skip market
+      # holidays and stop opening Top Picks after an early close.
+      - name: Check out the market calendar
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.ref_name }}
+          sparse-checkout: lib/us-equity-calendar.mjs
+          sparse-checkout-cone-mode: false
+
       - name: Route ET dispatch window
         id: route
         env:
@@ -118,6 +137,18 @@ jobs:
           ET_MINUTE=$(TZ=America/New_York date -d "$CREATED_AT" +%M)
           ET_MIN=$((10#$ET_HOUR * 60 + 10#$ET_MINUTE))
           LABEL=$(TZ=America/New_York date -d "$CREATED_AT" '+%F %R %Z')
+          ET_DATE=$(TZ=America/New_York date -d "$CREATED_AT" +%F)
+          # NYSE session for the dispatch date: "closed" (weekend or market
+          # holiday), the close minute (960, or 780 on a half day), or
+          # "unknown" when the table has no row for the year (fail open).
+          MARKET_SESSION=$(node --input-type=module -e 'import("./lib/us-equity-calendar.mjs").then((m) => { const s = m.sessionForDate(process.argv[1]); console.log(!s ? "unknown" : s.open ? String(s.closeMinute) : "closed"); }).catch(() => console.log("unknown"))' "$ET_DATE" 2>/dev/null || echo unknown)
+          MARKET_CLOSED=false
+          CLOSE_MIN=960
+          case "$MARKET_SESSION" in
+            closed) MARKET_CLOSED=true ;;
+            unknown) echo "::warning::No market calendar row for $ET_DATE; routing as a normal session." ;;
+            *) CLOSE_MIN=$MARKET_SESSION ;;
+          esac
           REFRESH_TOP_PICKS=false
           REFRESH_SWING_DESKS=false
           REFRESH_BRIEF=false
@@ -125,6 +156,13 @@ jobs:
           if [ "$ET_DAY" -le 5 ] && { [ "$ET_MIN" -eq 660 ] || [ "$ET_MIN" -eq 930 ]; }; then
             REFRESH_TOP_PICKS=true
             REFRESH_SWING_DESKS=true
+          fi
+          # Half day (13:00 ET close): no Top Picks or swing-desk run after the
+          # bell. The prior snapshots carry, as on any non-decision bake.
+          if [ "$ET_MIN" -ge "$CLOSE_MIN" ] && [ "$REFRESH_TOP_PICKS" = "true" ]; then
+            REFRESH_TOP_PICKS=false
+            REFRESH_SWING_DESKS=false
+            echo "Early close at $((CLOSE_MIN / 60)):$(printf '%02d' $((CLOSE_MIN % 60))) ET on $ET_DATE; no Top Picks run after the bell."
           fi
           if [ "$ET_DAY" -le 5 ] && { [ "$ET_MIN" -eq 660 ] || [ "$ET_MIN" -eq 810 ] || [ "$ET_MIN" -eq 970 ]; }; then
             REFRESH_BRIEF=true
@@ -139,7 +177,13 @@ jobs:
           fi
           echo "refresh_brief=$REFRESH_BRIEF" >> "$GITHUB_OUTPUT"
           echo "refresh_narratives=$REFRESH_NARRATIVES" >> "$GITHUB_OUTPUT"
-          if [ "$ET_DAY" -le 5 ] && [ "$ET_MIN" -ge 495 ] && [ "$ET_MIN" -le 525 ]; then
+          if [ "$MARKET_CLOSED" = "true" ] && [ "$ET_DAY" -le 5 ] && [ "$ET_MIN" -ne 540 ] && [ "$ET_MIN" -ne 1140 ]; then
+            # Market holiday on a weekday: no market-data build, Brief, Top
+            # Picks or Webull mirror (the earnings-call transcript slots still
+            # run). force=true still runs a build on purpose.
+            echo "mode=skip" >> "$GITHUB_OUTPUT"
+            echo "Dispatch at $LABEL is on a market holiday (NYSE closed); no-op. Use force=true for an intentional build."
+          elif [ "$ET_DAY" -le 5 ] && [ "$ET_MIN" -ge 495 ] && [ "$ET_MIN" -le 525 ]; then
             echo "mode=brief" >> "$GITHUB_OUTPUT"
             echo "Dispatch at $LABEL routes to the pre-market Brief-only refresh."
           elif [ "$ET_DAY" -le 5 ] && { [ "$ET_MIN" -eq 540 ] || [ "$ET_MIN" -eq 1140 ]; }; then
@@ -476,6 +520,13 @@ jobs:
           # back to the current quality-tier defaults in build.mjs.
           AI_MODEL: ${{ vars.AI_MODEL }}
           NARRATIVES_MODEL: ${{ vars.NARRATIVES_MODEL }}
+          # AI final grader switch (2026-11-08). Unset = on. Set the repo
+          # variable AI_THESIS to 0 to run Top Picks without the grader for a
+          # measured period: grades, entries and exits are unchanged, the
+          # grader's calls and tokens stop, and every trade, roster and run
+          # archive record is stamped graderMode off so the Track Record can
+          # compare the two periods. Flip it back by clearing the variable.
+          AI_THESIS: ${{ vars.AI_THESIS }}
           # (PICKS_ACCURACY_AB removed: it was set here but read NOWHERE in the
           # code — the wait-arm cohort it described now enrolls BY DEFAULT,
           # since every actionable pick enrolls cohort-tagged go/wait.)
@@ -583,6 +634,7 @@ jobs:
         run: node scripts/verify-data-freshness.mjs --owner=bake
 
       - name: Flush verified data to private store
+        id: flush
         # Publish data before the static commit that triggers Vercel. If the
         # upload fails, production stays on the prior coherent deployment.
         if: ${{ vars.PRIVATE_DATA_ENABLED == '1' }}
@@ -641,6 +693,7 @@ jobs:
           git push origin "HEAD:$BRANCH"
 
       - name: Commit refreshed site (legacy public data)
+        id: legacy_commit
         if: ${{ vars.PRIVATE_DATA_ENABLED != '1' }}
         env:
           # Flag-off (default): commit data/ to the repo as today. Flag-on
@@ -707,6 +760,24 @@ jobs:
           done
           echo "Push failed after 3 attempts." >&2
           exit 1
+
+      - name: Top Picks watchdog
+        # On-time check of today's 11:00 / 15:30 ET Top Picks runs (cron-job.org
+        # dispatches this build; top-picks-watchdog.yml is the GitHub-cron
+        # backup). A Top Picks build that failed before publishing gets one
+        # retry right away while the session allows; a later build catches a
+        # dispatch that never came. Opens / closes the top-picks-run issue.
+        # No AI, no market data. Never fails the build.
+        if: ${{ always() }}
+        continue-on-error: true
+        timeout-minutes: 3
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TOP_PICKS_WATCHDOG: ${{ vars.TOP_PICKS_WATCHDOG || 'on' }}
+          WATCHDOG_REF: ${{ github.event.repository.default_branch }}
+          WATCHDOG_CURRENT_RUN_ID: ${{ github.run_id }}
+          WATCHDOG_CURRENT_PUBLISHED: ${{ steps.flush.outcome == 'success' || steps.legacy_commit.outcome == 'success' }}
+        run: node scripts/top-picks-watchdog.mjs
 
   webull-health:
     needs: build

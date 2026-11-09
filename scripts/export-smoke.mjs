@@ -20,7 +20,8 @@ for (const [name, html] of [["index.html", indexHtml], ["html.mjs", htmlSrc]]) {
   const btn = html.match(/<button id="export-toggle"[^>]*>/);
   assert.ok(btn, `${name}: Export button must exist`);
   assert.match(btn[0], /\shidden[\s>]/, `${name}: Export button starts hidden (Owner-only)`);
-  assert.match(html, /id="export-toggle"[\s\S]{0,1400}id="split-toggle"[\s\S]{0,700}id="theme-toggle"/, `${name}: Export sits next to split view and the theme switch`);
+  // The language picker (2026-11-08) sits between split view and the theme switch.
+  assert.match(html, /id="export-toggle"[\s\S]{0,1400}id="split-toggle"[\s\S]{0,1800}id="theme-toggle"/, `${name}: Export sits next to split view, the language picker and the theme switch`);
 }
 
 // Client gate: shown only for the combined Owner session, never in a split pane.

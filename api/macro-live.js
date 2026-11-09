@@ -86,8 +86,7 @@ export function parseTreasuryTwoYearXml(xml) {
   };
 }
 
-async function fetchTreasuryTwoYear() {
-  const year = new Date().getUTCFullYear();
+async function fetchTreasuryYearXml(year) {
   const response = await fetch(`${TREASURY_YIELD_XML}${year}`, {
     headers: {
       "user-agent": "stonks-market-research/1.0",
@@ -96,7 +95,26 @@ async function fetchTreasuryTwoYear() {
     signal: AbortSignal.timeout(7000),
   });
   if (!response.ok) throw new Error(`Treasury 2Y HTTP ${response.status}`);
-  const leg = parseTreasuryTwoYearXml(await response.text());
+  return response.text();
+}
+
+// Treasury's feed is one calendar year. In the first days of January the new
+// year has no row or one row, so the prior year supplies the previous close
+// (the bake's fetchTwoYearFromTreasury does the same). Only in January: later
+// in the year an empty feed is an outage, and last December is not "now".
+export async function fetchTreasuryTwoYear(nowMs = Date.now(), fetchYear = fetchTreasuryYearXml) {
+  const now = new Date(nowMs);
+  const year = now.getUTCFullYear();
+  let xml = await fetchYear(year);
+  let leg = parseTreasuryTwoYearXml(xml);
+  if (now.getUTCMonth() === 0 && (!leg || leg.prevClose == null)) {
+    try {
+      xml = (await fetchYear(year - 1)) + xml;
+      leg = parseTreasuryTwoYearXml(xml) || leg;
+    } catch (err) {
+      if (!leg) throw err;
+    }
+  }
   if (!leg) throw new Error("Treasury 2Y feed returned no usable observation");
   return leg;
 }

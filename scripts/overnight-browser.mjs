@@ -71,10 +71,14 @@ assert.ok(correlations.preopen?.stats?.gapCall?.n > 0, "the fixture log is grade
 
 const html = await readFile(resolve(root, "index.html"), "utf8");
 const manifest = JSON.parse(html.match(/window\.STONKS_MANIFEST=(\{.*\});<\/script>/)[1]);
+let owner = true;
 const server = createServer(async (req, res) => {
   const u = new URL(req.url, "http://localhost");
   const json = (v) => { res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify(v)); };
-  if (u.pathname === "/api/auth/me" && !u.searchParams.has("data")) return json({ enabled: false });
+  // The decision desk is Owner-only since 2026-10-29 (.flow-decision in
+  // lib/owner-access-policy.mjs), so the desk checks sign in as the Owner and
+  // a last public pass checks the desk stays hidden.
+  if (u.pathname === "/api/auth/me" && !u.searchParams.has("data")) return json(owner ? { enabled: true, authed: true, authenticated: true, trackRecord: true, topPicks: true, user: { name: "Synthetic owner" } } : { enabled: true, authed: false, authenticated: false });
   const name = u.searchParams.get("data") || (u.pathname.startsWith("/data/") ? u.pathname.slice(6) : null);
   if (name === "correlations.json") return json(correlations);
   if (name === "manifest.json" || name === "manifest-free.json") return json(manifest);
@@ -118,6 +122,18 @@ try {
     await page.locator(".ovn-record").screenshot({ path: resolve(output, `overnight-record-${width}-${theme}.png`) });
     await context.close();
   }
+  // Public visitor: the saved-call record still shows, the Owner desk does not.
+  owner = false;
+  const context = await browser.newContext({ viewport: { width: 1366, height: 1100 }, reducedMotion: "reduce", timezoneId: "America/New_York" });
+  const page = await context.newPage();
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await page.route("**/*", (route) => (new URL(route.request().url()).origin === base ? route.continue() : route.fulfill({ body: "" })));
+  await page.goto(base + "/?tab=overnight", { waitUntil: "domcontentloaded", timeout: 15000 });
+  await page.locator(".ovn-record").waitFor({ timeout: 10000 });
+  assert.equal(await page.locator("#overnight-decision .ovn-bucket").count(), 0, "public visitors get no decision desk");
+  assert.deepEqual(errors, []);
+  await context.close();
 } finally {
   await browser.close();
   server.close();

@@ -1259,7 +1259,7 @@ source failures are disclosed and never silently presented as fresh.
 
 ### Commodities
 
-Sixteen trackers in six groups cover WTI crude and natural gas, gold and silver, cocoa, cotton, coffee, sugar, palm oil, copper, lumber, potash, lithium, container freight, Baltic Dry, and used vehicles. Reliable base series come from Yahoo futures/ETF proxies or FRED. Bot-wall/native series may add best-effort overlays.
+Sixteen trackers in six groups cover WTI crude and natural gas, gold and silver, cocoa, cotton, coffee, sugar, palm oil, copper, lumber, potash, lithium, container freight, Baltic Dry, and used vehicles. Reliable base series come from Yahoo futures/ETF proxies, FRED, or (potash) the World Bank's monthly Pink Sheet. Bot-wall/native series may add best-effort overlays.
 
 Decision horizons:
 
