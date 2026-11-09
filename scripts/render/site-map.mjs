@@ -55,6 +55,7 @@ export const SITE_SECTIONS = [
       { id: 'commodities', label: 'Commodities', blurb: 'Oil, gold, copper and other raw materials, and the stocks that move with them.' },
       { id: 'central-bank-gold', label: 'Central-bank gold', blurb: 'How much gold the world’s central banks are buying or selling.' },
       { id: 'capital-raises', label: 'Capital markets', alias: 'Capital raises share sales buybacks IPOs credit issuance debt', blurb: 'Companies selling stock or debt or buying shares back, upcoming IPOs, and how easily companies and households can borrow.' },
+      { id: 'crowd', label: 'Crowd & positioning', alias: 'Positioning put call ratio COT commitments of traders margin debt short volume borrow fee Reddit mentions Wikipedia Stocktwits Kalshi odds perps Hyperliquid leveraged ETF flows', blurb: 'How traders are positioned and where the crowd is looking: put/call ratios, futures, margin debt, short selling, attention, odds.' },
       { id: 'narratives', label: 'Market themes', alias: 'Narratives', blurb: 'The big stories driving money right now, such as AI spending, and which stocks ride them.' },
     ],
   },

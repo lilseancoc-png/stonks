@@ -20,6 +20,8 @@ import { buildOvernightCall, etParts } from "../lib/overnight-inputs.mjs";
 import { OVERNIGHT_PREOPEN_KEY, OVERNIGHT_LOG_KEY } from "../lib/overnight-log.mjs";
 import { buildBriefExtendedHours } from "../lib/brief-extended-hours.mjs";
 import { fetchBriefExtendedQuotes, TICKERS } from "./build.mjs";
+import { fetchPerps } from "../lib/crowd/perps.mjs";
+import { refClosesFromChains } from "../lib/crowd/index.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = resolve(__dirname, "..", "data");
@@ -83,8 +85,28 @@ async function main() {
   if (!call) throw new Error("overnight pre-open: no prior US session in SPY history; nothing written");
   if (force && !inPreopenWindow(nowMs)) call.forced = true;
   call.fetchFailures = failed.length;
+  // Where the 24/7 stock perps (Hyperliquid HIP-3, lib/crowd/perps.mjs) have
+  // each covered name against its last US close before the bell. One public
+  // read, no key; the bake copies it into crowd.json as `perps.preopen`.
+  let perps = null;
+  try {
+    const chainsForPerps = await readChains();
+    const syms = Object.keys(chainsForPerps);
+    const got = await fetchPerps({ prior: null, symbols: syms, refCloses: refClosesFromChains(chainsForPerps, syms), nowIso: new Date(nowMs).toISOString() });
+    if (got?.ok) {
+      perps = {
+        asOf: got.asOf,
+        covered: got.covered,
+        bySymbol: Object.fromEntries(Object.entries(got.bySymbol).map(([sym, r]) => [sym, { markPx: r.markPx, refClose: r.refClose ?? null, vsRefClosePct: r.vsRefClosePct ?? null, fundingAnnualPct: r.fundingAnnualPct ?? null, oiUsd: r.oiUsd ?? null, dex: r.dex, isIndex: !!r.isIndex }])),
+      };
+    } else {
+      console.log(`    ⚠ pre-open perps skipped: ${got?.error || "no data"}`);
+    }
+  } catch (err) {
+    console.log(`    ⚠ pre-open perps skipped: ${String(err?.message || err).split("\n")[0]}`);
+  }
   await mkdir(DATA_DIR, { recursive: true });
-  await writeFile(resolve(DATA_DIR, OVERNIGHT_PREOPEN_KEY), JSON.stringify({ builtAtIso: new Date().toISOString(), call }), "utf8");
+  await writeFile(resolve(DATA_DIR, OVERNIGHT_PREOPEN_KEY), JSON.stringify({ builtAtIso: new Date().toISOString(), call, ...(perps ? { perps } : {}) }), "utf8");
   const t = call.tone;
   console.log(`overnight pre-open ${callDate}: ${t.label} (score ${t.score}, ${t.present}/5 groups), gap call ${t.gap.call} ${t.gap.movePct ?? ""}%, session ${call.session.call}; ${t.excluded.length} stale input(s); ${call.events.length} event flag(s)`);
 }

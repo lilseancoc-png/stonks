@@ -26,6 +26,7 @@ import { renderTablesCss } from './tables-css.mjs';
 import { renderPolishCss } from './polish-css.mjs';
 import { renderSiteNextCss } from './site-next-css.mjs';
 import { renderViewsNextCss } from './views-next-css.mjs';
+import { renderCrowdCss } from './crowd-css.mjs';
 import { renderEdgeOddsCss } from './edge-odds-css.mjs';
 import { renderEvidenceCss } from './evidence-css.mjs';
 import { renderRegimeLabCss } from './regime-lab-css.mjs';
@@ -25586,6 +25587,7 @@ ${renderTablesCss()}
 ${renderPolishCss()}
 ${renderSiteNextCss()}
 ${renderViewsNextCss()}
+${renderCrowdCss()}
 ${renderEdgeOddsCss()}
 ${renderEvidenceCss()}
 ${renderRegimeLabCss()}

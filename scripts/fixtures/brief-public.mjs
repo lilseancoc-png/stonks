@@ -47,5 +47,14 @@ export function briefPublicFixture() {
     search: stamp({ summary: { breakouts: [{ label: 'AI', query: 'AI chips' }] } }),
     ownership: stamp({ period: '2026 Q2', periodEndIso: '2026-06-30', overallTopBought: [{ ticker: 'ACME', firmCount: 8 }],
       insiderTransactions: { asOf: builtAtIso, transactions: insiders } }),
+    crowd: stamp({
+      putCall: { ok: true, asOf: '2026-10-26', stats: { total: { value: 0.95, avg20: 0.92, z250: 0.4, pct250: 61 }, equity: { value: 0.5, avg20: 0.56, z250: -1.8, pct250: 4 } } },
+      cot: { ok: true, asOf: '2026-10-20', contracts: { ES: { asOf: '2026-10-20', groups: { levFund: { net: -76468, change: 113643, z3y: 0.66, pct3y: 70 }, assetMgr: { net: 871360, change: -69546, z3y: 0.14, pct3y: 55 } } } } },
+      kalshi: { ok: true, series: { KXINX: { ok: true, headline: { impliedMean: 6943.8, band80: [6800, 7050], mostLikely: { title: '6900 to 6950', prob: 0.249 } }, events: [{ title: 'S&P 500 close on Oct 27' }] } } },
+      marginDebt: { ok: true, summary: { month: '2026-09', debitUsdM: 1480054, momPct: 1.6, yoyPct: 22.9, peak: { fromPeakPct: 0 } } },
+      shortVolume: { ok: true, market: { history: [['2026-10-20', 49.3, 85], ['2026-10-21', 50.5, 85], ['2026-10-22', 50.7, 85], ['2026-10-23', 50.3, 85], ['2026-10-26', 49.8, 85]], latest: ['2026-10-26', 49.8, 85] } },
+      perps: { ok: true, bySymbol: { SPX: { isIndex: true, dayChangePct: 0.74, fundingAnnualPct: 10.95, oiUsd: 834120 } } },
+      borrow: { ok: false, stale: true, carriedForward: true, error: 'fixture: carried forward' },
+    }),
   };
 }

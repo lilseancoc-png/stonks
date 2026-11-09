@@ -176,7 +176,7 @@ assert.match(box.innerHTML, /12\.0%/);
 fixture.mirror.trades = []; vm.runInContext('renderWebullTest()', context); assert.match(box.innerHTML, /No mirrored trades yet/);
 context.wbTest.error = 'off'; vm.runInContext('renderWebullTest()', context); assert.match(box.innerHTML, /Retry loading trades/);
 const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
-assert.doesNotMatch(html, /acc-tab-books|acc-pane-books|Paper books|paper books/);
+assert.doesNotMatch(html, /acc-tab-books|acc-pane-books|>\s*Paper books\s*<|data-acc="books"/, 'the removed Track Record "Paper books" sub-tab must not come back (the Regime Lab intro may mention paper books in prose)');
 assert.doesNotMatch(app, /function renderPaperBooks|paperBook:/);
 assert.match(app, /wbLens:accView.wbLens/);
 assert.match(html, /data-acc-tab="webull-equity">Webull/);

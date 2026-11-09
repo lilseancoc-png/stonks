@@ -38,6 +38,15 @@ Recent public features contribute the following evidence:
 - Commodities retain the observation date and proxy context. Related stocks
   are exposure links, without an assertion about their price reaction.
 - Earnings calls include the call date, management stance and analyst tone.
+- Crowd & positioning (public `crowd.json`, since 2026-11-09) adds the Cboe
+  equity put/call ratio with its one-year percentile, the CFTC leveraged-fund
+  and asset-manager net E-mini S&P 500 positions, Kalshi's implied S&P 500
+  close range, FINRA margin debt and the market share of off-exchange short
+  sale volume, each dated and labeled as a ratio, position, price or share,
+  never as a forecast. Hyperliquid's S&P 500 perpetual appears in the morning
+  Brief or when its funding passes 20% annualized. A block the producer
+  carried forward adds no fact. The Owner-only `crowd-owner.json` is never
+  read.
 - Volatility includes both rising trend flags and Rich premium. Rich means
   top-fifth historical percentile and IV above realized volatility when that
   comparison is available. Missing realized volatility uses percentile alone

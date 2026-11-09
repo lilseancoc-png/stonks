@@ -288,7 +288,7 @@ export function renderRegimeLabJs() {
     var d = rglState.data;
     if (!d){ root.innerHTML = '<p class="hint">' + (rglState.error ? 'The Regime Lab could not be loaded (' + escapeHtml(rglState.error) + '). Every full build writes it; the first one after this deploys creates it.' : 'Loading…') + '</p>'; return; }
     var v = d.versions || {};
-    var nav = '<nav class="rgl-nav" aria-label="Regime Lab sections">' + [['rgl-today', 'Today'], ['rgl-history', 'History'], ['rgl-stocks', 'Stocks'], ['rgl-books', 'Playbooks'], ['rgl-risk', 'Exits and risk'], ['rgl-oracle', 'Oracle'], ['rgl-catalog', 'Tests'], ['rgl-guards', 'Guards']].map(function(x){ return '<a href="#' + x[0] + '">' + x[1] + '</a>'; }).join('') + '</nav>';
+    var nav = '<nav class="rgl-nav" aria-label="Regime Lab sections">' + [['rgl-today', 'Today'], ['rgl-history', 'History'], ['rgl-stocks', 'Stocks'], ['rgl-books', 'Playbooks'], ['rgl-risk', 'Exits and risk'], ['rgl-oracle', 'Oracle'], ['rgl-crowd', 'Crowd'], ['rgl-catalog', 'Tests'], ['rgl-guards', 'Guards']].map(function(x){ return '<a href="#' + x[0] + '">' + x[1] + '</a>'; }).join('') + '</nav>';
     root.innerHTML = nav +
       rglSection('rgl-today', 'Today\\'s market', rglTodayHtml(d)) +
       rglSection('rgl-history', 'Label history', rglHistoryHtml(d) + rglStabilityHtml(d)) +
@@ -300,9 +300,65 @@ export function renderRegimeLabJs() {
       rglSection('rgl-oracle', 'Headline oracle (D1-D8)', rglOracleHtml(d)) +
       rglSection('rgl-grader', 'AI grader by cell (F20)', rglGraderHtml(d)) +
       (d.research && d.research.summary ? rglSection('rgl-research', 'Research results', rglResearchHtml(d)) : '') +
+      rglSection('rgl-crowd', 'Crowd and positioning on the open book', '<div id="rgl-crowd-body"><p class="hint">Loading the crowd join…</p></div>') +
       rglSection('rgl-catalog', 'Test catalog (F1-F22)', rglCatalogHtml(d)) +
       rglSection('rgl-guards', 'Guards (G1-G10)', rglGuardsHtml(d)) +
       '<p class="evb-note">' + escapeHtml(d.note || '') + ' Rules: labels ' + escapeHtml(v.labels || '') + ', playbooks ' + escapeHtml(v.playbooks || '') + ', exits ' + escapeHtml(v.exits || '') + ', oracle ' + escapeHtml(v.oracle || '') + '. Real option history since ' + escapeHtml(evbDate(d.realIvSince)) + '.</p>';
+    rglLoadCrowd();
+  }
+  // Crowd & positioning (lib/crowd/, 2026-11-09): the Owner-only join of the
+  // public crowd facts to the open Top Picks trades (crowd-owner.json).
+  // Measurement only; nothing here changes a pick.
+  var rglCrowd = { data: null, fetchedAt: 0, loading: false, error: null };
+  function rglCrowdScore(v){
+    if (v == null || !isFinite(v)) return '<span class="vt-na">—</span>';
+    return '<span class="crd-score' + (v >= 80 ? ' crd-score-hi' : v <= 20 ? ' crd-score-lo' : '') + '">' + Math.round(v) + '</span>';
+  }
+  function rglCrowdFlags(flags, warnings){
+    var out = (flags || []).map(function(f){ return '<span class="crd-flag">' + escapeHtml(f) + '</span>'; });
+    (warnings || []).forEach(function(w){ out.push('<span class="crd-flag crd-flag-warn">' + escapeHtml(w) + '</span>'); });
+    return out.length ? '<span class="crd-owner-flags">' + out.join('') + '</span>' : '<span class="vt-na">—</span>';
+  }
+  function rglCrowdHtml(c){
+    if (!c) return '<p class="hint">' + (rglCrowd.error ? 'The crowd join is not available yet (' + escapeHtml(rglCrowd.error) + '). Every full build writes it.' : 'Loading…') + '</p>';
+    var g = c.gauges || {};
+    var kp = [
+      ['Equity put/call', g.putCallEquity == null ? '—' : Number(g.putCallEquity).toFixed(2) + (g.putCallEquityZ != null ? ' <small>' + (g.putCallEquityZ > 0 ? '+' : '') + Number(g.putCallEquityZ).toFixed(1) + 'σ</small>' : '')],
+      ['Hedge funds, S&P futures', g.cotEsLevNet == null ? '—' : (g.cotEsLevNet > 0 ? 'long ' : 'short ') + Math.round(Math.abs(g.cotEsLevNet)).toLocaleString() + (g.cotEsLevZ != null ? ' <small>' + (g.cotEsLevZ > 0 ? '+' : '') + Number(g.cotEsLevZ).toFixed(1) + 'σ</small>' : '')],
+      ['VIX futures, hedge funds', g.cotVxLevNet == null ? '—' : (g.cotVxLevNet > 0 ? 'long ' : 'short ') + Math.round(Math.abs(g.cotVxLevNet)).toLocaleString()],
+      ['Margin debt y/y', g.marginDebtYoyPct == null ? '—' : (g.marginDebtYoyPct > 0 ? '+' : '') + Number(g.marginDebtYoyPct).toFixed(1) + '%'],
+      ['Leveraged bull vs bear, 5d', g.levBullUsd5d == null && g.levBearUsd5d == null ? '—' : '$' + (Number(g.levBullUsd5d || 0) / 1e6).toFixed(0) + 'M / $' + (Number(g.levBearUsd5d || 0) / 1e6).toFixed(0) + 'M'],
+      ['Kalshi S&P close, mean', g.kalshiSpxMean == null ? '—' : Math.round(g.kalshiSpxMean).toLocaleString()],
+    ];
+    var open = c.openTrades || [];
+    var cols = [
+      { label: 'Trade', cell: function(t){ return '<b>' + escapeHtml(t.symbol) + '</b> ' + escapeHtml(t.side || '') + (t.id ? '<div class="crd-dim">' + escapeHtml(t.id) + '</div>' : ''); }, sort: function(t){ return t.symbol; } },
+      { label: 'Attention', num: true, title: '0-100 rank of retail attention (Reddit, Wikipedia, Stocktwits) among the tracked names', cell: function(t){ return rglCrowdScore(t.attention); }, sort: function(t){ return t.attention; } },
+      { label: 'Short pressure', num: true, title: '0-100 rank of short-sale volume and borrow fee among the tracked names', cell: function(t){ return rglCrowdScore(t.shortPressure); }, sort: function(t){ return t.shortPressure; } },
+      { label: 'Perp vs close', num: true, cell: function(t){ var f = t.facts || {}; return f.perpVsClosePct == null ? '<span class="vt-na">—</span>' : '<span class="' + (f.perpVsClosePct > 0 ? 'pos' : f.perpVsClosePct < 0 ? 'neg' : '') + '">' + (f.perpVsClosePct > 0 ? '+' : '') + Number(f.perpVsClosePct).toFixed(2) + '%</span>'; }, sort: function(t){ return t.facts ? t.facts.perpVsClosePct : null; } },
+      { label: 'Flags', nosort: true, cell: function(t){ return rglCrowdFlags(t.flags, t.warnings); } },
+    ];
+    var list = function(rows){ return rows && rows.length ? rows.map(function(r){ return '<li><b>' + escapeHtml(r.symbol) + '</b> ' + rglCrowdScore(r.attention) + (r.flags && r.flags.length ? ' <span class="crd-dim">' + escapeHtml(r.flags.join(', ')) + '</span>' : '') + '</li>'; }).join('') : '<li class="crd-dim">none yet</li>'; };
+    return '<p class="evb-lead">' + (c.regime && c.regime.label ? 'Market label ' + escapeHtml(c.regime.label) + '. ' : '') + open.length + ' open trade' + (open.length === 1 ? '' : 's') + ' joined to today\\'s crowd facts; ' + (c.days || 0) + ' daily row' + (c.days === 1 ? '' : 's') + ' saved for later tests.</p>' +
+      '<div class="mm-kpis">' + kp.map(function(k){ return '<div class="mm-kpi"><span>' + escapeHtml(k[0]) + '</span><b>' + k[1] + '</b></div>'; }).join('') + '</div>' +
+      VIEWS.tableHtml(cols, open, { key: 'rgl-crowd-open', tall: false, empty: 'No open Top Picks trades right now.' }) +
+      '<div class="rgl-facts"><div><dt>Most crowded attention</dt><dd><ul class="rgl-lines">' + list(c.mostCrowded) + '</ul></dd></div><div><dt>Least crowded</dt><dd><ul class="rgl-lines">' + list(c.leastCrowded) + '</ul></dd></div></div>' +
+      '<p class="evb-note">' + escapeHtml(c.note || '') + ' Public facts behind these ranks: <a href="?tab=crowd">Crowd &amp; positioning</a>.' + (c.builtAtIso ? ' Written ' + escapeHtml(rglEt(c.builtAtIso)) + '.' : '') + '</p>';
+  }
+  function rglLoadCrowd(){
+    var body = $('rgl-crowd-body'); if (!body) return;
+    if (rglCrowd.data && Date.now() - rglCrowd.fetchedAt < 10 * 60 * 1000){ body.innerHTML = rglCrowdHtml(rglCrowd.data); return; }
+    if (rglCrowd.loading){ body.innerHTML = rglCrowdHtml(null); return; }
+    rglCrowd.loading = true; rglCrowd.error = null;
+    body.innerHTML = rglCrowdHtml(null);
+    quantFetchJson(dataUrl('crowd-owner.json')).then(function(row){
+      rglCrowd.data = row && typeof row === 'object' && row.gauges ? row : null; rglCrowd.fetchedAt = Date.now(); rglCrowd.loading = false;
+      if (!rglCrowd.data) rglCrowd.error = 'not written yet';
+      var b = $('rgl-crowd-body'); if (b) b.innerHTML = rglCrowdHtml(rglCrowd.data);
+    }).catch(function(err){
+      rglCrowd.loading = false; rglCrowd.error = err && err.status === 404 ? 'not written yet' : String(err && err.message || err);
+      var b = $('rgl-crowd-body'); if (b) b.innerHTML = rglCrowdHtml(null);
+    });
   }
   function loadRegimeLab(force){
     var status = $('owner-regime-status');
