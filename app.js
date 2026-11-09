@@ -4404,24 +4404,93 @@ function recoveryEvidence(row, data, now = Date.now()) {
       lineLegendHtml(s2) + lineSvgHtml({ labels: labels, series: s2, h: 200, xEvery: xEvery, zero: true, yFmt: function(v){ return v.toFixed(2); }, ariaLabel: 'Rank skill and Brier score by run date' });
   }
 
-  // Sections that later loop steps add (diagnosis, challengers, tuning) are
-  // drawn by hooks they register here; none is required.
-  var SLP_EXTRA = [];
+  // ---- Step 2: diagnosis (D1-D4) ----
+  var SLP_PILLAR = { f: 'Fundamentals pillar', t: 'Technicals pillar', m: 'Mechanicals pillar', n: 'Narrative pillar', iv: 'IV cost', rg: 'Market overlay' };
+  var SLP_INPUT_STATUS = { against: ['Pointing the wrong way', 'evb-s-fail'], fading: ['Fading', 'evb-s-collect'], working: ['Working', 'evb-s-pass'], quiet: ['No clear read', 'evb-s-unclear'], collecting: ['Collecting', 'evb-s-wait'] };
+  function slpInputName(k){
+    k = String(k || '');
+    if (k.indexOf('P:') === 0) return SLP_PILLAR[k.slice(2)] || k;
+    return k.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/_/g, ' ').toLowerCase();
+  }
+  function slpIc(v){ return '<span class="' + (v > 0.02 ? 'sig-pos' : v < -0.02 ? 'sig-neg' : '') + '">' + (v == null ? '—' : slpPts(v, 3)) + '</span>'; }
+  function slpReportHtml(d){
+    var reps = (d.reports || []).slice().reverse();
+    if (!reps.length) return '<p class="hint">The first weekly report is written after the Friday close (16:00 ET), or at the next build if that one is missed.</p>';
+    // [key, label, value text, change text, lower is better]
+    var heads = [
+      ['brier10', 'Brier, 10 sessions', function(v){ return slpNum(v, 3); }, function(c){ return slpPts(c, 3); }, true],
+      ['skill10', 'Beats the base rate', function(v){ return slpPts(v * 100, 0) + '%'; }, function(c){ return slpPts(c * 100, 0) + ' pts'; }],
+      ['hit10', 'Went its way, grade 4+', function(v){ return slpPct(v, 1); }, function(c){ return slpPts(c, 1) + ' pts'; }],
+      ['rank10', 'Rank skill', function(v){ return slpPts(v, 3); }, function(c){ return slpPts(c, 3); }],
+      ['optAvg', 'Option average after costs', function(v){ return slpPts(v, 1); }, function(c){ return slpPts(c, 1); }],
+      ['optWin', 'Options won', function(v){ return slpPct(v, 0); }, function(c){ return slpPts(c, 0) + ' pts'; }],
+    ];
+    function one(r, open){
+      var kp = heads.map(function(h){
+        var v = r.head ? r.head[h[0]] : null, c = r.change ? r.change[h[0]] : null;
+        var better = c == null ? '' : (h[4] ? c < 0 : c > 0) ? 'sig-pos' : c === 0 ? '' : 'sig-neg';
+        return [h[1], (v == null ? '—' : h[2](v)) + (c == null ? '' : ' <small class="' + better + '">' + h[3](c) + '</small>')];
+      });
+      var items = (r.items || []).length ? '<ul class="rgl-lines slp-items">' + r.items.map(function(it){ return '<li>' + escapeHtml(it.text) + '</li>'; }).join('') + '</ul>' : '<p class="evb-note">Nothing stood out this week.</p>';
+      return '<details class="rgl-details slp-details"' + (open ? ' open' : '') + '><summary>Week of ' + escapeHtml(evbDate(r.week)) + ' (' + ((r.logged && r.logged.runs) || 0) + ' runs, ' + ((r.logged && r.logged.rows) || 0) + ' estimates)</summary>' +
+        slpKpis(kp) + '<h4 class="slp-h4">What to look at</h4>' + items + '</details>';
+    }
+    return '<p class="evb-lead">Written once a week after the Friday close. The small numbers are the change since the week before.</p>' + reps.map(function(r, i){ return one(r, i === 0); }).join('');
+  }
+  function slpInputsHtml(d){
+    var list = (d.diagnosis && d.diagnosis.inputs) || [];
+    if (!list.length) return '<p class="hint">Needs runs whose 5-session moves are in.</p>';
+    var body = list.map(function(x){
+      var st = SLP_INPUT_STATUS[x.status] || SLP_INPUT_STATUS.quiet;
+      return '<tr><td>' + escapeHtml(slpInputName(x.key)) + '</td><td><span class="evb-pill ' + st[1] + '">' + st[0] + '</span></td><td class="num">' + slpIc(x.w20 && x.w20.avg) + '</td><td class="num">' + slpPct(x.w20 && x.w20.positive) + '</td><td class="num">' + slpIc(x.w60 && x.w60.avg) + '</td><td class="num">' + slpIc(x.all && x.all.avg) + '</td><td class="num">' + slpIc(x.all10 && x.all10.avg) + '</td><td class="num">' + ((x.all && x.all.days) || 0) + '</td></tr>';
+    }).join('');
+    return '<p class="evb-lead">For every input the grade uses: the rank correlation between its vote and the stock\'s next 5-session move across every name in a run, averaged over the newest 20 sessions, the newest 60 and all of it (10-session moves in the last column). Pointing the wrong way: the newest 20 sessions average -0.03 or worse with under 35% of runs positive. Fading: it worked over 60 sessions and not over the last 20.</p>' +
+      slpTable([['Input'], ['Status'], ['Last 20', 1], ['Runs above 0', 1], ['Last 60', 1], ['All, 5 sessions', 1], ['All, 10 sessions', 1], ['Sessions', 1]], body);
+  }
+  function slpMarketsHtml(d){
+    var m = (d.diagnosis && d.diagnosis.markets) || {};
+    function rows(list){
+      return (list || []).map(function(g){
+        return '<tr><td>' + escapeHtml(SLP_MK[g.key] || g.key) + '</td><td class="num">' + g.n + '</td><td class="num">' + slpPct(g.dir && g.dir.hit, 1) + '</td><td class="num">' + slpIc(g.rank && g.rank.avg) + '</td><td class="num">' + slpNum(g.brier, 3) + ' / ' + slpNum(g.brierBase, 3) + '</td><td class="num">' + ((g.opt && g.opt.n) || 0) + '</td><td class="num ' + slpSign(g.opt && g.opt.avg) + '">' + slpPts(g.opt && g.opt.avg) + '</td></tr>';
+      }).join('');
+    }
+    var head = [['Group'], ['Names', 1], ['Its way, 4+', 1], ['Rank skill', 1], ['Brier / base', 1], ['Options', 1], ['Option avg', 1]];
+    var flips = (m.inputs || []).filter(function(x){ return x.flips; });
+    var flipHtml = flips.length ? '<ul class="rgl-lines">' + flips.map(function(x){ return '<li><b>' + escapeHtml(slpInputName(x.key)) + '</b> works in ' + escapeHtml(x.flips.works.join(' and ')) + ', points the wrong way in ' + escapeHtml(x.flips.against.join(' and ')) + '.</li>'; }).join('') + '</ul>' : '<p class="evb-note">No input works in one market type and points the wrong way in another yet (needs 10 sessions of each).</p>';
+    return '<p class="evb-lead">The same reads split by the market type at the run and by the Regime Lab cell, so a part of the engine that only works in one kind of market shows up.</p>' +
+      (m.byMarket && m.byMarket.length ? slpTable(head, rows(m.byMarket)) : '<p class="hint">No market types logged yet.</p>') +
+      (m.byCell && m.byCell.length ? '<details class="rgl-details slp-details"><summary>By Regime Lab cell</summary>' + slpTable(head, rows(m.byCell)) + '</details>' : '') +
+      '<h4 class="slp-h4">Inputs that change sign with the market</h4>' + flipHtml;
+  }
+  function slpLossesHtml(d){
+    var L = (d.diagnosis && d.diagnosis.losses) || {};
+    if (!L.n) return '<p class="hint">No trade-grade name has a modeled option result yet.</p>';
+    var h = L.how || {};
+    var lead = '<p class="evb-lead">' + L.n + ' trade-grade names modeled, ' + slpPct(L.lossRate) + ' lost, average ' + slpPts(L.avg) + ' points after costs. Of ' + (h.losses || 0) + ' losses: ' + (h.fastStop || 0) + ' stopped within 3 sessions, ' + (h.slowStop || 0) + ' stopped later, ' + (h.timedOut || 0) + ' ran out of time; ' + (h.wrongWay || 0) + ' had the stock going the wrong way and ' + (h.rightWayLost || 0) + ' lost with the stock going the trade\'s way (time decay or a move too small).</p>';
+    function rows(list){ return (list || []).map(function(g){ return '<tr><td>' + escapeHtml(g.feature) + '</td><td>' + escapeHtml(SLP_MK[g.value] || g.value) + '</td><td class="num">' + g.n + '</td><td class="num">' + slpPct(g.lossRate) + '</td><td class="num ' + slpSign(g.avg) + '">' + slpPts(g.avg) + '</td><td class="num ' + slpSign(g.gap) + '">' + slpPts(g.gap) + '</td></tr>'; }).join(''); }
+    var head = [['What'], ['Value'], ['Names', 1], ['Lost', 1], ['Average', 1], ['Vs the book', 1, 'Average after costs minus the whole book']];
+    return lead +
+      '<h4 class="slp-h4">Setups that lose more than the book</h4>' + (L.worst && L.worst.length ? slpTable(head, rows(L.worst)) : '<p class="evb-note">None yet (needs 15 names in a group and 3 points worse than the book).</p>') +
+      '<h4 class="slp-h4">Setups that do better</h4>' + (L.best && L.best.length ? slpTable(head, rows(L.best)) : '<p class="evb-note">None yet.</p>');
+  }
   function renderSelfLoop(){
     var root = $('self-loop-root'); if (!root) return;
     var d = slpState.data;
     if (!d){ root.innerHTML = '<p class="hint">' + (slpState.error ? 'The loop could not be loaded (' + escapeHtml(slpState.error) + '). Every full build writes it; the first one after this deploys creates it.' : 'Loading…') + '</p>'; return; }
     var parts = [
       ['slp-status', 'Where the loop stands', slpStatusHtml],
+      ['slp-report', 'Weekly report', slpReportHtml],
       ['slp-latest', 'Latest estimates', slpLatestHtml],
       ['slp-honesty', 'Are the stated odds honest?', slpHonestyHtml],
       ['slp-direction', 'Does the grade call direction?', slpDirectionHtml],
       ['slp-options', 'What would the planned option have made?', slpOptionsHtml],
       ['slp-gates', 'Which open-pick rules pay?', slpGatesHtml],
+      ['slp-inputs', 'Which inputs still work?', slpInputsHtml],
+      ['slp-markets', 'Where does the engine work?', slpMarketsHtml],
+      ['slp-losses', 'How do the losses happen?', slpLossesHtml],
+      ['slp-model', 'The model behind the odds', slpModelHtml],
+      ['slp-history', 'Day by day', slpHistoryHtml],
     ];
-    SLP_EXTRA.forEach(function(x){ if (x && x.when(d)) parts.push([x.id, x.title, x.html]); });
-    parts.push(['slp-model', 'The model behind the odds', slpModelHtml]);
-    parts.push(['slp-history', 'Day by day', slpHistoryHtml]);
     var nav = '<nav class="rgl-nav" aria-label="Loop sections">' + parts.map(function(p){ return '<a href="#' + p[0] + '">' + escapeHtml(p[1].replace(/\?$/, '')) + '</a>'; }).join('') + '</nav>';
     root.innerHTML = nav + parts.map(function(p){ return slpSection(p[0], escapeHtml(p[1]), p[2](d)); }).join('') +
       '<p class="evb-note">Measurement only: nothing on this page changes a pick, a grade or the Track Record unless self-tuning is switched on. Built ' + escapeHtml(rglEt(d.builtAt)) + '. Rules version ' + escapeHtml(String(d.v || '')) + '.</p>';

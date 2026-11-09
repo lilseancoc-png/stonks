@@ -34,6 +34,7 @@ of that merge undoes it. The kill switch `LOOP=0` (repo variable, passed by
 | Prediction ledger, option replay, join to the stock outcomes | `lib/self-loop/ledger.mjs` |
 | The count model behind every stated chance, reliability scoring | `lib/self-loop/calibrate.mjs` |
 | Scorecard and rule audit | `lib/self-loop/scorecard.mjs` |
+| Input decay, market splits, loss patterns, weekly report | `lib/self-loop/diagnose.mjs` |
 | The two bake hooks, the files, the evidence rows | `lib/self-loop/index.mjs` |
 | Owner Lab "Loop" tab | `scripts/render/self-loop-client.mjs`, `self-loop-css.mjs` |
 | Tests | `scripts/self-loop-smoke.mjs` (`npm run test:self-loop`), `scripts/self-loop-browser.mjs` (`npm run test:self-loop-browser`) |
@@ -71,7 +72,7 @@ outcome rows are written. For every scored name it stores:
 | `pTp` | stated chance the planned single option reaches +25% before -50% |
 | `pn` | graded rows behind the finest group the estimate came from (0 = the 50% starting point) |
 | `c`, `px` | the planned contract `[strike, expiry, mid, iv]` and the run spot |
-| `sig` | the non-zero signal votes (for step 2's input decay read) |
+| `sig`, `pl` | the non-zero signal votes and pillar scores (for step 2's input decay read) |
 | `o` | the modeled option outcome, filled later |
 
 The stock moves are not stored twice: `joinedRows` joins them from
@@ -147,6 +148,62 @@ Two rows in the lane "Self-improving loop":
 
 Each step is wrapped so a failure logs a warning and the build goes on.
 `regen-picks.mjs` does not run the loop (it is an offline maintenance tool).
+
+## Step 2: diagnose (D1-D4)
+
+`loopOnBake` adds `diagnosis` and `reports` to the view
+(`lib/self-loop/diagnose.mjs`). Still measurement only.
+
+### Which inputs still work (D1)
+
+For every input the grade uses (each signal vote, and each pillar score as
+`P:f`, `P:t`, `P:m`, `P:n`, `P:iv`, `P:rg`), per run: the Spearman
+correlation between the vote (bullish positive; a name with no vote counts
+as 0) and the stock's own 5-session move across every name in the run. Read
+over the newest 20 sessions, the newest 60 and all of it, plus all of it on
+10-session moves. Status:
+
+| Status | Rule |
+|---|---|
+| collecting | under 10 sessions in the newest 20-session window |
+| pointing the wrong way | newest 20 average -0.03 or worse, and 35% or fewer runs positive |
+| fading | newest 60 average +0.02 or better, newest 20 at or under 0 |
+| working | newest 20 average +0.03 or better, and 60% or more runs positive |
+| no clear read | anything else |
+
+### Where the engine works (D2)
+
+Direction hit rate (grade 4+), rank skill, Brier against the base rate and
+the modeled option average, split by market type at the run and by Regime
+Lab cell. Each input's 10-session IC is also read per market type; an input
+averaging +0.03 or better in one market type and -0.03 or worse in another
+(10+ sessions each) is listed as changing sign with the market.
+
+### How losses happen (D3)
+
+Over trade-grade names with a modeled option result: how the losses ended
+(stopped within 3 sessions, stopped later, ran out of time or expired), and
+whether the stock went the wrong way or went the trade's way and the option
+still lost (time decay, a move too small or too slow). Then every value of
+side, market type, cell, event play, AI call, grade band (4-5, 6-7, 8+),
+implied move (under 5%, 5-8%, 8-12%, 12%+), what the run did, and the pairs
+side x market / side x cell / side x grade, with 15+ names: the setups at
+least 3 points worse than the book after costs (and losing at least 1.1x as
+often) and the ones at least 3 points better.
+
+### Weekly report (D4)
+
+Written once per week into the state (`reports`, 26 weeks kept, the newest 8
+in the view): at the first build after the Friday close (16:00 ET), or at the
+next build when that one was missed (a Friday holiday, a failed build), for the
+newest finished week. Never for a week that ended before the loop started. It
+carries the headline reads (10-session Brier and its skill over the base rate,
+hit rate at grade 4+, rank skill, option average and win rate), their change
+since the last report, and a plain-language "what to look at" list: inputs
+pointing the wrong way or fading, inputs that change sign with the market, the
+worst setups, rules that cost the book, the shape of the losses, and stated
+odds that score worse than the base rate. Each item names the step-3
+challenger or step-4 setting it points to; nothing is changed by the report.
 
 ## What to expect
 

@@ -51,6 +51,10 @@ try {
     check((await s.page.locator('#slp-history svg.ln-svg').count()) === 2, 'two history charts');
     check((await s.page.locator('#slp-honesty svg.ln-svg').count()) === 1, 'the stated-vs-happened chart');
     check(!/undefined|NaN|\[object Object\]/.test(text), 'no raw values');
+    check((await s.page.locator('#slp-report details').count()) >= 1, 'weekly reports rendered');
+    check((await s.page.locator('#slp-report details[open]').count()) === 1, 'the newest report starts open');
+    check((await s.page.locator('#slp-inputs tbody tr').count()) > 0, 'the input decay table rendered');
+    check(/How do the losses happen/.test(text) && /Where does the engine work/.test(text), 'loss patterns and market splits rendered');
     check(/Written by the/.test(await s.page.locator('#owner-loop-status').innerText()), 'the status line names the build');
     const problems = await pageProblems(s);
     check(problems.length === 0, 'desktop light: ' + problems.join(' | '));

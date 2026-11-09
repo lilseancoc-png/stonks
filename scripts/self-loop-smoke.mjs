@@ -18,6 +18,7 @@ import * as Lg from "../lib/self-loop/ledger.mjs";
 import { cellKeys, estimateFor, fitCalibration, modelTable, reliability, MIN_ROWS_FOR_ESTIMATE, SHRINK_K } from "../lib/self-loop/calibrate.mjs";
 import { buildScorecard, directionRead, gateAudit, historyRows, optionRead, rankSkill, tStat } from "../lib/self-loop/scorecard.mjs";
 import * as Loop from "../lib/self-loop/index.mjs";
+import * as Dg from "../lib/self-loop/diagnose.mjs";
 import { appendRunOutcomes, emptyOutcomesState, fillOutcomes } from "../lib/picks-outcomes.mjs";
 import { isPremiumKey, isRoleRestrictedKey, roleClaimForKey } from "../lib/premium-keys.mjs";
 import { OPTIONAL_BAKE_KEYS, isBakeOwnedKey, isDynamicBakeKey, isLocalOnlyKey } from "../lib/data-ownership.mjs";
@@ -43,7 +44,7 @@ function runRow(s, tot, { spot = 100, out = "below-bar", ev = null, iv = 0.4, ex
   const side = tot < 0 ? "put" : "call";
   const k = Math.round(spot);
   return {
-    s, side, tot, spot, out, signals: signals || { rsiMomentum: tot > 0 ? 1 : -1, smaStack: 0, guidance: 0.5 },
+    s, side, tot, spot, out, signals: signals || { rsiMomentum: tot > 0 ? 1 : -1, smaStack: 0, guidance: 0.5 }, pillars: { f: 1.5, t: tot > 0 ? 2 : -2, m: 0 },
     iv: { atm: iv, pct: 50, z: 0, rv30: 0.3 }, ai: ev ? { ev } : null, tm: ep ? { ep } : null,
     c: exp ? { k, exp, dte: 45, b: 4.8, a: 5.2, m: 5, iv, d: side === "call" ? 0.55 : -0.55 } : null,
   };
@@ -71,7 +72,7 @@ export function selfLoopFixture({ runs = 50 } = {}) {
     const chainsToday = chainsFrom(Object.fromEntries(syms.map((s) => [s, path[s].slice(0, i + 1)])));
     const run = {
       et: "11:00", regime: { st: i % 2 ? "neutral" : "risk-on" }, lab: { cell: "up-calm" },
-      rows: syms.map((s, j) => runRow(s, j < 5 ? 6 + (j % 3) : 1 + (j % 3), { spot: path[s][i][1], exp: expEpoch("2027-03-19"), out: j === 0 ? "pick:single" : j === 1 ? "gate:losing-streak" : "below-bar", ev: j === 0 ? "buy-now" : null })),
+      rows: syms.map((s, j) => runRow(s, j < 5 ? 6 + (j % 3) : 1 + (j % 3), { spot: path[s][i][1], exp: expEpoch("2027-03-19"), out: j === 0 ? "pick:single" : j === 1 ? "gate:losing-streak" : "below-bar", ev: j === 0 ? "buy-now" : null, signals: { rsiMomentum: j < 5 ? 1 : -1, guidance: (j % 3) - 1 } })),
     };
     fillOutcomes(outcomes, chainsToday, { today: d });
     appendRunOutcomes(outcomes, run, d);
@@ -298,6 +299,80 @@ async function main() {
   eq(tests.map((t) => t.id), ["loop-honest-odds", "loop-gate-audit"]);
   ok(tests.every((t) => t.lane === "loop" && t.progress && t.rule), "each row has a lane, progress and a rule");
   eq(Loop.loopEvidenceTests(null), []);
+
+  // ---- step 2: diagnosis ----------------------------------------------------------------
+  eq(L.rows.find((r) => r[I.s] === "AAPL")[I.pl], { f: 1.5, t: 2 }, "pillar scores ride the ledger, zeros dropped");
+  // 40 run dates x 12 names. "good" always lines up with the move; "late"
+  // lined up for the first 20 dates and then turned; "flip" works in risk-on
+  // and points the wrong way in risk-off.
+  const dRows = [];
+  const ddays = sessions("2026-06-01", 40);
+  ddays.forEach((d, di) => {
+    const mk = di % 2 ? "risk-on" : "risk-off";
+    for (let j = 0; j < 12; j++) {
+      const move = (j - 5.5) * (1 + (di % 3) * 0.1);
+      const side = j % 2 ? "call" : "put";
+      const signed = side === "put" ? -move : move;
+      dRows.push({ d, et: "11:00", s: `S${j}`, side, tot: side === "put" ? -5 : 5, mk, cell: di % 4 < 2 ? "up-calm" : "down-stressed",
+        sig: { good: j, late: di < 20 ? j : -j, flip: mk === "risk-on" ? j : -j, noise: (j * 7) % 5 }, pl: { f: j % 3 },
+        y5: signed, y10: signed, opt: { res: side === "put" && mk === "risk-off" ? "stop" : "tp", net: side === "put" && mk === "risk-off" ? -53.5 : 21.5, days: side === "put" ? 2 : 6 } });
+    }
+  });
+  const byRun = Dg.inputIcByRun(dRows, "y5");
+  eq(byRun.length, 40, "one IC row per run");
+  eq(byRun[0].ic.good, 1, "a perfectly aligned input reads +1");
+  const decay = Object.fromEntries(Dg.inputDecay(dRows).map((x) => [x.key, x]));
+  eq(decay.good.status, "working");
+  eq(decay.late.status, "against", "an input that turned over the newest 20 sessions points the wrong way");
+  eq(decay.late.all.avg, 0, "even though over all of it the two halves cancel");
+  ok(decay["P:f"], "pillars are read as inputs");
+  eq(Dg.inputLabel("P:f"), "Fundamentals pillar");
+  eq(Dg.inputLabel("analystRevisions"), "analyst revisions");
+  // Fading: worked over 60 sessions, nothing over the last 20.
+  const fadeRows = [];
+  sessions("2026-03-02", 60).forEach((d, di) => { for (let j = 0; j < 10; j++) fadeRows.push({ d, et: "11:00", side: "call", tot: 5, sig: { fade: di < 40 ? j : (j * 3) % 10 === 0 ? 1 : 0 }, y5: j - 4.5 }); });
+  const fade = Dg.inputDecay(fadeRows).find((x) => x.key === "fade");
+  ok(fade.w60.avg >= 0.02 && fade.w20.avg <= 0.02, `fixture shape (${fade.w60.avg}, ${fade.w20.avg})`);
+  ok(fade.status === "fading" || fade.status === "quiet" || fade.status === "against", "a faded input is not called working");
+  const few = Dg.inputDecay(dRows.filter((r) => r.d <= ddays[4]));
+  ok(few.every((x) => x.status === "collecting"), "under 10 sessions every input is still collecting");
+  const ms = Dg.marketSplits(dRows, { tradeBar: 4 });
+  eq(ms.byMarket.map((g) => g.key), ["risk-on", "risk-off"]);
+  const flipRow = ms.inputs.find((x) => x.key === "flip");
+  eq(flipRow.flips, { works: ["risk-on"], against: ["risk-off"] }, "an input that changes sign with the market is named");
+  eq(ms.inputs[0].key, "flip", "flipping inputs listed first");
+  eq(ms.byCell.length, 2);
+  const lp = Dg.lossPatterns(dRows, { tradeBar: 4 });
+  eq(lp.n, 480);
+  eq(lp.lossRate, 25);
+  ok(lp.worst.some((g) => g.feature === "side x market" && g.value === "put / risk-off" && g.lossRate === 100), "puts in risk-off are the losing setup");
+  ok(lp.best.length > 0);
+  eq(lp.how.losses, 120);
+  eq(lp.how.fastStop, 120, "all stopped within 3 sessions");
+  eq(lp.how.wrongWay + lp.how.rightWayLost, 120);
+  eq(Dg.lossPatterns([], {}).n, 0);
+  // Weekly report timing (ET). 2026-11-13 is a Friday; 21:10Z is 16:10 ET.
+  eq(Dg.mondayOf("2026-11-13"), "2026-11-09");
+  eq(Dg.mondayOf("2026-11-15"), "2026-11-09", "Sunday belongs to the week before");
+  eq(Dg.reportWeekDue("2026-11-13T21:10:00Z"), "2026-11-09", "after the Friday close: this week");
+  eq(Dg.reportWeekDue("2026-11-13T20:30:00Z"), "2026-11-02", "Friday 15:30 ET: last week is the newest finished one");
+  eq(Dg.reportWeekDue("2026-11-13T21:10:00Z", { lastWeek: "2026-11-09" }), null, "once per week");
+  eq(Dg.reportWeekDue("2026-11-16T15:00:00Z", { lastWeek: "2026-11-02" }), "2026-11-09", "a missed Friday is caught up on Monday");
+  eq(Dg.reportWeekDue("2026-11-13T21:10:00Z", { startedAt: "2026-11-16" }), null, "no report for a week before the loop started");
+  eq(Dg.reportWeekDue("2026-07-03T20:10:00Z"), "2026-06-29", "summer time: 16:10 ET is 20:10Z");
+  const rstate = { reports: [], startedAt: "2026-11-10" };
+  const r1st = Dg.maybeAddWeeklyReport(rstate, { builtAtIso: "2026-11-13T21:10:00Z", rows: dRows, scorecard: buildScorecard(dRows), diagnosis: Dg.buildDiagnosis(dRows) });
+  eq(r1st.week, "2026-11-09");
+  ok(r1st.items.some((it) => it.kind === "input-against" && /late/.test(it.text)), "the report names the input that turned");
+  ok(r1st.items.some((it) => it.kind === "loss-pattern"), "and the losing setup");
+  eq(Dg.maybeAddWeeklyReport(rstate, { builtAtIso: "2026-11-13T22:00:00Z", rows: dRows }), null, "not twice in a week");
+  const r2nd = Dg.maybeAddWeeklyReport(rstate, { builtAtIso: "2026-11-20T21:10:00Z", rows: dRows, scorecard: { ...buildScorecard(dRows), rank: { y10: { avg: 0.5 } } }, diagnosis: Dg.buildDiagnosis(dRows) });
+  eq(rstate.reports.length, 2);
+  ok(r2nd.change.rank10 != null, "the change since last week is computed");
+  // The end-to-end fixture spans Fridays, so the view carries reports.
+  ok(view.diagnosis && view.diagnosis.inputs.length > 0, "the view carries the diagnosis");
+  ok(view.reports.length >= 5 && view.reports.length <= 8, `weekly reports in the view (${view.reports.length})`);
+  ok(state.reports.every((r, i, a) => i === 0 || r.week > a[i - 1].week), "one report per week, in order");
 
   // ---- files ----------------------------------------------------------------------------
   const dir = await mkdtemp(resolve(tmpdir(), "stonks-self-loop-"));
