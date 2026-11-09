@@ -30,6 +30,10 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Four Regime Lab tests ride the Owner Lab Evidence board under a "Regime Lab" lane (the shadow books, the grader by cell, the book brakes on the record, the live cells).
 - Top Picks has an Owner market-mode switch on its page: Auto (default, today's rules), No new puts, No new calls, or Pause new trades. It applies from the next 11:00 or 15:30 ET run after it is saved, only holds back new trades (open trades keep their exits), keeps held-back names on the page as watch ideas with the reason, and keeps held-back sides out of the AI review slots. Each new record trade carries the mode it opened under. Saved in the Owner-only, request-time `top-picks-mode.json`; a missing or bad file reads as Auto. (#764)
 
+### Fixed
+
+- Crowd & positioning, after the first live build (10:00 ET, 9 of 11 sources fresh): the leveraged-ETF flow read asked Yahoo for `navPrice` and `netAssets` by name, which yahoo-finance2's quote options reject before the request leaves, so it never ran; the unfiltered quote now carries both. The IBKR borrow-fee read's failure now says what curl said (the first build only logged "command failed"), tries once with a 20-second connect limit instead of twice at 90 seconds, and turns EPSV off with the PASV address ignored, the usual fix for FTP through the runner's NAT. The Kalshi block names every series that had no open market (unemployment, jobless claims and the recession series had none today), not just the first. SLV has no Wikipedia article of its own, so its page-view row is left out instead of failing every build.
+
 ## 2026-11-08
 
 ### Added

@@ -38681,7 +38681,11 @@ async function main() {
         prior: priorCrowd, symbols: TICKERS, chains, todayEt: etDateKey(), nowIso: new Date().toISOString(),
         levSingles: LEVERAGED_ETF_SINGLES, levGroups: LEVERAGED_ETF_GROUPS, preopen: preopenForCrowd,
         quoteFn: async (syms) => {
-          const got = await yahooFinance.quote(syms, { fields: ["symbol", "sharesOutstanding", "navPrice", "netAssets", "regularMarketPrice", "regularMarketVolume", "averageDailyVolume3Month"] }, { validateResult: false });
+          // No `fields` filter: navPrice and netAssets are not in yahoo-finance2's
+          // QuoteOptions field list, so a filtered call is rejected before it
+          // reaches Yahoo ("called with invalid options", first live build
+          // 2026-11-09). The unfiltered quote carries both for ETFs.
+          const got = await yahooFinance.quote(syms, {}, { validateResult: false });
           return Array.isArray(got) ? got : got ? [got] : [];
         },
         log: (line) => console.log(line),
