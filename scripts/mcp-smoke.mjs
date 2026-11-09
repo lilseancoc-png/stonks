@@ -70,6 +70,11 @@ const files = {
     }])) },
   "heatmap.json": { builtAtIso: "2026-11-02T14:00:00Z", tickers: [{ t: "NVDA", n: "NVIDIA Corporation", s: "Technology", i: "Semiconductors" }, { t: "AAPL", n: "Apple Inc.", s: "Technology", i: "Consumer Electronics" }] },
   "picks-run-2026-10-30.json": { builtAtIso: "2026-10-30T19:31:00Z", runs: [{ at: "2026-10-30T15:00:00Z", scored: [{ symbol: "NVDA", total: 9 }] }] },
+  "quant-history.json": { days: Array.from({ length: 30 }, (_, i) => ({ d: new Date(Date.parse("2026-09-20T00:00:00Z") + i * 86_400_000).toISOString().slice(0, 10), impliedCorr: 0.1 })) },
+  "picks-outcomes.json": { v: 1, keys: ["d", "et", "s"], rows: Array.from({ length: 30 }, (_, i) => [new Date(Date.parse("2026-10-01T00:00:00Z") + i * 86_400_000).toISOString().slice(0, 10), "11:07", i % 2 ? "NVDA" : "AAPL"]) },
+  "evidence-board.json": { v: 1, builtAt: "2026-11-02T14:10:00.000Z", asOf: "2026-11-02", tests: [] },
+  "link-map.json": { asOf: "2026-11-02", nodes: { "ticker:NVDA": { type: "ticker", symbol: "NVDA" }, "industry:semis": { type: "industry", label: "Semis" } },
+    edges: [{ from: "industry:semis", to: "ticker:NVDA", kind: "industry-member" }, { from: "industry:semis", to: "ticker:AMD", kind: "industry-member" }, { from: "ticker:NVDA", to: "ticker:TSM", kind: "supplier" }] },
   "sector-rotation-log.json": { entries: Array.from({ length: 40 }, (_, i) => ({ date: new Date(Date.parse("2026-09-01T00:00:00Z") + i * 86_400_000).toISOString().slice(0, 10), leader: "XLK" })) },
   "picks-accuracy.json": { builtAtIso: "2026-11-02T14:00:00Z",
     open: [{ symbol: "NVDA", side: "call", entryDate: "2026-10-28T15:05:00Z", optionPnlPct: 12, entrySpot: 190, lastSpot: 200,
@@ -479,6 +484,25 @@ async function tool(name, args, opts) {
   assert.equal(entries[5].date, "2026-10-10", "the newest row survives the trim");
   assert.equal(log.structuredContent.as_of, "2026-10-10T00:00:00.000Z", "an undated log is dated by its newest row");
   assert.ok(log.structuredContent.warnings.some((w) => /STALE_SOURCE/.test(w)));
+  // Compact `d` rows and packed array rows are dated and trimmed the same way.
+  const qh = await tool("get_feature", { feature_id: "quant", dataset: "history", max_items: 3 });
+  assert.equal(qh.structuredContent.as_of, "2026-10-19T00:00:00.000Z");
+  assert.equal(qh.structuredContent.results.days[3].d, "2026-10-19");
+  const po = await tool("get_feature", { feature_id: "quant", dataset: "outcomes", max_items: 2 });
+  assert.equal(po.structuredContent.results.rows[2][0], "2026-10-30", "packed rows keep the newest");
+  assert.equal(po.structuredContent.as_of, "2026-10-30T00:00:00.000Z");
+  assert.equal((await tool("get_feature", { feature_id: "quant", dataset: "evidence" })).structuredContent.as_of, "2026-11-02T14:10:00.000Z", "builtAt beats a date-only asOf");
+  // Ticker filters reach link-map edges and compact `s` rows.
+  const lm = (await tool("get_feature", { feature_id: "unified-signal-engine", dataset: "link-map", ticker: "NVDA" })).structuredContent.results.matches;
+  assert.deepEqual(lm.map((m) => m.path).sort(), ["edges.0", "edges.2", "nodes.ticker:NVDA"]);
+  assert.deepEqual((await tool("get_feature", { feature_id: "quant", dataset: "outcomes", ticker: "NVDA" })).structuredContent.results.matches.length, 0, "packed rows are not objects; no false match");
+  // The Owner market mode reads as Auto until it is first changed.
+  const mode = await tool("get_feature", { feature_id: "picks", dataset: "mode" });
+  assert.equal(mode.isError, false, JSON.stringify(mode).slice(0, 200));
+  assert.equal(mode.structuredContent.results.mode, "auto");
+  files["top-picks-mode.json"] = { version: 1, mode: "no-puts", updatedAt: "2026-11-02T13:00:00Z", by: "owner", history: [] };
+  assert.equal((await tool("get_feature", { feature_id: "picks", dataset: "mode" })).structuredContent.results.mode, "no-puts");
+  delete files["top-picks-mode.json"];
   // max_items stays a ceiling when the payload falls to a smaller budget.
   const wide = Array.from({ length: 20 }, (_, i) => Object.fromEntries(Array.from({ length: 60 }, (_, k) => ["k" + k, String(i).repeat(1200)])));
   const capped = boundedJson(wide, { maxItems: 2 });
