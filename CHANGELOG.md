@@ -37,6 +37,10 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 - FINRA short-sale volume backfills up to 60 sessions per name (was 25), six files a build, so the short-volume z and the shadow key have a full window sooner. (#791)
 
+### Fixed
+
+- Crowd & positioning, after the first live build (10:00 ET, 9 of 11 sources fresh): the leveraged-ETF flow read asked Yahoo for `navPrice` and `netAssets` by name, which yahoo-finance2's quote options reject before the request leaves, so it never ran; the unfiltered quote now carries both. The IBKR borrow-fee read's failure now says what curl said (the first build only logged "command failed"), tries once with a 20-second connect limit instead of twice at 90 seconds, and turns EPSV off with the PASV address ignored, the usual fix for FTP through the runner's NAT. The Kalshi block names every series that had no open market (unemployment, jobless claims and the recession series had none today), not just the first. SLV has no Wikipedia article of its own, so its page-view row is left out instead of failing every build. (#792)
+
 ### Removed
 
 - Retire the Owner **Research Lab** (board, studies compiler, worker, journal, AI review export, operations view, the `?lab=` route, the `RESEARCH_LAB_ENABLED` switch, its 25 test scripts and `docs/research-lab/`): never used, and the MCP server is the research surface for AI clients. The page catalog and covered-symbol list it generated move to `lib/site-catalog/` (`node scripts/site-catalog.mjs`, checked by `npm run test:site-catalog`) for the MCP `list_features` / `get_feature` tools and the Update checker, which no longer scans `_stonks/research-lab/` records. The objects still under that prefix in R2 are orphans; delete them by hand. (#791)
