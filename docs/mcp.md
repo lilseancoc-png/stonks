@@ -60,8 +60,8 @@ only if you started the connection yourself.
 | `sports_get_player` | owner | Owner Sports: game log, averages, next game and the stat model's forecast for it |
 | `sports_evaluate_entry` | owner | Owner Sports: a 1-6 pick entry checked by the Pick Builder's own `evaluateEntry` (`hit_history`, model chance, breakeven, joint chance including same-game links, expected value; any catalog stat or combo, with a model chance only for modeled stats) plus `pick_builder_link`, a `?tab=sports-pick-builder&entry=` link that fills the entry on the site. Saves nothing |
 | `sports_get_model_check` | owner | Owner Sports: the stat model's and the same-game links' check on later games, and the paper journal's totals and chance calibration |
-| `sports_get_prop_record` | owner | Owner Sports: the issued-props record (`propRecordView`, as on the Sports page): totals, win rate, splits by stat, basis, rank and closing-line move, and the newest picks (`recent`, `offset`) with result and actual stat |
-| `sports_get_league_stats` | owner | Owner Sports: the Leaders view (per-game averages over the season, last 10 or last 5, sorted by any shown stat, one team optional) or the Teams view, for one stored season |
+| `sports_get_prop_record` | owner | Owner Sports: the issued-props record (`propRecordView`, as on the Sports page): totals, win rate, splits by stat, basis, rank and closing-line move, and the newest picks (`recent`, `offset`) as compact rows with result and actual stat; `prop_id` returns one pick in full. `as_of` is the record's own save time |
+| `sports_get_league_stats` | owner | Owner Sports: the Leaders view (per-game averages over the season, last 10 or last 5, sorted by any shown stat, `min_games` optional) or the Teams view, for one stored season; both take `team`, `limit` and `offset`. `missed` counts only games where the box score listed the player as not playing |
 | `search` | any | Pages (from `list_features`, so only the ones the caller may read) and covered stocks (names and sectors from `heatmap.json`) matching the words; returns `{results: [{id, title, url}]}` |
 | `fetch` | any | One `search` id (`feature:<id>` or `stock:<TICKER>`): `{id, title, text, url, metadata}`, where `text` is the JSON the matching tool returns (`get_feature`, the page's dedicated tool, `get_stock` for the Owner, `get_price_history` otherwise) |
 
@@ -81,6 +81,17 @@ payload's build time), `generated_at`, `ai_calls: 0`, `warnings` (stale, expired
 list is cut, histories and logs stored oldest first keep their **newest** rows (with an `…N earlier items` marker),
 and `max_items` is a ceiling at every size budget. Payloads without a build stamp (logs, histories, per-stock files)
 are dated by their Yahoo fetch time or their newest row.
+
+Readable output (`reduceValue`/`tidyDeep` in `lib/mcp/tools.mjs`): every tool rounds float tails (2 decimals from
+1,000 up, 4 from 1, 5 significant digits below 1; rounding alone is not a trim) and turns epoch numbers under
+time-named keys (`expSec`, `closeMs`, `exp`) into ISO dates. The size ladder shortens lists, text and key counts
+before it cuts depth. In `get_feature` (without `ticker`) every cut names the path that reads the rest:
+`{object with 3 keys; read with path "a.b"}`, `…5 more items (paths "x.25" to "x.29", or raise max_items)`, and
+`…44 more keys: k1, k2, …; read one with path "thresholds.k1"`. Large series (`history`, `priceSeries`, chains) and
+internal bookkeeping (forced-liquidation `inspected`, 13F `mappingAttempts`/`holdingsParts`/`ownershipRetainedParts`)
+are left out with a read-with-path note; base64 or compressed blobs become `[encoded data omitted: N characters]`.
+`get_stock` lists series and chains with `read_with` (`get_price_history`, `get_option_chain`), and closed
+`get_track_record` rows carry `close_reason` in words.
 
 **Never reachable**, even for the Owner: `picks-fills.json`, `webull-paper-ledger.json`,
 `picks-watchlist.json`, AI caches and accounting (`ai-usage.json`, `ai-cost-history.json`), the contact inbox

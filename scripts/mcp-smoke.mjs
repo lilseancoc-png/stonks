@@ -56,7 +56,7 @@ const files = {
   "briefs.json": { builtAtIso: "2026-11-02T14:00:00Z", current: { headline: "Stocks rise", sections: Array.from({ length: 40 }, (_, i) => ({ symbol: i === 3 ? "NVDA" : "SPY", text: "x".repeat(2000) })) } },
   "market-analysis.json": { builtAtIso: "2026-11-02T14:00:00Z", macroRegime: { band: "risk-on" } },
   "grades.json": { builtAtIso: "2026-11-02T14:00:00Z", gradeModelVersion: 9, regimeBand: "neutral", minConviction: 4, grades: {
-    NVDA: { symbol: "NVDA", side: "call", total: 8, conviction: 8, recommendation: { tier: "strong" }, pillars: { trend: { score: 3 }, flow: 2 }, spot: 200, sector: "Semis", rsi: 61, ivPctile: 40 },
+    NVDA: { symbol: "NVDA", side: "call", total: 8, conviction: 8, recommendation: { tier: "strong" }, pillars: { trend: { score: 3 }, flow: 2 }, spot: 200, sector: "Semis", rsi: 61.123456789, ivPctile: 40 },
     AAPL: { symbol: "AAPL", side: "put", total: -5, conviction: 5, recommendation: { tier: "lean" }, pillars: {}, spot: 230, sector: "Hardware", rsi: 45, ivPctile: 20 },
   } },
   "NVDA.json": { builtAtIso: "2026-11-02T14:00:00Z", symbol: "NVDA", spot: 200, technicals: { rsi: 61 }, fundamentals: { revenue: 1e11 },
@@ -70,13 +70,18 @@ const files = {
     }])) },
   "heatmap.json": { builtAtIso: "2026-11-02T14:00:00Z", tickers: [{ t: "NVDA", n: "NVIDIA Corporation", s: "Technology", i: "Semiconductors" }, { t: "AAPL", n: "Apple Inc.", s: "Technology", i: "Consumer Electronics" }] },
   "picks-run-2026-10-30.json": { builtAtIso: "2026-10-30T19:31:00Z", runs: [{ at: "2026-10-30T15:00:00Z", scored: [{ symbol: "NVDA", total: 9 }] }] },
+  "quant-history.json": { days: Array.from({ length: 30 }, (_, i) => ({ d: new Date(Date.parse("2026-09-20T00:00:00Z") + i * 86_400_000).toISOString().slice(0, 10), impliedCorr: 0.1 })) },
+  "picks-outcomes.json": { v: 1, keys: ["d", "et", "s"], rows: Array.from({ length: 30 }, (_, i) => [new Date(Date.parse("2026-10-01T00:00:00Z") + i * 86_400_000).toISOString().slice(0, 10), "11:07", i % 2 ? "NVDA" : "AAPL"]) },
+  "evidence-board.json": { v: 1, builtAt: "2026-11-02T14:10:00.000Z", asOf: "2026-11-02", tests: [] },
+  "link-map.json": { asOf: "2026-11-02", nodes: { "ticker:NVDA": { type: "ticker", symbol: "NVDA" }, "industry:semis": { type: "industry", label: "Semis" } },
+    edges: [{ from: "industry:semis", to: "ticker:NVDA", kind: "industry-member" }, { from: "industry:semis", to: "ticker:AMD", kind: "industry-member" }, { from: "ticker:NVDA", to: "ticker:TSM", kind: "supplier" }] },
   "sector-rotation-log.json": { entries: Array.from({ length: 40 }, (_, i) => ({ date: new Date(Date.parse("2026-09-01T00:00:00Z") + i * 86_400_000).toISOString().slice(0, 10), leader: "XLK" })) },
   "picks-accuracy.json": { builtAtIso: "2026-11-02T14:00:00Z",
     open: [{ symbol: "NVDA", side: "call", entryDate: "2026-10-28T15:05:00Z", optionPnlPct: 12, entrySpot: 190, lastSpot: 200,
       contract: { structure: "long", strike: 200, expiry: 1797638400, mid: 10 }, marks: Array.from({ length: 400 }, (_, i) => ({ i, note: "m".repeat(80) })) }],
     closed: [
       { symbol: "AAPL", side: "put", status: "hit-target", outcome: "win", optionPnlPct: 25, entryDate: "2026-10-20T15:05:00Z", exitDate: "2026-10-30T19:30:00Z", contract: { structure: "debit_vertical", longStrike: 230, shortStrike: 220, netDebit: 4, expiry: 1797638400 } },
-      { symbol: "MSFT", side: "call", status: "hit-stop", outcome: "loss", optionPnlPct: -50, entryDate: "2026-10-01T15:05:00Z", exitDate: "2026-10-10T19:30:00Z", contract: { structure: "long", strike: 500, mid: 8, expiry: 1797638400 } },
+      { symbol: "MSFT", side: "call", status: "hit-stop-prem", outcome: "loss", optionPnlPct: -50, entryDate: "2026-10-01T15:05:00Z", exitDate: "2026-10-10T19:30:00Z", contract: { structure: "long", strike: 500, mid: 8, expiry: 1797638400 } },
     ],
     allTimeStats: { closed: 40 } },
   "transcript-NVDA.json": { builtAtIso: "2026-11-02T14:00:00Z", symbol: "NVDA", quarter: "Q3 2026", summary: "Strong quarter", session: "regular" },
@@ -382,6 +387,9 @@ async function tool(name, args, opts) {
   const stockFull = await tool("get_stock", { ticker: "NVDA", sections: ["bigSection", "sessionToken"] });
   assert.ok(stockFull.structuredContent.results.data.bigSection);
   assert.ok(!stockFull.content[0].text.includes("must-not-leak"));
+  assert.equal(stock.structuredContent.results.available_sections.find((s) => s.section === "priceSeries").read_with, "get_price_history");
+  const stockSeries = await tool("get_stock", { ticker: "NVDA", sections: ["priceSeries"] });
+  assert.ok(stockSeries.structuredContent.warnings.includes('USE_TOOL: read "priceSeries" with get_price_history.'), "a series section points to its own tool");
   const uncovered = await tool("get_stock", { ticker: "ZZZZ" });
   assert.equal(uncovered.structuredContent.error.code, "NOT_COVERED");
 
@@ -391,6 +399,7 @@ async function tool(name, args, opts) {
   const grades = await tool("get_stock_grades", { side: "call" });
   assert.deepEqual(grades.structuredContent.results.rows.map((r) => r.symbol), ["NVDA"]);
   assert.equal(grades.structuredContent.results.rows[0].pillars.trend, 3);
+  assert.equal(grades.structuredContent.results.rows[0].rsi, 61.1235, "every tool rounds long float tails");
 
   const quotes = await tool("get_live_quotes", { tickers: ["NVDA", "AAPL"] });
   assert.equal(quotes.structuredContent.results.quotes.length, 2);
@@ -430,6 +439,8 @@ async function tool(name, args, opts) {
   assert.equal(trr.open_trades[0].marks, undefined, "compact rows drop mark histories");
   assert.deepEqual(trr.recent_closed.map((r) => r.symbol), ["AAPL", "MSFT"], "newest close first");
   assert.equal(trr.recent_closed[0].long_strike, 230);
+  assert.equal(trr.recent_closed[1].close_reason, "premium stop hit", "closes say why in words");
+  assert.equal(trr.open_trades[0].close_reason, undefined);
   assert.ok(trr.trade_lines.includes("NVDA-C-10/28/26-11:05"));
 
   // ---- page datasets ----
@@ -475,10 +486,29 @@ async function tool(name, args, opts) {
   const log = await tool("get_feature", { feature_id: "rotation", dataset: "log", max_items: 5 });
   const entries = log.structuredContent.results.entries;
   assert.equal(entries.length, 6);
-  assert.equal(entries[0], "…35 earlier items");
+  assert.equal(entries[0], '…35 earlier items (paths "entries.0" to "entries.34", or raise max_items)', "the cut says where the rest is");
   assert.equal(entries[5].date, "2026-10-10", "the newest row survives the trim");
   assert.equal(log.structuredContent.as_of, "2026-10-10T00:00:00.000Z", "an undated log is dated by its newest row");
   assert.ok(log.structuredContent.warnings.some((w) => /STALE_SOURCE/.test(w)));
+  // Compact `d` rows and packed array rows are dated and trimmed the same way.
+  const qh = await tool("get_feature", { feature_id: "quant", dataset: "history", max_items: 3 });
+  assert.equal(qh.structuredContent.as_of, "2026-10-19T00:00:00.000Z");
+  assert.equal(qh.structuredContent.results.days[3].d, "2026-10-19");
+  const po = await tool("get_feature", { feature_id: "quant", dataset: "outcomes", max_items: 2 });
+  assert.equal(po.structuredContent.results.rows[2][0], "2026-10-30", "packed rows keep the newest");
+  assert.equal(po.structuredContent.as_of, "2026-10-30T00:00:00.000Z");
+  assert.equal((await tool("get_feature", { feature_id: "quant", dataset: "evidence" })).structuredContent.as_of, "2026-11-02T14:10:00.000Z", "builtAt beats a date-only asOf");
+  // Ticker filters reach link-map edges and compact `s` rows.
+  const lm = (await tool("get_feature", { feature_id: "unified-signal-engine", dataset: "link-map", ticker: "NVDA" })).structuredContent.results.matches;
+  assert.deepEqual(lm.map((m) => m.path).sort(), ["edges.0", "edges.2", "nodes.ticker:NVDA"]);
+  assert.deepEqual((await tool("get_feature", { feature_id: "quant", dataset: "outcomes", ticker: "NVDA" })).structuredContent.results.matches.length, 0, "packed rows are not objects; no false match");
+  // The Owner market mode reads as Auto until it is first changed.
+  const mode = await tool("get_feature", { feature_id: "picks", dataset: "mode" });
+  assert.equal(mode.isError, false, JSON.stringify(mode).slice(0, 200));
+  assert.equal(mode.structuredContent.results.mode, "auto");
+  files["top-picks-mode.json"] = { version: 1, mode: "no-puts", updatedAt: "2026-11-02T13:00:00Z", by: "owner", history: [] };
+  assert.equal((await tool("get_feature", { feature_id: "picks", dataset: "mode" })).structuredContent.results.mode, "no-puts");
+  delete files["top-picks-mode.json"];
   // max_items stays a ceiling when the payload falls to a smaller budget.
   const wide = Array.from({ length: 20 }, (_, i) => Object.fromEntries(Array.from({ length: 60 }, (_, k) => ["k" + k, String(i).repeat(1200)])));
   const capped = boundedJson(wide, { maxItems: 2 });
@@ -525,6 +555,8 @@ async function tool(name, args, opts) {
   assert.equal(fs.structuredContent.metadata.as_of, "2026-11-02T14:00:00Z");
   const ff = await tool("fetch", { id: "feature:brief" });
   assert.ok(ff.structuredContent.text.includes("Stocks rise"));
+  assert.ok(ff.structuredContent.metadata.warnings.some((w) => w.includes('get_feature with feature_id "brief"')), "a trimmed fetch points at the tool that can narrow it");
+  assert.ok(!ff.structuredContent.metadata.warnings.some((w) => /Narrow with/.test(w)));
   const fp = await tool("fetch", { id: "feature:picks" });
   assert.equal(fp.isError, false, "a dedicated page fetches through its tool");
   assert.equal(JSON.parse(fp.structuredContent.text).picks[0].symbol, "NVDA");
@@ -656,6 +688,35 @@ async function tool(name, args, opts) {
   const b = boundedJson(huge);
   assert.ok(Buffer.byteLength(JSON.stringify(b.value)) <= 48_000);
   assert.equal(b.reduced, true);
+
+  // Readable output: float tails rounded (not counted as a trim), and every
+  // cut names the path that reads the rest.
+  const tidy = boundedJson({ a: -22.191887675507026, b: 0.49999999999998934, c: 0.29442, d: 1731000000000, e: 0.000012345678, f: 3, g: 102166765020.9092, h: 7549.93994140625 });
+  assert.deepEqual(tidy.value, { a: -22.1919, b: 0.5, c: 0.29442, d: 1731000000000, e: 0.000012346, f: 3, g: 102166765020.91, h: 7549.94 });
+  assert.equal(tidy.reduced, false, "rounding alone is not a trim");
+  const deep = { engine: { sens: [{ v: { w: { x: { y: { z: { q: 1 } } } } } }] }, rules: { history: { a: 1 }, logs: { history: [1, 2] } }, wide: Object.fromEntries(Array.from({ length: 70 }, (_, k) => ["k" + k, k])) };
+  const hinted = boundedJson(deep, { pathBase: "" }).value;
+  assert.equal(hinted.engine.sens[0].v.w.x.y, '{object with 1 key; read with path "engine.sens.0.v.w.x.y"}');
+  assert.equal(hinted.rules.history, '[omitted: large series; read with path "rules.history"]');
+  assert.equal(hinted.rules.logs.history, '[omitted: 2 items; read with path "rules.logs.history"]');
+  assert.match(hinted.wide["…"], /^10 more keys: k60, k61, .*k69; read one with path "wide\.k60"$/);
+  assert.equal(boundedJson(deep.rules, { pathBase: "rules" }).value.history, '[omitted: large series; read with path "rules.history"]', "hints start from the caller's path");
+  assert.equal(boundedJson(deep).value.rules.history, "[omitted: large series]", "no path hints where `path` is not an argument");
+  const epochs = boundedJson({ expSec: 1794268800, closeMs: 1794258000000, exp: 1794182400, tookMs: 1234, expiry: "2026-12-18", asOfSec: 12 }).value;
+  assert.deepEqual(epochs, { expSec: "2026-11-10", closeMs: "2026-11-09T21:00:00.000Z", exp: "2026-11-09", tookMs: 1234, expiry: "2026-12-18", asOfSec: 12 }, "epoch times read as dates; durations stay numbers");
+  const blobs = boundedJson({ inputs: { encoding: "deflate-raw-json-base64", data: "dX1rji05yu1c8vfu+/".repeat(40) + "==" }, coverage: { inspected: { "a:https://x": { checkedAt: "2026-10-28" }, "b:https://y": {} } } }, { pathBase: "" });
+  assert.equal(blobs.value.inputs.data, "[encoded data omitted: 722 characters]");
+  assert.equal(blobs.value.coverage.inspected, '[omitted: internal bookkeeping, 2 entries; read with path "coverage.inspected"]');
+  assert.equal(boundedJson({ f: { holdingsParts: ["13f-books/summary-1.json"] } }).value.f.holdingsParts, "[omitted: internal bookkeeping, 1 entry]");
+  assert.equal(boundedJson({ s: "word ".repeat(80) }).value.s, "word ".repeat(80), "ordinary long text is not an encoded blob");
+  assert.equal(boundedJson({ s: "a".repeat(300) }).value.s, "a".repeat(300), "nor is a run of one letter");
+  const many = boundedJson({ list: Array.from({ length: 30 }, (_, i) => ({ i })) }, { pathBase: "" }).value.list;
+  assert.equal(many.at(-1), '…5 more items (paths "list.25" to "list.29", or raise max_items)');
+  // A bigger payload keeps its nesting and loses rows first.
+  const nested = { sectors: Array.from({ length: 40 }, (_, i) => ({ name: "S" + i, scenarios: { up: { p: [1, 2, 3] } }, ...Object.fromEntries(Array.from({ length: 8 }, (_, k) => ["note" + k, "word ".repeat(400)])) })) };
+  const kept = boundedJson(nested, { pathBase: "" });
+  assert.equal(kept.value.sectors.length, 9, "8 rows and a 'more' marker");
+  assert.deepEqual(kept.value.sectors[0].scenarios.up.p, [1, 2, 3], "depth survives when rows and text can shrink instead");
 }
 
 console.log("mcp-smoke: ok");

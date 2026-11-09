@@ -66,7 +66,7 @@ on 2026-11-08. It is read server-side behind the Owner gate and by the prop
 recording job, never signs into a sportsbook or PrizePicks account, scrapes no
 pages and places nothing. The Owner Market
 Brief and MCP feature list leave Sports out; the MCP
-has its own six Owner-only `sports_*` tools (`lib/mcp/sports-tools.mjs`, read
+has its own eight Owner-only `sports_*` tools (`lib/mcp/sports-tools.mjs`, read
 through `sportsReadOnlyStore`, no save tool: evaluate returns a Pick Builder
 `?entry=` link). See
 `docs/sports/README.md`.

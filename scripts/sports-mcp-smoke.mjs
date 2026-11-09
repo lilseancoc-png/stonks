@@ -45,8 +45,9 @@ put('status', { sport: 'nba' }, { schema_version: 1, sport: 'nba', state: 'ok', 
   const r0 = L.rows.find((r) => r.played && r.stats.points != null);
   const r1 = L.rows.find((r) => r.played && r.stats.points != null && r.game_id !== r0.game_id);
   const pick = (r, threshold, issued, slot) => ({ prop_id: 'p-' + r.game_id + '-' + r.player_id, game_id: r.game_id, player_id: r.player_id, team: r.team, stat: 'points', side: 'over', threshold, slot,
-    rank_score: 64, rank_version: 'nba-test-1', basis: 'model', issued_utc: issued, model: { probability: 0.6 } });
-  put('prop-record', { sport: 'nba', season: 2025 }, { schema_version: 1, sport: 'nba', season: 2025, updated_utc: '2026-01-15T10:00:00Z', picks: [
+    rank_score: 64, rank_version: 'nba-test-1', basis: 'model', issued_utc: issued, model: { probability: 0.6 },
+    evidence: [{ label: 'History', text: 'cleared 7 of 10' }], features: { home: true }, availability: [{ name: 'X', team: r.team, status: 'out' }] });
+  put('prop-record', { sport: 'nba', season: 2025 }, { schema_version: 1, sport: 'nba', season: 2025, updated_utc: '2026-01-15T11:30:00Z', picks: [
     pick(r0, r0.stats.points - 0.5, '2025-10-21T20:00:00Z', 1), pick(r1, r1.stats.points + 0.5, '2025-10-22T20:00:00Z', 1),
     { ...pick({ ...r0, game_id: 'mnext1' }, 15.5, '2026-01-15T11:00:00Z', 1), prop_id: 'p-next' },
   ] });
@@ -181,6 +182,12 @@ eq(PR.records.map((r) => r.prop_id)[0], 'p-next', 'newest pick first');
 eq([PR.records.length, PR.next_offset], [2, 2], 'paged');
 ok(PR.by_stat.points && !('snapshot' in PR), 'splits come through; the download snapshot id does not');
 eq((await tool('sports_get_prop_record', { sport: 'nba', recent: 0 })).structuredContent.results.records, [], 'recent 0 gives the totals only');
+eq(pr.structuredContent.as_of, '2026-01-15T11:30:00Z', 'dated by the prop record, not the league data run');
+ok(PR.records.every((r) => !('evidence' in r) && !('availability' in r) && 'model_probability' in r && 'result' in r), 'list rows are compact');
+ok(!JSON.stringify(PR).includes('object with'), 'the splits are not cut');
+const one = (await tool('sports_get_prop_record', { sport: 'nba', prop_id: PR.records[1].prop_id })).structuredContent.results.pick;
+ok(one && one.evidence[0].text === 'cleared 7 of 10' && one.result === PR.records[1].result, 'prop_id returns that pick in full');
+eq(JSON.parse((await tool('sports_get_prop_record', { sport: 'nba', prop_id: 'nope' })).content[0].text).error.code, 'NOT_FOUND');
 ok((await tool('sports_get_prop_record', { sport: 'nfl' })).structuredContent.warnings.some((w) => /NO_PICKS/.test(w)), 'a league with no issued props says so');
 const lead = await tool('sports_get_league_stats', { sport: 'nba', sort_by: 'points', limit: 5 });
 ok(!lead.isError, 'leaders read: ' + JSON.stringify(lead).slice(0, 300));
@@ -194,6 +201,15 @@ const teams = await tool('sports_get_league_stats', { sport: 'nba', view: 'teams
 ok(!teams.isError && Array.isArray(teams.structuredContent.results.teams) && teams.structuredContent.results.teams.length > 0, 'teams view: ' + JSON.stringify(teams).slice(0, 300));
 eq(JSON.parse((await tool('sports_get_league_stats', { sport: 'nba', season: 1999 })).content[0].text).error.code, 'NOT_FOUND', 'a season that is not stored');
 eq((await tool('sports_get_league_stats', { sport: 'nba', season: 2025, view: 'teams' })).structuredContent.results.season, 2025, 'a stored season by number');
+const T1 = (await tool('sports_get_league_stats', { sport: 'nba', view: 'teams', limit: 3 })).structuredContent.results;
+const T2 = (await tool('sports_get_league_stats', { sport: 'nba', view: 'teams', limit: 3, offset: T1.next_offset })).structuredContent.results;
+ok(T1.teams.length === 3 && T1.total > 3 && T2.offset === 3 && T2.teams[0].team !== T1.teams[0].team, 'teams page with limit and offset');
+eq((await tool('sports_get_league_stats', { sport: 'nba', view: 'teams', team: 'GS' })).structuredContent.results.teams.map((t) => t.team), ['gs'], 'one team');
+const most = Math.max(...LD.players.map((p) => p.games));
+const veterans = (await tool('sports_get_league_stats', { sport: 'nba', min_games: most, limit: 10 })).structuredContent.results;
+const everyone = (await tool('sports_get_league_stats', { sport: 'nba', limit: 10 })).structuredContent.results;
+ok(veterans.players.length > 0 && veterans.players.every((p) => p.games >= most) && veterans.total < everyone.total, 'min_games filters leaders');
+eq((await tool('sports_get_league_stats', { sport: 'nba', min_games: 200 })).structuredContent.results.players, [], 'and can filter everyone out');
 
 // --- the store the tools hold ----------------------------------------------------------
 eq(writes, [], 'no tool wrote anything');
