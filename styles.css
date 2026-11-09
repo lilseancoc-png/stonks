@@ -29184,6 +29184,16 @@ button.idea-record-chip:hover { border-color: var(--accent-line); }
 }
 
 
+/* ---- Owner Lab: self-improving loop ------------------------------------- */
+.slp-kpis { margin: 6px 0 8px; }
+.slp-section .evb-lead .evb-pill { margin-right: 6px; }
+.slp-table td.num, .slp-table th.num { white-space: nowrap; }
+.slp-details { margin: 4px 0 6px; }
+.slp-details > summary { padding: 3px 0; }
+.slp-section .ln-svg { max-width: 760px; }
+.slp-section .crd-dim { font: 450 var(--t-11)/1.4 var(--font-sans); color: var(--muted); }
+
+
 /* ---- Track Record: post-mortem + replay ---------------------------------- */
 .acc-postmortem, .acc-replay { margin-top: 6px; }
 .acc-postmortem > .acc-cp-summary b { text-transform: none; letter-spacing: 0; font: 600 var(--t-12)/1 var(--font-sans); }

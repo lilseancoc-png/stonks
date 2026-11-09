@@ -29,6 +29,7 @@ import { renderCrowdCss } from './crowd-css.mjs';
 import { renderEdgeOddsCss } from './edge-odds-css.mjs';
 import { renderEvidenceCss } from './evidence-css.mjs';
 import { renderRegimeLabCss } from './regime-lab-css.mjs';
+import { renderSelfLoopCss } from './self-loop-css.mjs';
 import { renderOwnerInsightCss } from './owner-insight-css.mjs';
 import { renderI18nCss } from './i18n-client.mjs';
 
@@ -25589,6 +25590,7 @@ ${renderCrowdCss()}
 ${renderEdgeOddsCss()}
 ${renderEvidenceCss()}
 ${renderRegimeLabCss()}
+${renderSelfLoopCss()}
 ${renderOwnerInsightCss()}
 ${renderI18nCss()}
 `);

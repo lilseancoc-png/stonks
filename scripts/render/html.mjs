@@ -1010,6 +1010,7 @@ function quantSection() {
       <button type="button" role="tab" id="owner-tab-diagnostics" data-owner-view="diagnostics" aria-controls="owner-panel-diagnostics" aria-selected="false" tabindex="-1">Diagnostics</button>
       <button type="button" role="tab" id="owner-tab-evidence" data-owner-view="evidence" aria-controls="owner-panel-evidence" aria-selected="false" tabindex="-1">Evidence</button>
       <button type="button" role="tab" id="owner-tab-regime" data-owner-view="regime" aria-controls="owner-panel-regime" aria-selected="false" tabindex="-1">Regime Lab</button>
+      <button type="button" role="tab" id="owner-tab-loop" data-owner-view="loop" aria-controls="owner-panel-loop" aria-selected="false" tabindex="-1">Loop</button>
     </div>
     <section id="owner-panel-personal" class="owner-lab-panel" data-owner-panel="personal" role="tabpanel" aria-labelledby="owner-tab-personal">
     <section class="owner-suite" aria-labelledby="owner-tools-title">
@@ -1080,6 +1081,11 @@ function quantSection() {
       <div class="owner-lab-intro"><div><h3>Which market are we in, and what works in it?</h3><p>The market's volatility era and trend character as a six-cell label, computed through the prior close and confirmed over two sessions; the playbook each cell would use, run as paper books beside the live record; today's risk scores and stop ladder; the headline oracle; and the F1-F22 test catalog with the G1-G10 guards. Nothing here changes a pick, a grade or the Track Record.</p></div><button type="button" class="book-more" data-owner-regime-refresh>Refresh lab</button></div>
       <p class="hint" id="owner-regime-status" role="status" aria-live="polite">The lab loads on first open.</p>
       <div id="regime-lab-root" class="evb-root rgl-root"></div>
+    </section>
+    <section id="owner-panel-loop" class="owner-lab-panel" data-owner-panel="loop" role="tabpanel" aria-labelledby="owner-tab-loop" hidden>
+      <div class="owner-lab-intro"><div><h3>Is the engine learning?</h3><p>At every Top Picks run the loop writes down a chance for every scored name (that it moves the grade's way in 5, 10 and 20 sessions, and that the planned option reaches +25% before -50%), then grades those chances once the moves are in. It also replays every trade-grade name's option, picked or not, and checks whether each open-pick rule kept the book out of worse trades. Measurement only unless self-tuning is switched on.</p></div><button type="button" class="book-more" data-owner-loop-refresh>Refresh loop</button></div>
+      <p class="hint" id="owner-loop-status" role="status" aria-live="polite">The loop loads on first open.</p>
+      <div id="self-loop-root" class="evb-root rgl-root slp-root"></div>
     </section>
   </section>`;
 }

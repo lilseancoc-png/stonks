@@ -72,6 +72,9 @@ import {
 import { buildPicksRunRecord, loadPicksRunDay, persistPicksRun, picksRunArchiveEnabled } from "../lib/picks-run-archive.mjs";
 import { addControlEntries, appendRunOutcomes, drawControlEntries, emptyOutcomesState, fillOutcomes, loadPicksOutcomes, markControlBook, pruneOutcomes, writePicksOutcomes, CONTROL_PER_RUN_MIN } from "../lib/picks-outcomes.mjs";
 import { buildEvidenceBoard, writeEvidenceBoard } from "../lib/evidence-board.mjs";
+// Self-improving loop (lib/self-loop/, docs/self-loop.md): prediction ledger,
+// option outcomes, scorecard. Measurement only; LOOP=0 skips it.
+import { loadLoopState, loopEnabled, loopOnRun, loopOnBake, loopEvidenceTests, writeLoopFiles, LOOP_STATE_KEY } from "../lib/self-loop/index.mjs";
 // Regime Lab (lib/regime-lab/, docs/regime-lab.md): market labels, shadow
 // playbook books, the headline oracle and the test catalog. Owner-only
 // regime-lab.json; measurement only, no AI, kill switch REGIME_LAB=0.
@@ -39397,6 +39400,20 @@ async function main() {
   } catch (err) {
     console.warn(`[outcomes] history unavailable (${String(err?.message || err).split("\n")[0]})`);
   }
+  // Self-improving loop (lib/self-loop/index.mjs): the prediction ledger and
+  // score history accumulate across bakes, so the state is read BEFORE the
+  // wipe. A missing file is a fresh start; LOOP=0 skips the loop entirely.
+  let loopState = null;
+  if (loopEnabled()) {
+    try {
+      const loadedLoop = await loadLoopState(DATA_DIR);
+      loopState = loadedLoop.state;
+      if (loadedLoop.skip) console.warn(`[loop] ${LOOP_STATE_KEY} could not be read (${loadedLoop.error}); loop skipped this build, stored copy kept`);
+      else if (loadedLoop.error) console.warn(`[loop] ${LOOP_STATE_KEY} unreadable (${loadedLoop.error}); starting over`);
+    } catch (err) {
+      console.warn(`[loop] prior state unavailable (${String(err?.message || err).split("\n")[0]})`);
+    }
+  }
   // Regime Lab (lib/regime-lab/payload.mjs): the label history and the shadow
   // playbook books accumulate across bakes, so the file is read BEFORE the
   // wipe. A missing file is a fresh start; REGIME_LAB=0 skips the lab.
@@ -40391,6 +40408,17 @@ async function main() {
     } catch (err) {
       console.warn(`[outcomes] run rows skipped — ${String(err?.message || err).split("\n")[0]}`);
     }
+    // Self-improving loop: write this run's estimates into the ledger, each
+    // from a calibration fitted only on rows resolved before today.
+    if (loopState && picksInfo?.picksRun) {
+      try {
+        const runDate = etDateKey(new Date(builtAtIso));
+        const loopRun = loopOnRun(loopState, { run: picksInfo.picksRun, date: runDate, outcomes: picksOutcomesState, builtAtIso });
+        console.log(`[loop] ${loopRun.added} estimate(s) written from a ${loopRun.model?.rows ?? 0}-row calibration`);
+      } catch (err) {
+        console.warn(`[loop] run estimates skipped — ${String(err?.message || err).split("\n")[0]}`);
+      }
+    }
   } else {
     const missing = topPicksCarryFiles.filter((file) => !topPicksCarry[file]);
     if (missing.length) {
@@ -40779,10 +40807,25 @@ async function main() {
         console.warn(`[regime-lab] payload skipped — ${String(err?.message || err).split("\n")[0]}`);
       }
     }
+    // Self-improving loop (lib/self-loop/index.mjs): model the planned option
+    // on every ledger row that can be decided, score the estimates against
+    // what happened, and write the loop's state and view.
+    let loopView = null;
+    if (loopState) {
+      try {
+        const loopBake = loopOnBake(loopState, { chains, outcomes: picksOutcomesState, today: todayEt, builtAtIso, tradeBar: PICKS_MIN_CONVICTION });
+        loopView = loopBake.view;
+        const loopInfo = await writeLoopFiles(DATA_DIR, loopState, loopView);
+        console.log(`wrote data/${loopInfo.stateKey} + data/${loopInfo.viewKey} — ${loopInfo.rows} ledger row(s), ${loopBake.filled} option outcome(s) filled${loopBake.pruned ? `, ${loopBake.pruned} pruned` : ""}, calibration on ${loopBake.model.rows} row(s), ${loopInfo.stateBytes} + ${loopInfo.viewBytes} bytes`);
+      } catch (err) {
+        loopView = null;
+        console.warn(`[loop] skipped — ${String(err?.message || err).split("\n")[0]}`);
+      }
+    }
     const board = buildEvidenceBoard({
       outcomes: picksOutcomesState, closed: accNow?.closed || [], open: accNow?.open || [], shadowDays, builtAtIso, today: todayEt,
       tradeBar: PICKS_MIN_CONVICTION, gradeModelVersion: GRADE_MODEL_VERSION, structurePolicyVersion: PICKS_STRUCTURE_POLICY_VERSION,
-      extraTests: regimeLabPayload?.evidence || null,
+      extraTests: [...(regimeLabPayload?.evidence || []), ...(loopView ? loopEvidenceTests(loopView) : [])],
       shadow: shadowResearchToday,
     });
     const boardInfo = await writeEvidenceBoard(DATA_DIR, board);

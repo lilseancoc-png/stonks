@@ -536,6 +536,9 @@ jobs:
           PICKS_CROWD_SQUEEZE_VETO: ${{ vars.PICKS_CROWD_SQUEEZE_VETO }}
           PICKS_CROWD_GRADER: ${{ vars.PICKS_CROWD_GRADER }}
           PICKS_MACRO_PUTCALL_SRC: ${{ vars.PICKS_MACRO_PUTCALL_SRC }}
+          # Self-improving loop (lib/self-loop/, docs/self-loop.md): set the repo
+          # variable LOOP to 0 to stop the measurement and keep the prior files.
+          LOOP: ${{ vars.LOOP }}
           # (PICKS_ACCURACY_AB removed: it was set here but read NOWHERE in the
           # code — the wait-arm cohort it described now enrolls BY DEFAULT,
           # since every actionable pick enrolls cohort-tagged go/wait.)

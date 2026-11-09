@@ -15,7 +15,7 @@ export function renderEvidenceJs() {
   return `
   // ---- Owner Lab: Evidence (tests and gates) --------------------------------
   var evbState = { data: null, loading: false, fetchedAt: 0 };
-  var EVB_LANES = [['engine', 'Engine rules'], ['grader', 'AI grader'], ['control', 'Random control'], ['signals', 'Shadow signals'], ['record', 'Track record'], ['regime', 'Regime Lab']];
+  var EVB_LANES = [['engine', 'Engine rules'], ['grader', 'AI grader'], ['control', 'Random control'], ['signals', 'Shadow signals'], ['record', 'Track record'], ['regime', 'Regime Lab'], ['loop', 'Self-improving loop']];
   var EVB_STATUS = {
     waiting: ['Waiting for data', 'evb-s-wait'], collecting: ['Collecting', 'evb-s-collect'], ready: ['Ready to read', 'evb-s-ready'],
     pass: ['Passed', 'evb-s-pass'], fail: ['Failed', 'evb-s-fail'], inconclusive: ['No clear answer', 'evb-s-unclear']

@@ -1771,3 +1771,15 @@ snapshot) on the Owner-only
 `picks.json` row and in the scored record the grader sees. `regen-picks`
 reads `crowd.json` from disk for the same context. Nothing here feeds a
 grade point; the direction-skill test on Dec 7 comes first.
+
+## Self-improving loop, November 9, 2026
+
+The loop (`lib/self-loop/`, spec [`docs/self-loop.md`](self-loop.md)) writes
+down a chance for every scored name at every Top Picks run (moves the grade's
+way in 5 / 10 / 20 sessions, and the planned option reaching +25% before
+-50%), replays every trade-grade name's planned option on daily closes, and
+grades the chances once the moves are in. It also audits each open-pick rule
+against the names it let through. Step 1 is measurement only: the grade, the
+gates, the contracts and the record are unchanged. The later steps (diagnosis,
+challenger books, bounded self-adjustment) are described in the spec as they
+land.
