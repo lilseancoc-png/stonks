@@ -1483,6 +1483,53 @@ points of the model's 3.5-point cost. Otherwise set `PICKS_SINGLES_DEFAULT=0`.
 Tests: `npm run test:picks` runs `scripts/picks-smoke.mjs` twice, as shipped
 and with `PICKS_SINGLES_DEFAULT=0`.
 
+## Market mode, November 7, 2026
+
+An Owner switch on the Top Picks page (`#picks-mode`) that holds back new
+trades by side. The owner asked for it after the market-lane tests: puts opened
+in sell-offs lost about 15% a trade in both backtest halves (the grade turns
+bearish only after a stock has already dropped, then the bounce stops the put),
+and the six live risk-on losses came from two runs that bought calls after a
+one-day jump. No automatic per-market rule held up in both halves, so this is a
+manual control, not a new rule.
+
+| Mode | New calls | New puts |
+|---|---|---|
+| `auto` (default) | normal rules | normal rules |
+| `no-puts` | normal rules | held back |
+| `no-calls` | held back | normal rules |
+| `pause` | held back | held back |
+
+Rules live in `lib/top-picks-mode.mjs` (ES5 factory, embedded in `app.js` as
+`PICKS_MODE`). The record is `top-picks-mode.json`
+(`{ version, mode, updatedAt, by, history }`, last 20 changes): Owner-only in
+`lib/premium-keys.mjs`, request-time-owned in `lib/data-ownership.mjs`, written
+only by `POST /api/auth/top-picks-mode` (Owner session, same-origin, store
+lease) and read by `GET` on the same route. A missing, unreadable or unknown
+record reads as Auto.
+
+How the engine applies it:
+
+- `main()` reads the hydrated copy before `writeChainFiles` wipes `data/`
+  (`readTopPicksMarketMode`) and passes it to `writeTopPicksFile`, which gives
+  it only to the Top Picks decision pass (the legacy research pass keeps the
+  plain rules). `regen-picks.mjs` reads it the same way.
+- `openPickPrecheck` returns `market-mode` for a held side, so those names never
+  take one of the six AI grader slots, and in Pause no slot is ready (the grader
+  skips new calls under `PICKS_AI_SKIP_WHEN_NONE_READY`).
+- In `buildTopPicks` the mode is the last check before `classifyPick`, after
+  the AI verdict and the event caps: a held side gets `entry.signal`
+  `wait-mode` and drops to the watch list, traced as gate `market-mode`.
+  `rosterMeta.marketMode` names the mode the run used and
+  `rosterMeta.marketModeHeld` lists the names it held back.
+- `updatePicksAccuracyFile` never enrolls a held side (a second guard) and
+  stamps `marketMode` on each new trade; the run archive records it under
+  `versions.marketMode`.
+
+Open trades, their exits, the grade, the research pages, the Webull mirror's
+exit handling and the live market review are unchanged. A change saved while a
+run is in progress applies from the next run.
+
 ## Missed-run watchdog, similar-setup odds and the edge panel, November 7, 2026
 
 Three Owner additions that change no pick, grade, exit or record rule. None

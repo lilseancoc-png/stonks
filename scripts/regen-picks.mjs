@@ -9,7 +9,7 @@ import { appendScenarioHistory, buildScenarioEngine } from "../lib/scenario-engi
 import { buildGradeResearch, seriesFromChains, writeGradeResearchFile } from "../lib/grade-research.mjs";
 import { readForcedLiquidation } from './refresh-forced-liquidation.mjs';
 import { publishUnifiedSignal } from "./publish-unified-signal.mjs";
-import { buildTopPicksMarketContext, buildTopPicksPayload } from './build.mjs';
+import { buildTopPicksMarketContext, buildTopPicksPayload, readTopPicksMarketMode } from './build.mjs';
 import { topPicksMarket } from '../lib/top-picks-market.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -311,7 +311,10 @@ let indexCalendar=null;
 try{indexCalendar=JSON.parse(await readFile(resolve(DATA_DIR,'index-calendar.json'),'utf8'));}catch{}
 const marketAssessment=buildTopPicksMarketContext(chains,macroBackdrop,builtAtIso,{volume:volumeFlags,calendar:indexCalendar,
   overnight:scannerExtras.correlations,regimeHistory:await readRegimeHistory()});
-const proposedPicks=buildTopPicks(chains,narratives,streaksMap,unusualPayload,macroBackdrop,volumeFlags,riskFreeRate,{...pickOptions,marketAssessment});
+// The Owner's market mode (lib/top-picks-mode.mjs) applies to the Top Picks
+// roster only, as in the full build; the legacy research pass keeps the plain rules.
+const marketMode=await readTopPicksMarketMode();
+const proposedPicks=buildTopPicks(chains,narratives,streaksMap,unusualPayload,macroBackdrop,volumeFlags,riskFreeRate,{...pickOptions,marketAssessment,marketMode});
 
 // Preserve the day-streak across a render-only regen. priorPicks was read above
 // (before this overwrite), exactly as the full build's writeTopPicksFile does (a

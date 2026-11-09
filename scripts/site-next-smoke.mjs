@@ -301,7 +301,7 @@ ok(Object.keys(NP.GATE_NEXT).every((k) => NP.GATE_LABEL[k]), "every rule with ad
   ok(answers("https://mingstreet.app/app.js?v=sha256-1") && answers("https://mingstreet.app/js/streaks.js?v=1") && answers("https://mingstreet.app/styles.css?v=2"), "the code and styles work offline");
   ok(answers("https://mingstreet.app/api/auth/me?data=manifest-free.json") && answers("https://mingstreet.app/data/manifest.json"), "the public manifest sidecars work offline");
   for (const u of ["https://mingstreet.app/api/auth/me", "https://mingstreet.app/api/auth/me?data=picks-accuracy.json&owner=1", "https://mingstreet.app/data/picks.json",
-    "https://mingstreet.app/api/quotes?symbols=AAPL", "https://mingstreet.app/api/auth/owner-watchlist", "https://mingstreet.app/api/auth/calendar-ics?o=x", "https://fonts.gstatic.com/x.woff2"]) {
+    "https://mingstreet.app/api/quotes?symbols=AAPL", "https://mingstreet.app/api/auth/owner-watchlist", "https://mingstreet.app/api/auth/top-picks-mode", "https://mingstreet.app/data/top-picks-mode.json", "https://mingstreet.app/api/auth/calendar-ics?o=x", "https://fonts.gstatic.com/x.woff2"]) {
     ok(!answers(u), `never kept: ${u}`);
   }
   ok(!answers("https://mingstreet.app/app.js", "cors", "POST"), "only GET requests");

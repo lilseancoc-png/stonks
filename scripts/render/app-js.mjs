@@ -73,6 +73,7 @@ import { ownerWatchlistFactory } from '../../lib/owner-watchlist.mjs';
 import { watchlistAlertsFactory } from '../../lib/watchlist-alerts.mjs';
 import { weekRecapFactory } from '../../lib/week-recap.mjs';
 import { noPicksFactory } from '../../lib/no-picks.mjs';
+import { topPicksModeFactory } from '../../lib/top-picks-mode.mjs';
 import { GLOSSARY } from '../../lib/glossary.mjs';
 import { TRADE_MARK_REASONS, TRADE_NOTE_TAGS, TRADE_NOTE_MAX_CHARS } from '../../lib/track-record-fills.mjs';
 import { overnightToneFactory } from '../../lib/overnight-tone.mjs';
@@ -139,6 +140,8 @@ ${validNewsFeedPayload.toString()}
   var WATCH_ALERTS = (${watchlistAlertsFactory.toString()})();
   var WEEK_RECAP = (${weekRecapFactory.toString()})();
   var NO_PICKS = (${noPicksFactory.toString()})();
+  // Top Picks market mode rules (source: lib/top-picks-mode.mjs).
+  var PICKS_MODE = (${topPicksModeFactory.toString()})();
   var GLOSSARY = ${JSON.stringify(GLOSSARY)};
   // One overnight risk-on/off scorer (source: lib/overnight-tone.mjs), the same
   // one the bake uses for the saved pre-open call and the Top Picks tape axis.
@@ -45013,6 +45016,71 @@ ${renderExportBindings()}
       '<p class="nopick-foot">' + (nm.gates.length && nm.gates[0].n > 1 ? 'Most names this run stopped at: ' + top + '. ' : '') + 'Top Picks runs at 11:00 and 15:30 ET on trading days.</p>' +
     '</section>';
   }
+  // MARKET MODE switch (lib/top-picks-mode.mjs): an Owner control that holds
+  // back NEW trades by side from the next 11:00 / 15:30 ET run. Saved through
+  // /api/auth/top-picks-mode; open trades and their exits are never touched.
+  var picksModeState = { loaded: false, loading: false, saving: false, data: null, error: null };
+  function loadPicksMode(){
+    if (picksModeState.loading || picksModeState.loaded) return;
+    picksModeState.loading = true;
+    fetch('/api/auth/top-picks-mode', { cache: 'no-store', credentials: 'same-origin' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(j){ picksModeState.data = j; picksModeState.error = null; })
+      .catch(function(){ picksModeState.error = 'load'; })
+      .then(function(){ picksModeState.loading = false; picksModeState.loaded = true; renderPicksMode(); });
+  }
+  function savePicksMode(mode){
+    if (picksModeState.saving || !PICKS_MODE.valid(mode)) return;
+    var cur = picksModeState.data && picksModeState.data.mode;
+    if (mode === cur) return;
+    if (mode !== 'auto' && !window.confirm(PICKS_MODE.label(mode) + ': ' + PICKS_MODE.help(mode) + ' This starts with the next Top Picks run. Switch?')) return;
+    picksModeState.saving = true; picksModeState.error = null;
+    renderPicksMode();
+    fetch('/api/auth/top-picks-mode', { method: 'POST', cache: 'no-store', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: mode }) })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(j){ picksModeState.data = j; })
+      .catch(function(){ picksModeState.error = 'save'; })
+      .then(function(){ picksModeState.saving = false; renderPicksMode(); });
+  }
+  function renderPicksMode(){
+    var box = $('picks-mode');
+    if (!box) return;
+    if (!HAS_OWNER_ACCESS){ box.hidden = true; box.innerHTML = ''; return; }
+    if (!picksModeState.loaded){ box.hidden = true; loadPicksMode(); return; }
+    var d = picksModeState.data;
+    if (!d){
+      box.hidden = false; box.className = 'picks-mode';
+      box.innerHTML = '<p class="picks-mode-line muted">Market mode couldn’t load. The engine reads Auto when nothing is saved.</p>';
+      return;
+    }
+    var mode = PICKS_MODE.clean(d.mode);
+    var rm = picksState.data && !picksState.data.loadError ? picksState.data.rosterMeta : null;
+    var used = rm && rm.marketMode ? PICKS_MODE.clean(rm.marketMode.mode) : null;
+    var held = rm && Array.isArray(rm.marketModeHeld) ? rm.marketModeHeld : [];
+    var next = nextPickRunEt();
+    var nextTxt = next ? (next.running ? 'the run after the one now running' : 'the ' + next.day + ' ' + next.time + ' ET run') : 'the next run';
+    var btns = PICKS_MODE.MODES.map(function(m){
+      return '<button type="button" class="picks-mode-btn' + (m === mode ? ' is-on' : '') + (m !== 'auto' ? ' is-hold' : '') + '" data-picks-mode="' + m + '" aria-pressed="' + (m === mode ? 'true' : 'false') + '"' + (picksModeState.saving ? ' disabled' : '') + '>' + escapeHtml(PICKS_MODE.label(m)) + '</button>';
+    }).join('');
+    var when = '';
+    if (d.updatedAt){ var ud = new Date(d.updatedAt); if (!isNaN(ud.getTime())) when = 'Set ' + formatDisplayInstant(ud, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }) + (d.by ? ' by ' + d.by : '') + '. '; }
+    var status = picksModeState.saving ? 'Saving…'
+      : picksModeState.error === 'save' ? 'Couldn’t save. Try again.'
+      : when + (used != null && used !== mode ? 'Applies from ' + nextTxt + '; the last run used ' + PICKS_MODE.label(used) + '.' : mode === 'auto' ? 'Open trades always keep their exits.' : 'In effect from ' + (used === mode ? 'the last run' : nextTxt) + '. Open trades keep their exits.');
+    var heldTxt = used && used !== 'auto' && held.length ? '<p class="picks-mode-line">Held back in the last run: ' + held.map(function(x){ return '<b>' + escapeHtml(x) + '</b>'; }).join(', ') + '.</p>' : '';
+    box.hidden = false;
+    box.className = 'picks-mode' + (mode !== 'auto' ? ' is-hold' : '');
+    box.innerHTML = '<div class="picks-mode-head"><span class="picks-mode-title">Market mode</span>' +
+      '<div class="picks-mode-btns" role="group" aria-label="Market mode for new Top Picks trades">' + btns + '</div></div>' +
+      '<p class="picks-mode-line">' + escapeHtml(PICKS_MODE.help(mode)) + ' <span class="muted">' + escapeHtml(status) + '</span></p>' + heldTxt;
+    if (!box.dataset.bound){
+      box.dataset.bound = '1';
+      box.addEventListener('click', function(ev){
+        var b = ev.target && ev.target.closest ? ev.target.closest('[data-picks-mode]') : null;
+        if (b) savePicksMode(b.getAttribute('data-picks-mode'));
+      });
+    }
+  }
   function renderPicks(keepView){
     bindPicksControls();
     bindPicksNav();
@@ -45038,6 +45106,7 @@ ${renderExportBindings()}
     }
     var marketEvidence=$('picks-market-evidence');
     if(marketEvidence)TOP_PICKS_MARKET_UI.update(marketEvidence,TOP_PICKS_MARKET_UI.context(data));
+    try { renderPicksMode(); } catch (_){}
     var collateralBox = $('picks-liquidation-watch');
     if (collateralBox) {
       var collateralRows = !data.stale && !data.loadError && data.rosterMeta && Array.isArray(data.rosterMeta.forcedLiquidationWatch) ? data.rosterMeta.forcedLiquidationWatch : [];

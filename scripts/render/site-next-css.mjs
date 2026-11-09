@@ -234,5 +234,21 @@ export function renderSiteNextCss() {
   background: color-mix(in srgb, var(--warn, #c78a00) 22%, var(--surface));
 }
 .pwa-offline[hidden] { display: none; }
+
+/* Top Picks market mode switch (lib/top-picks-mode.mjs). Owner-only. */
+.picks-mode { margin: 0 0 var(--s-4, 14px); padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-2); background: var(--surface); }
+.picks-mode[hidden] { display: none; }
+.picks-mode.is-hold { border-color: color-mix(in srgb, var(--warn, #c78a00) 45%, var(--border)); background: color-mix(in srgb, var(--warn, #c78a00) 8%, var(--surface)); }
+.picks-mode-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.picks-mode-title { font: 650 13px/1.3 var(--font-sans); color: var(--text-strong); }
+.picks-mode-btns { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.picks-mode-btn { min-height: 32px; padding: 4px 10px; border: 1px solid var(--border); border-radius: 999px; background: transparent; color: var(--muted-strong); font: 600 12.5px/1.2 var(--font-sans); cursor: pointer; }
+.picks-mode-btn:hover:not([disabled]) { border-color: var(--accent); color: var(--text-strong); }
+.picks-mode-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.picks-mode-btn.is-on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--text-strong); }
+.picks-mode-btn.is-on.is-hold { border-color: var(--warn, #c78a00); background: color-mix(in srgb, var(--warn, #c78a00) 18%, transparent); }
+.picks-mode-btn[disabled] { opacity: .6; cursor: progress; }
+.picks-mode-line { margin: 6px 0 0; font: 400 13px/1.45 var(--font-sans); color: var(--text); }
+.picks-mode-line .muted { color: var(--muted-strong); }
 `;
 }

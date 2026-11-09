@@ -213,6 +213,24 @@ try {
     assert.equal(shocked.open.length, 0);
     assert.equal(shocked.closed[0].status, 'shock-time');
   });
+
+  // Market mode (lib/top-picks-mode.mjs): a held-back side never enrolls, and
+  // an allowed trade carries the mode it opened under.
+  const side = picks[0].side;
+  const held = side === 'put' ? 'no-puts' : 'no-calls';
+  const other = side === 'put' ? 'no-calls' : 'no-puts';
+  await writeFile(join(storage, 'data/picks.json'), JSON.stringify({ builtAtIso: now, rosterMeta: { ...built.rosterMeta, marketMode: { mode: held } }, picks }));
+  await engine.updatePicksAccuracyFile(chains, now, { open: [], closed: [] });
+  const heldState = JSON.parse(await readFile(join(storage, 'data/picks-accuracy.json'), 'utf8'));
+  await check('record: a side held back by the market mode does not enroll', () => assert.equal(heldState.open.length, 0));
+  await writeFile(join(storage, 'data/picks.json'), JSON.stringify({ builtAtIso: now, rosterMeta: { ...built.rosterMeta, marketMode: { mode: other } }, picks }));
+  await engine.updatePicksAccuracyFile(chains, now, { open: [], closed: [] });
+  const otherState = JSON.parse(await readFile(join(storage, 'data/picks-accuracy.json'), 'utf8'));
+  await check('record: an allowed trade enrolls and is stamped with the market mode', () => {
+    assert.equal(otherState.open.length, 1);
+    assert.equal(otherState.open[0].marketMode, other);
+  });
+  await check('record: a run with no market mode stamps none', () => assert.equal(first.open[0].marketMode, undefined));
 } finally { await rm(storage, { recursive: true, force: true }); }
 
 console.log(`${checks} event-play checks passed.`);

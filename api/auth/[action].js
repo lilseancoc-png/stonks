@@ -15,6 +15,9 @@
 //   track-record-data  -> Owner-only reporting view, independent of execution
 //   owner-watchlist  -> the Owner's stock-page watchlist, synced across devices
 //                       (GET / same-origin POST; lib/owner-watchlist.mjs)
+//   top-picks-mode   -> the Owner's Top Picks market mode: Auto / No new puts /
+//                       No new calls / Pause new trades (GET / same-origin POST;
+//                       lib/top-picks-mode.mjs)
 //   contact          -> public "Send us a message" box: GET a form ticket,
 //                       same-origin POST a message (lib/contact-messages.mjs)
 //   contact-inbox    -> Owner-only: read the messages (GET) and mark read /
@@ -124,6 +127,8 @@ export default async function handler(req, res) {
       return trackRecordData(req, res);
     case "owner-watchlist":
       return ownerWatchlist(req, res);
+    case "top-picks-mode":
+      return topPicksMode(req, res);
     case "calendar-ics":
       return calendarIcs(req, res);
     case "contact":
@@ -642,6 +647,59 @@ async function ownerWatchlist(req, res) {
   } catch (err) {
     console.error("owner watchlist failed", { message: String(err?.message || err) });
     return res.status(502).json({ error: "watchlist unavailable" });
+  }
+}
+
+// --- Top Picks market mode ----------------------------------------------------
+// GET  /api/auth/top-picks-mode  -> { mode, label, updatedAt, by, history }
+// POST /api/auth/top-picks-mode  { mode: auto|no-puts|no-calls|pause }
+//                                (same-origin only)
+// One mode for the whole Top Picks book in top-picks-mode.json, Owner-only and
+// request-time-owned: no workflow pushes or deletes it. The 11:00 / 15:30 ET
+// runs read it; it only holds back NEW trades by side.
+async function topPicksMode(req, res) {
+  res.setHeader("Cache-Control", "private, no-store");
+  if (process.env.PRIVATE_DATA_ENABLED !== "1") return res.status(404).json({ error: "not found" });
+  const session = await getSession(req).catch(() => null);
+  if (!session) return res.status(401).json({ error: "auth required" });
+  if (session.tr !== true || session.tp !== true) return res.status(401).json({ error: "role required" });
+  if (req.method !== "GET" && req.method !== "POST") {
+    res.setHeader("Allow", "GET, POST");
+    return res.status(405).json({ error: "method not allowed" });
+  }
+  if (req.method === "POST" && !isSameOriginRequest(req)) return res.status(403).json({ error: "forbidden" });
+  const { TOP_PICKS_MODE_KEY, readTopPicksModeDoc, applyTopPicksModeRequest, marketModeLabel } = await import("../../lib/top-picks-mode.mjs");
+  // Validate the request before anything is read or stored.
+  if (req.method === "POST" && applyTopPicksModeRequest(null, req.body).error) return res.status(400).json({ error: "bad mode" });
+  const view = (doc) => ({ mode: doc.mode, label: marketModeLabel(doc.mode), updatedAt: doc.updatedAt || null, by: doc.by || null, history: doc.history || [] });
+  try {
+    const { store } = await import("../../lib/datastore.mjs");
+    if (req.method === "GET") return res.status(200).json(view(readTopPicksModeDoc(await store.get(TOP_PICKS_MODE_KEY))));
+    // Read, change and save under the store's lease so two quick clicks (or
+    // both owners at once) can't drop each other's change.
+    const save = async (guard) => {
+      const current = readTopPicksModeDoc(await store.get(TOP_PICKS_MODE_KEY));
+      const out = applyTopPicksModeRequest(current, req.body, { at: new Date().toISOString(), by: session.name || null });
+      if (out.error) return out;
+      if (!out.unchanged) {
+        if (guard) guard();
+        await store.put(TOP_PICKS_MODE_KEY, JSON.stringify(out.doc));
+      }
+      return view(out.doc);
+    };
+    let out;
+    if (store.backend === "r2" && typeof store.withLease === "function") {
+      let leased;
+      try { leased = await store.withLease("top-picks-mode", save); }
+      catch (err) { if (err?.code === "LEASE_CONFLICT") return res.status(409).json({ error: "busy, try again" }); throw err; }
+      if (leased?.busy) return res.status(409).json({ error: "busy, try again" });
+      out = leased.result;
+    } else out = await save(null);
+    if (out.error) return res.status(400).json({ error: out.error });
+    return res.status(200).json(out);
+  } catch (err) {
+    console.error("top picks mode failed", { message: String(err?.message || err) });
+    return res.status(502).json({ error: "mode unavailable" });
   }
 }
 
