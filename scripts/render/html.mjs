@@ -1007,6 +1007,7 @@ function quantSection() {
       <button type="button" role="tab" id="owner-tab-research" data-owner-view="research" aria-controls="owner-panel-research" aria-selected="false" tabindex="-1">Research screens</button>
       <button type="button" role="tab" id="owner-tab-diagnostics" data-owner-view="diagnostics" aria-controls="owner-panel-diagnostics" aria-selected="false" tabindex="-1">Diagnostics</button>
       <button type="button" role="tab" id="owner-tab-evidence" data-owner-view="evidence" aria-controls="owner-panel-evidence" aria-selected="false" tabindex="-1">Evidence</button>
+      <button type="button" role="tab" id="owner-tab-regime" data-owner-view="regime" aria-controls="owner-panel-regime" aria-selected="false" tabindex="-1">Regime Lab</button>
     </div>
     <section id="owner-panel-personal" class="owner-lab-panel" data-owner-panel="personal" role="tabpanel" aria-labelledby="owner-tab-personal">
     <section class="owner-suite" aria-labelledby="owner-tools-title">
@@ -1072,6 +1073,11 @@ function quantSection() {
       <div class="owner-lab-intro"><div><h3>Tests and gates</h3><p>Every open question about the engine, how much evidence each one has, and when it can be decided. Below the board: what every scored name did after each run, the picks against a random control book, and the AI grader's buy-now call. Nothing here feeds back into a grade or a pick.</p></div><button type="button" class="book-more" data-owner-evidence-refresh>Refresh board</button></div>
       <p class="hint" id="owner-evidence-status" role="status" aria-live="polite">The board loads on first open.</p>
       <div id="evidence-board-root" class="evb-root"></div>
+    </section>
+    <section id="owner-panel-regime" class="owner-lab-panel" data-owner-panel="regime" role="tabpanel" aria-labelledby="owner-tab-regime" hidden>
+      <div class="owner-lab-intro"><div><h3>Which market are we in, and what works in it?</h3><p>The market's volatility era and trend character as a six-cell label, computed through the prior close and confirmed over two sessions; the playbook each cell would use, run as paper books beside the live record; today's risk scores and stop ladder; the headline oracle; and the F1-F22 test catalog with the G1-G10 guards. Nothing here changes a pick, a grade or the Track Record.</p></div><button type="button" class="book-more" data-owner-regime-refresh>Refresh lab</button></div>
+      <p class="hint" id="owner-regime-status" role="status" aria-live="polite">The lab loads on first open.</p>
+      <div id="regime-lab-root" class="evb-root rgl-root"></div>
     </section>
   </section>`;
 }

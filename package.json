@@ -90,6 +90,8 @@
     "test:commodities": "node scripts/commodities-smoke.mjs",
     "test:bottom-tracker": "node scripts/bottom-tracker-smoke.mjs",
     "test:owner-lab": "node scripts/owner-lab-smoke.mjs",
+    "test:regime-lab": "node scripts/regime-lab-smoke.mjs",
+    "test:regime-lab-browser": "node scripts/regime-lab-browser.mjs",
     "test:evidence-record": "node scripts/evidence-record-smoke.mjs",
     "test:overnight": "node scripts/overnight-smoke.mjs && node scripts/overnight-tone-smoke.mjs",
     "test:workflow-schedules": "node scripts/workflow-schedule-smoke.mjs",

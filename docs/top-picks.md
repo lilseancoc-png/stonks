@@ -1649,3 +1649,19 @@ the price-half grade (top six with a grade of 4 or more, every fifth session,
 | Points plus block at 0.5 | +0.60% | 54% | 9 | |
 
 The block keeps about a fifth fewer picks. Test: `npm run test:macro-context`.
+
+## Regime Lab, November 9, 2026
+
+The Regime Lab (`lib/regime-lab/`, spec [`docs/regime-lab.md`](regime-lab.md))
+is measurement around the engine, not a change to it. Every session gets a
+six-cell market label (era x character, confirmed over two sessions, read
+through the prior close); each cell's playbook runs as a paper book from every
+Top Picks run beside a same-rules baseline; every new record trade carries
+`labRegime` (the label in force) and `riskScore` (1-10 from structure, era,
+the stock's vol rank, days to expiry and an event in the hold); each run
+archive record carries `lab`. The exits, the grade, the gates and the record
+are unchanged; the lab's own exits (the era stop ladder, continuous and price
+stops, size-first, time stops, book brakes) run only in the harness and the
+shadow books. The research runner's first read on the 2006+ price-half replay
+is in the spec; no engine change follows from it until the archive test
+(about a month of archived runs) and the owner's say-so.

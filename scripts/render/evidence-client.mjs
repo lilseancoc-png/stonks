@@ -15,7 +15,7 @@ export function renderEvidenceJs() {
   return `
   // ---- Owner Lab: Evidence (tests and gates) --------------------------------
   var evbState = { data: null, loading: false, fetchedAt: 0 };
-  var EVB_LANES = [['engine', 'Engine rules'], ['grader', 'AI grader'], ['control', 'Random control'], ['signals', 'Shadow signals'], ['record', 'Track record']];
+  var EVB_LANES = [['engine', 'Engine rules'], ['grader', 'AI grader'], ['control', 'Random control'], ['signals', 'Shadow signals'], ['record', 'Track record'], ['regime', 'Regime Lab']];
   var EVB_STATUS = {
     waiting: ['Waiting for data', 'evb-s-wait'], collecting: ['Collecting', 'evb-s-collect'], ready: ['Ready to read', 'evb-s-ready'],
     pass: ['Passed', 'evb-s-pass'], fail: ['Failed', 'evb-s-fail'], inconclusive: ['No clear answer', 'evb-s-unclear']
@@ -128,6 +128,14 @@ export function renderEvidenceJs() {
         return r.winPct == null ? 'No decided event trades yet.' : 'Event ' + evbRate(r.winPct) + ' win, ' + evbPct(r.avgPnl) + ' avg · regular ' + evbRate(r.regularWinPct) + ' win, ' + evbPct(r.regularAvgPnl) + ' avg (' + (r.regularN || 0) + ').';
       case 'shadow-signals':
         return 'Rows accumulate once a trading day in grades-daily.';
+      case 'regime-switch-books':
+        return r.switchAvgPnl == null && r.baseAvgPnl == null ? 'The paper books open at the next Top Picks run.' : 'Switch book ' + evbRate(r.switchWinPct) + ' win, ' + evbPct(r.switchAvgPnl) + ' avg · same rules ' + evbRate(r.baseWinPct) + ' win, ' + evbPct(r.baseAvgPnl) + ' avg.';
+      case 'regime-grader-by-cell':
+        return !r.cellsJudged ? 'No cell has 40 graded names yet.' : r.cellsJudged + ' cell' + (r.cellsJudged === 1 ? '' : 's') + ' judged: ' + Object.keys(r.cells || {}).map(function(k){ return k + ' ' + evbPct(r.cells[k], 2); }).join(', ') + '.';
+      case 'regime-book-brakes':
+        return r.refused == null ? 'No decided trades yet.' : r.refused + ' refused (avg ' + evbPct(r.refusedAvg) + ') vs kept avg ' + evbPct(r.keptAvg) + '.';
+      case 'regime-live-cells':
+        return r.byCell ? Object.keys(r.byCell).filter(function(k){ return r.byCell[k]; }).map(function(k){ return k + ' ' + r.byCell[k]; }).join(', ') || 'No decided trades carry a cell yet.' : 'No decided trades yet.';
       default: return '';
     }
   }
