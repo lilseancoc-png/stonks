@@ -78,6 +78,7 @@ import { buildEvidenceBoard, writeEvidenceBoard } from "../lib/evidence-board.mj
 import { loadRegimeLab, writeRegimeLab, loadResearchResults, buildLabelInputs, buildBakeLabels, todayFromSeries, openShadowBooks, markShadowBooks, buildBakeOracle, buildRegimeLabPayload, labStamp, regimeLabEnabled, REGIME_LAB_KEY } from "../lib/regime-lab/payload.mjs";
 import { riskScore as regimeLabRiskScore } from "../lib/regime-lab/exits.mjs";
 import { buildSourceHealth, loadSourceHealth, readSourcePayloads, writeSourceHealth } from "../lib/source-health.mjs";
+import { buildCrowdPayload, buildCrowdOwner, readCrowdPrior, writeCrowdFiles, CROWD_KEY, CROWD_OWNER_KEY } from "../lib/crowd/index.mjs";
 import { AI_COST_HISTORY_KEY, parseAiCostHistory, upsertAiCostHistory } from "../lib/ai-cost-history.mjs";
 import {
   TRANSCRIPT_BATCH_MAX_AGE_HOURS, TRANSCRIPT_BATCH_POLL_MS, batchJobDone, batchJobFailureReason, batchJobSucceeded, batchResponseText, buildTranscriptBatchRequests,
@@ -35645,9 +35646,13 @@ async function fetchStocktwitsSentiment(symbol) {
       }
     }
     const total = bull + bear + neutral;
+    // Watcher count (users following the symbol) for the crowd page
+    // (lib/crowd/stocktwits.mjs); rides this call so it costs no request.
+    const watchers = Number(body?.symbol?.watchlist_count);
     return {
       source: "stocktwits",
       bull, bear, neutral, total,
+      watchers: Number.isFinite(watchers) && watchers >= 0 ? Math.round(watchers) : null,
       // Actual count of relevant messages posted in the trailing 24h (capped
       // by StockTwits' ~30-message sample). This is the sample-size gate +
       // the displayed activity figure. It previously held total / span — a
@@ -38598,6 +38603,43 @@ async function main() {
     `  · market structure ${marketStructureCount}/${TICKERS.length} tickers` +
     (marketStructure.errors.length ? ` (carried last-good after ${marketStructure.errors.join("; ")})` : ""),
   );
+  // Crowd & positioning (lib/crowd/, 2026-11-09): FINRA short sale volume,
+  // Cboe put/call, IBKR borrow, CFTC COT, Reddit mentions, Wikipedia views,
+  // leveraged-ETF flows, Stocktwits watchers, margin debt, Kalshi odds and
+  // Hyperliquid stock perps. Every source is free, keyless and fail-soft, and
+  // the histories accumulate, so the prior public + Owner copies are read
+  // before writeChainFiles wipes data/. Watchers come from the social pass
+  // above (chains[sym].social). CROWD=0 skips the fetch and carries the prior
+  // files forward unchanged.
+  let crowdPayload = null;
+  const priorCrowd = await readCrowdPrior(DATA_DIR, CROWD_KEY);
+  const priorCrowdOwner = await readCrowdPrior(DATA_DIR, CROWD_OWNER_KEY);
+  if (/^(?:0|false)$/i.test(process.env.CROWD || "1")) {
+    crowdPayload = priorCrowd;
+    console.log("Crowd & positioning: CROWD=0, carrying the prior files forward.");
+  } else {
+    console.log("Fetching crowd & positioning sources…");
+    try {
+      // Today's 09:00 ET pre-open perps snapshot (overnight-preopen.json,
+      // written by scripts/overnight-preopen.mjs; read again later for the
+      // overnight log, so this read costs one small file).
+      const preopenFileForCrowd = await readPriorDataJson(OVERNIGHT_PREOPEN_KEY);
+      const preopenForCrowd = preopenFileForCrowd?.perps?.asOf && etDateKey(new Date(preopenFileForCrowd.perps.asOf)) === etDateKey() ? preopenFileForCrowd : null;
+      crowdPayload = await buildCrowdPayload({
+        prior: priorCrowd, symbols: TICKERS, chains, todayEt: etDateKey(), nowIso: new Date().toISOString(),
+        levSingles: LEVERAGED_ETF_SINGLES, levGroups: LEVERAGED_ETF_GROUPS, preopen: preopenForCrowd,
+        quoteFn: async (syms) => {
+          const got = await yahooFinance.quote(syms, { fields: ["symbol", "sharesOutstanding", "navPrice", "netAssets", "regularMarketPrice", "regularMarketVolume", "averageDailyVolume3Month"] }, { validateResult: false });
+          return Array.isArray(got) ? got : got ? [got] : [];
+        },
+        log: (line) => console.log(line),
+      });
+      console.log(`  · crowd ${crowdPayload.okCount}/${crowdPayload.sources.length} sources fresh`);
+    } catch (err) {
+      crowdPayload = priorCrowd;
+      console.warn(`[crowd] skipped — ${String(err?.message || err).split("\n")[0]}`);
+    }
+  }
   // Fetch the macro backdrop (10Y yield + DXY) BEFORE per-ticker AI judgments
   // so the fallback paragraph (used when a ticker has no readable articles)
   // can quote live macro values instead of returning an empty take.
@@ -40573,6 +40615,22 @@ async function main() {
     }
   } catch (err) {
     console.warn(`[outcomes] skipped — ${String(err?.message || err).split("\n")[0]}`);
+  }
+  // Crowd & positioning files: the public facts (crowd.json) and the Owner
+  // join to the open Top Picks trades plus the daily rows kept for later
+  // tests (crowd-owner.json, lib/crowd/index.mjs buildCrowdOwner). Nothing
+  // here reaches the grade or a gate. Non-fatal.
+  if (crowdPayload) {
+    try {
+      let accForCrowd = null;
+      try { accForCrowd = JSON.parse(await readFile(resolve(DATA_DIR, PICKS_ACCURACY_FILE), "utf8")); } catch { /* no record yet */ }
+      const openForCrowd = (Array.isArray(accForCrowd?.open) ? accForCrowd.open : []).map((t) => ({ id: t.id ?? t.tradeId ?? null, symbol: t.symbol, side: t.side, entryDate: t.entryDate ?? null }));
+      const crowdOwner = buildCrowdOwner({ crowd: crowdPayload, prior: priorCrowdOwner, openTrades: openForCrowd, regime: regimeLabToday, nowIso: builtAtIso, todayEt: etDateKey() });
+      await writeCrowdFiles(DATA_DIR, crowdPayload, crowdOwner);
+      console.log(`wrote data/${CROWD_KEY} + data/${CROWD_OWNER_KEY} — ${crowdPayload.okCount}/${crowdPayload.sources.length} sources fresh, ${crowdOwner.openTrades.length} open trade(s) joined, ${crowdOwner.days} daily row(s)`);
+    } catch (err) {
+      console.warn(`[crowd] write skipped — ${String(err?.message || err).split("\n")[0]}`);
+    }
   }
   // Market brief — after the separate 08:30 ET morning mint, the 11:00, 13:30,
   // and 16:10 full builds ship fresh reads. Other builds restore the exact

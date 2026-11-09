@@ -107,6 +107,7 @@ const SIDE_NAV_ICONS = {
   contact: '<path d="M4 5.5h16a1.5 1.5 0 0 1 1.5 1.5v10a1.5 1.5 0 0 1-1.5 1.5H9l-4.5 3v-3H4A1.5 1.5 0 0 1 2.5 17V7A1.5 1.5 0 0 1 4 5.5z"/><path d="M7 10h10M7 13.5h6"/>',
   glossary: '<path d="M4 4.5h11a3 3 0 0 1 3 3v12.5H7a3 3 0 0 1-3-3z"/><path d="M4 17a3 3 0 0 1 3-3h11"/><path d="M8.5 8.5h6M8.5 11h4"/>',
   'market-map': '<rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="5" rx="1.5"/><rect x="13" y="10" width="8" height="11" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/>',
+  crowd: '<circle cx="8" cy="8" r="3"/><circle cx="16" cy="8" r="3"/><path d="M2 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><path d="M14 14.5c.6-.3 1.3-.5 2-.5 3.3 0 6 2.7 6 6"/>',
   'whats-changed': '<path d="M4 7h11l-3-3M20 17H9l3 3"/><circle cx="18.5" cy="7" r="1.5"/><circle cx="5.5" cy="17" r="1.5"/>',
   'past-day': '<path d="M3 12a9 9 0 1 0 2.6-6.4L3 8"/><path d="M3 3v5h5"/><path d="M8.5 15.5h7M8.5 12h7M8.5 8.5h4"/>',
   'earnings-week': '<rect x="3" y="4.5" width="18" height="16.5" rx="2"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4"/><path d="M7 14h2v4H7zM11 12.5h2V18h-2zM15 15h2v3h-2z"/>',
@@ -1121,6 +1122,14 @@ function marketMapSection() {
     <header class="card-header"><div><span class="card-eyebrow">Stocks · every tracked name</span><h2 class="card-title">Market map</h2></div><span class="card-eyebrow" id="mm-asof"></span></header>
     <div id="mm-root"><p class="mm-empty">Loading the market map&hellip;</p></div>
     <p class="hint">Rebuilt at every full build from daily closes, the option chains and FINRA short interest. Hover or tap a dot, a cell or a chart for the numbers; click a stock to open it. Not investment advice.</p>
+  </section>`;
+}
+
+function crowdSection() {
+  return `<section class="card" id="crowd-section">
+    <header class="card-header"><div><span class="card-eyebrow">Market &amp; economy · positioning and attention</span><h2 class="card-title">Crowd &amp; positioning</h2></div><span class="card-eyebrow" id="crowd-asof"></span></header>
+    <div id="crowd-root"><p class="crd-empty">Loading crowd and positioning data&hellip;</p></div>
+    <p class="hint">Put/call ratios, futures positioning, margin debt, short selling, borrow fees, Reddit and Wikipedia attention, Kalshi odds and 24/7 stock perps, all from free public sources. Facts and market-implied readings only: nothing here is a recommendation. Not investment advice.</p>
   </section>`;
 }
 
@@ -2912,6 +2921,9 @@ ${i18nHeadScript()}
   </div>
   <div class="page-pane" id="page-pane-market-map" role="tabpanel" aria-labelledby="page-tab-market-map" hidden>
   ${marketMapSection()}
+  </div>
+  <div class="page-pane" id="page-pane-crowd" role="tabpanel" aria-labelledby="page-tab-crowd" hidden>
+  ${crowdSection()}
   </div>
   <div class="page-pane" id="page-pane-whats-changed" role="tabpanel" aria-labelledby="page-tab-whats-changed" hidden>
   ${whatsChangedSection()}
