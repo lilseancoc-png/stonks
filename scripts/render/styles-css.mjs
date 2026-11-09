@@ -1,7 +1,6 @@
 import { updateCheckerCss } from './update-checker-css.mjs';
 import { contactCss } from './contact-client.mjs';
 import { ownerMarketBriefCss } from './owner-market-brief-css.mjs';
-import { researchLabCss } from './research-lab-css.mjs';
 import { ownerOnlyCss } from '../../lib/owner-access-policy.mjs';
 import {topPicksMarketCss} from './top-picks-market-css.mjs';
 import { renderOwnershipExplorerCss } from './ownership-explorer-css.mjs';
@@ -38,7 +37,6 @@ export function renderStylesCss() {
 ${ownerOnlyCss()}
 ${updateCheckerCss}
 ${contactCss}
-${researchLabCss()}
 ${ownerMarketBriefCss()}
 ${renderOwnershipExplorerCss()}
 ${renderRecoveryCss()}

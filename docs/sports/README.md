@@ -281,7 +281,7 @@ model section, which is labeled.
 
 `GET /api/auth/me?sports=<op>` inside `api/auth/[action].js`
 (`lib/sports/http.mjs`). It rides in the existing auth function, like the
-Research Lab's `?lab=`, so Sports adds no Vercel function (the Hobby plan caps
+Update checker's `?checker=`, so Sports adds no Vercel function (the Hobby plan caps
 the project at 12).
 
 - Needs `PRIVATE_DATA_ENABLED=1` and a signed session carrying both Owner
@@ -652,8 +652,7 @@ refused, and every write throws (`sportsReadOnlyStore`).
 
 ## Kept apart from market research
 
-Sports is not market evidence. The Owner Market Brief, Research Lab evidence
-(`sourceCatalog` drops the `Sports` category) and the MCP feature list
+Sports is not market evidence. The Owner Market Brief and the MCP feature list
 (`list_features`) do not read it; Sports has its own MCP tools above. The
 Update Checker lists the pages as on-demand.
 

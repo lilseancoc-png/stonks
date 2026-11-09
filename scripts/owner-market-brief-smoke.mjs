@@ -26,8 +26,8 @@ assert.equal(report.forecasts[0].eps,2.4);assert.equal(report.forecasts[0].cutof
 // The on-demand Lab has owner-scoped experiments, not a daily decision feed.
 // Keep it out of scheduled synthesis and AI inputs, including when enabled.
 // Operational diagnostics are not market evidence for the Owner brief.
-for(const page of OWNER_PAGE_IDS.filter(id=>!['owner-market-brief','research-lab','update-checker'].includes(id)&&!SPORTS_PAGE_IDS.includes(id)))assert(OWNER_BRIEF_SOURCES.some(s=>s.id===page),'New Owner page needs a brief adapter: '+page);
-assert(!OWNER_BRIEF_SOURCES.some(s=>s.id==='research-lab'||s.key?.startsWith('_stonks/research-lab/')),'Interactive Lab records never enter brief synthesis');
+for(const page of OWNER_PAGE_IDS.filter(id=>!['owner-market-brief','update-checker'].includes(id)&&!SPORTS_PAGE_IDS.includes(id)))assert(OWNER_BRIEF_SOURCES.some(s=>s.id===page),'New Owner page needs a brief adapter: '+page);
+assert(!OWNER_BRIEF_SOURCES.some(s=>String(s.key||'').startsWith('_stonks/')),'Raw internal records never enter brief synthesis');
 assert(isPremiumKey(OWNER_BRIEF_KEY));assert.deepEqual(roleClaimForKey(OWNER_BRIEF_KEY),['tr','tp']);assert(isBakeOwnedKey(OWNER_BRIEF_KEY));
 for(const [value,status] of [[null,'missing'],[{},'undated'],[{builtAtIso:'invalid'},'undated'],[{builtAtIso:'2026-10-24T15:05:00Z'},'future'],[{builtAtIso:'2026-10-01T15:05:00Z'},'stale']])assert.equal(sourceStatus(value,Date.parse(fixture.builtAtIso)).status,status);
 for(const state of ['stale','undated','future']) {

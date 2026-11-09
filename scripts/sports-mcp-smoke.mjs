@@ -42,7 +42,7 @@ put('players', { sport: 'nba' }, { schema_version: 1, players: L.players });
 put('model', { sport: 'nba' }, { schema_version: 1, ...model, seasons: [2025] });
 put('status', { sport: 'nba' }, { schema_version: 1, sport: 'nba', state: 'ok', last_success_utc: '2026-01-15T10:00:00Z', seasons: [2025], counts: { games: 481, player_games: L.rows.length, players: 96 }, model: modelSummary({ ...model, seasons: [2025] }) });
 objects.set(SPORTS_PREFIX + 'markets/observations.json', JSON.stringify({ observations: [{ secret: 'line' }] }));
-objects.set('_stonks/research-lab/x.json', '{}');
+objects.set('_stonks/contact/v1/messages.json', '{}');
 
 function mkRes() {
   return {
@@ -166,7 +166,7 @@ ok(nfl.structuredContent.results.model === null && nfl.structuredContent.warning
 eq(writes, [], 'no tool wrote anything');
 const ro = sportsReadOnlyStore(store);
 await assert.rejects(ro.rawGet(SPORTS_PREFIX + 'markets/observations.json'), /read-only/, 'captured lines are not readable');
-await assert.rejects(ro.rawGet('_stonks/research-lab/x.json'), /read-only/, 'nothing outside Sports is readable');
+await assert.rejects(ro.rawGet('_stonks/contact/v1/messages.json'), /read-only/, 'nothing outside Sports is readable');
 await assert.rejects(ro.rawGet(SPORTS_PREFIX + 'nba/../journal/entries.json'), /read-only/);
 await assert.rejects(ro.rawPut(SPORTS_PREFIX + 'journal/entries.json', '{}'), /read-only/, 'and nothing is writable');
 await assert.rejects(ro.withLease('sports-journal', async () => {}), /read-only/);

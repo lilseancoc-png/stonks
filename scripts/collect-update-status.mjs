@@ -58,6 +58,6 @@ if(process.argv[1] && import.meta.url===pathToFileURL(process.argv[1]).href){
   const {store}=await import('../lib/datastore.mjs');
   const report=await collectUpdateStatus({repo:process.env.GITHUB_REPOSITORY,token:process.env.GH_TOKEN,store,dryRun:process.argv.includes('--dry-run'),currentRunId:process.env.GITHUB_RUN_ID});
   if(process.argv.includes('--dry-run'))console.log(JSON.stringify(report,null,2));
-  if(process.env.GITHUB_STEP_SUMMARY)await appendFile(process.env.GITHUB_STEP_SUMMARY,'### Update Checker\n\nStatus: '+assessWorkflows(report).status+'\n\n'+report.runs.length+' workflow observations; '+(report.features?.length ?? 0)+' features; '+(report.artifacts?.checked ?? 0)+' published artifacts; '+(report.artifacts?.researchRecords ?? 0)+' internal research records.\n');
+  if(process.env.GITHUB_STEP_SUMMARY)await appendFile(process.env.GITHUB_STEP_SUMMARY,'### Update Checker\n\nStatus: '+assessWorkflows(report).status+'\n\n'+report.runs.length+' workflow observations; '+(report.features?.length ?? 0)+' features; '+(report.artifacts?.checked ?? 0)+' published artifacts.\n');
   console.log('Update Checker saved: '+report.runs.length+' runs, '+(report.features?.length ?? 0)+' features, '+(report.artifacts?.checked ?? 0)+' stored artifacts; feature issues '+(report.featureSummary?.issues ?? 'not scanned')+', artifact issues '+(report.artifacts?.issueCount ?? 'not scanned')+'.');
 }

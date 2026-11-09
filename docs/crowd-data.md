@@ -67,8 +67,22 @@ across builds (60 days for most, 250 sessions for put/call, 160 weeks for COT,
   short-pressure, flags and warnings, the most and least crowded names, and a
   link to the public page.
 - Source health lists each block as `crowd-*` (`lib/source-health.mjs`); the
-  Update checker expects `sources` and `rollup`; Research Lab's feature map
-  has `crowd`.
+  Update checker expects `sources` and `rollup`; the site catalog's feature map
+  (`lib/site-catalog/feature-sources.mjs`) has `crowd`.
+
+## Into the engine (2026-11-09)
+
+The crowd facts reach the Top Picks engine as logged-then-measured shadow
+signals, with three switch-guarded hooks that stay off until the read clears
+the bar after the Dec 7 freeze; docs/top-picks.md, "Crowd signals", has the
+detail. In short: `lib/shadow-signals.mjs` (version 3) logs `sv`, `svz`,
+`bf`, `att`, `rdv`, `wkr`, `stw`, `pf`, `pgp` per name and a `mkt` row of
+market gauges per day in `grades-daily.json`, every new trade's entry
+snapshot and the run archive; `lib/shadow-research.mjs` measures them in
+every bake (Owner Lab Evidence tab, "Shadow signals: candidate inputs");
+`PICKS_CROWD_SQUEEZE_VETO`, `PICKS_MACRO_PUTCALL_SRC=cboe` and
+`PICKS_CROWD_GRADER` are the hooks (`lib/top-picks-config.mjs`, repo
+variables in `daily.yml`). FINRA short volume backfills 60 sessions.
 
 ## Switches
 

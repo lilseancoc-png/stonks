@@ -133,7 +133,6 @@ export const SITE_SECTIONS = [
       { id: 'forced-liquidation', label: 'Forced Liquidation Tracker', alias: 'Pledged shares collateral leverage margin', blurb: 'SEC stock pledges, loan terms and estimated price thresholds, with missing terms kept visible.' },
       { id: 'bottom-tracker', label: 'Bottom tracker', blurb: 'Signs the market is washing out and turning.' },
       { id: 'party-tracker', label: 'Party tracker', alias: 'Party-Tracker Democrats Republicans president house senate', blurb: 'How the market and each sector did when Democrats or Republicans held the presidency, the House, or the Senate.' },
-      { id: 'research-lab', label: 'Research Lab', alias: 'Scenarios evidence puzzle stocks experiments visual canvas journal ChatGPT Claude', blurb: 'Connect stocks, evidence and assumptions, explore possible outcomes and export your research for AI review.' },
     ],
   },
   {

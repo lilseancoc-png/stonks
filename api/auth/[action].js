@@ -33,7 +33,6 @@
 // owner role can mint a session.
 
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { researchLabEnabled } from '../../lib/research-lab/access.mjs';
 import {
   serializeCookie,
   parseCookies,
@@ -310,9 +309,6 @@ async function me(req, res) {
   if (req.query?.checker != null) {
     return (await import('../../lib/update-checker-http.mjs')).handleUpdateChecker(req,res);
   }
-  if (req.query?.lab != null) {
-    return (await import('../../lib/research-lab/http.mjs')).handleResearchRequest(req, res);
-  }
   // Owner Sports section (lib/sports/). Same signed Owner session, no new function.
   if (req.query?.sports != null) {
     return (await import('../../lib/sports/http.mjs')).handleSportsRequest(req, res);
@@ -351,7 +347,6 @@ async function me(req, res) {
     sub: session.sub || null,
     trackRecord: session.tr === true,
     topPicks: session.tp === true,
-    researchLab: researchLabEnabled(session),
   });
 }
 

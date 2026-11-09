@@ -30,8 +30,8 @@ only if you started the connection yourself.
 
 | Tool | Access | What it reads |
 |---|---|---|
-| `list_features` | any | Site catalog (`lib/research-lab/site-catalog.mjs`), which tool reads each page, covered symbols |
-| `get_feature` | per feature | The saved payload behind a page (`lib/research-lab/feature-sources.mjs`), trimmed; `ticker`/`path`/`max_items` narrow it. `dataset` reads a page's other files (`FEATURE_DATASETS` in `lib/mcp/tools.mjs`, listed per page by `list_features`): histories and logs, the Owner Top Picks files, and per-stock files (`calls` → `transcript`, `iv-trend` → `iv-history`, `grade` → `fundamentals-history`) that need `ticker` |
+| `list_features` | any | Site catalog (`lib/site-catalog/site-catalog.mjs`), which tool reads each page, covered symbols |
+| `get_feature` | per feature | The saved payload behind a page (`lib/site-catalog/feature-sources.mjs`), trimmed; `ticker`/`path`/`max_items` narrow it. `dataset` reads a page's other files (`FEATURE_DATASETS` in `lib/mcp/tools.mjs`, listed per page by `list_features`): histories and logs, the Owner Top Picks files, and per-stock files (`calls` → `transcript`, `iv-trend` → `iv-history`, `grade` → `fundamentals-history`) that need `ticker` |
 | `get_stock` | owner | `<SYMBOL>.json`: compact sections by default, named `sections` on request |
 | `get_price_history` | any | `priceSeries` (daily, ≤252) or `intradaySeries` (30m) from `<SYMBOL>.json` |
 | `get_stock_grades` | owner | `grades.json`, flattened and sortable |
@@ -60,7 +60,7 @@ payload's build time), `generated_at`, `ai_calls: 0`, `warnings` (stale, expired
 `results`. Results are capped at about 48 KB.
 
 **Never reachable**, even for the Owner: `picks-fills.json`, `webull-paper-ledger.json`,
-`picks-watchlist.json`, AI caches and accounting, track-record reset markers, Research Lab records,
+`picks-watchlist.json`, AI caches and accounting, track-record reset markers,
 `_stonks/*` (except the Sports records the Sports tools read), retired keys, and any field whose name looks like a secret. `get_feature` reads only the keys mapped
 in `feature-sources.mjs`, so no other store key can be named.
 
@@ -132,6 +132,6 @@ variables. No Discord app change is needed.
 
 ## Not in v1
 
-Research Lab runs and journal writes, Sports paper-pick saves (by decision: the Pick Builder link instead), option
+Sports paper-pick saves (by decision: the Pick Builder link instead), option
 chains, and any write or broker action. These are deferred from the
 2026-11-01 blueprint review: the heavy studies are already precomputed by the bake, and Hobby has no job queue.

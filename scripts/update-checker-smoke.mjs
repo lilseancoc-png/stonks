@@ -14,7 +14,7 @@ import { serveDataKey } from '../lib/data-response.mjs';
 import { renderAppJs } from './render/app-js.mjs';
 import { SITE_SECTIONS } from './render/site-map.mjs';
 import { OWNER_PAGE_IDS } from '../lib/owner-access-policy.mjs';
-import { SOURCE_KEYS } from '../lib/research-lab/feature-sources.mjs';
+import { SOURCE_KEYS } from '../lib/site-catalog/feature-sources.mjs';
 import { fixtureRun,fixtureReport,fixtureArtifacts,healthyPayload,CHECKER_REPO as repo,CHECKER_FIXTURE_TIME as clock } from './fixtures/update-checker.mjs';
 const now=Date.parse(clock),failed=fixtureRun(),fail=summarizeWorkflowRun(failed.run,failed.jobs,repo);
 assert.equal(fail.siteBuild,'skipped');assert.equal(fail.publication,'skipped');assert.equal(fail.failures[0].steps[0],'Verify party control history');

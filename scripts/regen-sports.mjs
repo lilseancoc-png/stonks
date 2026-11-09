@@ -43,7 +43,7 @@ else {
 SPORTS_PAGE_IDS.forEach((id, i) => {
   if (html.includes('id="page-pane-' + id + '"')) html = html.replace(paneRe(id), panes[i]);
   else {
-    const after = i === 0 ? 'research-lab' : SPORTS_PAGE_IDS[i - 1];
+    const after = i === 0 ? 'quant' : SPORTS_PAGE_IDS[i - 1];
     const anchor = html.match(paneRe(after))?.[0];
     assert(anchor, 'pane anchor ' + after + ' required');
     html = html.replace(anchor, anchor + panes[i]);

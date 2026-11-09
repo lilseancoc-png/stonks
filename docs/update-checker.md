@@ -39,12 +39,12 @@ not a claim that the monitor has independently reproduced its cause.
 ## Feature and stored-log checks
 
 The feature catalog is derived from the actual site map and shares source-key
-mappings with Research Lab. Tests fail if a new feature or workflow is omitted.
+mappings with the MCP server (`lib/site-catalog/`). Tests fail if a new feature or workflow is omitted.
 Manifest-backed pages validate the sidecar metadata; the symbol list deliberately stays in the HTML shell.
 Every destination has an output contract or an explicit reference, monitor, or
 request-driven designation. Those designations are not automatic evidence that
 every interactive behavior works. Release tests exercise the renderer, API,
-Owner access, Research Lab and browser behavior.
+Owner access and browser behavior.
 
 Scheduled output checks cover missing/unreadable JSON, required field types,
 missing or future timestamps, output age, declared producer errors, incomplete
@@ -60,12 +60,10 @@ and root shape, checks manifest byte counts, and uses the pinned immutable
 publication objects for its reads. Company artifacts also require a positive
 spot, option chains, technicals, quote provenance and compact published price history. The publication verifier and monitor share this contract; internal build-time bars are intentionally absent from published files. Request-time records
 are optional before first use. Stored broker reconciliation flags are read
-without contacting a broker. Research Lab's internal JSON records are checked
-for integrity without exposing owner identifiers or record contents.
+without contacting a broker.
 
-The inventory limit is 4,000 logical artifacts and 4,000 internal research
-records per pass. Oversized inventories and records are explicitly incomplete,
-not green. At most 200 artifact findings appear in a report. These bounds keep
+The inventory limit is 4,000 logical artifacts per pass. Oversized inventories
+are explicitly incomplete, not green. At most 200 artifact findings appear in a report. These bounds keep
 the monitor from silently truncating work or growing without limit.
 
 Default content windows are 96 hours, 192 hours for selected historical desks,
