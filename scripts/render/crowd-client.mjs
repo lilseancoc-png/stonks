@@ -36,7 +36,7 @@ export function renderCrowdJs() {
   }
   function crowdPctile(p){
     if (p == null || !isFinite(p)) return '';
-    return '<span class="crd-pct" title="Percentile among the tracked names">' + Math.round(p) + 'th</span>';
+    return '<span class="crd-pct" title="Percentile among the tracked names">' + ordinalOf(p) + '</span>';
   }
   function crowdSpark(hist, idx, fmt, aria){
     var pts = (hist || []).map(function(r){ return [r[0], r[idx == null ? 1 : idx]]; });
@@ -211,6 +211,9 @@ export function renderCrowdJs() {
         return '<div class="crd-dist-row' + (isBest ? ' is-best' : '') + '"><span class="crd-dist-label">' + escapeHtml(label) + '</span><span class="crd-dist-bar"><i style="width:' + (b.prob / max * 100).toFixed(1) + '%"></i></span><span class="crd-dist-p">' + Math.round(b.prob * 100) + '%</span></div>';
       }).join('') + '</div>' +
       '<p class="crd-fact">Market-implied mean <b>' + crowdInt(dist.impliedMean) + '</b>' + (dist.band80 ? '; 80% of the priced probability sits between ' + crowdInt(dist.band80[0]) + ' and ' + crowdInt(dist.band80[1]) : '') + (dist.overround ? '; prices sum to ' + Math.round(dist.overround * 100) + '% before scaling' : '') + '.</p>';
+    } else if (def.kind === 'binary'){
+      var bp = ev.binary && ev.binary.prob;
+      body = bp != null ? '<div class="crd-ladder"><div class="crd-dist-row"><span class="crd-dist-label">' + escapeHtml(ev.binary.title || 'Yes') + '</span><span class="crd-dist-bar"><i style="width:' + (bp * 100).toFixed(1) + '%"></i></span><span class="crd-dist-p">' + Math.round(bp * 100) + '%</span></div></div>' : crowdEmpty('No price yet.');
     } else if (ev.ladder){
       var rows = ev.ladder.rows || [];
       body = rows.length ? '<div class="crd-ladder">' + rows.map(function(r){
@@ -304,6 +307,7 @@ export function renderCrowdJs() {
     if (!CROWD_TABS.some(function(t){ return t[0] === tab; })) tab = 'positioning';
     var body = tab === 'shorts' ? crowdShortsHtml(d) : tab === 'attention' ? crowdAttentionHtml(d) : tab === 'odds' ? crowdOddsHtml(d) : tab === 'perps' ? crowdPerpsHtml(d) : crowdPositioningHtml(d);
     root.innerHTML = crowdStripHtml(d) + vnTabsHtml(CROWD_TABS, tab, 'data-crowd-tab') + '<div class="crd-body">' + body + '</div>' + crowdSourcesHtml(d);
+    vnTabsReveal(root);
   }
   function loadCrowd(force){
     if (!force && crowdState.data && Date.now() - crowdState.fetchedAt < 10 * 60 * 1000){ renderCrowd(); return; }

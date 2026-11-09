@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { computeStreakForTicker, streakTrendRead, streakTrendFromMa, STREAK_TREND_READS } from '../lib/streaks.mjs';
-import { buildEntrySnapshot, heavyMoveRead, postEarningsRead, retiredVotes } from '../lib/trade-snapshot.mjs';
+import { buildEntrySnapshot, heavyMoveRead, postEarningsRead, retiredVotes, ENTRY_SNAPSHOT_VERSION } from '../lib/trade-snapshot.mjs';
 import { topPicksMarket } from '../lib/top-picks-market.mjs';
 import { entryPolicyFixture } from './entry-policy-smoke.mjs';
 import {
@@ -129,7 +129,7 @@ await check('entry snapshot: votes, pillars, retired votes, heavy-volume day, po
     pillars: { technicals: { score: 4, signals: [{ key: 'srBreak', score: 2, available: true }, { key: 'social', score: 0, available: false }] }, fundamentals: { score: 2, signals: [{ key: 'pe', score: 0, available: true }] }, timing: { score: 1 } },
   };
   const snap = buildEntrySnapshot(pick, data, { shadow: { keys: ['r21', 'vrp'], rows: { ONE: [5.1, null] } } });
-  assert.equal(snap.v, 1);
+  assert.equal(snap.v, ENTRY_SNAPSHOT_VERSION);
   assert.deepEqual(snap.pillars, { t: 4, f: 2, tm: 1 });
   assert.deepEqual(snap.signals, { srBreak: 2, pe: 0 }, 'a measured zero is kept; an unavailable signal is left out');
   assert.equal(snap.retired.macd, 1);
@@ -196,7 +196,7 @@ try {
   await check('record: every enrolled trade freezes the entry snapshot', () => {
     assert.equal(first.open.length, 1);
     const snap = first.open[0].entrySnapshot;
-    assert(snap && snap.v === 1, JSON.stringify(first.open[0]).slice(0, 300));
+    assert(snap && snap.v === ENTRY_SNAPSHOT_VERSION, JSON.stringify(first.open[0]).slice(0, 300));
     assert.equal(snap.signals['test-technicals'], 3);
     assert.equal(snap.pillars.t, 3);
     assert.deepEqual(snap.shadow, { r21: 4.2 });

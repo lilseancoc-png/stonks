@@ -87,7 +87,8 @@ const crowd = {
   cot: { contracts: { ES: { groups: { levFund: { net: -150000, z3y: -1.4 }, assetMgr: { z3y: 0.9 } } }, NQ: { groups: { levFund: { z3y: 0.3 } } }, VX: { groups: { levFund: { net: -60000, z3y: -0.5 } } } } },
   marginDebt: { summary: { yoyPct: 18.2, momPct: 1.1, peak: { fromPeakPct: -2 } } },
   levFlows: { totals: { bullUsd5d: 1.2e9, bearUsd5d: -3e8 } },
-  kalshi: { series: { KXINX: { headline: { impliedMean: 6890, band80: [6700, 7050] } } } },
+  builtAtIso: "2026-11-09T16:10:00.000Z",
+  kalshi: { series: { KXINX: { headline: { impliedMean: 7000, band80: [6790, 7140] }, events: [{ closeTime: "2026-11-13T21:00:00.000Z" }] }, KXRECSSNBER: { headline: { prob: 0.2 } } } },
   shortVolume: { market: { latest: ["2026-11-06", 47.3] } },
 };
 const chains = { AAA: { spot: 160, _bars: bars }, BBB: { spot: 50, _bars: bars } };
@@ -95,7 +96,7 @@ const sh = buildShadowSignals(chains, { builtAtIso: "2026-11-09T16:10:00Z", crow
 ok("v3 keys end with the crowd keys and the rows use them", sh.v === 3 && sh.keys.length === SHADOW_KEYS.length && shadowValue(sh, "AAA", "sv") === 55.5 && shadowValue(sh, "AAA", "bf") === 6.25 && shadowValue(sh, "AAA", "pgp") === -2.5);
 ok("attention is the mean percentile of the three attention reads", shadowValue(sh, "AAA", "att") === 80);
 ok("a name without a crowd row leaves the crowd keys empty", shadowValue(sh, "BBB", "bf") == null && shadowValue(sh, "BBB", "sv") === 40);
-ok("market gauges ride the block once", sh.mkt && sh.mkt.pc === 0.72 && sh.mkt.pcp === 84 && sh.mkt.cotEsZ === -1.4 && sh.mkt.mdYoy === 18.2 && sh.mkt.levBull5 === 1.2e9 && sh.mkt.kxMean === 6890 && sh.mkt.svm === 47.3);
+ok("market gauges ride the block once", sh.mkt && sh.mkt.pc === 0.72 && sh.mkt.pcp === 84 && sh.mkt.cotEsZ === -1.4 && sh.mkt.mdYoy === 18.2 && sh.mkt.levBull5 === 1.2e9 && sh.mkt.kxWid === 2.44 && sh.mkt.kxRec === 20 && sh.mkt.svm === 47.3);
 ok("no crowd payload: no gauges, rows unchanged", !("mkt" in buildShadowSignals(chains, { builtAtIso: "2026-11-09T16:10:00Z" })) && shadowMarketGauges(null) === null);
 const snap = buildEntrySnapshot({ symbol: "AAA", pillars: {} }, chains.AAA, { shadow: sh });
 ok("entry snapshot v2 copies the crowd keys and the market gauges", snap.v === 2 && snap.shadow.bf === 6.25 && snap.shadow.att === 80 && snap.mkt.pcp === 84);

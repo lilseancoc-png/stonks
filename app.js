@@ -2311,6 +2311,16 @@ function recoveryEvidence(row, data, now = Date.now()) {
       return '<button type="button" role="tab" class="ui-tab' + (on ? ' is-on' : '') + '" ' + attr + '="' + t[0] + '" aria-selected="' + (on ? 'true' : 'false') + '">' + escapeHtml(t[1]) + '</button>';
     }).join('') + '</div>';
   }
+  // After a re-render the tab row starts scrolled to the left, so on a phone
+  // the chosen tab can sit off screen. Bring it into view inside its row
+  // (never scrolls the page).
+  function vnTabsReveal(root){
+    var on = root && root.querySelector ? root.querySelector('.vn-tabs .ui-tab.is-on') : null;
+    var row = on && on.parentNode;
+    if (!row || !(row.scrollWidth > row.clientWidth)) return;
+    var rr = row.getBoundingClientRect(), tr = on.getBoundingClientRect();
+    row.scrollLeft = Math.max(0, row.scrollLeft + (tr.left - rr.left) - (rr.width - tr.width) / 2);
+  }
 
   // ---- Market map ----------------------------------------------------------
   var MM_TABS = [['fear', 'Fear map'], ['scatter', 'Two-number lens'], ['wall', 'Chart wall'], ['crowd', 'Crowding'], ['breadth', 'Breadth'], ['shorts', 'Crowded shorts']];
@@ -2386,6 +2396,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
     if (!MM_TABS.some(function(t){ return t[0] === tab; })) tab = 'fear';
     var body = tab === 'scatter' ? mmScatterHtml(d) : tab === 'wall' ? mmWallHtml(d) : tab === 'crowd' ? mmCrowdHtml(d) : tab === 'breadth' ? mmBreadthHtml(d) : tab === 'shorts' ? mmShortsHtml(d) : mmFearHtml(d);
     root.innerHTML = vnTabsHtml(MM_TABS, tab, 'data-mm-tab') + '<div class="mm-body">' + body + '</div>';
+    vnTabsReveal(root);
     if (tab === 'breadth') mmMountBreadth(d);
   }
   function mmStocks(d, withEtf){ return (d.rows || []).filter(function(r){ return r && (withEtf || !r.etf); }); }
@@ -2993,7 +3004,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
   }
   function crowdPctile(p){
     if (p == null || !isFinite(p)) return '';
-    return '<span class="crd-pct" title="Percentile among the tracked names">' + Math.round(p) + 'th</span>';
+    return '<span class="crd-pct" title="Percentile among the tracked names">' + ordinalOf(p) + '</span>';
   }
   function crowdSpark(hist, idx, fmt, aria){
     var pts = (hist || []).map(function(r){ return [r[0], r[idx == null ? 1 : idx]]; });
@@ -3168,6 +3179,9 @@ function recoveryEvidence(row, data, now = Date.now()) {
         return '<div class="crd-dist-row' + (isBest ? ' is-best' : '') + '"><span class="crd-dist-label">' + escapeHtml(label) + '</span><span class="crd-dist-bar"><i style="width:' + (b.prob / max * 100).toFixed(1) + '%"></i></span><span class="crd-dist-p">' + Math.round(b.prob * 100) + '%</span></div>';
       }).join('') + '</div>' +
       '<p class="crd-fact">Market-implied mean <b>' + crowdInt(dist.impliedMean) + '</b>' + (dist.band80 ? '; 80% of the priced probability sits between ' + crowdInt(dist.band80[0]) + ' and ' + crowdInt(dist.band80[1]) : '') + (dist.overround ? '; prices sum to ' + Math.round(dist.overround * 100) + '% before scaling' : '') + '.</p>';
+    } else if (def.kind === 'binary'){
+      var bp = ev.binary && ev.binary.prob;
+      body = bp != null ? '<div class="crd-ladder"><div class="crd-dist-row"><span class="crd-dist-label">' + escapeHtml(ev.binary.title || 'Yes') + '</span><span class="crd-dist-bar"><i style="width:' + (bp * 100).toFixed(1) + '%"></i></span><span class="crd-dist-p">' + Math.round(bp * 100) + '%</span></div></div>' : crowdEmpty('No price yet.');
     } else if (ev.ladder){
       var rows = ev.ladder.rows || [];
       body = rows.length ? '<div class="crd-ladder">' + rows.map(function(r){
@@ -3261,6 +3275,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
     if (!CROWD_TABS.some(function(t){ return t[0] === tab; })) tab = 'positioning';
     var body = tab === 'shorts' ? crowdShortsHtml(d) : tab === 'attention' ? crowdAttentionHtml(d) : tab === 'odds' ? crowdOddsHtml(d) : tab === 'perps' ? crowdPerpsHtml(d) : crowdPositioningHtml(d);
     root.innerHTML = crowdStripHtml(d) + vnTabsHtml(CROWD_TABS, tab, 'data-crowd-tab') + '<div class="crd-body">' + body + '</div>' + crowdSourcesHtml(d);
+    vnTabsReveal(root);
   }
   function loadCrowd(force){
     if (!force && crowdState.data && Date.now() - crowdState.fetchedAt < 10 * 60 * 1000){ renderCrowd(); return; }
@@ -3924,7 +3939,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
       ['Character', rglCap(t.character) + (why.character ? ' — ' + why.character : '')],
       ['Confirmation', t.transition ? 'In transition: the raw read is ' + escapeHtml(rglCellName(d, t.pending)) + '; it needs ' + (t.stats && t.stats.confirm || 2) + ' sessions in a row to switch.' : 'Confirmed' + (t.daysSinceSwitch != null ? ', ' + t.daysSinceSwitch + ' session' + (t.daysSinceSwitch === 1 ? '' : 's') + ' since the last switch' : '') + (t.lastSwitch ? ' (' + escapeHtml(evbDate(t.lastSwitch)) + ')' : '') + '.'],
       ['VIX / VIX3M', rglNum(inp.vix) + ' / ' + rglNum(inp.vix3m) + (inp.termRatio != null ? ' (ratio ' + rglNum(inp.termRatio, 2) + (inp.termRatio >= 1 ? ', inverted' : '') + ')' : '')],
-      ['Realized vol (20d)', inp.rv20 != null ? Math.round(inp.rv20 * 100) + '%' + (inp.rvRankPct != null ? ', ' + Math.round(inp.rvRankPct) + 'th percentile of its own year' : '') : '—'],
+      ['Realized vol (20d)', inp.rv20 != null ? Math.round(inp.rv20 * 100) + '%' + (inp.rvRankPct != null ? ', ' + ordinalOf(inp.rvRankPct) + ' percentile of its own year' : '') : '—'],
       ['Breadth above 50-day', inp.breadth50 != null ? rglNum(inp.breadth50, 0) + '% of members' : '—'],
       ['Trend votes', ['SPY', 'QQQ', 'IWM', 'breadth'].filter(function(k){ return votes[k] != null; }).map(function(k){ return k + ' ' + (votes[k] > 0 ? '+1' : votes[k] < 0 ? '−1' : '0'); }).join(', ') || '—'],
       ['Trend quality', q.quality != null ? rglNum(q.quality, 2) + ' (efficiency ' + rglNum(q.er, 2) + ', ADX ' + rglNum(q.adx, 0) + ', follow-through ' + rglNum(q.follow, 2) + ')' : '—'],
@@ -4002,7 +4017,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
     var c = st.counts || {};
     var rows = st.rows.slice().sort(function(a, b){ return (b.q || 0) - (a.q || 0) || String(a.s).localeCompare(String(b.s)); });
     var head = '<thead><tr><th scope="col">Stock</th><th scope="col">Sector</th><th scope="col">Label</th><th scope="col">Direction</th><th scope="col" class="num">Quality</th><th scope="col" class="num">Efficiency</th><th scope="col" class="num">ADX</th><th scope="col" class="num">Vol rank</th></tr></thead>';
-    var body = rows.map(function(r){ return '<tr><td><strong>' + escapeHtml(r.s) + '</strong></td><td>' + escapeHtml(r.sector || '—') + '</td><td>' + (r.label === 'trending' ? '<span class="evb-pill evb-s-pass">Trending</span>' : r.label === 'choppy' ? '<span class="evb-pill evb-s-unclear">Choppy</span>' : '—') + '</td><td>' + (r.dir === 'up' ? '<span class="sig-pos">▲ up</span>' : r.dir === 'down' ? '<span class="sig-neg">▼ down</span>' : '—') + '</td><td class="num">' + rglNum(r.q, 2) + '</td><td class="num">' + rglNum(r.er, 2) + '</td><td class="num">' + rglNum(r.adx, 0) + '</td><td class="num">' + (r.rvRank != null ? r.rvRank + 'th' : '—') + '</td></tr>'; }).join('');
+    var body = rows.map(function(r){ return '<tr><td><strong>' + escapeHtml(r.s) + '</strong></td><td>' + escapeHtml(r.sector || '—') + '</td><td>' + (r.label === 'trending' ? '<span class="evb-pill evb-s-pass">Trending</span>' : r.label === 'choppy' ? '<span class="evb-pill evb-s-unclear">Choppy</span>' : '—') + '</td><td>' + (r.dir === 'up' ? '<span class="sig-pos">▲ up</span>' : r.dir === 'down' ? '<span class="sig-neg">▼ down</span>' : '—') + '</td><td class="num">' + rglNum(r.q, 2) + '</td><td class="num">' + rglNum(r.er, 2) + '</td><td class="num">' + rglNum(r.adx, 0) + '</td><td class="num">' + (r.rvRank != null ? ordinalOf(r.rvRank) : '—') + '</td></tr>'; }).join('');
     return '<p class="evb-note"><strong>' + (c.trending || 0) + '</strong> of ' + (c.total || rows.length) + ' names are trending (' + (c.up || 0) + ' up, ' + (c.down || 0) + ' down) and <strong>' + (c.choppy || 0) + '</strong> are choppy. A trending name is ridden with the trend; a choppy one is faded near its 20-day range (F17 tests whether that beats one rule for all).</p>' +
       '<details class="rgl-details"><summary>Every name</summary>' + rglTable(head, body, 'rgl-stocks') + '</details>';
   }
@@ -4033,7 +4048,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
     var ladder = r.ladder || {};
     var ladderHtml = '<div class="rgl-ladder">' + ['calm', 'normal', 'elevated', 'crisis'].map(function(e){ return '<span class="rgl-ladder-step' + (r.era === e ? ' is-now' : '') + '"><b>' + rglCap(e) + '</b> ' + (ladder[e] != null ? ladder[e] + '%' : '—') + '</span>'; }).join('') + '</div>';
     var head = '<thead><tr><th scope="col">Trade</th><th scope="col">Structure</th><th scope="col" class="num">Risk 1-10</th><th scope="col" class="num">Vol rank</th><th scope="col" class="num">Days left</th><th scope="col">Event inside</th><th scope="col" class="num">P&L</th><th scope="col" class="num">Stop now</th><th scope="col" class="num">Ladder stop</th></tr></thead>';
-    var body = (r.rows || []).map(function(t){ return '<tr><td><strong>' + escapeHtml(t.symbol) + '</strong> ' + escapeHtml(t.side || '') + (t.id ? '<div class="evb-q">' + escapeHtml(t.id) + '</div>' : '') + '</td><td>' + escapeHtml(t.structure || 'long') + '</td><td class="num"><span class="rgl-risk rgl-risk-' + Math.min(10, Math.max(1, Math.round(t.score || 1))) + '">' + rglNum(t.score, 1) + '</span></td><td class="num">' + (t.volRank != null ? t.volRank + 'th' : '—') + '</td><td class="num">' + (t.dteLeft != null ? t.dteLeft : '—') + '</td><td>' + (t.eventInWindow ? '<span class="evb-pill evb-s-ready">earnings</span>' : '—') + '</td><td class="num ' + rglSign(t.pnl) + '">' + (t.pnl != null ? rglPts(t.pnl) + '%' : '—') + '</td><td class="num">' + (t.stopNow != null ? t.stopNow + '%' : '—') + '</td><td class="num ' + (t.tightens ? 'sig-neg' : '') + '">' + (t.ladderStop != null ? t.ladderStop + '%' : '—') + (t.tightens ? ' <span class="evb-q">would tighten</span>' : '') + '</td></tr>'; }).join('');
+    var body = (r.rows || []).map(function(t){ return '<tr><td><strong>' + escapeHtml(t.symbol) + '</strong> ' + escapeHtml(t.side || '') + (t.id ? '<div class="evb-q">' + escapeHtml(t.id) + '</div>' : '') + '</td><td>' + escapeHtml(t.structure || 'long') + '</td><td class="num"><span class="rgl-risk rgl-risk-' + Math.min(10, Math.max(1, Math.round(t.score || 1))) + '">' + rglNum(t.score, 1) + '</span></td><td class="num">' + (t.volRank != null ? ordinalOf(t.volRank) : '—') + '</td><td class="num">' + (t.dteLeft != null ? t.dteLeft : '—') + '</td><td>' + (t.eventInWindow ? '<span class="evb-pill evb-s-ready">earnings</span>' : '—') + '</td><td class="num ' + rglSign(t.pnl) + '">' + (t.pnl != null ? rglPts(t.pnl) + '%' : '—') + '</td><td class="num">' + (t.stopNow != null ? t.stopNow + '%' : '—') + '</td><td class="num ' + (t.tightens ? 'sig-neg' : '') + '">' + (t.ladderStop != null ? t.ladderStop + '%' : '—') + (t.tightens ? ' <span class="evb-q">would tighten</span>' : '') + '</td></tr>'; }).join('');
     return '<p class="evb-note">Risk score (E1): structure x era x the stock\'s own volatility rank x time to expiry, plus 1.5 when an earnings print falls inside the hold. The ladder (E2) is the stop the lab would use in the current era; the live record keeps −50% until the harness proves a change (F5, F8).</p>' + ladderHtml +
       (r.rows && r.rows.length ? rglTable(head, body) + '<p class="evb-note">Average risk ' + rglNum(r.avgScore) + ' across ' + r.openNow + ' open trade' + (r.openNow === 1 ? '' : 's') + '; the era brakes allow ' + r.maxOpen + (r.overCapacity ? ' — <strong class="sig-neg">over capacity</strong>' : '') + '.</p>' : '<p class="hint">No open Top Picks trades to score.</p>');
   }
@@ -4087,7 +4102,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
     var head = '<thead><tr><th scope="col">Test</th><th scope="col">Lane</th><th scope="col">Status</th><th scope="col">Evidence</th><th scope="col">Runs</th><th scope="col">Read so far</th></tr></thead>';
     var body = c.rows.map(function(r){
       var tags = (r.priceHalf ? ' <span class="evb-pill evb-s-wait" title="Price half only: no AI grader, news, fundamentals, flow or real implied volatility before 2026-05-25">price half</span>' : '') + (r.holdoutLocked ? ' <span class="evb-pill evb-s-wait">holdout locked</span>' : '');
-      var ev = r.needs ? '<div class="evb-prog">' + evbBar(r.have, r.needs.n) + '<div class="evb-q">' + (r.have || 0) + ' of ' + r.needs.n + ' ' + escapeHtml(String(r.needs.kind || '').replace(/-/g, ' ')) + '</div></div>' : '—';
+      var ev = r.needs ? '<div class="evb-prog">' + evbBar(r.have, r.needs.n) + '<div class="evb-q">' + ((r.have || 0) >= r.needs.n ? (r.have || 0) + ' ' + escapeHtml(String(r.needs.kind || '').replace(/-/g, ' ')) + ' (needs ' + r.needs.n + ')' : (r.have || 0) + ' of ' + r.needs.n + ' ' + escapeHtml(String(r.needs.kind || '').replace(/-/g, ' '))) + '</div></div>' : '—';
       var runs = (r.runBy === 'cli' ? 'Research runner' : r.runBy === 'bake' ? 'Every full build' : 'Both') + '<div class="evb-q">' + ({ now: 'runnable now', 'each-build': 'recomputed each build', archive: 'needs the run archive', nov23: 'Nov 23', dec7: 'Dec 7' }[r.when] || escapeHtml(r.when || '')) + (r.ranAt ? ' · ran ' + escapeHtml(evbDate(String(r.ranAt).slice(0, 10))) : '') + '</div>';
       var read = rglCatalogRead(r);
       return '<tr><td><strong>' + escapeHtml(r.id) + ' ' + escapeHtml(r.name) + '</strong>' + tags + '<div class="evb-q">' + escapeHtml(r.question || '') + '</div><div class="evb-q">Data: ' + escapeHtml(r.data || '') + '</div></td><td>' + escapeHtml(r.laneLabel || r.lane) + '</td><td>' + rglPill(r.status) + (r.source ? '<div class="evb-q">from ' + (r.source === 'bake' ? 'this build' : 'research') + '</div>' : '') + '</td><td>' + ev + '</td><td>' + runs + '</td><td>' + read + (r.note ? '<div class="evb-q">' + escapeHtml(r.note) + '</div>' : '') + '</td></tr>';
@@ -4174,6 +4189,8 @@ function recoveryEvidence(row, data, now = Date.now()) {
     (warnings || []).forEach(function(w){ out.push('<span class="crd-flag crd-flag-warn">' + escapeHtml(w) + '</span>'); });
     return out.length ? '<span class="crd-owner-flags">' + out.join('') + '</span>' : '<span class="vt-na">—</span>';
   }
+  // Rows saved before the gap read existed show the vs-close figure.
+  function rglPerpGap(f){ if (!f) return null; return f.perpGapPct !== undefined ? f.perpGapPct : (f.perpVsClosePct == null ? null : f.perpVsClosePct); }
   function rglCrowdHtml(c){
     if (!c) return '<p class="hint">' + (rglCrowd.error ? 'The crowd join is not available yet (' + escapeHtml(rglCrowd.error) + '). Every full build writes it.' : 'Loading…') + '</p>';
     var g = c.gauges || {};
@@ -4184,13 +4201,14 @@ function recoveryEvidence(row, data, now = Date.now()) {
       ['Margin debt y/y', g.marginDebtYoyPct == null ? '—' : (g.marginDebtYoyPct > 0 ? '+' : '') + Number(g.marginDebtYoyPct).toFixed(1) + '%'],
       ['Leveraged bull vs bear, 5d', g.levBullUsd5d == null && g.levBearUsd5d == null ? '—' : '$' + (Number(g.levBullUsd5d || 0) / 1e6).toFixed(0) + 'M / $' + (Number(g.levBearUsd5d || 0) / 1e6).toFixed(0) + 'M'],
       ['Kalshi S&P close, mean', g.kalshiSpxMean == null ? '—' : Math.round(g.kalshiSpxMean).toLocaleString()],
+      ['Kalshi recession odds', g.kalshiRecessionPct == null ? '—' : Number(g.kalshiRecessionPct).toFixed(0) + '%'],
     ];
     var open = c.openTrades || [];
     var cols = [
       { label: 'Trade', cell: function(t){ return '<b>' + escapeHtml(t.symbol) + '</b> ' + escapeHtml(t.side || '') + (t.id ? '<div class="crd-dim">' + escapeHtml(t.id) + '</div>' : ''); }, sort: function(t){ return t.symbol; } },
       { label: 'Attention', num: true, title: '0-100 rank of retail attention (Reddit, Wikipedia, Stocktwits) among the tracked names', cell: function(t){ return rglCrowdScore(t.attention); }, sort: function(t){ return t.attention; } },
       { label: 'Short pressure', num: true, title: '0-100 rank of short-sale volume and borrow fee among the tracked names', cell: function(t){ return rglCrowdScore(t.shortPressure); }, sort: function(t){ return t.shortPressure; } },
-      { label: 'Perp vs close', num: true, cell: function(t){ var f = t.facts || {}; return f.perpVsClosePct == null ? '<span class="vt-na">—</span>' : '<span class="' + (f.perpVsClosePct > 0 ? 'pos' : f.perpVsClosePct < 0 ? 'neg' : '') + '">' + (f.perpVsClosePct > 0 ? '+' : '') + Number(f.perpVsClosePct).toFixed(2) + '%</span>'; }, sort: function(t){ return t.facts ? t.facts.perpVsClosePct : null; } },
+      { label: 'Perp gap', num: true, title: 'Where the 24/7 perp had the stock against its last close outside the session (after hours, overnight, weekends), else the 09:00 ET read', cell: function(t){ var v = rglPerpGap(t.facts); return v == null ? '<span class="vt-na">—</span>' : '<span class="' + (v > 0 ? 'pos' : v < 0 ? 'neg' : '') + '">' + (v > 0 ? '+' : '') + Number(v).toFixed(2) + '%</span>'; }, sort: function(t){ return rglPerpGap(t.facts); } },
       { label: 'Flags', nosort: true, cell: function(t){ return rglCrowdFlags(t.flags, t.warnings); } },
     ];
     var list = function(rows){ return rows && rows.length ? rows.map(function(r){ return '<li><b>' + escapeHtml(r.symbol) + '</b> ' + rglCrowdScore(r.attention) + (r.flags && r.flags.length ? ' <span class="crd-dim">' + escapeHtml(r.flags.join(', ')) + '</span>' : '') + '</li>'; }).join('') : '<li class="crd-dim">none yet</li>'; };
@@ -21817,7 +21835,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     } else if (k === 'putCall' && inp.putCall){
       if (inp.putCall.oiRatio != null) c.push(tapeChip('OI', Number(inp.putCall.oiRatio).toFixed(2)));
       if (inp.putCall.volRatio != null) c.push(tapeChip('vol', Number(inp.putCall.volRatio).toFixed(2)));
-      if (inp.putCall.cboe && inp.putCall.cboe.value != null) c.push(tapeChip('Cboe eq.', Number(inp.putCall.cboe.value).toFixed(2) + (inp.putCall.cboe.pct250 != null ? ' · ' + Math.round(inp.putCall.cboe.pct250) + 'th' : '')));
+      if (inp.putCall.cboe && inp.putCall.cboe.value != null) c.push(tapeChip('Cboe eq.', Number(inp.putCall.cboe.value).toFixed(2) + (inp.putCall.cboe.pct250 != null ? ' · ' + ordinalOf(inp.putCall.cboe.pct250) : '')));
     } else if (k === 'credit' && inp.credit){
       if (inp.credit.oas != null) c.push(tapeChip('OAS', Number(inp.credit.oas).toFixed(2) + '%'));
       if (inp.credit.oasChg5d != null) c.push(tapeChip('OAS 5d', tapeSign(inp.credit.oasChg5d, 2, 'pp')));
@@ -21842,7 +21860,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (k === 'twoY') return 'Risk-off if the 2Y rises ≥ +' + v(T.twoYBps1d, 8) + 'bp in 1 day (−2 at +' + v(T.twoYBps1dStrong, 14) + 'bp), or its baked rising trend is up that much over 5 days. A matching fall can vote +1 only when indexes, VIX and credit do not signal stress. A Treasury rally during a sell-off is not an easing confirmation.';
     if (k === 'bondVol') return 'Risk-off at MOVE ≥ ' + v(T.moveHi, 110) + '; −2 at ≥ ' + v(T.moveVhi, 140) + ', or when MOVE is already ≥ ' + v(T.moveHi, 110) + ' and jumps ≥ +' + v(T.move1d, 6) + '% in 1 day. Risk-on at MOVE ≤ ' + v(T.moveCalm, 80) + '.';
     if (k === 'breadth') return 'Risk-off below ' + v(T.breadthLo, 40) + '% above the 200DMA; −2 below ' + v(T.breadthVlo, 25) + '%, or at ≤' + v(T.breadthLo, 40) + '% with NH−NL ≤ −10. Risk-on requires both long- and short-term breadth: ≥' + v(T.breadthHi, 60) + '% above the 200DMA and, when available, ≥' + v(T.breadthHi, 60) + '% above the 50DMA. A thrust is ≥' + v(T.breadthVhi, 85) + '%, or ≥80% with NH−NL ≥ +20, plus the same 50DMA confirmation. Slow axis.';
-    if (k === 'putCall' && T.putCallSrc === 'cboe') return 'The Cboe equity-only put/call ratio votes by its percentile against its own 250 sessions: −1 at the ' + v(T.putCallCboeHi, 75) + 'th or higher, −2 at the ' + v(T.putCallCboeVhi, 90) + 'th, +1 at the ' + v(T.putCallCboeLo, 15) + 'th or lower (crowd.json). A day without a Cboe print falls back to the universe OI read.';
+    if (k === 'putCall' && T.putCallSrc === 'cboe') return 'The Cboe equity-only put/call ratio votes by its percentile against its own 250 sessions: −1 at the ' + ordinalOf(v(T.putCallCboeHi, 75)) + ' or higher, −2 at the ' + ordinalOf(v(T.putCallCboeVhi, 90)) + ', +1 at the ' + ordinalOf(v(T.putCallCboeLo, 15)) + ' or lower (crowd.json). A day without a Cboe print falls back to the universe OI read.';
     if (k === 'putCall') return 'OI put/call votes −1 at ≥' + v(T.putCallHi, 1.20) + ', −2 at ≥' + v(T.putCallVhi, 1.45) + ', and +1 at ≤' + v(T.putCallLo, 0.85) + '. When OI is neutral and same-day volume is mature (≥' + (v(T.putCallVolFrac, 0.03) * 100) + '% of OI), a volume ratio separated from OI by ≥' + v(T.putCallFlowGap, 0.25) + ' can break the tie; positive votes still require the volume ratio ≤' + v(T.putCallLo, 0.85) + '. Slow axis.';
     if (k === 'credit') return 'The actual HY OAS votes −1 at a 5-day widening of ' + v(T.creditOas5d,0.30) + 'pp and −2 at ' + v(T.creditOas5dStrong,0.60) + 'pp. A level of ' + v(T.creditOasStressHi,6) + '% is at least −1; ' + v(T.creditOasStressVhi,7.5) + '% is −2. Tightening by ' + v(T.creditOasTight5d,0.25) + 'pp can vote +1, as can a tight level at or below ' + v(T.creditOasTightLvl,3) + '% with observed stable changes. HYG/LQD never casts a spread vote. The official OAS series is delayed; its observation date is shown.';
     if (k === 'rotation') return 'Offense (high-beta growth) minus defense (staples/health) ' + (T.macroContextOn ? 'one-month' : '1-day') + ' return. A defense lead ≥' + (T.macroContextOn ? v(T.rotationPp20d, 4) : v(T.rotationPp, 0.8)) + 'pp votes −1, or −2 when the Indexes axis is neutral/risk-off. An offense lead by that margin votes +1 only when Indexes is neutral/risk-on. Slow axis — recomputed at the build.';

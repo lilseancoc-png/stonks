@@ -22496,7 +22496,7 @@ export function crowdContextFor(crowd, sym) {
   const out = {
     sv: n(row.shortPct), svz: n(row.shortZ20), bf: n(row.borrowFeePct), bfPct: n(row.borrowFeePctPctile),
     att: n(crowdScoresForRow(row).attention), rdv: n(row.redditVsAvg7), wkr: n(row.wikiRatio30), stw: n(row.watchersPct7d),
-    pf: n(row.perpFundingAnnualPct), pgp: n(row.perpVsClosePct), asOf: crowd?.etDate || null,
+    pf: n(row.perpFundingAnnualPct), pgp: n(row.perpGapPct !== undefined ? row.perpGapPct : row.perpVsClosePct), asOf: crowd?.etDate || null,
   };
   return Object.values(out).some((v) => v != null) ? out : null;
 }
@@ -38748,47 +38748,6 @@ async function main() {
     `  · market structure ${marketStructureCount}/${TICKERS.length} tickers` +
     (marketStructure.errors.length ? ` (carried last-good after ${marketStructure.errors.join("; ")})` : ""),
   );
-  // Crowd & positioning (lib/crowd/, 2026-11-09): FINRA short sale volume,
-  // Cboe put/call, IBKR borrow, CFTC COT, Reddit mentions, Wikipedia views,
-  // leveraged-ETF flows, Stocktwits watchers, margin debt, Kalshi odds and
-  // Hyperliquid stock perps. Every source is free, keyless and fail-soft, and
-  // the histories accumulate, so the prior public + Owner copies are read
-  // before writeChainFiles wipes data/. Watchers come from the social pass
-  // above (chains[sym].social). CROWD=0 skips the fetch and carries the prior
-  // files forward unchanged.
-  let crowdPayload = null;
-  const priorCrowd = await readCrowdPrior(DATA_DIR, CROWD_KEY);
-  const priorCrowdOwner = await readCrowdPrior(DATA_DIR, CROWD_OWNER_KEY);
-  if (/^(?:0|false)$/i.test(process.env.CROWD || "1")) {
-    crowdPayload = priorCrowd;
-    console.log("Crowd & positioning: CROWD=0, carrying the prior files forward.");
-  } else {
-    console.log("Fetching crowd & positioning sources…");
-    try {
-      // Today's 09:00 ET pre-open perps snapshot (overnight-preopen.json,
-      // written by scripts/overnight-preopen.mjs; read again later for the
-      // overnight log, so this read costs one small file).
-      const preopenFileForCrowd = await readPriorDataJson(OVERNIGHT_PREOPEN_KEY);
-      const preopenForCrowd = preopenFileForCrowd?.perps?.asOf && etDateKey(new Date(preopenFileForCrowd.perps.asOf)) === etDateKey() ? preopenFileForCrowd : null;
-      crowdPayload = await buildCrowdPayload({
-        prior: priorCrowd, symbols: TICKERS, chains, todayEt: etDateKey(), nowIso: new Date().toISOString(),
-        levSingles: LEVERAGED_ETF_SINGLES, levGroups: LEVERAGED_ETF_GROUPS, preopen: preopenForCrowd,
-        quoteFn: async (syms) => {
-          // No `fields` filter: navPrice and netAssets are not in yahoo-finance2's
-          // QuoteOptions field list, so a filtered call is rejected before it
-          // reaches Yahoo ("called with invalid options", first live build
-          // 2026-11-09). The unfiltered quote carries both for ETFs.
-          const got = await yahooFinance.quote(syms, {}, { validateResult: false });
-          return Array.isArray(got) ? got : got ? [got] : [];
-        },
-        log: (line) => console.log(line),
-      });
-      console.log(`  · crowd ${crowdPayload.okCount}/${crowdPayload.sources.length} sources fresh`);
-    } catch (err) {
-      crowdPayload = priorCrowd;
-      console.warn(`[crowd] skipped — ${String(err?.message || err).split("\n")[0]}`);
-    }
-  }
   // Fetch the macro backdrop (10Y yield + DXY) BEFORE per-ticker AI judgments
   // so the fallback paragraph (used when a ticker has no readable articles)
   // can quote live macro values instead of returning an empty take.
@@ -38886,6 +38845,49 @@ async function main() {
   _newsFeedHeadlineRows.push(...evidenceFeedRows(freeNewsEvidence));
   console.log(`[news] official context: ${freeNewsEvidence.events.length} events, ${Object.values(freeNewsEvidence.sources).filter(s => s.status === "error").length} source errors`);
   await attachSocialSentiment(chains);
+  // Crowd & positioning (lib/crowd/, 2026-11-09): FINRA short sale volume,
+  // Cboe put/call, IBKR borrow, CFTC COT, Reddit mentions, Wikipedia views,
+  // leveraged-ETF flows, Stocktwits watchers, margin debt, Kalshi odds and
+  // Hyperliquid stock perps. Every source is free, keyless and fail-soft, and
+  // the histories accumulate, so the prior public + Owner copies are read
+  // before writeChainFiles wipes data/. Stocktwits watchers come from the
+  // social pass just above (chains[sym].social), so this block must run after
+  // attachSocialSentiment (before it, every watcher count read null; fixed
+  // 2026-11-09, crowd-smoke checks the order). CROWD=0 skips the fetch and
+  // carries the prior files forward unchanged.
+  let crowdPayload = null;
+  const priorCrowd = await readCrowdPrior(DATA_DIR, CROWD_KEY);
+  const priorCrowdOwner = await readCrowdPrior(DATA_DIR, CROWD_OWNER_KEY);
+  if (/^(?:0|false)$/i.test(process.env.CROWD || "1")) {
+    crowdPayload = priorCrowd;
+    console.log("Crowd & positioning: CROWD=0, carrying the prior files forward.");
+  } else {
+    console.log("Fetching crowd & positioning sources…");
+    try {
+      // Today's 09:00 ET pre-open perps snapshot (overnight-preopen.json,
+      // written by scripts/overnight-preopen.mjs; read again later for the
+      // overnight log, so this read costs one small file).
+      const preopenFileForCrowd = await readPriorDataJson(OVERNIGHT_PREOPEN_KEY);
+      const preopenForCrowd = preopenFileForCrowd?.perps?.asOf && etDateKey(new Date(preopenFileForCrowd.perps.asOf)) === etDateKey() ? preopenFileForCrowd : null;
+      crowdPayload = await buildCrowdPayload({
+        prior: priorCrowd, symbols: TICKERS, chains, todayEt: etDateKey(), nowIso: new Date().toISOString(),
+        levSingles: LEVERAGED_ETF_SINGLES, levGroups: LEVERAGED_ETF_GROUPS, preopen: preopenForCrowd,
+        quoteFn: async (syms) => {
+          // No `fields` filter: navPrice and netAssets are not in yahoo-finance2's
+          // QuoteOptions field list, so a filtered call is rejected before it
+          // reaches Yahoo ("called with invalid options", first live build
+          // 2026-11-09). The unfiltered quote carries both for ETFs.
+          const got = await yahooFinance.quote(syms, {}, { validateResult: false });
+          return Array.isArray(got) ? got : got ? [got] : [];
+        },
+        log: (line) => console.log(line),
+      });
+      console.log(`  · crowd ${crowdPayload.okCount}/${crowdPayload.sources.length} sources fresh`);
+    } catch (err) {
+      crowdPayload = priorCrowd;
+      console.warn(`[crowd] skipped — ${String(err?.message || err).split("\n")[0]}`);
+    }
+  }
   // Extract the Major Contract + Guidance fundamentals signals from the news
   // headlines just attached. Mutates chains[sym].aiSignals in memory; consumed
   // later by buildTopPicks → scoreFundamentals. Self-skips without an API key.

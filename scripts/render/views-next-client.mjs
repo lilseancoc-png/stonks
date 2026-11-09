@@ -84,6 +84,16 @@ export function renderViewsNextJs() {
       return '<button type="button" role="tab" class="ui-tab' + (on ? ' is-on' : '') + '" ' + attr + '="' + t[0] + '" aria-selected="' + (on ? 'true' : 'false') + '">' + escapeHtml(t[1]) + '</button>';
     }).join('') + '</div>';
   }
+  // After a re-render the tab row starts scrolled to the left, so on a phone
+  // the chosen tab can sit off screen. Bring it into view inside its row
+  // (never scrolls the page).
+  function vnTabsReveal(root){
+    var on = root && root.querySelector ? root.querySelector('.vn-tabs .ui-tab.is-on') : null;
+    var row = on && on.parentNode;
+    if (!row || !(row.scrollWidth > row.clientWidth)) return;
+    var rr = row.getBoundingClientRect(), tr = on.getBoundingClientRect();
+    row.scrollLeft = Math.max(0, row.scrollLeft + (tr.left - rr.left) - (rr.width - tr.width) / 2);
+  }
 
   // ---- Market map ----------------------------------------------------------
   var MM_TABS = [['fear', 'Fear map'], ['scatter', 'Two-number lens'], ['wall', 'Chart wall'], ['crowd', 'Crowding'], ['breadth', 'Breadth'], ['shorts', 'Crowded shorts']];
@@ -159,6 +169,7 @@ export function renderViewsNextJs() {
     if (!MM_TABS.some(function(t){ return t[0] === tab; })) tab = 'fear';
     var body = tab === 'scatter' ? mmScatterHtml(d) : tab === 'wall' ? mmWallHtml(d) : tab === 'crowd' ? mmCrowdHtml(d) : tab === 'breadth' ? mmBreadthHtml(d) : tab === 'shorts' ? mmShortsHtml(d) : mmFearHtml(d);
     root.innerHTML = vnTabsHtml(MM_TABS, tab, 'data-mm-tab') + '<div class="mm-body">' + body + '</div>';
+    vnTabsReveal(root);
     if (tab === 'breadth') mmMountBreadth(d);
   }
   function mmStocks(d, withEtf){ return (d.rows || []).filter(function(r){ return r && (withEtf || !r.etf); }); }

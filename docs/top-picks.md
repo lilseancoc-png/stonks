@@ -1724,12 +1724,16 @@ short-volume share (`sv`) and its 20-session z (`svz`), the IBKR borrow fee
 (`bf`), a retail attention score (`att`, the mean percentile of Reddit
 mentions, Wikipedia views vs the 30-day average and Stocktwits watcher
 growth) with its parts (`rdv`, `wkr`, `stw`), and the Hyperliquid perp
-funding (`pf`) and gap to the last close (`pgp`). The block also carries one
+funding (`pf`) and its 09:00 ET pre-open gap to the last close (`pgp`, one
+fixed time of day so every row means the same thing). The block also carries one
 row of market gauges for the day (`mkt`: Cboe equity put/call level, z and
 percentile, the total ratio, CFTC net positions as 3-year z-scores for
 leveraged funds in S&P 500, Nasdaq-100 and VIX futures and asset managers in
 S&P 500, margin debt y/y and m/m, leveraged bull and bear ETF flows over five
-days, the Kalshi S&P 500 implied mean, market short-volume share). The block
+days, the Kalshi S&P 500 range market's 80% band width per square root of the
+days left to settle (`kxWid`; the implied mean was a price level and was
+dropped on 2026-11-09), Kalshi's US recession odds (`kxRec`), market
+short-volume share). The block
 is built once per bake, before the Top Picks run, so the run archive's rows
 (`lib/picks-run-archive.mjs`, gauges once per run as `mkt`) and every new
 record trade's `entrySnapshot` (version 2, `shadow` + `mkt`) carry the same
@@ -1761,7 +1765,9 @@ passes each as a repo variable (`lib/top-picks-config.mjs`):
 | `PICKS_CROWD_GRADER=1` | `crowdGraderLines` appends two lines to the AI grader's prompt after the macro block: the market gauges (CFTC leveraged funds and asset managers z, Nasdaq-100 z, Cboe put/call and z, margin debt y/y, market short volume) and the name's own short volume, borrow fee, attention and perp funding, each worded as a condition, not a direction. The cache signature turns over with the gauges. About 120 tokens per graded name. |
 
 Every scored name also carries `crowd` (`crowdContextFor`: `sv`, `svz`,
-`bf`, `att`, `rdv`, `wkr`, `stw`, `pf`, `pgp`, `asOf`) on the Owner-only
+`bf`, `att`, `rdv`, `wkr`, `stw`, `pf`, `pgp`, `asOf`; here `pgp` is the
+latest overnight gap: the live read outside the session, else the 09:00 ET
+snapshot) on the Owner-only
 `picks.json` row and in the scored record the grader sees. `regen-picks`
 reads `crowd.json` from disk for the same context. Nothing here feeds a
 grade point; the direction-skill test on Dec 7 comes first.
