@@ -18,8 +18,8 @@ delete process.env.MCP_TOKEN_VERSION;
 
 const { handleMcpRequest, SUPPORTED_VERSIONS } = await import("../lib/mcp/server.mjs");
 const oauth = await import("../lib/mcp/oauth.mjs");
-const { boundedJson, TOOLS } = await import("../lib/mcp/tools.mjs");
-const { default: authHandler } = await import("../api/auth/[action].js");
+const { boundedJson, TOOLS, FEATURE_KEYS, FEATURE_DATASETS, NOT_SERVED_KEYS } = await import("../lib/mcp/tools.mjs");
+const { default: authHandler, mcpRouteOf } = await import("../api/auth/[action].js");
 
 const HOST = "mingstreet.test";
 const ORIGIN = `https://${HOST}`;
@@ -62,7 +62,15 @@ const files = {
   "NVDA.json": { builtAtIso: "2026-11-02T14:00:00Z", symbol: "NVDA", spot: 200, technicals: { rsi: 61 }, fundamentals: { revenue: 1e11 },
     news: Array.from({ length: 30 }, (_, i) => ({ title: "n" + i })), sessionToken: "must-not-leak",
     priceSeries: { t: ["2026-10-30", "2026-10-31", "2026-11-02"], o: [1, 2, 3], h: [1, 2, 3], l: [1, 2, 3], c: [190, 195, 200], v: [10, 20, 30] },
-    bigSection: { rows: Array.from({ length: 500 }, (_, i) => ({ i, note: "y".repeat(50) })) } },
+    bigSection: { rows: Array.from({ length: 500 }, (_, i) => ({ i, note: "y".repeat(50) })) },
+    quoteAsOf: "2026-11-02T14:58:00Z",
+    chains: Object.fromEntries(["2026-11-06", "2026-11-20"].map((d) => [String(Date.parse(d + "T00:00:00Z") / 1000), {
+      c: [180, 185, 190, 195, 200, 205, 210, 215, 220].map((s) => ({ s, b: Math.max(0.05, 202 - s), a: Math.max(0.1, 203 - s), l: 202.5 - s, iv: 0.45, oi: 1000, v: 50 })),
+      p: [180, 190, 200, 210].map((s) => ({ s, b: Math.max(0.05, s - 199), a: Math.max(0.1, s - 198), l: null, iv: 0.5, oi: 500, v: 5 })),
+    }])) },
+  "heatmap.json": { builtAtIso: "2026-11-02T14:00:00Z", tickers: [{ t: "NVDA", n: "NVIDIA Corporation", s: "Technology", i: "Semiconductors" }, { t: "AAPL", n: "Apple Inc.", s: "Technology", i: "Consumer Electronics" }] },
+  "picks-run-2026-10-30.json": { builtAtIso: "2026-10-30T19:31:00Z", runs: [{ at: "2026-10-30T15:00:00Z", scored: [{ symbol: "NVDA", total: 9 }] }] },
+  "sector-rotation-log.json": { entries: Array.from({ length: 40 }, (_, i) => ({ date: new Date(Date.parse("2026-09-01T00:00:00Z") + i * 86_400_000).toISOString().slice(0, 10), leader: "XLK" })) },
   "picks-accuracy.json": { builtAtIso: "2026-11-02T14:00:00Z",
     open: [{ symbol: "NVDA", side: "call", entryDate: "2026-10-28T15:05:00Z", optionPnlPct: 12, entrySpot: 190, lastSpot: 200,
       contract: { structure: "long", strike: 200, expiry: 1797638400, mid: 10 }, marks: Array.from({ length: 400 }, (_, i) => ({ i, note: "m".repeat(80) })) }],
@@ -122,6 +130,7 @@ globalThis.fetch = async (url, init = {}) => {
   assert.equal(asm.body.issuer, ORIGIN);
   assert.deepEqual(asm.body.code_challenge_methods_supported, ["S256"]);
   assert.equal(asm.body.registration_endpoint, `${ORIGIN}/oauth/register`);
+  assert.deepEqual(asm.body.token_endpoint_auth_methods_supported, ["none", "client_secret_post", "client_secret_basic"]);
   // Routed through the auth function, as vercel.json rewrites do.
   const routed = await call(authHandler, { query: { action: "mcp-meta", kind: "resource" } });
   assert.equal(routed.body.resource, `${ORIGIN}/mcp`);
@@ -160,8 +169,8 @@ const authQuery = { client_id: clientId, redirect_uri: REDIRECT, response_type: 
   assert.equal(badResource.headers.location, undefined);
 }
 
-async function fullLogin() {
-  const consentPage = await call(oauth.authorize, { query: authQuery });
+async function fullLogin(query = authQuery) {
+  const consentPage = await call(oauth.authorize, { query });
   assert.equal(consentPage.statusCode, 200);
   assert.match(consentPage.body, /Connect “ChatGPT” to Mingstreet/);
   assert.match(consentPage.body, /chatgpt\.com/);
@@ -216,6 +225,61 @@ let accessToken, refreshToken;
   assert.match(cb.headers.location, /denied=role/);
   discordRoles = ["owner-role"];
 }
+// Clients that insist on a client secret (client_secret_post / _basic) get one
+// derived from their signed id; PKCE is still required, and a wrong secret fails.
+{
+  for (const method of ["client_secret_post", "client_secret_basic"]) {
+    const reg = await call(oauth.register, { method: "POST", body: { redirect_uris: [REDIRECT], client_name: "ChatGPT", token_endpoint_auth_method: method } });
+    assert.equal(reg.statusCode, 201);
+    assert.equal(reg.body.token_endpoint_auth_method, method);
+    assert.equal(reg.body.client_secret, oauth.clientSecretFor(ENV, reg.body.client_id));
+    assert.equal(reg.body.client_secret_expires_at, 0);
+    const cid = reg.body.client_id, secret = reg.body.client_secret;
+    const { cb } = await fullLogin({ ...authQuery, client_id: cid });
+    const code = new URL(cb.headers.location).searchParams.get("code");
+    const basicOf = (sec) => ({ authorization: "Basic " + Buffer.from(encodeURIComponent(cid) + ":" + encodeURIComponent(sec)).toString("base64") });
+    const send = (sec, extra = {}) => method === "client_secret_post"
+      ? call(oauth.token, { method: "POST", body: { client_id: cid, client_secret: sec, ...extra } })
+      : call(oauth.token, { method: "POST", headers: basicOf(sec), body: extra });
+    const codeGrant = { grant_type: "authorization_code", code, redirect_uri: REDIRECT, code_verifier: verifier };
+    const wrong = await send("not-the-secret", codeGrant);
+    assert.equal(wrong.statusCode, 401, method);
+    assert.equal(wrong.body.error, "invalid_client");
+    const okTok = await send(secret, codeGrant);
+    assert.equal(okTok.statusCode, 200, method + " " + JSON.stringify(okTok.body));
+    const refreshed = await send(secret, { grant_type: "refresh_token", refresh_token: okTok.body.refresh_token });
+    assert.equal(refreshed.statusCode, 200, method + " refresh");
+    assert.equal((await send(secret.slice(1), { grant_type: "refresh_token", refresh_token: okTok.body.refresh_token })).statusCode, 401);
+  }
+  const secretMethodsOnPublic = await call(oauth.token, { method: "POST", body: { grant_type: "refresh_token", refresh_token: refreshToken, client_id: clientId, client_secret: "guess" } });
+  assert.equal(secretMethodsOnPublic.statusCode, 401, "a public client cannot be talked into a made-up secret");
+}
+
+// Public discovery paths (vercel.json rewrites) reach the right handler,
+// whether the function sees the original path or the rewrite destination.
+{
+  const route = (url) => mcpRouteOf({ url, query: {} });
+  assert.deepEqual(route("/mcp/"), { action: "mcp" });
+  assert.deepEqual(route("/.well-known/openid-configuration"), { action: "mcp-meta", kind: "as" });
+  assert.deepEqual(route("/mcp/.well-known/openid-configuration"), { action: "mcp-meta", kind: "as" });
+  assert.deepEqual(route("/.well-known/oauth-protected-resource/mcp"), { action: "mcp-meta", kind: "resource" });
+  assert.deepEqual(route("/.well-known/oauth-authorization-server"), { action: "mcp-meta", kind: "as" });
+  assert.deepEqual(route("/oauth/token/"), { action: "mcp-oauth", step: "token" });
+  assert.equal(route("/.well-known/security.txt"), null);
+  const { readFile } = await import("node:fs/promises");
+  const vercel = JSON.parse(await readFile(new URL("../vercel.json", import.meta.url), "utf8"));
+  const mcpRewrites = vercel.rewrites.filter((r) => r.destination.startsWith("/api/auth/mcp"));
+  for (const need of ["/mcp", "/mcp/", "/.well-known/oauth-protected-resource", "/.well-known/oauth-authorization-server", "/.well-known/openid-configuration", "/mcp/.well-known/openid-configuration"]) {
+    assert.ok(mcpRewrites.some((r) => r.source === need), "vercel.json rewrites " + need);
+  }
+  for (const r of mcpRewrites) {
+    const src = r.source.replace(":step(register|authorize|token)", "token");
+    const dest = r.destination.replace(":step", "token");
+    const byPath = route(src), byDest = route(dest);
+    assert.ok(byPath, "routes " + src);
+    assert.deepEqual(byPath, byDest, `${src} and ${dest} agree`);
+  }
+}
 
 // ---- /mcp ---------------------------------------------------------------------
 const auth = { authorization: `Bearer ${accessToken}` };
@@ -250,8 +314,17 @@ async function rpc(method, params, { headers = auth, extra = {} } = {}) {
   assert.equal(mismatch.statusCode, 400);
   const badVersion = await rpc("tools/list", {}, { headers: { ...auth, "mcp-protocol-version": "2024-01-01" } });
   assert.equal(badVersion.statusCode, 400);
-  const evil = await rpc("ping", {}, { headers: { ...auth, origin: "https://evil.example" } });
-  assert.equal(evil.statusCode, 403);
+  // Bearer-only auth: any https browser origin may call with its own token,
+  // a page without one gets 401, and plain http from a remote host is refused.
+  const otherSite = await rpc("ping", {}, { headers: { ...auth, origin: "https://chat.mistral.ai" } });
+  assert.equal(otherSite.statusCode, 200);
+  assert.equal(otherSite.headers["access-control-allow-origin"], "https://chat.mistral.ai");
+  const noToken = await rpc("ping", {}, { headers: { origin: "https://evil.example" } });
+  assert.equal(noToken.statusCode, 401);
+  const plainHttp = await rpc("ping", {}, { headers: { ...auth, origin: "http://evil.example" } });
+  assert.equal(plainHttp.statusCode, 403);
+  assert.equal((await rpc("ping", {}, { headers: { ...auth, origin: "http://localhost:6274" } })).statusCode, 200, "the local MCP Inspector");
+  assert.deepEqual((await rpc("resources/templates/list", {})).body.result, { resourceTemplates: [] });
   const note = await call((req, res) => handleMcpRequest(req, res, deps()), { method: "POST", headers: auth, body: { jsonrpc: "2.0", method: "notifications/initialized" } });
   assert.equal(note.statusCode, 202);
   const batch = await call((req, res) => handleMcpRequest(req, res, deps()), { method: "POST", headers: auth, body: [{ jsonrpc: "2.0", id: 1, method: "ping" }] });
@@ -327,7 +400,14 @@ async function tool(name, args, opts) {
   const tp = await tool("get_top_picks", {});
   assert.equal(tp.isError, false, JSON.stringify(tp).slice(0, 400));
   assert.equal(tp.structuredContent.results.picks[0].symbol, "NVDA");
-  assert.equal(tp.structuredContent.results.picks[0].marketApproval.held, true, "the live market check still runs");
+  assert.equal(tp.structuredContent.results.picks[0].market_approval.held, true, "the live market check still runs");
+  assert.equal(tp.structuredContent.results.total_picks, 1);
+  assert.ok(tp.structuredContent.results.gated_names.turnedAway.includes("TSLA"), "gate lists come back as names");
+  const tpOne = await tool("get_top_picks", { symbol: "nvda" });
+  assert.equal(tpOne.isError, false, JSON.stringify(tpOne).slice(0, 300));
+  assert.equal(tpOne.structuredContent.results.pick.symbol, "NVDA");
+  assert.equal(tpOne.structuredContent.results.pick.marketApproval.held, true, "symbol returns the full pick");
+  assert.equal((await tool("get_top_picks", { symbol: "AAPL" })).structuredContent.error.code, "NOT_FOUND");
   assert.equal(writeAttempts.length, 0, "the market hold is previewed, never saved: " + JSON.stringify(writeAttempts));
   assert.ok(tp.structuredContent.limitations.some((l) => /read-only preview/.test(l)));
   const nm = await tool("get_near_misses", {});
@@ -371,6 +451,108 @@ async function tool(name, args, opts) {
   assert.ok(use.structuredContent.warnings.some((w) => w.startsWith("EXPIRED")), "validUntil in the past is flagged");
 }
 
+// ---- new pages' datasets, dated files, trimming, option chains, search/fetch ----
+{
+  const lf = (await tool("list_features", {})).structuredContent.results.features;
+  const byId = Object.fromEntries(lf.map((f) => [f.id, f]));
+  for (const [id, ds] of [["quant", "evidence"], ["quant", "regime-lab"], ["quant", "source-health"], ["crowd", "owner"], ["picks", "runs"], ["picks", "mode"], ["grade", "auto-picks"], ["past-day", "picks-run"], ["leaps", "paper"], ["bonds-usd", "auctions"], ["unified-signal-engine", "link-map"]]) {
+    assert.ok(byId[id]?.datasets?.includes(ds), `${id} lists dataset ${ds}`);
+  }
+  assert.equal(byId.picks.read_with, "get_top_picks");
+  assert.ok(byId.picks.dataset_notes.runs, "non-obvious datasets carry a note");
+
+  // Per-day files: the newest saved day by default, or the day asked for.
+  const run = await tool("get_feature", { feature_id: "picks", dataset: "runs" });
+  assert.equal(run.isError, false, JSON.stringify(run).slice(0, 300));
+  assert.equal(run.structuredContent.source.key, "picks-run-2026-10-30.json", "walks back to the newest saved day");
+  assert.equal(run.structuredContent.results.runs[0].scored[0].symbol, "NVDA");
+  assert.equal((await tool("get_feature", { feature_id: "past-day", dataset: "picks-run", date: "2026-10-30" })).structuredContent.source.key, "picks-run-2026-10-30.json");
+  assert.equal((await tool("get_feature", { feature_id: "picks", dataset: "runs", date: "2026-10-29" })).structuredContent.error.code, "DATA_UNAVAILABLE");
+  assert.equal((await tool("get_feature", { feature_id: "market", dataset: "regime-history", date: "2026-10-30" })).structuredContent.error.code, "INVALID_INPUT", "date only for per-day files");
+  assert.equal((await tool("get_feature", { feature_id: "picks", dataset: "runs", date: "2026-13-45" })).structuredContent.error.code, "INVALID_INPUT");
+
+  // Oldest-first logs keep their newest rows and are dated by them.
+  const log = await tool("get_feature", { feature_id: "rotation", dataset: "log", max_items: 5 });
+  const entries = log.structuredContent.results.entries;
+  assert.equal(entries.length, 6);
+  assert.equal(entries[0], "…35 earlier items");
+  assert.equal(entries[5].date, "2026-10-10", "the newest row survives the trim");
+  assert.equal(log.structuredContent.as_of, "2026-10-10T00:00:00.000Z", "an undated log is dated by its newest row");
+  assert.ok(log.structuredContent.warnings.some((w) => /STALE_SOURCE/.test(w)));
+  // max_items stays a ceiling when the payload falls to a smaller budget.
+  const wide = Array.from({ length: 20 }, (_, i) => Object.fromEntries(Array.from({ length: 60 }, (_, k) => ["k" + k, String(i).repeat(1200)])));
+  const capped = boundedJson(wide, { maxItems: 2 });
+  assert.equal(capped.value.length, 3, "2 rows and a 'more' marker");
+  assert.equal(boundedJson(wide, { maxItems: 100 }).value.length <= 13, true, "a large max_items still shrinks to fit");
+
+  // Option chains.
+  const oc = await tool("get_option_chain", { ticker: "nvda", strikes: 3 });
+  assert.equal(oc.isError, false, JSON.stringify(oc).slice(0, 300));
+  const ocr = oc.structuredContent.results;
+  assert.deepEqual(ocr.expirations.map((e) => e.date), ["2026-11-06", "2026-11-20"]);
+  assert.equal(ocr.expiry, "2026-11-20", "defaults to the first expiry at least a week out");
+  assert.equal(ocr.dte, 17);
+  assert.equal(ocr.spot_as_of, "2026-11-02T14:58:00Z");
+  assert.deepEqual(ocr.calls.map((c) => c.strike), [195, 200, 205], "nearest strikes to spot, in strike order");
+  assert.deepEqual(ocr.calls[1], { strike: 200, bid: 2, ask: 3, mid: 2.5, last: 2.5, iv: 0.45, oi: 1000, volume: 50, moneyness_pct: 0 });
+  assert.equal(ocr.puts.length, 3);
+  const ocPut = (await tool("get_option_chain", { ticker: "NVDA", expiry: "2026-11-06", side: "put" })).structuredContent.results;
+  assert.equal(ocPut.calls, undefined);
+  assert.deepEqual(ocPut.puts.map((p) => p.strike), [180, 190, 200, 210]);
+  assert.equal(ocPut.puts[3].moneyness_pct, 5);
+  assert.equal((await tool("get_option_chain", { ticker: "NVDA", expiry: "2026-12-18" })).structuredContent.error.code, "NOT_FOUND");
+  assert.equal((await tool("get_option_chain", { ticker: "AAPL" })).structuredContent.error.code, "DATA_UNAVAILABLE");
+  assert.equal((await tool("get_option_chain", { ticker: "ZZZZ" })).structuredContent.error.code, "NOT_COVERED");
+  const stockAgain = await tool("get_stock", { ticker: "NVDA" });
+  assert.ok(!JSON.stringify(stockAgain.structuredContent.results.data).includes("\"c\":["), "get_stock still leaves the chain out");
+
+  // search / fetch in the plain shape ChatGPT deep research expects.
+  const sr = await tool("search", { query: "nvidia" });
+  assert.equal(sr.isError, false);
+  assert.deepEqual(Object.keys(sr.structuredContent), ["results"]);
+  assert.deepEqual(sr.structuredContent.results[0], { id: "stock:NVDA", title: "NVDA: NVIDIA Corporation", url: `${ORIGIN}/?tab=stock&s=NVDA` });
+  assert.equal(JSON.parse(sr.content[0].text).results[0].id, "stock:NVDA");
+  assert.equal((await tool("search", { query: "AAPL" })).structuredContent.results[0].id, "stock:AAPL", "an exact ticker ranks first");
+  assert.ok((await tool("search", { query: "brief" })).structuredContent.results.some((r) => r.id === "feature:brief"));
+  assert.ok((await tool("search", { query: "top picks" })).structuredContent.results.some((r) => r.id === "feature:picks"));
+  assert.equal((await tool("search", { query: "!" })).structuredContent.error.code, "INVALID_INPUT");
+  const fs = await tool("fetch", { id: "stock:NVDA" });
+  assert.equal(fs.isError, false, JSON.stringify(fs).slice(0, 300));
+  assert.deepEqual(Object.keys(fs.structuredContent).sort(), ["id", "metadata", "text", "title", "url"]);
+  assert.equal(fs.structuredContent.title, "NVDA: NVIDIA Corporation");
+  assert.ok(JSON.parse(fs.structuredContent.text).ticker === "NVDA" || fs.structuredContent.text.includes("NVDA"));
+  assert.ok(!fs.structuredContent.text.includes("must-not-leak"));
+  assert.equal(fs.structuredContent.metadata.as_of, "2026-11-02T14:00:00Z");
+  const ff = await tool("fetch", { id: "feature:brief" });
+  assert.ok(ff.structuredContent.text.includes("Stocks rise"));
+  const fp = await tool("fetch", { id: "feature:picks" });
+  assert.equal(fp.isError, false, "a dedicated page fetches through its tool");
+  assert.equal(JSON.parse(fp.structuredContent.text).picks[0].symbol, "NVDA");
+  assert.equal((await tool("fetch", { id: "feature:nope" })).structuredContent.error.code, "NOT_FOUND");
+  assert.equal((await tool("fetch", { id: "stock:../../x" })).structuredContent.error.code, "INVALID_INPUT");
+  assert.equal(writeAttempts.length, 0, "search and fetch save nothing");
+}
+
+// Every data file a page loads is served (FEATURE_KEYS, FEATURE_DATASETS, a
+// dedicated tool) or deliberately left out (NOT_SERVED_KEYS).
+{
+  const { readFile, readdir } = await import("node:fs/promises");
+  const { EXPORT_SOURCES } = await import("./render/export-js.mjs");
+  const dir = new URL("./render/", import.meta.url);
+  const loaded = new Map();
+  for (const f of await readdir(dir)) {
+    const src = await readFile(new URL(f, dir), "utf8");
+    for (const m of src.matchAll(/\b(?:dataUrl|vnJson|quantFetchJson)\(\s*['"`]([^'"`$]+)/g)) if (!loaded.has(m[1])) loaded.set(m[1], f);
+  }
+  for (const keys of Object.values(EXPORT_SOURCES)) for (const k of keys) if (!loaded.has(k)) loaded.set(k, "export-js.mjs");
+  assert.ok(loaded.size > 40, "found the pages' data loads: " + loaded.size);
+  const DEDICATED_KEYS = ["picks.json", "picks-accuracy.json", "grades.json"];
+  const served = new Set([...Object.values(FEATURE_KEYS).filter(Boolean), ...Object.values(FEATURE_DATASETS).flatMap((d) => Object.values(d)), ...DEDICATED_KEYS]);
+  const prefixes = [...served].filter((k) => /\{(SYMBOL|DATE)\}/.test(k)).map((k) => k.split("{")[0]);
+  const missing = [...loaded].filter(([k]) => !served.has(k) && !NOT_SERVED_KEYS.has(k) && !(prefixes.includes(k))).map(([k, f]) => `${k} (${f})`);
+  assert.deepEqual(missing, [], "add these to FEATURE_DATASETS in lib/mcp/tools.mjs or to NOT_SERVED_KEYS");
+}
+
 // ---- anonymous public mode (off by default) ----------------------------------
 {
   const pub = { headers: {}, extra: { MCP_PUBLIC_ACCESS: "1" } };
@@ -389,6 +571,17 @@ async function tool(name, args, opts) {
   assert.equal((await tool("get_feature", { feature_id: "calls", dataset: "transcript", ticker: "NVDA" }, pub)).isError, false);
   assert.equal((await tool("get_feature", { feature_id: "track", dataset: "changes" }, pub)).structuredContent.error.code, "FORBIDDEN");
   assert.equal((await tool("get_feature", { feature_id: "market", dataset: "regime-history" }, pub)).structuredContent.error.code, "FORBIDDEN");
+  const pubFeats = Object.fromEntries((await tool("list_features", {}, pub)).structuredContent.results.features.map((f) => [f.id, f]));
+  assert.ok(!(pubFeats["past-day"]?.datasets || []).includes("picks-run"), "Owner-only files on public pages are not listed");
+  assert.ok(!(pubFeats.crowd?.datasets || []).includes("owner"));
+  assert.equal((await tool("get_feature", { feature_id: "past-day", dataset: "picks-run" }, pub)).structuredContent.error.code, "FORBIDDEN");
+  assert.equal((await tool("get_option_chain", { ticker: "NVDA" }, pub)).isError, false, "option chains are public data");
+  const pubSearch = (await tool("search", { query: "picks market nvidia" }, pub)).structuredContent.results;
+  assert.ok(pubSearch.every((r) => !r.id.startsWith("feature:") || pubFeats[r.id.slice(8)]), "search lists only pages this caller can read");
+  assert.equal((await tool("fetch", { id: "feature:market" }, pub)).structuredContent.error.code, "NOT_FOUND");
+  const pubStock = await tool("fetch", { id: "stock:NVDA" }, pub);
+  assert.equal(pubStock.isError, false);
+  assert.ok(JSON.parse(pubStock.structuredContent.text).bars, "the public stock fetch is price history, not the Owner research");
 }
 
 // ---- refresh re-checks the owner role ----------------------------------------
