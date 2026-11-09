@@ -78,7 +78,7 @@ import { buildEvidenceBoard, writeEvidenceBoard } from "../lib/evidence-board.mj
 import { loadRegimeLab, writeRegimeLab, loadResearchResults, buildLabelInputs, buildBakeLabels, todayFromSeries, openShadowBooks, markShadowBooks, buildBakeOracle, buildRegimeLabPayload, labStamp, regimeLabEnabled, REGIME_LAB_KEY } from "../lib/regime-lab/payload.mjs";
 import { riskScore as regimeLabRiskScore } from "../lib/regime-lab/exits.mjs";
 import { buildSourceHealth, loadSourceHealth, readSourcePayloads, writeSourceHealth } from "../lib/source-health.mjs";
-import { buildCrowdPayload, buildCrowdOwner, readCrowdPrior, writeCrowdFiles, CROWD_KEY, CROWD_OWNER_KEY } from "../lib/crowd/index.mjs";
+import { buildCrowdPayload, buildCrowdOwner, readCrowdPrior, writeCrowdFiles, marketGauges, crowdScoresForRow, CROWD_KEY, CROWD_OWNER_KEY } from "../lib/crowd/index.mjs";
 import { AI_COST_HISTORY_KEY, parseAiCostHistory, upsertAiCostHistory } from "../lib/ai-cost-history.mjs";
 import {
   TRANSCRIPT_BATCH_MAX_AGE_HOURS, TRANSCRIPT_BATCH_POLL_MS, batchJobDone, batchJobFailureReason, batchJobSucceeded, batchResponseText, buildTranscriptBatchRequests,
@@ -131,6 +131,7 @@ import { readForecastState, readForecastFiles, restoreForecastFiles, prepareEarn
 import { forcedLiquidationContext } from "../lib/forced-liquidation.mjs";
 import { buyoutContextFor } from "../lib/pending-buyout-guard.mjs";
 import { buildShadowSignals } from "../lib/shadow-signals.mjs";
+import { buildShadowResearch } from "../lib/shadow-research.mjs";
 import { buildEntrySnapshot } from "../lib/trade-snapshot.mjs";
 import { PICKS_MAX_PER_SECTOR, PICKS_MAX_NEW_PER_FACTOR_RUN, PICKS_CAPS_VERSION, factorOfSectorLabel, exposureCapBlock, countExposure } from "../lib/top-picks-caps.mjs";
 import { TOP_PICKS_MODE_KEY, readTopPicksModeDoc, marketModeForRun, marketModeBlocks, topPicksModeFactory } from "../lib/top-picks-mode.mjs";
@@ -18155,6 +18156,8 @@ import {
   PICKS_TIMING_PULLBACK_BAND, PICKS_EVENT_SOFT_BLOCKS, PICKS_EVENT_AWARE,
   PICKS_MACRO_CONTEXT, PICKS_MACRO_ROTATION_PP_20D, PICKS_MACRO_FED_PRICED_PTS,
   PICKS_MACRO_POINTS, PICKS_MACRO_BLOCK_PTS,
+  PICKS_CROWD_SQUEEZE_VETO, PICKS_CROWD_SQUEEZE_FEE, PICKS_CROWD_SQUEEZE_FEE_LO, PICKS_CROWD_SQUEEZE_SVZ,
+  PICKS_CROWD_GRADER, PICKS_MACRO_PUTCALL_SRC, PICKS_MACRO_PUTCALL_CBOE_HI, PICKS_MACRO_PUTCALL_CBOE_VHI, PICKS_MACRO_PUTCALL_CBOE_LO,
   PICKS_AI_SKIP_WHEN_NONE_READY, PICKS_ENTRY_READY_BAR, PICKS_ENTRY_EXTENDED_DIST,
   PICKS_ENTRY_EXTENDED_HARD, PICKS_ENTRY_CHASE_RSI_HARD, PICKS_ENTRY_EXTREME_DIST,
   PICKS_ENTRY_EXTREME_RSI, PICKS_ENTRY_EXTREME_RET5D, PICKS_ENTRY_PULLBACK_ATR_MULT,
@@ -18169,6 +18172,7 @@ export {
   PICKS_ENTRY_TIMING_VERSION, PICKS_TIMING_THRESHOLDS,
   PICKS_SINGLES_DEFAULT, PICKS_SINGLE_MAX_COST, PICKS_STRUCTURE_POLICY_VERSION,
   PICKS_MACRO_CONTEXT, PICKS_MACRO_POINTS, PICKS_MACRO_BLOCK_PTS,
+  PICKS_CROWD_SQUEEZE_VETO, PICKS_CROWD_GRADER, PICKS_MACRO_PUTCALL_SRC,
 };
 // Sector / factor caps live in lib/top-picks-caps.mjs (re-exported here).
 export { PICKS_MAX_PER_SECTOR, PICKS_MAX_NEW_PER_FACTOR_RUN, PICKS_CAPS_VERSION };
@@ -20448,6 +20452,7 @@ const MACRO_LIVE_THRESHOLDS = {
   creditOasStressHi: PICKS_MACRO_CREDIT_OAS_STRESS_HI, creditOasStressVhi: PICKS_MACRO_CREDIT_OAS_STRESS_VHI, creditOasTightLvl: PICKS_MACRO_CREDIT_OAS_TIGHT_LVL,
   rotationOn: PICKS_MACRO_ROTATION, rotationPp: PICKS_MACRO_ROTATION_PP,
   macroContextOn: PICKS_MACRO_CONTEXT, rotationPp20d: PICKS_MACRO_ROTATION_PP_20D, fedPricedPts: PICKS_MACRO_FED_PRICED_PTS,
+  putCallSrc: PICKS_MACRO_PUTCALL_SRC, putCallCboeHi: PICKS_MACRO_PUTCALL_CBOE_HI, putCallCboeVhi: PICKS_MACRO_PUTCALL_CBOE_VHI, putCallCboeLo: PICKS_MACRO_PUTCALL_CBOE_LO,
   countExclude: [...MACRO_COUNT_EXCLUDED_AXES], // axes kept in stress but out of the effective COUNT — shipped so a non-default override stays server↔browser in sync
   axisWeights: MACRO_AXIS_WEIGHTS, // per-axis composite weights (stress sum + effective counts) — shipped so the live re-port weighs identically; a pre-weights payload ⇒ the browser falls back to 1 (the old flat vote)
 };
@@ -20781,7 +20786,21 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory = null, narrat
   // High put/call = hedging demand / fear (risk-off); call-heavy = complacency
   // (risk-on) — the same direction CNN F&G treats its put/call component. Votes on
   // the stable OI ratio against own universe-calibrated thresholds (not CBOE levels).
-  if (PICKS_MACRO_PUTCALL && macroBackdrop.putCall && isFinite(macroBackdrop.putCall.oiRatio)) {
+  // PICKS_MACRO_PUTCALL_SRC=cboe: the Cboe equity-only put/call ratio's
+  // percentile against its own 250 sessions (crowd.json, lib/crowd/put-call.mjs)
+  // votes instead of the universe OI ratio. A day Cboe has not published falls
+  // back to the universe read below. The browser keeps the baked score for
+  // this source (a daily number does not move intraday).
+  const cboe = macroBackdrop.putCallCboe || null;
+  if (PICKS_MACRO_PUTCALL && PICKS_MACRO_PUTCALL_SRC === "cboe" && cboe && isFinite(cboe.pct250) && isFinite(cboe.value)) {
+    const pct = cboe.pct250, v = cboe.value;
+    let s = 0, label = `Cboe equity put/call ${v.toFixed(2)} (${Math.round(pct)}th pctile)`;
+    if (pct >= PICKS_MACRO_PUTCALL_CBOE_VHI) { s = -2; label = `Cboe equity put/call ${v.toFixed(2)} — ${Math.round(pct)}th pctile, heavy hedging`; }
+    else if (pct >= PICKS_MACRO_PUTCALL_CBOE_HI) { s = -1; label = `Cboe equity put/call ${v.toFixed(2)} — ${Math.round(pct)}th pctile, defensive`; }
+    else if (pct <= PICKS_MACRO_PUTCALL_CBOE_LO) { s = 1; label = `Cboe equity put/call ${v.toFixed(2)} — ${Math.round(pct)}th pctile, call-heavy / complacent`; }
+    axes.putCall = { score: s, label, src: "cboe" };
+    if (s <= -1) drivers.push(`Cboe put/call ${v.toFixed(2)}`);
+  } else if (PICKS_MACRO_PUTCALL && macroBackdrop.putCall && isFinite(macroBackdrop.putCall.oiRatio)) {
     const pcObj = macroBackdrop.putCall;
     const pc = pcObj.oiRatio;
     const vr = isFinite(pcObj.volRatio) ? pcObj.volRatio : null;
@@ -20948,11 +20967,15 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory = null, narrat
       newHighs: numOrNull(macroBackdrop.breadth.newHighs),
       newLows: numOrNull(macroBackdrop.breadth.newLows),
     } : null,
-    putCall: macroBackdrop.putCall ? {
-      oiRatio: numOrNull(macroBackdrop.putCall.oiRatio),
-      volRatio: numOrNull(macroBackdrop.putCall.volRatio),
-      totalVol: numOrNull(macroBackdrop.putCall.totalVol),
-      oiSum: numOrNull(macroBackdrop.putCall.oiSum),
+    putCall: macroBackdrop.putCall || macroBackdrop.putCallCboe ? {
+      oiRatio: numOrNull(macroBackdrop.putCall?.oiRatio),
+      volRatio: numOrNull(macroBackdrop.putCall?.volRatio),
+      totalVol: numOrNull(macroBackdrop.putCall?.totalVol),
+      oiSum: numOrNull(macroBackdrop.putCall?.oiSum),
+      // Which source voted (axes.putCall.src) and the Cboe equity read for the
+      // chips: value, 250-session z and percentile (lib/crowd/put-call.mjs).
+      src: axes?.putCall?.src === "cboe" ? "cboe" : "universe",
+      ...(macroBackdrop.putCallCboe ? { cboe: { value: numOrNull(macroBackdrop.putCallCboe.value), z250: numOrNull(macroBackdrop.putCallCboe.z250), pct250: numOrNull(macroBackdrop.putCallCboe.pct250) } } : {}),
     } : null,
     credit: macroBackdrop.credit ? {
       oas: numOrNull(macroBackdrop.credit.oas),
@@ -21399,6 +21422,10 @@ export function scoreAllTickers(chains, narratives, streaksMap, unusualPayload, 
     // Signed takeover targets (pending-buyouts.json): a confirmed deal pins the
     // stock to its terms. Context only here; structuralVeto() applies it.
     r.pendingBuyout = buyoutContextFor(opts.pendingBuyouts, sym, data.spot);
+    // Crowd & positioning facts (crowd.json rollup): short-volume share, borrow
+    // fee, retail attention. Context only; structuralVeto() and the AI grader
+    // lines read it behind their own switches. Never a grade input.
+    r.crowd = crowdContextFor(opts.crowd, sym);
     scored.push(r);
     const pg = peerGroupOf(sym, data);
     (peerIndex[pg] ||= []).push({ symbol: sym, total: r.total, tier: r.recommendation.tier, label: r.recommendation.label });
@@ -22455,7 +22482,34 @@ export function structuralVeto(r, side) {
   if (side === "call" && r?.forcedLiquidation?.vetoLong) return "collateral-stress";
   if (r?.pendingBuyout?.block) return "pending-buyout";
   if (macroConflict(r, side)) return "macro-conflict";
+  if (side === "put" && crowdSqueeze(r)) return "crowd-squeeze";
   return null;
+}
+// One name's crowd & positioning facts off the public crowd.json rollup
+// (lib/crowd/index.mjs buildSymbolRollup) plus the Owner attention score.
+// Null when the payload or the name is missing; a stale payload still reads
+// (the rollup carries each block's last-good values, marked stale upstream).
+export function crowdContextFor(crowd, sym) {
+  const row = (Array.isArray(crowd?.rollup) ? crowd.rollup : []).find((x) => x?.symbol === sym) || null;
+  if (!row) return null;
+  const n = (v) => (v == null || !Number.isFinite(Number(v)) ? null : Number(v));
+  const out = {
+    sv: n(row.shortPct), svz: n(row.shortZ20), bf: n(row.borrowFeePct), bfPct: n(row.borrowFeePctPctile),
+    att: n(crowdScoresForRow(row).attention), rdv: n(row.redditVsAvg7), wkr: n(row.wikiRatio30), stw: n(row.watchersPct7d),
+    pf: n(row.perpFundingAnnualPct), pgp: n(row.perpGapPct !== undefined ? row.perpGapPct : row.perpVsClosePct), asOf: crowd?.etDate || null,
+  };
+  return Object.values(out).some((v) => v != null) ? out : null;
+}
+// The crowd squeeze block (PICKS_CROWD_SQUEEZE_VETO=1 only): a put on a name
+// that is hard to borrow, or tight to borrow with short volume already heavy,
+// is squeeze fuel rather than a fresh short. Off by default until the shadow
+// read clears the bar (docs/top-picks.md, "Crowd signals").
+export function crowdSqueeze(r) {
+  if (!PICKS_CROWD_SQUEEZE_VETO) return false;
+  const bf = r?.crowd?.bf, svz = r?.crowd?.svz;
+  if (!Number.isFinite(bf)) return false;
+  if (bf >= PICKS_CROWD_SQUEEZE_FEE) return true;
+  return bf >= PICKS_CROWD_SQUEEZE_FEE_LO && Number.isFinite(svz) && svz >= PICKS_CROWD_SQUEEZE_SVZ;
 }
 // The macro block (PICKS_MACRO_CONTEXT=1, PICKS_MACRO_BLOCK_PTS > 0): a call
 // whose macro fit reads -0.5 or lower, or a put at +0.5 or higher, fights the
@@ -23043,6 +23097,7 @@ function buildPickObject(r, side, contract, exitPlan, entryPlan, peers, peerGrou
     regimeOverlay: r.regimeOverlay || null,
     analysis: thesis, thesis, thesisCard,
     forcedLiquidation: r.forcedLiquidation || null,
+    ...(r.crowd ? { crowd: r.crowd } : {}),
     strategy: strategy ? {
       type: strategy.type, label: strategy.label, reason: strategy.reason,
       ivZ: strategy.ivZ ?? null, ivPctile: strategy.ivPctile ?? null, ivTier: strategy.ivTier ?? null,
@@ -28067,6 +28122,8 @@ async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload 
         // Regime Lab market label at this run (cell, era, character,
         // transition). A stamp for the archive test (F21); never an input.
         lab: regimeLab?.stamp || null,
+        // The day's shadow rows (crowd keys included) and market gauges.
+        shadow: extras.shadow || null,
       });
     } catch (err) {
       console.warn(`[picks-run] record skipped — ${String(err?.message || err).split("\n")[0]}`);
@@ -28311,6 +28368,38 @@ export function macroGraderLines(r, side, macroContext = null) {
 }
 function macroGraderBlock(r, side, macroContext) {
   const L = macroGraderLines(r, side, macroContext);
+  return L.length ? `\n${L.join("\n")}` : "";
+}
+// Crowd & positioning lines for the AI grader (PICKS_CROWD_GRADER=1 only):
+// the market gauges (lib/crowd/index.mjs marketGauges) and the name's own
+// short volume, borrow fee and retail attention (r.crowd). Positioning is a
+// condition, not a direction, and the lines say so. About 120 tokens.
+export function crowdGraderLines(r, side, gauges = null) {
+  const L = [];
+  const n = (v, d = 2) => (Number.isFinite(Number(v)) ? Number(v).toFixed(d) : null);
+  if (gauges && typeof gauges === "object") {
+    const parts = [];
+    if (n(gauges.cotEsLevZ) != null) parts.push(`CFTC leveraged funds net S&P 500 futures z ${n(gauges.cotEsLevZ, 1)} (3y; ${gauges.cotEsLevZ <= -1 ? "crowded short, squeeze-prone" : gauges.cotEsLevZ >= 1 ? "crowded long, air-pocket risk" : "unremarkable"})`);
+    if (n(gauges.cotEsAmZ) != null) parts.push(`asset managers z ${n(gauges.cotEsAmZ, 1)}`);
+    if (n(gauges.cotNqLevZ) != null) parts.push(`Nasdaq-100 leveraged funds z ${n(gauges.cotNqLevZ, 1)}`);
+    if (n(gauges.putCallEquity) != null) parts.push(`Cboe equity put/call ${n(gauges.putCallEquity)}${n(gauges.putCallEquityZ) != null ? ` (z ${n(gauges.putCallEquityZ, 1)} vs 250 sessions)` : ""}`);
+    if (n(gauges.marginDebtYoyPct) != null) parts.push(`FINRA margin debt ${gauges.marginDebtYoyPct >= 0 ? "+" : ""}${n(gauges.marginDebtYoyPct, 1)}% y/y`);
+    if (n(gauges.shortVolumeMarketPct) != null) parts.push(`market short-volume share ${n(gauges.shortVolumeMarketPct, 1)}%`);
+    if (parts.length) L.push(`CROWD POSITIONING (market) — ${parts.join("; ")}. Positioning is a condition, not a direction: crowded shorts raise squeeze risk on a put, crowded longs raise air-pocket risk on a call.`);
+  }
+  const c = r?.crowd;
+  if (c && typeof c === "object") {
+    const parts = [];
+    if (n(c.sv) != null) parts.push(`FINRA short-volume share ${n(c.sv, 1)}%${n(c.svz) != null ? ` (z ${n(c.svz, 1)} vs 20 sessions${c.svz >= 1.5 ? ", heavy" : c.svz <= -1.5 ? ", light" : ""})` : ""}`);
+    if (n(c.bf) != null) parts.push(`IBKR borrow fee ${n(c.bf, 1)}%/yr${c.bf >= 5 ? " (hard to borrow)" : ""}`);
+    if (n(c.att) != null) parts.push(`retail attention ${Math.round(c.att)}/100${c.att >= 85 ? " (crowded)" : ""}`);
+    if (n(c.pf) != null) parts.push(`stock-perp funding ${c.pf >= 0 ? "+" : ""}${n(c.pf, 0)}%/yr`);
+    if (parts.length) L.push(`CROWD ON ${r.sym} — ${parts.join("; ")}.${side === "put" && (c.bf >= 5 || c.svz >= 1.5) ? " A put here is adding to a crowded short." : side === "call" && c.att >= 85 ? " A call here is joining a crowd." : ""}`);
+  }
+  return L;
+}
+function crowdGraderBlock(r, side, gauges) {
+  const L = crowdGraderLines(r, side, gauges);
   return L.length ? `\n${L.join("\n")}` : "";
 }
 
@@ -28646,7 +28735,7 @@ export function thesisCacheSig(r, side, kind, macroRegime, macroCalendar = null,
   // technical levels, IV momentum, and every scored value all participate even
   // when their coarse material buckets above did not change.
   const basePromptHash = createHash("sha256")
-    .update(buildThesisUserMessage(r, side, macroRegime, { macroCalendar, ivRow, ...context }) + macroGraderBlock(r, side, context?.macroContext || null))
+    .update(buildThesisUserMessage(r, side, macroRegime, { macroCalendar, ivRow, ...context }) + macroGraderBlock(r, side, context?.macroContext || null) + crowdGraderBlock(r, side, context?.crowdGauges || null))
     .digest("hex")
     .slice(0, 24);
   const instructionSig = thesisInstructionSignature().slice(0, 24);
@@ -28921,7 +29010,10 @@ export async function generateAiTheses(preScored, macroBackdrop, opts = {}, prio
   // grader prompt (and so the cache signature, which hashes the message).
   const graderContext = graderContextBuilder(opts);
   const graderMacroContext = PICKS_MACRO_CONTEXT ? (macroBackdrop?.macroContext || null) : null;
-  const contextFor = (sym) => ({ ...graderContext(sym), ...(graderMacroContext ? { macroContext: graderMacroContext } : {}) });
+  // Crowd lines (PICKS_CROWD_GRADER=1 only); the gauges ride the per-name
+  // context so the cache signature turns over with them.
+  const graderCrowd = PICKS_CROWD_GRADER ? (macroBackdrop?.crowdGauges || null) : null;
+  const contextFor = (sym) => ({ ...graderContext(sym), ...(graderMacroContext ? { macroContext: graderMacroContext } : {}), ...(graderCrowd ? { crowdGauges: graderCrowd } : {}) });
   const edgeGate = opts.priorClosed ? edgeGatedConviction(opts.priorClosed, opts.builtAtIso) : null;
   const strongBar = edgeGate?.strongBar ?? PICKS_TIER_STRONG;
   const cands = aiGraderCandidates(preScored, macroBackdrop, opts);
@@ -28982,6 +29074,7 @@ export async function generateAiTheses(preScored, macroBackdrop, opts = {}, prio
       const research = AI_THESIS_SEARCH ? await fetchThesisWebResearch(ai, r, side) : null;
       const userMsg = buildThesisUserMessage(r, side, macroRegime, { macroCalendar, ivRow: ivBySym[r.sym] || null, ...contextFor(r.sym) }) +
         macroGraderBlock(r, side, graderMacroContext) +
+        (PICKS_CROWD_GRADER ? crowdGraderBlock(r, side, graderCrowd) : "") +
         (research ? `\n\nWEB RESEARCH (live Google Search, run moments ago — FRESHER than the news read / headlines above; weigh it in your grade and entry call):\n${research.text}` : "");
       let response = null;
       for (let attempt = 0; attempt < AI_MAX_ATTEMPTS; attempt++) {
@@ -38655,43 +38748,6 @@ async function main() {
     `  · market structure ${marketStructureCount}/${TICKERS.length} tickers` +
     (marketStructure.errors.length ? ` (carried last-good after ${marketStructure.errors.join("; ")})` : ""),
   );
-  // Crowd & positioning (lib/crowd/, 2026-11-09): FINRA short sale volume,
-  // Cboe put/call, IBKR borrow, CFTC COT, Reddit mentions, Wikipedia views,
-  // leveraged-ETF flows, Stocktwits watchers, margin debt, Kalshi odds and
-  // Hyperliquid stock perps. Every source is free, keyless and fail-soft, and
-  // the histories accumulate, so the prior public + Owner copies are read
-  // before writeChainFiles wipes data/. Watchers come from the social pass
-  // above (chains[sym].social). CROWD=0 skips the fetch and carries the prior
-  // files forward unchanged.
-  let crowdPayload = null;
-  const priorCrowd = await readCrowdPrior(DATA_DIR, CROWD_KEY);
-  const priorCrowdOwner = await readCrowdPrior(DATA_DIR, CROWD_OWNER_KEY);
-  if (/^(?:0|false)$/i.test(process.env.CROWD || "1")) {
-    crowdPayload = priorCrowd;
-    console.log("Crowd & positioning: CROWD=0, carrying the prior files forward.");
-  } else {
-    console.log("Fetching crowd & positioning sources…");
-    try {
-      // Today's 09:00 ET pre-open perps snapshot (overnight-preopen.json,
-      // written by scripts/overnight-preopen.mjs; read again later for the
-      // overnight log, so this read costs one small file).
-      const preopenFileForCrowd = await readPriorDataJson(OVERNIGHT_PREOPEN_KEY);
-      const preopenForCrowd = preopenFileForCrowd?.perps?.asOf && etDateKey(new Date(preopenFileForCrowd.perps.asOf)) === etDateKey() ? preopenFileForCrowd : null;
-      crowdPayload = await buildCrowdPayload({
-        prior: priorCrowd, symbols: TICKERS, chains, todayEt: etDateKey(), nowIso: new Date().toISOString(),
-        levSingles: LEVERAGED_ETF_SINGLES, levGroups: LEVERAGED_ETF_GROUPS, preopen: preopenForCrowd,
-        quoteFn: async (syms) => {
-          const got = await yahooFinance.quote(syms, { fields: ["symbol", "sharesOutstanding", "navPrice", "netAssets", "regularMarketPrice", "regularMarketVolume", "averageDailyVolume3Month"] }, { validateResult: false });
-          return Array.isArray(got) ? got : got ? [got] : [];
-        },
-        log: (line) => console.log(line),
-      });
-      console.log(`  · crowd ${crowdPayload.okCount}/${crowdPayload.sources.length} sources fresh`);
-    } catch (err) {
-      crowdPayload = priorCrowd;
-      console.warn(`[crowd] skipped — ${String(err?.message || err).split("\n")[0]}`);
-    }
-  }
   // Fetch the macro backdrop (10Y yield + DXY) BEFORE per-ticker AI judgments
   // so the fallback paragraph (used when a ticker has no readable articles)
   // can quote live macro values instead of returning an empty take.
@@ -38789,6 +38845,49 @@ async function main() {
   _newsFeedHeadlineRows.push(...evidenceFeedRows(freeNewsEvidence));
   console.log(`[news] official context: ${freeNewsEvidence.events.length} events, ${Object.values(freeNewsEvidence.sources).filter(s => s.status === "error").length} source errors`);
   await attachSocialSentiment(chains);
+  // Crowd & positioning (lib/crowd/, 2026-11-09): FINRA short sale volume,
+  // Cboe put/call, IBKR borrow, CFTC COT, Reddit mentions, Wikipedia views,
+  // leveraged-ETF flows, Stocktwits watchers, margin debt, Kalshi odds and
+  // Hyperliquid stock perps. Every source is free, keyless and fail-soft, and
+  // the histories accumulate, so the prior public + Owner copies are read
+  // before writeChainFiles wipes data/. Stocktwits watchers come from the
+  // social pass just above (chains[sym].social), so this block must run after
+  // attachSocialSentiment (before it, every watcher count read null; fixed
+  // 2026-11-09, crowd-smoke checks the order). CROWD=0 skips the fetch and
+  // carries the prior files forward unchanged.
+  let crowdPayload = null;
+  const priorCrowd = await readCrowdPrior(DATA_DIR, CROWD_KEY);
+  const priorCrowdOwner = await readCrowdPrior(DATA_DIR, CROWD_OWNER_KEY);
+  if (/^(?:0|false)$/i.test(process.env.CROWD || "1")) {
+    crowdPayload = priorCrowd;
+    console.log("Crowd & positioning: CROWD=0, carrying the prior files forward.");
+  } else {
+    console.log("Fetching crowd & positioning sources…");
+    try {
+      // Today's 09:00 ET pre-open perps snapshot (overnight-preopen.json,
+      // written by scripts/overnight-preopen.mjs; read again later for the
+      // overnight log, so this read costs one small file).
+      const preopenFileForCrowd = await readPriorDataJson(OVERNIGHT_PREOPEN_KEY);
+      const preopenForCrowd = preopenFileForCrowd?.perps?.asOf && etDateKey(new Date(preopenFileForCrowd.perps.asOf)) === etDateKey() ? preopenFileForCrowd : null;
+      crowdPayload = await buildCrowdPayload({
+        prior: priorCrowd, symbols: TICKERS, chains, todayEt: etDateKey(), nowIso: new Date().toISOString(),
+        levSingles: LEVERAGED_ETF_SINGLES, levGroups: LEVERAGED_ETF_GROUPS, preopen: preopenForCrowd,
+        quoteFn: async (syms) => {
+          // No `fields` filter: navPrice and netAssets are not in yahoo-finance2's
+          // QuoteOptions field list, so a filtered call is rejected before it
+          // reaches Yahoo ("called with invalid options", first live build
+          // 2026-11-09). The unfiltered quote carries both for ETFs.
+          const got = await yahooFinance.quote(syms, {}, { validateResult: false });
+          return Array.isArray(got) ? got : got ? [got] : [];
+        },
+        log: (line) => console.log(line),
+      });
+      console.log(`  · crowd ${crowdPayload.okCount}/${crowdPayload.sources.length} sources fresh`);
+    } catch (err) {
+      crowdPayload = priorCrowd;
+      console.warn(`[crowd] skipped — ${String(err?.message || err).split("\n")[0]}`);
+    }
+  }
   // Extract the Major Contract + Guidance fundamentals signals from the news
   // headlines just attached. Mutates chains[sym].aiSignals in memory; consumed
   // later by buildTopPicks → scoreFundamentals. Self-skips without an API key.
@@ -39973,6 +40072,11 @@ async function main() {
     macroBackdrop.breadth = buildBreadthAxisInput(chains);
     macroBackdrop.putCall = buildPutCallAxisInput(chains);
     macroBackdrop.rotation = buildRotationAxisInput(chains);
+    // Crowd & positioning (crowd.json, fetched above): the Cboe equity put/call
+    // read the tape may vote on (PICKS_MACRO_PUTCALL_SRC=cboe) and the market
+    // gauges the AI grader may cite (PICKS_CROWD_GRADER=1). Context only.
+    macroBackdrop.putCallCboe = crowdPayload?.putCall?.stats?.equity || null;
+    macroBackdrop.crowdGauges = crowdPayload ? marketGauges(crowdPayload) : null;
     if (macroBackdrop.breadth) console.log(`  · breadth: ${macroBackdrop.breadth.pctAbove200 != null ? macroBackdrop.breadth.pctAbove200.toFixed(0) + "% >200DMA" : "—"}, ${macroBackdrop.breadth.pctAbove50 != null ? macroBackdrop.breadth.pctAbove50.toFixed(0) + "% >50DMA" : "—"}, NH−NL ${macroBackdrop.breadth.nhnl != null ? macroBackdrop.breadth.nhnl : "—"} (n=${macroBackdrop.breadth.n})`);
     if (macroBackdrop.putCall) console.log(`  · put/call: OI ${macroBackdrop.putCall.oiRatio}, vol ${macroBackdrop.putCall.volRatio} (${macroBackdrop.putCall.names} names)`);
     if (macroBackdrop.rotation) console.log(`  · rotation: offense ${macroBackdrop.rotation.offense >= 0 ? "+" : ""}${macroBackdrop.rotation.offense}% − defense ${macroBackdrop.rotation.defense >= 0 ? "+" : ""}${macroBackdrop.rotation.defense}% = ${macroBackdrop.rotation.spread >= 0 ? "+" : ""}${macroBackdrop.rotation.spread}pp`);
@@ -40135,9 +40239,23 @@ async function main() {
     volume:scoringVolumeFlags,calendar:indexCalendarPrev,overnight:correlationsInfo?.payload,
     regimeHistory:regimeHistoryPrev,
   });
+  // Shadow signals (lib/shadow-signals.mjs) for the day, crowd keys included:
+  // built here, before the Top Picks run, so the run archive and every new
+  // trade's entry snapshot carry the same row grades-daily keeps. Logged, not
+  // scored. A failure only leaves the block out.
+  let shadowSignalsToday = null;
+  try {
+    shadowSignalsToday = buildShadowSignals(chains, { builtAtIso, groupOf: spilloverGroupOf, oiTracker: scoringOiTracker, spillover: scenarioSpilloverMatrix, crowd: crowdPayload });
+  } catch (err) {
+    console.warn(`[grades] shadow signals skipped — ${String(err?.message || err).split("\n")[0]}`);
+  }
   const scannerExtras = {
     forcedLiquidation,
     pendingBuyouts: pendingBuyoutsForPicks,
+    // Crowd & positioning facts per name (structuralVeto, AI grader lines)
+    // and the day's shadow block (run archive). Both measurement-first.
+    crowd: crowdPayload,
+    shadow: shadowSignalsToday,
     oiTracker: scoringOiTracker,
     // Trending-IV payload (written just above) — the AI final grader's prompt
     // cites each candidate's IV momentum (1d/5d/20d + rising streak) from it.
@@ -40401,15 +40519,17 @@ async function main() {
   // Daily grade snapshot (universe-IC substrate): upsert today's ET row with every
   // name's total, so scripts/diagnose-grade-ic.mjs can measure the grade's forward
   // IC on the whole universe instead of the ~5-per-build enrolled roster.
-  let shadowSignalsToday = null;
   try {
-    let shadow = null;
-    try {
-      shadow = buildShadowSignals(chains, { builtAtIso, groupOf: spilloverGroupOf, oiTracker: scoringOiTracker, spillover: scenarioSpilloverMatrix });
-      shadowSignalsToday = shadow;
-    } catch (err) {
-      console.warn(`[grades] shadow signals skipped — ${String(err?.message || err).split("\n")[0]}`);
+    // The shadow block built before the Top Picks run (crowd keys included);
+    // rebuilt here only if that attempt failed.
+    if (!shadowSignalsToday) {
+      try {
+        shadowSignalsToday = buildShadowSignals(chains, { builtAtIso, groupOf: spilloverGroupOf, oiTracker: scoringOiTracker, spillover: scenarioSpilloverMatrix, crowd: crowdPayload });
+      } catch (err) {
+        console.warn(`[grades] shadow signals skipped — ${String(err?.message || err).split("\n")[0]}`);
+      }
     }
+    const shadow = shadowSignalsToday;
     const gd = await writeGradesDaily(appendGradesDaily(gradesDailyPrev, gradesIndex, builtAtIso, shadow));
     console.log(`wrote data/grades-daily.json — ${gd.days} day snapshot(s), ${gd.bytes} bytes`);
   } catch (err) {
@@ -40558,19 +40678,29 @@ async function main() {
   }
   // Grade-edge report and paper books. Stored grades and daily closes only.
   // No Gemini call. Written on every bake, including carry-forward runs, so the
-  // Track Record can show the latest snapshot days.
+  // Track Record can show the latest snapshot days. The shadow-signal table
+  // (lib/shadow-research.mjs) rides the same file and the evidence board.
+  let shadowResearchToday = null;
   try {
     let dailySnap = { days: [] };
     let picksSnap = null;
     try { dailySnap = JSON.parse(await readFile(resolve(DATA_DIR, "grades-daily.json"), "utf8")); } catch { /* first run */ }
     try { picksSnap = JSON.parse(await readFile(resolve(DATA_DIR, PICKS_ACCURACY_FILE), "utf8")); } catch { /* no enrolled book yet */ }
+    const researchSeries = seriesFromChains(chains, { asOf: builtAtIso });
     const research = buildGradeResearch({
       days: dailySnap.days || [],
-      series: seriesFromChains(chains, { asOf: builtAtIso }),
+      series: researchSeries,
       sectors: SECTORS,
       picks: picksSnap,
       builtAtIso,
     });
+    try {
+      shadowResearchToday = buildShadowResearch({ days: dailySnap.days || [], series: researchSeries, closed: picksSnap?.closed || [] });
+      research.shadow = shadowResearchToday;
+      console.log(`  · shadow research: ${shadowResearchToday.keys.length} key(s) over ${shadowResearchToday.days} day(s), ${shadowResearchToday.counts.pass} clear the bar, ${shadowResearchToday.counts.collecting} collecting`);
+    } catch (err) {
+      console.warn(`[research] shadow research skipped — ${String(err?.message || err).split("\n")[0]}`);
+    }
     const info = await writeGradeResearchFile(DATA_DIR, research);
     console.log(`wrote data/grade-research.json — ${info.days} snapshot day(s), ${info.bytes} bytes${info.established ? ", five-session research threshold met" : ""}`);
   } catch (err) {
@@ -40653,6 +40783,7 @@ async function main() {
       outcomes: picksOutcomesState, closed: accNow?.closed || [], open: accNow?.open || [], shadowDays, builtAtIso, today: todayEt,
       tradeBar: PICKS_MIN_CONVICTION, gradeModelVersion: GRADE_MODEL_VERSION, structurePolicyVersion: PICKS_STRUCTURE_POLICY_VERSION,
       extraTests: regimeLabPayload?.evidence || null,
+      shadow: shadowResearchToday,
     });
     const boardInfo = await writeEvidenceBoard(DATA_DIR, board);
     console.log(`wrote data/${boardInfo.key} — ${boardInfo.tests} test(s): ${Object.entries(board.counts).filter(([, n]) => n).map(([k, n]) => `${n} ${k}`).join(", ")}${board.next ? `, next ${board.next.id} ${board.next.date}` : ""}`);

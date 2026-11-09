@@ -11,7 +11,7 @@ changes a pick, a grade or the Track Record.
 | Id | Source | What we read | Cadence | Block in `crowd.json` |
 |---|---|---|---|---|
 | P1 | Hyperliquid HIP-3 stock perpetuals (`api.hyperliquid.xyz/info`, POST `perpDexs` + `metaAndAssetCtxs`) | 24/7 mark vs the last US close, hourly funding (annualized), open interest, day volume, for tracked names and the index perps (SPX, NDX, DJI, RUT) | every bake; a 09:00 ET pre-open snapshot rides `overnight-preopen.json` | `perps` |
-| P2 | Kalshi (`api.elections.kalshi.com/trade-api/v2/events`) | S&P 500 and Nasdaq-100 range markets (implied mean, most likely bucket, 80% band, overround) and macro threshold ladders (CPI, core CPI, payrolls, unemployment, jobless claims, recession, 10-year yield) | once per ET day | `kalshi` |
+| P2 | Kalshi (`api.elections.kalshi.com/trade-api/v2/events`) | S&P 500 and Nasdaq-100 range markets (implied mean, most likely bucket, 80% band, overround) and macro threshold ladders (CPI, core CPI, payrolls and claims in thousands, unemployment, 10-year yield) plus the yes/no NBER recession odds (series `KXU3`, `KXJOBLESSCLAIMS`, `KXRECSSNBER` since 2026-11-09; counts read from `volume_fp` / `open_interest_fp`) | every bake | `kalshi` |
 | O1 | FINRA Reg SHO daily short sale volume (`cdn.finra.org/equity/regsho/daily/CNMSshvolYYYYMMDD.txt`) | short volume as % of off-exchange volume per name, 20-day z-score, market average | daily file, at most 6 files backfilled per build | `shortVolume` |
 | O2 | Cboe daily market statistics (`cboe.com/us/options/market_statistics/daily/`) | total / equity / index / ETP / VIX / SPX put-call ratios and volumes, 20-day average, 250-day z and percentile | once per ET day (last completed session) | `putCall` |
 | O3 | Interactive Brokers stock-loan file (`ftp3.interactivebrokers.com/usa.txt`, read with curl) | borrow fee %, rebate and shares available per name | daily | `borrow` |
@@ -67,8 +67,22 @@ across builds (60 days for most, 250 sessions for put/call, 160 weeks for COT,
   short-pressure, flags and warnings, the most and least crowded names, and a
   link to the public page.
 - Source health lists each block as `crowd-*` (`lib/source-health.mjs`); the
-  Update checker expects `sources` and `rollup`; Research Lab's feature map
-  has `crowd`.
+  Update checker expects `sources` and `rollup`; the site catalog's feature map
+  (`lib/site-catalog/feature-sources.mjs`) has `crowd`.
+
+## Into the engine (2026-11-09)
+
+The crowd facts reach the Top Picks engine as logged-then-measured shadow
+signals, with three switch-guarded hooks that stay off until the read clears
+the bar after the Dec 7 freeze; docs/top-picks.md, "Crowd signals", has the
+detail. In short: `lib/shadow-signals.mjs` (version 3) logs `sv`, `svz`,
+`bf`, `att`, `rdv`, `wkr`, `stw`, `pf`, `pgp` per name and a `mkt` row of
+market gauges per day in `grades-daily.json`, every new trade's entry
+snapshot and the run archive; `lib/shadow-research.mjs` measures them in
+every bake (Owner Lab Evidence tab, "Shadow signals: candidate inputs");
+`PICKS_CROWD_SQUEEZE_VETO`, `PICKS_MACRO_PUTCALL_SRC=cboe` and
+`PICKS_CROWD_GRADER` are the hooks (`lib/top-picks-config.mjs`, repo
+variables in `daily.yml`). FINRA short volume backfills 60 sessions.
 
 ## Switches
 

@@ -13,7 +13,6 @@ import { OWNER_PAGE_IDS, SPORTS_PAGE_IDS } from '../lib/owner-access-policy.mjs'
 import { SITE_SECTIONS } from './render/site-map.mjs';
 import { renderAppJs } from './render/app-js.mjs';
 import { sportsFactory } from './render/sports-client.mjs';
-import { sourceCatalog } from '../lib/research-lab/evidence.mjs';
 import { UPDATE_FEATURES } from '../lib/update-checker-catalog.mjs';
 
 let checks = 0;
@@ -218,7 +217,6 @@ eq(storageWrites, ['localStorage.setItem(TZ_KEY', 'sessionStorage.setItem(DRAFT_
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 ok(/<details class="side-nav-group" data-nav-group="sports" data-role-group="owner" open hidden>/.test(html), 'the Sports group ships hidden until the Owner check');
 for (const id of SPORTS_PAGE_IDS) ok(html.includes('id="page-pane-' + id + '"') && html.includes('id="' + id + '-root"'), id + ' pane ships');
-ok(!sourceCatalog().some((s) => SPORTS_PAGE_IDS.includes(s.id)), 'Research Lab evidence does not read Sports');
 ok(UPDATE_FEATURES.filter((f) => SPORTS_PAGE_IDS.includes(f.id)).every((f) => f.mode === 'on-demand'), 'Update Checker treats Sports as request-driven');
 const route = readFileSync(new URL('../api/auth/[action].js', import.meta.url), 'utf8');
 ok(/req\.query\?\.sports != null[\s\S]{0,120}lib\/sports\/http\.mjs/.test(route), 'Sports rides inside the existing auth function');

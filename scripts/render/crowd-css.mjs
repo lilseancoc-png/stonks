@@ -16,7 +16,8 @@ export function renderCrowdCss() {
 .crd-asof, .crd-dim { font: 500 11.5px/1.4 var(--font-sans); color: var(--muted); }
 .crd-lede { margin: 0 0 6px; font: 450 13px/1.5 var(--font-sans); color: var(--muted-strong); }
 .crd-note { margin: 6px 0 0; font: 450 12px/1.5 var(--font-sans); color: var(--muted); }
-.crd-fact { margin: 4px 0 6px; font: 500 13px/1.5 var(--font-sans); color: var(--text); display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.crd-fact { margin: 4px 0 6px; font: 500 13px/1.5 var(--font-sans); color: var(--text); }
+.crd-fact svg { display: inline-block; vertical-align: middle; margin-left: 6px; }
 .crd-err { margin: 0 0 6px; font: 500 12px/1.5 var(--font-sans); color: var(--warn); }
 .crd-empty { margin: 4px 0 8px; font: 450 13px/1.5 var(--font-sans); color: var(--muted); }
 .crd-z { font: 600 11.5px/1.4 var(--font-mono); color: var(--muted-strong); }

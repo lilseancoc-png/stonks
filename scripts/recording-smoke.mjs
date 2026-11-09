@@ -162,7 +162,7 @@ ok("grader audit fields", aapl.ai.dr.length === 4 && aapl.ai.inv[0] === "Close u
 ok("rows without an AI entry carry no audit block", !("ai" in msft));
 
 // ---- Shadow signals: EPS revisions ----------------------------------------------
-ok("shadow version 2 adds three keys", SHADOW_SIGNAL_VERSION === 2 && SHADOW_KEYS.slice(-3).join(",") === "er30,rn30,ar30");
+ok("shadow version 3 keeps the EPS-revision keys and adds the nine crowd keys", SHADOW_SIGNAL_VERSION === 3 && SHADOW_KEYS.slice(7, 10).join(",") === "er30,rn30,ar30" && SHADOW_KEYS.slice(10).join(",") === "sv,svz,bf,att,rdv,wkr,stw,pf,pgp");
 const closes = Array.from({ length: 60 }, (_, i) => ({ c: 100 + i }));
 const sh = buildShadowSignals({
   NVDA: { spot: 160, _bars: closes, fundamentals: { fyEpsRevision: { period: "0y", pct30: 3.456, pct90: 5 }, epsRevisions: { y: { up7: 2, up30: 9, down30: 2, down90: 3 } }, analystRevisions: { upgrades: 3, downgrades: 1 } } },

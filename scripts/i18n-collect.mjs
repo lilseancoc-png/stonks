@@ -24,7 +24,7 @@ const TICKER_RE = new RegExp('\\b(?:' + TICKERS.map(String).filter((t) => t.leng
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json' };
-const OWNER = { enabled: true, authed: true, trackRecord: true, topPicks: true, researchLab: true, sub: 'collector' };
+const OWNER = { enabled: true, authed: true, trackRecord: true, topPicks: true, sub: 'collector' };
 
 function serve() {
   const server = createServer(async (req, res) => {

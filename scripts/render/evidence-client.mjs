@@ -127,7 +127,8 @@ export function renderEvidenceJs() {
       case 'event-plays':
         return r.winPct == null ? 'No decided event trades yet.' : 'Event ' + evbRate(r.winPct) + ' win, ' + evbPct(r.avgPnl) + ' avg · regular ' + evbRate(r.regularWinPct) + ' win, ' + evbPct(r.regularAvgPnl) + ' avg (' + (r.regularN || 0) + ').';
       case 'shadow-signals':
-        return 'Rows accumulate once a trading day in grades-daily.';
+        if (!r.keys) return 'Rows accumulate once a trading day in grades-daily.';
+        return r.keys + ' keys logged, ' + r.measured + ' with enough evidence, ' + (r.trades || 0) + ' decided trades carry a snapshot' + (r.passing && r.passing.length ? ' · clearing the bar: ' + r.passing.join(', ') : '') + (r.failing && r.failing.length ? ' · failing: ' + r.failing.join(', ') : '') + '.';
       case 'regime-switch-books':
         return r.switchAvgPnl == null && r.baseAvgPnl == null ? 'The paper books open at the next Top Picks run.' : 'Switch book ' + evbRate(r.switchWinPct) + ' win, ' + evbPct(r.switchAvgPnl) + ' avg · same rules ' + evbRate(r.baseWinPct) + ' win, ' + evbPct(r.baseAvgPnl) + ' avg.';
       case 'regime-grader-by-cell':
@@ -167,6 +168,40 @@ export function renderEvidenceJs() {
     return '<p class="evb-note">Names at or above the trade bar (grade ' + g.bar + '), split by the AI grader\\'s entry call at that run. The grader passes when buy-now names beat wait names by five points of hit rate in both halves of the sample. ' + g.gradedRows + ' graded names have a 10-day outcome.</p>' +
       '<div class="acc-tscroll"><table class="acc-qtable" data-nosort>' + head + '<tbody>' + rows(g.groups) + '</tbody></table></div>' + halves;
   }
+  // Shadow-signal table (lib/shadow-research.mjs): every logged candidate's
+  // rank correlation with forward returns, alone and with the grade held
+  // fixed, and the same key on decided trades.
+  var EVB_KEY_STATUS = { collecting: ['Collecting', 'evb-s-collect'], pass: ['Clears the bar', 'evb-s-pass'], fail: ['Fails', 'evb-s-fail'], inconclusive: ['No clear answer', 'evb-s-unclear'] };
+  function evbIcCell(v){ return '<td class="num ' + (v > 0.02 ? 'sig-pos' : v < -0.02 ? 'sig-neg' : '') + '">' + (v == null ? '—' : (v > 0 ? '+' : '') + Number(v).toFixed(3)) + '</td>'; }
+  function evbShadowHtml(sh){
+    if (!sh || !sh.keys || !sh.keys.length) return '<p class="hint">The shadow table fills from the first full build after this deploys; rows need a close 5 and 10 sessions later before they count.</p>';
+    var p = sh.pass || {};
+    var rows = sh.keys.map(function(k){
+      var r5 = (k.read && k.read['5']) || {}, r10 = (k.read && k.read['10']) || {};
+      var st = EVB_KEY_STATUS[k.status] || EVB_KEY_STATUS.collecting;
+      var halves = r10.half1 == null ? '—' : (r10.half1 > 0 ? '+' : '') + Number(r10.half1).toFixed(3) + ' / ' + (r10.half2 == null ? '—' : (r10.half2 > 0 ? '+' : '') + Number(r10.half2).toFixed(3));
+      return '<tr><td><strong>' + escapeHtml(k.label || k.key) + '</strong><div class="evb-q">' + escapeHtml(k.key) + (k.crowd ? ' · crowd' : '') + '</div></td>' +
+        '<td class="num">' + (r10.days || 0) + '<div class="evb-q">' + (k.daysLogged || 0) + ' logged</div></td>' +
+        evbIcCell(r5.ic) + evbIcCell(r10.ic) +
+        '<td class="num">' + (r10.t == null ? '—' : Number(r10.t).toFixed(2)) + '</td>' +
+        '<td class="num">' + (r10.positiveShare == null ? '—' : Math.round(r10.positiveShare * 100) + '%') + '</td>' +
+        '<td class="num">' + halves + '</td>' +
+        evbIcCell(r10.partial) +
+        '<td class="num">' + (k.trades && k.trades.n ? k.trades.n + (k.trades.ic == null ? '' : ' · ' + (k.trades.ic > 0 ? '+' : '') + Number(k.trades.ic).toFixed(3)) : '—') + '</td>' +
+        '<td><span class="evb-pill ' + st[1] + '">' + st[0] + '</span></td></tr>';
+    }).join('');
+    var head = '<thead><tr><th scope="col">Signal</th><th scope="col" class="num">Days</th><th scope="col" class="num">IC 5d</th><th scope="col" class="num">IC 10d</th><th scope="col" class="num">t</th><th scope="col" class="num">Days positive</th><th scope="col" class="num">Halves (10d)</th><th scope="col" class="num">After grade</th><th scope="col" class="num">Trades · IC</th><th scope="col">Status</th></tr></thead>';
+    var gauges = '';
+    if (sh.gauges && sh.gauges.length){
+      var gRows = sh.gauges.map(function(g){
+        return '<tr><td><strong>' + escapeHtml(g.label || g.key) + '</strong><div class="evb-q">' + escapeHtml(g.key) + '</div></td><td class="num">' + (g.latest == null ? '—' : Number(g.latest).toLocaleString('en-US', { maximumFractionDigits: 2 })) + '<div class="evb-q">' + escapeHtml(evbDate(g.latestDate)) + '</div></td><td class="num">' + (g.n || 0) + '</td>' + evbIcCell(g.rho) + '</tr>';
+      }).join('');
+      gauges = '<div class="evb-sub"><h4>Market gauges vs SPY, next 10 sessions</h4><p class="evb-note">One value per day for the whole market (Cboe put/call, CFTC positioning, margin debt, leveraged-ETF flows, Kalshi, market short volume) against SPY\\'s forward 10-session return over non-overlapping days. Slow gauges; ' + (sh.days || 0) + ' days cannot judge them, so there is no pass bar here.</p>' +
+        '<div class="acc-tscroll"><table class="acc-qtable" data-nosort><thead><tr><th scope="col">Gauge</th><th scope="col" class="num">Latest</th><th scope="col" class="num">Days</th><th scope="col" class="num">Rank corr.</th></tr></thead><tbody>' + gRows + '</tbody></table></div></div>';
+    }
+    return '<p class="evb-note">' + (sh.days || 0) + ' shadow day' + (sh.days === 1 ? '' : 's') + (sh.first ? ', ' + escapeHtml(evbDate(sh.first)) + ' to ' + escapeHtml(evbDate(sh.last)) : '') + '; ' + (sh.decidedTrades || 0) + ' decided trade' + (sh.decidedTrades === 1 ? '' : 's') + ' carry a snapshot. IC is the rank correlation between a key and each name\\'s forward return on that day, averaged over every shadow day (the t statistic uses non-overlapping days only); <em>after grade</em> holds the grade total fixed. A key clears the bar at ' + (p.days || 40) + '+ days and ' + (p.trades || 30) + '+ trades with a 10-day IC of ' + (p.ic || 0.03) + '+ in both halves and ' + (p.partial || 0.02) + '+ after the grade. Measurement only: nothing is promoted here.</p>' +
+      '<div class="acc-tscroll"><table class="acc-qtable evb-table" data-nosort>' + head + '<tbody>' + rows + '</tbody></table></div>' + gauges;
+  }
   function renderEvidenceBoard(){
     var root = $('evidence-board-root'); if (!root) return;
     var b = evbState.data;
@@ -178,6 +213,7 @@ export function renderEvidenceJs() {
     root.innerHTML = '<div class="evb-head"><div class="evb-chips">' + chips + '</div><span class="evb-asof">As of ' + escapeHtml(evbDate(b.asOf)) + (b.versions && b.versions.grade ? ' · grade ' + escapeHtml(b.versions.grade) : '') + '</span></div>' + nextLine +
       '<section class="evb-section"><h3>Timeline</h3><p class="evb-note">One bar per test from the day its evidence started to its decision day: a fixed date (solid dot) or the date the current pace reaches the needed count (hollow dot). The filled part is the evidence already in hand.</p>' + evbTimelineSvg(b) + '</section>' +
       '<section class="evb-section"><h3>Tests and gates</h3>' + evbTestsTable(b) + '</section>' +
+      '<section class="evb-section"><h3>Shadow signals: candidate inputs</h3>' + evbShadowHtml(b.shadow) + '</section>' +
       '<section class="evb-section"><h3>What happened after every run</h3>' + evbOutcomesHtml(b.outcomes) + '</section>' +
       '<section class="evb-section"><h3>Picks against a random book</h3>' + evbControlHtml(b.control) + '</section>' +
       '<section class="evb-section"><h3>Grading the AI grader</h3>' + evbGraderHtml(b.outcomes) + '</section>';

@@ -7,6 +7,8 @@ import { fileURLToPath } from "node:url";
 import { buildTopPicks, buildGradesIndex, gradeTradeCut, PICKS_MIN_CONVICTION, PICKS_ACCURACY_RESET_EPOCH, PICKS_ENTRY_TIMING_VERSION, FALLBACK_RISK_FREE_RATE, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges, buildPicksRoster, writePicksRoster, attachIvRanks, computeMacroRegime, buildIndexAxisInput, buildBreadthAxisInput, buildPutCallAxisInput, buildRotationAxisInput, deriveGlobalTapeAxis, overnightSnapshotOpts, readRfrHistory, readGradesDaily, appendGradesDaily, writeGradesDaily, readRegimeHistory, appendRegimeHistory, writeRegimeHistory, buildStockPicks, writeStockPicksFile, STOCK_PICKS_FILE, readPriorStockPicks, buildSectorRotationRebounds, writeSectorRotationFile, SECTOR_ROTATION_FILE, readPriorSectorRotationLog, sectorRotationRecordFromLog, buildLeveragedEtfPicks, writeLeveragedEtfsFile, LEVERAGED_ETFS_FILE, readPriorLevEtfLog, levRecordFromLog, SECTORS, macroKindOf, MACRO_PROFILES, pickContractForPick, writeAutoPicksFile, quarantineScoringInputs, dropStaleMacroLiveLegs, PICKS_MACRO_CONTEXT, buildMacroContextForBuild } from "./build.mjs";
 import { appendScenarioHistory, buildScenarioEngine } from "../lib/scenario-engine.mjs";
 import { buildGradeResearch, seriesFromChains, writeGradeResearchFile } from "../lib/grade-research.mjs";
+import { buildShadowResearch } from "../lib/shadow-research.mjs";
+import { marketGauges } from "../lib/crowd/index.mjs";
 import { readForcedLiquidation } from './refresh-forced-liquidation.mjs';
 import { publishUnifiedSignal } from "./publish-unified-signal.mjs";
 import { buildTopPicksMarketContext, buildTopPicksPayload, readTopPicksMarketMode } from './build.mjs';
@@ -63,6 +65,11 @@ try {
 } catch {}
 try {
   scannerExtras.correlations = JSON.parse(await readFile(resolve(DATA_DIR, "correlations.json"), "utf8"));
+} catch {}
+// Crowd & positioning facts (crowd.json): per-name context for the crowd
+// squeeze block and the AI grader lines, plus the Cboe put/call read.
+try {
+  scannerExtras.crowd = JSON.parse(await readFile(resolve(DATA_DIR, "crowd.json"), "utf8"));
 } catch {}
 
 const scoringScan = quarantineScoringInputs({
@@ -189,6 +196,8 @@ if (macroBackdrop) {
   macroBackdrop.breadth = buildBreadthAxisInput(chains);
   macroBackdrop.putCall = buildPutCallAxisInput(chains);
   macroBackdrop.rotation = buildRotationAxisInput(chains);
+  macroBackdrop.putCallCboe = scannerExtras.crowd?.putCall?.stats?.equity || null;
+  macroBackdrop.crowdGauges = scannerExtras.crowd ? marketGauges(scannerExtras.crowd) : null;
   // Macro, cycle and rotation context (PICKS_MACRO_CONTEXT=1 only), from the
   // saved long-history cache and Party tracker. No overnight sweep offline, so
   // the dollar and VIX fall back to their FRED series.
@@ -536,13 +545,15 @@ try {
   let picksSnap = null;
   try { dailySnap = JSON.parse(await readFile(resolve(DATA_DIR, "grades-daily.json"), "utf8")); } catch {}
   try { picksSnap = JSON.parse(await readFile(resolve(DATA_DIR, "picks-accuracy.json"), "utf8")); } catch {}
+  const researchSeries = seriesFromChains(chains, { asOf: builtAtIso });
   const research = buildGradeResearch({
     days: dailySnap.days || [],
-    series: seriesFromChains(chains, { asOf: builtAtIso }),
+    series: researchSeries,
     sectors: SECTORS,
     picks: picksSnap,
     builtAtIso,
   });
+  try { research.shadow = buildShadowResearch({ days: dailySnap.days || [], series: researchSeries, closed: picksSnap?.closed || [] }); } catch (err) { console.warn(`shadow research skipped — ${String(err?.message || err).split("\n")[0]}`); }
   const info = await writeGradeResearchFile(DATA_DIR, research);
   console.log(`Updated grade-research.json — ${info.days} snapshot day(s).`);
 } catch (err) {

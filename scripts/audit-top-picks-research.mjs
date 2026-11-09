@@ -40,7 +40,7 @@ const checks = [
   ['timing-kept-out-of-base-conviction', /const base = fund.score \+ tech.score \+ mech.score \+ narr.score/.test(score)],
   ['ai-candidates-screened-on-existing-score', /preClearsBar/.test(aiCandidates) && /Math.abs\(r.total\) >= minConv/.test(aiCandidates)],
   ['ai-prompt-already-reads-iv-momentum', /extras\?\.ivRow/.test(prompt) && /IV MOMENTUM/.test(prompt)],
-  ['shadow-logging-already-exists', /SHADOW_KEYS = \['r21', 'im21', 'vrp', 'cw', 'pw', 'pg', 'pe14'\]/.test(shadow)],
+  ['shadow-logging-already-exists', /SHADOW_KEYS = \['r21', 'im21', 'vrp', 'cw', 'pw', 'pg', 'pe14'/.test(shadow)],
   ['option-feasibility-has-three-iv-stresses', /\['iv-down', .8\], \['iv-flat', 1\], \['iv-up', 1.2\]/.test(economics)],
   ['daily-grade-snapshot-replaces-same-date', /findIndex/.test(daily) && /days\[idx\] =/.test(daily)],
   ['holdings-evidence-reads-value-change', /const value = row \? finite\(row.valueChange\) : 0/.test(evidence)],

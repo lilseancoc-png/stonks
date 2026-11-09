@@ -2473,9 +2473,6 @@ ${i18nHeadScript()}
   <div class="page-pane" id="page-pane-quant" role="tabpanel" aria-labelledby="page-tab-quant" hidden>
   ${quantSection()}
   </div>
-  <div class="page-pane" id="page-pane-research-lab" role="tabpanel" aria-labelledby="page-tab-research-lab" hidden>
-    <div id="research-lab-root"></div>
-  </div>
   <div class="page-pane" id="page-pane-sports-nba" role="tabpanel" aria-labelledby="page-tab-sports-nba" hidden>
     <section class="card sp-section" id="sports-nba-section">
       <header class="card-header"><h2 class="card-title">NBA</h2><span class="card-eyebrow">Owner · sports research</span></header>

@@ -527,6 +527,15 @@ jobs:
           # archive record is stamped graderMode off so the Track Record can
           # compare the two periods. Flip it back by clearing the variable.
           AI_THESIS: ${{ vars.AI_THESIS }}
+          # Crowd & positioning hooks (2026-11-09, lib/top-picks-config.mjs).
+          # All off unless the repo variable is set: PICKS_CROWD_SQUEEZE_VETO=1
+          # keeps puts off hard-to-borrow names, PICKS_CROWD_GRADER=1 adds the
+          # crowd lines to the AI grader's prompt, PICKS_MACRO_PUTCALL_SRC=cboe
+          # lets the Cboe equity put/call percentile vote on the tape's
+          # put/call axis. The facts are logged and measured either way.
+          PICKS_CROWD_SQUEEZE_VETO: ${{ vars.PICKS_CROWD_SQUEEZE_VETO }}
+          PICKS_CROWD_GRADER: ${{ vars.PICKS_CROWD_GRADER }}
+          PICKS_MACRO_PUTCALL_SRC: ${{ vars.PICKS_MACRO_PUTCALL_SRC }}
           # (PICKS_ACCURACY_AB removed: it was set here but read NOWHERE in the
           # code — the wait-arm cohort it described now enrolls BY DEFAULT,
           # since every actionable pick enrolls cohort-tagged go/wait.)

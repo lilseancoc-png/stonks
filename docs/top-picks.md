@@ -1712,3 +1712,62 @@ stops, size-first, time stops, book brakes) run only in the harness and the
 shadow books. The research runner's first read on the 2006+ price-half replay
 is in the spec; no engine change follows from it until the archive test
 (about a month of archived runs) and the owner's say-so.
+
+## Crowd signals: logged, measured, switch-guarded, November 9, 2026
+
+The Crowd & positioning sources (`lib/crowd/`, docs/crowd-data.md) reach the
+engine in three steps, and only the first two run today.
+
+**Logged.** `lib/shadow-signals.mjs` is version 3: beside the ten older
+candidates, every covered name's daily shadow row records the FINRA
+short-volume share (`sv`) and its 20-session z (`svz`), the IBKR borrow fee
+(`bf`), a retail attention score (`att`, the mean percentile of Reddit
+mentions, Wikipedia views vs the 30-day average and Stocktwits watcher
+growth) with its parts (`rdv`, `wkr`, `stw`), and the Hyperliquid perp
+funding (`pf`) and its 09:00 ET pre-open gap to the last close (`pgp`, one
+fixed time of day so every row means the same thing). The block also carries one
+row of market gauges for the day (`mkt`: Cboe equity put/call level, z and
+percentile, the total ratio, CFTC net positions as 3-year z-scores for
+leveraged funds in S&P 500, Nasdaq-100 and VIX futures and asset managers in
+S&P 500, margin debt y/y and m/m, leveraged bull and bear ETF flows over five
+days, the Kalshi S&P 500 range market's 80% band width per square root of the
+days left to settle (`kxWid`; the implied mean was a price level and was
+dropped on 2026-11-09), Kalshi's US recession odds (`kxRec`), market
+short-volume share). The block
+is built once per bake, before the Top Picks run, so the run archive's rows
+(`lib/picks-run-archive.mjs`, gauges once per run as `mkt`) and every new
+record trade's `entrySnapshot` (version 2, `shadow` + `mkt`) carry the same
+numbers `grades-daily.json` keeps. Nothing scores.
+
+**Measured.** `lib/shadow-research.mjs` runs in every full bake and in
+`regen-picks`: for each logged key, the rank correlation with each name's
+forward 5- and 10-session return on every shadow day (mean over all days,
+halves in date order, a partial correlation with the grade total held fixed,
+and a t-statistic on non-overlapping days), plus the same key on the decided
+Top Picks trades that froze it (side-signed value against option P&L). The
+market gauges get one time-series read each against SPY's forward 10
+sessions. The table rides `grade-research.json` (`shadow`) and the Owner Lab
+Evidence board (`evidence-board.json` `shadow`, drawn under the tests table),
+and the board's "Shadow signals" test reads pass / fail from the agreed bar:
+40 or more shadow days and 30 or more decided trades, a 10-day IC of 0.03 or
+more with the same sign in both halves, and the same sign at 0.02 or more
+after the grade. A key that clears it is a candidate; the owners promote.
+CLI: `node scripts/diagnose-grade-ic.mjs`. Test: `npm run test:shadow-research`.
+
+**Switch-guarded hooks (all off).** Three hooks exist in code so a promotion
+is a variable flip with a dated divider, not a code change; `daily.yml`
+passes each as a repo variable (`lib/top-picks-config.mjs`):
+
+| Variable | What it does when set |
+|---|---|
+| `PICKS_CROWD_SQUEEZE_VETO=1` | `structuralVeto` returns `crowd-squeeze` for a put on a name with an IBKR borrow fee at `PICKS_CROWD_SQUEEZE_FEE` (5%) or more, or at `PICKS_CROWD_SQUEEZE_FEE_LO` (2%) or more with a short-volume z at `PICKS_CROWD_SQUEEZE_SVZ` (1.5) or more. The name shows on Top Picks as turned away ("Hard to borrow with heavy shorting"). Calls are untouched. |
+| `PICKS_MACRO_PUTCALL_SRC=cboe` | The market tape's put/call axis votes on the Cboe equity-only put/call ratio's percentile against its own 250 sessions (`crowd.json`): -2 at the 90th or higher, -1 at the 75th, +1 at the 15th or lower (`PICKS_MACRO_PUTCALL_CBOE_VHI/HI/LO`). A day without a Cboe print falls back to the universe OI read. The browser keeps the baked vote (`src: cboe` in `rosterMeta.macroRegime.inputs.putCall`) and shows the Cboe chip. |
+| `PICKS_CROWD_GRADER=1` | `crowdGraderLines` appends two lines to the AI grader's prompt after the macro block: the market gauges (CFTC leveraged funds and asset managers z, Nasdaq-100 z, Cboe put/call and z, margin debt y/y, market short volume) and the name's own short volume, borrow fee, attention and perp funding, each worded as a condition, not a direction. The cache signature turns over with the gauges. About 120 tokens per graded name. |
+
+Every scored name also carries `crowd` (`crowdContextFor`: `sv`, `svz`,
+`bf`, `att`, `rdv`, `wkr`, `stw`, `pf`, `pgp`, `asOf`; here `pgp` is the
+latest overnight gap: the live read outside the session, else the 09:00 ET
+snapshot) on the Owner-only
+`picks.json` row and in the scored record the grader sees. `regen-picks`
+reads `crowd.json` from disk for the same context. Nothing here feeds a
+grade point; the direction-skill test on Dec 7 comes first.

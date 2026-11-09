@@ -3,12 +3,13 @@
 // covers parsing, carry-forward, the once-a-day guards, the public rollup and
 // the Owner join. Run: node scripts/crowd-smoke.mjs
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { parseShortVolumeFile, fetchShortVolume, summarizeShortVolume } from "../lib/crowd/short-volume.mjs";
 import { parsePutCallPage, fetchPutCall } from "../lib/crowd/put-call.mjs";
 import { parseBorrowFile, fetchBorrow } from "../lib/crowd/borrow.mjs";
 import { buildCotContract, fetchCot, COT_CONTRACTS } from "../lib/crowd/cot.mjs";
 import { parseRedditRows, fetchReddit } from "../lib/crowd/reddit.mjs";
-import { parseWikiRows, fetchWikipedia, WIKI_TITLES } from "../lib/crowd/wikipedia.mjs";
+import { parseWikiRows, fetchWikipedia, WIKI_TITLES, parseTitleResolution } from "../lib/crowd/wikipedia.mjs";
 import { levFundList, quoteRead, fetchLevFlows } from "../lib/crowd/lev-flows.mjs";
 import { parseTrending, fetchStocktwitsCrowd, watchersFromChain } from "../lib/crowd/stocktwits.mjs";
 import { parseMarginPage, summarizeMargin, fetchMarginDebt, monthKey } from "../lib/crowd/margin-debt.mjs";
@@ -75,9 +76,44 @@ ok("Cboe page parses ratios and volumes", () => {
   assert.equal(p.volume.total.puts, 7339138);
   assert.equal(p.volume.equity.oiTotal, 3);
 });
+// The live page (checked 2026-11-09): each product is a titled table of
+// Name | Call | Put | Total with VOLUME and OPEN INTEREST rows.
+const cboeLiveHtml = `<html><table><tr><th>Ratios</th><th>Value</th></tr><tr><td>TOTAL PUT/CALL RATIO</td><td>0.95</td></tr><tr><td>EQUITY PUT/CALL RATIO</td><td>0.59</td></tr><tr><td>EXCHANGE TRADED PRODUCTS PUT/CALL RATIO</td><td>0.91</td></tr></table>
+<h4>SUM OF ALL PRODUCTS</h4><table><thead><tr><th>Name</th><th>Call</th><th>Put</th><th>Total</th></tr></thead><tbody><tr><td>VOLUME</td><td>7,752,661</td><td>7,339,138</td><td>15,091,799</td></tr><tr><td>OPEN INTEREST</td><td>412,161,934</td><td>306,294,001</td><td>718,455,935</td></tr></tbody></table>
+<h4>EXCHANGE TRADED PRODUCTS</h4><table><tr><th>Name</th><th>Call</th><th>Put</th><th>Total</th></tr><tr><td>VOLUME</td><td>1,599,330</td><td>1,453,486</td><td>3,052,816</td></tr><tr><td>OPEN INTEREST</td><td>102,429,022</td><td>103,931,727</td><td>206,360,749</td></tr></table>
+<h4>EQUITY OPTIONS</h4><table><tr><th>Name</th><th>Call</th><th>Put</th><th>Total</th></tr><tr><td>VOLUME</td><td>2,749,110</td><td>1,609,514</td><td>4,358,624</td></tr><tr><td>OPEN INTEREST</td><td>1</td><td>2</td><td>3</td></tr></table></html>`;
+ok("Cboe live layout: titled product tables with VOLUME and OPEN INTEREST rows", () => {
+  const p = parsePutCallPage(cboeLiveHtml);
+  assert.equal(p.ratios.etp, 0.91);
+  assert.deepEqual(p.volume.total, { calls: 7752661, puts: 7339138, total: 15091799, oiCalls: 412161934, oiPuts: 306294001, oiTotal: 718455935 });
+  assert.equal(p.volume.etp.puts, 1453486);
+  assert.equal(p.volume.equity.calls, 2749110);
+  assert.equal(p.volume.equity.oiTotal, 3);
+  assert.equal(p.volume.index, undefined);
+});
+okAsync("Cboe history backfills a few older sessions a build, and the z / percentile wait for 60", async () => {
+  const days = [];
+  for (let i = 0; i < 80; i++) days.push(new Date(Date.parse("2026-07-01T12:00:00Z") + i * 86400000).toISOString().slice(0, 10));
+  const sessions = [...days, TODAY];
+  const urls = [];
+  const page = (u) => { urls.push(u); const d = u.slice(-10); const v = (0.5 + (Number(d.slice(-2)) % 7) / 20).toFixed(2); return cboeLiveHtml.replace("<td>0.59</td>", `<td>${v}</td>`); };
+  let block = await fetchPutCall({ prior: null, todayEt: TODAY, sessionDates: sessions, nowIso: NOW, fetchImpl: async (u) => page(u) });
+  assert.equal(block.history.length, 11, "latest session plus ten older ones");
+  assert.equal(urls.length, 11);
+  assert.equal(block.stats.equity.z250, null, "too few sessions for a z yet");
+  assert.equal(block.stats.equity.n, 10);
+  for (let i = 0; i < 6; i++) block = await fetchPutCall({ prior: block, todayEt: TODAY, sessionDates: sessions, nowIso: NOW, fetchImpl: async (u) => page(u) });
+  assert.equal(block.history.length, 71);
+  assert.equal(block.asOf, days[days.length - 1], "the latest read stays the newest session");
+  assert.ok(block.stats.equity.z250 != null && block.stats.equity.pct250 != null, "60+ earlier sessions: the z and percentile read");
+  const blocked = await fetchPutCall({ prior: block, todayEt: TODAY, sessionDates: sessions, nowIso: NOW, fetchImpl: async () => { throw new Error("HTTP 403"); } });
+  assert.equal(blocked.history.length, 71, "a blocked page stops after three tries and keeps the history");
+  const miss = await fetchPutCall({ prior: block, todayEt: TODAY, sessionDates: sessions, nowIso: NOW, fetchImpl: async () => "<html>maintenance</html>" });
+  assert.ok(miss.backfillMisses.length >= 3, "a day with no table is remembered");
+});
 okAsync("Cboe fetch reads the last session once a day and carries forward on failure", async () => {
   const urls = [];
-  const out = await fetchPutCall({ prior: null, todayEt: TODAY, sessionDates: ["2026-11-05", "2026-11-06", TODAY], nowIso: NOW, fetchImpl: async (u) => { urls.push(u); return cboeHtml; } });
+  const out = await fetchPutCall({ prior: null, todayEt: TODAY, sessionDates: ["2026-11-05", "2026-11-06", TODAY], nowIso: NOW, backfill: 0, fetchImpl: async (u) => { urls.push(u); return cboeHtml; } });
   assert.equal(out.ok, true);
   assert.equal(out.asOf, "2026-11-06");
   assert.ok(urls[0].endsWith("dt=2026-11-06"));
@@ -172,6 +208,7 @@ okAsync("Wikipedia fetch asks only for missing days and summarizes", async () =>
   const urls = [];
   const fetchImpl = async (u) => {
     urls.push(u);
+    if (u.includes("/w/api.php")) return { batchcomplete: true, query: { pages: [] } };
     const m = u.match(/daily\/(\d{8})\/(\d{8})$/);
     const items = [];
     for (let d = new Date(`${m[1].slice(0, 4)}-${m[1].slice(4, 6)}-${m[1].slice(6, 8)}T00:00:00Z`); d.toISOString().slice(0, 10).replace(/-/g, "") <= m[2]; d = new Date(d.getTime() + 86400000)) {
@@ -188,6 +225,57 @@ okAsync("Wikipedia fetch asks only for missing days and summarizes", async () =>
   const next = await fetchWikipedia({ prior: { ...out, fetchedDate: "2026-11-08" }, symbols: SYMS, todayEt: TODAY, nowIso: NOW, fetchImpl });
   assert.equal(urls.length, n, "history already through yesterday: no new requests");
   assert.equal(next.ok, true);
+});
+ok("Wikipedia title check follows normalization and redirects", () => {
+  const body = { query: {
+    normalized: [{ from: "ASML_Holding", to: "ASML Holding" }, { from: "Nvidia", to: "Nvidia" }],
+    redirects: [{ from: "ASML Holding", to: "ASML" }],
+    pages: [{ title: "ASML" }, { title: "Nvidia" }, { title: "Gone Corp", missing: true }],
+  } };
+  assert.deepEqual(parseTitleResolution(body, ["ASML_Holding", "Nvidia", "Gone_Corp"]), { ASML_Holding: "ASML", Nvidia: "Nvidia", Gone_Corp: null });
+});
+okAsync("Wikipedia reads the canonical article, lines names up on one day and retries late ones", async () => {
+  const titles = { AAPL: "Apple_Inc.", TSLA: "Tesla_Redirect", NVDA: "Nvidia", SPY: "Gone_Page", HOOD: null };
+  const asked = [];
+  let lateNvda = true;
+  const fetchImpl = async (u) => {
+    if (u.includes("/w/api.php")) {
+      asked.push("resolve");
+      return { query: { redirects: [{ from: "Tesla Redirect", to: "Tesla, Inc." }], pages: [{ title: "Apple Inc." }, { title: "Tesla, Inc." }, { title: "Nvidia" }, { title: "Gone Page", missing: true }] } };
+    }
+    const title = decodeURIComponent(u.split("/user/")[1].split("/daily/")[0]);
+    asked.push(title);
+    const m = u.match(/daily\/(\d{8})\/(\d{8})$/);
+    const items = [];
+    for (let d = new Date(`${m[1].slice(0, 4)}-${m[1].slice(4, 6)}-${m[1].slice(6, 8)}T00:00:00Z`); d.toISOString().slice(0, 10).replace(/-/g, "") <= m[2]; d = new Date(d.getTime() + 86400000)) {
+      const day = d.toISOString().slice(0, 10);
+      if (title === "Nvidia" && lateNvda && day === "2026-11-08") continue;
+      items.push({ timestamp: `${day.replace(/-/g, "")}00`, views: day === "2026-11-08" ? 3000 : 1000 });
+    }
+    return { items };
+  };
+  const prior = { ok: true, fetchedDate: "2026-11-08", titlesCheckedAt: "2026-11-01", resolvedTitles: {}, bySymbol: { TSLA: { title: "Tesla_Redirect", history: [["2026-11-07", 40]] } } };
+  const out = await fetchWikipedia({ prior, symbols: SYMS, todayEt: TODAY, nowIso: NOW, fetchImpl, titles });
+  assert.equal(asked[0], "resolve", "a week-old title check runs again");
+  assert.equal(out.bySymbol.TSLA.title, "Tesla,_Inc.", "the redirect's article is counted");
+  assert.equal(out.bySymbol.TSLA.history.length, 60, "a renamed title starts its history again");
+  assert.equal(out.bySymbol.SPY, undefined, "a missing article is left out");
+  assert.ok(out.renamed.includes("Tesla_Redirect -> Tesla,_Inc."));
+  assert.equal(out.asOf, "2026-11-08", "most names reached Saturday");
+  assert.equal(out.bySymbol.NVDA.behind, true);
+  assert.equal(out.bySymbol.NVDA.date, "2026-11-07");
+  assert.equal(out.bySymbol.AAPL.ratio30, 3);
+  assert.equal(out.complete, false);
+  lateNvda = false;
+  asked.length = 0;
+  const later = await fetchWikipedia({ prior: out, symbols: SYMS, todayEt: TODAY, nowIso: "2026-11-09T16:05:00.000Z", fetchImpl, titles });
+  assert.deepEqual(asked, ["Nvidia"], "a later build that day asks only for the late name");
+  assert.equal(later.complete, true);
+  assert.equal(later.bySymbol.NVDA.date, "2026-11-08");
+  asked.length = 0;
+  const done = await fetchWikipedia({ prior: later, symbols: SYMS, todayEt: TODAY, nowIso: "2026-11-09T18:05:00.000Z", fetchImpl, titles });
+  assert.equal(asked.length, 0, "complete for the day: no more requests");
+  assert.equal(done.ok, true);
 });
 
 // ---- R3 leveraged flows
@@ -281,6 +369,39 @@ ok("Kalshi threshold ladder finds the median", () => {
   assert.equal(l.levels, 3);
   assert.ok(l.median > 0.3 && l.median < 0.4, String(l.median));
 });
+ok("Kalshi live shapes: fixed-point counts, x.9999 strikes, tails, claims and recession odds", () => {
+  const m = compactMarket({ ticker: "T", strike_type: "greater", floor_strike: 7699.9999, yes_bid_dollars: "0.10", yes_ask_dollars: "0.14", volume_fp: "2540.03", open_interest_fp: "1786.01" });
+  assert.equal(m.floor, 7700);
+  assert.equal(m.volume, 2540.03);
+  assert.equal(m.openInterest, 1786.01);
+  // A wide open-ended tail out-prices every bounded bucket but is not "most likely".
+  const dist = rangeDistribution([
+    { ticker: "a", floor: 7600, cap: 7649.99, prob: 0.2 }, { ticker: "b", floor: 7650, cap: 7699.99, prob: 0.25 }, { ticker: "c", floor: 7700, cap: null, prob: 0.4 },
+  ]);
+  assert.equal(dist.mostLikely.floor, 7650);
+  const claims = buildKalshiSeries({ ticker: "KXJOBLESSCLAIMS", kind: "threshold", unit: "k", scale: 1000, maxEvents: 1 }, [{ event_ticker: "KXJOBLESSCLAIMS-26NOV", title: "Claims", markets: [
+    { ticker: "x1", strike_type: "greater_or_equal", floor_strike: 210000, last_price_dollars: "0.80", yes_bid_dollars: "0.79", yes_ask_dollars: "0.81" },
+    { ticker: "x2", strike_type: "greater_or_equal", floor_strike: 220000, last_price_dollars: "0.40", yes_bid_dollars: "0.39", yes_ask_dollars: "0.41" },
+  ] }]);
+  assert.equal(claims[0].ladder.levels, 2, "greater_or_equal strikes read as above-levels");
+  assert.equal(claims[0].ladder.median, 217.5, "levels in thousands");
+  const rec = buildKalshiSeries({ ticker: "KXRECSSNBER", kind: "binary", maxEvents: 2 }, [
+    { event_ticker: "KXRECSSNBER-27", title: "Recession in 2027?", markets: [{ ticker: "r27", yes_sub_title: "Yes", last_price_dollars: "0.2000", yes_bid_dollars: "0.19", yes_ask_dollars: "0.21", close_time: "2027-12-31T00:00:00Z", volume_fp: "970468.66" }] },
+    { event_ticker: "KXRECSSNBER-26", title: "Recession this year?", markets: [{ ticker: "r26", yes_sub_title: "Starts", last_price_dollars: "0.0300", yes_bid_dollars: "0.02", yes_ask_dollars: "0.04", close_time: "2026-12-31T00:00:00Z", volume_fp: "4133314.73" }] },
+  ]);
+  assert.equal(rec.length, 2);
+  assert.equal(rec[0].eventTicker, "KXRECSSNBER-26", "soonest first");
+  assert.equal(rec[1].binary.prob, 0.2);
+});
+okAsync("Kalshi binary series headline the furthest year", async () => {
+  const body = { events: [
+    { event_ticker: "KXRECSSNBER-26", title: "Recession this year?", markets: [{ ticker: "r26", last_price_dollars: "0.03", yes_bid_dollars: "0.02", yes_ask_dollars: "0.04", close_time: "2026-12-31T00:00:00Z", volume_fp: "100" }] },
+    { event_ticker: "KXRECSSNBER-27", title: "Recession in 2027?", markets: [{ ticker: "r27", last_price_dollars: "0.20", yes_bid_dollars: "0.19", yes_ask_dollars: "0.21", close_time: "2027-12-31T00:00:00Z", volume_fp: "50" }] },
+  ] };
+  const out = await fetchKalshi({ prior: null, todayEt: TODAY, nowIso: NOW, fetchImpl: async () => body, series: [{ ticker: "KXRECSSNBER", label: "US recession", kind: "binary", group: "macro", maxEvents: 2 }] });
+  assert.equal(out.series.KXRECSSNBER.headline.prob, 0.2);
+  assert.deepEqual(out.series.KXRECSSNBER.history[0], [TODAY, 0.2, 50]);
+});
 okAsync("Kalshi fetch keeps per-series carry-forward", async () => {
   const out = await fetchKalshi({ prior: null, todayEt: TODAY, nowIso: NOW, fetchImpl: async (u) => (u.includes("KXINX") ? kalshiEvents : { events: [] }), series: [{ ticker: "KXINX", label: "S&P 500 close", kind: "range", group: "index", maxEvents: 2 }, { ticker: "KXCPI", label: "CPI", kind: "threshold", group: "macro", maxEvents: 1 }] });
   assert.equal(out.ok, true);
@@ -364,7 +485,7 @@ ok("rollup percentiles and Owner scores", () => {
     wikipedia: { bySymbol: { TSLA: { views: 100, ratio30: 2.5 } } },
     stocktwits: { bySymbol: { TSLA: { watchers: 10, pct7d: 3 } } },
     borrow: { bySymbol: { HOOD: { feePct: 12.5 } } },
-    perps: { bySymbol: { TSLA: { markPx: 445, vsRefClosePct: 2.5, fundingAnnualPct: 40, oiUsd: 1 } } },
+    perps: { bySymbol: { TSLA: { markPx: 445, vsRefClosePct: 2.5, refSessionOpen: false, fundingAnnualPct: 40, oiUsd: 1 } } },
   };
   const rows = buildSymbolRollup(SYMS, blocks);
   assert.equal(rows[0].symbol, "AAPL");
@@ -383,6 +504,53 @@ ok("rollup percentiles and Owner scores", () => {
   assert.equal(owner.regime.label, "Calm trend");
   assert.equal(owner.mostCrowded[0].symbol, "AAPL", "most Reddit mentions in the fixture; the lone wiki / watcher values have no peer group yet");
   assert.ok(owner.mostCrowded.some((m) => m.symbol === "TSLA" && m.flags.includes("wiki-spike")));
+});
+
+// ---- first live day fixes (2026-11-09)
+ok("perps compare with the last completed close, not the session in progress", () => {
+  const now = new Date("2026-11-09T19:30:00.000Z"); // 14:30 ET Monday
+  const bars = [{ t: "2026-11-06", c: 186.64 }, { t: "2026-11-09", c: 178.32 }];
+  const live = refClosesFromChains({ NVDA: { _bars: bars, marketState: "REGULAR" } }, ["NVDA"], now).NVDA;
+  assert.deepEqual(live, { close: 186.64, date: "2026-11-06", sessionOpen: true }, "mid-session: Friday's close, not the live bar");
+  const post = refClosesFromChains({ NVDA: { _bars: bars, marketState: "POST" } }, ["NVDA"], new Date("2026-11-09T21:10:00.000Z")).NVDA;
+  assert.deepEqual(post, { close: 178.32, date: "2026-11-09", sessionOpen: false }, "after the close: today's close");
+  const unknown = refClosesFromChains({ NVDA: { _bars: bars } }, ["NVDA"], now).NVDA;
+  assert.equal(unknown.close, 186.64, "no market state and a bar dated today: treated as in progress");
+  assert.equal(unknown.sessionOpen, true);
+  const pre = refClosesFromChains({ NVDA: { priceSeries: { t: ["2026-11-05", "2026-11-06"], c: [190, 186.64] }, marketState: "PRE" } }, ["NVDA"], new Date("2026-11-09T14:00:00.000Z")).NVDA;
+  assert.deepEqual(pre, { close: 186.64, date: "2026-11-06", sessionOpen: false }, "pre-market keeps Friday's close");
+});
+ok("perp gap reads overnight: live outside the session, else today's 09:00 snapshot", () => {
+  const preopen = { asOf: "2026-11-09T14:00:00.000Z", bySymbol: { NVDA: { vsRefClosePct: -5.88 }, TSLA: { vsRefClosePct: 0.4 } } };
+  const blocks = { perps: { preopen, bySymbol: {
+    NVDA: { markPx: 178.4, vsRefClosePct: -4.42, refSessionOpen: true },
+    TSLA: { markPx: 450, vsRefClosePct: 2.3, refSessionOpen: false },
+    AAPL: { markPx: 270, vsRefClosePct: 3.1, refSessionOpen: true },
+  } } };
+  const rows = buildSymbolRollup(SYMS, blocks, { todayEt: TODAY });
+  const by = Object.fromEntries(rows.map((r) => [r.symbol, r]));
+  assert.equal(by.NVDA.perpVsClosePct, -4.42, "the vs-close figure stays as read");
+  assert.equal(by.NVDA.perpGapPct, -5.88);
+  assert.equal(by.NVDA.perpGapFrom, "pre-open");
+  assert.equal(by.NVDA.perpPreopenPct, -5.88);
+  assert.equal(by.TSLA.perpGapPct, 2.3, "an after-hours read is the gap");
+  assert.equal(by.TSLA.perpGapFrom, "live");
+  assert.equal(by.AAPL.perpGapPct, null, "an in-session move with no snapshot is not a gap");
+  assert.ok(!crowdScoresForRow(by.AAPL).flags.includes("perp-gap-up"));
+  assert.ok(crowdScoresForRow(by.NVDA).flags.includes("perp-gap-down"));
+  const stale = buildSymbolRollup(SYMS, { perps: { ...blocks.perps, preopen: { ...preopen, asOf: "2026-11-06T14:00:00.000Z" } } }, { todayEt: TODAY });
+  assert.equal(stale.find((r) => r.symbol === "NVDA").perpGapPct, null, "a snapshot from another day is ignored");
+});
+ok("the bake builds the crowd block after the social pass and reads the prior files before the wipe", () => {
+  const src = readFileSync(new URL("./build.mjs", import.meta.url), "utf8");
+  const main = src.slice(src.indexOf("async function main("));
+  const social = main.indexOf("await attachSocialSentiment(chains);");
+  const crowd = main.indexOf("crowdPayload = await buildCrowdPayload({");
+  const prior = main.indexOf("const priorCrowd = await readCrowdPrior(");
+  const wipe = main.indexOf("await writeChainFiles(");
+  assert.ok(social > 0 && crowd > 0 && prior > 0 && wipe > 0, "markers found");
+  assert.ok(social < crowd, "Stocktwits watchers come from the social pass, so it runs first");
+  assert.ok(prior < wipe, "prior crowd files are read before data/ is wiped");
 });
 
 for (const [name, fn] of asyncTests) {

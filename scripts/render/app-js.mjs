@@ -3,10 +3,6 @@ import { closureTables } from '../../lib/us-equity-calendar.mjs';
 import { contactClient } from './contact-client.mjs';
 import { ownerMarketBriefDisplayFactory } from '../../lib/owner-market-brief-display.mjs';
 import { ownerMarketBriefClient } from './owner-market-brief-client.mjs';
-import { researchBoardClient } from './research-board-client.mjs';
-import { researchBoardFactory } from '../../lib/research-lab/board.mjs';
-import { researchLabClient } from './research-lab-client.mjs';
-import { researchContractsFactory } from '../../lib/research-lab/contracts.mjs';
 import { OWNER_PAGE_IDS, OWNER_UI_SELECTORS } from '../../lib/owner-access-policy.mjs';
 import { ownershipBookClientFactory } from '../../lib/ownership-books.mjs';
 import { ownershipExplorerFactory } from '../../lib/ownership-explorer.mjs';
@@ -252,13 +248,11 @@ ${scenarioEventPhase.toString()}
   var AUTH_ME = null;
   var DISCORD_ICON_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.3 4.4A19.8 19.8 0 0 0 15.4 3l-.25.5c1.6.4 2.9 1 4.1 1.8a13.5 13.5 0 0 0-11.5 0c1.2-.8 2.6-1.4 4.1-1.8L11.6 3A19.8 19.8 0 0 0 6.7 4.4 20.6 20.6 0 0 0 3 18.6 19.9 19.9 0 0 0 8 21l.6-.9c-.9-.3-1.7-.7-2.4-1.2.2-.1.4-.3.6-.4a14.2 14.2 0 0 0 12.4 0c.2.1.4.3.6.4-.7.5-1.5.9-2.4 1.2l.6.9a19.9 19.9 0 0 0 5-2.4 20.6 20.6 0 0 0-3.7-14.2ZM9 15.3c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Zm6 0c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Z"/></svg>';
   function applyAuth(me){
-    if (AUTH_ME && AUTH_ME.sub !== (me && me.sub) && typeof researchLab !== 'undefined') researchLab.reset();
     AUTH_ME = me || null;
     GATE_ON = !!(me && me.enabled);
     // Owner access never fails open. A disabled gate, failed probe, legacy
     // session, or either missing special claim leaves every Owner surface hidden.
     HAS_OWNER_ACCESS = !!(GATE_ON && me && me.authed === true && me.trackRecord === true && me.topPicks === true);
-    if ((!HAS_OWNER_ACCESS || me.researchLab !== true) && typeof researchLab !== 'undefined') researchLab.reset();
     if (HAS_OWNER_ACCESS && typeof updateChecker !== 'undefined') updateChecker.checkSummary();
     window.STONKS_OWNER_ACCESS = HAS_OWNER_ACCESS;
     if (!HAS_OWNER_ACCESS && heatmapState && heatmapState.colorBy === 'grade') heatmapState.colorBy = 'perf';
@@ -4228,7 +4222,7 @@ ${scenarioEventPhase.toString()}
   // resolve the URL's initial tab synchronously at script-evaluation time (the
   // anti-flash pre-select in the boot block) before the /api/auth/me +
   // manifest fetches settle and bind() runs the full selectTab.
-  var PAGE_TAB_IDS = ['home','update-checker','owner-market-brief','tickers','stock','narratives','brief','news','market','risk','unified-signal-engine','historical-data','party-tracker','earnings-forecast','forced-liquidation','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','research-lab','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','bottom-tracker','open-picks','track','sports-nba','sports-nfl','sports-pick-builder','cheatsheet','chart-patterns','timeline','contact','glossary','earnings-week','market-map','crowd','whats-changed','past-day','privacy','terms'];
+  var PAGE_TAB_IDS = ['home','update-checker','owner-market-brief','tickers','stock','narratives','brief','news','market','risk','unified-signal-engine','historical-data','party-tracker','earnings-forecast','forced-liquidation','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','bottom-tracker','open-picks','track','sports-nba','sports-nfl','sports-pick-builder','cheatsheet','chart-patterns','timeline','contact','glossary','earnings-week','market-map','crowd','whats-changed','past-day','privacy','terms'];
   // Friendly aliases so deep-links people might guess work too.
   // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
   // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -4724,7 +4718,6 @@ ${renderExportBindings()}
       if (name === 'update-checker') updateChecker.load();
       if (name === 'contact') contactBox.load();
       if (name === 'owner-market-brief') ownerMarketBrief.load();
-      if (name === 'research-lab') researchLab.load();
       if (name === 'brief' && typeof loadBrief === 'function') loadBrief();
       if (name === 'stock') STOCK_PAGE.load();
         if (name === 'news' && typeof loadNewsFeed === 'function') loadNewsFeed();
@@ -12712,6 +12705,9 @@ ${renderExportBindings()}
     (function(){
       if (T.putCallOn === false){ axes.putCall = { score: 0, label: 'put/call axis off', live: false }; return; }
       var b = inp.putCall || {};
+      // PICKS_MACRO_PUTCALL_SRC=cboe (lib/top-picks-config.mjs): the Cboe equity put/call
+      // percentile voted at the bake; a daily number, so the baked vote stands intraday.
+      if (b.src === 'cboe' && baked.axes.putCall){ axes.putCall = Object.assign({ live: false }, baked.axes.putCall); return; }
       var pc = n(b.oiRatio);
       if (pc == null){ axes.putCall = Object.assign({ live: false }, baked.axes.putCall || { score: 0, label: 'no put/call data' }); return; }
       var hi = thr(T.putCallHi, 1.20), vhi = thr(T.putCallVhi, 1.45), lo = thr(T.putCallLo, 0.85);
@@ -13215,6 +13211,7 @@ ${renderExportBindings()}
     } else if (k === 'putCall' && inp.putCall){
       if (inp.putCall.oiRatio != null) c.push(tapeChip('OI', Number(inp.putCall.oiRatio).toFixed(2)));
       if (inp.putCall.volRatio != null) c.push(tapeChip('vol', Number(inp.putCall.volRatio).toFixed(2)));
+      if (inp.putCall.cboe && inp.putCall.cboe.value != null) c.push(tapeChip('Cboe eq.', Number(inp.putCall.cboe.value).toFixed(2) + (inp.putCall.cboe.pct250 != null ? ' · ' + ordinalOf(inp.putCall.cboe.pct250) : '')));
     } else if (k === 'credit' && inp.credit){
       if (inp.credit.oas != null) c.push(tapeChip('OAS', Number(inp.credit.oas).toFixed(2) + '%'));
       if (inp.credit.oasChg5d != null) c.push(tapeChip('OAS 5d', tapeSign(inp.credit.oasChg5d, 2, 'pp')));
@@ -13239,6 +13236,7 @@ ${renderExportBindings()}
     if (k === 'twoY') return 'Risk-off if the 2Y rises ≥ +' + v(T.twoYBps1d, 8) + 'bp in 1 day (−2 at +' + v(T.twoYBps1dStrong, 14) + 'bp), or its baked rising trend is up that much over 5 days. A matching fall can vote +1 only when indexes, VIX and credit do not signal stress. A Treasury rally during a sell-off is not an easing confirmation.';
     if (k === 'bondVol') return 'Risk-off at MOVE ≥ ' + v(T.moveHi, 110) + '; −2 at ≥ ' + v(T.moveVhi, 140) + ', or when MOVE is already ≥ ' + v(T.moveHi, 110) + ' and jumps ≥ +' + v(T.move1d, 6) + '% in 1 day. Risk-on at MOVE ≤ ' + v(T.moveCalm, 80) + '.';
     if (k === 'breadth') return 'Risk-off below ' + v(T.breadthLo, 40) + '% above the 200DMA; −2 below ' + v(T.breadthVlo, 25) + '%, or at ≤' + v(T.breadthLo, 40) + '% with NH−NL ≤ −10. Risk-on requires both long- and short-term breadth: ≥' + v(T.breadthHi, 60) + '% above the 200DMA and, when available, ≥' + v(T.breadthHi, 60) + '% above the 50DMA. A thrust is ≥' + v(T.breadthVhi, 85) + '%, or ≥80% with NH−NL ≥ +20, plus the same 50DMA confirmation. Slow axis.';
+    if (k === 'putCall' && T.putCallSrc === 'cboe') return 'The Cboe equity-only put/call ratio votes by its percentile against its own 250 sessions: −1 at the ' + ordinalOf(v(T.putCallCboeHi, 75)) + ' or higher, −2 at the ' + ordinalOf(v(T.putCallCboeVhi, 90)) + ', +1 at the ' + ordinalOf(v(T.putCallCboeLo, 15)) + ' or lower (crowd.json). A day without a Cboe print falls back to the universe OI read.';
     if (k === 'putCall') return 'OI put/call votes −1 at ≥' + v(T.putCallHi, 1.20) + ', −2 at ≥' + v(T.putCallVhi, 1.45) + ', and +1 at ≤' + v(T.putCallLo, 0.85) + '. When OI is neutral and same-day volume is mature (≥' + (v(T.putCallVolFrac, 0.03) * 100) + '% of OI), a volume ratio separated from OI by ≥' + v(T.putCallFlowGap, 0.25) + ' can break the tie; positive votes still require the volume ratio ≤' + v(T.putCallLo, 0.85) + '. Slow axis.';
     if (k === 'credit') return 'The actual HY OAS votes −1 at a 5-day widening of ' + v(T.creditOas5d,0.30) + 'pp and −2 at ' + v(T.creditOas5dStrong,0.60) + 'pp. A level of ' + v(T.creditOasStressHi,6) + '% is at least −1; ' + v(T.creditOasStressVhi,7.5) + '% is −2. Tightening by ' + v(T.creditOasTight5d,0.25) + 'pp can vote +1, as can a tight level at or below ' + v(T.creditOasTightLvl,3) + '% with observed stable changes. HYG/LQD never casts a spread vote. The official OAS series is delayed; its observation date is shown.';
     if (k === 'rotation') return 'Offense (high-beta growth) minus defense (staples/health) ' + (T.macroContextOn ? 'one-month' : '1-day') + ' return. A defense lead ≥' + (T.macroContextOn ? v(T.rotationPp20d, 4) : v(T.rotationPp, 0.8)) + 'pp votes −1, or −2 when the Indexes axis is neutral/risk-off. An offense lead by that margin votes +1 only when Indexes is neutral/risk-on. Slow axis — recomputed at the build.';
@@ -25220,11 +25218,6 @@ ${renderExportBindings()}
   // docs/quant-lab.md — deterministic sigma / VRP / pairs / surface /
   // dispersion / post-earnings-drift screens. ANALYTICAL ONLY: z-scores and
   // ranks, never trade signals (the playbook table in the shell is educational).
-  var researchLab = (${researchLabClient.toString()})(window, document, {
-    owner: function(){ return HAS_OWNER_ACCESS; },
-    allowed: function(){ return HAS_OWNER_ACCESS && AUTH_ME && AUTH_ME.researchLab === true; },
-    identity: function(){ return AUTH_ME && AUTH_ME.sub; }
-  }, (${researchContractsFactory.toString()})(), (${researchBoardClient.toString()}), (${researchBoardFactory.toString()})());
   var updateChecker = (${updateCheckerClient.toString()})(window, document, {
     owner: function(){ return HAS_OWNER_ACCESS; },
     revoke: function(){ applyAuth(null); enforceOwnerUi(document); var home=document.getElementById('page-tab-home'); if(home) home.click(); }
