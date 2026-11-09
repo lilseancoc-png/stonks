@@ -32,7 +32,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Fixed
 
-- Crowd & positioning, after the first live build (10:00 ET, 9 of 11 sources fresh): the leveraged-ETF flow read asked Yahoo for `navPrice` and `netAssets` by name, which yahoo-finance2's quote options reject before the request leaves, so it never ran; the unfiltered quote now carries both. The IBKR borrow-fee read's failure now says what curl said (the first build only logged "command failed"), tries once with a 20-second connect limit instead of twice at 90 seconds, and turns EPSV off with the PASV address ignored, the usual fix for FTP through the runner's NAT. The Kalshi block names every series that had no open market (unemployment, jobless claims and the recession series had none today), not just the first. SLV has no Wikipedia article of its own, so its page-view row is left out instead of failing every build.
+- Crowd & positioning, after the first live build (10:00 ET, 9 of 11 sources fresh): the leveraged-ETF flow read asked Yahoo for `navPrice` and `netAssets` by name, which yahoo-finance2's quote options reject before the request leaves, so it never ran; the unfiltered quote now carries both. The IBKR borrow-fee read's failure now says what curl said (the first build only logged "command failed"), tries once with a 20-second connect limit instead of twice at 90 seconds, and turns EPSV off with the PASV address ignored, the usual fix for FTP through the runner's NAT. The Kalshi block names every series that had no open market (unemployment, jobless claims and the recession series had none today), not just the first. SLV has no Wikipedia article of its own, so its page-view row is left out instead of failing every build. (#792)
 
 ## 2026-11-08
 
