@@ -28,6 +28,7 @@ jobs:
           npm run test:contact
           npm run test:sports
           npm run test:picks-outcomes
+          npm run test:regime-lab
           npm run test:ai-cost-history
           npm run test:recording
           npm run test:owner-insight

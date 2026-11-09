@@ -72,6 +72,11 @@ import {
 import { buildPicksRunRecord, loadPicksRunDay, persistPicksRun, picksRunArchiveEnabled } from "../lib/picks-run-archive.mjs";
 import { addControlEntries, appendRunOutcomes, drawControlEntries, emptyOutcomesState, fillOutcomes, loadPicksOutcomes, markControlBook, pruneOutcomes, writePicksOutcomes, CONTROL_PER_RUN_MIN } from "../lib/picks-outcomes.mjs";
 import { buildEvidenceBoard, writeEvidenceBoard } from "../lib/evidence-board.mjs";
+// Regime Lab (lib/regime-lab/, docs/regime-lab.md): market labels, shadow
+// playbook books, the headline oracle and the test catalog. Owner-only
+// regime-lab.json; measurement only, no AI, kill switch REGIME_LAB=0.
+import { loadRegimeLab, writeRegimeLab, loadResearchResults, buildLabelInputs, buildBakeLabels, todayFromSeries, openShadowBooks, markShadowBooks, buildBakeOracle, buildRegimeLabPayload, labStamp, regimeLabEnabled, REGIME_LAB_KEY } from "../lib/regime-lab/payload.mjs";
+import { riskScore as regimeLabRiskScore } from "../lib/regime-lab/exits.mjs";
 import { buildSourceHealth, loadSourceHealth, readSourcePayloads, writeSourceHealth } from "../lib/source-health.mjs";
 import { AI_COST_HISTORY_KEY, parseAiCostHistory, upsertAiCostHistory } from "../lib/ai-cost-history.mjs";
 import {
@@ -117,7 +122,7 @@ import {
 import { buildBottomTracker } from "../lib/bottom-tracker.mjs";
 import { writeHistoricalDataFile } from "./refresh-historical-data.mjs";
 import { readHistoricalSourceCache, refreshHistoricalSourceCache, loadFreeFredHistory, loadFreeMarketHistory, loadFredReleaseDates } from "./collect-historical-sources.mjs";
-import { FOMC_DECISIONS, headlineHits, wwdcKeynote, WWDC_WINDOW_DAYS } from "../lib/historical-events.mjs";
+import { FOMC_DECISIONS, fomcOutcomes, headlineHits, wwdcKeynote, WWDC_WINDOW_DAYS } from "../lib/historical-events.mjs";
 import { EVENT_PLAY_VERSION, EVENT_PLAY_LIMITS, macroEventPlay, earningsEventPlay, shockLaneState, eventPlayCounts, eventPlayCapHit, eventPlayCountAdd, eventPlayExit } from "../lib/event-play.mjs";
 import { cleanHistoricalBars, cleanLongBars, confirmedMarketBars } from "../lib/historical-market-history.mjs";
 import { HISTORICAL_MARKETS, HISTORICAL_SOURCE_KEY } from "../lib/historical-sources.mjs";
@@ -1703,7 +1708,7 @@ function computeVolumeStats(bars) {
   };
 }
 
-function computeTechnicals(bars) {
+export function computeTechnicals(bars) {
   if (!bars || bars.length < 27) return null;
   const closes = bars.map((b) => b.c);
   const rsi = computeRSI(closes, 14);
@@ -27978,7 +27983,7 @@ async function publishLeapsAfterShortTermGrader(preScored, builtAtIso) {
   });
 }
 
-async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload = null, macroBackdrop = null, priorPicks = null, volumeFlags = null, rfr = FALLBACK_RISK_FREE_RATE, priorClosed = null, priorGrades = null, scannerExtras = null, priorOpen = null, reentryCooldown = true, thesisProsePrior = null, streaksMap = null) {
+async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload = null, macroBackdrop = null, priorPicks = null, volumeFlags = null, rfr = FALLBACK_RISK_FREE_RATE, priorClosed = null, priorGrades = null, scannerExtras = null, priorOpen = null, reentryCooldown = true, thesisProsePrior = null, streaksMap = null, regimeLab = null) {
   const baseOpts = { priorClosed, priorGrades, openPositions: priorOpen, builtAtIso, reentryCooldown, ...(scannerExtras || {}) };
   // Score the universe ONCE, then run the two-stage pipeline:
   //   1. DATA GATE — the deterministic 4-pillar score (conviction bar) + the cheap
@@ -28033,6 +28038,9 @@ async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload 
           exit: pickExitPolicy("long").version, marketPolicy: topScored?.marketPolicyVersion || null,
           strategyAuto: PICKS_STRATEGY_AUTO, structure: PICKS_STRUCTURE_POLICY_VERSION, singleMaxCost: PICKS_SINGLES_DEFAULT ? PICKS_SINGLE_MAX_COST : null,
         },
+        // Regime Lab market label at this run (cell, era, character,
+        // transition). A stamp for the archive test (F21); never an input.
+        lab: regimeLab?.stamp || null,
       });
     } catch (err) {
       console.warn(`[picks-run] record skipped — ${String(err?.message || err).split("\n")[0]}`);
@@ -29965,6 +29973,29 @@ export function advancePicksBaseline(prev, { chains, nowSec, builtAtIso, enrolle
   return { symbol: PICKS_BASELINE_SYMBOL, open, closed: closed.slice(0, PICKS_BASELINE_MAX_CLOSED) };
 }
 
+// Regime Lab stamp for a new record trade: { labRegime, riskScore }, or {}
+// when the lab has no label this run. The stock's volatility rank is its
+// 20-day realized vol against its own last year (lib/regime-lab/exits.mjs).
+function regimeLabTradeStamp(p, data, lab) {
+  if (!lab?.stamp || !p) return {};
+  try {
+    const closes = regimeLabBars(data).map((b) => b.c);
+    let volRank = 50;
+    if (closes.length >= 80) {
+      const rv = (end) => { const r = []; for (let k = end - 19; k <= end; k++) { if (!(closes[k] > 0) || !(closes[k - 1] > 0)) return null; r.push(Math.log(closes[k] / closes[k - 1])); } const m = r.reduce((a, b) => a + b, 0) / r.length; return Math.sqrt(r.reduce((a, b) => a + (b - m) ** 2, 0) / (r.length - 1)) * Math.sqrt(252); };
+      const cur = rv(closes.length - 1), hist = [];
+      for (let k = Math.max(60, closes.length - 252); k < closes.length - 1; k += 5) { const v = rv(k); if (v != null) hist.push(v); }
+      if (cur != null && hist.length >= 10) volRank = Math.round((hist.filter((v) => v <= cur).length / hist.length) * 100);
+    }
+    const c = p.contract || {};
+    const structure = c.structure === "credit_vertical" || c.structure === "debit_vertical" || c.structure === "long" ? c.structure : "long";
+    const rs = regimeLabRiskScore({ structure, era: lab.stamp.era || "normal", stockVolRankPct: volRank, dte: pnum(c.dte) ?? 60, eventInWindow: !!(c.earningsInWindow || p.eventPlay?.kind) });
+    return { labRegime: lab.stamp, riskScore: rs.score };
+  } catch {
+    return { labRegime: lab.stamp };
+  }
+}
+
 export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = null, gradesIndex = null, opts = {}) {
   // opts.enrollNewPicks=false marks + resolves the existing open book WITHOUT
   // enrolling the just-written roster. regen-picks uses it: its offline roster
@@ -30258,6 +30289,10 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
       // signal's vote, each pillar, the retired MACD / 52-week votes, the
       // unscored candidate inputs. The record is the log; no shadow file.
       entrySnapshot: buildEntrySnapshot(p, chains?.[p.symbol] || null, { shadow: opts.shadow || null }),
+      // Regime Lab (since 2026-11-09): the market label in force at entry and
+      // the trade's 1-10 risk score (E1). Stamps only; the exits above are
+      // unchanged. Absent on regen-picks runs and while REGIME_LAB=0.
+      ...regimeLabTradeStamp(p, chains?.[p.symbol] || null, opts.lab || null),
       optionPnlPct: 0, mfePct: 0, maePct: 0, optHiPct: 0, optLoPct: 0,
       // The quote time of the chain the pick was priced from.
       quoteAsOf: chains?.[p.symbol]?.quoteAsOf ?? null,
@@ -30533,6 +30568,54 @@ function sharedHistoryBars(cache, symbols) {
 // A FRED series from the same cache, in the { date, value } rows the desks read.
 function sharedFredRows(cache, id) {
   return (cache?.context?.[id]?.rows || []).map((row) => ({ date: row.t, value: row.v }));
+}
+
+// Regime Lab (lib/regime-lab/): a ticker's confirmed daily bars as
+// { t, c, h, l }, oldest first, from the in-memory chain (raw `_bars`) or the
+// persisted priceSeries. Confirmed = through the prior close during the
+// session (G1: labels never read a partial bar).
+function regimeLabBars(chain, now = new Date()) {
+  if (!chain) return [];
+  let bars = Array.isArray(chain._bars) ? chain._bars : null;
+  if (!bars && chain.priceSeries?.t && chain.priceSeries?.c) {
+    const ps = chain.priceSeries;
+    bars = ps.t.map((t, i) => ({ t, c: ps.c[i], h: ps.h?.[i] ?? null, l: ps.l?.[i] ?? null }));
+  }
+  if (!bars) return [];
+  const out = [];
+  for (const b of confirmedDailyBars(bars, chain.marketState, now)) {
+    const t = barDateKey(b?.t ?? b?.date);
+    const c = Number(b?.c);
+    if (!t || !Number.isFinite(c) || c <= 0) continue;
+    const h = Number(b?.h), l = Number(b?.l);
+    out.push({ t, c, h: Number.isFinite(h) && h > 0 ? h : null, l: Number.isFinite(l) && l > 0 ? l : null });
+  }
+  return out;
+}
+
+// The shared long history (SPY since 2006) stitched with the chain's own
+// recent bars, so the label series has its 1,300 sessions and today's
+// confirmed close. The chain's bar wins on a shared date (it carries h/l).
+function regimeLabLongBars(cache, symbol, chain, now = new Date()) {
+  const byDate = new Map();
+  for (const b of sharedHistoryBars(cache, [symbol])[symbol] || []) {
+    const t = barDateKey(b?.t), c = Number(b?.c);
+    if (t && Number.isFinite(c) && c > 0) byDate.set(t, { t, c, h: null, l: null });
+  }
+  for (const b of regimeLabBars(chain, now)) byDate.set(b.t, b);
+  return [...byDate.values()].sort((a, b) => (a.t < b.t ? -1 : a.t > b.t ? 1 : 0));
+}
+
+// A volatility index history: the FRED daily series (long, a day or two
+// behind) overlaid with the overnight sweep's own Yahoo bars (current).
+function regimeLabVolSeries(cache, fredId, market) {
+  const byDate = new Map();
+  if (fredId) for (const r of sharedFredRows(cache, fredId)) { const v = Number(r.value); if (r.date && Number.isFinite(v) && v > 0) byDate.set(r.date, { t: r.date, v }); }
+  for (const b of market?._patternBars || market?.bars || []) {
+    const t = barDateKey(b?.t), v = Number(b?.c);
+    if (t && Number.isFinite(v) && v > 0) byDate.set(t, { t, v });
+  }
+  return [...byDate.values()].sort((a, b) => (a.t < b.t ? -1 : a.t > b.t ? 1 : 0));
 }
 
 // FRED download for the shared cache: the official API when FRED_API_KEY is
@@ -39078,6 +39161,19 @@ async function main() {
   } catch (err) {
     console.warn(`[outcomes] history unavailable (${String(err?.message || err).split("\n")[0]})`);
   }
+  // Regime Lab (lib/regime-lab/payload.mjs): the label history and the shadow
+  // playbook books accumulate across bakes, so the file is read BEFORE the
+  // wipe. A missing file is a fresh start; REGIME_LAB=0 skips the lab.
+  let regimeLabState = null;
+  if (regimeLabEnabled()) {
+    try {
+      const loadedLab = await loadRegimeLab(DATA_DIR);
+      regimeLabState = loadedLab.state;
+      if (loadedLab.error) console.warn(`[regime-lab] ${REGIME_LAB_KEY} unreadable (${loadedLab.error}); starting over`);
+    } catch (err) {
+      console.warn(`[regime-lab] prior state unavailable (${String(err?.message || err).split("\n")[0]})`);
+    }
+  }
   // Data source health (lib/source-health.mjs): the 60-day state history is
   // read BEFORE the wipe; the table itself is rebuilt at the end of the bake.
   let priorSourceHealth = null;
@@ -39920,9 +40016,56 @@ async function main() {
     // No-op until gate-era outcomes accumulate (today: bySignal carries no IC).
     signalIc: buildSignalIcMap(picksAccuracyPrev?.stats?.bySignal),
   };
+  // Regime Lab labels (A1-A10): the market's volatility era x trend character
+  // from SPY / QQQ / IWM, VIX and VIX3M, member breadth and correlation, all
+  // read from bars already in memory (the shared long cache, the chains, the
+  // overnight sweep). Confirmed closes only, two-session confirmation, no
+  // fetch, no AI. The label is a stamp on this run's archive record and new
+  // record trades; the live engine never reads it (G2). Non-fatal.
+  let regimeLabLabels = null, regimeLabToday = null, regimeLabMembers = null, regimeLabSpyBars = null;
+  const regimeLabNextEarnings = new Map();
+  if (regimeLabState) {
+    try {
+      const labNow = new Date(builtAtIso);
+      regimeLabSpyBars = regimeLabLongBars(historicalSourceCache, "SPY", chains?.SPY || null, labNow);
+      regimeLabMembers = {};
+      for (const sym of TICKERS) {
+        if (SECTORS[sym] === "ETF" || !chains?.[sym]) continue;
+        const bars = regimeLabBars(chains[sym], labNow);
+        if (bars.length >= 60) regimeLabMembers[sym] = bars;
+      }
+      const labTodayIso = etDateKey(labNow);
+      for (const e of upcomingEarningsList(chains, labTodayIso, 21)) if (e?.symbol && e?.date && !regimeLabNextEarnings.has(e.symbol)) regimeLabNextEarnings.set(e.symbol, e.date);
+      const inputs = buildLabelInputs({
+        spy: regimeLabSpyBars, spyBars: regimeLabSpyBars,
+        qqq: regimeLabLongBars(historicalSourceCache, "QQQ", chains?.QQQ || null, labNow),
+        iwm: regimeLabLongBars(historicalSourceCache, "IWM", chains?.IWM || null, labNow),
+        vix: regimeLabVolSeries(historicalSourceCache, "VIXCLS", globalMarkets?.["^VIX"]),
+        vix3m: regimeLabVolSeries(historicalSourceCache, null, globalMarkets?.["^VIX3M"]),
+        members: regimeLabMembers,
+      });
+      if (inputs.cal.length >= 300) {
+        regimeLabLabels = buildBakeLabels(inputs, {
+          macroEvents: (macroBackdrop?.macroCalendar || []).map((e) => ({ label: e.label, date: e.date })),
+          earningsDates: [...regimeLabNextEarnings.values()],
+        });
+        const mc = macroBackdrop?.macroContext || null;
+        regimeLabToday = todayFromSeries(regimeLabLabels.series, regimeLabLabels.hmm, regimeLabLabels.hmmOffset, {
+          cycle: mc?.cycles || null, leadership: mc?.rotation?.hypothesis || null,
+        });
+        if (regimeLabToday) console.log(`  · regime label ${regimeLabToday.date}: ${regimeLabToday.cellLabel || regimeLabToday.cell} (${regimeLabToday.era} era, ${regimeLabToday.character} character${regimeLabToday.transition ? ", in transition" : ""}; ${inputs.cal.length} sessions, ${inputs.memberCount} members${regimeLabLabels.hmm ? `, HMM ${regimeLabToday.hmm?.agrees === false ? "disagrees" : "agrees"}` : ""})`);
+      } else {
+        console.log(`  · regime label skipped: ${inputs.cal.length} SPY sessions on hand (need 300)`);
+      }
+    } catch (err) {
+      regimeLabLabels = null; regimeLabToday = null;
+      console.warn(`[regime-lab] labels skipped — ${String(err?.message || err).split("\n")[0]}`);
+    }
+  }
+  const regimeLabRun = regimeLabToday ? { today: regimeLabToday, stamp: labStamp(regimeLabToday) } : null;
   const refreshTopPicks = !/^(?:0|false)$/i.test(process.env.REFRESH_TOP_PICKS || "1");
   if (refreshTopPicks) {
-    const picksInfo = await writeTopPicksFile(chains, scoringNarratives, builtAtIso, scoringUnusual, macroBackdrop, picksPrev, scoringVolumeFlags, riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE, picksAccuracyPrev?.closed ?? null, gradesHistoryPrev?.latest ?? null, {...scannerExtras,marketAssessment}, picksAccuracyPrev?.open ?? null, true, thesisProseCachePrev, streaksInfo.map);
+    const picksInfo = await writeTopPicksFile(chains, scoringNarratives, builtAtIso, scoringUnusual, macroBackdrop, picksPrev, scoringVolumeFlags, riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE, picksAccuracyPrev?.closed ?? null, gradesHistoryPrev?.latest ?? null, {...scannerExtras,marketAssessment}, picksAccuracyPrev?.open ?? null, true, thesisProseCachePrev, streaksInfo.map, regimeLabRun);
     if (!picksInfo?.leapsWritten && leapsScoreCarry) {
       await writeFile(resolve(DATA_DIR, LEAPS_PICKS_KEY), leapsScoreCarry, "utf8");
     }
@@ -39952,6 +40095,24 @@ async function main() {
       else if (!archived?.skipped) console.log(`wrote data/${archived.key} — run ${archived.runs} of the day, ${archived.rows} name(s), ${archived.bytes} bytes`);
     } catch (err) {
       console.warn(`[picks-run] archive skipped — ${String(err?.message || err).split("\n")[0]}`);
+    }
+    // Regime Lab shadow books (B1-B8, lib/regime-lab/payload.mjs): one paper
+    // book per playbook strategy, opened from this run's scored universe with
+    // the engine's own single-option pick and marked by the engine's own
+    // model. Measurement only; nothing here reads back into the roster.
+    if (regimeLabState && picksInfo?.picksRun) {
+      try {
+        const labNow = new Date(builtAtIso);
+        const opened = openShadowBooks(regimeLabState, {
+          run: picksInfo.picksRun, label: regimeLabToday, builtAtIso,
+          barsOf: (sym) => regimeLabBars(chains?.[sym] || null, labNow),
+          contractFor: (sym, side) => (chains?.[sym] ? pickContractForPick(side, chains[sym], riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE) : null),
+          sectorOf: (sym) => sectorGroupOf(sym), bar: PICKS_MIN_CONVICTION,
+        });
+        console.log(`[regime-lab] ${opened.opened} shadow trade(s) opened (${Object.entries(opened.byStrategy).filter(([, n]) => n).map(([k, n]) => `${k} ${n}`).join(", ") || "every book full or standing aside"})`);
+      } catch (err) {
+        console.warn(`[regime-lab] shadow books skipped — ${String(err?.message || err).split("\n")[0]}`);
+      }
     }
     // Outcome rows for every name this run scored, plus the random control
     // draws. Measurement only: the roster, contracts and record are already
@@ -40250,7 +40411,7 @@ async function main() {
   // wiped data/). Degrades to a no-op on a first run / missing files.
   if (refreshTopPicks) {
     try {
-      const acc = await updatePicksAccuracyFile(chains, builtAtIso, picksAccuracyPrev, gradesIndex, { shadow: shadowSignalsToday });
+      const acc = await updatePicksAccuracyFile(chains, builtAtIso, picksAccuracyPrev, gradesIndex, { shadow: shadowSignalsToday, lab: regimeLabRun });
       console.log(`wrote data/${PICKS_ACCURACY_FILE} — ${acc.open} open, ${acc.closed} closed${acc.winRate != null ? `, ${(acc.winRate * 100).toFixed(0)}% win rate` : ""}`);
     } catch (err) {
       console.warn(`[picks] accuracy tracker skipped — ${String(err?.message || err).split("\n")[0]}`);
@@ -40301,12 +40462,72 @@ async function main() {
     try { accNow = JSON.parse(await readFile(resolve(DATA_DIR, PICKS_ACCURACY_FILE), "utf8")); } catch { /* no record yet */ }
     try { dailyNow = JSON.parse(await readFile(resolve(DATA_DIR, "grades-daily.json"), "utf8")); } catch { /* first run */ }
     const shadowDays = (dailyNow?.days || []).filter((d) => d?.shadow?.rows && Object.keys(d.shadow.rows).length).length;
+    // Regime Lab (lib/regime-lab/payload.mjs): mark the shadow books on Top
+    // Picks runs (the real book's schedule), replay the rule-tagged headline
+    // book (D1-D8, G7: its numbers never enter the record), join the research
+    // results committed under research/regime-lab/, and write the Owner-only
+    // regime-lab.json. The lab's four live tests ride the Evidence board.
+    let regimeLabPayload = null;
+    if (regimeLabState) {
+      try {
+        const labNow = new Date(builtAtIso);
+        if (refreshTopPicks) {
+          const marked = markShadowBooks(regimeLabState, { chains, builtAtIso, markFn: markOptionToMarket, resolveFn: resolvePickOutcome, outcomeFn: outcomeFromPnl });
+          if (marked.marked || marked.closed) console.log(`[regime-lab] ${marked.marked} shadow trade(s) marked${marked.closed ? `, ${marked.closed} closed` : ""}`);
+        }
+        const spyBars = regimeLabSpyBars || regimeLabLongBars(historicalSourceCache, "SPY", chains?.SPY || null, labNow);
+        const cal = spyBars.map((b) => b.t);
+        const liveClosed = accNow?.closed || [];
+        let oracle = null;
+        try {
+          const fredSeries = (id) => { const rows = sharedFredRows(historicalSourceCache, id); return rows.length ? { t: rows.map((r) => r.date), v: rows.map((r) => r.value) } : null; };
+          const firstLive = liveClosed.map((t) => String(t?.entryDate || "").slice(0, 10)).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort()[0] || null;
+          oracle = buildBakeOracle({
+            cal, earningsStore: earningsHxStore, fomc: fomcOutcomes().byDate,
+            releases: { cpi: historicalSourceCache?.releases?.cpi?.dates || [], jobs: historicalSourceCache?.releases?.jobs?.dates || [] },
+            fred: { CPIAUCSL: fredSeries("CPIAUCSL"), PAYEMS: fredSeries("PAYEMS") },
+            barsOf: (sym) => (sym === "SPY" ? spyBars : regimeLabBars(chains?.[sym] || null, labNow)),
+            ivRatioOf: (sym) => { const d = chains?.[sym]; const iv = pnum(d?.ivRank?.iv), rv = pnum(d?.technicals?.volRegime?.rv30); return iv && rv ? iv / rv : undefined; },
+            liveClosed, from: firstLive, to: todayEt,
+          });
+        } catch (err) {
+          console.warn(`[regime-lab] oracle skipped — ${String(err?.message || err).split("\n")[0]}`);
+        }
+        const research = await loadResearchResults(ROOT);
+        const spyIdx = new Map(cal.map((d, i) => [d, i]));
+        const mc = macroBackdrop?.macroContext || null;
+        regimeLabPayload = buildRegimeLabPayload({
+          state: regimeLabState, labels: regimeLabLabels?.series || null, hmm: regimeLabLabels?.hmm || null, hmmOffset: regimeLabLabels?.hmmOffset || 0,
+          builtAtIso, today: todayEt, members: regimeLabMembers, sectorOf: (sym) => sectorGroupOf(sym),
+          openTrades: accNow?.open || [], closedTrades: liveClosed, outcomes: picksOutcomesState, oracle, research,
+          cycle: mc?.cycles || null, leadership: mc?.rotation?.hypothesis || null,
+          nextEarningsOf: (sym) => regimeLabNextEarnings.get(sym) || null,
+          closesOf: (sym) => regimeLabBars(chains?.[sym] || null, labNow).map((b) => b.c),
+          stampedTrades: [...(accNow?.open || []), ...liveClosed].filter((t) => t?.labRegime?.cell).length,
+          gradeModelVersion: GRADE_MODEL_VERSION,
+          spyCtx: { syms: { SPY: { c: spyBars.map((b) => b.c), idx: spyIdx } } },
+        });
+      } catch (err) {
+        regimeLabPayload = null;
+        console.warn(`[regime-lab] payload skipped — ${String(err?.message || err).split("\n")[0]}`);
+      }
+    }
     const board = buildEvidenceBoard({
       outcomes: picksOutcomesState, closed: accNow?.closed || [], open: accNow?.open || [], shadowDays, builtAtIso, today: todayEt,
       tradeBar: PICKS_MIN_CONVICTION, gradeModelVersion: GRADE_MODEL_VERSION, structurePolicyVersion: PICKS_STRUCTURE_POLICY_VERSION,
+      extraTests: regimeLabPayload?.evidence || null,
     });
     const boardInfo = await writeEvidenceBoard(DATA_DIR, board);
     console.log(`wrote data/${boardInfo.key} — ${boardInfo.tests} test(s): ${Object.entries(board.counts).filter(([, n]) => n).map(([k, n]) => `${n} ${k}`).join(", ")}${board.next ? `, next ${board.next.id} ${board.next.date}` : ""}`);
+    if (regimeLabPayload) {
+      try {
+        const labInfo = await writeRegimeLab(DATA_DIR, regimeLabPayload);
+        const cat = regimeLabPayload.catalog?.counts || {};
+        console.log(`wrote data/${labInfo.key} — ${labInfo.cell || "no label"}, ${regimeLabPayload.books?.open?.length ?? 0} shadow open / ${regimeLabPayload.books?.closed?.length ?? 0} closed, oracle ${regimeLabPayload.oracle?.book?.rows ?? 0} rows, tests ${Object.entries(cat).map(([k, n]) => `${n} ${k}`).join(", ")}, ${labInfo.bytes} bytes`);
+      } catch (err) {
+        console.warn(`[regime-lab] write skipped — ${String(err?.message || err).split("\n")[0]}`);
+      }
+    }
   } catch (err) {
     console.warn(`[outcomes] skipped — ${String(err?.message || err).split("\n")[0]}`);
   }

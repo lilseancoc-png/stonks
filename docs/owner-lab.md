@@ -13,6 +13,11 @@ Its three internal views serve different tasks:
   the remaining rows accessible. Definitions and the static playbook are help.
 - **Diagnostics** prepares three closed panels. Evidence Record, Company
   relationships, and AI Grader Log fetch their existing files on first open.
+- **Regime Lab** (November 9, 2026) loads `regime-lab.json` when opened:
+  today's six-cell market label, the label history, the playbook paper books
+  beside the live record, risk scores and the stop ladder, the headline
+  oracle, the F1-F22 test catalog and the G1-G10 guards. Spec:
+  [`docs/regime-lab.md`](regime-lab.md).
 
 ## Pricing and sizing
 

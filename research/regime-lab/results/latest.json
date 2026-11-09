@@ -1,0 +1,593 @@
+{
+ "v": 1,
+ "ranAt": "2026-11-09T04:30:28.000Z",
+ "versions": {
+  "catalog": "2026-11-09-catalog-v1",
+  "tests": "2026-11-09-tests-v1",
+  "guards": "2026-11-09-guards-v1",
+  "labels": "2026-11-09-grid-v1"
+ },
+ "trials": 1534,
+ "holdoutRuns": {},
+ "meta": {
+  "sessions": 5245,
+  "from": "2006-01-03",
+  "to": "2026-11-06",
+  "names": 85,
+  "gradeDays": 1025,
+  "note": "Grades before 2026-06-24 are the engine's price half (no option or news inputs), one day a week; real daily grades cover 2026-06-24 onward. Modeled options throughout (real IV history starts 2026-05-25). Earnings dates are not in the research set: no trade is flagged as crossing a print."
+ },
+ "summary": {
+  "headline": "17 tests run on the 2006+ replay: 9 passed, 3 failed, the rest inconclusive or reads. Price-half grades before 2026-06-24; nothing here changes the live engine.",
+  "lines": [
+   "F1: grade IC 0.003 in trending cells vs -0.005 in chop (inconclusive).",
+   "F2: grid flips 23.06/yr, forward-vol ratio 1.84; HMM 16.54/yr, ratio 1.87 (pass).",
+   "F3: switch 0.6 vs same rules -2.3 avg net per trade, beat 6/10 windows (pass).",
+   "F4: 6 cells judged; cash better in 6 (pass).",
+   "F5: ladder -4.5 beat the flat stop at -5.5 avg net (pass).",
+   "F6: continuous -3.7 beat the flat stop at -5.5 avg net (pass).",
+   "F7: price-stop -3.5 beat the flat stop at -5.5 avg net (pass).",
+   "F8: nothing beat the flat -50 stop at -5.5 avg net (fail).",
+   "F9: time-by-character -2, time-5 -2.1, time-8 -2.2, time-3 -2.7, scaled-target -4.7 beat the flat stop at -5.5 avg net (pass).",
+   "F11: 663 headlines; with the headline known the close was on its side 55% of the time, already priced 44%.",
+   "F15: walk-forward out of sample -4.8 vs fixed -6 avg net (fail).",
+   "F17: stock labels beat one rule in 7/10 windows (pass).",
+   "F18: IC 0.013 when names move apart vs -0.058 when together (pass).",
+   "F22: 0/11 setups survived double costs and a 20% crush (fail)."
+  ]
+ },
+ "results": {
+  "F1": {
+   "verdict": "inconclusive",
+   "have": 1016,
+   "priceHalf": true,
+   "ranAt": "2026-11-09",
+   "read": {
+    "allIc": -0.001,
+    "trendingIc": 0.003,
+    "chopIc": -0.005,
+    "transitionIc": -0.002,
+    "trendingDays": 469,
+    "chopDays": 547,
+    "firstHalf": 0.003,
+    "secondHalf": 0.002
+   },
+   "note": null
+  },
+  "F2": {
+   "verdict": "pass",
+   "have": 5245,
+   "priceHalf": true,
+   "ranAt": "2026-11-09",
+   "read": {
+    "gridSwitchesPerYear": 23.06,
+    "gridLagDays": 1,
+    "gridRatio": 1.84,
+    "hmmSwitchesPerYear": 16.54,
+    "hmmRatio": 1.87,
+    "agreementPct": 78,
+    "preferred": "grid"
+   },
+   "note": null,
+   "sessions": 5245
+  },
+  "F3": {
+   "verdict": "pass",
+   "have": 10,
+   "priceHalf": true,
+   "ranAt": "2026-11-09",
+   "read": {
+    "same-rules": {
+     "avgNet": -2.3,
+     "winPct": 50,
+     "beatBaseline": "0/10",
+     "trades": 4697
+    },
+    "switch": {
+     "avgNet": 0.6,
+     "winPct": 42,
+     "beatBaseline": "6/10",
+     "trades": 1602
+    },
+    "size-exits": {
+     "avgNet": -1.8,
+     "winPct": 48,
+     "beatBaseline": "6/10",
+     "trades": 3926
+    },
+    "ride-only": {
+     "avgNet": 4.7,
+     "winPct": 42,
+     "beatBaseline": "6/8",
+     "trades": 1167
+    },
+    "defend-only": {
+     "avgNet": 73,
+     "winPct": 100,
+     "beatBaseline": null,
+     "trades": 3
+    },
+    "fade-only": {
+     "avgNet": 7,
+     "winPct": 75,
+     "beatBaseline": null,
+     "trades": 3
+    },
+    "cash": {
+     "avgNet": null,
+     "winPct": null,
+     "beatBaseline": null,
+     "trades": 0
+    }
+   },
+   "note": null,
+   "holdoutLocked": false
+  },
+  "F4": {
+   "verdict": "pass",
+   "have": 6,
+   "priceHalf": true,
+   "ranAt": "2026-11-09",
+   "read": {
+    "up-calm": {
+     "n": 1420,
+     "avg": -3.2,
+     "cashBetter": true,
+     "bestSide": "call"
+    },
+    "up-stressed": {
+     "n": 228,
+     "avg": -10.8,
+     "cashBetter": true,
+     "bestSide": "call"
+    },
+    "down-calm": {
+     "n": 96,
+     "avg": -10.9,
+     "cashBetter": true,
+     "bestSide": "put"
+    },
+    "down-stressed": {
+     "n": 550,
+     "avg": -2.2,
+     "cashBetter": true,
+     "bestSide": "put"
+    },
+    "chop-calm": {
+     "n": 1220,
+     "avg": -4.4,
+     "cashBetter": true,
+     "bestSide": "put"
+    },
+    "chop-stressed": {
+     "n": 1183,
+     "avg": -9.6,
+     "cashBetter": true,
+     "bestSide": "put"
+    }
+   },
+   "note": null
+  },
+  "F5": {
+   "verdict": "pass",
+   "have": 10,
+   "priceHalf": true,
+   "ranAt": "2026-11-09",
+   "read": {
+    "ladder": {
+     "avgNet": -4.5,
+     "winPct": 47,
+     "drawdown": 3237.7,
+     "whipsawPct": 8,
+     "beatBaselineNet": "8/10",
+     "better": true
+    },
+    "flat-50": {
+     "avgNet": -5.5,
+     "winPct": 50,
+     "drawdown": 3494.3,
+     "whipsawPct": 5,
+     "beatBaselineNet": "0/10",
+     "better": false
+    }
+   },
+   "note": null,
+   "holdoutLocked": false
+  },
+  "F6": {
+   "verdict": "pass",
+   "have": 10,
+   "priceHalf": true,
+   "ranAt": "2026-11-09",
+   "read": {
+    "continuous": {
+     "avgNet": -3.7,
+     "winPct": 47,
+     "drawdown": 2855.1,
+     "whipsawPct": 7,
+     "beatBaselineNet": "7/10",
+     "better": true
+    },
+    "flat-50": {
+     "avgNet": -5.5,
+     "winPct": 50,
+     "drawdown": 3494.3,
+     "whipsawPct": 5,
+     "beatBaselineNet": "0/10",
+     "better": false
+    }
+   },
+   "note": null,
+   "holdoutLocked": false
+  },
+  "F7": {
+   "verdict": "pass",
+   "have": 10,
+   "priceHalf": true,
+   "ranAt": "2026-11-09",
+   "read": {
+    "price-stop": {
+     "avgNet": -3.5,
+     "winPct": 50,
+     "drawdown": 2765.8,
+     "whipsawPct": 3,
+     "beatBaselineNet": "8/10",
+     "better": true
+    },
+    "flat-50": {
+     "avgNet": -5.5,
+     "winPct": 50,
+     "drawdown": 3494.3,
+     "whipsawPct": 5,
+     "beatBaselineNet": "0/10",
+     "better": false
+    }
+   },
+   "note": null,
+   "holdoutLocked": false
+  },
+  "F8": {
+   "verdict": "fail",
+   "have": 10,
+   "priceHalf": true,
+   "ranAt": "2026-11-09",
+   "read": {
+    "size-first-ladder": {
+     "avgNet": -4.5,
+     "winPct": 47,
+     "drawdown": 4197.3,
+     "whipsawPct": 8,
+     "beatBaselineNet": "8/10",
+     "better": false
+    },
+    "flat-50": {
+     "avgNet": -5.5,
+     "winPct": 50,
+     "drawdown": 3494.3,
+     "whipsawPct": 5,
+     "beatBaselineNet": "0/10",
+     "better": false
+    },
+    "size-first": {
+     "avgNet": -5.5,
+     "winPct": 50,
+     "drawdown": 3494.9,
+     "whipsawPct": 5,
+     "beatBaselineNet": "0/10",
+     "better": false
+    }
+   },
+   "note": null,
+   "holdoutLocked": false
+  },
+  "F9": {
+   "verdict": "pass",
+   "have": 10,
+   "priceHalf": true,
+   "ranAt": "2026-11-09",
+   "read": {
+    "time-by-character": {
+     "avgNet": -2,
+     "winPct": 37,
+     "drawdown": 2272.6,
+     "whipsawPct": 5,
+     "beatBaselineNet": "7/10",
+     "better": true
+    },
+    "time-5": {
+     "avgNet": -2.1,
+     "winPct": 38,
+     "drawdown": 2402.8,
+     "whipsawPct": 4,
+     "beatBaselineNet": "6/10",
+     "better": true
+    },
+    "time-8": {
+     "avgNet": -2.2,
+     "winPct": 43,
+     "drawdown": 2258.7,
+     "whipsawPct": 4,
+     "beatBaselineNet": "7/10",
+     "better": true
+    },
+    "time-3": {
+     "avgNet": -2.7,
+     "winPct": 32,
+     "drawdown": 2560.5,
+     "whipsawPct": 3,
+     "beatBaselineNet": "6/10",
+     "better": true
+    },
+    "scaled-target": {
+     "avgNet": -4.7,
+     "winPct": 46,
+     "drawdown": 3105.4,
+     "whipsawPct": 3,
+     "beatBaselineNet": "7/10",
+     "better": true
+    },
+    "flat-50": {
+     "avgNet": -5.5,
+     "winPct": 50,
+     "drawdown": 3494.3,
+     "whipsawPct": 5,
+     "beatBaselineNet": "0/10",
+     "better": false
+    },
+    "partial-trail": {
+     "avgNet": -6.1,
+     "winPct": 49,
+     "drawdown": 3312.7,
+     "whipsawPct": 5,
+     "beatBaselineNet": "5/10",
+     "better": false
+    }
+   },
+   "note": null,
+   "holdoutLocked": false
+  },
+  "F11": {
+   "verdict": "ok",
+   "have": 663,
+   "priceHalf": true,
+   "ranAt": "2026-11-09",
+   "read": {
+    "hitClose": 55,
+    "hitClose3": 50,
+    "alreadyPricedPct": 44,
+    "byType": {
+     "fomc": {
+      "n": 165,
+      "hitClose": 60,
+      "bestExit": "close3"
+     },
+     "cpi": {
+      "n": 247,
+      "hitClose": 52,
+      "bestExit": "close"
+     },
+     "jobs": {
+      "n": 251,
+      "hitClose": 57,
+      "bestExit": "close3"
+     }
+    }
+   },
+   "note": "FOMC, CPI and jobs only, with CPI and jobs release days approximated (the 12th; the first Friday), which dilutes their hit rates; earnings and the real release calendar join at bake time."
+  },
+  "F12": {
+   "verdict": "ok",
+   "have": 663,
+   "priceHalf": true,
+   "ranAt": "2026-11-09",
+   "read": {
+    "fomc": {
+     "best": "stock",
+     "stressBest": "stock"
+    },
+    "cpi": {
+     "best": "stock",
+     "stressBest": "stock"
+    },
+    "jobs": {
+     "best": "stock",
+     "stressBest": "stock"
+    }
+   },
+   "note": null
+  },
+  "F13": {
+   "verdict": "ok",
+   "have": 663,
+   "priceHalf": true,
+   "ranAt": "2026-11-09",
+   "read": {
+    "fomc": {
+     "breakEvenAccuracyPct": null,
+     "gapRiskPct": 44
+    },
+    "cpi": {
+     "breakEvenAccuracyPct": null,
+     "gapRiskPct": 39
+    },
+    "jobs": {
+     "breakEvenAccuracyPct": null,
+     "gapRiskPct": 32
+    }
+   },
+   "note": null
+  },
+  "F15": {
+   "verdict": "fail",
+   "have": 1881,
+   "priceHalf": true,
+   "ranAt": "2026-11-09",
+   "read": {
+    "oosAvgNet": -4.8,
+    "oosWinPct": 46,
+    "fixedAvgNet": -6,
+    "fixedWinPct": 50,
+    "steps": 105,
+    "parameterStability": 0.15,
+    "trials": 1260
+   },
+   "note": null
+  },
+  "F17": {
+   "verdict": "pass",
+   "have": 10,
+   "priceHalf": true,
+   "ranAt": "2026-11-09",
+   "read": {
+    "beatBaseline": "7/10",
+    "avgNet": 1.2,
+    "baselineAvgNet": -2.3
+   },
+   "note": null,
+   "holdoutLocked": false
+  },
+  "F18": {
+   "verdict": "pass",
+   "have": 65,
+   "priceHalf": true,
+   "ranAt": "2026-11-09",
+   "read": {
+    "macro": {
+     "days": 65,
+     "ic": -0.058,
+     "tradesAvg": -20.9,
+     "tradesN": 197
+    },
+    "mixed": {
+     "days": 214,
+     "ic": -0.031,
+     "tradesAvg": -7.7,
+     "tradesN": 766
+    },
+    "stock-picking": {
+     "days": 737,
+     "ic": 0.013,
+     "tradesAvg": -4.2,
+     "tradesN": 2307
+    }
+   },
+   "note": null
+  },
+  "F19": {
+   "verdict": "insufficient",
+   "have": 0,
+   "priceHalf": true,
+   "ranAt": "2026-11-09",
+   "read": {
+    "heavy": null,
+    "rest": {
+     "n": 3270,
+     "avg": -6
+    },
+    "halfSizeHelps": null
+   },
+   "note": "Event load on the long span counts FOMC weeks only (no CPI, jobs or earnings dates in the research set)."
+  },
+  "F22": {
+   "verdict": "fail",
+   "have": 11,
+   "priceHalf": true,
+   "ranAt": "2026-11-09",
+   "read": {
+    "rerun": 11,
+    "survived": 0,
+    "rows": [
+     {
+      "window": "2008-01-02..2025-12-31",
+      "strategy": "switch",
+      "exits": "flat-50",
+      "baseAvgNet": -5.5,
+      "stressAvgNet": -9,
+      "survived": false
+     },
+     {
+      "window": "2008-01-02..2025-12-31",
+      "strategy": "size-exits",
+      "exits": "flat-50",
+      "baseAvgNet": -5.2,
+      "stressAvgNet": -8.7,
+      "survived": false
+     },
+     {
+      "window": "2008-01-02..2025-12-31",
+      "strategy": "ride-only",
+      "exits": "flat-50",
+      "baseAvgNet": -5.8,
+      "stressAvgNet": -9.3,
+      "survived": false
+     },
+     {
+      "window": "2008-01-02..2025-12-31",
+      "strategy": "same-rules",
+      "exits": "ladder",
+      "baseAvgNet": -5.2,
+      "stressAvgNet": -8.7,
+      "survived": false
+     },
+     {
+      "window": "2008-01-02..2025-12-31",
+      "strategy": "same-rules",
+      "exits": "continuous",
+      "baseAvgNet": -4.3,
+      "stressAvgNet": -7.8,
+      "survived": false
+     },
+     {
+      "window": "2008-01-02..2025-12-31",
+      "strategy": "same-rules",
+      "exits": "price-stop",
+      "baseAvgNet": -4.2,
+      "stressAvgNet": -7.7,
+      "survived": false
+     },
+     {
+      "window": "2008-01-02..2025-12-31",
+      "strategy": "same-rules",
+      "exits": "time-by-character",
+      "baseAvgNet": -2.4,
+      "stressAvgNet": -5.9,
+      "survived": false
+     },
+     {
+      "window": "2008-01-02..2025-12-31",
+      "strategy": "same-rules",
+      "exits": "time-5",
+      "baseAvgNet": -2.4,
+      "stressAvgNet": -5.9,
+      "survived": false
+     },
+     {
+      "window": "2008-01-02..2025-12-31",
+      "strategy": "same-rules",
+      "exits": "time-8",
+      "baseAvgNet": -2.8,
+      "stressAvgNet": -6.3,
+      "survived": false
+     },
+     {
+      "window": "2008-01-02..2025-12-31",
+      "strategy": "same-rules",
+      "exits": "time-3",
+      "baseAvgNet": -2.9,
+      "stressAvgNet": -6.4,
+      "survived": false
+     },
+     {
+      "window": "2008-01-02..2025-12-31",
+      "strategy": "same-rules",
+      "exits": "scaled-target",
+      "baseAvgNet": -5.5,
+      "stressAvgNet": -9,
+      "survived": false
+     }
+    ]
+   },
+   "note": null
+  }
+ }
+}

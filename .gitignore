@@ -28,3 +28,7 @@ r2.env
 # Freshness check writes this when it holds an unclassified file out of the
 # bake upload. The next run regenerates it. Never commit it.
 /upload-holdback.json
+
+# Regime Lab research runner default output (scripts/regime-lab.mjs --out); the
+# full runs hold every paper trade and belong in the private research folder.
+/regime-lab-out/

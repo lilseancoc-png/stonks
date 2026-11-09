@@ -50,6 +50,7 @@ import { renderEarningsWeekJs } from './earnings-week-client.mjs';
 import { renderViewsNextJs } from './views-next-client.mjs';
 import { renderEdgeOddsJs } from './edge-odds-client.mjs';
 import { renderEvidenceJs } from './evidence-client.mjs';
+import { renderRegimeLabJs } from './regime-lab-client.mjs';
 import { renderOwnerInsightJs } from './owner-insight-client.mjs';
 import { tradePostMortemFactory } from '../../lib/trade-postmortem.mjs';
 import { renderI18nJs, I18N_LANGS } from './i18n-client.mjs';
@@ -110,6 +111,7 @@ ${renderEarningsWeekJs()}
 ${renderViewsNextJs()}
 ${renderEdgeOddsJs()}
 ${renderEvidenceJs()}
+${renderRegimeLabJs()}
 ${renderOwnerInsightJs()}
 ${calendarSourceLabel.toString()}
 ${calendarScheduleFallbackUsable.toString()}
@@ -25283,7 +25285,7 @@ ${renderExportBindings()}
   var ownerLabBound = false;
   var quantPairsAll = false;
   function selectOwnerLabView(view){
-    if (['personal','research','diagnostics','evidence'].indexOf(view) < 0) return;
+    if (['personal','research','diagnostics','evidence','regime'].indexOf(view) < 0) return;
     ownerLabView = view;
     var section = $('quant-section');
     if (!section) return;
@@ -25294,12 +25296,13 @@ ${renderExportBindings()}
     });
     section.querySelectorAll('[data-owner-panel]').forEach(function(panel){ panel.hidden = panel.getAttribute('data-owner-panel') !== view; });
     var eye = $('quant-eyebrow');
-    if (eye && view !== 'research') eye.textContent = view === 'personal' ? 'Private tools' : view === 'evidence' ? 'Tests and gates' : 'Stored research records';
+    if (eye && view !== 'research') eye.textContent = view === 'personal' ? 'Private tools' : view === 'evidence' ? 'Tests and gates' : view === 'regime' ? 'Regime Lab' : 'Stored research records';
     if (view === 'personal') loadOwnerTools();
     if (view === 'research') loadQuantResearch();
     if (view === 'diagnostics' && window.BookViews) window.BookViews.openTab('quant');
     if (view === 'diagnostics') loadCostHistory();
     if (view === 'evidence') loadEvidenceBoard();
+    if (view === 'regime') loadRegimeLab();
   }
   function bindOwnerLab(){
     var section = $('quant-section');
@@ -25310,6 +25313,7 @@ ${renderExportBindings()}
       if (view) selectOwnerLabView(view.getAttribute('data-owner-view'));
       if (event.target.closest('[data-owner-research-refresh]')) loadQuantResearch(true);
       if (event.target.closest('[data-owner-evidence-refresh]')) loadEvidenceBoard(true);
+      if (event.target.closest('[data-owner-regime-refresh]')) loadRegimeLab(true);
       // "Company record" link: open the Unified Signal Engine on that view,
       // carrying over a ticker typed into one of the record searches. The
       // button's data-wf-go does the page switch.
