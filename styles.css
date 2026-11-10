@@ -181,6 +181,20 @@ html.reduce-motion *, html.reduce-motion *::before, html.reduce-motion *::after 
 .os-switch input { width: 18px; height: 18px; }
 .os-tag { display: inline-block; margin-left: 4px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--border); font: 500 var(--t-11)/1.6 var(--font-sans); color: var(--muted); vertical-align: middle; }
 .os-tag-changed { color: var(--text); border-color: currentColor; }
+/* Big-impact settings: bold red warning, red edge, and the are-you-sure box. */
+.os-tag-high { color: var(--neg); border-color: currentColor; font-weight: 700; }
+.os-row-high { border-left: 3px solid var(--neg); padding-left: 12px; }
+.os-impact { margin: 6px 0 0; font-size: var(--t-13); line-height: 1.45; color: var(--neg); }
+.os-impact strong { font-weight: 700; }
+.os-impact-inline { color: var(--neg); }
+.os-ask-back { position: fixed; inset: 0; z-index: 2147483000; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(0,0,0,.55); }
+.os-ask { width: min(560px, 100%); max-height: calc(100vh - 32px); overflow: auto; padding: 18px 20px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface, var(--bg)); color: var(--text); box-shadow: 0 18px 50px rgba(0,0,0,.35); }
+.os-ask h3 { margin: 0 0 8px; font: 700 var(--t-18)/1.3 var(--font-sans); }
+.os-ask-list { margin: 8px 0; padding-left: 18px; font-size: var(--t-14); line-height: 1.45; }
+.os-ask-list li { margin: 0 0 8px; }
+.os-ask-note { margin: 4px 0; font-size: var(--t-13); color: var(--muted); }
+.os-ask-btns { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+.os-danger { background: var(--neg) !important; border-color: var(--neg) !important; color: #fff !important; font-weight: 700; }
 .os-link { background: none; border: 0; padding: 0; color: var(--accent, inherit); text-decoration: underline; cursor: pointer; font: inherit; }
 .os-history { margin: 0; padding-left: 18px; font-size: var(--t-13); line-height: 1.5; }
 .os-history li { margin: 0 0 8px; }

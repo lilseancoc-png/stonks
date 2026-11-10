@@ -6,7 +6,7 @@
 export function ownerSettingsSection() {
   return `<section class="card" id="owner-settings-section">
     <header class="card-header"><h2 class="card-title">Settings</h2></header>
-    <p class="hint">Owner only. Change these here instead of in the repo. Build settings apply from the next build, and Top Picks settings from the next 11:00 or 15:30 ET run. Live site switches apply within a minute. Models, AI budgets, exits, grading weights, schedules and the stock list stay in the repo.</p>
+    <p class="hint">Owner only. Change these here instead of in the repo. Build settings apply from the next build, and Top Picks settings from the next 11:00 or 15:30 ET run. Live site switches apply within a minute. Models, AI budgets, exits, grading weights, schedules and the stock list stay in the repo. Settings marked <strong class="os-impact-inline">Big impact</strong> in red change how Mingstreet trades or runs, and ask you to confirm first.</p>
     <div id="owner-settings-root" aria-live="polite"></div>
   </section>`;
 }
@@ -14,8 +14,16 @@ export function ownerSettingsSection() {
 export function ownerSettingsClient(window, document, ctx) {
   var data = null, error = '', busy = false, loading = false, generation = 0;
   var TAB_KEY = 'stonks-owner-settings-tab';
-  var tab = null, query = '', changedOnly = false, collapsed = {};
+  var tab = null, query = '', changedOnly = false, highOnly = false, collapsed = {};
+  // The open "are you sure" box: { title, intro, items, yes, body } or null.
+  var ask = null, refocus = null;
   try { tab = window.localStorage.getItem(TAB_KEY); } catch (e) { tab = null; }
+  // Leaving the page with the box open (Back button) closes it unsaved.
+  window.addEventListener('popstate', function(){
+    if (!ask) return;
+    ask = null; refocus = null;
+    var h = document.getElementById('os-ask-host'); if (h) h.parentNode.removeChild(h);
+  });
   function esc(v){ return String(v == null ? '' : v).replace(/[&<>"']/g, function(c){ return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]; }); }
   // Times in ET, like the rest of the site's schedule (11:00 / 15:30 ET runs).
   function when(v){
@@ -57,6 +65,7 @@ export function ownerSettingsClient(window, document, ctx) {
   }
   function row(s){
     var tags = [];
+    if (s.impact === 'high') tags.push('<span class="os-tag os-tag-high">Big impact</span>');
     if (s.changed) tags.push('<span class="os-tag os-tag-changed">Changed</span>');
     if (s.picks) tags.push('<span class="os-tag" title="New trades are stamped with this setting and the Track Record draws a dated divider when it changes.">Changes picks</span>');
     if (s.scope === 'site') tags.push('<span class="os-tag">Live</span>');
@@ -64,8 +73,9 @@ export function ownerSettingsClient(window, document, ctx) {
     if (s.pinned) notes.push('Pinned by a repo variable, so the repo value wins. Ask Sean to clear the variable to control it here.');
     if (s.vercelOff) notes.push('Off in Vercel, so it stays off whatever this says.');
     if (s.lockedUntil) notes.push('Can be turned on from ' + esc(s.lockedUntil) + '.');
-    return '<div class="os-row" data-os-row="' + esc(s.key) + '"><div class="os-main"><div class="os-label">' + esc(s.label) + ' ' + tags.join(' ') + '</div>' +
+    return '<div class="os-row' + (s.impact === 'high' ? ' os-row-high' : '') + '" data-os-row="' + esc(s.key) + '"><div class="os-main"><div class="os-label">' + esc(s.label) + ' ' + tags.join(' ') + '</div>' +
       '<p class="os-help">' + esc(s.help) + '</p>' +
+      (s.impact === 'high' && s.warn ? '<p class="os-impact"><strong>Big impact: ' + esc(s.warn) + '</strong></p>' : '') +
       '<p class="os-meta">Default: ' + esc(fmt(s, s.default)) + (s.changed ? ' · <button type="button" class="os-link" data-os-reset="' + esc(s.key) + '"' + (busy ? ' disabled' : '') + '>Reset to default</button>' : '') + '</p>' +
       (notes.length ? '<p class="os-note">' + notes.join(' ') + '</p>' : '') + '</div>' +
       '<div class="os-ctl">' + control(s) + '</div></div>';
@@ -99,8 +109,9 @@ export function ownerSettingsClient(window, document, ctx) {
   }
   function matches(x){
     if (changedOnly && !x.changed) return false;
+    if (highOnly && x.impact !== 'high') return false;
     if (!query) return true;
-    var hay = (x.label + ' ' + x.help + ' ' + (x.tab || '') + ' ' + (x.group || '') + ' ' + x.key).toLowerCase();
+    var hay = (x.label + ' ' + x.help + ' ' + (x.warn || '') + ' ' + (x.impact === 'high' ? 'big impact ' : '') + (x.tab || '') + ' ' + (x.group || '') + ' ' + x.key).toLowerCase();
     return query.toLowerCase().split(/\s+/).every(function(w){ return !w || hay.indexOf(w) >= 0; });
   }
   function sectionsHtml(list, withTab){
@@ -115,7 +126,10 @@ export function ownerSettingsClient(window, document, ctx) {
   }
   function render(){
     var root = document.getElementById('owner-settings-root'); if (!root || !ctx.owner()) return;
-    var focusId = document.activeElement && root.contains(document.activeElement) ? document.activeElement.id : null;
+    // The "are you sure" box lives on <body> so no page layer can sit over it.
+    var host = document.getElementById('os-ask-host');
+    var act = document.activeElement;
+    var focusId = act && (root.contains(act) || (host && host.contains(act))) ? act.id : null;
     var caret = focusId === 'os-search' ? document.activeElement.selectionStart : null;
     var html = '';
     if (error) html += '<p class="os-warn" role="status">' + esc(error) + '</p>';
@@ -130,15 +144,16 @@ export function ownerSettingsClient(window, document, ctx) {
     var tabs = tabsOf();
     if (tabs.indexOf(tab) < 0) tab = tabs[0];
     html += '<div class="os-find"><input type="search" id="os-search" placeholder="Search settings" aria-label="Search settings" value="' + esc(query) + '">' +
-      '<label class="os-switch"><input type="checkbox" id="os-changed-only"' + (changedOnly ? ' checked' : '') + '> <span>Changed only</span></label></div>';
-    var searching = !!query || changedOnly;
+      '<label class="os-switch"><input type="checkbox" id="os-changed-only"' + (changedOnly ? ' checked' : '') + '> <span>Changed only</span></label>' +
+      '<label class="os-switch"><input type="checkbox" id="os-high-only"' + (highOnly ? ' checked' : '') + '> <span>Big impact only</span></label></div>';
+    var searching = !!query || changedOnly || highOnly;
     html += '<div class="os-layout' + (searching ? ' os-searching' : '') + '"><div class="os-tabs" role="tablist" aria-label="Settings sections">' + tabs.map(function(t){
       var n = tabCount(t), on = !searching && t === tab;
       return '<button type="button" role="tab" class="os-tab' + (on ? ' is-on' : '') + '" aria-selected="' + (on ? 'true' : 'false') + '" data-os-tab="' + esc(t) + '">' + esc(t) + (n ? ' <span class="os-count" title="' + n + ' changed">' + n + '</span>' : '') + '</button>';
     }).join('') + '</div><div class="os-panel" role="tabpanel">';
     if (searching) {
       var hits = data.settings.filter(matches);
-      var dhits = displayRows().filter(function(x){ return matches(x); });
+      var dhits = highOnly ? [] : displayRows().filter(function(x){ return matches(x); });
       html += '<p class="os-muted">' + (hits.length + dhits.length) + ' setting' + (hits.length + dhits.length === 1 ? '' : 's') + ' found.' + ' <button type="button" class="os-link" data-os-clear>Clear</button></p>';
       html += sectionsHtml(hits, true);
       if (dhits.length) html += '<section class="os-group"><h3>Display · This device</h3>' + dhits.map(displayRow).join('') + '</section>';
@@ -154,6 +169,13 @@ export function ownerSettingsClient(window, document, ctx) {
     html += '</div></div>';
     root.innerHTML = html;
     bind(root);
+    if (ask) {
+      if (!host) { host = document.createElement('div'); host.id = 'os-ask-host'; document.body.appendChild(host); }
+      host.innerHTML = askHtml(ask);
+      bindAsk(host);
+    } else if (host) host.parentNode.removeChild(host);
+    if (ask) { if (!focusId || !/^os-ask-/.test(focusId)) focusId = 'os-ask-no'; }
+    else if (refocus) { if (!focusId || /^os-ask-/.test(focusId)) focusId = refocus; refocus = null; }
     if (focusId) { var f = document.getElementById(focusId); if (f) { f.focus(); if (caret != null && f.setSelectionRange) { try { f.setSelectionRange(caret, caret); } catch (e) {} } } }
   }
   // --- Display (this device only; localStorage) ---------------------------------
@@ -214,17 +236,64 @@ export function ownerSettingsClient(window, document, ctx) {
   function post(body){
     if (busy) return;
     busy = true; error = ''; render();
-    call('POST', body).then(function(j){ if (j) data = j; }).catch(function(e){ error = e.message || 'Could not save.'; })
+    call('POST', body).then(function(j){ if (j) data = j; }).catch(function(e){
+      // The server asked for an "are you sure" this page didn't know about
+      // (an older copy of the page): ask now instead of failing.
+      if (e.needsConfirm && !body.confirm) { var b2 = {}; for (var k in body) b2[k] = body[k]; b2.confirm = true; ask = { title: 'Are you sure?', intro: String(e.message || '').replace(/: needs confirmation$/, '') + ' has a big impact on Mingstreet.', items: [], body: b2, high: true }; return; }
+      error = e.message || 'Could not save.';
+    })
       .then(function(){ busy = false; render(); });
   }
+  // --- "Are you sure" ------------------------------------------------------------
+  // Every change to a big-impact setting (and the Dec 7 hooks) opens this box
+  // first. The server refuses those changes without body.confirm, so a stale
+  // page can't skip it.
+  function item(s, from, to){ return { label: s.label, from: fmt(s, from), to: fmt(s, to), toDefault: to === s.default, high: s.impact === 'high', warn: s.warn || '', help: s.help, locked: !!s.lockedUntil }; }
+  function askHtml(a){
+    var list = a.items.map(function(it){
+      return '<li' + (it.high ? ' class="os-ask-high"' : '') + '><strong>' + esc(it.label) + ':</strong> ' + esc(it.from) + ' → ' + esc(it.to) + (it.toDefault ? ' (default)' : '') +
+        (it.high && it.warn && !it.toDefault ? '<p class="os-impact"><strong>' + esc(it.warn) + '</strong></p>' : '') +
+        (it.high && it.toDefault ? '<p class="os-ask-note">This puts it back to the default.</p>' : '') + '</li>';
+    }).join('');
+    var high = !!a.high || a.items.some(function(it){ return it.high && !it.toDefault; });
+    return '<div class="os-ask-back" data-os-ask-back><div class="os-ask" role="alertdialog" aria-modal="true" aria-labelledby="os-ask-title" aria-describedby="os-ask-text">' +
+      '<h3 id="os-ask-title">' + esc(a.title) + '</h3>' +
+      '<div id="os-ask-text">' + (a.intro ? '<p class="os-ask-note">' + esc(a.intro) + '</p>' : '') + (list ? '<ul class="os-ask-list">' + list + '</ul>' : '') +
+      (high ? '<p class="os-impact"><strong>This has a big impact on Mingstreet. Are you sure?</strong></p>' : '<p class="os-ask-note">Are you sure?</p>') + '</div>' +
+      '<div class="os-ask-btns"><button type="button" class="book-more" id="os-ask-no" data-os-ask-no>Cancel</button>' +
+      '<button type="button" class="book-more' + (high ? ' os-danger' : '') + '" id="os-ask-yes" data-os-ask-yes>' + esc(a.yes || 'Yes, change it') + '</button></div></div></div>';
+  }
+  function confirmThen(a){ ask = a; refocus = document.activeElement && document.activeElement.id || null; render(); }
+  function needsAsk(s){ return !!(s && (s.impact === 'high' || s.confirm)); }
   function setOne(key, value){
     var s = byKey(key); if (!s) return;
     var body = { act: 'set', values: {} }; body.values[key] = value;
-    if (s.confirm && value !== s.default) {
-      if (!window.confirm('Turn on "' + s.label + '"? ' + s.help)) { render(); return; }
+    if (value === s.value) { render(); return; }
+    if (needsAsk(s)) {
       body.confirm = true;
+      confirmThen({ title: 'Change ' + s.label + '?', items: [item(s, s.value, value)], body: body,
+        intro: s.picks ? 'New Top Picks trades are stamped with this setting and the Track Record draws a divider. Open trades are not touched.' : '' });
+      return;
     }
     post(body);
+  }
+  function lastChange(){ var list = (data && data.history) || []; for (var i = 0; i < list.length; i++) if (list[i].kind !== 'undo' && !list[i].undone) return list[i]; return null; }
+  function undoNow(){
+    var last = lastChange(); if (!last) return;
+    var items = [], big = false;
+    (last.changes || []).forEach(function(c){ var s = byKey(c.key); if (!s) return; var f = c.to == null ? s.default : c.to, t = c.from == null ? s.default : c.from; items.push(item(s, f, t)); if (needsAsk(s)) big = true; });
+    if (!big) { post({ act: 'undo' }); return; }
+    confirmThen({ title: 'Undo the last change?', intro: 'Undo puts these back the way they were.', items: items, body: { act: 'undo', confirm: true }, yes: 'Yes, undo it' });
+  }
+  function resetOne(key){
+    var s = byKey(key); if (!s) return;
+    if (!needsAsk(s)) { post({ act: 'reset', key: key }); return; }
+    confirmThen({ title: 'Reset ' + s.label + '?', items: [item(s, s.value, s.default)], body: { act: 'reset', key: key }, yes: 'Yes, reset it' });
+  }
+  function resetAll(){
+    var items = (data.settings || []).filter(function(x){ return x.changed; }).map(function(x){ return item(x, x.value, x.default); });
+    if (!items.length) return;
+    confirmThen({ title: 'Reset every setting?', intro: 'This puts every setting on the site back to its default. Display settings on this device are not touched.', items: items, body: { act: 'reset-all' }, yes: 'Yes, reset all' });
   }
   function bind(root){
     Array.prototype.forEach.call(root.querySelectorAll('[data-os-key]'), function(el){
@@ -241,13 +310,34 @@ export function ownerSettingsClient(window, document, ctx) {
       });
     });
     Array.prototype.forEach.call(root.querySelectorAll('[data-os-reset]'), function(el){
-      el.addEventListener('click', function(){ post({ act: 'reset', key: el.getAttribute('data-os-reset') }); });
+      el.addEventListener('click', function(){ resetOne(el.getAttribute('data-os-reset')); });
     });
-    var u = root.querySelector('[data-os-undo]'); if (u) u.addEventListener('click', function(){ post({ act: 'undo' }); });
-    var ra = root.querySelector('[data-os-resetall]'); if (ra) ra.addEventListener('click', function(){ if (window.confirm('Put every setting back to its default?')) post({ act: 'reset-all' }); });
+    var u = root.querySelector('[data-os-undo]'); if (u) u.addEventListener('click', undoNow);
+    var ra = root.querySelector('[data-os-resetall]'); if (ra) ra.addEventListener('click', resetAll);
     var rf = root.querySelector('[data-os-refresh]'); if (rf) rf.addEventListener('click', load);
+    bindRest(root);
+  }
+  function bindAsk(host){
+    var box = host.querySelector('[data-os-ask-back]');
+    if (box) {
+      var no = function(){ ask = null; render(); };
+      host.querySelector('[data-os-ask-no]').addEventListener('click', no);
+      host.querySelector('[data-os-ask-yes]').addEventListener('click', function(){ var b = ask && ask.body; ask = null; if (b) post(b); else render(); });
+      box.addEventListener('click', function(ev){ if (ev.target === box) no(); });
+      box.addEventListener('keydown', function(ev){
+        if (ev.key === 'Escape') { ev.preventDefault(); no(); return; }
+        if (ev.key === 'Tab') {
+          // Keep focus inside the box.
+          var a = document.getElementById('os-ask-no'), b = document.getElementById('os-ask-yes');
+          if (ev.shiftKey && document.activeElement === a) { ev.preventDefault(); b.focus(); }
+          else if (!ev.shiftKey && document.activeElement === b) { ev.preventDefault(); a.focus(); }
+        }
+      });
+    }
+  }
+  function bindRest(root){
     Array.prototype.forEach.call(root.querySelectorAll('[data-os-tab]'), function(el){
-      el.addEventListener('click', function(){ tab = el.getAttribute('data-os-tab'); query = ''; changedOnly = false; try { window.localStorage.setItem(TAB_KEY, tab); } catch (e) {} render(); var b = document.querySelector('[data-os-tab="' + tab.replace(/"/g, '') + '"]'); if (b) b.focus(); });
+      el.addEventListener('click', function(){ tab = el.getAttribute('data-os-tab'); query = ''; changedOnly = false; highOnly = false; try { window.localStorage.setItem(TAB_KEY, tab); } catch (e) {} render(); var b = document.querySelector('[data-os-tab="' + tab.replace(/"/g, '') + '"]'); if (b) b.focus(); });
       el.addEventListener('keydown', function(ev){
         var list = Array.prototype.slice.call(root.querySelectorAll('[data-os-tab]')), i = list.indexOf(el), next = null;
         if (ev.key === 'ArrowDown' || ev.key === 'ArrowRight') next = list[(i + 1) % list.length];
@@ -256,18 +346,19 @@ export function ownerSettingsClient(window, document, ctx) {
       });
     });
     Array.prototype.forEach.call(root.querySelectorAll('[data-os-fold]'), function(el){
-      el.addEventListener('toggle', function(){ if (!query && !changedOnly) collapsed[el.getAttribute('data-os-fold')] = !el.open; });
+      el.addEventListener('toggle', function(){ if (!query && !changedOnly && !highOnly) collapsed[el.getAttribute('data-os-fold')] = !el.open; });
     });
     var sr = root.querySelector('#os-search'); if (sr) sr.addEventListener('input', function(){ query = sr.value; render(); });
     var co = root.querySelector('#os-changed-only'); if (co) co.addEventListener('change', function(){ changedOnly = co.checked; render(); });
-    var cl = root.querySelector('[data-os-clear]'); if (cl) cl.addEventListener('click', function(){ query = ''; changedOnly = false; render(); });
+    var ho = root.querySelector('#os-high-only'); if (ho) ho.addEventListener('change', function(){ highOnly = ho.checked; render(); });
+    var cl = root.querySelector('[data-os-clear]'); if (cl) cl.addEventListener('click', function(){ query = ''; changedOnly = false; highOnly = false; render(); });
     Array.prototype.forEach.call(root.querySelectorAll('[data-os-display]'), function(el){
       el.addEventListener('change', function(){ setDisplay(el.getAttribute('data-os-display'), el.value); });
     });
     var dr = root.querySelector('[data-os-display-reset]'); if (dr) dr.addEventListener('click', function(){ DISPLAY.forEach(function(d){ setDisplay(d.key, d.def); }); });
     var go = root.querySelector('[data-os-go]'); if (go) go.addEventListener('click', function(){ ctx.go(go.getAttribute('data-os-go')); });
   }
-  function reset(){ generation++; data = null; error = ''; busy = false; loading = false; var root = document.getElementById('owner-settings-root'); if (root) root.innerHTML = ''; }
+  function reset(){ generation++; data = null; error = ''; busy = false; loading = false; ask = null; var root = document.getElementById('owner-settings-root'); if (root) root.innerHTML = ''; var host = document.getElementById('os-ask-host'); if (host) host.parentNode.removeChild(host); }
   return { load: load, reset: reset };
 }
 
@@ -349,6 +440,20 @@ html.reduce-motion *, html.reduce-motion *::before, html.reduce-motion *::after 
 .os-switch input { width: 18px; height: 18px; }
 .os-tag { display: inline-block; margin-left: 4px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--border); font: 500 11px/1.6 var(--font-sans); color: var(--muted); vertical-align: middle; }
 .os-tag-changed { color: var(--text); border-color: currentColor; }
+/* Big-impact settings: bold red warning, red edge, and the are-you-sure box. */
+.os-tag-high { color: var(--neg, #d8453f); border-color: currentColor; font-weight: 700; }
+.os-row-high { border-left: 3px solid var(--neg, #d8453f); padding-left: 12px; }
+.os-impact { margin: 6px 0 0; font-size: 13px; line-height: 1.45; color: var(--neg, #d8453f); }
+.os-impact strong { font-weight: 700; }
+.os-impact-inline { color: var(--neg, #d8453f); }
+.os-ask-back { position: fixed; inset: 0; z-index: 2147483000; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(0,0,0,.55); }
+.os-ask { width: min(560px, 100%); max-height: calc(100vh - 32px); overflow: auto; padding: 18px 20px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface, var(--bg, #fff)); color: var(--text); box-shadow: 0 18px 50px rgba(0,0,0,.35); }
+.os-ask h3 { margin: 0 0 8px; font: 700 17px/1.3 var(--font-sans); }
+.os-ask-list { margin: 8px 0; padding-left: 18px; font-size: 14px; line-height: 1.45; }
+.os-ask-list li { margin: 0 0 8px; }
+.os-ask-note { margin: 4px 0; font-size: 13px; color: var(--muted); }
+.os-ask-btns { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+.os-danger { background: var(--neg, #d8453f) !important; border-color: var(--neg, #d8453f) !important; color: #fff !important; font-weight: 700; }
 .os-link { background: none; border: 0; padding: 0; color: var(--accent, inherit); text-decoration: underline; cursor: pointer; font: inherit; }
 .os-history { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.5; }
 .os-history li { margin: 0 0 8px; }
