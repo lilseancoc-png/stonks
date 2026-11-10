@@ -55,7 +55,7 @@ try {
   check(await sources.locator('.uc-feature:visible').count()===3,'Source failures appear under Needs review');
   preview.setScenario('healthy');await sources.locator('[data-uc-refresh]').click();await sources.locator('.uc-all-clear').waitFor();
   check(await sources.locator('.uc-feature:visible').count()===0,'Recovered source checks clear on refresh');await extra.close();
-  for(const [scenario,message] of [['stale-monitor','90-minute heartbeat'],['stuck','queued or running for over 90 minutes'],['logs','AI calls failed']]){
+  for(const [scenario,message] of [['stale-monitor','12 hours otherwise'],['stuck','queued or running for over 90 minutes'],['logs','AI calls failed']]){
     preview.setScenario(scenario);const diagnosticPage=await pageAt();await diagnosticPage.goto(preview.base+'/?tab=update-checker');await diagnosticPage.locator('#update-checker-root h3').first().waitFor();check((await diagnosticPage.locator('#update-checker-root').innerText()).includes(message),scenario+' surfaced');check(await diagnosticPage.locator('#update-checker-notice').isVisible(),scenario+' notice');await diagnosticPage.close();
   }
   preview.setScenario('unknown');let page=await pageAt();await page.goto(preview.base+'/?tab=update-checker');await page.locator('.uc-feature').first().waitFor();check((await page.locator('#update-checker-root').innerText()).includes('No valid workflow report'),'Missing monitor is unknown');await page.close();

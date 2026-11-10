@@ -20,7 +20,7 @@ export function fixtureArtifacts(){
 export function fixtureReport(healthy=false){
   const fixture=fixtureRun({conclusion:healthy?'success':'failure'});
   if(healthy)fixture.jobs[0].steps=[{name:'Build site',conclusion:'success'},{name:'Flush verified data to private store',conclusion:'success'}];
-  const r=summarizeWorkflowRun(fixture.run,fixture.jobs,CHECKER_REPO);r.logsChecked=true;r.diagnostics={findings:[],unavailableJobs:0};r.diagnosticsVersion=1;
+  const r=summarizeWorkflowRun(fixture.run,fixture.jobs,CHECKER_REPO);r.logsChecked=true;r.diagnostics={findings:[],unavailableJobs:0,expiredJobs:0};r.diagnosticsVersion=2;
   const report=mergeWorkflowReports(null,[r],CHECKER_FIXTURE_TIME);
   report.deployment={state:'success',sha:'a'.repeat(40),createdAt:CHECKER_FIXTURE_TIME};
   report.features=UPDATE_FEATURES.map(spec=>inspectFeature(spec,spec.key?healthyPayload(spec):null,Date.parse(CHECKER_FIXTURE_TIME)));

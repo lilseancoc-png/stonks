@@ -16,7 +16,7 @@ export async function createUpdateCheckerPreview({port=0}={}) {
   const store={async rawGet(){
     if(scenario==='unknown')return null;
     const report=fixtureReport(['feature-only','healthy','stale-monitor','stuck','sources'].includes(scenario));
-    if(scenario==='stale-monitor')report.checkedAt='2026-11-01T16:00:00Z';
+    if(scenario==='stale-monitor')report.checkedAt='2026-11-01T06:00:00Z';
     if(scenario==='stuck')report.runs.unshift({...report.runs[0],id:101,status:'in_progress',conclusion:'pending',startedAt:'2026-11-01T16:00:00Z'});
     if(!['healthy','stale-monitor','stuck','sources'].includes(scenario))for(const f of report.features){
       if(f.id==='owner-market-brief')Object.assign(f,{status:'missing',detail:'No published output found.'});
