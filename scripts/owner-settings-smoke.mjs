@@ -3,11 +3,11 @@
 // server route. Offline: the store is replaced by an in-memory map.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
-  OWNER_SETTINGS, OWNER_SETTINGS_KEY, OWNER_SETTINGS_APPLIED_KEY, ownerSettingDef, cleanValue, isLocked,
+  OWNER_SETTINGS, OWNER_SETTINGS_TABS, OWNER_SETTINGS_KEY, OWNER_SETTINGS_APPLIED_KEY, ownerSettingDef, cleanValue, isLocked,
   readOwnerSettingsDoc, applyOwnerSettingsRequest, ownerSettingsView, applyOwnerSettingsToEnv,
   runtimeEnvOverrides, picksTag, describePicksTag,
 } from "../lib/owner-settings.mjs";
@@ -27,6 +27,18 @@ for (const d of OWNER_SETTINGS) {
   ok(cleanValue(d, d.default) === d.default, `${d.key} default is a valid value`);
   if (d.scope === "site") ok(d.kind === "switch" && d.default === true, `${d.key}: site switches default to on (follow Vercel)`);
 }
+// Every setting sits on a known tab, and every key is really read from the
+// environment by the build or the site (a dead key would look like it works).
+const codeFiles = [];
+const walk = (dir) => { for (const f of readdirSync(dir)) { const p = join(dir, f); if (statSync(p).isDirectory()) { if (f !== "node_modules") walk(p); } else if (/\.(mjs|js)$/.test(f) && !/smoke|owner-settings/.test(f)) codeFiles.push(p); } };
+walk(resolve("lib")); walk(resolve("api")); codeFiles.push(resolve("scripts/build.mjs"));
+const code = codeFiles.map((f) => readFileSync(f, "utf8")).join("\n");
+for (const d of OWNER_SETTINGS) {
+  ok(OWNER_SETTINGS_TABS.includes(d.tab), `${d.key} sits on a known tab`);
+  ok(new RegExp(`env\\??\\.${d.key}\\b`).test(code), `${d.key} is read from the environment by site code`);
+}
+// AI cost can only go down from this page: no setting adds AI calls.
+for (const k of ["AI_THESIS", "AI_THESIS_SEARCH"]) eq(ownerSettingDef(k).default, true, `${k}: the page can only turn AI off`);
 // Guard rails: no model, budget, exit, conviction, schedule or reset setting.
 for (const k of keys) ok(!/MODEL|TOKEN_CAP|CALL_CAP|_TP_|STOP|CONVICTION|TIER_STRONG|RESET|EPOCH|ROBINHOOD/.test(k), `${k} is not a guarded repo setting`);
 eq(ownerSettingDef("PICKS_COUNT").max, 6, "picks per run can't exceed today's 6 (AI grader cost)");

@@ -113,7 +113,7 @@ export function mcpRouteOf(req) {
 // Owner Settings "Live site" switches (lib/owner-settings.mjs) can only turn
 // a feature OFF on top of the Vercel env. Read for the few actions they gate,
 // cached for 30 seconds per warm instance; a failed read keeps the Vercel env.
-const SITE_SWITCH_KEYS = ["CONTACT_ENABLED", "SPORTS_ENABLED", "MCP_ENABLED", "WEBULL_MIRROR"];
+const SITE_SWITCH_KEYS = ["CONTACT_ENABLED", "SPORTS_ENABLED", "MCP_ENABLED", "MCP_PUBLIC_ACCESS", "WEBULL_MIRROR"];
 // Keys this module forced off, with the value they had before. The forced
 // values stay in place between requests and change only when the saved
 // settings change, so two requests running at once on one warm instance can
