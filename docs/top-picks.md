@@ -1779,7 +1779,9 @@ down a chance for every scored name at every Top Picks run (moves the grade's
 way in 5 / 10 / 20 sessions, and the planned option reaching +25% before
 -50%), replays every trade-grade name's planned option on daily closes, and
 grades the chances once the moves are in. It also audits each open-pick rule
-against the names it let through. Step 1 is measurement only: the grade, the
-gates, the contracts and the record are unchanged. The later steps (diagnosis,
-challenger books, bounded self-adjustment) are described in the spec as they
-land.
+against the names it let through. Step 2 reads which inputs still work, where the
+engine works by market type, how losses happen, and writes a weekly report.
+Step 3 runs small fixed changes as paper challenger books against a replica of
+the current rules, with a strict promotion check. Steps 1-3 are measurement
+only: the grade, the gates, the contracts and the record are unchanged. Step 4
+(bounded self-adjustment) is described in the spec when it lands.
