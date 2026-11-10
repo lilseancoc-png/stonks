@@ -140,6 +140,7 @@ export const SITE_SECTIONS = [
     items: [
       { id: 'quant', label: 'Owner Lab', blurb: 'Research tools and diagnostics.' },
       { id: 'update-checker', label: 'Update Checker', alias: 'Build status failures feature health stale missing updates', blurb: 'Build failures and checks of published feature outputs.' },
+      { id: 'owner-settings', label: 'Settings', alias: 'Owner settings switches kill switch toggles config controls', blurb: 'Change Top Picks, research and live site switches on the site, with history and undo.' },
     ],
   },
   {

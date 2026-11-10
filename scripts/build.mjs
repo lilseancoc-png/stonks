@@ -83,6 +83,10 @@ import { bandOf as loopBandOf } from "../lib/self-loop/ledger.mjs";
 import { loadRegimeLab, writeRegimeLab, loadResearchResults, buildLabelInputs, buildBakeLabels, todayFromSeries, openShadowBooks, markShadowBooks, buildBakeOracle, buildRegimeLabPayload, labStamp, regimeLabEnabled, REGIME_LAB_KEY } from "../lib/regime-lab/payload.mjs";
 import { riskScore as regimeLabRiskScore } from "../lib/regime-lab/exits.mjs";
 import { buildSourceHealth, loadSourceHealth, readSourcePayloads, writeSourceHealth } from "../lib/source-health.mjs";
+import { OWNER_SETTINGS_APPLIED_KEY } from "../lib/owner-settings.mjs";
+// The Owner Settings report from scripts/owner-settings-env.mjs (null when the
+// build ran without the preload). picksTag is stamped on new record trades.
+const OWNER_SETTINGS_REPORT = (() => { try { const r = JSON.parse(process.env.OWNER_SETTINGS_REPORT || "null"); return r && typeof r === "object" ? r : null; } catch { return null; } })();
 import { buildCrowdPayload, buildCrowdOwner, readCrowdPrior, writeCrowdFiles, marketGauges, crowdScoresForRow, CROWD_KEY, CROWD_OWNER_KEY } from "../lib/crowd/index.mjs";
 import { AI_COST_HISTORY_KEY, parseAiCostHistory, upsertAiCostHistory } from "../lib/ai-cost-history.mjs";
 import {
@@ -30420,6 +30424,10 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
       // live self-tuning (lib/self-loop/tune.mjs), so the Track Record draws
       // a dated divider at every live change. Absent otherwise.
       ...(picksPayload?.rosterMeta?.loopTune?.tuned ? { loopVersion: picksPayload.rosterMeta.loopTune.version } : {}),
+      // Owner Settings page values that change which trades open (lib/owner-
+      // settings.mjs picksTag), so the Track Record draws a dated divider when
+      // one changes. Absent while every Top Picks setting is the default.
+      ...(OWNER_SETTINGS_REPORT?.picksTag ? { ownerSettings: OWNER_SETTINGS_REPORT.picksTag } : {}),
       exitPolicy: pickExitPolicy(p.contract?.structure),
       // Event play tag, frozen at entry (macro / earnings / shock). Drives the
       // one post-event review and the shock time limit, and the Track Record's
@@ -41109,6 +41117,16 @@ async function main() {
     console.log(`wrote data/${healthInfo.key} — ${health.counts.ok}/${health.counts.sources} sources fresh${flagged.length ? `, review ${flagged.join(", ")}` : ""}, ${healthInfo.bytes} bytes`);
   } catch (err) {
     console.warn(`[source-health] skipped — ${String(err?.message || err).split("\n")[0]}`);
+  }
+  // Owner settings (lib/owner-settings.mjs): what this bake took from the
+  // Owner Settings page, for the page's "last applied" line. Owner-only, no
+  // fetch, no AI. Written only when the build ran with the settings preload.
+  if (OWNER_SETTINGS_REPORT) {
+    try {
+      await writeFile(resolve(DATA_DIR, OWNER_SETTINGS_APPLIED_KEY), JSON.stringify({ ...OWNER_SETTINGS_REPORT, builtAtIso }), "utf8");
+    } catch (err) {
+      console.warn(`[owner-settings] applied report skipped — ${String(err?.message || err).split("\n")[0]}`);
+    }
   }
   // Join registries that already exist in this bake. No fetch and no model call.
   // A bad map still leaves a valid file behind so publication can continue.
