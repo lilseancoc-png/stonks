@@ -40816,7 +40816,7 @@ async function main() {
         const loopBake = loopOnBake(loopState, { chains, outcomes: picksOutcomesState, today: todayEt, builtAtIso, tradeBar: PICKS_MIN_CONVICTION });
         loopView = loopBake.view;
         const loopInfo = await writeLoopFiles(DATA_DIR, loopState, loopView);
-        console.log(`wrote data/${loopInfo.stateKey} + data/${loopInfo.viewKey} — ${loopInfo.rows} ledger row(s), ${loopBake.filled} option outcome(s) filled${loopBake.pruned ? `, ${loopBake.pruned} pruned` : ""}, calibration on ${loopBake.model.rows} row(s), ${loopInfo.stateBytes} + ${loopInfo.viewBytes} bytes`);
+        console.log(`wrote data/${loopInfo.stateKey} + data/${loopInfo.viewKey} — ${loopInfo.rows} ledger row(s), ${loopBake.filled} option outcome(s) filled${loopBake.pruned ? `, ${loopBake.pruned} pruned` : ""}, calibration on ${loopBake.model.rows} row(s)${loopBake.report ? `, weekly report for the week of ${loopBake.report.week}` : ""}, ${loopInfo.stateBytes} + ${loopInfo.viewBytes} bytes`);
       } catch (err) {
         loopView = null;
         console.warn(`[loop] skipped — ${String(err?.message || err).split("\n")[0]}`);
