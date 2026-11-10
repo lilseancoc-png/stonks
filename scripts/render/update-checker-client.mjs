@@ -11,7 +11,9 @@ export function updateCheckerClient(window, document, ctx) {
     if(!ctx.owner()){if(el)el.remove();return;}
     if(!el){el=document.createElement('a');el.id='update-checker-notice';el.className='uc-notice';el.href='/?tab=update-checker';var host=document.querySelector('#side-nav .nav-tools');var pin=document.getElementById('workspace-pin');if(host&&pin&&pin.parentNode===host)host.insertBefore(el,pin.nextSibling);else if(host)host.appendChild(el);else document.body.appendChild(el);}
     el.hidden=monitor.status==='available' && issues===0;el.setAttribute('data-status',issues>0 && monitor.status==='available'?'review':String(monitor.status||'unknown'));
-    el.textContent=issues>0 && monitor.status==='available'?'Update Checker: '+issues+' checks need review':monitor.status==='failed'?'Update Checker: a workflow failed':monitor.status==='stuck'?'Update Checker: a workflow is stuck':monitor.status==='degraded'?'Update Checker: degraded output or log errors':monitor.status==='deployment'?'Update Checker: code deployment needs review':monitor.status==='overdue'?'Update Checker: full data build overdue':monitor.status==='stale'?'Update Checker: monitor out of date':'Update Checker: status unavailable';
+    el.textContent=issues>0 && monitor.status==='available'?'Update Checker: '+issues+(issues===1?' check needs':' checks need')+' review':monitor.status==='failed'?'Update Checker: a workflow failed':monitor.status==='stuck'?'Update Checker: a workflow is stuck':monitor.status==='degraded'?'Update Checker: degraded output or log errors':monitor.status==='deployment'?'Update Checker: code deployment needs review':monitor.status==='overdue'?'Update Checker: full data build overdue':monitor.status==='stale'?'Update Checker: monitor out of date':'Update Checker: status unavailable';
+    // A monitor-level state used to replace the count, hiding feature issues.
+    if(issues>0 && monitor.status!=='available')el.textContent+=' · '+issues+(issues===1?' check needs':' checks need')+' review';
     el.title=el.textContent;
   }
   function reset(){generation++;summarySerial++;if(controller)controller.abort();if(summaryController)summaryController.abort();summaryBusy=false;data=null;error='';loading=false;var el=document.getElementById('update-checker-root');if(el)el.innerHTML='';el=document.getElementById('update-checker-notice');if(el)el.remove();}
@@ -21,7 +23,7 @@ export function updateCheckerClient(window, document, ctx) {
     if(run.fullBuild && ['skipped','not_reached'].includes(run.siteBuild))html+='<p>This attempt stopped before site generation. Published features may still show the previous build.</p>';
     if(run.fullBuild)html+='<p>Site generation: '+esc(run.siteBuild)+' · Data publication: '+esc(run.publication)+'</p>';
     (run.failures||[]).forEach(function(f){html+='<p class="uc-failure">'+esc(f.job)+': '+esc(f.steps.length?f.steps.join(', '):'Job failed without a step result')+'</p>';});
-    if(run.diagnostics){run.diagnostics.findings.forEach(function(f){html+='<p class="uc-failure">'+esc(f.detail)+' ('+f.count+')</p>';});if(run.diagnostics.unavailableJobs)html+='<p class="uc-muted">'+run.diagnostics.unavailableJobs+' job logs unavailable. Coverage is incomplete.</p>';}
+    if(run.diagnostics){run.diagnostics.findings.forEach(function(f){html+='<p class="uc-failure">'+esc(f.detail)+' ('+f.count+')</p>';});if(run.diagnostics.unavailableJobs)html+='<p class="uc-muted">'+run.diagnostics.unavailableJobs+' job logs unavailable. Coverage is incomplete.</p>';if(run.diagnostics.expiredJobs)html+='<p class="uc-muted">'+run.diagnostics.expiredJobs+' job logs expired on GitHub (kept 90 days). The run result above still counts.</p>';}
     if(run.status && run.status!=='completed')html+='<p>'+esc(run.status)+' since '+esc(time(run.startedAt))+'</p>';
     return html+link(run);
   }

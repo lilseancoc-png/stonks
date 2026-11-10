@@ -6,7 +6,7 @@ import { collectBriefSiteTools, fetchNasdaqEarningsSessions, fetchForexFactoryCa
 import { buildOwnerMarketBrief, sourceStatus } from '../lib/owner-market-brief.mjs';
 import { fixtureReport } from './fixtures/update-checker.mjs';
 import { ownerBriefFixture } from './fixtures/owner-market-brief.mjs';
-import { calendarSourceLabel } from '../lib/calendar-policy.mjs';
+import { calendarHealth, calendarSourceLabel } from '../lib/calendar-policy.mjs';
 
 const now = new Date('2026-11-02T20:17:00Z');
 const morning = '2026-11-02T16:04:51.941Z';
@@ -99,6 +99,20 @@ for (const [asOf,status] of [['2026-10-30','available'],['2026-10-29','stale']])
   const payload={asOf};
   const [row]=await checkFeatureCadence([inspectFeature(weeklySpec,payload,now.getTime())],new Map([[weeklySpec.key,{payload}]]),{runs:[]},now.getTime());
   assert.equal(row.status,status,'date-only observation retains its calendar date');
+}
+// The Friday 11:30 ET weekly slot is a GitHub cron that runs hours late; last
+// week's data stays current until 18:00 ET Friday, then this week's is due.
+for (const [at,status] of [['2026-11-06T20:30:00Z','available'],['2026-11-06T23:30:00Z','stale']]) {
+  const t=Date.parse(at),payload={builtAtIso:'2026-10-30T21:40:00Z'};
+  const [row]=await checkFeatureCadence([inspectFeature(weeklySpec,payload,t)],new Map([[weeklySpec.key,{payload}]]),{runs:[]},t);
+  assert.equal(row.status,status,'late Friday weekly run at '+at);
+}
+// Only a near-term Nasdaq gap degrades the calendar; one far-out estimate is a notice.
+{
+  const t=Date.parse('2026-11-10T08:00:00Z'),cal=nasdaq=>calendarHealth({builtAtIso:'2026-11-09T21:16:01Z',events:[],coverage:{nasdaq}},t);
+  assert.equal(cal({status:'partial',failedDates:['2026-12-23']}).warnings.length,0);assert.equal(cal({status:'partial',failedDates:['2026-12-23']}).notices.length,1);
+  assert.equal(cal({status:'partial',failedDates:['2026-11-20','2026-12-23']}).warnings.length,1,'a near-term gap still warns');
+  assert.equal(cal({status:'unavailable',failedDates:['2026-12-23']}).warnings.length,1,'a total outage still warns');
 }
 const failedOwnerInput=ownerBriefFixture();
 failedOwnerInput.payloads['grades.json'].error='PRIVATE_SENTINEL';

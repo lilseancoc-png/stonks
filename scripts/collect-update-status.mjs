@@ -3,11 +3,11 @@
 import { readFile,appendFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { MONITORED_WORKFLOWS, UPDATE_STATUS_KEY, summarizeWorkflowRun, mergeWorkflowReports, inspectPublishedFeatures, isOutputIssue, completed, checkFeatureCadence, assessWorkflows } from '../lib/update-checker.mjs';
-import { inspectWorkflowLog, readBoundedText, scanPublishedArtifacts } from '../lib/update-checker-diagnostics.mjs';
+import { DIAGNOSTICS_VERSION, inspectWorkflowLog, readBoundedText, scanPublishedArtifacts } from '../lib/update-checker-diagnostics.mjs';
 export async function collectUpdateStatus({repo,token,fetchImpl=fetch,now=()=>new Date().toISOString(),store,dryRun=false,currentRunId=null}) {
   if(!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo || '') || !token)throw new Error('GitHub repository and token required');
   const headers={Authorization:'Bearer '+token,Accept:'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'};
-  async function response(path){const res=await fetchImpl('https://api.github.com/repos/'+repo+path,{headers,signal:AbortSignal.timeout(25000)});if(!res.ok)throw new Error('GitHub metadata request failed: '+res.status);return res;}
+  async function response(path){const res=await fetchImpl('https://api.github.com/repos/'+repo+path,{headers,signal:AbortSignal.timeout(25000)});if(!res.ok)throw Object.assign(new Error('GitHub metadata request failed: '+res.status),{status:res.status});return res;}
   async function get(path){return (await response(path)).json();}
   let previous=null;
   if(!dryRun){if(store.backend!=='r2')throw new Error('Checker requires existing R2 storage');const bytes=await store.rawGet(UPDATE_STATUS_KEY);if(bytes)previous=JSON.parse(bytes.toString('utf8'));}
@@ -18,15 +18,18 @@ export async function collectUpdateStatus({repo,token,fetchImpl=fetch,now=()=>ne
   }
   const incoming=[];
   for(const run of chosen.values()){
-    const saved=previous?.runs.find(r=>r.id===run.id && r.attempt===(run.run_attempt || 1) && r.updatedAt===run.updated_at && completed(r) && r.diagnosticsVersion===1 && r.logsChecked===true);
+    const saved=previous?.runs.find(r=>r.id===run.id && r.attempt===(run.run_attempt || 1) && r.updatedAt===run.updated_at && completed(r) && r.diagnosticsVersion===DIAGNOSTICS_VERSION && r.logsChecked===true);
     if(saved){incoming.push(saved);continue;}
     const jobs=[];
     for(let page=1;page<=5;page++){const batch=await get('/actions/runs/'+run.id+'/jobs?filter=latest&per_page=100&page='+page);jobs.push(...batch.jobs);if(jobs.length>=batch.total_count)break;if(page===5)throw new Error('Job metadata exceeds checker limit');}
     const summary=summarizeWorkflowRun(run,jobs,repo);if(!summary)continue;
-    summary.logsChecked=true;summary.diagnostics={findings:[],unavailableJobs:0};summary.diagnosticsVersion=1;
+    summary.logsChecked=true;summary.diagnostics={findings:[],unavailableJobs:0,expiredJobs:0};summary.diagnosticsVersion=DIAGNOSTICS_VERSION;
     for(const job of jobs.filter(j=>j.status!=='queued' && j.conclusion && j.conclusion!=='skipped')){
       try{const text=await readBoundedText(await response('/actions/jobs/'+job.id+'/logs'));summary.diagnostics.findings.push(...inspectWorkflowLog(text).findings);}
-      catch{summary.logsChecked=false;summary.diagnostics.unavailableJobs++;}
+      // GitHub answers 410 Gone once a completed run's logs pass the retention
+      // window. Nothing can be checked again, so that is a known end state,
+      // not missing coverage (it kept old manual runs "unknown" forever).
+      catch(e){if(e?.status===410 && completed(summary))summary.diagnostics.expiredJobs++;else{summary.logsChecked=false;summary.diagnostics.unavailableJobs++;}}
     }
     incoming.push(summary);
   }
