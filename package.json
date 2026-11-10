@@ -85,6 +85,8 @@
     "test:owner-lab": "node scripts/owner-lab-smoke.mjs",
     "test:regime-lab": "node scripts/regime-lab-smoke.mjs",
     "test:regime-lab-browser": "node scripts/regime-lab-browser.mjs",
+    "test:self-loop": "node scripts/self-loop-smoke.mjs",
+    "test:self-loop-browser": "node scripts/self-loop-browser.mjs",
     "test:evidence-record": "node scripts/evidence-record-smoke.mjs",
     "test:overnight": "node scripts/overnight-smoke.mjs && node scripts/overnight-tone-smoke.mjs",
     "test:workflow-schedules": "node scripts/workflow-schedule-smoke.mjs",

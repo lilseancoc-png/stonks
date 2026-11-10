@@ -48,6 +48,7 @@ import { renderCrowdJs } from './crowd-client.mjs';
 import { renderEdgeOddsJs } from './edge-odds-client.mjs';
 import { renderEvidenceJs } from './evidence-client.mjs';
 import { renderRegimeLabJs } from './regime-lab-client.mjs';
+import { renderSelfLoopJs } from './self-loop-client.mjs';
 import { renderOwnerInsightJs } from './owner-insight-client.mjs';
 import { tradePostMortemFactory } from '../../lib/trade-postmortem.mjs';
 import { renderI18nJs, I18N_LANGS } from './i18n-client.mjs';
@@ -111,6 +112,7 @@ ${renderCrowdJs()}
 ${renderEdgeOddsJs()}
 ${renderEvidenceJs()}
 ${renderRegimeLabJs()}
+${renderSelfLoopJs()}
 ${renderOwnerInsightJs()}
 ${calendarSourceLabel.toString()}
 ${calendarScheduleFallbackUsable.toString()}
@@ -765,9 +767,12 @@ ${scenarioEventPhase.toString()}
     if (opts.zero) vals.push(0);
     var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
     if (hi === lo){ lo -= 1; hi += 1; }
-    var pad = (hi - lo) * 0.08; lo -= pad; hi += pad;
+    // opts.yRange [lo, hi] pins the axis (a 0-100% scale, say) instead of padding it.
+    var pinned = opts.yRange && isFinite(opts.yRange[0]) && isFinite(opts.yRange[1]) && opts.yRange[1] > opts.yRange[0];
+    if (pinned){ lo = Math.min(lo, +opts.yRange[0]); hi = Math.max(hi, +opts.yRange[1]); }
+    else { var pad = (hi - lo) * 0.08; lo -= pad; hi += pad; }
     var ticks = niceTicks(lo, hi, 5);
-    if (ticks.values.length > 1){
+    if (ticks.values.length > 1 && !pinned){
       // Snap the range out to whole steps so the top and bottom carry labels.
       var step = ticks.values[1] - ticks.values[0];
       lo = Math.floor(lo / step + 1e-9) * step; hi = Math.ceil(hi / step - 1e-9) * step;
@@ -25284,7 +25289,7 @@ ${renderExportBindings()}
   var ownerLabBound = false;
   var quantPairsAll = false;
   function selectOwnerLabView(view){
-    if (['personal','research','diagnostics','evidence','regime'].indexOf(view) < 0) return;
+    if (['personal','research','diagnostics','evidence','regime','loop'].indexOf(view) < 0) return;
     ownerLabView = view;
     var section = $('quant-section');
     if (!section) return;
@@ -25295,13 +25300,14 @@ ${renderExportBindings()}
     });
     section.querySelectorAll('[data-owner-panel]').forEach(function(panel){ panel.hidden = panel.getAttribute('data-owner-panel') !== view; });
     var eye = $('quant-eyebrow');
-    if (eye && view !== 'research') eye.textContent = view === 'personal' ? 'Private tools' : view === 'evidence' ? 'Tests and gates' : view === 'regime' ? 'Regime Lab' : 'Stored research records';
+    if (eye && view !== 'research') eye.textContent = view === 'personal' ? 'Private tools' : view === 'evidence' ? 'Tests and gates' : view === 'regime' ? 'Regime Lab' : view === 'loop' ? 'Self-improving loop' : 'Stored research records';
     if (view === 'personal') loadOwnerTools();
     if (view === 'research') loadQuantResearch();
     if (view === 'diagnostics' && window.BookViews) window.BookViews.openTab('quant');
     if (view === 'diagnostics') loadCostHistory();
     if (view === 'evidence') loadEvidenceBoard();
     if (view === 'regime') loadRegimeLab();
+    if (view === 'loop') loadSelfLoop();
   }
   function bindOwnerLab(){
     var section = $('quant-section');
@@ -25313,6 +25319,7 @@ ${renderExportBindings()}
       if (event.target.closest('[data-owner-research-refresh]')) loadQuantResearch(true);
       if (event.target.closest('[data-owner-evidence-refresh]')) loadEvidenceBoard(true);
       if (event.target.closest('[data-owner-regime-refresh]')) loadRegimeLab(true);
+      if (event.target.closest('[data-owner-loop-refresh]')) loadSelfLoop(true);
       // "Company record" link: open the Unified Signal Engine on that view,
       // carrying over a ticker typed into one of the record searches. The
       // button's data-wf-go does the page switch.

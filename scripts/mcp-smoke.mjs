@@ -466,7 +466,7 @@ async function tool(name, args, opts) {
 {
   const lf = (await tool("list_features", {})).structuredContent.results.features;
   const byId = Object.fromEntries(lf.map((f) => [f.id, f]));
-  for (const [id, ds] of [["quant", "evidence"], ["quant", "regime-lab"], ["quant", "source-health"], ["crowd", "owner"], ["picks", "runs"], ["picks", "mode"], ["grade", "auto-picks"], ["past-day", "picks-run"], ["leaps", "paper"], ["bonds-usd", "auctions"], ["unified-signal-engine", "link-map"]]) {
+  for (const [id, ds] of [["quant", "evidence"], ["quant", "regime-lab"], ["quant", "loop"], ["quant", "source-health"], ["crowd", "owner"], ["picks", "runs"], ["picks", "mode"], ["grade", "auto-picks"], ["past-day", "picks-run"], ["leaps", "paper"], ["bonds-usd", "auctions"], ["unified-signal-engine", "link-map"]]) {
     assert.ok(byId[id]?.datasets?.includes(ds), `${id} lists dataset ${ds}`);
   }
   assert.equal(byId.picks.read_with, "get_top_picks");

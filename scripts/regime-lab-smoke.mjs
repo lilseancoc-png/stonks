@@ -301,7 +301,7 @@ async function main() {
   const { renderHtml, renderAppJs, renderStylesCss } = await import("./build.mjs");
   const app = renderAppJs({});
   assert.match(app, /function loadRegimeLab\(/, "app.js carries the Regime Lab loader");
-  assert.match(app, /'regime'\]\.indexOf\(view\)/, "the Owner Lab view switch accepts the regime view");
+  assert.match(app, /'regime'(?:,'[a-z-]+')*\]\.indexOf\(view\)/, "the Owner Lab view switch accepts the regime view");
   assert.match(app, /data-owner-regime-refresh/, "refresh button is bound");
   assert.match(app, /\['regime', 'Regime Lab'\]/, "the Evidence board lists the Regime Lab lane");
   const css = renderStylesCss();
