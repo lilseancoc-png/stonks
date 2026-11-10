@@ -100,6 +100,7 @@ export function mcpRouteOf(req) {
   path = path.replace(/\/+$/, "") || "/";
   if (q.action === "mcp" || path === "/mcp" || path === "/api/auth/mcp") return { action: "mcp" };
   // RFC 8414 / RFC 9728 paths, plus OpenID discovery (some clients only try that).
+  if (/^\/\.well-known\/mcp(\.json|\/server-card\.json)$/.test(path)) return { action: "mcp-meta", kind: "card" };
   const meta = /^(?:\/mcp)?\/\.well-known\/(oauth-protected-resource|oauth-authorization-server|openid-configuration)(\/mcp)?$/.exec(path);
   if (q.action === "mcp-meta" || meta || path === "/api/auth/mcp-meta") {
     const kind = q.kind || (meta ? (meta[1] === "oauth-protected-resource" ? "resource" : "as") : "as");
@@ -195,6 +196,7 @@ export default async function handler(req, res) {
     case "mcp":
       return (await import("../../lib/mcp/server.mjs")).handleMcpRequest(req, res);
     case "mcp-meta": {
+      if (mcpRoute.kind === "card") return (await import("../../lib/mcp/server.mjs")).serverCard(req, res);
       const oauth = await import("../../lib/mcp/oauth.mjs");
       return mcpRoute.kind === "resource"
         ? oauth.protectedResourceMetadata(req, res)

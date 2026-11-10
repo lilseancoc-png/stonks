@@ -115,12 +115,24 @@ const deps = (extra = {}) => ({ env: { ...ENV, ...extra }, store, now: () => now
 // ---- fake Discord -----------------------------------------------------------
 let discordRoles = ["owner-role"];
 let discordUser = { id: "u-owner", username: "owner" };
+// Like Discord: a refresh token works once (it rotates), access tokens last
+// `discordLife` seconds, and `discordDown` answers 503 everywhere.
+let discordLife = 604800;
+let discordDown = false;
+let discordRefreshCalls = 0;
+const usedDiscordRefresh = new Set();
 globalThis.fetch = async (url, init = {}) => {
   url = String(url);
+  if (discordDown && url.includes("discord.com")) return new Response("{}", { status: 503 });
   if (url.endsWith("/oauth2/token")) {
     const p = new URLSearchParams(init.body);
-    if (p.get("grant_type") === "refresh_token" && p.get("refresh_token") === "revoked") return new Response("{}", { status: 400 });
-    return new Response(JSON.stringify({ access_token: "dat-" + randomBytes(4).toString("hex"), refresh_token: "drt-" + randomBytes(4).toString("hex") }), { status: 200 });
+    if (p.get("grant_type") === "refresh_token") {
+      discordRefreshCalls++;
+      const rt = p.get("refresh_token");
+      if (rt === "revoked" || usedDiscordRefresh.has(rt)) return new Response(JSON.stringify({ error: "invalid_grant" }), { status: 400 });
+      usedDiscordRefresh.add(rt);
+    }
+    return new Response(JSON.stringify({ access_token: "dat-" + randomBytes(4).toString("hex"), refresh_token: "drt-" + randomBytes(4).toString("hex"), expires_in: discordLife }), { status: 200 });
   }
   if (url.includes("/guilds/guild-1/member")) return new Response(JSON.stringify({ roles: discordRoles, user: discordUser }), { status: 200 });
   return new Response("not found", { status: 404 });
@@ -269,6 +281,16 @@ let accessToken, refreshToken;
   assert.deepEqual(route("/mcp/.well-known/openid-configuration"), { action: "mcp-meta", kind: "as" });
   assert.deepEqual(route("/.well-known/oauth-protected-resource/mcp"), { action: "mcp-meta", kind: "resource" });
   assert.deepEqual(route("/.well-known/oauth-authorization-server"), { action: "mcp-meta", kind: "as" });
+  assert.deepEqual(route("/.well-known/mcp.json"), { action: "mcp-meta", kind: "card" });
+  assert.deepEqual(route("/.well-known/mcp/server-card.json"), { action: "mcp-meta", kind: "card" });
+  // The server card: where to connect and how to sign in, no tool names.
+  const card = await call(authHandler, { query: { action: "mcp-meta", kind: "card" } });
+  assert.equal(card.statusCode, 200, JSON.stringify(card.body));
+  assert.deepEqual(card.body.remotes, [{ type: "streamable-http", url: `${ORIGIN}/mcp` }]);
+  assert.equal(card.body.authentication.oauth2.protectedResourceMetadata, `${ORIGIN}/.well-known/oauth-protected-resource/mcp`);
+  assert.ok(!/get_top_picks|sports_/.test(JSON.stringify(card.body)));
+  const cardOff = await call(authHandler, { query: { action: "mcp-meta", kind: "card" } });
+  assert.equal(cardOff.headers["access-control-allow-origin"], "*");
   assert.deepEqual(route("/oauth/token/"), { action: "mcp-oauth", step: "token" });
   assert.equal(route("/.well-known/security.txt"), null);
   const { readFile } = await import("node:fs/promises");
@@ -332,15 +354,96 @@ async function rpc(method, params, { headers = auth, extra = {} } = {}) {
   assert.deepEqual((await rpc("resources/templates/list", {})).body.result, { resourceTemplates: [] });
   const note = await call((req, res) => handleMcpRequest(req, res, deps()), { method: "POST", headers: auth, body: { jsonrpc: "2.0", method: "notifications/initialized" } });
   assert.equal(note.statusCode, 202);
-  const batch = await call((req, res) => handleMcpRequest(req, res, deps()), { method: "POST", headers: auth, body: [{ jsonrpc: "2.0", id: 1, method: "ping" }] });
-  assert.equal(batch.statusCode, 400);
+  // Batches (2025-03-26 clients): one reply per request, none for notifications.
+  const batch = await call((req, res) => handleMcpRequest(req, res, deps()), { method: "POST", headers: auth, body: [{ jsonrpc: "2.0", id: 1, method: "ping" }, { jsonrpc: "2.0", method: "notifications/initialized" }, { jsonrpc: "2.0", id: 2, method: "tools/list" }] });
+  assert.equal(batch.statusCode, 200);
+  assert.deepEqual(batch.body.map((b) => b.id), [1, 2]);
+  assert.ok(batch.body[1].result.tools.length > 0);
+  const noteBatch = await call((req, res) => handleMcpRequest(req, res, deps()), { method: "POST", headers: auth, body: [{ jsonrpc: "2.0", method: "notifications/initialized" }] });
+  assert.equal(noteBatch.statusCode, 202);
+  const bigBatch = await call((req, res) => handleMcpRequest(req, res, deps()), { method: "POST", headers: auth, body: Array.from({ length: 21 }, (_, i) => ({ jsonrpc: "2.0", id: i, method: "ping" })) });
+  assert.equal(bigBatch.statusCode, 400);
+  const callBatch = await call((req, res) => handleMcpRequest(req, res, deps()), { method: "POST", headers: auth, body: Array.from({ length: 5 }, (_, i) => ({ jsonrpc: "2.0", id: i, method: "tools/call", params: { name: "list_features", arguments: {} } })) });
+  assert.equal(callBatch.statusCode, 200);
+  assert.equal(callBatch.body.filter((b) => b.result).length, 4, "four tool calls run");
+  assert.match(callBatch.body[4].error.message, /At most 4 tool calls/);
   const get = await call((req, res) => handleMcpRequest(req, res, deps()), { method: "GET", headers: auth });
   assert.equal(get.statusCode, 405);
+  const getSse = await call((req, res) => handleMcpRequest(req, res, deps()), { method: "GET", headers: { ...auth, accept: "text/event-stream" } });
+  assert.equal(getSse.statusCode, 405, "no server-initiated stream");
+  // A person opening /mcp in a browser gets a page, with no tool names on it.
+  const page = await call((req, res) => handleMcpRequest(req, res, deps()), { method: "GET", headers: { accept: "text/html,application/xhtml+xml" } });
+  assert.equal(page.statusCode, 200);
+  assert.match(String(page.body), /Mingstreet MCP server/);
+  assert.ok(!/get_top_picks|sports_/.test(String(page.body)));
+  // A client that accepts only an event stream gets one SSE-framed message.
+  const sse = await call((req, res) => handleMcpRequest(req, res, deps()), { method: "POST", headers: { ...auth, accept: "text/event-stream" }, body: { jsonrpc: "2.0", id: 7, method: "ping" } });
+  assert.equal(sse.statusCode, 200);
+  assert.match(String(sse.headers["content-type"]), /text\/event-stream/);
+  assert.match(String(sse.body), /^event: message\ndata: \{"jsonrpc":"2.0","id":7,"result":\{\}\}\n\n$/);
+  const both = await rpc("ping", {}, { headers: { ...auth, accept: "application/json, text/event-stream" } });
+  assert.deepEqual(both.body, { jsonrpc: "2.0", id: both.body.id, result: {} }, "JSON when the client takes both");
+  assert.deepEqual((await rpc("logging/setLevel", { level: "info" })).body.result, {});
 
   const list = await rpc("tools/list", {});
   const names = list.body.result.tools.map((t) => t.name);
   assert.deepEqual(names.sort(), TOOLS.map((t) => t.name).sort());
   assert.ok(list.body.result.tools.every((t) => t.annotations.readOnlyHint === true));
+  // Every advertised tool fits what OpenAI, Anthropic and Gemini accept: a
+  // plain name, a description under 1,024 characters and a schema in the
+  // common subset (an object, typed properties, no map-only keywords).
+  const portable = new Set(["type", "properties", "required", "additionalProperties", "description", "enum", "items", "minimum", "maximum", "maxLength", "minLength", "pattern", "maxItems", "minItems", "title", "default"]);
+  const checkSchema = (sch, where) => {
+    for (const [k, v] of Object.entries(sch)) {
+      assert.ok(portable.has(k), `${where}: keyword "${k}" is not portable`);
+      if (k === "properties") for (const [p, ps] of Object.entries(v)) { assert.ok(ps.type || ps.enum, `${where}.${p} has a type`); assert.ok(!Array.isArray(ps.type), `${where}.${p} has one type`); checkSchema(ps, `${where}.${p}`); }
+      if (k === "items" || (k === "additionalProperties" && typeof v === "object")) checkSchema(v, `${where}[${k}]`);
+    }
+  };
+  for (const t of list.body.result.tools) {
+    assert.match(t.name, /^[a-zA-Z0-9_-]{1,64}$/);
+    assert.ok(t.description.length <= 1024, `${t.name} description is ${t.description.length} characters`);
+    assert.equal(t.inputSchema.type, "object", t.name);
+    checkSchema(t.inputSchema, t.name);
+  }
+}
+
+// ---- slim output: no opaque news links, no repeated notes ---------------------------
+{
+  const { tidyResults, REPEATED_TEXT } = await import("../lib/mcp/tools.mjs");
+  const gnews = "https://news.google.com/rss/articles/" + "C".repeat(300) + "?oc=5";
+  const note = "The closing line is the last line a pregame scan saw. ".repeat(4);
+  const out = tidyResults({
+    headlines: [{ title: "NVDA drops", publisher: "Yahoo Finance", bodyPublisher: "Yahoo Finance", link: gnews, bodyLink: gnews, sourceId: "e502d11a", publishedAt: "2026-11-10T20:00:37.000Z" },
+      { title: "Direct story", publisher: "Reuters", link: "https://www.reuters.com/x", bodyLink: "https://www.reuters.com/x" }],
+    summary: { closing_line: { n: 3, note } },
+    by_stat: { points: { closing_line: { n: 1, note } }, assists: { closing_line: { n: 2, note } } },
+  });
+  assert.deepEqual(out.headlines[0], { title: "NVDA drops", publisher: "Yahoo Finance", publishedAt: "2026-11-10T20:00:37.000Z" });
+  assert.deepEqual(out.headlines[1], { title: "Direct story", publisher: "Reuters", link: "https://www.reuters.com/x" }, "a real link is kept once");
+  assert.equal(out.summary.closing_line.note, note, "the first copy of a note is kept");
+  assert.equal(out.by_stat.points.closing_line.note, REPEATED_TEXT);
+  assert.equal(out.by_stat.assists.closing_line.note, REPEATED_TEXT);
+}
+
+// ---- forgiving arguments: the forms models actually send ------------------------
+{
+  const callTool = async (name, args) => (await rpc("tools/call", { name, arguments: args })).body.result;
+  const asString = await callTool("get_live_quotes", JSON.stringify({ tickers: ["SPY"] }));
+  assert.equal(asString.isError, false, "arguments sent as a JSON string");
+  const csv = await callTool("get_live_quotes", { tickers: "SPY, AAPL" });
+  assert.equal(csv.isError, false, JSON.stringify(csv.structuredContent));
+  const one = await callTool("get_live_quotes", { tickers: "SPY" });
+  assert.equal(one.isError, false, "one ticker as a plain string");
+  const numText = await callTool("get_stock_grades", { limit: "3" });
+  assert.equal(numText.isError, false, "an integer sent as text");
+  const nulls = await callTool("get_stock_grades", { limit: null });
+  assert.equal(nulls.isError, false, "null for an optional argument");
+  const unknown = await callTool("get_stock_grades", { bogus: 1 });
+  assert.equal(unknown.isError, true);
+  assert.match(unknown.structuredContent.error.message, /allowed: /, "the error lists the allowed arguments");
+  const notNum = await callTool("get_stock_grades", { limit: "three" });
+  assert.equal(notNum.isError, true, "text that is not a number still fails");
 }
 
 async function tool(name, args, opts) {
@@ -628,6 +731,77 @@ async function tool(name, args, opts) {
   discordRoles = ["owner-role"];
   const garbage = await call(oauth.token, { method: "POST", body: { grant_type: "refresh_token", refresh_token: accessToken, client_id: clientId } });
   assert.equal(garbage.body.error, "invalid_grant", "an access token is not a refresh token");
+}
+
+// ---- refresh is race-safe and survives Discord hiccups ----------------------------
+{
+  const loginTokens = async () => {
+    const { cb } = await fullLogin();
+    const code = new URL(cb.headers.location).searchParams.get("code");
+    const tok = await call(oauth.token, { method: "POST", body: { grant_type: "authorization_code", code, client_id: clientId, redirect_uri: REDIRECT, code_verifier: verifier } });
+    assert.equal(tok.statusCode, 200, JSON.stringify(tok.body));
+    return tok.body;
+  };
+  const refresh = (rt) => call(oauth.token, { method: "POST", body: { grant_type: "refresh_token", refresh_token: rt, client_id: clientId } });
+
+  // A fresh Discord login (7 days) answers the role check without rotating.
+  const fresh = await loginTokens();
+  const calls0 = discordRefreshCalls;
+  const r0 = await refresh(fresh.refresh_token);
+  assert.equal(r0.statusCode, 200, JSON.stringify(r0.body));
+  assert.equal(discordRefreshCalls, calls0, "no Discord rotation while its access token has days left");
+  discordRoles = [];
+  assert.equal((await refresh(r0.body.refresh_token)).body.error, "invalid_grant", "the role is still re-checked on every refresh");
+  discordRoles = ["owner-role"];
+
+  // Rotation due (1 day left): two refreshes of one token at once both work,
+  // and so does the old MCP refresh token after Discord rotated.
+  discordLife = 86400;
+  const due = await loginTokens();
+  discordLife = 604800;
+  const [a, b] = await Promise.all([refresh(due.refresh_token), refresh(due.refresh_token)]);
+  assert.equal(a.statusCode, 200, JSON.stringify(a.body));
+  assert.equal(b.statusCode, 200, JSON.stringify(b.body));
+  const again = await refresh(due.refresh_token);
+  assert.equal(again.statusCode, 200, "a retried refresh after rotation still works");
+  // The winner now carries a 7-day Discord token: no further rotation.
+  const calls1 = discordRefreshCalls;
+  const winner = [a, b].find((x) => x.body.refresh_token);
+  assert.equal((await refresh(winner.body.refresh_token)).statusCode, 200);
+
+  // A Discord outage is "try again" (503), never a forced re-login.
+  discordDown = true;
+  const down = await refresh(a.body.refresh_token);
+  assert.equal(down.statusCode, 503);
+  assert.equal(down.body.error, "temporarily_unavailable");
+  assert.equal(down.headers["retry-after"], "30");
+  discordDown = false;
+  assert.equal((await refresh(a.body.refresh_token)).statusCode, 200, "works again after the outage");
+  assert.ok(discordRefreshCalls >= calls1);
+
+  // Saved Discord token about to expire and its refresh token already used:
+  // only then is a new sign-in needed.
+  discordLife = 30;
+  const dying = await loginTokens();
+  discordLife = 604800;
+  assert.equal((await refresh(dying.refresh_token)).statusCode, 200, "rotates near expiry");
+  assert.equal((await refresh(dying.refresh_token)).body.error, "invalid_grant", "dead refresh token + expired access token = sign in again");
+}
+
+// ---- optional Owner key (MCP_OWNER_KEY), off unless set ----------------------------
+{
+  const key = "k".repeat(20) + randomBytes(16).toString("hex");
+  const viaKey = (k, extra) => rpc("tools/list", {}, { headers: { authorization: `Bearer ${k}` }, extra });
+  assert.equal((await viaKey(key, {})).statusCode, 401, "unset = off");
+  const ok = await viaKey(key, { MCP_OWNER_KEY: key });
+  assert.equal(ok.statusCode, 200);
+  assert.deepEqual(ok.body.result.tools.map((t) => t.name).sort(), TOOLS.map((t) => t.name).sort(), "the key is the Owner");
+  assert.equal((await viaKey(key + "x", { MCP_OWNER_KEY: key })).statusCode, 401, "a wrong key fails");
+  assert.equal((await viaKey("short-key", { MCP_OWNER_KEY: "short-key" })).statusCode, 401, "a key under 32 characters never works");
+  const called = await call((req, res) => handleMcpRequest(req, res, deps({ MCP_OWNER_KEY: key })), { method: "POST", headers: { authorization: `Bearer ${key}` }, body: { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "list_features", arguments: {} } } });
+  assert.equal(called.body.result.isError, false);
+  assert.equal(called.body.result.structuredContent.access, "owner");
+  assert.equal(oauth.ownerKeyMatches(key, { MCP_OWNER_KEY: ` ${key} ` }), true, "a pasted space is trimmed");
 }
 
 // ---- read-only guarantees -------------------------------------------------------

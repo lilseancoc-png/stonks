@@ -6,6 +6,8 @@
   "rewrites": [
     { "source": "/mcp", "destination": "/api/auth/mcp" },
     { "source": "/mcp/", "destination": "/api/auth/mcp" },
+    { "source": "/.well-known/mcp.json", "destination": "/api/auth/mcp-meta?kind=card" },
+    { "source": "/.well-known/mcp/server-card.json", "destination": "/api/auth/mcp-meta?kind=card" },
     { "source": "/.well-known/oauth-protected-resource", "destination": "/api/auth/mcp-meta?kind=resource" },
     { "source": "/.well-known/oauth-protected-resource/mcp", "destination": "/api/auth/mcp-meta?kind=resource" },
     { "source": "/.well-known/oauth-authorization-server", "destination": "/api/auth/mcp-meta?kind=as" },

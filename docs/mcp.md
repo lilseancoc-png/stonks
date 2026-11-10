@@ -19,26 +19,77 @@ offers `search`/`fetch` for apps that only use those two tools.
 
 ## Connect
 
-You don't need a key. Every client below opens a Mingstreet consent page, then Discord.
+The same address works everywhere: `https://mingstreet.app/mcp`. Pick the way your app supports.
 
-- **ChatGPT**: Settings → Apps & Connectors → Advanced → turn on Developer mode, then Create. Use URL
-  `https://mingstreet.app/mcp` and authentication **OAuth**. It registers itself (dynamic client
-  registration).
-- **Claude (claude.ai / desktop)**: Settings → Connectors → Add custom connector → URL
-  `https://mingstreet.app/mcp`. Leave the client ID blank.
-- **Claude Code**: `claude mcp add --transport http mingstreet https://mingstreet.app/mcp`, then `/mcp` →
-  Authenticate.
-- **ChatGPT deep research / API connectors**: same URL. They call `search` and `fetch`, which this server
-  provides in OpenAI's shape.
-- **Le Chat (Mistral), Copilot Studio, Cursor, VS Code, Windsurf, the MCP Inspector**: add a remote/HTTP MCP
-  server with the URL above and OAuth. Clients that ask for a client secret get one at registration
-  (`client_secret_post` or `client_secret_basic`); leave client ID and secret blank where the app lets you.
-- **Others**: any client that speaks Streamable HTTP with MCP OAuth. Point it at the URL above.
+### 1. Remote connector with sign-in (most apps, recommended)
+
+No key needed. The app opens a Mingstreet consent page, then Discord; it registers itself (dynamic client
+registration) and refreshes its own sign-in.
+
+| App | Where |
+|---|---|
+| **ChatGPT** (web, desktop, scheduled tasks) | Settings → Apps & Connectors → Advanced → turn on Developer mode, then Create. URL above, authentication **OAuth**. Deep research and API connectors use the same URL and call `search` / `fetch` |
+| **Claude** (claude.ai, desktop, mobile) | Settings → Connectors → Add custom connector → URL above. Leave client ID and secret blank |
+| **Claude Code** | `claude mcp add --transport http mingstreet https://mingstreet.app/mcp`, then `/mcp` → Authenticate |
+| **Cursor** | `~/.cursor/mcp.json`: `{"mcpServers": {"mingstreet": {"url": "https://mingstreet.app/mcp"}}}` |
+| **VS Code (Copilot agent mode)** | `.vscode/mcp.json`: `{"servers": {"mingstreet": {"type": "http", "url": "https://mingstreet.app/mcp"}}}` |
+| **Gemini CLI** | `~/.gemini/settings.json`: `{"mcpServers": {"mingstreet": {"httpUrl": "https://mingstreet.app/mcp"}}}`, then `/mcp auth mingstreet` |
+| **Windsurf** | `~/.codeium/windsurf/mcp_config.json`: `{"mcpServers": {"mingstreet": {"serverUrl": "https://mingstreet.app/mcp"}}}` |
+| **Le Chat (Mistral), Copilot Studio, the MCP Inspector, others** | Add a remote / HTTP (Streamable HTTP) MCP server with the URL above and OAuth. Clients that ask for a client secret get one at registration (`client_secret_post` or `client_secret_basic`) |
 
 After a server update that adds tools, refresh or reconnect the connector so the app re-reads the tool list.
-
 On the consent page, check the app name and the address it will return you to. Press **Continue with Discord**
 only if you started the connection yourself.
+
+### 2. Desktop apps that only run local (stdio) servers
+
+Use the `mcp-remote` bridge, which runs on your computer, speaks stdio to the app and does the sign-in in your
+browser. For example in Claude Desktop's `claude_desktop_config.json` (or any app with a `command` / `args`
+server entry):
+
+```json
+{ "mcpServers": { "mingstreet": { "command": "npx", "args": ["-y", "mcp-remote", "https://mingstreet.app/mcp"] } } }
+```
+
+### 3. Owner key, for scripts and apps without OAuth (off unless turned on)
+
+For GitHub Actions, API-based agents (OpenAI Responses API `mcp` tool, Anthropic Messages API MCP connector,
+Gemini SDK), n8n and similar, which can send a header but can't open a sign-in page. LilSean sets
+`MCP_OWNER_KEY` in the Vercel env to a random value of 32+ characters (`openssl rand -hex 32`), using only
+letters, digits and `. _ ~ + / = -` (the characters a bearer token may hold); unset means off. The client sends it as a bearer token:
+
+```
+Authorization: Bearer <MCP_OWNER_KEY>
+```
+
+- OpenAI Responses API: `{"type": "mcp", "server_label": "mingstreet", "server_url": "https://mingstreet.app/mcp", "authorization": "<key>", "require_approval": "never"}`
+- Anthropic Messages API: `"mcp_servers": [{"type": "url", "url": "https://mingstreet.app/mcp", "name": "mingstreet", "authorization_token": "<key>"}]`
+- Claude Code / Cursor / VS Code / Gemini CLI: add `headers: {"Authorization": "Bearer <key>"}` to the entries above
+- Plain HTTPS: `curl -s https://mingstreet.app/mcp -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'`
+
+The key is the Owner (all Owner tools, same read-only rules), skips Discord, and never expires on its own:
+anyone holding it reads Owner research. Keep it in a secret store, never in a repo or a prompt. To revoke it,
+change or delete `MCP_OWNER_KEY` (`MCP_TOKEN_VERSION` revokes sign-in tokens only, not the key; `MCP_ENABLED=0`
+and the Owner Settings MCP switch turn off both). Calls made with it are logged as `who: "owner-key"`. A key under 32 characters
+never works. Comparison is constant-time (`ownerKeyMatches` in `lib/mcp/oauth.mjs`).
+
+### Finding the server
+
+- `https://mingstreet.app/.well-known/mcp.json` (also `/.well-known/mcp/server-card.json`): a public server card
+  with the endpoint, transport, protocol versions and how to sign in. It names no tools.
+- Opening `https://mingstreet.app/mcp` in a browser shows a short "add this to your AI app" page.
+- `401` replies carry `WWW-Authenticate` with the protected-resource metadata URL, which is how MCP clients
+  find the sign-in.
+
+### If an app won't connect or call tools
+
+- **"Couldn't connect" / sign-in loop**: remove the connector and add it again; the sign-in starts fresh.
+- **Tools missing after an update**: refresh or reconnect the connector (apps cache the tool list).
+- **ChatGPT shows the connector but never calls it**: Developer mode must be on for custom connectors, and in a
+  chat or task the connector has to be enabled for that conversation. Naming a tool (start with `list_features`)
+  in the prompt helps.
+- **A tool returns `INVALID_INPUT`**: the message lists the allowed arguments; the model usually retries with
+  them.
 
 ## Tools
 
@@ -81,6 +132,19 @@ payload's build time), `generated_at`, `ai_calls: 0`, `warnings` (stale, expired
 list is cut, histories and logs stored oldest first keep their **newest** rows (with an `…N earlier items` marker),
 and `max_items` is a ceiling at every size budget. Payloads without a build stamp (logs, histories, per-stock files)
 are dated by their Yahoo fetch time or their newest row.
+
+**Works with every major client's tool format.** `tools/list` sends each schema in the subset OpenAI,
+Anthropic and Gemini all accept (`portableSchema` drops map-only keywords such as `propertyNames`; the server
+still checks them). Arguments are forgiving about form (`validateArgs`): the whole arguments object as a JSON
+string, `"5"` for an integer, `"true"` for a boolean, `"NVDA, AMD"` or `"NVDA"` for a list, one object for a list
+of objects, and `null` or `""` for an optional argument are all accepted; an unknown argument fails with the
+list of allowed ones. `scripts/mcp-smoke.mjs` checks every tool's name, description length (1,024 max) and
+schema keywords.
+
+**Slim output** (`tidyResults`): headline rows drop Google News RSS redirect links (opaque, 300+ characters),
+duplicate `bodyLink` / `bodyPublisher` and the internal `sourceId`; a long note repeated across splits (the
+Sports prop record's closing-line note per stat, basis and rank) is sent once and later copies read
+`(same text as earlier in this result)`.
 
 Readable output (`reduceValue`/`tidyDeep` in `lib/mcp/tools.mjs`): every tool rounds float tails (2 decimals from
 1,000 up, 4 from 1, 5 significant digits below 1; rounding alone is not a trim) and turns epoch numbers under
@@ -145,7 +209,16 @@ Mingstreet acts as both the resource server and a minimal authorization server, 
   redirect bound) or `refresh_token`. A secret, when sent (body `client_secret` or the Basic password), must
   match or the call fails with `invalid_client`; public clients send none.
   Access tokens last 1 hour, with audience `<origin>/mcp`. Refresh tokens last 30 days, are encrypted, and carry
-  the Discord refresh token, so **every refresh re-checks the owner role with Discord**.
+  the Discord refresh and access tokens, so **every refresh re-checks the owner role with Discord**.
+- **Refresh is race-safe** (`refreshOwnerCheck`). Discord rotates its refresh token on each use, so two refreshes
+  racing on one token (two scheduled tasks firing together, or a retried request) used to leave the loser
+  signed out. Now the role is checked with the saved Discord access token while it has more than 3 days left
+  (Discord's last 7), so Discord's refresh token is used about once every 4 days, not hourly. When it is used
+  and Discord says it was already rotated, the saved access token answers the role check instead. A Discord
+  outage or rate limit (429 / 5xx) returns `503 temporarily_unavailable` with `Retry-After: 30`, so the app keeps
+  its tokens and retries rather than asking you to sign in again. A new sign-in is needed only when the role is
+  gone, the 30-day refresh token lapses, or both Discord tokens are dead. Each refresh logs
+  `evt: mcp.token` with `discord: saved | rotated | saved-after-race`.
 
 Keys are derived from `SESSION_SECRET` with a per-purpose label. MCP tokens can't act as site cookies, and site
 cookies can't act as MCP tokens.
@@ -157,20 +230,23 @@ cookies can't act as MCP tokens.
 | `MCP_ENABLED=0` | Kill switch: `/mcp`, the metadata and the OAuth endpoints all return 404 |
 | `MCP_TOKEN_VERSION` | Change it (e.g. `2`) to revoke every MCP token and client at once; site sessions unaffected |
 | `MCP_PUBLIC_ACCESS=1` | Allow tokenless use of public tools (see above) |
+| `MCP_OWNER_KEY` | Optional Owner key (32+ characters) for clients without OAuth; unset = off (see Connect, way 3) |
 | `MCP_PUBLIC_ORIGIN` | Override the issuer/resource origin (normally derived from the request host) |
 
 Required and already set: `PRIVATE_DATA_ENABLED=1`, the R2 keys, `SESSION_SECRET`, the `DISCORD_*` owner
 variables. No Discord app change is needed.
 
-- **Routing.** `vercel.json` rewrites `/mcp`, `/mcp/`, `/.well-known/oauth-*`, `/.well-known/openid-configuration`
-  and `/oauth/*` to `api/auth/[action].js`
+- **Routing.** `vercel.json` rewrites `/mcp`, `/mcp/`, `/.well-known/oauth-*`, `/.well-known/openid-configuration`,
+  `/.well-known/mcp.json`, `/.well-known/mcp/server-card.json` and `/oauth/*` to `api/auth/[action].js`
   (`mcp`, `mcp-meta`, `mcp-oauth`), so the MCP uses no extra serverless function (Hobby limit 12). The handler routes by `req.query.action` and falls
   back to the request path (`mcpRouteOf`), so it works whichever form of the URL Vercel passes after a rewrite.
 - **Protocol.** Stateless Streamable HTTP with JSON responses and no `Mcp-Session-Id`. It serves 2026-07-28
   (`server/discover`, `Mcp-Method`/`Mcp-Name` checked against the body) and 2024-11-05 / 2025-03-26 /
-  2025-06-18 / 2025-11-25 (`initialize` negotiates). `GET /mcp` returns 405 because there is no server push. Batches are
-  rejected. Bodies are limited to 64 KB. `resources/list`, `resources/templates/list` and `prompts/list`
-  answer empty lists. Browser `Origin`s: any https origin, plus http on localhost (the MCP Inspector); plain
+  2025-06-18 / 2025-11-25 (`initialize` negotiates). `GET /mcp` returns 405 because there is no server push (a
+  browser asking for HTML gets the info page). JSON-RPC batches (up to 20 messages, at most 4 tool calls) are answered
+  one reply per request. A client whose `Accept` lists only `text/event-stream` gets the reply as one SSE `message` event;
+  everyone else gets JSON. Bodies are limited to 64 KB. `resources/list`, `resources/templates/list` and
+  `prompts/list` answer empty lists; `logging/setLevel` and `completion/complete` answer empty results. Browser `Origin`s: any https origin, plus http on localhost (the MCP Inspector); plain
   http from another host is refused. This is safe because auth is a bearer token the client holds, never a
   cookie the browser adds; a page without a token gets 401.
 - **Logs.** One JSON line per call (`evt: mcp.call`): tool, outcome, ms, a hashed subject and client. No
