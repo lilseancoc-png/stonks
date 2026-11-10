@@ -3,11 +3,11 @@
 // server route. Offline: the store is replaced by an in-memory map.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
-  OWNER_SETTINGS, OWNER_SETTINGS_KEY, OWNER_SETTINGS_APPLIED_KEY, ownerSettingDef, cleanValue, isLocked,
+  OWNER_SETTINGS, OWNER_SETTINGS_TABS, OWNER_SETTINGS_KEY, OWNER_SETTINGS_APPLIED_KEY, ownerSettingDef, cleanValue, isLocked,
   readOwnerSettingsDoc, applyOwnerSettingsRequest, ownerSettingsView, applyOwnerSettingsToEnv,
   runtimeEnvOverrides, picksTag, describePicksTag,
 } from "../lib/owner-settings.mjs";
@@ -27,6 +27,32 @@ for (const d of OWNER_SETTINGS) {
   ok(cleanValue(d, d.default) === d.default, `${d.key} default is a valid value`);
   if (d.scope === "site") ok(d.kind === "switch" && d.default === true, `${d.key}: site switches default to on (follow Vercel)`);
 }
+// Every setting sits on a known tab, and every key is really read from the
+// environment by the build or the site (a dead key would look like it works).
+const codeFiles = [];
+const walk = (dir) => { for (const f of readdirSync(dir)) { const p = join(dir, f); if (statSync(p).isDirectory()) { if (f !== "node_modules") walk(p); } else if (/\.(mjs|js)$/.test(f) && !/smoke|owner-settings/.test(f)) codeFiles.push(p); } };
+walk(resolve("lib")); walk(resolve("api")); codeFiles.push(resolve("scripts/build.mjs"));
+const code = codeFiles.map((f) => readFileSync(f, "utf8")).join("\n");
+for (const d of OWNER_SETTINGS) {
+  ok(OWNER_SETTINGS_TABS.includes(d.tab), `${d.key} sits on a known tab`);
+  ok(new RegExp(`env\\??\\.${d.key}\\b`).test(code), `${d.key} is read from the environment by site code`);
+  // A constant copied from the env must also be used, or the switch does
+  // nothing (PICKS_EVENT_NO_NAKED_LONG was declared in build.mjs and never read).
+  const decl = new RegExp(`(?:const|let|var)\\s+([A-Za-z_$][\\w$]*)\\s*=[^;\\n]*env\\??\\.${d.key}\\b`, "g");
+  let m;
+  while ((m = decl.exec(code))) {
+    const uses = (code.match(new RegExp(`(?<!env\\??\\.)\\b${m[1].replace(/\$/g, "\\$")}\\b`, "g")) || []).length;
+    ok(uses >= 2, `${d.key}: ${m[1]} is used after it is read`);
+  }
+}
+// Big-impact settings carry a careful warning and always need an "are you sure".
+const high = OWNER_SETTINGS.filter((d) => d.impact === "high");
+ok(high.length >= 20, "big-impact settings are marked");
+for (const d of high) ok(typeof d.warn === "string" && d.warn.length >= 40 && /[.!]$/.test(d.warn), `${d.key} has a full warning`);
+for (const d of OWNER_SETTINGS) if (d.warn) eq(d.impact, "high", `${d.key}: a warning means big impact`);
+for (const k of ["PICKS_MACRO_REGIME", "AI_THESIS", "PICKS_EDGE_GATE", "PICKS_MAX_OPEN_POSITIONS", "PICKS_RUN_ARCHIVE", "MCP_ENABLED", "WEBULL_MIRROR", "SELF_TUNE"]) eq(ownerSettingDef(k).impact, "high", `${k} is big impact`);
+// AI cost can only go down from this page: no setting adds AI calls.
+for (const k of ["AI_THESIS", "AI_THESIS_SEARCH"]) eq(ownerSettingDef(k).default, true, `${k}: the page can only turn AI off`);
 // Guard rails: no model, budget, exit, conviction, schedule or reset setting.
 for (const k of keys) ok(!/MODEL|TOKEN_CAP|CALL_CAP|_TP_|STOP|CONVICTION|TIER_STRONG|RESET|EPOCH|ROBINHOOD/.test(k), `${k} is not a guarded repo setting`);
 eq(ownerSettingDef("PICKS_COUNT").max, 6, "picks per run can't exceed today's 6 (AI grader cost)");
@@ -53,7 +79,10 @@ eq(readOwnerSettingsDoc("not json").values, {}, "unreadable file = defaults");
 
 // --- requests: set / confirm / lock / reset / undo -----------------------------------
 const at = "2026-11-10T15:00:00Z";
-let r = applyOwnerSettingsRequest(null, { act: "set", values: { PICKS_COUNT: 4, PICKS_EVENT_AWARE: false } }, { at, by: "MiniMe" });
+const unsure = applyOwnerSettingsRequest(null, { act: "set", values: { PICKS_COUNT: 4, PICKS_EVENT_AWARE: false } }, { at, by: "MiniMe" });
+ok(unsure.needsConfirm && /Event plays/.test(unsure.error), "a big-impact change needs an are-you-sure");
+ok(!applyOwnerSettingsRequest(null, { act: "set", values: { PICKS_COUNT: 4 } }, { at }).error, "a small change needs none");
+let r = applyOwnerSettingsRequest(null, { act: "set", values: { PICKS_COUNT: 4, PICKS_EVENT_AWARE: false }, confirm: true }, { at, by: "MiniMe" });
 ok(!r.error, "set two at once");
 let doc = r.doc;
 eq(doc.values, { PICKS_COUNT: 4, PICKS_EVENT_AWARE: false }, "values saved");
@@ -73,7 +102,7 @@ ok(noConfirm.needsConfirm, "after Dec 7 a confirm setting still needs confirm");
 ok(!applyOwnerSettingsRequest(doc, { act: "set", values: { PICKS_CROWD_GRADER: true }, confirm: true }, { at: dec8 }).error, "confirmed after Dec 7 works");
 eq(applyOwnerSettingsRequest(doc, { act: "set", values: { PICKS_COUNT: 4 } }, { at }).unchanged, true, "same value = unchanged");
 
-r = applyOwnerSettingsRequest(doc, { act: "set", values: { PICKS_SINGLE_MAX_COST: 3000 } }, { at: "2026-11-10T16:00:00Z", by: "MiniMe" });
+r = applyOwnerSettingsRequest(doc, { act: "set", values: { PICKS_SINGLE_MAX_COST: 3000 }, confirm: true }, { at: "2026-11-10T16:00:00Z", by: "MiniMe" });
 doc = r.doc;
 r = applyOwnerSettingsRequest(doc, { act: "undo" }, { at: "2026-11-10T16:05:00Z" });
 doc = r.doc;
@@ -83,7 +112,11 @@ r = applyOwnerSettingsRequest(doc, { act: "undo" }, { at: "2026-11-10T16:06:00Z"
 doc = r.doc;
 eq(doc.values, {}, "a second undo walks back the one before");
 ok(applyOwnerSettingsRequest(doc, { act: "undo" }, { at }).error, "nothing left to undo");
-doc = applyOwnerSettingsRequest(doc, { act: "set", values: { PICKS_COUNT: 3, REGIME_LAB: false, MCP_ENABLED: false } }, { at }).doc;
+doc = applyOwnerSettingsRequest(doc, { act: "set", values: { PICKS_COUNT: 3, REGIME_LAB: false, MCP_ENABLED: false }, confirm: true }, { at }).doc;
+ok(!applyOwnerSettingsRequest(doc, { act: "reset", key: "MCP_ENABLED" }, { at }).error, "going back to the default needs no confirm");
+const resetMcp = applyOwnerSettingsRequest(doc, { act: "reset", key: "MCP_ENABLED" }, { at }).doc;
+ok(applyOwnerSettingsRequest(resetMcp, { act: "undo" }, { at }).needsConfirm, "an undo that turns a big-impact setting back off needs confirm");
+eq(applyOwnerSettingsRequest(resetMcp, { act: "undo", confirm: true }, { at }).doc.values.MCP_ENABLED, false, "confirmed undo works");
 doc = applyOwnerSettingsRequest(doc, { act: "reset", key: "PICKS_COUNT" }, { at }).doc;
 eq(doc.values, { REGIME_LAB: false, MCP_ENABLED: false }, "reset one");
 doc = applyOwnerSettingsRequest(doc, { act: "reset-all" }, { at }).doc;
@@ -171,6 +204,8 @@ out = await call("POST", { act: "set", values: { SELF_TUNE: "off" } }); eq(out.s
 out = await call("GET"); eq(out.statusCode, 200, "owner GET"); eq(out.body.settings.length, OWNER_SETTINGS.length, "catalog returned");
 const prevMcp = process.env.MCP_ENABLED;
 out = await call("POST", { act: "set", values: { PICKS_COUNT: 2, MCP_ENABLED: false } });
+eq(out.statusCode, 400, "big-impact switch refused without confirm"); ok(out.body.needsConfirm && !mem.has(OWNER_SETTINGS_KEY), "nothing stored before the are-you-sure");
+out = await call("POST", { act: "set", values: { PICKS_COUNT: 2, MCP_ENABLED: false }, confirm: true });
 eq(process.env.MCP_ENABLED, "0", "a saved switch applies on this instance at once"); eq(out.statusCode, 200, "owner POST");
 eq(JSON.parse(mem.get(OWNER_SETTINGS_KEY)).values, { PICKS_COUNT: 2, MCP_ENABLED: false }, "stored");
 eq(out.body.history[0].by, "MiniMe", "change records the Owner");
@@ -186,7 +221,7 @@ await auth({ query: { action: "mcp-meta", kind: "as" }, method: "GET", headers: 
 eq(process.env.MCP_ENABLED, prevMcp, "MCP back to the Vercel value after undo");
 // Requests outside the gated actions leave the forced value in place, so a
 // request running alongside never sees a half-restored env.
-out = await call("POST", { act: "set", values: { MCP_ENABLED: false } });
+out = await call("POST", { act: "set", values: { MCP_ENABLED: false }, confirm: true });
 await auth({ query: { action: "me" }, method: "GET", headers: { host: "example.test", "x-forwarded-proto": "https" } }, res());
 eq(process.env.MCP_ENABLED, "0", "other actions do not restore a forced switch");
 out = await call("POST", { act: "reset", key: "MCP_ENABLED" });

@@ -494,7 +494,7 @@ jobs:
 
       - name: Build site
         env:
-          EARNINGS_FORECAST_ENABLED: ${{ vars.EARNINGS_FORECAST_ENABLED || '1' }}
+          EARNINGS_FORECAST_ENABLED: ${{ vars.EARNINGS_FORECAST_ENABLED }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           # Funded Tier-1 project: Flash/Flash-Lite carry 1K-4K RPM quotas, so
           # the build's per-minute AI pacer (build.mjs AI_RPM, default 100) can

@@ -9,12 +9,47 @@ request-time application), `scripts/render/owner-settings-client.mjs` (page),
 
 ## What can change
 
-| Group | Settings | Applies |
+The page is laid out like a game's settings menu: tabs down the side (a
+scrolling row on phones) with a count of changed settings on each, folding
+sections inside each tab, a search box across every tab and a "Changed only"
+filter. The chosen tab is remembered on the device.
+
+**Big impact.** 25 settings that change how Mingstreet trades or runs carry
+`impact: "high"` and a `warn` sentence in `lib/owner-settings.mjs`: the Top
+Picks engine guards (event plays, macro context, singles, option structure,
+the losing-record brake, the event checks, credit spreads into events), the
+book limits (most open trades, new trades per group, the single cost cap),
+the market tape itself, the AI final grader, the measurement switches whose
+missed days can't be rebuilt (crowd, run archive, Regime Lab, loop), every
+After Dec 7 hook and four live switches (message box, public MCP, MCP,
+Webull mirror). Each row shows a red "Big impact" tag and its warning in bold
+red, and a "Big impact only" filter lists them. Changing one opens an "are you
+sure" box that repeats the warning (Cancel has focus; Escape or Back closes
+it); undo and reset ask the same way when they touch one, and reset all always
+asks and lists what it will put back. The server refuses a change that moves
+one of them off its default without `confirm: true`, so an older copy of the
+page can't skip the box (it opens the box when the server asks). Going back
+to a default never needs it.
+
+| Tab | Settings | Applies |
 |---|---|---|
-| Top Picks | Event plays, macro context block, singles by default, AI final grader (on/off); most picks per run (1-6), most watch ideas (0-10), single option cost cap ($1,000-$10,000), macro block strength (0.25-1.5), display account size | next build; Top Picks from the next 11:00 / 15:30 ET run |
-| Research | Run archive, Regime Lab, crowd data, self-improving loop | next build |
-| After Dec 7 | Crowd squeeze veto, crowd lines in the grader, Cboe put/call source, SELF_TUNE on | refused before 2026-12-07, then need a confirmation |
-| Live site | Message box, Sports, MCP server, Webull paper mirror | within 30 seconds; these can only turn a feature OFF on top of Vercel |
+| Top Picks | Engine: event plays, macro context block + strength (0.25-1.5), singles by default, pick the option structure, raise the bar after losses. Book and sizes: most picks per run (1-6), most open trades (5-30), new trades per stock group per run (1-4), most watch ideas (0-10), single option cost cap ($1,000-$10,000), display account size. Events: wait out Fed/CPI/PPI/jobs days, event risk check, earnings window for spreads (0-30 days), credit spreads into macro events | next build; Top Picks from the next 11:00 / 15:30 ET run |
+| Market tape | The tape on the picks, and one switch per input: indexes, credit, breadth, put/call, bond volatility, Fear & Greed, inflation and jobs, oil and gold shocks, geopolitical headlines, overnight markets, sector rotation | next Top Picks run |
+| AI & cost | AI final grader, web search before grading (both can only be turned off from their default, so AI spend can only fall) | next Top Picks run |
+| Data & desks | Prediction-market odds, crowd data, IBKR borrow fees, LEAPS desk, stock picks shown (1-24), Earnings Forecast refresh | next build |
+| Research | Run archive, Regime Lab, self-improving loop | next build |
+| After Dec 7 | Crowd squeeze veto, crowd lines in the grader, Cboe put/call source, SELF_TUNE on | refused before 2026-12-07, then big impact (confirm) |
+| Live site | Message box, public MCP tools, Sports, MCP server, Webull paper mirror | within 30 seconds; these can only turn a feature OFF on top of Vercel |
+| Display (this device) | Theme, text size, layout density, motion, start page | at once, this browser only (`stonks-display-v1` + `stonks-theme` in localStorage, applied by `ownerDisplayBoot` at the top of app.js) |
+| History | The newest 50 changes | |
+
+`npm run test:owner-settings` fails if a setting's key is not read from
+`process.env` anywhere in `lib/`, `api/` or `scripts/build.mjs`, or if a
+constant copied from it is never used, so a dead switch can't look like it
+works (`PICKS_EVENT_NO_NAKED_LONG` is declared in `build.mjs` but read nowhere,
+so it is not offered). `daily.yml` passes
+`EARNINGS_FORECAST_ENABLED` as the plain repo variable (it used to default to
+`'1'`, which pinned it).
 
 Market mode stays on Top Picks (the page links to it).
 
@@ -30,8 +65,10 @@ Picks per run is capped at today's 6 so the AI grader never reads more names.
   newest 50 changes (`{ id, at, by, kind, changes: [{ key, from, to }] }`).
   Saves run under the R2 lease `owner-settings`.
 - Requests: `{ act: "set", values, confirm? }`, `{ act: "reset", key }`,
-  `{ act: "reset-all" }`, `{ act: "undo" }` (reverses the newest change not yet
-  undone; repeat to walk back further). Out-of-range values, unknown keys and
+  `{ act: "reset-all" }`, `{ act: "undo", confirm? }` (reverses the newest
+  change not yet undone; repeat to walk back further). A set or undo that
+  moves a big-impact setting off its default returns `needsConfirm` without
+  `confirm: true`. Out-of-range values, unknown keys and
   locked values are refused; a tampered file is cleaned on read.
 - Build: daily.yml runs `node --import ./scripts/owner-settings-env.mjs
   scripts/build.mjs`. The preload copies saved build values into
@@ -56,3 +93,7 @@ Picks per run is capped at today's 6 so the AI grader never reads more names.
   at once never see a half-restored env.
 
 No AI call, no new fetch, serverless function, workflow or env variable.
+
+Tests: `npm run test:owner-settings` (catalog, rules, route) and `npm run
+test:owner-settings-browser` (tabs, filters, warnings, the are-you-sure box,
+Display; 1440 and 390, light and dark).

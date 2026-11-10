@@ -1,5 +1,5 @@
 import { updateCheckerClient } from './update-checker-client.mjs';
-import { ownerSettingsClient } from './owner-settings-client.mjs';
+import { ownerSettingsClient, ownerDisplayBoot } from './owner-settings-client.mjs';
 import { OWNER_SETTINGS } from '../../lib/owner-settings.mjs';
 import { closureTables } from '../../lib/us-equity-calendar.mjs';
 import { contactClient } from './contact-client.mjs';
@@ -209,6 +209,10 @@ ${scenarioEventPhase.toString()}
   } catch (_) {
     document.documentElement.setAttribute('data-theme', 'dark');
   }
+  // Display settings for this device (Owner Settings → Display): text size,
+  // density, motion and the start page, applied before the first tab is chosen.
+  var applyDisplayPrefs = function(){};
+  try { applyDisplayPrefs = (${ownerDisplayBoot.toString()})(window, document) || applyDisplayPrefs; } catch (_) {}
 
   var MANIFEST = window.STONKS_MANIFEST || { symbols: [], narratives: [], sectorOverviews: {}, recentlyEnded: [], macroHeadlines: [], sectors: {}, industries: {}, sectorOrder: [], industriesBySector: {}, spots: {} };
   var SYMBOLS = Array.isArray(MANIFEST.symbols) ? MANIFEST.symbols : [];
@@ -25235,6 +25239,7 @@ ${renderExportBindings()}
   var ownerSettings = (${ownerSettingsClient.toString()})(window, document, {
     owner: function(){ return HAS_OWNER_ACCESS; },
     go: function(tab){ var button = document.getElementById('page-tab-' + tab); if(button) button.click(); },
+    applyDisplay: function(){ applyDisplayPrefs(); },
     revoke: function(){ applyAuth(null); enforceOwnerUi(document); var home=document.getElementById('page-tab-home'); if(home) home.click(); }
   });
   var contactBox = (${contactClient.toString()})(window, document, {
