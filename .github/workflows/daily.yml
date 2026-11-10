@@ -574,7 +574,10 @@ jobs:
           # OPENFIGI_MAX_BATCHES_UNAUTH in scripts/build.mjs. Free key
           # at https://www.openfigi.com/api.
           OPENFIGI_API_KEY: ${{ secrets.OPENFIGI_API_KEY }}
-        run: node scripts/build.mjs
+        # The preload copies the Owner Settings page values (hydrated
+        # data/owner-settings.json, lib/owner-settings.mjs) into the env
+        # first. A repo variable set above wins over the page.
+        run: node --import ./scripts/owner-settings-env.mjs scripts/build.mjs
 
       - name: AI health alert
         # The build NEVER fails on AI-layer trouble — every consumer degrades

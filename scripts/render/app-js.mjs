@@ -1,4 +1,6 @@
 import { updateCheckerClient } from './update-checker-client.mjs';
+import { ownerSettingsClient } from './owner-settings-client.mjs';
+import { OWNER_SETTINGS } from '../../lib/owner-settings.mjs';
 import { closureTables } from '../../lib/us-equity-calendar.mjs';
 import { contactClient } from './contact-client.mjs';
 import { ownerMarketBriefDisplayFactory } from '../../lib/owner-market-brief-display.mjs';
@@ -260,6 +262,7 @@ ${scenarioEventPhase.toString()}
     if (!HAS_OWNER_ACCESS && heatmapState && heatmapState.colorBy === 'grade') heatmapState.colorBy = 'perf';
     if (!HAS_OWNER_ACCESS && typeof updateChecker !== 'undefined') updateChecker.reset();
     if (!HAS_OWNER_ACCESS && typeof contactBox !== 'undefined') contactBox.reset();
+    if (!HAS_OWNER_ACCESS && typeof ownerSettings !== 'undefined') ownerSettings.reset();
     if (!HAS_OWNER_ACCESS && typeof ownerMarketBrief !== 'undefined') ownerMarketBrief.reset();
     if (!HAS_OWNER_ACCESS && typeof earningsForecast !== 'undefined') earningsForecast.reset();
     HAS_TRACK_RECORD = HAS_OWNER_ACCESS;
@@ -4227,7 +4230,7 @@ ${scenarioEventPhase.toString()}
   // resolve the URL's initial tab synchronously at script-evaluation time (the
   // anti-flash pre-select in the boot block) before the /api/auth/me +
   // manifest fetches settle and bind() runs the full selectTab.
-  var PAGE_TAB_IDS = ['home','update-checker','owner-market-brief','tickers','stock','narratives','brief','news','market','risk','unified-signal-engine','historical-data','party-tracker','earnings-forecast','forced-liquidation','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','bottom-tracker','open-picks','track','sports-nba','sports-nfl','sports-pick-builder','cheatsheet','chart-patterns','timeline','contact','glossary','earnings-week','market-map','crowd','whats-changed','past-day','privacy','terms'];
+  var PAGE_TAB_IDS = ['home','update-checker','owner-settings','owner-market-brief','tickers','stock','narratives','brief','news','market','risk','unified-signal-engine','historical-data','party-tracker','earnings-forecast','forced-liquidation','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','bottom-tracker','open-picks','track','sports-nba','sports-nfl','sports-pick-builder','cheatsheet','chart-patterns','timeline','contact','glossary','earnings-week','market-map','crowd','whats-changed','past-day','privacy','terms'];
   // Friendly aliases so deep-links people might guess work too.
   // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
   // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -4721,6 +4724,7 @@ ${renderExportBindings()}
       if (name !== 'oi' && typeof stopOiLive === 'function') stopOiLive();
       if (name !== 'ma-tracker' && typeof stopMaTrackerLive === 'function') stopMaTrackerLive();
       if (name === 'update-checker') updateChecker.load();
+      if (name === 'owner-settings') ownerSettings.load();
       if (name === 'contact') contactBox.load();
       if (name === 'owner-market-brief') ownerMarketBrief.load();
       if (name === 'brief' && typeof loadBrief === 'function') loadBrief();
@@ -25227,6 +25231,12 @@ ${renderExportBindings()}
     owner: function(){ return HAS_OWNER_ACCESS; },
     revoke: function(){ applyAuth(null); enforceOwnerUi(document); var home=document.getElementById('page-tab-home'); if(home) home.click(); }
   });
+  // Owner Settings page (lib/owner-settings.mjs, /api/auth/owner-settings).
+  var ownerSettings = (${ownerSettingsClient.toString()})(window, document, {
+    owner: function(){ return HAS_OWNER_ACCESS; },
+    go: function(tab){ var button = document.getElementById('page-tab-' + tab); if(button) button.click(); },
+    revoke: function(){ applyAuth(null); enforceOwnerUi(document); var home=document.getElementById('page-tab-home'); if(home) home.click(); }
+  });
   var contactBox = (${contactClient.toString()})(window, document, {
     owner: function(){ return HAS_OWNER_ACCESS; },
     revoke: function(){ applyAuth(null); enforceOwnerUi(document); }
@@ -36911,8 +36921,18 @@ ${renderExportBindings()}
     // Self-improving loop settings version (lib/self-loop/tune.mjs), stamped
     // only on trades opened under live self-tuning, so every live change
     // gets its own dated divider.
-    { key:'loop', get:function(e){ return (e && e.loopVersion != null) ? 'v' + e.loopVersion : ''; } }
+    { key:'loop', get:function(e){ return (e && e.loopVersion != null) ? 'v' + e.loopVersion : ''; } },
+    // Owner Settings page values that change which trades open (stamped from
+    // 2026-11-10 only while one differs from its default).
+    { key:'settings', get:function(e){ return (e && typeof e.ownerSettings === 'string' && e.ownerSettings) || ''; } }
   ];
+  var OWNER_SETTING_LABELS = ${JSON.stringify(Object.fromEntries(OWNER_SETTINGS.filter(d => d.picks).map(d => [d.key, d.label])))};
+  function ownerSettingsTagText(tag){
+    return String(tag || '').split(',').filter(Boolean).map(function(part){
+      var i = part.indexOf('='), k = part.slice(0, i), v = part.slice(i + 1);
+      return (OWNER_SETTING_LABELS[k] || k) + ' ' + v;
+    }).join('; ');
+  }
   // When each version took effect and what it changed (shown on its divider).
   // A version missing here dates from its earliest trade and shows no note.
   var ACC_RULE_NOTES = {
@@ -36980,6 +37000,7 @@ ${renderExportBindings()}
       if (sa && sb && sa <= sb) return;
       var n = ACC_RULE_NOTES[dim.key] && ACC_RULE_NOTES[dim.key][a];
       if (!n && dim.key === 'loop') n = { note: 'Self-tuning settings ' + a + ' (Owner Lab, Loop tab)' };
+      if (!n && dim.key === 'settings') n = { note: 'Owner settings: ' + ownerSettingsTagText(a) };
       changed.push({ key: dim.key, since: sa, note: n && n.note });
     });
     var when = changed.map(function(c){ return c.since; }).filter(Boolean).sort().pop()

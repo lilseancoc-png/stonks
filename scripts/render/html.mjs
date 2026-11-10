@@ -13,6 +13,7 @@ import {
 } from '../build.mjs';
 import { DOC_PAGES, DOC_ORDER, DOC_THEME_OVERRIDE } from './docs.mjs';
 import { contactSection } from './contact-client.mjs';
+import { ownerSettingsSection } from './owner-settings-client.mjs';
 import { SITE_SECTIONS, TAB_BAR_SECTIONS } from './site-map.mjs';
 import { sectorGroupOfLabel } from '../../lib/sector-groups.mjs';
 import { DISCORD_INVITE_URL, KO_FI_URL } from '../../lib/links.mjs';
@@ -47,6 +48,7 @@ function docPanesHtml() {
 // wraps each in the shared <svg class="pt-ico"> shell.
 const SIDE_NAV_ICONS = {
   'update-checker': '<path d="M4 4h16v16H4zM7 12h3l2-5 2 10 2-5h2"/>',
+  'owner-settings': '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
   'sports-nba': '<circle cx="12" cy="12" r="9.5"/><path d="M2.5 12h19M12 2.5v19"/><path d="M5.3 5.3c2.6 2.4 2.6 11 0 13.4M18.7 5.3c-2.6 2.4-2.6 11 0 13.4"/>',
   'sports-nfl': '<path d="M20.5 3.5c-6-1-12.6.9-15.7 4S2.5 17.5 3.5 20.5c3 1 10-.2 13.2-3.3s4.8-9.7 3.8-13.7z"/><path d="m9 15 6-6M10.5 10.5l3 3M12.5 8.5l3 3M8.5 12.5l3 3"/>',
   'sports-pick-builder': '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/><path d="m15 16 1.5 1.5L19 15"/>',
@@ -2339,6 +2341,9 @@ ${i18nHeadScript()}
   </div>
   <div class="page-pane" id="page-pane-update-checker" role="tabpanel" aria-labelledby="page-tab-update-checker" hidden>
     <section class="card"><header class="card-header"><h2 class="card-title">Update Checker</h2></header><p class="hint">Track failed builds and inspect published feature outputs. The checker records workflow failures even when the data build stops early.</p><div id="update-checker-root" aria-live="polite"></div></section>
+  </div>
+  <div class="page-pane" id="page-pane-owner-settings" role="tabpanel" aria-labelledby="page-tab-owner-settings" hidden>
+    ${ownerSettingsSection()}
   </div>
   <div class="page-pane" id="page-pane-owner-market-brief" role="tabpanel" aria-labelledby="page-tab-owner-market-brief" hidden>
     ${ownerMarketBriefSection()}

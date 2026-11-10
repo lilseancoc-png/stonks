@@ -21,6 +21,9 @@
 //   picks-loop       -> the Owner's self-tuning clicks on the Owner Lab Loop
 //                       tab: approve / decline / undo / restore (GET /
 //                       same-origin POST; lib/self-loop/tune.mjs)
+//   owner-settings   -> the Owner Settings page: switches and numbers saved
+//                       on the site (GET / same-origin POST;
+//                       lib/owner-settings.mjs)
 //   contact          -> public "Send us a message" box: GET a form ticket,
 //                       same-origin POST a message (lib/contact-messages.mjs)
 //   contact-inbox    -> Owner-only: read the messages (GET) and mark read /
@@ -107,8 +110,44 @@ export function mcpRouteOf(req) {
   return null;
 }
 
+// Owner Settings "Live site" switches (lib/owner-settings.mjs) can only turn
+// a feature OFF on top of the Vercel env. Read for the few actions they gate,
+// cached for 30 seconds per warm instance; a failed read keeps the Vercel env.
+const SITE_SWITCH_KEYS = ["CONTACT_ENABLED", "SPORTS_ENABLED", "MCP_ENABLED", "WEBULL_MIRROR"];
+// Keys this module forced off, with the value they had before, so the next
+// request starts from the real Vercel env again.
+const siteSwitchForced = new Map();
+function restoreSiteSwitches() {
+  for (const [k, prev] of siteSwitchForced) { if (prev === undefined) delete process.env[k]; else process.env[k] = prev; }
+  siteSwitchForced.clear();
+}
+const siteSwitchBase = () => { restoreSiteSwitches(); return Object.fromEntries(SITE_SWITCH_KEYS.map((k) => [k, process.env[k]])); };
+const SITE_SWITCH_ACTIONS = new Set(["contact", "contact-inbox", "webull-mirror", "mcp", "mcp-meta", "mcp-oauth"]);
+let siteSwitchCache = { at: 0, overrides: {} };
+async function applySiteSwitches(req, action) {
+  restoreSiteSwitches();
+  if (!SITE_SWITCH_ACTIONS.has(action) && !(action === "me" && req.query?.sports)) return;
+  if (process.env.PRIVATE_DATA_ENABLED !== "1") return;
+  if (Date.now() - siteSwitchCache.at > 30_000) {
+    try {
+      const [{ store }, settings] = await Promise.all([import("../../lib/datastore.mjs"), import("../../lib/owner-settings.mjs")]);
+      siteSwitchCache = { at: Date.now(), overrides: settings.runtimeEnvOverrides(await store.get(settings.OWNER_SETTINGS_KEY)) };
+    } catch (err) {
+      console.warn("owner settings read failed", { message: String(err?.message || err) });
+      siteSwitchCache = { at: Date.now(), overrides: siteSwitchCache.overrides };
+    }
+  }
+  for (const k of SITE_SWITCH_KEYS) {
+    const v = siteSwitchCache.overrides[k];
+    if (v === undefined) continue;
+    siteSwitchForced.set(k, process.env[k]);
+    process.env[k] = v;
+  }
+}
+
 export default async function handler(req, res) {
   const mcpRoute = mcpRouteOf(req);
+  await applySiteSwitches(req, mcpRoute?.action || req.query?.action);
   switch (mcpRoute?.action || req.query?.action) {
     case "discord-login":
       return login(req, res);
@@ -134,6 +173,8 @@ export default async function handler(req, res) {
       return topPicksMode(req, res);
     case "picks-loop":
       return picksLoopControl(req, res);
+    case "owner-settings":
+      return ownerSettingsRoute(req, res);
     case "calendar-ics":
       return calendarIcs(req, res);
     case "contact":
@@ -701,6 +742,65 @@ async function topPicksMode(req, res) {
   } catch (err) {
     console.error("top picks mode failed", { message: String(err?.message || err) });
     return res.status(502).json({ error: "mode unavailable" });
+  }
+}
+
+// --- Owner Settings page --------------------------------------------------------
+// GET  /api/auth/owner-settings -> { settings, history, applied, ... }
+// POST /api/auth/owner-settings { act: set, values: { KEY: value }, confirm? }
+//                               { act: reset, key } | { act: reset-all }
+//                               { act: undo }        (same-origin only)
+// Saves owner-settings.json (Owner-only, request-time: no workflow pushes or
+// deletes it). Build settings reach the next bake through
+// scripts/owner-settings-env.mjs; site switches apply here within 30 seconds.
+async function ownerSettingsRoute(req, res) {
+  res.setHeader("Cache-Control", "private, no-store");
+  if (process.env.PRIVATE_DATA_ENABLED !== "1") return res.status(404).json({ error: "not found" });
+  const session = await getSession(req).catch(() => null);
+  if (!session) return res.status(401).json({ error: "auth required" });
+  if (session.tr !== true || session.tp !== true) return res.status(401).json({ error: "role required" });
+  if (req.method !== "GET" && req.method !== "POST") {
+    res.setHeader("Allow", "GET, POST");
+    return res.status(405).json({ error: "method not allowed" });
+  }
+  if (req.method === "POST" && !isSameOriginRequest(req)) return res.status(403).json({ error: "forbidden" });
+  const S = await import("../../lib/owner-settings.mjs");
+  const body = req.method === "POST" ? (typeof req.body === "string" ? (() => { try { return JSON.parse(req.body); } catch { return null; } })() : req.body) : null;
+  if (req.method === "POST") {
+    const check = S.applyOwnerSettingsRequest(null, body);
+    if (check.error && body?.act !== "undo") return res.status(400).json({ error: check.error, ...(check.needsConfirm ? { needsConfirm: true } : {}) });
+  }
+  try {
+    const { store } = await import("../../lib/datastore.mjs");
+    const readApplied = async () => { try { const raw = await store.get(S.OWNER_SETTINGS_APPLIED_KEY); return raw == null ? null : JSON.parse(raw.toString("utf8")); } catch { return null; } };
+    const view = async (doc) => S.ownerSettingsView(doc, { applied: await readApplied(), env: siteSwitchBase() });
+    if (req.method === "GET") return res.status(200).json(await view(S.readOwnerSettingsDoc(await store.get(S.OWNER_SETTINGS_KEY))));
+    // Read, change and save under the store's lease so two quick clicks (or
+    // both owners at once) can't drop each other's change.
+    const save = async (guard) => {
+      const current = S.readOwnerSettingsDoc(await store.get(S.OWNER_SETTINGS_KEY));
+      const out = S.applyOwnerSettingsRequest(current, body, { at: new Date().toISOString(), by: session.name || null });
+      if (out.error) return out;
+      if (!out.unchanged) {
+        if (guard) guard();
+        await store.put(S.OWNER_SETTINGS_KEY, JSON.stringify(out.doc));
+      }
+      return { doc: out.doc };
+    };
+    let out;
+    if (store.backend === "r2" && typeof store.withLease === "function") {
+      let leased;
+      try { leased = await store.withLease("owner-settings", save); }
+      catch (err) { if (err?.code === "LEASE_CONFLICT") return res.status(409).json({ error: "busy, try again" }); throw err; }
+      if (leased?.busy) return res.status(409).json({ error: "busy, try again" });
+      out = leased.result;
+    } else out = await save(null);
+    if (out.error) return res.status(400).json({ error: out.error, ...(out.needsConfirm ? { needsConfirm: true } : {}) });
+    siteSwitchCache = { at: 0, overrides: {} };
+    return res.status(200).json(await view(out.doc));
+  } catch (err) {
+    console.error("owner settings failed", { message: String(err?.message || err) });
+    return res.status(502).json({ error: "settings unavailable" });
   }
 }
 
