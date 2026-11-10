@@ -185,6 +185,51 @@ async function main() {
   eq(Lg.fillOptionOutcomes(F, fChains, { today: days[5] }), 1, "a later close decides it");
   eq(F.rows[0][I.o][0], "tp");
   eq(Lg.fillOptionOutcomes(F, fChains, { today: days[5] }), 0, "a decided row is not redone");
+  // No bar on the expiry day: the option settles on the last close before
+  // expiry, not on a later price.
+  {
+    const e3 = [100, expEpoch(days[3]), 3, 0.4];
+    const gap = [{ t: days[1], c: 101 }, { t: days[2], c: 101 }, { t: days[5], c: 140 }];
+    const res = Lg.simulateOption({ side: "call", opt: e3, closes: gap, spot0: 100, d0: days[0] });
+    ok(res && res[0] !== "tp" && res[2] <= 3, `settled on the day-2 close, not the later 140 (${JSON.stringify(res)})`);
+    const first = Lg.simulateOption({ side: "call", opt: e3, closes: [{ t: days[5], c: 140 }], spot0: 100, d0: days[0] });
+    ok(first && first[0] !== "tp", "the first close already after expiry settles on the run's spot");
+    eq(Lg.simulateOption({ side: "call", opt: e3, closes: [{ t: days[5], c: 140 }] }), null, "and without the spot it says nothing");
+  }
+  // A split after the run: the closes are re-based, the strike is not.
+  {
+    const S = Lg.emptyLedger();
+    Lg.appendRunLedger(S, { et: "11:00", rows: [runRow("SPLT", 6, { exp }), runRow("SPLP", -6, { exp })] }, days[0]);
+    // 10-for-1 after day 2: every close, the run day's too, is a tenth.
+    const bars = [[days[0], 10.02], ...days.slice(1, 24).map((t) => [t, 10])];
+    Lg.fillOptionOutcomes(S, chainsFrom({ SPLT: bars, SPLP: bars }), { today: days[25] });
+    const call = S.rows.find((r) => r[I.s] === "SPLT")[I.o], put = S.rows.find((r) => r[I.s] === "SPLP")[I.o];
+    ok(call && call[0] === "t20" && call[1] > -50 && call[1] < 0, `a flat stock after a 10:1 split reads as flat, not a -100% call (${JSON.stringify(call)})`);
+    ok(put && put[0] === "t20" && put[1] < 30, `nor a +1900% put (${JSON.stringify(put)})`);
+    // An unexplained jump on the run day is not trusted.
+    const J2 = Lg.emptyLedger();
+    Lg.appendRunLedger(J2, { et: "11:00", rows: [runRow("JUMP", 6, { exp })] }, days[0]);
+    eq(Lg.fillOptionOutcomes(J2, chainsFrom({ JUMP: [[days[0], 72], ...days.slice(1, 24).map((t) => [t, 72])] }), { today: days[25] }), 0, "a 28% gap that is no split ratio leaves the row for later");
+  }
+  // Held watch ideas and the run's own bars.
+  {
+    const H = Lg.emptyLedger();
+    Lg.appendRunLedger(H, { et: "11:00", bars: { tradeCut: 6, edgeBar: 5 }, rows: [
+      runRow("ACT", 7, { out: "pick:actionable" }),
+      { ...runRow("WAIT", 6.5, { out: "pick:watch" }), hold: "ai-wait" },
+      runRow("WCH", 6.5, { out: "pick:watch" }),
+    ] }, days[0]);
+    const row = (sym) => H.rows.find((r) => r[I.s] === sym);
+    eq([row("ACT")[I.out], row("WAIT")[I.out], row("WCH")[I.out]], ["pick:actionable", "held:ai-wait", "held:watch"], "only an actionable pick is a pick");
+    eq([row("ACT")[I.bar], row("ACT")[I.bar0]], [6, 5], "the run's bar and the base rules' bar ride every row");
+    eq([Lg.outClass("pick:actionable"), Lg.outClass("held:ai-wait"), Lg.outClass("pick:watch"), Lg.outClass("gate:x")], ["pick", "held", "held", "gate"]);
+    const jr = Lg.joinedRows(H, null);
+    eq(jr.map((r) => r.cls), ["pick", "held", "held"]);
+    ok(!Lg.tradeGrade({ tot: 5, bar: 6 }) && Lg.tradeGrade({ tot: 5 }) && Lg.tradeGrade({ tot: 6, bar: 6 }), "trade-grade at the run's own bar");
+    const old1 = Lg.emptyLedger();
+    Lg.appendRunLedger(old1, { et: "11:00", rows: [runRow("OLD", 5)] }, days[0]);
+    eq([old1.rows[0][I.bar], old1.rows[0][I.bar0]], [null, null], "a run without bars leaves them empty (the fallback bar applies)");
+  }
 
   // ---- join to the stock outcomes --------------------------------------------------------
   const O = emptyOutcomesState();
@@ -265,6 +310,13 @@ async function main() {
   eq(rs.avg, 1);
   eq(rs.runs, 30);
   eq(rs.indep, 3, "one run per 10 sessions counts toward t");
+  {
+    // Two runs a day read the same moves: a kept date counts once.
+    const two = [];
+    days.slice(0, 30).forEach((d) => ["11:00", "15:30"].forEach((et) => [1, 2, 3, 4, 5, 6].forEach((k) => two.push({ d, et, side: "call", tot: k, y10: k + ((d.charCodeAt(9) + k) % 3) }))));
+    const r2 = rankSkill(two, "y10");
+    eq([r2.runs, r2.indep], [60, 3], "60 runs, still 3 independent dates");
+  }
   // Puts: a negative total with a falling stock is a correct call.
   const rkPut = [-6, -5, -4, -3, -2, -1].map((k) => ({ d: days[0], et: "11:00", side: "put", tot: k, y10: -k }));
   eq(rankSkill(rkPut, "y10").avg, 1, "the side sign is undone before ranking");
@@ -282,6 +334,22 @@ async function main() {
   eq(byGate["losing-streak"].n, 25, "a name under the trade bar is not counted");
   eq(byGate["crowd-squeeze"].verdict, "costing");
   eq(byGate["market-mode"].verdict, "collecting", "fewer than 20 names");
+  {
+    // Held watch ideas are audited under the rule that held them; a watch
+    // idea is not a let-through trade; trade-grade is the run's own bar.
+    const gh = [];
+    for (let i = 0; i < 25; i++) gh.push({ tot: 6, cls: "pick", out: "pick:actionable", opt: { res: "tp", net: 10 } });
+    for (let i = 0; i < 25; i++) gh.push({ tot: 6, cls: "held", out: "held:ai-wait", opt: { res: "stop", net: -20 } });
+    for (let i = 0; i < 25; i++) gh.push({ tot: 5, bar: 6, cls: "below-bar", out: "below-bar", opt: { res: "tp", net: 50 } });
+    for (let i = 0; i < 25; i++) gh.push({ tot: 5, bar: 6, cls: "gate", out: "gate:sector-cap", opt: { res: "tp", net: 50 } });
+    const a2 = gateAudit(gh, { tradeBar: 4 });
+    eq(a2.through.n, 25, "only actionable names are let through");
+    const g2 = Object.fromEntries(a2.gates.map((g) => [g.gate, g]));
+    ok(g2["ai-wait"] && g2["ai-wait"].held === 25 && g2["ai-wait"].verdict === "paying", "the AI wait call is audited as a rule");
+    ok(!g2["sector-cap"], "names under that run's raised bar are not trade-grade");
+    const sc2 = buildScorecard(gh, { tradeBar: 4 });
+    eq(sc2.options.byOutcome.map((x) => x.key), ["pick", "held"], "held is its own outcome");
+  }
   // Whole scorecard + history on the joined fixture.
   const sc = buildScorecard(synth, { tradeBar: 4 });
   eq(sc.rows, 400);
@@ -315,6 +383,11 @@ async function main() {
   eq(tests.map((t) => t.id), ["loop-honest-odds", "loop-gate-audit", "loop-challengers"]);
   ok(tests.every((t) => t.lane === "loop" && t.progress && t.rule), "each row has a lane, progress and a rule");
   eq(Loop.loopEvidenceTests(null), []);
+  {
+    // The verdict reads the four-place skill, not the two-place display copy.
+    const at = (svb) => Loop.loopEvidenceTests({ scorecard: { honesty: { p10: { n: 500, skillVsBase: Math.round(svb * 100) / 100, svb } }, gates: {} }, startedAt: "2026-11-10", today: "2027-01-10" })[0].verdict;
+    eq([at(0.012), at(-0.012), at(0.008)], ["pass", "fail", "inconclusive"], "1.2% better passes, 1.2% worse fails");
+  }
 
   // ---- step 2: diagnosis ----------------------------------------------------------------
   eq(L.rows.find((r) => r[I.s] === "AAPL")[I.pl], { f: 1.5, t: 2 }, "pillar scores ride the ledger, zeros dropped");
@@ -370,12 +443,14 @@ async function main() {
   // Weekly report timing (ET). 2026-11-13 is a Friday; 21:10Z is 16:10 ET.
   eq(Dg.mondayOf("2026-11-13"), "2026-11-09");
   eq(Dg.mondayOf("2026-11-15"), "2026-11-09", "Sunday belongs to the week before");
-  eq(Dg.reportWeekDue("2026-11-13T21:10:00Z"), "2026-11-09", "after the Friday close: this week");
-  eq(Dg.reportWeekDue("2026-11-13T20:30:00Z"), "2026-11-02", "Friday 15:30 ET: last week is the newest finished one");
-  eq(Dg.reportWeekDue("2026-11-13T21:10:00Z", { lastWeek: "2026-11-09" }), null, "once per week");
-  eq(Dg.reportWeekDue("2026-11-16T15:00:00Z", { lastWeek: "2026-11-02" }), "2026-11-09", "a missed Friday is caught up on Monday");
+  const st0 = { startedAt: "2026-06-01T15:00:00Z" };
+  eq(Dg.reportWeekDue("2026-11-13T21:10:00Z", st0), "2026-11-09", "after the Friday close: this week");
+  eq(Dg.reportWeekDue("2026-11-13T20:30:00Z", st0), "2026-11-02", "Friday 15:30 ET: last week is the newest finished one");
+  eq(Dg.reportWeekDue("2026-11-13T21:10:00Z", { ...st0, lastWeek: "2026-11-09" }), null, "once per week");
+  eq(Dg.reportWeekDue("2026-11-16T15:00:00Z", { ...st0, lastWeek: "2026-11-02" }), "2026-11-09", "a missed Friday is caught up on Monday");
   eq(Dg.reportWeekDue("2026-11-13T21:10:00Z", { startedAt: "2026-11-16" }), null, "no report for a week before the loop started");
-  eq(Dg.reportWeekDue("2026-07-03T20:10:00Z"), "2026-06-29", "summer time: 16:10 ET is 20:10Z");
+  eq(Dg.reportWeekDue("2026-11-13T21:10:00Z"), null, "no report before the first Top Picks run wrote an estimate");
+  eq(Dg.reportWeekDue("2026-07-03T20:10:00Z", st0), "2026-06-29", "summer time: 16:10 ET is 20:10Z");
   const rstate = { reports: [], startedAt: "2026-11-10" };
   const r1st = Dg.maybeAddWeeklyReport(rstate, { builtAtIso: "2026-11-13T21:10:00Z", rows: dRows, scorecard: buildScorecard(dRows), diagnosis: Dg.buildDiagnosis(dRows) });
   eq(r1st.week, "2026-11-09");
@@ -395,6 +470,27 @@ async function main() {
   ok(Math.abs(Ch.normInv(0.001) + 3.09) < 0.01, "lower tail");
   eq(Ch.tBar(1), 1.64);
   eq(Ch.tBar(10), 2.58, "the bar rises with every challenger tried");
+  eq(Ch.tBar(1, 6), 2.02, "six blocks: Student t with 5 degrees of freedom");
+  eq(Ch.tBar(5, 6), 3.36);
+  eq(Ch.tBar(5, 12), 2.72);
+  ok(Math.abs(Ch.tCdf(2.015, 5) - 0.95) < 0.001 && Math.abs(Ch.tInv(0.975, 30) - 2.042) < 0.001, "t distribution");
+  eq(Ch.tStatHac([1, 2, 3]), Ch.tStatHac([1, 2, 3]), "deterministic");
+  {
+    // Overlapping holds make neighbouring blocks move together: the
+    // Newey-West t is lower than the plain t, and never higher.
+    const smooth = [1, 1.2, 1.4, 1.3, 1.5, 1.7, 1.6, 1.8];
+    const plainT = (() => { const m = smooth.reduce((a, b) => a + b, 0) / smooth.length; const v = smooth.reduce((a, b) => a + (b - m) ** 2, 0) / (smooth.length - 1); return m / Math.sqrt(v / smooth.length); })();
+    ok(Ch.tStatHac(smooth) < plainT, `autocorrelated blocks get a lower t (${Ch.tStatHac(smooth)} vs ${plainT})`);
+    const alt = [1, 3, 1, 3, 1, 3, 1, 3];
+    const altPlain = (() => { const m = 2; const v = alt.reduce((a, b) => a + (b - m) ** 2, 0) / (alt.length - 1); return m / Math.sqrt(v / alt.length); })();
+    ok(Math.abs(Ch.tStatHac(alt) - altPlain) < 1e-9, "negative autocorrelation never raises t");
+    // Under no edge, the bar for one trial on six blocks passes about 5%.
+    let seed = 7; const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+    const gauss = () => Math.sqrt(-2 * Math.log(rnd() || 1e-12)) * Math.cos(2 * Math.PI * rnd());
+    let pass = 0; const N = 4000;
+    for (let i = 0; i < N; i++) { const xs = Array.from({ length: 6 }, gauss); if (Ch.tStatHac(xs) >= Ch.tBar(1, 6)) pass++; }
+    ok(pass / N <= 0.06, `null pass rate ${(100 * pass / N).toFixed(1)}% is at or under about 5%`);
+  }
   const base = { tot0: 5, side: "call", cls: "pick", sig: { bad: 2 }, pl: { f: 1 }, xv: -1, mk: "risk-off", out: "pick:single" };
   eq(Ch.challengerTakes(base, { kind: "base" }), true);
   eq(Ch.challengerTakes(base, { kind: "mute", key: "bad" }), false, "muting a +2 vote drops a 5 to 3, under the bar");
@@ -408,6 +504,11 @@ async function main() {
   eq(Ch.challengerTakes({ ...base, cls: "gate", out: "gate:losing-streak" }, { kind: "rule-off", key: "losing-streak" }), true, "switching the rule off lets it through");
   eq(Ch.challengerTakes(base, { kind: "skip", key: "call/risk-off" }), false);
   eq(Ch.challengerTakes({ ...base, cls: "open" }, { kind: "base" }), false, "an already-open name is never re-entered");
+  eq(Ch.challengerTakes({ ...base, cls: "held", out: "held:ai-wait" }, { kind: "base" }), false, "a watch idea held back by a rule never traded: not in the replica");
+  eq(Ch.challengerTakes({ ...base, cls: "held", out: "held:ai-wait" }, { kind: "rule-off", key: "ai-wait" }), true, "switching that rule off trades it");
+  eq(Ch.challengerTakes({ ...base, tot0: 5, cls: "below-bar", bar0: 6 }, { kind: "base" }), false, "under the run's raised bar: the replica does not take it");
+  eq(Ch.challengerTakes({ ...base, tot0: 6.5, cls: "below-bar", bar0: 6 }, { kind: "base" }), true, "over the run's own base bar (the loop's bar kept it out): the replica takes it");
+  eq(Ch.challengerTakes({ ...base, tot0: 5, cls: "pick", bar0: 4 }, { kind: "bar", value: 5.5 }), false, "a bar challenger uses its own bar");
   // No new trade in a name while the last one is open.
   const bt = Ch.bookTrades([
     { d: "2026-06-01", et: "11:00", s: "A", side: "call", cls: "pick", tot0: 5, opt: { net: 10, days: 2 } },
@@ -427,16 +528,21 @@ async function main() {
       cRows.push({ d, et: "11:00", s: `N${di}_${j}`, side: "call", cls: "pick", out: "pick:single", tot0: 5, tot: 5, mk: "neutral", sig: { bad: badVote }, opt: { res: net > 0 ? "tp" : "stop", net, days: 1 } });
     }
   });
-  const goodCh = Ch.judgeChallenger(cRows, { id: "mute:bad", kind: "mute", key: "bad", start: cdays[0] }, { trials: 3 });
+  const goodCh = Ch.judgeChallenger(cRows, { id: "mute:bad", kind: "mute", key: "bad", start: cdays[0], startEt: "10:00" }, { trials: 3 });
   eq(goodCh.status, "ready", JSON.stringify(goodCh.checks));
   ok(goodCh.diff > 20 && goodCh.trades === 350 && goodCh.baseTrades === 560, `mute beats the replica (${goodCh.diff})`);
   eq(goodCh.live, true, "a mute can be applied live by step 4");
+  // Only runs after the build that started it: a 16:10 start leaves out that
+  // day's runs, a start with no clock counts from the next day.
+  eq(Ch.judgeChallenger(cRows, { id: "mute:bad", kind: "mute", key: "bad", start: cdays[0], startEt: "16:10" }, { trials: 3 }).trades, 345, "the 11:00 run before a 16:10 start is not in its book");
+  eq(Ch.judgeChallenger(cRows, { id: "mute:bad", kind: "mute", key: "bad", start: cdays[0] }, { trials: 3 }).trades, 345);
+  ok(goodCh.tNeed > Ch.tBar(3) && goodCh.blocks >= 13, `the bar is the Student t one for ${goodCh.blocks} blocks (${goodCh.tNeed})`);
   const worse = Ch.judgeChallenger(cRows, { id: "bar:5.5", kind: "bar", value: 5.5, start: cdays[0] }, { trials: 3 });
   eq(worse.trades, 0);
   eq(worse.status, "no-edge", "70 sessions with nothing to show is retired");
   const young = Ch.judgeChallenger(cRows, { id: "mute:bad", kind: "mute", key: "bad", start: cdays[50] }, { trials: 3 });
   eq(young.status, "running", "judged only on runs after it started: 20 sessions is not enough");
-  eq(young.sessions, 20);
+  eq(young.sessions, 19, "a start with no clock counts from the next day");
   ok(!young.checks.sessions, "the sessions check fails");
   // Menu order follows the diagnosis.
   const menu = Ch.candidateSpecs({ diagnosis: { inputs: [{ key: "late", status: "against", w20: { days: 20 } }, { key: "good", status: "working", w20: { days: 20 } }], losses: { worst: [{ feature: "side x market", value: "put / risk-off", lossRate: 80 }] } }, scorecard: { gates: { gates: [{ gate: "crowd-squeeze", verdict: "costing" }] } }, modelRows: 250 });
@@ -541,25 +647,46 @@ async function main() {
     });
     return rows;
   };
-  const vLive = { n: 1, liveAt: uDays[0] };
+  const vLive = { d: uDays[0], et: "11:00" };
   const uBad = Tn.undoRead(mkU(-30, 20), vLive);
   eq(uBad.status, "undo", JSON.stringify(uBad));
   eq(uBad.trades, 15);
   eq(Tn.undoRead(mkU(10, 12), vLive).status, "kept", "trailing by 2 points is kept");
   eq(Tn.undoRead(mkU(-30, 20).filter((r) => r.d <= uDays[9]), vLive).status, "watching", "under 15 decided trades it waits");
-  eq(Tn.undoRead(mkU(-30, 20), { n: 1, liveAt: null }), null, "a version that never ran live is not tested");
+  eq(Tn.undoRead(mkU(-30, 20), null), null, "no tuned streak, no test");
+  {
+    // The test reads the NEWEST 15 decided trades of the streak.
+    const early = mkU(-30, 20).filter((r) => r.d <= uDays[11]);
+    const late = mkU(10, 12).filter((r) => r.d > uDays[11]);
+    eq(Tn.undoRead([...early, ...late], vLive).status, "undo", "12 good days after 12 bad: the newest 15 still trail");
+    const late2 = mkU(10, 12).filter((r) => r.d > uDays[8]);
+    eq(Tn.undoRead([...mkU(-30, 20).filter((r) => r.d <= uDays[8]), ...late2], vLive).status, "kept", "16 good days: the newest 15 are all good");
+    // A streak that began at 15:30 leaves that day's 11:00 run out.
+    const mixed = [{ d: uDays[0], et: "11:00", s: "EARLY", side: "call", tot: 5, tot0: 5, cls: "pick", out: "pick:actionable", opt: { net: -90, days: 1 } }, ...mkU(10, 12).filter((r) => r.d > uDays[0])];
+    eq(Tn.undoRead(mixed, { d: uDays[0], et: "15:30" }).avg, 10, "a run before the streak began is not one of its trades");
+  }
 
   // A2: the Owner's clicks, validated before anything is stored.
-  for (const bad of [{ act: "sell" }, { act: "approve" }, { act: "approve", target: "mute:../x" }, { act: "approve", target: "bar:9" }, { act: "restore", version: -1 }, { act: "restore", version: "x" }, null]) {
+  for (const bad of [{ act: "sell" }, { act: "approve" }, { act: "approve", target: "mute:../x" }, { act: "approve", target: "bar:9" }, { act: "restore", version: -1 }, { act: "restore", version: "x" }, { act: "restore", version: null }, { act: "restore", version: "" }, { act: "restore", version: false }, { act: "restore", version: true }, { act: "restore", version: [] }, { act: "restore", version: 1.5 }, { act: "restore" }, null]) {
     ok(Tn.applyLoopControlRequest(null, bad).error, `refused: ${JSON.stringify(bad)}`);
   }
   ok(Tn.applyLoopControlRequest(null, { act: "approve", target: "bar:3.5" }).ok);
+  ok(Tn.applyLoopControlRequest(null, { act: "restore", version: "3" }).ok && Tn.applyLoopControlRequest(null, { act: "restore", version: 0 }).ok, "a version number or its digits");
   let ctl = Tn.emptyLoopControl();
   ctl = Tn.applyLoopControlRequest(ctl, { act: "approve", target: "ev-gate" }, { at: "2026-12-08T15:00:00Z", by: "owner" }).doc;
   ctl = Tn.applyLoopControlRequest(ctl, { act: "decline", target: "mute:rsiMomentum" }, { at: "2026-12-08T15:01:00Z", by: "owner" }).doc;
-  eq(ctl.actions.map((a) => a.seq), [1, 2]);
+  const ms0 = Date.parse("2026-12-08T15:00:00Z");
+  eq(ctl.actions.map((a) => a.seq), [ms0, ms0 + 60000], "numbered by the clock, so a reset file cannot restart below the bake's last number");
   eq(Tn.readLoopControlDoc(JSON.stringify({ seq: 9, actions: [{ seq: 3, act: "undo" }, { seq: 4, act: "approve", target: "nope" }, { act: "undo" }] })).actions.length, 1, "bad entries dropped");
-  eq(Tn.readLoopControlDoc(Buffer.from(JSON.stringify(ctl))).seq, 2, "reads a byte body");
+  eq(Tn.readLoopControlDoc(Buffer.from(JSON.stringify(ctl))).seq, ms0 + 60000, "reads a byte body");
+  {
+    // A control file lost after the bake saw 57 clicks: the next click still lands.
+    const lost = Tn.emptyTune();
+    lost.lastSeq = 57;
+    const fresh = Tn.applyLoopControlRequest(Tn.emptyLoopControl(), { act: "approve", target: "ev-gate" }, { at: "2026-12-20T15:00:00Z" }).doc;
+    Tn.stepTune(lost, { mode: "shadow", today: "2026-12-21", rows: [], control: fresh });
+    eq(lost.approvals["ev-gate"]?.state, "approved", "a click after a reset is applied");
+  }
   let big = Tn.emptyLoopControl();
   for (let i = 0; i < Tn.ACTIONS_KEEP + 5; i++) big = Tn.applyLoopControlRequest(big, { act: "undo" }, { at: "2026-12-08T15:00:00Z" }).doc;
   eq(big.actions.length, Tn.ACTIONS_KEEP, "the action log is capped");
@@ -585,7 +712,7 @@ async function main() {
   tv = Tn.stepTune(tn, { mode: "on", today: "2026-12-14", rows: evRows, control: ctl });
   ok(tn.current === 2 && tn.versions.at(-1).by === "owner" && tn.versions.at(-1).settings.evGate === true, "the approved value gate is v2");
   eq(tn.approvals["mute:rsiMomentum"].state, "declined");
-  eq(tn.lastSeq, 2);
+  eq(tn.lastSeq, ms0 + 60000);
   Tn.stepTune(tn, { mode: "on", today: "2026-12-15", rows: evRows, control: ctl });
   eq(tn.current, 2, "an action is applied once");
   // The Owner's undo: back to v1's settings, the gate held and its approval declined.
@@ -601,19 +728,63 @@ async function main() {
   eq(tn.approvals["ev-gate"].state, "approved");
   Tn.stepTune(tn, { mode: "on", today: "2026-12-18", rows: evRows });
   eq(tn.current, 4, "a restored version stays put");
+  // Undo of an undo brings back what the undo took away (it does not leave
+  // a second version that the next step undoes again).
+  {
+    const uu = Tn.emptyTune();
+    Tn.stepTune(uu, { mode: "on", today: "2026-12-11", rows: [] });
+    let c2 = Tn.applyLoopControlRequest(Tn.emptyLoopControl(), { act: "approve", target: "ev-gate" }, { at: "2026-12-11T15:00:00Z" }).doc;
+    Tn.stepTune(uu, { mode: "on", today: "2026-12-14", rows: [], control: c2 });
+    eq([uu.current, uu.versions.at(-1).settings.evGate], [1, true]);
+    c2 = Tn.applyLoopControlRequest(c2, { act: "undo" }, { at: "2026-12-14T15:00:00Z" }).doc;
+    Tn.stepTune(uu, { mode: "on", today: "2026-12-15", rows: [], control: c2 });
+    ok(uu.current === 2 && uu.versions.at(-1).undoOf === 1 && !uu.versions.at(-1).settings.evGate, "v2 undoes v1");
+    c2 = Tn.applyLoopControlRequest(c2, { act: "undo" }, { at: "2026-12-15T15:00:00Z" }).doc;
+    Tn.stepTune(uu, { mode: "on", today: "2026-12-16", rows: [], control: c2 });
+    ok(uu.current === 3 && uu.versions.at(-1).settings.evGate === true && uu.versions.length === 4, "undoing v2 brings the gate back, in one version");
+    eq(uu.approvals["ev-gate"].state, "approved", "and its approval");
+    ok(!uu.held["ev-gate"], "and lifts its hold");
+    Tn.stepTune(uu, { mode: "on", today: "2026-12-17", rows: [] });
+    eq(uu.current, 3, "it stays");
+    // Approving a second trade bar replaces the first; the newest click wins.
+    let c3 = Tn.applyLoopControlRequest(c2, { act: "approve", target: "bar:5" }, { at: "2026-12-17T15:00:00Z" }).doc;
+    c3 = Tn.applyLoopControlRequest(c3, { act: "approve", target: "bar:4.5" }, { at: "2026-12-17T15:01:00Z" }).doc;
+    c3 = Tn.applyLoopControlRequest(c3, { act: "approve", target: "bar:5" }, { at: "2026-12-17T15:02:00Z" }).doc;
+    Tn.stepTune(uu, { mode: "on", today: "2026-12-17", rows: [], control: c3 });
+    eq(uu.versions.at(-1).settings.bar, 5, "the latest bar click wins");
+    eq(Object.keys(uu.approvals).filter((k) => k.startsWith("bar:")), ["bar:5"], "only one bar stays approved");
+  }
   // State round-trips.
   const tRound = Tn.parseTune(JSON.parse(JSON.stringify(tn)));
   eq(tRound.versions.map((v) => v.n), tn.versions.map((v) => v.n));
   eq(tRound.approvals, tn.approvals);
   eq(Tn.parseTune({ versions: [{ n: 3, settings: { weights: { x: 9 } } }], current: 3, approvals: { "../x": { state: "approved", d: "x" } } }).versions.map((v) => v.n), [0, 3], "the base version is always kept");
+  eq(Tn.parseTune({ versions: [{ n: 1, settings: {}, check: { status: "watching", trades: "<img src=x>", need: 15 } }] }).versions[1].check, { status: "watching", need: 15 }, "a stored check keeps numbers only");
+  eq(Tn.parseTune({ versions: [{ n: 1, settings: {}, check: { status: "<b>" } }] }).versions[1].check, null);
   // K2 end to end: a live version whose trades trail the base rules undoes itself.
   const au = Tn.emptyTune();
   Tn.stepTune(au, { mode: "on", today: "2026-12-07", rows: evRows, weekly: true });
-  Tn.markVersionLive(au, au.current, uDays[0]);
+  Tn.markVersionLive(au, au.current, uDays[0], "11:00");
+  eq(au.streak, { d: uDays[0], et: "11:00" }, "the first run on tuned settings starts the streak");
   tv = Tn.stepTune(au, { mode: "on", today: uDays[24], rows: mkU(-30, 20) });
   ok(au.versions.at(-1).by === "auto-undo" && Tn.isBaseSettings(au.versions.at(-1).settings), "auto-undo goes back to the base settings");
   ok(au.held["w:good"] && au.held["w:bad"], "the undone weights are held for 60 sessions");
   eq(au.versions.find((v) => v.n === 1).check.status, "undo");
+  eq(au.streak, null, "back on the base settings: the streak is over");
+  Tn.markVersionLive(au, au.current, uDays[24], "11:00");
+  eq(au.streak, null, "a run on base settings starts no streak");
+  {
+    // Weekly steps make new versions; the streak, and the test, span them.
+    const ws = Tn.emptyTune();
+    Tn.stepTune(ws, { mode: "on", today: "2026-12-07", rows: evRows, weekly: true });
+    Tn.markVersionLive(ws, ws.current, uDays[0], "11:00");
+    Tn.stepTune(ws, { mode: "on", today: uDays[5], rows: evRows, weekly: true });
+    ok(ws.current === 2, "the next week's step is v2");
+    Tn.markVersionLive(ws, ws.current, uDays[6], "11:00");
+    eq(ws.streak, { d: uDays[0], et: "11:00" }, "v2 continues the streak");
+    Tn.stepTune(ws, { mode: "on", today: uDays[24], rows: [...mkU(-30, 20), ...evRows] });
+    ok(ws.versions.at(-1).by === "auto-undo" && Tn.isBaseSettings(ws.versions.at(-1).settings), "the test judged the streak, not only v2's own trades");
+  }
   // K4 end to end: frozen, no self-made step, the Owner's approval still lands.
   const fz = Tn.emptyTune();
   Tn.stepTune(fz, { mode: "on", today: "2026-12-07", rows: [] });
@@ -668,6 +839,21 @@ async function main() {
   ok(!offGate.prepared.scored.some((r) => r.loopTune.evBlock), "no gate without the Owner's OK");
   const learningPlan = { ...plan, model: fitCalibration(negRows.slice(0, 50), { before: "2026-12-08", useBase: true }) };
   ok(!B.applyLoopTuning(prepared, learningPlan, { mk: "neutral" }).prepared.scored.some((r) => r.loopTune.evBlock), "no gate while the model is learning");
+  // A side exists only past the trade bar off the market path.
+  eq([byS.AAA.side, byS.BBB.side, byS.CCC.side], [null, null, "put"], "the side follows the tuned tier off the market path");
+  // An event play is reviewed on its untuned grade: tuning may lower it, never lift it.
+  const evRow = { sym: "EVP", total: 5, side: "call", preRegimeTotal: 5, timing: { eventPlay: { ok: true } }, pillars: pillarsOf(2, 0), data: {} };
+  const lift = B.applyLoopTuning({ scored: [evRow] }, { ...plan, settings: Tn.cleanSettings({ weights: { rsiMomentum: 1.5 } }) }, { mk: "neutral" });
+  eq([lift.prepared.scored[0].total, lift.prepared.scored[0].preRegimeTotal, lift.moved], [5, 5, 0], "an event play is not lifted");
+  const lower = B.applyLoopTuning({ scored: [evRow] }, { ...plan, settings: Tn.cleanSettings({ weights: { rsiMomentum: 0.5 } }) }, { mk: "neutral" });
+  eq([lower.prepared.scored[0].total, lower.prepared.scored[0].preRegimeTotal], [4, 4], "an event play can be lowered");
+  // The market path has no regime pillar, so its weight is left out there.
+  const mkRow = { sym: "MKT", total: 5, side: "call", tradeScore: 5, marketAdjustment: { state: "risk-on" }, pillars: { ...pillarsOf(0, 0), regime: { score: 1 } }, data: {} };
+  const rg = B.applyLoopTuning({ scored: [mkRow] }, { ...plan, settings: Tn.cleanSettings({ weights: { "P:rg": 0 } }) }, { mk: "neutral" });
+  eq([rg.prepared.scored[0].total, rg.moved], [5, 0], "the regime weight is ignored on the market path");
+  const offMk = B.applyLoopTuning({ scored: [{ ...mkRow, marketAdjustment: null }] }, { ...plan, settings: Tn.cleanSettings({ weights: { "P:rg": 0 } }) }, { mk: "neutral" });
+  eq(offMk.prepared.scored[0].total, 4, "and applies off it");
+  eq(rg.prepared.scored[0].side, "call", "the market path keeps its own side");
   }
 
   // ---- files ----------------------------------------------------------------------------
@@ -687,7 +873,7 @@ async function main() {
     eq(fresh.state.ledger.rows, []);
     await writeFile(resolve(dir, Loop.LOOP_STATE_KEY), "not json");
     const bad = await Loop.loadLoopState(dir);
-    ok(bad.error && bad.state && !bad.skip, "a corrupt file starts over");
+    ok(bad.error && bad.state === null && bad.skip === true, "a file that does not parse skips the loop, so 90 days of ledger are not replaced by an empty one");
     await rm(resolve(dir, Loop.LOOP_STATE_KEY));
     await mkdir(resolve(dir, Loop.LOOP_STATE_KEY));
     const unreadable = await Loop.loadLoopState(dir);

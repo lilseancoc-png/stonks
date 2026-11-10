@@ -1051,16 +1051,22 @@ ok("picks: KNIFE timing-gated (not shipped)", !picks.some((p) => p.symbol === "K
 // Self-improving loop, step 4 (shadow by default): the value gate's veto and
 // the loop's trade bar reach buildTopPicks; with no plan nothing changes.
 {
-  ok("loop: no plan, no loopTune block and an empty veto list", !picks.rosterMeta.loopTune && Array.isArray(picks.rosterMeta.otherVetoed) && picks.rosterMeta.otherVetoed.length === 0);
+  ok("loop: no plan, no loopTune block and no loop veto list", !picks.rosterMeta.loopTune && !("loopVetoed" in picks.rosterMeta));
   const pre = scoreAllTickers(chains, [], null, null, null, null, {});
   const first = picks[0];
   if (first) {
     const marked = { ...pre, scored: pre.scored.map((r) => (r.sym === first.symbol ? { ...r, loopTune: { version: 1, evBlock: true } } : r)) };
     const out = buildTopPicks(chains, [], null, null, null, null, 0.045, { preScored: marked });
-    ok("loop value gate: a vetoed name is kept off the roster", !out.some((p) => p.symbol === first.symbol) && out.rosterMeta.otherVetoed.some((v) => v.sym === first.symbol && v.gate === "loop-ev"));
+    ok("loop value gate: a vetoed name is kept off the roster", !out.some((p) => p.symbol === first.symbol) && out.rosterMeta.loopVetoed.some((v) => v.sym === first.symbol && v.gate === "loop-ev"));
     ok("loop value gate: the drop is traced", out.rosterMeta.turnedAway.some((t) => t.sym === first.symbol && t.gate === "loop-ev"));
     ok("loop value gate: the rest of the roster is unchanged", picks.filter((p) => p.symbol !== first.symbol).every((p) => out.some((q) => q.symbol === p.symbol)));
     ok("loop value gate: the AI pre-screen skips it too", !aiGraderCandidates(marked, null, {}).some((c) => c.r.sym === first.symbol));
+    // Only the loop's own veto drops a name in buildTopPicks; crowd facts
+    // (whose squeeze block is an AI pre-screen switch, off by default) leave
+    // the roster as it was on main.
+    const crowded = { ...pre, scored: pre.scored.map((r) => (r.sym === first.symbol ? { ...r, crowd: { bf: 80, svz: 4 } } : r)) };
+    const cr = buildTopPicks(chains, [], null, null, null, null, 0.045, { preScored: crowded });
+    ok("loop: crowd facts alone never drop a roster name", picks.every((p) => cr.some((q) => q.symbol === p.symbol)) && !("loopVetoed" in cr.rosterMeta));
   }
   const totalOf = Object.fromEntries(pre.scored.map((r) => [r.sym, Math.abs(r.preRegimeTotal ?? r.total)]));
   const high = buildTopPicks(chains, [], null, null, null, null, 0.045, { loopBar: 6 });

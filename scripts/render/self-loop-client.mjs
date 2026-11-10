@@ -13,7 +13,8 @@ export function renderSelfLoopJs() {
   return `
   // ---- Owner Lab: self-improving loop ---------------------------------------
   var slpState = { data: null, loading: false, fetchedAt: 0, error: null };
-  var SLP_OUT = { pick: 'Picked', gate: 'Turned away', open: 'Already open', 'below-bar': 'Under the bar', other: 'Other' };
+  var SLP_OUT = { pick: 'Picked', held: 'Held as a watch idea', gate: 'Turned away', open: 'Already open', 'below-bar': 'Under the bar', other: 'Other' };
+  var SLP_HOLD = { watch: 'Watch idea', tactical: 'Tactical put (watch only)' };
   var SLP_MK = { 'risk-on': 'Risk-on', neutral: 'Neutral', 'risk-off': 'Risk-off' };
   var SLP_VERDICT = { paying: ['Paying', 'evb-s-pass'], costing: ['Costing', 'evb-s-fail'], neutral: ['No clear effect', 'evb-s-unclear'], collecting: ['Collecting', 'evb-s-collect'] };
   function slpNum(v, d){ return v == null || !isFinite(v) ? '—' : Number(v).toFixed(d == null ? 1 : d); }
@@ -22,10 +23,12 @@ export function renderSelfLoopJs() {
   function slpSign(v){ return v == null || !isFinite(v) ? '' : v > 0 ? 'sig-pos' : v < 0 ? 'sig-neg' : ''; }
   function slpTable(head, body){ return '<div class="acc-tscroll"><table class="acc-qtable evb-table slp-table" data-nosort><thead><tr>' + head.map(function(h){ return '<th' + (h[1] === 'l' ? ' class="l"' : h[1] ? ' class="num"' : '') + (h[2] ? ' title="' + escapeHtml(h[2]) + '"' : '') + '>' + escapeHtml(h[0]) + '</th>'; }).join('') + '</tr></thead><tbody>' + body + '</tbody></table></div>'; }
   function slpSection(id, title, body){ return '<section class="evb-section slp-section" id="' + id + '"><h3>' + title + '</h3>' + body + '</section>'; }
-  function slpGateName(g){ var L = (NO_PICKS && NO_PICKS.GATE_LABEL) || {}; return L[g] || g; }
+  function slpGateName(g){ var L = (NO_PICKS && NO_PICKS.GATE_LABEL) || {}; return L[g] || SLP_HOLD[g] || g; }
   function slpOutName(out){
     var s = String(out || '');
-    if (s.indexOf('pick:') === 0) return 'Picked (' + s.slice(5) + ')';
+    if (s === 'pick:actionable') return 'Picked';
+    if (s.indexOf('pick:') === 0) return 'Watch idea';
+    if (s.indexOf('held:') === 0) return 'Held back: ' + slpGateName(s.slice(5));
     if (s.indexOf('gate:') === 0) return 'Turned away: ' + slpGateName(s.slice(5));
     return SLP_OUT[s] || s || '—';
   }
@@ -137,9 +140,9 @@ export function renderSelfLoopJs() {
     if (!g.gates || !g.gates.length) return '<p class="hint">No trade-grade name has been turned away with a modeled outcome yet.</p>';
     var body = g.gates.map(function(x){
       var v = SLP_VERDICT[x.verdict] || SLP_VERDICT.collecting;
-      return '<tr><td>' + escapeHtml(slpGateName(x.gate)) + '</td><td class="num">' + x.n + '</td><td class="num ' + slpSign(x.avg) + '">' + slpPts(x.avg) + '</td><td class="num ' + slpSign(x.saved) + '">' + slpPts(x.saved) + '</td><td><span class="evb-pill ' + v[1] + '">' + v[0] + '</span></td></tr>';
+      return '<tr><td>' + escapeHtml(slpGateName(x.gate)) + (x.held ? '<div class="crd-dim">' + slpNum(x.held, 0) + ' held as watch ideas</div>' : '') + '</td><td class="num">' + slpNum(x.n, 0) + '</td><td class="num ' + slpSign(x.avg) + '">' + slpPts(x.avg) + '</td><td class="num ' + slpSign(x.saved) + '">' + slpPts(x.saved) + '</td><td><span class="evb-pill ' + v[1] + '">' + v[0] + '</span></td></tr>';
     }).join('');
-    return '<p class="evb-lead">Names the run let through (' + (th.n || 0) + ' modeled) averaged ' + slpPts(th.avg) + ' points after costs. For each rule: what the names it stopped would have made. "Saved" is let-through minus stopped, so a positive number means the rule kept the book out of worse trades. A verdict needs 20 names on each side.</p>' +
+    return '<p class="evb-lead">Names the run made actionable (' + slpNum(th.n || 0, 0) + ' modeled) averaged ' + slpPts(th.avg) + ' points after costs. For each rule: what the trade-grade names it stopped or held back as watch ideas would have made, at the bar each run used. "Saved" is let-through minus stopped, so a positive number means the rule kept the book out of worse trades. A verdict needs 20 names on each side.</p>' +
       slpTable([['Rule'], ['Stopped', 1], ['Their average', 1], ['Saved', 1, 'Let-through average minus the stopped names average'], ['Verdict']], body);
   }
 
@@ -248,7 +251,7 @@ export function renderSelfLoopJs() {
         slpKpis([['Its average', slpPts(x.avg)], ['Replica', slpPts(x.baseAvg)], ['Better by', '<span class="' + slpSign(x.diff) + '">' + slpPts(x.diff) + '</span>'], ['Halves', (x.halves || []).map(function(h){ return slpPts(h); }).join(' / ')], ['t', slpNum(x.t, 2) + ' of ' + slpNum(x.tNeed, 2)]]) +
         '<div class="slp-checks">' + checks + '</div></div>';
     }).join('') : '<p class="hint">No challenger is running. The next weekly report starts one if the menu has a candidate.</p>';
-    var ready = (c.ready || []).length ? '<h4 class="slp-h4">Passed the check</h4><ul class="rgl-lines">' + c.ready.map(function(r){ return '<li><b>' + escapeHtml(r.label) + '</b>, ' + slpPts(r.diff) + ' points a trade over the replica. ' + (r.live ? 'Self-tuning can apply it within its limits once switched on.' : 'Needs ' + escapeHtml(r.setting || 'an Owner decision') + '.') + '</li>'; }).join('') + '</ul>' : '';
+    var ready = (c.ready || []).length ? '<h4 class="slp-h4">Passed the check</h4><ul class="rgl-lines">' + c.ready.map(function(r){ return '<li><b>' + escapeHtml(r.label) + '</b>, ' + slpPts(r.diff) + ' points a trade over the replica. ' + (r.live ? 'With your OK, self-tuning can apply it within its limits once it is switched on.' : 'Needs ' + escapeHtml(r.setting || 'an Owner decision') + '.') + '</li>'; }).join('') + '</ul>' : '';
     var done = (c.done || []).length ? '<details class="rgl-details slp-details"><summary>Finished (' + c.done.length + ')</summary>' + slpTable([['Challenger'], ['Ran'], ['Sessions', 1], ['Trades', 1], ['Better by', 1], ['Result']], c.done.map(function(x){ var st = SLP_CH_STATUS[x.status] || SLP_CH_STATUS['no-edge']; return '<tr><td>' + escapeHtml(x.label) + '</td><td>' + escapeHtml(evbDate(x.start)) + ' to ' + escapeHtml(evbDate(x.end)) + '</td><td class="num">' + (x.sessions || 0) + '</td><td class="num">' + (x.trades || 0) + '</td><td class="num ' + slpSign(x.diff) + '">' + slpPts(x.diff) + '</td><td><span class="evb-pill ' + st[1] + '">' + st[0] + '</span></td></tr>'; }).join('')) + '</details>' : '';
     return lead + runHtml + ready + done;
   }
@@ -259,8 +262,8 @@ export function renderSelfLoopJs() {
   var SLP_TUNE_BY = { loop: 'the loop', owner: 'Owner', 'auto-undo': 'auto-undo', base: 'base', restore: 'restore' };
   function slpTuneCheck(c){
     if (!c) return '—';
-    if (c.status === 'watching') return c.trades + ' of ' + c.need + ' trades decided';
-    if (c.status === 'kept') return 'Kept (' + slpPts(c.gap) + ' points against the base rules)';
+    if (c.status === 'watching') return slpNum(c.trades, 0) + ' of ' + slpNum(c.need, 0) + ' tuned trades decided';
+    if (c.status === 'kept') return 'Kept on the newest ' + slpNum(c.trades, 0) + ' (' + slpPts(c.gap) + ' points against the base rules)';
     if (c.status === 'undo') return 'Undone (' + slpPts(c.gap) + ' points against the base rules)';
     return escapeHtml(String(c.status || '—'));
   }
@@ -278,7 +281,7 @@ export function renderSelfLoopJs() {
       ['Mode', '<span class="evb-pill ' + m[1] + '">' + m[0] + '</span>', m[2]],
       ['Status', state],
       ['In use', escapeHtml(cur.summary || 'base settings') + ' (v' + (cur.n || 0) + ')'],
-      ['Undo check', slpTuneCheck(cur.check), 'A version whose first ' + (L.undoTrades || 15) + ' decided trades trail the base rules by more than ' + Math.abs(L.undoGap || 5) + ' points a trade reverts itself.'],
+      ['Undo check', slpTuneCheck(cur.check), 'While tuned settings are in use, the newest ' + (L.undoTrades || 15) + ' decided trades since tuning left the base settings are compared with the base rules on the same runs; trailing by more than ' + Math.abs(L.undoGap || 5) + ' points a trade goes back to the base settings.'],
       ['Freeze check', t.freeze ? (t.freeze.streak + ' loss' + (t.freeze.streak === 1 ? '' : 'es') + ' in a row' + (t.freeze.avg20 != null ? ', last 20 ' + slpPct(t.freeze.avg20, 1) : '')) : '—', (L.freezeStreak || 6) + ' losses in a row, or the last 20 record trades under ' + (L.freezeAvg || -10) + '%, since tuning went live, freezes new self-changes.'],
     ]);
     var waiting = (t.waiting || []).length ? '<h4 class="slp-h4">Waiting on you</h4><ul class="slp-wait">' + t.waiting.map(function(w){
@@ -305,7 +308,7 @@ export function renderSelfLoopJs() {
     var ver = btn.getAttribute('data-loop-version');
     if (target) body.target = target;
     if (ver != null) body.version = Number(ver);
-    var ask = act === 'approve' ? 'Approve ' + target + '? It applies from the next build while self-tuning is live.' : act === 'undo' ? 'Undo the settings in use and go back to the version before?' : act === 'restore' ? 'Restore the settings of v' + ver + '?' : null;
+    var ask = act === 'approve' ? 'Approve ' + target + '? It applies from the next build while self-tuning is live.' : act === 'undo' ? 'Undo the settings in use? An undo goes back to the settings before them; undoing an undo brings back what it took away.' : act === 'restore' ? 'Restore the settings of v' + ver + '?' : null;
     if (ask && typeof window.confirm === 'function' && !window.confirm(ask)) return;
     var status = $('slp-tune-status');
     if (status) status.textContent = 'Saving…';

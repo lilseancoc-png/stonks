@@ -22509,6 +22509,9 @@ export function applyLoopTuning(prepared, plan, { mk = null, cell = null } = {})
   const weighted = Object.keys(weights).length > 0;
   const baseTotals = {}, odds = {}, evBlocked = [];
   let moved = 0;
+  // On the market path the total is the market assessment's trade score,
+  // which has no regime-overlay pillar, so that weight does not apply there.
+  const marketWeights = Object.fromEntries(Object.entries(weights).filter(([k]) => k !== "P:rg"));
   const scored = prepared.scored.map((r) => {
     const total = pnum(r?.total);
     if (!r || total == null) return r;
@@ -22516,9 +22519,12 @@ export function applyLoopTuning(prepared, plan, { mk = null, cell = null } = {})
     let delta = 0, parts = null;
     if (weighted && total !== 0) {
       const snap = buildEntrySnapshot({ symbol: r.sym, pillars: r.pillars }, r.data, { market: false }) || {};
-      ({ delta, parts } = loopDelta(snap.signals, snap.pillars, weights));
+      ({ delta, parts } = loopDelta(snap.signals, snap.pillars, r.marketAdjustment ? marketWeights : weights));
     }
-    const tuned = tunedTotal(total, delta);
+    let tuned = tunedTotal(total, delta);
+    // An event play is reviewed after its event on the untuned grade, so
+    // tuning may lower it but never lift it.
+    if (r.timing?.eventPlay?.ok && Math.abs(tuned) > Math.abs(total)) tuned = total;
     const est = planEstimate(plan, { band: loopBandOf(total), side, mk, cell });
     const evBlock = !!(plan.settings?.evGate && est && !est.learning && est.ev != null && est.ev < 0);
     if (est) odds[`${r.sym}:${side}`] = { p10: est.p10, p20: est.p20, pTp: est.pTp, ev: est.ev, n: est.n, learning: !!est.learning, v: plan.version };
@@ -22528,9 +22534,11 @@ export function applyLoopTuning(prepared, plan, { mk = null, cell = null } = {})
     moved++;
     baseTotals[r.sym] = total;
     const pre = pnum(r.preRegimeTotal);
+    // Off the market path a side exists only at the trade bar (scoreTicker).
+    const sideOut = r.marketAdjustment ? r.side : tierForScore(tuned).tier === "no-trade" ? null : tuned >= 0 ? "call" : "put";
     return {
-      ...r, total: tuned, recommendation: tierForScore(tuned),
-      ...(pre != null ? { preRegimeTotal: tunedTotal(pre, delta) } : {}),
+      ...r, total: tuned, side: sideOut, recommendation: tierForScore(tuned),
+      ...(pre != null ? { preRegimeTotal: tunedTotal(pre, r.timing?.eventPlay?.ok ? tuned - total : delta) } : {}),
       ...(pnum(r.tradeScore) != null ? { tradeScore: tuned } : {}),
       loopTune,
     };
@@ -22724,7 +22732,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   const minConv = loopTradeBar(edgeGate.bar, opts.loopBar, PICKS_MIN_CONVICTION);
   const strongBar = edgeGate.strongBar ?? PICKS_TIER_STRONG;
 
-  const meta = { modelEpoch: PICKS_ACCURACY_RESET_EPOCH, entryPolicyVersion: OPTION_ENTRY_POLICY_VERSION, gradeModelVersion: GRADE_MODEL_VERSION, entryTimingVersion: PICKS_ENTRY_TIMING_VERSION, tradeCut: minConv, strongCut: PICKS_TIER_STRONG, actionableBar: strongBar, minConviction: minConv, baseTradeCut: PICKS_MIN_CONVICTION, edgeGate: edgeGate.bar > PICKS_MIN_CONVICTION ? edgeGate : null, regimeBand: regime, macroRegime: macroBackdrop?.macroRegime || null, sectorCapped: [], factorCapped: [], factorRunCapped: [], factorRunLimit: PICKS_MAX_NEW_PER_FACTOR_RUN, capsVersion: PICKS_CAPS_VERSION, structurePolicy: { version: PICKS_STRUCTURE_POLICY_VERSION, singlesDefault: PICKS_SINGLES_DEFAULT, maxSingleCost: PICKS_SINGLES_DEFAULT ? PICKS_SINGLE_MAX_COST : null }, costCapped: [], factorTrendGated: [], factorTrend: factorHealth, sideCapped: [], timingGated: [], primaryScenarioGated: [], earningsRiskCapped: [], eventDeferred: [], confluenceSkipped: [], edgeBarDemoted: [], confluenceDemoted: [], aiUngraded: [], entryDemoted: [], aiEntryPromoted: [], aiEntryHeldBack: [], reentrySuppressed: [], aiVetoed: [], vetoed: 0, sectorCounts: {}, eventRisk: macroBackdrop?.eventRisk || null };
+  const meta = { modelEpoch: PICKS_ACCURACY_RESET_EPOCH, entryPolicyVersion: OPTION_ENTRY_POLICY_VERSION, gradeModelVersion: GRADE_MODEL_VERSION, entryTimingVersion: PICKS_ENTRY_TIMING_VERSION, tradeCut: minConv, strongCut: PICKS_TIER_STRONG, actionableBar: strongBar, minConviction: minConv, baseTradeCut: PICKS_MIN_CONVICTION, ...(minConv !== edgeGate.bar ? { edgeBar: edgeGate.bar } : {}), edgeGate: edgeGate.bar > PICKS_MIN_CONVICTION ? edgeGate : null, regimeBand: regime, macroRegime: macroBackdrop?.macroRegime || null, sectorCapped: [], factorCapped: [], factorRunCapped: [], factorRunLimit: PICKS_MAX_NEW_PER_FACTOR_RUN, capsVersion: PICKS_CAPS_VERSION, structurePolicy: { version: PICKS_STRUCTURE_POLICY_VERSION, singlesDefault: PICKS_SINGLES_DEFAULT, maxSingleCost: PICKS_SINGLES_DEFAULT ? PICKS_SINGLE_MAX_COST : null }, costCapped: [], factorTrendGated: [], factorTrend: factorHealth, sideCapped: [], timingGated: [], primaryScenarioGated: [], earningsRiskCapped: [], eventDeferred: [], confluenceSkipped: [], edgeBarDemoted: [], confluenceDemoted: [], aiUngraded: [], entryDemoted: [], aiEntryPromoted: [], aiEntryHeldBack: [], reentrySuppressed: [], aiVetoed: [], vetoed: 0, sectorCounts: {}, eventRisk: macroBackdrop?.eventRisk || null };
 
   // GATE TRACE (measurement only): the first rule that kept each candidate off
   // the open-pick path, plus the names that made it ("picked"). The Track
@@ -22744,11 +22752,10 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   meta.buyoutWatch = scored.map((r) => r.pendingBuyout).filter(Boolean);
   meta.macroBlocked = [];
   meta.macroBlockPts = PICKS_MACRO_CONTEXT && PICKS_MACRO_BLOCK_PTS > 0 ? PICKS_MACRO_BLOCK_PTS : null;
-  // Vetoes without a branch of their own (crowd-squeeze, loop-ev).
-  meta.otherVetoed = [];
-  // Self-improving loop, step 4: the live settings this run used (absent
-  // unless self-tuning is live).
+  // Self-improving loop, step 4: the live settings this run used and the
+  // names its value gate stopped (both absent unless self-tuning is live).
   if (opts.loopPlan) {
+    meta.loopVetoed = [];
     meta.loopTune = { version: opts.loopPlan.version, tuned: !!opts.loopPlan.tuned, frozen: !!opts.loopPlan.frozen, summary: settingsSummary(opts.loopPlan.settings),
       bar: opts.loopPlan.settings?.bar ?? null, evGate: !!opts.loopPlan.settings?.evGate, moved: opts.loopMoved ?? null };
   }
@@ -22792,11 +22799,10 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       if (actionable) traceGate(r, r.side, veto);
       continue;
     }
-    // Any other veto (crowd-squeeze, loop-ev) also keeps the name off the
-    // roster; before 2026-11-10 a crowd-squeeze veto was only enforced by the
-    // AI pre-screen, so with the grader off the name could still open.
-    if (veto) {
-      meta.otherVetoed.push({ sym: r.sym, side: actionable ? r.side : "put", gate: veto });
+    // The loop's value gate (self-tuning live only) keeps the name off the
+    // roster. Every other veto keeps its own handling unchanged.
+    if (veto === "loop-ev") {
+      (meta.loopVetoed ||= []).push({ sym: r.sym, side: actionable ? r.side : "put", gate: veto });
       if (actionable) traceGate(r, r.side, veto);
       continue;
     }
@@ -40833,6 +40839,25 @@ async function main() {
     try { await writeGradeResearchFile(DATA_DIR, emptyGradeResearch(builtAtIso, message)); } catch { /* freshness still prefers a file; the warn above is the signal */ }
   }
   // Outcomes + evidence board (lib/picks-outcomes.mjs, lib/evidence-board.mjs).
+  // Self-improving loop (lib/self-loop/index.mjs): model the planned option
+  // on every ledger row that can be decided, score the estimates against
+  // what happened, and write the loop's state and view. It runs once a build,
+  // inside the outcomes block below, or after it when that block fails first,
+  // so this build's run estimates (loopOnRun) are never lost with it.
+  let loopView = null, loopBaked = false;
+  const runLoopBake = async (accNow) => {
+    if (!loopState || loopBaked) return;
+    loopBaked = true;
+    try {
+      const loopBake = loopOnBake(loopState, { chains, outcomes: picksOutcomesState, today: etDateKey(new Date(builtAtIso)), builtAtIso, tradeBar: PICKS_MIN_CONVICTION, tuneMode: loopTuneMode, closed: accNow?.closed || [], control: loopControl });
+      loopView = loopBake.view;
+      const loopInfo = await writeLoopFiles(DATA_DIR, loopState, loopView);
+      console.log(`wrote data/${loopInfo.stateKey} + data/${loopInfo.viewKey} — ${loopInfo.rows} ledger row(s), ${loopBake.filled} option outcome(s) filled${loopBake.pruned ? `, ${loopBake.pruned} pruned` : ""}, calibration on ${loopBake.model.rows} row(s)${loopBake.report ? `, weekly report for the week of ${loopBake.report.week}` : ""}, self-tuning ${loopBake.tune ? `${loopBake.tune.mode}${loopBake.tune.live ? ` v${loopBake.tune.current.n}` : ""}${loopBake.tune.frozen ? " (frozen)" : ""}` : "off"}, ${loopInfo.stateBytes} + ${loopInfo.viewBytes} bytes`);
+    } catch (err) {
+      loopView = null;
+      console.warn(`[loop] skipped — ${String(err?.message || err).split("\n")[0]}`);
+    }
+  };
   // Every full bake fills the horizons that now have a close (the daily bars
   // are in memory) and rewrites the board; the random control book is marked
   // only on Top Picks runs, the same schedule as the real book, so the two are
@@ -40903,25 +40928,16 @@ async function main() {
         console.warn(`[regime-lab] payload skipped — ${String(err?.message || err).split("\n")[0]}`);
       }
     }
-    // Self-improving loop (lib/self-loop/index.mjs): model the planned option
-    // on every ledger row that can be decided, score the estimates against
-    // what happened, and write the loop's state and view.
-    let loopView = null;
-    if (loopState) {
-      try {
-        const loopBake = loopOnBake(loopState, { chains, outcomes: picksOutcomesState, today: todayEt, builtAtIso, tradeBar: PICKS_MIN_CONVICTION, tuneMode: loopTuneMode, closed: accNow?.closed || [], control: loopControl });
-        loopView = loopBake.view;
-        const loopInfo = await writeLoopFiles(DATA_DIR, loopState, loopView);
-        console.log(`wrote data/${loopInfo.stateKey} + data/${loopInfo.viewKey} — ${loopInfo.rows} ledger row(s), ${loopBake.filled} option outcome(s) filled${loopBake.pruned ? `, ${loopBake.pruned} pruned` : ""}, calibration on ${loopBake.model.rows} row(s)${loopBake.report ? `, weekly report for the week of ${loopBake.report.week}` : ""}, self-tuning ${loopBake.tune ? `${loopBake.tune.mode}${loopBake.tune.live ? ` v${loopBake.tune.current.n}` : ""}${loopBake.tune.frozen ? " (frozen)" : ""}` : "off"}, ${loopInfo.stateBytes} + ${loopInfo.viewBytes} bytes`);
-      } catch (err) {
-        loopView = null;
-        console.warn(`[loop] skipped — ${String(err?.message || err).split("\n")[0]}`);
-      }
+    // Self-improving loop: model, score and write (runLoopBake, above).
+    await runLoopBake(accNow);
+    let loopTests = [];
+    try { loopTests = loopView ? loopEvidenceTests(loopView) : []; } catch (err) {
+      console.warn(`[loop] evidence rows skipped — ${String(err?.message || err).split("\n")[0]}`);
     }
     const board = buildEvidenceBoard({
       outcomes: picksOutcomesState, closed: accNow?.closed || [], open: accNow?.open || [], shadowDays, builtAtIso, today: todayEt,
       tradeBar: PICKS_MIN_CONVICTION, gradeModelVersion: GRADE_MODEL_VERSION, structurePolicyVersion: PICKS_STRUCTURE_POLICY_VERSION,
-      extraTests: [...(regimeLabPayload?.evidence || []), ...(loopView ? loopEvidenceTests(loopView) : [])],
+      extraTests: [...(regimeLabPayload?.evidence || []), ...loopTests],
       shadow: shadowResearchToday,
     });
     const boardInfo = await writeEvidenceBoard(DATA_DIR, board);
@@ -40937,6 +40953,11 @@ async function main() {
     }
   } catch (err) {
     console.warn(`[outcomes] skipped — ${String(err?.message || err).split("\n")[0]}`);
+  }
+  if (loopState && !loopBaked) {
+    let accNow = null;
+    try { accNow = JSON.parse(await readFile(resolve(DATA_DIR, PICKS_ACCURACY_FILE), "utf8")); } catch { /* no record yet */ }
+    await runLoopBake(accNow);
   }
   // Crowd & positioning files: the public facts (crowd.json) and the Owner
   // join to the open Top Picks trades plus the daily rows kept for later

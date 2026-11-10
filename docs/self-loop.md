@@ -81,7 +81,8 @@ outcome rows are written. For every scored name it stores:
 |---|---|
 | `d`, `et`, `s`, `side` | run date, run time, symbol, call or put (the same key as `picks-outcomes.json`) |
 | `tot`, `tot0` | the grade total, and the untuned total (equal unless step 4's live weights moved it) |
-| `out`, `ev`, `mk`, `cell`, `ep` | what the run did (`pick:` / `gate:` / `open` / `below-bar`), the AI entry call, market type, Regime Lab cell, event play |
+| `out`, `ev`, `mk`, `cell`, `ep` | what the run did (`pick:actionable` = opened; `held:<rule>` = shipped as a watch idea, so never traded, with the rule that held it; `gate:<rule>` / `open` / `below-bar`), the AI entry call, market type, Regime Lab cell, event play |
+| `bar`, `bar0` | the run's trade bar (with any loop bar) and the bar without the loop bar (the edge governor's, else the base 4) |
 | `p5`, `p10`, `p20` | stated chance (percent) the stock moves the trade's way over 5, 10 and 20 sessions |
 | `em10`, `im10` | expected 10-session move the trade's way, and the move the options price (ATM IV, one standard deviation) |
 | `pTp` | stated chance the planned single option reaches +25% before -50% |
@@ -101,7 +102,15 @@ decided: Black-Scholes at the entry IV on each later daily close, measured
 against the same model's value at the run spot (so a gap between the model and
 the quoted mid on day one cannot fake an exit), with the record's exits: +25%
 take-profit, -50% stop, at most 20 sessions, scored after 3.5 points of
-round-trip cost. A close dated today is a partial bar and is skipped. This
+round-trip cost. A close dated today is a partial bar and is skipped. A
+contract whose expiry falls before the 20th session settles at intrinsic on
+the last close before expiry. A stock split between the run and the outcome
+(the run day's adjusted close more than 20% off the stored spot, within 10% of
+a whole-number ratio such as 2:1 or 1:10) rescales the run spot and the
+contract the same way, in the option replay and in the stock moves
+(`splitFactor` in `lib/picks-outcomes.mjs`); a gap that matches no whole
+ratio (a 3:2 split, or a 25%+ move on the run day itself) leaves the row
+unfilled rather than recording a fake move. This
 covers about 170 names a day, picked or not, instead of a few trades a month.
 It is a model, not fills; the Track Record stays the real book.
 
@@ -129,19 +138,23 @@ The scorecard (`buildScorecard`) grades the chances once the moves are in:
 - **Direction:** how often the move went the grade's way (flat moves left
   out), for any lean and for trade-grade names, at 5/10/20 sessions.
 - **Rank skill:** the Spearman correlation of the grade total with the move
-  across every name in a run, averaged over runs; its t value uses one run per
-  horizon length so overlapping windows are not counted as independent.
+  across every name in a run, averaged over runs; its t value keeps one date
+  per horizon length (the 11:00 and 15:30 runs of a kept date read the same
+  moves, so they count once, as their average), so overlapping windows are
+  not counted as independent.
 - **Size of moves:** realized 10-session move against the implied move, and
   how far off the stated expected move was.
-- **Option outcomes:** trade-grade names (4+ either way) by side, market
-  type, Regime Lab cell, event play, AI entry call, what the run did, and
-  grade band.
+- **Option outcomes:** trade-grade names by side, market type, Regime Lab
+  cell, event play, AI entry call, what the run did (opened, held as a watch
+  idea, gated, already open, under the bar), and grade band. Trade-grade means
+  past that run's own bar (`bar`), so a run where the edge governor or the
+  loop raised the bar is read at the raised bar.
 
 ### Rule audit (L4)
 
-For every rule that turned a trade-grade name away (`gate:` in the run row),
-the modeled option result of the names it stopped against the names the run
-let through. `saved` = let-through average minus stopped average, in points
+For every rule that turned a trade-grade name away (`gate:` in the run row,
+or `held:` when the name shipped only as a watch idea), the modeled option
+result of the names it stopped against the names the run opened. `saved` = let-through average minus stopped average, in points
 after costs. With 20+ names on each side a rule reads **paying** (saved over
 +2), **costing** (under -2) or no clear effect.
 
@@ -163,8 +176,13 @@ Rows in the lane "Self-improving loop":
    outcomes, prune to 90 run days, score, build the view), then
    `writeLoopFiles`, then the board with the loop rows.
 
-Each step is wrapped so a failure logs a warning and the build goes on.
-`regen-picks.mjs` does not run the loop (it is an offline maintenance tool).
+Each step is wrapped so a failure logs a warning and the build goes on; the
+loop and the evidence board have separate guards, so one failing never takes
+the other down, and a loop step that fails before the outcome rows still runs
+from the saved Track Record. A stored `picks-loop-state.json` that does not
+parse is left alone and the loop skips the run (nothing overwrites it); to
+start over, delete that key from the store. `regen-picks.mjs` does not run the
+loop (it is an offline maintenance tool).
 
 ## Step 2: diagnose (D1-D4)
 
@@ -213,7 +231,8 @@ often) and the ones at least 3 points better.
 Written once per week into the state (`reports`, 26 weeks kept, the newest 8
 in the view): at the first build after the Friday close (16:00 ET), or at the
 next build when that one was missed (a Friday holiday, a failed build), for the
-newest finished week. Never for a week that ended before the loop started. It
+newest finished week. Never before the loop's first run, and never for a week
+that ended before the loop started. It
 carries the headline reads (10-session Brier and its skill over the base rate,
 hit rate at grade 4+, rank skill, option average and win rate), their change
 since the last report, and a plain-language "what to look at" list: inputs
@@ -253,12 +272,15 @@ end.
 
 ### Judged forward on the same trades (C2)
 
-A challenger is judged only on runs **after** it started, against a replica of
-the current rules over the same runs: the same planned contracts, the same
+A challenger is judged only on runs strictly **after** the run it started at
+(its start date and ET time, so an 11:00 start never counts that day's 11:00
+run, and a start written by the 16:10 bake counts from the next day), against a
+replica of the current rules over the same runs: the same planned contracts, the same
 modeled option outcomes, exits and costs (step 1). Both books take one trade
 per name and side at a time, as the engine does (no new trade while the last
-one is still open). The replica takes the names the run let through; a
-challenger starts from those plus the names under the bar, re-scores each one
+one is still open). The replica takes the names the run opened; a challenger
+starts from those plus the names under the bar (each run's own bar without
+the loop bar, `bar0`), re-scores each one
 (delta method: muting takes the vote out of the untuned total, `up` adds half
 of it again; a re-score that flips the side drops the name), and applies its
 own bar, gate or skip.
@@ -287,9 +309,13 @@ A challenger reads **ready** only when all of these hold:
 | Costs doubled | its own average still above zero |
 | t value of its edge, 5-session blocks | above the bar for the number of trials |
 
-The t bar is a one-sided 5% test split over every challenger ever started
-(Bonferroni: 1.64 with one trial, 2.33 with five, 2.58 with ten), so trying more
-things raises the bar for all of them. A challenger with enough sessions and
+The t value is Newey-West (one lag), so neighbouring blocks that share open
+trades cannot inflate it; it can only come out lower than the plain t. The bar
+is a one-sided 5% test split over every challenger ever started (Bonferroni)
+and read off Student's t with one degree of freedom fewer than the blocks (a
+normal quantile when there are under three): 2.02 with one trial and six
+blocks, 3.36 with five trials and six blocks, 2.72 with five trials and twelve
+blocks. Trying more things, or judging on fewer blocks, raises the bar. A challenger with enough sessions and
 trades that is not ahead, or one that reaches 60 sessions, is retired as **no
 edge**; a ready one keeps its verdict in the finished list.
 
@@ -336,7 +362,11 @@ part of a code change.
 A weight works on the vote it already casts: the change to a name's total is
 `(weight - 1) x vote`, summed over its signal votes and pillar scores, capped
 at **2 points** for all weights together, and it **never flips a side** (a
-call that would cross zero stops at zero). The tuned total sets the tier and
+call that would cross zero stops at zero). A name tuned under the trade bar
+loses its side, as an untuned one would. An event play is reviewed after its
+event on the untuned grade, so tuning may lower it but never lift it. On the
+market-adjustment path the total has no regime pillar, so a `P:rg` weight is
+left out there. The tuned total sets the tier and
 the order; the trade bar and the AI grader slots read it. A loop bar never
 undercuts a bar the edge governor has already raised.
 
@@ -354,8 +384,14 @@ Restore (any other). A click is a same-origin POST to
 `{ act: undo }`, `{ act: restore, version }`), Owner session with both claims
 only, validated before anything is read, appended under the store lease
 `picks-loop-control`. The next full build applies every action newer than the
-last one it saw. An approval made in shadow is kept for when it goes live; a
-decline is not offered again for 60 sessions.
+last one it saw. Each click is numbered from the clock (milliseconds), so a
+control file that was deleted or reset still produces numbers newer than the
+last one the build saw and no click is lost. An approval made in shadow is kept
+for when it goes live; a decline is not offered again for 60 sessions; only the
+newest approved trade bar is kept (approving one bar drops the others), and
+approvals past the newest 40 are pruned. Undo goes back to the version before
+the one in use; Undo of a version that was itself an undo brings back what that
+undo took away. Restore takes any kept version by number.
 
 Every change is a new version in `tune.versions` (the newest 60 plus v0, the
 base), with the date, what changed and who made it (`loop`, `owner`,
@@ -365,20 +401,29 @@ base), with the date, what changed and who made it (`loop`, `owner`,
 
 ### Safety (K2, K4)
 
-- **Auto-undo (K2).** When a version's first 15 decided trades are in, they are
-  compared with what the base rules would have taken on the same runs (rows
-  past the bar on their untuned totals, including the ones the loop turned
-  away). Trailing by more than 5 points a trade reverts it, and what it changed
-  is held for 60 sessions. A version that passes is kept and not tested again.
+- **Auto-undo (K2).** A rolling test over the tuned streak: from the first run
+  on settings that differ from the base (date and ET time), every bake while
+  tuned settings are in use takes the newest 15 decided trades and compares
+  them with what the base rules would have taken over the same span of runs
+  (rows past each run's own bar without the loop bar, on their untuned totals,
+  including the ones the loop turned away). Trailing by more than 5 points a
+  trade reverts to the base settings, and everything that differed is held for
+  60 sessions. Because the streak spans versions, the weekly weight steps
+  cannot reset the count, and a version that once passed is still tested as
+  new trades land. Back on the base settings, the streak ends. One limit: the
+  base replay cannot know which cap slots or gates a tuned pick displaced, so
+  it compares books, not exact trade-for-trade swaps.
 - **Losing-streak freeze (K4).** Six record losses in a row, or the last 20
   record trades averaging under -10%, since tuning went live, freezes new
   self-made changes until it clears. Trading goes on, the Owner's approvals
   still apply, and the market mode stays the Owner's brake.
 - **Rollback drill.** With no live plan the overlay returns the same rows
   object, no odds are attached and the bar is the engine's own, so the picks
-  are exactly what the base settings choose (`picks.json` only gains an empty
-  `rosterMeta.otherVetoed` list); the smoke test checks the same-object
-  return.
+  are exactly what the base settings choose (`picks.json` gains no loop
+  field: `rosterMeta.loopTune` and `rosterMeta.loopVetoed` appear only with a
+  live plan); the smoke test checks the same-object return. Only the loop's
+  own value gate (`loop-ev`) drops a roster name; every other veto keeps its
+  handling from before the loop.
 
 ### Bake order
 

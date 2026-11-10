@@ -1795,7 +1795,8 @@ expected-value gate (`loop-ev` in `structuralVeto`) and passed challengers.
 All weights together move a name at most 2 points and never flip its side;
 the tuned total feeds the tier, the order, the trade bar and the AI grader
 slots, while `grades.json`, LEAPS and `regen-picks` stay untuned. Every change
-is a version with undo; a version trailing the base rules over its first 15
-trades undoes itself, and a losing streak freezes self-changes. New trades
+is a version with undo; tuning reverts to the base settings when its newest
+15 decided trades trail the base rules by more than 5 points a trade (a rolling
+test across versions), and a losing streak freezes self-changes. New trades
 under a tuned version carry `loopVersion` (Track Record divider), and
 `rosterMeta.loopTune` names the version a run used.
