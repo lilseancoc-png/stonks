@@ -95,7 +95,7 @@ run.regime = { st: "risk-off" };
 // --- outcome rows ---------------------------------------------------------------
 ok("bars: build-time `t` and fixture `date` keys both read", dailyClosesOf({ _bars: [{ t: "2026-01-02", c: 10 }, { date: "2026-01-03", c: 11 }, { c: 12 }] }).length === 2
   && dailyClosesOf({ priceSeries: { t: ["2026-01-02", "bad"], c: [10, 11] } }).length === 1);
-ok("market type: severe pools with risk-off, unknown is null", marketTypeOf("severe") === "risk-off" && marketTypeOf("risk-on") === "risk-on" && marketTypeOf("neutral") === "neutral" && marketTypeOf("") === null);
+ok("market type: severe pools with risk-off, unknown is null", marketTypeOf("severe") === "risk-off" && marketTypeOf("severe-risk-off") === "risk-off" && marketTypeOf("risk-on") === "risk-on" && marketTypeOf("neutral") === "neutral" && marketTypeOf("") === null);
 const state = emptyOutcomesState();
 const added = appendRunOutcomes(state, run, "2026-01-10");
 ok("append: one row per scored name", added === scoring.scored.length && state.rows.length === added);

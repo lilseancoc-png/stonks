@@ -20,6 +20,17 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
      (same format, plus the archive preamble) and add that month to the
      "Older changelogs" index below. -->
 
+## 2026-11-10
+
+### Added
+
+- Add the **self-improving loop, step 4: adjust** (`lib/self-loop/tune.mjs`, Owner Lab Loop tab "Self-tuning", spec [`docs/self-loop.md`](docs/self-loop.md)): input weights that drift once a week toward what has lined up with the move (0.5x-1.5x, at most 0.1 a week, only after 40+ sessions with the same sign in both halves), an auto-mute for an input pointing the wrong way, the loop's stated odds on each pick card, and, with the Owner's OK, the expected-value gate (gate `loop-ev`) and any challenger that passed its check. All weights together move a name at most 2 points and never flip its side. Every change is a version with Undo / Restore buttons (Owner action `picks-loop`, request-time `picks-loop-control.json`), a version that trails the base rules by more than 5 points a trade over its first 15 trades undoes itself, and six losses in a row or a last-20 average under -10% freeze self-changes. Ships in **shadow** (repo variable `SELF_TUNE` unset: worked out and shown, nothing applies); `SELF_TUNE=on` applies only from December 7, 2026. New trades under a tuned version carry `loopVersion` with a Track Record divider. No AI call, no new fetch, function or workflow.
+
+### Fixed
+
+- Fix the crowd squeeze veto (`PICKS_CROWD_SQUEEZE_VETO=1`, off by default) only being enforced by the AI pre-screen: `buildTopPicks` now keeps any vetoed name off the roster and lists it in `rosterMeta.otherVetoed`.
+- Fix the outcome rows' market type reading a severe risk-off tape as unknown (`marketTypeOf` now maps `severe-risk-off` to risk-off).
+
 ## 2026-11-09
 
 ### Added

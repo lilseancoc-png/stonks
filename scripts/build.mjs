@@ -70,11 +70,13 @@ import {
   persistAiRejections,
 } from "../lib/ai-rejections.mjs";
 import { buildPicksRunRecord, loadPicksRunDay, persistPicksRun, picksRunArchiveEnabled } from "../lib/picks-run-archive.mjs";
-import { addControlEntries, appendRunOutcomes, drawControlEntries, emptyOutcomesState, fillOutcomes, loadPicksOutcomes, markControlBook, pruneOutcomes, writePicksOutcomes, CONTROL_PER_RUN_MIN } from "../lib/picks-outcomes.mjs";
+import { addControlEntries, appendRunOutcomes, drawControlEntries, emptyOutcomesState, fillOutcomes, loadPicksOutcomes, markControlBook, marketTypeOf, pruneOutcomes, writePicksOutcomes, CONTROL_PER_RUN_MIN } from "../lib/picks-outcomes.mjs";
 import { buildEvidenceBoard, writeEvidenceBoard } from "../lib/evidence-board.mjs";
 // Self-improving loop (lib/self-loop/, docs/self-loop.md): prediction ledger,
 // option outcomes, scorecard. Measurement only; LOOP=0 skips it.
 import { loadLoopState, loopEnabled, loopOnRun, loopOnBake, loopEvidenceTests, writeLoopFiles, LOOP_STATE_KEY } from "../lib/self-loop/index.mjs";
+import { LOOP_CONTROL_KEY, loopDelta, loopLivePlan, loopTradeBar, planEstimate, readLoopControlDoc, settingsSummary, tuneMode, tunedTotal } from "../lib/self-loop/tune.mjs";
+import { bandOf as loopBandOf } from "../lib/self-loop/ledger.mjs";
 // Regime Lab (lib/regime-lab/, docs/regime-lab.md): market labels, shadow
 // playbook books, the headline oracle and the test catalog. Owner-only
 // regime-lab.json; measurement only, no AI, kill switch REGIME_LAB=0.
@@ -22486,7 +22488,55 @@ export function structuralVeto(r, side) {
   if (r?.pendingBuyout?.block) return "pending-buyout";
   if (macroConflict(r, side)) return "macro-conflict";
   if (side === "put" && crowdSqueeze(r)) return "crowd-squeeze";
+  // Self-improving loop, step 4 (lib/self-loop/tune.mjs): with the Owner's OK
+  // and self-tuning live, a name whose stated option value after costs is
+  // below zero does not open. Set only by applyLoopTuning.
+  if (r?.loopTune?.evBlock) return "loop-ev";
   return null;
+}
+
+// Self-improving loop, step 4: the live settings on the Top Picks decision
+// rows. plan is lib/self-loop/tune.mjs loopLivePlan(): null unless
+// SELF_TUNE=on past its floor date, so by default every row is untouched.
+// Weights move a name's total by at most MAX_DELTA points (delta method on
+// its signal votes and pillar scores) and never flip its side; the EV gate
+// marks a name for structuralVeto(); the stated odds ride back for the cards.
+// Only the Top Picks decision sees this: grades.json, LEAPS and the legacy
+// research pass keep the plain scores.
+export function applyLoopTuning(prepared, plan, { mk = null, cell = null } = {}) {
+  if (!plan || !prepared || !Array.isArray(prepared.scored)) return { prepared, baseTotals: null, odds: null, moved: 0, evBlocked: [] };
+  const weights = plan.settings?.weights || {};
+  const weighted = Object.keys(weights).length > 0;
+  const baseTotals = {}, odds = {}, evBlocked = [];
+  let moved = 0;
+  const scored = prepared.scored.map((r) => {
+    const total = pnum(r?.total);
+    if (!r || total == null) return r;
+    const side = r.side || (total >= 0 ? "call" : "put");
+    let delta = 0, parts = null;
+    if (weighted && total !== 0) {
+      const snap = buildEntrySnapshot({ symbol: r.sym, pillars: r.pillars }, r.data, { market: false }) || {};
+      ({ delta, parts } = loopDelta(snap.signals, snap.pillars, weights));
+    }
+    const tuned = tunedTotal(total, delta);
+    const est = planEstimate(plan, { band: loopBandOf(total), side, mk, cell });
+    const evBlock = !!(plan.settings?.evGate && est && !est.learning && est.ev != null && est.ev < 0);
+    if (est) odds[`${r.sym}:${side}`] = { p10: est.p10, p20: est.p20, pTp: est.pTp, ev: est.ev, n: est.n, learning: !!est.learning, v: plan.version };
+    if (evBlock) evBlocked.push(r.sym);
+    const loopTune = { version: plan.version, base: r2(total), delta: r2(tuned - total), parts, ev: est?.ev ?? null, evBlock };
+    if (tuned === total) return { ...r, loopTune };
+    moved++;
+    baseTotals[r.sym] = total;
+    const pre = pnum(r.preRegimeTotal);
+    return {
+      ...r, total: tuned, recommendation: tierForScore(tuned),
+      ...(pre != null ? { preRegimeTotal: tunedTotal(pre, delta) } : {}),
+      ...(pnum(r.tradeScore) != null ? { tradeScore: tuned } : {}),
+      loopTune,
+    };
+  });
+  scored.sort((a, b) => Math.abs(pnum(b?.total) ?? 0) - Math.abs(pnum(a?.total) ?? 0));
+  return { prepared: { ...prepared, scored }, baseTotals: moved ? baseTotals : null, odds, moved, evBlocked };
 }
 // One name's crowd & positioning facts off the public crowd.json rollup
 // (lib/crowd/index.mjs buildSymbolRollup) plus the Owner attention score.
@@ -22669,7 +22719,9 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   // realized option edge is materially negative, so a losing book stands down to
   // only its strongest reads instead of trading the same breadth smaller.
   const edgeGate = opts.priorClosed ? edgeGatedConviction(opts.priorClosed, opts.builtAtIso) : { bar: PICKS_MIN_CONVICTION, strongBar: PICKS_TIER_STRONG, edge: null, n: 0 };
-  const minConv = edgeGate.bar;
+  // An Owner-approved loop trade bar (lib/self-loop/tune.mjs, live only)
+  // replaces the base bar but never undercuts a raised edge-governor bar.
+  const minConv = loopTradeBar(edgeGate.bar, opts.loopBar, PICKS_MIN_CONVICTION);
   const strongBar = edgeGate.strongBar ?? PICKS_TIER_STRONG;
 
   const meta = { modelEpoch: PICKS_ACCURACY_RESET_EPOCH, entryPolicyVersion: OPTION_ENTRY_POLICY_VERSION, gradeModelVersion: GRADE_MODEL_VERSION, entryTimingVersion: PICKS_ENTRY_TIMING_VERSION, tradeCut: minConv, strongCut: PICKS_TIER_STRONG, actionableBar: strongBar, minConviction: minConv, baseTradeCut: PICKS_MIN_CONVICTION, edgeGate: edgeGate.bar > PICKS_MIN_CONVICTION ? edgeGate : null, regimeBand: regime, macroRegime: macroBackdrop?.macroRegime || null, sectorCapped: [], factorCapped: [], factorRunCapped: [], factorRunLimit: PICKS_MAX_NEW_PER_FACTOR_RUN, capsVersion: PICKS_CAPS_VERSION, structurePolicy: { version: PICKS_STRUCTURE_POLICY_VERSION, singlesDefault: PICKS_SINGLES_DEFAULT, maxSingleCost: PICKS_SINGLES_DEFAULT ? PICKS_SINGLE_MAX_COST : null }, costCapped: [], factorTrendGated: [], factorTrend: factorHealth, sideCapped: [], timingGated: [], primaryScenarioGated: [], earningsRiskCapped: [], eventDeferred: [], confluenceSkipped: [], edgeBarDemoted: [], confluenceDemoted: [], aiUngraded: [], entryDemoted: [], aiEntryPromoted: [], aiEntryHeldBack: [], reentrySuppressed: [], aiVetoed: [], vetoed: 0, sectorCounts: {}, eventRisk: macroBackdrop?.eventRisk || null };
@@ -22692,6 +22744,14 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   meta.buyoutWatch = scored.map((r) => r.pendingBuyout).filter(Boolean);
   meta.macroBlocked = [];
   meta.macroBlockPts = PICKS_MACRO_CONTEXT && PICKS_MACRO_BLOCK_PTS > 0 ? PICKS_MACRO_BLOCK_PTS : null;
+  // Vetoes without a branch of their own (crowd-squeeze, loop-ev).
+  meta.otherVetoed = [];
+  // Self-improving loop, step 4: the live settings this run used (absent
+  // unless self-tuning is live).
+  if (opts.loopPlan) {
+    meta.loopTune = { version: opts.loopPlan.version, tuned: !!opts.loopPlan.tuned, frozen: !!opts.loopPlan.frozen, summary: settingsSummary(opts.loopPlan.settings),
+      bar: opts.loopPlan.settings?.bar ?? null, evGate: !!opts.loopPlan.settings?.evGate, moved: opts.loopMoved ?? null };
+  }
   // Event plays (lib/event-play.mjs): caps count what is already on the book.
   const nowIsoForEvents = typeof opts.builtAtIso === "string" ? opts.builtAtIso : new Date().toISOString();
   const eventCounts = eventPlayCounts([...(opts.openPositions || []), ...(opts.priorClosed || [])], nowIsoForEvents);
@@ -22729,6 +22789,14 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     }
     if (veto === "macro-conflict") {
       meta.macroBlocked.push({ sym: r.sym, side: actionable ? r.side : "put", points: r.macroFit?.points ?? null });
+      if (actionable) traceGate(r, r.side, veto);
+      continue;
+    }
+    // Any other veto (crowd-squeeze, loop-ev) also keeps the name off the
+    // roster; before 2026-11-10 a crowd-squeeze veto was only enforced by the
+    // AI pre-screen, so with the grader off the name could still open.
+    if (veto) {
+      meta.otherVetoed.push({ sym: r.sym, side: actionable ? r.side : "put", gate: veto });
       if (actionable) traceGate(r, r.side, veto);
       continue;
     }
@@ -28064,7 +28132,7 @@ async function publishLeapsAfterShortTermGrader(preScored, builtAtIso) {
 }
 
 async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload = null, macroBackdrop = null, priorPicks = null, volumeFlags = null, rfr = FALLBACK_RISK_FREE_RATE, priorClosed = null, priorGrades = null, scannerExtras = null, priorOpen = null, reentryCooldown = true, thesisProsePrior = null, streaksMap = null, regimeLab = null) {
-  const { marketMode = null, ...extras } = scannerExtras || {};
+  const { marketMode = null, loopPlan = null, ...extras } = scannerExtras || {};
   const baseOpts = { priorClosed, priorGrades, openPositions: priorOpen, builtAtIso, reentryCooldown, ...extras };
   // Score the universe ONCE, then run the two-stage pipeline:
   //   1. DATA GATE — the deterministic 4-pillar score (conviction bar) + the cheap
@@ -28081,10 +28149,17 @@ async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload 
   const legacyAi = baseOpts.marketAssessment
     ? await generateAiTheses(preScored, macroBackdrop, {...baseOpts,rfr}, thesisProsePrior || {})
     : null;
-  const topScored = prepareTopPicksScoring(preScored, macroBackdrop, baseOpts.marketAssessment);
+  const preparedScored = prepareTopPicksScoring(preScored, macroBackdrop, baseOpts.marketAssessment);
+  // Self-improving loop, step 4 (lib/self-loop/tune.mjs): the live settings,
+  // only when SELF_TUNE=on past its floor date (loopPlan is null otherwise and
+  // this is the identity). The decision rows below are the tuned ones.
+  const tuning = loopPlan ? applyLoopTuning(preparedScored, loopPlan, { mk: marketTypeOf(macroBackdrop?.macroRegime?.state), cell: regimeLab?.stamp?.cell ?? null }) : null;
+  const topScored = tuning ? tuning.prepared : preparedScored;
+  const loopBar = loopPlan?.settings?.bar ?? null;
+  if (tuning) console.log(`[loop] self-tuning v${loopPlan.version} live: ${settingsSummary(loopPlan.settings)}; ${tuning.moved} total(s) moved, ${tuning.evBlocked.length} below the value gate${loopPlan.frozen ? " (frozen: no new self-changes)" : ""}`);
   // The Owner's market mode applies to the Top Picks decision only; the
   // legacy research pass above and below keeps the plain rules.
-  const aiThesis = await generateAiTheses(topScored, macroBackdrop, { ...baseOpts, rfr, marketMode }, baseOpts.marketAssessment ? thesisProsePrior?.__topPicksMarket || {} : thesisProsePrior || {});
+  const aiThesis = await generateAiTheses(topScored, macroBackdrop, { ...baseOpts, rfr, marketMode, loopBar }, baseOpts.marketAssessment ? thesisProsePrior?.__topPicksMarket || {} : thesisProsePrior || {});
   // LEAPS reads the full preScored universe after the short-term grader.
   // It clones pillars, writes leaps-picks.json only, and does not change
   // preScored, the thesis map, or picks.json. A failure here stays off that path.
@@ -28096,7 +28171,9 @@ async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload 
   } catch (err) {
     console.warn(`[leaps] score skipped — ${String(err?.message || err).split("\n")[0]}`);
   }
-  const picks = buildTopPicks(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, rfr, { ...baseOpts, preScored:topScored, aiThesisMap: aiThesis.map, aiGraderSkipped: !!aiThesis.skipped, aiSkipBlocks: aiThesis.skipped?.blocks || null, aiGraderMode: aiThesis.mode || null, marketMode });
+  const picks = buildTopPicks(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, rfr, { ...baseOpts, preScored:topScored, aiThesisMap: aiThesis.map, aiGraderSkipped: !!aiThesis.skipped, aiSkipBlocks: aiThesis.skipped?.blocks || null, aiGraderMode: aiThesis.mode || null, marketMode, ...(loopPlan ? { loopPlan, loopBar, loopMoved: tuning?.moved ?? 0 } : {}) });
+  // S1: the count model's stated odds ride each pick (live only).
+  if (tuning?.odds) for (const p of picks) { const o = tuning.odds[`${p.symbol}:${p.side}`]; if (o) p.loopOdds = o; }
   const picksPath = resolve(DATA_DIR, PICKS_FILE);
   // Run archive (lib/picks-run-archive.mjs): the scored universe exactly as
   // this run saw it, with each name's single-option quote and the grader's
@@ -28158,7 +28235,7 @@ async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload 
   if (sharedResearch) payload.sharedResearch=sharedResearch;
   const json = JSON.stringify(payload);
   await writeFile(picksPath, json, "utf8");
-  return { bytes: json.length, count: picks.length, lean: pickSideLean(picks), thesisProseCache, aiRejectionCapture: picks.aiRejectionCapture || null, leapsWritten, picksRun };
+  return { bytes: json.length, count: picks.length, lean: pickSideLean(picks), thesisProseCache, aiRejectionCapture: picks.aiRejectionCapture || null, leapsWritten, picksRun, loopBaseTotals: tuning?.baseTotals || null, loopVersion: loopPlan ? loopPlan.version : null };
 }
 
 export async function readPriorPicks() {
@@ -28926,7 +29003,7 @@ export function aiGraderCandidates(preScored, macroBackdrop, opts = {}) {
   const scored = preScored?.scored || [];
   const regime = preScored?.regimeBand || "neutral";
   const edgeGate = opts.priorClosed ? edgeGatedConviction(opts.priorClosed, opts.builtAtIso) : null;
-  const minConv = edgeGate ? edgeGate.bar : PICKS_MIN_CONVICTION;
+  const minConv = loopTradeBar(edgeGate ? edgeGate.bar : PICKS_MIN_CONVICTION, opts.loopBar, PICKS_MIN_CONVICTION);
 
   // Mirror buildTopPicks's candidate selection + its two cheap
   // gates (re-entry suppression + avoid-timing) so the AI grades exactly the names
@@ -30333,6 +30410,10 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
       // AI final grader mode at entry (live / off / keyless, since
       // 2026-11-08) so a grader-off period can be compared on the record.
       ...(picksPayload?.rosterMeta?.aiGraderMode ? { graderMode: picksPayload.rosterMeta.aiGraderMode } : {}),
+      // Self-improving loop settings version when the trade opened under
+      // live self-tuning (lib/self-loop/tune.mjs), so the Track Record draws
+      // a dated divider at every live change. Absent otherwise.
+      ...(picksPayload?.rosterMeta?.loopTune?.tuned ? { loopVersion: picksPayload.rosterMeta.loopTune.version } : {}),
       exitPolicy: pickExitPolicy(p.contract?.structure),
       // Event play tag, frozen at entry (macro / earnings / shock). Drives the
       // one post-event review and the shock time limit, and the Track Record's
@@ -39414,6 +39495,14 @@ async function main() {
       console.warn(`[loop] prior state unavailable (${String(err?.message || err).split("\n")[0]})`);
     }
   }
+  // Step 4 (lib/self-loop/tune.mjs): SELF_TUNE (off / shadow, the default /
+  // on) and the Owner's approve / decline / undo / restore clicks
+  // (request-time picks-loop-control.json, hydrated, read before the wipe).
+  const loopTuneMode = tuneMode();
+  let loopControl = null;
+  if (loopState && loopTuneMode !== "off") {
+    try { loopControl = readLoopControlDoc(await readFile(resolve(DATA_DIR, LOOP_CONTROL_KEY), "utf8")); } catch { loopControl = null; }
+  }
   // Regime Lab (lib/regime-lab/payload.mjs): the label history and the shadow
   // playbook books accumulate across bakes, so the file is read BEFORE the
   // wipe. A missing file is a fresh start; REGIME_LAB=0 skips the lab.
@@ -40337,7 +40426,14 @@ async function main() {
   const regimeLabRun = regimeLabToday ? { today: regimeLabToday, stamp: labStamp(regimeLabToday) } : null;
   const refreshTopPicks = !/^(?:0|false)$/i.test(process.env.REFRESH_TOP_PICKS || "1");
   if (refreshTopPicks) {
-    const picksInfo = await writeTopPicksFile(chains, scoringNarratives, builtAtIso, scoringUnusual, macroBackdrop, picksPrev, scoringVolumeFlags, riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE, picksAccuracyPrev?.closed ?? null, gradesHistoryPrev?.latest ?? null, {...scannerExtras,marketAssessment,marketMode:topPicksMarketMode}, picksAccuracyPrev?.open ?? null, true, thesisProseCachePrev, streaksInfo.map, regimeLabRun);
+    // Self-improving loop, step 4: the live settings for this run. Null (no
+    // change to the run) unless SELF_TUNE=on and the date is past its floor.
+    let loopPlan = null;
+    if (loopState && loopTuneMode === "on") {
+      try { loopPlan = loopLivePlan(loopState, { mode: loopTuneMode, today: etDateKey(new Date(builtAtIso)), outcomes: picksOutcomesState }); }
+      catch (err) { loopPlan = null; console.warn(`[loop] live settings skipped, base settings used — ${String(err?.message || err).split("\n")[0]}`); }
+    }
+    const picksInfo = await writeTopPicksFile(chains, scoringNarratives, builtAtIso, scoringUnusual, macroBackdrop, picksPrev, scoringVolumeFlags, riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE, picksAccuracyPrev?.closed ?? null, gradesHistoryPrev?.latest ?? null, {...scannerExtras,marketAssessment,marketMode:topPicksMarketMode,loopPlan}, picksAccuracyPrev?.open ?? null, true, thesisProseCachePrev, streaksInfo.map, regimeLabRun);
     if (!picksInfo?.leapsWritten && leapsScoreCarry) {
       await writeFile(resolve(DATA_DIR, LEAPS_PICKS_KEY), leapsScoreCarry, "utf8");
     }
@@ -40413,7 +40509,7 @@ async function main() {
     if (loopState && picksInfo?.picksRun) {
       try {
         const runDate = etDateKey(new Date(builtAtIso));
-        const loopRun = loopOnRun(loopState, { run: picksInfo.picksRun, date: runDate, outcomes: picksOutcomesState, builtAtIso });
+        const loopRun = loopOnRun(loopState, { run: picksInfo.picksRun, date: runDate, outcomes: picksOutcomesState, builtAtIso, baseTotals: picksInfo.loopBaseTotals || null, liveVersion: picksInfo.loopVersion ?? null });
         console.log(`[loop] ${loopRun.added} estimate(s) written from a ${loopRun.model?.rows ?? 0}-row calibration`);
       } catch (err) {
         console.warn(`[loop] run estimates skipped — ${String(err?.message || err).split("\n")[0]}`);
@@ -40813,10 +40909,10 @@ async function main() {
     let loopView = null;
     if (loopState) {
       try {
-        const loopBake = loopOnBake(loopState, { chains, outcomes: picksOutcomesState, today: todayEt, builtAtIso, tradeBar: PICKS_MIN_CONVICTION });
+        const loopBake = loopOnBake(loopState, { chains, outcomes: picksOutcomesState, today: todayEt, builtAtIso, tradeBar: PICKS_MIN_CONVICTION, tuneMode: loopTuneMode, closed: accNow?.closed || [], control: loopControl });
         loopView = loopBake.view;
         const loopInfo = await writeLoopFiles(DATA_DIR, loopState, loopView);
-        console.log(`wrote data/${loopInfo.stateKey} + data/${loopInfo.viewKey} — ${loopInfo.rows} ledger row(s), ${loopBake.filled} option outcome(s) filled${loopBake.pruned ? `, ${loopBake.pruned} pruned` : ""}, calibration on ${loopBake.model.rows} row(s)${loopBake.report ? `, weekly report for the week of ${loopBake.report.week}` : ""}, ${loopInfo.stateBytes} + ${loopInfo.viewBytes} bytes`);
+        console.log(`wrote data/${loopInfo.stateKey} + data/${loopInfo.viewKey} — ${loopInfo.rows} ledger row(s), ${loopBake.filled} option outcome(s) filled${loopBake.pruned ? `, ${loopBake.pruned} pruned` : ""}, calibration on ${loopBake.model.rows} row(s)${loopBake.report ? `, weekly report for the week of ${loopBake.report.week}` : ""}, self-tuning ${loopBake.tune ? `${loopBake.tune.mode}${loopBake.tune.live ? ` v${loopBake.tune.current.n}` : ""}${loopBake.tune.frozen ? " (frozen)" : ""}` : "off"}, ${loopInfo.stateBytes} + ${loopInfo.viewBytes} bytes`);
       } catch (err) {
         loopView = null;
         console.warn(`[loop] skipped — ${String(err?.message || err).split("\n")[0]}`);

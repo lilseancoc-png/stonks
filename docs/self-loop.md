@@ -19,13 +19,19 @@ owner asked for all of it, built in four steps, each its own pull request:
 | 4. Adjust | bounded live weights, mutes, the expected-value gate, auto-undo | S1-S4, A2, K1-K4 | Only when switched on |
 
 Steps 1-3 are measurement only. Nothing in them changes a pick, a grade, a
-gate or the Track Record. The loop adds **no AI call**, no new fetch, no
-serverless function and no workflow.
+gate or the Track Record. Step 4 ships in **shadow**: it works out what it
+would change and shows it, and nothing applies until the repo variable
+`SELF_TUNE=on` is set and the date is December 7, 2026 or later. The loop adds
+**no AI call**, no new fetch, no serverless function and no workflow (the
+Owner's approve / undo clicks use one more action on the existing
+`api/auth/[action].js`).
 
 Rollback: the branch `backup/pre-self-loop-2026-11-09` holds `main` as it was
 before step 1 (commit d557b0a). Each step is one squash merge, so `git revert`
 of that merge undoes it. The kill switch `LOOP=0` (repo variable, passed by
 `daily.yml`) stops the loop on the next build and leaves its files in place.
+`SELF_TUNE=off` keeps the measurement running and puts the engine back on its
+base settings at the next run.
 
 ## Where things live
 
@@ -36,6 +42,9 @@ of that merge undoes it. The kill switch `LOOP=0` (repo variable, passed by
 | Scorecard and rule audit | `lib/self-loop/scorecard.mjs` |
 | Input decay, market splits, loss patterns, weekly report | `lib/self-loop/diagnose.mjs` |
 | Paper challengers, the promotion check | `lib/self-loop/challengers.mjs` |
+| Self-tuning: modes, settings, versions, undo, freeze, the Owner's clicks | `lib/self-loop/tune.mjs` |
+| Tuning applied to a Top Picks run | `applyLoopTuning`, `structuralVeto` (`loop-ev`), `loopTradeBar` in `scripts/build.mjs` |
+| The Owner's approve / decline / undo / restore | `api/auth/[action].js` action `picks-loop` |
 | The two bake hooks, the files, the evidence rows | `lib/self-loop/index.mjs` |
 | Owner Lab "Loop" tab | `scripts/render/self-loop-client.mjs`, `self-loop-css.mjs` |
 | Tests | `scripts/self-loop-smoke.mjs` (`npm run test:self-loop`), `scripts/self-loop-browser.mjs` (`npm run test:self-loop-browser`) |
@@ -53,6 +62,11 @@ Both keys are Owner-only (`lib/premium-keys.mjs`), bake-owned and optional
   stored copy alone; a file that reads but is not loop state starts over.
 - `picks-loop.json`: what the Owner Lab Loop tab draws (about 50-100 KB). The
   browser never asks for the state file.
+- `picks-loop-control.json` (step 4): the Owner's clicks, one append-only list
+  of actions (at most 200). Owner-only and **request-time-owned**
+  (`REQUEST_TIME_EXCLUSIVE_KEYS`): only `api/auth/[action].js` writes it, no
+  workflow pushes or deletes it, and the bake reads its hydrated copy before
+  the wipe. The settings themselves live in the state file under `tune`.
 
 The MCP serves the view as the Owner Lab dataset `quant.loop`.
 
@@ -290,6 +304,90 @@ to consider, and nothing changes until someone makes it.
 The Evidence board gains `loop-challengers`: pass once a challenger passes the
 check, collecting while one runs, waiting before the first starts.
 
+## Step 4: adjust (S1-S4, A2, K1-K4)
+
+The only part of the loop that can change a live pick. Everything here is
+deterministic, logged and undoable, and it never touches AI spend, live money
+or Webull settings, the Track Record, the universe, exits, stops or option
+structures.
+
+### Modes (K1)
+
+| `SELF_TUNE` (repo variable) | What happens |
+|---|---|
+| unset (default) | **shadow**: the weekly step is worked out and shown on the Loop tab as "What it would apply"; nothing reaches a pick |
+| `on` (`1`, `true`, `live`) | applies from the next Top Picks run, but only from **December 7, 2026** (`LIVE_FLOOR`); before that it behaves like shadow |
+| `off` (`0`, `false`) | the base settings, nothing worked out |
+
+`LOOP=0` also turns self-tuning off. Going live starts from the base settings,
+not from the shadow path. Turning it on is the Owner's call; nobody sets it as
+part of a code change.
+
+### What it can change (S1-S4)
+
+| Id | Change | How | Who decides |
+|---|---|---|---|
+| S1 | Stated odds on each pick card | the count model's 10-session chance, the option reaching +25% first, and the stated value after costs ("Loop odds" line) | automatic, live only |
+| S3 | Input weights | once a week, after the weekly report: an input whose per-run rank correlation over the newest 60 sessions is 0.03+ with the same sign in both halves (40+ sessions) drifts toward `1 + 5 x average x n / (n + 60)`, inside 0.5x-1.5x, at most 0.1 a week; one no longer proven eases back 0.1 a week | automatic |
+| S4 | Auto-mute | an input whose correlation is -0.03 or worse with both halves negative goes to weight 0; it comes back at 0.5x once both halves are at or above zero with 40+ sessions | automatic |
+| S2 | Expected-value gate | a name whose stated option value after costs is below zero does not open (gate `loop-ev`); offered once the count model has 200 graded rows, never while it is learning | the Owner |
+| C3 | A challenger that passed step 3's check | `mute` (weight 0), `up` (weight 1.5), `bar` (trade bar 3.5-6) or `ev-gate` | the Owner |
+
+A weight works on the vote it already casts: the change to a name's total is
+`(weight - 1) x vote`, summed over its signal votes and pillar scores, capped
+at **2 points** for all weights together, and it **never flips a side** (a
+call that would cross zero stops at zero). The tuned total sets the tier and
+the order; the trade bar and the AI grader slots read it. A loop bar never
+undercuts a bar the edge governor has already raised.
+
+Tuning applies only to the Top Picks decision rows of the 11:00 and 15:30 ET
+runs. `grades.json`, LEAPS, the grade research and `regen-picks.mjs` stay on the
+untuned grade, so the input measurements are never fed by their own changes.
+The count model is fitted on the untuned totals (`tot0`) for the same reason.
+
+### Approvals and versions (A2, K3)
+
+The Loop tab's "Self-tuning" section lists what waits on the Owner with
+Approve and Decline, and every kept version with Undo (the one in use) and
+Restore (any other). A click is a same-origin POST to
+`/api/auth/picks-loop` (`{ act: approve | decline, target }`,
+`{ act: undo }`, `{ act: restore, version }`), Owner session with both claims
+only, validated before anything is read, appended under the store lease
+`picks-loop-control`. The next full build applies every action newer than the
+last one it saw. An approval made in shadow is kept for when it goes live; a
+decline is not offered again for 60 sessions.
+
+Every change is a new version in `tune.versions` (the newest 60 plus v0, the
+base), with the date, what changed and who made it (`loop`, `owner`,
+`auto-undo`). A new record trade opened while a tuned version is live carries
+`loopVersion`, and the Track Record draws a dated divider where it changes.
+`rosterMeta.loopTune` on `picks.json` names the version a run used.
+
+### Safety (K2, K4)
+
+- **Auto-undo (K2).** When a version's first 15 decided trades are in, they are
+  compared with what the base rules would have taken on the same runs (rows
+  past the bar on their untuned totals, including the ones the loop turned
+  away). Trailing by more than 5 points a trade reverts it, and what it changed
+  is held for 60 sessions. A version that passes is kept and not tested again.
+- **Losing-streak freeze (K4).** Six record losses in a row, or the last 20
+  record trades averaging under -10%, since tuning went live, freezes new
+  self-made changes until it clears. Trading goes on, the Owner's approvals
+  still apply, and the market mode stays the Owner's brake.
+- **Rollback drill.** With no live plan the overlay returns the same rows
+  object, no odds are attached and the bar is the engine's own, so the picks
+  are exactly what the base settings choose (`picks.json` only gains an empty
+  `rosterMeta.otherVetoed` list); the smoke test checks the same-object
+  return.
+
+### Bake order
+
+`main()` reads the loop state and the control file before the wipe. Before
+the Top Picks run it builds the live plan (`loopLivePlan`: null unless live;
+the count model is refitted walk-forward on rows before today), the run uses
+it, and `loopOnRun` records both totals. `loopOnBake` then runs the week's
+step (`stepTune`) after the challengers and writes `tune` into the view.
+
 ## What to expect
 
 The loop's first stated chances are the 50% starting point. Ten-session
@@ -300,4 +398,8 @@ skill is November 23 and the full test December 7, as already planned.
 The first challenger can start with the first weekly report, and none can read
 ready before 30 sessions (about six weeks) after it started. Better-calibrated
 odds do not by themselves mean more winners: the loop's job is to say how good
-the engine is, honestly, and to find the parts worth changing.
+the engine is, honestly, and to find the parts worth changing. Self-tuning
+cannot go live before December 7. A weight moves only for an input proven over
+40+ sessions of ledger rows, which the ledger reaches around the second week of
+January 2027, so until then the only live changes possible are the Owner's
+approvals (the value gate, a passed challenger) and the odds on the cards.

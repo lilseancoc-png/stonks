@@ -4261,7 +4261,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
   function slpPct(v, d){ return v == null || !isFinite(v) ? '—' : Number(v).toFixed(d == null ? 0 : d) + '%'; }
   function slpPts(v, d){ return v == null || !isFinite(v) ? '—' : (v > 0 ? '+' : '') + Number(v).toFixed(d == null ? 1 : d); }
   function slpSign(v){ return v == null || !isFinite(v) ? '' : v > 0 ? 'sig-pos' : v < 0 ? 'sig-neg' : ''; }
-  function slpTable(head, body){ return '<div class="acc-tscroll"><table class="acc-qtable evb-table slp-table" data-nosort><thead><tr>' + head.map(function(h){ return '<th' + (h[1] ? ' class="num"' : '') + (h[2] ? ' title="' + escapeHtml(h[2]) + '"' : '') + '>' + escapeHtml(h[0]) + '</th>'; }).join('') + '</tr></thead><tbody>' + body + '</tbody></table></div>'; }
+  function slpTable(head, body){ return '<div class="acc-tscroll"><table class="acc-qtable evb-table slp-table" data-nosort><thead><tr>' + head.map(function(h){ return '<th' + (h[1] === 'l' ? ' class="l"' : h[1] ? ' class="num"' : '') + (h[2] ? ' title="' + escapeHtml(h[2]) + '"' : '') + '>' + escapeHtml(h[0]) + '</th>'; }).join('') + '</tr></thead><tbody>' + body + '</tbody></table></div>'; }
   function slpSection(id, title, body){ return '<section class="evb-section slp-section" id="' + id + '"><h3>' + title + '</h3>' + body + '</section>'; }
   function slpGateName(g){ var L = (NO_PICKS && NO_PICKS.GATE_LABEL) || {}; return L[g] || g; }
   function slpOutName(out){
@@ -4493,6 +4493,84 @@ function recoveryEvidence(row, data, now = Date.now()) {
     var done = (c.done || []).length ? '<details class="rgl-details slp-details"><summary>Finished (' + c.done.length + ')</summary>' + slpTable([['Challenger'], ['Ran'], ['Sessions', 1], ['Trades', 1], ['Better by', 1], ['Result']], c.done.map(function(x){ var st = SLP_CH_STATUS[x.status] || SLP_CH_STATUS['no-edge']; return '<tr><td>' + escapeHtml(x.label) + '</td><td>' + escapeHtml(evbDate(x.start)) + ' to ' + escapeHtml(evbDate(x.end)) + '</td><td class="num">' + (x.sessions || 0) + '</td><td class="num">' + (x.trades || 0) + '</td><td class="num ' + slpSign(x.diff) + '">' + slpPts(x.diff) + '</td><td><span class="evb-pill ' + st[1] + '">' + st[0] + '</span></td></tr>'; }).join('')) + '</details>' : '';
     return lead + runHtml + ready + done;
   }
+  // Step 4: self-tuning (lib/self-loop/tune.mjs). Buttons post the Owner's
+  // approve / decline / undo / restore to /api/auth/picks-loop; the next
+  // build applies them.
+  var SLP_TUNE_MODE = { off: ['Off', 'evb-s-unclear', 'SELF_TUNE=0 or LOOP=0: the engine runs its base settings.'], shadow: ['Shadow', 'evb-s-collect', 'Proposals are worked out and shown here; nothing applies to a pick.'], on: ['On', 'evb-s-pass', 'Changes apply from the next Top Picks run, inside the limits below.'] };
+  var SLP_TUNE_BY = { loop: 'the loop', owner: 'Owner', 'auto-undo': 'auto-undo', base: 'base', restore: 'restore' };
+  function slpTuneCheck(c){
+    if (!c) return '—';
+    if (c.status === 'watching') return c.trades + ' of ' + c.need + ' trades decided';
+    if (c.status === 'kept') return 'Kept (' + slpPts(c.gap) + ' points against the base rules)';
+    if (c.status === 'undo') return 'Undone (' + slpPts(c.gap) + ' points against the base rules)';
+    return escapeHtml(String(c.status || '—'));
+  }
+  function slpTuneBtn(act, label, attrs){ return '<button type="button" class="slp-btn' + (act === 'decline' || act === 'undo' ? ' is-quiet' : '') + '" data-loop-act="' + act + '"' + (attrs || '') + '>' + escapeHtml(label) + '</button>'; }
+  function slpTuneHtml(d){
+    var t = d.tune;
+    if (!t) return '<p class="hint">Self-tuning starts with the next full build.</p>';
+    var m = SLP_TUNE_MODE[t.mode] || SLP_TUNE_MODE.shadow;
+    var L = t.limits || {};
+    var lead = '<p class="evb-lead">The only part of the loop that can change a live pick. Automatic, logged and undoable: input weights that drift toward what has lined up with the move (' + slpNum(L.wMin, 1) + 'x to ' + slpNum(L.wMax, 1) + 'x, at most ' + slpNum(L.wStep, 1) + ' a week, only after ' + (L.inputSessions || 40) + '+ sessions), a mute for an input that pointed the wrong way in both halves of the last 60 sessions, and the stated odds on each pick card. Waiting for your OK: the expected-value gate and any challenger that passed its check. All weights together move a name by at most ' + slpNum(L.maxDelta, 0) + ' points and never flip its side. ' + escapeHtml(m[2]) + '</p>';
+    var state = t.live ? 'Live since ' + escapeHtml(evbDate(t.liveSince)) : t.mode === 'on' ? 'Switched on; starts ' + escapeHtml(evbDate(t.floor)) : t.mode === 'shadow' ? 'Shadow' : 'Off';
+    var cur = t.current || {};
+    var frozen = t.frozen ? '<div class="slp-alert" role="status"><b>Frozen since ' + escapeHtml(evbDate(t.frozen.since)) + ':</b> ' + escapeHtml(t.frozen.why) + '. No new self-changes until it clears; trading goes on and the market mode stays your brake.</div>' : '';
+    var kpis = slpKpis([
+      ['Mode', '<span class="evb-pill ' + m[1] + '">' + m[0] + '</span>', m[2]],
+      ['Status', state],
+      ['In use', escapeHtml(cur.summary || 'base settings') + ' (v' + (cur.n || 0) + ')'],
+      ['Undo check', slpTuneCheck(cur.check), 'A version whose first ' + (L.undoTrades || 15) + ' decided trades trail the base rules by more than ' + Math.abs(L.undoGap || 5) + ' points a trade reverts itself.'],
+      ['Freeze check', t.freeze ? (t.freeze.streak + ' loss' + (t.freeze.streak === 1 ? '' : 'es') + ' in a row' + (t.freeze.avg20 != null ? ', last 20 ' + slpPct(t.freeze.avg20, 1) : '')) : '—', (L.freezeStreak || 6) + ' losses in a row, or the last 20 record trades under ' + (L.freezeAvg || -10) + '%, since tuning went live, freezes new self-changes.'],
+    ]);
+    var waiting = (t.waiting || []).length ? '<h4 class="slp-h4">Waiting on you</h4><ul class="slp-wait">' + t.waiting.map(function(w){
+      return '<li><div><b>' + escapeHtml(w.label) + '</b>: ' + escapeHtml(w.why) + (w.setting ? '. <span class="crd-dim">' + escapeHtml(w.setting) + '</span>' : '') + '</div><div class="slp-btns">' + slpTuneBtn('approve', 'Approve', ' data-loop-target="' + escapeHtml(w.id) + '"') + slpTuneBtn('decline', 'Decline', ' data-loop-target="' + escapeHtml(w.id) + '"') + '</div></li>';
+    }).join('') + '</ul><p class="evb-note">An approval applies at the next build while self-tuning is live; in shadow it is kept for when it goes live. A decline is not offered again for 60 sessions.</p>' : '<p class="hint">Nothing is waiting on you.</p>';
+    var w = cur.settings && cur.settings.weights ? Object.keys(cur.settings.weights) : [];
+    var weights = w.length ? slpTable([['Input'], ['Weight', 1]], w.map(function(k){ var v = cur.settings.weights[k]; return '<tr><td>' + escapeHtml(slpInputName(k)) + '</td><td class="num">' + (v === 0 ? 'muted' : slpNum(v, 2) + 'x') + '</td></tr>'; }).join('')) : '';
+    var sh = t.shadow;
+    var shadow = sh ? '<h4 class="slp-h4">' + (t.live ? 'Shadow path' : 'What it would apply') + '</h4><p class="crd-dim">' + escapeHtml(sh.summary) + (sh.d ? ', as of ' + escapeHtml(evbDate(sh.d)) : '') + '.</p>' +
+      ((sh.changes || []).length ? slpTable([['Input'], ['From', 1], ['To', 1], ['Why']], sh.changes.map(function(c){ return '<tr><td>' + escapeHtml(slpInputName(c.key)) + '</td><td class="num">' + slpNum(c.from, 2) + '</td><td class="num">' + (c.to === 0 ? 'muted' : slpNum(c.to, 2)) + '</td><td>' + escapeHtml(c.why || '') + '</td></tr>'; }).join('')) : '') : '';
+    var vers = (t.versions || []).length ? '<h4 class="slp-h4">Versions</h4>' + slpTable([['Version'], ['Settings', 'l'], ['Undo check', 'l'], ['']], t.versions.map(function(v){
+      var btn = v.current ? (v.n > 0 ? slpTuneBtn('undo', 'Undo') : '<span class="crd-dim">in use</span>') : slpTuneBtn('restore', 'Restore', ' data-loop-version="' + v.n + '"');
+      var why = (v.changes || []).length ? v.changes.map(function(c){ return slpInputName(c.key) + ' ' + slpNum(c.from, 1) + ' to ' + (c.to === 0 ? 'muted' : slpNum(c.to, 1)); }).join(', ') : (v.why || '');
+      var made = v.d ? escapeHtml(evbDate(v.d)) + (v.by && v.by !== 'base' ? ', ' + escapeHtml(SLP_TUNE_BY[v.by] || v.by) : '') : escapeHtml(SLP_TUNE_BY[v.by] || '');
+      return '<tr' + (v.current ? ' class="is-current"' : '') + '><td>v' + v.n + (v.current ? ' (in use)' : '') + '<br><span class="crd-dim">' + made + '</span></td><td class="l">' + escapeHtml(v.summary || '') + (why && why !== v.summary ? '<br><span class="crd-dim">' + escapeHtml(why) + '</span>' : '') + '</td><td class="l">' + slpTuneCheck(v.check) + '</td><td>' + btn + '</td></tr>';
+    }).join('')) : '';
+    var log = (t.log || []).length ? '<details class="rgl-details slp-details"><summary>Log (' + t.log.length + ')</summary><ul class="rgl-lines">' + t.log.map(function(x){ return '<li>' + escapeHtml(evbDate(x.d)) + ': ' + escapeHtml(x.msg) + '</li>'; }).join('') + '</ul></details>' : '';
+    return lead + frozen + kpis + '<p class="crd-dim" id="slp-tune-status" role="status" aria-live="polite"></p>' + waiting + weights + shadow + vers + log;
+  }
+  function slpTuneSend(btn){
+    var act = btn.getAttribute('data-loop-act');
+    var body = { act: act };
+    var target = btn.getAttribute('data-loop-target');
+    var ver = btn.getAttribute('data-loop-version');
+    if (target) body.target = target;
+    if (ver != null) body.version = Number(ver);
+    var ask = act === 'approve' ? 'Approve ' + target + '? It applies from the next build while self-tuning is live.' : act === 'undo' ? 'Undo the settings in use and go back to the version before?' : act === 'restore' ? 'Restore the settings of v' + ver + '?' : null;
+    if (ask && typeof window.confirm === 'function' && !window.confirm(ask)) return;
+    var status = $('slp-tune-status');
+    if (status) status.textContent = 'Saving…';
+    btn.disabled = true;
+    fetch('/api/auth/picks-loop', { method: 'POST', cache: 'no-store', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){ if (!r.ok) throw new Error(j && j.error || ('HTTP ' + r.status)); return j; }); })
+      .then(function(){ if (status) status.textContent = 'Saved. The next build applies it (every build reads your clicks).'; })
+      .catch(function(err){ btn.disabled = false; if (status) status.textContent = 'Not saved: ' + String(err && err.message || err); });
+  }
+  function slpWireTune(root){
+    if (!root || root.__slpTuneWired) return;
+    root.__slpTuneWired = true;
+    root.addEventListener('click', function(ev){
+      var b = ev.target && ev.target.closest ? ev.target.closest('[data-loop-act]') : null;
+      if (b && !b.disabled) slpTuneSend(b);
+    });
+  }
+  // S1: the count model's stated odds on a Top Picks card (live only).
+  function loopOddsHtml(p){
+    var o = p && p.loopOdds;
+    if (!o || o.p10 == null) return '';
+    var tip = 'From the self-improving loop count model (Owner Lab, Loop tab): past scored names in the same grade band, side and market type, shrunk toward the wider groups. Settings v' + o.v + '.' + (o.learning ? ' Still learning: fewer than 200 graded rows, so this is mostly the starting point.' : '');
+    return '<div class="odds-line slp-odds' + (o.learning ? ' is-few' : '') + '" title="' + escapeHtml(tip) + '"><span class="odds-lbl">Loop odds</span> <b>' + slpPct(o.p10) + ' its way in 10 sessions</b> · option +25% first ' + slpPct(o.pTp) + ' · stated value <span class="' + slpSign(o.ev) + '">' + slpPts(o.ev) + ' pts</span>' + (o.learning ? ' <span class="acc-few">learning</span>' : '') + '</div>';
+  }
   function renderSelfLoop(){
     var root = $('self-loop-root'); if (!root) return;
     var d = slpState.data;
@@ -4509,12 +4587,14 @@ function recoveryEvidence(row, data, now = Date.now()) {
       ['slp-markets', 'Where does the engine work?', slpMarketsHtml],
       ['slp-losses', 'How do the losses happen?', slpLossesHtml],
       ['slp-challengers', 'Paper challengers', slpChallengersHtml],
+      ['slp-tune', 'Self-tuning', slpTuneHtml],
       ['slp-model', 'The model behind the odds', slpModelHtml],
       ['slp-history', 'Day by day', slpHistoryHtml],
     ];
     var nav = '<nav class="rgl-nav" aria-label="Loop sections">' + parts.map(function(p){ return '<a href="#' + p[0] + '">' + escapeHtml(p[1].replace(/\?$/, '')) + '</a>'; }).join('') + '</nav>';
     root.innerHTML = nav + parts.map(function(p){ return slpSection(p[0], escapeHtml(p[1]), p[2](d)); }).join('') +
       '<p class="evb-note">Measurement only: nothing on this page changes a pick, a grade or the Track Record unless self-tuning is switched on. Built ' + escapeHtml(rglEt(d.builtAt)) + '. Rules version ' + escapeHtml(String(d.v || '')) + '.</p>';
+    slpWireTune(root);
   }
   function loadSelfLoop(force){
     var status = $('owner-loop-status');
@@ -6043,6 +6123,7 @@ function validNewsFeedPayload(data) {
     'pending-buyout': 'Signed takeover target (price pinned to the deal)',
     'macro-conflict': 'Fights the macro backdrop (rates, credit, cycle)',
     'crowd-squeeze': 'Hard to borrow with heavy shorting (squeeze risk on a put)',
+    'loop-ev': 'Stated option value below zero after costs (self-tuning value gate)',
     'option-economics': 'Option target does not support the profit exit after quote costs',
     'sector-cap': 'Sector cap', 'factor-cap': 'Factor cap', 'factor-run-cap': 'Same-group limit (2 new per run)', 'factor-trend': 'Weak factor trend', 'side-cap': 'Call / put cap',
     'event-cap': 'Event-trade limit reached', 'below-bar': 'Score below the bar',
@@ -6070,6 +6151,7 @@ function validNewsFeedPayload(data) {
     'pending-buyout': 'A signed takeover pins the price to the deal.',
     'macro-conflict': 'Its macro fit points 0.5 or more against the trade; it clears when the rates, credit or rotation read turns.',
     'crowd-squeeze': 'The borrow fee has to ease, or short volume has to cool, before a put can open.',
+    'loop-ev': 'The count model has to read a stated option value of zero or better for this setup.',
     'option-economics': 'After the bid/ask cost the option cannot reach the profit target.',
     'sector-cap': 'Its sector already holds the most picks allowed.',
     'factor-cap': 'Its factor group already holds the most picks allowed.',
@@ -50559,7 +50641,11 @@ function scenarioEventPhase(ev, now = Date.now()) {
     // AI final grader mode (live / off / keyless), stamped from 2026-11-08.
     // Every earlier record trade ran with the grader live, so an unstamped
     // trade reads as live and no divider appears until the mode changes.
-    { key:'grader', get:function(e){ return (e && e.graderMode) || 'live'; } }
+    { key:'grader', get:function(e){ return (e && e.graderMode) || 'live'; } },
+    // Self-improving loop settings version (lib/self-loop/tune.mjs), stamped
+    // only on trades opened under live self-tuning, so every live change
+    // gets its own dated divider.
+    { key:'loop', get:function(e){ return (e && e.loopVersion != null) ? 'v' + e.loopVersion : ''; } }
   ];
   // When each version took effect and what it changed (shown on its divider).
   // A version missing here dates from its earliest trade and shows no note.
@@ -50627,6 +50713,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       var sa = newer.sinceOf(dim.key, a), sb = b ? newer.sinceOf(dim.key, b) : '';
       if (sa && sb && sa <= sb) return;
       var n = ACC_RULE_NOTES[dim.key] && ACC_RULE_NOTES[dim.key][a];
+      if (!n && dim.key === 'loop') n = { note: 'Self-tuning settings ' + a + ' (Owner Lab, Loop tab)' };
       changed.push({ key: dim.key, since: sa, note: n && n.note });
     });
     var when = changed.map(function(c){ return c.since; }).filter(Boolean).sort().pop()
@@ -58309,7 +58396,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
           fiftyHtml +
           watchBtnHtml +
         '</div>' +
-        TOP_PICKS_MARKET_UI.scores(p) + TOP_PICKS_MARKET_UI.explain(p) + oddsLineHtml(oddsLookup(oddsTableNow(), p.symbol, p.side), false) + pickPlanSummaryHtml(p) + bodyHtml +
+        TOP_PICKS_MARKET_UI.scores(p) + TOP_PICKS_MARKET_UI.explain(p) + oddsLineHtml(oddsLookup(oddsTableNow(), p.symbol, p.side), false) + loopOddsHtml(p) + pickPlanSummaryHtml(p) + bodyHtml +
       '</div>' +
     '</article>';
   }

@@ -539,6 +539,10 @@ jobs:
           # Self-improving loop (lib/self-loop/, docs/self-loop.md): set the repo
           # variable LOOP to 0 to stop the measurement and keep the prior files.
           LOOP: ${{ vars.LOOP }}
+          # Step 4, self-tuning: unset = shadow (proposals only, no live
+          # change), on = apply inside the limits from 2026-12-07, 0 = the
+          # frozen base settings at the next run.
+          SELF_TUNE: ${{ vars.SELF_TUNE }}
           # (PICKS_ACCURACY_AB removed: it was set here but read NOWHERE in the
           # code — the wait-arm cohort it described now enrolls BY DEFAULT,
           # since every actionable pick enrolls cohort-tagged go/wait.)

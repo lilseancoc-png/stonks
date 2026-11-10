@@ -1783,5 +1783,19 @@ against the names it let through. Step 2 reads which inputs still work, where th
 engine works by market type, how losses happen, and writes a weekly report.
 Step 3 runs small fixed changes as paper challenger books against a replica of
 the current rules, with a strict promotion check. Steps 1-3 are measurement
-only: the grade, the gates, the contracts and the record are unchanged. Step 4
-(bounded self-adjustment) is described in the spec when it lands.
+only: the grade, the gates, the contracts and the record are unchanged.
+
+Step 4 (`lib/self-loop/tune.mjs`) is the only part that can change a pick, and
+it ships in shadow: repo variable `SELF_TUNE` unset works out and shows what it
+would change, and nothing applies. With `SELF_TUNE=on`, from December 7, 2026,
+it reweights inputs once a week (0.5x-1.5x, at most 0.1 a week, only for inputs
+proven over 40+ sessions in both halves), mutes one pointing the wrong way,
+puts the loop's odds on each pick card, and, with the Owner's OK, adds the
+expected-value gate (`loop-ev` in `structuralVeto`) and passed challengers.
+All weights together move a name at most 2 points and never flip its side;
+the tuned total feeds the tier, the order, the trade bar and the AI grader
+slots, while `grades.json`, LEAPS and `regen-picks` stay untuned. Every change
+is a version with undo; a version trailing the base rules over its first 15
+trades undoes itself, and a losing streak freezes self-changes. New trades
+under a tuned version carry `loopVersion` (Track Record divider), and
+`rosterMeta.loopTune` names the version a run used.

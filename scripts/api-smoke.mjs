@@ -259,6 +259,35 @@ try {
     assert.equal(res.statusCode, 400);
     assert.equal(res.headers["cache-control"], "private, no-store");
   }
+  // The self-tuning control (Owner Lab, Loop tab): Owner session only,
+  // same-origin POST, and a bad action is refused before anything is read.
+  res = mockResponse();
+  await authHandler({ query: { action: "picks-loop" }, method: "GET", headers: { host: "example.test" } }, res);
+  assert.equal(res.statusCode, 401);
+  assert.equal(res.headers["cache-control"], "private, no-store");
+  res = mockResponse();
+  await authHandler({ query: { action: "picks-loop" }, method: "GET", headers: { host: "example.test", cookie: `${SESSION_COOKIE}=${partial}` } }, res);
+  assert.equal(res.statusCode, 401);
+  res = mockResponse();
+  await authHandler({ query: { action: "picks-loop" }, method: "DELETE", headers: { host: "example.test", cookie: `${SESSION_COOKIE}=${token}` } }, res);
+  assert.equal(res.statusCode, 405);
+  res = mockResponse();
+  await authHandler({
+    query: { action: "picks-loop" }, method: "POST",
+    headers: { host: "example.test", "x-forwarded-proto": "https", origin: "https://evil.test", cookie: `${SESSION_COOKIE}=${token}` },
+    body: { act: "approve", target: "ev-gate" },
+  }, res);
+  assert.equal(res.statusCode, 403);
+  for (const body of [{ act: "sell" }, { act: "approve" }, { act: "approve", target: "mute:../x" }, { act: "approve", target: "bar:9" }, { act: "restore", version: -1 }, { act: "restore" }, {}, null]) {
+    res = mockResponse();
+    await authHandler({
+      query: { action: "picks-loop" }, method: "POST",
+      headers: { host: "example.test", "x-forwarded-proto": "https", origin: "https://example.test", cookie: `${SESSION_COOKIE}=${token}` },
+      body,
+    }, res);
+    assert.equal(res.statusCode, 400, JSON.stringify(body));
+    assert.equal(res.headers["cache-control"], "private, no-store");
+  }
   // Calendar subscribe: GET/HEAD only; a forged Owner link is a plain 404
   // (before anything is read), and the route is off with the store flag.
   res = mockResponse();

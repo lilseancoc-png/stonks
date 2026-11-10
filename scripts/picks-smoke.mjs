@@ -1048,6 +1048,28 @@ ok("picks: KNIFE timing-gated (not shipped)", !picks.some((p) => p.symbol === "K
   ok("ai pre-screen: a collateral-vetoed call no longer takes a grader slot", picks[0]?.side !== "call" || !collCands.includes(tgt));
 }
 
+// Self-improving loop, step 4 (shadow by default): the value gate's veto and
+// the loop's trade bar reach buildTopPicks; with no plan nothing changes.
+{
+  ok("loop: no plan, no loopTune block and an empty veto list", !picks.rosterMeta.loopTune && Array.isArray(picks.rosterMeta.otherVetoed) && picks.rosterMeta.otherVetoed.length === 0);
+  const pre = scoreAllTickers(chains, [], null, null, null, null, {});
+  const first = picks[0];
+  if (first) {
+    const marked = { ...pre, scored: pre.scored.map((r) => (r.sym === first.symbol ? { ...r, loopTune: { version: 1, evBlock: true } } : r)) };
+    const out = buildTopPicks(chains, [], null, null, null, null, 0.045, { preScored: marked });
+    ok("loop value gate: a vetoed name is kept off the roster", !out.some((p) => p.symbol === first.symbol) && out.rosterMeta.otherVetoed.some((v) => v.sym === first.symbol && v.gate === "loop-ev"));
+    ok("loop value gate: the drop is traced", out.rosterMeta.turnedAway.some((t) => t.sym === first.symbol && t.gate === "loop-ev"));
+    ok("loop value gate: the rest of the roster is unchanged", picks.filter((p) => p.symbol !== first.symbol).every((p) => out.some((q) => q.symbol === p.symbol)));
+    ok("loop value gate: the AI pre-screen skips it too", !aiGraderCandidates(marked, null, {}).some((c) => c.r.sym === first.symbol));
+  }
+  const totalOf = Object.fromEntries(pre.scored.map((r) => [r.sym, Math.abs(r.preRegimeTotal ?? r.total)]));
+  const high = buildTopPicks(chains, [], null, null, null, null, 0.045, { loopBar: 6 });
+  ok("loop bar: a raised bar ships only names past it", high.length <= picks.length && high.every((p) => totalOf[p.symbol] >= 6 || p.tactical));
+  const plan = { version: 2, tuned: true, frozen: false, settings: { weights: {}, evGate: true, bar: null } };
+  const withPlan = buildTopPicks(chains, [], null, null, null, null, 0.045, { loopPlan: plan, loopMoved: 0 });
+  ok("loop: a live plan is stamped on the roster", withPlan.rosterMeta.loopTune?.version === 2 && withPlan.rosterMeta.loopTune.evGate === true);
+}
+
 ok("picks: each pick has contract + sizing", picks.length === 0 || picks.every((p) => p.contract && p.sizing && p.sizing.weight != null));
 ok("picks: each pick has pillars + recommendation + thesis", picks.every((p) => p.pillars && p.recommendation && p.analysis));
 ok("picks: exitPlan TP/cut present", picks.every((p) => p.exitPlan && p.exitPlan.takeProfit && p.exitPlan.cut));
