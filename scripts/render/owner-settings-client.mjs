@@ -14,7 +14,12 @@ export function ownerSettingsSection() {
 export function ownerSettingsClient(window, document, ctx) {
   var data = null, error = '', busy = false, loading = false, generation = 0;
   function esc(v){ return String(v == null ? '' : v).replace(/[&<>"']/g, function(c){ return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]; }); }
-  function when(v){ var n = Date.parse(v); return isFinite(n) ? new Date(n).toLocaleString() : '—'; }
+  // Times in ET, like the rest of the site's schedule (11:00 / 15:30 ET runs).
+  function when(v){
+    var n = Date.parse(v); if (!isFinite(n)) return '—';
+    try { return new Date(n).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + ' ET'; }
+    catch (e) { return new Date(n).toLocaleString(); }
+  }
   function fmt(s, v){
     if (s.kind === 'switch') return v ? 'On' : 'Off';
     if (s.kind === 'choice') { for (var i = 0; i < (s.options || []).length; i++) if (s.options[i][0] === v) return s.options[i][1]; return String(v); }
@@ -107,6 +112,7 @@ export function ownerSettingsClient(window, document, ctx) {
         if (gen !== generation) return null;
         if (r.status === 401) { ctx.revoke(); throw new Error('Sign in again to change settings.'); }
         if (!r.ok) { var e = new Error(j.error || ('Request failed (' + r.status + ')')); e.needsConfirm = !!j.needsConfirm; throw e; }
+        if (!j || !Array.isArray(j.settings)) throw new Error('Settings unavailable right now. Try Refresh in a minute.');
         return j;
       });
     });
@@ -141,7 +147,8 @@ export function ownerSettingsClient(window, document, ctx) {
         var k = el.getAttribute('data-os-save'), s = byKey(k), input = document.getElementById('os-' + k);
         if (!s || !input) return;
         var v = Number(input.value);
-        if (!isFinite(v) || v < s.min || v > s.max) { error = s.label + ' must be between ' + fmt(s, s.min) + ' and ' + fmt(s, s.max) + '.'; render(); return; }
+        var off = Math.abs((v - s.min) / s.step - Math.round((v - s.min) / s.step));
+        if (input.value === '' || !isFinite(v) || v < s.min || v > s.max || off > 1e-6) { error = s.label + ' must be between ' + fmt(s, s.min) + ' and ' + fmt(s, s.max) + (s.step !== 1 ? ', in steps of ' + fmt(s, s.step) : '') + '.'; render(); return; }
         setOne(k, v);
       });
     });

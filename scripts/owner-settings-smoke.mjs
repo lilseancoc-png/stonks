@@ -114,6 +114,15 @@ ok(!("MCP_ENABLED" in env), "site switches never reach the build env");
 eq(report.picksTag, "AI_THESIS=off,PICKS_COUNT=4,PICKS_EVENT_AWARE=off", "picks tag lists only Top Picks settings");
 eq(picksTag({ REGIME_LAB: false }), "", "research-only change stamps nothing");
 ok(/Most picks per run 4/.test(describePicksTag(report.picksTag)), "tag in words");
+{
+  // Reverting every Top Picks setting stamps "default" so the record splits.
+  const reverted = applyOwnerSettingsRequest(applyOwnerSettingsRequest(null, { act: "set", values: { PICKS_COUNT: 3 } }).doc, { act: "reset-all" }).doc;
+  eq(applyOwnerSettingsToEnv(reverted, {}).picksTag, "default", "back on defaults after a Top Picks change stamps default");
+  const researchOnly = applyOwnerSettingsRequest(null, { act: "set", values: { REGIME_LAB: false } }).doc;
+  eq(applyOwnerSettingsToEnv(researchOnly, {}).picksTag, "", "research-only history stamps nothing");
+  eq(applyOwnerSettingsToEnv(null, {}).picksTag, "", "no settings file stamps nothing");
+  eq(describePicksTag("default"), "back on the defaults", "default tag in words");
+}
 
 // The preload sets the env before build.mjs-style modules read it.
 const dir = mkdtempSync(join(tmpdir(), "owner-settings-"));
@@ -160,13 +169,14 @@ out = await call("POST", { act: "set", values: { PICKS_COUNT: 2 } }, owner, "htt
 out = await call("POST", { act: "set", values: { PICKS_COUNT: 99 } }); eq(out.statusCode, 400, "bad value refused"); ok(!mem.has(OWNER_SETTINGS_KEY), "nothing stored on a bad value");
 out = await call("POST", { act: "set", values: { SELF_TUNE: "off" } }); eq(out.statusCode, 400, "confirm needed"); ok(out.body.needsConfirm, "needsConfirm flag");
 out = await call("GET"); eq(out.statusCode, 200, "owner GET"); eq(out.body.settings.length, OWNER_SETTINGS.length, "catalog returned");
-out = await call("POST", { act: "set", values: { PICKS_COUNT: 2, MCP_ENABLED: false } }); eq(out.statusCode, 200, "owner POST");
+const prevMcp = process.env.MCP_ENABLED;
+out = await call("POST", { act: "set", values: { PICKS_COUNT: 2, MCP_ENABLED: false } });
+eq(process.env.MCP_ENABLED, "0", "a saved switch applies on this instance at once"); eq(out.statusCode, 200, "owner POST");
 eq(JSON.parse(mem.get(OWNER_SETTINGS_KEY)).values, { PICKS_COUNT: 2, MCP_ENABLED: false }, "stored");
 eq(out.body.history[0].by, "MiniMe", "change records the Owner");
 mem.set(OWNER_SETTINGS_APPLIED_KEY, JSON.stringify({ applied: { PICKS_COUNT: 2 }, pinned: [], skipped: [], builtAtIso: at }));
 out = await call("GET"); eq(out.body.applied.applied, { PICKS_COUNT: 2 }, "last build report shown");
 // The MCP switch reaches the MCP route.
-const prevMcp = process.env.MCP_ENABLED;
 const mcpOut = res();
 await auth({ query: { action: "mcp-meta", kind: "as" }, method: "GET", headers: { host: "example.test", "x-forwarded-proto": "https" } }, mcpOut);
 eq(process.env.MCP_ENABLED, "0", "MCP off applied for the MCP route");
@@ -174,5 +184,12 @@ out = await call("POST", { act: "undo" }); eq(out.statusCode, 200, "undo via rou
 await new Promise((r) => setTimeout(r, 5));
 await auth({ query: { action: "mcp-meta", kind: "as" }, method: "GET", headers: { host: "example.test", "x-forwarded-proto": "https" } }, res());
 eq(process.env.MCP_ENABLED, prevMcp, "MCP back to the Vercel value after undo");
+// Requests outside the gated actions leave the forced value in place, so a
+// request running alongside never sees a half-restored env.
+out = await call("POST", { act: "set", values: { MCP_ENABLED: false } });
+await auth({ query: { action: "me" }, method: "GET", headers: { host: "example.test", "x-forwarded-proto": "https" } }, res());
+eq(process.env.MCP_ENABLED, "0", "other actions do not restore a forced switch");
+out = await call("POST", { act: "reset", key: "MCP_ENABLED" });
+eq(process.env.MCP_ENABLED, prevMcp, "reset restores the Vercel value");
 
 console.log(`owner settings smoke passed (${checks} checks)`);

@@ -114,20 +114,32 @@ export function mcpRouteOf(req) {
 // a feature OFF on top of the Vercel env. Read for the few actions they gate,
 // cached for 30 seconds per warm instance; a failed read keeps the Vercel env.
 const SITE_SWITCH_KEYS = ["CONTACT_ENABLED", "SPORTS_ENABLED", "MCP_ENABLED", "WEBULL_MIRROR"];
-// Keys this module forced off, with the value they had before, so the next
-// request starts from the real Vercel env again.
+// Keys this module forced off, with the value they had before. The forced
+// values stay in place between requests and change only when the saved
+// settings change, so two requests running at once on one warm instance can
+// never see each other's half-restored env (a switch the Owner turned off
+// stays off for every request on the instance).
 const siteSwitchForced = new Map();
-function restoreSiteSwitches() {
-  for (const [k, prev] of siteSwitchForced) { if (prev === undefined) delete process.env[k]; else process.env[k] = prev; }
-  siteSwitchForced.clear();
+function syncSiteSwitches(overrides) {
+  for (const k of SITE_SWITCH_KEYS) {
+    const v = overrides?.[k];
+    if (v !== undefined) {
+      if (!siteSwitchForced.has(k)) siteSwitchForced.set(k, process.env[k]);
+      process.env[k] = v;
+    } else if (siteSwitchForced.has(k)) {
+      const prev = siteSwitchForced.get(k);
+      if (prev === undefined) delete process.env[k]; else process.env[k] = prev;
+      siteSwitchForced.delete(k);
+    }
+  }
 }
-const siteSwitchBase = () => { restoreSiteSwitches(); return Object.fromEntries(SITE_SWITCH_KEYS.map((k) => [k, process.env[k]])); };
+// The Vercel value of each switch, without this page's overrides.
+const siteSwitchBase = () => Object.fromEntries(SITE_SWITCH_KEYS.map((k) => [k, siteSwitchForced.has(k) ? siteSwitchForced.get(k) : process.env[k]]));
 const SITE_SWITCH_ACTIONS = new Set(["contact", "contact-inbox", "webull-mirror", "mcp", "mcp-meta", "mcp-oauth"]);
 let siteSwitchCache = { at: 0, overrides: {} };
 async function applySiteSwitches(req, action) {
-  restoreSiteSwitches();
   if (!SITE_SWITCH_ACTIONS.has(action) && !(action === "me" && req.query?.sports)) return;
-  if (process.env.PRIVATE_DATA_ENABLED !== "1") return;
+  if (process.env.PRIVATE_DATA_ENABLED !== "1") { syncSiteSwitches({}); return; }
   if (Date.now() - siteSwitchCache.at > 30_000) {
     try {
       const [{ store }, settings] = await Promise.all([import("../../lib/datastore.mjs"), import("../../lib/owner-settings.mjs")]);
@@ -137,12 +149,7 @@ async function applySiteSwitches(req, action) {
       siteSwitchCache = { at: Date.now(), overrides: siteSwitchCache.overrides };
     }
   }
-  for (const k of SITE_SWITCH_KEYS) {
-    const v = siteSwitchCache.overrides[k];
-    if (v === undefined) continue;
-    siteSwitchForced.set(k, process.env[k]);
-    process.env[k] = v;
-  }
+  syncSiteSwitches(siteSwitchCache.overrides);
 }
 
 export default async function handler(req, res) {
@@ -796,7 +803,8 @@ async function ownerSettingsRoute(req, res) {
       out = leased.result;
     } else out = await save(null);
     if (out.error) return res.status(400).json({ error: out.error, ...(out.needsConfirm ? { needsConfirm: true } : {}) });
-    siteSwitchCache = { at: 0, overrides: {} };
+    siteSwitchCache = { at: Date.now(), overrides: S.runtimeEnvOverrides(out.doc) };
+    syncSiteSwitches(siteSwitchCache.overrides);
     return res.status(200).json(await view(out.doc));
   } catch (err) {
     console.error("owner settings failed", { message: String(err?.message || err) });

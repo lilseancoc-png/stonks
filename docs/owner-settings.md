@@ -44,9 +44,15 @@ Picks per run is capped at today's 6 so the AI grader never reads more names.
 - New Top Picks record trades carry `ownerSettings` (e.g.
   `PICKS_COUNT=4,PICKS_EVENT_AWARE=off`) while a Top Picks setting differs from
   its default, and the Track Record draws a dated divider when it changes
-  (`ACC_RULE_DIMS` key `settings`). The record is never reset.
+  (`ACC_RULE_DIMS` key `settings`). Once any Top Picks setting has been
+  changed here, trades opened back on the defaults carry `ownerSettings:
+  "default"`, so a revert starts its own segment instead of folding into the
+  trades from before this page. The record is never reset.
 - Live site switches: the auth function reads the file (30-second cache per
   warm instance) for `contact`, `contact-inbox`, `webull-mirror`, the MCP
-  routes and `me?sports=`, and sets the env value to off for that request.
+  routes and `me?sports=`, and forces the env value off on that warm
+  instance. The forced value stays in place between requests and is put back
+  only when the saved settings change (or on a save), so two requests running
+  at once never see a half-restored env.
 
 No AI call, no new fetch, serverless function, workflow or env variable.

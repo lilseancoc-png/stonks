@@ -36928,6 +36928,7 @@ ${renderExportBindings()}
   ];
   var OWNER_SETTING_LABELS = ${JSON.stringify(Object.fromEntries(OWNER_SETTINGS.filter(d => d.picks).map(d => [d.key, d.label])))};
   function ownerSettingsTagText(tag){
+    if (tag === 'default') return 'back on the defaults';
     return String(tag || '').split(',').filter(Boolean).map(function(part){
       var i = part.indexOf('='), k = part.slice(0, i), v = part.slice(i + 1);
       return (OWNER_SETTING_LABELS[k] || k) + ' ' + v;
