@@ -55,8 +55,8 @@ server entry):
 
 For GitHub Actions, API-based agents (OpenAI Responses API `mcp` tool, Anthropic Messages API MCP connector,
 Gemini SDK), n8n and similar, which can send a header but can't open a sign-in page. LilSean sets
-`MCP_OWNER_KEY` in the Vercel env to a random value of 32+ characters (`openssl rand -hex 32`); unset means
-off. The client sends it as a bearer token:
+`MCP_OWNER_KEY` in the Vercel env to a random value of 32+ characters (`openssl rand -hex 32`), using only
+letters, digits and `. _ ~ + / = -` (the characters a bearer token may hold); unset means off. The client sends it as a bearer token:
 
 ```
 Authorization: Bearer <MCP_OWNER_KEY>
@@ -69,7 +69,8 @@ Authorization: Bearer <MCP_OWNER_KEY>
 
 The key is the Owner (all Owner tools, same read-only rules), skips Discord, and never expires on its own:
 anyone holding it reads Owner research. Keep it in a secret store, never in a repo or a prompt. To revoke it,
-change or delete `MCP_OWNER_KEY`. Calls made with it are logged as `who: "owner-key"`. A key under 32 characters
+change or delete `MCP_OWNER_KEY` (`MCP_TOKEN_VERSION` revokes sign-in tokens only, not the key; `MCP_ENABLED=0`
+and the Owner Settings MCP switch turn off both). Calls made with it are logged as `who: "owner-key"`. A key under 32 characters
 never works. Comparison is constant-time (`ownerKeyMatches` in `lib/mcp/oauth.mjs`).
 
 ### Finding the server
@@ -242,8 +243,8 @@ variables. No Discord app change is needed.
 - **Protocol.** Stateless Streamable HTTP with JSON responses and no `Mcp-Session-Id`. It serves 2026-07-28
   (`server/discover`, `Mcp-Method`/`Mcp-Name` checked against the body) and 2024-11-05 / 2025-03-26 /
   2025-06-18 / 2025-11-25 (`initialize` negotiates). `GET /mcp` returns 405 because there is no server push (a
-  browser asking for HTML gets the info page). JSON-RPC batches (up to 20 messages) are answered one reply per
-  request. A client whose `Accept` lists only `text/event-stream` gets the reply as one SSE `message` event;
+  browser asking for HTML gets the info page). JSON-RPC batches (up to 20 messages, at most 4 tool calls) are answered
+  one reply per request. A client whose `Accept` lists only `text/event-stream` gets the reply as one SSE `message` event;
   everyone else gets JSON. Bodies are limited to 64 KB. `resources/list`, `resources/templates/list` and
   `prompts/list` answer empty lists; `logging/setLevel` and `completion/complete` answer empty results. Browser `Origin`s: any https origin, plus http on localhost (the MCP Inspector); plain
   http from another host is refused. This is safe because auth is a bearer token the client holds, never a

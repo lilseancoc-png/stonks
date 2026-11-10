@@ -363,6 +363,10 @@ async function rpc(method, params, { headers = auth, extra = {} } = {}) {
   assert.equal(noteBatch.statusCode, 202);
   const bigBatch = await call((req, res) => handleMcpRequest(req, res, deps()), { method: "POST", headers: auth, body: Array.from({ length: 21 }, (_, i) => ({ jsonrpc: "2.0", id: i, method: "ping" })) });
   assert.equal(bigBatch.statusCode, 400);
+  const callBatch = await call((req, res) => handleMcpRequest(req, res, deps()), { method: "POST", headers: auth, body: Array.from({ length: 5 }, (_, i) => ({ jsonrpc: "2.0", id: i, method: "tools/call", params: { name: "list_features", arguments: {} } })) });
+  assert.equal(callBatch.statusCode, 200);
+  assert.equal(callBatch.body.filter((b) => b.result).length, 4, "four tool calls run");
+  assert.match(callBatch.body[4].error.message, /At most 4 tool calls/);
   const get = await call((req, res) => handleMcpRequest(req, res, deps()), { method: "GET", headers: auth });
   assert.equal(get.statusCode, 405);
   const getSse = await call((req, res) => handleMcpRequest(req, res, deps()), { method: "GET", headers: { ...auth, accept: "text/event-stream" } });
