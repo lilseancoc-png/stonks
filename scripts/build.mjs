@@ -9,7 +9,7 @@ import { PUBLISHED_COMPANY_EVENTS, COMPANY_EVENTS_VERSION, companyEventsInWindow
 import { calendarCoverage, calendarEventsForUniverse, calendarScheduleFallbackUsable } from "../lib/calendar-policy.mjs";
 import { producerReportsFailure } from "../lib/producer-health.mjs";
 import { backfillEarningsRevenue,earningsWeek1DueDate } from "../lib/earnings-data.mjs";
-import { ISM_CALENDAR_URL, ISM_SCHEDULE_VERIFIED_AT, censusCalendarUrl, parseCensusCalendar, parseIsmCalendar, ismBaselineEvents, supplementalWeeklyReports, marketSessionCalendarEvents, scheduledPolicyCalendarEvents } from "../lib/calendar-sources.mjs";
+import { ISM_CALENDAR_URL, ISM_SCHEDULE_VERIFIED_AT, censusCalendarUrl, parseCensusCalendar, parseIsmCalendar, ismBaselineEvents, ismRuleEvents, supplementalWeeklyReports, marketSessionCalendarEvents, scheduledPolicyCalendarEvents } from "../lib/calendar-sources.mjs";
 import { computeStreakForTicker, streakTrendRead } from "../lib/streaks.mjs";
 export { computeStreakForTicker } from "../lib/streaks.mjs";
 import { PATTERN_HISTORY_DAYS, splitPatternHistory } from "../lib/pattern-history.mjs";
@@ -9703,6 +9703,9 @@ export function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras)
   const priorOfficial = extras?.priorCalendar?.events || [];
   for (const ev of priorOfficial) {
     if (!ev?.official || !ev?.sourceKey || officialStatus[ev.sourceKey] !== false || !ev?.date) continue;
+    // Rule-estimated ISM rows are rebuilt every run; a carried copy would
+    // only come back marked stale.
+    if (ev.scheduleEstimated && /^ism-\d{4}$/.test(ev.sourceKey)) continue;
     if (ev?.source === "Federal Reserve Board" && ev?.type === "report" && isExcludedFedCalendarReport(ev.title)) continue;
     const ms = Date.parse(ev.date + "T00:00:00Z");
     const endMs = Date.parse((ev.endDate || ev.date) + "T00:00:00Z");
@@ -15077,9 +15080,17 @@ export async function fetchOfficialCalendarEvents(startMs, cutoffMs, {nowMs=Date
     (async () => {
       const years = [...new Set(calendarMonthsInWindow(startMs, cutoffMs).map(m => m.year))];
       const usePublished = year => {
+        // The verified table while it is usable, else ISM's published rule
+        // (lib/calendar-sources.mjs ismRuleEvents, every row an estimate).
         const rows=ismBaselineEvents(year,nowMs);
-        addInWindow(rows);
-        if(rows.length)fallbacks[`ism-${year}`]={kind:'published-schedule',verifiedAt:ISM_SCHEDULE_VERIFIED_AT,validThrough:year+'-12-31'};
+        if(rows.length && rows.every(e=>!e.stale)){
+          addInWindow(rows);
+          fallbacks[`ism-${year}`]={kind:'published-schedule',verifiedAt:ISM_SCHEDULE_VERIFIED_AT,validThrough:year+'-12-31'};
+          return;
+        }
+        const ruled=ismRuleEvents(year);
+        addInWindow(ruled);
+        if(ruled.length)fallbacks[`ism-${year}`]={kind:'published-rule',rule:ruled[0].scheduleRule,validThrough:year+'-12-31'};
       };
       try {
         const parsed = parseIsmCalendar(await fetchTextCalendar(ISM_CALENDAR_URL)).map(e=>({...e,scheduleVerifiedAt:new Date(nowMs).toISOString().slice(0,10)}));
