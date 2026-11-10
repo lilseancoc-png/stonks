@@ -48,10 +48,18 @@ detailed report series retain prior rows and chart history independently, so
 a successful weekly feed cannot erase a failed monthly series. Prior rows
 cannot override a changed official date.
 
-ISM can return an HTTP-200 CAPTCHA. In that case the calendar uses its
+ISM's dated calendar page now redirects to an ISM login (GitHub runners get
+HTTP 403), so the live check fails on every build. While its
 [published 2026 table](https://www.ismworld.org/supply-management-news-and-reports/reports/rob-report-calendar/),
-verified October 28, 2026, and labels those rows stale. The source status still
-reports failure. The baseline does not extend into unverified years.
+verified October 28, 2026, is under 30 days old, the calendar uses those dates
+as a cached schedule. After that, and for any year without a verified table, the
+dates come from the rule ISM states on its public pages: Manufacturing on the
+first business day of the month, Services on the third, 10:00 ET, counted over
+the NYSE session table (`ismRuleEvents`). The rule matched 11 of 12 months of
+the 2026 table (ISM moved January 2026 to the 5th and 7th), so those rows show
+an "Estimated date" chip and the Update Checker reports a notice, not a
+warning. The source status still reports failure, and there are no rule dates
+for years the NYSE table does not cover.
 
 The calendar does not claim exhaustive coverage of unscheduled policy news,
 corporate filings, dividends, splits, shareholder meetings, options expirations,

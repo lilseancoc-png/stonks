@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { collectFreeNewsSources,ISSUER_NEWS_SOURCES } from '../lib/free-news-sources.mjs';
 import { evidenceSourceHealth } from '../lib/news-evidence.mjs';
 import { calendarHealth,calendarScheduleFallbackUsable } from '../lib/calendar-policy.mjs';
-import { ismBaselineEvents } from '../lib/calendar-sources.mjs';
+import { ismBaselineEvents,ismRuleEvents } from '../lib/calendar-sources.mjs';
 import { fetchCompanyCalendar,COMPANY_EVENTS_VERSION } from '../lib/company-events.mjs';
 import { buildCalendarPayload,fetchOfficialCalendarEvents } from './build.mjs';
 import { UPDATE_FEATURES,inspectFeature } from '../lib/update-checker.mjs';
@@ -77,6 +77,28 @@ const newerPrior=buildCalendarPayload({},[],new Date(expiredMs).toISOString(),{c
 assert.equal(newerPrior.coverage.officialFallbacks['ism-2026'].verifiedAt,'2026-11-25','last successful dated publisher check can supersede the packaged baseline');
 assert.equal(calendarHealth(newerPrior,expiredMs).warnings.length,0);
 
+// After the verified table expires, ISM's published rule (first / third
+// business day) keeps the dates, marked estimated, as a notice.
+const rule2026=ismRuleEvents(2026),base2026=ismBaselineEvents(2026,ms);
+assert.equal(rule2026.filter(r=>base2026.some(b=>b.subtype===r.subtype && b.date===r.date)).length,22,'rule matches 11 of 12 months of the verified 2026 table');
+assert(rule2026.every(e=>e.scheduleEstimated && !e.stale && e.actual==null && e.time==='10:00 ET'));
+assert.deepEqual(ismRuleEvents(2027).filter(e=>e.date<'2027-02-01').map(e=>e.date),['2027-01-04','2027-01-06']);
+assert.deepEqual(ismRuleEvents(2027).filter(e=>e.date.startsWith('2027-04')).map(e=>e.date),['2027-04-01','2027-04-05'],'Good Friday is not a business day');
+assert.deepEqual(ismRuleEvents(2029),[],'no rule dates beyond the NYSE session table');
+let ruled;
+try {
+  globalThis.fetch=async()=>({ok:false,status:403});
+  ruled=await fetchOfficialCalendarEvents(expiredMs,Date.parse('2027-01-31'),{nowMs:expiredMs});
+} finally {globalThis.fetch=originalFetch;}
+assert.equal(ruled.fallbacks['ism-2026'].kind,'published-rule');assert.equal(ruled.fallbacks['ism-2027'].kind,'published-rule');
+assert(ruled.events.some(e=>e.sourceKey==='ism-2027' && e.date==='2027-01-04' && e.scheduleEstimated));
+assert(!ruled.events.some(e=>/^ism-/.test(e.sourceKey||'') && e.stale),'expired table rows are replaced, not shown stale');
+const ruledCal=buildCalendarPayload({},[],new Date(expiredMs).toISOString(),{companyCalendar:{events:[],status:{}},officialCalendar:ruled,priorCalendar:{events:ismRuleEvents(2026)}});
+assert(!ruledCal.events.some(e=>/^ism-/.test(e.sourceKey||'') && e.stale),'carried rule rows are not re-added as stale copies');
+assert.equal(calendarHealth(ruledCal,expiredMs).warnings.filter(w=>w.includes('ISM')).length,0);
+assert.match(calendarHealth(ruledCal,expiredMs).notices.join(' '),/ISM · 2027: .*published rule/);
+assert.doesNotMatch(calendarHealth(ruledCal,expiredMs).warnings.join(' '),/ISM/,'only the other (mocked-down) sources warn');
+
 const company=await fetchCompanyCalendar({symbols:['SNOW'],startMs:start,cutoffMs:end,nowMs:ms,fetchImpl:async()=>({ok:false,status:403})});
 assert(company.events.some(e=>e.date==='2026-11-03' && e.endDate==='2026-11-06' && e.scheduleFallback && !e.stale));
 const companyPayload=buildCalendarPayload({},[],now.toISOString(),{companyCalendar:company});
@@ -85,4 +107,4 @@ const msftUrl='https://sponsor.microsoft.com/';
 const oldCompany=await fetchCompanyCalendar({symbols:['MSFT'],startMs:start,cutoffMs:end,nowMs:ms,prior:{version:COMPANY_EVENTS_VERSION,checks:{[msftUrl]:{status:'loaded',checkedAtIso:'2026-09-01T00:00:00Z'}},events:[{companyEvent:true,symbol:'MSFT',id:'msft-ignite-2026',sourceUrl:msftUrl,date:'2026-11-17',endDate:'2026-11-20',verifiedAt:'2026-09-01'}]},fetchImpl:async()=>({ok:false,status:403})});
 assert(oldCompany.events.every(e=>e.stale),'expired company dates are explicitly stale');
 assert(calendarHealth({...companyPayload,events:oldCompany.events},ms).warnings.some(w=>w.includes('expired')));
-console.log('Source fallbacks passed: official mirror, validators, cache/recovery identity, invalid feeds, finite ISM edition, expiry, reschedules and company-event dates.');
+console.log('Source fallbacks passed: official mirror, validators, cache/recovery identity, invalid feeds, finite ISM edition, expiry, the ISM rule fallback, reschedules and company-event dates.');
