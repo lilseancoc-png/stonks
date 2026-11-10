@@ -18,6 +18,9 @@
 //   top-picks-mode   -> the Owner's Top Picks market mode: Auto / No new puts /
 //                       No new calls / Pause new trades (GET / same-origin POST;
 //                       lib/top-picks-mode.mjs)
+//   picks-loop       -> the Owner's self-tuning clicks on the Owner Lab Loop
+//                       tab: approve / decline / undo / restore (GET /
+//                       same-origin POST; lib/self-loop/tune.mjs)
 //   contact          -> public "Send us a message" box: GET a form ticket,
 //                       same-origin POST a message (lib/contact-messages.mjs)
 //   contact-inbox    -> Owner-only: read the messages (GET) and mark read /
@@ -129,6 +132,8 @@ export default async function handler(req, res) {
       return ownerWatchlist(req, res);
     case "top-picks-mode":
       return topPicksMode(req, res);
+    case "picks-loop":
+      return picksLoopControl(req, res);
     case "calendar-ics":
       return calendarIcs(req, res);
     case "contact":
@@ -696,6 +701,58 @@ async function topPicksMode(req, res) {
   } catch (err) {
     console.error("top picks mode failed", { message: String(err?.message || err) });
     return res.status(502).json({ error: "mode unavailable" });
+  }
+}
+
+// --- Self-improving loop: the Owner's self-tuning clicks ----------------------
+// GET  /api/auth/picks-loop  -> { seq, updatedAt, actions } (newest 20)
+// POST /api/auth/picks-loop  { act: approve|decline, target }
+//                            { act: undo } | { act: restore, version }
+//                            (same-origin only)
+// Appends one action to picks-loop-control.json (Owner-only, request-time:
+// no workflow pushes or deletes it). The next build applies it; nothing here
+// touches a pick, and nothing applies unless SELF_TUNE=on (docs/self-loop.md).
+async function picksLoopControl(req, res) {
+  res.setHeader("Cache-Control", "private, no-store");
+  if (process.env.PRIVATE_DATA_ENABLED !== "1") return res.status(404).json({ error: "not found" });
+  const session = await getSession(req).catch(() => null);
+  if (!session) return res.status(401).json({ error: "auth required" });
+  if (session.tr !== true || session.tp !== true) return res.status(401).json({ error: "role required" });
+  if (req.method !== "GET" && req.method !== "POST") {
+    res.setHeader("Allow", "GET, POST");
+    return res.status(405).json({ error: "method not allowed" });
+  }
+  if (req.method === "POST" && !isSameOriginRequest(req)) return res.status(403).json({ error: "forbidden" });
+  const { LOOP_CONTROL_KEY, readLoopControlDoc, applyLoopControlRequest } = await import("../../lib/self-loop/tune.mjs");
+  // Validate the request before anything is read or stored.
+  if (req.method === "POST") { const check = applyLoopControlRequest(null, req.body); if (check.error) return res.status(400).json({ error: check.error }); }
+  const view = (doc) => ({ seq: doc.seq, updatedAt: doc.updatedAt || null, actions: doc.actions.slice(-20).reverse() });
+  try {
+    const { store } = await import("../../lib/datastore.mjs");
+    if (req.method === "GET") return res.status(200).json(view(readLoopControlDoc(await store.get(LOOP_CONTROL_KEY))));
+    // Read, append and save under the store's lease so two quick clicks (or
+    // both owners at once) can't drop each other's action.
+    const save = async (guard) => {
+      const current = readLoopControlDoc(await store.get(LOOP_CONTROL_KEY));
+      const out = applyLoopControlRequest(current, req.body, { at: new Date().toISOString(), by: session.name || null });
+      if (out.error) return out;
+      if (guard) guard();
+      await store.put(LOOP_CONTROL_KEY, JSON.stringify(out.doc));
+      return view(out.doc);
+    };
+    let out;
+    if (store.backend === "r2" && typeof store.withLease === "function") {
+      let leased;
+      try { leased = await store.withLease("picks-loop-control", save); }
+      catch (err) { if (err?.code === "LEASE_CONFLICT") return res.status(409).json({ error: "busy, try again" }); throw err; }
+      if (leased?.busy) return res.status(409).json({ error: "busy, try again" });
+      out = leased.result;
+    } else out = await save(null);
+    if (out.error) return res.status(400).json({ error: out.error });
+    return res.status(200).json(out);
+  } catch (err) {
+    console.error("picks loop control failed", { message: String(err?.message || err) });
+    return res.status(502).json({ error: "loop control unavailable" });
   }
 }
 

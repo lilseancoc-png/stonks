@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import {
+import { splitFactor,
   CONTROL_DROPPED_MISSES, CONTROL_PER_RUN_MAX, OUTCOME_KEYS, PICKS_OUTCOMES_KEY,
   addControlEntries, appendRunOutcomes, dailyClosesOf, drawControlEntries, emptyOutcomesState, fillOutcomes,
   loadPicksOutcomes, markControlBook, marketTypeOf, parseOutcomesState, pruneOutcomes, seededRandom, spearman,
@@ -95,7 +95,7 @@ run.regime = { st: "risk-off" };
 // --- outcome rows ---------------------------------------------------------------
 ok("bars: build-time `t` and fixture `date` keys both read", dailyClosesOf({ _bars: [{ t: "2026-01-02", c: 10 }, { date: "2026-01-03", c: 11 }, { c: 12 }] }).length === 2
   && dailyClosesOf({ priceSeries: { t: ["2026-01-02", "bad"], c: [10, 11] } }).length === 1);
-ok("market type: severe pools with risk-off, unknown is null", marketTypeOf("severe") === "risk-off" && marketTypeOf("risk-on") === "risk-on" && marketTypeOf("neutral") === "neutral" && marketTypeOf("") === null);
+ok("market type: severe pools with risk-off, unknown is null", marketTypeOf("severe") === "risk-off" && marketTypeOf("severe-risk-off") === "risk-off" && marketTypeOf("risk-on") === "risk-on" && marketTypeOf("neutral") === "neutral" && marketTypeOf("") === null);
 const state = emptyOutcomesState();
 const added = appendRunOutcomes(state, run, "2026-01-10");
 ok("append: one row per scored name", added === scoring.scored.length && state.rows.length === added);
@@ -112,7 +112,9 @@ ok("row: horizons start empty", ["r1", "r5", "r10", "r20"].every((k) => row0[I[k
 const bullaSpot = row0[I.s] === "BULLA" ? row0[I.spot] : state.rows.find((r) => r[I.s] === "BULLA")[I.spot];
 const known = [];
 for (let i = 0; i < 25; i++) known.push({ t: new Date(Date.UTC(2026, 0, 11 + i)).toISOString().slice(0, 10), c: bullaSpot * (1 + 0.01 * (i + 1)) });
-const fillChains = { BULLA: { _bars: [{ t: "2026-01-10", c: 1 }, ...known] } };
+// The run day's own close is near the run spot (it only tells a split apart)
+// and is never an outcome itself.
+const fillChains = { BULLA: { _bars: [{ t: "2026-01-10", c: bullaSpot * 0.99 }, ...known] } };
 const filled = fillOutcomes(state, fillChains, { today: "2026-01-20" });
 const bulla = state.rows.find((r) => r[I.s] === "BULLA");
 ok("fill: only sessions after the run day and before today count (9 closes → r1 and r5)", filled === 2 && bulla[I.r1] === 1 && bulla[I.r5] === 5 && bulla[I.r10] == null);
@@ -120,6 +122,19 @@ fillOutcomes(state, fillChains, { today: "2026-03-01" });
 ok("fill: the later horizons fill once their closes exist", bulla[I.r10] === 10 && bulla[I.r20] === 20);
 ok("fill: names without bars stay pending", state.rows.filter((r) => r[I.s] !== "BULLA").every((r) => r[I.r1] == null));
 ok("fill: a filled row is not touched again", fillOutcomes(state, fillChains, { today: "2026-03-02" }) === 0);
+{
+  // A split after the run: the provider re-bases every close, the run spot
+  // stays on the old basis. The run day's own close says which.
+  const sp = emptyOutcomesState();
+  sp.rows.push(["2026-02-02", "11:00", "SPLT", "call", 5, 400, "below-bar", null, null, null, null, null, null]);
+  const bars = [{ t: "2026-02-02", c: 100.5 }, ...Array.from({ length: 25 }, (_, i) => ({ t: new Date(Date.UTC(2026, 1, 3 + i)).toISOString().slice(0, 10), c: 100 * (1 + 0.01 * (i + 1)) }))];
+  fillOutcomes(sp, { SPLT: { _bars: bars } }, { today: "2026-03-10" });
+  ok("split: a 4-for-1 after the run reads the real move, not -75%", sp.rows[0][I.r1] === 1 && sp.rows[0][I.r20] === 20);
+  ok("split: factor 1 for the same basis, n-for-1 and 1-for-n, null when unexplained",
+    splitFactor(bars, "2026-02-02", 99) === 1 && splitFactor(bars, "2026-02-02", 400) === 0.25 && splitFactor(bars, "2026-02-02", 10) === 10
+    && splitFactor(bars, "2026-02-02", 140) === null && splitFactor(bars, "2026-01-01", 400) === 1 && splitFactor([], "2026-02-02", 400) === 1);
+  ok("split: an out-of-band ratio needs the run day's own close", splitFactor([{ t: "2026-01-30", c: 100 }], "2026-02-02", 400) === null);
+}
 {
   const s2 = emptyOutcomesState();
   for (let d = 1; d <= 125; d++) s2.rows.push(["2026-" + String(1 + Math.floor((d - 1) / 28)).padStart(2, "0") + "-" + String(1 + ((d - 1) % 28)).padStart(2, "0"), "11:00", "AAA", "call", 5, 100, "pick:x", null, null, null, null, null, null]);

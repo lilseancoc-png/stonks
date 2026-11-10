@@ -143,6 +143,13 @@ ok("row: rows without a grader verdict carry none", run.rows.filter((r) => r.ai)
 ok("row: every name has an outcome or none", run.rows.every((r) => r.out === null || /^(pick:|gate:|open$|below-bar$)/.test(r.out)));
 const shipped = new Set(picks.map((p) => `${p.symbol}:${p.side}`));
 ok("row: shipped names read pick:<group>", run.rows.filter((r) => shipped.has(`${r.s}:${r.side}`)).every((r) => r.out.startsWith("pick:")));
+// A shipped watch idea (not actionable, so never traded) names what held it.
+const shippedGroup = new Map(picks.map((p) => [`${p.symbol}:${p.side}`, p.group]));
+ok("row: a watch idea carries why it was held, an open pick does not", run.rows.filter((r) => shipped.has(`${r.s}:${r.side}`)).every((r) => shippedGroup.get(`${r.s}:${r.side}`) === "actionable" ? !("hold" in r) : typeof r.hold === "string" && r.hold.length > 0));
+const fake = buildPicksRunRecord({ builtAtIso, scored: [{ sym: "WWW", total: 6, side: "call", pillars: {}, data: { spot: 10 } }, { sym: "TTT", total: -6, side: "put", pillars: {}, data: { spot: 10 } }],
+  picks: Object.assign([{ symbol: "WWW", side: "call", group: "waitEntry" }, { symbol: "TTT", side: "put", group: "watch", tactical: true }], { rosterMeta: { turnedAway: [{ sym: "WWW", side: "call", gate: "wait-ai" }] } }), aiMap: {}, aiActive: false });
+const holdOf = Object.fromEntries(fake.rows.map((r) => [r.s, r.hold]));
+ok("row: the hold is the first traced gate, else tactical / watch", holdOf.WWW === "wait-ai" && holdOf.TTT === "tactical");
 ok("picks: one compact row per shipped pick", run.picks.length === picks.length);
 ok("picks: shipped rows carry the real contract", run.picks.every((p) => !p.c || p.c.st));
 ok("lists: only symbol arrays from rosterMeta", Object.values(run.lists).every((v) => Array.isArray(v) && v.every((s) => typeof s === "string")));

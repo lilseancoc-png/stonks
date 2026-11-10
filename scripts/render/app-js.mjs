@@ -36907,7 +36907,11 @@ ${renderExportBindings()}
     // AI final grader mode (live / off / keyless), stamped from 2026-11-08.
     // Every earlier record trade ran with the grader live, so an unstamped
     // trade reads as live and no divider appears until the mode changes.
-    { key:'grader', get:function(e){ return (e && e.graderMode) || 'live'; } }
+    { key:'grader', get:function(e){ return (e && e.graderMode) || 'live'; } },
+    // Self-improving loop settings version (lib/self-loop/tune.mjs), stamped
+    // only on trades opened under live self-tuning, so every live change
+    // gets its own dated divider.
+    { key:'loop', get:function(e){ return (e && e.loopVersion != null) ? 'v' + e.loopVersion : ''; } }
   ];
   // When each version took effect and what it changed (shown on its divider).
   // A version missing here dates from its earliest trade and shows no note.
@@ -36975,6 +36979,7 @@ ${renderExportBindings()}
       var sa = newer.sinceOf(dim.key, a), sb = b ? newer.sinceOf(dim.key, b) : '';
       if (sa && sb && sa <= sb) return;
       var n = ACC_RULE_NOTES[dim.key] && ACC_RULE_NOTES[dim.key][a];
+      if (!n && dim.key === 'loop') n = { note: 'Self-tuning settings ' + a + ' (Owner Lab, Loop tab)' };
       changed.push({ key: dim.key, since: sa, note: n && n.note });
     });
     var when = changed.map(function(c){ return c.since; }).filter(Boolean).sort().pop()
@@ -44434,7 +44439,7 @@ ${renderExportBindings()}
           fiftyHtml +
           watchBtnHtml +
         '</div>' +
-        TOP_PICKS_MARKET_UI.scores(p) + TOP_PICKS_MARKET_UI.explain(p) + oddsLineHtml(oddsLookup(oddsTableNow(), p.symbol, p.side), false) + pickPlanSummaryHtml(p) + bodyHtml +
+        TOP_PICKS_MARKET_UI.scores(p) + TOP_PICKS_MARKET_UI.explain(p) + oddsLineHtml(oddsLookup(oddsTableNow(), p.symbol, p.side), false) + loopOddsHtml(p) + pickPlanSummaryHtml(p) + bodyHtml +
       '</div>' +
     '</article>';
   }
