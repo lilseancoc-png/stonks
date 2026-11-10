@@ -4,7 +4,7 @@ import { publishedTickerError } from '../lib/published-ticker-contract.mjs';
 import assert from 'node:assert/strict';
 import { readFile,readdir } from 'node:fs/promises';
 import vm from 'node:vm';
-import { UPDATE_FEATURES,UPDATE_STATUS_KEY,MONITORED_WORKFLOWS,inspectFeature,summarizeWorkflowRun,mergeWorkflowReports,assessWorkflows,expectedBuildSlot,inspectPublishedFeatures,checkFeatureCadence } from '../lib/update-checker.mjs';
+import { UPDATE_FEATURES,UPDATE_STATUS_KEY,MONITORED_WORKFLOWS,inspectFeature,summarizeWorkflowRun,mergeWorkflowReports,assessWorkflows,expectedBuildSlot,heartbeatLimitMinutes,inspectPublishedFeatures,checkFeatureCadence } from '../lib/update-checker.mjs';
 import { inspectWorkflowLog,scanPublishedArtifacts } from '../lib/update-checker-diagnostics.mjs';
 import { handleUpdateChecker } from '../lib/update-checker-http.mjs';
 import { collectUpdateStatus } from './collect-update-status.mjs';
@@ -29,7 +29,11 @@ assert.deepEqual(mergeWorkflowReports(merged,merged.runs,clock),merged,'idempote
 const retry={...healthy.runs[0],attempt:2};merged=mergeWorkflowReports(report,[retry],clock);
 assert.equal(mergeWorkflowReports(merged,[fail],clock).runs[0].attempt,2,'old retry cannot regress');
 assert.equal(assessWorkflows(null,now).status,'unknown');
-assert.equal(assessWorkflows({...healthy,checkedAt:'2026-11-01T17:00:00Z'},now).status,'stale','90-minute heartbeat');
+assert.equal(assessWorkflows({...healthy,checkedAt:'2026-11-01T17:00:00Z'},now).status,'available','a quiet weekend afternoon is not a missed heartbeat');
+assert.equal(assessWorkflows({...healthy,checkedAt:'2026-11-01T06:30:00Z'},now).status,'stale','12-hour heartbeat outside market hours');
+assert.equal(heartbeatLimitMinutes(Date.parse('2026-11-02T17:00:00Z')),90,'90-minute heartbeat during a trading day');
+assert.equal(heartbeatLimitMinutes(Date.parse('2026-11-03T08:00:00Z')),720,'overnight uses the long window');
+assert.equal(heartbeatLimitMinutes(Date.parse('2026-11-26T17:00:00Z')),720,'market holiday uses the long window');
 assert.deepEqual(expectedBuildSlot(Date.parse('2026-11-02T15:50:00Z')),{date:'2026-11-02',minute:600},'winter-time due slot');
 assert.deepEqual(expectedBuildSlot(Date.parse('2026-10-30T14:50:00Z')),{date:'2026-10-30',minute:600},'summer-time due slot');
 assert.equal(assessWorkflows(healthy,Date.parse('2026-11-02T15:50:00Z')).status,'overdue','missing morning dispatch detected before end of day');
@@ -87,6 +91,12 @@ saved=null;
 const collected=await collectUpdateStatus({repo,token:'fixture',fetchImpl:fakeFetch,store,now:()=>clock});
 assert.equal(collected.features.length,UPDATE_FEATURES.length);assert.equal(collected.artifacts.complete,true);assert.equal(writes,1);assert(collected.runs[0].diagnostics.findings.length);assert(!JSON.stringify(collected).includes(sensitive));
 await collectUpdateStatus({repo,token:'fixture',fetchImpl:fakeFetch,store,now:()=>clock,dryRun:true});assert.equal(writes,1);
+// Logs past GitHub's retention answer 410 Gone: a known end state, not missing coverage.
+const expiredFetch=async url=>url.endsWith('/logs')?{ok:false,status:410}:fakeFetch(url);
+const expired=await collectUpdateStatus({repo,token:'fixture',fetchImpl:expiredFetch,store,now:()=>clock,dryRun:true});
+assert.equal(expired.runs[0].logsChecked,true);assert(expired.runs[0].diagnostics.expiredJobs>0);assert.equal(expired.runs[0].diagnostics.unavailableJobs,0);
+const missing=await collectUpdateStatus({repo,token:'fixture',fetchImpl:async url=>url.endsWith('/logs')?{ok:false,status:500}:fakeFetch(url),store,now:()=>clock,dryRun:true});
+assert.equal(missing.runs[0].logsChecked,false,'other log failures stay unverified');
 await assert.rejects(collectUpdateStatus({repo,token:'fixture',fetchImpl:async()=>({ok:false,status:403}),store}),/403/);assert.equal(writes,1);
 assert.throws(()=>describeUpdateFeature({id:'new-unmapped-feature',label:'New'}),/explicit source/,'future features cannot silently become reference pages');
 // Guard coverage against future additions instead of relying on a remembered count.
