@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { gunzipSync } from 'node:zlib';
 import { normalizeOdds, loadPropSources } from '../lib/sports/prop-sources.mjs';
-import { normalizeNBAQuotes, nbaMarketForProp, impliedAmerican, nbaPairEstimate, checkNBAPayout, selectNBAProps } from '../lib/sports/nba-market.mjs';
+import { normalizeNBAQuotes, nbaMarketForProp, impliedAmerican, nbaPairEstimate, checkNBAPayout, selectNBAProps, shinProbabilities } from '../lib/sports/nba-market.mjs';
 import { nbaRoleScenario, nbaTeamOpportunity } from '../lib/sports/nba-role.mjs';
 import { recommendationsView } from '../lib/sports/props.mjs';
 import { captureNBAResearch, nbaPairAction, nbaResearchSummary, exportNBAResearch, decodeNBAResearch, encodeNBAResearch } from '../lib/sports/nba-research.mjs';
@@ -43,7 +43,13 @@ assert.equal(normalizeNBAQuotes([edit('draftkings', (m) => m.outcomes[0].name = 
 const oneLine = lines()[0], market = nbaMarketForProp(oneLine, refs(), now);
 assert.equal(market.state, 'supported'); assert.equal(market.method, 'exact');
 assert.equal(nbaMarketForProp({ ...oneLine, last_change_at: new Date(now - 120000).toISOString() }, refs(), now).movement.watch, true);
-assert.ok(Math.abs(market.probability - 0.8 / 1.05) < 0.000001);
+// -400 / +300 with the margin removed by Shin's method (closed form for two
+// outcomes), not the proportional 0.8 / 1.05.
+{ const a = 0.8, b = 0.25, P = a + b, z = ((P - 1) * ((a - b) ** 2 - P)) / (P * ((a - b) ** 2 - 1));
+  assert.ok(Math.abs(market.probability - (Math.sqrt(z * z + 4 * (1 - z) * a * a / P) - z) / (2 * (1 - z))) < 0.000001);
+  assert.ok(Math.abs(market.probability - 0.775) < 0.000001 && market.vig_method === 'shin'); }
+{ const even = shinProbabilities([110 / 210, 110 / 210]); assert.ok(Math.abs(even[0] - 0.5) < 1e-9 && Math.abs(even[1] - 0.5) < 1e-9, 'even prices split evenly'); }
+{ const fair = shinProbabilities([0.6, 0.45]); assert.ok(Math.abs(fair[0] + fair[1] - 1) < 1e-9 && fair[0] > 0.6 / 1.05, 'Shin moves the favourite up from the proportional split'); }
 assert.equal(nbaMarketForProp(oneLine, refs().filter((q) => q.book !== 'betmgm'), now).state, 'thin');
 assert.equal(nbaMarketForProp({ ...oneLine, event_id: 'other-game' }, refs(), now).state, 'unavailable');
 assert.equal(nbaMarketForProp({ ...oneLine, stat: 'fantasy' }, refs(), now).state, 'unavailable');

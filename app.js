@@ -36603,6 +36603,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
           '. Score (lower is better): model <b>' + b3(B.model) + '</b>, last-10 hit rate ' + b3(B.last10_hit_rate) + ', plain average ' + b3(B.plain_average) +
           '. Chances off by ' + (v.ece == null ? '—' : (v.ece * 100).toFixed(1) + ' points') + ' on average.</span>' : '<span class="sp-muted">' + escape(v.reason || 'Not enough past games to check yet.') + '</span>') +
         (v.status !== 'validated' && v.test_n && v.reason ? '<span class="sp-muted">Why experimental: ' + escape(v.reason) + '.</span>' : '') +
+        (v.recalibration ? '<span class="sp-muted">Recalibration: ' + (v.recalibration.applied ? 'on (it beat the raw chances on held-out games)' : 'off; ' + escape(v.recalibration.why || 'raw chances kept')) + '.</span>' : '') +
+        (v.early_season && v.early_season.n >= 30 && v.early_season.bias != null ? '<span class="sp-muted">First games of a season (' + Number(v.early_season.n).toLocaleString('en-US') + ' held out): forecasts ran ' + escape(Math.abs(v.early_season.bias)) + (v.early_season.bias > 0 ? ' high' : ' low') + ' on average.</span>' : '') +
         reliabilitySvg(v.reliability, label(st)) + '</li>';
     }).join('');
     const links = (M.links || []).filter((l) => l.test_pairs > 0 || l.status === 'validated');
@@ -37661,7 +37663,21 @@ function scenarioEventPhase(ev, now = Date.now()) {
     return '<span class="sp-model-line">Model: <b>' + pct(m.probability) + '</b> ' + sideWord(e.side) + ' ' + escape(e.threshold) + push + ' ' + qualityBadge(m.quality) +
       ' · expects ' + escape(Number(m.mean).toFixed(1)) + ' (80% range ' + escape(m.low) + '–' + escape(m.high) + ') on ' + escape(m.expected_opportunity) + ' ' + escape(m.unit) +
       ' · ' + escape(m.unit) + ' 10% lower: ' + pct(S.opportunity_down_10) + ', 10% higher: ' + pct(S.opportunity_up_10) + '</span>' +
+      modelCheckNoteHtml(m) +
       (m.probability > 0.005 && m.probability < 0.995 ? '<span class="sp-hist-use"><button type="button" class="sp-chip" data-sp-usemodel="' + i + '" data-prob="' + escape(m.probability) + '">Use ' + Math.round(m.probability * 100) + '% (model)</button></span>' : '');
+  }
+  // How calls near this chance did in testing, and the early-season miss.
+  // Shown only when they say something: a gap of 5+ points, or a miss of 5%+
+  // of the forecast.
+  function modelCheckNoteHtml(m) {
+    const out = [];
+    const t = m.tested;
+    if (t && Math.abs(t.said - t.hit) >= 0.05) out.push('In testing, calls near ' + pct(t.said) + ' hit ' + pct(t.hit) + ' (' + t.games + ' games).');
+    const es = m.early_season;
+    if (es && es.tested_miss != null && m.mean > 0 && Math.abs(es.tested_miss) >= 0.05 * m.mean) {
+      out.push('Early season (' + es.games_this_season + ' game' + (es.games_this_season === 1 ? '' : 's') + ' this year): forecasts this early ran ' + escape(Math.abs(es.tested_miss)) + (es.tested_miss > 0 ? ' high' : ' low') + ' on average.');
+    }
+    return out.length ? '<span class="sp-model-line sp-model-warn">' + out.join(' ') + '</span>' : '';
   }
   // The pick's last ten games against its own line: green would have won,
   // red would have lost (for an under, a game below the line is a win).
@@ -37690,14 +37706,16 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (!e) return pb.evalErr ? '' : '<span class="sp-muted">Checking history…</span>';
     const h = e.history;
     if (!h.all.games) return '<span class="sp-muted">No stored games before this one.</span>' + modelLineHtml(i, e);
-    const c = (name, x) => name + ' <b>' + x.hits + '/' + x.games + '</b>';
+    // The 95% range of the hit rate (decided games only) as a hover note.
+    const c = (name, x) => name + ' <b' + (x.range ? ' title="' + escape('Likely true rate ' + pct(x.range.low) + ' to ' + pct(x.range.high) + ' (95% range from ' + (x.games - x.pushes) + ' decided games)') + '"' : '') + '>' + x.hits + '/' + x.games + '</b>';
+    const rangeAll = h.all.range && h.all.games >= 5 ? '<span class="sp-muted sp-hist-range">All stored: likely ' + pct(h.all.range.low) + '–' + pct(h.all.range.high) + ' (95% range; few games make it wide).</span>' : '';
     const pushes = h.all.pushes ? ' <span class="sp-muted">(' + h.all.pushes + ' push' + (h.all.pushes === 1 ? '' : 'es') + ')</span>' : '';
     const use = (key, name) => { const r = rateOf(h[key]); return r == null ? '' : '<button type="button" class="sp-chip" data-sp-usehist="' + i + '" data-rate="' + r + '">Use ' + r + '% (' + name + ')</button>'; };
     const uses = use('last10', 'last 10') + use('all', 'all stored');
-    return legChartHtml(e) + '<span class="sp-hist-line">Cleared ' + sideWord(e.side) + ' ' + escape(e.threshold) + ' before this game: ' + c('last 5', h.last5) + ' · ' + c('last 10', h.last10) + ' · ' + c('all stored', h.all) + pushes + '</span>' +
+    return legChartHtml(e) + '<span class="sp-hist-line">Cleared ' + sideWord(e.side) + ' ' + escape(e.threshold) + ' before this game: ' + c('last 5', h.last5) + ' · ' + c('last 10', h.last10) + ' · ' + c('all stored', h.all) + pushes + '</span>' + rangeAll +
       (uses ? '<span class="sp-hist-use">' + uses + '</span>' : h.all.games < MIN_RATE_GAMES ? '<span class="sp-muted">Too few games to copy a rate.</span>' : '') + modelLineHtml(i, e);
   }
-  const SOURCE_TEXT = { history: 'from history', model: 'from model', owner: 'typed' };
+  const SOURCE_TEXT = { history: 'from history', model: 'from model', book: 'from books', owner: 'typed' };
   function legHtml(l, i) {
     const nameShown = l.player_name || l.player_id;
     return '<li class="sp-leg" data-sp-leg="' + i + '"><div class="sp-leg-head"><span class="sp-leg-name"><i>' + (i + 1) + '</i>' + escape(nameShown) +
@@ -37753,7 +37771,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (ev.locked) warn.push('A game in this entry has started. Paper picks are saved before the games.');
     ev.same_game.forEach((g) => warn.push('Picks ' + joinList(g.legs.map((i) => String(i + 1))) + ' are from the same game. Their results move together, so ' +
       (E.status === 'joint_estimate' ? 'they are priced with how such picks moved together in past games (below).' : 'they are priced only when every pair has a measured link.')));
-    const be = E.breakeven_probability != null ? '<p>Breakeven: all ' + n + ' must hit together at least <b>' + pct(E.breakeven_probability) + '</b> of the time to pay back the stake on average.</p>' : '';
+    const perPick = E.breakeven_per_pick != null && n > 1 ? ' That is about <b>' + pct(E.breakeven_per_pick) + '</b> for each pick if they were independent and equally likely.' : '';
+    const be = E.breakeven_probability != null ? '<p>Breakeven: all ' + n + ' must hit together at least <b>' + pct(E.breakeven_probability) + '</b> of the time to pay back the stake on average.' + perPick + '</p>'
+      : E.breakeven_per_pick != null ? '<p>Breakeven: each pick needs about <b>' + pct(E.breakeven_per_pick) + '</b> (if they were independent and equally likely) for this payout table to pay back the stake on average.</p>' : '';
     let body = '';
     if (E.status === 'needs_payout') {
       const first = String(E.problems[0] || '');
@@ -37770,6 +37790,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         tile('All ' + n + ' hit', pct(E.joint_probability), 'if the picks are independent'),
         tile('Possible range', pct(E.bounds.low) + ' – ' + pct(E.bounds.high), 'under any link between picks'),
         E.breakeven_probability != null ? tile('Breakeven', pct(E.breakeven_probability), 'all ' + n + ' hit') : '',
+        E.breakeven_per_pick != null ? tile('Each pick needs', pct(E.breakeven_per_pick), 'if equal and independent') : '',
         tile('Expected back', money(E.expected_gross), 'on ' + money(ev.stake) + ' paper'),
         tile('Expected profit', '<span class="' + (E.expected_net > 0 ? 'sp-pos' : E.expected_net < 0 ? 'sp-neg' : '') + '">' + signedMoney(E.expected_net) + '</span>', (E.expected_roi > 0 ? '+' : '') + (E.expected_roi * 100).toFixed(1) + '% return'),
       ].join('');

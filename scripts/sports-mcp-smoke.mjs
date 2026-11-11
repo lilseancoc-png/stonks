@@ -17,6 +17,7 @@ const { sportsKey, SPORTS_PREFIX } = await import('../lib/sports/store.mjs');
 const { handleSportsRequest } = await import('../lib/sports/http.mjs');
 const { decodePrefill } = await import('../lib/sports/prefill.mjs');
 const { nbaModelLeague } = await import('./fixtures/sports-model.mjs');
+const { nbaName } = await import('../lib/sports/nba-market.mjs');
 
 let checks = 0;
 const ok = (cond, msg) => { assert.ok(cond, msg); checks++; };
@@ -66,9 +67,28 @@ function mkRes() {
 }
 const ownerToken = await tokens.signAccess(ENV, ORIGIN, ORIGIN + '/mcp', { sub: 'owner-sub', nm: 'owner', cid: 'client-1', scope: OWNER_SCOPE });
 const guestToken = await tokens.signAccess(ENV, ORIGIN, ORIGIN + '/mcp', { sub: 'guest-sub', nm: 'guest', cid: 'client-1', scope: '' });
+// The live feeds (injuries, NBA sportsbook prices) are faked: the tools read
+// them through ctx.loadPropSources, never the network here.
+let feedCalls = [];
+let feedState = 'ok';
+const QUOTE_AT = new Date(NOW).toISOString();
+const bookQuote = (book, name, threshold, over) => ({ event_id: 'pl-1', home_team: 'Golden State Warriors', away_team: 'Boston Celtics', start_utc: '2026-01-16T03:00:00Z', book, stat: 'points',
+  player_name: name, player_key: nbaName(name), threshold, sides: { over: { observed_utc: QUOTE_AT, book_updated_at: null }, under: { observed_utc: QUOTE_AT, book_updated_at: null } },
+  over_probability: over, under_probability: 1 - over, vig_method: 'shin', margin: 0.05, observed_utc: QUOTE_AT });
+async function fakeSources({ sport, parts }) {
+  feedCalls.push([sport, parts.join(',')]);
+  if (feedState !== 'ok') return { injuries: { state: 'unavailable', reports: [] }, ...(sport === 'nba' ? { reference: { state: 'unavailable', quotes: [] } } : {}) };
+  return {
+    injuries: { state: 'ok', observed_utc: QUOTE_AT, reports: [
+      { name: gsStar.name, espn_id: '', team: 'gs', team_name: 'Golden State Warriors', status: 'Questionable', detail: 'Ankle', report_utc: QUOTE_AT },
+      { name: 'Some Teammate', espn_id: '', team: 'gs', team_name: 'Golden State Warriors', status: 'Out', detail: 'Knee', report_utc: QUOTE_AT },
+    ] },
+    ...(sport === 'nba' ? { reference: { state: 'ok', quotes: ['draftkings', 'fanduel', 'betmgm'].flatMap((b, i) => [bookQuote(b, gsStar.name, 15.5, 0.69 + i * 0.01), bookQuote(b, gsStar.name, 17.5, 0.5)]) } } : {}),
+  };
+}
 async function rpc(method, params, { token = ownerToken, env = {} } = {}) {
   const res = mkRes();
-  await handleMcpRequest({ method: 'POST', url: '/mcp', query: {}, headers: { host: HOST, 'x-forwarded-proto': 'https', 'content-type': 'application/json', authorization: 'Bearer ' + token }, body: { jsonrpc: '2.0', id: 1, method, params } }, res, { env: { ...ENV, ...env }, store, now: () => NOW });
+  await handleMcpRequest({ method: 'POST', url: '/mcp', query: {}, headers: { host: HOST, 'x-forwarded-proto': 'https', 'content-type': 'application/json', authorization: 'Bearer ' + token }, body: { jsonrpc: '2.0', id: 1, method, params } }, res, { env: { ...ENV, ...env }, store, now: () => NOW, loadPropSources: fakeSources });
   return res.body;
 }
 const tool = async (name, args, opts) => (await rpc('tools/call', { name, arguments: args }, opts)).result;
@@ -119,6 +139,11 @@ const P = player.structuredContent.results;
 eq([P.next_game.game_id, P.games.length, P.forecast.forecasts.points.status], ['mnext1', 5, 'ok'], 'log, next game and its forecast');
 ok(!/\[omitted|object with|more keys/.test(JSON.stringify(P)), 'the player view is not cut by the size limit');
 ok(typeof P.games[0].stats.pts_reb === 'number' && typeof P.summaries.pts_reb.average === 'number' && P.summaries.fantasy.average === null, 'the log carries combos (fantasy needs assists, which this made-up league has none of)');
+// Live context on the player: the injury report and every book line with the model beside it.
+eq([P.availability.status, P.availability.unsure, P.availability.teammates_out], ['Questionable', true, ['Some Teammate']], 'the player carries the injury report');
+eq(P.book_lines.map((b) => [b.stat, b.threshold, b.book_over, b.books]), [['points', 15.5, 0.7, 3], ['points', 17.5, 0.5, 3]], 'every book line for the next game, median no-vig over chance');
+ok(P.book_lines.every((b) => typeof b.model_over === 'number' && b.model_over > 0 && b.model_over < 1 && Math.abs(b.gap - (b.model_over - b.book_over)) < 1e-4), 'the model’s over chance sits beside each book line');
+ok(player.structuredContent.warnings.some((w) => /INJURY: listed Questionable/.test(w)), 'an injury listing is a warning');
 
 // --- evaluate: the same answer as the Pick Builder ---------------------------------
 const legs = [
@@ -140,6 +165,28 @@ eq([pre.operator, pre.format, pre.stake, pre.payouts, pre.legs.map((l) => [l.pla
   ['prizepicks', 'power', 10, { 2: 3 }, legs.map((l) => [l.player_id, l.game_id, l.stat, l.side, l.threshold])], 'the link fills the same entry');
 ok(!JSON.stringify(pre).includes('0.55') && pre.legs.every((l) => !('probability' in l)), 'the link carries no chances');
 eq(ev.structuredContent.source.saves, false, 'says it saves nothing');
+// The books' price, the injury report and the per-pick breakeven ride along.
+const B0 = E.legs[0].book, B1 = E.legs[1].book;
+eq([B0.state, B0.chance, B0.book_count, B0.method, B0.vig_method], ['supported', 0.7, 3, 'exact', 'shin'], 'the books’ no-vig price for the same line (median of three)');
+eq([B1.state, B1.chance], ['unavailable', null], 'no line posted: no price');
+const gap0 = E.legs[0].model.probability - 0.7;
+eq(E.legs[0].book_vs_model, { gap: Math.round(gap0 * 10000) / 10000, disagrees: Math.abs(gap0) >= 0.05, leans: gap0 > 0 ? 'model_higher' : 'book_higher' }, 'model against the books');
+eq(ev.structuredContent.warnings.some((w) => /BOOK_DISAGREES: Pick 1/.test(w)), Math.abs(gap0) >= 0.05, 'a 5+ point gap is flagged');
+ok(ev.structuredContent.warnings.some((w) => /INJURY: Pick 1 .*Questionable/.test(w)) && ev.structuredContent.warnings.some((w) => /TEAMMATES_OUT: Pick 1 .*Some Teammate/.test(w)), 'injury and teammate absences are flagged');
+eq(E.legs[1].availability.status, 'not listed');
+ok(Math.abs(E.evaluation.breakeven_per_pick - Math.sqrt(1 / 3)) < 1e-6, 'each pick needs the square root of 1/3 on a 2-pick 3x power play');
+ok(E.legs[0].hit_history.all.range && E.legs[0].hit_history.all.range.low <= E.legs[0].hit_history.all.range.high, 'hit counts carry a 95% range');
+ok(feedCalls.some(([sport, parts]) => sport === 'nba' && parts === 'injuries,reference'), 'the PrizePicks board is not read for this');
+// Book chances only on request, labeled.
+const withBook = (await tool('sports_evaluate_entry', { legs: legs.map(({ chance, ...l }) => l), operator: 'betr', format: 'power', stake: 5, payouts: { 2: 3 }, use_book_chances: true })).structuredContent;
+eq(withBook.results.legs.map((l) => [l.chance, l.chance_source]), [[0.7, 'book'], [null, null]], 'use_book_chances copies the exact book price, labeled');
+ok(withBook.warnings.some((w) => /NO_CHANCE: 1 pick/.test(w)), 'a pick with no book price is said');
+// A feed outage only leaves the live parts out.
+feedState = 'down';
+const quiet = (await tool('sports_evaluate_entry', { legs, operator: 'prizepicks', format: 'power', stake: 10, payouts: { 2: 3 } })).structuredContent;
+eq([quiet.results.legs[0].book.state, quiet.results.legs[0].availability.state, quiet.results.evaluation.status], ['unavailable', 'unavailable', 'joint_estimate'], 'the entry is still checked');
+ok(quiet.warnings.some((w) => /NO_BOOK_PRICES/.test(w)), 'and the missing prices are said');
+feedState = 'ok';
 
 // Model chances only on request; the next game when no game id is given.
 const bare = await tool('sports_evaluate_entry', { legs: [{ sport: 'nba', player_id: gsStar.player_id, stat: 'points', side: 'over', threshold: 15.5 }], operator: 'betr', format: 'power', stake: 5, payouts: { 1: 1.8 } });
