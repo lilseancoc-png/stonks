@@ -9,6 +9,8 @@ export function renderSportsCss() {
 .sp-zone select { font: inherit; color: var(--text); background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; }
 .sp-zone select:focus-visible, .sp-retry:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .sp-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 300px); gap: 20px; align-items: start; }
+.sp-player-row { grid-column: 1 / -1; min-width: 0; }
+.sp-player-row:empty { display: none; }
 .sp-board h3, .sp-side h3 { margin: 0 0 10px; font-size: 13px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted-strong); }
 .sp-empty { padding: 18px 16px; border: 1px dashed var(--border-strong); border-radius: 8px; background: var(--surface-2); }
 .sp-empty b { display: block; font-size: 15px; font-weight: 600; margin-bottom: 4px; }
@@ -370,6 +372,9 @@ export function renderSportsCss() {
 }
 @media (max-width: 760px) {
   .sp-grid { grid-template-columns: minmax(0, 1fr); }
+  .sp-board { order: 0; }
+  .sp-player-row { order: 1; }
+  .sp-side { order: 2; }
   .sp-zone { margin-left: 0; }
   .sp-game { grid-template-columns: minmax(0, 1fr) auto; }
   .sp-time { grid-column: 1 / -1; font-size: 12px; }

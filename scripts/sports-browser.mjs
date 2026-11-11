@@ -290,7 +290,29 @@ try {
         await page.locator(PP + '[data-sp-chart-n="10"]').click();
         await page.locator(PP + '[data-sp-chart-stat]').selectOption('points');
         await page.locator(PP + '[data-sp-part="chart"]').screenshot({ path: resolve(output, `chart-bars-${width}-${theme}.png`), animations: 'disabled' });
-        checks += 14;
+        // The chart fills its card, and the opponent names under the bars never
+        // run into each other (one row when they fit, two staggered rows when not).
+        const fill = await page.$eval(PP + '[data-sp-part="chart-body"]', (el) => ({ box: el.clientWidth, svg: el.querySelector('svg.sp-ch').getBoundingClientRect().width }));
+        assert(fill.svg >= fill.box * 0.95 && fill.svg <= fill.box + 1, 'the chart fills its card: ' + JSON.stringify(fill));
+        const labelClash = (none) => page.$eval(PP + '[data-sp-part="chart-body"] svg.sp-ch', (svg, none) => {
+          const rows = new Map();
+          for (const t of svg.querySelectorAll('text.sp-ch-axis:not(.sp-ch-sub)')) {
+            if (t.getAttribute('text-anchor') !== 'middle' || !/^@?[A-Z]{2,4}$/.test(t.textContent)) continue;
+            const r = t.getBoundingClientRect(), key = Math.round(r.top);
+            rows.set(key, [...(rows.get(key) || []), [r.left, r.right, t.textContent]]);
+          }
+          for (const list of rows.values()) {
+            list.sort((a, b) => a[0] - b[0]);
+            for (let i = 1; i < list.length; i++) if (list[i][0] < list[i - 1][1] - 0.5) return list[i - 1][2] + ' / ' + list[i][2];
+          }
+          return none || [...rows.values()].reduce((a, l) => a + l.length, 0) ? '' : 'no labels';
+        }, none);
+        assert.equal(await labelClash(), '', 'opponent labels do not overlap at 10 games');
+        await page.locator(PP + '[data-sp-chart-n="20"]').click();
+        await page.locator(PP + '[data-sp-chart-n="20"][aria-pressed="true"]').waitFor();
+        assert.equal(await labelClash(width <= 760), '', 'opponent labels do not overlap at 20 games (a phone shows dates instead)');
+        await page.locator(PP + '[data-sp-chart-n="10"]').click();
+        checks += 17;
         // Team stats: records and what each defense allows; a team opens its players.
         const NR = '#sports-nba-root ';
         await page.locator(NR + '[data-sp-view="teams"]').click();

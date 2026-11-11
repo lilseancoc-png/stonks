@@ -37,6 +37,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Bump the Sports model to `sports-model-2`: the daily refit tests a cross-fitted Platt recalibration per stat and applies it only when it beats the raw chances on both Brier and log loss; none passes on today's data, so chances stay raw and the Model check card says why.
 - The Model check card folds each stat into one row (verdict and score up front, detail and calibration chart inside) and folds the same-game links behind a count, since NBA now measures 200+ links. The player page shows one line per reason when no stat has a forecast.
 - Bump the props ranking to `props-rank-4`: NFL props on the newly modeled stats now rank with a model forecast.
+- Sports player charts fill the width of their card (measured on screen, redrawn on resize) instead of stopping at 720 pixels, and the player panel spans the whole page under the games and side column. Opponent names under the bars move to two staggered rows, or every other one, when they would overlap.
 
 ### Docs
 
