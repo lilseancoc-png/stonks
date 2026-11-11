@@ -38,6 +38,13 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - The Model check card folds each stat into one row (verdict and score up front, detail and calibration chart inside) and folds the same-game links behind a count, since NBA now measures 200+ links. The player page shows one line per reason when no stat has a forecast.
 - Bump the props ranking to `props-rank-4`: NFL props on the newly modeled stats now rank with a model forecast.
 - Sports player charts fill the width of their card (measured on screen, redrawn on resize) instead of stopping at 720 pixels, and the player panel spans the whole page under the games and side column. Opponent names under the bars move to two staggered rows, or every other one, when they would overlap.
+- The Sports player page and Pick Builder read the free ESPN injury report like the MCP: the player page shows the player's listing for the next game and the teammates listed out (NBA forecasts count their usual minutes), and a Pick Builder pick says when its player is Out, Doubtful or Questionable. Saving reads the same report as checking, so the model's chance keeps its label. The "Add a pick" line box hints a line near the player's average for the chosen stat instead of always 24.5.
+- An NFL prop-record pick whose player has no row in a finished game becomes "No stat line" three days after the game (nflverse leaves out players with no stat), left out of the win rate, instead of waiting for stats forever.
+
+### Fixed
+
+- A player listed Out no longer raises their own NBA forecast through the teammates-out lift (MCP `sports_get_player` and Pick Builder), and the props board no longer adds its teammate-DNP rank bump on top of a forecast that already applied the lift.
+- Route tests for the Sports player page and Pick Builder use a fake injury feed, so no test reaches ESPN.
 
 ### Docs
 
