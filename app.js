@@ -36457,7 +36457,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   const num = (v) => (v == null ? '—' : escape(String(v)));
   const league = (lg) => state.leagues[lg] || (state.leagues[lg] = {
     board: null, boardErr: null, game: null, gameId: null, gameErr: null, results: null, query: '', player: null, playerId: null, playerErr: null,
-    props: null, propsErr: null, propsSeq: 0, boardSeq: 0, propsPending: false, propsTimer: null, propsMsg: '', record: null, recordErr: null, recordSeq: 0,
+    props: null, propsErr: null, propsSeq: 0, boardSeq: 0, propsPending: false, propsTimer: null, propsMsg: '', propsNote: '', record: null, recordErr: null, recordSeq: 0,
     recordExportPending: false, recordExportErr: null, nbaPairs: {},
     view: 'games', gameStat: '', logAll: false, logSet: 'main',
     chart: { stat: null, n: 10, kind: 'bars', line: '' },
@@ -36484,6 +36484,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
   function fmtTime(iso, tz) {
     try { return new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).format(new Date(iso)); }
+    catch (_) { return iso; }
+  }
+  function fmtClock(iso, tz) {
+    try { return new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit', second: '2-digit' }).format(new Date(iso)); }
     catch (_) { return iso; }
   }
   function zone() { return state.status?.window?.time_zone || savedZone() || 'America/Los_Angeles'; }
@@ -36729,12 +36733,13 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
   function propsHeader(lg) {
     const L = league(lg), P = L.props;
-    const refresh = '<button type="button" class="sp-link" data-sp-props-refresh' + (L.propsPending ? ' disabled' : '') + '>Refresh lines & injuries</button>';
+    const refresh = '<button type="button" class="sp-link" data-sp-props-refresh' + (L.propsPending ? ' disabled aria-busy="true"' : '') + '>' + (L.propsPending ? 'Refreshing lines & injuries…' : 'Refresh lines & injuries') + '</button>' +
+      (L.propsNote && !L.propsPending ? ' <span class="sp-note" role="status">' + escape(L.propsNote) + '</span>' : '');
     if (L.propsErr) return '<div class="sp-props-status">The prop analysis could not be loaded. ' + refresh + '</div>';
     if (!P) return '<div class="sp-props-status">Checking PrizePicks lines and player availability… ' + refresh + '</div>';
     const S = P.sources;
     return '<div class="sp-props-status"><b>' + (lg === 'nba' ? 'NBA market research · one player from each team' : 'Best 2 player props per game') + '</b><p>' +
-      (S.lines.state === 'ok' ? escape(S.lines.count + ' current standard selections checked · refreshed ' + fmtTime(P.generated_utc, zone())) : escape(S.lines.message || 'Line feed unavailable.')) + '</p>' +
+      (S.lines.state === 'ok' ? escape(S.lines.count + ' current standard selections checked · lines read ' + fmtClock(S.lines.fetched_utc || P.generated_utc, zone())) : escape(S.lines.message || 'Line feed unavailable.')) + '</p>' +
       '<p><a href="https://prop-line.com/odds-api/book/prizepicks" target="_blank" rel="noopener noreferrer">PrizePicks via PropLine</a> · <a href="https://www.espn.com/' + lg + '/injuries" target="_blank" rel="noopener noreferrer">ESPN injuries</a>' +
       (S.injuries.observed_utc ? ' · report ' + escape(fmtTime(S.injuries.observed_utc, zone())) : ' · injury report unavailable') + '</p>' + refresh +
       (lg === 'nba' ? '<p class="sp-note">' + escape(S.reference?.state === 'ok' ? S.reference.count + ' fresh two-way reference quotes checked. At least three operators are needed per prop.' : S.reference?.message || 'Sportsbook comparisons unavailable; research only.') + '</p>' : '') +
@@ -38204,22 +38209,26 @@ function scenarioEventPhase(ev, now = Date.now()) {
     fitCharts(page);
   }
 
-  function loadBoard(page, lg) {
+  function loadBoard(page, lg, manual) {
     const L = league(lg), seq = ++L.boardSeq;
     L.boardErr = null;
     api('board', { sport: lg, tz: zone() }).then((data) => { if (seq === L.boardSeq) L.board = data; }, (err) => { if (seq === L.boardSeq) L.boardErr = err; })
       .then(() => { if (state.page === page && seq === L.boardSeq) paint(page, 'board', boardHtml(lg)); });
-    loadProps(page, lg);
+    loadProps(page, lg, manual);
   }
-  function loadProps(page, lg) {
+  // `manual` = the "Refresh lines & injuries" button: show that it is working
+  // at once, ask the server to re-read the feeds, and say when it finished.
+  function loadProps(page, lg, manual) {
     const L = league(lg), seq = ++L.propsSeq;
     host.clearTimeout(L.propsTimer);
     L.propsPending = true; L.propsErr = null;
-    api('props', { sport: lg, tz: zone() }).then((data) => {
+    if (manual) { L.propsNote = ''; if (state.page === page) paint(page, 'board', boardHtml(lg)); }
+    api('props', { sport: lg, tz: zone(), refresh: manual ? 1 : null }).then((data) => {
       if (seq === L.propsSeq) { L.props = data; L.propsErr = null; }
     }, (err) => { if (seq === L.propsSeq) { L.propsErr = err; L.props = null; } }).then(() => {
       if (seq !== L.propsSeq) return;
       L.propsPending = false;
+      if (manual) L.propsNote = L.propsErr ? 'Refresh failed. Try again in a minute.' : 'Refreshed at ' + fmtClock(new Date().toISOString(), zone()) + '.';
       if (state.page === page) paint(page, 'board', boardHtml(lg));
       const delay = L.props ? Math.max(1000, Math.min(120000, Date.parse(L.props.expires_utc) - Date.now())) : 120000;
       L.propsTimer = host.setTimeout(() => {
@@ -38307,7 +38316,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (lg === 'nba' && (b = t.closest('[data-sp-nba-evaluate], [data-sp-nba-save]'))) { evaluateNBAPair(page, b.getAttribute('data-sp-nba-evaluate') || b.getAttribute('data-sp-nba-save'), b.hasAttribute('data-sp-nba-save')); return true; }
     if (t.closest('[data-sp-record-export]')) { exportPropRecord(page, lg); return true; }
     if (t.closest('[data-sp-record-refresh]')) { loadPropRecord(page, lg); return true; }
-    if (t.closest('[data-sp-props-refresh]')) { loadBoard(page, lg); return true; }
+    if ((b = t.closest('[data-sp-props-refresh]'))) { if (!b.disabled && !L.propsPending) loadBoard(page, lg, true); return true; }
     if ((b = t.closest('[data-sp-prop-add]'))) {
       const gameId = b.getAttribute('data-sp-prop-add'), P = L.props;
       const game = L.board?.games.find((g) => g.game_id === gameId);
