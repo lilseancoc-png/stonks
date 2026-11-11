@@ -100,10 +100,11 @@ const server = createServer(async (req, res) => {
       let raw = ''; for await (const chunk of req) raw += chunk;
       try { req.body = JSON.parse(raw); } catch { req.body = raw; }
     }
-    if (query.sports != null) return handleSportsRequest(req, res, { now: fixtureNow, loadPropSources: async () => ({
-      lines: { state: 'not_configured', lines: [], message: 'Fixture: no line feed configured.' },
-      injuries: { state: 'unavailable', reports: [] },
-    }) });
+    // The player page and Pick Builder read only the injury report; it lists
+    // LeBron as Questionable so the page shows a listing.
+    if (query.sports != null) return handleSportsRequest(req, res, { now: fixtureNow, loadPropSources: async ({ parts }) => (String(parts) === 'injuries'
+      ? { injuries: { state: 'ok', observed_utc: new Date(fixtureNow()).toISOString(), reports: [{ name: 'LeBron James', espn_id: '1966', team: 'lal', status: 'Questionable', detail: 'Ankle' }] } }
+      : { lines: { state: 'not_configured', lines: [], message: 'Fixture: no line feed configured.' }, injuries: { state: 'unavailable', reports: [] } }) });
     return authHandler(req, res);
   }
   if (url.pathname.startsWith('/api/')) return json({});
@@ -159,7 +160,7 @@ try {
         await page.locator('#sports-nfl-root [data-sp-part="results"] [data-sp-player="00-0003"]').click();
         await page.locator('#sports-nfl-root [data-sp-panel="player"] .sp-log').waitFor();
         const log = await page.locator('#sports-nfl-root [data-sp-panel="player"]').innerText();
-        assert(/Travis Kelce/.test(log) && /Averages over 1 stored games/i.test(log) && /@ DEN/.test(log), 'player search opens the game log: ' + log.slice(0, 400));
+        assert(/Travis Kelce/.test(log) && /Averages over 1 stored game\b/i.test(log) && !/1 stored games/.test(log) && /@ DEN/.test(log), 'player search opens the game log: ' + log.slice(0, 400));
         const kStat = page.locator('#sports-nfl-root [data-sp-panel="player"] [data-sp-pickform] [name="stat"]');
         if (await kStat.count()) assert.equal(await kStat.inputValue(), 'receptions', 'a tight end’s pick starts on receptions, not passing yards');
         assert.equal(await page.locator('#sports-nfl-root [data-sp-search]').inputValue(), 'kelce', 'the search box keeps its text');
@@ -167,8 +168,14 @@ try {
         assert(tops.length > 2 && tops.every((t, i) => i === 0 || t > tops[i - 1] + 10), 'the averages table rows sit one under another: ' + tops);
         await page.locator('#sports-nfl-root [data-sp-player="00-0001"]').first().click();
         await page.locator('#sports-nfl-root [data-sp-panel="player"]').filter({ hasText: 'Geno Smíth' }).waitFor();
+        // The line box hints a line near the player's average for the chosen stat.
+        const gForm = page.locator('#sports-nfl-root [data-sp-panel="player"] [data-sp-pickform]');
+        assert.equal(await gForm.locator('[name="line"]').getAttribute('placeholder'), '250.5', 'a quarterback’s passing-yards line hint sits near the player’s average, not 24.5');
+        await gForm.locator('[name="stat"]').selectOption('receptions');
+        assert.equal(await gForm.locator('[name="line"]').getAttribute('placeholder'), '0.5', 'the hint follows the chosen stat');
+        await gForm.locator('[name="stat"]').selectOption('passing_yards');
         await page.locator('#sports-nfl-root [data-sp-panel="game"]').scrollIntoViewIfNeeded();
-        checks += 7;
+        checks += 9;
       }
       if (id === 'sports-nba') {
         assert(/Up to date/.test(text) && /2025–26, 2026–27/.test(text) && /Sun, Nov 1/.test(text), 'NBA shows its job status, seasons and latest game');
@@ -251,6 +258,8 @@ try {
         const fcText = await page.locator('#sports-nba-root [data-sp-panel="player"]').innerText();
         assert(/Model forecast for the next game/i.test(fcText) && /@ PHX/.test(fcText) && /80% range/i.test(fcText) && /Passed the check/.test(fcText) && /minutes expected/.test(fcText), 'LeBron gets a forecast for his next game: ' + fcText.slice(0, 600));
         assert.equal(await page.locator('#sports-nba-root .sp-fc tbody tr').first().locator('.sp-lines span').count(), 5, 'five lines with the chance of the over');
+        assert(/Listed Questionable on the ESPN injury report \(Ankle\)/.test(await page.locator('#sports-nba-root [data-sp-panel="player"] .sp-avail').innerText()), 'the player page shows the injury listing for the next game');
+        checks++;
         checks += 7;
         // Charts: the last 10 games as bars, green above the average, red below.
         const PP = '#sports-nba-root [data-sp-panel="player"] ';

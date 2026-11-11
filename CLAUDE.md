@@ -57,8 +57,9 @@ calibration error ≤ 0.03); since `sports-model-3` (2026-11-11) 12 NBA and 9 NF
 stats are modeled, combos from their summed values. NFL keeps three extra
 finished seasons for the model only and NBA one (`modelHistory`). NBA forecasts
 rise when regular teammates are out (`teammates_out`, used per stat only where
-it beat no adjustment on the holdout; the MCP and props board read who is out
-from the ESPN report). The check also scores held-out games at real PrizePicks
+it beat no adjustment on the holdout; the MCP, props board, player page and
+Pick Builder read who is out from the ESPN report, never counting the player
+being forecast). The check also scores held-out games at real PrizePicks
 lines (`real_lines`: the issued props record plus the line archive the props
 scans write to `<sport>/lines/<date>.json`, `lib/sports/line-archive.mjs`);
 from 300 real lines a stat must beat both baselines there too.

@@ -36905,6 +36905,18 @@ function scenarioEventPhase(ev, now = Date.now()) {
     const items = [...groups].map(([why, names]) => '<li><b>' + escape(groups.size === 1 && names.length > 2 ? 'All ' + names.length + ' modeled stats' : names.join(', ')) + '</b> <span class="sp-muted">' + escape(why) + '</span></li>');
     return '<ul class="sp-fc-none">' + items.join('') + '</ul>';
   }
+  // The player's listing on the latest ESPN injury report for the next game,
+  // and the regular teammates listed out (NBA forecasts count their minutes).
+  function availHtml(P) {
+    const a = P.availability, F = P.forecast;
+    if (!a) return '';
+    if (a.state !== 'ok') return '<p class="sp-muted sp-avail">Injury report: ' + (a.state === 'stale' ? 'the latest copy is out of date' : 'not available right now') + '.</p>';
+    const own = a.status === 'not listed' ? 'Not listed on the latest ESPN injury report' : 'Listed <b>' + escape(a.status) + '</b> on the ESPN injury report' + (a.detail ? ' (' + escape(a.detail) + ')' : '');
+    const withMin = F && F.teammates_out && F.teammates_out.length;
+    const names = withMin ? F.teammates_out.map((p) => escape(p.name) + ' (' + num(p.minutes) + ' min)') : (a.teammates_out || []).map(escape);
+    const tm = names.length ? ' Teammates listed out: ' + names.join(', ') + (withMin ? ', usual minutes a game.' : '.') : '';
+    return '<p class="sp-avail' + (a.out || a.unsure ? ' sp-model-warn' : ' sp-muted') + '">' + own + '.' + tm + '</p>';
+  }
   function playerPanelHtml(lg) {
     const L = league(lg);
     if (!L.playerId) return '';
@@ -36925,15 +36937,16 @@ function scenarioEventPhase(ev, now = Date.now()) {
       // empty columns (and does not run off a phone screen).
       const table = any ? '<div class="sp-table-wrap"><table class="sp-table sp-fc" data-nosort><thead><tr><th>Stat</th><th class="sp-n">Expected</th><th class="sp-n">80% range</th><th>Chance of the over at each line</th></tr></thead><tbody>' + fr + '</tbody></table></div>'
         : fcNoneHtml(P.stats, F, lg);
-      forecast = '<h5>Model forecast for the next game</h5><p class="sp-muted sp-fc-game">' + (F.home ? 'vs ' : '@ ') + team(F.opponent) + ' · ' + escape(fmtWhen(G.start_utc, zone())) + '</p>' + table +
+      forecast = '<h5>Model forecast for the next game</h5><p class="sp-muted sp-fc-game">' + (F.home ? 'vs ' : '@ ') + team(F.opponent) + ' · ' + escape(fmtWhen(G.start_utc, zone())) + '</p>' + availHtml(P) + table +
         (any ? '<p class="sp-note">Built from ' + escape(any.games) + ' stored games: about ' + escape(any.expected_opportunity) + ' ' + escape(any.unit) + ' expected' + (any.regular_role ? '' : ' (a smaller role than the check covers, so it stays experimental)') +
-          ', opponent factor ' + escape(any.opponent_factor) + ', ' + (F.home ? 'home' : 'away') + '. Model fitted on games through ' + escape(any.as_of_date ? fmtDay(any.as_of_date) + ' ' + any.as_of_date.slice(0, 4) : '—') + '. A forecast, not a promise: injuries, rest and role changes are not in the data.</p>' : '');
-    } else if (G) forecast = '<h5>Model forecast for the next game</h5><p class="sp-muted">The model has not been fitted yet.</p>';
+          ', opponent factor ' + escape(any.opponent_factor) + ', ' + (F.home ? 'home' : 'away') + '. Model fitted on games through ' + escape(any.as_of_date ? fmtDay(any.as_of_date) + ' ' + any.as_of_date.slice(0, 4) : '—') + '. A forecast, not a promise: ' +
+          (lg === 'nba' ? 'rest and role changes are not in the data; regular teammates listed out are counted for the stats where that helped in testing.' : 'injuries, rest and role changes are not in the data.') + '</p>' : '');
+    } else if (G) forecast = '<h5>Model forecast for the next game</h5>' + availHtml(P) + '<p class="sp-muted">The model has not been fitted yet.</p>';
     return '<div class="sp-panel" data-sp-panel="player"><div class="sp-panel-head"><h4>' + escape(P.player.name) + ' <span>' + escape([P.player.position, P.player.team ? String(P.player.team).toUpperCase() : null].filter(Boolean).join(' · ')) + '</span></h4>' +
       '<button type="button" class="sp-close" data-sp-close="player" aria-label="Close player">×</button></div>' +
       forecast + (chartStats(P).length ? '<h5>Charts</h5><div class="sp-charts" data-sp-part="chart">' + chartHtml(lg) + '</div>' : '') +
       '<h5>Add a pick</h5>' + pickFormHtml(lg, P, 'league') +
-      '<h5>Averages over ' + num(P.total_games) + ' stored games</h5><div data-sp-part="logset">' + playerTablesHtml(lg) + '</div>' +
+      '<h5>Averages over ' + num(P.total_games) + ' stored game' + (P.total_games === 1 ? '' : 's') + '</h5><div data-sp-part="logset">' + playerTablesHtml(lg) + '</div>' +
       '<p class="sp-note">' + (lg === 'nba'
         ? 'Games the player missed are listed as did not play and left out of the averages.'
         : 'Games where the player recorded no stat are not in the provider’s file, so they are missing here, not counted as zero.') + '</p></div>';
@@ -37430,9 +37443,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
     const L = league(lg), R = L.record;
     if (L.recordErr) return errorBox(L.recordErr, 'props-record');
     if (!R) return '<p class="sp-loading">Loading the prop track record…</p>';
-    const S = R.summary, results = { win: 'Win', loss: 'Bust', push: 'Push', void: 'Void', pending: 'Pending', awaiting_stats: 'Waiting for stats' };
+    const S = R.summary, results = { win: 'Win', loss: 'Bust', push: 'Push', void: 'Void', no_stats: 'No stat line', pending: 'Pending', awaiting_stats: 'Waiting for stats' };
     const CL = S.closing_line || null;
-    const metrics = [['Wins', S.wins], ['Busts', S.losses], ['Win rate', S.win_rate == null ? '—' : (S.win_rate * 100).toFixed(1) + '%'], ['Pushes / voids', S.pushes + ' / ' + S.voids], ['Pending', S.pending],
+    const metrics = [['Wins', S.wins], ['Busts', S.losses], ['Win rate', S.win_rate == null ? '—' : (S.win_rate * 100).toFixed(1) + '%'], ['Pushes / voids', S.pushes + ' / ' + (S.voids + (S.no_stats || 0))], ['Pending', S.pending],
       ['Beat the close', CL && CL.beat_rate != null ? (CL.beat_rate * 100).toFixed(0) + '% of ' + (CL.beat + CL.worse) : '—']];
     const clvCell = (p) => !p.clv ? '<td class="sp-n sp-muted">—</td>' : '<td class="sp-n">' + num(p.threshold) + ' → ' + num(p.clv.line) + (p.clv.points ? ' <span class="' + (p.clv.points > 0 ? 'sp-pos' : 'sp-neg') + '">(' + (p.clv.points > 0 ? '+' : '') + p.clv.points.toFixed(1) + ')</span>' : ' <span class="sp-muted">(same)</span>') + '</td>';
     const rows = R.records.map((p) => '<tr><td>' + escape(fmtWhen(p.game_start_utc, zone())) + '</td><td><b>' + escape(p.player_name) + '</b><br>' + (p.side === 'over' ? 'More' : 'Less') + ' ' + num(p.threshold) + ' ' + escape(label(p.stat)) + '</td>' + clvCell(p) +
@@ -37592,6 +37605,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // One form for both places a pick starts: a player on the NBA / NFL page, or
   // the Pick Builder's own player search. A pick attaches to the team's next
   // stored game that has not started.
+  const lineHint = (v) => (typeof v === 'number' && v >= 0 ? String(Math.floor(v) + 0.5) : '24.5');
   function pickFormHtml(sport, P, where) {
     const g = P.next_game, name = P.player.name;
     if (!g) return '<p class="sp-muted">No upcoming game is stored for ' + escape(name) + '’s team yet, so a pick cannot be attached.</p>';
@@ -37600,12 +37614,16 @@ function scenarioEventPhase(ev, now = Date.now()) {
     // the same one the charts open on, not the first stat in the list.
     const main = P.stats && P.games ? chartStat(P, {}, sport) : null;
     const first = stats.indexOf(main) >= 0 ? main : stats[0];
-    return '<div class="sp-pickform" data-sp-pickform="' + escape(where) + '">' +
+    // The line box hints a line near the player's last-10 average of the
+    // chosen stat (not 24.5 for a quarterback's passing yards).
+    const avgs = {};
+    stats.forEach((st) => { const s = P.summaries && P.summaries[st], v = s ? (s.last10 != null ? s.last10 : s.average) : null; if (isNum(v)) avgs[st] = Math.round(v * 10) / 10; });
+    return '<div class="sp-pickform" data-sp-pickform="' + escape(where) + '" data-sp-avgs="' + escape(JSON.stringify(avgs)) + '">' +
       '<p class="sp-pick-game">Next game: ' + team(g.away_team) + ' at ' + team(g.home_team) + ' · ' + (g.time_tbd ? escape(fmtDay(g.local_date)) + ', time TBD' : escape(fmtWhen(g.start_utc, zone()))) + '</p>' +
       '<div class="sp-pick-row">' +
       statSelectHtml('name="stat"', 'Stat', stats, first) +
       '<label class="sp-field"><span>Side</span><select name="side"><option value="over">Over</option><option value="under">Under</option></select></label>' +
-      '<label class="sp-field sp-line-field"><span>Line</span><input name="line" type="number" min="0" max="1000" step="0.5" inputmode="decimal" placeholder="24.5"></label>' +
+      '<label class="sp-field sp-line-field"><span>Line</span><input name="line" type="number" min="0" max="1000" step="0.5" inputmode="decimal" placeholder="' + escape(lineHint(avgs[first])) + '"></label>' +
       '<button type="button" class="sp-btn" data-sp-addpick>' + (where === 'league' ? 'Add to Pick Builder' : 'Add to entry') + '</button></div>' +
       '<p class="sp-pick-msg" data-sp-pick-msg aria-live="polite"></p></div>';
   }
@@ -37753,7 +37771,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     const e = evalLeg(i);
     if (!e) return pb.evalErr ? '' : '<span class="sp-muted">Checking history…</span>';
     const h = e.history;
-    if (!h.all.games) return '<span class="sp-muted">No stored games before this one.</span>' + modelLineHtml(i, e);
+    if (!h.all.games) return '<span class="sp-muted">No stored games before this one.</span>' + modelLineHtml(i, e) + legAvailHtml(e);
     // The 95% range of the hit rate (decided games only) as a hover note.
     const c = (name, x) => name + ' <b' + (x.range ? ' title="' + escape('Likely true rate ' + pct(x.range.low) + ' to ' + pct(x.range.high) + ' (95% range from ' + (x.games - x.pushes) + ' decided games)') + '"' : '') + '>' + x.hits + '/' + x.games + '</b>';
     const rangeAll = h.all.range && h.all.games >= 5 ? '<span class="sp-muted sp-hist-range">All stored: likely ' + pct(h.all.range.low) + '–' + pct(h.all.range.high) + ' (95% range; few games make it wide).</span>' : '';
@@ -37761,7 +37779,15 @@ function scenarioEventPhase(ev, now = Date.now()) {
     const use = (key, name) => { const r = rateOf(h[key]); return r == null ? '' : '<button type="button" class="sp-chip" data-sp-usehist="' + i + '" data-rate="' + r + '">Use ' + r + '% (' + name + ')</button>'; };
     const uses = use('last10', 'last 10') + use('all', 'all stored');
     return legChartHtml(e) + '<span class="sp-hist-line">Cleared ' + sideWord(e.side) + ' ' + escape(e.threshold) + ' before this game: ' + c('last 5', h.last5) + ' · ' + c('last 10', h.last10) + ' · ' + c('all stored', h.all) + pushes + '</span>' + rangeAll +
-      (uses ? '<span class="sp-hist-use">' + uses + '</span>' : h.all.games < MIN_RATE_GAMES ? '<span class="sp-muted">Too few games to copy a rate.</span>' : '') + modelLineHtml(i, e);
+      (uses ? '<span class="sp-hist-use">' + uses + '</span>' : h.all.games < MIN_RATE_GAMES ? '<span class="sp-muted">Too few games to copy a rate.</span>' : '') + modelLineHtml(i, e) + legAvailHtml(e);
+  }
+  // The injury report for one pick (NBA, when the report could be read) and
+  // the teammates-out lift in its forecast.
+  function legAvailHtml(e) {
+    const a = e.availability, m = e.model && e.model.status === 'ok' ? e.model : null, out = [];
+    if (a && a.state === 'ok' && (a.out || a.unsure)) out.push('<span class="sp-model-line sp-model-warn">Injury report: ' + escape(a.status) + (a.detail ? ' (' + escape(a.detail) + ')' : '') + '. ' + (a.out ? 'If the player does not play, most apps remove the pick.' : 'Check again before the game.') + '</span>');
+    if (m && m.teammates_out && m.teammates_out.applied) out.push('<span class="sp-model-line">Regular teammates listed out (about ' + num(Math.round(m.teammates_out.minutes)) + ' usual minutes): the forecast is raised \u00d7' + escape(m.teammates_out.factor) + '.</span>');
+    return out.join('');
   }
   const SOURCE_TEXT = { history: 'from history', model: 'from model', book: 'from books', owner: 'typed' };
   function legHtml(l, i) {
@@ -37783,7 +37809,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       : pb.prefill === 'bad' ? '<p class="sp-banner sp-bad">The shared link could not be read, so nothing was filled in.</p>' : '';
     if (!d.legs.length) return banner + emptyBox('No picks yet.', 'Add 1 to 6 picks below, or from a player on the NBA and NFL pages.');
     return banner + '<ol class="sp-legs">' + d.legs.map(legHtml).join('') + '</ol>' + '<div data-sp-part="use-all">' + useAllHtml() + '</div>' +
-      '<p class="sp-note">History rates show how often the player cleared this line in stored games; they ignore minutes, opponent and role. The model reads minutes or targets, the opponent and home or away, and is checked on past games (see the Model check on the NBA and NFL pages). Neither knows about injuries or news. The chance you enter is yours.</p>';
+      '<p class="sp-note">History rates show how often the player cleared this line in stored games; they ignore minutes, opponent and role. The model reads minutes or targets, the opponent and home or away, and is checked on past games (see the Model check on the NBA and NFL pages). A pick whose player is listed Out, Doubtful or Questionable on the latest ESPN injury report says so, and for NBA the model counts regular teammates listed out; neither reads news or confirmed lineups. The chance you enter is yours.</p>';
   }
   function useAllHtml() {
     const d = draft(), ready = d.legs.filter((l, i) => { const e = evalLeg(i); return e && e.model && e.model.status === 'ok'; }).length;
@@ -38273,6 +38299,14 @@ function scenarioEventPhase(ev, now = Date.now()) {
         state.status = null;
         Object.keys(state.leagues).forEach((k) => { const L = state.leagues[k]; L.board = null; L.props = null; L.propsSeq++; L.boardSeq++; host.clearTimeout(L.propsTimer); });
         load(page, true);
+        return;
+      }
+      const pickForm = t.matches('[name="stat"]') ? t.closest('[data-sp-pickform]') : null;
+      if (pickForm) {
+        let avgs = {};
+        try { avgs = JSON.parse(pickForm.getAttribute('data-sp-avgs') || '{}'); } catch (e) { avgs = {}; }
+        const box = pickForm.querySelector('[name="line"]');
+        if (box) box.placeholder = lineHint(avgs[t.value]);
         return;
       }
       if (lg) { leagueChange(page, lg, t); return; }

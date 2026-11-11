@@ -227,9 +227,11 @@ put('players', { sport: 'nba' }, { schema_version: 1, players: L.players });
 put('model', { sport: 'nba' }, { schema_version: 1, ...model, seasons: [2025] });
 put('status', { sport: 'nba' }, { schema_version: 1, sport: 'nba', state: 'ok', last_success_utc: '2026-01-15T10:00:00Z', seasons: [2025], counts: { games: 481, player_games: L.rows.length, players: 96 }, model: modelSummary({ ...model, seasons: [2025] }) });
 const SAME = { origin: 'https://mingstreet.app', host: 'mingstreet.app', 'x-forwarded-proto': 'https' };
+// The injury report is faked (unreachable); tests never use the network.
+const noFeed = async () => ({ injuries: { state: 'unavailable', reports: [] } });
 async function call(method, query, body) {
   const res = { statusCode: 200, headers: {}, body: null, setHeader(k, v) { this.headers[k] = v; }, status(c) { this.statusCode = c; return this; }, json(b) { this.body = b; return this; } };
-  await handleSportsRequest({ method, headers: SAME, query, body }, res, { env: { PRIVATE_DATA_ENABLED: '1' }, getSession: async () => ({ sub: 'owner-1', tr: true, tp: true }), store: st, now: () => NOW });
+  await handleSportsRequest({ method, headers: SAME, query, body }, res, { env: { PRIVATE_DATA_ENABLED: '1' }, getSession: async () => ({ sub: 'owner-1', tr: true, tp: true }), store: st, now: () => NOW, loadPropSources: noFeed });
   return res;
 }
 const gsStar = L.truth.find((p) => p.team === 'gs' && p.minutes === 34), bosStar = L.truth.find((p) => p.team === 'bos' && p.minutes === 34);

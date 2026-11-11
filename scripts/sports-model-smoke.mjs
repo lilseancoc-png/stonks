@@ -210,6 +210,7 @@ eq(ta.players.map((x) => x.player_id).sort(), [gsReg[1].player_id, gsReg[2].play
 near(ta.minutes, ta.players.reduce((a, b) => a + b.minutes, 0), 'minutes add up', 0.01);
 eq(teamAbsence({ sport: 'nba', team: 'gs', date: nextDay, reports: [], players: LA.players, rows: LA.rows }), { minutes: 0, players: [] }, 'no report: nobody out');
 eq(teamAbsence({ sport: 'nfl', team: 'gs', date: nextDay, reports, players: LA.players, rows: LA.rows }).minutes, 0, 'NFL: not used');
+eq(teamAbsence({ sport: 'nba', team: 'gs', date: nextDay, reports, players: LA.players, rows: LA.rows, exclude: gsReg[1].player_id }).players.map((x) => x.player_id), [gsReg[2].player_id], 'the player being forecast is never their own teammate out');
 
 // --- real PrizePicks lines in the check (fix 4) -----------------------------------------
 eq([model.evaluation.points.real_lines.n, model.evaluation.points.real_lines.note], [0, 'no real lines stored yet'], 'no stored lines: says so');
@@ -255,9 +256,12 @@ function fakeRes() {
   return { statusCode: 200, headers: {}, body: null, setHeader(k, v) { this.headers[k] = v; }, status(c) { this.statusCode = c; return this; }, json(b) { this.body = b; return this; } };
 }
 const SAME = { origin: 'https://mingstreet.app', host: 'mingstreet.app', 'x-forwarded-proto': 'https' };
-async function call(method, query, body) {
+// The site reads the free ESPN injury report for the player page and NBA
+// Pick Builder checks; tests pass a fake feed (default: unreachable).
+const noFeed = async () => ({ injuries: { state: 'unavailable', reports: [] } });
+async function call(method, query, body, feed = noFeed) {
   const res = fakeRes();
-  await handleSportsRequest({ method, headers: SAME, query, body }, res, { env: { PRIVATE_DATA_ENABLED: '1' }, getSession: async () => ({ sub: 'owner-1', tr: true, tp: true }), store: st, now: () => NOW });
+  await handleSportsRequest({ method, headers: SAME, query, body }, res, { env: { PRIVATE_DATA_ENABLED: '1' }, getSession: async () => ({ sub: 'owner-1', tr: true, tp: true }), store: st, now: () => NOW, loadPropSources: feed });
   return res;
 }
 const page = await call('GET', { sports: 'player', sport: 'nba', id: star.player_id });
@@ -272,6 +276,19 @@ const sm = status.body.sources.nba.model;
 eq([sm.model_version, sm.seasons, sm.stats.points.status, sm.stats.rebounds.status], [SPORTS_MODEL_VERSION, [2025], 'validated', 'experimental'], 'status carries the model check');
 ok(sm.stats.points.test_n >= 300 && sm.stats.points.brier.model < sm.stats.points.brier.plain_average, 'status carries the scores');
 eq(status.body.sources.nfl.model, null, 'a league with no model says so');
+eq([page.body.availability.state, page.body.forecast.teammates_out], ['unavailable', undefined], 'no injury report: the page says so and assumes the usual lineup');
+// The same injury context as the MCP: the player's own listing, and regular
+// teammates listed out raise the NBA forecast; the player is never their own teammate out.
+const gsMates = L.truth.filter((p) => p.team === 'gs' && p.player_id !== star.player_id && p.minutes >= 24);
+const listing = (p, status) => ({ name: p.name, espn_id: p.player_id, team: 'gs', status, detail: 'Ankle' });
+const feedOf = (reports) => async ({ parts }) => { eq(parts, ['injuries'], 'only the free injury feed is read'); return { injuries: { state: 'ok', observed_utc: new Date(NOW).toISOString(), reports } }; };
+const hurt = await call('GET', { sports: 'player', sport: 'nba', id: star.player_id }, undefined, feedOf([listing(star, 'Questionable'), listing(gsMates[0], 'Out')]));
+eq([hurt.body.availability.status, hurt.body.availability.unsure, hurt.body.availability.out], ['Questionable', true, false], 'the page shows the player’s own listing');
+eq(hurt.body.forecast.teammates_out.map((x) => x.player_id), [gsMates[0].player_id], 'a regular teammate listed out reaches the forecast');
+ok(hurt.body.forecast.forecasts.points.teammates_out.minutes > 0, 'each stat says how many minutes are out');
+const selfOut = await call('GET', { sports: 'player', sport: 'nba', id: star.player_id }, undefined, feedOf([listing(star, 'Out')]));
+eq([selfOut.body.availability.out, selfOut.body.forecast.teammates_out], [true, undefined], 'the player’s own Out listing never raises their forecast');
+near(selfOut.body.forecast.forecasts.points.mean, pf.points.mean, 'and the forecast is unchanged', 1e-9);
 
 const leg = (extra = {}) => ({ sport: 'nba', player_id: star.player_id, game_id: 'mnext1', stat: 'points', side: 'over', threshold: 20.5, ...extra });
 const ev = await call('POST', { sports: 'evaluate' }, { legs: [leg()] });
@@ -290,6 +307,11 @@ const benchLeg = await call('POST', { sports: 'evaluate' }, { legs: [leg({ playe
 eq(benchLeg.body.legs[0].model.quality, 'experimental');
 const otherGame = await call('POST', { sports: 'evaluate' }, { legs: [leg({ player_id: L.truth.find((p) => p.team === 'bos').player_id })] });
 eq(otherGame.body.legs[0].model, { status: 'not_calculated', reason: 'team' }, 'no forecast for a player not in the game');
+const evOut = await call('POST', { sports: 'evaluate' }, { legs: [leg()] }, feedOf([listing(star, 'Out'), listing(gsMates[0], 'Out')]));
+eq([evOut.body.legs[0].availability.status, evOut.body.legs[0].availability.out], ['Out', true], 'the Pick Builder shows the player’s listing');
+eq(evOut.body.legs[0].model.teammates_out.minutes, hurt.body.forecast.forecasts.points.teammates_out.minutes, 'and counts the same teammates out as the player page, never the player');
+const savedOut = await call('POST', { sports: 'save-entry' }, { legs: [leg({ probability: evOut.body.legs[0].model.probability, probability_source: 'model' })], operator: 'prizepicks', format: 'power', stake: 5, payouts: { 1: 1.5 } }, feedOf([listing(star, 'Out'), listing(gsMates[0], 'Out')]));
+eq([savedOut.body.entry.legs[0].probability_source, 'availability' in savedOut.body.entry.legs[0]], ['model', false], 'saving reads the same report, so the model’s chance keeps its label; the listing is not saved');
 const saved = await call('POST', { sports: 'save-entry' }, { legs: [leg({ probability: lm.probability, probability_source: 'model' })], operator: 'prizepicks', format: 'power', stake: 5, payouts: { 1: 1.5 } });
 eq(saved.statusCode, 200);
 eq([saved.body.entry.legs[0].probability_source, saved.body.entry.legs[0].model.probability], ['model', lm.probability], 'the saved entry keeps the model’s chance as it was');

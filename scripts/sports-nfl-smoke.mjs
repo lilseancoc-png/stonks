@@ -148,7 +148,9 @@ function fakeRes() {
   r.json = (b) => { r.body = b; return r; };
   return r;
 }
-const deps = (session = { sub: 'o', tr: true, tp: true }) => ({ env: { PRIVATE_DATA_ENABLED: '1' }, getSession: async () => session, store: st, now: () => NOW });
+// The player page reads the ESPN injury report; a fake one here (never the network).
+const deps = (session = { sub: 'o', tr: true, tp: true }) => ({ env: { PRIVATE_DATA_ENABLED: '1' }, getSession: async () => session, store: st, now: () => NOW,
+  loadPropSources: async () => ({ injuries: { state: 'unavailable', reports: [] } }) });
 async function call(query, d = deps()) {
   const res = fakeRes();
   await handleSportsRequest({ method: 'GET', headers: {}, query }, res, d);

@@ -213,9 +213,11 @@ function fakeRes() {
   return r;
 }
 const SAME = { origin: 'https://mingstreet.app', host: 'mingstreet.app', 'x-forwarded-proto': 'https' };
+// The injury report is faked (unreachable); tests never use the network.
+const noFeed = async () => ({ injuries: { state: 'unavailable', reports: [] } });
 async function call(method, query, body, headers = SAME, sub = OWNER) {
   const res = fakeRes();
-  await handleSportsRequest({ method, headers, query, body }, res, { env: { PRIVATE_DATA_ENABLED: '1' }, getSession: async () => ({ sub, tr: true, tp: true }), store: st, now: () => NOW });
+  await handleSportsRequest({ method, headers, query, body }, res, { env: { PRIVATE_DATA_ENABLED: '1' }, getSession: async () => ({ sub, tr: true, tp: true }), store: st, now: () => NOW, loadPropSources: noFeed });
   return res;
 }
 const ev = await call('POST', { sports: 'evaluate' }, entryBody([curry('401900003'), lebron('401900004')]));

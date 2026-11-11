@@ -142,6 +142,15 @@ assert.ok(record.records.every((p) => Array.isArray(p.evidence)), 'research expo
 assert.equal(record.summary.model_check.samples, 0, 'rank scores are not probability forecasts');
 const nflRecord = await propRecordView({ load, sport: 'nfl', seasons: [2026], now, all: true });
 assert.equal(nflRecord.records.find((p) => p.game_id === 'pending-game').result, 'awaiting_stats', 'missing NFL row is never assumed zero');
+// A final NFL game whose rows are stored but none for this player: it waits
+// three days for stat corrections, then stops waiting (left out of the win rate).
+const nflLoad = async (kind, opts) => kind === 'player-games' ? { rows: [...(await load(kind, opts)).rows, { game_id: 'pending-game', player_id: 'someone-else', played: true, stats: { receiving_yards: 12 } }] } : load(kind, opts);
+const gameMs = Date.parse(game.start_utc);
+const nflEarly = await propRecordView({ load: nflLoad, sport: 'nfl', seasons: [2026], now: gameMs + 2 * 86400000, all: true });
+assert.equal(nflEarly.records.find((p) => p.game_id === 'pending-game').result, 'awaiting_stats', 'within three days it waits for corrections');
+const nflLate = await propRecordView({ load: nflLoad, sport: 'nfl', seasons: [2026], now: gameMs + 4 * 86400000, all: true });
+assert.equal(nflLate.records.find((p) => p.game_id === 'pending-game').result, 'no_stats', 'after three days a missing NFL row stops waiting');
+assert.deepEqual([nflLate.summary.no_stats, nflLate.summary.pending, nflLate.summary.win_rate], [1, 0, 0.5], 'no stat line is out of the win rate and not pending');
 const fillObjects = new Map(), fillStore = { ...store,
   rawGet: async (k) => fillObjects.has(k) ? Buffer.from(fillObjects.get(k)) : null,
   rawPut: async (k, value) => { fillObjects.set(k, String(value)); } };

@@ -160,8 +160,10 @@ const ev = await tool('sports_evaluate_entry', { legs, operator: 'prizepicks', f
 const E = ev.structuredContent.results;
 const siteRes = mkRes();
 await handleSportsRequest({ method: 'POST', headers: { origin: ORIGIN, host: HOST, 'x-forwarded-proto': 'https' }, query: { sports: 'evaluate' }, body: { legs: legs.map(({ chance, ...l }) => ({ ...l, probability: chance })), operator: 'prizepicks', format: 'power', stake: 10, payouts: { 2: 3 } } }, siteRes,
-  { env: ENV, getSession: async () => ({ sub: 'owner-sub', tr: true, tp: true }), store: { ...store, withLease: undefined }, now: () => NOW });
+  { env: ENV, getSession: async () => ({ sub: 'owner-sub', tr: true, tp: true }), store: { ...store, withLease: undefined }, now: () => NOW, loadPropSources: fakeSources });
 const S = siteRes.body.evaluation;
+eq(siteRes.body.legs.map((l) => l.model.probability), E.legs.map((l) => l.model.probability), 'the site and the MCP read the same injury report, so the model chances match');
+eq(siteRes.body.legs.map((l) => l.availability.status), E.legs.map((l) => l.availability.status), 'and show the same listings');
 eq([E.evaluation.status, E.evaluation.joint_probability, E.evaluation.simulation.seed, E.evaluation.expected_net], [S.status, S.joint_probability, S.simulation.seed, S.expected_net], 'the MCP and the Pick Builder give the same same-game number and seed');
 eq(E.evaluation.status, 'joint_estimate');
 eq(E.legs.map((l) => [l.chance, l.chance_source]), [[0.55, 'owner'], [0.5, 'owner']], 'chances given are the owner’s');

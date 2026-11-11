@@ -120,10 +120,14 @@ job), so stat corrections naturally appear on the next read. More/less
 strictly above/below the line = win/bust; equal = push; canceled/postponed
 games and recorded DNPs = void. Missing final box scores remain pending.
 NBA missing players become void only once that game's box scores are
-present; missing NFL rows remain awaiting stats, never an assumed zero.
+present; missing NFL rows are never an assumed zero. nflverse leaves out a
+player with no stat, so a missing NFL row can mean the player sat or played
+and recorded none: it waits for stats, and once the game's other rows are
+stored and three days of corrections have passed it becomes `no_stats`
+("No stat line"), left out of the win rate like a void (since 2026-11-11).
 These are stat results, not operator-specific reboot/payout settlements.
 
-Win rate excludes push, void and pending rows. Results are broken down by
+Win rate excludes push, void, no-stat-line and pending rows. Results are broken down by
 stat; the JSON also includes model/history-only and rank-band breakdowns,
 plus Brier scores only for saved **model probabilities**, never for rank
 scores. The latest 100 picks show in the table (fewer if a response's byte
@@ -570,13 +574,22 @@ capped at 120). Beta is fitted on the earlier days by least squares and kept
 only when it beat no adjustment on the holdout on both Brier and log loss
 (`evaluation[stat].teammates_out`, `context.absence`). In the check, who was
 missing comes from the box scores (a player with no played row); live, the
-props board and the MCP read the ESPN injury report (Out or Doubtful, the same
-list that already gates props). A late scratch is not known in advance, and
-the box-score check knows a few absences the report would only have shown as
-questionable, so the measured lift is a little optimistic. NFL showed no
-consistent lift across seasons and is not adjusted. The site's player page
-and Pick Builder do not read injuries yet; their forecasts assume nobody is
-out.
+props board, the player page, the Pick Builder and the MCP read the ESPN
+injury report (Out or Doubtful, the same list that already gates props). The
+player being forecast never counts as their own teammate out (`exclude` in
+`teamAbsence`), and the props board's small teammate-DNP rank bump is skipped
+when the forecast already applied the lift. A late scratch is not known in
+advance, and the box-score check knows a few absences the report would only
+have shown as questionable, so the measured lift is a little optimistic. NFL
+showed no consistent lift across seasons and is not adjusted.
+
+Since 2026-11-11 the site's player page shows the player's own listing for
+the next game and the teammates listed out (with their usual minutes), and
+each Pick Builder pick says when its player is listed Out, Doubtful or
+Questionable (`nextGameAvailability` in `lib/sports/http.mjs`; the free ESPN
+feed, cached two minutes; saving reads the same report as checking, so a
+model chance keeps its label). Nothing about the listing is saved with an
+entry.
 
 **Tuning (2026-11-02, real seasons).** The first cut shrank minutes and
 targets toward the position-group average, which pulled stars down and lost
@@ -628,9 +641,10 @@ stable across seasons) and a short-game mixture for blowouts and early exits.
 The negative binomial beat the normal curve for NFL rushing, receiving and
 rush + receiving yards; passing and pass + rush yards stay normal. With
 only two NFL seasons, passing yards had 239 held-out games, which is why NFL
-keeps older seasons. Forecasts know nothing about injuries, rest or news
-(the MCP shows the injury report and the sportsbook price beside them, see
-"MCP tools").
+keeps older seasons. Forecasts know nothing about rest or news, and about
+injuries only through the NBA teammates-out lift (the site and the MCP show
+the injury report beside them, and the MCP the sportsbook price, see "MCP
+tools").
 
 **Recalibration, gated (2026-11-11).** The refit also fits a Platt curve
 (`fitCalibration`: `sigmoid(a + b × logit p)`, `a` held to ±0.5 and `b` to

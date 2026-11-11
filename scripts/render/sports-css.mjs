@@ -217,6 +217,7 @@ export function renderSportsCss() {
 .sp-clv-track i { display: block; height: 100%; background: var(--accent); border-radius: 4px; }
 .sp-clv-split b { text-align: right; font-variant-numeric: tabular-nums; }
 .sp-fc-game { margin: -4px 0 6px; font-size: 12.5px; }
+.sp-avail { margin: 0 0 8px; font-size: 12.5px; }
 .sp-lines { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12.5px; color: var(--muted-strong); }
 .sp-lines span { white-space: nowrap; }
 .sp-lines b { color: var(--text); font-variant-numeric: tabular-nums; }
