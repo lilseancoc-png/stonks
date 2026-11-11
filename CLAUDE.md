@@ -60,7 +60,7 @@ are drawn in `sports-client.mjs` from the player route's full log
 (`lib/sports/models.mjs`, deterministic, no AI) are refit by the same daily
 job into `_stonks/sports/v1/<sport>/model.json` with a dated holdout check
 (validated only with 300+ games, a better score than both baselines and
-calibration error ≤ 0.03); since `sports-model-3` (2026-11-11) 12 NBA and 9 NFL
+calibration error ≤ 0.03); since `sports-model-3` (2026-11-11; now `sports-model-4`, with the game factors below) 12 NBA and 9 NFL
 stats are modeled, combos from their summed values. NFL keeps three extra
 finished seasons for the model only and NBA one (`modelHistory`). NBA forecasts
 rise when regular teammates are out (`teammates_out`, used per stat only where

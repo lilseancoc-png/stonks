@@ -110,7 +110,7 @@ eq(summary.stats.assists.reason, 'not enough past games to check yet', 'a stat t
 eq(model.evaluation.pts_reb.forecasts > 0, true, 'combos are summed from the stored stats and modeled');
 // Every stat the catalog marks as modeled has a spec, in catalog order.
 for (const sp of ['nba', 'nfl']) eq(SPORTS_STATS[sp].filter((x) => x.model).map((x) => x.id), Object.keys(MODEL_SPECS[sp]), sp + ' catalog and model specs agree');
-eq(SPORTS_MODEL_VERSION, 'sports-model-3');
+eq(SPORTS_MODEL_VERSION, 'sports-model-4');
 eq(PROP_RANK_VERSION, 'props-rank-4');
 const empty = buildModel({ sport: 'nfl', rows: [], now: NOW });
 eq([empty.evaluation.passing_yards.status, empty.evaluation.receptions.reason], ['experimental', 'not enough past games to check yet'], 'no data: experimental, never validated');
@@ -301,6 +301,17 @@ const sm = status.body.sources.nba.model;
 eq([sm.model_version, sm.seasons, sm.stats.points.status, sm.stats.rebounds.status], [SPORTS_MODEL_VERSION, [2025], 'validated', 'experimental'], 'status carries the model check');
 ok(sm.stats.points.test_n >= 300 && sm.stats.points.brier.model < sm.stats.points.brier.plain_average, 'status carries the scores');
 eq(status.body.sources.nfl.model, null, 'a league with no model says so');
+// The per-stat checks the Model check card explains reach the page (dropped
+// by the status sanitizer until 2026-11-11).
+{
+  const stored = JSON.parse(st.objects.get(sportsKey('status', { sport: 'nba' }))).model.stats.points;
+  ok(stored.factors && stored.teammates_out && stored.recalibration, 'the stored summary has the checks to pass');
+  const shown = sm.stats.points;
+  for (const k of ['recalibration', 'teammates_out', 'early_season', 'factors', 'real_lines']) ok(k in shown, 'status passes ' + k);
+  ok(stored.recalibration == null || shown.recalibration.applied === (stored.recalibration.applied === true), 'recalibration state passes through');
+  ok(stored.teammates_out == null || shown.teammates_out.applied === (stored.teammates_out.applied === true), 'teammates-out state passes through');
+  ok(stored.factors == null || Object.keys(shown.factors).every((f) => typeof shown.factors[f].applied === 'boolean' && Number.isInteger(shown.factors[f].games)), 'game factors pass through with their tests');
+}
 eq([page.body.availability.state, page.body.forecast.teammates_out], ['unavailable', undefined], 'no injury report: the page says so and assumes the usual lineup');
 // The same injury context as the MCP: the player's own listing, and regular
 // teammates listed out raise the NBA forecast; the player is never their own teammate out.

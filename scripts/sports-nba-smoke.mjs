@@ -35,11 +35,16 @@ eq(g26.games.find((g) => g.game_id === '401900002').venue, 'crypto.com Arena');
 const byId = new Map(g26.games.map((g) => [g.game_id, g]));
 const pg = normalizeNbaPlayerGames(parseCsv(BOX_2027), byId);
 eq(pg.rejected, [], 'no fixture row is invalid');
-eq(pg.rows.length, 7, 'the team-total row is skipped');
+eq(pg.rows.length, 6, 'the team-total row is skipped, and so is the blank bench line in a game whose box points fall short of the final');
+eq(pg.fixes.unknown_rows_dropped, 1, 'the dropped blank line is counted');
 const curryOut = pg.rows.find((r) => r.player_id === '3975' && r.game_id === '401900002');
 ok(curryOut.played === false && curryOut.minutes === 0 && curryOut.dnp_reason === 'LEFT ANKLE SPRAIN' && curryOut.stats.points === null, 'did-not-play keeps its reason and null stats');
-const bench = pg.rows.find((r) => r.player_id === '4066');
-ok(bench.played === false && bench.dnp_reason == null, 'no minutes and no points counts as did not play');
+ok(!pg.rows.some((r) => r.player_id === '4066'), 'a blank line (no minutes, no stat, no reason) in a short box is unknown, not a game he sat out');
+// The same blank line when the team's box adds up to its final: did not play.
+const evenGame = { sport: 'nba', game_id: '401900010', season: 2026, season_type: 'REG', local_date: '2026-10-29', start_utc: '2026-10-30T00:00:00.000Z', home_team: 'gs', away_team: 'por', status: 'final', home_score: 27, away_score: 0 };
+const even = normalizeNbaPlayerGames(parseCsv(BOX_2027.split('\n')[0] + '\n' + BOX_2027.split('\n').slice(1, 4).map((l) => l.replace('401900001', '401900010')).join('\n').replace(/,14,7,/, ',0,7,')), new Map([[evenGame.game_id, evenGame]]));
+const bench = even.rows.find((r) => r.player_id === '4066');
+ok(bench && bench.played === false && bench.dnp_reason == null && even.fixes.unknown_rows_dropped === 0, 'no minutes and no points counts as did not play when the box adds up');
 const garbage = pg.rows.find((r) => r.player_id === '4067');
 ok(garbage.played === true && garbage.minutes === 0 && garbage.stats.points === 2, 'points without minutes counts as played');
 const pod = pg.rows.find((r) => r.player_id === '4433' && r.game_id === '401900002');
@@ -55,15 +60,22 @@ ok(!exhibition.rows.some((r) => r.player_id === '9999'), 'All-Star rows are skip
 // counted, not guessed.
 const HEAD2 = 'game_id,athlete_id,athlete_display_name,athlete_short_name,team_abbreviation,opponent_team_abbreviation,home_away,minutes,points,rebounds,assists,did_not_play,reason,starter,athlete_position_abbreviation';
 const otherGame = { sport: 'nba', game_id: '401900009', season: 2026, season_type: 'REG', local_date: '2026-10-30', start_utc: '2026-10-31T00:00:00.000Z', home_team: 'mia', away_team: 'chi', status: 'final', home_score: 100, away_score: 90 };
-const fixed = normalizeNbaPlayerGames(parseCsv([HEAD2,
+const FIXED_CSV = ([HEAD2,
   '401900001,3975,Stephen Curry,S. Curry,GS,POR,home,33,27,6,5,false,,true,G',
   '401900002,4433,Brandin Podziemski,B. Podziemski,GS,LAL,away,35,21,9,6,false,,true,G',
   '401900001,,,B. Podziemski,GS,POR,home,,0,0,0,false,COACH\'S DECISION,false,G',
   '401900001,,TEAM,,GS,POR,home,240,115,40,25,false,,false,',
   '401900001,,,X. Nobody,GS,POR,home,,0,0,0,false,,false,G',
   '401900009,3975,Stephen Curry,S. Curry,CHI,MIA,away,,,,,true,NOT WITH TEAM,false,G',
-].join('\n')), new Map([...byId, [otherGame.game_id, otherGame]]));
-eq(fixed.fixes, { ids_filled: 1, ids_unresolved: 1, duplicate_dnp_dropped: 1 }, 'blank ids filled or counted, duplicate did-not-play copy dropped');
+].join('\n'));
+// Game 401900001 adds up here (27 = Curry's 27), so the blank row is a did-not-play.
+const evenById = new Map([...byId, ['401900001', { ...byId.get('401900001'), home_score: 27 }], [otherGame.game_id, otherGame]]);
+const fixed = normalizeNbaPlayerGames(parseCsv(FIXED_CSV), evenById);
+eq(fixed.fixes, { ids_filled: 1, ids_unresolved: 1, duplicate_dnp_dropped: 1, unknown_rows_dropped: 0 }, 'blank ids filled or counted, duplicate did-not-play copy dropped');
+// The same blank row when the box falls short of the final (the real Olbrich
+// rows carried a "coach's decision" reason): unknown, dropped, counted.
+const short = normalizeNbaPlayerGames(parseCsv(FIXED_CSV), new Map([...byId, [otherGame.game_id, otherGame]]));
+ok(short.fixes.unknown_rows_dropped === 1 && !short.rows.some((r) => r.player_id === '4433' && r.game_id === '401900001'), 'a blank row in a short box is unknown even with a reason');
 const filledRow = fixed.rows.find((r) => r.player_id === '4433' && r.game_id === '401900001');
 ok(filledRow && filledRow.played === false && filledRow.stats.points === null, 'the filled row keeps its did-not-play state (no minutes, no stat)');
 ok(!fixed.rows.some((r) => r.game_id === '401900009'), 'the duplicate copy is gone');
@@ -132,10 +144,12 @@ const line = integrityLine(run.status.integrity);
 ok(/box_points_off=2/.test(line) && !/401900/.test(line) && !/Curry/.test(line), 'the public log line has counts only: ' + line);
 ok(JSON.parse(st.objects.get(SPORTS_PREFIX + 'nba/player-games/2025.json')).complete === true, 'a past season with a postponed game still finishes');
 const players = JSON.parse(st.objects.get(SPORTS_PREFIX + 'nba/players.json')).players;
-eq(players.map((p) => p.name).sort(), ['Bench Guard', 'Brandin Podziemski', 'Garbage Time', 'LeBron James', 'Stephen Curry'], 'players come from both seasons');
+eq(players.map((p) => p.name).sort(), ['Brandin Podziemski', 'Garbage Time', 'LeBron James', 'Stephen Curry'], 'players come from both seasons (one whose only line was unknown has no games)');
+eq(run.status.integrity.seasons[2026].unknown_rows_dropped, 1, 'unknown lines are counted in the status');
 fetched.length = 0;
-await ingestLeague({ adapter: NBA_SOURCE, store: st, fetchText, now: NOW + 86400000 });
+const run2 = await ingestLeague({ adapter: NBA_SOURCE, store: st, fetchText, now: NOW + 86400000 });
 ok(!fetched.includes(HOOPR_URLS.box(2025)), 'the finished season is not downloaded again');
+ok(!run2.status.integrity.warnings.some((w) => /^2025:/.test(w)) && run2.status.integrity.warnings.some((w) => /^2026:/.test(w)), 'the box-score check runs on seasons read this run, not on a finished season kept as stored');
 ok(JSON.parse(st.objects.get(SPORTS_PREFIX + 'nba/players.json')).players.some((p) => p.name === 'LeBron James'), 'names from a season not re-read are kept');
 const status = await sportsStatus({ store: st, now: NOW });
 eq(status.sources.nba.latest_game_date, '2026-11-01', 'the status route passes the latest game date');
@@ -146,6 +160,10 @@ const load = recordLoader(st);
 const board = await buildBoard({ load, sport: 'nba', nowMs: NOW, tz: 'America/Los_Angeles' });
 eq(board.games.map((g) => [g.game_id, g.day, `${g.away_team}@${g.home_team}`]), [['401900003', 'today', 'phx@gs'], ['401900004', 'tomorrow', 'lal@phx']], '7 pm Pacific is today, the next night tomorrow');
 eq(board.next_game.game_id, '401900005');
+ok(!board.games.some((g) => g.game_lines), 'no archived spread yet: no line on the board');
+st.objects.set(SPORTS_PREFIX + 'nba/lines/2026-11-02.json', JSON.stringify({ schema_version: 1, sport: 'nba', date: '2026-11-02', lines: [], games: { '401900003': [226.5, -4.5, '2026-11-02T20:00:00Z'] } }));
+const boardL = await buildBoard({ load: recordLoader(st), sport: 'nba', nowMs: NOW, tz: 'America/Los_Angeles' });
+eq([boardL.games[0].game_lines?.total, boardL.games[0].game_lines?.favorite, boardL.games[0].game_lines?.source], [226.5, 'phx', 'sportsbooks'], 'the archived sportsbook spread and total reach the board');
 const game = await buildGame({ load, sport: 'nba', gameId: '401900003', seasons: [2025, 2026] });
 ok(game && game.game.game_id === '401900003', 'ESPN numeric ids find their game');
 const gs = game.teams.gs.players;

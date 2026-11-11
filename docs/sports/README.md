@@ -187,6 +187,11 @@ Eastern; the choice is a per-browser convenience in localStorage
 (`stonks-sports-tz-v1`). A 10:30 p.m. Pacific tip-off is still "today" in Los
 Angeles even though it is past midnight in New York.
 
+Each upcoming game on the board shows its spread and total ("SEA −6.5 · O/U
+40.5", "PK" for a pick'em): NFL from the stored schedule, NBA from the
+sportsbooks' median the props scan archives for that day (none until the
+scan has seen the game).
+
 ## Stats
 
 One catalog, `SPORTS_STATS` in `lib/sports/schema.mjs`, lists every stat the
@@ -396,8 +401,11 @@ ingest (`lib/sports/ingest.mjs`) with a small adapter per provider
 - Checks its own data every run (`integrity` in the status record, since
   2026-11-11, adapter version 2, which re-downloaded every season once):
   per season the rows added or fixed, the box scores that do not add up to
-  the final score, and (NBA) a second source. The status message and the
-  MCP's `data_check` carry the warnings; the log prints counts only.
+  the final score, and (NBA) a second source. The box-score check runs on
+  the seasons read this run; a finished season kept as stored was checked
+  when it was read, so its old count does not repeat as a warning every run.
+  The status message and the MCP's `data_check` carry the warnings; the log
+  prints counts only.
 - Logs counts only, because workflow logs are public.
 
 **NFL** (`lib/sports/nflverse.mjs`) reads five nflverse release files:
@@ -423,13 +431,20 @@ Since adapter 2 (2026-11-11):
   status Out / Doubtful / Questionable, practice participation, injury) is
   stored as `nfl/injuries.json`. It is shown beside ESPN's listing and marks a
   player out (Out, Doubtful) or unsure (Questionable) only for the week of
-  his next game; a report for an earlier week is labeled `not_yet`. nflverse
+  his next game. It is labeled `not_yet` when the report is for an earlier
+  week or when his team has filed nothing for this week yet (teams file from
+  the Wednesday before a Sunday game; before the 2026-11-11 audit every
+  player on a team that had not filed read "not listed"). Listed with no game
+  status yet reads "no game status yet"; a filed team without him reads "not
+  listed". nflverse
   can lag: on 2026-11-11 its file held all of week 9 but only two teams of
   week 10, so ESPN's live report stays the primary source.
 - **Current team and roster status.** `players.csv` `latest_team` and
   `status` (ACT, RES = injured reserve, PUP, CUT, …) are kept. A traded
   player shows the new team before his first game with it; a player not on
-  the active roster is marked out and is never ranked.
+  the active roster is marked out and is never ranked. A practice-squad
+  player (DEV) is marked unsure, not out: he plays when the team elevates him
+  for the game.
 
 **NBA** (`lib/sports/hoopr.mjs`) reads the hoopR release files from
 `sportsdataverse-data`: `espn_nba_schedules/nba_schedule_<year>.csv` and
@@ -446,7 +461,12 @@ missing athlete id are filled from the same game's roster by name (33 rows in
 the did-not-play copy, and each game's box score is summed against the final
 score. Seven 2025-26 Chicago games are short by one player's points (ESPN
 lost his line); they are counted as `box_points_off` and named in the private
-status record, and the row stays a did-not-play. Each run also checks up to
+status record. Since the 2026-11-11 audit a blank row (no minutes, no stat,
+no did-not-play flag, no reason) in a team-game whose box points fall short
+of its final score is dropped as unknown (`unknown_rows_dropped`; those seven
+rows) instead of being stored as a game he sat out, which had counted as an
+absence on his page. A blank row in a game that adds up is still a
+did-not-play. Each run also checks up to
 15 recent games against NBA.com's public box-score files
 (`cdn.nba.com/static/json`, `nbaComCheck`): final scores, each player's
 points, rebounds and assists, and players NBA.com has but the store does not.
@@ -557,9 +577,10 @@ only in R2.
 
 ## Stat models
 
-`lib/sports/models.mjs` (`sports-model-3` since 2026-11-11: 21 stats,
-teammates out, real lines; `sports-model-2` earlier the same day added the
-gated recalibration). Deterministic and AI-free: the same stored games always
+`lib/sports/models.mjs` (`sports-model-4` since 2026-11-11: the game
+spread and total and the NFL snap share; `sports-model-3` the same day: 21
+stats, teammates out, real lines; `sports-model-2` added the gated
+recalibration). Deterministic and AI-free: the same stored games always
 give the same numbers.
 
 **Forecast.** expected stat = expected opportunity × rate per opportunity ×
@@ -709,8 +730,10 @@ lift and kept only where it helped:
   archives every half hour (PropLine's `spreads,totals` markets, which ride
   the existing NBA reference request: no extra request).
 - `snap_trend` (NFL): the player's snap share in his last two games against
-  his last eight (four games at least), so a growing or shrinking role moves
-  the forecast before the averages catch up.
+  his last eight played games (four with a snap count at least), so a
+  growing or shrinking role moves the forecast before the averages catch up.
+  A played game without a snap count is skipped, not replaced by an older
+  one, so the check and the live forecast read the same eight games.
 
 A factor is applied only when, on the later held-out dates, it beats leaving
 it out on both Brier score and log loss and the Brier gain is bigger than
@@ -774,13 +797,24 @@ and carries; the others keep raw chances.
   the two differ by 5 points or more.
 
 **Where it shows.** Player pages: the next game's forecast for each modeled
-stat (expected, 80% range, chance of the over at five lines). Pick Builder:
+stat (expected, 80% range, chance of the over at five lines), with a line on
+the game inputs (favored or underdog by how much, the game total, the
+team's implied total, and for NFL the snap share last 2 vs last 8 games),
+each saying which stats used it and which only show it. Next to it, the
+availability line: ESPN's listing and, for NFL, the official report for that
+week and the roster status. Pick Builder:
 each pick's model chance for the typed line, with its range and the ±10%
 opportunity check, and a button to use it (`probability_source: "model"`,
 kept only when the number is exactly the model's). Saved picks keep a small
 snapshot of the model's read. The journal shows, for settled picks, the model
 chances and the chances used against what happened (count, average chance,
-hit rate, Brier). Each league page has a Model check card, which also lists the same-game links and their check.
+hit rate, Brier). Each league page has a Model check card, which also lists the same-game links and their check. Each stat's folded row also says whether
+recalibration, the teammates-out lift and each game factor are on, with the
+scores with and without (until the 2026-11-11 audit the status route dropped
+these, so the card never showed them). A Pick Builder pick shows the
+player's injury line (ESPN, and for NFL the official report and roster
+status) only when he is out or unsure, plus the game total and team's
+implied total and whether this stat's forecast used them.
 
 ## Same-game chances
 

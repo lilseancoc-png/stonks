@@ -91,6 +91,16 @@ ok(av.out === true && av.status === 'not listed' && av.official.game_status === 
 const avIr = availabilityFor({ player_id: 'x', name: 'X', status: 'RES' }, 'sea', { state: 'unavailable', reports: [] }, 'nfl', null);
 ok(avIr.out === true && avIr.roster_status.label === 'injured reserve', 'a player on injured reserve is out even without a report');
 eq(nflRosterStatus({ status: 'DEV' }).label, 'practice squad');
+// Audit fixes (2026-11-11): a team that has filed nothing yet is not "not
+// listed"; a filed team without the player is; a listed player with no game
+// status yet has listed true and no status.
+eq(officialNflReport(report, { player_id: '00-0009' }, 'lv', 9).state, 'not_yet', 'a team with no filing yet this week is not_yet, not "not listed"');
+const notOn = officialNflReport(report, { player_id: '00-0009' }, 'sea', 9);
+ok(notOn.state === 'ok' && notOn.listed === false && notOn.game_status === 'not listed' && notOn.teammates_out.includes('Jaxon Smith-Njigba'), 'a filed team without the player: not listed, with teammates out');
+const geno = officialNflReport(report, { player_id: '00-0001' }, 'sea', 9);
+ok(geno.listed === true && geno.game_status === null && !geno.teammates_out.includes('Geno Smith'), 'listed with no game status yet');
+const avDev = availabilityFor({ player_id: 'y', name: 'Y', status: 'DEV' }, 'sea', { state: 'ok', reports: [] }, 'nfl', null);
+ok(avDev.out === false && avDev.unsure === true && avDev.roster_status.code === 'DEV', 'a practice-squad player is unsure (he plays only if elevated), not out');
 
 const players = normalizeNflPlayers(parseCsv(PLAYERS), { keepIds: new Set(pg.rows.map((r) => r.player_id)), season: 2026 });
 eq(players.map((p) => p.player_id).sort(), ['00-0001', '00-0002', '00-0003', '00-0006', '00-0007'], 'players in logs plus active offensive players');
@@ -164,6 +174,7 @@ const load = recordLoader(st);
 const board = await buildBoard({ load, sport: 'nfl', nowMs: NOW, tz: 'America/Los_Angeles' });
 eq(board.games.map((g) => [g.game_id, g.day]), [['2026_08_chi_sea', 'today']], 'Monday night is today in Los Angeles');
 eq(board.next_game?.game_id, '2026_09_den_kc', 'the next game after the window');
+eq([board.games[0].game_lines?.total, board.games[0].game_lines?.favorite, board.games[0].game_lines?.home_team_total], [44.5, 'sea', 24], 'board rows carry the schedule spread and total');
 const lateNight = await buildBoard({ load, sport: 'nfl', nowMs: Date.parse('2026-11-01T23:00:00Z'), tz: 'America/New_York' });
 eq(lateNight.games.map((g) => [g.game_id, g.day]), [['2026_08_kc_den', 'today'], ['2026_08_chi_sea', 'tomorrow']], 'from Sunday evening the Sunday game is today and Monday night is tomorrow');
 ok(!JSON.stringify(board).includes('provider_ids'), 'the board sends only what the page shows');
