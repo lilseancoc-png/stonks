@@ -27,11 +27,16 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Show the sportsbooks' no-vig chance beside the model's in the MCP's `sports_evaluate_entry` and `sports_get_player` (NBA, PropLine reference prices, median across books with each book listed), with a `BOOK_DISAGREES` warning at a 5-point gap and a `use_book_chances` option; both tools also show the player's ESPN injury status and teammates listed out. Read-only, through the props board's two-minute cache (`lib/sports/book-price.mjs`).
 - Add **breakeven per pick** to the Pick Builder and MCP (`perPickBreakeven`: 3 picks at 6× power need 55.0% each; flex solved from the payout table) and 95% ranges on every hit rate (`wilsonRange`), so 6 of 10 reads "likely 31-83%".
 - Each model forecast now says how the holdout scored at that chance (`tested`) and flags a player's first games of a season, where forecasts ran high (NBA points +1.6, NFL passing yards +16 on the holdout).
+- Model 21 Sports stats instead of 4 (`sports-model-3`): NBA assists, 3-pointers, steals, blocks, turnovers and the PRA / points + rebounds / points + assists / rebounds + assists / blocks + steals combos; NFL rushing and receiving yards, rush + receiving yards, pass + rush yards, completions, pass attempts and carries. All pass the holdout check except NFL passing yards (chances off by 3.1 points). NBA now also reads 2024-25 for the model.
+- NBA forecasts rise when regular teammates are out (`teammates_out`, used for 9 of 12 stats where it beat no adjustment on the holdout). The props board and the MCP read who is out from the ESPN report (Out or Doubtful); the MCP's `TEAMMATES_OUT` note says what the model did with them.
+- Store every pregame PrizePicks main line the props scans see (`<sport>/lines/<date>.json`, `lib/sports/line-archive.mjs`, written only when a line is new or moves) and score the model check at those real lines plus the issued props record (`real_lines`); from 300 real lines a stat must beat the last-10 hit rate and a coin flip there too.
 
 ### Changed
 
 - Remove sportsbook margin with Shin's method instead of a plain divide-by-total (`shinProbabilities`): it takes more off the longer price, so −200/+160 reads 64.1% instead of 63.4%.
 - Bump the Sports model to `sports-model-2`: the daily refit tests a cross-fitted Platt recalibration per stat and applies it only when it beats the raw chances on both Brier and log loss; none passes on today's data, so chances stay raw and the Model check card says why.
+- The Model check card folds each stat into one row (verdict and score up front, detail and calibration chart inside) and folds the same-game links behind a count, since NBA now measures 200+ links. The player page shows one line per reason when no stat has a forecast.
+- Bump the props ranking to `props-rank-4`: NFL props on the newly modeled stats now rank with a model forecast.
 
 ### Docs
 

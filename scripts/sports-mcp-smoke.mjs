@@ -82,6 +82,7 @@ async function fakeSources({ sport, parts }) {
     injuries: { state: 'ok', observed_utc: QUOTE_AT, reports: [
       { name: gsStar.name, espn_id: '', team: 'gs', team_name: 'Golden State Warriors', status: 'Questionable', detail: 'Ankle', report_utc: QUOTE_AT },
       { name: 'Some Teammate', espn_id: '', team: 'gs', team_name: 'Golden State Warriors', status: 'Out', detail: 'Knee', report_utc: QUOTE_AT },
+      { name: gsSecond.name, espn_id: gsSecond.player_id, team: 'gs', team_name: 'Golden State Warriors', status: 'Doubtful', detail: 'Back', report_utc: QUOTE_AT },
     ] },
     ...(sport === 'nba' ? { reference: { state: 'ok', quotes: ['draftkings', 'fanduel', 'betmgm'].flatMap((b, i) => [bookQuote(b, gsStar.name, 15.5, 0.69 + i * 0.01), bookQuote(b, gsStar.name, 17.5, 0.5)]) } } : {}),
   };
@@ -111,6 +112,7 @@ const B = board.structuredContent.results;
 ok(B.window.time_zone === 'America/New_York' && B.games.some((g) => g.game_id === 'mnext1'), 'today’s games in the chosen zone, with ids');
 eq(board.structuredContent.as_of, '2026-01-15T10:00:00Z', 'as_of is the league’s last data run');
 const gsStar = L.truth.find((p) => p.team === 'gs' && p.minutes === 34), bosStar = L.truth.find((p) => p.team === 'bos' && p.minutes === 34);
+const gsSecond = L.truth.find((p) => p.team === 'gs' && p.minutes === 31);
 const found = await tool('sports_find_players', { sport: 'nba', name: gsStar.name.split(' ').slice(0, 2).join(' ').toLowerCase() });
 ok(found.structuredContent.results.players.some((p) => p.player_id === gsStar.player_id), 'finds a player by name');
 ok((await tool('sports_find_players', { sport: 'nba', name: 'zzzz' })).structuredContent.warnings.some((w) => /NO_MATCH/.test(w)), 'no match is said');
@@ -140,7 +142,11 @@ eq([P.next_game.game_id, P.games.length, P.forecast.forecasts.points.status], ['
 ok(!/\[omitted|object with|more keys/.test(JSON.stringify(P)), 'the player view is not cut by the size limit');
 ok(typeof P.games[0].stats.pts_reb === 'number' && typeof P.summaries.pts_reb.average === 'number' && P.summaries.fantasy.average === null, 'the log carries combos (fantasy needs assists, which this made-up league has none of)');
 // Live context on the player: the injury report and every book line with the model beside it.
-eq([P.availability.status, P.availability.unsure, P.availability.teammates_out], ['Questionable', true, ['Some Teammate']], 'the player carries the injury report');
+eq([P.availability.status, P.availability.unsure, P.availability.teammates_out], ['Questionable', true, ['Some Teammate', gsSecond.name]], 'the player carries the injury report');
+// Teammates out: only the stored regular counts (Some Teammate is not in the store).
+const tPts = P.forecast?.forecasts?.points?.teammates_out;
+ok(tPts && tPts.minutes > 25 && tPts.minutes < 40, 'the player forecast counts the doubtful regular’s minutes: ' + JSON.stringify(tPts));
+eq(tPts.applied, (model.context.absence?.points?.beta || 0) > 0, 'and raises it only when the check found a lift');
 eq(P.book_lines.map((b) => [b.stat, b.threshold, b.book_over, b.books]), [['points', 15.5, 0.7, 3], ['points', 17.5, 0.5, 3]], 'every book line for the next game, median no-vig over chance');
 ok(P.book_lines.every((b) => typeof b.model_over === 'number' && b.model_over > 0 && b.model_over < 1 && Math.abs(b.gap - (b.model_over - b.book_over)) < 1e-4), 'the model’s over chance sits beside each book line');
 ok(player.structuredContent.warnings.some((w) => /INJURY: listed Questionable/.test(w)), 'an injury listing is a warning');
@@ -173,6 +179,9 @@ const gap0 = E.legs[0].model.probability - 0.7;
 eq(E.legs[0].book_vs_model, { gap: Math.round(gap0 * 10000) / 10000, disagrees: Math.abs(gap0) >= 0.05, leans: gap0 > 0 ? 'model_higher' : 'book_higher' }, 'model against the books');
 eq(ev.structuredContent.warnings.some((w) => /BOOK_DISAGREES: Pick 1/.test(w)), Math.abs(gap0) >= 0.05, 'a 5+ point gap is flagged');
 ok(ev.structuredContent.warnings.some((w) => /INJURY: Pick 1 .*Questionable/.test(w)) && ev.structuredContent.warnings.some((w) => /TEAMMATES_OUT: Pick 1 .*Some Teammate/.test(w)), 'injury and teammate absences are flagged');
+const tNote = ev.structuredContent.warnings.find((w) => /TEAMMATES_OUT: Pick 1/.test(w));
+ok(E.legs[0].model.teammates_out?.minutes > 25 && (E.legs[0].model.teammates_out.applied ? /raised its forecast/ : /no reliable lift/).test(tNote), 'the note says what the model did with them: ' + tNote);
+ok(!E.legs[1].model.teammates_out, 'the other team has nobody out');
 eq(E.legs[1].availability.status, 'not listed');
 ok(Math.abs(E.evaluation.breakeven_per_pick - Math.sqrt(1 / 3)) < 1e-6, 'each pick needs the square root of 1/3 on a 2-pick 3x power play');
 ok(E.legs[0].hit_history.all.range && E.legs[0].hit_history.all.range.low <= E.legs[0].hit_history.all.range.high, 'hit counts carry a 95% range');
@@ -208,7 +217,9 @@ eq((await errCode({ legs: [{ ...legs[0], game_id: 'nope' }] })).code, 'INVALID_I
 ok(validateArgs(TOOLS.find((t) => t.name === 'sports_evaluate_entry').inputSchema, { legs, use_model_chances: false }), 'a valid entry passes the schema check');
 const comboRaw = await tool('sports_evaluate_entry', { legs: [{ sport: 'nba', player_id: gsStar.player_id, game_id: 'mnext1', stat: 'pts_reb', side: 'over', threshold: 20.5 }] });
 const comboEv = comboRaw.structuredContent.results;
-ok(comboEv.legs[0].hit_history.all.games > 0 && comboEv.legs[0].model.reason === 'stat', 'a combo pick gets history and says it has no forecast');
+ok(comboEv.legs[0].hit_history.all.games > 0 && comboEv.legs[0].model.status === 'ok' && comboEv.legs[0].model.probability > 0, 'a combo pick gets history and its own forecast (combos are modeled since sports-model-3)');
+const fgmEv = (await tool('sports_evaluate_entry', { legs: [{ sport: 'nba', player_id: gsStar.player_id, game_id: 'mnext1', stat: 'field_goals_made', side: 'over', threshold: 5.5 }] })).structuredContent.results;
+eq(fgmEv.legs[0].model.reason, 'stat', 'a stat with no model says it has no forecast');
 ok(E.legs.every((l) => Number.isInteger(l.hit_history.last10.hits) && Number.isInteger(l.hit_history.all.games)), 'history hit counts come through as numbers');
 ok(decodePrefill(comboEv.pick_builder_link.split('entry=')[1]).legs[0].stat === 'pts_reb', 'and the Pick Builder link keeps the combo');
 eq((await errCode({ legs: [{ ...legs[0], stat: 'goals' }] })).code, 'INVALID_INPUT', 'an unknown stat is refused');

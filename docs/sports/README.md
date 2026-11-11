@@ -331,7 +331,8 @@ and the MCP’s general key filter refuses it (only the Sports MCP tools’ own 
 | `players` | `{sport}/players.json` | data jobs (players plus provider ids) |
 | `games` | `{sport}/games/{season}.json` | data jobs |
 | `player-games` | `{sport}/player-games/{season}.json` | data jobs (packed rows, below) |
-| `model` | `{sport}/model.json` | data jobs (stat model numbers and their check, plus the same-game links as `joint`; about 12 KB) |
+| `model` | `{sport}/model.json` | data jobs (stat model numbers and their check, plus the same-game links as `joint`; about 120 KB for NBA, 70 KB for NFL) |
+| `lines` | `{sport}/lines/{YYYY-MM-DD}.json` | props scans (every pregame PrizePicks main line matched to a stored player, by game date in ET; since 2026-11-11) |
 | `observations` | `markets/observations.json` | Pick Builder (captured lines, append-only) |
 | `journal` | `journal/entries.json` | Pick Builder (paper entries, append-only revisions) |
 
@@ -371,8 +372,12 @@ ingest (`lib/sports/ingest.mjs`) with a small adapter per provider
   writes `<sport>/model.json`; the status record carries the check (see Stat
   models). A failed refit keeps the stored model and is noted; the game data
   still lands. NFL also keeps three older finished seasons for the model only
-  (`modelHistory: 3`, about 6,500 rows each, downloaded once); the pages still
+  (`modelHistory: 3`, about 6,500 rows each, downloaded once) and NBA one
+  (`modelHistory: 1`, the 2024-25 season, since 2026-11-11); the pages still
   read two seasons. A missing older season is noted and never fails the run.
+- The refit reads the real PrizePicks lines stored so far (the issued props
+  record and the line archive, `lib/sports/line-archive.mjs`) and scores the
+  held-out forecasts at them too (see Stat models).
 - Logs counts only, because workflow logs are public.
 
 **NFL** (`lib/sports/nflverse.mjs`) reads three nflverse release files:
@@ -495,17 +500,29 @@ only in R2.
 
 ## Stat models
 
-`lib/sports/models.mjs` (`sports-model-2` since 2026-11-11). Deterministic
-and AI-free: the same stored games always give the same numbers.
+`lib/sports/models.mjs` (`sports-model-3` since 2026-11-11: 21 stats,
+teammates out, real lines; `sports-model-2` earlier the same day added the
+gated recalibration). Deterministic and AI-free: the same stored games always
+give the same numbers.
 
 **Forecast.** expected stat = expected opportunity × rate per opportunity ×
-opponent factor × home/away factor, then a straight-line correction.
+opponent factor × home/away factor, then a straight-line correction, then
+(NBA) the teammates-out lift where it tested better.
 
-| Stat | Opportunity | Who | Curve |
+| Stat | Opportunity | Who (scored role) | Curve |
 |---|---|---|---|
-| NBA points, rebounds | minutes | everyone | negative binomial |
-| NFL passing yards | pass attempts | QBs | normal |
-| NFL receptions | targets | WR, TE, RB | negative binomial |
+| NBA points, rebounds, assists, 3-pointers, steals, blocks, turnovers; combos PRA, points + rebounds, points + assists, rebounds + assists, blocks + steals | minutes | everyone (20+ minutes) | negative binomial |
+| NFL passing yards | pass attempts | QBs (20+ attempts) | normal |
+| NFL pass + rush yards | attempts + carries | QBs (20+) | normal |
+| NFL completions, pass attempts | pass attempts | QBs (20+) | negative binomial |
+| NFL receptions, receiving yards | targets | WR, TE, RB (3+ targets) | negative binomial |
+| NFL rushing yards, carries | carries | RB, QB (6+ carries) | negative binomial |
+| NFL rush + receiving yards | carries + targets | RB, WR, TE (6+) | negative binomial |
+
+Combos are modeled as their own stat from the summed box-score values
+(`statValue`), not by adding two forecasts, so the spread fits the combo.
+Fantasy score, field goals, free throws, offensive/defensive rebounds and NFL
+touchdowns, interceptions and targets stay history only.
 
 - Opportunity: the player's recent games, recency weighted (NBA last 10,
   half-life 5; NFL last 8, half-life 4), pulled toward his own longer average.
@@ -526,13 +543,40 @@ opponent factor × home/away factor, then a straight-line correction.
 each game from earlier days only. The first 60% of days fit the correction and
 spread; the last 40% are held out and scored against the last-10 hit rate
 (smoothed) and the plain average. Only regular-role games are scored (20+
-expected minutes; 20+ attempts; 3+ targets), the players lines are posted for.
-No past lines are stored, so each check uses the player's last-10 average
-rounded to a half point as a stand-in line. A stat is `validated` only with
-300+ held-out games, a lower Brier score than both baselines and chances off
-by 3 points or less on average (expected calibration error, 10 bins);
-otherwise `experimental`, with the reason. A forecast for a smaller role than
-the check covers is always shown as experimental.
+expected minutes; 20+ attempts; 3+ targets; 6+ carries), the players lines
+are posted for. The check uses the player's last-10 average rounded to a half
+point as a stand-in line. A stat is `validated` only with 300+ held-out games,
+a lower Brier score than both baselines and chances off by 3 points or less on
+average (expected calibration error, 10 bins); otherwise `experimental`, with
+the reason. A forecast for a smaller role than the check covers is always
+shown as experimental.
+
+**Real lines (since 2026-11-11).** Every props scan now stores each pregame
+PrizePicks main line it matches to a stored player (`lines` in Storage; one
+entry per game, player and stat, written only when a line is new or moves).
+The refit reads those and the issued props record, and scores the same
+held-out forecasts at the line PrizePicks really posted
+(`evaluation[stat].real_lines`; pushes on whole lines are left out), against
+the player's last-10 hit rate at that line and a coin flip. Once 300 held-out
+games have a real line, a stat must beat both there too or it is not
+validated. Until then the Model check card shows the count. The archive
+starts empty, so this fills in over the season.
+
+**Teammates out (NBA, since 2026-11-11).** A regular is a player whose latest
+game was for that team within 12 days, who played 3 of his last 5, and who
+averaged 15+ minutes over his last 10 played. When regulars are missing, a
+player's forecast is multiplied by `1 + beta × minutes missing / 240` (minutes
+capped at 120). Beta is fitted on the earlier days by least squares and kept
+only when it beat no adjustment on the holdout on both Brier and log loss
+(`evaluation[stat].teammates_out`, `context.absence`). In the check, who was
+missing comes from the box scores (a player with no played row); live, the
+props board and the MCP read the ESPN injury report (Out or Doubtful, the same
+list that already gates props). A late scratch is not known in advance, and
+the box-score check knows a few absences the report would only have shown as
+questionable, so the measured lift is a little optimistic. NFL showed no
+consistent lift across seasons and is not adjusted. The site's player page
+and Pick Builder do not read injuries yet; their forecasts assume nobody is
+out.
 
 **Tuning (2026-11-02, real seasons).** The first cut shrank minutes and
 targets toward the position-group average, which pulled stars down and lost
@@ -548,7 +592,41 @@ spread and the normal curve for passing yards gave:
 | NFL receptions | 2022-2026 | 3,867 | 0.234 / 0.249 / 0.252 | 1.3 pts |
 
 The structural choices were made looking at these holdouts, so the numbers
-flatter the model a little; the daily refit re-checks it on new games. With
+flatter the model a little; the daily refit re-checks it on new games.
+
+**More stats (2026-11-11, `sports-model-3`).** NBA now reads three seasons
+(2024-25 to 2026-27 to date), NFL five. Brier score on the holdout, model /
+last-10 hit rate / plain average:
+
+| Stat | Held out | Brier | Off by | Teammates out | Recalibrated |
+|---|---|---|---|---|---|
+| NBA points | 14,443 | 0.241 / 0.254 / 0.260 | 1.4 pts | on (beta 0.22) | no |
+| NBA rebounds | 14,443 | 0.235 / 0.252 / 0.244 | 1.2 | on (0.13) | no |
+| NBA assists | 14,443 | 0.234 / 0.250 / 0.247 | 1.2 | on (0.20) | yes |
+| NBA 3-pointers | 14,443 | 0.215 / 0.227 / 0.221 | 1.0 | off | no |
+| NBA steals | 14,443 | 0.225 / 0.241 / 0.229 | 0.7 | off | yes |
+| NBA blocks | 14,443 | 0.198 / 0.211 / 0.199 | 0.6 | off | no |
+| NBA turnovers | 14,443 | 0.228 / 0.243 / 0.236 | 0.4 | on (0.20) | yes |
+| NBA PRA | 14,443 | 0.240 / 0.254 / 0.262 | 1.8 | on (0.20) | no |
+| NBA points + rebounds | 14,443 | 0.240 / 0.254 / 0.259 | 1.4 | on (0.20) | no |
+| NBA points + assists | 14,443 | 0.240 / 0.254 / 0.262 | 1.6 | on (0.22) | no |
+| NBA rebounds + assists | 14,443 | 0.237 / 0.255 / 0.253 | 1.3 | on (0.16) | yes |
+| NBA blocks + steals | 14,443 | 0.227 / 0.244 / 0.232 | 0.8 | on (0.08) | no |
+| NFL passing yards | 893 | 0.249 / 0.260 / 0.252 | 3.1 (experimental) | n/a | no |
+| NFL pass + rush yards | 939 | 0.245 / 0.258 / 0.250 | 2.8 | n/a | no |
+| NFL completions | 893 | 0.240 / 0.252 / 0.246 | 2.3 | n/a | yes |
+| NFL pass attempts | 893 | 0.240 / 0.252 / 0.245 | 2.4 | n/a | yes |
+| NFL receptions | 3,884 | 0.234 / 0.249 / 0.252 | 1.5 | n/a | no |
+| NFL receiving yards | 3,884 | 0.236 / 0.249 / 0.251 | 1.4 | n/a | no |
+| NFL rushing yards | 1,442 | 0.231 / 0.252 / 0.248 | 2.8 | n/a | no |
+| NFL carries | 1,442 | 0.232 / 0.257 / 0.262 | 1.7 | n/a | yes |
+| NFL rush + receiving yards | 2,895 | 0.235 / 0.252 / 0.251 | 1.2 | n/a | no |
+
+Tried on the same holdouts and left out because they did not help: rest days
+(back-to-backs), game pace, defense by position, an early-season factor (not
+stable across seasons) and a short-game mixture for blowouts and early exits.
+The negative binomial beat the normal curve for NFL rushing, receiving and
+rush + receiving yards; passing and pass + rush yards stay normal. With
 only two NFL seasons, passing yards had 239 held-out games, which is why NFL
 keeps older seasons. Forecasts know nothing about injuries, rest or news
 (the MCP shows the injury report and the sportsbook price beside them, see
@@ -564,7 +642,10 @@ chances and the Model check card says why. It is applied to the chance of
 going over every whole number (`calibratedCdf`), so the 80% range, the five
 lines and the typed line stay one consistent curve. On the 2026-11-11 data
 no stat passed: a curve fitted on all of the holdout looked better but did
-worse on the half it had not seen, so all four keep raw chances.
+worse on the half it had not seen, so all four keep raw chances. With
+`sports-model-3` (more stats, a third NBA season) it passes for NBA assists,
+steals, turnovers and rebounds + assists and NFL completions, pass attempts
+and carries; the others keep raw chances.
 
 **Two notes instead (2026-11-11).** What the check did find:
 
@@ -581,7 +662,7 @@ worse on the half it had not seen, so all four keep raw chances.
   said 26.8% and 27.0% hit over 307 games. The MCP flags `MODEL_TESTED` when
   the two differ by 5 points or more.
 
-**Where it shows.** Player pages: the next game's forecast for each enabled
+**Where it shows.** Player pages: the next game's forecast for each modeled
 stat (expected, 80% range, chance of the over at five lines). Pick Builder:
 each pick's model chance for the typed line, with its range and the ±10%
 opportunity check, and a button to use it (`probability_source: "model"`,
@@ -701,8 +782,11 @@ sportsbook prices (`lib/sports/book-price.mjs`). Nothing is written.
   (injury, role, rest). `use_book_chances` copies the book chance in (source
   `book`). NFL has no sportsbook feed yet, so its picks say so.
 - `availability`: the player's ESPN status and the teammates listed out or
-  unsure (`INJURY`, `TEAMMATES_OUT`). The forecast itself still ignores
-  injuries; the warning is there so the reader can.
+  unsure (`INJURY`, `TEAMMATES_OUT`). For NBA, regular teammates listed Out
+  or Doubtful feed the forecast's teammates-out lift (`model.teammates_out`:
+  minutes missing, factor, whether it applied), and the `TEAMMATES_OUT` note
+  says what the model did with them. The player's own status never changes
+  the forecast; the warning is there so the reader can.
 - Each pick also returns `breakeven_per_pick`, ranges on `hit_history`, the
   model's `tested` record at that chance (`MODEL_TESTED` when the holdout hit
   rate differs by 5+ points) and `early_season` (`EARLY_SEASON`).

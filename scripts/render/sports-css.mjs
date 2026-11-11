@@ -179,6 +179,20 @@ export function renderSportsCss() {
 .sp-model-list li { display: grid; gap: 3px; }
 .sp-model-list b { font-variant-numeric: tabular-nums; }
 .sp-model-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.sp-model-tally { margin: 0 0 8px; font-size: 12px; color: var(--muted-strong); }
+.sp-model-list li { grid-template-columns: minmax(0, 1fr); }
+.sp-model-stat { min-width: 0; }
+.sp-model-stat > summary { cursor: pointer; list-style: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.sp-model-stat > summary::-webkit-details-marker { display: none; }
+.sp-model-stat > summary::before { content: '\\25B8'; color: var(--muted); font-size: 10px; flex: none; }
+.sp-model-stat[open] > summary::before { content: '\\25BE'; }
+.sp-model-name { font-weight: 600; flex: 1 1 auto; min-width: 0; }
+.sp-model-verdict { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.sp-model-score { font-variant-numeric: tabular-nums; font-size: 12px; white-space: nowrap; }
+.sp-model-body { display: grid; gap: 3px; padding: 6px 0 2px 16px; }
+.sp-model-links { margin-top: 12px; font-size: 12.5px; }
+.sp-model-links > summary { cursor: pointer; font-weight: 600; color: var(--muted-strong); padding: 4px 0; }
+.sp-model-links[open] > summary { margin-bottom: 8px; }
 .sp-rel { margin: 4px 0 0; display: flex; align-items: center; gap: 10px; }
 .sp-rel figcaption { font-size: 11.5px; color: var(--muted); max-width: 160px; }
 .sp-rel-svg { flex: none; overflow: visible; }

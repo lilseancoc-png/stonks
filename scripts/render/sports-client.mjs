@@ -171,30 +171,47 @@ export function sportsFactory(host, doc, options) {
   }
   const MODEL_STATUS = { validated: 'Passed the check', experimental: 'Experimental' };
   const qualityBadge = (q) => '<span class="sp-q sp-q-' + escape(q) + '">' + escape(MODEL_STATUS[q] || q) + '</span>';
+  // The same held-out games scored at the PrizePicks line really posted
+  // (stored from 2026-11-11 on). Counts toward passing at 300+.
+  function realLinesHtml(r, b3) {
+    if (!r || !r.n) return '';
+    const B = r.brier || {};
+    return '<span>At real PrizePicks lines: ' + Number(r.n).toLocaleString('en-US') + ' game' + (r.n === 1 ? '' : 's') + (r.enough ? '' : ' (counts toward passing at 300)') +
+      '. Score: model <b>' + b3(B.model) + '</b>, last-10 hit rate ' + b3(B.last10_hit_rate) + ', coin flip ' + b3(B.even) + '.</span>';
+  }
   function modelCard(src) {
     const M = src.model;
     if (!M) return src.state === 'not_connected' ? '' : '<div class="sp-source sp-model"><h3>Model check</h3><p class="sp-muted">The forecasts have not been fitted yet; the next daily data run fits them.</p></div>';
     const b3 = (x) => (x == null ? '—' : x.toFixed(3));
+    // One folded row per stat: the verdict and score in the summary, the
+    // detail and calibration chart inside (a dozen stats per league).
     const rows = Object.keys(M.stats).map((st) => {
       const v = M.stats[st], B = v.brier || {};
-      return '<li><div class="sp-model-head"><b>' + escape(label(st)) + '</b>' + qualityBadge(v.status) + '</div>' +
+      const best = [B.last10_hit_rate, B.plain_average].filter((x) => x != null);
+      const score = v.test_n && B.model != null ? '<span class="sp-model-score">' + b3(B.model) + (best.length ? ' <span class="sp-muted">vs ' + b3(Math.min(...best)) + '</span>' : '') + '</span>' : '';
+      return '<li><details class="sp-model-stat" data-sp-model-stat="' + escape(st) + '"><summary><span class="sp-model-name">' + escape(label(st)) + '</span><span class="sp-model-verdict">' + score + qualityBadge(v.status) + '</span></summary><div class="sp-model-body">' +
         (v.test_n ? '<span>' + Number(v.test_n).toLocaleString('en-US') + ' later games held out' + (v.split_date ? ' (from ' + escape(fmtDay(v.split_date)) + ' ' + escape(v.split_date.slice(0, 4)) + ')' : '') +
           '. Score (lower is better): model <b>' + b3(B.model) + '</b>, last-10 hit rate ' + b3(B.last10_hit_rate) + ', plain average ' + b3(B.plain_average) +
           '. Chances off by ' + (v.ece == null ? '—' : (v.ece * 100).toFixed(1) + ' points') + ' on average.</span>' : '<span class="sp-muted">' + escape(v.reason || 'Not enough past games to check yet.') + '</span>') +
         (v.status !== 'validated' && v.test_n && v.reason ? '<span class="sp-muted">Why experimental: ' + escape(v.reason) + '.</span>' : '') +
         (v.recalibration ? '<span class="sp-muted">Recalibration: ' + (v.recalibration.applied ? 'on (it beat the raw chances on held-out games)' : 'off; ' + escape(v.recalibration.why || 'raw chances kept')) + '.</span>' : '') +
         (v.early_season && v.early_season.n >= 30 && v.early_season.bias != null ? '<span class="sp-muted">First games of a season (' + Number(v.early_season.n).toLocaleString('en-US') + ' held out): forecasts ran ' + escape(Math.abs(v.early_season.bias)) + (v.early_season.bias > 0 ? ' high' : ' low') + ' on average.</span>' : '') +
-        reliabilitySvg(v.reliability, label(st)) + '</li>';
+        (v.teammates_out ? '<span class="sp-muted">Teammates out: ' + (v.teammates_out.applied ? 'on. The forecast rises when regulars are listed Out or Doubtful (it beat no adjustment on held-out games)' : 'off; ' + escape(v.teammates_out.why || 'no lift measured')) + '.</span>' : '') +
+        realLinesHtml(v.real_lines, b3) +
+        reliabilitySvg(v.reliability, label(st)) + '</div></details></li>';
     }).join('');
+    const passed = Object.values(M.stats).filter((v) => v.status === 'validated').length, total = Object.keys(M.stats).length;
     const links = (M.links || []).filter((l) => l.test_pairs > 0 || l.status === 'validated');
-    const linkRows = links.length ? '<p class="sp-label">Same-game links</p><ul class="sp-model-list">' + links.map((l) => {
+    const linksPassed = links.filter((l) => l.status === 'validated').length;
+    // Same-game links: a count up front, the list folded (NBA measures 200+).
+    const linkRows = links.length ? '<details class="sp-model-links"><summary>Same-game links: ' + linksPassed + ' of ' + links.length + ' passed</summary><ul class="sp-model-list">' + links.map((l) => {
       const bc = l.both_cleared || {};
       return '<li><div class="sp-model-head"><b>' + escape(linkName(l.stats, l.relation)) + '</b>' + qualityBadge(l.status) + '</div><span>Link ' + signedLink(l.link) + '. ' +
         (l.test_pairs ? Number(l.test_pairs).toLocaleString('en-US') + ' later pairs: both cleared ' + pct(bc.observed) + ', link said ' + pct(bc.copula) + ', unrelated said ' + pct(bc.independent) + '.' : '') + '</span>' +
         (l.status !== 'validated' && l.reason ? '<span class="sp-muted">Why experimental: ' + escape(l.reason) + '.</span>' : '') + '</li>';
-    }).join('') + '</ul>' : '';
-    return '<div class="sp-source sp-model"><h3>Model check</h3><ul class="sp-model-list">' + rows + '</ul>' + linkRows +
-      '<p class="sp-note">Each stat is forecast from games before the day it was played, then scored on the later games it never saw. To pass it needs 300+ games, a better score than both simple baselines, and chances off by 3 points or less. Past lines are not stored, so each check uses the player’s last-10 average as a stand-in line. Fitted on ' +
+    }).join('') + '</ul></details>' : '';
+    return '<div class="sp-source sp-model"><h3>Model check</h3><p class="sp-model-tally">' + passed + ' of ' + total + ' stats passed. Tap a stat for its check; the score is the model’s against the better simple baseline (lower is better).</p><ul class="sp-model-list">' + rows + '</ul>' + linkRows +
+      '<p class="sp-note">Each stat is forecast from games before the day it was played, then scored on the later games it never saw. To pass it needs 300+ games, a better score than both simple baselines, and chances off by 3 points or less. The check uses the player’s last-10 average as a stand-in line; since November 11, 2026 every PrizePicks line the props scan sees is also stored, and once 300 held-out games have a real line the model must beat both baselines there too. Fitted on ' +
       escape((M.seasons || []).map((y) => (lgOf(src) === 'nba' ? y + '–' + String(y + 1).slice(2) : y)).join(', ') || 'stored seasons') + ' · ' + escape(M.model_version) + '.</p></div>';
   }
 
@@ -455,6 +472,18 @@ export function sportsFactory(host, doc, options) {
       : '<p class="sp-muted">No games stored for this player.</p>';
     return summary + '<h5>Game log' + (P.total_games > logGames.length ? ' (latest ' + logGames.length + ' of ' + P.total_games + ')' : '') + '</h5>' + log;
   }
+  // No forecast for any stat: one line per reason, not one per stat (there
+  // are a dozen modeled stats, usually all missing for the same reason).
+  function fcNoneHtml(stats, F, lg) {
+    const groups = new Map();
+    for (const st of stats) {
+      const why = modelReason(F.forecasts[st] || {}, lg);
+      if (!groups.has(why)) groups.set(why, []);
+      groups.get(why).push(label(st));
+    }
+    const items = [...groups].map(([why, names]) => '<li><b>' + escape(groups.size === 1 && names.length > 2 ? 'All ' + names.length + ' modeled stats' : names.join(', ')) + '</b> <span class="sp-muted">' + escape(why) + '</span></li>');
+    return '<ul class="sp-fc-none">' + items.join('') + '</ul>';
+  }
   function playerPanelHtml(lg) {
     const L = league(lg);
     if (!L.playerId) return '';
@@ -474,7 +503,7 @@ export function sportsFactory(host, doc, options) {
       // With no forecast at all, a plain list reads better than a table of
       // empty columns (and does not run off a phone screen).
       const table = any ? '<div class="sp-table-wrap"><table class="sp-table sp-fc" data-nosort><thead><tr><th>Stat</th><th class="sp-n">Expected</th><th class="sp-n">80% range</th><th>Chance of the over at each line</th></tr></thead><tbody>' + fr + '</tbody></table></div>'
-        : '<ul class="sp-fc-none">' + P.stats.map((st) => '<li><b>' + escape(label(st)) + '</b> <span class="sp-muted">' + escape(modelReason(F.forecasts[st] || {}, lg)) + '</span></li>').join('') + '</ul>';
+        : fcNoneHtml(P.stats, F, lg);
       forecast = '<h5>Model forecast for the next game</h5><p class="sp-muted sp-fc-game">' + (F.home ? 'vs ' : '@ ') + team(F.opponent) + ' · ' + escape(fmtWhen(G.start_utc, zone())) + '</p>' + table +
         (any ? '<p class="sp-note">Built from ' + escape(any.games) + ' stored games: about ' + escape(any.expected_opportunity) + ' ' + escape(any.unit) + ' expected' + (any.regular_role ? '' : ' (a smaller role than the check covers, so it stays experimental)') +
           ', opponent factor ' + escape(any.opponent_factor) + ', ' + (F.home ? 'home' : 'away') + '. Model fitted on games through ' + escape(any.as_of_date ? fmtDay(any.as_of_date) + ' ' + any.as_of_date.slice(0, 4) : '—') + '. A forecast, not a promise: injuries, rest and role changes are not in the data.</p>' : '');

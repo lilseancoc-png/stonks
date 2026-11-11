@@ -162,8 +162,8 @@ ok(!validateMarketObservation({ ...obs, operator: 'draftkings' }).ok, 'operators
 eq(marketSeriesKey(obs), marketSeriesKey({ ...obs, threshold: 21.5, side: 'under' }), 'a market keeps its id as the line moves');
 ok(marketSeriesKey(obs) !== marketSeriesKey({ ...obs, operator: 'betr' }), 'each operator is its own market');
 ok(/^ms_[a-f0-9]{24}$/.test(marketSeriesKey(obs)));
-eq(statIds('nba', { modeledOnly: true }), ['points', 'rebounds'], 'NBA stats with a forecast');
-eq(statIds('nfl', { modeledOnly: true }), ['passing_yards', 'receptions'], 'NFL stats with a forecast');
+eq(statIds('nba', { modeledOnly: true }), ['points', 'rebounds', 'assists', 'threes', 'steals', 'blocks', 'turnovers', 'pra', 'pts_reb', 'pts_ast', 'reb_ast', 'blk_stl'], 'NBA stats with a forecast');
+eq(statIds('nfl', { modeledOnly: true }), ['passing_yards', 'receptions', 'rushing_yards', 'receiving_yards', 'rush_rec_yards', 'pass_rush_yards', 'completions', 'attempts', 'carries'], 'NFL stats with a forecast');
 ok(Object.keys(SPORTS_STATS).join() === 'nba,nfl');
 // The catalog: every stat the pages and Pick Builder take. Forecast flags
 // must match the fitted model list, ids must pass the prefill link check,

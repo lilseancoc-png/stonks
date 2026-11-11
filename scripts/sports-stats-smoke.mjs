@@ -41,10 +41,12 @@ eq(season.season, 2025, 'an empty newer season falls back to the newest one with
 eq(season.seasons, [2026, 2025], 'every stored season is offered');
 eq(season.players.length, 96, 'every player who played');
 eq(season.stats, shownStats('nba'), 'modeled and context stats');
-eq(shownStats('nba').slice(0, 3), ['points', 'rebounds', 'minutes'], 'modeled stats first, then minutes');
+const modeledNba = statIds('nba', { modeledOnly: true }), modeledNfl = statIds('nfl', { modeledOnly: true });
+eq(shownStats('nba').slice(0, modeledNba.length + 1), [...modeledNba, 'minutes'], 'modeled stats first, then minutes');
+eq(modeledNba.slice(0, 3), ['points', 'rebounds', 'assists']);
 eq(shownStats('nba').length, statIds('nba').length + 1, 'every catalog stat plus minutes');
-eq(shownStats('nfl'), ['passing_yards', 'receptions', ...statIds('nfl').filter((s) => s !== 'passing_yards' && s !== 'receptions')], 'NFL has no minutes');
-eq(contextStats('nba'), shownStats('nba').slice(2), 'context stats are the shown stats without a forecast');
+eq(shownStats('nfl'), [...modeledNfl, ...statIds('nfl').filter((s) => !modeledNfl.includes(s))], 'NFL has no minutes');
+eq(contextStats('nba'), shownStats('nba').slice(modeledNba.length), 'context stats are the shown stats without a forecast');
 eq(season.groups, POSITION_GROUPS.nba);
 eq(season.teams.length, 12);
 const p0 = season.players.find((p) => p.player_id === 'matl0');
@@ -103,9 +105,9 @@ ok(log.games.every((g) => typeof g.starter === 'boolean' || g.starter === null),
 const lastGame = L.games[L.games.length - 1];
 const game = await buildGame({ load, sport: 'nba', gameId: lastGame.game_id, seasons: [2025] });
 const gp = game.teams[lastGame.home_team].players[0];
-eq(game.stats, ['points', 'rebounds'], 'the game panel marks the modeled stats');
+eq(game.stats, modeledNba, 'the game panel marks the modeled stats');
 eq(game.context_stats, contextStats('nba'), 'and lists every other stat');
-ok(game.context_stats.includes('pts_reb') && game.context_stats.includes('fantasy') && game.context_stats[0] === 'minutes', 'combos are in the game panel');
+ok(game.stats.includes('pts_reb') && game.context_stats.includes('fantasy') && game.context_stats[0] === 'minutes', 'combos are in the game panel (modeled ones with the forecasts)');
 ok(gp.recent.points.length === 10 && gp.summaries.minutes.games > 0, 'ten recent values and minutes for each player');
 const before = L.rows.filter((r) => r.player_id === gp.player_id && r.date < lastGame.local_date && r.played).sort((a, b) => b.date.localeCompare(a.date));
 eq(gp.recent.points, before.slice(0, 10).map((r) => r.stats.points), 'recent values are the last ten played, newest first');

@@ -129,7 +129,8 @@ link; the Owner checks it on the site and saves it. Chances are passed only when
 (read-only, through the props board's `loadPropSources` and its two-minute cache; nothing is written): each pick
 gets the books' no-vig chance (`book`, Shin method), `book_vs_model`, the player's `availability`,
 `breakeven_per_pick` and ranges on its hit rates, with `BOOK_DISAGREES` when model and books differ by 5+ points.
-`use_book_chances` copies the book chance in. See docs/sports/README.md "MCP tools".
+For NBA, regular teammates listed Out or Doubtful also raise the model's forecast where that tested better
+(`model.teammates_out`, `TEAMMATES_OUT`). `use_book_chances` copies the book chance in. See docs/sports/README.md "MCP tools".
 
 Every result is a JSON envelope: `schema_version`, `tool`, `source` (store key and page), `access`, `as_of` (the
 payload's build time), `generated_at`, `ai_calls: 0`, `warnings` (stale, expired `validUntil`, trimmed, no match), `limitations`,

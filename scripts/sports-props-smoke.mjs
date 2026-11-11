@@ -51,6 +51,8 @@ const matchup = { teams_ranked: 30, allowed_by: { gs: { G: { points: 23, rebound
 const args = { sport: 'nba', game, lines, injuries, players, rows, model: null, matchup, allGames: [], now };
 const ranked = rankGameProps(args);
 assert.equal(ranked.picks.length, 2);
+assert.ok(ranked.matched_lines.length >= lines.length - 2 && ranked.matched_lines.every((l) => l.game_id === game.game_id && l.player_id && typeof l.threshold === 'number'), 'matched lines are kept for the line archive');
+assert.ok(!('matched_lines' in JSON.parse(JSON.stringify(ranked))), 'and never reach a response');
 assert.equal(new Set(ranked.picks.map((p) => p.player_id)).size, 2);
 assert.deepEqual(new Set(ranked.picks.map((p) => p.team)), new Set(['lal', 'gs']));
 const oneTeam = rankGameProps({ ...args, rows: rows.map((r) => ({ ...r, team: 'lal', opponent: 'gs' })) });
