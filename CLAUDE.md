@@ -53,8 +53,15 @@ are drawn in `sports-client.mjs` from the player route's full log
 (`lib/sports/models.mjs`, deterministic, no AI) are refit by the same daily
 job into `_stonks/sports/v1/<sport>/model.json` with a dated holdout check
 (validated only with 300+ games, a better score than both baselines and
-calibration error ≤ 0.03); NFL keeps three extra finished seasons for the model
-only (`modelHistory`).
+calibration error ≤ 0.03); since `sports-model-3` (2026-11-11) 12 NBA and 9 NFL
+stats are modeled, combos from their summed values. NFL keeps three extra
+finished seasons for the model only and NBA one (`modelHistory`). NBA forecasts
+rise when regular teammates are out (`teammates_out`, used per stat only where
+it beat no adjustment on the holdout; the MCP and props board read who is out
+from the ESPN report). The check also scores held-out games at real PrizePicks
+lines (`real_lines`: the issued props record plus the line archive the props
+scans write to `<sport>/lines/<date>.json`, `lib/sports/line-archive.mjs`);
+from 300 real lines a stat must beat both baselines there too.
 The same refit measures same-game links (`lib/sports/joint.mjs`, stored as
 `joint` in `model.json`, checked on later games against independence); the
 Pick Builder prices same-game picks with them (Gaussian copula, seeded draws)
@@ -69,8 +76,8 @@ recording job and (since 2026-11-11) by the MCP's `sports_evaluate_entry` /
 (`lib/sports/book-price.mjs`, flag at a 5-point gap) and the ESPN injury
 status; it never signs into a sportsbook or PrizePicks account, scrapes no
 pages and places nothing. Model chances are recalibrated only when a
-cross-fitted Platt curve beats the raw ones (`fitCalibration`, none pass
-today); forecasts carry `tested` and `early_season` notes instead. The Owner Market
+cross-fitted Platt curve beats the raw ones (`fitCalibration`, seven stats
+pass on the 2026-11-11 data); forecasts carry `tested` and `early_season` notes instead. The Owner Market
 Brief and MCP feature list leave Sports out; the MCP
 has its own eight Owner-only `sports_*` tools (`lib/mcp/sports-tools.mjs`, read
 through `sportsReadOnlyStore`, no save tool: evaluate returns a Pick Builder

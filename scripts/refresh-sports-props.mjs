@@ -7,6 +7,7 @@ import { loadPropSources } from '../lib/sports/prop-sources.mjs';
 import { recommendationsView } from '../lib/sports/props.mjs';
 import { capturePropPicks } from '../lib/sports/prop-record.mjs';
 import { captureNBAResearch } from '../lib/sports/nba-research.mjs';
+import { archiveLines } from '../lib/sports/line-archive.mjs';
 if (!process.env.PROPLINE_API_KEY) throw new Error('PROPLINE_API_KEY is required');
 if (store.backend !== 'r2') throw new Error('The prop record requires R2');
 let failed = false;
@@ -24,6 +25,10 @@ for (const sport of requested ? [requested] : ['nba', 'nfl']) {
     const feedsOk = sources.lines.state === 'ok' && sources.injuries.state === 'ok';
     if (!feedsOk && sport !== 'nba') throw new Error('a current feed is unavailable');
     const view = await recommendationsView({ load: recordLoader(store), sport, now, tz: 'America/Los_Angeles', sources });
+    // Every matched pregame line, for the model check's real-line score
+    // (counts only in the log).
+    const archived = await archiveLines({ store, sport, lines: view.line_index, now });
+    console.log(`${sport}: line archive ${archived.state}; ${archived.added} new lines, ${archived.moved} moved`);
     if (sport === 'nba') {
       const evidence = await captureNBAResearch({ store, view, now, clock: Date.now });
       if (evidence.state === 'busy') { console.log('nba: another collector is recording evidence; existing records preserved'); continue; }

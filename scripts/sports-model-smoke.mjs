@@ -7,7 +7,10 @@ import assert from 'node:assert/strict';
 import {
   nbCdf, nbPmf, nbQuantile, normCdf, cdfAt, quantileOf, lineChances, fitSpread, fitCorrection, varianceOf, nbSizeOf,
   forecastStat, buildModel, modelSummary, positionGroup, MODEL_SPECS, SPORTS_MODEL_VERSION, MIN_GAMES,
+  regularMinutes, absentMinutes, absenceFactor, ABSENCE,
 } from '../lib/sports/models.mjs';
+import { SPORTS_STATS } from '../lib/sports/schema.mjs';
+import { teamAbsence, PROP_RANK_VERSION } from '../lib/sports/props.mjs';
 import { packRows } from '../lib/sports/rows.mjs';
 import { sportsKey, SPORTS_PREFIX } from '../lib/sports/store.mjs';
 import { handleSportsRequest } from '../lib/sports/http.mjs';
@@ -101,8 +104,14 @@ ok(model.context.location.points.home > 1, 'finds the home edge');
 ok(P.test.reliability.every((b) => b.n > 0 && b.lo >= 0 && b.hi <= 1), 'reliability bins');
 ok(/regular-role games only \(20\+ expected minutes\)/.test(model.scored), 'says which games were scored');
 const summary = modelSummary({ ...model, seasons: [2025] });
-eq(Object.keys(summary.stats), ['points', 'rebounds']);
+eq(Object.keys(summary.stats), Object.keys(MODEL_SPECS.nba), 'every modeled stat has a check');
 eq([summary.stats.points.status, summary.stats.rebounds.reason, summary.seasons], ['validated', 'did not beat both simple baselines', [2025]]);
+eq(summary.stats.assists.reason, 'not enough past games to check yet', 'a stat the league has no numbers for is never validated');
+eq(model.evaluation.pts_reb.forecasts > 0, true, 'combos are summed from the stored stats and modeled');
+// Every stat the catalog marks as modeled has a spec, in catalog order.
+for (const sp of ['nba', 'nfl']) eq(SPORTS_STATS[sp].filter((x) => x.model).map((x) => x.id), Object.keys(MODEL_SPECS[sp]), sp + ' catalog and model specs agree');
+eq(SPORTS_MODEL_VERSION, 'sports-model-3');
+eq(PROP_RANK_VERSION, 'props-rank-4');
 const empty = buildModel({ sport: 'nfl', rows: [], now: NOW });
 eq([empty.evaluation.passing_yards.status, empty.evaluation.receptions.reason], ['experimental', 'not enough past games to check yet'], 'no data: experimental, never validated');
 
@@ -125,7 +134,8 @@ const fcBench = forecastStat({ sport: 'nba', stat: 'points', history: hist(bench
 eq([fcBench.status, fcBench.regular_role, fcBench.quality], ['ok', false, 'experimental'], 'a bench role is outside the check, so never shown as validated');
 eq(forecastStat({ sport: 'nba', stat: 'points', history: hist(star.player_id).slice(-(MIN_GAMES - 1)), home: true, opponent: 'bos', group: 'G', model }).reason, 'too_few_games');
 eq(forecastStat({ sport: 'nba', stat: 'points', history: hist(star.player_id), home: true, opponent: 'bos', group: 'G', model: null }).reason, 'no_model');
-eq(forecastStat({ sport: 'nba', stat: 'assists', history: hist(star.player_id), home: true, opponent: 'bos', group: 'G', model }).reason, 'stat', 'only enabled stats are modeled');
+eq(forecastStat({ sport: 'nba', stat: 'field_goals_made', history: hist(star.player_id), home: true, opponent: 'bos', group: 'G', model }).reason, 'stat', 'only enabled stats are modeled');
+eq(forecastStat({ sport: 'nba', stat: 'assists', history: hist(star.player_id), home: true, opponent: 'bos', group: 'G', model }).reason, 'too_few_games', 'no stored assists: no forecast');
 // The forecast reads the games it is given and nothing later.
 const early = forecastStat({ sport: 'nba', stat: 'points', history: hist(star.player_id, '2025-12-01'), home: true, opponent: 'bos', group: 'G', model });
 const tampered = L.rows.map((r) => (r.date >= '2025-12-01' && r.player_id === star.player_id ? { ...r, stats: { ...r.stats, points: 90 } } : r));
@@ -134,6 +144,8 @@ eq(forecastStat({ sport: 'nba', stat: 'points', history: tampered.filter((r) => 
 // NFL: positions decide which stats are modeled; passing yards use the normal curve.
 eq([positionGroup('nfl', 'QB'), positionGroup('nfl', 'FB'), positionGroup('nfl', 'K'), positionGroup('nba', 'PF'), positionGroup('nba', 'C'), positionGroup('nba', 'SG')], ['QB', 'RB', 'other', 'F', 'C', 'G']);
 eq([MODEL_SPECS.nfl.passing_yards.dist, MODEL_SPECS.nfl.receptions.dist, MODEL_SPECS.nba.points.dist], ['normal', 'nb', 'nb']);
+eq([MODEL_SPECS.nfl.receiving_yards.dist, MODEL_SPECS.nfl.rushing_yards.dist, MODEL_SPECS.nfl.rush_rec_yards.dist, MODEL_SPECS.nfl.pass_rush_yards.dist], ['nb', 'nb', 'nb', 'normal'], 'measured on real seasons: NB for rushing/receiving yards, normal for passing');
+eq([MODEL_SPECS.nfl.rush_rec_yards.opportunity, MODEL_SPECS.nfl.pass_rush_yards.opportunity], [['carries', 'targets'], ['attempts', 'carries']], 'combo yards use the summed opportunity');
 const nflContext = { context: {
   groups: { passing_yards: { QB: { opp_mean: 33, rate: 7, n: 500 } }, receptions: { WR: { opp_mean: 6, rate: 0.62, n: 900 } } },
   teams: { passing_yards: { kc: { factor: 1.04, games: 12 } }, receptions: {} },
@@ -148,6 +160,78 @@ ok(qb.push > 0 && qb.push < 0.01, 'a whole-yard line can push, rarely');
 eq([qb.quality, qb.unit], ['validated', 'pass attempts']);
 eq(forecastStat({ sport: 'nfl', stat: 'receptions', history: qbRows, home: true, opponent: 'kc', group: 'QB', model: nflContext }).reason, 'position', 'receptions are not modeled for quarterbacks');
 eq(forecastStat({ sport: 'nfl', stat: 'passing_yards', history: qbRows, home: true, opponent: 'kc', group: 'QB', model: { ...nflContext, context: { ...nflContext.context, spread: {} } } }).reason, 'no_model', 'no fitted spread: no forecast');
+
+// --- teammates out (NBA) -------------------------------------------------------------
+const r10 = (team, mins, lastDate = '2026-01-10', played = 10) => Array.from({ length: 10 }, (_, i) => ({
+  date: new Date(Date.parse(lastDate + 'T12:00:00Z') - i * 2 * 86400000).toISOString().slice(0, 10), team, played: i < played, minutes: i < played ? mins : 0,
+}));
+near(regularMinutes(r10('gs', 30), 'gs', '2026-01-12'), 30, 'a regular: his average minutes');
+eq(regularMinutes(r10('gs', 12), 'gs', '2026-01-12'), 0, 'under 15 minutes is not a regular');
+eq(regularMinutes(r10('bos', 30), 'gs', '2026-01-12'), 0, 'a player now on another team does not count');
+eq(regularMinutes(r10('gs', 30, '2025-12-20'), 'gs', '2026-01-12'), 0, 'gone more than 12 days: already priced into the team');
+eq(regularMinutes(r10('gs', 30).map((r, i) => (i < 3 ? { ...r, played: false } : r)), 'gs', '2026-01-12'), 0, 'out of the rotation lately: not a regular');
+eq(absentMinutes([r10('gs', 30), r10('gs', 20), r10('gs', 8)], 'gs', '2026-01-12'), 50, 'minutes lost add up over the regulars out');
+eq(absenceFactor({ absence: { points: { beta: 0.5 } } }, 'points', 60), 1.125, 'lift = beta × minutes out / 240');
+eq(absenceFactor({ absence: { points: { beta: 0.5 } } }, 'points', 400), 1.25, 'held at 120 minutes out');
+eq([absenceFactor({ absence: { points: { beta: 0 } } }, 'points', 60), absenceFactor({}, 'points', 60)], [1, 1], 'no measured lift: no change');
+eq(ABSENCE.teamMinutes, 240);
+const tPts = model.evaluation.points.teammates_out;
+eq(typeof tPts.applied, 'boolean', 'the check reports whether teammates out is used');
+ok(tPts.without && tPts.with && typeof tPts.why === 'string', 'with and without scores');
+// A league where regulars sit and their teammates score more: the fit finds
+// the lift and uses it; the plain league has none to use.
+const LA = nbaModelLeague({ absenceLift: 1.2 });
+const modelA = buildModel({ sport: 'nba', rows: LA.rows, now: NOW, includeJoint: false });
+const tA = modelA.evaluation.points.teammates_out;
+ok(tA.applied && modelA.context.absence.points.beta > 0.3 && tA.with.brier < tA.without.brier, 'finds the teammates-out lift and beats no adjustment');
+eq(model.context.absence.points.beta, 0, 'the plain league shows no lift, so none is used');
+eq(model.evaluation.rebounds.teammates_out.applied, false);
+const starA = LA.truth.find((p) => p.team === 'gs' && p.minutes === 34);
+const histA = LA.rows.filter((r) => r.player_id === starA.player_id).sort((a, b) => b.date.localeCompare(a.date));
+const noneOut = forecastStat({ sport: 'nba', stat: 'points', history: histA, home: true, opponent: 'bos', group: 'G', model: modelA, side: 'over', threshold: 20.5 });
+const twoOut = forecastStat({ sport: 'nba', stat: 'points', history: histA, home: true, opponent: 'bos', group: 'G', model: modelA, side: 'over', threshold: 20.5, absent: 60 });
+near(twoOut.mean, noneOut.mean * absenceFactor(modelA.context, 'points', 60), 'the forecast rises by the fitted lift', 0.01);
+ok(twoOut.probability > noneOut.probability, 'and the over gets likelier');
+eq([twoOut.teammates_out.minutes, twoOut.teammates_out.applied, noneOut.teammates_out], [60, true, undefined], 'the forecast says who is out only when someone is');
+ok(twoOut.sensitivity.opportunity_down_10 < twoOut.probability, 'the minutes check keeps the lift');
+eq(forecastStat({ sport: 'nfl', stat: 'passing_yards', history: qbRows, home: true, opponent: 'kc', group: 'QB', model: nflContext, absent: 60 }).teammates_out, undefined, 'NFL: not used');
+// Live: teammates listed Out or Doubtful on the injury report, regulars only.
+const lastDay = LA.rows.reduce((a, r) => (r.date > a ? r.date : a), '');
+const nextDay = new Date(Date.parse(lastDay + 'T12:00:00Z') + 86400000).toISOString().slice(0, 10);
+const gsReg = LA.truth.filter((p) => p.team === 'gs');
+const reports = [
+  { name: gsReg[1].name, espn_id: gsReg[1].player_id, team: 'gs', status: 'Out', detail: '' },
+  { name: gsReg[2].name, espn_id: gsReg[2].player_id, team: 'gs', status: 'Doubtful', detail: '' },
+  { name: gsReg[3].name, espn_id: gsReg[3].player_id, team: 'gs', status: 'Questionable', detail: '' },
+  { name: gsReg[7].name, espn_id: gsReg[7].player_id, team: 'gs', status: 'Out', detail: '' },
+];
+const ta = teamAbsence({ sport: 'nba', team: 'gs', date: nextDay, reports, players: LA.players, rows: LA.rows });
+eq(ta.players.map((x) => x.player_id).sort(), [gsReg[1].player_id, gsReg[2].player_id].sort(), 'Out and Doubtful regulars count; Questionable and a bench player do not');
+near(ta.minutes, ta.players.reduce((a, b) => a + b.minutes, 0), 'minutes add up', 0.01);
+eq(teamAbsence({ sport: 'nba', team: 'gs', date: nextDay, reports: [], players: LA.players, rows: LA.rows }), { minutes: 0, players: [] }, 'no report: nobody out');
+eq(teamAbsence({ sport: 'nfl', team: 'gs', date: nextDay, reports, players: LA.players, rows: LA.rows }).minutes, 0, 'NFL: not used');
+
+// --- real PrizePicks lines in the check (fix 4) -----------------------------------------
+eq([model.evaluation.points.real_lines.n, model.evaluation.points.real_lines.note], [0, 'no real lines stored yet'], 'no stored lines: says so');
+const split = model.evaluation.points.split_date;
+const heldOut = L.rows.filter((r) => r.played && r.date >= split && r.minutes >= 20);
+const realLines = heldOut.map((r, i) => ({ game_id: r.game_id, player_id: r.player_id, stat: 'points', threshold: 12.5 + (i % 9), source: i % 2 ? 'archive' : 'issued' }));
+// The same game twice: the archived line wins over the issued one.
+realLines.push({ ...realLines[0], threshold: 99.5, source: 'archive' });
+realLines.push({ game_id: 'nope', player_id: 'nope', stat: 'points', threshold: 10.5, source: 'issued' });
+realLines.push({ game_id: heldOut[0].game_id, player_id: heldOut[0].player_id, stat: 'field_goals_made', threshold: 5.5, source: 'issued' });
+const modelR = buildModel({ sport: 'nba', rows: L.rows, now: NOW, includeJoint: false, lines: realLines });
+const rl = modelR.evaluation.points.real_lines;
+ok(rl.n >= 300 && rl.enough, 'held-out games are scored at the stored line');
+eq(rl.provided, heldOut.length + 1, 'one line per game, player and stat; stats the model skips are ignored');
+ok(rl.not_scored >= 1 && rl.n + rl.not_scored === rl.provided, 'lines with no scored game are counted, not scored');
+ok(rl.sources.archive > 0 && rl.sources.issued > 0, 'issued and archived lines both count');
+ok(rl.brier.model < rl.brier.last10_hit_rate && rl.brier.model < rl.brier.even, 'the model beats the last-10 hit rate and a coin flip at the real lines');
+eq(modelR.evaluation.points.status, 'validated', 'beating both on real lines keeps it validated');
+eq(modelR.context, buildModel({ sport: 'nba', rows: L.rows, now: NOW, includeJoint: false }).context, 'real lines are only scored: the forecasts are the same');
+ok(rl.reliability.every((b) => b.n > 0), 'with its own reliability bins');
+const rsum = modelSummary(modelR).stats.points;
+eq([rsum.real_lines.n, rsum.real_lines.enough, rsum.teammates_out.applied], [rl.n, true, false], 'the status card carries real lines and teammates out');
 
 // --- routes: player page and Pick Builder -------------------------------------------
 function fakeR2() {

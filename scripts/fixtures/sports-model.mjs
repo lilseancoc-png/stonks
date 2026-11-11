@@ -44,7 +44,12 @@ const ROLES = [
 // `pace` > 0 gives each game a shared speed (a scoring multiplier with that
 // spread, for both teams), so points in one game move together; the
 // same-game tests use it. The default 0 leaves the league as it was.
-export function nbaModelLeague({ seed = 7, days = 80, start = '2025-10-21', season = 2025, pace = 0 } = {}) {
+// `absenceLift` > 0 makes regulars sit out more often (`outRate`) and lifts
+// the teammates' points by lift × minutes missing / 240 (the teammates-out
+// tests). Who sits is drawn from its own seeded stream, so the default
+// league is unchanged.
+export function nbaModelLeague({ seed = 7, days = 80, start = '2025-10-21', season = 2025, pace = 0, absenceLift = 0, outRate = 0.12 } = {}) {
+  const outRand = rng(seed + 1000);
   const rand = rng(seed);
   const players = [];
   for (const team of MODEL_TEAMS) {
@@ -69,10 +74,16 @@ export function nbaModelLeague({ seed = 7, days = 80, start = '2025-10-21', seas
       const speed = pace > 0 ? Math.exp(pace * gauss(rand) - pace * pace / 2) : 1;
       for (const team of [home, away]) {
         const opp = team === home ? away : home;
+        const sits = new Set();
+        let missing = 0;
+        if (absenceLift > 0) {
+          for (const p of players.filter((x) => x.team === team)) if (outRand() < outRate) { sits.add(p.player_id); if (p.minutes >= 15) missing += p.minutes; }
+        }
+        const lift = 1 + absenceLift * Math.min(missing, 120) / 240;
         for (const p of players.filter((x) => x.team === team)) {
-          const played = rand() > 0.02;
+          const played = absenceLift > 0 ? (rand(), !sits.has(p.player_id)) : rand() > 0.02;
           const minutes = played ? Math.max(4, Math.min(46, Math.round(p.minutes + gauss(rand) * 3.5))) : 0;
-          const mu = minutes * p.pts * effect(opp) * (team === home ? 1.03 : 0.97) * speed;
+          const mu = minutes * p.pts * effect(opp) * (team === home ? 1.03 : 0.97) * speed * lift;
           const points = played ? poisson(rand, mu * gammaMean1(rand, 6)) : null;
           const rebounds = played ? poisson(rand, minutes * p.reb * gammaMean1(rand, 12)) : null;
           if (played) score[team] += points;

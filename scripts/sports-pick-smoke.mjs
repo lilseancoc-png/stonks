@@ -118,12 +118,12 @@ await rejects(evaluateEntry({ load: load(), body: { legs: [curry('401900003', { 
 await rejects(evaluateEntry({ load: load(), body: { legs: [curry('401900003', { stat: 'minutes' })] }, now: NOW }), 400, /not available/, 'minutes is not a pick stat');
 // Every catalog stat and combo can be picked: history from the stored rows,
 // a model chance only for the stats with a forecast.
-const combo = await evaluateEntry({ load: load(), body: { legs: [curry('401900003', { threshold: 0.5 }), curry('401900003', { stat: 'rebounds', threshold: 0.5 }), curry('401900003', { stat: 'pts_reb', threshold: 30.5 }), curry('401900003', { stat: 'assists', threshold: 5.5 })] }, now: NOW });
+const combo = await evaluateEntry({ load: load(), body: { legs: [curry('401900003', { threshold: 0.5 }), curry('401900003', { stat: 'rebounds', threshold: 0.5 }), curry('401900003', { stat: 'pts_reb', threshold: 30.5 }), curry('401900003', { stat: 'three_attempts', threshold: 10.5 })] }, now: NOW });
 const [cPts, cReb, cPR, cAst] = combo.legs;
 eq(cPR.recent.map((r) => r.date), cPts.recent.map((r) => r.date), 'the combo uses the same played games');
 eq(cPR.recent.map((r) => r.value), cPts.recent.map((r, i) => r.value + cReb.recent[i].value), 'points + rebounds is summed per game');
 eq(cPR.history.all.hits, cPR.recent.filter((r) => r.value > 30.5).length, 'combo history counts the summed values');
-eq([cAst.model.status, cAst.model.reason], ['not_calculated', 'stat'], 'a stat without a forecast says so');
+eq([cAst.model.status, cAst.model.reason], ['not_calculated', 'stat'], 'a stat without a forecast (three-point attempts) says so');
 ok(cAst.history.all.games > 0, 'and still gets history');
 ok(combo.legs.every((l) => l.recent.length === cPts.recent.length), 'every stat has the same stored games here');
 await rejects(evaluateEntry({ load: load(), body: { legs: [curry('401900003', { threshold: 24.3 })] }, now: NOW }), 400, /whole or half/, 'lines are whole or half numbers');
