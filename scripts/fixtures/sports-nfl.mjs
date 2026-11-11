@@ -1,6 +1,8 @@
 // Small nflverse-shaped CSV fixtures for the Sports NFL tests: a finished
 // 2025 season (opener + Super Bowl) and part of 2026 around Monday
-// 2026-11-02, including the sportsbook columns the adapter must drop.
+// 2026-11-02, including the sportsbook columns the adapter drops (moneylines
+// and prices; the spread and total are kept since adapter 2), plus snap
+// counts and the official injury report.
 export const GAMES_HEAD = 'game_id,season,game_type,week,gameday,weekday,gametime,away_team,away_score,home_team,home_score,location,result,total,overtime,old_game_id,gsis,nfl_detail_id,pfr,pff,espn,ftn,away_rest,home_rest,away_moneyline,home_moneyline,spread_line,away_spread_odds,home_spread_odds,total_line,under_odds,over_odds,div_game,roof,surface,temp,wind,away_qb_id,home_qb_id,away_qb_name,home_qb_name,away_coach,home_coach,referee,stadium_id,stadium';
 export const gameLine = (id, season, type, week, day, time, away, as, home, hs, stadium = 'Field') =>
   [id, season, type, week, day, 'Sunday', time, away, as, home, hs, 'Home', '', '', '0', '', '', '', 'pfr' + week, '', '4018' + week, '', 7, 7, -150, 130, 3.5, -110, -110, 44.5, -110, -110, 0, 'outdoors', 'grass', '', '', '', '', '', '', '', '', '', 'X', '"' + stadium + '"'].join(',');
@@ -37,4 +39,22 @@ export const PLAYERS = ['gsis_id,display_name,first_name,last_name,position_grou
   '00-0006,Patrick Mahomes,Patrick,Mahomes,QB,QB,KC,ACT,2026,6,d,6',
   '00-0007,Rookie Receiver,Rookie,Receiver,WR,WR,KC,ACT,2026,7,e,7',
   '00-0008,Old Lineman,Old,Lineman,OL,T,KC,RET,2019,8,f,8',
+].join('\n');
+
+// nflverse snap counts (offense only is read; PFR ids map to gsis ids through
+// players.csv `pfr_id`).
+export const SNAPS_HEAD = 'game_id,pfr_game_id,season,game_type,week,player,pfr_player_id,position,team,opponent,offense_snaps,offense_pct,defense_snaps,defense_pct,st_snaps,st_pct';
+export const SNAPS_2026 = [SNAPS_HEAD,
+  '2026_08_KC_DEN,x,2026,REG,8,Travis Kelce,c,TE,KC,DEN,50,0.8,0,0,0,0', // has a stat row: snaps added to it
+  '2026_08_KC_DEN,x,2026,REG,8,Rookie Receiver,e,WR,KC,DEN,12,0.19,0,0,3,0.1', // snaps, no stat row: an all-zero row is added
+  '2026_08_KC_DEN,x,2026,REG,8,Patrick Mahomes,d,QB,KC,DEN,62,1,0,0,0,0',
+  '2026_08_KC_DEN,x,2026,REG,8,Unknown Wideout,zz,WR,KC,DEN,9,0.15,0,0,0,0', // no players.csv match: counted, skipped
+  '2026_08_KC_DEN,x,2026,REG,8,Some Guard,g,G,KC,DEN,62,1,0,0,0,0', // a lineman: not read
+  '2026_07_CHI_SEA,x,2026,REG,7,Jaxon Smith-Njigba,b,WR,SEA,CHI,0,0,0,0,10,0.4', // no offensive snaps: no row
+].join('\n');
+export const INJURIES_HEAD = 'season,season_type,game_type,team,week,gsis_id,position,full_name,first_name,last_name,report_primary_injury,report_secondary_injury,report_status,practice_primary_injury,practice_secondary_injury,practice_status';
+export const INJURIES_2026 = [INJURIES_HEAD,
+  '2026,REG,REG,KC,8,00-0003,TE,Travis Kelce,Travis,Kelce,Ankle,,Questionable,Ankle,,Limited Participation in Practice',
+  '2026,REG,REG,SEA,9,00-0002,WR,Jaxon Smith-Njigba,Jaxon,Smith-Njigba,Hamstring,,Out,Hamstring,,Did Not Participate In Practice',
+  '2026,REG,REG,SEA,9,00-0001,QB,Geno Smith,Geno,Smith,,,,Not injury related - resting player,,Full Participation in Practice',
 ].join('\n');

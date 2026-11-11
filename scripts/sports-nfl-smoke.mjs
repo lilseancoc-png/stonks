@@ -4,13 +4,15 @@
 //   node scripts/sports-nfl-smoke.mjs
 import assert from 'node:assert/strict';
 import { parseCsv } from '../lib/sports/csv.mjs';
-import { normalizeNflGames, normalizeNflPlayerGames, normalizeNflPlayers, NFLVERSE_URLS, NFL_SOURCE, nflGameId } from '../lib/sports/nflverse.mjs';
+import { normalizeNflGames, normalizeNflPlayerGames, normalizeNflPlayers, normalizeNflSnaps, normalizeNflInjuries, pfrIndex, NFLVERSE_URLS, NFL_SOURCE, nflGameId } from '../lib/sports/nflverse.mjs';
+import { availabilityFor, officialNflReport, nflRosterStatus } from '../lib/sports/book-price.mjs';
+import { gameEnvironment, gameLinesView } from '../lib/sports/models.mjs';
 import { ingestLeague } from '../lib/sports/ingest.mjs';
 import { buildBoard, buildGame, searchPlayers, buildPlayerLog, summarizeStat, foldName } from '../lib/sports/read.mjs';
 import { handleSportsRequest, recordLoader } from '../lib/sports/http.mjs';
 import { zonedTimeUtc, seasonFor } from '../lib/sports/time.mjs';
 import { SPORTS_PREFIX } from '../lib/sports/store.mjs';
-import { GAMES, WEEK_HEAD, WEEK_2025, WEEK_2026, PLAYERS, wk } from './fixtures/sports-nfl.mjs';
+import { GAMES, WEEK_HEAD, WEEK_2025, WEEK_2026, PLAYERS, SNAPS_2026, INJURIES_2026, wk } from './fixtures/sports-nfl.mjs';
 
 let checks = 0;
 const ok = (cond, msg) => { assert.ok(cond, msg); checks++; };
@@ -39,8 +41,14 @@ eq(games.length, 7, 'both seasons of games');
 const g8 = games.find((g) => g.game_id === '2026_08_kc_den');
 ok(g8 && g8.status === 'final' && g8.home_score === 24 && g8.away_score === 28 && g8.home_team === 'den', 'a scored game is final with lowercase teams');
 eq(g8.start_utc, '2026-11-01T21:25:00.000Z', 'kickoff converts from Eastern');
-ok(games.every((g) => !Object.keys(g).some((k) => /spread|moneyline|total_line|odds/.test(k))), 'sportsbook lines in the schedule are dropped');
-ok(!JSON.stringify(games).includes('-150') && !JSON.stringify(games).includes('44.5'), 'no line values leak into stored games');
+ok(games.every((g) => !Object.keys(g).some((k) => /spread|moneyline|total_line|odds/.test(k))), 'raw sportsbook columns in the schedule are dropped');
+ok(!JSON.stringify(games).includes('-150') && !JSON.stringify(games).includes('-110'), 'no moneyline or price leaks into stored games');
+eq(games.find((g) => g.game_id === '2026_08_kc_den').lines, { total: 44.5, home_margin: 3.5, source: 'nflverse' }, 'the spread and total are kept (adapter 2): home favored by 3.5');
+eq(games.find((g) => g.game_id === '2026_08_kc_den').rest_days, { home: 7, away: 7 }, 'rest days from the schedule');
+eq(gameEnvironment(games.find((g) => g.game_id === '2026_08_kc_den'), 'den'), { total: 44.5, team_margin: 3.5, team_total: 24, source: 'nflverse' }, 'the favorite\'s implied total is (total + margin) / 2');
+eq(gameEnvironment(games.find((g) => g.game_id === '2026_08_kc_den'), 'kc').team_total, 20.5, 'and the underdog\'s (total - margin) / 2');
+eq(gameLinesView(games.find((g) => g.game_id === '2026_08_kc_den')).favorite, 'den', 'the game view names the favorite');
+eq(gameEnvironment(games.find((g) => g.game_id === '2026_08_kc_den'), 'sea'), null, 'a team not in the game gets nothing');
 eq(games.find((g) => g.game_id === '2025_22_kc_phi').season_type, 'POST', 'the Super Bowl is a playoff game');
 eq(games.find((g) => g.game_id === '2025_22_kc_phi').venue, 'Caesars, Superdome', 'quoted venue survives');
 const tbd = games.find((g) => g.game_id === '2026_10_sea_la');
@@ -55,6 +63,35 @@ const recovered = pg.rows.find((r) => r.player_id === '00-0001' && r.week === 8)
 eq(recovered?.game_id, '2026_08_chi_sea', 'a missing game id is recovered from the schedule');
 const jsn = pg.rows.find((r) => r.player_id === '00-0002');
 ok(jsn.home === true && jsn.opponent === 'chi' && jsn.stats.touchdowns === 1 && jsn.date === '2026-10-25', 'home flag, opponent, touchdowns and local date');
+// Snap counts (adapter 2): snaps on stat rows, an all-zero row for a player
+// who took offensive snaps with no stat, unmatched PFR ids counted.
+const snaps = normalizeNflSnaps(parseCsv(SNAPS_2026), pfrIndex(parseCsv(PLAYERS)));
+eq(snaps.unmapped, 1, 'a snap row with no players.csv match is counted');
+eq(snaps.byKey.size, 4, 'linemen are not read; a zero-snap row is kept but adds nothing');
+const withSnaps = normalizeNflPlayerGames(parseCsv(WEEK_2026), byId, snaps);
+const kelce = withSnaps.rows.find((r) => r.player_id === '00-0003');
+ok(kelce.snaps === 50 && kelce.snap_pct === 0.8 && kelce.stats.receptions === 7, 'snaps join the stat row');
+const rookie = withSnaps.rows.find((r) => r.player_id === '00-0007');
+ok(rookie && rookie.played === true && rookie.source === 'snaps' && rookie.snaps === 12 && rookie.stats.receiving_yards === 0 && rookie.stats.receptions === 0 && rookie.team === 'kc' && rookie.opponent === 'den',
+  'a player with offensive snaps and no stat line gets a played all-zero row');
+eq(withSnaps.zero, { added: 1, unmapped: 1 }, 'the zero rows and unmatched snap rows are counted');
+ok(!withSnaps.rows.some((r) => r.player_id === '00-0002' && r.week === 7 && r.source === 'snaps'), 'special-teams-only snaps add no row');
+eq(withSnaps.rows.length, pg.rows.length + 1, 'only the one zero row is added');
+// The official injury report: the newest week in the file, one entry per player.
+const report = normalizeNflInjuries(parseCsv(INJURIES_2026), { season: 2026 });
+eq(report.week, 9, 'the newest week');
+eq(report.reports.map((r) => [r.player_id, r.game_status]), [['00-0001', null], ['00-0002', 'Out']], 'older weeks are left out; a blank status is no designation');
+eq(report.reports[1].practice, 'Did Not Participate In Practice');
+const jsnPlayer = { player_id: '00-0002', name: 'Jaxon Smith-Njigba', status: 'ACT' };
+const off = officialNflReport({ ...report, source: 'nflverse' }, jsnPlayer, 'sea', 9);
+ok(off.state === 'ok' && off.game_status === 'Out' && off.injury === 'Hamstring', 'the official report for this week');
+eq(officialNflReport({ ...report }, jsnPlayer, 'sea', 10).state, 'not_yet', 'a report for an earlier week is not this game\'s');
+const av = availabilityFor(jsnPlayer, 'sea', { state: 'ok', reports: [] }, 'nfl', { record: report, week: 9 });
+ok(av.out === true && av.status === 'not listed' && av.official.game_status === 'Out', 'Out on the official report marks the player out even when ESPN has not listed him');
+const avIr = availabilityFor({ player_id: 'x', name: 'X', status: 'RES' }, 'sea', { state: 'unavailable', reports: [] }, 'nfl', null);
+ok(avIr.out === true && avIr.roster_status.label === 'injured reserve', 'a player on injured reserve is out even without a report');
+eq(nflRosterStatus({ status: 'DEV' }).label, 'practice squad');
+
 const players = normalizeNflPlayers(parseCsv(PLAYERS), { keepIds: new Set(pg.rows.map((r) => r.player_id)), season: 2026 });
 eq(players.map((p) => p.player_id).sort(), ['00-0001', '00-0002', '00-0003', '00-0006', '00-0007'], 'players in logs plus active offensive players');
 ok(!players.some((p) => p.player_id === '00-0008'), 'retired linemen are not stored');
@@ -71,6 +108,7 @@ function memStore() {
 const files = new Map([
   [NFLVERSE_URLS.games, GAMES], [NFLVERSE_URLS.players, PLAYERS],
   [NFLVERSE_URLS.weekly(2025), WEEK_2025], [NFLVERSE_URLS.weekly(2026), WEEK_2026],
+  [NFLVERSE_URLS.snaps(2026), SNAPS_2026], [NFLVERSE_URLS.injuries(2026), INJURIES_2026],
 ]);
 const fetched = [];
 const fetchText = async (url) => { fetched.push(url); return files.has(url) ? files.get(url) : null; };
@@ -85,7 +123,15 @@ ok(st.order.every((k) => k.startsWith(SPORTS_PREFIX)), 'every write stays under 
 const stored2025 = JSON.parse(st.objects.get(SPORTS_PREFIX + 'nfl/player-games/2025.json'));
 ok(stored2025.complete === true && stored2025.rows.length === 2, 'a finished season is marked complete');
 const stored2026 = JSON.parse(st.objects.get(SPORTS_PREFIX + 'nfl/player-games/2026.json'));
-ok(stored2026.rows.length === 4 && !stored2026.rows.some((r) => r.game_id === '2026_08_chi_sea'), 'a row for a game that is not final yet waits for the next run');
+ok(stored2026.rows.length === 5 && !stored2026.rows.some((r) => r.game_id === '2026_08_chi_sea'), 'a row for a game that is not final yet waits for the next run (four stat rows and one zero row)');
+ok(stored2026.columns.includes('snaps') && stored2026.columns.includes('source'), 'the snap columns are packed when present');
+ok(!JSON.parse(st.objects.get(SPORTS_PREFIX + 'nfl/player-games/2025.json')).columns.includes('snaps'), 'and left out when a season has none');
+const storedReport = JSON.parse(st.objects.get(SPORTS_PREFIX + 'nfl/injuries.json'));
+ok(storedReport.week === 9 && storedReport.reports.length === 2 && storedReport.season === 2026, 'the official injury report is stored');
+ok(run1.status.integrity?.seasons?.[2026]?.zero_stat_games_added === 1 && run1.status.integrity.seasons[2026].snap_rows_unmatched === 1, 'integrity counts in the status');
+eq(run1.status.integrity.injury_report, { week: 9, players: 2 }, 'and the injury report week');
+ok(run1.status.integrity.seasons[2025].snap_counts === false && /snap counts unavailable/.test(run1.status.message), 'a season with no snap file says so');
+eq(run1.status.adapter_version, 2);
 fetched.length = 0;
 const st2 = st; // second run on the same store
 await ingestLeague({ adapter: NFL_SOURCE,  store: st2, fetchText, now: NOW + 86400000 });
@@ -133,6 +179,9 @@ eq((await searchPlayers({ load, sport: 'nfl', query: 'pat mah' })).players.lengt
 eq((await searchPlayers({ load, sport: 'nfl', query: 'p' })).players, [], 'one letter returns nothing');
 eq(foldName('  Ja’Marr  Chase '), 'ja marr chase');
 
+const rookieLog = await buildPlayerLog({ load, sport: 'nfl', playerId: '00-0007', seasons: [2025, 2026] });
+ok(rookieLog.games[0].zero_stat_game === true && rookieLog.games[0].snaps === 12 && rookieLog.games[0].snap_pct === 0.19, 'the log shows snaps and marks a zero-stat game');
+eq(rookieLog.summaries.receiving_yards.games, 1, 'a zero-stat game counts as a played game with 0');
 const log = await buildPlayerLog({ load, sport: 'nfl', playerId: '00-0006', seasons: [2025, 2026] });
 eq(log.games.map((g) => g.date), ['2026-11-01', '2026-02-08', '2025-09-07'], 'game log is newest first across seasons');
 eq(log.summaries.passing_yards, { games: 3, last5: 246.7, last10: 246.7, average: 246.7, median: 240, low: 199, high: 301 }, 'plain averages, median, low and high');

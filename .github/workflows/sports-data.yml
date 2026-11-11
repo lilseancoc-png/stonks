@@ -1,16 +1,21 @@
 name: Sports data refresh
 
-# Owner Sports section (docs/sports/README.md). Once a day, downloads free
-# public game data (nflverse releases for NFL, hoopR / ESPN box scores for
-# NBA) and writes private JSON
+# Owner Sports section (docs/sports/README.md). Twice a day, downloads free
+# public game data (nflverse releases for NFL: stats, snap counts, the
+# official injury report, rosters and game spreads/totals; hoopR / ESPN box
+# scores for NBA, cross-checked against NBA.com) and writes private JSON
 # records under `_stonks/sports/v1/` in the R2 store. It writes nothing to the
 # repo or data/, makes no AI or sportsbook calls, and logs counts only
 # (workflow logs are public). 13:20 UTC is early morning US time, after the
-# providers' overnight updates and after the previous night's games. Each
-# league is its own job, so one provider's outage never blocks the other.
+# providers' overnight updates and after the previous night's games. 22:30
+# UTC (since 2026-11-11) is late afternoon US time: it picks up provider
+# fixes made during the day, the NFL's Friday final injury report and roster
+# moves before the evening's NBA games. Each league is its own job, so one
+# provider's outage never blocks the other.
 on:
   schedule:
     - cron: "20 13 * * *"
+    - cron: "30 22 * * *"
   workflow_dispatch:
 
 permissions:

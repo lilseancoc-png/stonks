@@ -27,8 +27,11 @@ for (const sport of requested ? [requested] : ['nba', 'nfl']) {
     const view = await recommendationsView({ load: recordLoader(store), sport, now, tz: 'America/Los_Angeles', sources });
     // Every matched pregame line, for the model check's real-line score
     // (counts only in the log).
-    const archived = await archiveLines({ store, sport, lines: view.line_index, now });
-    console.log(`${sport}: line archive ${archived.state}; ${archived.added} new lines, ${archived.moved} moved`);
+    const archived = await archiveLines({ store, sport, lines: view.line_index, gameLines: view.game_line_index || [], now });
+    console.log(`${sport}: line archive ${archived.state}; ${archived.added} new lines, ${archived.moved} moved, ${archived.games || 0} game spreads/totals`);
+    // How the feed's lines were tied to stored players (counts only).
+    const m = view.matching || {};
+    console.log(`${sport}: lines matched by id ${m.id || 0}, by name ${m.name || 0}, by name variant ${m.variant || 0}; ${m.unmatched_players || 0} player names not matched`);
     if (sport === 'nba') {
       const evidence = await captureNBAResearch({ store, view, now, clock: Date.now });
       if (evidence.state === 'busy') { console.log('nba: another collector is recording evidence; existing records preserved'); continue; }

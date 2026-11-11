@@ -48,8 +48,11 @@ const ROLES = [
 // the teammates' points by lift × minutes missing / 240 (the teammates-out
 // tests). Who sits is drawn from its own seeded stream, so the default
 // league is unchanged.
-export function nbaModelLeague({ seed = 7, days = 80, start = '2025-10-21', season = 2025, pace = 0, absenceLift = 0, outRate = 0.12 } = {}) {
-  const outRand = rng(seed + 1000);
+// `lines`: give each game a spread and total. 'pace' sets the total from the
+// game's speed (a market that knows it), 'noise' draws it at random (a
+// market that knows nothing); each from its own seeded stream.
+export function nbaModelLeague({ seed = 7, days = 80, start = '2025-10-21', season = 2025, pace = 0, absenceLift = 0, outRate = 0.12, lines = null } = {}) {
+  const outRand = rng(seed + 1000), lineRand = rng(seed + 2000);
   const rand = rng(seed);
   const players = [];
   for (const team of MODEL_TEAMS) {
@@ -94,9 +97,11 @@ export function nbaModelLeague({ seed = 7, days = 80, start = '2025-10-21', seas
           });
         }
       }
+      const total = lines === 'pace' ? Math.round(2 * 220 * speed) / 2 : lines === 'noise' ? Math.round(2 * 220 * Math.exp(0.15 * gauss(lineRand))) / 2 : null;
       games.push({
         sport: 'nba', game_id, season, season_type: 'REG', week: null, start_utc: date + 'T23:30:00Z', local_date: date, time_tbd: false,
         home_team: home, away_team: away, status: 'final', home_score: score[home], away_score: score[away], venue: null,
+        ...(total ? { lines: { total, home_margin: 0, source: 'test' } } : {}),
       });
     }
   }

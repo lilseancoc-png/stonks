@@ -4,7 +4,7 @@
 // moves, pregame only; and the real lines the daily model check reads back.
 // Offline, fake R2 store.
 import assert from 'node:assert/strict';
-import { archiveLines, loadRealLines, LINE_ARCHIVE_START } from '../lib/sports/line-archive.mjs';
+import { archiveLines, loadRealLines, LINE_ARCHIVE_START, archivedGameLine, withGameLines } from '../lib/sports/line-archive.mjs';
 import { sportsKey } from '../lib/sports/store.mjs';
 
 let checks = 0;
@@ -79,5 +79,24 @@ eq(real, [
 ], 'issued picks plus the latest archived line; dates before the archive and bad rows are skipped');
 ok(LINE_ARCHIVE_START === '2026-11-11');
 eq(await loadRealLines({ store: fakeR2(), sport: 'nfl', dates: ['2026-11-15'], seasons: [2026] }), [], 'nothing stored: no lines');
+
+// --- game spreads and totals (NBA, 2026-11-11) ---------------------------------------
+const gst = fakeR2();
+const gl = (o = {}) => ({ game_id: '501', total: 228.5, home_margin: 4.5, observed_utc: '2026-11-12T18:00:00Z', start_utc: '2026-11-13T00:30:00Z', ...o });
+r = await archiveLines({ store: gst, sport: 'nba', now: NOW, lines: [], gameLines: [gl(), gl({ game_id: 'bad', total: 999 })] });
+eq([r.state, r.games], ['ok', 1], 'a game line is archived with no player lines; a bad one is skipped');
+const gkey = sportsKey('lines', { sport: 'nba', date: '2026-11-12' });
+eq(archivedGameLine(JSON.parse(gst.objects.get(gkey)), '501'), { total: 228.5, home_margin: 4.5, observed_utc: '2026-11-12T18:00:00Z', source: 'sportsbooks' }, 'read back as a game\'s lines');
+r = await archiveLines({ store: gst, sport: 'nba', now: NOW + 600000, gameLines: [gl({ observed_utc: '2026-11-12T18:10:00Z' })] });
+eq(r.games, 0, 'the same numbers again change nothing');
+r = await archiveLines({ store: gst, sport: 'nba', now: NOW + 1200000, gameLines: [gl({ total: 230.5, observed_utc: '2026-11-12T18:20:00Z' })] });
+eq([r.games, archivedGameLine(JSON.parse(gst.objects.get(gkey)), '501').total], [1, 230.5], 'a moved total replaces it');
+r = await archiveLines({ store: gst, sport: 'nba', now: NOW + 1200000, gameLines: [gl({ total: 220.5, observed_utc: '2026-11-12T18:15:00Z' })] });
+eq(archivedGameLine(JSON.parse(gst.objects.get(gkey)), '501').total, 230.5, 'an older observation never replaces a newer one');
+eq(archivedGameLine(null, '501'), null);
+const filled = new Map();
+await loadRealLines({ store: gst, sport: 'nba', dates: ['2026-11-12'], seasons: [], gameLines: filled });
+eq(filled.get('501'), { total: 230.5, home_margin: 4.5 }, 'the model check reads the archived game lines');
+eq(withGameLines([{ game_id: '501' }, { game_id: '502', lines: { total: 1, home_margin: 0 } }], filled), [{ game_id: '501', lines: { total: 230.5, home_margin: 4.5, source: 'archive' } }, { game_id: '502', lines: { total: 1, home_margin: 0 } }], 'a stored game line is kept; a missing one is filled');
 
 console.log(`Sports line archive smoke passed (${checks} checks).`);

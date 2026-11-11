@@ -37,9 +37,16 @@ defense allows by position, stored meetings) and each player's average
 against that opponent.
 `SPORTS_ENABLED=0` is the kill switch. Records are JSON in
 `_stonks/sports/v1/` (raw internal prefix, never published or synced), written
-by the daily `sports-data.yml` job (`scripts/sports-ingest.mjs`, one shared
-ingest in `lib/sports/ingest.mjs`; NFL from nflverse with sportsbook columns
-dropped, NBA from hoopR / ESPN box scores). The Pick Builder prices entries
+by the `sports-data.yml` job, twice a day since 2026-11-11 (13:20 and 22:30
+UTC; `scripts/sports-ingest.mjs`, one shared ingest in `lib/sports/ingest.mjs`;
+NFL from nflverse: stats, snap counts (`snaps` / `snap_pct`, plus all-zero rows
+for players who played snaps but recorded no stat), the official injury
+report (`nfl/injuries.json`), `players.csv` team and roster status, and the
+schedule's closing spread and total, moneylines dropped; NBA from hoopR / ESPN
+box scores, ids filled and duplicate rows dropped, summed against final scores
+and cross-checked against NBA.com's public box-score files, counts only).
+Adapter version 2 re-downloaded every season once; each run writes its checks
+to `integrity` in the status record (the public log prints counts only). The Pick Builder prices entries
 from typed-in payouts and owner chances (`lib/sports/payout.mjs`: breakeven,
 independence baseline, Fréchet range; same-game picks priced only with measured links) and
 keeps an append-only paper journal in R2 under a lease
@@ -62,7 +69,16 @@ Pick Builder read who is out from the ESPN report, never counting the player
 being forecast). The check also scores held-out games at real PrizePicks
 lines (`real_lines`: the issued props record plus the line archive the props
 scans write to `<sport>/lines/<date>.json`, `lib/sports/line-archive.mjs`);
-from 300 real lines a stat must beat both baselines there too.
+from 300 real lines a stat must beat both baselines there too. Two game
+inputs (`GAME_FACTORS`) are used per stat only where they beat leaving them out
+on later dates by more than a day-clustered standard error: `game_lines` (the
+team's implied points from the spread and total; NFL from the schedule, NBA
+from the sportsbook spread/total the props scan archives under `games` in the
+line archive, PropLine `spreads,totals` in the existing reference request) and
+NFL `snap_trend`. Weather was tested and is not used. Props line matching
+(`playerFor` in `lib/sports/props.mjs`) takes short first-name forms, skips a
+player whose team changed since his last stored game (`team_changed`) and NFL
+players off the active roster.
 The same refit measures same-game links (`lib/sports/joint.mjs`, stored as
 `joint` in `model.json`, checked on later games against independence); the
 Pick Builder prices same-game picks with them (Gaussian copula, seeded draws)
@@ -74,8 +90,9 @@ method, `shinProbabilities` in `lib/sports/nba-market.mjs`). The owners chose to
 on 2026-11-08. It is read server-side behind the Owner gate, by the prop
 recording job and (since 2026-11-11) by the MCP's `sports_evaluate_entry` /
 `sports_get_player`, which show the books' no-vig chance beside the model's
-(`lib/sports/book-price.mjs`, flag at a 5-point gap) and the ESPN injury
-status; it never signs into a sportsbook or PrizePicks account, scrapes no
+(`lib/sports/book-price.mjs`, flag at a 5-point gap), the ESPN injury
+status, the official NFL report and roster status, the game's spread and total
+and a `data_check` block (`STALE_DATA` after 1.5 days without a run); it never signs into a sportsbook or PrizePicks account, scrapes no
 pages and places nothing. Model chances are recalibrated only when a
 cross-fitted Platt curve beats the raw ones (`fitCalibration`, seven stats
 pass on the 2026-11-11 data); forecasts carry `tested` and `early_season` notes instead. The Owner Market

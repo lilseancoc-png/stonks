@@ -49,6 +49,14 @@ NFL Rams lines and injury reports normalize to nflverse's `la` team id.
 Provider kickoff times are checked on cache hits, at ranking and again when
 recording; the earlier known kickoff closes a selection and expires its UI.
 Exact ESPN athlete ids take precedence over similar names in injury reports.
+Since 2026-11-11 (`playerFor`) a name also matches a common short form on the
+same team and last name (Herb / Herbert Jones, CJ / C.J. McCollum; two
+possible players is no match); a line whose player now plays for another
+team than his last stored game (NBA: the only player of that name in the
+league; NFL: `players.csv` says so) is skipped as `team_changed` rather than
+ranked on his old role, and an NFL player not on the active roster is skipped
+as `not_on_active_roster`. The props job logs how many lines matched by id,
+by name and by variant, and how many names matched no one (counts only).
 An explicit clearance such as "no minutes restriction" does not exclude an
 available player; actual restrictions still do.
 
@@ -336,7 +344,8 @@ and the MCP’s general key filter refuses it (only the Sports MCP tools’ own 
 | `games` | `{sport}/games/{season}.json` | data jobs |
 | `player-games` | `{sport}/player-games/{season}.json` | data jobs (packed rows, below) |
 | `model` | `{sport}/model.json` | data jobs (stat model numbers and their check, plus the same-game links as `joint`; about 120 KB for NBA, 70 KB for NFL) |
-| `lines` | `{sport}/lines/{YYYY-MM-DD}.json` | props scans (every pregame PrizePicks main line matched to a stored player, by game date in ET; since 2026-11-11) |
+| `lines` | `{sport}/lines/{YYYY-MM-DD}.json` | props scans (every pregame PrizePicks main line matched to a stored player, by game date in ET; since 2026-11-11; NBA also keeps each game's sportsbook spread and total under `games`) |
+| `injuries` | `{sport}/injuries.json` | NFL data job (the official injury report, newest week; since 2026-11-11) |
 | `observations` | `markets/observations.json` | Pick Builder (captured lines, append-only) |
 | `journal` | `journal/entries.json` | Pick Builder (paper entries, append-only revisions) |
 
@@ -350,9 +359,11 @@ defines and can unpack a single player without the rest of the season.
 
 ## Data jobs
 
-`.github/workflows/sports-data.yml` runs once a day at 13:20 UTC (early
+`.github/workflows/sports-data.yml` runs twice a day, at 13:20 UTC (early
 morning in the US, after the providers' overnight updates and the previous
-night's games) and on demand. NFL and NBA are separate jobs, so one provider's
+night's games) and, since 2026-11-11, at 22:30 UTC (late afternoon in the US:
+provider fixes made during the day, the NFL's Friday injury report and roster
+moves before the evening's NBA games), and on demand. NFL and NBA are separate jobs, so one provider's
 outage never blocks the other. Each runs `npm run test:sports`, then
 `node scripts/sports-ingest.mjs --sport=<league>`. Both leagues share one
 ingest (`lib/sports/ingest.mjs`) with a small adapter per provider
@@ -382,15 +393,43 @@ ingest (`lib/sports/ingest.mjs`) with a small adapter per provider
 - The refit reads the real PrizePicks lines stored so far (the issued props
   record and the line archive, `lib/sports/line-archive.mjs`) and scores the
   held-out forecasts at them too (see Stat models).
+- Checks its own data every run (`integrity` in the status record, since
+  2026-11-11, adapter version 2, which re-downloaded every season once):
+  per season the rows added or fixed, the box scores that do not add up to
+  the final score, and (NBA) a second source. The status message and the
+  MCP's `data_check` carry the warnings; the log prints counts only.
 - Logs counts only, because workflow logs are public.
 
-**NFL** (`lib/sports/nflverse.mjs`) reads three nflverse release files:
-`schedules/games.csv`, `stats_player/stats_player_week_<season>.csv` and
-`players/players.csv`. It keeps quarterbacks, running backs, receivers and
-tight ends, converts kickoff times from US Eastern to UTC, and drops the
-sportsbook spreads, totals and moneylines the schedule file carries. nflverse
-lists a player only for games where he recorded a stat, so a missed game is
-absent from the log rather than a zero. The page says so under every game log.
+**NFL** (`lib/sports/nflverse.mjs`) reads five nflverse release files:
+`schedules/games.csv`, `stats_player/stats_player_week_<season>.csv`,
+`players/players.csv`, `snap_counts/snap_counts_<season>.csv` and
+`injuries/injuries_<season>.csv`. It keeps quarterbacks, running backs,
+receivers and tight ends and converts kickoff times from US Eastern to UTC.
+Since adapter 2 (2026-11-11):
+
+- **Spread and total.** The schedule's closing spread and total stay on each
+  game (`lines: { total, home_margin }`, `home_margin` > 0 when the home team
+  is favored); the moneylines are still dropped.
+- **Snap counts.** Each played row gets `snaps` and `snap_pct` (offensive
+  snaps and share of the team's). nflverse lists a player in the weekly stats
+  only when he recorded a stat, so a skill player who played offensive snaps
+  and recorded nothing used to be missing; the snap file adds that game as an
+  all-zero row (`source: 'snaps'`, `zero_stat_game` in the log). That added
+  934 / 983 / 947 / 814 / 408 games to the 2022-2026 seasons, and every NFL
+  model scored better with them. Snap rows that match no stored player are
+  counted (`snap_rows_unmatched`). A season with no snap file says so and
+  keeps the old behavior.
+- **Official injury report.** The newest week of the NFL's own report (game
+  status Out / Doubtful / Questionable, practice participation, injury) is
+  stored as `nfl/injuries.json`. It is shown beside ESPN's listing and marks a
+  player out (Out, Doubtful) or unsure (Questionable) only for the week of
+  his next game; a report for an earlier week is labeled `not_yet`. nflverse
+  can lag: on 2026-11-11 its file held all of week 9 but only two teams of
+  week 10, so ESPN's live report stays the primary source.
+- **Current team and roster status.** `players.csv` `latest_team` and
+  `status` (ACT, RES = injured reserve, PUP, CUT, …) are kept. A traded
+  player shows the new team before his first game with it; a player not on
+  the active roster is marked out and is never ranked.
 
 **NBA** (`lib/sports/hoopr.mjs`) reads the hoopR release files from
 `sportsdataverse-data`: `espn_nba_schedules/nba_schedule_<year>.csv` and
@@ -400,6 +439,20 @@ play-in and playoff games of the 30 NBA teams (All-Star and exhibition teams
 are skipped). Did-not-play rows are kept with their reason and null stats, and
 are left out of averages. Player names come from the box scores. hoopR's files
 usually run a day or two behind the latest games.
+
+Adapter 2 (2026-11-11) fixes three things the data audit found: rows with a
+missing athlete id are filled from the same game's roster by name (33 rows in
+2025-26), a player listed twice in one game keeps the played row and drops
+the did-not-play copy, and each game's box score is summed against the final
+score. Seven 2025-26 Chicago games are short by one player's points (ESPN
+lost his line); they are counted as `box_points_off` and named in the private
+status record, and the row stays a did-not-play. Each run also checks up to
+15 recent games against NBA.com's public box-score files
+(`cdn.nba.com/static/json`, `nbaComCheck`): final scores, each player's
+points, rebounds and assists, and players NBA.com has but the store does not.
+Only counts and a few examples are kept in the status record; nothing from
+NBA.com is stored as data, and when the files cannot be reached the check
+says `unavailable` and the run goes on.
 
 Local checks without credentials:
 
@@ -646,6 +699,50 @@ injuries only through the NBA teammates-out lift (the site and the MCP show
 the injury report beside them, and the MCP the sportsbook price, see "MCP
 tools").
 
+**Game spread, total and snap share (2026-11-11).** Two more inputs
+(`GAME_FACTORS`), each tested per stat the same way as the teammates-out
+lift and kept only where it helped:
+
+- `game_lines`: the team's implied points (`(total ± spread) / 2`) and the
+  spread, against the league's usual. NFL reads the schedule's closing line;
+  NBA reads the sportsbooks' median spread and total that the props scan
+  archives every half hour (PropLine's `spreads,totals` markets, which ride
+  the existing NBA reference request: no extra request).
+- `snap_trend` (NFL): the player's snap share in his last two games against
+  his last eight (four games at least), so a growing or shrinking role moves
+  the forecast before the averages catch up.
+
+A factor is applied only when, on the later held-out dates, it beats leaving
+it out on both Brier score and log loss and the Brier gain is bigger than
+its day-clustered standard error. On the 2026-11-11 data the spread and
+total are applied to 8 of 9 NFL stats (not carries) and the snap share to
+receptions, rushing yards, rush + receiving yards and carries. Every NFL
+stat scored better than before (with the zero-stat games too):
+
+| NFL stat | Held out | Brier before → after (last-10 / average) | Spread/total | Snap share | Recalibrated |
+|---|---|---|---|---|---|
+| Passing yards | 881 | 0.2485 → 0.2472 (0.261 / 0.252) | on | off | no |
+| Pass + rush yards | 929 | 0.2447 → 0.2434 (0.258 / 0.250) | on | off | no |
+| Completions | 881 | 0.2402 → 0.2392 (0.251 / 0.245) | on | off | yes |
+| Pass attempts | 881 | 0.2400 → 0.2378 (0.251 / 0.244) | on | off | yes |
+| Receptions | 3,780 | 0.2342 → 0.2336 (0.250 / 0.254) | on | on | yes |
+| Receiving yards | 3,780 | 0.2361 → 0.2358 (0.249 / 0.253) | on | off | no |
+| Rushing yards | 1,429 | 0.2312 → 0.2278 (0.252 / 0.247) | on | on | yes |
+| Carries | 1,429 | 0.2319 → 0.2287 (0.257 / 0.263) | off | on | no |
+| Rush + receiving yards | 2,874 | 0.2347 → 0.2326 (0.252 / 0.251) | on | on | no |
+
+Passing yards is now validated (calibration error 0.026); pass + rush yards
+moved the other way, to experimental, at 0.0301 against the 0.03 bar. NBA
+has no archived spreads and totals yet, so its `game_lines` check reads
+"fewer than 200 games with this input on each side of the check yet" and
+nothing changes until the archive fills (roughly the first month of
+archiving). NBA's numbers are otherwise unchanged by the data fixes (all
+twelve stats validated). The recalibration decision now compares unrounded
+scores (a stat that tied at four decimals used to flip run to run).
+**Weather** (temperature, wind, roof) was tested on the NFL holdout with the
+real game-day readings and gave no gain beyond noise on any stat, so it is
+not used.
+
 **Recalibration, gated (2026-11-11).** The refit also fits a Platt curve
 (`fitCalibration`: `sigmoid(a + b × logit p)`, `a` held to ±0.5 and `b` to
 0.5-1.5) on the held-out chances and tests it cross-fitted: fit on the first
@@ -806,9 +903,24 @@ sportsbook prices (`lib/sports/book-price.mjs`). Nothing is written.
   rate differs by 5+ points) and `early_season` (`EARLY_SEASON`).
 - When a feed is down the tool still answers, with `NO_BOOK_PRICES` or the
   feed's state.
+- `game_lines` (since 2026-11-11): the game's spread and total from that
+  team's side (`total`, `team_margin`, `team_total`, `source` nflverse or
+  sportsbooks); `sports_get_player` gives `next_game_lines` (who is favored,
+  each team's implied points). The forecast's own `model.game_lines` and
+  `model.snap_trend` say whether the model used them (`applied`).
+- NFL picks and players also carry the official injury report
+  (`availability.official`: week, game status, practice, injury;
+  `OFFICIAL_REPORT`) and the roster status (`availability.roster_status`;
+  `ROSTER` when not on the active roster, which also marks him out).
+  `TEAM_CHANGED` says when a player moved teams after his last stored game:
+  evaluate gives no model chance for him (`model.reason: team_changed`).
+- `data_check`: when the league's data last updated, the latest stored game,
+  the job's state, the NBA.com cross-check summary, the official report week
+  and the job's own warnings. `STALE_DATA` fires when the data job has not
+  finished for a day and a half.
 
-Their store handle reads only the Sports game, player, model, status and
-journal records; captured lines and anything outside `_stonks/sports/v1/` are
+Their store handle reads only the Sports game, player, model, status,
+journal, issued-props, line-archive and NFL injury-report records; captured lines and anything outside `_stonks/sports/v1/` are
 refused, and every write throws (`sportsReadOnlyStore`).
 
 ## Kept apart from market research
@@ -821,8 +933,9 @@ Update Checker lists the pages as on-demand.
 
 | League | Source | Terms | Branch |
 |---|---|---|---|
-| NFL | [nflverse](https://github.com/nflverse/nflverse-data) releases, daily scheduled job | CC BY 4.0 (FTN charting is CC BY-SA and is not used) | `sports-nfl-data` |
-| NBA | [hoopR](https://hoopr.sportsdataverse.org/) / ESPN box scores (sportsdataverse-data releases), daily scheduled job | Private research only | `sports-nba-data` |
+| NFL | [nflverse](https://github.com/nflverse/nflverse-data) releases (stats, schedule with spread and total, players, snap counts, official injury report), twice-daily scheduled job | CC BY 4.0 (FTN charting is CC BY-SA and is not used) | `sports-nfl-data`, `sports-data-integrity` |
+| NBA | [hoopR](https://hoopr.sportsdataverse.org/) / ESPN box scores (sportsdataverse-data releases), twice-daily scheduled job; NBA.com public box-score files as a count-only cross-check | Private research only | `sports-nba-data`, `sports-data-integrity` |
+| NBA spread and total | PropLine `spreads,totals` (median of the reference books), in the props scan's existing request, archived by date | Free key, read-only | `sports-data-integrity` |
 | Lines | Typed in, or read from a screenshot by Claude/ChatGPT | — | `sports-pick-builder` |
 
 NBA.com's terms bar gambling use. This section is private research for the
@@ -831,7 +944,12 @@ owners and places no bets.
 ## Cost
 
 $0 added: no new Vercel function, no AI calls, no paid feeds. R2 storage and
-GitHub Actions minutes stay inside their free tiers. The PropLine feed
+GitHub Actions minutes stay inside their free tiers. The 2026-11-11 data
+upgrade adds a second daily data run (a few minutes for the two jobs, tests
+included, on a public repo's free minutes), a few more R2 writes a day (the injury report,
+the game spreads and totals in the line archive), up to 16 small NBA.com
+file reads per NBA run, and no PropLine requests (spreads and totals ride the
+NBA reference request the props scan already makes). The PropLine feed
 (free key) is read by the props board and, since 2026-11-11, by the two MCP
 tools above; all share one two-minute cache, so a burst of calls is one
 read.

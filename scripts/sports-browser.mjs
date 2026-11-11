@@ -14,7 +14,7 @@ import { SESSION_COOKIE, signSession } from '../lib/session.mjs';
 import authHandler from '../api/auth/[action].js';
 import { ingestLeague } from '../lib/sports/ingest.mjs';
 import { NFLVERSE_URLS, NFL_SOURCE } from '../lib/sports/nflverse.mjs';
-import { GAMES, PLAYERS, WEEK_2025, WEEK_2026 } from './fixtures/sports-nfl.mjs';
+import { GAMES, PLAYERS, WEEK_2025, WEEK_2026, SNAPS_2026, INJURIES_2026 } from './fixtures/sports-nfl.mjs';
 import { NBA_SOURCE, HOOPR_URLS } from '../lib/sports/hoopr.mjs';
 import { SCHEDULE_2026, SCHEDULE_2027, BOX_2026, BOX_2027 } from './fixtures/sports-nba.mjs';
 import { handleSportsRequest } from '../lib/sports/http.mjs';
@@ -33,7 +33,8 @@ process.env.SESSION_SECRET = 'sports-browser-fixture-only';
 // the deliberately invalid row), so the page reads exactly what the job writes.
 const objects = new Map();
 const files = new Map([[NFLVERSE_URLS.games, GAMES], [NFLVERSE_URLS.players, PLAYERS], [NFLVERSE_URLS.weekly(2025), WEEK_2025],
-  [NFLVERSE_URLS.weekly(2026), WEEK_2026.split('\n').filter((l) => !l.startsWith('00-0005,')).join('\n')]]);
+  [NFLVERSE_URLS.weekly(2026), WEEK_2026.split('\n').filter((l) => !l.startsWith('00-0005,')).join('\n')],
+  [NFLVERSE_URLS.snaps(2026), SNAPS_2026], [NFLVERSE_URLS.injuries(2026), INJURIES_2026]]);
 await ingestLeague({ adapter: NFL_SOURCE,  store: { rawGet: async (k) => (objects.has(k) ? Buffer.from(objects.get(k)) : null), rawPut: async (k, v) => { objects.set(k, String(v)); } },
   fetchText: async (u) => files.get(u) ?? null, now: Date.parse('2026-11-02T11:05:00Z') });
 const nbaFiles = new Map([[HOOPR_URLS.schedule(2025), SCHEDULE_2026], [HOOPR_URLS.schedule(2026), SCHEDULE_2027], [HOOPR_URLS.box(2025), BOX_2026], [HOOPR_URLS.box(2026), BOX_2027]]);
@@ -156,11 +157,14 @@ try {
         await page.locator('#sports-nfl-root [data-sp-panel="game"] [data-sp-player="00-0001"]').waitFor();
         const panel = await page.locator('#sports-nfl-root [data-sp-panel="game"]').innerText();
         assert(/Geno Smíth/.test(panel) && /Jaxon Smith-Njigba/.test(panel) && /No player games stored for this team/.test(panel), 'the game lists each team’s recent players');
+        assert(/SEA favored by 3\.5 · total 44\.5 · implied CHI 20\.5, SEA 24\.0/.test(panel), 'the matchup shows the schedule’s spread and total: ' + panel.slice(0, 300));
         await page.locator('#sports-nfl-root [data-sp-search]').fill('kelce');
         await page.locator('#sports-nfl-root [data-sp-part="results"] [data-sp-player="00-0003"]').click();
         await page.locator('#sports-nfl-root [data-sp-panel="player"] .sp-log').waitFor();
         const log = await page.locator('#sports-nfl-root [data-sp-panel="player"]').innerText();
         assert(/Travis Kelce/.test(log) && /Averages over 1 stored game\b/i.test(log) && !/1 stored games/.test(log) && /@ DEN/.test(log), 'player search opens the game log: ' + log.slice(0, 400));
+        const snapCells = await page.$$eval('#sports-nfl-root [data-sp-panel="player"] .sp-log', (ts) => ts.map((t) => { const i = [...t.querySelectorAll('thead th')].findIndex((th) => /Snaps/.test(th.textContent)); return i < 0 ? null : t.querySelector('tbody tr td:nth-child(' + (i + 1) + ')')?.textContent.trim(); }));
+        assert(snapCells.some((c) => /^50\s*80%$/.test(c || '')), 'the NFL log shows snaps and snap share: ' + JSON.stringify(snapCells));
         const kStat = page.locator('#sports-nfl-root [data-sp-panel="player"] [data-sp-pickform] [name="stat"]');
         if (await kStat.count()) assert.equal(await kStat.inputValue(), 'receptions', 'a tight end’s pick starts on receptions, not passing yards');
         assert.equal(await page.locator('#sports-nfl-root [data-sp-search]').inputValue(), 'kelce', 'the search box keeps its text');

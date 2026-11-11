@@ -4,7 +4,8 @@
 //   node scripts/sports-nba-smoke.mjs
 import assert from 'node:assert/strict';
 import { parseCsv } from '../lib/sports/csv.mjs';
-import { normalizeNbaGames, normalizeNbaPlayerGames, HOOPR_URLS, NBA_SOURCE, NBA_TEAMS } from '../lib/sports/hoopr.mjs';
+import { normalizeNbaGames, normalizeNbaPlayerGames, HOOPR_URLS, NBA_SOURCE, NBA_TEAMS, NBA_COM_URLS, boxScoreCheck, parseNbaComSchedule, parseNbaComBox, nbaComCheck, nbaComTricode } from '../lib/sports/hoopr.mjs';
+import { integrityLine } from '../lib/sports/ingest.mjs';
 import { ingestLeague } from '../lib/sports/ingest.mjs';
 import { LEAGUE_SOURCES } from '../lib/sports/leagues.mjs';
 import { packRows, unpackRows, ROW_FORMAT } from '../lib/sports/rows.mjs';
@@ -47,6 +48,58 @@ eq(pg.people.find((p) => p.player_id === '3975').name, 'Stephen Curry', 'names c
 const exhibition = normalizeNbaPlayerGames(parseCsv(BOX_2026), new Map(g25.games.map((g) => [g.game_id, g])));
 ok(!exhibition.rows.some((r) => r.player_id === '9999'), 'All-Star rows are skipped');
 
+// --- adapter 2 fixes (2026-11-11) -------------------------------------------------
+// A blank athlete id is filled from the one player on that team with that
+// short name; a placeholder row is skipped; a did-not-play copy on a date
+// the player played another game is dropped; an unknown short name is
+// counted, not guessed.
+const HEAD2 = 'game_id,athlete_id,athlete_display_name,athlete_short_name,team_abbreviation,opponent_team_abbreviation,home_away,minutes,points,rebounds,assists,did_not_play,reason,starter,athlete_position_abbreviation';
+const otherGame = { sport: 'nba', game_id: '401900009', season: 2026, season_type: 'REG', local_date: '2026-10-30', start_utc: '2026-10-31T00:00:00.000Z', home_team: 'mia', away_team: 'chi', status: 'final', home_score: 100, away_score: 90 };
+const fixed = normalizeNbaPlayerGames(parseCsv([HEAD2,
+  '401900001,3975,Stephen Curry,S. Curry,GS,POR,home,33,27,6,5,false,,true,G',
+  '401900002,4433,Brandin Podziemski,B. Podziemski,GS,LAL,away,35,21,9,6,false,,true,G',
+  '401900001,,,B. Podziemski,GS,POR,home,,0,0,0,false,COACH\'S DECISION,false,G',
+  '401900001,,TEAM,,GS,POR,home,240,115,40,25,false,,false,',
+  '401900001,,,X. Nobody,GS,POR,home,,0,0,0,false,,false,G',
+  '401900009,3975,Stephen Curry,S. Curry,CHI,MIA,away,,,,,true,NOT WITH TEAM,false,G',
+].join('\n')), new Map([...byId, [otherGame.game_id, otherGame]]));
+eq(fixed.fixes, { ids_filled: 1, ids_unresolved: 1, duplicate_dnp_dropped: 1 }, 'blank ids filled or counted, duplicate did-not-play copy dropped');
+const filledRow = fixed.rows.find((r) => r.player_id === '4433' && r.game_id === '401900001');
+ok(filledRow && filledRow.played === false && filledRow.stats.points === null, 'the filled row keeps its did-not-play state (no minutes, no stat)');
+ok(!fixed.rows.some((r) => r.game_id === '401900009'), 'the duplicate copy is gone');
+eq(fixed.rows.length, 3);
+// Box-score points against the final score (every finished game).
+const bx = boxScoreCheck(g26.games, pg.rows);
+eq([bx.games_checked, bx.mismatched], [2, 2], 'the fixture box scores are partial, so both finals are flagged');
+const fullBox = boxScoreCheck([{ game_id: 'a', status: 'final', home_team: 'gs', away_team: 'por', home_score: 10, away_score: 4, local_date: '2026-10-30' }],
+  [{ game_id: 'a', team: 'gs', played: true, stats: { points: 6 } }, { game_id: 'a', team: 'gs', played: true, stats: { points: 4 } }, { game_id: 'a', team: 'por', played: true, stats: { points: 4 } }, { game_id: 'a', team: 'por', played: false, stats: { points: null } }]);
+eq([fullBox.games_checked, fullBox.mismatched], [1, 0], 'box scores that add up pass');
+// NBA.com second source (offline: made-up NBA.com JSON).
+eq([nbaComTricode('gs'), nbaComTricode('ny'), nbaComTricode('utah'), nbaComTricode('lal')], ['GSW', 'NYK', 'UTA', 'LAL']);
+const NBA_SCHED = { leagueSchedule: { gameDates: [{ games: [
+  { gameId: '0022600011', gameStatus: 3, gameCode: '20261101/GSWLAL', homeTeam: { teamTricode: 'LAL', score: 108 }, awayTeam: { teamTricode: 'GSW', score: 112 } },
+  { gameId: '0022600012', gameStatus: 1, gameCode: '20261102/PHXGSW', homeTeam: { teamTricode: 'GSW', score: 0 }, awayTeam: { teamTricode: 'PHX', score: 0 } },
+] }] } };
+eq(parseNbaComSchedule(NBA_SCHED), [{ game_id: '0022600011', date: '2026-11-01', home: 'LAL', away: 'GSW', home_score: 108, away_score: 112 }], 'only finished games');
+eq(parseNbaComSchedule({ nope: 1 }), null, 'an unknown shape is null');
+const NBA_BOX = { game: {
+  homeTeam: { teamTricode: 'LAL', players: [{ name: 'LeBron James', played: '1', statistics: { points: 30, reboundsTotal: 8, assists: 11, minutes: 'PT37M00.00S' } }] },
+  awayTeam: { teamTricode: 'GSW', players: [
+    { name: 'Brandin Podziemski', played: '1', statistics: { points: 20, reboundsTotal: 9, assists: 6, minutes: 'PT35M00.00S' } },
+    { name: 'Garbage Time', played: '1', statistics: { points: 2, reboundsTotal: 1, assists: 0, minutes: 'PT01M10.00S' } },
+    { name: 'Lost Line', played: '1', statistics: { points: 9, reboundsTotal: 2, assists: 1, minutes: 'PT12M00.00S' } },
+    { name: 'Stephen Curry', played: '0', statistics: { points: 0 } },
+  ] } } };
+eq(parseNbaComBox(NBA_BOX).GSW[0], { name: 'Brandin Podziemski', played: true, points: 20, rebounds: 9, assists: 6, minutes: 35 });
+const people27 = pg.people;
+const comFetch = async (u) => (u === NBA_COM_URLS.schedule ? JSON.stringify(NBA_SCHED) : u === NBA_COM_URLS.box('0022600011') ? JSON.stringify(NBA_BOX) : null);
+const com = await nbaComCheck(comFetch, { games: g26.games, rows: pg.rows, players: people27 });
+eq([com.state, com.date, com.games_checked, com.mismatched, com.players_checked, com.players_mismatched, com.players_missing], ['ok', '2026-11-01', 1, 0, 3, 1, 1],
+  'the latest game day: scores agree, one player line differs (21 vs 20 points), one NBA.com player has no line here');
+ok(com.examples.some((e) => e.what === 'points' && e.player_id === '4433') && com.examples.some((e) => e.what === 'missing player' && e.name === 'Lost Line'), 'the private examples name what differs');
+eq((await nbaComCheck(async () => null, { games: g26.games, rows: pg.rows, players: people27 })).state, 'unavailable', 'NBA.com down is a state, never a failure');
+eq((await nbaComCheck(async () => '{"x":1}', { games: g26.games, rows: pg.rows, players: people27 })).state, 'unrecognized');
+
 // --- packed rows -----------------------------------------------------------------
 const packed = packRows(pg.rows);
 eq(packed.format, ROW_FORMAT);
@@ -71,6 +124,12 @@ const run = await ingestLeague({ adapter: NBA_SOURCE, store: st, fetchText, now:
 eq(run.status.state, 'ok');
 eq(run.status.seasons, [2025, 2026]);
 eq(run.status.latest_game_date, '2026-11-01', 'the status names the latest stored game');
+eq(run.status.adapter_version, 2);
+ok(run.status.integrity?.seasons?.[2026]?.box_games_checked === 2 && run.status.integrity.seasons[2026].box_points_off === 2, 'box-score checks per season in the status');
+eq(run.status.integrity.second_source.state, 'unavailable', 'NBA.com unreachable offline');
+ok(run.status.integrity.warnings.some((w) => /box-score points do not add up/.test(w)), 'a box-score gap is a warning');
+const line = integrityLine(run.status.integrity);
+ok(/box_points_off=2/.test(line) && !/401900/.test(line) && !/Curry/.test(line), 'the public log line has counts only: ' + line);
 ok(JSON.parse(st.objects.get(SPORTS_PREFIX + 'nba/player-games/2025.json')).complete === true, 'a past season with a postponed game still finishes');
 const players = JSON.parse(st.objects.get(SPORTS_PREFIX + 'nba/players.json')).players;
 eq(players.map((p) => p.name).sort(), ['Bench Guard', 'Brandin Podziemski', 'Garbage Time', 'LeBron James', 'Stephen Curry'], 'players come from both seasons');

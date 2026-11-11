@@ -36853,7 +36853,13 @@ function scenarioEventPhase(ev, now = Date.now()) {
         }).join('') + '</ul>'
       : '<p class="sp-muted">No meetings between these teams in the stored seasons.</p>');
     const none = !T(pair[0]) && !T(pair[1]);
-    return '<details class="sp-matchup" open><summary>Matchup</summary>' +
+    // The game's spread and total (NFL: nflverse; NBA: the sportsbooks'
+    // median, recorded by the props scan) and each side's implied total.
+    const GL = league(lg).game.game_lines;
+    const linesLine = GL ? '<p class="sp-muted">' + (GL.favorite ? team(GL.favorite) + ' favored by ' + escape(f1(Math.abs(GL.home_margin))) : 'Pick’em') + ' · total ' + escape(f1(GL.total)) +
+      ' · implied ' + team(pair[0]) + ' ' + escape(f1(GL.away_team_total)) + ', ' + team(pair[1]) + ' ' + escape(f1(GL.home_team_total)) +
+      ' <small>(' + escape(GL.source === 'sportsbooks' ? 'sportsbooks’ median' + (GL.books ? ', ' + GL.books + ' books' : '') : GL.source === 'nflverse' ? 'nflverse' : GL.source || 'stored') + ')</small></p>' : '';
+    return '<details class="sp-matchup" open><summary>Matchup</summary>' + linesLine +
       (none ? '<p class="sp-muted">Neither team has a final game stored this season before this one.</p>' : compare + dvp) + meetings +
       '<p class="sp-note">This season before this game. Ranks are among ' + N + ' teams: 1st is the best record, the most scored and the fewest allowed, so a “soft” defense (bottom fifth) gives up the most. Stat totals are summed over each side’s players' + (lg === 'nfl' ? '; a player with no stat in a game is not in the provider’s file and counts as zero' : '') + '.</p></details>';
   }
@@ -36883,11 +36889,14 @@ function scenarioEventPhase(ev, now = Date.now()) {
       }).join('') + '</tbody></table></div>';
     const logCols = cols.filter((st) => st !== 'minutes');
     const logGames = L.logAll ? P.games : P.games.slice(0, LOG_ROWS);
-    const log = P.games.length ? '<div class="sp-table-wrap"><table class="sp-table sp-log"><thead><tr><th>Date</th><th>Game</th>' + (lg === 'nba' ? '<th class="sp-n">Min</th>' : '') +
+    // NFL: offensive snaps and the share of the team's snaps (nflverse).
+    const snapsCol = lg === 'nfl' && P.games.some((r) => r.snaps != null);
+    const snapText = (r) => r.snaps == null ? '—' : num(r.snaps) + (r.snap_pct != null ? ' <span class="sp-muted">' + Math.round(r.snap_pct * 100) + '%</span>' : '');
+    const log = P.games.length ? '<div class="sp-table-wrap"><table class="sp-table sp-log"><thead><tr><th>Date</th><th>Game</th>' + (lg === 'nba' ? '<th class="sp-n">Min</th>' : '') + (snapsCol ? '<th class="sp-n" title="Offensive snaps and share of the team\'s snaps">Snaps</th>' : '') +
       logCols.map((st) => '<th class="sp-n" title="' + escape(label(st)) + '">' + escape(SHORT[st] || st) + '</th>').join('') + '</tr></thead><tbody>' +
       logGames.map((r) => '<tr' + (r.played ? '' : ' class="sp-dnp"') + '><td>' + escape(fmtDay(r.date)) + ' <span class="sp-muted">' + escape(String(r.date).slice(0, 4)) + '</span></td><td>' + (r.home ? 'vs ' : '@ ') + team(r.opponent) +
         (r.week != null ? ' <span class="sp-muted">' + (r.season_type === 'POST' ? 'playoffs' : 'wk ' + escape(r.week)) + '</span>' : '') + (r.played ? '' : ' <span class="sp-muted">did not play' + (r.dnp_reason ? ': ' + escape(String(r.dnp_reason).toLowerCase()) : '') + '</span>') + '</td>' +
-        (lg === 'nba' ? '<td class="sp-n">' + num(r.minutes) + '</td>' : '') +
+        (lg === 'nba' ? '<td class="sp-n">' + num(r.minutes) + '</td>' : '') + (snapsCol ? '<td class="sp-n">' + snapText(r) + '</td>' : '') +
         logCols.map((st) => '<td class="sp-n">' + num(r.stats[st]) + '</td>').join('') + '</tr>').join('') + '</tbody></table></div>' +
       (P.games.length > logGames.length ? '<button type="button" class="sp-btn sp-more" data-sp-logall>Show all ' + P.games.length + ' games</button>' : '')
       : '<p class="sp-muted">No games stored for this player.</p>';
@@ -36915,7 +36924,12 @@ function scenarioEventPhase(ev, now = Date.now()) {
     const withMin = F && F.teammates_out && F.teammates_out.length;
     const names = withMin ? F.teammates_out.map((p) => escape(p.name) + ' (' + num(p.minutes) + ' min)') : (a.teammates_out || []).map(escape);
     const tm = names.length ? ' Teammates listed out: ' + names.join(', ') + (withMin ? ', usual minutes a game.' : '.') : '';
-    return '<p class="sp-avail' + (a.out || a.unsure ? ' sp-model-warn' : ' sp-muted') + '">' + own + '.' + tm + '</p>';
+    // NFL: the official injury report (game status, practice) and roster status.
+    const o = a.official;
+    const off = o && o.state === 'ok' && (o.game_status || o.practice) ? ' Official NFL report, week ' + escape(o.week) + ': ' + (o.game_status ? '<b>' + escape(o.game_status) + '</b>' : 'no game status') +
+      (o.injury ? ' (' + escape(o.injury) + ')' : '') + (o.practice ? '; practice: ' + escape(o.practice) : '') + '.' : '';
+    const roster = a.roster_status && a.roster_status.code !== 'ACT' ? ' Roster: <b>' + escape(a.roster_status.label) + '</b>.' : '';
+    return '<p class="sp-avail' + (a.out || a.unsure ? ' sp-model-warn' : ' sp-muted') + '">' + own + '.' + off + roster + tm + '</p>';
   }
   function playerPanelHtml(lg) {
     const L = league(lg);

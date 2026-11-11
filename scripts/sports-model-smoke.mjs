@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import {
   nbCdf, nbPmf, nbQuantile, normCdf, cdfAt, quantileOf, lineChances, fitSpread, fitCorrection, varianceOf, nbSizeOf,
   forecastStat, buildModel, modelSummary, positionGroup, MODEL_SPECS, SPORTS_MODEL_VERSION, MIN_GAMES,
-  regularMinutes, absentMinutes, absenceFactor, ABSENCE,
+  regularMinutes, absentMinutes, absenceFactor, ABSENCE, gameEnvironment, snapTrend,
 } from '../lib/sports/models.mjs';
 import { SPORTS_STATS } from '../lib/sports/schema.mjs';
 import { teamAbsence, PROP_RANK_VERSION } from '../lib/sports/props.mjs';
@@ -195,6 +195,31 @@ ok(twoOut.probability > noneOut.probability, 'and the over gets likelier');
 eq([twoOut.teammates_out.minutes, twoOut.teammates_out.applied, noneOut.teammates_out], [60, true, undefined], 'the forecast says who is out only when someone is');
 ok(twoOut.sensitivity.opportunity_down_10 < twoOut.probability, 'the minutes check keeps the lift');
 eq(forecastStat({ sport: 'nfl', stat: 'passing_yards', history: qbRows, home: true, opponent: 'kc', group: 'QB', model: nflContext, absent: 60 }).teammates_out, undefined, 'NFL: not used');
+// Game spreads and totals (2026-11-11): a market total that carries the
+// game's pace is found and used; one that knows nothing is left out.
+const LP = nbaModelLeague({ pace: 0.15, lines: 'pace' });
+const modelP = buildModel({ sport: 'nba', rows: LP.rows, now: NOW, games: LP.games, includeJoint: false });
+const fP = modelP.evaluation.points.factors.game_lines;
+ok(fP.applied && fP.with.brier < fP.without.brier && fP.gain.brier > fP.gain.se, 'a total that carries the pace beats no adjustment by more than the noise: ' + JSON.stringify({ with: fP.with, without: fP.without, gain: fP.gain }));
+ok(modelP.context.factors.points.game_lines.betas?.[0] > 0.5, 'the implied team total lifts points');
+const LN = nbaModelLeague({ pace: 0.15, lines: 'noise' });
+const modelN = buildModel({ sport: 'nba', rows: LN.rows, now: NOW, games: LN.games, includeJoint: false });
+eq(modelN.evaluation.points.factors.game_lines.applied, false, 'a total that knows nothing is not used');
+eq(modelN.context.factors.points.game_lines.betas, null);
+eq(model.evaluation.points.factors.game_lines.applied, false, 'no lines stored: nothing to use');
+ok(/fewer than/.test(model.evaluation.points.factors.game_lines.why), 'and it says why');
+const starP = LP.truth.find((p) => p.team === 'gs' && p.minutes === 34);
+const histP = LP.rows.filter((r) => r.player_id === starP.player_id).sort((a, b) => b.date.localeCompare(a.date));
+const envOf = (total) => gameEnvironment({ home_team: 'gs', away_team: 'bos', lines: { total, home_margin: 0 } }, 'gs');
+const fast = forecastStat({ sport: 'nba', stat: 'points', history: histP, home: true, opponent: 'bos', group: 'G', model: modelP, side: 'over', threshold: 20.5, env: envOf(250) });
+const slow = forecastStat({ sport: 'nba', stat: 'points', history: histP, home: true, opponent: 'bos', group: 'G', model: modelP, side: 'over', threshold: 20.5, env: envOf(195) });
+const noLine = forecastStat({ sport: 'nba', stat: 'points', history: histP, home: true, opponent: 'bos', group: 'G', model: modelP, side: 'over', threshold: 20.5 });
+ok(fast.mean > noLine.mean && slow.mean < noLine.mean, `a higher total raises the forecast, a lower one cuts it (${slow.mean} / ${noLine.mean} / ${fast.mean})`);
+ok(fast.game_lines.applied && fast.game_lines.team_total === 125 && noLine.game_lines == null, 'the forecast shows the line it used');
+const fastN = forecastStat({ sport: 'nba', stat: 'points', history: histP, home: true, opponent: 'bos', group: 'G', model: modelN, side: 'over', threshold: 20.5, env: envOf(250) });
+ok(fastN.game_lines && fastN.game_lines.applied === false, 'an unused input is shown, not applied');
+eq(snapTrend([{ played: true, snap_pct: 0.9 }, { played: true, snap_pct: 0.8 }, { played: true, snap_pct: 0.5 }]), null, 'fewer than four snap shares: no trend');
+eq(snapTrend([0.9, 0.9, 0.5, 0.5, 0.5, 0.5].map((x) => ({ played: true, snap_pct: x }))), { recent: 0.9, long: 0.633, change: 0.421 }, 'recent two against the last eight');
 // Live: teammates listed Out or Doubtful on the injury report, regulars only.
 const lastDay = LA.rows.reduce((a, r) => (r.date > a ? r.date : a), '');
 const nextDay = new Date(Date.parse(lastDay + 'T12:00:00Z') + 86400000).toISOString().slice(0, 10);
