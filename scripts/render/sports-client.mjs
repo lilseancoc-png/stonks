@@ -556,9 +556,20 @@ export function sportsFactory(host, doc, options) {
     if (Math.min(...xs) >= 0 && lo < 0) lo = 0;
     return [lo, hi];
   }
+  // Charts are drawn at the width of their box (measured after each paint,
+  // fitCharts below), so they fill the card instead of stopping at 720 px.
+  let chartW = 0;
   function frame() {
     const narrow = narrowScreen();
-    return { narrow, W: narrow ? 360 : 720, H: narrow ? 230 : 260, L: 38, R: 46, T: 14, B: 36 };
+    const W = chartW > 0 ? Math.round(Math.max(280, Math.min(1600, chartW))) : narrow ? 360 : 720;
+    return { narrow, W, H: narrow ? 230 : W >= 900 ? 280 : 260, L: 38, R: 46, T: 14, B: 36 };
+  }
+  function fitCharts(page) {
+    const lg = leagueOf(page), el = lg && league(lg).player ? part(page, 'chart-body') : null;
+    const w = el ? el.clientWidth : 0;
+    if (!(w > 0) || Math.abs(w - chartW) < 16) return;
+    chartW = w;
+    el.innerHTML = chartBodyHtml(lg);
   }
   const svgOpen = (f, label, extra) => '<svg class="sp-ch" viewBox="0 0 ' + f.W + ' ' + f.H + '" style="max-width:' + f.W + 'px" role="img" aria-label="' + escape(label) + '"' + (extra || '') + '>';
   function yAxis(f, lo, hi) {
@@ -603,6 +614,10 @@ export function sportsFactory(host, doc, options) {
     const { y, grid } = yAxis(f, lo, hi);
     const iw = f.W - f.L - f.R, slot = iw / n, bw = Math.max(2, Math.min(44, slot * 0.68));
     const showVals = n <= (f.narrow ? 10 : 20), showOpp = n <= (f.narrow ? 10 : 20), showDate = !f.narrow && n <= 12;
+    // Opponent labels: one row when they fit their slot, two staggered rows
+    // when they do not, and only every other one when even that is tight.
+    const labelW = Math.max(...D.items.map((it) => ((it.home ? '' : '@') + String(it.opp || '')).length)) * 6.4 + 6;
+    const oppRows = labelW <= slot ? 1 : 2, oppEvery = labelW <= slot * 2 ? 1 : Math.ceil(labelW / (slot * 2));
     let bars = '', vl = '', xl = '';
     const hov = [];
     D.items.forEach((it, i) => {
@@ -610,8 +625,9 @@ export function sportsFactory(host, doc, options) {
       const top = Math.min(y0, yv), h = Math.max(1.5, Math.abs(yv - y0));
       bars += '<rect class="sp-bar ' + sideCls(it.v, D.ref) + '" x="' + (cx - bw / 2).toFixed(1) + '" y="' + (it.v === 0 ? y0 - 1.5 : top).toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + h.toFixed(1) + '" rx="2"/>';
       if (showVals) vl += '<text class="sp-ch-val" x="' + cx.toFixed(1) + '" y="' + (it.v >= 0 ? top - 4 : top + h + 11).toFixed(1) + '" text-anchor="middle">' + escape(fv(it.v)) + '</text>';
-      if (showOpp) xl += '<text class="sp-ch-axis" x="' + cx.toFixed(1) + '" y="' + (f.H - f.B + 14) + '" text-anchor="middle">' + (it.home ? '' : '@') + team(it.opp) + '</text>';
-      if (showDate) xl += '<text class="sp-ch-axis sp-ch-sub" x="' + cx.toFixed(1) + '" y="' + (f.H - f.B + 27) + '" text-anchor="middle">' + escape(shortDate(it.date)) + '</text>';
+      const row = oppRows === 2 ? Math.floor(i / oppEvery) % 2 : 0; // the shown labels alternate rows
+      if (showOpp && i % oppEvery === 0) xl += '<text class="sp-ch-axis" x="' + cx.toFixed(1) + '" y="' + (f.H - f.B + 14 + row * 12) + '" text-anchor="middle">' + (it.home ? '' : '@') + team(it.opp) + '</text>';
+      if (showDate && oppRows === 1) xl += '<text class="sp-ch-axis sp-ch-sub" x="' + cx.toFixed(1) + '" y="' + (f.H - f.B + 27) + '" text-anchor="middle">' + escape(shortDate(it.date)) + '</text>';
       hov.push({ x: cx, y: Math.min(yv, y0), label: tipText(D, it) });
     });
     if (!showOpp) xl = dateTicks(f, D.items, (i) => f.L + slot * (i + 0.5));
@@ -1083,12 +1099,15 @@ export function sportsFactory(host, doc, options) {
     const name = lg.toUpperCase();
     const connected = src.state !== 'not_connected';
     const board = connected
-      ? seg('data-sp-view', VIEWS_LIST, league(lg).view, 'View') + '<div data-sp-part="view">' + viewHtml(lg) + '</div><div data-sp-part="player">' + playerPanelHtml(lg) + '</div>'
+      ? seg('data-sp-view', VIEWS_LIST, league(lg).view, 'View') + '<div data-sp-part="view">' + viewHtml(lg) + '</div>'
       : '<h3>Games</h3>' + emptyBox('No ' + name + ' games loaded yet.', escape(lg === 'nfl'
         ? 'The daily nflverse job has not written its first records yet.'
         : 'The daily hoopR job has not written its first records yet.'));
+    // The open player spans both columns, so the charts and tables use the
+    // full width instead of stopping beside the side cards.
+    const player = connected ? '<div class="sp-player-row" data-sp-part="player">' + playerPanelHtml(lg) + '</div>' : '';
     return dayStrip(s, dataChip(src, tz)) + '<div class="sp-grid"><div class="sp-board">' + board + '</div>' +
-      '<aside class="sp-side">' + sourceCard(src, tz) + modelCard(src) + statList(s.stats[lg] || []) + '</aside></div>' +
+      '<aside class="sp-side">' + sourceCard(src, tz) + modelCard(src) + statList(s.stats[lg] || []) + '</aside>' + player + '</div>' +
       '<p class="sp-foot">Private research for the two owners. PrizePicks lines come from PropLine; player availability comes from ESPN. Nothing is placed and no AI model is called by this page.</p>';
   }
 
@@ -1645,6 +1664,7 @@ export function sportsFactory(host, doc, options) {
   function paint(page, name, html) {
     const el = part(page, name);
     if (el) el.innerHTML = html;
+    if (el && (name === 'player' || name === 'chart' || name === 'chart-body' || name === 'view')) fitCharts(page);
   }
 
   function render(page) {
@@ -1659,6 +1679,7 @@ export function sportsFactory(host, doc, options) {
     }
     if (!state.status) { el.textContent = 'Loading…'; return; }
     el.innerHTML = page === 'sports-pick-builder' ? builderHtml(state.status) : leagueHtml(state.status, leagueOf(page));
+    fitCharts(page);
   }
 
   function loadBoard(page, lg) {
@@ -2022,6 +2043,12 @@ export function sportsFactory(host, doc, options) {
     }, () => render(page));
   }
 
+  // Redraw the open player's charts at the new width after a resize.
+  let resizeTimer = null;
+  if (host.addEventListener) host.addEventListener('resize', () => {
+    host.clearTimeout(resizeTimer);
+    resizeTimer = host.setTimeout(() => { if (leagueOf(state.page)) fitCharts(state.page); }, 150);
+  });
   // A hidden tab stops its timer. Returning to it must restart the live
   // scan (or refresh settled results) even without a navigation click.
   doc.addEventListener('visibilitychange', () => {
