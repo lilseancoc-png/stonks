@@ -61,10 +61,16 @@ Pick Builder prices same-game picks with them (Gaussian copula, seeded draws)
 and leaves a pair with no measured link unpriced.
 No AI calls and no bets. The one outside line feed is PropLine's read-only
 odds API (`PROPLINE_API_KEY`, `lib/sports/prop-sources.mjs`): PrizePicks
-lines plus, for NBA, sportsbook reference prices. The owners chose to keep it
-on 2026-11-08. It is read server-side behind the Owner gate and by the prop
-recording job, never signs into a sportsbook or PrizePicks account, scrapes no
-pages and places nothing. The Owner Market
+lines plus, for NBA, sportsbook reference prices (margin removed with Shin's
+method, `shinProbabilities` in `lib/sports/nba-market.mjs`). The owners chose to keep it
+on 2026-11-08. It is read server-side behind the Owner gate, by the prop
+recording job and (since 2026-11-11) by the MCP's `sports_evaluate_entry` /
+`sports_get_player`, which show the books' no-vig chance beside the model's
+(`lib/sports/book-price.mjs`, flag at a 5-point gap) and the ESPN injury
+status; it never signs into a sportsbook or PrizePicks account, scrapes no
+pages and places nothing. Model chances are recalibrated only when a
+cross-fitted Platt curve beats the raw ones (`fitCalibration`, none pass
+today); forecasts carry `tested` and `early_season` notes instead. The Owner Market
 Brief and MCP feature list leave Sports out; the MCP
 has its own eight Owner-only `sports_*` tools (`lib/mcp/sports-tools.mjs`, read
 through `sportsReadOnlyStore`, no save tool: evaluate returns a Pick Builder

@@ -418,15 +418,26 @@ from the number of picks. Payouts clear when the picks or the entry type
 change.
 
 **Chances are the owner's.** Each pick shows how often the player cleared the
-line in stored games before this one (last 5, last 10, all stored). A rate can
-be copied into the chance box only from 5 or more games and when it is not 0%
-or 100%, and it is labeled "from history". Nothing fills a chance in by
-itself. A shared link never carries chances.
+line in stored games before this one (last 5, last 10, all stored). Each count
+carries a Wilson 95% range on its decided games (`wilsonRange` in
+`payout.mjs`; pushes left out), shown on hover and, from 5 games, as a line
+under the counts: 6 of 10 is "likely 31-83%", which is why a short run should
+not be read as the player's true rate. A rate can be copied into the chance
+box only from 5 or more games and when it is not 0% or 100%, and it is
+labeled "from history". Nothing fills a chance in by itself. A shared link
+never carries chances. Sources: `manual`, `history`, `model`, and `book` (the
+sportsbook no-vig chance, set only by the MCP's `use_book_chances`).
 
 **What the page computes** (roadmap V4 §5):
 
 - Breakeven for power: `1 / M`, the chance all picks must hit together to pay
   back the stake on average.
+- Breakeven per pick (`perPickBreakeven`, since 2026-11-11): the chance EACH
+  pick needs if they were equal and independent. Power: `M^(1/n)` inverted,
+  so 3 picks at 6× need 55.0% each. Flex: solved from the whole payout table
+  (the `p` where `Σ C(n,k) p^k (1−p)^(n−k) × payout(k) = 1`). Shown as the
+  "Each pick needs" tile and returned as `breakeven_per_pick`. A table that
+  never pays back has none.
 - Independence baseline: `P(k hit)` from the Poisson-binomial over the
   entered chances, `expected back = stake × Σ P(k) × payout(k)`, expected
   profit and return. Fixture: $1, 9% to hit both, 55× pays +$3.95 expected,
@@ -484,8 +495,8 @@ only in R2.
 
 ## Stat models
 
-`lib/sports/models.mjs` (`sports-model-1`). Deterministic and AI-free: the
-same stored games always give the same numbers.
+`lib/sports/models.mjs` (`sports-model-2` since 2026-11-11). Deterministic
+and AI-free: the same stored games always give the same numbers.
 
 **Forecast.** expected stat = expected opportunity × rate per opportunity ×
 opponent factor × home/away factor, then a straight-line correction.
@@ -539,7 +550,36 @@ spread and the normal curve for passing yards gave:
 The structural choices were made looking at these holdouts, so the numbers
 flatter the model a little; the daily refit re-checks it on new games. With
 only two NFL seasons, passing yards had 239 held-out games, which is why NFL
-keeps older seasons. Forecasts know nothing about injuries, rest or news.
+keeps older seasons. Forecasts know nothing about injuries, rest or news
+(the MCP shows the injury report and the sportsbook price beside them, see
+"MCP tools").
+
+**Recalibration, gated (2026-11-11).** The refit also fits a Platt curve
+(`fitCalibration`: `sigmoid(a + b × logit p)`, `a` held to ±0.5 and `b` to
+0.5-1.5) on the held-out chances and tests it cross-fitted: fit on the first
+half of the holdout dates, scored on the second, and the reverse. The curve
+is applied only when that cross-fit beats the raw chances on both Brier and
+log loss with 200+ games on each side; otherwise the stat keeps its raw
+chances and the Model check card says why. It is applied to the chance of
+going over every whole number (`calibratedCdf`), so the 80% range, the five
+lines and the typed line stay one consistent curve. On the 2026-11-11 data
+no stat passed: a curve fitted on all of the holdout looked better but did
+worse on the half it had not seen, so all four keep raw chances.
+
+**Two notes instead (2026-11-11).** What the check did find:
+
+- Early season: forecasts for a player's first games of a season (under 8 in
+  NBA, under 3 in NFL) ran high, because they lean on last season. On the
+  holdout: NBA points +1.6 (1,693 games), NFL passing yards +16 (246 games),
+  rebounds and receptions near zero. `evaluation[stat].early_season` stores
+  the miss, each forecast carries `early_season`, and the player page, Pick
+  Builder and MCP (`EARLY_SEASON`) say so when the miss is 5% of the mean or
+  more.
+- Tested at this chance: each forecast carries `tested`, how often the
+  holdout games the model put in the same chance band actually hit (from 30
+  games). Example: an over the model called 23.6% sits in a band where it
+  said 26.8% and 27.0% hit over 307 games. The MCP flags `MODEL_TESTED` when
+  the two differ by 5 points or more.
 
 **Where it shows.** Player pages: the next game's forecast for each enabled
 stat (expected, 80% range, chance of the over at five lines). Pick Builder:
@@ -623,10 +663,11 @@ stays in the same series.
 
 ## MCP tools
 
-The Mingstreet MCP (`/mcp`, docs/mcp.md) has six Owner-only Sports tools in
+The Mingstreet MCP (`/mcp`, docs/mcp.md) has eight Owner-only Sports tools in
 `lib/mcp/sports-tools.mjs`: `sports_list_games`, `sports_find_players`,
-`sports_get_game`, `sports_get_player`, `sports_evaluate_entry` and
-`sports_get_model_check`. They call the same functions as the pages
+`sports_get_game`, `sports_get_player`, `sports_evaluate_entry`,
+`sports_get_model_check`, `sports_get_prop_record` and
+`sports_get_league_stats`. They call the same functions as the pages
 (`leagueView`, `evaluateEntry`, `journalView`, `modelSummary`), so the same
 stored games, model and seed give the same answer. `SPORTS_ENABLED=0` hides
 them. `sports_get_game` returns each player's averages as one map per
@@ -645,6 +686,28 @@ owner opens it, checks every pick and payout against the app, enters or copies
 chances and saves. There is no save tool, the link never carries chances, a
 chance is passed only when the owner gave one, and `use_model_chances` copies
 the model's chance only when asked.
+
+**Live checks (since 2026-11-11).** `sports_evaluate_entry` and
+`sports_get_player` also read two live feeds through the same
+`loadPropSources` the props board uses (two-minute cache, `parts` skips the
+PrizePicks board): ESPN injuries for both leagues, and for NBA the PropLine
+sportsbook prices (`lib/sports/book-price.mjs`). Nothing is written.
+
+- `book`: the sportsbooks' no-vig chance for that exact side and line (Shin
+  margin removal, the median across books, each book listed), with its range
+  when only nearby lines are posted. `book_vs_model` gives the gap, and the
+  warning `BOOK_DISAGREES` fires when the model and the books differ by 5
+  points or more: the books usually know something the model does not
+  (injury, role, rest). `use_book_chances` copies the book chance in (source
+  `book`). NFL has no sportsbook feed yet, so its picks say so.
+- `availability`: the player's ESPN status and the teammates listed out or
+  unsure (`INJURY`, `TEAMMATES_OUT`). The forecast itself still ignores
+  injuries; the warning is there so the reader can.
+- Each pick also returns `breakeven_per_pick`, ranges on `hit_history`, the
+  model's `tested` record at that chance (`MODEL_TESTED` when the holdout hit
+  rate differs by 5+ points) and `early_season` (`EARLY_SEASON`).
+- When a feed is down the tool still answers, with `NO_BOOK_PRICES` or the
+  feed's state.
 
 Their store handle reads only the Sports game, player, model, status and
 journal records; captured lines and anything outside `_stonks/sports/v1/` are
@@ -670,7 +733,10 @@ owners and places no bets.
 ## Cost
 
 $0 added: no new Vercel function, no AI calls, no paid feeds. R2 storage and
-GitHub Actions minutes stay inside their free tiers.
+GitHub Actions minutes stay inside their free tiers. The PropLine feed
+(free key) is read by the props board and, since 2026-11-11, by the two MCP
+tools above; all share one two-minute cache, so a burst of calls is one
+read.
 
 ## Build plan
 

@@ -171,6 +171,8 @@ export function renderSportsCss() {
 .sp-hist b { color: var(--text); font-variant-numeric: tabular-nums; }
 .sp-hist-use { display: inline-flex; flex-wrap: wrap; gap: 6px; }
 .sp-model-line { flex-basis: 100%; line-height: 1.5; }
+.sp-model-warn { color: var(--warn, var(--muted-strong)); }
+.sp-hist-range { flex-basis: 100%; font-size: 11.5px; }
 .sp-q { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted-strong); white-space: nowrap; vertical-align: 1px; }
 .sp-q-validated { color: var(--pos); border-color: currentColor; }
 .sp-model-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; font-size: 12.5px; }

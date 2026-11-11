@@ -27,9 +27,13 @@ prices and sportsbook payout odds.
   excluded. Where a book publishes its own timestamp, it must also be fresh.
   Pinnacle's cached-feed timestamp is required: a fresh scrape cannot refresh
   a source that is already fifteen minutes old. Cache hits recheck age.
-- American prices become implied probabilities, then each side is divided by
-  the pair's total. Accept overround from 0% through 25%; reject underround or
-  extreme-margin pairs. PrizePicks' synthetic +100/+100 values never enter
+- American prices become implied probabilities, then the margin is removed
+  with Shin's method (`shinProbabilities` in `lib/sports/nba-market.mjs`,
+  since 2026-11-11; it was a plain divide-by-the-pair's-total before). Shin
+  takes more margin off the longer price, which is how books actually shade
+  favourite/longshot pairs: −200/+160 becomes 64.1% instead of 63.4%, and an
+  even pair still splits 50/50. Quotes carry `vig_method: "shin"`. Accept
+  overround from 0% through 25%; reject underround or extreme-margin pairs. PrizePicks' synthetic +100/+100 values never enter
   this calculation. Normalization is a market estimate, not a guarantee that
   a bookmaker probability is correct.
 - Reference prices use half thresholds on integer count stats, avoiding the

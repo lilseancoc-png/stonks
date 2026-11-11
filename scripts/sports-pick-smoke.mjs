@@ -4,7 +4,7 @@
 // route. Offline: fixture CSV only, fake R2 store.
 //   node scripts/sports-pick-smoke.mjs
 import assert from 'node:assert/strict';
-import { legResult, poissonBinomial, jointBounds, payoutProblems, evaluatePayout, sameGameGroups, settleFromLegs } from '../lib/sports/payout.mjs';
+import { legResult, poissonBinomial, jointBounds, payoutProblems, evaluatePayout, sameGameGroups, settleFromLegs, perPickBreakeven, wilsonRange } from '../lib/sports/payout.mjs';
 import { unpackRows } from '../lib/sports/rows.mjs';
 import { evaluateEntry, saveEntry, reviseEntry, journalView, hitHistory, ownerTag } from '../lib/sports/journal.mjs';
 import { ingestLeague } from '../lib/sports/ingest.mjs';
@@ -48,7 +48,20 @@ eq(settleFromLegs({ stake: 10, format: 'flex', payouts: { 3: 2.25, 2: 0.5 }, res
 eq(settleFromLegs({ stake: 10, format: 'power', payouts: { 2: 3 }, results: ['win', 'push'] }).state, 'review', 'a push is left for the owner');
 eq(settleFromLegs({ stake: 10, format: 'power', payouts: { 2: 3 }, results: ['win', null] }).state, 'pending');
 eq(hitHistory([{ date: '2026-01-02', played: true, stats: { points: 25 } }, { date: '2026-01-01', played: false, stats: { points: null } }, { date: '2025-12-30', played: true, stats: { points: 24 } }], 'points', 'over', 24),
-  { last5: { hits: 1, pushes: 1, games: 2 }, last10: { hits: 1, pushes: 1, games: 2 }, all: { hits: 1, pushes: 1, games: 2 } }, 'history counts skip missed games and count pushes');
+  { last5: { hits: 1, pushes: 1, games: 2, range: { low: 0.2065, high: 1 } }, last10: { hits: 1, pushes: 1, games: 2, range: { low: 0.2065, high: 1 } }, all: { hits: 1, pushes: 1, games: 2, range: { low: 0.2065, high: 1 } } }, 'history counts skip missed games and count pushes (the range leaves the push out: 1 of 1 decided)');
+// Wilson 95% ranges: 7 of 10 is roughly 40-89%; none decided has no range.
+eq(wilsonRange(7, 10), { low: 0.3968, high: 0.8922 }, 'Wilson range for 7 of 10');
+eq(wilsonRange(0, 0), null);
+// The chance each pick needs: power is the n-th root of 1 / payout.
+near(perPickBreakeven('power', { 2: 3 }, 2), Math.sqrt(1 / 3), 'power 2-pick at 3x needs 57.7% each', 1e-6);
+near(perPickBreakeven('power', { 6: 37.5 }, 6), 37.5 ** (-1 / 6), 'power 6-pick', 1e-6);
+{ // Flex 3-pick paying 3x for 3/3 and 1x for 2/3: solve p³·3 + 3p²(1−p)·1 = 1.
+  const p = perPickBreakeven('flex', { 3: 3, 2: 1 }, 3);
+  near(p ** 3 * 3 + 3 * p * p * (1 - p), 1, 'flex per-pick breakeven pays back exactly', 1e-6);
+}
+eq(perPickBreakeven('power', { 2: 0.5 }, 2), null, 'a table that never pays back has no breakeven');
+eq(perPickBreakeven('power', {}, 2), null);
+eq(evaluatePayout({ stake: 10, format: 'power', payouts: { 2: 3 }, probabilities: [0.6, 0.6] }).breakeven_per_pick, perPickBreakeven('power', { 2: 3 }, 2));
 
 // --- stored data -----------------------------------------------------------------
 function fakeR2() {
@@ -84,7 +97,7 @@ const draft = await evaluateEntry({ load: load(), body: { legs: [curry('40190000
 eq(draft.evaluation.status, 'needs_payout', 'a draft without a payout still gets checked');
 const leg = draft.legs[0];
 eq([leg.player_name, leg.matchup, leg.team, leg.opponent, leg.team_in_game], ['Stephen Curry', 'phx@gs', 'gs', 'phx', true], 'the pick is filled from stored records');
-eq(leg.history.all, { hits: 3, pushes: 0, games: 4 }, 'history: 31, 22, 28 and 27 against 24.5; the missed game is left out');
+eq(leg.history.all, { hits: 3, pushes: 0, games: 4, range: { low: 0.3006, high: 0.9544 } }, 'history: 31, 22, 28 and 27 against 24.5; the missed game is left out');
 eq(leg.recent.map((r) => r.value).slice().sort((a, b) => a - b), [22, 27, 28, 31], 'the small chart gets the same four played games');
 ok(leg.recent.every((r, i) => i === 0 || r.date <= leg.recent[i - 1].date) && leg.recent.every((r) => r.opponent && typeof r.home === 'boolean'), 'newest first, with the opponent');
 eq(draft.locked, false);

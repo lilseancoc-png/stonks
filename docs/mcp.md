@@ -108,8 +108,8 @@ never works. Comparison is constant-time (`ownerKeyMatches` in `lib/mcp/oauth.mj
 | `sports_list_games` | owner | Owner Sports: today's and tomorrow's NBA or NFL games (`leagueView('board')`), in a chosen US time zone |
 | `sports_find_players` | owner | Owner Sports: player search by name, for the ids the other Sports tools take |
 | `sports_get_game` | owner | Owner Sports: one game, its teams and each team's recent players with averages per measure (`last5`, `last10`, `average`, …), each keyed by stat; main stats unless `stats` names others, combos included; each player's average against this opponent; `matchup` with both teams' records, scoring and what each defense allows by position (league ranks, 1 = fewest allowed) and the stored meetings |
-| `sports_get_player` | owner | Owner Sports: game log, averages, next game and the stat model's forecast for it |
-| `sports_evaluate_entry` | owner | Owner Sports: a 1-6 pick entry checked by the Pick Builder's own `evaluateEntry` (`hit_history`, model chance, breakeven, joint chance including same-game links, expected value; any catalog stat or combo, with a model chance only for modeled stats) plus `pick_builder_link`, a `?tab=sports-pick-builder&entry=` link that fills the entry on the site. Saves nothing |
+| `sports_get_player` | owner | Owner Sports: game log, averages, next game and the stat model's forecast for it, the player's injury status (`availability`) and, for NBA, the sportsbooks' no-vig over chance at each posted line next to the model's (`book_lines`) |
+| `sports_evaluate_entry` | owner | Owner Sports: a 1-6 pick entry checked by the Pick Builder's own `evaluateEntry` (`hit_history` with 95% ranges, model chance, the sportsbooks' no-vig chance and its gap to the model, injury status, breakeven and breakeven per pick, joint chance including same-game links, expected value; any catalog stat or combo, with a model chance only for modeled stats) plus `pick_builder_link`, a `?tab=sports-pick-builder&entry=` link that fills the entry on the site. Saves nothing |
 | `sports_get_model_check` | owner | Owner Sports: the stat model's and the same-game links' check on later games, and the paper journal's totals and chance calibration |
 | `sports_get_prop_record` | owner | Owner Sports: the issued-props record (`propRecordView`, as on the Sports page): totals, win rate, splits by stat, basis, rank and closing-line move, and the newest picks (`recent`, `offset`) as compact rows with result and actual stat; `prop_id` returns one pick in full. `as_of` is the record's own save time |
 | `sports_get_league_stats` | owner | Owner Sports: the Leaders view (per-game averages over the season, last 10 or last 5, sorted by any shown stat, `min_games` optional) or the Teams view, for one stored season; both take `team`, `limit` and `offset`. `missed` counts only games where the box score listed the player as not playing |
@@ -125,6 +125,11 @@ and every write throws. There is deliberately **no save tool**: Claude or ChatGP
 the players (`sports_find_players`), checks the entry (`sports_evaluate_entry`) and hands back the Pick Builder
 link; the Owner checks it on the site and saves it. Chances are passed only when the Owner gave them, and
 `use_model_chances` copies the model's chance only when asked; the link never carries chances.
+`sports_evaluate_entry` and `sports_get_player` also read ESPN injuries and, for NBA, PropLine sportsbook prices
+(read-only, through the props board's `loadPropSources` and its two-minute cache; nothing is written): each pick
+gets the books' no-vig chance (`book`, Shin method), `book_vs_model`, the player's `availability`,
+`breakeven_per_pick` and ranges on its hit rates, with `BOOK_DISAGREES` when model and books differ by 5+ points.
+`use_book_chances` copies the book chance in. See docs/sports/README.md "MCP tools".
 
 Every result is a JSON envelope: `schema_version`, `tool`, `source` (store key and page), `access`, `as_of` (the
 payload's build time), `generated_at`, `ai_calls: 0`, `warnings` (stale, expired `validUntil`, trimmed, no match), `limitations`,
@@ -256,6 +261,6 @@ variables. No Discord app change is needed.
 
 ## Not served
 
-Sports paper-pick saves (by decision: the Pick Builder link instead), live props (they call outside line
-sources and write tracking records), the contact inbox, AI cost accounting, and any write or broker action.
+Sports paper-pick saves (by decision: the Pick Builder link instead), the live props board (it writes tracking
+records; the Sports tools only read the injury and sportsbook-price feeds), the contact inbox, AI cost accounting, and any write or broker action.
 The heavy studies are already precomputed by the bake, and Hobby has no job queue.

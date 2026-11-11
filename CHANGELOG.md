@@ -20,6 +20,23 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
      (same format, plus the archive preamble) and add that month to the
      "Older changelogs" index below. -->
 
+## 2026-11-11
+
+### Added
+
+- Show the sportsbooks' no-vig chance beside the model's in the MCP's `sports_evaluate_entry` and `sports_get_player` (NBA, PropLine reference prices, median across books with each book listed), with a `BOOK_DISAGREES` warning at a 5-point gap and a `use_book_chances` option; both tools also show the player's ESPN injury status and teammates listed out. Read-only, through the props board's two-minute cache (`lib/sports/book-price.mjs`).
+- Add **breakeven per pick** to the Pick Builder and MCP (`perPickBreakeven`: 3 picks at 6× power need 55.0% each; flex solved from the payout table) and 95% ranges on every hit rate (`wilsonRange`), so 6 of 10 reads "likely 31-83%".
+- Each model forecast now says how the holdout scored at that chance (`tested`) and flags a player's first games of a season, where forecasts ran high (NBA points +1.6, NFL passing yards +16 on the holdout).
+
+### Changed
+
+- Remove sportsbook margin with Shin's method instead of a plain divide-by-total (`shinProbabilities`): it takes more off the longer price, so −200/+160 reads 64.1% instead of 63.4%.
+- Bump the Sports model to `sports-model-2`: the daily refit tests a cross-fitted Platt recalibration per stat and applies it only when it beats the raw chances on both Brier and log loss; none passes on today's data, so chances stay raw and the Model check card says why.
+
+### Docs
+
+- Update docs/sports/README.md (Pick Builder, Stat models, MCP tools, Cost), docs/sports/nba-market-strategy.md, docs/mcp.md and CLAUDE.md for the above.
+
 ## 2026-11-10
 
 ### Added
