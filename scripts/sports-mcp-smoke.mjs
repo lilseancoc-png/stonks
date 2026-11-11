@@ -87,9 +87,9 @@ async function fakeSources({ sport, parts }) {
     ...(sport === 'nba' ? { reference: { state: 'ok', quotes: ['draftkings', 'fanduel', 'betmgm'].flatMap((b, i) => [bookQuote(b, gsStar.name, 15.5, 0.69 + i * 0.01), bookQuote(b, gsStar.name, 17.5, 0.5)]) } } : {}),
   };
 }
-async function rpc(method, params, { token = ownerToken, env = {} } = {}) {
+async function rpc(method, params, { token = ownerToken, env = {}, now = NOW } = {}) {
   const res = mkRes();
-  await handleMcpRequest({ method: 'POST', url: '/mcp', query: {}, headers: { host: HOST, 'x-forwarded-proto': 'https', 'content-type': 'application/json', authorization: 'Bearer ' + token }, body: { jsonrpc: '2.0', id: 1, method, params } }, res, { env: { ...ENV, ...env }, store, now: () => NOW, loadPropSources: fakeSources });
+  await handleMcpRequest({ method: 'POST', url: '/mcp', query: {}, headers: { host: HOST, 'x-forwarded-proto': 'https', 'content-type': 'application/json', authorization: 'Bearer ' + token }, body: { jsonrpc: '2.0', id: 1, method, params } }, res, { env: { ...ENV, ...env }, store, now: () => now, loadPropSources: fakeSources });
   return res.body;
 }
 const tool = async (name, args, opts) => (await rpc('tools/call', { name, arguments: args }, opts)).result;
@@ -226,6 +226,26 @@ ok(E.legs.every((l) => Number.isInteger(l.hit_history.last10.hits) && Number.isI
 ok(decodePrefill(comboEv.pick_builder_link.split('entry=')[1]).legs[0].stat === 'pts_reb', 'and the Pick Builder link keeps the combo');
 eq((await errCode({ legs: [{ ...legs[0], stat: 'goals' }] })).code, 'INVALID_INPUT', 'an unknown stat is refused');
 
+// --- how current the data is, and the game's spread and total (2026-11-11) ---------
+eq([P.data_check?.last_update_utc, P.data_check?.stale], ['2026-01-15T10:00:00Z', false], 'the player view says when the data last updated');
+ok(!('next_game_lines' in P) && !P.forecast.game_lines, 'no spread or total archived for the game yet: none shown, none assumed');
+eq(E.legs.map((l) => l.game_lines), [null, null], 'and none on the picks');
+eq(Object.keys(E.data_check), ['nba'], 'evaluate says how current each league in the entry is');
+const staleRun = await tool('sports_get_player', { sport: 'nba', player_id: gsStar.player_id }, { now: NOW + 2 * 86400000 });
+ok(staleRun.structuredContent.warnings.some((w) => /STALE_DATA/.test(w)) && staleRun.structuredContent.results.data_check.stale === true, 'two days without a data run is flagged');
+// The props scan archives the books' spread and total every half hour.
+put('lines', { sport: 'nba', date: '2026-01-15' }, { schema_version: 1, sport: 'nba', date: '2026-01-15', fields: [], lines: [], game_fields: ['total', 'home_margin', 'observed_utc'], games: { mnext1: [228.5, 4.5, QUOTE_AT] } });
+const P2 = (await tool('sports_get_player', { sport: 'nba', player_id: gsStar.player_id, games: 5 })).structuredContent.results;
+const GL = P2.next_game_lines;
+eq([GL?.total, GL?.home_margin, GL?.favorite, GL?.home_team_total, GL?.away_team_total, GL?.source], [228.5, 4.5, 'gs', 116.5, 112, 'sportsbooks'], 'the player view shows the next game’s spread and total');
+eq([P2.forecast.game_lines?.total, P2.forecast.game_lines?.team_margin, P2.forecast.game_lines?.team_total], [228.5, 4.5, 116.5], 'and the forecast names the game it assumed');
+const E2 = (await tool('sports_evaluate_entry', { legs, operator: 'prizepicks', format: 'power', stake: 10, payouts: { 2: 3 } })).structuredContent.results;
+eq(E2.legs.map((l) => [l.game_lines?.total, l.game_lines?.team_margin, l.game_lines?.team_total, l.game_lines?.source]), [[228.5, 4.5, 116.5, 'sportsbooks'], [228.5, -4.5, 112, 'sportsbooks']], 'each pick carries its team’s side of the spread and total');
+eq(E2.legs.map((l) => [l.model.game_lines?.team_total, l.model.game_lines?.applied]), [[116.5, false], [112, false]], 'the forecast says it saw them, and that this model has no tested spread/total input, so it does not use them');
+eq(E2.legs.map((l) => l.model.probability), E.legs.map((l) => l.model.probability), 'and its chances are unchanged');
+const G2 = (await tool('sports_get_game', { sport: 'nba', game_id: 'mnext1' })).structuredContent.results;
+eq([G2.game_lines?.favorite, G2.game_lines?.total], ['gs', 228.5], 'the game view shows them too');
+
 // --- model check -------------------------------------------------------------------
 const mc = (await tool('sports_get_model_check', { sport: 'nba' })).structuredContent.results;
 ok(mc.model.stats.points.status && mc.model.links.length > 0 && /stand-in|last-10/.test(mc.model.line_proxy), 'stat checks and same-game links');
@@ -271,6 +291,44 @@ const everyone = (await tool('sports_get_league_stats', { sport: 'nba', limit: 1
 ok(veterans.players.length > 0 && veterans.players.every((p) => p.games >= most) && veterans.total < everyone.total, 'min_games filters leaders');
 eq((await tool('sports_get_league_stats', { sport: 'nba', min_games: 200 })).structuredContent.results.players, [], 'and can filter everyone out');
 
+// --- NFL: official injury report, roster status, team change, spread and total ------
+{
+  const { NFL_SOURCE, NFLVERSE_URLS } = await import('../lib/sports/nflverse.mjs');
+  const { ingestLeague } = await import('../lib/sports/ingest.mjs');
+  const F = await import('./fixtures/sports-nfl.mjs');
+  const files = new Map([[NFLVERSE_URLS.games, F.GAMES], [NFLVERSE_URLS.players, F.PLAYERS], [NFLVERSE_URLS.weekly(2025), F.WEEK_2025], [NFLVERSE_URLS.weekly(2026), F.WEEK_2026],
+    [NFLVERSE_URLS.snaps(2026), F.SNAPS_2026], [NFLVERSE_URLS.injuries(2026), F.INJURIES_2026]]);
+  const NFL_NOW = Date.parse('2026-11-02T18:00:00Z');
+  await ingestLeague({ adapter: NFL_SOURCE, store: { backend: 'mem', rawGet: store.rawGet, rawPut: async (k, v) => { objects.set(k, String(v)); } }, fetchText: async (u) => files.get(u) ?? null, now: NFL_NOW });
+  const edit = (kind, fn) => { const k = sportsKey(kind, { sport: 'nfl' }); objects.set(k, JSON.stringify(fn(JSON.parse(objects.get(k))))); };
+  edit('injuries', (r) => ({ ...r, reports: [...r.reports, { player_id: '00-0006', name: 'Patrick Mahomes', team: 'kc', position: 'QB', game_status: 'Questionable', injury: 'Ankle', practice: 'Limited Participation in Practice' }] }));
+  edit('players', (r) => ({ ...r, players: r.players.map((p) => (p.player_id === '00-0003' ? { ...p, status: 'RES' } : p.player_id === '00-0007' ? { ...p, team: 'den' } : p)) }));
+  const at = { now: NFL_NOW };
+  const mah = (await tool('sports_get_player', { sport: 'nfl', player_id: '00-0006' }, at)).structuredContent;
+  eq([mah.results.next_game.game_id, mah.results.availability.official?.week, mah.results.availability.official?.game_status, mah.results.availability.unsure], ['2026_09_den_kc', 9, 'Questionable', true], 'NFL: the official week 9 report for his next game');
+  ok(mah.warnings.some((w) => /^OFFICIAL_REPORT: Questionable on the NFL's week 9 injury report \(Ankle\); practice: Limited/.test(w)), 'and it is a warning: ' + mah.warnings.join(' | '));
+  const NL = mah.results.next_game_lines;
+  eq([NL?.total, NL?.home_margin, NL?.favorite, NL?.home_team_total, NL?.away_team_total, NL?.source], [44.5, 3.5, 'kc', 24, 20.5, 'nflverse'], 'NFL: the schedule’s spread and total');
+  eq(mah.results.data_check?.official_injury_report_week, 9, 'the data check names the report week');
+  ok(mah.results.games.every((g) => 'snaps' in g && 'snap_pct' in g), 'NFL logs carry snaps');
+  const kelce = (await tool('sports_get_player', { sport: 'nfl', player_id: '00-0003' }, at)).structuredContent;
+  eq([kelce.results.availability.roster_status?.code, kelce.results.availability.out], ['RES', true], 'NFL: a player on injured reserve is marked out');
+  ok(kelce.warnings.some((w) => /^ROSTER: on the injured reserve \(RES\)/.test(w)), 'and it is said');
+  ok(!kelce.warnings.some((w) => /OFFICIAL_REPORT/.test(w)), 'last week’s report is not this week’s');
+  const rookie = (await tool('sports_get_player', { sport: 'nfl', player_id: '00-0007' }, at)).structuredContent;
+  ok(rookie.warnings.some((w) => /^TEAM_CHANGED: the roster file lists DEN, but the last stored game was with KC/.test(w)), 'NFL: a trade shows in the roster file before his first game with the new team');
+  eq(rookie.results.games[0].zero_stat_game, true, 'and his snaps-only game is in the log');
+  const nflEv = (await tool('sports_evaluate_entry', { legs: [
+    { sport: 'nfl', player_id: '00-0006', game_id: '2026_09_den_kc', stat: 'passing_yards', side: 'over', threshold: 240.5, chance: 0.5 },
+    { sport: 'nfl', player_id: '00-0007', game_id: '2026_09_den_kc', stat: 'receiving_yards', side: 'over', threshold: 10.5, chance: 0.5 },
+  ], operator: 'prizepicks', format: 'power', stake: 10, payouts: { 2: 3 } }, at)).structuredContent;
+  eq([nflEv.results.legs[0].game_lines?.total, nflEv.results.legs[0].game_lines?.team_margin, nflEv.results.legs[0].game_lines?.team_total, nflEv.results.legs[1].game_lines?.team_margin], [44.5, 3.5, 24, -3.5], 'evaluate: an NFL pick’s spread and total come from the schedule, from his team’s side');
+  eq([nflEv.results.legs[0].availability.official?.game_status, nflEv.results.legs[1].team], ['Questionable', 'den'], 'evaluate reads the same official report, and the new team');
+  ok(nflEv.warnings.some((w) => /^OFFICIAL_REPORT: Pick 1 \(Patrick Mahomes over 240.5 passing_yards\): Questionable/.test(w)), 'evaluate: the official report is a warning per pick: ' + nflEv.warnings.join(' | '));
+  eq(nflEv.results.legs[1].model?.reason, 'team_changed', 'a moved player gets no forecast from his old role');
+  ok(nflEv.warnings.some((w) => /^TEAM_CHANGED: pick 2 \(Rookie Receiver\)/.test(w)), 'and it is said');
+}
+
 // --- the store the tools hold ----------------------------------------------------------
 eq(writes, [], 'no tool wrote anything');
 const ro = sportsReadOnlyStore(store);
@@ -281,6 +339,7 @@ await assert.rejects(ro.rawPut(SPORTS_PREFIX + 'journal/entries.json', '{}'), /r
 await assert.rejects(ro.withLease('sports-journal', async () => {}), /read-only/);
 ok((await ro.rawGet(sportsKey('model', { sport: 'nba' }))) != null, 'Sports records are');
 ok((await ro.rawGet(sportsKey('prop-record', { sport: 'nba', season: 2025 }))) != null, 'and so is the issued-props record');
+ok((await ro.rawGet(sportsKey('lines', { sport: 'nba', date: '2026-01-15' }))) != null && (await ro.rawGet(sportsKey('injuries', { sport: 'nfl' }))) != null, 'and the line archive and the official injury report');
 eq(sportsReadOnlyStore({ get: async () => null }), null, 'a store without raw reads gives no Sports access');
 checks += 6;
 

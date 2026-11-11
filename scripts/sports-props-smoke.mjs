@@ -1,8 +1,8 @@
 // Feed normalization, injury gates, point-in-time ranking, and Owner route.
 // Entirely offline; provider responses below are made-up fixtures.
 import assert from 'node:assert/strict';
-import { normalizeOdds, normalizeInjuries, loadPropSources } from '../lib/sports/prop-sources.mjs';
-import { rankGameProps, lineMatchesGame } from '../lib/sports/props.mjs';
+import { normalizeOdds, normalizeInjuries, loadPropSources, normalizeGameLines } from '../lib/sports/prop-sources.mjs';
+import { rankGameProps, lineMatchesGame, playerFor, currentTeam } from '../lib/sports/props.mjs';
 import { handleSportsRequest } from '../lib/sports/http.mjs';
 import { capturePropPicks, propRecordView } from '../lib/sports/prop-record.mjs';
 import { sportsKey } from '../lib/sports/store.mjs';
@@ -55,6 +55,59 @@ assert.ok(ranked.matched_lines.length >= lines.length - 2 && ranked.matched_line
 assert.ok(!('matched_lines' in JSON.parse(JSON.stringify(ranked))), 'and never reach a response');
 assert.equal(new Set(ranked.picks.map((p) => p.player_id)).size, 2);
 assert.deepEqual(new Set(ranked.picks.map((p) => p.team)), new Set(['lal', 'gs']));
+assert.deepEqual(ranked.matching, { name: lines.length }, 'every line matched by name; counts kept for the job log');
+assert.equal(ranked.unmatched_names.size, 0);
+// Line matching (2026-11-11): name variants, the current team, moved players.
+const byP = new Map(players.map((p) => [p.player_id, rows.filter((r) => r.player_id === p.player_id).sort((a, b) => b.date.localeCompare(a.date))]));
+const herb = [...players, { player_id: 'h1', name: 'Herbert Jones', team: 'lal', provider_ids: {} }, { player_id: 'c1', name: 'C.J. McCollum', team: 'gs', provider_ids: {} }];
+const herbRows = new Map([...byP, ['h1', [{ team: 'lal', date: '2026-11-01' }]], ['c1', [{ team: 'gs', date: '2026-11-01' }]]]);
+assert.deepEqual(playerFor({ player_name: 'Herb Jones' }, herb, herbRows, game, 'nba'), { player: herb[3], how: 'variant' }, 'a short first name on the same last name and team');
+assert.deepEqual(playerFor({ player_name: 'CJ McCollum' }, herb, herbRows, game, 'nba'), { player: herb[4], how: 'name' }, 'initials with or without dots');
+assert.equal(playerFor({ player_name: 'H Jones' }, herb, herbRows, game, 'nba'), null, 'a bare initial is not a match');
+assert.equal(playerFor({ player_name: 'Herb Jones' }, [...herb, { player_id: 'h2', name: 'Herbie Jones', team: 'lal', provider_ids: {} }], new Map([...herbRows, ['h2', [{ team: 'lal' }]]]), game, 'nba'), null, 'two possible players: no match');
+const movedRows = new Map([...byP, ['p0', byP.get('p0').map((r) => ({ ...r, team: 'bos' }))]]);
+assert.equal(playerFor({ player_name: 'Test One' }, players, movedRows, game, 'nba').team_changed, true, 'NBA: the only player with that name, last seen with another team, has moved');
+const offGame = players.map((p) => (p.player_id === 'p0' ? { ...p, team: 'bos', status: 'ACT' } : p));
+assert.equal(playerFor({ player_name: 'Test One' }, offGame, movedRows, game, 'nfl'), null, 'NFL: a name whose current team is in neither side of this game is someone else');
+assert.equal(playerFor({ player_name: 'Test One' }, players, movedRows, game, 'nfl').how, 'name', 'NFL: the roster file puts him in this game');
+assert.equal(currentTeam({ team: 'kc', status: 'ACT' }, [{ team: 'den' }], 'nfl'), 'kc', 'NFL: the roster file wins (a trade shows there first)');
+assert.equal(currentTeam({ team: 'kc', status: 'CUT' }, [{ team: 'den' }], 'nfl'), null, 'NFL: a released player has no team');
+assert.equal(currentTeam({ team: 'kc' }, [{ team: 'den' }], 'nba'), 'den', 'NBA: the latest box score');
+const moved = rankGameProps({ ...args, rows: rows.map((r) => (r.player_id === 'p0' ? { ...r, team: 'bos' } : r)) });
+assert.ok(moved.skipped.team_changed >= 1 && !moved.picks.some((p) => p.player_id === 'p0'), 'a player who moved teams is not ranked on his old role');
+const nflGame = { ...game, home_team: 'kc', away_team: 'den' };
+const nflTeam = (t) => (t === 'lal' ? 'kc' : t === 'gs' ? 'den' : t);
+const nflArgs = { ...args, sport: 'nfl', game: nflGame, injuries: { ...injuries, reports: [] },
+  lines: lines.filter((l) => l.player_name === 'Test One').map((l) => ({ ...l, home_team: 'Kansas City Chiefs', away_team: 'Denver Broncos' })),
+  players: players.map((p) => ({ ...p, team: nflTeam(p.team), status: 'ACT' })), rows: rows.map((r) => ({ ...r, team: nflTeam(r.team), opponent: nflTeam(r.opponent) })) };
+assert.ok(rankGameProps(nflArgs).matching.name >= 1 && !rankGameProps(nflArgs).skipped.team_changed, 'NFL fixture: the line reaches the player');
+const nflMoved = rankGameProps({ ...nflArgs, rows: nflArgs.rows.map((r) => (r.player_id === 'p0' ? { ...r, team: 'buf' } : r)) });
+assert.ok(nflMoved.skipped.team_changed >= 1 && nflMoved.picks.length === 0, 'NFL: players.csv says this game, the last box score says another team: not ranked on the old role');
+const nflReserve = rankGameProps({ ...nflArgs, players: nflArgs.players.map((p) => ({ ...p, status: p.player_id === 'p0' ? 'RES' : 'ACT' })) });
+assert.ok(nflReserve.skipped.not_on_active_roster >= 1 && nflReserve.picks.length === 0, 'NFL: a player on injured reserve is not ranked');
+const unknown = rankGameProps({ ...args, lines: [...lines, { ...normalized, player_name: 'Nobody Here' }] });
+assert.equal(unknown.skipped.unmatched_player, 1);
+assert.deepEqual([...unknown.unmatched_names], ['Nobody Here'], 'unmatched names are kept for the count (never in a response)');
+assert.ok(!('unmatched_names' in JSON.parse(JSON.stringify(unknown))));
+// Game spreads and totals from the sportsbook request (NBA): main row per
+// book, median across books, team totals and other books left out.
+const gl = (key, outcomes, extra = {}) => ({ key, last_update: at, outcomes, ...extra });
+const books = [
+  { key: 'draftkings', markets: [gl('spreads', [{ name: 'Los Angeles Lakers', side: 'home', price: -110, point: -4.5 }, { name: 'Golden State Warriors', side: 'away', price: -110, point: 4.5 }], { line_type: 'main' }),
+    gl('spreads', [{ name: 'Los Angeles Lakers', side: 'home', price: 200, point: -10.5 }, { name: 'Golden State Warriors', side: 'away', price: -250, point: 10.5 }], { line_type: 'alternate' }),
+    gl('totals', [{ name: 'Over', price: -110, point: 228.5 }, { name: 'Under', price: -110, point: 228.5 }], { team: null, line_type: 'main' }),
+    gl('totals', [{ name: 'Over', price: -110, point: 117.5 }, { name: 'Under', price: -110, point: 117.5 }], { team: 'Los Angeles Lakers' })] },
+  { key: 'fanduel', markets: [gl('spreads', [{ name: 'Los Angeles Lakers', price: -112, point: -5.5 }, { name: 'Golden State Warriors', price: -108, point: 5.5 }]),
+    gl('spreads', [{ name: 'Los Angeles Lakers', price: -300, point: -1.5 }, { name: 'Golden State Warriors', price: 240, point: 1.5 }]),
+    gl('totals', [{ name: 'Over', price: -105, point: 229.5 }, { name: 'Under', price: -115, point: 229.5 }])] },
+  { key: 'prizepicks', markets: [gl('totals', [{ name: 'Over', price: -110, point: 300 }, { name: 'Under', price: -110, point: 300 }])] },
+];
+const gameLines = normalizeGameLines([{ ...event, bookmakers: books }], 'nba', now);
+assert.deepEqual(gameLines.map(({ observed_utc, ...g }) => g), [{ event_id: 'provider-g1', home_team: 'Los Angeles Lakers', away_team: 'Golden State Warriors', start_utc: game.start_utc, total: 229, home_margin: 5, books: 2 }],
+  'home favored by the median of 4.5 and 5.5; total the median of 228.5 and 229.5');
+assert.ok(lineMatchesGame(gameLines[0], game, 'nba'), 'a game line finds its stored game');
+assert.deepEqual(normalizeGameLines([{ ...event, live: true, bookmakers: books }], 'nba', now), [], 'nothing once the game is live');
+assert.deepEqual(normalizeGameLines([{ ...event, bookmakers: [books[0]].map((b) => ({ ...b, markets: b.markets.map((m) => ({ ...m, suspended_at: at })) })) }], 'nba', now), [], 'a suspended market is not read');
 const oneTeam = rankGameProps({ ...args, rows: rows.map((r) => ({ ...r, team: 'lal', opponent: 'gs' })) });
 assert.equal(oneTeam.picks.length, 1, 'never fill the opponent slot with a second teammate');
 assert.equal(oneTeam.state, 'limited');

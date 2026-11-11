@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import {
   nbCdf, nbPmf, nbQuantile, normCdf, cdfAt, quantileOf, lineChances, fitSpread, fitCorrection, varianceOf, nbSizeOf,
   forecastStat, buildModel, modelSummary, positionGroup, MODEL_SPECS, SPORTS_MODEL_VERSION, MIN_GAMES,
-  regularMinutes, absentMinutes, absenceFactor, ABSENCE,
+  regularMinutes, absentMinutes, absenceFactor, ABSENCE, gameEnvironment, snapTrend,
 } from '../lib/sports/models.mjs';
 import { SPORTS_STATS } from '../lib/sports/schema.mjs';
 import { teamAbsence, PROP_RANK_VERSION } from '../lib/sports/props.mjs';
@@ -110,7 +110,7 @@ eq(summary.stats.assists.reason, 'not enough past games to check yet', 'a stat t
 eq(model.evaluation.pts_reb.forecasts > 0, true, 'combos are summed from the stored stats and modeled');
 // Every stat the catalog marks as modeled has a spec, in catalog order.
 for (const sp of ['nba', 'nfl']) eq(SPORTS_STATS[sp].filter((x) => x.model).map((x) => x.id), Object.keys(MODEL_SPECS[sp]), sp + ' catalog and model specs agree');
-eq(SPORTS_MODEL_VERSION, 'sports-model-3');
+eq(SPORTS_MODEL_VERSION, 'sports-model-4');
 eq(PROP_RANK_VERSION, 'props-rank-4');
 const empty = buildModel({ sport: 'nfl', rows: [], now: NOW });
 eq([empty.evaluation.passing_yards.status, empty.evaluation.receptions.reason], ['experimental', 'not enough past games to check yet'], 'no data: experimental, never validated');
@@ -195,6 +195,31 @@ ok(twoOut.probability > noneOut.probability, 'and the over gets likelier');
 eq([twoOut.teammates_out.minutes, twoOut.teammates_out.applied, noneOut.teammates_out], [60, true, undefined], 'the forecast says who is out only when someone is');
 ok(twoOut.sensitivity.opportunity_down_10 < twoOut.probability, 'the minutes check keeps the lift');
 eq(forecastStat({ sport: 'nfl', stat: 'passing_yards', history: qbRows, home: true, opponent: 'kc', group: 'QB', model: nflContext, absent: 60 }).teammates_out, undefined, 'NFL: not used');
+// Game spreads and totals (2026-11-11): a market total that carries the
+// game's pace is found and used; one that knows nothing is left out.
+const LP = nbaModelLeague({ pace: 0.15, lines: 'pace' });
+const modelP = buildModel({ sport: 'nba', rows: LP.rows, now: NOW, games: LP.games, includeJoint: false });
+const fP = modelP.evaluation.points.factors.game_lines;
+ok(fP.applied && fP.with.brier < fP.without.brier && fP.gain.brier > fP.gain.se, 'a total that carries the pace beats no adjustment by more than the noise: ' + JSON.stringify({ with: fP.with, without: fP.without, gain: fP.gain }));
+ok(modelP.context.factors.points.game_lines.betas?.[0] > 0.5, 'the implied team total lifts points');
+const LN = nbaModelLeague({ pace: 0.15, lines: 'noise' });
+const modelN = buildModel({ sport: 'nba', rows: LN.rows, now: NOW, games: LN.games, includeJoint: false });
+eq(modelN.evaluation.points.factors.game_lines.applied, false, 'a total that knows nothing is not used');
+eq(modelN.context.factors.points.game_lines.betas, null);
+eq(model.evaluation.points.factors.game_lines.applied, false, 'no lines stored: nothing to use');
+ok(/fewer than/.test(model.evaluation.points.factors.game_lines.why), 'and it says why');
+const starP = LP.truth.find((p) => p.team === 'gs' && p.minutes === 34);
+const histP = LP.rows.filter((r) => r.player_id === starP.player_id).sort((a, b) => b.date.localeCompare(a.date));
+const envOf = (total) => gameEnvironment({ home_team: 'gs', away_team: 'bos', lines: { total, home_margin: 0 } }, 'gs');
+const fast = forecastStat({ sport: 'nba', stat: 'points', history: histP, home: true, opponent: 'bos', group: 'G', model: modelP, side: 'over', threshold: 20.5, env: envOf(250) });
+const slow = forecastStat({ sport: 'nba', stat: 'points', history: histP, home: true, opponent: 'bos', group: 'G', model: modelP, side: 'over', threshold: 20.5, env: envOf(195) });
+const noLine = forecastStat({ sport: 'nba', stat: 'points', history: histP, home: true, opponent: 'bos', group: 'G', model: modelP, side: 'over', threshold: 20.5 });
+ok(fast.mean > noLine.mean && slow.mean < noLine.mean, `a higher total raises the forecast, a lower one cuts it (${slow.mean} / ${noLine.mean} / ${fast.mean})`);
+ok(fast.game_lines.applied && fast.game_lines.team_total === 125 && noLine.game_lines == null, 'the forecast shows the line it used');
+const fastN = forecastStat({ sport: 'nba', stat: 'points', history: histP, home: true, opponent: 'bos', group: 'G', model: modelN, side: 'over', threshold: 20.5, env: envOf(250) });
+ok(fastN.game_lines && fastN.game_lines.applied === false, 'an unused input is shown, not applied');
+eq(snapTrend([{ played: true, snap_pct: 0.9 }, { played: true, snap_pct: 0.8 }, { played: true, snap_pct: 0.5 }]), null, 'fewer than four snap shares: no trend');
+eq(snapTrend([0.9, 0.9, 0.5, 0.5, 0.5, 0.5].map((x) => ({ played: true, snap_pct: x }))), { recent: 0.9, long: 0.633, change: 0.421 }, 'recent two against the last eight');
 // Live: teammates listed Out or Doubtful on the injury report, regulars only.
 const lastDay = LA.rows.reduce((a, r) => (r.date > a ? r.date : a), '');
 const nextDay = new Date(Date.parse(lastDay + 'T12:00:00Z') + 86400000).toISOString().slice(0, 10);
@@ -276,6 +301,17 @@ const sm = status.body.sources.nba.model;
 eq([sm.model_version, sm.seasons, sm.stats.points.status, sm.stats.rebounds.status], [SPORTS_MODEL_VERSION, [2025], 'validated', 'experimental'], 'status carries the model check');
 ok(sm.stats.points.test_n >= 300 && sm.stats.points.brier.model < sm.stats.points.brier.plain_average, 'status carries the scores');
 eq(status.body.sources.nfl.model, null, 'a league with no model says so');
+// The per-stat checks the Model check card explains reach the page (dropped
+// by the status sanitizer until 2026-11-11).
+{
+  const stored = JSON.parse(st.objects.get(sportsKey('status', { sport: 'nba' }))).model.stats.points;
+  ok(stored.factors && stored.teammates_out && stored.recalibration, 'the stored summary has the checks to pass');
+  const shown = sm.stats.points;
+  for (const k of ['recalibration', 'teammates_out', 'early_season', 'factors', 'real_lines']) ok(k in shown, 'status passes ' + k);
+  ok(stored.recalibration == null || shown.recalibration.applied === (stored.recalibration.applied === true), 'recalibration state passes through');
+  ok(stored.teammates_out == null || shown.teammates_out.applied === (stored.teammates_out.applied === true), 'teammates-out state passes through');
+  ok(stored.factors == null || Object.keys(shown.factors).every((f) => typeof shown.factors[f].applied === 'boolean' && Number.isInteger(shown.factors[f].games)), 'game factors pass through with their tests');
+}
 eq([page.body.availability.state, page.body.forecast.teammates_out], ['unavailable', undefined], 'no injury report: the page says so and assumes the usual lineup');
 // The same injury context as the MCP: the player's own listing, and regular
 // teammates listed out raise the NBA forecast; the player is never their own teammate out.

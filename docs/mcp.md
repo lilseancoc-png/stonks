@@ -119,7 +119,7 @@ never works. Comparison is constant-time (`ownerKeyMatches` in `lib/mcp/oauth.mj
 **Sports tools** (`lib/mcp/sports-tools.mjs`) call the same functions as the Sports pages, so the same stored
 games, model and seed give the same number on the site and here. They are listed only for an Owner token and
 disappear with `SPORTS_ENABLED=0`. Their store handle (`sportsReadOnlyStore`) reads only Sports game, player,
-model, status, issued-props record and journal records under `_stonks/sports/v1/`; the Pick Builder's captured
+model, status, issued-props record, line archive, NFL injury report and journal records under `_stonks/sports/v1/`; the Pick Builder's captured
 lines and every other raw key are refused,
 and every write throws. There is deliberately **no save tool**: Claude or ChatGPT reads a slip screenshot, finds
 the players (`sports_find_players`), checks the entry (`sports_evaluate_entry`) and hands back the Pick Builder
@@ -130,7 +130,12 @@ link; the Owner checks it on the site and saves it. Chances are passed only when
 gets the books' no-vig chance (`book`, Shin method), `book_vs_model`, the player's `availability`,
 `breakeven_per_pick` and ranges on its hit rates, with `BOOK_DISAGREES` when model and books differ by 5+ points.
 For NBA, regular teammates listed Out or Doubtful also raise the model's forecast where that tested better
-(`model.teammates_out`, `TEAMMATES_OUT`). `use_book_chances` copies the book chance in. See docs/sports/README.md "MCP tools".
+(`model.teammates_out`, `TEAMMATES_OUT`). `use_book_chances` copies the book chance in. Since 2026-11-11 both
+also return the game's spread and total (`game_lines` per pick, `next_game_lines` on a player; the forecast's
+`model.game_lines.applied` says whether it used them), the official NFL injury report and roster status
+(`OFFICIAL_REPORT`, `ROSTER`), `TEAM_CHANGED` for a player who moved teams after his last stored game, and
+`data_check` (last data run, latest game, the data job's checks; `STALE_DATA` after 1.5 days). See
+docs/sports/README.md "MCP tools".
 
 Every result is a JSON envelope: `schema_version`, `tool`, `source` (store key and page), `access`, `as_of` (the
 payload's build time), `generated_at`, `ai_calls: 0`, `warnings` (stale, expired `validUntil`, trimmed, no match), `limitations`,

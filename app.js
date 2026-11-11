@@ -36600,6 +36600,17 @@ function scenarioEventPhase(ev, now = Date.now()) {
     return '<span>At real PrizePicks lines: ' + Number(r.n).toLocaleString('en-US') + ' game' + (r.n === 1 ? '' : 's') + (r.enough ? '' : ' (counts toward passing at 300)') +
       '. Score: model <b>' + b3(B.model) + '</b>, last-10 hit rate ' + b3(B.last10_hit_rate) + ', coin flip ' + b3(B.even) + '.</span>';
   }
+  // The game inputs each stat may use (sports-model-4): on only where they
+  // beat leaving them out on later games.
+  const FACTOR_NAME = { game_lines: 'Game spread and total', snap_trend: 'Snap share trend' };
+  function factorsHtml(f, b3) {
+    if (!f) return '';
+    return Object.keys(f).filter((k) => FACTOR_NAME[k]).map((k) => {
+      const x = f[k];
+      return '<span class="sp-muted">' + FACTOR_NAME[k] + ': ' + (x.applied ? 'on. It beat leaving it out on later games' + (x.brier_with != null && x.brier_without != null ? ' (' + x.brier_with.toFixed(4) + ' with, ' + x.brier_without.toFixed(4) + ' without)' : '')
+        : 'off; ' + escape(String(x.why || 'not tested yet').replace(/; not used$/, ''))) + '.</span>';
+    }).join('');
+  }
   function modelCard(src) {
     const M = src.model;
     if (!M) return src.state === 'not_connected' ? '' : '<div class="sp-source sp-model"><h3>Model check</h3><p class="sp-muted">The forecasts have not been fitted yet; the next daily data run fits them.</p></div>';
@@ -36618,6 +36629,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         (v.recalibration ? '<span class="sp-muted">Recalibration: ' + (v.recalibration.applied ? 'on (it beat the raw chances on held-out games)' : 'off; ' + escape(v.recalibration.why || 'raw chances kept')) + '.</span>' : '') +
         (v.early_season && v.early_season.n >= 30 && v.early_season.bias != null ? '<span class="sp-muted">First games of a season (' + Number(v.early_season.n).toLocaleString('en-US') + ' held out): forecasts ran ' + escape(Math.abs(v.early_season.bias)) + (v.early_season.bias > 0 ? ' high' : ' low') + ' on average.</span>' : '') +
         (v.teammates_out ? '<span class="sp-muted">Teammates out: ' + (v.teammates_out.applied ? 'on. The forecast rises when regulars are listed Out or Doubtful (it beat no adjustment on held-out games)' : 'off; ' + escape(v.teammates_out.why || 'no lift measured')) + '.</span>' : '') +
+        factorsHtml(v.factors, b3) +
         realLinesHtml(v.real_lines, b3) +
         reliabilitySvg(v.reliability, label(st)) + '</div></details></li>';
     }).join('');
@@ -36660,7 +36672,14 @@ function scenarioEventPhase(ev, now = Date.now()) {
     }
     if (g.status === 'postponed' || g.status === 'canceled') return '<span class="sp-muted">' + (g.status === 'postponed' ? 'Postponed' : 'Canceled') + '</span>';
     if (Date.parse(g.start_utc) <= Date.now()) return '<span class="sp-muted">Started · result after the next refresh</span>';
-    return '<span class="sp-muted">' + (g.week != null ? (g.season_type === 'POST' ? 'Playoffs' : 'Week ' + escape(g.week)) : '') + '</span>';
+    const week = g.week != null ? (g.season_type === 'POST' ? 'Playoffs' : 'Week ' + escape(g.week)) : '';
+    return '<span class="sp-muted">' + [week, boardLines(g.game_lines)].filter(Boolean).join(' · ') + '</span>';
+  }
+  // "SEA −6.5 · O/U 40.5" on an upcoming game's row.
+  function boardLines(gl) {
+    if (!gl || !isFinite(gl.total)) return '';
+    const m = Math.abs(gl.home_margin);
+    return '<span class="sp-glines" title="Spread and total (' + escape(gl.source === 'nflverse' ? 'nflverse' : 'sportsbooks’ median') + ')">' + (gl.favorite ? team(gl.favorite) + ' −' + escape(m) : 'PK') + ' · O/U ' + escape(gl.total) + '</span>';
   }
   const nbaPct = (p) => p == null ? '—' : (p * 100).toFixed(1) + '%';
   function nbaComparisonHtml(p) {
@@ -36853,9 +36872,15 @@ function scenarioEventPhase(ev, now = Date.now()) {
         }).join('') + '</ul>'
       : '<p class="sp-muted">No meetings between these teams in the stored seasons.</p>');
     const none = !T(pair[0]) && !T(pair[1]);
-    return '<details class="sp-matchup" open><summary>Matchup</summary>' +
+    // The game's spread and total (NFL: nflverse; NBA: the sportsbooks'
+    // median, recorded by the props scan) and each side's implied total.
+    const GL = league(lg).game.game_lines;
+    const linesLine = GL ? '<p class="sp-muted">' + (GL.favorite ? team(GL.favorite) + ' favored by ' + escape(f1(Math.abs(GL.home_margin))) : 'Pick’em') + ' · total ' + escape(f1(GL.total)) +
+      ' · implied ' + team(pair[0]) + ' ' + escape(f1(GL.away_team_total)) + ', ' + team(pair[1]) + ' ' + escape(f1(GL.home_team_total)) +
+      ' <small>(' + escape(GL.source === 'sportsbooks' ? 'sportsbooks’ median' + (GL.books ? ', ' + GL.books + ' books' : '') : GL.source === 'nflverse' ? 'nflverse' : GL.source || 'stored') + ')</small></p>' : '';
+    return '<details class="sp-matchup" open><summary>Matchup</summary>' + linesLine +
       (none ? '<p class="sp-muted">Neither team has a final game stored this season before this one.</p>' : compare + dvp) + meetings +
-      '<p class="sp-note">This season before this game. Ranks are among ' + N + ' teams: 1st is the best record, the most scored and the fewest allowed, so a “soft” defense (bottom fifth) gives up the most. Stat totals are summed over each side’s players' + (lg === 'nfl' ? '; a player with no stat in a game is not in the provider’s file and counts as zero' : '') + '.</p></details>';
+      '<p class="sp-note">This season before this game. Ranks are among ' + N + ' teams: 1st is the best record, the most scored and the fewest allowed, so a “soft” defense (bottom fifth) gives up the most. Stat totals are summed over each side’s players' + (lg === 'nfl' ? '; a player on the field with no stat counts as zero' : '') + '.</p></details>';
   }
   const L_matchup = (lg) => (league(lg).game && league(lg).game.matchup) || null;
 
@@ -36883,11 +36908,14 @@ function scenarioEventPhase(ev, now = Date.now()) {
       }).join('') + '</tbody></table></div>';
     const logCols = cols.filter((st) => st !== 'minutes');
     const logGames = L.logAll ? P.games : P.games.slice(0, LOG_ROWS);
-    const log = P.games.length ? '<div class="sp-table-wrap"><table class="sp-table sp-log"><thead><tr><th>Date</th><th>Game</th>' + (lg === 'nba' ? '<th class="sp-n">Min</th>' : '') +
+    // NFL: offensive snaps and the share of the team's snaps (nflverse).
+    const snapsCol = lg === 'nfl' && P.games.some((r) => r.snaps != null);
+    const snapText = (r) => r.snaps == null ? '—' : num(r.snaps) + (r.snap_pct != null ? ' <span class="sp-muted">' + Math.round(r.snap_pct * 100) + '%</span>' : '');
+    const log = P.games.length ? '<div class="sp-table-wrap"><table class="sp-table sp-log"><thead><tr><th>Date</th><th>Game</th>' + (lg === 'nba' ? '<th class="sp-n">Min</th>' : '') + (snapsCol ? '<th class="sp-n" title="Offensive snaps and share of the team\'s snaps">Snaps</th>' : '') +
       logCols.map((st) => '<th class="sp-n" title="' + escape(label(st)) + '">' + escape(SHORT[st] || st) + '</th>').join('') + '</tr></thead><tbody>' +
       logGames.map((r) => '<tr' + (r.played ? '' : ' class="sp-dnp"') + '><td>' + escape(fmtDay(r.date)) + ' <span class="sp-muted">' + escape(String(r.date).slice(0, 4)) + '</span></td><td>' + (r.home ? 'vs ' : '@ ') + team(r.opponent) +
         (r.week != null ? ' <span class="sp-muted">' + (r.season_type === 'POST' ? 'playoffs' : 'wk ' + escape(r.week)) + '</span>' : '') + (r.played ? '' : ' <span class="sp-muted">did not play' + (r.dnp_reason ? ': ' + escape(String(r.dnp_reason).toLowerCase()) : '') + '</span>') + '</td>' +
-        (lg === 'nba' ? '<td class="sp-n">' + num(r.minutes) + '</td>' : '') +
+        (lg === 'nba' ? '<td class="sp-n">' + num(r.minutes) + '</td>' : '') + (snapsCol ? '<td class="sp-n">' + snapText(r) + '</td>' : '') +
         logCols.map((st) => '<td class="sp-n">' + num(r.stats[st]) + '</td>').join('') + '</tr>').join('') + '</tbody></table></div>' +
       (P.games.length > logGames.length ? '<button type="button" class="sp-btn sp-more" data-sp-logall>Show all ' + P.games.length + ' games</button>' : '')
       : '<p class="sp-muted">No games stored for this player.</p>';
@@ -36910,12 +36938,45 @@ function scenarioEventPhase(ev, now = Date.now()) {
   function availHtml(P) {
     const a = P.availability, F = P.forecast;
     if (!a) return '';
-    if (a.state !== 'ok') return '<p class="sp-muted sp-avail">Injury report: ' + (a.state === 'stale' ? 'the latest copy is out of date' : 'not available right now') + '.</p>';
+    // NFL: the official injury report and roster status the daily job stores,
+    // shown even when ESPN's report cannot be read.
+    const nfl = officialHtml(a);
+    if (a.state !== 'ok') return '<p class="sp-avail' + (nfl && (a.out || a.unsure) ? ' sp-model-warn' : ' sp-muted') + '">' + (nfl ? 'ESPN injury report' : 'Injury report') + ': ' + (a.state === 'stale' ? 'the latest copy is out of date' : 'not available right now') + '.' + nfl + '</p>';
     const own = a.status === 'not listed' ? 'Not listed on the latest ESPN injury report' : 'Listed <b>' + escape(a.status) + '</b> on the ESPN injury report' + (a.detail ? ' (' + escape(a.detail) + ')' : '');
     const withMin = F && F.teammates_out && F.teammates_out.length;
     const names = withMin ? F.teammates_out.map((p) => escape(p.name) + ' (' + num(p.minutes) + ' min)') : (a.teammates_out || []).map(escape);
     const tm = names.length ? ' Teammates listed out: ' + names.join(', ') + (withMin ? ', usual minutes a game.' : '.') : '';
-    return '<p class="sp-avail' + (a.out || a.unsure ? ' sp-model-warn' : ' sp-muted') + '">' + own + '.' + tm + '</p>';
+    return '<p class="sp-avail' + (a.out || a.unsure ? ' sp-model-warn' : ' sp-muted') + '">' + own + '.' + nfl + tm + '</p>';
+  }
+  // The official NFL report line and roster status (empty for NBA).
+  function officialHtml(a) {
+    const o = a && a.official;
+    const off = o && o.state === 'ok' ? ' Official NFL report, week ' + escape(o.week) + ': ' + (o.game_status ? '<b>' + escape(o.game_status) + '</b>' : 'no game status yet') +
+      (o.injury ? ' (' + escape(o.injury) + ')' : '') + (o.practice ? '; practice: ' + escape(o.practice) : '') + '.'
+      : o && o.state === 'not_yet' ? ' Official NFL report: not filed for this game yet.' : '';
+    const rs = a && a.roster_status;
+    const roster = rs && rs.code !== 'ACT' ? ' Roster: <b>' + escape(rs.label) + '</b>' + (rs.code === 'DEV' ? ' (plays only if elevated for the game)' : '') + '.' : '';
+    return off + roster;
+  }
+  // The next game's spread and total from this player's side, the NFL snap
+  // share trend, and which forecasts use them (sports-model-4).
+  function fcInputsHtml(P) {
+    const F = P.forecast, g = F && F.game_lines;
+    const fcs = P.stats.map((st) => [st, F && F.forecasts[st]]).filter(([, f]) => f && f.status === 'ok');
+    const usedBy = (key) => fcs.filter(([, f]) => f[key] && f[key].applied).map(([st]) => label(st));
+    const parts = [];
+    if (g) {
+      const m = Math.abs(g.team_margin), used = usedBy('game_lines');
+      parts.push((g.team_margin > 0 ? 'Favored by ' + escape(f1(m)) : g.team_margin < 0 ? 'Underdog by ' + escape(f1(m)) : 'Pick’em') + ' · game total ' + escape(f1(g.total)) + ' · implied team total ' + escape(f1(g.team_total)) +
+        ' <small>(' + escape(g.source === 'sportsbooks' || g.source === 'archive' ? 'sportsbooks’ median' : g.source === 'nflverse' ? 'nflverse' : g.source || 'stored') + ')</small>. ' +
+        (used.length ? 'Used in the forecast for ' + escape(used.join(', ')) + '.' : 'Shown only; not used in these forecasts.'));
+    }
+    const snap = fcs.map(([, f]) => f.snap_trend).find((t) => t && t.recent != null);
+    if (snap) {
+      const used = usedBy('snap_trend');
+      parts.push('Snap share: last 2 games ' + Math.round(snap.recent * 100) + '%, last 8 ' + Math.round(snap.longer * 100) + '%. ' + (used.length ? 'Used for ' + escape(used.join(', ')) + '.' : 'Shown only.'));
+    }
+    return parts.length ? '<p class="sp-muted sp-fc-inputs">' + parts.join(' ') + '</p>' : '';
   }
   function playerPanelHtml(lg) {
     const L = league(lg);
@@ -36926,21 +36987,27 @@ function scenarioEventPhase(ev, now = Date.now()) {
     const F = P.forecast, G = P.next_game;
     let forecast = '';
     if (G && F) {
+      // Stats the model does not cover for this position share one row
+      // instead of repeating the same sentence on each.
+      const offPos = P.stats.filter((st) => (F.forecasts[st] || {}).reason === 'position');
       const fr = P.stats.map((st) => {
         const f = F.forecasts[st] || {};
+        if (f.reason === 'position') return '';
         if (f.status !== 'ok') return '<tr><td>' + escape(label(st)) + '</td><td colspan="3" class="sp-muted sp-wrap">' + escape(modelReason(f, lg)) + '</td></tr>';
         return '<tr><td>' + escape(label(st)) + ' ' + qualityBadge(f.quality) + '</td><td class="sp-n"><b>' + escape(Number(f.mean).toFixed(1)) + '</b></td><td class="sp-n">' + escape(f.low) + ' – ' + escape(f.high) + '</td><td class="sp-lines">' +
           (f.lines || []).map((x) => '<span>' + escape(x.threshold) + ' <b>' + pct(x.over) + '</b></span>').join('') + '</td></tr>';
       }).join('');
+      const offNote = offPos.length ? '<p class="sp-muted sp-fc-off">Not modeled for this player: ' + escape(offPos.map(label).join(', ')) + '. ' +
+        escape(modelReason({ reason: 'position' }, lg).replace(/^Model: /, '').replace(/^./, (c) => c.toUpperCase())) + '</p>' : '';
       const any = P.stats.map((st) => F.forecasts[st]).find((f) => f && f.status === 'ok');
       // With no forecast at all, a plain list reads better than a table of
       // empty columns (and does not run off a phone screen).
-      const table = any ? '<div class="sp-table-wrap"><table class="sp-table sp-fc" data-nosort><thead><tr><th>Stat</th><th class="sp-n">Expected</th><th class="sp-n">80% range</th><th>Chance of the over at each line</th></tr></thead><tbody>' + fr + '</tbody></table></div>'
+      const table = any ? '<div class="sp-table-wrap"><table class="sp-table sp-fc" data-nosort><thead><tr><th>Stat</th><th class="sp-n">Expected</th><th class="sp-n">80% range</th><th>Chance of the over at each line</th></tr></thead><tbody>' + fr + '</tbody></table></div>' + offNote
         : fcNoneHtml(P.stats, F, lg);
-      forecast = '<h5>Model forecast for the next game</h5><p class="sp-muted sp-fc-game">' + (F.home ? 'vs ' : '@ ') + team(F.opponent) + ' · ' + escape(fmtWhen(G.start_utc, zone())) + '</p>' + availHtml(P) + table +
+      forecast = '<h5>Model forecast for the next game</h5><p class="sp-muted sp-fc-game">' + (F.home ? 'vs ' : '@ ') + team(F.opponent) + ' · ' + escape(fmtWhen(G.start_utc, zone())) + '</p>' + availHtml(P) + fcInputsHtml(P) + table +
         (any ? '<p class="sp-note">Built from ' + escape(any.games) + ' stored games: about ' + escape(any.expected_opportunity) + ' ' + escape(any.unit) + ' expected' + (any.regular_role ? '' : ' (a smaller role than the check covers, so it stays experimental)') +
           ', opponent factor ' + escape(any.opponent_factor) + ', ' + (F.home ? 'home' : 'away') + '. Model fitted on games through ' + escape(any.as_of_date ? fmtDay(any.as_of_date) + ' ' + any.as_of_date.slice(0, 4) : '—') + '. A forecast, not a promise: ' +
-          (lg === 'nba' ? 'rest and role changes are not in the data; regular teammates listed out are counted for the stats where that helped in testing.' : 'injuries, rest and role changes are not in the data.') + '</p>' : '');
+          (lg === 'nba' ? 'rest and role changes are not in the data; regular teammates listed out are counted for the stats where that helped in testing.' : 'the player’s own injury and rest are not in the data; the game’s spread and total and his recent snap share count only for the stats where that helped in testing.') + '</p>' : '');
     } else if (G) forecast = '<h5>Model forecast for the next game</h5>' + availHtml(P) + '<p class="sp-muted">The model has not been fitted yet.</p>';
     return '<div class="sp-panel" data-sp-panel="player"><div class="sp-panel-head"><h4>' + escape(P.player.name) + ' <span>' + escape([P.player.position, P.player.team ? String(P.player.team).toUpperCase() : null].filter(Boolean).join(' · ')) + '</span></h4>' +
       '<button type="button" class="sp-close" data-sp-close="player" aria-label="Close player">×</button></div>' +
@@ -36949,7 +37016,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       '<h5>Averages over ' + num(P.total_games) + ' stored game' + (P.total_games === 1 ? '' : 's') + '</h5><div data-sp-part="logset">' + playerTablesHtml(lg) + '</div>' +
       '<p class="sp-note">' + (lg === 'nba'
         ? 'Games the player missed are listed as did not play and left out of the averages.'
-        : 'Games where the player recorded no stat are not in the provider’s file, so they are missing here, not counted as zero.') + '</p></div>';
+        : 'Games where the player was on the field but recorded no stat are counted as zero (from the snap counts); games he did not play are not listed.') + '</p></div>';
   }
 
   // ---- Charts --------------------------------------------------------------
@@ -37427,7 +37494,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
           '<td class="sp-n">' + escape(f1(t.points_for)) + '</td><td class="sp-n">' + escape(f1(t.points_against)) + '</td><td class="sp-n ' + (diff > 0 ? 'sp-pos' : diff < 0 ? 'sp-neg' : '') + '">' + (diff == null ? '—' : (diff > 0 ? '+' : diff < 0 ? '−' : '') + escape(f1(Math.abs(diff)))) + '</td>' +
           '<td class="sp-n">' + escape(f1(t.for[st])) + '</td><td class="sp-n">' + escape(f1(t.against[st])) + '</td>' + D.groups.map((g) => '<td class="sp-n">' + escape(f1((t.against_by[g] || {})[st])) + '</td>').join('') + '</tr>';
       }).join('') + '</tbody></table></div>' +
-      '<p class="sp-note">Records and points from final scores. Stat columns are per game, summed over each side’s players' + (lg === 'nfl' ? ' (a player with no stat in a game is not in the provider’s file and counts as zero)' : '') + '. “to G” is what opponents at that position put up. Select a column to sort, a team to see its players.</p>';
+      '<p class="sp-note">Records and points from final scores. Stat columns are per game, summed over each side’s players' + (lg === 'nfl' ? ' (a player on the field with no stat counts as zero)' : '') + '. “to G” is what opponents at that position put up. Select a column to sort, a team to see its players.</p>';
   }
 
   function gamesView(lg) {
@@ -37785,8 +37852,16 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // the teammates-out lift in its forecast.
   function legAvailHtml(e) {
     const a = e.availability, m = e.model && e.model.status === 'ok' ? e.model : null, out = [];
-    if (a && a.state === 'ok' && (a.out || a.unsure)) out.push('<span class="sp-model-line sp-model-warn">Injury report: ' + escape(a.status) + (a.detail ? ' (' + escape(a.detail) + ')' : '') + '. ' + (a.out ? 'If the player does not play, most apps remove the pick.' : 'Check again before the game.') + '</span>');
+    if (a && (a.out || a.unsure)) {
+      // ESPN's listing and, NFL, the official report or roster status: say
+      // which one flagged the player (ESPN may list him as not listed).
+      const espn = a.state === 'ok' && a.status && a.status !== 'not listed' ? 'ESPN lists ' + escape(a.status) + (a.detail ? ' (' + escape(a.detail) + ')' : '') + '.' : '';
+      const why = [espn, officialHtml(a).trim()].filter(Boolean).join(' ');
+      out.push('<span class="sp-model-line sp-model-warn">Injury report: ' + (why || 'listed.') + ' ' + (a.out ? 'If the player does not play, most apps remove the pick.' : 'Check again before the game.') + '</span>');
+    }
     if (m && m.teammates_out && m.teammates_out.applied) out.push('<span class="sp-model-line">Regular teammates listed out (about ' + num(Math.round(m.teammates_out.minutes)) + ' usual minutes): the forecast is raised \u00d7' + escape(m.teammates_out.factor) + '.</span>');
+    if (m && m.game_lines) out.push('<span class="sp-model-line">Game total ' + escape(m.game_lines.total) + ', this team’s implied total ' + escape(m.game_lines.team_total) +
+      (m.game_lines.applied ? ' (in the forecast).' : ' (shown only; not used for this stat’s forecast).') + '</span>');
     return out.join('');
   }
   const SOURCE_TEXT = { history: 'from history', model: 'from model', book: 'from books', owner: 'typed' };
