@@ -20,7 +20,7 @@ const PAGES = (process.env.OUTAGE_PAGES || 'home,tickers,stock,market-map,heatma
 
 const server = await startSiteServer({ failData: true, failApi: true });
 const browser = await launchBrowser();
-let checks = 0, shots = 0;
+let checks = 0, shots = 0, retryChecks = 0;
 const failures = [];
 try {
   await selfTest(browser, server.base);
@@ -33,6 +33,22 @@ try {
       await s.page.screenshot({ path: resolve(output, name + '.png'), fullPage: false }); shots++;
       checks++;
       if (problems.length) failures.push({ name, problems });
+      // Every Retry / Refresh button must show it ran, even when the data is
+      // still unavailable and the page redraws the same (initRefreshFeedback).
+      if (width === 1440) {
+        const retry = s.page.locator('.page-pane:not([hidden]) button').filter({ hasText: /^\s*(Retry|Try again|Refresh|Reload)/ });
+        const n = await retry.count();
+        for (let i = 0; i < n; i++) {
+          const b = retry.nth(i);
+          if (!(await b.isVisible()) || await b.isDisabled()) continue;
+          const before = await s.page.locator('.page-pane:not([hidden])').innerText();
+          await b.click(); await s.page.waitForTimeout(1500);
+          const after = await s.page.locator('.page-pane:not([hidden])').innerText();
+          retryChecks++;
+          if (after === before) failures.push({ name, problems: ['"' + (await b.innerText().catch(() => '?')).trim() + '" showed no sign that it ran'] });
+          break;
+        }
+      }
       await s.context.close();
     }
   }
@@ -57,4 +73,4 @@ try {
 }
 for (const f of failures) console.error('✗ ' + f.name + '\n    ' + f.problems.join('\n    '));
 if (failures.length) { console.error(`outage-drill-browser: ${failures.length} of ${checks} page loads failed (screenshots in ${output})`); process.exit(1); }
-console.log(`outage-drill-browser: ${checks} page loads survived a full data and API outage (${shots} screenshots in ${output})`);
+console.log(`outage-drill-browser: ${checks} page loads survived a full data and API outage; ${retryChecks} Retry / Refresh clicks showed feedback (${shots} screenshots in ${output})`);
