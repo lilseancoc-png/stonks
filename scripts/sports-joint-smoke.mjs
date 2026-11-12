@@ -14,6 +14,9 @@ import { packRows } from '../lib/sports/rows.mjs';
 import { sportsKey } from '../lib/sports/store.mjs';
 import { handleSportsRequest } from '../lib/sports/http.mjs';
 import { nbaModelLeague } from './fixtures/sports-model.mjs';
+import { evaluateOutcomes } from '../lib/sports/entry-price.mjs';
+import { latentOf } from '../lib/sports/bets.mjs';
+import { GAME_STATS } from '../lib/sports/joint.mjs';
 
 let checks = 0;
 const ok = (cond, msg) => { assert.ok(cond, msg); checks++; };
@@ -196,6 +199,48 @@ const L_ = (player_id, team, game_id, stat, side, probability, extra = {}) => ({
   const ps = [0.6, 0.5];
   eq(payoutValue({ stake: 10, payouts: { 2: 3 }, distribution: poissonBinomial(ps) }), { expected_gross: 9, expected_net: -1, expected_roi: -0.1 });
   eq(evaluatePayout({ stake: 10, format: 'power', payouts: { 2: 3 }, probabilities: ps }).expected_net, -1);
+}
+
+// --- the outcome-table pricer (lib/sports/entry-price.mjs, game bets 2026-11-12) --------
+{
+  const withLatent = (ls, game) => ls.map((l) => ({ ...l, latent: latentOf(l, game) }));
+  // Player picks only: the same numbers and seed as the earlier pricer.
+  const legs = withLatent([L_('lbj', 'lal', 'g1', 'points', 'over', 0.55), L_('lbj', 'lal', 'g1', 'rebounds', 'over', 0.5), L_('sc', 'gs', 'g2', 'points', 'over', 0.6)]);
+  const groups = sameGameGroups(legs);
+  for (const [format, payouts] of [['power', { 3: 6 }], ['flex', { 3: 3, 2: 1 }]]) {
+    const old = jointEvaluation({ legs, groups, joints, stake: 10, format, payouts });
+    const now = evaluateOutcomes({ legs, groups, joints, stake: 10, format, payouts });
+    eq([now.status, now.joint_probability, now.range, now.distribution, now.expected_net, now.simulation.seed], [old.status, old.joint_probability, old.range, old.distribution, old.expected_net, old.simulation.seed], 'player picks price exactly as before (' + format + ')');
+  }
+  eq(evaluateOutcomes({ legs: legs.slice(2), groups: [], joints, stake: 10, format: 'power', payouts: { 1: 1.5 } }).odds.fair.american, -150, 'fair odds at 60%');
+  // Game bets: who wins and the spread read one number, so they are priced
+  // exactly with no link: winning AND covering −5.5 is just covering.
+  const game = { home_team: 'lal', away_team: 'gs' };
+  const T = (market, team, extra) => ({ kind: 'team', sport: 'nba', game_id: 'g1', market, team, side: 'over', team_in_game: true, ...extra });
+  const tl = withLatent([T('moneyline', 'lal', { probability: 0.62 }), T('spread', 'lal', { line: -5.5, probability: 0.45 })], game);
+  const te = evaluateOutcomes({ legs: tl, groups: sameGameGroups(tl), joints: { nba: null }, stake: 10, format: 'parlay', payouts: { 2: 2.9 } });
+  eq([te.status, te.joint_probability, te.shared_numbers, te.links], ['joint_estimate', 0.45, [{ legs: [0, 1] }], []], 'nested picks on one number: the smaller chance');
+  // The away team to win reads the same margin from the other side: it
+  // cannot win with LAL covering.
+  const opp = withLatent([T('spread', 'lal', { line: -5.5, probability: 0.45 }), T('moneyline', 'gs', { probability: 0.38 })], game);
+  eq(evaluateOutcomes({ legs: opp, groups: sameGameGroups(opp), joints: { nba: null }, stake: 10, format: 'parlay', payouts: { 2: 4 } }).joint_probability, 0, 'LAL −5.5 and GS to win never both win');
+  // A push on one number: win by 6 or more and −6 (whole line) share cut points.
+  const push = withLatent([T('spread', 'lal', { line: -6, probability: 0.4, push: 0.05 }), T('win_by', 'lal', { line: 6, probability: 0.45 })], game);
+  const pe = evaluateOutcomes({ legs: push, groups: sameGameGroups(push), joints: { nba: null }, stake: 10, format: 'parlay', payouts: { 2: 3 }, prices: [1.9, 1.9] });
+  near(pe.joint_probability, 0.4, 'both win when the margin beats 6', 1e-6);
+  near(pe.push_chance, 0.05, 'landing on 6 pushes the spread while win-by-6 wins', 1e-6);
+  near(pe.expected_gross, 10 * (0.4 * 1.9 * 1.9 + 0.05 * 1.9), 'the pushed pick drops out of the parlay', 0.01);
+  // A game total and a player's points need a measured link like any pair.
+  const mixed = withLatent([T('total', null, { side: 'over', line: 228.5, probability: 0.5 }), L_('lbj', 'lal', 'g1', 'points', 'over', 0.55)], game);
+  const mx = evaluateOutcomes({ legs: mixed, groups: sameGameGroups(mixed), joints, stake: 10, format: 'power', payouts: { 2: 3 } });
+  eq([mx.status, mx.missing_links.length], ['not_calculated', 1], 'no measured link: not priced');
+  ok(/game total and points, same game|points and game total, same game/.test(mx.detail), mx.detail);
+  const withTotal = { nba: { ...joints.nba, pairs: { ...joints.nba.pairs, 'game_total|points|game': { stats: ['game_total', 'points'], relation: 'game', link: 0.25, interval: { low: 0.2, high: 0.3 }, status: 'validated' } } } };
+  const mx2 = evaluateOutcomes({ legs: mixed, groups: sameGameGroups(mixed), joints: withTotal, stake: 10, format: 'power', payouts: { 2: 3 } });
+  near(mx2.joint_probability, bvnUpper(invNorm(0.5), invNorm(0.45), 0.25), 'priced with the measured game link', 0.006);
+  eq(relationOf({ player_id: 'game:g1', stat: 'game_total' }, { player_id: 'lbj', stat: 'points' }), 'game');
+  eq(linkLabel(['team_margin', 'points'], 'same_player'), 'team margin and points, one team');
+  eq(GAME_STATS, ['team_margin', 'team_points', 'game_total']);
 }
 
 // --- Pick Builder route on a league where one game's pace moves both teams --------------

@@ -7,7 +7,8 @@
 // spread, and the archive's moneyline chance. Offline and deterministic.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { buildTeamModel, forecastGame, priceTeamBet, pmfChances, wholePmf, fairAmerican, restEdge, restDaysFor, bookChances, teamBetLadder, teamModelSummary, TEAM_MARKETS } from '../lib/sports/team-model.mjs';
+import { buildTeamModel, forecastGame, priceTeamBet, pmfChances, wholePmf, fairAmerican, restEdge, restDaysFor, bookChances, teamBetLadder, teamModelSummary, TEAM_MARKETS, teamJointRecords } from '../lib/sports/team-model.mjs';
+import { fitJoint } from '../lib/sports/joint.mjs';
 import { teamBetsView, teamResultStats, findTeamGame, winByLadder } from '../lib/sports/team-bets.mjs';
 import { archivedGameLine } from '../lib/sports/line-archive.mjs';
 import { seededRandom, seededNormals } from '../lib/sports/normal.mjs';
@@ -219,6 +220,25 @@ const fc = forecastGame(M, up, { rest: { home: 2, away: 1 } });
   const load = async (kind) => store[kind] || null;
   eq((await findTeamGame({ load, sport: 'nba', seasons: [2024], team: 'AAA', opponent: 'lll', nowMs: NOW }))?.game_id, 'up1', 'the next meeting by team codes');
   eq(await findTeamGame({ load, sport: 'nba', seasons: [2024], team: 'aaa', opponent: 'bbb', nowMs: NOW }), null, 'none when they do not meet');
+}
+
+// --- same-game links with game numbers (Pick Builder game bets) ---------------
+{
+  const dates = plain.map((g) => g.local_date).sort();
+  const split = dates[Math.floor(dates.length * 0.7)];
+  const recs = teamJointRecords({ sport: 'nba', games: plain, model: M, split });
+  ok(recs.length > 0 && recs.length % 5 === 0, 'five numbers per game: both margins, both scores and the total');
+  const g0 = recs.slice(0, 5);
+  eq(g0.map((r) => r.stat), ['team_margin', 'team_margin', 'team_points', 'team_points', 'game_total']);
+  near(g0[0].z, -g0[1].z, 1e-12, 'the away margin is the home margin from the other side');
+  ok(g0[4].player_id.startsWith('game:') && g0[4].team === null, 'the game total belongs to the game');
+  ok(recs.filter((r) => r.zTrain != null).length > 0 && recs.filter((r) => r.pTest != null).every((r) => r.y === 0 || r.y === 1), 'earlier games fit, later games check');
+  ok(recs.every((r) => (r.zTrain != null) !== (r.pTest != null)), 'each record is either fit or check, never both');
+  const fit = fitJoint(recs);
+  const tot = fit.pairs['game_total|team_points|game'];
+  ok(tot && tot.link > 0.4, 'a team’s points move with the game total: ' + (tot && tot.link));
+  ok(!fit.pairs['team_margin|team_margin|opponent'] && !fit.pairs['team_margin|team_margin|same_player'], 'one game margin is never linked with itself');
+  eq(teamJointRecords({ sport: 'nba', games: plain, model: { status: 'no_data' } }), [], 'no model, no records');
 }
 
 console.log(`Sports team model smoke passed (${checks} checks).`);

@@ -296,6 +296,23 @@ eq([G2.game_lines?.favorite, G2.game_lines?.total], ['gs', 228.5], 'the game vie
   ok(row.team_win && Math.abs(row.team_win.home + row.team_win.away + row.team_win.tie - 1) < 0.002 && Math.abs(row.team_win.home - R.forecast.win.home) < 1e-9, 'the board carries the same win chance');
   const MC = (await tool('sports_get_model_check', { sport: 'nba' })).structuredContent.results.team_model;
   ok(MC.status === 'ok' && MC.see === 'sports_team_odds' && ['moneyline', 'spread', 'win_by', 'total', 'team_total'].every((k) => MC.markets[k] && Number.isInteger(MC.markets[k].n)), 'the model check lists the team model per kind of bet');
+  // Game bets and a sportsbook parlay through the evaluate tool.
+  const gbArgs = { legs: [{ kind: 'team', sport: 'nba', game_id: 'mnext1', market: 'spread', team: 'gs', line: -4.5, price: '-110' },
+    { kind: 'team', sport: 'nba', game_id: 'mnext1', market: 'total', side: 'over', line: 228.5, price: '1.91' }],
+    operator: 'sportsbook', format: 'parlay', stake: 10, use_model_chances: true };
+  ok(validateArgs(TOOLS.find((t) => t.name === 'sports_evaluate_entry').inputSchema, gbArgs), 'game bets and prices pass the schema check');
+  const GB = await tool('sports_evaluate_entry', gbArgs);
+  ok(!GB.isError, 'game bets are evaluated: ' + JSON.stringify(GB).slice(0, 300));
+  const GR = GB.structuredContent.results;
+  eq(GR.legs.map((l) => [l.kind, l.label]), [['team', 'GS −4.5'], ['team', 'Game total over 228.5']], 'each game bet is named');
+  ok(GR.legs.every((l) => l.chance_source === 'model' && l.chance > 0 && l.chance < 1 && l.model.status === 'ok'), 'use_model_chances copies the team model’s chance');
+  eq(GR.legs.map((l) => l.odds.price.american), [-110, -110], 'each price is read in every format');
+  eq(GR.payouts, { 2: Math.round(1.9091 * 1.91 * 10000) / 10000 }, 'the picks’ odds multiplied');
+  ok(['joint_estimate', 'not_calculated'].includes(GR.evaluation.status) && GR.evaluation.odds && GR.evaluation.odds.offered.decimal > 3.6, 'the parlay is priced or says why not, with its odds');
+  const gbPre = decodePrefill(GR.pick_builder_link.split('entry=')[1]);
+  eq([gbPre.format, gbPre.operator, gbPre.legs[0].kind, gbPre.legs[0].market, gbPre.legs[0].line, gbPre.legs[0].price], ['parlay', 'sportsbook', 'team', 'spread', -4.5, 1.9091], 'the Pick Builder link keeps the game bets and their odds');
+  eq((await errCode({ legs: [{ kind: 'team', sport: 'nba', market: 'moneyline', team: 'gs' }] })).code, 'INVALID_INPUT', 'a game bet needs its game');
+  eq((await errCode({ legs: [{ kind: 'team', sport: 'nba', game_id: 'mnext1', market: 'moneyline', team: 'gs', price: 'abc' }], format: 'parlay' })).code, 'INVALID_INPUT', 'a bad price is refused');
 }
 
 // --- model check -------------------------------------------------------------------

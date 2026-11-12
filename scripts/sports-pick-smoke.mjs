@@ -12,6 +12,9 @@ import { NBA_SOURCE, HOOPR_URLS } from '../lib/sports/hoopr.mjs';
 import { NFL_SOURCE, NFLVERSE_URLS } from '../lib/sports/nflverse.mjs';
 import { handleSportsRequest, recordLoader } from '../lib/sports/http.mjs';
 import { SPORTS_PREFIX } from '../lib/sports/store.mjs';
+import { parsePrice, cleanTeamLeg, teamLegLabel, milestoneLabel, teamLegResult, fairOdds, americanOf } from '../lib/sports/bets.mjs';
+import { encodePrefill, decodePrefill } from '../lib/sports/prefill.mjs';
+import { sportsFactory } from './render/sports-client.mjs';
 import { SCHEDULE_2026, SCHEDULE_2027, BOX_2026, BOX_2027 } from './fixtures/sports-nba.mjs';
 import { GAMES, PLAYERS, WEEK_2025, WEEK_2026 } from './fixtures/sports-nfl.mjs';
 
@@ -254,5 +257,87 @@ const prRow = unpackRows(JSON.parse(settleSt.objects.get(SPORTS_PREFIX + 'nba/pl
 const prLeg = (await journalView({ load: recordLoader(settleSt), now: NOW, sub: OWNER })).entries.find((e) => e.entry_id === PR.entry_id).legs[0];
 eq(prLeg.actual, prRow.stats.points + prRow.stats.rebounds, 'the settled value is points + rebounds');
 eq(prLeg.result, prLeg.actual > 25.5 ? 'win' : 'loss');
+
+// --- game bets, odds formats and parlays (2026-11-12) --------------------------------
+// Prices: American, decimal and Kalshi cents all become the decimal multiplier.
+eq(parsePrice('-110'), { decimal: 1.9091, american: -110, cents: 52.4, typed: 'american' });
+eq(parsePrice('+150').decimal, 2.5); eq(parsePrice('150').decimal, 2.5, 'an unsigned 150 reads as +150');
+eq(parsePrice('−200').decimal, 1.5, 'the typographic minus works');
+eq([parsePrice('1.91').decimal, parsePrice('1.91').typed], [1.91, 'decimal']);
+eq([parsePrice('62¢').cents, parsePrice('62c').decimal, parsePrice('.62').decimal], [62, 1.6129, 1.6129], 'Kalshi cents and a chance read the same');
+eq([parsePrice('abc'), parsePrice('-50'), parsePrice('0'), parsePrice('100c'), parsePrice(''), parsePrice(1)], [null, null, null, null, null, null], 'nonsense prices are refused');
+eq([americanOf(1.909), americanOf(2.5), fairOdds(0.5).american, fairOdds(0.75).american], [-110, 150, 100, -300]);
+{ // The page's copy of the parser agrees with the server's.
+  const page = sportsFactory({}, { addEventListener() {}, getElementById() { return null; } }, {});
+  for (const raw of ['-110', '+150', '150', '−200', '1.91', '62¢', '62c', '.62', '0.5', '7', '7.0', '+600', '14¢', '99c', 'abc', '-50', '', '1001', '100000', '+100000']) {
+    const a = parsePrice(raw), b = page.priceOf(raw);
+    eq(b ? { decimal: b.decimal, american: b.american, cents: b.cents } : null, a ? { decimal: a.decimal, american: a.american, cents: a.cents } : null, 'page and server read ' + raw + ' the same');
+  }
+}
+eq(cleanTeamLeg({ market: 'spread', team: 'GS', line: -5.5 }), { market: 'spread', team: 'gs', side: 'over', line: -5.5 });
+ok(/whole or half/.test(cleanTeamLeg({ market: 'spread', team: 'gs', line: -5.3 }).error), 'spreads are whole or half points');
+ok(/1 to 60/.test(cleanTeamLeg({ market: 'win_by', team: 'gs', line: 7.5 }).error), 'win by takes whole points');
+ok(/team/.test(cleanTeamLeg({ market: 'moneyline' }).error), 'a moneyline needs a team');
+eq(cleanTeamLeg({ market: 'total', team: 'gs', side: 'under', line: 228.5 }).team, null, 'a game total has no team');
+eq(['moneyline', 'spread', 'win_by', 'total', 'team_total'].map((market) => teamLegLabel({ market, team: 'lal', side: market === 'win_by' ? 'under' : 'over', line: market === 'spread' ? -5.5 : market === 'win_by' ? 10 : 114.5 })),
+  ['LAL to win', 'LAL −5.5', 'LAL not to win by 10+', 'Game total over 114.5', 'LAL team total over 114.5']);
+eq([milestoneLabel('over', 24.5), milestoneLabel('over', 24), milestoneLabel('under', 24.5)], ['25+', null, null], 'over 24.5 is Kalshi’s 25+');
+{ const g = { home_team: 'gs', away_team: 'phx', home_score: 110, away_score: 104 };
+  eq(['moneyline', 'spread', 'win_by', 'total', 'team_total'].map((market) => teamLegResult({ market, team: 'gs', side: 'over', line: market === 'spread' ? -6 : market === 'win_by' ? 6 : market === 'total' ? 214 : 110.5 }, g)),
+    ['win', 'push', 'win', 'push', 'loss'], 'game bets settle from the final score (−6 and 214 push)'); }
+eq(settleFromLegs({ stake: 10, format: 'parlay', payouts: { 2: 3.6 }, prices: [2, 1.8], results: ['win', 'win'] }), { state: 'settled', outcome: 'win', wins: 2, gross: 36, net: 26 });
+eq(settleFromLegs({ stake: 10, format: 'parlay', payouts: { 2: 3.6 }, prices: [2, 1.8], results: ['win', 'push'] }).gross, 20, 'a pushed pick drops out of the parlay');
+eq(settleFromLegs({ stake: 10, format: 'parlay', payouts: { 2: 3.6 }, prices: [2, 1.8], results: ['push', 'void'] }).outcome, 'refund', 'every pick pushed: the stake back');
+eq(settleFromLegs({ stake: 10, format: 'parlay', payouts: { 2: 3.6 }, results: ['win', 'push'] }).state, 'review', 'one price for the whole parlay: a push waits for the owner');
+eq(settleFromLegs({ stake: 10, format: 'parlay', payouts: { 2: 3.6 }, results: ['loss', null] }).outcome, 'loss', 'one losing pick settles a parlay at once');
+
+const gsWin = (extra = {}) => ({ kind: 'team', sport: 'nba', game_id: '401900003', market: 'moneyline', team: 'gs', ...extra });
+const gsSpread = (extra = {}) => ({ kind: 'team', sport: 'nba', game_id: '401900003', market: 'spread', team: 'gs', line: -5.5, ...extra });
+const tb = await evaluateEntry({ load: load(), body: { legs: [gsWin(), gsSpread(), curry('401900003')] }, now: NOW });
+const [tML, tSp] = tb.legs;
+eq([tML.kind, tML.label, tML.matchup, tML.opponent, tSp.label], ['team', 'GS to win', 'phx@gs', 'phx', 'GS −5.5'], 'a game bet is filled from the stored game');
+eq([tML.model.status, tML.model.reason], ['not_calculated', 'no_model'], 'no team model in this fixture: it says so');
+ok(tML.history.all.games > 0 && tML.recent.length === tML.history.all.games && tML.chart.threshold === 0, 'the team’s record this season against the bet');
+eq(tSp.chart, { side: 'over', threshold: 5.5 }, 'a −5.5 spread reads margins against 5.5');
+eq([tML.latent.id, tSp.latent.id, tML.latent.up, tSp.latent.up], ['g:margin', 'g:margin', true, true], 'both read the home team’s margin');
+await rejects(evaluateEntry({ load: load(), body: { legs: [gsWin(), gsWin({ team: 'phx' })] }, now: NOW }), 400, /Both teams to win/, 'both teams to win cancel out');
+await rejects(evaluateEntry({ load: load(), body: { legs: [gsWin(), gsWin()] }, now: NOW }), 400, /twice/, 'the same game bet twice');
+await rejects(evaluateEntry({ load: load(), body: { legs: [gsWin({ team: 'lal' })] }, now: NOW }), 400, /not in this game/, 'a team not in the game');
+await rejects(evaluateEntry({ load: load(), body: { legs: [gsSpread({ line: 70 })] }, now: NOW }), 400, /spread/, 'a spread out of range');
+await rejects(evaluateEntry({ load: load(), body: { legs: [gsWin({ price: 'abc' })], format: 'parlay' }, now: NOW }), 400, /odds must look like/, 'a bad price is refused');
+// Who wins and the spread move as one number: all win is the spread's chance.
+const shared = await evaluateEntry({ load: load(), body: { legs: [gsWin({ probability: 0.6 }), gsSpread({ probability: 0.5 })], operator: 'sportsbook', format: 'parlay', stake: 10, payouts: { 2: 2.5 } }, now: NOW });
+eq([shared.evaluation.status, shared.evaluation.joint_probability, shared.evaluation.independent_probability], ['joint_estimate', 0.5, 0.3], 'one number: priced exactly, not multiplied');
+eq(shared.evaluation.shared_numbers, [{ legs: [0, 1] }]);
+eq([shared.evaluation.odds.fair.american, shared.evaluation.odds.offered.decimal, shared.evaluation.odds.edge], [100, 2.5, 0.25], 'fair odds, the typed parlay price and the edge');
+eq([shared.evaluation.expected_net, shared.evaluation.breakeven_probability], [2.5, 0.4]);
+const perPick = await evaluateEntry({ load: load(), body: { legs: [gsWin({ probability: 0.6, price: '-150' }), curry('401900004', { probability: 0.5, price: '1.91' })], operator: 'sportsbook', format: 'parlay', stake: 10 }, now: NOW });
+eq([perPick.prices, perPick.payouts], [[1.6667, 1.91], { 2: 3.1834 }], 'each pick’s odds, multiplied');
+eq([perPick.evaluation.status, perPick.evaluation.joint_probability, perPick.evaluation.expected_net], ['independence_baseline', 0.3, -0.45], 'two games, at the multiplied odds');
+eq([perPick.legs[0].odds.price.american, perPick.legs[0].odds.edge, perPick.legs[1].odds.fair.american], [-150, 0, 100], 'each pick’s price, edge and fair odds');
+eq((await evaluateEntry({ load: load(), body: { legs: [gsWin()], format: 'parlay', operator: 'kalshi', stake: 10 }, now: NOW })).evaluation.status, 'needs_payout', 'a parlay needs odds');
+eq((await evaluateEntry({ load: load(), body: { legs: [gsWin({ price: '+120' })], format: 'power', operator: 'prizepicks', stake: 10, payouts: { 1: 2 } }, now: NOW })).legs[0].price, null, 'prices are kept only for parlays');
+{ // A shared link carries game bets and prices, never chances.
+  const link = encodePrefill({ operator: 'kalshi', format: 'parlay', stake: 5, payouts: {}, legs: [{ ...gsSpread(), price: 1.91, probability: 0.5 }, curry('401900003')] });
+  const back = decodePrefill(link);
+  eq([back.operator, back.format, back.legs[0].kind, back.legs[0].market, back.legs[0].line, back.legs[0].price, back.legs[0].probability], ['kalshi', 'parlay', 'team', 'spread', -5.5, 1.91, undefined], 'the link round-trips a game bet');
+  eq(decodePrefill(encodePrefill({ format: 'power', legs: [{ ...gsSpread(), line: 99 }] })), null, 'a bad game bet in a link is refused');
+}
+// Game bets settle from the final score; a parlay with odds pays them.
+{
+  const settleSt2 = fakeR2();
+  for (const adapter of [NBA_SOURCE, NFL_SOURCE]) await ingestLeague({ adapter, store: settleSt2, fetchText: async (u) => files.get(u) ?? null, now: NOW });
+  const g2 = JSON.parse(settleSt2.objects.get(SPORTS_PREFIX + 'nba/games/2026.json')).games.find((g) => g.game_id === '401900002');
+  const winner = g2.home_score > g2.away_score ? g2.home_team : g2.away_team, margin = Math.abs(g2.home_score - g2.away_score), sum = g2.home_score + g2.away_score;
+  const T = (extra) => ({ kind: 'team', sport: 'nba', game_id: '401900002', team: winner, ...extra });
+  const W = await saveEntry({ store: settleSt2, load: recordLoader(settleSt2), body: { legs: [T({ market: 'moneyline', price: 2 }), T({ market: 'spread', line: -margin, price: 1.8 })], operator: 'sportsbook', format: 'parlay', stake: 10 }, now: EARLY, sub: OWNER });
+  const P = await saveEntry({ store: settleSt2, load: recordLoader(settleSt2), body: { legs: [T({ market: 'total', side: 'under', line: sum + 0.5 }), T({ market: 'win_by', side: 'under', line: margin + 1 })], operator: 'prizepicks', format: 'power', stake: 10, payouts: { 2: 3 } }, now: EARLY, sub: OWNER });
+  const v2 = await journalView({ load: recordLoader(settleSt2), now: NOW, sub: OWNER });
+  const w = byId(v2, W.entry_id), pw = byId(v2, P.entry_id);
+  eq(w.legs.map((l) => [l.result, l.actual]), [['win', margin], ['push', margin]], 'won, and landed exactly on the spread');
+  eq(w.settlement, { state: 'settled', outcome: 'win', wins: 1, gross: 20, net: 10 }, 'the push drops out: paid at the moneyline’s odds');
+  eq([pw.legs.map((l) => l.result), pw.settlement.gross], [['win', 'win'], 30], 'under the total and not winning by margin + 1');
+  ok(!JSON.parse(settleSt2.objects.get(SPORTS_PREFIX + 'markets/observations.json') || '{"observations":[]}').observations.some((o) => o.entry_id === W.entry_id), 'game bets are not written as player line observations');
+}
 
 console.log(`Sports Pick Builder smoke passed (${checks} checks).`);

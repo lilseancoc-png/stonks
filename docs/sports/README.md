@@ -845,9 +845,84 @@ player's injury line (ESPN, and for NFL the official report and roster
 status) only when he is out or unsure, plus the game total and team's
 implied total and whether this stat's forecast used them.
 
+## Game bets, odds and parlays (2026-11-12)
+
+The Pick Builder takes every kind of NBA and NFL line Kalshi and the
+sportsbooks list that the stored data can price, not only player lines.
+Kalshi's game pages (winner, spread, total, team totals) and player pages
+(points, rebounds, assists, threes, double-doubles, yards, touchdowns) map as:
+
+| Kalshi / sportsbook | Pick Builder |
+|---|---|
+| Game winner | Game bet, `moneyline` (an NFL tie pushes) |
+| Spread ("wins by over 5.5") | Game bet, `spread` (−5.5 = favored by 5.5; whole lines push) |
+| Win by X or more | Game bet, `win_by` (yes / no) |
+| Total points | Game bet, `total` over / under |
+| Team total | Game bet, `team_total` over / under |
+| Player "25+ points" | Player line, over 24.5 (the page shows "25+" beside the line) |
+| Double-double / triple-double | Player line, `double_double` / `triple_double` over 0.5 (NBA) |
+
+Futures, awards and season-long markets are left out: nothing stored prices
+them.
+
+**Code.** `lib/sports/bets.mjs` holds the pick kinds, the game-bet checks and
+labels, results from the final score, the price parser and fair odds.
+`lib/sports/entry-price.mjs` prices an entry (below). The journal
+(`journal.mjs`) takes a pick `{ kind: 'team', sport, game_id, market, team,
+side, line }` beside player picks; a game bet gets the team game model's
+chance (win, push and loss separately), fair odds, the books' no-vig chance
+where it is the market's own line, and the team's record against the same
+line this season (the small chart). It settles from the final score; a
+canceled or postponed game voids it. Two picks that can never both win
+(both teams to win, over and under the same player line that cannot both
+land) are refused.
+
+**Adding one.** The Pick Builder's "Game bet" tab (league, game, bet, team,
+line; the model's chance shows as you type) or a game's Team bets checker
+("Add to Pick Builder").
+
+**Odds.** A price can be typed as American (−110, +150), decimal (1.91) or
+Kalshi cents (62¢, or .62). It is stored as the decimal multiplier, stake
+included, and shown in all three forms (`parsePrice`; the page's copy is
+`priceOf` in `sports-client.mjs`, and `sports-pick-smoke` checks they agree).
+The entry shows an Odds table: fair odds for all picks winning at the chance
+shown, fair odds if the picks were unrelated, the odds or payout the app
+offers, and the edge (expected profit per $1).
+
+**Parlay format.** For a sportsbook or Kalshi, choose the Parlay entry type
+(picking either app switches to it). Type each pick's odds and they are
+multiplied, or type the one price the app shows for the whole parlay
+(many books price a same-game parlay below the multiplied odds). Settling:
+any losing pick loses the parlay; with each pick's odds, a pushed or voided
+pick drops out and the rest pay at their own odds; with one combined price a
+push goes to the owner to enter what the app paid.
+
+**Pricing (`evaluateOutcomes`).** Each pick wins, pushes or loses when one
+game number lands on its side of a cut: a player's stat, the home team's
+margin (to win, spread, win by), the game total, or one team's points
+(`latentOf` in `bets.mjs`). Picks on the same number share it exactly, so
+"LAL to win" and "LAL −5.5" together are just the −5.5 chance, and "LAL −5.5"
+with "BOS to win" can never both win. Different numbers in one game are drawn
+together with the measured links (the same seeded Gaussian copula, 100,000
+draws); a game with one number is computed exactly. Every pick's three
+outcomes go into an outcome table (up to 3⁶ rows) that pays out power, flex
+and parlay from one place. Player-only entries give exactly the numbers and
+seed they gave before (`sports-joint-smoke` compares them).
+
+**Links with game numbers (`sports-joint-2`).** The data job now fits the
+links on player misses and the team game model's misses together
+(`teamJointRecords` in `team-model.mjs`: each team's margin and points and
+the game total, walk-forward), so a player's points can be priced with his
+team's margin or the game total. On the 2026-11-12 real data: NFL 50 game-bet
+links measured, 24 passed (a running back's rushing yards with his own team's
+margin +0.21; a team's points with the game total +0.72); NBA 65 measured, 60
+passed (a player's points with his team's margin +0.12; a team's points with
+the game total +0.79). A pair with no measured link is left unpriced, with the
+range under any link and the "if unrelated" chance.
+
 ## Same-game chances
 
-`lib/sports/joint.mjs` (`sports-joint-1`, method `gaussian-copula`), with the
+`lib/sports/joint.mjs` (`sports-joint-2` since 2026-11-12, with game numbers; method `gaussian-copula`), with the
 normal-curve helpers in `lib/sports/normal.mjs`. Deterministic and AI-free.
 
 **What it measures.** Every scored forecast in the stat-model check leaves a
@@ -1149,11 +1224,14 @@ One branch and pull request each, from `main`:
     totals, team totals), the Team bets block and `sports_team_odds`, the
     full player page (`?player=`), player splits and upcoming games in the
     MCP, and the split sportsbook game-line request
+12. `sports-bet-types`: game bets in the Pick Builder, odds in American /
+    decimal / cents, the parlay format, the outcome-table pricer with picks
+    on one number priced exactly, and same-game links with game numbers
 
 ## Tests
 
 ```bash
 npm run test:sports           # access, route, time zones, keys, schema, wiring, both adapters, ingest, views, payout math, the journal, the stat models, same-game chances, the MCP tools, the player / team stats and the team game model (sports-team-smoke: pricing, page/server parity, rest, curves)
-npm run test:sports-browser   # Owner / member / signed-out at 1440 and 390, boards, games, logs, forecasts, every chart, the stats views, the model check, the Pick Builder flow, a same-game estimate, Team bets and the player page (tabs, keys, focus, Back, deep links)
+npm run test:sports-browser   # Owner / member / signed-out at 1440 and 390, boards, games, logs, forecasts, every chart, the stats views, the model check, the Pick Builder flow, a same-game estimate, game bets and a sportsbook parlay, Team bets and the player page (tabs, keys, focus, Back, deep links)
 node scripts/regen-sports.mjs # rebuild index.html / app.js / styles.css without data/
 ```
