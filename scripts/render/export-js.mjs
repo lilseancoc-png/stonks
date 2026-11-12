@@ -29,6 +29,7 @@ export const EXPORT_SOURCES = {
   'unified-signal-engine': ['market-analysis.json', 'sector-rotation.json'], market: ['regime-history.json', 'correlations.json'],
   risk: ['market-analysis.json'], 'bottom-tracker': ['bottom-tracker.json'],
   'party-tracker': ['party-tracker.json'],
+  'history-rhymes': ['history-rhymes.json', 'history-rhymes-owner.json'],
   picks: ['picks.json', 'picks-open.json'], leaps: ['leaps-picks.json'], stocks: ['stock-picks.json'],
   rotation: ['sector-rotation.json'], levetf: ['leveraged-etfs.json'],
   'open-picks': ['picks-open.json', 'picks-accuracy.json'],

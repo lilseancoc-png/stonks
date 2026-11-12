@@ -28,6 +28,19 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Add `sports_team_odds` to the MCP (game id or two team codes, up to 12 bets, a win-by ladder from 1+ to 30+, the books' no-vig chances and the check per kind of bet); `sports_list_games` carries each game's win chance and `sports_get_model_check` the team model's check.
 - Clicking a player now opens a full **player page** (`?player=` link, Back works, arrow keys move between tabs) with seven tabs: overview, the team's next five games (opponent record, what that defense allows to the position, rest, spread, total, win chance, the player's average against them; last season's numbers, labeled, before an opponent's first game), all charts (new: per 36 minutes or per target / carry / attempt, game script by team result, two stats against each other), the game log, averages by opponent, by season, and a quick pick form.
 - `sports_get_player` in the MCP adds the team's next five games and the player's splits (home / away, starter / bench, team won / lost, close games and blowouts, favored / underdog, rest, season and opponent).
+- Add **Booms & busts** (Market & economy, `?tab=history-rhymes`): four case studies (British and US railroads, the 1996–2002 telecom and fiber build, the 2008 housing and credit crisis, and today's AI data center buildout) with dated, sourced timelines, numbers and charts, and a "Now vs history" tab that reads nine warning signs from data the site already collects (SEC capex and revenue, GPU rents, bond issuance, credit spreads, prices) into a stage and the closest past case. Public; no AI call and no new workflow (five keyless FRED series join the shared history cache).
+- Credit & CDS tab: dated press quotes for single-name credit default swaps (CoreWeave above 1,000 bp, Oracle 288 bp, record highs for Amazon, Alphabet, Meta and Nvidia, October 2026) beside the Baa, high-yield and investment-grade spreads, with a plain note that single-name CDS prices are sold by data vendors and have no free daily feed.
+- Owner-only **Stocks** tab on Booms & busts (`history-rhymes-owner.json`): each covered stock's buildout role, a Merton equity-implied five-year default chance and spread (labeled as a model, not a market quote; financials and ETFs skipped), debt and cash-flow ratios, flags and reported CDS quotes, with a model check against CoreWeave's reported quote.
+- MCP: `get_feature` reads `history-rhymes` and, for the Owner, its `owner` dataset; `get_stock` adds `credit_read` for a covered stock.
+- Booms & busts reads carefully: the stage says "late boom" or "bust pattern" only when credit strain or a cracking builder backs it; the debt sign counts a builder only when its debt is at least half its market value or more than three years of operating cash flow; rising GPU rent reads "not showing"; the Credit tab says how old the newest press CDS quote is and warns after 60 days; the Owner model check follows the newest CoreWeave quote. A carried copy from a failed build shows with a note but is not used by Historical Data, the shadow log or the Owner brief's top line, and the MCP marks it `stale`. Every outside dated fact links its own source, undated-day events show their season or year, `?view=` links open a tab, and a failed load offers Try again.
+
+### Changed
+
+- Historical Data's "Resembles now" shows a "Buildout boom signs" card linking to Booms & busts when 4.5 or more of the nine signs show or credit strain is lit.
+- Risk analysis shows a Booms & busts context card under the seven desks; it does not vote.
+- The Owner market brief adds a "Buildout warning signs" line (stage, closest case, highest model default chances).
+- Top Picks shadow logging is version 4: `epd` (model five-year default chance) per name and `bsl` / `baa` in the daily market row. Logged and measured only; nothing scores, gates or changes a pick.
+- The shared long-history cache adds five free FRED series (Baa spread since 1986, FHFA house prices, the 30-year mortgage rate, bank mortgage delinquencies, private communication construction).
 
 ### Fixed
 
@@ -42,6 +55,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ### Docs
 
 - Document team bets, the player page, the split sportsbook request and the new MCP fields in `docs/sports/README.md`, `docs/mcp.md` and CLAUDE.md.
+- Add `docs/history-rhymes.md` (cases, the nine signs and their thresholds, the CDS sources, the Merton model, files and where they are used) and note the new MCP dataset, `credit_read` and shadow v4 in `docs/mcp.md`, `docs/top-picks.md` and CLAUDE.md.
 
 ## 2026-11-11
 

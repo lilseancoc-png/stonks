@@ -93,11 +93,15 @@ const crowd = {
 };
 const chains = { AAA: { spot: 160, _bars: bars }, BBB: { spot: 50, _bars: bars } };
 const sh = buildShadowSignals(chains, { builtAtIso: "2026-11-09T16:10:00Z", crowd });
-ok("v3 keys end with the crowd keys and the rows use them", sh.v === 3 && sh.keys.length === SHADOW_KEYS.length && shadowValue(sh, "AAA", "sv") === 55.5 && shadowValue(sh, "AAA", "bf") === 6.25 && shadowValue(sh, "AAA", "pgp") === -2.5);
+ok("v4 keys carry the crowd keys and the rows use them", sh.v === 4 && sh.keys.length === SHADOW_KEYS.length && shadowValue(sh, "AAA", "sv") === 55.5 && shadowValue(sh, "AAA", "bf") === 6.25 && shadowValue(sh, "AAA", "pgp") === -2.5);
 ok("attention is the mean percentile of the three attention reads", shadowValue(sh, "AAA", "att") === 80);
 ok("a name without a crowd row leaves the crowd keys empty", shadowValue(sh, "BBB", "bf") == null && shadowValue(sh, "BBB", "sv") === 40);
 ok("market gauges ride the block once", sh.mkt && sh.mkt.pc === 0.72 && sh.mkt.pcp === 84 && sh.mkt.cotEsZ === -1.4 && sh.mkt.mdYoy === 18.2 && sh.mkt.levBull5 === 1.2e9 && sh.mkt.kxWid === 2.44 && sh.mkt.kxRec === 20 && sh.mkt.svm === 47.3);
 ok("no crowd payload: no gauges, rows unchanged", !("mkt" in buildShadowSignals(chains, { builtAtIso: "2026-11-09T16:10:00Z" })) && shadowMarketGauges(null) === null);
+{
+  const bb = buildShadowSignals(chains, { builtAtIso: "2026-11-09T16:10:00Z", defaultChance: { AAA: 12.345 }, buildout: { score: 4.5, credit: { baa: 1.51 } } });
+  ok("booms & busts: epd per name and the sign score + Baa spread as gauges", shadowValue(bb, "AAA", "epd") === 12.35 && shadowValue(bb, "BBB", "epd") == null && bb.mkt.bsl === 4.5 && bb.mkt.baa === 1.51 && !("pc" in bb.mkt));
+}
 const snap = buildEntrySnapshot({ symbol: "AAA", pillars: {} }, chains.AAA, { shadow: sh });
 ok("entry snapshot v2 copies the crowd keys and the market gauges", snap.v === 2 && snap.shadow.bf === 6.25 && snap.shadow.att === 80 && snap.mkt.pcp === 84);
 const snapNoMkt = buildEntrySnapshot({ symbol: "AAA", pillars: {} }, chains.AAA, { shadow: sh, market: false });

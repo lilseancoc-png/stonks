@@ -495,6 +495,17 @@ async function tool(name, args, opts) {
   assert.ok(stockSeries.structuredContent.warnings.includes('USE_TOOL: read "priceSeries" with get_price_history.'), "a series section points to its own tool");
   const uncovered = await tool("get_stock", { ticker: "ZZZZ" });
   assert.equal(uncovered.structuredContent.error.code, "NOT_COVERED");
+  assert.equal(stock.structuredContent.results.credit_read, undefined, "no Booms & busts file, no credit read");
+  files["history-rhymes-owner.json"] = { version: 1, builtAtIso: new Date(now - 60_000).toISOString(), asOf: "2026-11-02", stage: { id: "boom", label: "Boom" }, buildout: [{ symbol: "NVDA", role: "supplier", model: { pdPct: 0.1, spreadBp: 0 }, cds: [], flags: [] }], others: [] };
+  const credit = (await tool("get_stock", { ticker: "NVDA" })).structuredContent.results.credit_read;
+  assert.equal(credit.role, "supplier");
+  assert.equal(credit.model.pdPct, 0.1);
+  assert.equal(credit.market_stage, "Boom");
+  assert.match(credit.note, /not a market CDS quote/);
+  const hrOwner = await tool("get_feature", { feature_id: "history-rhymes", dataset: "owner" });
+  assert.equal(hrOwner.isError, false, JSON.stringify(hrOwner));
+  assert.equal(hrOwner.structuredContent.access, "owner");
+  delete files["history-rhymes-owner.json"];
 
   const ph = await tool("get_price_history", { ticker: "NVDA", bars: 2 });
   assert.deepEqual(ph.structuredContent.results.bars.map((b) => b.c), [195, 200]);
@@ -569,7 +580,7 @@ async function tool(name, args, opts) {
 {
   const lf = (await tool("list_features", {})).structuredContent.results.features;
   const byId = Object.fromEntries(lf.map((f) => [f.id, f]));
-  for (const [id, ds] of [["quant", "evidence"], ["quant", "regime-lab"], ["quant", "loop"], ["quant", "source-health"], ["crowd", "owner"], ["picks", "runs"], ["picks", "mode"], ["grade", "auto-picks"], ["past-day", "picks-run"], ["leaps", "paper"], ["bonds-usd", "auctions"], ["unified-signal-engine", "link-map"]]) {
+  for (const [id, ds] of [["quant", "evidence"], ["quant", "regime-lab"], ["quant", "loop"], ["quant", "source-health"], ["crowd", "owner"], ["history-rhymes", "owner"], ["picks", "runs"], ["picks", "mode"], ["grade", "auto-picks"], ["past-day", "picks-run"], ["leaps", "paper"], ["bonds-usd", "auctions"], ["unified-signal-engine", "link-map"]]) {
     assert.ok(byId[id]?.datasets?.includes(ds), `${id} lists dataset ${ds}`);
   }
   assert.equal(byId.picks.read_with, "get_top_picks");
@@ -709,6 +720,7 @@ async function tool(name, args, opts) {
   const pubFeats = Object.fromEntries((await tool("list_features", {}, pub)).structuredContent.results.features.map((f) => [f.id, f]));
   assert.ok(!(pubFeats["past-day"]?.datasets || []).includes("picks-run"), "Owner-only files on public pages are not listed");
   assert.ok(!(pubFeats.crowd?.datasets || []).includes("owner"));
+  assert.ok(!(pubFeats["history-rhymes"]?.datasets || []).includes("owner"), "the per-stock credit read stays Owner-only");
   assert.equal((await tool("get_feature", { feature_id: "past-day", dataset: "picks-run" }, pub)).structuredContent.error.code, "FORBIDDEN");
   assert.equal((await tool("get_option_chain", { ticker: "NVDA" }, pub)).isError, false, "option chains are public data");
   const pubSearch = (await tool("search", { query: "picks market nvidia" }, pub)).structuredContent.results;
