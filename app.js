@@ -8527,6 +8527,51 @@ function scenarioEventPhase(ev, now = Date.now()) {
     tip.style.left = vx + 'px';
     tip.style.top = vy + 'px';
   }
+  // Retry / Refresh feedback (2026-11-12). Those buttons re-load their data,
+  // but when the answer is the same (still no file, or nothing new since the
+  // last build) the page redraws identically and the click looks dead. One
+  // delegated listener marks the button "Checking…" while its own handler
+  // runs, then writes "Checked <time>" beside the button it leaves behind
+  // (a successful load usually replaces it, so nothing is added). Buttons
+  // that report their own refresh time opt out with data-own-feedback.
+  (function initRefreshFeedback(){
+    var LABEL = /^(retry|try again|refresh|reload)\b/i;
+    function sig(el){
+      var out = el.tagName + '|' + (el.id || '') + '|';
+      for (var i = 0; i < el.attributes.length; i++){ var a = el.attributes[i]; if (a.name.indexOf('data-') === 0 && a.name !== 'data-refresh-checking') out += a.name + '=' + a.value + ';'; }
+      return out + '|' + (el.getAttribute('data-refresh-label') || el.textContent || '').trim();
+    }
+    function stamp(){
+      try { return new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' }); } catch (_) { return ''; }
+    }
+    function settle(scope, key, tries){
+      var found = null, list = scope.querySelectorAll('button');
+      for (var i = 0; i < list.length; i++){ if (sig(list[i]) === key){ found = list[i]; break; } }
+      // Still loading (button busy, or swapped for a "Loading…" line): look
+      // again. A load that succeeds usually never brings the button back.
+      if ((!found || found.disabled || found.getAttribute('aria-busy') === 'true') && tries < 25){ setTimeout(function(){ settle(scope, key, tries + 1); }, 400); return; }
+      if (!found || !found.isConnected) return;
+      var note = found.nextElementSibling;
+      if (!note || !note.classList || !note.classList.contains('refresh-note')){
+        note = document.createElement('span'); note.className = 'refresh-note'; note.setAttribute('role', 'status');
+        found.parentNode.insertBefore(note, found.nextSibling);
+      }
+      note.textContent = 'Checked ' + stamp();
+    }
+    document.addEventListener('click', function(ev){
+      var btn = ev.target && ev.target.closest ? ev.target.closest('button') : null;
+      if (!btn || btn.disabled || btn.hasAttribute('data-own-feedback')) return;
+      var text = (btn.textContent || '').trim();
+      if (!LABEL.test(text) || text.length > 40) return;
+      var scope = btn.closest('.page-pane') || document.body, key = sig(btn);
+      btn.setAttribute('data-refresh-checking', '');
+      btn.setAttribute('aria-busy', 'true');
+      setTimeout(function(){
+        if (btn.isConnected){ btn.removeAttribute('data-refresh-checking'); if (btn.getAttribute('aria-busy') === 'true') btn.removeAttribute('aria-busy'); }
+        settle(scope, key, 0);
+      }, 700);
+    }, true);
+  })();
   (function initChartHover(){
     function onMove(ev){
       var t = ev.target;
@@ -25530,7 +25575,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     gexSearch.init();
     var range = $('gex-range'), refresh = $('gex-refresh');
     if (range) range.addEventListener('change', function(){ gexState.range = range.value || 'mid'; renderGex(); });
-    if (refresh) refresh.addEventListener('click', function(){ if (gexState.symbol) loadGex(); });
+    if (refresh) refresh.addEventListener('click', function(){ loadGex(); });
     // Strike ladder → contract grader. Any cell carrying data-gex-k hands the
     // strike (plus the column's expiration and the net-gamma-dominant side)
     // to the Grade tab through the same pendingUrlState pipe the Top Picks
@@ -36733,7 +36778,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
   function propsHeader(lg) {
     const L = league(lg), P = L.props;
-    const refresh = '<button type="button" class="sp-link" data-sp-props-refresh' + (L.propsPending ? ' disabled aria-busy="true"' : '') + '>' + (L.propsPending ? 'Refreshing lines & injuries…' : 'Refresh lines & injuries') + '</button>' +
+    const refresh = '<button type="button" class="sp-link" data-sp-props-refresh data-own-feedback' + (L.propsPending ? ' disabled aria-busy="true"' : '') + '>' + (L.propsPending ? 'Refreshing lines & injuries…' : 'Refresh lines & injuries') + '</button>' +
       (L.propsNote && !L.propsPending ? ' <span class="sp-note" role="status">' + escape(L.propsNote) + '</span>' : '');
     if (L.propsErr) return '<div class="sp-props-status">The prop analysis could not be loaded. ' + refresh + '</div>';
     if (!P) return '<div class="sp-props-status">Checking PrizePicks lines and player availability… ' + refresh + '</div>';

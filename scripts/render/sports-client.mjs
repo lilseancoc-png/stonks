@@ -312,7 +312,7 @@ export function sportsFactory(host, doc, options) {
   }
   function propsHeader(lg) {
     const L = league(lg), P = L.props;
-    const refresh = '<button type="button" class="sp-link" data-sp-props-refresh' + (L.propsPending ? ' disabled aria-busy="true"' : '') + '>' + (L.propsPending ? 'Refreshing lines & injuries…' : 'Refresh lines & injuries') + '</button>' +
+    const refresh = '<button type="button" class="sp-link" data-sp-props-refresh data-own-feedback' + (L.propsPending ? ' disabled aria-busy="true"' : '') + '>' + (L.propsPending ? 'Refreshing lines & injuries…' : 'Refresh lines & injuries') + '</button>' +
       (L.propsNote && !L.propsPending ? ' <span class="sp-note" role="status">' + escape(L.propsNote) + '</span>' : '');
     if (L.propsErr) return '<div class="sp-props-status">The prop analysis could not be loaded. ' + refresh + '</div>';
     if (!P) return '<div class="sp-props-status">Checking PrizePicks lines and player availability… ' + refresh + '</div>';
