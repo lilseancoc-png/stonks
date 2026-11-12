@@ -88,6 +88,7 @@ import { OWNER_SETTINGS_APPLIED_KEY } from "../lib/owner-settings.mjs";
 // build ran without the preload). picksTag is stamped on new record trades.
 const OWNER_SETTINGS_REPORT = (() => { try { const r = JSON.parse(process.env.OWNER_SETTINGS_REPORT || "null"); return r && typeof r === "object" ? r : null; } catch { return null; } })();
 import { buildCrowdPayload, buildCrowdOwner, readCrowdPrior, writeCrowdFiles, marketGauges, crowdScoresForRow, CROWD_KEY, CROWD_OWNER_KEY } from "../lib/crowd/index.mjs";
+import { buildHistoryRhymes, buildHistoryRhymesOwner, historyRhymesSummary, HISTORY_RHYMES_KEY, HISTORY_RHYMES_OWNER_KEY, HISTORY_RHYMES_FRED } from "../lib/history-rhymes.mjs";
 import { AI_COST_HISTORY_KEY, parseAiCostHistory, upsertAiCostHistory } from "../lib/ai-cost-history.mjs";
 import {
   TRANSCRIPT_BATCH_MAX_AGE_HOURS, TRANSCRIPT_BATCH_POLL_MS, batchJobDone, batchJobFailureReason, batchJobSucceeded, batchResponseText, buildTranscriptBatchRequests,
@@ -39163,6 +39164,9 @@ async function main() {
   // the quarterly NY Fed household-credit parse, so it must be pre-read
   // before the wipe like the other cross-build histories.
   const priorIpoCredit = await readPriorIpoCredit();
+  // Booms & busts keeps its last good pair when a build cannot rebuild it.
+  const priorHistoryRhymes = await readPriorDataJson(HISTORY_RHYMES_KEY);
+  const priorHistoryRhymesOwner = await readPriorDataJson(HISTORY_RHYMES_OWNER_KEY);
   // Pending-buyout terms and rumor rows have independent last-good lanes, so
   // snapshot the prior payload before writeChainFiles replaces data/.
   const priorPendingBuyouts = await readPriorPendingBuyouts();
@@ -39788,8 +39792,44 @@ async function main() {
     log: message => console.log(`  · history source ${message}`),
   });
   await writeFile(resolve(DATA_DIR, HISTORICAL_SOURCE_KEY), JSON.stringify(historicalSourceCache), "utf8");
+  // Booms & busts (lib/history-rhymes.mjs): the railroad, telecom and 2008
+  // housing case studies set against today's AI buildout. Deterministic; it
+  // reads only what is already in memory: the long-history cache (Nasdaq,
+  // S&P 500, FRED credit and housing series), the prior AI spending, GPU rent
+  // and bond issuance snapshots (all slow-moving) and the chains. Public
+  // history-rhymes.json (history and market-wide signs) + Owner-only
+  // history-rhymes-owner.json (per-stock role and equity-implied default read).
+  let historyRhymes = null, historyRhymesOwner = null;
+  try {
+    let accelerators = null;
+    try { accelerators = JSON.parse(weeklyAltCarry["accelerator-prices.json"] || "null"); } catch { accelerators = null; }
+    historyRhymes = buildHistoryRhymes({
+      builtAtIso,
+      series: sharedHistoryBars(historicalSourceCache, ["^IXIC", "^GSPC"]),
+      fred: Object.fromEntries(HISTORY_RHYMES_FRED.map((id) => [id, historicalSourceCache?.context?.[id]?.rows || []])),
+      aiCapex: priorAiCapex, accelerators, ipoCredit: priorIpoCredit, chains,
+    });
+    historyRhymesOwner = buildHistoryRhymesOwner({
+      builtAtIso, rhymes: historyRhymes, chains,
+      r: Number.isFinite(riskFreeRate?.rate) ? riskFreeRate.rate : FALLBACK_RISK_FREE_RATE,
+      skip: (sym) => sectorGroupOf(sym) === "Financials",
+    });
+    await writeFile(resolve(DATA_DIR, HISTORY_RHYMES_KEY), JSON.stringify(historyRhymes), "utf8");
+    await writeFile(resolve(DATA_DIR, HISTORY_RHYMES_OWNER_KEY), JSON.stringify(historyRhymesOwner), "utf8");
+    console.log(`wrote data/${HISTORY_RHYMES_KEY} — ${historyRhymes.now.score}/${historyRhymes.now.total} warning signs (${historyRhymes.now.stage.label}), ${historyRhymesOwner.buildout.length + historyRhymesOwner.others.length} stock credit reads`);
+  } catch (err) {
+    console.log(`  ⚠ booms & busts failed (non-fatal, last good kept): ${err?.message || err}`);
+    historyRhymes = priorHistoryRhymes ? { ...priorHistoryRhymes, stale: true } : null;
+    historyRhymesOwner = priorHistoryRhymesOwner ? { ...priorHistoryRhymesOwner, stale: true } : null;
+    if (historyRhymes) await writeFile(resolve(DATA_DIR, HISTORY_RHYMES_KEY), JSON.stringify(historyRhymes), "utf8");
+    if (historyRhymesOwner) await writeFile(resolve(DATA_DIR, HISTORY_RHYMES_OWNER_KEY), JSON.stringify(historyRhymesOwner), "utf8");
+  }
+  const historyRhymesBrief = historyRhymesSummary(historyRhymes);
+  // Per-name model default chance for the shadow log (Top Picks research only).
+  const historyRhymesDefaultChance = Object.fromEntries([...(historyRhymesOwner?.buildout || []), ...(historyRhymesOwner?.others || [])]
+    .filter((row) => Number.isFinite(row?.model?.pdPct)).map((row) => [row.symbol, row.model.pdPct]));
   const historicalAnalyzedAt = new Date().toISOString();
-  const historicalInfo = await writeHistoricalDataFile({ dataDir: DATA_DIR, builtAtIso, analyzedAtIso: historicalAnalyzedAt, sourceCache: historicalSourceCache, inputs: historicalEventInputs(chains, trends.macroHeadlines || [], historicalAnalyzedAt) });
+  const historicalInfo = await writeHistoricalDataFile({ dataDir: DATA_DIR, builtAtIso, analyzedAtIso: historicalAnalyzedAt, sourceCache: historicalSourceCache, inputs: { ...historicalEventInputs(chains, trends.macroHeadlines || [], historicalAnalyzedAt), buildout: historyRhymesBrief } });
   console.log(`wrote data/historical-data.json — ${historicalInfo.indexes} markets, ${historicalInfo.bytes} bytes; ${historicalSourceCache.cost.requestsThisRun} free source downloads`);
   const sharedIndexBars = sharedHistoryBars(historicalSourceCache, PATTERN_SEASONALITY_SYMBOLS);
   try {
@@ -40431,7 +40471,7 @@ async function main() {
   // scored. A failure only leaves the block out.
   let shadowSignalsToday = null;
   try {
-    shadowSignalsToday = buildShadowSignals(chains, { builtAtIso, groupOf: spilloverGroupOf, oiTracker: scoringOiTracker, spillover: scenarioSpilloverMatrix, crowd: crowdPayload });
+    shadowSignalsToday = buildShadowSignals(chains, { builtAtIso, groupOf: spilloverGroupOf, oiTracker: scoringOiTracker, spillover: scenarioSpilloverMatrix, crowd: crowdPayload, defaultChance: historyRhymesDefaultChance, buildout: historyRhymesBrief });
   } catch (err) {
     console.warn(`[grades] shadow signals skipped — ${String(err?.message || err).split("\n")[0]}`);
   }
@@ -40728,7 +40768,7 @@ async function main() {
     // rebuilt here only if that attempt failed.
     if (!shadowSignalsToday) {
       try {
-        shadowSignalsToday = buildShadowSignals(chains, { builtAtIso, groupOf: spilloverGroupOf, oiTracker: scoringOiTracker, spillover: scenarioSpilloverMatrix, crowd: crowdPayload });
+        shadowSignalsToday = buildShadowSignals(chains, { builtAtIso, groupOf: spilloverGroupOf, oiTracker: scoringOiTracker, spillover: scenarioSpilloverMatrix, crowd: crowdPayload, defaultChance: historyRhymesDefaultChance, buildout: historyRhymesBrief });
       } catch (err) {
         console.warn(`[grades] shadow signals skipped — ${String(err?.message || err).split("\n")[0]}`);
       }

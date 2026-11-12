@@ -145,6 +145,22 @@ assert.equal(withCpi.studies.econ.rows.find(r => r.id === 'cpi').marketClosed, 0
 assert.deepEqual(ev.matches.map(x => x.id), ['econ-fomc'], 'a quiet synthetic tape matches only the upcoming FOMC');
 assert.equal(ev.matches[0].study, 'fomc', 'the FOMC card opens the before/on/after study');
 assert.match(ev.matches[0].history, /scheduled decisions since 1994/);
+// Booms & busts warning signs reach "Resembles now" at 4.5 of 9, or as soon as
+// credit strain is lit, and link to their own page.
+{
+  const sign = (id, label, status) => ({ id, label, status, now: label });
+  const buildout = { score: 5, total: 9, stage: { label: 'Late boom, strain showing' }, lit: ['capex-vs-revenue', 'price-falls'], partial: [], mostLike: { id: 'telecom', name: 'Telecom and fiber, 1996-2002', similarity: 60 },
+    signs: [sign('capex-vs-revenue', 'Spending grows faster than revenue', 'lit'), sign('price-falls', 'Prices for the new capacity fall', 'lit')] };
+  const b = buildHistoricalEvents({ ...base, inputs: { buildout } });
+  const m = b.matches.find(x => x.id === 'buildout');
+  assert(m && m.page === 'history-rhymes' && m.basis === 'buildout', 'buildout signs become a match with a page link');
+  assert.match(m.why, /5 of 9 warning signs .*closest to Telecom and fiber.*Lit: Spending grows faster than revenue; Prices for the new capacity fall\./);
+  assert.deepEqual(b.inputs.buildout, buildout, 'the inputs echo the buildout read');
+  const quiet = buildHistoricalEvents({ ...base, inputs: { buildout: { ...buildout, score: 3, lit: ['price-falls'] } } });
+  assert(!quiet.matches.some(x => x.id === 'buildout'), 'a few signs alone are not a match');
+  const strain = buildHistoricalEvents({ ...base, inputs: { buildout: { ...buildout, score: 2, lit: ['credit-strain'], signs: [] } } });
+  assert(strain.matches.some(x => x.id === 'buildout'), 'credit strain alone is a match');
+}
 
 // Nasdaq -4% and S&P -5% on the latest close.
 const hit = buildHistoricalEvents({ ...base, series: { ...base.series, '^IXIC': series('1971-02-05', '2026-10-26', { shocks: { ...nq, '2026-10-26': -4.6 } }), '^GSPC': series('1950-01-03', '2026-10-26', { shocks: { ...shocks, '2026-10-26': -5.5 } }) } });

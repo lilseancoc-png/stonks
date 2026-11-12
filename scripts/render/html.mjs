@@ -110,6 +110,7 @@ const SIDE_NAV_ICONS = {
   glossary: '<path d="M4 4.5h11a3 3 0 0 1 3 3v12.5H7a3 3 0 0 1-3-3z"/><path d="M4 17a3 3 0 0 1 3-3h11"/><path d="M8.5 8.5h6M8.5 11h4"/>',
   'market-map': '<rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="5" rx="1.5"/><rect x="13" y="10" width="8" height="11" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/>',
   crowd: '<circle cx="8" cy="8" r="3"/><circle cx="16" cy="8" r="3"/><path d="M2 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><path d="M14 14.5c.6-.3 1.3-.5 2-.5 3.3 0 6 2.7 6 6"/>',
+  'history-rhymes': '<path d="M2.5 19.5h19"/><path d="M3 16c2.5-1 3.5-6 6-8.5 1.5 3 2.5 5 4.5 5.5 2-3 3-7.5 5-9.5 1 4.5 1.5 9 2.5 12.5"/><path d="M5 19.5v-2M9 19.5v-3M13 19.5v-2M17 19.5v-4"/>',
   'whats-changed': '<path d="M4 7h11l-3-3M20 17H9l3 3"/><circle cx="18.5" cy="7" r="1.5"/><circle cx="5.5" cy="17" r="1.5"/>',
   'past-day': '<path d="M3 12a9 9 0 1 0 2.6-6.4L3 8"/><path d="M3 3v5h5"/><path d="M8.5 15.5h7M8.5 12h7M8.5 8.5h4"/>',
   'earnings-week': '<rect x="3" y="4.5" width="18" height="16.5" rx="2"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4"/><path d="M7 14h2v4H7zM11 12.5h2V18h-2zM15 15h2v3h-2z"/>',
@@ -361,6 +362,7 @@ function riskAnalysisSection() {
     </header>
     ${infoNote('How to read a disagreement', `<p>Each desk measures a different layer. <b>Market analysis</b> is the cross-asset regime. <b>Fear &amp; Greed</b> is slow sentiment. <b>Daily index moves</b> show the month's path. <b>Heatmap</b>, <b>volume</b>, and <b>overnight markets</b> are today's tape. <b>Gamma</b> says whether the next move is more likely to be pinned or extended. A severe label and a neutral label can both be true. This page explains the gap. It does not average them into a new score or change position limits.</p>`)}
     <div id="risk-stack" class="risk-stack" aria-live="polite"></div>
+    <div id="risk-rhymes" hidden></div>
   </section>`;
 }
 
@@ -841,6 +843,7 @@ function aiCapexSection() {
     ${infoNote('How to use the AI CapEx signal', `<p>Separate <b>infrastructure demand</b> from <b>investment quality</b>. Rising aggregate CapEx can support chip, networking, power, and data-center suppliers, but it can also pressure the buyers&rsquo; margins and free cash flow when spending outruns revenue. Start with management&rsquo;s latest full-year outlook, then compare SEC-reported CapEx growth with revenue growth and the current run-rate before checking supplier backlog/guidance and each ticker&rsquo;s Grade. Guidance definitions differ by company and remain separate from reported cash CapEx; fiscal years also differ.</p>`)}
     <div id="ai-capex-root" class="ai-capex-root">Loading AI CapEx…</div>
     <div id="ai-capex-empty" class="ai-capex-empty" hidden>AI CapEx data will appear after the next daily build refresh.</div>
+    <p class="hint">How this spending compares with the railroad and telecom buildouts: <a href="?tab=history-rhymes">Booms &amp; busts</a>.</p>
   </section>`;
 }
 
@@ -872,7 +875,7 @@ function acceleratorPricesSection() {
     ${infoNote('How to read the compute-cost chart', `<p>First choose one accelerator so every number on the desk refers to the <b>same GPU model</b>. The chart is daily rental-price history in USD per GPU-hour: the thicker line is the cross-provider median and the thinner colored lines are individual provider / market lanes. A <b>falling line means compute is getting cheaper</b>; a rising line means it is getting more expensive. Use Spot to inspect interruptible capacity, On-demand for standard rentals, or All for the broad blended read. The 7-day and 30-day cards compare like-for-like daily snapshots; “Building” means not enough calendar history exists yet. These are rental list prices, not chip selling prices or provider revenue, and a posted rate does not prove capacity was available. Vast.ai rows are medians of verified rentable offers; CoreWeave, Runpod and Lambda rows are provider-published prices.</p>`) }
     <div id="accelerator-prices-root" class="ap-root">Loading GPU cloud prices&hellip;</div>
     <div id="accelerator-prices-empty" class="ap-empty" hidden>Accelerator price data will appear after the next Friday 11:30 ET refresh.</div>
-    <p class="hint">Public list and marketplace prices only. Taxes, storage, networking, commitments, negotiated discounts, interruption risk and actual capacity can change the effective cost. Not financial advice.</p>
+    <p class="hint">Public list and marketplace prices only. Taxes, storage, networking, commitments, negotiated discounts, interruption risk and actual capacity can change the effective cost. Not financial advice. Falling rents and what they did to past builders: <a href="?tab=history-rhymes">Booms &amp; busts</a>.</p>
   </section>`;
 }
 
@@ -1138,6 +1141,18 @@ function crowdSection() {
     <header class="card-header"><div><span class="card-eyebrow">Market &amp; economy · positioning and attention</span><h2 class="card-title">Crowd &amp; positioning</h2></div><span class="card-eyebrow" id="crowd-asof"></span></header>
     <div id="crowd-root"><p class="crd-empty">Loading crowd and positioning data&hellip;</p></div>
     <p class="hint">Put/call ratios, futures positioning, margin debt, short selling, borrow fees, Reddit and Wikipedia attention, Kalshi odds and 24/7 stock perps, all from free public sources. Facts and market-implied readings only: nothing here is a recommendation. Not investment advice.</p>
+  </section>`;
+}
+
+function historyRhymesSection() {
+  // Booms & busts (lib/history-rhymes.mjs): rendered client-side from the
+  // public history-rhymes.json; the Owner-only Stocks tab reads
+  // history-rhymes-owner.json after sign-in.
+  return `<section class="card" id="history-rhymes-section">
+    <header class="card-header"><div><span class="card-eyebrow">Market &amp; economy · history</span><h2 class="card-title">Booms &amp; busts</h2></div><span class="card-eyebrow" id="history-rhymes-asof"></span></header>
+    ${infoNote('How to read this page', `<p>Each case study is a past buildout or credit boom: the British and American railroads, the 1996&ndash;2002 telecom and fiber build, and the 2000s housing boom that ended in the 2008 crisis. Each one is set beside the AI data center buildout. <b>Now vs history</b> reads nine warning signs that showed up before those busts from data the site already collects (SEC spending and revenue, GPU rents, bond sales, credit spreads and prices) and counts how many are showing. It describes how much today looks like the run-up to past busts; it is not a forecast or a timing signal, and some booms never busted.</p><p>Single-company credit default swap prices are sold by data vendors and are not free, so CDS levels appear only as dated quotes reported in the press, next to free bond-market spreads.</p>`)}
+    <div id="history-rhymes-root"><p class="hr-empty">Loading the case studies&hellip;</p></div>
+    <p class="hint">Dated facts link to their sources. Computed numbers (house prices, delinquencies, spreads, index moves) come from FRED and index history. Not investment advice.</p>
   </section>`;
 }
 
@@ -2932,6 +2947,9 @@ ${i18nHeadScript()}
   </div>
   <div class="page-pane" id="page-pane-crowd" role="tabpanel" aria-labelledby="page-tab-crowd" hidden>
   ${crowdSection()}
+  </div>
+  <div class="page-pane" id="page-pane-history-rhymes" role="tabpanel" aria-labelledby="page-tab-history-rhymes" hidden>
+  ${historyRhymesSection()}
   </div>
   <div class="page-pane" id="page-pane-whats-changed" role="tabpanel" aria-labelledby="page-tab-whats-changed" hidden>
   ${whatsChangedSection()}

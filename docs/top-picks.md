@@ -1800,3 +1800,16 @@ is a version with undo; tuning reverts to the base settings when its newest
 test across versions), and a losing streak freezes self-changes. New trades
 under a tuned version carry `loopVersion` (Track Record divider), and
 `rosterMeta.loopTune` names the version a run used.
+
+## Booms & busts shadow inputs, November 12, 2026
+
+`lib/shadow-signals.mjs` is version 4. Each covered name's shadow row adds
+`epd`, the Merton (1974) equity-implied five-year default chance from the
+Booms & busts Owner file (`lib/history-rhymes.mjs`, docs/history-rhymes.md;
+financials and ETFs have none), and the daily `mkt` row adds `bsl` (how many
+of the nine buildout warning signs show, lit 1 / partial 0.5) and `baa` (the
+Baa corporate spread over the 10-year Treasury). They ride `grades-daily.json`,
+the run archive and every new trade's `entrySnapshot` like the crowd keys, and
+`lib/shadow-research.mjs` measures them on the same bar. Nothing scores, gates
+or changes a pick; using them is an Owner decision after the evidence bar and
+not before 2026-12-07.
