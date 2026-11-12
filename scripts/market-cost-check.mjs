@@ -5,11 +5,15 @@ import { execFileSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { gzipSync } from 'node:zlib';
 import { marketRefresh } from '../lib/market-refresh.mjs';
+import { checkDependencyRefresh } from './dependency-cost-contract.mjs';
 
-const baseline = '950672f6df81a4f9b470a1ed69919647d02b67ac';
+// Measure this change against its integration base. The original fixed
+// October release treated every later release as a cost regression.
+const baseline = process.argv[2] || execFileSync('git', ['merge-base', 'HEAD', 'origin/main'], { encoding: 'utf8' }).trim();
 const before = (path) => execFileSync('git',['show',`${baseline}:${path}`],{encoding:'utf8',maxBuffer:32*1024*1024});
 const current = (path) => readFile(new URL('../'+path,import.meta.url),'utf8');
-for (const path of ['package.json','package-lock.json','vercel.json']) assert.equal(await current(path),before(path),path+' changes recurring cost configuration');
+const dependencyUpdates = checkDependencyRefresh(JSON.parse(before('package.json')), JSON.parse(await current('package.json')), JSON.parse(before('package-lock.json')), JSON.parse(await current('package-lock.json')));
+assert.equal(await current('vercel.json'),before('vercel.json'),'vercel.json changes recurring cost configuration');
 assert.equal(execFileSync('git',['diff',baseline,'--','.github/workflows/'],{encoding:'utf8'}),'','Scheduled jobs must stay unchanged');
 const patterns = [/\bfetch\s*\(/g,/\.generateContent\s*\(/g,/\brecordAiUsage\s*\(/g,/\bwriteFile\s*\(/g];
 for (const path of ['scripts/build.mjs','api/macro-live.js']) {
@@ -33,7 +37,8 @@ try {payloadBytes=Buffer.byteLength(await current('data/market-analysis.json'));
 const rawDelta=Buffer.byteLength(app)-Buffer.byteLength(oldApp);
 const gzipDelta=gzipSync(app).length-gzipSync(oldApp).length;
 console.log(JSON.stringify({baseline,extraScheduledJobs:0,extraAiCallSites:0,extraProviderCallSites:0,
-  providerSymbolsUnchanged:true,dependenciesAndBudgetsUnchanged:true,extraRefreshTimers:0,
+  dependencyUpdates,
+  providerSymbolsUnchanged:true,dependencySetAndBudgetsUnchanged:true,extraRefreshTimers:0,
   savedAnalysisReads:{automaticMaxPerRolling24HoursPerTab:marketRefresh.limits.maxReads,
     normalMinimumMinutes:marketRefresh.limits.gapMs/60000,retryAfterMinutes:marketRefresh.limits.retryMs/60000,
     failureRetries:1,retriesCountTowardLimit:true,initialLoadExcluded:true,

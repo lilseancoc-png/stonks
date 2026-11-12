@@ -7,7 +7,9 @@ import {join,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 const root=fileURLToPath(new URL('../',import.meta.url));
 const temp=await mkdtemp(join(tmpdir(),'top-picks-isolation-'));
-const ref=execFileSync('git',['merge-base','main','HEAD'],{cwd:root,encoding:'utf8'}).trim();
+// Local main can lag the remote by weeks, especially when another worktree
+// owns it. Compare this branch with the current integration base.
+const ref=process.argv[2]||execFileSync('git',['merge-base','origin/main','HEAD'],{cwd:root,encoding:'utf8'}).trim();
 const snapshotScript=`
 const RealDate=Date;globalThis.Date=class extends RealDate{constructor(...args){super(...(args.length?args:['2026-10-30T16:00:00Z']));}static now(){return RealDate.parse('2026-10-30T16:00:00Z');}};
 globalThis.fetch=async()=>{throw Error('Network disabled for isolation check');};

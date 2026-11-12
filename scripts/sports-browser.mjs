@@ -674,6 +674,15 @@ try {
       const pSpread = Number(await page.locator(R + '[data-sp-leg="1"] [data-sp-leg-chance]').inputValue());
       assert(Math.abs(pAll - pSpread) <= 1, 'winning and covering −5.5 is the cover chance: ' + pAll + ' vs ' + pSpread);
       assert(/edge [+−]\d+\.\d%/.test(await page.locator(R + '[data-sp-leg="1"] [data-sp-price-note]').innerText()), 'each priced pick shows its own edge');
+      await page.locator(R + '[data-sp-leg="1"] [data-sp-leg-tline]').fill('-6');
+      await page.locator(R + '[data-sp-leg="1"] [data-sp-usemodel]').waitFor();
+      await page.locator(R + '[data-sp-leg="1"] [data-sp-usemodel]').click();
+      await page.locator(R + '[data-sp-part="eval"]').filter({ hasText: 'Expected return includes push refunds' }).waitFor();
+      assert(/all-win fair odds and break-even line exclude them/.test(await page.locator(R + '[data-sp-part="eval"]').innerText()), 'whole-point parlays explain what includes push refunds');
+      await page.locator(R + '[data-sp-leg="1"] [data-sp-leg-tline]').fill('-5.5');
+      await page.locator(R + '[data-sp-leg="1"] [data-sp-usemodel]').waitFor();
+      await page.locator(R + '[data-sp-leg="1"] [data-sp-usemodel]').click();
+      await page.locator(R + '[data-sp-part="eval"] .sp-odds').waitFor();
       if (width > 760) await page.screenshot({ path: resolve(output, `sports-pick-builder-parlay-${width}-${theme}.png`), fullPage: true, animations: 'disabled' });
       await page.locator(R + '[data-sp-part="eval"]').screenshot({ path: resolve(output, `pick-builder-odds-${width}-${theme}.png`), animations: 'disabled' });
       const pOv = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
@@ -686,13 +695,23 @@ try {
       await page.locator(R + '.sp-entry').first().locator('[data-sp-withdraw-yes]').click();
       await page.locator(R + '.sp-entry').first().filter({ hasText: 'Withdrawn' }).waitFor();
       // A game's Team bets checker hands its bet to the Pick Builder.
+      // Book medians can land on quarter points, which are not entry lines.
+      const quarterGame = url => url.searchParams.get('sports') === 'game';
+      const quarterResponse = async route => {
+        const response = await route.fetch(), body = await response.json();
+        if (body.team_bets?.forecast) body.team_bets.forecast.market = { total: 221.25, home_margin: -10.25 };
+        await route.fulfill({ response, json: body });
+      };
+      await page.route(quarterGame, quarterResponse);
       await page.goto(base + '/?tab=sports-nba');
       await page.locator('#sports-nba-root [data-sp-game="401900003"]').click();
       await page.locator('#sports-nba-root [data-sp-tb-add]').waitFor();
       await page.locator('#sports-nba-root [data-sp-tb="market"]').selectOption('total');
+      assert.equal(await page.locator('#sports-nba-root [data-sp-tb="line"]').getAttribute('placeholder'), '221.5', 'a quarter-point consensus defaults to a valid half-point entry');
       await page.locator('#sports-nba-root [data-sp-tb-add]').click();
       assert(/Added Game total over [\d.]+\. The entry has 1 pick/.test(await page.locator('#sports-nba-root [data-sp-part="tb-msg"]').innerText()), 'Team bets adds the checked bet to the Pick Builder');
-      checks += 17;
+      await page.unroute(quarterGame, quarterResponse);
+      checks += 19;
       await page.goto(base + '/?tab=sports-nba');
       await page.locator('#sports-nba-root [data-sp-zone]').waitFor();
       await page.locator('#sports-nba-root [data-sp-zone]').selectOption('America/New_York');

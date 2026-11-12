@@ -567,9 +567,12 @@ export function sportsFactory(host, doc, options) {
   // total when stored, else the model's own number on the half point.
   function tbDefaultLine(fc, g, s, lg) {
     const home = s.team === g.home_team;
+    // A median across books can be a quarter point. The entry accepts whole
+    // and half lines, so use the nearest half without changing the consensus.
+    const marketLine = x => Math.round(x * 2) / 2;
     if (s.market === 'win_by') return lg === 'nfl' ? 7 : 10;
-    if (s.market === 'spread') { const m = fc.market ? fc.market.home_margin : halfUp(fc.expected.home_margin); return home ? -m : m; }
-    if (s.market === 'total') return fc.market ? fc.market.total : halfUp(fc.expected.total);
+    if (s.market === 'spread') { const m = fc.market ? marketLine(fc.market.home_margin) : halfUp(fc.expected.home_margin); return home ? -m : m; }
+    if (s.market === 'total') return fc.market ? marketLine(fc.market.total) : halfUp(fc.expected.total);
     if (s.market === 'team_total') return halfUp(home ? fc.expected.home_points : fc.expected.away_points);
     return null;
   }
@@ -1870,7 +1873,7 @@ export function sportsFactory(host, doc, options) {
     if (lineRaw === '' || !Number.isFinite(line) || line < 0 || line > 1000 || Math.round(line * 2) !== line * 2) { say('Enter the line as a whole or half number, like 24.5.', true); return false; }
     const d = draft();
     if (d.legs.length >= MAX_PICKS) { say('An entry has at most 6 picks.', true); return false; }
-    const clash = d.legs.find((l) => l.sport === sport && l.player_id === P.player.player_id && l.stat === stat);
+    const clash = d.legs.find((l) => l.sport === sport && l.game_id === g.game_id && l.player_id === P.player.player_id && l.stat === stat);
     if (clash) { say('That player and stat is already in the entry.', true); return false; }
     d.legs.push({
       sport, player_id: P.player.player_id, player_name: P.player.name, team: P.player.team || null,
@@ -2314,7 +2317,7 @@ export function sportsFactory(host, doc, options) {
       if (Math.abs(r - 1) >= 0.02) out.push('Together these picks hit ' + pct(E.joint_probability) + ', against ' + pct(E.independent_probability) + ' if they were unrelated: ' + (E.links && E.links.length ? 'the links make ' : 'sharing a number makes ') + (n === 2 ? 'both' : 'all ' + n) + ' winning ' + (r > 1 ? 'more' : 'less') + ' likely (' + r.toFixed(2) + '×).');
     }
     if ((E.shared_numbers || []).length && draft().format === 'parlay') out.push('Most sportsbooks will not put two bets on the same number in one parlay (like a team to win and to cover), or price them well below the odds multiplied; check the app’s own price.');
-    if (E.push_chance > 0.001) out.push('About ' + pct(E.push_chance) + ' of the time a pick pushes and none loses; ' + (draft().format === 'parlay' ? 'the pushed pick drops out of the parlay.' : 'apps usually drop that pick and pay a smaller entry.'));
+    if (E.push_chance > 0.001) out.push('About ' + pct(E.push_chance) + ' of the time a pick pushes and none loses; ' + (draft().format === 'parlay' ? 'the pushed pick drops out of the parlay. Expected return includes push refunds; the all-win fair odds and break-even line exclude them.' : 'apps usually drop that pick and pay a smaller entry.'));
     return out.length ? '<ul class="sp-sg-notes">' + out.map((x) => '<li>' + escape(x) + '</li>').join('') + '</ul>' : '';
   }
   function evalHtml() {
@@ -2332,7 +2335,7 @@ export function sportsFactory(host, doc, options) {
     ev.same_game.forEach((g) => warn.push('Picks ' + joinList(g.legs.map((i) => String(i + 1))) + ' are from the same game. Their results move together, so ' +
       (E.status === 'joint_estimate' ? (E.links && E.links.length ? 'they are priced with how such picks moved together in past games (below).' : 'they are priced together on the one number they share (below).') : 'they are priced only when every pair has a measured link.')));
     const perPick = E.breakeven_per_pick != null && n > 1 ? ' That is about <b>' + pct(E.breakeven_per_pick) + '</b> for each pick if they were independent and equally likely.' : '';
-    const be = E.breakeven_probability != null ? '<p>Breakeven: all ' + n + ' must hit together at least <b>' + pct(E.breakeven_probability) + '</b> of the time to pay back the stake on average.' + perPick + '</p>'
+    const be = E.breakeven_probability != null ? '<p>Breakeven' + (ev.format === 'parlay' ? ' before push refunds' : '') + ': all ' + n + ' must hit together at least <b>' + pct(E.breakeven_probability) + '</b> of the time to pay back the stake on average.' + perPick + '</p>'
       : E.breakeven_per_pick != null ? '<p>Breakeven: each pick needs about <b>' + pct(E.breakeven_per_pick) + '</b> (if they were independent and equally likely) for this payout table to pay back the stake on average.</p>' : '';
     let body = '';
     if (E.status === 'needs_payout') {
@@ -2859,7 +2862,7 @@ export function sportsFactory(host, doc, options) {
       const d = draft();
       if (!p || !game || game.status !== 'scheduled' || game.time_tbd || Date.parse(game.start_utc) <= Date.now() || Date.parse(p.start_utc) <= Date.now() || Date.parse(P.expires_utc) <= Date.now()) { L.propsMsg = 'This pick expired. Refresh the lines before adding it.'; }
       else if (d.legs.length >= MAX_PICKS) L.propsMsg = 'The entry already has 6 picks.';
-      else if (d.legs.some((l) => l.sport === lg && l.player_id === p.player_id && l.stat === p.stat)) L.propsMsg = 'That player and stat is already in the entry.';
+      else if (d.legs.some((l) => l.sport === lg && l.game_id === gameId && l.player_id === p.player_id && l.stat === p.stat)) L.propsMsg = 'That player and stat is already in the entry.';
       else {
         d.legs.push({ sport: lg, player_id: p.player_id, player_name: p.player_name, team: p.team, game_id: gameId,
           matchup: game.away_team + '@' + game.home_team, game_start_utc: game.start_utc,

@@ -176,6 +176,11 @@
     "regen:update-checker": "node scripts/regen-update-checker.mjs",
     "test:mcp": "node scripts/mcp-smoke.mjs"
   },
+  "overrides": {
+    "@vercel/cli-config": {
+      "zod": "4.6.7"
+    }
+  },
   "dependencies": {
     "@google/genai": "^2.15.0",
     "@supabase/supabase-js": "^2.45.0",

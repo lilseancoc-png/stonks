@@ -17,6 +17,8 @@ import { encodePrefill, decodePrefill } from '../lib/sports/prefill.mjs';
 import { sportsFactory } from './render/sports-client.mjs';
 import { SCHEDULE_2026, SCHEDULE_2027, BOX_2026, BOX_2027 } from './fixtures/sports-nba.mjs';
 import { GAMES, PLAYERS, WEEK_2025, WEEK_2026 } from './fixtures/sports-nfl.mjs';
+import { nbaModelLeague } from './fixtures/sports-model.mjs';
+import { buildTeamModel, forecastGame } from '../lib/sports/team-model.mjs';
 
 let checks = 0;
 const ok = (cond, msg) => { assert.ok(cond, msg); checks++; };
@@ -116,6 +118,9 @@ eq(priced.legs.map((l) => l.probability_source), ['owner', 'history'], 'where ea
 const wrong = await evaluateEntry({ load: load(), body: { legs: [lebron('401900003')] }, now: NOW });
 ok(/LeBron James is not on either team/.test(wrong.warnings[0]), 'a player not in the game is flagged');
 await rejects(evaluateEntry({ load: load(), body: { legs: [curry('401900003'), curry('401900003', { side: 'under' })] }, now: NOW }), 400, /cancel out/, 'over and under on the same line');
+await rejects(evaluateEntry({ load: load(), body: { legs: [curry('401900003', { threshold: 10 }), curry('401900003', { side: 'under', threshold: 11 })] }, now: NOW }), 400, /cancel out/, 'integer points cannot be both over 10 and under 11');
+eq((await evaluateEntry({ load: load(), body: { legs: [curry('401900003', { stat: 'fantasy', threshold: 10 }), curry('401900003', { stat: 'fantasy', side: 'under', threshold: 10.5 })] }, now: NOW })).legs.length, 2, 'fractional fantasy scores can be over 10 and under 10.5');
+eq((await evaluateEntry({ load: load(), body: { legs: [curry('401900003'), curry('401900004')] }, now: NOW })).legs.length, 2, 'the same player and stat in different games are separate picks');
 await rejects(evaluateEntry({ load: load(), body: { legs: Array.from({ length: 7 }, (_, i) => curry('401900003', { threshold: i + 0.5 })) }, now: NOW }), 400, /1 to 6/, 'at most six picks');
 await rejects(evaluateEntry({ load: load(), body: { legs: [curry('401900003', { stat: 'passing_yards' })] }, now: NOW }), 400, /not available/, 'stats belong to the league');
 await rejects(evaluateEntry({ load: load(), body: { legs: [curry('401900003', { stat: 'minutes' })] }, now: NOW }), 400, /not available/, 'minutes is not a pick stat');
@@ -132,10 +137,12 @@ ok(combo.legs.every((l) => l.recent.length === cPts.recent.length), 'every stat 
 await rejects(evaluateEntry({ load: load(), body: { legs: [curry('401900003', { threshold: 24.3 })] }, now: NOW }), 400, /whole or half/, 'lines are whole or half numbers');
 await rejects(evaluateEntry({ load: load(), body: { legs: [curry('401999999')] }, now: NOW }), 400, /not stored/, 'unknown games are refused');
 await rejects(evaluateEntry({ load: load(), body: { legs: [curry('401900003', { probability: 1 })] }, now: NOW }), 400, /between 0% and 100%/, 'a chance of 100% is refused');
+for (const probability of [0.000001, 0.999999]) await rejects(evaluateEntry({ load: load(), body: { legs: [curry('401900003', { probability })] }, now: NOW }), 400, /between 0% and 100%/, 'rounding cannot turn a chance into an accepted 0% or 100%');
 
 // --- save --------------------------------------------------------------------------
 const OWNER = 'discord-owner-1', OTHER = 'discord-owner-2';
 const entryBody = (legs, extra = {}) => ({ legs, operator: 'prizepicks', format: 'power', stake: 10, payouts: { [legs.length]: 3 }, ...extra });
+await rejects(saveEntry({ store: st, load: load(), body: entryBody([curry('401900003')], { stake: 0.001 }), now: NOW, sub: OWNER }), 400, /stake/, 'a sub-cent stake cannot be rounded to a saved $0 entry');
 await rejects(saveEntry({ store: st, load: load(), body: { legs: [curry('401900003')], operator: 'prizepicks', format: 'power', stake: 10 }, now: NOW, sub: OWNER }), 400, /payout/, 'saving needs the payout');
 await rejects(saveEntry({ store: st, load: load(), body: entryBody([curry('401900002')]), now: NOW, sub: OWNER }), 409, /started/, 'no saves after the game starts');
 await rejects(saveEntry({ store: { ...st, backend: 'mem' }, load: load(), body: entryBody([curry('401900003')]), now: NOW, sub: OWNER }), 503, /R2/, 'saving needs R2');
@@ -304,6 +311,21 @@ await rejects(evaluateEntry({ load: load(), body: { legs: [gsWin(), gsWin({ team
 await rejects(evaluateEntry({ load: load(), body: { legs: [gsWin(), gsWin()] }, now: NOW }), 400, /twice/, 'the same game bet twice');
 // Two game bets that no final score lets both win are refused; ranges are not.
 const gsTotal = (side, line) => ({ kind: 'team', sport: 'nba', game_id: '401900003', market: 'total', side, line });
+{ // An owner's win chance and a model push must use the same feasible
+  // probability partition in the leg display and the entry calculation.
+  const games = [...nbaModelLeague({ start: '2024-10-21', season: 2024 }).games, ...nbaModelLeague().games];
+  const model = buildTeamModel({ sport: 'nba', games, now: NOW });
+  const game = (await load()('games', { sport: 'nba', season: 2026 })).games.find(g => g.game_id === '401900003');
+  const line = Math.round(forecastGame(model, game).expected.total);
+  const normalLoad = load();
+  const result = await evaluateEntry({ load: async (kind, args) => kind === 'team-model' ? model : normalLoad(kind, args),
+    body: { legs: [{ ...gsTotal('over', line), probability: .9999, price: 1.91 }], operator: 'sportsbook', format: 'parlay', stake: 10 }, now: NOW });
+  const leg = result.legs[0];
+  ok(leg.model.push > 0.0001, 'the fitted model has a real whole-point push probability');
+  ok(leg.probability + leg.push <= 1, 'win and effective push probabilities cannot exceed 100%');
+  eq(leg.odds.edge, result.evaluation.expected_roi, 'a one-leg parlay shows the same edge on its leg and entry');
+  ok(leg.model.push > leg.push, 'the original model forecast is preserved separately');
+}
 await rejects(evaluateEntry({ load: load(), body: { legs: [gsTotal('over', 240.5), gsTotal('under', 220.5)] }, now: NOW }), 400, /Game total over 240\.5 and Game total under 220\.5 can never both win/, 'over 240.5 and under 220.5');
 await rejects(evaluateEntry({ load: load(), body: { legs: [gsSpread(), gsSpread({ team: 'phx', line: -3.5 })] }, now: NOW }), 400, /GS −5\.5 and PHX −3\.5 can never both win/, 'both favorites');
 await rejects(evaluateEntry({ load: load(), body: { legs: [gsWin({ team: 'phx' }), gsWin({ market: 'win_by', line: 3 })] }, now: NOW }), 400, /never both win/, 'PHX to win and GS to win by 3+');

@@ -12,6 +12,7 @@ import { fitJoint } from '../lib/sports/joint.mjs';
 import { teamBetsView, teamResultStats, findTeamGame, winByLadder } from '../lib/sports/team-bets.mjs';
 import { archivedGameLine } from '../lib/sports/line-archive.mjs';
 import { seededRandom, seededNormals } from '../lib/sports/normal.mjs';
+import { cleanTeamLeg } from '../lib/sports/bets.mjs';
 
 let checks = 0;
 const ok = (c, m) => { assert.ok(c, m); checks++; };
@@ -177,6 +178,14 @@ const fc = forecastGame(M, up, { rest: { home: 2, away: 1 } });
   const { tbPrice, fairOdds } = new Function('const amText = (a) => (a == null || !Number.isFinite(a) ? \'—\' : a > 0 ? \'+\' + a : \'−\' + Math.abs(a));\n' +
     'const fairOdds = (p) => (p > 0 && p < 1 ? amText(p >= 0.5 ? -Math.round((100 * p) / (1 - p)) : Math.round((100 * (1 - p)) / p)) : \'—\');\n' +
     fnText('priceOf') + fnText('oddsText') + fnText('tbChances') + fnText('tbPrice') + '\nreturn { tbPrice, fairOdds };')();
+  const defaultLine = new Function('const halfUp = x => Math.round(x - 0.5) + 0.5;\n' + fnText('tbDefaultLine') + '\nreturn tbDefaultLine;')();
+  const consensus = { market: { total: 221.25, home_margin: -10.25 } };
+  for (const market of ['spread', 'total']) for (const team of [up.home_team, up.away_team]) {
+    const line = defaultLine(consensus, up, { market, team }, 'nba');
+    ok(!cleanTeamLeg({ market, team, side: 'over', line }).error, 'a consensus quarter-point default is a valid Pick Builder line: ' + market + ' ' + line);
+  }
+  eq(defaultLine({ market: { total: 220, home_margin: 7 } }, up, { market: 'total' }, 'nba'), 220, 'a valid whole-point market line stays whole');
+  eq(consensus.market, { total: 221.25, home_margin: -10.25 }, 'the stored consensus stays unmodified');
   ok(/const fairOdds = \(p\) => \(p > 0 && p < 1 \? amText\(p >= 0\.5 \? -Math\.round\(\(100 \* p\) \/ \(1 - p\)\) : Math\.round\(\(100 \* \(1 - p\)\) \/ p\)\) : '—'\);/.test(src), 'the page’s fair odds rule is the one checked here');
   const g2 = { ...up, lines: { total: 221.5, home_margin: 6.5, source: 'sportsbooks', book: { home_win: 0.7, home_cover: 0.49, over: 0.52 } } };
   const f2 = forecastGame(M, g2, {});
