@@ -39196,10 +39196,6 @@ async function main() {
   // per-fund snapshot history and the state keeps 13F price tables, so both
   // are read before the wipe.
   const priorLeverageDistress = await readLeverageDistress(DATA_DIR);
-  // Corporate structure (Form 4 trades per insider), when that feature is
-  // live: read before the wipe for the shadow log's insider key only.
-  let priorCorporateStructure = null;
-  try { priorCorporateStructure = JSON.parse(await readFile(resolve(DATA_DIR, "corporate-structure.json"), "utf8")); } catch { priorCorporateStructure = null; }
   // Prior IPOs & Credit snapshot — accumulates the universe issuance events
   // across builds and caches the immutable completed-quarter EDGAR counts +
   // the quarterly NY Fed household-credit parse, so it must be pre-read
@@ -40527,7 +40523,11 @@ async function main() {
     builtAtIso, groupOf: spilloverGroupOf, oiTracker: scoringOiTracker, spillover: scenarioSpilloverMatrix, crowd: crowdPayload,
     defaultChance: historyRhymesDefaultChance, buildout: historyRhymesBrief,
     forcedLiquidation, leverageDistress: leverageDistress?.payload || null,
-    insider: insiderFromStructure(priorCorporateStructure, builtAtIso), marketExtra: shadowMarketExtra,
+    // The insider key (ins) waits for the corporate-structure feature: its
+    // pre-wipe read of corporate-structure.json (with that file's publication
+    // policy) passes the payload here as insiderFromStructure(<payload>,
+    // builtAtIso). Until then nothing is logged for ins.
+    insider: insiderFromStructure(null, builtAtIso), marketExtra: shadowMarketExtra,
   };
   try {
     shadowSignalsToday = buildShadowSignals(chains, shadowOpts);
