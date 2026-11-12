@@ -28634,6 +28634,10 @@ button.idea-record-chip:hover { border-color: var(--accent-line); }
   .landing-topics > .topic-tile:last-child:nth-child(odd) { grid-column: 1 / -1; }
 }
 
+/* Retry / Refresh feedback (initRefreshFeedback in app-js.mjs). */
+button[data-refresh-checking] { opacity: .55; cursor: progress; }
+.refresh-note { margin-left: 8px; font-size: var(--t-12); color: var(--text-muted, var(--muted, inherit)); white-space: nowrap; }
+
 
 /* ---- Track Record: likely ranges on every win rate ------------------------ */
 .acc-tier-row:has(.acc-tier-range) { grid-template-columns: 110px 1fr 44px 44px 128px; }

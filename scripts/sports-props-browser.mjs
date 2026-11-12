@@ -20,12 +20,12 @@ const put = (kind, value, opts = {}) => objects.set(sportsKey(kind, { sport: 'nb
 put('status', { state: 'ok', seasons: [2026], last_success_utc: at, latest_game_date: '2026-11-04' });
 put('players', { players }); put('games', { games: [game] }, { season: 2026 }); put('player-games', { rows }, { season: 2026 });
 const store = { backend: 'r2', rawGet: async (k) => objects.has(k) ? Buffer.from(objects.get(k)) : null, rawPut: async (k, v) => objects.set(k, String(v)), withLease: async (_, fn) => { await fn(() => {}); return { busy: false }; } };
-let feedState = 'ok', sourceCalls = 0, holdNextRecord = false, heldRecordReady, releaseHeldRecord;
+let feedState = 'ok', sourceCalls = 0, lastForce = null, holdNextRecord = false, heldRecordReady, releaseHeldRecord;
 const referenceEvents = () => ['draftkings', 'fanduel', 'betmgm'].map((book) => ({ id: 'e1', home_team: 'Los Angeles Lakers', away_team: 'Golden State Warriors', commence_time: game.start_utc,
   bookmakers: [{ key: book, markets: players.map((p) => ({ key: 'player_points', period: null, line_type: 'main', last_update: new Date(serverNow).toISOString(), outcomes: [
     { name: 'Over', description: p.name, point: 15.5, price: -400 }, { name: 'Under', description: p.name, point: 15.5, price: 300 },
   ] })) }] }));
-const sources = async () => { sourceCalls++; return {
+const sources = async (args = {}) => { sourceCalls++; lastForce = !!args.force; return {
   lines: { state: feedState, provider: 'Fixture PropLine', message: feedState === 'ok' ? null : 'Fixture feed unavailable', lines: players.map((p) => ({ event_id: 'e1', home_team: 'Los Angeles Lakers', away_team: 'Golden State Warriors', start_utc: game.start_utc, player_name: p.name, stat: 'points', side: 'over', threshold: 15.5, observed_utc: at })) },
   reference: { state: 'ok', quotes: normalizeNBAQuotes(referenceEvents(), serverNow), raw_events: referenceEvents() },
   injuries: { state: 'ok', observed_utc: at, reports: [{ name: 'Fixture Out', team: 'lal', status: 'Out', detail: 'Fixture injury', report_utc: at }] },
@@ -130,6 +130,12 @@ try {
   await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, value: false }); document.dispatchEvent(new Event('visibilitychange')); });
   await page.waitForFunction(() => document.querySelector('.sp-props-status')?.textContent.includes('10:02'));
   assert.ok(sourceCalls > beforeHidden, 'returning to a hidden tab resumes the scan');
+  // The refresh button shows it is working, forces a feed re-read and says when it finished.
+  const beforeManual = sourceCalls, refreshBtn = page.locator('[data-sp-props-refresh]');
+  await refreshBtn.click();
+  await page.locator('.sp-props-status').getByRole('status').filter({ hasText: /Refreshed at/ }).waitFor();
+  assert.ok(sourceCalls > beforeManual && lastForce === true, 'refresh button forces a feed re-read');
+  assert.equal(await page.locator('[data-sp-props-refresh]').innerText(), 'Refresh lines & injuries');
   serverNow = now; feedState = 'rate_limited';
   await page.goto(base + '/?tab=sports-nba'); await page.getByText('Fixture feed unavailable').first().waitFor();
   assert.equal(await page.locator('.sp-prop').count(), 0, 'outage never displays cached recommendations');

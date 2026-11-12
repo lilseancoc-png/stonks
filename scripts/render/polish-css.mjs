@@ -604,5 +604,9 @@ button.idea-record-chip:hover { border-color: var(--accent-line); }
 @media (min-width: 561px) and (max-width: 1279px) {
   .landing-topics > .topic-tile:last-child:nth-child(odd) { grid-column: 1 / -1; }
 }
+
+/* Retry / Refresh feedback (initRefreshFeedback in app-js.mjs). */
+button[data-refresh-checking] { opacity: .55; cursor: progress; }
+.refresh-note { margin-left: 8px; font-size: 12px; color: var(--text-muted, var(--muted, inherit)); white-space: nowrap; }
 `;
 }
