@@ -22,7 +22,9 @@ import { SPORTS_PREFIX } from '../lib/sports/store.mjs';
 import { encodePrefill } from '../lib/sports/prefill.mjs';
 import { buildModel, modelSummary } from '../lib/sports/models.mjs';
 import { packRows, unpackRows } from '../lib/sports/rows.mjs';
-import { nbaModelLeague } from './fixtures/sports-model.mjs';
+import { nbaModelLeague, MODEL_TEAMS } from './fixtures/sports-model.mjs';
+import { buildTeamModel, teamModelSummary } from '../lib/sports/team-model.mjs';
+import { seededRandom, seededNormals } from '../lib/sports/normal.mjs';
 
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const root = resolve(fileURLToPath(new URL('../', import.meta.url)));
@@ -58,13 +60,42 @@ await ingestLeague({ adapter: NBA_SOURCE, store: { rawGet: async (k) => (objects
   // stats views have a full table to sort (twelve teams, 96 players).
   rows.push(...league.rows);
   objects.set(key, JSON.stringify({ ...rec, ...packRows(rows) }));
+  // LeBron's made-up games get their game records too (final scores), so
+  // the game-script chart has results to split on.
+  const lalGames = Array.from({ length: 12 }, (_, i) => {
+    const opp = i % 2 ? 'gs' : 'phx', home = i % 2 === 0, date = '2026-03-' + String(10 + i).padStart(2, '0');
+    const lal = 108 + ((i * 5) % 17), other = 104 + ((i * 7) % 19);
+    return { sport: 'nba', game_id: 'fixture-lal-' + i, season: 2025, season_type: 'REG', start_utc: date + 'T23:30:00Z', local_date: date, home_team: home ? 'lal' : opp, away_team: home ? opp : 'lal',
+      status: 'final', home_score: home ? lal : other, away_score: home ? (other === lal ? other + 1 : other) : lal, neutral: false, venue: null };
+  });
   const gamesKey = SPORTS_PREFIX + 'nba/games/2025.json', gamesRec = JSON.parse(objects.get(gamesKey));
-  objects.set(gamesKey, JSON.stringify({ ...gamesRec, games: gamesRec.games.concat(league.games) }));
+  objects.set(gamesKey, JSON.stringify({ ...gamesRec, games: gamesRec.games.concat(league.games, lalGames) }));
   const playersKey = SPORTS_PREFIX + 'nba/players.json', playersRec = JSON.parse(objects.get(playersKey));
   objects.set(playersKey, JSON.stringify({ ...playersRec, players: playersRec.players.concat(league.players.map(({ minutes, pts, reb, ...p }) => p)) }));
   objects.set(SPORTS_PREFIX + 'nba/model.json', JSON.stringify({ schema_version: 1, ...model, seasons: [2025] }));
+  // Team model: the stored seasons are too short to fit it, so it is fitted
+  // on two earlier made-up seasons between the same teams plus the stored
+  // games, and tonight's PHX at GS gets a forecast to check bets against.
+  const rnd = seededRandom(11), z = seededNormals(12), made = [];
+  const strength = Object.fromEntries(MODEL_TEAMS.map((t, i) => [t, (i - 5.5) * 0.8]));
+  let day = Date.parse('2023-10-24T23:00:00Z');
+  for (const season of [2023, 2024]) {
+    for (let n = 0; n < 700; n++) {
+      const i = Math.floor(rnd() * MODEL_TEAMS.length);
+      let j = Math.floor(rnd() * (MODEL_TEAMS.length - 1));
+      if (j >= i) j++;
+      const home = MODEL_TEAMS[i], away = MODEL_TEAMS[j], start = new Date(day + n * 3600000 * 6).toISOString();
+      const hs = Math.round(114 + 1.5 + strength[home] + 11.5 * z()), as0 = Math.round(112 - 1.5 + strength[away] + 11.5 * z());
+      made.push({ sport: 'nba', game_id: 'made-' + season + '-' + n, season, season_type: 'REG', start_utc: start, local_date: start.slice(0, 10), home_team: home, away_team: away, status: 'final', home_score: hs, away_score: as0 === hs ? as0 + 1 : as0, neutral: false });
+    }
+    day = Date.parse((season + 1) + '-10-22T23:00:00Z');
+  }
+  const stored = [2025, 2026].flatMap((y) => (objects.has(SPORTS_PREFIX + 'nba/games/' + y + '.json') ? JSON.parse(objects.get(SPORTS_PREFIX + 'nba/games/' + y + '.json')).games : []));
+  const teamModel = buildTeamModel({ sport: 'nba', games: made.concat(stored), now: Date.parse('2026-11-02T11:10:00Z') });
+  assert.equal(teamModel.status, 'ok', 'the fixture team model fits');
+  objects.set(SPORTS_PREFIX + 'nba/team-model.json', JSON.stringify({ schema_version: 1, ...teamModel }));
   const status = JSON.parse(objects.get(SPORTS_PREFIX + 'status/nba.json'));
-  objects.set(SPORTS_PREFIX + 'status/nba.json', JSON.stringify({ ...status, model: modelSummary({ ...model, seasons: [2025] }) }));
+  objects.set(SPORTS_PREFIX + 'status/nba.json', JSON.stringify({ ...status, model: modelSummary({ ...model, seasons: [2025] }), team_model: teamModelSummary(teamModel) }));
 }
 store.rawGet = async (key) => (objects.has(key) ? Buffer.from(objects.get(key)) : null);
 for (const m of ['put', 'del', 'rawPut', 'rawDel', 'publishGeneration']) store[m] = async () => { throw new Error('Sports page attempted a store write: ' + m); };
@@ -159,28 +190,72 @@ try {
         const panel = await page.locator('#sports-nfl-root [data-sp-panel="game"]').innerText();
         assert(/Geno Smíth/.test(panel) && /Jaxon Smith-Njigba/.test(panel) && /No player games stored for this team/.test(panel), 'the game lists each team’s recent players');
         assert(/SEA favored by 3\.5 · total 44\.5 · implied CHI 20\.5, SEA 24\.0/.test(panel), 'the matchup shows the schedule’s spread and total: ' + panel.slice(0, 300));
+        assert.equal(await page.locator('#sports-nfl-root [data-sp-panel="game"] .sp-tb').count(), 1, 'the game has a Team bets section');
+        // A player opens a full page in place of the board, with its own address.
         await page.locator('#sports-nfl-root [data-sp-search]').fill('kelce');
         await page.locator('#sports-nfl-root [data-sp-part="results"] [data-sp-player="00-0003"]').click();
-        await page.locator('#sports-nfl-root [data-sp-panel="player"] .sp-log').waitFor();
+        const FP = '#sports-nfl-root [data-sp-panel="player"] ';
+        await page.locator(FP + '.sp-pp-name').filter({ hasText: 'Travis Kelce' }).waitFor();
+        assert.equal(new URL(page.url()).searchParams.get('player'), '00-0003', 'the player page has its own address');
+        assert(!(await page.locator('#sports-nfl-root .sp-board').isVisible()) && !(await page.locator('#sports-nfl-root .sp-side').isVisible()), 'the player page takes the place of the board');
+        assert(/Back to games/.test(await page.locator(FP + '[data-sp-close="player"]').innerText()), 'the back button names where it returns');
+        assert.equal(await page.locator(FP + '[data-sp-ptab]').count(), 7, 'seven player tabs');
+        assert(await page.locator(FP + '.sp-pp-tile').count() >= 3, 'season tiles for the key stats');
+        const ppHead = await page.locator(FP + '.sp-pp-head').innerText();
+        assert(/Next game/i.test(ppHead) && /DEN/.test(ppHead), 'the head shows the next game: ' + ppHead);
+        assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('data-sp-close')), 'player', 'keyboard focus lands on the back button');
+        await page.locator(FP + '[data-sp-ptab="overview"]').focus();
+        await page.keyboard.press('ArrowRight');
+        assert.equal(await page.locator(FP + '[data-sp-ptab="upcoming"]').getAttribute('aria-selected'), 'true', 'arrow keys move between the player tabs');
+        await page.keyboard.press('End');
+        assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('data-sp-ptab')), 'pick', 'End goes to the last tab');
+        await page.keyboard.press('Home');
+        await page.locator(FP + '[data-sp-ptab="log"]').click();
+        await page.locator(FP + '.sp-log').waitFor();
         const log = await page.locator('#sports-nfl-root [data-sp-panel="player"]').innerText();
         assert(/Travis Kelce/.test(log) && /Averages over 1 stored game\b/i.test(log) && !/1 stored games/.test(log) && /@ DEN/.test(log), 'player search opens the game log: ' + log.slice(0, 400));
         const snapCells = await page.$$eval('#sports-nfl-root [data-sp-panel="player"] .sp-log', (ts) => ts.map((t) => { const i = [...t.querySelectorAll('thead th')].findIndex((th) => /Snaps/.test(th.textContent)); return i < 0 ? null : t.querySelector('tbody tr td:nth-child(' + (i + 1) + ')')?.textContent.trim(); }));
         assert(snapCells.some((c) => /^50\s*80%$/.test(c || '')), 'the NFL log shows snaps and snap share: ' + JSON.stringify(snapCells));
+        const tops = await page.$$eval('#sports-nfl-root [data-sp-panel="player"] .sp-table:not(.sp-fc):not(.sp-log) tbody tr', (trs) => trs.map((tr) => tr.getBoundingClientRect().top));
+        assert(tops.length > 2 && tops.every((t, i) => i === 0 || t > tops[i - 1] + 10), 'the averages table rows sit one under another: ' + tops);
+        await page.locator(FP + '[data-sp-ptab="pick"]').click();
         const kStat = page.locator('#sports-nfl-root [data-sp-panel="player"] [data-sp-pickform] [name="stat"]');
         if (await kStat.count()) assert.equal(await kStat.inputValue(), 'receptions', 'a tight end’s pick starts on receptions, not passing yards');
         assert.equal(await page.locator('#sports-nfl-root [data-sp-search]').inputValue(), 'kelce', 'the search box keeps its text');
-        const tops = await page.$$eval('#sports-nfl-root [data-sp-panel="player"] .sp-table:not(.sp-fc):not(.sp-log) tbody tr', (trs) => trs.map((tr) => tr.getBoundingClientRect().top));
-        assert(tops.length > 2 && tops.every((t, i) => i === 0 || t > tops[i - 1] + 10), 'the averages table rows sit one under another: ' + tops);
-        await page.locator('#sports-nfl-root [data-sp-player="00-0001"]').first().click();
-        await page.locator('#sports-nfl-root [data-sp-panel="player"]').filter({ hasText: 'Geno Smíth' }).waitFor();
+        await page.locator(FP + '[data-sp-ptab="opponents"]').click();
+        const opp = await page.locator(FP + '[data-sp-part="ptab"]').innerText();
+        assert(/All teams/.test(opp) && /DEN/.test(opp), 'averages against each team: ' + opp.slice(0, 300));
+        await page.locator(FP + '[data-sp-ptab="seasons"]').click();
+        assert(/2026/.test(await page.locator(FP + '[data-sp-part="ptab"]').innerText()), 'averages by season');
+        await page.locator(FP + '[data-sp-ptab="upcoming"]').click();
+        const upN = await page.locator(FP + '.sp-pp-up tbody tr').count();
+        assert(upN >= 1 || /No upcoming games stored/.test(await page.locator(FP + '[data-sp-part="ptab"]').innerText()), 'upcoming games, or a plain note');
+        // Browser Back closes the page and brings the board back as it was.
+        await page.evaluate(() => history.back());
+        await page.locator('#sports-nfl-root .sp-board').waitFor({ state: 'visible' });
+        assert(!new URL(page.url()).searchParams.has('player') && (await page.locator(FP + '.sp-pp-name').count()) === 0, 'Back closes the player page');
+        assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('data-sp-player')), '00-0003', 'focus returns to the name that opened the page');
+        assert.equal(await page.locator('#sports-nfl-root [data-sp-panel="game"] [data-sp-player="00-0001"]').count() > 0, true, 'the open game is still there');
+        await page.locator('#sports-nfl-root [data-sp-panel="game"] [data-sp-player="00-0001"]').first().click();
+        await page.locator(FP + '.sp-pp-name').filter({ hasText: 'Geno Smíth' }).waitFor();
+        await page.locator(FP + '[data-sp-ptab="pick"]').click();
         // The line box hints a line near the player's average for the chosen stat.
         const gForm = page.locator('#sports-nfl-root [data-sp-panel="player"] [data-sp-pickform]');
         assert.equal(await gForm.locator('[name="line"]').getAttribute('placeholder'), '250.5', 'a quarterback’s passing-yards line hint sits near the player’s average, not 24.5');
         await gForm.locator('[name="stat"]').selectOption('receptions');
         assert.equal(await gForm.locator('[name="line"]').getAttribute('placeholder'), '0.5', 'the hint follows the chosen stat');
         await gForm.locator('[name="stat"]').selectOption('passing_yards');
-        await page.locator('#sports-nfl-root [data-sp-panel="game"]').scrollIntoViewIfNeeded();
-        checks += 10;
+        await page.locator(FP + '[data-sp-close="player"]').click();
+        await page.locator('#sports-nfl-root [data-sp-panel="game"]').waitFor({ state: 'visible' });
+        assert(!new URL(page.url()).searchParams.has('player'), 'the back button clears the address');
+        // A shared address opens the player page directly.
+        await page.goto(base + '/?tab=sports-nfl&player=00-0003');
+        await page.locator(FP + '.sp-pp-name').filter({ hasText: 'Travis Kelce' }).waitFor();
+        await page.screenshot({ path: resolve(output, `player-page-nfl-${width}-${theme}.png`), fullPage: true, animations: 'disabled' });
+        await page.locator(FP + '[data-sp-close="player"]').click();
+        await page.locator('#sports-nfl-root .sp-board').waitFor({ state: 'visible' });
+        assert(!new URL(page.url()).searchParams.has('player'), 'closing a shared address leaves the board');
+        checks += 26;
       }
       if (id === 'sports-nba') {
         assert(/Up to date/.test(text) && /2025–26, 2026–27/.test(text) && /Sun, Nov 1/.test(text), 'NBA shows its job status, seasons and latest game');
@@ -206,16 +281,52 @@ try {
         const mxOv = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
         assert(mxOv <= 1, 'the matchup has no sideways page scroll at ' + width);
         checks += 6;
+        // Team bets: the team model's chances for this game, a bet checker,
+        // the win-by chart and the lines.
+        const TBS = GP + '.sp-tb ';
+        const tbText = await page.locator(GP + '.sp-tb').innerText();
+        assert(/PHX \d+%[\s\S]*GS \d+%\s*to win/.test(tbText) && /Expected PHX [\d.]+, GS [\d.]+/.test(tbText), 'team bets lead with both win chances and the expected score: ' + tbText.slice(0, 300));
+        assert(/Check a bet/.test(tbText) && /Win by X or more/.test(tbText) && /Team numbers/.test(tbText), 'the checker, the win-by chart and the team numbers');
+        assert.equal(await page.locator(TBS + 'svg.sp-tb-ch polyline.sp-tb-line').count(), 2, 'one win-by line per team');
+        assert(await page.locator(TBS + 'svg.sp-tb-ch').getAttribute('data-ch'), 'the win-by chart uses the shared hover readout');
+        const big = () => page.locator(TBS + '[data-sp-part="tb-result"] .sp-tb-big').innerText();
+        const bigPct = async () => Number((await big()).match(/(\d+(?:\.\d)?)%/)[1]);
+        assert(/to win by 10 or more\s+\d+(\.\d)?%/.test(await big()), 'the checker starts on win by 10: ' + await big());
+        await page.locator(TBS + '[data-sp-tb="team"]').selectOption('gs');
+        await page.locator(TBS + '[data-sp-tb="line"]').fill('20');
+        await page.locator(TBS + '[data-sp-part="tb-result"]').filter({ hasText: 'GS to win by 20 or more' }).waitFor();
+        const by20 = await bigPct();
+        assert.equal(await page.locator(TBS + '[data-sp-tb="line"]').evaluate((el) => el === document.activeElement), true, 'typing keeps the cursor in the box');
+        await page.locator(TBS + '[data-sp-tb="line"]').fill('5');
+        await page.locator(TBS + '[data-sp-part="tb-result"]').filter({ hasText: 'GS to win by 5 or more' }).waitFor();
+        const by5 = await bigPct();
+        assert(by5 > by20 && by20 > 0, 'winning by 5 is likelier than by 20: ' + by5 + ' vs ' + by20);
+        await page.locator(TBS + '[data-sp-tb="price"]').fill('+400');
+        await page.locator(TBS + '.sp-tb-ev').waitFor();
+        assert(/At \+400 you need 20(\.0)?% to break even/.test(await page.locator(TBS + '.sp-tb-ev').innerText()), 'a typed price gives the breakeven and the average return: ' + await page.locator(TBS + '.sp-tb-ev').innerText());
+        await page.locator(TBS + '[data-sp-tb="market"]').selectOption('total');
+        await page.locator(TBS + '[data-sp-part="tb-result"]').filter({ hasText: 'Game total over' }).waitFor();
+        assert.equal(await page.locator(TBS + '[data-sp-tb="team"]').count(), 0, 'a game total needs no team');
+        await page.locator(TBS + '[data-sp-tb="market"]').selectOption('win_by');
+        assert(await page.locator(TBS + '.sp-tb-table').first().locator('tbody tr').count() >= 4, 'the main lines: both moneylines and spreads');
+        await page.locator(TBS + '.sp-tb-more > summary').click();
+        assert(/GS to win by 20\+/.test(await page.locator(TBS + '.sp-tb-more').innerText()), 'more lines include the win-by ladder');
+        await page.locator(GP + '.sp-tb').screenshot({ path: resolve(output, `team-bets-${width}-${theme}.png`), animations: 'disabled' });
+        assert(/(GS|PHX) \d+%/.test(await page.locator('#sports-nba-root [data-sp-game="401900003"] .sp-twin').innerText()), 'the board row shows the team model’s favorite');
+        checks += 12;
         await page.locator('#sports-nba-root [data-sp-game-stat]').selectOption('rebounds');
         assert(/Rebounds per game/.test(await page.locator(GP + '.sp-matchup').innerText()), 'the matchup follows the chosen stat');
         assert(/Rebounds/.test(await page.locator('#sports-nba-root [data-sp-game-stat] option:checked').innerText()) && (await page.locator('#sports-nba-root [data-sp-panel="game"] thead th', { hasText: /^Stat$/ }).count()) === 0, 'the game panel switches every player to one stat');
-        await page.locator('#sports-nba-root [data-sp-panel="game"] [data-sp-player="3975"]').click();
-        await page.locator('#sports-nba-root [data-sp-panel="player"] .sp-log').waitFor();
-        const nbaLog = await page.locator('#sports-nba-root [data-sp-panel="player"]').innerText();
         assert(/out last game/.test(await page.locator('#sports-nba-root [data-sp-panel="game"]').innerText()), 'a player who sat out is flagged');
+        await page.locator('#sports-nba-root [data-sp-panel="game"] [data-sp-player="3975"]').click();
+        const PL = '#sports-nba-root [data-sp-panel="player"] ';
+        await page.locator(PL + '.sp-pp-name').filter({ hasText: 'Stephen Curry' }).waitFor();
+        const nbaOverview = await page.locator(PL).innerText();
+        await page.locator(PL + '[data-sp-ptab="log"]').click();
+        await page.locator(PL + '.sp-log').waitFor();
+        const nbaLog = await page.locator('#sports-nba-root [data-sp-panel="player"]').innerText();
         assert(/did not play: left ankle sprain/.test(nbaLog) && /Minutes/.test(nbaLog) && /\bMin\b/.test(nbaLog), 'the NBA log shows minutes and the missed game with its reason');
         // Stat sets: Combos shows the summed lines, All shows every stat.
-        const PL = '#sports-nba-root [data-sp-panel="player"] ';
         await page.locator(PL + '[data-sp-logset="combo"]').click();
         const comboHeads = await page.$$eval(PL + '.sp-log thead th', (ths) => ths.map((th) => th.textContent.replace(/[▲▼↕]/g, '').trim()));
         assert(['PRA', 'P+R', 'P+A', 'R+A', 'B+S', 'Fan'].every((h) => comboHeads.includes(h)) && !comboHeads.includes('Pts'), 'the Combos set shows the combo columns only: ' + comboHeads.join(','));
@@ -229,6 +340,7 @@ try {
         assert(sums.pra === sums.pts + sums.reb + sums.ast && sums.pr === sums.pts + sums.reb, 'PRA and P+R in the log are summed from the same game: ' + JSON.stringify(sums));
         assert(Number.isFinite(sums.oreb) ? sums.dreb === sums.reb - sums.oreb : !Number.isFinite(sums.dreb), 'defensive rebounds are rebounds minus offensive, blank when offensive is: ' + JSON.stringify(sums));
         await page.locator(PL + '[data-sp-logset="main"]').click();
+        await page.locator(PL + '[data-sp-ptab="pick"]').click();
         const form = page.locator('#sports-nba-root [data-sp-panel="player"] [data-sp-pickform]');
         assert.deepEqual(await form.locator('[name="stat"] optgroup').evaluateAll((gs) => gs.map((g) => g.label)), ['Main', 'Combos', 'More'], 'the pick form lists every stat in groups');
         assert((await form.locator('[name="stat"] option').evaluateAll((os) => os.map((o) => o.value))).includes('pra'), 'combos can be picked');
@@ -241,11 +353,27 @@ try {
         await form.locator('[name="line"]').fill('24.5');
         await form.locator('[data-sp-addpick]').click();
         assert(/Added\. The entry has 1 pick\./.test(await form.locator('[data-sp-pick-msg]').innerText()), 'the pick goes into the Pick Builder draft');
-        assert(/Model forecast for the next game[\s\S]*fewer than 5 stored games/i.test(nbaLog), 'too few games: the model says so instead of guessing: ' + nbaLog.slice(0, 700));
+        await page.locator(PL + '[data-sp-ptab="overview"]').click();
+        assert(/Model forecast for the next game[\s\S]*fewer than 5 stored games/i.test(nbaOverview), 'too few games: the model says so instead of guessing: ' + nbaOverview.slice(0, 700));
         assert.equal(await page.locator('#sports-nba-root [data-sp-panel="player"] .sp-fc-none li').count(), 1, 'no forecast at all: one line per reason, not a table of empty columns');
         assert(/All 12 modeled stats/.test(await page.locator('#sports-nba-root [data-sp-panel="player"] .sp-fc-none').innerText()), 'the one reason covers every modeled stat');
         assert.equal(await page.locator('#sports-nba-root [data-sp-panel="player"] table.sp-fc').count(), 0);
-        const modelCardEl = page.locator('#sports-nba-root .sp-model');
+        // Upcoming games: rest, lines, the team model's chance and what each
+        // opponent allows to his position; "Open game" goes to the game.
+        await page.locator(PL + '[data-sp-ptab="upcoming"]').click();
+        await page.locator(PL + '.sp-pp-up tbody tr').first().waitFor();
+        const upText = await page.locator(PL + '.sp-pp-up').innerText();
+        assert(/vs PHX/.test(upText) && /to G/.test(upText) && /\d+%/.test(upText) && /Open game/.test(upText), 'upcoming games with the opponent’s defense and the win chance: ' + upText.slice(0, 500));
+        await page.locator(PL + '[data-sp-ptab="opponents"]').click();
+        assert(/All teams/.test(await page.locator(PL + '.sp-pp-opp').innerText()), 'averages against each team');
+        await page.locator(PL + '[data-sp-ptab="upcoming"]').click();
+        await page.locator(PL + '[data-sp-pp-game]').first().click();
+        await page.locator('#sports-nba-root [data-sp-panel="game"] .sp-tb').waitFor({ state: 'visible' });
+        assert.equal(await page.locator(PL + '.sp-pp-name').count(), 0, '“Open game” leaves the player page for the game');
+        checks += 3;
+        const tmCard = await page.locator('#sports-nba-root .sp-tmodel').innerText();
+        assert(/Team bets check/i.test(tmCard) && /of 5 kinds of bet passed/.test(tmCard), 'the side card shows the team model’s check: ' + tmCard.slice(0, 300));
+        const modelCardEl = page.locator('#sports-nba-root .sp-model:not(.sp-tmodel)');
         assert(/2 of 12 stats passed/.test(await modelCardEl.innerText()), 'the card opens with a tally');
         assert.equal(await modelCardEl.locator('details.sp-model-stat[open]').count(), 0, 'each stat starts folded');
         for (const st of ['points', 'rebounds']) await modelCardEl.locator('[data-sp-model-stat="' + st + '"] > summary').click();
@@ -256,11 +384,12 @@ try {
         assert(/Game spread and total: (on\. It beat leaving it out|off; )/.test(side), 'each stat says whether the spread and total are used: ' + side.slice(0, 900));
         assert(/Same-game links/i.test(side) && /Points and rebounds, one player/.test(side) && /later pairs: both cleared/.test(side), 'the card lists the same-game links and their check: ' + side);
         // Calibration: each model stat draws stated chance vs how often it happened.
-        assert(await page.locator('#sports-nba-root .sp-model .sp-rel-svg').count() >= 1 && await page.locator('#sports-nba-root .sp-model .sp-rel-dot').count() >= 3, 'the model card draws a calibration chart');
-        await page.locator('#sports-nba-root .sp-model').screenshot({ path: resolve(output, `model-calibration-${width}-${theme}.png`), animations: 'disabled' });
+        assert(await modelCardEl.locator('.sp-rel-svg').count() >= 1 && await modelCardEl.locator('.sp-rel-dot').count() >= 3, 'the model card draws a calibration chart');
+        await modelCardEl.screenshot({ path: resolve(output, `model-calibration-${width}-${theme}.png`), animations: 'disabled' });
         await page.locator('#sports-nba-root [data-sp-search]').fill('lebron');
         await page.locator('#sports-nba-root [data-sp-part="results"] [data-sp-player="1966"]').click();
         await page.locator('#sports-nba-root [data-sp-panel="player"] .sp-fc').waitFor();
+        assert(/Back to games/.test(await page.locator(PL + '[data-sp-close="player"]').innerText()));
         const fcText = await page.locator('#sports-nba-root [data-sp-panel="player"]').innerText();
         assert(/Model forecast for the next game/i.test(fcText) && /@ PHX/.test(fcText) && /80% range/i.test(fcText) && /Passed the check/.test(fcText) && /minutes expected/.test(fcText), 'LeBron gets a forecast for his next game: ' + fcText.slice(0, 600));
         assert.equal(await page.locator('#sports-nba-root .sp-fc tbody tr').first().locator('.sp-lines span').count(), 5, 'five lines with the chance of the over');
@@ -269,6 +398,7 @@ try {
         checks += 7;
         // Charts: the last 10 games as bars, green above the average, red below.
         const PP = '#sports-nba-root [data-sp-panel="player"] ';
+        await page.locator(PP + '[data-sp-ptab="charts"]').click();
         const barRead = () => page.$$eval(PP + '[data-sp-part="chart-body"] svg.sp-ch', ([svg]) => [...svg.querySelectorAll('rect.sp-bar')].map((r, i) => ({ cls: r.getAttribute('class'), v: Number(svg.querySelectorAll('text.sp-ch-val')[i]?.textContent) })));
         await page.locator(PP + '[data-sp-part="chart-body"] svg.sp-ch').waitFor();
         let bars = await barRead();
@@ -283,7 +413,7 @@ try {
         bars = await barRead();
         assert(bars.every((b) => b.cls.includes(b.v > 27.5 ? 'is-over' : 'is-under')) && (await page.locator(PP + 'svg.sp-ch line.sp-ch-ref').count()) === 1, 'a typed line recolors the bars against it');
         assert.equal(await page.locator(PP + '[data-sp-chart-line]').evaluate((el) => el === document.activeElement), true, 'typing keeps the cursor in the line box');
-        for (const [kind, sel, min] of [['trend', 'svg.sp-ch polyline.sp-ch-line', 1], ['hits', '.sp-hit', 8], ['spread', 'svg.sp-ch rect.sp-bar', 2], ['volume', 'svg.sp-ch circle.sp-dot', 10], ['splits', '.sp-split', 2]]) {
+        for (const [kind, sel, min] of [['trend', 'svg.sp-ch polyline.sp-ch-line', 1], ['hits', '.sp-hit', 8], ['spread', 'svg.sp-ch rect.sp-bar', 2], ['volume', 'svg.sp-ch circle.sp-dot', 10], ['rate', 'svg.sp-ch polyline.sp-ch-line', 1], ['splits', '.sp-split', 2], ['script', '.sp-split', 2], ['pair', 'svg.sp-ch circle.sp-dot', 6]]) {
           await page.locator(PP + '[data-sp-chart-kind="' + kind + '"]').click();
           await page.locator(PP + '[data-sp-part="chart-body"] ' + sel).first().waitFor();
           assert((await page.locator(PP + '[data-sp-part="chart-body"] ' + sel).count()) >= min, kind + ' chart draws');
@@ -295,6 +425,15 @@ try {
         assert(/points per minute/.test(await page.locator(PP + '[data-sp-part="chart-body"]').innerText()), 'the volume chart states the rate');
         await page.locator(PP + '[data-sp-chart-kind="splits"]').click();
         assert(/Home or away[\s\S]*Opponent/.test(await page.locator(PP + '[data-sp-part="chart-body"]').innerText()), 'splits by place and opponent');
+        await page.locator(PP + '[data-sp-chart-kind="rate"]').click();
+        assert(/per 36 min/.test(await page.locator(PP + '[data-sp-part="chart-body"]').innerText()), 'the rate chart reads per 36 minutes');
+        await page.locator(PP + '[data-sp-chart-kind="script"]').click();
+        assert(/Result[\s\S]*Team won[\s\S]*Final margin/.test(await page.locator(PP + '[data-sp-part="chart-body"]').innerText()), 'game script splits by result and margin');
+        await page.locator(PP + '[data-sp-chart-kind="pair"]').click();
+        await page.locator(PP + '[data-sp-chart-stat2]').selectOption('rebounds');
+        await page.locator(PP + '[data-sp-part="chart-body"]').filter({ hasText: 'Rebounds average' }).waitFor();
+        assert(/Correlation (−?\d\.\d\d|—) over \d+ games/.test(await page.locator(PP + '[data-sp-part="chart-body"]').innerText()), 'two stats: the correlation over the games shown');
+        checks += 3;
         await page.locator(PP + '[data-sp-chart-kind="bars"]').click();
         await page.locator(PP + '[data-sp-chart-n="5"]').click();
         assert.equal((await barRead()).length, 5, 'the last-5 window draws five bars');
@@ -328,6 +467,7 @@ try {
         assert.equal(await labelClash(width <= 760), '', 'opponent labels do not overlap at 20 games (a phone shows dates instead)');
         await page.locator(PP + '[data-sp-chart-n="10"]').click();
         checks += 17;
+        await page.locator(PP + '[data-sp-close="player"]').click();
         // Team stats: records and what each defense allows; a team opens its players.
         const NR = '#sports-nba-root ';
         await page.locator(NR + '[data-sp-view="teams"]').click();
@@ -368,7 +508,17 @@ try {
         assert.equal(await page.locator(NR + '.sp-hbars li').count(), 20, 'the chart shows the top 20');
         await page.locator(NR + '[data-sp-part="view"]').screenshot({ path: resolve(output, `players-chart-${width}-${theme}.png`), animations: 'disabled' });
         await page.locator(NR + '.sp-hbars [data-sp-player]').first().click();
-        await page.locator(NR + '[data-sp-panel="player"] svg.sp-ch').waitFor();
+        await page.locator(NR + '[data-sp-panel="player"] .sp-pp-tile').first().waitFor();
+        assert(/Back to player stats/.test(await page.locator(NR + '[data-sp-close="player"]').innerText()), 'the back button returns to player stats');
+        for (const tab of ['upcoming', 'charts', 'log', 'opponents', 'seasons', 'pick', 'overview']) {
+          await page.locator(NR + '[data-sp-ptab="' + tab + '"]').click();
+          assert.equal(await page.locator(NR + '[data-sp-ptab="' + tab + '"]').getAttribute('aria-selected'), 'true', tab + ' tab is selected');
+          const ovTab = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+          assert(ovTab <= 1, 'the ' + tab + ' tab has no sideways scroll at ' + width);
+        }
+        await page.screenshot({ path: resolve(output, `player-page-nba-${width}-${theme}.png`), fullPage: true, animations: 'disabled' });
+        await page.locator(NR + '[data-sp-close="player"]').click();
+        await page.locator(NR + '[data-sp-part="view"] .sp-hbars').waitFor({ state: 'visible' });
         const ov = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
         assert(ov <= 1, 'the stats views have no sideways scroll at ' + width);
         await page.locator(NR + '[data-sp-view="games"]').click();

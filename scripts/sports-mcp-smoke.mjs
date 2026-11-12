@@ -18,6 +18,7 @@ const { handleSportsRequest } = await import('../lib/sports/http.mjs');
 const { decodePrefill } = await import('../lib/sports/prefill.mjs');
 const { nbaModelLeague } = await import('./fixtures/sports-model.mjs');
 const { nbaName } = await import('../lib/sports/nba-market.mjs');
+const { buildTeamModel } = await import('../lib/sports/team-model.mjs');
 
 let checks = 0;
 const ok = (cond, msg) => { assert.ok(cond, msg); checks++; };
@@ -92,8 +93,9 @@ async function rpc(method, params, { token = ownerToken, env = {}, now = NOW } =
   await handleMcpRequest({ method: 'POST', url: '/mcp', query: {}, headers: { host: HOST, 'x-forwarded-proto': 'https', 'content-type': 'application/json', authorization: 'Bearer ' + token }, body: { jsonrpc: '2.0', id: 1, method, params } }, res, { env: { ...ENV, ...env }, store, now: () => now, loadPropSources: fakeSources });
   return res.body;
 }
+const ro0 = sportsReadOnlyStore(store);
 const tool = async (name, args, opts) => (await rpc('tools/call', { name, arguments: args }, opts)).result;
-const SPORTS_TOOLS = ['sports_list_games', 'sports_find_players', 'sports_get_game', 'sports_get_player', 'sports_evaluate_entry', 'sports_get_model_check', 'sports_get_prop_record', 'sports_get_league_stats'];
+const SPORTS_TOOLS = ['sports_list_games', 'sports_find_players', 'sports_get_game', 'sports_team_odds', 'sports_get_player', 'sports_evaluate_entry', 'sports_get_model_check', 'sports_get_prop_record', 'sports_get_league_stats'];
 
 // --- who sees the tools ------------------------------------------------------------
 const names = (await rpc('tools/list', {})).result.tools.map((t) => t.name);
@@ -150,6 +152,13 @@ eq(tPts.applied, (model.context.absence?.points?.beta || 0) > 0, 'and raises it 
 eq(P.book_lines.map((b) => [b.stat, b.threshold, b.book_over, b.books]), [['points', 15.5, 0.7, 3], ['points', 17.5, 0.5, 3]], 'every book line for the next game, median no-vig over chance');
 ok(P.book_lines.every((b) => typeof b.model_over === 'number' && b.model_over > 0 && b.model_over < 1 && Math.abs(b.gap - (b.model_over - b.book_over)) < 1e-4), 'the model’s over chance sits beside each book line');
 ok(player.structuredContent.warnings.some((w) => /INJURY: listed Questionable/.test(w)), 'an injury listing is a warning');
+// Splits: the player page's Vs teams, Seasons and Splits views as numbers.
+const SP = P.splits;
+ok(SP && SP.games_used > 5 && SP.all.games === SP.games_used && SP.home.games + SP.away.games === SP.games_used, 'splits: overall, home and away add up');
+ok(SP.stats.includes('points') && typeof SP.all.avg.points === 'number' && SP.by_season.length >= 1 && SP.by_season.reduce((a, x) => a + x.games, 0) === SP.games_used, 'by season covers every played game');
+ok(SP.by_opponent.length >= 1 && SP.by_opponent.every((o) => o.games >= 1 && typeof o.avg.points === 'number' && /^\d{4}-\d{2}-\d{2}$/.test(o.last_date)), 'by opponent, with the last meeting');
+ok(SP.team_won.games + SP.team_lost.games <= SP.games_used && 'back_to_back' in SP.rest && 'favored' in SP, 'by result, rest and the spread');
+ok(SP.games_used <= P.total_games && /the newest \d+/.test(SP.note) && !/object with|more keys/.test(JSON.stringify(SP)), 'splits say how many games they cover, uncut by the size limit');
 
 // --- evaluate: the same answer as the Pick Builder ---------------------------------
 const legs = [
@@ -245,6 +254,49 @@ eq(E2.legs.map((l) => [l.model.game_lines?.team_total, l.model.game_lines?.appli
 eq(E2.legs.map((l) => l.model.probability), E.legs.map((l) => l.model.probability), 'and its chances are unchanged');
 const G2 = (await tool('sports_get_game', { sport: 'nba', game_id: 'mnext1' })).structuredContent.results;
 eq([G2.game_lines?.favorite, G2.game_lines?.total], ['gs', 228.5], 'the game view shows them too');
+
+// --- team vs team odds (2026-11-12) ----------------------------------------------------
+{
+  eq(G2.team_bets?.status, 'not_fitted', 'no team model stored yet: the game view says so');
+  const noModel = await tool('sports_team_odds', { sport: 'nba', game_id: 'mnext1' });
+  ok(noModel.structuredContent.warnings.some((w) => /NO_FORECAST/.test(w)), 'and the team odds tool too');
+  // A season before, so the model has a held-out season to check on.
+  const prev = L.games.map((x) => ({ ...x, game_id: 'p' + x.game_id, season: 2024, start_utc: new Date(Date.parse(x.start_utc) - 365 * 86400000).toISOString(), local_date: undefined }));
+  const TM = buildTeamModel({ sport: 'nba', games: [...prev, ...L.games], now: NOW });
+  put('team-model', { sport: 'nba' }, { schema_version: 1, ...TM });
+  feedCalls = [];
+  const T = await tool('sports_team_odds', { sport: 'nba', game_id: 'mnext1', bets: [{ market: 'win_by', team: 'gs', line: 20, price: 450 }, { market: 'spread', team: 'bos', line: 4.5 }, { market: 'total', side: 'over', line: 228.5 }, { market: 'win_by', team: 'xx', line: 5 }] });
+  ok(!T.isError, 'team odds read: ' + JSON.stringify(T).slice(0, 300));
+  const R = T.structuredContent.results;
+  eq([R.forecast.mode, R.forecast.market.total, R.forecast.market.home_margin], ['market', 228.5, 4.5], 'starts from the archived spread and total');
+  ok(Math.abs(R.forecast.win.home + R.forecast.win.away - 1) < 0.002 && R.forecast.win.home > 0.5, 'the favorite is more likely to win');
+  ok(!('pmf' in R.forecast), 'the raw distributions stay on the page');
+  eq(R.bets[0].label, 'GS to win by 20+', 'a win-by bet');
+  ok(R.bets[0].breakeven > 0.18 && R.bets[0].breakeven < 0.182 && typeof R.bets[0].ev_per_dollar === 'number', 'with breakeven and expected value from +450');
+  ok(Math.abs(R.bets[1].chance - (1 - R.ladder.find((x) => x.label === 'GS −4.5').chance)) < 0.001, 'the underdog side of the spread mirrors the favorite');
+  ok(T.structuredContent.warnings.some((w) => /^BET_4: team must be/.test(w)), 'a bad bet is named, the rest still priced');
+  ok(Object.keys(R.win_by_ladder.gs).length === 30 && R.win_by_ladder.bos['30+'] != null && Math.abs(R.win_by_ladder.gs['1+'] - R.forecast.win.home) <= 0.001, 'win-by ladder (1+ to 30+) starts at the win chance');
+  ok(R.teams.gs.rating && R.teams.bos.results.games > 0, 'team ratings and results');
+  ok(R.check.moneyline.n > 0 && ['validated', 'not_validated', 'learning'].includes(R.check.moneyline.status), 'how each market held up');
+  ok(T.structuredContent.warnings.some((w) => /WIDTH_UNTESTED/.test(w)), 'NBA market widths are flagged as untested');
+  ok(feedCalls.some(([sp, parts]) => sp === 'nba' && /reference/.test(parts) && /game_lines/.test(parts)), 'the live sportsbook read, game lines included, is asked for NBA');
+  feedCalls = [];
+  await tool('sports_get_player', { sport: 'nba', player_id: gsStar.player_id });
+  ok(feedCalls.length && feedCalls.every(([, parts]) => !/game_lines/.test(parts)), 'the player tool leaves the game-line request out');
+  const byTeams = await tool('sports_team_odds', { sport: 'nba', team: 'BOS', opponent: 'gs' });
+  eq(byTeams.structuredContent.results.game.game_id, 'mnext1', 'finds the game by team codes');
+  ok(byTeams.structuredContent.warnings.some((w) => /GAME_FROM_SCHEDULE/.test(w)), 'and says which game it used');
+  eq(JSON.parse((await tool('sports_team_odds', { sport: 'nba', team: 'bos', opponent: 'den' })).content[0].text).error.code, 'NOT_FOUND', 'no meeting stored');
+  eq(JSON.parse((await tool('sports_team_odds', { sport: 'nba' })).content[0].text).error.code, 'INVALID_INPUT', 'needs a game or a team');
+  const G3 = (await tool('sports_get_game', { sport: 'nba', game_id: 'mnext1' })).structuredContent.results;
+  ok(G3.team_bets.status === 'ok' && G3.team_bets.see === 'sports_team_odds' && !G3.team_bets.forecast, 'the game view carries a short team-odds line');
+  ok((await ro0.rawGet(sportsKey('team-model', { sport: 'nba' }))) != null, 'the read-only store reads the team model');
+  const B2 = (await tool('sports_list_games', { sport: 'nba', time_zone: 'America/New_York' })).structuredContent.results;
+  const row = B2.games.find((x) => x.game_id === 'mnext1');
+  ok(row.team_win && Math.abs(row.team_win.home + row.team_win.away + row.team_win.tie - 1) < 0.002 && Math.abs(row.team_win.home - R.forecast.win.home) < 1e-9, 'the board carries the same win chance');
+  const MC = (await tool('sports_get_model_check', { sport: 'nba' })).structuredContent.results.team_model;
+  ok(MC.status === 'ok' && MC.see === 'sports_team_odds' && ['moneyline', 'spread', 'win_by', 'total', 'team_total'].every((k) => MC.markets[k] && Number.isInteger(MC.markets[k].n)), 'the model check lists the team model per kind of bet');
+}
 
 // --- model check -------------------------------------------------------------------
 const mc = (await tool('sports_get_model_check', { sport: 'nba' })).structuredContent.results;

@@ -104,7 +104,18 @@ const books = [
 ];
 const gameLines = normalizeGameLines([{ ...event, bookmakers: books }], 'nba', now);
 assert.deepEqual(gameLines.map(({ observed_utc, ...g }) => g), [{ event_id: 'provider-g1', home_team: 'Los Angeles Lakers', away_team: 'Golden State Warriors', start_utc: game.start_utc, total: 229, home_margin: 5, books: 2 }],
-  'home favored by the median of 4.5 and 5.5; total the median of 228.5 and 229.5');
+  'home favored by the median of 4.5 and 5.5; total the median of 228.5 and 229.5; the books split around both, so no cover or over chance is claimed for 5 or 229');
+// A third book on DraftKings' numbers: the median is 4.5 / 228.5, and only the
+// books at those exact lines give the cover and over chances (Shin, median).
+const third = { key: 'betmgm', markets: [gl('spreads', [{ name: 'Los Angeles Lakers', side: 'home', price: -115, point: -4.5 }, { name: 'Golden State Warriors', side: 'away', price: -105, point: 4.5 }], { line_type: 'main' }),
+  gl('totals', [{ name: 'Over', price: -120, point: 228.5 }, { name: 'Under', price: 100, point: 228.5 }], { team: null, line_type: 'main' })] };
+const agreed = normalizeGameLines([{ ...event, bookmakers: [...books, third] }], 'nba', now)[0];
+assert.deepEqual([agreed.home_margin, agreed.total, agreed.books, agreed.book.books], [4.5, 228.5, 3, 2], 'the median line, and two books priced it');
+assert.ok(agreed.book.home_cover > 0.5 && agreed.book.home_cover < 0.52 && agreed.book.over > 0.5 && agreed.book.over < 0.53, 'cover and over chances from the two books at those lines only: ' + JSON.stringify(agreed.book));
+// Moneylines (h2h, 2026-11-12): the books' no-vig home win chance, median across books.
+const withH2h = books.map((b, i) => (i < 2 ? { ...b, markets: [...b.markets, gl('h2h', [{ name: 'Los Angeles Lakers', side: 'home', price: i ? -200 : -180 }, { name: 'Golden State Warriors', side: 'away', price: i ? 170 : 150 }])] } : b));
+const h2hLines = normalizeGameLines([{ ...event, bookmakers: withH2h }], 'nba', now);
+assert.ok(h2hLines[0].book.home_win > 0.63 && h2hLines[0].book.home_win < 0.66, 'home win: the median of the two books\' no-vig chances');
 assert.ok(lineMatchesGame(gameLines[0], game, 'nba'), 'a game line finds its stored game');
 assert.deepEqual(normalizeGameLines([{ ...event, live: true, bookmakers: books }], 'nba', now), [], 'nothing once the game is live');
 assert.deepEqual(normalizeGameLines([{ ...event, bookmakers: [books[0]].map((b) => ({ ...b, markets: b.markets.map((m) => ({ ...m, suspended_at: at })) })) }], 'nba', now), [], 'a suspended market is not read');
@@ -142,7 +153,41 @@ assert.equal(sources.lines.lines.length, 1);
 assert.equal(sources.injuries.state, 'ok');
 assert.ok(calls.every((c) => !c.url.includes('fixture-secret')), 'key travels in a header, never in a URL');
 assert.ok(!JSON.stringify(sources).includes('fixture-secret'), 'key never reaches the response');
-assert.equal(calls.filter((c) => c.url.includes('prop-line')).length, 2, 'NBA uses two bulk requests: PrizePicks and sportsbook references, never one per game');
+assert.equal(calls.filter((c) => c.url.includes('prop-line')).length, 3, 'NBA uses three bulk requests: PrizePicks, sportsbook player prices and sportsbook game lines, never one per game');
+{
+  // The game markets are their own request: a refused or oversized game read
+  // never takes the player prices down (2026-11-12), and the other way round.
+  const marketsOf = (u) => new URL(u).searchParams.get('markets').split(',');
+  const playerCall = calls.find((c) => c.url.includes('prop-line') && marketsOf(c.url).includes('player_points') && !c.url.includes('prizepicks'));
+  const gameCall = calls.find((c) => c.url.includes('prop-line') && marketsOf(c.url).includes('spreads'));
+  assert.ok(playerCall && !['spreads', 'totals', 'h2h'].some((m) => marketsOf(playerCall.url).includes(m)), 'the player price request carries no game markets');
+  assert.deepEqual(marketsOf(gameCall.url).sort(), ['h2h', 'spreads', 'totals'], 'the game request carries only spreads, totals and moneylines');
+  assert.equal(sources.reference.state, 'ok');
+  assert.equal(sources.reference.game_lines_state, 'ok');
+  const split = (failGames, status) => async (url) => {
+    const u = String(url);
+    if (!u.includes('prop-line')) return new Response(JSON.stringify({ status: 'success', timestamp: at, injuries: [] }), { status: 200 });
+    const games = new URL(u).searchParams.get('markets').includes('spreads');
+    return games === failGames ? new Response('{}', { status }) : new Response(JSON.stringify([event]), { status: 200 });
+  };
+  const gamesDown = await loadPropSources({ sport: 'nba', now, env: { PROPLINE_API_KEY: 'fixture-secret' }, fetchImpl: split(true, 422) });
+  assert.equal(gamesDown.reference.state, 'ok', 'a failed game read leaves the player prices up');
+  assert.equal(gamesDown.reference.game_lines_state, 'unavailable');
+  assert.equal(gamesDown.reference.game_lines_http_status, 422, 'the provider status is kept for the log');
+  assert.deepEqual(gamesDown.reference.game_lines, []);
+  const playersDown = await loadPropSources({ sport: 'nba', now, env: { PROPLINE_API_KEY: 'fixture-secret' }, fetchImpl: split(false, 500) });
+  assert.equal(playersDown.reference.state, 'unavailable');
+  assert.equal(playersDown.reference.http_status, 500);
+  assert.equal(playersDown.reference.game_lines_state, 'ok', 'a failed player read leaves the game lines up');
+  const rateLimited = await loadPropSources({ sport: 'nba', now, env: { PROPLINE_API_KEY: 'fixture-secret' }, fetchImpl: split(true, 429) });
+  assert.equal(rateLimited.reference.game_lines_state, 'rate_limited');
+  let skippedCalls = 0;
+  const skipped = await loadPropSources({ sport: 'nba', now, env: { PROPLINE_API_KEY: 'fixture-secret' }, parts: ['lines', 'injuries', 'reference'],
+    fetchImpl: async (url) => { if (String(url).includes('prop-line')) skippedCalls++; return split(true, 500)(url); } });
+  assert.equal(skippedCalls, 2, 'leaving game_lines out of parts saves the game request');
+  assert.equal(skipped.reference.game_lines_state, 'skipped');
+  assert.equal(skipped.reference.state, 'ok');
+}
 const failed = await loadPropSources({ sport: 'nba', now, env: { PROPLINE_API_KEY: 'fixture-secret' }, fetchImpl: async () => new Response('{}', { status: 429 }) });
 assert.equal(failed.lines.state, 'rate_limited');
 assert.equal(failed.lines.lines.length, 0);

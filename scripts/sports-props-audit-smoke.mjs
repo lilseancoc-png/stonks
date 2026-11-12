@@ -51,6 +51,21 @@ assert.equal(rankGameProps({ ...timing, now: now + 60000 }).picks.length, 0, 'a 
 const loadTiming = async (kind, options = {}) => options.season != null && options.season !== 2026 ? null : ({ status: { seasons: [2026] }, games: { games: [timing.game] }, players: { players }, 'player-games': { rows } })[kind] || null;
 const timingView = await recommendationsView({ load: loadTiming, sport: 'nba', now, tz: 'America/Los_Angeles', sources: { lines: { state: 'ok', lines: timing.lines }, injuries } });
 assert.equal(timingView.expires_utc, early, 'the UI expiry follows the earlier feed kickoff');
+// With no live game read (the research collector skips it, or the books'
+// game request failed), the NBA view takes the line an earlier scan archived
+// for that game day; a live read wins over the archive.
+{
+  const archiveFile = { games: { g: [228.5, 4.5, at, 0.64] } };
+  const loadArchived = async (kind, options = {}) => kind === 'lines' ? (options.date === timing.game.local_date ? archiveFile : null) : loadTiming(kind, options);
+  const fromArchive = await recommendationsView({ load: loadArchived, sport: 'nba', now, tz: 'America/Los_Angeles', sources: { lines: { state: 'ok', lines: timing.lines }, injuries } });
+  const gl = fromArchive.games.find((x) => x.game_id === 'g')?.game_lines;
+  assert.equal(gl?.total, 228.5, 'the archived total fills a game with no live read');
+  assert.equal(fromArchive.game_line_index.length, 0, 'an archived line is not archived again');
+  const liveRead = { state: 'ok', quotes: [], game_lines: [{ home_team: 'Los Angeles Lakers', away_team: 'Golden State Warriors', start_utc: timing.game.start_utc, total: 231.5, home_margin: 5.5, books: 3, observed_utc: at }] };
+  const fromLive = await recommendationsView({ load: loadArchived, sport: 'nba', now, tz: 'America/Los_Angeles', sources: { lines: { state: 'ok', lines: timing.lines }, injuries, reference: liveRead } });
+  assert.equal(fromLive.games.find((x) => x.game_id === 'g')?.game_lines?.total, 231.5, 'a live read wins over the archive');
+  assert.equal(fromLive.game_line_index.length, 1);
+}
 let writes = 0;
 const store = { backend: 'r2', rawGet: async () => null, rawPut: async () => { writes++; }, withLease: async (_, fn) => { await fn(() => {}); return { busy: false }; } };
 const capture = await capturePropPicks({ store, view: timingView, now, clock: () => now + 60000 });
@@ -67,7 +82,7 @@ try {
   const params = { sport: 'nba', now, env: { PROPLINE_API_KEY: 'fixture-cache-boundary' } };
   assert.equal((await loadPropSources(params)).lines.lines.length, 1);
   assert.equal((await loadPropSources({ ...params, now: now + 60000 })).lines.lines.length, 0);
-  assert.equal(fetches, 3, 'NBA reuses both bulk quote requests and the injury cache but still closes started events');
+  assert.equal(fetches, 4, 'NBA reuses its three bulk requests (PrizePicks, book player prices, book game lines) and the injury cache but still closes started events');
 } finally { globalThis.fetch = originalFetch; }
 
 // A real-size research dataset exceeds one function response. Every page

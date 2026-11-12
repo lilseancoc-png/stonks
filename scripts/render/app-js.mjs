@@ -4493,6 +4493,9 @@ ${renderExportBindings()}
       // (the unchanged-URL guard below already no-ops most of those).
       try {
         var url = new URL(window.location.href);
+        // ?player= opens a Sports player page; it belongs to the tab it was
+        // opened on and is dropped when the page changes.
+        if (url.searchParams.get('tab') !== name) url.searchParams.delete('player');
         if (name === 'home') {
           // Home is the canonical bare landing state. Grade contract params
           // must leave with it or a reload re-opens Grade via ?s=.

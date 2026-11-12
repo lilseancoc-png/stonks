@@ -12,6 +12,10 @@ if (!process.env.PROPLINE_API_KEY) throw new Error('PROPLINE_API_KEY is required
 if (store.backend !== 'r2') throw new Error('The prop record requires R2');
 let failed = false;
 const requested = process.argv.find((s) => s.startsWith('--sport='))?.slice(8);
+// --no-game-lines: skip the NBA books' game spread/total request (the
+// five-minute research collector; the board falls back to the archived line
+// the :07/:37 scan wrote, so the request budget stays where it was).
+const gameLines = !process.argv.includes('--no-game-lines');
 if (requested && !['nba', 'nfl'].includes(requested)) throw new Error('sport must be nba or nfl');
 // Our own failure reasons, safe for a public log (no lines, names or keys).
 const SAFE_REASONS = new Set(['a current feed is unavailable', 'NBA research recording is unavailable or busy',
@@ -19,9 +23,12 @@ const SAFE_REASONS = new Set(['a current feed is unavailable', 'NBA research rec
 for (const sport of requested ? [requested] : ['nba', 'nfl']) {
   let feeds = '';
   try {
-    const now = Date.now(), sources = await loadPropSources({ sport, now });
-    // Feed states only ("ok", "stale", "rate_limited", "unavailable", ...).
-    feeds = ` lines=${sources.lines?.state || '?'} injuries=${sources.injuries?.state || '?'}` + (sport === 'nba' ? ` reference=${sources.reference?.state || '?'}` : '');
+    const now = Date.now(), sources = await loadPropSources({ sport, now, parts: ['lines', 'injuries', 'reference', ...(gameLines ? ['game_lines'] : [])] });
+    // Feed states only ("ok", "stale", "rate_limited", "unavailable", ...),
+    // plus the provider's HTTP status number for a failed sportsbook read.
+    const code = (s) => (s ? ` (http ${s})` : '');
+    feeds = ` lines=${sources.lines?.state || '?'} injuries=${sources.injuries?.state || '?'}` + (sport === 'nba'
+      ? ` reference=${sources.reference?.state || '?'}${code(sources.reference?.http_status)} game_lines=${sources.reference?.game_lines_state || '?'}${code(sources.reference?.game_lines_http_status)}` : '');
     const feedsOk = sources.lines.state === 'ok' && sources.injuries.state === 'ok';
     if (!feedsOk && sport !== 'nba') throw new Error('a current feed is unavailable');
     const view = await recommendationsView({ load: recordLoader(store), sport, now, tz: 'America/Los_Angeles', sources });

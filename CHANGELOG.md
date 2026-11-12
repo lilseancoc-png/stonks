@@ -20,6 +20,23 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
      (same format, plus the archive preamble) and add that month to the
      "Older changelogs" index below. -->
 
+## 2026-11-12
+
+### Added
+
+- Add **team bets** to Sports: each NBA and NFL game panel shows the chance of each team winning, winning by X or more, covering the spread, and the game and team totals going over or under, from a new deterministic team game model (walk-forward team ratings that start from the sportsbook line where there is one, whole-number score curves, a held-out check per kind of bet; refit twice a day into `<sport>/team-model.json`). A checker prices any bet with fair odds, breakeven and expected return per dollar (the page's math matches the server's to 0.0001 on 432 test bets, and warns on a positive return for a kind of bet that has not passed its check); the block also shows both teams' records against the spread and over / under, margins, close games, rest, ratings with ranks and NBA pace. NBA games carry the books' no-vig win, cover and over chances, the last two only from books posting that exact line. The board shows each game's win chance.
+- Add `sports_team_odds` to the MCP (game id or two team codes, up to 12 bets, a win-by ladder from 1+ to 30+, the books' no-vig chances and the check per kind of bet); `sports_list_games` carries each game's win chance and `sports_get_model_check` the team model's check.
+- Clicking a player now opens a full **player page** (`?player=` link, Back works, arrow keys move between tabs) with seven tabs: overview, the team's next five games (opponent record, what that defense allows to the position, rest, spread, total, win chance, the player's average against them; last season's numbers, labeled, before an opponent's first game), all charts (new: per 36 minutes or per target / carry / attempt, game script by team result, two stats against each other), the game log, averages by opponent, by season, and a quick pick form.
+- `sports_get_player` in the MCP adds the team's next five games and the player's splits (home / away, starter / bench, team won / lost, close games and blowouts, favored / underdog, rest, season and opponent).
+
+### Fixed
+
+- Fix NBA sportsbook reads failing on every NBA scan since the 2026-11-11 data update (#808): the game spreads and totals now go in their own request instead of riding the player-price request, so the NBA props record and the archived NBA game lines work again, and the scan log names the provider's status for a failed read. The five-minute research collector skips the game request and uses the archived line.
+
+### Docs
+
+- Document team bets, the player page, the split sportsbook request and the new MCP fields in `docs/sports/README.md`, `docs/mcp.md` and CLAUDE.md.
+
 ## 2026-11-11
 
 ### Added
