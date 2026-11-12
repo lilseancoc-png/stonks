@@ -34,7 +34,17 @@ receiving yards are summed from stored stats as rows are read (`statValue`),
 so adding one needs no re-ingest. Each game panel has a Matchup section
 (`matchupView`, the two teams before that game with league ranks, what each
 defense allows by position, stored meetings) and each player's average
-against that opponent.
+against that opponent. Since 2026-11-12 each game panel also has **Team bets**
+(win, win by X, spread, total, team total; a checker with fair price,
+breakeven and expected return; the team numbers behind it) from the team game
+model (`lib/sports/team-model.mjs`, deterministic walk-forward ratings that
+start from the market line where there is one, whole-number score curves, a
+held-out check per kind of bet; refit by the data job into
+`<sport>/team-model.json`; `lib/sports/team-bets.mjs`). The page's checker
+(`tbPrice` in `sports-client.mjs`) copies `priceTeamBet`; change one, change
+the other (`sports-team-smoke` compares them). Clicking a player opens a full
+player page (`?player=<id>`, seven tabs incl. the team's next five games),
+not a side panel.
 `SPORTS_ENABLED=0` is the kill switch. Records are JSON in
 `_stonks/sports/v1/` (raw internal prefix, never published or synced), written
 by the `sports-data.yml` job, twice a day since 2026-11-11 (13:20 and 22:30
@@ -86,7 +96,10 @@ and leaves a pair with no measured link unpriced.
 No AI calls and no bets. The one outside line feed is PropLine's read-only
 odds API (`PROPLINE_API_KEY`, `lib/sports/prop-sources.mjs`): PrizePicks
 lines plus, for NBA, sportsbook reference prices (margin removed with Shin's
-method, `shinProbabilities` in `lib/sports/nba-market.mjs`). The owners chose to keep it
+method, `shinProbabilities` in `lib/sports/nba-market.mjs`) and, as a request
+of its own since 2026-11-12 (`game_lines` in `loadPropSources`' parts; the
+five-minute research collector skips it with `--no-game-lines`), the books'
+game spreads, totals and moneylines. The owners chose to keep it
 on 2026-11-08. It is read server-side behind the Owner gate, by the prop
 recording job and (since 2026-11-11) by the MCP's `sports_evaluate_entry` /
 `sports_get_player`, which show the books' no-vig chance beside the model's
@@ -97,7 +110,7 @@ pages and places nothing. Model chances are recalibrated only when a
 cross-fitted Platt curve beats the raw ones (`fitCalibration`, seven stats
 pass on the 2026-11-11 data); forecasts carry `tested` and `early_season` notes instead. The Owner Market
 Brief and MCP feature list leave Sports out; the MCP
-has its own eight Owner-only `sports_*` tools (`lib/mcp/sports-tools.mjs`, read
+has its own nine Owner-only `sports_*` tools (`sports_team_odds` since 2026-11-12; `lib/mcp/sports-tools.mjs`, read
 through `sportsReadOnlyStore`, no save tool: evaluate returns a Pick Builder
 `?entry=` link). See
 `docs/sports/README.md`.

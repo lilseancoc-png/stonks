@@ -103,7 +103,7 @@
     "test:leaps-score": "node scripts/leaps-score-smoke.mjs",
     "test:private-store": "node scripts/private-store-smoke.mjs",
     "test:render": "node scripts/render-smoke.mjs",
-    "test:sports": "node scripts/sports-smoke.mjs && node scripts/sports-nfl-smoke.mjs && node scripts/sports-nba-smoke.mjs && node scripts/sports-pick-smoke.mjs && node scripts/sports-model-smoke.mjs && node scripts/sports-line-archive-smoke.mjs && node scripts/sports-joint-smoke.mjs && node scripts/sports-mcp-smoke.mjs && node scripts/sports-stats-smoke.mjs && node scripts/sports-props-smoke.mjs && node scripts/sports-props-audit-smoke.mjs && node scripts/sports-props-backtest-smoke.mjs && node scripts/nba-alpha-smoke.mjs && node scripts/sports-clv-smoke.mjs",
+    "test:sports": "node scripts/sports-smoke.mjs && node scripts/sports-nfl-smoke.mjs && node scripts/sports-nba-smoke.mjs && node scripts/sports-pick-smoke.mjs && node scripts/sports-model-smoke.mjs && node scripts/sports-line-archive-smoke.mjs && node scripts/sports-joint-smoke.mjs && node scripts/sports-mcp-smoke.mjs && node scripts/sports-team-smoke.mjs && node scripts/sports-stats-smoke.mjs && node scripts/sports-props-smoke.mjs && node scripts/sports-props-audit-smoke.mjs && node scripts/sports-props-backtest-smoke.mjs && node scripts/nba-alpha-smoke.mjs && node scripts/sports-clv-smoke.mjs",
     "test:sports-props": "node scripts/sports-props-smoke.mjs && node scripts/sports-props-audit-smoke.mjs && node scripts/sports-props-backtest-smoke.mjs && node scripts/nba-alpha-smoke.mjs && node scripts/sports-clv-smoke.mjs",
     "test:nba-alpha": "node scripts/nba-alpha-smoke.mjs",
     "report:nba-alpha": "node scripts/nba-research-report.mjs",

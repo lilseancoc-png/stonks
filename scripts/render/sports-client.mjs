@@ -256,7 +256,7 @@ export function sportsFactory(host, doc, options) {
     if (g.status === 'postponed' || g.status === 'canceled') return '<span class="sp-muted">' + (g.status === 'postponed' ? 'Postponed' : 'Canceled') + '</span>';
     if (Date.parse(g.start_utc) <= Date.now()) return '<span class="sp-muted">Started · result after the next refresh</span>';
     const week = g.week != null ? (g.season_type === 'POST' ? 'Playoffs' : 'Week ' + escape(g.week)) : '';
-    return '<span class="sp-muted">' + [week, boardLines(g.game_lines)].filter(Boolean).join(' · ') + '</span>';
+    return '<span class="sp-muted">' + [week, boardLines(g.game_lines), teamWinHtml(g)].filter(Boolean).join(' · ') + '</span>';
   }
   // "SEA −6.5 · O/U 40.5" on an upcoming game's row.
   function boardLines(gl) {
@@ -399,7 +399,7 @@ export function sportsFactory(host, doc, options) {
     return '<div class="sp-panel" data-sp-panel="game"><div class="sp-panel-head"><h4>' + team(g.away_team) + ' at ' + team(g.home_team) + '</h4>' +
       '<button type="button" class="sp-close" data-sp-close="game" aria-label="Close game">×</button></div>' +
       '<div class="sp-ctl">' + statSelectHtml('data-sp-game-stat', 'Stat', all, pick, [['', 'Each player’s main stat']]) + '</div>' +
-      matchupHtml(lg, pick) +
+      matchupHtml(lg, pick) + teamBetsHtml(lg) +
       '<p class="sp-note">Players each team used in its last three games this season, with their averages this season before this game, and against this opponent this season and last. Bars: the last 10 games, oldest first, green above the player’s own average of them and red below. Select a column to sort, a name for charts and the game log.</p>' +
       '<div class="sp-teams">' + teams + '</div></div>';
   }
@@ -468,6 +468,274 @@ export function sportsFactory(host, doc, options) {
   }
   const L_matchup = (lg) => (league(lg).game && league(lg).game.matchup) || null;
 
+  // ---- Team bets: the team game model (lib/sports/team-model.mjs) -----------
+  // Win, win by X+, spread, game total and team totals for one game. The
+  // checker prices any line in the page from the forecast's whole-number
+  // distributions (the same math as priceTeamBet on the server), beside the
+  // books' no-vig chance where stored and how each kind of bet held up on
+  // held-out games.
+  const TB_MARKETS = [['moneyline', 'To win'], ['win_by', 'Win by X+'], ['spread', 'Spread'], ['total', 'Game total'], ['team_total', 'Team total']];
+  const TB_NAME = { moneyline: 'To win', win_by: 'Win by X+', spread: 'Spread', total: 'Game total', team_total: 'Team total' };
+  const TB_STATUS = { validated: 'Passed the check', not_validated: 'Did not pass', learning: 'Learning', no_data: 'Not checked yet' };
+  const tbState = (lg) => { const L = league(lg); return L.tb || (L.tb = { market: 'win_by', team: '', line: '', side: 'over', price: '' }); };
+  const amText = (a) => (a == null || !Number.isFinite(a) ? '—' : a > 0 ? '+' + a : '−' + Math.abs(a));
+  const fairOdds = (p) => (p > 0 && p < 1 ? amText(p >= 0.5 ? -Math.round((100 * p) / (1 - p)) : Math.round((100 * (1 - p)) / p)) : '—');
+  const pct0 = (p) => (p == null ? '—' : Math.round(p * 100) + '%');
+  const halfUp = (x) => Math.round(x - 0.5) + 0.5;
+  function tbCheckText(m) {
+    if (!m || !m.n) return 'Not enough held-out games with this kind of bet yet.';
+    return Number(m.n).toLocaleString('en-US') + ' held-out games: chances off by ' + (m.ece == null ? '—' : (m.ece * 100).toFixed(1) + ' points') + ' on average' +
+      (m.ece_luck != null ? ' (luck alone allows ' + (m.ece_luck * 100).toFixed(1) + ')' : '') + '.';
+  }
+  function tbBadge(m) {
+    const st = m && m.status;
+    return '<span class="sp-q' + (st === 'validated' ? ' sp-q-validated' : '') + '" title="' + escape(tbCheckText(m)) + '">' + escape(TB_STATUS[st] || 'Not checked yet') + '</span>';
+  }
+  function tbChances(pmf, line) {
+    let over = 0, push = 0, under = 0;
+    for (let i = 0; i < pmf.p.length; i++) {
+      const k = pmf.start + i;
+      if (k > line + 1e-9) over += pmf.p[i]; else if (Math.abs(k - line) < 1e-9) push += pmf.p[i]; else under += pmf.p[i];
+    }
+    const s = over + push + under || 1;
+    return { over: over / s, push: push / s, under: under / s };
+  }
+  // The line the checker uses when the box is empty: the books' spread or
+  // total when stored, else the model's own number on the half point.
+  function tbDefaultLine(fc, g, s, lg) {
+    const home = s.team === g.home_team;
+    if (s.market === 'win_by') return lg === 'nfl' ? 7 : 10;
+    if (s.market === 'spread') { const m = fc.market ? fc.market.home_margin : halfUp(fc.expected.home_margin); return home ? -m : m; }
+    if (s.market === 'total') return fc.market ? fc.market.total : halfUp(fc.expected.total);
+    if (s.market === 'team_total') return halfUp(home ? fc.expected.home_points : fc.expected.away_points);
+    return null;
+  }
+  function tbPrice(fc, g, b) {
+    const P = fc.pmf;
+    const who = b.market === 'total' ? null : b.team === g.home_team ? 'home' : b.team === g.away_team ? 'away' : null;
+    if (b.market !== 'total' && !who) return { error: 'Pick a team.' };
+    const line = b.line == null || b.line === '' ? null : Number(b.line);
+    const T = who ? String(who === 'home' ? g.home_team : g.away_team).toUpperCase() : '';
+    let win, push = 0, lose, text;
+    if (b.market === 'moneyline') {
+      const c = tbChances(P.margin, 0);
+      win = who === 'home' ? c.over : c.under; lose = who === 'home' ? c.under : c.over; push = c.push; text = T + ' to win';
+    } else if (b.market === 'win_by') {
+      if (!(line >= 1 && line <= 60)) return { error: 'Type the points, from 1 to 60.' };
+      const X = Math.ceil(line), c = tbChances(P.margin, (who === 'home' ? 1 : -1) * (X - 0.5));
+      win = who === 'home' ? c.over : c.under; lose = 1 - win; text = T + ' to win by ' + X + ' or more';
+    } else if (b.market === 'spread') {
+      if (!(Number.isFinite(line) && Math.abs(line) <= 60)) return { error: 'Type the spread, like −7.5 or +3.' };
+      const c = tbChances(P.margin, who === 'home' ? -line : line);
+      win = who === 'home' ? c.over : c.under; push = c.push; lose = who === 'home' ? c.under : c.over;
+      text = T + ' ' + (line > 0 ? '+' + line : line < 0 ? '−' + Math.abs(line) : 'pick’em');
+    } else {
+      if (!(line > 0 && line <= 400)) return { error: 'Type the total.' };
+      const c = tbChances(b.market === 'total' ? P.total : P[who], line), over = b.side !== 'under';
+      win = over ? c.over : c.under; push = c.push; lose = over ? c.under : c.over;
+      text = (b.market === 'total' ? 'Game total ' : T + ' team total ') + (over ? 'over ' : 'under ') + line;
+    }
+    const out = { text, line, win, push, lose, chance: win + lose > 0 ? win / (win + lose) : 0 };
+    const B = fc.book, M = fc.market;
+    if (B && b.market === 'moneyline' && B.home_win != null) out.book = who === 'home' ? B.home_win : 1 - B.home_win;
+    else if (B && M && b.market === 'spread' && B.home_cover != null && Math.abs((who === 'home' ? -line : line) - M.home_margin) < 1e-9) out.book = who === 'home' ? B.home_cover : 1 - B.home_cover;
+    else if (B && M && b.market === 'total' && B.over != null && Math.abs(line - M.total) < 1e-9) out.book = b.side === 'under' ? 1 - B.over : B.over;
+    const raw = String(b.price == null ? '' : b.price).replace(/[−–]/g, '-').trim();
+    if (raw !== '') {
+      const price = Number(raw);
+      if (!Number.isFinite(price) || (price > -100 && price < 100) || Math.abs(price) > 100000) out.priceErr = 'Odds look like −110 or +150.';
+      else { const dec = price > 0 ? 1 + price / 100 : 1 + 100 / -price; out.price = price; out.breakeven = 1 / dec; out.ev = win * (dec - 1) - lose; }
+    }
+    return out;
+  }
+  function tbResultHtml(lg) {
+    const G = league(lg).game, TB = G && G.team_bets, fc = TB && TB.forecast;
+    if (!fc || !fc.pmf) return '';
+    const g = G.game, s = tbState(lg);
+    const def = tbDefaultLine(fc, g, s, lg);
+    const r = tbPrice(fc, g, { market: s.market, team: s.team, side: s.side, price: s.price, line: s.line === '' ? def : s.line });
+    if (r.error) return '<p class="sp-muted">' + escape(r.error) + '</p>';
+    const check = ((TB.check || {}).markets || {})[s.market];
+    const parts = ['<p class="sp-tb-big"><span>' + escape(r.text) + '</span> <b>' + pct(r.chance) + '</b> <small>fair odds ' + escape(fairOdds(r.chance)) + '</small> ' + tbBadge(check) + '</p>'];
+    if (r.push > 0.001) parts.push('<p class="sp-muted">Lands exactly on ' + escape(fv(Math.abs(r.line))) + ' (a push, stake back) ' + pct(r.push) + ' of the time; the chance above leaves pushes out.</p>');
+    if (r.book != null) {
+      const gap = r.chance - r.book;
+      parts.push('<p class="sp-muted">Books, no vig: <b>' + pct(r.book) + '</b>. The model is ' + (Math.abs(gap) < 0.005 ? 'level with them' : escape((Math.abs(gap) * 100).toFixed(1)) + ' points ' + (gap > 0 ? 'higher' : 'lower')) + '.' +
+        (Math.abs(gap) >= 0.05 ? ' <span class="sp-model-warn">A gap this big usually means news the model cannot see (injuries, rest). Check before trusting either.</span>' : '') + '</p>');
+    }
+    if (r.priceErr) parts.push('<p class="sp-muted">' + escape(r.priceErr) + '</p>');
+    else if (r.price != null) {
+      const edge = r.chance - r.breakeven;
+      parts.push('<p class="sp-tb-ev">At ' + escape(amText(r.price)) + ' you need <b>' + pct(r.breakeven) + '</b> to break even. By this model: ' +
+        '<b class="' + (r.ev > 0 ? 'sp-pos' : r.ev < 0 ? 'sp-neg' : '') + '">' + (r.ev >= 0 ? '+' : '−') + '$' + escape(Math.abs(r.ev * 100).toFixed(2)) + ' per $100</b> on average' +
+        (Math.abs(edge) < 0.02 ? ', inside the model’s usual error, so call it even.' : edge > 0 ? '.' : '; the price is not good enough.') +
+        (edge > 0 && !(check && check.status === 'validated') ? ' <span class="sp-model-warn">This kind of bet has not passed the check, so this return is rough; a big edge here usually means the model is missing something.</span>' : '') + '</p>');
+    }
+    return parts.join('');
+  }
+  function tbFormHtml(lg) {
+    const G = league(lg).game, TB = G.team_bets, fc = TB.forecast, g = G.game, s = tbState(lg);
+    if (s.team !== g.home_team && s.team !== g.away_team) s.team = fc.win.home >= fc.win.away ? g.home_team : g.away_team;
+    const opt = (v, t, cur) => '<option value="' + escape(v) + '"' + (String(v) === String(cur) ? ' selected' : '') + '>' + escape(t) + '</option>';
+    const sel = (key, opts, cur, text) => '<label class="sp-field"><span>' + escape(text) + '</span><select data-sp-tb="' + key + '">' + opts.map(([v, t]) => opt(v, t, cur)).join('') + '</select></label>';
+    const lineText = { win_by: 'By at least (points)', spread: 'Spread (−7.5 = favored)', total: 'Total points', team_total: 'Team points' }[s.market];
+    const def = tbDefaultLine(fc, g, s, lg);
+    return '<div class="sp-tb-form">' + sel('market', TB_MARKETS, s.market, 'Bet') +
+      (s.market !== 'total' ? sel('team', [[g.away_team, String(g.away_team).toUpperCase()], [g.home_team, String(g.home_team).toUpperCase() + ' (home)']], s.team, 'Team') : '') +
+      (s.market === 'total' || s.market === 'team_total' ? sel('side', [['over', 'Over'], ['under', 'Under']], s.side, 'Side') : '') +
+      (lineText ? '<label class="sp-field"><span>' + escape(lineText) + '</span><input type="number" step="0.5" inputmode="decimal" data-sp-tb="line" value="' + escape(s.line) + '" placeholder="' + escape(def == null ? '' : fv(def)) + '"></label>' : '') +
+      '<label class="sp-field"><span>Odds offered (optional)</span><input type="text" inputmode="numeric" maxlength="7" data-sp-tb="price" value="' + escape(s.price) + '" placeholder="−110"></label></div>' +
+      '<div class="sp-tb-result" data-sp-part="tb-result" aria-live="polite">' + tbResultHtml(lg) + '</div>';
+  }
+  // Chance of winning by at least 1..30 points, one line per team, with the
+  // books' spread marked.
+  function tbWinBySvg(fc, g) {
+    // A narrower drawing on phones keeps the labels readable.
+    const nar = narrowScreen(), N = 30, W = nar ? 360 : 640, H = nar ? 200 : 210, L = 40, R = nar ? 10 : 16, T = 12, B = 30;
+    const P = fc.pmf.margin, iw = W - L - R, ih = H - T - B;
+    const atLeast = (sign, x) => { let s = 0, all = 0; for (let i = 0; i < P.p.length; i++) { all += P.p[i]; if (sign * (P.start + i) >= x) s += P.p[i]; } return all > 0 ? s / all : 0; };
+    const x = (v) => L + ((v - 1) / (N - 1)) * iw, y = (p) => T + (1 - p) * ih;
+    const grid = [0, 0.25, 0.5, 0.75, 1].map((t) => '<line class="sp-ch-grid' + (t === 0 ? ' is-zero' : '') + '" x1="' + L + '" x2="' + (W - R) + '" y1="' + y(t).toFixed(1) + '" y2="' + y(t).toFixed(1) + '"/><text class="sp-ch-axis" x="' + (L - 6) + '" y="' + (y(t) + 3.5).toFixed(1) + '" text-anchor="end">' + Math.round(t * 100) + '%</text>').join('');
+    const xt = (nar ? [1, 10, 20, 30] : [1, 5, 10, 15, 20, 25, 30]).map((v) => '<text class="sp-ch-axis" x="' + x(v).toFixed(1) + '" y="' + (H - B + 14) + '" text-anchor="middle">' + v + '+</text>').join('');
+    const hov = [];
+    const lines = [[g.away_team, -1, 'is-away'], [g.home_team, 1, 'is-home']].map(([t, sign, cls]) => {
+      const pts = [];
+      for (let v = 1; v <= N; v++) { const p = atLeast(sign, v); pts.push([x(v), y(p)]); hov.push({ x: x(v), y: y(p), label: String(t).toUpperCase() + ' by ' + v + '+: ' + pct(p) + '\nFair odds ' + fairOdds(p) }); }
+      return '<polyline class="sp-tb-line ' + cls + '" points="' + pts.map((q) => q[0].toFixed(1) + ',' + q[1].toFixed(1)).join(' ') + '"/>';
+    }).join('');
+    let mark = '';
+    const m = fc.market ? Math.abs(fc.market.home_margin) : null;
+    if (m != null && m >= 1 && m <= N) mark = '<line class="sp-ch-ref" x1="' + x(m).toFixed(1) + '" x2="' + x(m).toFixed(1) + '" y1="' + T + '" y2="' + (H - B) + '"/><text class="sp-ch-axis" x="' + (x(m) + 4).toFixed(1) + '" y="' + (T + 10) + '">spread ' + escape(fv(m)) + '</text>';
+    return '<svg class="sp-ch sp-tb-ch" viewBox="0 0 ' + W + ' ' + H + '" style="max-width:' + W + 'px" role="img" aria-label="' + escape('Chance each team wins by at least 1 to 30 points') + '"' + hoverAttr(hov) + '>' + grid + mark + lines + xt +
+      '<text class="sp-ch-axis" x="' + (W - R) + '" y="' + (H - 3) + '" text-anchor="end">wins by at least →</text></svg>' +
+      '<p class="sp-ch-legend"><span><i class="sp-key-line sp-tb-key is-away"></i>' + team(g.away_team) + '</span><span><i class="sp-key-line sp-tb-key is-home"></i>' + team(g.home_team) + ' (home)</span>' + (mark ? '<span><i class="sp-key-line sp-key-ref"></i>Books’ spread</span>' : '') + '</p>';
+  }
+  function tbLadderHtml(TB, lg) {
+    const fc = TB.forecast, rows = TB.ladder || [];
+    const checks = (TB.check || {}).markets || {};
+    const mid = fc.market ? fc.market.total : null;
+    const isMain = (r) => r.market === 'moneyline' || r.market === 'spread' || (r.market === 'total' && (mid == null ? false : Math.abs(r.line - mid) < 1e-9));
+    const row = (r) => {
+      const gap = r.book_chance != null ? r.chance - r.book_chance : null;
+      return '<tr><td>' + escape(r.label) + '</td><td class="sp-n"><b>' + pct(r.chance) + '</b>' + (r.push > 0.001 ? ' <small class="sp-muted" title="Lands on the number: stake back">push ' + pct(r.push) + '</small>' : '') + '</td><td class="sp-n">' + escape(amText(r.fair_american)) + '</td>' +
+        '<td class="sp-n">' + (r.book_chance != null ? pct(r.book_chance) + (Math.abs(gap) >= 0.05 ? ' <span class="sp-model-warn" title="Model and books differ by 5+ points">gap</span>' : '') : '<span class="sp-muted">—</span>') + '</td><td>' + tbBadge(checks[r.market]) + '</td></tr>';
+    };
+    const head = '<thead><tr><th>Bet</th><th class="sp-n">Model chance</th><th class="sp-n" title="American odds that break even at the model’s chance">Fair odds</th><th class="sp-n" title="The books’ chance with their margin removed (Shin’s method)">Books</th><th>Check</th></tr></thead>';
+    const main = rows.filter(isMain), more = rows.filter((r) => !isMain(r));
+    return '<div class="sp-table-wrap"><table class="sp-table sp-tb-table" data-nosort>' + head + '<tbody>' + main.map(row).join('') + '</tbody></table></div>' +
+      (more.length ? '<details class="sp-tb-more"><summary>More lines: win by, other totals and team totals (' + more.length + ')</summary><div class="sp-table-wrap"><table class="sp-table sp-tb-table" data-nosort>' + head + '<tbody>' + more.map(row).join('') + '</tbody></table></div></details>' : '');
+  }
+  // The team numbers behind the forecast, the two teams side by side.
+  function marginSpark(vals) {
+    const v = (vals || []).filter(isNum).slice().reverse();
+    if (!v.length) return '<span class="sp-muted">—</span>';
+    const W = 74, H = 22, slot = W / 10, top = Math.max(1, ...v.map(Math.abs));
+    const mid = H / 2, sc = (H / 2 - 1) / top;
+    return '<svg class="sp-spark" viewBox="0 0 ' + W + ' ' + H + '" width="' + W + '" height="' + H + '" role="img" aria-label="' + escape('Last ' + v.length + ' margins, oldest to newest: ' + v.map((x) => (x > 0 ? '+' : '') + x).join(', ')) + '">' +
+      v.map((x, i) => '<rect class="sp-bar ' + (x > 0 ? 'is-over' : x < 0 ? 'is-under' : 'is-at') + '" x="' + (W - (v.length - i) * slot + 1).toFixed(1) + '" y="' + (x >= 0 ? mid - x * sc : mid).toFixed(1) + '" width="' + (slot - 2).toFixed(1) + '" height="' + Math.max(1, Math.abs(x) * sc).toFixed(1) + '"/>').join('') +
+      '<line class="sp-ch-avg" x1="0" x2="' + W + '" y1="' + mid + '" y2="' + mid + '"/></svg>';
+  }
+  function tbTeamsHtml(TB, g, lg) {
+    const pair = [g.away_team, g.home_team];
+    const X = (t) => TB.teams && TB.teams[t] || {};
+    if (!pair.some((t) => X(t).results || X(t).rating)) return '<p class="sp-muted">Neither team has a final game stored this season before this one.</p>';
+    const sg = (v) => (v == null ? '—' : (v > 0 ? '+' : v < 0 ? '−' : '±') + escape(Math.abs(v).toFixed(1)));
+    const col = (v, good) => (v == null ? '' : (good ? v > 0 : v < 0) ? 'sp-pos' : (good ? v < 0 : v > 0) ? 'sp-neg' : '');
+    const rk = (r, n, what) => (r == null || !n ? '' : ' <small class="sp-rank" title="' + escape(what + ': ' + ord(r) + ' of ' + n + ' teams') + '">' + ord(r) + '</small>');
+    const nw = (v) => '<span class="sp-nw">' + escape(v == null ? '—' : v) + '</span>';
+    const C = lg === 'nfl' ? 8 : 5, B = lg === 'nfl' ? 14 : 15;
+    const rows = [
+      ['Team rating', (t) => { const r = X(t).rating; return r ? '<span class="' + col(r.net, true) + '">' + sg(r.net) + '</span>' + rk(r.net_rank, r.teams, 'Team rating') : '—'; }, 'Points better than an average team, from every game this season and last (older games count less)'],
+      ['Scores · allows vs average', (t) => { const r = X(t).rating; return r ? '<span class="' + col(r.offense, true) + '">' + sg(r.offense) + '</span> · <span class="' + col(r.defense, false) + '">' + sg(r.defense) + '</span>' : '—'; }, 'Points scored and allowed per game against an average team'],
+      ['Against the spread', (t) => nw(X(t).results && X(t).results.ats), 'Covered, failed, pushed, in games with a stored spread'],
+      ['Beat the spread by', (t) => { const r = X(t).results; return r && r.vs_line != null ? '<span class="' + col(r.vs_line, true) + '">' + sg(r.vs_line) + '</span>' : '—'; }, 'Average margin minus the expected margin'],
+      ['Over · under', (t) => nw(X(t).results && X(t).results.over_under), 'Game total over, under, pushed against the stored total'],
+      ['As favorite · underdog', (t) => { const r = X(t).results; return r ? nw(r.as_favorite || '—') + ' · ' + nw(r.as_underdog || '—') : '—'; }, 'Win-loss record when the books favored the team, and when they did not'],
+      ['Average margin', (t) => { const r = X(t).results; return r ? '<span class="' + col(r.avg_margin, true) + '">' + sg(r.avg_margin) + '</span>' : '—'; }],
+      ['Home · away margin', (t) => { const r = X(t).results; return r ? sg(r.home_margin) + ' · ' + sg(r.away_margin) : '—'; }],
+      ['Close games (' + C + ' or fewer)', (t) => nw(X(t).results && X(t).results.close), 'Won-lost in games decided by ' + C + ' points or fewer'],
+      ['Won · lost by ' + B + '+', (t) => { const r = X(t).results; return r ? r.big_wins + ' · ' + r.big_losses : '—'; }],
+      ['Average game total', (t) => escape(f1(X(t).results && X(t).results.avg_total))],
+      ['Last 10 margins', (t) => marginSpark(X(t).results && X(t).results.last10), 'Oldest to newest; green won, red lost'],
+      ['Rest before this game', (t) => (X(t).rest_days == null ? '—' : escape(X(t).rest_days) + ' day' + (X(t).rest_days === 1 ? '' : 's')), 'Days since the team’s previous game'],
+    ];
+    if (lg === 'nba') rows.push(
+      ['Pace (possessions)', (t) => escape(f1(X(t).pace && X(t).pace.possessions)), 'Field goal tries + 0.44 × free throw tries − offensive rebounds + turnovers, per game (box scores)'],
+      ['Points per 100 · allowed', (t) => { const p = X(t).pace; return p ? escape(f1(p.offense_per_100)) + ' · ' + escape(f1(p.defense_per_100)) : '—'; }, 'Per 100 possessions, so fast and slow teams compare fairly'],
+    );
+    return '<div class="sp-table-wrap"><table class="sp-table sp-mx-table" data-nosort><thead><tr><th>This season before this game</th>' + pair.map((t) => '<th class="sp-n">' + team(t) + (t === g.home_team ? ' <span class="sp-muted">home</span>' : '') + '</th>').join('') + '</tr></thead><tbody>' +
+      rows.map(([name, fn, tip]) => '<tr><th scope="row"' + (tip ? ' title="' + escape(tip) + '"' : '') + '>' + escape(name) + '</th>' + pair.map((t) => '<td class="sp-n">' + fn(t) + '</td>').join('') + '</tr>').join('') + '</tbody></table></div>';
+  }
+  function teamBetsHtml(lg) {
+    const G = league(lg).game, TB = G && G.team_bets;
+    if (!TB) return '';
+    const g = G.game, check = TB.check || {};
+    const open = (body) => '<details class="sp-tb" open><summary>Team bets</summary>' + body + '</details>';
+    if (TB.status === 'not_fitted' || TB.status === 'not_enough_games') return open('<p class="sp-muted">The team model has not been fitted yet; the next daily data run fits it.</p>');
+    const teamsBlock = '<h6>Team numbers</h6>' + tbTeamsHtml(TB, g, lg);
+    if (TB.status === 'played') {
+      const F = TB.final, GL = G.game_lines;
+      let settle = '';
+      if (F && GL && isFinite(GL.home_margin) && isFinite(GL.total)) {
+        const cover = F.margin - GL.home_margin, fav = GL.favorite;
+        settle = ' Against the books: ' + (fav ? team(fav) + ' −' + escape(fv(Math.abs(GL.home_margin))) + ' ' + (cover === 0 ? 'pushed' : (fav === g.home_team ? cover > 0 : cover < 0) ? 'covered' : 'did not cover') : 'pick’em') +
+          '; the total went ' + (F.total > GL.total ? 'over' : F.total < GL.total ? 'under' : 'right on') + ' ' + escape(fv(GL.total)) + '.';
+      }
+      return open(F ? '<p class="sp-tb-lead">Final: ' + team(g.away_team) + ' ' + num(F.away_score) + ', ' + team(g.home_team) + ' ' + num(F.home_score) + ' (' + (F.margin === 0 ? 'tie' : team(F.margin > 0 ? g.home_team : g.away_team) + ' by ' + Math.abs(F.margin)) + ', total ' + F.total + ').' + settle + '</p>' + teamsBlock : teamsBlock);
+    }
+    if (TB.status !== 'ok' || !TB.forecast) return open('<p class="sp-muted">No forecast for this game: one of the teams has no rated games yet.</p>' + teamsBlock);
+    const fc = TB.forecast, E = fc.expected, BL = fc.blend || {};
+    const pairText = '<p class="sp-tb-lead"><b>' + team(g.away_team) + ' ' + pct0(fc.win.away) + '</b> · <b>' + team(g.home_team) + ' ' + pct0(fc.win.home) + '</b> to win' + (fc.win.tie > 0.001 ? ' · tie ' + pct(fc.win.tie) : '') +
+      '. Expected ' + team(g.away_team) + ' ' + escape(f1(E.away_points)) + ', ' + team(g.home_team) + ' ' + escape(f1(E.home_points)) + ' (' + (Math.abs(E.home_margin) < 0.05 ? 'even' : team(E.home_margin > 0 ? g.home_team : g.away_team) + ' by ' + escape(f1(Math.abs(E.home_margin)))) + ', total ' + escape(f1(E.total)) + ').</p>';
+    const how = fc.mode === 'market'
+      ? 'Starts from the ' + (fc.market && fc.market.source === 'nflverse' ? 'closing' : 'sportsbooks’') + ' spread and total' + (BL.margin > 0 || BL.total > 0
+        ? ', moved ' + Math.round((BL.margin || 0) * 100) + '% (margin) and ' + Math.round((BL.total || 0) * 100) + '% (total) toward the team ratings' + (BL.tested ? ', the share that helped on earlier games.' : '; a small default, not yet tested (needs 200+ lined games).')
+        : '; on earlier games the team ratings added nothing to them, so the books’ numbers stand.')
+      : 'No spread or total is stored for this game yet, so this comes from the team ratings alone.';
+    const ro = fc.ratings_only || {};
+    const notes = [
+      how + ' Team ratings alone say ' + (Math.abs(ro.margin) < 0.05 ? 'even' : team(ro.margin > 0 ? g.home_team : g.away_team) + ' by ' + escape(f1(Math.abs(ro.margin)))) + ', total ' + escape(f1(ro.total)) + '.',
+      fc.rest && (fc.rest.home != null || fc.rest.away != null) ? 'Rest: ' + team(g.away_team) + ' ' + (fc.rest.away == null ? 'first game of the season' : fc.rest.away + ' day' + (fc.rest.away === 1 ? '' : 's')) + ', ' + team(g.home_team) + ' ' + (fc.rest.home == null ? 'first game of the season' : fc.rest.home + ' day' + (fc.rest.home === 1 ? '' : 's')) + (fc.rest_edge && check.params && check.params.rest ? '; the rest edge is counted (it helped on earlier games).' : '.') : '',
+      fc.early ? '<span class="sp-model-warn">Early in the season: few games this year, so the ranges are widened.</span>' : '',
+      fc.mode === 'market' && check.sd && check.sd.market && check.sd.market.borrowed ? 'How far results land from the books’ lines has not been measured for ' + lg.toUpperCase() + ' yet (the line archive is new), so the ratings’ wider spread is used and chances lean toward 50%.' : '',
+    ].filter(Boolean).map((t) => '<p class="sp-muted">' + t + '</p>').join('');
+    return open(pairText + notes +
+      '<h6>Check a bet</h6><div data-sp-part="tb-form">' + tbFormHtml(lg) + '</div>' +
+      '<h6>Win by X or more</h6>' + tbWinBySvg(fc, g) +
+      '<h6>Lines</h6>' + tbLadderHtml(TB, lg) + teamsBlock +
+      '<p class="sp-note">A forecast, not a promise. The model rates each team’s offense and defense from final scores (this season and last), adds home edge, and turns the expected margin and total into chances for every whole-number result, with the shape learned from past games (NBA has no ties; NFL lands on 3 and 7 more often). “Passed the check” means 300+ held-out games and chances off by 3 points or less (or no more than luck allows). Injuries and rest decisions are not in the data; the books’ line usually knows about them, which is why the model starts from it. Nothing is placed.</p>');
+  }
+  // Team model's win chance on a board row.
+  function teamWinHtml(g) {
+    const w = g.team_win;
+    if (!w || !(w.home >= 0) || !(w.away >= 0)) return '';
+    const fav = w.home >= w.away ? g.home_team : g.away_team, p = Math.max(w.home, w.away);
+    return '<span class="sp-twin" title="Team model’s chance to win">' + team(fav) + ' ' + Math.round(p * 100) + '%</span>';
+  }
+  // The team model's check in the side card: one folded row per kind of bet.
+  function teamModelCard(src) {
+    const T = src.team_model;
+    if (!T) return '';
+    if (T.status !== 'ok') return '<div class="sp-source sp-model sp-tmodel"><h3>Team bets check</h3><p class="sp-muted">The team model has not been fitted yet; the next daily data run fits it.</p></div>';
+    const names = { moneyline: 'Who wins', spread: 'Spread', win_by: 'Win by X+', total: 'Game total', team_total: 'Team totals' };
+    const keys = Object.keys(names).filter((k) => T.markets[k]);
+    const passed = keys.filter((k) => T.markets[k].status === 'validated').length;
+    const rows = keys.map((k) => {
+      const m = T.markets[k], B = m.baseline;
+      return '<li><details class="sp-model-stat"><summary><span class="sp-model-name">' + escape(names[k]) + '</span><span class="sp-model-verdict">' + tbBadge(m) + '</span></summary><div class="sp-model-body">' +
+        '<span>' + escape(tbCheckText(m)) + (m.slope != null ? ' Calibration slope ' + escape(m.slope.toFixed(2)) + ' (1 is ideal; above 1 means the chances were too timid).' : '') + '</span>' +
+        (B && B.n ? '<span class="sp-muted">Score on ' + Number(B.n).toLocaleString('en-US') + ' games (lower is better): model ' + escape(B.model == null ? '—' : B.model.toFixed(4)) + ', ' + escape(B.name || 'baseline') + ' ' + escape(B.baseline == null ? '—' : B.baseline.toFixed(4)) + '.</span>' : '') +
+        reliabilitySvg(m.reliability, names[k]) + '</div></details></li>';
+    }).join('');
+    const H = T.held_out, MM = (H && H.mean_miss) || {};
+    return '<div class="sp-source sp-model sp-tmodel"><h3>Team bets check</h3><p class="sp-model-tally">' + passed + ' of ' + keys.length + ' kinds of bet passed.</p><ul class="sp-model-list">' + rows + '</ul>' +
+      '<p class="sp-note">Fitted on earlier seasons, then scored on ' + (H ? Number(H.games).toLocaleString('en-US') + ' later games' + (H.from ? ' from ' + escape(fmtDay(H.from)) + ' ' + escape(H.from.slice(0, 4)) : '') : 'later games') + ' it never saw' +
+      (MM.margin != null ? '. Margins missed by ' + escape(f1(MM.margin)) + ' points on average' + (MM.market_margin != null ? ' (the books’ spread: ' + escape(f1(MM.market_margin)) + ')' : '') : '') +
+      (MM.total != null ? ', totals by ' + escape(f1(MM.total)) + (MM.market_total != null ? ' (books: ' + escape(f1(MM.market_total)) + ')' : '') : '') + '. ' +
+      (T.blend && T.blend.tested ? 'Ratings blended into the books’ numbers at ' + Math.round((T.blend.margin || 0) * 100) + '% (margin) and ' + Math.round((T.blend.total || 0) * 100) + '% (total), the share that helped.' : 'The blend toward ratings is a small untested default until 200+ games have a stored line.') +
+      ' · ' + escape(T.version) + '.</p></div>';
+  }
+
   // ---- Player search and game log ---------------------------------------
   function resultsHtml(lg) {
     const L = league(lg);
@@ -498,7 +766,7 @@ export function sportsFactory(host, doc, options) {
     const log = P.games.length ? '<div class="sp-table-wrap"><table class="sp-table sp-log"><thead><tr><th>Date</th><th>Game</th>' + (lg === 'nba' ? '<th class="sp-n">Min</th>' : '') + (snapsCol ? '<th class="sp-n" title="Offensive snaps and share of the team\'s snaps">Snaps</th>' : '') +
       logCols.map((st) => '<th class="sp-n" title="' + escape(label(st)) + '">' + escape(SHORT[st] || st) + '</th>').join('') + '</tr></thead><tbody>' +
       logGames.map((r) => '<tr' + (r.played ? '' : ' class="sp-dnp"') + '><td>' + escape(fmtDay(r.date)) + ' <span class="sp-muted">' + escape(String(r.date).slice(0, 4)) + '</span></td><td>' + (r.home ? 'vs ' : '@ ') + team(r.opponent) +
-        (r.week != null ? ' <span class="sp-muted">' + (r.season_type === 'POST' ? 'playoffs' : 'wk ' + escape(r.week)) + '</span>' : '') + (r.played ? '' : ' <span class="sp-muted">did not play' + (r.dnp_reason ? ': ' + escape(String(r.dnp_reason).toLowerCase()) : '') + '</span>') + '</td>' +
+        (r.week != null ? ' <span class="sp-muted">' + (r.season_type === 'POST' ? 'playoffs' : 'wk ' + escape(r.week)) + '</span>' : '') + (resultHtml(r) ? ' ' + resultHtml(r) : '') + (r.played ? '' : ' <span class="sp-muted">did not play' + (r.dnp_reason ? ': ' + escape(String(r.dnp_reason).toLowerCase()) : '') + '</span>') + '</td>' +
         (lg === 'nba' ? '<td class="sp-n">' + num(r.minutes) + '</td>' : '') + (snapsCol ? '<td class="sp-n">' + snapText(r) + '</td>' : '') +
         logCols.map((st) => '<td class="sp-n">' + num(r.stats[st]) + '</td>').join('') + '</tr>').join('') + '</tbody></table></div>' +
       (P.games.length > logGames.length ? '<button type="button" class="sp-btn sp-more" data-sp-logall>Show all ' + P.games.length + ' games</button>' : '')
@@ -562,45 +830,179 @@ export function sportsFactory(host, doc, options) {
     }
     return parts.length ? '<p class="sp-muted sp-fc-inputs">' + parts.join(' ') + '</p>' : '';
   }
+  // ---- Player page -----------------------------------------------------------
+  // Clicking a player opens the player's page in place of the board (the address
+  // carries ?player=, so the browser's Back button and shared links work): a
+  // header with this season's numbers and the next game, then tabs.
+  const PTABS = [['overview', 'Overview'], ['upcoming', 'Upcoming games'], ['charts', 'Charts'], ['log', 'Game log'], ['opponents', 'Vs teams'], ['seasons', 'Seasons'], ['pick', 'Add a pick']];
+  const BACK_TO = { games: 'games', players: 'player stats', teams: 'team stats', record: 'prop track record' };
+  const KEY_BY_GROUP = {
+    nba: ['points', 'rebounds', 'assists', 'threes', 'steals', 'blocks'],
+    QB: ['passing_yards', 'passing_tds', 'completions', 'interceptions', 'rushing_yards'],
+    RB: ['rushing_yards', 'carries', 'rushing_tds', 'receptions', 'receiving_yards'],
+    WR: ['receptions', 'targets', 'receiving_yards', 'receiving_tds', 'rush_rec_yards'],
+    TE: ['receptions', 'targets', 'receiving_yards', 'receiving_tds', 'rush_rec_yards'],
+  };
+  const nflGroup = (pos) => { const p = String(pos || '').toUpperCase(); return p === 'QB' ? 'QB' : p === 'RB' || p === 'FB' || p === 'HB' ? 'RB' : p === 'TE' ? 'TE' : 'WR'; };
+  function keyStats(P, lg) {
+    const pref = lg === 'nba' ? KEY_BY_GROUP.nba : KEY_BY_GROUP[nflGroup(P.player.position || (P.games[0] || {}).position)];
+    return pref.filter((st) => P.games.some((g) => g.played && isNum(gv(g, st))));
+  }
+  const playedGames = (P) => P.games.filter((g) => g.played);
+  const latestSeason = (P) => (P.games.length ? P.games[0].season : null);
+  const avgStat = (list, st) => avgOf(list.map((g) => gv(g, st)).filter(isNum));
+  const resultHtml = (g) => (isNum(g.team_score) && isNum(g.opp_score)
+    ? '<span class="sp-res ' + (g.team_score > g.opp_score ? 'is-w' : g.team_score < g.opp_score ? 'is-l' : '') + '">' + (g.team_score > g.opp_score ? 'W' : g.team_score < g.opp_score ? 'L' : 'T') + ' ' + g.team_score + '–' + g.opp_score + '</span>' : '');
+  const rankTip = (r, n, what) => (r == null || !n ? '' : ' <small class="sp-rank" title="' + escape(what + ': ' + ord(r) + ' of ' + n + ' teams (1st = fewest)') + '">' + ord(r) + '</small>');
+  const toughTag = (r, n) => (r == null || n < 6 ? '' : r <= Math.ceil(n / 5) ? ' <span class="sp-tag sp-tag-tough">tough</span>' : r > n - Math.ceil(n / 5) ? ' <span class="sp-tag sp-tag-soft">soft</span>' : '');
+  function linesText(l) {
+    if (!l) return '—';
+    return (l.team_margin > 0 ? '−' + escape(fv(l.team_margin)) : l.team_margin < 0 ? '+' + escape(fv(-l.team_margin)) : 'PK') + ' · ' + escape(fv(l.total));
+  }
+  function playerTilesHtml(P, lg) {
+    const season = latestSeason(P), list = playedGames(P).filter((g) => g.season === season);
+    if (!list.length) return '';
+    const stats = keyStats(P, lg).slice(0, lg === 'nba' ? 6 : 5).concat(lg === 'nba' && list.some((g) => isNum(g.minutes)) ? ['minutes'] : []);
+    return '<div class="sp-pp-tiles">' + stats.map((st) => {
+      const a = avgStat(list, st), l5 = avgStat(list.slice(0, 5), st), d = l5 != null && a != null ? l5 - a : null;
+      const recent = list.slice(0, 10).map((g) => gv(g, st));
+      return '<div class="sp-pp-tile"><span class="sp-pp-tl">' + escape(label(st)) + '</span><b>' + escape(f1(a)) + '</b><span class="sp-pp-sub">Last 5 ' + escape(f1(l5)) +
+        (d != null && Math.abs(d) >= 0.05 ? ' <small class="' + (d > 0 ? 'sp-pos' : 'sp-neg') + '">' + (d > 0 ? '▲' : '▼') + escape(f1(Math.abs(d))) + '</small>' : '') + '</span>' +
+        sparkSvg(recent, label(st) + ', last ' + recent.length + ' games') + '</div>';
+    }).join('') + '</div><p class="sp-note sp-pp-note">' + escape(seasonLabel(lg, season)) + ' season averages over ' + list.length + ' game' + (list.length === 1 ? '' : 's') + ' played. Bars: the last 10, green above their average.</p>';
+  }
+  function nextGameBoxHtml(P, lg) {
+    const G = P.next_game, U = (P.upcoming || [])[0];
+    if (!G) return '<div class="sp-pp-next"><span class="sp-muted">No upcoming game stored for the player’s team.</span></div>';
+    const same = U && U.game_id === G.game_id;
+    const team0 = P.forecast ? (P.forecast.home ? G.home_team : G.away_team) : P.player.team;
+    const home = same ? U.home : G.home_team === team0;
+    const opp = same ? U.opponent : home ? G.away_team : G.home_team;
+    const chips = [];
+    if (same && isNum(U.win_chance)) chips.push('Team win chance ' + pct0(U.win_chance));
+    if (same && U.lines) chips.push(U.lines.team_margin > 0 ? 'Favored by ' + escape(fv(U.lines.team_margin)) : U.lines.team_margin < 0 ? 'Underdog by ' + escape(fv(-U.lines.team_margin)) : 'Pick’em');
+    if (same && U.opponent_team) chips.push(team(opp) + ' ' + escape(U.opponent_team.record) + (U.opponent_team.last_season ? ' last season' : ''));
+    if (same && U.vs) { const st = keyStats(P, lg)[0]; if (st) chips.push('Averages ' + escape(f1(U.vs.values[st])) + ' ' + escape(unitWord(st)) + ' vs ' + team(opp) + ' (' + U.vs.games + 'g)'); }
+    return '<div class="sp-pp-next"><span class="sp-pp-tl">Next game</span><b>' + (home ? 'vs ' : '@ ') + team(opp) + '</b> <span class="sp-muted">' + escape(G.time_tbd ? fmtDay(G.local_date) + ' · time TBD' : fmtWhen(G.start_utc, zone())) + '</span>' +
+      (chips.length ? '<span class="sp-pp-chips">' + chips.map((c) => '<span>' + c + '</span>').join('') + '</span>' : '') + '</div>';
+  }
+  // The model forecast for the next game (the table the old player panel had).
+  function forecastBlockHtml(P, lg) {
+    const F = P.forecast, G = P.next_game;
+    if (!G) return '';
+    if (!F) return '<h5>Model forecast for the next game</h5>' + availHtml(P) + '<p class="sp-muted">The model has not been fitted yet.</p>';
+    // Stats the model does not cover for this position share one row
+    // instead of repeating the same sentence on each.
+    const offPos = P.stats.filter((st) => (F.forecasts[st] || {}).reason === 'position');
+    const fr = P.stats.map((st) => {
+      const f = F.forecasts[st] || {};
+      if (f.reason === 'position') return '';
+      if (f.status !== 'ok') return '<tr><td>' + escape(label(st)) + '</td><td colspan="3" class="sp-muted sp-wrap">' + escape(modelReason(f, lg)) + '</td></tr>';
+      return '<tr><td>' + escape(label(st)) + ' ' + qualityBadge(f.quality) + '</td><td class="sp-n"><b>' + escape(Number(f.mean).toFixed(1)) + '</b></td><td class="sp-n">' + escape(f.low) + ' – ' + escape(f.high) + '</td><td class="sp-lines">' +
+        (f.lines || []).map((x) => '<span>' + escape(x.threshold) + ' <b>' + pct(x.over) + '</b></span>').join('') + '</td></tr>';
+    }).join('');
+    const offNote = offPos.length ? '<p class="sp-muted sp-fc-off">Not modeled for this player: ' + escape(offPos.map(label).join(', ')) + '. ' +
+      escape(modelReason({ reason: 'position' }, lg).replace(/^Model: /, '').replace(/^./, (c) => c.toUpperCase())) + '</p>' : '';
+    const any = P.stats.map((st) => F.forecasts[st]).find((f) => f && f.status === 'ok');
+    // With no forecast at all, a plain list reads better than a table of
+    // empty columns (and does not run off a phone screen).
+    const table = any ? '<div class="sp-table-wrap"><table class="sp-table sp-fc" data-nosort><thead><tr><th>Stat</th><th class="sp-n">Expected</th><th class="sp-n">80% range</th><th>Chance of the over at each line</th></tr></thead><tbody>' + fr + '</tbody></table></div>' + offNote
+      : fcNoneHtml(P.stats, F, lg);
+    return '<h5>Model forecast for the next game</h5><p class="sp-muted sp-fc-game">' + (F.home ? 'vs ' : '@ ') + team(F.opponent) + ' · ' + escape(fmtWhen(G.start_utc, zone())) + '</p>' + availHtml(P) + fcInputsHtml(P) + table +
+      (any ? '<p class="sp-note">Built from ' + escape(any.games) + ' stored games: about ' + escape(any.expected_opportunity) + ' ' + escape(any.unit) + ' expected' + (any.regular_role ? '' : ' (a smaller role than the check covers, so it stays experimental)') +
+        ', opponent factor ' + escape(any.opponent_factor) + ', ' + (F.home ? 'home' : 'away') + '. Model fitted on games through ' + escape(any.as_of_date ? fmtDay(any.as_of_date) + ' ' + any.as_of_date.slice(0, 4) : '—') + '. A forecast, not a promise: ' +
+        (lg === 'nba' ? 'rest and role changes are not in the data; regular teammates listed out are counted for the stats where that helped in testing.' : 'the player’s own injury and rest are not in the data; the game’s spread and total and his recent snap share count only for the stats where that helped in testing.') + '</p>' : '');
+  }
+  function recentGamesHtml(P, lg) {
+    const list = P.games.slice(0, 6), ks = keyStats(P, lg).slice(0, 5);
+    if (!list.length) return '';
+    return '<h5>Last games</h5><div class="sp-table-wrap"><table class="sp-table sp-log" data-nosort><thead><tr><th>Date</th><th>Game</th><th>Result</th>' + (lg === 'nba' ? '<th class="sp-n">Min</th>' : '') +
+      ks.map((st) => '<th class="sp-n" title="' + escape(label(st)) + '">' + escape(SHORT[st] || st) + '</th>').join('') + '</tr></thead><tbody>' +
+      list.map((g) => '<tr' + (g.played ? '' : ' class="sp-dnp"') + '><td>' + escape(fmtDay(g.date)) + '</td><td>' + (g.home ? 'vs ' : '@ ') + team(g.opponent) + (g.played ? '' : ' <span class="sp-muted">did not play</span>') + '</td><td>' + resultHtml(g) + '</td>' +
+        (lg === 'nba' ? '<td class="sp-n">' + num(g.minutes) + '</td>' : '') + ks.map((st) => '<td class="sp-n">' + (g.played ? num(gv(g, st)) : '—') + '</td>').join('') + '</tr>').join('') + '</tbody></table></div>';
+  }
+  function upcomingHtml(P, lg) {
+    const U = P.upcoming || [];
+    if (!U.length) return '<p class="sp-muted">No upcoming games stored for the player’s team.</p>';
+    const ks = keyStats(P, lg).slice(0, 3);
+    const first = U.find((u) => u.opponent_team), O0 = first && first.opponent_team;
+    const gst = O0 ? Object.keys(O0.allowed) : [];
+    const grp = O0 ? GROUP_NAMES[O0.group] || O0.group : '';
+    const head = '<tr><th>Game</th><th class="sp-n" title="Days since each team’s previous game">Rest</th><th class="sp-n" title="The player’s team spread (− = favored) and the game total">Spread · total</th><th class="sp-n" title="Team model’s chance the player’s team wins">Team win</th>' +
+      '<th class="sp-n">Opponent</th><th class="sp-n" title="Points the opponent allows per game, rank (1st = fewest)">Allows</th>' +
+      gst.map((st) => '<th class="sp-n" title="' + escape(label(st) + ' the opponent allows per game to ' + String(grp).toLowerCase() + ' (1st = fewest)') + '">' + escape(SHORT[st] || st) + ' to ' + escape(O0.group) + '</th>').join('') +
+      '<th class="sp-n">Average vs them</th><th data-nosort></th></tr>';
+    const rows = U.map((u) => {
+      const O = u.opponent_team;
+      return '<tr><td><b>' + (u.home ? 'vs ' : '@ ') + team(u.opponent) + '</b> <small class="sp-muted sp-nw">' + escape(u.time_tbd ? fmtDay(u.local_date) + ' · TBD' : fmtWhen(u.start_utc, zone())) + (u.week != null ? ' · wk ' + escape(u.week) : '') + '</small></td>' +
+        '<td class="sp-n">' + (u.rest_days == null ? '—' : escape(u.rest_days) + 'd') + (u.opponent_rest_days != null ? ' <small class="sp-muted">opp ' + escape(u.opponent_rest_days) + 'd</small>' : '') + '</td>' +
+        '<td class="sp-n">' + linesText(u.lines) + '</td><td class="sp-n">' + (isNum(u.win_chance) ? '<b>' + pct0(u.win_chance) + '</b>' : '—') + '</td>' +
+        '<td class="sp-n">' + (O ? '<span class="sp-nw">' + escape(O.record) + '</span> <small class="sp-muted">' + (O.last_season ? escape(seasonLabel(lg, O.season)) : 'L10 ' + escape(O.last10)) + '</small>' : '—') + '</td>' +
+        '<td class="sp-n">' + (O ? escape(f1(O.points_against)) + rankTip(O.points_against_rank, O.teams, 'Points allowed') : '—') + '</td>' +
+        gst.map((st) => '<td class="sp-n">' + (O && O.allowed[st] != null ? escape(f1(O.allowed[st])) + rankTip(O.allowed_rank[st], O.teams, label(st) + ' allowed to ' + String(grp).toLowerCase()) + toughTag(O.allowed_rank[st], O.teams) : '—') + '</td>').join('') +
+        '<td class="sp-n">' + (u.vs ? ks.map((st) => escape(SHORT[st] || st) + ' ' + escape(f1(u.vs.values[st]))).join(' · ') + ' <small class="sp-muted">' + u.vs.games + 'g</small>' : '<span class="sp-muted">never</span>') + '</td>' +
+        '<td><button type="button" class="sp-link" data-sp-pp-game="' + escape(u.game_id) + '">Open game</button></td></tr>';
+    }).join('');
+    return '<div class="sp-table-wrap"><table class="sp-table sp-mx-table sp-pp-up" data-nosort><thead>' + head + '</thead><tbody>' + rows + '</tbody></table></div>' +
+      '<p class="sp-note">The team’s next ' + U.length + ' stored game' + (U.length === 1 ? '' : 's') + '. Opponent numbers are this season so far (last season’s, labeled, for a team that has not played yet); ranks are among ' + (O0 ? O0.teams : 'all') + ' teams, 1st = fewest allowed, so a “soft” defense (bottom fifth) gives up the most to ' + escape(String(grp).toLowerCase() || 'the position') + '. ' +
+      'Spreads and totals appear once stored (NBA: about a day before the game). Average vs them covers every stored game against that team. “Open game” shows both teams, the matchup and team bets.</p>';
+  }
+  function opponentsHtml(P, lg) {
+    const list = playedGames(P), ks = keyStats(P, lg).slice(0, 4);
+    if (!list.length) return '<p class="sp-muted">No played games stored.</p>';
+    const all = Object.fromEntries(ks.map((st) => [st, avgStat(list, st)]));
+    const by = new Map();
+    list.forEach((g) => { if (!by.has(g.opponent)) by.set(g.opponent, []); by.get(g.opponent).push(g); });
+    const rows = [...by].sort((a, b) => b[1].length - a[1].length || b[1][0].date.localeCompare(a[1][0].date)).map(([o, gs]) => {
+      const w = gs.filter((g) => isNum(g.team_score) && g.team_score > g.opp_score).length, l = gs.filter((g) => isNum(g.team_score) && g.team_score < g.opp_score).length;
+      return '<tr><td>' + team(o) + '</td><td class="sp-n">' + gs.length + '</td>' + ks.map((st) => { const a = avgStat(gs, st); return '<td class="sp-n"><span class="' + (a == null || all[st] == null ? '' : a > all[st] ? 'sp-pos' : a < all[st] ? 'sp-neg' : '') + '">' + escape(f1(a)) + '</span></td>'; }).join('') +
+        '<td class="sp-n"><span class="sp-nw">' + (w + l ? w + '-' + l : '—') + '</span></td><td class="sp-n">' + escape(fmtDay(gs[0].date)) + ' <small class="sp-muted">' + escape(String(gs[0].date).slice(0, 4)) + '</small></td></tr>';
+    }).join('');
+    return '<div class="sp-table-wrap"><table class="sp-table sp-pp-opp"><thead><tr><th>Opponent</th><th class="sp-n">Games</th>' + ks.map((st) => '<th class="sp-n" title="' + escape(label(st)) + '">' + escape(SHORT[st] || st) + '</th>').join('') + '<th class="sp-n" title="The team’s record in those games">Team W-L</th><th class="sp-n">Last met</th></tr></thead><tbody>' +
+      '<tr class="sp-key"><td>All teams</td><td class="sp-n">' + list.length + '</td>' + ks.map((st) => '<td class="sp-n">' + escape(f1(all[st])) + '</td>').join('') + '<td></td><td></td></tr>' + rows + '</tbody></table></div>' +
+      '<p class="sp-note">Averages against each team in the ' + list.length + ' played games stored here' + (P.total_games > P.games.length ? ' (the newest ' + P.games.length + ' of ' + P.total_games + ')' : '') + '; green above the overall average, red below. One or two games against a team say little. Select a column to sort.</p>';
+  }
+  function seasonsHtml(P, lg) {
+    const ks = keyStats(P, lg).slice(0, 5), seasons = [...new Set(P.games.map((g) => g.season))].sort((a, b) => b - a);
+    if (!seasons.length) return '<p class="sp-muted">No games stored.</p>';
+    const rows = seasons.map((y) => {
+      const gs = P.games.filter((g) => g.season === y), pl = gs.filter((g) => g.played);
+      const home = pl.filter((g) => g.home), away = pl.filter((g) => !g.home), st0 = ks[0];
+      return '<tr><td>' + escape(seasonLabel(lg, y)) + '</td><td class="sp-n">' + pl.length + (gs.length > pl.length ? ' <small class="sp-muted">+' + (gs.length - pl.length) + ' missed</small>' : '') + '</td>' +
+        (lg === 'nba' ? '<td class="sp-n">' + escape(f1(avgStat(pl, 'minutes'))) + '</td>' : '') + ks.map((st) => '<td class="sp-n">' + escape(f1(avgStat(pl, st))) + '</td>').join('') +
+        (st0 ? '<td class="sp-n">' + escape(f1(avgStat(home, st0))) + ' · ' + escape(f1(avgStat(away, st0))) + '</td>' : '') + '</tr>';
+    }).join('');
+    return '<div class="sp-table-wrap"><table class="sp-table"><thead><tr><th>Season</th><th class="sp-n">Games</th>' + (lg === 'nba' ? '<th class="sp-n">Min</th>' : '') + ks.map((st) => '<th class="sp-n" title="' + escape(label(st)) + '">' + escape(SHORT[st] || st) + '</th>').join('') +
+      (ks[0] ? '<th class="sp-n" title="' + escape(label(ks[0]) + ' at home and away') + '">' + escape(SHORT[ks[0]] || ks[0]) + ' home · away</th>' : '') + '</tr></thead><tbody>' + rows + '</tbody></table></div>' +
+      '<p class="sp-note">Per-game averages in the games stored here' + (P.total_games > P.games.length ? ' (the newest ' + P.games.length + ' of ' + P.total_games + ', so the oldest season may be partial)' : '') + '. Playoff games count in their season.</p>';
+  }
+  function playerTabHtml(lg, tab) {
+    const L = league(lg), P = L.player;
+    if (tab === 'upcoming') return upcomingHtml(P, lg);
+    if (tab === 'charts') return chartStats(P).length ? '<div class="sp-charts" data-sp-part="chart">' + chartHtml(lg) + '</div>' : '<p class="sp-muted">No stored games to chart.</p>';
+    if (tab === 'log') return '<h5>Averages over ' + num(P.total_games) + ' stored game' + (P.total_games === 1 ? '' : 's') + '</h5><div data-sp-part="logset">' + playerTablesHtml(lg) + '</div>' +
+      '<p class="sp-note">' + (lg === 'nba'
+        ? 'Games the player missed are listed as did not play and left out of the averages.'
+        : 'Games where the player was on the field but recorded no stat are counted as zero (from the snap counts); games he did not play are not listed.') + '</p>';
+    if (tab === 'opponents') return opponentsHtml(P, lg);
+    if (tab === 'seasons') return seasonsHtml(P, lg);
+    if (tab === 'pick') return pickFormHtml(lg, P, 'league');
+    return forecastBlockHtml(P, lg) + recentGamesHtml(P, lg);
+  }
   function playerPanelHtml(lg) {
     const L = league(lg);
     if (!L.playerId) return '';
-    if (L.playerErr) return errorBox(L.playerErr, 'player');
-    if (!L.player) return '<p class="sp-loading">Loading game log…</p>';
-    const P = L.player;
-    const F = P.forecast, G = P.next_game;
-    let forecast = '';
-    if (G && F) {
-      // Stats the model does not cover for this position share one row
-      // instead of repeating the same sentence on each.
-      const offPos = P.stats.filter((st) => (F.forecasts[st] || {}).reason === 'position');
-      const fr = P.stats.map((st) => {
-        const f = F.forecasts[st] || {};
-        if (f.reason === 'position') return '';
-        if (f.status !== 'ok') return '<tr><td>' + escape(label(st)) + '</td><td colspan="3" class="sp-muted sp-wrap">' + escape(modelReason(f, lg)) + '</td></tr>';
-        return '<tr><td>' + escape(label(st)) + ' ' + qualityBadge(f.quality) + '</td><td class="sp-n"><b>' + escape(Number(f.mean).toFixed(1)) + '</b></td><td class="sp-n">' + escape(f.low) + ' – ' + escape(f.high) + '</td><td class="sp-lines">' +
-          (f.lines || []).map((x) => '<span>' + escape(x.threshold) + ' <b>' + pct(x.over) + '</b></span>').join('') + '</td></tr>';
-      }).join('');
-      const offNote = offPos.length ? '<p class="sp-muted sp-fc-off">Not modeled for this player: ' + escape(offPos.map(label).join(', ')) + '. ' +
-        escape(modelReason({ reason: 'position' }, lg).replace(/^Model: /, '').replace(/^./, (c) => c.toUpperCase())) + '</p>' : '';
-      const any = P.stats.map((st) => F.forecasts[st]).find((f) => f && f.status === 'ok');
-      // With no forecast at all, a plain list reads better than a table of
-      // empty columns (and does not run off a phone screen).
-      const table = any ? '<div class="sp-table-wrap"><table class="sp-table sp-fc" data-nosort><thead><tr><th>Stat</th><th class="sp-n">Expected</th><th class="sp-n">80% range</th><th>Chance of the over at each line</th></tr></thead><tbody>' + fr + '</tbody></table></div>' + offNote
-        : fcNoneHtml(P.stats, F, lg);
-      forecast = '<h5>Model forecast for the next game</h5><p class="sp-muted sp-fc-game">' + (F.home ? 'vs ' : '@ ') + team(F.opponent) + ' · ' + escape(fmtWhen(G.start_utc, zone())) + '</p>' + availHtml(P) + fcInputsHtml(P) + table +
-        (any ? '<p class="sp-note">Built from ' + escape(any.games) + ' stored games: about ' + escape(any.expected_opportunity) + ' ' + escape(any.unit) + ' expected' + (any.regular_role ? '' : ' (a smaller role than the check covers, so it stays experimental)') +
-          ', opponent factor ' + escape(any.opponent_factor) + ', ' + (F.home ? 'home' : 'away') + '. Model fitted on games through ' + escape(any.as_of_date ? fmtDay(any.as_of_date) + ' ' + any.as_of_date.slice(0, 4) : '—') + '. A forecast, not a promise: ' +
-          (lg === 'nba' ? 'rest and role changes are not in the data; regular teammates listed out are counted for the stats where that helped in testing.' : 'the player’s own injury and rest are not in the data; the game’s spread and total and his recent snap share count only for the stats where that helped in testing.') + '</p>' : '');
-    } else if (G) forecast = '<h5>Model forecast for the next game</h5>' + availHtml(P) + '<p class="sp-muted">The model has not been fitted yet.</p>';
-    return '<div class="sp-panel" data-sp-panel="player"><div class="sp-panel-head"><h4>' + escape(P.player.name) + ' <span>' + escape([P.player.position, P.player.team ? String(P.player.team).toUpperCase() : null].filter(Boolean).join(' · ')) + '</span></h4>' +
-      '<button type="button" class="sp-close" data-sp-close="player" aria-label="Close player">×</button></div>' +
-      forecast + (chartStats(P).length ? '<h5>Charts</h5><div class="sp-charts" data-sp-part="chart">' + chartHtml(lg) + '</div>' : '') +
-      '<h5>Add a pick</h5>' + pickFormHtml(lg, P, 'league') +
-      '<h5>Averages over ' + num(P.total_games) + ' stored game' + (P.total_games === 1 ? '' : 's') + '</h5><div data-sp-part="logset">' + playerTablesHtml(lg) + '</div>' +
-      '<p class="sp-note">' + (lg === 'nba'
-        ? 'Games the player missed are listed as did not play and left out of the averages.'
-        : 'Games where the player was on the field but recorded no stat are counted as zero (from the snap counts); games he did not play are not listed.') + '</p></div>';
+    const back = '<div class="sp-pp-top"><button type="button" class="sp-back" data-sp-close="player">← Back to ' + escape(BACK_TO[L.view] || 'games') + '</button></div>';
+    if (L.playerErr) return '<div class="sp-panel sp-ppage" data-sp-panel="player">' + back + errorBox(L.playerErr, 'player') + '</div>';
+    if (!L.player) return '<div class="sp-panel sp-ppage" data-sp-panel="player">' + back + '<p class="sp-loading">Loading the player…</p></div>';
+    const P = L.player, tab = PTABS.some(([k]) => k === L.ptab) ? L.ptab : 'overview';
+    const meta = [P.player.position, P.player.team ? String(P.player.team).toUpperCase() : null].filter(Boolean).join(' · ');
+    const a = P.availability, listed = a && a.state === 'ok' && a.status && a.status !== 'not listed' ? ' <span class="sp-out">' + escape(a.status) + '</span>' : '';
+    return '<div class="sp-panel sp-ppage" data-sp-panel="player">' + back +
+      '<div class="sp-pp-head"><div class="sp-pp-who"><h3 class="sp-pp-name">' + escape(P.player.name) + '</h3><p class="sp-muted">' + escape(meta) + listed + '</p></div>' + nextGameBoxHtml(P, lg) + '</div>' +
+      playerTilesHtml(P, lg) +
+      '<div class="sp-ptabs" role="tablist" aria-label="Player page">' + PTABS.map(([k, t]) => '<button type="button" role="tab" data-sp-ptab="' + k + '" aria-selected="' + (k === tab ? 'true' : 'false') + '" tabindex="' + (k === tab ? '0' : '-1') + '">' + escape(t) + '</button>').join('') + '</div>' +
+      '<div class="sp-ptab-body" role="tabpanel" aria-label="' + escape((PTABS.find(([k]) => k === tab) || PTABS[0])[1]) + '" data-sp-part="ptab">' + playerTabHtml(lg, tab) + '</div></div>';
   }
 
   // ---- Charts --------------------------------------------------------------
@@ -686,7 +1088,7 @@ export function sportsFactory(host, doc, options) {
   }
   function tipText(D, it) {
     const word = isNum(D.line) ? (it.v > D.line ? 'over ' + fv(D.line) : it.v < D.line ? 'under ' + fv(D.line) : 'on the line') : (it.v > D.avg ? 'above the average' : it.v < D.avg ? 'below the average' : 'on the average');
-    return it.when + '\n' + fv(it.v) + ' ' + unitWord(D.stat) + ' · ' + word;
+    return it.when + '\n' + fv(it.v) + ' ' + (D.unitText || unitWord(D.stat)) + ' · ' + word;
   }
 
   // Bars: one per game, oldest on the left. Green above the average (or the
@@ -829,6 +1231,22 @@ export function sportsFactory(host, doc, options) {
   }
 
   // Splits: the same games grouped by place, role, rest, opponent and season.
+  // The split bars shared by Splits and Game script: one block per group,
+  // one bar per row (the average of the games in it), the reference marked.
+  function splitBlocksHtml(D, it, groups) {
+    const built = groups.map(([name, defs, ranked]) => {
+      const rows = defs.map(([lab, fn]) => { const v = it.filter(fn).map((x) => x.v); return { lab, n: v.length, avg: avgOf(v), over: D.ref == null ? 0 : v.filter((a) => a > D.ref).length }; }).filter((x) => x.n);
+      if (ranked) rows.sort((a, b) => b.avg - a.avg || b.n - a.n);
+      return [name, rows];
+    });
+    const max = Math.max(D.ref || 0, ...built.flatMap((g) => g[1].map((x) => x.avg))) || 1;
+    const refPct = isNum(D.ref) ? Math.max(0, Math.min(100, (D.ref / max) * 100)) : null;
+    const word = isNum(D.line) ? 'over ' + fv(D.line) : 'above avg';
+    return built.filter((g) => g[1].length).map(([name, rows]) => '<div class="sp-split"><h6>' + escape(name) + '</h6><ul>' + rows.map((x) =>
+      '<li><span class="sp-split-name">' + escape(x.lab) + '</span><span class="sp-split-track"><i class="sp-split-bar ' + sideCls(x.avg, D.ref) + '" style="width:' + Math.max(1, (Math.max(0, x.avg) / max) * 100).toFixed(1) + '%"></i>' +
+      (refPct != null ? '<i class="sp-split-ref" style="left:' + refPct.toFixed(1) + '%"></i>' : '') + '</span>' +
+      '<span class="sp-split-val"><b>' + escape(f1(x.avg)) + '</b> <small>' + x.n + ' g · ' + x.over + ' ' + escape(word) + '</small></span></li>').join('') + '</ul></div>').join('');
+  }
   function splitsHtml(D, lg) {
     const it = D.items;
     const groups = [['Home or away', [['Home', (x) => x.home], ['Away', (x) => !x.home]]]];
@@ -841,20 +1259,98 @@ export function sportsFactory(host, doc, options) {
     groups.push(['Opponent', opps.map((o) => ['vs ' + String(o).toUpperCase(), (x) => x.opp === o]), true]);
     const seasons = [...new Set(it.map((x) => x.g.season))];
     if (seasons.length > 1) groups.push(['Season', seasons.sort().map((s) => [seasonLabel(lg, s), (x) => x.g.season === s])]);
-    const built = groups.map(([name, defs, ranked]) => {
-      const rows = defs.map(([lab, fn]) => { const v = it.filter(fn).map((x) => x.v); return { lab, n: v.length, avg: avgOf(v), over: D.ref == null ? 0 : v.filter((a) => a > D.ref).length }; }).filter((x) => x.n);
-      if (ranked) rows.sort((a, b) => b.avg - a.avg || b.n - a.n);
-      return [name, rows];
-    });
-    const max = Math.max(D.ref || 0, ...built.flatMap((g) => g[1].map((x) => x.avg))) || 1;
-    const refPct = isNum(D.ref) ? Math.max(0, Math.min(100, (D.ref / max) * 100)) : null;
-    const word = isNum(D.line) ? 'over ' + fv(D.line) : 'above avg';
-    return built.filter((g) => g[1].length).map(([name, rows]) => '<div class="sp-split"><h6>' + escape(name) + '</h6><ul>' + rows.map((x) =>
-      '<li><span class="sp-split-name">' + escape(x.lab) + '</span><span class="sp-split-track"><i class="sp-split-bar ' + sideCls(x.avg, D.ref) + '" style="width:' + Math.max(1, (Math.max(0, x.avg) / max) * 100).toFixed(1) + '%"></i>' +
-      (refPct != null ? '<i class="sp-split-ref" style="left:' + refPct.toFixed(1) + '%"></i>' : '') + '</span>' +
-      '<span class="sp-split-val"><b>' + escape(f1(x.avg)) + '</b> <small>' + x.n + ' g · ' + x.over + ' ' + escape(word) + '</small></span></li>').join('') + '</ul></div>').join('') +
+    return splitBlocksHtml(D, it, groups) +
       '<p class="sp-note">Average in each group of the games shown; the thin mark is ' + (isNum(D.line) ? 'the line' : 'the average of all of them') + '. Small groups swing a lot.' +
       (lg === 'nfl' ? ' Rest is days since the team’s previous game.' : ' Rest counts days since the team’s previous game; a back-to-back is the second of two days in a row.') + '</p>';
+  }
+
+  // Game script: the same games grouped by how the team's game went (final
+  // score, and the spread and total where the game file stores them).
+  function scriptHtml(D, lg) {
+    const it = D.items.filter((x) => isNum(x.g.team_score) && isNum(x.g.opp_score));
+    if (it.length < 3) return '<p class="sp-muted">Too few games with a stored final score to split.</p>';
+    const C = lg === 'nfl' ? 8 : 5, B = lg === 'nfl' ? 14 : 15;
+    const m = (x) => x.g.team_score - x.g.opp_score;
+    const ts = medianOf(it.map((x) => x.g.team_score)), tot = medianOf(it.map((x) => x.g.team_score + x.g.opp_score));
+    const groups = [
+      ['Result', [['Team won', (x) => m(x) > 0], ['Team lost', (x) => m(x) < 0]]],
+      ['Final margin', [['Close (' + C + ' or fewer)', (x) => Math.abs(m(x)) <= C], ['In between', (x) => Math.abs(m(x)) > C && Math.abs(m(x)) < B], ['Won by ' + B + '+', (x) => m(x) >= B], ['Lost by ' + B + '+', (x) => m(x) <= -B]]],
+      ['Team points', [['Team scored ' + fv(ts) + '+', (x) => x.g.team_score >= ts], ['Team scored under ' + fv(ts), (x) => x.g.team_score < ts]]],
+      ['Game total', [['High-scoring (' + fv(tot) + '+)', (x) => x.g.team_score + x.g.opp_score >= tot], ['Low-scoring (under ' + fv(tot) + ')', (x) => x.g.team_score + x.g.opp_score < tot]]],
+    ];
+    const lined = it.filter((x) => isNum(x.g.line_margin) && isNum(x.g.line_total));
+    if (lined.length >= 3) {
+      const lt = medianOf(lined.map((x) => x.g.line_total));
+      groups.push(['Spread before the game', [['Team favored', (x) => isNum(x.g.line_margin) && x.g.line_margin > 0], ['Team underdog', (x) => isNum(x.g.line_margin) && x.g.line_margin < 0]]]);
+      groups.push(['Expected total', [['Total ' + fv(lt) + '+', (x) => isNum(x.g.line_total) && x.g.line_total >= lt], ['Total under ' + fv(lt), (x) => isNum(x.g.line_total) && x.g.line_total < lt]]]);
+    }
+    return splitBlocksHtml(D, it, groups) +
+      '<p class="sp-note">Average in each group of the ' + it.length + ' games shown with a final score; the thin mark is ' + (isNum(D.line) ? 'the line' : 'the average of all of them') + '. Blowouts often cut starters’ ' + (lg === 'nba' ? 'minutes' : 'snaps') + '; a trailing team throws more. ' +
+      (lined.length >= 3 ? 'The spread and total are the closing numbers from the schedule.' : lg === 'nba' ? 'NBA spreads are stored only since November 2026, so the favored / underdog split appears once enough games have one.' : '') + ' Small groups swing a lot.</p>';
+  }
+
+  // Two stats: each game as a dot, this stat up the side and a second stat
+  // across, with how closely they moved together.
+  const PAIR_DEFAULT = { points: 'assists', rebounds: 'points', assists: 'points', threes: 'points', steals: 'points', blocks: 'rebounds', minutes: 'points',
+    passing_yards: 'rushing_yards', completions: 'passing_yards', rushing_yards: 'receiving_yards', receptions: 'receiving_yards', receiving_yards: 'receptions', carries: 'rushing_yards', targets: 'receptions' };
+  function pairStat(P, C, stat) {
+    const list = chartStats(P).filter((s) => s !== stat);
+    if (C.stat2 && list.indexOf(C.stat2) >= 0) return C.stat2;
+    const d = PAIR_DEFAULT[stat];
+    return d && list.indexOf(d) >= 0 ? d : list[0] || null;
+  }
+  function pearson(xs, ys) {
+    const mx = avgOf(xs), my = avgOf(ys);
+    let sxy = 0, sxx = 0, syy = 0;
+    for (let i = 0; i < xs.length; i++) { sxy += (xs[i] - mx) * (ys[i] - my); sxx += (xs[i] - mx) ** 2; syy += (ys[i] - my) ** 2; }
+    return sxx > 0 && syy > 0 ? sxy / Math.sqrt(sxx * syy) : null;
+  }
+  function pairHtml(D, lg) {
+    const L = league(lg), P = L.player, s2 = pairStat(P, L.chart, D.stat);
+    if (!s2) return '<p class="sp-muted">No second stat to compare.</p>';
+    const sel = '<div class="sp-ch-controls">' + statSelectHtml('data-sp-chart-stat2', 'Against', chartStats(P).filter((s) => s !== D.stat), s2) + '</div>';
+    const pts = D.items.map((it) => ({ it, x: gv(it.g, s2) })).filter((p) => isNum(p.x));
+    if (pts.length < 4) return sel + '<p class="sp-muted">Too few games with both stats.</p>';
+    const f = frame(), xs = pts.map((p) => p.x), ys = pts.map((p) => p.it.v);
+    const [xlo, xhi] = tightRange(xs), [lo, hi] = tightRange(ys.concat([D.avg], isNum(D.line) ? [D.line] : []));
+    const { y, grid } = yAxis(f, lo, hi);
+    const iw = f.W - f.L - f.R, x = (v) => f.L + ((v - xlo) / (xhi - xlo || 1)) * iw;
+    const ax = avgOf(xs);
+    const xt = axisTicks(xlo, xhi, f.narrow ? 4 : 6).map((t) => '<text class="sp-ch-axis" x="' + x(t).toFixed(1) + '" y="' + (f.H - f.B + 14) + '" text-anchor="middle">' + escape(fv(t)) + '</text>').join('');
+    const vline = '<line class="sp-ch-avg" x1="' + x(ax).toFixed(1) + '" x2="' + x(ax).toFixed(1) + '" y1="' + f.T + '" y2="' + (f.H - f.B) + '"/>';
+    const dots = pts.map((p) => '<circle class="sp-dot ' + sideCls(p.it.v, D.ref) + '" cx="' + x(p.x).toFixed(1) + '" cy="' + y(p.it.v).toFixed(1) + '" r="4"/>').join('');
+    const hov = pts.map((p) => ({ x: x(p.x), y: y(p.it.v), label: p.it.when + '\n' + fv(p.it.v) + ' ' + unitWord(D.stat) + ' · ' + fv(p.x) + ' ' + unitWord(s2) }));
+    const svg = svgOpen(f, label(D.stat) + ' against ' + label(s2).toLowerCase(), ' data-ch-xy' + hoverAttr(hov)) + grid + refLines(f, y, D) + vline + dots + xt +
+      '<text class="sp-ch-axis" x="' + (f.W - f.R) + '" y="' + (f.H - 4) + '" text-anchor="end">' + escape(label(s2)) + ' →</text></svg>';
+    const r = pearson(xs, ys), n = pts.length;
+    const upY = ys.filter((v) => v > D.ref).length, upX = xs.filter((v) => v > ax).length, both = pts.filter((p) => p.it.v > D.ref && p.x > ax).length;
+    const word = r == null ? 'no read' : Math.abs(r) < 0.15 ? 'little link: one says almost nothing about the other' : r > 0 ? (r >= 0.5 ? 'a strong link: high games came together' : 'some link: they tended to rise together') : (r <= -0.5 ? 'a strong opposite link: when one ran high the other ran low' : 'some opposite link: one tended to rise when the other fell');
+    return sel + legendHtml(D, '<span><i class="sp-key-line sp-key-avg"></i>' + escape(label(s2)) + ' average ' + escape(f1(ax)) + '</span>') + svg +
+      '<p class="sp-note">Correlation <b>' + (r == null ? '—' : escape(r.toFixed(2))) + '</b> over ' + n + ' games, ' + escape(word) + '. ' +
+      escape(label(D.stat)) + ' ' + (isNum(D.line) ? 'over ' + escape(fv(D.line)) : 'above average') + ' and ' + escape(label(s2).toLowerCase()) + ' above average together in <b>' + both + '</b> of ' + n + '; unrelated stats would do that about ' + escape(f1((upY * upX) / n)) + ' times. ' +
+      'Useful for combos and two picks on one player; the Pick Builder prices same-player pairs only with links it has measured.</p>';
+  }
+
+  // Rate: the stat per 36 minutes (NBA) or per target, carry or pass attempt
+  // (NFL), game by game, to tell a bigger role from better play.
+  function rateHtml(D, lg) {
+    const os = opportunityStat(lg, D.stat);
+    if (!os) return '<p class="sp-muted">No volume stat for ' + escape(label(D.stat).toLowerCase()) + '.</p>';
+    const per = lg === 'nba' ? 36 : 1;
+    const raw = D.items.map((it) => { const o = gv(it.g, os); return isNum(o) && o > 0 ? { it, o } : null; }).filter(Boolean);
+    if (raw.length < 3) return '<p class="sp-muted">Too few games with ' + escape(label(os).toLowerCase()) + ' to draw this.</p>';
+    const unit = lg === 'nba' ? 'per 36 min' : 'per ' + UNIT_ONE[os];
+    const items = raw.map((p, i) => {
+      const w = raw.slice(Math.max(0, i - 4), i + 1);
+      return { g: p.it.g, v: Math.round((p.it.v / p.o) * per * 100) / 100, home: p.it.home, opp: p.it.opp, date: p.it.date, when: p.it.when + ' · ' + fv(p.it.v) + ' in ' + fv(p.o) + ' ' + UNIT_MANY[os], roll: (sum(w.map((q) => q.it.v)) / sum(w.map((q) => q.o))) * per };
+    });
+    const vals = items.map((x) => x.v), overall = (sum(raw.map((p) => p.it.v)) / sum(raw.map((p) => p.o))) * per;
+    const R = { stat: D.stat, unitText: unitWord(D.stat) + ' ' + unit, items, vals, avg: overall, line: null, ref: overall };
+    const l5 = raw.slice(-5), rate5 = (sum(l5.map((p) => p.it.v)) / sum(l5.map((p) => p.o))) * per;
+    const vol = avgOf(raw.map((p) => p.o)), vol5 = avgOf(l5.map((p) => p.o));
+    return legendHtml(R, '<span><i class="sp-key-line sp-key-roll"></i>5-game rate</span>') + trendSvg(R) +
+      '<p class="sp-note">' + escape(fv(Math.round(overall * 100) / 100)) + ' ' + escape(unitWord(D.stat)) + ' ' + escape(unit) + ' over these ' + raw.length + ' games; last 5: ' + escape(fv(Math.round(rate5 * 100) / 100)) + '. ' +
+      escape(label(os)) + ' averaged ' + escape(f1(vol)) + ', last 5: ' + escape(f1(vol5)) + '. A higher stat with the same rate means a bigger role; a higher rate with the same ' + escape(UNIT_MANY[os]) + ' means more done with it.</p>';
   }
 
   function factsHtml(D) {
@@ -868,12 +1364,19 @@ export function sportsFactory(host, doc, options) {
       ['Low – high', escape(fv(Math.min(...v))) + '–' + escape(fv(Math.max(...v)))], ['Std dev', escape(f1(sdOf(v)))],
       [isNum(D.line) ? 'Over ' + escape(fv(D.line)) : 'Above avg', over + ' of ' + n + ' <small>' + Math.round((over / n) * 100) + '%</small>'],
     ];
+    // The current run of games over (or under) the reference, newest back,
+    // and the longest run over it in the games shown.
+    let run = 0, dir = 0, best = 0, cur = 0;
+    for (let i = n - 1; i >= 0; i--) { const d = v[i] > ref ? 1 : v[i] < ref ? -1 : 0; if (!d || (dir && d !== dir)) break; dir = d; run++; }
+    v.forEach((x) => { cur = x > ref ? cur + 1 : 0; best = Math.max(best, cur); });
+    facts.push(['Streak', run ? run + ' ' + (dir > 0 ? 'over' : 'under') + ' <small>longest over ' + best + '</small>' : '— <small>longest over ' + best + '</small>']);
     if (n > 5) { const r5 = avgOf(recent), d = r5 - D.avg; facts.push(['Last 5', escape(f1(r5)) + ' <small class="' + (d > 0 ? 'sp-pos' : d < 0 ? 'sp-neg' : '') + '">' + (d > 0 ? '+' : d < 0 ? '−' : '±') + escape(f1(Math.abs(d))) + '</small>']); }
     return '<dl class="sp-facts">' + facts.map((x) => '<div><dt>' + x[0] + '</dt><dd>' + x[1] + '</dd></div>').join('') + '</dl>';
   }
 
   const WINDOWS = [[5, 'Last 5'], [10, 'Last 10'], [20, 'Last 20'], ['season', 'Season'], ['all', 'All']];
-  const KINDS = [['bars', 'Bars'], ['trend', 'Trend'], ['hits', 'Hit rates'], ['spread', 'Spread'], ['volume', 'Volume'], ['splits', 'Splits']];
+  const KINDS = [['bars', 'Bars'], ['trend', 'Trend'], ['hits', 'Hit rates'], ['spread', 'Spread'], ['volume', 'Volume'], ['rate', 'Rate'], ['splits', 'Splits'], ['script', 'Game script'], ['pair', 'Two stats']];
+  const NEEDS_VOLUME = { volume: 1, rate: 1 };
   function chartStats(P) {
     return P.stats.concat(P.context_stats).filter((st) => P.games.some((g) => g.played && isNum(gv(g, st))));
   }
@@ -905,7 +1408,7 @@ export function sportsFactory(host, doc, options) {
     const L = league(lg), P = L.player, D = chartData(P, lg);
     if (!D) return '';
     if (!D.items.length) return '<p class="sp-muted">No games with ' + escape(label(D.stat).toLowerCase()) + ' in this window.</p>';
-    const kind = L.chart.kind === 'volume' && !opportunityStat(lg, D.stat) ? 'bars' : L.chart.kind;
+    const kind = NEEDS_VOLUME[L.chart.kind] && !opportunityStat(lg, D.stat) ? 'bars' : L.chart.kind;
     const short = typeof L.chart.n === 'number' && D.items.length < L.chart.n ? '<p class="sp-note">Only ' + D.items.length + ' stored game' + (D.items.length === 1 ? '' : 's') + ' with this stat.</p>' : '';
     let body;
     if (kind === 'trend') body = legendHtml(D, '<span><i class="sp-key-line sp-key-roll"></i>5-game average</span>') + trendSvg(D);
@@ -913,6 +1416,9 @@ export function sportsFactory(host, doc, options) {
     else if (kind === 'spread') body = legendHtml(D, '<span>Bar height: games</span>') + spreadSvg(D);
     else if (kind === 'volume') body = legendHtml(D, '<span><i class="sp-key-line sp-key-fit"></i>Rate</span>') + volumeSvg(D, lg);
     else if (kind === 'splits') body = splitsHtml(D, lg);
+    else if (kind === 'script') body = scriptHtml(D, lg);
+    else if (kind === 'pair') body = pairHtml(D, lg);
+    else if (kind === 'rate') body = rateHtml(D, lg);
     else body = legendHtml(D) + barsSvg(D);
     return '<div class="sp-ch-wrap">' + body + '</div>' + factsHtml(D) + short;
   }
@@ -927,11 +1433,11 @@ export function sportsFactory(host, doc, options) {
     const stats = chartStats(P);
     if (!stats.length) return '';
     const stat = chartStat(P, C, lg), os = opportunityStat(lg, stat);
-    const kinds = KINDS.map(([k, t]) => [k, k === 'volume' ? (lg === 'nba' ? 'Vs minutes' : os ? 'Vs ' + label(os).toLowerCase() : 'Vs volume') : t]);
+    const kinds = KINDS.map(([k, t]) => [k, k === 'volume' ? (lg === 'nba' ? 'Vs minutes' : os ? 'Vs ' + label(os).toLowerCase() : 'Vs volume') : k === 'rate' ? (lg === 'nba' ? 'Per 36 min' : os ? 'Per ' + UNIT_ONE[os] : 'Rate') : t]);
     return '<div class="sp-ch-controls">' + statSelectHtml('data-sp-chart-stat', 'Stat', stats, stat) +
       '<label class="sp-field sp-line-field"><span>Compare to a line</span><input type="number" min="0" max="1000" step="0.5" inputmode="decimal" placeholder="Average" data-sp-chart-line value="' + escape(C.line) + '"></label></div>' +
       seg('data-sp-chart-n', WINDOWS, C.n, 'Games shown') +
-      seg('data-sp-chart-kind', kinds, C.kind === 'volume' && !os ? 'bars' : C.kind, 'Chart', (k) => (k === 'volume' && !os ? 'No volume stat for ' + label(stat).toLowerCase() : '')) +
+      seg('data-sp-chart-kind', kinds, NEEDS_VOLUME[C.kind] && !os ? 'bars' : C.kind, 'Chart', (k) => (NEEDS_VOLUME[k] && !os ? 'No volume stat for ' + label(stat).toLowerCase() : '')) +
       '<div data-sp-part="chart-body">' + chartBodyHtml(lg) + '</div>';
   }
 
@@ -1192,7 +1698,7 @@ export function sportsFactory(host, doc, options) {
     // full width instead of stopping beside the side cards.
     const player = connected ? '<div class="sp-player-row" data-sp-part="player">' + playerPanelHtml(lg) + '</div>' : '';
     return dayStrip(s, dataChip(src, tz)) + '<div class="sp-grid"><div class="sp-board">' + board + '</div>' +
-      '<aside class="sp-side">' + sourceCard(src, tz) + modelCard(src) + statList(s.stats[lg] || []) + '</aside>' + player + '</div>' +
+      '<aside class="sp-side">' + sourceCard(src, tz) + modelCard(src) + teamModelCard(src) + statList(s.stats[lg] || []) + '</aside>' + player + '</div>' +
       '<p class="sp-foot">Private research for the two owners. PrizePicks lines come from PropLine; player availability comes from ESPN. Nothing is placed and no AI model is called by this page.</p>';
   }
 
@@ -1785,7 +2291,15 @@ export function sportsFactory(host, doc, options) {
     }
     if (!state.status) { el.textContent = 'Loading…'; return; }
     el.innerHTML = page === 'sports-pick-builder' ? builderHtml(state.status) : leagueHtml(state.status, leagueOf(page));
+    if (leagueOf(page)) { syncPlayerMode(page, leagueOf(page)); refocus(page, league(leagueOf(page))); }
     fitCharts(page);
+  }
+  // A player closed by Back is followed by a full redraw, which drops the
+  // focus put back on the name; the redraws in the next few seconds restore it.
+  function refocus(page, L) {
+    const R = L.refocus;
+    if (!R || Date.now() > R.until) { L.refocus = null; return; }
+    if (focusLost()) focusIn(page, R.sel);
   }
 
   function loadBoard(page, lg, manual) {
@@ -1819,18 +2333,83 @@ export function sportsFactory(host, doc, options) {
   function openGame(page, lg, id) {
     const L = league(lg);
     L.gameId = id; L.game = null; L.gameErr = null;
+    if (L.tb) L.tb.line = '';
     paint(page, 'game', gamePanelHtml(lg)); paint(page, 'board', boardHtml(lg));
     api('game', { sport: lg, id }).then((data) => { if (L.gameId === id) L.game = data; }, (err) => { if (L.gameId === id) L.gameErr = err; })
       .then(() => { if (state.page === page && L.gameId === id) paint(page, 'game', gamePanelHtml(lg)); });
   }
-  function openPlayer(page, lg, id) {
-    const L = league(lg);
-    L.playerId = id; L.player = null; L.playerErr = null; L.logAll = false;
+  // The open player lives in the address (?player=) so the browser's Back
+  // button closes the player page and a link opens it.
+  const embedded = () => !!(doc.documentElement && doc.documentElement.classList && doc.documentElement.classList.contains('is-embed'));
+  function urlPlayer() {
+    try { const v = new URLSearchParams(host.location.search).get('player'); return v && /^[A-Za-z0-9._:-]{1,40}$/.test(v) ? v : null; } catch (_) { return null; }
+  }
+  function setPlayerUrl(id, push) {
+    try {
+      const u = new URL(host.location.href);
+      if (id) u.searchParams.set('player', id); else u.searchParams.delete('player');
+      const next = u.pathname + u.search + u.hash;
+      if (next === host.location.pathname + host.location.search + host.location.hash) return false;
+      const add = push && !embedded();
+      if (add) host.history.pushState(host.history.state, '', next); else host.history.replaceState(host.history.state, '', next);
+      return add;
+    } catch (_) { return false; }
+  }
+  function syncPlayerMode(page, lg) {
+    const el = root(page);
+    if (el && el.classList) el.classList.toggle('sp-has-player', !!league(lg).playerId);
+  }
+  function scrollToPage(page) {
+    const el = root(page);
+    if (!el || !el.getBoundingClientRect || !host.scrollTo) return;
+    const y = host.scrollY || 0, top = el.getBoundingClientRect().top + y - 72;
+    if (y > top) host.scrollTo(0, Math.max(0, top));
+  }
+  // Keyboard focus follows the page: onto the back button when a player
+  // opens, back to the name that opened it when it closes.
+  function focusIn(page, sel) {
+    const el = root(page), b = el && el.querySelector(sel);
+    if (b && b.focus && b.offsetParent !== null) { try { b.focus({ preventScroll: true }); } catch (_) { b.focus(); } return true; }
+    return false;
+  }
+  const focusLost = () => !doc.activeElement || doc.activeElement === doc.body || !doc.documentElement.contains(doc.activeElement);
+  function openPlayer(page, lg, id, how) {
+    const L = league(lg), fromUrl = how === 'url', wasOpen = !!L.playerId;
+    if (!wasOpen) L.returnY = fromUrl ? null : host.scrollY || 0;
+    if (!fromUrl) { const pushed = setPlayerUrl(id, !wasOpen); if (!wasOpen) L.playerPushed = pushed; }
+    L.playerId = id; L.player = null; L.playerErr = null; L.logAll = false; L.ptab = 'overview';
     paint(page, 'player', playerPanelHtml(lg));
-    const el = part(page, 'player');
-    if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    syncPlayerMode(page, lg);
+    scrollToPage(page);
+    if (!fromUrl) focusIn(page, '[data-sp-close="player"]');
     api('player', { sport: lg, id }).then((data) => { if (L.playerId === id) L.player = data; }, (err) => { if (L.playerId === id) L.playerErr = err; })
-      .then(() => { if (state.page === page && L.playerId === id) paint(page, 'player', playerPanelHtml(lg)); });
+      .then(() => {
+        if (state.page !== page || L.playerId !== id) return;
+        const r = part(page, 'player'), had = !fromUrl && r && r.contains(doc.activeElement);
+        paint(page, 'player', playerPanelHtml(lg));
+        if (had || (!fromUrl && focusLost())) focusIn(page, '[data-sp-close="player"]');
+      });
+  }
+  // `fromUrl`: the address already changed (Back, a link). `direct`: close
+  // now and leave the history alone (Open game from the player page).
+  function closePlayer(page, lg, fromUrl, direct) {
+    const L = league(lg);
+    if (!L.playerId) return;
+    if (!fromUrl && !direct && L.playerPushed && urlPlayer() === L.playerId && host.history && host.history.back) { L.playerPushed = false; host.history.back(); return; }
+    const y = direct ? null : L.returnY, was = L.playerId;
+    L.playerId = null; L.player = null; L.playerErr = null; L.playerPushed = false; L.returnY = null;
+    if (!fromUrl) setPlayerUrl(null, false);
+    paint(page, 'player', '');
+    syncPlayerMode(page, lg);
+    const sel = '.sp-board [data-sp-player="' + String(was).replace(/["\\]/g, '') + '"]';
+    if (!direct && focusLost()) focusIn(page, sel);
+    L.refocus = direct ? null : { sel, until: Date.now() + 4000 };
+    if (y != null) host.setTimeout(() => host.scrollTo(0, y), 0);
+  }
+  function syncPlayerFromUrl(page, lg) {
+    const id = urlPlayer(), L = league(lg);
+    if (id && id !== L.playerId) openPlayer(page, lg, id, 'url');
+    else if (!id && L.playerId) closePlayer(page, lg, true);
   }
   let searchTimer = null;
   function search(page, lg, q) {
@@ -1870,10 +2449,22 @@ export function sportsFactory(host, doc, options) {
     if (v === 'games' && ((!L.board && !L.boardErr) || !L.props || Date.parse(L.props.expires_utc) <= Date.now())) loadBoard(page, lg);
   }
   let lineTimer = null;
+  // The Team bets checker: a new bet kind or team redraws the form, a typed
+  // line or price only the answer.
+  function tbChange(page, lg, t) {
+    const s = tbState(lg), k = t.getAttribute('data-sp-tb');
+    if (['market', 'team', 'side', 'line', 'price'].indexOf(k) < 0 || !league(lg).game) return;
+    s[k] = String(t.value).slice(0, 12);
+    if (k === 'market') s.line = '';
+    if (k === 'market' || k === 'team') { paint(page, 'tb-form', tbFormHtml(lg)); focusIn(page, '[data-sp-tb="' + k + '"]'); }
+    else paint(page, 'tb-result', tbResultHtml(lg));
+  }
   // League page controls (charts, game panel, player and team stats).
   function leagueChange(page, lg, t) {
     const L = league(lg);
     if (t.matches('[data-sp-chart-stat]')) { L.chart.stat = t.value; paint(page, 'chart', chartHtml(lg)); return true; }
+    if (t.matches('[data-sp-chart-stat2]')) { L.chart.stat2 = t.value; paint(page, 'chart-body', chartBodyHtml(lg)); return true; }
+    if (t.matches('[data-sp-tb]')) { tbChange(page, lg, t); return true; }
     if (t.matches('[data-sp-game-stat]')) { L.gameStat = t.value; paint(page, 'game', gamePanelHtml(lg)); return true; }
     const Q = L.leaders, T = L.teams;
     if (t.matches('[data-sp-lead-season]')) { Q.season = Number(t.value); Q.all = false; loadTable(page, lg, 'leaders'); return true; }
@@ -1891,6 +2482,23 @@ export function sportsFactory(host, doc, options) {
   function leagueClick(page, lg, t) {
     const L = league(lg), Q = L.leaders, T = L.teams;
     let b;
+    if ((b = t.closest('[data-sp-ptab]'))) {
+      L.ptab = b.getAttribute('data-sp-ptab');
+      root(page)?.querySelectorAll('[data-sp-ptab]').forEach((x) => { x.setAttribute('aria-selected', x === b ? 'true' : 'false'); x.setAttribute('tabindex', x === b ? '0' : '-1'); });
+      const body = part(page, 'ptab');
+      if (body) body.setAttribute('aria-label', b.textContent);
+      if (L.player) { paint(page, 'ptab', playerTabHtml(lg, L.ptab)); fitCharts(page); }
+      return true;
+    }
+    if ((b = t.closest('[data-sp-pp-game]'))) {
+      const id = b.getAttribute('data-sp-pp-game');
+      closePlayer(page, lg, false, true);
+      if (L.view !== 'games') showView(page, lg, 'games');
+      openGame(page, lg, id);
+      const el = part(page, 'game');
+      if (el && el.scrollIntoView) el.scrollIntoView({ block: 'start' });
+      return true;
+    }
     if (lg === 'nba' && (b = t.closest('[data-sp-nba-export]'))) { exportNBAResearch(page, b.getAttribute('data-sp-nba-export'), b.getAttribute('data-sp-nba-season')); return true; }
     if (lg === 'nba' && (b = t.closest('[data-sp-nba-evaluate], [data-sp-nba-save]'))) { evaluateNBAPair(page, b.getAttribute('data-sp-nba-evaluate') || b.getAttribute('data-sp-nba-save'), b.hasAttribute('data-sp-nba-save')); return true; }
     if (t.closest('[data-sp-record-export]')) { exportPropRecord(page, lg); return true; }
@@ -1955,6 +2563,15 @@ export function sportsFactory(host, doc, options) {
     if (!el || state.bound[page]) return;
     state.bound[page] = true;
     const lg = leagueOf(page);
+    el.addEventListener('keydown', (event) => {
+      const t = event.target && event.target.closest ? event.target.closest('[data-sp-ptab]') : null;
+      if (!t || ['ArrowLeft', 'ArrowRight', 'Home', 'End'].indexOf(event.key) < 0) return;
+      const tabs = [...el.querySelectorAll('[data-sp-ptab]')], i = tabs.indexOf(t);
+      const j = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (i + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+      event.preventDefault();
+      tabs[j].focus();
+      tabs[j].click();
+    });
     el.addEventListener('change', (event) => {
       const t = event.target;
       if (t.closest('[data-sp-zone]')) {
@@ -1997,6 +2614,7 @@ export function sportsFactory(host, doc, options) {
       }
       const box = t.closest('[data-sp-search]');
       if (box && lg) { search(page, lg, box.value); return; }
+      if (t.matches('[data-sp-tb]') && lg) { tbChange(page, lg, t); return; }
       if (t.matches('[data-sp-chart-line]') && lg) {
         league(lg).chart.line = t.value;
         host.clearTimeout(lineTimer);
@@ -2062,7 +2680,7 @@ export function sportsFactory(host, doc, options) {
       if (close && lg) {
         const L = league(lg);
         if (close.getAttribute('data-sp-close') === 'game') { L.gameId = null; L.game = null; paint(page, 'game', ''); paint(page, 'board', boardHtml(lg)); }
-        else { L.playerId = null; L.player = null; paint(page, 'player', ''); }
+        else closePlayer(page, lg, false);
       }
     });
   }
@@ -2140,6 +2758,7 @@ export function sportsFactory(host, doc, options) {
   function load(page, force) {
     state.page = page;
     bind(page);
+    if (leagueOf(page) && options.owner()) syncPlayerFromUrl(page, leagueOf(page));
     if (page === BUILDER && options.owner()) { applyPrefill(); pb.evaluation = null; pb.evalErr = null; }
     render(page);
     if (!options.owner()) return;

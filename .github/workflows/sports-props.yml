@@ -1,8 +1,9 @@
 name: Sports prop picks
 
 # Sports uses its own scheduler, separate from the market-data bakes.
-# Three bulk line requests per run (144/day: two NBA, one NFL) leave room on the free 1,000/day
-# feed for Owner page refreshes. No AI, sportsbook account or bets.
+# Four bulk line requests per run (192/day: three NBA, for PrizePicks, sportsbook player prices
+# and sportsbook game lines, and one NFL) leave room on the free 1,000/day feed for Owner page
+# refreshes. No AI, sportsbook account or bets.
 on:
   schedule:
     - cron: "7,37 * * * *"

@@ -22,13 +22,26 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## 2026-11-12
 
+### Added
+
+- Add **team bets** to Sports: each NBA and NFL game panel shows the chance of each team winning, winning by X or more, covering the spread, and the game and team totals going over or under, from a new deterministic team game model (walk-forward team ratings that start from the sportsbook line where there is one, whole-number score curves, a held-out check per kind of bet; refit twice a day into `<sport>/team-model.json`). A checker prices any bet with fair odds, breakeven and expected return per dollar (the page's math matches the server's to 0.0001 on 432 test bets, and warns on a positive return for a kind of bet that has not passed its check); the block also shows both teams' records against the spread and over / under, margins, close games, rest, ratings with ranks and NBA pace. NBA games carry the books' no-vig win, cover and over chances, the last two only from books posting that exact line. The board shows each game's win chance.
+- Add `sports_team_odds` to the MCP (game id or two team codes, up to 12 bets, a win-by ladder from 1+ to 30+, the books' no-vig chances and the check per kind of bet); `sports_list_games` carries each game's win chance and `sports_get_model_check` the team model's check.
+- Clicking a player now opens a full **player page** (`?player=` link, Back works, arrow keys move between tabs) with seven tabs: overview, the team's next five games (opponent record, what that defense allows to the position, rest, spread, total, win chance, the player's average against them; last season's numbers, labeled, before an opponent's first game), all charts (new: per 36 minutes or per target / carry / attempt, game script by team result, two stats against each other), the game log, averages by opponent, by season, and a quick pick form.
+- `sports_get_player` in the MCP adds the team's next five games and the player's splits (home / away, starter / bench, team won / lost, close games and blowouts, favored / underdog, rest, season and opponent).
+
 ### Fixed
+
+- Fix NBA sportsbook reads failing on every NBA scan since the 2026-11-11 data update (#808): the game spreads and totals now go in their own request instead of riding the player-price request, so the NBA props record and the archived NBA game lines work again, and the scan log names the provider's status for a failed read. The five-minute research collector skips the game request and uses the archived line.
 - The first build of the day (10:00 ET) no longer fails its publish check on a 13F ownership file whose 24-hour grace ran out a few minutes after the build started; parts that expire within two hours are dropped before publishing (the 2026-11-11 10:00 ET build failed this way).
 - Capital markets no longer tags a company for another issuer's deal ("Oracle ... Stock and Bond Sale ...; CoreWeave Climbs 7%" flagged CoreWeave and Microsoft) or for buying into one (Nvidia and Broadcom as Meta's share issuers). The company must be named before the deal wording and not as a buyer. These flags also feed the Fundamentals pillar, so those names lose a wrong dilution or leverage penalty.
 - Capital markets drops SEC "latest filed" amounts older than 18 months (Morgan Stanley showed a 2017 figure, Oracle 2018, Nvidia 2016).
 - Owner data-source health: News and Market narratives read their real files (`news-feed.json`, `trends.json`) instead of reporting "missing" every build; the 09:00 ET pre-open call is read from its copy before the data wipe; the heatmap counts its own write time, so afternoons no longer read "aged"; article dates count as observations, so Capital raises no longer reads 42 days old; upcoming dates no longer count as the newest observation. A smoke check now fails when a source names a file nothing writes.
 - Calendar: a company event that already ended is no longer marked stale when its source page goes down (Snowflake Expedition kept the calendar "partial").
 - Crowd: Wikipedia no longer carries an empty row for a name with no article (SLV), which kept the source marked carried.
+
+### Docs
+
+- Document team bets, the player page, the split sportsbook request and the new MCP fields in `docs/sports/README.md`, `docs/mcp.md` and CLAUDE.md.
 
 ## 2026-11-11
 

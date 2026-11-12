@@ -42,8 +42,10 @@ const g8 = games.find((g) => g.game_id === '2026_08_kc_den');
 ok(g8 && g8.status === 'final' && g8.home_score === 24 && g8.away_score === 28 && g8.home_team === 'den', 'a scored game is final with lowercase teams');
 eq(g8.start_utc, '2026-11-01T21:25:00.000Z', 'kickoff converts from Eastern');
 ok(games.every((g) => !Object.keys(g).some((k) => /spread|moneyline|total_line|odds/.test(k))), 'raw sportsbook columns in the schedule are dropped');
-ok(!JSON.stringify(games).includes('-150') && !JSON.stringify(games).includes('-110'), 'no moneyline or price leaks into stored games');
-eq(games.find((g) => g.game_id === '2026_08_kc_den').lines, { total: 44.5, home_margin: 3.5, source: 'nflverse' }, 'the spread and total are kept (adapter 2): home favored by 3.5');
+// Since 2026-11-12 (team bets) the prices ride inside `lines.prices` only,
+// for the team game model's book comparison.
+ok(games.every((g) => !JSON.stringify({ ...g, lines: null }).includes('-150') && !JSON.stringify({ ...g, lines: null }).includes('-110')), 'no moneyline or price outside lines.prices');
+eq(games.find((g) => g.game_id === '2026_08_kc_den').lines, { total: 44.5, home_margin: 3.5, source: 'nflverse', prices: { home_ml: 130, away_ml: -150, home_spread: -110, away_spread: -110, over: -110, under: -110 } }, 'the spread and total are kept (adapter 2): home favored by 3.5; prices since 2026-11-12');
 eq(games.find((g) => g.game_id === '2026_08_kc_den').rest_days, { home: 7, away: 7 }, 'rest days from the schedule');
 eq(gameEnvironment(games.find((g) => g.game_id === '2026_08_kc_den'), 'den'), { total: 44.5, team_margin: 3.5, team_total: 24, source: 'nflverse' }, 'the favorite\'s implied total is (total + margin) / 2');
 eq(gameEnvironment(games.find((g) => g.game_id === '2026_08_kc_den'), 'kc').team_total, 20.5, 'and the underdog\'s (total - margin) / 2');
@@ -197,6 +199,15 @@ const log = await buildPlayerLog({ load, sport: 'nfl', playerId: '00-0006', seas
 eq(log.games.map((g) => g.date), ['2026-11-01', '2026-02-08', '2025-09-07'], 'game log is newest first across seasons');
 eq(log.summaries.passing_yards, { games: 3, last5: 246.7, last10: 246.7, average: 246.7, median: 240, low: 199, high: 301 }, 'plain averages, median, low and high');
 eq(log.games[1].season_type, 'POST');
+eq(log.games.map((g) => [g.team_score, g.opp_score, g.line_margin, g.line_total]), [[28, 24, -3.5, 44.5], [20, 27, -3.5, 44.5], [17, 24, -3.5, 44.5]], 'each log row carries the team’s final score and its side of the spread (game script splits)');
+{
+  const U = (await buildPlayerLog({ load, sport: 'nfl', playerId: '00-0006', seasons: [2025, 2026], nowMs: NOW })).upcoming;
+  eq(U.map((g) => [g.game_id, g.home, g.opponent, g.rest_days]), [['2026_09_den_kc', true, 'den', 7]], 'the player page lists the team’s next games');
+  eq(U[0].lines, { team_margin: 3.5, total: 44.5, team_total: 24, source: 'nflverse' }, 'with the spread from the team’s side');
+  eq([U[0].opponent_team.group, U[0].opponent_team.allowed.passing_yards, U[0].opponent_team.allowed_rank.passing_yards, U[0].opponent_team.teams], ['QB', 301, 2, 4], 'what the opponent allows to his position, ranked');
+  eq([U[0].vs.games, U[0].vs.values.passing_yards], [1, 301], 'and his own games against them');
+  ok(!('win_chance' in U[0]), 'no team model stored: no win chance');
+}
 eq(await buildPlayerLog({ load, sport: 'nfl', playerId: '00-9999', seasons: [2026] }), null, 'unknown player');
 eq(summarizeStat([{ played: false, stats: { points: null } }, { played: true, stats: { points: 10 } }], 'points').games, 1, 'did-not-play rows are left out, not zero');
 

@@ -105,12 +105,13 @@ never works. Comparison is constant-time (`ownerKeyMatches` in `lib/mcp/oauth.mj
 | `get_top_picks` | owner | `approvedTopPicks()`, the same answer as the Top Picks tab, as compact rows (side, scores, AI grade, contract, entry, market approval, macro fit, invalidators), the market check, and the names each gate turned away. `symbol` returns that one pick in full |
 | `get_near_misses` | owner | "Why no picks today": the names that came closest in the last run and the first rule that stopped each (`lib/no-picks.mjs` over `rosterMeta.turnedAway`, the approved roster as in `get_top_picks`, topped up from `grades.json` under the score bar), plus how many names each rule stopped |
 | `get_track_record` | owner | `readSiteRecord('picks-accuracy.json')`: stats, all-time stats, open trades and recent closes as compact rows (trade ID, contract, entry and model mark, P&L %), trade lines |
-| `sports_list_games` | owner | Owner Sports: today's and tomorrow's NBA or NFL games (`leagueView('board')`), in a chosen US time zone |
+| `sports_list_games` | owner | Owner Sports: today's and tomorrow's NBA or NFL games (`leagueView('board')`), in a chosen US time zone, with each game's spread and total and the team model's win chance (`team_win`) |
 | `sports_find_players` | owner | Owner Sports: player search by name, for the ids the other Sports tools take |
 | `sports_get_game` | owner | Owner Sports: one game, its teams and each team's recent players with averages per measure (`last5`, `last10`, `average`, …), each keyed by stat; main stats unless `stats` names others, combos included; each player's average against this opponent; `matchup` with both teams' records, scoring and what each defense allows by position (league ranks, 1 = fewest allowed) and the stored meetings |
-| `sports_get_player` | owner | Owner Sports: game log, averages, next game and the stat model's forecast for it, the player's injury status (`availability`) and, for NBA, the sportsbooks' no-vig over chance at each posted line next to the model's (`book_lines`) |
+| `sports_team_odds` | owner | Owner Sports: team vs team odds for one game (`game_id`, or `team` and `opponent`): the team game model's forecast (expected margin and total, win chances, the market line it started from), up to 12 `bets` priced (moneyline, spread, win by X, total, team total; chance, push, fair price and, with an American `price`, breakeven and expected return), the lines ladder, a win-by ladder `1+` to `30+` per team, both teams' numbers (against the spread, over / under, margins, rest, ratings with ranks, NBA pace) and the held-out check per kind of bet; NBA reads the books' live game lines (no-vig chances, `BOOK_DISAGREES`) |
+| `sports_get_player` | owner | Owner Sports: game log, averages, next game and the stat model's forecast for it, the team's next five games (`upcoming`: opponent record, what its defense allows to the player's position, spread, total, win chance, the player's average against them), `splits` (home / away, role, team result, margin, rest, favored / underdog, season, opponent), the player's injury status (`availability`) and, for NBA, the sportsbooks' no-vig over chance at each posted line next to the model's (`book_lines`) |
 | `sports_evaluate_entry` | owner | Owner Sports: a 1-6 pick entry checked by the Pick Builder's own `evaluateEntry` (`hit_history` with 95% ranges, model chance, the sportsbooks' no-vig chance and its gap to the model, injury status, breakeven and breakeven per pick, joint chance including same-game links, expected value; any catalog stat or combo, with a model chance only for modeled stats) plus `pick_builder_link`, a `?tab=sports-pick-builder&entry=` link that fills the entry on the site. Saves nothing |
-| `sports_get_model_check` | owner | Owner Sports: the stat model's and the same-game links' check on later games, and the paper journal's totals and chance calibration |
+| `sports_get_model_check` | owner | Owner Sports: the stat model's, the team game model's (`team_model`, per kind of bet) and the same-game links' check on later games, and the paper journal's totals and chance calibration |
 | `sports_get_prop_record` | owner | Owner Sports: the issued-props record (`propRecordView`, as on the Sports page): totals, win rate, splits by stat, basis, rank and closing-line move, and the newest picks (`recent`, `offset`) as compact rows with result and actual stat; `prop_id` returns one pick in full. `as_of` is the record's own save time |
 | `sports_get_league_stats` | owner | Owner Sports: the Leaders view (per-game averages over the season, last 10 or last 5, sorted by any shown stat, `min_games` optional) or the Teams view, for one stored season; both take `team`, `limit` and `offset`. `missed` counts only games where the box score listed the player as not playing |
 | `search` | any | Pages (from `list_features`, so only the ones the caller may read) and covered stocks (names and sectors from `heatmap.json`) matching the words; returns `{results: [{id, title, url}]}` |
@@ -119,7 +120,7 @@ never works. Comparison is constant-time (`ownerKeyMatches` in `lib/mcp/oauth.mj
 **Sports tools** (`lib/mcp/sports-tools.mjs`) call the same functions as the Sports pages, so the same stored
 games, model and seed give the same number on the site and here. They are listed only for an Owner token and
 disappear with `SPORTS_ENABLED=0`. Their store handle (`sportsReadOnlyStore`) reads only Sports game, player,
-model, status, issued-props record, line archive, NFL injury report and journal records under `_stonks/sports/v1/`; the Pick Builder's captured
+model, team model, status, issued-props record, line archive, NFL injury report and journal records under `_stonks/sports/v1/`; the Pick Builder's captured
 lines and every other raw key are refused,
 and every write throws. There is deliberately **no save tool**: Claude or ChatGPT reads a slip screenshot, finds
 the players (`sports_find_players`), checks the entry (`sports_evaluate_entry`) and hands back the Pick Builder
@@ -134,8 +135,12 @@ For NBA, regular teammates listed Out or Doubtful also raise the model's forecas
 also return the game's spread and total (`game_lines` per pick, `next_game_lines` on a player; the forecast's
 `model.game_lines.applied` says whether it used them), the official NFL injury report and roster status
 (`OFFICIAL_REPORT`, `ROSTER`), `TEAM_CHANGED` for a player who moved teams after his last stored game, and
-`data_check` (last data run, latest game, the data job's checks; `STALE_DATA` after 1.5 days). See
-docs/sports/README.md "MCP tools".
+`data_check` (last data run, latest game, the data job's checks; `STALE_DATA` after 1.5 days). Since 2026-11-12
+`sports_team_odds` prices team bets from the team game model (`lib/sports/team-model.mjs`, refit by the Sports data
+job into `<sport>/team-model.json`) and, for NBA, asks the same feed for the books' game spreads, totals and
+moneylines (its own request; the player tools leave it out). Its warnings: `NOT_VALIDATED` (a kind of bet that has
+not passed its check), `WIDTH_UNTESTED`, `NO_MARKET_LINE`, `BOOK_DISAGREES`, `GAME_FROM_SCHEDULE`, `BET_<n>`. See
+docs/sports/README.md "Team bets" and "MCP tools".
 
 Every result is a JSON envelope: `schema_version`, `tool`, `source` (store key and page), `access`, `as_of` (the
 payload's build time), `generated_at`, `ai_calls: 0`, `warnings` (stale, expired `validUntil`, trimmed, no match), `limitations`,

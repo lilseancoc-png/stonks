@@ -190,7 +190,36 @@ Angeles even though it is past midnight in New York.
 Each upcoming game on the board shows its spread and total ("SEA −6.5 · O/U
 40.5", "PK" for a pick'em): NFL from the stored schedule, NBA from the
 sportsbooks' median the props scan archives for that day (none until the
-scan has seen the game).
+scan has seen the game). The archive file's date is the game's Eastern date,
+the same day hoopR stores as `local_date` (`game_date`, Eastern), so the board,
+the game panel and the player page find the same line. Since 2026-11-12 each
+game also shows the team model's win chance (`team_win`; see Team bets).
+
+**Player page (since 2026-11-12).** Clicking a player anywhere (the board,
+a game panel, Player stats, Team stats, the prop track record) opens a full
+page for that player instead of a side panel: `?player=<id>` in the URL, so a
+link, Back and Forward work (a split-view pane replaces its own history
+instead). The board hides while it is open; "Back to games" (or to the view
+the player came from) closes it and returns focus to the player's row. The
+head shows the injury status, the next game (opponent, time, the team
+model's win chance, favored or underdog by how much, the opponent's record
+and the player's average against that opponent) and
+season-average tiles with the last-5 change and a last-10 spark line. Seven
+tabs below, keyboard-reachable (arrow keys, Home, End):
+
+| Tab | What it shows |
+|---|---|
+| Overview | The model forecast for the next game and the last six games |
+| Upcoming games | The team's next five games: date, home or away, opponent record and rank, what that defense allows to the player's position (with rank), rest days for both teams, spread, total, the team model's win chance, and the player's average against that opponent. Before an opponent has played this season, its numbers are last season's, labeled so |
+| Charts | Every player chart (bars around the average, trend, hit rates, spread, vs minutes or volume, splits, per-minute rates, game script by team result, two-stat pairs) |
+| Game log | The full stored log with the Main / Combos / More / All switch |
+| Vs teams | Averages against each opponent, with games and the latest meeting |
+| Seasons | Season-by-season averages |
+| Add a pick | A stat, line and side straight into the Pick Builder, with the line hints from the game panel |
+
+Rest days in every Sports view count only gaps of 30 days or less; a longer
+gap (the first game of a season) shows as "first game of the season" and
+gives no rest edge.
 
 ## Stats
 
@@ -887,13 +916,85 @@ model: NBA points and rebounds, NFL passing yards and receptions.
 contract family); the threshold and side are left out so a line that moves
 stays in the same series.
 
+## Team bets
+
+Since 2026-11-12 each game panel has a **Team bets** block and the MCP has
+`sports_team_odds`: the chance of a team winning, winning by X or more,
+covering a spread, the game total and either team's total going over or
+under. `lib/sports/team-model.mjs` (deterministic, no AI) is refit by the
+same twice-daily data job into `_stonks/sports/v1/<sport>/team-model.json`;
+`lib/sports/team-bets.mjs` builds the block and the tool's answer.
+
+How a game is forecast:
+
+1. **Ratings.** Each team has an offense and a defense rating (points scored
+   and allowed above the league average), updated after every final game by
+   a fixed share of the miss and shrunk toward average between seasons.
+   Walk-forward: each game is predicted only from games before it. A home
+   edge, and a rest edge where it beat leaving it out, are added; rest gaps
+   over 30 days count as none (`REST_MAX_DAYS`).
+2. **Market.** With a sportsbook spread and total (NFL from the schedule,
+   NBA from the archived sportsbook median), the expected margin and total
+   start from the market and move toward the ratings only by the share that
+   improved earlier games (`blend`).
+3. **Spread of outcomes.** Margins, totals and team scores are whole numbers
+   with favorite values (NFL wins by 3 and 7), so each is a normal curve over
+   whole numbers reweighted by how often each value happened, centered on the
+   expected value, with the measured misses as widths. The stored curves are
+   rounded and trimmed; every chance divides by the curve's own sum, so win,
+   push and lose always add to 1.
+4. **Check.** Fitted on earlier seasons and scored on the latest finished
+   season and this season so far, per kind of bet (moneyline, spread, win by
+   X, total, team total) against the market alone (else a coin flip). A kind
+   is `validated` with 300+ held-out results and a calibration error of 0.03
+   or less. NFL also reads 8 more finished seasons of schedule for this model
+   only (`teamHistory`). NBA games with a market line borrow the ratings'
+   wider miss until about 200 archived NBA lines exist (`WIDTH_UNTESTED`), so
+   those chances lean toward 50%.
+
+On the page: a lead line (who is favored and by how much, the model's win
+chance), a **checker** (pick a kind of bet, a team or side, a line and an
+optional American price: the chance, push chance, fair price, breakeven and
+expected return per dollar), a lines table (moneyline, the main spread and
+total, team totals, win by 1 / 5 / 10 / 15 / 20 for NBA and 1 / 3 / 7 / 10 /
+14 / 17 for NFL), a win-by chart, the team numbers behind it (record against
+the spread, over / under, average margin and total, close-game record, big
+wins and losses, home / away margins, last ten margins, rest, ratings with
+league ranks, and NBA pace and points per 100 possessions from the box
+scores) and the check card. The board shows each game's win chance. A
+positive expected return on a kind of bet that has not passed its check
+carries a warning: a big edge there usually means the model is missing
+something. The page's checker (`tbPrice` / `tbChances` in
+`sports-client.mjs`) is a copy of the server's `priceTeamBet`;
+`sports-team-smoke` prices 432 bets both ways and fails on any gap over
+0.0001.
+
+**Book chances.** NBA games carry the books' no-vig chances (Shin's method,
+the median across books) for the home team winning (`h2h`), covering the
+main spread and the game going over the main total. The cover and over
+chances come only from books whose main line is the stored median line, so
+the chance is for that exact line; when the books split around it there is
+none. A model chance 5 points or more from the books' is flagged
+(`BOOK_DISAGREES`).
+
+The sportsbook game lines are their own PropLine request (`game_lines` in
+`loadPropSources`' parts, `spreads,totals,h2h` from the reference books),
+next to the player prices. Until 2026-11-12 they rode the player request;
+every NBA scan after the game markets were added to it failed with the
+reference feed "unavailable", which stopped the NBA props record and left
+no NBA game lines in the archive. Split, a failed game read leaves the
+player prices up and the other way round, and the scan log names the
+provider's HTTP status for a failed read. The five-minute research collector
+skips the game request (`--no-game-lines`) and the props view falls back to
+the line the :07/:37 scan archived for that game day.
+
 ## MCP tools
 
-The Mingstreet MCP (`/mcp`, docs/mcp.md) has eight Owner-only Sports tools in
+The Mingstreet MCP (`/mcp`, docs/mcp.md) has nine Owner-only Sports tools in
 `lib/mcp/sports-tools.mjs`: `sports_list_games`, `sports_find_players`,
-`sports_get_game`, `sports_get_player`, `sports_evaluate_entry`,
-`sports_get_model_check`, `sports_get_prop_record` and
-`sports_get_league_stats`. They call the same functions as the pages
+`sports_get_game`, `sports_team_odds`, `sports_get_player`,
+`sports_evaluate_entry`, `sports_get_model_check`, `sports_get_prop_record`
+and `sports_get_league_stats`. They call the same functions as the pages
 (`leagueView`, `evaluateEntry`, `journalView`, `modelSummary`), so the same
 stored games, model and seed give the same answer. `SPORTS_ENABLED=0` hides
 them. `sports_get_game` returns each player's averages as one map per
@@ -903,6 +1004,30 @@ measure (`last5`, `last10`, `average`, `median`, `low`, `high`,
 limited to the same stats; `sports_evaluate_entry` returns each pick's history as
 `hit_history`. Both shapes keep the numbers inside the MCP's size limit,
 which shortens deep objects and drops keys named `history`.
+
+Since 2026-11-12:
+
+- `sports_team_odds` takes a `game_id`, or `team` (and `opponent`) to find
+  the next stored game, plus up to 12 `bets` (`market` moneyline / spread /
+  win_by / total / team_total, `team` or `side`, `line`, optional American
+  `price`). It returns the forecast (expected margin and total, win chances,
+  the market it started from), each bet priced (chance, push, fair price,
+  breakeven, expected return per dollar, the books' chance and the gap), the
+  lines ladder, a win-by ladder keyed `1+` to `30+` per team (an object, so
+  the size limit keeps all 30), the team numbers and the check per kind of
+  bet. NBA reads the books' live game lines when the feed answers, else the
+  archive. Warnings: `NOT_VALIDATED`, `WIDTH_UNTESTED`, `NO_MARKET_LINE`,
+  `BOOK_DISAGREES`, `GAME_FROM_SCHEDULE`, `BET_<n>`.
+- `sports_list_games` carries each upcoming game's `team_win`.
+- `sports_get_player` adds `upcoming` (the team's next five games, as on the
+  player page) and `splits`: the player's averages over the played games
+  among the newest 40 stored (`LOG_LIMIT`) for up to seven main stats, by
+  home / away, started
+  / bench (NBA), team won / lost, close games and blowouts, favored /
+  underdog, rest, season and opponent (top 15, with the team's record and
+  the latest meeting). `games_used` and `note` say how many games they cover.
+- `sports_get_model_check` adds `team_model`: the team model's check per
+  kind of bet.
 
 The intended flow: send a slip screenshot to Claude or ChatGPT; it reads the
 players, lines and payout, finds each player (`sports_find_players`), checks
@@ -916,8 +1041,9 @@ the model's chance only when asked.
 **Live checks (since 2026-11-11).** `sports_evaluate_entry` and
 `sports_get_player` also read two live feeds through the same
 `loadPropSources` the props board uses (two-minute cache, `parts` skips the
-PrizePicks board): ESPN injuries for both leagues, and for NBA the PropLine
-sportsbook prices (`lib/sports/book-price.mjs`). Nothing is written.
+PrizePicks board and the game-line request): ESPN injuries for both leagues,
+and for NBA the PropLine sportsbook prices (`lib/sports/book-price.mjs`).
+`sports_team_odds` also asks for the game lines. Nothing is written.
 
 - `book`: the sportsbooks' no-vig chance for that exact side and line (Shin
   margin removal, the median across books, each book listed), with its range
@@ -969,7 +1095,7 @@ Update Checker lists the pages as on-demand.
 |---|---|---|---|
 | NFL | [nflverse](https://github.com/nflverse/nflverse-data) releases (stats, schedule with spread and total, players, snap counts, official injury report), twice-daily scheduled job | CC BY 4.0 (FTN charting is CC BY-SA and is not used) | `sports-nfl-data`, `sports-data-integrity` |
 | NBA | [hoopR](https://hoopr.sportsdataverse.org/) / ESPN box scores (sportsdataverse-data releases), twice-daily scheduled job; NBA.com public box-score files as a count-only cross-check | Private research only | `sports-nba-data`, `sports-data-integrity` |
-| NBA spread and total | PropLine `spreads,totals` (median of the reference books), in the props scan's existing request, archived by date | Free key, read-only | `sports-data-integrity` |
+| NBA spread, total and moneyline | PropLine `spreads,totals,h2h` (median of the reference books, no-vig chances by Shin's method), its own request beside the player prices since 2026-11-12, archived by Eastern game date | Free key, read-only | `sports-data-integrity`, `sports-team-bets` |
 | Lines | Typed in, or read from a screenshot by Claude/ChatGPT | — | `sports-pick-builder` |
 
 NBA.com's terms bar gambling use. This section is private research for the
@@ -982,11 +1108,13 @@ GitHub Actions minutes stay inside their free tiers. The 2026-11-11 data
 upgrade adds a second daily data run (a few minutes for the two jobs, tests
 included, on a public repo's free minutes), a few more R2 writes a day (the injury report,
 the game spreads and totals in the line archive), up to 16 small NBA.com
-file reads per NBA run, and no PropLine requests (spreads and totals ride the
-NBA reference request the props scan already makes). The PropLine feed
-(free key) is read by the props board and, since 2026-11-11, by the two MCP
-tools above; all share one two-minute cache, so a burst of calls is one
-read.
+file reads per NBA run. Since 2026-11-12 the NBA game lines are one more
+PropLine request per :07/:37 scan (48 a day, 192 for that job; the research
+collector skips it, so the baseline is 492 of the free 1,000 a day), and the
+team model refit adds a few seconds and one R2 write per league per run. The
+PropLine feed (free key) is read by the props board and, since 2026-11-11, by
+the MCP tools above; all share one two-minute cache per request, so a burst
+of calls is one read.
 
 ## Build plan
 
@@ -1017,11 +1145,15 @@ One branch and pull request each, from `main`:
 10. `sports-matchup`: the game panel's Matchup section (both teams with
     league ranks, what each defense allows by position, recent meetings) and
     each player's averages against the opponent
+11. `sports-team-bets`: the team game model (win, win by X, spreads,
+    totals, team totals), the Team bets block and `sports_team_odds`, the
+    full player page (`?player=`), player splits and upcoming games in the
+    MCP, and the split sportsbook game-line request
 
 ## Tests
 
 ```bash
-npm run test:sports           # access, route, time zones, keys, schema, wiring, both adapters, ingest, views, payout math, the journal, the stat models, same-game chances, the MCP tools and the player / team stats
-npm run test:sports-browser   # Owner / member / signed-out at 1440 and 390, boards, games, logs, forecasts, every chart, the stats views, the model check, the Pick Builder flow and a same-game estimate
+npm run test:sports           # access, route, time zones, keys, schema, wiring, both adapters, ingest, views, payout math, the journal, the stat models, same-game chances, the MCP tools, the player / team stats and the team game model (sports-team-smoke: pricing, page/server parity, rest, curves)
+npm run test:sports-browser   # Owner / member / signed-out at 1440 and 390, boards, games, logs, forecasts, every chart, the stats views, the model check, the Pick Builder flow, a same-game estimate, Team bets and the player page (tabs, keys, focus, Back, deep links)
 node scripts/regen-sports.mjs # rebuild index.html / app.js / styles.css without data/
 ```
