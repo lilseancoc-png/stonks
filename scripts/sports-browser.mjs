@@ -303,7 +303,10 @@ try {
         assert(by5 > by20 && by20 > 0, 'winning by 5 is likelier than by 20: ' + by5 + ' vs ' + by20);
         await page.locator(TBS + '[data-sp-tb="price"]').fill('+400');
         await page.locator(TBS + '.sp-tb-ev').waitFor();
-        assert(/At \+400 you need 20(\.0)?% to break even/.test(await page.locator(TBS + '.sp-tb-ev').innerText()), 'a typed price gives the breakeven and the average return: ' + await page.locator(TBS + '.sp-tb-ev').innerText());
+        assert(/At \+400 · 5\.00 · 20¢ you need 20(\.0)?% to break even/.test(await page.locator(TBS + '.sp-tb-ev').innerText()), 'a typed price gives the breakeven and the average return: ' + await page.locator(TBS + '.sp-tb-ev').innerText());
+        await page.locator(TBS + '[data-sp-tb="price"]').fill('5.0');
+        await page.locator(TBS + '.sp-tb-ev').filter({ hasText: /At \+400 · 5\.00 · 20¢/ }).waitFor();
+        assert.equal(await page.locator(TBS + '[data-sp-tb="price"]').getAttribute('inputmode'), null, 'the odds box keeps a keyboard with a minus sign on phones');
         await page.locator(TBS + '[data-sp-tb="market"]').selectOption('total');
         await page.locator(TBS + '[data-sp-part="tb-result"]').filter({ hasText: 'Game total over' }).waitFor();
         assert.equal(await page.locator(TBS + '[data-sp-tb="team"]').count(), 0, 'a game total needs no team');
@@ -313,7 +316,7 @@ try {
         assert(/GS to win by 20\+/.test(await page.locator(TBS + '.sp-tb-more').innerText()), 'more lines include the win-by ladder');
         await page.locator(GP + '.sp-tb').screenshot({ path: resolve(output, `team-bets-${width}-${theme}.png`), animations: 'disabled' });
         assert(/(GS|PHX) \d+%/.test(await page.locator('#sports-nba-root [data-sp-game="401900003"] .sp-twin').innerText()), 'the board row shows the team model’s favorite');
-        checks += 12;
+        checks += 14;
         await page.locator('#sports-nba-root [data-sp-game-stat]').selectOption('rebounds');
         assert(/Rebounds per game/.test(await page.locator(GP + '.sp-matchup').innerText()), 'the matchup follows the chosen stat');
         assert(/Rebounds/.test(await page.locator('#sports-nba-root [data-sp-game-stat] option:checked').innerText()) && (await page.locator('#sports-nba-root [data-sp-panel="game"] thead th', { hasText: /^Stat$/ }).count()) === 0, 'the game panel switches every player to one stat');
@@ -612,9 +615,19 @@ try {
       if (width > 760) await page.screenshot({ path: resolve(output, `sports-pick-builder-same-game-${width}-${theme}.png`), fullPage: true, animations: 'disabled' });
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
       assert(overflow <= 1, 'a filled Pick Builder has no sideways scroll at ' + width);
+      // A long-shot parlay price in a link (121× the stake) comes back as
+      // +12000, not as +121.
+      const big = encodePrefill({ operator: 'sportsbook', format: 'parlay', stake: 5, payouts: { 2: 121 }, legs: [
+        { kind: 'team', sport: 'nba', game_id: '401900003', market: 'total', side: 'over', line: 260.5 },
+        { kind: 'team', sport: 'nba', game_id: '401900003', market: 'win_by', team: 'phx', side: 'over', line: 25 },
+      ] });
+      await page.goto(base + '/?tab=sports-pick-builder&entry=' + big);
+      await page.locator(R + '[data-sp-parlay]').waitFor();
+      assert.equal(await page.locator(R + '[data-sp-parlay]').inputValue(), '+12000', 'a big parlay price keeps its size through a link');
+      assert(/121\.00× the stake/.test(await page.locator(R + '[data-sp-parlay-note]').innerText()), 'and reads as 121×');
       await page.goto(base + '/?tab=sports-pick-builder&entry=not-a-real-link');
       await page.locator(R + '.sp-banner.sp-bad').waitFor();
-      checks += 8;
+      checks += 10;
       // Game bets and a sportsbook parlay: who wins and the spread on one
       // game (one number, priced exactly together), each with its own odds.
       await page.locator(R + '[data-sp-clear]').click();
@@ -634,6 +647,13 @@ try {
       await page.locator(R + '[data-sp-leg="1"]').filter({ hasText: 'GS −5.5' }).waitFor();
       await page.locator(R + '[data-sp-gb-add]').click();
       assert(/already in the entry/.test(await page.locator(R + '[data-sp-part="gb-result"]').innerText()), 'the same game bet cannot go in twice');
+      assert.equal(await page.locator(R + '[data-sp-gb="line"]').getAttribute('inputmode'), null, 'a spread box keeps a keyboard with a minus sign on phones');
+      await page.locator(R + '[data-sp-gb="team"]').selectOption('phx');
+      await page.locator(R + '[data-sp-gb="line"]').fill('-3.5');
+      await page.locator(R + '[data-sp-gb-add]').click();
+      assert(/PHX −3\.5 and GS to win can never both win/.test(await page.locator(R + '[data-sp-part="gb-result"]').innerText()), 'two bets no score lets both win are refused: ' + await page.locator(R + '[data-sp-part="gb-result"]').innerText());
+      assert.equal(await page.locator(R + '[data-sp-leg]').count(), 2, 'and stay out of the entry');
+      await page.locator(R + '.sp-add').screenshot({ path: resolve(output, `pick-builder-game-bet-${width}-${theme}.png`), animations: 'disabled' });
       const g0 = page.locator(R + '[data-sp-leg="0"]');
       await g0.locator('[data-sp-usemodel]').waitFor();
       const g0Text = await g0.innerText();
@@ -672,7 +692,7 @@ try {
       await page.locator('#sports-nba-root [data-sp-tb="market"]').selectOption('total');
       await page.locator('#sports-nba-root [data-sp-tb-add]').click();
       assert(/Added Game total over [\d.]+\. The entry has 1 pick/.test(await page.locator('#sports-nba-root [data-sp-part="tb-msg"]').innerText()), 'Team bets adds the checked bet to the Pick Builder');
-      checks += 14;
+      checks += 17;
       await page.goto(base + '/?tab=sports-nba');
       await page.locator('#sports-nba-root [data-sp-zone]').waitFor();
       await page.locator('#sports-nba-root [data-sp-zone]').selectOption('America/New_York');

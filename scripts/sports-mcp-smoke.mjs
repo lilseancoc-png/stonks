@@ -311,6 +311,16 @@ eq([G2.game_lines?.favorite, G2.game_lines?.total], ['gs', 228.5], 'the game vie
   ok(['joint_estimate', 'not_calculated'].includes(GR.evaluation.status) && GR.evaluation.odds && GR.evaluation.odds.offered.decimal > 3.6, 'the parlay is priced or says why not, with its odds');
   const gbPre = decodePrefill(GR.pick_builder_link.split('entry=')[1]);
   eq([gbPre.format, gbPre.operator, gbPre.legs[0].kind, gbPre.legs[0].market, gbPre.legs[0].line, gbPre.legs[0].price], ['parlay', 'sportsbook', 'team', 'spread', -4.5, 1.9091], 'the Pick Builder link keeps the game bets and their odds');
+  { // Win by 5+ yes and win by 15+ no: a 5-14 point win, priced on one number.
+    const yes = { kind: 'team', sport: 'nba', game_id: 'mnext1', market: 'win_by', team: 'gs', line: 5 };
+    const RG = (await tool('sports_evaluate_entry', { legs: [yes, { ...yes, line: 15, side: 'under' }], operator: 'kalshi', format: 'parlay', stake: 10, payouts: { 2: 2.5 }, use_model_chances: true })).structuredContent.results;
+    const [y5, n15] = RG.legs;
+    const y15 = R.win_by_ladder.gs['15+'];
+    eq(n15.label, 'GS not to win by 15+', 'the no side is named');
+    ok(Math.abs(n15.model.probability - (1 - y15)) < 0.002 && Math.abs(y5.model.probability - R.win_by_ladder.gs['5+']) < 0.002, 'the no side gets the model’s no chance: ' + n15.model.probability + ' vs ' + (1 - y15));
+    ok(Math.abs(RG.evaluation.joint_probability - (R.win_by_ladder.gs['5+'] - y15)) < 0.003 && RG.evaluation.shared_numbers.length === 1, 'together they are the 5-14 point stretch: ' + RG.evaluation.joint_probability);
+    eq((await errCode({ legs: [{ ...yes, line: 15 }, { ...yes, line: 5, side: 'under' }], payouts: { 2: 3 } })).code, 'INVALID_INPUT', 'win by 15+ and not by 5+ can never both win');
+  }
   eq((await errCode({ legs: [{ kind: 'team', sport: 'nba', market: 'moneyline', team: 'gs' }] })).code, 'INVALID_INPUT', 'a game bet needs its game');
   eq((await errCode({ legs: [{ kind: 'team', sport: 'nba', game_id: 'mnext1', market: 'moneyline', team: 'gs', price: 'abc' }], format: 'parlay' })).code, 'INVALID_INPUT', 'a bad price is refused');
 }

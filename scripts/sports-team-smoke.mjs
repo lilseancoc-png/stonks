@@ -116,6 +116,10 @@ const fc = forecastGame(M, up, { rest: { home: 2, away: 1 } });
   near(s1.chance + s2.chance, 1, 1e-3, 'the two sides of a spread add to 1');
   const w10 = priceTeamBet(fc, up, { market: 'win_by', team: 'lll', line: 10 });
   near(s1.chance, w10.chance, 1e-4, 'home −9.5 is the same bet as home to win by 10+');
+  const n10 = priceTeamBet(fc, up, { market: 'win_by', team: 'lll', line: 10, side: 'under' });
+  near(n10.win, 1 - w10.win, 1e-4, 'win by 10+ "no" is the other side of "yes"');
+  eq([n10.label, n10.push], ['LLL not to win by 10+', 0], 'and is named as the no side');
+  ok(Math.abs(n10.fair_american - fairAmerican(1 - w10.chance)) <= 1, 'with the no side’s fair odds');
   const o = priceTeamBet(fc, up, { market: 'total', side: 'over', line: 224.5 }), u = priceTeamBet(fc, up, { market: 'total', side: 'under', line: 224.5 });
   near(o.chance + u.chance, 1, 1e-3, 'over and under add to 1');
   const tt = priceTeamBet(fc, up, { market: 'team_total', team: 'aaa', side: 'over', line: 99.5 });
@@ -172,7 +176,7 @@ const fc = forecastGame(M, up, { rest: { home: 2, away: 1 } });
   };
   const { tbPrice, fairOdds } = new Function('const amText = (a) => (a == null || !Number.isFinite(a) ? \'—\' : a > 0 ? \'+\' + a : \'−\' + Math.abs(a));\n' +
     'const fairOdds = (p) => (p > 0 && p < 1 ? amText(p >= 0.5 ? -Math.round((100 * p) / (1 - p)) : Math.round((100 * (1 - p)) / p)) : \'—\');\n' +
-    fnText('tbChances') + fnText('tbPrice') + '\nreturn { tbPrice, fairOdds };')();
+    fnText('priceOf') + fnText('oddsText') + fnText('tbChances') + fnText('tbPrice') + '\nreturn { tbPrice, fairOdds };')();
   ok(/const fairOdds = \(p\) => \(p > 0 && p < 1 \? amText\(p >= 0\.5 \? -Math\.round\(\(100 \* p\) \/ \(1 - p\)\) : Math\.round\(\(100 \* \(1 - p\)\) \/ p\)\) : '—'\);/.test(src), 'the page’s fair odds rule is the one checked here');
   const g2 = { ...up, lines: { total: 221.5, home_margin: 6.5, source: 'sportsbooks', book: { home_win: 0.7, home_cover: 0.49, over: 0.52 } } };
   const f2 = forecastGame(M, g2, {});
@@ -197,6 +201,9 @@ const fc = forecastGame(M, up, { rest: { home: 2, away: 1 } });
     }
   }
   ok(n > 300 && worst < 1e-4, 'page and server agree on ' + n + ' bets (largest gap ' + worst + ')');
+  const am = tbPrice(fc, up, { market: 'moneyline', team: up.home_team, price: '+145' }), dec = tbPrice(fc, up, { market: 'moneyline', team: up.home_team, price: '2.45' }), cents = tbPrice(fc, up, { market: 'moneyline', team: up.home_team, price: '40.8¢' });
+  ok(Math.abs(am.breakeven - dec.breakeven) < 1e-9 && Math.abs(am.breakeven - cents.breakeven) < 1e-3 && am.priceText === '+145 · 2.45 · 40.8¢', 'the checker reads American, decimal and cents alike: ' + am.priceText);
+  ok(/1\.91 or 62¢/.test(tbPrice(fc, up, { market: 'moneyline', team: up.home_team, price: 'abc' }).priceErr), 'and says which forms it reads');
 }
 
 // --- team numbers and the view ----------------------------------------------------------
@@ -238,6 +245,18 @@ const fc = forecastGame(M, up, { rest: { home: 2, away: 1 } });
   const tot = fit.pairs['game_total|team_points|game'];
   ok(tot && tot.link > 0.4, 'a team’s points move with the game total: ' + (tot && tot.link));
   ok(!fit.pairs['team_margin|team_margin|opponent'] && !fit.pairs['team_margin|team_margin|same_player'], 'one game margin is never linked with itself');
+  eq(g0.map((r) => r.away === true), [false, true, false, false, false], 'the away margin is marked');
+  { // The total is measured against the home margin only (the price reads it):
+    // a home team that wins big in high-scoring games shows a positive link,
+    // which pooling both sides would cancel to exactly 0.
+    const tilt = plain.map((g) => {
+      const m = g.home_score - g.away_score;
+      return m > 0 ? { ...g, home_score: g.home_score + 6, away_score: g.away_score + 2 } : g;
+    });
+    const tf = fitJoint(teamJointRecords({ sport: 'nba', games: tilt, model: M, split }));
+    const tm = tf.pairs['game_total|team_margin|game'];
+    ok(tm && tm.link > 0.05 && tm.interval.low < tm.link, 'the total and the home margin are measured, not forced to 0: ' + (tm && tm.link));
+  }
   eq(teamJointRecords({ sport: 'nba', games: plain, model: { status: 'no_data' } }), [], 'no model, no records');
 }
 

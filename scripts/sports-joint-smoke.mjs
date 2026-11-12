@@ -230,6 +230,13 @@ const L_ = (player_id, team, game_id, stat, side, probability, extra = {}) => ({
   near(pe.joint_probability, 0.4, 'both win when the margin beats 6', 1e-6);
   near(pe.push_chance, 0.05, 'landing on 6 pushes the spread while win-by-6 wins', 1e-6);
   near(pe.expected_gross, 10 * (0.4 * 1.9 * 1.9 + 0.05 * 1.9), 'the pushed pick drops out of the parlay', 0.01);
+  eq(pe.odds.edge, pe.expected_roi, 'a parlay’s edge counts the pushed pick’s return');
+  ok(pe.odds.edge > pe.joint_probability * 1.9 * 1.9 - 1, 'more than all-win alone');
+  // Win by 6+ "yes" and win by 12+ "no" (side under): a 6-11 point win.
+  const range = withLatent([T('win_by', 'lal', { line: 6, probability: 0.45 }), T('win_by', 'lal', { line: 12, side: 'under', probability: 0.75 })], game);
+  near(evaluateOutcomes({ legs: range, groups: sameGameGroups(range), joints: { nba: null }, stake: 10, format: 'parlay', payouts: { 2: 3 } }).joint_probability, 0.45 - 0.25, 'yes at 6 and no at 12: the stretch between', 1e-6);
+  const rangeAway = withLatent([T('win_by', 'gs', { line: 3, side: 'under', probability: 0.7 }), T('moneyline', 'gs', { probability: 0.38 })], game);
+  near(evaluateOutcomes({ legs: rangeAway, groups: sameGameGroups(rangeAway), joints: { nba: null }, stake: 10, format: 'parlay', payouts: { 2: 3 } }).joint_probability, 0.38 - 0.3, 'GS to win but not by 3+: a 1-2 point GS win', 1e-6);
   // A game total and a player's points need a measured link like any pair.
   const mixed = withLatent([T('total', null, { side: 'over', line: 228.5, probability: 0.5 }), L_('lbj', 'lal', 'g1', 'points', 'over', 0.55)], game);
   const mx = evaluateOutcomes({ legs: mixed, groups: sameGameGroups(mixed), joints, stake: 10, format: 'power', payouts: { 2: 3 } });

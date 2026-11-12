@@ -500,6 +500,9 @@ export function sportsFactory(host, doc, options) {
     if (!(d > 1 && d <= 1001)) return null;
     return { decimal: Math.round(d * 10000) / 10000, american: d >= 2 ? Math.round((d - 1) * 100) : -Math.round(100 / (d - 1)), cents: Math.round(1000 / d) / 10 };
   }
+  // A decimal price as text the price box reads back the same: 100 and up
+  // with no sign would read as American, so those go as +American.
+  const decimalText = (d) => (d >= 100 ? '+' + Math.round((d - 1) * 100) : String(d));
   // One price in all three ways: "−110 · 1.91 · 52.4¢".
   function oddsText(o) {
     if (!o || !(o.decimal > 1)) return '—';
@@ -518,6 +521,27 @@ export function sportsFactory(host, doc, options) {
     return 'Game bet';
   }
   const isTeamPick = (l) => !!l && l.kind === 'team';
+  // Two game bets no final score lets both win: the page's copy of
+  // neverBothWin in lib/sports/bets.mjs (sports-pick-smoke compares them).
+  function winSpan(l) {
+    const L = Number(l.line), INF = Infinity;
+    if (l.market === 'moneyline') return [1, INF];
+    if (l.market === 'spread') return [Math.floor(-L) + 1, INF];
+    if (l.market === 'win_by') return l.side === 'under' ? [-INF, L - 1] : [L, INF];
+    if (l.market === 'total' || l.market === 'team_total') return l.side === 'under' ? [-INF, Math.ceil(L) - 1] : [Math.floor(L) + 1, INF];
+    return null;
+  }
+  function neverBoth(a, b) {
+    if (!isTeamPick(a) || !isTeamPick(b) || a.sport !== b.sport || a.game_id !== b.game_id) return false;
+    const MM = ['moneyline', 'spread', 'win_by'], ma = MM.indexOf(a.market) >= 0, mb = MM.indexOf(b.market) >= 0;
+    if (ma !== mb) return false;
+    if (!ma && (a.market !== b.market || (a.market === 'team_total' && a.team !== b.team))) return false;
+    const A = winSpan(a);
+    let B = winSpan(b);
+    if (!A || !B) return false;
+    if (ma && a.team !== b.team) B = [-B[1], -B[0]];
+    return Math.max(A[0], B[0]) > Math.min(A[1], B[1]);
+  }
   // Kalshi names a player line by the count it needs: over 24.5 is "25+".
   const milestone = (side, t) => (side === 'over' && Number.isFinite(Number(t)) && Math.round(Number(t) * 2) % 2 !== 0 ? Math.ceil(Number(t)) + '+' : null);
   const halfUp = (x) => Math.round(x - 0.5) + 0.5;
@@ -579,11 +603,12 @@ export function sportsFactory(host, doc, options) {
     if (B && b.market === 'moneyline' && B.home_win != null) out.book = who === 'home' ? B.home_win : 1 - B.home_win;
     else if (B && M && b.market === 'spread' && B.home_cover != null && Math.abs((who === 'home' ? -line : line) - M.home_margin) < 1e-9) out.book = who === 'home' ? B.home_cover : 1 - B.home_cover;
     else if (B && M && b.market === 'total' && B.over != null && Math.abs(line - M.total) < 1e-9) out.book = b.side === 'under' ? 1 - B.over : B.over;
-    const raw = String(b.price == null ? '' : b.price).replace(/[−–]/g, '-').trim();
+    // The price as American, decimal or cents (priceOf).
+    const raw = String(b.price == null ? '' : b.price).trim();
     if (raw !== '') {
-      const price = Number(raw);
-      if (!Number.isFinite(price) || (price > -100 && price < 100) || Math.abs(price) > 100000) out.priceErr = 'Odds look like −110 or +150.';
-      else { const dec = price > 0 ? 1 + price / 100 : 1 + 100 / -price; out.price = price; out.breakeven = 1 / dec; out.ev = win * (dec - 1) - lose; }
+      const o = priceOf(raw);
+      if (!o) out.priceErr = 'Type odds like −110, +150, 1.91 or 62¢.';
+      else { out.price = o.american; out.priceText = oddsText(o); out.breakeven = 1 / o.decimal; out.ev = win * (o.decimal - 1) - lose; }
     }
     return out;
   }
@@ -605,7 +630,7 @@ export function sportsFactory(host, doc, options) {
     if (r.priceErr) parts.push('<p class="sp-muted">' + escape(r.priceErr) + '</p>');
     else if (r.price != null) {
       const edge = r.chance - r.breakeven;
-      parts.push('<p class="sp-tb-ev">At ' + escape(amText(r.price)) + ' you need <b>' + pct(r.breakeven) + '</b> to break even. By this model: ' +
+      parts.push('<p class="sp-tb-ev">At ' + escape(r.priceText) + ' you need <b>' + pct(r.breakeven) + '</b> to break even. By this model: ' +
         '<b class="' + (r.ev > 0 ? 'sp-pos' : r.ev < 0 ? 'sp-neg' : '') + '">' + (r.ev >= 0 ? '+' : '−') + '$' + escape(Math.abs(r.ev * 100).toFixed(2)) + ' per $100</b> on average' +
         (Math.abs(edge) < 0.02 ? ', inside the model’s usual error, so call it even.' : edge > 0 ? '.' : '; the price is not good enough.') +
         (edge > 0 && !(check && check.status === 'validated') ? ' <span class="sp-model-warn">This kind of bet has not passed the check, so this return is rough; a big edge here usually means the model is missing something.</span>' : '') + '</p>');
@@ -622,8 +647,8 @@ export function sportsFactory(host, doc, options) {
     return '<div class="sp-tb-form">' + sel('market', TB_MARKETS, s.market, 'Bet') +
       (s.market !== 'total' ? sel('team', [[g.away_team, String(g.away_team).toUpperCase()], [g.home_team, String(g.home_team).toUpperCase() + ' (home)']], s.team, 'Team') : '') +
       (s.market === 'total' || s.market === 'team_total' ? sel('side', [['over', 'Over'], ['under', 'Under']], s.side, 'Side') : '') +
-      (lineText ? '<label class="sp-field"><span>' + escape(lineText) + '</span><input type="number" step="0.5" inputmode="decimal" data-sp-tb="line" value="' + escape(s.line) + '" placeholder="' + escape(def == null ? '' : fv(def)) + '"></label>' : '') +
-      '<label class="sp-field"><span>Odds offered (optional)</span><input type="text" inputmode="numeric" maxlength="7" data-sp-tb="price" value="' + escape(s.price) + '" placeholder="−110"></label>' +
+      (lineText ? '<label class="sp-field"><span>' + escape(lineText) + '</span><input type="number" step="0.5"' + (s.market === 'spread' ? '' : ' inputmode="decimal"') + ' data-sp-tb="line" value="' + escape(s.line) + '" placeholder="' + escape(def == null ? '' : fv(def)) + '"></label>' : '') +
+      '<label class="sp-field"><span>Odds offered (optional)</span><input type="text" maxlength="12" autocomplete="off" spellcheck="false" data-sp-tb="price" value="' + escape(s.price) + '" placeholder="−110" aria-label="Odds offered: American, decimal or cents"></label>' +
       (g.status === 'scheduled' && !(Date.parse(g.start_utc) <= Date.now()) ? '<button type="button" class="sp-btn" data-sp-tb-add>Add to Pick Builder</button>' : '') + '</div>' +
       '<p class="sp-pick-msg" data-sp-part="tb-msg" aria-live="polite"></p>' +
       '<div class="sp-tb-result" data-sp-part="tb-result" aria-live="polite">' + tbResultHtml(lg) + '</div>';
@@ -1775,9 +1800,9 @@ export function sportsFactory(host, doc, options) {
     d.format = decoded.format;
     if (decoded.stake) d.stake = decoded.stake;
     d.payouts = decoded.payouts;
-    d.legs = decoded.legs.map((l) => Object.assign({}, l, { probability: null, probability_source: null, price: l.price > 1 ? String(l.price) : '' },
+    d.legs = decoded.legs.map((l) => Object.assign({}, l, { probability: null, probability_source: null, price: l.price > 1 ? decimalText(l.price) : '' },
       l.kind === 'team' ? { label: teamPickLabel(l) } : {}));
-    if (d.format === 'parlay' && !d.legs.every((l) => priceOf(l.price)) && d.payouts[d.legs.length] > 1) d.parlayPrice = String(d.payouts[d.legs.length]);
+    if (d.format === 'parlay' && !d.legs.every((l) => priceOf(l.price)) && d.payouts[d.legs.length] > 1) d.parlayPrice = decimalText(d.payouts[d.legs.length]);
     state.draft = d;
     saveDraft();
     pb.prefill = 'ok'; pb.evaluation = null; pb.msg = null;
@@ -1919,7 +1944,7 @@ export function sportsFactory(host, doc, options) {
     return '<div class="sp-tb-form">' + sel('market', TB_MARKETS, s.market, 'Bet') +
       (s.market !== 'total' ? sel('team', [[g.away_team, String(g.away_team).toUpperCase()], [g.home_team, String(g.home_team).toUpperCase() + ' (home)']], s.team, 'Team') : '') +
       (s.market === 'total' || s.market === 'team_total' ? sel('side', [['over', 'Over'], ['under', 'Under']], s.side, 'Side') : s.market === 'win_by' ? sel('side', [['over', 'Yes'], ['under', 'No']], s.side, 'Wins by that much') : '') +
-      (lineText ? '<label class="sp-field"><span>' + escape(lineText) + '</span><input type="number" step="' + (s.market === 'win_by' ? '1' : '0.5') + '" inputmode="decimal" data-sp-gb="line" value="' + escape(s.line) + '" placeholder="' + escape(def == null ? '' : fv(def)) + '"></label>' : '') +
+      (lineText ? '<label class="sp-field"><span>' + escape(lineText) + '</span><input type="number" step="' + (s.market === 'win_by' ? '1' : '0.5') + '"' + (s.market === 'spread' ? '' : ' inputmode="decimal"') + ' data-sp-gb="line" value="' + escape(s.line) + '" placeholder="' + escape(def == null ? '' : fv(def)) + '"></label>' : '') +
       '<button type="button" class="sp-btn" data-sp-gb-add>Add to entry</button></div>' +
       '<div class="sp-tb-result" data-sp-part="gb-result" aria-live="polite">' + gbResultHtml() + '</div>';
   }
@@ -1981,6 +2006,8 @@ export function sportsFactory(host, doc, options) {
     const same = d.legs.find((l) => isTeamPick(l) && l.game_id === leg.game_id && l.market === leg.market && (l.team || null) === leg.team && l.side === leg.side && Number(l.line) === Number(leg.line));
     if (same) return 'That bet is already in the entry.';
     if (leg.market === 'moneyline' && d.legs.some((l) => isTeamPick(l) && l.game_id === leg.game_id && l.market === 'moneyline')) return 'Both teams to win cancel out.';
+    const clash = d.legs.find((l) => neverBoth(l, leg));
+    if (clash) return leg.label + ' and ' + (clash.label || teamPickLabel(clash)) + ' can never both win.';
     d.legs.push(leg);
     d.payouts = {};
     saveDraft();
@@ -2176,7 +2203,8 @@ export function sportsFactory(host, doc, options) {
       ? '<select data-sp-leg-side aria-label="Over or under for pick ' + (i + 1) + '">' + opt('over', 'Over', l.side) + opt('under', 'Under', l.side) + '</select>'
       : m === 'win_by' ? '<select data-sp-leg-side aria-label="Yes or no for pick ' + (i + 1) + '">' + opt('over', 'Yes', l.side) + opt('under', 'No', l.side) + '</select>' : '';
     const step = m === 'win_by' ? '1' : '0.5', min = m === 'spread' ? '-60' : m === 'win_by' ? '1' : '0.5', max = m === 'total' || m === 'team_total' ? '400' : '60';
-    const line = m === 'moneyline' ? '' : '<input data-sp-leg-tline type="number" min="' + min + '" max="' + max + '" step="' + step + '" inputmode="decimal" value="' + escape(l.line) + '" aria-label="' + (m === 'spread' ? 'Spread' : m === 'win_by' ? 'Points' : 'Line') + ' for pick ' + (i + 1) + '">';
+    // No decimal keypad for a spread: phones' decimal pads have no minus sign.
+    const line = m === 'moneyline' ? '' : '<input data-sp-leg-tline type="number" min="' + min + '" max="' + max + '" step="' + step + '"' + (m === 'spread' ? '' : ' inputmode="decimal"') + ' value="' + escape(l.line) + '" aria-label="' + (m === 'spread' ? 'Spread' : m === 'win_by' ? 'Points' : 'Line') + ' for pick ' + (i + 1) + '">';
     return '<li class="sp-leg sp-leg-team" data-sp-leg="' + i + '"><div class="sp-leg-head"><span class="sp-leg-name"><i>' + (i + 1) + '</i><span data-sp-tlabel>' + escape(l.label || teamPickLabel(l)) + '</span>' + (m === 'moneyline' ? '' : ' <span>' + escape(TB_NAME[m] || 'Game bet') + '</span>') + '</span>' +
       '<button type="button" class="sp-close" data-sp-remove="' + i + '" aria-label="Remove pick ' + (i + 1) + '">×</button></div>' +
       '<p class="sp-leg-game">' + escape(String(l.sport).toUpperCase()) + ' · ' + (l.matchup ? matchupText(l.matchup) : 'game ' + escape(l.game_id)) + (l.game_start_utc ? ' · ' + escape(fmtWhen(l.game_start_utc, zone())) : '') + '</p>' +
@@ -2244,7 +2272,7 @@ export function sportsFactory(host, doc, options) {
     const each = d.legs.map((l) => priceOf(l.price));
     if (each.every(Boolean)) {
       const dec = each.reduce((a, o) => a * o.decimal, 1);
-      return '<div class="sp-payouts"><p class="sp-label">Parlay odds</p><p class="sp-parlay-all">' + (n === 1 ? 'The bet pays ' : 'The ' + n + ' picks’ odds multiplied: ') + '<b>' + escape(oddsText(priceOf(String(Math.round(dec * 10000) / 10000)) || { decimal: dec })) + '</b> (' + escape(dec.toFixed(2)) + '× the stake back)</p>' +
+      return '<div class="sp-payouts"><p class="sp-label">Parlay odds</p><p class="sp-parlay-all">' + (n === 1 ? 'The bet pays ' : 'The ' + n + ' picks’ odds multiplied: ') + '<b>' + escape(oddsText({ decimal: Math.round(dec * 10000) / 10000 })) + '</b> (' + escape(dec.toFixed(2)) + '× the stake back)</p>' +
         '<p class="sp-note">A pick that pushes drops out and the rest pay at their own odds. Many apps price a same-game parlay below the multiplied odds; if yours shows a different price, clear one pick’s odds and type the app’s price for the whole parlay instead.</p></div>';
     }
     return '<div class="sp-payouts"><p class="sp-label">Parlay odds from your app</p><div class="sp-payout-row">' +
@@ -2273,7 +2301,7 @@ export function sportsFactory(host, doc, options) {
     ].join('');
     if (!rows) return '';
     const edge = O.edge != null ? '<p class="sp-odds-edge">Edge: <b class="' + (O.edge > 0 ? 'sp-pos' : O.edge < 0 ? 'sp-neg' : '') + '">' + (O.edge > 0 ? '+' : O.edge < 0 ? '−' : '') + (Math.abs(O.edge) * 100).toFixed(1) + '%</b> expected profit per $1 at the chance shown' +
-      (E.push_chance > 0.001 && ev.format !== 'flex' ? ' (pushes counted)' : '') + '.</p>' : '';
+      (E.push_chance > 0.001 ? (ev.format === 'parlay' ? ' (a pushed pick drops out)' : ' (a push counted as a miss)') : '') + '.</p>' : '';
     return '<div class="sp-odds"><p class="sp-label">Odds</p><table class="sp-table sp-odds-table" data-nosort><tbody>' + rows + '</tbody></table>' + edge + '</div>';
   }
   // Same-game notes: picks on one number, and how much the links moved the
@@ -2285,6 +2313,7 @@ export function sportsFactory(host, doc, options) {
       const r = E.joint_probability / E.independent_probability;
       if (Math.abs(r - 1) >= 0.02) out.push('Together these picks hit ' + pct(E.joint_probability) + ', against ' + pct(E.independent_probability) + ' if they were unrelated: ' + (E.links && E.links.length ? 'the links make ' : 'sharing a number makes ') + (n === 2 ? 'both' : 'all ' + n) + ' winning ' + (r > 1 ? 'more' : 'less') + ' likely (' + r.toFixed(2) + '×).');
     }
+    if ((E.shared_numbers || []).length && draft().format === 'parlay') out.push('Most sportsbooks will not put two bets on the same number in one parlay (like a team to win and to cover), or price them well below the odds multiplied; check the app’s own price.');
     if (E.push_chance > 0.001) out.push('About ' + pct(E.push_chance) + ' of the time a pick pushes and none loses; ' + (draft().format === 'parlay' ? 'the pushed pick drops out of the parlay.' : 'apps usually drop that pick and pay a smaller entry.'));
     return out.length ? '<ul class="sp-sg-notes">' + out.map((x) => '<li>' + escape(x) + '</li>').join('') + '</ul>' : '';
   }
@@ -2811,7 +2840,10 @@ export function sportsFactory(host, doc, options) {
     if (t.closest('[data-sp-tb-add]') && L.game && L.game.game) {
       const g = L.game.game, s = tbState(lg), fc = L.game.team_bets && L.game.team_bets.forecast;
       const def = fc ? tbDefaultLine(fc, g, s, lg) : null;
-      const b = { market: s.market, team: s.market === 'total' ? null : s.team, side: s.market === 'moneyline' || s.market === 'spread' || s.market === 'win_by' ? 'over' : s.side, line: s.market === 'moneyline' ? null : s.line === '' ? def : Number(s.line) };
+      const raw = s.market === 'moneyline' ? null : s.line === '' ? def : Number(s.line);
+      // The checker reads "win by 7.5" as 8 or more; the pick takes whole points.
+      const line = s.market === 'win_by' && Number.isFinite(raw) ? Math.ceil(raw) : raw;
+      const b = { market: s.market, team: s.market === 'total' ? null : s.team, side: s.market === 'moneyline' || s.market === 'spread' || s.market === 'win_by' ? 'over' : s.side, line };
       const err = addTeamPick(lg, g, b);
       const n = draft().legs.length;
       paint(page, 'tb-msg', err ? '<span class="sp-bad">' + escape(err) + '</span>' : 'Added ' + escape(teamPickLabel(b)) + '. The entry has ' + n + ' pick' + (n === 1 ? '' : 's') + '. <button type="button" class="sp-link" data-sp-goto="' + BUILDER + '">Open Pick Builder</button>');
@@ -3193,5 +3225,5 @@ export function sportsFactory(host, doc, options) {
     else if (L.view === 'games' && !L.propsPending) { loadBoard(page, lg); paint(page, 'board', boardHtml(lg)); }
   });
   // priceOf is returned for the smoke test, which compares it with parsePrice.
-  return { load, priceOf };
+  return { load, priceOf, neverBoth };
 }

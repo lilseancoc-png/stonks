@@ -12,7 +12,7 @@ import { NBA_SOURCE, HOOPR_URLS } from '../lib/sports/hoopr.mjs';
 import { NFL_SOURCE, NFLVERSE_URLS } from '../lib/sports/nflverse.mjs';
 import { handleSportsRequest, recordLoader } from '../lib/sports/http.mjs';
 import { SPORTS_PREFIX } from '../lib/sports/store.mjs';
-import { parsePrice, cleanTeamLeg, teamLegLabel, milestoneLabel, teamLegResult, fairOdds, americanOf } from '../lib/sports/bets.mjs';
+import { parsePrice, cleanTeamLeg, teamLegLabel, milestoneLabel, teamLegResult, fairOdds, americanOf, neverBothWin, winSpan } from '../lib/sports/bets.mjs';
 import { encodePrefill, decodePrefill } from '../lib/sports/prefill.mjs';
 import { sportsFactory } from './render/sports-client.mjs';
 import { SCHEDULE_2026, SCHEDULE_2027, BOX_2026, BOX_2027 } from './fixtures/sports-nba.mjs';
@@ -302,6 +302,35 @@ eq(tSp.chart, { side: 'over', threshold: 5.5 }, 'a −5.5 spread reads margins a
 eq([tML.latent.id, tSp.latent.id, tML.latent.up, tSp.latent.up], ['g:margin', 'g:margin', true, true], 'both read the home team’s margin');
 await rejects(evaluateEntry({ load: load(), body: { legs: [gsWin(), gsWin({ team: 'phx' })] }, now: NOW }), 400, /Both teams to win/, 'both teams to win cancel out');
 await rejects(evaluateEntry({ load: load(), body: { legs: [gsWin(), gsWin()] }, now: NOW }), 400, /twice/, 'the same game bet twice');
+// Two game bets that no final score lets both win are refused; ranges are not.
+const gsTotal = (side, line) => ({ kind: 'team', sport: 'nba', game_id: '401900003', market: 'total', side, line });
+await rejects(evaluateEntry({ load: load(), body: { legs: [gsTotal('over', 240.5), gsTotal('under', 220.5)] }, now: NOW }), 400, /Game total over 240\.5 and Game total under 220\.5 can never both win/, 'over 240.5 and under 220.5');
+await rejects(evaluateEntry({ load: load(), body: { legs: [gsSpread(), gsSpread({ team: 'phx', line: -3.5 })] }, now: NOW }), 400, /GS −5\.5 and PHX −3\.5 can never both win/, 'both favorites');
+await rejects(evaluateEntry({ load: load(), body: { legs: [gsWin({ team: 'phx' }), gsWin({ market: 'win_by', line: 3 })] }, now: NOW }), 400, /never both win/, 'PHX to win and GS to win by 3+');
+await rejects(evaluateEntry({ load: load(), body: { legs: [gsWin({ market: 'win_by', line: 10 }), gsWin({ market: 'win_by', line: 7, side: 'under' })] }, now: NOW }), 400, /never both win/, 'win by 10+ and not by 7+');
+for (const legs of [[gsTotal('over', 220.5), gsTotal('under', 230.5)], [gsSpread({ line: -2.5 }), gsSpread({ team: 'phx', line: 6.5 })], [gsWin({ market: 'win_by', line: 7 }), gsWin({ market: 'win_by', line: 10, side: 'under' })], [gsWin(), gsSpread()]]) {
+  eq((await evaluateEntry({ load: load(), body: { legs }, now: NOW })).legs.length, 2, 'a range or nested pair is allowed: ' + legs.map(teamLegLabel).join(' + '));
+}
+{ // The page's copy of the check agrees with the server's.
+  const page = sportsFactory({}, { addEventListener() {}, getElementById() { return null; } }, {});
+  const bets = [];
+  for (const team of ['gs', 'phx']) {
+    bets.push({ market: 'moneyline', team, side: 'over', line: null });
+    for (const line of [-7.5, -3, 0, 2.5, 6]) bets.push({ market: 'spread', team, side: 'over', line });
+    for (const line of [1, 3, 8]) for (const side of ['over', 'under']) bets.push({ market: 'win_by', team, side, line });
+    for (const line of [99.5, 110]) for (const side of ['over', 'under']) bets.push({ market: 'team_total', team, side, line });
+  }
+  for (const line of [215.5, 220, 230.5]) for (const side of ['over', 'under']) bets.push({ market: 'total', team: null, side, line });
+  let same = 0, pairs = 0;
+  for (const a of bets) for (const b of bets) {
+    const A = { kind: 'team', sport: 'nba', game_id: 'g', ...a }, B = { kind: 'team', sport: 'nba', game_id: 'g', ...b };
+    pairs++; if (neverBothWin(A, B) === page.neverBoth(A, B)) same++;
+  }
+  eq(same, pairs, 'page and server agree on every pair of game bets (' + pairs + ')');
+  ok(neverBothWin({ kind: 'team', sport: 'nba', game_id: 'g', market: 'team_total', team: 'gs', side: 'over', line: 110 }, { kind: 'team', sport: 'nba', game_id: 'g', market: 'team_total', team: 'gs', side: 'under', line: 111 }), 'over 110 (111+) and under 111 (110 or less) never both win');
+  ok(!neverBothWin({ kind: 'team', sport: 'nba', game_id: 'g', market: 'team_total', team: 'gs', side: 'over', line: 110 }, { kind: 'team', sport: 'nba', game_id: 'g', market: 'team_total', team: 'phx', side: 'under', line: 90 }), 'two teams’ totals are different numbers');
+  eq(winSpan({ market: 'spread', line: 3.5 }), [-3, Infinity], '+3.5 covers losing by 3 or less');
+}
 await rejects(evaluateEntry({ load: load(), body: { legs: [gsWin({ team: 'lal' })] }, now: NOW }), 400, /not in this game/, 'a team not in the game');
 await rejects(evaluateEntry({ load: load(), body: { legs: [gsSpread({ line: 70 })] }, now: NOW }), 400, /spread/, 'a spread out of range');
 await rejects(evaluateEntry({ load: load(), body: { legs: [gsWin({ price: 'abc' })], format: 'parlay' }, now: NOW }), 400, /odds must look like/, 'a bad price is refused');
