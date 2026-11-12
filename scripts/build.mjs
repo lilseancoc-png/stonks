@@ -11075,10 +11075,17 @@ export function build13FPayload(chains, _narratives, asOf, perFirmResult) {
   };
 }
 
+const OWNERSHIP_RETAIN_SAFETY_MS = 2 * 3600000;
 export async function write13FFile(chains, narratives, builtAtIso, perFirmResult, { retainedParts = new Map(), dataDir = DATA_DIR } = {}) {
   const payload = build13FPayload(chains, narratives, new Date(builtAtIso), perFirmResult);
   const packed = packOwnershipBooks(payload);
-  const retained = [...retainedParts].filter(([, r]) => Date.parse(r.expiresAtIso) > Date.parse(builtAtIso));
+  // A retired part's grace ends about 24 hours after the build that retired
+  // it, so at the same bake the next day it often expires in the minutes
+  // between builtAtIso and the publish check, which then failed the whole
+  // build (10:00 ET, 2026-11-11). Drop parts that expire within the next two
+  // hours instead of publishing them.
+  const retainCutoff = Date.parse(builtAtIso) + OWNERSHIP_RETAIN_SAFETY_MS;
+  const retained = [...retainedParts].filter(([, r]) => Date.parse(r.expiresAtIso) > retainCutoff);
   packed.payload.ownershipRetainedParts = retained.map(([key, r]) => ({ key, expiresAtIso: r.expiresAtIso }));
   const files = new Map([...retained.map(([key, r]) => [key, r.body]), ...packed.parts]);
   for (const [key, body] of files) {
@@ -12808,21 +12815,56 @@ function capitalRaiseHistoryMatchesIssuer(sym, companyName, title) {
   return capitalRaiseHeadlineMatchesIssuer(sym, companyName, title);
 }
 
-export function capitalRaiseActionIsExplicit(kind, title) {
+const CAPITAL_RAISE_ACTION_RES = {
+  equity: [/\b(?:registered direct|at[- ]the[- ]market|atm program|follow[- ]on|secondary offering|public offering|share issuance|equity raise|stock offering)\b/i],
+  convertible: [/\bconvertible\b.{0,45}\b(?:notes?|bonds?|debt|offering|securities)\b/i],
+  debt: [/\b(?:notes? offering|bond sale|bond offering|debt offering|issues? .{0,30}(?:notes?|bonds?|debt)|raises? .{0,30}(?:debt|bonds?|notes?))\b/i],
+  buyback: [
+    /\b(?:announces?|authorizes?|approves?|boosts?|expands?|extends?|increases?|launches?|initiates?|resumes?|completes?|executes?|plans?|reports?)\b.{0,90}\b(?:buyback|share repurchase|stock repurchase)\b/i,
+    /\b(?:buyback|share repurchase|stock repurchase)\b.{0,90}\b(?:program|authorization|plan|agreement)\b/i,
+  ],
+};
+function capitalRaiseActionIndex(kind, title) {
   const t = String(title || "");
-  if (kind === "equity") {
-    return /\b(?:registered direct|at[- ]the[- ]market|atm program|follow[- ]on|secondary offering|public offering|share issuance|equity raise|stock offering)\b/i.test(t);
+  let best = -1;
+  for (const re of CAPITAL_RAISE_ACTION_RES[kind] || []) {
+    const m = re.exec(t);
+    if (m && (best < 0 || m.index < best)) best = m.index;
   }
-  if (kind === "convertible") {
-    return /\bconvertible\b.{0,45}\b(?:notes?|bonds?|debt|offering|securities)\b/i.test(t);
-  }
-  if (kind === "debt") {
-    return /\b(?:notes? offering|bond sale|bond offering|debt offering|issues? .{0,30}(?:notes?|bonds?|debt)|raises? .{0,30}(?:debt|bonds?|notes?))\b/i.test(t);
-  }
-  return kind === "buyback" && (
-    /\b(?:announces?|authorizes?|approves?|boosts?|expands?|extends?|increases?|launches?|initiates?|resumes?|completes?|executes?|plans?|reports?)\b.{0,90}\b(?:buyback|share repurchase|stock repurchase)\b/i.test(t) ||
-    /\b(?:buyback|share repurchase|stock repurchase)\b.{0,90}\b(?:program|authorization|plan|agreement)\b/i.test(t)
-  );
+  return best;
+}
+export function capitalRaiseActionIsExplicit(kind, title) {
+  return capitalRaiseActionIndex(kind, title) >= 0;
+}
+
+// Audit 2026-11-12: a headline about another issuer's deal used to flag every
+// company it named ("Oracle Rallies 6% as $20 Billion Stock and Bond Sale ...;
+// CoreWeave Climbs 7%" flagged CoreWeave and Microsoft as debt raisers, and
+// "Nvidia, AMD and Broadcom could buy Meta shares as part of $35 billion stock
+// offering" flagged the buyers as share issuers). The company must be named
+// before the deal wording, and not as a buyer of someone else's offering.
+const CAPITAL_RAISE_BUYER_RE = /\b(?:buy|buys|buying|could buy|to buy|invest|invests|investing|investment|eye|eyes|stake|anchor|backs?|participat\w*)\b/i;
+function capitalRaiseNameIndex(sym, companyName, title) {
+  const t = String(title || "").toLowerCase();
+  const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const found = [];
+  const parts = capitalRaiseIssuerNameParts(companyName);
+  if (parts.length > 1) found.push(t.search(new RegExp(`\\b${parts.map(esc).join("[^a-z0-9]+")}\\b`)));
+  for (const tok of capitalRaiseIssuerNameTokens(companyName)) found.push(t.search(new RegExp(`\\b${esc(tok)}\\b`)));
+  if (parts.length === 1) found.push(t.search(new RegExp(`^${esc(parts[0])}\\b`)));
+  const ticker = String(sym || "").trim().toLowerCase();
+  if (ticker.length >= 2) found.push(t.search(new RegExp(`(?:\\(|\\$|^)${esc(ticker)}\\b`)));
+  const hits = found.filter((i) => i >= 0);
+  return hits.length ? Math.min(...hits) : -1;
+}
+export function capitalRaiseIssuerIsSubject(sym, companyName, kind, title) {
+  if (capitalRaiseTickerActsAsIssuer(sym, title)) return true;
+  const action = capitalRaiseActionIndex(kind, title);
+  const named = capitalRaiseNameIndex(sym, companyName, title);
+  if (action < 0) return false;
+  if (named < 0) return true;
+  if (named > action) return false;
+  return !CAPITAL_RAISE_BUYER_RE.test(String(title || "").slice(named, action));
 }
 
 // ── Thesis-category classifier (Track Record analytics) ─────────────────────
@@ -12898,7 +12940,8 @@ function scanCapitalRaiseHeadlines(sym, headlines, companyName = null) {
     if (!h || !h.title) continue;
     const kind = classifyCapitalRaiseHeadline(h.title);
     if (!kind) continue;
-    if (!capitalRaiseHeadlineMatchesIssuer(sym, companyName, h.title) || !capitalRaiseActionIsExplicit(kind, h.title)) continue;
+    if (!capitalRaiseHeadlineMatchesIssuer(sym, companyName, h.title) || !capitalRaiseActionIsExplicit(kind, h.title) ||
+        !capitalRaiseIssuerIsSubject(sym, companyName, kind, h.title)) continue;
     const tMs = h.publishedAt ? Date.parse(h.publishedAt) : NaN;
     const ageDays = Number.isFinite(tMs) ? (nowMs - tMs) / 86400000 : null;
     if (ageDays != null && ageDays > CAPITAL_RAISE_MAX_AGE_DAYS) continue; // only fresh news
@@ -12993,7 +13036,8 @@ export function mergeCapitalRaiseEvents({ flags = [], priorEvents = [], historyE
     const issuerMatches = source === "history"
       ? capitalRaiseHistoryMatchesIssuer(ticker, name, headline)
       : capitalRaiseHeadlineMatchesIssuer(ticker, name, headline);
-    if (!issuerMatches || !capitalRaiseActionIsExplicit(kind, headline)) return;
+    if (!issuerMatches || !capitalRaiseActionIsExplicit(kind, headline) ||
+        !capitalRaiseIssuerIsSubject(ticker, name, kind, headline)) return;
 
     const day = new Date(publishedMs).toISOString().slice(0, 10);
     const id = `${ticker}|${kind}|${day}`;
@@ -13026,6 +13070,12 @@ export function mergeCapitalRaiseEvents({ flags = [], priorEvents = [], historyE
     .slice(0, CAPITAL_RAISE_MAX_EVENTS);
 }
 
+const CAPITAL_RAISE_FILED_MAX_DAYS = 548;
+export function capitalRaiseFiledIsRecent(endIso, builtAtIso) {
+  const end = Date.parse(endIso || "");
+  const now = Date.parse(builtAtIso || "") || Date.now();
+  return Number.isFinite(end) && (now - end) / 86400000 <= CAPITAL_RAISE_FILED_MAX_DAYS;
+}
 async function buildCapitalRaisesPayload(cikMap, chains, builtAtIso, prior = null, historyEvents = []) {
   const merged = mergeCapitalRaiseEvents({
     flags: _capitalRaiseFlags,
@@ -13045,7 +13095,12 @@ async function buildCapitalRaisesPayload(cikMap, chains, builtAtIso, prior = nul
   }
   const events = merged.map((f) => {
     const sec = secByTicker[f.ticker] || null;
-    const filed = sec && f.kind !== "convertible" ? sec[f.kind] || null : (sec ? sec.debt || null : null);
+    const secFiled = sec && f.kind !== "convertible" ? sec[f.kind] || null : (sec ? sec.debt || null : null);
+    // Audit 2026-11-12: a company that stopped tagging a concept kept its last
+    // value from years ago (Morgan Stanley 2017, Oracle 2018, Nvidia 2016),
+    // shown as the "latest filed" size. Only a fact from the last 18 months counts.
+    const filed = capitalRaiseFiledIsRecent(secFiled?.end, builtAtIso) ? secFiled : null;
+    const priorFiled = f.filed && capitalRaiseFiledIsRecent(f.filed.asOf, builtAtIso) ? f.filed : null;
     const fund = chains?.[f.ticker]?.fundamentals || {};
     return {
       ticker: f.ticker,
@@ -13057,7 +13112,7 @@ async function buildCapitalRaisesPayload(cikMap, chains, builtAtIso, prior = nul
       link: f.link,
       publishedAt: f.publishedAt,
       headlineAmount: f.headlineAmount,
-      filed: filed ? { val: filed.val, asOf: filed.end, concept: filed.concept } : (f.filed || null),
+      filed: filed ? { val: filed.val, asOf: filed.end, concept: filed.concept } : priorFiled,
     };
   });
   return { builtAtIso, events, count: events.length, stale: false };
@@ -41122,6 +41177,10 @@ async function main() {
   // non-fatal; no fetch, no AI.
   try {
     const sourcePayloads = await readSourcePayloads(DATA_DIR);
+    // The 09:00 ET pre-open file is written by its own job and is not restored
+    // after the data wipe, so it was always reported missing; use the copy read
+    // before the wipe (audit 2026-11-12).
+    if (!sourcePayloads.has(OVERNIGHT_PREOPEN_KEY) && overnightPreopenFile) sourcePayloads.set(OVERNIGHT_PREOPEN_KEY, { payload: overnightPreopenFile });
     const health = buildSourceHealth({ payloads: sourcePayloads, prior: priorSourceHealth, builtAtIso });
     const healthInfo = await writeSourceHealth(DATA_DIR, health);
     const flagged = health.sources.filter((r) => r.review).map((r) => `${r.id}:${r.state}`);
