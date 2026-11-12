@@ -49,7 +49,7 @@ assert.equal(weekly.state, "aged");
 
 // buildSourceHealth: the history upserts by ET day (worst state wins within a
 // day), prunes to 60 days and computes streaks and bad days.
-const payloads = new Map([["fear-greed.json", { payload: { asOf: "2026-11-09", stale: true } }], ["macro.json", { payload: { asOf: "2026-11-09T20:00:00Z" } }], ["news.json", { error: "invalid" }]]);
+const payloads = new Map([["fear-greed.json", { payload: { asOf: "2026-11-09", stale: true } }], ["macro.json", { payload: { asOf: "2026-11-09T20:00:00Z" } }], ["news-feed.json", { error: "invalid" }]]);
 const oldDays = Array.from({ length: 70 }, (_, i) => ({ date: new Date(Date.UTC(2026, 7, 1) + i * 86400000).toISOString().slice(0, 10), s: { "fear-greed": 2, "macro-levels": 0 } }));
 const prior = { v: 1, builtAtIso: "2026-11-08T21:10:00Z", sources: [], days: oldDays.concat([{ date: "2026-11-08", s: { "fear-greed": 2, "macro-levels": 0 } }, { date: "2026-11-09", s: { "macro-levels": 3 } }]) };
 const health = buildSourceHealth({ payloads, prior, builtAtIso: built, now });
@@ -69,10 +69,10 @@ assert.equal(fg.badDays30, 30);
 const dir = await mkdtemp(join(tmpdir(), "source-health-"));
 try {
   await writeFile(join(dir, "fear-greed.json"), JSON.stringify({ asOf: "2026-11-09", stale: false }));
-  await writeFile(join(dir, "news.json"), "{not json");
+  await writeFile(join(dir, "news-feed.json"), "{not json");
   const read = await readSourcePayloads(dir);
   assert.equal(read.get("fear-greed.json").payload.asOf, "2026-11-09");
-  assert.equal(read.get("news.json").error, "invalid");
+  assert.equal(read.get("news-feed.json").error, "invalid");
   assert.equal(read.has("macro.json"), false);
   const info = await writeSourceHealth(dir, health);
   assert.equal(info.sources, SOURCES.length);
@@ -96,5 +96,20 @@ assert.equal(res.body.sources.sources.find((r) => r.id === "fear-greed").review,
 res = makeRes();
 await handleUpdateChecker({ method: "GET", query: { checker: "status" } }, res, { env: { PRIVATE_DATA_ENABLED: "1" }, getSession: async () => ({ tr: true, tp: true }), store: store(null), now });
 assert.equal(res.statusCode, 200); assert.equal(res.body.sources, null);
+
+// Every source names a file the site really writes (2026-11-12: "news.json"
+// and "narratives.json" never existed, so both read "missing" every build).
+{
+  const { readdir } = await import("node:fs/promises");
+  const root = new URL("../", import.meta.url);
+  const files = [];
+  const walk = async (rel) => { for (const e of await readdir(new URL(rel, root), { withFileTypes: true })) { const r = rel + e.name; if (e.isDirectory()) await walk(r + "/"); else if (/\.mjs$/.test(e.name) && !/source-health|-smoke/.test(e.name)) files.push(r); } };
+  await walk("lib/"); await walk("scripts/");
+  const writerText = (await Promise.all(files.map((f) => readFile(new URL(f, root), "utf8")))).join("\n");
+  for (const d of SOURCES) assert.ok(writerText.includes(d.key) || d.key === "manifest.json", `${d.id}: no writer names ${d.key}`);
+  const hm = assessSource(SOURCES.find((d) => d.id === "yahoo-quotes"), { builtAtIso: "2026-11-10T18:30:00Z", eodSummary: { date: "2026-11-09" } }, Date.parse("2026-11-10T18:31:00Z"));
+  assert.equal(hm.state, "ok", "the heatmap is as fresh as its last write, not its last closing summary");
+  assert.ok(scanPayload({ items: [{ publishedAt: "2026-11-09T12:00:00Z" }] }, Date.parse("2026-11-10T00:00:00Z")).at != null, "publishedAt counts as an observation date");
+}
 
 console.log("source-health-smoke: ok");

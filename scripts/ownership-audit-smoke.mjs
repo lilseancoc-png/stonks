@@ -58,6 +58,14 @@ try {
   const restored = await restoredClient.hydrate(root);
   assert.equal(restored.perFirm['Atlas Capital'].holdings.length, 95);
   assert.equal((await restoredClient.details(restored.perFirm['Atlas Capital'].holdings[0])).disclosures.length, 1);
+  // A retired part whose grace ends minutes after this build's stamp is not
+  // published: the publish check runs after builtAtIso and would call it
+  // expired (10:00 ET build, 2026-11-11).
+  const nearly = new Map([['13f-books/summary-' + 'a'.repeat(24) + '.json', { body: '{}', expiresAtIso: new Date(Date.parse(data.builtAtIso) + 5 * 60000).toISOString() }]]);
+  await rm(dir, { recursive: true });
+  await write13FFile({}, [], data.builtAtIso, { perFirm: retained.payload.perFirm, targetReportDate: data.periodEndIso }, { dataDir: dir, retainedParts: new Map([...retained.parts, ...nearly]) });
+  const root2 = JSON.parse(await readFile(resolve(dir, '13f.json'), 'utf8'));
+  assert.ok(!root2.ownershipRetainedParts.some(r => nearly.has(r.key)), 'a part about to expire is dropped before publish');
 } finally { await rm(dir, { recursive: true, force: true }); }
 
 const savedFetch = globalThis.fetch;

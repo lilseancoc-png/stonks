@@ -32,6 +32,12 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ### Fixed
 
 - Fix NBA sportsbook reads failing on every NBA scan since the 2026-11-11 data update (#808): the game spreads and totals now go in their own request instead of riding the player-price request, so the NBA props record and the archived NBA game lines work again, and the scan log names the provider's status for a failed read. The five-minute research collector skips the game request and uses the archived line.
+- The first build of the day (10:00 ET) no longer fails its publish check on a 13F ownership file whose 24-hour grace ran out a few minutes after the build started; parts that expire within two hours are dropped before publishing (the 2026-11-11 10:00 ET build failed this way).
+- Capital markets no longer tags a company for another issuer's deal ("Oracle ... Stock and Bond Sale ...; CoreWeave Climbs 7%" flagged CoreWeave and Microsoft) or for buying into one (Nvidia and Broadcom as Meta's share issuers). The company must be named before the deal wording and not as a buyer. These flags also feed the Fundamentals pillar, so those names lose a wrong dilution or leverage penalty.
+- Capital markets drops SEC "latest filed" amounts older than 18 months (Morgan Stanley showed a 2017 figure, Oracle 2018, Nvidia 2016).
+- Owner data-source health: News and Market narratives read their real files (`news-feed.json`, `trends.json`) instead of reporting "missing" every build; the 09:00 ET pre-open call is read from its copy before the data wipe; the heatmap counts its own write time, so afternoons no longer read "aged"; article dates count as observations, so Capital raises no longer reads 42 days old; upcoming dates no longer count as the newest observation. A smoke check now fails when a source names a file nothing writes.
+- Calendar: a company event that already ended is no longer marked stale when its source page goes down (Snowflake Expedition kept the calendar "partial").
+- Crowd: Wikipedia no longer carries an empty row for a name with no article (SLV), which kept the source marked carried.
 
 ### Docs
 
