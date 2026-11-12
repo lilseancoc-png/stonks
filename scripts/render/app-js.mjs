@@ -23373,6 +23373,18 @@ ${renderExportBindings()}
       html += '<article class="btm-card btm-' + btmTone(card.state) + '"><header><span>' + escapeHtml(card.phase || '') + '</span><h3>' + escapeHtml(card.title || '') + '</h3><em>' + escapeHtml(card.stateLabel || '') + '</em></header>' + spark + '<p>' + escapeHtml(card.summary || '') + '</p>' + (facts ? '<ul class="btm-facts">' + facts + '</ul>' : '') + '<small>' + escapeHtml(card.source || '') + '</small></article>';
     });
     html += '</div>';
+    // Context rows (lib/bottom-tracker.mjs buildBottomContext): shown beside
+    // the checklist, never a gate or a vote.
+    var ctx = d.context && d.context.rows ? d.context.rows : [];
+    if (ctx.length){
+      var leanText = { washout: 'Leans washed out', stretched: 'Not reset yet', neutral: 'Neutral' };
+      var leanTone = { washout: 'ok', stretched: 'bad', neutral: 'na' };
+      html += '<section class="btm-context"><h3>Context (does not vote)</h3><p class="btm-context-note">' + escapeHtml(d.context.note || '') + '</p><div class="btm-cards">';
+      ctx.forEach(function(row){
+        html += '<article class="btm-card btm-' + (leanTone[row.lean] || 'na') + '"><header><span>' + escapeHtml(leanText[row.lean] || 'Neutral') + '</span><h3>' + escapeHtml(row.title || '') + '</h3><em>' + escapeHtml(row.read || '') + '</em></header><p><b>' + escapeHtml(row.value || '') + '</b> ' + escapeHtml(row.detail || '') + '</p><small>' + escapeHtml(row.source || '') + (row.asOf ? ' · ' + escapeHtml(row.asOf) : '') + '</small></article>';
+      });
+      html += '</div></section>';
+    }
     var bt = d.backtest || {};
     html += '<section class="btm-backtest"><h3>Signal history</h3>';
     if (bt.status !== 'ok'){

@@ -1813,3 +1813,47 @@ the run archive and every new trade's `entrySnapshot` like the crowd keys, and
 `lib/shadow-research.mjs` measures them on the same bar. Nothing scores, gates
 or changes a pick; using them is an Owner decision after the evidence bar and
 not before 2026-12-07.
+
+## New data into the engines, November 12, 2026
+
+`lib/shadow-signals.mjs` is version 5. Every input here is logged and
+measured, never scored; nothing changes a pick, a grade, a gate or the Track
+Record, and each hook stays off until the Dec 7 review.
+
+**New per-name keys** (read from files the bake already writes; a source that
+did not run leaves its key out, it never logs a fake zero):
+
+| Key | What | Source |
+|---|---|---|
+| `ibr` | option-implied borrow rate, % a year (put-call parity) | the chain (`impliedBorrow`, lib/market-structure.mjs); the stand-in while the IBKR borrow file (`bf`) cannot be reached from the GitHub runner |
+| `fls` | highest stress score of a confirmed, current share pledge (0-100) | `forced-liquidation.json` |
+| `hfp` | days of the stock's volume held by stressed hot funds (0 when the 13F screen ran and no stressed fund holds it) | `leverage-distress.json` |
+| `lrb` | leveraged single-stock ETF close-of-day rebalance as % of average volume, signed (selling negative) | `leverage-distress.json` |
+| `csh` | 1 when the name is in today's hot-fund cluster selloff, else 0 | `leverage-distress.json` |
+| `ins` | distinct open-market insider buyers minus sellers over 30 days | `corporate-structure.json` when present (only once its coverage reaches back over the whole window) |
+
+**New market gauges** in the `mkt` row: `gpu30` (H100 rental price, 30-day
+change), `dram30` (DRAM spot, median 1-month change), `cxYoy` (big-tech capex
+year over year), `rnw` / `rnf` ("Resembles now": how many stress analogs
+matched and their median S&P 500 move 20 sessions after). The leveraged-ETF
+flow gauges (`levBull5` / `levBear5`) are read only from version 5 rows: the
+earlier rows carry a fake $0 from the share-count gap fixed in
+`lib/crowd/lev-flows.mjs` (flows now fall back to the change in net assets
+net of the NAV move, and a side with no measured fund totals null, not $0).
+
+**Measurement.** `lib/shadow-research.mjs` tags the new per-name keys as
+`distress` on the Evidence tab and adds an **Earnings plays** column: the
+key's read on decided earnings event plays only (`eventTradeRead`), since the
+entry snapshot already freezes every key on every trade. The Regime Lab adds a
+positioning and credit labeler (docs/regime-lab.md); the Bottom tracker shows
+non-voting context rows (Baa spread, put/call, margin debt, asset-manager
+futures, press CDS quotes); the macro context carries the Baa spread and
+Kalshi recession odds as unscored `candidates` (`lib/macro-context.mjs`).
+
+**Hooks, all off.** The self-improving loop can run an **add an input**
+challenger on paper (docs/self-loop.md); it is never applied by the tuner.
+`PICKS_CROWD_GRADER=1` (locked until 2026-12-07 in Owner Settings) now also
+gives the AI grader one line of credit and forced-selling facts when one is
+notable (`crowdGraderLines`, `GRADER_DISTRESS_NOTABLE`: default chance 5%+,
+pledge stress 50+, half a day of hot-fund volume, a 5%+ rebalance, a cluster
+selloff, any net insider count, 3%+ implied borrow).

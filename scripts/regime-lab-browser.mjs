@@ -50,6 +50,7 @@ try {
     check((await s.page.locator('#rgl-catalog tbody tr').count()) === 22, 'the test catalog lists F1-F22');
     check(/never written into the Track Record|never-record|ceiling/i.test(text), 'the oracle section says it is a ceiling, never a record');
     check(/Guards|G1/.test(text), 'the guards section rendered');
+    check(/Crowd: (Washed out|Neutral|Crowded)/.test(await s.page.locator('#rgl-positioning').innerText()), 'the positioning section names the crowd label');
     check(/Written by the/.test(await s.page.locator('#owner-regime-status').innerText()), 'the status line names the build');
     const problems = await pageProblems(s);
     check(problems.length === 0, 'desktop light: ' + problems.join(' | '));

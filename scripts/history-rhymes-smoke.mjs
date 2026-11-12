@@ -247,7 +247,7 @@ const summary = historyRhymesSummary(rhymes);
   const defaultChance = Object.fromEntries([...owner.buildout, ...owner.others].filter((x) => x.model).map((x) => [x.symbol, x.model.pdPct]));
   const sh = buildShadowSignals(chains, { builtAtIso, defaultChance, buildout: summary });
   const at = (sym, k) => sh.rows[sym]?.[sh.keys.indexOf(k)];
-  assert.equal(sh.v, 4);
+  assert.equal(sh.v, 5);
   assert.equal(at('CRWV', 'epd'), Math.round(defaultChance.CRWV * 100) / 100, 'epd logged for a name with a model read');
   assert.equal(at('AAPL', 'epd') ?? null, null, 'no model read, no epd');
   assert.equal(sh.mkt?.bsl, summary.score, 'buildout score logged in the market row');

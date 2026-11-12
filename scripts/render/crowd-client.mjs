@@ -126,7 +126,7 @@ export function renderCrowdJs() {
     var h = crowdHead('Leveraged ETF creations and redemptions', lf, lf && lf.note);
     if (!lf || !lf.rows) return h + crowdEmpty('No fund read yet.');
     var t = lf.totals || {};
-    var kpis = [['Bull funds, 5 days', crowdUsd(t.bullUsd5d)], ['Bear funds, 5 days', crowdUsd(t.bearUsd5d)], ['Bull funds, 1 day', crowdUsd(t.bullUsd1d)], ['Bear funds, 1 day', crowdUsd(t.bearUsd1d)], ['Funds with share counts', (lf.withShares || 0) + ' of ' + (lf.funds || 0)]];
+    var kpis = [['Bull funds, 5 days', crowdUsd(t.bullUsd5d)], ['Bear funds, 5 days', crowdUsd(t.bearUsd5d)], ['Bull funds, 1 day', crowdUsd(t.bullUsd1d)], ['Bear funds, 1 day', crowdUsd(t.bearUsd1d)], ['Funds with a flow', (lf.withFlow != null ? lf.withFlow : (lf.withShares || 0)) + ' of ' + (lf.funds || 0)]];
     var rows = lf.rows.filter(function(r){ return !r.missing; });
     var cols = [
       { label: 'Fund', cell: function(r){ return '<b>' + escapeHtml(r.sym) + '</b><div class="crd-dim">' + escapeHtml(r.label || '') + '</div>'; }, sort: function(r){ return r.sym; } },

@@ -1,6 +1,6 @@
 // Offline checks for the staged bottom read and the false-positive count.
 import assert from "node:assert/strict";
-import { buildBottomTracker, summarizeRevisions } from "../lib/bottom-tracker.mjs";
+import { buildBottomTracker, buildBottomContext, summarizeRevisions } from "../lib/bottom-tracker.mjs";
 
 function dates(n, start = "2019-01-01") {
   const out = [];
@@ -265,5 +265,39 @@ assert.equal(timed.backtest.note.includes("Earnings revisions"), true);
 assert.equal(timed.method.includes("not fit to past bottoms"), true);
 assert.equal(timed.bullets.some((row) => row.phase === "early" && row.label.includes("catalyst")), true);
 assert.equal(timed.bullets.some((row) => row.phase === "confirm" && row.label.includes("200-day")), true);
+
+// Context rows never vote: the verdict is the same with or without them.
+{
+  const crowd = {
+    putCall: { asOf: "2026-10-23", stats: { equity: { value: 0.92, pct250: 95 } } },
+    marginDebt: { summary: { month: "2026-09", yoyPct: -8, peak: { month: "2026-01", fromPeakPct: -18 } } },
+    cot: { contracts: { ES: { asOf: "2026-10-21", groups: { assetMgr: { z3y: 2.1 } } } } },
+  };
+  const cds = [
+    { name: "Oracle", date: "2026-10-08", bp: 260 }, { name: "Oracle", date: "2026-10-15", bp: 288 },
+    { name: "CoreWeave", date: "2026-10-15", bp: 1000, approx: "above" }, { name: "Big tech", date: "2026-10-15", bp: null },
+  ];
+  const baa = series(fill(230, 2).concat(ramp(2, 2.6, 30)));
+  const plain = buildBottomTracker(baseInput());
+  const withCtx = buildBottomTracker(baseInput({ rest: { baa, crowd, cds } }));
+  assert.equal(withCtx.verdict, plain.verdict, "context rows never change the verdict");
+  assert.deepEqual(withCtx.bullets, plain.bullets, "nor any checklist row");
+  assert.equal(plain.context.rows.length, 0, "no inputs, no rows");
+  const byId = Object.fromEntries(withCtx.context.rows.map((r) => [r.id, r]));
+  assert.deepEqual(Object.keys(byId), ["baa", "putcall", "margin", "cot", "cds"]);
+  assert.equal(byId.baa.lean, "stretched", "a Baa spread still widening");
+  assert.equal(byId.putcall.read, "Capitulation-level hedging");
+  assert.equal(byId.putcall.lean, "washout");
+  assert.equal(byId.margin.lean, "washout", "18% off the margin-debt peak");
+  assert.equal(byId.cot.lean, "stretched", "asset managers heavy");
+  assert.equal(byId.cds.asOf, "2026-10-15", "newest press quote date");
+  assert.equal(byId.cds.value, "CoreWeave >1000 bp · Oracle 288 bp", "widest first; a quote with no level is left out");
+  assert.ok(!byId.cds.value.includes("260"), "one quote per name, the newest");
+  assert.ok(byId.cds.value.includes("CoreWeave >1000 bp"), "an 'above' quote keeps its sign");
+  const old = buildBottomContext({ cds, asOf: "2027-01-30" });
+  assert.match(old.rows[0].read, /days old/, "an old quote says how old it is");
+  const light = buildBottomContext({ crowd: { putCall: { stats: { equity: { value: 0.5, pct250: 10 } } } } });
+  assert.equal(light.rows[0].lean, "stretched", "very little hedging");
+}
 
 console.log("bottom-tracker smoke ok");

@@ -498,6 +498,48 @@ async function main() {
   eq(Ch.challengerTakes({ ...base, tot0: 3.5, cls: "below-bar" }, { kind: "up", key: "bad" }), true, "leaning harder lifts a 3.5 over the bar");
   eq(Ch.challengerTakes({ ...base, tot0: -1.5, side: "put", cls: "below-bar" }, { kind: "mute", key: "bad" }), false, "a vote that flips the side drops the name");
   eq(Ch.challengerTakes(base, { kind: "ev-gate" }), false, "negative stated value");
+  // "Add an input": the row's rank score (-1..1 in its run) moves it at most
+  // ADD_WEIGHT points, in the measured direction, never across zero.
+  eq(Ch.challengerTakes({ ...base, tot0: 3.5, cls: "below-bar", sh: { ibr: 0.8 } }, { kind: "add", key: "ibr", value: 1 }), true, "a high reading lifts a 3.5 over the bar");
+  eq(Ch.challengerTakes({ ...base, tot0: 3.5, cls: "below-bar", sh: { ibr: 0.8 } }, { kind: "add", key: "ibr", value: -1 }), false, "lower-is-better pushes it down");
+  eq(Ch.challengerTakes({ ...base, tot0: 4.4, sh: { ibr: -1 } }, { kind: "add", key: "ibr", value: 1 }), false, "a low reading drops a 4.4 under the bar");
+  eq(Ch.challengerTakes({ ...base, tot0: 3.5, cls: "below-bar" }, { kind: "add", key: "ibr", value: 1 }), false, "a row without the key stays as the base rules have it");
+  eq(Ch.challengerTakes({ ...base, tot0: 0.5, cls: "below-bar", sh: { ibr: -1 } }, { kind: "add", key: "ibr", value: 1 }), false, "never flips a side");
+  eq(Ch.KINDS.add.live, false, "adding an input is the owners' call, never applied by the tuner");
+  {
+    const ranks = Lg.shadowRanks([
+      { s: "A", shadow: { ibr: 1, ins: 2 } }, { s: "B", shadow: { ibr: 2, ins: 2 } }, { s: "C", shadow: { ibr: 2 } },
+      { s: "D", shadow: { ibr: 4 } }, { s: "E", shadow: { ibr: 5, ins: 0 } }, { s: "F", shadow: { ibr: null } },
+    ]);
+    eq(ranks.A.ibr, -1, "lowest of five is -1");
+    eq(ranks.E.ibr, 1, "highest is +1");
+    eq(ranks.B.ibr, ranks.C.ibr, "ties share a score");
+    eq(ranks.B.ibr, -0.25, "ties take their mean position");
+    ok(!ranks.F, "a missing value is not ranked");
+    ok(ranks.A.ins == null, "a key on fewer than five names is not ranked");
+    // The ledger keeps the ranks only on rows near enough to the bar to move.
+    const SL = Lg.emptyLedger();
+    const shadowRun = { et: "11:00", rows: ["AA", "BB", "CC", "DD", "EE"].map((s, i) => ({ ...runRow(s, [5, 3, 1, 0.5, -2][i]), shadow: { ibr: i } })) };
+    Lg.appendRunLedger(SL, shadowRun, days[0]);
+    const shRows = Lg.joinedRows(SL, emptyOutcomesState());
+    const shOf = (s) => shRows.find((r) => r.s === s)?.sh;
+    ok(shOf("AA")?.ibr === -1 && shOf("BB") && !shOf("DD"), "rows 1.5+ points from the bar keep their ranks, far-off rows do not");
+  }
+  {
+    const shadow = { keys: [
+      { key: "ibr", read: { 10: { days: 25, ic: -0.05, half1: -0.04, half2: -0.06 } } },
+      { key: "ins", read: { 10: { days: 25, ic: 0.08, half1: 0.07, half2: 0.09 } } },
+      { key: "fls", read: { 10: { days: 25, ic: 0.06, half1: -0.02, half2: 0.1 } } },
+      { key: "csh", read: { 10: { days: 12, ic: 0.2, half1: 0.2, half2: 0.2 } } },
+      { key: "hfp", read: { 10: { days: 30, ic: 0.01, half1: 0.01, half2: 0.01 } } },
+      { key: "made-up", read: { 10: { days: 30, ic: 0.3, half1: 0.3, half2: 0.3 } } },
+    ] };
+    const adds = Ch.addCandidates(shadow);
+    eq(adds.map((a) => `${a.key}:${a.value}`), ["ins:1", "ibr:-1"], "only steady reads with enough days and a known key, strongest first");
+    const withAdds = Ch.candidateSpecs({ modelRows: 250, shadow });
+    eq(withAdds.map((m) => m.id), ["ev-gate:", "add:ins:+", "add:ibr:-", "bar:5", "bar:3.5"], "add challengers sit after the value gate");
+    ok(/Add .*lower is better/.test(Ch.specLabel(withAdds[2])), "the label says which way the input points");
+  }
   eq(Ch.challengerTakes({ ...base, xv: 0.5 }, { kind: "ev-gate" }), true);
   eq(Ch.challengerTakes(base, { kind: "bar", value: 5.5 }), false);
   eq(Ch.challengerTakes({ ...base, cls: "gate", out: "gate:losing-streak" }, { kind: "base" }), false, "a gated name is not in the replica");

@@ -2,8 +2,8 @@
 // universe and after the grade, a grade-copy reads near zero after the grade,
 // noise stays "collecting" or "fail", trades are read from entry snapshots,
 // market gauges get a time-series read, and the evidence board carries it.
-import { buildShadowResearch, partialSpearman, keyStatus, tradeRead, SHADOW_PASS } from "../lib/shadow-research.mjs";
-import { buildShadowSignals, shadowValue, shadowMarketGauges, SHADOW_KEYS } from "../lib/shadow-signals.mjs";
+import { buildShadowResearch, partialSpearman, keyStatus, tradeRead, eventTradeRead, gaugeValue, GAUGE_VALID_FROM_VERSION, SHADOW_PASS } from "../lib/shadow-research.mjs";
+import { buildShadowSignals, shadowValue, shadowMarketGauges, SHADOW_KEYS, altDataGauges, resemblesGauges, insiderFromStructure } from "../lib/shadow-signals.mjs";
 import { buildEntrySnapshot } from "../lib/trade-snapshot.mjs";
 import { buildPicksRunRecord } from "../lib/picks-run-archive.mjs";
 import { buildEvidenceBoard } from "../lib/evidence-board.mjs";
@@ -93,7 +93,7 @@ const crowd = {
 };
 const chains = { AAA: { spot: 160, _bars: bars }, BBB: { spot: 50, _bars: bars } };
 const sh = buildShadowSignals(chains, { builtAtIso: "2026-11-09T16:10:00Z", crowd });
-ok("v4 keys carry the crowd keys and the rows use them", sh.v === 4 && sh.keys.length === SHADOW_KEYS.length && shadowValue(sh, "AAA", "sv") === 55.5 && shadowValue(sh, "AAA", "bf") === 6.25 && shadowValue(sh, "AAA", "pgp") === -2.5);
+ok("v5 keys carry the crowd keys and the rows use them", sh.v === 5 && sh.keys.length === SHADOW_KEYS.length && shadowValue(sh, "AAA", "sv") === 55.5 && shadowValue(sh, "AAA", "bf") === 6.25 && shadowValue(sh, "AAA", "pgp") === -2.5);
 ok("attention is the mean percentile of the three attention reads", shadowValue(sh, "AAA", "att") === 80);
 ok("a name without a crowd row leaves the crowd keys empty", shadowValue(sh, "BBB", "bf") == null && shadowValue(sh, "BBB", "sv") === 40);
 ok("market gauges ride the block once", sh.mkt && sh.mkt.pc === 0.72 && sh.mkt.pcp === 84 && sh.mkt.cotEsZ === -1.4 && sh.mkt.mdYoy === 18.2 && sh.mkt.levBull5 === 1.2e9 && sh.mkt.kxWid === 2.44 && sh.mkt.kxRec === 20 && sh.mkt.svm === 47.3);
@@ -101,6 +101,42 @@ ok("no crowd payload: no gauges, rows unchanged", !("mkt" in buildShadowSignals(
 {
   const bb = buildShadowSignals(chains, { builtAtIso: "2026-11-09T16:10:00Z", defaultChance: { AAA: 12.345 }, buildout: { score: 4.5, credit: { baa: 1.51 } } });
   ok("booms & busts: epd per name and the sign score + Baa spread as gauges", shadowValue(bb, "AAA", "epd") === 12.35 && shadowValue(bb, "BBB", "epd") == null && bb.mkt.bsl === 4.5 && bb.mkt.baa === 1.51 && !("pc" in bb.mkt));
+}
+{
+  // ---- version 5: borrow, leverage distress, insider, Alt Data, Resembles now
+  const ch5 = { AAA: { spot: 160, _bars: bars, impliedBorrow: { ratePct: 3.456 } }, BBB: { spot: 50, _bars: bars }, CCC: { spot: 20, _bars: bars } };
+  const forcedLiquidation = { rows: [
+    { symbol: "AAA", current: true, pledge: { confirmed: true }, stress: { score: 40 } },
+    { symbol: "AAA", current: true, pledge: { confirmed: true }, stress: { score: 55 } },
+    { symbol: "BBB", current: true, pledge: { confirmed: false }, stress: { score: 90 } },
+  ] };
+  const leverageDistress = {
+    hotFunds: { funds: [{ cik: "1" }], coverage: { bulk: { status: "ok" } }, stockLinks: [{ symbol: "AAA", stressedDaysOfVolume: 1.25 }] },
+    rebalance: { rows: [{ underlying: "AAA", pctOfAdv: 4.5, side: "sell" }, { underlying: "BBB", pctOfAdv: 2, side: "buy" }] },
+    clusters: { today: { names: [{ symbol: "CCC" }] } },
+  };
+  const structure = { companies: { AAA: { completeFrom: "2026-09-01", owners: { a: { tx: [{ date: "2026-11-01", code: "P" }] }, b: { tx: [{ date: "2026-11-02", code: "P" }, { date: "2026-10-30", code: "S" }] }, c: { tx: [{ date: "2026-11-03", code: "A" }] } } },
+    BBB: { completeFrom: "2026-11-01", owners: { a: { tx: [{ date: "2026-11-05", code: "S" }] } } } } };
+  const ins = insiderFromStructure(structure, "2026-11-09T16:10:00Z");
+  ok("insider counts distinct open-market buyers and sellers, only on a fully covered window", ins.AAA.buyers === 2 && ins.AAA.sellers === 1 && !("BBB" in ins) && insiderFromStructure(null, "2026-11-09T16:10:00Z") === null);
+  const extra = { ...altDataGauges({ accelerators: { summary: { focus: { change30dPct: 23.2 } } }, ram: { spot: { items: [{ m1Pct: 3.7 }, { m1Pct: 15.9 }, { m1Pct: -1 }] } }, aiCapex: { totals: { yoyPct: 64.7 } } }),
+    ...resemblesGauges({ matches: [{ id: "war", study: "war" }, { id: "witching", study: "witching" }, { id: "crash", study: "crash" }], studies: { war: { summary: { d20: { medianPct: 1.5 } } }, crash: { summary: { d20: { medianPct: -2.5 } } } } }) };
+  ok("alt-data and resembles gauges: GPU 30d, DRAM median, capex y/y, stress analogs only", extra.gpu30 === 23.2 && extra.dram30 === 3.7 && extra.cxYoy === 64.7 && extra.rnw === 2 && extra.rnf === -0.5);
+  ok("stale alt data is left out", !("gpu30" in altDataGauges({ accelerators: { stale: true, summary: { focus: { change30dPct: 5 } } } })));
+  const v5 = buildShadowSignals(ch5, { builtAtIso: "2026-11-09T16:10:00Z", forcedLiquidation, leverageDistress, insider: ins, marketExtra: extra });
+  ok("v5: implied borrow, highest confirmed pledge stress, pressured hot-fund days", shadowValue(v5, "AAA", "ibr") === 3.46 && shadowValue(v5, "AAA", "fls") === 55 && shadowValue(v5, "BBB", "fls") == null && shadowValue(v5, "AAA", "hfp") === 1.25 && shadowValue(v5, "BBB", "hfp") === 0);
+  ok("v5: signed rebalance, cluster hit flag, insider net", shadowValue(v5, "AAA", "lrb") === -4.5 && shadowValue(v5, "BBB", "lrb") === 2 && shadowValue(v5, "CCC", "lrb") == null && shadowValue(v5, "CCC", "csh") === 1 && shadowValue(v5, "AAA", "csh") === 0 && shadowValue(v5, "AAA", "ins") === 1 && shadowValue(v5, "BBB", "ins") == null);
+  ok("v5: the extra gauges ride the market row", v5.mkt.gpu30 === 23.2 && v5.mkt.rnw === 2);
+  const failedScreen = buildShadowSignals(ch5, { builtAtIso: "2026-11-09T16:10:00Z", leverageDistress: { hotFunds: { funds: [], coverage: { bulk: { status: "failed" } } } } });
+  ok("v5: a failed 13F screen logs no hot-fund zeros", shadowValue(failedScreen, "BBB", "hfp") == null);
+  const evt = eventTradeRead([
+    { side: "call", outcome: "win", optionPnlPct: 30, eventPlay: { kind: "earnings" }, entrySnapshot: { shadow: { att: 80 } } },
+    { side: "put", outcome: "loss", optionPnlPct: -50, eventPlay: { kind: "earnings" }, entrySnapshot: { shadow: { att: 90 } } },
+    { side: "call", outcome: "loss", optionPnlPct: -50, eventPlay: { kind: "macro" }, entrySnapshot: { shadow: { att: 10 } } },
+  ], "att");
+  ok("earnings event-play read: side-signed means for winners and losers, macro plays left out", evt.n === 2 && evt.winMean === 80 && evt.lossMean === -90);
+  const oldDay = { date: "2026-11-10", shadow: { v: 4, mkt: { levBull5: 0, pc: 0.6 } } }, newDay = { date: "2026-11-13", shadow: { v: 5, mkt: { levBull5: 5e8 } } };
+  ok("gauge values logged before the fixing version are ignored", GAUGE_VALID_FROM_VERSION.levBull5 === 5 && gaugeValue(oldDay, "levBull5") === null && gaugeValue(oldDay, "pc") === 0.6 && gaugeValue(newDay, "levBull5") === 5e8);
 }
 const snap = buildEntrySnapshot({ symbol: "AAA", pillars: {} }, chains.AAA, { shadow: sh });
 ok("entry snapshot v2 copies the crowd keys and the market gauges", snap.v === 2 && snap.shadow.bf === 6.25 && snap.shadow.att === 80 && snap.mkt.pcp === 84);

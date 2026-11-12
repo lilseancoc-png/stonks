@@ -84,6 +84,13 @@ every bake (Owner Lab Evidence tab, "Shadow signals: candidate inputs");
 `PICKS_CROWD_GRADER` are the hooks (`lib/top-picks-config.mjs`, repo
 variables in `daily.yml`). FINRA short volume backfills 60 sessions.
 
+Since 2026-11-12 (shadow version 5): Yahoo stopped sending share counts for the
+leveraged funds, so `lib/crowd/lev-flows.mjs` falls back to the change in net
+assets net of the NAV move (`assetFlowUsd`), reports `withFlow` (funds with a
+measured flow) and totals a side with no measured fund as null, not $0. The
+IBKR borrow file times out on the GitHub runner, so the option-implied borrow
+rate from each chain (`ibr`) is logged beside `bf` as a stand-in.
+
 ## Switches
 
 | Env | Where | Effect |

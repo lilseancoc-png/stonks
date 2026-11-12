@@ -140,6 +140,25 @@ export function renderRegimeLabJs() {
     return rglTable(head, body) + '<p class="evb-note">On average SPY moved <strong class="' + rglSign(sm.avgSpyFwdPct) + '">' + rglPts(sm.avgSpyFwdPct, 1) + '%</strong> over the next ' + r.horizon + ' sessions after these look-alikes (up ' + evbRate(sm.upShare) + ' of the time). ' + escapeHtml(r.note || '') + '</p>';
   }
 
+  // Positioning and credit labeler (lib/regime-lab/positioning.mjs): who is
+  // positioned how and how worried lenders are, from the logged market
+  // gauges. Research only.
+  function rglPositioningHtml(d){
+    var p = d.positioning;
+    if (!p) return '<p class="hint">Needs the daily market gauges in the grade log; the next full build writes it.</p>';
+    var L = p.labels || { crowd: {}, credit: {} };
+    var t = p.today;
+    var name = function(map, id){ return id ? (map[id] || rglCap(id)) : 'not enough inputs'; };
+    var top = t ? '<p><strong>Crowd: ' + escapeHtml(name(L.crowd, t.crowd)) + '</strong> (' + t.crowdInputs + ' of 3 inputs) · <strong>Credit: ' + escapeHtml(name(L.credit, t.credit)) + '</strong> (' + t.creditInputs + ' of 3 inputs) · as of ' + escapeHtml(evbDate(t.d)) + '</p>' +
+      (t.votes && t.votes.length ? '<p class="evb-note">' + t.votes.map(function(v){ return escapeHtml(v.why); }).join(' · ') + '</p>' : '<p class="evb-note">No input is at an extreme today.</p>') : '<p class="hint">No labeled day yet.</p>';
+    var row = function(label, g){ g = g || {}; return '<tr><td>' + escapeHtml(label) + '</td><td class="num">' + (g.days != null ? g.days : g.n || 0) + '</td><td class="num ' + rglSign(g.avgPct) + '">' + (g.avgPct == null ? '—' : rglPts(g.avgPct, 2) + '%') + '</td><td class="num">' + evbRate(g.upPct) + '</td><td>' + escapeHtml(g.status === 'enough' ? 'enough days' : g.status === 'collecting' ? 'collecting (' + (g.n || 0) + ' of ' + p.minDays + ')' : g.status === 'none' ? 'none yet' : '') + '</td></tr>'; };
+    var head = '<thead><tr><th scope="col">Label</th><th scope="col" class="num">Days</th><th scope="col" class="num">SPY next ' + p.horizon + ' sessions</th><th scope="col" class="num">Up</th><th scope="col">Sample</th></tr></thead>';
+    var body = row('All logged days', p.base) +
+      Object.keys(L.crowd || {}).map(function(k){ return row('Crowd: ' + L.crowd[k], (p.byCrowd || {})[k]); }).join('') +
+      Object.keys(L.credit || {}).map(function(k){ return row('Credit: ' + L.credit[k], (p.byCredit || {})[k]); }).join('');
+    return top + rglTable(head, body) + '<p class="evb-note">' + escapeHtml(p.note || '') + '</p>';
+  }
+
   // A10: each tracked stock's own label today.
   function rglStocksHtml(d){
     var st = d.stocks;
@@ -288,11 +307,12 @@ export function renderRegimeLabJs() {
     var d = rglState.data;
     if (!d){ root.innerHTML = '<p class="hint">' + (rglState.error ? 'The Regime Lab could not be loaded (' + escapeHtml(rglState.error) + '). Every full build writes it; the first one after this deploys creates it.' : 'Loading…') + '</p>'; return; }
     var v = d.versions || {};
-    var nav = '<nav class="rgl-nav" aria-label="Regime Lab sections">' + [['rgl-today', 'Today'], ['rgl-history', 'History'], ['rgl-stocks', 'Stocks'], ['rgl-books', 'Playbooks'], ['rgl-risk', 'Exits and risk'], ['rgl-oracle', 'Oracle'], ['rgl-crowd', 'Crowd'], ['rgl-catalog', 'Tests'], ['rgl-guards', 'Guards']].map(function(x){ return '<a href="#' + x[0] + '">' + x[1] + '</a>'; }).join('') + '</nav>';
+    var nav = '<nav class="rgl-nav" aria-label="Regime Lab sections">' + [['rgl-today', 'Today'], ['rgl-history', 'History'], ['rgl-positioning', 'Positioning'], ['rgl-stocks', 'Stocks'], ['rgl-books', 'Playbooks'], ['rgl-risk', 'Exits and risk'], ['rgl-oracle', 'Oracle'], ['rgl-crowd', 'Crowd'], ['rgl-catalog', 'Tests'], ['rgl-guards', 'Guards']].map(function(x){ return '<a href="#' + x[0] + '">' + x[1] + '</a>'; }).join('') + '</nav>';
     root.innerHTML = nav +
       rglSection('rgl-today', 'Today\\'s market', rglTodayHtml(d)) +
       rglSection('rgl-history', 'Label history', rglHistoryHtml(d) + rglStabilityHtml(d)) +
       rglSection('rgl-resembles', 'Sessions that resemble now (F16)', rglResemblesHtml(d)) +
+      rglSection('rgl-positioning', 'Positioning and credit (research)', rglPositioningHtml(d)) +
       rglSection('rgl-stocks', 'Stock labels (A10)', rglStocksHtml(d)) +
       rglSection('rgl-books', 'Playbooks and shadow books (B1-B8)', rglBooksHtml(d)) +
       rglSection('rgl-risk', 'Exits and risk (E1-E9)', rglRiskHtml(d)) +

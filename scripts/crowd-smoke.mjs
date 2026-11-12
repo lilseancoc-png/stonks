@@ -10,7 +10,7 @@ import { parseBorrowFile, fetchBorrow } from "../lib/crowd/borrow.mjs";
 import { buildCotContract, fetchCot, COT_CONTRACTS } from "../lib/crowd/cot.mjs";
 import { parseRedditRows, fetchReddit } from "../lib/crowd/reddit.mjs";
 import { parseWikiRows, fetchWikipedia, WIKI_TITLES, parseTitleResolution } from "../lib/crowd/wikipedia.mjs";
-import { levFundList, quoteRead, fetchLevFlows } from "../lib/crowd/lev-flows.mjs";
+import { levFundList, quoteRead, fetchLevFlows, assetFlowUsd } from "../lib/crowd/lev-flows.mjs";
 import { parseTrending, fetchStocktwitsCrowd, watchersFromChain } from "../lib/crowd/stocktwits.mjs";
 import { parseMarginPage, summarizeMargin, fetchMarginDebt, monthKey } from "../lib/crowd/margin-debt.mjs";
 import { compactMarket, rangeDistribution, thresholdLadder, buildKalshiSeries, fetchKalshi } from "../lib/crowd/kalshi.mjs";
@@ -18,7 +18,7 @@ import { perpRows, fetchPerps, baseSymbol } from "../lib/crowd/perps.mjs";
 import { buildCrowdPayload, buildCrowdOwner, buildSymbolRollup, crowdScoresForRow, CROWD_SOURCE_IDS, sessionDatesFromChain, refClosesFromChains } from "../lib/crowd/index.mjs";
 import { publicDataPayload } from "../lib/public-data-policy.mjs";
 import { isPremiumKey } from "../lib/premium-keys.mjs";
-import { TICKERS } from "./build.mjs";
+import { TICKERS, crowdGraderLines, shadowRowFor } from "./build.mjs";
 
 let passed = 0;
 function ok(name, fn) {
@@ -300,6 +300,24 @@ okAsync("leveraged flows derive dollars from share-count changes", async () => {
   assert.equal(failed.ok, false);
   assert.equal(failed.rows.length, 4);
 });
+okAsync("leveraged flows fall back to net assets net of the NAV move when share counts are missing", async () => {
+  // 50M at NAV 50 -> NAV 52 with no creations = 52M; 57.2M held = 5.2M created.
+  assert.equal(assetFlowUsd(["d", null, 52, 57200000], ["d0", null, 50, 50000000]), 5200000);
+  assert.equal(assetFlowUsd(["d", null, 52, null], ["d0", null, 50, 50000000]), null);
+  const funds = levFundList(singles, groups);
+  const prior = { fetchedDate: "2026-11-06", rows: funds.map((f) => ({ ...f, history: [["2026-11-06", null, 50, 50000000]] })) };
+  const out = await fetchLevFlows({ prior, funds, todayEt: TODAY, nowIso: NOW, quoteFn: async (syms) => syms.map((s) => ({ symbol: s, navPrice: 52, netAssets: 57200000 })) });
+  assert.equal(out.withShares, 0);
+  assert.equal(out.withFlow, 4);
+  assert.equal(out.rows[0].flowUsd1d, 5200000);
+  assert.equal(out.rows[0].flowBasis, "assets");
+  assert.equal(out.rows[0].flowUsd5d, null);
+  assert.equal(out.totals.bullUsd1d, 10400000);
+  assert.equal(out.totals.bullUsd5d, null, "no 5-day flow measured is empty, not $0");
+  const first = await fetchLevFlows({ prior: {}, funds, todayEt: TODAY, nowIso: NOW, quoteFn: async (syms) => syms.map((s) => ({ symbol: s, navPrice: 52, netAssets: 57200000 })) });
+  assert.equal(first.totals.bullUsd1d, null);
+  assert.equal(first.withFlow, 0);
+});
 
 // ---- R4 Stocktwits
 ok("Stocktwits trending parses and watchers read from the chain", () => {
@@ -551,6 +569,23 @@ ok("the bake builds the crowd block after the social pass and reads the prior fi
   assert.ok(social > 0 && crowd > 0 && prior > 0 && wipe > 0, "markers found");
   assert.ok(social < crowd, "Stocktwits watchers come from the social pass, so it runs first");
   assert.ok(prior < wipe, "prior crowd files are read before data/ is wiped");
+});
+
+ok("grader lines add credit and forced-selling facts only when notable", () => {
+  const shadow = { keys: ["epd", "fls", "hfp", "lrb", "csh", "ins", "ibr"], rows: { XYZ: [8.2, 72, 0.1, -12, 1, -2, 1.2], CALM: [0.4, null, 0, 1, 0, 0, 0.3] } };
+  const row = shadowRowFor(shadow, "XYZ");
+  assert.deepEqual(row, { epd: 8.2, fls: 72, hfp: 0.1, lrb: -12, csh: 1, ins: -2, ibr: 1.2 });
+  assert.equal(shadowRowFor(shadow, "NONE"), null);
+  const L = crowdGraderLines({ sym: "XYZ" }, "call", null, row);
+  assert.equal(L.length, 1);
+  assert.match(L[0], /^CREDIT AND FORCED SELLING ON XYZ/);
+  assert.match(L[0], /default chance 8\.2%/);
+  assert.match(L[0], /selling about 12% of daily volume/);
+  assert.match(L[0], /2 more sellers than buyers/);
+  assert.ok(!/hot funds hold|borrow/.test(L[0]), "small readings are left out");
+  assert.equal(crowdGraderLines({ sym: "CALM" }, "put", null, shadowRowFor(shadow, "CALM")).length, 0, "nothing notable, no line");
+  const src = readFileSync(new URL("./build.mjs", import.meta.url), "utf8");
+  assert.match(src, /PICKS_CROWD_GRADER \? crowdGraderBlock\(r, side, graderCrowd, shadowRowFor\(opts\.shadow, r\.sym\)\) : ""/, "only behind the crowd-grader switch");
 });
 
 for (const [name, fn] of asyncTests) {
