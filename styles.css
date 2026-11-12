@@ -985,6 +985,37 @@ html.reduce-motion *, html.reduce-motion *::before, html.reduce-motion *::after 
   .sp-tb-form .sp-field { flex: 1 1 140px; }
   .sp-tb-form input[data-sp-tb="line"], .sp-tb-form input[data-sp-tb="price"] { width: 100%; }
 }
+/* Pick Builder: game bets, odds and parlays (2026-11-12). */
+.sp-add-hint { margin: -4px 0 10px; font-size: var(--t-13); }
+.sp-gb-game { flex: 1 1 260px; }
+.sp-gb-game select { width: 100%; }
+.sp-tb-form input[data-sp-gb="line"] { width: 110px; }
+.sp-leg-team .sp-leg-name > span:last-child { font-weight: 500; }
+.sp-leg-line input[data-sp-leg-tline] { width: 84px; }
+.sp-ms { font-size: var(--t-12); color: var(--muted-strong); font-variant-numeric: tabular-nums; }
+.sp-ms:empty { display: none; }
+.sp-price-field { flex-direction: row; align-items: center; gap: 6px; }
+.sp-price-field span { font-size: var(--t-12); }
+.sp-price-field input { width: 84px; }
+.sp-price-note { font-size: var(--t-12); color: var(--muted-strong); font-variant-numeric: tabular-nums; flex-basis: 100%; }
+.sp-price-note:empty { display: none; }
+.sp-price-note .sp-bad, .sp-pick-msg .sp-bad { color: var(--neg); }
+.sp-parlay-all { margin: 4px 0; font-size: var(--t-14); font-variant-numeric: tabular-nums; }
+.sp-payout-row .sp-price-note { flex-basis: auto; align-self: flex-end; padding-bottom: 8px; }
+.sp-payout-row input[data-sp-parlay] { width: 110px; }
+.sp-odds { margin: 12px 0 4px; }
+.sp-odds-table { width: auto; min-width: min(100%, 360px); }
+.sp-odds-table th { text-align: left; font-weight: 500; padding-right: 16px; }
+.sp-odds-table td { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sp-odds-edge { margin: 6px 0 0; font-size: var(--t-13); }
+.sp-sg-notes { margin: 10px 0 0; padding-left: 18px; font-size: var(--t-13); color: var(--muted-strong); }
+.sp-sg-notes li + li { margin-top: 4px; }
+@media (max-width: 560px) {
+  .sp-odds-table { width: 100%; }
+  .sp-odds-table th small { display: none; }
+  .sp-odds-table th { padding-right: 8px; }
+  .sp-price-field { margin-left: 0; }
+}
 
 
 .ef-industry { margin:24px 0;padding:18px 0;border-top:1px solid var(--border); }

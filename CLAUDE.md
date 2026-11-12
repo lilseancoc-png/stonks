@@ -92,7 +92,21 @@ players off the active roster.
 The same refit measures same-game links (`lib/sports/joint.mjs`, stored as
 `joint` in `model.json`, checked on later games against independence); the
 Pick Builder prices same-game picks with them (Gaussian copula, seeded draws)
-and leaves a pair with no measured link unpriced.
+and leaves a pair with no measured link unpriced. Since 2026-11-12 the Pick Builder (and the MCP's
+`sports_evaluate_entry`) also takes **game bets** (`kind: 'team'`: moneyline,
+spread, win_by, total, team_total; `lib/sports/bets.mjs`, priced by the team
+game model, settled from the final score), prices typed as American, decimal
+or Kalshi cents (`parsePrice`; the page's copy `priceOf` in
+`sports-client.mjs`, compared by `sports-pick-smoke`; so is `neverBoth`, the
+page's copy of `neverBothWin`, which refuses game-bet pairs no final score
+lets both win), and a **parlay**
+format (each pick's odds multiplied, or one combined price; operators
+`sportsbook` and `kalshi`). Entries are priced by
+`lib/sports/entry-price.mjs` (`evaluateOutcomes`): every pick reads one game
+number (a stat, the home margin, the game total, a team's points;
+`latentOf`), picks on one number are priced exactly together, and the links
+(`sports-joint-2`) are fitted on player and team-model misses together
+(`teamJointRecords`). Player-only entries price exactly as before.
 No AI calls and no bets. The one outside line feed is PropLine's read-only
 odds API (`PROPLINE_API_KEY`, `lib/sports/prop-sources.mjs`): PrizePicks
 lines plus, for NBA, sportsbook reference prices (margin removed with Shin's

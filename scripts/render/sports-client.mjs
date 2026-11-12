@@ -10,12 +10,15 @@ export function sportsFactory(host, doc, options) {
   const BUILDER = 'sports-pick-builder';
   const MAX_PICKS = 6;
   const LOG_ROWS = 40;
-  const OPERATOR_NAMES = { prizepicks: 'PrizePicks', betr: 'Betr', other: 'Other app' };
+  const OPERATOR_NAMES = { prizepicks: 'PrizePicks', betr: 'Betr', sportsbook: 'Sportsbook', kalshi: 'Kalshi', other: 'Other app' };
+  // Apps that price each bet with odds (a parlay), not a pick'em payout table.
+  const ODDS_APPS = ['sportsbook', 'kalshi'];
   const state = { status: null, pending: null, error: null, page: null, bound: {}, leagues: {}, draft: null };
   const pb = {
     evaluation: null, evalErr: null, evalSeq: 0, evalTimer: null, saving: false, msg: null, prefill: null,
     journal: null, journalErr: null, journalAll: false, settleOpen: null, confirmWithdraw: null, revising: null, reviseErr: null,
-    add: { sport: 'nba', query: '', results: null, searchErr: null, playerId: null, player: null, playerErr: null, msg: null },
+    add: { mode: 'player', sport: 'nba', query: '', results: null, searchErr: null, playerId: null, player: null, playerErr: null, msg: null,
+      board: null, boardErr: null, boardSeq: 0, gameId: null, game: null, gameErr: null, gb: null, gbMsg: null },
   };
   const escape = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
   const leagueOf = (page) => page === 'sports-nba' ? 'nba' : page === 'sports-nfl' ? 'nfl' : null;
@@ -25,7 +28,7 @@ export function sportsFactory(host, doc, options) {
   // lib/sports/schema.mjs (SPORTS_STATS), passed in by app-js.mjs.
   const CATALOG = (options && options.statCatalog) || {};
   const STAT_SETS = [['main', 'Main'], ['combo', 'Combos'], ['more', 'More']];
-  const STAT_LABELS = { minutes: 'Minutes' }, SHORT = { minutes: 'Min' }, STAT_GROUP = { minutes: 'main' };
+  const STAT_LABELS = { minutes: 'Minutes', team_margin: 'Team margin', team_points: 'Team points', game_total: 'Game total' }, SHORT = { minutes: 'Min' }, STAT_GROUP = { minutes: 'main' };
   Object.keys(CATALOG).forEach((lg) => (CATALOG[lg] || []).forEach((st) => { STAT_LABELS[st.id] = st.label; SHORT[st.id] = st.short; STAT_GROUP[st.id] = st.group; }));
   const statGroup = (st) => STAT_GROUP[st] || 'more';
   const inSet = (st, set) => set === 'all' || statGroup(st) === set;
@@ -481,6 +484,66 @@ export function sportsFactory(host, doc, options) {
   const amText = (a) => (a == null || !Number.isFinite(a) ? '—' : a > 0 ? '+' + a : '−' + Math.abs(a));
   const fairOdds = (p) => (p > 0 && p < 1 ? amText(p >= 0.5 ? -Math.round((100 * p) / (1 - p)) : Math.round((100 * (1 - p)) / p)) : '—');
   const pct0 = (p) => (p == null ? '—' : Math.round(p * 100) + '%');
+  // A typed price, the page's copy of parsePrice in lib/sports/bets.mjs
+  // (sports-pick-smoke compares them): American (−110, +150), decimal (1.91)
+  // or Kalshi cents (62¢, .62). Returns { decimal, american, cents } or null.
+  function priceOf(raw) {
+    if (raw == null || raw === '') return null;
+    const s = String(raw).trim().replace(/[−–]/g, '-').replace(/\s+/g, '').toLowerCase();
+    let m, d = null;
+    if ((m = /^(\d{1,2}(?:\.\d+)?)(?:c|¢|cents?)$/.exec(s))) { const c = Number(m[1]); d = c > 0 && c < 100 ? 100 / c : null; }
+    else if ((m = /^([+-])(\d{3,6}(?:\.\d+)?)$/.exec(s))) { const a = Number(m[2]); d = a >= 100 && a <= 100000 ? (m[1] === '+' ? 1 + a / 100 : 1 + 100 / a) : null; }
+    else if (/^\d*\.?\d+$/.test(s)) {
+      const x = Number(s);
+      d = x > 0 && x < 1 ? 1 / x : x > 1 && x < 100 ? x : x >= 100 && x <= 100000 ? 1 + x / 100 : null;
+    }
+    if (!(d > 1 && d <= 1001)) return null;
+    return { decimal: Math.round(d * 10000) / 10000, american: d >= 2 ? Math.round((d - 1) * 100) : -Math.round(100 / (d - 1)), cents: Math.round(1000 / d) / 10 };
+  }
+  // A decimal price as text the price box reads back the same: 100 and up
+  // with no sign would read as American, so those go as +American.
+  const decimalText = (d) => (d >= 100 ? '+' + Math.round((d - 1) * 100) : String(d));
+  // One price in all three ways: "−110 · 1.91 · 52.4¢".
+  function oddsText(o) {
+    if (!o || !(o.decimal > 1)) return '—';
+    const cents = o.cents != null ? o.cents : Math.round(1000 / o.decimal) / 10;
+    const am = o.american != null ? o.american : (o.decimal >= 2 ? Math.round((o.decimal - 1) * 100) : -Math.round(100 / (o.decimal - 1)));
+    return amText(am) + ' · ' + Number(o.decimal).toFixed(2) + ' · ' + cents + '¢';
+  }
+  // A game bet's short name, as teamLegLabel in lib/sports/bets.mjs.
+  function teamPickLabel(l) {
+    const T = String(l.team || '').toUpperCase(), n = (x) => (x < 0 ? '−' : '') + Math.abs(x);
+    if (l.market === 'moneyline') return T + ' to win';
+    if (l.market === 'spread') return T + ' ' + (Number(l.line) === 0 ? 'pick’em' : (l.line > 0 ? '+' : '') + n(Number(l.line)));
+    if (l.market === 'win_by') return T + (l.side === 'under' ? ' not to win by ' : ' to win by ') + l.line + '+';
+    if (l.market === 'total') return 'Game total ' + sideWord(l.side) + ' ' + l.line;
+    if (l.market === 'team_total') return T + ' team total ' + sideWord(l.side) + ' ' + l.line;
+    return 'Game bet';
+  }
+  const isTeamPick = (l) => !!l && l.kind === 'team';
+  // Two game bets no final score lets both win: the page's copy of
+  // neverBothWin in lib/sports/bets.mjs (sports-pick-smoke compares them).
+  function winSpan(l) {
+    const L = Number(l.line), INF = Infinity;
+    if (l.market === 'moneyline') return [1, INF];
+    if (l.market === 'spread') return [Math.floor(-L) + 1, INF];
+    if (l.market === 'win_by') return l.side === 'under' ? [-INF, L - 1] : [L, INF];
+    if (l.market === 'total' || l.market === 'team_total') return l.side === 'under' ? [-INF, Math.ceil(L) - 1] : [Math.floor(L) + 1, INF];
+    return null;
+  }
+  function neverBoth(a, b) {
+    if (!isTeamPick(a) || !isTeamPick(b) || a.sport !== b.sport || a.game_id !== b.game_id) return false;
+    const MM = ['moneyline', 'spread', 'win_by'], ma = MM.indexOf(a.market) >= 0, mb = MM.indexOf(b.market) >= 0;
+    if (ma !== mb) return false;
+    if (!ma && (a.market !== b.market || (a.market === 'team_total' && a.team !== b.team))) return false;
+    const A = winSpan(a);
+    let B = winSpan(b);
+    if (!A || !B) return false;
+    if (ma && a.team !== b.team) B = [-B[1], -B[0]];
+    return Math.max(A[0], B[0]) > Math.min(A[1], B[1]);
+  }
+  // Kalshi names a player line by the count it needs: over 24.5 is "25+".
+  const milestone = (side, t) => (side === 'over' && Number.isFinite(Number(t)) && Math.round(Number(t) * 2) % 2 !== 0 ? Math.ceil(Number(t)) + '+' : null);
   const halfUp = (x) => Math.round(x - 0.5) + 0.5;
   function tbCheckText(m) {
     if (!m || !m.n) return 'Not enough held-out games with this kind of bet yet.';
@@ -540,11 +603,12 @@ export function sportsFactory(host, doc, options) {
     if (B && b.market === 'moneyline' && B.home_win != null) out.book = who === 'home' ? B.home_win : 1 - B.home_win;
     else if (B && M && b.market === 'spread' && B.home_cover != null && Math.abs((who === 'home' ? -line : line) - M.home_margin) < 1e-9) out.book = who === 'home' ? B.home_cover : 1 - B.home_cover;
     else if (B && M && b.market === 'total' && B.over != null && Math.abs(line - M.total) < 1e-9) out.book = b.side === 'under' ? 1 - B.over : B.over;
-    const raw = String(b.price == null ? '' : b.price).replace(/[−–]/g, '-').trim();
+    // The price as American, decimal or cents (priceOf).
+    const raw = String(b.price == null ? '' : b.price).trim();
     if (raw !== '') {
-      const price = Number(raw);
-      if (!Number.isFinite(price) || (price > -100 && price < 100) || Math.abs(price) > 100000) out.priceErr = 'Odds look like −110 or +150.';
-      else { const dec = price > 0 ? 1 + price / 100 : 1 + 100 / -price; out.price = price; out.breakeven = 1 / dec; out.ev = win * (dec - 1) - lose; }
+      const o = priceOf(raw);
+      if (!o) out.priceErr = 'Type odds like −110, +150, 1.91 or 62¢.';
+      else { out.price = o.american; out.priceText = oddsText(o); out.breakeven = 1 / o.decimal; out.ev = win * (o.decimal - 1) - lose; }
     }
     return out;
   }
@@ -566,7 +630,7 @@ export function sportsFactory(host, doc, options) {
     if (r.priceErr) parts.push('<p class="sp-muted">' + escape(r.priceErr) + '</p>');
     else if (r.price != null) {
       const edge = r.chance - r.breakeven;
-      parts.push('<p class="sp-tb-ev">At ' + escape(amText(r.price)) + ' you need <b>' + pct(r.breakeven) + '</b> to break even. By this model: ' +
+      parts.push('<p class="sp-tb-ev">At ' + escape(r.priceText) + ' you need <b>' + pct(r.breakeven) + '</b> to break even. By this model: ' +
         '<b class="' + (r.ev > 0 ? 'sp-pos' : r.ev < 0 ? 'sp-neg' : '') + '">' + (r.ev >= 0 ? '+' : '−') + '$' + escape(Math.abs(r.ev * 100).toFixed(2)) + ' per $100</b> on average' +
         (Math.abs(edge) < 0.02 ? ', inside the model’s usual error, so call it even.' : edge > 0 ? '.' : '; the price is not good enough.') +
         (edge > 0 && !(check && check.status === 'validated') ? ' <span class="sp-model-warn">This kind of bet has not passed the check, so this return is rough; a big edge here usually means the model is missing something.</span>' : '') + '</p>');
@@ -583,8 +647,10 @@ export function sportsFactory(host, doc, options) {
     return '<div class="sp-tb-form">' + sel('market', TB_MARKETS, s.market, 'Bet') +
       (s.market !== 'total' ? sel('team', [[g.away_team, String(g.away_team).toUpperCase()], [g.home_team, String(g.home_team).toUpperCase() + ' (home)']], s.team, 'Team') : '') +
       (s.market === 'total' || s.market === 'team_total' ? sel('side', [['over', 'Over'], ['under', 'Under']], s.side, 'Side') : '') +
-      (lineText ? '<label class="sp-field"><span>' + escape(lineText) + '</span><input type="number" step="0.5" inputmode="decimal" data-sp-tb="line" value="' + escape(s.line) + '" placeholder="' + escape(def == null ? '' : fv(def)) + '"></label>' : '') +
-      '<label class="sp-field"><span>Odds offered (optional)</span><input type="text" inputmode="numeric" maxlength="7" data-sp-tb="price" value="' + escape(s.price) + '" placeholder="−110"></label></div>' +
+      (lineText ? '<label class="sp-field"><span>' + escape(lineText) + '</span><input type="number" step="0.5"' + (s.market === 'spread' ? '' : ' inputmode="decimal"') + ' data-sp-tb="line" value="' + escape(s.line) + '" placeholder="' + escape(def == null ? '' : fv(def)) + '"></label>' : '') +
+      '<label class="sp-field"><span>Odds offered (optional)</span><input type="text" maxlength="12" autocomplete="off" spellcheck="false" data-sp-tb="price" value="' + escape(s.price) + '" placeholder="−110" aria-label="Odds offered: American, decimal or cents"></label>' +
+      (g.status === 'scheduled' && !(Date.parse(g.start_utc) <= Date.now()) ? '<button type="button" class="sp-btn" data-sp-tb-add>Add to Pick Builder</button>' : '') + '</div>' +
+      '<p class="sp-pick-msg" data-sp-part="tb-msg" aria-live="polite"></p>' +
       '<div class="sp-tb-result" data-sp-part="tb-result" aria-live="polite">' + tbResultHtml(lg) + '</div>';
   }
   // Chance of winning by at least 1..30 points, one line per team, with the
@@ -1704,7 +1770,7 @@ export function sportsFactory(host, doc, options) {
 
   // ---- Pick Builder: draft ---------------------------------------------------
   function blankDraft(keep) {
-    return { legs: [], operator: (keep && keep.operator) || 'prizepicks', format: (keep && keep.format) || 'power', stake: keep && keep.stake > 0 ? keep.stake : 10, payouts: {}, note: '' };
+    return { legs: [], operator: (keep && keep.operator) || 'prizepicks', format: (keep && keep.format) || 'power', stake: keep && keep.stake > 0 ? keep.stake : 10, payouts: {}, parlayPrice: '', note: '' };
   }
   function draft() {
     if (state.draft) return state.draft;
@@ -1734,20 +1800,30 @@ export function sportsFactory(host, doc, options) {
     d.format = decoded.format;
     if (decoded.stake) d.stake = decoded.stake;
     d.payouts = decoded.payouts;
-    d.legs = decoded.legs.map((l) => Object.assign({}, l, { probability: null, probability_source: null }));
+    d.legs = decoded.legs.map((l) => Object.assign({}, l, { probability: null, probability_source: null, price: l.price > 1 ? decimalText(l.price) : '' },
+      l.kind === 'team' ? { label: teamPickLabel(l) } : {}));
+    if (d.format === 'parlay' && !d.legs.every((l) => priceOf(l.price)) && d.payouts[d.legs.length] > 1) d.parlayPrice = decimalText(d.payouts[d.legs.length]);
     state.draft = d;
     saveDraft();
     pb.prefill = 'ok'; pb.evaluation = null; pb.msg = null;
   }
   function draftBody() {
     const d = draft(), n = d.legs.length, payouts = {};
-    Object.keys(d.payouts || {}).forEach((k) => {
+    const parlay = d.format === 'parlay';
+    if (parlay) {
+      // Each pick's odds multiplied (the server does it) or one typed price.
+      const one = priceOf(d.parlayPrice);
+      if (!d.legs.every((l) => priceOf(l.price)) && one) payouts[n] = one.decimal;
+    } else Object.keys(d.payouts || {}).forEach((k) => {
       const v = d.payouts[k];
       if (v === '' || v == null) return;
       if (d.format === 'power' ? Number(k) === n : Number(k) <= n) payouts[k] = Number(v);
     });
+    const price = (l) => { const o = parlay ? priceOf(l.price) : null; return o ? o.decimal : null; };
     return {
-      legs: d.legs.map((l) => ({ sport: l.sport, player_id: l.player_id, game_id: l.game_id, stat: l.stat, side: l.side, threshold: l.threshold, probability: l.probability, probability_source: l.probability_source })),
+      legs: d.legs.map((l) => isTeamPick(l)
+        ? { kind: 'team', sport: l.sport, game_id: l.game_id, market: l.market, team: l.team, side: l.side, line: l.line, probability: l.probability, probability_source: l.probability_source, price: price(l) }
+        : { sport: l.sport, player_id: l.player_id, game_id: l.game_id, stat: l.stat, side: l.side, threshold: l.threshold, probability: l.probability, probability_source: l.probability_source, price: price(l) }),
       operator: d.operator, format: d.format, stake: d.stake, payouts, note: d.note,
     };
   }
@@ -1814,11 +1890,136 @@ export function sportsFactory(host, doc, options) {
 
   function addHtml() {
     const A = pb.add;
-    return '<div class="sp-add"><div class="sp-add-row">' +
-      '<label class="sp-field"><span>League</span><select data-sp-add-sport><option value="nba"' + (A.sport === 'nba' ? ' selected' : '') + '>NBA</option><option value="nfl"' + (A.sport === 'nfl' ? ' selected' : '') + '>NFL</option></select></label>' +
+    const modes = '<div class="sp-seg" role="group" aria-label="Kind of pick">' + [['player', 'Player line'], ['game', 'Game bet']].map(([v, t]) =>
+      '<button type="button" class="sp-seg-btn" data-sp-add-mode="' + v + '" aria-pressed="' + (A.mode === v ? 'true' : 'false') + '">' + t + '</button>').join('') + '</div>';
+    const sport = '<label class="sp-field"><span>League</span><select data-sp-add-sport><option value="nba"' + (A.sport === 'nba' ? ' selected' : '') + '>NBA</option><option value="nfl"' + (A.sport === 'nfl' ? ' selected' : '') + '>NFL</option></select></label>';
+    if (A.mode === 'game') {
+      return '<div class="sp-add">' + modes + '<div class="sp-add-row">' + sport + '</div>' +
+        '<p class="sp-muted sp-add-hint">Who wins, the spread, win by X or more, the game total or one team’s points.</p>' +
+        '<div data-sp-part="gb-add" aria-live="polite">' + gameAddHtml() + '</div></div>';
+    }
+    return '<div class="sp-add">' + modes + '<div class="sp-add-row">' + sport +
       '<label class="sp-find"><span>Player</span><input type="search" data-sp-add-search autocomplete="off" spellcheck="false" placeholder="Name, at least 2 letters" value="' + escape(A.query) + '"></label></div>' +
       '<div data-sp-part="add-results" aria-live="polite">' + addResultsHtml() + '</div>' +
       '<div data-sp-part="add-form">' + addFormHtml() + '</div></div>';
+  }
+  // ---- Pick Builder: adding a game bet ---------------------------------------
+  // On a stored game that has not started. The model's chance shows as the
+  // bet is typed (tbPrice, the page's copy of priceTeamBet).
+  const gbState = () => pb.add.gb || (pb.add.gb = { market: 'moneyline', team: '', side: 'over', line: '' });
+  function gameChoices() {
+    const A = pb.add, B = A.board, now = Date.now();
+    if (!B || B.sport !== A.sport) return [];
+    const list = (B.games || []).slice();
+    if (B.next_game && !list.some((g) => g.game_id === B.next_game.game_id)) list.push(B.next_game);
+    return list.filter((g) => g.status === 'scheduled' && !(Date.parse(g.start_utc) <= now));
+  }
+  function loadAddBoard() {
+    const A = pb.add, sport = A.sport, seq = ++A.boardSeq;
+    A.boardErr = null;
+    api('board', { sport, tz: zone() }).then((data) => { if (seq === A.boardSeq) A.board = Object.assign({ sport }, data); }, (err) => { if (seq === A.boardSeq) A.boardErr = err; })
+      .then(() => { if (state.page === BUILDER && seq === A.boardSeq && A.mode === 'game') paint(BUILDER, 'gb-add', gameAddHtml()); });
+  }
+  function gameAddHtml() {
+    const A = pb.add;
+    if (A.boardErr) return errorBox(A.boardErr, 'add-board');
+    if (!A.board || A.board.sport !== A.sport) return '<p class="sp-loading">Loading games…</p>';
+    const games = gameChoices();
+    if (!games.length) return '<p class="sp-muted">No ' + escape(A.sport.toUpperCase()) + ' game that has not started is stored yet.</p>';
+    const opt = (g) => '<option value="' + escape(g.game_id) + '"' + (g.game_id === A.gameId ? ' selected' : '') + '>' + escape(String(g.away_team).toUpperCase() + ' at ' + String(g.home_team).toUpperCase() + ' · ' + (g.time_tbd ? fmtDay(g.local_date) + ', time TBD' : fmtWhen(g.start_utc, zone()))) + '</option>';
+    return '<div class="sp-add-row"><label class="sp-field sp-gb-game"><span>Game</span><select data-sp-gb-game><option value="">Choose a game</option>' + games.map(opt).join('') + '</select></label></div>' +
+      '<div data-sp-part="gb-form">' + gbFormHtml() + '</div>';
+  }
+  function gbFormHtml() {
+    const A = pb.add;
+    if (!A.gameId) return '';
+    if (A.gameErr) return errorBox(A.gameErr, 'add-game');
+    if (!A.game || A.game.game.game_id !== A.gameId) return '<p class="sp-loading">Loading the game…</p>';
+    const g = A.game.game, fc = A.game.team_bets && A.game.team_bets.forecast, s = gbState();
+    if (s.team !== g.home_team && s.team !== g.away_team) s.team = fc && fc.win && fc.win.away > fc.win.home ? g.away_team : g.home_team;
+    const opt = (v, t, cur) => '<option value="' + escape(v) + '"' + (String(v) === String(cur) ? ' selected' : '') + '>' + escape(t) + '</option>';
+    const sel = (key, opts, cur, text) => '<label class="sp-field"><span>' + escape(text) + '</span><select data-sp-gb="' + key + '">' + opts.map(([v, t]) => opt(v, t, cur)).join('') + '</select></label>';
+    const lineText = { win_by: 'By at least (points)', spread: 'Spread (−7.5 = favored)', total: 'Total points', team_total: 'Team points' }[s.market];
+    const def = fc ? tbDefaultLine(fc, g, s, A.sport) : null;
+    return '<div class="sp-tb-form">' + sel('market', TB_MARKETS, s.market, 'Bet') +
+      (s.market !== 'total' ? sel('team', [[g.away_team, String(g.away_team).toUpperCase()], [g.home_team, String(g.home_team).toUpperCase() + ' (home)']], s.team, 'Team') : '') +
+      (s.market === 'total' || s.market === 'team_total' ? sel('side', [['over', 'Over'], ['under', 'Under']], s.side, 'Side') : s.market === 'win_by' ? sel('side', [['over', 'Yes'], ['under', 'No']], s.side, 'Wins by that much') : '') +
+      (lineText ? '<label class="sp-field"><span>' + escape(lineText) + '</span><input type="number" step="' + (s.market === 'win_by' ? '1' : '0.5') + '"' + (s.market === 'spread' ? '' : ' inputmode="decimal"') + ' data-sp-gb="line" value="' + escape(s.line) + '" placeholder="' + escape(def == null ? '' : fv(def)) + '"></label>' : '') +
+      '<button type="button" class="sp-btn" data-sp-gb-add>Add to entry</button></div>' +
+      '<div class="sp-tb-result" data-sp-part="gb-result" aria-live="polite">' + gbResultHtml() + '</div>';
+  }
+  // The bet as typed, with an empty line read as the placeholder (the books'
+  // line, else the model's number).
+  function gbBet() {
+    const A = pb.add, G = A.game, s = gbState();
+    if (!G) return null;
+    const g = G.game, fc = G.team_bets && G.team_bets.forecast;
+    const def = fc ? tbDefaultLine(fc, g, s, A.sport) : null;
+    const line = s.market === 'moneyline' ? null : s.line === '' ? def : Number(s.line);
+    return { market: s.market, team: s.market === 'total' ? null : s.team, side: s.market === 'moneyline' || s.market === 'spread' ? 'over' : s.side, line };
+  }
+  function gbProblem(b) {
+    if (b.market === 'moneyline') return null;
+    const x = Number(b.line);
+    if (b.line == null || !Number.isFinite(x)) return 'Type the line.';
+    if (b.market === 'win_by') return Number.isInteger(x) && x >= 1 && x <= 60 ? null : 'Win by takes whole points from 1 to 60.';
+    if (Math.round(x * 2) !== x * 2) return 'Use a whole or half number, like 7.5.';
+    if (b.market === 'spread') return Math.abs(x) <= 60 ? null : 'The spread runs from −60 to 60.';
+    return x > 0 && x <= 400 ? null : 'Type a total above 0.';
+  }
+  function gbResultHtml() {
+    const A = pb.add, G = A.game, b = gbBet();
+    if (!G || !b) return '';
+    const msg = A.gbMsg ? '<p class="sp-pick-msg' + (A.gbMsg.bad ? ' sp-bad' : '') + '">' + A.gbMsg.html + '</p>' : '';
+    const bad = gbProblem(b);
+    if (bad) return '<p class="sp-muted">' + escape(bad) + '</p>' + msg;
+    const fc = G.team_bets && G.team_bets.forecast;
+    if (!fc || !fc.pmf) return '<p class="sp-muted">' + escape(teamPickLabel(b)) + ': the team model has no forecast for this game, so type your own chance after adding it.</p>' + msg;
+    const r = tbPrice(fc, G.game, Object.assign({}, b, { price: '' }));
+    if (r.error) return '<p class="sp-muted">' + escape(r.error) + '</p>' + msg;
+    const no = b.market === 'win_by' && b.side === 'under';
+    const win = no ? r.lose : r.win, chance = no ? 1 - r.chance : r.chance;
+    const check = ((G.team_bets.check || {}).markets || {})[b.market];
+    return '<p class="sp-tb-big"><span>' + escape(teamPickLabel(b)) + '</span> <b>' + pct(win) + '</b> <small>fair odds ' + escape(fairOdds(chance)) + '</small> ' + tbBadge(check) + '</p>' +
+      (r.push > 0.001 ? '<p class="sp-muted">Push (stake back) ' + pct(r.push) + ' of the time.</p>' : '') +
+      (r.book != null && !no ? '<p class="sp-muted">Books, no vig: ' + pct(r.book) + '.</p>' : '') + msg;
+  }
+  function gbOpenGame(id) {
+    const A = pb.add, sport = A.sport;
+    A.gameId = id || null; A.game = null; A.gameErr = null; A.gbMsg = null;
+    if (A.gb) A.gb.line = '';
+    paint(BUILDER, 'gb-form', gbFormHtml());
+    if (!id) return;
+    api('game', { sport, id }).then((data) => { if (A.gameId === id) A.game = data; }, (err) => { if (A.gameId === id) A.gameErr = err; })
+      .then(() => { if (state.page === BUILDER && A.gameId === id) paint(BUILDER, 'gb-form', gbFormHtml()); });
+  }
+  // Adds a game bet to the draft. Returns an error message, or null.
+  function addTeamPick(sport, g, b) {
+    const d = draft();
+    if (!g || g.status !== 'scheduled' || Date.parse(g.start_utc) <= Date.now()) return 'This game has started.';
+    if (d.legs.length >= MAX_PICKS) return 'An entry has at most 6 picks.';
+    const bad = gbProblem(b);
+    if (bad) return bad;
+    const leg = { kind: 'team', sport, game_id: g.game_id, market: b.market, team: b.market === 'total' ? null : b.team, side: b.side, line: b.market === 'moneyline' ? null : Number(b.line),
+      matchup: g.away_team + '@' + g.home_team, game_start_utc: g.start_utc, probability: null, probability_source: null, price: '' };
+    leg.label = teamPickLabel(leg);
+    const same = d.legs.find((l) => isTeamPick(l) && l.game_id === leg.game_id && l.market === leg.market && (l.team || null) === leg.team && l.side === leg.side && Number(l.line) === Number(leg.line));
+    if (same) return 'That bet is already in the entry.';
+    if (leg.market === 'moneyline' && d.legs.some((l) => isTeamPick(l) && l.game_id === leg.game_id && l.market === 'moneyline')) return 'Both teams to win cancel out.';
+    const clash = d.legs.find((l) => neverBoth(l, leg));
+    if (clash) return leg.label + ' and ' + (clash.label || teamPickLabel(clash)) + ' can never both win.';
+    d.legs.push(leg);
+    d.payouts = {};
+    saveDraft();
+    return null;
+  }
+  function gbAdd() {
+    const A = pb.add, G = A.game, b = gbBet();
+    if (!G || !b) return;
+    const err = addTeamPick(A.sport, G.game, b);
+    A.gbMsg = err ? { bad: true, html: escape(err) } : { html: 'Added as pick ' + draft().legs.length + '.' };
+    if (!err) { pb.msg = null; pb.prefill = null; paintEntry(); scheduleEval(0); }
+    paint(BUILDER, 'gb-result', gbResultHtml());
   }
   function addResultsHtml() {
     const A = pb.add;
@@ -1860,7 +2061,9 @@ export function sportsFactory(host, doc, options) {
   // ---- Pick Builder: the entry ---------------------------------------------------
   function evalLeg(i) {
     const ev = pb.evaluation, l = draft().legs[i], e = ev && ev.legs && ev.legs[i];
-    return e && l && e.player_id === l.player_id && e.game_id === l.game_id && e.stat === l.stat && e.side === l.side && Number(e.threshold) === Number(l.threshold) ? e : null;
+    if (!e || !l || e.game_id !== l.game_id || e.side !== l.side) return null;
+    if (isTeamPick(l)) return e.kind === 'team' && e.market === l.market && (e.team || null) === (l.team || null) && (e.line == null ? l.line == null || l.line === '' : Number(e.line) === Number(l.line)) ? e : null;
+    return e.kind !== 'team' && e.player_id === l.player_id && e.stat === l.stat && Number(e.threshold) === Number(l.threshold) ? e : null;
   }
   // A history rate can be copied only from 5+ games and only when it is not
   // 0% or 100%: a tiny or one-sided sample is shown, never offered as a chance.
@@ -1904,12 +2107,12 @@ export function sportsFactory(host, doc, options) {
   }
   // The pick's last ten games against its own line: green would have won,
   // red would have lost (for an under, a game below the line is a win).
-  function legChartHtml(e) {
+  function legChartHtml(e, what) {
     const r = (e.recent || []).slice().reverse();
     if (r.length < 2) return '';
     const t = Number(e.threshold), W = 200, H = 44, slot = W / 10, n = r.length;
     const vals = r.map((x) => x.value);
-    const lo = Math.min(0, ...vals), hi = Math.max(...vals, t, 1) * 1.08;
+    const lo = Math.min(0, t, ...vals) * 1.08, hi = Math.max(...vals, t, 1) * 1.08;
     const y = (v) => 2 + ((hi - v) / (hi - lo)) * (H - 4);
     const res = (v) => (v === t ? 'is-at' : (e.side === 'under' ? v < t : v > t) ? 'is-over' : 'is-under');
     const word = { 'is-at': 'push', 'is-over': 'would have won', 'is-under': 'would have lost' };
@@ -1922,11 +2125,12 @@ export function sportsFactory(host, doc, options) {
     const won = r.filter((x) => res(x.value) === 'is-over').length;
     return '<span class="sp-leg-chart"><svg class="sp-legspark" viewBox="0 0 ' + W + ' ' + H + '" width="' + W + '" height="' + H + '" role="img" aria-label="' + escape('Last ' + n + ' games, oldest first: ' + vals.join(', ') + '; line ' + fv(t)) + '"' + hoverAttr(hov) + '>' + bars +
       '<line class="sp-ch-ref" x1="0" x2="' + W + '" y1="' + y(t).toFixed(1) + '" y2="' + y(t).toFixed(1) + '"/></svg>' +
-      '<small>Last ' + n + ' against ' + escape(sideWord(e.side)) + ' ' + escape(fv(t)) + ': <b>' + won + ' of ' + n + '</b> would have won (green).</small></span>';
+      '<small>' + (what ? escape(what) + ': ' : 'Last ' + n + ' against ' + escape(sideWord(e.side)) + ' ' + escape(fv(t)) + ': ') + '<b>' + won + ' of ' + n + '</b> would have won (green).</small></span>';
   }
   function histHtml(i) {
     const e = evalLeg(i);
     if (!e) return pb.evalErr ? '' : '<span class="sp-muted">Checking history…</span>';
+    if (e.kind === 'team') return teamHistHtml(i, e);
     const h = e.history;
     if (!h.all.games) return '<span class="sp-muted">No stored games before this one.</span>' + modelLineHtml(i, e) + legAvailHtml(e);
     // The 95% range of the hit rate (decided games only) as a hover note.
@@ -1955,8 +2159,31 @@ export function sportsFactory(host, doc, options) {
     return out.join('');
   }
   const SOURCE_TEXT = { history: 'from history', model: 'from model', book: 'from books', owner: 'typed' };
+  // The chance box and, for a parlay, the pick's own odds.
+  function legChanceHtml(l, i) {
+    const parlay = draft().format === 'parlay';
+    return '<label class="sp-chance"><span>Your chance</span><input data-sp-leg-chance type="number" min="1" max="99" step="1" inputmode="numeric" value="' + (l.probability != null ? Math.round(l.probability * 100) : '') + '" aria-label="Your chance for pick ' + (i + 1) + ', percent"><i>%</i></label>' +
+      '<span class="sp-src" data-sp-src>' + (SOURCE_TEXT[l.probability_source] || (l.probability != null ? 'typed' : '')) + '</span>' +
+      (parlay ? '<label class="sp-field sp-price-field"><span>Odds</span><input data-sp-leg-price type="text" maxlength="12" autocomplete="off" spellcheck="false" value="' + escape(l.price || '') + '" placeholder="−110" aria-label="Odds for pick ' + (i + 1) + ': American, decimal or cents"></label>' +
+        '<span class="sp-price-note" data-sp-price-note="' + i + '">' + legPriceNoteHtml(i) + '</span>' : '');
+  }
+  // What a typed price means: its three forms, and against the chance used,
+  // the pick's fair odds and edge (from the last check).
+  function legPriceNoteHtml(i) {
+    const l = draft().legs[i];
+    if (!l || l.price == null || l.price === '') return '';
+    const o = priceOf(l.price);
+    if (!o) return '<span class="sp-bad">Type odds like −110, +150, 1.91 or 62¢.</span>';
+    const e = evalLeg(i), O = e && e.odds;
+    let out = oddsText(o);
+    if (O && O.edge != null && O.price && Math.abs(O.price.decimal - o.decimal) < 1e-3) {
+      out += ' · fair ' + escape(amText(O.fair && O.fair.american)) + ' · edge <b class="' + (O.edge > 0 ? 'sp-pos' : O.edge < 0 ? 'sp-neg' : '') + '">' + (O.edge > 0 ? '+' : O.edge < 0 ? '−' : '') + (Math.abs(O.edge) * 100).toFixed(1) + '%</b>';
+    }
+    return out;
+  }
   function legHtml(l, i) {
-    const nameShown = l.player_name || l.player_id;
+    if (isTeamPick(l)) return teamLegHtml(l, i);
+    const nameShown = l.player_name || l.player_id, ms = milestone(l.side, l.threshold);
     return '<li class="sp-leg" data-sp-leg="' + i + '"><div class="sp-leg-head"><span class="sp-leg-name"><i>' + (i + 1) + '</i>' + escape(nameShown) +
       (l.team ? ' <span>' + team(l.team) + '</span>' : '') + '</span>' +
       '<button type="button" class="sp-close" data-sp-remove="' + i + '" aria-label="Remove pick ' + (i + 1) + '">×</button></div>' +
@@ -1964,17 +2191,58 @@ export function sportsFactory(host, doc, options) {
       '<div class="sp-leg-line"><span class="sp-leg-stat">' + escape(label(l.stat)) + '</span>' +
       '<select data-sp-leg-side aria-label="Over or under for pick ' + (i + 1) + '"><option value="over"' + (l.side === 'over' ? ' selected' : '') + '>Over</option><option value="under"' + (l.side === 'under' ? ' selected' : '') + '>Under</option></select>' +
       '<input data-sp-leg-line type="number" min="0" max="1000" step="0.5" inputmode="decimal" value="' + escape(l.threshold) + '" aria-label="Line for pick ' + (i + 1) + '">' +
-      '<label class="sp-chance"><span>Your chance</span><input data-sp-leg-chance type="number" min="1" max="99" step="1" inputmode="numeric" value="' + (l.probability != null ? Math.round(l.probability * 100) : '') + '" aria-label="Your chance for pick ' + (i + 1) + ', percent"><i>%</i></label>' +
-      '<span class="sp-src" data-sp-src>' + (SOURCE_TEXT[l.probability_source] || (l.probability != null ? 'typed' : '')) + '</span></div>' +
+      '<span class="sp-ms" data-sp-ms title="How Kalshi names this line">' + (ms ? escape(ms) : '') + '</span>' +
+      legChanceHtml(l, i) + '</div>' +
       '<div class="sp-hist" data-sp-hist="' + i + '">' + histHtml(i) + '</div></li>';
+  }
+  // A game bet in the entry: the bet, its line and side, the chance and the
+  // team's own record against the same line this season.
+  function teamLegHtml(l, i) {
+    const m = l.market, opt = (v, t, cur) => '<option value="' + v + '"' + (v === cur ? ' selected' : '') + '>' + t + '</option>';
+    const side = m === 'total' || m === 'team_total'
+      ? '<select data-sp-leg-side aria-label="Over or under for pick ' + (i + 1) + '">' + opt('over', 'Over', l.side) + opt('under', 'Under', l.side) + '</select>'
+      : m === 'win_by' ? '<select data-sp-leg-side aria-label="Yes or no for pick ' + (i + 1) + '">' + opt('over', 'Yes', l.side) + opt('under', 'No', l.side) + '</select>' : '';
+    const step = m === 'win_by' ? '1' : '0.5', min = m === 'spread' ? '-60' : m === 'win_by' ? '1' : '0.5', max = m === 'total' || m === 'team_total' ? '400' : '60';
+    // No decimal keypad for a spread: phones' decimal pads have no minus sign.
+    const line = m === 'moneyline' ? '' : '<input data-sp-leg-tline type="number" min="' + min + '" max="' + max + '" step="' + step + '"' + (m === 'spread' ? '' : ' inputmode="decimal"') + ' value="' + escape(l.line) + '" aria-label="' + (m === 'spread' ? 'Spread' : m === 'win_by' ? 'Points' : 'Line') + ' for pick ' + (i + 1) + '">';
+    return '<li class="sp-leg sp-leg-team" data-sp-leg="' + i + '"><div class="sp-leg-head"><span class="sp-leg-name"><i>' + (i + 1) + '</i><span data-sp-tlabel>' + escape(l.label || teamPickLabel(l)) + '</span>' + (m === 'moneyline' ? '' : ' <span>' + escape(TB_NAME[m] || 'Game bet') + '</span>') + '</span>' +
+      '<button type="button" class="sp-close" data-sp-remove="' + i + '" aria-label="Remove pick ' + (i + 1) + '">×</button></div>' +
+      '<p class="sp-leg-game">' + escape(String(l.sport).toUpperCase()) + ' · ' + (l.matchup ? matchupText(l.matchup) : 'game ' + escape(l.game_id)) + (l.game_start_utc ? ' · ' + escape(fmtWhen(l.game_start_utc, zone())) : '') + '</p>' +
+      '<div class="sp-leg-line"><span class="sp-leg-stat">' + escape(m === 'spread' ? 'Spread' : m === 'win_by' ? 'Win by' : m === 'moneyline' ? 'Winner' : 'Points') + '</span>' + side + line +
+      legChanceHtml(l, i) + '</div>' +
+      '<div class="sp-hist" data-sp-hist="' + i + '">' + histHtml(i) + '</div></li>';
+  }
+  const TEAM_REASON = { no_model: 'the team game model is not fitted yet', started: 'the game has started', bet: 'this bet cannot be priced', team: 'no forecast for this game' };
+  function teamHistHtml(i, e) {
+    const l = draft().legs[i], h = e.history, m = e.model, T = String(l.team || '').toUpperCase();
+    const subject = l.market === 'total' ? 'Both teams’ last ' + (e.recent || []).length + ' game totals' : l.market === 'team_total' ? T + '’s last ' + (e.recent || []).length + ' scores' : T + '’s last ' + (e.recent || []).length + ' margins';
+    const chart = e.chart ? legChartHtml({ recent: e.recent, threshold: e.chart.threshold, side: e.chart.side }, subject) : '';
+    const c = (name, x) => name + ' <b>' + x.hits + '/' + x.games + '</b>';
+    const hist = h && h.all.games ? '<span class="sp-hist-line">This bet in ' + (l.market === 'total' ? 'their' : T + '’s') + ' games this season: ' + c('last 5', h.last5) + ' · ' + c('last 10', h.last10) + ' · ' + c('all', h.all) +
+      (h.all.pushes ? ' <span class="sp-muted">(' + h.all.pushes + ' push' + (h.all.pushes === 1 ? '' : 'es') + ')</span>' : '') + '</span>' : '<span class="sp-muted">No finished games this season yet.</span>';
+    const r10 = h ? rateOf(h.last10) : null, rAll = h ? rateOf(h.all) : null;
+    const uses = (r10 != null ? '<button type="button" class="sp-chip" data-sp-usehist="' + i + '" data-rate="' + r10 + '">Use ' + r10 + '% (last 10)</button>' : '') +
+      (rAll != null ? '<button type="button" class="sp-chip" data-sp-usehist="' + i + '" data-rate="' + rAll + '">Use ' + rAll + '% (season)</button>' : '');
+    let model;
+    if (!m || m.status !== 'ok') model = '<span class="sp-model-line sp-muted">Model: ' + escape(TEAM_REASON[m && m.reason] || 'no forecast for this bet') + '.</span>';
+    else {
+      const bookWin = m.book_chance != null ? m.book_chance * (1 - (m.push || 0)) : null;
+      model = '<span class="sp-model-line">Model: <b>' + pct(m.probability) + '</b> wins' + (m.push > 0.001 ? ' · push ' + pct(m.push) + ' (stake back)' : '') + ' · fair odds ' + escape(amText(m.fair_american)) + ' ' + tbBadge(m.check) +
+        (m.expected ? ' · expects ' + team(e.away_team) + ' ' + escape(Number(m.expected.away_points).toFixed(1)) + ', ' + team(e.home_team) + ' ' + escape(Number(m.expected.home_points).toFixed(1)) : '') + '</span>' +
+        (m.book_chance != null ? '<span class="sp-model-line">Books, no vig: <b>' + pct(m.book_chance) + '</b>' + (m.push > 0.001 ? ' (pushes left out)' : '') +
+          (m.gap != null && Math.abs(m.gap) >= 0.05 ? ' <span class="sp-model-warn">The model is ' + (Math.abs(m.gap) * 100).toFixed(1) + ' points ' + (m.gap > 0 ? 'higher' : 'lower') + '; a gap this big usually means news the model cannot see.</span>' : '') + '</span>' : '') +
+        '<span class="sp-hist-use">' + (m.probability > 0.005 && m.probability < 0.995 ? '<button type="button" class="sp-chip" data-sp-usemodel="' + i + '" data-prob="' + escape(m.probability) + '">Use ' + Math.round(m.probability * 100) + '% (model)</button>' : '') +
+        (bookWin > 0.005 && bookWin < 0.995 ? '<button type="button" class="sp-chip" data-sp-usebook="' + i + '" data-prob="' + escape(Math.round(bookWin * 10000) / 10000) + '">Use ' + Math.round(bookWin * 100) + '% (books)</button>' : '') + '</span>';
+    }
+    return chart + hist + (uses ? '<span class="sp-hist-use">' + uses + '</span>' : '') + model;
   }
   function legsHtml() {
     const d = draft();
     const banner = pb.prefill === 'ok' ? '<p class="sp-banner">Filled in from a shared link. Check every pick, line and payout against your app before saving.</p>'
       : pb.prefill === 'bad' ? '<p class="sp-banner sp-bad">The shared link could not be read, so nothing was filled in.</p>' : '';
-    if (!d.legs.length) return banner + emptyBox('No picks yet.', 'Add 1 to 6 picks below, or from a player on the NBA and NFL pages.');
+    if (!d.legs.length) return banner + emptyBox('No picks yet.', 'Add 1 to 6 player lines or game bets above, or from the NBA and NFL pages.');
     return banner + '<ol class="sp-legs">' + d.legs.map(legHtml).join('') + '</ol>' + '<div data-sp-part="use-all">' + useAllHtml() + '</div>' +
-      '<p class="sp-note">History rates show how often the player cleared this line in stored games; they ignore minutes, opponent and role. The model reads minutes or targets, the opponent and home or away, and is checked on past games (see the Model check on the NBA and NFL pages). A pick whose player is listed Out, Doubtful or Questionable on the latest ESPN injury report says so, and for NBA the model counts regular teammates listed out; neither reads news or confirmed lineups. The chance you enter is yours.</p>';
+      '<p class="sp-note">History rates show how often the player (or, for a game bet, the team) cleared this line in stored games; they ignore minutes, opponent and role. Game bets are priced by the team game model, whose check is on the NBA and NFL pages. The model reads minutes or targets, the opponent and home or away, and is checked on past games (see the Model check on the NBA and NFL pages). A pick whose player is listed Out, Doubtful or Questionable on the latest ESPN injury report says so, and for NBA the model counts regular teammates listed out; neither reads news or confirmed lineups. The chance you enter is yours.</p>';
   }
   function useAllHtml() {
     const d = draft(), ready = d.legs.filter((l, i) => { const e = evalLeg(i); return e && e.model && e.model.status === 'ok'; }).length;
@@ -1985,16 +2253,69 @@ export function sportsFactory(host, doc, options) {
     const opt = (v, text, cur) => '<option value="' + v + '"' + (v === cur ? ' selected' : '') + '>' + text + '</option>';
     return '<div class="sp-settings">' +
       '<label class="sp-field"><span>App</span><select data-sp-operator>' + Object.keys(OPERATOR_NAMES).map((k) => opt(k, OPERATOR_NAMES[k], d.operator)).join('') + '</select></label>' +
-      '<label class="sp-field"><span>Entry type</span><select data-sp-format>' + opt('power', 'Power: every pick must hit', d.format) + opt('flex', 'Flex: pays with some misses', d.format) + '</select></label>' +
+      '<label class="sp-field"><span>Entry type</span><select data-sp-format>' + opt('power', 'Power: every pick must hit', d.format) + opt('flex', 'Flex: pays with some misses', d.format) + opt('parlay', 'Parlay: odds on each bet (sportsbook, Kalshi)', d.format) + '</select></label>' +
       '<label class="sp-field"><span>Paper stake</span><span class="sp-money"><i>$</i><input data-sp-stake type="number" min="0.01" max="100000" step="0.01" inputmode="decimal" value="' + escape(d.stake) + '"></span></label></div>';
   }
   function payoutsHtml() {
     const d = draft(), n = d.legs.length;
     if (!n) return '';
+    if (d.format === 'parlay') return parlayHtml();
     const ks = d.format === 'power' ? [n] : [n, n - 1, n - 2].filter((k) => k >= 1);
     return '<div class="sp-payouts"><p class="sp-label">Payout from your app</p><div class="sp-payout-row">' + ks.map((k) =>
       '<label class="sp-field"><span>' + (n === 1 ? 'Pick hits' : k === n ? 'All ' + n + ' hit' : k + ' of ' + n + ' hit') + '</span><span class="sp-money"><input data-sp-payout="' + k + '" type="number" min="0" max="100000" step="0.01" inputmode="decimal" value="' + escape(d.payouts[k] ?? '') + '"><i>×</i></span></label>').join('') + '</div>' +
       '<p class="sp-note">Type the multiplier your app shows for this exact entry, stake included (3× on $10 pays back $30).' + (d.format === 'flex' ? ' Leave a row empty if it pays nothing.' : '') + ' Payouts clear when the picks or entry type change.</p></div>';
+  }
+  // A parlay pays the picks' odds multiplied. Type each pick's odds above,
+  // or the one price the app shows for the whole parlay here.
+  function parlayHtml() {
+    const d = draft(), n = d.legs.length;
+    const each = d.legs.map((l) => priceOf(l.price));
+    if (each.every(Boolean)) {
+      const dec = each.reduce((a, o) => a * o.decimal, 1);
+      return '<div class="sp-payouts"><p class="sp-label">Parlay odds</p><p class="sp-parlay-all">' + (n === 1 ? 'The bet pays ' : 'The ' + n + ' picks’ odds multiplied: ') + '<b>' + escape(oddsText({ decimal: Math.round(dec * 10000) / 10000 })) + '</b> (' + escape(dec.toFixed(2)) + '× the stake back)</p>' +
+        '<p class="sp-note">A pick that pushes drops out and the rest pay at their own odds. Many apps price a same-game parlay below the multiplied odds; if yours shows a different price, clear one pick’s odds and type the app’s price for the whole parlay instead.</p></div>';
+    }
+    return '<div class="sp-payouts"><p class="sp-label">Parlay odds from your app</p><div class="sp-payout-row">' +
+      '<label class="sp-field"><span>' + (n === 1 ? 'The bet' : 'All ' + n + ' win') + '</span><input data-sp-parlay type="text" maxlength="12" autocomplete="off" spellcheck="false" value="' + escape(d.parlayPrice || '') + '" placeholder="+600"></label>' +
+      '<span class="sp-price-note" data-sp-parlay-note>' + parlayNoteHtml() + '</span></div>' +
+      '<p class="sp-note">Type the price as American (+600), decimal (7.0) or Kalshi cents (14¢), or type every pick’s odds above and they are multiplied. With one price for the whole parlay, a pushed pick is treated as the stake back.</p></div>';
+  }
+  function parlayNoteHtml() {
+    const raw = draft().parlayPrice;
+    if (raw == null || raw === '') return '';
+    const o = priceOf(raw);
+    return o ? escape(oddsText(o)) + ' · pays ' + escape(o.decimal.toFixed(2)) + '× the stake' : '<span class="sp-bad">Type odds like +600, 7.0 or 14¢.</span>';
+  }
+  // The entry's price in every format: fair at the chance shown, what the
+  // app pays and the edge.
+  function oddsBlockHtml(E, ev) {
+    const O = E && E.odds;
+    if (!O) return '';
+    const n = ev.legs.length;
+    const row = (name, o, sub) => '<tr><th scope="row">' + name + (sub ? ' <small class="sp-muted">' + sub + '</small>' : '') + '</th><td class="sp-n">' + escape(oddsText(o)) + '</td></tr>';
+    const same = E.status === 'joint_estimate' || E.status === 'not_calculated';
+    const rows = [
+      O.fair ? row('Fair odds', O.fair, n > 1 ? 'all ' + n + ' win, at the chance shown' : 'at the chance shown') : '',
+      same && O.fair_if_unrelated ? row('Fair if unrelated', O.fair_if_unrelated, 'chances multiplied') : '',
+      O.offered ? row(ev.format === 'parlay' ? 'Your odds' : 'Your payout', O.offered, ev.format === 'flex' ? 'top row' : '') : '',
+    ].join('');
+    if (!rows) return '';
+    const edge = O.edge != null ? '<p class="sp-odds-edge">Edge: <b class="' + (O.edge > 0 ? 'sp-pos' : O.edge < 0 ? 'sp-neg' : '') + '">' + (O.edge > 0 ? '+' : O.edge < 0 ? '−' : '') + (Math.abs(O.edge) * 100).toFixed(1) + '%</b> expected profit per $1 at the chance shown' +
+      (E.push_chance > 0.001 ? (ev.format === 'parlay' ? ' (a pushed pick drops out)' : ' (a push counted as a miss)') : '') + '.</p>' : '';
+    return '<div class="sp-odds"><p class="sp-label">Odds</p><table class="sp-table sp-odds-table" data-nosort><tbody>' + rows + '</tbody></table>' + edge + '</div>';
+  }
+  // Same-game notes: picks on one number, and how much the links moved the
+  // chance away from "unrelated".
+  function sameGameNoteHtml(E, n) {
+    const out = [];
+    (E.shared_numbers || []).forEach((x) => out.push('Picks ' + (x.legs[0] + 1) + ' and ' + (x.legs[1] + 1) + ' settle on the same number, so they are priced exactly together (one cannot win without the other’s number landing too).'));
+    if (E.status === 'joint_estimate' && E.independent_probability > 0) {
+      const r = E.joint_probability / E.independent_probability;
+      if (Math.abs(r - 1) >= 0.02) out.push('Together these picks hit ' + pct(E.joint_probability) + ', against ' + pct(E.independent_probability) + ' if they were unrelated: ' + (E.links && E.links.length ? 'the links make ' : 'sharing a number makes ') + (n === 2 ? 'both' : 'all ' + n) + ' winning ' + (r > 1 ? 'more' : 'less') + ' likely (' + r.toFixed(2) + '×).');
+    }
+    if ((E.shared_numbers || []).length && draft().format === 'parlay') out.push('Most sportsbooks will not put two bets on the same number in one parlay (like a team to win and to cover), or price them well below the odds multiplied; check the app’s own price.');
+    if (E.push_chance > 0.001) out.push('About ' + pct(E.push_chance) + ' of the time a pick pushes and none loses; ' + (draft().format === 'parlay' ? 'the pushed pick drops out of the parlay.' : 'apps usually drop that pick and pay a smaller entry.'));
+    return out.length ? '<ul class="sp-sg-notes">' + out.map((x) => '<li>' + escape(x) + '</li>').join('') + '</ul>' : '';
   }
   function evalHtml() {
     const d = draft();
@@ -2009,7 +2330,7 @@ export function sportsFactory(host, doc, options) {
     ev.warnings.forEach((w) => warn.push(escape(w) + '.'));
     if (ev.locked) warn.push('A game in this entry has started. Paper picks are saved before the games.');
     ev.same_game.forEach((g) => warn.push('Picks ' + joinList(g.legs.map((i) => String(i + 1))) + ' are from the same game. Their results move together, so ' +
-      (E.status === 'joint_estimate' ? 'they are priced with how such picks moved together in past games (below).' : 'they are priced only when every pair has a measured link.')));
+      (E.status === 'joint_estimate' ? (E.links && E.links.length ? 'they are priced with how such picks moved together in past games (below).' : 'they are priced together on the one number they share (below).') : 'they are priced only when every pair has a measured link.')));
     const perPick = E.breakeven_per_pick != null && n > 1 ? ' That is about <b>' + pct(E.breakeven_per_pick) + '</b> for each pick if they were independent and equally likely.' : '';
     const be = E.breakeven_probability != null ? '<p>Breakeven: all ' + n + ' must hit together at least <b>' + pct(E.breakeven_probability) + '</b> of the time to pay back the stake on average.' + perPick + '</p>'
       : E.breakeven_per_pick != null ? '<p>Breakeven: each pick needs about <b>' + pct(E.breakeven_per_pick) + '</b> (if they were independent and equally likely) for this payout table to pay back the stake on average.</p>' : '';
@@ -2018,7 +2339,10 @@ export function sportsFactory(host, doc, options) {
       const first = String(E.problems[0] || '');
       body = '<p><b>' + escape(first.charAt(0).toUpperCase() + first.slice(1)) + '.</b></p>' + be;
     } else if (E.status === 'not_calculated') {
-      body = be + '<p class="sp-muted">No chance of all of them hitting is shown. ' + escape(E.detail || 'Picks from one game need a measured link between them.') + '</p>';
+      const nr = E.expected_net_range;
+      body = be + '<p class="sp-muted">No chance of all of them hitting is shown. ' + escape(E.detail || 'Picks from one game need a measured link between them.') + '</p>' +
+        (E.bounds ? '<p class="sp-muted">Under any link the chance lies between ' + pct(E.bounds.low) + ' and ' + pct(E.bounds.high) + (E.independent_probability != null ? '; if the picks were unrelated it would be ' + pct(E.independent_probability) : '') + '.' +
+          (nr ? ' Expected profit across that range: ' + signedMoney(nr.low) + ' to ' + signedMoney(nr.high) + '.' : '') + '</p>' : '') + sameGameNoteHtml(E, n) + oddsBlockHtml(E, ev);
     } else if (E.status === 'needs_probabilities') {
       body = be + '<p class="sp-muted">Enter your chance for every pick to see the expected value.</p>';
     } else if (E.status === 'joint_estimate') {
@@ -2035,24 +2359,26 @@ export function sportsFactory(host, doc, options) {
       ].join('');
       const dist = ev.format === 'flex' ? '<p class="sp-dist">Chance of each result: ' + E.distribution.map((p, k) => ({ p, k })).reverse().map((x) => x.k + ' hit ' + pct(x.p)).join(' · ') + '</p>' : '';
       const fromHistory = ev.legs.some((l) => l.probability_source === 'history');
-      body = beBarHtml(E.joint_probability, E.breakeven_probability, E.bounds) + '<div class="sp-tiles">' + tiles + '</div>' + dist +
+      body = beBarHtml(E.joint_probability, E.breakeven_probability, E.bounds) + '<div class="sp-tiles">' + tiles + '</div>' + dist + sameGameNoteHtml(E, n) + oddsBlockHtml(E, ev) +
         '<p class="sp-note">Independence baseline: it assumes no pick affects another, using the chances entered above' + (fromHistory ? ' (some copied from history rates)' : '') + '. A starting point, not a forecast.</p>';
     }
     return '<div class="sp-eval">' + (warn.length ? '<ul class="sp-warn">' + warn.map((w) => '<li>' + w + '</li>').join('') + '</ul>' : '') + body + '</div>';
   }
   // Same-game estimate: the measured links between picks from one game,
   // priced with the chances entered above (lib/sports/joint.mjs).
-  const RELATION_TEXT = { same_player: 'one player', teammate: 'teammates', opponent: 'opponents' };
+  const RELATION_TEXT = { same_player: 'one player', teammate: 'teammates', opponent: 'opponents', game: 'same game' };
+  const TEAM_RELATION = { same_player: 'one team', teammate: 'same team', opponent: 'other team', game: 'same game' };
   function linkName(stats, relation) {
-    return (stats[0] === stats[1] ? label(stats[0]) : label(stats[0]) + ' and ' + label(stats[1]).toLowerCase()) + ', ' + RELATION_TEXT[relation];
+    const teamNum = stats.some((x) => x === 'team_margin' || x === 'team_points' || x === 'game_total');
+    return (stats[0] === stats[1] ? label(stats[0]) : label(stats[0]) + ' and ' + label(stats[1]).toLowerCase()) + ', ' + (teamNum ? TEAM_RELATION : RELATION_TEXT)[relation];
   }
   const signedLink = (x) => (x > 0 ? '+' : x < 0 ? '−' : '') + Math.abs(x).toFixed(2);
   function jointHtml(ev, E, n) {
     const tile = (name, value, sub) => '<div class="sp-tile"><span>' + name + '</span><b>' + value + '</b>' + (sub ? '<i>' + sub + '</i>' : '') + '</div>';
-    const netRange = E.expected_net_range ? signedMoney(E.expected_net_range.low) + ' to ' + signedMoney(E.expected_net_range.high) + ' across the range' : null;
+    const netRange = E.expected_net_range && E.expected_net_range.high - E.expected_net_range.low >= 0.005 ? signedMoney(E.expected_net_range.low) + ' to ' + signedMoney(E.expected_net_range.high) + ' across the range' : null;
     const tiles = [
       tile('All ' + n + ' hit', pct(E.joint_probability), 'same-game estimate ' + qualityBadge(E.quality)),
-      tile('Range', pct(E.range.low) + ' – ' + pct(E.range.high), 'from how sure each link is'),
+      E.links.length ? tile('Range', pct(E.range.low) + ' – ' + pct(E.range.high), 'from how sure each link is') : '',
       tile('If unrelated', pct(E.independent_probability), 'chances multiplied'),
       E.breakeven_probability != null ? tile('Breakeven', pct(E.breakeven_probability), 'all ' + n + ' hit') : '',
       tile('Expected back', money(E.expected_gross), 'on ' + money(ev.stake) + ' paper'),
@@ -2062,9 +2388,10 @@ export function sportsFactory(host, doc, options) {
     const links = '<ul class="sp-links">' + E.links.map((l) => '<li><b>Picks ' + (l.legs[0] + 1) + ' and ' + (l.legs[1] + 1) + '</b><span>' + escape(linkName(l.stats, l.relation)) + '</span>' +
       '<span class="sp-link-val">link ' + signedLink(l.link) + ' <i>(95%: ' + signedLink(l.low) + ' to ' + signedLink(l.high) + ')</i></span>' + qualityBadge(l.status) + '</li>').join('') + '</ul>';
     const why = E.quality === 'validated' ? '' : '<p class="sp-muted">Experimental: ' + escape(E.quality_reason || 'a link has not passed its check') + '.</p>';
-    return beBarHtml(E.joint_probability, E.breakeven_probability, E.range) + '<div class="sp-tiles">' + tiles + '</div>' + dist + '<p class="sp-label">How these picks moved together in past games</p>' + links + why +
-      '<p class="sp-note">The link runs from −1 to +1: above 0 means the two results went up and down together, 0 means unrelated. It is measured on the model’s misses in stored games (' + escape(E.as_of_date ? 'through ' + fmtDay(E.as_of_date) + ' ' + E.as_of_date.slice(0, 4) : 'stored seasons') +
-      ') and applied to the chances entered above, in ' + Number(E.simulation.draws).toLocaleString('en-US') + ' simulated games (seed ' + escape(E.simulation.seed) + ').' + (E.simulation.adjusted ? ' The links did not fit together exactly, so they were pulled slightly toward 0.' : '') + ' Picks from different games are treated as unrelated.</p>';
+    return beBarHtml(E.joint_probability, E.breakeven_probability, E.range) + '<div class="sp-tiles">' + tiles + '</div>' + dist + sameGameNoteHtml(E, n) + oddsBlockHtml(E, ev) +
+      (E.links.length ? '<p class="sp-label">How these picks moved together in past games</p>' + links : '') + why +
+      (!E.links.length ? '<p class="sp-note">Picks on the same number are priced exactly from the model’s chances; picks from different games are treated as unrelated.</p>' : '<p class="sp-note">The link runs from −1 to +1: above 0 means the two results went up and down together, 0 means unrelated. It is measured on the model’s misses in stored games (' + escape(E.as_of_date ? 'through ' + fmtDay(E.as_of_date) + ' ' + E.as_of_date.slice(0, 4) : 'stored seasons') +
+      ') and applied to the chances entered above, in ' + Number(E.simulation.draws).toLocaleString('en-US') + ' simulated games (seed ' + escape(E.simulation.seed) + ').' + (E.simulation.adjusted ? ' The links did not fit together exactly, so they were pulled slightly toward 0.' : '') + ' Picks from different games are treated as unrelated.</p>');
   }
   // Break-even vs chance: one bar so the gap reads at a glance.
   function beBarHtml(chance, breakeven, range) {
@@ -2104,7 +2431,10 @@ export function sportsFactory(host, doc, options) {
   function paintChecked(namesFilled) {
     if (namesFilled) paint(BUILDER, 'legs', legsHtml());
     else {
-      draft().legs.forEach((_, i) => { const el = root(BUILDER)?.querySelector('[data-sp-hist="' + i + '"]'); if (el) el.innerHTML = histHtml(i); });
+      draft().legs.forEach((_, i) => {
+        const el = root(BUILDER)?.querySelector('[data-sp-hist="' + i + '"]'); if (el) el.innerHTML = histHtml(i);
+        const note = root(BUILDER)?.querySelector('[data-sp-price-note="' + i + '"]'); if (note) note.innerHTML = legPriceNoteHtml(i);
+      });
       paint(BUILDER, 'use-all', useAllHtml());
     }
     paint(BUILDER, 'eval', evalHtml());
@@ -2128,13 +2458,17 @@ export function sportsFactory(host, doc, options) {
       let filled = false;
       data.legs.forEach((e, i) => {
         const l = d.legs[i];
-        if (l && l.player_id === e.player_id && l.game_id === e.game_id && !l.player_name) {
+        if (l && isTeamPick(l) && e.kind === 'team' && l.game_id === e.game_id && !l.matchup) {
+          Object.assign(l, { matchup: e.matchup, game_start_utc: e.game_start_utc, label: e.label });
+          filled = true;
+        } else if (l && !isTeamPick(l) && l.player_id === e.player_id && l.game_id === e.game_id && !l.player_name) {
           Object.assign(l, { player_name: e.player_name, team: e.team, matchup: e.matchup, game_start_utc: e.game_start_utc });
           filled = true;
         }
       });
       if (filled) saveDraft();
       if (state.page === BUILDER) paintChecked(filled);
+      if (pb.useAllPending) { pb.useAllPending = false; if (state.page === BUILDER) useModelAll(); }
     }, (err) => {
       if (seq !== pb.evalSeq) return;
       pb.evaluation = null; pb.evalErr = err;
@@ -2164,17 +2498,18 @@ export function sportsFactory(host, doc, options) {
   const OUTCOME_TEXT = { win: 'Won', loss: 'Lost', partial: 'Partly paid', refund: 'Stake back' };
   function payoutText(e) {
     const n = e.legs.length;
+    if (e.format === 'parlay' && e.payouts[n] > 1) return 'Parlay at ' + escape(oddsText({ decimal: Number(e.payouts[n]) })) + (Array.isArray(e.prices) ? ' (each pick’s odds multiplied)' : '');
     const keys = Object.keys(e.payouts).map(Number).sort((a, b) => b - a);
     return keys.map((k) => escape(e.payouts[k]) + '× ' + (k === n ? (n === 1 ? 'if it hits' : 'all ' + n + ' hit') : k + ' of ' + n)).join(' · ');
   }
   function legResultHtml(l) {
     if (l.result) {
-      const actual = l.actual != null ? ' · ' + escape(l.actual) : '';
+      const actual = l.actual != null ? ' · ' + escape(isTeamPick(l) && l.market !== 'total' && l.market !== 'team_total' ? (l.actual > 0 ? 'won by ' + l.actual : l.actual < 0 ? 'lost by ' + Math.abs(l.actual) : 'tied') : l.actual) : '';
       const why = l.result === 'void' ? (l.game_status === 'final' ? ' · did not play' : ' · game ' + escape(l.game_status)) : '';
       return '<span class="sp-res sp-res-' + escape(l.result) + '">' + RESULT_TEXT[l.result] + actual + why + '</span>';
     }
     const started = Date.parse(l.game_start_utc) <= Date.now();
-    return '<span class="sp-res">' + (started ? (l.sport === 'nfl' && l.game_status === 'final' ? 'No stat in the final file' : 'Waiting for the final stats') : 'Not started') + '</span>';
+    return '<span class="sp-res">' + (started ? (isTeamPick(l) ? 'Waiting for the final score' : l.sport === 'nfl' && l.game_status === 'final' ? 'No stat in the final file' : 'Waiting for the final stats') : 'Not started') + '</span>';
   }
   function badgeHtml(st) {
     if (st.state === 'settled') return '<span class="sp-badge sp-badge-' + escape(st.outcome) + '">' + escape(OUTCOME_TEXT[st.outcome] || st.outcome) + '</span>';
@@ -2209,11 +2544,12 @@ export function sportsFactory(host, doc, options) {
   }
   function entryCardHtml(e) {
     const st = e.settlement;
-    const legs = e.legs.map((l) => '<li><span>' + escape(l.player_name || l.player_id) + ' · ' + escape(label(l.stat)) + ' ' + sideWord(l.side) + ' ' + escape(l.threshold) +
-      ' <span class="sp-muted">' + matchupText(l.matchup) + (l.model && l.model.status === 'ok' ? ' · model ' + pct(l.model.probability) : '') + (l.probability != null ? ' · used ' + pct(l.probability) + (l.probability_source ? ' ' + escape(SOURCE_TEXT[l.probability_source] || '') : '') : '') + '</span></span>' + legResultHtml(l) + '</li>').join('');
+    const legs = e.legs.map((l) => '<li><span>' + (isTeamPick(l) ? escape(l.label || teamPickLabel(l)) : escape(l.player_name || l.player_id) + ' · ' + escape(label(l.stat)) + ' ' + sideWord(l.side) + ' ' + escape(l.threshold)) +
+      ' <span class="sp-muted">' + matchupText(l.matchup) + (l.model && l.model.status === 'ok' ? ' · model ' + pct(l.model.probability) : '') + (l.probability != null ? ' · used ' + pct(l.probability) + (l.probability_source ? ' ' + escape(SOURCE_TEXT[l.probability_source] || '') : '') : '') +
+      (l.price > 1 ? ' · at ' + escape(oddsText({ decimal: l.price })) : '') + '</span></span>' + legResultHtml(l) + '</li>').join('');
     const money2 = st.state === 'settled' ? '<p class="sp-entry-money">Paid back ' + money(st.gross) + ' · <b class="' + (st.net > 0 ? 'sp-pos' : st.net < 0 ? 'sp-neg' : '') + '">' + signedMoney(st.net) + '</b>' + (st.manual ? ' <span class="sp-muted">entered by hand' + (st.note ? ': ' + escape(st.note) : '') + '</span>' : '') + '</p>'
       : st.state === 'review' ? '<p class="sp-entry-money">' + escape(st.reason || 'Enter what the app paid.') + '</p>' : '';
-    return '<li class="sp-entry' + (st.state === 'withdrawn' ? ' is-withdrawn' : '') + '" data-sp-entry="' + escape(e.entry_id) + '"><div class="sp-entry-head"><span>' + escape(fmtWhen(e.created_utc, zone())) + ' · ' + escape(OPERATOR_NAMES[e.operator] || e.operator) + ' · ' + (e.format === 'flex' ? 'Flex' : 'Power') + ' · ' + money(e.stake) + ' paper</span>' + badgeHtml(st) + '</div>' +
+    return '<li class="sp-entry' + (st.state === 'withdrawn' ? ' is-withdrawn' : '') + '" data-sp-entry="' + escape(e.entry_id) + '"><div class="sp-entry-head"><span>' + escape(fmtWhen(e.created_utc, zone())) + ' · ' + escape(OPERATOR_NAMES[e.operator] || e.operator) + ' · ' + (e.format === 'flex' ? 'Flex' : e.format === 'parlay' ? 'Parlay' : 'Power') + ' · ' + money(e.stake) + ' paper</span>' + badgeHtml(st) + '</div>' +
       '<p class="sp-entry-pay">' + payoutText(e) + '</p><ul class="sp-entry-legs">' + legs + '</ul>' + money2 +
       (savedEvalText(e.evaluation) ? '<p class="sp-note">' + escape(savedEvalText(e.evaluation)) + '</p>' : '') +
       (e.note ? '<p class="sp-entry-note">' + escape(e.note) + '</p>' : '') +
@@ -2256,15 +2592,15 @@ export function sportsFactory(host, doc, options) {
 
   function builderHtml(s) {
     const steps = [
-      ['Add picks', 'Add 1 to 6 player picks here or from a player on the NBA and NFL pages: stat, over or under, and the line.'],
-      ['Enter the payout', 'Type the payout your app shows for this exact entry, power or flex. The site never guesses one.'],
-      ['Check the odds', 'Each pick shows how often the player cleared the line before and the model’s chance. Enter your own chance or copy one to see the expected value; picks from one game are flagged.'],
+      ['Add picks', 'Add 1 to 6 picks: player lines (stat, over or under, the line) or game bets (who wins, the spread, win by X or more, the game total, a team total). Add them here, from a player on the NBA and NFL pages, or from a game’s Team bets.'],
+      ['Enter the payout', 'Pick’em apps (PrizePicks, Betr): type the power or flex payout. Sportsbooks and Kalshi: choose Parlay and type each bet’s odds (−110, 1.91 or 62¢) or the whole parlay’s price. The site never guesses one.'],
+      ['Check the odds', 'Each pick shows its record against the line, the model’s chance and fair odds (game bets also the books’). The entry shows the chance all win, fair odds, your odds and the edge. Picks from one game are priced with how such results moved together in past games; picks on the same number (LAL to win and LAL −5.5) are priced exactly together.'],
       ['Save a paper pick', 'Save before the games start. The journal grades it from the final stats.'],
       ['Screenshots', 'Send a slip screenshot to Claude or ChatGPT; it can open this page with the picks filled in for you to check and save.'],
     ];
     return dayStrip(s) + '<div class="sp-grid"><div class="sp-board">' +
       '<h3>Add a pick</h3><div data-sp-part="add">' + addHtml() + '</div>' +
-      '<h3 class="sp-gap">Entry</h3><div data-sp-part="legs">' + legsHtml() + '</div>' + settingsHtml() +
+      '<h3 class="sp-gap">Entry</h3><div data-sp-part="legs">' + legsHtml() + '</div><div data-sp-part="settings">' + settingsHtml() + '</div>' +
       '<div data-sp-part="payouts">' + payoutsHtml() + '</div>' +
       '<div data-sp-part="eval" aria-live="polite">' + evalHtml() + '</div>' +
       '<div data-sp-part="save">' + saveHtml() + '</div><div data-sp-part="save-msg" aria-live="polite">' + saveMsgHtml() + '</div></div>' +
@@ -2501,6 +2837,18 @@ export function sportsFactory(host, doc, options) {
     }
     if (lg === 'nba' && (b = t.closest('[data-sp-nba-export]'))) { exportNBAResearch(page, b.getAttribute('data-sp-nba-export'), b.getAttribute('data-sp-nba-season')); return true; }
     if (lg === 'nba' && (b = t.closest('[data-sp-nba-evaluate], [data-sp-nba-save]'))) { evaluateNBAPair(page, b.getAttribute('data-sp-nba-evaluate') || b.getAttribute('data-sp-nba-save'), b.hasAttribute('data-sp-nba-save')); return true; }
+    if (t.closest('[data-sp-tb-add]') && L.game && L.game.game) {
+      const g = L.game.game, s = tbState(lg), fc = L.game.team_bets && L.game.team_bets.forecast;
+      const def = fc ? tbDefaultLine(fc, g, s, lg) : null;
+      const raw = s.market === 'moneyline' ? null : s.line === '' ? def : Number(s.line);
+      // The checker reads "win by 7.5" as 8 or more; the pick takes whole points.
+      const line = s.market === 'win_by' && Number.isFinite(raw) ? Math.ceil(raw) : raw;
+      const b = { market: s.market, team: s.market === 'total' ? null : s.team, side: s.market === 'moneyline' || s.market === 'spread' || s.market === 'win_by' ? 'over' : s.side, line };
+      const err = addTeamPick(lg, g, b);
+      const n = draft().legs.length;
+      paint(page, 'tb-msg', err ? '<span class="sp-bad">' + escape(err) + '</span>' : 'Added ' + escape(teamPickLabel(b)) + '. The entry has ' + n + ' pick' + (n === 1 ? '' : 's') + '. <button type="button" class="sp-link" data-sp-goto="' + BUILDER + '">Open Pick Builder</button>');
+      return true;
+    }
     if (t.closest('[data-sp-record-export]')) { exportPropRecord(page, lg); return true; }
     if (t.closest('[data-sp-record-refresh]')) { loadPropRecord(page, lg); return true; }
     if ((b = t.closest('[data-sp-props-refresh]'))) { if (!b.disabled && !L.propsPending) loadBoard(page, lg, true); return true; }
@@ -2595,15 +2943,30 @@ export function sportsFactory(host, doc, options) {
       const legEl = t.closest('[data-sp-leg]');
       if (t.matches('[data-sp-leg-side]') && legEl) {
         const l = d.legs[Number(legEl.getAttribute('data-sp-leg'))];
-        if (l) { l.side = t.value; clearChance(legEl, l); saveDraft(); scheduleEval(); }
-      } else if (t.matches('[data-sp-operator]')) { d.operator = t.value; saveDraft(); scheduleEval(); }
-      else if (t.matches('[data-sp-format]')) { d.format = t.value; d.payouts = {}; saveDraft(); paint(BUILDER, 'payouts', payoutsHtml()); scheduleEval(); }
+        if (l) {
+          l.side = t.value; clearChance(legEl, l);
+          if (isTeamPick(l)) { l.label = teamPickLabel(l); const lab = legEl.querySelector('[data-sp-tlabel]'); if (lab) lab.textContent = l.label; }
+          else { const ms = legEl.querySelector('[data-sp-ms]'); if (ms) ms.textContent = milestone(l.side, l.threshold) || ''; }
+          saveDraft(); scheduleEval();
+        }
+      } else if (t.matches('[data-sp-operator]')) {
+        d.operator = t.value;
+        // Sportsbooks and Kalshi price bets with odds; pick'em apps use a payout table.
+        const odds = ODDS_APPS.indexOf(d.operator) >= 0;
+        if (odds !== (d.format === 'parlay') && d.operator !== 'other') { d.format = odds ? 'parlay' : 'power'; d.payouts = {}; formatChanged('[data-sp-operator]'); }
+        saveDraft(); scheduleEval();
+      }
+      else if (t.matches('[data-sp-format]')) { d.format = t.value; d.payouts = {}; saveDraft(); formatChanged('[data-sp-format]'); scheduleEval(); }
       else if (t.matches('[data-sp-add-sport]')) {
         const A = pb.add;
         A.sport = t.value; A.results = null; A.playerId = null; A.player = null;
+        A.board = null; A.gameId = null; A.game = null; A.gbMsg = null;
+        if (A.mode === 'game') { paint(BUILDER, 'gb-add', gameAddHtml()); loadAddBoard(); return; }
         paint(BUILDER, 'add-results', ''); paint(BUILDER, 'add-form', '');
         if (A.query.trim().length >= 2) addSearch(A.query);
       }
+      else if (t.matches('[data-sp-gb-game]')) gbOpenGame(t.value);
+      else if (t.matches('[data-sp-gb]')) gbChange(t);
     });
     el.addEventListener('input', (event) => {
       const t = event.target;
@@ -2626,7 +2989,31 @@ export function sportsFactory(host, doc, options) {
       const legEl = t.closest('[data-sp-leg]');
       const l = legEl ? d.legs[Number(legEl.getAttribute('data-sp-leg'))] : null;
       if (t.matches('[data-sp-add-search]')) addSearch(t.value);
-      else if (t.matches('[data-sp-leg-line]') && l) { l.threshold = t.value === '' ? '' : Number(t.value); clearChance(legEl, l); saveDraft(); scheduleEval(); }
+      else if (t.matches('[data-sp-gb]')) gbChange(t);
+      else if (t.matches('[data-sp-leg-line]') && l) {
+        l.threshold = t.value === '' ? '' : Number(t.value); clearChance(legEl, l);
+        const ms = legEl.querySelector('[data-sp-ms]');
+        if (ms) ms.textContent = milestone(l.side, l.threshold) || '';
+        saveDraft(); scheduleEval();
+      }
+      else if (t.matches('[data-sp-leg-tline]') && l) {
+        l.line = t.value === '' ? '' : Number(t.value); l.label = teamPickLabel(l); clearChance(legEl, l);
+        const lab = legEl.querySelector('[data-sp-tlabel]');
+        if (lab) lab.textContent = l.label;
+        saveDraft(); scheduleEval();
+      }
+      else if (t.matches('[data-sp-leg-price]') && l) {
+        l.price = String(t.value).slice(0, 12);
+        const note = legEl.querySelector('[data-sp-price-note]');
+        if (note) note.innerHTML = legPriceNoteHtml(Number(legEl.getAttribute('data-sp-leg')));
+        saveDraft(); paint(BUILDER, 'payouts', payoutsHtml()); scheduleEval();
+      }
+      else if (t.matches('[data-sp-parlay]')) {
+        d.parlayPrice = String(t.value).slice(0, 12);
+        const note = root(BUILDER)?.querySelector('[data-sp-parlay-note]');
+        if (note) note.innerHTML = parlayNoteHtml();
+        saveDraft(); scheduleEval();
+      }
       else if (t.matches('[data-sp-leg-chance]') && l) {
         const v = Number(t.value);
         l.probability = t.value !== '' && v >= 1 && v <= 99 ? Math.round(v) / 100 : null;
@@ -2654,6 +3041,8 @@ export function sportsFactory(host, doc, options) {
         else if (what === 'evaluate') scheduleEval(0);
         else if (what === 'add-search') addSearch(pb.add.query);
         else if (what === 'add-player') addOpenPlayer(pb.add.playerId);
+        else if (what === 'add-board') { paint(BUILDER, 'gb-add', '<p class="sp-loading">Loading games…</p>'); loadAddBoard(); }
+        else if (what === 'add-game') gbOpenGame(pb.add.gameId);
         else load(page, true);
         return;
       }
@@ -2684,6 +3073,23 @@ export function sportsFactory(host, doc, options) {
       }
     });
   }
+  // The game-bet form: a new bet kind or team redraws it, a line only the answer.
+  function gbChange(t) {
+    const s = gbState(), k = t.getAttribute('data-sp-gb');
+    if (['market', 'team', 'side', 'line'].indexOf(k) < 0) return;
+    s[k] = String(t.value).slice(0, 12);
+    pb.add.gbMsg = null;
+    if (k === 'market') { s.line = ''; if (s.market === 'win_by' || s.market === 'moneyline' || s.market === 'spread') s.side = 'over'; }
+    if (k === 'market' || k === 'team') { paint(BUILDER, 'gb-form', gbFormHtml()); focusIn(BUILDER, '[data-sp-gb="' + k + '"]'); }
+    else paint(BUILDER, 'gb-result', gbResultHtml());
+  }
+  // Power / flex / parlay changes which boxes each pick shows.
+  function formatChanged(sel) {
+    paint(BUILDER, 'settings', settingsHtml());
+    paint(BUILDER, 'legs', legsHtml());
+    paint(BUILDER, 'payouts', payoutsHtml());
+    focusIn(BUILDER, sel);
+  }
   function clearChance(legEl, l) {
     l.probability = null; l.probability_source = null;
     const input = legEl.querySelector('[data-sp-leg-chance]'), src = legEl.querySelector('[data-sp-src]');
@@ -2700,11 +3106,33 @@ export function sportsFactory(host, doc, options) {
       legEl.querySelector('[data-sp-src]').textContent = SOURCE_TEXT.model;
     }
   }
+  function useModelAll() {
+    draft().legs.forEach((l, i) => { const e = evalLeg(i); if (e && e.model && e.model.status === 'ok') useModel(i, e.model.probability); });
+    saveDraft(); scheduleEval(0);
+  }
   function builderClick(t) {
     const d = draft();
     const hit = (sel) => t.closest(sel);
     let b;
     if ((b = hit('[data-sp-add-player]'))) { addOpenPlayer(b.getAttribute('data-sp-add-player')); return; }
+    if ((b = hit('[data-sp-add-mode]'))) {
+      const A = pb.add, mode = b.getAttribute('data-sp-add-mode') === 'game' ? 'game' : 'player';
+      if (A.mode !== mode) { A.mode = mode; paint(BUILDER, 'add', addHtml()); if (mode === 'game' && (!A.board || A.board.sport !== A.sport)) loadAddBoard(); }
+      focusIn(BUILDER, '[data-sp-add-mode="' + mode + '"]');
+      return;
+    }
+    if (hit('[data-sp-gb-add]')) { gbAdd(); return; }
+    if ((b = hit('[data-sp-usebook]'))) {
+      const i = Number(b.getAttribute('data-sp-usebook')), p = Number(b.getAttribute('data-prob'));
+      const l = d.legs[i], legEl = b.closest('[data-sp-leg]');
+      if (l && legEl && p > 0 && p < 1) {
+        l.probability = p; l.probability_source = 'book';
+        legEl.querySelector('[data-sp-leg-chance]').value = String(Math.round(p * 100));
+        legEl.querySelector('[data-sp-src]').textContent = SOURCE_TEXT.book;
+        saveDraft(); scheduleEval(0);
+      }
+      return;
+    }
     if ((b = hit('[data-sp-remove]'))) {
       d.legs.splice(Number(b.getAttribute('data-sp-remove')), 1);
       d.payouts = {}; saveDraft(); pb.msg = null;
@@ -2729,13 +3157,14 @@ export function sportsFactory(host, doc, options) {
       return;
     }
     if (hit('[data-sp-usemodel-all]')) {
-      d.legs.forEach((l, i) => { const e = evalLeg(i); if (e && e.model && e.model.status === 'ok') useModel(i, e.model.probability); });
-      saveDraft(); scheduleEval(0);
+      // Clicked while a check is still running: apply when it answers.
+      if (!pb.evaluation) { pb.useAllPending = true; return; }
+      useModelAll();
       return;
     }
     if (hit('[data-sp-save]')) { saveEntry(); return; }
     if (hit('[data-sp-clear]')) {
-      state.draft = blankDraft(d); saveDraft();
+      state.draft = blankDraft(d); saveDraft(); pb.useAllPending = false;
       pb.evaluation = null; pb.evalErr = null; pb.msg = null; pb.prefill = null; pb.evalSeq++;
       paintEntry();
       return;
@@ -2795,5 +3224,6 @@ export function sportsFactory(host, doc, options) {
     if (L.view === 'record') loadPropRecord(page, lg);
     else if (L.view === 'games' && !L.propsPending) { loadBoard(page, lg); paint(page, 'board', boardHtml(lg)); }
   });
-  return { load };
+  // priceOf is returned for the smoke test, which compares it with parsePrice.
+  return { load, priceOf, neverBoth };
 }

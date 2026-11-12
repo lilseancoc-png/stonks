@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { nbaModelLeague, SOFT_DEFENSE, TOUGH_DEFENSE } from './fixtures/sports-model.mjs';
 import { packRows } from '../lib/sports/rows.mjs';
 import { buildLeaders, buildTeams, buildPlayerLog, buildGame, CHART_LIMIT, LOG_LIMIT, LEADER_WINDOWS, POSITION_GROUPS, shownStats, contextStats, matchupView, teamTable, MEETINGS_LIMIT } from '../lib/sports/read.mjs';
-import { statIds } from '../lib/sports/schema.mjs';
+import { statIds, statValue } from '../lib/sports/schema.mjs';
 import { handleSportsRequest } from '../lib/sports/http.mjs';
 import { SPORTS_PREFIX } from '../lib/sports/store.mjs';
 import { positionGroup } from '../lib/sports/models.mjs';
@@ -189,5 +189,16 @@ res = await call({ sports: 'leaders', sport: 'nba' }, { sub: 'm', tr: true, tp: 
 ok(res.statusCode >= 400 && res.statusCode < 500 && !res.body.players, 'a non-Owner gets nothing');
 res = await call({ sports: 'player', sport: 'nba', id: 'matl0' });
 eq(res.body.games.length, rows0.length, 'the page route returns every stored game for the charts');
+
+// Double-doubles and triple-doubles (Kalshi player markets): 10+ in two or
+// three of points, rebounds, assists, steals and blocks, read as 1 or 0.
+{
+  const row = (stats) => ({ stats });
+  eq([statValue(row({ points: 22, rebounds: 11, assists: 4 }), 'double_double'), statValue(row({ points: 22, rebounds: 11, assists: 4 }), 'triple_double')], [1, 0], '22-11-4 is a double-double');
+  eq(statValue(row({ points: 12, rebounds: 10, assists: 10, steals: 1 }), 'triple_double'), 1, '12-10-10 is a triple-double');
+  eq(statValue(row({ points: 30, rebounds: 4, assists: 3, blocks: 10 }), 'double_double'), 1, 'blocks count');
+  eq(statValue(row({ points: 30, rebounds: 9 }), 'double_double'), null, 'a row missing assists has no answer');
+  ok(statIds('nba').includes('double_double') && !statIds('nfl').includes('double_double'), 'NBA only');
+}
 
 console.log(`Sports stats smoke passed (${checks} checks).`);
