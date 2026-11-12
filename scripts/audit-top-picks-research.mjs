@@ -5,6 +5,7 @@ import { readFile, writeFile, readdir } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
+import { streakTrendRead, STREAK_TREND_MIN_DAYS } from '../lib/streaks.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const args = Object.fromEntries(process.argv.slice(2).map(arg => {
@@ -24,6 +25,7 @@ const build = await source('scripts/build.mjs');
 const shadow = await source('lib/shadow-signals.mjs');
 const economics = await source('lib/option-entry-economics.mjs');
 const evidence = await source('lib/evidence-record.mjs');
+await source('lib/streaks.mjs');
 function section(start, end) {
   const a = build.indexOf(start), b = build.indexOf(end, a + start.length);
   if (a < 0 || b < 0) throw new Error(`Source boundary changed: ${start}`);
@@ -35,7 +37,11 @@ const aiCandidates = section('export function aiGraderCandidates(', 'export asyn
 const prompt = section('export function buildThesisUserMessage(', 'function parseThesisResponse(');
 const daily = section('export function appendGradesDaily(', 'export async function writeGradesDaily(');
 const checks = [
-  ['streak-vote-reads-current-run', /streakRow\?\.current/.test(technicals) && /sameDays >= 3/.test(technicals)],
+  ['streak-vote-reads-current-run', /streakRow\?\.current/.test(technicals) && /streakTrendRead\(cs,/.test(technicals)
+    && STREAK_TREND_MIN_DAYS === 3
+    && streakTrendRead({ sameDays: 2, color: 'green' }, 1).vote === 0
+    && streakTrendRead({ sameDays: 3, color: 'green', volumeTrend: 'rising' }, 1).vote === 1
+    && streakTrendRead({ sameDays: 3, color: 'green', volumeTrend: 'falling' }, 1).vote === 0],
   ['streak-vote-does-not-read-snapped-or-ma-context', !/lastEnded|maContext/.test(technicals)],
   ['timing-kept-out-of-base-conviction', /const base = fund.score \+ tech.score \+ mech.score \+ narr.score/.test(score)],
   ['ai-candidates-screened-on-existing-score', /preClearsBar/.test(aiCandidates) && /Math.abs\(r.total\) >= minConv/.test(aiCandidates)],

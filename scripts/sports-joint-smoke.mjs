@@ -231,6 +231,7 @@ const L_ = (player_id, team, game_id, stat, side, probability, extra = {}) => ({
   near(pe.push_chance, 0.05, 'landing on 6 pushes the spread while win-by-6 wins', 1e-6);
   near(pe.expected_gross, 10 * (0.4 * 1.9 * 1.9 + 0.05 * 1.9), 'the pushed pick drops out of the parlay', 0.01);
   eq(pe.odds.edge, pe.expected_roi, 'a parlay’s edge counts the pushed pick’s return');
+  eq(pe.expected_net_range, { low: pe.expected_net, high: pe.expected_net }, 'an exact shared-number parlay has one profit value, including push returns');
   ok(pe.odds.edge > pe.joint_probability * 1.9 * 1.9 - 1, 'more than all-win alone');
   // Win by 6+ "yes" and win by 12+ "no" (side under): a 6-11 point win.
   const range = withLatent([T('win_by', 'lal', { line: 6, probability: 0.45 }), T('win_by', 'lal', { line: 12, side: 'under', probability: 0.75 })], game);
@@ -245,6 +246,13 @@ const L_ = (player_id, team, game_id, stat, side, probability, extra = {}) => ({
   const withTotal = { nba: { ...joints.nba, pairs: { ...joints.nba.pairs, 'game_total|points|game': { stats: ['game_total', 'points'], relation: 'game', link: 0.25, interval: { low: 0.2, high: 0.3 }, status: 'validated' } } } };
   const mx2 = evaluateOutcomes({ legs: mixed, groups: sameGameGroups(mixed), joints: withTotal, stake: 10, format: 'power', payouts: { 2: 3 } });
   near(mx2.joint_probability, bvnUpper(invNorm(0.5), invNorm(0.45), 0.25), 'priced with the measured game link', 0.006);
+  const pushedMixed = mixed.map((l, i) => ({ ...l, probability: i ? 0.55 : 0.4, push: i ? 0.05 : 0.1 }));
+  const unlinkedPushes = evaluateOutcomes({ legs: pushedMixed, groups: sameGameGroups(pushedMixed), joints, stake: 10, format: 'parlay', payouts: { 2: 3 }, prices: [1.9, 1.8] });
+  ok(!('expected_net_range' in unlinkedPushes), 'missing links plus pushes cannot use an all-win-only profit bound');
+  const zeroLink = { nba: { pairs: { 'game_total|points|game': { stats: ['game_total', 'points'], relation: 'game', link: 0, interval: { low: 0, high: 0 }, status: 'validated' } } } };
+  const independentPushes = evaluateOutcomes({ legs: pushedMixed, groups: sameGameGroups(pushedMixed), joints: zeroLink, stake: 10, format: 'parlay', payouts: { 2: 3 }, prices: [1.9, 1.8] });
+  near(independentPushes.expected_net, 10 * ((0.4 * 1.9 + 0.1) * (0.55 * 1.8 + 0.05) - 1), 'two distinct game numbers include every independent push payout', 0.05);
+  eq(independentPushes.expected_net_range, { low: independentPushes.expected_net, high: independentPushes.expected_net }, 'fixed measured links give the same full return at both endpoints');
   eq(relationOf({ player_id: 'game:g1', stat: 'game_total' }, { player_id: 'lbj', stat: 'points' }), 'game');
   eq(linkLabel(['team_margin', 'points'], 'same_player'), 'team margin and points, one team');
   eq(GAME_STATS, ['team_margin', 'team_points', 'game_total']);

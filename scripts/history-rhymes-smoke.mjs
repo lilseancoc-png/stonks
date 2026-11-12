@@ -173,6 +173,13 @@ const rhymes = buildHistoryRhymes({ builtAtIso, series, fred, aiCapex, accelerat
   assert.equal(st(gpu(2, 3.0, 2.6))['price-falls'].status, 'lit', 'down 13% over three months');
   // Capex intensity names each period it compares.
   assert.match(st({})['capex-intensity'].now, /27% of revenue for the group over the last twelve months and 19% the fiscal year before/);
+  const fallingSupplier = { SMH: stock('SMH', { fiftyTwoWeekHigh: 100 }, { spot: 70, etf: true }) };
+  assert.equal(st({ aiCapex: null, chains: fallingSupplier })['leaders-crack'].status, 'unknown', 'a supplier drawdown cannot establish that spending is still rising without spending growth');
+  assert.equal(st({ aiCapex: { totals: { revenue: { capexYoyPct: -10 } } }, chains: fallingSupplier })['leaders-crack'].status, 'clear', 'falling spending does not light the supplier-plus-growing-spending sign');
+  const noCash = st({ chains: { CRWV: stock('CRWV', { operatingCashFlow: -5e9, capitalAllocation: { capexTtm: 10e9 } }) } })['capex-vs-cash'];
+  assert.equal(noCash.status, 'lit', 'known negative operating cash flow with positive capital spending is strain, not missing data');
+  assert.match(noCash.now, /negative.*operating cash flow|operating cash flow.*negative/i);
+  assert.doesNotMatch(noCash.now, /missing|NaN|Infinity/);
   // Timeline entries with a rounded date carry the label to show.
   const rr = rhymes.cases.find((c) => c.id === 'railroads');
   assert.equal(rr.timeline[0].when, 'Summer 1845');

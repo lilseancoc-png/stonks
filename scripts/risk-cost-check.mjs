@@ -17,6 +17,7 @@ import * as current from './build.mjs';
 import { entryPolicyFixture } from './entry-policy-smoke.mjs';
 import { bsPrice, yearsToExpiry } from '../lib/greeks.mjs';
 import { entryVolatilityRisk } from '../lib/entry-volatility-risk.mjs';
+import { checkDependencyRefresh } from './dependency-cost-contract.mjs';
 
 const root=fileURLToPath(new URL('..',import.meta.url));
 const git=(...args)=>execFileSync('git',args,{cwd:root,encoding:'utf8',maxBuffer:32*1024*1024,stdio:['ignore','pipe','pipe']}).trim();
@@ -46,9 +47,10 @@ const dataWriteSites={baseline:count(original,/\bwriteFile\s*\(/g),current:count
 // Recurring cost: schedules, new serverless functions (Hobby allows 12),
 // dependencies, Vercel crons/functions, provider budgets and the store layer.
 const status=git('diff',ref,'--name-status').split('\n').filter(Boolean).map(line=>line.split('\t'));
+const dependencyUpdates=checkDependencyRefresh(JSON.parse(git('show',ref+':package.json')),JSON.parse(await readFile(resolve(root,'package.json'),'utf8')),JSON.parse(git('show',ref+':package-lock.json')),JSON.parse(await readFile(resolve(root,'package-lock.json'),'utf8')));
 const recurringCostChanges=status.filter(([st,path])=>path.startsWith('.github/workflows/')
   || (path.startsWith('api/') && st.startsWith('A'))
-  || /(?:package-lock\.json|ai-budget|ai-ledger|private-store|data-store)/.test(path)).map(([,path])=>path);
+  || /(?:ai-budget|ai-ledger|private-store|data-store)/.test(path)).map(([,path])=>path);
 const vercelAt=(src)=>{ try { const v=JSON.parse(src); return JSON.stringify({crons:v.crons||null,functions:v.functions||null}); } catch { return null; } };
 const vercelBefore=tryGit('show',ref+':vercel.json');
 if(vercelBefore!=null && vercelAt(vercelBefore)!==vercelAt(await readFile(resolve(root,'vercel.json'),'utf8'))) recurringCostChanges.push('vercel.json (crons or functions)');
@@ -123,8 +125,9 @@ try{
   const afterPrompt=current.buildThesisUserMessage(entryPolicyFixture().row,'call',null);
   assert.equal(attempts,0);
   console.log(JSON.stringify({baselineRef:git('rev-parse',ref),networkRequests:attempts,dataWriteSites,
+    dependencyUpdates,
     extraScheduledJobs:0,extraDataFetches:0,extraStorageOperations:0,newModelCallSites:0,
-    providerBudgetsModelsAndDependenciesUnchanged:true,stockGradesMatchBaselineAcross32Cases:true,
+    providerBudgetsModelsAndDependencySetUnchanged:true,stockGradesMatchBaselineAcross32Cases:true,
     timing:{baseline:timingBefore,current:timingAfter},
     oneExpirySelection:{baseline:selectionBefore,current:selectionAfter},
     fourteenFetchedExpirations:{baseline:stressBefore,current:stressAfter,contractsEvaluated:result.economics.comparison.evaluated},

@@ -95,6 +95,10 @@ assert.equal(r.statusCode, 405);
 // Site-wide daily cap and full inbox (pure).
 let doc = { version: 1, messages: [], recent: Array.from({ length: contact.LIMITS.SITE_DAY }, (_, i) => ({ s: 's' + i, at: now, d: 'd' + i })) };
 assert.equal(contact.addMessage(doc, { title: 'a', body: 'hello', name: '', contacts: [] }, { sender: 'new', now }).status, 'site-cap');
+const tied = { version: 1, messages: [], recent: [] };
+for (const title of ['first', 'second', 'third']) contact.addMessage(tied, { title, body: 'same millisecond', contacts: [] }, { sender: 'tie', now });
+assert.deepEqual(contact.inboxView(tied).messages.map(m => m.title), ['third', 'second', 'first'], 'timestamp ties preserve newest append first');
+assert.deepEqual(tied.messages.map(m => m.title), ['first', 'second', 'third'], 'reading the inbox does not reorder storage');
 doc = { version: 1, recent: [], messages: Array.from({ length: contact.LIMITS.MAX_STORED }, (_, i) => ({ id: 'm' + i, at: new Date(now - i * 1000).toISOString(), title: 't', body: 'b', contacts: [], read: false })) };
 assert.equal(contact.addMessage(doc, { title: 'a', body: 'hello', name: '', contacts: [] }, { sender: 'x', now }).status, 'full');
 doc.messages[5].read = true;

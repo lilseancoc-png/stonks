@@ -167,7 +167,7 @@ try {
   preview.setScenario('normal');
   // Exercise the shipped page with the existing cached payload as well
   // (skipped when no hydrated data/ folder is present).
-  const cached = existsSync(resolve(process.cwd(), 'data/streaks.json')) ? await createStreaksPreview() : null;
+  const cached = existsSync(resolve(process.cwd(), 'data/streaks.json')) ? await createStreaksPreview({ owner: true }) : null;
   if (!cached) console.log('SKIP cached payload (no data/streaks.json)');
   if (cached) try {
     const page = await browser.newPage({viewport: {width: 1440, height: 1000}}), errors = [];

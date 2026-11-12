@@ -158,7 +158,12 @@ try {
 
     await go('calls');
     await page.locator('[data-calls-sort]').waitFor();
-    const callsStyle = await page.locator('[data-calls-sort]').evaluate(el => ({ font: getComputedStyle(el).fontSize, label: getComputedStyle(el.closest('label')).display }));
+    // The archive and report requests each redraw the queue. Find the live
+    // control inside the same browser evaluation that reads its styles.
+    const callsStyle = await page.evaluate(() => {
+      const el = document.querySelector('[data-calls-sort]');
+      return { font: getComputedStyle(el).fontSize, label: getComputedStyle(el.closest('label')).display };
+    });
     sameControlFont(callsStyle.font, 'Earnings calls sort'); assert.ok(['flex', 'inline-flex'].includes(callsStyle.label));
     await noOverflow('Earnings calls');
     await page.screenshot({ path: out + '/' + width + '-' + theme + '-calls.png' });
