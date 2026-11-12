@@ -39824,9 +39824,11 @@ async function main() {
     if (historyRhymes) await writeFile(resolve(DATA_DIR, HISTORY_RHYMES_KEY), JSON.stringify(historyRhymes), "utf8");
     if (historyRhymesOwner) await writeFile(resolve(DATA_DIR, HISTORY_RHYMES_OWNER_KEY), JSON.stringify(historyRhymesOwner), "utf8");
   }
-  const historyRhymesBrief = historyRhymesSummary(historyRhymes);
+  // A carried (stale) copy is shown on its page, but it is not today's reading:
+  // Historical Data's "Resembles now" and the shadow log only take a fresh one.
+  const historyRhymesBrief = historyRhymes && !historyRhymes.stale ? historyRhymesSummary(historyRhymes) : null;
   // Per-name model default chance for the shadow log (Top Picks research only).
-  const historyRhymesDefaultChance = Object.fromEntries([...(historyRhymesOwner?.buildout || []), ...(historyRhymesOwner?.others || [])]
+  const historyRhymesDefaultChance = historyRhymesOwner?.stale ? {} : Object.fromEntries([...(historyRhymesOwner?.buildout || []), ...(historyRhymesOwner?.others || [])]
     .filter((row) => Number.isFinite(row?.model?.pdPct)).map((row) => [row.symbol, row.model.pdPct]));
   const historicalAnalyzedAt = new Date().toISOString();
   const historicalInfo = await writeHistoricalDataFile({ dataDir: DATA_DIR, builtAtIso, analyzedAtIso: historicalAnalyzedAt, sourceCache: historicalSourceCache, inputs: { ...historicalEventInputs(chains, trends.macroHeadlines || [], historicalAnalyzedAt), buildout: historyRhymesBrief } });

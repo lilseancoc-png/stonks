@@ -18,12 +18,32 @@ export function renderHistoryRhymesJs() {
   var HR_TABS = [['now', 'Now vs history'], ['railroads', 'Railroads'], ['telecom', 'Telecom & fiber'], ['housing', 'Housing & 2008'], ['ai', 'AI data centers'], ['credit', 'Credit & CDS']];
   var HR_OWNER_TAB = ['stocks', 'Stocks (Owner)'];
   var HR_CASE_NAMES = { railroads: 'Railroads', telecom: 'Telecom', housing: 'Housing' };
-  var hrState = { data: null, owner: null, ownerTried: false, loading: false, error: null, fetchedAt: 0, urlView: null };
-  try { hrState.urlView = new URLSearchParams(location.search).get('view'); } catch (_) {}
+  var hrState = { data: null, owner: null, ownerTried: false, loading: false, error: null, fetchedAt: 0, narrow: null };
+  var HR_TAB_IDS = HR_TABS.concat([HR_OWNER_TAB]).map(function(x){ return x[0]; });
   function hrTabs(){ return HAS_OWNER_ACCESS ? HR_TABS.concat([HR_OWNER_TAB]) : HR_TABS; }
+  // A ?view= deep link wins over the saved choice. The page router drops
+  // ?view= from every page but the stock page once it boots, so the link is
+  // read here, when app.js loads, and saved; clicking a tab writes ?view= back
+  // so a copied link opens the same tab.
+  var hrLinkView = null;
+  try { var hrQs = new URLSearchParams(location.search); if (hrQs.get('tab') === 'history-rhymes') hrLinkView = hrQs.get('view'); } catch (_) {}
+  if (HR_TAB_IDS.indexOf(hrLinkView) < 0) hrLinkView = null;
+  function hrUrlView(){
+    if (!hrLinkView) return null;
+    var v = hrLinkView; hrLinkView = null;
+    VIEWS.set('history-rhymes.tab', v);
+    return v;
+  }
+  function hrSetUrlView(t){
+    try {
+      var url = new URL(location.href);
+      if (url.searchParams.get('tab') !== 'history-rhymes') return;
+      if (t && t !== 'now') url.searchParams.set('view', t); else url.searchParams.delete('view');
+      if (url.href !== location.href) history.replaceState(history.state, '', url.pathname + url.search + url.hash);
+    } catch (_) {}
+  }
   function hrTab(){
-    var t = VIEWS.get('history-rhymes.tab', 'now');
-    if (hrState.urlView){ t = hrState.urlView; hrState.urlView = null; VIEWS.set('history-rhymes.tab', t); }
+    var t = hrUrlView() || VIEWS.get('history-rhymes.tab', 'now');
     if (!hrTabs().some(function(x){ return x[0] === t; })) t = 'now';
     return t;
   }
@@ -159,7 +179,7 @@ export function renderHistoryRhymesJs() {
   function hrTimelineHtml(list){
     if (!list || !list.length) return '';
     return '<ol class="hr-timeline">' + list.map(function(e){
-      return '<li><time>' + escapeHtml(e.date) + '</time><span>' + escapeHtml(e.text) + (e.source ? ' ' + hrSourceLink(e.source, 'source') : '') + '</span></li>';
+      return '<li><time datetime="' + escapeHtml(e.date) + '">' + escapeHtml(e.when || e.date) + '</time><span>' + escapeHtml(e.text) + (e.source ? ' ' + hrSourceLink(e.source, 'source') : ' <small class="hr-dim">site index history</small>') + '</span></li>';
     }).join('') + '</ol>';
   }
   function hrCase(id){
@@ -295,13 +315,14 @@ export function renderHistoryRhymesJs() {
       marks: (baa.peaks || []).map(function(p){ return { x: p.t, label: p.label.replace(/ high.*$/, '') }; }), h: 240, aria: 'Corporate credit spreads since 1986' }) +
       '<p class="hr-note">' + hrSourceLink('fredBaa', 'FRED BAA10Y') + ' (Moody\\'s via the Federal Reserve) and ' + hrSourceLink('fredHy', 'FRED BAMLH0A0HYM2') + ' (ICE BofA; FRED publishes about three years).</p>' : '';
     var rep = c.reported || [];
+    var age = c.reportedNewest ? '<p class="hr-note' + (c.reportedStale ? ' hr-warn' : '') + '">Newest press quote: ' + escapeHtml(c.reportedNewest) + (c.reportedAgeDays != null ? ' (' + c.reportedAgeDays + ' day' + (c.reportedAgeDays === 1 ? '' : 's') + ' before this build)' : '') + '.' + (c.reportedStale ? ' These quotes are more than two months old; CDS levels move daily, so read them as history.' : '') + '</p>' : '';
     var cds = '<h3 class="hr-h3">Credit default swaps reported in the press</h3>' +
       '<div class="hr-callout"><h4>Why there is no CDS chart</h4><p>' + escapeHtml(c.cdsAccess || '') + '</p></div>' +
       (rep.length ? '<div class="hr-table-wrap"><table class="hr-table"><thead><tr><th>Company</th><th>Date</th><th>5-year CDS</th><th>What was reported</th></tr></thead><tbody>' + rep.map(function(q){
         var who = q.symbol ? vnSym(q.symbol) + ' <small class="hr-dim">' + escapeHtml(q.name) + '</small>' : escapeHtml(q.name);
         var bp = q.bp == null ? '<span class="hr-dim">not published</span>' : (q.approx === 'above' ? 'above ' : '') + Number(q.bp).toLocaleString() + ' bp';
-        return '<tr><td>' + who + '</td><td>' + escapeHtml(q.date) + '</td><td class="hr-numcell">' + bp + '</td><td>' + escapeHtml(q.note) + (q.sourceUrl ? ' <a class="hr-src" href="' + escapeHtml(q.sourceUrl) + '" target="_blank" rel="noopener">source</a>' : '') + '</td></tr>';
-      }).join('') + '</tbody></table></div>' : '') +
+        return '<tr><td>' + who + '</td><td class="hr-datecell">' + escapeHtml(q.date) + '</td><td class="hr-numcell">' + bp + '</td><td>' + escapeHtml(q.note) + (q.sourceUrl ? ' <a class="hr-src" href="' + escapeHtml(q.sourceUrl) + '" target="_blank" rel="noopener">source</a>' : '') + '</td></tr>';
+      }).join('') + '</tbody></table></div>' : '') + age +
       '<p class="hr-note">A credit default swap pays out if the company defaults. Its price, in basis points a year (100 bp = 1%), is what it costs to insure that company\\'s debt for five years. A quote above about 1,000 bp means the market treats default as likely.</p>';
     var merton = '<h3 class="hr-h3">A free stand-in: the stock-market read of default</h3><p class="hr-lede">Without CDS prices, the site estimates default risk from the stock market with the Merton model: a company\\'s shares are worth something only if its assets end up worth more than its debt, so the share price, the debt and how much the shares swing imply a chance that assets fall below the debt. It is a model, not a market quote; it ignores when the debt is due and who stands behind it.</p>' +
       (HAS_OWNER_ACCESS ? '<p class="hr-note">Each covered stock\\'s model read is on the <button type="button" class="hr-linkbtn" data-hr-tab="stocks">Stocks tab</button>.</p>' : '');
@@ -312,7 +333,7 @@ export function renderHistoryRhymesJs() {
   function hrStocksHtml(){
     if (!HAS_OWNER_ACCESS) return '<p class="hr-empty">Owner sign-in required.</p>';
     var o = hrState.owner;
-    if (!o) return '<p class="hr-empty">' + (hrState.ownerTried ? 'The Owner stock file is not written yet. The next full build creates it.' : 'Loading each stock\\'s credit read…') + '</p>';
+    if (!o) return '<p class="hr-empty">' + (hrState.ownerTried ? 'The Owner stock file could not load; the next full build writes it. <button type="button" class="hr-linkbtn" data-hr-retry="owner">Try again</button>' : 'Loading each stock\\'s credit read…') + '</p>';
     var flags = function(r){ return (r.flags || []).length ? '<span class="hr-flags">' + r.flags.map(function(f){ return '<span class="hr-flag">' + escapeHtml(f) + '</span>'; }).join('') + '</span>' : '<span class="hr-dim">—</span>'; };
     var detail = function(r){
       var cds = (r.cds || []).map(function(q){ return '<li>' + escapeHtml(q.date) + ': ' + escapeHtml(q.note) + (q.sourceUrl ? ' <a class="hr-src" href="' + escapeHtml(q.sourceUrl) + '" target="_blank" rel="noopener">source</a>' : '') + '</li>'; }).join('');
@@ -327,7 +348,7 @@ export function renderHistoryRhymesJs() {
       { label: 'Model spread', num: true, title: 'Model yield premium on the debt, basis points a year', cell: function(r){ var b = r.model && r.model.spreadBp; return b == null ? '<span class="hr-dim">—</span>' : b < 1 ? 'under 1 bp' : Number(b).toLocaleString() + ' bp'; }, sort: function(r){ return r.model ? r.model.spreadBp : null; } },
       { label: 'Reported CDS', cell: cdsCell, sort: function(r){ var q = (r.cds || [])[0]; return q ? q.bp : null; } },
       { label: 'Debt / market value', num: true, cell: function(r){ return hrPct(r.debtToMcapPct, 0); }, sort: function(r){ return r.debtToMcapPct; } },
-      { label: 'Debt', num: true, cell: function(r){ return hrUsd(r.totalDebt); }, sort: function(r){ return r.totalDebt; } },
+      { label: 'Total debt', num: true, title: 'Total debt as the quote provider reports it, including lease obligations', cell: function(r){ return hrUsd(r.totalDebt); }, sort: function(r){ return r.totalDebt; } },
       { label: 'Capex / operating cash', num: true, cell: function(r){ return hrPct(r.capexToOcfPct, 0); }, sort: function(r){ return r.capexToOcfPct; } },
       { label: 'Free cash flow', num: true, cell: function(r){ return r.freeCashFlow == null ? '<span class="hr-dim">—</span>' : '<span class="' + (r.freeCashFlow < 0 ? 'neg' : '') + '">' + hrUsd(r.freeCashFlow) + '</span>'; }, sort: function(r){ return r.freeCashFlow; } },
       { label: 'From 52-week high', num: true, cell: function(r){ return vnChg(r.offHighPct, 0); }, sort: function(r){ return r.offHighPct; } },
@@ -335,7 +356,9 @@ export function renderHistoryRhymesJs() {
       { label: 'Rating', cell: function(r){ return r.rating ? escapeHtml((r.rating.agency || '') + ' ' + (r.rating.rating || '')) : '<span class="hr-dim">—</span>'; }, sort: function(r){ return r.rating ? r.rating.rating : null; } },
       { label: 'Flags', num: true, title: 'Warning flags; open the row to read them', cell: function(r){ var n = (r.flags || []).length; return n ? '<span class="' + (n >= 3 ? 'neg' : 'hr-warn') + '">' + n + '</span>' : '<span class="hr-dim">—</span>'; }, sort: function(r){ return (r.flags || []).length; } },
     ];
-    var check = o.check ? '<div class="hr-callout"><h4>Model check</h4><p>CoreWeave: the model reads ' + hrPct(o.check.modelPdPct) + ' over five years and ' + (o.check.modelSpreadBp != null ? Number(o.check.modelSpreadBp).toLocaleString() + ' bp' : '—') + ' today, against about 63% and above 1,000 bp implied by its credit default swaps on October 15, 2026 (Reuters). ' + escapeHtml(o.check.note.replace(/^Reported:[^.]*\\.\\s*/, '')) + '</p></div>' : '';
+    var ck = o.check;
+    var ckReported = ck ? (ck.reportedPdPct != null ? 'about ' + hrPct(ck.reportedPdPct, 0) + ' and ' : '') + (ck.reportedApprox === 'above' ? 'above ' : '') + Number(ck.reportedBp).toLocaleString() + ' bp' : '';
+    var check = ck ? '<div class="hr-callout"><h4>Model check</h4><p>CoreWeave: the model reads ' + hrPct(ck.modelPdPct) + ' over five years and ' + (ck.modelSpreadBp != null ? Number(ck.modelSpreadBp).toLocaleString() + ' bp' : '—') + ' today, against ' + escapeHtml(ckReported) + ' implied by its credit default swaps on ' + escapeHtml(ck.reportedDate || '') + (ck.reportedSourceUrl ? ' (<a class="hr-src" href="' + escapeHtml(ck.reportedSourceUrl) + '" target="_blank" rel="noopener">press report</a>)' : '') + '. ' + escapeHtml(ck.note || '') + '</p></div>' : '';
     var roles = '<details class="hr-method"><summary>What happened to each role in past busts</summary><dl class="hr-roles">' + (o.roles || []).map(function(r){ return '<dt>' + escapeHtml(r.label) + ' <small class="hr-dim">' + escapeHtml((r.symbols || []).join(', ')) + '</small></dt><dd>' + escapeHtml(r.history) + '</dd>'; }).join('') + '</dl></details>';
     var notes = '<details class="hr-method"><summary>How the model works</summary><ul>' + ((o.model && o.model.notes) || []).map(function(n){ return '<li>' + escapeHtml(n) + '</li>'; }).join('') + '</ul></details>';
     return '<p class="hr-lede">Owner only. Each covered stock\\'s place in the buildout and what the stock market implies about its default risk, from the Merton model: an estimate from the share price, the debt and how much the shares swing, not a market CDS quote. Research only: nothing here changes a grade, a pick or the track record. Top Picks logs the model default chance as a shadow input (epd) to test later.' + (o.stale ? ' <b class="hr-warn">This is the last good copy; the newest build could not rebuild it.</b>' : '') + '</p>' +
@@ -349,12 +372,13 @@ export function renderHistoryRhymesJs() {
     var root = document.getElementById('history-rhymes-root'); if (!root) return;
     var d = hrState.data;
     if (!d){
-      root.innerHTML = '<p class="hr-empty">' + (hrState.error ? 'This page could not load. The next full build writes it; try again later.' : 'Loading the case studies…') + '</p>';
+      root.innerHTML = '<p class="hr-empty">' + (hrState.error ? 'This page could not load. The next full build writes it. <button type="button" class="hr-linkbtn" data-hr-retry>Try again</button>' : 'Loading the case studies…') + '</p>';
       return;
     }
     var asof = document.getElementById('history-rhymes-asof');
     if (asof) asof.textContent = (d.asOf ? 'Data through ' + d.asOf : '') + (d.builtAtIso ? ' · built ' + vnWhen(d.builtAtIso) : '') + (d.stale ? ' · last good copy' : '');
     var tab = hrTab();
+    hrState.narrow = typeof window !== 'undefined' && window.innerWidth < 560;
     if (tab === 'stocks' && !hrState.owner && !hrState.ownerTried) loadHistoryRhymesOwner();
     var body = tab === 'railroads' ? hrRailroadsHtml(d) : tab === 'telecom' ? hrTelecomHtml(d) : tab === 'housing' ? hrHousingHtml(d) : tab === 'ai' ? hrAiHtml(d) : tab === 'credit' ? hrCreditHtml(d) : tab === 'stocks' ? hrStocksHtml() : hrNowHtml(d);
     root.innerHTML = vnTabsHtml(hrTabs(), tab, 'data-hr-tab') + '<div class="hr-body">' + body + '</div>';
@@ -372,6 +396,9 @@ export function renderHistoryRhymesJs() {
     if (!force && hrState.data && Date.now() - hrState.fetchedAt < 10 * 60 * 1000){ renderHistoryRhymes(); return; }
     if (hrState.loading) return;
     hrState.loading = true; hrState.error = null;
+    // vnJson keeps every answer, a failed one too: a retry, or a visit more
+    // than ten minutes after the last read, asks the server again.
+    if (force || hrState.fetchedAt) delete VN.cache['history-rhymes.json'];
     renderHistoryRhymes();
     vnJson('history-rhymes.json', false).then(function(j){
       hrState.data = j && typeof j === 'object' && j.now ? j : null;
@@ -388,15 +415,35 @@ export function renderHistoryRhymesJs() {
       var n = d.now, lit = (n.signs || []).filter(function(s){ return s.status === 'lit'; }).map(function(s){ return s.label; });
       host.hidden = false;
       host.innerHTML = '<div class="hr-risk"><span class="hr-kicker">Context, not a vote · Booms &amp; busts</span>' +
-        '<p><b>' + escapeHtml(n.stage.label) + '</b>: ' + n.score + ' of ' + n.total + ' warning signs from the railroad, telecom and 2008 busts are showing' + (n.mostLike ? '; closest to ' + escapeHtml(n.mostLike.name) : '') + '.' + (lit.length ? ' Showing: ' + escapeHtml(lit.slice(0, 4).join('; ')) + '.' : '') + '</p>' +
+        '<p><b>' + escapeHtml(n.stage.label) + '</b>: ' + n.score + ' of ' + n.total + ' warning signs from the railroad, telecom and 2008 busts are showing' + (n.mostLike ? '; closest to ' + escapeHtml(n.mostLike.name) : '') + '.' + (lit.length ? ' Showing: ' + escapeHtml(lit.slice(0, 4).join('; ')) + '.' : '') + (d.stale ? ' <span class="hr-warn">Last good copy; the newest build could not rebuild it.</span>' : '') + '</p>' +
         '<a class="book-more" href="?tab=history-rhymes">Open Booms &amp; busts</a></div>';
     });
   }
   document.addEventListener('click', function(ev){
+    var retry = ev.target && ev.target.closest ? ev.target.closest('[data-hr-retry]') : null;
+    if (retry){
+      // The Stocks tab asks for the Owner file again when it redraws.
+      if (retry.getAttribute('data-hr-retry') === 'owner'){ delete VN.cache['history-rhymes-owner.json|o']; hrState.ownerTried = false; hrState.owner = null; renderHistoryRhymes(); }
+      else { hrState.error = null; loadHistoryRhymes(true); }
+      return;
+    }
     var t = ev.target && ev.target.closest ? ev.target.closest('[data-hr-tab]') : null;
     if (!t) return;
-    VIEWS.set('history-rhymes.tab', t.getAttribute('data-hr-tab'));
+    var id = t.getAttribute('data-hr-tab');
+    VIEWS.set('history-rhymes.tab', id);
+    hrSetUrlView(id);
     renderHistoryRhymes();
+  });
+  // Charts are drawn for the screen width; redraw when a turn of the phone
+  // or a resized window crosses the phone layout's edge.
+  var hrResizeTimer = null;
+  window.addEventListener('resize', function(){
+    clearTimeout(hrResizeTimer);
+    hrResizeTimer = setTimeout(function(){
+      var pane = document.getElementById('page-pane-history-rhymes');
+      if (!pane || pane.hidden || !hrState.data || hrState.narrow == null) return;
+      if ((window.innerWidth < 560) !== hrState.narrow) renderHistoryRhymes();
+    }, 200);
   });
   document.addEventListener('stonks-owner-ready', function(){
     var pane = document.getElementById('page-pane-history-rhymes');

@@ -29,7 +29,7 @@ export function renderHistoryRhymesCss() {
 .hr-sign { padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); min-width: 0; }
 .hr-sign.is-lit { border-color: color-mix(in srgb, var(--neg) 45%, var(--border)); }
 .hr-sign.is-partial { border-color: color-mix(in srgb, var(--warn) 45%, var(--border)); }
-.hr-sign header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.hr-sign header { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
 .hr-sign h4 { margin: 0; font: 650 13.5px/1.35 var(--font-sans); color: var(--text-strong); }
 .hr-now { margin: 6px 0 4px; font: 450 12.5px/1.5 var(--font-sans); color: var(--text); }
 .hr-seen { margin: 0 0 4px; font: 500 11.5px/1.6 var(--font-sans); color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
@@ -84,6 +84,8 @@ export function renderHistoryRhymesCss() {
 .hr-table th { text-align: left; font: 600 11.5px/1.4 var(--font-sans); color: var(--muted); text-transform: uppercase; letter-spacing: .03em; padding: 6px 8px; border-bottom: 1px solid var(--border); }
 .hr-table td { padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
 .hr-table td.hr-numcell { white-space: nowrap; font-variant-numeric: tabular-nums; font-weight: 650; }
+.hr-table td.hr-datecell { white-space: nowrap; font-variant-numeric: tabular-nums; }
+#history-rhymes-section > .hint { margin-top: 18px; }
 .hr-flags { display: inline-flex; flex-wrap: wrap; gap: 3px; }
 .hr-detail { display: grid; gap: 6px; padding: 4px 0; white-space: normal; max-width: min(900px, 80vw); }
 .hr-detail-cds { margin: 0; padding-left: 18px; display: grid; gap: 2px; font: 450 12.5px/1.5 var(--font-sans); color: var(--muted-strong); max-width: 90ch; }

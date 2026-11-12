@@ -67,6 +67,15 @@ try {
     await settle(s.page, 300);
     check(/1,000|1000/.test(await s.page.locator('#history-rhymes-root').innerText()), 'credit: the reported CoreWeave CDS quote');
     check(/no free daily feed/i.test(await s.page.locator('#history-rhymes-root').innerText()), 'credit: says single-name CDS is not free');
+    check(/Newest press quote: 2026-10-15 \(28 days before this build\)/.test(await s.page.locator('#history-rhymes-root').innerText()), 'credit: says how old the newest press quote is');
+    const dateH = await s.page.locator('#history-rhymes-root td.hr-datecell').first().evaluate((el) => { const r = document.createRange(); r.selectNodeContents(el); return r.getBoundingClientRect().height; });
+    check(dateH < 26, 'credit: the quote date stays on one line (' + Math.round(dateH) + 'px)');
+    check(new URL(s.page.url()).searchParams.get('view') === 'credit', 'credit: the address carries the chosen tab');
+    await s.page.locator('#history-rhymes-root [data-hr-tab="railroads"]').first().click();
+    await settle(s.page, 300);
+    check(/Summer 1845/.test(await s.page.locator('#history-rhymes-root .hr-timeline').innerText()), 'railroads: a rounded date shows as written, not as a made-up day');
+    await s.page.locator('#history-rhymes-root [data-hr-tab="credit"]').first().click();
+    await settle(s.page, 300);
     check(!server.asks.data.includes(HISTORY_RHYMES_OWNER_KEY), 'public: the Owner file was never requested');
     check(server.asks.data.includes(HISTORY_RHYMES_KEY), 'public: the public file was requested');
     // The chosen tab is remembered across a reload.
@@ -104,6 +113,11 @@ try {
     const s = await openTab(browser, server.base, { tab: 'history-rhymes', width: 1200, height: 900, theme: 'light' });
     await s.page.waitForFunction(() => /could not load/.test(document.querySelector('#history-rhymes-root')?.textContent || ''), null, { timeout: 15000 });
     check(s.errors.length === 0, 'missing file: no page errors');
+    haveFile = true;
+    await s.page.locator('#history-rhymes-root [data-hr-retry]').click();
+    await ready(s.page);
+    check((await s.page.locator('#history-rhymes-root .hr-sign').count()) === 9, 'missing file: Try again loads the page once the file exists');
+    haveFile = false;
     const problems = (await pageProblems(s)).filter((p) => !/blank/.test(p));
     check(problems.length === 0, 'missing file: ' + problems.join(' | '));
     await s.context.close();
@@ -121,6 +135,7 @@ try {
     const text = await s.page.locator('#history-rhymes-root').innerText();
     check(/CRWV/.test(text) && /Debt-funded builder/.test(text), 'owner: the debt-funded builder row');
     check(/Merton/.test(text) && /not a market CDS quote/i.test(text), 'owner: the model is labeled as a model');
+    check(/Model check/.test(text) && /about 63% and above 1,000 bp implied by its credit default swaps on 2026-10-15/.test(text), 'owner: the model check reads the newest CoreWeave press quote');
     check((await s.page.locator('#history-rhymes-root table tbody tr').count()) >= 10, 'owner: buildout and other stock rows');
     check(server.asks.data.includes(HISTORY_RHYMES_OWNER_KEY), 'owner: the Owner file was requested');
     const rowH = await s.page.locator('#history-rhymes-root table tbody tr').first().evaluate((tr) => tr.getBoundingClientRect().height);

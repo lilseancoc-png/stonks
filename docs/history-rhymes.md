@@ -18,9 +18,13 @@ Four case studies of a buildout or credit boom, each set beside today:
 | AI data centers (now) | 2023– | CoreWeave's borrowing, Meta's Hyperion project company, server useful-life changes, H100 rent (Silicon Data index rows plus this site's weekly GPU cloud prices) and the October 2026 CDS reports |
 
 Each case has a story, dated timeline, sourced numbers, "how it rhymes" and
-"how today is different" boxes, and charts. Every dated fact carries a source
-link (`SOURCES`). The page says plainly that it describes past patterns and is
-not a forecast or a timing call; some booms never busted.
+"how today is different" boxes, and charts. Every dated fact from outside the
+site's own FRED and index history carries a source link (`SOURCES`); timeline
+entries computed from that history say "site index history". A timeline entry
+whose exact day is not known carries a `when` label ("Summer 1845", "1893–1894")
+that the page shows instead of the sort date. The page says plainly that it
+describes past patterns and is not a forecast or a timing call; some booms
+never busted.
 
 ## Nine warning signs
 
@@ -32,15 +36,20 @@ partial 0.5; unknown (missing input) counts nothing and is never shown as clear.
 | Spending grows faster than revenue | `ai-capex.json` totals (capex YoY vs revenue YoY, same fiscal years) | gap ≥ 15 pts | ≥ 5 |
 | Builders spend a record share of sales | `ai-capex.json` capex / revenue (TTM, else FY) | ≥ 25% and not falling | ≥ 15% |
 | Spending outruns operating cash flow | per-stock fundamentals of the cash- and debt-funded builders | ≥ 90% of OCF, or 2+ builders above OCF | ≥ 65%, or one |
-| The price of what is built keeps falling | `accelerator-prices.json` H100 composite | 30-day −5% or −10% over 60+ days | otherwise (the 2024–2025 index fall stands) |
-| Debt and off-balance-sheet deals fund the build | `ipo-credit.json` SIFMA bond months (last 3 vs a year earlier) + CRWV / ORCL debt | YoY ≥ 20% or both builders borrowed | one, or YoY ≥ 5% |
+| The price of what is built keeps falling | `accelerator-prices.json` H100 composite | 30-day −5% or −10% over 60+ days | neither falling nor rising 5%+ over 30 days (the 2024–2025 index fall stands); rising 5%+ is "not showing" |
+| Debt and off-balance-sheet deals fund the build | `ipo-credit.json` SIFMA bond months (last 3 vs a year earlier) + CRWV / ORCL debt | YoY ≥ 20%, or both builders lean on debt (total debt ≥ half of market value, more than 3 years of operating cash flow, or operating cash flow not positive) | one builder leaning on debt, or YoY ≥ 5% |
 | Credit markets start to charge more | FRED `BAA10Y`, `BAMLH0A0HYM2` | HY +0.75 or Baa +0.35 in 3 months, or HY ≥ 5.5 | HY +0.30 or Baa +0.15 |
 | The most indebted builder cracks | CRWV / ORCL price vs 52-week high | ≤ −40% | ≤ −25% |
 | Stock prices run far above trend | Nasdaq Composite (shared long-history cache) | +40% in 250 sessions and +20% over the 200-session average | +20% or +10% |
 | Supplier stocks fall while spending still rises | SMH vs 52-week high, capex still growing | ≤ −20% | ≤ −10% |
 
 Stage from the total: 0 early buildout, 3 boom, 5 late boom with strain
-showing, 7 bust pattern. "Closest past case" is the overlap between today's
+showing, 7 bust pattern. The two later stages also need strain where past
+busts showed it (`stageFor(score, signs)`): "late" needs credit strain or the
+weakest builder at least partly showing, and "bust" needs credit strain fully
+showing plus the weakest builder at least partly. Otherwise the stage drops
+to the highest one the signs support, so the label never claims strain the
+signs do not show. "Closest past case" is the overlap between today's
 lit/partial signs and the signs each case showed (`CASE_SIGNS`, written from
 the history, not fitted), shared ÷ union.
 
@@ -55,7 +64,10 @@ price, and is not wired in. So the page shows:
   source (CoreWeave above 1,000 bp and about a 63% five-year default chance,
   Oracle 288 bp, SoftBank 424 bp, record highs for Amazon, Alphabet, Meta and
   Nvidia; October 2026, Reuters / S&P Global Market Intelligence). Add a row
-  by hand when a new dated quote is published.
+  by hand when a new dated quote is published. The Credit tab says how old
+  the newest quote is (`credit.reportedNewest` / `reportedAgeDays`) and warns
+  once it is more than `REPORTED_CDS_STALE_DAYS` (60) days old
+  (`credit.reportedStale`).
 - **Free bond-market spreads**: Baa over the 10-year Treasury since 1986,
   ICE BofA high-yield and investment-grade (about three years on FRED).
 - **A model stand-in (Owner only)**: Merton (1974). Equity is a call on the
@@ -65,8 +77,11 @@ price, and is not wired in. So the page shows:
   five-year chance assets end below the debt and the matching spread. It is a
   model, not a market quote: it ignores maturities, covenants, customer
   contracts and owner support. Financials (sector group) and ETFs are skipped.
-  The page's Model check compares the CoreWeave read with the October 2026
-  reported quote.
+  The page's Model check compares the CoreWeave read with the newest
+  CoreWeave row in `REPORTED_CDS` (its `impliedPdPct`, level and date), so a
+  new row updates it. Total debt is the quote provider's figure, which
+  includes lease obligations and can be larger than the borrowings quoted in
+  the press (the table column says so).
 
 ## Files
 
@@ -78,7 +93,11 @@ price, and is not wired in. So the page shows:
 Both are built in `main()` after the shared long-history cache loads, from the
 prior (pre-wipe) AI CapEx and capital markets files and this bake's chains, and
 are written before Historical Data. A failed build carries the prior files
-marked `stale: true`. The update checker expects `now` and `cases`.
+marked `stale: true`. A stale copy still shows on the page (with a note), but
+it is not today's reading: Historical Data's "Resembles now" and the shadow
+log skip it, the Owner brief drops it to priority 3 and says so, and the MCP
+`credit_read` carries `stale: true`. The update checker expects `now` and
+`cases`.
 
 Five FRED series join `SHARED_FRED_EXTRA` (full history, free and keyless,
 downloaded by the shared long-history cache's refresh like the others;
@@ -105,6 +124,19 @@ downloaded by the shared long-history cache's refresh like the others;
 - **Links**: AI CapEx and GPU cloud prices pages point to the page; Export
   covers both files.
 
+## Page behavior
+
+- Tabs: Now vs history, Railroads, Telecom & fiber, Housing & 2008, AI data
+  centers, Credit & CDS, and Stocks (Owner). The chosen tab is remembered per
+  device and written to the address as `?tab=history-rhymes&view=<tab>`, so a
+  copied link opens the same tab (the router keeps `view` only for the stock
+  page, so the page reads it when `app.js` loads).
+- A missing or failed file shows "Try again", which re-reads it (the shared
+  `vnJson` cache keeps a failed answer, so the retry and the ten-minute
+  refresh clear that entry first). The Owner Stocks tab has its own retry.
+- Charts are drawn at a phone size below 560px wide and redrawn when the
+  window crosses that width.
+
 ## Not done (needs an Owner decision)
 
 - Letting the sign count vote on Risk analysis or the Top Picks tape.
@@ -117,6 +149,8 @@ downloaded by the shared long-history cache's refresh like the others;
 `npm run test:history-rhymes` (model, signs, public / Owner split, summary,
 shadow keys, Owner brief line, store policy, MCP, client wiring) and
 `npm run test:history-rhymes-browser` (every tab at 1440 light and 390 dark,
-no Owner request from a public visit, missing file, Owner Stocks tab and
-detail rows, the Risk analysis card, `?view=` deep link). MCP and Historical
+no Owner request from a public visit, missing file and Try again, Owner
+Stocks tab, detail rows and Model check, the Risk analysis card, `?view=`
+deep link and the address following the tab, the CDS quote age, one-line
+quote dates). MCP and Historical
 Data checks are in `mcp-smoke.mjs` and `historical-events-smoke.mjs`.

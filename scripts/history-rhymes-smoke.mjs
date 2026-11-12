@@ -99,9 +99,11 @@ const rhymes = buildHistoryRhymes({ builtAtIso, series, fred, aiCapex, accelerat
   assert.equal(status['debt-funding'], 'lit', 'bond sales up 30%+ and two debt-funded builders');
   assert.equal(status['credit-strain'], 'lit', 'Baa +0.45 over three months');
   assert.equal(status['weak-link'], 'lit', 'CRWV 50% off its high');
+  assert.match(rhymes.now.signs.find((s) => s.id === 'weak-link').now, /^\w+ -?[\d.]+% and \w+ -?[\d.]+% from their 52-week highs\.$/, 'two builders read as one sentence');
   assert.equal(status['price-stretch'], 'lit', 'Nasdaq doubled in a year');
   assert.equal(status['leaders-crack'], 'partial', 'SMH 17.5% off its high');
   assert(rhymes.now.signs.every((s) => ['lit', 'partial', 'clear', 'unknown'].includes(s.status) && typeof s.now === 'string' && s.now && !/NaN|undefined|null/.test(s.now)), 'every sign has a clean sentence');
+  assert(rhymes.now.signs.every((s) => !/(^|[^1\d])[123]th\b|\b1[123](st|nd|rd)\b/.test(s.now)), 'ordinals read 1st, 2nd, 3rd, 11th');
   const expectScore = rhymes.now.lit.length + rhymes.now.partial.length * 0.5;
   assert.equal(rhymes.now.score, expectScore, 'lit counts 1, partial 0.5');
   assert.equal(rhymes.now.stage.id, stageFor(expectScore).id);
@@ -144,6 +146,49 @@ const rhymes = buildHistoryRhymes({ builtAtIso, series, fred, aiCapex, accelerat
   assert.equal(empty.asOf, null);
 }
 
+// ---- audit fixes (2026-11-12) ---------------------------------------------
+{
+  // The later stages need strain where past busts showed it.
+  const sig = (credit, weak) => ({ 'credit-strain': { status: credit }, 'weak-link': { status: weak } });
+  assert.equal(stageFor(9, sig('clear', 'clear')).id, 'boom', 'no credit strain and no cracking builder: not late, not bust');
+  assert.equal(stageFor(9, sig('partial', 'clear')).id, 'late', 'credit partly showing: late at most');
+  assert.equal(stageFor(9, sig('lit', 'clear')).id, 'late', 'bust also needs a cracking builder');
+  assert.equal(stageFor(7, sig('lit', 'partial')).id, 'bust');
+  assert.equal(stageFor(5, sig('clear', 'lit')).id, 'late');
+  assert.equal(stageFor(2, sig('lit', 'lit')).id, 'early', 'gating never raises a stage');
+  // Debt funding is read from leverage, not from having any debt at all.
+  const light = { ...chains, CRWV: stock('CRWV', { marketCap: 400e9, totalDebt: 10e9, operatingCashFlow: 20e9, fiftyTwoWeekHigh: 100 }, { spot: 95 }), ORCL: stock('ORCL', { marketCap: 600e9, totalDebt: 30e9, operatingCashFlow: 22e9, fiftyTwoWeekHigh: 100 }, { spot: 95 }) };
+  const flatBonds = { raises: { bonds: { latest: { m: '2026-04' }, months: Array.from({ length: 16 }, (_, i) => ({ m: `2025-${String(i + 1).padStart(2, '0')}`, ig: 120, hy: 25, cv: 8 })) } } };
+  const st = (inputs) => Object.fromEntries(buildHistoryRhymes({ builtAtIso, series, fred, aiCapex, accelerators, ipoCredit, chains, ...inputs }).now.signs.map((s) => [s.id, s]));
+  assert.equal(st({ chains: light, ipoCredit: flatBonds })['debt-funding'].status, 'clear', 'light borrowers and flat bond sales do not light the sign');
+  const oneHeavy = { ...light, CRWV: chains.CRWV };
+  assert.equal(st({ chains: oneHeavy, ipoCredit: flatBonds })['debt-funding'].status, 'partial', 'one heavy borrower is partial');
+  assert.match(st({})['debt-funding'].now, /CRWV \$30B \(75% of market value, 10 years of operating cash flow\)/);
+  // GPU rent: rising now is clear, a small move is partial, falling is lit.
+  const gpu = (ch30, from, to) => ({ accelerators: { builtAtIso, benchmarks: [{ modelId: 'h100', currentMedian: to, change30dPct: ch30, compositeHistory: [{ d: '2026-07-31', p: from }, { d: '2026-11-06', p: to }] }] } });
+  const up = st(gpu(23.2, 2.59, 3.19))['price-falls'];
+  assert.equal(up.status, 'clear', 'H100 rent +23% (the live reading on 2026-11-06) is not a falling price');
+  assert.match(up.now, /rising now/);
+  assert.equal(st(gpu(-3, 2.6, 2.52))['price-falls'].status, 'partial');
+  assert.equal(st(gpu(2, 3.0, 2.6))['price-falls'].status, 'lit', 'down 13% over three months');
+  // Capex intensity names each period it compares.
+  assert.match(st({})['capex-intensity'].now, /27% of revenue for the group over the last twelve months and 19% the fiscal year before/);
+  // Timeline entries with a rounded date carry the label to show.
+  const rr = rhymes.cases.find((c) => c.id === 'railroads');
+  assert.equal(rr.timeline[0].when, 'Summer 1845');
+  assert(rhymes.cases.every((c) => c.timeline.every((e) => e.when === null || typeof e.when === 'string')));
+  assert(rhymes.cases.find((c) => c.id === 'telecom').timeline.filter((e) => /Global Crossing|Telecommunications Act/.test(e.text)).every((e) => e.source && e.source !== 'brookings'), 'Brookings does not date Global Crossing or the 1996 act');
+  // How old the newest press CDS quote is.
+  assert.equal(rhymes.credit.reportedNewest, '2026-10-15');
+  assert.equal(rhymes.credit.reportedAgeDays, 28);
+  assert.equal(rhymes.credit.reportedStale, false);
+  const later = buildHistoryRhymes({ builtAtIso: '2027-01-20T21:00:00Z', series, fred });
+  assert.equal(later.credit.reportedStale, true, 'quotes older than 60 days are flagged');
+  // A carried copy says so in its summary.
+  assert.equal(historyRhymesSummary({ ...rhymes, stale: true }).stale, true);
+  assert.equal(historyRhymesSummary(rhymes).stale, false);
+}
+
 // ---- the Owner payload ----------------------------------------------------
 const owner = buildHistoryRhymesOwner({ builtAtIso, rhymes, chains, r: 0.04, skip: (s) => s === 'JPM' });
 {
@@ -168,6 +213,10 @@ const owner = buildHistoryRhymesOwner({ builtAtIso, rhymes, chains, r: 0.04, ski
   assert(owner.highest.length <= 5 && owner.highest[0].symbol === 'CRWV', 'highest model default chance first');
   assert.equal(owner.check.symbol, 'CRWV');
   assert.equal(owner.check.reportedPdPct, 63);
+  assert.equal(owner.check.reportedBp, 1000);
+  assert.equal(owner.check.reportedApprox, 'above');
+  assert.equal(owner.check.reportedDate, REPORTED_CDS.filter((q) => q.symbol === 'CRWV').map((q) => q.date).sort().at(-1), 'model check reads the newest CoreWeave quote');
+  assert(/^https:/.test(owner.check.reportedSourceUrl), 'model check links its source');
   assert.equal(owner.stage.id, rhymes.now.stage.id);
   assert(owner.model.notes.some((n) => /not a market quote/.test(n)) && owner.model.notes.some((n) => /shadow input \(epd\)/.test(n)));
   assert.equal(roleOf('CRWV'), 'borrower');

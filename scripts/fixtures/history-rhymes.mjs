@@ -1,8 +1,9 @@
 // Synthetic, roughly true-to-shape inputs for the Booms & busts page, used by
 // scripts/history-rhymes-browser.mjs. Index and FRED paths are drawn through a
-// few approximate historical anchor points with a seeded wiggle, and the stock
-// fundamentals are round illustrative numbers, not live data. Nothing here is
-// fetched.
+// few approximate historical anchor points with a seeded wiggle. The AI
+// spending totals, the H100 rent and the CRWV / ORCL / SMH figures are the
+// site's saved readings from the 2026-11-11 builds (rounded); the other stocks
+// are round illustrative numbers. Nothing here is fetched.
 import { buildHistoryRhymes, buildHistoryRhymesOwner } from '../../lib/history-rhymes.mjs';
 
 const DAY = 86400000;
@@ -52,8 +53,9 @@ export function historyRhymesFixture() {
     DRSFRMACBS: anchored([['1991-01-01', 3.1], ['2005-07-01', 1.5], ['2010-01-01', 11.3], ['2019-10-01', 2.4], ['2026-07-01', 1.8]], { step: 91, wiggle: 0.01, seed: 9 }),
     PRCMUCONS: anchored([['1993-01-01', 9500], ['2000-12-01', 29000], ['2003-06-01', 14500], ['2008-06-01', 22000], ['2015-01-01', 17000], ['2026-09-01', 26000]], { step: 30, wiggle: 0.03, seed: 10 }),
   };
-  const aiCapex = { builtAtIso: '2026-11-11T21:00:00Z', totals: { revenue: { capexYoyPct: 58, yoyPct: 14, count: 7, capexToRevenueTtmPct: 24, capexToRevenueFyPct: 22, capexToRevenueFyPriorPct: 16 } } };
-  const accelerators = { builtAtIso: '2026-11-06T16:35:00Z', benchmarks: [{ modelId: 'h100', currentMedian: 2.08, change30dPct: -3.1, compositeHistory: anchored([['2026-03-06', 2.42], ['2026-11-06', 2.08]], { step: 7, wiggle: 0.01, seed: 12 }).map((r) => ({ d: r.t, p: r.v })) }] };
+  const aiCapex = { builtAtIso: '2026-11-11T21:13:39Z', totals: { revenue: { capexYoyPct: 64.7, yoyPct: 21.7, count: 10, capexToRevenueTtmPct: 26, capexToRevenueFyPct: 20.1, capexToRevenueFyPriorPct: 14.8 } } };
+  const h100 = [['2026-07-31', 2.59], ['2026-08-14', 2.67], ['2026-08-21', 2.59], ['2026-09-04', 2.59], ['2026-09-18', 2.91], ['2026-10-02', 2.59], ['2026-10-09', 3.03], ['2026-10-16', 2.59], ['2026-10-30', 2.99], ['2026-11-06', 3.19]];
+  const accelerators = { builtAtIso: '2026-11-06T21:42:04Z', benchmarks: [{ modelId: 'h100', currentMedian: 3.19, change30dPct: 23.2, compositeHistory: h100.map(([d, p]) => ({ d, p })) }] };
   const months = [];
   for (let i = 0; i < 18; i += 1) {
     const d = new Date(Date.UTC(2025, 4 + i, 1));
@@ -69,8 +71,8 @@ export function historyRhymesFixture() {
   const stock = (sym, spot, vol, f) => ({ symbol: sym, spot, _bars: bars(spot, vol), fundamentals: { quoteType: 'EQUITY', ...f } });
   const B = 1e9;
   const chains = {
-    CRWV: stock('CRWV', 82, 0.95, { marketCap: 42 * B, totalDebt: 29 * B, totalCash: 3 * B, fiftyTwoWeekHigh: 187, operatingCashFlow: 3.5 * B, freeCashFlow: -9 * B, capitalAllocation: { capexTtm: -12.5 * B } }),
-    ORCL: stock('ORCL', 215, 0.48, { marketCap: 610 * B, totalDebt: 112 * B, totalCash: 11 * B, fiftyTwoWeekHigh: 345, operatingCashFlow: 21 * B, freeCashFlow: -11 * B, capitalAllocation: { capexTtm: -32 * B }, creditRating: { agency: 'S&P', rating: 'BBB-', outlook: 'stable', asOf: '2026-07' } }),
+    CRWV: stock('CRWV', 60.77, 0.9, { marketCap: 33.5 * B, totalDebt: 66.2 * B, totalCash: 4.2 * B, fiftyTwoWeekHigh: 138.25, operatingCashFlow: 7.2 * B, freeCashFlow: -19.7 * B, capitalAllocation: { capexTtm: 20.6 * B } }),
+    ORCL: stock('ORCL', 128.4, 0.55, { marketCap: 400 * B, totalDebt: 169 * B, totalCash: 37 * B, fiftyTwoWeekHigh: 250.25, operatingCashFlow: 46.9 * B, freeCashFlow: -45.9 * B, capitalAllocation: { capexTtm: 75.7 * B }, creditRating: { agency: 'S&P', rating: 'BBB-', outlook: 'Stable', asOf: '2026-07-08' } }),
     MSFT: stock('MSFT', 505, 0.24, { marketCap: 3750 * B, totalDebt: 60 * B, totalCash: 95 * B, fiftyTwoWeekHigh: 555, operatingCashFlow: 150 * B, freeCashFlow: 72 * B, capitalAllocation: { capexTtm: -78 * B } }),
     GOOGL: stock('GOOGL', 280, 0.29, { marketCap: 3400 * B, totalDebt: 32 * B, totalCash: 98 * B, fiftyTwoWeekHigh: 300, operatingCashFlow: 145 * B, freeCashFlow: 65 * B, capitalAllocation: { capexTtm: -80 * B } }),
     AMZN: stock('AMZN', 235, 0.31, { marketCap: 2500 * B, totalDebt: 135 * B, totalCash: 95 * B, fiftyTwoWeekHigh: 258, operatingCashFlow: 125 * B, freeCashFlow: 15 * B, capitalAllocation: { capexTtm: -110 * B } }),
@@ -84,7 +86,7 @@ export function historyRhymesFixture() {
     AAPL: stock('AAPL', 272, 0.26, { marketCap: 4030 * B, totalDebt: 98 * B, totalCash: 55 * B, fiftyTwoWeekHigh: 288, operatingCashFlow: 112 * B, freeCashFlow: 99 * B, capitalAllocation: { capexTtm: -12 * B } }),
     TSLA: stock('TSLA', 430, 0.6, { marketCap: 1430 * B, totalDebt: 13 * B, totalCash: 41 * B, fiftyTwoWeekHigh: 488, operatingCashFlow: 15 * B, freeCashFlow: 5 * B, capitalAllocation: { capexTtm: -10 * B } }),
     NKE: stock('NKE', 64, 0.38, { marketCap: 95 * B, totalDebt: 11 * B, totalCash: 8 * B, fiftyTwoWeekHigh: 82, operatingCashFlow: 3 * B, freeCashFlow: 2.5 * B, capitalAllocation: { capexTtm: -0.5 * B } }),
-    SMH: { symbol: 'SMH', spot: 342, fundamentals: { quoteType: 'ETF', fiftyTwoWeekHigh: 398 } },
+    SMH: { symbol: 'SMH', spot: 506.96, fundamentals: { quoteType: 'ETF', fiftyTwoWeekHigh: 671.83 } },
     JPM: stock('JPM', 305, 0.22, { marketCap: 840 * B, totalDebt: 520 * B, fiftyTwoWeekHigh: 330 }),
   };
   const series = { '^IXIC': ixic, '^GSPC': gspc };
