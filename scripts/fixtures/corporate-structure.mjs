@@ -72,8 +72,8 @@ export const TECH_PROXY_AI = {
   controlNote: null,
   board: [
     { name: 'Ada Example', age: 52, directorSince: 2021, independent: false, roles: [], committees: [], chairOf: [], occupation: 'Chief Executive Officer of Example Tech', otherBoards: [] },
-    { name: 'Robert Sample', age: 67, directorSince: 2009, independent: true, roles: ['Chair of the Board'], committees: [], chairOf: [], occupation: 'Retired Chief Executive Officer of Sample Industries', otherBoards: [{ company: 'Other Motors Inc.', current: true }] },
-    { name: 'Grace Holder', age: 59, directorSince: 2015, independent: true, roles: ['Lead Independent Director'], committees: ['Audit Committee', 'Compensation Committee'], chairOf: ['Compensation Committee'], occupation: 'Partner at Holder Ventures', otherBoards: [] },
+    { name: 'Robert Sample', age: 67, directorSince: 2009, independent: true, boardRole: 'Chair of the Board', committees: [], chairOf: [], occupation: 'Retired Chief Executive Officer of Sample Industries', otherBoards: [{ company: 'Other Motors Inc.', current: true }] },
+    { name: 'Grace Holder', age: 59, directorSince: 2015, independent: true, boardRole: 'Lead Independent Director', committees: ['Audit Committee', 'Compensation Committee', 'Audit Committee'], chairOf: ['Compensation Committee'], occupation: 'Partner at Holder Ventures', otherBoards: [] },
     { name: 'Phantom Person', age: 50, directorSince: 2020, independent: true, roles: [], committees: [], chairOf: [], occupation: null, otherBoards: [] },
   ],
   executives: [{ name: 'Ben Money', title: 'Chief Financial Officer', age: 48, since: 2020, joined: 2012 }],

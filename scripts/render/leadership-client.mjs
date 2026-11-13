@@ -246,12 +246,16 @@ export function renderLeadershipJs() {
     }
     function holdersHtml(d){
       if (!d.holders || !d.holders.length) return '';
-      return '<section class="ld-group"><h4 class="ld-h4">Largest outside holders <small>from the proxy ownership table and 10% owner filings</small></h4><div class="stp-table-wrap"><table class="stp-table"><thead><tr><th scope="col">Holder</th><th scope="col" class="num">Shares</th><th scope="col" class="num">Of its class</th><th scope="col" class="num">Of all votes</th><th scope="col" class="num">Value</th></tr></thead><tbody>' +
+      // One share class: the share of the class is the share of the votes,
+      // so one column says it (and the table fits a phone).
+      var oneClass = (d.classes || []).length <= 1;
+      return '<section class="ld-group"><h4 class="ld-h4">Largest outside holders <small>from the proxy ownership table and 10% owner filings</small></h4><div class="stp-table-wrap"><table class="stp-table ld-holders"><thead><tr><th scope="col">Holder</th><th scope="col" class="num">Shares</th>' + (oneClass ? '<th scope="col" class="num">Stake</th>' : '<th scope="col" class="num">Of its class</th><th scope="col" class="num">Of all votes</th>') + '<th scope="col" class="num">Value</th></tr></thead><tbody>' +
         d.holders.map(function(h){
           var shares = h.shares || (h.holdings || []).reduce(function(s, x){ return s + (x.shares || 0); }, 0);
           var tag = h.source === 'filings' ? ' <small class="stp-dim">10% owner, Form 4</small>' : h.alsoFiles ? ' <small class="stp-dim">also files as a 10% owner</small>' : '';
           var who = h.filers && h.filers.length > 1 ? '<br><small class="stp-dim">Files with ' + esc(h.filers.filter(function(n){ return n !== h.name; }).slice(0, 3).join(', ')) + '</small>' : '';
-          return '<tr><td>' + esc(h.name) + tag + who + '</td><td class="num">' + (shares ? sh(shares) : '—') + '</td><td class="num">' + pct(h.pctOfClass) + '</td><td class="num">' + pct(h.pctVoting) + '</td><td class="num">' + usd(h.value) + '</td></tr>';
+          var stake = oneClass ? '<td class="num">' + pct(fin(h.pctVoting) ? h.pctVoting : h.pctOfClass) + '</td>' : '<td class="num">' + pct(h.pctOfClass) + '</td><td class="num">' + pct(h.pctVoting) + '</td>';
+          return '<tr><td>' + esc(h.name) + tag + who + '</td><td class="num">' + (shares ? sh(shares) : '—') + '</td>' + stake + '<td class="num">' + usd(h.value) + '</td></tr>';
         }).join('') + '</tbody></table></div></section>';
     }
     // --- 2. org chart -----------------------------------------------------------

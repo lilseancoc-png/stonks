@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { parseOwnershipXml, samePerson, prettySecName, shareClassOf, parseDisplayName, parseEftsHits, officerTitle, prettyCompanyName, isEntityName, matchScore, foldName, tidyPersonName } from '../lib/corporate-structure/forms.mjs';
 import { foldFiling, holdingTotals } from '../lib/corporate-structure/holdings.mjs';
-import { htmlToText, sliceProxy, slice20F, checkProxyFacts, hasInteger, hasPercent, hasName, PROXY_SCHEMA, extractProxyFacts, refersToAnnualReport, parseFilingIndex, annualReportExhibit, sliceAnnualReport } from '../lib/corporate-structure/proxy.mjs';
+import { htmlToText, sliceProxy, slice20F, checkProxyFacts, hasInteger, hasPercent, hasName, PROXY_SCHEMA, extractProxyFacts, refersToAnnualReport, parseFilingIndex, annualReportExhibit, sliceAnnualReport, salvageJson, BOARD_ROLES } from '../lib/corporate-structure/proxy.mjs';
 import { refreshCorporateStructure, readSubmissions, chooseFilings } from '../lib/corporate-structure/collector.mjs';
 import { buildCorporateViews, buildCompanyView, voteMath, shareClasses, tidyTitle, companyKey, crossCheckCovered, isoDate } from '../lib/corporate-structure/assemble.mjs';
 import { insiderFromStructure } from '../lib/shadow-signals.mjs';
@@ -438,6 +438,7 @@ ok(!samePerson('MONTGOMERY RICE VALERIE', 'Valerie Smith Rice'), 'only the last 
 ok(matchScore('JIANG FAN', 'Fan Jiang') > matchScore('JIANG FAN', 'Jane Fang Jiang') && matchScore('JIANG FANG JANE', 'Jane Fang Jiang') > matchScore('JIANG FANG JANE', 'Fan Jiang'), 'JIANG FAN fits Fan Jiang best, JIANG FANG JANE fits Jane Fang Jiang');
 ok(foldName('Bøjer Ærø Straße Łódź') === 'Bojer Aero Strasse Lodz' && samePerson('JORGENSEN LARS FRUERGAARD', 'Lars Fruergaard Jørgensen'), 'letters that do not decompose fold: ' + foldName('Bøjer Ærø Straße Łódź'));
 ok(prettySecName('DOE JANE MD') === 'Jane Doe' && prettySecName('ROE RICHARD PHD') === 'Richard Roe', 'degree words are not names');
+ok(tidyPersonName('Ambassador Susan Rice') === 'Susan Rice' && tidyPersonName('Admiral Mike Mullen') === 'Mike Mullen' && tidyPersonName('Dr. Lisa T. Su') === 'Lisa T. Su' && tidyPersonName('General Smith') === 'General Smith', 'honorifics are not part of the name');
 ok(tidyPersonName('Eddie Yongming WU') === 'Eddie Yongming Wu' && tidyPersonName('KC McClure') === 'KC McClure' && tidyPersonName('JAMES MCNERNEY JR') === 'James McNerney Jr.' && tidyPersonName('John Smith III') === 'John Smith III', 'names printed in capitals read normally, initials and suffixes kept');
 ok(isEntityName('Foo Holdings L.L.C.') && isEntityName('Sequoia Capital GP') && isEntityName('Bar Partners S.a r.l.') && !isEntityName('SMITH JOHN G'), 'dotted entity suffixes are entities');
 ok(hasName('noubar afeyan, ph.d. is a director', 'Noubar Afeyan, Ph.D.') && hasName('lars fruergaard jorgensen was ceo', 'Lars Fruergaard Jørgensen'), 'the fact checker finds names with degrees and Danish letters');
@@ -556,6 +557,33 @@ const subK = readSubmissions({ filings: { recent: { form: ['10-K/A', '10-K', '4'
 ok(subK.doc?.form === '10-K/A' && subK.doc.acc === 'k2' && !subK.foreign, 'a 10-K/A with Part III is the document when there is no proxy');
 const subP = readSubmissions({ filings: { recent: { form: ['10-K/A', 'DEF 14A'], filingDate: ['2026-06-01', '2026-03-01'], accessionNumber: ['k2', 'p1'], primaryDocument: ['a.htm', 'b.htm'], items: ['', ''] } } }, '0001594805', Date.parse('2026-11-12'));
 ok(subP.doc?.form === 'DEF 14A', 'a proxy beats a newer 10-K/A');
+
+// The board role is one value from a fixed list (a free list looped on the
+// live GS, MDB and SHOP proxies), mapped back to roles; lists are deduped.
+const boardItem = PROXY_SCHEMA.properties.board.items.properties;
+ok(!boardItem.roles && boardItem.boardRole?.type === 'string' && JSON.stringify(boardItem.boardRole.enum) === JSON.stringify(BOARD_ROLES), 'board role is one value from a fixed list');
+const gh = checked.facts.board.find((d) => d.name === 'Grace Holder');
+const rsb = checked.facts.board.find((d) => d.name === 'Robert Sample');
+ok(rsb.roles.join() === 'Chair of the Board' && gh.roles.join() === 'Lead Independent Director' && gh.committees.join('|') === 'Audit Committee|Compensation Committee', 'board role mapped to roles, committees once each: ' + JSON.stringify(gh));
+const roleText = 'mary one serves as chairman. joe two is a director. pat three is vice chair.';
+const roleCheck = checkProxyFacts({ board: [{ name: 'Mary One', boardRole: 'Chair of the Board' }, { name: 'Joe Two', boardRole: 'Lead Independent Director' }, { name: 'Pat Three', boardRole: 'Supreme Leader' }, { name: 'Pat Three', boardRole: 'Vice Chair' }], owners: [], classes: [], executives: [] }, roleText);
+ok(roleCheck.facts.board[0].roles.join() === 'Chair of the Board' && !roleCheck.facts.board[1].roles.length && !roleCheck.facts.board[2].roles.length, 'a role the document never names, or one off the list, is dropped: ' + JSON.stringify(roleCheck.facts.board.map((b) => b.roles)));
+const legacy = checkProxyFacts({ board: [{ name: 'Mary One', roles: ['Chair of the Board', 'Chair of the Board', 'Chair of the Board'] }], owners: [], classes: [], executives: [] }, roleText);
+ok(legacy.facts.board[0].roles.length === 1, 'an older reply with repeated roles keeps one');
+// A reply cut off part way: every finished value is kept, brackets closed.
+ok(JSON.stringify(salvageJson('{"board":[{"name":"A B","roles":["Chair","Chair","Ch')) === '{"board":[{"name":"A B","roles":["Chair","Chair"]}]}', 'cut-off reply salvaged');
+ok(JSON.stringify(salvageJson('{"a":"x\\"y,z","b":[1,2')) === '{"a":"x\\"y,z","b":[1]}' && salvageJson('no json') === null && salvageJson('{"a":1}').a === 1, 'salvage keeps quoted commas and escapes');
+// Both replies cut off: the larger salvage is kept, marked partial.
+let cutCalls = 0;
+class CutOff { constructor() { this.models = { generateContent: async () => { cutCalls++; const t = cutCalls === 1 ? '{"board":[{"name":"A One"},{"name":"B Two"},{"na' : '{"board":[{"name":"A One"},{"name":"B Two"},{"name":"C Three","roles":["Chair","Chair","Ch'; return { text: t, candidates: [{ finishReason: 'MAX_TOKENS' }] }; } }; } }
+const cutRead = await extractProxyFacts({ message: 'x', model: 'test', deps: { GoogleGenAI: CutOff, apiKey: 'k', maxAttempts: 1 } });
+ok(cutRead.partial === true && cutRead.calls === 2 && cutRead.json.board.length === 3 && /cut off/.test(cutRead.firstError), 'two cut-off replies: the larger salvage, marked partial');
+// A partial read ends nobody's board seat and says it is partial.
+const partialState = (partial) => ({ companies: { PRT: { symbol: 'PRT', cik: '0000777001', name: 'PART CO', sub: { doc: { acc: 'p1', form: 'DEF 14A', filed: '2026-04-01' } }, sweep: { at: '2026-11-12T00:00:00Z', through: '2026-11-12', pending: [] },
+  proxy: { status: 'ok', v: 4, acc: 'p1', form: 'DEF 14A', filed: '2026-04-01', partial, facts: { board: [{ name: 'Ann One', roles: [], committees: [], chairOf: [], otherBoards: [] }, { name: 'Ben Two', roles: [], committees: [], chairOf: [], otherBoards: [] }, { name: 'Cat Three', roles: [], committees: [], chairOf: [], otherBoards: [] }], executives: [], owners: [], classes: [] }, kept: 3, dropped: [] },
+  owners: { '0000777101': { cik: '0000777101', sec: 'FOUR DAN', roles: { director: true }, lines: {}, tx: [], filings: 1, first: '2026-01-05', last: '2026-01-05', rolesFiled: '2026-01-05', lastAcc: 'd4' } } } }, people: {} });
+const fullV = buildCorporateViews(partialState(false), { nowMs }).PRT, partV = buildCorporateViews(partialState(true), { nowMs }).PRT;
+ok(fullV.former.some((p) => /Dan/.test(p.name)) && partV.people.some((p) => /Dan/.test(p.name)) && partV.source.doc.partial && /Only part/.test(partV.source.notes[0]), 'a partial read ends no board seat and says so: ' + JSON.stringify({ full: fullV.former.map((p) => p.name), part: partV.people.map((p) => p.name), notes: partV.source.notes }));
 
 // A swept company with no filings and no document gets an empty view that
 // says so (a foreign filer that files neither a proxy nor Forms 3/4/5).
