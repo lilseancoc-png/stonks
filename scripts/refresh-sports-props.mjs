@@ -29,7 +29,14 @@ for (const sport of requested ? [requested] : ['nba', 'nfl']) {
     // plus the provider's HTTP status number for a failed sportsbook read.
     const code = (s) => (s ? ` (http ${s})` : '');
     feeds = `${retried} lines=${sources.lines?.state || '?'}${code(sources.lines?.http_status)} injuries=${sources.injuries?.state || '?'}` + (sport === 'nba'
-      ? ` reference=${sources.reference?.state || '?'}${code(sources.reference?.http_status)} game_lines=${sources.reference?.game_lines_state || '?'}${code(sources.reference?.game_lines_http_status)}` : '');
+      ? ` reference=${sources.reference?.state || '?'}${code(sources.reference?.http_status)} game_lines=${sources.reference?.game_lines_state || '?'}${code(sources.reference?.game_lines_http_status)}`
+      // NFL book prices (2026-11-13): state, priced lines and distinct books
+      // (counts only), so the scheduled run shows whether the feed carries them.
+      : ` reference=${sources.reference?.state || '?'}${code(sources.reference?.http_status)} book_lines=${sources.reference?.quotes?.length || 0} books=${new Set((sources.reference?.quotes || []).map((q) => q.book)).size}`);
+    if (sport === 'nba') {
+      const q = sources.reference?.quotes || [];
+      feeds += ` book_lines=${q.length} books=${new Set(q.map((x) => x.book)).size}`;
+    }
     const feedsOk = sources.lines.state === 'ok' && sources.injuries.state === 'ok';
     if (!feedsOk && sport !== 'nba') throw new Error('a current feed is unavailable');
     const view = await recommendationsView({ load: recordLoader(store), sport, now, tz: 'America/Los_Angeles', sources });

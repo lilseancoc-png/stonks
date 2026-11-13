@@ -22,7 +22,16 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## 2026-11-13
 
+### Added
+- Sports book prices for NFL: the MCP's `sports_evaluate_entry` and `sports_get_player` read the books' NFL player prices (Bovada, Hard Rock, Kalshi, Polymarket and the big books when they post, one PropLine request, margin removed with Shin's method) beside the model's chance; the NFL board's own read spends no extra request. The scheduled NFL prop scan logs how many lines and books the feed carried (counts only).
+- A slip line no sportsbook posts (for example over 26.5 when the books stop at 25.5) is priced from the nearest book line moved by the model's own step between the two lines (`anchored`, within 2 units or 20% of the line), so the model is still checked against the market.
+- A provisional "trailing a coin flip" warning from 100 real PrizePicks lines: a stat whose chances score no better than 50/50 there is flagged in the Pick Builder, the model check card and the MCP (`REAL_LINES`); the 300-line validation gate is unchanged.
+
 ### Changed
+- NBA book prices read four more books in the same request (Bovada, Unibet and the Novig and ProphetX exchanges), so more lines reach the three books a "supported" price needs.
+- The NBA team model keeps the books' spread and total as they are until its blend toward team ratings is tested on 200 games with lines (was a 20% untested lean; NFL measured its blend at 0).
+- NBA game bets get the books' cover and over chances when the books split around the median line: each book within 2 points is moved to it on a normal curve (labeled `shifted`); before, none was given.
+- The NBA.com box-score cross-check sends a browser's headers with nba.com as the referring page, which its file server asks for; it read "unavailable" on every run.
 - The NBA stat model (`sports-model-5`) adjusts for the lineup when it is known: a usual starter coming off the bench is forecast about a quarter lower, a bench player who starts higher. It fixes the model over-calling bench regulars' overs (PRA said 46%, hit 38%), which came from lineup surprises; it passed the factor check on all 12 NBA stats. The Pick Builder adds a Starting box to each NBA pick (Not known / Starts / Off the bench), and the MCP's `sports_evaluate_entry` and `sports_get_player` take `starting`; unknown leaves the forecast as before.
 
 ### Fixed

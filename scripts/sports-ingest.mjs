@@ -22,11 +22,23 @@ const args = Object.fromEntries(process.argv.slice(2).map((a) => {
   return [m[1], m[2] ?? true];
 }));
 
+// NBA.com's public box-score files (cdn.nba.com, the cross-check) refuse a
+// request that does not look like its own site's page reading them, so those
+// get a browser's headers with nba.com as the page; everything else keeps the
+// plain research User-Agent.
+const BROWSER_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
+export function headersFor(url) {
+  const host = new URL(url).hostname;
+  if (host === 'cdn.nba.com' || host.endsWith('.nba.com')) {
+    return { 'User-Agent': BROWSER_UA, Accept: 'application/json, text/plain, */*', 'Accept-Language': 'en-US,en;q=0.9', Referer: 'https://www.nba.com/', Origin: 'https://www.nba.com' };
+  }
+  return { 'User-Agent': 'stonks-sports-research (private, non-commercial)' };
+}
 export async function fetchText(url, { attempts = 3, fetchImpl = fetch } = {}) {
   let lastErr;
   for (let i = 0; i < attempts; i++) {
     try {
-      const res = await fetchImpl(url, { redirect: 'follow', headers: { 'User-Agent': 'stonks-sports-research (private, non-commercial)' }, signal: AbortSignal.timeout(90000) });
+      const res = await fetchImpl(url, { redirect: 'follow', headers: headersFor(url), signal: AbortSignal.timeout(90000) });
       if (res.status === 404) return null;
       if (!res.ok) throw new Error(`HTTP ${res.status} for ${basename(new URL(url).pathname)}`);
       const len = Number(res.headers.get('content-length') || 0);

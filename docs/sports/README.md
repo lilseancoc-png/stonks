@@ -1231,7 +1231,31 @@ Update Checker lists the pages as on-demand.
 | NFL | [nflverse](https://github.com/nflverse/nflverse-data) releases (stats, schedule with spread and total, players, snap counts, official injury report), twice-daily scheduled job | CC BY 4.0 (FTN charting is CC BY-SA and is not used) | `sports-nfl-data`, `sports-data-integrity` |
 | NBA | [hoopR](https://hoopr.sportsdataverse.org/) / ESPN box scores (sportsdataverse-data releases), twice-daily scheduled job; NBA.com public box-score files as a count-only cross-check | Private research only | `sports-nba-data`, `sports-data-integrity` |
 | NBA spread, total and moneyline | PropLine `spreads,totals,h2h` (median of the reference books, no-vig chances by Shin's method), its own request beside the player prices since 2026-11-12, archived by Eastern game date | Free key, read-only | `sports-data-integrity`, `sports-team-bets` |
+| Player book prices | PropLine reference books, one request per league: NBA DraftKings, FanDuel, BetMGM, Pinnacle, BetRivers, Fanatics, plus Bovada, Unibet, Novig, ProphetX since 2026-11-13; NFL Bovada, Hard Rock, Kalshi, Polymarket (and the big books when they post), since 2026-11-13, read only for the MCP and the scheduled scan | Free key, read-only | `sports-data-fallbacks` |
 | Lines | Typed in, or read from a screenshot by Claude/ChatGPT | — | `sports-pick-builder` |
+
+### Book-price fallbacks (2026-11-13)
+
+- **Anchored price.** When no book posts the slip's line (the books stop at
+  25.5, the slip is over 26.5), `anchoredPrice` takes the nearest book line's
+  no-vig over chance and adds the model's own change in over chance between
+  the two lines. It is used only within 2 units or 20% of the book line, is
+  labeled `anchored` / `book_anchored` with the line it came from, and its gap
+  to the model equals the gap at that book line.
+- **Real-line warning.** `realLinesCheck` flags a stat from 100 real
+  PrizePicks lines when its Brier score is no better than an even 50%
+  (`real_lines_check` on forecasts; provisional until 300, the validation gate).
+- **Game bets.** When the books split around the median spread or total, each
+  book within 2 points is moved to the median line on a normal curve (NBA miss
+  12.5 margin, 18 total), labeled `method: 'shifted'`.
+- **Team blend.** NBA keeps the books' line (blend 0) until the blend toward
+  ratings is tested on 200 lined games.
+- **NBA.com.** `headersFor` in `scripts/sports-ingest.mjs` sends a browser's
+  headers with nba.com as the referring page for `*.nba.com` files.
+
+Not confirmed until a live run with the key: which NFL books the free plan
+carries, and whether NBA.com accepts the new headers from the runner. The
+NFL scan logs `book_lines=` and `books=` counts.
 
 NBA.com's terms bar gambling use. This section is private research for the
 owners and places no bets.

@@ -103,8 +103,9 @@ const books = [
   { key: 'prizepicks', markets: [gl('totals', [{ name: 'Over', price: -110, point: 300 }, { name: 'Under', price: -110, point: 300 }])] },
 ];
 const gameLines = normalizeGameLines([{ ...event, bookmakers: books }], 'nba', now);
-assert.deepEqual(gameLines.map(({ observed_utc, ...g }) => g), [{ event_id: 'provider-g1', home_team: 'Los Angeles Lakers', away_team: 'Golden State Warriors', start_utc: game.start_utc, total: 229, home_margin: 5, books: 2 }],
-  'home favored by the median of 4.5 and 5.5; total the median of 228.5 and 229.5; the books split around both, so no cover or over chance is claimed for 5 or 229');
+assert.deepEqual(gameLines.map(({ observed_utc, ...g }) => g), [{ event_id: 'provider-g1', home_team: 'Los Angeles Lakers', away_team: 'Golden State Warriors', start_utc: game.start_utc, total: 229, home_margin: 5, books: 2,
+  book: { home_win: null, home_cover: 0.5023, over: 0.4943, books: 2, method: 'shifted' } }],
+  'home favored by the median of 4.5 and 5.5; total the median of 228.5 and 229.5; the books split around both, so each book\'s chance is moved half a point to 5 and 229 (labeled shifted)');
 // A third book on DraftKings' numbers: the median is 4.5 / 228.5, and only the
 // books at those exact lines give the cover and over chances (Shin, median).
 const third = { key: 'betmgm', markets: [gl('spreads', [{ name: 'Los Angeles Lakers', side: 'home', price: -115, point: -4.5 }, { name: 'Golden State Warriors', side: 'away', price: -105, point: 4.5 }], { line_type: 'main' }),

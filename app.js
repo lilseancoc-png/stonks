@@ -37663,7 +37663,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (!r || !r.n) return '';
     const B = r.brier || {};
     return '<span>At real PrizePicks lines: ' + Number(r.n).toLocaleString('en-US') + ' game' + (r.n === 1 ? '' : 's') + (r.enough ? '' : ' (counts toward passing at 300)') +
-      '. Score: model <b>' + b3(B.model) + '</b>, last-10 hit rate ' + b3(B.last10_hit_rate) + ', coin flip ' + b3(B.even) + '.</span>';
+      '. Score: model <b>' + b3(B.model) + '</b>, last-10 hit rate ' + b3(B.last10_hit_rate) + ', coin flip ' + b3(B.even) + '.</span>' +
+      (r.n >= 100 && B.model != null && B.even != null && B.model >= B.even ? '<span class="sp-model-warn">Warning: no better than a coin flip at real lines so far. Lean on the books’ price for this stat.</span>' : '');
   }
   // The game inputs each stat may use (sports-model-4; lineup since
   // sports-model-5): on only where they beat leaving them out on later games.
@@ -39582,6 +39583,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
     const out = [];
     const t = m.tested;
     if (t && Math.abs(t.said - t.hit) >= 0.05) out.push('In testing, calls near ' + pct(t.said) + ' hit ' + pct(t.hit) + ' (' + t.games + ' games).');
+    const rl = m.real_lines_check;
+    if (rl && rl.trailing) out.push('At ' + rl.n + ' real PrizePicks lines this stat’s chances scored no better than a coin flip (' + escape(rl.model_brier) + ' vs ' + escape(rl.coin_flip_brier) + (rl.final ? '' : ', provisional') + '); lean on the books’ price.');
     const es = m.early_season;
     if (es && es.tested_miss != null && m.mean > 0 && Math.abs(es.tested_miss) >= 0.05 * m.mean) {
       out.push('Early season (' + es.games_this_season + ' game' + (es.games_this_season === 1 ? '' : 's') + ' this year): forecasts this early ran ' + escape(Math.abs(es.tested_miss)) + (es.tested_miss > 0 ? ' high' : ' low') + ' on average.');

@@ -83,7 +83,10 @@ Starting box, `starting` on the MCP's evaluate / get_player, `starting=yes|no`
 on the player route; unknown leaves the forecast unchanged. The check also scores held-out games at real PrizePicks
 lines (`real_lines`: the issued props record plus the line archive the props
 scans write to `<sport>/lines/<date>.json`, `lib/sports/line-archive.mjs`);
-from 300 real lines a stat must beat both baselines there too. Two game
+from 300 real lines a stat must beat both baselines there too; from 100
+(`REAL_WARN_MIN`, `realLinesCheck`) a stat no better than a coin flip there
+carries `real_lines_check` on its forecasts (MCP `REAL_LINES`, Pick Builder
+note), read at forecast time with no refit. Two game
 inputs (`GAME_FACTORS`) are used per stat only where they beat leaving them out
 on later dates by more than a day-clustered standard error: `game_lines` (the
 team's implied points from the spread and total; NFL from the schedule, NBA
@@ -113,8 +116,12 @@ number (a stat, the home margin, the game total, a team's points;
 (`teamJointRecords`). Player-only entries price exactly as before.
 No AI calls and no bets. The one outside line feed is PropLine's read-only
 odds API (`PROPLINE_API_KEY`, `lib/sports/prop-sources.mjs`): PrizePicks
-lines plus, for NBA, sportsbook reference prices (margin removed with Shin's
-method, `shinProbabilities` in `lib/sports/nba-market.mjs`) and, as a request
+lines plus sportsbook reference prices (margin removed with Shin's
+method, `shinProbabilities` in `lib/sports/nba-market.mjs`; NBA_BOOKS and,
+since 2026-11-13, NFL_BOOKS, read for NFL only when a caller asks for
+`reference`: the MCP and the scheduled scan, never the NFL board; a slip
+line no book posts is priced from the nearest book line moved by the
+model's step, state `anchored`, `anchoredPrice` in `book-price.mjs`) and, as a request
 of its own since 2026-11-12 (`game_lines` in `loadPropSources`' parts; the
 five-minute research collector skips it with `--no-game-lines`), the books'
 game spreads, totals and moneylines. The owners chose to keep it
