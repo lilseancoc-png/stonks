@@ -39102,6 +39102,8 @@ async function main() {
     universe: TICKERS,
     prior: freeNewsPrior,
     secFilers: secFilerMap(cikMap),
+    // Yahoo's mixed-case company names read better than EDGAR's capitals.
+    secNames: Object.fromEntries(TICKERS.map((s) => [s, chains[s]?.fundamentals?.name || null]).filter(([, n]) => n)),
     secUserAgent: SEC_USER_AGENT,
   }));
   if (AI_COMBINED) {

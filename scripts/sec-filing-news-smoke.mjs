@@ -93,13 +93,33 @@ const s2 = await collectSecFilingNews({ filers, prior: s1, fetchImpl: async (url
 eq(calls.length, 0, "fresh names are cached and the failed one waits 30 minutes");
 eq(s2.events.length, 3, "cached names keep their events");
 const s3 = await collectSecFilingNews({ filers, prior: s1, fetchImpl: async () => new Response("down", { status: 500 }), now: new Date(now.getTime() + 50 * 60000) });
-eq(s3.status, "error", "nothing read this time");
+eq(s3.status, "partial", "every read failed; only the foreign filer (checked daily) stays cached");
 eq(s3.events.length, 3, "a failed read carries the earlier events");
+const s3b = await collectSecFilingNews({ filers: { AAPL: "0000320193", NVDA: "0001045810" }, prior: s1, fetchImpl: async () => new Response("down", { status: 500 }), now: new Date(now.getTime() + 50 * 60000), gapMs: 0 });
+eq(s3b.status, "error", "nothing read this time");
 const many = Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`A${i}`, "0000320193"]));
 const okAll = await collectSecFilingNews({ filers: { ...many, ZZZ: "0000000001" }, fetchImpl: async (url) => /0000000001/.test(url) ? new Response("x", { status: 500 }) : Response.json({ ...apple, tickers: [] }), now });
 eq(okAll.status, "ok", "one failure in 21 stays ok");
 const noMap = await collectSecFilingNews({ filers: {}, prior: s1, fetchImpl, now: new Date(now.getTime() + 50 * 60000) });
 eq(Object.keys(noMap.names).sort(), ["AAPL", "NVDA", "TSM", "ZZZ"], "no CIK map: prior CIKs are reused");
+
+// Audit fixes (2026-11-13)
+eq(parseSecSubmissions(nvda, { symbol: "NVDA", cik: "1045810", name: "NVIDIA Corporation" }, now.getTime()).events[0].title.startsWith("NVIDIA Corporation files"), true, "mixed-case quote name preferred");
+eq(parseSecSubmissions(nvda, { symbol: "NVDA", cik: "1045810", name: "NVDA" }, now.getTime()).events[0].title.startsWith("NVIDIA CORP files"), true, "an all-capitals name does not replace EDGAR's");
+const s1named = await collectSecFilingNews({ filers: { AAPL: "0000320193" }, names: { AAPL: "Apple Inc." }, fetchImpl, now, gapMs: 0 });
+eq(s1named.events[0].title.startsWith("Apple Inc. files"), true);
+const weekLater = new Date(now.getTime() + 8 * 86400000);
+const stale = await collectSecFilingNews({ filers, prior: s1, fetchImpl: async () => new Response("down", { status: 500 }), now: weekLater, gapMs: 0 });
+eq(stale.events.length, 0, "carried events still leave after seven days");
+const callsTsm = [];
+const s4 = await collectSecFilingNews({ filers, prior: s1, fetchImpl: async (url) => { callsTsm.push(url); return fetchImpl(url, { headers: { "user-agent": "mingstreet" } }); }, now: new Date(now.getTime() + 2 * 3600000), gapMs: 0 });
+eq(callsTsm.some((u) => /0001046179/.test(u)), false, "a foreign filer is re-read once a day, not every 45 minutes");
+eq(callsTsm.some((u) => /0000320193/.test(u)), true);
+eq(s4.names.TSM.status, "cached");
+eq(s2.lastSuccessAt, s1.lastSuccessAt, "a run with only cached names does not move lastSuccessAt");
+const t0 = Date.now();
+await collectSecFilingNews({ filers: { AAPL: "0000320193", NVDA: "0001045810", TSM: "0001046179" }, fetchImpl, now, concurrency: 1, gapMs: 100 });
+eq(Date.now() - t0 >= 200, true, "readers pause between reads");
 
 // Through the official-source collector and into the News feed
 const universe = ["AAPL", "NVDA", "TSM", "SPY"];
@@ -124,6 +144,9 @@ const feed = buildNewsFeedPayload({ builtAtIso: now.toISOString(), tickerHeadlin
 const items = (feed.items || []).filter((i) => i.recordKind === "sec-filing");
 eq(items.length, 3, "filings reach the News feed");
 eq(items.every((i) => i.contextOnly && /SEC 8-K filing/.test(i.impactReason || "")), true);
+const feed2 = buildNewsFeedPayload({ builtAtIso: now.toISOString(), tickerHeadlines: [{ ...rows[0], title: "X files an 8-K: Past financial statements no longer reliable (Item 4.02)", eventId: "sec8k:0000000001-26-000001", link: "https://www.sec.gov/Archives/edgar/data/1/1/t.htm", facts: { ...rows[0].facts, eventClass: "restatement" } }, { ...rows[0], title: "Y files an 8-K: Other events (Item 8.01)", eventId: "sec8k:0000000001-26-000002", link: "https://www.sec.gov/Archives/edgar/data/1/1/u.htm", facts: { ...rows[0].facts, eventClass: "other" } }], marketHeadlines: [], chains: {}, sectors: {}, priorItems: [] });
+eq(feed2.items.find((i) => /4\.02/.test(i.title)).impact, "high", "a restatement filing is high impact");
+eq(feed2.items.find((i) => /8\.01/.test(i.title)).impact, "context", "an 'other events' filing stays context");
 eq(validNewsFeedPayload({ ...feed, sourceHealth: [], sourceCoverage: state.coverage }), true);
 
 console.log(`sec-filing-news-smoke: ${checks} checks passed`);
