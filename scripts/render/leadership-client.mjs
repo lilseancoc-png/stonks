@@ -175,10 +175,11 @@ export function renderLeadershipJs() {
     function headerHtml(d){
       var b = d.board || {}, c = d.control || {};
       var ceo = b.ceo ? byId(b.ceo) : null, chair = b.chair ? byId(b.chair) : null;
+      var coCeos = d.people.filter(function(p){ return p.ceo; });
       var tone = c.level === 'controlled' ? 'is-neg' : c.level === 'insiders' ? 'is-warn' : c.level === 'sway' ? 'is-warn' : 'is-pos';
       var label = { controlled: 'Controlled', insiders: 'Insider majority', sway: 'One big voice', spread: 'Widely held', unknown: 'Not yet known' }[c.level] || '—';
       var kpis = [
-        ['Chief executive', ceo ? personLink(ceo) : '—'],
+        [coCeos.length > 1 ? 'Co-chief executives' : 'Chief executive', coCeos.length > 1 ? coCeos.map(personLink).join(' and ') : ceo ? personLink(ceo) : '—'],
         ['Chair', chair ? (b.ceoIsChair ? 'Same person as CEO' : personLink(chair)) : '—'],
         ['Board', b.size ? b.size + ' directors' + (fin(b.independent) ? ' · ' + b.independent + ' independent' : '') : '—'],
         ['Average board tenure', fin(b.avgTenure) ? b.avgTenure + ' years' : '—'],
@@ -262,8 +263,8 @@ export function renderLeadershipJs() {
     function orgHtml(d){
       var dirs = d.people.filter(function(p){ return p.director; });
       dirs.sort(function(a, b){ return (b.chair - a.chair) || (b.leadIndependent - a.leadIndependent) || ((a.boardSince || 9999) - (b.boardSince || 9999)); });
-      var ceo = d.people.filter(function(p){ return p.ceo; })[0] || null;
-      var execs = d.people.filter(function(p){ return p.officer && (!ceo || p.id !== ceo.id); });
+      var ceos = d.people.filter(function(p){ return p.ceo; });
+      var execs = d.people.filter(function(p){ return p.officer && !p.ceo; });
       var comm = (d.board.committees || []);
       var h = '<div class="ld-org">';
       h += '<div class="ld-org-tier ld-org-board"><div class="ld-org-label">Shareholders elect the board' + (d.control && d.control.level === 'controlled' ? ' (one holder controls that vote)' : '') + '</div>' +
@@ -276,13 +277,14 @@ export function renderLeadershipJs() {
         }).join('') + '</div>';
       }
       h += '</div>';
-      if (ceo){
-        h += '<div class="ld-org-link" aria-hidden="true"></div><div class="ld-org-tier ld-org-top"><div class="ld-org-label">The board appoints and oversees the CEO</div>' + nodeHtml(ceo, 'is-ceo') + '</div>';
+      if (ceos.length){
+        h += '<div class="ld-org-link" aria-hidden="true"></div><div class="ld-org-tier ld-org-top"><div class="ld-org-label">The board appoints and oversees the ' + (ceos.length > 1 ? 'co-CEOs' : 'CEO') + '</div>' +
+          (ceos.length > 1 ? '<div class="ld-org-row">' + ceos.map(function(p){ return nodeHtml(p, 'is-ceo'); }).join('') + '</div>' : nodeHtml(ceos[0], 'is-ceo')) + '</div>';
       }
       if (execs.length){
         h += '<div class="ld-org-link" aria-hidden="true"></div><div class="ld-org-tier ld-org-execs"><div class="ld-org-label">Executive officers</div><div class="ld-org-row">' + execs.map(function(p){ return nodeHtml(p); }).join('') + '</div></div>';
       }
-      h += '</div><p class="stp-src">Filings name each officer and director but do not publish who reports to whom, so every officer is drawn under the CEO.</p>';
+      h += '</div><p class="stp-src">Filings name each officer and director but do not publish who reports to whom, so every officer is drawn under the ' + (ceos.length > 1 ? 'co-CEOs' : 'CEO') + '.</p>';
       return h;
     }
     // --- 3. connections web --------------------------------------------------------
@@ -472,7 +474,7 @@ export function renderLeadershipJs() {
     function sourceHtml(d){
       var s = d.source || {};
       var bits = [];
-      if (s.doc) bits.push(esc(s.doc.form) + ' filed ' + day(s.doc.filed) + ' (<a href="' + esc(s.doc.url) + '" target="_blank" rel="noopener">open</a>' + (s.doc.recordDate ? ', record date ' + esc(s.doc.recordDate) : '') + '; read by AI and checked against the text: ' + s.doc.kept + ' facts kept' + (s.doc.dropped ? ', ' + s.doc.dropped + ' dropped' : '') + ')');
+      if (s.doc) bits.push(esc(s.doc.form) + ' filed ' + day(s.doc.filed) + ' (<a href="' + esc(s.doc.url) + '" target="_blank" rel="noopener">open</a>' + (s.doc.recordDate ? ', record date ' + day(s.doc.recordDate) : '') + '; read by AI and checked against the text: ' + s.doc.kept + ' facts kept' + (s.doc.dropped ? ', ' + s.doc.dropped + ' dropped' : '') + ')');
       else if (s.docPending) bits.push('the ' + esc(s.docPending.form) + ' filed ' + day(s.docPending.filed) + ' is queued to be read');
       if (s.filingsThrough) bits.push('insider Forms 3, 4 and 5 through ' + day(s.filingsThrough) + ' (' + (s.insiders || 0) + ' filers)');
       return '<p class="stp-src">Source: SEC EDGAR, ' + bits.join('; ') + '. <a href="' + esc(s.edgar) + '" target="_blank" rel="noopener">Company filings</a>. Public disclosures, not investment advice.</p>';

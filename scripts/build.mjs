@@ -38902,6 +38902,9 @@ export async function writeLeapsPaperTrack({ ideas, asOf, quotes = {}, stocks = 
 
 // === Corporate structure (stock page Leadership tab) ===========================
 export const CORPORATE_STRUCTURE_KEY = "corporate-structure.json";
+// Funds filed under a stock sector (DRAM, a memory theme ETF) have no board,
+// officers or Section 16 insiders: skipped, and their page hides the tab.
+const CORP_FUND_SYMS = new Set(["DRAM"]);
 async function collectCorporateStructure(prior) {
   const priorOk = prior && prior.version === CORPORATE_STATE_VERSION ? prior : null;
   if (process.env.CORP_STRUCTURE === "0") { console.log("Corporate structure: CORP_STRUCTURE=0, keeping the prior data"); return priorOk; }
@@ -38910,7 +38913,7 @@ async function collectCorporateStructure(prior) {
     return await refreshCorporateStructure({
       prior: priorOk,
       universe: TICKERS,
-      skip: (sym) => SECTORS[sym] === "ETF",
+      skip: (sym) => SECTORS[sym] === "ETF" || CORP_FUND_SYMS.has(sym),
       cikMap: _cikMap || await fetchCikMap(),
       userAgent: SEC_USER_AGENT,
       maxRequests: Number(process.env.CORP_MAX_REQUESTS || (decisionRun ? 60 : 450)),
@@ -38938,6 +38941,7 @@ export function attachCorporateViews(chains, state) {
   const views = buildCorporateViews(state, { prices, sharesOut, onError: (sym, err) => console.warn(`[corporate] ${sym} view skipped: ${String(err?.message || err).slice(0, 160)}`) });
   let n = 0;
   for (const [sym, view] of Object.entries(views)) if (chains[sym]) { chains[sym].corporate = view; n++; }
+  for (const sym of CORP_FUND_SYMS) if (chains[sym]) chains[sym].corporate = { fund: true };
   return n;
 }
 

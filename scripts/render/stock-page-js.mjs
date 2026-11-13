@@ -492,6 +492,8 @@ export function renderStockPageJs() {
     // Funds have no board or executives of their own.
     function hasLeadership(){
       var d = state.data || {};
+      // A fund listed under a stock sector (a theme ETF) has no board or officers.
+      if (d.corporate && d.corporate.fund) return false;
       return !!d.corporate || (typeof CALENDAR_STOCKS !== 'undefined' && CALENDAR_STOCKS.indexOf(state.sym) >= 0);
     }
     function tabsHtml(){
@@ -1016,7 +1018,9 @@ export function renderStockPageJs() {
     }
     function tabLeadership(){
       var d = state.data && state.data.corporate;
+      if (d && d.fund) return '<p class="stp-empty">' + escapeHtml(state.sym) + ' is a fund. Funds have no board of directors or company officers filing with the SEC, so there is no leadership to show.</p>';
       if (!d) return '<p class="stp-empty">Board and leadership data for ' + escapeHtml(state.sym) + ' is still being collected from SEC filings. It fills in over the next few builds.</p>';
+      if (d.empty) return '<p class="stp-empty">SEC EDGAR has no insider filings (Forms 3, 4, 5) and no proxy statement or annual report with a board list for ' + escapeHtml(d.name || state.sym) + ' to read. Some companies listed outside the US report their board and insiders to their home regulator instead. <a href="' + escapeHtml(d.source && d.source.edgar || '') + '" target="_blank" rel="noopener">Open its EDGAR filings</a></p>';
       var sym = state.sym;
       state.afterTab = function(){ LEADERSHIP.mount(document.getElementById('ld-root'), d, sym); };
       return '<div id="ld-root" class="ld-root"></div>';

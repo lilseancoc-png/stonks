@@ -34,7 +34,12 @@ const state = await refreshCorporateStructure({
   ai: useAi ? { enabled: !!process.env.GEMINI_API_KEY, model: process.env.AI_CORP_MODEL || 'gemini-3.1-flash-lite', deps } : null,
   log: (l) => console.log(l),
   // --debug-doc=TSM prints where the 20-F / proxy slice starts (layout checks).
-  onDocText: (sym, text, fullLen) => { console.log(`doc ${sym}: ${fullLen} chars → slice ${text.length}`); if (opt('debug-doc', '').split(',').includes(sym)) console.log(`--- ${sym} slice head ---\n${text.slice(0, 1500)}\n--- end ---`); },
+  // --dump-doc=NVO prints the whole slice the model reads.
+  onDocText: (sym, text, fullLen) => {
+    console.log(`doc ${sym}: ${fullLen} chars → slice ${text.length}`);
+    if (opt('debug-doc', '').split(',').includes(sym)) console.log(`--- ${sym} slice head ---\n${text.slice(0, 1500)}\n--- end ---`);
+    if (opt('dump-doc', '').split(',').includes(sym)) console.log(`--- ${sym} slice ---\n${text}\n--- end ---`);
+  },
 });
 // Prices for the stake values: Yahoo's chart endpoint, best effort.
 const prices = {};
@@ -50,6 +55,7 @@ for (const e of state.lastRun.errors) console.log(`  error ${e.stage} ${e.symbol
 for (const s of symbols) {
   const v = views[s], c = state.companies[s];
   if (!v) { console.log(`\n${s}: no view (${c ? 'collected ' + Object.keys(c.owners || {}).length + ' insiders' : 'not collected'})`); continue; }
+  if (v.empty) { console.log(`\n${s}: nothing on EDGAR to read (no insider filings, no proxy or annual report)`); continue; }
   console.log(`\n${s} ${v.name} · ${v.people.length} current people, ${v.former.length} former, ${v.holders.length} large holders · doc ${v.source.doc ? v.source.doc.form + ' ' + v.source.doc.filed + ' kept ' + v.source.doc.kept + ' dropped ' + v.source.doc.dropped : 'none' + (v.source.docPending ? ' (pending ' + v.source.docPending.form + ')' : '')}`);
   console.log(`  control: ${v.control.summary}${v.control.gap ? ' ' + v.control.gap : ''}${v.control.votesNote ? ' [' + v.control.votesNote + ']' : ''}`);
   console.log(`  board: ${v.board.size} directors, ${v.board.independent ?? '?'} independent, avg tenure ${v.board.avgTenure ?? '?'}, CEO is chair: ${v.board.ceoIsChair}`);
