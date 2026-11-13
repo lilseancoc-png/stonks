@@ -3,7 +3,7 @@
 // Private R2 only. Public workflow logs contain counts, never lines or keys.
 import { store } from '../lib/datastore.mjs';
 import { recordLoader } from '../lib/sports/http.mjs';
-import { loadPropSources } from '../lib/sports/prop-sources.mjs';
+import { loadPropSourcesWithRetry } from '../lib/sports/prop-sources.mjs';
 import { recommendationsView } from '../lib/sports/props.mjs';
 import { capturePropPicks } from '../lib/sports/prop-record.mjs';
 import { captureNBAResearch } from '../lib/sports/nba-research.mjs';
@@ -23,11 +23,12 @@ const SAFE_REASONS = new Set(['a current feed is unavailable', 'NBA research rec
 for (const sport of requested ? [requested] : ['nba', 'nfl']) {
   let feeds = '';
   try {
-    const now = Date.now(), sources = await loadPropSources({ sport, now, parts: ['lines', 'injuries', 'reference', ...(gameLines ? ['game_lines'] : [])] });
+    const { now, sources, retried } = await loadPropSourcesWithRetry({ sport, parts: ['lines', 'injuries', 'reference', ...(gameLines ? ['game_lines'] : [])] });
+    if (retried) console.log(`${sport}: a feed was down, read once more after a short wait (${retried.trim()})`);
     // Feed states only ("ok", "stale", "rate_limited", "unavailable", ...),
     // plus the provider's HTTP status number for a failed sportsbook read.
     const code = (s) => (s ? ` (http ${s})` : '');
-    feeds = ` lines=${sources.lines?.state || '?'} injuries=${sources.injuries?.state || '?'}` + (sport === 'nba'
+    feeds = `${retried} lines=${sources.lines?.state || '?'}${code(sources.lines?.http_status)} injuries=${sources.injuries?.state || '?'}` + (sport === 'nba'
       ? ` reference=${sources.reference?.state || '?'}${code(sources.reference?.http_status)} game_lines=${sources.reference?.game_lines_state || '?'}${code(sources.reference?.game_lines_http_status)}` : '');
     const feedsOk = sources.lines.state === 'ok' && sources.injuries.state === 'ok';
     if (!feedsOk && sport !== 'nba') throw new Error('a current feed is unavailable');

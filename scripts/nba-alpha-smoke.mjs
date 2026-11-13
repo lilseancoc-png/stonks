@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { gunzipSync } from 'node:zlib';
-import { normalizeOdds, loadPropSources } from '../lib/sports/prop-sources.mjs';
+import { normalizeOdds, loadPropSources, loadPropSourcesWithRetry, RETRY_WAIT_MS, FORCE_REUSE_MS } from '../lib/sports/prop-sources.mjs';
 import { normalizeNBAQuotes, nbaMarketForProp, impliedAmerican, nbaPairEstimate, checkNBAPayout, selectNBAProps, shinProbabilities } from '../lib/sports/nba-market.mjs';
 import { nbaRoleScenario, nbaTeamOpportunity } from '../lib/sports/nba-role.mjs';
 import { recommendationsView } from '../lib/sports/props.mjs';
@@ -181,4 +181,23 @@ assert.throws(() => sportsKey('nba-research-input', { sport: 'nba', digest: '../
 let nflCalls = 0;
 const nfl = await loadPropSources({ sport: 'nfl', now, env: { PROPLINE_API_KEY: 'fixture' }, fetchImpl: async (url) => { nflCalls++; return new Response(JSON.stringify(String(url).includes('prop-line') ? [] : { status: 'success', timestamp: new Date(now).toISOString(), injuries: [] })); } });
 assert.equal(nflCalls, 2); assert.equal(nfl.reference, undefined, 'NFL feed and ranking contract stay unchanged');
+// Scheduled jobs re-read a briefly-down feed once (only the failed parts,
+// forced past the cache), never a rate limit, and still fail if it stays down.
+{
+  assert.ok(RETRY_WAIT_MS > FORCE_REUSE_MS, 'retry wait outlasts the forced-reuse window');
+  const calls = [], waits = [];
+  const fake = (states) => async ({ parts, force }) => { calls.push({ parts, force: !!force }); const st = states.shift();
+    return { lines: { state: st.lines ?? 'ok', lines: [] }, injuries: { state: st.injuries ?? 'ok', reports: [] }, ...(parts.includes('reference') ? { reference: { state: st.reference ?? 'ok', quotes: [] } } : {}) }; };
+  const sleep = async (ms) => { waits.push(ms); };
+  let r = await loadPropSourcesWithRetry({ sport: 'nfl', parts: ['lines', 'injuries', 'reference'], load: fake([{ lines: 'unavailable' }, {}]), sleep });
+  assert.equal(r.sources.lines.state, 'ok'); assert.equal(r.retried, ' retried=lines'); assert.deepEqual(waits, [RETRY_WAIT_MS]);
+  assert.deepEqual(calls[1], { parts: ['lines'], force: true });
+  calls.length = 0; waits.length = 0;
+  r = await loadPropSourcesWithRetry({ sport: 'nba', parts: ['lines', 'injuries', 'reference', 'game_lines'], load: fake([{ reference: 'unavailable' }, { reference: 'unavailable' }]), sleep });
+  assert.equal(r.sources.reference.state, 'unavailable', 'a feed that stays down still fails the run');
+  assert.deepEqual(calls[1].parts, ['reference', 'game_lines']); assert.equal(r.sources.lines.state, 'ok');
+  calls.length = 0; waits.length = 0;
+  r = await loadPropSourcesWithRetry({ sport: 'nba', parts: ['lines', 'injuries', 'reference'], load: fake([{ lines: 'rate_limited' }]), sleep });
+  assert.equal(calls.length, 1); assert.equal(waits.length, 0); assert.equal(r.retried, '');
+}
 console.log('NBA alpha passed: fresh paired prices, timestamp/ladder safety, margin removal, strict wins, correlated pair screens, role scenarios, immutable evidence/paper entries, exact offline replay, grading/CLV/ROI and Owner/CSRF isolation.');
