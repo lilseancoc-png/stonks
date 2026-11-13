@@ -561,6 +561,34 @@ sportsbook no-vig chance, set only by the MCP's `use_book_chances`).
   When a pair has no measured link, or a player's team is not known, the page
   shows the breakeven and the reason, never a combined number.
 
+**Is it a good bet? (`ev_check`, 2026-11-13).** Every priced entry carries
+`evaluation.ev_check` (`evCheck` in `payout.mjs`, attached in
+`evaluateEntry`), so the page, the saved journal and the MCP give one answer.
+It reads the evaluation the pricer already made and changes no number:
+
+| Verdict | When |
+|---|---|
+| `negative_ev` | The expected return is below 0. With no combined chance (same-game picks without a measured link), below 0 under every link. |
+| `unsure` | 0 or more, but below 0 at the low end of the same-game range, or at the model's tested hit rates (below); with no combined chance, the any-link range runs from below 0 to above 0. |
+| `positive_ev` | 0 or more and it stays there through every check. |
+| `unknown` | A payout or a chance is missing, or nothing bounds the return (flex with no combined chance). |
+
+The **tested hit rates** check prices the same entry again with each player
+pick whose chance is the model's own moved by that chance's holdout miss:
+the reliability bin it falls in (30+ held-out games) said `said` and hit
+`hit`, so the chance moves by `hit − said` (`model.tested`, the same numbers
+behind the MCP's `MODEL_TESTED` note). Typed, history and book chances and
+game bets stay as entered; the result is `at_tested_rates`. `weak_picks`
+names the picks that drag the entry: a chance under what each pick needs if
+all were equal and independent (power, flex, a one-price parlay), or, for a
+parlay with each pick's odds, a pick that loses on its own odds. The page
+shows the verdict, its one-line `reason`, the weak picks and how many
+chances were typed in or copied from hit rates in a box above the numbers
+(`evCheckHtml`). It is a warning only: a negative entry can still be saved
+(owner, 2026-11-13: the lines come from outside apps and the MCP is used to
+check a parlay, not to place it). The MCP repeats the reason as a
+`NEGATIVE_EV` or `EV_UNSURE` warning.
+
 **Saving.** A paper entry needs the app, the entry type, a stake and the
 payout; chances are optional. Every game must still be ahead. The entry keeps
 the evaluation it had at save. Each pick is also appended to

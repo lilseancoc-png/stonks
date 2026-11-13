@@ -2378,7 +2378,21 @@ export function sportsFactory(host, doc, options) {
       body = beBarHtml(E.joint_probability, E.breakeven_probability, E.bounds) + '<div class="sp-tiles">' + tiles + '</div>' + dist + sameGameNoteHtml(E, n) + oddsBlockHtml(E, ev) +
         '<p class="sp-note">Independence baseline: it assumes no pick affects another, using the chances entered above' + (fromHistory ? ' (some copied from history rates)' : '') + '. A starting point, not a forecast.</p>';
     }
-    return '<div class="sp-eval">' + (warn.length ? '<ul class="sp-warn">' + warn.map((w) => '<li>' + w + '</li>').join('') + '</ul>' : '') + body + '</div>';
+    return '<div class="sp-eval">' + (warn.length ? '<ul class="sp-warn">' + warn.map((w) => '<li>' + w + '</li>').join('') + '</ul>' : '') + evCheckHtml(E.ev_check) + body + '</div>';
+  }
+  // Is the entry worth playing at these chances (lib/sports/payout.mjs
+  // evCheck, the same read the MCP gives): a warning when the expected return
+  // is below 0, a caution when a check takes it below 0.
+  const EV_HEAD = { negative_ev: 'Negative expected value', unsure: 'Not a clear edge', positive_ev: 'Positive expected value' };
+  function evCheckHtml(C) {
+    if (!C || !EV_HEAD[C.verdict]) return '';
+    const W = C.weak_picks || [], under = W.filter((w) => w.needs != null), losing = W.filter((w) => w.edge != null);
+    const weak = (under.length ? '<p class="sp-ev-weak">' + (under.length === 1 ? 'Pick ' : 'Picks ') + joinList(under.map((w) => w.pick + ' (' + pct(w.chance) + ')')) + (under.length === 1 ? ' is' : ' are') +
+      ' under the ' + pct(under[0].needs) + ' each pick needs if all were equally likely and independent.</p>' : '') +
+      losing.map((w) => '<p class="sp-ev-weak">Pick ' + w.pick + ' (' + pct(w.chance) + ') loses on its own odds: ' + (w.edge * 100).toFixed(1).replace('-', '−') + '% per $1.</p>').join('');
+    const from = C.chances_from || {}, typed = (from.owner || 0) + (from.history || 0);
+    const src = typed ? '<p class="sp-ev-src">' + typed + ' of the chances ' + (typed === 1 ? 'is' : 'are') + ' typed in or copied from hit rates, so this read is only as good as ' + (typed === 1 ? 'that number' : 'those numbers') + '.</p>' : '';
+    return '<div class="sp-ev sp-ev-' + C.verdict.replace('_', '-') + '" role="status"><b>' + EV_HEAD[C.verdict] + '</b><p>' + escape(C.reason) + '</p>' + weak + src + '</div>';
   }
   // Same-game estimate: the measured links between picks from one game,
   // priced with the chances entered above (lib/sports/joint.mjs).
@@ -3247,5 +3261,5 @@ export function sportsFactory(host, doc, options) {
     else if (L.view === 'games' && !L.propsPending) { loadBoard(page, lg); paint(page, 'board', boardHtml(lg)); }
   });
   // priceOf is returned for the smoke test, which compares it with parsePrice.
-  return { load, priceOf, neverBoth };
+  return { load, priceOf, neverBoth, evCheckHtml };
 }
