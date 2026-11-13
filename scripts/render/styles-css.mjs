@@ -21,6 +21,7 @@ import { renderUnifiedSignalCss } from './unified-signal-css.mjs';
 import { applyPageTextScale } from './text-scale.mjs';
 import { renderOverhaulCss } from './overhaul-css.mjs';
 import { renderStockPageCss } from './stock-page-css.mjs';
+import { renderLeadershipCss } from './leadership-css.mjs';
 import { renderChartsCss } from './charts-css.mjs';
 import { renderTablesCss } from './tables-css.mjs';
 import { renderPolishCss } from './polish-css.mjs';
@@ -25587,6 +25588,7 @@ ${renderExportCss()}
 ${topPicksMarketCss()}
 ${renderOverhaulCss()}
 ${renderStockPageCss()}
+${renderLeadershipCss()}
 ${renderChartsCss()}
 ${renderTablesCss()}
 ${renderPolishCss()}

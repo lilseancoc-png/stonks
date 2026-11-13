@@ -1830,7 +1830,7 @@ did not run leaves its key out, it never logs a fake zero):
 | `hfp` | days of the stock's volume held by stressed hot funds (0 when the 13F screen ran and no stressed fund holds it) | `leverage-distress.json` |
 | `lrb` | leveraged single-stock ETF close-of-day rebalance as % of average volume, signed (selling negative) | `leverage-distress.json` |
 | `csh` | 1 when the name is in today's hot-fund cluster selloff, else 0 | `leverage-distress.json` |
-| `ins` | distinct open-market insider buyers minus sellers over 30 days | the corporate-structure payload (`corporate-structure.json`), once that feature lands and passes it to `insiderFromStructure` in the bake; only names whose Form 4 coverage reaches back over the whole window. Not logged until then |
+| `ins` | distinct open-market insider buyers minus sellers over 30 days | the Leadership collector's state (`corporate-structure.json`, read before the wipe and refreshed in the bake, passed to `insiderFromStructure`); only names whose Form 4 record (`completeFrom`) covers the whole window, so the first names log about 30 days after the collector's first full sweep |
 
 **New market gauges** in the `mkt` row: `gpu30` (H100 rental price, 30-day
 change), `dram30` (DRAM spot, median 1-month change), `cxYoy` (big-tech capex

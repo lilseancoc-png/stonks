@@ -543,6 +543,11 @@ jobs:
           # change), on = apply inside the limits from 2026-12-07, 0 = the
           # frozen base settings at the next run.
           SELF_TUNE: ${{ vars.SELF_TUNE }}
+          # Stock page Leadership tab (lib/corporate-structure/): CORP_STRUCTURE=0
+          # stops the SEC collection and keeps the prior data; CORP_STRUCTURE_AI=0
+          # stops the proxy reads (about one Flash-Lite call per company a year).
+          CORP_STRUCTURE: ${{ vars.CORP_STRUCTURE }}
+          CORP_STRUCTURE_AI: ${{ vars.CORP_STRUCTURE_AI }}
           # (PICKS_ACCURACY_AB removed: it was set here but read NOWHERE in the
           # code — the wait-arm cohort it described now enrolls BY DEFAULT,
           # since every actionable pick enrolls cohort-tagged go/wait.)
