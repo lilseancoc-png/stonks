@@ -4,7 +4,7 @@
 // route. Offline: fixture CSV only, fake R2 store.
 //   node scripts/sports-pick-smoke.mjs
 import assert from 'node:assert/strict';
-import { legResult, poissonBinomial, jointBounds, payoutProblems, evaluatePayout, sameGameGroups, settleFromLegs, perPickBreakeven, wilsonRange } from '../lib/sports/payout.mjs';
+import { legResult, poissonBinomial, jointBounds, payoutProblems, evaluatePayout, sameGameGroups, settleFromLegs, perPickBreakeven, wilsonRange, evCheck } from '../lib/sports/payout.mjs';
 import { unpackRows } from '../lib/sports/rows.mjs';
 import { evaluateEntry, saveEntry, reviseEntry, journalView, hitHistory, ownerTag } from '../lib/sports/journal.mjs';
 import { ingestLeague } from '../lib/sports/ingest.mjs';
@@ -121,6 +121,47 @@ ok(/no measured link|not been measured/.test(sameP.evaluation.detail), 'and the 
 const priced = await evaluateEntry({ load: load(), body: { legs: [curry('401900003', { probability: 0.6 }), lebron('401900004', { probability: 0.55, probability_source: 'history' })], operator: 'betr', format: 'power', stake: 10, payouts: { 2: 3 } }, now: NOW });
 eq([priced.evaluation.status, priced.evaluation.joint_probability, priced.evaluation.expected_gross, priced.evaluation.expected_net], ['independence_baseline', 0.33, 9.9, -0.1], 'two games: the independence baseline');
 eq(priced.legs.map((l) => l.probability_source), ['owner', 'history'], 'where each chance came from is kept');
+// Good or bad at these chances (evCheck): one read for the page, the journal and the MCP.
+const PC = priced.evaluation.ev_check;
+eq([PC.verdict, PC.expected_roi, PC.chance_all_hit, PC.breakeven, PC.gap_pts, PC.chances_from], ['negative_ev', -0.01, 0.33, 0.333333, -0.3, { owner: 1, history: 1 }], '33% against 33.3% at 3x: a 1% loss, flagged');
+eq(PC.reason, 'This entry loses about 1.0% of the stake on average at these chances and payouts. Both hit 33.0% of the time against 33.3% needed.');
+eq(PC.weak_picks, [{ pick: 2, chance: 0.55, needs: 0.57735 }], 'the 55% pick is under the 57.7% each pick needs');
+eq(PC.at_tested_rates, null, 'typed and history chances are not moved by the model’s test');
+eq(draft.evaluation.ev_check.verdict, 'unknown', 'no payout: no verdict');
+eq(same.evaluation.ev_check.verdict, 'unknown', 'no chances: no verdict');
+const SC = sameP.evaluation.ev_check;
+eq([SC.verdict, SC.expected_roi, SC.roi_range], ['unsure', null, { low: -0.7, high: 0.5 }], 'no measured link: under any link the return runs from −70% to +50%, so the sign is not known');
+ok(/sign is not known/.test(SC.reason), SC.reason);
+{ // The pure read, every branch.
+  const legs2 = [{ probability: 0.7, probability_source: 'model' }, { probability: 0.6, probability_source: 'model' }];
+  const base = { status: 'independence_baseline', joint_probability: 0.42, breakeven_probability: 0.333333, breakeven_per_pick: 0.57735, expected_roi: 0.26 };
+  eq(evCheck({ evaluation: base, format: 'power', stake: 10, legs: legs2 }).verdict, 'positive_ev', 'clear of break-even: positive');
+  const t = evCheck({ evaluation: base, format: 'power', stake: 10, legs: legs2, tested: { expected_roi: -0.02, picks: [{ pick: 1, chance: 0.7, tested: 0.55 }] } });
+  ok(t.verdict === 'unsure' && /actually had, it is −2\.0%/.test(t.reason), 'positive at the model’s chances but negative at its tested hit rates: unsure. ' + t.reason);
+  const j = evCheck({ evaluation: { ...base, status: 'joint_estimate', expected_net_range: { low: -0.5, high: 3 } }, format: 'power', stake: 10, legs: legs2 });
+  ok(j.verdict === 'unsure' && /falls to −5\.0% at the low end/.test(j.reason), 'below 0 at the low end of the same-game range: unsure. ' + j.reason);
+  // About break-even (shows as 0.0%): not a clear edge, never "positive"; a
+  // loss that small is still a loss.
+  const even = evCheck({ evaluation: { ...base, expected_roi: 0 }, format: 'power', stake: 10, legs: legs2 });
+  eq([even.verdict, even.reason], ['unsure', 'This entry about breaks even at these chances and payouts (expected return under 0.1%). Both hit 42.0% of the time against 33.3% needed.'], 'exactly break-even: not a clear edge');
+  eq(evCheck({ evaluation: { ...base, expected_roi: 0.0004 }, format: 'power', stake: 10, legs: legs2 }).verdict, 'unsure', 'a gain that shows as +0.0% is no edge');
+  eq(evCheck({ evaluation: { ...base, expected_roi: 0.0005 }, format: 'power', stake: 10, legs: legs2 }).verdict, 'positive_ev', '+0.1% and up is');
+  const tiny = evCheck({ evaluation: { ...base, expected_roi: -0.0004 }, format: 'power', stake: 10, legs: legs2 });
+  ok(tiny.verdict === 'negative_ev' && /^This entry loses a little \(under 0\.1% of the stake\) on average/.test(tiny.reason), 'a loss that shows as 0.0% is still flagged, in words: ' + tiny.reason);
+  const evenTested = evCheck({ evaluation: { ...base, expected_roi: 0 }, format: 'power', stake: 10, legs: legs2, tested: { expected_roi: 0.03, picks: [] } });
+  ok(evenTested.verdict === 'unsure' && /would be \+3\.0%\.$/.test(evenTested.reason), 'break-even still reports the tested-rate return: ' + evenTested.reason);
+  eq(evCheck({ evaluation: { status: 'not_calculated', expected_net_range: { low: -4, high: -1 } }, format: 'power', stake: 10, legs: legs2 }).verdict, 'negative_ev', 'below 0 under every link: negative');
+  eq(evCheck({ evaluation: { status: 'not_calculated', expected_net_range: { low: 1, high: 4 } }, format: 'power', stake: 10, legs: legs2 }).verdict, 'positive_ev');
+  eq(evCheck({ evaluation: { status: 'not_calculated' }, format: 'flex', stake: 10, legs: legs2 }).verdict, 'unknown', 'no range at all: unknown');
+  const par = evCheck({ evaluation: { ...base, expected_roi: 0.05 }, format: 'parlay', stake: 10, legs: [{ ...legs2[0], price: 1.5, odds: { edge: 0.05 } }, { ...legs2[1], price: 1.6, odds: { edge: -0.04 } }] });
+  eq(par.weak_picks, [{ pick: 2, chance: 0.6, edge: -0.04 }], 'a parlay with each pick’s odds names the pick that loses on its own odds');
+  const page = sportsFactory({}, { addEventListener() {}, getElementById() { return null; } }, {});
+  const html = page.evCheckHtml(PC);
+  ok(html.includes('sp-ev-negative-ev') && html.includes('Negative expected value') && html.includes('loses about 1.0% of the stake') && /Pick 2 \(55\.0%\) is under the 57\.7% each pick needs/.test(html), 'the Pick Builder shows the warning: ' + html.slice(0, 120));
+  ok(/2 of the chances are typed in or copied from hit rates/.test(html), 'and says how many chances were typed in or copied');
+  eq(page.evCheckHtml(draft.evaluation.ev_check), '', 'nothing shown without a verdict');
+  ok(page.evCheckHtml(SC).includes('sp-ev-unsure'), 'an unsure read gets the caution style');
+}
 const wrong = await evaluateEntry({ load: load(), body: { legs: [lebron('401900003')] }, now: NOW });
 ok(/LeBron James is not on either team/.test(wrong.warnings[0]), 'a player not in the game is flagged');
 await rejects(evaluateEntry({ load: load(), body: { legs: [curry('401900003'), curry('401900003', { side: 'under' })] }, now: NOW }), 400, /cancel out/, 'over and under on the same line');
@@ -168,6 +209,7 @@ ok(/^pe_[a-f0-9]{18}$/.test(A.entry_id) && A.by === ownerTag(OWNER) && !JSON.str
 ok(A.legs.every((l) => !('recent' in l) && l.history), 'chart values are not saved with the entry');
 eq(A.evaluation.status, 'needs_probabilities', 'the same-game entry without chances is saved without a joint number');
 eq([C.evaluation.status, C.evaluation.expected_net], ['independence_baseline', 1.5], 'the priced entry keeps its expected value');
+eq([C.evaluation.ev_check.verdict, C.evaluation.ev_check.expected_roi], ['positive_ev', 0.15], 'and its expected-value read');
 const journalRec = JSON.parse(st.objects.get(SPORTS_PREFIX + 'journal/entries.json'));
 eq(journalRec.events.length, 6, 'six entries appended');
 const obs = JSON.parse(st.objects.get(SPORTS_PREFIX + 'markets/observations.json')).observations;

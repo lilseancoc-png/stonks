@@ -750,6 +750,16 @@ html.reduce-motion *, html.reduce-motion *::before, html.reduce-motion *::after 
 .sp-eval p { margin: 6px 0 0; }
 .sp-eval p:first-child { margin-top: 0; }
 .sp-eval-bad { border-color: var(--neg); }
+.sp-ev { margin: 0 0 12px; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border-strong); border-left-width: 4px; background: var(--surface); }
+.sp-ev > b { display: block; font-size: var(--t-14); }
+.sp-ev p { margin: 4px 0 0; }
+.sp-ev-negative-ev { border-color: var(--neg); }
+.sp-ev-negative-ev > b { color: var(--neg); }
+.sp-ev-unsure { border-color: var(--warn, var(--border-strong)); }
+.sp-ev-unsure > b { color: var(--warn, var(--muted-strong)); }
+.sp-ev-positive-ev { border-color: var(--pos); }
+.sp-ev-positive-ev > b { color: var(--pos); }
+.sp-ev-weak, .sp-ev-src { font-size: var(--t-12); color: var(--muted-strong); }
 .sp-warn { margin: 0 0 10px; padding: 0 0 0 18px; color: var(--warn); }
 .sp-warn li { margin: 2px 0; }
 .sp-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; margin: 2px 0 10px; }

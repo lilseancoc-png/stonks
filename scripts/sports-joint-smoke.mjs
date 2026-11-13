@@ -212,6 +212,11 @@ const L_ = (player_id, team, game_id, stat, side, probability, extra = {}) => ({
     const now = evaluateOutcomes({ legs, groups, joints, stake: 10, format, payouts });
     eq([now.status, now.joint_probability, now.range, now.distribution, now.expected_net, now.simulation.seed], [old.status, old.joint_probability, old.range, old.distribution, old.expected_net, old.simulation.seed], 'player picks price exactly as before (' + format + ')');
   }
+  // Flex is priced at each link endpoint too (2026-11-13): its expected
+  // profit carries the same range power and parlays do.
+  const FX = evaluateOutcomes({ legs, groups, joints, stake: 10, format: 'flex', payouts: { 3: 3, 2: 1 } });
+  const FR = FX.expected_net_range;
+  ok(FR && FR.low <= FX.expected_net && FX.expected_net <= FR.high && FR.high > FR.low, 'flex: expected profit across the link range ' + JSON.stringify(FR));
   eq(evaluateOutcomes({ legs: legs.slice(2), groups: [], joints, stake: 10, format: 'power', payouts: { 1: 1.5 } }).odds.fair.american, -150, 'fair odds at 60%');
   // Game bets: who wins and the spread read one number, so they are priced
   // exactly with no link: winning AND covering −5.5 is just covering.

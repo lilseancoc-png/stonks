@@ -105,7 +105,14 @@ or Kalshi cents (`parsePrice`; the page's copy `priceOf` in
 page's copy of `neverBothWin`, which refuses game-bet pairs no final score
 lets both win), and a **parlay**
 format (each pick's odds multiplied, or one combined price; operators
-`sportsbook` and `kalshi`). Entries are priced by
+`sportsbook` and `kalshi`). Every evaluation also carries `ev_check` (`evCheck` in
+`lib/sports/payout.mjs`, since 2026-11-13): negative_ev when the expected
+return is below 0, unsure when it is about break-even or drops below 0 across
+the same-game range or at the model's tested hit rates (each model chance moved
+by the holdout reliability curve's miss at that chance, `curveMiss` in
+`models.mjs`), positive_ev, unknown; the page shows it above
+the numbers and the MCP repeats it as `NEGATIVE_EV` / `EV_UNSURE`. A warning
+only, never a save block (owner decision). Entries are priced by
 `lib/sports/entry-price.mjs` (`evaluateOutcomes`): every pick reads one game
 number (a stat, the home margin, the game total, a team's points;
 `latentOf`), picks on one number are priced exactly together, and the links

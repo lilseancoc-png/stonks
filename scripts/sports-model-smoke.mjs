@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import {
   nbCdf, nbPmf, nbQuantile, normCdf, cdfAt, quantileOf, lineChances, fitSpread, fitCorrection, varianceOf, nbSizeOf,
   forecastStat, buildModel, modelSummary, positionGroup, MODEL_SPECS, SPORTS_MODEL_VERSION, MIN_GAMES,
-  regularMinutes, absentMinutes, absenceFactor, ABSENCE, gameEnvironment, snapTrend, startShare, startingOf, factorInputs, GAME_FACTORS,
+  regularMinutes, absentMinutes, absenceFactor, ABSENCE, gameEnvironment, snapTrend, startShare, startingOf, factorInputs, GAME_FACTORS, curveMiss,
 } from '../lib/sports/models.mjs';
 import { SPORTS_STATS } from '../lib/sports/schema.mjs';
 import { teamAbsence, PROP_RANK_VERSION } from '../lib/sports/props.mjs';
@@ -417,5 +417,21 @@ eq(withHistory.status.model.seasons, [2024, 2025, 2026], 'the model also reads t
 ok(!asked.includes(NFLVERSE_URLS.weekly(2024)), 'a stored finished season is not downloaded again');
 ok(/older seasons for the model are unavailable: 2022, 2023(;|$)/.test(withHistory.status.message), 'only the missing ones are noted (no 2023 schedule in the fixture, so its stats are not even asked for)');
 ok(!asked.includes(NFLVERSE_URLS.weekly(2023)));
+
+// The tested-rate miss read off the reliability curve (the Pick Builder's
+// ev_check, 2026-11-13). NBA blocks bins from the 2026-11-11 holdout.
+{
+  const bins = [
+    { lo: 0, hi: 0.1, n: 280, mean_p: 0.0829, hit_rate: 0.125 }, { lo: 0.1, hi: 0.2, n: 2828, mean_p: 0.1587, hit_rate: 0.1602 },
+    { lo: 0.5, hi: 0.6, n: 994, mean_p: 0.5391, hit_rate: 0.5573 }, { lo: 0.6, hi: 0.7, n: 186, mean_p: 0.6377, hit_rate: 0.586 },
+    { lo: 0.7, hi: 0.8, n: 11, mean_p: 0.72, hit_rate: 0.6364 },
+  ];
+  near(curveMiss(bins, 0.5391), 0.5573 - 0.5391, 'at a bin centre: that bin’s miss');
+  near(curveMiss(bins, 0.6002), 0.5573 + ((0.6002 - 0.5391) / (0.6377 - 0.5391)) * (0.586 - 0.5573) - 0.6002, 'between centres: a straight line');
+  ok(Math.abs(curveMiss(bins, 0.6001) - curveMiss(bins, 0.5999)) < 0.001, 'no jump at a bin edge (the bins alone jump 7 points there)');
+  near(curveMiss(bins, 0.03), 0.125 - 0.0829, 'below the first centre: the first bin’s miss');
+  near(curveMiss(bins, 0.75), 0.586 - 0.6377, 'above the last 30+ game bin: its miss (the 11-game bin is left out)');
+  eq([curveMiss([], 0.5), curveMiss(bins, NaN), curveMiss([{ n: 29, mean_p: 0.5, hit_rate: 0.4 }], 0.5)], [null, null, null], 'nothing to read: null');
+}
 
 console.log(`Sports model smoke passed (${checks} checks).`);
