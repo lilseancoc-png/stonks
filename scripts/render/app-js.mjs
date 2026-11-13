@@ -30212,6 +30212,7 @@ ${renderExportBindings()}
         (item.contextOnly ? '<span class="news-carried" title="This source item is not used to add grading points">Context only · not scored</span>' : '') +
         (item.sourceKind === 'issuer' ? '<span class="news-carried">Company announcement</span>' : '') +
         (item.recordKind === 'regulatory-action' ? '<span class="news-carried">Recorded FDA action</span>' : '') +
+        (item.recordKind === 'sec-filing' ? '<span class="news-carried">SEC filing</span>' : '') +
         macroRead +
         reaction +
         (item.unconfirmed ? '<span class="news-unconfirmed">Unconfirmed</span>' : '') +
@@ -30355,6 +30356,7 @@ ${renderExportBindings()}
     if (sourceHealthHost && sourceHealth.length && sourceCoverage){
       sourceHealthHost.innerHTML = '<p class="news-feed-status">Official company feeds: ' + escapeHtml((sourceCoverage.issuerSymbols || []).join(', ') || 'none mapped') +
         '. FDA sponsor coverage: ' + escapeHtml((sourceCoverage.fdaSymbols || []).join(', ') || 'none mapped') +
+        (sourceCoverage.secSymbols ? '. SEC 8-K filings: ' + (sourceCoverage.secSymbols.length - (sourceCoverage.secForeignFilers || []).length) + ' companies' + ((sourceCoverage.secForeignFilers || []).length ? ' (' + escapeHtml(sourceCoverage.secForeignFilers.join(', ')) + ' file 6-K reports instead, not read)' : '') : '') +
         '. New official-source items are context only.' + (unavailable ? ' ' + unavailable + ' official source check(s) unavailable; earlier context may remain.' : '') +
         (partial ? ' ' + partial + ' source check(s) have incomplete coverage.' : '') + '</p>';
       sourceHealthHost.innerHTML += '<details class="news-more-filters"><summary>Official source checks</summary><ul class="news-feed-status">' + sourceHealth.map(function(s){

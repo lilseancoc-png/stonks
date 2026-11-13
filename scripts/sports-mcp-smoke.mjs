@@ -23,6 +23,7 @@ const { buildTeamModel } = await import('../lib/sports/team-model.mjs');
 let checks = 0;
 const ok = (cond, msg) => { assert.ok(cond, msg); checks++; };
 const eq = (a, b, msg) => { assert.deepEqual(a, b, msg); checks++; };
+const near = (a, b, msg, tol = 1e-9) => { assert.ok(Math.abs(a - b) <= tol, `${msg}: ${a} vs ${b}`); checks++; };
 
 const HOST = 'mingstreet.test', ORIGIN = 'https://' + HOST;
 const NOW = Date.parse('2026-01-15T12:00:00Z');
@@ -184,6 +185,13 @@ eq(siteRes.body.legs.map((l) => l.model.probability), E.legs.map((l) => l.model.
 eq(siteRes.body.legs.map((l) => l.availability.status), E.legs.map((l) => l.availability.status), 'and show the same listings');
 eq([E.evaluation.status, E.evaluation.joint_probability, E.evaluation.simulation.seed, E.evaluation.expected_net], [S.status, S.joint_probability, S.simulation.seed, S.expected_net], 'the MCP and the Pick Builder give the same same-game number and seed');
 eq(E.evaluation.status, 'joint_estimate');
+// Good or bad at these chances: the same read as the Pick Builder, repeated as a warning.
+const evKey = (c) => [c.verdict, c.reason, c.expected_roi, c.roi_range, c.weak_picks.map((w) => w.pick)];
+eq(evKey(E.evaluation.ev_check), evKey(S.ev_check), 'the MCP and the Pick Builder give the same expected-value read (the MCP rounds the long decimals)');
+eq([E.evaluation.ev_check.verdict, E.evaluation.ev_check.expected_roi, E.evaluation.ev_check.chances_from], ['negative_ev', E.evaluation.expected_roi, { owner: 2 }], 'a 55% and a 50% pick on a 3x power play lose money');
+ok(E.evaluation.expected_roi < 0 && E.evaluation.ev_check.roi_range.high < 0, 'below 0 across the whole same-game range too');
+ok(ev.structuredContent.warnings.some((w) => w === 'NEGATIVE_EV: ' + E.evaluation.ev_check.reason) && /loses about \d+\.\d% of the stake/.test(E.evaluation.ev_check.reason), 'and the warning says so: ' + E.evaluation.ev_check.reason);
+eq(E.evaluation.ev_check.weak_picks.map((w) => w.pick), [1, 2], 'both picks sit under the square root of 1/3 each pick needs');
 eq(E.legs.map((l) => [l.chance, l.chance_source]), [[0.55, 'owner'], [0.5, 'owner']], 'chances given are the owner’s');
 ok(E.pick_builder_link.startsWith(ORIGIN + '/?tab=sports-pick-builder&entry='), 'returns a Pick Builder link: ' + E.pick_builder_link.slice(0, 80));
 const pre = decodePrefill(E.pick_builder_link.split('entry=')[1]);
@@ -224,6 +232,13 @@ eq([BR.results.legs[0].game_id, BR.results.legs[0].chance, BR.results.evaluation
 ok(BR.warnings.some((w) => /GAME_FROM_SCHEDULE/.test(w)), 'and the fallback game is flagged');
 const withModel = (await tool('sports_evaluate_entry', { legs: [{ sport: 'nba', player_id: gsStar.player_id, game_id: 'mnext1', stat: 'points', side: 'over', threshold: 15.5 }], operator: 'betr', format: 'power', stake: 5, payouts: { 1: 1.8 }, use_model_chances: true })).structuredContent.results;
 eq([withModel.legs[0].chance, withModel.legs[0].chance_source, withModel.evaluation.status], [withModel.legs[0].model.probability, 'model', 'independence_baseline'], 'use_model_chances copies the model’s chance, labeled');
+// A model chance is also priced at how often the model's past calls near it hit.
+const WT = withModel.legs[0].model.tested, WC = withModel.evaluation.ev_check;
+ok(WT && WT.games >= 30, 'the fixture model has a tested bin for this chance');
+ok(Number.isFinite(WT.shift) && Math.abs(WT.shift - (WT.hit - WT.said)) <= 0.15, 'the miss at this chance is read off the reliability curve, near its bin’s: ' + WT.shift + ' vs ' + (WT.hit - WT.said));
+eq(WC.at_tested_rates.picks, [{ pick: 1, chance: withModel.legs[0].chance, tested: Math.round((withModel.legs[0].chance + WT.shift) * 10000) / 10000 }], 'the chance moves by the holdout miss at that chance');
+near(WC.at_tested_rates.expected_roi, Math.round(((withModel.legs[0].chance + WT.shift) * 1.8 - 1) * 10000) / 10000, 'and the one-pick entry is repriced at that chance', 1e-4);
+eq(WC.verdict, WC.expected_roi < 0 ? 'negative_ev' : WC.at_tested_rates.expected_roi < 0 ? 'unsure' : 'positive_ev', 'the verdict reads both');
 
 // Argument checks and owner-fixable errors.
 const errCode = async (args) => { const r = await tool('sports_evaluate_entry', args); return r.isError ? JSON.parse(r.content[0].text).error : null; };

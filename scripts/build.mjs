@@ -2418,6 +2418,20 @@ async function fetchCikMap() {
   }
 }
 
+// Covered operating companies for the SEC 8-K news pass: every non-fund name
+// in TICKERS with a CIK. With no CIK map, an empty object tells the collector
+// to reuse the CIKs saved in its prior state.
+export function secFilerMap(cikMap) {
+  const out = {};
+  for (const sym of TICKERS) {
+    if (SECTORS[sym] === "ETF" || SEC_NEWS_FUND_SYMS.has(sym)) continue;
+    const cik = cikMap?.get?.(sym);
+    if (cik) out[sym] = cik;
+  }
+  return out;
+}
+const SEC_NEWS_FUND_SYMS = new Set(["DRAM", "SPCX"]);
+
 // Revenue segments come from the raw XBRL instance document inside each
 // 10-K filing (US-GAAP filers) or 20-F filing (foreign private issuers
 // like NVO/ASML/TSM/BABA, who file IFRS) — NOT from SEC's companyfacts /
@@ -39081,7 +39095,17 @@ async function main() {
   const freeNewsPrior = await readFile(resolve(DATA_DIR, NEWS_EVIDENCE_KEY), "utf8").then(JSON.parse).catch(() => null);
   // Free deterministic collection overlaps existing work and never enters the
   // AI/scoring headline slate. It first ships as explicitly labeled context.
-  const freeNewsPromise = collectFreeNewsSources({ universe: TICKERS, prior: freeNewsPrior });
+  // SEC 8-K filings (lib/sec-filing-news.mjs) cover every operating company;
+  // funds file no company events worth a news row. A failed CIK map keeps the
+  // CIKs saved in the prior state. NEWS_SEC_8K=0 skips the pass.
+  const freeNewsPromise = fetchCikMap().catch(() => null).then((cikMap) => collectFreeNewsSources({
+    universe: TICKERS,
+    prior: freeNewsPrior,
+    secFilers: secFilerMap(cikMap),
+    // Yahoo's mixed-case company names read better than EDGAR's capitals.
+    secNames: Object.fromEntries(TICKERS.map((s) => [s, chains[s]?.fundamentals?.name || null]).filter(([, n]) => n)),
+    secUserAgent: SEC_USER_AGENT,
+  }));
   if (AI_COMBINED) {
     tickerJudgmentCacheNext = await attachTickerJudgments(chains, macroBackdrop, tickerJudgmentCachePrev);
   } else {

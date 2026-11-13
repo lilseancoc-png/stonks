@@ -172,3 +172,6 @@ assert.ok(build.indexOf("const freeNewsPrior")<build.indexOf("const totalChainBy
 assert.ok(build.indexOf("writeFile(resolve(DATA_DIR, NEWS_EVIDENCE_KEY)")>build.indexOf("const totalChainBytes = await writeChainFiles"));checks++;
 assert.ok(!build.includes("BACKGROUND KNOWLEDGE for WIDELY-KNOWN"));checks++;
 console.log(`news pipeline: ${checks} checks passed`);
+
+// SEC 8-K filing news (lib/sec-filing-news.mjs) rides the same test:news run.
+await import("./sec-filing-news-smoke.mjs");

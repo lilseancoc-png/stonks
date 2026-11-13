@@ -96,11 +96,11 @@ rate from each chain (`ibr`) is logged beside `bf` as a stand-in.
 | Env | Where | Effect |
 |---|---|---|
 | `CROWD=0` | bake | skips every fetch and carries both files forward unchanged |
-| `CROWD_BORROW=0` | bake | skips the IBKR borrow read only |
+| `CROWD_BORROW=1` | bake | turns the IBKR borrow read on. **Off by default since 2026-11-13**: the FTP file never loaded from the GitHub runner, and the option-implied borrow (`ibr`) covers each name. Off writes an empty `borrow` block (`disabled: true`), carries nothing, and the source is not in the source-health list. `CROWD_BORROW=0` keeps it off even where a test injects a reader. |
 | `CROWD_BORROW_URL` | bake | another location for the IBKR `usa.txt` file (default FTP) |
 
-None of these are passed by `daily.yml`; they default on. Turning one off
-needs a workflow env edit.
+None of these are passed by `daily.yml`. `CROWD` defaults on and the borrow
+read defaults off; Owner Settings can flip either (a repo variable wins).
 
 ## Untested from the build sandbox
 

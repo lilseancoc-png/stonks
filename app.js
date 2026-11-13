@@ -3545,6 +3545,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
   }
   function crowdSourcePill(block){
     if (!block) return '<span class="crd-src crd-src-missing">not written</span>';
+    if (block.disabled) return '<span class="crd-src crd-src-missing">off</span>';
     if (block.ok && !block.stale) return '<span class="crd-src crd-src-ok">fresh</span>';
     if (block.carriedForward) return '<span class="crd-src crd-src-carried">carried forward</span>';
     return '<span class="crd-src crd-src-missing">no data</span>';
@@ -3664,6 +3665,9 @@ function recoveryEvidence(row, data, now = Date.now()) {
       { label: 'Borrow fee', num: true, title: 'Interactive Brokers annualized stock-loan fee', cell: function(r){ return r.borrowFeePct == null ? '<span class="vt-na">—</span>' : '<span class="' + (r.borrowFeePct >= 5 ? 'crd-hot' : '') + '">' + vnNum(r.borrowFeePct, 2) + '%</span> ' + crowdPctile(r.borrowFeePctPctile); }, sort: function(r){ return r.borrowFeePct; } },
       { label: 'Shares to borrow', num: true, cell: function(r){ var b = bo && bo.bySymbol && bo.bySymbol[r.symbol]; return r.borrowAvailable == null ? '<span class="vt-na">—</span>' : (b && b.availableCapped ? '>' : '') + crowdInt(r.borrowAvailable); }, sort: function(r){ return r.borrowAvailable; } },
     ];
+    // The IBKR read is off by default (2026-11-13); with no fee for any name the
+    // two borrow columns would be all dashes, so they are left out.
+    if (!rows.some(function(r){ return r.borrowFeePct != null || r.borrowAvailable != null; })) cols = cols.filter(function(c){ return c.label !== 'Borrow fee' && c.label !== 'Shares to borrow'; });
     var hot = rows.filter(function(r){ return r.borrowFeePct != null && r.borrowFeePct >= 5; }).sort(function(a, b){ return b.borrowFeePct - a.borrowFeePct; });
     var heavy = rows.filter(function(r){ return r.shortZ20 != null && r.shortZ20 >= 1.5; }).sort(function(a, b){ return b.shortZ20 - a.shortZ20; });
     return h + market +
@@ -3671,7 +3675,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
       (hot.length ? '<p class="mm-callout"><b>Costly to borrow at IBKR:</b> ' + hot.map(function(r){ return vnSym(r.symbol) + ' ' + vnNum(r.borrowFeePct, 1) + '%'; }).join(', ') + ' a year.</p>' : '') +
       VIEWS.tableHtml(cols, rows, { key: 'crowd-shorts', empty: 'No short-volume reads yet.' }) +
       crowdHead('Borrow fee and availability (Interactive Brokers)', bo, bo && bo.note) +
-      (bo && bo.universe ? '<p class="crd-fact">Median fee across the tracked names ' + vnNum(bo.universe.medianFeePct, 2) + '% a year; ' + (bo.universe.hardToBorrow || 0) + ' name(s) at 5% or more.</p>' : (bo ? '' : crowdEmpty('Not read yet.'))) +
+      (bo && bo.disabled ? '' : bo && bo.universe ? '<p class="crd-fact">Median fee across the tracked names ' + vnNum(bo.universe.medianFeePct, 2) + '% a year; ' + (bo.universe.hardToBorrow || 0) + ' name(s) at 5% or more.</p>' : (bo ? '' : crowdEmpty('Not read yet.'))) +
       '<p class="crd-note">Short volume is not short interest: it counts the day\'s sell-short prints in FINRA\'s off-exchange files, which includes market makers hedging. The twice-monthly short interest and days-to-cover are on the <a href="?tab=market-map">Market map</a>.</p>';
   }
 
@@ -39860,7 +39864,21 @@ function scenarioEventPhase(ev, now = Date.now()) {
       body = beBarHtml(E.joint_probability, E.breakeven_probability, E.bounds) + '<div class="sp-tiles">' + tiles + '</div>' + dist + sameGameNoteHtml(E, n) + oddsBlockHtml(E, ev) +
         '<p class="sp-note">Independence baseline: it assumes no pick affects another, using the chances entered above' + (fromHistory ? ' (some copied from history rates)' : '') + '. A starting point, not a forecast.</p>';
     }
-    return '<div class="sp-eval">' + (warn.length ? '<ul class="sp-warn">' + warn.map((w) => '<li>' + w + '</li>').join('') + '</ul>' : '') + body + '</div>';
+    return '<div class="sp-eval">' + (warn.length ? '<ul class="sp-warn">' + warn.map((w) => '<li>' + w + '</li>').join('') + '</ul>' : '') + evCheckHtml(E.ev_check) + body + '</div>';
+  }
+  // Is the entry worth playing at these chances (lib/sports/payout.mjs
+  // evCheck, the same read the MCP gives): a warning when the expected return
+  // is below 0, a caution when a check takes it below 0.
+  const EV_HEAD = { negative_ev: 'Negative expected value', unsure: 'Not a clear edge', positive_ev: 'Positive expected value' };
+  function evCheckHtml(C) {
+    if (!C || !EV_HEAD[C.verdict]) return '';
+    const W = C.weak_picks || [], under = W.filter((w) => w.needs != null), losing = W.filter((w) => w.edge != null);
+    const weak = (under.length ? '<p class="sp-ev-weak">' + (under.length === 1 ? 'Pick ' : 'Picks ') + joinList(under.map((w) => w.pick + ' (' + pct(w.chance) + ')')) + (under.length === 1 ? ' is' : ' are') +
+      ' under the ' + pct(under[0].needs) + ' each pick needs if all were equally likely and independent.</p>' : '') +
+      losing.map((w) => '<p class="sp-ev-weak">Pick ' + w.pick + ' (' + pct(w.chance) + ') loses on its own odds: ' + (w.edge * 100).toFixed(1).replace('-', '−') + '% per $1.</p>').join('');
+    const from = C.chances_from || {}, typed = (from.owner || 0) + (from.history || 0);
+    const src = typed ? '<p class="sp-ev-src">' + typed + ' of the chances ' + (typed === 1 ? 'is' : 'are') + ' typed in or copied from hit rates, so this read is only as good as ' + (typed === 1 ? 'that number' : 'those numbers') + '.</p>' : '';
+    return '<div class="sp-ev sp-ev-' + C.verdict.replace('_', '-') + '" role="status"><b>' + EV_HEAD[C.verdict] + '</b><p>' + escape(C.reason) + '</p>' + weak + src + '</div>';
   }
   // Same-game estimate: the measured links between picks from one game,
   // priced with the chances entered above (lib/sports/joint.mjs).
@@ -40729,7 +40747,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     else if (L.view === 'games' && !L.propsPending) { loadBoard(page, lg); paint(page, 'board', boardHtml(lg)); }
   });
   // priceOf is returned for the smoke test, which compares it with parsePrice.
-  return { load, priceOf, neverBoth };
+  return { load, priceOf, neverBoth, evCheckHtml };
 })(window, document, {
     owner: function(){ return HAS_OWNER_ACCESS; },
     go: function(id){ var tab = document.querySelector('[data-page-tab="' + id + '"]'); if (tab) tab.click(); },
@@ -46244,6 +46262,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         (item.contextOnly ? '<span class="news-carried" title="This source item is not used to add grading points">Context only · not scored</span>' : '') +
         (item.sourceKind === 'issuer' ? '<span class="news-carried">Company announcement</span>' : '') +
         (item.recordKind === 'regulatory-action' ? '<span class="news-carried">Recorded FDA action</span>' : '') +
+        (item.recordKind === 'sec-filing' ? '<span class="news-carried">SEC filing</span>' : '') +
         macroRead +
         reaction +
         (item.unconfirmed ? '<span class="news-unconfirmed">Unconfirmed</span>' : '') +
@@ -46387,6 +46406,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (sourceHealthHost && sourceHealth.length && sourceCoverage){
       sourceHealthHost.innerHTML = '<p class="news-feed-status">Official company feeds: ' + escapeHtml((sourceCoverage.issuerSymbols || []).join(', ') || 'none mapped') +
         '. FDA sponsor coverage: ' + escapeHtml((sourceCoverage.fdaSymbols || []).join(', ') || 'none mapped') +
+        (sourceCoverage.secSymbols ? '. SEC 8-K filings: ' + (sourceCoverage.secSymbols.length - (sourceCoverage.secForeignFilers || []).length) + ' companies' + ((sourceCoverage.secForeignFilers || []).length ? ' (' + escapeHtml(sourceCoverage.secForeignFilers.join(', ')) + ' file 6-K reports instead, not read)' : '') : '') +
         '. New official-source items are context only.' + (unavailable ? ' ' + unavailable + ' official source check(s) unavailable; earlier context may remain.' : '') +
         (partial ? ' ' + partial + ' source check(s) have incomplete coverage.' : '') + '</p>';
       sourceHealthHost.innerHTML += '<details class="news-more-filters"><summary>Official source checks</summary><ul class="news-feed-status">' + sourceHealth.map(function(s){
