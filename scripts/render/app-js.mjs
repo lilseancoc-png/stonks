@@ -44,6 +44,7 @@ import { renderRecoveryHelpers } from './recovery-js.mjs';
 import { viewsFactory } from './views-client.mjs';
 import { renderChartKitJs } from './chart-kit-js.mjs';
 import { renderStockPageJs } from './stock-page-js.mjs';
+import { renderLeadershipJs } from './leadership-client.mjs';
 import { renderEarningsWeekJs } from './earnings-week-client.mjs';
 import { renderViewsNextJs } from './views-next-client.mjs';
 import { renderCrowdJs } from './crowd-client.mjs';
@@ -108,6 +109,7 @@ ${renderWayfindingHelpers()}
 ${renderSplitViewHelpers()}
 ${renderRecoveryHelpers()}
 ${renderChartKitJs()}
+${renderLeadershipJs()}
 ${renderStockPageJs()}
 ${renderEarningsWeekJs()}
 ${renderViewsNextJs()}

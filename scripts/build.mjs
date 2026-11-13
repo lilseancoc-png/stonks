@@ -91,6 +91,8 @@ const OWNER_SETTINGS_REPORT = (() => { try { const r = JSON.parse(process.env.OW
 import { buildCrowdPayload, buildCrowdOwner, readCrowdPrior, writeCrowdFiles, marketGauges, crowdScoresForRow, CROWD_KEY, CROWD_OWNER_KEY } from "../lib/crowd/index.mjs";
 import { buildHistoryRhymes, buildHistoryRhymesOwner, historyRhymesSummary, HISTORY_RHYMES_KEY, HISTORY_RHYMES_OWNER_KEY, HISTORY_RHYMES_FRED, REPORTED_CDS } from "../lib/history-rhymes.mjs";
 import { AI_COST_HISTORY_KEY, parseAiCostHistory, upsertAiCostHistory } from "../lib/ai-cost-history.mjs";
+import { refreshCorporateStructure, CORPORATE_STATE_VERSION } from "../lib/corporate-structure/collector.mjs";
+import { buildCorporateViews } from "../lib/corporate-structure/assemble.mjs";
 import {
   TRANSCRIPT_BATCH_MAX_AGE_HOURS, TRANSCRIPT_BATCH_POLL_MS, batchJobDone, batchJobFailureReason, batchJobSucceeded, batchResponseText, buildTranscriptBatchRequests,
   extractBatchResponses, pendingBatchRecord, pendingBatchSymbols, pendingBatchTooOld, transcriptBatchEnabled, transcriptBatchWaitMs,
@@ -38898,6 +38900,52 @@ export async function writeLeapsPaperTrack({ ideas, asOf, quotes = {}, stocks = 
   return payload;
 }
 
+// === Corporate structure (stock page Leadership tab) ===========================
+export const CORPORATE_STRUCTURE_KEY = "corporate-structure.json";
+// Funds filed under a stock sector (DRAM, a memory theme ETF) have no board,
+// officers or Section 16 insiders: skipped, and their page hides the tab.
+const CORP_FUND_SYMS = new Set(["DRAM"]);
+async function collectCorporateStructure(prior) {
+  const priorOk = prior && prior.version === CORPORATE_STATE_VERSION ? prior : null;
+  if (process.env.CORP_STRUCTURE === "0") { console.log("Corporate structure: CORP_STRUCTURE=0, keeping the prior data"); return priorOk; }
+  const decisionRun = !/^(?:0|false)$/i.test(process.env.REFRESH_TOP_PICKS || "1");
+  try {
+    return await refreshCorporateStructure({
+      prior: priorOk,
+      universe: TICKERS,
+      skip: (sym) => SECTORS[sym] === "ETF" || CORP_FUND_SYMS.has(sym),
+      cikMap: _cikMap || await fetchCikMap(),
+      userAgent: SEC_USER_AGENT,
+      maxRequests: Number(process.env.CORP_MAX_REQUESTS || (decisionRun ? 60 : 450)),
+      deadlineMs: decisionRun ? 25_000 : 150_000,
+      maxAi: decisionRun ? 2 : 6,
+      ai: {
+        enabled: process.env.CORP_STRUCTURE_AI !== "0" && !!process.env.GEMINI_API_KEY,
+        model: process.env.AI_CORP_MODEL || "gemini-3.1-flash-lite",
+        deps: { GoogleGenAI, apiKey: process.env.GEMINI_API_KEY, acquireAiSlot, recordAiUsage, aiModelForAttempt, classifyAiError, maxAttempts: 4, timeoutMs: AI_HTTP_TIMEOUT_MS },
+      },
+      log: (line) => console.log(line),
+    });
+  } catch (err) {
+    console.warn(`  ⚠ corporate structure collection failed: ${String(err?.message || err).split("\n")[0]} — keeping the prior data`);
+    return priorOk;
+  }
+}
+export function attachCorporateViews(chains, state) {
+  if (!state) return 0;
+  const prices = {}, sharesOut = {}, names = {};
+  for (const [sym, c] of Object.entries(chains || {})) {
+    if (Number.isFinite(c?.spot)) prices[sym] = c.spot;
+    if (Number.isFinite(c?.fundamentals?.sharesOutstanding)) sharesOut[sym] = c.fundamentals.sharesOutstanding;
+    if (typeof c?.fundamentals?.name === "string") names[sym] = c.fundamentals.name;
+  }
+  const views = buildCorporateViews(state, { prices, sharesOut, names, onError: (sym, err) => console.warn(`[corporate] ${sym} view skipped: ${String(err?.message || err).slice(0, 160)}`) });
+  let n = 0;
+  for (const [sym, view] of Object.entries(views)) if (chains[sym]) { chains[sym].corporate = view; n++; }
+  for (const sym of CORP_FUND_SYMS) if (chains[sym]) chains[sym].corporate = { fund: true };
+  return n;
+}
+
 async function main() {
   let priorOwnerMarketBrief = null;
   try { priorOwnerMarketBrief = JSON.parse(await readFile(resolve(DATA_DIR, 'owner-market-brief.json'), 'utf8')); } catch { /* first build */ }
@@ -39204,6 +39252,9 @@ async function main() {
   // Booms & busts keeps its last good pair when a build cannot rebuild it.
   const priorHistoryRhymes = await readPriorDataJson(HISTORY_RHYMES_KEY);
   const priorHistoryRhymesOwner = await readPriorDataJson(HISTORY_RHYMES_OWNER_KEY);
+  // Corporate structure (lib/corporate-structure/): the SEC people data
+  // accumulates across builds, so it is read before the wipe.
+  const priorCorporate = await readPriorDataJson(CORPORATE_STRUCTURE_KEY);
   // Pending-buyout terms and rumor rows have independent last-good lanes, so
   // snapshot the prior payload before writeChainFiles replaces data/.
   const priorPendingBuyouts = await readPriorPendingBuyouts();
@@ -39392,6 +39443,14 @@ async function main() {
     console.warn(`  ⚠ leverage distress collection failed: ${String(err?.message || err).split("\n")[0]}`);
     leverageDistress = { payload: priorLeverageDistress.payload ? { ...priorLeverageDistress.payload, errors: [{ stage: "collect", message: String(err?.message || err) }] } : emptyLeverageDistress(new Date().toISOString(), String(err?.message || err)), state: priorLeverageDistress.state || { version: 1 } };
   }
+  // Still inside the serial SEC stage: each covered company's board,
+  // executives, holdings and voting power (lib/corporate-structure/). Free SEC
+  // sources under a per-build and per-day request budget; a decision run
+  // (11:00 / 15:30 ET) only takes a small incremental slice so its timing
+  // holds. One Flash-Lite call per new proxy statement or 20-F (about once a
+  // year per company), checked against the filing text. CORP_STRUCTURE=0
+  // keeps the prior data; CORP_STRUCTURE_AI=0 skips the proxy reads.
+  const corporate = await collectCorporateStructure(priorCorporate);
   // Kick off 13F enrichment (SEC EDGAR per-firm holdings + OpenFIGI CUSIP map)
   // NOW so its ~60-80s runs CONCURRENTLY with the narratives + calendar + scoring
   // phases below, instead of serially after them — it was the build's second
@@ -39702,12 +39761,15 @@ async function main() {
       ? { ...priorPartyTracker, builtAtIso, carriedForward: true }
       : { version: 1, builtAtIso, error: String(err?.message || err), offices: [], rows: [], timeline: [], periods: [], methodology: [] };
   }
+  // Each stock's people view rides its own per-ticker file (public).
+  attachCorporateViews(chains, corporate);
   const totalChainBytes = await writeChainFiles(
     chains,
     riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE,
     builtAtIso,
   );
   await writeForcedLiquidation(DATA_DIR, forcedLiquidation);
+  if (corporate) await writeFile(resolve(DATA_DIR, CORPORATE_STRUCTURE_KEY), JSON.stringify(corporate), "utf8");
   await writeLeverageDistress(DATA_DIR, leverageDistress);
   await writeFile(resolve(DATA_DIR, "party-tracker.json"), JSON.stringify(partyTracker) + "\n", "utf8");
   if (leapsPicks.length) {
@@ -40523,11 +40585,11 @@ async function main() {
     builtAtIso, groupOf: spilloverGroupOf, oiTracker: scoringOiTracker, spillover: scenarioSpilloverMatrix, crowd: crowdPayload,
     defaultChance: historyRhymesDefaultChance, buildout: historyRhymesBrief,
     forcedLiquidation, leverageDistress: leverageDistress?.payload || null,
-    // The insider key (ins) waits for the corporate-structure feature: its
-    // pre-wipe read of corporate-structure.json (with that file's publication
-    // policy) passes the payload here as insiderFromStructure(<payload>,
-    // builtAtIso). Until then nothing is logged for ins.
-    insider: insiderFromStructure(null, builtAtIso), marketExtra: shadowMarketExtra,
+    // The insider key (ins): open-market buyers vs sellers from the
+    // Leadership collector's state (corporate-structure.json, read before
+    // the wipe and refreshed this bake). A name is logged only once its
+    // Form 4 record covers the whole window (completeFrom).
+    insider: insiderFromStructure(corporate || priorCorporate || null, builtAtIso), marketExtra: shadowMarketExtra,
   };
   try {
     shadowSignalsToday = buildShadowSignals(chains, shadowOpts);

@@ -1,6 +1,7 @@
 // The public stock page (?tab=stock&s=NVDA). One company on one page: price
 // and change (live while the market is open), the price chart, key numbers,
-// then tabs for Overview, News, Earnings, Options, Ownership and Similar
+// then tabs for Overview, News, Earnings, Options, Ownership, Leadership
+// (board, executives, stakes and votes: leadership-client.mjs) and Similar
 // stocks. Owners get two more tabs: Grade (the full grade tool, which used to
 // be its own "Grade a stock" page and now moves in here) and Top Picks trades.
 // Every stock link lands here; old ?tab=grade links open the Grade tab.
@@ -205,7 +206,7 @@ export function renderStockPageJs() {
         var keepContract = onGrade() && sym && url.searchParams.get('s') === sym;
         if (sym) url.searchParams.set('s', sym); else url.searchParams.delete('s');
         if (!keepContract) ['exp', 'k', 't'].forEach(function(k){ url.searchParams.delete(k); });
-        if (onGrade()) url.searchParams.set('view', 'grade'); else url.searchParams.delete('view');
+        if (onGrade()) url.searchParams.set('view', 'grade'); else if (state.tab === 'leadership') url.searchParams.set('view', 'leadership'); else url.searchParams.delete('view');
         var next = url.pathname + url.search + url.hash;
         if (next !== window.location.pathname + window.location.search + window.location.hash){
           if (replace) history.replaceState(null, '', next); else history.pushState(null, '', next);
@@ -301,7 +302,7 @@ export function renderStockPageJs() {
       if (!root) return;
       var fromUrl = openingSym || urlSym();
       if (fromUrl) state.sym = fromUrl;
-      if (!openingSym && urlView() === 'grade') showTab('grade');
+      if (!openingSym && (urlView() === 'grade' || urlView() === 'leadership')) showTab(urlView());
       parkGrade();
       names().then(function(){ if (!state.sym) renderPicker(root); });
       if (!state.sym){ renderPicker(root); return; }
@@ -487,9 +488,17 @@ export function renderStockPageJs() {
         cells.map(function(c){ return '<div class="stp-stat"><span class="stp-stat-k">' + escapeHtml(c[0]) + '</span><b>' + escapeHtml(c[1]) + '</b></div>'; }).join('') +
       '</div>';
     }
-    var TABS = [['overview', 'Overview'], ['story', 'Timeline'], ['news', 'News'], ['earnings', 'Earnings'], ['options', 'Options'], ['ownership', 'Ownership'], ['similar', 'Similar stocks']];
+    var TABS = [['overview', 'Overview'], ['story', 'Timeline'], ['news', 'News'], ['earnings', 'Earnings'], ['options', 'Options'], ['ownership', 'Ownership'], ['leadership', 'Leadership'], ['similar', 'Similar stocks']];
+    // Funds have no board or executives of their own.
+    function hasLeadership(){
+      var d = state.data || {};
+      // A fund listed under a stock sector (a theme ETF) has no board or officers.
+      if (d.corporate && d.corporate.fund) return false;
+      return !!d.corporate || (typeof CALENDAR_STOCKS !== 'undefined' && CALENDAR_STOCKS.indexOf(state.sym) >= 0);
+    }
     function tabsHtml(){
       var list = TABS.slice();
+      if (!hasLeadership()) list = list.filter(function(t){ return t[0] !== 'leadership'; });
       // Owners: the full grade sits second, the stock's Top Picks trades last.
       if (HAS_OWNER_ACCESS){ list.splice(1, 0, ['grade', 'Grade']); list.push(['owner', 'Top Picks trades']); }
       if (!list.some(function(t){ return t[0] === state.tab; })) state.tab = 'overview';
@@ -639,7 +648,7 @@ export function renderStockPageJs() {
       var t = state.tab;
       if (t === 'grade' && HAS_OWNER_ACCESS){ mountGrade(body); return; }
       parkGrade();
-      var fn = t === 'news' ? tabNews : t === 'earnings' ? tabEarnings : t === 'options' ? tabOptions : t === 'ownership' ? tabOwnership : t === 'similar' ? tabSimilar : t === 'owner' ? tabOwner : t === 'story' ? tabStory : tabOverview;
+      var fn = t === 'news' ? tabNews : t === 'earnings' ? tabEarnings : t === 'options' ? tabOptions : t === 'ownership' ? tabOwnership : t === 'leadership' ? tabLeadership : t === 'similar' ? tabSimilar : t === 'owner' ? tabOwner : t === 'story' ? tabStory : tabOverview;
       state.tabCharts.forEach(function(h){ try { h.destroy(); } catch (_) {} });
       state.tabCharts = [];
       state.afterTab = null;
@@ -1007,6 +1016,15 @@ export function renderStockPageJs() {
       cache.f13P = getJson('13f.json').then(function(j){ cache.f13 = j || {}; return cache.f13; }).catch(function(){ cache.f13 = {}; return cache.f13; });
       return cache.f13P;
     }
+    function tabLeadership(){
+      var d = state.data && state.data.corporate;
+      if (d && d.fund) return '<p class="stp-empty">' + escapeHtml(state.sym) + ' is a fund. Funds have no board of directors or company officers filing with the SEC, so there is no leadership to show.</p>';
+      if (!d) return '<p class="stp-empty">Board and leadership data for ' + escapeHtml(state.sym) + ' is still being collected from SEC filings. It fills in over the next few builds.</p>';
+      if (d.empty) return '<p class="stp-empty">SEC EDGAR has no insider filings (Forms 3, 4, 5) and no proxy statement or annual report with a board list for ' + escapeHtml(d.name || state.sym) + ' to read. Some companies listed outside the US report their board and insiders to their home regulator instead. <a href="' + escapeHtml(d.source && d.source.edgar || '') + '" target="_blank" rel="noopener">Open its EDGAR filings</a></p>';
+      var sym = state.sym;
+      state.afterTab = function(){ LEADERSHIP.mount(document.getElementById('ld-root'), d, sym); };
+      return '<div id="ld-root" class="ld-root"></div>';
+    }
     function tabOwnership(){
       var sym = state.sym;
       return f13Data().then(function(j){
@@ -1045,7 +1063,7 @@ export function renderStockPageJs() {
             }).join('') + '</tbody></table></div><p class="stp-src">SEC Form 4 open-market trades only. Grants, option exercises and tax sales are left out.</p></section>';
         }
         if (!html) html = '<p class="stp-empty">None of the funds this site follows reported a large move in ' + escapeHtml(sym) + ' last quarter, and no insider bought or sold on the open market in the recent filings.</p>';
-        html += '<p class="stp-src">' + (j.period ? escapeHtml(j.period) + ' 13F filings' + (j.filingWindow ? ', filed ' + escapeHtml(j.filingWindow) : '') + '. ' : '') + '<a href="?tab=f13" data-go-tab="f13">Open Who owns what</a></p>';
+        html += '<p class="stp-src">' + (j.period ? escapeHtml(j.period) + ' 13F filings' + (j.filingWindow ? ', filed ' + escapeHtml(j.filingWindow) : '') + '. ' : '') + '<a href="?tab=f13" data-go-tab="f13">Open Who owns what</a>' + (hasLeadership() ? ' · <button type="button" class="stp-link" data-stock-tab="leadership">Who runs and controls ' + escapeHtml(sym) + '</button>' : '') + '</p>';
         return html;
       });
     }
