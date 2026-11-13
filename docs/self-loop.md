@@ -260,15 +260,25 @@ for:
 | `ev-gate` | take only names whose stated option value after costs is zero or better | yes |
 | `rule-off` | switch off one open-pick rule | no, it names the code change |
 | `skip` | skip one side in one market type | no, it names the Owner market mode or a code change |
+| `add` | add one logged-not-scored shadow input (lib/shadow-signals.mjs) at up to one point, in the direction the Evidence tab measured | no, adding an input to the grade is the owners' call |
 
 The diagnosis picks what to try, in this order: inputs pointing the wrong way
 (mute), rules that cost the book (rule-off), the worst side x market setup
-(skip), the expected-value gate once the count model is past 200 rows, inputs
-that work (up), fading inputs (mute), then the bar one point up and half a
+(skip), the expected-value gate once the count model is past 200 rows, shadow
+inputs whose 10-session rank IC is 0.03 or more over 20+ days with the same
+sign in both halves (add, strongest first), inputs that work (up), fading inputs (mute), then the bar one point up and half a
 point down. At most **three** run at once and at most **one** new one starts a
 week (only on the build that writes the weekly report), so the number of things
 tried stays small. The same change is not tried again within 60 sessions of its
 end.
+
+An `add` challenger reads the input from the ledger: at each run the ledger
+stores every shadow key as a rank score in [-1, 1] among that run's scored
+names (`sh`, `shadowRanks` in `lib/self-loop/ledger.mjs`), only on rows within
+2.5 points of the bar's reach (`SHADOW_NEAR_BAR`), since a one-point input
+cannot move a name further away across it. The challenger adds the score
+(flipped when lower is better) to the untuned total; it never flips a side,
+and a row without the key stays as the base rules have it.
 
 ### Judged forward on the same trades (C2)
 

@@ -15,7 +15,7 @@ export async function writeHistoricalDataFile({ dataDir, builtAtIso = new Date()
   const text = JSON.stringify(packHistoricalData(payload));
   if (Buffer.byteLength(text) > 4_150_000) throw new Error('Historical Data exceeds the safe function response size; split the payload before publishing');
   await writeFile(resolve(dataDir, 'historical-data.json'), text, 'utf8');
-  return { bytes: Buffer.byteLength(text), indexes: Object.keys(payload.indexes).length };
+  return { bytes: Buffer.byteLength(text), indexes: Object.keys(payload.indexes).length, events: payload.events || null };
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const dataDir = fileURLToPath(new URL('../data/', import.meta.url));

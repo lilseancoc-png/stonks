@@ -35,7 +35,7 @@ import { leveragedEntryPlan, shareEntryPayoff, pickDisplayDecision } from "../li
 import { buildGradeResearch, emptyGradeResearch, seriesFromChains, writeGradeResearchFile } from "../lib/grade-research.mjs";
 import { dirname, resolve } from "node:path";
 import { readFileSync } from "node:fs";
-import { buildMacroContext, buildCycleTrail, CARD_LENDER_SYMS, KIND_LABELS as MACRO_KIND_LABELS, fitSentence as macroFitSentence, contextLines as macroContextLines } from "../lib/macro-context.mjs";
+import { buildMacroContext, buildCycleTrail, CARD_LENDER_SYMS, KIND_LABELS as MACRO_KIND_LABELS, fitSentence as macroFitSentence, contextLines as macroContextLines, MACRO_CANDIDATE_FRED } from "../lib/macro-context.mjs";
 import { findInsiderClusters } from "../lib/insider-cluster.mjs";
 import { buildValuationBands, VALUATION_BANDS_KEY } from "../lib/valuation-band.mjs";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -80,6 +80,7 @@ import { bandOf as loopBandOf } from "../lib/self-loop/ledger.mjs";
 // Regime Lab (lib/regime-lab/, docs/regime-lab.md): market labels, shadow
 // playbook books, the headline oracle and the test catalog. Owner-only
 // regime-lab.json; measurement only, no AI, kill switch REGIME_LAB=0.
+import { buildPositioning } from "../lib/regime-lab/positioning.mjs";
 import { loadRegimeLab, writeRegimeLab, loadResearchResults, buildLabelInputs, buildBakeLabels, todayFromSeries, openShadowBooks, markShadowBooks, buildBakeOracle, buildRegimeLabPayload, labStamp, regimeLabEnabled, REGIME_LAB_KEY } from "../lib/regime-lab/payload.mjs";
 import { riskScore as regimeLabRiskScore } from "../lib/regime-lab/exits.mjs";
 import { buildSourceHealth, loadSourceHealth, readSourcePayloads, writeSourceHealth } from "../lib/source-health.mjs";
@@ -88,7 +89,7 @@ import { OWNER_SETTINGS_APPLIED_KEY } from "../lib/owner-settings.mjs";
 // build ran without the preload). picksTag is stamped on new record trades.
 const OWNER_SETTINGS_REPORT = (() => { try { const r = JSON.parse(process.env.OWNER_SETTINGS_REPORT || "null"); return r && typeof r === "object" ? r : null; } catch { return null; } })();
 import { buildCrowdPayload, buildCrowdOwner, readCrowdPrior, writeCrowdFiles, marketGauges, crowdScoresForRow, CROWD_KEY, CROWD_OWNER_KEY } from "../lib/crowd/index.mjs";
-import { buildHistoryRhymes, buildHistoryRhymesOwner, historyRhymesSummary, HISTORY_RHYMES_KEY, HISTORY_RHYMES_OWNER_KEY, HISTORY_RHYMES_FRED } from "../lib/history-rhymes.mjs";
+import { buildHistoryRhymes, buildHistoryRhymesOwner, historyRhymesSummary, HISTORY_RHYMES_KEY, HISTORY_RHYMES_OWNER_KEY, HISTORY_RHYMES_FRED, REPORTED_CDS } from "../lib/history-rhymes.mjs";
 import { AI_COST_HISTORY_KEY, parseAiCostHistory, upsertAiCostHistory } from "../lib/ai-cost-history.mjs";
 import {
   TRANSCRIPT_BATCH_MAX_AGE_HOURS, TRANSCRIPT_BATCH_POLL_MS, batchJobDone, batchJobFailureReason, batchJobSucceeded, batchResponseText, buildTranscriptBatchRequests,
@@ -140,7 +141,7 @@ import { HISTORICAL_MARKETS, HISTORICAL_SOURCE_KEY } from "../lib/historical-sou
 import { readForecastState, readForecastFiles, restoreForecastFiles, prepareEarningsForecast, writeEarningsForecast } from './refresh-earnings-forecast.mjs';
 import { forcedLiquidationContext } from "../lib/forced-liquidation.mjs";
 import { buyoutContextFor } from "../lib/pending-buyout-guard.mjs";
-import { buildShadowSignals } from "../lib/shadow-signals.mjs";
+import { buildShadowSignals, altDataGauges, resemblesGauges, insiderFromStructure } from "../lib/shadow-signals.mjs";
 import { buildShadowResearch } from "../lib/shadow-research.mjs";
 import { buildEntrySnapshot } from "../lib/trade-snapshot.mjs";
 import { PICKS_MAX_PER_SECTOR, PICKS_MAX_NEW_PER_FACTOR_RUN, PICKS_CAPS_VERSION, factorOfSectorLabel, exposureCapBlock, countExposure } from "../lib/top-picks-caps.mjs";
@@ -6637,11 +6638,10 @@ export function buildQuantPayload(
     // Honest coverage: what this section deliberately does NOT attempt, and why.
     coverage: {
       notFeasible: [
-        "M&A / spin-off screens — no deal or corporate-action data source",
+        "Spin-off screens — no corporate-action data source (announced mergers are on Pending Buyouts)",
         "Index add/delete prediction — no index-committee or flow data",
         "Gamma-scalping simulation — needs intraday delta-hedging data",
         "Johansen / multi-year cointegration — priceSeries carries ~1 year of bars, so Engle-Granger runs on a single 1-year window (labeled as such); Johansen adds nothing for 2-asset pairs",
-        "Stock-borrow availability / borrow-fee screens — no borrow data source",
         "Alt-data earnings nowcasts (satellite / card spend / web traffic) — no alt-data feeds",
       ],
       existing: [
@@ -6649,6 +6649,9 @@ export function buildQuantPayload(
         { tab: "earnings", label: "Earnings tracker", why: "season-wide beat/drift/implied-move stats" },
         { tab: "iv-trend", label: "Trending IV", why: "IV momentum + elevation screens" },
         { tab: "stocks", label: "Stock Picks", why: "quality-dip shares screen (price z is one input)" },
+        { tab: "pending-buyouts", label: "Pending Buyouts", why: "announced deals and rumors (merger-arb spreads)" },
+        { tab: "market-map", label: "Market map", why: "crowded shorts with the option-implied borrow rate" },
+        { tab: "crowd", label: "Crowd & positioning", why: "FINRA short volume, borrow fee and retail attention" },
       ],
     },
   };
@@ -12516,7 +12519,7 @@ function closesForBottom(chain) {
 // Reads SPY/QQQ history and every FRED series from the shared long-history
 // cache (fred(id) -> rows). No downloads of its own: the cache refreshes each
 // series once a day and keeps the last good rows when a download fails.
-async function writeBottomTrackerFile({ chains, indexBars, fred, prior, builtAtIso }) {
+async function writeBottomTrackerFile({ chains, indexBars, fred, prior, builtAtIso, crowd = null }) {
   const spy = mergeDailyCloses(indexBars?.SPY, closesForBottom(chains?.SPY));
   const qqq = mergeDailyCloses(indexBars?.QQQ, closesForBottom(chains?.QQQ));
   const series = (id) => (fred ? fred(id) : []).filter((row) => Number.isFinite(row?.value));
@@ -12551,6 +12554,12 @@ async function writeBottomTrackerFile({ chains, indexBars, fred, prior, builtAtI
     revisions,
     breadthBars,
     history: prior?.history,
+    // Context rows only (never a gate): the Baa spread from the shared FRED
+    // cache, crowd.json's put/call, margin debt and COT, and the dated press
+    // CDS quotes from Booms & busts.
+    baa: series("BAA10Y"),
+    crowd,
+    cds: REPORTED_CDS,
   });
   const json = JSON.stringify(payload);
   await writeFile(resolve(DATA_DIR, "bottom-tracker.json"), json, "utf8");
@@ -13666,7 +13675,7 @@ function xlsxXmlText(str) {
 function xlsxRichText(xml) {
   return xlsxXmlText([...String(xml).matchAll(/<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g)].map((t) => t[1]).join(""));
 }
-function xlsxSheetRows(buf, sheetNameRe) {
+export function xlsxSheetRows(buf, sheetNameRe) {
   const read = icUnzip(buf);
   const wb = read("xl/workbook.xml");
   if (!wb) throw new Error("no workbook.xml");
@@ -20464,14 +20473,16 @@ function macroCloseSeries(chain) {
   if (!Array.isArray(bars) && chain?.priceSeries?.t && chain?.priceSeries?.c) bars = chain.priceSeries.t.map((t, i) => ({ t, c: chain.priceSeries.c[i] }));
   return mergeDailyCloses(confirmedDailyBars(bars, chain?.marketState, new Date()));
 }
-export function buildMacroContextForBuild({ chains, historicalCache = null, globalMarkets = null, partyTracker = null, breadthPct200 = null } = {}) {
+export function buildMacroContextForBuild({ chains, historicalCache = null, globalMarkets = null, partyTracker = null, breadthPct200 = null, kalshiRecessionPct = null } = {}) {
   if (!MACRO_WEIGHTS || !chains) return null;
   const toSeries = (rows) => {
     const r = (rows || []).map((x) => ({ t: String(x?.t ?? x?.date ?? "").slice(0, 10), v: Number(x?.c ?? x?.v ?? x?.value) })).filter((x) => /^\d{4}-\d{2}-\d{2}$/.test(x.t) && Number.isFinite(x.v));
     return { t: r.map((x) => x.t), v: r.map((x) => x.v) };
   };
   const series = {};
-  for (const id of MACRO_CONTEXT_FRED) {
+  // MACRO_CANDIDATE_FRED (Baa spread) rides the same cache; it is read for the
+  // unscored candidate block only.
+  for (const id of [...MACRO_CONTEXT_FRED, ...MACRO_CANDIDATE_FRED]) {
     const rows = historicalCache?.context?.[id]?.rows;
     if (Array.isArray(rows) && rows.length) series[id] = toSeries(rows);
   }
@@ -20489,7 +20500,7 @@ export function buildMacroContextForBuild({ chains, historicalCache = null, glob
   const calendar = series.SPY?.t || [];
   const stocks = TICKERS.filter((s) => SECTORS[s] !== "ETF" && !MACRO_CONTEXT_FUND_SYMS.has(s) && chains[s])
     .map((sym) => ({ sym, kind: macroContextKindOf(sym), closes: macroCloseSeries(chains[sym]) }));
-  const ctx = buildMacroContext({ series, calendar, stocks, weights: MACRO_WEIGHTS, partyRows: partyTracker?.rows || null, breadthPct200 });
+  const ctx = buildMacroContext({ series, calendar, stocks, weights: MACRO_WEIGHTS, partyRows: partyTracker?.rows || null, breadthPct200, candidateLive: { kalshiRecessionPct } });
   if (ctx) {
     ctx.inputs = inputs;
     // Cycle clock (G4): growth vs inflation at each of the past 12 month ends.
@@ -28531,7 +28542,20 @@ function macroGraderBlock(r, side, macroContext) {
 // the market gauges (lib/crowd/index.mjs marketGauges) and the name's own
 // short volume, borrow fee and retail attention (r.crowd). Positioning is a
 // condition, not a direction, and the lines say so. About 120 tokens.
-export function crowdGraderLines(r, side, gauges = null) {
+// Since 2026-11-12 a third line carries the name's credit and forced-selling
+// facts from the day's shadow row (lib/shadow-signals.mjs v5: Merton default
+// chance, pledge stress, hot-fund pressure, leveraged-ETF rebalance, cluster
+// selloff, insider buyers vs sellers, option-implied borrow), only when one
+// is notable. Same switch; nothing reaches the grader while it is off.
+export const GRADER_DISTRESS_NOTABLE = Object.freeze({ epd: 5, fls: 50, hfp: 0.5, lrb: 5, ins: 1, ibr: 3 });
+export function shadowRowFor(shadow, sym) {
+  const vals = shadow?.rows?.[sym];
+  if (!Array.isArray(vals) || !Array.isArray(shadow?.keys)) return null;
+  const out = {};
+  shadow.keys.forEach((k, i) => { if (vals[i] != null && Number.isFinite(Number(vals[i]))) out[k] = Number(vals[i]); });
+  return Object.keys(out).length ? out : null;
+}
+export function crowdGraderLines(r, side, gauges = null, shadowRow = null) {
   const L = [];
   const n = (v, d = 2) => (Number.isFinite(Number(v)) ? Number(v).toFixed(d) : null);
   if (gauges && typeof gauges === "object") {
@@ -28553,10 +28577,23 @@ export function crowdGraderLines(r, side, gauges = null) {
     if (n(c.pf) != null) parts.push(`stock-perp funding ${c.pf >= 0 ? "+" : ""}${n(c.pf, 0)}%/yr`);
     if (parts.length) L.push(`CROWD ON ${r.sym} — ${parts.join("; ")}.${side === "put" && (c.bf >= 5 || c.svz >= 1.5) ? " A put here is adding to a crowded short." : side === "call" && c.att >= 85 ? " A call here is joining a crowd." : ""}`);
   }
+  const h = shadowRow && typeof shadowRow === "object" ? shadowRow : null;
+  if (h) {
+    const T = GRADER_DISTRESS_NOTABLE;
+    const parts = [];
+    if (h.epd >= T.epd) parts.push(`equity-implied five-year default chance ${n(h.epd, 1)}% (Merton model, not a market quote)`);
+    if (h.fls >= T.fls) parts.push(`pledged-share stress ${Math.round(h.fls)}/100 (insiders' pledged stock near a margin call)`);
+    if (h.hfp >= T.hfp) parts.push(`stressed hot funds hold ${n(h.hfp, 1)} days of its volume`);
+    if (Math.abs(h.lrb) >= T.lrb) parts.push(`leveraged-ETF close-of-day rebalance ${h.lrb < 0 ? "selling" : "buying"} about ${n(Math.abs(h.lrb), 0)}% of daily volume`);
+    if (h.csh === 1) parts.push("part of today's hot-fund cluster selloff");
+    if (Math.abs(h.ins) >= T.ins) parts.push(`insiders: ${h.ins > 0 ? `${Math.round(h.ins)} more buyers than sellers` : `${Math.round(-h.ins)} more sellers than buyers`} (open-market, 30 days)`);
+    if (h.ibr >= T.ibr) parts.push(`option-implied borrow ${n(h.ibr, 1)}%/yr`);
+    if (parts.length) L.push(`CREDIT AND FORCED SELLING ON ${r.sym} — ${parts.join("; ")}. These are conditions, not a direction: forced selling can overshoot and then reverse.`);
+  }
   return L;
 }
-function crowdGraderBlock(r, side, gauges) {
-  const L = crowdGraderLines(r, side, gauges);
+function crowdGraderBlock(r, side, gauges, shadowRow = null) {
+  const L = crowdGraderLines(r, side, gauges, shadowRow);
   return L.length ? `\n${L.join("\n")}` : "";
 }
 
@@ -28892,7 +28929,7 @@ export function thesisCacheSig(r, side, kind, macroRegime, macroCalendar = null,
   // technical levels, IV momentum, and every scored value all participate even
   // when their coarse material buckets above did not change.
   const basePromptHash = createHash("sha256")
-    .update(buildThesisUserMessage(r, side, macroRegime, { macroCalendar, ivRow, ...context }) + macroGraderBlock(r, side, context?.macroContext || null) + crowdGraderBlock(r, side, context?.crowdGauges || null))
+    .update(buildThesisUserMessage(r, side, macroRegime, { macroCalendar, ivRow, ...context }) + macroGraderBlock(r, side, context?.macroContext || null) + crowdGraderBlock(r, side, context?.crowdGauges || null, context?.crowdShadow || null))
     .digest("hex")
     .slice(0, 24);
   const instructionSig = thesisInstructionSignature().slice(0, 24);
@@ -29170,7 +29207,7 @@ export async function generateAiTheses(preScored, macroBackdrop, opts = {}, prio
   // Crowd lines (PICKS_CROWD_GRADER=1 only); the gauges ride the per-name
   // context so the cache signature turns over with them.
   const graderCrowd = PICKS_CROWD_GRADER ? (macroBackdrop?.crowdGauges || null) : null;
-  const contextFor = (sym) => ({ ...graderContext(sym), ...(graderMacroContext ? { macroContext: graderMacroContext } : {}), ...(graderCrowd ? { crowdGauges: graderCrowd } : {}) });
+  const contextFor = (sym) => ({ ...graderContext(sym), ...(graderMacroContext ? { macroContext: graderMacroContext } : {}), ...(graderCrowd ? { crowdGauges: graderCrowd, crowdShadow: shadowRowFor(opts.shadow, sym) } : {}) });
   const edgeGate = opts.priorClosed ? edgeGatedConviction(opts.priorClosed, opts.builtAtIso) : null;
   const strongBar = edgeGate?.strongBar ?? PICKS_TIER_STRONG;
   const cands = aiGraderCandidates(preScored, macroBackdrop, opts);
@@ -29231,7 +29268,7 @@ export async function generateAiTheses(preScored, macroBackdrop, opts = {}, prio
       const research = AI_THESIS_SEARCH ? await fetchThesisWebResearch(ai, r, side) : null;
       const userMsg = buildThesisUserMessage(r, side, macroRegime, { macroCalendar, ivRow: ivBySym[r.sym] || null, ...contextFor(r.sym) }) +
         macroGraderBlock(r, side, graderMacroContext) +
-        (PICKS_CROWD_GRADER ? crowdGraderBlock(r, side, graderCrowd) : "") +
+        (PICKS_CROWD_GRADER ? crowdGraderBlock(r, side, graderCrowd, shadowRowFor(opts.shadow, r.sym)) : "") +
         (research ? `\n\nWEB RESEARCH (live Google Search, run moments ago — FRESHER than the news read / headlines above; weigh it in your grade and entry call):\n${research.text}` : "");
       let response = null;
       for (let attempt = 0; attempt < AI_MAX_ATTEMPTS; attempt++) {
@@ -39863,6 +39900,7 @@ async function main() {
       fred: (id) => sharedFredRows(historicalSourceCache, id),
       prior: priorBottomTracker,
       builtAtIso,
+      crowd: crowdPayload,
     });
     console.log(`wrote data/bottom-tracker.json — ${bottomInfo.verdict} as of ${bottomInfo.asOf || "—"}, ${bottomInfo.bytes} bytes`);
     // The post-shock put lane reads the stage (lib/event-play.mjs).
@@ -40329,6 +40367,7 @@ async function main() {
         macroBackdrop.macroContext = buildMacroContextForBuild({
           chains, historicalCache: historicalSourceCache, globalMarkets, partyTracker,
           breadthPct200: macroBackdrop.breadth?.pctAbove200 ?? null,
+          kalshiRecessionPct: macroBackdrop.crowdGauges?.kalshiRecessionPct ?? null,
         });
         const mc = macroBackdrop.macroContext;
         if (mc) {
@@ -40472,8 +40511,26 @@ async function main() {
   // trade's entry snapshot carry the same row grades-daily keeps. Logged, not
   // scored. A failure only leaves the block out.
   let shadowSignalsToday = null;
+  // Version-5 inputs (new data into the engines, 2026-11-12): leverage
+  // distress, pledges, insider trades, Alt Data and "Resembles now". Each is
+  // read from what this bake already wrote; a missing one is left out.
+  const shadowReadJson = async (key) => { try { return JSON.parse(await readFile(resolve(DATA_DIR, key), "utf8")); } catch { return null; } };
+  const shadowMarketExtra = {
+    ...altDataGauges({ accelerators: await shadowReadJson("accelerator-prices.json"), ram: await shadowReadJson("ram-prices.json"), aiCapex: await shadowReadJson("ai-capex.json") }),
+    ...resemblesGauges(historicalInfo?.events || null),
+  };
+  const shadowOpts = {
+    builtAtIso, groupOf: spilloverGroupOf, oiTracker: scoringOiTracker, spillover: scenarioSpilloverMatrix, crowd: crowdPayload,
+    defaultChance: historyRhymesDefaultChance, buildout: historyRhymesBrief,
+    forcedLiquidation, leverageDistress: leverageDistress?.payload || null,
+    // The insider key (ins) waits for the corporate-structure feature: its
+    // pre-wipe read of corporate-structure.json (with that file's publication
+    // policy) passes the payload here as insiderFromStructure(<payload>,
+    // builtAtIso). Until then nothing is logged for ins.
+    insider: insiderFromStructure(null, builtAtIso), marketExtra: shadowMarketExtra,
+  };
   try {
-    shadowSignalsToday = buildShadowSignals(chains, { builtAtIso, groupOf: spilloverGroupOf, oiTracker: scoringOiTracker, spillover: scenarioSpilloverMatrix, crowd: crowdPayload, defaultChance: historyRhymesDefaultChance, buildout: historyRhymesBrief });
+    shadowSignalsToday = buildShadowSignals(chains, shadowOpts);
   } catch (err) {
     console.warn(`[grades] shadow signals skipped — ${String(err?.message || err).split("\n")[0]}`);
   }
@@ -40770,7 +40827,7 @@ async function main() {
     // rebuilt here only if that attempt failed.
     if (!shadowSignalsToday) {
       try {
-        shadowSignalsToday = buildShadowSignals(chains, { builtAtIso, groupOf: spilloverGroupOf, oiTracker: scoringOiTracker, spillover: scenarioSpilloverMatrix, crowd: crowdPayload, defaultChance: historyRhymesDefaultChance, buildout: historyRhymesBrief });
+        shadowSignalsToday = buildShadowSignals(chains, shadowOpts);
       } catch (err) {
         console.warn(`[grades] shadow signals skipped — ${String(err?.message || err).split("\n")[0]}`);
       }
@@ -40965,7 +41022,7 @@ async function main() {
     if (!loopState || loopBaked) return;
     loopBaked = true;
     try {
-      const loopBake = loopOnBake(loopState, { chains, outcomes: picksOutcomesState, today: etDateKey(new Date(builtAtIso)), builtAtIso, tradeBar: PICKS_MIN_CONVICTION, tuneMode: loopTuneMode, closed: accNow?.closed || [], control: loopControl });
+      const loopBake = loopOnBake(loopState, { chains, outcomes: picksOutcomesState, today: etDateKey(new Date(builtAtIso)), builtAtIso, tradeBar: PICKS_MIN_CONVICTION, tuneMode: loopTuneMode, closed: accNow?.closed || [], control: loopControl, shadow: shadowResearchToday });
       loopView = loopBake.view;
       const loopInfo = await writeLoopFiles(DATA_DIR, loopState, loopView);
       console.log(`wrote data/${loopInfo.stateKey} + data/${loopInfo.viewKey} — ${loopInfo.rows} ledger row(s), ${loopBake.filled} option outcome(s) filled${loopBake.pruned ? `, ${loopBake.pruned} pruned` : ""}, calibration on ${loopBake.model.rows} row(s)${loopBake.report ? `, weekly report for the week of ${loopBake.report.week}` : ""}, self-tuning ${loopBake.tune ? `${loopBake.tune.mode}${loopBake.tune.live ? ` v${loopBake.tune.current.n}` : ""}${loopBake.tune.frozen ? " (frozen)" : ""}` : "off"}, ${loopInfo.stateBytes} + ${loopInfo.viewBytes} bytes`);
@@ -41038,6 +41095,14 @@ async function main() {
           stampedTrades: [...(accNow?.open || []), ...liveClosed].filter((t) => t?.labRegime?.cell).length,
           gradeModelVersion: GRADE_MODEL_VERSION,
           spyCtx: { syms: { SPY: { c: spyBars.map((b) => b.c), idx: spyIdx } } },
+          positioning: (() => {
+            // The positioning and credit labeler reads the logged market
+            // gauges (research only; lib/regime-lab/positioning.mjs).
+            try { return buildPositioning({ days: dailyNow?.days || [], cal, spyCloses: spyBars.map((b) => b.c) }); } catch (err) {
+              console.warn(`[regime-lab] positioning skipped — ${String(err?.message || err).split("\n")[0]}`);
+              return null;
+            }
+          })(),
         });
       } catch (err) {
         regimeLabPayload = null;

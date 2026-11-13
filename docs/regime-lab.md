@@ -253,12 +253,36 @@ grade loses after costs, exits only change how much) and gives the shadow
 books and the archive test their baselines. No engine change follows from
 it (G10).
 
+## Positioning and credit labeler (November 12, 2026)
+
+`lib/regime-lab/positioning.mjs` is a second, slower read beside the grid and
+the hidden-Markov check. It labels each day logged in `grades-daily.json` from
+the market gauge row the bake already keeps (`shadow.mkt`), so it adds no
+download:
+
+- **Crowd**: fear votes are the Cboe equity put/call in its top fifth of 250
+  sessions, asset managers light on S&P 500 futures (CFTC z -1 or lower) and
+  margin debt shrinking 10%+ a year; crowding votes are the mirror (bottom
+  fifth, z +1.5 or higher, +25% a year). Two more fear votes read **washed
+  out**, two more crowding votes **crowded**, else **neutral**; under two
+  inputs reads nothing.
+- **Credit**: Baa spread over the 10-year (stressed at 3 points, watch at 2.5,
+  tight at 1.8), Kalshi recession odds (stressed at 40%, watch at 25%) and the
+  Booms & busts warning-sign count (watch at 6 of 9). Any stressed vote or two
+  watch votes read **stressed**, one **watch**, a tight spread with no worry
+  **tight**, else **normal**.
+
+The payload's `positioning` block carries today's labels with the votes, the
+last 60 days, and SPY's next-10-session move by label beside the all-days
+average ("collecting" until a label has 20 days). Days overlap, so it
+describes; it does not test. Research only.
+
 ## The Owner Lab tab
 
 Owner Lab → **Regime Lab**: today's cell on the six-cell grid with the
 playbook in force, the era stop ladder and the book brakes; a label history
 strip (era and character bands, VIX, switch marks) with the F2 stability
-table; sessions that resemble now (F16); stock labels (A10); the playbooks
+table; sessions that resemble now (F16); positioning and credit; stock labels (A10); the playbooks
 and the shadow books against the live record, by cell; exits and risk (the
 ladder, every open trade's risk score); book brakes on the record (F10); the
 oracle by headline type with the engine-vs-oracle and ceiling reads; the AI

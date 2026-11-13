@@ -20,10 +20,29 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
      (same format, plus the archive preamble) and add that month to the
      "Older changelogs" index below. -->
 
+## 2026-11-13
+
+### Fixed
+
+- Leveraged-ETF flows no longer read Yahoo's net assets when the figure has not changed: Yahoo held every fund's net assets flat for days while prices moved, which the net-asset fallback would have logged as a fake flow equal to the price move. The Crowd page says plainly when no flow can be measured, and the margin-debt chart shows fewer, shorter axis labels (#816).
+- The shadow log leaves out hot-fund pressure, ETF rebalance and cluster-selloff reads when the leverage-distress collector failed and an older day's payload was carried, and the "Resembles now" gauge drops the single-stock squeeze match and counts each study once (#816).
+- A missing reading stays missing: the Bottom tracker's context rows no longer show a blank put/call percentile, asset-manager z or margin y/y as zero, and a missing Kalshi read no longer counts as 0% recession odds in the macro candidates (#816).
+- Step-axis line charts keep their last date label inside the chart and skip a middle label that would crowd it (#816).
+
+### Added
+
+- History test results for the new inputs (`research/new-data-history/`), now with FINRA's full margin-debt history since 1997: none of the per-name inputs passes the bar on a year of data; the CFTC positioning reads and the Baa spread are worth watching (#816).
+
 ## 2026-11-12
 
 ### Added
 
+- Feed the newer data into the engines as **logged, measured inputs** (shadow version 5): option-implied borrow per name (a stand-in for the IBKR borrow file, which times out on the build runner), pledge stress, stressed hot-fund holdings, leveraged-ETF rebalance pressure, cluster selloffs and insider buyers vs sellers per name, plus GPU rental, DRAM, big-tech capex and "Resembles now" stress analogs as daily market gauges. They ride the grade log, the run archive and every new trade's entry snapshot; nothing scores, gates or changes a pick.
+- The Owner Lab Evidence tab reads each shadow input on **earnings event plays** too, and tags the new per-name inputs as distress.
+- The self-improving loop can test an **"add an input"** challenger on paper: a shadow input whose 10-session read is steady gets a one-point paper book against the current rules. It is never applied by the tuner; adding an input stays the owners' call.
+- The Regime Lab gains a **positioning and credit** read (washed out / neutral / crowded; stressed / watch / normal / tight) from the logged put/call, CFTC, margin debt, Baa spread, recession odds and warning-sign gauges, with SPY's next-10-session move by label. Research only.
+- The Bottom tracker shows **context rows that never vote**: the Baa corporate spread, equity put/call percentile, margin debt off its peak, asset-manager S&P 500 futures positioning and the dated press CDS quotes.
+- The macro context carries the Baa spread and Kalshi recession odds as **unscored candidates** beside its nine factors.
 - Add **team bets** to Sports: each NBA and NFL game panel shows the chance of each team winning, winning by X or more, covering the spread, and the game and team totals going over or under, from a new deterministic team game model (walk-forward team ratings that start from the sportsbook line where there is one, whole-number score curves, a held-out check per kind of bet; refit twice a day into `<sport>/team-model.json`). A checker prices any bet with fair odds, breakeven and expected return per dollar (the page's math matches the server's to 0.0001 on 432 test bets, and warns on a positive return for a kind of bet that has not passed its check); the block also shows both teams' records against the spread and over / under, margins, close games, rest, ratings with ranks and NBA pace. NBA games carry the books' no-vig win, cover and over chances, the last two only from books posting that exact line. The board shows each game's win chance.
 - Add `sports_team_odds` to the MCP (game id or two team codes, up to 12 bets, a win-by ladder from 1+ to 30+, the books' no-vig chances and the check per kind of bet); `sports_list_games` carries each game's win chance and `sports_get_model_check` the team model's check.
 - Clicking a player now opens a full **player page** (`?player=` link, Back works, arrow keys move between tabs) with seven tabs: overview, the team's next five games (opponent record, what that defense allows to the position, rest, spread, total, win chance, the player's average against them; last season's numbers, labeled, before an opponent's first game), all charts (new: per 36 minutes or per target / carry / attempt, game script by team result, two stats against each other), the game log, averages by opponent, by season, and a quick pick form.
@@ -36,6 +55,8 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Changed
 
+- With `PICKS_CROWD_GRADER=1` (still off and locked until December 7), the AI grader also gets one line of credit and forced-selling facts when one is notable.
+- The Quant page's "not feasible" list drops borrow and M&A (both now have data) and lists Pending Buyouts, the market map and Crowd & positioning as existing work.
 - Historical Data's "Resembles now" shows a "Buildout boom signs" card linking to Booms & busts when 4.5 or more of the nine signs show or credit strain is lit.
 - Risk analysis shows a Booms & busts context card under the seven desks; it does not vote.
 - The Owner market brief adds a "Buildout warning signs" line (stage, closest case, highest model default chances).
@@ -44,6 +65,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Fixed
 
+- Leveraged-ETF flows no longer show a fake $0: Yahoo stopped sending share counts, so flows fall back to the change in net assets net of the NAV move, a side with no measured fund totals blank, and the research ignores the old $0 gauge rows.
 - Last-ten-branch audit: include push returns in Pick Builder profit ranges, explain the break-even assumption, reject stakes that round to $0 and chances that round to 0% or 100%, keep missing spending growth from lighting a Booms & busts warning, recognize negative builder cash flow, and sort same-millisecond inbox messages newest first.
 - Patch the HTTP and validation dependencies to remove the five high-severity dependency findings while retaining the existing storage SDK. Cost checks permit only the two reviewed versions and exact validation override; unrelated dependency changes remain blocked.
 - Repair stale audit baselines, the Streaks Owner preview, the earnings-call font check's detached-element race, and the research audit's reference to the retired streak rule. Add a complete regression runner and record the audit in `docs/audits-checks-2026-11-12.md`.
@@ -58,6 +80,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Docs
 
+- Document the new inputs in docs/top-picks.md, the `add` challenger in docs/self-loop.md, the labeler in docs/regime-lab.md, the lev-flow and borrow notes in docs/crowd-data.md, and a CLAUDE.md section.
 - Document team bets, the player page, the split sportsbook request and the new MCP fields in `docs/sports/README.md`, `docs/mcp.md` and CLAUDE.md.
 - Add `docs/history-rhymes.md` (cases, the nine signs and their thresholds, the CDS sources, the Merton model, files and where they are used) and note the new MCP dataset, `credit_read` and shadow v4 in `docs/mcp.md`, `docs/top-picks.md` and CLAUDE.md.
 

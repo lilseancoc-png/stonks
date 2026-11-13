@@ -3085,7 +3085,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
       { label: 'Free credit, margin accounts', num: true, cell: function(r){ return crowdUsd((r.creditMargin || 0) * 1e6); }, sort: function(r){ return r.creditMargin; } },
     ];
     var ser = (md.rows || []).slice(-60);
-    var chart = ser.length > 3 ? '<div class="crd-chart">' + lineSvgHtml({ labels: ser.map(function(r){ return r.month; }), series: [{ values: ser.map(function(r){ return r.debit / 1000; }) }], h: 200, yFmt: function(v){ return '$' + Math.round(v) + 'B'; } }) + '</div>' : '';
+    var chart = ser.length > 3 ? '<div class="crd-chart">' + lineSvgHtml({ labels: ser.map(function(r){ return r.month; }), series: [{ values: ser.map(function(r){ return r.debit / 1000; }) }], h: 200, xEvery: Math.max(1, Math.ceil(ser.length / 6)), yFmt: function(v){ return v >= 1000 ? '$' + (v / 1000).toFixed(v % 1000 ? 1 : 0) + 'T' : '$' + Math.round(v) + 'B'; } }) + '</div>' : '';
     return h + '<div class="mm-kpis">' + kpis.map(function(k){ return '<div class="mm-kpi"><span>' + escapeHtml(k[0]) + '</span><b>' + k[1] + '</b></div>'; }).join('') + '</div>' + chart +
       VIEWS.tableHtml(cols, rows, { key: 'crowd-margin', tall: false, empty: 'No months.' });
   }
@@ -3094,7 +3094,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
     var h = crowdHead('Leveraged ETF creations and redemptions', lf, lf && lf.note);
     if (!lf || !lf.rows) return h + crowdEmpty('No fund read yet.');
     var t = lf.totals || {};
-    var kpis = [['Bull funds, 5 days', crowdUsd(t.bullUsd5d)], ['Bear funds, 5 days', crowdUsd(t.bearUsd5d)], ['Bull funds, 1 day', crowdUsd(t.bullUsd1d)], ['Bear funds, 1 day', crowdUsd(t.bearUsd1d)], ['Funds with share counts', (lf.withShares || 0) + ' of ' + (lf.funds || 0)]];
+    var kpis = [['Bull funds, 5 days', crowdUsd(t.bullUsd5d)], ['Bear funds, 5 days', crowdUsd(t.bearUsd5d)], ['Bull funds, 1 day', crowdUsd(t.bullUsd1d)], ['Bear funds, 1 day', crowdUsd(t.bearUsd1d)], ['Funds with a flow', (lf.withFlow != null ? lf.withFlow : (lf.withShares || 0)) + ' of ' + (lf.funds || 0)]];
     var rows = lf.rows.filter(function(r){ return !r.missing; });
     var cols = [
       { label: 'Fund', cell: function(r){ return '<b>' + escapeHtml(r.sym) + '</b><div class="crd-dim">' + escapeHtml(r.label || '') + '</div>'; }, sort: function(r){ return r.sym; } },
@@ -3106,9 +3106,11 @@ function recoveryEvidence(row, data, now = Date.now()) {
       { label: 'Flow, 20 days', num: true, cell: function(r){ return r.flowUsd20d == null ? '<span class="vt-na">—</span>' : '<span class="' + (r.flowUsd20d > 0 ? 'pos' : r.flowUsd20d < 0 ? 'neg' : '') + '">' + crowdUsd(r.flowUsd20d) + '</span>'; }, sort: function(r){ return r.flowUsd20d; } },
       { label: 'Shares out, 90 days', nosort: true, cell: function(r){ return crowdSpark(r.history, 1, crowdInt, r.sym + ' shares outstanding'); } },
     ];
+    var noFlow = rows.length && !rows.some(function(r){ return r.flowUsd1d != null || r.flowUsd5d != null || r.flowUsd20d != null; });
     return h + '<div class="mm-kpis">' + kpis.map(function(k){ return '<div class="mm-kpi"><span>' + escapeHtml(k[0]) + '</span><b>' + k[1] + '</b></div>'; }).join('') + '</div>' +
+      (noFlow ? '<p class="crd-note"><b>No flow can be measured right now.</b> Yahoo sends no share counts for these funds and has not refreshed their net assets day to day, so creations and redemptions cannot be told apart from price moves. The table keeps prices and assets; flows return when either figure updates daily.</p>' : '') +
       VIEWS.tableHtml(cols, rows, { key: 'crowd-levflows', empty: 'No funds quoted.' }) +
-      '<p class="crd-note">A flow here is the change in a fund\'s shares outstanding times its NAV: money arriving in or leaving a leveraged bet on the name. Dashes mean Yahoo carries no share count for that fund yet.</p>';
+      '<p class="crd-note">A flow here is the change in a fund\'s shares outstanding times its NAV, or, with no share count, the change in its net assets beyond what the NAV move explains: money arriving in or leaving a leveraged bet on the name. Dashes mean neither figure was updated every day of that window.</p>';
   }
   function crowdPositioningHtml(d){
     return crowdPutCallHtml(d) + crowdCotHtml(d) + crowdMarginHtml(d) + crowdLevFlowsHtml(d);
@@ -4197,7 +4199,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
       var r5 = (k.read && k.read['5']) || {}, r10 = (k.read && k.read['10']) || {};
       var st = EVB_KEY_STATUS[k.status] || EVB_KEY_STATUS.collecting;
       var halves = r10.half1 == null ? '—' : (r10.half1 > 0 ? '+' : '') + Number(r10.half1).toFixed(3) + ' / ' + (r10.half2 == null ? '—' : (r10.half2 > 0 ? '+' : '') + Number(r10.half2).toFixed(3));
-      return '<tr><td><strong>' + escapeHtml(k.label || k.key) + '</strong><div class="evb-q">' + escapeHtml(k.key) + (k.crowd ? ' · crowd' : '') + '</div></td>' +
+      return '<tr><td><strong>' + escapeHtml(k.label || k.key) + '</strong><div class="evb-q">' + escapeHtml(k.key) + (k.crowd ? ' · crowd' : k.distress ? ' · distress' : '') + '</div></td>' +
         '<td class="num">' + (r10.days || 0) + '<div class="evb-q">' + (k.daysLogged || 0) + ' logged</div></td>' +
         evbIcCell(r5.ic) + evbIcCell(r10.ic) +
         '<td class="num">' + (r10.t == null ? '—' : Number(r10.t).toFixed(2)) + '</td>' +
@@ -4205,15 +4207,16 @@ function recoveryEvidence(row, data, now = Date.now()) {
         '<td class="num">' + halves + '</td>' +
         evbIcCell(r10.partial) +
         '<td class="num">' + (k.trades && k.trades.n ? k.trades.n + (k.trades.ic == null ? '' : ' · ' + (k.trades.ic > 0 ? '+' : '') + Number(k.trades.ic).toFixed(3)) : '—') + '</td>' +
+        '<td class="num">' + (k.eventTrades && k.eventTrades.n ? k.eventTrades.n + '<div class="evb-q">won ' + (k.eventTrades.winMean == null ? '—' : Number(k.eventTrades.winMean).toFixed(2)) + ' · lost ' + (k.eventTrades.lossMean == null ? '—' : Number(k.eventTrades.lossMean).toFixed(2)) + '</div>' : '—') + '</td>' +
         '<td><span class="evb-pill ' + st[1] + '">' + st[0] + '</span></td></tr>';
     }).join('');
-    var head = '<thead><tr><th scope="col">Signal</th><th scope="col" class="num">Days</th><th scope="col" class="num">IC 5d</th><th scope="col" class="num">IC 10d</th><th scope="col" class="num">t</th><th scope="col" class="num">Days positive</th><th scope="col" class="num">Halves (10d)</th><th scope="col" class="num">After grade</th><th scope="col" class="num">Trades · IC</th><th scope="col">Status</th></tr></thead>';
+    var head = '<thead><tr><th scope="col">Signal</th><th scope="col" class="num">Days</th><th scope="col" class="num">IC 5d</th><th scope="col" class="num">IC 10d</th><th scope="col" class="num">t</th><th scope="col" class="num">Days positive</th><th scope="col" class="num">Halves (10d)</th><th scope="col" class="num">After grade</th><th scope="col" class="num">Trades · IC</th><th scope="col" class="num" title="Decided earnings event plays: count, and the side-signed average among winners and losers">Earnings plays</th><th scope="col">Status</th></tr></thead>';
     var gauges = '';
     if (sh.gauges && sh.gauges.length){
       var gRows = sh.gauges.map(function(g){
         return '<tr><td><strong>' + escapeHtml(g.label || g.key) + '</strong><div class="evb-q">' + escapeHtml(g.key) + '</div></td><td class="num">' + (g.latest == null ? '—' : Number(g.latest).toLocaleString('en-US', { maximumFractionDigits: 2 })) + '<div class="evb-q">' + escapeHtml(evbDate(g.latestDate)) + '</div></td><td class="num">' + (g.n || 0) + '</td>' + evbIcCell(g.rho) + '</tr>';
       }).join('');
-      gauges = '<div class="evb-sub"><h4>Market gauges vs SPY, next 10 sessions</h4><p class="evb-note">One value per day for the whole market (Cboe put/call, CFTC positioning, margin debt, leveraged-ETF flows, Kalshi, market short volume) against SPY\'s forward 10-session return over non-overlapping days. Slow gauges; ' + (sh.days || 0) + ' days cannot judge them, so there is no pass bar here.</p>' +
+      gauges = '<div class="evb-sub"><h4>Market gauges vs SPY, next 10 sessions</h4><p class="evb-note">One value per day for the whole market (Cboe put/call, CFTC positioning, margin debt, leveraged-ETF flows, Kalshi, market short volume, GPU and DRAM prices, AI capex, Resembles now) against SPY\'s forward 10-session return over non-overlapping days. Slow gauges; ' + (sh.days || 0) + ' days cannot judge them, so there is no pass bar here.</p>' +
         '<div class="acc-tscroll"><table class="acc-qtable" data-nosort><thead><tr><th scope="col">Gauge</th><th scope="col" class="num">Latest</th><th scope="col" class="num">Days</th><th scope="col" class="num">Rank corr.</th></tr></thead><tbody>' + gRows + '</tbody></table></div></div>';
     }
     return '<p class="evb-note">' + (sh.days || 0) + ' shadow day' + (sh.days === 1 ? '' : 's') + (sh.first ? ', ' + escapeHtml(evbDate(sh.first)) + ' to ' + escapeHtml(evbDate(sh.last)) : '') + '; ' + (sh.decidedTrades || 0) + ' decided trade' + (sh.decidedTrades === 1 ? '' : 's') + ' carry a snapshot. IC is the rank correlation between a key and each name\'s forward return on that day, averaged over every shadow day (the t statistic uses non-overlapping days only); <em>after grade</em> holds the grade total fixed. A key clears the bar at ' + (p.days || 40) + '+ days and ' + (p.trades || 30) + '+ trades with a 10-day IC of ' + (p.ic || 0.03) + '+ in both halves and ' + (p.partial || 0.02) + '+ after the grade. Measurement only: nothing is promoted here.</p>' +
@@ -4447,6 +4450,25 @@ function recoveryEvidence(row, data, now = Date.now()) {
     return rglTable(head, body) + '<p class="evb-note">On average SPY moved <strong class="' + rglSign(sm.avgSpyFwdPct) + '">' + rglPts(sm.avgSpyFwdPct, 1) + '%</strong> over the next ' + r.horizon + ' sessions after these look-alikes (up ' + evbRate(sm.upShare) + ' of the time). ' + escapeHtml(r.note || '') + '</p>';
   }
 
+  // Positioning and credit labeler (lib/regime-lab/positioning.mjs): who is
+  // positioned how and how worried lenders are, from the logged market
+  // gauges. Research only.
+  function rglPositioningHtml(d){
+    var p = d.positioning;
+    if (!p) return '<p class="hint">Needs the daily market gauges in the grade log; the next full build writes it.</p>';
+    var L = p.labels || { crowd: {}, credit: {} };
+    var t = p.today;
+    var name = function(map, id){ return id ? (map[id] || rglCap(id)) : 'not enough inputs'; };
+    var top = t ? '<p><strong>Crowd: ' + escapeHtml(name(L.crowd, t.crowd)) + '</strong> (' + t.crowdInputs + ' of 3 inputs) · <strong>Credit: ' + escapeHtml(name(L.credit, t.credit)) + '</strong> (' + t.creditInputs + ' of 3 inputs) · as of ' + escapeHtml(evbDate(t.d)) + '</p>' +
+      (t.votes && t.votes.length ? '<p class="evb-note">' + t.votes.map(function(v){ return escapeHtml(v.why); }).join(' · ') + '</p>' : '<p class="evb-note">No input is at an extreme today.</p>') : '<p class="hint">No labeled day yet.</p>';
+    var row = function(label, g){ g = g || {}; return '<tr><td>' + escapeHtml(label) + '</td><td class="num">' + (g.days != null ? g.days : g.n || 0) + '</td><td class="num ' + rglSign(g.avgPct) + '">' + (g.avgPct == null ? '—' : rglPts(g.avgPct, 2) + '%') + '</td><td class="num">' + evbRate(g.upPct) + '</td><td>' + escapeHtml(g.status === 'enough' ? 'enough days' : g.status === 'collecting' ? 'collecting (' + (g.n || 0) + ' of ' + p.minDays + ')' : g.status === 'none' ? 'none yet' : '') + '</td></tr>'; };
+    var head = '<thead><tr><th scope="col">Label</th><th scope="col" class="num">Days</th><th scope="col" class="num">SPY next ' + p.horizon + ' sessions</th><th scope="col" class="num">Up</th><th scope="col">Sample</th></tr></thead>';
+    var body = row('All logged days', p.base) +
+      Object.keys(L.crowd || {}).map(function(k){ return row('Crowd: ' + L.crowd[k], (p.byCrowd || {})[k]); }).join('') +
+      Object.keys(L.credit || {}).map(function(k){ return row('Credit: ' + L.credit[k], (p.byCredit || {})[k]); }).join('');
+    return top + rglTable(head, body) + '<p class="evb-note">' + escapeHtml(p.note || '') + '</p>';
+  }
+
   // A10: each tracked stock's own label today.
   function rglStocksHtml(d){
     var st = d.stocks;
@@ -4595,11 +4617,12 @@ function recoveryEvidence(row, data, now = Date.now()) {
     var d = rglState.data;
     if (!d){ root.innerHTML = '<p class="hint">' + (rglState.error ? 'The Regime Lab could not be loaded (' + escapeHtml(rglState.error) + '). Every full build writes it; the first one after this deploys creates it.' : 'Loading…') + '</p>'; return; }
     var v = d.versions || {};
-    var nav = '<nav class="rgl-nav" aria-label="Regime Lab sections">' + [['rgl-today', 'Today'], ['rgl-history', 'History'], ['rgl-stocks', 'Stocks'], ['rgl-books', 'Playbooks'], ['rgl-risk', 'Exits and risk'], ['rgl-oracle', 'Oracle'], ['rgl-crowd', 'Crowd'], ['rgl-catalog', 'Tests'], ['rgl-guards', 'Guards']].map(function(x){ return '<a href="#' + x[0] + '">' + x[1] + '</a>'; }).join('') + '</nav>';
+    var nav = '<nav class="rgl-nav" aria-label="Regime Lab sections">' + [['rgl-today', 'Today'], ['rgl-history', 'History'], ['rgl-positioning', 'Positioning'], ['rgl-stocks', 'Stocks'], ['rgl-books', 'Playbooks'], ['rgl-risk', 'Exits and risk'], ['rgl-oracle', 'Oracle'], ['rgl-crowd', 'Crowd'], ['rgl-catalog', 'Tests'], ['rgl-guards', 'Guards']].map(function(x){ return '<a href="#' + x[0] + '">' + x[1] + '</a>'; }).join('') + '</nav>';
     root.innerHTML = nav +
       rglSection('rgl-today', 'Today\'s market', rglTodayHtml(d)) +
       rglSection('rgl-history', 'Label history', rglHistoryHtml(d) + rglStabilityHtml(d)) +
       rglSection('rgl-resembles', 'Sessions that resemble now (F16)', rglResemblesHtml(d)) +
+      rglSection('rgl-positioning', 'Positioning and credit (research)', rglPositioningHtml(d)) +
       rglSection('rgl-stocks', 'Stock labels (A10)', rglStocksHtml(d)) +
       rglSection('rgl-books', 'Playbooks and shadow books (B1-B8)', rglBooksHtml(d)) +
       rglSection('rgl-risk', 'Exits and risk (E1-E9)', rglRiskHtml(d)) +
@@ -8806,9 +8829,12 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var every = opts.xEvery || Math.max(1, Math.ceil(n / (narrow ? 6 : 13)));
     for (var i = 0; i < n; i++){
       if (i % every !== 0 && i !== n - 1) continue;
-      // The last label always shows, so drop a regular one that would sit on top of it.
-      if (i !== n - 1 && every > 1 && n - 1 - i < every * 0.6) continue;
-      g += '<text class="ln-tick" x="' + X(i).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle">' + escapeHtml(labels[i]) + '</text>';
+      // The last label always shows (ending at the last point), so drop a
+      // regular one that would sit on top of it.
+      if (i !== n - 1 && every > 1 && n - 1 - i < every * 0.85) continue;
+      // The last label ends at the last point so a long one (a month, a
+      // date) is not cut off at the right edge.
+      g += '<text class="ln-tick" x="' + (i === n - 1 ? Math.min(X(i), W - 2) : X(i)).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="' + (i === n - 1 ? 'end' : 'middle') + '">' + escapeHtml(labels[i]) + '</text>';
     }
     function path(values){
       var d = '', on = false;
@@ -33067,6 +33093,18 @@ function scenarioEventPhase(ev, now = Date.now()) {
       html += '<article class="btm-card btm-' + btmTone(card.state) + '"><header><span>' + escapeHtml(card.phase || '') + '</span><h3>' + escapeHtml(card.title || '') + '</h3><em>' + escapeHtml(card.stateLabel || '') + '</em></header>' + spark + '<p>' + escapeHtml(card.summary || '') + '</p>' + (facts ? '<ul class="btm-facts">' + facts + '</ul>' : '') + '<small>' + escapeHtml(card.source || '') + '</small></article>';
     });
     html += '</div>';
+    // Context rows (lib/bottom-tracker.mjs buildBottomContext): shown beside
+    // the checklist, never a gate or a vote.
+    var ctx = d.context && d.context.rows ? d.context.rows : [];
+    if (ctx.length){
+      var leanText = { washout: 'Leans washed out', stretched: 'Not reset yet', neutral: 'Neutral' };
+      var leanTone = { washout: 'ok', stretched: 'bad', neutral: 'na' };
+      html += '<section class="btm-context"><h3>Context (does not vote)</h3><p class="btm-context-note">' + escapeHtml(d.context.note || '') + '</p><div class="btm-cards">';
+      ctx.forEach(function(row){
+        html += '<article class="btm-card btm-' + (leanTone[row.lean] || 'na') + '"><header><span>' + escapeHtml(leanText[row.lean] || 'Neutral') + '</span><h3>' + escapeHtml(row.title || '') + '</h3><em>' + escapeHtml(row.read || '') + '</em></header><p><b>' + escapeHtml(row.value || '') + '</b> ' + escapeHtml(row.detail || '') + '</p><small>' + escapeHtml(row.source || '') + (row.asOf ? ' · ' + escapeHtml(row.asOf) : '') + '</small></article>';
+      });
+      html += '</div></section>';
+    }
     var bt = d.backtest || {};
     html += '<section class="btm-backtest"><h3>Signal history</h3>';
     if (bt.status !== 'ok'){

@@ -180,7 +180,7 @@ export function renderEvidenceJs() {
       var r5 = (k.read && k.read['5']) || {}, r10 = (k.read && k.read['10']) || {};
       var st = EVB_KEY_STATUS[k.status] || EVB_KEY_STATUS.collecting;
       var halves = r10.half1 == null ? '—' : (r10.half1 > 0 ? '+' : '') + Number(r10.half1).toFixed(3) + ' / ' + (r10.half2 == null ? '—' : (r10.half2 > 0 ? '+' : '') + Number(r10.half2).toFixed(3));
-      return '<tr><td><strong>' + escapeHtml(k.label || k.key) + '</strong><div class="evb-q">' + escapeHtml(k.key) + (k.crowd ? ' · crowd' : '') + '</div></td>' +
+      return '<tr><td><strong>' + escapeHtml(k.label || k.key) + '</strong><div class="evb-q">' + escapeHtml(k.key) + (k.crowd ? ' · crowd' : k.distress ? ' · distress' : '') + '</div></td>' +
         '<td class="num">' + (r10.days || 0) + '<div class="evb-q">' + (k.daysLogged || 0) + ' logged</div></td>' +
         evbIcCell(r5.ic) + evbIcCell(r10.ic) +
         '<td class="num">' + (r10.t == null ? '—' : Number(r10.t).toFixed(2)) + '</td>' +
@@ -188,15 +188,16 @@ export function renderEvidenceJs() {
         '<td class="num">' + halves + '</td>' +
         evbIcCell(r10.partial) +
         '<td class="num">' + (k.trades && k.trades.n ? k.trades.n + (k.trades.ic == null ? '' : ' · ' + (k.trades.ic > 0 ? '+' : '') + Number(k.trades.ic).toFixed(3)) : '—') + '</td>' +
+        '<td class="num">' + (k.eventTrades && k.eventTrades.n ? k.eventTrades.n + '<div class="evb-q">won ' + (k.eventTrades.winMean == null ? '—' : Number(k.eventTrades.winMean).toFixed(2)) + ' · lost ' + (k.eventTrades.lossMean == null ? '—' : Number(k.eventTrades.lossMean).toFixed(2)) + '</div>' : '—') + '</td>' +
         '<td><span class="evb-pill ' + st[1] + '">' + st[0] + '</span></td></tr>';
     }).join('');
-    var head = '<thead><tr><th scope="col">Signal</th><th scope="col" class="num">Days</th><th scope="col" class="num">IC 5d</th><th scope="col" class="num">IC 10d</th><th scope="col" class="num">t</th><th scope="col" class="num">Days positive</th><th scope="col" class="num">Halves (10d)</th><th scope="col" class="num">After grade</th><th scope="col" class="num">Trades · IC</th><th scope="col">Status</th></tr></thead>';
+    var head = '<thead><tr><th scope="col">Signal</th><th scope="col" class="num">Days</th><th scope="col" class="num">IC 5d</th><th scope="col" class="num">IC 10d</th><th scope="col" class="num">t</th><th scope="col" class="num">Days positive</th><th scope="col" class="num">Halves (10d)</th><th scope="col" class="num">After grade</th><th scope="col" class="num">Trades · IC</th><th scope="col" class="num" title="Decided earnings event plays: count, and the side-signed average among winners and losers">Earnings plays</th><th scope="col">Status</th></tr></thead>';
     var gauges = '';
     if (sh.gauges && sh.gauges.length){
       var gRows = sh.gauges.map(function(g){
         return '<tr><td><strong>' + escapeHtml(g.label || g.key) + '</strong><div class="evb-q">' + escapeHtml(g.key) + '</div></td><td class="num">' + (g.latest == null ? '—' : Number(g.latest).toLocaleString('en-US', { maximumFractionDigits: 2 })) + '<div class="evb-q">' + escapeHtml(evbDate(g.latestDate)) + '</div></td><td class="num">' + (g.n || 0) + '</td>' + evbIcCell(g.rho) + '</tr>';
       }).join('');
-      gauges = '<div class="evb-sub"><h4>Market gauges vs SPY, next 10 sessions</h4><p class="evb-note">One value per day for the whole market (Cboe put/call, CFTC positioning, margin debt, leveraged-ETF flows, Kalshi, market short volume) against SPY\\'s forward 10-session return over non-overlapping days. Slow gauges; ' + (sh.days || 0) + ' days cannot judge them, so there is no pass bar here.</p>' +
+      gauges = '<div class="evb-sub"><h4>Market gauges vs SPY, next 10 sessions</h4><p class="evb-note">One value per day for the whole market (Cboe put/call, CFTC positioning, margin debt, leveraged-ETF flows, Kalshi, market short volume, GPU and DRAM prices, AI capex, Resembles now) against SPY\\'s forward 10-session return over non-overlapping days. Slow gauges; ' + (sh.days || 0) + ' days cannot judge them, so there is no pass bar here.</p>' +
         '<div class="acc-tscroll"><table class="acc-qtable" data-nosort><thead><tr><th scope="col">Gauge</th><th scope="col" class="num">Latest</th><th scope="col" class="num">Days</th><th scope="col" class="num">Rank corr.</th></tr></thead><tbody>' + gRows + '</tbody></table></div></div>';
     }
     return '<p class="evb-note">' + (sh.days || 0) + ' shadow day' + (sh.days === 1 ? '' : 's') + (sh.first ? ', ' + escapeHtml(evbDate(sh.first)) + ' to ' + escapeHtml(evbDate(sh.last)) : '') + '; ' + (sh.decidedTrades || 0) + ' decided trade' + (sh.decidedTrades === 1 ? '' : 's') + ' carry a snapshot. IC is the rank correlation between a key and each name\\'s forward return on that day, averaged over every shadow day (the t statistic uses non-overlapping days only); <em>after grade</em> holds the grade total fixed. A key clears the bar at ' + (p.days || 40) + '+ days and ' + (p.trades || 30) + '+ trades with a 10-day IC of ' + (p.ic || 0.03) + '+ in both halves and ' + (p.partial || 0.02) + '+ after the grade. Measurement only: nothing is promoted here.</p>' +

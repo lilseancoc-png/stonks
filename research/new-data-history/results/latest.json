@@ -1,0 +1,193 @@
+{
+  "v": 1,
+  "ranAt": "2026-11-13T00:33:37.016Z",
+  "finishedAt": "2026-11-13T00:34:41.953Z",
+  "sample": {
+    "perNameFrom": "2025-10-31",
+    "perNameTo": "2026-11-12",
+    "perNameSessions": 260,
+    "names": 85,
+    "gaugesFrom": "2010-01-04",
+    "gaugesTo": "2026-11-12",
+    "finraFiles": 291,
+    "wikiNames": 74
+  },
+  "bar": {
+    "note": "The Evidence tab's pass bar: 10-session IC 0.03+ with the same sign in both halves and 0.02+ after the control. Here the control is 21-session momentum, not the grade.",
+    "ic": 0.03,
+    "partial": 0.02
+  },
+  "perName": {
+    "sv": {
+      "5": {
+        "days": 255,
+        "names": 83,
+        "ic": -0.0003,
+        "half1": -0.0081,
+        "half2": 0.0074,
+        "t": -0.06,
+        "nonOverlapDays": 51,
+        "positiveShare": 0.5,
+        "partialAfterMomentum": 0.0008
+      },
+      "10": {
+        "days": 250,
+        "names": 83,
+        "ic": -0.0173,
+        "half1": -0.0222,
+        "half2": -0.0124,
+        "t": -0.02,
+        "nonOverlapDays": 25,
+        "positiveShare": 0.41,
+        "partialAfterMomentum": -0.0163
+      }
+    },
+    "svz": {
+      "5": {
+        "days": 255,
+        "names": 83,
+        "ic": 0.009,
+        "half1": 0.001,
+        "half2": 0.0169,
+        "t": 0.54,
+        "nonOverlapDays": 51,
+        "positiveShare": 0.54,
+        "partialAfterMomentum": 0.0116
+      },
+      "10": {
+        "days": 250,
+        "names": 83,
+        "ic": -0.008,
+        "half1": -0.0209,
+        "half2": 0.0049,
+        "t": 1.01,
+        "nonOverlapDays": 25,
+        "positiveShare": 0.46,
+        "partialAfterMomentum": -0.0084
+      }
+    },
+    "wkr": {
+      "5": {
+        "days": 255,
+        "names": 74,
+        "ic": -0.0209,
+        "half1": -0.0242,
+        "half2": -0.0177,
+        "t": -0.93,
+        "nonOverlapDays": 51,
+        "positiveShare": 0.42,
+        "partialAfterMomentum": -0.0205
+      },
+      "10": {
+        "days": 250,
+        "names": 74,
+        "ic": 0.0055,
+        "half1": 0.0017,
+        "half2": 0.0092,
+        "t": 1.79,
+        "nonOverlapDays": 25,
+        "positiveShare": 0.52,
+        "partialAfterMomentum": 0.0074
+      }
+    }
+  },
+  "gauges": {
+    "cotEsAmZ": {
+      "label": "CFTC asset managers net E-mini S&P 500, z (3y)",
+      "weeks": 879,
+      "n": 398,
+      "from": "2011-01-14",
+      "to": "2026-10-29",
+      "rho": -0.0602,
+      "half1": -0.0644,
+      "half2": -0.0964
+    },
+    "cotEsLevZ": {
+      "label": "CFTC leveraged funds net E-mini S&P 500, z (3y)",
+      "weeks": 879,
+      "n": 398,
+      "from": "2011-01-14",
+      "to": "2026-10-29",
+      "rho": 0.0642,
+      "half1": 0.0981,
+      "half2": 0.0901
+    },
+    "mdYoy": {
+      "label": "FINRA margin debt, y/y %",
+      "months": 357,
+      "historyMonths": 357,
+      "n": 424,
+      "from": "2010-01-05",
+      "to": "2026-10-29",
+      "rho": -0.027,
+      "half1": -0.0098,
+      "half2": -0.0375
+    },
+    "baa": {
+      "label": "Baa corporate spread over the 10-year",
+      "days": 10659,
+      "n": 424,
+      "from": "2010-01-05",
+      "to": "2026-10-29",
+      "rho": 0.0617,
+      "half1": 0.0487,
+      "half2": 0.1378
+    }
+  },
+  "positioning": {
+    "note": "Crowd label from asset managers and margin debt only (no put/call history); credit from the Baa spread only. Non-overlapping 10-session windows.",
+    "crowd": {
+      "washed-out": {
+        "n": 14,
+        "avgPct": 0.87,
+        "upPct": 57
+      },
+      "neutral": {
+        "n": 379,
+        "avgPct": 0.5,
+        "upPct": 62
+      },
+      "crowded": {
+        "n": 5,
+        "avgPct": -1.04,
+        "upPct": 40
+      }
+    },
+    "credit": {
+      "stressed": {
+        "n": 58,
+        "avgPct": 1.38,
+        "upPct": 69
+      },
+      "watch": {
+        "n": 99,
+        "avgPct": 0.11,
+        "upPct": 58
+      },
+      "normal": {
+        "n": 170,
+        "avgPct": 0.47,
+        "upPct": 64
+      },
+      "tight": {
+        "n": 97,
+        "avgPct": 0.39,
+        "upPct": 61
+      }
+    }
+  },
+  "notTested": {
+    "ibr": "no free option-chain history",
+    "pe14": "no free option-chain history",
+    "pw": "no free option-chain history",
+    "epd": "needs quarterly debt history per name",
+    "ins": "needs the SEC Form 4 parser (corporate-structure work)",
+    "fls": "built from filings only the bake reads",
+    "hfp": "built from 13F filings only the bake reads",
+    "lrb": "needs leveraged-ETF holdings history",
+    "csh": "needs hot-fund history",
+    "putCall": "Cboe's free daily archive stops in 2019",
+    "kxRec": "no Kalshi history"
+  },
+  "privacy": "Aggregates only: no per-name rows, no private store, no Track Record."
+}

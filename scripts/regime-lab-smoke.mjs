@@ -26,6 +26,7 @@ import { assertCausal, createTrialLedger, guardReport, oracleIsolated, priceHalf
 import { TEST_CATALOG, catalogStatus } from "../lib/regime-lab/catalog.mjs";
 import { strategyComparison, labelStability, icByLabel } from "../lib/regime-lab/tests.mjs";
 import * as P from "../lib/regime-lab/payload.mjs";
+import { positioningLabel, buildPositioning, POSITIONING_MIN_DAYS } from "../lib/regime-lab/positioning.mjs";
 import { buildEvidenceBoard } from "../lib/evidence-board.mjs";
 import { buildPicksRunRecord } from "../lib/picks-run-archive.mjs";
 import { isPremiumKey, isRoleRestrictedKey, roleClaimForKey } from "../lib/premium-keys.mjs";
@@ -83,7 +84,8 @@ export function regimeLabFixture() {
   const fomc = new Map([[m.cal[n - 30], { type: "cut", bp: -25 }], [m.cal[n - 90], { type: "hold", bp: 0 }], [m.cal[n - 150], { type: "hike", bp: 25 }]]);
   const oracle = P.buildBakeOracle({ cal: m.cal, earningsStore, fomc, releases: { cpi: [m.cal[n - 20], m.cal[n - 41]], jobs: [m.cal[n - 10]] }, fred: { CPIAUCSL: { t: m.cal.filter((_, i) => i % 21 === 0), v: m.cal.filter((_, i) => i % 21 === 0).map((_, i) => 300 + i) }, PAYEMS: { t: m.cal.filter((_, i) => i % 21 === 0), v: m.cal.filter((_, i) => i % 21 === 0).map((_, i) => 150000 + i * 100) } }, barsOf: (s) => (s === "SPY" ? m.spy : m.members[s] || null), ivRatioOf: () => 1.2, liveClosed: closed, from: m.cal[n - 100], to: today });
   const research = { ranAt: builtAtIso, trials: 48, holdoutRuns: {}, summary: { headline: "Synthetic research run.", lines: ["F1: trending IC 0.08 vs chop 0.01."] }, results: { F1: { verdict: "pass", have: 400, priceHalf: true, ranAt: today, read: { all: 0.04, trending: 0.08, chop: 0.01 } }, F3: { verdict: "inconclusive", have: 5, priceHalf: true, ranAt: today, read: { beatBaseline: "3/5", switchAvgNet: 2.1, baseAvgNet: 1.4 } } } };
-  const payload = P.buildRegimeLabPayload({ state, labels: series, hmm, hmmOffset, builtAtIso, today, members: m.members, sectorOf: (s) => (Number(s.slice(1)) % 3 ? "Tech" : "Energy"), openTrades: open, closedTrades: closed, outcomes: null, oracle, research, cycle: { policy: "easing", credit: "loose", market: "expansion", quadrant: "goldilocks" }, leadership: "growth leads value", nextEarningsOf: () => null, closesOf: (s) => (m.members[s] || []).map((b) => b.c), stampedTrades: 20, gradeModelVersion: "test", spyCtx: { syms: { SPY: { c: m.spy.map((b) => b.c), idx: new Map(m.cal.map((d, i) => [d, i])) } } } });
+  const payload = P.buildRegimeLabPayload({ state, labels: series, hmm, hmmOffset, builtAtIso, today, members: m.members, sectorOf: (s) => (Number(s.slice(1)) % 3 ? "Tech" : "Energy"), openTrades: open, closedTrades: closed, outcomes: null, oracle, research, cycle: { policy: "easing", credit: "loose", market: "expansion", quadrant: "goldilocks" }, leadership: "growth leads value", nextEarningsOf: () => null, closesOf: (s) => (m.members[s] || []).map((b) => b.c), stampedTrades: 20, gradeModelVersion: "test", spyCtx: { syms: { SPY: { c: m.spy.map((b) => b.c), idx: new Map(m.cal.map((d, i) => [d, i])) } } },
+    positioning: buildPositioning({ days: m.cal.slice(-70).map((date, i) => ({ date, shadow: { mkt: i % 3 === 0 ? { pcp: 88, cotEsAmZ: -1.3, mdYoy: -12, baa: 2.7, kxRec: 28 } : { pcp: 45, cotEsAmZ: 0.4, mdYoy: 8, baa: 1.9, bsl: 4 } } })), cal: m.cal, spyCloses: m.spy.map((b) => b.c) }) });
   return { market: m, inputs, series, hmm, hmmOffset, state, payload, today, builtAtIso, closed, open, oracle };
 }
 
@@ -298,8 +300,40 @@ async function main() {
   assert.equal(isDynamicBakeKey(key), false);
 
   // ---- render --------------------------------------------------------------------------------
+  // ---- positioning and credit labeler (research only) -----------------------
+  {
+    const eq = (a, b, msg) => assert.deepEqual(a, b, msg);
+    const ok = (c, msg) => assert.ok(c, msg);
+    eq(positioningLabel({ pcp: 90, cotEsAmZ: -1.4, mdYoy: 3 }).crowd, "washed-out", "two fear votes read washed out");
+    eq(positioningLabel({ pcp: 10, cotEsAmZ: 2, mdYoy: 30 }).crowd, "crowded", "three crowding votes read crowded");
+    eq(positioningLabel({ pcp: 90, cotEsAmZ: 2 }).crowd, "neutral", "a fear vote and a crowding vote cancel");
+    eq(positioningLabel({ pcp: 90 }).crowd, null, "one input is not enough");
+    eq(positioningLabel({ baa: 3.2 }).credit, "stressed", "a 3-point Baa spread is stressed");
+    eq(positioningLabel({ baa: 2.6, kxRec: 30 }).credit, "stressed", "two watch votes read stressed");
+    eq(positioningLabel({ baa: 2.6 }).credit, "watch");
+    eq(positioningLabel({ baa: 1.7, kxRec: 10 }).credit, "tight", "a tight spread with no worry");
+    eq(positioningLabel({ baa: 2.1, bsl: 3 }).credit, "normal");
+    eq(positioningLabel({ pc: 0.6 }).credit, null, "no credit input, no credit label");
+    const cal = syntheticCalendar(80, "2026-08-03");
+    const closes = cal.map((_, i) => 100 + i);
+    const days = cal.slice(0, 60).map((date, i) => ({ date, shadow: { mkt: i % 2 ? { pcp: 90, cotEsAmZ: -2, baa: 3.1 } : { pcp: 50, cotEsAmZ: 0, baa: 2 } } }));
+    days.push({ date: cal[60], shadow: { rows: {} } });
+    const pos = buildPositioning({ days, cal, spyCloses: closes });
+    eq(pos.days, 60, "a day with no gauge row is skipped");
+    eq(pos.byCrowd["washed-out"].days, 30);
+    eq(pos.byCrowd.neutral.status, "enough", `${POSITIONING_MIN_DAYS}+ days with a forward move`);
+    ok(pos.byCredit.stressed.avgPct > 0 && pos.base.upPct === 100, "SPY's next-10 move joins by label");
+    eq(pos.today.crowd, "washed-out", "today is the newest labeled day");
+    const late = buildPositioning({ days: [{ date: cal[75], shadow: { mkt: { pcp: 90, cotEsAmZ: -2 } } }], cal, spyCloses: closes });
+    eq(late.byCrowd["washed-out"].n, 0, "a day without 10 later sessions has no forward move yet");
+    const payload = P.buildRegimeLabPayload({ state: P.emptyRegimeLabState(), labels: null, today: "2026-11-12", positioning: pos });
+    eq(payload.positioning.v, pos.v, "the payload carries the block");
+    ok(!("positioning" in P.buildRegimeLabPayload({ state: P.emptyRegimeLabState(), labels: null, today: "2026-11-12" })), "and leaves it out when the bake had none");
+  }
+
   const { renderHtml, renderAppJs, renderStylesCss } = await import("./build.mjs");
   const app = renderAppJs({});
+  assert.match(app, /rglPositioningHtml/, "the Regime Lab draws the positioning section");
   assert.match(app, /function loadRegimeLab\(/, "app.js carries the Regime Lab loader");
   assert.match(app, /'regime'(?:,'[a-z-]+')*\]\.indexOf\(view\)/, "the Owner Lab view switch accepts the regime view");
   assert.match(app, /data-owner-regime-refresh/, "refresh button is bound");

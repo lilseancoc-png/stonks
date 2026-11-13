@@ -25563,6 +25563,9 @@ ${renderExportCss()}
 .btm-card.btm-bad header em { color: var(--neg); }
 .btm-card p { margin-top: 8px; }
 .btm-card small { display: block; margin-top: 8px; }
+.btm-context { margin-top: 16px; }
+.btm-context > h3 { margin: 0 0 4px; color: var(--text-strong); font: 650 14px/1.3 var(--font-sans); }
+.btm-context-note { margin: 0 0 10px; color: var(--muted); font: 400 12px/1.5 var(--font-sans); }
 .btm-spark { display: block; width: 100%; height: 36px; margin-top: 8px; }
 .btm-spark polyline { stroke: var(--accent); stroke-width: 1.4; vector-effect: non-scaling-stroke; }
 .btm-facts { display: grid; grid-template-columns: 1fr; gap: 6px; margin: 10px 0 0; padding: 0; list-style: none; }

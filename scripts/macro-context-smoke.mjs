@@ -69,6 +69,14 @@ if (!ON) {
   ok("context: missing series are listed, not invented", ctx.missing.includes("NFCI") && ctx.missing.includes("ICSA") && !ctx.missing.includes("SPY"));
   ok("context: too little history -> null", MC.buildMacroContext({ series, calendar: cal.slice(0, 50), stocks, weights }) === null);
   ok("context: grader lines", MC.contextLines(ctx).length >= 3 && MC.contextLines(ctx)[0].startsWith("Cycle read:"));
+  // Candidate inputs (Baa spread, recession odds): shown, never scored.
+  ok("candidates: listed, unscored, empty without their inputs", ctx.candidates?.scored === false && ctx.candidates.now.baa.score === null && ctx.candidates.now.recession.score === null);
+  const withBaa = MC.buildMacroContext({ series: { ...series, BAA10Y: daily(level(2.0, 0.004, 0.02)) }, calendar: cal, stocks, weights, partyRows, breadthPct200: 60, candidateLive: { kalshiRecessionPct: 40 } });
+  ok("candidates: the Baa spread reads level and 3-month change", withBaa.candidates.now.baa.detail.spread > 2 && withBaa.candidates.now.baa.detail.change3m > 0 && withBaa.candidates.now.baa.score > -2);
+  ok("candidates: a missing Kalshi read is no read, not 0% odds", MC.buildMacroContext({ series, calendar: cal, stocks, weights, candidateLive: { kalshiRecessionPct: null } }).candidates.now.recession.score === null);
+  ok("candidates: 40% recession odds read +1", withBaa.candidates.now.recession.score === 1 && withBaa.candidates.now.recession.detail.oddsPct === 40);
+  ok("candidates: the fits and grader lines do not change", JSON.stringify(withBaa.fits) === JSON.stringify(MC.buildMacroContext({ series, calendar: cal, stocks, weights, partyRows, breadthPct200: 60 }).fits) && JSON.stringify(MC.contextLines(withBaa)) === JSON.stringify(MC.contextLines(ctx)));
+  ok("candidates: not in the learned feature list", MC.MACRO_CANDIDATES.every((k) => !MC.FACTORS.includes(k)) && !MC.MACRO_FEATS.some((f) => /baa|recession/.test(f)) && !withBaa.missing.includes("BAA10Y"));
   const lateDate = MC.buildMacroContext({ series, calendar: cal, date: cal[300], stocks, weights });
   ok("context: a past date sees only data through that date", lateDate.asOf === cal[300]);
   ok("party: tilt from the Party tracker rows", MC.partyTiltFor("XLF", { president: "R", house: "R", senate: "R" }, partyRows) === 2.25 && MC.partyTiltFor("XLK", { president: "R" }, partyRows) === null);

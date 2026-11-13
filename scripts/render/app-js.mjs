@@ -799,9 +799,12 @@ ${scenarioEventPhase.toString()}
     var every = opts.xEvery || Math.max(1, Math.ceil(n / (narrow ? 6 : 13)));
     for (var i = 0; i < n; i++){
       if (i % every !== 0 && i !== n - 1) continue;
-      // The last label always shows, so drop a regular one that would sit on top of it.
-      if (i !== n - 1 && every > 1 && n - 1 - i < every * 0.6) continue;
-      g += '<text class="ln-tick" x="' + X(i).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle">' + escapeHtml(labels[i]) + '</text>';
+      // The last label always shows (ending at the last point), so drop a
+      // regular one that would sit on top of it.
+      if (i !== n - 1 && every > 1 && n - 1 - i < every * 0.85) continue;
+      // The last label ends at the last point so a long one (a month, a
+      // date) is not cut off at the right edge.
+      g += '<text class="ln-tick" x="' + (i === n - 1 ? Math.min(X(i), W - 2) : X(i)).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="' + (i === n - 1 ? 'end' : 'middle') + '">' + escapeHtml(labels[i]) + '</text>';
     }
     function path(values){
       var d = '', on = false;
@@ -23373,6 +23376,18 @@ ${renderExportBindings()}
       html += '<article class="btm-card btm-' + btmTone(card.state) + '"><header><span>' + escapeHtml(card.phase || '') + '</span><h3>' + escapeHtml(card.title || '') + '</h3><em>' + escapeHtml(card.stateLabel || '') + '</em></header>' + spark + '<p>' + escapeHtml(card.summary || '') + '</p>' + (facts ? '<ul class="btm-facts">' + facts + '</ul>' : '') + '<small>' + escapeHtml(card.source || '') + '</small></article>';
     });
     html += '</div>';
+    // Context rows (lib/bottom-tracker.mjs buildBottomContext): shown beside
+    // the checklist, never a gate or a vote.
+    var ctx = d.context && d.context.rows ? d.context.rows : [];
+    if (ctx.length){
+      var leanText = { washout: 'Leans washed out', stretched: 'Not reset yet', neutral: 'Neutral' };
+      var leanTone = { washout: 'ok', stretched: 'bad', neutral: 'na' };
+      html += '<section class="btm-context"><h3>Context (does not vote)</h3><p class="btm-context-note">' + escapeHtml(d.context.note || '') + '</p><div class="btm-cards">';
+      ctx.forEach(function(row){
+        html += '<article class="btm-card btm-' + (leanTone[row.lean] || 'na') + '"><header><span>' + escapeHtml(leanText[row.lean] || 'Neutral') + '</span><h3>' + escapeHtml(row.title || '') + '</h3><em>' + escapeHtml(row.read || '') + '</em></header><p><b>' + escapeHtml(row.value || '') + '</b> ' + escapeHtml(row.detail || '') + '</p><small>' + escapeHtml(row.source || '') + (row.asOf ? ' · ' + escapeHtml(row.asOf) : '') + '</small></article>';
+      });
+      html += '</div></section>';
+    }
     var bt = d.backtest || {};
     html += '<section class="btm-backtest"><h3>Signal history</h3>';
     if (bt.status !== 'ok'){
