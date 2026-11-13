@@ -189,6 +189,21 @@ assert.equal(calls.filter((c) => c.url.includes('prop-line')).length, 3, 'NBA us
   assert.equal(skipped.reference.game_lines_state, 'skipped');
   assert.equal(skipped.reference.state, 'ok');
 }
+// The larger NBA reference-book response must not blank the price comparison.
+// Test both declared size and streamed size; all other feeds keep their cap.
+{
+  const large = ' '.repeat(17 * 1024 * 1024) + '[]';
+  const fetchLarge = async () => new Response(large);
+  const read = (sport, parts, fetcher = fetchLarge) => loadPropSources({ sport, now, parts,
+    env: { PROPLINE_API_KEY: 'fixture-secret' }, fetchImpl: fetcher });
+  assert.equal((await read('nba', ['reference'])).reference.state, 'ok', 'NBA references may exceed the old 16 MB cap');
+  assert.equal((await read('nfl', ['reference'])).reference.state, 'unavailable', 'NFL keeps its existing cap');
+  assert.equal((await read('nba', ['lines'])).lines.state, 'unavailable', 'PrizePicks keeps its existing cap');
+  const hugeHeader = async () => new Response('[]', { headers: { 'content-length': String(33 * 1024 * 1024) } });
+  assert.equal((await read('nba', ['reference'], hugeHeader)).reference.state, 'unavailable', 'oversized declared responses are refused');
+  const hugeStream = async () => new Response(' '.repeat(32 * 1024 * 1024) + '[]');
+  assert.equal((await read('nba', ['reference'], hugeStream)).reference.state, 'unavailable', 'oversized streams are refused without a content-length header');
+}
 const failed = await loadPropSources({ sport: 'nba', now, env: { PROPLINE_API_KEY: 'fixture-secret' }, fetchImpl: async () => new Response('{}', { status: 429 }) });
 assert.equal(failed.lines.state, 'rate_limited');
 assert.equal(failed.lines.lines.length, 0);

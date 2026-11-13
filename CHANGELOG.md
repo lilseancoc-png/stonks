@@ -22,6 +22,9 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## [Unreleased]
 
+### Fixed
+- Keep NBA sportsbook comparisons available when the ten-book response exceeds 16 MB; allow up to 32 MB for that feed while preserving the smaller limit for other requests.
+
 ### Added
 - Add NBA team offensive/defensive efficiency, net rating and pace to prop research, player forecasts and Pick Builder; fit stat-specific efficiency and pace adjustments on prior complete games and use them only when they improve the historical check. NFL predictions are unchanged (#823).
 
