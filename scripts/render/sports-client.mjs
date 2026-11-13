@@ -180,12 +180,18 @@ export function sportsFactory(host, doc, options) {
   const qualityBadge = (q) => '<span class="sp-q sp-q-' + escape(q) + '">' + escape(MODEL_STATUS[q] || q) + '</span>';
   // The same held-out games scored at the PrizePicks line really posted
   // (stored from 2026-11-11 on). Counts toward passing at 300+.
+  // A stat whose chances score no better than a coin flip at 100+ real lines
+  // (realLinesCheck in lib/sports/models.mjs; provisional before 300).
+  function trailsCoinFlip(r) {
+    const B = (r && r.brier) || {};
+    return !!(r && (r.trailing || (r.n >= 100 && B.model != null && B.even != null && B.model >= B.even)));
+  }
   function realLinesHtml(r, b3) {
     if (!r || !r.n) return '';
     const B = r.brier || {};
     return '<span>At real PrizePicks lines: ' + Number(r.n).toLocaleString('en-US') + ' game' + (r.n === 1 ? '' : 's') + (r.enough ? '' : ' (counts toward passing at 300)') +
       '. Score: model <b>' + b3(B.model) + '</b>, last-10 hit rate ' + b3(B.last10_hit_rate) + ', coin flip ' + b3(B.even) + '.</span>' +
-      (r.n >= 100 && B.model != null && B.even != null && B.model >= B.even ? '<span class="sp-model-warn">Warning: no better than a coin flip at real lines so far. Lean on the books’ price for this stat.</span>' : '');
+      (trailsCoinFlip(r) ? '<span class="sp-model-warn">Warning: no better than a coin flip at real lines so far. Lean on the books’ price for this stat.</span>' : '');
   }
   // The game inputs each stat may use (sports-model-4; lineup since
   // sports-model-5): on only where they beat leaving them out on later games.
@@ -208,7 +214,7 @@ export function sportsFactory(host, doc, options) {
       const v = M.stats[st], B = v.brier || {};
       const best = [B.last10_hit_rate, B.plain_average].filter((x) => x != null);
       const score = v.test_n && B.model != null ? '<span class="sp-model-score">' + b3(B.model) + (best.length ? ' <span class="sp-muted">vs ' + b3(Math.min(...best)) + '</span>' : '') + '</span>' : '';
-      return '<li><details class="sp-model-stat" data-sp-model-stat="' + escape(st) + '"><summary><span class="sp-model-name">' + escape(label(st)) + '</span><span class="sp-model-verdict">' + score + qualityBadge(v.status) + '</span></summary><div class="sp-model-body">' +
+      return '<li><details class="sp-model-stat" data-sp-model-stat="' + escape(st) + '"><summary><span class="sp-model-name">' + escape(label(st)) + '</span><span class="sp-model-verdict">' + score + qualityBadge(v.status) + (trailsCoinFlip(v.real_lines) ? ' <span class="sp-model-warn" title="No better than a coin flip at real PrizePicks lines so far">trails a coin flip</span>' : '') + '</span></summary><div class="sp-model-body">' +
         (v.test_n ? '<span>' + Number(v.test_n).toLocaleString('en-US') + ' later games held out' + (v.split_date ? ' (from ' + escape(fmtDay(v.split_date)) + ' ' + escape(v.split_date.slice(0, 4)) + ')' : '') +
           '. Score (lower is better): model <b>' + b3(B.model) + '</b>, last-10 hit rate ' + b3(B.last10_hit_rate) + ', plain average ' + b3(B.plain_average) +
           '. Chances off by ' + (v.ece == null ? '—' : (v.ece * 100).toFixed(1) + ' points') + ' on average.</span>' : '<span class="sp-muted">' + escape(v.reason || 'Not enough past games to check yet.') + '</span>') +
