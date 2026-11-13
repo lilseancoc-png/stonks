@@ -136,6 +136,8 @@ ok("no crowd payload: no gauges, rows unchanged", !("mkt" in buildShadowSignals(
   ok("v5: a carried prior-day leverage payload logs no hfp, lrb or csh", shadowValue(carried, "AAA", "hfp") == null && shadowValue(carried, "AAA", "lrb") == null && shadowValue(carried, "CCC", "csh") == null && shadowValue(carried, "AAA", "fls") === 55);
   const lateEt = buildShadowSignals(ch5, { builtAtIso: "2026-11-10T01:30:00Z", forcedLiquidation, leverageDistress });
   ok("v5: the same ET day counts even after midnight UTC", shadowValue(lateEt, "AAA", "lrb") === -4.5 && shadowValue(lateEt, "CCC", "csh") === 1);
+  const dup = resemblesGauges({ matches: [{ id: "crash", study: "crash" }, { id: "vol", study: "crash" }, { id: "war", study: "war" }], studies: { crash: { summary: { d20: { medianPct: -4 } } }, war: { summary: { d20: { medianPct: 2 } } } } });
+  ok("resembles: matches that share a study count it once in the forward median", dup.rnw === 3 && dup.rnf === -1);
   ok("resembles: the single-stock squeeze match is not a stress analog", resemblesGauges({ matches: [{ id: "squeeze", study: "squeeze" }], studies: { squeeze: { summary: { d20: { medianPct: 40 } } } } }).rnw === 0);
   const evt = eventTradeRead([
     { side: "call", outcome: "win", optionPnlPct: 30, eventPlay: { kind: "earnings" }, entrySnapshot: { shadow: { att: 80 } } },

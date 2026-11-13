@@ -117,7 +117,7 @@ export function renderCrowdJs() {
       { label: 'Free credit, margin accounts', num: true, cell: function(r){ return crowdUsd((r.creditMargin || 0) * 1e6); }, sort: function(r){ return r.creditMargin; } },
     ];
     var ser = (md.rows || []).slice(-60);
-    var chart = ser.length > 3 ? '<div class="crd-chart">' + lineSvgHtml({ labels: ser.map(function(r){ return r.month; }), series: [{ values: ser.map(function(r){ return r.debit / 1000; }) }], h: 200, yFmt: function(v){ return '$' + Math.round(v) + 'B'; } }) + '</div>' : '';
+    var chart = ser.length > 3 ? '<div class="crd-chart">' + lineSvgHtml({ labels: ser.map(function(r){ return r.month; }), series: [{ values: ser.map(function(r){ return r.debit / 1000; }) }], h: 200, xEvery: Math.max(1, Math.ceil(ser.length / 6)), yFmt: function(v){ return v >= 1000 ? '$' + (v / 1000).toFixed(v % 1000 ? 1 : 0) + 'T' : '$' + Math.round(v) + 'B'; } }) + '</div>' : '';
     return h + '<div class="mm-kpis">' + kpis.map(function(k){ return '<div class="mm-kpi"><span>' + escapeHtml(k[0]) + '</span><b>' + k[1] + '</b></div>'; }).join('') + '</div>' + chart +
       VIEWS.tableHtml(cols, rows, { key: 'crowd-margin', tall: false, empty: 'No months.' });
   }
@@ -138,9 +138,11 @@ export function renderCrowdJs() {
       { label: 'Flow, 20 days', num: true, cell: function(r){ return r.flowUsd20d == null ? '<span class="vt-na">—</span>' : '<span class="' + (r.flowUsd20d > 0 ? 'pos' : r.flowUsd20d < 0 ? 'neg' : '') + '">' + crowdUsd(r.flowUsd20d) + '</span>'; }, sort: function(r){ return r.flowUsd20d; } },
       { label: 'Shares out, 90 days', nosort: true, cell: function(r){ return crowdSpark(r.history, 1, crowdInt, r.sym + ' shares outstanding'); } },
     ];
+    var noFlow = rows.length && !rows.some(function(r){ return r.flowUsd1d != null || r.flowUsd5d != null || r.flowUsd20d != null; });
     return h + '<div class="mm-kpis">' + kpis.map(function(k){ return '<div class="mm-kpi"><span>' + escapeHtml(k[0]) + '</span><b>' + k[1] + '</b></div>'; }).join('') + '</div>' +
+      (noFlow ? '<p class="crd-note"><b>No flow can be measured right now.</b> Yahoo sends no share counts for these funds and has not refreshed their net assets day to day, so creations and redemptions cannot be told apart from price moves. The table keeps prices and assets; flows return when either figure updates daily.</p>' : '') +
       VIEWS.tableHtml(cols, rows, { key: 'crowd-levflows', empty: 'No funds quoted.' }) +
-      '<p class="crd-note">A flow here is the change in a fund\\'s shares outstanding times its NAV: money arriving in or leaving a leveraged bet on the name. Dashes mean Yahoo carries no share count for that fund yet.</p>';
+      '<p class="crd-note">A flow here is the change in a fund\\'s shares outstanding times its NAV, or, with no share count, the change in its net assets beyond what the NAV move explains: money arriving in or leaving a leveraged bet on the name. Dashes mean neither figure was updated every day of that window.</p>';
   }
   function crowdPositioningHtml(d){
     return crowdPutCallHtml(d) + crowdCotHtml(d) + crowdMarginHtml(d) + crowdLevFlowsHtml(d);

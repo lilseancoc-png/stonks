@@ -35,3 +35,29 @@ touches the private store or the Track Record, and writes aggregates only to
 Read it against the Evidence tab's pass bar (10-session IC 0.03+, same sign in
 both halves, 0.02+ after the control). A pass here is a reason to keep watching
 an input in the live shadow log, not a reason to score it.
+
+## Results, 2026-11-13 (`results/latest.json`)
+
+Run on a Mac with open internet; every download came through (291 FINRA
+short-sale files, 74 Wikipedia names, CFTC since 2010, FINRA margin history
+since 1997, FRED Baa spread).
+
+- **Per-name inputs, one year (83 names, 250 sessions): none passes.** Short
+  volume share (`sv`) 10-session IC -0.017, its z-score (`svz`) -0.008,
+  Wikipedia views (`wkr`) +0.006, all far under the 0.03 bar and none
+  steady in both halves. Keep logging them; nothing to promote.
+- **Market gauges vs SPY's next 10 sessions, 2010 on (about 400 windows):**
+  asset managers' S&P 500 futures z -0.06 and leveraged funds' z +0.06, each
+  with the same sign in both halves; margin debt y/y -0.03 (no read); the Baa
+  spread +0.06 (wider spread, slightly better SPY after, stronger in the
+  second half). Small, but the two COT reads and the Baa spread are worth
+  watching in the live log.
+- **Positioning labels (non-overlapping windows):** "washed out" 14 windows,
+  SPY +0.87% on average, up 57%; "neutral" 379, +0.50%, up 62%; "crowded" 5,
+  -1.04%, up 40%. Credit "stressed" 58 windows, +1.38%, up 69%; "watch" 99,
+  +0.11%; "normal" 170, +0.47%; "tight" 97, +0.39%. Stressed credit came
+  before better-than-average SPY returns, as expected near lows; the crowd
+  extremes are too rare (14 and 5 windows) to read.
+- Not testable on free history: implied borrow, the pledge and leverage
+  distress keys, insider buying, put/call (Cboe's free archive stops in 2019)
+  and Kalshi odds. They wait for the live shadow log (about 40 trading days).

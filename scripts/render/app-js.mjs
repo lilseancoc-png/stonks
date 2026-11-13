@@ -799,9 +799,12 @@ ${scenarioEventPhase.toString()}
     var every = opts.xEvery || Math.max(1, Math.ceil(n / (narrow ? 6 : 13)));
     for (var i = 0; i < n; i++){
       if (i % every !== 0 && i !== n - 1) continue;
-      // The last label always shows, so drop a regular one that would sit on top of it.
-      if (i !== n - 1 && every > 1 && n - 1 - i < every * 0.6) continue;
-      g += '<text class="ln-tick" x="' + X(i).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle">' + escapeHtml(labels[i]) + '</text>';
+      // The last label always shows (ending at the last point), so drop a
+      // regular one that would sit on top of it.
+      if (i !== n - 1 && every > 1 && n - 1 - i < every * 0.85) continue;
+      // The last label ends at the last point so a long one (a month, a
+      // date) is not cut off at the right edge.
+      g += '<text class="ln-tick" x="' + (i === n - 1 ? Math.min(X(i), W - 2) : X(i)).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="' + (i === n - 1 ? 'end' : 'middle') + '">' + escapeHtml(labels[i]) + '</text>';
     }
     function path(values){
       var d = '', on = false;

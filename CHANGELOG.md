@@ -20,6 +20,19 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
      (same format, plus the archive preamble) and add that month to the
      "Older changelogs" index below. -->
 
+## 2026-11-13
+
+### Fixed
+
+- Leveraged-ETF flows no longer read Yahoo's net assets when the figure has not changed: Yahoo held every fund's net assets flat for days while prices moved, which the net-asset fallback would have logged as a fake flow equal to the price move. The Crowd page says plainly when no flow can be measured, and the margin-debt chart shows fewer, shorter axis labels (#816).
+- The shadow log leaves out hot-fund pressure, ETF rebalance and cluster-selloff reads when the leverage-distress collector failed and an older day's payload was carried, and the "Resembles now" gauge drops the single-stock squeeze match and counts each study once (#816).
+- A missing reading stays missing: the Bottom tracker's context rows no longer show a blank put/call percentile, asset-manager z or margin y/y as zero, and a missing Kalshi read no longer counts as 0% recession odds in the macro candidates (#816).
+- Step-axis line charts keep their last date label inside the chart and skip a middle label that would crowd it (#816).
+
+### Added
+
+- History test results for the new inputs (`research/new-data-history/`), now with FINRA's full margin-debt history since 1997: none of the per-name inputs passes the bar on a year of data; the CFTC positioning reads and the Baa spread are worth watching (#816).
+
 ## 2026-11-12
 
 ### Added

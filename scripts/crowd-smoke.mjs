@@ -10,7 +10,7 @@ import { parseBorrowFile, fetchBorrow } from "../lib/crowd/borrow.mjs";
 import { buildCotContract, fetchCot, COT_CONTRACTS } from "../lib/crowd/cot.mjs";
 import { parseRedditRows, fetchReddit } from "../lib/crowd/reddit.mjs";
 import { parseWikiRows, fetchWikipedia, WIKI_TITLES, parseTitleResolution } from "../lib/crowd/wikipedia.mjs";
-import { levFundList, quoteRead, fetchLevFlows, assetFlowUsd } from "../lib/crowd/lev-flows.mjs";
+import { levFundList, quoteRead, fetchLevFlows, assetFlowUsd, flowsFrom } from "../lib/crowd/lev-flows.mjs";
 import { parseTrending, fetchStocktwitsCrowd, watchersFromChain } from "../lib/crowd/stocktwits.mjs";
 import { parseMarginPage, summarizeMargin, fetchMarginDebt, monthKey } from "../lib/crowd/margin-debt.mjs";
 import { compactMarket, rangeDistribution, thresholdLadder, buildKalshiSeries, fetchKalshi } from "../lib/crowd/kalshi.mjs";
@@ -317,6 +317,21 @@ okAsync("leveraged flows fall back to net assets net of the NAV move when share 
   const first = await fetchLevFlows({ prior: {}, funds, todayEt: TODAY, nowIso: NOW, quoteFn: async (syms) => syms.map((s) => ({ symbol: s, navPrice: 52, netAssets: 57200000 })) });
   assert.equal(first.totals.bullUsd1d, null);
   assert.equal(first.withFlow, 0);
+});
+ok("a flat (stale) net-asset figure gives no flow, not a flow equal to the NAV move", () => {
+  // Live NVDL 2026-11-10..12: net assets 2,931,027,200 every day while NAV fell 20.91 -> 17.42.
+  const live = [["2026-11-10", null, 20.37, 2931027200], ["2026-11-11", null, 20.91, 2931027200], ["2026-11-12", null, 17.42, 2931027200]];
+  assert.equal(assetFlowUsd(live[2], live[1]), null);
+  const f = flowsFrom(live);
+  assert.equal(f.flowUsd1d, null);
+  assert.equal(f.flowBasis, null);
+  assert.equal(f.assetsChg5dPct, null);
+  // One stale day inside the 5-day window blanks the 5-day flow but not a fresh 1-day one.
+  const mixed = [["d0", null, 50, 50e6], ["d1", null, 51, 51e6], ["d2", null, 51, 51e6], ["d3", null, 52, 53e6], ["d4", null, 52, 54e6], ["d5", null, 53, 56e6]];
+  const g = flowsFrom(mixed);
+  assert.equal(g.flowUsd5d, null);
+  assert.equal(g.flowUsd1d, Math.round(56e6 - 54e6 * (53 / 52)));
+  assert.equal(g.flowBasis, "assets");
 });
 
 // ---- R4 Stocktwits

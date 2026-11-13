@@ -296,6 +296,10 @@ assert.equal(timed.bullets.some((row) => row.phase === "confirm" && row.label.in
   assert.ok(byId.cds.value.includes("CoreWeave >1000 bp"), "an 'above' quote keeps its sign");
   const old = buildBottomContext({ cds, asOf: "2027-01-30" });
   assert.match(old.rows[0].read, /days old/, "an old quote says how old it is");
+  const noYoy = buildBottomContext({ crowd: { marginDebt: { summary: { month: "2026-09", yoyPct: null, peak: { month: "2026-09", fromPeakPct: 0 } } } } });
+  assert.equal(noYoy.rows[0].value, "0.0% from the peak (2026-09)", "a margin row without a year-ago month shows the distance from the peak, not a dash");
+  const blanks = buildBottomContext({ crowd: { putCall: { stats: { equity: { value: 0.9, pct250: null } } }, cot: { contracts: { ES: { groups: { assetMgr: { z3y: null } } } } } } });
+  assert.equal(blanks.rows.length, 0, "a missing percentile or z-score is no reading, not a zero");
   const light = buildBottomContext({ crowd: { putCall: { stats: { equity: { value: 0.5, pct250: 10 } } } } });
   assert.equal(light.rows[0].lean, "stretched", "very little hedging");
 }
