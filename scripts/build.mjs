@@ -38933,12 +38933,13 @@ async function collectCorporateStructure(prior) {
 }
 export function attachCorporateViews(chains, state) {
   if (!state) return 0;
-  const prices = {}, sharesOut = {};
+  const prices = {}, sharesOut = {}, names = {};
   for (const [sym, c] of Object.entries(chains || {})) {
     if (Number.isFinite(c?.spot)) prices[sym] = c.spot;
     if (Number.isFinite(c?.fundamentals?.sharesOutstanding)) sharesOut[sym] = c.fundamentals.sharesOutstanding;
+    if (typeof c?.fundamentals?.name === "string") names[sym] = c.fundamentals.name;
   }
-  const views = buildCorporateViews(state, { prices, sharesOut, onError: (sym, err) => console.warn(`[corporate] ${sym} view skipped: ${String(err?.message || err).slice(0, 160)}`) });
+  const views = buildCorporateViews(state, { prices, sharesOut, names, onError: (sym, err) => console.warn(`[corporate] ${sym} view skipped: ${String(err?.message || err).slice(0, 160)}`) });
   let n = 0;
   for (const [sym, view] of Object.entries(views)) if (chains[sym]) { chains[sym].corporate = view; n++; }
   for (const sym of CORP_FUND_SYMS) if (chains[sym]) chains[sym].corporate = { fund: true };

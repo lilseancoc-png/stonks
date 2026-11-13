@@ -558,6 +558,12 @@ ok(subK.doc?.form === '10-K/A' && subK.doc.acc === 'k2' && !subK.foreign, 'a 10-
 const subP = readSubmissions({ filings: { recent: { form: ['10-K/A', 'DEF 14A'], filingDate: ['2026-06-01', '2026-03-01'], accessionNumber: ['k2', 'p1'], primaryDocument: ['a.htm', 'b.htm'], items: ['', ''] } } }, '0001594805', Date.parse('2026-11-12'));
 ok(subP.doc?.form === 'DEF 14A', 'a proxy beats a newer 10-K/A');
 
+// The site's own company name wins over EDGAR's capitals; A/S keeps its slash.
+const named = buildCorporateViews({ companies: { SHP: { symbol: 'SHP', cik: '0000555566', name: 'SHOP CO INC', sub: { foreign: true, doc: null }, owners: {}, sweep: { at: '2026-11-12T00:00:00Z', through: '2026-11-12', pending: [] } } }, people: {} }, { nowMs, names: { SHP: 'Shop Co.,  Inc.' } });
+ok(named.SHP.name === 'Shop Co., Inc.' && prettyCompanyName('NOVO NORDISK A S') === 'Novo Nordisk A/S' && prettyCompanyName('JPMORGAN CHASE & CO') === 'Jpmorgan Chase & Co', 'display name: ' + named.SHP.name);
+// A padded table row (each cell its own paragraph, many empty cells) reads
+// as one line (Netflix's ownership table took a tenth of the room after this).
+ok(htmlToText('<table><tr><td><p>Leslie Kilgore (9)</p></td><td></td><td></td><td><p>458,671</p></td><td></td><td><p>*</p></td></tr><tr><td><p>Strive Masiyiwa</p></td><td><p>41,641</p></td></tr></table><p>Next</p>') === 'Leslie Kilgore (9) | 458,671 | * | \n Strive Masiyiwa | 41,641 | \n Next', 'padded table rows read as one line each');
 // A count printed in millions (Novo Nordisk's "1,075 million shares").
 ok(hasInteger('consisting of 1,075 million shares and 3.39 billion b shares; 4.5 billion in all; 120 million', 1_075_000_000) && hasInteger('3.39 billion b', 3_390_000_000) && !hasInteger('4.5 billion', 4_500_000_000) && !hasInteger('120 million', 120_000_000) && !hasInteger('1,075 million', 1_076_000_000), 'counts printed in millions or billions');
 // The board role is one value from a fixed list (a free list looped on the
