@@ -46,6 +46,7 @@ import { parseShortVolumeFile, SHORT_VOLUME_URL } from "../../lib/crowd/short-vo
 import { WIKI_TITLES, WIKI_URL, parseWikiRows } from "../../lib/crowd/wikipedia.mjs";
 import { COT_URL, COT_CONTRACTS, cotRowRead } from "../../lib/crowd/cot.mjs";
 import { MARGIN_DEBT_URL, parseMarginPage } from "../../lib/crowd/margin-debt.mjs";
+import { CROWD_USER_AGENT } from "../../lib/crowd/util.mjs";
 import { spearman } from "../../lib/grade-research.mjs";
 import { partialSpearman } from "../../lib/shadow-research.mjs";
 import { positioningLabel, CROWD_LABELS, CREDIT_LABELS } from "../../lib/regime-lab/positioning.mjs";
@@ -74,16 +75,26 @@ async function cached(name, fn) {
   fs.writeFileSync(file, JSON.stringify(v));
   return v;
 }
-async function getText(url, headers = {}) {
-  for (let attempt = 0; attempt < 3; attempt++) {
+// Wikimedia and FINRA's margin page refuse a browser-shaped agent from a
+// script (429 / 403), so those two send the same descriptive agent the bake
+// uses (CROWD_USER_AGENT); FRED wants the browser shape. A 429 or 5xx waits
+// (Retry-After when given) and tries again, up to five times.
+async function getText(url, headers = {}, { ua = UA } = {}) {
+  const tries = 5;
+  for (let attempt = 0; attempt < tries; attempt++) {
+    let retryMs = 1500 * (attempt + 1);
     try {
-      const res = await fetch(url, { headers: { "user-agent": UA, accept: "*/*", ...headers }, signal: AbortSignal.timeout(30000) });
+      const res = await fetch(url, { headers: { "user-agent": ua, accept: "*/*", ...headers }, signal: AbortSignal.timeout(30000) });
       if (res.status === 404) return null;
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.text();
+      if (res.ok) return await res.text();
+      const err = new Error(`HTTP ${res.status}`);
+      if (res.status !== 429 && res.status < 500) { err.final = true; throw err; }
+      const after = Number(res.headers.get("retry-after"));
+      retryMs = Number.isFinite(after) && after > 0 ? Math.min(after, 60) * 1000 : 5000 * 2 ** attempt;
+      throw err;
     } catch (err) {
-      if (attempt === 2) throw err;
-      await sleep(1500 * (attempt + 1));
+      if (err.final || attempt === tries - 1) throw err;
+      await sleep(retryMs);
     }
   }
   return null;
@@ -194,10 +205,10 @@ async function main() {
     const title = WIKI_TITLES[s];
     if (!title) continue;
     try {
-      const body = await cached(`wiki-${s}-${sessions[0]}.json`, async () => JSON.parse(await getText(WIKI_URL(title, ymd(sessions[0]), ymd(sessions.at(-1))), { "api-user-agent": "stonks research (history test)" })));
+      const body = await cached(`wiki-${s}-${sessions[0]}.json`, async () => JSON.parse(await getText(WIKI_URL(title, ymd(sessions[0]), ymd(sessions.at(-1))), {}, { ua: CROWD_USER_AGENT })));
       wiki[s] = new Map(parseWikiRows(body));
     } catch (err) { log(`wiki ${s} skipped: ${err.message}`); }
-    await sleep(150);
+    await sleep(400);
   }
   log(`Wikipedia: ${Object.keys(wiki).length} names`);
 
@@ -255,7 +266,7 @@ async function main() {
   } catch (err) { gauges.cotEsAmZ = { error: err.message }; }
   // FINRA margin debt: month-end balances, published about three weeks later.
   try {
-    const months = await cached("margin.json", async () => parseMarginPage(await getText(MARGIN_DEBT_URL)));
+    const months = await cached("margin.json", async () => parseMarginPage(await getText(MARGIN_DEBT_URL, { accept: "text/html" }, { ua: CROWD_USER_AGENT })));
     const byMonth = new Map(months.map((m) => [m.month, m.debit]));
     const yoy = months.map((m) => { const [y, mo] = m.month.split("-").map(Number); const prev = byMonth.get(`${y - 1}-${String(mo).padStart(2, "0")}`); return [`${m.month}-28`, prev > 0 ? (m.debit / prev - 1) * 100 : null]; });
     const read = stepReader(yoy, 25);
