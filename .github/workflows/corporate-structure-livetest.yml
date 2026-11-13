@@ -1,0 +1,28 @@
+name: Corporate structure live test (temporary, not for main)
+on:
+  push:
+    branches: [corporate-structure-livetest]
+permissions:
+  contents: read
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+      - run: npm ci --no-audit --no-fund
+      - name: Collect from the live SEC
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: node scripts/corporate-structure-live.mjs NFLX ORCL BABA NVO GS WMT TSM META AAPL AVGO MDB SHOP JPM --ai --requests=16000 --seconds=3400 --save-doc=NFLX,ORCL,META,GS,BABA
+      - name: Print the views (gzip + base64)
+        run: |
+          gzip -9 -c out/corporate-live/views.json | base64 -w 50000 > views.b64
+          echo "VIEWS_B64_START"; cat views.b64; echo "VIEWS_B64_END"
+          gzip -9 -c out/corporate-live/state.json | base64 -w 50000 > state.b64
+          echo "STATE_B64_START"; cat state.b64; echo "STATE_B64_END"
+          tar -C out/corporate-live -cf files.tar $(cd out/corporate-live && ls | grep -E '^(slice|reply)-') && gzip -9 -c files.tar | base64 -w 50000 > files.b64
+          echo "FILES_B64_START"; cat files.b64; echo "FILES_B64_END"
