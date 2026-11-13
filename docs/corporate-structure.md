@@ -39,10 +39,11 @@ function or workflow.
 
 | Source | What it gives | How often |
 |---|---|---|
-| Submissions JSON (`data.sec.gov/submissions`) | which document to read (newest DEF 14A within 20 months, else a 20-F / 40-F, else a recent 424B4), leadership 8-Ks | once a day per company |
+| Submissions JSON (`data.sec.gov/submissions`) | which document to read (newest DEF 14A within 20 months, else a 10-K/A that carries Part III, else a 20-F / 40-F, else a recent 424B4), leadership 8-Ks | once a day per company |
 | EDGAR full-text search (`efts.sec.gov`) | every Form 3/4/5 filed for the company in the last ~18 months, then new ones each day; each person's filings at other companies | once a day per company; people every 45 days |
 | Form 3/4/5 XML | roles, officer title, holdings by line, trades | each new filing once |
-| Proxy (DEF 14A) or 20-F | board list with independence, committees, director-since years, other public boards, executive officers, share classes and votes, the beneficial ownership table | one Gemini Flash-Lite read per new document |
+| Proxy (DEF 14A), 10-K/A Part III or 20-F (plus the annual report exhibit a 20-F points to) | board list with independence, committees, director-since years, other public boards, executive officers, share classes and votes, the beneficial ownership table | one Gemini Flash-Lite read per new document |
+| Filing index (`-index.htm`) | the annual report exhibit of a 20-F that refers to it for the board (Novo Nordisk's EX-15.1) | with that 20-F |
 
 Gotchas found on the live filings:
 
@@ -56,6 +57,25 @@ Gotchas found on the live filings:
   handles both, and never matches an entity.
 - A Form 4 title of "See Remarks" points to the remarks field; a usable short
   remark becomes the title, else the proxy title stands. "COB" is chair of the board.
+- Shopify files a 10-K and puts Part III (board, officers, ownership table)
+  in a later 10-K/A, so a 10-K/A is read when there is no proxy; a proxy
+  still wins over a newer 10-K/A.
+- Novo Nordisk's 20-F says only "reference is made to the Annual Report" for
+  the board and shareholders; the annual report is an exhibit (EX-15.1) with
+  no description, so the largest EX-15 / EX-99 page of 300 KB or more is
+  taken, and its board biographies and shareholder pages are added to the
+  slice (`sliceAnnualReport`).
+- The ownership table heading is printed in many ways ("Stock Ownership",
+  "Holdings of Principal Shareholders", "5% Owners", "Shares Beneficially
+  Owned") and mentioned dozens of times before the table; the slice keeps the
+  three mentions followed by the most share counts and percents, and skips
+  "stock ownership guidelines".
+- The reply schema caps every list (`maxItems`, sent as a string: the API's
+  int64 fields reject a number with 400 INVALID_ARGUMENT; a 400 retries once
+  without the caps). The model does not always keep a cap: a free list of
+  board roles looped ("Chair of the Board" hundreds of times) on Goldman
+  Sachs, MongoDB and Shopify, so the board role is one value from a fixed
+  list (`BOARD_ROLES`).
 - A 20-F repeats the "Item 6. Directors, Senior Management" heading in the
   contents and in quoted cross-references; the slice starts at the unquoted
   heading with the longest span to Item 8.
@@ -102,7 +122,8 @@ Gotchas found on the live filings:
   words (MD, PhD) are handled. A board row and an executive row with two
   spellings of one person ("Eddie Yongming Wu" / "Eddie Wu") are paired, and
   the filed legal name shows as "aka" only when it really differs. Names the
-  proxy prints in capitals are shown in normal case.
+  proxy prints in capitals are shown in normal case (McX, Jr. and Sr. kept),
+  and honorifics (Ambassador, Admiral, Dr., Sir and so on) are dropped.
 - **Funds and companies are not people**: a filer whose name is an entity
   (LLC, L.L.C., LP, GP, S.à r.l., B.V., Pte and so on) is a holder, never
   matched to a director or officer.
@@ -127,7 +148,8 @@ Gotchas found on the live filings:
   Financial Officer; Corp, Gen, Sec., Ops, Intl, Svcs and so on), sentence-case
   titles are capitalised and COB reads Chair of the Board.
 - **Holdings**: the latest Form 3/4/5 line per class and holding (direct,
-  each trust), unless the proxy table shows a class those filings have not
+  each trust; a holding filed only as "See Footnote" is told apart by its
+  footnote text, so Broadcom's Henry Samueli shows all of his trusts), unless the proxy table shows a class those filings have not
   reported, or there are no filings (foreign issuers).
 - **US depositary shares (ADS)**: totals, value and votes count each ADS as
   its ordinary shares (`ADS_RATIO`: TSMC 5, Alibaba 8; ASML, Novo Nordisk and
@@ -158,19 +180,25 @@ Gotchas found on the live filings:
   of shrinking, and the detail tables scroll inside their own box. A holding's
   footnote gets its own row under the line, and the "as of" column is left out
   when every line has the same date. A company where nobody has a start year
-  (a 20-F gives none) shows no years on the cards.
+  (a 20-F gives none) shows no years on the cards. Card contents stay inside
+  the card however long a chip or title is. The large holders table shows one
+  "Stake" column for a one-class company and both "Of its class" and "Of all
+  votes" when there are several classes.
 - **Departures**: the Changes list and the former table say why someone left
   (not on the board list in a given proxy, or someone else holds the role).
 - **Proxy check**: every name, share count and percent the AI returns must
   appear in the document text (`checkProxyFacts`); anything not found is
   dropped and counted on the tab. A reply cut off at the token limit or not
   valid JSON is asked once more with a larger limit (counted as a second AI
-  call in the day's budget).
+  call in the day's budget). If that one is cut off too, what either reply
+  finished before the cut is kept and marked partial (`salvageJson`): the tab
+  says so, a partial board list ends nobody's seat, and the document gets one
+  more read on a later day.
 - **Funds and empty pages**: covered funds that are listed like stocks
   (`CORP_FUND_SYMS` in `build.mjs`: DRAM) show a short note instead of the
   tab. A company that files no proxy or 20-F and whose insiders file no Forms
-  3/4/5 (a Canadian filer on Form 40-F, such as Shopify) gets an empty view
-  that says so and links to its EDGAR page.
+  3/4/5 (a foreign filer whose insiders are exempt) gets an empty view that
+  says so and links to its EDGAR page.
 
 ## Files and switches
 
