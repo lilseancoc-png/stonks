@@ -81,6 +81,64 @@ status, unmeasured material rotation changes and a minute range over fourteen
 minutes make the entry screen pass. Prospective snapshots let later models
 test whether these inputs improve predictions.
 
+## Team efficiency and pace (`sports-model-6`)
+
+NBA stat forecasts now include `team_context`: both teams' offensive and
+defensive rating (estimated points scored/allowed per 100 possessions), net
+rating and pace per 48 minutes. These are computed from the existing stored
+player boxes and final schedules, not a new paid feed or official NBA ratings.
+The [NBA definitions](https://jr.nba.com/basictraditional-stats-vs-advanced-stats/)
+separate scoring efficiency from game pace.
+
+A game counts only when both teams have complete possession inputs and
+minutes, at least five distinct players, and their points reconcile exactly
+with the final score. Possessions are the average of both teams' `FGA +
+0.44*FTA - OREB + TOV` estimates; pace uses the teams' summed minutes so
+overtime does not look like a faster regulation game. Each team uses up to
+20 complete games from the last 60 days, with at least five required per
+team. Eight league-average pseudo-games shrink short samples. The league
+baseline also uses only those earlier games.
+
+For every historical forecast the context is captured **before the game's
+calendar date**. Today's boxes are added only after all that day's forecasts.
+The four efficiency inputs are own offense, opponent defense, own defense
+and opponent offense relative to the league. Net rating is explanatory only,
+not a fifth correlated input. The pace input is the matchup's average pace
+relative to the player's own team's normal pace, because the player's past
+production already reflects its usual tempo.
+
+These factors are fitted per stat on residual errors after the existing
+opponent, location, absence and accepted game factors. Each needs 200
+observations on both sides of the chronological check, better Brier and log
+loss, and a Brier gain larger than its date-grouped standard error. A failed
+factor remains visible as context with `applied: false`, without changing
+probabilities. Old stored models and incomplete team data remain usable.
+The next normal NBA data refresh fits the new factors; code deployment alone
+does not change the stored model.
+
+Prop explanations and frozen records carry the ratings, sample counts, date
+and applied factors. Player forecasts, Pick Builder and MCP share that same
+model output. The NBA shortlist's history/model score therefore includes
+accepted team adjustments; sportsbook estimates are not multiplied again by
+those factors. The market support, role-risk and payout gates remain in force.
+NFL inputs and prediction math are unchanged.
+
+### Initial offline check (2026-11-13)
+
+Compared with the preceding model code on the same 74,566 stored player
+rows across the 2024–2026 seasons (latest results November 11), efficiency
+passed the incremental check for 9 of 12 stats. Pace passed for rebounds
+and rebounds + assists. Steals, blocks and turnovers kept neither factor.
+The resulting probability-error changes were small: held-out Brier score
+for points moved from 0.2373 to 0.2371 and assists from 0.2315 to 0.2310
+(lower is better). The check uses proxy lines as described in the model.
+
+The smaller real offered-line samples were mixed: points improved from
+0.2578 to 0.2570 (133 observations), while rebounds worsened from 0.2543
+to 0.2548 (109). This supports testing the inputs prospectively, not a claim
+of a proven win-rate or return improvement. Existing first-issued results
+remain frozen; new records preserve the model version and team inputs.
+
 ## Pair choice and actual payout
 
 Consider the best ten research candidates on each team and choose the pair

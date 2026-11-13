@@ -19,6 +19,13 @@ const objects = new Map();
 const put = (kind, value, opts = {}) => objects.set(sportsKey(kind, { sport: 'nba', ...opts }), JSON.stringify(value));
 put('status', { state: 'ok', seasons: [2026], last_success_utc: at, latest_game_date: '2026-11-04' });
 put('players', { players }); put('games', { games: [game] }, { season: 2026 }); put('player-games', { rows }, { season: 2026 });
+put('model', { model_version: 'fixture-team-context', as_of_date: '2026-11-04',
+  context: { groups: { points: { all: { rate: 25 / 32 } } }, spread: { points: { a: 6, b: 1.5 } },
+    factors: { points: { team_efficiency: { betas: [0.5, 0.5, 0, 0] }, team_pace: { betas: [1] } } },
+    nba_team_context: { as_of_date: '2026-11-04', window: 20, source: 'box_score_estimate', league: { rating: 110, pace: 100 }, teams: {
+      lal: { games: 10, offensive_rating: 112, defensive_rating: 108, net_rating: 4, pace: 98 },
+      gs: { games: 12, offensive_rating: 115, defensive_rating: 111, net_rating: 4, pace: 102 },
+    } } }, evaluation: { points: { status: 'validated' } } });
 const store = { backend: 'r2', rawGet: async (k) => objects.has(k) ? Buffer.from(objects.get(k)) : null, rawPut: async (k, v) => objects.set(k, String(v)), withLease: async (_, fn) => { await fn(() => {}); return { busy: false }; } };
 let feedState = 'ok', sourceCalls = 0, lastForce = null, holdNextRecord = false, heldRecordReady, releaseHeldRecord;
 const referenceEvents = () => ['draftkings', 'fanduel', 'betmgm'].map((book) => ({ id: 'e1', home_team: 'Los Angeles Lakers', away_team: 'Golden State Warriors', commence_time: game.start_utc,
@@ -73,8 +80,12 @@ try {
     assert.ok(!(await pane.locator('.sp-props').innerText()).includes('Fixture Out\nMore'), 'Out player excluded');
     await pane.locator('.sp-prop details summary').first().click();
     assert.match(await pane.locator('.sp-prop').first().innerText(), /Workload & rest/);
+    assert.match(await pane.locator('.sp-prop').first().innerText(), /Team efficiency/);
+    assert.match(await pane.locator('.sp-prop').first().innerText(), /per 100 estimated possessions/);
+    assert.match(await pane.locator('.sp-prop').first().innerText(), /Game pace/);
     assert.match(await pane.locator('.sp-prop').first().innerText(), /Sportsbook comparison/);
     assert.match(await pane.locator('.sp-prop').first().innerText(), /Minutes & role scenario/);
+    await pane.locator('.sp-prop').first().screenshot({ path: resolve(output, 'team-context-' + width + '.png') });
     const pairCard = pane.locator('.sp-nba-pair');
     await pairCard.locator('[data-sp-nba-payout]').fill('3');
     await pairCard.locator('[data-sp-nba-evaluate]').click();
@@ -97,6 +108,7 @@ try {
     assert.match(await pane.locator('.sp-prop-record').innerText(), /Pending/);
     const original = JSON.parse(objects.get(sportsKey('prop-record', { sport: 'nba', season: 2026 })));
     assert.equal(original.picks.length, 2);
+    assert.ok(original.picks.every((p) => p.model.team_context.efficiency.applied), 'record preserves the ratings and applied adjustment');
     const held = new Promise((done) => { heldRecordReady = done; });
     holdNextRecord = true;
     await pane.locator('[data-sp-record-refresh]').click(); await held;

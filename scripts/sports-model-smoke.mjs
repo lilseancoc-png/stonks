@@ -110,7 +110,7 @@ eq(summary.stats.assists.reason, 'not enough past games to check yet', 'a stat t
 eq(model.evaluation.pts_reb.forecasts > 0, true, 'combos are summed from the stored stats and modeled');
 // Every stat the catalog marks as modeled has a spec, in catalog order.
 for (const sp of ['nba', 'nfl']) eq(SPORTS_STATS[sp].filter((x) => x.model).map((x) => x.id), Object.keys(MODEL_SPECS[sp]), sp + ' catalog and model specs agree');
-eq(SPORTS_MODEL_VERSION, 'sports-model-5');
+eq(SPORTS_MODEL_VERSION, 'sports-model-6');
 eq(PROP_RANK_VERSION, 'props-rank-4');
 const empty = buildModel({ sport: 'nfl', rows: [], now: NOW });
 eq([empty.evaluation.passing_yards.status, empty.evaluation.receptions.reason], ['experimental', 'not enough past games to check yet'], 'no data: experimental, never validated');
