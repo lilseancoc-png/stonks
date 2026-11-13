@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { parseOwnershipXml, samePerson, prettySecName, shareClassOf, parseDisplayName, parseEftsHits, officerTitle, prettyCompanyName, isEntityName, matchScore, foldName, tidyPersonName } from '../lib/corporate-structure/forms.mjs';
 import { foldFiling, holdingTotals } from '../lib/corporate-structure/holdings.mjs';
-import { htmlToText, sliceProxy, slice20F, checkProxyFacts, hasInteger, hasPercent, hasName } from '../lib/corporate-structure/proxy.mjs';
+import { htmlToText, sliceProxy, slice20F, checkProxyFacts, hasInteger, hasPercent, hasName, PROXY_SCHEMA, extractProxyFacts, refersToAnnualReport, parseFilingIndex, annualReportExhibit, sliceAnnualReport } from '../lib/corporate-structure/proxy.mjs';
 import { refreshCorporateStructure, readSubmissions, chooseFilings } from '../lib/corporate-structure/collector.mjs';
 import { buildCorporateViews, buildCompanyView, voteMath, shareClasses, tidyTitle, companyKey, crossCheckCovered, isoDate } from '../lib/corporate-structure/assemble.mjs';
 import { insiderFromStructure } from '../lib/shadow-signals.mjs';
@@ -523,6 +523,39 @@ ok(holdingTotals(fnCo.owners['0009600001']).total === 79_600_000, 'three footnot
 // The next filing renumbers the footnotes and reports one trust again.
 foldFiling(fnCo, parseOwnershipXml(fnXml([34_000_000], ['Held by the Samueli Family Trust (2).'])), { acc: 'fn-2', filed: '2026-10-25', form: '4' });
 ok(holdingTotals(fnCo.owners['0009600001']).total === 78_600_000, 'a later filing updates the same trust, not a new line: ' + holdingTotals(fnCo.owners['0009600001']).total);
+
+// The ownership table is found by its numbers, not the first mentions of
+// its heading (contents pages and cross-references come first).
+const lorem = (k) => 'Lorem ipsum dolor sit amet. '.repeat(k);
+let longProxy = 'Contents. Security Ownership of Certain Beneficial Owners and Management 45. ' + lorem(2000);
+for (let i = 0; i < 10; i++) longProxy += 'see Security Ownership of Certain Beneficial Owners and Management. ' + lorem(800);
+longProxy += 'SECURITY OWNERSHIP OF CERTAIN BENEFICIAL OWNERS AND MANAGEMENT Name | Shares | Percent The Vanguard Group 1,234,567,890 | 9.1% BlackRock 987,654,321 | 7.2% ' + lorem(9000);
+ok(sliceProxy(longProxy, 60_000).includes('The Vanguard Group 1,234,567,890'), 'the ownership table is in the slice even after ten earlier mentions');
+ok(sliceProxy('Stock Ownership Guidelines ' + lorem(8000) + 'Stock Ownership Holdings of Major Shareholders Walton Enterprises 3,567,890,123 44.8% ' + lorem(8000), 60_000).includes('Walton Enterprises 3,567,890,123'), 'a "Stock Ownership" heading counts, the guidelines do not crowd it out');
+// Every list in the reply is capped.
+const schemaCapped = (o) => Object.values(o.properties || {}).every((x) => (x.type !== 'array' || Number(x.maxItems) > 0) && (x.type !== 'array' || !x.items?.properties || schemaCapped(x.items)) && (x.type !== 'object' || schemaCapped(x)));
+ok(schemaCapped(PROXY_SCHEMA), 'every array in the reply schema has maxItems');
+// A model that refuses the caps gets the same schema without them.
+let capCalls = 0;
+class CapRefuser { constructor() { this.models = { generateContent: async (req) => { capCalls++; if (JSON.stringify(req.config.responseSchema).includes('maxItems')) throw new Error('{"error":{"code":400,"status":"INVALID_ARGUMENT"}}'); return { text: '{"board":[],"owners":[],"classes":[],"executives":[]}', candidates: [{ finishReason: 'STOP' }] }; } }; } }
+const capRead = await extractProxyFacts({ message: 'x', model: 'test', deps: { GoogleGenAI: CapRefuser, apiKey: 'k', maxAttempts: 2 } });
+ok(capCalls === 2 && capRead.calls === 1 && Array.isArray(capRead.json.board), 'a 400 on the list caps retries once without them');
+// A 20-F that points to its annual report: the exhibit's board pages are added.
+ok(refersToAnnualReport('Reference is made to pages 37-39 of our Annual Report 2025 for name, position and period of service as director for members of the Board of Directors as of the date hereof.') && !refersToAnnualReport('Our annual report on Form 20-F is filed with the SEC.'), 'a cross-reference to the annual report is spotted');
+const idx = parseFilingIndex(`<table class="tableFile"><tr><th>Seq</th><th>Description</th><th>Document</th><th>Type</th><th>Size</th></tr>
+<tr><td scope="row">1</td><td scope="row">20-F</td><td scope="row"><a href="/ix?doc=/Archives/edgar/data/353278/000035327826000006/nvo-20251231.htm">nvo-20251231.htm</a></td><td scope="row">20-F</td><td scope="row">6012345</td></tr>
+<tr><td scope="row">2</td><td scope="row">ANNUAL REPORT 2025</td><td scope="row"><a href="/Archives/edgar/data/353278/000035327826000006/nvo-ex15_1.htm">nvo-ex15_1.htm</a></td><td scope="row">EX-15.1</td><td scope="row">4123456</td></tr>
+<tr><td scope="row">3</td><td scope="row">CONSENT</td><td scope="row"><a href="/Archives/edgar/data/353278/000035327826000006/nvo-ex23_1.htm">nvo-ex23_1.htm</a></td><td scope="row">EX-23.1</td><td scope="row">4567</td></tr></table>`);
+ok(idx.length === 3 && idx[0].file === 'nvo-20251231.htm' && annualReportExhibit(idx)?.file === 'nvo-ex15_1.htm', 'the annual report exhibit is found in the filing index: ' + JSON.stringify(annualReportExhibit(idx)));
+ok(annualReportExhibit([{ type: 'EX-15.1', description: 'EX-15.1', file: 'nvo-20251231_d2.htm', size: 10_592_851 }, { type: 'EX-15.2', description: 'EX-15.2', file: 'consent.htm', size: 2547 }, { type: 'EX-2.1', description: 'EX-2.1', file: 'big.htm', size: 900_000 }])?.file === 'nvo-20251231_d2.htm', 'an unnamed large EX-15 page is taken as the annual report');
+const annual = lorem(4000) + 'Board of Directors ' + lorem(200) + 'Board of Directors Lars Rebien Sorensen Chair. Born 1954. Nationality Danish. Elected 2025. Independent. Cees de Jong Vice chair. Born 1961. Elected 2025. ' + lorem(5000) + 'Shares and capital structure Novo Holdings A/S 107,487,200 A shares 77.1% of votes ' + lorem(5000);
+const aSlice = sliceAnnualReport(annual, 30_000);
+ok(aSlice.length <= 30_100 && aSlice.includes('Lars Rebien Sorensen Chair. Born 1954') && aSlice.includes('Novo Holdings A/S 107,487,200'), 'the annual report slice keeps the board biographies and the major shareholders');
+// No proxy, but a 10-K/A (Part III) is read; a proxy is still preferred.
+const subK = readSubmissions({ filings: { recent: { form: ['10-K/A', '10-K', '4'], filingDate: ['2026-04-29', '2026-02-11', '2026-08-31'], accessionNumber: ['k2', 'k1', 'f4'], primaryDocument: ['shop-20251231.htm', 'shop-20251231.htm', 'x.xml'], items: ['', '', ''] } } }, '0001594805', Date.parse('2026-11-12'));
+ok(subK.doc?.form === '10-K/A' && subK.doc.acc === 'k2' && !subK.foreign, 'a 10-K/A with Part III is the document when there is no proxy');
+const subP = readSubmissions({ filings: { recent: { form: ['10-K/A', 'DEF 14A'], filingDate: ['2026-06-01', '2026-03-01'], accessionNumber: ['k2', 'p1'], primaryDocument: ['a.htm', 'b.htm'], items: ['', ''] } } }, '0001594805', Date.parse('2026-11-12'));
+ok(subP.doc?.form === 'DEF 14A', 'a proxy beats a newer 10-K/A');
 
 // A swept company with no filings and no document gets an empty view that
 // says so (a foreign filer that files neither a proxy nor Forms 3/4/5).

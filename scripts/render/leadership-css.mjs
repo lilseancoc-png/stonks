@@ -5,7 +5,7 @@
 export function renderLeadershipCss() {
   return `
 /* === Stock page: Leadership tab (scripts/render/leadership-client.mjs) === */
-.ld-root { display: grid; gap: 16px; min-width: 0; }
+.ld-root { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; min-width: 0; }
 .ld-root .k-exec { --ld-k: var(--accent); }
 .ld-root .k-indep { --ld-k: var(--info); }
 .ld-root .k-affil { --ld-k: var(--violet); }
@@ -20,7 +20,7 @@ export function renderLeadershipCss() {
 .ld-control.is-neg { --ld-tone: var(--neg); }
 .ld-control.is-warn { --ld-tone: var(--warn); }
 .ld-control.is-pos { --ld-tone: var(--pos); }
-.ld-control-main { display: grid; gap: 6px; align-content: start; min-width: 0; }
+.ld-control-main { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; align-content: start; min-width: 0; }
 .ld-pill { justify-self: start; padding: 3px 9px; border-radius: 999px; font: 700 11px/1.4 var(--font-sans); letter-spacing: .04em; text-transform: uppercase; color: var(--ld-tone, var(--accent)); background: color-mix(in srgb, var(--ld-tone, var(--accent)) 14%, transparent); }
 .ld-control-line { margin: 0; font-size: 17px; font-weight: 600; color: var(--text-strong); line-height: 1.35; }
 .ld-control-sub { margin: 0; font-size: 13px; color: var(--muted); }
@@ -41,8 +41,8 @@ export function renderLeadershipCss() {
 .ld-view:hover { color: var(--text-strong); }
 .ld-view.is-on { background: var(--surface-2); color: var(--text-strong); box-shadow: inset 0 0 0 1px var(--border); }
 .ld-view:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-.ld-body { display: grid; gap: 16px; min-width: 0; }
-.ld-group { display: grid; gap: 10px; min-width: 0; }
+.ld-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; min-width: 0; }
+.ld-group { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; min-width: 0; }
 .ld-h4 { margin: 4px 0 0; font-size: 15px; font-weight: 650; color: var(--text-strong); }
 .ld-h4 small { font-weight: 500; color: var(--muted); font-size: 12px; margin-left: 6px; }
 
@@ -54,7 +54,9 @@ export function renderLeadershipCss() {
 .ld-card.is-sel { box-shadow: 0 0 0 2px var(--ld-k, var(--accent)); }
 .ld-avatar { width: 40px; height: 40px; border-radius: 999px; display: grid; place-items: center; font: 700 14px/1 var(--font-sans); color: var(--ld-k, var(--accent)); background: color-mix(in srgb, var(--ld-k, var(--accent)) 14%, var(--surface)); border: 1px solid color-mix(in srgb, var(--ld-k, var(--accent)) 35%, transparent); }
 .ld-avatar.is-lg { width: 52px; height: 52px; font-size: 18px; }
-.ld-card-main { display: grid; gap: 4px; min-width: 0; }
+/* One column that never grows past the card: a long chip or title ellipsises
+   instead of pushing the stats out of the card. */
+.ld-card-main { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; min-width: 0; }
 .ld-card-name { color: var(--text-strong); font-size: 15px; overflow-wrap: anywhere; }
 .ld-card-role { color: var(--muted); font-size: 13px; line-height: 1.3; overflow-wrap: anywhere; }
 .ld-badges { display: flex; gap: 4px; flex-wrap: wrap; }
@@ -90,7 +92,7 @@ a.ld-chip.is-covered:hover { background: color-mix(in srgb, var(--accent) 10%, t
 .ld-node.is-sel { box-shadow: 0 0 0 2px var(--ld-k, var(--accent)); }
 .ld-node:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .ld-org-comms { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; width: 100%; margin-top: 4px; }
-.ld-comm { display: grid; gap: 3px; padding: 8px 10px; border: 1px dashed var(--border); border-radius: 8px; font-size: 13px; min-width: 0; }
+.ld-comm { display: grid; grid-template-columns: minmax(0, 1fr); gap: 3px; padding: 8px 10px; border: 1px dashed var(--border); border-radius: 8px; font-size: 13px; min-width: 0; }
 .ld-comm b { color: var(--text-strong); font-size: 12px; text-transform: uppercase; letter-spacing: .03em; }
 .ld-comm small { color: var(--muted); }
 
@@ -125,7 +127,7 @@ a.ld-chip.is-covered:hover { background: color-mix(in srgb, var(--accent) 10%, t
 .ld-legend i.t-insider { width: 16px; height: 6px; border-radius: 3px; background: var(--accent); }
 .ld-legend i.t-insider.is-approx { background: repeating-linear-gradient(90deg, var(--accent) 0 4px, transparent 4px 7px); }
 .ld-legend i.t-mark { width: 3px; height: 12px; border-radius: 1px; background: var(--text-strong); }
-.ld-where { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.ld-where { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
 .ld-where li { display: grid; grid-template-columns: minmax(0, 220px) minmax(0, 1fr); gap: 4px 12px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); font-size: 13px; }
 .ld-where li b { color: var(--text-strong); overflow-wrap: anywhere; }
 .ld-where li b a { color: var(--accent); text-decoration: none; }
