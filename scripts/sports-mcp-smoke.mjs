@@ -171,6 +171,8 @@ const E = ev.structuredContent.results;
   const evS = (await tool('sports_evaluate_entry', { legs: [{ ...legs[0], starting: false }, legs[1]], operator: 'prizepicks', format: 'power', stake: 10, payouts: { 2: 3 } })).structuredContent;
   eq(evS.results.legs[0].model.lineup?.starting ?? null, evS.results.legs[0].model.status === 'ok' ? false : null, 'the model read shows the given lineup');
   ok(/entry=/.test(evS.results.pick_builder_link), 'still returns the link');
+  const evStr = (await tool('sports_evaluate_entry', { legs: [{ ...legs[0], starting: 'false' }, legs[1]], operator: 'prizepicks', format: 'power', stake: 10, payouts: { 2: 3 } })).structuredContent;
+  eq(evStr.results?.legs?.[0]?.model?.lineup?.starting ?? 'refused', evStr.results ? false : 'refused', 'a loosely typed "false" means off the bench (or is refused, never read as starting)');
   const pl = (await tool('sports_get_player', { sport: 'nba', player_id: gsStar.player_id, starting: true })).structuredContent;
   ok(pl.results.forecast == null || Object.values(pl.results.forecast.forecasts).every((f) => f.status !== 'ok' || f.lineup?.starting === true), 'sports_get_player passes starting to the forecast');
 }
