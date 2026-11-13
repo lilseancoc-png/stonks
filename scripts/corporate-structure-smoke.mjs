@@ -1,11 +1,11 @@
 // Offline checks for the stock page's Leadership data (lib/corporate-structure/).
 // Run: node scripts/corporate-structure-smoke.mjs
 import assert from 'node:assert/strict';
-import { parseOwnershipXml, samePerson, prettySecName, shareClassOf, parseDisplayName, parseEftsHits, officerTitle, prettyCompanyName, isEntityName } from '../lib/corporate-structure/forms.mjs';
+import { parseOwnershipXml, samePerson, prettySecName, shareClassOf, parseDisplayName, parseEftsHits, officerTitle, prettyCompanyName, isEntityName, matchScore, foldName, tidyPersonName } from '../lib/corporate-structure/forms.mjs';
 import { foldFiling, holdingTotals } from '../lib/corporate-structure/holdings.mjs';
 import { htmlToText, sliceProxy, slice20F, checkProxyFacts, hasInteger, hasPercent, hasName } from '../lib/corporate-structure/proxy.mjs';
 import { refreshCorporateStructure, readSubmissions, chooseFilings } from '../lib/corporate-structure/collector.mjs';
-import { buildCorporateViews, buildCompanyView, voteMath, shareClasses, tidyTitle, companyKey, crossCheckCovered } from '../lib/corporate-structure/assemble.mjs';
+import { buildCorporateViews, buildCompanyView, voteMath, shareClasses, tidyTitle, companyKey, crossCheckCovered, isoDate } from '../lib/corporate-structure/assemble.mjs';
 import { insiderFromStructure } from '../lib/shadow-signals.mjs';
 import { form4Xml, fakeSec, fakeAi, TECH_CIK, SOCIAL_CIK, TECH_PROXY_HTML, TECH_PROXY_AI, SOCIAL_PROXY_AI } from './fixtures/corporate-structure.mjs';
 
@@ -429,5 +429,104 @@ const covered = structuredClone(state);
 for (const c of Object.values(covered.companies)) c.completeFrom = '2026-01-01';
 const ins = insiderFromStructure(covered, new Date(nowMs).toISOString(), 60);
 ok(ins?.EXT?.sellers === 1 && ins.EXT.buyers === 0, 'insider key counts the sale in the window: ' + JSON.stringify(ins));
+
+// --- live-data audit fixes (2026-11-13) ----------------------------------------------
+// Names: a two-word surname with no initial, the best of two fits, Danish
+// letters, degrees, capitals, entities with dotted suffixes.
+ok(samePerson('MONTGOMERY RICE VALERIE', 'Valerie Montgomery Rice') && samePerson('VOJVODICH RADAKOVICH LYNN', 'Lynn Vojvodich Radakovich'), 'two-word surname with no initial');
+ok(!samePerson('MONTGOMERY RICE VALERIE', 'Valerie Smith Rice'), 'only the last word of a two-word surname is not enough');
+ok(matchScore('JIANG FAN', 'Fan Jiang') > matchScore('JIANG FAN', 'Jane Fang Jiang') && matchScore('JIANG FANG JANE', 'Jane Fang Jiang') > matchScore('JIANG FANG JANE', 'Fan Jiang'), 'JIANG FAN fits Fan Jiang best, JIANG FANG JANE fits Jane Fang Jiang');
+ok(foldName('Bøjer Ærø Straße Łódź') === 'Bojer Aero Strasse Lodz' && samePerson('JORGENSEN LARS FRUERGAARD', 'Lars Fruergaard Jørgensen'), 'letters that do not decompose fold: ' + foldName('Bøjer Ærø Straße Łódź'));
+ok(prettySecName('DOE JANE MD') === 'Jane Doe' && prettySecName('ROE RICHARD PHD') === 'Richard Roe', 'degree words are not names');
+ok(tidyPersonName('Eddie Yongming WU') === 'Eddie Yongming Wu' && tidyPersonName('KC McClure') === 'KC McClure' && tidyPersonName('JAMES MCNERNEY JR') === 'James McNerney Jr.' && tidyPersonName('John Smith III') === 'John Smith III', 'names printed in capitals read normally, initials and suffixes kept');
+ok(isEntityName('Foo Holdings L.L.C.') && isEntityName('Sequoia Capital GP') && isEntityName('Bar Partners S.a r.l.') && !isEntityName('SMITH JOHN G'), 'dotted entity suffixes are entities');
+ok(hasName('noubar afeyan, ph.d. is a director', 'Noubar Afeyan, Ph.D.') && hasName('lars fruergaard jorgensen was ceo', 'Lars Fruergaard Jørgensen'), 'the fact checker finds names with degrees and Danish letters');
+// Titles: only the current part, short Form 4 words in full.
+assert.equal(tidyTitle('Former CEO'), null); n++;
+assert.equal(tidyTitle('Executive Vice Chair and former CEO'), 'Executive Vice Chair'); n++;
+assert.equal(tidyTitle('Current Chief Operating Officer'), 'Chief Operating Officer'); n++;
+assert.equal(tidyTitle('Chf Fin Ofcr'), 'Chief Financial Officer'); n++;
+assert.equal(tidyTitle('EVP, Gen Counsel & Corp Sec.'), 'EVP, General Counsel & Corporate Secretary'); n++;
+assert.equal(tidyTitle('COB'), 'Chair of the Board'); n++;
+assert.equal(tidyTitle('co-CEO'), 'Co-CEO'); n++;
+assert.equal(tidyTitle('president and chief executive officer'), 'President and Chief Executive Officer'); n++;
+ok(isoDate('March 3, 2026') === '2026-03-03' && isoDate('2026-03-03T00:00:00Z') === '2026-03-03' && isoDate('soon') === null, 'record dates read as days');
+
+const doc = (board, executives, extra = {}) => ({ status: 'ok', form: 'DEF 14A', filed: '2026-04-16', acc: 'p', facts: {
+  classes: [{ name: 'Common Stock', votesPerShare: 1, outstanding: 1_000_000, listed: true }],
+  board: board.map((b) => ({ roles: ['Director'], independent: true, committees: [], chairOf: [], otherBoards: [], ...(typeof b === 'string' ? { name: b } : b) })),
+  executives, owners: [], ...extra } });
+const find = (v, re) => v.people.find((p) => re.test(p.name));
+const gone = (v, re) => v.former.find((p) => re.test(p.name));
+
+// Two people with one surname are two rows, each matched to their own name.
+const two = buildCompanyView({ symbol: 'TWO', cik: '0000555561', name: 'Two Co', proxy: doc(['Fan Jiang', 'Jane Fang Jiang', 'Pat Third'], []),
+  owners: { '0009100001': { cik: '0009100001', sec: 'JIANG FANG JANE', roles: { director: true }, ...at('2026-06-01') },
+    '0009100002': { cik: '0009100002', sec: 'JIANG FAN', roles: { director: true }, ...at('2026-06-02') } } }, { nowMs, price: 10 });
+ok(two.people.length === 3 && find(two, /^Fan Jiang$/)?.cik === '0009100002' && find(two, /Jane Fang Jiang/)?.cik === '0009100001', 'Fan Jiang and Jane Fang Jiang: ' + two.people.map((p) => p.name + ':' + p.cik).join(', '));
+// An English name in the proxy and the legal name on the filings: one person,
+// on the board and in charge.
+const alias = buildCompanyView({ symbol: 'ALI', cik: '0000555562', name: 'Alias Co', proxy: doc([{ name: 'Eddie Yongming WU', roles: ['Director'], independent: false }, 'Pat One', 'Pat Two'], [{ name: 'Eddie Wu', title: 'Chief Executive Officer' }]),
+  owners: { '0009200001': { cik: '0009200001', sec: 'WU YONGMING', roles: { director: true, officer: true, title: 'CEO' }, ...at('2026-06-01') } } }, { nowMs, price: 10 });
+const eddie = alias.people.filter((p) => /Wu/.test(p.name));
+ok(eddie.length === 1 && eddie[0].name === 'Eddie Yongming Wu' && eddie[0].ceo && eddie[0].director && eddie[0].cik === '0009200001', 'Eddie Wu is one person: ' + JSON.stringify(eddie.map((p) => [p.name, p.ceo, p.director, p.cik])));
+
+// Co-CEOs share the seat; the CEO they replaced stays on as a director only.
+const coCeo = buildCompanyView({ symbol: 'COC', cik: '0000555563', name: 'Co Ceo Co', proxy: doc([{ name: 'Old Boss', roles: ['Chairman'] }, 'Pat One', 'Pat Two'], [{ name: 'Old Boss', title: 'Chief Executive Officer' }]),
+  owners: {
+    '0009300001': { cik: '0009300001', sec: 'BOSS OLD', roles: { director: true, officer: true, title: 'Chairman and CEO' }, ...at('2026-05-01') },
+    '0009300002': { cik: '0009300002', sec: 'ALPHA ANN', roles: { officer: true, title: 'Co-Chief Executive Officer' }, ...at('2026-09-01') },
+    '0009300003': { cik: '0009300003', sec: 'BETA BEN', roles: { officer: true, title: 'Co-CEO' }, ...at('2026-08-15') },
+    '0009300004': { cik: '0009300004', sec: 'GAMMA GIL', roles: { officer: true, title: 'Chief Executive Officer' }, ...at('2026-03-01') },
+  } }, { nowMs, price: 10 });
+ok(find(coCeo, /Ann Alpha/)?.ceo && find(coCeo, /Ben Beta/)?.ceo && coCeo.people.filter((p) => p.ceo).length === 2, 'two co-CEOs: ' + coCeo.people.filter((p) => p.ceo).map((p) => p.name));
+const oldBoss = find(coCeo, /Old Boss/);
+ok(oldBoss && oldBoss.director && !oldBoss.ceo && oldBoss.chair && oldBoss.replacedBy?.role === 'CEO', 'the replaced CEO keeps the board seat and the chair: ' + JSON.stringify(oldBoss && [oldBoss.title, oldBoss.ceo, oldBoss.chair, oldBoss.replacedBy]));
+ok(!find(coCeo, /Gil Gamma/) && gone(coCeo, /Gil Gamma/)?.replacedBy?.role === 'CEO', 'a replaced CEO with no board seat has left');
+
+// A newer Form 4 that repeats a role the proxy calls past keeps the proxy's
+// title; a past executive whose newer filing no longer says officer has left;
+// a director whose Form 4 ticks only officer stays on the board.
+const stale = buildCompanyView({ symbol: 'STL', cik: '0000555564', name: 'Stale Co', proxy: doc(['Vic Chair', 'Dee Officer', 'Pat One'], [
+  { name: 'Vic Chair', title: 'Executive Vice Chair and former CEO' }, { name: 'Ned Newceo', title: 'Chief Executive Officer' },
+  { name: 'Paul Past', title: 'Executive Vice President' }, { name: 'Dee Officer', title: 'President' }, { name: 'Fred Former', title: 'Former Chief Financial Officer' }]),
+  owners: {
+    '0009400001': { cik: '0009400001', sec: 'CHAIR VIC', roles: { director: true, officer: true, title: 'CEO' }, ...at('2026-07-01') },
+    '0009400002': { cik: '0009400002', sec: 'NEWCEO NED', roles: { officer: true, title: 'Chief Executive Officer' }, ...at('2026-07-02') },
+    '0009400003': { cik: '0009400003', sec: 'PAST PAUL', roles: { tenPct: false }, ...at('2026-08-01') },
+    '0009400004': { cik: '0009400004', sec: 'OFFICER DEE', roles: { officer: true, title: 'President' }, ...at('2026-08-02') },
+  } }, { nowMs, price: 10 });
+const vic = find(stale, /Vic Chair/);
+ok(vic && vic.title === 'Executive Vice Chair' && !vic.ceo && find(stale, /Ned Newceo/)?.ceo, 'stale Form 4 title: ' + JSON.stringify(vic && [vic.title, vic.ceo]));
+ok(!find(stale, /Paul Past/), 'a past executive with a newer non-officer filing is not current');
+ok(find(stale, /Dee Officer/)?.director && find(stale, /Dee Officer/)?.officer, 'a director whose Form 4 ticks only officer is still a director');
+ok(!find(stale, /Fred Former/) && !gone(stale, /Fred Former/), 'an executive listed only as former is left out');
+
+// A 10% owner whose filed lines come to under 1% is a partial read, not its stake.
+const small = buildCompanyView({ symbol: 'SML', cik: '0000555565', name: 'Small Co', proxy: doc(['Pat One', 'Pat Two', 'Pat Three'], []),
+  owners: { '0009500001': { cik: '0009500001', sec: 'BIG FUND LP', roles: { tenPct: true }, ...at('2026-08-01'), lines: { a: { cls: 'common', di: 'D', shares: 5000, asOf: '2026-08-01' } } },
+    '0009500002': { cik: '0009500002', sec: 'REAL FUND LLC', roles: { tenPct: true }, ...at('2026-08-02'), lines: { a: { cls: 'common', di: 'D', shares: 150_000, asOf: '2026-08-02' } } } } }, { nowMs, price: 10 });
+ok(small.holders.length === 1 && /Real Fund/.test(small.holders[0].name) && small.holders[0].pctVoting === 15, 'holders under 1% dropped: ' + JSON.stringify(small.holders.map((h) => [h.name, h.pctVoting])));
+ok(!small.people.some((p) => /Fund/.test(p.name)), 'funds are holders, not leaders');
+
+// Trusts reported only as "See Footnote" are separate holdings, told apart
+// by their footnotes (Broadcom's chair holds through several).
+const fnXml = (posts, notes) => `<?xml version="1.0"?><ownershipDocument><documentType>4</documentType><periodOfReport>2026-09-23</periodOfReport>
+<issuer><issuerCik>0000555567</issuerCik><issuerName>Fn Co</issuerName><issuerTradingSymbol>FNC</issuerTradingSymbol></issuer>
+<reportingOwner><reportingOwnerId><rptOwnerCik>0009600001</rptOwnerCik><rptOwnerName>TRUSTEE TED</rptOwnerName></reportingOwnerId><reportingOwnerRelationship><isDirector>1</isDirector></reportingOwnerRelationship></reportingOwner>
+<nonDerivativeTable>${posts.map((n, i) => `<nonDerivativeHolding><securityTitle><value>Common Stock</value></securityTitle><postTransactionAmounts><sharesOwnedFollowingTransaction><value>${n}</value></sharesOwnedFollowingTransaction></postTransactionAmounts>
+<ownershipNature><directOrIndirectOwnership><value>I</value></directOrIndirectOwnership><natureOfOwnership><value>See Footnote</value><footnoteId id="F${i + 1}"/></natureOfOwnership></ownershipNature></nonDerivativeHolding>`).join('')}</nonDerivativeTable>
+<footnotes>${notes.map((t, i) => `<footnote id="F${i + 1}">${t}</footnote>`).join('')}</footnotes></ownershipDocument>`;
+const fnCo = {};
+foldFiling(fnCo, parseOwnershipXml(fnXml([35_000_000, 4_600_000, 40_000_000], ['Held by the Samueli Family Trust (1).', 'Held by the Ted 2012 Trust.', 'Held by Fn Investments LP.'])), { acc: 'fn-1', filed: '2026-09-25', form: '4' });
+ok(holdingTotals(fnCo.owners['0009600001']).total === 79_600_000, 'three footnoted trusts are three lines: ' + holdingTotals(fnCo.owners['0009600001']).total);
+// The next filing renumbers the footnotes and reports one trust again.
+foldFiling(fnCo, parseOwnershipXml(fnXml([34_000_000], ['Held by the Samueli Family Trust (2).'])), { acc: 'fn-2', filed: '2026-10-25', form: '4' });
+ok(holdingTotals(fnCo.owners['0009600001']).total === 78_600_000, 'a later filing updates the same trust, not a new line: ' + holdingTotals(fnCo.owners['0009600001']).total);
+
+// A swept company with no filings and no document gets an empty view that
+// says so (a foreign filer that files neither a proxy nor Forms 3/4/5).
+const emptyViews = buildCorporateViews({ companies: { SHP: { symbol: 'SHP', cik: '0000555566', name: 'SHOP CO INC', sub: { foreign: true, doc: null }, owners: {}, sweep: { at: '2026-11-12T00:00:00Z', through: '2026-11-12', pending: [] } } }, people: {} }, { nowMs });
+ok(emptyViews.SHP?.empty === true && emptyViews.SHP.name === 'Shop Co Inc' && emptyViews.SHP.source?.edgar && !emptyViews.SHP.people, 'empty view: ' + JSON.stringify(emptyViews.SHP));
 
 console.log(`corporate-structure-smoke: ${n} checks passed`);

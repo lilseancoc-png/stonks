@@ -24,7 +24,10 @@ const usage = [];
 let deps = null;
 if (useAi) {
   const { GoogleGenAI } = await import('@google/genai');
-  deps = { GoogleGenAI, apiKey: process.env.GEMINI_API_KEY, recordAiUsage: (u) => usage.push(u), maxAttempts: 2 };
+  // Each raw reply goes to --out (reply-SYM-N.json) to see why one failed.
+  const replies = {};
+  deps = { GoogleGenAI, apiKey: process.env.GEMINI_API_KEY, recordAiUsage: (u) => usage.push(u), maxAttempts: 2,
+    onReply: (sym, text, finish) => { replies[sym] = (replies[sym] || 0) + 1; mkdir(out, { recursive: true }).then(() => writeFile(resolve(out, `reply-${sym}-${replies[sym]}.json`), JSON.stringify({ finish, chars: (text || '').length, text }))).catch(() => {}); } };
 }
 const t0 = Date.now();
 const state = await refreshCorporateStructure({
@@ -34,9 +37,11 @@ const state = await refreshCorporateStructure({
   ai: useAi ? { enabled: !!process.env.GEMINI_API_KEY, model: process.env.AI_CORP_MODEL || 'gemini-3.1-flash-lite', deps } : null,
   log: (l) => console.log(l),
   // --debug-doc=TSM prints where the 20-F / proxy slice starts (layout checks).
-  // --dump-doc=NVO prints the whole slice the model reads.
-  onDocText: (sym, text, fullLen) => {
-    console.log(`doc ${sym}: ${fullLen} chars → slice ${text.length}`);
+  // --dump-doc=NVO prints the whole slice the model reads; --save-doc=AVGO
+  // writes it to --out (slice-SYM.txt).
+  onDocText: (sym, text, fullLen, exhibit) => {
+    console.log(`doc ${sym}: ${fullLen} chars → slice ${text.length}${exhibit ? ' (+ annual report ' + exhibit.type + ' ' + exhibit.file + ', ' + exhibit.chars + ' chars)' : ''}`);
+    if (opt('save-doc', '').split(',').includes(sym)) mkdir(out, { recursive: true }).then(() => writeFile(resolve(out, `slice-${sym}.txt`), text)).catch(() => {});
     if (opt('debug-doc', '').split(',').includes(sym)) console.log(`--- ${sym} slice head ---\n${text.slice(0, 1500)}\n--- end ---`);
     if (opt('dump-doc', '').split(',').includes(sym)) console.log(`--- ${sym} slice ---\n${text}\n--- end ---`);
   },

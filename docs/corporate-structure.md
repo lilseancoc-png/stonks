@@ -93,6 +93,19 @@ Gotchas found on the live filings:
   120 days after it (not put up for re-election at the annual meeting). A
   director whose Form 3 came after the proxy joined since and stays, marked
   "Not stated yet" for independence until the next proxy.
+- **One row per person**: a filer is matched to the proxy's board and
+  executive lists by name. When two filers fit one listed name, the closest
+  fit wins (the same first name, then a middle name used as the first name,
+  then a short form or an initial), so JIANG FAN is Fan Jiang and JIANG FANG
+  JANE is Jane Fang Jiang. Two-word surnames with no initial (MONTGOMERY RICE
+  VALERIE), letters that do not decompose (Danish ø, German ß) and degree
+  words (MD, PhD) are handled. A board row and an executive row with two
+  spellings of one person ("Eddie Yongming Wu" / "Eddie Wu") are paired, and
+  the filed legal name shows as "aka" only when it really differs. Names the
+  proxy prints in capitals are shown in normal case.
+- **Funds and companies are not people**: a filer whose name is an entity
+  (LLC, L.L.C., LP, GP, S.à r.l., B.V., Pte and so on) is a holder, never
+  matched to a director or officer.
 - **Independence**: an executive on the board is never independent; otherwise
   the proxy's word.
 - **Newest filing wins** for a role: a Form 4 filed after the proxy decides
@@ -100,6 +113,19 @@ Gotchas found on the live filings:
   CFO, chief accounting officer, chief legal officer, COO and controller: when
   two people carry one of these, the newer filing's holder keeps it and the
   other moves to former (a director keeps the board seat) with a note.
+- **Co-CEOs**: when both titles say co-CEO (Netflix, Oracle), both keep it,
+  and the header and org chart name both. A CEO replaced by a newer filing
+  who still sits on the board keeps the seat (and a chair title) and loses
+  the CEO title; one with no seat moves to former, "replaced by" the new CEO.
+- **Past roles**: a title keeps only its current part ("Executive Vice Chair
+  and former CEO" is Executive Vice Chair). A newer Form 4 that still says a
+  role the proxy calls past (the old CEO box ticked again) keeps the proxy's
+  title. An executive the proxy lists only as former, or whose filing after
+  the proxy no longer says officer, is not current. A director whose Form 4
+  ticks only "officer" stays a director until the next proxy.
+- **Titles**: Form 4 short words are spelled out (Chf Fin Ofcr is Chief
+  Financial Officer; Corp, Gen, Sec., Ops, Intl, Svcs and so on), sentence-case
+  titles are capitalised and COB reads Chair of the Board.
 - **Holdings**: the latest Form 3/4/5 line per class and holding (direct,
   each trust), unless the proxy table shows a class those filings have not
   reported, or there are no filings (foreign issuers).
@@ -109,6 +135,9 @@ Gotchas found on the live filings:
   the ratio.
 - **No shares**: someone whose filings report no shares shows "None" rather
   than a blank.
+- **10% owners**: a fund that files as a 10% owner but whose filed lines come
+  to under 1% of the votes is left out of large holders (its last Form 4
+  listed one small line, not its stake).
 - **Votes**: shares × votes per share over the votes of every voting class.
   Stakes under 0.01% keep two significant digits, so the page shows "<0.01%"
   rather than 0.
@@ -134,7 +163,14 @@ Gotchas found on the live filings:
   (not on the board list in a given proxy, or someone else holds the role).
 - **Proxy check**: every name, share count and percent the AI returns must
   appear in the document text (`checkProxyFacts`); anything not found is
-  dropped and counted on the tab.
+  dropped and counted on the tab. A reply cut off at the token limit or not
+  valid JSON is asked once more with a larger limit (counted as a second AI
+  call in the day's budget).
+- **Funds and empty pages**: covered funds that are listed like stocks
+  (`CORP_FUND_SYMS` in `build.mjs`: DRAM) show a short note instead of the
+  tab. A company that files no proxy or 20-F and whose insiders file no Forms
+  3/4/5 (a Canadian filer on Form 40-F, such as Shopify) gets an empty view
+  that says so and links to its EDGAR page.
 
 ## Files and switches
 
