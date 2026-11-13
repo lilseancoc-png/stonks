@@ -573,6 +573,13 @@ ok(named.SHP.name === 'Shop Co., Inc.' && prettyCompanyName('NOVO NORDISK A S') 
 // A padded table row (each cell its own paragraph, many empty cells) reads
 // as one line (Netflix's ownership table took a tenth of the room after this).
 ok(htmlToText('<table><tr><td><p>Leslie Kilgore (9)</p></td><td></td><td></td><td><p>458,671</p></td><td></td><td><p>*</p></td></tr><tr><td><p>Strive Masiyiwa</p></td><td><p>41,641</p></td></tr></table><p>Next</p>') === 'Leslie Kilgore (9) | 458,671 | * | \n Strive Masiyiwa | 41,641 | \n Next', 'padded table rows read as one line each');
+// Percents given as fractions (Alibaba: 0.015 for the printed 1.5%) are read
+// as percents only when the whole table was given that way.
+const fracText = 'joseph c. tsai | 272,492,074 | 1.5% | eddie yongming wu | 19,706,418 | 0.1% | 5% holders';
+const fracCheck = checkProxyFacts({ board: [], executives: [], classes: [], owners: [{ name: 'Joseph C. Tsai', kind: 'director', holdings: [{ shares: 272492074, percent: 0.015 }] }, { name: 'Eddie Yongming Wu', kind: 'officer', holdings: [{ shares: 19706418, percent: 0.001 }] }] }, fracText);
+ok(fracCheck.facts.owners[0].holdings[0].percent === 1.5 && fracCheck.facts.owners[1].holdings[0].percent === 0.1 && !fracCheck.dropped.length, 'fraction percents read as percents: ' + JSON.stringify(fracCheck.facts.owners.map((o) => o.holdings)));
+const oneFrac = checkProxyFacts({ board: [], executives: [], classes: [], owners: [{ name: 'Joseph C. Tsai', kind: 'director', holdings: [{ shares: 272492074, percent: 0.05 }] }, { name: 'Eddie Yongming Wu', kind: 'officer', holdings: [{ shares: 19706418, percent: 0.1 }] }] }, fracText);
+ok(oneFrac.facts.owners[0].holdings[0].percent == null && oneFrac.facts.owners[1].holdings[0].percent === 0.1, 'a single small percent is not blown up to 5%');
 // A count printed in millions (Novo Nordisk's "1,075 million shares").
 ok(hasInteger('consisting of 1,075 million shares and 3.39 billion b shares; 4.5 billion in all; 120 million', 1_075_000_000) && hasInteger('3.39 billion b', 3_390_000_000) && !hasInteger('4.5 billion', 4_500_000_000) && !hasInteger('120 million', 120_000_000) && !hasInteger('1,075 million', 1_076_000_000), 'counts printed in millions or billions');
 // The board role is one value from a fixed list (a free list looped on the
