@@ -37678,7 +37678,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
   // The game inputs each stat may use (sports-model-4; lineup since
   // sports-model-5): on only where they beat leaving them out on later games.
-  const FACTOR_NAME = { game_lines: 'Game spread and total', snap_trend: 'Snap share trend', lineup: 'Starting or off the bench (when the lineup is given)' };
+  const FACTOR_NAME = { game_lines: 'Game spread and total', snap_trend: 'Snap share trend', lineup: 'Starting or off the bench (when the lineup is given)', team_efficiency: 'Team offensive and defensive efficiency', team_pace: 'Matchup pace' };
   function factorsHtml(f, b3) {
     if (!f) return '';
     return Object.keys(f).filter((k) => FACTOR_NAME[k]).map((k) => {
@@ -38387,7 +38387,18 @@ function scenarioEventPhase(ev, now = Date.now()) {
       const used = usedBy('snap_trend');
       parts.push('Snap share: last 2 games ' + Math.round(snap.recent * 100) + '%, last 8 ' + Math.round(snap.longer * 100) + '%. ' + (used.length ? 'Used for ' + escape(used.join(', ')) + '.' : 'Shown only.'));
     }
+    const tc = fcs.map(([, f]) => f.team_context).find(Boolean);
+    if (tc) {
+      const used = fcs.filter(([, f]) => f.team_context?.efficiency?.applied || f.team_context?.pace_adjustment?.applied).map(([st]) => label(st));
+      parts.push(teamContextText(tc) + ' ' + (used.length ? 'Used for ' + escape(used.join(', ')) + '.' : 'Shown as context; no adjustment passed the model check.'));
+    }
     return parts.length ? '<p class="sp-muted sp-fc-inputs">' + parts.join(' ') + '</p>' : '';
+  }
+  function teamContextText(t) {
+    const ratings = (x) => 'offense ' + escape(f1(x.offensive_rating)) + ', defense ' + escape(f1(x.defensive_rating)) + ', net ' + escape(f1(x.net_rating));
+    return 'Team ratings: ' + escape(t.team.toUpperCase()) + ' ' + ratings(t.own) + '; ' + escape(t.opponent.toUpperCase()) + ' ' + ratings(t.opposing) +
+      ' per 100 estimated possessions (lower defense is better). Pace ' + escape(f1(t.own.pace)) + ' / ' + escape(f1(t.opposing.pace)) + ', matchup ' + escape(f1(t.expected_pace)) +
+      ' per 48 minutes. Last ' + escape(t.own.games) + ' / ' + escape(t.opposing.games) + ' complete games, pulled toward league average; through ' + escape(t.as_of_date) + '.';
   }
   // ---- Player page -----------------------------------------------------------
   // Clicking a player opens the player's page in place of the board (the address
@@ -39655,6 +39666,12 @@ function scenarioEventPhase(ev, now = Date.now()) {
     else if (lu && lu.starting == null && lu.usual_start_share >= 0.8) out.push('<span class="sp-model-line">Usually starts (' + Math.round(lu.usual_start_share * 100) + '% of the last 10 games). The forecast assumes the usual role; if the lineup shows this player coming off the bench, set Starting to “Off the bench”.</span>');
     if (m && m.game_lines) out.push('<span class="sp-model-line">Game total ' + escape(m.game_lines.total) + ', this team’s implied total ' + escape(m.game_lines.team_total) +
       (m.game_lines.applied ? ' (in the forecast).' : ' (shown only; not used for this stat’s forecast).') + '</span>');
+    if (m && m.team_context) {
+      const t = m.team_context, applied = [];
+      if (t.efficiency?.applied) applied.push('efficiency ×' + escape(t.efficiency.factor));
+      if (t.pace_adjustment?.applied) applied.push('pace ×' + escape(t.pace_adjustment.factor));
+      out.push('<span class="sp-model-line">' + teamContextText(t) + ' ' + (applied.length ? 'Forecast adjustment: ' + applied.join(', ') + '.' : 'Context only; no adjustment passed the model check.') + '</span>');
+    }
     return out.join('');
   }
   const SOURCE_TEXT = { history: 'from history', model: 'from model', book: 'from books', owner: 'typed' };
