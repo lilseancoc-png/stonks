@@ -70,13 +70,17 @@ are drawn in `sports-client.mjs` from the player route's full log
 (`lib/sports/models.mjs`, deterministic, no AI) are refit by the same daily
 job into `_stonks/sports/v1/<sport>/model.json` with a dated holdout check
 (validated only with 300+ games, a better score than both baselines and
-calibration error ≤ 0.03); since `sports-model-3` (2026-11-11; now `sports-model-4`, with the game factors below) 12 NBA and 9 NFL
+calibration error ≤ 0.03); since `sports-model-3` (2026-11-11; now `sports-model-5`, with the game factors below) 12 NBA and 9 NFL
 stats are modeled, combos from their summed values. NFL keeps three extra
 finished seasons for the model only and NBA one (`modelHistory`). NBA forecasts
 rise when regular teammates are out (`teammates_out`, used per stat only where
 it beat no adjustment on the holdout; the MCP, props board, player page and
 Pick Builder read who is out from the ESPN report, never counting the player
-being forecast). The check also scores held-out games at real PrizePicks
+being forecast). Since `sports-model-5` (2026-11-13) the NBA game factors
+include `lineup` (starting tonight against the share of the last 10 played
+games started), used only when the lineup is given: the Pick Builder's
+Starting box, `starting` on the MCP's evaluate / get_player, `starting=yes|no`
+on the player route; unknown leaves the forecast unchanged. The check also scores held-out games at real PrizePicks
 lines (`real_lines`: the issued props record plus the line archive the props
 scans write to `<sport>/lines/<date>.json`, `lib/sports/line-archive.mjs`);
 from 300 real lines a stat must beat both baselines there too. Two game

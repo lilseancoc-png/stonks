@@ -167,6 +167,13 @@ const legs = [
 ];
 const ev = await tool('sports_evaluate_entry', { legs, operator: 'prizepicks', format: 'power', stake: 10, payouts: { 2: 3 } });
 const E = ev.structuredContent.results;
+{ // A lineup the client knows rides the pick into the model and the Pick Builder link.
+  const evS = (await tool('sports_evaluate_entry', { legs: [{ ...legs[0], starting: false }, legs[1]], operator: 'prizepicks', format: 'power', stake: 10, payouts: { 2: 3 } })).structuredContent;
+  eq(evS.results.legs[0].model.lineup?.starting ?? null, evS.results.legs[0].model.status === 'ok' ? false : null, 'the model read shows the given lineup');
+  ok(/entry=/.test(evS.results.pick_builder_link), 'still returns the link');
+  const pl = (await tool('sports_get_player', { sport: 'nba', player_id: gsStar.player_id, starting: true })).structuredContent;
+  ok(pl.results.forecast == null || Object.values(pl.results.forecast.forecasts).every((f) => f.status !== 'ok' || f.lineup?.starting === true), 'sports_get_player passes starting to the forecast');
+}
 const siteRes = mkRes();
 await handleSportsRequest({ method: 'POST', headers: { origin: ORIGIN, host: HOST, 'x-forwarded-proto': 'https' }, query: { sports: 'evaluate' }, body: { legs: legs.map(({ chance, ...l }) => ({ ...l, probability: chance })), operator: 'prizepicks', format: 'power', stake: 10, payouts: { 2: 3 } } }, siteRes,
   { env: ENV, getSession: async () => ({ sub: 'owner-sub', tr: true, tp: true }), store: { ...store, withLease: undefined }, now: () => NOW, loadPropSources: fakeSources });
