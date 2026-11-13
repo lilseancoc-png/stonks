@@ -533,6 +533,15 @@ for (let i = 0; i < 10; i++) longProxy += 'see Security Ownership of Certain Ben
 longProxy += 'SECURITY OWNERSHIP OF CERTAIN BENEFICIAL OWNERS AND MANAGEMENT Name | Shares | Percent The Vanguard Group 1,234,567,890 | 9.1% BlackRock 987,654,321 | 7.2% ' + lorem(9000);
 ok(sliceProxy(longProxy, 60_000).includes('The Vanguard Group 1,234,567,890'), 'the ownership table is in the slice even after ten earlier mentions');
 ok(sliceProxy('Stock Ownership Guidelines ' + lorem(8000) + 'Stock Ownership Holdings of Major Shareholders Walton Enterprises 3,567,890,123 44.8% ' + lorem(8000), 60_000).includes('Walton Enterprises 3,567,890,123'), 'a "Stock Ownership" heading counts, the guidelines do not crowd it out');
+// A table whose heading sits far above it (or is crowded out by number-heavy
+// pay tables named "stock ownership") is still found by its group row.
+let payHeavy = 'Security Ownership of Certain Beneficial Owners and Management 63. ' + lorem(3000);
+for (let i = 0; i < 6; i++) payHeavy += 'Stock Ownership table ' + Array.from({ length: 120 }, (_, k) => '$' + ((k + 1) * 1_234_567).toLocaleString('en-US') + ' |').join(' ') + ' ' + lorem(600);
+payHeavy += 'Principal holders The Vanguard Group 345,557,491 | 8.21 | % | BlackRock, Inc. 308,989,260 | 7.34 | % | ' + lorem(40) + Array.from({ length: 14 }, (_, k) => 'Director Number' + k + ' (' + (k + 4) + ') | ' + ((k + 2) * 101_313).toLocaleString('en-US') + ' | * |').join('\n ') + ' All current directors and executive officers as a group (16 persons) 52,413,364 | 1.24% ' + lorem(6000);
+ok(sliceProxy(payHeavy, 60_000).includes('The Vanguard Group 345,557,491') && sliceProxy(payHeavy, 60_000).includes('as a group (16 persons) 52,413,364'), 'the ownership table is found by its group row');
+// Line breaks in the HTML source do not split a table row.
+ok(htmlToText('<table>\n<tr>\n<td>Reed Hastings (6)</td>\n<td>37,759,062</td>\n<td>*</td>\n</tr>\n</table>\n<p>Next\nline</p>') === 'Reed Hastings (6) | 37,759,062 | * | \n Next line', 'HTML source line breaks are spaces: ' + JSON.stringify(htmlToText('<table>\n<tr>\n<td>Reed Hastings (6)</td>\n<td>37,759,062</td>\n<td>*</td>\n</tr>\n</table>\n<p>Next\nline</p>')));
+ok(htmlToText('Plain text\nfiling\nlines') === 'Plain text\nfiling\nlines', 'a plain-text document keeps its lines');
 // Every list in the reply is capped.
 const schemaCapped = (o) => Object.values(o.properties || {}).every((x) => (x.type !== 'array' || Number(x.maxItems) > 0) && (x.type !== 'array' || !x.items?.properties || schemaCapped(x.items)) && (x.type !== 'object' || schemaCapped(x)));
 ok(schemaCapped(PROXY_SCHEMA), 'every array in the reply schema has maxItems');
