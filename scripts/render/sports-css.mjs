@@ -476,6 +476,8 @@ export function renderSportsCss() {
 .sp-price-field { flex-direction: row; align-items: center; gap: 6px; }
 .sp-price-field span { font-size: 12px; }
 .sp-price-field input { width: 84px; }
+.sp-start-field { flex-direction: row; align-items: center; gap: 6px; }
+.sp-start-field span { font-size: 12px; }
 .sp-price-note { font-size: 12px; color: var(--muted-strong); font-variant-numeric: tabular-nums; flex-basis: 100%; }
 .sp-price-note:empty { display: none; }
 .sp-price-note .sp-bad, .sp-pick-msg .sp-bad { color: var(--neg); }

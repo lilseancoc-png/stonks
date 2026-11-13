@@ -22,6 +22,9 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## 2026-11-13
 
+### Changed
+- The NBA stat model (`sports-model-5`) adjusts for the lineup when it is known: a usual starter coming off the bench is forecast about a quarter lower, a bench player who starts higher. It fixes the model over-calling bench regulars' overs (PRA said 46%, hit 38%), which came from lineup surprises; it passed the factor check on all 12 NBA stats. The Pick Builder adds a Starting box to each NBA pick (Not known / Starts / Off the bench), and the MCP's `sports_evaluate_entry` and `sports_get_player` take `starting`; unknown leaves the forecast as before.
+
 ### Fixed
 - The Sports prop picks and NBA prop research jobs read a briefly-down PropLine or ESPN feed once more after 35 seconds before failing (only the parts that were down; rate limits and refused keys are not retried), and the PrizePicks lines feed logs its HTTP status. Every failed run since Nov 11 was a one-off feed blip (#818).
 
