@@ -23,6 +23,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ## 2026-11-13
 
 ### Fixed
+- The Sports prop picks and NBA prop research jobs read a briefly-down PropLine or ESPN feed once more after 35 seconds before failing (only the parts that were down; rate limits and refused keys are not retried), and the PrizePicks lines feed logs its HTTP status. Every failed run since Nov 11 was a one-off feed blip (#818).
 
 - Leveraged-ETF flows no longer read Yahoo's net assets when the figure has not changed: Yahoo held every fund's net assets flat for days while prices moved, which the net-asset fallback would have logged as a fake flow equal to the price move. The Crowd page says plainly when no flow can be measured, and the margin-debt chart shows fewer, shorter axis labels (#816).
 - The shadow log leaves out hot-fund pressure, ETF rebalance and cluster-selloff reads when the leverage-distress collector failed and an older day's payload was carried, and the "Resembles now" gauge drops the single-stock squeeze match and counts each study once (#816).
