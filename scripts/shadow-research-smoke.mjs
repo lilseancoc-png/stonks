@@ -111,9 +111,9 @@ ok("no crowd payload: no gauges, rows unchanged", !("mkt" in buildShadowSignals(
     { symbol: "BBB", current: true, pledge: { confirmed: false }, stress: { score: 90 } },
   ] };
   const leverageDistress = {
-    hotFunds: { funds: [{ cik: "1" }], coverage: { bulk: { status: "ok" } }, stockLinks: [{ symbol: "AAA", stressedDaysOfVolume: 1.25 }] },
-    rebalance: { rows: [{ underlying: "AAA", pctOfAdv: 4.5, side: "sell" }, { underlying: "BBB", pctOfAdv: 2, side: "buy" }] },
-    clusters: { today: { names: [{ symbol: "CCC" }] } },
+    hotFunds: { asOf: "2026-11-09T15:58:00Z", funds: [{ cik: "1" }], coverage: { bulk: { status: "ok" } }, stockLinks: [{ symbol: "AAA", stressedDaysOfVolume: 1.25 }] },
+    rebalance: { asOf: "2026-11-09T15:58:00Z", rows: [{ underlying: "AAA", pctOfAdv: 4.5, side: "sell" }, { underlying: "BBB", pctOfAdv: 2, side: "buy" }] },
+    clusters: { today: { date: "2026-11-09", names: [{ symbol: "CCC" }] } },
   };
   const structure = { companies: { AAA: { completeFrom: "2026-09-01", owners: { a: { tx: [{ date: "2026-11-01", code: "P" }] }, b: { tx: [{ date: "2026-11-02", code: "P" }, { date: "2026-10-30", code: "S" }] }, c: { tx: [{ date: "2026-11-03", code: "A" }] } } },
     BBB: { completeFrom: "2026-11-01", owners: { a: { tx: [{ date: "2026-11-05", code: "S" }] } } } } };
@@ -129,6 +129,14 @@ ok("no crowd payload: no gauges, rows unchanged", !("mkt" in buildShadowSignals(
   ok("v5: the extra gauges ride the market row", v5.mkt.gpu30 === 23.2 && v5.mkt.rnw === 2);
   const failedScreen = buildShadowSignals(ch5, { builtAtIso: "2026-11-09T16:10:00Z", leverageDistress: { hotFunds: { funds: [], coverage: { bulk: { status: "failed" } } } } });
   ok("v5: a failed 13F screen logs no hot-fund zeros", shadowValue(failedScreen, "BBB", "hfp") == null);
+  // The collector failed and the bake carried the prior day's payload: the
+  // daily reads are left out instead of logged as today's (the next day,
+  // 2026-11-10, after 20:00 ET on the 9th is still the 9th in ET).
+  const carried = buildShadowSignals(ch5, { builtAtIso: "2026-11-10T15:10:00Z", forcedLiquidation, leverageDistress });
+  ok("v5: a carried prior-day leverage payload logs no hfp, lrb or csh", shadowValue(carried, "AAA", "hfp") == null && shadowValue(carried, "AAA", "lrb") == null && shadowValue(carried, "CCC", "csh") == null && shadowValue(carried, "AAA", "fls") === 55);
+  const lateEt = buildShadowSignals(ch5, { builtAtIso: "2026-11-10T01:30:00Z", forcedLiquidation, leverageDistress });
+  ok("v5: the same ET day counts even after midnight UTC", shadowValue(lateEt, "AAA", "lrb") === -4.5 && shadowValue(lateEt, "CCC", "csh") === 1);
+  ok("resembles: the single-stock squeeze match is not a stress analog", resemblesGauges({ matches: [{ id: "squeeze", study: "squeeze" }], studies: { squeeze: { summary: { d20: { medianPct: 40 } } } } }).rnw === 0);
   const evt = eventTradeRead([
     { side: "call", outcome: "win", optionPnlPct: 30, eventPlay: { kind: "earnings" }, entrySnapshot: { shadow: { att: 80 } } },
     { side: "put", outcome: "loss", optionPnlPct: -50, eventPlay: { kind: "earnings" }, entrySnapshot: { shadow: { att: 90 } } },

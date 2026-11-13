@@ -41,7 +41,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { yahooFinance } from "../../lib/yahoo.mjs";
-import { TICKERS } from "../../scripts/build.mjs";
+import { TICKERS, xlsxSheetRows } from "../../scripts/build.mjs";
 import { parseShortVolumeFile, SHORT_VOLUME_URL } from "../../lib/crowd/short-volume.mjs";
 import { WIKI_TITLES, WIKI_URL, parseWikiRows } from "../../lib/crowd/wikipedia.mjs";
 import { COT_URL, COT_CONTRACTS, cotRowRead } from "../../lib/crowd/cot.mjs";
@@ -79,14 +79,14 @@ async function cached(name, fn) {
 // script (429 / 403), so those two send the same descriptive agent the bake
 // uses (CROWD_USER_AGENT); FRED wants the browser shape. A 429 or 5xx waits
 // (Retry-After when given) and tries again, up to five times.
-async function getText(url, headers = {}, { ua = UA } = {}) {
+async function getText(url, headers = {}, { ua = UA, binary = false } = {}) {
   const tries = 5;
   for (let attempt = 0; attempt < tries; attempt++) {
     let retryMs = 1500 * (attempt + 1);
     try {
       const res = await fetch(url, { headers: { "user-agent": ua, accept: "*/*", ...headers }, signal: AbortSignal.timeout(30000) });
       if (res.status === 404) return null;
-      if (res.ok) return await res.text();
+      if (res.ok) return binary ? Buffer.from(await res.arrayBuffer()) : await res.text();
       const err = new Error(`HTTP ${res.status}`);
       if (res.status !== 429 && res.status < 500) { err.final = true; throw err; }
       const after = Number(res.headers.get("retry-after"));
@@ -98,6 +98,18 @@ async function getText(url, headers = {}, { ua = UA } = {}) {
     }
   }
   return null;
+}
+
+// FINRA's full margin-statistics workbook, linked from the margin page.
+const MARGIN_HISTORY_PATH = "/sites/default/files/2021-03/margin-statistics.xlsx";
+function parseMarginHistory(buf) {
+  const out = [];
+  for (const cells of xlsxSheetRows(buf, /margin/i).values()) {
+    const month = String(cells.A || "").trim();
+    const debit = Number(cells.B);
+    if (/^\d{4}-\d{2}$/.test(month) && debit > 1000) out.push({ month, debit: Math.round(debit) });
+  }
+  return out.sort((a, b) => a.month.localeCompare(b.month));
 }
 
 // ---- prices ----------------------------------------------------------------
@@ -265,12 +277,29 @@ async function main() {
     gauges._am = stepReader(am, 4);
   } catch (err) { gauges.cotEsAmZ = { error: err.message }; }
   // FINRA margin debt: month-end balances, published about three weeks later.
+  // The page table holds only the latest 12 months, so the full history comes
+  // from the workbook the page links (every month since 1997-01, newest first,
+  // month text "YYYY-MM" in column A and debit balances, $ millions, in B);
+  // the page rows win for any month both carry.
   try {
-    const months = await cached("margin.json", async () => parseMarginPage(await getText(MARGIN_DEBT_URL, { accept: "text/html" }, { ua: CROWD_USER_AGENT })));
+    let html;
+    const pageHtml = async () => (html ??= await getText(MARGIN_DEBT_URL, { accept: "text/html" }, { ua: CROWD_USER_AGENT }));
+    const page = await cached("margin.json", async () => parseMarginPage(await pageHtml()));
+    const xlsxFile = path.join(CACHE, "finra-margin.xlsx");
+    if (!fs.existsSync(xlsxFile)) {
+      const linked = await pageHtml().catch(() => "");
+      const href = (String(linked || "").match(/href="([^"]*margin-statistics[^"]*\.xlsx)"/i) || [])[1] || MARGIN_HISTORY_PATH;
+      const buf = await getText(new URL(href, MARGIN_DEBT_URL).href, {}, { ua: CROWD_USER_AGENT, binary: true });
+      if (buf) fs.writeFileSync(xlsxFile, buf);
+    }
+    const history = fs.existsSync(xlsxFile) ? parseMarginHistory(fs.readFileSync(xlsxFile)) : [];
+    const merged = new Map(history.map((m) => [m.month, m]));
+    for (const m of page) merged.set(m.month, m);
+    const months = [...merged.values()].sort((a, b) => a.month.localeCompare(b.month));
     const byMonth = new Map(months.map((m) => [m.month, m.debit]));
     const yoy = months.map((m) => { const [y, mo] = m.month.split("-").map(Number); const prev = byMonth.get(`${y - 1}-${String(mo).padStart(2, "0")}`); return [`${m.month}-28`, prev > 0 ? (m.debit / prev - 1) * 100 : null]; });
     const read = stepReader(yoy, 25);
-    gauges.mdYoy = { label: "FINRA margin debt, y/y %", months: months.length, ...gaugeRead(cal, spyClose, read) };
+    gauges.mdYoy = { label: "FINRA margin debt, y/y %", months: months.length, historyMonths: history.length, ...gaugeRead(cal, spyClose, read) };
     gauges._md = read;
   } catch (err) { gauges.mdYoy = { error: err.message }; }
   // FRED BAA10Y (keyless CSV; FRED wants a browser-shaped request).

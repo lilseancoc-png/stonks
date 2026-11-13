@@ -18,7 +18,8 @@ downloads, reused on a rerun; default `./.new-data-cache`, git-ignored),
 
 It reads only free, keyless public sources (Yahoo daily bars, FINRA daily
 short-sale volume files, Wikipedia page views, the CFTC financial futures
-report, FINRA margin statistics, FRED `BAA10Y`), makes no AI call, never
+report, FINRA margin statistics (the page's 12-month table plus the full
+workbook it links, every month since 1997), FRED `BAA10Y`), makes no AI call, never
 touches the private store or the Track Record, and writes aggregates only to
 `results/latest.json`:
 

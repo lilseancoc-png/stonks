@@ -13675,7 +13675,7 @@ function xlsxXmlText(str) {
 function xlsxRichText(xml) {
   return xlsxXmlText([...String(xml).matchAll(/<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g)].map((t) => t[1]).join(""));
 }
-function xlsxSheetRows(buf, sheetNameRe) {
+export function xlsxSheetRows(buf, sheetNameRe) {
   const read = icUnzip(buf);
   const wb = read("xl/workbook.xml");
   if (!wb) throw new Error("no workbook.xml");
