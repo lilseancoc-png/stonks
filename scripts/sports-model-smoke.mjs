@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import {
   nbCdf, nbPmf, nbQuantile, normCdf, cdfAt, quantileOf, lineChances, fitSpread, fitCorrection, varianceOf, nbSizeOf,
   forecastStat, buildModel, modelSummary, positionGroup, MODEL_SPECS, SPORTS_MODEL_VERSION, MIN_GAMES,
-  regularMinutes, absentMinutes, absenceFactor, ABSENCE, gameEnvironment, snapTrend,
+  regularMinutes, absentMinutes, absenceFactor, ABSENCE, gameEnvironment, snapTrend, startShare, startingOf, factorInputs, GAME_FACTORS,
 } from '../lib/sports/models.mjs';
 import { SPORTS_STATS } from '../lib/sports/schema.mjs';
 import { teamAbsence, PROP_RANK_VERSION } from '../lib/sports/props.mjs';
@@ -110,7 +110,7 @@ eq(summary.stats.assists.reason, 'not enough past games to check yet', 'a stat t
 eq(model.evaluation.pts_reb.forecasts > 0, true, 'combos are summed from the stored stats and modeled');
 // Every stat the catalog marks as modeled has a spec, in catalog order.
 for (const sp of ['nba', 'nfl']) eq(SPORTS_STATS[sp].filter((x) => x.model).map((x) => x.id), Object.keys(MODEL_SPECS[sp]), sp + ' catalog and model specs agree');
-eq(SPORTS_MODEL_VERSION, 'sports-model-4');
+eq(SPORTS_MODEL_VERSION, 'sports-model-5');
 eq(PROP_RANK_VERSION, 'props-rank-4');
 const empty = buildModel({ sport: 'nfl', rows: [], now: NOW });
 eq([empty.evaluation.passing_yards.status, empty.evaluation.receptions.reason], ['experimental', 'not enough past games to check yet'], 'no data: experimental, never validated');
@@ -220,6 +220,29 @@ const fastN = forecastStat({ sport: 'nba', stat: 'points', history: histP, home:
 ok(fastN.game_lines && fastN.game_lines.applied === false, 'an unused input is shown, not applied');
 eq(snapTrend([{ played: true, snap_pct: 0.9 }, { played: true, snap_pct: 0.8 }, { played: true, snap_pct: 0.5 }]), null, 'fewer than four snap shares: no trend');
 eq(snapTrend([0.9, 0.9, 0.5, 0.5, 0.5, 0.5].map((x) => ({ played: true, snap_pct: x }))), { recent: 0.9, long: 0.633, change: 0.421 }, 'recent two against the last eight');
+// Lineup (sports-model-5): starting tonight against the usual role.
+ok(GAME_FACTORS.nba.includes('lineup') && !GAME_FACTORS.nfl.includes('lineup'), 'lineup is an NBA game factor only');
+const roleRows = (flags) => flags.map((f) => (f === null ? { played: false } : { played: true, starter: f }));
+eq(startShare(roleRows([true, true, true, true])), null, 'fewer than five flagged games: no start share');
+eq(startShare(roleRows([true, null, true, false, true, true, true, true, true, true, true, false, false])), 0.9, 'the last 10 played games; a missed game is skipped');
+eq([true, 'yes', 'no', false, '', undefined, 'maybe'].map(startingOf), [true, true, false, false, null, null, null], 'yes / no or true / false; anything else is unknown');
+const usualStarter = roleRows(Array(10).fill(true)), usualBench = roleRows(Array(10).fill(false));
+eq(factorInputs('lineup', 'nba', { history: usualStarter, starting: false }), [1], 'a usual starter off the bench reads +1');
+eq(factorInputs('lineup', 'nba', { history: usualBench, starting: true }), [-1], 'a bench player who starts reads -1');
+eq(factorInputs('lineup', 'nba', { history: usualStarter, starting: true }), [0], 'the usual role reads 0');
+eq(factorInputs('lineup', 'nba', { history: usualStarter, starting: null }), null, 'unknown lineup: no input');
+eq(factorInputs('lineup', 'nfl', { history: usualStarter, starting: false }), null, 'NFL: not used');
+ok(/fewer than|no lift|did not beat|within the noise/.test(model.evaluation.points.factors.lineup.why) && !model.evaluation.points.factors.lineup.applied, 'a league where the lineup never surprises keeps no lineup factor');
+const modelL = { ...modelP, context: { ...modelP.context, factors: { ...modelP.context.factors, points: { ...modelP.context.factors.points, lineup: { betas: [-0.27] } } } } };
+const histS = histP.map((r) => ({ ...r, starter: true }));
+const base = forecastStat({ sport: 'nba', stat: 'points', history: histS, home: true, opponent: 'bos', group: 'G', model: modelL, side: 'over', threshold: 20.5 });
+const benched = forecastStat({ sport: 'nba', stat: 'points', history: histS, home: true, opponent: 'bos', group: 'G', model: modelL, side: 'over', threshold: 20.5, starting: false });
+const starts = forecastStat({ sport: 'nba', stat: 'points', history: histS, home: true, opponent: 'bos', group: 'G', model: modelL, side: 'over', threshold: 20.5, starting: true });
+near(benched.mean, base.mean * 0.73, 'a usual starter off the bench: the forecast drops by the kept beta', 0.02);
+eq(starts.mean, base.mean, 'starting as usual: unchanged');
+ok(benched.probability < base.probability && benched.sensitivity.opportunity_up_10 < base.sensitivity.opportunity_up_10, 'the chance and the sensitivity follow the lineup');
+eq(base.lineup, { starting: null, usual_start_share: 1, factor: 1, applied: false }, 'unknown lineup is shown with the usual role and not applied');
+eq(benched.lineup, { starting: false, usual_start_share: 1, factor: 0.73, applied: true }, 'a given lineup is shown and applied');
 // Live: teammates listed Out or Doubtful on the injury report, regulars only.
 const lastDay = LA.rows.reduce((a, r) => (r.date > a ? r.date : a), '');
 const nextDay = new Date(Date.parse(lastDay + 'T12:00:00Z') + 86400000).toISOString().slice(0, 10);

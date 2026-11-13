@@ -606,7 +606,8 @@ only in R2.
 
 ## Stat models
 
-`lib/sports/models.mjs` (`sports-model-4` since 2026-11-11: the game
+`lib/sports/models.mjs` (`sports-model-5` since 2026-11-13, adding the NBA
+lineup input; `sports-model-4` since 2026-11-11: the game
 spread and total and the NFL snap share; `sports-model-3` the same day: 21
 stats, teammates out, real lines; `sports-model-2` added the gated
 recalibration). Deterministic and AI-free: the same stored games always
@@ -794,6 +795,53 @@ scores (a stat that tied at four decimals used to flip run to run).
 **Weather** (temperature, wind, roof) was tested on the NFL holdout with the
 real game-day readings and gave no gain beyond noise on any stat, so it is
 not used.
+
+**Lineup: starting or off the bench (NBA, `sports-model-5`, 2026-11-13).**
+A study of held-out games (scripts and outputs in the project's
+`sports/blowout-study/`) found the NBA model over-calling bench regulars
+(20+ expected minutes, not starting): PRA overs said 46.3% and hit 38.2%,
+points 45.6% / 39.1%. Nearly all of that came from lineup surprises: a usual
+starter who comes off the bench plays fewer minutes than the model expects,
+and a usual bench player promoted to start plays more. The model does not
+know the lineup before tip, and the player's start share alone was too weak
+to help.
+
+So the NBA game factors gained `lineup`: `z = (1 if off the bench, else 0)
+- (1 - start share)`, where start share is how often the player started the
+last 10 played games (at least 5 with a starter flag). A usual starter moved
+to the bench reads +1, a usual bench player who starts −1, the usual role 0.
+In the check the starting flag comes from the box score; live it is used
+only when it is given: the Pick Builder's **Starting** box on each NBA pick
+(Not known / Starts / Off the bench), `starting` on the MCP's
+`sports_evaluate_entry` picks and `sports_get_player`, and `starting=yes|no`
+on the player route. Unknown leaves the forecast exactly as before.
+Forecasts carry `lineup: { starting, usual_start_share, factor, applied }`;
+the MCP warns `NO_LINEUP` when a usual starter (80%+) has no lineup given and
+says `LINEUP` when it moved the forecast.
+
+On the 2026-11-13 data (NBA 2024-26) the lineup factor passed the factor
+check on all 12 stats (beta about −0.19 to −0.30, so a usual starter off
+the bench is forecast about a quarter lower):
+
+| NBA stat | Brier without → with | Gain ± SE |
+|---|---|---|
+| Points | 0.2407 → 0.2373 | 0.0034 ± 0.0007 |
+| Rebounds | 0.2350 → 0.2331 | 0.0019 ± 0.0005 |
+| Assists | 0.2340 → 0.2316 | 0.0024 ± 0.0005 |
+| Threes | 0.2153 → 0.2143 | 0.0011 ± 0.0004 |
+| Steals | 0.2248 → 0.2240 | 0.0008 ± 0.0002 |
+| Blocks | 0.1982 → 0.1981 | 0.0002 ± 0.0002 |
+| Turnovers | 0.2275 → 0.2262 | 0.0013 ± 0.0003 |
+| PRA | 0.2399 → 0.2350 | 0.0049 ± 0.0008 |
+| Points + rebounds | 0.2395 → 0.2349 | 0.0045 ± 0.0008 |
+| Points + assists | 0.2402 → 0.2361 | 0.0041 ± 0.0007 |
+| Rebounds + assists | 0.2371 → 0.2339 | 0.0032 ± 0.0006 |
+| Blocks + steals | 0.2266 → 0.2257 | 0.0009 ± 0.0003 |
+
+These gains assume the lineup is known, as it is in a box score. A pick
+made before lineups are out gets none of it, which is why the Starting box
+exists. The same study found no reliable gain from the pregame spread or a
+blowout-minutes adjustment, so neither is used.
 
 **Recalibration, gated (2026-11-11).** The refit also fits a Platt curve
 (`fitCalibration`: `sigmoid(a + b × logit p)`, `a` held to ±0.5 and `b` to

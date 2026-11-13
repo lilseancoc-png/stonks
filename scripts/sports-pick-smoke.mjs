@@ -106,6 +106,12 @@ eq(leg.history.all, { hits: 3, pushes: 0, games: 4, range: { low: 0.3006, high: 
 eq(leg.recent.map((r) => r.value).slice().sort((a, b) => a - b), [22, 27, 28, 31], 'the small chart gets the same four played games');
 ok(leg.recent.every((r, i) => i === 0 || r.date <= leg.recent[i - 1].date) && leg.recent.every((r) => r.opponent && typeof r.home === 'boolean'), 'newest first, with the opponent');
 eq(draft.locked, false);
+{ // NBA lineup (sports-model-5): starting tonight is carried, and only for NBA.
+  const withStart = await evaluateEntry({ load: load(), body: { legs: [curry('401900003', { starting: 'no' })] }, now: NOW });
+  eq(withStart.legs[0].starting, false, 'starting no is kept on the pick');
+  ok('lineup' in withStart.legs[0].model || withStart.legs[0].model.status !== 'ok', 'the model read carries the lineup block');
+  eq((await evaluateEntry({ load: load(), body: { legs: [curry('401900003', { starting: 'maybe' })] }, now: NOW })).legs[0].starting, undefined, 'an unknown lineup is left out');
+}
 const same = await evaluateEntry({ load: load(), body: { legs: [curry('401900003'), pod('401900003')], operator: 'prizepicks', format: 'power', stake: 10, payouts: { 2: 3 } }, now: NOW });
 eq([same.evaluation.status, same.evaluation.breakeven_probability], ['needs_probabilities', 0.333333], 'same-game picks without chances: only the breakeven');
 eq(same.same_game, [{ game: '401900003', legs: [0, 1] }]);
@@ -373,6 +379,8 @@ eq((await evaluateEntry({ load: load(), body: { legs: [gsWin({ price: '+120' })]
   const back = decodePrefill(link);
   eq([back.operator, back.format, back.legs[0].kind, back.legs[0].market, back.legs[0].line, back.legs[0].price, back.legs[0].probability], ['kalshi', 'parlay', 'team', 'spread', -5.5, 1.91, undefined], 'the link round-trips a game bet');
   eq(decodePrefill(encodePrefill({ format: 'power', legs: [{ ...gsSpread(), line: 99 }] })), null, 'a bad game bet in a link is refused');
+  eq(decodePrefill(encodePrefill({ format: 'power', legs: [curry('401900003', { starting: false })] })).legs[0].starting, false, 'the link carries an NBA starting flag');
+  eq(decodePrefill(encodePrefill({ format: 'power', legs: [curry('401900003')] })).legs[0].starting, undefined, 'and leaves it out when unknown');
 }
 // Game bets settle from the final score; a parlay with odds pays them.
 {

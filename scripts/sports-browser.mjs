@@ -383,7 +383,7 @@ try {
         await modelCardEl.locator('details.sp-model-links > summary').click();
         checks += 3;
         const side = await modelCardEl.innerText();
-        assert(/Model check/i.test(side) && /Points\s*[\d.]+ vs [\d.]+\s*Passed the check/.test(side) && /Rebounds\s*[\d.]+ vs [\d.]+\s*Experimental/.test(side) && /did not beat both simple baselines/.test(side) && /sports-model-4/.test(side), 'the model check card: ' + side);
+        assert(/Model check/i.test(side) && /Points\s*[\d.]+ vs [\d.]+\s*Passed the check/.test(side) && /Rebounds\s*[\d.]+ vs [\d.]+\s*Experimental/.test(side) && /did not beat both simple baselines/.test(side) && /sports-model-5/.test(side), 'the model check card: ' + side);
         assert(/Game spread and total: (on\. It beat leaving it out|off; )/.test(side), 'each stat says whether the spread and total are used: ' + side.slice(0, 900));
         assert(/Same-game links/i.test(side) && /Points and rebounds, one player/.test(side) && /later pairs: both cleared/.test(side), 'the card lists the same-game links and their check: ' + side);
         // Calibration: each model stat draws stated chance vs how often it happened.
@@ -539,6 +539,14 @@ try {
         assert(/Stephen Curry/.test(l0) && /PHX at GS/.test(l0) && /all stored 3\/4/.test(l0), 'the pick from the NBA page arrives with its history: ' + l0);
         assert(/Last 4 against over 24\.5: 3 of 4 would have won/.test(l0) && (await leg0.locator('svg.sp-legspark rect.sp-bar.is-over').count()) === 3, 'each pick shows its last games against its line: ' + l0);
         assert(/Enter the payout if the pick wins/.test(await page.locator(R + '[data-sp-part="eval"]').innerText()), 'a missing payout is asked for');
+        // NBA picks ask whether the player starts (the model's lineup input), unknown by default.
+        assert.equal(await leg0.locator('[data-sp-leg-start]').inputValue(), '', 'starting tonight starts as not known');
+        const startReq = page.waitForRequest((r) => r.method() === 'POST' && /sports=evaluate/.test(r.url()) && /"starting":false/.test(r.postData() || ''));
+        await leg0.locator('[data-sp-leg-start]').selectOption('no');
+        await startReq;
+        const backReq = page.waitForRequest((r) => r.method() === 'POST' && /sports=evaluate/.test(r.url()) && !/"starting"/.test(r.postData() || ''));
+        await leg0.locator('[data-sp-leg-start]').selectOption('');
+        await backReq;
         // A second pick through the Pick Builder's own search.
         await page.locator(R + '[data-sp-add-search]').fill('lebron');
         await page.locator(R + '[data-sp-add-player="1966"]').click();

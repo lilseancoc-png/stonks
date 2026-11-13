@@ -37669,9 +37669,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
     return '<span>At real PrizePicks lines: ' + Number(r.n).toLocaleString('en-US') + ' game' + (r.n === 1 ? '' : 's') + (r.enough ? '' : ' (counts toward passing at 300)') +
       '. Score: model <b>' + b3(B.model) + '</b>, last-10 hit rate ' + b3(B.last10_hit_rate) + ', coin flip ' + b3(B.even) + '.</span>';
   }
-  // The game inputs each stat may use (sports-model-4): on only where they
-  // beat leaving them out on later games.
-  const FACTOR_NAME = { game_lines: 'Game spread and total', snap_trend: 'Snap share trend' };
+  // The game inputs each stat may use (sports-model-4; lineup since
+  // sports-model-5): on only where they beat leaving them out on later games.
+  const FACTOR_NAME = { game_lines: 'Game spread and total', snap_trend: 'Snap share trend', lineup: 'Starting or off the bench (when the lineup is given)' };
   function factorsHtml(f, b3) {
     if (!f) return '';
     return Object.keys(f).filter((k) => FACTOR_NAME[k]).map((k) => {
@@ -39309,7 +39309,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
     return {
       legs: d.legs.map((l) => isTeamPick(l)
         ? { kind: 'team', sport: l.sport, game_id: l.game_id, market: l.market, team: l.team, side: l.side, line: l.line, probability: l.probability, probability_source: l.probability_source, price: price(l) }
-        : { sport: l.sport, player_id: l.player_id, game_id: l.game_id, stat: l.stat, side: l.side, threshold: l.threshold, probability: l.probability, probability_source: l.probability_source, price: price(l) }),
+        : Object.assign({ sport: l.sport, player_id: l.player_id, game_id: l.game_id, stat: l.stat, side: l.side, threshold: l.threshold, probability: l.probability, probability_source: l.probability_source, price: price(l) },
+          l.sport === 'nba' && typeof l.starting === 'boolean' ? { starting: l.starting } : {})),
       operator: d.operator, format: d.format, stake: d.stake, payouts, note: d.note,
     };
   }
@@ -39640,6 +39641,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
       out.push('<span class="sp-model-line sp-model-warn">Injury report: ' + (why || 'listed.') + ' ' + (a.out ? 'If the player does not play, most apps remove the pick.' : 'Check again before the game.') + '</span>');
     }
     if (m && m.teammates_out && m.teammates_out.applied) out.push('<span class="sp-model-line">Regular teammates listed out (about ' + num(Math.round(m.teammates_out.minutes)) + ' usual minutes): the forecast is raised \u00d7' + escape(m.teammates_out.factor) + '.</span>');
+    const lu = m && m.lineup;
+    if (lu && lu.applied && lu.factor !== 1) out.push('<span class="sp-model-line">' + (lu.starting ? 'Starts tonight' : 'Comes off the bench tonight') + (lu.usual_start_share != null ? ' (started ' + Math.round(lu.usual_start_share * 100) + '% of the last 10 games)' : '') + ': the forecast is moved \u00d7' + escape(lu.factor) + '.</span>');
+    else if (lu && lu.starting == null && lu.usual_start_share >= 0.8) out.push('<span class="sp-model-line">Usually starts (' + Math.round(lu.usual_start_share * 100) + '% of the last 10 games). The forecast assumes the usual role; if the lineup shows this player coming off the bench, set Starting to “Off the bench”.</span>');
     if (m && m.game_lines) out.push('<span class="sp-model-line">Game total ' + escape(m.game_lines.total) + ', this team’s implied total ' + escape(m.game_lines.team_total) +
       (m.game_lines.applied ? ' (in the forecast).' : ' (shown only; not used for this stat’s forecast).') + '</span>');
     return out.join('');
@@ -39678,8 +39682,17 @@ function scenarioEventPhase(ev, now = Date.now()) {
       '<select data-sp-leg-side aria-label="Over or under for pick ' + (i + 1) + '"><option value="over"' + (l.side === 'over' ? ' selected' : '') + '>Over</option><option value="under"' + (l.side === 'under' ? ' selected' : '') + '>Under</option></select>' +
       '<input data-sp-leg-line type="number" min="0" max="1000" step="0.5" inputmode="decimal" value="' + escape(l.threshold) + '" aria-label="Line for pick ' + (i + 1) + '">' +
       '<span class="sp-ms" data-sp-ms title="How Kalshi names this line">' + (ms ? escape(ms) : '') + '</span>' +
-      legChanceHtml(l, i) + '</div>' +
+      legChanceHtml(l, i) + legStartHtml(l, i) + '</div>' +
       '<div class="sp-hist" data-sp-hist="' + i + '">' + histHtml(i) + '</div></li>';
+  }
+  // NBA: whether the player starts tonight, when known (the model's lineup
+  // input). Unknown leaves the forecast on his usual role.
+  function legStartHtml(l, i) {
+    if (l.sport !== 'nba') return '';
+    const cur = l.starting === true ? 'yes' : l.starting === false ? 'no' : '';
+    const opt = (v, t) => '<option value="' + v + '"' + (v === cur ? ' selected' : '') + '>' + t + '</option>';
+    return '<label class="sp-field sp-start-field"><span>Starting</span><select data-sp-leg-start aria-label="Does pick ' + (i + 1) + '’s player start tonight">' +
+      opt('', 'Not known') + opt('yes', 'Starts') + opt('no', 'Off the bench') + '</select></label>';
   }
   // A game bet in the entry: the bet, its line and side, the chance and the
   // team's own record against the same line this season.
@@ -39728,7 +39741,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       : pb.prefill === 'bad' ? '<p class="sp-banner sp-bad">The shared link could not be read, so nothing was filled in.</p>' : '';
     if (!d.legs.length) return banner + emptyBox('No picks yet.', 'Add 1 to 6 player lines or game bets above, or from the NBA and NFL pages.');
     return banner + '<ol class="sp-legs">' + d.legs.map(legHtml).join('') + '</ol>' + '<div data-sp-part="use-all">' + useAllHtml() + '</div>' +
-      '<p class="sp-note">History rates show how often the player (or, for a game bet, the team) cleared this line in stored games; they ignore minutes, opponent and role. Game bets are priced by the team game model, whose check is on the NBA and NFL pages. The model reads minutes or targets, the opponent and home or away, and is checked on past games (see the Model check on the NBA and NFL pages). A pick whose player is listed Out, Doubtful or Questionable on the latest ESPN injury report says so, and for NBA the model counts regular teammates listed out; neither reads news or confirmed lineups. The chance you enter is yours.</p>';
+      '<p class="sp-note">History rates show how often the player (or, for a game bet, the team) cleared this line in stored games; they ignore minutes, opponent and role. Game bets are priced by the team game model, whose check is on the NBA and NFL pages. The model reads minutes or targets, the opponent and home or away, and is checked on past games (see the Model check on the NBA and NFL pages). A pick whose player is listed Out, Doubtful or Questionable on the latest ESPN injury report says so, and for NBA the model counts regular teammates listed out; neither reads news. NBA picks take a confirmed lineup only when you set Starting (a usual starter coming off the bench is forecast lower). The chance you enter is yours.</p>';
   }
   function useAllHtml() {
     const d = draft(), ready = d.legs.filter((l, i) => { const e = evalLeg(i); return e && e.model && e.model.status === 'ok'; }).length;
@@ -40427,7 +40440,13 @@ function scenarioEventPhase(ev, now = Date.now()) {
       if (page !== BUILDER) return;
       const d = draft();
       const legEl = t.closest('[data-sp-leg]');
-      if (t.matches('[data-sp-leg-side]') && legEl) {
+      if (t.matches('[data-sp-leg-start]') && legEl) {
+        const l = d.legs[Number(legEl.getAttribute('data-sp-leg'))];
+        if (l) {
+          if (t.value === 'yes') l.starting = true; else if (t.value === 'no') l.starting = false; else delete l.starting;
+          clearChance(legEl, l); saveDraft(); scheduleEval();
+        }
+      } else if (t.matches('[data-sp-leg-side]') && legEl) {
         const l = d.legs[Number(legEl.getAttribute('data-sp-leg'))];
         if (l) {
           l.side = t.value; clearChance(legEl, l);
@@ -40752,7 +40771,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (!ID.test(player) || !ID.test(game) || typeof l.stat !== 'string' || !/^[a-z_]{1,40}$/.test(l.stat)) return null;
     if (l.side !== 'over' && l.side !== 'under') return null;
     if (!(l.threshold != null && l.threshold !== '' && Number.isFinite(t) && t >= 0 && t <= 1000 && Math.round(t * 2) === t * 2)) return null;
-    legs.push(Object.assign({ sport: l.sport, player_id: player, game_id: game, stat: l.stat, side: l.side, threshold: t }, price));
+    const starting = l.sport === 'nba' && typeof l.starting === 'boolean' ? { starting: l.starting } : {};
+    legs.push(Object.assign({ sport: l.sport, player_id: player, game_id: game, stat: l.stat, side: l.side, threshold: t }, starting, price));
   }
   const payouts = {};
   if (data.payouts && typeof data.payouts === 'object' && !Array.isArray(data.payouts)) {
