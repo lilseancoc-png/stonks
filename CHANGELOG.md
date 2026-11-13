@@ -22,6 +22,12 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## 2026-11-13
 
+### Added
+- The News page now carries every covered company's SEC 8-K filings from the last week as official company news, read from EDGAR's free submissions files (one read per company, at most every 45 minutes). The filing's item numbers name the event (results, a material agreement, an officer change, a restatement and so on); shareholder votes, bylaw edits and exhibit-only filings are left out, and foreign filers' 6-K reports (no item numbers) are listed but not read. Filings are context only: no AI call, no grading points and no news re-read. `NEWS_SEC_8K=0` turns the pass off.
+
+### Changed
+- The Interactive Brokers borrow-fee read is off by default: the FTP file never loaded from the build machines, and the Market map's option-implied borrow already covers each name. The Crowd page shows it as off and drops the empty borrow columns, and it leaves the data-source health list. `CROWD_BORROW=1` (repo variable or Owner Settings) turns it back on.
+
 ### Fixed
 - The Sports prop picks and NBA prop research jobs read a briefly-down PropLine or ESPN feed once more after 35 seconds before failing (only the parts that were down; rate limits and refused keys are not retried), and the PrizePicks lines feed logs its HTTP status. Every failed run since Nov 11 was a one-off feed blip (#818).
 
