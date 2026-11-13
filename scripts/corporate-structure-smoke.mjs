@@ -580,6 +580,11 @@ const fracCheck = checkProxyFacts({ board: [], executives: [], classes: [], owne
 ok(fracCheck.facts.owners[0].holdings[0].percent === 1.5 && fracCheck.facts.owners[1].holdings[0].percent === 0.1 && !fracCheck.dropped.length, 'fraction percents read as percents: ' + JSON.stringify(fracCheck.facts.owners.map((o) => o.holdings)));
 const oneFrac = checkProxyFacts({ board: [], executives: [], classes: [], owners: [{ name: 'Joseph C. Tsai', kind: 'director', holdings: [{ shares: 272492074, percent: 0.05 }] }, { name: 'Eddie Yongming Wu', kind: 'officer', holdings: [{ shares: 19706418, percent: 0.1 }] }] }, fracText);
 ok(oneFrac.facts.owners[0].holdings[0].percent == null && oneFrac.facts.owners[1].holdings[0].percent === 0.1, 'a single small percent is not blown up to 5%');
+// Danish-style classes ("A shares", "B shares") and a founder share are
+// classes of their own; "a share of common stock" is not class A.
+ok(shareClassOf('A shares') === 'A' && shareClassOf('B-shares') === 'B' && shareClassOf('a share of common stock') === 'common' && shareClassOf('A shares of the Company') === 'common' && shareClassOf('Founder Share') === 'special' && shareClassOf('Ordinary shares') === 'common', 'A/B shares and founder share classes');
+const nvoClasses = shareClasses({ classes: [{ name: 'A shares', votesPerShare: 100, outstanding: 1_075_000_000, listed: false }, { name: 'B shares', votesPerShare: 10, outstanding: 3_390_000_000, listed: true }] }, null);
+ok(nvoClasses.length === 2 && nvoClasses[1].key === 'B' && nvoClasses[1].votes === 10, 'Novo Nordisk keeps both share classes');
 // A count printed in millions (Novo Nordisk's "1,075 million shares").
 ok(hasInteger('consisting of 1,075 million shares and 3.39 billion b shares; 4.5 billion in all; 120 million', 1_075_000_000) && hasInteger('3.39 billion b', 3_390_000_000) && !hasInteger('4.5 billion', 4_500_000_000) && !hasInteger('120 million', 120_000_000) && !hasInteger('1,075 million', 1_076_000_000), 'counts printed in millions or billions');
 // The board role is one value from a fixed list (a free list looped on the

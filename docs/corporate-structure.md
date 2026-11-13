@@ -67,9 +67,20 @@ Gotchas found on the live filings:
   slice (`sliceAnnualReport`).
 - The ownership table heading is printed in many ways ("Stock Ownership",
   "Holdings of Principal Shareholders", "5% Owners", "Shares Beneficially
-  Owned") and mentioned dozens of times before the table; the slice keeps the
-  three mentions followed by the most share counts and percents, and skips
-  "stock ownership guidelines".
+  Owned") and mentioned dozens of times before the table; the table's own
+  "as a group" row is a second anchor. The slice keeps the three places
+  followed (or, for the group row, preceded) by the most ownership rows (a
+  share count then a percent or "*"); pay tables full of dollar figures do
+  not crowd it out, and "stock ownership guidelines" is skipped.
+- Line breaks in the HTML source are spaces (a padded table put every cell on
+  its own line, so Netflix's ownership table did not fit the slice and its
+  5% holders were missing). Table rows read as one line each.
+- Counts printed in millions ("1,075 million shares") match a share count
+  when they have three or more significant digits. A table the model gives
+  as fractions (0.015 for the printed 1.5%) is read as percents only when
+  every value appears in the document times 100.
+- Danish-style classes ("A shares", "B shares") are classes of their own, and
+  a founder share (Shopify) is a class of its own, not common stock.
 - The reply schema caps every list (`maxItems`, sent as a string: the API's
   int64 fields reject a number with 400 INVALID_ARGUMENT; a 400 retries once
   without the caps). The model does not always keep a cap: a free list of
@@ -123,7 +134,9 @@ Gotchas found on the live filings:
   spellings of one person ("Eddie Yongming Wu" / "Eddie Wu") are paired, and
   the filed legal name shows as "aka" only when it really differs. Names the
   proxy prints in capitals are shown in normal case (McX, Jr. and Sr. kept),
-  and honorifics (Ambassador, Admiral, Dr., Sir and so on) are dropped.
+  and honorifics (Ambassador, Admiral, Dr., Sir and so on) are dropped. The
+  company is named as the site names it (Yahoo's "JPMorgan Chase & Co."), else
+  EDGAR's name in normal case with A/S kept.
 - **Funds and companies are not people**: a filer whose name is an entity
   (LLC, L.L.C., LP, GP, S.à r.l., B.V., Pte and so on) is a holder, never
   matched to a director or officer.
