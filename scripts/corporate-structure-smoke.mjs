@@ -558,6 +558,8 @@ ok(subK.doc?.form === '10-K/A' && subK.doc.acc === 'k2' && !subK.foreign, 'a 10-
 const subP = readSubmissions({ filings: { recent: { form: ['10-K/A', 'DEF 14A'], filingDate: ['2026-06-01', '2026-03-01'], accessionNumber: ['k2', 'p1'], primaryDocument: ['a.htm', 'b.htm'], items: ['', ''] } } }, '0001594805', Date.parse('2026-11-12'));
 ok(subP.doc?.form === 'DEF 14A', 'a proxy beats a newer 10-K/A');
 
+// A count printed in millions (Novo Nordisk's "1,075 million shares").
+ok(hasInteger('consisting of 1,075 million shares and 3.39 billion b shares; 4.5 billion in all; 120 million', 1_075_000_000) && hasInteger('3.39 billion b', 3_390_000_000) && !hasInteger('4.5 billion', 4_500_000_000) && !hasInteger('120 million', 120_000_000) && !hasInteger('1,075 million', 1_076_000_000), 'counts printed in millions or billions');
 // The board role is one value from a fixed list (a free list looped on the
 // live GS, MDB and SHOP proxies), mapped back to roles; lists are deduped.
 const boardItem = PROXY_SCHEMA.properties.board.items.properties;
