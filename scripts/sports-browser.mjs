@@ -578,6 +578,7 @@ try {
         assert.equal(await leg0.locator('[data-sp-src]').innerText(), 'typed', 'the chance is labeled as typed by the owner');
         assert(/Positive expected value[\s\S]*Expected return \+23\.8%/.test(await page.locator(R + '.sp-ev.sp-ev-positive-ev').innerText()), 'the expected-value read sits above the numbers');
         if (width > 760) await page.screenshot({ path: resolve(output, `${id}-entry-${width}-${theme}.png`), fullPage: true, animations: 'disabled' });
+        else await page.locator(R + '.sp-ev').screenshot({ path: resolve(output, `${id}-ev-box-positive-${width}-${theme}.png`), animations: 'disabled' });
         // Below break-even: a warning, never a block (owner, 2026-11-13).
         await page.locator(R + '[data-sp-leg="0"] [data-sp-leg-chance]').fill('55');
         await page.locator(R + '.sp-ev.sp-ev-negative-ev').waitFor();
@@ -585,6 +586,9 @@ try {
         assert(/Negative expected value/.test(neg) && /This entry loses about 9\.[23]% of the stake/.test(neg) && /Both hit 30\.3% of the time against 33\.3% needed/.test(neg) && /Picks 1 \(55\.0%\) and 2 \(55\.0%\) are under the 57\.7%/.test(neg), 'a losing entry is called out: ' + neg);
         assert(await page.locator(R + '[data-sp-save]').isEnabled(), 'and can still be saved');
         if (width > 760) await page.screenshot({ path: resolve(output, `${id}-entry-negative-${width}-${theme}.png`), fullPage: true, animations: 'disabled' });
+        else await page.locator(R + '.sp-ev').screenshot({ path: resolve(output, `${id}-ev-box-negative-${width}-${theme}.png`), animations: 'disabled' });
+        const evBox = await page.locator(R + '.sp-ev').evaluate((el) => ({ over: el.scrollWidth - el.clientWidth, right: el.getBoundingClientRect().right, vw: document.documentElement.clientWidth }));
+        assert(evBox.over <= 1 && evBox.right <= evBox.vw + 1, 'the read fits the screen at ' + width + ': ' + JSON.stringify(evBox));
         await page.locator(R + '[data-sp-leg="0"] [data-sp-leg-chance]').fill('75');
         await page.locator(R + '.sp-ev.sp-ev-positive-ev').waitFor();
         await page.locator(R + '[data-sp-note]').fill('fixture entry');
@@ -599,7 +603,7 @@ try {
         await card.locator('[data-sp-withdraw-yes]').click();
         await page.locator(R + '.sp-entry').first().filter({ hasText: 'Withdrawn' }).waitFor();
         assert(!requests.some((u) => /prizepicks|betr\.app|sportsbook|odds/i.test(new URL(u).hostname)), 'no request leaves the site');
-        checks += 17;
+        checks += 18;
       }
       assert.equal(await page.locator('[data-nav-group="sports"]').isVisible(), width > 760 ? true : await page.locator('[data-nav-group="sports"]').isVisible());
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);

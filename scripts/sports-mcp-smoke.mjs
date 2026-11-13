@@ -235,8 +235,9 @@ eq([withModel.legs[0].chance, withModel.legs[0].chance_source, withModel.evaluat
 // A model chance is also priced at how often the model's past calls near it hit.
 const WT = withModel.legs[0].model.tested, WC = withModel.evaluation.ev_check;
 ok(WT && WT.games >= 30, 'the fixture model has a tested bin for this chance');
-eq(WC.at_tested_rates.picks, [{ pick: 1, chance: withModel.legs[0].chance, tested: Math.round((withModel.legs[0].chance + WT.hit - WT.said) * 10000) / 10000 }], 'the chance moves by the bin’s holdout miss');
-near(WC.at_tested_rates.expected_roi, Math.round(((withModel.legs[0].chance + WT.hit - WT.said) * 1.8 - 1) * 10000) / 10000, 'and the one-pick entry is repriced at that chance', 1e-4);
+ok(Number.isFinite(WT.shift) && Math.abs(WT.shift - (WT.hit - WT.said)) <= 0.15, 'the miss at this chance is read off the reliability curve, near its bin’s: ' + WT.shift + ' vs ' + (WT.hit - WT.said));
+eq(WC.at_tested_rates.picks, [{ pick: 1, chance: withModel.legs[0].chance, tested: Math.round((withModel.legs[0].chance + WT.shift) * 10000) / 10000 }], 'the chance moves by the holdout miss at that chance');
+near(WC.at_tested_rates.expected_roi, Math.round(((withModel.legs[0].chance + WT.shift) * 1.8 - 1) * 10000) / 10000, 'and the one-pick entry is repriced at that chance', 1e-4);
 eq(WC.verdict, WC.expected_roi < 0 ? 'negative_ev' : WC.at_tested_rates.expected_roi < 0 ? 'unsure' : 'positive_ev', 'the verdict reads both');
 
 // Argument checks and owner-fixable errors.

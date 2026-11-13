@@ -569,16 +569,25 @@ It reads the evaluation the pricer already made and changes no number:
 | Verdict | When |
 |---|---|
 | `negative_ev` | The expected return is below 0. With no combined chance (same-game picks without a measured link), below 0 under every link. |
-| `unsure` | 0 or more, but below 0 at the low end of the same-game range, or at the model's tested hit rates (below); with no combined chance, the any-link range runs from below 0 to above 0. |
-| `positive_ev` | 0 or more and it stays there through every check. |
+| `unsure` | 0 or more, but about break-even (under 0.05%, shown as 0.0%), or below 0 at the low end of the same-game range (power, flex and parlays alike), or at the model's tested hit rates (below); with no combined chance, the any-link range runs from below 0 to above 0. |
+| `positive_ev` | 0.05% or more and it stays at 0 or more through every check. |
 | `unknown` | A payout or a chance is missing, or nothing bounds the return (flex with no combined chance). |
 
+A loss too small to show (under 0.05%) is still `negative_ev`, worded "loses
+a little (under 0.1% of the stake)".
+
 The **tested hit rates** check prices the same entry again with each player
-pick whose chance is the model's own moved by that chance's holdout miss:
-the reliability bin it falls in (30+ held-out games) said `said` and hit
-`hit`, so the chance moves by `hit − said` (`model.tested`, the same numbers
-behind the MCP's `MODEL_TESTED` note). Typed, history and book chances and
-game bets stay as entered; the result is `at_tested_rates`. `weak_picks`
+pick whose chance is the model's own moved by the holdout miss at that
+chance: `model.tested.shift`, read off the stat's reliability curve
+(`curveMiss` in `models.mjs`: straight lines between the centres of
+neighbouring bins with 30+ held-out games, the end bins' miss beyond them,
+turned to the pick's side). A bin's own miss jumps at its edges (NBA blocks:
+a 59.9% call would take the 50-60% bin's +1.8 points, a 60.0% call the 60-70%
+bin's −5.2), so the curve is read instead. `model.tested` still carries the
+pick's bin (`said`, `hit`, `games`: the numbers behind the MCP's
+`MODEL_TESTED` note and the page's "In testing, calls near …" line), and the
+pick's bin needs 30+ games for any shift. Typed, history and book chances
+and game bets stay as entered; the result is `at_tested_rates`. `weak_picks`
 names the picks that drag the entry: a chance under what each pick needs if
 all were equal and independent (power, flex, a one-price parlay), or, for a
 parlay with each pick's odds, a pick that loses on its own odds. The page

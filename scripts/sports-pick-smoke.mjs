@@ -140,7 +140,16 @@ ok(/sign is not known/.test(SC.reason), SC.reason);
   ok(t.verdict === 'unsure' && /actually had, it is −2\.0%/.test(t.reason), 'positive at the model’s chances but negative at its tested hit rates: unsure. ' + t.reason);
   const j = evCheck({ evaluation: { ...base, status: 'joint_estimate', expected_net_range: { low: -0.5, high: 3 } }, format: 'power', stake: 10, legs: legs2 });
   ok(j.verdict === 'unsure' && /falls to −5\.0% at the low end/.test(j.reason), 'below 0 at the low end of the same-game range: unsure. ' + j.reason);
-  eq(evCheck({ evaluation: { ...base, expected_roi: 0 }, format: 'power', stake: 10, legs: legs2 }).verdict, 'positive_ev', 'exactly break-even is not flagged (the rule is below 0)');
+  // About break-even (shows as 0.0%): not a clear edge, never "positive"; a
+  // loss that small is still a loss.
+  const even = evCheck({ evaluation: { ...base, expected_roi: 0 }, format: 'power', stake: 10, legs: legs2 });
+  eq([even.verdict, even.reason], ['unsure', 'This entry about breaks even at these chances and payouts (expected return under 0.1%). Both hit 42.0% of the time against 33.3% needed.'], 'exactly break-even: not a clear edge');
+  eq(evCheck({ evaluation: { ...base, expected_roi: 0.0004 }, format: 'power', stake: 10, legs: legs2 }).verdict, 'unsure', 'a gain that shows as +0.0% is no edge');
+  eq(evCheck({ evaluation: { ...base, expected_roi: 0.0005 }, format: 'power', stake: 10, legs: legs2 }).verdict, 'positive_ev', '+0.1% and up is');
+  const tiny = evCheck({ evaluation: { ...base, expected_roi: -0.0004 }, format: 'power', stake: 10, legs: legs2 });
+  ok(tiny.verdict === 'negative_ev' && /^This entry loses a little \(under 0\.1% of the stake\) on average/.test(tiny.reason), 'a loss that shows as 0.0% is still flagged, in words: ' + tiny.reason);
+  const evenTested = evCheck({ evaluation: { ...base, expected_roi: 0 }, format: 'power', stake: 10, legs: legs2, tested: { expected_roi: 0.03, picks: [] } });
+  ok(evenTested.verdict === 'unsure' && /would be \+3\.0%\.$/.test(evenTested.reason), 'break-even still reports the tested-rate return: ' + evenTested.reason);
   eq(evCheck({ evaluation: { status: 'not_calculated', expected_net_range: { low: -4, high: -1 } }, format: 'power', stake: 10, legs: legs2 }).verdict, 'negative_ev', 'below 0 under every link: negative');
   eq(evCheck({ evaluation: { status: 'not_calculated', expected_net_range: { low: 1, high: 4 } }, format: 'power', stake: 10, legs: legs2 }).verdict, 'positive_ev');
   eq(evCheck({ evaluation: { status: 'not_calculated' }, format: 'flex', stake: 10, legs: legs2 }).verdict, 'unknown', 'no range at all: unknown');
