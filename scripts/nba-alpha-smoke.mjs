@@ -201,3 +201,6 @@ assert.equal(nflCalls, 2); assert.equal(nfl.reference, undefined, 'NFL feed and 
   assert.equal(calls.length, 1); assert.equal(waits.length, 0); assert.equal(r.retried, '');
 }
 console.log('NBA alpha passed: fresh paired prices, timestamp/ladder safety, margin removal, strict wins, correlated pair screens, role scenarios, immutable evidence/paper entries, exact offline replay, grading/CLV/ROI and Owner/CSRF isolation.');
+// Book-price data fixes (2026-11-13): more books, NFL prices, anchored prices,
+// the real-line warning and NBA.com headers. Run here so test:sports covers it.
+await import('./sports-book-data-smoke.mjs');
