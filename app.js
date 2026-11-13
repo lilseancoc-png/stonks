@@ -3545,6 +3545,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
   }
   function crowdSourcePill(block){
     if (!block) return '<span class="crd-src crd-src-missing">not written</span>';
+    if (block.disabled) return '<span class="crd-src crd-src-missing">off</span>';
     if (block.ok && !block.stale) return '<span class="crd-src crd-src-ok">fresh</span>';
     if (block.carriedForward) return '<span class="crd-src crd-src-carried">carried forward</span>';
     return '<span class="crd-src crd-src-missing">no data</span>';
@@ -3664,6 +3665,9 @@ function recoveryEvidence(row, data, now = Date.now()) {
       { label: 'Borrow fee', num: true, title: 'Interactive Brokers annualized stock-loan fee', cell: function(r){ return r.borrowFeePct == null ? '<span class="vt-na">—</span>' : '<span class="' + (r.borrowFeePct >= 5 ? 'crd-hot' : '') + '">' + vnNum(r.borrowFeePct, 2) + '%</span> ' + crowdPctile(r.borrowFeePctPctile); }, sort: function(r){ return r.borrowFeePct; } },
       { label: 'Shares to borrow', num: true, cell: function(r){ var b = bo && bo.bySymbol && bo.bySymbol[r.symbol]; return r.borrowAvailable == null ? '<span class="vt-na">—</span>' : (b && b.availableCapped ? '>' : '') + crowdInt(r.borrowAvailable); }, sort: function(r){ return r.borrowAvailable; } },
     ];
+    // The IBKR read is off by default (2026-11-13); with no fee for any name the
+    // two borrow columns would be all dashes, so they are left out.
+    if (!rows.some(function(r){ return r.borrowFeePct != null || r.borrowAvailable != null; })) cols = cols.filter(function(c){ return c.label !== 'Borrow fee' && c.label !== 'Shares to borrow'; });
     var hot = rows.filter(function(r){ return r.borrowFeePct != null && r.borrowFeePct >= 5; }).sort(function(a, b){ return b.borrowFeePct - a.borrowFeePct; });
     var heavy = rows.filter(function(r){ return r.shortZ20 != null && r.shortZ20 >= 1.5; }).sort(function(a, b){ return b.shortZ20 - a.shortZ20; });
     return h + market +
@@ -3671,7 +3675,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
       (hot.length ? '<p class="mm-callout"><b>Costly to borrow at IBKR:</b> ' + hot.map(function(r){ return vnSym(r.symbol) + ' ' + vnNum(r.borrowFeePct, 1) + '%'; }).join(', ') + ' a year.</p>' : '') +
       VIEWS.tableHtml(cols, rows, { key: 'crowd-shorts', empty: 'No short-volume reads yet.' }) +
       crowdHead('Borrow fee and availability (Interactive Brokers)', bo, bo && bo.note) +
-      (bo && bo.universe ? '<p class="crd-fact">Median fee across the tracked names ' + vnNum(bo.universe.medianFeePct, 2) + '% a year; ' + (bo.universe.hardToBorrow || 0) + ' name(s) at 5% or more.</p>' : (bo ? '' : crowdEmpty('Not read yet.'))) +
+      (bo && bo.disabled ? '' : bo && bo.universe ? '<p class="crd-fact">Median fee across the tracked names ' + vnNum(bo.universe.medianFeePct, 2) + '% a year; ' + (bo.universe.hardToBorrow || 0) + ' name(s) at 5% or more.</p>' : (bo ? '' : crowdEmpty('Not read yet.'))) +
       '<p class="crd-note">Short volume is not short interest: it counts the day\'s sell-short prints in FINRA\'s off-exchange files, which includes market makers hedging. The twice-monthly short interest and days-to-cover are on the <a href="?tab=market-map">Market map</a>.</p>';
   }
 
@@ -46241,6 +46245,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         (item.contextOnly ? '<span class="news-carried" title="This source item is not used to add grading points">Context only · not scored</span>' : '') +
         (item.sourceKind === 'issuer' ? '<span class="news-carried">Company announcement</span>' : '') +
         (item.recordKind === 'regulatory-action' ? '<span class="news-carried">Recorded FDA action</span>' : '') +
+        (item.recordKind === 'sec-filing' ? '<span class="news-carried">SEC filing</span>' : '') +
         macroRead +
         reaction +
         (item.unconfirmed ? '<span class="news-unconfirmed">Unconfirmed</span>' : '') +
@@ -46384,6 +46389,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (sourceHealthHost && sourceHealth.length && sourceCoverage){
       sourceHealthHost.innerHTML = '<p class="news-feed-status">Official company feeds: ' + escapeHtml((sourceCoverage.issuerSymbols || []).join(', ') || 'none mapped') +
         '. FDA sponsor coverage: ' + escapeHtml((sourceCoverage.fdaSymbols || []).join(', ') || 'none mapped') +
+        (sourceCoverage.secSymbols ? '. SEC 8-K filings: ' + (sourceCoverage.secSymbols.length - (sourceCoverage.secForeignFilers || []).length) + ' companies' + ((sourceCoverage.secForeignFilers || []).length ? ' (' + escapeHtml(sourceCoverage.secForeignFilers.join(', ')) + ' file 6-K reports instead, not read)' : '') : '') +
         '. New official-source items are context only.' + (unavailable ? ' ' + unavailable + ' official source check(s) unavailable; earlier context may remain.' : '') +
         (partial ? ' ' + partial + ' source check(s) have incomplete coverage.' : '') + '</p>';
       sourceHealthHost.innerHTML += '<details class="news-more-filters"><summary>Official source checks</summary><ul class="news-feed-status">' + sourceHealth.map(function(s){

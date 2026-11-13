@@ -22,7 +22,11 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## 2026-11-13
 
+### Added
+- The News page now carries every covered company's SEC 8-K filings from the last week as official company news, read from EDGAR's free submissions files (one read per company, at most every 45 minutes). The filing's item numbers name the event (results, a material agreement, an officer change, a restatement and so on); shareholder votes, bylaw edits and exhibit-only filings are left out, and foreign filers' 6-K reports (no item numbers) are listed but not read. Filings are context only: no AI call, no grading points and no news re-read. `NEWS_SEC_8K=0` turns the pass off. Headlines use the company's normal name ("NVIDIA Corporation", not EDGAR's "NVIDIA CORP"); a restatement, bankruptcy, change of control or cyber incident filing ranks as high impact and results, deals, impairments, restructuring and officer changes as notable; foreign filers are re-checked once a day; readers pause 0.3 s between reads; a name that keeps failing drops its filings once they are a week old.
+
 ### Changed
+- The Interactive Brokers borrow-fee read is off by default: the FTP file never loaded from the build machines, and the Market map's option-implied borrow already covers each name. The Crowd page shows it as off and drops the empty borrow columns, and it leaves the data-source health list. `CROWD_BORROW=1` (repo variable or Owner Settings) turns it back on.
 - The NBA stat model (`sports-model-5`) adjusts for the lineup when it is known: a usual starter coming off the bench is forecast about a quarter lower, a bench player who starts higher. It fixes the model over-calling bench regulars' overs (PRA said 46%, hit 38%), which came from lineup surprises; it passed the factor check on all 12 NBA stats. The Pick Builder adds a Starting box to each NBA pick (Not known / Starts / Off the bench), and the MCP's `sports_evaluate_entry` and `sports_get_player` take `starting`; unknown leaves the forecast as before.
 
 ### Fixed

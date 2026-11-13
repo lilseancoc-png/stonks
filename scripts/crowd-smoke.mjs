@@ -150,6 +150,22 @@ okAsync("IBKR fetch builds history and flags hard-to-borrow", async () => {
   assert.equal(carried.ok, false);
   assert.equal(carried.bySymbol.TSLA.feePct, 0.65);
 });
+okAsync("IBKR borrow read is off by default and carries nothing", async () => {
+  const prevEnv = process.env.CROWD_BORROW;
+  delete process.env.CROWD_BORROW;
+  try {
+    const off = await fetchBorrow({ prior: { ok: true, bySymbol: { TSLA: { feePct: 0.65 } } }, symbols: SYMS, todayEt: TODAY, nowIso: NOW });
+    assert.equal(off.disabled, true);
+    assert.equal(off.ok, false);
+    assert.equal(off.carriedForward, false);
+    assert.deepEqual(off.bySymbol, {});
+    process.env.CROWD_BORROW = "0";
+    const forced = await fetchBorrow({ prior: null, symbols: SYMS, todayEt: TODAY, nowIso: NOW, readImpl: async () => ibkrFile });
+    assert.equal(forced.disabled, true, "CROWD_BORROW=0 wins even in tests");
+  } finally {
+    if (prevEnv == null) delete process.env.CROWD_BORROW; else process.env.CROWD_BORROW = prevEnv;
+  }
+});
 
 // ---- O4 COT
 const cotRows = [];
