@@ -290,7 +290,7 @@ export function sportsFactory(host, doc, options) {
   function nbaPairHtml(G, P) {
     const L = league('nba'), d = L.nbaPairs[G.game_id] || (L.nbaPairs[G.game_id] = { value: '', seq: 0 });
     if (d.snapshot !== G.research_snapshot_id) { d.snapshot = G.research_snapshot_id; d.result = null; d.error = null; d.seq++; d.pending = false; }
-    const S = d.result?.screen || G.pair, enabled = P.research_tracking?.state === 'ok' && G.research_snapshot_id && G.picks.length === 2;
+    const S = d.result?.screen || G.pair, enabled = P.research_tracking?.state === 'ok' && G.research_snapshot_id && G.picks.length === 2 && Date.parse(G.research_expires_utc || G.expires_utc || P.expires_utc) > Date.now() && Date.parse(G.start_utc) > Date.now();
     const stateName = S?.state === 'positive_screen' ? 'Experimental screen passes' : S?.state === 'payout_needed' ? 'Research pair · payout needed' : 'Pass · no verified edge';
     return '<section class="sp-nba-pair" data-sp-pair-game="' + escape(G.game_id) + '"><h4>' + stateName + '</h4><p class="sp-note">' + escape(S?.reason || 'Not enough market evidence.') + '</p>' +
       (S?.low != null ? '<p>Pair estimate range: <b>' + nbaPct(S.low) + '–' + nbaPct(S.high) + '</b>. ' + (S.method === 'copula_sensitivity' ? 'Includes measured same-game links.' : 'Uses bounds without assuming independent outcomes.') + '</p>' : '') +
@@ -303,7 +303,7 @@ export function sportsFactory(host, doc, options) {
   }
   function evaluateNBAPair(page, gameId, save) {
     const L = league('nba'), G = L.props?.games.find((g) => g.game_id === gameId), d = L.nbaPairs[gameId];
-    if (!G || !d || d.pending) return;
+    if (!G || !d || d.pending || Date.parse(G.research_expires_utc || G.expires_utc || L.props.expires_utc) <= Date.now()) return;
     const snapshot = G.research_snapshot_id, seq = ++d.seq; d.pending = true; d.error = null;
     const repaint = () => { if (state.page === page && L.view === 'games') paint(page, 'board', boardHtml('nba')); };
     repaint();
@@ -324,33 +324,51 @@ export function sportsFactory(host, doc, options) {
     const L = league(lg), P = L.props;
     const refresh = '<button type="button" class="sp-link" data-sp-props-refresh data-own-feedback' + (L.propsPending ? ' disabled aria-busy="true"' : '') + '>' + (L.propsPending ? 'Refreshing lines & injuries…' : 'Refresh lines & injuries') + '</button>' +
       (L.propsNote && !L.propsPending ? ' <span class="sp-note" role="status">' + escape(L.propsNote) + '</span>' : '');
-    if (L.propsErr) return '<div class="sp-props-status">The prop analysis could not be loaded. ' + refresh + '</div>';
+    if (L.propsErr) return '<div class="sp-props-status">' + (P ? 'Refresh failed. Previous analysis is shown with its original deadlines. ' : 'The prop analysis could not be loaded. ') + refresh + '</div>';
     if (!P) return '<div class="sp-props-status">Checking PrizePicks lines and player availability… ' + refresh + '</div>';
     const S = P.sources;
-    return '<div class="sp-props-status"><b>' + (lg === 'nba' ? 'NBA market research · one player from each team' : 'Best 2 player props per game') + '</b><p>' +
+    return '<div class="sp-props-status"><b>' + (lg === 'nba' ? 'NBA market research · best two-player slate' : 'Best 2 player props per game') + '</b><p>' +
       (S.lines.state === 'ok' ? escape(S.lines.count + ' current standard selections checked · lines read ' + fmtClock(S.lines.fetched_utc || P.generated_utc, zone())) : escape(S.lines.message || 'Line feed unavailable.')) + '</p>' +
       '<p><a href="https://prop-line.com/odds-api/book/prizepicks" target="_blank" rel="noopener noreferrer">PrizePicks via PropLine</a> · <a href="https://www.espn.com/' + lg + '/injuries" target="_blank" rel="noopener noreferrer">ESPN injuries</a>' +
       (S.injuries.observed_utc ? ' · report ' + escape(fmtTime(S.injuries.observed_utc, zone())) : ' · injury report unavailable') + '</p>' + refresh +
       (lg === 'nba' ? '<p class="sp-note">' + escape(S.reference?.state === 'ok' ? S.reference.count + ' fresh two-way reference quotes checked. At least three operators are needed per prop.' : S.reference?.message || 'Sportsbook comparisons unavailable; research only.') + '</p>' : '') +
-      '<p class="sp-note">' + (lg === 'nba' ? 'NBA candidates compare PrizePicks with sportsbook prices and current role context. The estimates are experimental. ' : 'Ranks combine recent form, workload, opponent defense, splits, rest and availability. A rank score is not a win chance. ') + 'Each pair needs one player from each team; uncovered slots stay open. Refreshes every 2 minutes while this page is visible.</p>' +
+      '<p class="sp-note">' + (lg === 'nba' ? 'NBA candidates compare PrizePicks with sportsbook prices and current role context. The estimates are experimental. ' : 'Ranks combine recent form, workload, opponent defense, splits, rest and availability. A rank score is not a win chance. ') + (lg === 'nba' ? 'The daily pair compares players across games, with two different teams. Per-game alternatives are below. Refreshes before quotes expire, at least every 2 minutes while visible.' : 'Each pair needs one player from each team; uncovered slots stay open. Refreshes every 2 minutes while this page is visible.') + '</p>' +
       '<p class="sp-note">' + escape(P.tracking?.state === 'ok' ? 'Track record saves the first pair per game. Live rankings can change; the recorded lines and reasoning stay fixed.' : P.tracking?.message || 'Recording status unavailable.') + ' <button type="button" class="sp-link" data-sp-view="record">View prop track record</button></p>' +
       (L.propsMsg ? '<p role="status">' + escape(L.propsMsg) + ' <button type="button" class="sp-link" data-sp-goto="' + BUILDER + '">Open Pick Builder</button></p>' : '') + '</div>';
+  }
+  function nbaSlateHtml(day) {
+    const L = league('nba'), S = L.props?.slates?.find((s) => s.day === day);
+    if (!S) return '';
+    const stale = Date.parse(S.expires_utc) <= Date.now() || S.picks.some((p) => {
+      const g = L.board?.games.find((g) => g.game_id === p.game_id);
+      return !g || g.status !== 'scheduled' || g.time_tbd || Math.min(Date.parse(g.start_utc), Date.parse(p.start_utc)) <= Date.now();
+    });
+    const P = S.pair;
+    return '<section class="sp-nba-pair sp-slate" data-sp-slate="' + day + '"><h4>Best two-player pair across the slate</h4>' +
+      '<p class="sp-note">Compared ' + S.eligible_count + ' supported selections for this day. Ranks by the conservative pair estimate, preferring pairs without unresolved lineup or workload risks.</p>' +
+      (S.picks.length === 2 ? S.picks.map((p) => '<article class="sp-slate-prop"><p><b>' + escape(p.player_name) + ' · ' + (p.side === 'over' ? 'More' : 'Less') + ' than ' + num(p.threshold) + ' ' + escape(label(p.stat).toLowerCase()) + '</b><br>' + team(p.team) + ' vs ' + team(p.opponent) + ' · ' + escape(fmtTime(p.game_start_utc || p.start_utc, zone())) + ' · market ≥' + nbaPct(p.market.low) + '</p><details><summary>Why this pick</summary>' + nbaComparisonHtml(p) + '<dl>' + p.evidence.map((e) => '<dt>' + escape(e.label) + '</dt><dd>' + escape(e.text) + '</dd>').join('') + '</dl></details></article>').join('') +
+        '<p>Pair estimate: <b>' + nbaPct(P.low) + '–' + nbaPct(P.high) + '</b>. ' + (P.method === 'independent_games' ? 'Different games; assumes independent outcomes.' : P.method === 'copula_sensitivity' ? 'Same game; includes measured links.' : 'Same game; uses bounds without assuming independence.') + '</p>' +
+        '<p class="sp-note">' + escape(P.state === 'pass' ? 'Research only: ' + P.reason : 'Enter the actual payout in Pick Builder before evaluating an entry.') + ' Estimates are experimental, not a proven win rate.</p>' +
+        (stale ? '<p role="status">Updating lines & injuries. Previous pair shown; wait for fresh inputs before adding.</p>' : '') +
+        '<button type="button" class="sp-btn" data-sp-slate-add="' + day + '"' + (stale ? ' disabled' : '') + '>Add both to Pick Builder</button><p class="sp-note">Save the entry in Pick Builder to track this combination. The per-game track record remains separate.</p>' :
+        '<p>No eligible two-player combination yet. Waiting for fresh lines and sufficient market coverage.</p>') + '</section>';
   }
   function propsForGame(lg, g) {
     const L = league(lg), P = L.props;
     if (g.status !== 'scheduled' || Date.parse(g.start_utc) <= Date.now()) return '';
-    if (L.propsErr) return '<p class="sp-prop-empty">Prop analysis unavailable.</p>';
+    if (L.propsErr && !P) return '<p class="sp-prop-empty">Prop analysis unavailable.</p>';
     if (!P) return '<p class="sp-prop-empty">Checking props…</p>';
-    if (Date.parse(P.expires_utc) <= Date.now()) return '<p class="sp-prop-empty">This analysis expired. Refresh lines and injuries.</p>';
+    if (lg !== 'nba' && Date.parse(P.expires_utc) <= Date.now()) return '<p class="sp-prop-empty">This analysis expired. Refresh lines and injuries.</p>';
     const G = P.games.find((v) => v.game_id === g.game_id);
     if (!G) return '<p class="sp-prop-empty">No analysis for this game yet.</p>';
+    const stale = Date.parse(G.expires_utc || P.expires_utc) <= Date.now();
     const picks = (G.picks || []).map((p, i) => '<article class="sp-prop"><div class="sp-prop-title"><span class="sp-prop-number">' + (i + 1) + '</span><div><button type="button" class="sp-link" data-sp-player="' + escape(p.player_id) + '">' + escape(p.player_name) + '</button>' +
       '<strong>' + (p.side === 'over' ? 'More' : 'Less') + ' than ' + num(p.threshold) + ' ' + escape(label(p.stat).toLowerCase()) + '</strong></div><span class="sp-prop-score">' + (lg === 'nba' && p.market?.low != null ? 'Market ≥' + nbaPct(p.market.low) : 'Rank ' + num(p.rank_score) + '/100') + '<small>' + (lg === 'nba' ? (p.market?.book_count || 0) + ' books · estimate' : p.basis === 'model_and_history' ? 'Model + history' : 'History only') + '</small></span></div>' +
       '<p class="sp-note">' + team(p.team) + ' vs ' + team(p.opponent) + ' · cleared ' + p.last10.hits + '/' + p.last10.games + ' last 10 · line checked ' + escape(fmtTime(p.observed_utc, zone())) + '</p>' +
       '<details><summary>Why this pick</summary>' + (lg === 'nba' ? nbaComparisonHtml(p) : '') + '<dl>' + p.evidence.map((e) => '<dt>' + escape(e.label) + '</dt><dd>' + escape(e.text) + '</dd>').join('') + '</dl><p class="sp-note">History through ' + escape(p.latest_game_date) + '. ' + (p.model ? 'Model through ' + escape(p.model.as_of_date) + '.' : 'This stat has no current fitted forecast; the rank uses historical evidence.') + '</p></details>' +
-      '<button type="button" class="sp-btn" data-sp-prop-add="' + escape(g.game_id) + '" data-sp-prop-index="' + i + '">Add to Pick Builder</button></article>').join('');
+      '<button type="button" class="sp-btn" data-sp-prop-add="' + escape(g.game_id) + '" data-sp-prop-index="' + i + '"' + (stale ? ' disabled' : '') + '>Add to Pick Builder</button></article>').join('');
     const availability = (G.availability || []).length ? '<details class="sp-prop-injuries"><summary>Players in / out & injury reports (' + G.availability.length + ')</summary><ul>' + G.availability.map((p) => '<li><b>' + escape(p.name) + '</b> · ' + team(p.team) + ' · ' + escape(p.status) + '<p>' + escape(p.detail) + (p.report_utc ? ' (' + escape(fmtWhen(p.report_utc, zone())) + ')' : '') + '</p></li>').join('') + '</ul></details>' : '';
-    return '<div class="sp-props">' + picks + (lg === 'nba' ? nbaPairHtml(G, P) : '') + (G.message ? '<p class="sp-prop-empty">' + escape(G.message) + '</p>' : '') + availability +
+    return '<div class="sp-props">' + (stale ? '<p class="sp-prop-empty">Updating lines & injuries. Previous analysis shown; adding or evaluating waits for fresh inputs.</p>' : '') + picks + (lg === 'nba' ? nbaPairHtml(G, P) : '') + (G.message ? '<p class="sp-prop-empty">' + escape(G.message) + '</p>' : '') + availability +
       (picks ? '<p class="sp-note">Individual picks. Same-game outcomes are linked; use Pick Builder to evaluate an entry with its actual payout.</p>' : '') + '</div>';
   }
   function gameRow(g, tz, selected, lg) {
@@ -372,7 +390,7 @@ export function sportsFactory(host, doc, options) {
     return propsHeader(lg) + groups.map(([day, name]) => {
       const list = games.filter((g) => g.day === day);
       return '<div class="sp-day-group"><h4>' + name + ' <span>' + escape(fmtDay(L.board.window[day])) + '</span></h4>' +
-        (list.length ? '<ul class="sp-games">' + list.map((g) => gameRow(g, tz, g.game_id === L.gameId, lg)).join('') + '</ul>' : '<p class="sp-muted sp-none">No games.</p>') + '</div>';
+        (lg === 'nba' && list.length ? nbaSlateHtml(day) : '') + (list.length ? '<ul class="sp-games">' + list.map((g) => gameRow(g, tz, g.game_id === L.gameId, lg)).join('') + '</ul>' : '<p class="sp-muted sp-none">No games.</p>') + '</div>';
     }).join('');
   }
 
@@ -2694,31 +2712,32 @@ export function sportsFactory(host, doc, options) {
     if (focusLost()) focusIn(page, R.sel);
   }
 
-  function loadBoard(page, lg, manual) {
+  function loadBoard(page, lg, manual, force) {
     const L = league(lg), seq = ++L.boardSeq;
     L.boardErr = null;
     api('board', { sport: lg, tz: zone() }).then((data) => { if (seq === L.boardSeq) L.board = data; }, (err) => { if (seq === L.boardSeq) L.boardErr = err; })
       .then(() => { if (state.page === page && seq === L.boardSeq) paint(page, 'board', boardHtml(lg)); });
-    loadProps(page, lg, manual);
+    loadProps(page, lg, manual, force);
   }
   // `manual` = the "Refresh lines & injuries" button: show that it is working
   // at once, ask the server to re-read the feeds, and say when it finished.
-  function loadProps(page, lg, manual) {
+  function loadProps(page, lg, manual, force) {
     const L = league(lg), seq = ++L.propsSeq;
     host.clearTimeout(L.propsTimer);
     L.propsPending = true; L.propsErr = null;
     if (manual) { L.propsNote = ''; if (state.page === page) paint(page, 'board', boardHtml(lg)); }
-    api('props', { sport: lg, tz: zone(), refresh: manual ? 1 : null }).then((data) => {
+    api('props', { sport: lg, tz: zone(), refresh: manual || force ? 1 : null }).then((data) => {
       if (seq === L.propsSeq) { L.props = data; L.propsErr = null; }
-    }, (err) => { if (seq === L.propsSeq) { L.propsErr = err; L.props = null; } }).then(() => {
+    }, (err) => { if (seq === L.propsSeq) { L.propsErr = err; if (lg !== 'nba') L.props = null; } }).then(() => {
       if (seq !== L.propsSeq) return;
       L.propsPending = false;
       if (manual) L.propsNote = L.propsErr ? 'Refresh failed. Try again in a minute.' : 'Refreshed at ' + fmtClock(new Date().toISOString(), zone()) + '.';
       if (state.page === page) paint(page, 'board', boardHtml(lg));
-      const delay = L.props ? Math.max(1000, Math.min(120000, Date.parse(L.props.expires_utc) - Date.now())) : 120000;
+      const next = L.props?.refresh_after_utc || L.props?.expires_utc;
+      const delay = L.props ? Math.max(lg === 'nba' ? 30000 : 1000, Math.min(120000, Date.parse(next) - Date.now())) : 120000;
       L.propsTimer = host.setTimeout(() => {
         const pane = doc.getElementById('page-pane-' + page);
-        if (state.page === page && L.view === 'games' && pane && !pane.hidden && !doc.hidden && options.owner()) { loadBoard(page, lg); }
+        if (state.page === page && L.view === 'games' && pane && !pane.hidden && !doc.hidden && options.owner()) { loadBoard(page, lg, false, lg === 'nba'); }
       }, delay);
     });
   }
@@ -2908,12 +2927,27 @@ export function sportsFactory(host, doc, options) {
     if (t.closest('[data-sp-record-export]')) { exportPropRecord(page, lg); return true; }
     if (t.closest('[data-sp-record-refresh]')) { loadPropRecord(page, lg); return true; }
     if ((b = t.closest('[data-sp-props-refresh]'))) { if (!b.disabled && !L.propsPending) loadBoard(page, lg, true); return true; }
+    if ((b = t.closest('[data-sp-slate-add]'))) {
+      const S = L.props?.slates?.find((s) => s.day === b.getAttribute('data-sp-slate-add')), d = draft();
+      const games = S?.picks.map((p) => L.board?.games.find((g) => g.game_id === p.game_id)) || [];
+      if (!S || S.picks.length !== 2 || Date.parse(S.expires_utc) <= Date.now() || games.some((g, i) => !g || g.status !== 'scheduled' || g.time_tbd || Math.min(Date.parse(g.start_utc), Date.parse(S.picks[i].start_utc)) <= Date.now()))
+        L.propsMsg = 'This pair expired. Refresh the lines before adding it.';
+      else if (d.legs.length > MAX_PICKS - 2) L.propsMsg = 'Make room for two picks in the entry first.';
+      else if (S.picks.some((p) => d.legs.some((l) => l.sport === 'nba' && l.game_id === p.game_id && l.player_id === p.player_id && l.stat === p.stat))) L.propsMsg = 'One of these selections is already in the entry.';
+      else {
+        S.picks.forEach((p, i) => d.legs.push({ sport: 'nba', player_id: p.player_id, player_name: p.player_name, team: p.team, game_id: p.game_id,
+          matchup: games[i].away_team + '@' + games[i].home_team, game_start_utc: games[i].start_utc,
+          stat: p.stat, side: p.side, threshold: p.threshold, probability: null, probability_source: null }));
+        d.payouts = {}; saveDraft(); L.propsMsg = 'Added both slate picks. Enter the actual entry payout in Pick Builder.';
+      }
+      paint(page, 'board', boardHtml(lg)); return true;
+    }
     if ((b = t.closest('[data-sp-prop-add]'))) {
       const gameId = b.getAttribute('data-sp-prop-add'), P = L.props;
       const game = L.board?.games.find((g) => g.game_id === gameId);
       const p = P?.games.find((g) => g.game_id === gameId)?.picks[Number(b.getAttribute('data-sp-prop-index'))];
       const d = draft();
-      if (!p || !game || game.status !== 'scheduled' || game.time_tbd || Date.parse(game.start_utc) <= Date.now() || Date.parse(p.start_utc) <= Date.now() || Date.parse(P.expires_utc) <= Date.now()) { L.propsMsg = 'This pick expired. Refresh the lines before adding it.'; }
+      if (!p || !game || game.status !== 'scheduled' || game.time_tbd || Date.parse(game.start_utc) <= Date.now() || Date.parse(p.start_utc) <= Date.now() || Date.parse(P.games.find((g) => g.game_id === gameId)?.expires_utc || P.expires_utc) <= Date.now()) { L.propsMsg = 'This pick expired. Refresh the lines before adding it.'; }
       else if (d.legs.length >= MAX_PICKS) L.propsMsg = 'The entry already has 6 picks.';
       else if (d.legs.some((l) => l.sport === lg && l.game_id === gameId && l.player_id === p.player_id && l.stat === p.stat)) L.propsMsg = 'That player and stat is already in the entry.';
       else {

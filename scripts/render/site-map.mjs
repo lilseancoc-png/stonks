@@ -148,7 +148,7 @@ export const SITE_SECTIONS = [
     // Private, separate from the market research. Owner-only like the section above.
     id: 'sports', label: 'Sports', short: 'Sports', desc: 'Private NBA and NFL research', owner: true,
     items: [
-      { id: 'sports-nba', label: 'NBA', alias: 'Basketball players props points rebounds games win bust track record PrizePicks', blurb: 'NBA games, the best two PrizePicks props per game, supporting analysis and the prop track record.' },
+      { id: 'sports-nba', label: 'NBA', alias: 'Basketball players props points rebounds games win bust track record PrizePicks', blurb: 'NBA games, two-player PrizePicks combinations across the slate, supporting analysis and the prop track record.' },
       { id: 'sports-nfl', label: 'NFL', alias: 'Football players props passing yards receptions games win bust track record PrizePicks', blurb: 'NFL games, the best two PrizePicks props per game, supporting analysis and the prop track record.' },
       { id: 'sports-pick-builder', label: 'Pick Builder', alias: 'Sports picks entry payout paper journal PrizePicks Betr', blurb: 'Build a 1 to 6 pick entry with its real payout, see the odds and save it as a paper pick.' },
     ],

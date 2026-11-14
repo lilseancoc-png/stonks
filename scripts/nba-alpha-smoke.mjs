@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { gunzipSync } from 'node:zlib';
 import { normalizeOdds, loadPropSources, loadPropSourcesWithRetry, RETRY_WAIT_MS, FORCE_REUSE_MS } from '../lib/sports/prop-sources.mjs';
-import { normalizeNBAQuotes, nbaMarketForProp, impliedAmerican, nbaPairEstimate, checkNBAPayout, selectNBAProps, shinProbabilities } from '../lib/sports/nba-market.mjs';
+import { normalizeNBAQuotes, nbaMarketForProp, impliedAmerican, nbaPairEstimate, checkNBAPayout, selectNBAProps, selectNBASlate, nbaPicksExpiry, shinProbabilities } from '../lib/sports/nba-market.mjs';
 import { nbaRoleScenario, nbaTeamOpportunity } from '../lib/sports/nba-role.mjs';
 import { recommendationsView } from '../lib/sports/props.mjs';
 import { captureNBAResearch, nbaPairAction, nbaResearchSummary, exportNBAResearch, decodeNBAResearch, encodeNBAResearch } from '../lib/sports/nba-research.mjs';
@@ -76,6 +76,38 @@ assert.equal(coupled.method, 'copula_sensitivity'); assert.ok(coupled.low <= cou
 assert.equal(nbaPairEstimate([modeled[0], modeled[2]], { ...model, as_of_date: '2026-10-01' }, now).method, 'frechet_bounds');
 const selected = selectNBAProps(candidates, refs(), null, now); assert.equal(new Set(selected.picks.map((p) => p.team)).size, 2);
 
+// The slate can choose any eligible candidate, including alternatives that
+// were not the old per-game pair. Never apply opponent correlation cross-game.
+{
+  const make = (id, gameId, team, chance, extra = {}) => ({ ...modeled[0], player_id: id, game_id: gameId, team,
+    market: { ...market, low: chance, high: chance, probability: chance }, ...extra });
+  const pool = [make('a', 'g1', 'lal', 0.8), make('b', 'g1', 'gs', 0.5), make('c', 'g2', 'ny', 0.75), make('d', 'g2', 'bos', 0.5)];
+  const best = selectNBASlate(pool, model, now);
+  assert.deepEqual(best.picks.map((p) => p.player_id), ['a', 'c']);
+  assert.equal(best.pair.method, 'independent_games'); assert.equal(best.pair.correlation, null);
+  assert.equal(best.pair.low, 0.6); assert.equal(best.pair.probability, 0.6);
+  assert.match(best.pair.note, /independent/);
+  const coupledBest = selectNBASlate([pool[0], make('b', 'g1', 'gs', 0.8), pool[2]], model, now);
+  assert.equal(coupledBest.pair.method, 'copula_sensitivity', 'same-game pairs remain eligible if stronger');
+  assert.equal(selectNBASlate([pool[0], { ...pool[2], team: 'lal' }], model, now).picks.length, 0);
+  assert.equal(selectNBASlate([pool[0], { ...pool[2], player_id: 'a' }], model, now).picks.length, 0);
+  assert.equal(selectNBASlate([pool[0], { ...pool[2], market: { ...market, state: 'thin' } }], model, now).picks.length, 0);
+  assert.equal(selectNBASlate([pool[0], { ...pool[2], game_start_utc: new Date(now).toISOString() }], model, now).picks.length, 0);
+  assert.equal(selectNBASlate([pool[0], { ...pool[2], observed_utc: new Date(now - 300001).toISOString() }], model, now).picks.length, 0);
+  const unsafe = make('risky', 'g3', 'chi', 0.99, { role: { risk_flags: ['unmeasured_rotation_absence'] } });
+  assert.deepEqual(selectNBASlate([...pool, unsafe], model, now).picks.map((p) => p.player_id), ['a', 'c']);
+  assert.deepEqual(selectNBASlate(pool.slice().reverse(), model, now), best, 'selection is deterministic');
+  // Check the dominance optimization against exhaustive pair evaluation.
+  const many = Array.from({ length: 80 }, (_, i) => make('player' + Math.floor(i / 4), 'game' + Math.floor(i / 16), 'team' + Math.floor(i / 8),
+    0.4 + ((i * 37) % 50) / 100, { stat: i % 2 ? 'rebounds' : 'points', side: i % 3 ? 'over' : 'under' }));
+  let exhaustive = -1;
+  for (const a of many) for (const b of many) if (a.player_id !== b.player_id && a.team !== b.team)
+    exhaustive = Math.max(exhaustive, nbaPairEstimate([a, b], model, now).low);
+  assert.equal(selectNBASlate(many, model, now).pair.low, exhaustive);
+  assert.equal(nbaPicksExpiry([pool[0]], now), now + 300000, 'poll cadence does not shorten validity');
+  assert.equal(nbaPicksExpiry([pool[0]], now, { injuryExpiry: now + 20000 }), now + 20000);
+}
+
 const byPlayer = new Map(people.map((p) => [p.player_id, history.filter((r) => r.player_id === p.player_id).sort((a, b) => b.date.localeCompare(a.date))]));
 const scenario = nbaRoleScenario({ player: { ...people[0], opponent: 'gs' }, history: byPlayer.get('p0'), byPlayer, players: people, availability: [{ name: people[1].name, team: 'lal', status: 'Out' }], stat: 'points', teamTotals: nbaTeamOpportunity(history) });
 assert.equal(scenario.projected_minutes, 32); assert.ok(scenario.usage_pct > 0); assert.ok(scenario.possessions_proxy.expected > 0);
@@ -92,6 +124,31 @@ const sources = () => ({ lines: { state: 'ok', lines: lines(), raw_events: [even
   reference: { state: 'ok', quotes: refs(), raw_events: ['draftkings', 'fanduel', 'betmgm'].map((b) => event(b)), provider: 'Fixture' },
   injuries: { state: 'ok', reports: [], observed_utc: new Date(now).toISOString() } });
 const view = () => recommendationsView({ load: recordLoader(store), sport: 'nba', now, tz: 'America/Los_Angeles', sources: sources() });
+// Per-game deadlines and local-day slate boundaries use canonical schedules.
+{
+  const extraGame = { ...game, game_id: 'nba-extra', home_team: 'chi', away_team: 'bos', start_utc: '2026-11-06T00:00Z' };
+  const extraPlayers = [people[0], people[2]].map((p, i) => ({ ...p, player_id: 'extra-' + i, name: 'Extra ' + i, team: i ? 'bos' : 'chi', provider_ids: {} }));
+  const extraRows = extraPlayers.flatMap((p, i) => history.filter((r) => r.player_id === (i ? 'p2' : 'p0')).map((r) => ({ ...r, player_id: p.player_id, team: p.team, opponent: i ? 'chi' : 'bos' })));
+  const extraSources = sources(), sameDay = [game, extraGame];
+  extraSources.lines.lines = extraSources.lines.lines.map((p) => ({ ...p, observed_utc: new Date(now - 299000).toISOString() }));
+  for (const p of extraPlayers) extraSources.lines.lines.push({ ...oneLine, player_name: p.name, event_id: 'extra-event', home_team: 'Chicago Bulls', away_team: 'Boston Celtics', start_utc: extraGame.start_utc });
+  for (const p of extraPlayers) extraSources.reference.quotes.push(...refs().filter((q) => q.player_key === 'fixture one').map((q) => ({ ...q,
+    player_key: p.name.toLowerCase(), player_name: p.name, event_id: 'extra-event', home_team: 'Chicago Bulls', away_team: 'Boston Celtics', start_utc: extraGame.start_utc })));
+  const load = async (kind) => kind === 'status' ? { seasons: [2026] } : kind === 'players' ? { players: [...people, ...extraPlayers] } :
+    kind === 'games' ? { games: sameDay } : kind === 'player-games' ? { rows: [...history, ...extraRows] } : null;
+  const separated = await recommendationsView({ load, sport: 'nba', now, tz: 'America/Los_Angeles', sources: extraSources });
+  assert.equal(Date.parse(separated.games.find((g) => g.game_id === game.game_id).expires_utc), now + 1000);
+  assert.equal(Date.parse(separated.games.find((g) => g.game_id === extraGame.game_id).expires_utc), now + 300000);
+  assert.equal(separated.slates[0].eligible_count, separated.games.reduce((n, g) => n + g.research.candidates.filter((p) => p.market.state === 'supported').length, 0), 'both eligible games feed the slate');
+  // Move the second game to the following local day, with matching source times.
+  extraGame.start_utc = '2026-11-07T00:00Z';
+  extraSources.lines.lines.filter((p) => p.event_id === 'extra-event').forEach((p) => p.start_utc = extraGame.start_utc);
+  extraSources.reference.quotes.filter((p) => p.event_id === 'extra-event').forEach((p) => p.start_utc = extraGame.start_utc);
+  const separateDays = await recommendationsView({ load, sport: 'nba', now, tz: 'America/Los_Angeles', sources: extraSources });
+  assert.ok(separateDays.slates[0].picks.every((p) => p.game_id === game.game_id));
+  assert.equal(separateDays.slates[1].picks.length, 2);
+  assert.ok(separateDays.slates[1].picks.every((p) => p.game_id === extraGame.game_id));
+}
 let v = await view(); const beforeCapture = writes;
 const ageing = sources(); ageing.lines.lines = ageing.lines.lines.map((p) => ({ ...p, observed_utc: new Date(now - 299000).toISOString() }));
 const expiring = await recommendationsView({ load: recordLoader(store), sport: 'nba', now, tz: 'America/Los_Angeles', sources: ageing });
@@ -101,6 +158,25 @@ assert.equal(v.rank_version, 'nba-market-1'); assert.equal(v.games[0].pair.state
 assert.ok(!JSON.stringify(v).includes('research_input') && !JSON.stringify(v).includes('raw_events'));
 assert.ok(v.games[0].picks.every((p) => p.market.state === 'supported'));
 assert.equal((await captureNBAResearch({ store, view: v, now })).state, 'ok'); assert.ok(writes > beforeCapture);
+assert.equal(Date.parse(v.games[0].expires_utc), now + 300000);
+assert.equal(Date.parse(v.refresh_after_utc), now + 120000);
+assert.equal(v.slates[0].picks.length, 2); assert.equal(v.slates[1].picks.length, 0);
+// A slow capture of another game must not reject this game's fresh evidence.
+const isolatedView = await view(); isolatedView.expires_utc = new Date(now - 1).toISOString();
+assert.equal((await captureNBAResearch({ store, view: isolatedView, now })).state, 'ok');
+assert.ok(isolatedView.games[0].research_snapshot_id);
+// Previously a repeated fingerprint copied an almost-expired deadline to the
+// whole board. Retire that snapshot, while preserving the immutable issuance.
+const isolatedObjects = new Map(objects), isolatedStore = { ...store, rawGet: async (k) => isolatedObjects.has(k) ? Buffer.from(isolatedObjects.get(k)) : null,
+  rawPut: async (k, value) => isolatedObjects.set(k, String(value)) };
+const isolatedKey = sportsKey('nba-research-game', { sport: 'nba', season: 2026, gameId: game.game_id });
+const oldCase = decodeNBAResearch(JSON.parse(isolatedObjects.get(isolatedKey)));
+oldCase.points.at(-1).expires_utc = new Date(now + 60000).toISOString();
+isolatedObjects.set(isolatedKey, JSON.stringify(encodeNBAResearch(oldCase)));
+const renewed = await view(); await captureNBAResearch({ store: isolatedStore, view: renewed, now: now + 2000 });
+assert.notEqual(renewed.games[0].research_snapshot_id, oldCase.points.at(-1).snapshot_id);
+assert.equal(Date.parse(renewed.expires_utc), now + 300000);
+assert.equal(Date.parse(renewed.games[0].research_expires_utc), now + 300000);
 const snap = v.games[0].research_snapshot_id, key = sportsKey('nba-research-game', { sport: 'nba', season: 2026, gameId: game.game_id });
 let saved = decodeNBAResearch(JSON.parse(objects.get(key))); assert.equal(saved.points.length, 1);
 assert.ok(saved.points[0].candidates.length > saved.points[0].picks.length, 'rejected alternatives survive for research');
@@ -114,7 +190,7 @@ assert.equal((await nbaPairAction({ store, body: { ...body, save: true }, now })
 const fixed = decodeNBAResearch(JSON.parse(objects.get(key))).paper;
 assert.equal((await nbaPairAction({ store, body: { ...body, save: true }, now })).saved, true);
 await assert.rejects(() => nbaPairAction({ store, body: { ...body, save: true, payout_multiplier: 4 }, now }), (e) => e.status === 409);
-await assert.rejects(() => nbaPairAction({ store, body, now: now + 120001 }), (e) => e.status === 409);
+await assert.rejects(() => nbaPairAction({ store, body, now: now + 300001 }), (e) => e.status === 409);
 
 // Later quotes can update CLV and the live shortlist, never the issued pair.
 now = Date.parse('2026-11-05T22:55Z');
