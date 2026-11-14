@@ -1,7 +1,8 @@
 # NBA market research (`nba-market-1`)
 
-NBA uses sportsbook prices to choose its two research candidates, one player
-from each team. NFL remains on `props-rank-3`. The existing first-issued prop
+NBA uses sportsbook prices to compare two-player combinations across each
+day’s slate, as well as one player from each team within a game. NFL ranking is
+unchanged. The existing first-issued prop
 record is immutable; NBA also starts a separate prospective cohort so its
 results are not mixed with the old ranking. No retrospective accuracy gain
 is claimed. New games, recorded before kickoff, test this strategy.
@@ -141,7 +142,8 @@ remain frozen; new records preserve the model version and team inputs.
 
 ## Pair choice and actual payout
 
-Consider the best ten research candidates on each team and choose the pair
+For the per-game alternative, consider the best ten research candidates on
+each team and choose the pair
 with the strongest conservative pair estimate, favoring resolved role risk.
 For supported comparisons, a fresh, previously validated opponent link from
 the existing points/rebounds model can provide a Gaussian-copula sensitivity
@@ -238,3 +240,40 @@ Offline regression coverage: `npm run test:nba-alpha` and
 freshness, withdrawal, duplicate ladders, margin removal, threshold bounds,
 correlation, role risk, exact replay, immutable paper entries, settlement,
 CLV/ROI, Owner/CSRF isolation and the unchanged NFL feed contract.
+
+
+## Daily slate selection and freshness (November 13, 2026)
+
+The NBA board now also ranks a two-player pair across every eligible game for
+**today**, and separately for **tomorrow** in the selected timezone. It uses all
+matched candidates, not just the old per-game winners. Each leg needs three
+fresh reference operators. Players and teams must differ; started, postponed,
+unmatched and stale selections stay out. Pairs without unresolved role risks
+rank ahead of research-only pairs, then the highest joint lower estimate wins.
+Dominated candidates with the same game/team/stat/side/role/risk case are pruned;
+there is no arbitrary top-ten cutoff in slate selection.
+
+Different-game estimates multiply the marginal quote bounds, explicitly assuming
+independence. They never use the fitted opponent link from a same-game model.
+Same-game alternatives use the existing validated copula sensitivity or Frechet
+bounds. These are experimental estimates, not measured winning percentages.
+The slate card adds both selections to Pick Builder, where the actual payout can
+be evaluated and the entry saved in the journal. Existing immutable per-game
+issuance and paper-pair records remain separate; their win rates do not measure
+this new cross-game selector.
+
+Previously the board expired after two minutes or the earliest selected source
+on **any** game. A duplicate research snapshot could also carry an almost-expired
+deadline into the entire new response. NBA validity now follows each game's own
+five-minute quote/selection ages, thirty-minute injury report limit and earliest
+canonical/provider tipoff. The slate has its own two-leg deadline. Reuse requires
+more than thirty seconds left on the prior research snapshot; it cannot shorten
+another game's validity. The legacy top-level expiry remains a conservative
+fallback for older clients.
+
+`refresh_after_utc` separates polling from validity: refresh within two minutes
+or thirty seconds before expiry, with a thirty-second minimum retry interval.
+Automatic NBA refresh requests fresh provider data (the provider's existing
+thirty-second force-reuse guard still applies). On a delayed/failed refresh the
+previous analysis remains readable, while actions reject expired lines. Hidden
+tabs stop polling and refresh when resumed. NFL ranking and polling are unchanged.

@@ -86,7 +86,9 @@ try {
     assert.match(await pane.locator('.sp-prop').first().innerText(), /Sportsbook comparison/);
     assert.match(await pane.locator('.sp-prop').first().innerText(), /Minutes & role scenario/);
     await pane.locator('.sp-prop').first().screenshot({ path: resolve(output, 'team-context-' + width + '.png') });
-    const pairCard = pane.locator('.sp-nba-pair');
+    const pairCard = pane.locator('[data-sp-pair-game]');
+    assert.equal(await pane.locator('[data-sp-slate="today"] .sp-slate-prop').count(), 2);
+    assert.match(await pane.locator('[data-sp-slate="today"]').innerText(), /Best two-player pair across the slate/);
     await pairCard.locator('[data-sp-nba-payout]').fill('3');
     await pairCard.locator('[data-sp-nba-evaluate]').click();
     await pairCard.getByText('Experimental screen passes', { exact: true }).waitFor();
@@ -148,11 +150,57 @@ try {
   await page.locator('.sp-props-status').getByRole('status').filter({ hasText: /Refreshed at/ }).waitFor();
   assert.ok(sourceCalls > beforeManual && lastForce === true, 'refresh button forces a feed re-read');
   assert.equal(await page.locator('[data-sp-props-refresh]').innerText(), 'Refresh lines & injuries');
+  // Poll before the source deadline and request new feed data, even without
+  // a manual click. A failed poll must retain readable, disabled old analysis.
+  const beforeAuto = sourceCalls;
+  serverNow = now + 241000;
+  await page.clock.fastForward(120000);
+  await page.waitForFunction(() => document.querySelector('.sp-props-status')?.textContent.includes('10:04'));
+  assert.ok(sourceCalls > beforeAuto && lastForce, 'automatic refresh bypasses the old two-minute feed cache');
+  await page.route('**/api/auth/me?**sports=props&**', (route) => route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"Fixture refresh failure"}' }));
+  await page.clock.fastForward(61000);
+  await page.locator('.sp-props-status').filter({ hasText: 'Refresh failed. Previous analysis' }).waitFor();
+  assert.equal(await page.locator('.sp-prop').count(), 2, 'expired analysis remains readable');
+  assert.ok(await page.locator('[data-sp-prop-add]').first().isDisabled());
+  assert.ok(await page.locator('[data-sp-nba-evaluate]').isDisabled());
+  assert.ok(await page.locator('[data-sp-slate-add="today"]').isDisabled());
+  await page.unroute('**/api/auth/me?**sports=props&**');
   serverNow = now; feedState = 'rate_limited';
   await page.goto(base + '/?tab=sports-nba'); await page.getByText('Fixture feed unavailable').first().waitFor();
   assert.equal(await page.locator('.sp-prop').count(), 0, 'outage never displays cached recommendations');
   assert.equal(JSON.parse(objects.get(sportsKey('prop-record', { sport: 'nba', season: 2026 }))).picks.length, 2, 'outage does not erase record');
   await context.close();
+  // Cross-game slate rendering and Add both preserve each game's identity.
+  feedState = 'ok'; serverNow = now;
+  const crossContext = await browser.newContext(), crossPage = await crossContext.newPage();
+  await crossPage.clock.install({ time: now });
+  const otherGame = { ...game, game_id: 'g2', home_team: 'chi', away_team: 'bos', start_utc: '2026-11-05T23:30Z' };
+  await crossPage.route('**/*', async (route) => {
+    const url = new URL(route.request().url());
+    if (url.origin !== base) return route.fulfill({ body: '' });
+    if (!['board', 'props'].includes(url.searchParams.get('sports'))) return route.continue();
+    const response = await route.fetch(), body = await response.json();
+    if (url.searchParams.get('sports') === 'board') body.games.push({ ...otherGame, day: 'today' });
+    else {
+      const S = body.slates.find((s) => s.day === 'today');
+      S.picks[1] = { ...S.picks[1], game_id: 'g2', team: 'chi', opponent: 'bos', player_id: 'cross-player', player_name: 'Fixture Cross Game', start_utc: otherGame.start_utc, game_start_utc: otherGame.start_utc };
+      S.pair = { ...S.pair, method: 'independent_games', low: 0.6, high: 0.6 };
+      // An unrelated per-game expiry must not disable this fresh slate.
+      body.expires_utc = new Date(now - 1).toISOString();
+    }
+    return route.fulfill({ response, json: body });
+  });
+  await crossPage.goto(base + '/?tab=sports-nba');
+  const crossSlate = crossPage.locator('[data-sp-slate="today"]');
+  await crossSlate.getByText(/Different games; assumes independent outcomes/).waitFor();
+  await crossSlate.locator('[data-sp-slate-add]').click();
+  const crossDraft = await crossPage.evaluate(() => JSON.parse(sessionStorage.getItem('stonks-sports-draft-v1')));
+  assert.deepEqual(crossDraft.legs.map((p) => p.game_id), ['g1', 'g2']);
+  assert.deepEqual(crossDraft.legs.map((p) => p.threshold), [15.5, 15.5]);
+  assert.equal(crossDraft.legs[1].game_start_utc, otherGame.start_utc);
+  await crossSlate.locator('[data-sp-slate-add]').click();
+  assert.equal((await crossPage.evaluate(() => JSON.parse(sessionStorage.getItem('stonks-sports-draft-v1')))).legs.length, 2, 'duplicate pair adds neither leg');
+  await crossContext.close();
   // Complete browser download over multiple response-size-bounded pages.
   const recordKey = sportsKey('prop-record', { sport: 'nba', season: 2026 });
   const largeRecord = JSON.parse(objects.get(recordKey));
