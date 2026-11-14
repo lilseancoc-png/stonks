@@ -242,6 +242,11 @@ try {
       await select.selectOption(await option.getAttribute('value'));
     }
     await custom.locator('[data-sp-slate-custom-payout]').fill('1.2');
+    const firstSelect = custom.locator('[data-sp-slate-offer="today-0"]'), originalSelection = await firstSelect.inputValue();
+    await firstSelect.selectOption(await firstSelect.locator('option').filter({ hasText: 'Goblin' }).first().getAttribute('value'));
+    assert.equal(await custom.locator('[data-sp-slate-custom-payout]').inputValue(), '', 'a different custom pair must not inherit the entered payout');
+    await firstSelect.selectOption(originalSelection);
+    await custom.locator('[data-sp-slate-custom-payout]').fill('1.2');
     await custom.locator('[data-sp-slate-custom-check]').click();
     await pg.waitForFunction(() => document.querySelector('[data-sp-slate="today"]')?.textContent.includes('2 pairs have current app payouts'));
     assert.equal(await pg.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true);

@@ -390,7 +390,7 @@ export function sportsFactory(host, doc, options) {
         '<p>No eligible two-player combination yet. Waiting for fresh lines and sufficient market coverage.</p>') +
       (others.length ? '<details><summary>Compare more pairs (' + others.length + ')</summary>' + others.map((R) => '<section class="sp-nba-pair" data-sp-slate-alternative="' + R.pair_id + '"><p>' + R.picks.map((p) => '<b>' + escape(nbaOfferLabel(p)) + '</b>').join('<br>') + '</p><p>Both hit: ' + nbaPct(R.pair.low) + '–' + nbaPct(R.pair.high) + (R.pair.probability != null ? ' · central ' + nbaPct(R.pair.probability) : '') + '</p>' + nbaSlatePayoutHtml(day, R) + '<button type="button" class="sp-btn" data-sp-slate-add="' + day + '" data-sp-slate-pair-id="' + R.pair_id + '"' + (nbaSlateExpired(R) ? ' disabled' : '') + '>Add both to Pick Builder</button></section>').join('') + '</details>' : '') +
       (S.offers?.length ? '<details><summary>Compare your own two-player pair</summary><p class="sp-note">Search all supported offers for this day. Enter the exact two-pick Power payout shown by PrizePicks.</p>' + [0, 1].map((i) => '<label>Player ' + (i + 1) + '<input type="search" data-sp-slate-search="' + day + '-' + i + '" placeholder="Search player, stat or Goblin" value="' + escape(D.search[i]) + '"><select data-sp-slate-offer="' + day + '-' + i + '">' + nbaSlateOptions(day, i) + '</select></label>').join('') + '<label>Actual total payout (×) <input type="number" min="1.01" max="100" step="0.01" data-sp-slate-custom-payout="' + day + '" value="' + escape(D.value) + '"></label><button type="button" class="sp-btn" data-sp-slate-custom-check="' + day + '"' + (D.pending ? ' disabled' : '') + '>Check payout & compare</button><p role="status">' + escape(D.error || '') + '</p></details>' : '') +
-      '<p class="sp-note">Enter the total payout shown in PrizePicks for each exact pair; Goblin payouts vary by combination. Confirmations expire after five minutes or tipoff, and changing either selection requires a new payout.</p></section>';
+      '<p class="sp-note">Enter the total payout shown in PrizePicks for each exact pair; Goblin payouts vary by combination. Value estimates count both picks winning; refunds for pushes or voids are not modeled. Confirmations expire after five minutes or tipoff, and changing either selection requires a new payout.</p></section>';
   }
   function checkNBASlatePayout(page, day, id) {
     const R = nbaSlateRow(day, id), D = id ? nbaPayoutState(id) : nbaSlateDraft(day);
@@ -3101,7 +3101,14 @@ export function sportsFactory(host, doc, options) {
         if (box) box.placeholder = lineHint(avgs[t.value]);
         return;
       }
-      if (lg === 'nba' && t.matches('[data-sp-slate-offer]')) { const [day, i] = t.getAttribute('data-sp-slate-offer').split('-'); nbaSlateDraft(day).ids[Number(i)] = t.value; return; }
+      if (lg === 'nba' && t.matches('[data-sp-slate-offer]')) {
+        const [day, i] = t.getAttribute('data-sp-slate-offer').split('-'), D = nbaSlateDraft(day);
+        if (D.ids[Number(i)] !== t.value) {
+          D.ids[Number(i)] = t.value; D.value = ''; D.error = null;
+          const payout = el.querySelector('[data-sp-slate-custom-payout="' + day + '"]'); if (payout) payout.value = '';
+        }
+        return;
+      }
       if (lg) { leagueChange(page, lg, t); return; }
       if (page !== BUILDER) return;
       const d = draft();
