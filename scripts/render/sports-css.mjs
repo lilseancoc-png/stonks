@@ -57,6 +57,10 @@ export function renderSportsCss() {
 .sp-nba-pair h4, .sp-nba-research h4 { margin: 0 0 8px; }
 .sp-nba-pair label { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .sp-nba-pair input { min-width: 0; width: 110px; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); font: inherit; }
+.sp-slate select { min-width: 0; max-width: 100%; width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); font: inherit; }
+.sp-slate input[type="search"] { width: 100%; }
+.sp-slate > details { margin-top: 14px; }
+.sp-slate .sp-nba-pair { margin-top: 12px; }
 .sp-nba-pair .sp-btn { margin: 4px 5px 4px 0; }
 .sp-nba-research { margin-bottom: 18px; }
 .sp-prop details { margin: 10px 0; font-size: 13px; }

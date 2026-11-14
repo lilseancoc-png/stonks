@@ -27,13 +27,14 @@ put('model', { model_version: 'fixture-team-context', as_of_date: '2026-11-04',
       gs: { games: 12, offensive_rating: 115, defensive_rating: 111, net_rating: 4, pace: 102 },
     } } }, evaluation: { points: { status: 'validated' } } });
 const store = { backend: 'r2', rawGet: async (k) => objects.has(k) ? Buffer.from(objects.get(k)) : null, rawPut: async (k, v) => objects.set(k, String(v)), withLease: async (_, fn) => { await fn(() => {}); return { busy: false }; } };
+let includeGoblins = false;
 let feedState = 'ok', sourceCalls = 0, lastForce = null, holdNextRecord = false, heldRecordReady, releaseHeldRecord;
 const referenceEvents = () => ['draftkings', 'fanduel', 'betmgm'].map((book) => ({ id: 'e1', home_team: 'Los Angeles Lakers', away_team: 'Golden State Warriors', commence_time: game.start_utc,
-  bookmakers: [{ key: book, markets: players.map((p) => ({ key: 'player_points', period: null, line_type: 'main', last_update: new Date(serverNow).toISOString(), outcomes: [
-    { name: 'Over', description: p.name, point: 15.5, price: -400 }, { name: 'Under', description: p.name, point: 15.5, price: 300 },
-  ] })) }] }));
+  bookmakers: [{ key: book, markets: players.flatMap((p) => (includeGoblins ? [15.5,10.5] : [15.5]).map((threshold) => ({ key: 'player_points', period: null, line_type: 'main', last_update: new Date(serverNow).toISOString(), outcomes: [
+    { name: 'Over', description: p.name, point: threshold, price: threshold === 10.5 ? -600 : -400 }, { name: 'Under', description: p.name, point: threshold, price: threshold === 10.5 ? 500 : 300 },
+  ] }))) }] }));
 const sources = async (args = {}) => { sourceCalls++; lastForce = !!args.force; return {
-  lines: { state: feedState, provider: 'Fixture PropLine', message: feedState === 'ok' ? null : 'Fixture feed unavailable', lines: players.map((p) => ({ event_id: 'e1', home_team: 'Los Angeles Lakers', away_team: 'Golden State Warriors', start_utc: game.start_utc, player_name: p.name, stat: 'points', side: 'over', threshold: 15.5, observed_utc: at })) },
+  lines: { goblin_lines: includeGoblins ? players.map(p => ({ event_id: 'e1', home_team: 'Los Angeles Lakers', away_team: 'Golden State Warriors', start_utc: game.start_utc, player_name: p.name, stat: 'points', side: 'over', threshold: 10.5, offer_type: 'goblin', observed_utc: at })) : [], state: feedState, provider: 'Fixture PropLine', message: feedState === 'ok' ? null : 'Fixture feed unavailable', lines: players.map((p) => ({ event_id: 'e1', home_team: 'Los Angeles Lakers', away_team: 'Golden State Warriors', start_utc: game.start_utc, player_name: p.name, stat: 'points', side: 'over', threshold: 15.5, observed_utc: at })) },
   reference: { state: 'ok', quotes: normalizeNBAQuotes(referenceEvents(), serverNow), raw_events: referenceEvents() },
   injuries: { state: 'ok', observed_utc: at, reports: [{ name: 'Fixture Out', team: 'lal', status: 'Out', detail: 'Fixture injury', report_utc: at }] },
 }; };
@@ -201,6 +202,67 @@ try {
   await crossSlate.locator('[data-sp-slate-add]').click();
   assert.equal((await crossPage.evaluate(() => JSON.parse(sessionStorage.getItem('stonks-sports-draft-v1')))).legs.length, 2, 'duplicate pair adds neither leg');
   await crossContext.close();
+  // Real UI + HTTP flow: Goblin/standard/mixed comparisons, actual payouts,
+  // owner-private persistence, re-ranking, and Builder payout invalidation.
+  includeGoblins = true;
+  for (const width of [1440,390]) {
+    // Each viewport starts with no previously confirmed payouts.
+    for (const key of objects.keys()) if (key.includes('/nba/payouts/')) objects.delete(key);
+    const ctx = await browser.newContext({ viewport: { width, height: 1000 } }), pg = await ctx.newPage(), errors = [];
+    await pg.clock.install({ time: now });
+    await pg.route('**/*', route => new URL(route.request().url()).origin === base ? route.continue() : route.fulfill({ body: '' }));
+    pg.on('pageerror', e => errors.push(e.message));
+    await pg.goto(base + '/?tab=sports-nba');
+    const slate = pg.locator('[data-sp-slate="today"]');
+    await slate.locator('.sp-slate-prop').nth(1).waitFor();
+    assert.equal(await slate.locator('.sp-slate-prop').filter({ hasText: 'Goblin' }).count(),2);
+    assert.match(await slate.innerText(), /Payout needed/);
+    await slate.locator(':scope > [data-sp-slate-check] input').fill('1.3');
+    await slate.locator(':scope > [data-sp-slate-check] button').click();
+    await pg.waitForFunction(() => document.querySelector('[data-sp-slate="today"] > [data-sp-slate-check] [data-sp-slate-ev]')?.textContent.includes('Expected net per $1'));
+    assert.match(await slate.locator(':scope > [data-sp-slate-check] [data-sp-slate-ev]').innerText(), /−\$/);
+    const more = slate.locator(':scope > details').filter({ has: pg.locator('summary', { hasText: /Compare more pairs/ }) });
+    await more.locator(':scope > summary').click();
+    const standard = more.locator('[data-sp-slate-alternative]').filter({ hasText: /Standard/ }).filter({ hasNotText: /Goblin/ }).first();
+    await standard.locator('input').fill('3'); await standard.locator('[data-sp-slate-check-payout]').click();
+    await slate.getByRole('heading', { name: 'Best value among checked pairs' }).waitFor();
+    assert.equal(await slate.locator('.sp-slate-prop').filter({ hasText: 'Standard' }).count(),2, 'lower hit chance wins at the better payout');
+    await more.locator(':scope > summary').click();
+    const goblin = more.locator('[data-sp-slate-alternative]').filter({ hasText: /Goblin/ }).filter({ hasNotText: /Standard/ }).first();
+    await goblin.locator('input').fill('2.5'); await goblin.locator('[data-sp-slate-check-payout]').click();
+    await pg.waitForFunction(() => [...document.querySelectorAll('[data-sp-slate="today"] .sp-slate-prop')].filter(e => e.textContent.includes('Goblin')).length === 2);
+    assert.match(await slate.innerText(), /Best value among checked pairs/);
+    // The full offer search allows comparison outside the short list.
+    const custom = slate.locator(':scope > details').filter({ has: pg.locator('summary', { hasText: 'Compare your own two-player pair' }) });
+    await custom.locator(':scope > summary').click();
+    for (const [i, name] of ['Fixture One','Fixture Two'].entries()) {
+      await custom.locator('[data-sp-slate-search="today-' + i + '"]').fill(name);
+      const select = custom.locator('[data-sp-slate-offer="today-' + i + '"]');
+      const option = select.locator('option').filter({ hasText: 'Standard' }).first();
+      await select.selectOption(await option.getAttribute('value'));
+    }
+    await custom.locator('[data-sp-slate-custom-payout]').fill('1.2');
+    await custom.locator('[data-sp-slate-custom-check]').click();
+    await pg.waitForFunction(() => document.querySelector('[data-sp-slate="today"]')?.textContent.includes('2 pairs have current app payouts'));
+    assert.equal(await pg.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true);
+    await custom.locator(':scope > summary').click();
+    await pg.screenshot({ path: resolve(output, 'goblin-ev-' + width + '.png'), fullPage: true });
+    await slate.locator(':scope > [data-sp-slate-add]').click();
+    const copied = await pg.evaluate(() => JSON.parse(sessionStorage.getItem('stonks-sports-draft-v1')));
+    assert.equal(copied.payouts[2],2.5); assert.ok(copied.payout_quote); assert.ok(copied.legs.every(l => l.offer_type === 'goblin' && l.probability_source === 'book'));
+    await pg.goto(base + '/?tab=sports-pick-builder');
+    await pg.locator('[data-sp-leg-line]').first().fill('11.5');
+    assert.deepEqual(await pg.evaluate(() => JSON.parse(sessionStorage.getItem('stonks-sports-draft-v1')).payouts), {});
+    assert.equal(await pg.locator('[data-sp-payout="2"]').inputValue(), '');
+    // Restoring a saved draft after the confirmation deadline clears its payout.
+    await pg.evaluate(d => sessionStorage.setItem('stonks-sports-draft-v1',JSON.stringify(d)), copied);
+    await pg.clock.setSystemTime(now + 300001); await pg.reload();
+    assert.equal(await pg.locator('[data-sp-payout="2"]').inputValue(), '');
+    const history = JSON.parse(objects.get(sportsKey('prop-record', { sport: 'nba', season: 2026 })));
+    assert.ok(history.picks.every(p => p.threshold === 15.5), 'standard accuracy record keeps standard lines');
+    assert.deepEqual(errors, []); await ctx.close();
+  }
+  includeGoblins = false;
   // Complete browser download over multiple response-size-bounded pages.
   const recordKey = sportsKey('prop-record', { sport: 'nba', season: 2026 });
   const largeRecord = JSON.parse(objects.get(recordKey));

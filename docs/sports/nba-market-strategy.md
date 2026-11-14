@@ -21,7 +21,8 @@ prices and sportsbook payout odds.
   market delivery, player and threshold qualify. One-sided N+ ladders,
   withdrawn selections, suspended/boosted markets, contradictory duplicates,
   invalid odds and stale data are excluded. NBA PrizePicks lines must
-  explicitly identify their DFS type as standard; unknown types are excluded. No best-price mixing across
+  explicitly identify their DFS type as standard, or Goblin More for the daily
+  slate; unknown types, Demon and promotional lines are excluded. No best-price mixing across
   operators or deliveries is used to remove margin.
 - Both sides must be offered within five minutes and within thirty seconds
   of each other. An outcome that missed its market's latest delivery is
@@ -278,3 +279,51 @@ Automatic NBA refresh requests fresh provider data (the provider's existing
 thirty-second force-reuse guard still applies). On a delayed/failed refresh the
 previous analysis remains readable, while actions reject expired lines. Hidden
 tabs stop polling and refresh when resumed. NFL ranking and polling are unchanged.
+
+## Goblins and payout-aware slate comparisons (November 13, 2026)
+
+The NBA slate also searches explicitly tagged Goblin **More** offers, including
+alternate thresholds. It does not accept the synthetic Under outcomes in the
+feed. These offers use the same fresh three-book comparison and role checks.
+The standard per-game issuance, real-line calibration archive and their win-rate
+cohorts remain standard-only; complete research snapshots retain Goblin offers
+and candidates for replay. NFL selection is unchanged.
+
+The card compares standard, mixed and double-Goblin pairs across a local day's
+games. Its shortlist shows four probability-ranked pairs per offer mix, plus
+all currently priced pairs and the highest-hit pair. The full supported offer
+pool is searchable for custom comparisons. Only distinct players from distinct
+teams may form an entry.
+
+PropLine's [DFS payout documentation](https://prop-line.com/docs) supplies the
+published standard schedules, not numeric PrizePicks Goblin modifiers or exact
+entry quotes. Its synthetic +100 prices are not payouts. The Owner therefore
+enters the **actual two-pick Power total multiplier** shown in PrizePicks for
+each exact pair. Nothing is inferred from the standard 3× table, the number of
+Goblins or a per-leg modifier. [PrizePicks explains variable payouts here](https://www.prizepicks.com/help-center/payouts).
+
+Confirmed pairs rank by conservative expected net per unit staked,
+`multiplier × joint probability − 1`, then by conservative hit probability.
+The card also shows the central estimate where available, the sensitivity
+range and the break-even win probability. A promoted best-value pair must have
+positive conservative EV and no unresolved lineup/workload risk. Otherwise the
+card labels the highest-hit pair as research. “Best value” means **among checked
+pairs**: unpriced combinations cannot be ranked by EV. Every checked pair is
+evaluated from the full pool, even if its lines were pruned from the probability
+shortlist. Thus a lower-hit pair can win when its actual payout is higher.
+
+Same-origin Owner POST `nba-slate-payout` rechecks current sources, games and
+exact offer IDs before saving. Quotes are private and owner-specific under
+`_stonks/sports/v1/nba/payouts/<owner hash>.json`, limited to 64 records. Identity
+includes both players, games, stats, sides, thresholds, offer types, provider
+projection IDs and canonical starts. Quotes expire after five minutes or tipoff;
+source expiry can end the displayed analysis earlier. Fresh source reads do not
+extend the payout confirmation. Changed lines, another day or owner, stale
+quotes and missing support cannot inherit a payout.
+
+Add both copies available market probabilities and, into an empty Power entry,
+the checked payout to Pick Builder. Editing the selections/operator/format or
+reopening after its deadline clears that carried payout. Saving a paper entry
+retains Goblin tags, exact lines and the entered multiplier in the journal.
+Goblin thresholds do not enter standard-line movement history. This is still
+an experimental estimate, not a measured Goblin win rate or verified alpha.

@@ -23,6 +23,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ## [Unreleased]
 
 ### Changed
+- Include NBA Goblin More lines in cross-game two-player comparisons; rank pairs with confirmed actual payouts by conservative expected return, show win probability and break-even, and preserve the separate standard-line track record. Add searchable custom pair comparisons and carry exact checked payouts into Pick Builder.
 - Rank NBA two-player combinations across each day’s full slate, allowing different games and keeping same-game alternatives; show the joint estimate and add both selections to Pick Builder (#825).
 
 ### Fixed

@@ -37523,7 +37523,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   const league = (lg) => state.leagues[lg] || (state.leagues[lg] = {
     board: null, boardErr: null, game: null, gameId: null, gameErr: null, results: null, query: '', player: null, playerId: null, playerErr: null,
     props: null, propsErr: null, propsSeq: 0, boardSeq: 0, propsPending: false, propsTimer: null, propsMsg: '', propsNote: '', record: null, recordErr: null, recordSeq: 0,
-    recordExportPending: false, recordExportErr: null, nbaPairs: {},
+    recordExportPending: false, recordExportErr: null, nbaPairs: {}, slateChecks: {}, slateDrafts: {},
     view: 'games', gameStat: '', logAll: false, logSet: 'main',
     chart: { stat: null, n: 10, kind: 'bars', line: '' },
     leaders: { data: null, err: null, key: null, cache: {}, season: null, window: 'season', sort: null, dir: 'desc', team: '', group: '', min: null, all: false, mode: 'table', set: 'main' },
@@ -37811,7 +37811,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (!P) return '<div class="sp-props-status">Checking PrizePicks lines and player availability… ' + refresh + '</div>';
     const S = P.sources;
     return '<div class="sp-props-status"><b>' + (lg === 'nba' ? 'NBA market research · best two-player slate' : 'Best 2 player props per game') + '</b><p>' +
-      (S.lines.state === 'ok' ? escape(S.lines.count + ' current standard selections checked · lines read ' + fmtClock(S.lines.fetched_utc || P.generated_utc, zone())) : escape(S.lines.message || 'Line feed unavailable.')) + '</p>' +
+      (S.lines.state === 'ok' ? escape(S.lines.count + ' standard' + (lg === 'nba' ? ' + ' + (S.lines.goblin_count || 0) + ' Goblin' : '') + ' selections checked · lines read ' + fmtClock(S.lines.fetched_utc || P.generated_utc, zone())) : escape(S.lines.message || 'Line feed unavailable.')) + '</p>' +
       '<p><a href="https://prop-line.com/odds-api/book/prizepicks" target="_blank" rel="noopener noreferrer">PrizePicks via PropLine</a> · <a href="https://www.espn.com/' + lg + '/injuries" target="_blank" rel="noopener noreferrer">ESPN injuries</a>' +
       (S.injuries.observed_utc ? ' · report ' + escape(fmtTime(S.injuries.observed_utc, zone())) : ' · injury report unavailable') + '</p>' + refresh +
       (lg === 'nba' ? '<p class="sp-note">' + escape(S.reference?.state === 'ok' ? S.reference.count + ' fresh two-way reference quotes checked. At least three operators are needed per prop.' : S.reference?.message || 'Sportsbook comparisons unavailable; research only.') + '</p>' : '') +
@@ -37819,22 +37819,74 @@ function scenarioEventPhase(ev, now = Date.now()) {
       '<p class="sp-note">' + escape(P.tracking?.state === 'ok' ? 'Track record saves the first pair per game. Live rankings can change; the recorded lines and reasoning stay fixed.' : P.tracking?.message || 'Recording status unavailable.') + ' <button type="button" class="sp-link" data-sp-view="record">View prop track record</button></p>' +
       (L.propsMsg ? '<p role="status">' + escape(L.propsMsg) + ' <button type="button" class="sp-link" data-sp-goto="' + BUILDER + '">Open Pick Builder</button></p>' : '') + '</div>';
   }
-  function nbaSlateHtml(day) {
-    const L = league('nba'), S = L.props?.slates?.find((s) => s.day === day);
-    if (!S) return '';
-    const stale = Date.parse(S.expires_utc) <= Date.now() || S.picks.some((p) => {
-      const g = L.board?.games.find((g) => g.game_id === p.game_id);
+  function nbaSlateRow(day, id) {
+    const S = league('nba').props?.slates?.find((s) => s.day === day);
+    return id ? S?.pairs?.find((r) => r.pair_id === id) : S;
+  }
+  function nbaSlateExpired(R) {
+    return !R || Date.parse(R.expires_utc) <= Date.now() || R.picks.some((p) => {
+      const g = league('nba').board?.games.find((g) => g.game_id === p.game_id);
       return !g || g.status !== 'scheduled' || g.time_tbd || Math.min(Date.parse(g.start_utc), Date.parse(p.start_utc)) <= Date.now();
     });
-    const P = S.pair;
-    return '<section class="sp-nba-pair sp-slate" data-sp-slate="' + day + '"><h4>Best two-player pair across the slate</h4>' +
-      '<p class="sp-note">Compared ' + S.eligible_count + ' supported selections for this day. Ranks by the conservative pair estimate, preferring pairs without unresolved lineup or workload risks.</p>' +
-      (S.picks.length === 2 ? S.picks.map((p) => '<article class="sp-slate-prop"><p><b>' + escape(p.player_name) + ' · ' + (p.side === 'over' ? 'More' : 'Less') + ' than ' + num(p.threshold) + ' ' + escape(label(p.stat).toLowerCase()) + '</b><br>' + team(p.team) + ' vs ' + team(p.opponent) + ' · ' + escape(fmtTime(p.game_start_utc || p.start_utc, zone())) + ' · market ≥' + nbaPct(p.market.low) + '</p><details><summary>Why this pick</summary>' + nbaComparisonHtml(p) + '<dl>' + p.evidence.map((e) => '<dt>' + escape(e.label) + '</dt><dd>' + escape(e.text) + '</dd>').join('') + '</dl></details></article>').join('') +
-        '<p>Pair estimate: <b>' + nbaPct(P.low) + '–' + nbaPct(P.high) + '</b>. ' + (P.method === 'independent_games' ? 'Different games; assumes independent outcomes.' : P.method === 'copula_sensitivity' ? 'Same game; includes measured links.' : 'Same game; uses bounds without assuming independence.') + '</p>' +
-        '<p class="sp-note">' + escape(P.state === 'pass' ? 'Research only: ' + P.reason : 'Enter the actual payout in Pick Builder before evaluating an entry.') + ' Estimates are experimental, not a proven win rate.</p>' +
-        (stale ? '<p role="status">Updating lines & injuries. Previous pair shown; wait for fresh inputs before adding.</p>' : '') +
-        '<button type="button" class="sp-btn" data-sp-slate-add="' + day + '"' + (stale ? ' disabled' : '') + '>Add both to Pick Builder</button><p class="sp-note">Save the entry in Pick Builder to track this combination. The per-game track record remains separate.</p>' :
-        '<p>No eligible two-player combination yet. Waiting for fresh lines and sufficient market coverage.</p>') + '</section>';
+  }
+  function nbaPayoutState(id) { const L = league('nba'); return L.slateChecks[id] || (L.slateChecks[id] = {}); }
+  function nbaSlateDraft(day) { const L = league('nba'); return L.slateDrafts[day] || (L.slateDrafts[day] = { ids: ['', ''], search: ['', ''], value: '' }); }
+  function nbaOfferLabel(p) { return p.player_name + ' · ' + (p.side === 'over' ? 'More' : 'Less') + ' ' + num(p.threshold) + ' ' + label(p.stat) + ' · ' + (p.offer_type === 'goblin' ? 'Goblin' : 'Standard') + ' · ' + team(p.team) + ' vs ' + team(p.opponent); }
+  function nbaSlateOptions(day, i) {
+    const S = nbaSlateRow(day), d = nbaSlateDraft(day), query = d.search[i].toLowerCase();
+    const offers = S?.offers || [], selected = offers.find((p) => p.offer_id === d.ids[i]);
+    const matches = offers.filter((p) => nbaOfferLabel(p).toLowerCase().includes(query)).slice(0, 60);
+    if (selected && !matches.includes(selected)) matches.unshift(selected);
+    return '<option value="">Choose a line</option>' + matches.map((p) => '<option value="' + p.offer_id + '"' + (p.offer_id === d.ids[i] ? ' selected' : '') + '>' + escape(nbaOfferLabel(p)) + '</option>').join('');
+  }
+  function nbaSlateEV(R) {
+    const d = nbaPayoutState(R.pair_id), P = R.pair, changed = d.value != null && Number(d.value) !== R.payout?.multiplier;
+    if (changed) return 'Payout edited. Check it to recalculate expected value.';
+    if (!R.payout || Date.parse(R.payout.expires_utc) <= Date.now()) return 'Payout needed — enter the total return shown for these exact two picks.';
+    if (nbaSlateExpired(R)) return 'Inputs expired. Previous estimate shown; refresh before using this pair.';
+    const E = P.return_per_unit;
+    return 'Expected net per $1: ' + signedMoney(E.low) + ' to ' + signedMoney(E.high) + (E.central != null ? ' · central ' + signedMoney(E.central) : '') + '. Break-even ' + nbaPct(P.breakeven_probability) + '. ' +
+      (P.state === 'positive_screen' ? 'Passes the experimental value check.' : P.reason);
+  }
+  function nbaSlatePayoutHtml(day, R) {
+    if (!R.pair_id) return '';
+    const d = nbaPayoutState(R.pair_id), value = d.value ?? R.payout?.multiplier ?? '';
+    return '<div data-sp-slate-check="' + R.pair_id + '"><label>Actual 2-pick Power payout (× total return) <input type="number" min="1.01" max="100" step="0.01" inputmode="decimal" data-sp-slate-payout="' + R.pair_id + '" value="' + escape(value) + '" placeholder="From your app"></label> ' +
+      '<button type="button" class="sp-btn" data-sp-slate-check-payout="' + R.pair_id + '" data-sp-slate-day="' + day + '"' + (nbaSlateExpired(R) || d.pending ? ' disabled' : '') + '>' + (d.pending ? 'Checking…' : 'Check payout & rank') + '</button>' +
+      '<p class="sp-note" data-sp-slate-ev role="status">' + escape(d.error || nbaSlateEV(R)) + '</p></div>';
+  }
+  function nbaSlateHtml(day) {
+    const L = league('nba'), S = nbaSlateRow(day);
+    if (!S) return '';
+    const stale = nbaSlateExpired(S), P = S.pair, D = nbaSlateDraft(day);
+    const primary = S.pairs?.find((r) => r.pair_id === S.pair_id) || S;
+    const others = (S.pairs || []).filter((r) => r.pair_id !== S.pair_id);
+    const best = S.selection_mode === 'expected_value' && !stale;
+    return '<section class="sp-nba-pair sp-slate" data-sp-slate="' + day + '"><h4>' + (best ? 'Best value among checked pairs' : 'Best two-player pair across the slate') + '</h4>' +
+      '<p class="sp-note">Compared ' + S.eligible_count + ' supported standard and Goblin selections. ' + (S.payout_checked_count || 0) + ' pairs have current app payouts. Expected value ranks checked pairs; hit probability breaks ties.</p>' +
+      (!best ? '<p class="sp-note">No pair clears the current payout and lineup checks. This is a research shortlist.</p>' : '') +
+      (S.picks.length === 2 ? S.picks.map((p) => '<article class="sp-slate-prop"><p><b>' + escape(p.player_name) + ' · ' + (p.side === 'over' ? 'More' : 'Less') + ' than ' + num(p.threshold) + ' ' + escape(label(p.stat).toLowerCase()) + '</b> <span class="sp-muted">' + (p.offer_type === 'goblin' ? 'Goblin' : 'Standard') + '</span><br>' + team(p.team) + ' vs ' + team(p.opponent) + ' · ' + escape(fmtTime(p.game_start_utc || p.start_utc, zone())) + ' · market ≥' + nbaPct(p.market.low) + '</p><details><summary>Why this pick</summary>' + nbaComparisonHtml(p) + '<dl>' + p.evidence.map((e) => '<dt>' + escape(e.label) + '</dt><dd>' + escape(e.text) + '</dd>').join('') + '</dl></details></article>').join('') +
+        '<p>Chance both hit: <b>' + nbaPct(P.low) + '–' + nbaPct(P.high) + '</b>' + (P.probability != null ? ' · central ' + nbaPct(P.probability) : '') + '. ' + (P.method === 'independent_games' ? 'Different games; assumes independent outcomes.' : P.method === 'copula_sensitivity' ? 'Same game; includes measured links.' : 'Same game; uses bounds without assuming independence.') + '</p>' +
+        '<p class="sp-note">' + escape(P.state === 'pass' ? 'Research only: ' + P.reason : 'Check the exact payout before using this pair.') + ' Estimates are experimental, not a proven win rate.</p>' +
+        (stale ? '<p role="status">Updating lines & injuries. Previous pair shown; wait for fresh inputs before adding.</p>' : '') + nbaSlatePayoutHtml(day, primary) +
+        '<button type="button" class="sp-btn" data-sp-slate-add="' + day + '"' + (stale ? ' disabled' : '') + '>Add both to Pick Builder</button><p class="sp-note">Adds the exact lines and available market chances. A checked payout carries into an empty entry. Save in Pick Builder to track the combination; the standard per-game record remains separate.</p>' :
+        '<p>No eligible two-player combination yet. Waiting for fresh lines and sufficient market coverage.</p>') +
+      (others.length ? '<details><summary>Compare more pairs (' + others.length + ')</summary>' + others.map((R) => '<section class="sp-nba-pair" data-sp-slate-alternative="' + R.pair_id + '"><p>' + R.picks.map((p) => '<b>' + escape(nbaOfferLabel(p)) + '</b>').join('<br>') + '</p><p>Both hit: ' + nbaPct(R.pair.low) + '–' + nbaPct(R.pair.high) + (R.pair.probability != null ? ' · central ' + nbaPct(R.pair.probability) : '') + '</p>' + nbaSlatePayoutHtml(day, R) + '<button type="button" class="sp-btn" data-sp-slate-add="' + day + '" data-sp-slate-pair-id="' + R.pair_id + '"' + (nbaSlateExpired(R) ? ' disabled' : '') + '>Add both to Pick Builder</button></section>').join('') + '</details>' : '') +
+      (S.offers?.length ? '<details><summary>Compare your own two-player pair</summary><p class="sp-note">Search all supported offers for this day. Enter the exact two-pick Power payout shown by PrizePicks.</p>' + [0, 1].map((i) => '<label>Player ' + (i + 1) + '<input type="search" data-sp-slate-search="' + day + '-' + i + '" placeholder="Search player, stat or Goblin" value="' + escape(D.search[i]) + '"><select data-sp-slate-offer="' + day + '-' + i + '">' + nbaSlateOptions(day, i) + '</select></label>').join('') + '<label>Actual total payout (×) <input type="number" min="1.01" max="100" step="0.01" data-sp-slate-custom-payout="' + day + '" value="' + escape(D.value) + '"></label><button type="button" class="sp-btn" data-sp-slate-custom-check="' + day + '"' + (D.pending ? ' disabled' : '') + '>Check payout & compare</button><p role="status">' + escape(D.error || '') + '</p></details>' : '') +
+      '<p class="sp-note">Enter the total payout shown in PrizePicks for each exact pair; Goblin payouts vary by combination. Confirmations expire after five minutes or tipoff, and changing either selection requires a new payout.</p></section>';
+  }
+  function checkNBASlatePayout(page, day, id) {
+    const R = nbaSlateRow(day, id), D = id ? nbaPayoutState(id) : nbaSlateDraft(day);
+    if (D.pending) return;
+    const ids = id ? R?.offer_ids : D.ids, raw = D.value ?? R?.payout?.multiplier;
+    if (!ids || ids.length !== 2 || ids.some((v) => !v) || ids[0] === ids[1] || !(Number(raw) > 1 && Number(raw) <= 100)) {
+      D.error = 'Choose two players and enter the actual total payout, greater than 1× and at most 100×.'; paint(page, 'board', boardHtml('nba')); return;
+    }
+    D.pending = true; D.error = null;
+    paint(page, 'board', boardHtml('nba'));
+    api('nba-slate-payout', null, { sport: 'nba', tz: zone(), offer_ids: ids, payout_multiplier: Number(raw) }).then(() => {
+      D.pending = false; league('nba').propsMsg = 'Payout confirmed for this exact pair.'; loadProps(page, 'nba', false);
+    }, (err) => { D.pending = false; D.error = err.detail || err.message || 'Payout could not be checked.'; if (state.page === page) paint(page, 'board', boardHtml('nba')); });
   }
   function propsForGame(lg, g) {
     const L = league(lg), P = L.props;
@@ -39302,7 +39354,19 @@ function scenarioEventPhase(ev, now = Date.now()) {
     return state.draft;
   }
   function saveDraft() {
+    validateCarriedPayout();
     try { host.sessionStorage.setItem(DRAFT_KEY, JSON.stringify(draft())); } catch (_) {}
+  }
+  function payoutSignature(d) {
+    return JSON.stringify([d.operator, d.format, d.legs.map((l) => [l.sport, l.game_id, l.player_id, l.stat, l.side, l.threshold, l.offer_type || 'standard']).sort()]);
+  }
+  function validateCarriedPayout() {
+    const d = draft(), q = d.payout_quote;
+    if (q && (q.signature !== payoutSignature(d) || Date.parse(q.expires_utc) <= Date.now())) {
+      d.payouts = {}; delete d.payout_quote;
+      pb.evaluation = null;
+      paint(BUILDER, 'payouts', payoutsHtml());
+    }
   }
   // A shared link (?entry=...) from Claude or ChatGPT replaces the draft once,
   // then leaves the address bar. It never carries chances.
@@ -39330,6 +39394,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     pb.prefill = 'ok'; pb.evaluation = null; pb.msg = null;
   }
   function draftBody() {
+    validateCarriedPayout();
     const d = draft(), n = d.legs.length, payouts = {};
     const parlay = d.format === 'parlay';
     if (parlay) {
@@ -39346,7 +39411,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       legs: d.legs.map((l) => isTeamPick(l)
         ? { kind: 'team', sport: l.sport, game_id: l.game_id, market: l.market, team: l.team, side: l.side, line: l.line, probability: l.probability, probability_source: l.probability_source, price: price(l) }
         : Object.assign({ sport: l.sport, player_id: l.player_id, game_id: l.game_id, stat: l.stat, side: l.side, threshold: l.threshold, probability: l.probability, probability_source: l.probability_source, price: price(l) },
-          l.sport === 'nba' && typeof l.starting === 'boolean' ? { starting: l.starting } : {})),
+          l.sport === 'nba' && typeof l.starting === 'boolean' ? { starting: l.starting } : {}, l.sport === 'nba' && l.offer_type ? { offer_type: l.offer_type } : {})),
       operator: d.operator, format: d.format, stake: d.stake, payouts, note: d.note,
     };
   }
@@ -39719,11 +39784,11 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (isTeamPick(l)) return teamLegHtml(l, i);
     const nameShown = l.player_name || l.player_id, ms = milestone(l.side, l.threshold);
     return '<li class="sp-leg" data-sp-leg="' + i + '"><div class="sp-leg-head"><span class="sp-leg-name"><i>' + (i + 1) + '</i>' + escape(nameShown) +
-      (l.team ? ' <span>' + team(l.team) + '</span>' : '') + '</span>' +
+      (l.team ? ' <span>' + team(l.team) + '</span>' : '') + (l.offer_type === 'goblin' ? ' <span>Goblin</span>' : '') + '</span>' +
       '<button type="button" class="sp-close" data-sp-remove="' + i + '" aria-label="Remove pick ' + (i + 1) + '">×</button></div>' +
       '<p class="sp-leg-game">' + escape(String(l.sport).toUpperCase()) + ' · ' + (l.matchup ? matchupText(l.matchup) : 'game ' + escape(l.game_id)) + (l.game_start_utc ? ' · ' + escape(fmtWhen(l.game_start_utc, zone())) : '') + '</p>' +
       '<div class="sp-leg-line"><span class="sp-leg-stat">' + escape(label(l.stat)) + '</span>' +
-      '<select data-sp-leg-side aria-label="Over or under for pick ' + (i + 1) + '"><option value="over"' + (l.side === 'over' ? ' selected' : '') + '>Over</option><option value="under"' + (l.side === 'under' ? ' selected' : '') + '>Under</option></select>' +
+      '<select data-sp-leg-side aria-label="Over or under for pick ' + (i + 1) + '"><option value="over"' + (l.side === 'over' ? ' selected' : '') + '>Over</option><option value="under"' + (l.side === 'under' ? ' selected' : '') + (l.offer_type === 'goblin' ? ' disabled' : '') + '>Under</option></select>' +
       '<input data-sp-leg-line type="number" min="0" max="1000" step="0.5" inputmode="decimal" value="' + escape(l.threshold) + '" aria-label="Line for pick ' + (i + 1) + '">' +
       '<span class="sp-ms" data-sp-ms title="How Kalshi names this line">' + (ms ? escape(ms) : '') + '</span>' +
       legChanceHtml(l, i) + legStartHtml(l, i) + '</div>' +
@@ -39800,6 +39865,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       '<label class="sp-field"><span>Paper stake</span><span class="sp-money"><i>$</i><input data-sp-stake type="number" min="0.01" max="100000" step="0.01" inputmode="decimal" value="' + escape(d.stake) + '"></span></label></div>';
   }
   function payoutsHtml() {
+    validateCarriedPayout();
     const d = draft(), n = d.legs.length;
     if (!n) return '';
     if (d.format === 'parlay') return parlayHtml();
@@ -40410,8 +40476,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (t.closest('[data-sp-record-export]')) { exportPropRecord(page, lg); return true; }
     if (t.closest('[data-sp-record-refresh]')) { loadPropRecord(page, lg); return true; }
     if ((b = t.closest('[data-sp-props-refresh]'))) { if (!b.disabled && !L.propsPending) loadBoard(page, lg, true); return true; }
+    if ((b = t.closest('[data-sp-slate-check-payout]'))) { checkNBASlatePayout(page, b.getAttribute('data-sp-slate-day'), b.getAttribute('data-sp-slate-check-payout')); return true; }
+    if ((b = t.closest('[data-sp-slate-custom-check]'))) { checkNBASlatePayout(page, b.getAttribute('data-sp-slate-custom-check'), null); return true; }
     if ((b = t.closest('[data-sp-slate-add]'))) {
-      const S = L.props?.slates?.find((s) => s.day === b.getAttribute('data-sp-slate-add')), d = draft();
+      const S = nbaSlateRow(b.getAttribute('data-sp-slate-add'), b.getAttribute('data-sp-slate-pair-id')), d = draft();
       const games = S?.picks.map((p) => L.board?.games.find((g) => g.game_id === p.game_id)) || [];
       if (!S || S.picks.length !== 2 || Date.parse(S.expires_utc) <= Date.now() || games.some((g, i) => !g || g.status !== 'scheduled' || g.time_tbd || Math.min(Date.parse(g.start_utc), Date.parse(S.picks[i].start_utc)) <= Date.now()))
         L.propsMsg = 'This pair expired. Refresh the lines before adding it.';
@@ -40420,8 +40488,14 @@ function scenarioEventPhase(ev, now = Date.now()) {
       else {
         S.picks.forEach((p, i) => d.legs.push({ sport: 'nba', player_id: p.player_id, player_name: p.player_name, team: p.team, game_id: p.game_id,
           matchup: games[i].away_team + '@' + games[i].home_team, game_start_utc: games[i].start_utc,
-          stat: p.stat, side: p.side, threshold: p.threshold, probability: null, probability_source: null }));
-        d.payouts = {}; saveDraft(); L.propsMsg = 'Added both slate picks. Enter the actual entry payout in Pick Builder.';
+          stat: p.stat, side: p.side, threshold: p.threshold, offer_type: p.offer_type || 'standard', probability: p.market?.probability ?? p.probability ?? null,
+          probability_source: (p.market?.probability ?? p.probability) != null ? 'book' : null }));
+        const carry = d.legs.length === 2 && S.payout && Date.parse(S.payout.expires_utc) > Date.now();
+        d.payouts = carry ? { 2: S.payout.multiplier } : {};
+        if (d.legs.length === 2) { d.operator = 'prizepicks'; d.format = 'power'; }
+        delete d.payout_quote;
+        if (carry) d.payout_quote = { signature: payoutSignature(d), expires_utc: S.payout.expires_utc };
+        saveDraft(); L.propsMsg = carry ? 'Added both picks and the checked payout to Pick Builder.' : 'Added both slate picks. Enter the actual entry payout in Pick Builder.';
       }
       paint(page, 'board', boardHtml(lg)); return true;
     }
@@ -40510,6 +40584,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         if (box) box.placeholder = lineHint(avgs[t.value]);
         return;
       }
+      if (lg === 'nba' && t.matches('[data-sp-slate-offer]')) { const [day, i] = t.getAttribute('data-sp-slate-offer').split('-'); nbaSlateDraft(day).ids[Number(i)] = t.value; return; }
       if (lg) { leagueChange(page, lg, t); return; }
       if (page !== BUILDER) return;
       const d = draft();
@@ -40549,6 +40624,16 @@ function scenarioEventPhase(ev, now = Date.now()) {
     });
     el.addEventListener('input', (event) => {
       const t = event.target;
+      if (lg === 'nba' && t.matches('[data-sp-slate-payout]')) {
+        const d = nbaPayoutState(t.getAttribute('data-sp-slate-payout')); d.value = t.value; d.error = null;
+        const status = t.closest('[data-sp-slate-check]')?.querySelector('[data-sp-slate-ev]'); if (status) status.textContent = 'Payout edited. Check it to recalculate expected value.';
+        return;
+      }
+      if (lg === 'nba' && t.matches('[data-sp-slate-custom-payout]')) { nbaSlateDraft(t.getAttribute('data-sp-slate-custom-payout')).value = t.value; return; }
+      if (lg === 'nba' && t.matches('[data-sp-slate-search]')) {
+        const key = t.getAttribute('data-sp-slate-search'), [day, i] = key.split('-'); nbaSlateDraft(day).search[Number(i)] = t.value;
+        const select = el.querySelector('[data-sp-slate-offer="' + key + '"]'); if (select) select.innerHTML = nbaSlateOptions(day, Number(i)); return;
+      }
       if (lg === 'nba' && t.matches('[data-sp-nba-payout]')) {
         const d = league('nba').nbaPairs[t.getAttribute('data-sp-nba-payout')];
         if (d) { d.value = t.value; d.seq++; d.result = null; d.error = null; d.pending = false; const status = t.closest('.sp-nba-pair')?.querySelector('[data-sp-pair-result]'); if (status) status.textContent = 'Evaluate the entered payout before saving a paper pair.'; }
@@ -40601,7 +40686,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         if (src) src.textContent = l.probability == null ? '' : 'typed';
         saveDraft(); scheduleEval();
       } else if (t.matches('[data-sp-stake]')) { d.stake = t.value === '' ? null : Number(t.value); saveDraft(); scheduleEval(); }
-      else if (t.matches('[data-sp-payout]')) { d.payouts[t.getAttribute('data-sp-payout')] = t.value === '' ? '' : Number(t.value); saveDraft(); scheduleEval(); }
+      else if (t.matches('[data-sp-payout]')) { delete d.payout_quote; d.payouts[t.getAttribute('data-sp-payout')] = t.value === '' ? '' : Number(t.value); saveDraft(); scheduleEval(); }
       else if (t.matches('[data-sp-note]')) { d.note = t.value; saveDraft(); }
     });
     el.addEventListener('click', (event) => {
@@ -40846,7 +40931,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (l.side !== 'over' && l.side !== 'under') return null;
     if (!(l.threshold != null && l.threshold !== '' && Number.isFinite(t) && t >= 0 && t <= 1000 && Math.round(t * 2) === t * 2)) return null;
     const starting = l.sport === 'nba' && typeof l.starting === 'boolean' ? { starting: l.starting } : {};
-    legs.push(Object.assign({ sport: l.sport, player_id: player, game_id: game, stat: l.stat, side: l.side, threshold: t }, starting, price));
+    if (l.offer_type != null && (l.sport !== 'nba' || !['standard', 'goblin'].includes(l.offer_type) || (l.offer_type === 'goblin' && l.side !== 'over'))) return null;
+    legs.push(Object.assign({ sport: l.sport, player_id: player, game_id: game, stat: l.stat, side: l.side, threshold: t }, starting, price, l.offer_type ? { offer_type: l.offer_type } : {}));
   }
   const payouts = {};
   if (data.payouts && typeof data.payouts === 'object' && !Array.isArray(data.payouts)) {
