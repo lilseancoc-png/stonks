@@ -2,7 +2,6 @@
 import assert from 'node:assert/strict';
 import { normalizeOdds } from '../lib/sports/prop-sources.mjs';
 import { nbaOfferId, nbaPairId, nbaSlateComparisons, saveNBAPayout, readNBAPayouts } from '../lib/sports/nba-slate.mjs';
-import { nbaPairEstimate, selectNBAProps } from '../lib/sports/nba-market.mjs';
 import { handleSportsRequest } from '../lib/sports/http.mjs';
 import { sportsKey } from '../lib/sports/store.mjs';
 import { decodePrefill, encodePrefill } from '../lib/sports/prefill.mjs';

@@ -250,6 +250,16 @@ try {
     await slate.locator(':scope > [data-sp-slate-add]').click();
     const copied = await pg.evaluate(() => JSON.parse(sessionStorage.getItem('stonks-sports-draft-v1')));
     assert.equal(copied.payouts[2],2.5); assert.ok(copied.payout_quote); assert.ok(copied.legs.every(l => l.offer_type === 'goblin' && l.probability_source === 'book'));
+    const savedEntry = await pg.evaluate(async d => {
+      const r = await fetch('/api/auth/me?sports=save-entry', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(d) });
+      return { status: r.status, body: await r.json() };
+    }, copied);
+    assert.equal(savedEntry.status, 200, JSON.stringify(savedEntry.body));
+    const journal = JSON.parse(objects.get(sportsKey('journal')));
+    assert.ok(journal.events.at(-1).entry.legs.every(l => l.offer_type === 'goblin'));
+    assert.equal(journal.events.at(-1).entry.payouts[2], 2.5);
+    const observations = objects.get(sportsKey('observations'));
+    assert.ok(!observations || JSON.parse(observations).observations.every(o => o.threshold !== 10.5), 'Goblins do not appear as standard-line movement');
     await pg.goto(base + '/?tab=sports-pick-builder');
     await pg.locator('[data-sp-leg-line]').first().fill('11.5');
     assert.deepEqual(await pg.evaluate(() => JSON.parse(sessionStorage.getItem('stonks-sports-draft-v1')).payouts), {});
