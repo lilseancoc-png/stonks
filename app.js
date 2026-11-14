@@ -37841,6 +37841,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (g.status !== 'scheduled' || Date.parse(g.start_utc) <= Date.now()) return '';
     if (L.propsErr && !P) return '<p class="sp-prop-empty">Prop analysis unavailable.</p>';
     if (!P) return '<p class="sp-prop-empty">Checking props…</p>';
+    if (lg !== 'nba' && Date.parse(P.expires_utc) <= Date.now()) return '<p class="sp-prop-empty">This analysis expired. Refresh lines and injuries.</p>';
     const G = P.games.find((v) => v.game_id === g.game_id);
     if (!G) return '<p class="sp-prop-empty">No analysis for this game yet.</p>';
     const stale = Date.parse(G.expires_utc || P.expires_utc) <= Date.now();
