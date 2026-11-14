@@ -171,7 +171,7 @@ const isolatedObjects = new Map(objects), isolatedStore = { ...store, rawGet: as
   rawPut: async (k, value) => isolatedObjects.set(k, String(value)) };
 const isolatedKey = sportsKey('nba-research-game', { sport: 'nba', season: 2026, gameId: game.game_id });
 const oldCase = decodeNBAResearch(JSON.parse(isolatedObjects.get(isolatedKey)));
-oldCase.points.at(-1).expires_utc = new Date(now + 1000).toISOString();
+oldCase.points.at(-1).expires_utc = new Date(now + 60000).toISOString();
 isolatedObjects.set(isolatedKey, JSON.stringify(encodeNBAResearch(oldCase)));
 const renewed = await view(); await captureNBAResearch({ store: isolatedStore, view: renewed, now: now + 2000 });
 assert.notEqual(renewed.games[0].research_snapshot_id, oldCase.points.at(-1).snapshot_id);

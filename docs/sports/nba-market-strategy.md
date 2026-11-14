@@ -267,7 +267,8 @@ on **any** game. A duplicate research snapshot could also carry an almost-expire
 deadline into the entire new response. NBA validity now follows each game's own
 five-minute quote/selection ages, thirty-minute injury report limit and earliest
 canonical/provider tipoff. The slate has its own two-leg deadline. Reuse requires
-more than thirty seconds left on the prior research snapshot; it cannot shorten
+more than thirty seconds left and at least the new analysis deadline on the prior
+research snapshot; it cannot shorten
 another game's validity. The legacy top-level expiry remains a conservative
 fallback for older clients.
 
