@@ -827,6 +827,7 @@ export function renderStockPageJs() {
           '</div></section>';
       }
       html += '<section class="stp-sec" id="stp-valuation" hidden></section>';
+      html += '<section class="stp-sec" id="stp-odds" hidden></section>';
       html += chatterHtml(d);
       if (f.longBusinessSummary){
         var text = String(f.longBusinessSummary);
@@ -837,7 +838,7 @@ export function renderStockPageJs() {
       // The valuation band fills in once its public file arrives, after any
       // chart this tab already queued.
       var prevAfter = state.afterTab, vSym = state.sym, vToken = state.token;
-      state.afterTab = function(){ if (typeof prevAfter === 'function') prevAfter(); fillValuation(vSym, vToken); };
+      state.afterTab = function(){ if (typeof prevAfter === 'function') prevAfter(); fillValuation(vSym, vToken); fillOdds(vSym, vToken); };
       return html;
     }
     function tabNews(){
@@ -1000,6 +1001,18 @@ export function renderStockPageJs() {
         '<div class="stp-band-legend"><span><i class="stp-band-peers"></i>peer range</span><span><i class="stp-band-median"></i>peer median</span><span><i class="stp-band-own"></i>own range so far</span><span><i class="stp-band-now"></i>now</span></div>' +
         bars +
         '<p class="stp-src">' + escapeHtml(vb.note || '') + (vb.asOf ? ' As of ' + escapeHtml(dateLabel(vb.asOf)) + '.' : '') + '</p>';
+    }
+    // Prediction-market odds linked to this stock (public prediction-odds.json,
+    // prediction-client.mjs predictionStockStripHtml). Hidden when none link.
+    function fillOdds(sym, token){
+      if (typeof predictionPublicJson !== 'function' || typeof predictionStockStripHtml !== 'function') return;
+      predictionPublicJson().then(function(pub){
+        if (state.token !== token || state.sym !== sym) return;
+        var host = document.getElementById('stp-odds');
+        if (!host) return;
+        var inner = predictionStockStripHtml(pub, sym);
+        if (inner){ host.innerHTML = inner; host.hidden = false; }
+      });
     }
     function fillValuation(sym, token){
       valuationData().then(function(vb){

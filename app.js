@@ -261,7 +261,7 @@
   }
 
 
-  var SITE_MAP = [["today","Today","Today","What is happening in the market right now",0,[["home","Home","","A one-screen overview of the market and every part of the site.",0],["brief","Market brief","Brief","A short digest of what moved, why, and what is coming up next.",0],["whats-changed","What changed","Since yesterday diff changes new walls crosses streaks insiders","What is new since the previous trading day: option walls and trades, average crosses, streaks, filings and insider trades.",0],["news","News","News desk","Market-moving stock and economic headlines, most important first.",0],["heatmap","Heatmap","","Every tracked stock as a tile: size is company value, color is how much it moved.",0],["calendar","Calendar","","Upcoming earnings reports, economic releases and Fed meetings.",0],["overnight","Overnight markets","","How Asian and European markets traded before the US open, and which US stocks they tend to lead.",0],["past-day","Past days","Time machine history date picker archive replay","Pick an earlier trading day and see the heatmap and index moves as they were.",0]]],["stocks","Stocks","Stocks","Look up, compare and follow companies",0,[["tickers","All stocks","Tickers","Every stock the site follows, with its price, returns and sector.",0],["market-map","Market map","Fear map scatter chart wall sparklines correlation crowding breadth short interest crowded shorts","Every tracked stock on one screen: options fear, any two numbers, every chart, what moves together, breadth and short interest.",0],["stock","Look up a stock","Stock page quote ticker company chart","One company: its price chart, key numbers, news, earnings, options and who owns it.",0],["grade","Grade a stock","Grade a ticker stock report Look up","One stock in depth: its grade, setup signals, fundamentals and the option contract to trade.",1],["compare","Compare stocks","Compare companies","Line up a few companies side by side on price, growth and valuation.",0],["f13","Who owns what","SEC ownership 13F Form 4 insider","What big investment funds bought and sold last quarter, plus recent insider trades.",0],["pending-buyouts","Pending buyouts","M&A mergers","Announced and rumored takeovers, and how far along each deal is.",0]]],["earnings","Earnings","Earnings","Results, what management said, and how peers react",0,[["earnings","Earnings results","Earnings tracker","Which companies beat or missed expectations this season, and how their stocks reacted.",0],["calls","Earnings calls","","What management said on each company’s latest earnings call, and what changed.",0],["earnings-week","Earnings week ahead","Earnings board implied move expected move straddle this week","Every covered report in the next 10 days: the move options expect next to the stock’s own past moves.",0],["spillover","Earnings ripple effects","Event spillover","How one company’s earnings tend to move the other stocks in its industry.",0]]],["market","Market & economy","Market","The big picture: mood, rates, money and themes",0,[["fear-greed","Market mood","Fear & Greed","CNN’s Fear & Greed index: whether investors are acting scared or greedy, from 0 to 100.",0],["bonds-usd","Rates & the dollar","Bonds & USD Fed","Treasury yields, the US dollar and what the Fed is expected to do next.",0],["commodities","Commodities","","Oil, gold, copper and other raw materials, and the stocks that move with them.",0],["central-bank-gold","Central-bank gold","","How much gold the world’s central banks are buying or selling.",0],["capital-raises","Capital markets","Capital raises share sales buybacks IPOs credit issuance debt","Companies selling stock or debt or buying shares back, upcoming IPOs, and how easily companies and households can borrow.",0],["crowd","Crowd & positioning","Positioning put call ratio COT commitments of traders margin debt short volume borrow fee Reddit mentions Wikipedia Stocktwits Kalshi odds perps Hyperliquid leveraged ETF flows","How traders are positioned and where the crowd is looking: put/call ratios, futures, margin debt, short selling, attention, odds.",0],["history-rhymes","Booms & busts","History rhymes historical case studies railroad railway mania panic of 1873 telecom fiber dot-com bubble 2008 financial crisis housing subprime AI data center buildout GPU debt depreciation credit default swaps CDS credit spreads default risk Merton","Railroads, telecom fiber and the 2008 housing crash beside today’s AI data center buildout, and how many of their warning signs show now.",0],["narratives","Market themes","Narratives","The big stories driving money right now, such as AI spending, and which stocks ride them.",0]]],["options","Options activity","Options","Where traders are placing bets",0,[["flow","Unusual options trades","Unusual flow","Option trades far bigger than normal for that stock, a sign someone expects a move.",0],["oi","Options walls","Gamma exposure GEX","Price levels where large option positions can slow a stock down or speed it up.",0],["iv-trend","Rising volatility","Trending IV implied volatility","Stocks whose options are pricing in a bigger move than usual.",0],["strategies","Strategy builder","Strategies","Pick a stock and build a defined-risk options trade, with its profit and loss at expiry.",0]]],["signals","Price signals","Signals","Price trends, trading volume and repeating patterns",0,[["ma-tracker","Moving averages","MA tracker crossover","Stocks sitting close to their 20, 50, 100 or 200-day average price.",0],["streaks","Up/down streaks","Streaks green red","Stocks on a run of up days or down days in a row.",0],["volume","Trading volume","Volume shares","Days when a stock traded many more or fewer shares than usual.",0],["pattern-lab","Pattern lab","Seasonality","Repeating patterns such as seasonality and how stocks behave after big moves.",0],["index-cal","Daily index moves","Index calendar","A month grid of the major index funds’ daily moves, showing which days the whole market joined in.",0]]],["industry","Industry trends","Industry","Real-world data behind the AI and chip trade",0,[["ai-capex","AI spending","AI CapEx","How much the biggest tech companies are spending on AI data centers.",0],["ram-prices","Memory chip prices","RAM prices DRAM","Weekly prices for computer memory, a read on the chip cycle.",0],["accelerator-prices","GPU cloud prices","Accelerator","What it costs to rent AI chips by the hour, a read on AI demand.",0],["search-interest","Search trends","Search interest Google","Which market themes people are searching for more or less this week.",0]]],["learn","Learn & help","Learn","Guides and when the data updates",0,[["cheatsheet","Options guide","Buyer's manual","A plain-English guide to buying options: calls, puts, risk and timing.",0],["chart-patterns","Chart patterns","","What common chart shapes look like and how traders read them.",0],["timeline","When data updates","Refresh schedule timeline","When each part of the site refreshes during the trading day.",0],["contact","Send us a message","Contact us feedback message email support help question bug report","Send the site owners a question, idea or bug report, with an email or social link if you want a reply.",0],["glossary","Glossary","Words terms definitions meaning C/P OI IV percentile gamma","Plain-English meanings for the options and market words used on this site.",0],["privacy","Privacy Policy","","What this site collects and how it is used.",1],["terms","Terms of Use","","The terms for using this site. Nothing here is investment advice.",1]]],["owner","Owner · Daily desk","Owner","The private daily read",1,[["owner-market-brief","Owner Market Brief","Private digest outlook predictions scenarios research","The full site read, with private research, conditional paths, counterevidence and a curated review shortlist.",0],["unified-signal-engine","Unified Signal Engine","","Existing decisions with separate investment and trading perspectives.",0],["market","Market analysis","","The cross-asset tape, risk barometer and regime history.",0],["risk","Risk analysis","","Seven risk desks read together, with the reason when they disagree.",0]]],["owner-ideas","Owner · Ideas","Ideas","Trade ideas and how they worked out",1,[["picks","Top picks","","The model’s highest-conviction option contracts for today.",0],["open-picks","Open picks","","Every open trade, with lines ready to copy to a broker.",0],["track","Top Picks track record","","How every closed pick worked out.",0],["leaps","LEAPS","","Names scored for a one- to two-year options hold.",0],["stocks","Stock picks","","Quality companies on a dip, as shares rather than options.",0],["levetf","Leveraged ETFs","","Leveraged ETF setups from the same engine.",0],["rotation","Sector rotation","","Strong names sold with their sector that are now turning back up.",0]]],["owner-research","Owner · Research","Research","Private studies and data",1,[["historical-data","Historical Data","","The stored history behind the private research.",0],["earnings-forecast","Earnings Forecast","Quarterly full-year valuation company history revenue EPS industry model","Quarterly forecasts for the top 20 covered companies, company history, full-year valuation and linked industry evidence.",0],["forced-liquidation","Forced Liquidation Tracker","Pledged shares collateral leverage margin","SEC stock pledges, loan terms and estimated price thresholds, with missing terms kept visible.",0],["bottom-tracker","Bottom tracker","","Signs the market is washing out and turning.",0],["party-tracker","Party tracker","Party-Tracker Democrats Republicans president house senate","How the market and each sector did when Democrats or Republicans held the presidency, the House, or the Senate.",0]]],["owner-admin","Owner · Admin","Admin","Diagnostics and build health",1,[["quant","Owner Lab","","Research tools and diagnostics.",0],["update-checker","Update Checker","Build status failures feature health stale missing updates","Build failures and checks of published feature outputs.",0],["owner-settings","Settings","Owner settings switches kill switch toggles config controls","Change Top Picks, research and live site switches on the site, with history and undo.",0]]],["sports","Sports","Sports","Private NBA and NFL research",1,[["sports-nba","NBA","Basketball players props points rebounds games win bust track record PrizePicks","NBA games, two-player PrizePicks combinations across the slate, supporting analysis and the prop track record.",0],["sports-nfl","NFL","Football players props passing yards receptions games win bust track record PrizePicks","NFL games, the best two PrizePicks props per game, supporting analysis and the prop track record.",0],["sports-pick-builder","Pick Builder","Sports picks entry payout paper journal PrizePicks Betr","Build a 1 to 6 pick entry with its real payout, see the odds and save it as a paper pick.",0]]]];
+  var SITE_MAP = [["today","Today","Today","What is happening in the market right now",0,[["home","Home","","A one-screen overview of the market and every part of the site.",0],["brief","Market brief","Brief","A short digest of what moved, why, and what is coming up next.",0],["whats-changed","What changed","Since yesterday diff changes new walls crosses streaks insiders","What is new since the previous trading day: option walls and trades, average crosses, streaks, filings and insider trades.",0],["news","News","News desk","Market-moving stock and economic headlines, most important first.",0],["heatmap","Heatmap","","Every tracked stock as a tile: size is company value, color is how much it moved.",0],["calendar","Calendar","","Upcoming earnings reports, economic releases and Fed meetings.",0],["overnight","Overnight markets","","How Asian and European markets traded before the US open, and which US stocks they tend to lead.",0],["past-day","Past days","Time machine history date picker archive replay","Pick an earlier trading day and see the heatmap and index moves as they were.",0]]],["stocks","Stocks","Stocks","Look up, compare and follow companies",0,[["tickers","All stocks","Tickers","Every stock the site follows, with its price, returns and sector.",0],["market-map","Market map","Fear map scatter chart wall sparklines correlation crowding breadth short interest crowded shorts","Every tracked stock on one screen: options fear, any two numbers, every chart, what moves together, breadth and short interest.",0],["stock","Look up a stock","Stock page quote ticker company chart","One company: its price chart, key numbers, news, earnings, options and who owns it.",0],["grade","Grade a stock","Grade a ticker stock report Look up","One stock in depth: its grade, setup signals, fundamentals and the option contract to trade.",1],["compare","Compare stocks","Compare companies","Line up a few companies side by side on price, growth and valuation.",0],["f13","Who owns what","SEC ownership 13F Form 4 insider","What big investment funds bought and sold last quarter, plus recent insider trades.",0],["pending-buyouts","Pending buyouts","M&A mergers","Announced and rumored takeovers, and how far along each deal is.",0]]],["earnings","Earnings","Earnings","Results, what management said, and how peers react",0,[["earnings","Earnings results","Earnings tracker","Which companies beat or missed expectations this season, and how their stocks reacted.",0],["calls","Earnings calls","","What management said on each company’s latest earnings call, and what changed.",0],["earnings-week","Earnings week ahead","Earnings board implied move expected move straddle this week","Every covered report in the next 10 days: the move options expect next to the stock’s own past moves.",0],["spillover","Earnings ripple effects","Event spillover","How one company’s earnings tend to move the other stocks in its industry.",0]]],["market","Market & economy","Market","The big picture: mood, rates, money and themes",0,[["fear-greed","Market mood","Fear & Greed","CNN’s Fear & Greed index: whether investors are acting scared or greedy, from 0 to 100.",0],["bonds-usd","Rates & the dollar","Bonds & USD Fed","Treasury yields, the US dollar and what the Fed is expected to do next.",0],["commodities","Commodities","","Oil, gold, copper and other raw materials, and the stocks that move with them.",0],["central-bank-gold","Central-bank gold","","How much gold the world’s central banks are buying or selling.",0],["capital-raises","Capital markets","Capital raises share sales buybacks IPOs credit issuance debt","Companies selling stock or debt or buying shares back, upcoming IPOs, and how easily companies and households can borrow.",0],["crowd","Crowd & positioning","Positioning put call ratio COT commitments of traders margin debt short volume borrow fee Reddit mentions Wikipedia Stocktwits Kalshi odds perps Hyperliquid leveraged ETF flows","How traders are positioned and where the crowd is looking: put/call ratios, futures, margin debt, short selling, attention, odds.",0],["prediction-markets","Prediction markets","Kalshi Polymarket odds betting markets election odds Fed cut odds tariffs ceasefire war recession odds event contracts what traders are betting on","What traders on Kalshi and Polymarket bet on: the Fed, policy, elections, wars, crypto and companies, and the stocks each bet could move.",0],["history-rhymes","Booms & busts","History rhymes historical case studies railroad railway mania panic of 1873 telecom fiber dot-com bubble 2008 financial crisis housing subprime AI data center buildout GPU debt depreciation credit default swaps CDS credit spreads default risk Merton","Railroads, telecom fiber and the 2008 housing crash beside today’s AI data center buildout, and how many of their warning signs show now.",0],["narratives","Market themes","Narratives","The big stories driving money right now, such as AI spending, and which stocks ride them.",0]]],["options","Options activity","Options","Where traders are placing bets",0,[["flow","Unusual options trades","Unusual flow","Option trades far bigger than normal for that stock, a sign someone expects a move.",0],["oi","Options walls","Gamma exposure GEX","Price levels where large option positions can slow a stock down or speed it up.",0],["iv-trend","Rising volatility","Trending IV implied volatility","Stocks whose options are pricing in a bigger move than usual.",0],["strategies","Strategy builder","Strategies","Pick a stock and build a defined-risk options trade, with its profit and loss at expiry.",0]]],["signals","Price signals","Signals","Price trends, trading volume and repeating patterns",0,[["ma-tracker","Moving averages","MA tracker crossover","Stocks sitting close to their 20, 50, 100 or 200-day average price.",0],["streaks","Up/down streaks","Streaks green red","Stocks on a run of up days or down days in a row.",0],["volume","Trading volume","Volume shares","Days when a stock traded many more or fewer shares than usual.",0],["pattern-lab","Pattern lab","Seasonality","Repeating patterns such as seasonality and how stocks behave after big moves.",0],["index-cal","Daily index moves","Index calendar","A month grid of the major index funds’ daily moves, showing which days the whole market joined in.",0]]],["industry","Industry trends","Industry","Real-world data behind the AI and chip trade",0,[["ai-capex","AI spending","AI CapEx","How much the biggest tech companies are spending on AI data centers.",0],["ram-prices","Memory chip prices","RAM prices DRAM","Weekly prices for computer memory, a read on the chip cycle.",0],["accelerator-prices","GPU cloud prices","Accelerator","What it costs to rent AI chips by the hour, a read on AI demand.",0],["search-interest","Search trends","Search interest Google","Which market themes people are searching for more or less this week.",0]]],["learn","Learn & help","Learn","Guides and when the data updates",0,[["cheatsheet","Options guide","Buyer's manual","A plain-English guide to buying options: calls, puts, risk and timing.",0],["chart-patterns","Chart patterns","","What common chart shapes look like and how traders read them.",0],["timeline","When data updates","Refresh schedule timeline","When each part of the site refreshes during the trading day.",0],["contact","Send us a message","Contact us feedback message email support help question bug report","Send the site owners a question, idea or bug report, with an email or social link if you want a reply.",0],["glossary","Glossary","Words terms definitions meaning C/P OI IV percentile gamma","Plain-English meanings for the options and market words used on this site.",0],["privacy","Privacy Policy","","What this site collects and how it is used.",1],["terms","Terms of Use","","The terms for using this site. Nothing here is investment advice.",1]]],["owner","Owner · Daily desk","Owner","The private daily read",1,[["owner-market-brief","Owner Market Brief","Private digest outlook predictions scenarios research","The full site read, with private research, conditional paths, counterevidence and a curated review shortlist.",0],["unified-signal-engine","Unified Signal Engine","","Existing decisions with separate investment and trading perspectives.",0],["market","Market analysis","","The cross-asset tape, risk barometer and regime history.",0],["risk","Risk analysis","","Seven risk desks read together, with the reason when they disagree.",0]]],["owner-ideas","Owner · Ideas","Ideas","Trade ideas and how they worked out",1,[["picks","Top picks","","The model’s highest-conviction option contracts for today.",0],["open-picks","Open picks","","Every open trade, with lines ready to copy to a broker.",0],["track","Top Picks track record","","How every closed pick worked out.",0],["leaps","LEAPS","","Names scored for a one- to two-year options hold.",0],["stocks","Stock picks","","Quality companies on a dip, as shares rather than options.",0],["levetf","Leveraged ETFs","","Leveraged ETF setups from the same engine.",0],["rotation","Sector rotation","","Strong names sold with their sector that are now turning back up.",0]]],["owner-research","Owner · Research","Research","Private studies and data",1,[["historical-data","Historical Data","","The stored history behind the private research.",0],["earnings-forecast","Earnings Forecast","Quarterly full-year valuation company history revenue EPS industry model","Quarterly forecasts for the top 20 covered companies, company history, full-year valuation and linked industry evidence.",0],["forced-liquidation","Forced Liquidation Tracker","Pledged shares collateral leverage margin","SEC stock pledges, loan terms and estimated price thresholds, with missing terms kept visible.",0],["bottom-tracker","Bottom tracker","","Signs the market is washing out and turning.",0],["party-tracker","Party tracker","Party-Tracker Democrats Republicans president house senate","How the market and each sector did when Democrats or Republicans held the presidency, the House, or the Senate.",0]]],["owner-admin","Owner · Admin","Admin","Diagnostics and build health",1,[["quant","Owner Lab","","Research tools and diagnostics.",0],["update-checker","Update Checker","Build status failures feature health stale missing updates","Build failures and checks of published feature outputs.",0],["owner-settings","Settings","Owner settings switches kill switch toggles config controls","Change Top Picks, research and live site switches on the site, with history and undo.",0]]],["sports","Sports","Sports","Private NBA and NFL research",1,[["sports-nba","NBA","Basketball players props points rebounds games win bust track record PrizePicks","NBA games, two-player PrizePicks combinations across the slate, supporting analysis and the prop track record.",0],["sports-nfl","NFL","Football players props passing yards receptions games win bust track record PrizePicks","NFL games, the best two PrizePicks props per game, supporting analysis and the prop track record.",0],["sports-pick-builder","Pick Builder","Sports picks entry payout paper journal PrizePicks Betr","Build a 1 to 6 pick entry with its real payout, see the odds and save it as a paper pick.",0]]]];
   var RECENT_KEY = 'stonks-recent-v1';
   function wfReadRecent(){
     try {
@@ -2143,6 +2143,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
           '</div></section>';
       }
       html += '<section class="stp-sec" id="stp-valuation" hidden></section>';
+      html += '<section class="stp-sec" id="stp-odds" hidden></section>';
       html += chatterHtml(d);
       if (f.longBusinessSummary){
         var text = String(f.longBusinessSummary);
@@ -2153,7 +2154,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
       // The valuation band fills in once its public file arrives, after any
       // chart this tab already queued.
       var prevAfter = state.afterTab, vSym = state.sym, vToken = state.token;
-      state.afterTab = function(){ if (typeof prevAfter === 'function') prevAfter(); fillValuation(vSym, vToken); };
+      state.afterTab = function(){ if (typeof prevAfter === 'function') prevAfter(); fillValuation(vSym, vToken); fillOdds(vSym, vToken); };
       return html;
     }
     function tabNews(){
@@ -2316,6 +2317,18 @@ function recoveryEvidence(row, data, now = Date.now()) {
         '<div class="stp-band-legend"><span><i class="stp-band-peers"></i>peer range</span><span><i class="stp-band-median"></i>peer median</span><span><i class="stp-band-own"></i>own range so far</span><span><i class="stp-band-now"></i>now</span></div>' +
         bars +
         '<p class="stp-src">' + escapeHtml(vb.note || '') + (vb.asOf ? ' As of ' + escapeHtml(dateLabel(vb.asOf)) + '.' : '') + '</p>';
+    }
+    // Prediction-market odds linked to this stock (public prediction-odds.json,
+    // prediction-client.mjs predictionStockStripHtml). Hidden when none link.
+    function fillOdds(sym, token){
+      if (typeof predictionPublicJson !== 'function' || typeof predictionStockStripHtml !== 'function') return;
+      predictionPublicJson().then(function(pub){
+        if (state.token !== token || state.sym !== sym) return;
+        var host = document.getElementById('stp-odds');
+        if (!host) return;
+        var inner = predictionStockStripHtml(pub, sym);
+        if (inner){ host.innerHTML = inner; host.hidden = false; }
+      });
     }
     function fillValuation(sym, token){
       valuationData().then(function(vb){
@@ -3836,6 +3849,446 @@ function recoveryEvidence(row, data, now = Date.now()) {
   });
 
 
+  // ---- Prediction markets ----------------------------------------------------
+  var PMK_TABS = [['themes', 'By topic'], ['moves', 'Big moves'], ['releases', 'Data releases'], ['stocks', 'By stock']];
+  var PMK_OWNER_TABS = [['tests', 'Odds tests'], ['runup', 'Run-up watch'], ['alerts', 'Open trades'], ['finder', 'Finder']];
+  var pmkState = { data: null, owner: null, loading: false, ownerLoading: false, error: null, fetchedAt: 0, urlRead: false };
+  var PMK_JUMP_LABEL = { holds: 'Stock follows jumps', echo: 'Odds follow the stock', 'no-effect': 'No effect', collecting: 'Collecting' };
+  var PMK_FLOW_LABEL = { 'odds-lead': 'Odds move first', 'odds-echo': 'Stock moves first', 'same-day': 'Same day only', 'no-order': 'No order', collecting: 'Collecting' };
+  var PMK_RUN_LABEL = { 'run-up-follows': 'Run-up follows', 'moves-together': 'Move together', 'no-effect': 'No effect', collecting: 'Collecting' };
+  function pmkView(key, dflt){ return VIEWS.get('prediction.' + key, dflt); }
+  function pmkSetView(key, v){ VIEWS.set('prediction.' + key, v); }
+  function pmkNum(v, d){ return v == null || !isFinite(v) ? '—' : Number(v).toFixed(d == null ? 0 : d); }
+  function pmkPts(v){
+    if (v == null || !isFinite(v)) return '<span class="vt-na">—</span>';
+    var n = Number(v);
+    return '<span class="' + (n > 0 ? 'pos' : n < 0 ? 'neg' : '') + '">' + (n > 0 ? '+' : '') + n.toFixed(1) + '</span>';
+  }
+  function pmkChance(p){
+    if (p == null || !isFinite(p)) return '<span class="vt-na">—</span>';
+    var w = Math.max(0, Math.min(100, Number(p)));
+    return '<span class="pmk-chance"><span class="pmk-bar" aria-hidden="true"><i style="width:' + w.toFixed(0) + '%"></i></span><b>' + Number(p).toFixed(0) + '%</b></span>';
+  }
+  function pmkVol(c){
+    var v = c.volume;
+    if (v == null || !isFinite(v)) return '—';
+    var poly = pmkVenueOf(c) === 'polymarket';
+    var a = Math.abs(v);
+    var s = a >= 1e9 ? (a / 1e9).toFixed(1) + 'B' : a >= 1e6 ? (a / 1e6).toFixed(1) + 'M' : a >= 1e3 ? (a / 1e3).toFixed(0) + 'K' : String(Math.round(a));
+    return (poly ? '$' : '') + s + (poly ? '' : ' <small class="crd-dim">contracts</small>');
+  }
+  function pmkVenueOf(c){ return c.venue || (/^P:/.test(String(c.id || '')) ? 'polymarket' : 'kalshi'); }
+  function pmkVenue(v){ return '<span class="pmk-venue pmk-venue-' + escapeHtml(v || '') + '">' + (v === 'polymarket' ? 'Polymarket' : 'Kalshi') + '</span>'; }
+  function pmkSafeUrl(u){ return u && /^https:\/\/(kalshi\.com|polymarket\.com)\//.test(u) ? u : null; }
+  function pmkTitle(c){
+    var t = String(c.title || c.question || c.id || '');
+    var url = pmkSafeUrl(c.url);
+    var text = escapeHtml(t);
+    var inner = url ? '<a href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer">' + text + '</a>' : text;
+    return '<span class="pmk-title">' + inner + '</span> ' + pmkVenue(pmkVenueOf(c)) + (c.thin ? ' <span class="pmk-thin" title="Little trading: one order can move this price">thin</span>' : '') +
+      (c.pair ? ' <span class="pmk-pair" title="The same question also trades on the other venue">both venues</span>' : '');
+  }
+  function pmkSign(g){ return g > 0 ? '+' : g < 0 ? '−' : '?'; }
+  function pmkSignTitle(g){ return g > 0 ? 'Set in advance: YES helps this stock' : g < 0 ? 'Set in advance: YES hurts this stock' : 'Direction not set; the tests learn it from the data'; }
+  function pmkLinks(links, rules, max){
+    var list = (links || []).slice(0, max || 6);
+    if (!list.length) return '<span class="vt-na">—</span>';
+    return '<span class="pmk-links">' + list.map(function(l){
+      var s = l.s || l.sym, g = l.g != null ? l.g : l.sign, r = l.r || l.rule;
+      return '<a class="pmk-link pmk-link-' + (g > 0 ? 'up' : g < 0 ? 'down' : 'unk') + '" href="' + escapeHtml(vnHref(s)) + '" title="' + escapeHtml(pmkSignTitle(g) + (rules && rules[r] ? ' · ' + rules[r] : '')) + '"><b>' + pmkSign(g) + '</b>' + escapeHtml(s) + '</a>';
+    }).join('') + ((links || []).length > list.length ? '<small class="crd-dim">+' + ((links || []).length - list.length) + '</small>' : '') + '</span>';
+  }
+  function pmkSpark(c, todayEt){
+    var vals = c.spark || [];
+    if (!vals.length) return '';
+    var base = Date.parse(String(todayEt || '').slice(0, 10) + 'T12:00:00Z');
+    var pts = vals.map(function(v, i){
+      var label = isFinite(base) ? new Date(base - (vals.length - 1 - i) * 86400000).toISOString().slice(0, 10) : String(i);
+      return [label, v];
+    });
+    return rowSparkHtml(pts, function(v){ return Number(v).toFixed(0) + '%'; }, (c.title || '') + ', last 30 days');
+  }
+  function pmkDaysLeft(c){
+    if (c.daysLeft == null) return '<span class="vt-na">—</span>';
+    return c.daysLeft <= 0 ? 'today' : c.daysLeft === 1 ? '1 day' : c.daysLeft + ' days';
+  }
+  function pmkAllContracts(d){
+    var out = [];
+    (d.themes || []).forEach(function(t){ (t.contracts || []).forEach(function(c){ out.push(c); }); });
+    return out;
+  }
+  function pmkById(d){
+    if (d.__byId) return d.__byId;
+    var m = {};
+    pmkAllContracts(d).forEach(function(c){ m[c.id] = c; });
+    (d.resolved || []).forEach(function(c){ if (!m[c.id]) m[c.id] = c; });
+    d.__byId = m;
+    return m;
+  }
+  function pmkEmpty(text){ return '<p class="crd-empty">' + escapeHtml(text) + '</p>'; }
+  function pmkContractCols(d, opts){
+    opts = opts || {};
+    var cols = [
+      { label: 'Market', cell: function(c){ return pmkTitle(c); }, sort: function(c){ return c.title; } },
+      { label: 'Chance', num: true, title: 'The YES price, read as the chance the market puts on it', cell: function(c){ return pmkChance(c.p); }, sort: function(c){ return c.p; } },
+      { label: '1 day', num: true, title: 'Change in points since about this time yesterday', cell: function(c){ return pmkPts(c.ch1); }, sort: function(c){ return c.ch1; } },
+      { label: '7 days', num: true, title: 'Change in points against the close a week ago', cell: function(c){ return pmkPts(c.ch7); }, sort: function(c){ return c.ch7; } },
+      { label: '30 days', num: true, cell: function(c){ return pmkPts(c.ch30); }, sort: function(c){ return c.ch30; } },
+      { label: 'Last 30 days', nosort: true, cell: function(c){ return pmkSpark(c, d.etDate); } },
+      { label: 'Resolves in', num: true, cell: function(c){ return pmkDaysLeft(c); }, sort: function(c){ return c.daysLeft; } },
+      { label: 'Traded', num: true, title: 'Total traded: dollars on Polymarket, contracts on Kalshi', cell: function(c){ return pmkVol(c); }, sort: function(c){ return c.volume; } },
+    ];
+    if (opts.links !== false) cols.push({ label: 'Stocks it could move', nosort: true, cell: function(c){ return pmkLinks(c.links, d.rules); } });
+    return cols;
+  }
+
+  // ---- By topic ----
+  function pmkThemesHtml(d){
+    var themes = (d.themes || []).filter(function(t){ return (t.contracts || []).length; });
+    if (!themes.length) return pmkEmpty('No contracts tracked yet. The first daily build after this deploys reads both venues.');
+    var cur = pmkView('theme', 'all');
+    if (cur !== 'all' && !themes.some(function(t){ return t.id === cur; })) cur = 'all';
+    var total = themes.reduce(function(a, t){ return a + t.contracts.length; }, 0);
+    var chips = '<div class="pmk-chips" role="group" aria-label="Topic">' + [['all', 'All', total]].concat(themes.map(function(t){ return [t.id, t.label, t.contracts.length]; })).map(function(x){
+      return '<button type="button" class="pmk-chip' + (x[0] === cur ? ' is-on' : '') + '" data-pmk-theme="' + escapeHtml(x[0]) + '" aria-pressed="' + (x[0] === cur ? 'true' : 'false') + '">' + escapeHtml(x[1]) + ' <small>' + x[2] + '</small></button>';
+    }).join('') + '</div>';
+    var show = cur === 'all' ? themes : themes.filter(function(t){ return t.id === cur; });
+    return chips + show.map(function(t){
+      return '<section class="pmk-theme"><div class="crd-head"><h3>' + escapeHtml(t.label) + '</h3><span class="crd-dim">' + t.contracts.length + ' tracked</span></div>' +
+        (t.blurb ? '<p class="crd-lede">' + escapeHtml(t.blurb) + '</p>' : '') +
+        VIEWS.tableHtml(pmkContractCols(d), t.contracts, { key: 'pmk-theme-' + t.id, cls: 'pmk-ct', empty: 'Nothing tracked in this topic.' }) + '</section>';
+    }).join('');
+  }
+
+  // ---- Big moves ----
+  function pmkMovesHtml(d){
+    var byId = pmkById(d);
+    var jumps = d.jumps || [];
+    var own = pmkState.owner && pmkState.owner.jumps ? pmkState.owner.jumps : null;
+    var ownKey = {};
+    (own || []).forEach(function(j){ ownKey[j.id + '|' + j.date] = j; });
+    var h = '<div class="crd-head"><h3>Odds that jumped 10 points or more in a day</h3><span class="crd-dim">last 14 days</span></div>' +
+      '<p class="crd-lede">Each row is a move between two daily closes (16:00 ET). A jump is when traders changed their minds fast: news, a poll, a ruling, a leak.</p>';
+    if (!jumps.length) h += pmkEmpty('No 10-point jump in the last 14 days.');
+    else {
+      var cols = [
+        { label: 'Market', cell: function(j){ var c = byId[j.id] || { id: j.id, title: j.title, url: j.url }; return pmkTitle(c); }, sort: function(j){ return j.title; } },
+        { label: 'Day', cell: function(j){ return escapeHtml(vnDay(j.date)); }, sort: function(j){ return j.date; } },
+        { label: 'From', num: true, cell: function(j){ return pmkNum(j.from) + '%'; }, sort: function(j){ return j.from; } },
+        { label: 'To', num: true, cell: function(j){ return '<b>' + pmkNum(j.to) + '%</b>'; }, sort: function(j){ return j.to; } },
+        { label: 'Move', num: true, cell: function(j){ return pmkPts(j.change); }, sort: function(j){ return j.change; } },
+        { label: 'Stocks it could move', nosort: true, cell: function(j){ var c = byId[j.id]; return c ? pmkLinks(c.links, d.rules) : (j.links || []).map(function(s){ return vnSym(s); }).join(' '); } },
+      ];
+      if (own) cols.push({ label: 'How they moved (Owner)', nosort: true, title: 'Each linked stock against SPY: the jump day and the next day, %. ETFs use their own return.', cell: function(j){
+        var o = ownKey[j.id + '|' + j.date];
+        if (!o || !(o.stocks || []).length) return '<span class="vt-na">—</span>';
+        return '<span class="pmk-react">' + o.stocks.slice(0, 4).map(function(s){ return '<span><b>' + escapeHtml(s.sym) + '</b> ' + vnChg(s.same, 1) + ' <small class="crd-dim">next ' + (s.next1 == null ? '—' : (s.next1 > 0 ? '+' : '') + Number(s.next1).toFixed(1) + '%') + '</small></span>'; }).join('') + '</span>';
+      } });
+      h += VIEWS.tableHtml(cols, jumps, { key: 'pmk-jumps', cls: 'pmk-ct', empty: '' });
+    }
+    var res = d.resolved || [];
+    h += '<div class="crd-head"><h3>Settled in the last 30 days</h3></div>';
+    if (!res.length) h += pmkEmpty('No tracked contract settled in the last 30 days.');
+    else h += VIEWS.tableHtml([
+      { label: 'Market', cell: function(c){ return pmkTitle(c); }, sort: function(c){ return c.title; } },
+      { label: 'Result', cell: function(c){ return '<span class="pmk-res pmk-res-' + escapeHtml(c.result || '') + '">' + escapeHtml(String(c.result || '').toUpperCase()) + '</span>'; }, sort: function(c){ return c.result; } },
+      { label: 'Last chance before', num: true, title: 'The last price before the result was known', cell: function(c){ return c.before == null ? '<span class="vt-na">—</span>' : pmkNum(c.before) + '%'; }, sort: function(c){ return c.before; } },
+      { label: 'Settled', cell: function(c){ return c.resolvedAt ? escapeHtml(vnDay(c.resolvedAt)) : '—'; }, sort: function(c){ return c.resolvedAt; } },
+      { label: 'Stocks it could move', nosort: true, cell: function(c){ return pmkLinks(c.links, d.rules); } },
+    ], res, { key: 'pmk-resolved', cls: 'pmk-ct', empty: '' });
+    return h;
+  }
+
+  // ---- Data releases ----
+  function pmkFmtVal(v, unit, digits){
+    if (v == null || !isFinite(v)) return '—';
+    var d = digits == null ? 2 : digits;
+    return Number(v).toFixed(d) + (unit === '%' ? '%' : unit === 'k' ? 'K' : '');
+  }
+  function pmkReleasesHtml(d){
+    var cs = d.consensus || {};
+    var up = cs.upcoming || [], recent = cs.recent || [];
+    var h = '<div class="crd-head"><h3>What traders expect from the next releases</h3></div>' +
+      '<p class="crd-lede">Kalshi lists a ladder of yes/no contracts for each release (above 0.2%, above 0.3% and so on). The level where the ladder crosses 50% is the market’s middle guess; the 10% and 90% crossings bound an 80% range.</p>';
+    if (!up.length) h += pmkEmpty('No open release ladder right now.');
+    else h += VIEWS.tableHtml([
+      { label: 'Release', cell: function(u){ return '<b>' + escapeHtml(u.label) + '</b>' + (u.title && u.title !== u.label ? '<div class="crd-dim">' + escapeHtml(u.title) + '</div>' : ''); }, sort: function(u){ return u.label; } },
+      { label: 'Day', cell: function(u){ return u.release ? escapeHtml(vnDay(u.release)) : '—'; }, sort: function(u){ return u.release; } },
+      { label: 'Market’s guess', num: true, cell: function(u){
+        if (u.series === 'KXFEDDECISION') return 'cut ' + pmkNum(u.cut == null ? null : u.cut * 100) + '% · hike ' + pmkNum(u.hike == null ? null : u.hike * 100) + '%';
+        return '<b>' + pmkFmtVal(u.expected, u.unit, u.digits) + '</b>';
+      }, sort: function(u){ return u.expected; } },
+      { label: '80% range', num: true, cell: function(u){ return u.lo != null && u.hi != null ? pmkFmtVal(u.lo, u.unit, u.digits) + ' to ' + pmkFmtVal(u.hi, u.unit, u.digits) : '<span class="vt-na">—</span>'; }, sort: function(u){ return u.hi != null && u.lo != null ? u.hi - u.lo : null; } },
+      { label: 'Market', nosort: true, cell: function(u){ var url = pmkSafeUrl(u.url); return url ? '<a href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer">Kalshi</a>' : ''; } },
+    ], up, { key: 'pmk-upcoming', empty: '' });
+    h += '<div class="crd-head"><h3>Past releases: the guess, the result and the market that day</h3></div>' +
+      '<p class="crd-lede">The surprise is the result minus the market’s last guess at least 30 minutes before the release, scaled by how far that series usually misses. Moves are the release day’s close against the day before.</p>';
+    if (!recent.length) h += pmkEmpty('No settled release with a guess yet. Older ones fill in from Kalshi’s price history over the first builds.');
+    else h += VIEWS.tableHtml([
+      { label: 'Release', cell: function(x){ return '<b>' + escapeHtml(x.label) + '</b>'; }, sort: function(x){ return x.label; } },
+      { label: 'Day', cell: function(x){ return escapeHtml(vnDay(x.release)); }, sort: function(x){ return x.release; } },
+      { label: 'Guess', num: true, cell: function(x){ return pmkFmtVal(x.expected, x.unit, x.digits); }, sort: function(x){ return x.expected; } },
+      { label: 'Result', num: true, cell: function(x){ return '<b>' + pmkFmtVal(x.actual, x.unit, x.digits) + '</b>'; }, sort: function(x){ return x.actual; } },
+      { label: 'Surprise', num: true, title: 'Result minus guess, in standard misses for that series', cell: function(x){ return x.z == null ? pmkFmtVal(x.surprise, x.unit, x.digits) : (x.z > 0 ? '+' : '') + Number(x.z).toFixed(1) + 'σ'; }, sort: function(x){ return x.z; } },
+      { label: 'SPY', num: true, cell: function(x){ return vnChg(x.moves && x.moves.SPY, 2); }, sort: function(x){ return x.moves && x.moves.SPY; } },
+      { label: 'QQQ', num: true, cell: function(x){ return vnChg(x.moves && x.moves.QQQ, 2); }, sort: function(x){ return x.moves && x.moves.QQQ; } },
+      { label: 'TLT', num: true, title: 'Long Treasury bond fund', cell: function(x){ return vnChg(x.moves && x.moves.TLT, 2); }, sort: function(x){ return x.moves && x.moves.TLT; } },
+      { label: 'Guess from', cell: function(x){ return '<span class="crd-dim">' + (x.source === 'tracked' ? 'tracked live' : 'price history') + '</span>'; }, sort: function(x){ return x.source; } },
+    ], recent, { key: 'pmk-recent', empty: '' });
+    return h;
+  }
+
+  // ---- By stock ----
+  function pmkStockRows(d, sym){
+    var byId = pmkById(d);
+    return ((d.bySymbol || {})[sym] || []).map(function(x){
+      var c = byId[x.id];
+      return c ? { c: c, sign: x.sign, rule: x.rule } : null;
+    }).filter(Boolean);
+  }
+  function pmkStocksHtml(d){
+    var syms = Object.keys(d.bySymbol || {}).sort(function(a, b){ return (d.bySymbol[b] || []).length - (d.bySymbol[a] || []).length || (a < b ? -1 : 1); });
+    if (!syms.length) return pmkEmpty('No tracked contract links to a covered stock yet.');
+    var cur = pmkView('sym', syms[0]);
+    if (syms.indexOf(cur) < 0) cur = syms[0];
+    var chips = '<div class="pmk-chips" role="group" aria-label="Stock">' + syms.map(function(s){
+      return '<button type="button" class="pmk-chip' + (s === cur ? ' is-on' : '') + '" data-pmk-sym="' + escapeHtml(s) + '" aria-pressed="' + (s === cur ? 'true' : 'false') + '">' + escapeHtml(s) + ' <small>' + d.bySymbol[s].length + '</small></button>';
+    }).join('') + '</div>';
+    var rows = pmkStockRows(d, cur);
+    var cols = [
+      { label: 'Market', cell: function(r){ return pmkTitle(r.c); }, sort: function(r){ return r.c.title; } },
+      { label: 'If YES', cell: function(r){ return '<span class="pmk-dir pmk-dir-' + (r.sign > 0 ? 'up' : r.sign < 0 ? 'down' : 'unk') + '" title="' + escapeHtml(pmkSignTitle(r.sign)) + '">' + (r.sign > 0 ? 'helps' : r.sign < 0 ? 'hurts' : 'not set') + '</span> <small class="crd-dim">' + escapeHtml((d.rules || {})[r.rule] || r.rule || '') + '</small>'; }, sort: function(r){ return r.sign; } },
+      { label: 'Chance', num: true, cell: function(r){ return pmkChance(r.c.p); }, sort: function(r){ return r.c.p; } },
+      { label: '7 days', num: true, cell: function(r){ return pmkPts(r.c.ch7); }, sort: function(r){ return r.c.ch7; } },
+      { label: 'Last 30 days', nosort: true, cell: function(r){ return pmkSpark(r.c, d.etDate); } },
+      { label: 'Resolves in', num: true, cell: function(r){ return pmkDaysLeft(r.c); }, sort: function(r){ return r.c.daysLeft; } },
+    ];
+    return chips + '<div class="crd-head"><h3>' + vnSym(cur) + ' · odds that could move it</h3></div>' +
+      '<p class="crd-lede">A + or − link was set in advance from what the event means for the business (a tariff on its goods, a rate cut, a ceasefire). A “not set” link names the company or a broad event; its direction has to show in the data first.</p>' +
+      VIEWS.tableHtml(cols, rows, { key: 'pmk-sym', cls: 'pmk-ct', empty: 'No linked contract.' });
+  }
+
+  // ---- Owner tabs ----
+  function pmkOwnerWait(){
+    if (!HAS_OWNER_ACCESS) return pmkEmpty('Owner only.');
+    return pmkEmpty(pmkState.ownerLoading ? 'Loading the Owner tests…' : 'The Owner file is not written yet. The next full build writes it.');
+  }
+  function pmkVerdict(map, v){ return '<span class="pmk-verdict pmk-v-' + escapeHtml(v || 'collecting') + '">' + escapeHtml(map[v] || v || 'Collecting') + '</span>'; }
+  function pmkTestsHtml(d){
+    var o = pmkState.owner;
+    if (!o) return pmkOwnerWait();
+    var fams = o.families || [];
+    var counts = o.verdictCounts || {};
+    var held = (counts['jumps:holds'] || 0) + (counts['flow:odds-lead'] || 0) + (counts['runup:run-up-follows'] || 0);
+    var h = '<div class="crd-head"><h3>Do the odds move stocks?</h3><span class="crd-dim">' + fams.length + ' stock and link pairs</span></div>' +
+      '<p class="crd-lede">' + escapeHtml(o.rules && o.rules.note || '') + '</p>' +
+      '<p class="crd-fact">' + held + ' pair' + (held === 1 ? '' : 's') + ' pass a test so far. A pair needs ' + (o.rules ? o.rules.minEvents : 30) + ' jumps (or 60 trading days) before it is judged. Nothing here feeds a grade, a pick or a gate.</p>';
+    h += VIEWS.tableHtml([
+      { label: 'Stock', cell: function(f){ return vnSym(f.sym); }, sort: function(f){ return f.sym; } },
+      { label: 'Link', cell: function(f){ return escapeHtml((d.rules || {})[f.rule] || f.rule); }, sort: function(f){ return f.rule; } },
+      { label: 'Direction', cell: function(f){ return '<b>' + pmkSign(f.sign) + '</b>' + (f.learned ? ' <small class="crd-dim">' + (f.sign ? 'learned' : 'unknown') + '</small>' : ' <small class="crd-dim">set</small>'); }, sort: function(f){ return f.sign; } },
+      { label: 'Jumps', num: true, title: 'All jumps, then the test-half count', cell: function(f){ return f.jumps.n + ' <small class="crd-dim">' + f.jumps.nTest + ' test</small>'; }, sort: function(f){ return f.jumps.n; } },
+      { label: 'Jump day', num: true, title: 'Mean stock move on the jump day, turned to the link direction (test half), %', cell: function(f){ return vnChg(f.jumps.same && f.jumps.same.mean, 2); }, sort: function(f){ return f.jumps.same && f.jumps.same.mean; } },
+      { label: 'Next day', num: true, cell: function(f){ return vnChg(f.jumps.next1 && f.jumps.next1.mean, 2); }, sort: function(f){ return f.jumps.next1 && f.jumps.next1.mean; } },
+      { label: 'q', num: true, title: 'Benjamini-Hochberg adjusted p for the jump test', cell: function(f){ return f.jumps.q == null ? '—' : Number(f.jumps.q).toFixed(2); }, sort: function(f){ return f.jumps.q; } },
+      { label: 'Jumps test', cell: function(f){ return pmkVerdict(PMK_JUMP_LABEL, f.jumps.verdict); }, sort: function(f){ return f.jumps.verdict; } },
+      { label: 'Day by day', title: 'Do odds changes lead the stock, follow it, or only move the same day?', cell: function(f){ return pmkVerdict(PMK_FLOW_LABEL, f.flow.verdict); }, sort: function(f){ return f.flow.verdict; } },
+      { label: 'Run-up', title: 'Does a 5-day odds move come before a 5-day stock move the same way?', cell: function(f){ return pmkVerdict(PMK_RUN_LABEL, f.runup.verdict); }, sort: function(f){ return f.runup.verdict; } },
+    ], fams, { key: 'pmk-fams', empty: 'No pair has enough history yet.' });
+    var ct = o.consensus && o.consensus.tests || [];
+    h += '<div class="crd-head"><h3>Release surprises vs the market</h3></div>' +
+      '<p class="crd-lede">A hotter-than-guessed print (or fewer cuts than priced) is a hawkish surprise. TLT is expected to fall on one; for stocks the direction is learned on the first two thirds of releases and tested on the rest.</p>' +
+      VIEWS.tableHtml([
+        { label: 'Releases', cell: function(t){ return t.group === 'fed' ? 'Fed decisions' : 'Economic data'; }, sort: function(t){ return t.group; } },
+        { label: 'Asset', cell: function(t){ return vnSym(t.sym); }, sort: function(t){ return t.sym; } },
+        { label: 'Releases read', num: true, cell: function(t){ return t.n + ' <small class="crd-dim">' + t.nTest + ' test</small>'; }, sort: function(t){ return t.n; } },
+        { label: 'Move per surprise', num: true, title: 'Release-day move per one standard hawkish surprise, %', cell: function(t){ return t.slope == null ? '—' : vnChg(t.slope, 2); }, sort: function(t){ return t.slope; } },
+        { label: 'Test-half r', num: true, cell: function(t){ return t.rTest == null ? '—' : Number(t.rTest).toFixed(2); }, sort: function(t){ return t.rTest; } },
+        { label: 'q', num: true, cell: function(t){ return t.q == null ? '—' : Number(t.q).toFixed(2); }, sort: function(t){ return t.q; } },
+        { label: 'Verdict', cell: function(t){ return pmkVerdict({ holds: 'Holds', 'no-effect': 'No effect', collecting: 'Collecting' }, t.verdict); }, sort: function(t){ return t.verdict; } },
+      ], ct, { key: 'pmk-ctests', empty: 'No release test yet.' });
+    return h;
+  }
+  function pmkRunupHtml(d){
+    var o = pmkState.owner;
+    if (!o) return pmkOwnerWait();
+    var rows = o.runUp || [];
+    return '<div class="crd-head"><h3>Odds moving into a result</h3><span class="crd-dim">resolves within 90 days</span></div>' +
+      '<p class="crd-lede">Open contracts that moved 8+ points in a week, or lean 65/35 or more with a month or less left, beside each linked stock’s last 10 trading days against SPY. “With” means the stock has moved the way the odds point. Watch only: the run-up test above says whether this pattern has held.</p>' +
+      VIEWS.tableHtml([
+        { label: 'Market', cell: function(r){ return pmkTitle(r); }, sort: function(r){ return r.title; } },
+        { label: 'Stock', cell: function(r){ return vnSym(r.sym); }, sort: function(r){ return r.sym; } },
+        { label: 'If YES', cell: function(r){ return '<b>' + pmkSign(r.sign) + '</b>' + (r.learned ? ' <small class="crd-dim">learned</small>' : ''); }, sort: function(r){ return r.sign; } },
+        { label: 'Chance', num: true, cell: function(r){ return pmkChance(r.p); }, sort: function(r){ return r.p; } },
+        { label: '7 days', num: true, cell: function(r){ return pmkPts(r.ch7); }, sort: function(r){ return r.ch7; } },
+        { label: 'Resolves in', num: true, cell: function(r){ return pmkDaysLeft(r); }, sort: function(r){ return r.daysLeft; } },
+        { label: 'Stock, 10 days', num: true, title: 'Move against SPY over the last 10 trading days (ETFs: own move)', cell: function(r){ return vnChg(r.move10, 1); }, sort: function(r){ return r.move10; } },
+        { label: 'Lined up', cell: function(r){ return r.lined ? '<span class="pmk-dir pmk-dir-' + (r.lined === 'with' ? 'up' : 'down') + '">' + escapeHtml(r.lined) + '</span>' : '<span class="vt-na">—</span>'; }, sort: function(r){ return r.lined; } },
+        { label: 'Run-up test', cell: function(r){ return pmkVerdict(PMK_RUN_LABEL, r.runupVerdict); }, sort: function(r){ return r.runupVerdict; } },
+      ], rows, { key: 'pmk-runup', cls: 'pmk-ct', empty: 'Nothing moving into a result right now.' });
+  }
+  function pmkAlertsHtml(){
+    var o = pmkState.owner;
+    if (!o) return pmkOwnerWait();
+    var rows = o.alerts || [];
+    return '<div class="crd-head"><h3>Odds moves on names with an open Top Picks trade</h3></div>' +
+      '<p class="crd-lede">A linked contract that moved 5+ points in a day or 10+ in a week. “Helps” means the move points the trade’s way. Information only: nothing here closes or changes a trade.</p>' +
+      VIEWS.tableHtml([
+        { label: 'Trade', cell: function(a){ return vnSym(a.symbol) + ' <small class="crd-dim">' + escapeHtml(a.side || '') + '</small>' + (a.tradeId ? '<div class="crd-dim">' + escapeHtml(a.tradeId) + '</div>' : ''); }, sort: function(a){ return a.symbol; } },
+        { label: 'Market', cell: function(a){ return pmkTitle(a); }, sort: function(a){ return a.title; } },
+        { label: 'Chance', num: true, cell: function(a){ return pmkChance(a.p); }, sort: function(a){ return a.p; } },
+        { label: '1 day', num: true, cell: function(a){ return pmkPts(a.ch1); }, sort: function(a){ return a.ch1; } },
+        { label: '7 days', num: true, cell: function(a){ return pmkPts(a.ch7); }, sort: function(a){ return a.ch7; } },
+        { label: 'For the trade', cell: function(a){ return '<span class="pmk-dir pmk-dir-' + (a.reads === 'helps' ? 'up' : a.reads === 'hurts' ? 'down' : 'unk') + '">' + escapeHtml(a.reads) + '</span>' + (a.learned ? ' <small class="crd-dim">learned sign</small>' : ''); }, sort: function(a){ return a.reads; } },
+      ], rows, { key: 'pmk-alerts', cls: 'pmk-ct', empty: 'No linked odds move on an open trade.' });
+  }
+  function pmkFinderHtml(){
+    var o = pmkState.owner;
+    if (!o) return pmkOwnerWait();
+    var rows = o.candidates || [];
+    var run = o.run || {};
+    return '<div class="crd-head"><h3>Relevant markets left out</h3></div>' +
+      '<p class="crd-lede">The best matches from the last daily search that did not make the tracked list, and why. Topic lists are capped so the reads stay inside the free request budget' + (run.calls != null ? ' (last run: ' + run.calls + ' requests)' : '') + '.</p>' +
+      VIEWS.tableHtml([
+        { label: 'Market', cell: function(c){ return '<span class="pmk-title">' + escapeHtml(c.title) + '</span> ' + pmkVenue(c.venue); }, sort: function(c){ return c.title; } },
+        { label: 'Topic', cell: function(c){ return escapeHtml(c.theme || ''); }, sort: function(c){ return c.theme; } },
+        { label: 'Chance', num: true, cell: function(c){ return pmkChance(c.p); }, sort: function(c){ return c.p; } },
+        { label: 'Traded', num: true, cell: function(c){ return pmkVol(c); }, sort: function(c){ return c.volume; } },
+        { label: 'Left out because', cell: function(c){ return escapeHtml(c.why || ''); }, sort: function(c){ return c.why; } },
+        { label: 'Stocks', nosort: true, cell: function(c){ return (c.links || []).map(function(s){ return vnSym(s); }).join(' ') || '<span class="vt-na">—</span>'; } },
+      ], rows, { key: 'pmk-finder', cls: 'pmk-ct', empty: 'Nothing relevant was left out.' });
+  }
+
+  // ---- Page ----
+  function pmkStripHtml(d){
+    var all = pmkAllContracts(d);
+    var big = all.filter(function(c){ return c.ch7 != null && !c.thin; }).sort(function(a, b){ return Math.abs(b.ch7) - Math.abs(a.ch7); })[0];
+    var g = d.gauges || {};
+    var up = (d.consensus && d.consensus.upcoming || []).filter(function(u){ return u.series !== 'KXFEDDECISION' && u.expected != null; })[0];
+    var k = [];
+    k.push(['Contracts tracked', String((d.counts && d.counts.tracked) || 0)]);
+    if (g.cutNext != null) k.push(['Chance of a cut at the next Fed meeting', pmkNum(g.cutNext) + '%']);
+    if (big) k.push(['Biggest move this week', (big.ch7 > 0 ? '+' : '') + Number(big.ch7).toFixed(1) + '<small class="pmk-kpi-sub">points · ' + escapeHtml(String(big.title).slice(0, 60)) + '</small>']);
+    if (up) k.push(['Next release guess', pmkFmtVal(up.expected, up.unit, up.digits) + '<small class="pmk-kpi-sub">' + escapeHtml(up.label) + (up.release ? ' · ' + escapeHtml(vnDay(up.release)) : '') + '</small>']);
+    if (g.jumps != null) k.push(['10-point jumps today', String(g.jumps)]);
+    return '<div class="mm-kpis">' + k.map(function(x){ return '<div class="mm-kpi"><span>' + escapeHtml(x[0]) + '</span><b>' + x[1] + '</b></div>'; }).join('') + '</div>';
+  }
+  function pmkSourcesHtml(d){
+    var v = d.venues || {};
+    var row = function(id, label){
+      var x = v[id] || null;
+      var pill = !x ? '<span class="crd-src crd-src-missing">not read</span>' : x.ok ? '<span class="crd-src crd-src-ok">fresh</span>' : '<span class="crd-src crd-src-carried">carried forward</span>';
+      return '<li><b>' + label + '</b> ' + pill + (x && x.tracked != null ? ' <span class="crd-dim">' + x.tracked + ' tracked' + (x.asOf ? ' · last read ' + escapeHtml(vnWhen(x.asOf)) : '') + '</span>' : '') + (x && x.error ? ' <span class="crd-dim">· ' + escapeHtml(x.error) + '</span>' : '') + '</li>';
+    };
+    return '<details class="crd-sources"><summary>Sources and how this works</summary><ul>' + row('kalshi', 'Kalshi') + row('polymarket', 'Polymarket') + '</ul>' +
+      '<p class="crd-note">' + escapeHtml(d.note || '') + '</p>' +
+      '<p class="crd-note">Both venues’ public market-data APIs are free and need no account or key. Each full build refreshes the tracked prices in a few batched requests; once a day it searches both venues for new relevant markets. Prices are matched to the 16:00 ET stock close, so a test never uses odds the stock market had not seen yet. Sports, weather, entertainment and “what will they say” markets are left out.</p></details>';
+  }
+  function renderPrediction(){
+    var root = document.getElementById('pm-root'); if (!root) return;
+    var d = pmkState.data;
+    if (!d){
+      root.innerHTML = '<p class="crd-empty">' + (pmkState.error ? 'The prediction markets page could not load. The next full build writes it; try again later.' : 'Loading prediction market odds…') + '</p>';
+      return;
+    }
+    if (!pmkState.urlRead){
+      pmkState.urlRead = true;
+      try {
+        var q = new URLSearchParams(location.search);
+        var v = q.get('view'), s = q.get('s');
+        if (v) pmkSetView('tab', v);
+        if (s && /^[A-Z][A-Z0-9.]{0,5}$/.test(s)) pmkSetView('sym', s);
+      } catch (_) {}
+    }
+    var asof = document.getElementById('pm-asof');
+    if (asof) asof.textContent = d.builtAt ? 'Built ' + vnWhen(d.builtAt) + (d.stale ? ' · last good read' : '') : '';
+    var tabs = PMK_TABS.concat(HAS_OWNER_ACCESS ? PMK_OWNER_TABS : []);
+    var tab = pmkView('tab', 'themes');
+    if (!tabs.some(function(t){ return t[0] === tab; })) tab = 'themes';
+    var body = tab === 'moves' ? pmkMovesHtml(d) : tab === 'releases' ? pmkReleasesHtml(d) : tab === 'stocks' ? pmkStocksHtml(d)
+      : tab === 'tests' ? pmkTestsHtml(d) : tab === 'runup' ? pmkRunupHtml(d) : tab === 'alerts' ? pmkAlertsHtml(d) : tab === 'finder' ? pmkFinderHtml(d) : pmkThemesHtml(d);
+    root.innerHTML = (d.stale ? '<p class="crd-err">Neither venue answered on the last build. These are the last good prices.</p>' : '') +
+      pmkStripHtml(d) + vnTabsHtml(tabs, tab, 'data-pmk-tab') + '<div class="crd-body pmk-body">' + body + '</div>' + pmkSourcesHtml(d);
+    vnTabsReveal(root);
+  }
+  function loadPredictionOwner(){
+    if (!HAS_OWNER_ACCESS || pmkState.owner || pmkState.ownerLoading) return;
+    pmkState.ownerLoading = true;
+    vnJson('prediction-odds-owner.json', true).then(function(j){
+      pmkState.ownerLoading = false;
+      pmkState.owner = j && typeof j === 'object' && Array.isArray(j.families) ? j : null;
+      var pane = document.getElementById('page-pane-prediction-markets');
+      if (pane && !pane.hidden) renderPrediction();
+    });
+  }
+  function predictionPublicJson(){ return vnJson('prediction-odds.json', false).then(function(j){ return j && typeof j === 'object' && Array.isArray(j.themes) ? j : null; }); }
+  function loadPrediction(force){
+    loadPredictionOwner();
+    if (!force && pmkState.data && Date.now() - pmkState.fetchedAt < 10 * 60 * 1000){ renderPrediction(); return; }
+    if (pmkState.loading) return;
+    pmkState.loading = true; pmkState.error = null;
+    renderPrediction();
+    predictionPublicJson().then(function(j){
+      pmkState.data = j;
+      pmkState.error = j ? null : 'missing';
+      pmkState.fetchedAt = Date.now(); pmkState.loading = false;
+      renderPrediction();
+    });
+  }
+  document.addEventListener('click', function(ev){
+    var el = ev.target && ev.target.closest ? ev.target.closest('[data-pmk-tab],[data-pmk-theme],[data-pmk-sym]') : null;
+    if (!el) return;
+    if (el.hasAttribute('data-pmk-tab')) pmkSetView('tab', el.getAttribute('data-pmk-tab'));
+    else if (el.hasAttribute('data-pmk-theme')) pmkSetView('theme', el.getAttribute('data-pmk-theme'));
+    else pmkSetView('sym', el.getAttribute('data-pmk-sym'));
+    renderPrediction();
+  });
+  document.addEventListener('stonks-owner-ready', function(){
+    var pane = document.getElementById('page-pane-prediction-markets');
+    if (pane && !pane.hidden){ loadPredictionOwner(); renderPrediction(); }
+  });
+
+  // ---- Stock page strip (stock-page-js.mjs) ----
+  function predictionStockStripHtml(d, sym){
+    if (!d || !sym) return '';
+    var rows = pmkStockRows(d, sym);
+    if (!rows.length) return '';
+    var list = rows.slice().sort(function(a, b){ return (b.sign !== 0) - (a.sign !== 0) || Math.abs(b.c.ch7 || 0) - Math.abs(a.c.ch7 || 0); }).slice(0, 5);
+    return '<h3 class="stp-h3">What prediction markets are betting on</h3>' +
+      '<ul class="pmk-strip">' + list.map(function(r){
+        var c = r.c;
+        return '<li><span class="pmk-strip-p">' + pmkNum(c.p) + '%</span><span class="pmk-strip-t"><span>' + pmkTitle(c) + '</span>' +
+          '<small class="crd-dim">' + (c.ch7 != null ? (c.ch7 > 0 ? '+' : '') + Number(c.ch7).toFixed(1) + ' pts this week · ' : '') + (c.daysLeft != null ? 'resolves in ' + pmkDaysLeft(c) + ' · ' : '') +
+          '<span class="pmk-dir pmk-dir-' + (r.sign > 0 ? 'up' : r.sign < 0 ? 'down' : 'unk') + '">' + (r.sign > 0 ? 'YES would help' : r.sign < 0 ? 'YES would hurt' : 'direction not set') + '</span></small></span></li>';
+      }).join('') + '</ul>' +
+      '<p class="stp-src">Traded odds on Kalshi and Polymarket, not a forecast. <a href="?tab=prediction-markets&amp;view=stocks&amp;s=' + encodeURIComponent(sym) + '">All ' + rows.length + ' linked market' + (rows.length === 1 ? '' : 's') + '</a></p>';
+  }
+
+  // ---- Calendar report rows ----
+  // The market’s guess for a release (before) or guess vs result (after),
+  // matched by Calendar subtype and a release day within one day.
+  function predictionCalLine(d, e){
+    if (!d || !e || !e.subtype || !e.date) return '';
+    var cs = d.consensus || {};
+    var near = function(x){ if (!x.release || x.cal !== e.subtype) return false; var a = Date.parse(x.release + 'T12:00:00Z'), b = Date.parse(String(e.date).slice(0, 10) + 'T12:00:00Z'); return isFinite(a) && isFinite(b) && Math.abs(a - b) <= 86400000; };
+    var past = (cs.recent || []).filter(near)[0];
+    if (past) return '<div class="pmk-cal"><span class="pmk-venue pmk-venue-kalshi">Kalshi</span> traders expected <b>' + pmkFmtVal(past.expected, past.unit, past.digits) + '</b>; result ' + pmkFmtVal(past.actual, past.unit, past.digits) + (past.z != null ? ' (' + (past.z > 0 ? '+' : '') + Number(past.z).toFixed(1) + 'σ surprise)' : '') + '</div>';
+    var up = (cs.upcoming || []).filter(near)[0];
+    if (up && up.expected != null) return '<div class="pmk-cal"><span class="pmk-venue pmk-venue-kalshi">Kalshi</span> traders expect <b>' + pmkFmtVal(up.expected, up.unit, up.digits) + '</b>' + (up.lo != null && up.hi != null ? ' <small class="crd-dim">80% range ' + pmkFmtVal(up.lo, up.unit, up.digits) + ' to ' + pmkFmtVal(up.hi, up.unit, up.digits) + '</small>' : '') + '</div>';
+    return '';
+  }
+  var pmkCalData = null, pmkCalAsked = false;
+  function loadPredictionForCalendar(){
+    if (pmkCalAsked) return;
+    pmkCalAsked = true;
+    predictionPublicJson().then(function(j){
+      pmkCalData = j;
+      var pane = document.getElementById('page-pane-calendar');
+      if (j && pane && !pane.hidden && typeof renderCalendar === 'function') renderCalendar();
+    });
+  }
+
+
   // ---- Booms & busts ---------------------------------------------------------
   var HR_TABS = [['now', 'Now vs history'], ['railroads', 'Railroads'], ['telecom', 'Telecom & fiber'], ['housing', 'Housing & 2008'], ['ai', 'AI data centers'], ['credit', 'Credit & CDS']];
   var HR_OWNER_TAB = ['stocks', 'Stocks (Owner)'];
@@ -4736,7 +5189,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
       var r5 = (k.read && k.read['5']) || {}, r10 = (k.read && k.read['10']) || {};
       var st = EVB_KEY_STATUS[k.status] || EVB_KEY_STATUS.collecting;
       var halves = r10.half1 == null ? '—' : (r10.half1 > 0 ? '+' : '') + Number(r10.half1).toFixed(3) + ' / ' + (r10.half2 == null ? '—' : (r10.half2 > 0 ? '+' : '') + Number(r10.half2).toFixed(3));
-      return '<tr><td><strong>' + escapeHtml(k.label || k.key) + '</strong><div class="evb-q">' + escapeHtml(k.key) + (k.crowd ? ' · crowd' : k.distress ? ' · distress' : '') + '</div></td>' +
+      return '<tr><td><strong>' + escapeHtml(k.label || k.key) + '</strong><div class="evb-q">' + escapeHtml(k.key) + (k.crowd ? ' · crowd' : k.distress ? ' · distress' : k.odds ? ' · odds' : '') + '</div></td>' +
         '<td class="num">' + (r10.days || 0) + '<div class="evb-q">' + (k.daysLogged || 0) + ' logged</div></td>' +
         evbIcCell(r5.ic) + evbIcCell(r10.ic) +
         '<td class="num">' + (r10.t == null ? '—' : Number(r10.t).toFixed(2)) + '</td>' +
@@ -12851,7 +13304,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // resolve the URL's initial tab synchronously at script-evaluation time (the
   // anti-flash pre-select in the boot block) before the /api/auth/me +
   // manifest fetches settle and bind() runs the full selectTab.
-  var PAGE_TAB_IDS = ['home','update-checker','owner-settings','owner-market-brief','tickers','stock','narratives','brief','news','market','risk','unified-signal-engine','historical-data','party-tracker','earnings-forecast','forced-liquidation','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','bottom-tracker','open-picks','track','sports-nba','sports-nfl','sports-pick-builder','cheatsheet','chart-patterns','timeline','contact','glossary','earnings-week','market-map','crowd','history-rhymes','whats-changed','past-day','privacy','terms'];
+  var PAGE_TAB_IDS = ['home','update-checker','owner-settings','owner-market-brief','tickers','stock','narratives','brief','news','market','risk','unified-signal-engine','historical-data','party-tracker','earnings-forecast','forced-liquidation','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','bottom-tracker','open-picks','track','sports-nba','sports-nfl','sports-pick-builder','cheatsheet','chart-patterns','timeline','contact','glossary','earnings-week','market-map','crowd','prediction-markets','history-rhymes','whats-changed','past-day','privacy','terms'];
   // Friendly aliases so deep-links people might guess work too.
   // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
   // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -12908,7 +13361,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     patterns: 'chart-patterns', chartpatterns: 'chart-patterns', 'chart-pattern': 'chart-patterns',
     timeline: 'timeline', schedule: 'timeline', refresh: 'timeline', 'refresh-schedule': 'timeline', 'build-timeline': 'timeline',
     contact: 'contact', 'contact-us': 'contact', message: 'contact', messages: 'contact', feedback: 'contact', inbox: 'contact',
-    glossary: 'glossary', words: 'glossary', definitions: 'glossary', 'earnings-week': 'earnings-week', 'earnings-board': 'earnings-week', 'implied-move': 'earnings-week', 'market-map': 'market-map', 'fear-map': 'market-map', 'chart-wall': 'market-map', 'breadth': 'market-map', 'crowding': 'market-map', 'short-interest': 'market-map', crowd: 'crowd', positioning: 'crowd', 'put-call': 'crowd', cot: 'crowd', 'margin-debt': 'crowd', 'short-volume': 'crowd', kalshi: 'crowd', perps: 'crowd', 'reddit': 'crowd', 'history-rhymes': 'history-rhymes', booms: 'history-rhymes', 'booms-and-busts': 'history-rhymes', busts: 'history-rhymes', bubbles: 'history-rhymes', bubble: 'history-rhymes', buildout: 'history-rhymes', railroads: 'history-rhymes', 'railroad-mania': 'history-rhymes', 'dot-com': 'history-rhymes', telecom: 'history-rhymes', '2008': 'history-rhymes', cds: 'history-rhymes', 'credit-default-swaps': 'history-rhymes', 'credit-spreads': 'history-rhymes', 'whats-changed': 'whats-changed', 'changes': 'whats-changed', 'since-yesterday': 'whats-changed', 'past-day': 'past-day', 'past-days': 'past-day', 'time-machine': 'past-day',
+    glossary: 'glossary', words: 'glossary', definitions: 'glossary', 'earnings-week': 'earnings-week', 'earnings-board': 'earnings-week', 'implied-move': 'earnings-week', 'market-map': 'market-map', 'fear-map': 'market-map', 'chart-wall': 'market-map', 'breadth': 'market-map', 'crowding': 'market-map', 'short-interest': 'market-map', crowd: 'crowd', positioning: 'crowd', 'put-call': 'crowd', cot: 'crowd', 'margin-debt': 'crowd', 'short-volume': 'crowd', kalshi: 'prediction-markets', polymarket: 'prediction-markets', 'prediction-markets': 'prediction-markets', 'prediction-market': 'prediction-markets', predictions: 'prediction-markets', odds: 'prediction-markets', 'betting-odds': 'prediction-markets', perps: 'crowd', 'reddit': 'crowd', 'history-rhymes': 'history-rhymes', booms: 'history-rhymes', 'booms-and-busts': 'history-rhymes', busts: 'history-rhymes', bubbles: 'history-rhymes', bubble: 'history-rhymes', buildout: 'history-rhymes', railroads: 'history-rhymes', 'railroad-mania': 'history-rhymes', 'dot-com': 'history-rhymes', telecom: 'history-rhymes', '2008': 'history-rhymes', cds: 'history-rhymes', 'credit-default-swaps': 'history-rhymes', 'credit-spreads': 'history-rhymes', 'whats-changed': 'whats-changed', 'changes': 'whats-changed', 'since-yesterday': 'whats-changed', 'past-day': 'past-day', 'past-days': 'past-day', 'time-machine': 'past-day',
     privacypolicy: 'privacy', 'privacy-policy': 'privacy',
     tos: 'terms', 'terms-of-use': 'terms', 'terms-of-service': 'terms',
   };
@@ -13601,7 +14054,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var exportShot = null; // last picture made: { key, blob }
     // Learn & help pages are guides and legal text, not data.
     var EXPORT_SKIP_SECTIONS = { learn: 1 };
-    var EXPORT_SOURCES = {"home":["heatmap.json"],"brief":["briefs.json"],"news":["news-feed.json"],"heatmap":["heatmap.json"],"calendar":["calendar.json"],"overnight":["correlations.json"],"tickers":["heatmap.json","grades.json"],"compare":["grades.json"],"earnings":["earnings-tracker.json"],"calls":["earnings-calls.json"],"f13":["13f.json"],"pending-buyouts":["pending-buyouts.json"],"bonds-usd":["macro-history.json"],"commodities":["commodities.json"],"central-bank-gold":["central-bank-gold.json"],"capital-raises":["capital-raises.json","ipo-credit.json"],"flow":["unusual.json"],"volume":["volume-flags.json"],"oi":["oi-tracker.json"],"iv-trend":["iv-trending.json"],"ma-tracker":["ma-tracker.json"],"streaks":["streaks.json"],"pattern-lab":["pattern-recognition.json"],"spillover":["spillover-pairs.json"],"index-cal":["index-calendar.json"],"ai-capex":["ai-capex.json"],"ram-prices":["ram-prices.json"],"accelerator-prices":["accelerator-prices.json"],"search-interest":["search-interest.json"],"unified-signal-engine":["market-analysis.json","sector-rotation.json"],"market":["regime-history.json","correlations.json"],"risk":["market-analysis.json"],"bottom-tracker":["bottom-tracker.json"],"party-tracker":["party-tracker.json"],"history-rhymes":["history-rhymes.json","history-rhymes-owner.json"],"picks":["picks.json","picks-open.json"],"leaps":["leaps-picks.json"],"stocks":["stock-picks.json"],"rotation":["sector-rotation.json"],"levetf":["leveraged-etfs.json"],"open-picks":["picks-open.json","picks-accuracy.json"],"track":["picks-accuracy.json","picks-changes.json","picks-roster.json","grades-history.json"],"quant":["quant.json"]};
+    var EXPORT_SOURCES = {"home":["heatmap.json"],"brief":["briefs.json"],"news":["news-feed.json"],"heatmap":["heatmap.json"],"calendar":["calendar.json"],"overnight":["correlations.json"],"tickers":["heatmap.json","grades.json"],"compare":["grades.json"],"earnings":["earnings-tracker.json"],"calls":["earnings-calls.json"],"f13":["13f.json"],"pending-buyouts":["pending-buyouts.json"],"bonds-usd":["macro-history.json"],"commodities":["commodities.json"],"central-bank-gold":["central-bank-gold.json"],"capital-raises":["capital-raises.json","ipo-credit.json"],"flow":["unusual.json"],"volume":["volume-flags.json"],"oi":["oi-tracker.json"],"iv-trend":["iv-trending.json"],"ma-tracker":["ma-tracker.json"],"streaks":["streaks.json"],"pattern-lab":["pattern-recognition.json"],"spillover":["spillover-pairs.json"],"index-cal":["index-calendar.json"],"ai-capex":["ai-capex.json"],"ram-prices":["ram-prices.json"],"accelerator-prices":["accelerator-prices.json"],"search-interest":["search-interest.json"],"unified-signal-engine":["market-analysis.json","sector-rotation.json"],"market":["regime-history.json","correlations.json"],"risk":["market-analysis.json"],"bottom-tracker":["bottom-tracker.json"],"party-tracker":["party-tracker.json"],"history-rhymes":["history-rhymes.json","history-rhymes-owner.json"],"prediction-markets":["prediction-odds.json","prediction-odds-owner.json"],"picks":["picks.json","picks-open.json"],"leaps":["leaps-picks.json"],"stocks":["stock-picks.json"],"rotation":["sector-rotation.json"],"levetf":["leveraged-etfs.json"],"open-picks":["picks-open.json","picks-accuracy.json"],"track":["picks-accuracy.json","picks-changes.json","picks-roster.json","grades-history.json"],"quant":["quant.json"]};
     function exportOwner(){ return HAS_OWNER_ACCESS && !IS_EMBED; }
     function exportTabNow(){
       var a = document.querySelector('[data-page-tab][aria-controls][aria-selected="true"]');
@@ -14714,6 +15167,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         if (name === 'news' && typeof loadNewsFeed === 'function') loadNewsFeed();
         if ((name === 'calendar' || name === 'bonds-usd') && typeof loadCalendar === 'function') loadCalendar();
         if (name === 'calendar' && typeof renderIcsBox === 'function') renderIcsBox();
+        if (name === 'calendar' && typeof loadPredictionForCalendar === 'function') loadPredictionForCalendar();
         if (name === 'index-cal' && typeof loadIndexCal === 'function') loadIndexCal();
         if (name === 'picks' && typeof loadPicks === 'function') loadPicks();
         if (name === 'leaps' && typeof loadLeaps === 'function') loadLeaps();
@@ -14773,6 +15227,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         if (name === 'earnings-week' && typeof loadEarningsWeek === 'function') loadEarningsWeek();
         if (name === 'market-map' && typeof loadMarketMap === 'function') loadMarketMap();
         if (name === 'crowd' && typeof loadCrowd === 'function') loadCrowd();
+        if (name === 'prediction-markets' && typeof loadPrediction === 'function') loadPrediction();
         if (name === 'history-rhymes' && typeof loadHistoryRhymes === 'function') loadHistoryRhymes();
         if (name === 'risk' && typeof loadHistoryRhymesRisk === 'function') loadHistoryRhymesRisk();
         if (name === 'whats-changed' && typeof loadWhatsChanged === 'function') loadWhatsChanged();
@@ -48156,6 +48611,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       grid +
       (e.note ? '<p class="cal-report-note">' + escapeHtml(e.note) + '</p>' : '') +
       pmLine +
+      (typeof predictionCalLine === 'function' ? predictionCalLine(pmkCalData, e) : '') +
     '</div>';
   }
   // --- Report click-through: bar chart + summary modal --------------------
@@ -53565,7 +54021,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     // 2026-11-10 only while one differs from its default).
     { key:'settings', get:function(e){ return (e && typeof e.ownerSettings === 'string' && e.ownerSettings) || ''; } }
   ];
-  var OWNER_SETTING_LABELS = {"PICKS_EVENT_AWARE":"Event plays","PICKS_MACRO_CONTEXT":"Macro context block","PICKS_MACRO_BLOCK_PTS":"Macro block strength","PICKS_SINGLES_DEFAULT":"Single options by default","PICKS_STRATEGY_AUTO":"Pick the option structure","PICKS_EDGE_GATE":"Raise the bar after losses","PICKS_COUNT":"Most picks per run","PICKS_MAX_OPEN_POSITIONS":"Most open trades","PICKS_MAX_NEW_PER_FACTOR_RUN":"New trades per stock group per run","PICKS_SINGLE_MAX_COST":"Single option cost cap","PICKS_FOMC_ALWAYS_DEFER":"Wait out Fed, CPI, PPI and jobs days","PICKS_EVENT_RISK":"Event risk check","PICKS_STRATEGY_EARNINGS_DAYS":"Earnings window for spreads","PICKS_CREDIT_INTO_MACRO_EVENT":"Credit spreads into macro events","PICKS_MACRO_REGIME":"Market tape on the picks","PICKS_MACRO_INDEX":"Indexes (SPY and QQQ)","PICKS_MACRO_CREDIT":"Credit spreads","PICKS_MACRO_BREADTH":"Breadth","PICKS_MACRO_PUTCALL":"Put/call","PICKS_MACRO_BONDVOL":"Bond volatility (MOVE)","PICKS_MACRO_SENTIMENT":"Fear & Greed","PICKS_MACRO_INFLATION":"Inflation and jobs","PICKS_MACRO_COMMODITY":"Oil and gold shocks","PICKS_MACRO_NEWS":"War, tariff and Iran headlines","PICKS_MACRO_GLOBAL":"Overnight markets","PICKS_MACRO_ROTATION":"Sector rotation","AI_THESIS":"AI final grader","AI_THESIS_SEARCH":"Web search before grading","PREDICTION_MARKETS":"Prediction-market odds","PICKS_CROWD_SQUEEZE_VETO":"Crowd squeeze veto","PICKS_CROWD_GRADER":"Crowd lines in the AI grader","PICKS_MACRO_PUTCALL_SRC":"Put/call source for the market tape","SELF_TUNE":"Self-tuning"};
+  var OWNER_SETTING_LABELS = {"PICKS_EVENT_AWARE":"Event plays","PICKS_MACRO_CONTEXT":"Macro context block","PICKS_MACRO_BLOCK_PTS":"Macro block strength","PICKS_SINGLES_DEFAULT":"Single options by default","PICKS_STRATEGY_AUTO":"Pick the option structure","PICKS_EDGE_GATE":"Raise the bar after losses","PICKS_COUNT":"Most picks per run","PICKS_MAX_OPEN_POSITIONS":"Most open trades","PICKS_MAX_NEW_PER_FACTOR_RUN":"New trades per stock group per run","PICKS_SINGLE_MAX_COST":"Single option cost cap","PICKS_FOMC_ALWAYS_DEFER":"Wait out Fed, CPI, PPI and jobs days","PICKS_EVENT_RISK":"Event risk check","PICKS_STRATEGY_EARNINGS_DAYS":"Earnings window for spreads","PICKS_CREDIT_INTO_MACRO_EVENT":"Credit spreads into macro events","PICKS_MACRO_REGIME":"Market tape on the picks","PICKS_MACRO_INDEX":"Indexes (SPY and QQQ)","PICKS_MACRO_CREDIT":"Credit spreads","PICKS_MACRO_BREADTH":"Breadth","PICKS_MACRO_PUTCALL":"Put/call","PICKS_MACRO_BONDVOL":"Bond volatility (MOVE)","PICKS_MACRO_SENTIMENT":"Fear & Greed","PICKS_MACRO_INFLATION":"Inflation and jobs","PICKS_MACRO_COMMODITY":"Oil and gold shocks","PICKS_MACRO_NEWS":"War, tariff and Iran headlines","PICKS_MACRO_GLOBAL":"Overnight markets","PICKS_MACRO_ROTATION":"Sector rotation","AI_THESIS":"AI final grader","AI_THESIS_SEARCH":"Web search before grading","PREDICTION_MARKETS":"Prediction-market odds","PICKS_CROWD_SQUEEZE_VETO":"Crowd squeeze veto","PICKS_CROWD_GRADER":"Crowd lines in the AI grader","PICKS_ODDS_GRADER":"Prediction odds in the AI grader","PICKS_MACRO_PUTCALL_SRC":"Put/call source for the market tape","SELF_TUNE":"Self-tuning"};
   function ownerSettingsTagText(tag){
     if (tag === 'default') return 'back on the defaults';
     return String(tag || '').split(',').filter(Boolean).map(function(part){

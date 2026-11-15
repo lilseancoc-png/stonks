@@ -93,7 +93,7 @@ const crowd = {
 };
 const chains = { AAA: { spot: 160, _bars: bars }, BBB: { spot: 50, _bars: bars } };
 const sh = buildShadowSignals(chains, { builtAtIso: "2026-11-09T16:10:00Z", crowd });
-ok("v5 keys carry the crowd keys and the rows use them", sh.v === 5 && sh.keys.length === SHADOW_KEYS.length && shadowValue(sh, "AAA", "sv") === 55.5 && shadowValue(sh, "AAA", "bf") === 6.25 && shadowValue(sh, "AAA", "pgp") === -2.5);
+ok("v6 keys carry the crowd keys and the rows use them", sh.v === 6 && sh.keys.length === SHADOW_KEYS.length && shadowValue(sh, "AAA", "sv") === 55.5 && shadowValue(sh, "AAA", "bf") === 6.25 && shadowValue(sh, "AAA", "pgp") === -2.5);
 ok("attention is the mean percentile of the three attention reads", shadowValue(sh, "AAA", "att") === 80);
 ok("a name without a crowd row leaves the crowd keys empty", shadowValue(sh, "BBB", "bf") == null && shadowValue(sh, "BBB", "sv") === 40);
 ok("market gauges ride the block once", sh.mkt && sh.mkt.pc === 0.72 && sh.mkt.pcp === 84 && sh.mkt.cotEsZ === -1.4 && sh.mkt.mdYoy === 18.2 && sh.mkt.levBull5 === 1.2e9 && sh.mkt.kxWid === 2.44 && sh.mkt.kxRec === 20 && sh.mkt.svm === 47.3);
@@ -147,6 +147,15 @@ ok("no crowd payload: no gauges, rows unchanged", !("mkt" in buildShadowSignals(
   ok("earnings event-play read: side-signed means for winners and losers, macro plays left out", evt.n === 2 && evt.winMean === 80 && evt.lossMean === -90);
   const oldDay = { date: "2026-11-10", shadow: { v: 4, mkt: { levBull5: 0, pc: 0.6 } } }, newDay = { date: "2026-11-13", shadow: { v: 5, mkt: { levBull5: 5e8 } } };
   ok("gauge values logged before the fixing version are ignored", GAUGE_VALID_FROM_VERSION.levBull5 === 5 && gaugeValue(oldDay, "levBull5") === null && gaugeValue(oldDay, "pc") === 0.6 && gaugeValue(newDay, "levBull5") === 5e8);
+}
+{
+  // ---- version 6: prediction-market odds (lib/prediction predictionShadow)
+  const odds = { rows: { AAA: { pmn: 3, pmo: 12.345 }, BBB: { pmn: 0 } }, mkt: { pmCut: 64, pmPol: 2.1, pmJmp: 4 } };
+  const v6 = buildShadowSignals(chains, { builtAtIso: "2026-11-09T16:10:00Z", odds, marketExtra: { rnw: 1 } });
+  ok("v6: linked-contract count and signed odds move per name, zero kept as measured", shadowValue(v6, "AAA", "pmn") === 3 && shadowValue(v6, "AAA", "pmo") === 12.35 && shadowValue(v6, "BBB", "pmn") === 0 && shadowValue(v6, "BBB", "pmo") == null);
+  ok("v6: cut odds, policy churn and jump count ride the market row beside the other extras", v6.mkt.pmCut === 64 && v6.mkt.pmPol === 2.1 && v6.mkt.pmJmp === 4 && v6.mkt.rnw === 1);
+  const none = buildShadowSignals(chains, { builtAtIso: "2026-11-09T16:10:00Z" });
+  ok("v6: no tracker run logs no odds keys", shadowValue(none, "AAA", "pmn") == null && !none.mkt);
 }
 const snap = buildEntrySnapshot({ symbol: "AAA", pillars: {} }, chains.AAA, { shadow: sh });
 ok("entry snapshot v2 copies the crowd keys and the market gauges", snap.v === 2 && snap.shadow.bf === 6.25 && snap.shadow.att === 80 && snap.mkt.pcp === 84);
