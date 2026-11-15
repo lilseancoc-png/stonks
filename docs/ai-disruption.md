@@ -18,9 +18,11 @@ Owner decision, 2026-11-15:
   every test result.
 
 This repository is public, so nothing Owner-only may be committed under
-`lib/ai-disruption/`. `validateRegistry` refuses a `score`, `grade`, `tier`,
-`rank`, `rating` or `risk` field in `company-map.json`, and the smoke test runs
-every description through `containsInvestmentAdvice`.
+`lib/ai-disruption/`. A company row may hold only `id`, `name`, `public`,
+`exposures` and `defense`; `validateRegistry` refuses any other field (a
+`score`, `grade`, `tier`, `rank`, `rating` or `risk` field by name), and the
+smoke test runs every description through `containsInvestmentAdvice`.
+Per-stock grades live only in the private store (owner decision, 2026-11-15).
 
 Only the site's covered names (`TICKERS`) can ever get a score. Other public
 companies and private ones are mention-only (`coverageOf`): named in the log
@@ -43,7 +45,8 @@ replacement, `workflow` displacement, `platform` consolidation), `plans`
 (`free`, `consumer`, `business`, `enterprise`, `api`), `availability`
 (`preview`, `beta`, `ga`), `autonomy` (`draft`, `approve`, `unattended`),
 `coverage` (0 to 5: how much of the incumbent product's core job it does),
-`source`, `sourceChecked` (the day the dated entry was read on the source page;
+optional `coverageBy` (a different 0-to-5 coverage for one capability of a
+bundled launch), `source` (a page on one of the lab's listed sources), `sourceChecked` (the day the dated entry was read on the source page;
 `null` means the date is from memory and still needs checking) and `status`
 (`auto` until the Owner confirms, then `confirmed`).
 
@@ -61,9 +64,15 @@ replacement, `workflow` displacement, `platform` consolidation), `plans`
 | Integration | 10% | Connectors, or a platform launch |
 | Price gap | 10% | Bundled in a plan people already pay for, or free |
 
-A row may override any derived grade under `grades`. `capabilityBoard()` keeps,
-for each capability and lab, the best score shipped so far and the launch that
-set it.
+A row may override any derived grade under `grades`. A launch with no plan
+listed (shown or announced only) gets 0 for reach, enterprise readiness and
+price gap. `capabilityBoard()` keeps, for each capability and lab, the best
+score shipped so far and the launch that set it, using `coverageBy` where a
+bundled launch grades that capability apart.
+
+Known limit: most shipped launches land between 60 and 75, so the board ranks
+better than it separates. The weights are a first draft and get tuned in
+Phase 1, once the live log has enough rows to test them.
 
 ## What a hit does to a company
 
@@ -81,11 +90,15 @@ The result is descriptive and carries no score.
 
 ## Backfill
 
-63 launches from November 2022 to November 2026. 33 were read on the lab's own
-release notes on 2026-11-15 (Claude release notes, Gemini release notes) or on
-a release-notes mirror for ChatGPT; 30 older rows carry dates from memory and
-`sourceChecked: null`. Known gap: OpenAI launches from December 2025 to
-September 2026 (the official page was not reachable from the build sandbox).
+88 launches from November 2022 to November 2026, across all six labs. 58 were read
+on the lab's own pages on 2026-11-15 (Claude release notes and Anthropic news
+posts, Gemini release notes, ChatGPT release notes) or, for the two newest
+ChatGPT rows, on a release-notes mirror; 30 rows carry dates from memory and
+`sourceChecked: null`. Known gap: OpenAI launches from December 2025 to early
+February 2026 (the official page read from the build sandbox starts on
+2026-02-09). The validator also checks that every capability is used by a
+launch and sold by a company, that every lab has a launch, that each source
+is one of the lab's listed pages, and that no date is in the future.
 
 ## Check
 

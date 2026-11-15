@@ -641,6 +641,81 @@
     }
    ],
    "defense": "Templates, brand kits, team collaboration; also a connector partner"
+  },
+  {
+   "id": "IT",
+   "name": "Gartner",
+   "public": true,
+   "exposures": [
+    {
+     "capability": "research",
+     "role": "core",
+     "how": "Research agents write sourced reports on vendors and markets that buyers once got from an analyst subscription"
+    }
+   ],
+   "defense": "Proprietary survey data, analyst access and peer benchmarks"
+  },
+  {
+   "id": "FDS",
+   "name": "FactSet",
+   "public": true,
+   "exposures": [
+    {
+     "capability": "research",
+     "role": "addon",
+     "how": "Research agents assemble company and market write-ups from public sources"
+    },
+    {
+     "capability": "data_analysis",
+     "role": "adjacent",
+     "how": "Assistants analyze data, but still need the licensed data feeds"
+    }
+   ],
+   "defense": "Licensed, cleaned financial data and workflow lock-in"
+  },
+  {
+   "id": "TRI",
+   "name": "Thomson Reuters",
+   "public": true,
+   "exposures": [
+    {
+     "capability": "legal_contracts",
+     "role": "core",
+     "how": "Legal plugins draft and review documents that law firms pay Westlaw and CoCounsel for"
+    },
+    {
+     "capability": "research",
+     "role": "addon",
+     "how": "Research agents answer questions from public law and news"
+    }
+   ],
+   "defense": "Proprietary case law, editorial content and trusted citations"
+  },
+  {
+   "id": "DOCS",
+   "name": "Doximity",
+   "public": true,
+   "exposures": [
+    {
+     "capability": "health",
+     "role": "addon",
+     "how": "Free clinician assistants overlap its AI writing and clinical reference tools"
+    }
+   ],
+   "defense": "Verified physician network and telehealth tools"
+  },
+  {
+   "id": "TDOC",
+   "name": "Teladoc Health",
+   "public": true,
+   "exposures": [
+    {
+     "capability": "health",
+     "role": "adjacent",
+     "how": "Assistants answer health questions before a visit; licensed care and prescribing remain"
+    }
+   ],
+   "defense": "Licensed clinicians, prescribing and employer contracts"
   }
  ]
 }

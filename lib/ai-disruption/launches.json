@@ -1,6 +1,6 @@
 {
- "version": 1,
- "note": "Backfill built 2026-11-15. sourceChecked is the day the dated entry was read on the source page; null means the date is from memory and still needs checking. Known gap: OpenAI launches from December 2025 to September 2026.",
+ "version": 2,
+ "note": "Backfill built 2026-11-15. sourceChecked is the day the dated entry was read on the source page; null means the date is from memory and still needs checking. Known gap: OpenAI launches from December 2025 to early February 2026.",
  "launches": [
   {
    "id": "2022-11-30-openai-chatgpt-research-preview",
@@ -175,6 +175,9 @@
    "availability": "ga",
    "autonomy": "draft",
    "coverage": 2,
+   "coverageBy": {
+    "support_agent": 1
+   },
    "source": "https://openai.com/news/",
    "sourceChecked": null,
    "status": "auto"
@@ -217,6 +220,9 @@
    "availability": "ga",
    "autonomy": "draft",
    "coverage": 3,
+   "coverageBy": {
+    "language_learning": 2
+   },
    "source": "https://openai.com/news/",
    "sourceChecked": null,
    "status": "auto"
@@ -241,7 +247,7 @@
    "availability": "ga",
    "autonomy": "draft",
    "coverage": 2,
-   "source": "https://www.anthropic.com/news",
+   "source": "https://www.anthropic.com/news/claude-3-5-sonnet",
    "sourceChecked": null,
    "status": "auto"
   },
@@ -284,8 +290,8 @@
    "availability": "beta",
    "autonomy": "approve",
    "coverage": 1,
-   "source": "https://www.anthropic.com/news",
-   "sourceChecked": null,
+   "source": "https://www.anthropic.com/news/3-5-models-and-computer-use",
+   "sourceChecked": "2026-11-15",
    "status": "auto"
   },
   {
@@ -325,8 +331,8 @@
    "availability": "ga",
    "autonomy": "approve",
    "coverage": 2,
-   "source": "https://www.anthropic.com/news",
-   "sourceChecked": null,
+   "source": "https://www.anthropic.com/news/model-context-protocol",
+   "sourceChecked": "2026-11-15",
    "status": "auto"
   },
   {
@@ -435,6 +441,27 @@
    "status": "auto"
   },
   {
+   "id": "2025-02-17-xai-grok-3-with-deepsearch",
+   "date": "2025-02-17",
+   "lab": "xai",
+   "product": "Grok",
+   "title": "Grok 3 with DeepSearch",
+   "capabilities": [
+    "research",
+    "web_search"
+   ],
+   "how": "direct",
+   "plans": [
+    "consumer"
+   ],
+   "availability": "beta",
+   "autonomy": "draft",
+   "coverage": 2,
+   "source": "https://x.ai/news",
+   "sourceChecked": null,
+   "status": "auto"
+  },
+  {
    "id": "2025-02-24-anthropic-claude-code-research-preview",
    "date": "2025-02-24",
    "lab": "anthropic",
@@ -450,8 +477,8 @@
    "availability": "preview",
    "autonomy": "approve",
    "coverage": 3,
-   "source": "https://www.anthropic.com/news",
-   "sourceChecked": null,
+   "source": "https://www.anthropic.com/news/claude-3-7-sonnet",
+   "sourceChecked": "2026-11-15",
    "status": "auto"
   },
   {
@@ -475,6 +502,28 @@
    "coverage": 2,
    "source": "https://gemini.google/us/release-notes/",
    "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2025-03-25-microsoft-researcher-and-analyst-agents-announced",
+   "date": "2025-03-25",
+   "lab": "microsoft",
+   "product": "Microsoft 365 Copilot",
+   "title": "Researcher and Analyst agents announced",
+   "capabilities": [
+    "research",
+    "data_analysis"
+   ],
+   "how": "workflow",
+   "plans": [
+    "business",
+    "enterprise"
+   ],
+   "availability": "preview",
+   "autonomy": "unattended",
+   "coverage": 3,
+   "source": "https://www.microsoft.com/en-us/microsoft-365/blog/",
+   "sourceChecked": null,
    "status": "auto"
   },
   {
@@ -502,6 +551,27 @@
    "status": "auto"
   },
   {
+   "id": "2025-04-29-meta-meta-ai-standalone-app",
+   "date": "2025-04-29",
+   "lab": "meta",
+   "product": "Meta AI",
+   "title": "Meta AI standalone app",
+   "capabilities": [
+    "web_search",
+    "image_gen"
+   ],
+   "how": "platform",
+   "plans": [
+    "free"
+   ],
+   "availability": "ga",
+   "autonomy": "draft",
+   "coverage": 2,
+   "source": "https://about.fb.com/news/",
+   "sourceChecked": null,
+   "status": "auto"
+  },
+  {
    "id": "2025-05-16-openai-codex-cloud-coding-agent",
    "date": "2025-05-16",
    "lab": "openai",
@@ -520,6 +590,27 @@
    "autonomy": "unattended",
    "coverage": 3,
    "source": "https://openai.com/news/",
+   "sourceChecked": null,
+   "status": "auto"
+  },
+  {
+   "id": "2025-05-19-microsoft-github-copilot-coding-agent",
+   "date": "2025-05-19",
+   "lab": "microsoft",
+   "product": "GitHub Copilot",
+   "title": "GitHub Copilot coding agent",
+   "capabilities": [
+    "coding_agent"
+   ],
+   "how": "direct",
+   "plans": [
+    "consumer",
+    "enterprise"
+   ],
+   "availability": "preview",
+   "autonomy": "unattended",
+   "coverage": 3,
+   "source": "https://github.com/newsroom/press-releases/coding-agent-for-github-copilot",
    "sourceChecked": null,
    "status": "auto"
   },
@@ -563,8 +654,8 @@
    "availability": "ga",
    "autonomy": "approve",
    "coverage": 4,
-   "source": "https://www.anthropic.com/news",
-   "sourceChecked": null,
+   "source": "https://www.anthropic.com/news/claude-4",
+   "sourceChecked": "2026-11-15",
    "status": "auto"
   },
   {
@@ -632,6 +723,10 @@
    "availability": "ga",
    "autonomy": "approve",
    "coverage": 3,
+   "coverageBy": {
+    "slides": 2,
+    "spreadsheets": 2
+   },
    "source": "https://openai.com/news/",
    "sourceChecked": null,
    "status": "auto"
@@ -766,6 +861,9 @@
    "availability": "ga",
    "autonomy": "approve",
    "coverage": 3,
+   "coverageBy": {
+    "design": 2
+   },
    "source": "https://openai.com/news/",
    "sourceChecked": null,
    "status": "auto"
@@ -862,6 +960,29 @@
    "status": "auto"
   },
   {
+   "id": "2026-01-11-anthropic-claude-for-healthcare-and-personal-heal",
+   "date": "2026-01-11",
+   "lab": "anthropic",
+   "product": "Claude",
+   "title": "Claude for Healthcare and personal health records",
+   "capabilities": [
+    "health",
+    "connectors_platform"
+   ],
+   "how": "workflow",
+   "plans": [
+    "consumer",
+    "business",
+    "enterprise"
+   ],
+   "availability": "beta",
+   "autonomy": "draft",
+   "coverage": 2,
+   "source": "https://www.anthropic.com/news/healthcare-life-sciences",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
    "id": "2026-01-12-anthropic-cowork-research-preview",
    "date": "2026-01-12",
    "lab": "anthropic",
@@ -929,6 +1050,27 @@
    "status": "auto"
   },
   {
+   "id": "2026-02-20-anthropic-claude-code-security-limited-research-p",
+   "date": "2026-02-20",
+   "lab": "anthropic",
+   "product": "Claude Code",
+   "title": "Claude Code Security (limited research preview)",
+   "capabilities": [
+    "security_review"
+   ],
+   "how": "workflow",
+   "plans": [
+    "business",
+    "enterprise"
+   ],
+   "availability": "preview",
+   "autonomy": "approve",
+   "coverage": 2,
+   "source": "https://www.anthropic.com/news/claude-code-security",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
    "id": "2026-02-24-anthropic-cowork-plugins-and-admin-controls",
    "date": "2026-02-24",
    "lab": "anthropic",
@@ -950,6 +1092,11 @@
    "availability": "ga",
    "autonomy": "approve",
    "coverage": 3,
+   "coverageBy": {
+    "crm_agent": 2,
+    "legal_contracts": 2,
+    "support_agent": 2
+   },
    "source": "https://support.claude.com/en/articles/12138966-release-notes",
    "sourceChecked": "2026-11-15",
    "status": "auto"
@@ -973,6 +1120,27 @@
    "autonomy": "unattended",
    "coverage": 3,
    "source": "https://support.claude.com/en/articles/12138966-release-notes",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2026-03-10-openai-interactive-learning-for-math-and-science",
+   "date": "2026-03-10",
+   "lab": "openai",
+   "product": "ChatGPT",
+   "title": "Interactive learning for math and science",
+   "capabilities": [
+    "tutoring"
+   ],
+   "how": "direct",
+   "plans": [
+    "free",
+    "consumer"
+   ],
+   "availability": "ga",
+   "autonomy": "draft",
+   "coverage": 3,
+   "source": "https://help.openai.com/en/articles/6825453-chatgpt-release-notes",
    "sourceChecked": "2026-11-15",
    "status": "auto"
   },
@@ -1021,6 +1189,27 @@
    "status": "auto"
   },
   {
+   "id": "2026-03-23-openai-file-library",
+   "date": "2026-03-23",
+   "lab": "openai",
+   "product": "ChatGPT",
+   "title": "File Library",
+   "capabilities": [
+    "file_storage_search"
+   ],
+   "how": "platform",
+   "plans": [
+    "consumer",
+    "business"
+   ],
+   "availability": "ga",
+   "autonomy": "draft",
+   "coverage": 2,
+   "source": "https://help.openai.com/en/articles/6825453-chatgpt-release-notes",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
    "id": "2026-04-09-anthropic-cowork-generally-available",
    "date": "2026-04-09",
    "lab": "anthropic",
@@ -1042,6 +1231,10 @@
    "availability": "ga",
    "autonomy": "approve",
    "coverage": 4,
+   "coverageBy": {
+    "it_service": 2,
+    "file_storage_search": 3
+   },
    "source": "https://support.claude.com/en/articles/12138966-release-notes",
    "sourceChecked": "2026-11-15",
    "status": "auto"
@@ -1066,6 +1259,93 @@
    "autonomy": "draft",
    "coverage": 3,
    "source": "https://support.claude.com/en/articles/12138966-release-notes",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2026-04-21-openai-chatgpt-images-2-0",
+   "date": "2026-04-21",
+   "lab": "openai",
+   "product": "ChatGPT",
+   "title": "ChatGPT Images 2.0",
+   "capabilities": [
+    "image_gen",
+    "design",
+    "stock_media"
+   ],
+   "how": "direct",
+   "plans": [
+    "free",
+    "consumer",
+    "business",
+    "enterprise"
+   ],
+   "availability": "ga",
+   "autonomy": "draft",
+   "coverage": 4,
+   "source": "https://help.openai.com/en/articles/6825453-chatgpt-release-notes",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2026-04-22-openai-chatgpt-for-clinicians",
+   "date": "2026-04-22",
+   "lab": "openai",
+   "product": "ChatGPT",
+   "title": "ChatGPT for Clinicians",
+   "capabilities": [
+    "health"
+   ],
+   "how": "workflow",
+   "plans": [
+    "free"
+   ],
+   "availability": "ga",
+   "autonomy": "draft",
+   "coverage": 2,
+   "source": "https://help.openai.com/en/articles/6825453-chatgpt-release-notes",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2026-05-05-openai-chatgpt-for-excel-and-google-sheets",
+   "date": "2026-05-05",
+   "lab": "openai",
+   "product": "ChatGPT",
+   "title": "ChatGPT for Excel and Google Sheets",
+   "capabilities": [
+    "spreadsheets",
+    "data_analysis"
+   ],
+   "how": "workflow",
+   "plans": [
+    "free",
+    "consumer"
+   ],
+   "availability": "ga",
+   "autonomy": "approve",
+   "coverage": 3,
+   "source": "https://help.openai.com/en/articles/6825453-chatgpt-release-notes",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2026-05-15-openai-finances-in-chatgpt",
+   "date": "2026-05-15",
+   "lab": "openai",
+   "product": "ChatGPT",
+   "title": "Finances in ChatGPT",
+   "capabilities": [
+    "personal_finance"
+   ],
+   "how": "workflow",
+   "plans": [
+    "consumer"
+   ],
+   "availability": "beta",
+   "autonomy": "draft",
+   "coverage": 3,
+   "source": "https://help.openai.com/en/articles/6825453-chatgpt-release-notes",
    "sourceChecked": "2026-11-15",
    "status": "auto"
   },
@@ -1115,6 +1395,29 @@
    "status": "auto"
   },
   {
+   "id": "2026-06-25-openai-codex-remote-generally-available-on-all-pl",
+   "date": "2026-06-25",
+   "lab": "openai",
+   "product": "Codex",
+   "title": "Codex Remote generally available on all plans",
+   "capabilities": [
+    "coding_agent"
+   ],
+   "how": "direct",
+   "plans": [
+    "free",
+    "consumer",
+    "business",
+    "enterprise"
+   ],
+   "availability": "ga",
+   "autonomy": "approve",
+   "coverage": 4,
+   "source": "https://help.openai.com/en/articles/6825453-chatgpt-release-notes",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
    "id": "2026-06-30-google-gemini-spark-on-macos",
    "date": "2026-06-30",
    "lab": "google",
@@ -1133,6 +1436,29 @@
    "autonomy": "unattended",
    "coverage": 3,
    "source": "https://gemini.google/us/release-notes/",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2026-07-06-openai-chatgpt-for-powerpoint-generally-available",
+   "date": "2026-07-06",
+   "lab": "openai",
+   "product": "ChatGPT",
+   "title": "ChatGPT for PowerPoint generally available",
+   "capabilities": [
+    "slides"
+   ],
+   "how": "workflow",
+   "plans": [
+    "free",
+    "consumer",
+    "business",
+    "enterprise"
+   ],
+   "availability": "ga",
+   "autonomy": "approve",
+   "coverage": 3,
+   "source": "https://help.openai.com/en/articles/6825453-chatgpt-release-notes",
    "sourceChecked": "2026-11-15",
    "status": "auto"
   },
@@ -1157,6 +1483,96 @@
    "autonomy": "approve",
    "coverage": 4,
    "source": "https://support.claude.com/en/articles/12138966-release-notes",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2026-07-09-openai-chatgpt-sites-public-beta",
+   "date": "2026-07-09",
+   "lab": "openai",
+   "product": "ChatGPT",
+   "title": "ChatGPT Sites (public beta)",
+   "capabilities": [
+    "website_builder",
+    "app_builder"
+   ],
+   "how": "direct",
+   "plans": [
+    "consumer",
+    "business",
+    "enterprise"
+   ],
+   "availability": "beta",
+   "autonomy": "draft",
+   "coverage": 3,
+   "source": "https://help.openai.com/en/articles/6825453-chatgpt-release-notes",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2026-07-09-openai-chatgpt-work-agent",
+   "date": "2026-07-09",
+   "lab": "openai",
+   "product": "ChatGPT",
+   "title": "ChatGPT Work agent",
+   "capabilities": [
+    "research",
+    "docs_writing",
+    "workflow_automation",
+    "connectors_platform"
+   ],
+   "how": "platform",
+   "plans": [
+    "consumer",
+    "business",
+    "enterprise"
+   ],
+   "availability": "ga",
+   "autonomy": "approve",
+   "coverage": 4,
+   "source": "https://help.openai.com/en/articles/6825453-chatgpt-release-notes",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2026-07-23-openai-health-in-chatgpt",
+   "date": "2026-07-23",
+   "lab": "openai",
+   "product": "ChatGPT",
+   "title": "Health in ChatGPT",
+   "capabilities": [
+    "health"
+   ],
+   "how": "platform",
+   "plans": [
+    "free",
+    "consumer"
+   ],
+   "availability": "ga",
+   "autonomy": "draft",
+   "coverage": 3,
+   "source": "https://help.openai.com/en/articles/6825453-chatgpt-release-notes",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2026-08-14-openai-interactive-quizzes",
+   "date": "2026-08-14",
+   "lab": "openai",
+   "product": "ChatGPT",
+   "title": "Interactive quizzes",
+   "capabilities": [
+    "tutoring"
+   ],
+   "how": "direct",
+   "plans": [
+    "free",
+    "consumer"
+   ],
+   "availability": "ga",
+   "autonomy": "draft",
+   "coverage": 4,
+   "source": "https://help.openai.com/en/articles/6825453-chatgpt-release-notes",
    "sourceChecked": "2026-11-15",
    "status": "auto"
   },
@@ -1252,6 +1668,52 @@
    "status": "auto"
   },
   {
+   "id": "2026-09-17-openai-chatgpt-for-word",
+   "date": "2026-09-17",
+   "lab": "openai",
+   "product": "ChatGPT",
+   "title": "ChatGPT for Word",
+   "capabilities": [
+    "docs_writing"
+   ],
+   "how": "workflow",
+   "plans": [
+    "free",
+    "consumer",
+    "business",
+    "enterprise"
+   ],
+   "availability": "ga",
+   "autonomy": "approve",
+   "coverage": 3,
+   "source": "https://help.openai.com/en/articles/6825453-chatgpt-release-notes",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2026-09-22-openai-flashcards",
+   "date": "2026-09-22",
+   "lab": "openai",
+   "product": "ChatGPT",
+   "title": "Flashcards",
+   "capabilities": [
+    "tutoring"
+   ],
+   "how": "direct",
+   "plans": [
+    "free",
+    "consumer",
+    "business",
+    "enterprise"
+   ],
+   "availability": "ga",
+   "autonomy": "draft",
+   "coverage": 4,
+   "source": "https://help.openai.com/en/articles/6825453-chatgpt-release-notes",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
    "id": "2026-09-25-anthropic-build-plugins-for-claude",
    "date": "2026-09-25",
    "lab": "anthropic",
@@ -1276,6 +1738,112 @@
    "status": "auto"
   },
   {
+   "id": "2026-09-29-openai-codex-security-cloud",
+   "date": "2026-09-29",
+   "lab": "openai",
+   "product": "Codex",
+   "title": "Codex Security Cloud",
+   "capabilities": [
+    "security_review"
+   ],
+   "how": "workflow",
+   "plans": [],
+   "availability": "preview",
+   "autonomy": "unattended",
+   "coverage": 3,
+   "source": "https://help.openai.com/en/articles/6825453-chatgpt-release-notes",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2026-09-29-openai-dots-always-on-agents",
+   "date": "2026-09-29",
+   "lab": "openai",
+   "product": "ChatGPT",
+   "title": "Dots always-on agents",
+   "capabilities": [
+    "workflow_automation",
+    "task_project"
+   ],
+   "how": "platform",
+   "plans": [
+    "consumer",
+    "business"
+   ],
+   "availability": "beta",
+   "autonomy": "unattended",
+   "coverage": 3,
+   "source": "https://help.openai.com/en/articles/6825453-chatgpt-release-notes",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2026-09-29-openai-meetings-plugin-beta",
+   "date": "2026-09-29",
+   "lab": "openai",
+   "product": "ChatGPT",
+   "title": "Meetings plugin (beta)",
+   "capabilities": [
+    "meeting_notes"
+   ],
+   "how": "direct",
+   "plans": [
+    "consumer",
+    "business"
+   ],
+   "availability": "beta",
+   "autonomy": "draft",
+   "coverage": 4,
+   "source": "https://help.openai.com/en/articles/6825453-chatgpt-release-notes",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2026-09-29-openai-space-with-pages-and-team-tasks",
+   "date": "2026-09-29",
+   "lab": "openai",
+   "product": "ChatGPT",
+   "title": "Space with Pages and team tasks",
+   "capabilities": [
+    "docs_writing",
+    "task_project",
+    "file_storage_search"
+   ],
+   "how": "platform",
+   "plans": [
+    "consumer",
+    "business",
+    "enterprise"
+   ],
+   "availability": "ga",
+   "autonomy": "draft",
+   "coverage": 3,
+   "source": "https://help.openai.com/en/articles/6825453-chatgpt-release-notes",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2026-10-02-openai-finances-for-free-and-go",
+   "date": "2026-10-02",
+   "lab": "openai",
+   "product": "ChatGPT",
+   "title": "Finances for Free and Go",
+   "capabilities": [
+    "personal_finance"
+   ],
+   "how": "workflow",
+   "plans": [
+    "free",
+    "consumer"
+   ],
+   "availability": "ga",
+   "autonomy": "draft",
+   "coverage": 3,
+   "source": "https://help.openai.com/en/articles/6825453-chatgpt-release-notes",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
    "id": "2026-10-13-google-connected-apps-40-and-antigravity-coding",
    "date": "2026-10-13",
    "lab": "google",
@@ -1294,6 +1862,9 @@
    "availability": "ga",
    "autonomy": "approve",
    "coverage": 3,
+   "coverageBy": {
+    "shopping_checkout": 2
+   },
    "source": "https://gemini.google/us/release-notes/",
    "sourceChecked": "2026-11-15",
    "status": "auto"
@@ -1316,7 +1887,7 @@
    "availability": "ga",
    "autonomy": "draft",
    "coverage": 4,
-   "source": "https://releases.sh/openai/chatgpt-release-notes",
+   "source": "https://help.openai.com/en/articles/6825453-chatgpt-release-notes",
    "sourceChecked": "2026-11-15",
    "status": "auto"
   },
@@ -1340,7 +1911,7 @@
    "availability": "ga",
    "autonomy": "approve",
    "coverage": 4,
-   "source": "https://releases.sh/openai/chatgpt-release-notes",
+   "source": "https://help.openai.com/en/articles/6825453-chatgpt-release-notes",
    "sourceChecked": "2026-11-15",
    "status": "auto"
   },
@@ -1382,6 +1953,9 @@
    "availability": "ga",
    "autonomy": "unattended",
    "coverage": 3,
+   "coverageBy": {
+    "website_builder": 2
+   },
    "source": "https://releases.sh/openai/chatgpt-release-notes",
    "sourceChecked": "2026-11-15",
    "status": "auto"

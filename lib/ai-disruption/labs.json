@@ -21,6 +21,11 @@
      "name": "OpenAI news",
      "url": "https://openai.com/news/",
      "role": "primary"
+    },
+    {
+     "name": "ChatGPT release notes mirror",
+     "url": "https://releases.sh/openai/chatgpt-release-notes",
+     "role": "secondary"
     }
    ]
   },
@@ -80,6 +85,11 @@
     {
      "name": "Microsoft 365 blog",
      "url": "https://www.microsoft.com/en-us/microsoft-365/blog/",
+     "role": "primary"
+    },
+    {
+     "name": "GitHub newsroom",
+     "url": "https://github.com/newsroom",
      "role": "primary"
     }
    ]
