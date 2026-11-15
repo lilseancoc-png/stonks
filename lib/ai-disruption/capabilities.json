@@ -1,0 +1,165 @@
+{
+ "version": 1,
+ "capabilities": [
+  {
+   "id": "tutoring",
+   "name": "Tutoring and homework help",
+   "does": "Step-by-step teaching, quizzes, study guides"
+  },
+  {
+   "id": "language_learning",
+   "name": "Language learning",
+   "does": "Conversation practice and lessons in another language"
+  },
+  {
+   "id": "meeting_notes",
+   "name": "Meeting notes",
+   "does": "Records or joins a meeting, writes the summary and action items"
+  },
+  {
+   "id": "slides",
+   "name": "Slides",
+   "does": "Builds and edits presentations"
+  },
+  {
+   "id": "spreadsheets",
+   "name": "Spreadsheets",
+   "does": "Builds and edits spreadsheets, formulas and models"
+  },
+  {
+   "id": "docs_writing",
+   "name": "Documents and writing",
+   "does": "Drafts and edits long documents in place"
+  },
+  {
+   "id": "image_gen",
+   "name": "Image generation",
+   "does": "Creates and edits images from a prompt"
+  },
+  {
+   "id": "video_gen",
+   "name": "Video generation",
+   "does": "Creates and edits video from a prompt"
+  },
+  {
+   "id": "design",
+   "name": "Design",
+   "does": "Layouts, brand assets, interface mock-ups"
+  },
+  {
+   "id": "coding_agent",
+   "name": "Coding agent",
+   "does": "Plans, writes, tests and ships code with little supervision"
+  },
+  {
+   "id": "app_builder",
+   "name": "App builder",
+   "does": "Builds and hosts a working app or internal tool from a prompt"
+  },
+  {
+   "id": "website_builder",
+   "name": "Website builder",
+   "does": "Builds and maintains a website from a prompt"
+  },
+  {
+   "id": "computer_use",
+   "name": "Computer use",
+   "does": "Operates a desktop: clicks, types, moves between apps"
+  },
+  {
+   "id": "browser_agent",
+   "name": "Browser agent",
+   "does": "Completes multi-step tasks on websites"
+  },
+  {
+   "id": "workflow_automation",
+   "name": "Workflow automation",
+   "does": "Runs scheduled or triggered multi-step work across apps"
+  },
+  {
+   "id": "task_project",
+   "name": "Tasks and project tracking",
+   "does": "Plans work, assigns owners, tracks deadlines"
+  },
+  {
+   "id": "crm_agent",
+   "name": "CRM and sales agent",
+   "does": "Reads and updates customer records, drafts outreach"
+  },
+  {
+   "id": "support_agent",
+   "name": "Customer support agent",
+   "does": "Answers customer questions for a business"
+  },
+  {
+   "id": "enterprise_search",
+   "name": "Company knowledge search",
+   "does": "Searches a company's files, chats and apps in one place"
+  },
+  {
+   "id": "research",
+   "name": "Research reports",
+   "does": "Multi-source research written up with citations"
+  },
+  {
+   "id": "data_analysis",
+   "name": "Data analysis",
+   "does": "Queries data, builds charts and reports in plain language"
+  },
+  {
+   "id": "personal_finance",
+   "name": "Personal finance, bookkeeping and tax",
+   "does": "Reads accounts, categorizes spending, prepares filings"
+  },
+  {
+   "id": "legal_contracts",
+   "name": "Contracts and legal work",
+   "does": "Drafts and reviews agreements"
+  },
+  {
+   "id": "file_storage_search",
+   "name": "File storage and search",
+   "does": "Finds, organizes and transforms a user's files"
+  },
+  {
+   "id": "shopping_checkout",
+   "name": "Shopping and checkout",
+   "does": "Finds products and completes the purchase"
+  },
+  {
+   "id": "web_search",
+   "name": "Web search",
+   "does": "Answers that replace a search results page"
+  },
+  {
+   "id": "connectors_platform",
+   "name": "Connectors and plugins",
+   "does": "Reads and writes in third-party apps from the assistant"
+  },
+  {
+   "id": "agent_platform",
+   "name": "Agent building platform",
+   "does": "Tools for building and running custom agents"
+  },
+  {
+   "id": "security_review",
+   "name": "Security review",
+   "does": "Finds and fixes security flaws in code or configuration"
+  },
+  {
+   "id": "health",
+   "name": "Health",
+   "does": "Reads health records or device data and answers questions"
+  },
+  {
+   "id": "stock_media",
+   "name": "Stock media",
+   "does": "Stands in for licensed stock photos, clips and music"
+  },
+  {
+   "id": "it_service",
+   "name": "IT and back-office service desk",
+   "does": "Handles internal requests and tickets end to end"
+  }
+ ]
+}
