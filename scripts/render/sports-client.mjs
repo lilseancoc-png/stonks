@@ -735,7 +735,7 @@ export function sportsFactory(host, doc, options) {
   }
   // Chance of winning by at least 1..30 points, one line per team, with the
   // books' spread marked.
-  function tbWinBySvg(fc, g) {
+  function tbWinBySvg(fc, g, K) {
     // A narrower drawing on phones keeps the labels readable.
     const nar = narrowScreen(), N = 30, W = nar ? 360 : 640, H = nar ? 200 : 210, L = 40, R = nar ? 10 : 16, T = 12, B = 30;
     const P = fc.pmf.margin, iw = W - L - R, ih = H - T - B;
@@ -749,12 +749,45 @@ export function sportsFactory(host, doc, options) {
       for (let v = 1; v <= N; v++) { const p = atLeast(sign, v); pts.push([x(v), y(p)]); hov.push({ x: x(v), y: y(p), label: String(t).toUpperCase() + ' by ' + v + '+: ' + pct(p) + '\nFair odds ' + fairOdds(p) }); }
       return '<polyline class="sp-tb-line ' + cls + '" points="' + pts.map((q) => q[0].toFixed(1) + ',' + q[1].toFixed(1)).join(' ') + '"/>';
     }).join('');
+    // Kalshi's own "wins by over N.5" prices as dots on the same axes.
+    const kd = (K && K.win_by || []).filter((r) => { const v = parseInt(r.wins_by, 10); return v >= 1 && v <= N && r.kalshi != null; }).map((r) => {
+      const v = parseInt(r.wins_by, 10), cls = r.team === g.home_team ? 'is-home' : 'is-away';
+      hov.push({ x: x(v), y: y(r.kalshi), label: String(r.team).toUpperCase() + ' by ' + v + '+ on Kalshi: ' + pct(r.kalshi) + '\nModel ' + pct(r.model) });
+      return '<circle class="sp-tb-kdot ' + cls + '" cx="' + x(v).toFixed(1) + '" cy="' + y(r.kalshi).toFixed(1) + '" r="3.6"/>';
+    }).join('');
     let mark = '';
     const m = fc.market ? Math.abs(fc.market.home_margin) : null;
     if (m != null && m >= 1 && m <= N) mark = '<line class="sp-ch-ref" x1="' + x(m).toFixed(1) + '" x2="' + x(m).toFixed(1) + '" y1="' + T + '" y2="' + (H - B) + '"/><text class="sp-ch-axis" x="' + (x(m) + 4).toFixed(1) + '" y="' + (T + 10) + '">spread ' + escape(fv(m)) + '</text>';
-    return '<svg class="sp-ch sp-tb-ch" viewBox="0 0 ' + W + ' ' + H + '" style="max-width:' + W + 'px" role="img" aria-label="' + escape('Chance each team wins by at least 1 to 30 points') + '"' + hoverAttr(hov) + '>' + grid + mark + lines + xt +
+    return '<svg class="sp-ch sp-tb-ch" viewBox="0 0 ' + W + ' ' + H + '" style="max-width:' + W + 'px" role="img" aria-label="' + escape('Chance each team wins by at least 1 to 30 points') + '"' + hoverAttr(hov) + '>' + grid + mark + lines + kd + xt +
       '<text class="sp-ch-axis" x="' + (W - R) + '" y="' + (H - 3) + '" text-anchor="end">wins by at least →</text></svg>' +
-      '<p class="sp-ch-legend"><span><i class="sp-key-line sp-tb-key is-away"></i>' + team(g.away_team) + '</span><span><i class="sp-key-line sp-tb-key is-home"></i>' + team(g.home_team) + ' (home)</span>' + (mark ? '<span><i class="sp-key-line sp-key-ref"></i>Books’ spread</span>' : '') + '</p>';
+      '<p class="sp-ch-legend"><span><i class="sp-key-line sp-tb-key is-away"></i>' + team(g.away_team) + '</span><span><i class="sp-key-line sp-tb-key is-home"></i>' + team(g.home_team) + ' (home)</span>' + (mark ? '<span><i class="sp-key-line sp-key-ref"></i>Books’ spread</span>' : '') + (kd ? '<span><i class="sp-tb-kkey"></i>Kalshi price</span>' : '') + '</p>';
+  }
+  // Winning margin bands: each team's chance to win by 1-5, 6-10, … (NFL
+  // 1-6, 7-13, …), the most likely result and the middle 50% / 80% ranges.
+  function tbBandsHtml(TB, g) {
+    const M = TB.margin_bands;
+    if (!M) return '';
+    const H = M.bands[g.home_team] || [], A = M.bands[g.away_team] || [];
+    const hm = (v) => (v === 0 ? 'even' : team(v > 0 ? g.home_team : g.away_team) + ' by ' + Math.abs(v));
+    const row = (i) => '<tr><td>' + escape(H[i].label) + ' points</td><td class="sp-n"><b>' + pct(A[i].chance) + '</b> <small class="sp-muted">' + escape(fairOdds(A[i].chance)) + '</small></td><td class="sp-n"><b>' + pct(H[i].chance) + '</b> <small class="sp-muted">' + escape(fairOdds(H[i].chance)) + '</small></td></tr>';
+    const ML = M.most_likely || {};
+    return '<div class="sp-table-wrap"><table class="sp-table sp-tb-table sp-tb-bands" data-nosort><thead><tr><th>Wins by</th><th class="sp-n">' + team(g.away_team) + '</th><th class="sp-n">' + team(g.home_team) + ' <span class="sp-muted">home</span></th></tr></thead><tbody>' +
+      H.map((_, i) => row(i)).join('') + (M.tie > 0.0005 ? '<tr><td>Tie</td><td class="sp-n" colspan="2">' + pct(M.tie) + '</td></tr>' : '') + '</tbody></table></div>' +
+      '<p class="sp-muted sp-tb-range">Most likely single result: ' + (ML.team ? team(ML.team) + ' by ' + escape(ML.by) : 'a tie') + ' (' + pct(ML.chance) + '). Middle half of outcomes: ' + hm(M.range50.low) + ' to ' + hm(M.range50.high) + '; 8 in 10: ' + hm(M.range80.low) + ' to ' + hm(M.range80.high) + '.</p>';
+  }
+  // Kalshi's own prices for this game beside the model's.
+  function tbKalshiHtml(TB, g) {
+    const K = TB.kalshi;
+    if (!K) return '';
+    const age = K.as_of ? Math.round((Date.now() - Date.parse(K.as_of)) / 3600000) : null;
+    const rows = [];
+    if (K.winner) for (const t of [g.away_team, g.home_team]) { const w = K.winner[t]; if (w && w.kalshi != null) rows.push(['To win', t, w.kalshi, w.model]); }
+    for (const r of K.win_by || []) rows.push(['Wins by ' + r.wins_by, r.team, r.kalshi, r.model]);
+    if (!rows.length) return '';
+    const gapCell = (k, m) => { const d = m - k; return '<span class="' + (Math.abs(d) >= 0.05 ? 'sp-model-warn' : 'sp-muted') + '">' + (d > 0 ? '+' : d < 0 ? '−' : '') + Math.abs(Math.round(d * 1000) / 10).toFixed(1) + '</span>'; };
+    return '<div class="sp-table-wrap"><table class="sp-table sp-tb-table sp-tb-kalshi" data-nosort><thead><tr><th>Kalshi market</th><th>Team</th><th class="sp-n">Kalshi</th><th class="sp-n">Model</th><th class="sp-n" title="Model minus Kalshi, in points">Gap</th></tr></thead><tbody>' +
+      rows.map(([what, t, k, m]) => '<tr><td>' + escape(what) + '</td><td>' + team(t) + '</td><td class="sp-n"><b>' + pct(k) + '</b></td><td class="sp-n">' + pct(m) + '</td><td class="sp-n">' + gapCell(k, m) + '</td></tr>').join('') + '</tbody></table></div>' +
+      '<p class="sp-muted">Kalshi’s mid price (between bid and ask) from the data run ' + (age == null ? '' : age < 1 ? 'under an hour ago' : age + ' hour' + (age === 1 ? '' : 's') + ' ago') + '; the winner pair is scaled to add to 100%. A gap of 5+ points is marked. <a href="' + escape(K.url) + '" target="_blank" rel="noopener">Kalshi</a></p>';
   }
   function tbLadderHtml(TB, lg) {
     const fc = TB.forecast, rows = TB.ladder || [];
@@ -847,7 +880,9 @@ export function sportsFactory(host, doc, options) {
     ].filter(Boolean).map((t) => '<p class="sp-muted">' + t + '</p>').join('');
     return open(pairText + notes +
       '<h6>Check a bet</h6><div data-sp-part="tb-form">' + tbFormHtml(lg) + '</div>' +
-      '<h6>Win by X or more</h6>' + tbWinBySvg(fc, g) +
+      '<h6>Win by X or more</h6>' + tbWinBySvg(fc, g, TB.kalshi) +
+      (TB.margin_bands ? '<h6>Winning margin</h6>' + tbBandsHtml(TB, g) : '') +
+      (TB.kalshi ? '<h6>Kalshi vs the model</h6>' + tbKalshiHtml(TB, g) : '') +
       '<h6>Lines</h6>' + tbLadderHtml(TB, lg) + teamsBlock +
       '<p class="sp-note">A forecast, not a promise. The model rates each team’s offense and defense from final scores (this season and last), adds home edge, and turns the expected margin and total into chances for every whole-number result, with the shape learned from past games (NBA has no ties; NFL lands on 3 and 7 more often). “Passed the check” means 300+ held-out games and chances off by 3 points or less (or no more than luck allows). Injuries and rest decisions are not in the data; the books’ line usually knows about them, which is why the model starts from it. Nothing is placed.</p>');
   }
@@ -879,7 +914,19 @@ export function sportsFactory(host, doc, options) {
       (MM.margin != null ? '. Margins missed by ' + escape(f1(MM.margin)) + ' points on average' + (MM.market_margin != null ? ' (the books’ spread: ' + escape(f1(MM.market_margin)) + ')' : '') : '') +
       (MM.total != null ? ', totals by ' + escape(f1(MM.total)) + (MM.market_total != null ? ' (books: ' + escape(f1(MM.market_total)) + ')' : '') : '') + '. ' +
       (T.blend && T.blend.tested ? 'Ratings blended into the books’ numbers at ' + Math.round((T.blend.margin || 0) * 100) + '% (margin) and ' + Math.round((T.blend.total || 0) * 100) + '% (total), the share that helped.' : 'The blend toward ratings is a small untested default until 200+ games have a stored line.') +
-      ' · ' + escape(T.version) + '.</p></div>';
+      ' · ' + escape(T.version) + '.</p>' + liveRecordHtml(src.win_by_record) + '</div>';
+  }
+  // The live win-by record: forecasts frozen before each game, graded after.
+  function liveRecordHtml(R) {
+    if (!R) return '';
+    if (!R.graded) return '<h4 class="sp-live-h">Live record</h4><p class="sp-muted">Forecasts are frozen before each game and graded after the final. ' + (R.pending ? R.pending + ' frozen so far, ' : '') + 'none graded yet.</p>';
+    const W = R.winner || {}, B = R.bands || {}, G = R.ranges || {}, KA = R.kalshi;
+    const verdict = R.status === 'beats_chance' ? 'Beating chance so far.' : R.status === 'no_edge' ? 'No edge over chance yet.' : 'Still collecting (100 games for a first read).';
+    const kLine = KA && KA.winner ? ' Kalshi on the same ' + KA.winner.n + ' games: model ' + escape(KA.winner.model_brier.toFixed(3)) + ', Kalshi ' + escape(KA.winner.kalshi_brier.toFixed(3)) + (KA.win_by ? '; win-by markets (' + KA.win_by.n + '): model ' + escape(KA.win_by.model_brier.toFixed(3)) + ', Kalshi ' + escape(KA.win_by.kalshi_brier.toFixed(3)) : '') + ' (lower is better).' : '';
+    const ladder = (R.ladder || []).filter((r) => r.n).map((r) => '<tr><td>' + escape(r.wins_by) + '</td><td class="sp-n">' + pct(r.model) + '</td><td class="sp-n">' + pct(r.actual) + '</td></tr>').join('');
+    return '<h4 class="sp-live-h">Live record</h4><p class="sp-model-tally">' + R.graded + ' games graded since ' + escape(fmtDay(R.since)) + '. ' + escape(verdict) + '</p>' +
+      '<p class="sp-muted">Favorite won ' + pct(W.favorite_won) + ' (model said ' + pct(W.favorite_chance) + '); win Brier ' + escape(W.brier == null ? '—' : W.brier.toFixed(3)) + ' vs 0.250 for a coin. Chance on the band that happened ' + pct(B.chance_on_actual) + ' (even split ' + pct(B.even_split) + '). Finals inside the 50% range ' + pct(G.in50) + ', the 80% range ' + pct(G.in80) + '. Margin missed by ' + escape(f1(R.margin_miss)) + (R.line_miss != null ? ' (books’ spread ' + escape(f1(R.line_miss)) + ')' : '') + '.' + escape(kLine) + '</p>' +
+      (ladder ? '<details class="sp-model-stat"><summary><span class="sp-model-name">Win by X+: said vs happened</span></summary><div class="sp-model-body"><table class="sp-table sp-tb-table" data-nosort><thead><tr><th>Wins by</th><th class="sp-n">Model said</th><th class="sp-n">Happened</th></tr></thead><tbody>' + ladder + '</tbody></table></div></details>' : '');
   }
 
   // ---- Player search and game log ---------------------------------------

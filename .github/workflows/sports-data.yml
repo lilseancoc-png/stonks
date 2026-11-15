@@ -52,6 +52,9 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          # Kalshi's game-winner and win-by prices for the live win-by record
+          # (free public API); set the repo variable SPORTS_KALSHI to 0 to skip.
+          SPORTS_KALSHI: ${{ vars.SPORTS_KALSHI }}
         run: node scripts/sports-ingest.mjs --sport=nfl
 
   nba:
@@ -80,4 +83,7 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          # Kalshi's game-winner and win-by prices for the live win-by record
+          # (free public API); set the repo variable SPORTS_KALSHI to 0 to skip.
+          SPORTS_KALSHI: ${{ vars.SPORTS_KALSHI }}
         run: node scripts/sports-ingest.mjs --sport=nba
