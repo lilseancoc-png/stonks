@@ -30,6 +30,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Rank NBA two-player combinations across each day’s full slate, allowing different games and keeping same-game alternatives; show the joint estimate and add both selections to Pick Builder (#825).
 
 ### Fixed
+- Sports browser test expects the current stat model version (`sports-model-6`); it had failed since the team efficiency and pace change (#823).
 - Give NBA games and slate pairs separate source deadlines, refresh before expiry, and keep old analysis readable with expired actions disabled. Repeated evidence captures no longer reuse nearly expired snapshots or shorten the whole board’s deadline (#825).
 - Keep NBA sportsbook comparisons available when the ten-book response exceeds 16 MB; allow up to 32 MB for that feed while preserving the smaller limit for other requests (#824).
 

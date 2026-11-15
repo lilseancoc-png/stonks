@@ -383,7 +383,7 @@ try {
         await modelCardEl.locator('details.sp-model-links > summary').click();
         checks += 3;
         const side = await modelCardEl.innerText();
-        assert(/Model check/i.test(side) && /Points\s*[\d.]+ vs [\d.]+\s*Passed the check/.test(side) && /Rebounds\s*[\d.]+ vs [\d.]+\s*Experimental/.test(side) && /did not beat both simple baselines/.test(side) && /sports-model-5/.test(side), 'the model check card: ' + side);
+        assert(/Model check/i.test(side) && /Points\s*[\d.]+ vs [\d.]+\s*Passed the check/.test(side) && /Rebounds\s*[\d.]+ vs [\d.]+\s*Experimental/.test(side) && /did not beat both simple baselines/.test(side) && /sports-model-6/.test(side), 'the model check card: ' + side);
         assert(/Game spread and total: (on\. It beat leaving it out|off; )/.test(side), 'each stat says whether the spread and total are used: ' + side.slice(0, 900));
         assert(/Same-game links/i.test(side) && /Points and rebounds, one player/.test(side) && /later pairs: both cleared/.test(side), 'the card lists the same-game links and their check: ' + side);
         // Calibration: each model stat draws stated chance vs how often it happened.
