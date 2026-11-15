@@ -1,0 +1,646 @@
+{
+ "version": 1,
+ "note": "Facts and descriptions only. No scores, grades, tiers or ranks belong in this file: it is public. coverage is checked against TICKERS by the smoke test.",
+ "companies": [
+  {
+   "id": "ADBE",
+   "name": "Adobe",
+   "public": true,
+   "exposures": [
+    {
+     "capability": "image_gen",
+     "role": "core",
+     "how": "Image and video generators do routine creative work that once needed Creative Cloud"
+    },
+    {
+     "capability": "design",
+     "role": "core",
+     "how": "Prompt-built layouts and brand assets overlap Express and parts of Photoshop and Illustrator"
+    },
+    {
+     "capability": "video_gen",
+     "role": "addon",
+     "how": "Generated clips overlap stock and simple editing"
+    },
+    {
+     "capability": "legal_contracts",
+     "role": "addon",
+     "how": "Assistants draft agreements before they reach Acrobat Sign"
+    }
+   ],
+   "defense": "Precise professional editing, file formats, and production workflows"
+  },
+  {
+   "id": "CRM",
+   "name": "Salesforce",
+   "public": true,
+   "exposures": [
+    {
+     "capability": "crm_agent",
+     "role": "core",
+     "how": "Agents read and update customer records without a person opening the app, which can reduce seats"
+    },
+    {
+     "capability": "support_agent",
+     "role": "core",
+     "how": "Lab-built support agents overlap Service Cloud and Agentforce"
+    },
+    {
+     "capability": "data_analysis",
+     "role": "addon",
+     "how": "Plain-language reports overlap Tableau dashboards"
+    },
+    {
+     "capability": "task_project",
+     "role": "addon",
+     "how": "Agent-run coordination in chat tools overlaps Slack workflows"
+    }
+   ],
+   "defense": "Holds the customer record, permissions and business rules"
+  },
+  {
+   "id": "NOW",
+   "name": "ServiceNow",
+   "public": true,
+   "exposures": [
+    {
+     "capability": "it_service",
+     "role": "core",
+     "how": "General agents handle internal requests end to end"
+    },
+    {
+     "capability": "workflow_automation",
+     "role": "core",
+     "how": "Cross-app agents overlap workflow add-ons"
+    }
+   ],
+   "defense": "System of record for IT and operations, compliance, deep integrations"
+  },
+  {
+   "id": "SNOW",
+   "name": "Snowflake",
+   "public": true,
+   "exposures": [
+    {
+     "capability": "data_analysis",
+     "role": "adjacent",
+     "how": "Plain-language querying moves the interface to the assistant; the warehouse still runs the query"
+    }
+   ],
+   "defense": "Data storage and compute sit behind the agent"
+  },
+  {
+   "id": "INTU",
+   "name": "Intuit",
+   "public": true,
+   "exposures": [
+    {
+     "capability": "personal_finance",
+     "role": "core",
+     "how": "Assistants read accounts, categorize spending and prepare filings"
+    },
+    {
+     "capability": "website_builder",
+     "role": "addon",
+     "how": "Prompt-built sites and email overlap Mailchimp basics"
+    }
+   ],
+   "defense": "Tax filing rails, accounting ledger, accountant network"
+  },
+  {
+   "id": "TEAM",
+   "name": "Atlassian",
+   "public": true,
+   "exposures": [
+    {
+     "capability": "task_project",
+     "role": "core",
+     "how": "Agents plan, assign and track work, which can reduce task-board seats"
+    },
+    {
+     "capability": "coding_agent",
+     "role": "adjacent",
+     "how": "Coding agents change how tickets and reviews are used"
+    },
+    {
+     "capability": "enterprise_search",
+     "role": "addon",
+     "how": "Company knowledge search overlaps Confluence and Rovo"
+    }
+   ],
+   "defense": "Shared project record that agents can coordinate through"
+  },
+  {
+   "id": "MDB",
+   "name": "MongoDB",
+   "public": true,
+   "exposures": [
+    {
+     "capability": "app_builder",
+     "role": "adjacent",
+     "how": "Agent-built apps choose their own database, which can help or bypass it"
+    }
+   ],
+   "defense": "Database infrastructure behind applications"
+  },
+  {
+   "id": "OKTA",
+   "name": "Okta",
+   "public": true,
+   "exposures": [
+    {
+     "capability": "connectors_platform",
+     "role": "adjacent",
+     "how": "Agents need identity and permissions, a possible gain; lab-run sign-in for connectors is the overlap"
+    }
+   ],
+   "defense": "Identity system of record"
+  },
+  {
+   "id": "DDOG",
+   "name": "Datadog",
+   "public": true,
+   "exposures": [
+    {
+     "capability": "coding_agent",
+     "role": "adjacent",
+     "how": "Coding agents that read logs and fix incidents overlap parts of observability workflows"
+    }
+   ],
+   "defense": "Telemetry data and integrations"
+  },
+  {
+   "id": "CRWD",
+   "name": "CrowdStrike",
+   "public": true,
+   "exposures": [
+    {
+     "capability": "security_review",
+     "role": "adjacent",
+     "how": "Lab security tools find and fix code flaws; endpoint protection is a different layer"
+    }
+   ],
+   "defense": "Endpoint agent footprint and threat data"
+  },
+  {
+   "id": "PANW",
+   "name": "Palo Alto Networks",
+   "public": true,
+   "exposures": [
+    {
+     "capability": "security_review",
+     "role": "adjacent",
+     "how": "Same overlap as other security vendors: code and configuration review"
+    }
+   ],
+   "defense": "Network and cloud security platform"
+  },
+  {
+   "id": "FTNT",
+   "name": "Fortinet",
+   "public": true,
+   "exposures": [
+    {
+     "capability": "security_review",
+     "role": "adjacent",
+     "how": "Limited overlap; hardware and network security"
+    }
+   ],
+   "defense": "Hardware installed base"
+  },
+  {
+   "id": "PLTR",
+   "name": "Palantir",
+   "public": true,
+   "exposures": [
+    {
+     "capability": "agent_platform",
+     "role": "core",
+     "how": "Lab agent platforms and enterprise deployments overlap AIP"
+    },
+    {
+     "capability": "data_analysis",
+     "role": "addon",
+     "how": "Plain-language analysis overlaps Foundry front ends"
+    }
+   ],
+   "defense": "Data integration, government accreditation, forward-deployed engineers"
+  },
+  {
+   "id": "SHOP",
+   "name": "Shopify",
+   "public": true,
+   "exposures": [
+    {
+     "capability": "shopping_checkout",
+     "role": "adjacent",
+     "how": "Checkout inside assistants moves discovery away from storefronts; Shopify is also a checkout partner"
+    },
+    {
+     "capability": "website_builder",
+     "role": "addon",
+     "how": "Prompt-built storefronts overlap themes and basic store setup"
+    }
+   ],
+   "defense": "Merchant back office, payments and fulfilment"
+  },
+  {
+   "id": "ACN",
+   "name": "Accenture",
+   "public": true,
+   "exposures": [
+    {
+     "capability": "coding_agent",
+     "role": "core",
+     "how": "Coding agents do implementation work billed by the hour"
+    },
+    {
+     "capability": "workflow_automation",
+     "role": "core",
+     "how": "Agents automate back-office processes sold as outsourcing"
+    }
+   ],
+   "defense": "Client relationships, change management, large programme delivery"
+  },
+  {
+   "id": "IBM",
+   "name": "IBM",
+   "public": true,
+   "exposures": [
+    {
+     "capability": "coding_agent",
+     "role": "core",
+     "how": "Coding agents overlap consulting and legacy modernization work"
+    },
+    {
+     "capability": "agent_platform",
+     "role": "addon",
+     "how": "Lab agent platforms overlap watsonx Orchestrate"
+    }
+   ],
+   "defense": "Mainframe base, hybrid cloud, regulated-industry clients"
+  },
+  {
+   "id": "ORCL",
+   "name": "Oracle",
+   "public": true,
+   "exposures": [
+    {
+     "capability": "data_analysis",
+     "role": "adjacent",
+     "how": "Agent front ends over ERP and database; Oracle also hosts lab compute"
+    }
+   ],
+   "defense": "Database and ERP systems of record"
+  },
+  {
+   "id": "MSFT",
+   "name": "Microsoft",
+   "public": true,
+   "exposures": [
+    {
+     "capability": "docs_writing",
+     "role": "core",
+     "how": "Lab-native documents, slides and sheets overlap Office"
+    },
+    {
+     "capability": "slides",
+     "role": "core",
+     "how": "Same"
+    },
+    {
+     "capability": "spreadsheets",
+     "role": "core",
+     "how": "Same"
+    },
+    {
+     "capability": "coding_agent",
+     "role": "core",
+     "how": "Lab coding agents compete with GitHub Copilot"
+    }
+   ],
+   "defense": "Office file formats, enterprise agreements, its own Copilot, OpenAI stake"
+  },
+  {
+   "id": "GOOGL",
+   "name": "Alphabet",
+   "public": true,
+   "exposures": [
+    {
+     "capability": "web_search",
+     "role": "core",
+     "how": "Assistant answers replace some searches and the ads beside them"
+    },
+    {
+     "capability": "browser_agent",
+     "role": "adjacent",
+     "how": "Agent browsing changes how pages and ads are seen"
+    }
+   ],
+   "defense": "Its own Gemini models, distribution through Android, Chrome and Workspace"
+  },
+  {
+   "id": "AMZN",
+   "name": "Amazon",
+   "public": true,
+   "exposures": [
+    {
+     "capability": "shopping_checkout",
+     "role": "core",
+     "how": "Agent shopping can route product discovery away from Amazon search"
+    }
+   ],
+   "defense": "Fulfilment network, Prime, AWS hosts lab workloads"
+  },
+  {
+   "id": "PYPL",
+   "name": "PayPal",
+   "public": true,
+   "exposures": [
+    {
+     "capability": "shopping_checkout",
+     "role": "adjacent",
+     "how": "Agent checkout can choose the payment method; PayPal is also a partner in agent commerce"
+    }
+   ],
+   "defense": "Merchant acceptance and buyer accounts"
+  },
+  {
+   "id": "V",
+   "name": "Visa",
+   "public": true,
+   "exposures": [
+    {
+     "capability": "shopping_checkout",
+     "role": "adjacent",
+     "how": "Agent purchases still ride card rails; tokenized agent credentials are an opportunity"
+    }
+   ],
+   "defense": "Payment network"
+  },
+  {
+   "id": "MA",
+   "name": "Mastercard",
+   "public": true,
+   "exposures": [
+    {
+     "capability": "shopping_checkout",
+     "role": "adjacent",
+     "how": "Same as Visa"
+    }
+   ],
+   "defense": "Payment network"
+  },
+  {
+   "id": "CHGG",
+   "name": "Chegg",
+   "public": true,
+   "exposures": [
+    {
+     "capability": "tutoring",
+     "role": "core",
+     "how": "Free and bundled tutoring does the homework-help job directly"
+    }
+   ],
+   "defense": "Pivot to skills and career services"
+  },
+  {
+   "id": "DUOL",
+   "name": "Duolingo",
+   "public": true,
+   "exposures": [
+    {
+     "capability": "language_learning",
+     "role": "core",
+     "how": "Voice assistants offer open-ended conversation practice"
+    }
+   ],
+   "defense": "Habit loop, brand, course structure"
+  },
+  {
+   "id": "SSTK",
+   "name": "Shutterstock",
+   "public": true,
+   "exposures": [
+    {
+     "capability": "stock_media",
+     "role": "core",
+     "how": "Generated images and clips replace generic stock"
+    },
+    {
+     "capability": "image_gen",
+     "role": "core",
+     "how": "Same"
+    }
+   ],
+   "defense": "Licensed editorial content and training-data licensing"
+  },
+  {
+   "id": "DBX",
+   "name": "Dropbox",
+   "public": true,
+   "exposures": [
+    {
+     "capability": "file_storage_search",
+     "role": "core",
+     "how": "Assistants that find and organize files make folder sync less distinct"
+    },
+    {
+     "capability": "enterprise_search",
+     "role": "addon",
+     "how": "Company knowledge search overlaps Dash"
+    }
+   ],
+   "defense": "Durable storage and permissions"
+  },
+  {
+   "id": "ASAN",
+   "name": "Asana",
+   "public": true,
+   "exposures": [
+    {
+     "capability": "task_project",
+     "role": "core",
+     "how": "Agents plan and track work, which can reduce seats"
+    }
+   ],
+   "defense": "Shared project record"
+  },
+  {
+   "id": "MNDY",
+   "name": "monday.com",
+   "public": true,
+   "exposures": [
+    {
+     "capability": "task_project",
+     "role": "core",
+     "how": "Same as Asana"
+    },
+    {
+     "capability": "crm_agent",
+     "role": "addon",
+     "how": "Lightweight CRM overlaps lab CRM agents"
+    }
+   ],
+   "defense": "Customizable work platform"
+  },
+  {
+   "id": "PATH",
+   "name": "UiPath",
+   "public": true,
+   "exposures": [
+    {
+     "capability": "computer_use",
+     "role": "core",
+     "how": "Computer-use agents run screen workflows without scripted bots"
+    },
+    {
+     "capability": "workflow_automation",
+     "role": "core",
+     "how": "Same"
+    }
+   ],
+   "defense": "Orchestration, governance and audit for fleets of agents"
+  },
+  {
+   "id": "WIX",
+   "name": "Wix",
+   "public": true,
+   "exposures": [
+    {
+     "capability": "website_builder",
+     "role": "core",
+     "how": "Prompt-built and agent-maintained sites"
+    }
+   ],
+   "defense": "Hosting, payments and business tools around the site"
+  },
+  {
+   "id": "HUBS",
+   "name": "HubSpot",
+   "public": true,
+   "exposures": [
+    {
+     "capability": "crm_agent",
+     "role": "core",
+     "how": "Agents run marketing and sales tasks on customer data"
+    },
+    {
+     "capability": "support_agent",
+     "role": "addon",
+     "how": "Lab support agents overlap service tools"
+    }
+   ],
+   "defense": "Customer record for small and mid-size businesses"
+  },
+  {
+   "id": "FIG",
+   "name": "Figma",
+   "public": true,
+   "exposures": [
+    {
+     "capability": "design",
+     "role": "core",
+     "how": "Prompt-built interfaces and app-building agents skip the mock-up step"
+    }
+   ],
+   "defense": "Collaboration, design systems, developer handoff"
+  },
+  {
+   "id": "ZM",
+   "name": "Zoom",
+   "public": true,
+   "exposures": [
+    {
+     "capability": "meeting_notes",
+     "role": "addon",
+     "how": "Assistants that record and summarize overlap the AI Companion add-on"
+    }
+   ],
+   "defense": "Video transport and enterprise administration"
+  },
+  {
+   "id": "DOCU",
+   "name": "Docusign",
+   "public": true,
+   "exposures": [
+    {
+     "capability": "legal_contracts",
+     "role": "adjacent",
+     "how": "Assistants draft and review; the signature and audit trail remain"
+    }
+   ],
+   "defense": "Signature audit trail and legal acceptance"
+  },
+  {
+   "id": "WDAY",
+   "name": "Workday",
+   "public": true,
+   "exposures": [
+    {
+     "capability": "it_service",
+     "role": "adjacent",
+     "how": "HR and finance requests handled by general agents"
+    }
+   ],
+   "defense": "HR and finance system of record"
+  },
+  {
+   "id": "Otter.ai",
+   "name": "Otter.ai",
+   "public": false,
+   "exposures": [
+    {
+     "capability": "meeting_notes",
+     "role": "core",
+     "how": "Bundled meeting capture does the core job"
+    }
+   ],
+   "defense": "Enterprise integrations"
+  },
+  {
+   "id": "Fireflies.ai",
+   "name": "Fireflies.ai",
+   "public": false,
+   "exposures": [
+    {
+     "capability": "meeting_notes",
+     "role": "core",
+     "how": "Same as Otter.ai"
+    }
+   ],
+   "defense": "Integrations"
+  },
+  {
+   "id": "Gamma",
+   "name": "Gamma",
+   "public": false,
+   "exposures": [
+    {
+     "capability": "slides",
+     "role": "core",
+     "how": "Native slide generation in the assistants"
+    }
+   ],
+   "defense": "Publishing and analytics"
+  },
+  {
+   "id": "Canva",
+   "name": "Canva",
+   "public": false,
+   "exposures": [
+    {
+     "capability": "design",
+     "role": "core",
+     "how": "Prompt-built design and image editing"
+    },
+    {
+     "capability": "slides",
+     "role": "addon",
+     "how": "Native slide generation"
+    }
+   ],
+   "defense": "Templates, brand kits, team collaboration; also a connector partner"
+  }
+ ]
+}

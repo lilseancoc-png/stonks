@@ -22,6 +22,9 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## [Unreleased]
 
+### Added
+- Start the AI disruption tracker registry (`lib/ai-disruption/`, `docs/ai-disruption.md`): 32 capabilities, the labs and their official release pages, 63 past launches, a map of which companies sell each capability and how a launch could hurt them, and the customer-capture score. Nothing on the site, in the MCP or in Top Picks reads it yet; no network or AI call. Stock scores stay out of the public repo by rule.
+
 ### Changed
 - Include NBA Goblin More lines in cross-game two-player comparisons; rank pairs with confirmed actual payouts by conservative expected return, show win probability and break-even, and preserve the separate standard-line track record. Add searchable custom pair comparisons and carry exact checked payouts into Pick Builder (#826).
 - Rank NBA two-player combinations across each day’s full slate, allowing different games and keeping same-game alternatives; show the joint estimate and add both selections to Pick Builder (#825).

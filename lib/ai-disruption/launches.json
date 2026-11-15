@@ -1,0 +1,1410 @@
+{
+ "version": 1,
+ "note": "Backfill built 2026-11-15. sourceChecked is the day the dated entry was read on the source page; null means the date is from memory and still needs checking. Known gap: OpenAI launches from December 2025 to September 2026.",
+ "launches": [
+  {
+   "id": "2022-11-30-openai-chatgpt-research-preview",
+   "date": "2022-11-30",
+   "lab": "openai",
+   "product": "ChatGPT",
+   "title": "ChatGPT research preview",
+   "capabilities": [
+    "tutoring",
+    "docs_writing",
+    "web_search"
+   ],
+   "how": "direct",
+   "plans": [
+    "free"
+   ],
+   "availability": "preview",
+   "autonomy": "draft",
+   "coverage": 2,
+   "source": "https://openai.com/news/",
+   "sourceChecked": null,
+   "status": "auto"
+  },
+  {
+   "id": "2023-03-14-openai-gpt-4-in-chatgpt-plus",
+   "date": "2023-03-14",
+   "lab": "openai",
+   "product": "ChatGPT",
+   "title": "GPT-4 in ChatGPT Plus",
+   "capabilities": [
+    "tutoring",
+    "docs_writing",
+    "coding_agent"
+   ],
+   "how": "direct",
+   "plans": [
+    "consumer"
+   ],
+   "availability": "ga",
+   "autonomy": "draft",
+   "coverage": 2,
+   "source": "https://openai.com/news/",
+   "sourceChecked": null,
+   "status": "auto"
+  },
+  {
+   "id": "2023-03-16-microsoft-microsoft-365-copilot-announced",
+   "date": "2023-03-16",
+   "lab": "microsoft",
+   "product": "Microsoft 365 Copilot",
+   "title": "Microsoft 365 Copilot announced",
+   "capabilities": [
+    "docs_writing",
+    "slides",
+    "spreadsheets",
+    "meeting_notes"
+   ],
+   "how": "platform",
+   "plans": [
+    "business"
+   ],
+   "availability": "preview",
+   "autonomy": "draft",
+   "coverage": 2,
+   "source": "https://www.microsoft.com/en-us/microsoft-365/blog/",
+   "sourceChecked": null,
+   "status": "auto"
+  },
+  {
+   "id": "2023-03-23-openai-chatgpt-plugins",
+   "date": "2023-03-23",
+   "lab": "openai",
+   "product": "ChatGPT",
+   "title": "ChatGPT plugins",
+   "capabilities": [
+    "connectors_platform",
+    "shopping_checkout"
+   ],
+   "how": "platform",
+   "plans": [
+    "consumer"
+   ],
+   "availability": "beta",
+   "autonomy": "approve",
+   "coverage": 1,
+   "source": "https://openai.com/news/",
+   "sourceChecked": null,
+   "status": "auto"
+  },
+  {
+   "id": "2023-07-06-openai-code-interpreter-for-plus",
+   "date": "2023-07-06",
+   "lab": "openai",
+   "product": "ChatGPT",
+   "title": "Code Interpreter for Plus",
+   "capabilities": [
+    "data_analysis",
+    "spreadsheets"
+   ],
+   "how": "workflow",
+   "plans": [
+    "consumer"
+   ],
+   "availability": "beta",
+   "autonomy": "draft",
+   "coverage": 2,
+   "source": "https://help.openai.com/en/articles/6825453-chatgpt-release-notes",
+   "sourceChecked": null,
+   "status": "auto"
+  },
+  {
+   "id": "2023-08-28-openai-chatgpt-enterprise",
+   "date": "2023-08-28",
+   "lab": "openai",
+   "product": "ChatGPT",
+   "title": "ChatGPT Enterprise",
+   "capabilities": [
+    "docs_writing",
+    "data_analysis",
+    "enterprise_search"
+   ],
+   "how": "platform",
+   "plans": [
+    "enterprise"
+   ],
+   "availability": "ga",
+   "autonomy": "draft",
+   "coverage": 2,
+   "source": "https://openai.com/news/",
+   "sourceChecked": null,
+   "status": "auto"
+  },
+  {
+   "id": "2023-11-01-microsoft-microsoft-365-copilot-generally-availabl",
+   "date": "2023-11-01",
+   "lab": "microsoft",
+   "product": "Microsoft 365 Copilot",
+   "title": "Microsoft 365 Copilot generally available",
+   "capabilities": [
+    "docs_writing",
+    "slides",
+    "spreadsheets",
+    "meeting_notes"
+   ],
+   "how": "platform",
+   "plans": [
+    "enterprise"
+   ],
+   "availability": "ga",
+   "autonomy": "draft",
+   "coverage": 3,
+   "source": "https://www.microsoft.com/en-us/microsoft-365/blog/",
+   "sourceChecked": null,
+   "status": "auto"
+  },
+  {
+   "id": "2023-11-06-openai-custom-gpts-and-the-assistants-api",
+   "date": "2023-11-06",
+   "lab": "openai",
+   "product": "ChatGPT",
+   "title": "Custom GPTs and the Assistants API",
+   "capabilities": [
+    "agent_platform",
+    "support_agent"
+   ],
+   "how": "platform",
+   "plans": [
+    "consumer",
+    "business",
+    "api"
+   ],
+   "availability": "ga",
+   "autonomy": "draft",
+   "coverage": 2,
+   "source": "https://openai.com/news/",
+   "sourceChecked": null,
+   "status": "auto"
+  },
+  {
+   "id": "2024-02-15-openai-sora-video-model-shown",
+   "date": "2024-02-15",
+   "lab": "openai",
+   "product": "Sora",
+   "title": "Sora video model shown",
+   "capabilities": [
+    "video_gen",
+    "stock_media"
+   ],
+   "how": "direct",
+   "plans": [],
+   "availability": "preview",
+   "autonomy": "draft",
+   "coverage": 2,
+   "source": "https://openai.com/news/",
+   "sourceChecked": null,
+   "status": "auto"
+  },
+  {
+   "id": "2024-05-13-openai-gpt-4o-with-voice-and-vision-free-tier",
+   "date": "2024-05-13",
+   "lab": "openai",
+   "product": "ChatGPT",
+   "title": "GPT-4o with voice and vision, free tier",
+   "capabilities": [
+    "tutoring",
+    "language_learning",
+    "docs_writing"
+   ],
+   "how": "direct",
+   "plans": [
+    "free",
+    "consumer"
+   ],
+   "availability": "ga",
+   "autonomy": "draft",
+   "coverage": 3,
+   "source": "https://openai.com/news/",
+   "sourceChecked": null,
+   "status": "auto"
+  },
+  {
+   "id": "2024-06-20-anthropic-claude-3-5-sonnet-and-artifacts",
+   "date": "2024-06-20",
+   "lab": "anthropic",
+   "product": "Claude",
+   "title": "Claude 3.5 Sonnet and Artifacts",
+   "capabilities": [
+    "coding_agent",
+    "app_builder",
+    "docs_writing"
+   ],
+   "how": "workflow",
+   "plans": [
+    "free",
+    "consumer",
+    "business"
+   ],
+   "availability": "ga",
+   "autonomy": "draft",
+   "coverage": 2,
+   "source": "https://www.anthropic.com/news",
+   "sourceChecked": null,
+   "status": "auto"
+  },
+  {
+   "id": "2024-10-03-openai-canvas-for-writing-and-code",
+   "date": "2024-10-03",
+   "lab": "openai",
+   "product": "ChatGPT",
+   "title": "Canvas for writing and code",
+   "capabilities": [
+    "docs_writing",
+    "coding_agent"
+   ],
+   "how": "workflow",
+   "plans": [
+    "consumer",
+    "business"
+   ],
+   "availability": "beta",
+   "autonomy": "draft",
+   "coverage": 2,
+   "source": "https://help.openai.com/en/articles/6825453-chatgpt-release-notes",
+   "sourceChecked": null,
+   "status": "auto"
+  },
+  {
+   "id": "2024-10-22-anthropic-computer-use-api-beta",
+   "date": "2024-10-22",
+   "lab": "anthropic",
+   "product": "Claude",
+   "title": "Computer use (API beta)",
+   "capabilities": [
+    "computer_use",
+    "workflow_automation"
+   ],
+   "how": "direct",
+   "plans": [
+    "api"
+   ],
+   "availability": "beta",
+   "autonomy": "approve",
+   "coverage": 1,
+   "source": "https://www.anthropic.com/news",
+   "sourceChecked": null,
+   "status": "auto"
+  },
+  {
+   "id": "2024-10-31-openai-chatgpt-search",
+   "date": "2024-10-31",
+   "lab": "openai",
+   "product": "ChatGPT",
+   "title": "ChatGPT search",
+   "capabilities": [
+    "web_search"
+   ],
+   "how": "direct",
+   "plans": [
+    "consumer",
+    "business"
+   ],
+   "availability": "ga",
+   "autonomy": "draft",
+   "coverage": 3,
+   "source": "https://openai.com/news/",
+   "sourceChecked": null,
+   "status": "auto"
+  },
+  {
+   "id": "2024-11-25-anthropic-model-context-protocol",
+   "date": "2024-11-25",
+   "lab": "anthropic",
+   "product": "Claude",
+   "title": "Model Context Protocol",
+   "capabilities": [
+    "connectors_platform"
+   ],
+   "how": "platform",
+   "plans": [
+    "api"
+   ],
+   "availability": "ga",
+   "autonomy": "approve",
+   "coverage": 2,
+   "source": "https://www.anthropic.com/news",
+   "sourceChecked": null,
+   "status": "auto"
+  },
+  {
+   "id": "2024-12-09-openai-sora-for-plus-and-pro",
+   "date": "2024-12-09",
+   "lab": "openai",
+   "product": "Sora",
+   "title": "Sora for Plus and Pro",
+   "capabilities": [
+    "video_gen",
+    "stock_media"
+   ],
+   "how": "direct",
+   "plans": [
+    "consumer"
+   ],
+   "availability": "ga",
+   "autonomy": "draft",
+   "coverage": 3,
+   "source": "https://openai.com/news/",
+   "sourceChecked": null,
+   "status": "auto"
+  },
+  {
+   "id": "2024-12-11-google-gemini-deep-research",
+   "date": "2024-12-11",
+   "lab": "google",
+   "product": "Gemini",
+   "title": "Gemini Deep Research",
+   "capabilities": [
+    "research"
+   ],
+   "how": "direct",
+   "plans": [
+    "consumer"
+   ],
+   "availability": "ga",
+   "autonomy": "unattended",
+   "coverage": 3,
+   "source": "https://gemini.google/us/release-notes/",
+   "sourceChecked": null,
+   "status": "auto"
+  },
+  {
+   "id": "2025-01-14-openai-scheduled-tasks",
+   "date": "2025-01-14",
+   "lab": "openai",
+   "product": "ChatGPT",
+   "title": "Scheduled tasks",
+   "capabilities": [
+    "workflow_automation",
+    "task_project"
+   ],
+   "how": "workflow",
+   "plans": [
+    "consumer",
+    "business"
+   ],
+   "availability": "beta",
+   "autonomy": "unattended",
+   "coverage": 1,
+   "source": "https://help.openai.com/en/articles/6825453-chatgpt-release-notes",
+   "sourceChecked": null,
+   "status": "auto"
+  },
+  {
+   "id": "2025-01-23-openai-operator-browser-agent",
+   "date": "2025-01-23",
+   "lab": "openai",
+   "product": "ChatGPT",
+   "title": "Operator browser agent",
+   "capabilities": [
+    "browser_agent",
+    "shopping_checkout"
+   ],
+   "how": "direct",
+   "plans": [
+    "consumer"
+   ],
+   "availability": "preview",
+   "autonomy": "approve",
+   "coverage": 2,
+   "source": "https://openai.com/news/",
+   "sourceChecked": null,
+   "status": "auto"
+  },
+  {
+   "id": "2025-02-02-openai-deep-research",
+   "date": "2025-02-02",
+   "lab": "openai",
+   "product": "ChatGPT",
+   "title": "Deep research",
+   "capabilities": [
+    "research",
+    "data_analysis"
+   ],
+   "how": "direct",
+   "plans": [
+    "consumer"
+   ],
+   "availability": "ga",
+   "autonomy": "unattended",
+   "coverage": 3,
+   "source": "https://openai.com/news/",
+   "sourceChecked": null,
+   "status": "auto"
+  },
+  {
+   "id": "2025-02-24-anthropic-claude-code-research-preview",
+   "date": "2025-02-24",
+   "lab": "anthropic",
+   "product": "Claude Code",
+   "title": "Claude Code research preview",
+   "capabilities": [
+    "coding_agent"
+   ],
+   "how": "direct",
+   "plans": [
+    "api"
+   ],
+   "availability": "preview",
+   "autonomy": "approve",
+   "coverage": 3,
+   "source": "https://www.anthropic.com/news",
+   "sourceChecked": null,
+   "status": "auto"
+  },
+  {
+   "id": "2025-03-18-google-canvas-and-audio-overview",
+   "date": "2025-03-18",
+   "lab": "google",
+   "product": "Gemini",
+   "title": "Canvas and Audio Overview",
+   "capabilities": [
+    "docs_writing",
+    "coding_agent",
+    "app_builder"
+   ],
+   "how": "workflow",
+   "plans": [
+    "free",
+    "consumer"
+   ],
+   "availability": "ga",
+   "autonomy": "draft",
+   "coverage": 2,
+   "source": "https://gemini.google/us/release-notes/",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2025-03-25-openai-native-image-generation-in-gpt-4o",
+   "date": "2025-03-25",
+   "lab": "openai",
+   "product": "ChatGPT",
+   "title": "Native image generation in GPT-4o",
+   "capabilities": [
+    "image_gen",
+    "design",
+    "stock_media"
+   ],
+   "how": "direct",
+   "plans": [
+    "free",
+    "consumer",
+    "business"
+   ],
+   "availability": "ga",
+   "autonomy": "draft",
+   "coverage": 4,
+   "source": "https://openai.com/news/",
+   "sourceChecked": null,
+   "status": "auto"
+  },
+  {
+   "id": "2025-05-16-openai-codex-cloud-coding-agent",
+   "date": "2025-05-16",
+   "lab": "openai",
+   "product": "Codex",
+   "title": "Codex cloud coding agent",
+   "capabilities": [
+    "coding_agent"
+   ],
+   "how": "direct",
+   "plans": [
+    "consumer",
+    "business",
+    "enterprise"
+   ],
+   "availability": "preview",
+   "autonomy": "unattended",
+   "coverage": 3,
+   "source": "https://openai.com/news/",
+   "sourceChecked": null,
+   "status": "auto"
+  },
+  {
+   "id": "2025-05-20-google-veo-3-video-with-sound-and-google-ai-ult",
+   "date": "2025-05-20",
+   "lab": "google",
+   "product": "Gemini",
+   "title": "Veo 3 video with sound and Google AI Ultra",
+   "capabilities": [
+    "video_gen",
+    "stock_media"
+   ],
+   "how": "direct",
+   "plans": [
+    "consumer"
+   ],
+   "availability": "ga",
+   "autonomy": "draft",
+   "coverage": 3,
+   "source": "https://gemini.google/us/release-notes/",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2025-05-22-anthropic-claude-4-models-and-claude-code-generall",
+   "date": "2025-05-22",
+   "lab": "anthropic",
+   "product": "Claude Code",
+   "title": "Claude 4 models and Claude Code generally available",
+   "capabilities": [
+    "coding_agent"
+   ],
+   "how": "direct",
+   "plans": [
+    "consumer",
+    "business",
+    "enterprise",
+    "api"
+   ],
+   "availability": "ga",
+   "autonomy": "approve",
+   "coverage": 4,
+   "source": "https://www.anthropic.com/news",
+   "sourceChecked": null,
+   "status": "auto"
+  },
+  {
+   "id": "2025-06-04-openai-record-mode-and-connectors",
+   "date": "2025-06-04",
+   "lab": "openai",
+   "product": "ChatGPT",
+   "title": "Record mode and connectors",
+   "capabilities": [
+    "meeting_notes",
+    "enterprise_search",
+    "connectors_platform"
+   ],
+   "how": "direct",
+   "plans": [
+    "business",
+    "enterprise"
+   ],
+   "availability": "ga",
+   "autonomy": "draft",
+   "coverage": 3,
+   "source": "https://help.openai.com/en/articles/6825453-chatgpt-release-notes",
+   "sourceChecked": null,
+   "status": "auto"
+  },
+  {
+   "id": "2025-06-19-google-scheduled-actions",
+   "date": "2025-06-19",
+   "lab": "google",
+   "product": "Gemini",
+   "title": "Scheduled actions",
+   "capabilities": [
+    "workflow_automation"
+   ],
+   "how": "workflow",
+   "plans": [
+    "consumer",
+    "business"
+   ],
+   "availability": "ga",
+   "autonomy": "unattended",
+   "coverage": 1,
+   "source": "https://gemini.google/us/release-notes/",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2025-07-17-openai-chatgpt-agent",
+   "date": "2025-07-17",
+   "lab": "openai",
+   "product": "ChatGPT",
+   "title": "ChatGPT agent",
+   "capabilities": [
+    "browser_agent",
+    "computer_use",
+    "slides",
+    "spreadsheets",
+    "workflow_automation"
+   ],
+   "how": "platform",
+   "plans": [
+    "consumer",
+    "business"
+   ],
+   "availability": "ga",
+   "autonomy": "approve",
+   "coverage": 3,
+   "source": "https://openai.com/news/",
+   "sourceChecked": null,
+   "status": "auto"
+  },
+  {
+   "id": "2025-07-29-openai-study-mode",
+   "date": "2025-07-29",
+   "lab": "openai",
+   "product": "ChatGPT",
+   "title": "Study mode",
+   "capabilities": [
+    "tutoring"
+   ],
+   "how": "direct",
+   "plans": [
+    "free",
+    "consumer",
+    "business"
+   ],
+   "availability": "ga",
+   "autonomy": "draft",
+   "coverage": 4,
+   "source": "https://openai.com/news/",
+   "sourceChecked": null,
+   "status": "auto"
+  },
+  {
+   "id": "2025-08-06-google-guided-learning-and-exam-prep-quizzes",
+   "date": "2025-08-06",
+   "lab": "google",
+   "product": "Gemini",
+   "title": "Guided Learning and exam prep quizzes",
+   "capabilities": [
+    "tutoring"
+   ],
+   "how": "direct",
+   "plans": [
+    "free",
+    "consumer"
+   ],
+   "availability": "ga",
+   "autonomy": "draft",
+   "coverage": 4,
+   "source": "https://gemini.google/us/release-notes/",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2025-08-26-anthropic-claude-in-chrome",
+   "date": "2025-08-26",
+   "lab": "anthropic",
+   "product": "Claude",
+   "title": "Claude in Chrome",
+   "capabilities": [
+    "browser_agent"
+   ],
+   "how": "direct",
+   "plans": [
+    "consumer"
+   ],
+   "availability": "preview",
+   "autonomy": "approve",
+   "coverage": 2,
+   "source": "https://support.claude.com/en/articles/12138966-release-notes",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2025-09-09-anthropic-creating-and-editing-files-spreadsheets",
+   "date": "2025-09-09",
+   "lab": "anthropic",
+   "product": "Claude",
+   "title": "Creating and editing files (spreadsheets, slides, documents)",
+   "capabilities": [
+    "spreadsheets",
+    "slides",
+    "docs_writing",
+    "data_analysis"
+   ],
+   "how": "workflow",
+   "plans": [
+    "consumer",
+    "business",
+    "enterprise"
+   ],
+   "availability": "preview",
+   "autonomy": "draft",
+   "coverage": 3,
+   "source": "https://support.claude.com/en/articles/12138966-release-notes",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2025-09-29-openai-instant-checkout",
+   "date": "2025-09-29",
+   "lab": "openai",
+   "product": "ChatGPT",
+   "title": "Instant Checkout",
+   "capabilities": [
+    "shopping_checkout"
+   ],
+   "how": "platform",
+   "plans": [
+    "free",
+    "consumer"
+   ],
+   "availability": "ga",
+   "autonomy": "approve",
+   "coverage": 2,
+   "source": "https://openai.com/news/",
+   "sourceChecked": null,
+   "status": "auto"
+  },
+  {
+   "id": "2025-10-06-openai-apps-in-chatgpt-and-agentkit",
+   "date": "2025-10-06",
+   "lab": "openai",
+   "product": "ChatGPT",
+   "title": "Apps in ChatGPT and AgentKit",
+   "capabilities": [
+    "connectors_platform",
+    "agent_platform",
+    "design"
+   ],
+   "how": "platform",
+   "plans": [
+    "free",
+    "consumer",
+    "business",
+    "api"
+   ],
+   "availability": "ga",
+   "autonomy": "approve",
+   "coverage": 3,
+   "source": "https://openai.com/news/",
+   "sourceChecked": null,
+   "status": "auto"
+  },
+  {
+   "id": "2025-10-21-openai-chatgpt-atlas-browser",
+   "date": "2025-10-21",
+   "lab": "openai",
+   "product": "Atlas",
+   "title": "ChatGPT Atlas browser",
+   "capabilities": [
+    "browser_agent",
+    "web_search"
+   ],
+   "how": "direct",
+   "plans": [
+    "free",
+    "consumer",
+    "business"
+   ],
+   "availability": "ga",
+   "autonomy": "approve",
+   "coverage": 3,
+   "source": "https://openai.com/news/",
+   "sourceChecked": null,
+   "status": "auto"
+  },
+  {
+   "id": "2025-11-18-google-gemini-agent-on-the-web",
+   "date": "2025-11-18",
+   "lab": "google",
+   "product": "Gemini",
+   "title": "Gemini Agent on the web",
+   "capabilities": [
+    "browser_agent",
+    "workflow_automation"
+   ],
+   "how": "direct",
+   "plans": [
+    "consumer"
+   ],
+   "availability": "ga",
+   "autonomy": "approve",
+   "coverage": 2,
+   "source": "https://gemini.google/us/release-notes/",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2025-11-24-anthropic-claude-for-excel-beta",
+   "date": "2025-11-24",
+   "lab": "anthropic",
+   "product": "Claude",
+   "title": "Claude for Excel beta",
+   "capabilities": [
+    "spreadsheets",
+    "data_analysis"
+   ],
+   "how": "workflow",
+   "plans": [
+    "consumer",
+    "business",
+    "enterprise"
+   ],
+   "availability": "beta",
+   "autonomy": "approve",
+   "coverage": 3,
+   "source": "https://support.claude.com/en/articles/12138966-release-notes",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2025-12-18-anthropic-skills-for-organizations-and-claude-in-c",
+   "date": "2025-12-18",
+   "lab": "anthropic",
+   "product": "Claude",
+   "title": "Skills for organizations and Claude in Chrome for all paid plans",
+   "capabilities": [
+    "browser_agent",
+    "workflow_automation",
+    "agent_platform"
+   ],
+   "how": "platform",
+   "plans": [
+    "consumer",
+    "business",
+    "enterprise"
+   ],
+   "availability": "beta",
+   "autonomy": "approve",
+   "coverage": 3,
+   "source": "https://support.claude.com/en/articles/12138966-release-notes",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2026-01-12-anthropic-cowork-research-preview",
+   "date": "2026-01-12",
+   "lab": "anthropic",
+   "product": "Claude Cowork",
+   "title": "Cowork research preview",
+   "capabilities": [
+    "computer_use",
+    "file_storage_search",
+    "docs_writing",
+    "workflow_automation"
+   ],
+   "how": "platform",
+   "plans": [
+    "consumer"
+   ],
+   "availability": "preview",
+   "autonomy": "approve",
+   "coverage": 3,
+   "source": "https://support.claude.com/en/articles/12138966-release-notes",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2026-01-28-google-gemini-in-chrome-with-auto-browse",
+   "date": "2026-01-28",
+   "lab": "google",
+   "product": "Gemini",
+   "title": "Gemini in Chrome with auto browse",
+   "capabilities": [
+    "browser_agent",
+    "shopping_checkout"
+   ],
+   "how": "direct",
+   "plans": [
+    "consumer"
+   ],
+   "availability": "preview",
+   "autonomy": "approve",
+   "coverage": 3,
+   "source": "https://gemini.google/us/release-notes/",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2026-02-05-anthropic-claude-for-powerpoint-and-excel-improvem",
+   "date": "2026-02-05",
+   "lab": "anthropic",
+   "product": "Claude",
+   "title": "Claude for PowerPoint and Excel improvements",
+   "capabilities": [
+    "slides",
+    "spreadsheets"
+   ],
+   "how": "workflow",
+   "plans": [
+    "consumer",
+    "business",
+    "enterprise"
+   ],
+   "availability": "beta",
+   "autonomy": "approve",
+   "coverage": 3,
+   "source": "https://support.claude.com/en/articles/12138966-release-notes",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2026-02-24-anthropic-cowork-plugins-and-admin-controls",
+   "date": "2026-02-24",
+   "lab": "anthropic",
+   "product": "Claude Cowork",
+   "title": "Cowork plugins and admin controls",
+   "capabilities": [
+    "connectors_platform",
+    "crm_agent",
+    "legal_contracts",
+    "data_analysis",
+    "support_agent",
+    "workflow_automation"
+   ],
+   "how": "platform",
+   "plans": [
+    "business",
+    "enterprise"
+   ],
+   "availability": "ga",
+   "autonomy": "approve",
+   "coverage": 3,
+   "source": "https://support.claude.com/en/articles/12138966-release-notes",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2026-02-25-anthropic-scheduled-tasks-in-cowork",
+   "date": "2026-02-25",
+   "lab": "anthropic",
+   "product": "Claude Cowork",
+   "title": "Scheduled tasks in Cowork",
+   "capabilities": [
+    "workflow_automation"
+   ],
+   "how": "workflow",
+   "plans": [
+    "consumer",
+    "business",
+    "enterprise"
+   ],
+   "availability": "ga",
+   "autonomy": "unattended",
+   "coverage": 3,
+   "source": "https://support.claude.com/en/articles/12138966-release-notes",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2026-03-11-anthropic-work-across-excel-and-powerpoint",
+   "date": "2026-03-11",
+   "lab": "anthropic",
+   "product": "Claude",
+   "title": "Work across Excel and PowerPoint",
+   "capabilities": [
+    "spreadsheets",
+    "slides"
+   ],
+   "how": "workflow",
+   "plans": [
+    "consumer",
+    "business",
+    "enterprise"
+   ],
+   "availability": "ga",
+   "autonomy": "approve",
+   "coverage": 4,
+   "source": "https://support.claude.com/en/articles/12138966-release-notes",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2026-03-23-anthropic-computer-use-in-cowork-and-claude-code",
+   "date": "2026-03-23",
+   "lab": "anthropic",
+   "product": "Claude Cowork",
+   "title": "Computer use in Cowork and Claude Code",
+   "capabilities": [
+    "computer_use",
+    "workflow_automation"
+   ],
+   "how": "direct",
+   "plans": [
+    "consumer"
+   ],
+   "availability": "preview",
+   "autonomy": "unattended",
+   "coverage": 3,
+   "source": "https://support.claude.com/en/articles/12138966-release-notes",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2026-04-09-anthropic-cowork-generally-available",
+   "date": "2026-04-09",
+   "lab": "anthropic",
+   "product": "Claude Cowork",
+   "title": "Cowork generally available",
+   "capabilities": [
+    "computer_use",
+    "file_storage_search",
+    "docs_writing",
+    "workflow_automation",
+    "it_service"
+   ],
+   "how": "platform",
+   "plans": [
+    "consumer",
+    "business",
+    "enterprise"
+   ],
+   "availability": "ga",
+   "autonomy": "approve",
+   "coverage": 4,
+   "source": "https://support.claude.com/en/articles/12138966-release-notes",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2026-04-17-anthropic-claude-design",
+   "date": "2026-04-17",
+   "lab": "anthropic",
+   "product": "Claude",
+   "title": "Claude Design",
+   "capabilities": [
+    "design",
+    "slides",
+    "website_builder"
+   ],
+   "how": "direct",
+   "plans": [
+    "consumer",
+    "business"
+   ],
+   "availability": "preview",
+   "autonomy": "draft",
+   "coverage": 3,
+   "source": "https://support.claude.com/en/articles/12138966-release-notes",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2026-05-19-google-gemini-spark-personal-agent-and-omni-vid",
+   "date": "2026-05-19",
+   "lab": "google",
+   "product": "Gemini",
+   "title": "Gemini Spark personal agent and Omni video",
+   "capabilities": [
+    "workflow_automation",
+    "video_gen",
+    "task_project"
+   ],
+   "how": "platform",
+   "plans": [
+    "consumer"
+   ],
+   "availability": "beta",
+   "autonomy": "unattended",
+   "coverage": 3,
+   "source": "https://gemini.google/us/release-notes/",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2026-06-23-anthropic-claude-tag-delegate-work-in-slack",
+   "date": "2026-06-23",
+   "lab": "anthropic",
+   "product": "Claude",
+   "title": "Claude Tag: delegate work in Slack",
+   "capabilities": [
+    "task_project",
+    "workflow_automation",
+    "coding_agent"
+   ],
+   "how": "workflow",
+   "plans": [
+    "business",
+    "enterprise"
+   ],
+   "availability": "ga",
+   "autonomy": "unattended",
+   "coverage": 3,
+   "source": "https://support.claude.com/en/articles/12138966-release-notes",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2026-06-30-google-gemini-spark-on-macos",
+   "date": "2026-06-30",
+   "lab": "google",
+   "product": "Gemini",
+   "title": "Gemini Spark on macOS",
+   "capabilities": [
+    "computer_use",
+    "file_storage_search",
+    "docs_writing"
+   ],
+   "how": "platform",
+   "plans": [
+    "consumer"
+   ],
+   "availability": "ga",
+   "autonomy": "unattended",
+   "coverage": 3,
+   "source": "https://gemini.google/us/release-notes/",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2026-07-07-anthropic-cowork-on-web-and-mobile-write-tools-for",
+   "date": "2026-07-07",
+   "lab": "anthropic",
+   "product": "Claude Cowork",
+   "title": "Cowork on web and mobile; write tools for Microsoft 365",
+   "capabilities": [
+    "docs_writing",
+    "connectors_platform",
+    "workflow_automation"
+   ],
+   "how": "platform",
+   "plans": [
+    "consumer",
+    "business",
+    "enterprise"
+   ],
+   "availability": "ga",
+   "autonomy": "approve",
+   "coverage": 4,
+   "source": "https://support.claude.com/en/articles/12138966-release-notes",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2026-08-19-google-student-hub-and-study-notebooks",
+   "date": "2026-08-19",
+   "lab": "google",
+   "product": "Gemini",
+   "title": "Student hub and study notebooks",
+   "capabilities": [
+    "tutoring"
+   ],
+   "how": "direct",
+   "plans": [
+    "free",
+    "consumer"
+   ],
+   "availability": "ga",
+   "autonomy": "draft",
+   "coverage": 4,
+   "source": "https://gemini.google/us/release-notes/",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2026-09-10-anthropic-smart-reports-beta",
+   "date": "2026-09-10",
+   "lab": "anthropic",
+   "product": "Claude",
+   "title": "Smart reports (beta)",
+   "capabilities": [
+    "data_analysis",
+    "research"
+   ],
+   "how": "workflow",
+   "plans": [
+    "business",
+    "enterprise"
+   ],
+   "availability": "beta",
+   "autonomy": "unattended",
+   "coverage": 3,
+   "source": "https://support.claude.com/en/articles/12138966-release-notes",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2026-09-15-anthropic-salesforce-in-claude-beta",
+   "date": "2026-09-15",
+   "lab": "anthropic",
+   "product": "Claude",
+   "title": "Salesforce in Claude (beta)",
+   "capabilities": [
+    "crm_agent",
+    "connectors_platform"
+   ],
+   "how": "workflow",
+   "plans": [
+    "business",
+    "enterprise"
+   ],
+   "availability": "beta",
+   "autonomy": "approve",
+   "coverage": 3,
+   "source": "https://support.claude.com/en/articles/12138966-release-notes",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2026-09-16-anthropic-cowork-in-every-conversation-designs-dec",
+   "date": "2026-09-16",
+   "lab": "anthropic",
+   "product": "Claude Cowork",
+   "title": "Cowork in every conversation; designs, decks and docs anywhere",
+   "capabilities": [
+    "slides",
+    "docs_writing",
+    "design",
+    "workflow_automation"
+   ],
+   "how": "platform",
+   "plans": [
+    "free",
+    "consumer",
+    "business",
+    "enterprise"
+   ],
+   "availability": "ga",
+   "autonomy": "approve",
+   "coverage": 4,
+   "source": "https://support.claude.com/en/articles/12138966-release-notes",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2026-09-25-anthropic-build-plugins-for-claude",
+   "date": "2026-09-25",
+   "lab": "anthropic",
+   "product": "Claude",
+   "title": "Build plugins for Claude",
+   "capabilities": [
+    "agent_platform",
+    "connectors_platform",
+    "app_builder"
+   ],
+   "how": "platform",
+   "plans": [
+    "consumer",
+    "business",
+    "enterprise"
+   ],
+   "availability": "ga",
+   "autonomy": "approve",
+   "coverage": 3,
+   "source": "https://support.claude.com/en/articles/12138966-release-notes",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2026-10-13-google-connected-apps-40-and-antigravity-coding",
+   "date": "2026-10-13",
+   "lab": "google",
+   "product": "Gemini",
+   "title": "Connected apps (40+) and Antigravity coding agent",
+   "capabilities": [
+    "connectors_platform",
+    "coding_agent",
+    "shopping_checkout"
+   ],
+   "how": "platform",
+   "plans": [
+    "free",
+    "consumer"
+   ],
+   "availability": "ga",
+   "autonomy": "approve",
+   "coverage": 3,
+   "source": "https://gemini.google/us/release-notes/",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2026-10-16-openai-chatgpt-slides-with-real-time-collaborat",
+   "date": "2026-10-16",
+   "lab": "openai",
+   "product": "ChatGPT",
+   "title": "ChatGPT Slides with real-time collaboration",
+   "capabilities": [
+    "slides"
+   ],
+   "how": "direct",
+   "plans": [
+    "consumer",
+    "business",
+    "enterprise"
+   ],
+   "availability": "ga",
+   "autonomy": "draft",
+   "coverage": 4,
+   "source": "https://releases.sh/openai/chatgpt-release-notes",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2026-10-26-openai-gpt-6-1-terra-for-computer-use-in-work-a",
+   "date": "2026-10-26",
+   "lab": "openai",
+   "product": "ChatGPT",
+   "title": "GPT-6.1 Terra for computer use in Work and Codex",
+   "capabilities": [
+    "computer_use",
+    "coding_agent",
+    "docs_writing"
+   ],
+   "how": "platform",
+   "plans": [
+    "consumer",
+    "business",
+    "enterprise"
+   ],
+   "availability": "ga",
+   "autonomy": "approve",
+   "coverage": 4,
+   "source": "https://releases.sh/openai/chatgpt-release-notes",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2026-11-05-anthropic-personal-finance-in-claude",
+   "date": "2026-11-05",
+   "lab": "anthropic",
+   "product": "Claude",
+   "title": "Personal Finance in Claude",
+   "capabilities": [
+    "personal_finance"
+   ],
+   "how": "workflow",
+   "plans": [
+    "consumer"
+   ],
+   "availability": "ga",
+   "autonomy": "draft",
+   "coverage": 3,
+   "source": "https://support.claude.com/en/articles/12138966-release-notes",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2026-11-10-openai-business-hub-and-business-agents",
+   "date": "2026-11-10",
+   "lab": "openai",
+   "product": "ChatGPT",
+   "title": "Business Hub and business agents",
+   "capabilities": [
+    "support_agent",
+    "shopping_checkout",
+    "website_builder"
+   ],
+   "how": "platform",
+   "plans": [
+    "business"
+   ],
+   "availability": "ga",
+   "autonomy": "unattended",
+   "coverage": 3,
+   "source": "https://releases.sh/openai/chatgpt-release-notes",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  },
+  {
+   "id": "2026-11-13-openai-chatgpt-wallet-for-agent-purchases",
+   "date": "2026-11-13",
+   "lab": "openai",
+   "product": "ChatGPT",
+   "title": "ChatGPT Wallet for agent purchases",
+   "capabilities": [
+    "shopping_checkout"
+   ],
+   "how": "platform",
+   "plans": [
+    "consumer"
+   ],
+   "availability": "beta",
+   "autonomy": "approve",
+   "coverage": 3,
+   "source": "https://releases.sh/openai/chatgpt-release-notes",
+   "sourceChecked": "2026-11-15",
+   "status": "auto"
+  }
+ ]
+}

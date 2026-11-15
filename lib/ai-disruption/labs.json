@@ -1,0 +1,118 @@
+{
+ "version": 1,
+ "labs": [
+  {
+   "id": "openai",
+   "name": "OpenAI",
+   "ticker": null,
+   "products": [
+    "ChatGPT",
+    "Codex",
+    "Sora",
+    "Atlas"
+   ],
+   "sources": [
+    {
+     "name": "ChatGPT release notes",
+     "url": "https://help.openai.com/en/articles/6825453-chatgpt-release-notes",
+     "role": "primary"
+    },
+    {
+     "name": "OpenAI news",
+     "url": "https://openai.com/news/",
+     "role": "primary"
+    }
+   ]
+  },
+  {
+   "id": "anthropic",
+   "name": "Anthropic",
+   "ticker": null,
+   "products": [
+    "Claude",
+    "Claude Code",
+    "Claude Cowork"
+   ],
+   "sources": [
+    {
+     "name": "Claude release notes",
+     "url": "https://support.claude.com/en/articles/12138966-release-notes",
+     "role": "primary"
+    },
+    {
+     "name": "Anthropic news",
+     "url": "https://www.anthropic.com/news",
+     "role": "primary"
+    }
+   ]
+  },
+  {
+   "id": "google",
+   "name": "Google",
+   "ticker": "GOOGL",
+   "products": [
+    "Gemini",
+    "NotebookLM",
+    "Workspace"
+   ],
+   "sources": [
+    {
+     "name": "Gemini release notes",
+     "url": "https://gemini.google/us/release-notes/",
+     "role": "primary"
+    },
+    {
+     "name": "Workspace updates",
+     "url": "https://workspaceupdates.googleblog.com/",
+     "role": "primary"
+    }
+   ]
+  },
+  {
+   "id": "microsoft",
+   "name": "Microsoft",
+   "ticker": "MSFT",
+   "products": [
+    "Microsoft 365 Copilot",
+    "GitHub Copilot"
+   ],
+   "sources": [
+    {
+     "name": "Microsoft 365 blog",
+     "url": "https://www.microsoft.com/en-us/microsoft-365/blog/",
+     "role": "primary"
+    }
+   ]
+  },
+  {
+   "id": "meta",
+   "name": "Meta",
+   "ticker": "META",
+   "products": [
+    "Meta AI"
+   ],
+   "sources": [
+    {
+     "name": "Meta newsroom",
+     "url": "https://about.fb.com/news/",
+     "role": "secondary"
+    }
+   ]
+  },
+  {
+   "id": "xai",
+   "name": "xAI",
+   "ticker": null,
+   "products": [
+    "Grok"
+   ],
+   "sources": [
+    {
+     "name": "xAI news",
+     "url": "https://x.ai/news",
+     "role": "secondary"
+    }
+   ]
+  }
+ ]
+}
