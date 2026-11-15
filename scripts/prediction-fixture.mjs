@@ -72,7 +72,8 @@ export function fakeFetch(url) {
     if (p === '/markets') {
       const want = (q.get('tickers') || '').split(',');
       const all = kalshiEvents.flatMap((e) => e.markets);
-      return Promise.resolve({ markets: all.filter((m) => want.includes(m.ticker)).map((m) => ({ ...m, yes_bid_dollars: '0.50', yes_ask_dollars: '0.52' })) });
+      // The refresh quotes each market 2 cents above its listed price.
+      return Promise.resolve({ markets: all.filter((m) => want.includes(m.ticker)).map((m) => { const p = Number(m.last_price_dollars) + 0.02; return { ...m, yes_bid_dollars: (p - 0.01).toFixed(4), yes_ask_dollars: (p + 0.01).toFixed(4) }; }) });
     }
     const cm = p.match(/\/markets\/([^/]+)\/candlesticks$/);
     if (cm) {

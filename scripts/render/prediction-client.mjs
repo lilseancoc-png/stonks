@@ -283,7 +283,7 @@ export function renderPredictionJs() {
       VIEWS.tableHtml([
         { label: 'Market', cell: function(r){ return pmkTitle(r); }, sort: function(r){ return r.title; } },
         { label: 'Stock', cell: function(r){ return vnSym(r.sym); }, sort: function(r){ return r.sym; } },
-        { label: 'If YES', cell: function(r){ return '<b>' + pmkSign(r.sign) + '</b>' + (r.learned ? ' <small class="crd-dim">learned</small>' : ''); }, sort: function(r){ return r.sign; } },
+        { label: 'If YES', cell: function(r){ return '<b>' + pmkSign(r.sign) + '</b>' + (r.pending ? ' <small class="crd-dim">not proven yet</small>' : r.learned ? ' <small class="crd-dim">learned, tested</small>' : ''); }, sort: function(r){ return r.sign; } },
         { label: 'Chance', num: true, cell: function(r){ return pmkChance(r.p); }, sort: function(r){ return r.p; } },
         { label: '7 days', num: true, cell: function(r){ return pmkPts(r.ch7); }, sort: function(r){ return r.ch7; } },
         { label: 'Resolves in', num: true, cell: function(r){ return pmkDaysLeft(r); }, sort: function(r){ return r.daysLeft; } },
@@ -304,7 +304,7 @@ export function renderPredictionJs() {
         { label: 'Chance', num: true, cell: function(a){ return pmkChance(a.p); }, sort: function(a){ return a.p; } },
         { label: '1 day', num: true, cell: function(a){ return pmkPts(a.ch1); }, sort: function(a){ return a.ch1; } },
         { label: '7 days', num: true, cell: function(a){ return pmkPts(a.ch7); }, sort: function(a){ return a.ch7; } },
-        { label: 'For the trade', cell: function(a){ return '<span class="pmk-dir pmk-dir-' + (a.reads === 'helps' ? 'up' : a.reads === 'hurts' ? 'down' : 'unk') + '">' + escapeHtml(a.reads) + '</span>' + (a.learned ? ' <small class="crd-dim">learned sign</small>' : ''); }, sort: function(a){ return a.reads; } },
+        { label: 'For the trade', cell: function(a){ return '<span class="pmk-dir pmk-dir-' + (a.reads === 'helps' ? 'up' : a.reads === 'hurts' ? 'down' : 'unk') + '">' + escapeHtml(a.reads) + '</span>' + (a.pending ? ' <small class="crd-dim">direction not proven yet</small>' : a.learned ? ' <small class="crd-dim">learned, tested</small>' : ''); }, sort: function(a){ return a.reads; } },
       ], rows, { key: 'pmk-alerts', cls: 'pmk-ct', empty: 'No linked odds move on an open trade.' });
   }
   function pmkFinderHtml(){

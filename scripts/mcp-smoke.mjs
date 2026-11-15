@@ -576,6 +576,46 @@ async function tool(name, args, opts) {
   assert.ok(use.structuredContent.warnings.some((w) => w.startsWith("EXPIRED")), "validUntil in the past is flagged");
 }
 
+// ---- prediction market odds: public board + Owner reaction tests ----
+{
+  const { predictionFixture } = await import("./prediction-fixture.mjs");
+  const fx = await predictionFixture();
+  files["prediction-odds.json"] = { ...fx.pub, builtAt: new Date(now - 3_600_000).toISOString() };
+  files["prediction-odds-owner.json"] = { ...fx.owner, builtAt: new Date(now - 3_600_000).toISOString() };
+  const all = await tool("get_prediction_markets", {});
+  assert.equal(all.isError, false, JSON.stringify(all).slice(0, 400));
+  const ar = all.structuredContent.results;
+  assert.ok(ar.contracts.length >= 6 && ar.topics.length >= 8, "contracts and topics listed");
+  assert.ok(ar.contracts.every((c) => typeof c.chance_pct === "number" && Array.isArray(c.stocks)), "each row has a chance and its stocks");
+  assert.equal(ar.contracts[0].daily_chance_30d, undefined, "the 30-day line comes only with contract_id");
+  const nv = (await tool("get_prediction_markets", { ticker: "nvda" })).structuredContent.results;
+  assert.ok(nv.contracts.some((c) => c.id === "K:KXNVDACEO-26-JH" && c.stocks.some((x) => x.ticker === "NVDA" && x.why === "Names the company")), "ticker filter finds the Jensen Huang contract with its rule label");
+  const one = (await tool("get_prediction_markets", { contract_id: "K:KXNVDACEO-26-JH" })).structuredContent.results;
+  assert.equal(one.contract.daily_chance_30d.length, 30, "one contract carries its 30-day line");
+  assert.equal(one.contract.chance_pct, 82);
+  assert.equal((await tool("get_prediction_markets", { contract_id: "K:NOPE" })).structuredContent.error.code, "NOT_FOUND");
+  const fed = (await tool("get_prediction_markets", { topic: "fed" })).structuredContent.results;
+  assert.ok(fed.contracts.length && fed.contracts.every((c) => c.topic === "fed"));
+  assert.equal(fed.gauges.chance_of_cut_next_fed_pct, 42);
+  const q = (await tool("get_prediction_markets", { query: "tariffs china" })).structuredContent.results;
+  assert.deepEqual(q.contracts.map((c) => c.id), ["K:KXTARIFFCN-26-T60"]);
+  const rel = (await tool("get_prediction_markets", { view: "releases" })).structuredContent.results;
+  assert.ok(rel.upcoming.some((u) => u.cal === "cpi-mom") && rel.recent.length, "release guesses listed");
+  assert.ok(Array.isArray((await tool("get_prediction_markets", { view: "moves" })).structuredContent.results.moves));
+  const rx = await tool("get_odds_reactions", {});
+  assert.equal(rx.isError, false, JSON.stringify(rx).slice(0, 400));
+  assert.equal(rx.structuredContent.access, "owner");
+  assert.ok(rx.structuredContent.results.alerts.length >= 1 && rx.structuredContent.results.verdict_counts, "summary has alerts and verdict counts");
+  const tests = (await tool("get_odds_reactions", { view: "tests", ticker: "SPY" })).structuredContent.results;
+  assert.ok(tests.families.length && tests.families.every((f) => f.ticker === "SPY" && f.jumps.verdict), "tests filtered by stock");
+  assert.ok((await tool("get_odds_reactions", { view: "alerts", ticker: "NVDA" })).structuredContent.results.alerts.every((a) => a.symbol === "NVDA"));
+  assert.ok((await tool("get_odds_reactions", { view: "shadow", ticker: "NVDA" })).structuredContent.results.by_stock.NVDA.pmn >= 1);
+  const feat = (await tool("list_features", {})).structuredContent.results.features.find((f) => f.id === "prediction-markets");
+  assert.equal(feat.read_with, "get_prediction_markets");
+  assert.ok(feat.datasets.includes("owner"));
+  assert.equal((await tool("get_feature", { feature_id: "prediction-markets", dataset: "owner" })).isError, false);
+}
+
 // ---- new pages' datasets, dated files, trimming, option chains, search/fetch ----
 {
   const lf = (await tool("list_features", {})).structuredContent.results.features;
@@ -721,6 +761,12 @@ async function tool(name, args, opts) {
   assert.ok(!(pubFeats["past-day"]?.datasets || []).includes("picks-run"), "Owner-only files on public pages are not listed");
   assert.ok(!(pubFeats.crowd?.datasets || []).includes("owner"));
   assert.ok(!(pubFeats["history-rhymes"]?.datasets || []).includes("owner"), "the per-stock credit read stays Owner-only");
+  assert.ok(!(pubFeats["prediction-markets"]?.datasets || []).includes("owner"), "the odds tests stay Owner-only");
+  assert.ok(!names.includes("get_odds_reactions"), "the Owner odds tests are hidden");
+  const pubOdds = await tool("get_prediction_markets", { ticker: "NVDA" }, pub);
+  assert.equal(pubOdds.isError, false, "the odds board is public");
+  assert.equal(pubOdds.structuredContent.access, "public");
+  assert.equal((await rpc("tools/call", { name: "get_odds_reactions", arguments: {} }, pub)).body.error.code, -32602);
   assert.equal((await tool("get_feature", { feature_id: "past-day", dataset: "picks-run" }, pub)).structuredContent.error.code, "FORBIDDEN");
   assert.equal((await tool("get_option_chain", { ticker: "NVDA" }, pub)).isError, false, "option chains are public data");
   const pubSearch = (await tool("search", { query: "picks market nvidia" }, pub)).structuredContent.results;

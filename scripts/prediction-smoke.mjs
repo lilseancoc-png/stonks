@@ -9,7 +9,7 @@ import { kalshiCandidates, polyCandidates, pickFromEvent } from '../lib/predicti
 import { etCloseMs, etDate, mergeFine, dailyAt, setDaily, noteSnapshot, changeOver, dailySeries } from '../lib/prediction/history.mjs';
 import { analyzeReactions, bhAdjust, signFlipP, findJumps } from '../lib/prediction/reactions.mjs';
 import { ladderRead, actualFromSettled, consensusRows, consensusTest, expectedFromSnaps } from '../lib/prediction/consensus.mjs';
-import { updatePredictionState, buildPredictionPublic, buildPredictionOwner, analyzePrediction, predictionShadow, predictionContextFor, predictionGraderLines, pricesFromChains, PREDICTION_KEY, PREDICTION_OWNER_KEY, PREDICTION_STATE_KEY } from '../lib/prediction/index.mjs';
+import { updatePredictionState, buildPredictionPublic, buildPredictionOwner, analyzePrediction, predictionShadow, provenSign, predictionContextFor, predictionGraderLines, pricesFromChains, PREDICTION_KEY, PREDICTION_OWNER_KEY, PREDICTION_STATE_KEY } from '../lib/prediction/index.mjs';
 import { isPremiumKey } from '../lib/premium-keys.mjs';
 import { OPTIONAL_BAKE_KEYS } from '../lib/data-ownership.mjs';
 
@@ -89,7 +89,7 @@ const second = await updatePredictionState({ prior: state, nowMs: NOW + 3600000,
 ok('a later bake the same day skips discovery', !second.status.discovered && !callLog.some((u) => u.includes('/series?') || u.includes('/events?status=open')));
 ok('a later bake refreshes tracked prices in batches', callLog.filter((u) => u.includes('/markets?tickers=')).length === 1 && callLog.filter((u) => u.includes('gamma-api.polymarket.com/markets?')).length === 1);
 ok('a later bake uses few calls', second.status.calls <= 6);
-ok('refreshed Kalshi prices are applied', second.state.contracts['K:KXTARIFFCN-26-T60'].last.p === 0.51);
+ok('refreshed Kalshi prices are applied', second.state.contracts['K:KXTARIFFCN-26-T60'].last.p === 0.37);
 
 // A venue outage keeps the prior state, marks the venue and never throws.
 const down = await updatePredictionState({ prior: second.state, nowMs: NOW + 7200000, universe: UNIVERSE, chains: {}, fetchJson: () => Promise.reject(new Error('fetch failed')), crowdKalshi: null, budget: 400 });
@@ -182,10 +182,17 @@ ok('grader lines mark an unknown direction with ?', predictionGraderLines(ctx).s
   const owner = buildPredictionOwner(second.state, an, { nowMs: NOW + 3600000, openTrades: [{ id: 'NVDA-C-1', symbol: 'NVDA', side: 'call' }], pub, universe: UNIVERSE });
   ok('owner payload has families, a run-up list and alerts arrays', Array.isArray(owner.families) && Array.isArray(owner.runUp) && Array.isArray(owner.alerts));
   ok('owner run-up list includes the Nvidia contract', owner.runUp.some((x) => x.sym === 'NVDA' && x.id === 'K:KXNVDACEO-26-JH'));
+  // A sign learned on the fit half is not acted on until a test passes.
+  const fakeFam = (verdict) => new Map([['company|NVDA', { sign: 1, jumps: { verdict }, flow: { verdict: 'no-order' }, runup: { verdict: 'collecting' } }]]);
+  const link = { sym: 'NVDA', sign: 0, rule: 'company' };
+  ok('an untested learned sign stays pending', provenSign(link, fakeFam('no-effect')).sign === 0 && provenSign(link, fakeFam('no-effect')).pending === 1);
+  ok('a learned sign that passed is used', provenSign(link, fakeFam('holds')).sign === 1 && provenSign(link, fakeFam('holds')).pending === null);
+  ok('a declared sign is used as is', provenSign({ sym: 'TLT', sign: -1, rule: 'fed-hike' }, fakeFam('no-effect')).sign === -1);
+  ok('alerts and run-up never read helps/hurts from an unproven sign', [...owner.alerts, ...owner.runUp].every((a) => !a.pending || a.sign === 0) && owner.alerts.filter((a) => a.pending).every((a) => a.reads === 'unknown'));
   const sh = predictionShadow(second.state, { universe: UNIVERSE, nowMs: NOW + 3600000 });
   ok('shadow counts linked contracts per name', sh.rows.NVDA.pmn >= 1 && sh.rows.TLT.pmn >= 1 && sh.rows.MSFT.pmn === 0);
   ok('the NVDA company link logs no pmo without a learned sign', sh.rows.NVDA.pmo === undefined);
-  ok('market gauge: chance of a cut at the next meeting', Math.abs(sh.mkt.pmCut - 51) < 1.5);
+  ok('market gauge: chance of a cut at the next meeting', Math.abs(sh.mkt.pmCut - 42) < 1.5);
 }
 
 // ---- history helpers ------------------------------------------------------
