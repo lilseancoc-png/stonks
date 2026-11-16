@@ -263,7 +263,10 @@ variant is tried) and reports the plain t value, the t value needed once that
 many attempts are allowed for, and the deflated Sharpe ratio (the chance the
 true average beats what the luckiest of that many attempts would show). A book
 "holds up" only at 95%+ with its t value over the bar. Books: Top Picks, the
-paired SPY baseline, each strategy engine, plus the history tests on file.
+paired SPY baseline, each strategy engine, plus the history tests on file. The
+worst run is the largest fall of the running sum of per-trade results, in
+points of one trade's premium (`worstRunPts`): trades are not compounded, so
+one total loss is a 100-point step, not the end of the book.
 
 ## Build wiring
 
