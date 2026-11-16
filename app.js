@@ -4530,9 +4530,74 @@ function recoveryEvidence(row, data, now = Date.now()) {
     }
     return h;
   }
+  // ---- Owner scorecard (Phase 3) ----
+  var AID_V = { falls: ['Falls vs IGV', 'neg'], rises: ['Rises vs IGV', 'pos'], 'no-effect': ['No effect', 'none'], collecting: ['Collecting', 'wait'],
+    'worse-after-pressure': ['Worse after pressure', 'neg'], 'better-after-pressure': ['Better after pressure', 'pos'], 'no-link': ['No link', 'none'],
+    'higher-falls-more': ['Higher score, bigger fall', 'neg'], 'higher-rises-more': ['Higher score, bigger rise', 'pos'] };
+  function aidVerdict(v){ var x = AID_V[v] || [v || '—', 'none']; return '<span class="aid-v aid-v-' + x[1] + '">' + escapeHtml(x[0]) + '</span>'; }
+  function aidPct(x, dp){ if (x == null || !isFinite(x)) return '—'; var v = x * 100; return (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toFixed(dp == null ? 2 : dp) + '%'; }
+  function aidNum(x, dp){ return x == null || !isFinite(x) ? '—' : (+x).toFixed(dp == null ? 2 : dp).replace(/^-/, '−'); }
+  function aidQ(x){ return x == null || !isFinite(x) ? '—' : x < 0.005 ? 'under 0.01' : (+x).toFixed(2); }
+  function aidGroupLabel(d, g){
+    if (g.id === 'all') return 'Every launch';
+    if (g.id.indexOf('outcome:') === 0){ var o = g.id.slice(8); return 'Could cause: ' + ((d.labels && d.labels.outcome && d.labels.outcome[o]) || o); }
+    return g.label;
+  }
   function aidScorecardHtml(d){
-    if (typeof aidScorecardBody === 'function') return aidScorecardBody(d, aidState.owner);
-    return '<p class="crd-empty">The scorecard is not built yet.</p>';
+    var o = aidState.owner;
+    if (!o) return '<p class="crd-empty">' + (aidState.ownerLoading ? 'Loading the scorecard…' : 'The scorecard is written by the next site update.') + '</p>';
+    var sc = o.scorecard;
+    if (!sc || !sc.moves) return '<p class="crd-empty">The scorecard is built once a day, on the first update of the morning, from the daily prices the site already downloads. It appears after that update.</p>';
+    var m = sc.moves, r = sc.results || { tests: [] }, gate = sc.phase4 || { ready: false, reasons: [] };
+    var all = (m.groups || []).filter(function(g){ return g.id === 'all'; })[0];
+    var h = '<p class="aid-lede">Owner only: these tests are about stocks, so they never reach the public page. Each launch is matched with the covered stocks it targets, and each stock’s move against the software ETF (' + escapeHtml(m.benchmark) + ') is compared with the same stock on ordinary days away from any launch. Nothing here changes a pick or a grade.</p>';
+    h += '<div class="mm-kpis">' +
+      '<div class="mm-kpi"><span>Launch-and-stock events</span><b>' + (m.events || 0) + '<small class="aid-kpi-sub">' + (m.stocks || 0) + ' stocks · since ' + escapeHtml(m.from ? aidDay(m.from) : '—') + '</small></b></div>' +
+      '<div class="mm-kpi"><span>Five days after, vs ' + escapeHtml(m.benchmark) + '</span><b>' + (all ? aidPct(all.windows.d5.mean) : '—') + '<small class="aid-kpi-sub">' + (all && all.windows.d5.placebo ? 'ordinary days ' + aidPct(all.windows.d5.placebo.lo) + ' to ' + aidPct(all.windows.d5.placebo.hi) : '') + '</small></b></div>' +
+      '<div class="mm-kpi"><span>Prices through</span><b>' + escapeHtml(aidDay(m.asOf)) + '<small class="aid-kpi-sub">built ' + escapeHtml(vnWhen(sc.builtAt)) + '</small></b></div>' +
+      '<div class="mm-kpi"><span>Phase 4 gate</span><b>' + (gate.ready ? 'Passes' : 'Not met') + '<small class="aid-kpi-sub">' + (gate.ready ? 'a Top Picks input still needs your OK' : 'no Top Picks input') + '</small></b></div></div>';
+    h += '<div class="aid-gate' + (gate.ready ? ' is-ready' : '') + '"><b>' + (gate.ready ? 'The launch effect passes every check.' : 'Why launches are not a Top Picks input:') + '</b>' +
+      (gate.reasons && gate.reasons.length ? '<ul>' + gate.reasons.map(function(x){ return '<li>' + escapeHtml(x) + '</li>'; }).join('') + '</ul>' : ' Turning it into one is your call.') + '</div>';
+    if (m.path && m.path.mean){
+      h += '<h3 class="aid-h3">Average move against ' + escapeHtml(m.benchmark) + ' around a launch</h3>' +
+        '<div class="aid-chart">' + lineSvgHtml({ labels: m.path.offsets.map(function(x){ return x === 0 ? 'Launch' : (x > 0 ? '+' : '−') + Math.abs(x); }), series: [{ name: 'Targeted stocks', values: m.path.mean.map(function(v){ return v == null ? null : v * 100; }) }],
+          band: { lo: m.path.lo.map(function(v){ return v == null ? null : v * 100; }), hi: m.path.hi.map(function(v){ return v == null ? null : v * 100; }) }, zero: true, h: 220, xEvery: 1,
+          yFmt: function(v){ return v.toFixed(1).replace(/^-/, '−') + '%'; }, valueFmt: function(v){ return (v > 0 ? '+' : '') + v.toFixed(2) + '%'; }, ariaLabel: 'Average move of targeted stocks against IGV from five trading days before a launch to ten after' }) + '</div>' +
+        '<p class="aid-q-why">Line: the average of ' + m.path.n + ' events, measured from the close before the launch day. Shaded: where 90% of averages over the same stocks on ordinary days fall.</p>';
+    }
+    h += '<h3 class="aid-h3">Do targeted stocks move?</h3>';
+    var cell = function(c){ return c ? '<span class="aid-cellv">' + aidPct(c.mean) + ' ' + aidVerdict(c.verdict) + '</span><small class="crd-dim aid-sub">' + (c.placebo ? 'ordinary ' + aidPct(c.placebo.lo, 1) + ' to ' + aidPct(c.placebo.hi, 1) + ' · ' : '') + 'q ' + aidQ(c.q) + '</small>' : '—'; };
+    h += '<div class="vt-wrap"><table class="vt-table aid-sc" data-nosort><thead><tr><th scope="col">Launches</th><th scope="col" class="num">Events</th><th scope="col">Launch day and the next</th><th scope="col">Five days after</th><th scope="col">Five days before</th></tr></thead><tbody>' +
+      (m.groups || []).map(function(g){ return '<tr><td>' + escapeHtml(aidGroupLabel(d, g)) + '<small class="crd-dim aid-sub">' + g.stocks + ' stock' + (g.stocks === 1 ? '' : 's') + '</small></td><td class="num">' + g.n + '</td><td>' + cell(g.windows.d2) + '</td><td>' + cell(g.windows.d5) + '</td><td>' + cell(g.windows.pre) + '</td></tr>'; }).join('') +
+      '</tbody></table></div>';
+    var notes = [];
+    if (m.scoreLink) notes.push('Does a higher capture score go with a bigger move? Rank match ' + aidNum(m.scoreLink.rho) + ' over ' + m.scoreLink.n + ' events (p ' + aidQ(m.scoreLink.p) + '): ' + aidVerdict(m.scoreLink.verdict));
+    if (m.halves) notes.push('Five days after, each half of the history: ' + m.halves.map(function(x){ return escapeHtml(aidDay(x.from)) + ' to ' + escapeHtml(aidDay(x.to)) + ' ' + aidPct(x.mean) + ' (' + x.n + ' events, p ' + aidQ(x.p) + ')'; }).join('; ') + '.');
+    if (notes.length) h += '<ul class="aid-notes">' + notes.map(function(x){ return '<li>' + x + '</li>'; }).join('') + '</ul>';
+    h += '<h3 class="aid-h3">Does launch pressure predict the next results?</h3>' +
+      '<p class="aid-q-why">Pressure at a report: the capture score of each launch aimed at the company in the ' + escapeHtml(String(r.pressureDays || 91)) + ' days before it, weighted 1 for its core product, 0.6 for an add-on, 0.3 for an adjacent one. Both pressure and the result are measured against the company’s own usual, then ranked against each other.</p>';
+    h += '<div class="vt-wrap"><table class="vt-table aid-sc" data-nosort><thead><tr><th scope="col">Result at the next report</th><th scope="col" class="num">Reports</th><th scope="col" class="num">With pressure</th><th scope="col" class="num">Rank match</th><th scope="col" class="num">q</th><th scope="col">Verdict</th></tr></thead><tbody>' +
+      (r.tests || []).map(function(t){ return '<tr><td>' + escapeHtml(t.label) + '<small class="crd-dim aid-sub">' + t.companies + ' companies</small></td><td class="num">' + t.n + '</td><td class="num">' + t.pressured + '</td><td class="num">' + aidNum(t.rho) + '</td><td class="num">' + aidQ(t.q) + '</td><td>' + aidVerdict(t.verdict) + '</td></tr>'; }).join('') +
+      '</tbody></table></div>';
+    h += '<h3 class="aid-h3">By stock</h3>';
+    h += VIEWS.tableHtml([
+      { label: 'Stock', cell: function(x){ return '<a href="' + escapeHtml(vnHref(x.symbol)) + '">' + escapeHtml(x.symbol) + '</a>'; }, sort: function(x){ return x.symbol; } },
+      { label: 'Events', num: true, cell: function(x){ return String(x.n); }, sort: function(x){ return x.n; } },
+      { label: 'Day and next', num: true, cell: function(x){ return aidPct(x.d2); }, sort: function(x){ return x.d2; } },
+      { label: 'Five days', num: true, cell: function(x){ return aidPct(x.d5); }, sort: function(x){ return x.d5; } },
+      { label: 'Before', num: true, cell: function(x){ return aidPct(x.pre); }, sort: function(x){ return x.pre; } },
+      { label: 'Fell in five days', num: true, cell: function(x){ return Math.round((x.down5 || 0) * 100) + '%'; }, sort: function(x){ return x.down5; } },
+      { label: 'Worst launch', cls: 'aid-c-wide', cell: function(x){ return x.worst ? escapeHtml(x.worst.title) + ' <small class="crd-dim">' + escapeHtml(aidDay(x.worst.date)) + ' · ' + aidPct(x.worst.d5) + '</small>' : ''; }, nosort: true },
+    ], m.perStock || [], { key: 'aid-sc-stocks', cls: 'aid-log', empty: 'No stock measured yet.' });
+    if ((m.recent || []).length){
+      h += '<details class="crd-sources"><summary>Newest ' + m.recent.length + ' events</summary><ul>' + m.recent.map(function(e){
+        return '<li>' + escapeHtml(aidDay(e.date)) + ' · <b>' + escapeHtml(e.symbol) + '</b> ' + aidLabTag(d, e.lab) + ' ' + escapeHtml(e.title) + ' <small class="crd-dim">score ' + e.score + (e.merged > 1 ? ' · ' + e.merged + ' launches counted once' : '') + ' · day and next ' + aidPct(e.d2) + ' · five days ' + aidPct(e.d5) + '</small></li>';
+      }).join('') + '</ul></details>';
+    }
+    h += '<details class="crd-sources"><summary>How the scorecard works</summary>' +
+      '<p class="crd-note">Daily closes come from the Event spillover download (about ten years for every covered stock and ' + escapeHtml(m.benchmark) + '), once a day; no extra download. A launch posted on a weekend counts from the next trading day. Launches aimed at the same stock within three trading days count once. Ordinary days are the same stock’s days from a year before its first launch on, kept ten trading days clear of every launch aimed at it; each test draws one ordinary day per event 2,000 times (seeded) to see how often an average that far from zero happens by chance. q is the p value adjusted for the ' + ((m.groups || []).length * 3) + ' tests in the table. A group with fewer than 15 events, or a results test with fewer than 60 reports, says Collecting.</p>' +
+      '<p class="crd-note">Phase 4, a Top Picks input, needs every launch together to fall against ' + escapeHtml(m.benchmark) + ' in the five days after (adjusted), no move already under way in the five days before, the fall in both halves of the history, and 40 or more events. Even then it waits for your OK.</p></details>';
+    return h;
   }
   function aidSourcesHtml(d){
     var src = d.sources || [];

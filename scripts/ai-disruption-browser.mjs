@@ -14,6 +14,8 @@ import { resolve } from 'node:path';
 import { startSiteServer, launchBrowser, openTab, pageProblems, selfTest, settle } from './browser-harness.mjs';
 import { AI_DISRUPTION_KEY, AI_DISRUPTION_OWNER_KEY, AI_DISRUPTION_STATE_KEY, buildDisruptionFiles, emptyState } from '../lib/ai-disruption/log.mjs';
 import { AI_DISRUPTION_REVIEW_KEY, applyReviewRequest, emptyReview } from '../lib/ai-disruption/review.mjs';
+import { buildScorecard } from '../lib/ai-disruption/scorecard.mjs';
+import { fixtureSeries, fixtureEarnings } from './ai-disruption-fixture.mjs';
 import { TICKERS } from './build.mjs';
 
 const output = process.env.AI_DISRUPTION_BROWSER_OUT || resolve(tmpdir(), 'stonks-ai-disruption-browser');
@@ -42,6 +44,10 @@ state.runs = [{ at: '2026-11-16T14:05:00Z', date: '2026-11-16', read: 1, failed:
 const built = buildDisruptionFiles({ state, review: null, tickers: TICKERS, builtAt: '2026-11-16T15:00:00Z', collected: true });
 const pub = built.pub, owner = built.owner;
 assert.ok(pub.launches.length === 89 && owner.queue.length === 1, 'fixture: 88 backfill + 1 collected, one queued');
+// The Owner scorecard from made-up prices with a planted 3% fall after each launch.
+const covered = pub.companies.filter((c) => c.coverage === 'covered').map((c) => c.id);
+owner.scorecard = buildScorecard({ launches: pub.launches, series: fixtureSeries(pub.launches, { drop: 0.03 }), earnings: fixtureEarnings(covered), companies: covered, builtAt: '2026-11-16T15:00:00Z' });
+assert.ok(owner.scorecard && owner.scorecard.phase4.ready, 'fixture: scorecard built');
 
 const adbe = { symbol: 'ADBE', spot: 400, priceSeries: { t: ['2026-11-13', '2026-11-14'], c: [398, 400] }, fundamentals: {}, technicals: {}, news: {} };
 let review = emptyReview();
@@ -189,6 +195,17 @@ try {
       check(problems.length === 0, tab + ' owner: ' + problems.join(' | '));
       await s.page.screenshot({ path: resolve(output, 'owner-1440-' + tab + '.png'), fullPage: true });
     }
+    // Scorecard: gate box, path chart, both test tables and the per-stock table.
+    await s.page.locator('[data-aid-tab="scorecard"]').click();
+    await settle(s.page, 400);
+    const sc = await rootText(s);
+    check(/Phase 4 gate/.test(sc) && /The launch effect passes every check/.test(sc), 'scorecard: KPIs and the gate box');
+    check((await s.page.locator('#aid-root .aid-chart svg').count()) === 1, 'scorecard: the path chart is drawn');
+    check((await s.page.locator('#aid-root table.aid-sc').count()) === 2, 'scorecard: the move and results tables');
+    check(/Every launch/.test(sc), 'scorecard: the all group row');
+    check(/Falls/.test(sc), 'scorecard: the planted fall reads as a fall');
+    check(/EPS surprise/i.test(sc) && /By stock/.test(sc), 'scorecard: results tests and the by-stock table');
+    check(!/undefined|NaN|\[object/.test(sc), 'scorecard: no raw values');
     await s.page.locator('[data-aid-tab="review"]').click();
     await settle(s.page, 300);
     check(/A note on our next chapter/.test(await rootText(s)) && /no capability named/.test(await rootText(s)), 'review: the queued post shows why it is there');
@@ -236,6 +253,11 @@ try {
     const problems = await pageProblems(s);
     check(problems.length === 0, 'review owner phone dark: ' + problems.join(' | '));
     await s.page.screenshot({ path: resolve(output, 'owner-390-dark-review.png'), fullPage: true });
+    await s.page.locator('[data-aid-tab="scorecard"]').click();
+    await s.page.locator('#aid-root .aid-chart svg').waitFor({ timeout: 5000 });
+    const scProblems = await pageProblems(s);
+    check(scProblems.length === 0, 'scorecard owner phone dark: ' + scProblems.join(' | '));
+    await s.page.screenshot({ path: resolve(output, 'owner-390-dark-scorecard.png'), fullPage: true });
     await s.context.close();
     ownerOn = false;
   }

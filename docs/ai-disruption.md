@@ -4,11 +4,13 @@ Tracks what the frontier AI labs ship, scores how ready each capability is to
 take customers from traditional software, and names the companies a launch
 targets and how. Roadmap: the "AI disruption tracker roadmap" doc (2026-11-15).
 
-**Status: Phase 2 (page, review tab, stock strip, MCP), 2026-11-16.** The bake
-reads the labs' release notes once a trading day and keeps a live launch log,
-shown on the public **AI disruption** page with an Owner review tab. No pick,
-grade or gate reads any of it, and it makes no AI call (owner decision
-2026-11-16: rules-only tagging, $0).
+**Status: Phase 3 (Owner scorecard), 2026-11-16.** The bake reads the labs'
+release notes once a trading day and keeps a live launch log, shown on the
+public **AI disruption** page with an Owner review tab and an Owner scorecard
+that tests whether launches move the stocks they target. No pick, grade or gate
+reads any of it, and it makes no AI call (owner decision 2026-11-16:
+rules-only tagging, $0). Phase 4 (a Top Picks input) is not built: it waits for
+the scorecard's gate and the Owner's OK.
 
 ## Public and Owner-only
 
@@ -46,6 +48,7 @@ with how they could be hurt, never priced, scored or tested.
 | `lib/ai-disruption/log.mjs` | The bake step: collect, fold, apply decisions, write the files |
 | `scripts/render/ai-disruption-client.mjs` + `ai-disruption-css.mjs` | The page, the Owner review tab and the stock page strip |
 | `lib/mcp/ai-disruption-tools.mjs` | The three public MCP tools |
+| `lib/ai-disruption/scorecard.mjs` | The Owner scorecard tests, pure functions (Phase 3) |
 
 ## A launch row
 
@@ -209,7 +212,7 @@ for an Owner file or the review action): **Review queue** lists the posts the
 rules could not place (with the reasons and the rules' guess) and the auto rows
 newest first, each with Confirm, Fix (a form for title, product, how it hits,
 availability, autonomy, coverage, plans and capabilities) and Reject; a saved
-click shows "applies next update" with Undo. **Scorecard** is Phase 3.
+click shows "applies next update" with Undo. **Scorecard** is Phase 3 (below).
 
 **Stock page.** A covered company's Overview tab shows "AI launches aimed at
 what it sells" (`#stp-aid`): what it sells, the launches in the last 90 days
@@ -233,3 +236,50 @@ Tests: `node scripts/mcp-smoke.mjs` (the three tools, public and Owner),
 `node scripts/ai-disruption-browser.mjs` (public tabs at 1440 light and 390
 dark, filters, deep links, the stock strip, a missing file, and the Owner
 review clicks against a stand-in review action).
+
+## Phase 3: the Owner scorecard
+
+Two questions, answered on the Owner **Scorecard** tab and stored as
+`scorecard` in `ai-disruption-owner.json` (Owner-only; the public file never
+holds it, and nothing about it is committed). Built by
+`buildScorecard` in `lib/ai-disruption/scorecard.mjs` from the daily closes
+the Event spillover step already downloads (`buildSpilloverArtifacts` now
+returns them as `series`; about ten years for every covered stock, the sector
+ETFs and SPY), so it adds no download. It is rebuilt on the day's first deep
+spillover pass; other bakes carry the last one. `AI_DISRUPTION=0` skips it.
+
+**1. Do launches move the stocks they target?** Each launch is matched with
+the covered companies in its targets (mention-only companies are never
+measured). Two launches at the same stock within 3 trading days count once
+(the higher score kept). Each event's move is the stock's return minus IGV's
+(the software ETF) over three windows: the launch day and the next (from the
+close before the launch), five days after, and the five days before as a
+check that should stay flat. Each window is compared with 2,000 draws of the
+same stocks on ordinary days (from a year before the stock's first launch,
+kept 10 trading days clear of any launch), giving a two-sided p, then
+Benjamini-Hochberg q across every group and window. Groups: every launch, each
+"could cause" outcome, and score 75 or more vs under 75. A group with fewer
+than 15 events reads "collecting"; otherwise "falls" or "rises" needs q 0.10 or
+less. Also shown: whether a higher capture score goes with a bigger move
+(rank match with a shuffle test), each half of the history, the average path
+from five days before to ten after with the ordinary-day band, every stock's
+events and the newest 40.
+
+**2. Does launch pressure predict the next results?** Pressure at a report is
+the sum of score/100 times the role weight (core 1, add-on 0.6, adjacent 0.3)
+over launches aimed at the company in the 91 days before the report (a launch
+on the report day does not count). It is ranked against the EPS surprise, the
+next-day reaction and the change in year-on-year revenue growth, each measured
+against the company's own usual (companies with 3+ reports), with a shuffle
+test inside each company and BH q. A test needs 60 reports and 10 with
+pressure before it gives a verdict.
+
+**Phase 4 gate** (`phase4Gate`): 40+ events, "falls" five days after for every
+launch, a clean before-window (p over 0.10), and a fall in both halves. Passing
+it never turns anything on; a Top Picks input is the Owner's call.
+
+Tests: `node scripts/ai-disruption-scorecard-smoke.mjs` (made-up prices from
+`scripts/ai-disruption-fixture.mjs`: no planted effect finds none, a planted
+3% fall is found in both after-windows with a clean before-window, a planted
+pressure link is found, merging and pressure rules, same input same answer,
+Owner-only) and the Owner part of `node scripts/ai-disruption-browser.mjs`.
