@@ -154,7 +154,7 @@ Verdicts: `holds`, `odds-lead`, `run-up-follows` (pass); `odds-echo`,
 | Switch | Where | Effect |
 |---|---|---|
 | `PREDICTION_TRACKER=0` | repo variable (`daily.yml`), Owner Settings | No venue reads; the prior files carry forward (public file marked stale) |
-| `PICKS_ODDS_GRADER=1` | repo variable, Owner Settings (locked until 2026-12-07) | Adds linked odds lines to the AI grader prompt. The date is also checked in `lib/top-picks-config.mjs`, so a repo variable set before 2026-12-07 is ignored and logged |
+| `PICKS_ODDS_GRADER=1` | repo variable, Owner Settings (locked until 2026-12-07) | Adds linked odds lines to the AI grader prompt |
 | `SPORTS_KALSHI=0` | repo variable (`sports-data.yml`) | Skips the Kalshi sports reads |
 
 ## Tests

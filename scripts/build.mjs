@@ -18271,7 +18271,6 @@ import {
   PICKS_TIMING_PULLBACK_MAX_SESSIONS, PICKS_TIMING_STRUCTURE_MAX_ATR, PICKS_TIMING_MIN_RR,
   PICKS_TIMING_EARNINGS_HARD_DAYS, PICKS_TIMING_EARNINGS_DEFER_DAYS, PICKS_TIMING_EVENT_HARD_DAYS,
   PICKS_ENTRY_TIMING_VERSION, PICKS_TIMING_THRESHOLDS, PICKS_IVRANK_MIN_N, PICKS_MACRO_GLOBAL,
-  PICKS_LOCKED_IGNORED, PICKS_HOOKS_LOCKED_UNTIL,
 } from "../lib/top-picks-config.mjs";
 export {
   PICKS_MAX_AI_THESES, PICKS_MIN_CONVICTION, PICKS_TIER_STRONG, PICKS_TACTICAL_SIZE_MULT,
@@ -38982,8 +38981,6 @@ async function main() {
   // can merge today's calls into the existing rolling window. Lives in
   // data/ai-usage.json — gets rewritten after writeChainFiles below.
   await loadAiUsageState();
-  // The Dec 7 lock (lib/top-picks-config.mjs): a hook asked for early is off.
-  if (PICKS_LOCKED_IGNORED.length) console.warn(`[top picks] ignored until ${PICKS_HOOKS_LOCKED_UNTIL} (locked): ${PICKS_LOCKED_IGNORED.join(", ")}`);
   console.log("Loading SEC CIK mapping…");
   await fetchCikMap();
   console.log("Fetching option chains for", TICKERS.length, "tickers…");

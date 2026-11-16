@@ -39,7 +39,7 @@ to a default never needs it.
 | AI & cost | AI final grader, web search before grading (both can only be turned off from their default, so AI spend can only fall) | next Top Picks run |
 | Data & desks | Prediction-market odds, crowd data, IBKR borrow fees, LEAPS desk, stock picks shown (1-24), Earnings Forecast refresh, strategy engines (On / Manage open trades only / Frozen; engines act at the next Top Picks run) | next build |
 | Research | Run archive, Regime Lab, self-improving loop | next build |
-| After Dec 7 | Crowd squeeze veto, crowd lines in the grader, Cboe put/call source, SELF_TUNE on | refused before 2026-12-07, then big impact (confirm). The same date is checked in the code that reads each one, so a repo variable cannot turn one on early either |
+| After Dec 7 | Crowd squeeze veto, crowd lines in the grader, Cboe put/call source, SELF_TUNE on | refused before 2026-12-07, then big impact (confirm) |
 | Live site | Message box, public MCP tools, Sports, MCP server, Webull paper mirror | within 30 seconds; these can only turn a feature OFF on top of Vercel |
 | Display (this device) | Theme, text size, layout density, motion, start page | at once, this browser only (`stonks-display-v1` + `stonks-theme` in localStorage, applied by `ownerDisplayBoot` at the top of app.js) |
 | History | The newest 50 changes | |
