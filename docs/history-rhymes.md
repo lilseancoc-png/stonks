@@ -34,7 +34,7 @@ partial 0.5; unknown (missing input) counts nothing and is never shown as clear.
 | Sign | Input | Lit | Partial |
 |---|---|---|---|
 | Spending grows faster than revenue | `ai-capex.json` totals (capex YoY vs revenue YoY, same fiscal years) | gap ≥ 15 pts | ≥ 5 |
-| Builders spend a record share of sales | `ai-capex.json` capex / revenue (TTM, else FY) | ≥ 25% and not falling | ≥ 15% |
+| Builders spend a high and rising share of sales | `ai-capex.json` capex / revenue (TTM, else FY) | ≥ 25% and not falling | ≥ 15% |
 | Spending outruns operating cash flow | per-stock fundamentals of the cash- and debt-funded builders | ≥ 90% of OCF, or 2+ builders above OCF | ≥ 65%, or one |
 | The price of what is built keeps falling | `accelerator-prices.json` H100 composite | 30-day −5% or −10% over 60+ days | neither falling nor rising 5%+ over 30 days (the 2024–2025 index fall stands); rising 5%+ is "not showing" |
 | Debt and off-balance-sheet deals fund the build | `ipo-credit.json` SIFMA bond months (last 3 vs a year earlier) + CRWV / ORCL debt | YoY ≥ 20%, or both builders lean on debt (total debt ≥ half of market value, more than 3 years of operating cash flow, or operating cash flow not positive) | one builder leaning on debt, or YoY ≥ 5% |

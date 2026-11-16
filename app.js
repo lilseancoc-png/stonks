@@ -4167,7 +4167,15 @@ function recoveryEvidence(row, data, now = Date.now()) {
     var up = (d.consensus && d.consensus.upcoming || []).filter(function(u){ return u.series !== 'KXFEDDECISION' && u.expected != null; })[0];
     var k = [];
     k.push(['Contracts tracked', String((d.counts && d.counts.tracked) || 0)]);
-    if (g.cutNext != null) k.push(['Chance of a cut at the next Fed meeting', pmkNum(g.cutNext) + '%']);
+    if (g.cutNext != null || g.hikeNext != null) {
+      // Hike, hold and cut together: a cut-only gauge says nothing in a hiking cycle.
+      var fedParts = [];
+      if (g.hikeNext != null) fedParts.push('hike ' + pmkNum(g.hikeNext) + '%');
+      if (g.holdNext != null) fedParts.push('hold ' + pmkNum(g.holdNext) + '%');
+      if (g.cutNext != null) fedParts.push('cut ' + pmkNum(g.cutNext) + '%');
+      var fedTop = [['Hike', g.hikeNext], ['Hold', g.holdNext], ['Cut', g.cutNext]].filter(function(x){ return x[1] != null; }).sort(function(a, b){ return b[1] - a[1]; })[0];
+      k.push(['Next Fed meeting' + (g.fedMeeting ? ' (' + escapeHtml(String(g.fedMeeting)) + ')' : ''), escapeHtml(fedTop[0]) + ' ' + pmkNum(fedTop[1]) + '%<small class="pmk-kpi-sub">' + escapeHtml(fedParts.join(' · ')) + (g.fedVenue ? ' · ' + escapeHtml(g.fedVenue === 'kalshi' ? 'Kalshi' : 'Polymarket') : '') + '</small>']);
+    }
     if (big) k.push(['Biggest move this week', (big.ch7 > 0 ? '+' : '') + Number(big.ch7).toFixed(1) + '<small class="pmk-kpi-sub">points · ' + escapeHtml(String(big.title).slice(0, 60)) + '</small>']);
     if (up) k.push(['Next release guess', pmkFmtVal(up.expected, up.unit, up.digits) + '<small class="pmk-kpi-sub">' + escapeHtml(up.label) + (up.release ? ' · ' + escapeHtml(vnDay(up.release)) : '') + '</small>']);
     if (g.jumps != null) k.push(['10-point jumps today', String(g.jumps)]);
