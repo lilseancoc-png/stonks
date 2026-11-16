@@ -289,6 +289,9 @@ try {
         assert(/Check a bet/.test(tbText) && /Win by X or more/.test(tbText) && /Team numbers/.test(tbText), 'the checker, the win-by chart and the team numbers');
         assert.equal(await page.locator(TBS + 'svg.sp-tb-ch polyline.sp-tb-line').count(), 2, 'one win-by line per team');
         assert(await page.locator(TBS + 'svg.sp-tb-ch').getAttribute('data-ch'), 'the win-by chart uses the shared hover readout');
+        assert(/Winning margin/.test(tbText) && /1-5 points/.test(tbText) && /21\+ points/.test(tbText) && /Most likely single result/.test(tbText), 'the winning-margin bands and ranges: ' + tbText.slice(0, 200));
+        assert.equal(await page.locator(TBS + '.sp-tb-bands tbody tr').count(), 5, 'five NBA bands');
+        checks += 2;
         const big = () => page.locator(TBS + '[data-sp-part="tb-result"] .sp-tb-big').innerText();
         const bigPct = async () => Number((await big()).match(/(\d+(?:\.\d)?)%/)[1]);
         assert(/to win by 10 or more\s+\d+(\.\d)?%/.test(await big()), 'the checker starts on win by 10: ' + await big());
@@ -383,7 +386,7 @@ try {
         await modelCardEl.locator('details.sp-model-links > summary').click();
         checks += 3;
         const side = await modelCardEl.innerText();
-        assert(/Model check/i.test(side) && /Points\s*[\d.]+ vs [\d.]+\s*Passed the check/.test(side) && /Rebounds\s*[\d.]+ vs [\d.]+\s*Experimental/.test(side) && /did not beat both simple baselines/.test(side) && /sports-model-5/.test(side), 'the model check card: ' + side);
+        assert(/Model check/i.test(side) && /Points\s*[\d.]+ vs [\d.]+\s*Passed the check/.test(side) && /Rebounds\s*[\d.]+ vs [\d.]+\s*Experimental/.test(side) && /did not beat both simple baselines/.test(side) && /sports-model-\d+/.test(side), 'the model check card: ' + side);
         assert(/Game spread and total: (on\. It beat leaving it out|off; )/.test(side), 'each stat says whether the spread and total are used: ' + side.slice(0, 900));
         assert(/Same-game links/i.test(side) && /Points and rebounds, one player/.test(side) && /later pairs: both cleared/.test(side), 'the card lists the same-game links and their check: ' + side);
         // Calibration: each model stat draws stated chance vs how often it happened.

@@ -76,7 +76,10 @@ async function main() {
     if (store.backend !== 'r2') throw new Error('Sports records need the R2 store (set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET)');
   }
   const fetcher = args['source-dir'] ? localFetcher(String(args['source-dir'])) : (url) => fetchText(url);
-  const result = await ingestLeague({ adapter, store, fetchText: fetcher, log: (m) => console.log(m), dryRun });
+  // Kalshi's game-winner and win-by markets (free public API); SPORTS_KALSHI=0
+  // skips them. Never read from an offline source directory.
+  const kalshi = process.env.SPORTS_KALSHI !== '0' && !args['source-dir'];
+  const result = await ingestLeague({ adapter, store, fetchText: fetcher, log: (m) => console.log(m), dryRun, kalshi });
   for (const w of result.writes) console.log(`${dryRun ? 'would write' : 'wrote'} ${w.key.replace(/^_stonks\/sports\/v1\//, '')} (${Math.round(w.bytes / 1024)} KB)`);
 }
 

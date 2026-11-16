@@ -28,6 +28,7 @@ import { renderPolishCss } from './polish-css.mjs';
 import { renderSiteNextCss } from './site-next-css.mjs';
 import { renderViewsNextCss } from './views-next-css.mjs';
 import { renderCrowdCss } from './crowd-css.mjs';
+import { renderPredictionCss } from './prediction-css.mjs';
 import { renderHistoryRhymesCss } from './history-rhymes-css.mjs';
 import { renderEdgeOddsCss } from './edge-odds-css.mjs';
 import { renderEvidenceCss } from './evidence-css.mjs';
@@ -25595,6 +25596,7 @@ ${renderPolishCss()}
 ${renderSiteNextCss()}
 ${renderViewsNextCss()}
 ${renderCrowdCss()}
+${renderPredictionCss()}
 ${renderHistoryRhymesCss()}
 ${renderEdgeOddsCss()}
 ${renderEvidenceCss()}

@@ -433,6 +433,12 @@ export function renderSportsCss() {
 .sp-tb-key { border-top-style: solid; opacity: 1; }
 .sp-tb-key.is-home { border-top-color: var(--accent); }
 .sp-tb-key.is-away { border-top-color: var(--muted-strong); }
+.sp-tb-kdot { stroke: var(--surface); stroke-width: 1.2; }
+.sp-tb-kdot.is-home { fill: var(--accent); }
+.sp-tb-kdot.is-away { fill: var(--muted-strong); }
+.sp-tb-kkey { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--muted-strong); margin-right: 6px; vertical-align: middle; }
+.sp-tb-range { margin-top: 6px; }
+.sp-live-h { margin: 14px 0 4px; font-size: 0.95em; }
 .sp-tb-table td:first-child { white-space: nowrap; }
 .sp-tb-more { margin: 8px 0 4px; }
 .sp-tb-more > summary { cursor: pointer; font-size: 12.5px; color: var(--muted-strong); padding: 4px 0; }
