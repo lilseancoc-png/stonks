@@ -46,7 +46,10 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Let each engine tighten itself inside fixed limits: a losing-streak pause, a setup mute, a market-type stand-down and an entry bar that moves inside its range. Setups it skips run as shadow trades, every change bumps a rules version on the change log, and six setups that lost in both halves of the history test start on shadow.
 - Add a history test for Technicals, Reversion and Macro (`node scripts/engines-backtest.mjs`, 2007 to 2026, modeled option prices, costs, random-entry control books), shown by time period, Regime Lab market type and macro environment. No engine shows a reliable profit after costs; the page says so.
 - Add engine tabs to the Top Picks page (Owner-only): All engines side by side, and per engine Now, Track record, Setups and learning, History test and Webull paper. The MCP reads them as `picks.engines` and `picks.engines-record`; the Export menu includes both files.
-- Add repo variables `ENGINES` (unset = on, `pause`, `0`) and `ENGINES_OFF` (a list of engines that open no new trades). Tests: `node scripts/engines-smoke.mjs`, `node scripts/engines-mirror-smoke.mjs`, `node scripts/engines-browser.mjs`.
+- Add repo variables `ENGINES` (unset = on, `pause`, `0`) and `ENGINES_OFF` (a list of engines that open no new trades), and a Strategy engines switch on the Owner Settings page (On / Manage open trades only / Frozen). Tests: `node scripts/engines-smoke.mjs`, `node scripts/engines-mirror-smoke.mjs`, `node scripts/engines-browser.mjs`.
+
+### Fixed
+- Update two tests left stale by the prediction markets change: the Brief coverage check lists Prediction markets as a reference-only page, and the Booms & busts test expects shadow log version 6.
 
 ## 2026-11-15
 

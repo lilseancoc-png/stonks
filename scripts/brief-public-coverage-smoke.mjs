@@ -17,7 +17,10 @@ const covered = new Set([...BRIEF_TOOL_SOURCES.map((s) => s.tab), ...BRIEF_CORE_
 // walls, filings and insider trades that the Brief already reads.
 // Booms & busts is mostly dated history; its warning-sign count moves on
 // monthly and quarterly data, too slow for an hourly digest.
-const reference = new Set(['home', 'brief', 'stock', 'cheatsheet', 'chart-patterns', 'timeline', 'privacy', 'terms', 'earnings-week', 'glossary', 'contact', 'market-map', 'whats-changed', 'past-day', 'history-rhymes']);
+// Prediction markets lists contract odds; the Brief already reads the Kalshi
+// macro odds through the Crowd desk, and the page's other contracts are not a
+// Brief source.
+const reference = new Set(['home', 'brief', 'stock', 'cheatsheet', 'chart-patterns', 'timeline', 'privacy', 'terms', 'earnings-week', 'glossary', 'contact', 'market-map', 'whats-changed', 'past-day', 'history-rhymes', 'prediction-markets']);
 assert.deepEqual([...publicTabs].filter((tab) => !covered.has(tab) && !reference.has(tab)), [],
   'A new public evidence page must have Brief coverage or an explicit reference-only exemption');
 for (const source of BRIEF_TOOL_SOURCES) {
