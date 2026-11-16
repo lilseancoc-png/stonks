@@ -18,6 +18,8 @@ import { scoreChance, scoreScore, scoreRange, buildCalibrationLab, recordSources
 import { registryRow, buildRegistry, TRIAL_LOG, trialsFor } from "../lib/labs/registry.mjs";
 import { evaluateVolModels, buildVolLab, VOL_MODELS } from "../lib/labs/vol.mjs";
 import { evaluateFactors, publicFactorRows, exposures, gradeVsFactors, foldPanel, panelSnapshot, percentiles, PRICE_FACTORS, ALL_FACTORS } from "../lib/labs/factors.mjs";
+import { evaluateUniverse, UNIVERSE_FACTORS } from "../lib/labs/factor-universe.mjs";
+import { universeFixture } from "./fixtures/factor-universe.mjs";
 import { htmlToLines, riskSection, compareSections, refreshFilingText, buildFilingLab, archiveUrl } from "../lib/labs/filing-text.mjs";
 import { runQuantLabs, loadQuantLabs, writeQuantLabs, carryQuantLabs, quantLabsEnabled, quantLabsTextEnabled, QUANT_LABS_KEY, QUANT_LABS_STATE_KEY } from "../lib/labs/index.mjs";
 
@@ -136,6 +138,8 @@ export function quantLabsFixture() {
   const stockBars = Object.fromEntries(symbols.map((s) => [s, bars[s]]));
   const volHist = evaluateVolModels(stockBars, { step: 5, minBars: 150, warm: 125 });
   research.vol = { version: 1, har: volHist.har, best: volHist.best, models: volHist.models, rows: volHist.rows, symbols: volHist.symbols, from: volHist.from };
+  // The wide factor test, on its own made-up universe (aggregates only).
+  research.factorUniverse = { ...evaluateUniverse(universeFixture(), { size: 120, minNames: 100 }), ran: "2026-11-16", data: { builtAt: "2026-11-16" }, caveats: ["Made-up companies: this block only checks the page."] };
   const text = {};
   symbols.slice(0, 12).forEach((s, i) => { text[s] = { acc: `0000000000-26-${i}`, prevAcc: `0000000000-25-${i}`, form: "10-K", filed: "2026-02-10", prevFiled: "2025-02-11", at: "2026-11-10T15:00:00.000Z", sim: Math.round((0.99 - i * 0.02) * 1000) / 1000, added: i * 3, removed: i, paragraphs: 120, addedShare: Math.round((i * 3 / 120) * 1000) / 1000, words: 9000 + i * 400, wordsChg: i * 2.5, newTerms: i > 6 ? ["tariffs", "export"] : [], goneTerms: i > 8 ? ["pandemic"] : [], sample: i > 6 ? ["A new paragraph about export controls and what they could mean for sales next year."] : [] }; });
   text[symbols[13]] = { failedAcc: "0000000000-26-99", at: "2026-11-10T15:00:00.000Z", why: "no risk section found" };

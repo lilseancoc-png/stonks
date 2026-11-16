@@ -18,6 +18,7 @@ const output = process.env.QUANT_LABS_BROWSER_OUT || resolve(tmpdir(), 'stonks-q
 await mkdir(output, { recursive: true });
 const { payload } = quantLabsFixture();
 assert.ok(payload?.card?.fall?.length && payload.drawdown?.status === 'ok', 'fixture has market odds');
+assert.ok(payload.factors?.universe?.factors?.length, 'fixture has the wide factor test');
 
 let owner = true, haveFile = true, file = payload;
 const server = await startSiteServer({
@@ -74,6 +75,21 @@ try {
     await s.page.locator('#quant-labs-root [data-ql-tab="calibration"]:not(.ql-linkbtn)').first().click();
     await settle(s.page, 250);
     check((await s.page.locator('#quant-labs-root table tbody tr').count()) >= payload.calibration.sources.length, vp.name + ': one row per calibration source');
+    // The wide factor test: a row per factor and one for the combined score, the
+    // family regression, the limits, and no company named.
+    await s.page.locator('#quant-labs-root [data-ql-tab="factors"]:not(.ql-linkbtn)').first().click();
+    await settle(s.page, 250);
+    const uni = s.page.locator('#quant-labs-root [data-ql-universe]');
+    check((await uni.count()) === 1, vp.name + ': the wide factor test is shown');
+    const uniText = await uni.innerText();
+    check(/largest US companies/.test(uniText) && /held up after costs/.test(uniText), vp.name + ': the wide factor test states its read');
+    check((await uni.locator('table').count()) === 2, vp.name + ': the factor table and the family regression');
+    check((await uni.locator('table').first().locator('tbody tr').count()) >= payload.factors.universe.factors.length + 1, vp.name + ': a row per factor and one for the combined score');
+    check((await uni.locator('table').nth(1).locator('tbody tr').count()) === payload.factors.universe.families.length, vp.name + ': a regression row per family');
+    check(/Limits of this test/.test(uniText) && /Aggregates only/.test(uniText), vp.name + ': the limits and the aggregates note are there');
+    check(!/\bU\d{3}\b|Made-up company/.test(uniText) && !JUNK.test(uniText), vp.name + ': the wide factor test names no company and shows no raw values');
+    check(!/—%/.test(uniText), vp.name + ': a factor with no spread shows a dash, not a dash with a percent sign');
+    await uni.screenshot({ path: resolve(output, `${vp.name}-universe.png`) });
     // A summary link jumps to its lab and the choice is remembered.
     await s.page.locator('#quant-labs-root [data-ql-tab="summary"]:not(.ql-linkbtn)').first().click();
     await settle(s.page, 200);

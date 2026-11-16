@@ -19,6 +19,12 @@ export function renderQuantLabsCss() {
 .ql-table td { vertical-align: top; }
 .ql-table td .crd-dim { font: 450 11px/1.4 var(--font-sans); color: var(--muted); }
 .ql-wide th { white-space: nowrap; }
+.ql-universe { margin-top: 6px; }
+.ql-universe .ql-fam td { padding-top: 10px; font: 650 11px/1.3 var(--font-sans); letter-spacing: .04em; text-transform: uppercase; color: var(--muted-strong); background: color-mix(in srgb, var(--surface-2) 70%, transparent); }
+.ql-universe td:first-child { min-width: 170px; }
+.ql-universe-read { color: var(--text-strong); }
+.ql-list { margin: 6px 0 4px; padding-left: 18px; color: var(--text); font: 450 13px/1.6 var(--font-sans); }
+.ql-list li { margin: 3px 0; }
 .ql-strong { font-weight: 700; color: var(--text-strong); }
 .ql-heat { display: inline-block; min-width: 30px; padding: 1px 6px; border-radius: 6px; text-align: center; font: 600 12px/1.5 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--text-strong); }
 .ql-h1 { background: color-mix(in srgb, var(--neg) 26%, transparent); }

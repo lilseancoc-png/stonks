@@ -22,12 +22,14 @@ export function renderQuantLabsJs() {
   };
   var QL_KIND = { chance: 'Chance', score: 'Score', range: 'Range' };
   var QL_REG = { holds: ['Holds up', 'evb-s-pass'], lucky: ['Could be luck', 'evb-s-unclear'], unproven: ['Unproven', 'evb-s-unclear'], losing: ['Losing', 'evb-s-fail'], few: ['Collecting', 'evb-s-collect'] };
-  var QL_FAC = { holds: ['Holds up', 'evb-s-pass'], lucky: ['Could be luck', 'evb-s-unclear'], none: ['No proven edge', 'evb-s-unclear'], few: ['Collecting', 'evb-s-collect'] };
+  var QL_FAC = { holds: ['Holds up', 'evb-s-pass'], reversed: ['Holds, in reverse', 'evb-s-pass'], lucky: ['Could be luck', 'evb-s-unclear'], none: ['No proven edge', 'evb-s-unclear'], few: ['Collecting', 'evb-s-collect'] };
   var QL_VOLREAD = { rich: ['Rich', 'evb-s-fail'], cheap: ['Cheap', 'evb-s-pass'], fair: ['Fair', 'evb-s-unclear'] };
   var QL_MODEL = { trailing: 'Last 21 sessions', ewma: 'Weighted recent moves (EWMA)', garch: 'GARCH', har: 'Day, week and month mix (HAR)' };
   var QL_RES = { working: ['Working', 'evb-s-pass'], weak: ['Weak', 'evb-s-unclear'], 'no-skill': ['No skill', 'evb-s-fail'], holds: ['Holds up', 'evb-s-pass'], lucky: ['Could be luck', 'evb-s-unclear'], none: ['No proven edge', 'evb-s-unclear'], better: ['Better', 'evb-s-pass'], same: ['No gain', 'evb-s-unclear'], worse: ['Worse', 'evb-s-fail'], thin: ['Too few cases', 'evb-s-collect'], few: ['Collecting', 'evb-s-collect'] };
 
   function qlFrac(v, d){ return v == null || !isFinite(v) ? '—' : (Number(v) * 100).toFixed(d == null ? 0 : d) + '%'; }
+  function qlPtsPct(v, d){ return v == null || !isFinite(v) ? '—' : slpPts(v, d) + '%'; }
+  function qlNumPct(v, d){ return v == null || !isFinite(v) ? '—' : slpNum(v, d) + '%'; }
   function qlSkill(v){ return v == null || !isFinite(v) ? '—' : (v > 0 ? '+' : '') + (Number(v) * 100).toFixed(1) + '%'; }
   function qlPill(pair){ return pair ? '<span class="evb-pill ' + pair[1] + '">' + escapeHtml(pair[0]) + '</span>' : ''; }
   function qlStale(block){ return block && block.stale ? '<p class="ql-warn">Last good copy: this lab could not run on the newest build.</p>' : ''; }
@@ -64,7 +66,7 @@ export function renderQuantLabsJs() {
     lines.push('<li>' + qlJump('calibration', 'Calibration') + ': ' + (cal.good || 0) + ' of ' + (cal.total || 0) + ' sources are honest and useful, ' + (cal.off || 0) + ' are off, ' + (cal.flat || 0) + ' add little and ' + (cal.few || 0) + ' are still collecting.' + (off.length ? ' Off: ' + escapeHtml(off.slice(0, 3).join('; ')) + '.' : '') + '</li>');
     var hist = fac.history || null, passed = 0;
     ((hist && hist.rows) || []).forEach(function(r){ if (r.verdict === 'holds') passed++; });
-    lines.push('<li>' + qlJump('factors', 'Factors') + ': ' + (hist ? passed + ' of ' + hist.rows.length + ' price factors passed the history test (bar: t ' + slpNum(hist.tBar, 2) + ' after ' + hist.trials + ' tries).' : 'no history test on file yet.') + (fac.gradeVs && fac.gradeVs.status === 'ok' ? ' Factors explain ' + qlFrac(fac.gradeVs.r2) + ' of today\\'s grade.' : '') + '</li>');
+    lines.push('<li>' + qlJump('factors', 'Factors') + ': ' + (hist ? passed + ' of ' + hist.rows.length + ' price factors passed the history test (bar: t ' + slpNum(hist.tBar, 2) + ' after ' + hist.trials + ' tries).' : 'no history test on file yet.') + (fac.universe && fac.universe.factors ? ' On the 500 largest US companies, ' + qlUniversePassed(fac.universe).length + ' of ' + fac.universe.factors.length + ' factors held up.' : '') + (fac.gradeVs && fac.gradeVs.status === 'ok' ? ' Factors explain ' + qlFrac(fac.gradeVs.r2) + ' of today\\'s grade.' : '') + '</li>');
     lines.push('<li>' + qlJump('vol', 'Volatility') + ': ' + (vol.status === 'ok' ? 'forecast model ' + escapeHtml(QL_MODEL[vol.model] || vol.model) + '; the median stock\\'s options sit ' + slpPts(vol.summary && vol.summary.medianPremium) + ' points against the forecast.' : 'not available yet.') + '</li>');
     lines.push('<li>' + qlJump('filings', 'Annual reports') + ': ' + (fil.read ? fil.read + ' compared with the year before, ' + ((fil.summary && fil.summary.rewritten) || 0) + ' with a rewritten risk section.' : 'collecting, a few companies per build.') + '</li>');
     lines.push('<li>' + qlJump('registry', 'Registry') + ': ' + (reg.holds || 0) + ' of ' + (reg.total || 0) + ' trade books hold up once the number of things tried is counted; ' + (reg.losing || 0) + ' are losing.</li>');
@@ -174,6 +176,46 @@ export function renderQuantLabsJs() {
   }
 
   // ---- Factors ---------------------------------------------------------------
+  function qlUniversePassed(u){
+    return ((u && u.factors) || []).filter(function(r){ return r.verdict === 'holds' || r.verdict === 'reversed'; });
+  }
+  // The wide history test: the 500 largest US companies at each month-end.
+  function qlUniverseHtml(u){
+    if (!u || !u.factors || !u.factors.length) return '';
+    var fams = {};
+    (u.families || []).forEach(function(x){ fams[x.key] = x.label; });
+    var rows = '', last = null;
+    u.factors.forEach(function(r){
+      if (r.family !== last){ last = r.family; rows += '<tr class="ql-fam"><td colspan="13">' + escapeHtml(fams[r.family] || r.family) + '</td></tr>'; }
+      rows += qlUniverseRow(r, r.label, r.hint);
+    });
+    if (u.composite) rows += '<tr class="ql-fam"><td colspan="13">All together</td></tr>' + qlUniverseRow(u.composite, 'Value, momentum, profitability, quality and earnings growth', 'Each company\\'s average rank across the five families, equally weighted');
+    var passed = qlUniversePassed(u);
+    var read = passed.length
+      ? passed.length + ' of ' + u.factors.length + ' factors held up after costs and after counting everything tried: ' + passed.map(function(r){ return r.label + (r.verdict === 'reversed' ? ' (in reverse)' : ''); }).join(', ') + '.'
+      : 'None of the ' + u.factors.length + ' factors held up after costs and after counting everything tried.';
+    var frows = (u.families || []).map(function(x){
+      return '<tr><td>' + escapeHtml(x.label) + '</td><td class="num ' + slpSign(x.slope) + '">' + slpPts(x.slope, 2) + '%</td><td class="num">' + slpNum(x.t, 2) + '</td><td class="num ' + slpSign(x.first) + '">' + slpPts(x.first, 2) + '%</td><td class="num ' + slpSign(x.second) + '">' + slpPts(x.second, 2) + '%</td><td class="num">' + (x.months || 0) + '</td></tr>';
+    }).join('');
+    var caveats = (u.caveats || []).map(function(c){ return '<li>' + escapeHtml(c) + '</li>'; }).join('');
+    return '<div class="ql-universe" data-ql-universe>' +
+      qlH('History test: the ' + (u.size || 500) + ' largest US companies, ' + String(u.from || '').slice(0, 4) + ' to ' + String(u.to || '').slice(0, 4)) +
+      '<p class="evb-lead ql-universe-read">' + escapeHtml(read) + '</p>' +
+      '<p class="evb-note">Each month-end the ' + (u.names || u.size || 500) + ' largest of ' + (u.pool || 0) + ' US companies are ranked on every factor, using only numbers that were already filed, and the next month\\'s return is read (' + (u.months || 0) + ' months). Rank skill is the correlation between the rank and the return that followed, 1 to 12 months ahead. The spread is the top fifth minus the bottom fifth, per year, before and after a cost of ' + (u.costBps || 10) + ' basis points a side. ' + (u.trials || 0) + ' things were tried, so a result needs a t value of ' + slpNum(u.tBar, 2) + ' and the same sign in both halves. The smallest company in the ' + (u.size || 500) + ' was worth $' + slpNum(u.smallest && u.smallest.first, 1) + 'B at the start and $' + slpNum(u.smallest && u.smallest.last, 1) + 'B at the end.</p>' +
+      slpTable([['Factor'], ['1 mo', 1], ['3 mo', 1], ['6 mo', 1], ['12 mo', 1], ['Spread a year', 1], ['After costs', 1], ['t', 1, 't value of the monthly spread'], ['Worst fall', 1], ['Turnover', 1, 'Share of the top and bottom fifths replaced each month'], ['Top fifth vs all', 1, 'What buying only the top fifth earned over the average company, per year. The site buys calls and puts on single names, so this is the long-only read'], ['Both halves'], ['Verdict']], rows) +
+      (frows ? qlH('Each family with the others held fixed') +
+        '<p class="evb-note">One regression per month of the next month\\'s return on all seven family scores at once (' + (u.familyMonths || 0) + ' months). A plus means companies ranking one standard step higher on that family earned that much more the next month than companies that looked the same on every other family.</p>' +
+        slpTable([['Family'], ['Per month', 1], ['t', 1], ['First half', 1], ['Second half', 1], ['Months', 1]], frows) : '') +
+      (caveats ? '<details class="rgl-details slp-details"><summary>Limits of this test</summary><ul class="ql-list">' + caveats + '</ul></details>' : '') +
+      '<p class="evb-note">Ran ' + escapeHtml(evbDate(u.ran)) + ' on public data downloaded ' + escapeHtml(evbDate(u.data && u.data.builtAt)) + '. Aggregates only: no company is named or ranked here, and nothing on this page changes a pick or a grade.</p>' +
+      '</div>';
+  }
+  function qlUniverseRow(r, label, hint){
+    var by = {}; (r.ic || []).forEach(function(x){ by[x.h] = x; });
+    var sp = r.spread || {};
+    return '<tr><td' + (hint ? ' title="' + escapeHtml(hint) + '"' : '') + '>' + escapeHtml(label) + '</td>' + qlIcCell(by[1]) + qlIcCell(by[3]) + qlIcCell(by[6]) + qlIcCell(by[12]) +
+      '<td class="num ' + slpSign(sp.perYear) + '">' + qlPtsPct(sp.perYear) + '</td><td class="num ' + slpSign(sp.net) + '">' + qlPtsPct(sp.net) + '</td><td class="num">' + slpNum(sp.t, 2) + '</td><td class="num">' + qlNumPct(sp.worst, 0) + '</td><td class="num">' + qlFrac(sp.turnover) + '</td><td class="num ' + slpSign(sp.topVsAll) + '">' + qlPtsPct(sp.topVsAll) + '</td><td>' + (r.bothHalves == null ? '—' : r.bothHalves ? 'Yes' : 'No') + '</td><td>' + qlPill(QL_FAC[r.verdict]) + '</td></tr>';
+  }
   function qlIcCell(r){
     if (!r || r.ic == null) return '<td class="num">—</td>';
     return '<td class="num ' + slpSign(r.ic) + '" title="' + (r.n || 0) + ' dates' + (r.t != null ? ', t ' + Number(r.t).toFixed(2) : '') + '">' + slpPts(r.ic, 3) + '</td>';
@@ -198,6 +240,7 @@ export function renderQuantLabsJs() {
         '<p class="evb-note">Rank skill is the correlation between the factor and the return that followed (1, 5, 21 and 63 sessions). The spread is the top third minus the bottom third, per year, before and after trading costs. ' + hist.trials + ' factor-and-horizon pairs were tried, so a result needs a t value of ' + slpNum(hist.tBar, 2) + ' to count, and the same sign in both halves.' + (hist.caveat ? ' ' + escapeHtml(hist.caveat) : '') + '</p>' +
         slpTable([['Factor'], ['1', 1], ['5', 1], ['21', 1], ['63', 1], ['Spread a year', 1], ['After costs', 1], ['t', 1], ['Worst fall', 1], ['Turnover', 1, 'Share of the top and bottom thirds replaced at each monthly rebalance'], ['Both halves'], ['Verdict']], hrows);
     }
+    out += qlUniverseHtml(f.universe);
     if (f.skill && f.skill.length){
       var srows = f.skill.map(function(r){
         var by = {}; (r.ic || []).forEach(function(x){ by[x.h] = x; });

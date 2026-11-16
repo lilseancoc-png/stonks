@@ -140,6 +140,87 @@ context. The Earnings Forecast ranges are the first user
 History result (74 covered stocks, 2008 to 2026, 28 factor-and-horizon pairs,
 so a t value of 3.12 is needed): no price factor passes.
 
+#### The wide history test (`factor-universe.mjs`)
+
+The covered list is 85 names, too few to judge a factor. The wide test asks
+the textbook question on the 500 largest US companies: did value, momentum,
+profitability, quality, earnings growth, low volatility or smaller size
+predict the next month's return, and what was left after trading costs?
+
+- **Companies.** A pool of about 1,000 of today's largest US filers. At each
+  month-end the 500 largest by that day's market value are the universe. The
+  test starts at the first month with 500 companies that have a market value
+  (August 2010 on the current download).
+- **Numbers.** SEC company facts, first-filed values only, each with its
+  filing date, so a month-end uses only what was public. Prices are Yahoo
+  split-adjusted closes with dividends, so returns are total returns.
+- **Factors.** 17 in seven families: earnings yield, book to market, sales
+  yield, free cash flow yield; 12- and 6-month momentum, 1-month reversal;
+  gross profit to assets, return on equity, operating margin; profit backed by
+  cash, low debt load, slow asset growth, few new shares; earnings growth
+  surprise (the free stand-in for analyst revisions); low volatility; smaller
+  size. Bank-unfriendly ratios skip financial companies.
+- **What is measured.** Rank skill 1, 3, 6 and 12 months ahead; the top fifth
+  minus the bottom fifth per year, its t value, worst fall and monthly
+  turnover; the same after 10 basis points a side; the top fifth against the
+  average company (the long-only read); both halves; and one regression a
+  month of the next return on all seven family scores at once (Fama-MacBeth).
+  18 things are tried (17 factors and the combined score), so a pass needs a
+  t value of 2.99, the same sign in both halves and a profit after costs.
+
+Market value is the adjusted close times the share count in the newest
+filing, and the share counts need cleaning (`sharesSeries`):
+
+- **Units.** Filers scale share tags differently (a count in thousands reads
+  1,000 times too small), and now and then the per-share figure or the profit
+  is off instead. Each reading (the weighted count, the cover count, profit
+  divided by earnings per share) is set against the middle of all three in the
+  filings around it; one that is 1,000 or 1,000,000 times away is rescaled and
+  one still more than 30 times away is left out.
+- **Splits and spin-offs.** The price history books some spin-offs as splits.
+  A factor below one is a reverse split; an odd factor above one (2.0842) is a
+  spin-off; a round one is read off the filed counts on either side. A
+  spin-off factor applies to month-ends before the event only. A filing made
+  just before a split that is already restated for it is not doubled again.
+- **Which count.** The largest weighted or cover count for the newest period
+  (a cover count is newer after a listing or a share issue; a weighted count
+  covers every share class). Profit over earnings per share stands in only
+  when neither is filed and it agrees with the company's own counts.
+- **Today's quote.** The newest count is set against Yahoo's quoted share
+  count and quoted value over price. A company more than 1.5 times above or
+  under half of it is left out of the test. Past counts are never scaled to
+  the quote.
+- **Wrong-unit filings.** A filing whose total assets or sales read about 200
+  times away from the filings around it is set aside whole.
+
+Cleaning may read later filings to settle units, splits and typos. The
+numbers a month-end uses were all filed by then (the smoke test changes every
+number filed after a date and checks the months before it do not move).
+
+Result (2026-11-16 download; 500 largest of 992 companies, 194 months, August
+2010 to September 2026): **no factor passes.** The closest is few new shares
+(rank skill 0.019, t 2.33, +1.1% a year after costs), which misses the bar.
+The combined score has a rank skill of 0.014 (t 1.79) and +1.4% a year after
+costs. Book to market lost 4.0% a year and low volatility 8.7% a year;
+12-month momentum made 3.0% a year after costs with a t value of 0.6. In the
+regression, momentum is the largest plus (+0.13% a month per standard step,
+t 1.56) and low volatility the largest minus (t -1.72). The share check: 977
+of 997 companies match today's quote, 5 are left out and 15 have no usable
+count; 247 companies had counts rescaled, 131 spin-offs were told apart from
+splits and 71 filings were set aside.
+
+Limits, all on the page: today's survivors only (which lifts small, volatile,
+cheap and money-losing companies, so it is too kind to smaller size and value
+and too hard on low volatility, profitability and momentum); filings are
+machine-readable only from 2009 to 2011; a merger, spin-off or listing can
+leave a wrong share count for a month or two; a few very large companies with
+several share classes file no total and are missing; no free history of
+analyst revisions; flat costs with no borrow fee; equal weights and no
+industry balance.
+
+The result file holds aggregates only. No company is named, ranked or scored
+in it, and the research download is never merged into `main`.
+
 ### 4. Volatility (`vol.mjs`)
 
 Four forecasts of each stock's swings over the next 21 sessions (the last 21
@@ -208,6 +289,16 @@ strengths, the volatility forecast test and the price-factor test on the
 long-history download, and writes `research/quant-labs/results/latest.json`.
 Every full build joins that file into the page.
 
+`node scripts/quant-labs.mjs universe --data DIR [--from YYYY-MM] [--dry]`
+runs the wide factor test and merges its block (`factorUniverse`, plus 18
+registry rows) into the same file, leaving the other tests as they are; `run`
+keeps the block when it rewrites the file. `DIR` holds `universe.json.gz`,
+`prices.json.gz` and `facts.json.gz` from the `research-factor-data` branch
+(`research/factor-universe/collect.mjs` there: free SEC and Yahoo reads with
+the site's own SEC identity, run by a push to that branch; about 17 MB, never
+merged). A company that re-registered with the SEC has its earlier filings
+under an old number; the collector's `PREDECESSORS` table joins the two.
+
 ## Switches
 
 Both are on the Owner Settings page (no repo variable, no workflow edit):
@@ -225,8 +316,15 @@ Both are on the Owner Settings page (no repo variable, no workflow edit):
   on a second build, a failing lab, file round-trips, the switches and the
   Owner / public split.
 - `node scripts/quant-labs-browser.mjs`: every sub-tab at 1440 light and 390
-  dark, the card on both pages, a stale lab, a missing file, and a public visit
-  that must not see the view or request either file.
+  dark, the wide factor test's tables, the card on both pages, a stale lab, a
+  missing file, and a public visit that must not see the view or request
+  either file.
+- `node scripts/factor-universe-smoke.mjs`: the wide factor test on a made-up
+  universe (`scripts/fixtures/factor-universe.mjs`): trailing-year totals,
+  share counts (units, splits, spin-offs, an early restatement, a new listing,
+  a one-class cover count, the quote check), a planted factor that must be
+  found, noise that must not pass, costs, no look-ahead, and a result that
+  names no company.
 
 Neither has an npm script (`verify:risk-cost` fails on any `package.json`
 change).
