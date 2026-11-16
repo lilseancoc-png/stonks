@@ -34,6 +34,7 @@ import { renderEdgeOddsCss } from './edge-odds-css.mjs';
 import { renderEvidenceCss } from './evidence-css.mjs';
 import { renderRegimeLabCss } from './regime-lab-css.mjs';
 import { renderSelfLoopCss } from './self-loop-css.mjs';
+import { renderQuantLabsCss } from './quant-labs-css.mjs';
 import { renderEnginesCss } from './engines-css.mjs';
 import { renderOwnerInsightCss } from './owner-insight-css.mjs';
 import { renderI18nCss } from './i18n-client.mjs';
@@ -25509,7 +25510,11 @@ ${renderExportCss()}
 .owner-lab-panel .book-controls input, .owner-lab-panel .book-controls select { max-width: 100%; }
 .owner-lab-panel button:disabled { opacity: .6; cursor: wait; }
 @media (max-width: 650px) {
-  .owner-lab-tabs button { padding: 10px 4px; font-size: 12px; }
+  /* Seven views no longer fit one phone row, so the row scrolls sideways
+     inside itself (2026-11-16) and the chosen view is brought into sight. */
+  .owner-lab-tabs { overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+  .owner-lab-tabs::-webkit-scrollbar { display: none; }
+  .owner-lab-tabs button { flex: 0 0 auto; padding: 10px 10px; font-size: 12px; white-space: nowrap; }
   .owner-lab-intro { flex-direction: column; }
   .owner-evidence-piece { grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .owner-lab-panel .book-controls > label { min-width: 0; flex: 1 1 100%; }
@@ -25603,6 +25608,7 @@ ${renderEdgeOddsCss()}
 ${renderEvidenceCss()}
 ${renderRegimeLabCss()}
 ${renderSelfLoopCss()}
+${renderQuantLabsCss()}
 ${renderEnginesCss()}
 ${renderOwnerInsightCss()}
 ${renderI18nCss()}

@@ -54,6 +54,7 @@ import { renderEdgeOddsJs } from './edge-odds-client.mjs';
 import { renderEvidenceJs } from './evidence-client.mjs';
 import { renderRegimeLabJs } from './regime-lab-client.mjs';
 import { renderSelfLoopJs } from './self-loop-client.mjs';
+import { renderQuantLabsJs } from './quant-labs-client.mjs';
 import { renderEnginesJs } from './engines-client.mjs';
 import { renderOwnerInsightJs } from './owner-insight-client.mjs';
 import { tradePostMortemFactory } from '../../lib/trade-postmortem.mjs';
@@ -122,6 +123,7 @@ ${renderEdgeOddsJs()}
 ${renderEvidenceJs()}
 ${renderRegimeLabJs()}
 ${renderSelfLoopJs()}
+${renderQuantLabsJs()}
 ${renderEnginesJs()}
 ${renderOwnerInsightJs()}
 ${calendarSourceLabel.toString()}
@@ -4870,6 +4872,7 @@ ${renderExportBindings()}
         if (name === 'prediction-markets' && typeof loadPrediction === 'function') loadPrediction();
         if (name === 'history-rhymes' && typeof loadHistoryRhymes === 'function') loadHistoryRhymes();
         if (name === 'risk' && typeof loadHistoryRhymesRisk === 'function') loadHistoryRhymesRisk();
+        if ((name === 'risk' || name === 'bottom-tracker') && typeof loadMarketOddsCards === 'function') loadMarketOddsCards();
         if (name === 'whats-changed' && typeof loadWhatsChanged === 'function') loadWhatsChanged();
         if (name === 'past-day' && typeof loadPastDays === 'function') loadPastDays();
         if (name === 'flow' && typeof loadZeroDte === 'function') loadZeroDte();
@@ -25394,7 +25397,7 @@ ${renderExportBindings()}
   var ownerLabBound = false;
   var quantPairsAll = false;
   function selectOwnerLabView(view){
-    if (['personal','research','diagnostics','evidence','regime','loop'].indexOf(view) < 0) return;
+    if (['personal','research','diagnostics','evidence','regime','loop','labs'].indexOf(view) < 0) return;
     ownerLabView = view;
     var section = $('quant-section');
     if (!section) return;
@@ -25402,10 +25405,14 @@ ${renderExportBindings()}
       var selected = button.getAttribute('data-owner-view') === view;
       button.setAttribute('aria-selected', selected ? 'true' : 'false');
       button.tabIndex = selected ? 0 : -1;
+      // On a phone the row scrolls sideways: bring the chosen view into sight
+      // inside the row (never scrolls the page).
+      var row = selected ? button.parentNode : null;
+      if (row && row.scrollWidth > row.clientWidth) row.scrollLeft = Math.max(0, button.offsetLeft - row.offsetLeft - (row.clientWidth - button.offsetWidth) / 2);
     });
     section.querySelectorAll('[data-owner-panel]').forEach(function(panel){ panel.hidden = panel.getAttribute('data-owner-panel') !== view; });
     var eye = $('quant-eyebrow');
-    if (eye && view !== 'research') eye.textContent = view === 'personal' ? 'Private tools' : view === 'evidence' ? 'Tests and gates' : view === 'regime' ? 'Regime Lab' : view === 'loop' ? 'Self-improving loop' : 'Stored research records';
+    if (eye && view !== 'research') eye.textContent = view === 'personal' ? 'Private tools' : view === 'evidence' ? 'Tests and gates' : view === 'regime' ? 'Regime Lab' : view === 'loop' ? 'Self-improving loop' : view === 'labs' ? 'Quant labs' : 'Stored research records';
     if (view === 'personal') loadOwnerTools();
     if (view === 'research') loadQuantResearch();
     if (view === 'diagnostics' && window.BookViews) window.BookViews.openTab('quant');
@@ -25413,6 +25420,7 @@ ${renderExportBindings()}
     if (view === 'evidence') loadEvidenceBoard();
     if (view === 'regime') loadRegimeLab();
     if (view === 'loop') loadSelfLoop();
+    if (view === 'labs') loadQuantLabs();
   }
   function bindOwnerLab(){
     var section = $('quant-section');
@@ -25425,6 +25433,7 @@ ${renderExportBindings()}
       if (event.target.closest('[data-owner-evidence-refresh]')) loadEvidenceBoard(true);
       if (event.target.closest('[data-owner-regime-refresh]')) loadRegimeLab(true);
       if (event.target.closest('[data-owner-loop-refresh]')) loadSelfLoop(true);
+      if (event.target.closest('[data-owner-labs-refresh]')) loadQuantLabs(true);
       // "Company record" link: open the Unified Signal Engine on that view,
       // carrying over a ticker typed into one of the record searches. The
       // button's data-wf-go does the page switch.
@@ -25483,6 +25492,11 @@ ${renderExportBindings()}
   }
   function loadQuant(){
     bindOwnerLab();
+    // ?tab=quant&lab=labs opens a view directly (the Market odds card's link).
+    try {
+      var labParam = new URLSearchParams(location.search).get('lab');
+      if (labParam && !loadQuant.linked){ loadQuant.linked = true; if (document.querySelector('[data-owner-view="' + labParam.replace(/[^a-z]/g, '') + '"]')) ownerLabView = labParam.replace(/[^a-z]/g, ''); }
+    } catch (_) {}
     selectOwnerLabView(ownerLabView);
   }
   function loadQuantResearch(force){
