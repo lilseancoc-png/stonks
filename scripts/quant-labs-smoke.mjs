@@ -15,7 +15,7 @@ import {
 } from "../lib/labs/stats.mjs";
 import { buildDrawdownOdds, gradeDrawdownLog, DD_FEATURES, REC_FEATURES, DD_TARGETS } from "../lib/labs/drawdown-odds.mjs";
 import { scoreChance, scoreScore, scoreRange, buildCalibrationLab, recordSources, engineSources, loopSources, predictionSource, foldPredictionLog, earningsMoveSource } from "../lib/labs/calibration.mjs";
-import { registryRow, buildRegistry, TRIAL_LOG, trialsFor } from "../lib/labs/registry.mjs";
+import { registryRow, buildRegistry, TRIAL_LOG, trialsFor, worstRunPts } from "../lib/labs/registry.mjs";
 import { evaluateVolModels, buildVolLab, VOL_MODELS } from "../lib/labs/vol.mjs";
 import { evaluateFactors, publicFactorRows, exposures, gradeVsFactors, foldPanel, panelSnapshot, percentiles, PRICE_FACTORS, ALL_FACTORS } from "../lib/labs/factors.mjs";
 import { evaluateUniverse, UNIVERSE_FACTORS } from "../lib/labs/factor-universe.mjs";
@@ -231,6 +231,7 @@ async function main() {
   eq(dd.log.length, 1, "one stated row per close"); eq(dd.log[0].d, dd.asOf, "the stated row is dated by the close");
   ok(dd.study && dd.study.ridge.length === 3 && dd.study.breadth.read, "the history run's side checks ride along");
   ok(p.card && p.card.fall.some((t) => t.id === "fall10_6m") && p.card.asOf === dd.asOf, "the card carries the headline chance");
+  eq(p.card.from, dd.sampleFrom, "the card names where its history starts");
   eq(p.card.inDecline, dd.inDecline, "card decline flag"); ok(!dd.inDecline || p.card.recovery.length > 0, "recovery chances only inside a decline");
   eq(buildDrawdownOdds({ bars: fx.market.bars.slice(-300), fred: fx.market.fred }).status, "no-data", "a short history says so");
   // A stored log is graded once its windows close.
@@ -289,6 +290,8 @@ async function main() {
     ok(registryRow({ id: "g", label: "g", family: "x", returns: good, trials: 1 }).tNeeded < registryRow({ id: "g", label: "g", family: "x", returns: good, trials: 50 }).tNeeded, "the bar rises with attempts");
   }
   ok(trialsFor("top-picks") >= 10 && trialsFor("nope") === 1 && TRIAL_LOG.every((r) => r.trials > 0 && r.what), "the trial log");
+  eq(worstRunPts([10, -20, -10, 30]), -30, "worst run sums per-trade results"); eq(worstRunPts([20, -100, 50, -100]), -150, "a lost premium is 100 points, not the end of the book");
+  eq(trialsFor("factor-universe"), 18, "the wide factor test counts its 18 tries"); eq(trialsFor("earnings-forecast"), 4, "the earnings forecast test counts its 4 tries");
   const reg = p.registry;
   ok(reg.rows.some((r) => r.id === "top-picks") && reg.rows.some((r) => r.id === "spy-baseline") && reg.rows.some((r) => r.id === "engine-tec"), "registry books");
   eq(reg.rows.find((r) => r.id === "spy-baseline").trials, 1, "the baseline counts one attempt"); ok(reg.research.length === 1 && reg.trials.length === TRIAL_LOG.length, "research tests and the trial log are listed");
