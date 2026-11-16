@@ -39,10 +39,10 @@ const TABS = [
   ['registry', /Things tried/],
 ];
 
+// Quant labs is its own Owner page since 2026-11-16 (was an Owner Lab view).
 async function openLabs(opts) {
-  const s = await openTab(browser, server.base, { tab: 'quant', ...opts });
-  await s.page.locator('#owner-tab-labs').waitFor({ state: 'visible', timeout: 15000 });
-  await s.page.locator('#owner-tab-labs').click();
+  const s = await openTab(browser, server.base, { tab: 'quant-labs', ...opts });
+  await s.page.locator('#page-pane-quant-labs').waitFor({ state: 'visible', timeout: 15000 });
   return s;
 }
 
@@ -53,7 +53,8 @@ try {
     const s = await openLabs(vp);
     await s.page.locator('#quant-labs-root .ql-body').waitFor({ timeout: 15000 });
     await settle(s.page, 600);
-    check(/How likely, how honest/.test(await s.page.locator('#owner-panel-labs').innerText()), vp.name + ': the view intro is shown');
+    check(/How likely, how honest/.test(await s.page.locator('#page-pane-quant-labs').innerText()), vp.name + ': the page intro is shown');
+    check((await s.page.locator('[data-page-tab="quant-labs"]').count()) === 1 && (await s.page.locator('[data-owner-view="labs"]').count()) === 0, vp.name + ': Quant labs is a sidebar page, not an Owner Lab view');
     check(/Written by the/.test(await s.page.locator('#owner-labs-status').innerText()), vp.name + ': the status line names the build');
     check((await s.page.locator('#quant-labs-root [data-ql-tab]:not(.ql-linkbtn)').count()) === TABS.length, vp.name + ': one tab per lab');
     for (const [tab, expect] of TABS) {
@@ -103,12 +104,20 @@ try {
     await s.context.close();
   }
 
-  // The deep link opens the view directly.
+  // The old Owner Lab link (?tab=quant&lab=labs) still opens Quant labs, on its
+  // own page; Owner Lab's other views stay where they were.
   {
     const s = await openTab(browser, server.base, { tab: 'quant', extra: '&lab=labs', width: 1200, height: 900 });
     await s.page.locator('#quant-labs-root .ql-body').waitFor({ timeout: 15000 });
-    check(await s.page.locator('#owner-panel-labs').isVisible(), '?lab=labs opens Quant labs');
+    check(await s.page.locator('#page-pane-quant-labs').isVisible(), 'the old ?tab=quant&lab=labs link opens the Quant labs page');
+    const q = new URL(s.page.url()).searchParams;
+    check(q.get('tab') === 'quant-labs' && !q.has('lab'), 'the old link lands on ?tab=quant-labs');
     await s.context.close();
+    const o = await openTab(browser, server.base, { tab: 'quant', extra: '&lab=loop', width: 1200, height: 900 });
+    await settle(o.page, 600);
+    check(await o.page.locator('#page-pane-quant').isVisible() && await o.page.locator('#owner-panel-loop').isVisible(), '?tab=quant&lab=loop still opens the Owner Lab Loop view');
+    check(o.errors.length === 0, 'Owner Lab: no page errors');
+    await o.context.close();
   }
 
   // The card on the Risk analysis and Bottom tracker pages.
@@ -120,7 +129,7 @@ try {
       const text = await s.page.locator(host).innerText();
       check(/Context, not a vote/i.test(text) && /Chance of a 10%\+ drop within 6 months/.test(text), `${tab} ${vp.width}: the card states the headline chance`);
       check(/normal \d+%/.test(text) && !JUNK.test(text), `${tab} ${vp.width}: the card shows the normal rate and no raw values`);
-      check((await s.page.locator(host + ' a[href*="lab=labs"]').count()) === 1, `${tab} ${vp.width}: the card links to Quant labs`);
+      check((await s.page.locator(host + ' a[href="?tab=quant-labs"]').count()) === 1, `${tab} ${vp.width}: the card links to the Quant labs page`);
       const problems = (await pageProblems(s)).filter((p) => !/blank/.test(p));
       check(problems.length === 0, `${tab} ${vp.width}: ` + problems.join(' | '));
       await s.page.locator(host).screenshot({ path: resolve(output, `card-${tab}-${vp.width}.png`) });
@@ -177,10 +186,10 @@ try {
   {
     owner = false;
     server.asks.data.length = 0;
-    for (const tab of ['quant', 'risk', 'bottom-tracker', 'home']) {
+    for (const tab of ['quant-labs', 'quant', 'risk', 'bottom-tracker', 'home']) {
       const s = await openTab(browser, server.base, { tab, extra: tab === 'quant' ? '&lab=labs' : '', width: 1440, height: 1000 });
       await settle(s.page, 1500);
-      check(!(await s.page.locator('#owner-tab-labs').isVisible().catch(() => false)), `public ${tab}: the Quant labs view is not visible`);
+      check(!(await s.page.locator('#page-pane-quant-labs').isVisible().catch(() => false)) && !(await s.page.locator('[data-page-tab="quant-labs"]').isVisible().catch(() => false)), `public ${tab}: the Quant labs page and its sidebar link are not visible`);
       check(!(await s.page.locator('.ql-card').first().isVisible().catch(() => false)), `public ${tab}: no Market odds card`);
       check(s.errors.length === 0, `public ${tab}: no page errors`);
       await s.context.close();

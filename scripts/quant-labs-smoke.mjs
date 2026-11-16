@@ -420,7 +420,7 @@ async function main() {
   const app = await readFile(resolve("app.js"), "utf8"), html = await readFile(resolve("index.html"), "utf8");
   ok(app.includes("dataUrl('quant-labs.json')") && !app.includes("quant-labs-state.json"), "the browser reads the page file and never the state file");
   ok(/function qlFetch\(force\)\{\s*if \(!HAS_OWNER_ACCESS\) return Promise\.resolve\(null\);/.test(app), "the browser read is behind the Owner check");
-  ok(html.includes('id="owner-panel-labs"') && html.includes('id="risk-odds" hidden') && html.includes('id="bottom-odds" hidden'), "the tab and both card hosts are in the page, hidden until filled");
+  ok(html.includes('id="page-pane-quant-labs"') && !html.includes('id="owner-panel-labs"') && html.includes('id="risk-odds" hidden') && html.includes('id="bottom-odds" hidden'), "the Quant labs page and both card hosts are in the page, hidden until filled");
   // Public Brief sources and the public manifest never name the labs.
   const build = await readFile(resolve("scripts/build.mjs"), "utf8");
   const briefSources = build.slice(build.indexOf("const BRIEF_TOOL_SOURCES"), build.indexOf("const BRIEF_TOOL_SOURCES") + 6000);

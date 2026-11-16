@@ -85,6 +85,7 @@ const SIDE_NAV_ICONS = {
   'ma-tracker': '<path d="M3.5 19.5h17"/><path d="M3.5 4.5v15"/><path d="m6 15 4-4 3 2 5-6"/><path d="M6 9.5h12"/>',
   spillover: '<circle cx="12" cy="12" r="2.5"/><path d="M12 5.5a6.5 6.5 0 0 1 6.5 6.5"/><path d="M12 2a10 10 0 0 1 10 10"/>',
   quant: '<path d="M18 6.5V4H6l6.5 8L6 20h12v-2.5"/>',
+  'quant-labs': '<path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 1.7 3h10.6a2 2 0 0 0 1.7-3l-5-9V3"/><path d="M7.5 15h9"/>',
   'historical-data': '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/>',
   'party-tracker': '<path d="M4 20h16M6 20V9M10 20V9M14 20V9M18 20V9M3 9h18M12 3l8 6H4z"/>',
   'earnings-forecast': '<path d="M4 20V4M4 20h16M8 15l4-5 4 2 4-7"/><path d="M16 5h4v4"/>',
@@ -1010,6 +1011,18 @@ function spilloverSection() {
   </section>`;
 }
 
+// Quant labs has its own Owner page since 2026-11-16 (it was a view of Owner
+// Lab, which had grown to seven views). The old ?tab=quant&lab=labs link
+// still opens it.
+function quantLabsSection() {
+  return `<section class="card" id="quant-labs-section">
+    <header class="card-header"><h2 class="card-title">Quant labs</h2><span class="card-eyebrow">Owner · measurement only</span></header>
+    <div class="owner-lab-intro"><div><h3>How likely, how honest, and would it survive a recount?</h3><p>The chance of a 10% or 20% market fall and of a recovery, fitted on S&amp;P 500 history since 1962; a check of every chance, score and range the site states against what happened; what the grade and the trades lean on; each stock's volatility forecast against its option prices; what changed in the annual reports; and a registry that counts every attempt behind a result. No AI. Nothing here changes a pick, a grade or the Track Record.</p></div><button type="button" class="book-more" data-owner-labs-refresh>Refresh labs</button></div>
+    <p class="hint" id="owner-labs-status" role="status" aria-live="polite">The labs load on first open.</p>
+    <div id="quant-labs-root" class="evb-root rgl-root slp-root ql-root"></div>
+  </section>`;
+}
+
 function quantSection() {
   return `<section class="card" id="quant-section">
     <header class="card-header"><h2 class="card-title">Owner Lab</h2><span class="card-eyebrow" id="quant-eyebrow" aria-live="polite"></span></header>
@@ -1021,7 +1034,6 @@ function quantSection() {
       <button type="button" role="tab" id="owner-tab-evidence" data-owner-view="evidence" aria-controls="owner-panel-evidence" aria-selected="false" tabindex="-1">Evidence</button>
       <button type="button" role="tab" id="owner-tab-regime" data-owner-view="regime" aria-controls="owner-panel-regime" aria-selected="false" tabindex="-1">Regime Lab</button>
       <button type="button" role="tab" id="owner-tab-loop" data-owner-view="loop" aria-controls="owner-panel-loop" aria-selected="false" tabindex="-1">Loop</button>
-      <button type="button" role="tab" id="owner-tab-labs" data-owner-view="labs" aria-controls="owner-panel-labs" aria-selected="false" tabindex="-1">Quant labs</button>
     </div>
     <section id="owner-panel-personal" class="owner-lab-panel" data-owner-panel="personal" role="tabpanel" aria-labelledby="owner-tab-personal">
     <section class="owner-suite" aria-labelledby="owner-tools-title">
@@ -1097,11 +1109,6 @@ function quantSection() {
       <div class="owner-lab-intro"><div><h3>Is the engine learning?</h3><p>At every Top Picks run the loop writes down a chance for every scored name (that it moves the grade's way in 5, 10 and 20 sessions, and that the planned option reaches +25% before -50%), then grades those chances once the moves are in. It also replays every trade-grade name's option, picked or not, and checks whether each open-pick rule kept the book out of worse trades. Measurement only unless self-tuning is switched on.</p></div><button type="button" class="book-more" data-owner-loop-refresh>Refresh loop</button></div>
       <p class="hint" id="owner-loop-status" role="status" aria-live="polite">The loop loads on first open.</p>
       <div id="self-loop-root" class="evb-root rgl-root slp-root"></div>
-    </section>
-    <section id="owner-panel-labs" class="owner-lab-panel" data-owner-panel="labs" role="tabpanel" aria-labelledby="owner-tab-labs" hidden>
-      <div class="owner-lab-intro"><div><h3>How likely, how honest, and would it survive a recount?</h3><p>The chance of a 10% or 20% market fall and of a recovery, fitted on S&amp;P 500 history since 1962; a check of every chance, score and range the site states against what happened; what the grade and the trades lean on; each stock's volatility forecast against its option prices; what changed in the annual reports; and a registry that counts every attempt behind a result. No AI. Nothing here changes a pick, a grade or the Track Record.</p></div><button type="button" class="book-more" data-owner-labs-refresh>Refresh labs</button></div>
-      <p class="hint" id="owner-labs-status" role="status" aria-live="polite">The labs load on first open.</p>
-      <div id="quant-labs-root" class="evb-root rgl-root slp-root ql-root"></div>
     </section>
   </section>`;
 }
@@ -2524,6 +2531,9 @@ ${i18nHeadScript()}
   </div>
   <div class="page-pane" id="page-pane-quant" role="tabpanel" aria-labelledby="page-tab-quant" hidden>
   ${quantSection()}
+  </div>
+  <div class="page-pane" id="page-pane-quant-labs" role="tabpanel" aria-labelledby="page-tab-quant-labs" hidden>
+  ${quantLabsSection()}
   </div>
   <div class="page-pane" id="page-pane-sports-nba" role="tabpanel" aria-labelledby="page-tab-sports-nba" hidden>
     <section class="card sp-section" id="sports-nba-section">
