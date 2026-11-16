@@ -246,6 +246,25 @@ ok('grader lines mark an unknown direction with ?', predictionGraderLines(ctx).s
   ok('the client refuses calls past its budget', threw && client.calls === 2);
 }
 {
+  // A 429 is waited out and asked again (each try counts); a 400 is not.
+  let n = 0;
+  const waits = [];
+  const flaky = () => { n += 1; return n < 3 ? Promise.reject(Object.assign(new Error('HTTP 429'), { status: 429 })) : Promise.resolve({ ok: 1 }); };
+  const client = createClient({ fetchJson: flaky, budget: 10, sleep: (ms) => { waits.push(ms); return Promise.resolve(); } });
+  const body = await client.get('x');
+  ok('a rate-limited read is retried after a wait', body.ok === 1 && client.calls === 3 && client.rateLimited === 2 && waits.length === 2);
+  let m = 0;
+  const bad = createClient({ fetchJson: () => { m += 1; return Promise.reject(Object.assign(new Error('HTTP 400'), { status: 400 })); }, budget: 10, sleep: () => Promise.resolve() });
+  let status = null;
+  try { await bad.get('y'); } catch (e) { status = e.status; }
+  ok('a 400 is not retried', status === 400 && m === 1);
+  let k = 0;
+  const always = createClient({ fetchJson: () => { k += 1; return Promise.reject(Object.assign(new Error('HTTP 429'), { status: 429 })); }, budget: 10, sleep: () => Promise.resolve() });
+  let gave = null;
+  try { await always.get('z'); } catch (e) { gave = e.status; }
+  ok('a read still rate-limited after two retries gives up', gave === 429 && k === 3);
+}
+{
   const ev = { event_ticker: 'E', series_ticker: 'S', title: 'T', markets: [{ ticker: 'A', yes_sub_title: 'a', yes_bid_dollars: '0.6', yes_ask_dollars: '0.62' }, { ticker: 'B', yes_sub_title: 'b', yes_bid_dollars: '0.02', yes_ask_dollars: '0.03' }] };
   const cands = kalshiCandidates({ ...ev, mutually_exclusive: true });
   ok('an outcome under 3% is not kept', pickFromEvent(cands).map((c) => c.id).join() === 'K:A');

@@ -50,6 +50,12 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Fixed
 - Update two tests left stale by the prediction markets change: the Brief coverage check lists Prediction markets as a reference-only page, and the Booms & busts test expects shadow log version 6.
+- Publish `owner-settings-applied.json` again: it was missing from the optional bake keys, so every build's freshness check held it back and the Owner Settings page never showed what the build applied.
+- Wait and retry when Kalshi answers HTTP 429 (two retries, 1.5 s then 4 s, inside the same call budget) instead of dropping that read; the build log counts the waits.
+- Stop flagging the central bank gold source as old: IMF figures arrive about two months late, so that source now allows 80 days (`maxAgeHours` per source in `lib/source-health.mjs`).
+
+### Changed
+- Run the Top Picks missed-run check every hour as a second job of the unusual-flow workflow, which cron-job.org dispatches on time. On 2026-11-16 the 11:00 ET build was cancelled while waiting in the shared queue and the GitHub-cron backup fired hours late, so the retry only went out at 13:30 ET; now a missed or cancelled slot is retried within the hour. GitHub API only, no data, AI or store access.
 
 ## 2026-11-15
 

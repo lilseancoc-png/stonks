@@ -46,6 +46,10 @@ const quarterly = assessSource(def("ai-capex"), { builtAtIso: built, companies: 
 assert.equal(quarterly.state, "ok", "a quarterly source may be months old");
 const weekly = assessSource(def("ram-prices"), { builtAtIso: built, spot: { asOf: "2026-10-20", stale: false }, retail: { asOf: "2026-10-20", stale: false } }, now);
 assert.equal(weekly.state, "aged");
+// Central bank gold publishes each month about two months late (2026-11-16:
+// September data read as "aged" at 47 days).
+assert.equal(assessSource(def("central-bank-gold"), { builtAtIso: built, asOf: "2026-09-30", stale: false }, now).state, "ok", "two-month publication lag is not aged");
+assert.equal(assessSource(def("central-bank-gold"), { builtAtIso: built, asOf: "2026-08-15", stale: false }, now).state, "aged", "three months old is aged");
 
 // buildSourceHealth: the history upserts by ET day (worst state wins within a
 // day), prunes to 60 days and computes streaks and bad days.
