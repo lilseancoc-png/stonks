@@ -1,9 +1,9 @@
-// Styles for engines-client.mjs (2026-11-16): the engine switcher on the Top
-// Picks page and the per-engine views. Shares the ui-tabs, evb-*, slp-*,
+// Styles for engines-client.mjs (2026-11-16): the Strategy engines page, its
+// tab bar and the per-engine views. Shares the ui-tabs, evb-*, slp-*,
 // mm-kpi and vt-* classes; loaded after self-loop-css.mjs in styles-css.mjs.
 export function renderEnginesCss() {
   return `
-/* ---- Strategy engines (Top Picks page) ----------------------------------- */
+/* ---- Strategy engines (their own Owner page) ----------------------------- */
 .eng-switch { margin: 0 0 12px; min-width: 0; }
 .eng-tabs { gap: 0; }
 .eng-tab { display: inline-flex; align-items: center; gap: 5px; padding-left: 10px; padding-right: 10px; font-size: 13.5px; }
@@ -17,6 +17,9 @@ export function renderEnginesCss() {
 .eng-subtabs { margin-top: 2px; }
 .eng-body { min-width: 0; }
 .eng-empty { padding: 8px 0 12px; }
+.eng-wait { margin: 0; color: var(--muted-strong); font: 450 13px/1.5 var(--font-sans); }
+/* The page header names the page; this card's title names the engine in view, so it stays. */
+.page-pane.wf-merged > .card.eng-pane > .card-header .card-title { display: block; }
 .eng-foot { margin-top: 14px; }
 .eng-pane .evb-lead .evb-pill { margin-right: 6px; }
 .eng-pane .mm-kpis { grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); }
@@ -48,6 +51,8 @@ export function renderEnginesCss() {
 .eng-shared-note ul { margin: 4px 0 0; padding-left: 18px; }
 .eng-link { appearance: none; border: 0; background: none; padding: 0; margin: 0; font: inherit; color: var(--accent, var(--text-strong)); cursor: pointer; text-align: left; }
 .eng-link:hover { text-decoration: underline; }
+.eng-open-link { margin: 8px 0 12px; font: 450 13px/1.5 var(--font-sans); color: var(--muted-strong); }
+.eng-row-skipped td { color: var(--muted-strong); }
 .eng-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 .eng-seg { display: inline-flex; flex-wrap: wrap; gap: 4px; margin: 12px 0 4px; padding: 3px; border: 1px solid var(--border); border-radius: var(--r-pill, 999px); background: var(--surface-2, var(--surface)); }
 .eng-seg-btn { appearance: none; border: 0; background: transparent; color: var(--muted-strong); font: 600 12.5px/1 var(--font-sans); padding: 8px 14px; min-height: 32px; border-radius: var(--r-pill, 999px); cursor: pointer; }
