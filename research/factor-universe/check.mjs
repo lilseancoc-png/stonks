@@ -36,3 +36,17 @@ console.log("factor-universe extract check: ok");
   assert.match(whyDropped({ facts: { "ifrs-full": {} } }), /no US GAAP facts/);
   console.log("factor-universe eps check: ok");
 }
+// An earlier registrant's rows are merged in, and the earliest filing still wins.
+{
+  const { extract: ex, mergeFacts } = await import("./extract.mjs");
+  const newer = { facts: { "us-gaap": { Revenues: usd([f("2020-01-01", "2020-12-31", 3020, "2021-02-10", "10-K"), f("2019-01-01", "2019-12-31", 2999, "2021-02-10", "10-K")]) } } };
+  const older = { facts: { "us-gaap": gaap } };
+  const o3 = ex(mergeFacts(newer, older));
+  assert.ok(o3 && o3.assets.length === 16, "the earlier registrant's balance sheets are there");
+  const fy19 = o3.rev.find((r) => r[0] === dayNo("2019-01-01") && r[1] === dayNo("2019-12-31"));
+  assert.equal(fy19[3], 3019, "the earlier registrant's own filing of 2019 wins over the later comparative");
+  // Basic share counts and per-share figures are preferred when both are filed the same day.
+  const g4 = { ...gaap, WeightedAverageNumberOfSharesOutstandingBasic: { units: { shares: years.map((y) => f(`${y}-01-01`, `${y}-12-31`, 9e5, `${y + 1}-02-10`, "10-K")) } } };
+  assert.equal(ex({ facts: { "us-gaap": g4 } }).wsh[0][3], 9e5);
+  console.log("factor-universe predecessor check: ok");
+}

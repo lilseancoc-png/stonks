@@ -43,14 +43,16 @@ export function extract(j) {
   const out = {};
   for (const [k, tags] of Object.entries(FLOWS)) { const rows = firstFiled(gaap, tags, "USD", true); if (rows.length) out[k] = rows; }
   for (const [k, tags] of Object.entries(STOCKS)) { const rows = firstFiled(gaap, tags, "USD", false); if (rows.length) out[k] = rows; }
-  const wsh = firstFiled(gaap, ["WeightedAverageNumberOfDilutedSharesOutstanding", "WeightedAverageNumberOfSharesOutstandingBasic"], "shares", true);
+  // Basic counts first: a market value is priced on shares outstanding, and a
+  // diluted count can run a third higher for a company with large convertibles.
+  const wsh = firstFiled(gaap, ["WeightedAverageNumberOfSharesOutstandingBasic", "WeightedAverageNumberOfShareOutstandingBasicAndDiluted", "WeightedAverageNumberOfDilutedSharesOutstanding"], "shares", true);
   if (wsh.length) out.wsh = wsh;
   const sh = firstFiled({ ...(gaap || {}), ...(dei || {}) }, ["EntityCommonStockSharesOutstanding", "CommonStockSharesOutstanding"], "shares", false);
   if (sh.length) out.sh = sh;
   // Earnings per share, as filed (dollars a share). Profit divided by it gives
   // a share count that does not depend on how a filer scaled its share tags
   // and that covers every share class.
-  const eps = firstFiled(gaap, ["EarningsPerShareDiluted", "EarningsPerShareBasic"], "USD/shares", true);
+  const eps = firstFiled(gaap, ["EarningsPerShareBasic", "EarningsPerShareBasicAndDiluted", "EarningsPerShareDiluted"], "USD/shares", true);
   if (eps.length) out.eps = eps;
   // A company with a real filing history: balance sheets and yearly profits.
   // (Banks often report no plain revenue tag; funds and trusts are dropped by industry code in the test.)
@@ -65,4 +67,20 @@ export function whyDropped(j) {
   const assets = firstFiled(gaap, STOCKS.assets, "USD", false).length, ni = firstFiled(gaap, FLOWS.ni, "USD", true);
   const tags = ["NetIncomeLoss", "ProfitLoss", "NetIncomeLossAvailableToCommonStockholdersBasic", "IncomeLossFromContinuingOperations"].filter((t) => gaap[t]).map((t) => t + ":" + Object.keys(gaap[t].units || {}).join("/") + ":" + Object.values(gaap[t].units || {}).reduce((n, rows) => n + rows.length, 0));
   return `assets ${assets}, profit rows ${ni.length} (yearly ${annual(ni)}), tags ${tags.join(" ") || "none"}`;
+}
+
+// A company that re-registered with the SEC (a new holding company, a merger
+// of equals) files under a new number; its earlier history stays under the old
+// one. `older` is that earlier company-facts file: its rows are added so the
+// earliest filing of each period is still found.
+export function mergeFacts(j, older) {
+  j.facts ||= {};
+  for (const tax of ["us-gaap", "dei"]) {
+    for (const [tag, node] of Object.entries(older?.facts?.[tax] || {})) {
+      const dst = ((j.facts[tax] ||= {})[tag] ||= { units: {} });
+      dst.units ||= {};
+      for (const [unit, rows] of Object.entries(node?.units || {})) dst.units[unit] = [...(dst.units[unit] || []), ...(rows || [])];
+    }
+  }
+  return j;
 }

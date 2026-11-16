@@ -11,7 +11,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { gzipSync } from "node:zlib";
 import { yahooFinance as yahoo } from "../../lib/yahoo.mjs";
 import { TICKERS, SECTORS } from "../../scripts/build.mjs";
-import { DAY0, dayNo, extract, whyDropped } from "./extract.mjs";
+import { DAY0, dayNo, extract, whyDropped, mergeFacts } from "./extract.mjs";
 
 const OUT = new URL("./data/", import.meta.url);
 const UA = process.env.SEC_USER_AGENT || "Mingstreet research (mingstreet.app)";
@@ -20,6 +20,32 @@ const SCAN_MAX = Number(process.env.FACTOR_SCAN || 1700);      // company-list r
 const FORECAST_TOP = 26;                                       // raw filings kept for the forecast test
 const SINCE = "2004-06-01";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// Earlier SEC registrants of today's companies (holding-company
+// reorganizations and mergers where the shares carried over one for one, so
+// the price history is continuous). Each is merged only when the file's own
+// company name matches, so a wrong number can never mix two companies.
+const PREDECESSORS = {
+  XOM: [["0000034088", /exxon/i]],
+  GOOGL: [["0001288776", /google/i]],
+  LIN: [["0000884905", /praxair/i]],
+  DIS: [["0001001039", /disney|twdc/i]],
+  BLK: [["0001364742", /blackrock/i]],
+  MRVL: [["0001058057", /marvell/i]],
+  ETN: [["0000031277", /eaton/i]],
+  MDT: [["0000064670", /medtronic/i]],
+  ICE: [["0001174746", /intercontinental/i]],
+  CI: [["0000701221", /cigna/i]],
+  BKR: [["0000808362", /baker hughes/i]],
+  APA: [["0000006769", /apache/i]],
+  AVGO: [["0001649338", /broadcom/i], ["0001441634", /avago/i]],
+  DINO: [["0000048039", /holly/i]],
+  TPL: [["0000097517", /texas pacific/i]],
+  BG: [["0001144519", /bunge/i]],
+  STE: [["0001624899", /steris/i], ["0000815065", /steris/i]],
+  VTRS: [["0001623613", /mylan/i], ["0000069499", /mylan/i]],
+  FTI: [["0001135152", /fmc tech/i]],
+  WCN: [["0001057058", /waste connections/i]],
+};
 const errors = [];
 const log = (...a) => console.log(...a);
 
@@ -92,7 +118,7 @@ for (const [rank, v] of list.entries()) {
 log(`company list: ${list.length} rows, ${candidates.length} candidates; first: ${candidates.slice(0, 8).map((c) => c.sym).join(" ")}`);
 
 // 2. Company facts for each candidate until the pool is full.
-const facts = {}, companies = [], dropped = [];
+const facts = {}, companies = [], dropped = [], merged = [];
 let scanned = 0;
 await pool(candidates, 4, async (c) => {
   if (companies.length >= POOL_TARGET) return;
@@ -101,6 +127,16 @@ await pool(candidates, 4, async (c) => {
     const text = await secGet(`https://data.sec.gov/api/xbrl/companyfacts/CIK${c.cik}.json`);
     if (!text) { if (c.rank < 400) dropped.push({ sym: c.sym, rank: c.rank, why: "no company-facts file" }); return; }
     const json = JSON.parse(text);
+    for (const [oldCik, name] of PREDECESSORS[c.sym] || []) {
+      if (oldCik === c.cik) continue;
+      try {
+        const oldText = await secGet(`https://data.sec.gov/api/xbrl/companyfacts/CIK${oldCik}.json`);
+        const older = oldText && JSON.parse(oldText);
+        if (!older || !name.test(String(older.entityName || ""))) { merged.push(`${c.sym}: ${oldCik} skipped (${older ? older.entityName : "no file"})`); continue; }
+        mergeFacts(json, older);
+        merged.push(`${c.sym}: ${oldCik} ${older.entityName}`);
+      } catch (err) { errors.push(`predecessor ${c.sym} ${oldCik}: ${err.message}`); }
+    }
     const rows = extract(json);
     if (!rows && c.rank < 400) dropped.push({ sym: c.sym, rank: c.rank, why: whyDropped(json) });
     if (!rows || companies.length >= POOL_TARGET) return;
@@ -112,6 +148,7 @@ companies.sort((a, b) => a.rank - b.rank);
 dropped.sort((a, b) => a.rank - b.rank);
 log(`facts: ${companies.length} companies kept of ${scanned} read`);
 for (const d of dropped) log(`not kept: ${d.sym} (rank ${d.rank}): ${d.why}`);
+for (const m of merged) log(`earlier registrant: ${m}`);
 
 // 3. Industry code (the first bytes of each filing index).
 await pool(companies, 4, async (c) => {
@@ -215,5 +252,5 @@ await writeFile(new URL("universe.json.gz", OUT), gzipSync(JSON.stringify({ buil
 await writeFile(new URL("prices.json.gz", OUT), gzipSync(JSON.stringify(prices)));
 await writeFile(new URL("facts.json.gz", OUT), gzipSync(JSON.stringify(facts)));
 await writeFile(new URL("forecast/chains.json", OUT), JSON.stringify({ builtAtIso, chains }, null, 1));
-await writeFile(new URL("meta.json", OUT), JSON.stringify({ builtAtIso, since: SINCE, scanned, companies: companies.length, priced, quoted, sic: companies.filter((c) => c.sic).length, forecastFiles: rawKept, dropped, errors: errors.slice(0, 200), errorCount: errors.length }, null, 1));
+await writeFile(new URL("meta.json", OUT), JSON.stringify({ builtAtIso, since: SINCE, scanned, companies: companies.length, priced, quoted, sic: companies.filter((c) => c.sic).length, forecastFiles: rawKept, merged, dropped, errors: errors.slice(0, 200), errorCount: errors.length }, null, 1));
 log(`done: ${companies.length} companies, ${priced} with bars, ${errors.length} errors`);
