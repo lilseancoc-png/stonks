@@ -153,6 +153,7 @@ import { EVENT_PLAY_VERSION, EVENT_PLAY_LIMITS, macroEventPlay, earningsEventPla
 import { cleanHistoricalBars, cleanLongBars, confirmedMarketBars } from "../lib/historical-market-history.mjs";
 import { HISTORICAL_MARKETS, HISTORICAL_SOURCE_KEY } from "../lib/historical-sources.mjs";
 import { readForecastState, readForecastFiles, restoreForecastFiles, prepareEarningsForecast, writeEarningsForecast } from './refresh-earnings-forecast.mjs';
+import { forecastCalibrationSources } from '../lib/earnings-forecast-lab.mjs';
 import { forcedLiquidationContext } from "../lib/forced-liquidation.mjs";
 import { buyoutContextFor } from "../lib/pending-buyout-guard.mjs";
 import { buildShadowSignals, altDataGauges, resemblesGauges, insiderFromStructure } from "../lib/shadow-signals.mjs";
@@ -29201,7 +29202,13 @@ export function graderContextBuilder(opts = {}) {
   const forecasts = {};
   for (const c of Array.isArray(opts.earningsForecast?.companies) ? opts.earningsForecast.companies : []) {
     const fc = c?.forecast;
-    if (c?.symbol && fc && fc.status !== "stale" && pnum(fc.outputs?.revenue) != null) forecasts[c.symbol] = fc;
+    if (!(c?.symbol && fc && fc.status !== "stale" && pnum(fc.outputs?.revenue) != null)) continue;
+    // The AI grader keeps reading the forward-tested rule. A rule promoted by
+    // the Earnings Forecast history test changes the Owner page only, until
+    // the Owner asks for it here too (2026-11-16).
+    forecasts[c.symbol] = fc.history?.active && pnum(fc.history.prior?.revenue) != null
+      ? { ...fc, outputs: { ...fc.outputs, revenue: fc.history.prior.revenue, eps: fc.history.prior.eps ?? null } }
+      : fc;
   }
   return (sym) => {
     const out = {};
@@ -39695,6 +39702,11 @@ async function main() {
       cikMap: await fetchCikMap(),
       macroContext: macroBackdrop,
       enabled: process.env.EARNINGS_FORECAST_ENABLED !== '0',
+      // History test (lib/earnings-forecast-lab.mjs): reads the shared FRED
+      // cache from the last build and the stored earnings reports. No download.
+      fred: (id) => sharedFredRows(historicalSourcePrev, id),
+      earningsEvents: Object.fromEntries(Object.entries(earningsHxStore?.tickers || {}).map(([sym, row]) => [sym, Array.isArray(row?.events) ? row.events : []])),
+      promoteWinner: process.env.EARNINGS_FORECAST_WINNER !== '0',
     });
   } catch (err) {
     console.warn(`⚠ earnings forecast not refreshed: ${err?.message || err} — keeping the previous snapshot`);
@@ -41418,6 +41430,9 @@ async function main() {
           loopRows: loopState ? loopJoinedRows(loopState.ledger, picksOutcomesState) : [],
           predictionResolved: oddsForLabs?.resolved || [],
           earningsStore: earningsHxStore, textWaiting,
+          // Earnings Forecast ranges, graded on quarters each range never saw
+          // (the history test keeps the rows in the forecast state).
+          extraSources: forecastCalibrationSources((earningsForecastPrepared?.state || priorEarningsForecast)?.lab),
         });
         for (const line of labsRun.lines) console.log(line);
         const labsInfo = await writeQuantLabs(DATA_DIR, labsRun.payload, labsRun.state);
