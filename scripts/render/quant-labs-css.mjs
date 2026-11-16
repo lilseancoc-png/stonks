@@ -23,6 +23,7 @@ export function renderQuantLabsCss() {
 @media (max-width: 640px) { .ql-table td.ql-labelcell { min-width: 170px; } }
 .ql-readline { margin-top: 3px; max-width: 520px; font: 450 12px/1.45 var(--font-sans); color: var(--muted-strong); }
 .ql-root .slp-table th:not(.num), .ql-root .slp-table td:not(.num) { text-align: left; }
+.ql-root .slp-table td:first-child { min-width: 150px; }
 .ql-universe .slp-table th { white-space: normal; vertical-align: bottom; min-width: 54px; }
 .ql-universe { margin-top: 6px; }
 .ql-universe .ql-fam td { padding-top: 10px; font: 650 11px/1.3 var(--font-sans); letter-spacing: .04em; text-transform: uppercase; color: var(--muted-strong); background: color-mix(in srgb, var(--surface-2) 70%, transparent); }
