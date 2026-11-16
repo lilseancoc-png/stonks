@@ -9,11 +9,16 @@
 //   volatility   four forecasts of the next 21 sessions against what happened,
 //                and the HAR coefficients the bake then uses
 //   factors      seven price factors on the covered stocks at four horizons
+//   universe     (its own command) value, momentum, profitability, quality,
+//                earnings growth, low volatility and size on the 500 largest
+//                US companies at each past month-end, from the public download
+//                on the research-factor-data branch
 // The output is aggregates only: no per-stock value, no trade row, nothing
 // from the private record. No AI call, no network, nothing written to data/.
 //
 // Usage:
 //   node scripts/quant-labs.mjs run --long DIR [--spx FILE] [--baa FILE] [--public FILE] [--dry]
+//   node scripts/quant-labs.mjs universe --data DIR [--public FILE] [--dry]
 // Flags:
 //   --long DIR     long-history download dir (bars.json.gz + fred.json.gz);
 //                  default $QUANT_LABS_LONG, $REGIME_LAB_LONG or research/long-history
@@ -21,6 +26,10 @@
 //                  or [{ t, c }] (the bake reads the same series from the shared
 //                  long-history cache). Without it the market-odds test is skipped.
 //   --baa FILE     FRED BAA10Y as CSV text (or JSON-encoded CSV)
+//   --data DIR     factor universe download dir (universe.json.gz, prices.json.gz,
+//                  facts.json.gz from research/factor-universe/data on the
+//                  research-factor-data branch). `universe` adds its block to
+//                  the output file and leaves the other tests as they are.
 //   --public FILE  output (default research/quant-labs/results/latest.json)
 //   --dry          compute and print, write nothing
 import fs from "node:fs";
@@ -31,7 +40,9 @@ import { TICKERS, SECTORS } from "./build.mjs";
 import { buildDrawdownOdds, buildDrawdownFrame, declineEras, fitTarget, DD_TARGETS, DD_DEFAULTS, DRAWDOWN_ODDS_VERSION } from "../lib/labs/drawdown-odds.mjs";
 import { evaluateVolModels, VOL_VERSION } from "../lib/labs/vol.mjs";
 import { evaluateFactors, publicFactorRows, FACTORS_VERSION } from "../lib/labs/factors.mjs";
+import { evaluateUniverse } from "../lib/labs/factor-universe.mjs";
 import { brierSkill, round } from "../lib/labs/stats.mjs";
+import zlib from "node:zlib";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
 const VOL_LABEL = { ewma: "weighted recent moves (EWMA)", garch: "GARCH", har: "day, week and month mix (HAR)" };
@@ -106,9 +117,56 @@ function runMarketOdds(spx, fredOf, bars) {
   return out;
 }
 
+const UNIVERSE_CAVEATS = [
+  "The companies are about 1,000 of today's largest US filers, with the 500 largest picked at each past month-end by their market value that day. Companies that failed, were bought or left the exchange are missing. Only the ones that made it are here, which lifts the returns of small, volatile, cheap and money-losing companies. That is too kind to smaller size and value, and too hard on low volatility, profitability and momentum.",
+  "Company numbers are the first-filed values with their filing dates from SEC company facts, so each month uses only what was public. Later filings are used only to settle units, splits and typos. Machine-readable filings start around 2009 to 2011, which is where the test starts.",
+  "A company that merged, spun off a business or listed its shares during a month can carry the wrong share count for a month or two, until its next filing.",
+  "Analyst revisions have no free point-in-time history. The earnings growth surprise (the latest quarter against the same quarter a year earlier) stands in for them.",
+  "Costs are a flat 10 basis points a side on the names that change each month. Borrow fees on the short side and market impact are not counted.",
+  "Every stock in a fifth gets the same weight, and nothing is balanced by industry, so a factor can be an industry bet in disguise.",
+];
+// How the share counts behind market value were checked (counts of companies only).
+function shareCaveat(sh) {
+  if (!sh || !sh.checked) return null;
+  const out = sh.high + sh.low;
+  return `Market value is the split-adjusted close times the share count in the newest filing. Filers report share counts in mixed units, so each count is checked against the others around it: ${sh.rescaled} companies had counts filed in thousands or millions put right, ${sh.spinoffs} spin-offs that the price history books as splits were told apart from real splits, and ${sh.filingsLeft} filings with their dollars in the wrong units were set aside. Today's count is then set against today's quote: ${sh.ok} of ${sh.checked} companies match, ${out} that do not are left out (a price quoted per depositary share, a share class the filings do not total), and ${sh.none} have no usable count (companies with several share classes that file no total). So a few very large companies are missing.`;
+}
+const readGz = (file) => JSON.parse(zlib.gunzipSync(fs.readFileSync(file)).toString("utf8"));
+
+// `universe`: the wide factor test. It merges one block into the results
+// file and leaves the other history tests as they are.
+function runUniverse(flags) {
+  const dir = flags.data || process.env.QUANT_LABS_UNIVERSE || path.join(ROOT, "research/factor-universe/data");
+  const input = { universe: readGz(path.join(dir, "universe.json.gz")), prices: readGz(path.join(dir, "prices.json.gz")), facts: readGz(path.join(dir, "facts.json.gz")) };
+  const ran = new Date().toISOString().slice(0, 10);
+  const res = evaluateUniverse(input, { from: typeof flags.from === "string" ? flags.from : null });
+  if (res.status !== "ok") { log(`universe: ${res.status} (${res.note || ""})`); process.exit(1); }
+  log(`universe: ${res.names} largest of ${res.pool} companies, ${res.months} months (${res.from} to ${res.to}); smallest member $${res.smallest.first}B then, $${res.smallest.last}B now; bar t ${res.tBar} after ${res.trials} tries`);
+  for (const f of res.factors) log(`  ${f.key.padEnd(7)} rank skill ${f.ic[0].ic} (t ${f.ic[0].t}), top minus bottom fifth ${f.spread?.perYear}% a year, ${f.spread?.net}% after costs, turnover ${f.spread?.turnover}, worst fall ${f.spread?.worst}% [${f.verdict}]`);
+  log(`  combined rank skill ${res.composite.ic[0].ic} (t ${res.composite.ic[0].t}), ${res.composite.spread?.net}% a year after costs [${res.composite.verdict}]`);
+  for (const f of res.families) log(`  regression ${f.key.padEnd(14)} ${f.slope}% a month per standard step (t ${f.t}); halves ${f.first} / ${f.second}`);
+  log(`  share counts: ${JSON.stringify(res.shares)}`);
+  const shareLine = shareCaveat(res.shares);
+  const block = { ...res, ran, data: { builtAt: String(input.universe.builtAtIso || "").slice(0, 10) }, caveats: shareLine ? [UNIVERSE_CAVEATS[0], UNIVERSE_CAVEATS[1], shareLine, ...UNIVERSE_CAVEATS.slice(2)] : UNIVERSE_CAVEATS };
+  const outFile = flags.public && flags.public !== true ? flags.public : path.join(ROOT, "research/quant-labs/results/latest.json");
+  let result = { v: 1, ran, note: null, registry: [] };
+  try { result = JSON.parse(fs.readFileSync(outFile, "utf8")); } catch { /* first run */ }
+  result.factorUniverse = block;
+  const verdictWord = { holds: "holds", reversed: "holds", lucky: "lucky", none: "none", few: "few" };
+  result.registry = (result.registry || []).filter((r) => r.family !== "factor-universe");
+  for (const f of [...res.factors, { ...res.composite, key: "combined" }]) {
+    result.registry.push({ id: `universe-${f.key}`, label: `Factor, 500 largest US companies: ${f.label}`, family: "factor-universe", result: `1-month rank skill ${f.ic[0].ic} (t ${f.ic[0].t}; needs ${res.tBar}), top minus bottom fifth ${f.spread?.net}% a year after costs${f.verdict === "reversed" ? ", in the opposite direction" : ""}`, verdict: verdictWord[f.verdict] || f.verdict, ran });
+  }
+  if (flags.dry) { log(`dry run: ${JSON.stringify(block).length} bytes not written`); return; }
+  fs.mkdirSync(path.dirname(outFile), { recursive: true });
+  fs.writeFileSync(outFile, JSON.stringify(result, null, 1) + "\n");
+  log(`wrote ${path.relative(ROOT, outFile)} (${fs.statSync(outFile).size} bytes)`);
+}
+
 async function main() {
   const { cmd, flags } = parseArgs(process.argv.slice(2));
-  if (cmd !== "run") { log("usage: node scripts/quant-labs.mjs run --long DIR [--spx FILE] [--baa FILE] [--public FILE] [--dry]"); process.exit(cmd ? 1 : 0); }
+  if (cmd === "universe") return runUniverse(flags);
+  if (cmd !== "run") { log("usage: node scripts/quant-labs.mjs run --long DIR [--spx FILE] [--baa FILE] [--public FILE] [--dry]\n       node scripts/quant-labs.mjs universe --data DIR [--public FILE] [--dry]"); process.exit(cmd ? 1 : 0); }
   const longDir = flags.long || process.env.QUANT_LABS_LONG || process.env.REGIME_LAB_LONG || path.join(ROOT, "research/long-history");
   const L = loadLongHistory(longDir);
   const fredRows = {};
@@ -149,6 +207,8 @@ async function main() {
   }
 
   const outFile = flags.public && flags.public !== true ? flags.public : path.join(ROOT, "research/quant-labs/results/latest.json");
+  // The wide factor test has its own command; keep its block and registry rows.
+  try { const prev = JSON.parse(fs.readFileSync(outFile, "utf8")); if (prev.factorUniverse) { result.factorUniverse = prev.factorUniverse; result.registry.push(...(prev.registry || []).filter((r) => r.family === "factor-universe")); } } catch { /* no earlier file */ }
   if (flags.dry) { log(`dry run: ${JSON.stringify(result).length} bytes not written`); return; }
   fs.mkdirSync(path.dirname(outFile), { recursive: true });
   fs.writeFileSync(outFile, JSON.stringify(result, null, 1) + "\n");
