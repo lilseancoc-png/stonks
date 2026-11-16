@@ -952,7 +952,7 @@ async function main() {
   const { renderHtml, renderAppJs, renderStylesCss } = await import("./build.mjs");
   const app = renderAppJs({});
   ok(/function loadSelfLoop\(/.test(app), "app.js carries the loop loader");
-  ok(/'regime','loop'\]\.indexOf\(view\)/.test(app), "the Owner Lab view switch accepts the loop view");
+  ok(/'regime','loop'[^\]]*\]\.indexOf\(view\)/.test(app), "the Owner Lab view switch accepts the loop view");
   ok(/data-owner-loop-refresh/.test(app), "refresh button is bound");
   ok(/\['loop', 'Self-improving loop'\]/.test(app), "the Evidence board lists the loop lane");
   ok(/dataUrl\('picks-loop\.json'\)/.test(app), "reads the view file, not the large state file");
