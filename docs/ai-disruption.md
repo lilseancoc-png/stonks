@@ -152,6 +152,12 @@ availability, autonomy and how it hits. A post goes:
   (funding, the IPO, hires, policy, papers), not about AI on a general
   newsroom, or not a Copilot post on the GitHub changelog.
 
+Availability: a preview or beta word wins; otherwise a named plan or launch
+wording ("now available", "rolling out", "launches") reads as generally
+available, and anything else stays a preview. A versioned model name ("Gemini
+3 Pro", "GPT-5 Pro", "o3-pro") is taken out before plans are read, so it is
+not mistaken for the Pro or Max plan.
+
 Coverage is the one judgment rules cannot make: auto rows get a cautious 2,
 plus 1 when sold (GA) and 1 when it works unattended. A post matching a launch
 already in the log (same lab, within three days, same link or titles sharing
@@ -167,7 +173,10 @@ fixes a queue item into the log. Decisions live in `ai-disruption-review.json`
 (Owner-only, request-time-owned, `POST /api/auth/ai-disruption-review`
 `{ act: confirm|edit|reject|undo, id, fields? }`, same-origin, under the
 `ai-disruption-review` lease). Every bake applies them; a fix that leaves a
-row incomplete keeps the item in the queue with what it still needs. The
+row incomplete keeps the item in the queue with what it still needs. Open
+queue items are dropped after 120 days (at most 150 kept); an item the Owner
+confirmed or fixed is kept whatever its age, since the log is rebuilt from it
+every bake. The
 Owner file reports how often the rules' tags were kept as they were
 (`review.rulesKept`), the measure of whether rules-only tagging is good enough.
 

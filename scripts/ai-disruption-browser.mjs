@@ -98,6 +98,9 @@ try {
       await s.page.screenshot({ path: resolve(output, 'public-1440-' + tab + '.png'), fullPage: true });
     }
     await s.page.locator('[data-aid-tab="log"]').click();
+    await settle(s.page, 400);
+    const pill = await s.page.locator('#aid-root .vt-table a.aid-t').first().evaluate((el) => getComputedStyle(el).borderTopWidth);
+    check(pill === '1px', 'a covered target in the log table keeps its pill border (' + pill + ')');
     await settle(s.page, 300);
     check(/auto/i.test(await s.page.locator('#aid-root .aid-badge-auto').first().innerText()), 'log: rows carry the auto badge');
     check(/Claude takes meeting notes/.test(await rootText(s)), 'log: the collected launch is listed');
@@ -142,6 +145,12 @@ try {
     await s.page.locator('#aid-root .aid-body').waitFor({ timeout: 15000 });
     await settle(s.page, 400);
     check(/Targets CRM/.test(await rootText(s)), 'deep link: ?company= filters the log');
+    const cards = await s.page.evaluate(() => {
+      const t = document.querySelector('#aid-root .vt-table.aid-log');
+      const wrap = t && t.closest('.vt-wrap');
+      return t ? { head: getComputedStyle(t.querySelector('thead')).display, fits: t.scrollWidth <= wrap.clientWidth + 1 } : null;
+    });
+    check(cards && cards.head === 'none' && cards.fits, 'phone: the launch log reads as cards with no sideways scroll');
     for (const tab of PUBLIC) {
       await s.page.locator('[data-aid-tab="' + tab + '"]').click();
       await settle(s.page, 500);
@@ -157,7 +166,7 @@ try {
     const s = await openTab(browser, server.base, { tab: 'stock', width: 1280, height: 1000, theme: 'light', extra: '&s=ADBE' });
     await s.page.locator('#stp-aid:not([hidden])').waitFor({ timeout: 15000 });
     const text = await s.page.locator('#stp-aid').innerText();
-    check(/AI launches aimed at what it sells/.test(text) && /Adobe sells/.test(text), 'stock page: the strip names what the company sells');
+    check(/AI launches aimed at what it sells/.test(text) && /What Adobe sells that the labs now ship/.test(text), 'stock page: the strip names what the company sells');
     check(!CALL_RE.test(text), 'stock page: no stock call wording');
     check((await s.page.locator('#stp-aid a[href*="tab=ai-disruption"][href*="company=ADBE"]').count()) === 1, 'stock page: links to the filtered log');
     const problems = (await pageProblems(s)).filter((p) => !/console error/.test(p));
@@ -252,6 +261,8 @@ try {
     await s.page.locator('.aid-q [data-aid-act="reject"]').first().waitFor({ timeout: 5000 }).catch(() => {});
     const problems = await pageProblems(s);
     check(problems.length === 0, 'review owner phone dark: ' + problems.join(' | '));
+    const btn = await s.page.locator('#aid-root .aid-rev [data-aid-act="confirm"]').first().boundingBox();
+    check(btn && btn.x >= 0 && btn.x + btn.width <= 390, 'phone: Confirm is on screen without scrolling sideways');
     await s.page.screenshot({ path: resolve(output, 'owner-390-dark-review.png'), fullPage: true });
     await s.page.locator('[data-aid-tab="scorecard"]').click();
     await s.page.locator('#aid-root .aid-chart svg').waitFor({ timeout: 5000 });

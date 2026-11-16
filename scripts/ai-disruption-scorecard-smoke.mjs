@@ -42,6 +42,16 @@ ok(flat.moves.groups.every((g) => !g.id.startsWith("role:")), "role is not teste
 ok(flat.moves.path && flat.moves.path.mean.length === 16 && flat.moves.path.mean[4] === 0, "path runs -5..+10 and starts from the close before the launch");
 ok(flat.moves.path.lo.every((v, i) => v <= flat.moves.path.hi[i]), "placebo band low under high");
 
+// A benchmark bar missing here and there (a holiday in one file only) must
+// not break the placebo paths: those days drop out of the path band only.
+{
+  const gappy = fixtureSeries(launches, { drop: 0 });
+  gappy.IGV = { rows: gappy.IGV.rows.filter((_, i) => i % 97 !== 50) };
+  let sc = null, err = null;
+  try { sc = buildScorecard({ launches, series: gappy, earnings: fixtureEarnings(covered), companies: covered }); } catch (e) { err = e; }
+  ok(!err && sc && sc.moves.path && sc.moves.path.mean.every((v) => Number.isFinite(v)), `missing benchmark bars: scorecard still builds (${err ? err.message : "ok"})`);
+}
+
 // Same input, same answer.
 const again = buildScorecard({ launches, series: fixtureSeries(launches, { drop: 0 }), earnings: fixtureEarnings(covered), companies: covered, builtAt: "2026-11-16T15:00:00Z" });
 ok(JSON.stringify(again) === JSON.stringify(flat), "seeded: the same input gives the same scorecard");

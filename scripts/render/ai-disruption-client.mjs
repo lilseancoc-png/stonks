@@ -109,10 +109,10 @@ export function renderAiDisruptionJs() {
     h += VIEWS.tableHtml([
       { label: 'Launch', cls: 'aid-c-wide', cell: function(l){ return aidLabTag(d, l.lab) + ' ' + aidLaunchTitle(l); }, sort: function(l){ return l.title; } },
       { label: 'Date', cls: 'aid-c-date', cell: function(l){ return escapeHtml(aidDay(l.date)); }, sort: function(l){ return l.date; } },
-      { label: 'Does', cls: 'aid-c-mid', cell: function(l){ return '<span class="aid-caps">' + (l.capabilities || []).map(function(c){ return '<span>' + escapeHtml(aidCapName(d, c)) + '</span>'; }).join('') + '</span><small class="crd-dim aid-sub">' + escapeHtml((d.labels && d.labels.how && d.labels.how[l.how]) || l.how || '') + '</small>'; }, nosort: true },
-      { label: 'Who can use it', cls: 'aid-c-mid', cell: function(l){ return escapeHtml((l.plans || []).map(function(p){ return AID_PLAN[p] || p; }).join(', ') || 'Shown, not sold') + '<small class="crd-dim aid-sub">' + escapeHtml(AID_AVAIL[l.availability] || l.availability) + ' · ' + escapeHtml(AID_AUTO[l.autonomy] || l.autonomy) + '</small>'; }, nosort: true },
-      { label: 'Score', num: true, cell: function(l){ return aidScore(l.score); }, sort: function(l){ return l.score; }, title: 'Customer-capture score, 0 to 100' },
-      { label: 'Targets', cls: 'aid-c-mid', cell: function(l){ return aidTargetsHtml(l, 5); }, sort: function(l){ return (l.targets || []).length; } },
+      { label: 'Does', cls: 'aid-c-mid aid-c-does', cell: function(l){ return '<span class="aid-caps">' + (l.capabilities || []).map(function(c){ return '<span>' + escapeHtml(aidCapName(d, c)) + '</span>'; }).join('') + '</span><small class="crd-dim aid-sub">' + escapeHtml((d.labels && d.labels.how && d.labels.how[l.how]) || l.how || '') + '</small>'; }, nosort: true },
+      { label: 'Who can use it', cls: 'aid-c-mid aid-c-who', cell: function(l){ return escapeHtml((l.plans || []).map(function(p){ return AID_PLAN[p] || p; }).join(', ') || 'Shown, not sold') + '<small class="crd-dim aid-sub">' + escapeHtml(AID_AVAIL[l.availability] || l.availability) + ' · ' + escapeHtml(AID_AUTO[l.autonomy] || l.autonomy) + '</small>'; }, nosort: true },
+      { label: 'Score', num: true, cls: 'aid-c-score', cell: function(l){ return aidScore(l.score); }, sort: function(l){ return l.score; }, title: 'Customer-capture score, 0 to 100' },
+      { label: 'Targets', cls: 'aid-c-mid aid-c-tg', cell: function(l){ return aidTargetsHtml(l, 5); }, sort: function(l){ return (l.targets || []).length; } },
     ], rows, { key: 'aid-log', cls: 'aid-log', empty: 'No launch matches these filters.' });
     return h;
   }
@@ -228,9 +228,9 @@ export function renderAiDisruptionJs() {
     h += VIEWS.tableHtml([
       { label: 'Launch', cls: 'aid-c-wide', cell: function(l){ return aidLabTag(d, l.lab) + ' ' + aidLaunchTitle(l); }, sort: function(l){ return l.title; } },
       { label: 'Date', cls: 'aid-c-date', cell: function(l){ return escapeHtml(aidDay(l.date)); }, sort: function(l){ return l.date; } },
-      { label: 'Tags', cls: 'aid-c-mid', cell: function(l){ return '<span class="aid-caps">' + (l.capabilities || []).map(function(c){ return '<span>' + escapeHtml(aidCapName(d, c)) + '</span>'; }).join('') + '</span><small class="crd-dim aid-sub">' + escapeHtml(((l.plans || []).map(function(p){ return AID_PLAN[p] || p; }).join(', ') || 'Shown, not sold') + ' · ' + (AID_AVAIL[l.availability] || l.availability) + ' · ' + (AID_AUTO[l.autonomy] || l.autonomy) + ' · covers ' + l.coverage + ' of 5') + '</small>'; }, nosort: true },
-      { label: 'Score', num: true, cell: function(l){ return aidScore(l.score); }, sort: function(l){ return l.score; } },
-      { label: '', cell: function(l){ return aidActionsHtml(l.id); }, nosort: true },
+      { label: 'Tags', cls: 'aid-c-mid aid-c-tags', cell: function(l){ return '<span class="aid-caps">' + (l.capabilities || []).map(function(c){ return '<span>' + escapeHtml(aidCapName(d, c)) + '</span>'; }).join('') + '</span><small class="crd-dim aid-sub">' + escapeHtml(((l.plans || []).map(function(p){ return AID_PLAN[p] || p; }).join(', ') || 'Shown, not sold') + ' · ' + (AID_AVAIL[l.availability] || l.availability) + ' · ' + (AID_AUTO[l.autonomy] || l.autonomy) + ' · covers ' + l.coverage + ' of 5') + '</small>'; }, nosort: true },
+      { label: 'Score', num: true, cls: 'aid-c-score', cell: function(l){ return aidScore(l.score); }, sort: function(l){ return l.score; } },
+      { label: '', cls: 'aid-c-act', cell: function(l){ return aidActionsHtml(l.id); }, nosort: true },
     ], autos, { key: 'aid-review', cls: 'aid-log aid-rev', empty: 'Every row is checked.', detail: function(l){ return openFix === l.id && !aidDecisionOf(l.id) ? aidFixForm(d, l) : ''; } });
     if ((o.skipped || []).length){
       h += '<details class="crd-sources"><summary>Skipped as not a launch (' + o.skipped.length + ')</summary><ul>' + o.skipped.map(function(s){ return '<li>' + aidLabTag(d, s.lab) + ' ' + escapeHtml(s.title) + ' <small class="crd-dim">' + escapeHtml(s.date) + ' · ' + escapeHtml(s.why || '') + '</small></li>'; }).join('') + '</ul></details>';
@@ -435,12 +435,12 @@ export function renderAiDisruptionJs() {
     var OUT = (d.labels && d.labels.outcome) || {};
     var caps = (co.exposures || []).map(function(e){ return aidCapName(d, e.capability); });
     var h = '<h3 class="stp-h3">AI launches aimed at what it sells</h3>' +
-      '<p class="stp-lede">' + escapeHtml(co.name) + ' sells ' + escapeHtml(caps.slice(0, 4).join(', ')) + (caps.length > 4 ? ' and more' : '') + '. ' +
+      '<p class="stp-lede">What ' + escapeHtml(co.name) + ' sells that the labs now ship: ' + escapeHtml(caps.slice(0, 4).join(', ')) + (caps.length > 4 ? ' and more' : '') + '. ' +
       (hits.length ? hits.length + ' AI lab launch' + (hits.length === 1 ? '' : 'es') + ' in the last 90 days overlap' + (hits.length === 1 ? 's' : '') + ' with it.' : 'No AI lab launch in the last 90 days overlaps with it.') + '</p>';
     if (hits.length){
       h += '<ul class="aid-strip">' + hits.slice(0, 4).map(function(l){
         var o = outcomeOf(l);
-        return '<li>' + aidLabTag(d, l.lab) + ' <span>' + escapeHtml(l.title) + '</span> <small class="crd-dim">' + escapeHtml(l.date) + '</small> <span class="aid-t aid-t-' + escapeHtml(o) + '">' + escapeHtml(OUT[o] || o) + '</span></li>';
+        return '<li>' + aidLabTag(d, l.lab) + ' <span>' + escapeHtml(l.title) + '</span> <small class="crd-dim">' + escapeHtml(aidDay(l.date)) + '</small> <span class="aid-t aid-t-' + escapeHtml(o) + '">' + escapeHtml(OUT[o] || o) + '</span></li>';
       }).join('') + '</ul>';
     }
     h += '<p class="stp-src">From the AI labs’ own release notes; a description of the products, not a view on the stock. <a href="?tab=ai-disruption&amp;company=' + encodeURIComponent(sym) + '">Every launch aimed at ' + escapeHtml(sym) + '</a></p>';

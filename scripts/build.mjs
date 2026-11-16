@@ -39237,7 +39237,7 @@ async function main() {
   } else {
     try {
       const run = await updateDisruptionState({
-        prior: aiDisruptionPrior.state, nowMs: Date.now(),
+        prior: aiDisruptionPrior.state, review: aiDisruptionPrior.review, nowMs: Date.now(),
         decisionRun: !/^(?:0|false)$/i.test(process.env.REFRESH_TOP_PICKS || "1"),
         log: (line) => console.log(line),
       });

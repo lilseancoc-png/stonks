@@ -8,10 +8,11 @@ import { isPremiumKey } from "../lib/premium-keys.mjs";
 import { OPTIONAL_BAKE_KEYS, REQUEST_TIME_EXCLUSIVE_KEYS } from "../lib/data-ownership.mjs";
 import { LAUNCHES, LABS, CAPTURE_WEIGHTS, CAPTURE_WEIGHTS_DRAFT, captureScore } from "../lib/ai-disruption/index.mjs";
 import { parseDateText, parseFeed, parseDatedSections, parseCards, readableSources, collectPosts } from "../lib/ai-disruption/collector.mjs";
-import { tagPost, launchIdFor, sameLaunch, titleSimilarity } from "../lib/ai-disruption/tagger.mjs";
+import { tagPost, launchIdFor, sameLaunch, titleSimilarity, plansIn } from "../lib/ai-disruption/tagger.mjs";
 import { readReviewDoc, applyReviewRequest, cleanFields } from "../lib/ai-disruption/review.mjs";
 import {
   collectDue, foldPosts, updateDisruptionState, applyDecisions, buildDisruptionFiles, rowProblems, emptyState,
+  keptDecisionIds, QUEUE_MAX, QUEUE_MAX_DAYS,
   AI_DISRUPTION_KEY, AI_DISRUPTION_OWNER_KEY, AI_DISRUPTION_STATE_KEY, AI_DISRUPTION_REVIEW_KEY,
 } from "../lib/ai-disruption/log.mjs";
 
@@ -19,6 +20,7 @@ let checks = 0;
 const ok = (cond, msg) => { assert.ok(cond, msg); checks += 1; };
 const eq = (a, b, msg) => { assert.deepEqual(a, b, msg); checks += 1; };
 const lab = (id) => LABS.find((l) => l.id === id);
+const addDays = (iso, n) => new Date(Date.parse(`${iso}T00:00:00Z`) + n * 86400000).toISOString().slice(0, 10);
 
 // --- Dates ------------------------------------------------------------------
 eq(parseDateText("November 12, 2026"), "2026-11-12", "long month");
@@ -101,6 +103,10 @@ const ghc = tagPost({ title: "Copilot coding agent can now open pull requests fr
 eq(ghc.decision, "log", "a Copilot post is logged");
 eq(ghc.fields.product, "GitHub Copilot", "the source's product wins over the bare Copilot");
 ok(ghc.fields.capabilities.includes("coding_agent"), "coding agent");
+eq(plansIn("Gemini 3 Pro and GPT-5 Pro arrive; o3-pro too"), [], "a versioned model name is not a plan");
+eq(plansIn("Gemini 3 Pro comes to Google AI Pro and Ultra subscribers"), ["consumer"], "the plan beside it still counts");
+eq(tagPost({ title: "Deep research is now available", text: "", kind: "notes", product: "Claude" }, lab("anthropic")).fields.availability, "ga", "launch wording reads as generally available");
+eq(tagPost({ title: "Deep research", text: "", kind: "notes", product: "Claude" }, lab("anthropic")).fields.availability, "preview", "no wording stays a preview");
 const msNb = tagPost({ ...rss[0], kind: "news", product: null }, lab("microsoft"));
 eq(msNb.fields.product, "Microsoft 365 Copilot", "product found in the text");
 ok(/^2026-11-12-anthropic-claude-meetings/.test(launchIdFor("2026-11-12", "anthropic", meet.fields.title)), "id format matches the registry");
@@ -188,6 +194,23 @@ ok(!applied.queue.some((q) => q.id === queued.id), "the queue item is gone");
 const badDoc = applyReviewRequest(readReviewDoc(null), { act: "edit", id: queued.id, fields: { availability: "ga", plans: [] } }, {}).doc;
 const badApplied = applyDecisions({ registry: [], rows: [], queue: run.state.queue, review: badDoc });
 ok(badApplied.queue.some((q) => q.id === queued.id && q.needs.length), "an incomplete fix leaves the item in the queue with what it needs");
+
+// A confirmed or edited queue item outlives the age trim and the cap; an open one doesn't.
+eq(keptDecisionIds(doc).sort(), [regRow.id, autoRow.id, queued.id].sort(), "kept ids: confirmed and edited, not rejected");
+const filler = Array.from({ length: QUEUE_MAX + 5 }, (_, i) => ({ ...queued, id: `${queued.id}-f${i}`, date: "2026-11-16" }));
+const crowded = { ...run.state, queue: [...run.state.queue, ...filler] };
+const later = addDays(queued.date, QUEUE_MAX_DAYS + 30);
+const keptFold = foldPosts(crowded, { today: later, keepIds: keptDecisionIds(doc) });
+ok(keptFold.state.queue.some((q) => q.id === queued.id), "a fixed queue item survives the age trim");
+ok(keptFold.state.queue.length <= QUEUE_MAX + 1, "open items still capped");
+const lostFold = foldPosts(crowded, { today: later });
+ok(!lostFold.state.queue.some((q) => q.id === queued.id), "without a decision the old item is trimmed");
+const keptPub = buildDisruptionFiles({ state: keptFold.state, review: doc, tickers: ["MSFT"], builtAt: "2026-11-17T21:10:00.000Z" }).pub;
+ok(keptPub.launches.some((l) => l.id === queued.id), "the fixed launch stays in the public log after the trim");
+const runKept = await updateDisruptionState({ prior: crowded, review: doc, force: true, nowMs: at(`${later}T15:05:00Z`), fetchImpl: async () => ({ ok: false, status: 503, text: async () => "" }) });
+ok(runKept.collected && runKept.state.queue.some((q) => q.id === queued.id), "the bake step passes the decisions to the trim");
+const runLost = await updateDisruptionState({ prior: crowded, force: true, nowMs: at(`${later}T15:05:00Z`), fetchImpl: async () => ({ ok: false, status: 503, text: async () => "" }) });
+ok(runLost.collected && !runLost.state.queue.some((q) => q.id === queued.id), "and trims it without them");
 
 // --- Files -----------------------------------------------------------------------------
 const files = buildDisruptionFiles({ state: run.state, review: doc, tickers: ["MSFT", "ADBE", "CRM", "NOW"], builtAt: "2026-11-17T21:10:00.000Z", collected: true });
