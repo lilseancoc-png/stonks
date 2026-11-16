@@ -29489,7 +29489,9 @@ button[data-refresh-checking] { opacity: .55; cursor: progress; }
 .pmk-strip-t { display: grid; gap: 2px; min-width: 0; }
 .pmk-strip-t small { font: 500 var(--t-12)/1.4 var(--font-sans); }
 .pmk-cal { margin: 4px 0 0; font: 500 var(--t-12)/1.5 var(--font-sans); color: var(--muted-strong); }
+#pm-root .pmk-ct td:has(> .pmk-dir) { white-space: normal; min-width: 120px; }
 @media (max-width: 560px) {
+  #pm-root .pmk-ct td:first-child { min-width: 150px; }
   .pmk-bar { width: 36px; }
   .pmk-strip li { grid-template-columns: 40px 1fr; }
 }

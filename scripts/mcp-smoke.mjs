@@ -608,6 +608,7 @@ async function tool(name, args, opts) {
   assert.ok(rx.structuredContent.results.alerts.length >= 1 && rx.structuredContent.results.verdict_counts, "summary has alerts and verdict counts");
   const tests = (await tool("get_odds_reactions", { view: "tests", ticker: "SPY" })).structuredContent.results;
   assert.ok(tests.families.length && tests.families.every((f) => f.ticker === "SPY" && f.jumps.verdict), "tests filtered by stock");
+  assert.ok(tests.families.every((f) => typeof f.direction_proven === "boolean" && (f.sign_set_in_advance ? f.direction_proven : true)), "each test row says whether its direction is proven");
   assert.ok((await tool("get_odds_reactions", { view: "alerts", ticker: "NVDA" })).structuredContent.results.alerts.every((a) => a.symbol === "NVDA"));
   assert.ok((await tool("get_odds_reactions", { view: "shadow", ticker: "NVDA" })).structuredContent.results.by_stock.NVDA.pmn >= 1);
   const feat = (await tool("list_features", {})).structuredContent.results.features.find((f) => f.id === "prediction-markets");

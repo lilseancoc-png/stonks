@@ -3,11 +3,11 @@
 // Runs offline against a fake Kalshi + Polymarket API built from the venues'
 // documented response shapes. node scripts/prediction-smoke.mjs
 import assert from 'node:assert/strict';
-import { classifyTheme, themeFor, linksFor, companyMatches, leaderTerms, titleSimilarity, THEME_CAPS } from '../lib/prediction/catalog.mjs';
+import { classifyTheme, themeFor, linksFor, companyMatches, leaderTerms, titleSimilarity, THEME_CAPS, withoutDeadlines } from '../lib/prediction/catalog.mjs';
 import { kalshiProb, polyQuote, kalshiCandleProb, createClient } from '../lib/prediction/venues.mjs';
 import { kalshiCandidates, polyCandidates, pickFromEvent } from '../lib/prediction/select.mjs';
 import { etCloseMs, etDate, mergeFine, dailyAt, setDaily, noteSnapshot, changeOver, dailySeries } from '../lib/prediction/history.mjs';
-import { analyzeReactions, bhAdjust, signFlipP, findJumps } from '../lib/prediction/reactions.mjs';
+import { analyzeReactions, bhAdjust, signFlipP, findJumps, mergeJumps, familyCut } from '../lib/prediction/reactions.mjs';
 import { ladderRead, actualFromSettled, consensusRows, consensusTest, expectedFromSnaps } from '../lib/prediction/consensus.mjs';
 import { updatePredictionState, buildPredictionPublic, buildPredictionOwner, analyzePrediction, predictionShadow, provenSign, predictionContextFor, predictionGraderLines, pricesFromChains, PREDICTION_KEY, PREDICTION_OWNER_KEY, PREDICTION_STATE_KEY } from '../lib/prediction/index.mjs';
 import { isPremiumKey } from '../lib/premium-keys.mjs';
@@ -142,6 +142,35 @@ ok('grader lines mark an unknown direction with ?', predictionGraderLines(ctx).s
   ok('sign-flip p is small for a clear effect and large for noise', signFlipP([1, 1.2, 0.8, 1.1, 0.9, 1, 1.3, 0.7, 1, 1]) < 0.01 && signFlipP([1, -1, 0.5, -0.6, 0.2, -0.1, 0.3, -0.4]) > 0.2);
   const q = bhAdjust([0.01, 0.04, 0.03, null, 0.5]);
   ok('Benjamini-Hochberg keeps order and nulls', q[3] === null && q[0] <= q[1] && Math.abs(q[4] - 0.5) < 1e-9);
+}
+{
+  // Audit 2026-11-16: one news day is one observation, and one date cut.
+  const days = [];
+  for (let t = Date.parse('2025-11-03T12:00:00Z'); days.length < 260; t += DAY) { const d = new Date(t); if (d.getUTCDay() && d.getUTCDay() < 6) days.push(d.toISOString().slice(0, 10)); }
+  const spy = days.map((d, i) => [d, 400 * (1 + 0.001 * Math.sin(i))]);
+  const tlt = days.map((d, i) => [d, 90 * (1 + 0.002 * Math.cos(i * 1.7))]);
+  const mk = (id) => {
+    const c = { id, links: [{ sym: 'TLT', sign: 1, rule: 'fed-cut' }] };
+    let p = 0.4;
+    for (let i = 0; i < days.length; i += 1) { if (i > 0 && i % 6 === 0) p = p < 0.5 ? p + 0.12 : p - 0.12; setDaily(c, days[i], p, true); }
+    return c;
+  };
+  const one = analyzeReactions({ contracts: [mk('L:1')], prices: { SPY: spy, TLT: tlt } }).families[0];
+  const five = analyzeReactions({ contracts: ['L:1', 'L:2', 'L:3', 'L:4', 'L:5'].map(mk), prices: { SPY: spy, TLT: tlt } }).families[0];
+  ok('five ladder contracts jumping on the same days count once, not five times', five.jumps.n === one.jumps.n && five.flow.n === one.flow.n && five.runup.n === one.runup.n);
+  ok('a family carries one fit/test date cut', typeof five.cut === 'string' && five.cut > days[0] && five.cut < days[days.length - 1]);
+  const merged = mergeJumps([{ i: 10, date: 'd10', change: 12, dir: 1, id: 'a', same: 1 }, { i: 10, date: 'd10', change: 14, dir: 1, id: 'b', same: 1 }, { i: 12, date: 'd12', change: -11, dir: -1, id: 'c', same: 0 }, { i: 20, date: 'd20', change: 15, dir: 1, id: 'a', same: 0 }]);
+  ok('same-day jumps average, and a jump two days later is the same story', merged.length === 2 && merged[0].change === 13 && merged[0].contracts === 2 && merged[1].date === 'd20');
+  ok('one cut date across lists', familyCut([{ date: 'a' }, { date: 'b' }], [{ date: 'c' }], [{ date: 'a' }]) === 'c');
+}
+{
+  const set = new Set(UNIVERSE);
+  const rules = (title, theme) => new Set(linksFor({ title, theme }, set).map((l) => l.rule));
+  ok('deadline wording is removed before rules read the text', withoutDeadlines('Will Trump raise tariffs before the end of 2026?').trim() === 'Will Trump raise tariffs before ?' && withoutDeadlines('Gold above $4,000 by year-end?') === 'Gold above $4,000 by ?');
+  ok('"raise tariffs before the end of 2026" reads as higher tariffs, not eased', rules('Will Trump raise tariffs on China before the end of 2026?', 'policy').has('tariff-up') && !rules('Will Trump raise tariffs on China before the end of 2026?', 'policy').has('tariff-ease'));
+  ok('"tariffs end by the end of March" still reads as eased', rules('Will tariffs on Canada end by the end of March?', 'policy').has('tariff-ease'));
+  ok('"shutdown by year-end" is a shutdown; "shutdown ends" is not', rules('Government shutdown by year-end?', 'policy').has('shutdown') && rules('Will the shutdown last over 30 days?', 'policy').has('shutdown') && !rules('Will the government shutdown end before the end of November?', 'policy').has('shutdown'));
+  ok('a gold card visa is not gold the metal', !rules('Will the Trump gold card launch in 2026?', 'policy').has('gold-up') && classifyTheme({ text: 'How many Trump gold cards will be sold?' }) !== 'commodities' && rules('Gold above $4,000 by the end of the year?', 'commodities').has('gold-up'));
 }
 
 // ---- consensus ------------------------------------------------------------

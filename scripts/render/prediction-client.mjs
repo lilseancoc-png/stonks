@@ -361,7 +361,8 @@ export function renderPredictionJs() {
       try {
         var q = new URLSearchParams(location.search);
         var v = q.get('view'), s = q.get('s');
-        if (v) pmkSetView('tab', v);
+        // Only a real tab name is remembered; an Owner tab waits for sign-in.
+        if (v && PMK_TABS.concat(PMK_OWNER_TABS).some(function(t){ return t[0] === v; })) pmkSetView('tab', v);
         if (s && /^[A-Z][A-Z0-9.]{0,5}$/.test(s)) pmkSetView('sym', s);
       } catch (_) {}
     }

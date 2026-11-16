@@ -4196,7 +4196,8 @@ function recoveryEvidence(row, data, now = Date.now()) {
       try {
         var q = new URLSearchParams(location.search);
         var v = q.get('view'), s = q.get('s');
-        if (v) pmkSetView('tab', v);
+        // Only a real tab name is remembered; an Owner tab waits for sign-in.
+        if (v && PMK_TABS.concat(PMK_OWNER_TABS).some(function(t){ return t[0] === v; })) pmkSetView('tab', v);
         if (s && /^[A-Z][A-Z0-9.]{0,5}$/.test(s)) pmkSetView('sym', s);
       } catch (_) {}
     }
@@ -38860,10 +38861,11 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (!R.graded) return '<h4 class="sp-live-h">Live record</h4><p class="sp-muted">Forecasts are frozen before each game and graded after the final. ' + (R.pending ? R.pending + ' frozen so far, ' : '') + 'none graded yet.</p>';
     const W = R.winner || {}, B = R.bands || {}, G = R.ranges || {}, KA = R.kalshi;
     const verdict = R.status === 'beats_chance' ? 'Beating chance so far.' : R.status === 'no_edge' ? 'No edge over chance yet.' : 'Still collecting (100 games for a first read).';
-    const kLine = KA && KA.winner ? ' Kalshi on the same ' + KA.winner.n + ' games: model ' + escape(KA.winner.model_brier.toFixed(3)) + ', Kalshi ' + escape(KA.winner.kalshi_brier.toFixed(3)) + (KA.win_by ? '; win-by markets (' + KA.win_by.n + '): model ' + escape(KA.win_by.model_brier.toFixed(3)) + ', Kalshi ' + escape(KA.win_by.kalshi_brier.toFixed(3)) : '') + ' (lower is better).' : '';
+    const b3 = (x) => (Number.isFinite(x) ? x.toFixed(3) : '—');
+    const kLine = KA && KA.winner && KA.winner.n ? ' Kalshi on the same ' + KA.winner.n + ' games: model ' + b3(KA.winner.model_brier) + ', Kalshi ' + b3(KA.winner.kalshi_brier) + (KA.win_by && KA.win_by.n ? '; win-by markets (' + KA.win_by.n + '): model ' + b3(KA.win_by.model_brier) + ', Kalshi ' + b3(KA.win_by.kalshi_brier) : '') + ' (lower is better).' : '';
     const ladder = (R.ladder || []).filter((r) => r.n).map((r) => '<tr><td>' + escape(r.wins_by) + '</td><td class="sp-n">' + pct(r.model) + '</td><td class="sp-n">' + pct(r.actual) + '</td></tr>').join('');
     return '<h4 class="sp-live-h">Live record</h4><p class="sp-model-tally">' + R.graded + ' games graded since ' + escape(fmtDay(R.since)) + '. ' + escape(verdict) + '</p>' +
-      '<p class="sp-muted">Favorite won ' + pct(W.favorite_won) + ' (model said ' + pct(W.favorite_chance) + '); win Brier ' + escape(W.brier == null ? '—' : W.brier.toFixed(3)) + ' vs 0.250 for a coin. Chance on the band that happened ' + pct(B.chance_on_actual) + ' (even split ' + pct(B.even_split) + '). Finals inside the 50% range ' + pct(G.in50) + ', the 80% range ' + pct(G.in80) + '. Margin missed by ' + escape(f1(R.margin_miss)) + (R.line_miss != null ? ' (books’ spread ' + escape(f1(R.line_miss)) + ')' : '') + '.' + escape(kLine) + '</p>' +
+      '<p class="sp-muted">Favorite won ' + pct(W.favorite_won) + ' (model said ' + pct(W.favorite_chance) + '); win Brier ' + b3(W.brier) + ' vs 0.250 for a coin. Chance on the band that happened ' + pct(B.chance_on_actual) + ' (even split ' + pct(B.even_split) + '). Finals inside the 50% range ' + pct(G.in50) + ', the 80% range ' + pct(G.in80) + '. Margin missed by ' + escape(f1(R.margin_miss)) + (R.line_miss != null ? ' (books’ spread ' + escape(f1(R.line_miss)) + ')' : '') + '.' + escape(kLine) + '</p>' +
       (ladder ? '<details class="sp-model-stat"><summary><span class="sp-model-name">Win by X+: said vs happened</span></summary><div class="sp-model-body"><table class="sp-table sp-tb-table" data-nosort><thead><tr><th>Wins by</th><th class="sp-n">Model said</th><th class="sp-n">Happened</th></tr></thead><tbody>' + ladder + '</tbody></table></div></details>' : '');
   }
 
