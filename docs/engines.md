@@ -80,8 +80,9 @@ one rank of every covered stock (`lib/engines/rank.mjs`).
   stock is no longer in the top third of the rank, a put when it is no longer
   in the bottom third (close reason `rank-out`). With fewer than 12 ranked
   stocks there is no rank: nothing opens and nothing closes on it.
-- **After a stop, take-profit or time limit** the same stock is not bought
-  again until it is ranked again (next month or its next report).
+- **After any close** (stop, take-profit, time limit or a swap) the same stock
+  is not bought again until it is ranked again (next month or its next
+  report).
 - **Shadow trades.** A ranked name with no free slot is looked at again next
   run. It is not parked as a shadow trade. Muted setups, a stand-down and the
   brake still make shadow trades, as for every engine.
