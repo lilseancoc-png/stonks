@@ -141,7 +141,7 @@ downloaded by the shared long-history cache's refresh like the others;
 
 - Letting the sign count vote on Risk analysis or the Top Picks tape.
 - Using `epd` / `bsl` in a grade, gate or the AI grader (after the shadow
-  evidence bar, and not before 2026-12-07).
+  evidence bar).
 - A paid CDS feed.
 
 ## Tests

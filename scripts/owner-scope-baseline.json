@@ -2,7 +2,7 @@
   "note": "Fingerprints for scripts/owner-scope-smoke.mjs. Update with --update only for a deliberate change, and say why in the PR.",
   "files": {
     "scripts/build.mjs": "099e66bd1e4c729033babb4780591c474ed40b19230704d49cd3f97e3f68ae30",
-    "lib/top-picks-config.mjs": "ca8432a14bdbe3fdd61e6be324f75455bda2e07085b13a15bd9d0010ca488893",
+    "lib/top-picks-config.mjs": "a11c62af03952f0e390b8a833f680696f9ea49fdef6f6c095aa7d9953adcb61f",
     "lib/datastore.mjs": "524634a5c6a9e041109b98a9637c70da1911106a20e08eb664c60aea05396fdd",
     "lib/data-ownership.mjs": "0e9c15dcf2139d37b804b4a3f7768487e223f6c78ccbacbf836a3befbabb6faa",
     "scripts/sync-data.mjs": "f1689806667ffa73a594b5b6a7565ded57d6db0db2551f7ac5438d0144d1b5bd",

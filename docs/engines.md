@@ -176,7 +176,7 @@ Every change bumps the engine's rules version (`TEC-2`, `TEC-3`, …), goes in
 its change log and is stamped on new trades, so the record can be split by it.
 
 Top Picks learns through its own loop (`docs/self-loop.md`), which stays in
-shadow until 2026-12-07. Nothing here changes that.
+shadow until the Owner switches self-tuning on. Nothing here changes that.
 
 ## History test
 

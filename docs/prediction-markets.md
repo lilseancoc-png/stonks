@@ -109,7 +109,8 @@ Verdicts: `holds`, `odds-lead`, `run-up-follows` (pass); `odds-echo`,
   `pmCut`, `pmPol`, `pmJmp`. Measured by `lib/shadow-research.mjs` like every
   other candidate input. Nothing scores.
 - **AI grader**: the linked odds lines reach the Top Picks grader only with
-  `PICKS_ODDS_GRADER=1`, off and locked in Owner Settings until 2026-12-07.
+  `PICKS_ODDS_GRADER=1`, off by default (an Owner Settings engine hook; the
+  2026-12-07 lock was lifted on 2026-11-16).
 
 ## Sports: win-by bands and Kalshi prices
 
@@ -132,7 +133,7 @@ Verdicts: `holds`, `odds-lead`, `run-up-follows` (pass); `odds-echo`,
 | Switch | Where | Effect |
 |---|---|---|
 | `PREDICTION_TRACKER=0` | repo variable (`daily.yml`), Owner Settings | No venue reads; the prior files carry forward (public file marked stale) |
-| `PICKS_ODDS_GRADER=1` | repo variable, Owner Settings (locked until 2026-12-07) | Adds linked odds lines to the AI grader prompt |
+| `PICKS_ODDS_GRADER=1` | repo variable, Owner Settings (Engine hooks, off by default, needs a confirm) | Adds linked odds lines to the AI grader prompt |
 | `SPORTS_KALSHI=0` | repo variable (`sports-data.yml`) | Skips the Kalshi sports reads |
 
 ## Tests
