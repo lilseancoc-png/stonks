@@ -1,0 +1,745 @@
+{
+ "builtAtIso": "2026-11-16T13:02:55.227Z",
+ "chains": {
+  "AAPL": {
+   "spot": 356.27,
+   "currency": "USD",
+   "name": "Apple Inc.",
+   "marketCap": 5177380175872,
+   "financialCurrency": "USD",
+   "forwardPE": 33.700924,
+   "sector": "Mega-cap tech",
+   "cik": "0000320193"
+  },
+  "MSFT": {
+   "spot": 523.88,
+   "currency": "USD",
+   "name": "Microsoft Corporation",
+   "marketCap": 3890434801664,
+   "financialCurrency": "USD",
+   "forwardPE": 21.65179,
+   "sector": "Mega-cap tech",
+   "cik": "0000789019"
+  },
+  "AMZN": {
+   "spot": 266.66,
+   "currency": "USD",
+   "name": "Amazon.com, Inc.",
+   "marketCap": 2883431432192,
+   "financialCurrency": "USD",
+   "forwardPE": 24.405827,
+   "sector": "Mega-cap tech",
+   "cik": "0001018724"
+  },
+  "META": {
+   "spot": 641.69,
+   "currency": "USD",
+   "name": "Meta Platforms, Inc.",
+   "marketCap": 1640314437632,
+   "financialCurrency": "USD",
+   "forwardPE": 17.987026,
+   "sector": "Mega-cap tech",
+   "cik": "0001326801"
+  },
+  "GOOGL": {
+   "spot": 295.77,
+   "currency": "USD",
+   "name": "Alphabet Inc.",
+   "marketCap": 3636196016128,
+   "financialCurrency": "USD",
+   "forwardPE": 19.483252,
+   "sector": "Mega-cap tech",
+   "cik": "0001652044"
+  },
+  "TSLA": {
+   "spot": 390.22,
+   "currency": "USD",
+   "name": "Tesla, Inc.",
+   "marketCap": 1542445203456,
+   "financialCurrency": "USD",
+   "forwardPE": 180.72267,
+   "sector": "Mega-cap tech",
+   "cik": "0001318605"
+  },
+  "NVDA": {
+   "spot": 162.85,
+   "currency": "USD",
+   "name": "NVIDIA Corporation",
+   "marketCap": 3932339044352,
+   "financialCurrency": "USD",
+   "forwardPE": 10.28222,
+   "sector": "Mega-cap tech",
+   "cik": "0001045810"
+  },
+  "TSM": {
+   "spot": 398.73,
+   "currency": "USD",
+   "name": "Taiwan Semiconductor Manufacturing Company Limited",
+   "marketCap": 2068002373632,
+   "financialCurrency": "TWD",
+   "forwardPE": 17.050463,
+   "sector": "Semis",
+   "cik": "0001046179"
+  },
+  "AVGO": {
+   "spot": 347.01,
+   "currency": "USD",
+   "name": "Broadcom Inc.",
+   "marketCap": 1656497373184,
+   "financialCurrency": "USD",
+   "forwardPE": 17.827318,
+   "sector": "Semis",
+   "cik": "0001730168"
+  },
+  "ORCL": {
+   "spot": 125.35,
+   "currency": "USD",
+   "name": "Oracle Corporation",
+   "marketCap": 390804701184,
+   "financialCurrency": "USD",
+   "forwardPE": 11.334854,
+   "sector": "Software",
+   "cik": "0001341439"
+  },
+  "NFLX": {
+   "spot": 62.15,
+   "currency": "USD",
+   "name": "Netflix, Inc.",
+   "marketCap": 255208161280,
+   "financialCurrency": "USD",
+   "forwardPE": 16.479555,
+   "sector": "Mega-cap tech",
+   "cik": "0001065280"
+  },
+  "JPM": {
+   "spot": 346.19,
+   "currency": "USD",
+   "name": "JPMorgan Chase & Co.",
+   "marketCap": 919345496064,
+   "financialCurrency": "USD",
+   "forwardPE": 13.537293,
+   "sector": "Bank",
+   "cik": "0000019617"
+  },
+  "V": {
+   "spot": 425.76,
+   "currency": "USD",
+   "name": "Visa Inc.",
+   "marketCap": 794383024128,
+   "financialCurrency": "USD",
+   "forwardPE": 24.839548,
+   "sector": "Payments",
+   "cik": "0001403161"
+  },
+  "MA": {
+   "spot": 661.19,
+   "currency": "USD",
+   "name": "Mastercard Incorporated",
+   "marketCap": 576012943360,
+   "financialCurrency": "USD",
+   "forwardPE": 28.542875,
+   "sector": "Payments",
+   "cik": "0001141391"
+  },
+  "LLY": {
+   "spot": 1443.5,
+   "currency": "USD",
+   "name": "Eli Lilly and Company",
+   "marketCap": 1285790498816,
+   "financialCurrency": "USD",
+   "forwardPE": 28.416914,
+   "sector": "Pharma",
+   "cik": "0000059478"
+  },
+  "MRNA": {
+   "spot": 223.37,
+   "currency": "USD",
+   "name": "Moderna, Inc.",
+   "marketCap": 90380181504,
+   "financialCurrency": "USD",
+   "forwardPE": -53.62922,
+   "sector": "Pharma",
+   "cik": "0001682852"
+  },
+  "MRK": {
+   "spot": 147.76,
+   "currency": "USD",
+   "name": "Merck & Co., Inc.",
+   "marketCap": 364264685568,
+   "financialCurrency": "USD",
+   "forwardPE": 16.452564,
+   "sector": "Pharma",
+   "cik": "0000310158"
+  },
+  "WMT": {
+   "spot": 128.09,
+   "currency": "USD",
+   "name": "Walmart Inc.",
+   "marketCap": 1016233525248,
+   "financialCurrency": "USD",
+   "forwardPE": 39.75691,
+   "sector": "Retail",
+   "cik": "0000104169"
+  },
+  "COST": {
+   "spot": 1106.21,
+   "currency": "USD",
+   "name": "Costco Wholesale Corporation",
+   "marketCap": 490194108416,
+   "financialCurrency": "USD",
+   "forwardPE": 44.208946,
+   "sector": "Retail",
+   "cik": "0000909832"
+  },
+  "CRWD": {
+   "spot": 226.61,
+   "currency": "USD",
+   "name": "CrowdStrike Holdings, Inc.",
+   "marketCap": 232033878016,
+   "financialCurrency": "USD",
+   "forwardPE": 140.72446,
+   "sector": "Software",
+   "cik": "0001535527"
+  },
+  "ADBE": {
+   "spot": 243.08,
+   "currency": "USD",
+   "name": "Adobe Inc.",
+   "marketCap": 94606737408,
+   "financialCurrency": "USD",
+   "forwardPE": 8.869208,
+   "sector": "Software",
+   "cik": "0000796343"
+  },
+  "SHOP": {
+   "spot": 147.09,
+   "currency": "USD",
+   "name": "Shopify Inc.",
+   "marketCap": 189234511872,
+   "financialCurrency": "USD",
+   "forwardPE": 59.794384,
+   "sector": "Software",
+   "cik": "0001594805"
+  },
+  "BAC": {
+   "spot": 51.02,
+   "currency": "USD",
+   "name": "Bank of America Corporation",
+   "marketCap": 352048676864,
+   "financialCurrency": "USD",
+   "forwardPE": 9.849231,
+   "sector": "Bank",
+   "cik": "0000070858"
+  },
+  "SCHW": {
+   "spot": 92.98,
+   "currency": "USD",
+   "name": "The Charles Schwab Corporation",
+   "marketCap": 160484196352,
+   "financialCurrency": "USD",
+   "forwardPE": 11.913167,
+   "sector": "Broker",
+   "cik": "0000316709"
+  },
+  "BABA": {
+   "spot": 94.38,
+   "currency": "USD",
+   "name": "Alibaba Group Holding Limited",
+   "marketCap": 234793369600,
+   "financialCurrency": "CNY",
+   "forwardPE": 10.223339,
+   "sector": "China tech",
+   "cik": "0001577552"
+  },
+  "MS": {
+   "spot": 190.65,
+   "currency": "USD",
+   "name": "Morgan Stanley",
+   "marketCap": 297994289152,
+   "financialCurrency": "USD",
+   "forwardPE": 13.946475,
+   "sector": "Bank",
+   "cik": "0000895421"
+  },
+  "GS": {
+   "spot": 916.56,
+   "currency": "USD",
+   "name": "The Goldman Sachs Group, Inc.",
+   "marketCap": 264367603712,
+   "financialCurrency": "USD",
+   "forwardPE": 12.344621,
+   "sector": "Bank",
+   "cik": "0000886982"
+  },
+  "HOOD": {
+   "spot": 77.86,
+   "currency": "USD",
+   "name": "Robinhood Markets, Inc.",
+   "marketCap": 70112247808,
+   "financialCurrency": "USD",
+   "forwardPE": 22.829563,
+   "sector": "Broker",
+   "cik": "0001783879"
+  },
+  "AXP": {
+   "spot": 320.6,
+   "currency": "USD",
+   "name": "American Express Company",
+   "marketCap": 214978969600,
+   "financialCurrency": "USD",
+   "forwardPE": 15.858953,
+   "sector": "Payments",
+   "cik": "0000004962"
+  },
+  "AMD": {
+   "spot": 534.06,
+   "currency": "USD",
+   "name": "Advanced Micro Devices, Inc.",
+   "marketCap": 875905024000,
+   "financialCurrency": "USD",
+   "forwardPE": 30.188778,
+   "sector": "Semis",
+   "cik": "0000002488"
+  },
+  "C": {
+   "spot": 124.01,
+   "currency": "USD",
+   "name": "Citigroup Inc.",
+   "marketCap": 205261914112,
+   "financialCurrency": "USD",
+   "forwardPE": 9.4934,
+   "sector": "Bank",
+   "cik": "0000831001"
+  },
+  "UNH": {
+   "spot": 407.46,
+   "currency": "USD",
+   "name": "UnitedHealth Group Incorporated",
+   "marketCap": 365093355520,
+   "financialCurrency": "USD",
+   "forwardPE": 17.464527,
+   "sector": "Insurance",
+   "cik": "0000731766"
+  },
+  "DELL": {
+   "spot": 344.53,
+   "currency": "USD",
+   "name": "Dell Technologies Inc.",
+   "marketCap": 219056553984,
+   "financialCurrency": "USD",
+   "forwardPE": 11.285283,
+   "sector": "Hardware",
+   "cik": "0001571996"
+  },
+  "ASML": {
+   "spot": 1495.16,
+   "currency": "USD",
+   "name": "ASML Holding N.V.",
+   "marketCap": 576261193728,
+   "financialCurrency": "EUR",
+   "forwardPE": 23.583231,
+   "sector": "Semis",
+   "cik": "0000937966"
+  },
+  "VST": {
+   "spot": 133.01,
+   "currency": "USD",
+   "name": "Vistra Corp.",
+   "marketCap": 45142884352,
+   "financialCurrency": "USD",
+   "forwardPE": 14.208998,
+   "sector": "Power",
+   "cik": "0001692819"
+  },
+  "NOW": {
+   "spot": 102.25,
+   "currency": "USD",
+   "name": "ServiceNow, Inc.",
+   "marketCap": 106127015936,
+   "financialCurrency": "USD",
+   "forwardPE": 21.291882,
+   "sector": "Software",
+   "cik": "0001373715"
+  },
+  "MDB": {
+   "spot": 334.2,
+   "currency": "USD",
+   "name": "MongoDB, Inc.",
+   "marketCap": 26921930752,
+   "financialCurrency": "USD",
+   "forwardPE": 42.23638,
+   "sector": "Software",
+   "cik": "0001441816"
+  },
+  "ACN": {
+   "spot": 250.49,
+   "currency": "USD",
+   "name": "Accenture plc",
+   "marketCap": 147973832704,
+   "financialCurrency": "USD",
+   "forwardPE": 15.745612,
+   "sector": "IT services",
+   "cik": "0001467373"
+  },
+  "OKTA": {
+   "spot": 182.87,
+   "currency": "USD",
+   "name": "Okta, Inc.",
+   "marketCap": 31969503232,
+   "financialCurrency": "USD",
+   "forwardPE": 41.767826,
+   "sector": "Software",
+   "cik": "0001660134"
+  },
+  "SNOW": {
+   "spot": 291,
+   "currency": "USD",
+   "name": "Snowflake Inc.",
+   "marketCap": 102664798208,
+   "financialCurrency": "USD",
+   "forwardPE": 94.962425,
+   "sector": "Software",
+   "cik": "0001640147"
+  },
+  "RKLB": {
+   "spot": 61.53,
+   "currency": "USD",
+   "name": "Rocket Lab Corporation",
+   "marketCap": 41407975424,
+   "financialCurrency": "USD",
+   "forwardPE": 859.59766,
+   "sector": "Space",
+   "cik": "0001819994"
+  },
+  "CRM": {
+   "spot": 217.84,
+   "currency": "USD",
+   "name": "Salesforce, Inc.",
+   "marketCap": 179282313216,
+   "financialCurrency": "USD",
+   "forwardPE": 13.602052,
+   "sector": "Software",
+   "cik": "0001108524"
+  },
+  "ASTS": {
+   "spot": 32.6,
+   "currency": "USD",
+   "name": "AST SpaceMobile, Inc.",
+   "marketCap": 12717574144,
+   "financialCurrency": "USD",
+   "forwardPE": -20.88057,
+   "sector": "Space",
+   "cik": "0001780312"
+  },
+  "FTNT": {
+   "spot": 127.22,
+   "currency": "USD",
+   "name": "Fortinet, Inc.",
+   "marketCap": 93469777920,
+   "financialCurrency": "USD",
+   "forwardPE": 32.60864,
+   "sector": "Software",
+   "cik": "0001262039"
+  },
+  "INTU": {
+   "spot": 341.7,
+   "currency": "USD",
+   "name": "Intuit Inc.",
+   "marketCap": 91314544640,
+   "financialCurrency": "USD",
+   "forwardPE": 12.698973,
+   "sector": "Software",
+   "cik": "0000896878"
+  },
+  "TEAM": {
+   "spot": 149.99,
+   "currency": "USD",
+   "name": "Atlassian Corporation",
+   "marketCap": 37775429632,
+   "financialCurrency": "USD",
+   "forwardPE": 22.397099,
+   "sector": "Software",
+   "cik": "0001650372"
+  },
+  "NKE": {
+   "spot": 37.99,
+   "currency": "USD",
+   "name": "NIKE, Inc.",
+   "marketCap": 56426885120,
+   "financialCurrency": "USD",
+   "forwardPE": 24.707659,
+   "sector": "Apparel",
+   "cik": "0000320187"
+  },
+  "PANW": {
+   "spot": 322.24,
+   "currency": "USD",
+   "name": "Palo Alto Networks, Inc.",
+   "marketCap": 263840972800,
+   "financialCurrency": "USD",
+   "forwardPE": 65.97519,
+   "sector": "Software",
+   "cik": "0001327567"
+  },
+  "DIS": {
+   "spot": 118.97,
+   "currency": "USD",
+   "name": "The Walt Disney Company",
+   "marketCap": 205423935488,
+   "financialCurrency": "USD",
+   "forwardPE": 15.888258,
+   "sector": "Media",
+   "cik": "0001744489"
+  },
+  "IBM": {
+   "spot": 247.13,
+   "currency": "USD",
+   "name": "International Business Machines Corporation",
+   "marketCap": 233567715328,
+   "financialCurrency": "USD",
+   "forwardPE": 18.66734,
+   "sector": "Tech services",
+   "cik": "0000051143"
+  },
+  "QCOM": {
+   "spot": 172.47,
+   "currency": "USD",
+   "name": "QUALCOMM Incorporated",
+   "marketCap": 184542904320,
+   "financialCurrency": "USD",
+   "forwardPE": 14.129126,
+   "sector": "Semis",
+   "cik": "0000804328"
+  },
+  "HD": {
+   "spot": 348.69,
+   "currency": "USD",
+   "name": "The Home Depot, Inc.",
+   "marketCap": 347884388352,
+   "financialCurrency": "USD",
+   "forwardPE": 21.927555,
+   "sector": "Retail",
+   "cik": "0000354950"
+  },
+  "PLTR": {
+   "spot": 167.99,
+   "currency": "USD",
+   "name": "Palantir Technologies Inc.",
+   "marketCap": 404771504128,
+   "financialCurrency": "USD",
+   "forwardPE": 66.2625,
+   "sector": "Software",
+   "cik": "0001321655"
+  },
+  "PYPL": {
+   "spot": 59.28,
+   "currency": "USD",
+   "name": "PayPal Holdings, Inc.",
+   "marketCap": 49241423872,
+   "financialCurrency": "USD",
+   "forwardPE": 10.041365,
+   "sector": "Payments",
+   "cik": "0001633917"
+  },
+  "DDOG": {
+   "spot": 184.16,
+   "currency": "USD",
+   "name": "Datadog, Inc.",
+   "marketCap": 66489597952,
+   "financialCurrency": "USD",
+   "forwardPE": 57.859188,
+   "sector": "Software",
+   "cik": "0001561550"
+  },
+  "SBUX": {
+   "spot": 106.44,
+   "currency": "USD",
+   "name": "Starbucks Corporation",
+   "marketCap": 121352241152,
+   "financialCurrency": "USD",
+   "forwardPE": 28.573807,
+   "sector": "Restaurants",
+   "cik": "0000829224"
+  },
+  "ANET": {
+   "spot": 197.29,
+   "currency": "USD",
+   "name": "Arista Networks, Inc.",
+   "marketCap": 249256640512,
+   "financialCurrency": "USD",
+   "forwardPE": 32.680138,
+   "sector": "Networking",
+   "cik": "0001596532"
+  },
+  "TXN": {
+   "spot": 303.6,
+   "currency": "USD",
+   "name": "Texas Instruments Incorporated",
+   "marketCap": 277420670976,
+   "financialCurrency": "USD",
+   "forwardPE": 26.099201,
+   "sector": "Semis",
+   "cik": "0000097476"
+  },
+  "INTC": {
+   "spot": 59.66,
+   "currency": "USD",
+   "name": "Intel Corporation",
+   "marketCap": 317092888576,
+   "financialCurrency": "USD",
+   "forwardPE": 33.321045,
+   "sector": "Semis",
+   "cik": "0000050863"
+  },
+  "SMCI": {
+   "spot": 26.865,
+   "currency": "USD",
+   "name": "Super Micro Computer, Inc.",
+   "marketCap": 17710143488,
+   "financialCurrency": "USD",
+   "forwardPE": 3.8682172,
+   "sector": "Semis",
+   "cik": "0001375365"
+  },
+  "NVO": {
+   "spot": 41.63,
+   "currency": "USD",
+   "name": "Novo Nordisk A/S",
+   "marketCap": 183519838208,
+   "financialCurrency": "DKK",
+   "forwardPE": 12.10376,
+   "sector": "Pharma",
+   "cik": "0000353278"
+  },
+  "CRWV": {
+   "spot": 53.13,
+   "currency": "USD",
+   "name": "CoreWeave, Inc.",
+   "marketCap": 29546958848,
+   "financialCurrency": "USD",
+   "forwardPE": -29.960245,
+   "sector": "Software",
+   "cik": "0001769628"
+  },
+  "MRVL": {
+   "spot": 156.76,
+   "currency": "USD",
+   "name": "Marvell Technology, Inc.",
+   "marketCap": 141047300096,
+   "financialCurrency": "USD",
+   "forwardPE": 21.32818,
+   "sector": "Semis",
+   "cik": "0001835632"
+  },
+  "AMAT": {
+   "spot": 370.5,
+   "currency": "USD",
+   "name": "Applied Materials, Inc.",
+   "marketCap": 294027853824,
+   "financialCurrency": "USD",
+   "forwardPE": 14.996751,
+   "sector": "Semis",
+   "cik": "0000006951"
+  },
+  "MU": {
+   "spot": 778.31,
+   "currency": "USD",
+   "name": "Micron Technology, Inc.",
+   "marketCap": 880597991424,
+   "financialCurrency": "USD",
+   "forwardPE": 3.7461889,
+   "sector": "Semis",
+   "cik": "0000723125"
+  },
+  "BE": {
+   "spot": 191.99,
+   "currency": "USD",
+   "name": "Bloom Energy Corporation",
+   "marketCap": 56763133952,
+   "financialCurrency": "USD",
+   "forwardPE": 36.06184,
+   "sector": "Clean energy",
+   "cik": "0001664703"
+  },
+  "SNDK": {
+   "spot": 885.01,
+   "currency": "USD",
+   "name": "Sandisk Corporation",
+   "marketCap": 125927505920,
+   "financialCurrency": "USD",
+   "forwardPE": 3.0617468,
+   "sector": "Storage",
+   "cik": "0002023554"
+  },
+  "WDC": {
+   "spot": 295.65,
+   "currency": "USD",
+   "name": "Western Digital Corporation",
+   "marketCap": 110668668928,
+   "financialCurrency": "USD",
+   "forwardPE": 7.317193,
+   "sector": "Storage",
+   "cik": "0000106040"
+  },
+  "DRAM": {
+   "spot": 42.4,
+   "currency": "USD",
+   "name": "Roundhill Memory ETF",
+   "marketCap": null,
+   "financialCurrency": null,
+   "forwardPE": null,
+   "sector": "Semis",
+   "cik": null
+  },
+  "SPCX": {
+   "spot": 139.11,
+   "currency": "USD",
+   "name": "Space Exploration Technologies Corp.",
+   "marketCap": 1889261846528,
+   "financialCurrency": "USD",
+   "forwardPE": 50.726936,
+   "sector": "Space",
+   "cik": "0001181412"
+  },
+  "CBRS": {
+   "spot": 108.72,
+   "currency": "USD",
+   "name": "Cerebras Systems Inc.",
+   "marketCap": 26419324928,
+   "financialCurrency": "USD",
+   "forwardPE": 58.502884,
+   "sector": "Semis",
+   "cik": "0002021728"
+  },
+  "ARM": {
+   "spot": 190.53,
+   "currency": "USD",
+   "name": "Arm Holdings plc",
+   "marketCap": 203867095040,
+   "financialCurrency": "USD",
+   "forwardPE": 61.962994,
+   "sector": "Semis",
+   "cik": "0001973239"
+  },
+  "VRT": {
+   "spot": 202.07,
+   "currency": "USD",
+   "name": "Vertiv Holdings Co",
+   "marketCap": 77809164288,
+   "financialCurrency": "USD",
+   "forwardPE": 20.37261,
+   "sector": "Data center",
+   "cik": "0001674101"
+  },
+  "TGT": {
+   "spot": 161.45,
+   "currency": "USD",
+   "name": "Target Corporation",
+   "marketCap": 73345351680,
+   "financialCurrency": "USD",
+   "forwardPE": 16.836332,
+   "sector": "Retail",
+   "cik": "0000027419"
+  }
+ }
+}
