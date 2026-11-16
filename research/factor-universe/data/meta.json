@@ -1,22 +1,42 @@
 {
- "builtAtIso": "2026-11-16T13:21:02.301Z",
+ "builtAtIso": "2026-11-16T16:14:09.121Z",
  "since": "2004-06-01",
- "scanned": 1360,
+ "scanned": 1358,
  "companies": 1000,
  "priced": 1000,
  "quoted": 1000,
  "sic": 998,
  "forecastFiles": 26,
+ "merged": [
+  "GOOGL: 0001288776 Google Inc.",
+  "AVGO: 0001649338 Broadcom Ltd",
+  "AVGO: 0001441634 Avago Technologies LTD",
+  "XOM: 0000034088 Exxon Mobil Corporation",
+  "LIN: 0000884905 PRAXAIR INC",
+  "DIS: 0001001039 WALT DISNEY CO/",
+  "BLK: 0001364742 BLACKROCK FINANCE, INC.",
+  "MRVL: 0001058057 MARVELL TECHNOLOGY GROUP LTD",
+  "ETN: 0000031277 EATON CORP",
+  "MDT: 0000064670 MEDTRONIC INC",
+  "ICE: 0001174746 INTERCONTINENTALEXCHANGE INC",
+  "CI: 0000701221 CIGNA CORP",
+  "BKR: 0000808362 Baker Hughes Holdings LLC",
+  "WCN: 0001057058 WASTE CONNECTIONS, INC.",
+  "FTI: 0001135152 FMC TECHNOLOGIES INC",
+  "STE: 0001624899 STERIS plc",
+  "STE: 0000815065 STERIS plc",
+  "VTRS: 0001623613 MYLAN II B.V.",
+  "VTRS: 0000069499 MYLAN INC.",
+  "TPL: 0000097517 TEXAS PACIFIC LAND TRUST",
+  "BG: 0001144519 BUNGELTD",
+  "DINO: 0000048039 HOLLYFRONTIER CORP",
+  "APA: 0000006769 APACHE CORP"
+ ],
  "dropped": [
   {
    "sym": "SKHY",
    "rank": 11,
    "why": "no US GAAP facts (ffd)"
-  },
-  {
-   "sym": "XOM",
-   "rank": 16,
-   "why": "assets 3, profit rows 8 (yearly 0), tags NetIncomeLoss:USD:8 ProfitLoss:USD:8"
   },
   {
    "sym": "ASML",
