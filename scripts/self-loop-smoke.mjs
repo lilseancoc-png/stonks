@@ -638,7 +638,9 @@ async function main() {
   // The run plan: null unless switched on past the floor date.
   const tState = Loop.emptyLoopState();
   eq(Tn.loopLivePlan(tState, { mode: "shadow", today: "2026-12-10" }), null, "shadow: no live plan");
-  eq(Tn.loopLivePlan(tState, { mode: "on", today: "2026-12-04" }), null, "on, but before December 7: no live plan");
+  eq(Tn.LIVE_FLOOR, "2026-11-16", "the floor is the day the Owner lifted the Dec 7 lock");
+  eq(Tn.loopLivePlan(tState, { mode: "on", today: "2026-11-13" }), null, "on, but before the floor date: no live plan");
+  ok(Tn.loopLivePlan(tState, { mode: "on", today: "2026-11-16" }), "on at the floor date: a live plan");
   const basePlan = Tn.loopLivePlan(tState, { mode: "on", today: "2026-12-07" });
   ok(basePlan && basePlan.version === 0 && basePlan.tuned === false, "on past the floor: the base version, nothing tuned");
 
@@ -741,8 +743,8 @@ async function main() {
   Tn.stepTune(sh, { mode: "shadow", today: "2026-11-27", rows: evRows, weekly: true });
   eq(sh.shadow.settings.weights.good, 1.2, "the shadow path builds week on week");
   const early = Tn.emptyTune();
-  Tn.stepTune(early, { mode: "on", today: "2026-11-27", rows: evRows, weekly: true });
-  ok(early.versions.length === 1 && early.shadow, "switched on before December 7 behaves like shadow");
+  Tn.stepTune(early, { mode: "on", today: "2026-11-13", rows: evRows, weekly: true });
+  ok(early.versions.length === 1 && early.shadow, "switched on before the floor date behaves like shadow");
   const tn = Tn.emptyTune();
   tv = Tn.stepTune(tn, { mode: "on", today: "2026-12-11", rows: evRows, weekly: true });
   ok(tv.live && tn.current === 1 && tn.versions[1].by === "loop", "live: the week's step becomes v1");
@@ -950,7 +952,7 @@ async function main() {
   const { renderHtml, renderAppJs, renderStylesCss } = await import("./build.mjs");
   const app = renderAppJs({});
   ok(/function loadSelfLoop\(/.test(app), "app.js carries the loop loader");
-  ok(/'regime','loop'\]\.indexOf\(view\)/.test(app), "the Owner Lab view switch accepts the loop view");
+  ok(/'regime','loop'[^\]]*\]\.indexOf\(view\)/.test(app), "the Owner Lab view switch accepts the loop view");
   ok(/data-owner-loop-refresh/.test(app), "refresh button is bound");
   ok(/\['loop', 'Self-improving loop'\]/.test(app), "the Evidence board lists the loop lane");
   ok(/dataUrl\('picks-loop\.json'\)/.test(app), "reads the view file, not the large state file");

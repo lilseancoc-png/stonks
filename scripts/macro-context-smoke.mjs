@@ -85,7 +85,7 @@ if (!ON) {
   // The settings are read when build.mjs first loads, so the kill switch is set here.
   process.env.PICKS_MACRO_CONTEXT = "0";
   const B = await import("./build.mjs");
-  ok("switch off with PICKS_MACRO_CONTEXT=0", B.PICKS_MACRO_CONTEXT === false && B.GRADE_MODEL_VERSION === "2026-11-price-pillar");
+  ok("switch off with PICKS_MACRO_CONTEXT=0", B.PICKS_MACRO_CONTEXT === false && B.GRADE_MODEL_VERSION === (B.PICKS_FLOW_SIGNED ? "2026-11-signed-flow-no-macro" : "2026-11-price-pillar"));
   ok("AXP reads as a card lender in the macro read only", B.macroContextKindOf("AXP") === "cardLender" && B.macroKindOf("AXP", {}) !== "cardLender");
   const chainsOff = { AXP: { spot: 300, chains: {}, technicals: null, fundamentals: { sector: null } } };
   const mbOff = { macroContext: { fits: { AXP: { points: 1.2, predRelPct: 0.27, kind: "cardLender", parts: [] } }, factors: { rates: { detail: { pricedPct: 0.7 } } } }, rotation: { spread: 0.1, spread20d: -9 } };
@@ -117,7 +117,7 @@ if (!ON) {
 } else {
   const B = await import("./build.mjs");
   const pointsMode = process.argv.includes("--on-points");
-  ok("switch on by default: version moves so the Track Record splits", B.PICKS_MACRO_CONTEXT === true && B.GRADE_MODEL_VERSION === "2026-11-macro-context");
+  ok("switch on by default: version moves so the Track Record splits", B.PICKS_MACRO_CONTEXT === true && B.GRADE_MODEL_VERSION === (B.PICKS_FLOW_SIGNED ? "2026-11-signed-flow" : "2026-11-macro-context"));
   const T = B.computeMacroRegime({}, null, null, null, []).thresholds || {};
   ok("switch on: the browser tape gets the one-month and hikes-priced settings", T.macroContextOn === true && T.rotationPp20d === 4 && T.fedPricedPts === 0.25);
   const chains = { AXP: { spot: 300, chains: {}, technicals: null, fundamentals: { sector: null } }, SPY: { spot: 500, chains: {}, technicals: null, fundamentals: { quoteType: "ETF" } } };

@@ -54,6 +54,7 @@ import { renderEdgeOddsJs } from './edge-odds-client.mjs';
 import { renderEvidenceJs } from './evidence-client.mjs';
 import { renderRegimeLabJs } from './regime-lab-client.mjs';
 import { renderSelfLoopJs } from './self-loop-client.mjs';
+import { renderQuantLabsJs } from './quant-labs-client.mjs';
 import { renderEnginesJs } from './engines-client.mjs';
 import { renderOwnerInsightJs } from './owner-insight-client.mjs';
 import { tradePostMortemFactory } from '../../lib/trade-postmortem.mjs';
@@ -122,6 +123,7 @@ ${renderEdgeOddsJs()}
 ${renderEvidenceJs()}
 ${renderRegimeLabJs()}
 ${renderSelfLoopJs()}
+${renderQuantLabsJs()}
 ${renderEnginesJs()}
 ${renderOwnerInsightJs()}
 ${calendarSourceLabel.toString()}
@@ -4290,7 +4292,7 @@ ${scenarioEventPhase.toString()}
   // resolve the URL's initial tab synchronously at script-evaluation time (the
   // anti-flash pre-select in the boot block) before the /api/auth/me +
   // manifest fetches settle and bind() runs the full selectTab.
-  var PAGE_TAB_IDS = ['home','update-checker','owner-settings','owner-market-brief','tickers','stock','narratives','brief','news','market','risk','unified-signal-engine','historical-data','party-tracker','earnings-forecast','forced-liquidation','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','bottom-tracker','open-picks','track','sports-nba','sports-nfl','sports-pick-builder','cheatsheet','chart-patterns','timeline','contact','glossary','earnings-week','market-map','crowd','prediction-markets','history-rhymes','whats-changed','past-day','privacy','terms'];
+  var PAGE_TAB_IDS = ['home','update-checker','owner-settings','owner-market-brief','tickers','stock','narratives','brief','news','market','risk','unified-signal-engine','historical-data','party-tracker','earnings-forecast','forced-liquidation','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','bottom-tracker','open-picks','track','engines','sports-nba','sports-nfl','sports-pick-builder','cheatsheet','chart-patterns','timeline','contact','glossary','earnings-week','market-map','crowd','prediction-markets','history-rhymes','whats-changed','past-day','privacy','terms'];
   // Friendly aliases so deep-links people might guess work too.
   // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
   // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -4324,6 +4326,7 @@ ${scenarioEventPhase.toString()}
     'ipo-credit': 'capital-raises', ipos: 'capital-raises', ipo: 'capital-raises', credit: 'capital-raises', 'credit-card': 'capital-raises', 'credit-cards': 'capital-raises', deposits: 'capital-raises', revolsl: 'capital-raises', 'household-debt': 'capital-raises',
     bottom: 'bottom-tracker', bottoms: 'bottom-tracker', 'bottom-tracker': 'bottom-tracker', 'market-bottom': 'bottom-tracker',
     pick: 'picks', 'top-picks': 'picks', toppicks: 'picks',
+    engine: 'engines', 'strategy-engines': 'engines', 'paper-engines': 'engines',
     open: 'open-picks', 'open-pick': 'open-picks', openpicks: 'open-picks', 'open-trades': 'open-picks', positions: 'open-picks',
     'stock-picks': 'stocks', stockpicks: 'stocks', stock: 'stocks', shares: 'stocks',
     'market-analysis': 'market', analysis: 'market', tape: 'market', regime: 'market',
@@ -4558,8 +4561,8 @@ ${renderExportBindings()}
           ['tab', 's', 'exp', 'k', 't', 'view'].forEach(function(key){ url.searchParams.delete(key); });
         } else url.searchParams.set('tab', name);
         if (name !== 'compare') url.searchParams.delete('cmp');
-        // engine / ev pick a strategy engine on the Top Picks page only.
-        if (name !== 'picks') { url.searchParams.delete('engine'); url.searchParams.delete('ev'); }
+        // engine / ev pick a strategy engine and its view on the Strategy engines page only.
+        if (name !== 'engines') { url.searchParams.delete('engine'); url.searchParams.delete('ev'); }
         // view=grade belongs to the stock page's Grade tab only.
         if (name !== 'stock') url.searchParams.delete('view');
         var next = url.pathname + (url.search || '') + (url.hash || '');
@@ -4722,6 +4725,14 @@ ${renderExportBindings()}
         if (HAS_OWNER_ACCESS && typeof STOCK_PAGE !== 'undefined') STOCK_PAGE.showTab('grade', true);
         name = 'stock';
       }
+      // The strategy engines moved from the Top Picks page to their own page
+      // on 2026-11-16. A saved ?tab=picks&engine=... link opens that page.
+      if (name === 'picks'){
+        try {
+          var legacyQ = new URLSearchParams(window.location.search), legacyEng = legacyQ.get('engine');
+          if (legacyEng && legacyEng !== 'flagship' && resolveTab(legacyQ.get('tab') || '') === 'picks') name = 'engines';
+        } catch (_) {}
+      }
       // nav.replace: sync the URL with replaceState instead of pushState —
       // set by boot + popstate (restoring state, not navigating).
       // Bounce stale/deep-linked Owner destinations before persisting or
@@ -4800,7 +4811,7 @@ ${renderExportBindings()}
         if (name === 'calendar' && typeof loadPredictionForCalendar === 'function') loadPredictionForCalendar();
         if (name === 'index-cal' && typeof loadIndexCal === 'function') loadIndexCal();
         if (name === 'picks' && typeof loadPicks === 'function') loadPicks();
-        if (name === 'picks' && typeof engOnPicksTab === 'function') engOnPicksTab();
+        if (name === 'engines' && typeof engOnTab === 'function') engOnTab();
         if (name === 'leaps' && typeof loadLeaps === 'function') loadLeaps();
         if (name === 'stocks' && typeof loadStocks === 'function') loadStocks();
         // Market analysis: the tape/barometer/regime widgets + their data.
@@ -4861,6 +4872,7 @@ ${renderExportBindings()}
         if (name === 'prediction-markets' && typeof loadPrediction === 'function') loadPrediction();
         if (name === 'history-rhymes' && typeof loadHistoryRhymes === 'function') loadHistoryRhymes();
         if (name === 'risk' && typeof loadHistoryRhymesRisk === 'function') loadHistoryRhymesRisk();
+        if ((name === 'risk' || name === 'bottom-tracker') && typeof loadMarketOddsCards === 'function') loadMarketOddsCards();
         if (name === 'whats-changed' && typeof loadWhatsChanged === 'function') loadWhatsChanged();
         if (name === 'past-day' && typeof loadPastDays === 'function') loadPastDays();
         if (name === 'flow' && typeof loadZeroDte === 'function') loadZeroDte();
@@ -9191,6 +9203,8 @@ ${renderExportBindings()}
     if (t === 'bid') return 'AT BID';
     return '';
   }
+  // A last trade 15+ minutes older than the scan has no tag (lib/flow-direction.mjs).
+  function tapeStaleLabel(c){ return c && c.tapeStale ? 'OLD PRINT' : ''; }
   function tapeTitle(t){
     if (t === 'ask') return 'Last print at ask — aggressive buyers scrambling for fills';
     if (t === 'abv') return 'Last print above mid — buy-side pressure';
@@ -9241,7 +9255,8 @@ ${renderExportBindings()}
     var premTag = premStr ? '<span class="flow-prem" title="Premium that traded this hour (volume delta × last × 100)">' + escapeHtml(premStr) + '</span>' : '';
     var tapeLbl = tapeLabel(c.tape);
     var tapeCls = String(c.tape || '').replace(/[^a-z0-9_-]/gi, '');
-    var tapeTag = tapeLbl ? '<span class="flow-tape tape-' + tapeCls + '" title="' + escapeHtml(tapeTitle(c.tape)) + '">' + escapeHtml(tapeLbl) + '</span>' : '';
+    var tapeTag = tapeLbl ? '<span class="flow-tape tape-' + tapeCls + '" title="' + escapeHtml(tapeTitle(c.tape)) + '">' + escapeHtml(tapeLbl) + '</span>'
+      : tapeStaleLabel(c) ? '<span class="flow-tape tape-mid" title="The last trade is more than 15 minutes older than the scan, so its side cannot be read">' + escapeHtml(tapeStaleLabel(c)) + '</span>' : '';
     var repeatCount = Number(c.repeatCount) || 0;
     var repeatTag = '';
     if (repeatCount >= 2){
@@ -25382,7 +25397,7 @@ ${renderExportBindings()}
   var ownerLabBound = false;
   var quantPairsAll = false;
   function selectOwnerLabView(view){
-    if (['personal','research','diagnostics','evidence','regime','loop'].indexOf(view) < 0) return;
+    if (['personal','research','diagnostics','evidence','regime','loop','labs'].indexOf(view) < 0) return;
     ownerLabView = view;
     var section = $('quant-section');
     if (!section) return;
@@ -25390,10 +25405,14 @@ ${renderExportBindings()}
       var selected = button.getAttribute('data-owner-view') === view;
       button.setAttribute('aria-selected', selected ? 'true' : 'false');
       button.tabIndex = selected ? 0 : -1;
+      // On a phone the row scrolls sideways: bring the chosen view into sight
+      // inside the row (never scrolls the page).
+      var row = selected ? button.parentNode : null;
+      if (row && row.scrollWidth > row.clientWidth) row.scrollLeft = Math.max(0, button.offsetLeft - row.offsetLeft - (row.clientWidth - button.offsetWidth) / 2);
     });
     section.querySelectorAll('[data-owner-panel]').forEach(function(panel){ panel.hidden = panel.getAttribute('data-owner-panel') !== view; });
     var eye = $('quant-eyebrow');
-    if (eye && view !== 'research') eye.textContent = view === 'personal' ? 'Private tools' : view === 'evidence' ? 'Tests and gates' : view === 'regime' ? 'Regime Lab' : view === 'loop' ? 'Self-improving loop' : 'Stored research records';
+    if (eye && view !== 'research') eye.textContent = view === 'personal' ? 'Private tools' : view === 'evidence' ? 'Tests and gates' : view === 'regime' ? 'Regime Lab' : view === 'loop' ? 'Self-improving loop' : view === 'labs' ? 'Quant labs' : 'Stored research records';
     if (view === 'personal') loadOwnerTools();
     if (view === 'research') loadQuantResearch();
     if (view === 'diagnostics' && window.BookViews) window.BookViews.openTab('quant');
@@ -25401,6 +25420,7 @@ ${renderExportBindings()}
     if (view === 'evidence') loadEvidenceBoard();
     if (view === 'regime') loadRegimeLab();
     if (view === 'loop') loadSelfLoop();
+    if (view === 'labs') loadQuantLabs();
   }
   function bindOwnerLab(){
     var section = $('quant-section');
@@ -25413,6 +25433,7 @@ ${renderExportBindings()}
       if (event.target.closest('[data-owner-evidence-refresh]')) loadEvidenceBoard(true);
       if (event.target.closest('[data-owner-regime-refresh]')) loadRegimeLab(true);
       if (event.target.closest('[data-owner-loop-refresh]')) loadSelfLoop(true);
+      if (event.target.closest('[data-owner-labs-refresh]')) loadQuantLabs(true);
       // "Company record" link: open the Unified Signal Engine on that view,
       // carrying over a ticker typed into one of the record searches. The
       // button's data-wf-go does the page switch.
@@ -25471,6 +25492,11 @@ ${renderExportBindings()}
   }
   function loadQuant(){
     bindOwnerLab();
+    // ?tab=quant&lab=labs opens a view directly (the Market odds card's link).
+    try {
+      var labParam = new URLSearchParams(location.search).get('lab');
+      if (labParam && !loadQuant.linked){ loadQuant.linked = true; if (document.querySelector('[data-owner-view="' + labParam.replace(/[^a-z]/g, '') + '"]')) ownerLabView = labParam.replace(/[^a-z]/g, ''); }
+    } catch (_) {}
     selectOwnerLabView(ownerLabView);
   }
   function loadQuantResearch(force){
@@ -37029,7 +37055,9 @@ ${renderExportBindings()}
       '2026-10-iv-rule': { since:'2026-10-26', note:'One expensive-options rule; credit spreads only when IV is very rich' },
       '2026-11-price-pillar': { since:'2026-11-06', note:'Price signals fixed: real breakouts vote, streaks read with the trend, MACD and 52-week votes dropped' },
       // No fixed date: the macro read is off until the owner turns it on.
-      '2026-11-macro-context': { note:'Macro read: trades that fight the rates, credit and rotation backdrop are blocked; Fed vote counts hikes priced; rotation read over a month' }
+      '2026-11-macro-context': { note:'Macro read: trades that fight the rates, credit and rotation backdrop are blocked; Fed vote counts hikes priced; rotation read over a month' },
+      '2026-11-signed-flow': { since:'2026-11-16', note:'Unusual flow vote reads whether each trade was bought or sold, in delta dollars, confirmed by next-day open interest' },
+      '2026-11-signed-flow-no-macro': { since:'2026-11-16', note:'Unusual flow vote reads whether each trade was bought or sold (macro read off)' }
     },
     exit: { '2026-10-22-tp25': { since:'2026-10-22', note:'Take-profit raised to +25%' } },
     entry: { '2026-10-23-reviewed-entry-v3': { since:'2026-10-23', note:'Entries must pass an option-price check' } },
@@ -41449,7 +41477,7 @@ ${renderExportBindings()}
     if (HAS_OWNER_ACCESS && typeof loadEngines === 'function' && !engState.data && !engState.error && !engState.loading) loadEngines(false);
     root.innerHTML = bookRiskHtml(open) + openPicksControlsHtml(opSort) + accOpenGroupHtml(open, opSort, VIEWS.viewMode('open-picks') === 'table') + tradeLinesHtml(open, Array.isArray(d.closed) ? d.closed : [], d.builtAtIso);
     // Strategy engines: a note when a Top Picks trade and an engine trade are on the exact same contract.
-    var engNote = typeof engFlagshipSharedHtml === 'function' ? engFlagshipSharedHtml(open) : '';
+    var engNote = (typeof engFlagshipSharedHtml === 'function' ? engFlagshipSharedHtml(open) : '') + (typeof engOpenLinkHtml === 'function' ? engOpenLinkHtml() : '');
     if (engNote){ var engAfter = root.querySelector('.book-risk'); if (engAfter) engAfter.insertAdjacentHTML('afterend', engNote); else root.insertAdjacentHTML('afterbegin', engNote); }
     openPicksRunHealth(root, d);
   }

@@ -83,6 +83,15 @@ import { bandOf as loopBandOf } from "../lib/self-loop/ledger.mjs";
 import { buildPositioning } from "../lib/regime-lab/positioning.mjs";
 import { loadRegimeLab, writeRegimeLab, loadResearchResults, buildLabelInputs, buildBakeLabels, todayFromSeries, openShadowBooks, markShadowBooks, buildBakeOracle, buildRegimeLabPayload, labStamp, regimeLabEnabled, REGIME_LAB_KEY } from "../lib/regime-lab/payload.mjs";
 import { riskScore as regimeLabRiskScore } from "../lib/regime-lab/exits.mjs";
+// Quant labs (lib/labs/, docs/quant-labs.md): market drawdown and recovery
+// odds, the Calibration Lab, the research registry, the Factor Lab, the
+// volatility forecasts and the annual report text changes. Owner-only
+// quant-labs.json + quant-labs-state.json; measurement only, no AI, kill
+// switch QUANT_LABS=0.
+import { loadQuantLabs, carryQuantLabs, writeQuantLabs, runQuantLabs, loadQuantLabsResearch, quantLabsEnabled, quantLabsTextEnabled, QUANT_LABS_KEY } from "../lib/labs/index.mjs";
+import { refreshFilingText } from "../lib/labs/filing-text.mjs";
+import { joinedRows as loopJoinedRows } from "../lib/self-loop/ledger.mjs";
+import { engineName as strategyEngineName } from "../lib/engines/config.mjs";
 import { buildSourceHealth, loadSourceHealth, readSourcePayloads, writeSourceHealth } from "../lib/source-health.mjs";
 import { OWNER_SETTINGS_APPLIED_KEY } from "../lib/owner-settings.mjs";
 // The Owner Settings report from scripts/owner-settings-env.mjs (null when the
@@ -91,7 +100,8 @@ const OWNER_SETTINGS_REPORT = (() => { try { const r = JSON.parse(process.env.OW
 import { buildCrowdPayload, buildCrowdOwner, readCrowdPrior, writeCrowdFiles, marketGauges, crowdScoresForRow, CROWD_KEY, CROWD_OWNER_KEY } from "../lib/crowd/index.mjs";
 import { loadEngineFiles, carryEngineFiles, writeEngineFiles, runEngines, loadEnginesResearch, flagshipCompare, enginesEnabled, ENGINES_RECORD_KEY } from "../lib/engines/index.mjs";
 import { firstFridays as enginesFirstFridays } from "../lib/engines/macro.mjs";
-import { updatePredictionState, buildPredictionPublic, buildPredictionOwner, analyzePrediction, predictionShadow, predictionContextFor, predictionGraderLines, pricesFromChains, readPredictionPrior, writePredictionFiles, PREDICTION_KEY, PREDICTION_OWNER_KEY } from "../lib/prediction/index.mjs";
+import { pickTradeId } from "../lib/pick-trade-text.mjs";
+import { updatePredictionState, bakeMaxMs, buildPredictionPublic, buildPredictionOwner, analyzePrediction, predictionShadow, predictionContextFor, predictionGraderLines, pricesFromChains, readPredictionPrior, writePredictionFiles, PREDICTION_KEY, PREDICTION_OWNER_KEY } from "../lib/prediction/index.mjs";
 import { buildHistoryRhymes, buildHistoryRhymesOwner, historyRhymesSummary, HISTORY_RHYMES_KEY, HISTORY_RHYMES_OWNER_KEY, HISTORY_RHYMES_FRED, REPORTED_CDS } from "../lib/history-rhymes.mjs";
 import { AI_COST_HISTORY_KEY, parseAiCostHistory, upsertAiCostHistory } from "../lib/ai-cost-history.mjs";
 import { refreshCorporateStructure, CORPORATE_STATE_VERSION } from "../lib/corporate-structure/collector.mjs";
@@ -147,6 +157,7 @@ import { readForecastState, readForecastFiles, restoreForecastFiles, prepareEarn
 import { forcedLiquidationContext } from "../lib/forced-liquidation.mjs";
 import { buyoutContextFor } from "../lib/pending-buyout-guard.mjs";
 import { buildShadowSignals, altDataGauges, resemblesGauges, insiderFromStructure } from "../lib/shadow-signals.mjs";
+import { signedFlowBySymbol, legacyPersistBySymbol, signedFlowVote, legacyFlowVote, flowVotesBySymbol } from "../lib/flow-direction.mjs";
 import { buildShadowResearch } from "../lib/shadow-research.mjs";
 import { buildEntrySnapshot } from "../lib/trade-snapshot.mjs";
 import { PICKS_MAX_PER_SECTOR, PICKS_MAX_NEW_PER_FACTOR_RUN, PICKS_CAPS_VERSION, factorOfSectorLabel, exposureCapBlock, countExposure } from "../lib/top-picks-caps.mjs";
@@ -18259,7 +18270,7 @@ import {
   PICKS_TIMING_VOL_CONFIRM, PICKS_TIMING_VOL_DRY, PICKS_TIMING_VOL_CLIMAX,
   PICKS_TIMING_PULLBACK_BAND, PICKS_EVENT_SOFT_BLOCKS, PICKS_EVENT_AWARE,
   PICKS_MACRO_CONTEXT, PICKS_MACRO_ROTATION_PP_20D, PICKS_MACRO_FED_PRICED_PTS,
-  PICKS_MACRO_POINTS, PICKS_MACRO_BLOCK_PTS,
+  PICKS_MACRO_POINTS, PICKS_MACRO_BLOCK_PTS, PICKS_FLOW_SIGNED,
   PICKS_CROWD_SQUEEZE_VETO, PICKS_CROWD_SQUEEZE_FEE, PICKS_CROWD_SQUEEZE_FEE_LO, PICKS_CROWD_SQUEEZE_SVZ,
   PICKS_CROWD_GRADER, PICKS_ODDS_GRADER, PICKS_MACRO_PUTCALL_SRC, PICKS_MACRO_PUTCALL_CBOE_HI, PICKS_MACRO_PUTCALL_CBOE_VHI, PICKS_MACRO_PUTCALL_CBOE_LO,
   PICKS_AI_SKIP_WHEN_NONE_READY, PICKS_ENTRY_READY_BAR, PICKS_ENTRY_EXTENDED_DIST,
@@ -18275,7 +18286,7 @@ export {
   PICKS_MAX_AI_THESES, PICKS_MIN_CONVICTION, PICKS_TIER_STRONG, PICKS_TACTICAL_SIZE_MULT,
   PICKS_ENTRY_TIMING_VERSION, PICKS_TIMING_THRESHOLDS,
   PICKS_SINGLES_DEFAULT, PICKS_SINGLE_MAX_COST, PICKS_STRUCTURE_POLICY_VERSION,
-  PICKS_MACRO_CONTEXT, PICKS_MACRO_POINTS, PICKS_MACRO_BLOCK_PTS,
+  PICKS_MACRO_CONTEXT, PICKS_MACRO_POINTS, PICKS_MACRO_BLOCK_PTS, PICKS_FLOW_SIGNED,
   PICKS_CROWD_SQUEEZE_VETO, PICKS_CROWD_GRADER, PICKS_ODDS_GRADER, PICKS_MACRO_PUTCALL_SRC,
 };
 // Sector / factor caps live in lib/top-picks-caps.mjs (re-exported here).
@@ -18490,7 +18501,12 @@ export const PICKS_ACCURACY_RESET_EPOCH = "2026-08-08.top-picks-v3";
 // 2026-11-08: optional macro, cycle and rotation fit (PICKS_MACRO_CONTEXT=1,
 // off by default). The version moves only when the switch is on, so the Track
 // Record splits there.
-export const GRADE_MODEL_VERSION = PICKS_MACRO_CONTEXT ? "2026-11-macro-context" : "2026-11-price-pillar";
+// 2026-11-16: the Unusual flow vote reads signed flow (lib/flow-direction.mjs:
+// side of each trade, delta dollars, next-morning OI). FLOW_SIGNED=0 keeps the
+// older vote and the older version tag.
+const GRADE_MODEL_VERSION_BASE = PICKS_MACRO_CONTEXT ? "2026-11-macro-context" : "2026-11-price-pillar";
+export const GRADE_MODEL_VERSION = !PICKS_FLOW_SIGNED ? GRADE_MODEL_VERSION_BASE
+  : PICKS_MACRO_CONTEXT ? "2026-11-signed-flow" : "2026-11-signed-flow-no-macro";
 // Signal keys the grade no longer scores. Open trades whose entry drivers
 // include them skip those keys in the thesis re-score (see the thesis check
 // in updatePicksAccuracyFile).
@@ -19444,33 +19460,26 @@ export function fiveSessionReturnPct(data) {
 function scoreMechanicals(sym, data, unusualPayload) {
   const out = [];
 
-  // Unusual options flow. Direction comes only from aggressive tape
-  // (last print at/above the ask) or the 7-day persistence fallback —
-  // never from unsigned call/put counts. Published unusual.json rows
-  // already keep `flagged`; missing flagged is treated as true so old
-  // store objects still work. Mid/bid/below-ask prints stay evidence
-  // on the Flow tab but do not vote here.
-  let flow = 0, flowVal = null, flowOk = false;
+  // Unusual options flow. Since 2026-11-16 (FLOW_SIGNED, on by default) the
+  // vote reads signed flow over the 7-day log (lib/flow-direction.mjs): each
+  // flagged trade's side from where it printed (a call or put bought at the
+  // ask, or sold at the bid), weighted in delta dollars, half weight until
+  // the next morning's open interest says it opened a position, a quarter if
+  // it closed one. +1 from a balance of +0.30, -1 from -0.40 (put buying is
+  // often a hedge). FLOW_SIGNED=0 restores the older vote: ask-side call vs
+  // put counts today, else the side-blind 7-day call/put balance. The older
+  // vote rides the signal as `legacy` so the two can be compared.
   const uRow = Array.isArray(unusualPayload?.tickers) ? unusualPayload.tickers.find((t) => t?.symbol === sym) : null;
-  const uContracts = Array.isArray(uRow?.contracts) ? uRow.contracts : null;
-  const tapeContracts = uContracts
-    ? uContracts.filter((c) => c && c.flagged !== false && ["ask", "abv"].includes(c.tape))
-    : null;
-  const bull = tapeContracts ? tapeContracts.filter((c) => c?.side === "call").length : null;
-  const bear = tapeContracts ? tapeContracts.filter((c) => c?.side === "put").length : null;
-  if (bull != null && bear != null && bull + bear >= 5) {
-    flowOk = true;
-    const ratio = (bull + 1) / (bear + 1);
-    flowVal = bull + "B/" + bear + "S ask";
-    // Put buying is often a holder's hedge, so the bearish read needs a
-    // clearer skew (≤0.5) than the bullish one (≥1.5).
-    flow = ratio >= 1.5 ? 1 : ratio <= 0.5 ? -1 : 0;
-  } else if (data?.flowPersist && pnum(data.flowPersist.balance) != null && Math.abs(data.flowPersist.balance) >= 0.3) {
-    flowOk = true;
-    flow = data.flowPersist.balance > 0 ? 1 : -1;
-    flowVal = "persist " + r2(data.flowPersist.balance);
+  const legacyFlow = legacyFlowVote(Array.isArray(uRow?.contracts) ? uRow.contracts : null, data?.flowPersistLegacy?.balance);
+  let flowSig;
+  if (PICKS_FLOW_SIGNED) {
+    const signed = signedFlowVote(data?.signedFlow || null);
+    flowSig = sig("unusualFlow", "Unusual flow", signed.vote, signed.value, "Signed flow: trades bought vs sold, in delta dollars, confirmed by next-day open interest", signed.ok);
+  } else {
+    flowSig = sig("unusualFlow", "Unusual flow", legacyFlow.vote, legacyFlow.value, "Aggressive call vs put prints", legacyFlow.ok);
   }
-  out.push(sig("unusualFlow", "Unusual flow", flow, flowVal, "Aggressive call vs put prints", flowOk));
+  if (legacyFlow.ok) flowSig.legacy = legacyFlow.vote;
+  out.push(flowSig);
 
   // Open-interest call/put skew (from OI tracker).
   const oi = data?.oiTrackerRow || null;
@@ -21454,34 +21463,22 @@ function scoreTicker(sym, data, ctx) {
   };
 }
 
-// Signed bull-vs-bear flag persistence per symbol from the scanner's rolling
-// 7-day flag log (data/unusual-log.json, threaded in via opts.flowLog — one
-// entry per flagged contract per hourly scan, so a contract re-flagged hour
-// after hour counts every time: repetition IS the persistence being measured).
-// Call flags read bullish, put flags bearish; balance = (bull − bear) /
-// (bull + bear) ∈ [−1, 1]. A symbol needs ≥5 flag events inside the window to
-// read at all (the same ≥5-print floor as the signal's same-day primary read)
-// so a couple of stray flags can't score as a persistent one-sided tape;
-// scoreMechanicals' fallback then fires at |balance| ≥ 0.3.
-const FLOW_PERSIST_WINDOW_MS = 7 * 86400000;
-const FLOW_PERSIST_MIN_FLAGS = 5;
+// 7-day flow from the scanner's rolling flag log (data/unusual-log.json,
+// threaded in via opts.flowLog). Two reads per symbol, both attached in
+// scoreAllTickers:
+//   data.signedFlow         the signed read (lib/flow-direction.mjs): side of
+//                           each trade, delta dollars, next-morning OI. Feeds
+//                           the Unusual flow vote and the FLO engine.
+//   data.flowPersist        what the FLO engine and older readers call the
+//                           week's balance: the signed balance, or with
+//                           FLOW_SIGNED=0 the older side-blind count.
+//   data.flowPersistLegacy  the older side-blind count (every call bullish,
+//                           every put bearish, 5+ flags), kept for the
+//                           side-by-side log.
 function flowPersistBySymbol(flowLog, nowMs = Date.now()) {
-  const cutoff = nowMs - FLOW_PERSIST_WINDOW_MS;
-  const counts = {};
-  for (const e of flowLog?.entries || []) {
-    if (!e || !e.symbol || (e.side !== "call" && e.side !== "put")) continue;
-    const t = Date.parse(e.scannedAt || "");
-    if (!Number.isFinite(t) || t < cutoff) continue;
-    const c = (counts[e.symbol] ||= { bull: 0, bear: 0 });
-    if (e.side === "call") c.bull += 1; else c.bear += 1;
-  }
-  const out = {};
-  for (const [s, c] of Object.entries(counts)) {
-    const flags = c.bull + c.bear;
-    if (flags < FLOW_PERSIST_MIN_FLAGS) continue;
-    out[s] = { balance: r2((c.bull - c.bear) / flags), bull: c.bull, bear: c.bear, flags };
-  }
-  return out;
+  const signed = signedFlowBySymbol(flowLog, nowMs);
+  const legacy = legacyPersistBySymbol(flowLog, nowMs);
+  return { signed, legacy };
 }
 
 // Score the whole universe once. Shared by buildTopPicks & buildGradesIndex.
@@ -21520,7 +21517,11 @@ export function scoreAllTickers(chains, narratives, streaksMap, unusualPayload, 
     // Volume signal sees real hourly-vs-20D data (falls back to daily rvol).
     data.hourlyVolume = hourlyVolumeRead(sym, volumeFlags);
     data.oiTrackerRow = oiBySym[sym] ? { ...oiBySym[sym], scannedAt: oiScannedAt } : null;
-    data.flowPersist = flowBySym[sym] || null;
+    data.signedFlow = flowBySym.signed[sym] || null;
+    data.flowPersistLegacy = flowBySym.legacy[sym] || null;
+    data.flowPersist = PICKS_FLOW_SIGNED
+      ? (data.signedFlow ? { balance: data.signedFlow.balance, signed: true } : null)
+      : data.flowPersistLegacy;
     const r = scoreTicker(sym, data, ctx);
     // Owner-only research rides the scored record, never the public chain or
     // grade pillars. Missing or assumed loan terms cannot alter conviction.
@@ -39191,14 +39192,18 @@ async function main() {
   } else {
     console.log("Reading prediction market odds…");
     try {
+      // A time limit on the whole read: this step runs ahead of the Top Picks
+      // run, so a venue that hangs must not delay it (shorter on decision runs).
+      const predictionDecisionRun = !/^(?:0|false)$/i.test(process.env.REFRESH_TOP_PICKS || "1");
       const { state: predictionState, status: predictionStatus } = await updatePredictionState({
         prior: predictionPrior.state, nowMs: Date.now(), universe: TICKERS, chains,
         crowdKalshi: crowdPayload?.kalshi || null, log: (line) => console.log(line),
+        maxMs: bakeMaxMs({ decisionRun: predictionDecisionRun }),
       });
       const predictionAnalysis = analyzePrediction(predictionState, { prices: pricesFromChains(chains, TICKERS) });
       const predictionPub = buildPredictionPublic(predictionState, predictionStatus, { crowdKalshi: crowdPayload?.kalshi || null, consensusRowsWithMoves: predictionAnalysis.consensusRowsWithMoves });
       predictionRun = { state: predictionState, status: predictionStatus, analysis: predictionAnalysis, pub: predictionPub };
-      console.log(`  · prediction odds: ${predictionPub.counts.tracked} contracts tracked, ${predictionStatus.calls}/${predictionStatus.budget} calls, ${predictionStatus.backfilled} backfilled${predictionStatus.rateLimited ? `, ${predictionStatus.rateLimited} rate-limit wait(s)` : ""}${predictionStatus.errors.length ? `, ${predictionStatus.errors.length} error(s): ${predictionStatus.errors[0]}` : ""}`);
+      console.log(`  · prediction odds: ${predictionPub.counts.tracked} contracts tracked, ${predictionStatus.calls}/${predictionStatus.budget} calls, ${predictionStatus.backfilled} backfilled${predictionStatus.rateLimited ? `, ${predictionStatus.rateLimited} rate-limited answer(s)` : ""}${predictionStatus.stopped ? `, stopped early (${predictionStatus.stopped})` : ""}${predictionStatus.errors.length ? `, ${predictionStatus.errors.length} error(s): ${predictionStatus.errors[0]}` : ""}`);
     } catch (err) {
       predictionRun = null;
       console.warn(`[prediction] skipped — ${String(err?.message || err).split("\n")[0]}`);
@@ -39767,6 +39772,17 @@ async function main() {
   // are read BEFORE the wipe. A missing file is a fresh start; a file that is
   // there but unreadable skips the engines this build and keeps the stored
   // copy. ENGINES=0 freezes them (the files are carried forward untouched).
+  // Quant labs (lib/labs/index.mjs): the fitted market-odds models, the log
+  // of stated chances, the weekly factor panel and the annual report text
+  // store accumulate across bakes, so both files are read BEFORE the wipe.
+  let quantLabsLoaded = null;
+  try {
+    quantLabsLoaded = await loadQuantLabs(DATA_DIR);
+    if (quantLabsLoaded.error) console.warn(`[quant-labs] prior state unreadable (${quantLabsLoaded.error}); starting over`);
+  } catch (err) {
+    quantLabsLoaded = null;
+    console.warn(`[quant-labs] prior files unavailable (${String(err?.message || err).split("\n")[0]})`);
+  }
   let enginesLoaded = null;
   try {
     enginesLoaded = await loadEngineFiles(DATA_DIR);
@@ -40673,6 +40689,9 @@ async function main() {
     // Prediction odds keys (version 6): pmo / pmn per name and the pmCut /
     // pmPol / pmJmp gauges, only from this bake's tracker run.
     odds: predictionRun ? predictionShadow(predictionRun.state, { universe: TICKERS, famByKey: predictionRun.analysis.famByKey, nowMs: Date.parse(builtAtIso) }) : null,
+    // Flow keys (version 7): the older Unusual flow vote beside the signed
+    // one, from the same fresh scan the grade reads.
+    flowVotes: scoringUnusual ? flowVotesBySymbol(scoringUnusual, unusualLog, Date.parse(builtAtIso)) : null,
   };
   try {
     shadowSignalsToday = buildShadowSignals(chains, shadowOpts);
@@ -41351,6 +41370,71 @@ async function main() {
     try { accNow = JSON.parse(await readFile(resolve(DATA_DIR, PICKS_ACCURACY_FILE), "utf8")); } catch { /* no record yet */ }
     await runLoopBake(accNow);
   }
+  // Quant labs (lib/labs/index.mjs): Owner-only measurement, written after the
+  // record, the engines, the outcomes and the loop so it reads this build's
+  // copies. Nothing here feeds a grade, a gate, a pick or the Track Record.
+  // The market-odds fit runs once per new S&P 500 close and is stored; later
+  // builds the same day re-use it. The annual report reader fetches SEC
+  // documents only on builds that do not run Top Picks. QUANT_LABS=0 (or any
+  // failure) carries the prior files forward untouched.
+  if (quantLabsLoaded) {
+    let labsWritten = false;
+    if (quantLabsEnabled()) {
+      try {
+        const labNow = new Date(builtAtIso);
+        const readJson = async (key) => { try { return JSON.parse(await readFile(resolve(DATA_DIR, key), "utf8")); } catch { return null; } };
+        const accForLabs = await readJson(PICKS_ACCURACY_FILE);
+        const dailyForLabs = await readJson("grades-daily.json");
+        const enginesRecord = await readJson(ENGINES_RECORD_KEY);
+        const oddsForLabs = await readJson("prediction-odds.json");
+        const labsState = quantLabsLoaded.state;
+        const labStocks = TICKERS.filter((sym) => SECTORS[sym] !== "ETF" && chains?.[sym]);
+        let textWaiting = null;
+        const corpForLabs = corporate || priorCorporate || null;
+        if (quantLabsTextEnabled() && !refreshTopPicks && corpForLabs?.companies) {
+          const text = await refreshFilingText({
+            prior: labsState.text, companies: corpForLabs.companies, symbols: labStocks, userAgent: SEC_USER_AGENT,
+            maxNames: Number(process.env.QUANT_LABS_TEXT_NAMES || 3), log: (line) => console.log(line),
+          });
+          labsState.text = text.store; textWaiting = text.waiting;
+        }
+        const lastTotals = (dailyForLabs?.days || []).slice(-1)[0]?.totals || {};
+        const seenIds = new Set();
+        const allClosed = [...(accForLabs?.closed || []), ...(accForLabs?.archive || [])].filter((t) => { const k = t?.tradeId || `${t?.symbol}|${t?.side}|${t?.entryDate}`; if (seenIds.has(k)) return false; seenIds.add(k); return true; });
+        const engineIds = [...new Set([...(enginesRecord?.open || []), ...(enginesRecord?.closed || [])].map((t) => t?.engine).filter(Boolean))];
+        const labsRun = runQuantLabs({
+          state: labsState, prior: quantLabsLoaded.prior, research: await loadQuantLabsResearch(ROOT),
+          builtAtIso, today: etDateKey(labNow),
+          spx: sharedHistoryBars(historicalSourceCache, ["^GSPC"])["^GSPC"] || [],
+          fred: (id) => sharedFredRows(historicalSourceCache, id),
+          symbols: labStocks, optionSymbols: TICKERS.filter((sym) => chains?.[sym]),
+          barsOf: (sym) => regimeLabBars(chains?.[sym] || null, labNow),
+          ivOf: (sym) => ivHistory?.get?.(sym)?.entries || [],
+          fundamentalsOf: (sym) => chains?.[sym]?.fundamentals || null,
+          gradesDaily: dailyForLabs, grades: Object.fromEntries(Object.entries(lastTotals).map(([sym, total]) => [sym, { total }])),
+          record: { open: accForLabs?.open || [], closed: allClosed, baseline: accForLabs?.baseline || null },
+          engines: { open: enginesRecord?.open || [], closed: enginesRecord?.closed || [], names: Object.fromEntries(engineIds.map((id) => [id, strategyEngineName(id)])) },
+          loopRows: loopState ? loopJoinedRows(loopState.ledger, picksOutcomesState) : [],
+          predictionResolved: oddsForLabs?.resolved || [],
+          earningsStore: earningsHxStore, textWaiting,
+        });
+        for (const line of labsRun.lines) console.log(line);
+        const labsInfo = await writeQuantLabs(DATA_DIR, labsRun.payload, labsRun.state);
+        console.log(`wrote data/${QUANT_LABS_KEY} + state — ${labsInfo.bytes} + ${labsInfo.stateBytes} bytes`);
+        labsWritten = true;
+      } catch (err) {
+        console.warn(`[quant-labs] skipped — ${String(err?.message || err).split("\n")[0]}`);
+      }
+    }
+    if (!labsWritten) {
+      try {
+        const carried = await carryQuantLabs(DATA_DIR, quantLabsLoaded);
+        if (carried) console.log(`[quant-labs] carried ${carried} file(s) forward${quantLabsEnabled() ? "" : " (QUANT_LABS=0)"}`);
+      } catch (err) {
+        console.warn(`[quant-labs] carry-forward skipped — ${String(err?.message || err).split("\n")[0]}`);
+      }
+    }
+  }
   // Crowd & positioning files: the public facts (crowd.json) and the Owner
   // join to the open Top Picks trades plus the daily rows kept for later
   // tests (crowd-owner.json, lib/crowd/index.mjs buildCrowdOwner). Nothing
@@ -41376,7 +41460,7 @@ async function main() {
     if (predictionRun) {
       let accForOdds = null;
       try { accForOdds = JSON.parse(await readFile(resolve(DATA_DIR, PICKS_ACCURACY_FILE), "utf8")); } catch { /* no record yet */ }
-      const openForOdds = (Array.isArray(accForOdds?.open) ? accForOdds.open : []).map((t) => ({ id: t.id ?? t.tradeId ?? null, symbol: t.symbol, side: t.side }));
+      const openForOdds = (Array.isArray(accForOdds?.open) ? accForOdds.open : []).map((t) => ({ id: t.id ?? t.tradeId ?? pickTradeId(t), symbol: t.symbol, side: t.side }));
       const predictionOwner = buildPredictionOwner(predictionRun.state, predictionRun.analysis, { openTrades: openForOdds, pub: predictionRun.pub, universe: TICKERS });
       await writePredictionFiles(DATA_DIR, { state: predictionRun.state, pub: predictionRun.pub, owner: predictionOwner });
       console.log(`wrote data/${PREDICTION_KEY} + data/${PREDICTION_OWNER_KEY} — ${predictionRun.pub.counts.tracked} contracts, ${predictionOwner.families.length} test families, ${predictionOwner.alerts.length} open-trade alert(s)`);

@@ -93,6 +93,8 @@ body:not(.is-owner) [data-page-tab="open-picks"],
 body:not(.is-owner) #page-pane-open-picks,
 body:not(.is-owner) [data-page-tab="track"],
 body:not(.is-owner) #page-pane-track,
+body:not(.is-owner) [data-page-tab="engines"],
+body:not(.is-owner) #page-pane-engines,
 body:not(.is-owner) [data-page-tab="quant"],
 body:not(.is-owner) #page-pane-quant,
 body:not(.is-owner) [data-page-tab="sports-nba"],
@@ -27563,7 +27565,11 @@ html.is-embed #freshness-banner { margin-top: 8px; padding-block: 6px; }
 .owner-lab-panel .book-controls input, .owner-lab-panel .book-controls select { max-width: 100%; }
 .owner-lab-panel button:disabled { opacity: .6; cursor: wait; }
 @media (max-width: 650px) {
-  .owner-lab-tabs button { padding: 10px 4px; font-size: var(--t-12); }
+  /* Seven views no longer fit one phone row, so the row scrolls sideways
+     inside itself (2026-11-16) and the chosen view is brought into sight. */
+  .owner-lab-tabs { overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+  .owner-lab-tabs::-webkit-scrollbar { display: none; }
+  .owner-lab-tabs button { flex: 0 0 auto; padding: 10px 10px; font-size: var(--t-12); white-space: nowrap; }
   .owner-lab-intro { flex-direction: column; }
   .owner-evidence-piece { grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .owner-lab-panel .book-controls > label { min-width: 0; flex: 1 1 100%; }
@@ -29828,7 +29834,46 @@ button[data-refresh-checking] { opacity: .55; cursor: progress; }
 .slp-odds .odds-lbl { margin-right: 2px; }
 
 
-/* ---- Strategy engines (Top Picks page) ----------------------------------- */
+/* ---- Owner Lab: quant labs ---------------------------------------------- */
+.ql-body { margin-top: 12px; min-width: 0; }
+.ql-body .ln-svg { max-width: 760px; }
+.ql-body .mm-kpi b small { display: block; margin-top: 2px; font: 500 var(--t-11)/1.3 var(--font-sans); color: var(--muted); }
+.ql-lines { margin: 4px 0 10px 18px; padding: 0; font: 450 var(--t-13)/1.6 var(--font-sans); color: var(--text); max-width: 96ch; }
+.ql-lines li { margin: 3px 0; }
+.ql-linkbtn { font: 650 var(--t-13)/1.4 var(--font-sans); color: var(--accent, var(--text-strong)); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.ql-linkbtn:hover { color: var(--text-strong); }
+.ql-linkbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.ql-warn { margin: 4px 0 8px; padding: 6px 10px; border-radius: var(--r-2, 12px); border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--border)); background: color-mix(in srgb, var(--warn) 9%, transparent); color: var(--text-strong); font: 500 var(--t-13)/1.45 var(--font-sans); }
+.ql-warn-inline { color: var(--warn); font-weight: 500; }
+.ql-table td { vertical-align: top; }
+.ql-table td .crd-dim { font: 450 var(--t-11)/1.4 var(--font-sans); color: var(--muted); }
+.ql-wide th { white-space: nowrap; }
+.ql-strong { font-weight: 700; color: var(--text-strong); }
+.ql-heat { display: inline-block; min-width: 30px; padding: 1px 6px; border-radius: 8px; text-align: center; font: 600 var(--t-12)/1.5 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--text-strong); }
+.ql-h1 { background: color-mix(in srgb, var(--neg) 26%, transparent); }
+.ql-h2 { background: color-mix(in srgb, var(--neg) 11%, transparent); }
+.ql-h3 { background: color-mix(in srgb, var(--muted) 12%, transparent); }
+.ql-h4 { background: color-mix(in srgb, var(--pos) 11%, transparent); }
+.ql-h5 { background: color-mix(in srgb, var(--pos) 26%, transparent); }
+/* The card on the Bottom tracker and Risk analysis pages. */
+#risk-odds, #bottom-odds { margin-top: 12px; }
+.ql-card { padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--r-2, 12px); background: var(--surface-2, var(--surface)); }
+.ql-kicker { display: block; font: 650 var(--t-11)/1.4 var(--font-sans); letter-spacing: .04em; text-transform: uppercase; color: var(--muted-strong); }
+.ql-card-lead { margin: 4px 0 8px; font: 500 var(--t-15)/1.45 var(--font-sans); color: var(--text); }
+.ql-card-lead b { font-weight: 700; color: var(--text-strong); }
+.ql-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 0 0 8px; }
+.ql-chips-lbl { font: 600 var(--t-12)/1.4 var(--font-sans); color: var(--muted-strong); }
+.ql-chip { display: inline-flex; align-items: baseline; gap: 6px; padding: 3px 10px; border: 1px solid var(--border); border-radius: var(--r-pill, 999px); font: 500 var(--t-12)/1.5 var(--font-sans); color: var(--muted-strong); }
+.ql-chip b { font: 650 var(--t-13)/1.4 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--text-strong); }
+.ql-chip small { font: 450 var(--t-11)/1.4 var(--font-sans); color: var(--muted); }
+.ql-card-note { margin: 0 0 8px; max-width: 96ch; font: 450 var(--t-12)/1.5 var(--font-sans); color: var(--muted-strong); }
+@media (max-width: 640px) {
+  .ql-card-lead { font-size: var(--t-14); }
+  .ql-chip { padding: 3px 10px; border-radius: 12px; }
+}
+
+
+/* ---- Strategy engines (their own Owner page) ----------------------------- */
 .eng-switch { margin: 0 0 12px; min-width: 0; }
 .eng-tabs { gap: 0; }
 .eng-tab { display: inline-flex; align-items: center; gap: 5px; padding-left: 10px; padding-right: 10px; font-size: var(--t-14); }
@@ -29842,6 +29887,9 @@ button[data-refresh-checking] { opacity: .55; cursor: progress; }
 .eng-subtabs { margin-top: 2px; }
 .eng-body { min-width: 0; }
 .eng-empty { padding: 8px 0 12px; }
+.eng-wait { margin: 0; color: var(--muted-strong); font: 450 var(--t-13)/1.5 var(--font-sans); }
+/* The page header names the page; this card's title names the engine in view, so it stays. */
+.page-pane.wf-merged > .card.eng-pane > .card-header .card-title { display: block; }
 .eng-foot { margin-top: 14px; }
 .eng-pane .evb-lead .evb-pill { margin-right: 6px; }
 .eng-pane .mm-kpis { grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); }
@@ -29873,6 +29921,10 @@ button[data-refresh-checking] { opacity: .55; cursor: progress; }
 .eng-shared-note ul { margin: 4px 0 0; padding-left: 18px; }
 .eng-link { appearance: none; border: 0; background: none; padding: 0; margin: 0; font: inherit; color: var(--accent, var(--text-strong)); cursor: pointer; text-align: left; }
 .eng-link:hover { text-decoration: underline; }
+.eng-open-link { margin: 8px 0 12px; font: 450 var(--t-13)/1.5 var(--font-sans); color: var(--muted-strong); }
+.eng-row-skipped td { color: var(--muted-strong); }
+.eng-rank-h { margin: 14px 0 6px; font-size: var(--t-13); font-weight: 600; color: var(--muted-strong); }
+.eng-rank-held td { background: color-mix(in srgb, var(--accent, var(--muted)) 7%, transparent); }
 .eng-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 .eng-seg { display: inline-flex; flex-wrap: wrap; gap: 4px; margin: 12px 0 4px; padding: 3px; border: 1px solid var(--border); border-radius: var(--r-pill, 999px); background: var(--surface-2, var(--surface)); }
 .eng-seg-btn { appearance: none; border: 0; background: transparent; color: var(--muted-strong); font: 600 var(--t-13)/1 var(--font-sans); padding: 8px 14px; min-height: 32px; border-radius: var(--r-pill, 999px); cursor: pointer; }

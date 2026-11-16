@@ -12,7 +12,7 @@ import {
   runtimeEnvOverrides, picksTag, describePicksTag,
 } from "../lib/owner-settings.mjs";
 import { isPremiumKey } from "../lib/premium-keys.mjs";
-import { REQUEST_TIME_EXCLUSIVE_KEYS } from "../lib/data-ownership.mjs";
+import { REQUEST_TIME_EXCLUSIVE_KEYS, OPTIONAL_BAKE_KEYS } from "../lib/data-ownership.mjs";
 import { OWNER_PAGE_IDS } from "../lib/owner-access-policy.mjs";
 
 let checks = 0;
@@ -56,10 +56,19 @@ for (const k of ["AI_THESIS", "AI_THESIS_SEARCH"]) eq(ownerSettingDef(k).default
 // Guard rails: no model, budget, exit, conviction, schedule or reset setting.
 for (const k of keys) ok(!/MODEL|TOKEN_CAP|CALL_CAP|_TP_|STOP|CONVICTION|TIER_STRONG|RESET|EPOCH|ROBINHOOD/.test(k), `${k} is not a guarded repo setting`);
 eq(ownerSettingDef("PICKS_COUNT").max, 6, "picks per run can't exceed today's 6 (AI grader cost)");
-for (const k of ["PICKS_CROWD_SQUEEZE_VETO", "PICKS_CROWD_GRADER", "PICKS_MACRO_PUTCALL_SRC", "SELF_TUNE"]) {
-  eq(ownerSettingDef(k).lockedUntil, "2026-12-07", `${k} is locked until Dec 7`);
-  ok(ownerSettingDef(k).confirm, `${k} needs confirmation`);
+// The Owner lifted the Dec 7 lock on 2026-11-16: no setting carries a date
+// lock now. The engine hooks stay off by default, are big impact and each
+// still needs an are-you-sure.
+for (const d of OWNER_SETTINGS) ok(!d.lockedUntil && !d.lockedValues, `${d.key} has no date lock`);
+for (const k of ["PICKS_CROWD_SQUEEZE_VETO", "PICKS_CROWD_GRADER", "PICKS_ODDS_GRADER", "PICKS_MACRO_PUTCALL_SRC", "SELF_TUNE"]) {
+  const d = ownerSettingDef(k);
+  ok(d.confirm, `${k} needs confirmation`);
+  eq(d.impact, "high", `${k} is big impact`);
+  eq(d.tab, "Engine hooks", `${k} sits on the Engine hooks tab`);
 }
+for (const k of ["PICKS_CROWD_SQUEEZE_VETO", "PICKS_CROWD_GRADER", "PICKS_ODDS_GRADER"]) eq(ownerSettingDef(k).default, false, `${k} is off by default`);
+eq(ownerSettingDef("PICKS_MACRO_PUTCALL_SRC").default, "universe", "the tape's put/call source defaults to covered stocks");
+eq(ownerSettingDef("SELF_TUNE").default, "shadow", "self-tuning defaults to shadow");
 
 // --- values -----------------------------------------------------------------------
 const count = ownerSettingDef("PICKS_COUNT");
@@ -70,7 +79,10 @@ eq(cleanValue(ownerSettingDef("PICKS_MACRO_BLOCK_PTS"), 0.75), 0.75, "quarter st
 eq(cleanValue(ownerSettingDef("PICKS_EVENT_AWARE"), "off"), false, "switch words");
 eq(cleanValue(ownerSettingDef("SELF_TUNE"), "LIVE"), undefined, "choice outside options");
 const tune = ownerSettingDef("SELF_TUNE");
-ok(isLocked(tune, "on", "2026-11-10") && !isLocked(tune, "off", "2026-11-10") && !isLocked(tune, "on", "2026-12-07"), "SELF_TUNE: only on is locked, until Dec 7");
+ok(!isLocked(tune, "on", "2026-11-16") && !isLocked(tune, "off", "2026-11-16"), "SELF_TUNE: no value is locked");
+// The date-lock rule itself is kept for any later dated setting.
+const dated = { key: "X", kind: "choice", default: "a", lockedUntil: "2027-01-01", lockedValues: ["on"] };
+ok(isLocked(dated, "on", "2026-12-31") && !isLocked(dated, "off", "2026-12-31") && !isLocked(dated, "a", "2026-12-31") && !isLocked(dated, "on", "2027-01-01"), "a dated lock holds its listed values until its date");
 
 // A tampered file can't push a value out of range.
 const tampered = readOwnerSettingsDoc(JSON.stringify({ values: { PICKS_COUNT: 50, PICKS_EVENT_AWARE: false, NOPE: 1, PICKS_WATCH_COUNT: 6 } }));
@@ -92,14 +104,14 @@ ok(applyOwnerSettingsRequest(doc, { act: "set", values: { PICKS_COUNT: 9 } }, { 
 ok(applyOwnerSettingsRequest(doc, { act: "set", values: { AI_MODEL: "x" } }, { at }).error, "unknown key refused");
 ok(applyOwnerSettingsRequest(doc, { act: "set", values: {} }, { at }).error, "empty set refused");
 ok(applyOwnerSettingsRequest(doc, { act: "explode" }, { at }).error, "bad act refused");
-let locked = applyOwnerSettingsRequest(doc, { act: "set", values: { PICKS_CROWD_GRADER: true }, confirm: true }, { at });
-ok(/before 2026-12-07/.test(locked.error), "crowd hook locked before Dec 7");
-ok(/before 2026-12-07/.test(applyOwnerSettingsRequest(doc, { act: "set", values: { SELF_TUNE: "on" }, confirm: true }, { at }).error), "SELF_TUNE on locked before Dec 7");
-ok(!applyOwnerSettingsRequest(doc, { act: "set", values: { SELF_TUNE: "off" }, confirm: true }, { at }).error, "SELF_TUNE off is allowed now");
-const dec8 = "2026-12-08T15:00:00Z";
-const noConfirm = applyOwnerSettingsRequest(doc, { act: "set", values: { PICKS_CROWD_GRADER: true } }, { at: dec8 });
-ok(noConfirm.needsConfirm, "after Dec 7 a confirm setting still needs confirm");
-ok(!applyOwnerSettingsRequest(doc, { act: "set", values: { PICKS_CROWD_GRADER: true }, confirm: true }, { at: dec8 }).error, "confirmed after Dec 7 works");
+const hookAt = "2026-11-16T15:00:00Z";
+for (const [k, v] of [["PICKS_CROWD_GRADER", true], ["PICKS_CROWD_SQUEEZE_VETO", true], ["PICKS_ODDS_GRADER", true], ["PICKS_MACRO_PUTCALL_SRC", "cboe"], ["SELF_TUNE", "on"]]) {
+  const bare = applyOwnerSettingsRequest(doc, { act: "set", values: { [k]: v } }, { at: hookAt });
+  ok(bare.needsConfirm && bare.error, `${k}: an engine hook still needs an are-you-sure`);
+  const sure = applyOwnerSettingsRequest(doc, { act: "set", values: { [k]: v }, confirm: true }, { at: hookAt });
+  ok(!sure.error && sure.doc.values[k] === v, `${k}: confirmed, it can be switched on now (lock lifted 2026-11-16)`);
+}
+ok(!applyOwnerSettingsRequest(doc, { act: "set", values: { SELF_TUNE: "off" }, confirm: true }, { at }).error, "SELF_TUNE off is allowed");
 eq(applyOwnerSettingsRequest(doc, { act: "set", values: { PICKS_COUNT: 4 } }, { at }).unchanged, true, "same value = unchanged");
 
 r = applyOwnerSettingsRequest(doc, { act: "set", values: { PICKS_SINGLE_MAX_COST: 3000 }, confirm: true }, { at: "2026-11-10T16:00:00Z", by: "MiniMe" });
@@ -132,8 +144,8 @@ const row = (k) => v.settings.find((s) => s.key === k);
 eq(row("PICKS_COUNT").value, 2, "view value"); ok(row("PICKS_COUNT").changed, "changed flag");
 ok(row("AI_THESIS").pinned, "pinned by repo variable");
 ok(row("WEBULL_MIRROR").vercelOff && row("CONTACT_ENABLED").vercelOff && !row("MCP_ENABLED").vercelOff, "Vercel-off shown");
-eq(row("SELF_TUNE").lockedUntil, "2026-12-07", "lock shown before Dec 7");
-ok(!ownerSettingsView(null, { today: "2026-12-07" }).settings.find((s) => s.key === "SELF_TUNE").lockedUntil, "lock gone on Dec 7");
+ok(v.settings.every((s) => !s.lockedUntil), "no setting shows a date lock");
+eq(row("SELF_TUNE").tab, "Engine hooks", "self-tuning is on the Engine hooks tab");
 
 // --- build side -------------------------------------------------------------------------
 const env = { AI_THESIS: "", LOOP: "1" };
@@ -142,9 +154,10 @@ eq(env.PICKS_COUNT, "4", "number to env"); eq(env.PICKS_EVENT_AWARE, "0", "switc
 eq(env.AI_THESIS, "0", "empty repo variable does not pin"); eq(env.CROWD, "0", "research switch");
 eq(env.LOOP, "1", "a set repo variable wins");
 ok(report.pinned.includes("LOOP") && report.skipped.some((s) => s.key === "LOOP"), "pinned and skipped reported");
-ok(!("PICKS_CROWD_GRADER" in env) && report.skipped.some((s) => s.key === "PICKS_CROWD_GRADER" && /locked/.test(s.reason)), "a locked value in the file is skipped by the build");
+eq(env.PICKS_CROWD_GRADER, "1", "an engine hook saved in the file reaches the build (lock lifted 2026-11-16)");
+ok(!report.skipped.some((s) => /locked/.test(s.reason || "")), "the build skips nothing as locked");
 ok(!("MCP_ENABLED" in env), "site switches never reach the build env");
-eq(report.picksTag, "AI_THESIS=off,PICKS_COUNT=4,PICKS_EVENT_AWARE=off", "picks tag lists only Top Picks settings");
+eq(report.picksTag, "AI_THESIS=off,PICKS_COUNT=4,PICKS_CROWD_GRADER=on,PICKS_EVENT_AWARE=off", "picks tag lists only Top Picks settings (an engine hook counts)");
 eq(picksTag({ REGIME_LAB: false }), "", "research-only change stamps nothing");
 ok(/Most picks per run 4/.test(describePicksTag(report.picksTag)), "tag in words");
 {
@@ -176,6 +189,7 @@ eq(runtimeEnvOverrides({ values: { MCP_ENABLED: false, WEBULL_MIRROR: false, CON
 ok(isPremiumKey(OWNER_SETTINGS_KEY) && isPremiumKey(OWNER_SETTINGS_APPLIED_KEY), "both files are Owner-only");
 ok(REQUEST_TIME_EXCLUSIVE_KEYS.has(OWNER_SETTINGS_KEY), "no workflow pushes or deletes the settings");
 ok(!REQUEST_TIME_EXCLUSIVE_KEYS.has(OWNER_SETTINGS_APPLIED_KEY), "the build's report is bake-owned");
+ok(OPTIONAL_BAKE_KEYS.includes(OWNER_SETTINGS_APPLIED_KEY), "the build's report is a classified optional key, so publication does not hold it back");
 ok(OWNER_PAGE_IDS.includes("owner-settings"), "the page is Owner-only");
 
 // --- server route ---------------------------------------------------------------------------

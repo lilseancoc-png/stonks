@@ -11,6 +11,56 @@ No AI call is made. Every venue call counts against a per-bake budget
 had. **Measurement first:** nothing here changes a grade, a pick, a gate or the
 Track Record.
 
+**Time limits (2026-11-16).** The step can no longer hold up a build when a
+venue is slow or down (`lib/prediction/venues.mjs`, `bakeMaxMs` in
+`lib/prediction/index.mjs`):
+
+- Each call waits at most 8 seconds (was 20).
+- Three failed calls in a row to one venue stop all further calls to that
+  venue for the build. A 4xx answer ("no such market") is not a failure.
+- The whole step stops after 45 seconds on the 11:00 and 15:30 ET Top Picks
+  runs and after 90 seconds on other builds. With both venues hanging the
+  step used to be able to run 13 to 15 minutes; now it gives up after about
+  six calls.
+- A call that timed out is not marked as tried, so a one-day history fill or
+  a release's expected value is read again at the next build.
+- What was read before the stop is kept and published; the build log line
+  says "stopped early" and why, and `state.lastRun.stopped` records it.
+- Kalshi calls start at least 120 ms apart (`KALSHI_MIN_GAP_MS`). A 429
+  ("too many requests", seen on the 2026-11-16 builds) waits for the
+  venue's Retry-After (1 second by default, 3 at most) and tries once more,
+  and doubles that venue's gap for the rest of the build. A second 429 is
+  treated like a call that got no answer: it is tried again at a later
+  build, and three in a row stop that venue ("kalshi rate limit"). Before
+  this, two 429s on one contract's history fill gave the fill up for good;
+  fills given up on a 429 or a 400 get one more go (`backfill.retried`).
+- When Polymarket refuses a history range read (HTTP 400, also seen on
+  2026-11-16, hourly and daily alike), the fill reads the market's whole
+  history once as daily bars (`interval=max`), keeps the last year and is
+  done (`backfill.coarse`). Error lines now carry the venue's own short
+  reason from a JSON error body, for example `HTTP 400 (invalid filters)`.
+
+**Kalshi discovery (2026-11-16).** Each day's discovery first reads the core
+Kalshi series on their own (`KALSHI_CORE_SERIES`: `KXFEDDECISION`, `KXCPI`,
+`KXCPICOREYOY`, `KXPAYROLLS`, `KXU3`, `KXJOBLESSCLAIMS`; six calls), then the
+broad listing; an event in both counts once. Contracts from these series are
+kept past the topic caps, because the Fed gauge and the Fed rows of the
+release test read only the Kalshi Fed decision. A listing that stops early (a
+refused page, the time limit) leaves the day unmarked, so the next build reads
+it again, up to three tries a day (`state.discoveryTries`). The first live
+day (2026-11-16) kept four Kalshi contracts and no Fed decision market.
+
+**Topics from the question's words.** A venue category ("Finance",
+"Economy") only files a question when its own words set no topic. A covered
+company in such a question makes it a company bet, and a takeover question
+about a company the site does not cover is not added (`themeFor`). Tracked
+contracts are re-filed at each discovery when their words or a covered
+company give a topic.
+
+`PREDICTION_TIMEOUT_MS` and `PREDICTION_MAX_SECONDS` override the two limits
+in the build's environment. They are not wired as repo variables; using them
+needs a workflow env line.
+
 ## Sources
 
 | Venue | Endpoint | Used for |
@@ -84,7 +134,9 @@ Rules that keep them honest:
   one news day five times.
 - Each family has one date cut: the first two thirds of its dates fit a learned
   direction, the last third is the test. Verdicts read the test third.
-- p-values come from a seeded sign-flip test (jumps) or a correlation test;
+- p-values come from a seeded sign-flip test (jumps) or a correlation test
+  (Student's t on n − 2 degrees of freedom since 2026-11-16; the earlier
+  normal approximation called small samples significant too easily);
   the jump test reads two horizons, so its smaller p is doubled; then
   Benjamini-Hochberg across families at q 0.10. Under 30 events a family is
   "collecting", not "no effect".
@@ -109,7 +161,8 @@ Verdicts: `holds`, `odds-lead`, `run-up-follows` (pass); `odds-echo`,
   `pmCut`, `pmPol`, `pmJmp`. Measured by `lib/shadow-research.mjs` like every
   other candidate input. Nothing scores.
 - **AI grader**: the linked odds lines reach the Top Picks grader only with
-  `PICKS_ODDS_GRADER=1`, off and locked in Owner Settings until 2026-12-07.
+  `PICKS_ODDS_GRADER=1`, off by default (an Owner Settings engine hook; the
+  2026-12-07 lock was lifted on 2026-11-16).
 
 ## Sports: win-by bands and Kalshi prices
 
@@ -132,7 +185,7 @@ Verdicts: `holds`, `odds-lead`, `run-up-follows` (pass); `odds-echo`,
 | Switch | Where | Effect |
 |---|---|---|
 | `PREDICTION_TRACKER=0` | repo variable (`daily.yml`), Owner Settings | No venue reads; the prior files carry forward (public file marked stale) |
-| `PICKS_ODDS_GRADER=1` | repo variable, Owner Settings (locked until 2026-12-07) | Adds linked odds lines to the AI grader prompt |
+| `PICKS_ODDS_GRADER=1` | repo variable, Owner Settings (Engine hooks, off by default, needs a confirm) | Adds linked odds lines to the AI grader prompt |
 | `SPORTS_KALSHI=0` | repo variable (`sports-data.yml`) | Skips the Kalshi sports reads |
 
 ## Tests
