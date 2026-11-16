@@ -45,7 +45,11 @@ const gradeOne = (data, streaks = null) => {
 
 await check('grade version names the price-pillar fix', () => {
   // The macro read (on by default since 2026-11-08) moves the version on top of this fix.
-  assert.equal(GRADE_MODEL_VERSION, process.env.PICKS_MACRO_CONTEXT === '0' ? '2026-11-price-pillar' : '2026-11-macro-context');
+  {
+    const macroOn = process.env.PICKS_MACRO_CONTEXT !== '0', flowOn = process.env.FLOW_SIGNED !== '0';
+    assert.equal(GRADE_MODEL_VERSION, !flowOn ? (macroOn ? '2026-11-macro-context' : '2026-11-price-pillar')
+      : macroOn ? '2026-11-signed-flow' : '2026-11-signed-flow-no-macro');
+  }
   assert(RETIRED_SIGNAL_KEYS.has('macd') && RETIRED_SIGNAL_KEYS.has('fiftyTwoWeek'));
 });
 

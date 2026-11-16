@@ -20075,6 +20075,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (t === 'bid') return 'AT BID';
     return '';
   }
+  // A last trade 15+ minutes older than the scan has no tag (lib/flow-direction.mjs).
+  function tapeStaleLabel(c){ return c && c.tapeStale ? 'OLD PRINT' : ''; }
   function tapeTitle(t){
     if (t === 'ask') return 'Last print at ask — aggressive buyers scrambling for fills';
     if (t === 'abv') return 'Last print above mid — buy-side pressure';
@@ -20125,7 +20127,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var premTag = premStr ? '<span class="flow-prem" title="Premium that traded this hour (volume delta × last × 100)">' + escapeHtml(premStr) + '</span>' : '';
     var tapeLbl = tapeLabel(c.tape);
     var tapeCls = String(c.tape || '').replace(/[^a-z0-9_-]/gi, '');
-    var tapeTag = tapeLbl ? '<span class="flow-tape tape-' + tapeCls + '" title="' + escapeHtml(tapeTitle(c.tape)) + '">' + escapeHtml(tapeLbl) + '</span>' : '';
+    var tapeTag = tapeLbl ? '<span class="flow-tape tape-' + tapeCls + '" title="' + escapeHtml(tapeTitle(c.tape)) + '">' + escapeHtml(tapeLbl) + '</span>'
+      : tapeStaleLabel(c) ? '<span class="flow-tape tape-mid" title="The last trade is more than 15 minutes older than the scan, so its side cannot be read">' + escapeHtml(tapeStaleLabel(c)) + '</span>' : '';
     var repeatCount = Number(c.repeatCount) || 0;
     var repeatTag = '';
     if (repeatCount >= 2){
@@ -54584,7 +54587,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     // 2026-11-10 only while one differs from its default).
     { key:'settings', get:function(e){ return (e && typeof e.ownerSettings === 'string' && e.ownerSettings) || ''; } }
   ];
-  var OWNER_SETTING_LABELS = {"PICKS_EVENT_AWARE":"Event plays","PICKS_MACRO_CONTEXT":"Macro context block","PICKS_MACRO_BLOCK_PTS":"Macro block strength","PICKS_SINGLES_DEFAULT":"Single options by default","PICKS_STRATEGY_AUTO":"Pick the option structure","PICKS_EDGE_GATE":"Raise the bar after losses","PICKS_COUNT":"Most picks per run","PICKS_MAX_OPEN_POSITIONS":"Most open trades","PICKS_MAX_NEW_PER_FACTOR_RUN":"New trades per stock group per run","PICKS_SINGLE_MAX_COST":"Single option cost cap","PICKS_FOMC_ALWAYS_DEFER":"Wait out Fed, CPI, PPI and jobs days","PICKS_EVENT_RISK":"Event risk check","PICKS_STRATEGY_EARNINGS_DAYS":"Earnings window for spreads","PICKS_CREDIT_INTO_MACRO_EVENT":"Credit spreads into macro events","PICKS_MACRO_REGIME":"Market tape on the picks","PICKS_MACRO_INDEX":"Indexes (SPY and QQQ)","PICKS_MACRO_CREDIT":"Credit spreads","PICKS_MACRO_BREADTH":"Breadth","PICKS_MACRO_PUTCALL":"Put/call","PICKS_MACRO_BONDVOL":"Bond volatility (MOVE)","PICKS_MACRO_SENTIMENT":"Fear & Greed","PICKS_MACRO_INFLATION":"Inflation and jobs","PICKS_MACRO_COMMODITY":"Oil and gold shocks","PICKS_MACRO_NEWS":"War, tariff and Iran headlines","PICKS_MACRO_GLOBAL":"Overnight markets","PICKS_MACRO_ROTATION":"Sector rotation","AI_THESIS":"AI final grader","AI_THESIS_SEARCH":"Web search before grading","PREDICTION_MARKETS":"Prediction-market odds","PICKS_CROWD_SQUEEZE_VETO":"Crowd squeeze veto","PICKS_CROWD_GRADER":"Crowd lines in the AI grader","PICKS_ODDS_GRADER":"Prediction odds in the AI grader","PICKS_MACRO_PUTCALL_SRC":"Put/call source for the market tape","SELF_TUNE":"Self-tuning"};
+  var OWNER_SETTING_LABELS = {"PICKS_EVENT_AWARE":"Event plays","PICKS_MACRO_CONTEXT":"Macro context block","FLOW_SIGNED":"Signed option flow","PICKS_MACRO_BLOCK_PTS":"Macro block strength","PICKS_SINGLES_DEFAULT":"Single options by default","PICKS_STRATEGY_AUTO":"Pick the option structure","PICKS_EDGE_GATE":"Raise the bar after losses","PICKS_COUNT":"Most picks per run","PICKS_MAX_OPEN_POSITIONS":"Most open trades","PICKS_MAX_NEW_PER_FACTOR_RUN":"New trades per stock group per run","PICKS_SINGLE_MAX_COST":"Single option cost cap","PICKS_FOMC_ALWAYS_DEFER":"Wait out Fed, CPI, PPI and jobs days","PICKS_EVENT_RISK":"Event risk check","PICKS_STRATEGY_EARNINGS_DAYS":"Earnings window for spreads","PICKS_CREDIT_INTO_MACRO_EVENT":"Credit spreads into macro events","PICKS_MACRO_REGIME":"Market tape on the picks","PICKS_MACRO_INDEX":"Indexes (SPY and QQQ)","PICKS_MACRO_CREDIT":"Credit spreads","PICKS_MACRO_BREADTH":"Breadth","PICKS_MACRO_PUTCALL":"Put/call","PICKS_MACRO_BONDVOL":"Bond volatility (MOVE)","PICKS_MACRO_SENTIMENT":"Fear & Greed","PICKS_MACRO_INFLATION":"Inflation and jobs","PICKS_MACRO_COMMODITY":"Oil and gold shocks","PICKS_MACRO_NEWS":"War, tariff and Iran headlines","PICKS_MACRO_GLOBAL":"Overnight markets","PICKS_MACRO_ROTATION":"Sector rotation","AI_THESIS":"AI final grader","AI_THESIS_SEARCH":"Web search before grading","PREDICTION_MARKETS":"Prediction-market odds","PICKS_CROWD_SQUEEZE_VETO":"Crowd squeeze veto","PICKS_CROWD_GRADER":"Crowd lines in the AI grader","PICKS_ODDS_GRADER":"Prediction odds in the AI grader","PICKS_MACRO_PUTCALL_SRC":"Put/call source for the market tape","SELF_TUNE":"Self-tuning"};
   function ownerSettingsTagText(tag){
     if (tag === 'default') return 'back on the defaults';
     return String(tag || '').split(',').filter(Boolean).map(function(part){
@@ -54601,7 +54604,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
       '2026-10-iv-rule': { since:'2026-10-26', note:'One expensive-options rule; credit spreads only when IV is very rich' },
       '2026-11-price-pillar': { since:'2026-11-06', note:'Price signals fixed: real breakouts vote, streaks read with the trend, MACD and 52-week votes dropped' },
       // No fixed date: the macro read is off until the owner turns it on.
-      '2026-11-macro-context': { note:'Macro read: trades that fight the rates, credit and rotation backdrop are blocked; Fed vote counts hikes priced; rotation read over a month' }
+      '2026-11-macro-context': { note:'Macro read: trades that fight the rates, credit and rotation backdrop are blocked; Fed vote counts hikes priced; rotation read over a month' },
+      '2026-11-signed-flow': { since:'2026-11-16', note:'Unusual flow vote reads whether each trade was bought or sold, in delta dollars, confirmed by next-day open interest' },
+      '2026-11-signed-flow-no-macro': { since:'2026-11-16', note:'Unusual flow vote reads whether each trade was bought or sold (macro read off)' }
     },
     exit: { '2026-10-22-tp25': { since:'2026-10-22', note:'Take-profit raised to +25%' } },
     entry: { '2026-10-23-reviewed-entry-v3': { since:'2026-10-23', note:'Entries must pass an option-price check' } },

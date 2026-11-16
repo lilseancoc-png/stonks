@@ -39,6 +39,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ## 2026-11-16
 
 ### Added
+- Add signed option flow (`lib/flow-direction.mjs`): each flagged option trade is signed by whether it was bought at the ask or sold at the bid (call bought or put sold = bullish), weighted in delta dollars, left out when it expires the same day or costs under $0.10, and confirmed by the next morning's settled open interest (opened full weight, closed a quarter, today's half). The 7-day flow log now keeps each trade's side, delta, IV, price, spot, days to expiry and the OI shown when it flagged. Test: `node scripts/flow-direction-smoke.mjs`.
 - Add six rules-only paper engines beside Top Picks (`lib/engines/`, `docs/engines.md`): Earnings & events, Macro, Technicals, Fundamentals, Flow & positioning and Reversion. Each has its own setups, data, 0 to 100 score, contract window and exits, buys one single call or put, and acts at the 11:00 and 15:30 ET Top Picks runs. No AI call and no new fetch; nothing reads or changes a Top Pick, a grade or the Top Picks Track Record. Paper tracking starts 2026-11-16.
 - Keep the engines on their own track record: Owner-only `engines-record.json` (trades), `engines-state.json` (learning state) and `engines.json` (page file), read before the wipe and written after the Top Picks record. Trade IDs carry the engine tag (`TEC:AAPL-C-11/16/26-11:00`).
 - Copy every engine's trades into the one Webull paper account. Each ledger trade carries its engine; `/api/auth/webull-mirror` still returns Top Picks trades only, `?scope=engines` and `?scope=all` return the rest, and the Top Picks Real fills tab never shows an engine trade. `ENGINES_MIRROR=0` (Vercel) stops new engine trades entering the account.
@@ -48,7 +49,11 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Add engine tabs to the Top Picks page (Owner-only): All engines side by side, and per engine Now, Track record, Setups and learning, History test and Webull paper. The MCP reads them as `picks.engines` and `picks.engines-record`; the Export menu includes both files.
 - Add repo variables `ENGINES` (unset = on, `pause`, `0`) and `ENGINES_OFF` (a list of engines that open no new trades), and a Strategy engines switch on the Owner Settings page (On / Manage open trades only / Frozen). Tests: `node scripts/engines-smoke.mjs`, `node scripts/engines-mirror-smoke.mjs`, `node scripts/engines-browser.mjs`.
 
+### Changed
+- The grade's Unusual flow vote, the FLO engine's flow setups and the 7-day flow fallback read signed flow instead of counting calls against puts; a call written at the bid no longer reads bullish. Live on merge. The older vote rides each signal as `legacy` and in the shadow log (version 7: `ufo`, `ufn`, `ufb`); `GRADE_MODEL_VERSION` moves to `2026-11-signed-flow` with a dated Track Record divider (no reset). `FLOW_SIGNED=0` (also an Owner Settings switch) restores the older vote.
+
 ### Fixed
+- Tag a flow print at the bid as "bid" on 1-cent-wide markets (the scanner checked the ask first with a 1-cent margin and read most of them as "ask"), and stop tagging a last trade that is more than 15 minutes older than the scan; the flow card shows "OLD PRINT" instead.
 - Update two tests left stale by the prediction markets change: the Brief coverage check lists Prediction markets as a reference-only page, and the Booms & busts test expects shadow log version 6.
 
 ## 2026-11-15

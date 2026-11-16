@@ -147,6 +147,7 @@ import { readForecastState, readForecastFiles, restoreForecastFiles, prepareEarn
 import { forcedLiquidationContext } from "../lib/forced-liquidation.mjs";
 import { buyoutContextFor } from "../lib/pending-buyout-guard.mjs";
 import { buildShadowSignals, altDataGauges, resemblesGauges, insiderFromStructure } from "../lib/shadow-signals.mjs";
+import { signedFlowBySymbol, legacyPersistBySymbol, signedFlowVote, legacyFlowVote, flowVotesBySymbol } from "../lib/flow-direction.mjs";
 import { buildShadowResearch } from "../lib/shadow-research.mjs";
 import { buildEntrySnapshot } from "../lib/trade-snapshot.mjs";
 import { PICKS_MAX_PER_SECTOR, PICKS_MAX_NEW_PER_FACTOR_RUN, PICKS_CAPS_VERSION, factorOfSectorLabel, exposureCapBlock, countExposure } from "../lib/top-picks-caps.mjs";
@@ -18259,7 +18260,7 @@ import {
   PICKS_TIMING_VOL_CONFIRM, PICKS_TIMING_VOL_DRY, PICKS_TIMING_VOL_CLIMAX,
   PICKS_TIMING_PULLBACK_BAND, PICKS_EVENT_SOFT_BLOCKS, PICKS_EVENT_AWARE,
   PICKS_MACRO_CONTEXT, PICKS_MACRO_ROTATION_PP_20D, PICKS_MACRO_FED_PRICED_PTS,
-  PICKS_MACRO_POINTS, PICKS_MACRO_BLOCK_PTS,
+  PICKS_MACRO_POINTS, PICKS_MACRO_BLOCK_PTS, PICKS_FLOW_SIGNED,
   PICKS_CROWD_SQUEEZE_VETO, PICKS_CROWD_SQUEEZE_FEE, PICKS_CROWD_SQUEEZE_FEE_LO, PICKS_CROWD_SQUEEZE_SVZ,
   PICKS_CROWD_GRADER, PICKS_ODDS_GRADER, PICKS_MACRO_PUTCALL_SRC, PICKS_MACRO_PUTCALL_CBOE_HI, PICKS_MACRO_PUTCALL_CBOE_VHI, PICKS_MACRO_PUTCALL_CBOE_LO,
   PICKS_AI_SKIP_WHEN_NONE_READY, PICKS_ENTRY_READY_BAR, PICKS_ENTRY_EXTENDED_DIST,
@@ -18275,7 +18276,7 @@ export {
   PICKS_MAX_AI_THESES, PICKS_MIN_CONVICTION, PICKS_TIER_STRONG, PICKS_TACTICAL_SIZE_MULT,
   PICKS_ENTRY_TIMING_VERSION, PICKS_TIMING_THRESHOLDS,
   PICKS_SINGLES_DEFAULT, PICKS_SINGLE_MAX_COST, PICKS_STRUCTURE_POLICY_VERSION,
-  PICKS_MACRO_CONTEXT, PICKS_MACRO_POINTS, PICKS_MACRO_BLOCK_PTS,
+  PICKS_MACRO_CONTEXT, PICKS_MACRO_POINTS, PICKS_MACRO_BLOCK_PTS, PICKS_FLOW_SIGNED,
   PICKS_CROWD_SQUEEZE_VETO, PICKS_CROWD_GRADER, PICKS_ODDS_GRADER, PICKS_MACRO_PUTCALL_SRC,
 };
 // Sector / factor caps live in lib/top-picks-caps.mjs (re-exported here).
@@ -18490,7 +18491,12 @@ export const PICKS_ACCURACY_RESET_EPOCH = "2026-08-08.top-picks-v3";
 // 2026-11-08: optional macro, cycle and rotation fit (PICKS_MACRO_CONTEXT=1,
 // off by default). The version moves only when the switch is on, so the Track
 // Record splits there.
-export const GRADE_MODEL_VERSION = PICKS_MACRO_CONTEXT ? "2026-11-macro-context" : "2026-11-price-pillar";
+// 2026-11-16: the Unusual flow vote reads signed flow (lib/flow-direction.mjs:
+// side of each trade, delta dollars, next-morning OI). FLOW_SIGNED=0 keeps the
+// older vote and the older version tag.
+const GRADE_MODEL_VERSION_BASE = PICKS_MACRO_CONTEXT ? "2026-11-macro-context" : "2026-11-price-pillar";
+export const GRADE_MODEL_VERSION = !PICKS_FLOW_SIGNED ? GRADE_MODEL_VERSION_BASE
+  : PICKS_MACRO_CONTEXT ? "2026-11-signed-flow" : "2026-11-signed-flow-no-macro";
 // Signal keys the grade no longer scores. Open trades whose entry drivers
 // include them skip those keys in the thesis re-score (see the thesis check
 // in updatePicksAccuracyFile).
@@ -19444,33 +19450,26 @@ export function fiveSessionReturnPct(data) {
 function scoreMechanicals(sym, data, unusualPayload) {
   const out = [];
 
-  // Unusual options flow. Direction comes only from aggressive tape
-  // (last print at/above the ask) or the 7-day persistence fallback —
-  // never from unsigned call/put counts. Published unusual.json rows
-  // already keep `flagged`; missing flagged is treated as true so old
-  // store objects still work. Mid/bid/below-ask prints stay evidence
-  // on the Flow tab but do not vote here.
-  let flow = 0, flowVal = null, flowOk = false;
+  // Unusual options flow. Since 2026-11-16 (FLOW_SIGNED, on by default) the
+  // vote reads signed flow over the 7-day log (lib/flow-direction.mjs): each
+  // flagged trade's side from where it printed (a call or put bought at the
+  // ask, or sold at the bid), weighted in delta dollars, half weight until
+  // the next morning's open interest says it opened a position, a quarter if
+  // it closed one. +1 from a balance of +0.30, -1 from -0.40 (put buying is
+  // often a hedge). FLOW_SIGNED=0 restores the older vote: ask-side call vs
+  // put counts today, else the side-blind 7-day call/put balance. The older
+  // vote rides the signal as `legacy` so the two can be compared.
   const uRow = Array.isArray(unusualPayload?.tickers) ? unusualPayload.tickers.find((t) => t?.symbol === sym) : null;
-  const uContracts = Array.isArray(uRow?.contracts) ? uRow.contracts : null;
-  const tapeContracts = uContracts
-    ? uContracts.filter((c) => c && c.flagged !== false && ["ask", "abv"].includes(c.tape))
-    : null;
-  const bull = tapeContracts ? tapeContracts.filter((c) => c?.side === "call").length : null;
-  const bear = tapeContracts ? tapeContracts.filter((c) => c?.side === "put").length : null;
-  if (bull != null && bear != null && bull + bear >= 5) {
-    flowOk = true;
-    const ratio = (bull + 1) / (bear + 1);
-    flowVal = bull + "B/" + bear + "S ask";
-    // Put buying is often a holder's hedge, so the bearish read needs a
-    // clearer skew (≤0.5) than the bullish one (≥1.5).
-    flow = ratio >= 1.5 ? 1 : ratio <= 0.5 ? -1 : 0;
-  } else if (data?.flowPersist && pnum(data.flowPersist.balance) != null && Math.abs(data.flowPersist.balance) >= 0.3) {
-    flowOk = true;
-    flow = data.flowPersist.balance > 0 ? 1 : -1;
-    flowVal = "persist " + r2(data.flowPersist.balance);
+  const legacyFlow = legacyFlowVote(Array.isArray(uRow?.contracts) ? uRow.contracts : null, data?.flowPersistLegacy?.balance);
+  let flowSig;
+  if (PICKS_FLOW_SIGNED) {
+    const signed = signedFlowVote(data?.signedFlow || null);
+    flowSig = sig("unusualFlow", "Unusual flow", signed.vote, signed.value, "Signed flow: trades bought vs sold, in delta dollars, confirmed by next-day open interest", signed.ok);
+  } else {
+    flowSig = sig("unusualFlow", "Unusual flow", legacyFlow.vote, legacyFlow.value, "Aggressive call vs put prints", legacyFlow.ok);
   }
-  out.push(sig("unusualFlow", "Unusual flow", flow, flowVal, "Aggressive call vs put prints", flowOk));
+  if (legacyFlow.ok) flowSig.legacy = legacyFlow.vote;
+  out.push(flowSig);
 
   // Open-interest call/put skew (from OI tracker).
   const oi = data?.oiTrackerRow || null;
@@ -21454,34 +21453,22 @@ function scoreTicker(sym, data, ctx) {
   };
 }
 
-// Signed bull-vs-bear flag persistence per symbol from the scanner's rolling
-// 7-day flag log (data/unusual-log.json, threaded in via opts.flowLog — one
-// entry per flagged contract per hourly scan, so a contract re-flagged hour
-// after hour counts every time: repetition IS the persistence being measured).
-// Call flags read bullish, put flags bearish; balance = (bull − bear) /
-// (bull + bear) ∈ [−1, 1]. A symbol needs ≥5 flag events inside the window to
-// read at all (the same ≥5-print floor as the signal's same-day primary read)
-// so a couple of stray flags can't score as a persistent one-sided tape;
-// scoreMechanicals' fallback then fires at |balance| ≥ 0.3.
-const FLOW_PERSIST_WINDOW_MS = 7 * 86400000;
-const FLOW_PERSIST_MIN_FLAGS = 5;
+// 7-day flow from the scanner's rolling flag log (data/unusual-log.json,
+// threaded in via opts.flowLog). Two reads per symbol, both attached in
+// scoreAllTickers:
+//   data.signedFlow         the signed read (lib/flow-direction.mjs): side of
+//                           each trade, delta dollars, next-morning OI. Feeds
+//                           the Unusual flow vote and the FLO engine.
+//   data.flowPersist        what the FLO engine and older readers call the
+//                           week's balance: the signed balance, or with
+//                           FLOW_SIGNED=0 the older side-blind count.
+//   data.flowPersistLegacy  the older side-blind count (every call bullish,
+//                           every put bearish, 5+ flags), kept for the
+//                           side-by-side log.
 function flowPersistBySymbol(flowLog, nowMs = Date.now()) {
-  const cutoff = nowMs - FLOW_PERSIST_WINDOW_MS;
-  const counts = {};
-  for (const e of flowLog?.entries || []) {
-    if (!e || !e.symbol || (e.side !== "call" && e.side !== "put")) continue;
-    const t = Date.parse(e.scannedAt || "");
-    if (!Number.isFinite(t) || t < cutoff) continue;
-    const c = (counts[e.symbol] ||= { bull: 0, bear: 0 });
-    if (e.side === "call") c.bull += 1; else c.bear += 1;
-  }
-  const out = {};
-  for (const [s, c] of Object.entries(counts)) {
-    const flags = c.bull + c.bear;
-    if (flags < FLOW_PERSIST_MIN_FLAGS) continue;
-    out[s] = { balance: r2((c.bull - c.bear) / flags), bull: c.bull, bear: c.bear, flags };
-  }
-  return out;
+  const signed = signedFlowBySymbol(flowLog, nowMs);
+  const legacy = legacyPersistBySymbol(flowLog, nowMs);
+  return { signed, legacy };
 }
 
 // Score the whole universe once. Shared by buildTopPicks & buildGradesIndex.
@@ -21520,7 +21507,11 @@ export function scoreAllTickers(chains, narratives, streaksMap, unusualPayload, 
     // Volume signal sees real hourly-vs-20D data (falls back to daily rvol).
     data.hourlyVolume = hourlyVolumeRead(sym, volumeFlags);
     data.oiTrackerRow = oiBySym[sym] ? { ...oiBySym[sym], scannedAt: oiScannedAt } : null;
-    data.flowPersist = flowBySym[sym] || null;
+    data.signedFlow = flowBySym.signed[sym] || null;
+    data.flowPersistLegacy = flowBySym.legacy[sym] || null;
+    data.flowPersist = PICKS_FLOW_SIGNED
+      ? (data.signedFlow ? { balance: data.signedFlow.balance, signed: true } : null)
+      : data.flowPersistLegacy;
     const r = scoreTicker(sym, data, ctx);
     // Owner-only research rides the scored record, never the public chain or
     // grade pillars. Missing or assumed loan terms cannot alter conviction.
@@ -40673,6 +40664,9 @@ async function main() {
     // Prediction odds keys (version 6): pmo / pmn per name and the pmCut /
     // pmPol / pmJmp gauges, only from this bake's tracker run.
     odds: predictionRun ? predictionShadow(predictionRun.state, { universe: TICKERS, famByKey: predictionRun.analysis.famByKey, nowMs: Date.parse(builtAtIso) }) : null,
+    // Flow keys (version 7): the older Unusual flow vote beside the signed
+    // one, from the same fresh scan the grade reads.
+    flowVotes: scoringUnusual ? flowVotesBySymbol(scoringUnusual, unusualLog, Date.parse(builtAtIso)) : null,
   };
   try {
     shadowSignalsToday = buildShadowSignals(chains, shadowOpts);
