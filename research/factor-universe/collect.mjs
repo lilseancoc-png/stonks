@@ -11,7 +11,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { gzipSync } from "node:zlib";
 import { yahooFinance as yahoo } from "../../lib/yahoo.mjs";
 import { TICKERS, SECTORS } from "../../scripts/build.mjs";
-import { DAY0, dayNo, extract } from "./extract.mjs";
+import { DAY0, dayNo, extract, whyDropped } from "./extract.mjs";
 
 const OUT = new URL("./data/", import.meta.url);
 const UA = process.env.SEC_USER_AGENT || "Mingstreet research (mingstreet.app)";
@@ -92,22 +92,26 @@ for (const [rank, v] of list.entries()) {
 log(`company list: ${list.length} rows, ${candidates.length} candidates; first: ${candidates.slice(0, 8).map((c) => c.sym).join(" ")}`);
 
 // 2. Company facts for each candidate until the pool is full.
-const facts = {}, companies = [];
+const facts = {}, companies = [], dropped = [];
 let scanned = 0;
 await pool(candidates, 4, async (c) => {
   if (companies.length >= POOL_TARGET) return;
   scanned++;
   try {
     const text = await secGet(`https://data.sec.gov/api/xbrl/companyfacts/CIK${c.cik}.json`);
-    if (!text) return;
-    const rows = extract(JSON.parse(text));
+    if (!text) { if (c.rank < 400) dropped.push({ sym: c.sym, rank: c.rank, why: "no company-facts file" }); return; }
+    const json = JSON.parse(text);
+    const rows = extract(json);
+    if (!rows && c.rank < 400) dropped.push({ sym: c.sym, rank: c.rank, why: whyDropped(json) });
     if (!rows || companies.length >= POOL_TARGET) return;
     facts[c.sym] = rows; companies.push(c);
     if (companies.length % 100 === 0) log(`facts: ${companies.length} kept of ${scanned} read`);
   } catch (err) { errors.push(`facts ${c.sym}: ${err.message}`); }
 });
 companies.sort((a, b) => a.rank - b.rank);
+dropped.sort((a, b) => a.rank - b.rank);
 log(`facts: ${companies.length} companies kept of ${scanned} read`);
+for (const d of dropped) log(`not kept: ${d.sym} (rank ${d.rank}): ${d.why}`);
 
 // 3. Industry code (the first bytes of each filing index).
 await pool(companies, 4, async (c) => {
@@ -161,6 +165,26 @@ for (const c of companies.filter((x) => !prices[x.sym] && !x.short)) {
 }
 log(`bars: ${priced} of ${companies.length}`);
 
+// 4b. Today's quoted market value, price and share count for each company:
+//     the check on the share counts read from filings (filers scale their
+//     share tags differently, and some report one share class only).
+let quoted = 0;
+for (let i = 0; i < companies.length; i += 40) {
+  try {
+    const batch = companies.slice(i, i + 40);
+    const quotes = await yahoo.quote(batch.map((c) => c.sym));
+    const bySym = new Map((Array.isArray(quotes) ? quotes : [quotes]).filter((q) => q?.symbol).map((q) => [q.symbol, q]));
+    for (const c of batch) {
+      const q = bySym.get(c.sym);
+      if (!q || !(q.marketCap > 0)) continue;
+      c.q = { cap: q.marketCap, px: q.regularMarketPrice ?? null, so: q.sharesOutstanding ?? null, cur: q.currency ?? null };
+      quoted++;
+    }
+  } catch (err) { errors.push(`quotes ${i}: ${err.message}`); }
+  await sleep(300);
+}
+log(`quoted market values: ${quoted} of ${companies.length}`);
+
 // 5. Earnings Forecast test: public quote fields for the covered stocks, and
 //    the unmodified company-facts file for the largest of them.
 const covered = TICKERS.filter((s) => SECTORS[s] !== "ETF");
@@ -191,5 +215,5 @@ await writeFile(new URL("universe.json.gz", OUT), gzipSync(JSON.stringify({ buil
 await writeFile(new URL("prices.json.gz", OUT), gzipSync(JSON.stringify(prices)));
 await writeFile(new URL("facts.json.gz", OUT), gzipSync(JSON.stringify(facts)));
 await writeFile(new URL("forecast/chains.json", OUT), JSON.stringify({ builtAtIso, chains }, null, 1));
-await writeFile(new URL("meta.json", OUT), JSON.stringify({ builtAtIso, since: SINCE, scanned, companies: companies.length, priced, sic: companies.filter((c) => c.sic).length, forecastFiles: rawKept, errors: errors.slice(0, 200), errorCount: errors.length }, null, 1));
+await writeFile(new URL("meta.json", OUT), JSON.stringify({ builtAtIso, since: SINCE, scanned, companies: companies.length, priced, quoted, sic: companies.filter((c) => c.sic).length, forecastFiles: rawKept, dropped, errors: errors.slice(0, 200), errorCount: errors.length }, null, 1));
 log(`done: ${companies.length} companies, ${priced} with bars, ${errors.length} errors`);

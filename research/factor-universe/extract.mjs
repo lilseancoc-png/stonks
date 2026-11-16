@@ -47,9 +47,22 @@ export function extract(j) {
   if (wsh.length) out.wsh = wsh;
   const sh = firstFiled({ ...(gaap || {}), ...(dei || {}) }, ["EntityCommonStockSharesOutstanding", "CommonStockSharesOutstanding"], "shares", false);
   if (sh.length) out.sh = sh;
+  // Earnings per share, as filed (dollars a share). Profit divided by it gives
+  // a share count that does not depend on how a filer scaled its share tags
+  // and that covers every share class.
+  const eps = firstFiled(gaap, ["EarningsPerShareDiluted", "EarningsPerShareBasic"], "USD/shares", true);
+  if (eps.length) out.eps = eps;
   // A company with a real filing history: balance sheets and yearly profits.
   // (Banks often report no plain revenue tag; funds and trusts are dropped by industry code in the test.)
-  const annual = (rows) => (rows || []).filter((r) => r[1] - r[0] >= 350).length;
   if ((out.assets || []).length < 8 || annual(out.ni) < 2) return null;
   return out;
+}
+const annual = (rows) => (rows || []).filter((r) => r[1] - r[0] >= 350).length;
+// Why a company's facts were not kept (for the collector's log).
+export function whyDropped(j) {
+  const gaap = j?.facts?.["us-gaap"];
+  if (!gaap) return "no US GAAP facts (" + Object.keys(j?.facts || {}).join(",") + ")";
+  const assets = firstFiled(gaap, STOCKS.assets, "USD", false).length, ni = firstFiled(gaap, FLOWS.ni, "USD", true);
+  const tags = ["NetIncomeLoss", "ProfitLoss", "NetIncomeLossAvailableToCommonStockholdersBasic", "IncomeLossFromContinuingOperations"].filter((t) => gaap[t]).map((t) => t + ":" + Object.keys(gaap[t].units || {}).join("/") + ":" + Object.values(gaap[t].units || {}).reduce((n, rows) => n + rows.length, 0));
+  return `assets ${assets}, profit rows ${ni.length} (yearly ${annual(ni)}), tags ${tags.join(" ") || "none"}`;
 }

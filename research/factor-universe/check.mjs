@@ -25,3 +25,14 @@ assert.equal(extract({ facts: { "us-gaap": { Assets: gaap.Assets } } }), null, "
 assert.equal(extract({ facts: { "ifrs-full": {} } }), null, "no US GAAP facts: not kept");
 assert.equal(firstFiled(gaap, ["Assets"], "USD", true).length, 0);
 console.log("factor-universe extract check: ok");
+// Earnings per share rides along in dollars a share.
+{
+  const { extract: ex, whyDropped } = await import("./extract.mjs");
+  const g2 = { ...gaap, EarningsPerShareDiluted: { units: { "USD/shares": years.map((y) => f(`${y}-01-01`, `${y}-12-31`, 1.25, `${y + 1}-02-10`, "10-K")) } } };
+  const o2 = ex({ facts: { "us-gaap": g2 } });
+  assert.equal(o2.eps.length, years.length);
+  assert.equal(o2.eps[0][3], 1.25);
+  assert.match(whyDropped({ facts: { "us-gaap": { Assets: gaap.Assets } } }), /assets 16, profit rows 0/);
+  assert.match(whyDropped({ facts: { "ifrs-full": {} } }), /no US GAAP facts/);
+  console.log("factor-universe eps check: ok");
+}
