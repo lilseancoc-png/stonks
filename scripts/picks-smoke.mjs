@@ -50,6 +50,7 @@ import { PICKS_MIN_DTE } from "../lib/top-picks-config.mjs";
 const SD = PICKS_SINGLES_DEFAULT;
 console.log(`Structure policy: ${SD ? `singles by default (${PICKS_STRUCTURE_POLICY_VERSION}, cap $${PICKS_SINGLE_MAX_COST})` : "earlier engine mix (PICKS_SINGLES_DEFAULT=0)"}`);
 import { buildFlowExplanation } from "../lib/flow-explanation.mjs";
+import { legacyFlowVote } from "../lib/flow-direction.mjs";
 import { computeGexSummary } from "../lib/gex.mjs";
 import { expiryCloseEpochSec, yearsToExpiry } from "../lib/greeks.mjs";
 
@@ -765,19 +766,58 @@ const gradesUF = buildGradesIndex(chains, [], null, unusualNow, null, null, {});
 const buf = ufSig(gradesUF.BULLA);
 ok("flow: unsigned call/put counts without ask/abv tape do not score", buf && !buf.available && buf.score === 0);
 const unusualTape = { scannedAt: new Date().toISOString(), tickers: [{ symbol: "BULLA", spot: 120, topDelta: 800, contracts: [mkFlag("BULLA", "call", 4, { tape: "ask" }), mkFlag("BULLA", "call", 4, { tape: "abv" }), mkFlag("BULLA", "call", 4, { tape: "ask" }), mkFlag("BULLA", "call", 4, { tape: "ask" }), mkFlag("BULLA", "call", 4, { tape: "ask" }), mkFlag("BULLA", "put", 4, { tape: "ask" })] }] };
+// Signed flow (lib/flow-direction.mjs, FLOW_SIGNED on by default): the vote
+// reads the 7-day log, each print signed by its side and weighted in delta
+// dollars. Today's unusual.json contracts alone no longer vote; the older
+// rule rides the signal as `legacy`.
+const FLOW_ON = process.env.FLOW_SIGNED !== "0";
+const sFlag = (symbol, side, tape, i, extra = {}) => mkFlag(symbol, side, 3 + i, {
+  strike: 100 + i * 5, tape, delta: side === "call" ? 0.35 : -0.35, spot: 120, last: 2.5, dte: 30, oi: 500, deltaVol: 3000, vol: 3500, ...extra,
+});
+const signedLog = (symbol, side, tape, n = 4, extra = {}) => ({ updatedAt: new Date().toISOString(), entries: Array.from({ length: n }, (_, i) => sFlag(symbol, side, tape, i, extra)) });
+if (!FLOW_ON) {
+  // FLOW_SIGNED=0: the older vote is back.
+  const bOld = ufSig(buildGradesIndex(chains, [], null, unusualTape, null, null, {}).BULLA);
+  ok("flow (FLOW_SIGNED=0): ask/abv tape >=5-print call-heavy scores +1", bOld && bOld.available && bOld.score === 1 && bOld.value === "5B/1S ask");
+  const oldLog = { entries: [2, 8, 26, 32, 50, 74].map((h) => mkFlag("BEAR", "put", h)) };
+  const pOld = ufSig(buildGradesIndex(chains, [], null, null, null, null, { flowLog: oldLog }).BEAR);
+  ok("flow (FLOW_SIGNED=0): 7-day put-heavy log scores -1", pOld && pOld.available && pOld.score === -1 && /^persist -1/.test(pOld.value || ""));
+}
+if (FLOW_ON) {
 const gradesTape = buildGradesIndex(chains, [], null, unusualTape, null, null, {});
 const bTape = ufSig(gradesTape.BULLA);
-ok("flow: ask/abv tape ≥5-print call-heavy scores +1", bTape && bTape.available && bTape.score === 1 && bTape.value === "5B/1S ask");
-const unusualMid = { scannedAt: new Date().toISOString(), tickers: [{ symbol: "BULLA", spot: 120, topDelta: 800, contracts: Array.from({ length: 6 }, () => mkFlag("BULLA", "call", 4, { tape: "mid" })) }] };
-const gradesMid = buildGradesIndex(chains, [], null, unusualMid, null, null, {});
-ok("flow: midpoint tape does not set direction from unsigned counts", ufSig(gradesMid.BULLA) && !ufSig(gradesMid.BULLA).available && ufSig(gradesMid.BULLA).score === 0);
+ok("flow: ask-side call counts alone no longer vote; the older vote rides as legacy",
+  bTape && !bTape.available && bTape.score === 0 && bTape.legacy === 1);
+const ufFrom = (log, sym = "BULLA") => ufSig(buildGradesIndex(chains, [], null, null, null, null, { flowLog: log })[sym]);
+const calBought = ufFrom(signedLog("BULLA", "call", "ask"));
+ok("flow: calls bought at the ask vote +1", calBought && calBought.available && calBought.score === 1 && /^\+1\.00/.test(calBought.value || ""));
+ok("flow: calls sold at the bid vote -1 (the selling side now counts)", ufFrom(signedLog("BULLA", "call", "bid"))?.score === -1);
+ok("flow: puts sold at the bid vote +1", ufFrom(signedLog("BULLA", "put", "bid"))?.score === 1);
+ok("flow: puts bought at the ask vote -1", ufFrom(signedLog("BULLA", "put", "ask"))?.score === -1);
+ok("flow: midpoint prints have no side", !ufFrom(signedLog("BULLA", "call", "mid"))?.available);
+ok("flow: same-day expiries are left out", !ufFrom(signedLog("BULLA", "call", "ask", 4, { dte: 0 }))?.available);
+ok("flow: contracts under $0.10 are left out", !ufFrom(signedLog("BULLA", "call", "ask", 4, { last: 0.05 }))?.available);
+ok("flow: stale prints are left out", !ufFrom(signedLog("BULLA", "call", "ask", 4, { tapeStale: true }))?.available);
+ok("flow: fewer than 3 contracts stays unavailable", !ufFrom(signedLog("BULLA", "call", "ask", 2))?.available);
+{
+  // Two calls bought but closed next morning vs two puts bought and opened:
+  // the opened side outweighs (1 vs 0.25), so the read is bearish.
+  const mixed = { entries: [
+    sFlag("BULLA", "call", "ask", 0, { oiRead: "closed" }), sFlag("BULLA", "call", "ask", 1, { oiRead: "closed" }),
+    sFlag("BULLA", "put", "ask", 2, { oiRead: "opened" }), sFlag("BULLA", "put", "ask", 3, { oiRead: "opened" }),
+  ] };
+  ok("flow: next-morning OI weighs opened trades over closed ones", ufFrom(mixed)?.score === -1);
+}
+}
 const flowLog = { updatedAt: new Date().toISOString(), entries: [2, 8, 26, 32, 50, 74].map((h) => mkFlag("BEAR", "put", h)) };
 const gradesFP = buildGradesIndex(chains, [], null, null, null, null, { flowLog });
 const bfp = ufSig(gradesFP.BEAR);
-ok("flow: 7-day put-heavy flow-log persistence scores -1 via data.flowPersist", bfp && bfp.available && bfp.score === -1 && /^persist -1/.test(bfp.value || ""));
+if (FLOW_ON) ok("flow: a side-blind put-heavy log no longer scores; the older -1 rides as legacy",
+  bfp && !bfp.available && bfp.score === 0 && bfp.legacy === -1);
 const gradesFPthin = buildGradesIndex(chains, [], null, null, null, null, { flowLog: { entries: flowLog.entries.slice(0, 4) } });
 ok("flow: thin log (<5 flags in the window) stays unavailable", ufSig(gradesFPthin.BEAR) && !ufSig(gradesFPthin.BEAR).available && ufSig(gradesFPthin.BEAR).score === 0);
 const gradesPosFam = buildGradesIndex(chains, [], null, unusualTape, null, vflags, {
+  flowLog: signedLog("BULLA", "call", "ask"),
   oiTracker: { scannedAt: new Date().toISOString(), tickers: [{ symbol: "BULLA", callOiTotal: 9000, putOiTotal: 1000 }] },
 });
 const mechPos = gradesPosFam.BULLA.pillars.mechanicals;
@@ -2620,7 +2660,13 @@ const gradeOne = (data, opts = {}, unusual = null) => buildGradesIndex({ ONE: da
     sigOf(gradeOne(mkTicker({ fundamentals: { revenueGrowthYoy: 8 } })), "fundamentals", "revGrowth")?.score === 1
     && sigOf(gradeOne(mkTicker({ fundamentals: { revenueGrowthYoy: 8 } })), "fundamentals", "revGrowth")?.growthProfile === undefined);
   // The macro read (on by default since 2026-11-08) moves the version on top of the price-pillar fix.
-  ok("grade version is 2026-11-macro-context (2026-11-price-pillar with PICKS_MACRO_CONTEXT=0)", GRADE_MODEL_VERSION === (process.env.PICKS_MACRO_CONTEXT === "0" ? "2026-11-price-pillar" : "2026-11-macro-context"));
+  // Signed option flow (2026-11-16, FLOW_SIGNED=0 turns it off) moves it again.
+  {
+    const macroOn = process.env.PICKS_MACRO_CONTEXT !== "0", flowOn = process.env.FLOW_SIGNED !== "0";
+    const want = !flowOn ? (macroOn ? "2026-11-macro-context" : "2026-11-price-pillar")
+      : macroOn ? "2026-11-signed-flow" : "2026-11-signed-flow-no-macro";
+    ok(`grade version is ${want}`, GRADE_MODEL_VERSION === want);
+  }
 }
 {
   const nowMs = Date.now();
@@ -2644,13 +2690,14 @@ const gradeOne = (data, opts = {}, unusual = null) => buildGradesIndex({ ONE: da
   ok("signals v2: oversold-and-turning RSI scores +2 (was +3)", sigOf(os, "technicals", "rsiReading")?.score === 2);
 }
 {
-  const flowPayload = (calls, puts) => ({ tickers: [{ symbol: "ONE", contracts: [
+  // The older flow rule (FLOW_SIGNED=0), kept in lib/flow-direction.mjs.
+  const flowContracts = (calls, puts) => [
     ...Array.from({ length: calls }, () => ({ side: "call", tape: "ask" })),
     ...Array.from({ length: puts }, () => ({ side: "put", tape: "ask" })),
-  ] }] });
-  ok("signals v2: a 0.6 flow ratio is no longer bearish", sigOf(gradeOne(mkTicker(), {}, flowPayload(2, 4)), "mechanicals", "unusualFlow")?.score === 0);
-  ok("signals v2: a <=0.5 flow ratio is bearish", sigOf(gradeOne(mkTicker(), {}, flowPayload(1, 5)), "mechanicals", "unusualFlow")?.score === -1);
-  ok("signals v2: bullish flow bar unchanged at 1.5", sigOf(gradeOne(mkTicker(), {}, flowPayload(5, 1)), "mechanicals", "unusualFlow")?.score === 1);
+  ];
+  ok("signals v2: a 0.6 flow ratio is no longer bearish", legacyFlowVote(flowContracts(2, 4)).vote === 0);
+  ok("signals v2: a <=0.5 flow ratio is bearish", legacyFlowVote(flowContracts(1, 5)).vote === -1);
+  ok("signals v2: bullish flow bar unchanged at 1.5", legacyFlowVote(flowContracts(5, 1)).vote === 1);
   const oiOpts = (c, p) => ({ oiTracker: { scannedAt: new Date().toISOString(), tickers: [{ symbol: "ONE", callOiTotal: c, putOiTotal: p }] } });
   ok("signals v2: OI C/P 0.6 is no longer bearish", sigOf(gradeOne(mkTicker(), oiOpts(60, 100)), "mechanicals", "oiSkew")?.score === 0);
   ok("signals v2: OI C/P below 0.5 is bearish", sigOf(gradeOne(mkTicker(), oiOpts(40, 100)), "mechanicals", "oiSkew")?.score === -1);

@@ -25,7 +25,7 @@ old `?tab=picks&engine=...` link lands on the new page. Tests: `node scripts/eng
 | Macro | MAC | SPY, QQQ, IWM, TLT, GLD, EWY, KWEB | Rates, the dollar, financial conditions, the VIX curve, and the reaction to Fed, CPI and jobs days | 21-70 days, 0.50 delta | +30% / -40%, 12 sessions | 3 |
 | Technicals | TEC | every covered name | Price and volume only: trend pullbacks, range breakouts and breakdowns, squeeze breaks | 30-90 days, 0.70 delta | +30% / -40%, 15 sessions | 5 |
 | Fundamentals | FUN | stocks | One standing rank of every covered stock on earnings power, quality and price; calls on the best, puts on the worst, swapped only when a holding leaves its third | 75-200 days, 0.62 delta | +50% / -40%, 60 sessions, or the stock leaves its third of the rank | 5 (3 calls, 2 puts) |
-| Flow & positioning | FLO | every covered name | Aggressive option buying at the ask, gamma set-ups near a call wall, short squeezes | 14-50 days, 0.50 delta | +35% / -40%, 7 sessions | 4 |
+| Flow & positioning | FLO | every covered name | One-sided signed option flow (trades bought vs sold, in delta dollars; since 2026-11-16), gamma set-ups near a call wall, short squeezes | 14-50 days, 0.50 delta | +35% / -40%, 7 sessions | 4 |
 | Reversion | REV | every covered name | Washouts in long-term uptrends, spikes in long-term downtrends, capitulation days | 14-45 days, 0.60 delta | +30% / -35%, 5 sessions | 4 |
 
 The registry is `lib/engines/config.mjs` (`ENGINES`): every setup, its

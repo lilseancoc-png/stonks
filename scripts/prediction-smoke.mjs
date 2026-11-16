@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import { classifyTheme, themeFor, linksFor, companyMatches, leaderTerms, titleSimilarity, THEME_CAPS, withoutDeadlines } from '../lib/prediction/catalog.mjs';
 import { kalshiProb, polyQuote, kalshiCandleProb, createClient } from '../lib/prediction/venues.mjs';
-import { kalshiCandidates, polyCandidates, pickFromEvent } from '../lib/prediction/select.mjs';
+import { kalshiCandidates, polyCandidates, pickFromEvent, selectContracts } from '../lib/prediction/select.mjs';
 import { etCloseMs, etDate, mergeFine, dailyAt, setDaily, noteSnapshot, changeOver, dailySeries } from '../lib/prediction/history.mjs';
 import { analyzeReactions, bhAdjust, signFlipP, findJumps, mergeJumps, familyCut, corrP, tTwoSidedP } from '../lib/prediction/reactions.mjs';
 import { ladderRead, actualFromSettled, consensusRows, consensusTest, expectedFromSnaps } from '../lib/prediction/consensus.mjs';
@@ -28,6 +28,15 @@ ok('Ukraine ceasefire reads as geopolitics', classifyTheme({ text: 'Russia x Ukr
 ok('Senate control reads as politics', classifyTheme({ text: 'Which party will control the Senate after the 2026 midterms?' }) === 'politics');
 ok('oil reads as commodities', classifyTheme({ text: 'Will WTI crude oil hit $100 in 2026?' }) === 'commodities');
 ok('Bitcoin reads as crypto', classifyTheme({ text: 'Will Bitcoin reach $150,000 by December 31?' }) === 'crypto');
+{
+  const set = new Set(UNIVERSE.concat(['PYPL']));
+  ok('a takeover question names a covered company: a company bet, not the economy', themeFor({ title: 'Will Stripe acquire any part of Paypal in 2026?', category: 'Finance' }, set) === 'company');
+  ok('a takeover of a company the site does not cover is dropped', themeFor({ title: 'Will Lovable be acquired before 2027?', category: 'Finance' }, set) === null);
+  ok('a covered company filed only by the venue category is a company bet', themeFor({ title: 'New NVIDIA CEO named by December 31, 2026?', category: 'Economy' }, set) === 'company');
+  ok('the Strait of Hormuz reads as geopolitics', themeFor({ title: 'Strait of Hormuz traffic returns to normal by December 31?', category: 'Economy' }, set) === 'geopolitics');
+  ok('a government stake reads as policy', themeFor({ title: 'Will the US federal government take a stake in Anduril Industries, Inc.?', category: 'Economy' }, set) === 'policy');
+  ok('an economy question with no words of its own keeps the venue category', themeFor({ title: 'Will the US economy be overheating at the end of 2026?', category: 'Economy' }, set) === 'macro');
+}
 ok('a company question becomes a company bet', themeFor({ eventTitle: 'Will Jensen Huang return as CEO of Nvidia?' }, new Set(UNIVERSE)) === 'company');
 ok('company terms match Nvidia, never a bare ambiguous ticker', companyMatches('Will Nvidia be the largest company?').includes('NVDA') && !companyMatches('Will the target rate be cut?').includes('TGT') && !companyMatches('Will he cost the party the seat?').includes('COST'));
 ok('leader names from the Leadership collector', leaderTerms({ XYZ: { corporate: { people: [{ name: 'Jane Q. Doe', ceo: true }, { name: 'Bob Roe', ceo: false }] } } }).XYZ?.[0] === 'jane doe');
@@ -288,6 +297,101 @@ ok('grader lines mark an unknown direction with ?', predictionGraderLines(ctx).s
   const c5 = createClient({ fetchJson: async () => { act += 1; peak = Math.max(peak, act); await sleep(3); act -= 1; return {}; }, concurrency: 4 });
   await Promise.all(Array.from({ length: 40 }, (_, i) => c5.get(`https://gamma-api.polymarket.com/${i}`)));
   ok('never more than four calls run at once', peak === 4 && c5.active === 0);
+}
+
+// ---- rate limits and refused history reads (2026-11-16 builds) -------------
+{
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const K = 'https://api.elections.kalshi.com/trade-api/v2/markets';
+  const tooFast = () => Object.assign(new Error('HTTP 429'), { status: 429, retryAfterMs: 5 });
+  // One 429, then an answer: retried once after a pause, two calls counted.
+  let n1 = 0;
+  const c1 = createClient({ fetchJson: async () => { n1 += 1; if (n1 === 1) throw tooFast(); return { ok: 1 }; }, minGapMs: {} });
+  const got = await c1.get(K);
+  ok('a 429 is retried once and the answer is kept', got.ok === 1 && n1 === 2 && c1.calls === 2 && c1.rateLimited.kalshi === 1);
+  // Always 429: each call tries twice, ends transient, and three in a row leave the venue alone.
+  let n2 = 0;
+  const c2 = createClient({ fetchJson: async () => { n2 += 1; throw tooFast(); }, minGapMs: {} });
+  const errs = [];
+  for (let i = 0; i < 5; i += 1) { try { await c2.get(K); } catch (e) { errs.push(e); } }
+  ok('a second 429 is marked for a later bake, not a wrong request', errs[0].transient === true && errs[0].rateLimited === true);
+  ok('three rate-limited calls in a row stop that venue for the bake', n2 === 6 && /kalshi rate limit/.test(c2.stopped) && errs[4].budget === true);
+  // Pacing: Kalshi calls start at least the gap apart; Polymarket is not paced.
+  const starts = [];
+  const c3 = createClient({ fetchJson: async () => { starts.push(Date.now()); return {}; }, minGapMs: { kalshi: 40 } });
+  await Promise.all([1, 2, 3].map(() => c3.get(K)));
+  ok('calls to Kalshi start at least the gap apart', starts.length === 3 && starts[2] - starts[0] >= 75);
+  // The default fetch keeps a short reason from a JSON error body and the Retry-After header.
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: false, status: 400, text: async () => JSON.stringify({ error: "invalid filters: 'startTs' and 'endTs' interval is too long" }), headers: { get: (h) => (h === 'retry-after' ? '2' : null) } });
+  try {
+    let e5 = null;
+    try { await createClient().get('https://clob.polymarket.com/prices-history?market=x'); } catch (e) { e5 = e; }
+    ok('an error names the venue reason', e5?.status === 400 && /HTTP 400 \(invalid filters/.test(e5.message) && e5.retryAfterMs === 2000);
+    globalThis.fetch = async () => ({ ok: false, status: 403, text: async () => '<!DOCTYPE html><html>blocked</html>', headers: { get: () => null } });
+    try { await createClient().get('https://clob.polymarket.com/x'); } catch (e) { e5 = e; }
+    ok('an HTML error page adds nothing to the message', e5?.message === 'HTTP 403');
+  } finally { globalThis.fetch = realFetch; }
+  await sleep(1);
+  // A Polymarket range read refused with 400 falls back to one whole-history read.
+  const dayS = 86400;
+  const nowS = Math.floor(NOW / 1000);
+  const prior = {
+    version: 1, discoveredDate: etDate(NOW), candidates: [], venues: {}, consensus: { events: {}, settledCheck: {} },
+    contracts: {
+      'P:1': { id: 'P:1', venue: 'polymarket', marketId: '1', tokenId: 'tok1', status: 'open', theme: 'macro', title: 'Q', addedAt: new Date(NOW - 2 * DAY).toISOString(), openTime: new Date(NOW - 200 * DAY).toISOString(), last: { p: 0.5 } },
+      'P:2': { id: 'P:2', venue: 'polymarket', marketId: '2', tokenId: 'tok2', status: 'open', theme: 'macro', title: 'R', addedAt: new Date(NOW - 9 * DAY).toISOString(), last: { p: 0.4 }, backfill: { done: true, partial: true, errors: 2, lastError: 'HTTP 429' } },
+    },
+  };
+  const urls = [];
+  const fetch6 = async (url) => {
+    urls.push(url);
+    if (/prices-history/.test(url)) {
+      if (/interval=max/.test(url)) return { history: [{ t: nowS - 400 * dayS, p: 0.1 }, { t: nowS - 30 * dayS, p: 0.3 }, { t: nowS - 2 * dayS, p: 0.45 }] };
+      throw Object.assign(new Error('HTTP 400'), { status: 400 });
+    }
+    if (/gamma-api/.test(url)) return [];
+    return { events: [], markets: [], series: [] };
+  };
+  const r6 = await updatePredictionState({ prior, nowMs: NOW, universe: UNIVERSE, chains: {}, fetchJson: fetch6 });
+  const c6 = r6.state.contracts['P:1'];
+  ok('a refused range read falls back to one whole-history read', urls.some((u) => /tok1&interval=max&fidelity=1440/.test(u)) && c6.backfill?.done === true && c6.backfill.coarse === true && !c6.backfill.partial);
+  ok('the whole-history read keeps only the last year', dailyAt(c6, etDate((nowS - 30 * dayS) * 1000 - 1000))?.p === 0.3 && !dailyAt(c6, etDate((nowS - 400 * dayS) * 1000 - 1000)));
+  const c7 = r6.state.contracts['P:2'];
+  ok('a fill given up on a rate limit gets one more go', urls.some((u) => /market=tok2/.test(u)) && c7.backfill?.retried === true && c7.backfill.done === true);
+}
+
+// ---- Kalshi discovery: core series first, a cut-short listing read again ----
+{
+  // The listing's second page is refused: discovery is tried again next build.
+  const cutShort = (url) => {
+    const u = new URL(url);
+    if (u.hostname.includes('kalshi') && u.pathname.endsWith('/events') && u.searchParams.get('status') === 'open' && !u.searchParams.get('series_ticker')) {
+      callLog.push(url);
+      if (u.searchParams.get('cursor')) return Promise.reject(Object.assign(new Error('HTTP 400'), { status: 400 }));
+      return Promise.resolve({ events: kalshiEvents, cursor: 'page2' });
+    }
+    return fakeFetch(url);
+  };
+  const before = callLog.length;
+  const d1 = await updatePredictionState({ prior: null, nowMs: NOW, universe: UNIVERSE, chains: {}, fetchJson: cutShort });
+  const calls = callLog.slice(before);
+  const coreAt = calls.findIndex((u) => /series_ticker=KXFEDDECISION&status=open/.test(u));
+  const listAt = calls.findIndex((u) => /\/events\?status=open/.test(u));
+  ok('the core Kalshi series are read before the broad listing', coreAt >= 0 && listAt > coreAt);
+  const fedIds = Object.keys(d1.state.contracts).filter((id) => id.startsWith('K:KXFEDDECISION-26DEC'));
+  ok('an event found by both reads is kept once', fedIds.length === new Set(fedIds).size && fedIds.length >= 2);
+  ok('a Kalshi listing cut short is not marked as read for the day', d1.state.discoveredDate !== etDate(NOW) && d1.state.discoveryTries?.n === 1);
+  const d2 = await updatePredictionState({ prior: d1.state, nowMs: NOW + 3600000, universe: UNIVERSE, chains: {}, fetchJson: cutShort });
+  const d3 = await updatePredictionState({ prior: d2.state, nowMs: NOW + 7200000, universe: UNIVERSE, chains: {}, fetchJson: cutShort });
+  ok('after three tries in a day the cut-short listing stands', d2.state.discoveredDate !== etDate(NOW) && d3.state.discoveredDate === etDate(NOW + 7200000) && !d3.state.discoveryTries);
+  const full = await updatePredictionState({ prior: null, nowMs: NOW, universe: UNIVERSE, chains: {}, fetchJson: fakeFetch });
+  ok('a complete listing is read once a day', full.state.discoveredDate === etDate(NOW) && !full.state.discoveryTries);
+  // The Fed decision is kept even when the Fed topic list is full.
+  const busy = {};
+  for (let i = 0; i < 12; i += 1) busy[`P:f${i}`] = { id: `P:f${i}`, venue: 'polymarket', theme: 'fed', status: 'open' };
+  const sel = selectContracts(busy, [kalshiCandidates(kalshiEvents[0])], { universe: new Set(UNIVERSE), nowMs: NOW });
+  ok('the Kalshi Fed decision is kept past a full Fed topic list', sel.added.some((id) => id.startsWith('K:KXFEDDECISION-')));
 }
 
 // ---- small-sample p-values --------------------------------------------------

@@ -9200,6 +9200,8 @@ ${renderExportBindings()}
     if (t === 'bid') return 'AT BID';
     return '';
   }
+  // A last trade 15+ minutes older than the scan has no tag (lib/flow-direction.mjs).
+  function tapeStaleLabel(c){ return c && c.tapeStale ? 'OLD PRINT' : ''; }
   function tapeTitle(t){
     if (t === 'ask') return 'Last print at ask — aggressive buyers scrambling for fills';
     if (t === 'abv') return 'Last print above mid — buy-side pressure';
@@ -9250,7 +9252,8 @@ ${renderExportBindings()}
     var premTag = premStr ? '<span class="flow-prem" title="Premium that traded this hour (volume delta × last × 100)">' + escapeHtml(premStr) + '</span>' : '';
     var tapeLbl = tapeLabel(c.tape);
     var tapeCls = String(c.tape || '').replace(/[^a-z0-9_-]/gi, '');
-    var tapeTag = tapeLbl ? '<span class="flow-tape tape-' + tapeCls + '" title="' + escapeHtml(tapeTitle(c.tape)) + '">' + escapeHtml(tapeLbl) + '</span>' : '';
+    var tapeTag = tapeLbl ? '<span class="flow-tape tape-' + tapeCls + '" title="' + escapeHtml(tapeTitle(c.tape)) + '">' + escapeHtml(tapeLbl) + '</span>'
+      : tapeStaleLabel(c) ? '<span class="flow-tape tape-mid" title="The last trade is more than 15 minutes older than the scan, so its side cannot be read">' + escapeHtml(tapeStaleLabel(c)) + '</span>' : '';
     var repeatCount = Number(c.repeatCount) || 0;
     var repeatTag = '';
     if (repeatCount >= 2){
@@ -37038,7 +37041,9 @@ ${renderExportBindings()}
       '2026-10-iv-rule': { since:'2026-10-26', note:'One expensive-options rule; credit spreads only when IV is very rich' },
       '2026-11-price-pillar': { since:'2026-11-06', note:'Price signals fixed: real breakouts vote, streaks read with the trend, MACD and 52-week votes dropped' },
       // No fixed date: the macro read is off until the owner turns it on.
-      '2026-11-macro-context': { note:'Macro read: trades that fight the rates, credit and rotation backdrop are blocked; Fed vote counts hikes priced; rotation read over a month' }
+      '2026-11-macro-context': { note:'Macro read: trades that fight the rates, credit and rotation backdrop are blocked; Fed vote counts hikes priced; rotation read over a month' },
+      '2026-11-signed-flow': { since:'2026-11-16', note:'Unusual flow vote reads whether each trade was bought or sold, in delta dollars, confirmed by next-day open interest' },
+      '2026-11-signed-flow-no-macro': { since:'2026-11-16', note:'Unusual flow vote reads whether each trade was bought or sold (macro read off)' }
     },
     exit: { '2026-10-22-tp25': { since:'2026-10-22', note:'Take-profit raised to +25%' } },
     entry: { '2026-10-23-reviewed-entry-v3': { since:'2026-10-23', note:'Entries must pass an option-price check' } },

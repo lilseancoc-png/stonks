@@ -36,6 +36,7 @@ import { TICKERS, loadAiUsageState, writeAiUsageState } from "./build.mjs";
 import { computeGexSummary } from "../lib/gex.mjs";
 import { greeks as bsGreeks, bsPrice, yearsToExpiry } from "../lib/greeks.mjs";
 import { buildFlowExplanation } from "../lib/flow-explanation.mjs";
+import { tapeTag, stalePrint, contractDelta, lastTradeMs as flowLastTradeMs, joinNextDayOi, FLOW_DIRECTION_VERSION } from "../lib/flow-direction.mjs";
 import {
   evaluateTicker as evaluateVolumeFlag,
   etDateKey as volEtDateKey,
@@ -168,21 +169,10 @@ async function fetchOptionsWithRetry(symbol, opts) {
   throw lastErr;
 }
 
-// Where did the last trade sit relative to the current bid/ask? "ask" means
-// buyers were lifting offers (scrambling in), "bid" means sellers were
-// hitting bids. Returns null when quotes are missing or the spread is
-// degenerate (e.g. crossed market, illiquid contract).
-function tapeTag(bid, ask, last) {
-  if (bid == null || ask == null || last == null) return null;
-  const spread = ask - bid;
-  if (!(spread > 0)) return null;
-  const eps = Math.max(0.01, spread * 0.05);
-  const mid = (bid + ask) / 2;
-  if (last >= ask - eps) return "ask";
-  if (last <= bid + eps) return "bid";
-  if (Math.abs(last - mid) <= eps) return "mid";
-  return last > mid ? "abv" : "blw";
-}
+// Where the last print sat against the quote (ask/abv/mid/blw/bid) now comes
+// from lib/flow-direction.mjs (tapeTag): compared in whole cents, so a print at
+// the bid on a 1-cent-wide market is no longer tagged "ask". A last trade more
+// than 15 minutes older than the scan is not tagged at all (tapeStale).
 
 // Calendar days from the scan's ET date to the expiration date. Yahoo's
 // expiration epoch is 00:00 UTC of the expiry date, i.e. the evening BEFORE
@@ -235,7 +225,11 @@ function buildCandidate(symbol, side, c, expSec, scannedAt, spot, prevVolLookup,
   const deltaPremium = (last != null && deltaVol != null && deltaVol > 0)
     ? Math.round(deltaVol * last * 100)
     : null;
-  const tape = tapeTag(bid, ask, last);
+  const lastTradeMs = flowLastTradeMs(c.lastTradeDate);
+  const tapeStale = stalePrint(lastTradeMs, nowMs);
+  const tape = tapeStale ? null : tapeTag(bid, ask, last);
+  const iv = c.impliedVolatility ?? null;
+  const delta = contractDelta(side, spot, strike, expSec, iv, nowMs);
 
   return {
     symbol,
@@ -247,7 +241,10 @@ function buildCandidate(symbol, side, c, expSec, scannedAt, spot, prevVolLookup,
     last,
     bid,
     ask,
-    iv: c.impliedVolatility ?? null,
+    iv,
+    delta,
+    spot,
+    lastTradeAt: lastTradeMs != null ? new Date(lastTradeMs).toISOString() : null,
     prevVol: havePrev ? prevVol : null,
     deltaVol,
     otmPct: Math.round(otmPct * 1000) / 1000,
@@ -255,6 +252,7 @@ function buildCandidate(symbol, side, c, expSec, scannedAt, spot, prevVolLookup,
     premium,
     deltaPremium,
     tape,
+    tapeStale,
     flagged,
     scannedAt,
   };
@@ -1331,10 +1329,31 @@ async function main() {
         deltaVol: c.deltaVol,
         vol: c.vol,
         premium: c.premium,
+        // Signed-flow inputs (lib/flow-direction.mjs): the print's side, the
+        // contract's delta and price, and the OI shown at flag time, which the
+        // next morning's settled OI is compared against (joinNextDayOi).
+        oi: c.oi,
+        last: c.last,
+        iv: c.iv,
+        delta: c.delta,
+        spot: c.spot,
+        dte: c.dte,
+        tape: c.tape,
+        ...(c.tapeStale ? { tapeStale: true } : {}),
       });
     }
   }
-  const logPayload = { updatedAt: scannedAt, entries: kept };
+  // Next-morning OI: stamp opened / mixed / closed on earlier days' prints
+  // from the 08:30 ET settled-OI snapshot (oi-history.json, hydrated for this
+  // workflow). A failed read leaves them pending; nothing else depends on it.
+  try {
+    const oiHistory = JSON.parse(await readFile(resolve(DATA_DIR, "oi-history.json"), "utf8"));
+    const stamped = joinNextDayOi(kept, oiHistory);
+    if (stamped) console.log(`flow log: ${stamped} print${stamped === 1 ? "" : "s"} matched to next-morning open interest`);
+  } catch (err) {
+    console.log(`flow log: next-morning OI join skipped (${String(err?.message || err).split("\n")[0]})`);
+  }
+  const logPayload = { updatedAt: scannedAt, flowDirectionVersion: FLOW_DIRECTION_VERSION, entries: kept };
   const logPath = resolve(DATA_DIR, LOG_FILE);
   await writeFile(logPath, JSON.stringify(logPayload), "utf8");
   console.log(
@@ -1386,6 +1405,10 @@ function stripCandidate(c) {
     premium: c.premium,
     deltaPremium: c.deltaPremium,
     tape: c.tape,
+    ...(c.tapeStale ? { tapeStale: true } : {}),
+    delta: c.delta ?? null,
+    spot: c.spot ?? null,
+    lastTradeAt: c.lastTradeAt ?? null,
     flagged: c.flagged !== false,
     scannedAt: c.scannedAt,
   };
