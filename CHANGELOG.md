@@ -48,6 +48,23 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Add engine tabs to the Top Picks page (Owner-only): All engines side by side, and per engine Now, Track record, Setups and learning, History test and Webull paper. The MCP reads them as `picks.engines` and `picks.engines-record`; the Export menu includes both files.
 - Add repo variables `ENGINES` (unset = on, `pause`, `0`) and `ENGINES_OFF` (a list of engines that open no new trades). Tests: `node scripts/engines-smoke.mjs`, `node scripts/engines-mirror-smoke.mjs`, `node scripts/engines-browser.mjs`.
 
+## 2026-11-15
+
+### Added
+- Add the Prediction markets page: what traders on Kalshi and Polymarket bet on (Fed, economy, policy and trade, elections, geopolitics, commodities, crypto, companies), each contract's chance and 1 / 7 / 30-day move, big odds moves, recently resolved bets, the market's guess for coming CPI / jobs / Fed releases, and the covered stocks each bet could move. Free public APIs only, no AI call (#829).
+- Show linked prediction-market odds on the stock page and the market's guess on Calendar release rows (#829).
+- Add Owner odds tests (odds jumps, lead or echo, run-ups, release surprises) with held-out checks, a run-up watch list and alerts on open Top Picks trades; log the odds as shadow inputs (`pmn`, `pmo`, `pmCut`, `pmPol`, `pmJmp`) that change no pick or grade (#829).
+- Add the MCP tools `get_prediction_markets` and `get_odds_reactions` (#829).
+- Add Sports winning-margin bands, a live win-by record (forecasts frozen before each game, graded after) and Kalshi's game-winner and spread prices beside the team model (#829).
+
+### Fixed
+- Read deadline wording ("before the end of 2026", "by year-end") as a date, not as a tariff or shutdown ending; keep "gold card" and "gold medal" out of the gold rules (#829).
+- Count several contracts of one odds family moving on the same day as one observation, use one fit/test date cut per family, and adjust the two-horizon jump test before the cross-family correction (#829).
+- Read an empty hourly Polymarket history piece again at daily detail; show a dash instead of failing when a live-record score is missing (#829).
+
+### Docs
+- Add `docs/prediction-markets.md` and the CLAUDE.md section (#829).
+
 ## 2026-11-13
 
 ### Added

@@ -91,6 +91,7 @@ const OWNER_SETTINGS_REPORT = (() => { try { const r = JSON.parse(process.env.OW
 import { buildCrowdPayload, buildCrowdOwner, readCrowdPrior, writeCrowdFiles, marketGauges, crowdScoresForRow, CROWD_KEY, CROWD_OWNER_KEY } from "../lib/crowd/index.mjs";
 import { loadEngineFiles, carryEngineFiles, writeEngineFiles, runEngines, loadEnginesResearch, flagshipCompare, enginesEnabled, ENGINES_RECORD_KEY } from "../lib/engines/index.mjs";
 import { firstFridays as enginesFirstFridays } from "../lib/engines/macro.mjs";
+import { updatePredictionState, buildPredictionPublic, buildPredictionOwner, analyzePrediction, predictionShadow, predictionContextFor, predictionGraderLines, pricesFromChains, readPredictionPrior, writePredictionFiles, PREDICTION_KEY, PREDICTION_OWNER_KEY } from "../lib/prediction/index.mjs";
 import { buildHistoryRhymes, buildHistoryRhymesOwner, historyRhymesSummary, HISTORY_RHYMES_KEY, HISTORY_RHYMES_OWNER_KEY, HISTORY_RHYMES_FRED, REPORTED_CDS } from "../lib/history-rhymes.mjs";
 import { AI_COST_HISTORY_KEY, parseAiCostHistory, upsertAiCostHistory } from "../lib/ai-cost-history.mjs";
 import { refreshCorporateStructure, CORPORATE_STATE_VERSION } from "../lib/corporate-structure/collector.mjs";
@@ -18260,7 +18261,7 @@ import {
   PICKS_MACRO_CONTEXT, PICKS_MACRO_ROTATION_PP_20D, PICKS_MACRO_FED_PRICED_PTS,
   PICKS_MACRO_POINTS, PICKS_MACRO_BLOCK_PTS,
   PICKS_CROWD_SQUEEZE_VETO, PICKS_CROWD_SQUEEZE_FEE, PICKS_CROWD_SQUEEZE_FEE_LO, PICKS_CROWD_SQUEEZE_SVZ,
-  PICKS_CROWD_GRADER, PICKS_MACRO_PUTCALL_SRC, PICKS_MACRO_PUTCALL_CBOE_HI, PICKS_MACRO_PUTCALL_CBOE_VHI, PICKS_MACRO_PUTCALL_CBOE_LO,
+  PICKS_CROWD_GRADER, PICKS_ODDS_GRADER, PICKS_MACRO_PUTCALL_SRC, PICKS_MACRO_PUTCALL_CBOE_HI, PICKS_MACRO_PUTCALL_CBOE_VHI, PICKS_MACRO_PUTCALL_CBOE_LO,
   PICKS_AI_SKIP_WHEN_NONE_READY, PICKS_ENTRY_READY_BAR, PICKS_ENTRY_EXTENDED_DIST,
   PICKS_ENTRY_EXTENDED_HARD, PICKS_ENTRY_CHASE_RSI_HARD, PICKS_ENTRY_EXTREME_DIST,
   PICKS_ENTRY_EXTREME_RSI, PICKS_ENTRY_EXTREME_RET5D, PICKS_ENTRY_PULLBACK_ATR_MULT,
@@ -18275,7 +18276,7 @@ export {
   PICKS_ENTRY_TIMING_VERSION, PICKS_TIMING_THRESHOLDS,
   PICKS_SINGLES_DEFAULT, PICKS_SINGLE_MAX_COST, PICKS_STRUCTURE_POLICY_VERSION,
   PICKS_MACRO_CONTEXT, PICKS_MACRO_POINTS, PICKS_MACRO_BLOCK_PTS,
-  PICKS_CROWD_SQUEEZE_VETO, PICKS_CROWD_GRADER, PICKS_MACRO_PUTCALL_SRC,
+  PICKS_CROWD_SQUEEZE_VETO, PICKS_CROWD_GRADER, PICKS_ODDS_GRADER, PICKS_MACRO_PUTCALL_SRC,
 };
 // Sector / factor caps live in lib/top-picks-caps.mjs (re-exported here).
 export { PICKS_MAX_PER_SECTOR, PICKS_MAX_NEW_PER_FACTOR_RUN, PICKS_CAPS_VERSION };
@@ -21531,6 +21532,10 @@ export function scoreAllTickers(chains, narratives, streaksMap, unusualPayload, 
     // fee, retail attention. Context only; structuralVeto() and the AI grader
     // lines read it behind their own switches. Never a grade input.
     r.crowd = crowdContextFor(opts.crowd, sym);
+    // Linked prediction-market odds (prediction-odds.json, lib/prediction/):
+    // the contracts that name this stock or move it, with their weekly
+    // change. Context only; the AI grader reads it behind PICKS_ODDS_GRADER.
+    r.odds = predictionContextFor(opts.odds, sym);
     scored.push(r);
     const pg = peerGroupOf(sym, data);
     (peerIndex[pg] ||= []).push({ symbol: sym, total: r.total, tier: r.recommendation.tier, label: r.recommendation.label });
@@ -28614,6 +28619,11 @@ function crowdGraderBlock(r, side, gauges, shadowRow = null) {
   const L = crowdGraderLines(r, side, gauges, shadowRow);
   return L.length ? `\n${L.join("\n")}` : "";
 }
+// Prediction-market odds lines (PICKS_ODDS_GRADER=1 only).
+export function oddsGraderBlock(r) {
+  const L = predictionGraderLines(r?.odds);
+  return L.length ? `\n${L.join("\n")}` : "";
+}
 
 export function buildThesisUserMessage(r, side, macroRegime, extras = {}) {
   const bull = side === "call";
@@ -29287,6 +29297,7 @@ export async function generateAiTheses(preScored, macroBackdrop, opts = {}, prio
       const userMsg = buildThesisUserMessage(r, side, macroRegime, { macroCalendar, ivRow: ivBySym[r.sym] || null, ...contextFor(r.sym) }) +
         macroGraderBlock(r, side, graderMacroContext) +
         (PICKS_CROWD_GRADER ? crowdGraderBlock(r, side, graderCrowd, shadowRowFor(opts.shadow, r.sym)) : "") +
+        (PICKS_ODDS_GRADER ? oddsGraderBlock(r) : "") +
         (research ? `\n\nWEB RESEARCH (live Google Search, run moments ago — FRESHER than the news read / headlines above; weigh it in your grade and entry call):\n${research.text}` : "");
       let response = null;
       for (let attempt = 0; attempt < AI_MAX_ATTEMPTS; attempt++) {
@@ -39164,6 +39175,35 @@ async function main() {
       console.warn(`[crowd] skipped — ${String(err?.message || err).split("\n")[0]}`);
     }
   }
+  // Prediction market odds (lib/prediction/, 2026-11-15): about 160 Kalshi
+  // and Polymarket contracts on the Fed, the economy, policy, politics,
+  // geopolitics, commodities, crypto and covered companies, each linked to the
+  // covered stocks it can move, with a year of daily history and the tests of
+  // whether odds moves line up with stock moves. Free, keyless public reads,
+  // counted against a per-bake call budget; no AI. The prior state (the price
+  // history) is read before writeChainFiles wipes data/. Runs after the crowd
+  // block, whose Kalshi read supplies the release guesses for free.
+  // PREDICTION_TRACKER=0 skips the reads and carries the prior files forward.
+  let predictionRun = null;
+  const predictionPrior = await readPredictionPrior(DATA_DIR);
+  if (/^(?:0|false)$/i.test(process.env.PREDICTION_TRACKER || "1")) {
+    console.log("Prediction odds: PREDICTION_TRACKER=0, carrying the prior files forward.");
+  } else {
+    console.log("Reading prediction market odds…");
+    try {
+      const { state: predictionState, status: predictionStatus } = await updatePredictionState({
+        prior: predictionPrior.state, nowMs: Date.now(), universe: TICKERS, chains,
+        crowdKalshi: crowdPayload?.kalshi || null, log: (line) => console.log(line),
+      });
+      const predictionAnalysis = analyzePrediction(predictionState, { prices: pricesFromChains(chains, TICKERS) });
+      const predictionPub = buildPredictionPublic(predictionState, predictionStatus, { crowdKalshi: crowdPayload?.kalshi || null, consensusRowsWithMoves: predictionAnalysis.consensusRowsWithMoves });
+      predictionRun = { state: predictionState, status: predictionStatus, analysis: predictionAnalysis, pub: predictionPub };
+      console.log(`  · prediction odds: ${predictionPub.counts.tracked} contracts tracked, ${predictionStatus.calls}/${predictionStatus.budget} calls, ${predictionStatus.backfilled} backfilled${predictionStatus.errors.length ? `, ${predictionStatus.errors.length} error(s): ${predictionStatus.errors[0]}` : ""}`);
+    } catch (err) {
+      predictionRun = null;
+      console.warn(`[prediction] skipped — ${String(err?.message || err).split("\n")[0]}`);
+    }
+  }
   // Extract the Major Contract + Guidance fundamentals signals from the news
   // headlines just attached. Mutates chains[sym].aiSignals in memory; consumed
   // later by buildTopPicks → scoreFundamentals. Self-skips without an API key.
@@ -40630,6 +40670,9 @@ async function main() {
     // the wipe and refreshed this bake). A name is logged only once its
     // Form 4 record covers the whole window (completeFrom).
     insider: insiderFromStructure(corporate || priorCorporate || null, builtAtIso), marketExtra: shadowMarketExtra,
+    // Prediction odds keys (version 6): pmo / pmn per name and the pmCut /
+    // pmPol / pmJmp gauges, only from this bake's tracker run.
+    odds: predictionRun ? predictionShadow(predictionRun.state, { universe: TICKERS, famByKey: predictionRun.analysis.famByKey, nowMs: Date.parse(builtAtIso) }) : null,
   };
   try {
     shadowSignalsToday = buildShadowSignals(chains, shadowOpts);
@@ -40642,6 +40685,9 @@ async function main() {
     // Crowd & positioning facts per name (structuralVeto, AI grader lines)
     // and the day's shadow block (run archive). Both measurement-first.
     crowd: crowdPayload,
+    // Linked prediction-market odds per name (r.odds; AI grader lines behind
+    // PICKS_ODDS_GRADER). Context only.
+    odds: predictionRun?.pub || null,
     shadow: shadowSignalsToday,
     oiTracker: scoringOiTracker,
     // Trending-IV payload (written just above) — the AI final grader's prompt
@@ -41320,6 +41366,26 @@ async function main() {
     } catch (err) {
       console.warn(`[crowd] write skipped — ${String(err?.message || err).split("\n")[0]}`);
     }
+  }
+  // Prediction odds files: the public odds (prediction-odds.json), the Owner
+  // tests and alerts joined to the open Top Picks trades
+  // (prediction-odds-owner.json) and the price-history state. Nothing here
+  // reaches the grade or a gate. Non-fatal; with the tracker off or failed,
+  // the prior files are written back unchanged (the public one marked stale).
+  try {
+    if (predictionRun) {
+      let accForOdds = null;
+      try { accForOdds = JSON.parse(await readFile(resolve(DATA_DIR, PICKS_ACCURACY_FILE), "utf8")); } catch { /* no record yet */ }
+      const openForOdds = (Array.isArray(accForOdds?.open) ? accForOdds.open : []).map((t) => ({ id: t.id ?? t.tradeId ?? null, symbol: t.symbol, side: t.side }));
+      const predictionOwner = buildPredictionOwner(predictionRun.state, predictionRun.analysis, { openTrades: openForOdds, pub: predictionRun.pub, universe: TICKERS });
+      await writePredictionFiles(DATA_DIR, { state: predictionRun.state, pub: predictionRun.pub, owner: predictionOwner });
+      console.log(`wrote data/${PREDICTION_KEY} + data/${PREDICTION_OWNER_KEY} — ${predictionRun.pub.counts.tracked} contracts, ${predictionOwner.families.length} test families, ${predictionOwner.alerts.length} open-trade alert(s)`);
+    } else if (predictionPrior.state) {
+      await writePredictionFiles(DATA_DIR, { state: predictionPrior.state, pub: predictionPrior.pub ? { ...predictionPrior.pub, stale: true, carriedForward: true } : null, owner: predictionPrior.owner });
+      console.log("carried the prior prediction odds files forward");
+    }
+  } catch (err) {
+    console.warn(`[prediction] write skipped — ${String(err?.message || err).split("\n")[0]}`);
   }
   // Market brief — after the separate 08:30 ET morning mint, the 11:00, 13:30,
   // and 16:10 full builds ship fresh reads. Other builds restore the exact

@@ -111,6 +111,7 @@ const SIDE_NAV_ICONS = {
   glossary: '<path d="M4 4.5h11a3 3 0 0 1 3 3v12.5H7a3 3 0 0 1-3-3z"/><path d="M4 17a3 3 0 0 1 3-3h11"/><path d="M8.5 8.5h6M8.5 11h4"/>',
   'market-map': '<rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="5" rx="1.5"/><rect x="13" y="10" width="8" height="11" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/>',
   crowd: '<circle cx="8" cy="8" r="3"/><circle cx="16" cy="8" r="3"/><path d="M2 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><path d="M14 14.5c.6-.3 1.3-.5 2-.5 3.3 0 6 2.7 6 6"/>',
+  'prediction-markets': '<path d="M3 20h18"/><path d="M6 16v-4M10 16V8M14 16v-6M18 16V5"/><circle cx="18" cy="4" r="1.5"/>',
   'history-rhymes': '<path d="M2.5 19.5h19"/><path d="M3 16c2.5-1 3.5-6 6-8.5 1.5 3 2.5 5 4.5 5.5 2-3 3-7.5 5-9.5 1 4.5 1.5 9 2.5 12.5"/><path d="M5 19.5v-2M9 19.5v-3M13 19.5v-2M17 19.5v-4"/>',
   'whats-changed': '<path d="M4 7h11l-3-3M20 17H9l3 3"/><circle cx="18.5" cy="7" r="1.5"/><circle cx="5.5" cy="17" r="1.5"/>',
   'past-day': '<path d="M3 12a9 9 0 1 0 2.6-6.4L3 8"/><path d="M3 3v5h5"/><path d="M8.5 15.5h7M8.5 12h7M8.5 8.5h4"/>',
@@ -1142,6 +1143,18 @@ function crowdSection() {
     <header class="card-header"><div><span class="card-eyebrow">Market &amp; economy · positioning and attention</span><h2 class="card-title">Crowd &amp; positioning</h2></div><span class="card-eyebrow" id="crowd-asof"></span></header>
     <div id="crowd-root"><p class="crd-empty">Loading crowd and positioning data&hellip;</p></div>
     <p class="hint">Put/call ratios, futures positioning, margin debt, short selling, borrow fees, Reddit and Wikipedia attention, Kalshi odds and 24/7 stock perps, all from free public sources. Facts and market-implied readings only: nothing here is a recommendation. Not investment advice.</p>
+  </section>`;
+}
+
+function predictionMarketsSection() {
+  // Prediction markets (lib/prediction/): rendered client-side from the public
+  // prediction-odds.json; the Owner tabs read prediction-odds-owner.json after
+  // sign-in.
+  return `<section class="card" id="prediction-markets-section">
+    <header class="card-header"><div><span class="card-eyebrow">Market &amp; economy · what traders are betting on</span><h2 class="card-title">Prediction markets</h2></div><span class="card-eyebrow" id="pm-asof"></span></header>
+    ${infoNote('How to read this page', `<p>Kalshi and Polymarket let people buy a contract that pays $1 if something happens. A contract trading at 62 cents is the crowd putting a 62% chance on it. This page tracks the contracts that can move stocks: Fed decisions and data releases, tariffs and other policy, elections, wars and ceasefires, oil and gold, crypto, and bets that name a covered company or its leaders.</p><p>Each contract lists the covered stocks it could move. A <b>+</b> link means YES would help that stock and a <b>&minus;</b> link means it would hurt, set in advance from what the event means for the business. A <b>?</b> link names the company or a broad event whose direction has to show in the data first. The prices are the traders&rsquo;, not the site&rsquo;s forecast, and a thin market can move on a single order.</p>`)}
+    <div id="pm-root"><p class="crd-empty">Loading prediction market odds&hellip;</p></div>
+    <p class="hint">Free public market data from Kalshi and Polymarket, refreshed with each full site update. Facts and market-implied readings only: nothing here is a recommendation. Not investment advice.</p>
   </section>`;
 }
 
@@ -2949,6 +2962,9 @@ ${i18nHeadScript()}
   </div>
   <div class="page-pane" id="page-pane-crowd" role="tabpanel" aria-labelledby="page-tab-crowd" hidden>
   ${crowdSection()}
+  </div>
+  <div class="page-pane" id="page-pane-prediction-markets" role="tabpanel" aria-labelledby="page-tab-prediction-markets" hidden>
+  ${predictionMarketsSection()}
   </div>
   <div class="page-pane" id="page-pane-history-rhymes" role="tabpanel" aria-labelledby="page-tab-history-rhymes" hidden>
   ${historyRhymesSection()}

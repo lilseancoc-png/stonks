@@ -1097,6 +1097,19 @@ under. `lib/sports/team-model.mjs` (deterministic, no AI) is refit by the
 same twice-daily data job into `_stonks/sports/v1/<sport>/team-model.json`;
 `lib/sports/team-bets.mjs` builds the block and the tool's answer.
 
+Since 2026-11-15 (`lib/sports/win-by.mjs`) the block also shows each team's
+**winning-margin bands** (the chance of each band, the most likely result and
+the 50% / 80% margin ranges), **Kalshi's prices** for the game winner and the
+win-by markets beside the model (read by the data job from Kalshi's free
+public API into `<sport>/kalshi-games.json`; NFL `KXNFLGAME` / `KXNFLSPREAD`,
+NBA `KXNBAGAME` / `KXNBASPREAD`, not yet seen live; `SPORTS_KALSHI=0` skips
+it), and a **live record**: every forecast is frozen before the game into
+`<sport>/win-by-record/<season>.json` and graded after the final (favorite
+won vs the model's chance, Brier against a coin, the chance on the band that
+happened, finals inside the 50% / 80% ranges, margin miss vs the books'
+spread, and model vs Kalshi on the same games). Test:
+`node scripts/sports-win-by-smoke.mjs`.
+
 How a game is forecast:
 
 1. **Ratings.** Each team has an offense and a defense rating (points scored

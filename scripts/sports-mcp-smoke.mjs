@@ -301,6 +301,14 @@ eq([G2.game_lines?.favorite, G2.game_lines?.total], ['gs', 228.5], 'the game vie
   ok(T.structuredContent.warnings.some((w) => /^BET_4: team must be/.test(w)), 'a bad bet is named, the rest still priced');
   ok(Object.keys(R.win_by_ladder.gs).length === 30 && R.win_by_ladder.bos['30+'] != null && Math.abs(R.win_by_ladder.gs['1+'] - R.forecast.win.home) <= 0.001, 'win-by ladder (1+ to 30+) starts at the win chance');
   ok(R.teams.gs.rating && R.teams.bos.results.games > 0, 'team ratings and results');
+  ok(R.margin_bands && R.margin_bands.bands.gs.length === 5 && R.margin_bands.most_likely && R.margin_bands.range80, 'winning-margin bands, the most likely result and the ranges');
+  ok(Math.abs(R.margin_bands.bands.gs.slice(1).reduce((a, b) => a + b.chance, 0) - R.win_by_ladder.gs['6+']) < 0.006, 'bands agree with the win-by ladder');
+  eq(R.kalshi, null, 'no Kalshi read stored yet');
+  put('kalshi-games', { sport: 'nba' }, { schema_version: 1, sport: 'nba', fetched_utc: new Date(NOW - 3600000).toISOString(), ok: true, games: { mnext1: { home: 'gs', away: 'bos', winner: { gs: 0.62, bos: 0.38 }, win_by: { gs: { '6+': 0.2 } }, url: 'https://kalshi.com/markets/kxnbaspread' } } });
+  const TK = await tool('sports_team_odds', { sport: 'nba', game_id: 'mnext1' });
+  const K = TK.structuredContent.results.kalshi;
+  ok(K && K.winner.gs.kalshi === 0.62 && K.win_by[0].wins_by === '6+' && Math.abs(K.win_by[0].model - R.win_by_ladder.gs['6+']) < 0.002, 'Kalshi prices beside the model at the same threshold');
+  ok(TK.structuredContent.warnings.some((w) => /^KALSHI_DISAGREES: GS by 6\+/.test(w)) === (Math.abs(K.win_by[0].gap) >= 0.05), 'a 5-point gap is flagged');
   ok(R.check.moneyline.n > 0 && ['validated', 'not_validated', 'learning'].includes(R.check.moneyline.status), 'how each market held up');
   ok(T.structuredContent.warnings.some((w) => /WIDTH_UNTESTED/.test(w)), 'NBA market widths are flagged as untested');
   ok(feedCalls.some(([sp, parts]) => sp === 'nba' && /reference/.test(parts) && /game_lines/.test(parts)), 'the live sportsbook read, game lines included, is asked for NBA');

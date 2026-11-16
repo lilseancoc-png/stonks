@@ -48,6 +48,7 @@ import { renderLeadershipJs } from './leadership-client.mjs';
 import { renderEarningsWeekJs } from './earnings-week-client.mjs';
 import { renderViewsNextJs } from './views-next-client.mjs';
 import { renderCrowdJs } from './crowd-client.mjs';
+import { renderPredictionJs } from './prediction-client.mjs';
 import { renderHistoryRhymesJs } from './history-rhymes-client.mjs';
 import { renderEdgeOddsJs } from './edge-odds-client.mjs';
 import { renderEvidenceJs } from './evidence-client.mjs';
@@ -115,6 +116,7 @@ ${renderStockPageJs()}
 ${renderEarningsWeekJs()}
 ${renderViewsNextJs()}
 ${renderCrowdJs()}
+${renderPredictionJs()}
 ${renderHistoryRhymesJs()}
 ${renderEdgeOddsJs()}
 ${renderEvidenceJs()}
@@ -4288,7 +4290,7 @@ ${scenarioEventPhase.toString()}
   // resolve the URL's initial tab synchronously at script-evaluation time (the
   // anti-flash pre-select in the boot block) before the /api/auth/me +
   // manifest fetches settle and bind() runs the full selectTab.
-  var PAGE_TAB_IDS = ['home','update-checker','owner-settings','owner-market-brief','tickers','stock','narratives','brief','news','market','risk','unified-signal-engine','historical-data','party-tracker','earnings-forecast','forced-liquidation','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','bottom-tracker','open-picks','track','sports-nba','sports-nfl','sports-pick-builder','cheatsheet','chart-patterns','timeline','contact','glossary','earnings-week','market-map','crowd','history-rhymes','whats-changed','past-day','privacy','terms'];
+  var PAGE_TAB_IDS = ['home','update-checker','owner-settings','owner-market-brief','tickers','stock','narratives','brief','news','market','risk','unified-signal-engine','historical-data','party-tracker','earnings-forecast','forced-liquidation','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','bottom-tracker','open-picks','track','sports-nba','sports-nfl','sports-pick-builder','cheatsheet','chart-patterns','timeline','contact','glossary','earnings-week','market-map','crowd','prediction-markets','history-rhymes','whats-changed','past-day','privacy','terms'];
   // Friendly aliases so deep-links people might guess work too.
   // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
   // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -4345,7 +4347,7 @@ ${scenarioEventPhase.toString()}
     patterns: 'chart-patterns', chartpatterns: 'chart-patterns', 'chart-pattern': 'chart-patterns',
     timeline: 'timeline', schedule: 'timeline', refresh: 'timeline', 'refresh-schedule': 'timeline', 'build-timeline': 'timeline',
     contact: 'contact', 'contact-us': 'contact', message: 'contact', messages: 'contact', feedback: 'contact', inbox: 'contact',
-    glossary: 'glossary', words: 'glossary', definitions: 'glossary', 'earnings-week': 'earnings-week', 'earnings-board': 'earnings-week', 'implied-move': 'earnings-week', 'market-map': 'market-map', 'fear-map': 'market-map', 'chart-wall': 'market-map', 'breadth': 'market-map', 'crowding': 'market-map', 'short-interest': 'market-map', crowd: 'crowd', positioning: 'crowd', 'put-call': 'crowd', cot: 'crowd', 'margin-debt': 'crowd', 'short-volume': 'crowd', kalshi: 'crowd', perps: 'crowd', 'reddit': 'crowd', 'history-rhymes': 'history-rhymes', booms: 'history-rhymes', 'booms-and-busts': 'history-rhymes', busts: 'history-rhymes', bubbles: 'history-rhymes', bubble: 'history-rhymes', buildout: 'history-rhymes', railroads: 'history-rhymes', 'railroad-mania': 'history-rhymes', 'dot-com': 'history-rhymes', telecom: 'history-rhymes', '2008': 'history-rhymes', cds: 'history-rhymes', 'credit-default-swaps': 'history-rhymes', 'credit-spreads': 'history-rhymes', 'whats-changed': 'whats-changed', 'changes': 'whats-changed', 'since-yesterday': 'whats-changed', 'past-day': 'past-day', 'past-days': 'past-day', 'time-machine': 'past-day',
+    glossary: 'glossary', words: 'glossary', definitions: 'glossary', 'earnings-week': 'earnings-week', 'earnings-board': 'earnings-week', 'implied-move': 'earnings-week', 'market-map': 'market-map', 'fear-map': 'market-map', 'chart-wall': 'market-map', 'breadth': 'market-map', 'crowding': 'market-map', 'short-interest': 'market-map', crowd: 'crowd', positioning: 'crowd', 'put-call': 'crowd', cot: 'crowd', 'margin-debt': 'crowd', 'short-volume': 'crowd', kalshi: 'prediction-markets', polymarket: 'prediction-markets', 'prediction-markets': 'prediction-markets', 'prediction-market': 'prediction-markets', predictions: 'prediction-markets', odds: 'prediction-markets', 'betting-odds': 'prediction-markets', perps: 'crowd', 'reddit': 'crowd', 'history-rhymes': 'history-rhymes', booms: 'history-rhymes', 'booms-and-busts': 'history-rhymes', busts: 'history-rhymes', bubbles: 'history-rhymes', bubble: 'history-rhymes', buildout: 'history-rhymes', railroads: 'history-rhymes', 'railroad-mania': 'history-rhymes', 'dot-com': 'history-rhymes', telecom: 'history-rhymes', '2008': 'history-rhymes', cds: 'history-rhymes', 'credit-default-swaps': 'history-rhymes', 'credit-spreads': 'history-rhymes', 'whats-changed': 'whats-changed', 'changes': 'whats-changed', 'since-yesterday': 'whats-changed', 'past-day': 'past-day', 'past-days': 'past-day', 'time-machine': 'past-day',
     privacypolicy: 'privacy', 'privacy-policy': 'privacy',
     tos: 'terms', 'terms-of-use': 'terms', 'terms-of-service': 'terms',
   };
@@ -4795,6 +4797,7 @@ ${renderExportBindings()}
         if (name === 'news' && typeof loadNewsFeed === 'function') loadNewsFeed();
         if ((name === 'calendar' || name === 'bonds-usd') && typeof loadCalendar === 'function') loadCalendar();
         if (name === 'calendar' && typeof renderIcsBox === 'function') renderIcsBox();
+        if (name === 'calendar' && typeof loadPredictionForCalendar === 'function') loadPredictionForCalendar();
         if (name === 'index-cal' && typeof loadIndexCal === 'function') loadIndexCal();
         if (name === 'picks' && typeof loadPicks === 'function') loadPicks();
         if (name === 'picks' && typeof engOnPicksTab === 'function') engOnPicksTab();
@@ -4855,6 +4858,7 @@ ${renderExportBindings()}
         if (name === 'earnings-week' && typeof loadEarningsWeek === 'function') loadEarningsWeek();
         if (name === 'market-map' && typeof loadMarketMap === 'function') loadMarketMap();
         if (name === 'crowd' && typeof loadCrowd === 'function') loadCrowd();
+        if (name === 'prediction-markets' && typeof loadPrediction === 'function') loadPrediction();
         if (name === 'history-rhymes' && typeof loadHistoryRhymes === 'function') loadHistoryRhymes();
         if (name === 'risk' && typeof loadHistoryRhymesRisk === 'function') loadHistoryRhymesRisk();
         if (name === 'whats-changed' && typeof loadWhatsChanged === 'function') loadWhatsChanged();
@@ -31961,6 +31965,7 @@ ${renderExportBindings()}
       grid +
       (e.note ? '<p class="cal-report-note">' + escapeHtml(e.note) + '</p>' : '') +
       pmLine +
+      (typeof predictionCalLine === 'function' ? predictionCalLine(pmkCalData, e) : '') +
     '</div>';
   }
   // --- Report click-through: bar chart + summary modal --------------------

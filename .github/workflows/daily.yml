@@ -536,6 +536,12 @@ jobs:
           PICKS_CROWD_SQUEEZE_VETO: ${{ vars.PICKS_CROWD_SQUEEZE_VETO }}
           PICKS_CROWD_GRADER: ${{ vars.PICKS_CROWD_GRADER }}
           PICKS_MACRO_PUTCALL_SRC: ${{ vars.PICKS_MACRO_PUTCALL_SRC }}
+          # Prediction market odds (lib/prediction/, 2026-11-15): set the repo
+          # variable PREDICTION_TRACKER to 0 to stop the Kalshi / Polymarket
+          # reads and keep the prior files. PICKS_ODDS_GRADER=1 adds the linked
+          # odds to the AI grader's prompt (off; locked until 2026-12-07).
+          PREDICTION_TRACKER: ${{ vars.PREDICTION_TRACKER }}
+          PICKS_ODDS_GRADER: ${{ vars.PICKS_ODDS_GRADER }}
           # Self-improving loop (lib/self-loop/, docs/self-loop.md): set the repo
           # variable LOOP to 0 to stop the measurement and keep the prior files.
           LOOP: ${{ vars.LOOP }}
