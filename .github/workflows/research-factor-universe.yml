@@ -1,0 +1,37 @@
+name: Research factor universe (history test data)
+# Research-only: runs only on pushes to the research-factor-data branch.
+# Downloads public SEC company facts and Yahoo daily bars for about 1,000
+# large US companies and commits them to this branch. No secrets, no private
+# store, no AI call, nothing published to the site.
+on:
+  push:
+    branches: [research-factor-data]
+    paths:
+      - research/factor-universe/collect.mjs
+      - research/factor-universe/extract.mjs
+      - .github/workflows/research-factor-universe.yml
+permissions:
+  contents: write
+concurrency:
+  group: research-factor-universe
+  cancel-in-progress: true
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: node research/factor-universe/check.mjs
+      - run: node research/factor-universe/collect.mjs
+      - name: Commit data
+        run: |
+          git config user.name "research-bot"
+          git config user.email "research-bot@users.noreply.github.com"
+          git add research/factor-universe/data
+          git commit -m "Research: SEC facts and daily bars for the factor history test" || echo "nothing to commit"
+          git push origin HEAD:research-factor-data
