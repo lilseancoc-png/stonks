@@ -161,6 +161,9 @@ ok("reversion: washout call; stands aside next to a report", () => {
   assert.equal(c.length, 1); assert.equal(c[0].setup, "oversold-bounce"); assert.equal(c[0].targetLevel, 97);
   assert.equal(evalReversion(V("CCC", f, { earn: { next: { sessionsUntil: 1 } } }), CTX).length, 0);
   assert.equal(evalReversion(V("CCC", f, { earn: { last: { sessionsSince: 0 } } }), CTX).length, 0);
+  // An after-the-close report from the last finished session: today is the
+  // reaction day, so the washout may be the report itself.
+  assert.equal(evalReversion(V("CCC", f, { earn: { reacting: { date: END, session: "PM" }, last: { sessionsSince: 60 }, next: { sessionsUntil: 60 } } }), CTX).length, 0);
 });
 ok("earnings: drift after a beat that held; run-in closed before the report", () => {
   const f = baseF({ c: 108, pc: 107, sma50: 98 });
@@ -235,6 +238,15 @@ ok("report list: store fractions become percent; reaction measured from bars", (
   assert.equal(e2.next.exitBy, "2026-11-25");
   assert.equal(earnView(P, i, reps, { today: TODAY, next: { date: "2026-11-24", session: "PM" } }).next.exitBy, "2026-11-24");
   assert.equal(fundCore({ last: null, hist: [] }), null);
+  // An after-the-close report dated on the last confirmed bar has no
+  // reaction bar yet: it is `reacting`, not `last` and not `next`.
+  const lastBar = DATES[DATES.length - 1];
+  const pm = earnView(P, i, prepareReports([{ date: repDate, session: "AM", epsActual: 2, epsEstimate: 1.6 }, { date: lastBar, session: "PM", epsActual: 1, epsEstimate: 0.9 }]), { today: TODAY, next: { date: "2027-02-10", session: "PM" } });
+  assert.deepEqual(pm.reacting, { date: lastBar, session: "PM" }); assert.equal(pm.last.date, repDate); assert.equal(pm.next.date, "2027-02-10");
+  // A before-the-open report on that bar already has its reaction: `last`.
+  const am = earnView(P, i, prepareReports([{ date: lastBar, session: "AM", epsActual: 1, epsEstimate: 0.9 }]), { today: TODAY });
+  assert.equal(am.reacting, null); assert.equal(am.last.date, lastBar); assert.equal(am.last.sessionsSince, 0);
+  assert.equal(e.reacting, null);
 });
 ok("macro factors respect publication lags", () => {
   // Daily series through Tuesday Nov 17: a Monday Nov 16 decision must read
@@ -329,6 +341,54 @@ ok("book: the whole book opens at most five trades a run", () => {
   const state = emptyState(), record = emptyRecord();
   const out = stepBook(state, record, bookInput(views, { engines: ["technicals", "reversion"], maxTotal: 3 }));
   assert.equal(out.opened.length, 3);
+});
+ok("book: a setup ruled out by today's price move is listed, not traded and not tracked", () => {
+  // AAA ran 4.5 ATR-ish above the last close: the pullback is there, the entry is not.
+  const ran = { RAN1: { ...V("RAN1", pullF()), spot: 104.5 }, OK1: V("OK1", pullF()) };
+  const state = emptyState(), record = emptyRecord();
+  const out = stepBook(state, record, bookInput(ran, { engines: ["technicals"] }));
+  const rows = out.candidates.technicals;
+  const skip = rows.find((c) => c.symbol === "RAN1");
+  assert.ok(skip && skip.skipped === "price" && skip.taken === false && skip.score === null && skip.setup === "pullback");
+  assert.match(skip.why, /^price already ran \d+(\.\d+)? ATR its way today \(not chased\)$/);
+  assert.equal(rows.indexOf(skip), rows.length - 1);            // after the scored rows
+  assert.deepEqual(out.opened.map((t) => t.symbol), ["OK1"]);   // the other name still opens
+  assert.equal(out.shadowOpened, 0);
+  assert.ok(!Object.keys(state.engines.technicals.seen).some((k) => k.startsWith("RAN1|")));
+  assert.equal(out.skippedPrice, 1);
+  // The price comes back by the afternoon run: the same signal can still open.
+  const out2 = stepBook(state, record, bookInput({ RAN1: V("RAN1", pullF()), OK1: V("OK1", pullF()) }, { engines: ["technicals"], nowIso: NOW_PM, late: true }));
+  assert.deepEqual(out2.opened.map((t) => t.symbol), ["RAN1"]);
+  // A move against the setup is named as such.
+  const against = stepBook(emptyState(), emptyRecord(), bookInput({ AG1: { ...V("AG1", pullF()), spot: 97 } }, { engines: ["technicals"] }));
+  assert.match(against.candidates.technicals[0].why, /^price moved \d+(\.\d+)? ATR against it today$/);
+});
+ok("book: the shared run limit is handed out in turns, and the first engine changes each run", () => {
+  const mk = () => { const views = {}; for (let i = 0; i < 9; i++) views[`B${i}`] = V(`B${i}`, bothF()); return views; };
+  const count = (out, id) => out.opened.filter((t) => t.engine === id).length;
+  const two = ["technicals", "reversion"];
+  // First run: Technicals goes first. One each, then Technicals takes the third.
+  const a = emptyState();
+  const outA = stepBook(a, emptyRecord(), bookInput(mk(), { engines: two, maxTotal: 3 }));
+  assert.deepEqual(outA.order, two); assert.equal(a.turn, 0);
+  assert.equal(count(outA, "technicals"), 2); assert.equal(count(outA, "reversion"), 1);
+  // The next run starts with Reversion.
+  const b = emptyState(); b.turn = 0;
+  const outB = stepBook(b, emptyRecord(), bookInput(mk(), { engines: two, maxTotal: 3 }));
+  assert.deepEqual(outB.order, ["reversion", "technicals"]); assert.equal(b.turn, 1);
+  assert.equal(count(outB, "reversion"), 2); assert.equal(count(outB, "technicals"), 1);
+  // With one slot left for the whole book, the engine whose turn it is gets it.
+  const c = emptyState(); c.turn = 0;
+  const outC = stepBook(c, emptyRecord(), bookInput(mk(), { engines: two, maxTotal: 1 }));
+  assert.equal(outC.opened.length, 1); assert.equal(outC.opened[0].engine, "reversion");
+  // The old order gave a two-trade limit to the first engine alone.
+  const d = emptyState();
+  const outD = stepBook(d, emptyRecord(), bookInput(mk(), { engines: two, maxTotal: 2 }));
+  assert.equal(count(outD, "technicals"), 1); assert.equal(count(outD, "reversion"), 1);
+  // A marks-only step does not use up a turn.
+  const e = emptyState(); e.turn = 0;
+  stepBook(e, emptyRecord(), bookInput(mk(), { engines: two, marksOnly: true }));
+  assert.equal(e.turn, 0);
 });
 ok("book: take-profit, stop, time limit, event exit, expiry, left coverage", () => {
   const mk = (over = {}) => {

@@ -1,10 +1,14 @@
-// Strategy engines on the Top Picks page (2026-11-16). The engine switcher
-// keeps Top Picks as the flagship view and adds one view per rules-only paper
-// engine plus "All engines". It renders the Owner-only engines.json written
-// by every Top Picks decision run (lib/engines/index.mjs): each engine's own
-// candidates, open and closed trades, scorecard, setups, learning log, shadow
-// trades and history test, and the engine trades in the shared Webull paper
-// account (/api/auth/webull-mirror?scope=engines).
+// The Owner "Strategy engines" page (page id `engines`). Since 2026-11-16
+// (audit fix 9) the engines have a page of their own, so Top picks, Open
+// picks and the Top Picks track record show Top Picks only; the engines sat
+// in a switcher on the Top Picks page for their first day. One view per
+// rules-only paper engine plus "All engines". It renders the Owner-only
+// engines.json written by every Top Picks decision run
+// (lib/engines/index.mjs): each engine's own candidates, open and closed
+// trades, scorecard, setups, learning log, shadow trades and history test,
+// and the engine trades in the shared Webull paper account
+// (/api/auth/webull-mirror?scope=engines). Old ?tab=picks&engine= links land
+// here (selectTab in app-js.mjs).
 //
 // Pasted into the app.js IIFE after renderSelfLoopJs(), so it reuses the
 // slp* / evb* formatters, rglEt, escapeHtml, $, dataUrl, quantFetchJson,
@@ -17,20 +21,24 @@ export const ENGINE_TABS = Object.freeze([
   ...ENGINE_IDS.map((id) => ({ id, name: ENGINES[id].name, tag: ENGINES[id].tag })),
 ]);
 
+// The page's own tabs: "All engines" first, then one per engine. Top Picks
+// stays in ENGINE_TABS for its name on shared-contract labels only.
+export const ENGINE_PAGE_TABS = Object.freeze(ENGINE_TABS.filter((t) => t.id !== FLAGSHIP.id));
+
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-// The switcher bar and the engine pane, placed above the Top Picks card.
-export function enginesBarHtml() {
-  const tabs = ENGINE_TABS.map((t, i) => `<button type="button" class="ui-tab eng-tab${i === 0 ? ' is-on' : ''}" role="tab" aria-selected="${i === 0 ? 'true' : 'false'}" data-eng="${esc(t.id)}">${esc(t.name)}${t.id === FLAGSHIP.id ? '<span class="eng-flag">Flagship</span>' : ''}<span class="ui-tab-count eng-count" data-eng-count="${esc(t.id)}" hidden></span></button>`).join('');
+// The page: its tab bar and the pane the browser fills.
+export function enginesSection() {
+  const tabs = ENGINE_PAGE_TABS.map((t, i) => `<button type="button" class="ui-tab eng-tab${i === 0 ? ' is-on' : ''}" role="tab" aria-selected="${i === 0 ? 'true' : 'false'}" data-eng="${esc(t.id)}">${esc(t.name)}<span class="ui-tab-count eng-count" data-eng-count="${esc(t.id)}" hidden></span></button>`).join('');
   return `<div class="eng-switch" id="eng-switch">
-    <div class="ui-tabs eng-tabs" id="eng-bar" role="tablist" aria-label="Trading engines">${tabs}</div>
+    <div class="ui-tabs eng-tabs" id="eng-bar" role="tablist" aria-label="Strategy engines">${tabs}</div>
   </div>
-  <section class="card eng-pane" id="eng-pane" hidden aria-live="polite"></section>`;
+  <section class="card eng-pane" id="eng-pane" aria-live="polite"><p class="eng-empty eng-wait">Open this page to load the strategy engines.</p></section>`;
 }
 
 export function renderEnginesJs() {
   return `
-  // ---- Strategy engines (Top Picks page) ------------------------------------
+  // ---- Strategy engines (their own Owner page) ------------------------------
   var ENG_TABS = ${JSON.stringify(ENGINE_TABS)};
   var ENG_SUBS = [['now', 'Now'], ['record', 'Track record'], ['learn', 'Setups and learning'], ['history', 'History test'], ['webull', 'Webull paper']];
   var ENG_HIST = [['live', 'As the engine runs', 'Shadow-start setups held back and the learning rules switched on: the closest read of how the engine runs today.', 'shadow-start setups held back, learning on'], ['held', 'Learning off', 'Shadow-start setups held back, learning rules off.', 'shadow-start setups held back, no learning'], ['raw', 'Every setup', 'Every setup trading from day one and no learning: the unpicked read.', 'every setup from day one, no learning']];
@@ -42,9 +50,9 @@ export function renderEnginesJs() {
   var ENG_MIRROR_STATE = { entering: 'Buying', open: 'Open', exiting: 'Selling', closed: 'Closed', missed: 'Missed', skipped: 'Not bought', settled: 'Settled' };
   var ENG_EVENT = { fomc: 'Fed decision day', cpi: 'CPI day', jobs: 'Jobs report day' };
   var ENG_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  var engState = { data: null, loading: false, fetchedAt: 0, error: null, sel: 'flagship', sub: 'now', hist: 'live', mirror: null, mirrorLoading: false, mirrorError: null, mirrorAt: 0, bound: false };
+  var engState = { data: null, loading: false, fetchedAt: 0, error: null, sel: 'all', sub: 'now', hist: 'live', mirror: null, mirrorLoading: false, mirrorError: null, mirrorAt: 0, bound: false };
 
-  function engValid(id){ for (var i = 0; i < ENG_TABS.length; i++) if (ENG_TABS[i].id === id) return true; return false; }
+  function engValid(id){ if (id === 'flagship') return false; for (var i = 0; i < ENG_TABS.length; i++) if (ENG_TABS[i].id === id) return true; return false; }
   function engName(id){ for (var i = 0; i < ENG_TABS.length; i++) if (ENG_TABS[i].id === id) return ENG_TABS[i].name; return String(id || ''); }
   function engUsd(v){ if (v == null || !isFinite(v)) return '—'; var a = Math.abs(Math.round(v)); return (v < 0 ? '−' : v > 0 ? '+' : '') + '$' + a.toLocaleString('en-US'); }
   function engRate(v){ return v == null || !isFinite(v) ? '—' : Math.round(v * 100) + '%'; }
@@ -88,6 +96,13 @@ export function renderEnginesJs() {
         : 'also on ' + list.map(function(r){ return escapeHtml(engName(r.engine)) + ' (' + escapeHtml(r.tradeId) + ')'; }).join(', ') + '. Top Picks holds the one paper position.') + '</li>');
     });
     return rows.length ? '<div class="eng-shared-note"><b>Same contract on more than one engine</b><ul>' + rows.join('') + '</ul></div>' : '';
+  }
+
+  // One line on Open picks: engine trades live on the Strategy engines page.
+  function engOpenLinkHtml(){
+    var d = engState.data; if (!d) return '';
+    var n = (d.total && d.total.open) || 0;
+    return '<p class="eng-open-link">This page lists Top Picks trades only. <button type="button" class="eng-link" data-wf-go="engines">Strategy engines: ' + n + ' open paper trade' + (n === 1 ? '' : 's') + '</button></p>';
   }
 
   function engSplitTable(rows, first, nameFn){
@@ -161,10 +176,12 @@ export function renderEnginesJs() {
   function engCandTable(e){
     var rows = e.candidates || [];
     if (!rows.length) return '<p class="hint">No setup scored near the bar at the latest run.</p>';
+    var anySkipped = rows.some(function(c){ return c.skipped === 'price'; });
     return slpTable([['Stock'], ['Setup'], ['Score', 1], ['Why it scored', 'l'], ['What happened', 'l']], rows.map(function(c){
+      var skipped = c.skipped === 'price';
       var res = c.taken ? '<b class="sig-pos">Opened</b> ' + escapeHtml(c.tradeId || '') + (c.note ? '<div class="crd-dim">' + escapeHtml(c.note) + '</div>' : '') : escapeHtml(engCap(c.why || 'not taken'));
-      return '<tr><td><b>' + escapeHtml(c.symbol) + '</b> ' + engSide(c.side) + '</td><td>' + escapeHtml(engSetup(e, c.setup)) + '</td><td class="num">' + slpNum(c.score, 0) + '</td><td class="l">' + escapeHtml((c.reasons || []).join('; ')) + '</td><td class="l">' + res + '</td></tr>';
-    }).join(''));
+      return '<tr' + (skipped ? ' class="eng-row-skipped"' : '') + '><td><b>' + escapeHtml(c.symbol) + '</b> ' + engSide(c.side) + '</td><td>' + escapeHtml(engSetup(e, c.setup)) + '</td><td class="num">' + (skipped ? '—' : slpNum(c.score, 0)) + '</td><td class="l">' + (skipped ? '<span class="crd-dim">Setup matched; not scored</span>' : escapeHtml((c.reasons || []).join('; '))) + '</td><td class="l">' + res + '</td></tr>';
+    }).join('')) + (anySkipped ? '<p class="evb-note">Rows with no score matched a setup, but today’s price move ruled them out before scoring: the engine does not chase a move that already ran its way, and does not buy into one going against it. They are not traded and not tracked as shadow trades.</p>' : '');
   }
   function engNowHtml(e, d){
     var s = e.stats || {};
@@ -305,10 +322,11 @@ export function renderEnginesJs() {
       renderEngines();
     });
   }
+  function engOrderPrefix(t){ var a = (t && t.attempts) || []; for (var i = 0; i < a.length; i++) if (a[i] && a[i].orderPrefix) return a[i].orderPrefix; return ''; }
   function engMirrorRows(m, id){ return ((m && m.trades) || []).filter(function(t){ return id === 'all' ? !!t.engine : t.engine === id; }); }
   function engMirrorTable(rows, withEngine){
     var cols = [
-      { label: 'Trade', cell: function(t){ return '<b>' + escapeHtml(t.symbol || '') + '</b> ' + engSide(t.side) + '<div class="crd-dim eng-id">' + escapeHtml(t.tradeId || '') + '</div>'; }, sort: function(t){ return t.tradeId; } },
+      { label: 'Trade', cell: function(t){ var px = engOrderPrefix(t); return '<b>' + escapeHtml(t.symbol || '') + '</b> ' + engSide(t.side) + '<div class="crd-dim eng-id">' + escapeHtml(t.tradeId || '') + '</div>' + (px ? '<div class="crd-dim" title="The first letters of this trade’s order IDs at Webull. Orders sent before November 16, 2026 start with plain ms.">Webull order IDs start ' + escapeHtml(px) + '</div>' : ''); }, sort: function(t){ return t.tradeId; } },
       { label: 'State', cell: function(t){ return escapeHtml(ENG_MIRROR_STATE[t.state] || engCap(t.state)) + (t.needsReview ? ' ' + engPill('Needs review', 'evb-s-fail') : ''); }, sort: function(t){ return t.state; } },
       { label: 'Contract', cell: function(t){ return escapeHtml(String(t.legs || '').replace(/^BUY /, '')); }, nosort: true },
       { label: 'Entry', num: true, cell: function(t){ return (t.fillPrice == null ? '—' : engMoney(t.fillPrice)) + (t.engineEntryPrice != null ? '<div class="crd-dim">engine ' + engMoney(t.engineEntryPrice) + (t.fillPrice != null && t.entryDiffPct != null ? ' (' + slpPts(t.entryDiffPct, 1) + '%)' : '') + '</div>' : ''); }, sort: function(t){ return t.fillPrice; } },
@@ -316,12 +334,12 @@ export function renderEnginesJs() {
       { label: 'Paper result', num: true, cell: function(t){ return engPnl(t.paperPnlPct) + (t.enginePnlPct != null ? '<div class="crd-dim">engine ' + slpPts(t.enginePnlPct, 1) + '%</div>' : ''); }, sort: function(t){ return t.paperPnlPct; } },
       { label: 'Notes', cell: function(t){ var sc = t.sharedContract; return (sc ? '<div class="eng-shared">Held by ' + escapeHtml(engName(sc.heldBy || 'flagship')) + (sc.heldById ? ' (' + escapeHtml(sc.heldById) + ')' : '') + '</div>' : '') + ((t.sharedWith || []).length ? '<div class="eng-shared eng-shared-holder">Also on: ' + t.sharedWith.map(function(x){ return escapeHtml(engName(x.source || 'flagship')) + (x.tradeId ? ' (' + escapeHtml(x.tradeId) + ')' : ''); }).join(', ') + '</div>' : '') + (t.note ? '<div class="crd-dim">' + escapeHtml(t.note) + '</div>' : ''); }, nosort: true },
     ];
-    if (withEngine) cols.splice(1, 0, { label: 'Engine', cell: function(t){ return escapeHtml(engName(t.engine)); }, sort: function(t){ return t.engine; } });
+    if (withEngine) cols.splice(1, 0, { label: 'Made by', cell: function(t){ return escapeHtml(t.madeBy || engName(t.engine)); }, sort: function(t){ return t.engine; } });
     return VIEWS.tableHtml(cols, rows, { key: 'eng-mirror' + (withEngine ? '-all' : ''), empty: 'No engine trades in the paper account yet. The mirror runs right after each 11:00 and 15:30 ET build.' });
   }
   function engMirrorHtml(id){
     var m = engState.mirror;
-    var lead = '<p class="evb-lead">Every engine trades in the same Webull paper account as Top Picks, one contract per trade, and each order carries its engine’s trade ID, so the fills stay on that engine’s record. When two engines want the exact same contract it is bought once: the first holder owns the paper position and the other records the trade on paper marks, labeled with who holds it.</p>';
+    var lead = '<p class="evb-lead">Every engine trades in the same Webull paper account as Top Picks, one contract per trade. Every order is labeled with the engine that made it: the trade ID starts with the engine’s tag (TEC:, REV:, MAC: and so on), the order ID sent to Webull starts with ms plus the same tag (mstec…, msrev…), and every row of both downloads has a made_by column. Top Picks orders have no tag (ms followed by letters and digits). So the fills stay on that engine’s record. When two engines want the exact same contract it is bought once: the first holder owns the paper position and the other records the trade on paper marks, labeled with who holds it.</p>';
     if (!m){
       if (engState.mirrorLoading || (!engState.mirrorError && HAS_OWNER_ACCESS)) return lead + '<p class="hint">Loading the paper account…</p>';
       return lead + '<p class="hint">The paper account could not be read (' + escapeHtml(engState.mirrorError || 'not signed in') + '). It is only available on the live site with the Owner session. <button type="button" class="eng-link" data-eng-mirror-retry>Try again</button></p>';
@@ -356,7 +374,7 @@ export function renderEnginesJs() {
       var st = d.mode === 'off' ? engPill('Off', 'evb-s-fail') : c.switchedOff ? engPill('Switched off', 'evb-s-fail') : (d.mode === 'pause' || c.paused) ? engPill('Paused', 'evb-s-collect') : engPill('Trading', 'evb-s-pass');
       return '<tr><td class="eng-cmp-name"><button type="button" class="eng-link" data-eng-go="' + escapeHtml(c.id) + '"><b>' + escapeHtml(c.name) + '</b></button><div class="crd-dim">' + escapeHtml(c.tag) + ' · rules ' + escapeHtml(c.rulesVersion || '') + ' · bar ' + c.bar + '</div></td><td>' + st + '</td><td class="num">' + c.open + ' of ' + c.slots + (c.open ? '<div class="crd-dim ' + slpSign(c.openUsd) + '">' + engUsd(c.openUsd) + '</div>' : '') + '</td><td class="num">' + (c.n || 0) + '</td><td class="num">' + engRate(c.winRate) + (engRange(c.winRange) ? '<div class="crd-dim">' + engRange(c.winRange) + '</div>' : '') + '</td><td class="num">' + engPnl(c.avg) + '</td><td class="num ' + slpSign(c.usd) + '">' + engUsd(c.usd) + '</td><td class="num">' + slpNum(c.profitFactor, 2) + '</td><td class="num">' + (c.shadowN || 0) + (c.shadowAvg != null ? '<div class="crd-dim">' + slpPts(c.shadowAvg, 1) + '%</div>' : '') + '</td></tr>';
     }).join('');
-    var flag = '<tr class="eng-flag-row"><td class="eng-cmp-name"><button type="button" class="eng-link" data-eng-go="flagship"><b>Top Picks</b></button><div class="crd-dim">Flagship · its own Track Record</div></td><td>' + engPill('Flagship', 'evb-s-ready') + '</td><td class="num">' + (f ? f.open : '—') + '</td><td class="num">' + (f ? f.n : '—') + '</td><td class="num">' + (f ? engRate(f.winRate) : '—') + '</td><td class="num">' + (f ? engPnl(f.avg) : '—') + '</td><td class="num crd-dim" colspan="3">Full record on the <a href="?tab=track">Track Record</a> page</td></tr>';
+    var flag = '<tr class="eng-flag-row"><td class="eng-cmp-name"><button type="button" class="eng-link" data-wf-go="picks"><b>Top Picks</b></button><div class="crd-dim">Flagship · its own pages and Track Record</div></td><td>' + engPill('Flagship', 'evb-s-ready') + '</td><td class="num">' + (f ? f.open : '—') + '</td><td class="num">' + (f ? f.n : '—') + '</td><td class="num">' + (f ? engRate(f.winRate) : '—') + '</td><td class="num">' + (f ? engPnl(f.avg) : '—') + '</td><td class="num crd-dim" colspan="3">Full record on the <button type="button" class="eng-link" data-wf-go="track">Top Picks track record</button> page</td></tr>';
     var t = d.total || {};
     var total = '<tr class="eng-total-row"><td class="eng-cmp-name"><b>All six engines</b></td><td></td><td class="num">' + (t.open || 0) + '</td><td class="num">' + (t.n || 0) + '</td><td class="num">' + engRate(t.winRate) + '</td><td class="num">' + engPnl(t.avg) + '</td><td class="num ' + slpSign(t.usd) + '">' + engUsd(t.usd) + '</td><td class="num">' + slpNum(t.profitFactor, 2) + '</td><td></td></tr>';
     var cmp = slpTable([['Engine'], ['Status'], ['Open', 1, 'Open trades of the slots it may use, and their unrealized result on the latest marks'], ['Closed', 1], ['Win rate', 1], ['Average trade', 1], ['One contract each', 1, 'Dollars made or lost on closed trades, one contract per trade'], ['Profit factor', 1], ['Shadow trades', 1, 'Closed shadow trades and their average result']], flag + rows + total);
@@ -381,7 +399,7 @@ export function renderEnginesJs() {
 
     var changes = (d.changes || []).length ? slpTable([['Date'], ['Engine'], ['Rules version'], ['What changed', 'l']], d.changes.map(function(c){ return '<tr><td>' + escapeHtml(engDay(c.date || c.iso)) + '</td><td>' + escapeHtml(engName(c.engine)) + '</td><td>' + escapeHtml(c.v || '') + '</td><td class="l">' + escapeHtml(c.text || '') + '</td></tr>'; }).join('')) : '<p class="hint">No engine has changed its own rules yet.</p>';
 
-    var runs = (d.runs || []).length ? slpTable([['Run'], ['Opened', 1], ['Closed', 1], ['Shadow started', 1], ['Shadow finished', 1], ['Rule changes', 1], ['Names read', 1], ['Errors', 'l']], d.runs.map(function(r){ return '<tr><td>' + escapeHtml(rglEt(r.iso)) + (r.mode && r.mode !== 'on' ? ' <span class="crd-dim">(' + escapeHtml(r.mode) + ')</span>' : '') + '</td><td class="num">' + (r.opened || 0) + '</td><td class="num">' + (r.closed || 0) + '</td><td class="num">' + (r.shadowOpened || 0) + '</td><td class="num">' + (r.shadowClosed || 0) + '</td><td class="num">' + (r.changes || 0) + '</td><td class="num">' + (r.views == null ? '—' : r.views) + '</td><td class="l">' + ((r.errors || []).length ? '<span class="sig-neg">' + r.errors.map(escapeHtml).join('; ') + '</span>' : '') + '</td></tr>'; }).join('')) : '<p class="hint">No run logged yet.</p>';
+    var runs = (d.runs || []).length ? slpTable([['Run'], ['Opened', 1], ['Closed', 1], ['Shadow started', 1], ['Shadow finished', 1], ['Rule changes', 1], ['Names read', 1], ['Went first', 'l', 'The engines take turns opening new trades, one each per pass, and the engine that goes first moves on by one every run'], ['Errors', 'l']], d.runs.map(function(r){ return '<tr><td>' + escapeHtml(rglEt(r.iso)) + (r.mode && r.mode !== 'on' ? ' <span class="crd-dim">(' + escapeHtml(r.mode) + ')</span>' : '') + '</td><td class="num">' + (r.opened || 0) + '</td><td class="num">' + (r.closed || 0) + '</td><td class="num">' + (r.shadowOpened || 0) + '</td><td class="num">' + (r.shadowClosed || 0) + '</td><td class="num">' + (r.changes || 0) + '</td><td class="num">' + (r.views == null ? '—' : r.views) + '</td><td class="l">' + (r.first ? escapeHtml(engName(r.first)) : '—') + '</td><td class="l">' + ((r.errors || []).length ? '<span class="sig-neg">' + r.errors.map(escapeHtml).join('; ') + '</span>' : '') + '</td></tr>'; }).join('')) : '<p class="hint">No run logged yet.</p>';
 
     var hl = d.health, health = '';
     if (hl){
@@ -435,7 +453,6 @@ export function renderEnginesJs() {
       var id = counts[j].getAttribute('data-eng-count'), n = null;
       if (d && id !== 'flagship' && id !== 'all'){ var e = engFind(d, id); n = e ? (e.open || []).length : null; }
       else if (d && id === 'all') n = d.total ? d.total.open : null;
-      else if (d && id === 'flagship' && d.flagshipStats) n = d.flagshipStats.open;
       counts[j].hidden = !(n > 0);
       counts[j].textContent = n > 0 ? String(n) : '';
       counts[j].title = n > 0 ? n + ' open' : '';
@@ -444,12 +461,8 @@ export function renderEnginesJs() {
   }
   function renderEngines(){
     engSyncBar();
-    var pane = $('eng-pane'), main = $('picks-section');
+    var pane = $('eng-pane');
     if (!pane) return;
-    var flagship = engState.sel === 'flagship';
-    if (main) main.hidden = !flagship;
-    pane.hidden = flagship;
-    if (flagship) return;
     var d = engState.data;
     if (!d){
       var msg = engState.loading ? 'Loading the engines…' : engState.error === 'not written yet'
@@ -459,7 +472,7 @@ export function renderEnginesJs() {
       return;
     }
     var html;
-    if (engState.sel === 'all') html = '<header class="card-header eng-head"><div class="picks-heading"><span class="picks-kicker">Paper engines</span><h2 class="card-title">All engines</h2><p class="picks-intro">Six strategies beside Top Picks, each on its own record.</p></div></header><div class="eng-body">' + engAllHtml(d) + '</div>';
+    if (engState.sel === 'all') html = '<header class="card-header eng-head"><div class="picks-heading"><span class="picks-kicker">Paper engines</span><h2 class="card-title">All engines</h2><p class="picks-intro">Six paper strategies beside Top Picks, each on its own record. Top Picks has its own pages.</p></div></header><div class="eng-body">' + engAllHtml(d) + '</div>';
     else { var e = engFind(d, engState.sel); html = e ? engOneHtml(d, e) : '<p class="hint eng-empty">This engine is not in the latest file.</p>'; }
     pane.innerHTML = html + '<p class="evb-note eng-foot">Paper only. Written by the ' + escapeHtml(rglEt(d.runIso)) + ' run' + (d.builtAtIso && d.builtAtIso !== d.runIso ? ', carried by the ' + escapeHtml(rglEt(d.builtAtIso)) + ' build' : '') + '. Engines version ' + escapeHtml(String(d.version || '')) + '. Research, not advice: an option can lose its whole premium.</p>';
     if (engState.sel === 'all' || engState.sub === 'webull') engLoadMirror(false);
@@ -486,20 +499,20 @@ export function renderEnginesJs() {
   function engUrl(){
     try {
       var url = new URL(window.location.href);
-      if (url.searchParams.get('tab') !== 'picks') return;
-      if (engState.sel === 'flagship') url.searchParams.delete('engine'); else url.searchParams.set('engine', engState.sel);
-      if (engState.sel === 'flagship' || engState.sel === 'all' || engState.sub === 'now') url.searchParams.delete('ev'); else url.searchParams.set('ev', engState.sub);
+      if (url.searchParams.get('tab') !== 'engines') return;
+      if (engState.sel === 'all') url.searchParams.delete('engine'); else url.searchParams.set('engine', engState.sel);
+      if (engState.sel === 'all' || engState.sub === 'now') url.searchParams.delete('ev'); else url.searchParams.set('ev', engState.sub);
       var next = url.pathname + (url.search || '') + (url.hash || '');
       if (next !== window.location.pathname + window.location.search + window.location.hash) history.replaceState(null, '', next);
     } catch (_) {}
   }
   function engSelect(id, sub){
-    if (!engValid(id)) id = 'flagship';
+    if (!engValid(id)) id = 'all';
     engState.sel = id;
     if (sub && ENG_SUBS.some(function(s){ return s[0] === sub; })) engState.sub = sub;
     engUrl();
-    if (id === 'flagship') renderEngines(); else loadEngines(false);
-    if (id !== 'flagship'){ var sw = $('eng-switch'); if (sw && sw.getBoundingClientRect().top < 0 && sw.scrollIntoView) sw.scrollIntoView({ block: 'start' }); }
+    loadEngines(false);
+    var sw = $('eng-switch'); if (sw && sw.getBoundingClientRect().top < 0 && sw.scrollIntoView) sw.scrollIntoView({ block: 'start' });
   }
   function engBind(){
     if (engState.bound) return;
@@ -529,14 +542,15 @@ export function renderEnginesJs() {
       if (t.closest('[data-eng-mirror-retry]')){ engLoadMirror(true); renderEngines(); return; }
     });
   }
-  // Called every time the Top Picks page opens (and on Back / Forward).
-  function engOnPicksTab(){
+  // Called every time the Strategy engines page opens (and on Back / Forward).
+  function engOnTab(){
     engBind();
-    var want = 'flagship', sub = null;
-    try { var q = new URLSearchParams(window.location.search); want = q.get('engine') || 'flagship'; sub = q.get('ev'); } catch (_) {}
-    if (!engValid(want)) want = 'flagship';
+    var want = 'all', sub = null;
+    try { var q = new URLSearchParams(window.location.search); want = q.get('engine') || 'all'; sub = q.get('ev'); } catch (_) {}
+    if (!engValid(want)) want = 'all';
     engState.sel = want;
     if (sub && ENG_SUBS.some(function(s){ return s[0] === sub; })) engState.sub = sub;
+    engUrl();
     if (HAS_OWNER_ACCESS) loadEngines(false); else renderEngines();
   }
 `;

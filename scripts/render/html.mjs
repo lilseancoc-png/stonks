@@ -18,7 +18,7 @@ import { SITE_SECTIONS, TAB_BAR_SECTIONS } from './site-map.mjs';
 import { sectorGroupOfLabel } from '../../lib/sector-groups.mjs';
 import { DISCORD_INVITE_URL, KO_FI_URL } from '../../lib/links.mjs';
 import { i18nPickerHtml, i18nHeadScript } from './i18n-client.mjs';
-import { enginesBarHtml } from './engines-client.mjs';
+import { enginesSection } from './engines-client.mjs';
 
 export function ownerMarketBriefSection() {
   return `<section class="card" id="owner-market-brief-section"><header class="card-header"><h2 class="card-title">Owner Market Brief</h2><span class="card-eyebrow">Owner only</span></header><p class="hint">The public market read expanded with private research. Review conditional outcomes, suggested next steps and the evidence that could change them. Source timestamps, entry restrictions and uncertainty stay visible.</p><div id="owner-market-brief-root" aria-live="polite"></div></section>`;
@@ -73,6 +73,7 @@ const SIDE_NAV_ICONS = {
   'pattern-lab': '<path d="M4 16.5 8.5 12l3 3 5-6"/><path d="M4 19.5h16"/><circle cx="17.5" cy="6.5" r="2"/>',
   earnings: '<rect x="3" y="4.5" width="18" height="17" rx="2"/><path d="M16 2.5v4M8 2.5v4M3 10.5h18"/><path d="m6.5 17.5 3-3.5 2.5 2 4-4.5"/><path d="M13.5 11.5H16V14"/>',
   calls: '<path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.9 8.9 0 0 1-3.9-.9L3 20l1-4.9a8.4 8.4 0 0 1-1-4A8.4 8.4 0 0 1 12 3a8.4 8.4 0 0 1 9 8.5Z"/><path d="M8 10.5h8M8 14h5"/>',
+  engines: '<rect x="3" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5"/><path d="m14 18 2.5-3 2 1.5 2.5-3.5"/>',
   'open-picks': '<circle cx="12" cy="12" r="9.5"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>',
   track: '<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14.5 2 2 4-4.5"/>',
   heatmap: '<rect x="3" y="3" width="7.5" height="7.5" rx="1"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1"/>',
@@ -2384,8 +2385,10 @@ ${i18nHeadScript()}
   ${riskAnalysisSection()}
   </div>
   <div class="page-pane" id="page-pane-picks" role="tabpanel" aria-labelledby="page-tab-picks" hidden>
-  ${enginesBarHtml()}
     ${topPicksSection()}
+  </div>
+  <div class="page-pane" id="page-pane-engines" role="tabpanel" aria-labelledby="page-tab-engines" hidden>
+  ${enginesSection()}
   </div>
   <div class="page-pane" id="page-pane-leaps" role="tabpanel" aria-labelledby="page-tab-leaps" hidden>
   ${leapsSection()}

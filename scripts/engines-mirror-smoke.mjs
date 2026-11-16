@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import {
   runWebullMirror as runActual, mergeEngineTrades, scopeLedger, mirrorTradeId, sourceName,
-  ledgerToFillRows, ledgerToTestTrades, fillRowsToCsv, orderAttemptsToCsv,
+  ledgerToFillRows, ledgerToTestTrades, fillRowsToCsv, orderAttemptsToCsv, clientOrderId, orderIdTag,
 } from "../lib/webull-mirror.mjs";
 import { mirrorHealth } from "../lib/webull-mirror-health.mjs";
 import { webullEngineRecord } from "../lib/track-record-reset.mjs";
@@ -133,8 +133,23 @@ await ok("one account: Top Picks and three engines open on different contracts, 
   assert.deepEqual(engRows.map((r) => r.engine).sort(), ["earnings", "macro", "technicals"]);
   assert.equal(ledgerToFillRows(scopeLedger(ledger, "all")).length, 4);
   assert.equal(ledgerToTestTrades(scopeLedger(ledger, "engines")).find((x) => x.tradeId.startsWith("TEC:")).engine, "technicals");
-  assert.match(fillRowsToCsv(engRows).split("\n")[0], /,engine$/);
-  assert.match(orderAttemptsToCsv(scopeLedger(ledger, "engines")).split("\n")[1], /,technicals$|,macro$|,earnings$/);
+  assert.match(fillRowsToCsv(engRows).split("\n")[0], /,engine,made_by$/);
+  assert.match(orderAttemptsToCsv(scopeLedger(ledger, "engines")).split("\n")[1], /,(technicals,Technicals,mstec|macro,Macro,msmac|earnings,Earnings & events,msern)$/);
+  // Every row names who made the trade, Top Picks included (no blank column).
+  assert.equal(flagRows[0].made_by, "Top Picks");
+  assert.deepEqual(engRows.map((r) => r.made_by).sort(), ["Earnings & events", "Macro", "Technicals"]);
+  const allCsv = fillRowsToCsv(ledgerToFillRows(scopeLedger(ledger, "all"))).trim().split("\n").slice(1);
+  assert.ok(allCsv.every((line) => /,(Top Picks|Technicals|Macro|Earnings & events)$/.test(line)));
+  assert.match(orderAttemptsToCsv(scopeLedger(ledger, "flagship")).split("\n")[1], /,,Top Picks,ms$/);
+  // The order id sent to Webull starts with the engine's tag; Top Picks keeps the plain form.
+  for (const t of Object.values(ledger.trades)) for (const a of [...(t.entryAttempts || []), ...(t.exitAttempts || [])]) {
+    assert.equal(a.clientOrderId.length, 30);
+    if (t.engine) { assert.ok(a.clientOrderId.startsWith("ms" + ENGINES[t.engine].tag.toLowerCase())); assert.equal(orderIdTag(a.clientOrderId), ENGINES[t.engine].tag); }
+    else { assert.match(a.clientOrderId, /^ms[0-9a-f]{28}$/); assert.equal(orderIdTag(a.clientOrderId), "TOP"); }
+  }
+  assert.equal(clientOrderId("X", "entry", 1), clientOrderId("X", "entry", 1, null));
+  assert.notEqual(clientOrderId("X", "entry", 1, "technicals"), clientOrderId("X", "entry", 1, "reversion"));
+  assert.ok(!JSON.stringify(ledgerToTestTrades(ledger)).includes("clientOrderId"));
   // The comparison record for the engines view carries engine rows only.
   const cmp = webullEngineRecord({ builtAtIso: er2.builtAtIso, open: er2.open, closed: er2.closed }, scopeLedger(ledger, "engines"));
   assert.equal(cmp.open.length, 2); assert.equal(cmp.closed.length, 1);

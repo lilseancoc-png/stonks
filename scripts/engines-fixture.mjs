@@ -6,7 +6,8 @@
 // test. Nothing here is market data, and nothing contacts a provider, an
 // account or the store.
 import { fileURLToPath } from "node:url";
-import { MACRO_ETFS, ENGINES } from "../lib/engines/config.mjs";
+import { MACRO_ETFS, ENGINES, engineName } from "../lib/engines/config.mjs";
+import { clientOrderId, orderIdPrefix } from "../lib/webull-mirror.mjs";
 import { emptyRecord, emptyState } from "../lib/engines/book.mjs";
 import { runEngines, loadEnginesResearch } from "../lib/engines/index.mjs";
 import { sessionForDate, etClock } from "../lib/us-equity-calendar.mjs";
@@ -168,7 +169,8 @@ export async function enginesFixture({ end = "2026-11-13", sessions = 70 } = {})
       closeFillPrice: exit, closeFillIso: exit != null ? t.exitDate : null, exitDiffPct: exit != null && t.exitMid > 0 ? +(((exit - t.exitMid) / t.exitMid) * 100).toFixed(1) : null,
       paperPnlPct: exit != null && fill > 0 ? +(((exit - fill) / fill) * 100).toFixed(1) : null, fees: 0.55, needsReview: false,
       labels: shared ? ["Held by Top Picks: not bought twice"] : [], note: shared ? `Same contract is held by Top Picks${t.shared?.heldById ? ` (${t.shared.heldById})` : ""}: recorded on its own track record, not bought twice.` : missed ? "Entry did not fill inside the allowed range." : null,
-      attempts: [], decisions: [],
+      madeBy: engineName(t.engine),
+      attempts: shared ? [] : [{ phase: "entry", n: 1, orderPrefix: orderIdPrefix(clientOrderId(t.tradeId, "entry", 1, t.engine)) }], decisions: [],
     };
   };
   const rec = out.record;

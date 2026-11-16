@@ -9,8 +9,12 @@ None of them makes an AI call or a network request, and none can read or
 change a Top Pick, a grade, a gate or the Top Picks Track Record. Top Picks
 stays the flagship; the engines are the test bed.
 
-Code: `lib/engines/`. Page: Top Picks → the engine tabs
-(`scripts/render/engines-client.mjs`). Tests: `node scripts/engines-smoke.mjs`, `node scripts/engines-mirror-smoke.mjs`,
+Code: `lib/engines/`. Page: **Strategy engines** (`?tab=engines`, Owner ·
+Ideas; `scripts/render/engines-client.mjs`). The engines have their own page
+since 2026-11-16, so Top picks, Open picks and the Top Picks track record show
+Top Picks only; Open picks carries one link with the engines' open-trade
+count. `?tab=engines&engine=<id>&ev=<view>` opens one engine and view, and an
+old `?tab=picks&engine=...` link lands on the new page. Tests: `node scripts/engines-smoke.mjs`, `node scripts/engines-mirror-smoke.mjs`,
 `node scripts/engines-browser.mjs`.
 
 ## The engines
@@ -78,6 +82,25 @@ Each run, in order (`stepBook` in `lib/engines/book.mjs`):
 3. Score this run's candidates and open new trades inside each engine's slots
    and per-run limit, five new engine trades a run at most.
 
+**Turns (2026-11-16).** The five are handed out in turns: each engine opens at
+most one trade per pass, in order, and passes repeat until the five are used
+or no engine has a candidate left. The engine that goes first moves on by one
+every run (`state.turn`; the run log's "Went first" column),
+so no engine keeps first call on the shared limit. Before this the engines
+were served in a fixed order and the first ones could use all five.
+
+**Price filter rows.** A setup that matches but whose price already ran more
+than 1.5 ATR its way today, or moved more than 0.9 ATR against it, is not
+scored and not traded (this rule is unchanged). Since 2026-11-16 those rows
+are listed under Now with no score and the reason ("price already ran X ATR
+its way today (not chased)"), up to six per engine. They are never traded,
+never tracked as shadow trades and never count as seen.
+
+**Reversion and earnings.** Reversion stands aside from two sessions before a
+report through the first full session after it. A report after the close on
+the last confirmed bar counts too (`earnView().reacting`): the stock is
+trading on that report during today's run, so Reversion opens nothing in it.
+
 The engines act only while the market is open. A forced build on a weekend, a
 holiday, before the open or after the close carries the files forward: no
 marks, no session counted, no trades.
@@ -143,6 +166,20 @@ cleanly:
 
 If the engines' record cannot be read, the Top Picks mirror still runs and
 engine trades already in the ledger are held as they are for that run.
+
+**Which engine made a trade (2026-11-16).** Four labels, all from the same
+stored `engine` field:
+
+- The trade ID starts with the engine's tag (`TEC:AAPL-C-...`).
+- The order ID sent to Webull starts with `ms` plus the tag in lower case
+  (`mstec...`, `msrev...`), 30 characters as before. A Top Picks order is `ms`
+  plus 28 hex characters, which can never spell a tag. Orders sent before this
+  change keep the ID they were sent with (plain `ms`). Whether the Webull app's
+  own order screen shows this ID has not been checked; the API and exports do.
+- Both CSV downloads have a `made_by` column (the engine's name, or "Top
+  Picks"; never blank), and the orders CSV has `webull_order_prefix`.
+- The Strategy engines page shows "Made by" and the order prefix per trade.
+  The full order ID is never sent to the browser.
 
 ## Learning
 

@@ -1756,7 +1756,11 @@ CLI: `node scripts/diagnose-grade-ic.mjs`. Test: `npm run test:shadow-research`.
 
 **Switch-guarded hooks (all off).** Three hooks exist in code so a promotion
 is a variable flip with a dated divider, not a code change; `daily.yml`
-passes each as a repo variable (`lib/top-picks-config.mjs`):
+passes each as a repo variable (`lib/top-picks-config.mjs`). Since 2026-11-16
+the 2026-12-07 lock is checked where they are read (`lockedHook`): before that
+ET date each one, and `PICKS_ODDS_GRADER`, reads as off even when the repo
+variable is set, and the build logs the variables it ignored
+(`PICKS_LOCKED_IGNORED`). Owner Settings already refused them before the date:
 
 | Variable | What it does when set |
 |---|---|

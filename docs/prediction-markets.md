@@ -11,6 +11,26 @@ No AI call is made. Every venue call counts against a per-bake budget
 had. **Measurement first:** nothing here changes a grade, a pick, a gate or the
 Track Record.
 
+**Time limits (2026-11-16).** The step can no longer hold up a build when a
+venue is slow or down (`lib/prediction/venues.mjs`, `bakeMaxMs` in
+`lib/prediction/index.mjs`):
+
+- Each call waits at most 8 seconds (was 20).
+- Three failed calls in a row to one venue stop all further calls to that
+  venue for the build. A 4xx answer ("no such market") is not a failure.
+- The whole step stops after 45 seconds on the 11:00 and 15:30 ET Top Picks
+  runs and after 90 seconds on other builds. With both venues hanging the
+  step used to be able to run 13 to 15 minutes; now it gives up after about
+  six calls.
+- A call that timed out is not marked as tried, so a one-day history fill or
+  a release's expected value is read again at the next build.
+- What was read before the stop is kept and published; the build log line
+  says "stopped early" and why, and `state.lastRun.stopped` records it.
+
+`PREDICTION_TIMEOUT_MS` and `PREDICTION_MAX_SECONDS` override the two limits
+in the build's environment. They are not wired as repo variables; using them
+needs a workflow env line.
+
 ## Sources
 
 | Venue | Endpoint | Used for |
@@ -84,7 +104,9 @@ Rules that keep them honest:
   one news day five times.
 - Each family has one date cut: the first two thirds of its dates fit a learned
   direction, the last third is the test. Verdicts read the test third.
-- p-values come from a seeded sign-flip test (jumps) or a correlation test;
+- p-values come from a seeded sign-flip test (jumps) or a correlation test
+  (Student's t on n − 2 degrees of freedom since 2026-11-16; the earlier
+  normal approximation called small samples significant too easily);
   the jump test reads two horizons, so its smaller p is doubled; then
   Benjamini-Hochberg across families at q 0.10. Under 30 events a family is
   "collecting", not "no effect".
@@ -132,7 +154,7 @@ Verdicts: `holds`, `odds-lead`, `run-up-follows` (pass); `odds-echo`,
 | Switch | Where | Effect |
 |---|---|---|
 | `PREDICTION_TRACKER=0` | repo variable (`daily.yml`), Owner Settings | No venue reads; the prior files carry forward (public file marked stale) |
-| `PICKS_ODDS_GRADER=1` | repo variable, Owner Settings (locked until 2026-12-07) | Adds linked odds lines to the AI grader prompt |
+| `PICKS_ODDS_GRADER=1` | repo variable, Owner Settings (locked until 2026-12-07) | Adds linked odds lines to the AI grader prompt. The date is also checked in `lib/top-picks-config.mjs`, so a repo variable set before 2026-12-07 is ignored and logged |
 | `SPORTS_KALSHI=0` | repo variable (`sports-data.yml`) | Skips the Kalshi sports reads |
 
 ## Tests

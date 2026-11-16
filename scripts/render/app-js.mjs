@@ -4290,7 +4290,7 @@ ${scenarioEventPhase.toString()}
   // resolve the URL's initial tab synchronously at script-evaluation time (the
   // anti-flash pre-select in the boot block) before the /api/auth/me +
   // manifest fetches settle and bind() runs the full selectTab.
-  var PAGE_TAB_IDS = ['home','update-checker','owner-settings','owner-market-brief','tickers','stock','narratives','brief','news','market','risk','unified-signal-engine','historical-data','party-tracker','earnings-forecast','forced-liquidation','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','bottom-tracker','open-picks','track','sports-nba','sports-nfl','sports-pick-builder','cheatsheet','chart-patterns','timeline','contact','glossary','earnings-week','market-map','crowd','prediction-markets','history-rhymes','whats-changed','past-day','privacy','terms'];
+  var PAGE_TAB_IDS = ['home','update-checker','owner-settings','owner-market-brief','tickers','stock','narratives','brief','news','market','risk','unified-signal-engine','historical-data','party-tracker','earnings-forecast','forced-liquidation','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','bottom-tracker','open-picks','track','engines','sports-nba','sports-nfl','sports-pick-builder','cheatsheet','chart-patterns','timeline','contact','glossary','earnings-week','market-map','crowd','prediction-markets','history-rhymes','whats-changed','past-day','privacy','terms'];
   // Friendly aliases so deep-links people might guess work too.
   // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
   // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -4324,6 +4324,7 @@ ${scenarioEventPhase.toString()}
     'ipo-credit': 'capital-raises', ipos: 'capital-raises', ipo: 'capital-raises', credit: 'capital-raises', 'credit-card': 'capital-raises', 'credit-cards': 'capital-raises', deposits: 'capital-raises', revolsl: 'capital-raises', 'household-debt': 'capital-raises',
     bottom: 'bottom-tracker', bottoms: 'bottom-tracker', 'bottom-tracker': 'bottom-tracker', 'market-bottom': 'bottom-tracker',
     pick: 'picks', 'top-picks': 'picks', toppicks: 'picks',
+    engine: 'engines', 'strategy-engines': 'engines', 'paper-engines': 'engines',
     open: 'open-picks', 'open-pick': 'open-picks', openpicks: 'open-picks', 'open-trades': 'open-picks', positions: 'open-picks',
     'stock-picks': 'stocks', stockpicks: 'stocks', stock: 'stocks', shares: 'stocks',
     'market-analysis': 'market', analysis: 'market', tape: 'market', regime: 'market',
@@ -4558,8 +4559,8 @@ ${renderExportBindings()}
           ['tab', 's', 'exp', 'k', 't', 'view'].forEach(function(key){ url.searchParams.delete(key); });
         } else url.searchParams.set('tab', name);
         if (name !== 'compare') url.searchParams.delete('cmp');
-        // engine / ev pick a strategy engine on the Top Picks page only.
-        if (name !== 'picks') { url.searchParams.delete('engine'); url.searchParams.delete('ev'); }
+        // engine / ev pick a strategy engine and its view on the Strategy engines page only.
+        if (name !== 'engines') { url.searchParams.delete('engine'); url.searchParams.delete('ev'); }
         // view=grade belongs to the stock page's Grade tab only.
         if (name !== 'stock') url.searchParams.delete('view');
         var next = url.pathname + (url.search || '') + (url.hash || '');
@@ -4722,6 +4723,14 @@ ${renderExportBindings()}
         if (HAS_OWNER_ACCESS && typeof STOCK_PAGE !== 'undefined') STOCK_PAGE.showTab('grade', true);
         name = 'stock';
       }
+      // The strategy engines moved from the Top Picks page to their own page
+      // on 2026-11-16. A saved ?tab=picks&engine=... link opens that page.
+      if (name === 'picks'){
+        try {
+          var legacyQ = new URLSearchParams(window.location.search), legacyEng = legacyQ.get('engine');
+          if (legacyEng && legacyEng !== 'flagship' && resolveTab(legacyQ.get('tab') || '') === 'picks') name = 'engines';
+        } catch (_) {}
+      }
       // nav.replace: sync the URL with replaceState instead of pushState —
       // set by boot + popstate (restoring state, not navigating).
       // Bounce stale/deep-linked Owner destinations before persisting or
@@ -4800,7 +4809,7 @@ ${renderExportBindings()}
         if (name === 'calendar' && typeof loadPredictionForCalendar === 'function') loadPredictionForCalendar();
         if (name === 'index-cal' && typeof loadIndexCal === 'function') loadIndexCal();
         if (name === 'picks' && typeof loadPicks === 'function') loadPicks();
-        if (name === 'picks' && typeof engOnPicksTab === 'function') engOnPicksTab();
+        if (name === 'engines' && typeof engOnTab === 'function') engOnTab();
         if (name === 'leaps' && typeof loadLeaps === 'function') loadLeaps();
         if (name === 'stocks' && typeof loadStocks === 'function') loadStocks();
         // Market analysis: the tape/barometer/regime widgets + their data.
@@ -41449,7 +41458,7 @@ ${renderExportBindings()}
     if (HAS_OWNER_ACCESS && typeof loadEngines === 'function' && !engState.data && !engState.error && !engState.loading) loadEngines(false);
     root.innerHTML = bookRiskHtml(open) + openPicksControlsHtml(opSort) + accOpenGroupHtml(open, opSort, VIEWS.viewMode('open-picks') === 'table') + tradeLinesHtml(open, Array.isArray(d.closed) ? d.closed : [], d.builtAtIso);
     // Strategy engines: a note when a Top Picks trade and an engine trade are on the exact same contract.
-    var engNote = typeof engFlagshipSharedHtml === 'function' ? engFlagshipSharedHtml(open) : '';
+    var engNote = (typeof engFlagshipSharedHtml === 'function' ? engFlagshipSharedHtml(open) : '') + (typeof engOpenLinkHtml === 'function' ? engOpenLinkHtml() : '');
     if (engNote){ var engAfter = root.querySelector('.book-risk'); if (engAfter) engAfter.insertAdjacentHTML('afterend', engNote); else root.insertAdjacentHTML('afterbegin', engNote); }
     openPicksRunHealth(root, d);
   }

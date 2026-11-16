@@ -7,9 +7,9 @@ import { classifyTheme, themeFor, linksFor, companyMatches, leaderTerms, titleSi
 import { kalshiProb, polyQuote, kalshiCandleProb, createClient } from '../lib/prediction/venues.mjs';
 import { kalshiCandidates, polyCandidates, pickFromEvent } from '../lib/prediction/select.mjs';
 import { etCloseMs, etDate, mergeFine, dailyAt, setDaily, noteSnapshot, changeOver, dailySeries } from '../lib/prediction/history.mjs';
-import { analyzeReactions, bhAdjust, signFlipP, findJumps, mergeJumps, familyCut } from '../lib/prediction/reactions.mjs';
+import { analyzeReactions, bhAdjust, signFlipP, findJumps, mergeJumps, familyCut, corrP, tTwoSidedP } from '../lib/prediction/reactions.mjs';
 import { ladderRead, actualFromSettled, consensusRows, consensusTest, expectedFromSnaps } from '../lib/prediction/consensus.mjs';
-import { updatePredictionState, buildPredictionPublic, buildPredictionOwner, analyzePrediction, predictionShadow, provenSign, predictionContextFor, predictionGraderLines, pricesFromChains, PREDICTION_KEY, PREDICTION_OWNER_KEY, PREDICTION_STATE_KEY } from '../lib/prediction/index.mjs';
+import { updatePredictionState, bakeMaxMs, BAKE_MAX_MS, BAKE_MAX_MS_DECISION, buildPredictionPublic, buildPredictionOwner, analyzePrediction, predictionShadow, provenSign, predictionContextFor, predictionGraderLines, pricesFromChains, PREDICTION_KEY, PREDICTION_OWNER_KEY, PREDICTION_STATE_KEY } from '../lib/prediction/index.mjs';
 import { isPremiumKey } from '../lib/premium-keys.mjs';
 import { OPTIONAL_BAKE_KEYS } from '../lib/data-ownership.mjs';
 
@@ -250,6 +250,53 @@ ok('grader lines mark an unknown direction with ?', predictionGraderLines(ctx).s
   const cands = kalshiCandidates({ ...ev, mutually_exclusive: true });
   ok('an outcome under 3% is not kept', pickFromEvent(cands).map((c) => c.id).join() === 'K:A');
   ok('Polymarket candidates carry the yes token', polyCandidates(polyEvents[0])[0].tokenId === 'tok9001');
+}
+
+// ---- time limits: a venue that hangs must not hold up the build ------------
+{
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const hang = () => { let n = 0; const f = async (url, { timeoutMs } = {}) => { n += 1; await sleep(timeoutMs); throw new Error('The operation was aborted due to timeout'); }; f.count = () => n; return f; };
+  // Every call times out: three per venue, then no more.
+  const f1 = hang();
+  const t1 = Date.now();
+  const r1 = await updatePredictionState({ prior: null, nowMs: NOW, universe: UNIVERSE, chains: {}, fetchJson: f1, timeoutMs: 20, maxMs: 5000 });
+  ok('a venue that never answers gets three calls, then none', f1.count() === 6);
+  ok('the run says why it stopped early', /kalshi not answering/.test(r1.status.stopped) && /polymarket not answering/.test(r1.status.stopped));
+  ok('hanging venues cost well under a second at a 20 ms timeout', Date.now() - t1 < 1500);
+  // The same with tracked contracts: none dropped, no history fill given up.
+  const base = await updatePredictionState({ prior: null, nowMs: NOW, universe: UNIVERSE, chains: {}, fetchJson: fakeFetch });
+  const kept = Object.keys(base.state.contracts).length;
+  const f2 = hang();
+  const r2 = await updatePredictionState({ prior: base.state, nowMs: NOW + 3600000, universe: UNIVERSE, chains: {}, fetchJson: f2, timeoutMs: 20, maxMs: 5000 });
+  ok('tracked contracts are all kept when both venues hang', kept > 0 && Object.keys(r2.state.contracts).length === kept);
+  ok('a timeout never marks a history fill as given up', Object.values(r2.state.contracts).every((c) => !c.backfill?.partial || base.state.contracts[c.id]?.backfill?.partial));
+  ok('prices stay on their last stored value', Object.values(r2.state.contracts).every((c) => c.last?.p === base.state.contracts[c.id]?.last?.p));
+  // Slow but answering: the overall limit ends the reads.
+  let n3 = 0;
+  const slow = async () => { n3 += 1; await sleep(40); return { events: [], series: [], markets: [] }; };
+  const t3 = Date.now();
+  const r3 = await updatePredictionState({ prior: base.state, nowMs: NOW + 3600000, universe: UNIVERSE, chains: {}, fetchJson: slow, timeoutMs: 200, maxMs: 150, forceDiscover: true });
+  ok('the overall time limit stops a slow run', r3.status.stopped === 'time limit' && Date.now() - t3 < 900 && n3 < 12);
+  ok('the limit is shorter on a decision run and can be overridden', bakeMaxMs({ decisionRun: true, env: {} }) === BAKE_MAX_MS_DECISION && bakeMaxMs({ env: {} }) === BAKE_MAX_MS && BAKE_MAX_MS_DECISION < BAKE_MAX_MS && bakeMaxMs({ env: { PREDICTION_MAX_SECONDS: '30' } }) === 30000);
+  // A 4xx is an answer: it never trips the breaker.
+  let n4 = 0;
+  const c4 = createClient({ fetchJson: async () => { n4 += 1; throw Object.assign(new Error('HTTP 404'), { status: 404 }); } });
+  for (let i = 0; i < 6; i += 1) { try { await c4.get('https://gamma-api.polymarket.com/x'); } catch { /* expected */ } }
+  ok('a 4xx answer does not stop calls to a venue', n4 === 6 && c4.stopped === null);
+  // The limiter: never more than `concurrency` calls at once.
+  let act = 0, peak = 0;
+  const c5 = createClient({ fetchJson: async () => { act += 1; peak = Math.max(peak, act); await sleep(3); act -= 1; return {}; }, concurrency: 4 });
+  await Promise.all(Array.from({ length: 40 }, (_, i) => c5.get(`https://gamma-api.polymarket.com/${i}`)));
+  ok('never more than four calls run at once', peak === 4 && c5.active === 0);
+}
+
+// ---- small-sample p-values --------------------------------------------------
+{
+  const near = (a, b, tol = 0.0006) => Math.abs(a - b) <= tol;
+  ok('a correlation of 0.6 over 10 pairs reads p 0.067, not the normal tail 0.034', near(corrP(0.6, 10), 0.0667));
+  ok('the t tail matches the table (2.228 on 10 df is 0.05)', near(tTwoSidedP(2.228, 10), 0.05));
+  ok('with many pairs it meets the normal tail', near(tTwoSidedP(1.96, 1e6), 0.05));
+  ok('no correlation reads p 1, and under four pairs reads none', near(corrP(0, 20), 1) && corrP(0.9, 3) === null);
 }
 
 console.log(`prediction-smoke: ${passed} checks passed`);

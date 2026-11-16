@@ -48,7 +48,18 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Add engine tabs to the Top Picks page (Owner-only): All engines side by side, and per engine Now, Track record, Setups and learning, History test and Webull paper. The MCP reads them as `picks.engines` and `picks.engines-record`; the Export menu includes both files.
 - Add repo variables `ENGINES` (unset = on, `pause`, `0`) and `ENGINES_OFF` (a list of engines that open no new trades), and a Strategy engines switch on the Owner Settings page (On / Manage open trades only / Frozen). Tests: `node scripts/engines-smoke.mjs`, `node scripts/engines-mirror-smoke.mjs`, `node scripts/engines-browser.mjs`.
 
+### Changed
+- Give the strategy engines their own Owner page, **Strategy engines** (`?tab=engines`, Owner · Ideas), with "All engines" and one tab per engine. Top picks, Open picks and the Top Picks track record show Top Picks only; Open picks carries one link with the engines' open-trade count and still notes a shared contract. Old `?tab=picks&engine=...` links land on the new page; the MCP's `get_feature` also answers `engines`.
+- Hand out the five new engine trades per run in turns: one per engine per pass, and the engine that goes first moves on by one every run (shown as "Went first" in the run log). Before, engines were served in a fixed order and the first ones could use all five.
+- Label every Webull paper order with the engine that made it: engine order IDs start with `ms` plus the engine tag (`mstec...`), both CSV downloads gain a `made_by` column (never blank; "Top Picks" for the flagship), the orders CSV gains `webull_order_prefix`, and the page shows "Made by" and the order prefix. Orders already sent keep their IDs.
+- List setups that an engine ruled out because of today's price move (already ran more than 1.5 ATR its way, or moved 0.9 ATR against it) under Now, with no score and the reason. They are not traded and not tracked as shadow trades; the rule itself is unchanged.
+- Enforce the 2026-12-07 lock where the hooks are read (`lib/top-picks-config.mjs`): `PICKS_ODDS_GRADER`, `PICKS_CROWD_SQUEEZE_VETO`, `PICKS_CROWD_GRADER` and `PICKS_MACRO_PUTCALL_SRC=cboe` read as off before that date even when set as a repo variable, and the build logs the ones it ignored. Owner Settings already refused them.
+- Reword the Fundamentals engine's one-line description to match what it reads (no chart pattern or flow can open a trade there).
+
 ### Fixed
+- Stop the prediction-markets step from holding up a build when Kalshi or Polymarket is slow or down: each call waits 8 seconds at most, three failed calls in a row stop further calls to that venue, and the whole step stops after 45 seconds on Top Picks runs (90 on other builds). A timed-out read is retried at the next build, and what was read is kept. Both venues hanging could run 13 to 15 minutes before.
+- Keep the Reversion engine out of a stock that reported earnings after the last close: the report on the last confirmed bar now counts as "near a report", so it no longer fades the reaction day.
+- Prediction markets: the call limiter no longer runs one call over its limit, an open-trade odds alert carries the trade's ID, and small-sample correlation p-values use Student's t (the normal approximation called small samples significant too easily).
 - Update two tests left stale by the prediction markets change: the Brief coverage check lists Prediction markets as a reference-only page, and the Booms & busts test expects shadow log version 6.
 
 ## 2026-11-15
