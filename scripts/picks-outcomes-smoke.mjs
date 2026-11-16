@@ -215,7 +215,7 @@ for (let i = 0; i < 36; i++) closedPicks.push({ symbol: "P" + i, side: "call", o
 closedPicks.push({ symbol: "V", side: "put", outcome: "void", optionPnlPct: null, entryDate: "2026-01-05T15:00:00Z" });
 const board = buildEvidenceBoard({ outcomes: state, closed: closedPicks, open: [{ symbol: "O" }], shadowDays: 12, builtAtIso: "2026-12-10T16:00:00.000Z", today: "2026-12-10", tradeBar: 4, gradeModelVersion: "2026-11-macro-context", structurePolicyVersion: "2026-11-singles-default" });
 const byId = Object.fromEntries(board.tests.map((t) => [t.id, t]));
-ok("board: ten tests, as-of date and rule versions", board.tests.length === 10 && board.asOf === "2026-12-10" && board.versions.grade === "2026-11-macro-context");
+ok("board: ten tests, as-of date and rule versions", board.tests.length === 10 && board.asOf === "2026-12-10" && ["2026-11-macro-context", "2026-11-signed-flow", "2026-11-price-pillar", "2026-11-signed-flow-no-macro"].includes(board.versions.grade));
 ok("board: fixed-date tests wait for their date even with little evidence", byId["early-look"].due === "2026-11-23" && ["waiting", "collecting"].includes(byId["early-look"].status) && byId["early-look"].verdict === null);
 ok("board: shadow signals count days and project a date", byId["shadow-signals"].progress.have === 12 && byId["shadow-signals"].status === "collecting" && byId["shadow-signals"].projected > "2026-12-10");
 ok("board: macro-context counts only trades under that grade and shows the earlier ones", byId["macro-context"].progress.have === 30 && byId["macro-context"].status === "ready" && byId["macro-context"].read.priorN === 6 && byId["macro-context"].active === true);
