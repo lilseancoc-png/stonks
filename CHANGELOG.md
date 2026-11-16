@@ -48,6 +48,9 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Add engine tabs to the Top Picks page (Owner-only): All engines side by side, and per engine Now, Track record, Setups and learning, History test and Webull paper. The MCP reads them as `picks.engines` and `picks.engines-record`; the Export menu includes both files.
 - Add repo variables `ENGINES` (unset = on, `pause`, `0`) and `ENGINES_OFF` (a list of engines that open no new trades), and a Strategy engines switch on the Owner Settings page (On / Manage open trades only / Frozen). Tests: `node scripts/engines-smoke.mjs`, `node scripts/engines-mirror-smoke.mjs`, `node scripts/engines-browser.mjs`.
 
+### Changed
+- Lift the December 7 lock on the engine hooks, by Owner decision on 2026-11-16. The crowd squeeze veto, crowd lines in the AI grader, prediction odds in the AI grader, the Cboe put/call source for the market tape and self-tuning can now be switched on from the Owner Settings page (the tab is renamed from "After Dec 7" to "Engine hooks"). Every one stays off by default, is marked Big impact and still needs an "are you sure". Self-tuning switched on applies from the next Top Picks run (`LIVE_FLOOR` in `lib/self-loop/tune.mjs` moves from 2026-12-07 to 2026-11-16). Nothing is switched on by this change, so no pick, grade or gate changes until the Owner flips a switch.
+
 ### Fixed
 - Update two tests left stale by the prediction markets change: the Brief coverage check lists Prediction markets as a reference-only page, and the Booms & busts test expects shadow log version 6.
 

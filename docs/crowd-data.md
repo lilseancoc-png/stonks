@@ -73,8 +73,8 @@ across builds (60 days for most, 250 sessions for put/call, 160 weeks for COT,
 ## Into the engine (2026-11-09)
 
 The crowd facts reach the Top Picks engine as logged-then-measured shadow
-signals, with three switch-guarded hooks that stay off until the read clears
-the bar after the Dec 7 freeze; docs/top-picks.md, "Crowd signals", has the
+signals, with three switch-guarded hooks that stay off until the Owner
+switches one on (the Dec 7 lock was lifted on 2026-11-16); docs/top-picks.md, "Crowd signals", has the
 detail. In short: `lib/shadow-signals.mjs` (version 3) logs `sv`, `svz`,
 `bf`, `att`, `rdv`, `wkr`, `stw`, `pf`, `pgp` per name and a `mkt` row of
 market gauges per day in `grades-daily.json`, every new trade's entry

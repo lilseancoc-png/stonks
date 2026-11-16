@@ -1787,7 +1787,8 @@ only: the grade, the gates, the contracts and the record are unchanged.
 
 Step 4 (`lib/self-loop/tune.mjs`) is the only part that can change a pick, and
 it ships in shadow: repo variable `SELF_TUNE` unset works out and shows what it
-would change, and nothing applies. With `SELF_TUNE=on`, from December 7, 2026,
+would change, and nothing applies. With `SELF_TUNE=on` (the Owner's switch; the
+December 7, 2026 date lock was lifted on 2026-11-16),
 it reweights inputs once a week (0.5x-1.5x, at most 0.1 a week, only for inputs
 proven over 40+ sessions in both halves), mutes one pointing the wrong way,
 puts the loop's odds on each pick card, and, with the Owner's OK, adds the
@@ -1811,14 +1812,14 @@ of the nine buildout warning signs show, lit 1 / partial 0.5) and `baa` (the
 Baa corporate spread over the 10-year Treasury). They ride `grades-daily.json`,
 the run archive and every new trade's `entrySnapshot` like the crowd keys, and
 `lib/shadow-research.mjs` measures them on the same bar. Nothing scores, gates
-or changes a pick; using them is an Owner decision after the evidence bar and
-not before 2026-12-07.
+or changes a pick; using them is an Owner decision after the evidence bar.
 
 ## New data into the engines, November 12, 2026
 
 `lib/shadow-signals.mjs` is version 5. Every input here is logged and
 measured, never scored; nothing changes a pick, a grade, a gate or the Track
-Record, and each hook stays off until the Dec 7 review.
+Record, and each hook stays off until the Owner switches it on (the Dec 7 lock was
+lifted on 2026-11-16).
 
 **New per-name keys** (read from files the bake already writes; a source that
 did not run leaves its key out, it never logs a fake zero):
@@ -1852,7 +1853,7 @@ Kalshi recession odds as unscored `candidates` (`lib/macro-context.mjs`).
 
 **Hooks, all off.** The self-improving loop can run an **add an input**
 challenger on paper (docs/self-loop.md); it is never applied by the tuner.
-`PICKS_CROWD_GRADER=1` (locked until 2026-12-07 in Owner Settings) now also
+`PICKS_CROWD_GRADER=1` (off by default; an Owner Settings engine hook) now also
 gives the AI grader one line of credit and forced-selling facts when one is
 notable (`crowdGraderLines`, `GRADER_DISTRESS_NOTABLE`: default chance 5%+,
 pledge stress 50+, half a day of hot-fund volume, a 5%+ rebalance, a cluster
