@@ -90,4 +90,19 @@ export function renderEarningsForecastCss(){return `
 .ef-fva-key.is-bar { border-radius:2px; background:color-mix(in srgb, var(--text) 22%, transparent); }
 .ef-fva-key.is-beat { background:var(--pos); }
 .ef-fva-key.is-miss { background:var(--neg); }
+.ef-verdict { margin:0 0 6px;padding:12px 14px;border-left:3px solid var(--muted);background:var(--surface-2);color:var(--text-strong);font-size:14px;line-height:1.6; }
+.ef-verdict[data-ef-verdict="promoted"] { border-left-color:var(--pos); }
+.ef-verdict[data-ef-verdict="collecting"],.ef-verdict[data-ef-verdict="winner-off"] { border-left-color:var(--warn); }
+.ef-history-rules td:first-child { min-width:170px;overflow-wrap:normal;word-break:normal; }
+.ef-history-rules td:first-child small { display:block;margin-top:2px;color:var(--muted);font-size:11px; }
+.ef-history-rules td:not(:first-child) { white-space:nowrap;font-variant-numeric:tabular-nums; }
+.ef-history-rules th,.ef-history-rules th.ts-th { white-space:normal;vertical-align:bottom; }
+.ef-range { margin:6px 0 14px;padding:12px 14px;border:1px solid var(--border);border-radius:8px; }
+.ef-range h3 { margin:0 0 8px;font-size:13px; }
+.ef-range-row { display:grid;grid-template-columns:110px minmax(0,1fr) minmax(0,1fr);gap:12px;align-items:baseline;padding:7px 0;border-top:1px solid var(--border);font-size:13px; }
+.ef-range-row > span:first-child { color:var(--muted-strong);font-size:12px; }
+.ef-range-row b { display:block;color:var(--text-strong);font-variant-numeric:tabular-nums;overflow-wrap:anywhere; }
+.ef-range-row small { color:var(--muted);font-size:11px; }
+.ef-range .ef-subtle { margin:8px 0 0; }
+@media (max-width: 640px) { .ef-range-row { grid-template-columns:minmax(0,1fr) minmax(0,1fr); } .ef-range-row > span:first-child { grid-column:1 / -1; } }
 `;}

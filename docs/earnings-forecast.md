@@ -188,7 +188,120 @@ filings are not re-parsed.
 Retrospective checks use documented filing dates with conservative cutoffs
 at filing-minus-30/14/7/1 days. They explicitly do not reconstruct original
 ingestion or an earnings schedule known at the time. They never enter the
-live learning/promotion sample.
+live learning/promotion sample. The History test below is a separate replay
+with its own promotion rule.
+
+## History test (2026-11-16)
+
+The **History test** view replays every stored quarter of every listed company
+and scores eight revenue rules on it. No AI call, no paid source and no new
+download: it reads the filed numbers the forecast already stores, plus two
+free FRED series from the shared long-history cache (factory output `INDPRO`,
+the broad dollar `DTWEXBGS`). Code: `lib/earnings-forecast-lab.mjs` (pure),
+called from `scripts/refresh-earnings-forecast.mjs`.
+
+**How a quarter is replayed.** For each reported quarter, the forecast is made
+from what was public 7 days before that result was filed (filing dates with a
+next-day cutoff, the "reconstructed" reading of `quarterlyFacts`). A miss is
+the gap to reported revenue as a share of it, capped at 100%. Stored history
+is the last 11 fiscal years (`HISTORY_YEARS`; it was 8), which each company
+picks up at its next weekly SEC re-check.
+
+**The rules.**
+
+| Rule | Kind | What it does |
+|---|---|---|
+| Last quarter again | Simple baseline | Repeats the newest reported quarter |
+| Same quarter last year | Simple baseline | Repeats the quarter a year earlier |
+| Current rule | Current | Same quarter last year times the middle of the last four yearly growth rates |
+| Latest growth | Candidate | The newest yearly growth rate |
+| Recent growth weighted | Candidate | The last four rates, newest counted most |
+| Growth trend | Candidate | The newest rate plus the change from the one before |
+| Current rule plus drivers | Candidate | The current rule moved by three numbers known before the result: how companies that already reported that quarter came in against their own forecasts, the change in factory output, and the dollar against a year ago. Weights are refitted before every quarter on earlier quarters only |
+| Pick the best so far | Check only | Before each quarter, uses whichever rule had the smallest miss so far. It tests the choosing itself and is never used |
+
+**When a candidate replaces the current rule.** It needs 100 or more
+company-quarters over 12 or more calendar quarters, a smaller average miss than
+the current rule on the same quarters, a t value (quarters as the unit, so one
+bad season counts once) at or above the bar for four tries (2.50), and a
+smaller miss in both halves of the history. Among the rules that pass, the one
+with the largest improvement is used. Once in use it stays while it is still
+ahead with t at or above 1, so it does not flip back and forth. With too
+little history the view reads "Collecting" and nothing changes.
+
+**What a winner changes.** Only the Owner Earnings Forecast page: the revenue
+forecast (and the EPS that follows from it) for each listed company, as one new
+frozen run per company. The Forecast view names the rule in use, and the Track
+record view keeps the earlier numbers beside it. Each company's new forecasts
+are then scored forward against the current rule, and after eight results the
+company steps back to the current rule if the winner did worse there. The
+forward-tested bias and business-line models keep priority when they are
+active. **The Top Picks AI grader keeps reading the earlier numbers**
+(`graderContextBuilder` in `scripts/build.mjs` substitutes them), so no pick or
+grade input changes. Switch: Owner Settings → Data & desks → "Earnings
+Forecast: use the history test winner" (`EARNINGS_FORECAST_WINNER`, on by
+default). Off keeps the current rule and still shows the test.
+
+This is a change of policy for this desk: until now a rule could only be
+promoted on forward results. The history test promotes on replayed history
+because eight forward quarters per company take two years; the forward
+step-back above is the guard.
+
+**Ranges.** The Forecast view shows where the result is likely to land: a range
+that held half the time and one that held four times in five, for revenue and
+diluted EPS. Each is built from signed past misses of the rule in use: the
+company's own misses shrunk toward every company's (weight n / (n + 8)), with
+cut points placed for the next result, not the sample (position q x (n + 1)),
+so a short history does not produce a range that is too narrow. The History
+test view reports how often results landed inside ranges built only from
+earlier results, and the Calibration lab grades the same four ranges
+(`forecastCalibrationSources`). Ranges need 40 pooled results; before that the
+Forecast view keeps its "Uncalibrated point forecast" line. They are not
+scenario outputs and the scenario workbench is unchanged.
+
+**EPS and analysts.** EPS is scored for last quarter again, same quarter last
+year and the current margin, tax and share bridge. Analyst EPS estimates come
+from the stored earnings history (estimate against actual, on the analysts'
+own adjusted basis, so the two misses are each measured against their own
+actual). Free sources keep no past analyst revenue estimates, so from this
+build on the current-quarter and next-quarter revenue and EPS estimates are
+saved whenever they change (`consensus` in the state file, 240 rows per
+company) and the comparison starts with the first saved quarter that reports.
+
+**Storage.** The replay per company is cached in the state file and redone
+only when that company's filed numbers change. The page file carries the
+summary (about 7 KB) and each company's ranges; the scored rows stay in the
+Owner-only state file. A failed test keeps the last good copy and marks it
+stale; it never blocks the forecast.
+
+**Limits.** The page lists these: facts are joined by filing date with a
+next-day cutoff, so the time this site first saw each number is not rebuilt and
+a press release can come out before the filing; each forecast is made seven
+days before the filing, not on a date known in advance; the companies are the
+ones on the list today plus recent leavers, so companies that shrank out of the
+top of the market long ago are missing; a miss is capped at 100%. Also true:
+factory output and the dollar are today's revised series, not the first print
+(noted under the drivers table); twenty large companies are a small, similar
+group, so a rule that wins here may not win elsewhere; and four candidates were
+tried on one history, which the raised bar allows for but does not remove.
+
+**First run on real filings (2026-11-16, research run, no build).** The test
+was run once on the public SEC company-facts files of the listed companies:
+632 company-quarters from 17 companies over 42 calendar quarters (mid 2016 to
+September 2026). Typical revenue miss: same quarter last year 14.3%, last
+quarter again 7.6%, the current rule 5.5%, recent growth weighted 4.8%, latest
+growth 4.0%, growth trend 3.9%, the drivers rule 6.6% (it did not help). Latest
+growth passed every check (t 7.5 against the 2.5 bar, ahead in both halves), so
+the first build after this ships is expected to put it in use. The ranges
+held: the 50% revenue range caught 52% of results and the 80% range 82%; for
+EPS 48% and 81%. Free sources had no past analyst estimates, as expected. The
+run also showed that a bank filing only net revenue
+(`RevenuesNetOfInterestExpense`) had no forecast at all; that tag is now read
+last in the revenue list, so total revenue still wins when both are filed.
+
+Tests: `node scripts/earnings-forecast-lab-smoke.mjs` (logic, 120 checks) and
+`node scripts/earnings-forecast-history-browser.mjs` (page, 76 checks), both on
+made-up companies from `scripts/fixtures/earnings-forecast-history.mjs`.
 
 ## Cost and controls
 
@@ -248,4 +361,5 @@ daily workflow runs the offline forecast contracts before its network build.
 
 The implementation includes runnable offline and browser checks. Forecast accuracy is unproven until sufficient forward results
 exist. Reconstructed historical checks are reported separately from live
-forecasts, and conditional scenarios are never labeled confidence intervals.
+forecasts, and conditional scenarios are never labeled confidence intervals. The ranges on
+the Forecast view come from past misses (History test), not from scenarios.

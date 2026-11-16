@@ -98,6 +98,7 @@ Every chance, score and range the site states, graded against what happened:
 | Self-improving loop: 5 / 10 / 20-session direction, +25% before -50% | chance |
 | Prediction markets: price the day before settlement | chance |
 | Earnings: option-implied move (live stamps only, never the estimates) | range |
+| Earnings Forecast: likely (50%) and wide (80%) ranges for revenue and EPS, each built only from earlier results | range |
 | Market odds (history test, and live once windows pass) | chance |
 
 A **chance** is honest when events it calls 30% happen about 30% of the time,
@@ -108,7 +109,8 @@ inside against what the range claimed. Under 30 graded rows a source reads
 "Collecting".
 
 Other labs and desks can add a source by passing `extraSources` in the build
-context (Earnings Forecast bands are the intended first user).
+context. The Earnings Forecast ranges are the first user
+(`forecastCalibrationSources` in `lib/earnings-forecast-lab.mjs`).
 
 ### 3. Factors (`factors.mjs`)
 

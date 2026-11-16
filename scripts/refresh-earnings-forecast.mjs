@@ -4,7 +4,8 @@ import { randomUUID } from 'node:crypto';
 import { resolve, dirname } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { attachCompanyResearch, buildIndustryEvidence } from '../lib/company-research.mjs';
-import { FORECAST_KEY, FORECAST_STATE_KEY, contentHash, makeObservation, normalizeCompanyFacts, mergeObservations, selectCohort, forecastQuarter, evaluateRuns, buildForecastPayload, businessMix, finite, conservativePublication, reconstructedBacktest, knownReportedPeriod, cohortDue, acceptCohort, rerankCohort, segmentInputMix } from '../lib/earnings-forecast.mjs';
+import { LAB_VERSION, companyOrigins, originsKey, buildHistoryLab, archiveConsensus, forecastBands } from '../lib/earnings-forecast-lab.mjs';
+import { quarterlyFacts, FORECAST_KEY, FORECAST_STATE_KEY, contentHash, makeObservation, normalizeCompanyFacts, mergeObservations, selectCohort, forecastQuarter, evaluateRuns, buildForecastPayload, businessMix, finite, conservativePublication, reconstructedBacktest, knownReportedPeriod, cohortDue, acceptCohort, rerankCohort, segmentInputMix } from '../lib/earnings-forecast.mjs';
 
 const DAY=86400000;
 export async function readForecastState(dataDir) {
@@ -47,7 +48,23 @@ export function parseTsmRelease(html, {url,accession,filed,firstSeenAt,rawHash})
   return observations;
 }
 
-export async function prepareEarningsForecast({previous,chains,universe,sectors,cikMap=null,fetchImpl=fetch,now=()=>new Date().toISOString(),maxRequests=48,maxBytes=120e6,enabled=true,macroContext=null}) {
+// The history test's summary and each shown forecast's ranges join the page
+// file here, so a disabled or failed refresh still shows the last test.
+function attachHistoryTest(state,payload){
+  const lab=state.lab;
+  if(!lab?.summary)return payload;
+  payload.historyTest={...lab.summary,...(lab.error?{stale:true}:{})};
+  for(const c of payload.companies||[]){const bands=forecastBands(lab.bands,c.symbol,c.forecast?.outputs);if(bands)c.forecast={...c.forecast,bands};}
+  payload.methodology?.push('History test: every stored quarter is forecast again from what was public seven days before its filing, by a fixed set of revenue rules. A rule replaces the current one only when it is closer in both halves of the history by more than chance allows for the number of rules tried.',
+    'Ranges: the 50% and 80% ranges come from how far reported results landed from past forecasts, the company\'s own misses shrunk toward every company\'s. They are checked on quarters the range never saw; the History test view shows how often results landed inside.',
+    'Analyst estimates: free sources keep no past revenue estimates, so today\'s are archived from this build on and compared once each quarter is reported. Past EPS estimates stored with each earnings report are compared on their own (adjusted) basis.');
+  return payload;
+}
+
+// fred(id) returns [{date,value}] from the shared long-history cache;
+// earningsEvents is {SYMBOL: stored earnings reports}. Both are optional and
+// already in memory: the history test adds no download.
+export async function prepareEarningsForecast({previous,chains,universe,sectors,cikMap=null,fetchImpl=fetch,now=()=>new Date().toISOString(),maxRequests=48,maxBytes=120e6,enabled=true,macroContext=null,fred=null,earningsEvents=null,historyTest=true,promoteWinner=true}) {
   const state=structuredClone(previous),startedAt=now(),today=startedAt.slice(0,10),artifacts=new Map();
   state.collectionError=null;
   state.reconstructed ||= {};
@@ -55,7 +72,7 @@ export async function prepareEarningsForecast({previous,chains,universe,sectors,
   state.dailyCost=state.dailyCost?.date===today?state.dailyCost:{date:today,requests:0,bytes:0};
   const initialRequests=state.dailyCost.requests;
   let lastRequestAt=0;
-  if(!enabled)return {state,artifacts,payload:{...buildForecastPayload({state,chains,builtAtIso:startedAt}),enabled:false}};
+  if(!enabled)return {state,artifacts,payload:{...attachHistoryTest(state,buildForecastPayload({state,chains,builtAtIso:startedAt})),enabled:false}};
   // Re-rank once per calendar quarter (and until a complete ranking lands).
   if(cohortDue(state.cohort,startedAt)){const cohort=selectCohort(chains,universe,sectors,startedAt);if(acceptCohort(state.cohort,cohort,startedAt))rerankCohort(state,cohort,startedAt);}
   // Former members keep collecting filings until their last frozen forecast
@@ -124,10 +141,37 @@ export async function prepareEarningsForecast({previous,chains,universe,sectors,
   }
   const cutoffAt=now();
   state.evaluations=evaluateRuns(state.runs,state.observations,cutoffAt);
+  // History test (lib/earnings-forecast-lab.mjs): each company's replay is
+  // reused until its public facts change. A failure keeps the last test.
+  let lab=null;
+  if(historyTest){
+    try{
+      const cache=state.lab?.origins||{},origins={},kept={};
+      for(const c of [...(state.cohort?.companies||[]),...Object.values(state.former||{})]){
+        const obs=state.observations[c.symbol]||[];
+        if(!obs.length||origins[c.symbol])continue;
+        const key=originsKey(obs,cutoffAt),old=cache[c.symbol];
+        kept[c.symbol]=old?.key===key&&Array.isArray(old.rows)?old:{key,rows:companyOrigins(c.symbol,obs,cutoffAt)};
+        origins[c.symbol]=kept[c.symbol].rows;
+      }
+      state.consensus ||= {};
+      for(const c of state.cohort?.companies||[])archiveConsensus(state.consensus,c.symbol,chains[c.symbol]?.fundamentals,cutoffAt.slice(0,10));
+      lab=buildHistoryLab({origins,fred,earningsEvents,evaluations:state.evaluations,consensus:state.consensus,asOf:cutoffAt,prior:state.lab,promote:promoteWinner});
+      state.lab={version:LAB_VERSION,builtAt:cutoffAt,origins:kept,winner:lab.winner,summary:lab.summary,bands:lab.bands,calibration:lab.calibration};
+    }catch(e){lab=null;state.lab={...(state.lab||{}),error:String(e?.message||e).slice(0,200)};}
+  }
   for(const c of state.cohort?.companies||[]){
     const announcement=chains[c.symbol]?.fundamentals?.nextEarningsDate,remaining=announcement?(Date.parse(announcement)-Date.parse(cutoffAt))/DAY:null;
     const horizon=remaining===null||remaining<0?'unscheduled':remaining>30?'T30plus':remaining>14?'T30':remaining>7?'T14':remaining>1?'T7':'T1';
-    const run=forecastQuarter({symbol:c.symbol,observations:state.observations[c.symbol]||[],cutoffAt,liveEvaluations:state.evaluations,horizon,reportedPeriodEnd:knownReportedPeriod(chains[c.symbol]?.fundamentals),segmentMix:segmentInputMix(state.mix[c.symbol])});
+    const args={symbol:c.symbol,observations:state.observations[c.symbol]||[],cutoffAt,liveEvaluations:state.evaluations,horizon,reportedPeriodEnd:knownReportedPeriod(chains[c.symbol]?.fundamentals),segmentMix:segmentInputMix(state.mix[c.symbol])};
+    let run=forecastQuarter(args);
+    // A rule that passed the history test supplies the revenue; forecastQuarter
+    // decides whether it is used (see `historyModel` there).
+    if(lab?.winner&&promoteWinner&&run.target&&finite(run.comparison?.baseRevenue)){
+      const known=quarterlyFacts(args.observations,cutoffAt).filter(q=>q.currency===run.currency&&q.basis===run.basis);
+      const historyModel=lab.liveRevenue({symbol:c.symbol,known,targetEnd:run.target.end,baseRevenue:run.comparison.baseRevenue,cutoffAt});
+      if(historyModel)run=forecastQuarter({...args,historyModel});
+    }
     if(['ready','partial'].includes(run.status)&&finite(run.outputs?.revenue)){
       const old=state.runs.find(r=>r.inputKey===run.inputKey);if(!old){state.runs.push(run);artifacts.set('earnings-forecast/runs/'+run.id+'.json',run);}state.current[c.symbol]=old?.id||run.id;
     }else delete state.current[c.symbol];
@@ -135,6 +179,7 @@ export async function prepareEarningsForecast({previous,chains,universe,sectors,
   }
   const payload=buildForecastPayload({state,chains,builtAtIso:cutoffAt,collection:{requestsThisRun:state.dailyCost.requests-initialRequests,requestsToday:state.dailyCost.requests,bytesToday:state.dailyCost.bytes,requestLimitPerDay:maxRequests,collectionError:state.collectionError||null}});
   payload.enabled=true;
+  attachHistoryTest(state,payload);
   attachCompanyResearch({state,payload,chains,asOf:cutoffAt,industryInputs:{universe}});
   for(const c of payload.companies){const q=chains[c.symbol];c.valuationReference={spot:q?.spot??null,quoteAsOf:q?.quoteAsOf||null,currency:q?.quoteProvenance?.currency||null,forwardPE:q?.fundamentals?.forwardPE??null,reportedPeriodEnd:knownReportedPeriod(q?.fundamentals),asOf:cutoffAt};}
   return {state,payload,artifacts,industryUniverse:universe};
