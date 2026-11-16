@@ -192,13 +192,20 @@ ok("fundamentals: compounder call reads live quality; nothing right before a rep
   // Without the live block the replayable core alone still scores.
   assert.equal(evalFundamentals(V("FFF", baseF({}), { fund: { core } }), CTX)[0].facts.live, false);
 });
-ok("flow: aggressive call buying; short squeeze reads borrow and short-sale volume", () => {
-  const flow = { nCall: 7, nPut: 1, callPrem: 1.2e6, putPrem: 1e5, persist: 0.4, gamma: 1, callWall: null, siPct: null, covering: false, rvol: 1.6, borrowTight: false, shortVolZ: null };
+ok("flow: signed bullish flow; short squeeze reads borrow and short-sale volume", () => {
+  const flow = { signed: true, nBull: 7, nBear: 1, bullUsd: 9e6, bearUsd: 1e6, bullPrem: 1.2e6, bearPrem: 1e5, persist: 0.4, gamma: 1, callWall: null, siPct: null, covering: false, rvol: 1.6, borrowTight: false, shortVolZ: null };
   const c = evalFlow(V("GGG", baseF({}), { spot: 100.6, live: { flow } }));
   assert.equal(c.length, 1); assert.equal(c[0].setup, "aggressive-flow"); assert.equal(c[0].side, "call");
+  assert.ok(c[0].reasons.some((r) => /calls bought or puts sold/.test(r)));
+  // Bearish signed flow (puts bought / calls sold) with a falling stock reads put.
+  const bear = evalFlow(V("GGG", baseF({}), { spot: 99.4, live: { flow: { ...flow, bullUsd: 1e6, bearUsd: 9e6, bullPrem: 1e5, bearPrem: 1.2e6, nBull: 1, nBear: 7, persist: -0.4 } } }));
+  assert.ok(bear.length === 0 || bear[0].side === "put");
+  // The older shape (FLOW_SIGNED=0) still reads.
+  const legacy = evalFlow(V("GGG", baseF({}), { spot: 100.6, live: { flow: { ...flow, signed: false, bullUsd: 1.2e6, bearUsd: 1e5 } } }));
+  assert.equal(legacy[0].setup, "aggressive-flow"); assert.ok(legacy[0].reasons.some((r) => /prints at the ask/.test(r)));
   // The week's flow on the other side: no trade.
   assert.equal(evalFlow(V("GGG", baseF({}), { spot: 100.6, live: { flow: { ...flow, persist: -0.5 } } })).length, 0);
-  const sq = evalFlow(V("HHH", baseF({ ret5: 0.09, volRatio: 2 }), { live: { flow: { nCall: 0, nPut: 0, callPrem: 0, putPrem: 0, siPct: 22, covering: true, borrowTight: true, shortVolZ: 2.1 } } }));
+  const sq = evalFlow(V("HHH", baseF({ ret5: 0.09, volRatio: 2 }), { live: { flow: { nBull: 0, nBear: 0, bullUsd: 0, bearUsd: 0, siPct: 22, covering: true, borrowTight: true, shortVolZ: 2.1 } } }));
   assert.equal(sq[0].setup, "short-squeeze");
   assert.ok(sq[0].reasons.some((r) => /hard to borrow/.test(r)) && sq[0].reasons.some((r) => /Short-sale volume/.test(r)));
 });

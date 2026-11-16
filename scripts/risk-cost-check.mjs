@@ -88,8 +88,11 @@ try{
       universe['AUDIT'+i]=candidate;
     }
     const backdrop={macroRegime:{state:macroState}};
+    // Signal notes are display text (the Unusual flow note changed with signed
+    // flow, 2026-11-16); scores, values and availability are compared.
+    const dropNotes=v=>JSON.parse(JSON.stringify(v,(key,val)=>key==='note'&&typeof val==='string'?undefined:val));
     const grade=engine=>engine.scoreAllTickers(structuredClone(universe),[],{},null,backdrop,null).scored.map(r=>({symbol:r.sym,total:r.total,side:r.side,recommendation:r.recommendation,
-      pillars:Object.fromEntries(Object.entries(r.pillars).filter(([key])=>key!=='timing'))}));
+      pillars:dropNotes(Object.fromEntries(Object.entries(r.pillars).filter(([key])=>key!=='timing')))}));
     assert.deepEqual(grade(current),grade(baseline),'Stock-quality grades must remain unchanged in '+macroState);
   }
 
