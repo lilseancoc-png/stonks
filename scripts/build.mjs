@@ -83,6 +83,15 @@ import { bandOf as loopBandOf } from "../lib/self-loop/ledger.mjs";
 import { buildPositioning } from "../lib/regime-lab/positioning.mjs";
 import { loadRegimeLab, writeRegimeLab, loadResearchResults, buildLabelInputs, buildBakeLabels, todayFromSeries, openShadowBooks, markShadowBooks, buildBakeOracle, buildRegimeLabPayload, labStamp, regimeLabEnabled, REGIME_LAB_KEY } from "../lib/regime-lab/payload.mjs";
 import { riskScore as regimeLabRiskScore } from "../lib/regime-lab/exits.mjs";
+// Quant labs (lib/labs/, docs/quant-labs.md): market drawdown and recovery
+// odds, the Calibration Lab, the research registry, the Factor Lab, the
+// volatility forecasts and the annual report text changes. Owner-only
+// quant-labs.json + quant-labs-state.json; measurement only, no AI, kill
+// switch QUANT_LABS=0.
+import { loadQuantLabs, carryQuantLabs, writeQuantLabs, runQuantLabs, loadQuantLabsResearch, quantLabsEnabled, quantLabsTextEnabled, QUANT_LABS_KEY } from "../lib/labs/index.mjs";
+import { refreshFilingText } from "../lib/labs/filing-text.mjs";
+import { joinedRows as loopJoinedRows } from "../lib/self-loop/ledger.mjs";
+import { engineName as strategyEngineName } from "../lib/engines/config.mjs";
 import { buildSourceHealth, loadSourceHealth, readSourcePayloads, writeSourceHealth } from "../lib/source-health.mjs";
 import { OWNER_SETTINGS_APPLIED_KEY } from "../lib/owner-settings.mjs";
 // The Owner Settings report from scripts/owner-settings-env.mjs (null when the
@@ -39758,6 +39767,17 @@ async function main() {
   // are read BEFORE the wipe. A missing file is a fresh start; a file that is
   // there but unreadable skips the engines this build and keeps the stored
   // copy. ENGINES=0 freezes them (the files are carried forward untouched).
+  // Quant labs (lib/labs/index.mjs): the fitted market-odds models, the log
+  // of stated chances, the weekly factor panel and the annual report text
+  // store accumulate across bakes, so both files are read BEFORE the wipe.
+  let quantLabsLoaded = null;
+  try {
+    quantLabsLoaded = await loadQuantLabs(DATA_DIR);
+    if (quantLabsLoaded.error) console.warn(`[quant-labs] prior state unreadable (${quantLabsLoaded.error}); starting over`);
+  } catch (err) {
+    quantLabsLoaded = null;
+    console.warn(`[quant-labs] prior files unavailable (${String(err?.message || err).split("\n")[0]})`);
+  }
   let enginesLoaded = null;
   try {
     enginesLoaded = await loadEngineFiles(DATA_DIR);
@@ -41344,6 +41364,71 @@ async function main() {
     let accNow = null;
     try { accNow = JSON.parse(await readFile(resolve(DATA_DIR, PICKS_ACCURACY_FILE), "utf8")); } catch { /* no record yet */ }
     await runLoopBake(accNow);
+  }
+  // Quant labs (lib/labs/index.mjs): Owner-only measurement, written after the
+  // record, the engines, the outcomes and the loop so it reads this build's
+  // copies. Nothing here feeds a grade, a gate, a pick or the Track Record.
+  // The market-odds fit runs once per new S&P 500 close and is stored; later
+  // builds the same day re-use it. The annual report reader fetches SEC
+  // documents only on builds that do not run Top Picks. QUANT_LABS=0 (or any
+  // failure) carries the prior files forward untouched.
+  if (quantLabsLoaded) {
+    let labsWritten = false;
+    if (quantLabsEnabled()) {
+      try {
+        const labNow = new Date(builtAtIso);
+        const readJson = async (key) => { try { return JSON.parse(await readFile(resolve(DATA_DIR, key), "utf8")); } catch { return null; } };
+        const accForLabs = await readJson(PICKS_ACCURACY_FILE);
+        const dailyForLabs = await readJson("grades-daily.json");
+        const enginesRecord = await readJson(ENGINES_RECORD_KEY);
+        const oddsForLabs = await readJson("prediction-odds.json");
+        const labsState = quantLabsLoaded.state;
+        const labStocks = TICKERS.filter((sym) => SECTORS[sym] !== "ETF" && chains?.[sym]);
+        let textWaiting = null;
+        const corpForLabs = corporate || priorCorporate || null;
+        if (quantLabsTextEnabled() && !refreshTopPicks && corpForLabs?.companies) {
+          const text = await refreshFilingText({
+            prior: labsState.text, companies: corpForLabs.companies, symbols: labStocks, userAgent: SEC_USER_AGENT,
+            maxNames: Number(process.env.QUANT_LABS_TEXT_NAMES || 3), log: (line) => console.log(line),
+          });
+          labsState.text = text.store; textWaiting = text.waiting;
+        }
+        const lastTotals = (dailyForLabs?.days || []).slice(-1)[0]?.totals || {};
+        const seenIds = new Set();
+        const allClosed = [...(accForLabs?.closed || []), ...(accForLabs?.archive || [])].filter((t) => { const k = t?.tradeId || `${t?.symbol}|${t?.side}|${t?.entryDate}`; if (seenIds.has(k)) return false; seenIds.add(k); return true; });
+        const engineIds = [...new Set([...(enginesRecord?.open || []), ...(enginesRecord?.closed || [])].map((t) => t?.engine).filter(Boolean))];
+        const labsRun = runQuantLabs({
+          state: labsState, prior: quantLabsLoaded.prior, research: await loadQuantLabsResearch(ROOT),
+          builtAtIso, today: etDateKey(labNow),
+          spx: sharedHistoryBars(historicalSourceCache, ["^GSPC"])["^GSPC"] || [],
+          fred: (id) => sharedFredRows(historicalSourceCache, id),
+          symbols: labStocks, optionSymbols: TICKERS.filter((sym) => chains?.[sym]),
+          barsOf: (sym) => regimeLabBars(chains?.[sym] || null, labNow),
+          ivOf: (sym) => ivHistory?.get?.(sym)?.entries || [],
+          fundamentalsOf: (sym) => chains?.[sym]?.fundamentals || null,
+          gradesDaily: dailyForLabs, grades: Object.fromEntries(Object.entries(lastTotals).map(([sym, total]) => [sym, { total }])),
+          record: { open: accForLabs?.open || [], closed: allClosed, baseline: accForLabs?.baseline || null },
+          engines: { open: enginesRecord?.open || [], closed: enginesRecord?.closed || [], names: Object.fromEntries(engineIds.map((id) => [id, strategyEngineName(id)])) },
+          loopRows: loopState ? loopJoinedRows(loopState.ledger, picksOutcomesState) : [],
+          predictionResolved: oddsForLabs?.resolved || [],
+          earningsStore: earningsHxStore, textWaiting,
+        });
+        for (const line of labsRun.lines) console.log(line);
+        const labsInfo = await writeQuantLabs(DATA_DIR, labsRun.payload, labsRun.state);
+        console.log(`wrote data/${QUANT_LABS_KEY} + state — ${labsInfo.bytes} + ${labsInfo.stateBytes} bytes`);
+        labsWritten = true;
+      } catch (err) {
+        console.warn(`[quant-labs] skipped — ${String(err?.message || err).split("\n")[0]}`);
+      }
+    }
+    if (!labsWritten) {
+      try {
+        const carried = await carryQuantLabs(DATA_DIR, quantLabsLoaded);
+        if (carried) console.log(`[quant-labs] carried ${carried} file(s) forward${quantLabsEnabled() ? "" : " (QUANT_LABS=0)"}`);
+      } catch (err) {
+        console.warn(`[quant-labs] carry-forward skipped — ${String(err?.message || err).split("\n")[0]}`);
+      }
+    }
   }
   // Crowd & positioning files: the public facts (crowd.json) and the Owner
   // join to the open Top Picks trades plus the daily rows kept for later

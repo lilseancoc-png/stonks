@@ -1,0 +1,236 @@
+# Quant labs
+
+Owner Lab → **Quant labs** (`?tab=quant&lab=labs`). Six measurement labs that
+answer plain questions about the site's own numbers: how likely is a market
+fall, are the chances the site states honest, what do the grade and the trades
+really lean on, are options priced over or under the moves to come, what
+changed in each company's annual report, and which results would survive
+counting everything that was tried.
+
+Everything here is **Owner-only, deterministic and free**: no AI call, no paid
+source. **Nothing changes a pick, a grade, a gate or the Track Record.** The
+labs read data the build already holds; the one new download is the annual
+report text (two SEC documents per company, a few companies per build).
+
+Added 2026-11-16. Code: `lib/labs/`. Page: `scripts/render/quant-labs-client.mjs`
+and `quant-labs-css.mjs`.
+
+## Files and access
+
+| File | Who reads it | What it holds |
+|---|---|---|
+| `quant-labs.json` | Owner Lab page, the Market odds card, MCP dataset `quant.labs` | The page file: one block per lab plus `card` |
+| `quant-labs-state.json` | The build only (never the browser, never the MCP) | Fitted market-odds models, the log of chances stated at past closes (800 rows), the weekly factor panel (60 weeks), factor ranks frozen per trade, the settled prediction-market log (3,000 rows), the annual report text store |
+
+Both are Owner keys in `lib/premium-keys.mjs` (combined `tr` + `tp` claims,
+`private, no-store`) and optional bake keys in `lib/data-ownership.mjs`. The
+build reads both before it wipes `data/` (`loadQuantLabs`) and writes them
+after the self-improving loop. The public Brief, the public manifest and the
+public MCP tools never read either file. A public visitor's browser never
+requests them (`qlFetch` returns early without the Owner session;
+`scripts/quant-labs-browser.mjs` fails if it does).
+
+The repo is public, so `research/quant-labs/results/latest.json` holds
+**aggregates only**: no per-stock value and no trade row. The smoke test
+checks that it names no covered stock.
+
+## The labs
+
+### 1. Market odds (`drawdown-odds.mjs`)
+
+Turns the staged reads on the Bottom tracker and Booms & busts into stated
+chances of events fixed in advance:
+
+- the S&P 500 closes 10% (or 20%) below today's close within 3, 6 or 12 months
+- while the index is 10%+ under its high: the low of this decline holds for
+  6 months, and the index is back above its old high within 12 months
+
+One small logistic model per event, fitted on S&P 500 month-ends since 1962
+(the shared long-history cache; no new fetch). Inputs: the yield curve, the Fed
+rate's change over a year, the Baa credit spread and its 3-month change, the
+index's swings, the rise in unemployment, the index against its 200-day
+average and its 1-year high, factory output, inflation and the 5-year run-up;
+the recovery events add the depth of the decline, the bounce off the low,
+sessions since the low and the 50-day trend.
+
+Guards against fooling ourselves:
+
+- **Directions are fixed before the fit.** A wider credit spread may only raise
+  the chance of a fall. The fit sizes an input; it cannot flip one.
+- **Judged only on eras it never saw.** History is cut into eras, one per 10%+
+  decline. Each era is predicted by a model fitted on the others, with a gap of
+  the event's horizon on both sides so overlapping windows cannot leak.
+- **Scored against "always say the average".** Skill is the share of that
+  no-skill forecast's squared error removed (Brier skill). An event counts as
+  **Working** at 5%+ skill with the low end of its resampled range above zero;
+  otherwise **Weak** or **No skill**, and the card says so.
+- **One strength setting, chosen first.** The ridge strength (20) was fixed
+  before any test; the history run reports 5 and 80 beside it.
+- A recalibration curve is kept only when it scores better out of sample.
+
+Today's chance comes with a range (the model refitted on resampled eras) and
+the historical rate ("normal"). Each close's stated chances are logged in the
+state file and graded once their window has passed, so the lab also checks its
+own live record.
+
+History result (2026-11-16 run, month-ends from 1962 to 2026, 21 decline eras): skill of 5.8% for a 10%+ fall
+within 6 months, 7.7% within 3 months, 7.3% within 12 months, 30% for "the low
+holds" and 13.5% for "back above the old high"; the two 20% events are weak
+(3.1%, 0.9%). A breadth add-on was tested and added nothing.
+
+Limits: monthly inputs are the revised values, not the first print, which
+flatters the unemployment and factory inputs slightly. Earnings revisions and
+valuation (CAPE) have no free point-in-time history and are not inputs.
+
+**The card.** `card` in the page file feeds a "Context, not a vote · Market
+odds" card on the Bottom tracker (`#bottom-odds`) and Risk analysis
+(`#risk-odds`). It votes on nothing and changes no verdict on either page.
+
+### 2. Calibration (`calibration.mjs`)
+
+Every chance, score and range the site states, graded against what happened:
+
+| Source | Kind |
+|---|---|
+| Top Picks: chance of profit shown on the contract | chance |
+| Top Picks: grade at entry; the AI grader's grade at entry | score |
+| Each strategy engine's setup score | score |
+| Self-improving loop: 5 / 10 / 20-session direction, +25% before -50% | chance |
+| Prediction markets: price the day before settlement | chance |
+| Earnings: option-implied move (live stamps only, never the estimates) | range |
+| Market odds (history test, and live once windows pass) | chance |
+
+A **chance** is honest when events it calls 30% happen about 30% of the time,
+and useful when it beats always saying the average. A **score** is not a
+chance, so it is judged on ranking only (does a winner outrank a loser more
+often than a coin flip). A **range** is judged on how often the result landed
+inside against what the range claimed. Under 30 graded rows a source reads
+"Collecting".
+
+Other labs and desks can add a source by passing `extraSources` in the build
+context (Earnings Forecast bands are the intended first user).
+
+### 3. Factors (`factors.mjs`)
+
+- **Factor ranks.** Each covered stock's rank (0 to 99) on seven price factors
+  (12- and 6-month momentum, 1-month reversal, low volatility, low beta, near
+  the 52-week high, above the 200-day average) and six fundamentals read at
+  the build (earnings yield, sales yield, margin, return on equity, sales
+  growth, low debt).
+- **Rank skill.** One snapshot a week is kept, so each factor's link to the
+  return that followed (1, 5, 21, 63 sessions) is measured forward on our own
+  names, beside the Top Picks grade scored the same way. Price factors are
+  backfilled from stored bars; fundamentals have no free point-in-time history
+  and start from the first snapshot.
+- **What each book leans on.** The daily return of the grade book (top third
+  by grade against the bottom third), the Top Picks direction book and each
+  engine's, split into the market, small against large, growth against the
+  market, and momentum and low volatility inside our names. What is left is
+  the book's own return.
+- **The grade with the factor part taken out.** How much of today's grade
+  ranking four price traits explain, and each stock's grade net of them. A read
+  only: the grade and the pick order are unchanged.
+- **Trades.** The factor ranks of each open Top Picks trade are frozen in the
+  state file the first day the lab sees it, so closed trades can later be
+  split by what they leaned on. (A trade already open at the first run is
+  marked "after entry".)
+
+History result (74 covered stocks, 2008 to 2026, 28 factor-and-horizon pairs,
+so a t value of 3.12 is needed): no price factor passes.
+
+### 4. Volatility (`vol.mjs`)
+
+Four forecasts of each stock's swings over the next 21 sessions (the last 21
+sessions carried forward, EWMA, GARCH(1,1), and a day/week/month mix, HAR),
+set beside the option price: implied volatility minus the forecast is the
+premium a buyer pays over what the stock is expected to do. The model that won
+the history test is the one in use.
+
+The lab then checks, on dates whose 21 sessions have passed, whether each
+forecast beat the baseline, and whether a high premium was followed by options
+that cost more than the move delivered. That second test is a **paired
+comparison** against the plain gap between implied and trailing volatility,
+because the option price sits on both sides of the test and any premium looks
+predictive on its own.
+
+History result (2026-11-16 run, 144 symbols, forecasts from 2016 to 2026): GARCH cut the baseline's loss by 23.5%
+(t 5.4), EWMA by 12%, HAR by 9.9%.
+
+This is a second opinion beside the site's one "are options expensive" rule
+(`lib/iv-richness.mjs`). It does not replace it and nothing reads it.
+
+### 5. Annual reports (`filing-text.mjs`)
+
+How much a company rewrote the Risk Factors section of its newest annual
+report (10-K, or 20-F for foreign filers) against the year before: similarity,
+paragraphs added and removed, the change in length, and terms that appear for
+the first time. Word counting only; no AI reads or summarizes anything.
+
+The list of filings comes from the Leadership collector's stored submissions
+(`sub.annual`), so the only downloads are the two documents, once per new
+annual report. Three companies per build (`QUANT_LABS_TEXT_NAMES`), never on a
+Top Picks run, `www.sec.gov` only, with the declared `SEC_USER_AGENT`. A failed
+read is recorded and retried after a week; nothing throws into the build.
+
+### 6. Registry (`registry.mjs`)
+
+Try enough rules and one will look good by luck. The registry keeps the number
+of things tried beside every result (`TRIAL_LOG`, edited by hand when a new
+variant is tried) and reports the plain t value, the t value needed once that
+many attempts are allowed for, and the deflated Sharpe ratio (the chance the
+true average beats what the luckiest of that many attempts would show). A book
+"holds up" only at 95%+ with its t value over the bar. Books: Top Picks, the
+paired SPY baseline, each strategy engine, plus the history tests on file.
+
+## Build wiring
+
+`main()` in `scripts/build.mjs`:
+
+1. `loadQuantLabs(DATA_DIR)` before the wipe.
+2. After the self-improving loop: read the Top Picks record, `grades-daily.json`,
+   the engine record and `prediction-odds.json`; on non-Top-Picks builds run
+   `refreshFilingText`; then `runQuantLabs(ctx)` (pure: no file, no network) and
+   `writeQuantLabs`.
+3. Each lab runs inside its own guard: a lab that throws keeps its last good
+   block, marked `stale`, and the others still run. The whole step is
+   non-fatal; on any failure the prior files are carried (`carryQuantLabs`).
+
+The market-odds fit takes about five seconds and is reused until a new S&P 500
+close arrives.
+
+## History tests
+
+`node scripts/quant-labs.mjs run --long DIR --spx FILE --baa FILE` (manual;
+there is no workflow) runs the era-held-out market-odds test at three ridge
+strengths, the volatility forecast test and the price-factor test on the
+long-history download, and writes `research/quant-labs/results/latest.json`.
+Every full build joins that file into the page.
+
+## Switches
+
+Both are on the Owner Settings page (no repo variable, no workflow edit):
+
+- **Quant labs** (`QUANT_LABS`, Research tab, big impact): off carries both
+  files forward untouched. Days while it is off are missing from the stated
+  chance log and the weekly factor panel.
+- **Annual report text (SEC)** (`QUANT_LABS_TEXT`, Data & desks): off stops the
+  SEC document reads and keeps the comparisons already made.
+
+## Tests
+
+- `node scripts/quant-labs-smoke.mjs`: the statistics, each lab, the build entry
+  point on a synthetic market (a hidden risk state the model must find), reuse
+  on a second build, a failing lab, file round-trips, the switches and the
+  Owner / public split.
+- `node scripts/quant-labs-browser.mjs`: every sub-tab at 1440 light and 390
+  dark, the card on both pages, a stale lab, a missing file, and a public visit
+  that must not see the view or request either file.
+
+Neither has an npm script (`verify:risk-cost` fails on any `package.json`
+change).
+
+## Not built
+
+No hook reads these labs. A market-odds input to the Top Picks market tape and
+a factor-adjusted grade order are deliberately left out until the Owner has
+seen the evidence and asked for them.
