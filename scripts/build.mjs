@@ -101,6 +101,7 @@ import { buildCrowdPayload, buildCrowdOwner, readCrowdPrior, writeCrowdFiles, ma
 import { loadEngineFiles, carryEngineFiles, writeEngineFiles, runEngines, loadEnginesResearch, flagshipCompare, enginesEnabled, ENGINES_RECORD_KEY } from "../lib/engines/index.mjs";
 import { firstFridays as enginesFirstFridays } from "../lib/engines/macro.mjs";
 import { pickTradeId } from "../lib/pick-trade-text.mjs";
+import { updateDisruptionState, buildDisruptionFiles, readDisruptionPrior, writeDisruptionFiles, AI_DISRUPTION_KEY, AI_DISRUPTION_OWNER_KEY } from "../lib/ai-disruption/log.mjs";
 import { updatePredictionState, bakeMaxMs, buildPredictionPublic, buildPredictionOwner, analyzePrediction, predictionShadow, predictionContextFor, predictionGraderLines, pricesFromChains, readPredictionPrior, writePredictionFiles, PREDICTION_KEY, PREDICTION_OWNER_KEY } from "../lib/prediction/index.mjs";
 import { buildHistoryRhymes, buildHistoryRhymesOwner, historyRhymesSummary, HISTORY_RHYMES_KEY, HISTORY_RHYMES_OWNER_KEY, HISTORY_RHYMES_FRED, REPORTED_CDS } from "../lib/history-rhymes.mjs";
 import { AI_COST_HISTORY_KEY, parseAiCostHistory, upsertAiCostHistory } from "../lib/ai-cost-history.mjs";
@@ -39216,6 +39217,33 @@ async function main() {
       console.warn(`[prediction] skipped — ${String(err?.message || err).split("\n")[0]}`);
     }
   }
+  // AI disruption tracker (lib/ai-disruption/, Phase 1 2026-11-16): once a
+  // trading day, on the first non-Top-Picks bake after 09:00 ET, read the six
+  // labs' official release notes and news feeds, tag each new post by rules
+  // (no AI; owner decision 2026-11-16) and add it to the launch log with an
+  // "auto" badge, or to the Owner review queue when the rules can't place it.
+  // The prior state and the Owner's review decisions are read before
+  // writeChainFiles wipes data/; the files are written after it. Every bake
+  // re-applies the decisions. AI_DISRUPTION=0 carries the prior files forward.
+  let aiDisruptionRun = null;
+  const aiDisruptionPrior = await readDisruptionPrior(DATA_DIR);
+  if (/^(?:0|false)$/i.test(process.env.AI_DISRUPTION || "1")) {
+    console.log("AI disruption tracker: AI_DISRUPTION=0, carrying the prior files forward.");
+  } else {
+    try {
+      const run = await updateDisruptionState({
+        prior: aiDisruptionPrior.state, nowMs: Date.now(),
+        decisionRun: !/^(?:0|false)$/i.test(process.env.REFRESH_TOP_PICKS || "1"),
+        log: (line) => console.log(line),
+      });
+      aiDisruptionRun = run;
+      if (run.collected) console.log(`  · AI launches: ${run.counts.fresh} new posts, ${run.counts.logged} logged, ${run.counts.queued} to review, ${run.counts.skipped} skipped, ${run.counts.duplicates} already known`);
+      else console.log(`  · AI launches: not read this bake (${run.why})`);
+    } catch (err) {
+      aiDisruptionRun = null;
+      console.warn(`[ai-disruption] skipped — ${String(err?.message || err).split("\n")[0]}`);
+    }
+  }
   // Extract the Major Contract + Guidance fundamentals signals from the news
   // headlines just attached. Mutates chains[sym].aiSignals in memory; consumed
   // later by buildTopPicks → scoreFundamentals. Self-skips without an API key.
@@ -41485,6 +41513,23 @@ async function main() {
     }
   } catch (err) {
     console.warn(`[prediction] write skipped — ${String(err?.message || err).split("\n")[0]}`);
+  }
+  // AI disruption tracker files (see the read above). The public log, the
+  // Owner queue and the internal state; decisions re-applied every bake.
+  try {
+    const adState = aiDisruptionRun?.state || aiDisruptionPrior.state;
+    if (adState || aiDisruptionRun) {
+      const files = buildDisruptionFiles({
+        state: adState, review: aiDisruptionPrior.review, tickers: TICKERS,
+        builtAt: new Date().toISOString(), collected: !!aiDisruptionRun?.collected, stale: !aiDisruptionRun,
+      });
+      await writeDisruptionFiles(DATA_DIR, { state: adState, pub: files.pub, owner: files.owner });
+      console.log(`wrote data/${AI_DISRUPTION_KEY} + data/${AI_DISRUPTION_OWNER_KEY} — ${files.pub.counts.launches} launches (${files.pub.counts.confirmed} confirmed), ${files.owner.queue.length} to review`);
+    } else if (aiDisruptionPrior.pub) {
+      await writeDisruptionFiles(DATA_DIR, { state: null, pub: { ...aiDisruptionPrior.pub, stale: true }, owner: aiDisruptionPrior.owner });
+    }
+  } catch (err) {
+    console.warn(`[ai-disruption] write skipped — ${String(err?.message || err).split("\n")[0]}`);
   }
   // Market brief — after the separate 08:30 ET morning mint, the 11:00, 13:30,
   // and 16:10 full builds ship fresh reads. Other builds restore the exact
