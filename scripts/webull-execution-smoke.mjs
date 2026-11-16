@@ -88,6 +88,55 @@ for (const reference of [0.17, 0.99, 1.01, 9.67, 14.18, 26.42, 50.65]) for (cons
 }
 assert.equal(executionPrice({ ...t, engineEntryPrice: 3, legs: [{ strike: 100 }] }, { phase: "entry", stage: 0, quote: { bid: 3, ask: 3.33 } }).limit, 3.05, "nickel rounding cannot overspend the cap");
 
+// Reach the market (2026-11-17). The 2026-11-16 FTNT engine call: recorded at
+// about 17.35, quoted 16.45 x 18.65. The plain caps (17.65 / 18.00 / 18.20) never
+// reach the ask; the last steps may, inside a 10% band.
+{
+  const ftnt = { engineEntryPrice: 17.35, engineExitPrice: 17.35, structure: "long", legs: [{ strike: 120 }] };
+  const q = { bid: 16.45, ask: 18.65 };
+  assert.equal(executionPrice(ftnt, { phase: "entry", stage: 0, quote: q, reachAsk: true }).limit, 17.65, "first step unchanged");
+  assert.equal(executionPrice(ftnt, { phase: "entry", stage: 1, quote: q }).limit, 18, "switch off keeps the 4% cap");
+  assert.equal(executionPrice(ftnt, { phase: "entry", stage: "eod-entry", quote: q }).limit, 18.2, "switch off keeps the 5% cap");
+  const last = executionPrice(ftnt, { phase: "entry", stage: 1, quote: q, reachAsk: true });
+  assert.equal(last.limit, 19.05, "ask + 2% cushion, under the 10% band (19.08)");
+  assert.equal(last.reached, true); assert.equal(last.stage, "entry-reach"); assert.equal(last.allowancePct, 10);
+  const eod = executionPrice(ftnt, { phase: "entry", stage: "eod-entry", quote: q, reachAsk: true });
+  assert.equal(eod.limit, 19.05); assert.equal(eod.stage, "eod-entry", "the end-of-day stage keeps its name");
+  // A quote whose ask sits past the band is capped at the band.
+  assert.equal(executionPrice(ftnt, { phase: "entry", stage: 1, quote: { bid: 17, ask: 21 }, reachAsk: true }).limit, 19.05);
+  // Yahoo already at or under the 4% cap: a cushion over it for a stale quote.
+  assert.equal(executionPrice(ftnt, { phase: "entry", stage: 1, quote: { bid: 16.9, ask: 17.85 }, reachAsk: true }).limit, 18.25);
+  // Exits mirror it on the bid.
+  const sell = executionPrice(ftnt, { phase: "exit", stage: 1, quote: q, reachAsk: true });
+  assert.equal(sell.limit, 16.1); assert.equal(sell.stage, "exit-reach");
+  assert.equal(executionPrice(ftnt, { phase: "exit", stage: 1, quote: { bid: 12, ask: 18 }, reachAsk: true }).limit, 15.65, "exit floor at -10%");
+  assert.equal(executionPrice(ftnt, { phase: "exit", stage: 0, quote: q, reachAsk: true }).reached, false, "first exit step unchanged");
+  // Every reached price stays inside the band, for any reference and tick.
+  for (const reference of [0.17, 0.99, 1.01, 9.67, 14.18, 26.42, 50.65]) for (const stage of [1, "eod-entry"]) {
+    const plan = executionPrice({ ...t, engineEntryPrice: reference, legs: [{ strike: 0 }, { strike: 200 }] }, { phase: "entry", stage, quote: { bid: 0.01, ask: reference * 2 }, reachAsk: true });
+    assert(plan.limit <= reference * 1.1 + 1e-9, "the reach band is a hard ceiling");
+    const sold = executionPrice({ ...t, engineExitPrice: reference }, { phase: "exit", stage: 1, quote: { bid: 0.01, ask: reference * 2 }, reachAsk: true });
+    assert(sold.limit >= reference * 0.9 - 1e-9, "the reach band is a hard floor");
+  }
+}
+
+// The mirror passes reachAsk through: the second entry order reaches the ask
+// (+2%, inside the 10% band) and the attempt records it.
+{
+  const f = fixture();
+  f.quote({ bid: 0.95, ask: 1.07 });
+  await f.run(start, { reachAsk: true });
+  assert.equal(f.submitted.length, 1); assert.equal(Number(f.submitted[0].limit_price), 1.02);
+  await f.run(start + 121000, { reachAsk: true });
+  assert.equal(f.submitted.length, 2);
+  assert.equal(Number(f.submitted[1].limit_price), 1.1, "ask 1.07 + 2% = 1.10 (band cap 1.10)");
+  const a2 = f.ledger.trades[id].entryAttempts[1];
+  assert.equal(a2.policyStage, "entry-reach"); assert.equal(a2.reachedMarket, true); assert.match(a2.why, /up to the ask, 10% ceiling/);
+  const g = fixture(); g.quote({ bid: 0.95, ask: 1.07 });
+  await g.run(start); await g.run(start + 121000);
+  assert.equal(Number(g.submitted[1].limit_price), 1.04, "switch off: plain 4% cap");
+}
+
 // Cancellation acknowledgement lag does not consume the second price stage.
 {
   const f = fixture(), t = newTrade(pick, id); t.requestedQty = 3;

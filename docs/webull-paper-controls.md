@@ -13,6 +13,21 @@ and debit sells can receive less. Credit-spread entries can receive less,
 and credit buybacks can pay more. The current ask or bid is used when better
 than the allowance. Tick rounding preserves each ceiling or floor.
 
+**Reaching the market (since 2026-11-17).** The 2/4/5% caps alone can never
+fill a contract whose ask sits more than 5% over its mid, and the strategy
+engines may pick contracts with spreads up to 18% of the mid. On 2026-11-16
+the Fundamentals engine's FTNT call (recorded near 17.35, quoted 16.45 x
+18.65) was bid 17.65, 17.85 and 18.20 and never filled. So the last ordinary
+entry step and the end-of-day entry may bid up to the quoted ask plus a 2%
+cushion (the quote is Yahoo's; Webull fills on its own book), never more than
+**10%** over the recorded price, the band the Owner first set. The last
+ordinary exit step mirrors it: down to the bid less 2%, never more than 10%
+under. The first step of each is unchanged. Such attempts carry stage
+`entry-reach` / `exit-reach` (the end-of-day stage keeps `eod-entry`),
+`reachedMarket: true` and allowance 10. Owner Settings > Live site > "Webull
+orders reach the ask" off (or Vercel `WEBULL_REACH_ASK=0`) restores the plain
+caps (`executionPrice` option `reachAsk`).
+
 The first order has at least two minutes to work before repricing. A quote
 that already makes the working order executable does not cause cancellation.
 The final 4% DAY order stays working; status polls do not consume attempts.

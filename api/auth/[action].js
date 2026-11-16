@@ -114,7 +114,7 @@ export function mcpRouteOf(req) {
 // Owner Settings "Live site" switches (lib/owner-settings.mjs) can only turn
 // a feature OFF on top of the Vercel env. Read for the few actions they gate,
 // cached for 30 seconds per warm instance; a failed read keeps the Vercel env.
-const SITE_SWITCH_KEYS = ["CONTACT_ENABLED", "SPORTS_ENABLED", "MCP_ENABLED", "MCP_PUBLIC_ACCESS", "WEBULL_MIRROR"];
+const SITE_SWITCH_KEYS = ["CONTACT_ENABLED", "SPORTS_ENABLED", "MCP_ENABLED", "MCP_PUBLIC_ACCESS", "WEBULL_MIRROR", "WEBULL_REACH_ASK"];
 // Keys this module forced off, with the value they had before. The forced
 // values stay in place between requests and change only when the saved
 // settings change, so two requests running at once on one warm instance can
@@ -1001,6 +1001,10 @@ async function webullFillRows(store) {
 
 // ENGINES_MIRROR=0 (Vercel) stops NEW strategy-engine trades entering the
 // paper account. Unset = on.
+// WEBULL_REACH_ASK=0 (Vercel, or the Owner Settings switch) puts the paper
+// mirror back on the plain 2/4/5% price caps; unset = the last step may reach
+// the ask inside a 10% band (lib/webull-execution-policy.mjs).
+const reachAskOn = () => !["0", "off", "false", "no"].includes(String(process.env.WEBULL_REACH_ASK || "").trim().toLowerCase());
 const enginesMirrorOn = () => !["0", "off", "false", "no"].includes(String(process.env.ENGINES_MIRROR || "").trim().toLowerCase());
 
 async function webullMirror(req, res) {
@@ -1136,7 +1140,7 @@ async function webullMirror(req, res) {
       const client = createWebullClient({ appKey: WEBULL_APP_KEY, appSecret: WEBULL_APP_SECRET, accessToken: WEBULL_ACCESS_TOKEN || null, timeoutMs: 5000 });
       const quoteFn = mirror.makeQuoteFn(fetchContract);
       const checkpoint = async (next) => { guard(); await store.put(mirror.LEDGER_KEY, JSON.stringify(next)); };
-      const { summary } = await mirror.runWebullMirror({ client, accountId: WEBULL_PAPER_ACCOUNT_ID, acc, ledger, quoteFn, checkpoint, guard, endOfDayOnly: req.query?.mode === "eod", enginesUnavailable });
+      const { summary } = await mirror.runWebullMirror({ client, accountId: WEBULL_PAPER_ACCOUNT_ID, acc, ledger, quoteFn, checkpoint, guard, endOfDayOnly: req.query?.mode === "eod", enginesUnavailable, reachAsk: reachAskOn() });
       return { ran: !summary.skipped, summary };
     });
     return res.status(200).json(lease.busy ? { ran: false, reason: "mirror already running", retryAfterMs: lease.retryAfterMs } : lease.result);
