@@ -4,10 +4,11 @@ Tracks what the frontier AI labs ship, scores how ready each capability is to
 take customers from traditional software, and names the companies a launch
 targets and how. Roadmap: the "AI disruption tracker roadmap" doc (2026-11-15).
 
-**Status: Phase 1 (live collector), 2026-11-16.** The bake reads the labs'
-release notes once a trading day and keeps a live launch log. No pick, grade or
-gate reads any of it, and it makes no AI call (owner decision 2026-11-16:
-rules-only tagging, $0).
+**Status: Phase 2 (page, review tab, stock strip, MCP), 2026-11-16.** The bake
+reads the labs' release notes once a trading day and keeps a live launch log,
+shown on the public **AI disruption** page with an Owner review tab. No pick,
+grade or gate reads any of it, and it makes no AI call (owner decision
+2026-11-16: rules-only tagging, $0).
 
 ## Public and Owner-only
 
@@ -43,6 +44,8 @@ with how they could be hurt, never priced, scored or tested.
 | `lib/ai-disruption/tagger.mjs` | Rules-only tagging of a post: capabilities, plans, availability, autonomy |
 | `lib/ai-disruption/review.mjs` | The Owner's confirm / fix / reject decisions |
 | `lib/ai-disruption/log.mjs` | The bake step: collect, fold, apply decisions, write the files |
+| `scripts/render/ai-disruption-client.mjs` + `ai-disruption-css.mjs` | The page, the Owner review tab and the stock page strip |
+| `lib/mcp/ai-disruption-tools.mjs` | The three public MCP tools |
 
 ## A launch row
 
@@ -181,3 +184,52 @@ stale, and decisions still apply.
 Test: `node scripts/ai-disruption-collector-smoke.mjs` (made-up pages, a
 stand-in fetch; no network).
 
+## Phase 2: the page, the review tab, the stock strip and the MCP
+
+**Page.** `ai-disruption` (Market & economy → Industry trends, after AI
+spending; `?tab=ai-disruption`, aliases ai-launches, ai-labs, disruption).
+Public tabs, all from `ai-disruption.json`:
+
+- **Launch log**: every launch newest first, with lab chips, a capability
+  menu, status chips (auto / confirmed) and a company filter; each row shows
+  what it does, how it hits, who can use it (plans, availability, autonomy),
+  the customer-capture score and the companies it targets, colored by how a
+  hit reaches them. `?company=CRM` and `?cap=slides` open it filtered.
+- **Capability board**: per capability, the best score each lab has shipped
+  (darker = closer to replacing a paid product); a capability opens the log.
+- **Companies**: what each company sells that the labs now ship, launches
+  aimed at it in 90 days, the latest one and its defense; covered stocks by
+  default, every company named on request.
+
+A source list under the tabs shows which lab pages were read on the last
+collection. Nothing on the page ranks, scores or tests a stock.
+
+**Owner tabs** (shown only with the Owner session; the public visit never asks
+for an Owner file or the review action): **Review queue** lists the posts the
+rules could not place (with the reasons and the rules' guess) and the auto rows
+newest first, each with Confirm, Fix (a form for title, product, how it hits,
+availability, autonomy, coverage, plans and capabilities) and Reject; a saved
+click shows "applies next update" with Undo. **Scorecard** is Phase 3.
+
+**Stock page.** A covered company's Overview tab shows "AI launches aimed at
+what it sells" (`#stp-aid`): what it sells, the launches in the last 90 days
+with how each could reach it, and a link to the filtered log. Descriptive only.
+
+**MCP** (public, `audience: any`, read `ai-disruption.json`):
+
+| Tool | Returns |
+| --- | --- |
+| `get_ai_launches` | The log, filtered by `lab`, `capability`, `company` (ticker or name), `status`, `since`, `query`; `id` for one launch with every target |
+| `get_ai_capability_board` | Per capability, each lab's best score, the launch that set it and the one before, and who sells it |
+| `get_ai_exposure` | One company: what it sells that the labs ship, its defense, and the launches aimed at it in `days` (default 180); `MENTION_ONLY` for a company outside coverage |
+
+The Owner queue is `get_feature` `ai-disruption` dataset `owner`; the state
+and review files are never readable through the MCP.
+
+**Export.** The page exports `ai-disruption.json` (and the Owner file for an
+Owner).
+
+Tests: `node scripts/mcp-smoke.mjs` (the three tools, public and Owner),
+`node scripts/ai-disruption-browser.mjs` (public tabs at 1440 light and 390
+dark, filters, deep links, the stock strip, a missing file, and the Owner
+review clicks against a stand-in review action).

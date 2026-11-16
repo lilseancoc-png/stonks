@@ -20,7 +20,7 @@ const covered = new Set([...BRIEF_TOOL_SOURCES.map((s) => s.tab), ...BRIEF_CORE_
 // Prediction markets lists contract odds; the Brief already reads the Kalshi
 // macro odds through the Crowd desk, and the page's other contracts are not a
 // Brief source.
-const reference = new Set(['home', 'brief', 'stock', 'cheatsheet', 'chart-patterns', 'timeline', 'privacy', 'terms', 'earnings-week', 'glossary', 'contact', 'market-map', 'whats-changed', 'past-day', 'history-rhymes', 'prediction-markets']);
+const reference = new Set(['home', 'brief', 'stock', 'cheatsheet', 'chart-patterns', 'timeline', 'privacy', 'terms', 'earnings-week', 'glossary', 'contact', 'market-map', 'whats-changed', 'past-day', 'history-rhymes', 'prediction-markets', 'ai-disruption']);
 assert.deepEqual([...publicTabs].filter((tab) => !covered.has(tab) && !reference.has(tab)), [],
   'A new public evidence page must have Brief coverage or an explicit reference-only exemption');
 for (const source of BRIEF_TOOL_SOURCES) {
