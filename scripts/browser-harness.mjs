@@ -15,6 +15,7 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/cs
 // mode.data: Map/object key -> payload | (key) => payload | null (404).
 // mode.failData / mode.failApi: every /data and /api request answers 503.
 // mode.owner(): whether /api/auth/me reports the Owner session.
+// mode.api(url, req): payload for one /api route | null (404) | undefined (default handling).
 export async function startSiteServer(mode = {}) {
   const asks = { data: [], api: [] };
   const server = createServer(async (req, res) => {
@@ -30,6 +31,8 @@ export async function startSiteServer(mode = {}) {
     if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/_vercel/')) {
       asks.api.push(url.pathname + url.search);
       if (mode.failApi) return json({ error: 'service unavailable' }, 503);
+      // mode.api(url, req): a synthetic answer for one /api route (undefined = fall through).
+      if (typeof mode.api === 'function') { const custom = await mode.api(url, req); if (custom !== undefined) return custom === null ? json({ error: 'Not found' }, 404) : json(custom); }
       if (url.pathname === '/api/auth/me') {
         const owner = typeof mode.owner === 'function' ? mode.owner() : !!mode.owner;
         return json(owner ? { enabled: true, authed: true, authenticated: true, trackRecord: true, topPicks: true, user: { name: 'Synthetic owner' } } : { enabled: true, authed: false, authenticated: false });

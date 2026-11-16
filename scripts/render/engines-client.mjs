@@ -33,8 +33,10 @@ export function renderEnginesJs() {
   // ---- Strategy engines (Top Picks page) ------------------------------------
   var ENG_TABS = ${JSON.stringify(ENGINE_TABS)};
   var ENG_SUBS = [['now', 'Now'], ['record', 'Track record'], ['learn', 'Setups and learning'], ['history', 'History test'], ['webull', 'Webull paper']];
-  var ENG_HIST = [['live', 'As the engine runs', 'Shadow-start setups held back and the learning rules switched on: the closest read of how the engine runs today.'], ['held', 'Learning off', 'Shadow-start setups held back, learning rules off.'], ['raw', 'Every setup', 'Every setup trading from day one and no learning: the unpicked read.']];
+  var ENG_HIST = [['live', 'As the engine runs', 'Shadow-start setups held back and the learning rules switched on: the closest read of how the engine runs today.', 'shadow-start setups held back, learning on'], ['held', 'Learning off', 'Shadow-start setups held back, learning rules off.', 'shadow-start setups held back, no learning'], ['raw', 'Every setup', 'Every setup trading from day one and no learning: the unpicked read.', 'every setup from day one, no learning']];
   var ENG_ENV = [['rates', 'Fed policy'], ['inflation', 'Inflation'], ['conditions', 'Financial conditions'], ['curve', 'Yield curve'], ['vix', 'VIX level'], ['recession', 'Economy']];
+  // Rows of each macro split read in this order (easiest to hardest), not by trade count.
+  var ENG_ENV_ORDER = { rates: ['cutting', 'on hold', 'hiking'], inflation: ['low', 'above target', 'high (4%+)'], conditions: ['loose', 'normal', 'tight'], curve: ['inverted', 'flat', 'steep'], vix: ['under 15', '15-20', '20-30', '30+'], recession: ['expansion', 'recession'] };
   var ENG_CELL = { 'up-calm': 'Trending up, calm', 'up-stressed': 'Trending up, stressed', 'down-calm': 'Trending down, calm', 'down-stressed': 'Trending down, stressed', 'chop-calm': 'Choppy, calm', 'chop-stressed': 'Choppy, stressed' };
   var ENG_STATE = { trading: ['Trading', 'evb-s-pass'], shadow: ['On shadow', 'evb-s-collect'], muted: ['Muted', 'evb-s-fail'] };
   var ENG_MIRROR_STATE = { entering: 'Buying', open: 'Open', exiting: 'Selling', closed: 'Closed', missed: 'Missed', skipped: 'Not bought', settled: 'Settled' };
@@ -96,11 +98,17 @@ export function renderEnginesJs() {
   }
   function engEnvTables(byEnv){
     if (!byEnv) return '';
-    return ENG_ENV.map(function(k){ var rows = byEnv[k[0]]; return rows && rows.length ? '<h4 class="slp-h4">' + k[1] + '</h4>' + engSplitTable(rows, k[1], function(r){ return engCap(r.key); }) : ''; }).join('');
+    return ENG_ENV.map(function(k){
+      var rows = byEnv[k[0]];
+      if (!rows || !rows.length) return '';
+      var order = ENG_ENV_ORDER[k[0]] || [];
+      rows = rows.slice().sort(function(a, b){ var ia = order.indexOf(a.key), ib = order.indexOf(b.key); return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib); });
+      return '<h4 class="slp-h4">' + k[1] + '</h4>' + engSplitTable(rows, k[1], function(r){ return engCap(r.key); });
+    }).join('');
   }
   function engCurveHtml(curve, aria){
     if (!curve || curve.length < 3) return '';
-    return lineSvgHtml({ labels: curve.map(function(p){ return engDay(p[0]); }), series: [{ name: 'Running total, one contract per trade', values: curve.map(function(p){ return p[1]; }), cls: 'ln-s0' }], h: 220, zero: true, yFmt: function(v){ return (v < 0 ? '−$' : '$') + Math.abs(Math.round(v)).toLocaleString('en-US'); }, ariaLabel: aria });
+    return lineSvgHtml({ labels: curve.map(function(p){ return engDay(p[0]); }), series: [{ name: 'Running total, one contract per trade', values: curve.map(function(p){ return p[1]; }), cls: 'ln-s0' }], h: 220, zero: true, xEvery: Math.max(1, Math.ceil(curve.length / 6)), yFmt: function(v){ return (v < 0 ? '−$' : '$') + Math.abs(Math.round(v)).toLocaleString('en-US'); }, ariaLabel: aria });
   }
   function engStatKpis(s, extra){
     s = s || {};
@@ -109,7 +117,7 @@ export function renderEnginesJs() {
       ['Win rate', engRate(s.winRate) + (engRange(s.winRange) ? '<small class="eng-kpi-sub">' + engRange(s.winRange) + '</small>' : ''), 'The range is where the true win rate plausibly sits given how few trades there are (Wilson 95%)'],
       ['Average trade', engPnl(s.avg), 'Average result per trade, % of the entry premium'],
       ['Median trade', engPnl(s.median)],
-      ['Avg win / loss', (s.avgWin == null ? '—' : '+' + slpNum(s.avgWin, 1) + '%') + ' / ' + (s.avgLoss == null ? '—' : slpNum(s.avgLoss, 1) + '%')],
+      ['Avg win / loss', (s.avgWin == null ? '—' : '+' + slpNum(s.avgWin, 0) + '%') + ' / ' + (s.avgLoss == null ? '—' : slpNum(s.avgLoss, 0) + '%'), 'Average winning trade and average losing trade, % of the entry premium'],
       ['Profit factor', slpNum(s.profitFactor, 2), 'Gains divided by losses; above 1 means the wins outweigh the losses'],
       ['One contract each', '<span class="' + slpSign(s.usd) + '">' + engUsd(s.usd) + '</span>', 'Dollars made or lost buying one contract per closed trade'],
     ];
@@ -142,9 +150,8 @@ export function renderEnginesJs() {
     var cols = [
       { label: 'Trade', cell: function(t){ return '<b>' + escapeHtml(t.symbol) + '</b> ' + engSide(t.side) + '<div class="crd-dim eng-id">' + escapeHtml(t.tradeId || '') + '</div>' + engSharedHtml(t); }, sort: function(t){ return t.symbol; } },
       { label: 'Setup', cell: function(t){ return escapeHtml(engSetup(e, t.setup)) + '<div class="crd-dim">score ' + slpNum(t.score, 0) + '</div>'; }, sort: function(t){ return t.setup; } },
-      { label: 'Contract', cell: function(t){ return engContract(t); }, sort: function(t){ return t.contract && t.contract.expiry; } },
-      { label: 'Opened', cell: function(t){ return escapeHtml(rglEt(t.entryDate)) + '<div class="crd-dim">at ' + engMoney(t.contract && t.contract.mid) + '</div>'; }, sort: function(t){ return Date.parse(t.entryDate) || 0; } },
-      { label: 'Last mark', num: true, cell: function(t){ return engMoney(t.lastMid); }, sort: function(t){ return t.lastMid; } },
+      { label: 'Contract', cell: function(t){ return engContract(t) + '<div class="crd-dim">opened ' + escapeHtml(rglEt(t.entryDate)) + '</div>'; }, sort: function(t){ return Date.parse(t.entryDate) || 0; } },
+      { label: 'In / now', num: true, cell: function(t){ return engMoney(t.contract && t.contract.mid) + ' → ' + engMoney(t.lastMid); }, sort: function(t){ return t.lastMid; } },
       { label: 'Result', num: true, cell: function(t){ return engPnl(t.optionPnlPct) + '<div class="crd-dim">best ' + slpPts(t.hiPct, 0) + '%, worst ' + slpPts(t.loPct, 0) + '%</div>'; }, sort: function(t){ return t.optionPnlPct; } },
       { label: 'Sessions', num: true, cell: function(t){ return String(t.sessions || 0) + (t.exits && t.exits.maxSessions ? '<span class="crd-dim"> of ' + t.exits.maxSessions + '</span>' : ''); }, sort: function(t){ return t.sessions || 0; } },
       { label: 'Exit plan', cell: function(t){ var x = t.exits || {}; return '+' + x.tp + '% / ' + x.stop + '%' + (t.exitBy ? '<div class="crd-dim">out by ' + escapeHtml(engDay(t.exitBy)) + '</div>' : '') + (t.stopLevel != null ? '<div class="crd-dim">stock stop ' + engMoney(t.stopLevel) + '</div>' : '') + (t.targetLevel != null ? '<div class="crd-dim">stock target ' + engMoney(t.targetLevel) + '</div>' : ''); }, nosort: true },
@@ -181,14 +188,11 @@ export function renderEnginesJs() {
     var cols = [
       { label: 'Closed', cell: function(t){ return escapeHtml(engDay(t.exitDate)); }, sort: function(t){ return Date.parse(t.exitDate) || 0; } },
       { label: 'Trade', cell: function(t){ return '<b>' + escapeHtml(t.symbol) + '</b> ' + engSide(t.side) + '<div class="crd-dim eng-id">' + escapeHtml(t.tradeId || '') + '</div>' + engSharedHtml(t); }, sort: function(t){ return t.symbol; } },
-      { label: 'Setup', cell: function(t){ return escapeHtml(engSetup(e, t.setup)) + '<div class="crd-dim">score ' + slpNum(t.score, 0) + '</div>'; }, sort: function(t){ return t.setup; } },
-      { label: 'Contract', cell: function(t){ return engContract(t); }, sort: function(t){ return t.contract && t.contract.expiry; } },
-      { label: 'In / out', num: true, cell: function(t){ return engMoney(t.contract && t.contract.mid) + ' → ' + engMoney(t.exitMid); }, nosort: true },
-      { label: 'Result', num: true, cell: function(t){ return t.outcome === 'void' ? '<span class="crd-dim">not counted</span>' : engPnl(t.optionPnlPct); }, sort: function(t){ return t.optionPnlPct; } },
-      { label: 'Sessions', num: true, cell: function(t){ return String(t.sessions || 0); }, sort: function(t){ return t.sessions || 0; } },
+      { label: 'Setup', cell: function(t){ return escapeHtml(engSetup(e, t.setup)) + '<div class="crd-dim">score ' + slpNum(t.score, 0) + ' · rules ' + escapeHtml(t.rulesVersion || '—') + '</div>'; }, sort: function(t){ return t.setup; } },
+      { label: 'Contract', cell: function(t){ return engContract(t) + '<div class="crd-dim">' + engMoney(t.contract && t.contract.mid) + ' → ' + engMoney(t.exitMid) + '</div>'; }, sort: function(t){ return t.contract && t.contract.expiry; } },
+      { label: 'Result', num: true, cell: function(t){ return (t.outcome === 'void' ? '<span class="crd-dim">not counted</span>' : engPnl(t.optionPnlPct)) + '<div class="crd-dim">' + (t.sessions || 0) + (t.sessions === 1 ? ' session' : ' sessions') + '</div>'; }, sort: function(t){ return t.optionPnlPct; } },
       { label: 'Why it closed', cell: function(t){ return escapeHtml(engCap(t.statusLabel || t.status)); }, sort: function(t){ return t.status; } },
       { label: 'Market type', cell: function(t){ return escapeHtml(t.regime && t.regime.cell ? engCell(t.regime.cell) : '—'); }, sort: function(t){ return t.regime && t.regime.cell; } },
-      { label: 'Rules', cell: function(t){ return escapeHtml(t.rulesVersion || '—'); }, sort: function(t){ return t.rulesVersion; } },
     ];
     return VIEWS.tableHtml(cols, e.closed || [], { key: 'eng-closed-' + e.id, tall: true, empty: 'No closed trades yet.' });
   }
@@ -225,7 +229,7 @@ export function renderEnginesJs() {
       slpKpis([
         ['Entry bar now', e.bar ? String(e.bar.now) : '—', e.bar ? 'Started at ' + e.bar.base + '; limits ' + e.bar.min + ' to ' + e.bar.max : ''],
         ['Rules version', escapeHtml(e.rulesVersion || '—')],
-        ['Changes made', String(log.length)],
+        ['Changes made', String(e.learning && e.learning.changes != null ? e.learning.changes : log.length), 'Every time the engine changed its own rules; the log below keeps the newest 20'],
         ['Shadow trades', (sh.open || []).length + ' open, ' + (ss.n || 0) + ' closed'],
         ['Shadow average', engPnl(ss.avg), 'Average result of the setups it saw and did not take'],
       ]) +
@@ -240,7 +244,7 @@ export function renderEnginesJs() {
       ['Trades a year', slpNum(h.perYear, 0)],
       ['Largest drop', h.maxDrawdownUsd ? '−$' + Number(h.maxDrawdownUsd).toLocaleString('en-US') : '—'],
       ['Random entries', c ? engPnl(c.avg) : '—', c ? 'Average of ' + c.books + ' books that bought the same kind of contract on random days in the same names, with the same exits and costs' : 'Needs 20 or more trades'],
-      ['Beat random', c ? c.beat + '% of books' : '—', 'Share of the random books this engine did better than'],
+      ['Beat random', c ? c.beat + '%<small class="eng-kpi-sub">of ' + c.books + ' books</small>' : '—', 'Share of the random books this engine did better than'],
     ]);
   }
   function engHistoryHtml(e, d){
@@ -261,7 +265,8 @@ export function renderEnginesJs() {
     var h = H[sel];
     var pick = '<div class="eng-seg" role="group" aria-label="History test version">' + ENG_HIST.filter(function(o){ return H[o[0]]; }).map(function(o){ return '<button type="button" class="eng-seg-btn' + (o[0] === sel ? ' is-on' : '') + '" data-eng-hist="' + o[0] + '" title="' + escapeHtml(o[2]) + '">' + escapeHtml(o[1]) + '</button>'; }).join('') + '</div>';
     var what = ENG_HIST.filter(function(o){ return o[0] === sel; })[0];
-    var cmp = slpTable([['Version'], ['Trades', 1], ['Win rate', 1], ['Average', 1], ['One contract each', 1], ['Random entries', 1], ['Beat random', 1]], ENG_HIST.filter(function(o){ return H[o[0]]; }).map(function(o){ var x = H[o[0]], c = x.control; return '<tr><td>' + escapeHtml(o[1]) + '</td><td class="num">' + (x.n || 0) + '</td><td class="num">' + engRate(x.winRate) + '</td><td class="num">' + engPnl(x.avg) + '</td><td class="num ' + slpSign(x.usd) + '">' + engUsd(x.usd) + '</td><td class="num">' + (c ? engPnl(c.avg) : '—') + '</td><td class="num">' + (c ? c.beat + '%' : '—') + '</td></tr>'; }).join(''));
+    var cmp = slpTable([['Version'], ['Trades', 1], ['Win rate', 1], ['Average', 1], ['One contract each', 1], ['Largest drop', 1, 'Largest fall from a peak of the running total, one contract per trade'], ['Random entries', 1, 'Average trade of books that bought the same kind of contract on random days'], ['Beat random', 1, 'Share of the random books this version did better than']], ENG_HIST.filter(function(o){ return H[o[0]]; }).map(function(o){ var x = H[o[0]], c = x.control; return '<tr><td>' + escapeHtml(o[1]) + '<div class="crd-dim">' + escapeHtml(o[3]) + '</div></td><td class="num">' + (x.n || 0) + '</td><td class="num">' + engRate(x.winRate) + '</td><td class="num">' + engPnl(x.avg) + '</td><td class="num ' + slpSign(x.usd) + '">' + engUsd(x.usd) + '</td><td class="num">' + (x.maxDrawdownUsd ? '−$' + Number(x.maxDrawdownUsd).toLocaleString('en-US') : '—') + '</td><td class="num">' + (c ? engPnl(c.avg) : '—') + '</td><td class="num">' + (c ? c.beat + '%' : '—') + '</td></tr>'; }).join('')) +
+      (H.live && H.held ? '<p class="evb-note">What learning changed in this history: trades ' + (H.held.n || 0) + ' to ' + (H.live.n || 0) + ', average trade ' + slpPts(H.held.avg, 1) + '% to ' + slpPts(H.live.avg, 1) + '%, largest drop $' + Number(H.held.maxDrawdownUsd || 0).toLocaleString('en-US') + ' to $' + Number(H.live.maxDrawdownUsd || 0).toLocaleString('en-US') + '. The learning rules can only hold the engine back, so read them as risk control, not as an edge.</p>' : '');
     return '<p class="evb-lead">The engine’s rules replayed day by day over ' + (R && R.data ? escapeHtml(engDay(R.data.from)) + ' to ' + escapeHtml(engDay(R.data.to)) + ' (' + R.data.names + ' names)' : 'the long history') + ', with modeled option prices and 3.5% of premium taken as costs on every round trip. It answers how the idea behaved in different markets. It is not a forecast, and nothing here shows a reliable profit after costs.</p>' +
       slpSection('eng-hist-cmp', 'Three versions of the same test', cmp) +
       pick + '<p class="evb-note">' + escapeHtml(what ? what[2] : '') + (h.changes ? ' The learning rules made ' + h.changes + ' changes over the test and ended on version ' + escapeHtml(h.rulesVersion || '') + ' with the bar at ' + h.bar + '.' : '') + '</p>' +
@@ -288,7 +293,11 @@ export function renderEnginesJs() {
     if (!force && engState.mirrorError && Date.now() - engState.mirrorAt < 60 * 1000) return;
     if (!HAS_OWNER_ACCESS) return;
     engState.mirrorLoading = true; engState.mirrorError = null;
-    quantFetchJson('/api/auth/webull-mirror?scope=engines').then(function(j){
+    // The paper account is read from the Owner API, never from a data file (and never by the MCP).
+    fetch('/api/auth/webull-mirror?scope=engines', { cache: 'no-store', credentials: 'same-origin' }).then(function(r){
+      if (!r.ok){ var e = new Error('HTTP ' + r.status); e.status = r.status; throw e; }
+      return r.json();
+    }).then(function(j){
       engState.mirror = j && typeof j === 'object' ? j : null; engState.mirrorAt = Date.now(); engState.mirrorLoading = false; renderEngines();
     }).catch(function(err){
       engState.mirrorLoading = false; engState.mirrorAt = Date.now();
@@ -301,11 +310,9 @@ export function renderEnginesJs() {
     var cols = [
       { label: 'Trade', cell: function(t){ return '<b>' + escapeHtml(t.symbol || '') + '</b> ' + engSide(t.side) + '<div class="crd-dim eng-id">' + escapeHtml(t.tradeId || '') + '</div>'; }, sort: function(t){ return t.tradeId; } },
       { label: 'State', cell: function(t){ return escapeHtml(ENG_MIRROR_STATE[t.state] || engCap(t.state)) + (t.needsReview ? ' ' + engPill('Needs review', 'evb-s-fail') : ''); }, sort: function(t){ return t.state; } },
-      { label: 'Contract', cell: function(t){ return escapeHtml(t.legs || ''); }, nosort: true },
-      { label: 'Engine price', num: true, cell: function(t){ return engMoney(t.engineEntryPrice); }, sort: function(t){ return t.engineEntryPrice; } },
-      { label: 'Paper fill', num: true, cell: function(t){ return t.fillPrice == null ? '—' : engMoney(t.fillPrice) + (t.entryDiffPct != null ? '<div class="crd-dim">' + slpPts(t.entryDiffPct, 1) + '% vs engine</div>' : ''); }, sort: function(t){ return t.fillPrice; } },
-      { label: 'Engine exit', num: true, cell: function(t){ return engMoney(t.engineExitPrice); }, sort: function(t){ return t.engineExitPrice; } },
-      { label: 'Paper exit', num: true, cell: function(t){ return t.closeFillPrice == null ? '—' : engMoney(t.closeFillPrice) + (t.exitDiffPct != null ? '<div class="crd-dim">' + slpPts(t.exitDiffPct, 1) + '% vs engine</div>' : ''); }, sort: function(t){ return t.closeFillPrice; } },
+      { label: 'Contract', cell: function(t){ return escapeHtml(String(t.legs || '').replace(/^BUY /, '')); }, nosort: true },
+      { label: 'Entry', num: true, cell: function(t){ return (t.fillPrice == null ? '—' : engMoney(t.fillPrice)) + (t.engineEntryPrice != null ? '<div class="crd-dim">engine ' + engMoney(t.engineEntryPrice) + (t.fillPrice != null && t.entryDiffPct != null ? ' (' + slpPts(t.entryDiffPct, 1) + '%)' : '') + '</div>' : ''); }, sort: function(t){ return t.fillPrice; } },
+      { label: 'Exit', num: true, cell: function(t){ return (t.closeFillPrice == null ? '—' : engMoney(t.closeFillPrice)) + (t.engineExitPrice != null ? '<div class="crd-dim">engine ' + engMoney(t.engineExitPrice) + (t.closeFillPrice != null && t.exitDiffPct != null ? ' (' + slpPts(t.exitDiffPct, 1) + '%)' : '') + '</div>' : ''); }, sort: function(t){ return t.closeFillPrice; } },
       { label: 'Paper result', num: true, cell: function(t){ return engPnl(t.paperPnlPct) + (t.enginePnlPct != null ? '<div class="crd-dim">engine ' + slpPts(t.enginePnlPct, 1) + '%</div>' : ''); }, sort: function(t){ return t.paperPnlPct; } },
       { label: 'Notes', cell: function(t){ var sc = t.sharedContract; return (sc ? '<div class="eng-shared">Held by ' + escapeHtml(engName(sc.heldBy || 'flagship')) + (sc.heldById ? ' (' + escapeHtml(sc.heldById) + ')' : '') + '</div>' : '') + ((t.sharedWith || []).length ? '<div class="eng-shared eng-shared-holder">Also on: ' + t.sharedWith.map(function(x){ return escapeHtml(engName(x.source || 'flagship')) + (x.tradeId ? ' (' + escapeHtml(x.tradeId) + ')' : ''); }).join(', ') + '</div>' : '') + (t.note ? '<div class="crd-dim">' + escapeHtml(t.note) + '</div>' : ''); }, nosort: true },
     ];
@@ -332,11 +339,12 @@ export function renderEnginesJs() {
         ['Filled', String(filled.length)],
         ['Missed', String(rows.filter(function(t){ return t.state === 'missed'; }).length), 'The entry order did not fill inside the allowed price range'],
         ['Not bought (shared)', String(rows.filter(function(t){ return t.state === 'skipped'; }).length), 'The same contract was already held by another engine'],
-        ['Avg entry gap', avgGap == null ? '—' : slpPts(avgGap, 1) + '%', 'Paper fill against the engine’s entry price'],
+        ['Avg entry gap', avgGap == null ? '—' : slpPts(avgGap, 1) + '%', 'Paper fill against the engine’s entry price; above zero means the paper account paid more'],
         ['Avg paper result', engPnl(avgPaper), 'Closed paper trades only'],
       ]) +
       (id === 'all' && h ? '<p class="evb-note">Open engine trades: ' + h.open + '. In the paper account: ' + h.mirrored + '. Shared with another holder: ' + h.shared + '. Entry not filled: ' + h.unfilled + '. Waiting on an order: ' + h.pending + '. No mirror record yet: ' + h.untracked + '.</p>' : '') +
       (issues.length ? '<ul class="eng-notes">' + issues.map(function(i){ return '<li>' + escapeHtml(i.message || i.code) + '</li>'; }).join('') + '</ul>' : '') +
+      '<p class="evb-note">Entry and Exit show the paper fill, with the engine’s own price and the gap between them underneath.</p>' +
       engMirrorTable(rows, id === 'all') +
       '<p class="evb-note">Downloads (every engine): <a href="/api/auth/webull-mirror?format=csv&amp;scope=engines">fills CSV</a> · <a href="/api/auth/webull-mirror?format=orders&amp;scope=engines">every order attempt CSV</a>. The Top Picks fills stay on the Track Record’s Real fills tab.</p>';
   }
@@ -346,17 +354,17 @@ export function renderEnginesJs() {
     var f = d.flagshipStats;
     var rows = (d.compare || []).map(function(c){
       var st = d.mode === 'off' ? engPill('Off', 'evb-s-fail') : c.switchedOff ? engPill('Switched off', 'evb-s-fail') : (d.mode === 'pause' || c.paused) ? engPill('Paused', 'evb-s-collect') : engPill('Trading', 'evb-s-pass');
-      return '<tr><td><button type="button" class="eng-link" data-eng-go="' + escapeHtml(c.id) + '"><b>' + escapeHtml(c.name) + '</b></button><div class="crd-dim">' + escapeHtml(c.tag) + ' · rules ' + escapeHtml(c.rulesVersion || '') + '</div></td><td>' + st + '</td><td class="num">' + c.open + ' of ' + c.slots + '</td><td class="num">' + (c.n || 0) + '</td><td class="num">' + engRate(c.winRate) + (engRange(c.winRange) ? '<div class="crd-dim">' + engRange(c.winRange) + '</div>' : '') + '</td><td class="num">' + engPnl(c.avg) + '</td><td class="num ' + slpSign(c.usd) + '">' + engUsd(c.usd) + '</td><td class="num ' + slpSign(c.openUsd) + '">' + engUsd(c.openUsd) + '</td><td class="num">' + slpNum(c.profitFactor, 2) + '</td><td class="num">' + c.bar + '</td><td class="num">' + (c.shadowN || 0) + (c.shadowAvg != null ? '<div class="crd-dim">' + slpPts(c.shadowAvg, 1) + '%</div>' : '') + '</td></tr>';
+      return '<tr><td class="eng-cmp-name"><button type="button" class="eng-link" data-eng-go="' + escapeHtml(c.id) + '"><b>' + escapeHtml(c.name) + '</b></button><div class="crd-dim">' + escapeHtml(c.tag) + ' · rules ' + escapeHtml(c.rulesVersion || '') + ' · bar ' + c.bar + '</div></td><td>' + st + '</td><td class="num">' + c.open + ' of ' + c.slots + (c.open ? '<div class="crd-dim ' + slpSign(c.openUsd) + '">' + engUsd(c.openUsd) + '</div>' : '') + '</td><td class="num">' + (c.n || 0) + '</td><td class="num">' + engRate(c.winRate) + (engRange(c.winRange) ? '<div class="crd-dim">' + engRange(c.winRange) + '</div>' : '') + '</td><td class="num">' + engPnl(c.avg) + '</td><td class="num ' + slpSign(c.usd) + '">' + engUsd(c.usd) + '</td><td class="num">' + slpNum(c.profitFactor, 2) + '</td><td class="num">' + (c.shadowN || 0) + (c.shadowAvg != null ? '<div class="crd-dim">' + slpPts(c.shadowAvg, 1) + '%</div>' : '') + '</td></tr>';
     }).join('');
-    var flag = '<tr class="eng-flag-row"><td><button type="button" class="eng-link" data-eng-go="flagship"><b>Top Picks</b></button><div class="crd-dim">Flagship · its own Track Record</div></td><td>' + engPill('Flagship', 'evb-s-ready') + '</td><td class="num">' + (f ? f.open : '—') + '</td><td class="num">' + (f ? f.n : '—') + '</td><td class="num">' + (f ? engRate(f.winRate) : '—') + '</td><td class="num">' + (f ? engPnl(f.avg) : '—') + '</td><td class="num crd-dim" colspan="5">See the <a href="?tab=track">Track Record</a> for the full flagship record.</td></tr>';
+    var flag = '<tr class="eng-flag-row"><td class="eng-cmp-name"><button type="button" class="eng-link" data-eng-go="flagship"><b>Top Picks</b></button><div class="crd-dim">Flagship · its own Track Record</div></td><td>' + engPill('Flagship', 'evb-s-ready') + '</td><td class="num">' + (f ? f.open : '—') + '</td><td class="num">' + (f ? f.n : '—') + '</td><td class="num">' + (f ? engRate(f.winRate) : '—') + '</td><td class="num">' + (f ? engPnl(f.avg) : '—') + '</td><td class="num crd-dim" colspan="3">Full record on the <a href="?tab=track">Track Record</a> page</td></tr>';
     var t = d.total || {};
-    var total = '<tr class="eng-total-row"><td><b>All six engines</b></td><td></td><td class="num">' + (t.open || 0) + '</td><td class="num">' + (t.n || 0) + '</td><td class="num">' + engRate(t.winRate) + '</td><td class="num">' + engPnl(t.avg) + '</td><td class="num ' + slpSign(t.usd) + '">' + engUsd(t.usd) + '</td><td colspan="4"></td></tr>';
-    var cmp = slpTable([['Engine'], ['Status'], ['Open', 1], ['Closed', 1], ['Win rate', 1], ['Average trade', 1], ['One contract each', 1, 'Dollars made or lost on closed trades, one contract per trade'], ['Open result', 1, 'Unrealized, on the latest marks'], ['Profit factor', 1], ['Entry bar', 1], ['Shadow trades', 1, 'Closed shadow trades and their average result']], flag + rows + total);
+    var total = '<tr class="eng-total-row"><td class="eng-cmp-name"><b>All six engines</b></td><td></td><td class="num">' + (t.open || 0) + '</td><td class="num">' + (t.n || 0) + '</td><td class="num">' + engRate(t.winRate) + '</td><td class="num">' + engPnl(t.avg) + '</td><td class="num ' + slpSign(t.usd) + '">' + engUsd(t.usd) + '</td><td class="num">' + slpNum(t.profitFactor, 2) + '</td><td></td></tr>';
+    var cmp = slpTable([['Engine'], ['Status'], ['Open', 1, 'Open trades of the slots it may use, and their unrealized result on the latest marks'], ['Closed', 1], ['Win rate', 1], ['Average trade', 1], ['One contract each', 1, 'Dollars made or lost on closed trades, one contract per trade'], ['Profit factor', 1], ['Shadow trades', 1, 'Closed shadow trades and their average result']], flag + rows + total);
 
     var mk = d.market || {}, env = mk.env || {}, mac = mk.macro || {};
     var envChips = ENG_ENV.map(function(k){ return env[k[0]] ? '<span class="eng-chip"><b>' + k[1] + ':</b> ' + escapeHtml(String(env[k[0]])) + '</span>' : ''; }).join('');
     var backdrop = '<div class="eng-reads"><span class="eng-chip"><b>Market type:</b> ' + escapeHtml(mk.regime && mk.regime.cell ? engCell(mk.regime.cell) : 'not labeled') + '</span>' + (mk.macroState ? '<span class="eng-chip"><b>Market tape:</b> ' + escapeHtml(engCap(mk.macroState)) + '</span>' : '') + envChips + (mk.macroEvent ? '<span class="eng-chip"><b>Last session:</b> ' + escapeHtml(String(mk.macroEvent).split('+').map(function(k){ return ENG_EVENT[k] || k; }).join(' and ')) + '</span>' : '') + '</div>' +
-      '<p class="evb-note">10-year yield ' + slpNum(mac.y10, 2) + '% (' + slpPts(mac.y10Chg, 2) + ' in a month) · financial conditions ' + slpNum(mac.nfci, 2) + ' (' + slpPts(mac.nfciChg, 2) + ' in four weeks) · dollar ' + slpPts(mac.usdChgPct, 1) + '% in a month · VIX ' + slpNum(mac.vix, 1) + ' (' + slpNum(mac.vixRatio, 2) + 'x the 3-month) · CPI ' + slpNum(mac.cpiYoy, 1) + '% on the year. Each number is the latest one that was public at the run.</p>';
+      '<p class="evb-note">10-year yield ' + slpNum(mac.y10, 2) + '% (' + slpPts(mac.y10Chg, 0) + ' bp in a month) · financial conditions ' + slpNum(mac.nfci, 2) + ' (' + slpPts(mac.nfciChg, 2) + ' in four weeks) · dollar ' + slpPts(mac.usdChgPct, 1) + '% in a month · VIX ' + slpNum(mac.vix, 1) + ' (' + slpNum(mac.vixRatio, 2) + 'x the 3-month) · CPI ' + slpNum(mac.cpiYoy, 1) + '% on the year. Each number is the latest one that was public at the run.</p>';
 
     var lr = d.lastRun, last;
     if (!lr) last = '<p class="hint">This file was carried forward by a build that was not a Top Picks run. The engines act only at the 11:00 and 15:30 ET runs.</p>';

@@ -5,8 +5,9 @@ export function renderEnginesCss() {
   return `
 /* ---- Strategy engines (Top Picks page) ----------------------------------- */
 .eng-switch { margin: 0 0 12px; min-width: 0; }
-.eng-tabs { gap: 2px; }
-.eng-tab { display: inline-flex; align-items: center; gap: 6px; }
+.eng-tabs { gap: 0; }
+.eng-tab { display: inline-flex; align-items: center; gap: 5px; padding-left: 10px; padding-right: 10px; font-size: 13.5px; }
+.eng-tab .ui-tab-count { margin-left: 0; }
 .eng-flag { font: 650 10px/1.5 var(--font-sans); letter-spacing: .05em; text-transform: uppercase; padding: 0 6px; border-radius: var(--r-pill, 999px); color: var(--accent, var(--text-strong)); background: color-mix(in srgb, var(--accent, var(--muted)) 14%, transparent); }
 .eng-count { margin-left: 0; }
 .eng-pane { min-width: 0; }
@@ -18,7 +19,11 @@ export function renderEnginesCss() {
 .eng-empty { padding: 8px 0 12px; }
 .eng-foot { margin-top: 14px; }
 .eng-pane .evb-lead .evb-pill { margin-right: 6px; }
+.eng-pane .mm-kpis { grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); }
 .eng-pane .mm-kpi b { font-size: 16px; }
+.eng-pane .mm-kpi b span { font: inherit; color: inherit; }
+.eng-pane .mm-kpi b .sig-pos { color: var(--pos); }
+.eng-pane .mm-kpi b .sig-neg { color: var(--neg); }
 .eng-kpi-sub { display: block; margin-top: 2px; font: 500 11px/1.3 var(--font-sans); color: var(--muted); }
 .eng-pane .slp-table th, .eng-pane .slp-table td { text-align: left; }
 .eng-pane .slp-table th.num, .eng-pane .slp-table td.num { text-align: right; white-space: nowrap; }
@@ -50,11 +55,14 @@ export function renderEnginesCss() {
 .eng-seg-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .eng-details { margin: 4px 0 6px; }
 .eng-details > summary { padding: 3px 0; }
+.eng-cmp-name { min-width: 190px; }
+.eng-cmp-name .crd-dim { white-space: nowrap; }
 .eng-flag-row td { background: color-mix(in srgb, var(--accent, var(--muted)) 5%, transparent); }
 .eng-total-row td { border-top: 2px solid var(--border); font-weight: 600; }
 @media (max-width: 640px) {
   .eng-tab { padding-left: 10px; padding-right: 10px; }
   .eng-head-pills { justify-content: flex-start; }
+  .eng-cmp-name { min-width: 150px; }
   .eng-pane .slp-table td.l { min-width: 14ch; }
   .eng-seg { border-radius: 14px; }
 }

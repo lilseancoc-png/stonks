@@ -41122,10 +41122,15 @@ async function main() {
           rfr: riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE,
           research: await loadEnginesResearch(ROOT),
         });
-        const enginesInfo = await writeEngineFiles(DATA_DIR, enginesRun);
-        enginesRan = true;
-        const es = enginesRun.summary;
-        console.log(`wrote data/${ENGINES_RECORD_KEY} + state + page — ${es.opened} opened, ${es.closed} closed, ${es.open} open, ${es.closedTotal} closed in all; shadow ${es.shadowOpened} opened / ${es.shadowClosed} closed; ${es.changes} rule change(s); ${es.views} name(s) read${es.mode !== "on" ? `; mode ${es.mode}` : ""}${es.errors.length ? `; errors: ${es.errors.join(" | ")}` : ""}; ${enginesInfo.recordBytes} + ${enginesInfo.stateBytes} + ${enginesInfo.viewBytes} bytes`);
+        if (enginesRun.skipped) {
+          // Outside market hours (a forced build): nothing marked or opened.
+          console.log(`[engines] not run: ${enginesRun.skipped}`);
+        } else {
+          const enginesInfo = await writeEngineFiles(DATA_DIR, enginesRun);
+          enginesRan = true;
+          const es = enginesRun.summary;
+          console.log(`wrote data/${ENGINES_RECORD_KEY} + state + page — ${es.opened} opened, ${es.closed} closed, ${es.open} open, ${es.closedTotal} closed in all; shadow ${es.shadowOpened} opened / ${es.shadowClosed} closed; ${es.changes} rule change(s); ${es.views} name(s) read${es.mode !== "on" ? `; mode ${es.mode}` : ""}${es.errors.length ? `; errors: ${es.errors.join(" | ")}` : ""}; ${enginesInfo.recordBytes} + ${enginesInfo.stateBytes} + ${enginesInfo.viewBytes} bytes`);
+        }
       } catch (err) {
         console.warn(`[engines] run skipped, stored files carried forward — ${String(err?.message || err).split("\n")[0]}`);
       }

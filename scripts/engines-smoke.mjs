@@ -632,6 +632,20 @@ ok("hook: stale bars are not traded", () => {
   assert.equal(res.view.health.staleBars.length, Object.keys(SERIES).length);
   assert.equal(res.summary.opened, 0);
 });
+ok("hook: a build outside market hours marks and opens nothing", () => {
+  // Saturday, Thanksgiving, before the open, after the close, after a 13:00 half-day close.
+  for (const iso of ["2026-11-21T16:00:00.000Z", "2026-11-26T16:00:00.000Z", "2026-11-16T13:00:00.000Z", "2026-11-16T21:05:00.000Z", "2026-11-27T18:30:00.000Z"]) {
+    const loaded = { record: emptyRecord(), state: emptyState() };
+    loaded.record.open.push({ engine: "technicals", symbol: "S01", side: "call", sessions: 2, contract: { strike: 100, expiry: 1900000000, mid: 5, optionType: "call" } });
+    const res = runEngines({ loaded, ...fixture(iso) });
+    assert.ok(res.skipped, iso);
+    assert.equal(res.record, undefined);
+    // Nothing was touched: the build re-writes the stored files as they were.
+    assert.equal(loaded.record.open.length, 1); assert.equal(loaded.record.open[0].sessions, 2); assert.deepEqual(loaded.state, emptyState());
+  }
+  // The half day's morning run still acts.
+  assert.ok(!runEngines({ loaded: { record: emptyRecord(), state: emptyState() }, ...fixture("2026-11-27T16:00:00.000Z") }).skipped);
+});
 ok("flagship comparison row", () => {
   assert.equal(flagshipCompare(null), null);
   const f = flagshipCompare({ open: [{}, {}], closed: [{ optionPnlPct: 25, outcome: "win" }, { optionPnlPct: -50, outcome: "loss" }, { optionPnlPct: 5, outcome: "void" }] });
