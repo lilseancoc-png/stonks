@@ -109,10 +109,10 @@ export function renderAiDisruptionJs() {
     h += VIEWS.tableHtml([
       { label: 'Launch', cls: 'aid-c-wide', cell: function(l){ return aidLabTag(d, l.lab) + ' ' + aidLaunchTitle(l); }, sort: function(l){ return l.title; } },
       { label: 'Date', cls: 'aid-c-date', cell: function(l){ return escapeHtml(aidDay(l.date)); }, sort: function(l){ return l.date; } },
-      { label: 'Does', cls: 'aid-c-mid', cell: function(l){ return '<span class="aid-caps">' + (l.capabilities || []).map(function(c){ return '<span>' + escapeHtml(aidCapName(d, c)) + '</span>'; }).join('') + '</span><small class="crd-dim aid-sub">' + escapeHtml((d.labels && d.labels.how && d.labels.how[l.how]) || l.how || '') + '</small>'; }, nosort: true },
-      { label: 'Who can use it', cls: 'aid-c-mid', cell: function(l){ return escapeHtml((l.plans || []).map(function(p){ return AID_PLAN[p] || p; }).join(', ') || 'Shown, not sold') + '<small class="crd-dim aid-sub">' + escapeHtml(AID_AVAIL[l.availability] || l.availability) + ' · ' + escapeHtml(AID_AUTO[l.autonomy] || l.autonomy) + '</small>'; }, nosort: true },
-      { label: 'Score', num: true, cell: function(l){ return aidScore(l.score); }, sort: function(l){ return l.score; }, title: 'Customer-capture score, 0 to 100' },
-      { label: 'Targets', cls: 'aid-c-mid', cell: function(l){ return aidTargetsHtml(l, 5); }, sort: function(l){ return (l.targets || []).length; } },
+      { label: 'Does', cls: 'aid-c-mid aid-c-does', cell: function(l){ return '<span class="aid-caps">' + (l.capabilities || []).map(function(c){ return '<span>' + escapeHtml(aidCapName(d, c)) + '</span>'; }).join('') + '</span><small class="crd-dim aid-sub">' + escapeHtml((d.labels && d.labels.how && d.labels.how[l.how]) || l.how || '') + '</small>'; }, nosort: true },
+      { label: 'Who can use it', cls: 'aid-c-mid aid-c-who', cell: function(l){ return escapeHtml((l.plans || []).map(function(p){ return AID_PLAN[p] || p; }).join(', ') || 'Shown, not sold') + '<small class="crd-dim aid-sub">' + escapeHtml(AID_AVAIL[l.availability] || l.availability) + ' · ' + escapeHtml(AID_AUTO[l.autonomy] || l.autonomy) + '</small>'; }, nosort: true },
+      { label: 'Score', num: true, cls: 'aid-c-score', cell: function(l){ return aidScore(l.score); }, sort: function(l){ return l.score; }, title: 'Customer-capture score, 0 to 100' },
+      { label: 'Targets', cls: 'aid-c-mid aid-c-tg', cell: function(l){ return aidTargetsHtml(l, 5); }, sort: function(l){ return (l.targets || []).length; } },
     ], rows, { key: 'aid-log', cls: 'aid-log', empty: 'No launch matches these filters.' });
     return h;
   }
@@ -228,18 +228,83 @@ export function renderAiDisruptionJs() {
     h += VIEWS.tableHtml([
       { label: 'Launch', cls: 'aid-c-wide', cell: function(l){ return aidLabTag(d, l.lab) + ' ' + aidLaunchTitle(l); }, sort: function(l){ return l.title; } },
       { label: 'Date', cls: 'aid-c-date', cell: function(l){ return escapeHtml(aidDay(l.date)); }, sort: function(l){ return l.date; } },
-      { label: 'Tags', cls: 'aid-c-mid', cell: function(l){ return '<span class="aid-caps">' + (l.capabilities || []).map(function(c){ return '<span>' + escapeHtml(aidCapName(d, c)) + '</span>'; }).join('') + '</span><small class="crd-dim aid-sub">' + escapeHtml(((l.plans || []).map(function(p){ return AID_PLAN[p] || p; }).join(', ') || 'Shown, not sold') + ' · ' + (AID_AVAIL[l.availability] || l.availability) + ' · ' + (AID_AUTO[l.autonomy] || l.autonomy) + ' · covers ' + l.coverage + ' of 5') + '</small>'; }, nosort: true },
-      { label: 'Score', num: true, cell: function(l){ return aidScore(l.score); }, sort: function(l){ return l.score; } },
-      { label: '', cell: function(l){ return aidActionsHtml(l.id); }, nosort: true },
+      { label: 'Tags', cls: 'aid-c-mid aid-c-tags', cell: function(l){ return '<span class="aid-caps">' + (l.capabilities || []).map(function(c){ return '<span>' + escapeHtml(aidCapName(d, c)) + '</span>'; }).join('') + '</span><small class="crd-dim aid-sub">' + escapeHtml(((l.plans || []).map(function(p){ return AID_PLAN[p] || p; }).join(', ') || 'Shown, not sold') + ' · ' + (AID_AVAIL[l.availability] || l.availability) + ' · ' + (AID_AUTO[l.autonomy] || l.autonomy) + ' · covers ' + l.coverage + ' of 5') + '</small>'; }, nosort: true },
+      { label: 'Score', num: true, cls: 'aid-c-score', cell: function(l){ return aidScore(l.score); }, sort: function(l){ return l.score; } },
+      { label: '', cls: 'aid-c-act', cell: function(l){ return aidActionsHtml(l.id); }, nosort: true },
     ], autos, { key: 'aid-review', cls: 'aid-log aid-rev', empty: 'Every row is checked.', detail: function(l){ return openFix === l.id && !aidDecisionOf(l.id) ? aidFixForm(d, l) : ''; } });
     if ((o.skipped || []).length){
       h += '<details class="crd-sources"><summary>Skipped as not a launch (' + o.skipped.length + ')</summary><ul>' + o.skipped.map(function(s){ return '<li>' + aidLabTag(d, s.lab) + ' ' + escapeHtml(s.title) + ' <small class="crd-dim">' + escapeHtml(s.date) + ' · ' + escapeHtml(s.why || '') + '</small></li>'; }).join('') + '</ul></details>';
     }
     return h;
   }
+  // ---- Owner scorecard (Phase 3) ----
+  var AID_V = { falls: ['Falls vs IGV', 'neg'], rises: ['Rises vs IGV', 'pos'], 'no-effect': ['No effect', 'none'], collecting: ['Collecting', 'wait'],
+    'worse-after-pressure': ['Worse after pressure', 'neg'], 'better-after-pressure': ['Better after pressure', 'pos'], 'no-link': ['No link', 'none'],
+    'higher-falls-more': ['Higher score, bigger fall', 'neg'], 'higher-rises-more': ['Higher score, bigger rise', 'pos'] };
+  function aidVerdict(v){ var x = AID_V[v] || [v || '—', 'none']; return '<span class="aid-v aid-v-' + x[1] + '">' + escapeHtml(x[0]) + '</span>'; }
+  function aidPct(x, dp){ if (x == null || !isFinite(x)) return '—'; var v = x * 100; return (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toFixed(dp == null ? 2 : dp) + '%'; }
+  function aidNum(x, dp){ return x == null || !isFinite(x) ? '—' : (+x).toFixed(dp == null ? 2 : dp).replace(/^-/, '−'); }
+  function aidQ(x){ return x == null || !isFinite(x) ? '—' : x < 0.005 ? 'under 0.01' : (+x).toFixed(2); }
+  function aidGroupLabel(d, g){
+    if (g.id === 'all') return 'Every launch';
+    if (g.id.indexOf('outcome:') === 0){ var o = g.id.slice(8); return 'Could cause: ' + ((d.labels && d.labels.outcome && d.labels.outcome[o]) || o); }
+    return g.label;
+  }
   function aidScorecardHtml(d){
-    if (typeof aidScorecardBody === 'function') return aidScorecardBody(d, aidState.owner);
-    return '<p class="crd-empty">The scorecard is not built yet.</p>';
+    var o = aidState.owner;
+    if (!o) return '<p class="crd-empty">' + (aidState.ownerLoading ? 'Loading the scorecard…' : 'The scorecard is written by the next site update.') + '</p>';
+    var sc = o.scorecard;
+    if (!sc || !sc.moves) return '<p class="crd-empty">The scorecard is built once a day, on the first update of the morning, from the daily prices the site already downloads. It appears after that update.</p>';
+    var m = sc.moves, r = sc.results || { tests: [] }, gate = sc.phase4 || { ready: false, reasons: [] };
+    var all = (m.groups || []).filter(function(g){ return g.id === 'all'; })[0];
+    var h = '<p class="aid-lede">Owner only: these tests are about stocks, so they never reach the public page. Each launch is matched with the covered stocks it targets, and each stock’s move against the software ETF (' + escapeHtml(m.benchmark) + ') is compared with the same stock on ordinary days away from any launch. Nothing here changes a pick or a grade.</p>';
+    h += '<div class="mm-kpis">' +
+      '<div class="mm-kpi"><span>Launch-and-stock events</span><b>' + (m.events || 0) + '<small class="aid-kpi-sub">' + (m.stocks || 0) + ' stocks · since ' + escapeHtml(m.from ? aidDay(m.from) : '—') + '</small></b></div>' +
+      '<div class="mm-kpi"><span>Five days after, vs ' + escapeHtml(m.benchmark) + '</span><b>' + (all ? aidPct(all.windows.d5.mean) : '—') + '<small class="aid-kpi-sub">' + (all && all.windows.d5.placebo ? 'ordinary days ' + aidPct(all.windows.d5.placebo.lo) + ' to ' + aidPct(all.windows.d5.placebo.hi) : '') + '</small></b></div>' +
+      '<div class="mm-kpi"><span>Prices through</span><b>' + escapeHtml(aidDay(m.asOf)) + '<small class="aid-kpi-sub">built ' + escapeHtml(vnWhen(sc.builtAt)) + '</small></b></div>' +
+      '<div class="mm-kpi"><span>Phase 4 gate</span><b>' + (gate.ready ? 'Passes' : 'Not met') + '<small class="aid-kpi-sub">' + (gate.ready ? 'a Top Picks input still needs your OK' : 'no Top Picks input') + '</small></b></div></div>';
+    h += '<div class="aid-gate' + (gate.ready ? ' is-ready' : '') + '"><b>' + (gate.ready ? 'The launch effect passes every check.' : 'Why launches are not a Top Picks input:') + '</b>' +
+      (gate.reasons && gate.reasons.length ? '<ul>' + gate.reasons.map(function(x){ return '<li>' + escapeHtml(x) + '</li>'; }).join('') + '</ul>' : ' Turning it into one is your call.') + '</div>';
+    if (m.path && m.path.mean){
+      h += '<h3 class="aid-h3">Average move against ' + escapeHtml(m.benchmark) + ' around a launch</h3>' +
+        '<div class="aid-chart">' + lineSvgHtml({ labels: m.path.offsets.map(function(x){ return x === 0 ? 'Launch' : (x > 0 ? '+' : '−') + Math.abs(x); }), series: [{ name: 'Targeted stocks', values: m.path.mean.map(function(v){ return v == null ? null : v * 100; }) }],
+          band: { lo: m.path.lo.map(function(v){ return v == null ? null : v * 100; }), hi: m.path.hi.map(function(v){ return v == null ? null : v * 100; }) }, zero: true, h: 220, xEvery: 1,
+          yFmt: function(v){ return v.toFixed(1).replace(/^-/, '−') + '%'; }, valueFmt: function(v){ return (v > 0 ? '+' : '') + v.toFixed(2) + '%'; }, ariaLabel: 'Average move of targeted stocks against IGV from five trading days before a launch to ten after' }) + '</div>' +
+        '<p class="aid-q-why">Line: the average of ' + m.path.n + ' events, measured from the close before the launch day. Shaded: where 90% of averages over the same stocks on ordinary days fall.</p>';
+    }
+    h += '<h3 class="aid-h3">Do targeted stocks move?</h3>';
+    var cell = function(c){ return c ? '<span class="aid-cellv">' + aidPct(c.mean) + ' ' + aidVerdict(c.verdict) + '</span><small class="crd-dim aid-sub">' + (c.placebo ? 'ordinary ' + aidPct(c.placebo.lo, 1) + ' to ' + aidPct(c.placebo.hi, 1) + ' · ' : '') + 'q ' + aidQ(c.q) + '</small>' : '—'; };
+    h += '<div class="vt-wrap"><table class="vt-table aid-sc" data-nosort><thead><tr><th scope="col">Launches</th><th scope="col" class="num">Events</th><th scope="col">Launch day and the next</th><th scope="col">Five days after</th><th scope="col">Five days before</th></tr></thead><tbody>' +
+      (m.groups || []).map(function(g){ return '<tr><td>' + escapeHtml(aidGroupLabel(d, g)) + '<small class="crd-dim aid-sub">' + g.stocks + ' stock' + (g.stocks === 1 ? '' : 's') + '</small></td><td class="num">' + g.n + '</td><td>' + cell(g.windows.d2) + '</td><td>' + cell(g.windows.d5) + '</td><td>' + cell(g.windows.pre) + '</td></tr>'; }).join('') +
+      '</tbody></table></div>';
+    var notes = [];
+    if (m.scoreLink) notes.push('Does a higher capture score go with a bigger move? Rank match ' + aidNum(m.scoreLink.rho) + ' over ' + m.scoreLink.n + ' events (p ' + aidQ(m.scoreLink.p) + '): ' + aidVerdict(m.scoreLink.verdict));
+    if (m.halves) notes.push('Five days after, each half of the history: ' + m.halves.map(function(x){ return escapeHtml(aidDay(x.from)) + ' to ' + escapeHtml(aidDay(x.to)) + ' ' + aidPct(x.mean) + ' (' + x.n + ' events, p ' + aidQ(x.p) + ')'; }).join('; ') + '.');
+    if (notes.length) h += '<ul class="aid-notes">' + notes.map(function(x){ return '<li>' + x + '</li>'; }).join('') + '</ul>';
+    h += '<h3 class="aid-h3">Does launch pressure predict the next results?</h3>' +
+      '<p class="aid-q-why">Pressure at a report: the capture score of each launch aimed at the company in the ' + escapeHtml(String(r.pressureDays || 91)) + ' days before it, weighted 1 for its core product, 0.6 for an add-on, 0.3 for an adjacent one. Both pressure and the result are measured against the company’s own usual, then ranked against each other.</p>';
+    h += '<div class="vt-wrap"><table class="vt-table aid-sc" data-nosort><thead><tr><th scope="col">Result at the next report</th><th scope="col" class="num">Reports</th><th scope="col" class="num">With pressure</th><th scope="col" class="num">Rank match</th><th scope="col" class="num">q</th><th scope="col">Verdict</th></tr></thead><tbody>' +
+      (r.tests || []).map(function(t){ return '<tr><td>' + escapeHtml(t.label) + '<small class="crd-dim aid-sub">' + t.companies + ' companies</small></td><td class="num">' + t.n + '</td><td class="num">' + t.pressured + '</td><td class="num">' + aidNum(t.rho) + '</td><td class="num">' + aidQ(t.q) + '</td><td>' + aidVerdict(t.verdict) + '</td></tr>'; }).join('') +
+      '</tbody></table></div>';
+    h += '<h3 class="aid-h3">By stock</h3>';
+    h += VIEWS.tableHtml([
+      { label: 'Stock', cell: function(x){ return '<a href="' + escapeHtml(vnHref(x.symbol)) + '">' + escapeHtml(x.symbol) + '</a>'; }, sort: function(x){ return x.symbol; } },
+      { label: 'Events', num: true, cell: function(x){ return String(x.n); }, sort: function(x){ return x.n; } },
+      { label: 'Day and next', num: true, cell: function(x){ return aidPct(x.d2); }, sort: function(x){ return x.d2; } },
+      { label: 'Five days', num: true, cell: function(x){ return aidPct(x.d5); }, sort: function(x){ return x.d5; } },
+      { label: 'Before', num: true, cell: function(x){ return aidPct(x.pre); }, sort: function(x){ return x.pre; } },
+      { label: 'Fell in five days', num: true, cell: function(x){ return Math.round((x.down5 || 0) * 100) + '%'; }, sort: function(x){ return x.down5; } },
+      { label: 'Worst launch', cls: 'aid-c-wide', cell: function(x){ return x.worst ? escapeHtml(x.worst.title) + ' <small class="crd-dim">' + escapeHtml(aidDay(x.worst.date)) + ' · ' + aidPct(x.worst.d5) + '</small>' : ''; }, nosort: true },
+    ], m.perStock || [], { key: 'aid-sc-stocks', cls: 'aid-log', empty: 'No stock measured yet.' });
+    if ((m.recent || []).length){
+      h += '<details class="crd-sources"><summary>Newest ' + m.recent.length + ' events</summary><ul>' + m.recent.map(function(e){
+        return '<li>' + escapeHtml(aidDay(e.date)) + ' · <b>' + escapeHtml(e.symbol) + '</b> ' + aidLabTag(d, e.lab) + ' ' + escapeHtml(e.title) + ' <small class="crd-dim">score ' + e.score + (e.merged > 1 ? ' · ' + e.merged + ' launches counted once' : '') + ' · day and next ' + aidPct(e.d2) + ' · five days ' + aidPct(e.d5) + '</small></li>';
+      }).join('') + '</ul></details>';
+    }
+    h += '<details class="crd-sources"><summary>How the scorecard works</summary>' +
+      '<p class="crd-note">Daily closes come from the Event spillover download (about ten years for every covered stock and ' + escapeHtml(m.benchmark) + '), once a day; no extra download. A launch posted on a weekend counts from the next trading day. Launches aimed at the same stock within three trading days count once. Ordinary days are the same stock’s days from a year before its first launch on, kept ten trading days clear of every launch aimed at it; each test draws one ordinary day per event 2,000 times (seeded) to see how often an average that far from zero happens by chance. q is the p value adjusted for the ' + ((m.groups || []).length * 3) + ' tests in the table. A group with fewer than 15 events, or a results test with fewer than 60 reports, says Collecting.</p>' +
+      '<p class="crd-note">Phase 4, a Top Picks input, needs every launch together to fall against ' + escapeHtml(m.benchmark) + ' in the five days after (adjusted), no move already under way in the five days before, the fall in both halves of the history, and 40 or more events. Even then it waits for your OK.</p></details>';
+    return h;
   }
   function aidSourcesHtml(d){
     var src = d.sources || [];
@@ -370,12 +435,12 @@ export function renderAiDisruptionJs() {
     var OUT = (d.labels && d.labels.outcome) || {};
     var caps = (co.exposures || []).map(function(e){ return aidCapName(d, e.capability); });
     var h = '<h3 class="stp-h3">AI launches aimed at what it sells</h3>' +
-      '<p class="stp-lede">' + escapeHtml(co.name) + ' sells ' + escapeHtml(caps.slice(0, 4).join(', ')) + (caps.length > 4 ? ' and more' : '') + '. ' +
+      '<p class="stp-lede">What ' + escapeHtml(co.name) + ' sells that the labs now ship: ' + escapeHtml(caps.slice(0, 4).join(', ')) + (caps.length > 4 ? ' and more' : '') + '. ' +
       (hits.length ? hits.length + ' AI lab launch' + (hits.length === 1 ? '' : 'es') + ' in the last 90 days overlap' + (hits.length === 1 ? 's' : '') + ' with it.' : 'No AI lab launch in the last 90 days overlaps with it.') + '</p>';
     if (hits.length){
       h += '<ul class="aid-strip">' + hits.slice(0, 4).map(function(l){
         var o = outcomeOf(l);
-        return '<li>' + aidLabTag(d, l.lab) + ' <span>' + escapeHtml(l.title) + '</span> <small class="crd-dim">' + escapeHtml(l.date) + '</small> <span class="aid-t aid-t-' + escapeHtml(o) + '">' + escapeHtml(OUT[o] || o) + '</span></li>';
+        return '<li>' + aidLabTag(d, l.lab) + ' <span>' + escapeHtml(l.title) + '</span> <small class="crd-dim">' + escapeHtml(aidDay(l.date)) + '</small> <span class="aid-t aid-t-' + escapeHtml(o) + '">' + escapeHtml(OUT[o] || o) + '</span></li>';
       }).join('') + '</ul>';
     }
     h += '<p class="stp-src">From the AI labs’ own release notes; a description of the products, not a view on the stock. <a href="?tab=ai-disruption&amp;company=' + encodeURIComponent(sym) + '">Every launch aimed at ' + escapeHtml(sym) + '</a></p>';
