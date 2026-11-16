@@ -58,7 +58,10 @@ export function fakeFetch(url) {
   if (u.hostname.includes('kalshi')) {
     const p = u.pathname.replace(/^\/trade-api\/v2/, '');
     if (p === '/series') return Promise.resolve({ series: seriesByCat[q.get('category')] || [] });
-    if (p === '/events' && q.get('status') === 'open') return Promise.resolve({ events: kalshiEvents, cursor: '' });
+    if (p === '/events' && q.get('status') === 'open') {
+      const s = q.get('series_ticker');
+      return Promise.resolve({ events: s ? kalshiEvents.filter((e) => e.series_ticker === s) : kalshiEvents, cursor: '' });
+    }
     if (p === '/events' && q.get('status') === 'settled') {
       const s = q.get('series_ticker');
       if (s !== 'KXCPI') return Promise.resolve({ events: [] });

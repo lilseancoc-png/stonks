@@ -100,7 +100,8 @@ const OWNER_SETTINGS_REPORT = (() => { try { const r = JSON.parse(process.env.OW
 import { buildCrowdPayload, buildCrowdOwner, readCrowdPrior, writeCrowdFiles, marketGauges, crowdScoresForRow, CROWD_KEY, CROWD_OWNER_KEY } from "../lib/crowd/index.mjs";
 import { loadEngineFiles, carryEngineFiles, writeEngineFiles, runEngines, loadEnginesResearch, flagshipCompare, enginesEnabled, ENGINES_RECORD_KEY } from "../lib/engines/index.mjs";
 import { firstFridays as enginesFirstFridays } from "../lib/engines/macro.mjs";
-import { updatePredictionState, buildPredictionPublic, buildPredictionOwner, analyzePrediction, predictionShadow, predictionContextFor, predictionGraderLines, pricesFromChains, readPredictionPrior, writePredictionFiles, PREDICTION_KEY, PREDICTION_OWNER_KEY } from "../lib/prediction/index.mjs";
+import { pickTradeId } from "../lib/pick-trade-text.mjs";
+import { updatePredictionState, bakeMaxMs, buildPredictionPublic, buildPredictionOwner, analyzePrediction, predictionShadow, predictionContextFor, predictionGraderLines, pricesFromChains, readPredictionPrior, writePredictionFiles, PREDICTION_KEY, PREDICTION_OWNER_KEY } from "../lib/prediction/index.mjs";
 import { buildHistoryRhymes, buildHistoryRhymesOwner, historyRhymesSummary, HISTORY_RHYMES_KEY, HISTORY_RHYMES_OWNER_KEY, HISTORY_RHYMES_FRED, REPORTED_CDS } from "../lib/history-rhymes.mjs";
 import { AI_COST_HISTORY_KEY, parseAiCostHistory, upsertAiCostHistory } from "../lib/ai-cost-history.mjs";
 import { refreshCorporateStructure, CORPORATE_STATE_VERSION } from "../lib/corporate-structure/collector.mjs";
@@ -39198,14 +39199,18 @@ async function main() {
   } else {
     console.log("Reading prediction market odds…");
     try {
+      // A time limit on the whole read: this step runs ahead of the Top Picks
+      // run, so a venue that hangs must not delay it (shorter on decision runs).
+      const predictionDecisionRun = !/^(?:0|false)$/i.test(process.env.REFRESH_TOP_PICKS || "1");
       const { state: predictionState, status: predictionStatus } = await updatePredictionState({
         prior: predictionPrior.state, nowMs: Date.now(), universe: TICKERS, chains,
         crowdKalshi: crowdPayload?.kalshi || null, log: (line) => console.log(line),
+        maxMs: bakeMaxMs({ decisionRun: predictionDecisionRun }),
       });
       const predictionAnalysis = analyzePrediction(predictionState, { prices: pricesFromChains(chains, TICKERS) });
       const predictionPub = buildPredictionPublic(predictionState, predictionStatus, { crowdKalshi: crowdPayload?.kalshi || null, consensusRowsWithMoves: predictionAnalysis.consensusRowsWithMoves });
       predictionRun = { state: predictionState, status: predictionStatus, analysis: predictionAnalysis, pub: predictionPub };
-      console.log(`  · prediction odds: ${predictionPub.counts.tracked} contracts tracked, ${predictionStatus.calls}/${predictionStatus.budget} calls, ${predictionStatus.backfilled} backfilled${predictionStatus.errors.length ? `, ${predictionStatus.errors.length} error(s): ${predictionStatus.errors[0]}` : ""}`);
+      console.log(`  · prediction odds: ${predictionPub.counts.tracked} contracts tracked, ${predictionStatus.calls}/${predictionStatus.budget} calls, ${predictionStatus.backfilled} backfilled${predictionStatus.rateLimited ? `, ${predictionStatus.rateLimited} rate-limited answer(s)` : ""}${predictionStatus.stopped ? `, stopped early (${predictionStatus.stopped})` : ""}${predictionStatus.errors.length ? `, ${predictionStatus.errors.length} error(s): ${predictionStatus.errors[0]}` : ""}`);
     } catch (err) {
       predictionRun = null;
       console.warn(`[prediction] skipped — ${String(err?.message || err).split("\n")[0]}`);
@@ -41470,7 +41475,7 @@ async function main() {
     if (predictionRun) {
       let accForOdds = null;
       try { accForOdds = JSON.parse(await readFile(resolve(DATA_DIR, PICKS_ACCURACY_FILE), "utf8")); } catch { /* no record yet */ }
-      const openForOdds = (Array.isArray(accForOdds?.open) ? accForOdds.open : []).map((t) => ({ id: t.id ?? t.tradeId ?? null, symbol: t.symbol, side: t.side }));
+      const openForOdds = (Array.isArray(accForOdds?.open) ? accForOdds.open : []).map((t) => ({ id: t.id ?? t.tradeId ?? pickTradeId(t), symbol: t.symbol, side: t.side }));
       const predictionOwner = buildPredictionOwner(predictionRun.state, predictionRun.analysis, { openTrades: openForOdds, pub: predictionRun.pub, universe: TICKERS });
       await writePredictionFiles(DATA_DIR, { state: predictionRun.state, pub: predictionRun.pub, owner: predictionOwner });
       console.log(`wrote data/${PREDICTION_KEY} + data/${PREDICTION_OWNER_KEY} — ${predictionRun.pub.counts.tracked} contracts, ${predictionOwner.families.length} test families, ${predictionOwner.alerts.length} open-trade alert(s)`);
