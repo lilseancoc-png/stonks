@@ -12,7 +12,7 @@ import {
   runtimeEnvOverrides, picksTag, describePicksTag,
 } from "../lib/owner-settings.mjs";
 import { isPremiumKey } from "../lib/premium-keys.mjs";
-import { REQUEST_TIME_EXCLUSIVE_KEYS } from "../lib/data-ownership.mjs";
+import { REQUEST_TIME_EXCLUSIVE_KEYS, OPTIONAL_BAKE_KEYS } from "../lib/data-ownership.mjs";
 import { OWNER_PAGE_IDS } from "../lib/owner-access-policy.mjs";
 
 let checks = 0;
@@ -176,6 +176,7 @@ eq(runtimeEnvOverrides({ values: { MCP_ENABLED: false, WEBULL_MIRROR: false, CON
 ok(isPremiumKey(OWNER_SETTINGS_KEY) && isPremiumKey(OWNER_SETTINGS_APPLIED_KEY), "both files are Owner-only");
 ok(REQUEST_TIME_EXCLUSIVE_KEYS.has(OWNER_SETTINGS_KEY), "no workflow pushes or deletes the settings");
 ok(!REQUEST_TIME_EXCLUSIVE_KEYS.has(OWNER_SETTINGS_APPLIED_KEY), "the build's report is bake-owned");
+ok(OPTIONAL_BAKE_KEYS.includes(OWNER_SETTINGS_APPLIED_KEY), "the build's report is a classified optional key, so publication does not hold it back");
 ok(OWNER_PAGE_IDS.includes("owner-settings"), "the page is Owner-only");
 
 // --- server route ---------------------------------------------------------------------------

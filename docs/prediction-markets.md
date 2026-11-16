@@ -26,6 +26,36 @@ venue is slow or down (`lib/prediction/venues.mjs`, `bakeMaxMs` in
   a release's expected value is read again at the next build.
 - What was read before the stop is kept and published; the build log line
   says "stopped early" and why, and `state.lastRun.stopped` records it.
+- Kalshi calls start at least 120 ms apart (`KALSHI_MIN_GAP_MS`). A 429
+  ("too many requests", seen on the 2026-11-16 builds) waits for the
+  venue's Retry-After (1 second by default, 3 at most) and tries once more,
+  and doubles that venue's gap for the rest of the build. A second 429 is
+  treated like a call that got no answer: it is tried again at a later
+  build, and three in a row stop that venue ("kalshi rate limit"). Before
+  this, two 429s on one contract's history fill gave the fill up for good;
+  fills given up on a 429 or a 400 get one more go (`backfill.retried`).
+- When Polymarket refuses a history range read (HTTP 400, also seen on
+  2026-11-16, hourly and daily alike), the fill reads the market's whole
+  history once as daily bars (`interval=max`), keeps the last year and is
+  done (`backfill.coarse`). Error lines now carry the venue's own short
+  reason from a JSON error body, for example `HTTP 400 (invalid filters)`.
+
+**Kalshi discovery (2026-11-16).** Each day's discovery first reads the core
+Kalshi series on their own (`KALSHI_CORE_SERIES`: `KXFEDDECISION`, `KXCPI`,
+`KXCPICOREYOY`, `KXPAYROLLS`, `KXU3`, `KXJOBLESSCLAIMS`; six calls), then the
+broad listing; an event in both counts once. Contracts from these series are
+kept past the topic caps, because the Fed gauge and the Fed rows of the
+release test read only the Kalshi Fed decision. A listing that stops early (a
+refused page, the time limit) leaves the day unmarked, so the next build reads
+it again, up to three tries a day (`state.discoveryTries`). The first live
+day (2026-11-16) kept four Kalshi contracts and no Fed decision market.
+
+**Topics from the question's words.** A venue category ("Finance",
+"Economy") only files a question when its own words set no topic. A covered
+company in such a question makes it a company bet, and a takeover question
+about a company the site does not cover is not added (`themeFor`). Tracked
+contracts are re-filed at each discovery when their words or a covered
+company give a topic.
 
 `PREDICTION_TIMEOUT_MS` and `PREDICTION_MAX_SECONDS` override the two limits
 in the build's environment. They are not wired as repo variables; using them

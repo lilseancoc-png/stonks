@@ -39203,7 +39203,7 @@ async function main() {
       const predictionAnalysis = analyzePrediction(predictionState, { prices: pricesFromChains(chains, TICKERS) });
       const predictionPub = buildPredictionPublic(predictionState, predictionStatus, { crowdKalshi: crowdPayload?.kalshi || null, consensusRowsWithMoves: predictionAnalysis.consensusRowsWithMoves });
       predictionRun = { state: predictionState, status: predictionStatus, analysis: predictionAnalysis, pub: predictionPub };
-      console.log(`  · prediction odds: ${predictionPub.counts.tracked} contracts tracked, ${predictionStatus.calls}/${predictionStatus.budget} calls, ${predictionStatus.backfilled} backfilled${predictionStatus.stopped ? `, stopped early (${predictionStatus.stopped})` : ""}${predictionStatus.errors.length ? `, ${predictionStatus.errors.length} error(s): ${predictionStatus.errors[0]}` : ""}`);
+      console.log(`  · prediction odds: ${predictionPub.counts.tracked} contracts tracked, ${predictionStatus.calls}/${predictionStatus.budget} calls, ${predictionStatus.backfilled} backfilled${predictionStatus.rateLimited ? `, ${predictionStatus.rateLimited} rate-limited answer(s)` : ""}${predictionStatus.stopped ? `, stopped early (${predictionStatus.stopped})` : ""}${predictionStatus.errors.length ? `, ${predictionStatus.errors.length} error(s): ${predictionStatus.errors[0]}` : ""}`);
     } catch (err) {
       predictionRun = null;
       console.warn(`[prediction] skipped — ${String(err?.message || err).split("\n")[0]}`);
