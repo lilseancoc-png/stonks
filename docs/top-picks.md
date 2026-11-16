@@ -105,8 +105,10 @@ for signed Mechanicals and Entry Timing confirmation, not an automatic bullish
 grade point.
 
 **Mechanicals** (order flow leads price short-term):
-unusual options flow (+1 at an aggressive call/put ratio ≥1.5, −1 only at ≤0.5,
-because put buying is often a hedge), open-interest call/put skew (+1 above 1.5,
+unusual options flow (signed since 2026-11-16, see "Signed option flow": +1 at a
+signed balance of +0.30, −1 only at −0.40, because put buying is often a hedge;
+`FLOW_SIGNED=0` restores the older +1 at an ask-side call/put ratio ≥1.5, −1 at
+≤0.5), open-interest call/put skew (+1 above 1.5,
 −1 only below 0.5), short interest (+1 only when ≥15% of float is short AND shorts
 are covering ≥5% AND the 5-session return is positive; −1 when shares short rise
 ≥5%), unusual intraday volume + direction (±1).
@@ -1858,3 +1860,49 @@ gives the AI grader one line of credit and forced-selling facts when one is
 notable (`crowdGraderLines`, `GRADER_DISTRESS_NOTABLE`: default chance 5%+,
 pledge stress 50+, half a day of hot-fund volume, a 5%+ rebalance, a cluster
 selloff, any net insider count, 3%+ implied borrow).
+
+## Signed option flow, November 16, 2026
+
+The Unusual flow vote used to count flagged calls against flagged puts printed
+at the ask, and fell back to a 7-day count that read every flagged call as
+bullish and every put as bearish, whichever side traded. A call written at the
+bid (bearish or neutral) could lift the grade. Two scanner bugs made it worse:
+the bid/ask tag checked the ask first with a 1-cent margin, so on 1-cent-wide
+markets a print at the bid was tagged "ask"; and an old last trade was read
+against a fresh quote.
+
+`lib/flow-direction.mjs` (owner decision 2026-11-16: live on merge, no shadow
+period) is now the one rule for the grade's vote, the FLO engine and the 7-day
+read:
+
+- **Tag** (scanner, always on): the last print against the bid and ask in whole
+  cents; at or past the ask = bought, at or past the bid = sold, within 5% of
+  the spread of the midpoint = no side. A last trade more than 15 minutes older
+  than the scan (or the 16:00 ET close) gets no tag (`tapeStale`).
+- **Sign**: call bought +1, call sold −1, put bought −1, put sold +1.
+- **Weight**: delta dollars (contracts × |delta| × 100 × spot), delta from the
+  contract's own IV. Same-day expiries and contracts under $0.10 are left out.
+- **Next-morning open interest**: each scan stamps the 7-day log's earlier
+  prints with the 08:30 ET settled OI (`oi-history.json`): ΔOI of a quarter of
+  the day's volume or more = opened (full weight), a fall = closed (a quarter),
+  anything between = mixed (half). Today's prints count half until then. A
+  morning snapshot the provider has not rolled forward (90%+ of contracts
+  unchanged) is skipped.
+- **Age**: weight halves every 3 days over the 7-day window.
+- **Vote**: balance = (bull − bear) / (bull + bear); +1 from +0.30, −1 from
+  −0.40, with at least 3 contracts and $1M of delta dollars.
+
+Measured in the open: the older vote rides each Unusual flow signal as
+`legacy`, and the shadow log (version 7) keeps `ufo` (older vote), `ufn`
+(signed vote) and `ufb` (signed balance) for every name each day, measured on
+the Evidence board like any other key. `GRADE_MODEL_VERSION` moves to
+`2026-11-signed-flow` with a dated Track Record divider; the record is not
+reset. Stated risks: the weights are a judgment call (bounded by the ±2
+positioning family cap), OI confirmation lands a day late, and the Dec 7 grade
+test spans the change.
+
+`FLOW_SIGNED=0` (Owner Settings → Top Picks → Engine, or a workflow env value)
+brings back the older vote for the grade and the FLO engine. The tag fix and the
+stale check stay on either way. Tests: `node scripts/flow-direction-smoke.mjs`,
+`node scripts/picks-smoke.mjs` (and with `FLOW_SIGNED=0`),
+`node scripts/engines-smoke.mjs`.
