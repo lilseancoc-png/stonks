@@ -350,6 +350,31 @@ exports, including desktop, mobile, keyboard controls, and CSV. Tests use fake b
 store, never real or paper orders. They prove the tested lifecycle paths, not
 live Webull schema compatibility, liquidity, scheduler punctuality, or profits.
 
+## Strategy engines in the same account
+
+The six strategy engines (`docs/engines.md`) trade in this paper account too.
+At each mirror run the engines' record (`engines-record.json`) joins the Top
+Picks record: Top Picks rows first, then engine rows. Every ledger trade
+carries `engine`, and an engine trade's ID starts with its tag
+(`TEC:AAPL-C-11/16/26-11:00`), so the same entry, exit, quantity, expiry and
+reconciliation controls above apply to it unchanged.
+
+- **One position per contract.** A trade whose exact contract another tracked
+  trade already holds is recorded as `skipped` with `sharedContract` (who
+  holds it) and is never bought twice; the holder gets `sharedWith`. A trade
+  whose contract is being sold by its holder waits for that exit to finish.
+- **Reports stay apart.** `/api/auth/webull-mirror` and the Real fills tab are
+  Top Picks only. `?scope=engines` and `?scope=all` return the rest; both CSV
+  downloads take the same parameter and carry an `engine` column.
+- **Failure.** If the engines' record cannot be read, the Top Picks mirror
+  runs as usual and engine trades already in the ledger are held for that run.
+- **Switch.** `ENGINES_MIRROR=0` in Vercel stops new engine trades entering
+  the account; trades already there keep being managed and closed.
+- **Load.** The engines open at most five new trades a run in total, which
+  keeps a mirror run inside its time budget.
+
+Test: `node scripts/engines-mirror-smoke.mjs` (fake broker).
+
 Primary references: [Webull options orders](https://developer.webull.com/apis/docs/trade-api/options/),
 [account positions](https://developer.webull.com/apis/docs/reference/account-position/),
 [NYSE calendar](https://www.nyse.com/trade/hours-calendars), and

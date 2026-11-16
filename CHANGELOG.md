@@ -36,6 +36,21 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ### Added
 - Add NBA team offensive/defensive efficiency, net rating and pace to prop research, player forecasts and Pick Builder; fit stat-specific efficiency and pace adjustments on prior complete games and use them only when they improve the historical check. NFL predictions are unchanged (#823).
 
+## 2026-11-16
+
+### Added
+- Add six rules-only paper engines beside Top Picks (`lib/engines/`, `docs/engines.md`): Earnings & events, Macro, Technicals, Fundamentals, Flow & positioning and Reversion. Each has its own setups, data, 0 to 100 score, contract window and exits, buys one single call or put, and acts at the 11:00 and 15:30 ET Top Picks runs. No AI call and no new fetch; nothing reads or changes a Top Pick, a grade or the Top Picks Track Record. Paper tracking starts 2026-11-16.
+- Keep the engines on their own track record: Owner-only `engines-record.json` (trades), `engines-state.json` (learning state) and `engines.json` (page file), read before the wipe and written after the Top Picks record. Trade IDs carry the engine tag (`TEC:AAPL-C-11/16/26-11:00`).
+- Copy every engine's trades into the one Webull paper account. Each ledger trade carries its engine; `/api/auth/webull-mirror` still returns Top Picks trades only, `?scope=engines` and `?scope=all` return the rest, and the Top Picks Real fills tab never shows an engine trade. `ENGINES_MIRROR=0` (Vercel) stops new engine trades entering the account.
+- Label a contract two engines share: the first holder owns the one paper position, the other records the trade on its own record as "Held by" that engine and is not bought twice, and the holder shows "Also on". Open picks notes a Top Picks trade that shares a contract.
+- Let each engine tighten itself inside fixed limits: a losing-streak pause, a setup mute, a market-type stand-down and an entry bar that moves inside its range. Setups it skips run as shadow trades, every change bumps a rules version on the change log, and six setups that lost in both halves of the history test start on shadow.
+- Add a history test for Technicals, Reversion and Macro (`node scripts/engines-backtest.mjs`, 2007 to 2026, modeled option prices, costs, random-entry control books), shown by time period, Regime Lab market type and macro environment. No engine shows a reliable profit after costs; the page says so.
+- Add engine tabs to the Top Picks page (Owner-only): All engines side by side, and per engine Now, Track record, Setups and learning, History test and Webull paper. The MCP reads them as `picks.engines` and `picks.engines-record`; the Export menu includes both files.
+- Add repo variables `ENGINES` (unset = on, `pause`, `0`) and `ENGINES_OFF` (a list of engines that open no new trades), and a Strategy engines switch on the Owner Settings page (On / Manage open trades only / Frozen). Tests: `node scripts/engines-smoke.mjs`, `node scripts/engines-mirror-smoke.mjs`, `node scripts/engines-browser.mjs`.
+
+### Fixed
+- Update two tests left stale by the prediction markets change: the Brief coverage check lists Prediction markets as a reference-only page, and the Booms & busts test expects shadow log version 6.
+
 ## 2026-11-15
 
 ### Added

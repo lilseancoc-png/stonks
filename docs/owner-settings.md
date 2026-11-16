@@ -14,13 +14,14 @@ scrolling row on phones) with a count of changed settings on each, folding
 sections inside each tab, a search box across every tab and a "Changed only"
 filter. The chosen tab is remembered on the device.
 
-**Big impact.** 25 settings that change how Mingstreet trades or runs carry
+**Big impact.** 27 settings that change how Mingstreet trades or runs carry
 `impact: "high"` and a `warn` sentence in `lib/owner-settings.mjs`: the Top
 Picks engine guards (event plays, macro context, singles, option structure,
 the losing-record brake, the event checks, credit spreads into events), the
 book limits (most open trades, new trades per group, the single cost cap),
 the market tape itself, the AI final grader, the measurement switches whose
-missed days can't be rebuilt (crowd, run archive, Regime Lab, loop), every
+missed days can't be rebuilt (crowd, run archive, Regime Lab, loop), the
+strategy engines switch (Frozen stops their exits), every
 After Dec 7 hook and four live switches (message box, public MCP, MCP,
 Webull mirror). Each row shows a red "Big impact" tag and its warning in bold
 red, and a "Big impact only" filter lists them. Changing one opens an "are you
@@ -36,7 +37,7 @@ to a default never needs it.
 | Top Picks | Engine: event plays, macro context block + strength (0.25-1.5), singles by default, pick the option structure, raise the bar after losses. Book and sizes: most picks per run (1-6), most open trades (5-30), new trades per stock group per run (1-4), most watch ideas (0-10), single option cost cap ($1,000-$10,000), display account size. Events: wait out Fed/CPI/PPI/jobs days, event risk check, earnings window for spreads (0-30 days), credit spreads into macro events | next build; Top Picks from the next 11:00 / 15:30 ET run |
 | Market tape | The tape on the picks, and one switch per input: indexes, credit, breadth, put/call, bond volatility, Fear & Greed, inflation and jobs, oil and gold shocks, geopolitical headlines, overnight markets, sector rotation | next Top Picks run |
 | AI & cost | AI final grader, web search before grading (both can only be turned off from their default, so AI spend can only fall) | next Top Picks run |
-| Data & desks | Prediction-market odds, crowd data, IBKR borrow fees, LEAPS desk, stock picks shown (1-24), Earnings Forecast refresh | next build |
+| Data & desks | Prediction-market odds, crowd data, IBKR borrow fees, LEAPS desk, stock picks shown (1-24), Earnings Forecast refresh, strategy engines (On / Manage open trades only / Frozen; engines act at the next Top Picks run) | next build |
 | Research | Run archive, Regime Lab, self-improving loop | next build |
 | After Dec 7 | Crowd squeeze veto, crowd lines in the grader, Cboe put/call source, SELF_TUNE on | refused before 2026-12-07, then big impact (confirm) |
 | Live site | Message box, public MCP tools, Sports, MCP server, Webull paper mirror | within 30 seconds; these can only turn a feature OFF on top of Vercel |

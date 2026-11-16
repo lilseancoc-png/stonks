@@ -975,22 +975,33 @@ async function contactInbox(req, res) {
 //   The trigger token is derived from
 //   R2_SECRET_ACCESS_KEY (already set in Vercel and GitHub), so no new secret
 //   is shared between the two; the response carries counts only.
-// GET  /api/auth/webull-mirror[?format=csv]  (Owner session)
-//   The trade log: { ledger summary, rows } or a CSV download.
+// GET  /api/auth/webull-mirror[?format=csv][&scope=engines|all]  (Owner session)
+//   The trade log: { ledger summary, rows } or a CSV download. The default
+//   scope is Top Picks' own trades; scope=engines is the strategy engines'
+//   trades (lib/engines/), which share the paper account and are told apart
+//   by `engine` on each trade; scope=all is both.
+// The strategy engines' record (engines-record.json) joins the Top Picks
+// record for every run. ENGINES_MIRROR=0 stops NEW engine trades entering the
+// mirror; engine trades already in the ledger keep being managed and closed.
 // Off unless WEBULL_MIRROR=on and the Webull paper keys are set. The client
 // only talks to Webull's sandbox host, so it can't reach a live account.
 async function webullFillRows(store) {
   try {
     const buf = await store.get("webull-paper-ledger.json");
     if (buf == null) return [];
-    const { ledgerToFillRows } = await import("../../lib/webull-mirror.mjs");
+    const { ledgerToFillRows, scopeLedger } = await import("../../lib/webull-mirror.mjs");
     const { projectWebullLedger, parseReset, RESET_KEYS } = await import('../../lib/track-record-reset.mjs');
-    return ledgerToFillRows(projectWebullLedger(JSON.parse(buf.toString('utf8')), parseReset(await store.get(RESET_KEYS.webull))));
+    // Top Picks trades only: the strategy engines' fills live on their own record.
+    return ledgerToFillRows(scopeLedger(projectWebullLedger(JSON.parse(buf.toString('utf8')), parseReset(await store.get(RESET_KEYS.webull))), "flagship"));
   } catch (err) {
     console.error("webull ledger read failed", { message: String(err?.message || err) });
     return [];
   }
 }
+
+// ENGINES_MIRROR=0 (Vercel) stops NEW strategy-engine trades entering the
+// paper account. Unset = on.
+const enginesMirrorOn = () => !["0", "off", "false", "no"].includes(String(process.env.ENGINES_MIRROR || "").trim().toLowerCase());
 
 async function webullMirror(req, res) {
   res.setHeader("Cache-Control", "private, no-store");
@@ -1006,17 +1017,18 @@ async function webullMirror(req, res) {
       const buf = await store.get(mirror.LEDGER_KEY);
       const { projectWebullLedger, webullEngineRecord, parseReset, RESET_KEYS } = await import('../../lib/track-record-reset.mjs');
       const rawLedger = buf == null ? mirror.emptyLedger() : JSON.parse(buf.toString('utf8'));
-      const ledger = projectWebullLedger(rawLedger, parseReset(await store.get(RESET_KEYS.webull)));
+      const scope = ["engines", "all"].includes(String(req.query?.scope || "")) ? String(req.query.scope) : "flagship";
+      const ledger = mirror.scopeLedger(projectWebullLedger(rawLedger, parseReset(await store.get(RESET_KEYS.webull))), scope);
       const rows = mirror.ledgerToFillRows(ledger);
       if (req.query?.format === "orders") {
         res.setHeader("Content-Type", "text/csv; charset=utf-8");
-        res.setHeader("Content-Disposition", 'attachment; filename="webull-order-attempts.csv"');
+        res.setHeader("Content-Disposition", `attachment; filename="webull-order-attempts${scope === "flagship" ? "" : "-" + scope}.csv"`);
         res.statusCode = 200;
         return res.end(mirror.orderAttemptsToCsv(ledger));
       }
       if (req.query?.format === "csv") {
         res.setHeader("Content-Type", "text/csv; charset=utf-8");
-        res.setHeader("Content-Disposition", 'attachment; filename="webull-paper-trades.csv"');
+        res.setHeader("Content-Disposition", `attachment; filename="webull-paper-trades${scope === "flagship" ? "" : "-" + scope}.csv"`);
         res.statusCode = 200;
         return res.end(mirror.fillRowsToCsv(rows));
       }
@@ -1036,12 +1048,22 @@ async function webullMirror(req, res) {
       // on-site reporting exclusions. Never feed a report back to execution.
       const accBuf = await store.get('picks-accuracy.json');
       const rawRecord = accBuf == null ? {} : JSON.parse(accBuf.toString('utf8'));
-      const engineRecord = webullEngineRecord(rawRecord, ledger);
+      // The strategy engines' record: its trades share the paper account.
+      let enginesRecord = null;
+      try { const eb = await store.get("engines-record.json"); enginesRecord = eb == null ? null : JSON.parse(eb.toString("utf8")); } catch { enginesRecord = null; }
+      const engineRows = (list) => (Array.isArray(list) ? list : []).filter((e) => e?.engine && e.tradeId);
+      const compareWith = scope === "engines" ? { builtAtIso: enginesRecord?.builtAtIso ?? null, open: engineRows(enginesRecord?.open), closed: engineRows(enginesRecord?.closed) }
+        : scope === "all" ? { ...rawRecord, open: [...(rawRecord.open || []), ...engineRows(enginesRecord?.open)], closed: [...(rawRecord.closed || []), ...engineRows(enginesRecord?.closed)] }
+        : rawRecord;
+      const engineRecord = webullEngineRecord(compareWith, ledger);
       const { mirrorHealth } = await import('../../lib/webull-mirror-health.mjs');
+      const enginesMirror = enginesMirrorOn();
       return res.status(200).json({
+        scope,
         engineRecord,
-        health: mirrorHealth({ acc: rawRecord, ledger: rawLedger, executionLock, enabled: String(process.env.WEBULL_MIRROR || "").trim().toLowerCase() === "on" }),
+        health: mirrorHealth({ acc: rawRecord, ledger: rawLedger, executionLock, enabled: String(process.env.WEBULL_MIRROR || "").trim().toLowerCase() === "on", engines: enginesRecord, enginesMirror }),
         executionLock,
+        enginesMirror,
         enabled: String(process.env.WEBULL_MIRROR || "").trim().toLowerCase() === "on",
         goLiveIso: ledger.goLiveIso,
         lastRunIso: ledger.lastRunIso,
@@ -1095,10 +1117,26 @@ async function webullMirror(req, res) {
         const approval=await approvedTopPicks({store,fetchLive:topPicksLiveQuotes}).catch(()=>null);
         acc=applyMarketAdmission(acc,approval,ledger);
       }
+      // The strategy engines' trades join the run after Top Picks' own. An
+      // unreadable engine record never stops the Top Picks mirror: engine
+      // trades already in the ledger are held as they are for this run.
+      let enginesRecord = null, enginesUnavailable = false;
+      try {
+        const eb = await store.get("engines-record.json");
+        if (eb != null) {
+          enginesRecord = JSON.parse(eb.toString("utf8"));
+          if (!Array.isArray(enginesRecord?.open) || !Array.isArray(enginesRecord?.closed)) throw new Error("engines record malformed");
+        }
+      } catch (err) {
+        console.error("engines record read failed", { message: String(err?.message || err) });
+        enginesRecord = null; enginesUnavailable = true;
+      }
+      if (enginesRecord == null) enginesUnavailable = true;
+      acc = mirror.mergeEngineTrades(acc, enginesRecord, ledger, { mirrorNew: enginesMirrorOn() });
       const client = createWebullClient({ appKey: WEBULL_APP_KEY, appSecret: WEBULL_APP_SECRET, accessToken: WEBULL_ACCESS_TOKEN || null, timeoutMs: 5000 });
       const quoteFn = mirror.makeQuoteFn(fetchContract);
       const checkpoint = async (next) => { guard(); await store.put(mirror.LEDGER_KEY, JSON.stringify(next)); };
-      const { summary } = await mirror.runWebullMirror({ client, accountId: WEBULL_PAPER_ACCOUNT_ID, acc, ledger, quoteFn, checkpoint, guard, endOfDayOnly: req.query?.mode === "eod" });
+      const { summary } = await mirror.runWebullMirror({ client, accountId: WEBULL_PAPER_ACCOUNT_ID, acc, ledger, quoteFn, checkpoint, guard, endOfDayOnly: req.query?.mode === "eod", enginesUnavailable });
       return { ran: !summary.skipped, summary };
     });
     return res.status(200).json(lease.busy ? { ran: false, reason: "mirror already running", retryAfterMs: lease.retryAfterMs } : lease.result);

@@ -31,7 +31,7 @@ export const EXPORT_SOURCES = {
   'party-tracker': ['party-tracker.json'],
   'history-rhymes': ['history-rhymes.json', 'history-rhymes-owner.json'],
   'prediction-markets': ['prediction-odds.json', 'prediction-odds-owner.json'],
-  picks: ['picks.json', 'picks-open.json'], leaps: ['leaps-picks.json'], stocks: ['stock-picks.json'],
+  picks: ['picks.json', 'picks-open.json', 'engines.json', 'engines-record.json'], leaps: ['leaps-picks.json'], stocks: ['stock-picks.json'],
   rotation: ['sector-rotation.json'], levetf: ['leveraged-etfs.json'],
   'open-picks': ['picks-open.json', 'picks-accuracy.json'],
   track: ['picks-accuracy.json', 'picks-changes.json', 'picks-roster.json', 'grades-history.json'],

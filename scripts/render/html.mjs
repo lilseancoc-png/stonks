@@ -18,6 +18,7 @@ import { SITE_SECTIONS, TAB_BAR_SECTIONS } from './site-map.mjs';
 import { sectorGroupOfLabel } from '../../lib/sector-groups.mjs';
 import { DISCORD_INVITE_URL, KO_FI_URL } from '../../lib/links.mjs';
 import { i18nPickerHtml, i18nHeadScript } from './i18n-client.mjs';
+import { enginesBarHtml } from './engines-client.mjs';
 
 export function ownerMarketBriefSection() {
   return `<section class="card" id="owner-market-brief-section"><header class="card-header"><h2 class="card-title">Owner Market Brief</h2><span class="card-eyebrow">Owner only</span></header><p class="hint">The public market read expanded with private research. Review conditional outcomes, suggested next steps and the evidence that could change them. Source timestamps, entry restrictions and uncertainty stay visible.</p><div id="owner-market-brief-root" aria-live="polite"></div></section>`;
@@ -2383,7 +2384,8 @@ ${i18nHeadScript()}
   ${riskAnalysisSection()}
   </div>
   <div class="page-pane" id="page-pane-picks" role="tabpanel" aria-labelledby="page-tab-picks" hidden>
-  ${topPicksSection()}
+  ${enginesBarHtml()}
+    ${topPicksSection()}
   </div>
   <div class="page-pane" id="page-pane-leaps" role="tabpanel" aria-labelledby="page-tab-leaps" hidden>
   ${leapsSection()}
