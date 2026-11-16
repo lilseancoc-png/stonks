@@ -20,8 +20,10 @@ owner asked for all of it, built in four steps, each its own pull request:
 
 Steps 1-3 are measurement only. Nothing in them changes a pick, a grade, a
 gate or the Track Record. Step 4 ships in **shadow**: it works out what it
-would change and shows it, and nothing applies until the repo variable
-`SELF_TUNE=on` is set and the date is December 7, 2026 or later. The loop adds
+would change and shows it, and nothing applies until `SELF_TUNE=on` is set
+(a repo variable, or the Owner Settings choice). It was also date-locked until
+December 7, 2026; the Owner lifted that lock on 2026-11-16, so `on` now applies
+from the next Top Picks run. Nothing switches it on by itself. The loop adds
 **no AI call**, no new fetch, no serverless function and no workflow (the
 Owner's approve / undo clicks use one more action on the existing
 `api/auth/[action].js`).
@@ -352,7 +354,7 @@ structures.
 | `SELF_TUNE` (repo variable) | What happens |
 |---|---|
 | unset (default) | **shadow**: the weekly step is worked out and shown on the Loop tab as "What it would apply"; nothing reaches a pick |
-| `on` (`1`, `true`, `live`) | applies from the next Top Picks run, but only from **December 7, 2026** (`LIVE_FLOOR`); before that it behaves like shadow |
+| `on` (`1`, `true`, `live`) | applies from the next Top Picks run (`LIVE_FLOOR` is 2026-11-16, the day the Owner lifted the earlier December 7 lock; before that date it behaves like shadow) |
 | `off` (`0`, `false`) | the base settings, nothing worked out |
 
 `LOOP=0` also turns self-tuning off. Going live starts from the base settings,
@@ -454,7 +456,8 @@ The first challenger can start with the first weekly report, and none can read
 ready before 30 sessions (about six weeks) after it started. Better-calibrated
 odds do not by themselves mean more winners: the loop's job is to say how good
 the engine is, honestly, and to find the parts worth changing. Self-tuning
-cannot go live before December 7. A weight moves only for an input proven over
+goes live only when the Owner switches it on (the December 7 date lock was
+lifted on 2026-11-16). A weight moves only for an input proven over
 40+ sessions of ledger rows, which the ledger reaches around the second week of
 January 2027, so until then the only live changes possible are the Owner's
 approvals (the value gate, a passed challenger) and the odds on the cards.
