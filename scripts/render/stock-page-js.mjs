@@ -828,6 +828,7 @@ export function renderStockPageJs() {
       }
       html += '<section class="stp-sec" id="stp-valuation" hidden></section>';
       html += '<section class="stp-sec" id="stp-odds" hidden></section>';
+      html += '<section class="stp-sec" id="stp-aid" hidden></section>';
       html += chatterHtml(d);
       if (f.longBusinessSummary){
         var text = String(f.longBusinessSummary);
@@ -838,7 +839,7 @@ export function renderStockPageJs() {
       // The valuation band fills in once its public file arrives, after any
       // chart this tab already queued.
       var prevAfter = state.afterTab, vSym = state.sym, vToken = state.token;
-      state.afterTab = function(){ if (typeof prevAfter === 'function') prevAfter(); fillValuation(vSym, vToken); fillOdds(vSym, vToken); };
+      state.afterTab = function(){ if (typeof prevAfter === 'function') prevAfter(); fillValuation(vSym, vToken); fillOdds(vSym, vToken); fillAid(vSym, vToken); };
       return html;
     }
     function tabNews(){
@@ -1011,6 +1012,19 @@ export function renderStockPageJs() {
         var host = document.getElementById('stp-odds');
         if (!host) return;
         var inner = predictionStockStripHtml(pub, sym);
+        if (inner){ host.innerHTML = inner; host.hidden = false; }
+      });
+    }
+    // AI lab launches aimed at what this company sells (public
+    // ai-disruption.json, ai-disruption-client.mjs aiDisruptionStockStripHtml).
+    // Covered companies in the AI disruption map only; hidden otherwise.
+    function fillAid(sym, token){
+      if (typeof aiDisruptionPublicJson !== 'function' || typeof aiDisruptionStockStripHtml !== 'function') return;
+      aiDisruptionPublicJson().then(function(pub){
+        if (state.token !== token || state.sym !== sym) return;
+        var host = document.getElementById('stp-aid');
+        if (!host) return;
+        var inner = aiDisruptionStockStripHtml(pub, sym);
         if (inner){ host.innerHTML = inner; host.hidden = false; }
       });
     }

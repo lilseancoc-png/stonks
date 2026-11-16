@@ -29,6 +29,7 @@ import { renderSiteNextCss } from './site-next-css.mjs';
 import { renderViewsNextCss } from './views-next-css.mjs';
 import { renderCrowdCss } from './crowd-css.mjs';
 import { renderPredictionCss } from './prediction-css.mjs';
+import { renderAiDisruptionCss } from './ai-disruption-css.mjs';
 import { renderHistoryRhymesCss } from './history-rhymes-css.mjs';
 import { renderEdgeOddsCss } from './edge-odds-css.mjs';
 import { renderEvidenceCss } from './evidence-css.mjs';
@@ -25603,6 +25604,7 @@ ${renderSiteNextCss()}
 ${renderViewsNextCss()}
 ${renderCrowdCss()}
 ${renderPredictionCss()}
+${renderAiDisruptionCss()}
 ${renderHistoryRhymesCss()}
 ${renderEdgeOddsCss()}
 ${renderEvidenceCss()}

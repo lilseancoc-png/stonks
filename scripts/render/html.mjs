@@ -112,6 +112,7 @@ const SIDE_NAV_ICONS = {
   glossary: '<path d="M4 4.5h11a3 3 0 0 1 3 3v12.5H7a3 3 0 0 1-3-3z"/><path d="M4 17a3 3 0 0 1 3-3h11"/><path d="M8.5 8.5h6M8.5 11h4"/>',
   'market-map': '<rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="5" rx="1.5"/><rect x="13" y="10" width="8" height="11" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/>',
   crowd: '<circle cx="8" cy="8" r="3"/><circle cx="16" cy="8" r="3"/><path d="M2 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><path d="M14 14.5c.6-.3 1.3-.5 2-.5 3.3 0 6 2.7 6 6"/>',
+  'ai-disruption': '<path d="M12 2.5l2.2 4.6 5 .7-3.6 3.5.9 5-4.5-2.4-4.5 2.4.9-5L4.8 7.8l5-.7z"/><path d="M4 21h16"/>',
   'prediction-markets': '<path d="M3 20h18"/><path d="M6 16v-4M10 16V8M14 16v-6M18 16V5"/><circle cx="18" cy="4" r="1.5"/>',
   'history-rhymes': '<path d="M2.5 19.5h19"/><path d="M3 16c2.5-1 3.5-6 6-8.5 1.5 3 2.5 5 4.5 5.5 2-3 3-7.5 5-9.5 1 4.5 1.5 9 2.5 12.5"/><path d="M5 19.5v-2M9 19.5v-3M13 19.5v-2M17 19.5v-4"/>',
   'whats-changed': '<path d="M4 7h11l-3-3M20 17H9l3 3"/><circle cx="18.5" cy="7" r="1.5"/><circle cx="5.5" cy="17" r="1.5"/>',
@@ -1152,6 +1153,18 @@ function crowdSection() {
     <header class="card-header"><div><span class="card-eyebrow">Market &amp; economy · positioning and attention</span><h2 class="card-title">Crowd &amp; positioning</h2></div><span class="card-eyebrow" id="crowd-asof"></span></header>
     <div id="crowd-root"><p class="crd-empty">Loading crowd and positioning data&hellip;</p></div>
     <p class="hint">Put/call ratios, futures positioning, margin debt, short selling, borrow fees, Reddit and Wikipedia attention, Kalshi odds and 24/7 stock perps, all from free public sources. Facts and market-implied readings only: nothing here is a recommendation. Not investment advice.</p>
+  </section>`;
+}
+
+function aiDisruptionSection() {
+  // AI disruption tracker (lib/ai-disruption/): rendered client-side from the
+  // public ai-disruption.json; the Owner Review and Scorecard tabs read
+  // ai-disruption-owner.json after sign-in.
+  return `<section class="card" id="ai-disruption-section">
+    <header class="card-header"><div><span class="card-eyebrow">Industry trends · what the AI labs ship</span><h2 class="card-title">AI disruption</h2></div><span class="card-eyebrow" id="aid-asof"></span></header>
+    ${infoNote('How to read this page', `<p>Every product the big AI labs (OpenAI, Anthropic, Google, Microsoft, Meta and xAI) launch, from their own release notes, tagged with what it does: write slides, take meeting notes, build apps, run a support desk and so on. Each launch gets a <b>customer-capture score</b> from 0 to 100: how ready it is to pull paying customers away from traditional software, from how much of the job it does, how far along it is, whether companies can buy it and how much it works on its own.</p><p>Each launch names the software companies that sell the same thing, and how it could reach them: replacing a core product, changing how a core product earns, or turning a paid add-on into a free feature. A row marked <b>auto</b> was tagged by the site’s rules and not yet checked by a person. This describes products, not stocks.</p>`)}
+    <div id="aid-root"><p class="crd-empty">Loading the AI launch log&hellip;</p></div>
+    <p class="hint">From the AI labs’ own release notes and news pages, read once a trading day. Facts about products only: nothing here is a recommendation. Not investment advice.</p>
   </section>`;
 }
 
@@ -2932,6 +2945,9 @@ ${i18nHeadScript()}
   </div>
   <div class="page-pane" id="page-pane-ai-capex" role="tabpanel" aria-labelledby="page-tab-ai-capex" hidden>
   ${aiCapexSection()}
+  </div>
+  <div class="page-pane" id="page-pane-ai-disruption" role="tabpanel" aria-labelledby="page-tab-ai-disruption" hidden>
+  ${aiDisruptionSection()}
   </div>
   <div class="page-pane" id="page-pane-ram-prices" role="tabpanel" aria-labelledby="page-tab-ram-prices" hidden>
   ${ramPricesSection()}
