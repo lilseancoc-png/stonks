@@ -285,7 +285,21 @@ factory output and the dollar are today's revised series, not the first print
 group, so a rule that wins here may not win elsewhere; and four candidates were
 tried on one history, which the raised bar allows for but does not remove.
 
-Tests: `node scripts/earnings-forecast-lab-smoke.mjs` (logic, 119 checks) and
+**First run on real filings (2026-11-16, research run, no build).** The test
+was run once on the public SEC company-facts files of the listed companies:
+632 company-quarters from 17 companies over 42 calendar quarters (mid 2016 to
+September 2026). Typical revenue miss: same quarter last year 14.3%, last
+quarter again 7.6%, the current rule 5.5%, recent growth weighted 4.8%, latest
+growth 4.0%, growth trend 3.9%, the drivers rule 6.6% (it did not help). Latest
+growth passed every check (t 7.5 against the 2.5 bar, ahead in both halves), so
+the first build after this ships is expected to put it in use. The ranges
+held: the 50% revenue range caught 52% of results and the 80% range 82%; for
+EPS 48% and 81%. Free sources had no past analyst estimates, as expected. The
+run also showed that a bank filing only net revenue
+(`RevenuesNetOfInterestExpense`) had no forecast at all; that tag is now read
+last in the revenue list, so total revenue still wins when both are filed.
+
+Tests: `node scripts/earnings-forecast-lab-smoke.mjs` (logic, 120 checks) and
 `node scripts/earnings-forecast-history-browser.mjs` (page, 76 checks), both on
 made-up companies from `scripts/fixtures/earnings-forecast-history.mjs`.
 
