@@ -101,6 +101,8 @@ import { buildCrowdPayload, buildCrowdOwner, readCrowdPrior, writeCrowdFiles, ma
 import { loadEngineFiles, carryEngineFiles, writeEngineFiles, runEngines, loadEnginesResearch, flagshipCompare, enginesEnabled, ENGINES_RECORD_KEY } from "../lib/engines/index.mjs";
 import { firstFridays as enginesFirstFridays } from "../lib/engines/macro.mjs";
 import { pickTradeId } from "../lib/pick-trade-text.mjs";
+import { updateDisruptionState, buildDisruptionFiles, readDisruptionPrior, writeDisruptionFiles, AI_DISRUPTION_KEY, AI_DISRUPTION_OWNER_KEY } from "../lib/ai-disruption/log.mjs";
+import { buildScorecard as buildDisruptionScorecard } from "../lib/ai-disruption/scorecard.mjs";
 import { updatePredictionState, bakeMaxMs, buildPredictionPublic, buildPredictionOwner, analyzePrediction, predictionShadow, predictionContextFor, predictionGraderLines, pricesFromChains, readPredictionPrior, writePredictionFiles, PREDICTION_KEY, PREDICTION_OWNER_KEY } from "../lib/prediction/index.mjs";
 import { buildHistoryRhymes, buildHistoryRhymesOwner, historyRhymesSummary, HISTORY_RHYMES_KEY, HISTORY_RHYMES_OWNER_KEY, HISTORY_RHYMES_FRED, REPORTED_CDS } from "../lib/history-rhymes.mjs";
 import { AI_COST_HISTORY_KEY, parseAiCostHistory, upsertAiCostHistory } from "../lib/ai-cost-history.mjs";
@@ -32782,6 +32784,9 @@ function updateSpilloverLog(priorLog, { chains, upcoming, todayEt, builtAtIso })
 export async function buildSpilloverArtifacts(chains, earningsHxStore, prior, builtAtIso, { jobs = [] } = {}) {
   const todayEt = etDateKey();
   let matrix = null;
+  // The daily bars, returned only on the bake that fetched them (once per ET
+  // day); the AI disruption scorecard reuses them instead of fetching again.
+  let fetchedSeries = null;
   const priorMatrix = prior?.pairs && typeof prior.pairs === "object" ? prior.pairs : null;
   // A pilot-era prior (no `groups`) never short-circuits the deep half — the
   // first bake after the universe expansion recomputes immediately.
@@ -32791,6 +32796,7 @@ export async function buildSpilloverArtifacts(chains, earningsHxStore, prior, bu
     const etfs = [...new Set(SPILLOVER_GROUPS.map((g) => g.etf).filter(Boolean))];
     const symbols = [...new Set([...SPILLOVER_UNIVERSE, ...etfs, "SPY"])];
     const series = await fetchSpilloverBars(symbols);
+    fetchedSeries = series;
     const gotUniverse = SPILLOVER_UNIVERSE.filter((s) => series[s]).length;
     // Deep recompute needs SPY + a healthy universe sweep — a thin sweep
     // would bake a matrix full of holes, so carry last-good instead. A
@@ -32818,7 +32824,7 @@ export async function buildSpilloverArtifacts(chains, earningsHxStore, prior, bu
   const log = updateSpilloverLog(prior?.log, { chains, upcoming, todayEt, builtAtIso });
   matrix.upcoming = upcoming;
   matrix.forward = log.forward;
-  return { matrix, log };
+  return { matrix, log, series: fetchedSeries };
 }
 
 async function writeSpilloverFiles(matrix, log) {
@@ -39216,6 +39222,33 @@ async function main() {
       console.warn(`[prediction] skipped — ${String(err?.message || err).split("\n")[0]}`);
     }
   }
+  // AI disruption tracker (lib/ai-disruption/, Phase 1 2026-11-16): once a
+  // trading day, on the first non-Top-Picks bake after 09:00 ET, read the six
+  // labs' official release notes and news feeds, tag each new post by rules
+  // (no AI; owner decision 2026-11-16) and add it to the launch log with an
+  // "auto" badge, or to the Owner review queue when the rules can't place it.
+  // The prior state and the Owner's review decisions are read before
+  // writeChainFiles wipes data/; the files are written after it. Every bake
+  // re-applies the decisions. AI_DISRUPTION=0 carries the prior files forward.
+  let aiDisruptionRun = null;
+  const aiDisruptionPrior = await readDisruptionPrior(DATA_DIR);
+  if (/^(?:0|false)$/i.test(process.env.AI_DISRUPTION || "1")) {
+    console.log("AI disruption tracker: AI_DISRUPTION=0, carrying the prior files forward.");
+  } else {
+    try {
+      const run = await updateDisruptionState({
+        prior: aiDisruptionPrior.state, review: aiDisruptionPrior.review, nowMs: Date.now(),
+        decisionRun: !/^(?:0|false)$/i.test(process.env.REFRESH_TOP_PICKS || "1"),
+        log: (line) => console.log(line),
+      });
+      aiDisruptionRun = run;
+      if (run.collected) console.log(`  · AI launches: ${run.counts.fresh} new posts, ${run.counts.logged} logged, ${run.counts.queued} to review, ${run.counts.skipped} skipped, ${run.counts.duplicates} already known`);
+      else console.log(`  · AI launches: not read this bake (${run.why})`);
+    } catch (err) {
+      aiDisruptionRun = null;
+      console.warn(`[ai-disruption] skipped — ${String(err?.message || err).split("\n")[0]}`);
+    }
+  }
   // Extract the Major Contract + Guidance fundamentals signals from the news
   // headlines just attached. Mutates chains[sym].aiSignals in memory; consumed
   // later by buildTopPicks → scoreFundamentals. Self-skips without an API key.
@@ -40275,9 +40308,11 @@ async function main() {
   // once per ET day; the upcoming-events translation + log refresh every bake.
   // Non-fatal: a Yahoo miss carries the prior matrix forward stale-marked.
   let scenarioSpilloverMatrix = priorSpillover || null;
+  let spilloverSeries = null; // daily bars, only on the day's first deep pass
   try {
-    const { matrix, log } = await buildSpilloverArtifacts(chains, earningsHxStore, priorSpillover, builtAtIso, { jobs: historicalSourceCache?.releases?.jobs?.dates || [] });
+    const { matrix, log, series } = await buildSpilloverArtifacts(chains, earningsHxStore, priorSpillover, builtAtIso, { jobs: historicalSourceCache?.releases?.jobs?.dates || [] });
     scenarioSpilloverMatrix = matrix;
+    spilloverSeries = series || null;
     const spillInfo = await writeSpilloverFiles(matrix, log);
     console.log(`wrote data/${SPILLOVER_FILE} + ${SPILLOVER_LOG_FILE} — ${spillInfo.pairCount} pairs, ${spillInfo.upcoming} upcoming, ${spillInfo.resolved} resolved forward events, ${spillInfo.bytes} bytes${matrix.stale ? " [stale — kept last-good]" : ""}`);
   } catch (err) {
@@ -41485,6 +41520,39 @@ async function main() {
     }
   } catch (err) {
     console.warn(`[prediction] write skipped — ${String(err?.message || err).split("\n")[0]}`);
+  }
+  // AI disruption tracker files (see the read above). The public log, the
+  // Owner queue and the internal state; decisions re-applied every bake.
+  try {
+    const adState = aiDisruptionRun?.state || aiDisruptionPrior.state;
+    if (adState || aiDisruptionRun) {
+      const files = buildDisruptionFiles({
+        state: adState, review: aiDisruptionPrior.review, tickers: TICKERS,
+        builtAt: new Date().toISOString(), collected: !!aiDisruptionRun?.collected, stale: !aiDisruptionRun,
+      });
+      // Owner scorecard (Phase 3): once a day, on the bake whose Event
+      // spillover pass fetched the daily bars (every covered stock + IGV);
+      // other bakes carry the last one. Owner file only; no fetch of its own.
+      files.owner.scorecard = aiDisruptionPrior.owner?.scorecard || null;
+      if (spilloverSeries?.IGV && !/^(?:0|false)$/i.test(process.env.AI_DISRUPTION || "1")) {
+        try {
+          const sc = buildDisruptionScorecard({
+            launches: files.pub.launches, series: spilloverSeries, earnings: earningsHxStore,
+            companies: files.pub.companies.filter((c) => c.coverage === "covered").map((c) => c.id),
+          });
+          if (sc) files.owner.scorecard = sc;
+          if (sc) console.log(`  · AI disruption scorecard: ${sc.moves.events} launch-and-stock events, five-day verdict ${sc.moves.groups.find((g) => g.id === "all")?.windows.d5.verdict || "none"}, Phase 4 gate ${sc.phase4.ready ? "passes" : "not met"}`);
+        } catch (err) {
+          console.warn(`[ai-disruption] scorecard skipped — ${String(err?.message || err).split("\n")[0]}`);
+        }
+      }
+      await writeDisruptionFiles(DATA_DIR, { state: adState, pub: files.pub, owner: files.owner });
+      console.log(`wrote data/${AI_DISRUPTION_KEY} + data/${AI_DISRUPTION_OWNER_KEY} — ${files.pub.counts.launches} launches (${files.pub.counts.confirmed} confirmed), ${files.owner.queue.length} to review`);
+    } else if (aiDisruptionPrior.pub) {
+      await writeDisruptionFiles(DATA_DIR, { state: null, pub: { ...aiDisruptionPrior.pub, stale: true }, owner: aiDisruptionPrior.owner });
+    }
+  } catch (err) {
+    console.warn(`[ai-disruption] write skipped — ${String(err?.message || err).split("\n")[0]}`);
   }
   // Market brief — after the separate 08:30 ET morning mint, the 11:00, 13:30,
   // and 16:10 full builds ship fresh reads. Other builds restore the exact

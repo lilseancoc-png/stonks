@@ -617,6 +617,57 @@ async function tool(name, args, opts) {
   assert.equal((await tool("get_feature", { feature_id: "prediction-markets", dataset: "owner" })).isError, false);
 }
 
+// ---- AI disruption tracker: launch log, capability board, company exposure ----
+{
+  const { buildDisruptionFiles, emptyState } = await import("../lib/ai-disruption/log.mjs");
+  const { TICKERS } = await import("./build.mjs");
+  const built = buildDisruptionFiles({ state: emptyState(), review: null, tickers: TICKERS, builtAt: new Date(now - 3_600_000).toISOString() });
+  files["ai-disruption.json"] = built.pub;
+  files["ai-disruption-owner.json"] = built.owner;
+  // Its own principal (the Owner key) so these calls don't spend the OAuth
+  // token's 120-a-minute budget that later blocks count on.
+  const aidKey = "a".repeat(20) + randomBytes(16).toString("hex");
+  const ao = { headers: { authorization: `Bearer ${aidKey}` }, extra: { MCP_OWNER_KEY: aidKey } };
+  const all = await tool("get_ai_launches", {}, ao);
+  assert.equal(all.isError, false, JSON.stringify(all).slice(0, 400));
+  const ar = all.structuredContent.results;
+  assert.equal(ar.launches.length, 20, "20 rows by default");
+  assert.ok(ar.more > 0 && ar.counts.launches === 88);
+  assert.ok(ar.launches.every((l, i, a) => !i || a[i - 1].date >= l.date), "newest first");
+  assert.ok(ar.launches.every((l) => typeof l.capture_score === "number" && l.capabilities.every((c) => c.name)), "each row has a score and named capabilities");
+  const adbe = (await tool("get_ai_launches", { company: "adbe", limit: 60 }, ao)).structuredContent.results;
+  assert.ok(adbe.launches.length && adbe.launches.every((l) => l.targets.some((t) => t.company === "ADBE") || l.more_targets), "company filter by ticker");
+  const byName = (await tool("get_ai_launches", { company: "Adobe", limit: 60 }, ao)).structuredContent.results;
+  assert.equal(byName.launches.length, adbe.launches.length, "company filter by name");
+  const oa = (await tool("get_ai_launches", { lab: "openai", capability: "slides" }, ao)).structuredContent.results;
+  assert.ok(oa.launches.every((l) => l.lab === "openai" && l.capabilities.some((c) => c.id === "slides")));
+  const one = (await tool("get_ai_launches", { id: ar.launches[0].id }, ao)).structuredContent.results;
+  assert.equal(one.launch.id, ar.launches[0].id, "one launch by id");
+  assert.equal((await tool("get_ai_launches", { id: "2020-01-01-openai-nope" }, ao)).structuredContent.error.code, "NOT_FOUND");
+  assert.equal((await tool("get_ai_launches", { company: "ZZZZ" }, ao)).structuredContent.error.code, "NOT_FOUND");
+  assert.equal((await tool("get_ai_launches", { lab: "acme" }, ao)).structuredContent.error.code, "INVALID_INPUT");
+  const board = (await tool("get_ai_capability_board", {}, ao)).structuredContent.results;
+  assert.equal(board.capabilities.length, 32);
+  assert.ok(board.capabilities.every((c, i, a) => !i || a[i - 1].top_score >= c.top_score), "strongest capability first");
+  const slides = (await tool("get_ai_capability_board", { capability: "slides" }, ao)).structuredContent.results.capabilities;
+  assert.equal(slides.length, 1);
+  assert.ok(slides[0].labs.length && slides[0].sold_by.some((s) => s.company === "MSFT"), "board names labs and sellers");
+  const ex = await tool("get_ai_exposure", { company: "ADBE", days: 1500 }, ao);
+  assert.equal(ex.isError, false, JSON.stringify(ex).slice(0, 400));
+  assert.equal(ex.structuredContent.results.company.coverage, "covered");
+  assert.ok(ex.structuredContent.results.launches > 0 && ex.structuredContent.results.company.sells.length);
+  assert.ok(!ex.structuredContent.warnings.some((w) => w.startsWith("MENTION_ONLY")));
+  const chgg = await tool("get_ai_exposure", { company: "Chegg" }, ao);
+  assert.ok(chgg.structuredContent.warnings.some((w) => w.startsWith("MENTION_ONLY")), "an uncovered company is mention-only");
+  assert.ok(!JSON.stringify(ex.structuredContent).match(/"(pressure|queue|rulesKept|grade)"/), "no Owner fields in the public tools");
+  const feat = (await tool("list_features", {}, ao)).structuredContent.results.features.find((f) => f.id === "ai-disruption");
+  assert.equal(feat.read_with, "get_ai_launches");
+  assert.ok(feat.datasets.includes("owner"));
+  const q = await tool("get_feature", { feature_id: "ai-disruption", dataset: "owner" }, ao);
+  assert.equal(q.isError, false, JSON.stringify(q).slice(0, 300));
+  assert.equal(q.structuredContent.access, "owner");
+}
+
 // ---- new pages' datasets, dated files, trimming, option chains, search/fetch ----
 {
   const lf = (await tool("list_features", {})).structuredContent.results.features;
@@ -768,6 +819,9 @@ async function tool(name, args, opts) {
   assert.equal(pubOdds.isError, false, "the odds board is public");
   assert.equal(pubOdds.structuredContent.access, "public");
   assert.equal((await rpc("tools/call", { name: "get_odds_reactions", arguments: {} }, pub)).body.error.code, -32602);
+  assert.ok(!(pubFeats["ai-disruption"]?.datasets || []).includes("owner"), "the AI review queue stays Owner-only");
+  assert.equal((await tool("get_ai_launches", { company: "CRM" }, pub)).structuredContent.access, "public", "the AI launch log is public");
+  assert.equal((await tool("get_feature", { feature_id: "ai-disruption", dataset: "owner" }, pub)).structuredContent.error.code, "FORBIDDEN");
   assert.equal((await tool("get_feature", { feature_id: "past-day", dataset: "picks-run" }, pub)).structuredContent.error.code, "FORBIDDEN");
   assert.equal((await tool("get_option_chain", { ticker: "NVDA" }, pub)).isError, false, "option chains are public data");
   const pubSearch = (await tool("search", { query: "picks market nvidia" }, pub)).structuredContent.results;

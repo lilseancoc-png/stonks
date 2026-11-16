@@ -542,6 +542,10 @@ jobs:
           # odds to the AI grader's prompt (off by default).
           PREDICTION_TRACKER: ${{ vars.PREDICTION_TRACKER }}
           PICKS_ODDS_GRADER: ${{ vars.PICKS_ODDS_GRADER }}
+          # AI disruption tracker (lib/ai-disruption/, 2026-11-16): set the repo
+          # variable AI_DISRUPTION to 0 to stop the daily read of the AI labs'
+          # release notes and keep the prior launch log. Rules only, no AI.
+          AI_DISRUPTION: ${{ vars.AI_DISRUPTION }}
           # Self-improving loop (lib/self-loop/, docs/self-loop.md): set the repo
           # variable LOOP to 0 to stop the measurement and keep the prior files.
           LOOP: ${{ vars.LOOP }}
