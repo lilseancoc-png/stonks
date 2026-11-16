@@ -207,3 +207,39 @@ jobs:
           else
             echo "No changes to commit."
           fi
+
+  # The Top Picks missed-run check, once an hour. A Daily build that waits in
+  # the shared queue is cancelled by GitHub when the next scan is queued
+  # behind it (only one run may wait per concurrency group); on 2026-11-16
+  # that cancelled the 11:00 ET run and the retry only went out from the
+  # 13:30 ET build, because the GitHub-cron backup in top-picks-watchdog.yml
+  # fires hours late. This hourly scan is dispatched on time by cron-job.org,
+  # so a missed or cancelled slot is retried within the hour. Same script and
+  # rules as the step at the end of every Daily build: one retry per slot, one
+  # issue. GitHub API only; no market data, no private store, no AI.
+  top-picks-watchdog:
+    needs: scan
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: |
+            scripts/top-picks-watchdog.mjs
+            lib/top-picks-watchdog.mjs
+            lib/us-equity-calendar.mjs
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+      - name: Check today's Top Picks runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TOP_PICKS_WATCHDOG: ${{ vars.TOP_PICKS_WATCHDOG || 'on' }}
+          WATCHDOG_REF: ${{ github.event.repository.default_branch }}
+        run: node scripts/top-picks-watchdog.mjs
