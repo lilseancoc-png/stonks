@@ -52,6 +52,8 @@ jobs:
           node scripts/earnings-forecast-lab-smoke.mjs
           node scripts/flow-direction-smoke.mjs
           node scripts/ai-disruption-smoke.mjs
+          node scripts/ai-disruption-collector-smoke.mjs
+          node scripts/ai-disruption-scorecard-smoke.mjs
           npm run test:webull-mirror
           npm run test:workflow-schedules
           npm run test:top-picks-watchdog
@@ -66,3 +68,4 @@ jobs:
           PLAYWRIGHT_MODULE="$RUNNER_TEMP/checker-browser/node_modules/playwright/index.mjs" LAYOUT_WIDTHS=390,1440 npm run test:layout-browser
           PLAYWRIGHT_MODULE="$RUNNER_TEMP/checker-browser/node_modules/playwright/index.mjs" npm run test:features-next-browser
           PLAYWRIGHT_MODULE="$RUNNER_TEMP/checker-browser/node_modules/playwright/index.mjs" node scripts/engines-browser.mjs
+          PLAYWRIGHT_MODULE="$RUNNER_TEMP/checker-browser/node_modules/playwright/index.mjs" node scripts/ai-disruption-browser.mjs
