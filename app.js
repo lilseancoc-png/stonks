@@ -6077,7 +6077,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
   // Rows of each macro split read in this order (easiest to hardest), not by trade count.
   var ENG_ENV_ORDER = { rates: ['cutting', 'on hold', 'hiking'], inflation: ['low', 'above target', 'high (4%+)'], conditions: ['loose', 'normal', 'tight'], curve: ['inverted', 'flat', 'steep'], vix: ['under 15', '15-20', '20-30', '30+'], recession: ['expansion', 'recession'] };
   var ENG_CELL = { 'up-calm': 'Trending up, calm', 'up-stressed': 'Trending up, stressed', 'down-calm': 'Trending down, calm', 'down-stressed': 'Trending down, stressed', 'chop-calm': 'Choppy, calm', 'chop-stressed': 'Choppy, stressed' };
-  var ENG_STATE = { trading: ['Trading', 'evb-s-pass'], shadow: ['On shadow', 'evb-s-collect'], muted: ['Muted', 'evb-s-fail'] };
+  var ENG_STATE = { trading: ['Trading', 'evb-s-pass'], shadow: ['On shadow', 'evb-s-collect'], muted: ['Muted', 'evb-s-fail'], retired: ['Retired', 'evb-s-collect'] };
   var ENG_MIRROR_STATE = { entering: 'Buying', open: 'Open', exiting: 'Selling', closed: 'Closed', missed: 'Missed', skipped: 'Not bought', settled: 'Settled' };
   var ENG_EVENT = { fomc: 'Fed decision day', cpi: 'CPI day', jobs: 'Jobs report day' };
   var ENG_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -6178,8 +6178,11 @@ function recoveryEvidence(row, data, now = Date.now()) {
       '<li><b>Universe.</b> ' + who + '.</li>' +
       '<li><b>What it buys.</b> One single call or put, about ' + slpNum(c.delta, 2) + ' delta, ' + c.dteMin + ' to ' + c.dteMax + ' days to expiry (ideal ' + c.dteIdeal + '). Never a spread.</li>' +
       '<li><b>Exits.</b> +' + x.tp + '% take-profit, ' + x.stop + '% stop, ' + x.maxSessions + ' sessions at most' + (x.trailArm != null ? ', and a trailing stop once the trade is up ' + x.trailArm + '%' : '') + '. Some setups carry their own exits (see Setups and learning). Every trade closes two sessions before its contract expires.</li>' +
-      '<li><b>Size.</b> Up to ' + e.slots + ' open trades and ' + e.perRun + ' new per run, one contract each.</li>' +
-      '<li><b>Entry bar.</b> ' + (e.bar ? e.bar.now + ' of 100 on its own score (starts at ' + e.bar.base + '; its learning rules may move it between ' + e.bar.min + ' and ' + e.bar.max + ')' : '—') + '.</li>' +
+      '<li><b>Size.</b> Up to ' + e.slots + ' open trades' + (e.sideSlots ? ' (' + e.sideSlots.call + ' calls and ' + e.sideSlots.put + ' puts at most)' : '') + ' and ' + e.perRun + ' new per run, one contract each.</li>' +
+      (e.standing && e.rank
+        ? '<li><b>Entry.</b> By rank, not by a score bar: a new call comes only from the ' + e.rank.enter + ' best-ranked stocks and a new put only from the ' + e.rank.enter + ' worst, best first. Nothing opens inside six sessions of the stock’s report, on a call far under its 200-day or a put far above it, or when today’s price already ran.</li>' +
+          '<li><b>Swaps.</b> A holding is closed when the stock leaves the top third (calls) or the bottom third (puts) of the rank. A stock is ranked again when the month changes and after each of its reports; in between its place is fixed. A stock closed by its stop, take-profit or time limit is not bought again until it is ranked again.</li>'
+        : '<li><b>Entry bar.</b> ' + (e.bar ? e.bar.now + ' of 100 on its own score (starts at ' + e.bar.base + '; its learning rules may move it between ' + e.bar.min + ' and ' + e.bar.max + ')' : '—') + '.</li>') +
       '</ul>';
   }
   function engStatusPills(e, d){
@@ -6214,6 +6217,27 @@ function recoveryEvidence(row, data, now = Date.now()) {
       return '<tr' + (skipped ? ' class="eng-row-skipped"' : '') + '><td><b>' + escapeHtml(c.symbol) + '</b> ' + engSide(c.side) + '</td><td>' + escapeHtml(engSetup(e, c.setup)) + '</td><td class="num">' + (skipped ? '—' : slpNum(c.score, 0)) + '</td><td class="l">' + (skipped ? '<span class="crd-dim">Setup matched; not scored</span>' : escapeHtml((c.reasons || []).join('; '))) + '</td><td class="l">' + res + '</td></tr>';
     }).join('')) + (anySkipped ? '<p class="evb-note">Rows with no score matched a setup, but today’s price move ruled them out before scoring: the engine does not chase a move that already ran its way, and does not buy into one going against it. They are not traded and not tracked as shadow trades.</p>' : '');
   }
+  // Fundamentals: both ends of the standing rank.
+  function engRankHtml(e){
+    var rk = e.rank;
+    if (!rk) return '';
+    if (!rk.live) return '<p class="hint">Only ' + (rk.n || 0) + ' stocks could be ranked at the latest run (it takes ' + rk.minNames + '). No rank trades open or close until there are enough.</p>';
+    var third = rk.keep, n = rk.n;
+    var num0 = function(v){ return v == null ? '—' : slpNum(v, 0); };
+    var row = function(r){
+      var facts = r.facts || {}, bits = [];
+      if (facts.epsYoy != null) bits.push('EPS ' + (facts.epsYoy >= 0 ? '+' : '') + slpNum(facts.epsYoy, 0) + '% on the year');
+      if (facts.beats4 != null) bits.push(facts.beats4 + ' beats, ' + (facts.misses4 || 0) + ' misses in 4');
+      if (facts.fwdPE != null && facts.groupPE != null) bits.push('P/E ' + slpNum(facts.fwdPE, 1) + ' vs ' + slpNum(facts.groupPE, 1) + ' for its group');
+      var where = r.enter === 'call' ? engPill('Can open a call', 'evb-s-pass') : r.enter === 'put' ? engPill('Can open a put', 'evb-s-fail') : r.zone === 'top' ? '<span class="crd-dim">Top third: kept if held</span>' : r.zone === 'bottom' ? '<span class="crd-dim">Bottom third: kept if held</span>' : '<span class="crd-dim">Middle</span>';
+      return '<tr' + (r.held ? ' class="eng-rank-held"' : '') + '><td class="num">' + r.rank + '</td><td><b>' + escapeHtml(r.symbol) + '</b>' + (r.held ? ' ' + engSide(r.held) + '<div class="crd-dim">held</div>' : '') + '</td><td class="num">' + slpNum(r.score, 1) + '</td><td class="num">' + num0(r.earn) + '</td><td class="num">' + num0(r.quality) + '</td><td class="num">' + num0(r.price) + '</td><td class="l">' + where + '</td><td class="l"><span class="crd-dim">' + escapeHtml(bits.join(' · ')) + '</span></td><td>' + escapeHtml(engDay(r.asOf)) + '</td></tr>';
+    };
+    var head = [['Rank', 1], ['Stock'], ['Overall', 1], ['Earnings power', 1], ['Quality', 1], ['Price', 1], ['Where it stands', 'l'], ['Behind the rank', 'l'], ['Ranked on']];
+    var elsewhere = (rk.heldElsewhere || []).length ? '<h4 class="eng-rank-h">Held, outside the two ends</h4>' + slpTable(head, rk.heldElsewhere.map(row).join('')) : '';
+    return '<p class="evb-note">' + n + ' covered stocks are ranked on earnings power (40%), quality (30%) and price (30%). Every number is the stock’s place among the others, 0 to 100, so one outlier cannot dominate. New calls come from the best ' + rk.enter + ' and new puts from the worst ' + rk.enter + '; a holding is kept while it stays in its third (' + third + ' stocks at each end). A stock’s place is fixed until the month changes or it reports again.</p>' +
+      '<h4 class="eng-rank-h">Best ' + rk.top.length + '</h4>' + slpTable(head, rk.top.map(row).join('')) +
+      '<h4 class="eng-rank-h">Worst ' + rk.bottom.length + '</h4>' + slpTable(head, rk.bottom.map(row).join('')) + elsewhere;
+  }
   function engNowHtml(e, d){
     var s = e.stats || {};
     var kpis = slpKpis([
@@ -6222,14 +6246,17 @@ function recoveryEvidence(row, data, now = Date.now()) {
       ['Closed trades', String(e.closedTotal || s.n || 0)],
       ['Win rate', engRate(s.winRate) + (engRange(s.winRange) ? '<small class="eng-kpi-sub">' + engRange(s.winRange) + '</small>' : '')],
       ['Average trade', engPnl(s.avg)],
-      ['Entry bar', e.bar ? String(e.bar.now) : '—', 'Its own 0 to 100 score a setup must reach'],
-      ['Rules version', escapeHtml(e.rulesVersion || '—'), 'Goes up by one every time the engine changes itself; stamped on each new trade'],
+      e.standing && e.rank ? ['Stocks ranked', String(e.rank.n || 0), 'Covered stocks in the standing rank at the latest run'] : ['Entry bar', e.bar ? String(e.bar.now) : '—', 'Its own 0 to 100 score a setup must reach'],
+      ['Rules version', escapeHtml(e.rulesVersion || '—'), 'Goes up by one every time the engine’s rules change; stamped on each new trade'],
     ]);
     return '<p class="evb-lead">' + escapeHtml(e.idea || '') + '</p>' +
       '<div class="eng-reads"><span class="eng-reads-lbl">Reads</span>' + (e.reads || []).map(function(r){ return '<span class="eng-chip">' + escapeHtml(r) + '</span>'; }).join('') + '</div>' +
       kpis +
       slpSection('eng-open', 'Open trades', engOpenTable(e, d)) +
-      slpSection('eng-cands', 'Latest run: what it looked at', '<p class="evb-note">Every setup that scored near the bar at the ' + escapeHtml(rglEt(d.runIso)) + ' run, and why each was or was not opened. A setup held back by a learning rule or a size limit is tracked as a shadow trade so its cost shows.</p>' + engCandTable(e)) +
+      (e.standing && e.rank ? slpSection('eng-rank', 'The standing rank', engRankHtml(e)) : '') +
+      slpSection('eng-cands', 'Latest run: what it looked at', (e.standing
+        ? '<p class="evb-note">Every stock that could open a trade at the ' + escapeHtml(rglEt(d.runIso)) + ' run, best first, and why each was or was not opened. A stock with no free slot is simply looked at again next run. One held back by a learning rule is tracked as a shadow trade so its cost shows. The score here is the stock’s distance from the end of the rank (100 = the very top for a call, the very bottom for a put).</p>'
+        : '<p class="evb-note">Every setup that scored near the bar at the ' + escapeHtml(rglEt(d.runIso)) + ' run, and why each was or was not opened. A setup held back by a learning rule or a size limit is tracked as a shadow trade so its cost shows.</p>') + engCandTable(e)) +
       slpSection('eng-rules', 'The rules', engRulesHtml(e));
   }
   function engClosedTable(e, d){
@@ -6274,6 +6301,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
     var shOpen = (sh.open || []).length ? slpTable([['Stock'], ['Setup'], ['Contract', 'l'], ['Tracked since'], ['Result so far', 1], ['Why it is a shadow', 'l']], sh.open.map(function(t){ return '<tr><td><b>' + escapeHtml(t.symbol) + '</b> ' + engSide(t.side) + '</td><td>' + escapeHtml(engSetup(e, t.setup)) + '</td><td class="l">' + engContract(t) + '</td><td>' + escapeHtml(engDay(t.entryDate)) + '</td><td class="num">' + engPnl(t.optionPnlPct) + '</td><td class="l">' + escapeHtml(engCap(t.why || '')) + '</td></tr>'; }).join('')) : '<p class="hint">No open shadow trades.</p>';
     var shClosed = (sh.closed || []).length ? slpTable([['Closed'], ['Stock'], ['Setup'], ['Result', 1], ['Why it closed', 'l'], ['Why it was a shadow', 'l']], sh.closed.map(function(t){ return '<tr><td>' + escapeHtml(engDay(t.exitDate)) + '</td><td><b>' + escapeHtml(t.symbol) + '</b> ' + engSide(t.side) + '</td><td>' + escapeHtml(engSetup(e, t.setup)) + '</td><td class="num">' + engPnl(t.optionPnlPct) + '</td><td class="l">' + escapeHtml(engExitLabel(d, t.status)) + '</td><td class="l">' + escapeHtml(engCap(t.shadowWhy || '')) + '</td></tr>'; }).join('')) : '';
     return '<p class="evb-lead">' + escapeHtml(e.name) + ' checks its own results and tightens itself, inside fixed limits and with no AI. It can pause after a losing streak, mute a setup whose whole record is clearly losing, stand down in a market type that keeps losing, and move its entry bar between ' + (e.bar ? e.bar.min + ' and ' + e.bar.max : 'its limits') + '. Each of those needs a result unlikely to be luck. A muted setup keeps running as shadow trades and comes back when 40 or more of them clearly win. Learning can only restrict the engine: it never adds size, slots, setups or data, and never touches Top Picks.</p>' +
+      (e.standing ? '<p class="evb-note">This engine enters by rank, so its entry bar never decides a trade. The pause, the setup mute and the market-type stand-down still apply.' + (e.rules && e.rules.n > 1 ? ' Its rules were changed by hand on ' + escapeHtml(engDay(e.rules.date)) + ': ' + escapeHtml(e.rules.note || '') : '') + '</p>' : '') +
       slpKpis([
         ['Entry bar now', e.bar ? String(e.bar.now) : '—', e.bar ? 'Started at ' + e.bar.base + '; limits ' + e.bar.min + ' to ' + e.bar.max : ''],
         ['Rules version', escapeHtml(e.rulesVersion || '—')],

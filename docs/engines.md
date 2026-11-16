@@ -24,7 +24,7 @@ old `?tab=picks&engine=...` link lands on the new page. Tests: `node scripts/eng
 | Earnings & events | ERN | stocks | Drift after a real earnings surprise; the run-in before a report for stocks that usually climb into it (always closed before the report) | 21-60 days, 0.55 delta | +30% / -40%, 10 sessions | 5 |
 | Macro | MAC | SPY, QQQ, IWM, TLT, GLD, EWY, KWEB | Rates, the dollar, financial conditions, the VIX curve, and the reaction to Fed, CPI and jobs days | 21-70 days, 0.50 delta | +30% / -40%, 12 sessions | 3 |
 | Technicals | TEC | every covered name | Price and volume only: trend pullbacks, range breakouts and breakdowns, squeeze breaks | 30-90 days, 0.70 delta | +30% / -40%, 15 sessions | 5 |
-| Fundamentals | FUN | stocks | Earnings power, quality and price; holds the best and worst for weeks | 75-200 days, 0.62 delta | +50% / -40%, 45 sessions | 5 |
+| Fundamentals | FUN | stocks | One standing rank of every covered stock on earnings power, quality and price; calls on the best, puts on the worst, swapped only when a holding leaves its third | 75-200 days, 0.62 delta | +50% / -40%, 60 sessions, or the stock leaves its third of the rank | 5 (3 calls, 2 puts) |
 | Flow & positioning | FLO | every covered name | Aggressive option buying at the ask, gamma set-ups near a call wall, short squeezes | 14-50 days, 0.50 delta | +35% / -40%, 7 sessions | 4 |
 | Reversion | REV | every covered name | Washouts in long-term uptrends, spikes in long-term downtrends, capitulation days | 14-45 days, 0.60 delta | +30% / -35%, 5 sessions | 4 |
 
@@ -44,6 +44,56 @@ How they differ from Top Picks, on purpose:
   and reversion trades also carry a stock stop or target.
 - **Different universe.** Macro trades funds only; Earnings and Fundamentals
   trade single stocks only.
+- **Not all of them use a score and a bar.** Fundamentals enters by rank (see
+  below). The engines may each use the system that fits their idea (owner,
+  2026-11-16).
+
+### Fundamentals: the standing rank (rules 2, 2026-11-16)
+
+Fundamentals change slowly, so this engine no longer waits for the three
+weeks after a report and scores one stock at a time against a bar. It keeps
+one rank of every covered stock (`lib/engines/rank.mjs`).
+
+- **What is ranked.** Every covered stock (no funds) with a beat record: three
+  of its last four reports on file.
+- **How.** Up to eleven numbers in three parts. Each number becomes the
+  stock's place among the covered stocks that have it (0 worst, 100 best), so
+  one outlier cannot dominate. *Earnings power* (40%): EPS against a year
+  earlier, beats minus misses in the last four reports, whether growth is
+  speeding up, the 30-day change in the full-year EPS estimate, revenue
+  growth. *Quality* (30%): operating margin, return on equity, free cash flow
+  against market value, debt against equity. *Price* (30%): forward P/E
+  against its sector group's, the analysts' average target against the price.
+  A part with no numbers is left out and the others carry its weight.
+- **Standing.** A stock's number is fixed until the calendar month changes or
+  the stock reports again, so one day's quote cannot reshuffle the book.
+- **Entry.** A new call comes only from the 8 best-ranked stocks and a new put
+  only from the 8 worst, best first. Not inside six sessions of the stock's
+  report, not on its reaction day, not a call more than 8% under its 200-day
+  or a put more than 5% above it, and not when today's price already ran
+  (the same price filter every engine uses). The 0 to 100 number shown is
+  the distance from the end of the rank; it orders the candidates and is not
+  compared with an entry bar. The bar does not move for this engine.
+- **Book.** At most three calls and two puts, one new trade a run.
+- **Exit.** +50% / -40% on the option, 60 sessions (was 45), two sessions
+  before expiry, or **the stock leaves its third**: a call closes when the
+  stock is no longer in the top third of the rank, a put when it is no longer
+  in the bottom third (close reason `rank-out`). With fewer than 12 ranked
+  stocks there is no rank: nothing opens and nothing closes on it.
+- **After a stop, take-profit or time limit** the same stock is not bought
+  again until it is ranked again (next month or its next report).
+- **Shadow trades.** A ranked name with no free slot is looked at again next
+  run. It is not parked as a shadow trade. Muted setups, a stand-down and the
+  brake still make shadow trades, as for every engine.
+- **Old trades.** Trades opened under the first rules (`compounder`,
+  `deteriorating`, now marked retired) keep their own exits and checks.
+- **Version.** A running engine goes from `FUN-1` to `FUN-2` at its first run
+  under these rules, with a note in its change log (`adoptRules` in
+  `learn.mjs`, driven by `rules: { n, date, note }` in the registry). Split
+  the record there.
+- **Not tested on history.** The long history test has no fundamentals. The
+  build's own two-year replay has only the report numbers, so it ranks on
+  earnings power alone. This engine is judged forward.
 
 ### What each engine is fed
 
@@ -193,7 +243,8 @@ Each engine checks its own results and tightens itself, inside fixed limits
   losing is skipped.
 - **Entry bar.** Moves up when trades just over the bar lose and higher scores
   did better; down when setups just under it would have won. It stays inside
-  the engine's limits.
+  the engine's limits. Fundamentals enters by rank and has no bar to
+  move.
 
 A mute, a stand-down and a bar move each need a result unlikely to be luck.
 Learning can only hold an engine back. It never adds size, slots, setups or

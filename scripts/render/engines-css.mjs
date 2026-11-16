@@ -53,6 +53,8 @@ export function renderEnginesCss() {
 .eng-link:hover { text-decoration: underline; }
 .eng-open-link { margin: 8px 0 12px; font: 450 13px/1.5 var(--font-sans); color: var(--muted-strong); }
 .eng-row-skipped td { color: var(--muted-strong); }
+.eng-rank-h { margin: 14px 0 6px; font-size: 13px; font-weight: 600; color: var(--muted-strong); }
+.eng-rank-held td { background: color-mix(in srgb, var(--accent, var(--muted)) 7%, transparent); }
 .eng-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 .eng-seg { display: inline-flex; flex-wrap: wrap; gap: 4px; margin: 12px 0 4px; padding: 3px; border: 1px solid var(--border); border-radius: var(--r-pill, 999px); background: var(--surface-2, var(--surface)); }
 .eng-seg-btn { appearance: none; border: 0; background: transparent; color: var(--muted-strong); font: 600 12.5px/1 var(--font-sans); padding: 8px 14px; min-height: 32px; border-radius: var(--r-pill, 999px); cursor: pointer; }

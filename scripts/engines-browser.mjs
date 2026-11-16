@@ -115,6 +115,22 @@ try {
       const priced = e.candidates.filter((c) => c.skipped === 'price').length;
       check((await s.page.locator('#eng-cands tr.eng-row-skipped').count()) === priced, id + ': setups ruled out by today’s price move are listed (' + priced + ')');
       if (priced) check(/not traded and not tracked/.test(await s.page.locator('#eng-cands').innerText()), id + ': the page says what a row with no score means');
+      if (id === 'fundamentals') {
+        // The standing rank (2026-11-16): both ends, with the held names marked.
+        const rk = e.rank;
+        check(!!rk && rk.n >= rk.minNames && rk.top.length > 0 && rk.bottom.length > 0, 'fundamentals: the fixture carries a live rank');
+        const rankText = await s.page.locator('#eng-rank').innerText();
+        check((await s.page.locator('#eng-rank tbody tr').count()) === rk.top.length + rk.bottom.length + rk.heldElsewhere.length, 'fundamentals: one row per ranked stock shown');
+        check(rankText.includes('Best ' + rk.top.length) && rankText.includes('Worst ' + rk.bottom.length), 'fundamentals: best and worst ends are headed');
+        check(rankText.includes(rk.top[0].symbol) && rankText.includes(rk.bottom[rk.bottom.length - 1].symbol), 'fundamentals: the first and last ranked stocks are listed');
+        const heldShown = [...rk.top, ...rk.bottom, ...rk.heldElsewhere].filter((r) => r.held).length;
+        check(heldShown === e.open.length && (await s.page.locator('#eng-rank tr.eng-rank-held').count()) === heldShown, 'fundamentals: every holding is marked in the rank (' + heldShown + ')');
+        check(/Stocks ranked/.test(text), 'fundamentals: the count of ranked stocks is shown where the entry bar was');
+        check(/Swaps/.test(text) && /top or bottom third/.test(text), 'fundamentals: the rules say when a holding is swapped');
+        check(e.open.filter((t) => t.side === 'call').length <= e.sideSlots.call && e.open.filter((t) => t.side === 'put').length <= e.sideSlots.put, 'fundamentals: no more than three calls and two puts');
+      } else {
+        check((await s.page.locator('#eng-rank').count()) === 0, id + ': no rank section');
+      }
       await clean(s, id + ' now');
 
       await sub(s, 'record');
@@ -130,6 +146,10 @@ try {
       check((await s.page.locator('#eng-setups tbody tr').count()) === e.setups.length, id + ': one row per setup');
       check(/Change log/.test(text) && /Shadow trades/.test(text), id + ': change log and shadow trades');
       if (e.setups.some((x) => x.startsOnShadow)) check(/Started on shadow/.test(text), id + ': shadow-start setups are marked');
+      if (id === 'fundamentals') {
+        check(/Retired/.test(await s.page.locator('#eng-setups').innerText()), 'fundamentals: the first-rules setups are marked retired');
+        check(/standing rank/.test(text), 'fundamentals: the learning view explains the rule change');
+      }
       await clean(s, id + ' learn');
 
       await sub(s, 'history');
@@ -156,6 +176,10 @@ try {
       check((await s.page.locator('#eng-pane .eng-body .vt-table tbody tr').count()) === mine.length, id + ': only its own paper orders');
       await clean(s, id + ' webull');
     }
+    await pick(s, 'fundamentals'); await sub(s, 'now');
+    await s.page.screenshot({ path: resolve(output, 'fundamentals-now-1440.png'), fullPage: true });
+    await sub(s, 'learn');
+    await s.page.screenshot({ path: resolve(output, 'fundamentals-learn-1440.png'), fullPage: true });
     await pick(s, 'technicals'); await sub(s, 'now');
     await s.page.screenshot({ path: resolve(output, 'technicals-now-1440.png'), fullPage: true });
     await sub(s, 'history');
@@ -255,6 +279,9 @@ try {
     }
     await pick(s, 'technicals'); await sub(s, 'now');
     await s.page.screenshot({ path: resolve(output, 'technicals-now-390-dark.png'), fullPage: true });
+    await pick(s, 'fundamentals'); await sub(s, 'now'); await settle(s.page, 300);
+    await clean(s, 'fundamentals now, phone');
+    await s.page.screenshot({ path: resolve(output, 'fundamentals-now-390-dark.png'), fullPage: true });
     await s.context.close();
   }
 
