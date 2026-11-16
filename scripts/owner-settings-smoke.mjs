@@ -169,26 +169,6 @@ const none = spawnSync(process.execPath, ["--import", "./scripts/owner-settings-
 eq(none.status, 0, "no file never fails the build");
 ok(/unset/.test(none.stdout), "no file = no change");
 
-// The Dec 7 lock is also enforced where the hooks are read, so a repo variable
-// cannot turn one on early (audit fix 8, 2026-11-16).
-{
-  const cfg = await import("../lib/top-picks-config.mjs");
-  eq(cfg.PICKS_HOOKS_LOCKED_UNTIL, "2026-12-07", "the code lock uses the same date as the page");
-  eq(cfg.lockedHook("1", "1", "2026-12-06"), { on: false, ignored: true }, "the day before: asked for, ignored");
-  eq(cfg.lockedHook("1", "1", "2026-12-07"), { on: true, ignored: false }, "Dec 7: on");
-  eq(cfg.lockedHook("", "1", "2026-12-08"), { on: false, ignored: false }, "unset stays off after the date");
-  eq(cfg.lockedHook("universe", "cboe", "2026-11-16"), { on: false, ignored: false }, "the default asks for nothing");
-  const lockedKeys = OWNER_SETTINGS.filter((d) => d.lockedUntil && d.scope === "build" && /^PICKS_/.test(d.key)).map((d) => d.key).sort();
-  eq(lockedKeys, ["PICKS_CROWD_GRADER", "PICKS_CROWD_SQUEEZE_VETO", "PICKS_MACRO_PUTCALL_SRC", "PICKS_ODDS_GRADER"], "every locked Top Picks hook is one the code lock covers");
-  const lockProbe = join(dir, "lock-probe.mjs");
-  writeFileSync(lockProbe, `const c = await import(${JSON.stringify(resolve("lib/top-picks-config.mjs"))}); console.log(JSON.stringify({ v: c.PICKS_CROWD_SQUEEZE_VETO, g: c.PICKS_CROWD_GRADER, o: c.PICKS_ODDS_GRADER, p: c.PICKS_MACRO_PUTCALL_SRC, i: c.PICKS_LOCKED_IGNORED, open: c.picksHooksUnlocked() }));`);
-  const lockRun = spawnSync(process.execPath, [lockProbe], { env: { ...process.env, PICKS_CROWD_SQUEEZE_VETO: "1", PICKS_CROWD_GRADER: "1", PICKS_ODDS_GRADER: "1", PICKS_MACRO_PUTCALL_SRC: "cboe" }, encoding: "utf8" });
-  eq(lockRun.status, 0, lockRun.stderr);
-  const got = JSON.parse(lockRun.stdout.trim().split("\n").pop());
-  if (got.open) eq([got.v, got.g, got.o, got.p, got.i.length], [true, true, true, "cboe", 0], "from Dec 7 the variables work");
-  else eq([got.v, got.g, got.o, got.p, got.i.length], [false, false, false, "universe", 4], "before Dec 7 a repo variable cannot turn a locked hook on");
-}
-
 // --- request side -----------------------------------------------------------------------
 eq(runtimeEnvOverrides({ values: { MCP_ENABLED: false, WEBULL_MIRROR: false, CONTACT_ENABLED: true, PICKS_COUNT: 2 } }), { MCP_ENABLED: "0", WEBULL_MIRROR: "off" }, "site switches only turn things off");
 

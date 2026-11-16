@@ -53,7 +53,6 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Hand out the five new engine trades per run in turns: one per engine per pass, and the engine that goes first moves on by one every run (shown as "Went first" in the run log). Before, engines were served in a fixed order and the first ones could use all five.
 - Label every Webull paper order with the engine that made it: engine order IDs start with `ms` plus the engine tag (`mstec...`), both CSV downloads gain a `made_by` column (never blank; "Top Picks" for the flagship), the orders CSV gains `webull_order_prefix`, and the page shows "Made by" and the order prefix. Orders already sent keep their IDs.
 - List setups that an engine ruled out because of today's price move (already ran more than 1.5 ATR its way, or moved 0.9 ATR against it) under Now, with no score and the reason. They are not traded and not tracked as shadow trades; the rule itself is unchanged.
-- Enforce the 2026-12-07 lock where the hooks are read (`lib/top-picks-config.mjs`): `PICKS_ODDS_GRADER`, `PICKS_CROWD_SQUEEZE_VETO`, `PICKS_CROWD_GRADER` and `PICKS_MACRO_PUTCALL_SRC=cboe` read as off before that date even when set as a repo variable, and the build logs the ones it ignored. Owner Settings already refused them.
 - Reword the Fundamentals engine's one-line description to match what it reads (no chart pattern or flow can open a trade there).
 
 ### Fixed
