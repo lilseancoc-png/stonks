@@ -89,6 +89,8 @@ import { OWNER_SETTINGS_APPLIED_KEY } from "../lib/owner-settings.mjs";
 // build ran without the preload). picksTag is stamped on new record trades.
 const OWNER_SETTINGS_REPORT = (() => { try { const r = JSON.parse(process.env.OWNER_SETTINGS_REPORT || "null"); return r && typeof r === "object" ? r : null; } catch { return null; } })();
 import { buildCrowdPayload, buildCrowdOwner, readCrowdPrior, writeCrowdFiles, marketGauges, crowdScoresForRow, CROWD_KEY, CROWD_OWNER_KEY } from "../lib/crowd/index.mjs";
+import { loadEngineFiles, carryEngineFiles, writeEngineFiles, runEngines, loadEnginesResearch, flagshipCompare, enginesEnabled, ENGINES_RECORD_KEY } from "../lib/engines/index.mjs";
+import { firstFridays as enginesFirstFridays } from "../lib/engines/macro.mjs";
 import { buildHistoryRhymes, buildHistoryRhymesOwner, historyRhymesSummary, HISTORY_RHYMES_KEY, HISTORY_RHYMES_OWNER_KEY, HISTORY_RHYMES_FRED, REPORTED_CDS } from "../lib/history-rhymes.mjs";
 import { AI_COST_HISTORY_KEY, parseAiCostHistory, upsertAiCostHistory } from "../lib/ai-cost-history.mjs";
 import { refreshCorporateStructure, CORPORATE_STATE_VERSION } from "../lib/corporate-structure/collector.mjs";
@@ -39720,6 +39722,20 @@ async function main() {
       console.warn(`[regime-lab] prior state unavailable (${String(err?.message || err).split("\n")[0]})`);
     }
   }
+  // Strategy engines (lib/engines/index.mjs): the engines' own record, their
+  // learning state and the page file accumulate across bakes, so all three
+  // are read BEFORE the wipe. A missing file is a fresh start; a file that is
+  // there but unreadable skips the engines this build and keeps the stored
+  // copy. ENGINES=0 freezes them (the files are carried forward untouched).
+  let enginesLoaded = null;
+  try {
+    enginesLoaded = await loadEngineFiles(DATA_DIR);
+    if (enginesLoaded.skip) console.warn(`[engines] ${enginesLoaded.error}; engines skipped this build, stored copies kept`);
+    else if (enginesLoaded.partial) console.warn(`[engines] ${enginesLoaded.partial}`);
+  } catch (err) {
+    enginesLoaded = null;
+    console.warn(`[engines] prior files unavailable (${String(err?.message || err).split("\n")[0]})`);
+  }
   // Data source health (lib/source-health.mjs): the 60-day state history is
   // read BEFORE the wipe; the table itself is rebuilt at the end of the bake.
   let priorSourceHealth = null;
@@ -41064,6 +41080,64 @@ async function main() {
     }
   } else {
     console.log(`[picks] carried data/${PICKS_ACCURACY_FILE} and data/picks-open.json forward until the next scheduled Top Picks run`);
+  }
+  // Strategy engines (lib/engines/index.mjs, docs/engines.md): six paper
+  // engines beside Top Picks, each on its own rules and data, on their own
+  // record (engines-record.json). They act only on Top Picks runs (11:00 and
+  // 15:30 ET), right after the flagship record above is written, so a
+  // contract Top Picks just opened is seen as held by Top Picks and the
+  // Webull paper mirror reads both records at the same moment. Every other
+  // bake re-writes the three files exactly as they were read. No AI call, no
+  // fetch; nothing here reads or changes a Top Picks grade, gate or record.
+  if (enginesLoaded) {
+    let enginesRan = false;
+    if (refreshTopPicks && enginesEnabled() && !enginesLoaded.skip) {
+      try {
+        let accForEngines = null;
+        try { accForEngines = JSON.parse(await readFile(resolve(DATA_DIR, PICKS_ACCURACY_FILE), "utf8")); } catch { /* no flagship record this run */ }
+        const fredRows = (id) => historicalSourceCache?.context?.[id]?.rows || [];
+        const cpiDates = historicalSourceCache?.releases?.cpi?.dates || [], jobsDates = historicalSourceCache?.releases?.jobs?.dates || [];
+        const yearNow = Number(etDateKey(new Date(builtAtIso)).slice(0, 4));
+        const enginesRun = runEngines({
+          loaded: enginesLoaded, builtAtIso, chains, tickers: TICKERS,
+          isEtf: (sym) => SECTORS[sym] === "ETF",
+          barsOf: (sym) => chains?.[sym]?._patternBars || chains?.[sym]?._bars || [],
+          earningsStore: earningsHxStore, groupOf: (sym) => sectorGroupOf(sym),
+          unusual: scoringUnusual, crowdRollup: crowdPayload?.rollup || null,
+          fred: Object.fromEntries(["DGS10", "DGS2", "T10Y2Y", "DFF", "NFCI", "DTWEXBGS", "CPIAUCSL", "UNRATE", "USREC"].map((id) => [id, fredRows(id)])),
+          vix: regimeLabVolSeries(historicalSourceCache, "VIXCLS", globalMarkets?.["^VIX"]),
+          vix3m: regimeLabVolSeries(historicalSourceCache, null, globalMarkets?.["^VIX3M"]),
+          // Fed decisions are the dated list; CPI and jobs days are the FRED
+          // release calendars (the first-Friday rule stands in for jobs days
+          // when that calendar did not load).
+          macroEvents: [
+            ...FOMC_DECISIONS.map((date) => ({ date, kind: "fomc" })),
+            ...cpiDates.map((date) => ({ date, kind: "cpi" })),
+            ...(jobsDates.length ? jobsDates : enginesFirstFridays(yearNow - 2, yearNow)).map((date) => ({ date, kind: "jobs" })),
+          ],
+          regime: regimeLabToday, labelRows: regimeLabLabels?.series?.rows || null,
+          macroState: macroBackdrop?.macroRegime?.state || null,
+          flagshipOpen: accForEngines?.open || picksAccuracyPrev?.open || [],
+          flagshipStats: flagshipCompare(accForEngines),
+          rfr: riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE,
+          research: await loadEnginesResearch(ROOT),
+        });
+        const enginesInfo = await writeEngineFiles(DATA_DIR, enginesRun);
+        enginesRan = true;
+        const es = enginesRun.summary;
+        console.log(`wrote data/${ENGINES_RECORD_KEY} + state + page — ${es.opened} opened, ${es.closed} closed, ${es.open} open, ${es.closedTotal} closed in all; shadow ${es.shadowOpened} opened / ${es.shadowClosed} closed; ${es.changes} rule change(s); ${es.views} name(s) read${es.mode !== "on" ? `; mode ${es.mode}` : ""}${es.errors.length ? `; errors: ${es.errors.join(" | ")}` : ""}; ${enginesInfo.recordBytes} + ${enginesInfo.stateBytes} + ${enginesInfo.viewBytes} bytes`);
+      } catch (err) {
+        console.warn(`[engines] run skipped, stored files carried forward — ${String(err?.message || err).split("\n")[0]}`);
+      }
+    }
+    if (!enginesRan) {
+      try {
+        const carried = await carryEngineFiles(DATA_DIR, enginesLoaded);
+        if (carried) console.log(`[engines] carried ${carried} engine file(s) forward${refreshTopPicks ? "" : " until the next scheduled Top Picks run"}`);
+      } catch (err) {
+        console.warn(`[engines] carry-forward skipped — ${String(err?.message || err).split("\n")[0]}`);
+      }
+    }
   }
   // Grade-edge report and paper books. Stored grades and daily closes only.
   // No Gemini call. Written on every bake, including carry-forward runs, so the
