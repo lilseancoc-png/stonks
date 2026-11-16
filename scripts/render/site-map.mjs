@@ -121,6 +121,7 @@ export const SITE_SECTIONS = [
       { id: 'picks', label: 'Top picks', blurb: 'The model’s highest-conviction option contracts for today.' },
       { id: 'open-picks', label: 'Open picks', blurb: 'Every open trade, with lines ready to copy to a broker.' },
       { id: 'track', label: 'Top Picks track record', blurb: 'How every closed pick worked out.' },
+      { id: 'engines', label: 'Strategy engines', alias: 'Paper engines earnings macro technicals fundamentals flow reversion ERN MAC TEC FUN FLO REV', blurb: 'Six rules-only paper engines beside Top Picks, each with its own trades and track record.' },
       { id: 'leaps', label: 'LEAPS', blurb: 'Names scored for a one- to two-year options hold.' },
       { id: 'stocks', label: 'Stock picks', blurb: 'Quality companies on a dip, as shares rather than options.' },
       { id: 'levetf', label: 'Leveraged ETFs', blurb: 'Leveraged ETF setups from the same engine.' },

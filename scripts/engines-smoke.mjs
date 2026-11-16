@@ -17,6 +17,7 @@ import { evalTechnicals, evalReversion, evalMacro, evalEarnings, evalFundamental
 import { stepBook, emptyRecord, emptyState, engineTradeId } from "../lib/engines/book.mjs";
 import { pickContract, quoteContract, contractKey } from "../lib/engines/contracts.mjs";
 import { newEngineState, observe, adapt, LEARN, learnView } from "../lib/engines/learn.mjs";
+import { standRank, rankView, RANK } from "../lib/engines/rank.mjs";
 import { prepareReports, earnView, fundCore } from "../lib/engines/earn.mjs";
 import { buildMacro } from "../lib/engines/macro.mjs";
 import { engineStats, summarize, scoreBand } from "../lib/engines/record.mjs";
@@ -161,6 +162,9 @@ ok("reversion: washout call; stands aside next to a report", () => {
   assert.equal(c.length, 1); assert.equal(c[0].setup, "oversold-bounce"); assert.equal(c[0].targetLevel, 97);
   assert.equal(evalReversion(V("CCC", f, { earn: { next: { sessionsUntil: 1 } } }), CTX).length, 0);
   assert.equal(evalReversion(V("CCC", f, { earn: { last: { sessionsSince: 0 } } }), CTX).length, 0);
+  // An after-the-close report from the last finished session: today is the
+  // reaction day, so the washout may be the report itself.
+  assert.equal(evalReversion(V("CCC", f, { earn: { reacting: { date: END, session: "PM" }, last: { sessionsSince: 60 }, next: { sessionsUntil: 60 } } }), CTX).length, 0);
 });
 ok("earnings: drift after a beat that held; run-in closed before the report", () => {
   const f = baseF({ c: 108, pc: 107, sma50: 98 });
@@ -179,15 +183,89 @@ ok("earnings: drift after a beat that held; run-in closed before the report", ()
   // ... but not into very rich options.
   assert.equal(evalEarnings(V("EEE", baseF({}), { earn: { last: null, hist, next: { date: "2026-11-23", session: "PM", sessionsUntil: 5, exitBy: "2026-11-23" } }, live: { iv: { band: "very-rich" } } }), CTX).length, 0);
 });
-ok("fundamentals: compounder call reads live quality; nothing right before a report", () => {
-  const core = { epsYoy: 30, epsYoyPrev: 20, beats4: 4, misses4: 0, reports: 9, lastDate: "2026-10-28", sessionsSince: 12 };
-  const live = { fyEpsRevision: { pct30: 5 }, operatingMargin: 30, returnOnEquity: 35, revenueGrowthYoy: 18, freeCashFlow: 5e9, marketCap: 1e11, debtToEquity: 40, forwardPE: 22, targetMeanPrice: 125 };
-  const c = evalFundamentals(V("FFF", baseF({}), { fund: { core, live, groupPE: 24 }, earn: { next: { sessionsUntil: 40 } } }), CTX);
-  assert.equal(c.length, 1); assert.equal(c[0].setup, "compounder"); assert.ok(c[0].score >= 70);
-  assert.ok(c[0].reasons.some((r) => /Forward P\/E 22 against 24/.test(r)));
-  assert.equal(evalFundamentals(V("FFF", baseF({}), { fund: { core, live, groupPE: 24 }, earn: { next: { sessionsUntil: 3 } } }), CTX).length, 0);
-  // Without the live block the replayable core alone still scores.
-  assert.equal(evalFundamentals(V("FFF", baseF({}), { fund: { core } }), CTX)[0].facts.live, false);
+// Thirty stocks: F01 has the strongest fundamentals, F30 the weakest. The
+// weaker half sits under its 200-day (puts are not opened far above it).
+function fundViews({ n = 30, over = {} } = {}) {
+  const views = {};
+  for (let i = 1; i <= n; i++) {
+    const sym = `F${String(i).padStart(2, "0")}`, g = (n - i) / (n - 1);
+    const core = { epsYoy: -40 + g * 90, epsYoyPrev: -30 + g * 60, beats4: Math.round(g * 4), misses4: Math.round((1 - g) * 4), reports: 9, lastDate: "2026-10-20", sessionsSince: 18 };
+    const live = { fyEpsRevision: { pct30: -6 + g * 12 }, operatingMargin: 2 + g * 35, returnOnEquity: 3 + g * 35, revenueGrowthYoy: -8 + g * 30, freeCashFlow: (0.005 + g * 0.05) * 1e11, marketCap: 1e11, debtToEquity: 250 - g * 220, forwardPE: 40 - g * 22, targetMeanPrice: 90 + g * 35 };
+    views[sym] = V(sym, baseF(i > n / 2 ? { sma200: 110 } : {}), { fund: { core, live, groupPE: 24 }, earn: { next: { sessionsUntil: 40 } }, ...(over[sym] || {}) });
+  }
+  return views;
+}
+const ranked = (views, es = newEngineState(ENGINES.fundamentals), opts = {}) => {
+  const rk = standRank(es, views, { today: TODAY, ...opts });
+  for (const sym of rk.order) if (views[sym]?.fund) views[sym].fund.rank = { ...rk.rows[sym], n: rk.n };
+  return rk;
+};
+ok("fundamentals: one standing rank; calls from the best eight, puts from the worst eight", () => {
+  const views = fundViews(), rk = ranked(views);
+  assert.equal(rk.n, 30); assert.equal(rk.keep, 10); assert.equal(rk.order[0], "F01"); assert.equal(rk.order[29], "F30");
+  assert.deepEqual(rk.order, Object.keys(views), "better numbers rank higher, all the way down");
+  const top = evalFundamentals(views.F01, CTX);
+  assert.equal(top.length, 1); assert.equal(top[0].setup, "rank-top"); assert.equal(top[0].side, "call"); assert.equal(top[0].score, 100);
+  assert.equal(top[0].signalKey, `F01|rank-top|${TODAY}`);
+  assert.ok(top[0].reasons.some((r) => /^Ranked 1 of 30 covered stocks$/.test(r)));
+  assert.ok(top[0].reasons.some((r) => /Earnings power \d+, quality \d+, price \d+/.test(r)));
+  assert.equal(evalFundamentals(views.F08, CTX)[0].side, "call");
+  assert.equal(evalFundamentals(views.F09, CTX).length, 0, "ninth best: kept if held, never opened");
+  assert.equal(views.F10.fund.rank.zone, "top"); assert.equal(views.F11.fund.rank.zone, "mid"); assert.equal(views.F21.fund.rank.zone, "bottom");
+  const bottom = evalFundamentals(views.F30, CTX);
+  assert.equal(bottom[0].setup, "rank-bottom"); assert.equal(bottom[0].side, "put"); assert.equal(bottom[0].score, 100);
+  assert.ok(bottom[0].reasons.some((r) => /Ranked 30 of 30 covered stocks \(1 from the bottom\)/.test(r)));
+  assert.equal(evalFundamentals(views.F23, CTX)[0].side, "put");
+  assert.equal(evalFundamentals(views.F22, CTX).length, 0);
+  // Held back: a report inside six sessions, the reaction day of a report,
+  // a call far under the 200-day, a put far above it, today's move.
+  assert.equal(evalFundamentals({ ...views.F01, earn: { next: { sessionsUntil: 3 } } }, CTX).length, 0);
+  assert.equal(evalFundamentals({ ...views.F01, earn: { reacting: { date: END, session: "PM" } } }, CTX).length, 0);
+  assert.equal(evalFundamentals({ ...views.F01, f: baseF({ sma200: 120 }) }, CTX).length, 0);
+  assert.equal(evalFundamentals({ ...views.F30, f: baseF({ sma200: 85 }) }, CTX).length, 0);
+  assert.equal(evalFundamentals({ ...views.F01, spot: 104.5 }, CTX).length, 0);
+  // The history test has only the report numbers: it ranks on earnings power alone.
+  const bare = Object.fromEntries(Object.entries(fundViews()).map(([sym, v]) => [sym, { ...v, fund: { core: v.fund.core } }]));
+  const rk2 = ranked(bare);
+  assert.equal(rk2.order[0], "F01"); assert.equal(rk2.rows.F01.q, null); assert.equal(rk2.rows.F01.p, null); assert.ok(rk2.rows.F01.e > 90);
+  // A fund, or a stock without a beat record, is not ranked.
+  const mixed = fundViews(); mixed.SPY = { ...V("SPY", baseF({})), isEtf: true, fund: mixed.F01.fund }; mixed.F15 = { ...mixed.F15, fund: { core: null, live: mixed.F15.fund.live } };
+  const rk3 = ranked(mixed);
+  assert.equal(rk3.n, 29); assert.ok(!rk3.rows.SPY && !rk3.rows.F15);
+});
+ok("fundamentals: a stock's place is fixed until the month changes or it reports again", () => {
+  const es = newEngineState(ENGINES.fundamentals);
+  ranked(fundViews(), es, { today: "2026-11-16" });
+  // F20's numbers jump the next day with no new report: its place does not move.
+  const jump = (v, lastDate) => ({ ...v, fund: { ...v.fund, core: { ...v.fund.core, epsYoy: 200, epsYoyPrev: 0, beats4: 4, misses4: 0, lastDate }, live: { ...v.fund.live, fyEpsRevision: { pct30: 20 }, operatingMargin: 60, returnOnEquity: 60, revenueGrowthYoy: 50, freeCashFlow: 1e10, debtToEquity: 5, forwardPE: 10, targetMeanPrice: 160 } } });
+  let views = fundViews(); views.F20 = jump(views.F20, "2026-10-20");
+  let rk = ranked(views, es, { today: "2026-11-17" });
+  assert.equal(rk.rows.F20.rank, 20); assert.equal(rk.rows.F20.asOf, "2026-11-16");
+  // It reports: it is ranked again, and only it.
+  views = fundViews(); views.F20 = jump(views.F20, "2026-11-17");
+  rk = ranked(views, es, { today: "2026-11-18" });
+  assert.ok(rk.rows.F20.rank <= 2); assert.equal(rk.rows.F20.asOf, "2026-11-18"); assert.equal(rk.rows.F01.asOf, "2026-11-16"); assert.ok(rk.rows.F01.rank <= 2);
+  // A new month: every stock is ranked again.
+  rk = ranked(fundViews(), es, { today: "2026-12-01" });
+  assert.ok(Object.values(rk.rows).every((r) => r.asOf === "2026-12-01")); assert.equal(rk.rows.F20.rank, 20);
+  // No data for a stock this run: it keeps its place. Out of coverage: dropped.
+  const fewer = fundViews(); delete fewer.F05;
+  rk = ranked(fewer, es, { today: "2026-12-02" });
+  assert.equal(rk.rows.F05.rank, 5);
+  rk = ranked(fewer, es, { today: "2026-12-02", coverage: new Set(Object.keys(fewer)) });
+  assert.equal(rk.n, 29); assert.ok(!rk.rows.F05);
+  // Too few ranked names: there is no rank to trade or to close on.
+  const small = fundViews({ n: RANK.minNames - 1 }), rkS = ranked(small);
+  assert.equal(rkS.live, false); assert.equal(small.F01.fund.rank.enter, null); assert.equal(small.F01.fund.rank.zone, null);
+  assert.equal(evalFundamentals(small.F01, CTX).length, 0);
+  // A short rank: new trades come from inside the kept third, never outside it.
+  const short = fundViews({ n: 12 }), rkT = ranked(short);
+  assert.equal(rkT.keep, 4); assert.equal(rkT.enter, 4);
+  assert.equal(short.F04.fund.rank.enter, "call"); assert.equal(short.F05.fund.rank.enter, null); assert.equal(short.F08.fund.rank.enter, null); assert.equal(short.F09.fund.rank.enter, "put");
+  // The page read: both ends, and what is held.
+  const pv = rankView(es, [{ symbol: "F02", side: "call" }, { symbol: "F15", side: "call" }]);
+  assert.equal(pv.top.length, RANK.shown); assert.equal(pv.bottom.length, RANK.shown); assert.equal(pv.top[1].held, "call");
+  assert.deepEqual(pv.heldElsewhere.map((r) => r.symbol), ["F15"]);
 });
 ok("flow: signed bullish flow; short squeeze reads borrow and short-sale volume", () => {
   const flow = { signed: true, nBull: 7, nBear: 1, bullUsd: 9e6, bearUsd: 1e6, bullPrem: 1.2e6, bearPrem: 1e5, persist: 0.4, gamma: 1, callWall: null, siPct: null, covering: false, rvol: 1.6, borrowTight: false, shortVolZ: null };
@@ -242,6 +320,15 @@ ok("report list: store fractions become percent; reaction measured from bars", (
   assert.equal(e2.next.exitBy, "2026-11-25");
   assert.equal(earnView(P, i, reps, { today: TODAY, next: { date: "2026-11-24", session: "PM" } }).next.exitBy, "2026-11-24");
   assert.equal(fundCore({ last: null, hist: [] }), null);
+  // An after-the-close report dated on the last confirmed bar has no
+  // reaction bar yet: it is `reacting`, not `last` and not `next`.
+  const lastBar = DATES[DATES.length - 1];
+  const pm = earnView(P, i, prepareReports([{ date: repDate, session: "AM", epsActual: 2, epsEstimate: 1.6 }, { date: lastBar, session: "PM", epsActual: 1, epsEstimate: 0.9 }]), { today: TODAY, next: { date: "2027-02-10", session: "PM" } });
+  assert.deepEqual(pm.reacting, { date: lastBar, session: "PM" }); assert.equal(pm.last.date, repDate); assert.equal(pm.next.date, "2027-02-10");
+  // A before-the-open report on that bar already has its reaction: `last`.
+  const am = earnView(P, i, prepareReports([{ date: lastBar, session: "AM", epsActual: 1, epsEstimate: 0.9 }]), { today: TODAY });
+  assert.equal(am.reacting, null); assert.equal(am.last.date, lastBar); assert.equal(am.last.sessionsSince, 0);
+  assert.equal(e.reacting, null);
 });
 ok("macro factors respect publication lags", () => {
   // Daily series through Tuesday Nov 17: a Monday Nov 16 decision must read
@@ -336,6 +423,115 @@ ok("book: the whole book opens at most five trades a run", () => {
   const state = emptyState(), record = emptyRecord();
   const out = stepBook(state, record, bookInput(views, { engines: ["technicals", "reversion"], maxTotal: 3 }));
   assert.equal(out.opened.length, 3);
+});
+ok("book: a setup ruled out by today's price move is listed, not traded and not tracked", () => {
+  // AAA ran 4.5 ATR-ish above the last close: the pullback is there, the entry is not.
+  const ran = { RAN1: { ...V("RAN1", pullF()), spot: 104.5 }, OK1: V("OK1", pullF()) };
+  const state = emptyState(), record = emptyRecord();
+  const out = stepBook(state, record, bookInput(ran, { engines: ["technicals"] }));
+  const rows = out.candidates.technicals;
+  const skip = rows.find((c) => c.symbol === "RAN1");
+  assert.ok(skip && skip.skipped === "price" && skip.taken === false && skip.score === null && skip.setup === "pullback");
+  assert.match(skip.why, /^price already ran \d+(\.\d+)? ATR its way today \(not chased\)$/);
+  assert.equal(rows.indexOf(skip), rows.length - 1);            // after the scored rows
+  assert.deepEqual(out.opened.map((t) => t.symbol), ["OK1"]);   // the other name still opens
+  assert.equal(out.shadowOpened, 0);
+  assert.ok(!Object.keys(state.engines.technicals.seen).some((k) => k.startsWith("RAN1|")));
+  assert.equal(out.skippedPrice, 1);
+  // The price comes back by the afternoon run: the same signal can still open.
+  const out2 = stepBook(state, record, bookInput({ RAN1: V("RAN1", pullF()), OK1: V("OK1", pullF()) }, { engines: ["technicals"], nowIso: NOW_PM, late: true }));
+  assert.deepEqual(out2.opened.map((t) => t.symbol), ["RAN1"]);
+  // A move against the setup is named as such.
+  const against = stepBook(emptyState(), emptyRecord(), bookInput({ AG1: { ...V("AG1", pullF()), spot: 97 } }, { engines: ["technicals"] }));
+  assert.match(against.candidates.technicals[0].why, /^price moved \d+(\.\d+)? ATR against it today$/);
+});
+ok("book: the shared run limit is handed out in turns, and the first engine changes each run", () => {
+  const mk = () => { const views = {}; for (let i = 0; i < 9; i++) views[`B${i}`] = V(`B${i}`, bothF()); return views; };
+  const count = (out, id) => out.opened.filter((t) => t.engine === id).length;
+  const two = ["technicals", "reversion"];
+  // First run: Technicals goes first. One each, then Technicals takes the third.
+  const a = emptyState();
+  const outA = stepBook(a, emptyRecord(), bookInput(mk(), { engines: two, maxTotal: 3 }));
+  assert.deepEqual(outA.order, two); assert.equal(a.turn, 0);
+  assert.equal(count(outA, "technicals"), 2); assert.equal(count(outA, "reversion"), 1);
+  // The next run starts with Reversion.
+  const b = emptyState(); b.turn = 0;
+  const outB = stepBook(b, emptyRecord(), bookInput(mk(), { engines: two, maxTotal: 3 }));
+  assert.deepEqual(outB.order, ["reversion", "technicals"]); assert.equal(b.turn, 1);
+  assert.equal(count(outB, "reversion"), 2); assert.equal(count(outB, "technicals"), 1);
+  // With one slot left for the whole book, the engine whose turn it is gets it.
+  const c = emptyState(); c.turn = 0;
+  const outC = stepBook(c, emptyRecord(), bookInput(mk(), { engines: two, maxTotal: 1 }));
+  assert.equal(outC.opened.length, 1); assert.equal(outC.opened[0].engine, "reversion");
+  // The old order gave a two-trade limit to the first engine alone.
+  const d = emptyState();
+  const outD = stepBook(d, emptyRecord(), bookInput(mk(), { engines: two, maxTotal: 2 }));
+  assert.equal(count(outD, "technicals"), 1); assert.equal(count(outD, "reversion"), 1);
+  // A marks-only step does not use up a turn.
+  const e = emptyState(); e.turn = 0;
+  stepBook(e, emptyRecord(), bookInput(mk(), { engines: two, marksOnly: true }));
+  assert.equal(e.turn, 0);
+});
+ok("book: Fundamentals holds three calls and two puts, one new trade a run, and swaps only when a name leaves its third", () => {
+  const state = emptyState(), record = emptyRecord();
+  const run = (nowIso, views = fundViews()) => stepBook(state, record, bookInput(views, { engines: ["fundamentals"], nowIso, late: /T20/.test(nowIso) }));
+  const runs = ["2026-11-16T16:00:00.000Z", "2026-11-16T20:30:00.000Z", "2026-11-17T16:00:00.000Z", "2026-11-17T20:30:00.000Z", "2026-11-18T16:00:00.000Z"].map((iso) => run(iso));
+  assert.deepEqual(runs.map((o) => o.opened.map((t) => `${t.symbol} ${t.side}`).join()), ["F01 call", "F30 put", "F02 call", "F29 put", "F03 call"]);
+  assert.ok(runs.every((o) => o.shadowOpened === 0), "a name with no room is looked at again next run, not parked as a shadow trade");
+  assert.ok(runs[0].candidates.fundamentals.some((c) => c.symbol === "F30" && c.why === "run limit"));
+  const t0 = record.open[0];
+  assert.equal(t0.setup, "rank-top"); assert.equal(t0.exits.maxSessions, 60); assert.equal(t0.exits.tp, 50); assert.equal(t0.signalDate, "2026-11-16");
+  assert.ok(t0.contract.dte >= 75 && t0.contract.dte <= 200);
+  // Full: three calls and two puts. The next names wait.
+  let out = run("2026-11-18T20:30:00.000Z");
+  assert.equal(out.opened.length, 0); assert.equal(out.closed.length, 0); assert.equal(out.shadowOpened, 0);
+  assert.ok(out.candidates.fundamentals.some((c) => c.symbol === "F04" && c.why === "no free call slot"));
+  assert.ok(out.candidates.fundamentals.some((c) => c.symbol === "F28" && c.why === "no free put slot"));
+  // F03 slips after its report but stays in the top third: held.
+  const slip = (v, over) => ({ ...v, fund: { ...v.fund, core: { ...v.fund.core, ...over } } });
+  let views = fundViews(); views.F03 = slip(views.F03, { epsYoy: 0, epsYoyPrev: 20, beats4: 2, misses4: 2, lastDate: "2026-11-18" });
+  out = run("2026-11-19T16:00:00.000Z", views);
+  assert.ok(state.engines.fundamentals.rank.rows.F03.rank > 3 && state.engines.fundamentals.rank.rows.F03.zone === "top");
+  assert.equal(out.closed.length, 0);
+  // F02 reports badly and leaves the top third: closed, and the best name not held takes the slot.
+  views = fundViews(); views.F03 = slip(views.F03, { epsYoy: 0, epsYoyPrev: 20, beats4: 2, misses4: 2, lastDate: "2026-11-18" });
+  views.F02 = { ...slip(views.F02, { epsYoy: -30, epsYoyPrev: 10, beats4: 0, misses4: 4, lastDate: "2026-11-19" }), fund: { ...views.F02.fund, core: { ...views.F02.fund.core, epsYoy: -30, epsYoyPrev: 10, beats4: 0, misses4: 4, lastDate: "2026-11-19" }, live: views.F25.fund.live } };
+  out = run("2026-11-20T16:00:00.000Z", views);
+  assert.equal(out.closed.length, 1); assert.equal(out.closed[0].symbol, "F02"); assert.equal(out.closed[0].status, "rank-out"); assert.ok(CLOSE_LABEL["rank-out"]);
+  assert.deepEqual(out.opened.map((t) => t.symbol), ["F04"]);
+  assert.equal(record.open.filter((t) => t.side === "call").length, 3); assert.equal(record.open.filter((t) => t.side === "put").length, 2);
+  // A fresh start is already on the new rules: no version bump.
+  assert.equal(record.open[0].rulesVersion, "FUN-1"); assert.equal(state.engines.fundamentals.rules, 2);
+});
+ok("book: the rule change reaches a running engine once, as a logged version bump; first-rules trades keep their own checks", () => {
+  const state = emptyState(), record = emptyRecord();
+  state.engines.fundamentals = newEngineState(ENGINES.fundamentals); delete state.engines.fundamentals.rules;   // a state written before the change
+  let out = stepBook(state, record, bookInput(fundViews(), { engines: ["fundamentals"] }));
+  assert.deepEqual(out.changes.map((c) => `${c.engine}:${c.kind}`), ["fundamentals:rules"]);
+  assert.match(out.changes[0].text, /standing rank/);
+  assert.equal(state.engines.fundamentals.v, 2); assert.equal(state.engines.fundamentals.log[0].v, "FUN-2"); assert.equal(out.opened[0].rulesVersion, "FUN-2");
+  out = stepBook(state, record, bookInput(fundViews(), { engines: ["fundamentals"], nowIso: NOW_PM, late: true }));
+  assert.equal(out.changes.length, 0);
+  // The entry bar never decides a rank trade: with the bar at its top, the
+  // eighth-best name (score under the bar) still opens when it is the best free one.
+  const st3 = emptyState(); st3.engines.fundamentals = newEngineState(ENGINES.fundamentals); st3.engines.fundamentals.bar = 99;
+  const only8 = fundViews(); for (const sym of ["F01", "F02", "F03", "F04", "F05", "F06", "F07", "F23", "F24", "F25", "F26", "F27", "F28", "F29", "F30"]) only8[sym] = { ...only8[sym], earn: { next: { sessionsUntil: 3 } } };
+  out = stepBook(st3, emptyRecord(), bookInput(only8, { engines: ["fundamentals"] }));
+  assert.equal(out.opened.length, 1); assert.equal(out.opened[0].symbol, "F08"); assert.ok(out.opened[0].score < 99);
+  // No other engine carries a hand-made rule change.
+  const st2 = emptyState(); for (const id of ENGINE_IDS) { st2.engines[id] = newEngineState(ENGINES[id]); delete st2.engines[id].rules; }
+  out = stepBook(st2, emptyRecord(), bookInput({ AAA: V("AAA", pullF()) }, {}));
+  assert.deepEqual(out.changes.map((c) => c.engine), ["fundamentals"]);
+  // A trade opened under the first rules still closes on a report that goes against it, and never on the rank.
+  const old = { engine: "fundamentals", setup: "compounder", side: "call", signalDate: "2026-10-20", entryDate: "2026-10-25T16:00:00.000Z" };
+  assert.equal(thesisCheck(old, { earn: { last: { date: "2026-11-10", surprisePct: -5 } }, fund: { rank: { zone: "bottom", n: 30 } } }), "signal-gone");
+  assert.equal(thesisCheck(old, { earn: { last: { date: "2026-11-10", surprisePct: 4 } }, fund: { rank: { zone: "bottom", n: 30 } } }), null);
+  // A rank trade closes only on the rank.
+  const rankT = { engine: "fundamentals", setup: "rank-top", side: "call" };
+  assert.equal(thesisCheck(rankT, { earn: { last: { date: "2026-11-10", surprisePct: -5 } }, fund: { rank: { zone: "top", n: 30 } } }), null);
+  assert.equal(thesisCheck(rankT, { fund: { rank: { zone: "mid", n: 30 } } }), "rank-out");
+  assert.equal(thesisCheck({ ...rankT, setup: "rank-bottom", side: "put" }, { fund: { rank: { zone: "mid", n: 30 } } }), "rank-out");
+  assert.equal(thesisCheck(rankT, { fund: {} }), null, "no rank this run: hold");
 });
 ok("book: take-profit, stop, time limit, event exit, expiry, left coverage", () => {
   const mk = (over = {}) => {
@@ -608,7 +804,7 @@ await okAsync("hook: a fresh start, a run, the three files, a second run, and a 
   assert.equal(view.health.views, Object.keys(SERIES).length);
   assert.equal(lastView.runIso, "2026-11-25T20:30:00.000Z");
   // Confirmed bars only: today's partial bar never reaches a feature row.
-  for (const t of [...rec.open, ...rec.closed]) assert.ok(String(t.signalDate).replace("pre-", "") !== String(t.entryDate).slice(0, 10) || t.engine === "earnings");
+  for (const t of [...rec.open, ...rec.closed]) assert.ok(String(t.signalDate).replace("pre-", "") !== String(t.entryDate).slice(0, 10) || t.engine === "earnings" || t.engine === "fundamentals");   // a rank trade is dated the day the stock was ranked
   // A bake that is not a decision run re-writes the files byte for byte.
   const before = [ENGINES_RECORD_KEY, ENGINES_STATE_KEY, ENGINES_VIEW_KEY].map((k) => fs.readFileSync(path.join(dir, k), "utf8"));
   loaded = await loadEngineFiles(dir);
