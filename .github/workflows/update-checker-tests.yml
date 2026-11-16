@@ -8,7 +8,7 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -37,6 +37,25 @@ jobs:
           npm run test:walk-forward
           npm run test:features-next
           npm run verify:freshness
+      - name: Verify the November 2026 engines, odds, labs and Webull mirror
+        # These features shipped with tests but no CI step (2026-11-16 audit),
+        # so a later change could break them unseen. Offline, about a minute.
+        # Called by path: they have no npm scripts on purpose (a package.json
+        # change trips verify:risk-cost).
+        run: |
+          node scripts/engines-smoke.mjs
+          node scripts/engines-mirror-smoke.mjs
+          npm run test:prediction
+          node scripts/prediction-markets-smoke.mjs
+          node scripts/quant-labs-smoke.mjs
+          node scripts/factor-universe-smoke.mjs
+          node scripts/earnings-forecast-lab-smoke.mjs
+          node scripts/flow-direction-smoke.mjs
+          node scripts/ai-disruption-smoke.mjs
+          npm run test:webull-mirror
+          npm run test:workflow-schedules
+          npm run test:top-picks-watchdog
+          npm run test:owner-settings
       - name: Verify browser behavior
         run: |
           npm install --prefix "$RUNNER_TEMP/checker-browser" --no-audit --no-fund playwright@1.64.1
@@ -46,3 +65,4 @@ jobs:
           PLAYWRIGHT_MODULE="$RUNNER_TEMP/checker-browser/node_modules/playwright/index.mjs" npm run test:outage-drill-browser
           PLAYWRIGHT_MODULE="$RUNNER_TEMP/checker-browser/node_modules/playwright/index.mjs" LAYOUT_WIDTHS=390,1440 npm run test:layout-browser
           PLAYWRIGHT_MODULE="$RUNNER_TEMP/checker-browser/node_modules/playwright/index.mjs" npm run test:features-next-browser
+          PLAYWRIGHT_MODULE="$RUNNER_TEMP/checker-browser/node_modules/playwright/index.mjs" node scripts/engines-browser.mjs
