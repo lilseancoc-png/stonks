@@ -1,11 +1,569 @@
 {
- "builtAtIso": "2026-11-16T13:02:55.227Z",
+ "builtAtIso": "2026-11-16T13:21:02.301Z",
  "since": "2004-06-01",
  "scanned": 1360,
  "companies": 1000,
  "priced": 1000,
+ "quoted": 1000,
  "sic": 998,
  "forecastFiles": 26,
+ "dropped": [
+  {
+   "sym": "SKHY",
+   "rank": 11,
+   "why": "no US GAAP facts (ffd)"
+  },
+  {
+   "sym": "XOM",
+   "rank": 16,
+   "why": "assets 3, profit rows 8 (yearly 0), tags NetIncomeLoss:USD:8 ProfitLoss:USD:8"
+  },
+  {
+   "sym": "ASML",
+   "rank": 18,
+   "why": "assets 0, profit rows 0 (yearly 0), tags NetIncomeLoss:EUR:51"
+  },
+  {
+   "sym": "HSBC",
+   "rank": 35,
+   "why": "no US GAAP facts (dei,ifrs-full,ffd)"
+  },
+  {
+   "sym": "NVS",
+   "rank": 37,
+   "why": "no US GAAP facts (dei,ifrs-full)"
+  },
+  {
+   "sym": "AZN",
+   "rank": 40,
+   "why": "no US GAAP facts (ifrs-full)"
+  },
+  {
+   "sym": "RY",
+   "rank": 42,
+   "why": "no US GAAP facts (dei,ifrs-full,invest,ffd)"
+  },
+  {
+   "sym": "SHEL",
+   "rank": 43,
+   "why": "no US GAAP facts (ifrs-full,invest,dei,srt)"
+  },
+  {
+   "sym": "SAP",
+   "rank": 45,
+   "why": "no US GAAP facts (dei,ifrs-full,ffd)"
+  },
+  {
+   "sym": "TM",
+   "rank": 54,
+   "why": "assets 0, profit rows 0 (yearly 0), tags NetIncomeLoss:JPY/USD:37 ProfitLoss:JPY/USD:37 NetIncomeLossAvailableToCommonStockholdersBasic:JPY/USD:33"
+  },
+  {
+   "sym": "MUFG",
+   "rank": 55,
+   "why": "assets 0, profit rows 0 (yearly 0), tags NetIncomeLoss:JPY:83 ProfitLoss:JPY:83 NetIncomeLossAvailableToCommonStockholdersBasic:JPY:63"
+  },
+  {
+   "sym": "BABA",
+   "rank": 58,
+   "why": "assets 0, profit rows 0 (yearly 0), tags NetIncomeLoss:CNY/USD:63 ProfitLoss:CNY/USD:63 NetIncomeLossAvailableToCommonStockholdersBasic:CNY/USD:63"
+  },
+  {
+   "sym": "CYATY",
+   "rank": 61,
+   "why": "no company-facts file"
+  },
+  {
+   "sym": "ARM",
+   "rank": 63,
+   "why": "assets 0, profit rows 0 (yearly 0), tags NetIncomeLoss:USD:43 IncomeLossFromContinuingOperations:USD:3"
+  },
+  {
+   "sym": "BHP",
+   "rank": 68,
+   "why": "assets 0, profit rows 0 (yearly 0), tags none"
+  },
+  {
+   "sym": "TD",
+   "rank": 70,
+   "why": "no US GAAP facts (dei,ifrs-full,invest,srt,ffd)"
+  },
+  {
+   "sym": "TTE",
+   "rank": 73,
+   "why": "assets 0, profit rows 0 (yearly 0), tags none"
+  },
+  {
+   "sym": "NVO",
+   "rank": 87,
+   "why": "no US GAAP facts (dei,ifrs-full,invest)"
+  },
+  {
+   "sym": "SAN",
+   "rank": 88,
+   "why": "assets 0, profit rows 0 (yearly 0), tags none"
+  },
+  {
+   "sym": "RTNTF",
+   "rank": 89,
+   "why": "no company-facts file"
+  },
+  {
+   "sym": "BUD",
+   "rank": 91,
+   "why": "no US GAAP facts (dei,ifrs-full)"
+  },
+  {
+   "sym": "SONY",
+   "rank": 95,
+   "why": "assets 0, profit rows 0 (yearly 0), tags NetIncomeLoss:JPY:42 ProfitLoss:JPY:42 NetIncomeLossAvailableToCommonStockholdersBasic:JPY:39"
+  },
+  {
+   "sym": "SMFG",
+   "rank": 96,
+   "why": "no US GAAP facts (dei,ifrs-full,ffd)"
+  },
+  {
+   "sym": "UBS",
+   "rank": 103,
+   "why": "no US GAAP facts (dei,ifrs-full)"
+  },
+  {
+   "sym": "UL",
+   "rank": 106,
+   "why": "no US GAAP facts (dei,ifrs-full)"
+  },
+  {
+   "sym": "BBVA",
+   "rank": 107,
+   "why": "assets 0, profit rows 0 (yearly 0), tags none"
+  },
+  {
+   "sym": "DTEGY",
+   "rank": 108,
+   "why": "no company-facts file"
+  },
+  {
+   "sym": "HTHIY",
+   "rank": 113,
+   "why": "assets 0, profit rows 0 (yearly 0), tags NetIncomeLoss:JPY:6 ProfitLoss:JPY:6"
+  },
+  {
+   "sym": "ATEYY",
+   "rank": 115,
+   "why": "assets 0, profit rows 0 (yearly 0), tags NetIncomeLoss:JPY:18"
+  },
+  {
+   "sym": "RIO",
+   "rank": 119,
+   "why": "no US GAAP facts (dei,ifrs-full,ffd)"
+  },
+  {
+   "sym": "HDB",
+   "rank": 120,
+   "why": "assets 0, profit rows 0 (yearly 0), tags NetIncomeLoss:INR/USD:67 ProfitLoss:INR/USD:67"
+  },
+  {
+   "sym": "BTI",
+   "rank": 123,
+   "why": "assets 0, profit rows 0 (yearly 0), tags none"
+  },
+  {
+   "sym": "SPOT",
+   "rank": 131,
+   "why": "no US GAAP facts (dei,ifrs-full,ffd)"
+  },
+  {
+   "sym": "IBN",
+   "rank": 132,
+   "why": "no company-facts file"
+  },
+  {
+   "sym": "SMERY",
+   "rank": 133,
+   "why": "no company-facts file"
+  },
+  {
+   "sym": "MFG",
+   "rank": 135,
+   "why": "assets 0, profit rows 0 (yearly 0), tags NetIncomeLoss:JPY:73 ProfitLoss:JPY:73 NetIncomeLossAvailableToCommonStockholdersBasic:JPY:28"
+  },
+  {
+   "sym": "BMO",
+   "rank": 138,
+   "why": "no US GAAP facts (dei,ifrs-full,ffd)"
+  },
+  {
+   "sym": "BP",
+   "rank": 141,
+   "why": "no US GAAP facts (ifrs-full)"
+  },
+  {
+   "sym": "PBR",
+   "rank": 143,
+   "why": "assets 0, profit rows 0 (yearly 0), tags NetIncomeLoss:USD:21"
+  },
+  {
+   "sym": "SNY",
+   "rank": 145,
+   "why": "no US GAAP facts (dei,ifrs-full)"
+  },
+  {
+   "sym": "BNS",
+   "rank": 151,
+   "why": "assets 0, profit rows 0 (yearly 0), tags none"
+  },
+  {
+   "sym": "PDD",
+   "rank": 152,
+   "why": "assets 0, profit rows 0 (yearly 0), tags NetIncomeLoss:CNY/USD:35 ProfitLoss:CNY/USD:35 NetIncomeLossAvailableToCommonStockholdersBasic:CNY/USD:35"
+  },
+  {
+   "sym": "ENB",
+   "rank": 156,
+   "why": "assets 0, profit rows 0 (yearly 0), tags NetIncomeLoss:CAD:246 ProfitLoss:CAD:198 NetIncomeLossAvailableToCommonStockholdersBasic:CAD:246 IncomeLossFromContinuingOperations:CAD:25"
+  },
+  {
+   "sym": "CM",
+   "rank": 159,
+   "why": "no US GAAP facts (dei,ifrs-full,ffd)"
+  },
+  {
+   "sym": "TKOMY",
+   "rank": 160,
+   "why": "no company-facts file"
+  },
+  {
+   "sym": "EQNR",
+   "rank": 168,
+   "why": "assets 0, profit rows 0 (yearly 0), tags none"
+  },
+  {
+   "sym": "GSK",
+   "rank": 169,
+   "why": "no US GAAP facts (dei,ifrs-full,srt,ffd)"
+  },
+  {
+   "sym": "CNQ",
+   "rank": 171,
+   "why": "no US GAAP facts (dei,ifrs-full,srt)"
+  },
+  {
+   "sym": "MGCLY",
+   "rank": 177,
+   "why": "no company-facts file"
+  },
+  {
+   "sym": "ING",
+   "rank": 185,
+   "why": "assets 0, profit rows 0 (yearly 0), tags none"
+  },
+  {
+   "sym": "BN",
+   "rank": 187,
+   "why": "no US GAAP facts (ifrs-full,invest)"
+  },
+  {
+   "sym": "AEM",
+   "rank": 197,
+   "why": "assets 0, profit rows 0 (yearly 0), tags ProfitLoss:USD:57 NetIncomeLossAvailableToCommonStockholdersBasic:USD:13"
+  },
+  {
+   "sym": "SNHIY",
+   "rank": 209,
+   "why": "no company-facts file"
+  },
+  {
+   "sym": "NGG",
+   "rank": 215,
+   "why": "no US GAAP facts (dei,ifrs-full,invest,ffd)"
+  },
+  {
+   "sym": "CP",
+   "rank": 219,
+   "why": "assets 0, profit rows 0 (yearly 0), tags NetIncomeLoss:CAD:217 ProfitLoss:CAD:47"
+  },
+  {
+   "sym": "E",
+   "rank": 223,
+   "why": "assets 0, profit rows 0 (yearly 0), tags NetIncomeLoss:EUR:3"
+  },
+  {
+   "sym": "ITUB",
+   "rank": 224,
+   "why": "assets 0, profit rows 0 (yearly 0), tags NetIncomeLoss:BRL:8 ProfitLoss:BRL:8 NetIncomeLossAvailableToCommonStockholdersBasic:BRL:3"
+  },
+  {
+   "sym": "ASX",
+   "rank": 226,
+   "why": "no US GAAP facts (dei,ifrs-full)"
+  },
+  {
+   "sym": "SU",
+   "rank": 227,
+   "why": "assets 0, profit rows 0 (yearly 0), tags none"
+  },
+  {
+   "sym": "NTES",
+   "rank": 228,
+   "why": "assets 0, profit rows 0 (yearly 0), tags NetIncomeLoss:CNY/USD:28 ProfitLoss:CNY/USD:64 NetIncomeLossAvailableToCommonStockholdersBasic:CNY/USD:36"
+  },
+  {
+   "sym": "CNI",
+   "rank": 233,
+   "why": "assets 0, profit rows 0 (yearly 0), tags NetIncomeLoss:CAD:47"
+  },
+  {
+   "sym": "AMX",
+   "rank": 234,
+   "why": "no US GAAP facts (ifrs-full,dei)"
+  },
+  {
+   "sym": "BCS",
+   "rank": 236,
+   "why": "no US GAAP facts (dei,ifrs-full,invest,ffd)"
+  },
+  {
+   "sym": "IFNNY",
+   "rank": 242,
+   "why": "no company-facts file"
+  },
+  {
+   "sym": "LYG",
+   "rank": 244,
+   "why": "assets 0, profit rows 0 (yearly 0), tags none"
+  },
+  {
+   "sym": "BAESY",
+   "rank": 248,
+   "why": "no company-facts file"
+  },
+  {
+   "sym": "MFC",
+   "rank": 249,
+   "why": "no US GAAP facts (ifrs-full)"
+  },
+  {
+   "sym": "RACE",
+   "rank": 253,
+   "why": "no US GAAP facts (dei,ifrs-full,ffd)"
+  },
+  {
+   "sym": "RELX",
+   "rank": 262,
+   "why": "no US GAAP facts (dei,ifrs-full,srt)"
+  },
+  {
+   "sym": "DB",
+   "rank": 263,
+   "why": "no US GAAP facts (dei,ifrs-full,srt,ffd)"
+  },
+  {
+   "sym": "TAK",
+   "rank": 264,
+   "why": "no US GAAP facts (dei,ifrs-full)"
+  },
+  {
+   "sym": "CSLLY",
+   "rank": 269,
+   "why": "no company-facts file"
+  },
+  {
+   "sym": "NWG",
+   "rank": 285,
+   "why": "no US GAAP facts (ifrs-full,ffd)"
+  },
+  {
+   "sym": "B",
+   "rank": 286,
+   "why": "assets 0, profit rows 0 (yearly 0), tags NetIncomeLoss:USD:10 ProfitLoss:USD:9 NetIncomeLossAvailableToCommonStockholdersBasic:USD:6 IncomeLossFromContinuingOperations:USD:6"
+  },
+  {
+   "sym": "ARGX",
+   "rank": 287,
+   "why": "assets 0, profit rows 0 (yearly 0), tags NetIncomeLoss:EUR:3"
+  },
+  {
+   "sym": "LSEGY",
+   "rank": 288,
+   "why": "no company-facts file"
+  },
+  {
+   "sym": "WPM",
+   "rank": 291,
+   "why": "no US GAAP facts (dei,ifrs-full)"
+  },
+  {
+   "sym": "IMO",
+   "rank": 292,
+   "why": "assets 0, profit rows 0 (yearly 0), tags NetIncomeLoss:CAD:229 ProfitLoss:CAD:102"
+  },
+  {
+   "sym": "GWLIF",
+   "rank": 296,
+   "why": "no company-facts file"
+  },
+  {
+   "sym": "NU",
+   "rank": 301,
+   "why": "no US GAAP facts (ifrs-full)"
+  },
+  {
+   "sym": "DEO",
+   "rank": 309,
+   "why": "assets 0, profit rows 0 (yearly 0), tags none"
+  },
+  {
+   "sym": "EONGY",
+   "rank": 311,
+   "why": "no company-facts file"
+  },
+  {
+   "sym": "GALDY",
+   "rank": 314,
+   "why": "no company-facts file"
+  },
+  {
+   "sym": "SMMNY",
+   "rank": 315,
+   "why": "no company-facts file"
+  },
+  {
+   "sym": "MDLN",
+   "rank": 317,
+   "why": "assets 5, profit rows 11 (yearly 3), tags NetIncomeLoss:USD:8 ProfitLoss:USD:9 NetIncomeLossAvailableToCommonStockholdersBasic:USD:6"
+  },
+  {
+   "sym": "HONA",
+   "rank": 319,
+   "why": "assets 3, profit rows 8 (yearly 0), tags NetIncomeLoss:USD:8 ProfitLoss:USD:8"
+  },
+  {
+   "sym": "CVE",
+   "rank": 324,
+   "why": "assets 0, profit rows 0 (yearly 0), tags none"
+  },
+  {
+   "sym": "CCEP",
+   "rank": 327,
+   "why": "no US GAAP facts (dei,ifrs-full,ffd)"
+  },
+  {
+   "sym": "LXSPY",
+   "rank": 332,
+   "why": "no company-facts file"
+  },
+  {
+   "sym": "INFY",
+   "rank": 334,
+   "why": "no US GAAP facts (dei,ifrs-full)"
+  },
+  {
+   "sym": "MT",
+   "rank": 343,
+   "why": "no US GAAP facts (dei,ifrs-full,invest,ffd)"
+  },
+  {
+   "sym": "VALE",
+   "rank": 346,
+   "why": "assets 0, profit rows 0 (yearly 0), tags NetIncomeLoss:USD:74 ProfitLoss:USD:74 NetIncomeLossAvailableToCommonStockholdersBasic:USD:41 IncomeLossFromContinuingOperations:USD:36"
+  },
+  {
+   "sym": "VYLR",
+   "rank": 347,
+   "why": "assets 3, profit rows 8 (yearly 0), tags NetIncomeLoss:USD:4 ProfitLoss:USD:8"
+  },
+  {
+   "sym": "FNV",
+   "rank": 348,
+   "why": "no US GAAP facts (dei,ifrs-full,rxp,ffd)"
+  },
+  {
+   "sym": "RBGLY",
+   "rank": 350,
+   "why": "no company-facts file"
+  },
+  {
+   "sym": "TRI",
+   "rank": 355,
+   "why": "no US GAAP facts (dei,ifrs-full)"
+  },
+  {
+   "sym": "NOK",
+   "rank": 358,
+   "why": "no US GAAP facts (dei,ifrs-full)"
+  },
+  {
+   "sym": "SE",
+   "rank": 363,
+   "why": "assets 0, profit rows 0 (yearly 0), tags NetIncomeLoss:USD:31 ProfitLoss:USD:33 NetIncomeLossAvailableToCommonStockholdersBasic:USD:3"
+  },
+  {
+   "sym": "AU",
+   "rank": 368,
+   "why": "no US GAAP facts (ifrs-full,dei)"
+  },
+  {
+   "sym": "SCMWY",
+   "rank": 370,
+   "why": "no company-facts file"
+  },
+  {
+   "sym": "FMX",
+   "rank": 372,
+   "why": "no US GAAP facts (ifrs-full)"
+  },
+  {
+   "sym": "FER",
+   "rank": 375,
+   "why": "no US GAAP facts (dei,ifrs-full)"
+  },
+  {
+   "sym": "HMC",
+   "rank": 376,
+   "why": "assets 0, profit rows 0 (yearly 0), tags NetIncomeLoss:JPY:63 ProfitLoss:JPY:15"
+  },
+  {
+   "sym": "ABEV",
+   "rank": 382,
+   "why": "no US GAAP facts (dei,ifrs-full)"
+  },
+  {
+   "sym": "STM",
+   "rank": 385,
+   "why": "assets 0, profit rows 0 (yearly 0), tags NetIncomeLoss:USD:51 ProfitLoss:USD:51"
+  },
+  {
+   "sym": "JHPCY",
+   "rank": 390,
+   "why": "no company-facts file"
+  },
+  {
+   "sym": "SLF",
+   "rank": 391,
+   "why": "no US GAAP facts (ifrs-full,ffd)"
+  },
+  {
+   "sym": "TYHOY",
+   "rank": 392,
+   "why": "no company-facts file"
+  },
+  {
+   "sym": "HLN",
+   "rank": 393,
+   "why": "no US GAAP facts (dei,ifrs-full,ffd)"
+  },
+  {
+   "sym": "FRFHF",
+   "rank": 394,
+   "why": "no US GAAP facts (dei,ifrs-full)"
+  },
+  {
+   "sym": "UMC",
+   "rank": 399,
+   "why": "no US GAAP facts (dei,ifrs-full)"
+  }
+ ],
  "errors": [],
  "errorCount": 0
 }
