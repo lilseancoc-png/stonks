@@ -539,14 +539,14 @@ jobs:
           # Prediction market odds (lib/prediction/, 2026-11-15): set the repo
           # variable PREDICTION_TRACKER to 0 to stop the Kalshi / Polymarket
           # reads and keep the prior files. PICKS_ODDS_GRADER=1 adds the linked
-          # odds to the AI grader's prompt (off; locked until 2026-12-07).
+          # odds to the AI grader's prompt (off by default).
           PREDICTION_TRACKER: ${{ vars.PREDICTION_TRACKER }}
           PICKS_ODDS_GRADER: ${{ vars.PICKS_ODDS_GRADER }}
           # Self-improving loop (lib/self-loop/, docs/self-loop.md): set the repo
           # variable LOOP to 0 to stop the measurement and keep the prior files.
           LOOP: ${{ vars.LOOP }}
           # Step 4, self-tuning: unset = shadow (proposals only, no live
-          # change), on = apply inside the limits from 2026-12-07, 0 = the
+          # change), on = apply inside the limits from the next run, 0 = the
           # frozen base settings at the next run.
           SELF_TUNE: ${{ vars.SELF_TUNE }}
           # Strategy engines (lib/engines/, docs/engines.md): six paper engines

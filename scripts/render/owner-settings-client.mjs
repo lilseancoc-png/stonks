@@ -245,7 +245,7 @@ export function ownerSettingsClient(window, document, ctx) {
       .then(function(){ busy = false; render(); });
   }
   // --- "Are you sure" ------------------------------------------------------------
-  // Every change to a big-impact setting (and the Dec 7 hooks) opens this box
+  // Every change to a big-impact setting (and the engine hooks) opens this box
   // first. The server refuses those changes without body.confirm, so a stale
   // page can't skip it.
   function item(s, from, to){ return { label: s.label, from: fmt(s, from), to: fmt(s, to), toDefault: to === s.default, high: s.impact === 'high', warn: s.warn || '', help: s.help, locked: !!s.lockedUntil }; }
