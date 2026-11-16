@@ -365,6 +365,7 @@ function riskAnalysisSection() {
     </header>
     ${infoNote('How to read a disagreement', `<p>Each desk measures a different layer. <b>Market analysis</b> is the cross-asset regime. <b>Fear &amp; Greed</b> is slow sentiment. <b>Daily index moves</b> show the month's path. <b>Heatmap</b>, <b>volume</b>, and <b>overnight markets</b> are today's tape. <b>Gamma</b> says whether the next move is more likely to be pinned or extended. A severe label and a neutral label can both be true. This page explains the gap. It does not average them into a new score or change position limits.</p>`)}
     <div id="risk-stack" class="risk-stack" aria-live="polite"></div>
+    <div id="risk-odds" hidden></div>
     <div id="risk-rhymes" hidden></div>
   </section>`;
 }
@@ -957,6 +958,7 @@ function bottomTrackerSection() {
     </header>
     ${infoNote('How this read is staged', `<p>A 10% drop from the three-year high only opens the checklist. It is not a bottom. <b>Damage slowing</b> means the catalyst is easing, both credit spreads have stopped widening, and earnings downgrades are less severe. Price can still fall. <b>A bottom may be forming</b> only after both spreads have started narrowing, funding stress is not rising, and SPY and QQQ are at least 3% off the decline low with that low at least 10 sessions old. A close back under either low cancels it.</p><p>An <b>emerging recovery</b> keeps that forming evidence, adds broader participation and a higher low, and requires a forming read on a recent session. <b>Stronger confirmation</b> adds a 200-day hold, improving earnings forecasts, and stable credit, after the prior recent read was already an emerging recovery. Liquidity and valuation are shown. One missing credit series does not pass. No combination proves the final low.</p>`)}
     <div id="bottom-tracker-root" class="btm-root">Loading bottom tracker&hellip;</div>
+    <div id="bottom-odds" hidden></div>
   </section>`;
 }
 
@@ -1019,6 +1021,7 @@ function quantSection() {
       <button type="button" role="tab" id="owner-tab-evidence" data-owner-view="evidence" aria-controls="owner-panel-evidence" aria-selected="false" tabindex="-1">Evidence</button>
       <button type="button" role="tab" id="owner-tab-regime" data-owner-view="regime" aria-controls="owner-panel-regime" aria-selected="false" tabindex="-1">Regime Lab</button>
       <button type="button" role="tab" id="owner-tab-loop" data-owner-view="loop" aria-controls="owner-panel-loop" aria-selected="false" tabindex="-1">Loop</button>
+      <button type="button" role="tab" id="owner-tab-labs" data-owner-view="labs" aria-controls="owner-panel-labs" aria-selected="false" tabindex="-1">Quant labs</button>
     </div>
     <section id="owner-panel-personal" class="owner-lab-panel" data-owner-panel="personal" role="tabpanel" aria-labelledby="owner-tab-personal">
     <section class="owner-suite" aria-labelledby="owner-tools-title">
@@ -1094,6 +1097,11 @@ function quantSection() {
       <div class="owner-lab-intro"><div><h3>Is the engine learning?</h3><p>At every Top Picks run the loop writes down a chance for every scored name (that it moves the grade's way in 5, 10 and 20 sessions, and that the planned option reaches +25% before -50%), then grades those chances once the moves are in. It also replays every trade-grade name's option, picked or not, and checks whether each open-pick rule kept the book out of worse trades. Measurement only unless self-tuning is switched on.</p></div><button type="button" class="book-more" data-owner-loop-refresh>Refresh loop</button></div>
       <p class="hint" id="owner-loop-status" role="status" aria-live="polite">The loop loads on first open.</p>
       <div id="self-loop-root" class="evb-root rgl-root slp-root"></div>
+    </section>
+    <section id="owner-panel-labs" class="owner-lab-panel" data-owner-panel="labs" role="tabpanel" aria-labelledby="owner-tab-labs" hidden>
+      <div class="owner-lab-intro"><div><h3>How likely, how honest, and would it survive a recount?</h3><p>The chance of a 10% or 20% market fall and of a recovery, fitted on S&amp;P 500 history since 1962; a check of every chance, score and range the site states against what happened; what the grade and the trades lean on; each stock's volatility forecast against its option prices; what changed in the annual reports; and a registry that counts every attempt behind a result. No AI. Nothing here changes a pick, a grade or the Track Record.</p></div><button type="button" class="book-more" data-owner-labs-refresh>Refresh labs</button></div>
+      <p class="hint" id="owner-labs-status" role="status" aria-live="polite">The labs load on first open.</p>
+      <div id="quant-labs-root" class="evb-root rgl-root slp-root ql-root"></div>
     </section>
   </section>`;
 }

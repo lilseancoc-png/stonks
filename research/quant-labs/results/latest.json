@@ -1,0 +1,2740 @@
+{
+ "v": 1,
+ "ran": "2026-11-16",
+ "note": null,
+ "registry": [
+  {
+   "id": "dd-fall10_3m",
+   "label": "Market odds: 10%+ fall within 3 months",
+   "family": "drawdown-odds",
+   "result": "7.7% less error than always saying the average, each era held out",
+   "verdict": "working",
+   "ran": "2026-11-16"
+  },
+  {
+   "id": "dd-fall10_6m",
+   "label": "Market odds: 10%+ fall within 6 months",
+   "family": "drawdown-odds",
+   "result": "5.8% less error than always saying the average, each era held out",
+   "verdict": "working",
+   "ran": "2026-11-16"
+  },
+  {
+   "id": "dd-fall10_12m",
+   "label": "Market odds: 10%+ fall within 12 months",
+   "family": "drawdown-odds",
+   "result": "7.3% less error than always saying the average, each era held out",
+   "verdict": "working",
+   "ran": "2026-11-16"
+  },
+  {
+   "id": "dd-fall20_6m",
+   "label": "Market odds: 20%+ fall within 6 months",
+   "family": "drawdown-odds",
+   "result": "3.1% less error than always saying the average, each era held out",
+   "verdict": "weak",
+   "ran": "2026-11-16"
+  },
+  {
+   "id": "dd-fall20_12m",
+   "label": "Market odds: 20%+ fall within 12 months",
+   "family": "drawdown-odds",
+   "result": "0.9% less error than always saying the average, each era held out",
+   "verdict": "weak",
+   "ran": "2026-11-16"
+  },
+  {
+   "id": "dd-lowIn_6m",
+   "label": "Market odds: The low of this decline holds for 6 months",
+   "family": "drawdown-odds",
+   "result": "30% less error than always saying the average, each era held out",
+   "verdict": "working",
+   "ran": "2026-11-16"
+  },
+  {
+   "id": "dd-newHigh_12m",
+   "label": "Market odds: Back above the old high within 12 months",
+   "family": "drawdown-odds",
+   "result": "13.5% less error than always saying the average, each era held out",
+   "verdict": "working",
+   "ran": "2026-11-16"
+  },
+  {
+   "id": "vol-ewma",
+   "label": "Volatility forecast: weighted recent moves (EWMA)",
+   "family": "vol",
+   "result": "12% lower loss than carrying the last 21 sessions forward (t 5.02)",
+   "verdict": "holds",
+   "ran": "2026-11-16"
+  },
+  {
+   "id": "vol-garch",
+   "label": "Volatility forecast: GARCH",
+   "family": "vol",
+   "result": "23.5% lower loss than carrying the last 21 sessions forward (t 5.42)",
+   "verdict": "holds",
+   "ran": "2026-11-16"
+  },
+  {
+   "id": "vol-har",
+   "label": "Volatility forecast: day, week and month mix (HAR)",
+   "family": "vol",
+   "result": "9.9% lower loss than carrying the last 21 sessions forward (t 2.09)",
+   "verdict": "unproven",
+   "ran": "2026-11-16"
+  },
+  {
+   "id": "factor-mom12",
+   "label": "Factor: 12-month momentum",
+   "family": "factors",
+   "result": "21-session rank skill 0.023 (t 1.44; needs 3.12), top minus bottom 4.9% a year after costs",
+   "verdict": "none",
+   "ran": "2026-11-16"
+  },
+  {
+   "id": "factor-mom6",
+   "label": "Factor: 6-month momentum",
+   "family": "factors",
+   "result": "21-session rank skill 0.017 (t 1.05; needs 3.12), top minus bottom 5.3% a year after costs",
+   "verdict": "none",
+   "ran": "2026-11-16"
+  },
+  {
+   "id": "factor-rev1",
+   "label": "Factor: 1-month reversal",
+   "family": "factors",
+   "result": "21-session rank skill 0.007 (t 0.49; needs 3.12), top minus bottom -2% a year after costs",
+   "verdict": "none",
+   "ran": "2026-11-16"
+  },
+  {
+   "id": "factor-lowvol",
+   "label": "Factor: Low volatility",
+   "family": "factors",
+   "result": "21-session rank skill -0.028 (t -1.48; needs 3.12), top minus bottom -19.1% a year after costs",
+   "verdict": "none",
+   "ran": "2026-11-16"
+  },
+  {
+   "id": "factor-lowbeta",
+   "label": "Factor: Low beta",
+   "family": "factors",
+   "result": "21-session rank skill -0.019 (t -1; needs 3.12), top minus bottom -14.2% a year after costs",
+   "verdict": "none",
+   "ran": "2026-11-16"
+  },
+  {
+   "id": "factor-high52",
+   "label": "Factor: Near the 52-week high",
+   "family": "factors",
+   "result": "21-session rank skill -0.013 (t -0.8; needs 3.12), top minus bottom -9.1% a year after costs",
+   "verdict": "none",
+   "ran": "2026-11-16"
+  },
+  {
+   "id": "factor-trend",
+   "label": "Factor: Above the 200-day average",
+   "family": "factors",
+   "result": "21-session rank skill 0.01 (t 0.62; needs 3.12), top minus bottom 2.7% a year after costs",
+   "verdict": "none",
+   "ran": "2026-11-16"
+  }
+ ],
+ "marketOdds": {
+  "version": "drawdown-odds-1",
+  "ridge": [
+   {
+    "l2": 5,
+    "skill": {
+     "fall10_3m": 0.075,
+     "fall10_6m": 0.053,
+     "fall10_12m": 0.07,
+     "fall20_6m": 0.006,
+     "fall20_12m": 0.012,
+     "lowIn_6m": 0.285,
+     "newHigh_12m": 0.137
+    }
+   },
+   {
+    "l2": 20,
+    "skill": {
+     "fall10_3m": 0.077,
+     "fall10_6m": 0.058,
+     "fall10_12m": 0.073,
+     "fall20_6m": 0.031,
+     "fall20_12m": 0.009,
+     "lowIn_6m": 0.3,
+     "newHigh_12m": 0.135
+    }
+   },
+   {
+    "l2": 80,
+    "skill": {
+     "fall10_3m": 0.072,
+     "fall10_6m": 0.058,
+     "fall10_12m": 0.064,
+     "fall20_6m": 0.031,
+     "fall20_12m": 0.021,
+     "lowIn_6m": 0.276,
+     "newHigh_12m": 0.124
+    }
+   }
+  ],
+  "breadth": {
+   "from": "2006-10-17",
+   "funds": 9,
+   "rows": [
+    {
+     "id": "fall10_3m",
+     "months": 237,
+     "base": 0.091,
+     "withBreadth": 0.09,
+     "weight": -0.017
+    },
+    {
+     "id": "fall10_6m",
+     "months": 234,
+     "base": 0.045,
+     "withBreadth": 0.045,
+     "weight": 0
+    },
+    {
+     "id": "fall10_12m",
+     "months": 228,
+     "base": 0.006,
+     "withBreadth": 0.006,
+     "weight": 0
+    }
+   ],
+   "read": "Breadth added nothing on the months it covers, so it is not an input."
+  },
+  "sampleFrom": "1962-01-31",
+  "through": "2026-10-27",
+  "samples": 778,
+  "eras": [
+   {
+    "name": "1961-62",
+    "peak": "1961-12-12",
+    "trough": "1962-06-26",
+    "recover": "1963-09-03",
+    "depth": 28
+   },
+   {
+    "name": "1966",
+    "peak": "1966-02-09",
+    "trough": "1966-10-07",
+    "recover": "1967-05-04",
+    "depth": 22.2
+   },
+   {
+    "name": "1967-68",
+    "peak": "1967-09-25",
+    "trough": "1968-03-05",
+    "recover": "1968-04-29",
+    "depth": 10.1
+   },
+   {
+    "name": "1968-70",
+    "peak": "1968-11-29",
+    "trough": "1970-05-26",
+    "recover": "1972-03-06",
+    "depth": 36.1
+   },
+   {
+    "name": "1973-74",
+    "peak": "1973-01-11",
+    "trough": "1974-10-03",
+    "recover": "1980-07-17",
+    "depth": 48.2
+   },
+   {
+    "name": "1980-82",
+    "peak": "1980-11-28",
+    "trough": "1982-08-12",
+    "recover": "1982-11-03",
+    "depth": 27.1
+   },
+   {
+    "name": "1983-84",
+    "peak": "1983-10-10",
+    "trough": "1984-07-24",
+    "recover": "1985-01-21",
+    "depth": 14.4
+   },
+   {
+    "name": "1987",
+    "peak": "1987-08-25",
+    "trough": "1987-12-04",
+    "recover": "1989-07-26",
+    "depth": 33.5
+   },
+   {
+    "name": "1989-90",
+    "peak": "1989-10-09",
+    "trough": "1990-01-30",
+    "recover": "1990-05-29",
+    "depth": 10.2
+   },
+   {
+    "name": "1990",
+    "peak": "1990-07-16",
+    "trough": "1990-10-11",
+    "recover": "1991-02-13",
+    "depth": 19.9
+   },
+   {
+    "name": "1997",
+    "peak": "1997-10-07",
+    "trough": "1997-10-27",
+    "recover": "1997-12-05",
+    "depth": 10.8
+   },
+   {
+    "name": "1998",
+    "peak": "1998-07-17",
+    "trough": "1998-08-31",
+    "recover": "1998-11-23",
+    "depth": 19.3
+   },
+   {
+    "name": "1999",
+    "peak": "1999-07-16",
+    "trough": "1999-10-15",
+    "recover": "1999-11-16",
+    "depth": 12.1
+   },
+   {
+    "name": "2000-02",
+    "peak": "2000-03-24",
+    "trough": "2002-10-09",
+    "recover": "2007-05-30",
+    "depth": 49.1
+   },
+   {
+    "name": "2007-09",
+    "peak": "2007-10-09",
+    "trough": "2009-03-09",
+    "recover": "2013-03-28",
+    "depth": 56.8
+   },
+   {
+    "name": "2015-16",
+    "peak": "2015-05-21",
+    "trough": "2016-02-11",
+    "recover": "2016-07-11",
+    "depth": 14.2
+   },
+   {
+    "name": "2018",
+    "peak": "2018-01-26",
+    "trough": "2018-02-08",
+    "recover": "2018-08-24",
+    "depth": 10.2
+   },
+   {
+    "name": "2018",
+    "peak": "2018-09-20",
+    "trough": "2018-12-24",
+    "recover": "2019-04-23",
+    "depth": 19.8
+   },
+   {
+    "name": "2020",
+    "peak": "2020-02-19",
+    "trough": "2020-03-23",
+    "recover": "2020-08-18",
+    "depth": 33.9
+   },
+   {
+    "name": "2022",
+    "peak": "2022-01-03",
+    "trough": "2022-10-12",
+    "recover": "2024-01-19",
+    "depth": 25.4
+   },
+   {
+    "name": "2025",
+    "peak": "2025-02-19",
+    "trough": "2025-04-08",
+    "recover": "2025-06-27",
+    "depth": 18.9
+   }
+  ],
+  "targets": [
+   {
+    "id": "fall10_3m",
+    "label": "10%+ fall within 3 months",
+    "status": "working",
+    "n": 774,
+    "events": 94,
+    "base": 0.1214,
+    "eras": 21,
+    "tested": 774,
+    "skill": 0.077,
+    "skillRange": [
+     0.033,
+     0.106
+    ],
+    "auc": 0.733,
+    "ece": 0.032,
+    "recalibrated": false,
+    "bins": [
+     {
+      "p": 0.047,
+      "hit": 0.042,
+      "n": 96
+     },
+     {
+      "p": 0.065,
+      "hit": 0.041,
+      "n": 97
+     },
+     {
+      "p": 0.075,
+      "hit": 0.031,
+      "n": 97
+     },
+     {
+      "p": 0.085,
+      "hit": 0.062,
+      "n": 97
+     },
+     {
+      "p": 0.099,
+      "hit": 0.104,
+      "n": 96
+     },
+     {
+      "p": 0.127,
+      "hit": 0.175,
+      "n": 97
+     },
+     {
+      "p": 0.179,
+      "hit": 0.237,
+      "n": 97
+     },
+     {
+      "p": 0.328,
+      "hit": 0.278,
+      "n": 97
+     }
+    ],
+    "eraSkill": [
+     {
+      "era": "1961-62",
+      "n": 34,
+      "events": 4,
+      "meanP": 0.081,
+      "brier": 0.1026,
+      "baseBrier": 0.1038
+     },
+     {
+      "era": "1966",
+      "n": 32,
+      "events": 3,
+      "meanP": 0.096,
+      "brier": 0.0805,
+      "baseBrier": 0.0859
+     },
+     {
+      "era": "1967-68",
+      "n": 13,
+      "events": 0,
+      "meanP": 0.1,
+      "brier": 0.0101,
+      "baseBrier": 0.0155
+     },
+     {
+      "era": "1968-70",
+      "n": 48,
+      "events": 6,
+      "meanP": 0.112,
+      "brier": 0.1014,
+      "baseBrier": 0.1094
+     },
+     {
+      "era": "1973-74",
+      "n": 97,
+      "events": 12,
+      "meanP": 0.184,
+      "brier": 0.1008,
+      "baseBrier": 0.1084
+     },
+     {
+      "era": "1980-82",
+      "n": 31,
+      "events": 5,
+      "meanP": 0.182,
+      "brier": 0.1307,
+      "baseBrier": 0.1369
+     },
+     {
+      "era": "1983-84",
+      "n": 37,
+      "events": 0,
+      "meanP": 0.094,
+      "brier": 0.0094,
+      "baseBrier": 0.0165
+     },
+     {
+      "era": "1987",
+      "n": 40,
+      "events": 4,
+      "meanP": 0.128,
+      "brier": 0.0937,
+      "baseBrier": 0.0906
+     },
+     {
+      "era": "1989-90",
+      "n": 9,
+      "events": 1,
+      "meanP": 0.124,
+      "brier": 0.105,
+      "baseBrier": 0.0988
+     },
+     {
+      "era": "1990",
+      "n": 48,
+      "events": 2,
+      "meanP": 0.098,
+      "brier": 0.0434,
+      "baseBrier": 0.0471
+     },
+     {
+      "era": "1997",
+      "n": 45,
+      "events": 0,
+      "meanP": 0.072,
+      "brier": 0.0053,
+      "baseBrier": 0.0169
+     },
+     {
+      "era": "1998",
+      "n": 12,
+      "events": 2,
+      "meanP": 0.166,
+      "brier": 0.1666,
+      "baseBrier": 0.1409
+     },
+     {
+      "era": "1999",
+      "n": 10,
+      "events": 0,
+      "meanP": 0.218,
+      "brier": 0.0512,
+      "baseBrier": 0.0154
+     },
+     {
+      "era": "2000-02",
+      "n": 91,
+      "events": 16,
+      "meanP": 0.117,
+      "brier": 0.1292,
+      "baseBrier": 0.1488
+     },
+     {
+      "era": "2007-09",
+      "n": 80,
+      "events": 18,
+      "meanP": 0.157,
+      "brier": 0.1507,
+      "baseBrier": 0.1875
+     },
+     {
+      "era": "2015-16",
+      "n": 36,
+      "events": 5,
+      "meanP": 0.11,
+      "brier": 0.1157,
+      "baseBrier": 0.1199
+     },
+     {
+      "era": "2018",
+      "n": 17,
+      "events": 0,
+      "meanP": 0.077,
+      "brier": 0.0061,
+      "baseBrier": 0.0147
+     },
+     {
+      "era": "2018",
+      "n": 12,
+      "events": 3,
+      "meanP": 0.113,
+      "brier": 0.2122,
+      "baseBrier": 0.2043
+     },
+     {
+      "era": "2020",
+      "n": 19,
+      "events": 3,
+      "meanP": 0.144,
+      "brier": 0.1709,
+      "baseBrier": 0.1343
+     },
+     {
+      "era": "2022",
+      "n": 40,
+      "events": 7,
+      "meanP": 0.124,
+      "brier": 0.1391,
+      "baseBrier": 0.1475
+     },
+     {
+      "era": "2025",
+      "n": 23,
+      "events": 3,
+      "meanP": 0.088,
+      "brier": 0.1074,
+      "baseBrier": 0.1135
+     }
+    ],
+    "weights": [
+     {
+      "key": "curve",
+      "label": "10-year yield minus the Fed rate",
+      "w": -0.145
+     },
+     {
+      "key": "fedChg",
+      "label": "Fed rate change over a year",
+      "w": 0
+     },
+     {
+      "key": "credit",
+      "label": "Baa credit spread",
+      "w": 0.278
+     },
+     {
+      "key": "creditChg",
+      "label": "Credit spread change over 3 months",
+      "w": 0.208
+     },
+     {
+      "key": "vol",
+      "label": "S&P 500 swings over 3 months (yearly rate)",
+      "w": 0
+     },
+     {
+      "key": "sahm",
+      "label": "Rise in unemployment from its 12-month low",
+      "w": 0
+     },
+     {
+      "key": "trend",
+      "label": "S&P 500 vs its 200-day average",
+      "w": -0.413
+     },
+     {
+      "key": "offHigh",
+      "label": "S&P 500 below its 1-year high",
+      "w": 0.071
+     },
+     {
+      "key": "growth",
+      "label": "Factory output change over 6 months",
+      "w": -0.121
+     },
+     {
+      "key": "inflation",
+      "label": "Consumer prices, change over a year",
+      "w": 0.199
+     },
+     {
+      "key": "runUp",
+      "label": "S&P 500 gain over 5 years",
+      "w": 0.307
+     }
+    ]
+   },
+   {
+    "id": "fall10_6m",
+    "label": "10%+ fall within 6 months",
+    "status": "working",
+    "n": 771,
+    "events": 163,
+    "base": 0.2114,
+    "eras": 21,
+    "tested": 771,
+    "skill": 0.058,
+    "skillRange": [
+     0.008,
+     0.1
+    ],
+    "auc": 0.688,
+    "ece": 0.051,
+    "recalibrated": false,
+    "bins": [
+     {
+      "p": 0.091,
+      "hit": 0.083,
+      "n": 96
+     },
+     {
+      "p": 0.13,
+      "hit": 0.135,
+      "n": 96
+     },
+     {
+      "p": 0.149,
+      "hit": 0.083,
+      "n": 97
+     },
+     {
+      "p": 0.169,
+      "hit": 0.146,
+      "n": 96
+     },
+     {
+      "p": 0.19,
+      "hit": 0.188,
+      "n": 96
+     },
+     {
+      "p": 0.235,
+      "hit": 0.299,
+      "n": 97
+     },
+     {
+      "p": 0.313,
+      "hit": 0.396,
+      "n": 96
+     },
+     {
+      "p": 0.514,
+      "hit": 0.361,
+      "n": 97
+     }
+    ],
+    "eraSkill": [
+     {
+      "era": "1961-62",
+      "n": 34,
+      "events": 5,
+      "meanP": 0.172,
+      "brier": 0.1217,
+      "baseBrier": 0.1302
+     },
+     {
+      "era": "1966",
+      "n": 32,
+      "events": 7,
+      "meanP": 0.205,
+      "brier": 0.1645,
+      "baseBrier": 0.1709
+     },
+     {
+      "era": "1967-68",
+      "n": 13,
+      "events": 0,
+      "meanP": 0.201,
+      "brier": 0.0415,
+      "baseBrier": 0.0473
+     },
+     {
+      "era": "1968-70",
+      "n": 48,
+      "events": 13,
+      "meanP": 0.192,
+      "brier": 0.1769,
+      "baseBrier": 0.2016
+     },
+     {
+      "era": "1973-74",
+      "n": 97,
+      "events": 26,
+      "meanP": 0.353,
+      "brier": 0.1986,
+      "baseBrier": 0.1999
+     },
+     {
+      "era": "1980-82",
+      "n": 31,
+      "events": 10,
+      "meanP": 0.335,
+      "brier": 0.1974,
+      "baseBrier": 0.2312
+     },
+     {
+      "era": "1983-84",
+      "n": 37,
+      "events": 0,
+      "meanP": 0.182,
+      "brier": 0.035,
+      "baseBrier": 0.051
+     },
+     {
+      "era": "1987",
+      "n": 40,
+      "events": 7,
+      "meanP": 0.239,
+      "brier": 0.1666,
+      "baseBrier": 0.1461
+     },
+     {
+      "era": "1989-90",
+      "n": 9,
+      "events": 3,
+      "meanP": 0.249,
+      "brier": 0.2414,
+      "baseBrier": 0.2373
+     },
+     {
+      "era": "1990",
+      "n": 48,
+      "events": 2,
+      "meanP": 0.176,
+      "brier": 0.0581,
+      "baseBrier": 0.0725
+     },
+     {
+      "era": "1997",
+      "n": 45,
+      "events": 0,
+      "meanP": 0.143,
+      "brier": 0.0211,
+      "baseBrier": 0.049
+     },
+     {
+      "era": "1998",
+      "n": 12,
+      "events": 5,
+      "meanP": 0.312,
+      "brier": 0.3491,
+      "baseBrier": 0.2851
+     },
+     {
+      "era": "1999",
+      "n": 10,
+      "events": 0,
+      "meanP": 0.482,
+      "brier": 0.2386,
+      "baseBrier": 0.0468
+     },
+     {
+      "era": "2000-02",
+      "n": 91,
+      "events": 25,
+      "meanP": 0.191,
+      "brier": 0.1649,
+      "baseBrier": 0.2052
+     },
+     {
+      "era": "2007-09",
+      "n": 80,
+      "events": 25,
+      "meanP": 0.204,
+      "brier": 0.1943,
+      "baseBrier": 0.2268
+     },
+     {
+      "era": "2015-16",
+      "n": 36,
+      "events": 7,
+      "meanP": 0.207,
+      "brier": 0.1545,
+      "baseBrier": 0.1571
+     },
+     {
+      "era": "2018",
+      "n": 17,
+      "events": 3,
+      "meanP": 0.155,
+      "brier": 0.141,
+      "baseBrier": 0.1466
+     },
+     {
+      "era": "2018",
+      "n": 12,
+      "events": 3,
+      "meanP": 0.189,
+      "brier": 0.1982,
+      "baseBrier": 0.1898
+     },
+     {
+      "era": "2020",
+      "n": 19,
+      "events": 6,
+      "meanP": 0.2,
+      "brier": 0.2638,
+      "baseBrier": 0.2268
+     },
+     {
+      "era": "2022",
+      "n": 40,
+      "events": 10,
+      "meanP": 0.216,
+      "brier": 0.1873,
+      "baseBrier": 0.1893
+     },
+     {
+      "era": "2025",
+      "n": 20,
+      "events": 6,
+      "meanP": 0.18,
+      "brier": 0.2262,
+      "baseBrier": 0.218
+     }
+    ],
+    "weights": [
+     {
+      "key": "curve",
+      "label": "10-year yield minus the Fed rate",
+      "w": -0.26
+     },
+     {
+      "key": "fedChg",
+      "label": "Fed rate change over a year",
+      "w": 0
+     },
+     {
+      "key": "credit",
+      "label": "Baa credit spread",
+      "w": 0.281
+     },
+     {
+      "key": "creditChg",
+      "label": "Credit spread change over 3 months",
+      "w": 0.078
+     },
+     {
+      "key": "vol",
+      "label": "S&P 500 swings over 3 months (yearly rate)",
+      "w": 0
+     },
+     {
+      "key": "sahm",
+      "label": "Rise in unemployment from its 12-month low",
+      "w": 0
+     },
+     {
+      "key": "trend",
+      "label": "S&P 500 vs its 200-day average",
+      "w": -0.45
+     },
+     {
+      "key": "offHigh",
+      "label": "S&P 500 below its 1-year high",
+      "w": 0.005
+     },
+     {
+      "key": "growth",
+      "label": "Factory output change over 6 months",
+      "w": -0.025
+     },
+     {
+      "key": "inflation",
+      "label": "Consumer prices, change over a year",
+      "w": 0.179
+     },
+     {
+      "key": "runUp",
+      "label": "S&P 500 gain over 5 years",
+      "w": 0.346
+     }
+    ]
+   },
+   {
+    "id": "fall10_12m",
+    "label": "10%+ fall within 12 months",
+    "status": "working",
+    "n": 765,
+    "events": 249,
+    "base": 0.3255,
+    "eras": 21,
+    "tested": 765,
+    "skill": 0.073,
+    "skillRange": [
+     0.011,
+     0.127
+    ],
+    "auc": 0.668,
+    "ece": 0.043,
+    "recalibrated": false,
+    "bins": [
+     {
+      "p": 0.15,
+      "hit": 0.179,
+      "n": 95
+     },
+     {
+      "p": 0.217,
+      "hit": 0.177,
+      "n": 96
+     },
+     {
+      "p": 0.254,
+      "hit": 0.211,
+      "n": 95
+     },
+     {
+      "p": 0.283,
+      "hit": 0.271,
+      "n": 96
+     },
+     {
+      "p": 0.316,
+      "hit": 0.292,
+      "n": 96
+     },
+     {
+      "p": 0.362,
+      "hit": 0.453,
+      "n": 95
+     },
+     {
+      "p": 0.453,
+      "hit": 0.469,
+      "n": 96
+     },
+     {
+      "p": 0.642,
+      "hit": 0.552,
+      "n": 96
+     }
+    ],
+    "eraSkill": [
+     {
+      "era": "1961-62",
+      "n": 34,
+      "events": 5,
+      "meanP": 0.284,
+      "brier": 0.1406,
+      "baseBrier": 0.1608
+     },
+     {
+      "era": "1966",
+      "n": 32,
+      "events": 12,
+      "meanP": 0.342,
+      "brier": 0.2276,
+      "baseBrier": 0.2362
+     },
+     {
+      "era": "1967-68",
+      "n": 13,
+      "events": 1,
+      "meanP": 0.316,
+      "brier": 0.1295,
+      "baseBrier": 0.1317
+     },
+     {
+      "era": "1968-70",
+      "n": 48,
+      "events": 22,
+      "meanP": 0.285,
+      "brier": 0.2275,
+      "baseBrier": 0.2692
+     },
+     {
+      "era": "1973-74",
+      "n": 97,
+      "events": 39,
+      "meanP": 0.438,
+      "brier": 0.2497,
+      "baseBrier": 0.2494
+     },
+     {
+      "era": "1980-82",
+      "n": 31,
+      "events": 18,
+      "meanP": 0.474,
+      "brier": 0.1549,
+      "baseBrier": 0.3146
+     },
+     {
+      "era": "1983-84",
+      "n": 37,
+      "events": 5,
+      "meanP": 0.283,
+      "brier": 0.1446,
+      "baseBrier": 0.1586
+     },
+     {
+      "era": "1987",
+      "n": 40,
+      "events": 11,
+      "meanP": 0.362,
+      "brier": 0.239,
+      "baseBrier": 0.2017
+     },
+     {
+      "era": "1989-90",
+      "n": 9,
+      "events": 9,
+      "meanP": 0.408,
+      "brier": 0.3518,
+      "baseBrier": 0.4573
+     },
+     {
+      "era": "1990",
+      "n": 48,
+      "events": 2,
+      "meanP": 0.274,
+      "brier": 0.0922,
+      "baseBrier": 0.1301
+     },
+     {
+      "era": "1997",
+      "n": 45,
+      "events": 0,
+      "meanP": 0.306,
+      "brier": 0.0982,
+      "baseBrier": 0.1229
+     },
+     {
+      "era": "1998",
+      "n": 12,
+      "events": 5,
+      "meanP": 0.615,
+      "brier": 0.3697,
+      "baseBrier": 0.25
+     },
+     {
+      "era": "1999",
+      "n": 10,
+      "events": 1,
+      "meanP": 0.615,
+      "brier": 0.3819,
+      "baseBrier": 0.1378
+     },
+     {
+      "era": "2000-02",
+      "n": 91,
+      "events": 36,
+      "meanP": 0.276,
+      "brier": 0.1906,
+      "baseBrier": 0.2468
+     },
+     {
+      "era": "2007-09",
+      "n": 80,
+      "events": 28,
+      "meanP": 0.274,
+      "brier": 0.1943,
+      "baseBrier": 0.2282
+     },
+     {
+      "era": "2015-16",
+      "n": 36,
+      "events": 9,
+      "meanP": 0.321,
+      "brier": 0.1893,
+      "baseBrier": 0.1947
+     },
+     {
+      "era": "2018",
+      "n": 17,
+      "events": 9,
+      "meanP": 0.251,
+      "brier": 0.3305,
+      "baseBrier": 0.2934
+     },
+     {
+      "era": "2018",
+      "n": 12,
+      "events": 9,
+      "meanP": 0.304,
+      "brier": 0.4199,
+      "baseBrier": 0.3823
+     },
+     {
+      "era": "2020",
+      "n": 19,
+      "events": 6,
+      "meanP": 0.3,
+      "brier": 0.2445,
+      "baseBrier": 0.2161
+     },
+     {
+      "era": "2022",
+      "n": 40,
+      "events": 14,
+      "meanP": 0.363,
+      "brier": 0.2515,
+      "baseBrier": 0.2282
+     },
+     {
+      "era": "2025",
+      "n": 14,
+      "events": 8,
+      "meanP": 0.355,
+      "brier": 0.3067,
+      "baseBrier": 0.3051
+     }
+    ],
+    "weights": [
+     {
+      "key": "curve",
+      "label": "10-year yield minus the Fed rate",
+      "w": -0.388
+     },
+     {
+      "key": "fedChg",
+      "label": "Fed rate change over a year",
+      "w": 0
+     },
+     {
+      "key": "credit",
+      "label": "Baa credit spread",
+      "w": 0.27
+     },
+     {
+      "key": "creditChg",
+      "label": "Credit spread change over 3 months",
+      "w": 0.098
+     },
+     {
+      "key": "vol",
+      "label": "S&P 500 swings over 3 months (yearly rate)",
+      "w": 0
+     },
+     {
+      "key": "sahm",
+      "label": "Rise in unemployment from its 12-month low",
+      "w": 0
+     },
+     {
+      "key": "trend",
+      "label": "S&P 500 vs its 200-day average",
+      "w": -0.332
+     },
+     {
+      "key": "offHigh",
+      "label": "S&P 500 below its 1-year high",
+      "w": 0
+     },
+     {
+      "key": "growth",
+      "label": "Factory output change over 6 months",
+      "w": 0
+     },
+     {
+      "key": "inflation",
+      "label": "Consumer prices, change over a year",
+      "w": 0.2
+     },
+     {
+      "key": "runUp",
+      "label": "S&P 500 gain over 5 years",
+      "w": 0.396
+     }
+    ]
+   },
+   {
+    "id": "fall20_6m",
+    "label": "20%+ fall within 6 months",
+    "status": "weak",
+    "n": 771,
+    "events": 48,
+    "base": 0.0623,
+    "eras": 21,
+    "tested": 771,
+    "skill": 0.031,
+    "skillRange": [
+     -0.024,
+     0.072
+    ],
+    "auc": 0.644,
+    "ece": 0.028,
+    "recalibrated": false,
+    "bins": [
+     {
+      "p": 0.024,
+      "hit": 0.042,
+      "n": 96
+     },
+     {
+      "p": 0.032,
+      "hit": 0.094,
+      "n": 96
+     },
+     {
+      "p": 0.039,
+      "hit": 0.01,
+      "n": 97
+     },
+     {
+      "p": 0.044,
+      "hit": 0,
+      "n": 96
+     },
+     {
+      "p": 0.051,
+      "hit": 0.021,
+      "n": 96
+     },
+     {
+      "p": 0.063,
+      "hit": 0.072,
+      "n": 97
+     },
+     {
+      "p": 0.088,
+      "hit": 0.104,
+      "n": 96
+     },
+     {
+      "p": 0.175,
+      "hit": 0.155,
+      "n": 97
+     }
+    ],
+    "eraSkill": [
+     {
+      "era": "1961-62",
+      "n": 34,
+      "events": 3,
+      "meanP": 0.041,
+      "brier": 0.0846,
+      "baseBrier": 0.0812
+     },
+     {
+      "era": "1966",
+      "n": 32,
+      "events": 0,
+      "meanP": 0.048,
+      "brier": 0.0025,
+      "baseBrier": 0.0044
+     },
+     {
+      "era": "1967-68",
+      "n": 13,
+      "events": 0,
+      "meanP": 0.045,
+      "brier": 0.0021,
+      "baseBrier": 0.0042
+     },
+     {
+      "era": "1968-70",
+      "n": 48,
+      "events": 4,
+      "meanP": 0.049,
+      "brier": 0.0751,
+      "baseBrier": 0.0768
+     },
+     {
+      "era": "1973-74",
+      "n": 97,
+      "events": 6,
+      "meanP": 0.068,
+      "brier": 0.0547,
+      "baseBrier": 0.058
+     },
+     {
+      "era": "1980-82",
+      "n": 31,
+      "events": 0,
+      "meanP": 0.094,
+      "brier": 0.0098,
+      "baseBrier": 0.0043
+     },
+     {
+      "era": "1983-84",
+      "n": 37,
+      "events": 0,
+      "meanP": 0.049,
+      "brier": 0.0025,
+      "baseBrier": 0.0044
+     },
+     {
+      "era": "1987",
+      "n": 40,
+      "events": 6,
+      "meanP": 0.059,
+      "brier": 0.1452,
+      "baseBrier": 0.1359
+     },
+     {
+      "era": "1989-90",
+      "n": 9,
+      "events": 0,
+      "meanP": 0.066,
+      "brier": 0.0045,
+      "baseBrier": 0.0041
+     },
+     {
+      "era": "1990",
+      "n": 48,
+      "events": 0,
+      "meanP": 0.052,
+      "brier": 0.0032,
+      "baseBrier": 0.0046
+     },
+     {
+      "era": "1997",
+      "n": 45,
+      "events": 0,
+      "meanP": 0.038,
+      "brier": 0.0015,
+      "baseBrier": 0.0045
+     },
+     {
+      "era": "1998",
+      "n": 12,
+      "events": 0,
+      "meanP": 0.106,
+      "brier": 0.0131,
+      "baseBrier": 0.0041
+     },
+     {
+      "era": "1999",
+      "n": 10,
+      "events": 0,
+      "meanP": 0.174,
+      "brier": 0.0311,
+      "baseBrier": 0.0041
+     },
+     {
+      "era": "2000-02",
+      "n": 91,
+      "events": 12,
+      "meanP": 0.06,
+      "brier": 0.1143,
+      "baseBrier": 0.1206
+     },
+     {
+      "era": "2007-09",
+      "n": 80,
+      "events": 9,
+      "meanP": 0.103,
+      "brier": 0.0839,
+      "baseBrier": 0.1029
+     },
+     {
+      "era": "2015-16",
+      "n": 36,
+      "events": 0,
+      "meanP": 0.072,
+      "brier": 0.0057,
+      "baseBrier": 0.0044
+     },
+     {
+      "era": "2018",
+      "n": 17,
+      "events": 0,
+      "meanP": 0.044,
+      "brier": 0.0019,
+      "baseBrier": 0.0042
+     },
+     {
+      "era": "2018",
+      "n": 12,
+      "events": 0,
+      "meanP": 0.04,
+      "brier": 0.0018,
+      "baseBrier": 0.0032
+     },
+     {
+      "era": "2020",
+      "n": 19,
+      "events": 6,
+      "meanP": 0.057,
+      "brier": 0.3005,
+      "baseBrier": 0.2832
+     },
+     {
+      "era": "2022",
+      "n": 40,
+      "events": 2,
+      "meanP": 0.068,
+      "brier": 0.0498,
+      "baseBrier": 0.0477
+     },
+     {
+      "era": "2025",
+      "n": 20,
+      "events": 0,
+      "meanP": 0.05,
+      "brier": 0.0028,
+      "baseBrier": 0.0042
+     }
+    ],
+    "weights": [
+     {
+      "key": "curve",
+      "label": "10-year yield minus the Fed rate",
+      "w": -0.031
+     },
+     {
+      "key": "fedChg",
+      "label": "Fed rate change over a year",
+      "w": 0
+     },
+     {
+      "key": "credit",
+      "label": "Baa credit spread",
+      "w": 0.251
+     },
+     {
+      "key": "creditChg",
+      "label": "Credit spread change over 3 months",
+      "w": 0.05
+     },
+     {
+      "key": "vol",
+      "label": "S&P 500 swings over 3 months (yearly rate)",
+      "w": 0
+     },
+     {
+      "key": "sahm",
+      "label": "Rise in unemployment from its 12-month low",
+      "w": 0
+     },
+     {
+      "key": "trend",
+      "label": "S&P 500 vs its 200-day average",
+      "w": -0.204
+     },
+     {
+      "key": "offHigh",
+      "label": "S&P 500 below its 1-year high",
+      "w": 0.308
+     },
+     {
+      "key": "growth",
+      "label": "Factory output change over 6 months",
+      "w": -0.12
+     },
+     {
+      "key": "inflation",
+      "label": "Consumer prices, change over a year",
+      "w": 0.128
+     },
+     {
+      "key": "runUp",
+      "label": "S&P 500 gain over 5 years",
+      "w": 0.372
+     }
+    ]
+   },
+   {
+    "id": "fall20_12m",
+    "label": "20%+ fall within 12 months",
+    "status": "weak",
+    "n": 765,
+    "events": 101,
+    "base": 0.132,
+    "eras": 21,
+    "tested": 765,
+    "skill": 0.009,
+    "skillRange": [
+     -0.034,
+     0.039
+    ],
+    "auc": 0.579,
+    "ece": 0.042,
+    "recalibrated": true,
+    "bins": [
+     {
+      "p": 0.069,
+      "hit": 0.095,
+      "n": 95
+     },
+     {
+      "p": 0.091,
+      "hit": 0.115,
+      "n": 96
+     },
+     {
+      "p": 0.103,
+      "hit": 0.084,
+      "n": 95
+     },
+     {
+      "p": 0.112,
+      "hit": 0.073,
+      "n": 96
+     },
+     {
+      "p": 0.121,
+      "hit": 0.156,
+      "n": 96
+     },
+     {
+      "p": 0.135,
+      "hit": 0.211,
+      "n": 95
+     },
+     {
+      "p": 0.162,
+      "hit": 0.177,
+      "n": 96
+     },
+     {
+      "p": 0.25,
+      "hit": 0.146,
+      "n": 96
+     }
+    ],
+    "eraSkill": [
+     {
+      "era": "1961-62",
+      "n": 34,
+      "events": 3,
+      "meanP": 0.116,
+      "brier": 0.0827,
+      "baseBrier": 0.0826
+     },
+     {
+      "era": "1966",
+      "n": 32,
+      "events": 4,
+      "meanP": 0.129,
+      "brier": 0.1114,
+      "baseBrier": 0.1095
+     },
+     {
+      "era": "1967-68",
+      "n": 13,
+      "events": 0,
+      "meanP": 0.118,
+      "brier": 0.0139,
+      "baseBrier": 0.0174
+     },
+     {
+      "era": "1968-70",
+      "n": 48,
+      "events": 11,
+      "meanP": 0.099,
+      "brier": 0.1816,
+      "baseBrier": 0.1873
+     },
+     {
+      "era": "1973-74",
+      "n": 97,
+      "events": 15,
+      "meanP": 0.147,
+      "brier": 0.1216,
+      "baseBrier": 0.1312
+     },
+     {
+      "era": "1980-82",
+      "n": 31,
+      "events": 1,
+      "meanP": 0.218,
+      "brier": 0.0756,
+      "baseBrier": 0.043
+     },
+     {
+      "era": "1983-84",
+      "n": 37,
+      "events": 0,
+      "meanP": 0.113,
+      "brier": 0.0132,
+      "baseBrier": 0.0194
+     },
+     {
+      "era": "1987",
+      "n": 40,
+      "events": 8,
+      "meanP": 0.138,
+      "brier": 0.1774,
+      "baseBrier": 0.1646
+     },
+     {
+      "era": "1989-90",
+      "n": 9,
+      "events": 0,
+      "meanP": 0.15,
+      "brier": 0.0227,
+      "baseBrier": 0.019
+     },
+     {
+      "era": "1990",
+      "n": 48,
+      "events": 0,
+      "meanP": 0.113,
+      "brier": 0.0136,
+      "baseBrier": 0.0212
+     },
+     {
+      "era": "1997",
+      "n": 45,
+      "events": 0,
+      "meanP": 0.116,
+      "brier": 0.0141,
+      "baseBrier": 0.0211
+     },
+     {
+      "era": "1998",
+      "n": 12,
+      "events": 0,
+      "meanP": 0.282,
+      "brier": 0.0843,
+      "baseBrier": 0.0192
+     },
+     {
+      "era": "1999",
+      "n": 10,
+      "events": 0,
+      "meanP": 0.246,
+      "brier": 0.0617,
+      "baseBrier": 0.0155
+     },
+     {
+      "era": "2000-02",
+      "n": 91,
+      "events": 27,
+      "meanP": 0.086,
+      "brier": 0.2372,
+      "baseBrier": 0.2486
+     },
+     {
+      "era": "2007-09",
+      "n": 80,
+      "events": 16,
+      "meanP": 0.133,
+      "brier": 0.1476,
+      "baseBrier": 0.1651
+     },
+     {
+      "era": "2015-16",
+      "n": 36,
+      "events": 0,
+      "meanP": 0.155,
+      "brier": 0.0251,
+      "baseBrier": 0.0205
+     },
+     {
+      "era": "2018",
+      "n": 17,
+      "events": 0,
+      "meanP": 0.108,
+      "brier": 0.0118,
+      "baseBrier": 0.0176
+     },
+     {
+      "era": "2018",
+      "n": 12,
+      "events": 5,
+      "meanP": 0.112,
+      "brier": 0.3497,
+      "baseBrier": 0.329
+     },
+     {
+      "era": "2020",
+      "n": 19,
+      "events": 6,
+      "meanP": 0.119,
+      "brier": 0.2751,
+      "baseBrier": 0.2553
+     },
+     {
+      "era": "2022",
+      "n": 40,
+      "events": 5,
+      "meanP": 0.134,
+      "brier": 0.1143,
+      "baseBrier": 0.1095
+     },
+     {
+      "era": "2025",
+      "n": 14,
+      "events": 0,
+      "meanP": 0.139,
+      "brier": 0.0202,
+      "baseBrier": 0.0187
+     }
+    ],
+    "weights": [
+     {
+      "key": "curve",
+      "label": "10-year yield minus the Fed rate",
+      "w": -0.404
+     },
+     {
+      "key": "fedChg",
+      "label": "Fed rate change over a year",
+      "w": 0
+     },
+     {
+      "key": "credit",
+      "label": "Baa credit spread",
+      "w": 0.389
+     },
+     {
+      "key": "creditChg",
+      "label": "Credit spread change over 3 months",
+      "w": 0.118
+     },
+     {
+      "key": "vol",
+      "label": "S&P 500 swings over 3 months (yearly rate)",
+      "w": 0
+     },
+     {
+      "key": "sahm",
+      "label": "Rise in unemployment from its 12-month low",
+      "w": 0
+     },
+     {
+      "key": "trend",
+      "label": "S&P 500 vs its 200-day average",
+      "w": -0.332
+     },
+     {
+      "key": "offHigh",
+      "label": "S&P 500 below its 1-year high",
+      "w": 0.18
+     },
+     {
+      "key": "growth",
+      "label": "Factory output change over 6 months",
+      "w": -0.031
+     },
+     {
+      "key": "inflation",
+      "label": "Consumer prices, change over a year",
+      "w": 0.02
+     },
+     {
+      "key": "runUp",
+      "label": "S&P 500 gain over 5 years",
+      "w": 0.505
+     }
+    ]
+   },
+   {
+    "id": "lowIn_6m",
+    "label": "The low of this decline holds for 6 months",
+    "status": "working",
+    "n": 617,
+    "events": 257,
+    "base": 0.4165,
+    "eras": 18,
+    "tested": 617,
+    "skill": 0.3,
+    "skillRange": [
+     0.186,
+     0.397
+    ],
+    "auc": 0.806,
+    "ece": 0.053,
+    "recalibrated": false,
+    "bins": [
+     {
+      "p": 0.108,
+      "hit": 0.143,
+      "n": 77
+     },
+     {
+      "p": 0.174,
+      "hit": 0.156,
+      "n": 77
+     },
+     {
+      "p": 0.243,
+      "hit": 0.169,
+      "n": 77
+     },
+     {
+      "p": 0.325,
+      "hit": 0.221,
+      "n": 77
+     },
+     {
+      "p": 0.435,
+      "hit": 0.429,
+      "n": 77
+     },
+     {
+      "p": 0.578,
+      "hit": 0.649,
+      "n": 77
+     },
+     {
+      "p": 0.759,
+      "hit": 0.714,
+      "n": 77
+     },
+     {
+      "p": 0.915,
+      "hit": 0.846,
+      "n": 78
+     }
+    ],
+    "eraSkill": [
+     {
+      "era": "1961-62",
+      "n": 33,
+      "events": 26,
+      "meanP": 0.47,
+      "brier": 0.1806,
+      "baseBrier": 0.321
+     },
+     {
+      "era": "1966",
+      "n": 24,
+      "events": 14,
+      "meanP": 0.316,
+      "brier": 0.2087,
+      "baseBrier": 0.2732
+     },
+     {
+      "era": "1968-70",
+      "n": 69,
+      "events": 26,
+      "meanP": 0.362,
+      "brier": 0.1182,
+      "baseBrier": 0.2368
+     },
+     {
+      "era": "1973-74",
+      "n": 91,
+      "events": 26,
+      "meanP": 0.459,
+      "brier": 0.1074,
+      "baseBrier": 0.2276
+     },
+     {
+      "era": "1980-82",
+      "n": 57,
+      "events": 8,
+      "meanP": 0.283,
+      "brier": 0.1198,
+      "baseBrier": 0.2132
+     },
+     {
+      "era": "1983-84",
+      "n": 10,
+      "events": 1,
+      "meanP": 0.209,
+      "brier": 0.1021,
+      "baseBrier": 0.1935
+     },
+     {
+      "era": "1987",
+      "n": 33,
+      "events": 26,
+      "meanP": 0.597,
+      "brier": 0.1038,
+      "baseBrier": 0.321
+     },
+     {
+      "era": "1990",
+      "n": 22,
+      "events": 15,
+      "meanP": 0.239,
+      "brier": 0.3549,
+      "baseBrier": 0.2926
+     },
+     {
+      "era": "1998",
+      "n": 7,
+      "events": 7,
+      "meanP": 0.163,
+      "brier": 0.7081,
+      "baseBrier": 0.3483
+     },
+     {
+      "era": "1999",
+      "n": 1,
+      "events": 0,
+      "meanP": 0.104,
+      "brier": 0.0109,
+      "baseBrier": 0.1709
+     },
+     {
+      "era": "2000-02",
+      "n": 107,
+      "events": 39,
+      "meanP": 0.608,
+      "brier": 0.2332,
+      "baseBrier": 0.2362
+     },
+     {
+      "era": "2007-09",
+      "n": 82,
+      "events": 25,
+      "meanP": 0.534,
+      "brier": 0.1298,
+      "baseBrier": 0.2285
+     },
+     {
+      "era": "2015-16",
+      "n": 6,
+      "events": 1,
+      "meanP": 0.138,
+      "brier": 0.1273,
+      "baseBrier": 0.2026
+     },
+     {
+      "era": "2018",
+      "n": 2,
+      "events": 2,
+      "meanP": 0.107,
+      "brier": 0.7977,
+      "baseBrier": 0.3456
+     },
+     {
+      "era": "2018",
+      "n": 6,
+      "events": 4,
+      "meanP": 0.193,
+      "brier": 0.3939,
+      "baseBrier": 0.2851
+     },
+     {
+      "era": "2020",
+      "n": 13,
+      "events": 9,
+      "meanP": 0.479,
+      "brier": 0.1157,
+      "baseBrier": 0.2924
+     },
+     {
+      "era": "2022",
+      "n": 51,
+      "events": 25,
+      "meanP": 0.418,
+      "brier": 0.2035,
+      "baseBrier": 0.2564
+     },
+     {
+      "era": "2025",
+      "n": 3,
+      "events": 3,
+      "meanP": 0.142,
+      "brier": 0.7397,
+      "baseBrier": 0.3438
+     }
+    ],
+    "weights": [
+     {
+      "key": "depth",
+      "label": "Decline from the high",
+      "w": 0.511
+     },
+     {
+      "key": "offLow",
+      "label": "Bounce off the low of this decline",
+      "w": 0.977
+     },
+     {
+      "key": "sinceLow",
+      "label": "Sessions since the low",
+      "w": 0.235
+     },
+     {
+      "key": "creditChg",
+      "label": "Credit spread change over 3 months",
+      "w": -0.009
+     },
+     {
+      "key": "volTurn",
+      "label": "Swings over 1 month vs 3 months",
+      "w": 0
+     },
+     {
+      "key": "trend50",
+      "label": "S&P 500 vs its 50-day average",
+      "w": 0.474
+     },
+     {
+      "key": "curve",
+      "label": "10-year yield minus the Fed rate",
+      "w": 0.162
+     },
+     {
+      "key": "sahm",
+      "label": "Rise in unemployment from its 12-month low",
+      "w": -0.445
+     }
+    ]
+   },
+   {
+    "id": "newHigh_12m",
+    "label": "Back above the old high within 12 months",
+    "status": "working",
+    "n": 1287,
+    "events": 303,
+    "base": 0.2354,
+    "eras": 18,
+    "tested": 1287,
+    "skill": 0.135,
+    "skillRange": [
+     0.021,
+     0.257
+    ],
+    "auc": 0.732,
+    "ece": 0.077,
+    "recalibrated": false,
+    "bins": [
+     {
+      "p": 0.021,
+      "hit": 0.013,
+      "n": 160
+     },
+     {
+      "p": 0.07,
+      "hit": 0.093,
+      "n": 161
+     },
+     {
+      "p": 0.12,
+      "hit": 0.087,
+      "n": 161
+     },
+     {
+      "p": 0.191,
+      "hit": 0.224,
+      "n": 161
+     },
+     {
+      "p": 0.262,
+      "hit": 0.23,
+      "n": 161
+     },
+     {
+      "p": 0.348,
+      "hit": 0.373,
+      "n": 161
+     },
+     {
+      "p": 0.456,
+      "hit": 0.559,
+      "n": 161
+     },
+     {
+      "p": 0.663,
+      "hit": 0.304,
+      "n": 161
+     }
+    ],
+    "eraSkill": [
+     {
+      "era": "1961-62",
+      "n": 38,
+      "events": 21,
+      "meanP": 0.24,
+      "brier": 0.3176,
+      "baseBrier": 0.3541
+     },
+     {
+      "era": "1966",
+      "n": 24,
+      "events": 24,
+      "meanP": 0.391,
+      "brier": 0.382,
+      "baseBrier": 0.607
+     },
+     {
+      "era": "1968-70",
+      "n": 91,
+      "events": 10,
+      "meanP": 0.377,
+      "brier": 0.1872,
+      "baseBrier": 0.1167
+     },
+     {
+      "era": "1973-74",
+      "n": 334,
+      "events": 27,
+      "meanP": 0.378,
+      "brier": 0.1516,
+      "baseBrier": 0.116
+     },
+     {
+      "era": "1980-82",
+      "n": 57,
+      "events": 46,
+      "meanP": 0.231,
+      "brier": 0.5634,
+      "baseBrier": 0.5301
+     },
+     {
+      "era": "1983-84",
+      "n": 10,
+      "events": 10,
+      "meanP": 0.344,
+      "brier": 0.4335,
+      "baseBrier": 0.6157
+     },
+     {
+      "era": "1987",
+      "n": 76,
+      "events": 36,
+      "meanP": 0.181,
+      "brier": 0.2602,
+      "baseBrier": 0.3141
+     },
+     {
+      "era": "1990",
+      "n": 22,
+      "events": 22,
+      "meanP": 0.368,
+      "brier": 0.4069,
+      "baseBrier": 0.6051
+     },
+     {
+      "era": "1998",
+      "n": 7,
+      "events": 7,
+      "meanP": 0.407,
+      "brier": 0.3617,
+      "baseBrier": 0.5919
+     },
+     {
+      "era": "1999",
+      "n": 1,
+      "events": 1,
+      "meanP": 0.521,
+      "brier": 0.2297,
+      "baseBrier": 0.5891
+     },
+     {
+      "era": "2000-02",
+      "n": 300,
+      "events": 22,
+      "meanP": 0.166,
+      "brier": 0.0652,
+      "baseBrier": 0.1158
+     },
+     {
+      "era": "2007-09",
+      "n": 235,
+      "events": 24,
+      "meanP": 0.175,
+      "brier": 0.0758,
+      "baseBrier": 0.1156
+     },
+     {
+      "era": "2015-16",
+      "n": 6,
+      "events": 6,
+      "meanP": 0.402,
+      "brier": 0.3582,
+      "baseBrier": 0.5919
+     },
+     {
+      "era": "2018",
+      "n": 2,
+      "events": 2,
+      "meanP": 0.488,
+      "brier": 0.2621,
+      "baseBrier": 0.5919
+     },
+     {
+      "era": "2018",
+      "n": 6,
+      "events": 6,
+      "meanP": 0.409,
+      "brier": 0.3603,
+      "baseBrier": 0.6041
+     },
+     {
+      "era": "2020",
+      "n": 13,
+      "events": 13,
+      "meanP": 0.306,
+      "brier": 0.5137,
+      "baseBrier": 0.6014
+     },
+     {
+      "era": "2022",
+      "n": 62,
+      "events": 23,
+      "meanP": 0.325,
+      "brier": 0.1694,
+      "baseBrier": 0.2549
+     },
+     {
+      "era": "2025",
+      "n": 3,
+      "events": 3,
+      "meanP": 0.414,
+      "brier": 0.3547,
+      "baseBrier": 0.5901
+     }
+    ],
+    "weights": [
+     {
+      "key": "depth",
+      "label": "Decline from the high",
+      "w": -1.398
+     },
+     {
+      "key": "offLow",
+      "label": "Bounce off the low of this decline",
+      "w": 0
+     },
+     {
+      "key": "sinceLow",
+      "label": "Sessions since the low",
+      "w": 0
+     },
+     {
+      "key": "creditChg",
+      "label": "Credit spread change over 3 months",
+      "w": 0
+     },
+     {
+      "key": "volTurn",
+      "label": "Swings over 1 month vs 3 months",
+      "w": 0
+     },
+     {
+      "key": "trend50",
+      "label": "S&P 500 vs its 50-day average",
+      "w": 0
+     },
+     {
+      "key": "curve",
+      "label": "10-year yield minus the Fed rate",
+      "w": -0.414
+     },
+     {
+      "key": "sahm",
+      "label": "Rise in unemployment from its 12-month low",
+      "w": 0.192
+     }
+    ]
+   }
+  ],
+  "status": "ok"
+ },
+ "vol": {
+  "version": 1,
+  "har": {
+   "b": [
+    -0.4673,
+    0.1487,
+    0.1978,
+    0.4323,
+    0.1735
+   ],
+   "s2": 0.4658,
+   "n": 62129,
+   "r2": 0.824
+  },
+  "best": "garch",
+  "models": [
+   {
+    "model": "trailing",
+    "n": 65044,
+    "dates": 2577,
+    "qlike": 0.4949,
+    "rmse": 16.47,
+    "bias": -0.07,
+    "vsBase": 0,
+    "rmseVsBase": 0,
+    "t": null
+   },
+   {
+    "model": "ewma",
+    "n": 65044,
+    "dates": 2577,
+    "qlike": 0.4354,
+    "rmse": 15.34,
+    "bias": 0.43,
+    "vsBase": 12,
+    "rmseVsBase": 6.9,
+    "t": 5.02
+   },
+   {
+    "model": "garch",
+    "n": 65044,
+    "dates": 2577,
+    "qlike": 0.3785,
+    "rmse": 14.16,
+    "bias": 0.88,
+    "vsBase": 23.5,
+    "rmseVsBase": 14.1,
+    "t": 5.42
+   },
+   {
+    "model": "har",
+    "n": 65041,
+    "dates": 2577,
+    "qlike": 0.4458,
+    "rmse": 14.01,
+    "bias": -1.61,
+    "vsBase": 9.9,
+    "rmseVsBase": 14.9,
+    "t": 2.09
+   }
+  ],
+  "rows": 65044,
+  "symbols": 144,
+  "from": "2016-06-03"
+ },
+ "factors": {
+  "version": 1,
+  "names": 74,
+  "trials": 28,
+  "tBar": 3.12,
+  "calendar": {
+   "from": "2008-01-02",
+   "to": "2026-11-06"
+  },
+  "rows": [
+   {
+    "key": "mom12",
+    "label": "12-month momentum",
+    "dates": 225,
+    "from": "2008-01-02",
+    "to": "2026-09-15",
+    "ic": [
+     {
+      "h": 1,
+      "n": 226,
+      "ic": 0.047,
+      "t": 2.49,
+      "first": 0.028,
+      "second": 0.066
+     },
+     {
+      "h": 5,
+      "n": 226,
+      "ic": 0.026,
+      "t": 1.37,
+      "first": 0.006,
+      "second": 0.046
+     },
+     {
+      "h": 21,
+      "n": 225,
+      "ic": 0.023,
+      "t": 1.44,
+      "first": 0.018,
+      "second": 0.028
+     },
+     {
+      "h": 63,
+      "n": 223,
+      "ic": 0.02,
+      "t": 0.75,
+      "first": 0.013,
+      "second": 0.028
+     }
+    ],
+    "spread": {
+     "perYear": 5.9,
+     "net": 4.9,
+     "t": 1.22,
+     "first": 1.3,
+     "second": 10.4,
+     "worst": -48.4,
+     "turnover": 0.19
+    },
+    "bothHalves": true,
+    "verdict": "none"
+   },
+   {
+    "key": "mom6",
+    "label": "6-month momentum",
+    "dates": 225,
+    "from": "2008-01-02",
+    "to": "2026-09-15",
+    "ic": [
+     {
+      "h": 1,
+      "n": 226,
+      "ic": 0.033,
+      "t": 1.82,
+      "first": -0.004,
+      "second": 0.069
+     },
+     {
+      "h": 5,
+      "n": 226,
+      "ic": 0.032,
+      "t": 1.76,
+      "first": 0.008,
+      "second": 0.056
+     },
+     {
+      "h": 21,
+      "n": 225,
+      "ic": 0.017,
+      "t": 1.05,
+      "first": -0.002,
+      "second": 0.036
+     },
+     {
+      "h": 63,
+      "n": 223,
+      "ic": 0.02,
+      "t": 0.75,
+      "first": 0.008,
+      "second": 0.032
+     }
+    ],
+    "spread": {
+     "perYear": 6.5,
+     "net": 5.3,
+     "t": 1.31,
+     "first": -3,
+     "second": 15.9,
+     "worst": -63,
+     "turnover": 0.26
+    },
+    "bothHalves": false,
+    "verdict": "none"
+   },
+   {
+    "key": "rev1",
+    "label": "1-month reversal",
+    "dates": 225,
+    "from": "2008-01-02",
+    "to": "2026-09-15",
+    "ic": [
+     {
+      "h": 1,
+      "n": 226,
+      "ic": 0.002,
+      "t": 0.1,
+      "first": -0.026,
+      "second": 0.029
+     },
+     {
+      "h": 5,
+      "n": 226,
+      "ic": 0.007,
+      "t": 0.46,
+      "first": -0.002,
+      "second": 0.015
+     },
+     {
+      "h": 21,
+      "n": 225,
+      "ic": 0.007,
+      "t": 0.49,
+      "first": -0.013,
+      "second": 0.026
+     },
+     {
+      "h": 63,
+      "n": 223,
+      "ic": -0.008,
+      "t": -0.34,
+      "first": -0.007,
+      "second": -0.009
+     }
+    ],
+    "spread": {
+     "perYear": 1.3,
+     "net": -2,
+     "t": 0.31,
+     "first": -2.4,
+     "second": 4.8,
+     "worst": -57.3,
+     "turnover": 0.68
+    },
+    "bothHalves": false,
+    "verdict": "none"
+   },
+   {
+    "key": "lowvol",
+    "label": "Low volatility",
+    "dates": 225,
+    "from": "2008-01-02",
+    "to": "2026-09-15",
+    "ic": [
+     {
+      "h": 1,
+      "n": 226,
+      "ic": 0.016,
+      "t": 0.8,
+      "first": 0.035,
+      "second": -0.002
+     },
+     {
+      "h": 5,
+      "n": 226,
+      "ic": -0.018,
+      "t": -0.9,
+      "first": -0.01,
+      "second": -0.025
+     },
+     {
+      "h": 21,
+      "n": 225,
+      "ic": -0.028,
+      "t": -1.48,
+      "first": -0.023,
+      "second": -0.032
+     },
+     {
+      "h": 63,
+      "n": 223,
+      "ic": -0.058,
+      "t": -1.8,
+      "first": -0.059,
+      "second": -0.057
+     }
+    ],
+    "spread": {
+     "perYear": -18.4,
+     "net": -19.1,
+     "t": -3.24,
+     "first": -11.4,
+     "second": -25.4,
+     "worst": -98.8,
+     "turnover": 0.15
+    },
+    "bothHalves": true,
+    "verdict": "none"
+   },
+   {
+    "key": "lowbeta",
+    "label": "Low beta",
+    "dates": 225,
+    "from": "2008-01-02",
+    "to": "2026-09-15",
+    "ic": [
+     {
+      "h": 1,
+      "n": 226,
+      "ic": 0.008,
+      "t": 0.4,
+      "first": 0.03,
+      "second": -0.013
+     },
+     {
+      "h": 5,
+      "n": 226,
+      "ic": -0.019,
+      "t": -0.9,
+      "first": -0.02,
+      "second": -0.019
+     },
+     {
+      "h": 21,
+      "n": 225,
+      "ic": -0.019,
+      "t": -1,
+      "first": -0.013,
+      "second": -0.025
+     },
+     {
+      "h": 63,
+      "n": 223,
+      "ic": -0.034,
+      "t": -0.96,
+      "first": -0.015,
+      "second": -0.053
+     }
+    ],
+    "spread": {
+     "perYear": -13.6,
+     "net": -14.2,
+     "t": -2.43,
+     "first": -8,
+     "second": -19.1,
+     "worst": -97.6,
+     "turnover": 0.12
+    },
+    "bothHalves": true,
+    "verdict": "none"
+   },
+   {
+    "key": "high52",
+    "label": "Near the 52-week high",
+    "dates": 225,
+    "from": "2008-01-02",
+    "to": "2026-09-15",
+    "ic": [
+     {
+      "h": 1,
+      "n": 226,
+      "ic": 0.012,
+      "t": 0.65,
+      "first": 0.021,
+      "second": 0.002
+     },
+     {
+      "h": 5,
+      "n": 226,
+      "ic": -0.009,
+      "t": -0.52,
+      "first": -0.021,
+      "second": 0.003
+     },
+     {
+      "h": 21,
+      "n": 225,
+      "ic": -0.013,
+      "t": -0.8,
+      "first": -0.019,
+      "second": -0.007
+     },
+     {
+      "h": 63,
+      "n": 223,
+      "ic": -0.022,
+      "t": -0.78,
+      "first": -0.036,
+      "second": -0.007
+     }
+    ],
+    "spread": {
+     "perYear": -7.6,
+     "net": -9.1,
+     "t": -1.56,
+     "first": -9.3,
+     "second": -6,
+     "worst": -88.6,
+     "turnover": 0.3
+    },
+    "bothHalves": true,
+    "verdict": "none"
+   },
+   {
+    "key": "trend",
+    "label": "Above the 200-day average",
+    "dates": 225,
+    "from": "2008-01-02",
+    "to": "2026-09-15",
+    "ic": [
+     {
+      "h": 1,
+      "n": 226,
+      "ic": 0.016,
+      "t": 0.93,
+      "first": 0.009,
+      "second": 0.024
+     },
+     {
+      "h": 5,
+      "n": 226,
+      "ic": 0.004,
+      "t": 0.24,
+      "first": -0.018,
+      "second": 0.026
+     },
+     {
+      "h": 21,
+      "n": 225,
+      "ic": 0.01,
+      "t": 0.62,
+      "first": 0.004,
+      "second": 0.016
+     },
+     {
+      "h": 63,
+      "n": 223,
+      "ic": 0.017,
+      "t": 0.65,
+      "first": 0.002,
+      "second": 0.032
+     }
+    ],
+    "spread": {
+     "perYear": 3.9,
+     "net": 2.7,
+     "t": 0.77,
+     "first": -1.6,
+     "second": 9.3,
+     "worst": -57.8,
+     "turnover": 0.24
+    },
+    "bothHalves": true,
+    "verdict": "none"
+   }
+  ],
+  "caveat": "Today's covered stocks traced back in time, so names that failed or were dropped are missing; that flatters momentum and punishes low volatility."
+ }
+}
