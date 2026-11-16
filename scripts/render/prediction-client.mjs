@@ -18,6 +18,10 @@ export function renderPredictionJs() {
   var PMK_TABS = [['themes', 'By topic'], ['moves', 'Big moves'], ['releases', 'Data releases'], ['stocks', 'By stock']];
   var PMK_OWNER_TABS = [['tests', 'Odds tests'], ['runup', 'Run-up watch'], ['alerts', 'Open trades'], ['finder', 'Finder']];
   var pmkState = { data: null, owner: null, loading: false, ownerLoading: false, error: null, fetchedAt: 0, urlRead: false };
+  // The page router drops ?view= for every page but the stock page before the
+  // data arrives, so the stock page's "All linked markets" link (view=stocks)
+  // is read from the address at load.
+  var PMK_BOOT_QS = (function(){ try { return location.search || ''; } catch (_) { return ''; } })();
   var PMK_JUMP_LABEL = { holds: 'Stock follows jumps', echo: 'Odds follow the stock', 'no-effect': 'No effect', collecting: 'Collecting' };
   var PMK_FLOW_LABEL = { 'odds-lead': 'Odds move first', 'odds-echo': 'Stock moves first', 'same-day': 'Same day only', 'no-order': 'No order', collecting: 'Collecting' };
   var PMK_RUN_LABEL = { 'run-up-follows': 'Run-up follows', 'moves-together': 'Move together', 'no-effect': 'No effect', collecting: 'Collecting' };
@@ -359,8 +363,8 @@ export function renderPredictionJs() {
     if (!pmkState.urlRead){
       pmkState.urlRead = true;
       try {
-        var q = new URLSearchParams(location.search);
-        var v = q.get('view'), s = q.get('s');
+        var q = new URLSearchParams(location.search), q0 = new URLSearchParams(PMK_BOOT_QS);
+        var v = q.get('view') || (q0.get('tab') === 'prediction-markets' ? q0.get('view') : null), s = q.get('s');
         // Only a real tab name is remembered; an Owner tab waits for sign-in.
         if (v && PMK_TABS.concat(PMK_OWNER_TABS).some(function(t){ return t[0] === v; })) pmkSetView('tab', v);
         if (s && /^[A-Z][A-Z0-9.]{0,5}$/.test(s)) pmkSetView('sym', s);

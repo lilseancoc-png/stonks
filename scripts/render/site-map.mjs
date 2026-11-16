@@ -85,6 +85,7 @@ export const SITE_SECTIONS = [
     id: 'industry', label: 'Industry trends', short: 'Industry', desc: 'Real-world data behind the AI and chip trade',
     items: [
       { id: 'ai-capex', label: 'AI spending', alias: 'AI CapEx', blurb: 'How much the biggest tech companies are spending on AI data centers.' },
+      { id: 'ai-disruption', label: 'AI disruption', alias: 'AI launches labs OpenAI Anthropic Google Gemini Microsoft Copilot Meta xAI Grok release notes software disruption SaaS capture score', blurb: 'What the AI labs ship, how ready each launch is to take customers from traditional software, and which companies it targets.' },
       { id: 'ram-prices', label: 'Memory chip prices', alias: 'RAM prices DRAM', blurb: 'Weekly prices for computer memory, a read on the chip cycle.' },
       { id: 'accelerator-prices', label: 'GPU cloud prices', alias: 'Accelerator', blurb: 'What it costs to rent AI chips by the hour, a read on AI demand.' },
       { id: 'search-interest', label: 'Search trends', alias: 'Search interest Google', blurb: 'Which market themes people are searching for more or less this week.' },
