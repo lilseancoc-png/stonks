@@ -38,6 +38,10 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## 2026-11-17
 
+### Added
+
+- The 1971-2026 strategy-engine history test now shows across the site as context only: "Strategy styles by era" on Pattern lab and style strips on Booms & busts (public), event and crisis strips on Historical Data, "Today's regime fit" in the Regime Lab and the Owner brief, and MCP datasets (Owner). Aggregates only; switch `ENGINES_HISTORY=0` (#849).
+
 ### Changed
 - Measure the intraday volume curve from the covered stocks' own sessions instead of the fixed 25/14/11/11/14/25% hour curve, which expected too little volume in the first hour and too much in the afternoon (median name traded 16.7% of its day by 10:00, not 12.5%); the Volume page, the heatmap's relative volume and the stock page's live relative volume all read it (`VOLUME_MEASURED_CURVE=0` brings the fixed curve back).
 - The grade's Unusual volume vote reads the session so far (volume since the open against a normal day by now, move since yesterday's close) instead of the busiest single window, which opened the vote to about half of all names on an ordinary day; the strategy engines' relative volume follows it, and new Top Picks trades carry `volumeReadVersion` for a Track Record divider (`VOLUME_SESSION_READ=0` brings back the window read).
