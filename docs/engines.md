@@ -129,14 +129,56 @@ Macro's "VIX curve back to normal" setup (SPY calls) was dropped the same day:
 it lost 11.6% a trade over 128 trades in the 1971-2026 test. It stays in the
 registry as retired so old shadow rows keep their label.
 
+### Money-leak fixes (rules 3, 2026-11-17)
+
+The owner asked where the signal engines lose money. Every 2007-2026 history
+trade was replayed with other entries, exits, contracts and stops, and each
+candidate fix was then checked again inside the whole book: the full history
+re-run with that one fix switched off, so a trade held longer blocks the next
+one the way it does live. Five changes went in (rules 3 on every signal
+engine, one logged rules change each):
+
+| Fix | What changed | Full book, as the engine runs | Switch (Owner Settings → Data & desks) |
+|---|---|---|---|
+| Retire two put setups | Reversion's spike-in-a-downtrend fade and Technicals' range breakdown open nothing (they stay in the registry as `retired`, so old trades keep their labels and checks) | Reversion $72,000 → $136,700, Technicals $49,900 → $52,500 | `ENGINES_FIX_RETIRE_PUTS` |
+| Washout-bounce calls | Reversion's `oversold-bounce` buys calls of about 0.3 delta, 14 to 35 days out (ideal 21), with a -60% stop (`contract` and `exits` on the setup; `contractFor` / `exitsFor` in `config.mjs`) | +0.8% → +7.7% a trade (981 → 884 trades), ahead in both halves | `ENGINES_FIX_BOUNCE` |
+| $2,000 of premium | Each option trade records the number of contracts nearest $2,000 (`optionQty`, at least one; `qty` on the contract, `positionUsd` / `tradeUsd` count it). Percent results are unchanged; the dollar totals now weigh every trade about the same. **The Webull paper account still buys one contract** (`requestedQty: 1`), so compare % there, not dollars | Dollars only | `ENGINES_FIX_SIZE` |
+| Technicals share stop | Share trades stop 3 ATR under the entry instead of at the setup's own tighter stop or 2 ATR (`sharesStopAtr: 3`, `sharesOwnStop: false` on the engine) | +0.5% → +0.9% a trade on 1,158 share trades | `ENGINES_FIX_TEC_SHARES` |
+| Live against the test | Each engine's Track record tab shows every setup's live record under the current rules beside the same setup in the history test (`liveVsHistory`, read once a setup has 10 closed trades: in line within 5 points, else ahead or behind). Macro setups whose test gain came mostly from the option price model are marked | Page only | None |
+
+Not made: **no take-profit on Macro's yields-falling TLT calls.** Trade by
+trade it looked far better (+29.3% against +11.8% on the same 115 entries),
+but in the full book each call sat up to 12 sessions and blocked the next TLT
+signal: 72 trades and $17,356 against 115 and $27,060. The owner chose to keep
+the +30% take-profit (2026-11-17). Lesson kept for later fixes: score a rule
+change inside the book, never on a fixed list of trades.
+
+The bounce's -60% stop is the least settled part: with every setup trading the
+engine's -35% stop did a little better, as the engine runs the -60% did, and
+no stop beat both in both runs (not adopted: more fitting to the same history).
+
+Each switch is on by default; off puts that part back for new trades only
+(open trades keep the exits and size they opened with). `engineSpecs(fixes)`
+builds the registry with some fixes off and the rules note rewritten to list
+only the fixes on; switching one off or back on is logged as a rules change
+on the engines it reaches (`rules.key` / `rules.switchNote`, `adoptRules`), so
+the record and the live-against-test table split there, and each new trade
+carries `fixesOff` with the switched-off fixes that reach its engine. An
+engine still on its first rules gets the rules 2 and rules 3 notes in one
+change (`rules.before`). The page's All engines tab lists the fixes with their
+state; the Setups and learning tab lists every hand-made rules step. These
+fixes were picked from the same history they are scored on, so the live
+record is the real test.
+
 How they differ from Top Picks, on purpose:
 
 - **No shared grade.** Top Picks sums four pillars into one score. Each engine
   reads only its own kind of evidence and scores a named setup from 0 to 100.
 - **No AI.** Top Picks has an AI final grader. The engines are rules only.
-- **Singles only, different contracts.** One long call or put, one contract,
-  or (since 2026-11-17) $5,000 of stock for the slow call setups above. Each
-  engine has its own expiry window and delta.
+- **Singles only, different contracts.** One long call or put (about $2,000
+  of premium since 2026-11-17; one contract in the Webull paper account), or
+  $5,000 of stock for the slow call setups above. Each engine has its own
+  expiry window and delta, and a setup may carry its own (the washout bounce).
 - **Different exits.** Each engine has its own take-profit, stop and time
   limit; some setups carry their own (see the table on the page). Technical
   and reversion trades also carry a stock stop or target.
@@ -255,7 +297,9 @@ holiday, before the open or after the close carries the files forward: no
 marks, no session counted, no trades.
 
 Contract screen: mid at least $0.30, spread at most 18% of the mid, open
-interest 50+ or volume 10+, one contract at most $5,000.
+interest 50+ or volume 10+, one contract at most $5,000, delta 0.3 to 0.8
+(down to 0.05 under a lower target: the washout bounce's 0.3-delta calls may
+take 0.25 to 0.3).
 
 ## The record
 
@@ -380,10 +424,21 @@ held back with no learning, and the engine as it runs (learning on). Each is
 compared with books that bought the same kind of contract on random days.
 
 Result, 2007 to 2026, as each engine runs (learning on, the Allocator
-advising), with share trades (rules 2, 2026-11-17) scored on their own lines.
-Rerun on 2026-11-17 after a fix to the slot count (a run's own new trades
-were counted twice against an engine's free slots, so engines that may open
-two or more trades a run opened fewer than they should):
+advising), with share trades scored on their own lines. Rerun on 2026-11-17
+with the money-leak fixes (rules 3; option trades at about $2,000 of premium,
+so the option dollars are not comparable with the rules 2 table below):
+
+| Engine | Kind | Trades | Average trade | Dollars |
+|---|---|---|---|---|
+| Technicals | options | 92 | +1.4% | +$1,406 |
+| Technicals | shares | 1,158 | +0.9% | +$51,096 |
+| Reversion | options | 884 | +7.7% | +$135,090 |
+| Reversion | shares | 53 | +0.6% | +$1,656 |
+| Macro | options | 490 | +2.2% | +$20,071 |
+
+Rules 2 (shares for the slow setups, one contract per option trade), rerun
+the same day after a fix to the slot count (a run's own new trades were
+counted twice against an engine's free slots):
 
 | Engine | Kind | Trades | Win rate | Average trade | Dollars | Random entries | Beat random |
 |---|---|---|---|---|---|---|---|
@@ -479,6 +534,10 @@ w = expected / 4, clamped to 0.1x-2x.
 | `ENGINES_ALLOCATOR` | Owner Settings → Data & desks → "Engine Allocator" (no repo variable) | Unset / `advise` = the Allocator records its read on every signal trade and holds nothing back. `on` = it holds back setups expected to lose in today's market type (shadow trades). `0` = not run |
 | `ENGINES_SHARES` | Owner Settings → Data & desks → "Engines buy shares for slow setups" (no repo variable) | Unset = on. `0` puts every setup back on calls; open share trades run to their exits |
 | `ENGINES_MIRROR` | Vercel env | `0` stops new engine trades entering the paper account. Trades already there keep being managed and closed |
+| `ENGINES_FIX_RETIRE_PUTS` | Owner Settings → Data & desks | Unset / on = Reversion's spike fade and Technicals' range breakdown open nothing. `0` brings them back for new trades |
+| `ENGINES_FIX_BOUNCE` | Owner Settings → Data & desks | Unset / on = the washout bounce buys ~0.3-delta calls about 21 days out with a -60% stop. `0` = the engine's 0.6-delta calls and -35% stop |
+| `ENGINES_FIX_SIZE` | Owner Settings → Data & desks | Unset / on = option trades record about $2,000 of premium. `0` = one contract, as before. Webull buys one contract either way |
+| `ENGINES_FIX_TEC_SHARES` | Owner Settings → Data & desks | Unset / on = Technicals' share trades stop 3 ATR under the entry. `0` = the setup's own stop or 2 ATR |
 
 ## Not in scope
 

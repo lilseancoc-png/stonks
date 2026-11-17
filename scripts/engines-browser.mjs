@@ -107,6 +107,9 @@ try {
     check((await s.page.locator('#eng-all-curve .ln-svg path.ln-line').count()) === withCurve, 'one running-total line per engine with closed trades');
     check(!/\d{4}-\d{2}-\d{2}/.test(await s.page.locator('#eng-all-curve .ln-svg').innerHTML().then((h) => h.replace(/data-ch='[^']*'/, ''))), 'the curve axis reads as days, not raw ISO dates');
     check(/Went first/i.test(await s.page.locator('#eng-all-runs').innerText()), 'the run log says which engine went first');
+    // The money-leak fixes (2026-11-17): one line each, with its switch state.
+    check((await s.page.locator('#eng-all-fixes .eng-fixes li').count()) === view.fixes.length && view.fixes.length === 4, 'one line per rule fix');
+    check(/Owner Settings/.test(await s.page.locator('#eng-all-fixes').innerText()) && (await s.page.locator('#eng-all-fixes .evb-s-pass').count()) === view.fixes.filter((f) => f.on).length, 'each fix shows whether it is on and where to switch it');
     check(mirrorAsks.length >= 1 && mirrorAsks.every((q) => /scope=engines/.test(q)), 'the page asks the mirror for engine trades only');
     await clean(s, 'All engines, desktop');
     await s.page.screenshot({ path: resolve(output, 'all-engines-1440.png'), fullPage: true });
@@ -159,6 +162,9 @@ try {
       if (e.stats.n) check((await s.page.locator('#eng-splits details').count()) === 8, id + ': eight scorecard cuts');
       check((await s.page.locator('#eng-shares').count()) === (e.sharesStats ? 1 : 0), id + ': share trades have their own scorecard when there are any');
       if (e.sharesStats) check(/% of the share price/.test(await s.page.locator('#eng-shares').innerText()), id + ': the share scorecard says its unit');
+      check((await s.page.locator('#eng-vs-hist').count()) === 1, id + ': live against the history test');
+      if (e.vsHistory.rows.length) check((await s.page.locator('#eng-vs-hist tbody tr').count()) === e.vsHistory.rows.length, id + ': one row per setup and instrument (' + e.vsHistory.rows.length + ')');
+      if (e.vsHistory.rows.some((r) => r.modelGain)) check(/price model/.test(await s.page.locator('#eng-vs-hist').innerText()), id + ': the price-model caveat');
       if ((e.stats.curve || []).length >= 3) check((await s.page.locator('#eng-pane .eng-body > svg.ln-svg, #eng-pane .eng-body > .ln-wrap svg, #eng-pane .eng-body svg.ln-svg').count()) >= 1, id + ': the running-total chart');
       await clean(s, id + ' record');
 
@@ -167,6 +173,8 @@ try {
       check((await s.page.locator('#eng-setups tbody tr').count()) === e.setups.length, id + ': one row per setup');
       check(/Change log/.test(text) && /Shadow trades/.test(text), id + ': change log and shadow trades');
       if (e.setups.some((x) => x.startsOnShadow)) check(/Started on shadow/.test(text), id + ': shadow-start setups are marked');
+      if (id === 'reversion') check(/Own contract: about 0\.30 delta, 14 to 35 days/.test(await s.page.locator('#eng-setups').innerText()) && /Own exits: \+30% take-profit, -60% stop/.test(await s.page.locator('#eng-setups').innerText()), 'reversion: the washout bounce shows its own contract and stop');
+      if (id === 'technicals' || id === 'reversion') check(/retired/i.test(await s.page.locator('#eng-setups').innerText()), id + ': the retired put setup is marked');
       if (id === 'fundamentals') {
         check(/Retired/.test(await s.page.locator('#eng-setups').innerText()), 'fundamentals: the first-rules setups are marked retired');
         check(/standing rank/.test(text), 'fundamentals: the learning view explains the rule change');

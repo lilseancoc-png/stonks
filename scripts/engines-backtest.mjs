@@ -29,7 +29,7 @@ import { buildLabelSeries, LABEL_RULES_VERSION } from "../lib/regime-lab/labels.
 import { FOMC_DECISIONS } from "../lib/historical-events.mjs";
 import { runBacktest, publicResult, WINDOWS, BACKTEST_VERSION } from "../lib/engines/backtest.mjs";
 import { firstFridays } from "../lib/engines/macro.mjs";
-import { ENGINES, ENGINES_VERSION, MACRO_ETFS } from "../lib/engines/config.mjs";
+import { ENGINES, ENGINES_VERSION, MACRO_ETFS, BOOK } from "../lib/engines/config.mjs";
 import { allocPriorFrom } from "../lib/engines/allocator.mjs";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
@@ -180,10 +180,14 @@ async function main() {
   const out = {
     version: BACKTEST_VERSION, enginesVersion: ENGINES_VERSION, generatedAt: new Date().toISOString().slice(0, 10),
     data: { from: off.from, to: off.to, sessions: off.sessions, names: R.universe.length, labelRules: R.labelRules },
+    // Premium per option trade in these runs (null = one contract).
+    optionUsd: BOOK.optionUsd,
     notes: [
       "Option prices are modeled (Black-Scholes at 1.15x realized volatility), with 3.5% of premium taken as costs per round trip. Real spreads and real implied volatility are not in the history.",
       "The names are today's coverage list, so companies that failed or were dropped are missing (the results read better than a live list would have).",
-      "Five setups that lost more than 3% a trade in both halves of this same history start on shadow (a sixth, Macro's VIX-curve-back-to-normal call, was dropped on 2026-11-17). The numbers with those held back were picked with hindsight, so they flatter the engines; the 'every setup' run is the unpicked read.",
+      "Four setups that lost more than 3% a trade in both halves of this same history start on shadow. Three more were dropped on 2026-11-17 and are left out of every run, the 'every setup' one included: Macro's VIX-curve-back-to-normal call, Reversion's spike-in-a-downtrend put and Technicals' range-breakdown put. The numbers with those held back or dropped were picked with hindsight, so they flatter the engines; the 'every setup' run is the least picked read.",
+      "The other money-leak fixes of 2026-11-17 were also picked from this same history, so this run flatters them too: 0.3-delta calls about 21 days out with a -60% stop for Reversion's washout bounce, and a 3 ATR stop on Technicals' share trades. The live record against this test, setup by setup on each engine's Record tab, is the check.",
+      "Since 2026-11-17 each option trade buys about $2,000 of premium (the number of contracts nearest it, at least one), so the dollar totals weigh every trade about the same. Before, every option trade was one contract, and a dear contract (a $40 SPY call) counted forty times a cheap one.",
       "Since 2026-11-17 the call side of the slower setups buys $5,000 of stock instead of a call. Those share trades are priced at the open and close with 0.1% costs a round trip and scored on their own, against random share lots with the same stock exits. Split-adjusted prices are used as they are.",
       "Modeled volatility falls more slowly after a bounce than real implied volatility does, so dip-buying calls look better here than they would live.",
       "FOMC days are the real decision dates. Jobs days follow the first-Friday rule. CPI days are not in the research set.",
