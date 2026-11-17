@@ -42,6 +42,11 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 - The 1971-2026 strategy-engine history test now shows across the site as context only: "Strategy styles by era" on Pattern lab and style strips on Booms & busts (public), event and crisis strips on Historical Data, "Today's regime fit" in the Regime Lab and the Owner brief, and MCP datasets (Owner). Aggregates only; switch `ENGINES_HISTORY=0` (#849).
 
+### Fixed
+
+- A failed NBA research capture now logs which step stopped it and a fixed error label (for example `research=lease/lease-conflict` or `research=index/store-http-503`), so the recurring "NBA research recording is unavailable or busy" failures in the props and research jobs say why without printing keys or provider text.
+- The win-by record and closing-line notes no longer promise exact run times ("13:20 and 22:30 UTC", "every 30 minutes"); GitHub starts those scheduled jobs hours late or skips them, and the Sports docs now say so. Kalshi's NBA game and spread markets are noted as live since 2026-11-16.
+
 ## 2026-11-16
 
 ### Added

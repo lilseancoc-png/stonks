@@ -50,7 +50,13 @@ for (const sport of requested ? [requested] : ['nba', 'nfl']) {
     if (sport === 'nba') {
       const evidence = await captureNBAResearch({ store, view, now, clock: Date.now });
       if (evidence.state === 'busy') { console.log('nba: another collector is recording evidence; existing records preserved'); continue; }
-      if (evidence.state !== 'ok') throw new Error('NBA research recording is unavailable or busy');
+      if (evidence.state !== 'ok') {
+        // Which step stopped and a fixed error label (researchFailure), so a
+        // failed run says why without printing keys or provider text.
+        const f = evidence.failure;
+        if (f) feeds += ` research=${f.step}/${f.kind}`;
+        throw new Error('NBA research recording is unavailable or busy');
+      }
     }
     if (!feedsOk) throw new Error('a current feed is unavailable; NBA outage evidence retained');
     if (sport === 'nba' && sources.reference?.state !== 'ok') throw new Error('NBA reference feed unavailable; outage evidence retained');

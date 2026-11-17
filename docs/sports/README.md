@@ -119,6 +119,11 @@ older season files remain retained privately for future research.
 code, and logs only counts. Three bulk requests/run = 144/day (two NBA, one
 NFL), plus page usage. The NBA-only five-minute-gap collector adds 300/day;
 the baseline total is 444/day before interactive use.
+Measured 2026-11-10 to 11-17, GitHub's scheduler started this job only 3 to 5
+times a day and the NBA collector 2 to 4 times a day (GitHub drops scheduled
+runs when it is busy), so real use is far below these figures. Dispatching
+both from cron-job.org, as the market workflows are, would restore the
+designed cadence (about 790 of the free 1,000 PropLine requests a day).
 Both production and Actions need the free line-feed key; Actions also uses
 the existing R2 secrets and `PRIVATE_DATA_ENABLED` repository variable.
 
@@ -397,7 +402,10 @@ defines and can unpack a single player without the rest of the season.
 morning in the US, after the providers' overnight updates and the previous
 night's games) and, since 2026-11-11, at 22:30 UTC (late afternoon in the US:
 provider fixes made during the day, the NFL's Friday injury report and roster
-moves before the evening's NBA games), and on demand. NFL and NBA are separate jobs, so one provider's
+moves before the evening's NBA games), and on demand. GitHub starts these
+scheduled runs late: in the week to 2026-11-17 the 13:20 run began between
+13:45 and 17:56 ET and the 22:30 run between 21:00 and 22:10 ET, after most
+NBA tip-offs. NFL and NBA are separate jobs, so one provider's
 outage never blocks the other. Each runs `npm run test:sports`, then
 `node scripts/sports-ingest.mjs --sport=<league>`. Both leagues share one
 ingest (`lib/sports/ingest.mjs`) with a small adapter per provider
@@ -1102,7 +1110,7 @@ Since 2026-11-15 (`lib/sports/win-by.mjs`) the block also shows each team's
 the 50% / 80% margin ranges), **Kalshi's prices** for the game winner and the
 win-by markets beside the model (read by the data job from Kalshi's free
 public API into `<sport>/kalshi-games.json`; NFL `KXNFLGAME` / `KXNFLSPREAD`,
-NBA `KXNBAGAME` / `KXNBASPREAD`, not yet seen live; `SPORTS_KALSHI=0` skips
+NBA `KXNBAGAME` / `KXNBASPREAD`, both seen live since the first run on 2026-11-16; `SPORTS_KALSHI=0` skips
 it), and a **live record**: every forecast is frozen before the game into
 `<sport>/win-by-record/<season>.json` and graded after the final (favorite
 won vs the model's chance, Brier against a coin, the chance on the band that

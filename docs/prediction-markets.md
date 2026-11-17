@@ -176,7 +176,7 @@ Verdicts: `holds`, `odds-lead`, `run-up-follows` (pass); `odds-echo`,
   final fell in the 50% / 80% ranges, margin miss vs the books' spread.
 - **Kalshi prices**: the newest read of Kalshi's open game-winner and spread
   markets (`<sport>/kalshi-games.json`; NFL `KXNFLGAME` / `KXNFLSPREAD`,
-  confirmed; NBA `KXNBAGAME` / `KXNBASPREAD`, not yet seen live), shown beside
+  confirmed; NBA `KXNBAGAME` / `KXNBASPREAD`, seen live since 2026-11-16), shown beside
   the model and scored on the same games in the live record. Read only; no
   PropLine call.
 
