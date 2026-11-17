@@ -23,6 +23,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ## [Unreleased]
 
 ### Added
+- Add the Owner **Valuation lab** page (Owner · Research): values each covered stock eight ways (cash flow, an earnings path, peer multiples, its own past multiples, growth-adjusted P/E, rate-justified earnings power, book value plus excess returns, the analysts' target) on 30 inputs the Owner can move (rates, risk premium, growth, margins, multiples, the S&P 500, the dollar, oil, tax and tariff changes, lost foreign sales, the party in power, recession odds) or through 28 market and political environments, blends them by adjustable weights and compares the result with the market price. It explains the gap (what today's price implies, which input matters most, what the market may be seeing), draws a range of outcomes beside the options' one-year range, and tells the story against last year and the analysts (beat record, revisions, our Earnings Forecast vs the street, what the analysts or the model may be missing). Folds in the Party tracker, Kalshi recession odds, the SEC US revenue share, earnings history and IV rank. Same code in the MCP as `value_stock` (with `scenario`). An oil move reads through the same 0.35 scaling as the Market Analysis scenario layer, an environment keeps the method weights you set, the inputs fold above the results on a phone, and the address follows the stock on screen. No AI, no new download; display only, changes no pick. Kill switch `VALUATION_LAB=0` (`docs/valuation-lab.md`) (#855).
 - Start the AI disruption tracker registry (`lib/ai-disruption/`, `docs/ai-disruption.md`): 32 capabilities, six labs and their official release pages, 88 past launches (58 read on the source page), a map of 45 companies that sell each capability and how a launch could hurt them, and the customer-capture score. The check refuses any stock score in the company map, unused capabilities, future dates and sources that are not a lab's listed page. Nothing on the site, in the MCP or in Top Picks reads it yet; no network or AI call. Stock scores stay out of the public repo by rule.
 
 ### Changed
@@ -39,10 +40,12 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ## 2026-11-17
 
 ### Added
+
 - Add a whole-market panel to Booms & busts: margin debt, stocks against bond yields and corporate bond sales on the boom side; Fed and bond yields rising, the yield curve and credit spreads on the bust side. Each bust sign is tested every build against every S&P 500 bear market since 1950 and counts toward the stage only when its lit months were followed by a bear market at least 1.2 times as often as other months; a sign that fails (rates rising, on the first test) is shown and marked "Not counted". A new table lists each bear market and which signs showed before it. Uses only data the site already keeps.
 - The 1971-2026 strategy-engine history test now shows across the site as context only: "Strategy styles by era" on Pattern lab and style strips on Booms & busts (public), event and crisis strips on Historical Data, "Today's regime fit" in the Regime Lab and the Owner brief, and MCP datasets (Owner). Aggregates only; switch `ENGINES_HISTORY=0` (#849).
 
 ### Changed
+
 - Rescore the Booms & busts AI buildout signs: the three capital spending measures become one sign with three parts, so the same spending is no longer counted three times (nine signs become six), and boom and bust signs are counted apart, so a boom with no strain reads "Boom" instead of "Late boom". Market-wide bond sales and credit spreads move to the new whole-market panel. The shadow log's `bsl` is now out of 6 (it was out of 9 until 2026-11-16) and a new `bsm` logs the whole-market score; "Resembles now", the Owner brief, the Risk analysis card, the MCP credit read and Regime Lab positioning read both panels.
 
 ## 2026-11-16
