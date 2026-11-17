@@ -4294,7 +4294,7 @@ ${scenarioEventPhase.toString()}
   // resolve the URL's initial tab synchronously at script-evaluation time (the
   // anti-flash pre-select in the boot block) before the /api/auth/me +
   // manifest fetches settle and bind() runs the full selectTab.
-  var PAGE_TAB_IDS = ['home','update-checker','owner-settings','owner-market-brief','tickers','stock','narratives','brief','news','market','risk','unified-signal-engine','historical-data','party-tracker','earnings-forecast','forced-liquidation','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ai-disruption','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','bottom-tracker','open-picks','track','engines','sports-nba','sports-nfl','sports-pick-builder','cheatsheet','chart-patterns','timeline','contact','glossary','earnings-week','market-map','crowd','prediction-markets','history-rhymes','whats-changed','past-day','privacy','terms'];
+  var PAGE_TAB_IDS = ['home','update-checker','owner-settings','owner-market-brief','tickers','stock','narratives','brief','news','market','risk','unified-signal-engine','historical-data','party-tracker','earnings-forecast','forced-liquidation','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','quant-labs','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ai-disruption','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','bottom-tracker','open-picks','track','engines','sports-nba','sports-nfl','sports-pick-builder','cheatsheet','chart-patterns','timeline','contact','glossary','earnings-week','market-map','crowd','prediction-markets','history-rhymes','whats-changed','past-day','privacy','terms'];
   // Friendly aliases so deep-links people might guess work too.
   // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
   // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -4345,6 +4345,7 @@ ${scenarioEventPhase.toString()}
     'pending-buyouts': 'pending-buyouts', buyouts: 'pending-buyouts', buyout: 'pending-buyouts', mergers: 'pending-buyouts', acquisitions: 'pending-buyouts', 'merger-arb': 'pending-buyouts',
     iv: 'iv-trend', 'trending-iv': 'iv-trend', 'iv-trending': 'iv-trend', ivtrend: 'iv-trend', 'implied-vol': 'iv-trend', 'implied-volatility': 'iv-trend',
     'event-spillover': 'spillover', 'read-through': 'spillover', readthrough: 'spillover', 'spill-over': 'spillover', spill: 'spillover',
+    quantlabs: 'quant-labs', 'market-odds': 'quant-labs', 'drawdown-odds': 'quant-labs',
     'quant-lab': 'quant', quantlab: 'quant', pairs: 'quant', 'pair-trading': 'quant', sigma: 'quant', vrp: 'quant', dispersion: 'quant',
     'leveraged-etfs': 'levetf', 'leveraged-etf': 'levetf', leveraged: 'levetf', letf: 'levetf', 'lev-etf': 'levetf', tqqq: 'levetf', soxl: 'levetf',
     // Reference / legal / info pages (now in-app tabs).
@@ -4565,6 +4566,8 @@ ${renderExportBindings()}
         if (name !== 'compare') url.searchParams.delete('cmp');
         // engine / ev pick a strategy engine and its view on the Strategy engines page only.
         if (name !== 'engines') { url.searchParams.delete('engine'); url.searchParams.delete('ev'); }
+        // lab picks an Owner Lab view on the Owner Lab page only.
+        if (name !== 'quant') url.searchParams.delete('lab');
         // view=grade belongs to the stock page's Grade tab only.
         if (name !== 'stock') url.searchParams.delete('view');
         var next = url.pathname + (url.search || '') + (url.hash || '');
@@ -4735,6 +4738,14 @@ ${renderExportBindings()}
           if (legacyEng && legacyEng !== 'flagship' && resolveTab(legacyQ.get('tab') || '') === 'picks') name = 'engines';
         } catch (_) {}
       }
+      // Quant labs moved from an Owner Lab view to its own page on
+      // 2026-11-16. A saved ?tab=quant&lab=labs link opens that page.
+      if (name === 'quant'){
+        try {
+          var legacyLabQ = new URLSearchParams(window.location.search);
+          if (legacyLabQ.get('lab') === 'labs' && resolveTab(legacyLabQ.get('tab') || '') === 'quant') name = 'quant-labs';
+        } catch (_) {}
+      }
       // nav.replace: sync the URL with replaceState instead of pushState —
       // set by boot + popstate (restoring state, not navigating).
       // Bounce stale/deep-linked Owner destinations before persisting or
@@ -4898,6 +4909,7 @@ ${renderExportBindings()}
         if (name === 'iv-trend' && typeof loadIvTrend === 'function') loadIvTrend();
         if (name === 'spillover' && typeof loadSpillover === 'function') loadSpillover();
         if (name === 'quant' && typeof loadQuant === 'function') loadQuant();
+        if (name === 'quant-labs' && typeof loadQuantLabs === 'function') loadQuantLabs();
       if (name === 'levetf' && typeof loadLevEtf === 'function') loadLevEtf();
       // The sidebar scrolls vertically when the tab list outgrows the
       // viewport. Programmatic selection (e.g. a ?tab= deep-link) can leave
@@ -25400,7 +25412,7 @@ ${renderExportBindings()}
   var ownerLabBound = false;
   var quantPairsAll = false;
   function selectOwnerLabView(view){
-    if (['personal','research','diagnostics','evidence','regime','loop','labs'].indexOf(view) < 0) return;
+    if (['personal','research','diagnostics','evidence','regime','loop'].indexOf(view) < 0) return;
     ownerLabView = view;
     var section = $('quant-section');
     if (!section) return;
@@ -25415,7 +25427,7 @@ ${renderExportBindings()}
     });
     section.querySelectorAll('[data-owner-panel]').forEach(function(panel){ panel.hidden = panel.getAttribute('data-owner-panel') !== view; });
     var eye = $('quant-eyebrow');
-    if (eye && view !== 'research') eye.textContent = view === 'personal' ? 'Private tools' : view === 'evidence' ? 'Tests and gates' : view === 'regime' ? 'Regime Lab' : view === 'loop' ? 'Self-improving loop' : view === 'labs' ? 'Quant labs' : 'Stored research records';
+    if (eye && view !== 'research') eye.textContent = view === 'personal' ? 'Private tools' : view === 'evidence' ? 'Tests and gates' : view === 'regime' ? 'Regime Lab' : view === 'loop' ? 'Self-improving loop' : 'Stored research records';
     if (view === 'personal') loadOwnerTools();
     if (view === 'research') loadQuantResearch();
     if (view === 'diagnostics' && window.BookViews) window.BookViews.openTab('quant');
@@ -25423,7 +25435,6 @@ ${renderExportBindings()}
     if (view === 'evidence') loadEvidenceBoard();
     if (view === 'regime') loadRegimeLab();
     if (view === 'loop') loadSelfLoop();
-    if (view === 'labs') loadQuantLabs();
   }
   function bindOwnerLab(){
     var section = $('quant-section');
@@ -25436,7 +25447,6 @@ ${renderExportBindings()}
       if (event.target.closest('[data-owner-evidence-refresh]')) loadEvidenceBoard(true);
       if (event.target.closest('[data-owner-regime-refresh]')) loadRegimeLab(true);
       if (event.target.closest('[data-owner-loop-refresh]')) loadSelfLoop(true);
-      if (event.target.closest('[data-owner-labs-refresh]')) loadQuantLabs(true);
       // "Company record" link: open the Unified Signal Engine on that view,
       // carrying over a ticker typed into one of the record searches. The
       // button's data-wf-go does the page switch.
@@ -25495,7 +25505,8 @@ ${renderExportBindings()}
   }
   function loadQuant(){
     bindOwnerLab();
-    // ?tab=quant&lab=labs opens a view directly (the Market odds card's link).
+    // ?tab=quant&lab=<view> opens an Owner Lab view directly (lab=labs now
+    // redirects to the Quant labs page in selectTab).
     try {
       var labParam = new URLSearchParams(location.search).get('lab');
       if (labParam && !loadQuant.linked){ loadQuant.linked = true; if (document.querySelector('[data-owner-view="' + labParam.replace(/[^a-z]/g, '') + '"]')) ownerLabView = labParam.replace(/[^a-z]/g, ''); }
