@@ -51,6 +51,7 @@ import { renderCrowdJs } from './crowd-client.mjs';
 import { renderPredictionJs } from './prediction-client.mjs';
 import { renderAiDisruptionJs } from './ai-disruption-client.mjs';
 import { renderHistoryRhymesJs } from './history-rhymes-client.mjs';
+import { renderEnginesHistoryJs } from './engines-history-client.mjs';
 import { renderEdgeOddsJs } from './edge-odds-client.mjs';
 import { renderEvidenceJs } from './evidence-client.mjs';
 import { renderRegimeLabJs } from './regime-lab-client.mjs';
@@ -122,6 +123,7 @@ ${renderCrowdJs()}
 ${renderPredictionJs()}
 ${renderAiDisruptionJs()}
 ${renderHistoryRhymesJs()}
+${renderEnginesHistoryJs()}
 ${renderEdgeOddsJs()}
 ${renderEvidenceJs()}
 ${renderRegimeLabJs()}

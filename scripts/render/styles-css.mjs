@@ -31,6 +31,7 @@ import { renderCrowdCss } from './crowd-css.mjs';
 import { renderPredictionCss } from './prediction-css.mjs';
 import { renderAiDisruptionCss } from './ai-disruption-css.mjs';
 import { renderHistoryRhymesCss } from './history-rhymes-css.mjs';
+import { renderEnginesHistoryCss } from './engines-history-css.mjs';
 import { renderEdgeOddsCss } from './edge-odds-css.mjs';
 import { renderEvidenceCss } from './evidence-css.mjs';
 import { renderRegimeLabCss } from './regime-lab-css.mjs';
@@ -25607,6 +25608,7 @@ ${renderCrowdCss()}
 ${renderPredictionCss()}
 ${renderAiDisruptionCss()}
 ${renderHistoryRhymesCss()}
+${renderEnginesHistoryCss()}
 ${renderEdgeOddsCss()}
 ${renderEvidenceCss()}
 ${renderRegimeLabCss()}
