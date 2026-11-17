@@ -111,7 +111,8 @@ signed balance of +0.30, −1 only at −0.40, because put buying is often a hed
 ≤0.5), open-interest call/put skew (+1 above 1.5,
 −1 only below 0.5), short interest (+1 only when ≥15% of float is short AND shorts
 are covering ≥5% AND the 5-session return is positive; −1 when shares short rise
-≥5%), unusual intraday volume + direction (±1).
+≥5%), unusual intraday volume + direction (±1; since 2026-11-17 the session so
+far against the measured intraday curve, see "Intraday volume read").
 
 **Fundamentals** (slower, but the *event* signals still move fast):
 earnings surprise (±2; not scored when the EPS estimate is under $0.10), EPS
@@ -1906,3 +1907,59 @@ brings back the older vote for the grade and the FLO engine. The tag fix and the
 stale check stay on either way. Tests: `node scripts/flow-direction-smoke.mjs`,
 `node scripts/picks-smoke.mjs` (and with `FLOW_SIGNED=0`),
 `node scripts/engines-smoke.mjs`.
+
+## Flow scan: opening half hour and a bar per stock, November 17, 2026
+
+The Options activity audit (2026-11-17) found two gaps in the hourly scan that
+feeds the Unusual flow vote and the FLO engine (`lib/flow-scan-rules.mjs`):
+
+- **Opening half hour** (`FLOW_OPEN_WINDOW`): the 9:00 ET scan is before the
+  open, so the first in-session scan had no same-day snapshot and flagged
+  nothing; 9:30-10:00 was never counted. Now, when no same-day in-session
+  snapshot exists and the scan is by 11:30 ET, a contract that has traded
+  today counts all of today's volume (Yahoo restarts a contract's volume at
+  its first trade of the day). A contract that has not traded today still
+  carries yesterday's total and stays unmeasured. These flags carry
+  `sinceOpen` and read "since the open" on the page.
+- **A bar per stock** (`FLOW_STOCK_BARS`): one bar (4,000 contracts an hour
+  inside 14 days, 2,000 past) flagged mostly NVDA, SPY and MU; 49 of 85
+  stocks never flagged in 60 scans. A stock's bar is now 1% (0.5% past 14
+  days) of its median full-day option volume over its last 10 complete
+  sessions (front two expirations, strikes within 55% of spot; a day counts
+  once a scan at 15:00 ET or later recorded it), never above the old bar and
+  never below 500 (250). The scanner records each stock's session volume in
+  `unusual-history.json` (`dailyVol`, 20 days); a stock keeps the old bar
+  until 5 complete sessions are on file, so the change phases in over the
+  first week.
+
+The vote itself is unchanged (3+ contracts and $1M of delta dollars), so the
+grade version stays; new record trades carry `flowScanVersion` and the Track
+Record draws a dated divider. Both switches default on and are Owner Settings
+(Top Picks → Engine); the scanner reads them from the hydrated settings file.
+A workflow env value also works, but `unusual-flow.yml` passes none today.
+Not tested on history: the scan keeps no past chains, so the effect is read
+forward. Test: `node scripts/flow-scan-rules-smoke.mjs`.
+## Intraday volume read, November 17, 2026
+
+The `unusualVolume` vote (±1 when volume runs at 1.3× or more of normal with a
+0.5% or larger move) used to read the busiest single window from the hourly
+scan, judged against a fixed hour-by-hour curve (25 / 14 / 11 / 11 / 14 / 25%).
+Measured on 14 sessions of the scanner's own readings (May 26 to June 12,
+2026), the median name had traded 16.7% of its day by the 10:00 scan, not
+12.5%, and only about 70% of the volume the curve expected in the 14:00 to
+15:00 window. Taking the best of several windows on top of that opened the vote
+to 39% of names by 11:00 and about 50% by 15:30, when roughly 15% of names
+truly have a heavy day.
+
+Two changes, each with its own switch (Owner Settings, Top Picks → Engine):
+
+| Switch | What it does | Off (`=0`) |
+|---|---|---|
+| `VOLUME_MEASURED_CURVE` | The scanner measures the curve from these stocks' own sessions (`learnCurveDay` / `curveFromDays` in `lib/volume-flags.mjs`: median name's share of the finished day at each scan time, last 20 sessions, a scan time used once five sessions have it; a seed measured from the May to June data until then). The Volume page, the heatmap's relative volume and the stock page's live relative volume all read it. | fixed 25 / 14 / 11 / 11 / 14 / 25% curve |
+| `VOLUME_SESSION_READ` | The vote reads the session so far: volume since the open against the curve, move since the prior close (`session.reads` in `volume-flags.json`, read by `hourlyVolumeRead` in `build.mjs`). Replayed on the same sessions it opens the vote to 12-15% of names. The strategy engines' relative volume (`hourlyVolume.volRatio`) follows it. | busiest single window |
+
+New Top Picks trades carry `volumeReadVersion` (`2026-11-17`, or `-curve` /
+`-read` when one switch is off) and the Track Record draws a divider where it
+changes. The 16:00 scan still reads volume before the closing auction posts;
+that is a separate fix.
+

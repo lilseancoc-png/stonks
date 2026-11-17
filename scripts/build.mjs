@@ -1,4 +1,4 @@
-import { sessionForDate } from "../lib/us-equity-calendar.mjs";
+import { sessionForDate, etClock } from "../lib/us-equity-calendar.mjs";
 import { isOwnershipBookKey } from "../lib/data-ownership.mjs";
 import { createOwnershipSecReader, expandOwnershipSubmissions, ownershipPrimaryUrl, ownershipNotice, ownershipRequestSignal } from "../lib/ownership-sec.mjs";
 import { packOwnershipBooks, ownershipBookClientFactory, retainOwnershipBooks } from "../lib/ownership-books.mjs";
@@ -166,6 +166,8 @@ import { forcedLiquidationContext } from "../lib/forced-liquidation.mjs";
 import { buyoutContextFor } from "../lib/pending-buyout-guard.mjs";
 import { buildShadowSignals, altDataGauges, resemblesGauges, insiderFromStructure } from "../lib/shadow-signals.mjs";
 import { signedFlowBySymbol, legacyPersistBySymbol, signedFlowVote, legacyFlowVote, flowVotesBySymbol } from "../lib/flow-direction.mjs";
+import { flowScanVersion } from "../lib/flow-scan-rules.mjs";
+import { volumeSwitches, volumeReadVersion } from "../lib/volume-flags.mjs";
 import { buildShadowResearch } from "../lib/shadow-research.mjs";
 import { buildEntrySnapshot } from "../lib/trade-snapshot.mjs";
 import { PICKS_MAX_PER_SECTOR, PICKS_MAX_NEW_PER_FACTOR_RUN, PICKS_CAPS_VERSION, factorOfSectorLabel, exposureCapBlock, countExposure } from "../lib/top-picks-caps.mjs";
@@ -11339,6 +11341,29 @@ const capexFyLabel = (endIso) => {
   return "FY" + new Date(end - 31 * 86400000).getUTCFullYear();
 };
 
+// The fiscal year before `latest`, or null when the series skips a year (a
+// filer whose SEC feed stops and whose Yahoo quarters only rebuild a later
+// year, as TSMC's will in early 2027). A two-year gap is not "the prior year".
+export function capexPriorYear(annual) {
+  if (!Array.isArray(annual) || annual.length < 2) return null;
+  const latest = annual[annual.length - 1];
+  const prior = annual[annual.length - 2];
+  const yr = (row) => Number(String(capexFyLabel(row?.endIso) || "").replace(/\D/g, ""));
+  return yr(latest) - yr(prior) === 1 ? prior : null;
+}
+
+// A latest full year that ends more than a year before the company's run-rate
+// is stale: TSMC's SEC feed stops at FY2024 and its Yahoo quarters cannot yet
+// rebuild FY2025, while its run-rate is current. Such a year stays on the
+// company row but is left out of the latest-year totals and growth.
+export const AI_CAPEX_STALE_FY_DAYS = 380;
+export function capexFyIsStale(fyEndIso, ttmAsOfIso) {
+  const end = Date.parse(fyEndIso || "");
+  const asOf = Date.parse(ttmAsOfIso || "");
+  if (!Number.isFinite(end) || !Number.isFinite(asOf)) return false;
+  return (asOf - end) / 86400000 > AI_CAPEX_STALE_FY_DAYS;
+}
+
 // Headline CapEx (and similar) YoY must compare the SAME companies in both
 // years. Mixing a new reporter into the latest sum against a smaller prior
 // cohort invents growth.
@@ -11460,7 +11485,7 @@ export async function buildAiCapexPayload(cikMap, chains, builtAtIso, prior = nu
     if (revReduced) {
       const ra = revReduced.annual;
       const rLatest = ra[ra.length - 1];
-      const rPrior = ra.length >= 2 ? ra[ra.length - 2] : null;
+      const rPrior = capexPriorYear(ra);
       rev = {
         fyLatest: { label: capexFyLabel(rLatest.endIso), end: rLatest.endIso, val: rLatest.val },
         fyPrior: rPrior ? { label: capexFyLabel(rPrior.endIso), end: rPrior.endIso, val: rPrior.val } : null,
@@ -11470,7 +11495,8 @@ export async function buildAiCapexPayload(cikMap, chains, builtAtIso, prior = nu
     }
     const a = reduced.annual;
     const fyLatest = a[a.length - 1];
-    const fyPrior = a.length >= 2 ? a[a.length - 2] : null;
+    const fyPrior = capexPriorYear(a);
+    const fyStale = capexFyIsStale(fyLatest.endIso, reduced.ttm?.asOf);
     const f = chains?.[ticker]?.fundamentals || {};
     // SEC TTM revenue when available (same source + fiscal calendar as capex);
     // Yahoo's totalRevenue is the fallback for the intensity ratio.
@@ -11482,6 +11508,7 @@ export async function buildAiCapexPayload(cikMap, chains, builtAtIso, prior = nu
       fyLatest: { label: capexFyLabel(fyLatest.endIso), end: fyLatest.endIso, val: fyLatest.val },
       fyPrior: fyPrior ? { label: capexFyLabel(fyPrior.endIso), end: fyPrior.endIso, val: fyPrior.val } : null,
       yoyPct,
+      ...(fyStale ? { fyStale: true } : {}),
       ttm: reduced.ttm,
       rev,
       revenue: revenue ?? null,
@@ -11514,21 +11541,29 @@ export async function buildAiCapexPayload(cikMap, chains, builtAtIso, prior = nu
   // differ (MSFT ends June, ORCL May, MU September), so the latest-FY sum is
   // usually a mix of years. Label it with the modal year and say when it is
   // mixed; the TTM run-rate is the like-for-like current read.
+  // A company whose latest full year is stale (fyStale) counts in the
+  // run-rate only, not in the latest-year sums, labels or growth.
+  const fyCompanies = companies.filter((c) => !c.fyStale);
   let fyLatestSum = 0, ttmSum = 0, ttmCount = 0;
   const labelCounts = new Map();
   const priorLabelCounts = new Map();
   for (const c of companies) {
-    fyLatestSum += c.fyLatest.val;
     if (c.ttm) { ttmSum += c.ttm.val; ttmCount++; }
+  }
+  // Run-rate vs latest full year, over the same companies on both sides.
+  let rrTtm = 0, rrFy = 0;
+  for (const c of fyCompanies) {
+    fyLatestSum += c.fyLatest.val;
     labelCounts.set(c.fyLatest.label, (labelCounts.get(c.fyLatest.label) || 0) + 1);
     if (c.fyPrior) priorLabelCounts.set(c.fyPrior.label, (priorLabelCounts.get(c.fyPrior.label) || 0) + 1);
+    if (c.ttm?.val > 0) { rrTtm += c.ttm.val; rrFy += c.fyLatest.val; }
   }
   const modal = (m) => [...m.entries()].sort((x, y) => y[1] - x[1] || String(y[0]).localeCompare(String(x[0])))[0]?.[0] || null;
   const latestLabel = modal(labelCounts);
   const priorLabel = modal(priorLabelCounts);
   const fyLabels = [...labelCounts.keys()].sort();
   const fyMixed = fyLabels.length > 1;
-  const capexYoy = capexCohortYoy(companies);
+  const capexYoy = capexCohortYoy(fyCompanies);
   // Combined-revenue aggregate for the capex-vs-revenue read. Sums are
   // restricted to names that reported BOTH capex and revenue for the window,
   // and the intensity ratios divide capex by revenue over that same subset —
@@ -11539,7 +11574,8 @@ export async function buildAiCapexPayload(cikMap, chains, builtAtIso, prior = nu
   let revCount = 0, revBothFy = 0, revTtmCount = 0;
   let revYoyLatest = 0, capexYoyLatestRev = 0;
   for (const c of companies) {
-    if (!c.rev || !c.rev.fyLatest) continue;
+    if (c.rev?.ttm && c.ttm) { revTtmCount++; revTtmSum += c.rev.ttm.val; capexTtmSumRev += c.ttm.val; }
+    if (c.fyStale || !c.rev || !c.rev.fyLatest) continue;
     revCount++;
     revFySum += c.rev.fyLatest.val;
     capexFySumRev += c.fyLatest.val;
@@ -11550,7 +11586,6 @@ export async function buildAiCapexPayload(cikMap, chains, builtAtIso, prior = nu
       revYoyLatest += c.rev.fyLatest.val;
       capexYoyLatestRev += c.fyLatest.val;
     }
-    if (c.rev.ttm && c.ttm) { revTtmCount++; revTtmSum += c.rev.ttm.val; capexTtmSumRev += c.ttm.val; }
   }
   const revenueTotals = revCount ? {
     fySum: revFySum,
@@ -11568,7 +11603,10 @@ export async function buildAiCapexPayload(cikMap, chains, builtAtIso, prior = nu
     fyLatestLabel: latestLabel, fyPriorLabel: priorLabel,
     fyMixed,
     fyRangeLabel: fyMixed ? `${fyLabels[0]}–${fyLabels[fyLabels.length - 1].replace(/^FY/, "")}` : latestLabel,
-    fyByLabel: Object.fromEntries(fyLabels.map((l) => [l, companies.filter((c) => c.fyLatest.label === l).map((c) => c.ticker)])),
+    fyByLabel: Object.fromEntries(fyLabels.map((l) => [l, fyCompanies.filter((c) => c.fyLatest.label === l).map((c) => c.ticker)])),
+    fyStale: companies.filter((c) => c.fyStale).map((c) => ({ ticker: c.ticker, label: c.fyLatest.label })),
+    fyCount: fyCompanies.length,
+    runRateVsFyPct: rrFy > 0 ? r1((rrTtm / rrFy - 1) * 100) : null,
     ttmAsOfRange: (() => {
       const d = companies.map((c) => c.ttm?.asOf).filter(Boolean).sort();
       return d.length ? [d[0], d[d.length - 1]] : null;
@@ -11810,31 +11848,66 @@ function ramPctBack(hist, days) {
   return r1((last.avg / base.avg - 1) * 100);
 }
 
-// Composite US-retail index: median of per-category avg (and min) prices at
-// each date the source sampled, requiring ≥3 categories per bucket so a
-// lone series can't swing the line.
-function buildRamRetailComposite(categories) {
-  const buckets = new Map();
-  for (const c of categories) {
-    for (const p of c.history || []) {
-      if (!buckets.has(p.d)) buckets.set(p.d, { avgs: [], mins: [] });
-      const b = buckets.get(p.d);
-      if (p.avg != null) b.avgs.push(p.avg);
-      if (p.min != null) b.mins.push(p.min);
-    }
-  }
+// Composite US-retail index. A plain median of category prices at each date
+// jumps whenever a category enters or leaves the sample (a $400 64 GB kit
+// joining a $120 32 GB median moves the "price" with no kit getting dearer),
+// so the line is chain-linked: each step is the median of the price change of
+// the categories priced on BOTH dates (at least three), and the line is
+// anchored so its newest point equals the newest median category price. The
+// min line is linked the same way from the per-category minimums.
+export function buildRamRetailComposite(categories) {
   const median = (xs) => {
     if (!xs.length) return null;
     const s = [...xs].sort((a, b) => a - b);
     const mid = s.length >> 1;
     return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
   };
+  const byDate = new Map();
+  (categories || []).forEach((c, ci) => {
+    for (const p of c?.history || []) {
+      if (!p?.d) continue;
+      if (!byDate.has(p.d)) byDate.set(p.d, new Map());
+      byDate.get(p.d).set(ci, p);
+    }
+  });
+  const dates = [...byDate.keys()].sort();
+  const link = (field) => {
+    const out = new Map();
+    let prevDate = null;
+    let level = null;
+    for (const d of dates) {
+      const now = byDate.get(d);
+      const priced = [...now.values()].filter((p) => p[field] > 0);
+      if (prevDate == null) {
+        if (priced.length >= 3) { level = 1; out.set(d, level); prevDate = d; }
+        continue;
+      }
+      const before = byDate.get(prevDate);
+      const ratios = [];
+      for (const [ci, p] of now) {
+        const q = before.get(ci);
+        if (p[field] > 0 && q?.[field] > 0) ratios.push(p[field] / q[field]);
+      }
+      if (ratios.length < 3) continue; // too few shared categories to link this date
+      level *= median(ratios);
+      out.set(d, level);
+      prevDate = d;
+    }
+    if (!out.size) return out;
+    const lastDate = [...out.keys()].pop();
+    const anchor = median([...byDate.get(lastDate).values()].map((p) => p[field]).filter((v) => v > 0));
+    const scale = anchor > 0 ? anchor / out.get(lastDate) : null;
+    for (const [d, v] of out) out.set(d, scale ? v * scale : null);
+    return out;
+  };
+  const avg = link("avg");
+  const min = link("min");
   const out = [];
-  for (const [d, b] of buckets) {
-    if (b.avgs.length < 3) continue;
-    out.push({ d, avg: Math.round(median(b.avgs)), min: b.mins.length >= 3 ? Math.round(median(b.mins)) : null });
+  for (const [d, v] of avg) {
+    if (!(v > 0)) continue;
+    const m = min.get(d);
+    out.push({ d, avg: Math.round(v), min: m > 0 ? Math.round(m) : null });
   }
-  out.sort((a, b) => (a.d < b.d ? -1 : 1));
   return out;
 }
 
@@ -18520,10 +18593,23 @@ export const PICKS_ACCURACY_RESET_EPOCH = "2026-08-08.top-picks-v3";
 const GRADE_MODEL_VERSION_BASE = PICKS_MACRO_CONTEXT ? "2026-11-macro-context" : "2026-11-price-pillar";
 export const GRADE_MODEL_VERSION = !PICKS_FLOW_SIGNED ? GRADE_MODEL_VERSION_BASE
   : PICKS_MACRO_CONTEXT ? "2026-11-signed-flow" : "2026-11-signed-flow-no-macro";
+// 2026-11-17: the hourly scan behind the flow vote counts the opening half hour
+// and gives each stock its own volume bar (lib/flow-scan-rules.mjs). The grade
+// formula is unchanged, so this rides its own stamp, not the grade version.
+// Read from the same env the scanner uses (Owner Settings FLOW_OPEN_WINDOW /
+// FLOW_STOCK_BARS).
+export const FLOW_SCAN_VERSION = flowScanVersion(process.env);
 // Signal keys the grade no longer scores. Open trades whose entry drivers
 // include them skip those keys in the thesis re-score (see the thesis check
 // in updatePicksAccuracyFile).
 export const RETIRED_SIGNAL_KEYS = new Set(["macd", "fiftyTwoWeek"]);
+// 2026-11-17 audit: the Unusual volume vote reads volume since the open
+// against the measured "normal by now" curve (lib/volume-flags.mjs), not the
+// best single window of the day. VOLUME_SESSION_READ=0 restores the window
+// read; VOLUME_MEASURED_CURVE=0 the fixed curve (in the scanner). Stamped on
+// new trades as volumeReadVersion ("" = both off) for a Track Record divider.
+const VOLUME_SESSION_READ = volumeSwitches(process.env).sessionRead;
+export const VOLUME_READ_VERSION = volumeReadVersion(process.env);
 // Hard cap on the concurrently-tracked open book. Each build ships <=10
 // actionable picks, but re-entry suppression means every build surfaces NEW
 // names while the previously-enrolled ones stay open until an exit rule fires —
@@ -19029,8 +19115,19 @@ function peerGroupOf(sym, data) {
 // volume-flags.json (volRatio = hourly volume vs 20D-average hourly volume).
 // Returns the strongest bucket of the session, or null when no fresh read is on
 // disk (scoreMechanicals then falls back to daily relative volume).
-function hourlyVolumeRead(sym, volumeFlags) {
-  if (!volumeFlags || !Array.isArray(volumeFlags.tickers)) return null;
+export function hourlyVolumeRead(sym, volumeFlags, sessionRead = VOLUME_SESSION_READ) {
+  if (!volumeFlags) return null;
+  // Session so far (since 2026-11-17): one reading of all of today's volume
+  // against a normal day by now, with the move from yesterday's close. The
+  // scanner writes it for every name it evaluated. A file from before the
+  // change (no session block) falls through to the older window read.
+  const reads = volumeFlags.session?.reads;
+  if (sessionRead && reads && typeof reads === "object") {
+    const s = reads[sym];
+    if (!s || pnum(s.r) == null) return null;
+    return { volRatio: Number(s.r), priceMovePct: pnum(s.m), bucketLabel: null, basis: "session", etMin: pnum(s.t), etDate: volumeFlags.etDate || null };
+  }
+  if (!Array.isArray(volumeFlags.tickers)) return null;
   const row = volumeFlags.tickers.find((t) => t?.symbol === sym);
   if (!row || !Array.isArray(row.bucketHits)) return null;
   let best = null;
@@ -19547,7 +19644,11 @@ function scoreMechanicals(sym, data, unusualPayload) {
   if (hv && pnum(hv.volRatio) != null) {
     uvOk = true; const rv = Number(hv.volRatio); const mv = pnum(hv.priceMovePct) ?? pnum(dv?.priceMove1dPct) ?? 0;
     if (rv >= 1.3 && Math.abs(mv) >= 0.5) uv = mv > 0 ? 1 : -1;
-    uvVal = r1(rv) + "x hrly"; uvNote = `${r2(rv)}x hourly vs 20D-avg hourly`;
+    if (hv.basis === "session") {
+      uvVal = r1(rv) + "x so far"; uvNote = `${r2(rv)}x a normal day's volume by this time (since the open)`;
+    } else {
+      uvVal = r1(rv) + "x hrly"; uvNote = `${r2(rv)}x hourly vs 20D-avg hourly`;
+    }
   } else if (dv && pnum(dv.rvol) != null) {
     uvOk = true; const rv = Number(dv.rvol); const mv = pnum(dv.priceMove1dPct) ?? 0;
     if (rv >= 1.3 && Math.abs(mv) >= 0.5) uv = mv > 0 ? 1 : -1;
@@ -29532,15 +29633,33 @@ function indexHourExtremeWindow(bars, target, side) {
   return null;
 }
 
+// When the build ran, in ET, with that day's close (13:00 on a half day).
+// Yahoo's 30-minute series and daily bar both include the bar still trading,
+// so the session log needs the build time to tell a finished bar from a live one.
+export function indexCalendarAsOf(builtAtIso) {
+  const ms = Date.parse(builtAtIso || "");
+  if (!Number.isFinite(ms)) return null;
+  const clock = etClock(ms);
+  const session = sessionForDate(clock.date);
+  return { date: clock.date, minute: clock.minute, closeMinute: session?.closeMinute ?? 960 };
+}
+function indexCalendarLive(asOf, date) {
+  return !!asOf && asOf.date === date && Number.isFinite(asOf.minute) && asOf.minute < asOf.closeMinute;
+}
+
 // Build one SPY/QQQ/IWM session log from the already-fetched daily + 30-minute
 // bars. A row becomes `firstHourComplete` after the 10:00 bar closes at 10:30 ET;
 // it becomes `dayComplete` once both 15:00/15:30 bars are present. Half-days do
 // not fabricate a 3–4pm reading: their first-hour record remains useful while
-// the last-hour/full-day path fields stay null.
-export function buildIndexHourSession(dailyBars, intradayBars, dailyIdx) {
+// the last-hour/full-day path fields stay null. With `asOf` (indexCalendarAsOf),
+// a bar of the build's own day counts only once its half hour has ended, and
+// the day is never complete before the close: the 10:00 build used to read the
+// live 10:00 bar as the 10:30 price, and the 15:30 build the live close.
+export function buildIndexHourSession(dailyBars, intradayBars, dailyIdx, asOf = null) {
   const daily = dailyBars?.[dailyIdx];
   if (!daily?.t) return null;
   const date = daily.t;
+  const live = indexCalendarLive(asOf, date);
   const prevClose = indexHourNum(dailyBars?.[dailyIdx - 1]?.c);
   const open = indexHourNum(daily.o);
   const close = indexHourNum(daily.c);
@@ -29548,13 +29667,14 @@ export function buildIndexHourSession(dailyBars, intradayBars, dailyIdx) {
   const dailyLow = indexHourNum(daily.l);
   const bars = (intradayBars || [])
     .filter((b) => String(b?.t || "").slice(0, 10) === date)
+    .filter((b) => !live || (indexHourTime(b) ?? Infinity) + 30 <= asOf.minute)
     .slice()
     .sort((a, b) => String(a.t).localeCompare(String(b.t)));
   const at = new Map(bars.map((b) => [indexHourTime(b), b]));
   const firstBars = [at.get(570), at.get(600)].filter(Boolean);
   const lastBars = [at.get(900), at.get(930)].filter(Boolean);
   const firstHourComplete = firstBars.length === 2 && open != null && indexHourNum(firstBars[1].c) != null;
-  const dayComplete = firstHourComplete && lastBars.length === 2 && close != null;
+  const dayComplete = !live && firstHourComplete && lastBars.length === 2 && close != null;
   const gapPct = indexHourPct(prevClose, open);
   const out = {
     prevClose: indexHourRoundPrice(prevClose),
@@ -29563,6 +29683,7 @@ export function buildIndexHourSession(dailyBars, intradayBars, dailyIdx) {
     gapClass: gapPct == null ? null : indexGapClass(gapPct),
     firstHourComplete,
     dayComplete,
+    ...(live ? { inProgress: true } : {}),
   };
   if (!firstHourComplete) return out;
 
@@ -29755,6 +29876,7 @@ export function attachIndexHourSessionContexts(days, calendarPayload = null) {
 }
 
 export function appendIndexCalendar(prev, chains, builtAtIso, extraBars = {}, calendarPayload = null) {
+  const asOf = indexCalendarAsOf(builtAtIso);
   const byDate = new Map();
   for (const d of (prev?.days || [])) if (d && d.date) byDate.set(d.date, { ...d });
   for (const [sym, key] of Object.entries(INDEX_CALENDAR_SYMBOLS)) {
@@ -29797,13 +29919,19 @@ export function appendIndexCalendar(prev, chains, builtAtIso, extraBars = {}, ca
     for (let i = 0; i < dailyBars.length; i++) {
       const date = dailyBars[i]?.t;
       if (!date || !intradayBars.some((b) => String(b?.t || "").startsWith(date))) continue;
-      const session = buildIndexHourSession(dailyBars, intradayBars, i);
+      const session = buildIndexHourSession(dailyBars, intradayBars, i, asOf);
       if (!session) continue;
       const row = byDate.get(date) || { date };
       const leg = row[key] || {};
       row[key] = { ...leg, session };
       byDate.set(date, row);
     }
+  }
+  // The build's own day, before the close, is a move so far, not a close:
+  // `partial` lets the page say so. A carried flag clears on the next build.
+  for (const row of byDate.values()) {
+    if (indexCalendarLive(asOf, row.date)) row.partial = true;
+    else delete row.partial;
   }
   const days = Array.from(byDate.values())
     .sort((a, b) => String(a.date).localeCompare(String(b.date)))
@@ -30564,10 +30692,17 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
       // Exposure-cap rule set (lib/top-picks-caps.mjs), stamped since
       // 2026-11-06 so the Track Record can draw a divider at the change.
       capsVersion: PICKS_CAPS_VERSION,
+      // Unusual-flow scan rules behind the flow vote (lib/flow-scan-rules.mjs,
+      // since 2026-11-17: the opening half hour and a bar per stock), so the
+      // Track Record draws a divider. Absent while both scan switches are off.
+      ...(FLOW_SCAN_VERSION ? { flowScanVersion: FLOW_SCAN_VERSION } : {}),
       // Option-structure rule set (singles by default since 2026-11-07),
       // stamped so the Track Record draws a divider. Unset while
       // PICKS_SINGLES_DEFAULT=0 (the earlier engine mix).
       ...(PICKS_STRUCTURE_POLICY_VERSION ? { structurePolicyVersion: PICKS_STRUCTURE_POLICY_VERSION } : {}),
+      // Unusual volume vote rules (measured curve + session read, since
+      // 2026-11-17); unset while both volume switches are off.
+      ...(VOLUME_READ_VERSION ? { volumeReadVersion: VOLUME_READ_VERSION } : {}),
       // The Owner's market mode when the trade opened (since 2026-11-07).
       ...(picksPayload?.rosterMeta?.marketMode?.mode ? { marketMode: picksPayload.rosterMeta.marketMode.mode } : {}),
       // AI final grader mode at entry (live / off / keyless, since
@@ -40059,8 +40194,10 @@ async function main() {
   // housing case studies set against today's AI buildout. Deterministic; it
   // reads only what is already in memory: the long-history cache (Nasdaq,
   // S&P 500, FRED credit and housing series), the prior AI spending, GPU rent
-  // and bond issuance snapshots (all slow-moving) and the chains. Public
-  // history-rhymes.json (history and market-wide signs) + Owner-only
+  // and bond issuance snapshots (all slow-moving), FINRA margin debt from the
+  // crowd payload and the chains. Public
+  // history-rhymes.json (history, AI buildout and whole-market signs, the
+  // bear market test) + Owner-only
   // history-rhymes-owner.json (per-stock role and equity-implied default read).
   let historyRhymes = null, historyRhymesOwner = null;
   try {
@@ -40070,7 +40207,7 @@ async function main() {
       builtAtIso,
       series: sharedHistoryBars(historicalSourceCache, ["^IXIC", "^GSPC"]),
       fred: Object.fromEntries(HISTORY_RHYMES_FRED.map((id) => [id, historicalSourceCache?.context?.[id]?.rows || []])),
-      aiCapex: priorAiCapex, accelerators, ipoCredit: priorIpoCredit, chains,
+      aiCapex: priorAiCapex, accelerators, ipoCredit: priorIpoCredit, chains, crowd: crowdPayload,
     });
     historyRhymesOwner = buildHistoryRhymesOwner({
       builtAtIso, rhymes: historyRhymes, chains,
@@ -40079,7 +40216,7 @@ async function main() {
     });
     await writeFile(resolve(DATA_DIR, HISTORY_RHYMES_KEY), JSON.stringify(historyRhymes), "utf8");
     await writeFile(resolve(DATA_DIR, HISTORY_RHYMES_OWNER_KEY), JSON.stringify(historyRhymesOwner), "utf8");
-    console.log(`wrote data/${HISTORY_RHYMES_KEY} — ${historyRhymes.now.score}/${historyRhymes.now.total} warning signs (${historyRhymes.now.stage.label}), ${historyRhymesOwner.buildout.length + historyRhymesOwner.others.length} stock credit reads`);
+    console.log(`wrote data/${HISTORY_RHYMES_KEY} — AI buildout ${historyRhymes.now.score}/${historyRhymes.now.total} (${historyRhymes.now.stage.label}), whole market ${historyRhymes.now.market.score}/${historyRhymes.now.market.total} (${historyRhymes.now.market.stage.label}), ${historyRhymes.bearTest?.bears?.length ?? 0} bear markets tested, ${historyRhymesOwner.buildout.length + historyRhymesOwner.others.length} stock credit reads`);
   } catch (err) {
     console.log(`  ⚠ booms & busts failed (non-fatal, last good kept): ${err?.message || err}`);
     historyRhymes = priorHistoryRhymes ? { ...priorHistoryRhymes, stale: true } : null;
