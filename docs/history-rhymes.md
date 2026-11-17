@@ -26,32 +26,126 @@ that the page shows instead of the sort date. The page says plainly that it
 describes past patterns and is not a forecast or a timing call; some booms
 never busted.
 
-## Nine warning signs
+## Two panels (since 2026-11-17)
 
-`readSigns` reads each sign from data the site already collects. Lit counts 1,
-partial 0.5; unknown (missing input) counts nothing and is never shown as clear.
+Until 2026-11-16 the page counted nine signs on one scale ("7 of 9"). The
+section audit found three problems: capital spending was counted three times
+(three ways of measuring the same spending), boom signs and bust signs were
+added together, so a market with every boom sign and no strain read as a late
+boom, and every sign described an AI buildout, so the page could not see a
+rate-driven or credit-driven decline (1973, 1980, 1987, 2022). The Owner chose
+"Add a market-wide panel" on 2026-11-16. The page now has two panels, each
+with its own boom and bust counts and its own stage (`HISTORY_RHYMES_VERSION`
+2).
 
-| Sign | Input | Lit | Partial |
-|---|---|---|---|
-| Spending grows faster than revenue | `ai-capex.json` totals (capex YoY vs revenue YoY, same fiscal years) | gap ≥ 15 pts | ≥ 5 |
-| Builders spend a record share of sales | `ai-capex.json` capex / revenue (TTM, else FY) | ≥ 25% and not falling | ≥ 15% |
-| Spending outruns operating cash flow | per-stock fundamentals of the cash- and debt-funded builders | ≥ 90% of OCF, or 2+ builders above OCF | ≥ 65%, or one |
-| The price of what is built keeps falling | `accelerator-prices.json` H100 composite | 30-day −5% or −10% over 60+ days | neither falling nor rising 5%+ over 30 days (the 2024–2025 index fall stands); rising 5%+ is "not showing" |
-| Debt and off-balance-sheet deals fund the build | `ipo-credit.json` SIFMA bond months (last 3 vs a year earlier) + CRWV / ORCL debt | YoY ≥ 20%, or both builders lean on debt (total debt ≥ half of market value, more than 3 years of operating cash flow, or operating cash flow not positive) | one builder leaning on debt, or YoY ≥ 5% |
-| Credit markets start to charge more | FRED `BAA10Y`, `BAMLH0A0HYM2` | HY +0.75 or Baa +0.35 in 3 months, or HY ≥ 5.5 | HY +0.30 or Baa +0.15 |
-| The most indebted builder cracks | CRWV / ORCL price vs 52-week high | ≤ −40% | ≤ −25% |
-| Stock prices run far above trend | Nasdaq Composite (shared long-history cache) | +40% in 250 sessions and +20% over the 200-session average | +20% or +10% |
-| Supplier stocks fall while spending still rises | SMH vs 52-week high, capex still growing | ≤ −20% | ≤ −10% |
+Lit counts 1, partial 0.5; unknown (missing input) counts nothing and is never
+shown as clear. Each side is a share of its counted signs that have a reading.
 
-Stage from the total: 0 early buildout, 3 boom, 5 late boom with strain
-showing, 7 bust pattern. The two later stages also need strain where past
-busts showed it (`stageFor(score, signs)`): "late" needs credit strain or the
-weakest builder at least partly showing, and "bust" needs credit strain fully
-showing plus the weakest builder at least partly. Otherwise the stage drops
-to the highest one the signs support, so the label never claims strain the
-signs do not show. "Closest past case" is the overlap between today's
-lit/partial signs and the signs each case showed (`CASE_SIGNS`, written from
-the history, not fitted), shared ÷ union.
+### AI buildout panel: six signs
+
+`readSigns` in `lib/history-rhymes.mjs`.
+
+| Side | Sign | Input | Lit | Partial |
+|---|---|---|---|---|
+| boom | Builders spend far ahead of revenue and cash | three parts (below) | two parts lit | one part lit, or two partly showing |
+| boom | Debt and off-balance-sheet deals fund the build | CRWV / ORCL total debt, market value, operating cash flow | both lean on debt (debt at least half of market value, more than 3 years of operating cash flow, or operating cash flow not positive) | one |
+| boom | Stock prices run far above trend | Nasdaq Composite (shared long-history cache) | +40% in 250 sessions and +20% over the 200-session average | +20% or +10% |
+| bust | The price of what is built keeps falling | `accelerator-prices.json` H100 composite | 30-day −5% or −10% over 60+ days | neither falling nor rising 5%+ over 30 days (the 2024–2025 index fall stands); rising 5%+ is "not showing" |
+| bust | The most indebted builder cracks | CRWV / ORCL fall from the 52-week high in each stock's own swings (below) | 1.46 yearly swings (−40% at 35% a year) | 0.82 (−25%) |
+| bust | Supplier stocks fall while spending still rises | SMH fall from the 52-week high in its own swings, capex still growing | 0.64 (−20%) | 0.30 (−10%) |
+
+The two drawdown signs read each fall in the stock's own swings (Owner
+choice, 2026-11-17): the log fall from the 52-week high divided by the stock's
+one-year realized volatility (`drawdownRead`, `DRAWDOWN_REF_VOL` 0.35). The
+bars equal the earlier fixed ones for a stock that moves 35% a year, so a calm
+stock lights on a smaller fall and a wild one needs a bigger one (CoreWeave,
+which moves about 100% a year, needs a fall of about 77% to light the sign).
+The builders' sign reads the deeper of the two falls in swings. With fewer than
+60 closes the fixed −40% / −25% and −20% / −10% bars apply. A funding event
+(a junk downgrade, a failed bond sale, a CDS jump) is not read: there is no
+free daily source for it beyond the dated press quotes.
+
+The spending sign's three parts (shown under it, `SPENDING_PARTS`):
+spending growth against revenue growth (`ai-capex.json`, gap ≥ 15 points lit,
+≥ 5 partly), spending as a share of revenue (≥ 25% and not falling lit, ≥ 15%
+partly) and spending against the builders' operating cash flow (≥ 90% of it,
+or two builders above it, lit; ≥ 65% or one partly). Market-wide bond sales
+moved to the whole-market panel; credit spreads moved there too.
+
+"Closest past case" is the overlap between today's lit/partial AI signs and
+the signs each case showed (`CASE_SIGNS`, written from the history, not
+fitted), shared ÷ union.
+
+### Whole-market panel: six signs
+
+`lib/history-rhymes-market.mjs` (`readMarketSigns`). Thresholds were set from
+the research and the usual market reading before the history test ran and were
+not changed after it.
+
+| Side | Sign | Input | Lit | Partial |
+|---|---|---|---|---|
+| boom | Borrowed money chases stocks | FINRA margin debt (`crowd.json`) | +30% from a year earlier | +15% |
+| boom | Stocks yield less than bonds | SPY P/E (chains) against the 10-year yield, the Bottom tracker's `readValuation` | earnings yield below the 10-year yield | less than 1.5 points above it |
+| boom | Companies borrow at a fast pace | SIFMA corporate bond sales (`ipo-credit.json`), last three months vs a year earlier | +25% | +10% |
+| bust | The Fed and bond yields push rates up | FRED `DFF`, `DGS10`, `DGS2` | fed funds 1.75+ above its two-year low, the 10-year +1.5 in a year, or fed funds +0.75 with hikes priced (2-year 0.25+ over fed funds) | 0.75 / 0.75 / hikes priced after any 0.25 rise |
+| bust | The yield curve inverts | FRED `T10Y2Y` | below zero on any day in the last 24 months | under 0.25 now |
+| bust | Credit markets start to charge more | FRED `BAA10Y`, `BAMLH0A0HYM2` | HY +0.75 or Baa +0.35 in 3 months, or HY ≥ 5.5 | HY +0.30 or Baa +0.15, only while Baa is at or above its long-run middle (median since 1986; the history test uses the median up to each month) |
+
+### Stage
+
+`stageFor({ boom, boomTotal, bust, bustTotal })`, the same rule for both
+panels. The bust side is read first:
+
+| Bust share | Boom share | Stage |
+|---|---|---|
+| ≥ 2/3 | any | Bust signs showing |
+| ≥ 1/3 | ≥ 1/2 | Late boom, strain showing |
+| ≥ 1/3 | < 1/2 | Strain without a boom |
+| < 1/3 | ≥ 2/3 | Boom |
+| < 1/3 | ≥ 1/3 | Early boom |
+| < 1/3 | < 1/3 | Quiet |
+
+So a market with every boom sign and no strain reads "Boom", not "Late boom",
+and strain with no boom has its own label.
+
+### History test of the whole-market bust signs
+
+`marketHistoryTest` runs every build on the shared long-history cache (no new
+download): every month-end since each sign's data starts (fed funds since
+1954, the 10-year since 1962, the yield curve since 1976, the Baa spread since
+1986) against every S&P 500 bear market since 1950 (`bearMarkets`: a close 20%
+or more below the prior high, peak to the lowest close before a new high;
+named in `BEAR_NAMES`). A sign "came before" a bear market when it was lit in
+the 12 months up to the peak. Its hit rate is the share of lit months followed
+by a new bear market peak within 24 months, against the same share for every
+month (the ratio is the lift). Months inside a decline are left out, because a
+sign that lights during the fall is not a warning; the test stops 24 months
+before the data ends. The result rides the public file as `bearTest` (each
+bear market with each sign's status before it, each sign's record and a
+"two or more of the three" row).
+
+Count rule (`MARKET_COUNT_RULE`): boom signs always count (they describe a
+boom; they are not a timing call). A bust sign counts toward the stage only
+when its lift is 1.2 or more over 24 or more lit months. A sign that fails is
+still shown with its record and a "Not counted" mark; a sign the build cannot
+test (history missing) counts.
+
+What the test found on the full download before shipping (2026-11-16, 1950 to
+2026; the build recomputes it every time):
+
+- **Yield curve: passes.** Lit before 5 of the 6 bear markets its data covers;
+  a bear market followed a lit month within two years 1.68 times as often as
+  an average month (1.72 at 12 months, 1.27 at 36).
+- **Rates rising: fails.** Lit before 8 of 11 bear markets, but lit in 37% of
+  all months, so a lit month was followed by a bear market no more often than
+  an average month (0.94; 0.89 at 12 months, 1.14 at 36). It is shown and
+  marked "Not counted".
+- **Credit strain (Baa): decided by the first live build**; the build sandbox
+  had no Baa history.
+- **Valuation (boom side, not tested in the build):** checked once by hand on
+  Shiller's monthly data: lit before 5 of 11 bear markets and lit or partly
+  showing before 8, but stocks earned less than bonds for most of 1969 to 1999,
+  so its ratio was 0.82. It describes how expensive stocks are, not timing.
 
 ## Credit default swaps
 
@@ -87,12 +181,12 @@ price, and is not wired in. So the page shows:
 
 | Key | Access | Writer | Contents |
 |---|---|---|---|
-| `history-rhymes.json` | public | bake (`OPTIONAL_BAKE_KEYS`) | cases, signs, stage, case matches, FRED-computed blocks, the Nasdaq then-and-now chart, press CDS quotes, sources, methodology. No per-stock model fields. |
-| `history-rhymes-owner.json` | Owner (`PREMIUM_KEYS`, both claims) | bake | each covered stock's buildout role (`ROLES`), the Merton read, debt / cash-flow ratios, rating, flags, press CDS quotes, the model check |
+| `history-rhymes.json` | public | bake (`OPTIONAL_BAKE_KEYS`) | cases, both panels (`now` is the AI buildout panel: `score` / `total` / `stage` keep their names for older readers; `now.market` is the whole-market panel), boom and bust counts, case matches, `bearTest`, FRED-computed blocks, the Nasdaq then-and-now chart, press CDS quotes, sources, methodology. No per-stock model fields. |
+| `history-rhymes-owner.json` | Owner (`PREMIUM_KEYS`, both claims) | bake | each covered stock's buildout role (`ROLES`), the Merton read, debt / cash-flow ratios, rating, flags, press CDS quotes, the model check, both stages (`stage`, `marketStage`) |
 
 Both are built in `main()` after the shared long-history cache loads, from the
-prior (pre-wipe) AI CapEx and capital markets files and this bake's chains, and
-are written before Historical Data. A failed build carries the prior files
+prior (pre-wipe) AI CapEx and capital markets files, this bake's crowd payload
+(margin debt) and chains, and are written before Historical Data. A failed build carries the prior files
 marked `stale: true`. A stale copy still shows on the page (with a note), but
 it is not today's reading: Historical Data's "Resembles now" and the shadow
 log skip it, the Owner brief drops it to priority 3 and says so, and the MCP
@@ -103,24 +197,40 @@ Five FRED series join `SHARED_FRED_EXTRA` (full history, free and keyless,
 downloaded by the shared long-history cache's refresh like the others;
 `historical-sources-smoke` checks the daily request budget): `BAA10Y`,
 `USSTHPI`, `MORTGAGE30US`, `DRSFRMACBS`, `PRCMUCONS`. `BAMLH0A0HYM2` and
-`BAMLC0A0CM` were already there for the Bottom tracker.
+`BAMLC0A0CM` were already there for the Bottom tracker. The whole-market
+panel's `DFF`, `DGS10`, `DGS2` and `T10Y2Y` were already in the cache
+(`HISTORICAL_CONTEXT`), so it adds no download.
 
 ## Where it is used
 
-- **Historical Data, "Resembles now"**: a "Buildout boom signs" match at 4.5 of
-  9 or more, or whenever credit strain is lit, linking to the page
-  (`matchNow` in `lib/historical-events.mjs`).
-- **Risk analysis**: a context card under the seven desks, labeled "Context,
-  not a vote". It does not change the desk vote.
-- **Owner market brief**: a "Buildout warning signs" line with the stage, the
-  closest case and the three highest model default chances (priority 1 at 5+
-  signs).
-- **Top Picks shadow logging** (`lib/shadow-signals.mjs` version 4): `epd`
-  per name (model five-year default chance) and `bsl` / `baa` in the daily
-  market row. Logged and measured by `lib/shadow-research.mjs` like the other
-  candidates; nothing scores, gates or changes a pick.
+- **Historical Data, "Resembles now"**: a "Buildout boom signs" match at half
+  the AI buildout signs or more, when the whole market reads "Late boom" or
+  "Bust signs showing", or whenever credit strain is lit, linking to the page
+  (`matchNow` in `lib/historical-events.mjs`; a version 1 file still matches
+  at 4.5 of 9).
+- **Risk analysis**: a context card under the seven desks with both stages,
+  labeled "Context, not a vote". It does not change the desk vote. Below it
+  (`#risk-horizons`, `renderRiskHorizons` in
+  `scripts/render/history-rhymes-client.mjs`, Owner choice 2026-11-17) one
+  line explains why the market tape, the Quant labs market odds and Booms &
+  busts can disagree: they read days to weeks, 3 to 12 months and years. It
+  names each one's read, says whether they lean the same way, and shows only
+  when at least two are loaded.
+- **Owner market brief**: a "Buildout warning signs" line with the AI stage,
+  the closest case, the whole-market stage and the three highest model default
+  chances (priority 1 when either stage is late boom or bust).
+- **Regime Lab positioning** (`lib/regime-lab/positioning.mjs`): watch at 4 of
+  the 6 AI buildout signs (6 of 9 before, the same two-thirds).
+- **Top Picks shadow logging** (`lib/shadow-signals.mjs`): `epd` per name
+  (model five-year default chance) and `bsl` / `bsm` / `baa` in the daily
+  market row. `bsl` is the AI buildout score: 0 to 9 until 2026-11-16, 0 to 6
+  from 2026-11-17, so research on it splits at that date. `bsm` (from
+  2026-11-17) is the whole-market score, 0 to 6. Logged and measured by
+  `lib/shadow-research.mjs` like the other candidates; nothing scores, gates
+  or changes a pick.
 - **MCP**: `get_feature` `history-rhymes` (public file) and dataset `owner`;
-  `get_stock` adds `credit_read` for an Owner token.
+  `get_stock` adds `credit_read` for an Owner token (`buildout_stage` and
+  `market_stage`).
 - **Links**: AI CapEx and GPU cloud prices pages point to the page; Export
   covers both files.
 
@@ -139,16 +249,24 @@ downloaded by the shared long-history cache's refresh like the others;
 
 ## Not done (needs an Owner decision)
 
-- Letting the sign count vote on Risk analysis or the Top Picks tape.
+- Letting either panel vote on Risk analysis or the Top Picks tape.
+- Scaling the AI buildout drawdown thresholds by each stock's own volatility,
+  a credit-spread level test beside the three-month change, and reading GPU
+  rent from each provider's own quotes rather than the composite.
+- A long history for margin debt, valuation and bond sales inside the build,
+  so the boom side can be tested too.
 - Using `epd` / `bsl` in a grade, gate or the AI grader (after the shadow
   evidence bar).
 - A paid CDS feed.
 
 ## Tests
 
-`npm run test:history-rhymes` (model, signs, public / Owner split, summary,
-shadow keys, Owner brief line, store policy, MCP, client wiring) and
+`npm run test:history-rhymes` (model, both panels, the stage rule, the
+spending parts, the bear market finder and history test on made-up data, the
+count rule, public / Owner split, summary, shadow keys, Owner brief line,
+store policy, MCP, client wiring) and
 `npm run test:history-rhymes-browser` (every tab at 1440 light and 390 dark,
+both panels, the not-counted mark and its reason, the bear market table,
 no Owner request from a public visit, missing file and Try again, Owner
 Stocks tab, detail rows and Model check, the Risk analysis card, `?view=`
 deep link and the address following the tab, the CDS quote age, one-line
