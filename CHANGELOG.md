@@ -38,6 +38,10 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## 2026-11-17
 
+### Added
+
+- The 1971-2026 strategy-engine history test now shows across the site as context only: "Strategy styles by era" on Pattern lab and style strips on Booms & busts (public), event and crisis strips on Historical Data, "Today's regime fit" in the Regime Lab and the Owner brief, and MCP datasets (Owner). Aggregates only; switch `ENGINES_HISTORY=0` (#849).
+
 ### Fixed
 
 - Strategy builder: max gain, max loss and breakevens are now exact. The payoff sweep also samples every leg's strike and the spot price, so a butterfly's peak is no longer missed (a $5-wide fly on a $500 stock showed $170 of its $420 max gain), and a breakeven that lands on a sample is listed once, not twice.

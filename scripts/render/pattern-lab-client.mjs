@@ -190,7 +190,7 @@ export function patternLabFactory(host, doc, views, symbolHref, dataUrl, openSym
       (state.error ? '<p class="pat-flag" role="status">The refresh did not load, so this is the snapshot already on the page.</p>' : '') +
       ((!finite(stale) || Date.now() - stale > 72 * 3600000) ? '<p class="pat-flag" role="status">Reference snapshot: this data is more than three days old or its build date is unavailable.</p>' : '') +
       '<p class="pat-note">Stock history: up to two years. Expand coverage for actual dates and sample sizes.</p>' + coverage(data) +
-      selected.map(key=>section(key,pieces)).join('') + '<p class="pat-note">All results describe the available sample. Observations can overlap, and no view establishes a trading probability or changes grades or positions.</p>';
+      selected.map(key=>section(key,pieces)).join('') + (state.study === 'all' ? '<div data-eh="eras" hidden></div>' : '') + '<p class="pat-note">All results describe the available sample. Observations can overlap, and no view establishes a trading probability or changes grades or positions.</p>';
   }
   function exportSummary() {
     const pieces = state.data?.pieces || {}, rows = summaryRows(pieces);
