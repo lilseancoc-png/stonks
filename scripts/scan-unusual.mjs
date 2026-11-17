@@ -71,7 +71,6 @@ import {
   closeRereadWaitMs,
   applyCloseReread,
 } from "../lib/volume-flags.mjs";
-import { OWNER_SETTINGS_KEY, applyOwnerSettingsToEnv } from "../lib/owner-settings.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
