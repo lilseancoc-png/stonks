@@ -113,6 +113,14 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 - Earnings audit: the week-after drift on each print is read from a closing price, never from the in-progress bar (the 10:00 ET bake stamped it off a half-hour-old price and kept it), and the stored week-1 drifts the bars still cover are re-read once; Earnings ripple effects resolves its forward record only from finished sessions (stored results are re-read once) and scores direction as beta times the reporting company's actual move, where it had only counted how often peers rose; the deep ripple matrix leaves out today's unfinished bar; Earnings week ahead's "season so far" no longer counts placeholder rows with no EPS and no move; the Earnings results "avg implied vs avg realized" line compares the same prints; the bake log stops calling full-bake transcript carry-forward "keyless" (#860).
 
+### Changed
+
+- The hourly options-flow scan now ends green on NYSE holidays instead of failing eight times (Labor Day did; next Thanksgiving and Christmas). A first step reads the market calendar and skips the scan; a manual run with force still scans (#861).
+
+### Fixed
+
+- Learn & help audit: the near-term OI tracker compares with the last trading day, so the morning after a market holiday no longer reads almost no OI change (after Labor Day 2026 it compared with the holiday's scans and flagged nothing; `lib/oi-baseline.mjs`). The When data updates page and the weekly Alt Data banners stop promising Friday 11:30 ET, since GitHub has started that job between about 2:30 and 5:00 p.m. every week since September, and the schedule now shows the OI scans and the weekly job running on market holidays. Public visitors no longer see links to Owner-only pages (Grade, Strategy builder) on the Options guide, Chart patterns and Glossary. The Options guide's IV note matches the site's Rich rule, and the Privacy Policy lists message retention, the offline page copy and more local-storage uses, with old contact-box sender hashes now cleared on every inbox change. Test `scripts/learn-help-smoke.mjs`.
+
 ## 2026-11-16
 
 ### Added
