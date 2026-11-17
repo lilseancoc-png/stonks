@@ -17237,36 +17237,52 @@ ${renderExportBindings()}
     return isFinite(best) ? best : (Date.now() / 1000);
   }
 
-  // Sweep payoff over a ±25% band around spot (101 samples), find max/min
-  // and breakeven crossings. Flags unlimited gain/loss when the net call
-  // count at the high tail or net put count at the low tail leaves one
-  // side open. Returns dollars per contract × 100.
+  // Sweep payoff over a ±50% band around spot (101 even samples plus every
+  // priced leg's strike and spot itself), find max/min and breakeven
+  // crossings. The expiration payoff only bends at a strike, so sampling the
+  // strikes makes max gain, max loss and the breakevens exact (an even 1%
+  // grid alone missed a butterfly's peak on a high-priced stock). Flags
+  // unlimited gain/loss when the net call count at the high tail or net put
+  // count at the low tail leaves one side open; 'atZero' is the P/L if the
+  // stock goes to $0 (the real cap on a long or short put). Returns dollars
+  // per contract × 100.
   function stratSweepPayoff(enriched){
     var spot = stratState.spot;
     if (!(spot > 0) || !enriched.legs.length) return null;
     var N = 101;
     var lo = spot * 0.5;
     var hi = spot * 1.5;
-    var xs = new Array(N);
-    var ys = new Array(N);
-    var max = -Infinity, min = Infinity, atSpot = null;
-    for (var i=0; i<N; i++){
-      var S = lo + (hi - lo) * (i / (N - 1));
+    var grid = [];
+    for (var i=0; i<N; i++) grid.push(lo + (hi - lo) * (i / (N - 1)));
+    grid.push(spot);
+    for (var gi=0; gi<enriched.legs.length; gi++){
+      var gl = enriched.legs[gi];
+      var gk = gl && gl.leg ? Number(gl.leg.strike) : NaN;
+      if (gl.price != null && gk > lo && gk < hi) grid.push(gk);
+    }
+    grid.sort(function(a, b){ return a - b; });
+    var xs = [], ys = [];
+    var max = -Infinity, min = Infinity;
+    for (var gj=0; gj<grid.length; gj++){
+      var S = grid[gj];
+      if (xs.length && Math.abs(S - xs[xs.length - 1]) < 1e-9) continue;
       var P = stratPayoffAt(enriched, S) * 100;
-      xs[i] = S; ys[i] = P;
+      xs.push(S); ys.push(P);
       if (P > max) max = P;
       if (P < min) min = P;
-      if (Math.abs(S - spot) < (hi - lo) / N) atSpot = P;
     }
-    if (atSpot == null) atSpot = stratPayoffAt(enriched, spot) * 100;
-    // Breakeven crossings (linear interpolation between sign-flipping samples).
+    var atSpot = stratPayoffAt(enriched, spot) * 100;
+    // Breakeven crossings (linear interpolation between sign-flipping
+    // samples). A sample sitting exactly on $0 is one crossing, not two.
     var breakevens = [];
-    for (var j=1; j<N; j++){
+    for (var j=1; j<xs.length; j++){
       var y0 = ys[j-1], y1 = ys[j];
       if ((y0 <= 0 && y1 >= 0) || (y0 >= 0 && y1 <= 0)){
         if (y0 === y1) continue;
         var t = -y0 / (y1 - y0);
-        breakevens.push(xs[j-1] + t * (xs[j] - xs[j-1]));
+        var bx = xs[j-1] + t * (xs[j] - xs[j-1]);
+        if (breakevens.length && Math.abs(bx - breakevens[breakevens.length - 1]) < 1e-6) continue;
+        breakevens.push(bx);
       }
     }
     // Slopes at the tails for unlimited-flag detection. Skip unpriced legs so
@@ -17280,10 +17296,11 @@ ${renderExportBindings()}
     }
     var unlimitedGainUp   = callNet > 0;
     var unlimitedLossUp   = callNet < 0;
-    var unboundedGainDown = putNet  > 0;  // bounded at S=0 but very large
+    var unboundedGainDown = putNet  > 0;  // bounded at S=0 (atZero) but large
     var unboundedLossDown = putNet  < 0;
+    var atZero = putNet !== 0 ? stratPayoffAt(enriched, 0) * 100 : null;
     return {
-      xs: xs, ys: ys, max: max, min: min, atSpot: atSpot,
+      xs: xs, ys: ys, max: max, min: min, atSpot: atSpot, atZero: atZero,
       breakevens: breakevens,
       unlimitedGainUp: unlimitedGainUp,
       unlimitedLossUp: unlimitedLossUp,
@@ -17333,22 +17350,28 @@ ${renderExportBindings()}
     var tech = stratState.technicals;
     var parts = [];
 
-    // 1) Directional fit — only meaningful for bull/bear. Vol/neutral
-    // strategies get a base score so they aren't penalised for ignoring
-    // RSI/MACD.
+    // 1) Directional fit — only meaningful for bull/bear, and read from the
+    // same direction the page shows (stratDirectionRead): the stock's grade
+    // decides when it is graded, the RSI / MACD / 20-day tape adds or takes
+    // a little; with no grade the tape decides alone. Vol/neutral strategies
+    // get a base score so they aren't penalised for ignoring direction.
     var directional = 20;
+    var dirNote = 'volume-conviction read';
     if (bias === 'bull' || bias === 'bear'){
       var s = 20;
       var aligned = bias === 'bull' ? 1 : -1;
-      if (tech && tech.rsi != null){
-        var rsi = tech.rsi;
-        if (aligned > 0) s += rsi >= 55 ? 10 : rsi <= 45 ? -10 : 0;
-        else             s += rsi <= 45 ? 10 : rsi >= 55 ? -10 : 0;
-      }
-      if (tech && tech.macd && tech.macd.hist != null){
-        var hist = tech.macd.hist;
-        if (aligned > 0) s += hist > 0 ? 10 : hist < 0 ? -10 : 0;
-        else             s += hist < 0 ? 10 : hist > 0 ? -10 : 0;
+      var dread = stratDirectionRead();
+      var dirSign = function(d){ return d === 'bull' ? 1 : d === 'bear' ? -1 : 0; };
+      var tapeVotes = dread.tape && isFinite(dread.tape.votes) ? Number(dread.tape.votes) : 0;
+      var gradeFit = dirSign(dread.direction) * aligned;
+      if (dread.source === 'grade'){
+        s += 14 * gradeFit + 2 * aligned * tapeVotes;
+        dirNote = (gradeFit > 0 ? 'matches the grade: ' : gradeFit < 0 ? 'against the grade: ' : 'the grade has no side: ')
+          + dread.label.replace(/^Grade: /, '')
+          + (dread.tape && dread.tape.direction !== 'mixed' ? (dirSign(dread.tape.direction) * aligned > 0 ? '; tape agrees' : '; tape points the other way') : '');
+      } else {
+        s += Math.round(20 / 3 * aligned * tapeVotes);
+        dirNote = (aligned * tapeVotes > 0 ? 'matches' : aligned * tapeVotes < 0 ? 'against' : 'no clear read from') + ' the RSI / MACD / 20-day tape (no grade)';
       }
       directional = Math.max(0, Math.min(40, s));
     } else if (bias === 'volLong' || bias === 'volShort' || bias === 'neutral'){
@@ -17363,10 +17386,7 @@ ${renderExportBindings()}
         else if (bias === 'neutral' && conv === 'indecision') directional = 28;
       }
     }
-    parts.push({ key:'dir', label:'Directional fit', value: directional, max: 40,
-      note: bias === 'bull' ? 'matches RSI/MACD tilt'
-          : bias === 'bear' ? 'matches RSI/MACD tilt'
-          : 'volume-conviction read' });
+    parts.push({ key:'dir', label:'Directional fit', value: directional, max: 40, note: dirNote });
 
     // 2) IV alignment from the shared IV band — long vega wants Cheap, short
     // vega wants Rich or Very rich, directional spreads sit best in Normal.
@@ -17392,13 +17412,14 @@ ${renderExportBindings()}
     var rrScore = 10;
     var rrNote = '';
     if (sweep){
-      var maxGain = sweep.unlimitedGainUp ? Infinity : sweep.max;
+      var maxGain = sweep.unlimitedGainUp ? Infinity
+        : sweep.unboundedGainDown && sweep.atZero != null ? Math.max(sweep.max, sweep.atZero) : sweep.max;
       var maxLoss = sweep.unlimitedLossUp ? -Infinity : sweep.min;
       var gain = isFinite(maxGain) ? Math.max(0, maxGain) : null;
       var loss = isFinite(maxLoss) ? Math.max(0, -maxLoss) : null;
       if (sweep.unlimitedLossUp || sweep.unboundedLossDown){
         rrScore = 4;
-        rrNote = 'naked leg — unbounded loss';
+        rrNote = sweep.unlimitedLossUp ? 'naked call — unbounded loss' : 'naked put — loss runs to the stock at $0';
       } else if (gain == null && loss != null){
         // Unlimited gain, capped loss — long call / long strangle territory.
         rrScore = 17;
@@ -17606,10 +17627,16 @@ ${renderExportBindings()}
       '<text x="' + sx(xMin).toFixed(1) + '" y="' + (H - 10) + '" class="strat-payoff-axislbl" text-anchor="start">' + fmtMoney(xMin) + '</text>' +
       (spot != null ? '<text x="' + sx(spot).toFixed(1) + '" y="' + (H - 10) + '" class="strat-payoff-axislbl strat-payoff-spot-lbl" text-anchor="middle">spot ' + fmtMoney(spot) + '</text>' : '') +
       '<text x="' + sx(xMax).toFixed(1) + '" y="' + (H - 10) + '" class="strat-payoff-axislbl" text-anchor="end">' + fmtMoney(xMax) + '</text>';
+    // Short P/L labels so five-figure values fit the 52px gutter
+    // (fmtMoney's cents clipped "+$25,078.80" to "5,078.80").
+    var axisMoney = function(n){
+      var a = Math.abs(n), sign = n < 0 ? '−' : n > 0 ? '+' : '';
+      return sign + '$' + (a >= 1e6 ? (a / 1e6).toFixed(1) + 'M' : a >= 1e4 ? (a / 1e3).toFixed(1) + 'K' : Math.round(a).toLocaleString());
+    };
     var yLabels =
-      '<text x="' + (PAD_L - 6) + '" y="' + (sy(yHi) + 4) + '" class="strat-payoff-axislbl" text-anchor="end">' + (yHi >= 0 ? '+' : '') + fmtMoney(yHi) + '</text>' +
+      '<text x="' + (PAD_L - 6) + '" y="' + (sy(yHi) + 4) + '" class="strat-payoff-axislbl" text-anchor="end">' + axisMoney(yHi) + '</text>' +
       '<text x="' + (PAD_L - 6) + '" y="' + (zeroY + 4) + '" class="strat-payoff-axislbl" text-anchor="end">$0</text>' +
-      '<text x="' + (PAD_L - 6) + '" y="' + (sy(yLo) - 4) + '" class="strat-payoff-axislbl" text-anchor="end">' + fmtMoney(yLo) + '</text>';
+      '<text x="' + (PAD_L - 6) + '" y="' + (sy(yLo) - 4) + '" class="strat-payoff-axislbl" text-anchor="end">' + axisMoney(yLo) + '</text>';
     // Scrub readout: underlying price at expiry → strategy P/L (per position,
     // ×100 like the sweep). Thin the sweep to ≤80 points to keep the attr small.
     var hoverPts = [];
@@ -17641,12 +17668,16 @@ ${renderExportBindings()}
     var costCls   = netCost >= 0 ? 'is-debit' : 'is-credit';
     var maxGain, maxLoss;
     if (sweep){
-      // Mirror the loss cell: a down-tail-driven extreme (net-long puts →
-      // unboundedGainDown) is flagged "unlimited" just like net-long calls
-      // (unlimitedGainUp). Checking only unlimitedGainUp showed long-put
-      // structures a misleading sampled-band cap from sweep.max.
-      maxGain = sweep.unlimitedGainUp || sweep.unboundedGainDown ? '<span class="strat-summary-unlim">unlimited</span>' : stratFmtSigned(sweep.max);
-      maxLoss = sweep.unlimitedLossUp || sweep.unboundedLossDown ? '<span class="strat-summary-unlim is-loss">unlimited</span>' : stratFmtSigned(sweep.min);
+      // Net-long calls have no cap. Net-long (or short) puts are capped at the
+      // stock going to $0, so show that figure (the ±50% chart band alone
+      // understated a long put's gain), not "unlimited".
+      var zeroNote = '<span class="strat-summary-sub"> if the stock goes to $0</span>';
+      maxGain = sweep.unlimitedGainUp ? '<span class="strat-summary-unlim">unlimited</span>'
+        : sweep.unboundedGainDown && sweep.atZero != null && sweep.atZero > sweep.max ? stratFmtSigned(sweep.atZero) + zeroNote
+        : stratFmtSigned(sweep.max);
+      maxLoss = sweep.unlimitedLossUp ? '<span class="strat-summary-unlim is-loss">unlimited</span>'
+        : sweep.unboundedLossDown && sweep.atZero != null && sweep.atZero < sweep.min ? stratFmtSigned(sweep.atZero) + zeroNote
+        : stratFmtSigned(sweep.min);
     } else {
       maxGain = '—'; maxLoss = '—';
     }

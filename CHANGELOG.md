@@ -36,6 +36,15 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ### Added
 - Add NBA team offensive/defensive efficiency, net rating and pace to prop research, player forecasts and Pick Builder; fit stat-specific efficiency and pace adjustments on prior complete games and use them only when they improve the historical check. NFL predictions are unchanged (#823).
 
+## 2026-11-17
+
+### Fixed
+
+- Strategy builder: max gain, max loss and breakevens are now exact. The payoff sweep also samples every leg's strike and the spot price, so a butterfly's peak is no longer missed (a $5-wide fly on a $500 stock showed $170 of its $420 max gain), and a breakeven that lands on a sample is listed once, not twice.
+- Strategy builder: a long put's max gain and a short put's max loss show the figure if the stock goes to $0 instead of "unlimited", and the risk / reward score uses that figure.
+- Strategy builder: the score's "Directional fit" now reads the same grade-first direction the page shows (the RSI / MACD / 20-day tape adds or takes a little, and decides alone only when the stock has no grade). It used to score RSI and MACD only, so a bull spread on a Put-graded stock could get full marks, and its note always said "matches".
+- Strategy builder: the payoff chart's P/L axis labels are shortened ($26.1K) so five-figure values are no longer clipped.
+
 ## 2026-11-16
 
 ### Added
