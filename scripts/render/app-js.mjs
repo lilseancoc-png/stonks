@@ -14468,6 +14468,7 @@ ${renderExportBindings()}
       riskGammaDesk()
     ];
     var html = riskStripHtml(riskDesks) + RISK_STACK.present(riskDesks);
+    if (typeof renderRiskHorizons === 'function') renderRiskHorizons();
     if (html === riskStackState.html) return;
     var active = document.activeElement;
     var keep = active && host.contains(active)

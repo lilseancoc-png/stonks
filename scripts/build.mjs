@@ -40041,8 +40041,10 @@ async function main() {
   // housing case studies set against today's AI buildout. Deterministic; it
   // reads only what is already in memory: the long-history cache (Nasdaq,
   // S&P 500, FRED credit and housing series), the prior AI spending, GPU rent
-  // and bond issuance snapshots (all slow-moving) and the chains. Public
-  // history-rhymes.json (history and market-wide signs) + Owner-only
+  // and bond issuance snapshots (all slow-moving), FINRA margin debt from the
+  // crowd payload and the chains. Public
+  // history-rhymes.json (history, AI buildout and whole-market signs, the
+  // bear market test) + Owner-only
   // history-rhymes-owner.json (per-stock role and equity-implied default read).
   let historyRhymes = null, historyRhymesOwner = null;
   try {
@@ -40052,7 +40054,7 @@ async function main() {
       builtAtIso,
       series: sharedHistoryBars(historicalSourceCache, ["^IXIC", "^GSPC"]),
       fred: Object.fromEntries(HISTORY_RHYMES_FRED.map((id) => [id, historicalSourceCache?.context?.[id]?.rows || []])),
-      aiCapex: priorAiCapex, accelerators, ipoCredit: priorIpoCredit, chains,
+      aiCapex: priorAiCapex, accelerators, ipoCredit: priorIpoCredit, chains, crowd: crowdPayload,
     });
     historyRhymesOwner = buildHistoryRhymesOwner({
       builtAtIso, rhymes: historyRhymes, chains,
@@ -40061,7 +40063,7 @@ async function main() {
     });
     await writeFile(resolve(DATA_DIR, HISTORY_RHYMES_KEY), JSON.stringify(historyRhymes), "utf8");
     await writeFile(resolve(DATA_DIR, HISTORY_RHYMES_OWNER_KEY), JSON.stringify(historyRhymesOwner), "utf8");
-    console.log(`wrote data/${HISTORY_RHYMES_KEY} — ${historyRhymes.now.score}/${historyRhymes.now.total} warning signs (${historyRhymes.now.stage.label}), ${historyRhymesOwner.buildout.length + historyRhymesOwner.others.length} stock credit reads`);
+    console.log(`wrote data/${HISTORY_RHYMES_KEY} — AI buildout ${historyRhymes.now.score}/${historyRhymes.now.total} (${historyRhymes.now.stage.label}), whole market ${historyRhymes.now.market.score}/${historyRhymes.now.market.total} (${historyRhymes.now.market.stage.label}), ${historyRhymes.bearTest?.bears?.length ?? 0} bear markets tested, ${historyRhymesOwner.buildout.length + historyRhymesOwner.others.length} stock credit reads`);
   } catch (err) {
     console.log(`  ⚠ booms & busts failed (non-fatal, last good kept): ${err?.message || err}`);
     historyRhymes = priorHistoryRhymes ? { ...priorHistoryRhymes, stale: true } : null;

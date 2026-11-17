@@ -44,7 +44,15 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Added
 
+- Add a whole-market panel to Booms & busts: margin debt, stocks against bond yields and corporate bond sales on the boom side; Fed and bond yields rising, the yield curve and credit spreads on the bust side. Each bust sign is tested every build against every S&P 500 bear market since 1950 and counts toward the stage only when its lit months were followed by a bear market at least 1.2 times as often as other months; a sign that fails (rates rising, on the first test) is shown and marked "Not counted". A new table lists each bear market and which signs showed before it. Uses only data the site already keeps.
 - The 1971-2026 strategy-engine history test now shows across the site as context only: "Strategy styles by era" on Pattern lab and style strips on Booms & busts (public), event and crisis strips on Historical Data, "Today's regime fit" in the Regime Lab and the Owner brief, and MCP datasets (Owner). Aggregates only; switch `ENGINES_HISTORY=0` (#849).
+- Risk analysis adds one line under the context cards on why the market tape, the market odds and Booms & busts can disagree: they look at different stretches of time (days to weeks, 3 to 12 months, years). It names each one's current read and votes on nothing (Owner choice) (#848).
+
+### Changed
+
+- Rescore the Booms & busts AI buildout signs: the three capital spending measures become one sign with three parts, so the same spending is no longer counted three times (nine signs become six), and boom and bust signs are counted apart, so a boom with no strain reads "Boom" instead of "Late boom". Market-wide bond sales and credit spreads move to the new whole-market panel. The shadow log's `bsl` is now out of 6 (it was out of 9 until 2026-11-16) and a new `bsm` logs the whole-market score; "Resembles now", the Owner brief, the Risk analysis card, the MCP credit read and Regime Lab positioning read both panels.
+- Booms & busts reads each drawdown in the stock's own swings: the fall from the 52-week high is measured against the stock's one-year volatility, with bars that match the old 40% / 25% (builders) and 20% / 10% (SMH) for a stock that moves 35% a year. A calm stock now lights the sign on a smaller fall and a wild one such as CoreWeave needs a bigger one; with too little price history the fixed bars stand (Owner choice) (#848).
+- Booms & busts credit strain counts a widening as partly showing only while the Baa spread sits at or above its long-run middle (its median since 1986, and in the history test the median up to each month); a jump big enough to light the sign still lights it at any level (Owner choice) (#848).
 
 ## 2026-11-16
 
