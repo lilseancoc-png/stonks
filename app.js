@@ -10397,7 +10397,10 @@ function validNewsFeedPayload(data) {
   // VIX / VIX3M above this is an inverted (stressed) volatility curve.
   var VIX_TERM_INVERTED = 1.0;
 
-  var ASIA_BROAD = ['^N225', '^KS11', '^TWII', '^HSI', '^AXJO', '000300.SS'];
+  // Shanghai Composite and onshore USD/CNY replaced the CSI 300 and offshore
+  // USD/CNH on 2026-11-17 (Owner choice): Yahoo often sent the CSI 300 as one
+  // bar with no history and CNH=X with no bars at all.
+  var ASIA_BROAD = ['^N225', '^KS11', '^TWII', '^HSI', '^AXJO', '000001.SS'];
   var CHIP_TAPE = ['000660.KS', '005930.KS', '2330.TW', '8035.T', '6857.T', '9984.T'];
   var EUROPE = ['^STOXX50E', '^GDAXI'];
   var FUTURES = ['ES=F', 'NQ=F', 'RTY=F'];
@@ -10419,7 +10422,7 @@ function validNewsFeedPayload(data) {
     ] },
     { key: 'fx', label: 'FX / carry', parts: [
       { key: 'audjpy', label: 'AUD/JPY', syms: ['AUDJPY=X'], sign: 1, weight: 0.5 },
-      { key: 'cnh', label: 'USD/CNH', syms: ['CNH=X'], sign: -1, weight: 0.2 },
+      { key: 'cny', label: 'USD/CNY', syms: ['CNY=X'], sign: -1, weight: 0.2 },
       { key: 'krw', label: 'USD/KRW', syms: ['KRW=X'], sign: -1, weight: 0.15 },
       { key: 'dxy', label: 'Dollar index', syms: ['DX-Y.NYB'], sign: -1, weight: 0.15 }
     ] },
@@ -10440,7 +10443,7 @@ function validNewsFeedPayload(data) {
     'ZN=F': { kind: '24h', name: '10Y T-note futures' },
     'AUDJPY=X': { kind: '24h', name: 'AUD/JPY' },
     'JPY=X': { kind: '24h', name: 'USD/JPY' },
-    'CNH=X': { kind: '24h', name: 'USD/CNH' },
+    'CNY=X': { kind: '24h', name: 'USD/CNY' },
     'KRW=X': { kind: '24h', name: 'USD/KRW' },
     'DX-Y.NYB': { kind: '24h', name: 'Dollar index' },
     'HG=F': { kind: '24h', name: 'Copper' },
@@ -10453,7 +10456,7 @@ function validNewsFeedPayload(data) {
     '^TWII': { kind: 'asia', name: 'TAIEX' },
     '^HSI': { kind: 'asia', name: 'Hang Seng' },
     '^AXJO': { kind: 'asia', name: 'ASX 200' },
-    '000300.SS': { kind: 'asia', name: 'CSI 300' },
+    '000001.SS': { kind: 'asia', name: 'Shanghai Composite' },
     '000660.KS': { kind: 'asia', name: 'SK Hynix' },
     '005930.KS': { kind: 'asia', name: 'Samsung Electronics' },
     '2330.TW': { kind: 'asia', name: 'TSMC' },
@@ -51583,12 +51586,16 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
   // Identical to build.mjs probsFromDelta: a (pre,post) rate delta -> the CME
   // hike/hold/cut triple, 25 bps step, linear between adjacent quantized moves.
+  // Past 25 bps, big = the share priced as a 50 bps move (only set then).
   function probsFromDeltaLive(delta){
     var clamp = function(x){ return Math.max(0, Math.min(1, x)); };
     var hike = 0, cut = 0;
     if (delta > 0) hike = clamp(delta / 0.25);
     else if (delta < 0) cut = clamp(-delta / 0.25);
-    return { hike: hike, hold: clamp(1 - hike - cut), cut: cut };
+    var out = { hike: hike, hold: clamp(1 - hike - cut), cut: cut };
+    var big = Math.abs(delta) > 0.25 ? clamp((Math.abs(delta) - 0.25) / 0.25) : 0;
+    if (big > 0) out.big = big;
+    return out;
   }
   // EFFR -> FOMC target-range midpoint (e.g. 3.62 -> 3.625), CME's anchor base.
   function fedTargetMidpoint(rate){ return Math.round((rate - 0.125) / 0.25) * 0.25 + 0.125; }
@@ -51872,9 +51879,21 @@ function scenarioEventPhase(ev, now = Date.now()) {
           '</div>' +
           '<div class="fomc-hl-bar">' + hlSeg(hCut, 'cut', 'Cut') + hlSeg(hHold, 'hold', 'Hold') + hlSeg(hHike, 'hike', 'Hike') + '</div>' +
           '<div class="fomc-hl-keys">' + hlKey(hCut, 'cut', 'cut') + hlKey(hHold, 'hold', 'hold') + hlKey(hHike, 'hike', 'hike') + '</div>' +
+          fomcBigMoveHtml(meetings[0]) +
           fomcPathHtml() +
         '</div>';
       }
+    }
+    // Futures past a full 25 bps step read as a 100% hike or cut. When the
+    // next meeting prices more than that, say how much of it is a 50 bps move
+    // (the marginal now-bucket's big share; 2026-11-17, Owner choice).
+    function fomcBigMoveHtml(m){
+      var mb = m && probs[m.date] && probs[m.date].now;
+      var big = mb ? normProb(mb, 'big') : null;
+      if (big == null || big < 0.005) return '';
+      var side = (normProb(mb, 'hike') || 0) >= (normProb(mb, 'cut') || 0) ? 'hike' : 'cut';
+      var bp = Math.round((0.25 + 0.25 * Math.min(1, big)) * 100);
+      return '<div class="fomc-hl-big ' + side + '" title="Futures price about ' + bp + ' bps at this meeting, more than one 25 bps step">Of which a 50 bps ' + side + ': <b>' + Math.round(big * 100) + '%</b></div>';
     }
     // The next few meetings as one stacked bar each (cumulative cut / hold /
     // hike vs today), so the path reads at a glance without opening the ladder.

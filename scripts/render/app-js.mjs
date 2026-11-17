@@ -32211,12 +32211,16 @@ ${renderExportBindings()}
   }
   // Identical to build.mjs probsFromDelta: a (pre,post) rate delta -> the CME
   // hike/hold/cut triple, 25 bps step, linear between adjacent quantized moves.
+  // Past 25 bps, big = the share priced as a 50 bps move (only set then).
   function probsFromDeltaLive(delta){
     var clamp = function(x){ return Math.max(0, Math.min(1, x)); };
     var hike = 0, cut = 0;
     if (delta > 0) hike = clamp(delta / 0.25);
     else if (delta < 0) cut = clamp(-delta / 0.25);
-    return { hike: hike, hold: clamp(1 - hike - cut), cut: cut };
+    var out = { hike: hike, hold: clamp(1 - hike - cut), cut: cut };
+    var big = Math.abs(delta) > 0.25 ? clamp((Math.abs(delta) - 0.25) / 0.25) : 0;
+    if (big > 0) out.big = big;
+    return out;
   }
   // EFFR -> FOMC target-range midpoint (e.g. 3.62 -> 3.625), CME's anchor base.
   function fedTargetMidpoint(rate){ return Math.round((rate - 0.125) / 0.25) * 0.25 + 0.125; }
@@ -32500,9 +32504,21 @@ ${renderExportBindings()}
           '</div>' +
           '<div class="fomc-hl-bar">' + hlSeg(hCut, 'cut', 'Cut') + hlSeg(hHold, 'hold', 'Hold') + hlSeg(hHike, 'hike', 'Hike') + '</div>' +
           '<div class="fomc-hl-keys">' + hlKey(hCut, 'cut', 'cut') + hlKey(hHold, 'hold', 'hold') + hlKey(hHike, 'hike', 'hike') + '</div>' +
+          fomcBigMoveHtml(meetings[0]) +
           fomcPathHtml() +
         '</div>';
       }
+    }
+    // Futures past a full 25 bps step read as a 100% hike or cut. When the
+    // next meeting prices more than that, say how much of it is a 50 bps move
+    // (the marginal now-bucket's big share; 2026-11-17, Owner choice).
+    function fomcBigMoveHtml(m){
+      var mb = m && probs[m.date] && probs[m.date].now;
+      var big = mb ? normProb(mb, 'big') : null;
+      if (big == null || big < 0.005) return '';
+      var side = (normProb(mb, 'hike') || 0) >= (normProb(mb, 'cut') || 0) ? 'hike' : 'cut';
+      var bp = Math.round((0.25 + 0.25 * Math.min(1, big)) * 100);
+      return '<div class="fomc-hl-big ' + side + '" title="Futures price about ' + bp + ' bps at this meeting, more than one 25 bps step">Of which a 50 bps ' + side + ': <b>' + Math.round(big * 100) + '%</b></div>';
     }
     // The next few meetings as one stacked bar each (cumulative cut / hold /
     // hike vs today), so the path reads at a glance without opening the ladder.
