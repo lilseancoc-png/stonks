@@ -36,6 +36,12 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ### Added
 - Add NBA team offensive/defensive efficiency, net rating and pace to prop research, player forecasts and Pick Builder; fit stat-specific efficiency and pace adjustments on prior complete games and use them only when they improve the historical check. NFL predictions are unchanged (#823).
 
+## 2026-11-17
+
+### Changed
+- The hourly unusual-flow scan counts the first half hour after the open: the 10:00 ET scan (up to 11:30) had nothing in-session to compare with, so 9:30-10:00 never flagged (0 of 188 flags in 60 scans, Nov 5-16). A contract that has traded today now counts all of today's volume and is labeled "since the open". Off switch `FLOW_OPEN_WINDOW` (Owner Settings).
+- Each stock gets its own unusual-flow volume bar: 1% (0.5% past 14 days) of its median full-day option volume over its last 10 complete sessions, between 500 and the old 4,000 (250 to 2,000). A stock keeps the old bar until 5 complete sessions are on file; the scanner now keeps each stock's daily option volume in `unusual-history.json`. 49 of 85 stocks never flagged under the single bar. Off switch `FLOW_STOCK_BARS` (Owner Settings). New Top Picks trades carry `flowScanVersion`, so the Track Record draws a dated divider; the record is not reset.
+
 ## 2026-11-16
 
 ### Added

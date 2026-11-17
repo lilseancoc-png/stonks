@@ -9282,16 +9282,22 @@ ${renderExportBindings()}
     var flaggedTag = flaggedLbl
       ? '<span class="flow-flagged" title="' + escapeHtml('First flagged unusual at ' + flaggedLbl) + '">\u{2691} ' + escapeHtml(flaggedLbl) + '</span>'
       : '';
-    var tipPrev = c.prevVol != null ? ' · was ' + fmtVolume(c.prevVol) + ' last hr' : '';
+    // c.sinceOpen: the first scan of the session counted every contract since
+    // the 9:30 open (there was no in-session snapshot to compare with).
+    var windowTxt = c.sinceOpen ? ' since the open' : ' this hour';
+    var tipPrev = (c.prevVol != null && !c.sinceOpen) ? ' · was ' + fmtVolume(c.prevVol) + ' last hr' : '';
+    var tipBar = c.bar != null && isFinite(c.bar)
+      ? ' · bar ' + fmtVolume(c.bar) + (c.stockBar ? ' (set from this stock’s normal option volume)' : '')
+      : '';
     var tipVoi = (voiRatio != null && isFinite(voiRatio)) ? ' · vol ' + voiStr + ' OI' : '';
-    var tipHourPrem = hourPrem != null ? ' · ≈' + fmtBigDollars(hourPrem) + ' premium this hour' : '';
+    var tipHourPrem = hourPrem != null ? ' · ≈' + fmtBigDollars(hourPrem) + ' premium' + windowTxt : '';
     var tipDayPrem = dayPrem != null ? ' · ' + fmtBigDollars(dayPrem) + ' on the day' : '';
     var tipTape = tapeLbl ? ' · ' + tapeTitle(c.tape) : '';
     var tipRepeat = repeatCount >= 2 ? ' · flagged ' + repeatCount + 'x in last 5 trading days' : '';
     var tipFlagged = flaggedLbl ? ' · flagged ' + flaggedLbl : '';
     var title = 'Vol ' + fmtVolume(c.vol) + ' vs OI ' + fmtVolume(c.oi) + tipVoi +
-      (c.deltaVol != null ? ' · ' + deltaStr + ' this hour' : '') +
-      tipPrev +
+      (c.deltaVol != null ? ' · ' + deltaStr + windowTxt : '') +
+      tipPrev + tipBar +
       (c.last != null ? ' · last $' + Number(c.last) : '') +
       tipHourPrem + tipDayPrem + tipTape + tipRepeat + tipFlagged;
     var noteHtml = c.note ? '<p class="flow-note">' + escapeHtml(c.note) + '</p>' : '';
@@ -9343,7 +9349,7 @@ ${renderExportBindings()}
         '<span class="flow-oi">' + escapeHtml(fmtVolume(c.oi)) + '</span>' +
       '</span>' +
       voiTag +
-      '<span class="flow-delta">' + escapeHtml(deltaStr) + '/hr</span>' +
+      '<span class="flow-delta">' + escapeHtml(deltaStr) + (c.sinceOpen ? ' since open' : '/hr') + '</span>' +
       premTag +
       sparkTag +
       tapeTag +
@@ -9353,6 +9359,15 @@ ${renderExportBindings()}
       '</div>' +
       noteHtml +
     '</div>';
+  }
+  // True when a row's biggest volume jump is a since-the-open count (the first
+  // scan of the session), not an hourly one.
+  function flowTopSinceOpen(t){
+    var best = null;
+    (t && t.contracts || []).forEach(function(c){
+      if (c && (!best || (Number(c.deltaVol) || 0) > (Number(best.deltaVol) || 0))) best = c;
+    });
+    return !!(best && best.sinceOpen);
   }
   function fmtRepeatSince(iso){
     if (!iso) return '';
@@ -9670,6 +9685,7 @@ ${renderExportBindings()}
       repeats: 0,
       near: 0,
       topDelta: 0,
+      topSinceOpen: false,
       actionTopDelta: 0,
       maxVoi: null,
       topContract: null,
@@ -9691,7 +9707,10 @@ ${renderExportBindings()}
       stats.rawContracts++;
       var premium = Number(c.deltaPremium != null ? c.deltaPremium : c.premium) || 0;
       stats.rawPremium += premium;
-      stats.topDelta = Math.max(stats.topDelta, Number(c.deltaVol) || 0);
+      if ((Number(c.deltaVol) || 0) > stats.topDelta){
+        stats.topDelta = Number(c.deltaVol) || 0;
+        stats.topSinceOpen = !!c.sinceOpen;
+      }
       if (!stats.topContract || premium > stats.topContract.premium){
         stats.topContract = { contract: c, premium: premium };
       }
@@ -9889,7 +9908,7 @@ ${renderExportBindings()}
           '<div><span>Focus qualified premium</span><b>' + escapeHtml(premiumText) + '</b><small>ask-side + material + liquid; not entry permission</small></div>' +
           '<div><span>Persistence</span><b>' + top.repeats + ' repeat' + (top.repeats === 1 ? '' : 's') + '</b><small>' + top.near + ' near-term · ' + top.contracts + ' qualified / ' + top.rawContracts + ' visible for ' + escapeHtml(top.symbol) + '</small></div>' +
         '</div>' +
-        '<p class="flow-decision-context"><b>' + escapeHtml(top.symbol) + ' evidence:</b> top print ' + escapeHtml(fmtDelta(top.topDelta)) + '/hr · ' +
+        '<p class="flow-decision-context"><b>' + escapeHtml(top.symbol) + ' evidence:</b> top print ' + escapeHtml(fmtDelta(top.topDelta)) + (top.topSinceOpen ? ' since the open' : '/hr') + ' · ' +
           escapeHtml(voiText) + '. ' + escapeHtml(flowGexContext(top)) +
           (top.ticker && top.ticker.ats && top.ticker.ats.darkPoolPct != null
             ? ' FINRA ATS was ' + escapeHtml(Number(top.ticker.ats.darkPoolPct).toFixed(1)) + '% of matching weekly volume' +
@@ -9964,7 +9983,7 @@ ${renderExportBindings()}
     if (top && top.c && top.c.strike != null){
       var ts = top.c.side === 'put' ? 'P' : 'C';
       var tp = fmtBigDollars(top.dp);
-      topStr = escapeHtml(top.sym) + ' $' + Number(top.c.strike) + ts + (tp ? ' · ' + escapeHtml(tp) + '/hr' : '');
+      topStr = escapeHtml(top.sym) + ' $' + Number(top.c.strike) + ts + (tp ? ' · ' + escapeHtml(tp) + (top.c.sinceOpen ? ' since the open' : '/hr') : '');
     }
     var barLabel = denom > 0
       ? 'Aggressive ask-side premium: calls ' + callPct + '%, puts ' + putPct + '%'
@@ -10029,7 +10048,13 @@ ${renderExportBindings()}
       { label: 'Flagged', cell: function(x){ return escapeHtml(fmtFlaggedTime(x.c.firstSeen)); }, sort: function(x){ return x.c.firstSeen ? Date.parse(x.c.firstSeen) : null; } },
       { label: 'Tape', title: 'Where the last print traded against the bid and ask', cell: function(x){ var l = tapeLabel(x.c.tape); return l ? '<span class="flow-tape tape-' + String(x.c.tape || '').replace(/[^a-z0-9_-]/gi, '') + '" title="' + escapeHtml(tapeTitle(x.c.tape)) + '">' + escapeHtml(l) + '</span>' : ''; }, sort: function(x){ return { ask: 5, abv: 4, mid: 3, blw: 2, bid: 1 }[x.c.tape] || null; } },
       { label: 'Premium', num: true, title: 'Premium that traded this hour (contracts this hour × last × 100); the day total when the hourly figure is missing', cell: function(x){ var v = prem(x); return v != null ? escapeHtml(flowShortDollars(v)) + (x.c.deltaPremium == null ? '<span class="vt-sub">day total</span>' : '') : ''; }, sort: prem },
-      { label: 'This hour', num: true, title: 'Contracts traded since the last hourly scan', cell: function(x){ return x.c.deltaVol != null ? escapeHtml(fmtDelta(x.c.deltaVol)) : ''; }, sort: function(x){ return x.c.deltaVol; } },
+      { label: 'This hour', num: true, title: 'Contracts traded since the last hourly scan (since the 9:30 open on the first scan of the day), with the bar this stock had to clear', cell: function(x){
+          if (x.c.deltaVol == null) return '';
+          var sub = [];
+          if (x.c.sinceOpen) sub.push('since the open');
+          if (x.c.bar != null && isFinite(x.c.bar)) sub.push('bar ' + fmtVolume(x.c.bar));
+          return escapeHtml(fmtDelta(x.c.deltaVol)) + (sub.length ? '<span class="vt-sub">' + escapeHtml(sub.join(' · ')) + '</span>' : '');
+        }, sort: function(x){ return x.c.deltaVol; } },
       { label: 'Vol / OI', num: true, title: 'Volume today divided by open interest. Above 1× means new positions.', cell: function(x){
           var c = x.c;
           if (c.oi === 0 && c.vol > 0) return '<span class="flow-voi flow-voi-new">new strike</span>';
@@ -10081,7 +10106,7 @@ ${renderExportBindings()}
         if (!UNUSUAL){
           empty.textContent = 'Waiting for the first hourly scan to land.';
         } else if (UNUSUAL.summary && UNUSUAL.summary.hadPrior === false){
-          empty.textContent = 'First scan of the session — hourly delta needs a prior snapshot. Check back after the next hourly run.';
+          empty.textContent = 'No in-session scan to compare with yet. Check back after the next hourly run.';
         } else {
           empty.textContent = 'No block/sweep flow flagged in the latest scan.';
         }
@@ -10123,7 +10148,7 @@ ${renderExportBindings()}
           '<span class="flow-symbol">' + escapeHtml(t.symbol) + '</span>' +
           (spot ? '<span class="flow-spot">' + spot + '</span>' : '') +
           '<span class="flow-count">' + t.contracts.length + ' contract' + (t.contracts.length === 1 ? '' : 's') + '</span>' +
-          '<span class="flow-top">Top · ' + fmtDelta(t.topDelta) + '/hr</span>' +
+          '<span class="flow-top">Top · ' + fmtDelta(t.topDelta) + (flowTopSinceOpen(t) ? ' since open' : '/hr') + '</span>' +
         '</button>' +
         gexStripHtml(t) +
         atsStripHtml(t) +
@@ -37038,6 +37063,9 @@ ${renderExportBindings()}
     } },
     // Exposure caps (lib/top-picks-caps.mjs), stamped from Nov 6.
     { key:'caps', get:function(e){ return (e && e.capsVersion) || ''; } },
+    // Unusual-flow scan rules behind the flow vote (opening half hour, a bar
+    // per stock), stamped from 2026-11-17.
+    { key:'flowscan', get:function(e){ return (e && e.flowScanVersion) || ''; } },
     // Option-structure rule (singles by default), stamped from its first trade.
     { key:'structure', get:function(e){ return (e && e.structurePolicyVersion) || ''; } },
     // AI final grader mode (live / off / keyless), stamped from 2026-11-08.
@@ -37077,6 +37105,12 @@ ${renderExportBindings()}
     entry: { '2026-10-23-reviewed-entry-v3': { since:'2026-10-23', note:'Entries must pass an option-price check' } },
     timing: { '4': { since:'2026-10-23', note:'Volatility-aware entry timing' }, '5': { since:'2026-11-06', note:'Event-aware: trades through macro events and earnings when the evidence agrees' } },
     caps: { '2026-11-06-factor-run-2': { since:'2026-11-06', note:'At most 2 new trades per run from one stock group (the tech/AI group)' } },
+    // No fixed dates: each divider dates from the first trade under the rule.
+    flowscan: {
+      '2026-11-17': { note:'Flow scan counts the opening half hour and gives each stock its own volume bar, so the flow vote sees more names' },
+      '2026-11-17-open': { note:'Flow scan counts the opening half hour (one volume bar for every stock)' },
+      '2026-11-17-bars': { note:'Flow scan gives each stock its own volume bar (opening half hour not counted)' }
+    },
     // No fixed date: the divider dates from the first trade under the rule.
     structure: { '2026-11-singles-default': { note:'Single calls and puts by default; a debit spread only for earnings inside the hold or one contract over $5,000' } },
     // No fixed dates: each mode's divider dates from its first trade.
