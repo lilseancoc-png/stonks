@@ -42,10 +42,18 @@ import {
   etDateKey as volEtDateKey,
   etMinutesSinceOpen,
   bucketForMinute,
+  cumFracExpected as volCumFracExpected,
+  sessionCloseMinForDate as volSessionCloseMin,
   BUCKETS as VOLUME_BUCKETS,
   SESSION_OPEN_MIN,
   SESSION_CLOSE_MIN,
+  VOLUME_CURVE_VERSION,
+  CURVE_KEEP_DAYS,
+  volumeSwitches,
+  learnCurveDay,
+  curveFromDays,
 } from "../lib/volume-flags.mjs";
+import { OWNER_SETTINGS_KEY, applyOwnerSettingsToEnv } from "../lib/owner-settings.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -612,6 +620,81 @@ async function loadTickerGex(symbol, spot) {
   }
 }
 
+// The finished daily-bar volume the bake stored for `symbol` on `date` (the
+// same basis as the 20-day average), for re-measuring the volume curve. Only
+// once a bake on a later day has written a newer bar: the 16:10 bake can
+// catch the day's bar before the late volume settles, and a short total
+// would make the curve read too high. Until then the day waits (the snapshot
+// history keeps it through the next morning's 11:00 scan).
+async function loadDailyVolume(symbol, date) {
+  try {
+    const raw = await readFile(resolve(DATA_DIR, `${symbol}.json`), "utf8");
+    const ps = JSON.parse(raw)?.priceSeries;
+    if (!Array.isArray(ps?.t) || !Array.isArray(ps?.v)) return null;
+    let newer = false;
+    for (let i = ps.t.length - 1; i >= 0; i--) {
+      const key = String(ps.t[i]).slice(0, 10);
+      if (key > date) { newer = true; continue; }
+      if (key === date) { const v = Number(ps.v[i]); return newer && v > 0 ? v : null; }
+      break;
+    }
+  } catch {}
+  return null;
+}
+
+// The volume switches from the Owner Settings page (a repo variable wins).
+// The bake applies the page through scripts/owner-settings-env.mjs; this
+// scanner reads the same file itself and copies only its own two keys.
+const VOLUME_SETTING_KEYS = ["VOLUME_MEASURED_CURVE", "VOLUME_SESSION_READ"];
+async function applyVolumeOwnerSettings(env = process.env) {
+  try {
+    const raw = await readFile(resolve(DATA_DIR, OWNER_SETTINGS_KEY), "utf8");
+    const scratch = {};
+    for (const k of VOLUME_SETTING_KEYS) if (env[k] != null) scratch[k] = env[k];
+    const report = applyOwnerSettingsToEnv(raw, scratch);
+    for (const k of VOLUME_SETTING_KEYS) {
+      if (Object.prototype.hasOwnProperty.call(report.applied, k)) env[k] = scratch[k];
+    }
+  } catch {
+    // No settings file (or a bad one): the defaults stand.
+  }
+}
+
+// Re-measure the volume curve: each finished session still in the snapshot
+// history (it keeps about a day and a half) adds one day of points, read
+// against the bake's finished daily volume. Returns the curve in use (null =
+// the fixed U-curve when VOLUME_MEASURED_CURVE=0) and a summary for the page.
+async function updateVolumeCurve(history, todayKey, switches) {
+  const days = Array.isArray(history.curveDays) ? history.curveDays.filter((d) => d && d.date) : [];
+  const have = new Set(days.map((d) => d.date));
+  const pending = [...new Set((history.snapshots || []).map((s) => s?.etDate))]
+    .filter((d) => d && todayKey && d < todayKey && !have.has(d) && volSessionCloseMin(d) === SESSION_CLOSE_MIN)
+    .sort();
+  for (const date of pending) {
+    const symbols = new Set();
+    for (const snap of history.snapshots || []) {
+      if (snap?.etDate !== date) continue;
+      for (const t of snap.tickers || []) if (t?.symbol) symbols.add(t.symbol);
+    }
+    const vols = new Map();
+    for (const sym of symbols) vols.set(sym, await loadDailyVolume(sym, date));
+    const day = learnCurveDay(history.snapshots, date, (sym) => vols.get(sym));
+    if (day) days.push(day);
+  }
+  history.curveDays = days.sort((a, b) => String(a.date).localeCompare(String(b.date))).slice(-CURVE_KEEP_DAYS);
+  const fitted = curveFromDays(history.curveDays);
+  return {
+    curve: switches.measuredCurve ? fitted.knots : null,
+    info: {
+      version: VOLUME_CURVE_VERSION,
+      mode: switches.measuredCurve ? "measured" : "fixed",
+      learnedKnots: fitted.learnedSlots,
+      days: fitted.days,
+      knots: fitted.knots,
+    },
+  };
+}
+
 async function loadVolumeHistory() {
   try {
     const raw = await readFile(resolve(DATA_DIR, VOLUME_HISTORY_FILE), "utf8");
@@ -826,6 +909,9 @@ async function runVolumePass({
   const todayKey = volEtDateKey(nowDate);
   const etMin = etMinutesSinceOpen(nowDate);
   const history = await loadVolumeHistory();
+  await applyVolumeOwnerSettings();
+  const switches = volumeSwitches(process.env);
+  const { curve, info: curveInfo } = await updateVolumeCurve(history, todayKey, switches);
   const prevLookup = buildVolPrevSnapLookup(history, todayKey);
   const currentBucket = bucketForMinute(etMin);
   const bucketStartLookup = buildBucketStartLookup(history, todayKey, currentBucket);
@@ -849,6 +935,10 @@ async function runVolumePass({
 
   const freshRows = [];
   const snapshotTickers = [];
+  // Session-so-far read for every evaluated name (flagged or not), for the
+  // grade's unusual-volume vote: r = ratio to normal by now, m = move from
+  // yesterday's close in %, t = minutes past 9:30 ET.
+  const sessionReads = {};
 
   for (const r of perTickerResults) {
     if (!r || !r.symbol) continue;
@@ -899,7 +989,11 @@ async function runVolumePass({
       bucketStartEtMin,
       moveThresholdPct: tech.moveThresholdPct,
       srBufferPct: tech.srBufferPct,
+      curve,
     });
+    if (evalOut?.session?.ratio != null) {
+      sessionReads[r.symbol] = { r: evalOut.session.ratio, m: evalOut.session.movePct, t: evalOut.etMin };
+    }
     const row = buildFlagRow(r.symbol, evalOut, scannedAt, isFinalScan, bucketStartGap);
     if (row) freshRows.push(row);
   }
@@ -943,7 +1037,9 @@ async function runVolumePass({
         row.bucketHits.push({
           bucketLabel: label,
           actualHourVol: null,
-          expectedHourVol: row.avg20 != null ? Math.round(row.avg20 * bucket.frac) : null,
+          expectedHourVol: row.avg20 != null
+            ? Math.round(row.avg20 * (volCumFracExpected(bucket.endMin, curve) - volCumFracExpected(bucket.startMin, curve)))
+            : null,
           volRatio: null,
           priceMovePct: null,
           hourlyFlagged: false,
@@ -1014,6 +1110,11 @@ async function runVolumePass({
     etMin,
     marketState: marketState || null,
     summary,
+    // Which "normal volume by now" curve this scan used (measured or fixed),
+    // how many of its knots have been re-measured, from how many sessions.
+    curve: curveInfo,
+    // This scan's session-so-far read for every name (empty before 9:50 ET).
+    session: { etMin, reads: sessionReads },
     tickers: merged,
   };
 

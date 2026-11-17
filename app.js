@@ -12918,14 +12918,26 @@ function scenarioEventPhase(ev, now = Date.now()) {
     '</div>';
   }
 
-  // Intraday cumulative-volume curve — a trimmed copy of the U-shaped session
-  // distribution in lib/volume-flags.mjs (BUCKETS / cumFracExpected /
-  // etMinutesSinceOpen). Duplicated here because app.js is a generated IIFE and
-  // can't import the ESM module (same rationale as the greeks duplication noted
-  // in CLAUDE.md). If you retune the curve there, mirror it here. Used only to
-  // project today's live cumulative volume to a full-day figure so the
-  // Execute-now card's relative-volume read can be live + time-of-day-normalized
-  // rather than frozen at the last build.
+  // Intraday cumulative-volume curve. The flow scan measures it from past
+  // sessions (lib/volume-flags.mjs, curveFromDays) and the page shell carries
+  // its points as MANIFEST.volumeFlagsMeta.curveKnots; this reads them the same
+  // way as cumFracExpected there. Without a measured curve it falls back to
+  // the fixed buckets below (the scan's own fallback, BUCKETS; keep the two the
+  // same). Used only to project today's live cumulative volume to a full-day
+  // figure so the Execute-now card's relative-volume read can be live +
+  // time-of-day-normalized rather than frozen at the last build.
+  function execCurveKnots(){
+    var meta = MANIFEST && MANIFEST.volumeFlagsMeta;
+    var k = meta && meta.curveKnots;
+    if (!Array.isArray(k) || k.length < 2) return null;
+    var first = k[0], last = k[k.length - 1];
+    if (!Array.isArray(first) || first[0] !== 0 || first[1] !== 0) return null;
+    if (!Array.isArray(last) || last[0] !== 390 || last[1] !== 1) return null;
+    for (var i = 1; i < k.length; i++){
+      if (!Array.isArray(k[i]) || !(k[i][0] > k[i - 1][0]) || !(k[i][1] >= k[i - 1][1])) return null;
+    }
+    return k;
+  }
   var EXEC_VOL_BUCKETS = [
     { startMin: 0,   endMin: 60,  frac: 0.25 },
     { startMin: 60,  endMin: 120, frac: 0.14 },
@@ -12937,6 +12949,16 @@ function scenarioEventPhase(ev, now = Date.now()) {
   function execCumFracExpected(etMin){
     if (etMin <= 0) return 0;
     if (etMin >= 390) return 1;
+    var knots = execCurveKnots();
+    if (knots){
+      for (var j = 1; j < knots.length; j++){
+        if (etMin <= knots[j][0]){
+          var a = knots[j - 1], b2 = knots[j];
+          return a[1] + (b2[1] - a[1]) * (etMin - a[0]) / (b2[0] - a[0]);
+        }
+      }
+      return 1;
+    }
     var cum = 0;
     for (var i = 0; i < EXEC_VOL_BUCKETS.length; i++){
       var b = EXEC_VOL_BUCKETS[i];
@@ -13055,7 +13077,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     // Relative volume — prefer a live, time-of-day-normalized estimate over the
     // baked rvol (frozen at the last build, and itself only a partial in-progress
     // bar during RTH). /api/quote returns regularMarketVolume (cumulative session
-    // volume so far); projecting it to a full-day figure off the U-shaped intraday
+    // volume so far); projecting it to a full-day figure off the measured intraday
     // curve and dividing by the baked 20D average daily volume gives a live
     // "where is today's rvol heading?" read directly comparable to the 1.5x/0.7x
     // thresholds below. Falls back to the baked rvol when live volume or the curve
@@ -13537,7 +13559,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     // jargon (R20 / S20 / relative volume) without escaping them away.
     var R20_TIP = '20-day resistance — the highest price the stock has hit in the last month. Acts as a ceiling: rallies often stall here until volume breaks through.';
     var S20_TIP = '20-day support — the lowest price the stock has hit in the last month. Acts as a floor: selloffs often find buyers here.';
-    var RVOL_TIP = 'Relative volume — today\'s shares traded divided by the recent daily average. 1.0x is normal. Above 1.5x = unusually active (institutions involved); below 0.7x = quiet tape. When live, today\'s volume-so-far is projected to a full-day estimate using the typical U-shaped intraday curve so it stays comparable through the session.';
+    var RVOL_TIP = 'Relative volume — today\'s shares traded divided by the recent daily average. 1.0x is normal. Above 1.5x = unusually active (institutions involved); below 0.7x = quiet tape. When live, today\'s volume-so-far is projected to a full-day estimate using the intraday pace measured from recent sessions (heaviest in the first hour and the last hour) so it stays comparable through the session.';
     var metaBits = ['<span>Spot $' + fmt(spot) + '</span>'];
     if (todayMovePct != null) metaBits.push('<span>' + escapeHtml(signedPct(todayMovePct)) + ' today (' + escapeHtml(moveSrc) + ')</span>');
     if (rvol != null) metaBits.push('<span>' + rvol.toFixed(2) + 'x avg volume (' + escapeHtml(rvolSrc) + ')' + tipChip(RVOL_TIP) + '</span>');
@@ -55639,9 +55661,12 @@ function scenarioEventPhase(ev, now = Date.now()) {
     { key:'loop', get:function(e){ return (e && e.loopVersion != null) ? 'v' + e.loopVersion : ''; } },
     // Owner Settings page values that change which trades open (stamped from
     // 2026-11-10 only while one differs from its default).
-    { key:'settings', get:function(e){ return (e && typeof e.ownerSettings === 'string' && e.ownerSettings) || ''; } }
+    { key:'settings', get:function(e){ return (e && typeof e.ownerSettings === 'string' && e.ownerSettings) || ''; } },
+    // Unusual volume vote rules (measured intraday curve + session-so-far
+    // read), stamped on new trades; empty while both volume switches are off.
+    { key:'volume', get:function(e){ return (e && typeof e.volumeReadVersion === 'string' && e.volumeReadVersion) || ''; } }
   ];
-  var OWNER_SETTING_LABELS = {"PICKS_EVENT_AWARE":"Event plays","PICKS_MACRO_CONTEXT":"Macro context block","FLOW_SIGNED":"Signed option flow","PICKS_MACRO_BLOCK_PTS":"Macro block strength","PICKS_SINGLES_DEFAULT":"Single options by default","PICKS_STRATEGY_AUTO":"Pick the option structure","PICKS_EDGE_GATE":"Raise the bar after losses","PICKS_COUNT":"Most picks per run","PICKS_MAX_OPEN_POSITIONS":"Most open trades","PICKS_MAX_NEW_PER_FACTOR_RUN":"New trades per stock group per run","PICKS_SINGLE_MAX_COST":"Single option cost cap","PICKS_FOMC_ALWAYS_DEFER":"Wait out Fed, CPI, PPI and jobs days","PICKS_EVENT_RISK":"Event risk check","PICKS_STRATEGY_EARNINGS_DAYS":"Earnings window for spreads","PICKS_CREDIT_INTO_MACRO_EVENT":"Credit spreads into macro events","PICKS_MACRO_REGIME":"Market tape on the picks","PICKS_MACRO_INDEX":"Indexes (SPY and QQQ)","PICKS_MACRO_CREDIT":"Credit spreads","PICKS_MACRO_BREADTH":"Breadth","PICKS_MACRO_PUTCALL":"Put/call","PICKS_MACRO_BONDVOL":"Bond volatility (MOVE)","PICKS_MACRO_SENTIMENT":"Fear & Greed","PICKS_MACRO_INFLATION":"Inflation and jobs","PICKS_MACRO_COMMODITY":"Oil and gold shocks","PICKS_MACRO_NEWS":"War, tariff and Iran headlines","PICKS_MACRO_GLOBAL":"Overnight markets","PICKS_MACRO_ROTATION":"Sector rotation","AI_THESIS":"AI final grader","AI_THESIS_SEARCH":"Web search before grading","PREDICTION_MARKETS":"Prediction-market odds","PICKS_CROWD_SQUEEZE_VETO":"Crowd squeeze veto","PICKS_CROWD_GRADER":"Crowd lines in the AI grader","PICKS_ODDS_GRADER":"Prediction odds in the AI grader","PICKS_MACRO_PUTCALL_SRC":"Put/call source for the market tape","SELF_TUNE":"Self-tuning"};
+  var OWNER_SETTING_LABELS = {"PICKS_EVENT_AWARE":"Event plays","PICKS_MACRO_CONTEXT":"Macro context block","FLOW_SIGNED":"Signed option flow","VOLUME_MEASURED_CURVE":"Measured intraday volume curve","VOLUME_SESSION_READ":"Session-so-far volume vote","PICKS_MACRO_BLOCK_PTS":"Macro block strength","PICKS_SINGLES_DEFAULT":"Single options by default","PICKS_STRATEGY_AUTO":"Pick the option structure","PICKS_EDGE_GATE":"Raise the bar after losses","PICKS_COUNT":"Most picks per run","PICKS_MAX_OPEN_POSITIONS":"Most open trades","PICKS_MAX_NEW_PER_FACTOR_RUN":"New trades per stock group per run","PICKS_SINGLE_MAX_COST":"Single option cost cap","PICKS_FOMC_ALWAYS_DEFER":"Wait out Fed, CPI, PPI and jobs days","PICKS_EVENT_RISK":"Event risk check","PICKS_STRATEGY_EARNINGS_DAYS":"Earnings window for spreads","PICKS_CREDIT_INTO_MACRO_EVENT":"Credit spreads into macro events","PICKS_MACRO_REGIME":"Market tape on the picks","PICKS_MACRO_INDEX":"Indexes (SPY and QQQ)","PICKS_MACRO_CREDIT":"Credit spreads","PICKS_MACRO_BREADTH":"Breadth","PICKS_MACRO_PUTCALL":"Put/call","PICKS_MACRO_BONDVOL":"Bond volatility (MOVE)","PICKS_MACRO_SENTIMENT":"Fear & Greed","PICKS_MACRO_INFLATION":"Inflation and jobs","PICKS_MACRO_COMMODITY":"Oil and gold shocks","PICKS_MACRO_NEWS":"War, tariff and Iran headlines","PICKS_MACRO_GLOBAL":"Overnight markets","PICKS_MACRO_ROTATION":"Sector rotation","AI_THESIS":"AI final grader","AI_THESIS_SEARCH":"Web search before grading","PREDICTION_MARKETS":"Prediction-market odds","PICKS_CROWD_SQUEEZE_VETO":"Crowd squeeze veto","PICKS_CROWD_GRADER":"Crowd lines in the AI grader","PICKS_ODDS_GRADER":"Prediction odds in the AI grader","PICKS_MACRO_PUTCALL_SRC":"Put/call source for the market tape","SELF_TUNE":"Self-tuning"};
   function ownerSettingsTagText(tag){
     if (tag === 'default') return 'back on the defaults';
     return String(tag || '').split(',').filter(Boolean).map(function(part){
@@ -55668,6 +55693,12 @@ function scenarioEventPhase(ev, now = Date.now()) {
     caps: { '2026-11-06-factor-run-2': { since:'2026-11-06', note:'At most 2 new trades per run from one stock group (the tech/AI group)' } },
     // No fixed date: the divider dates from the first trade under the rule.
     structure: { '2026-11-singles-default': { note:'Single calls and puts by default; a debit spread only for earnings inside the hold or one contract over $5,000' } },
+    // No fixed dates: each version's divider dates from its first trade.
+    volume: {
+      '2026-11-17': { note:'Unusual volume vote reads the session so far against an intraday curve measured from recent sessions' },
+      '2026-11-17-curve': { note:'Intraday volume curve measured from recent sessions (session-so-far vote off)' },
+      '2026-11-17-read': { note:'Unusual volume vote reads the session so far (fixed intraday curve)' }
+    },
     // No fixed dates: each mode's divider dates from its first trade.
     grader: { 'off': { note:'AI final grader off (AI_THESIS=0): deterministic grades and entries only' }, 'keyless': { note:'AI final grader had no key: deterministic grades and entries only' }, 'live': { note:'AI final grader back on' } }
   };

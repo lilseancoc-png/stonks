@@ -36,6 +36,12 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ### Added
 - Add NBA team offensive/defensive efficiency, net rating and pace to prop research, player forecasts and Pick Builder; fit stat-specific efficiency and pace adjustments on prior complete games and use them only when they improve the historical check. NFL predictions are unchanged (#823).
 
+## 2026-11-17
+
+### Changed
+- Measure the intraday volume curve from the covered stocks' own sessions instead of the fixed 25/14/11/11/14/25% hour curve, which expected too little volume in the first hour and too much in the afternoon (median name traded 16.7% of its day by 10:00, not 12.5%); the Volume page, the heatmap's relative volume and the stock page's live relative volume all read it (`VOLUME_MEASURED_CURVE=0` brings the fixed curve back).
+- The grade's Unusual volume vote reads the session so far (volume since the open against a normal day by now, move since yesterday's close) instead of the busiest single window, which opened the vote to about half of all names on an ordinary day; the strategy engines' relative volume follows it, and new Top Picks trades carry `volumeReadVersion` for a Track Record divider (`VOLUME_SESSION_READ=0` brings back the window read).
+
 ## 2026-11-16
 
 ### Added
