@@ -12540,22 +12540,27 @@ async function readPriorBottomTracker() {
   try { return JSON.parse(await readFile(resolve(DATA_DIR, "bottom-tracker.json"), "utf8")); } catch { return null; }
 }
 
-function closesForBottom(chain) {
+// Completed sessions only (confirmedDailyBars, the rule the streaks and the
+// macro context use): during market hours Yahoo's last daily bar is the
+// session in progress, which is not a close. The verdict is dated by its
+// last bar, and the Top Picks shock-put lane reads it at 11:00 / 15:30 ET.
+export function closesForBottom(chain, now = new Date()) {
   const rows = [];
   if (Array.isArray(chain?._bars) && chain._bars.length) {
     for (const bar of chain._bars) rows.push({ t: bar?.t, c: bar?.c });
   } else if (chain?.priceSeries?.t && chain?.priceSeries?.c) {
     for (let i = 0; i < chain.priceSeries.t.length; i++) rows.push({ t: chain.priceSeries.t[i], c: chain.priceSeries.c[i] });
   }
-  return mergeDailyCloses(rows);
+  return mergeDailyCloses(confirmedDailyBars(rows, chain?.marketState, now));
 }
 
 // Reads SPY/QQQ history and every FRED series from the shared long-history
 // cache (fred(id) -> rows). No downloads of its own: the cache refreshes each
 // series once a day and keeps the last good rows when a download fails.
 async function writeBottomTrackerFile({ chains, indexBars, fred, prior, builtAtIso, crowd = null }) {
-  const spy = mergeDailyCloses(indexBars?.SPY, closesForBottom(chains?.SPY));
-  const qqq = mergeDailyCloses(indexBars?.QQQ, closesForBottom(chains?.QQQ));
+  const at = new Date(builtAtIso || Date.now());
+  const spy = mergeDailyCloses(indexBars?.SPY, closesForBottom(chains?.SPY, at));
+  const qqq = mergeDailyCloses(indexBars?.QQQ, closesForBottom(chains?.QQQ, at));
   const series = (id) => (fred ? fred(id) : []).filter((row) => Number.isFinite(row?.value));
   const hy = series("BAMLH0A0HYM2"), ig = series("BAMLC0A0CM"), stress = series("STLFSI4"), vix = series("VIXCLS");
   const dgs2 = series("DGS2"), cpi = series("CPIAUCSL"), unrate = series("UNRATE"), oil = series("DCOILWTICO");
@@ -12566,7 +12571,7 @@ async function writeBottomTrackerFile({ chains, indexBars, fred, prior, builtAtI
     if (SECTORS[sym] === "ETF") continue;
     const rev = chains[sym]?.fundamentals?.fyEpsRevision;
     if (rev) revisions.push(rev);
-    const bars = closesForBottom(chains[sym]);
+    const bars = closesForBottom(chains[sym], at);
     if (bars.length >= 60) breadthBars[sym] = bars;
   }
   const payload = buildBottomTracker({
@@ -20864,10 +20869,14 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory = null, narrat
     // easing tailwind — only credit front-end easing as risk-on when equities aren't
     // falling. (axes.indexes is already scored above this axis.)
     const tapeOk = !axes.indexes || axes.indexes.score >= 0;
+    // Same reversal guard as the long-yield axis: a 5-day trend does not vote
+    // when today's move runs the other way by at least half the 1-day bar.
+    const twoReversingDown = b1 <= -PICKS_MACRO_TWOY_BPS_1D / 2;
+    const twoReversingUp = b1 >= PICKS_MACRO_TWOY_BPS_1D / 2;
     let s = 0, label = `2Y ${b1 >= 0 ? "+" : ""}${b1.toFixed(1)} bps 1d`;
     if (b1 >= PICKS_MACRO_TWOY_BPS_1D_STRONG) { s = -2; label = `2Y +${b1.toFixed(1)} bps — sharp front-end repricing`; }
-    else if (b1 >= PICKS_MACRO_TWOY_BPS_1D || (rising && b5 >= PICKS_MACRO_TWOY_BPS_1D)) { s = -1; label = `2Y ${b1 >= 0 ? "+" : ""}${b1.toFixed(1)} bps — front-end tightening`; }
-    else if ((b1 <= -PICKS_MACRO_TWOY_BPS_1D || (falling && b5 <= -PICKS_MACRO_TWOY_BPS_1D)) && tapeOk) { s = 1; label = `2Y ${b1.toFixed(1)} bps — front-end easing`; }
+    else if (b1 >= PICKS_MACRO_TWOY_BPS_1D || (rising && b5 >= PICKS_MACRO_TWOY_BPS_1D && !twoReversingDown)) { s = -1; label = `2Y ${b1 >= 0 ? "+" : ""}${b1.toFixed(1)} bps — front-end tightening`; }
+    else if ((b1 <= -PICKS_MACRO_TWOY_BPS_1D || (falling && b5 <= -PICKS_MACRO_TWOY_BPS_1D && !twoReversingUp)) && tapeOk) { s = 1; label = `2Y ${b1.toFixed(1)} bps — front-end easing`; }
     axes.twoY = { score: s, label };
     if (s <= -1) drivers.push(`2Y ${b1 >= 0 ? "+" : ""}${b1.toFixed(1)}bps`);
   } else axes.twoY = { score: 0, label: PICKS_MACRO_TWOY ? "no 2Y data" : "front-end axis off" };

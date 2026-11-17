@@ -56,6 +56,15 @@ check('falling yields during a sell-off do not fabricate an easing vote',()=>{
  const b=healthy();b.indexes.spy.pctChange1d=b.indexes.qqq.pctChange1d=-3;b.tenY.bpsChange1d=b.twoY.bpsChange1d=-20;b.vix.value=35;
  const r=computeMacroRegime(b);assert.equal(r.axes.yields.score,0);assert.equal(r.axes.twoY.score,0);
 });
+check('a 2Y reversal day does not let the 5-day trend vote (same guard as long yields)',()=>{
+ const b=healthy();b.twoY={value:3.6,bpsChange1d:-5,bpsChange5d:9,trend:'rising'};
+ let r=computeMacroRegime(b);assert.equal(r.axes.twoY.score,0);assert(!r.drivers.some(d=>/^2Y/.test(d)));
+ let live=ctx.computeLiveMacroRegime(r,{});assert.equal(live.axes.twoY.score,0);
+ b.twoY.bpsChange1d=-3;r=computeMacroRegime(b);assert.equal(r.axes.twoY.score,-1,'a small dip keeps the trend vote');
+ b.twoY={value:3.6,bpsChange1d:5,bpsChange5d:-9,trend:'falling'};r=computeMacroRegime(b);assert.equal(r.axes.twoY.score,0);
+ live=ctx.computeLiveMacroRegime(r,{});assert.equal(live.axes.twoY.score,0);
+ b.twoY.bpsChange1d=2;assert.equal(computeMacroRegime(b).axes.twoY.score,1);
+});
 check('opposite index moves are labeled mixed, not broad',()=>{
  const b=healthy();b.indexes.spy.pctChange1d=-1.5;b.indexes.qqq.pctChange1d=2.5;assert.match(computeMacroRegime(b).axes.indexes.label,/mixed index leadership/);
 });
@@ -75,7 +84,7 @@ check('2000 ordinary and stressed input combinations preserve server/browser sco
   const b=healthy();for(const k of ['spy','qqq'])b.indexes[k]={pctChange1d:pick([-3,-1.8,-.8,0,.8,1.8,3]),pctChange5d:pick([-5,0,5]),aboveSma20:rnd()>.5};
   b.vix={value:pick([12,16.5,18,20,25,30]),pctChange1d:pick([-10,0,10]),trend:pick(['rising','falling','flat'])};
   b.dxy={pctChange1d:pick([-1.2,-.6,0,.6,1.2]),pctChange5d:pick([-2,0,2]),trend:pick(['rising','falling','flat'])};
-  for(const k of ['tenY','thirtyY','twoY'])b[k]={value:4,bpsChange1d:pick([-20,-10,0,10,20]),bpsChange5d:pick([-20,0,20]),trend:pick(['rising','falling','flat'])};
+  for(const k of ['tenY','thirtyY','twoY'])b[k]={value:4,bpsChange1d:pick([-20,-10,-5,0,5,10,20]),bpsChange5d:pick([-20,0,20]),trend:pick(['rising','falling','flat'])};
   for(const k of ['crude','gold'])b[k]={pctChange1d:pick([-8,0,3,4,8]),pctChange5d:pick([-10,0,6,12])};
   b.move={value:pick([70,95,110,140]),pctChange1d:pick([-10,0,10])};b.breadth={pctAbove200:pick([20,40,55,65,85]),pctAbove50:pick([20,65,85]),nhnl:pick([-15,0,25])};
   b.credit={oas:pick([2.5,4,6,8]),oasChg5d:pick([-.3,0,.3,.6]),hygLqdChg5d:pick([-2,0,2])};b.rotation={spread:pick([-2,0,2])};

@@ -12772,10 +12772,12 @@ ${renderExportBindings()}
       // A 2Y rally on an equity sell-off is flight-to-safety (risk-off), not dovish
       // easing — only credit easing as risk-on when equities aren't falling. Mirrors build.mjs.
       var tapeOk = !axes.indexes || axes.indexes.score >= 0;
+      // Reversal guard, same as the long-yield axis and build.mjs.
+      var revDown = b1 <= -t1 / 2, revUp = b1 >= t1 / 2;
       var s = 0, label = '2Y ' + (b1 >= 0 ? '+' : '') + b1.toFixed(1) + ' bps 1d';
       if (b1 >= t1s){ s = -2; label = '2Y +' + b1.toFixed(1) + ' bps — sharp front-end repricing'; }
-      else if (b1 >= t1 || (rising && b5 >= t1)){ s = -1; label = '2Y ' + (b1 >= 0 ? '+' : '') + b1.toFixed(1) + ' bps — front-end tightening'; }
-      else if ((b1 <= -t1 || (falling && b5 <= -t1)) && tapeOk){ s = 1; label = '2Y ' + b1.toFixed(1) + ' bps — front-end easing'; }
+      else if (b1 >= t1 || (rising && b5 >= t1 && !revDown)){ s = -1; label = '2Y ' + (b1 >= 0 ? '+' : '') + b1.toFixed(1) + ' bps — front-end tightening'; }
+      else if ((b1 <= -t1 || (falling && b5 <= -t1 && !revUp)) && tapeOk){ s = 1; label = '2Y ' + b1.toFixed(1) + ' bps — front-end easing'; }
       axes.twoY = { score: s, label: label, live: isLive };
     })();
 
@@ -13344,7 +13346,7 @@ ${renderExportBindings()}
     if (k === 'fed') return 'The average change in hike-minus-cut probability across the nearest FedWatch meetings votes −1 at +' + v(T.fedDriftPt, 5) + ' points, −2 at +' + (2 * v(T.fedDriftPt, 5)) + ', and +1 at −' + v(T.fedDriftPt, 5) + '. An FOMC decision inside the configured near-event window forces at least −1.' + (T.macroContextOn ? ' Hikes already priced, the 2-year yield ' + v(T.fedPricedPts, 0.25) + ' points or more over fed funds, also force at least −1.' : '') + ' Slow axis — refreshes at the build.';
     if (k === 'geo') return 'Stress-only. Fresh conflict headlines can vote −2; tariff/geopolitical flashpoints or an active bearish narrative can vote −1. De-escalation clears stress to neutral, not risk-on. Slow axis — refreshes at the build.';
     if (k === 'inflation') return 'CPI votes −1 when ≥' + v(T.cpiWarm, 3.0) + '% and re-accelerating by ≥' + v(T.cpiReaccel, 0.3) + 'pp versus 3 months ago, or when ≥' + v(T.cpiHot, 4.0) + '% and still rising; CPI ≤' + v(T.cpiCool, 2.5) + '% and not rising votes +1. Labor subtracts 1 at a Sahm gap ≥' + v(T.ueSahmSoft, 0.3) + 'pp when it is not improving (confirmed regardless of trend at ' + v(T.ueSahm, 0.5) + 'pp). Combined score is capped at −2 / +1. Slow axis.';
-    if (k === 'twoY') return 'Risk-off if the 2Y rises ≥ +' + v(T.twoYBps1d, 8) + 'bp in 1 day (−2 at +' + v(T.twoYBps1dStrong, 14) + 'bp), or its baked rising trend is up that much over 5 days. A matching fall can vote +1 only when indexes, VIX and credit do not signal stress. A Treasury rally during a sell-off is not an easing confirmation.';
+    if (k === 'twoY') return 'Risk-off if the 2Y rises ≥ +' + v(T.twoYBps1d, 8) + 'bp in 1 day (−2 at +' + v(T.twoYBps1dStrong, 14) + 'bp), or its baked rising trend is up that much over 5 days and today did not fall by half the 1-day bar or more. A matching fall can vote +1 only when indexes, VIX and credit do not signal stress. A Treasury rally during a sell-off is not an easing confirmation.';
     if (k === 'bondVol') return 'Risk-off at MOVE ≥ ' + v(T.moveHi, 110) + '; −2 at ≥ ' + v(T.moveVhi, 140) + ', or when MOVE is already ≥ ' + v(T.moveHi, 110) + ' and jumps ≥ +' + v(T.move1d, 6) + '% in 1 day. Risk-on at MOVE ≤ ' + v(T.moveCalm, 80) + '.';
     if (k === 'breadth') return 'Risk-off below ' + v(T.breadthLo, 40) + '% above the 200DMA; −2 below ' + v(T.breadthVlo, 25) + '%, or at ≤' + v(T.breadthLo, 40) + '% with NH−NL ≤ −10. Risk-on requires both long- and short-term breadth: ≥' + v(T.breadthHi, 60) + '% above the 200DMA and, when available, ≥' + v(T.breadthHi, 60) + '% above the 50DMA. A thrust is ≥' + v(T.breadthVhi, 85) + '%, or ≥80% with NH−NL ≥ +20, plus the same 50DMA confirmation. Slow axis.';
     if (k === 'putCall' && T.putCallSrc === 'cboe') return 'The Cboe equity-only put/call ratio votes by its percentile against its own 250 sessions: −1 at the ' + ordinalOf(v(T.putCallCboeHi, 75)) + ' or higher, −2 at the ' + ordinalOf(v(T.putCallCboeVhi, 90)) + ', +1 at the ' + ordinalOf(v(T.putCallCboeLo, 15)) + ' or lower (crowd.json). A day without a Cboe print falls back to the universe OI read.';

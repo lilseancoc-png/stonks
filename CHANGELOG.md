@@ -42,6 +42,10 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 - The 1971-2026 strategy-engine history test now shows across the site as context only: "Strategy styles by era" on Pattern lab and style strips on Booms & busts (public), event and crisis strips on Historical Data, "Today's regime fit" in the Regime Lab and the Owner brief, and MCP datasets (Owner). Aggregates only; switch `ENGINES_HISTORY=0` (#849).
 
+### Fixed
+- The market tape's 2-year yield vote no longer counts a day the 2-year fell 4+ bps as "front-end tightening" because its 5-day trend was still up (and the reverse for easing). The 10-year and the dollar already had this guard; on Nov 16 the 16:10 tape listed "2Y -5.0 bps" as a risk-off driver. Server and browser rules change together.
+- The Bottom tracker reads completed sessions only, like the streaks and the macro context: during market hours it no longer treats the session in progress as that day's close, so its verdict and date (which the Top Picks shock-put lane reads at 11:00 and 15:30 ET) come from real closes. Test `node scripts/owner-audit-smoke.mjs`.
+
 ## 2026-11-16
 
 ### Added
