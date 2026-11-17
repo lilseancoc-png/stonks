@@ -93,6 +93,11 @@ const chains = {};
 const syms = Object.keys(chains);
 const map = buildMarketMap({ chains, symbols: syms, sectorOf: () => "Tech", groupOf: () => "Technology", isEtf: (s) => s === "SPY", ivBand: () => ({ band: "normal" }), builtAtIso: "2026-11-06T21:10:00Z" });
 eq(map.rows.length, 5, "one row per name");
+{
+  const young = buildMarketMap({ chains: { NEWCO: { ...chains.AAA, _bars: chains.AAA._bars.slice(-200) } }, symbols: ["NEWCO"], builtAtIso: "2026-11-06T21:10:00Z" });
+  eq(young.rows[0].r1y, null, "a name listed under a year ago has no 1-year move");
+  ok(map.rows.find((r) => r.s === "AAA").r1y != null, "a year of history still gives the 1-year move");
+}
 const aaa = map.rows.find((r) => r.s === "AAA");
 eq(aaa.si, 5, "short interest % of float on the row");
 ok(Array.isArray(aaa.sp) && aaa.sp.length >= 30 && aaa.sp[0] === 0, "six-month spark starts at zero");

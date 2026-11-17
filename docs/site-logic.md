@@ -1430,13 +1430,13 @@ Live quote and chain calls can regrade the contract. Manual broker inputs work w
 
 ### Compare Companies
 
-Up to four symbols are aligned by timestamp. Each series is rebased to the first shared close:
+Two to six symbols are aligned by timestamp. Each series is rebased to the first shared close:
 
 ```text
 normalized performance = close / first shared close - 1
 ```
 
-This avoids comparing dollar price levels. A sector menu limits the add-ticker list to one sector so a like-for-like set is easier to build. Range changes rebuild the common interval. Tooltips are body-level/fixed so transformed chart containers do not break mobile positioning.
+This avoids comparing dollar price levels. A sector menu limits the add-ticker list to one sector so a like-for-like set is easier to build. Range changes rebuild the common interval. The benchmark menu adds SPY, QQQ, IWM, SMH, the average of the chosen names, or the reference's sector average. The sector average covers every covered stock in the reference's broad sector group (since 2026-11-17; it used to stop at the first 12 names), read from each name's daily moves in the public `market-days.json`; if that file can't be read it falls back to the first 12 per-stock files and the label says "12 of N names". Tooltips are body-level/fixed so transformed chart containers do not break mobile positioning.
 
 ### Strategies
 

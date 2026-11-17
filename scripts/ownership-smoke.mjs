@@ -3,7 +3,8 @@ import vm from 'node:vm';
 import { ownershipExplorerFactory } from '../lib/ownership-explorer.mjs';
 import { packOwnershipBooks, ownershipBookClientFactory } from '../lib/ownership-books.mjs';
 import { buildOwnershipFund, parseOwnership13FXml } from '../lib/ownership-13f.mjs';
-import { build13FPayload, buildPerFirm13FHoldings, fetchEdgar13FHoldings, findLatestTwo13Fs } from './build.mjs';
+import { build13FPayload, buildPerFirm13FHoldings, fetchEdgar13FHoldings, findLatestTwo13Fs, retained13FDeltas, form4UnreadFilings, form4ReadLedger, form4KeptRows } from './build.mjs';
+import { createOwnershipSecReader, isConnectionError } from '../lib/ownership-sec.mjs';
 import { ownershipFixture, ownershipXml, ownershipCover, ownershipNow } from './fixtures/ownership.mjs';
 import { renderAppJs } from './render/app-js.mjs';
 import { isPremiumKey } from '../lib/premium-keys.mjs';
@@ -136,5 +137,61 @@ try {
   assert.equal(collected.perFirm['Bridgewater Associates'].performance.pct, 25);
   assert.equal(collected.perFirm['Bridgewater Associates'].topBought.length, 1, 'legacy stock deltas still available');
   assert.equal(build13FPayload({}, [], new Date(ownershipNow), collected).ownershipCoverage.fullFunds, 14);
+  // Stocks audit 2026-11-17: one dropped SEC connection failed eleven
+  // managers' prior-quarter reads at once and blanked their change tables.
+  // A prior read that still fails keeps the last build's tables for the same
+  // two filings, and the cross-firm totals keep that manager.
+  const published = build13FPayload({}, [], new Date(ownershipNow), collected);
+  const freshFetch = globalThis.fetch;
+  let priorReads = 0;
+  globalThis.fetch = async (url, opts) => {
+    if (new URL(url).pathname.includes('000000000126000001')) { priorReads++; throw new TypeError('fetch failed'); }
+    return freshFetch(url, opts);
+  };
+  const blip = await buildPerFirm13FHoldings(new Date(ownershipNow), { priorPayload: published, chains, cusipMapper: async () => new Map() });
+  const bw = blip.perFirm['Bridgewater Associates'];
+  assert.equal(bw.deltaStatus, 'retained', 'failed prior read keeps the earlier change table');
+  assert.equal(bw.topBought.length, 1);
+  assert.equal(bw.priorFilingDate, '2026-05-12');
+  assert.ok(blip.overallTopBought.length >= 1, 'cross-firm totals keep the retained managers');
+  assert.equal(priorReads, 28, 'each manager retries its failed prior read once (14 x 2)');
+  const otherPeriod = { ...published, periodEndIso: '2026-03-31' };
+  assert.equal(retained13FDeltas({ firm: 'Bridgewater Associates', cik: bw.cik, latest: { filingDate: bw.filingDate }, prior: { filingDate: '2026-05-12' }, latestFetchOk: true, priorFetchOk: false }, otherPeriod, '2026-06-30'), null, 'another quarter is never reused');
+  assert.equal(retained13FDeltas({ firm: 'Bridgewater Associates', cik: bw.cik, latest: { filingDate: '2026-08-20' }, prior: { filingDate: '2026-05-12' }, latestFetchOk: true, priorFetchOk: false }, published, '2026-06-30'), null, 'a newer current filing is never paired with old tables');
 } finally { globalThis.fetch = originalFetch; }
+{
+  let calls = 0;
+  const read = createOwnershipSecReader({ userAgent: 'test', spacingMs: 0, retryMs: 1, fetchImpl: async () => { if (++calls === 1) throw new TypeError('fetch failed'); return new Response('ok'); } });
+  assert.equal(await (await read('https://www.sec.gov/x')).text(), 'ok', 'a dropped connection is retried once');
+  assert.equal(calls, 2);
+  let aborted = 0;
+  const readAbort = createOwnershipSecReader({ userAgent: 'test', spacingMs: 0, retryMs: 1, fetchImpl: async () => { aborted++; throw new DOMException('timed out', 'TimeoutError'); } });
+  await assert.rejects(() => readAbort('https://www.sec.gov/x'), /timed out/);
+  assert.equal(aborted, 1, 'a timeout is not retried');
+  assert.equal(isConnectionError(new TypeError('fetch failed')), true);
+  assert.equal(isConnectionError(new Error('SEC HTTP 404')), false);
+}
+{
+  // Form 4 (Owner choice 2026-11-17): up to five unread filings per issuer
+  // each build, remembering which were read.
+  const f = (n, d) => ({ accessionNumber: 'acc-' + n, filingDate: d });
+  const inWindow = [f(9, '2026-11-16'), f(8, '2026-11-16'), f(7, '2026-11-14'), f(6, '2026-11-13'), f(5, '2026-11-12'), f(4, '2026-11-10'), f(3, '2026-11-02')];
+  const first = form4UnreadFilings(inWindow, new Set(['acc-8']), 5).map((x) => x.accessionNumber);
+  assert.deepEqual(first, ['acc-9', 'acc-7', 'acc-6', 'acc-5', 'acc-4'], 'newest unread first, skipping a filing already read');
+  const second = form4UnreadFilings(inWindow, new Set(['acc-8', ...first]), 5).map((x) => x.accessionNumber);
+  assert.deepEqual(second, ['acc-3'], 'the next build picks up the one left over');
+  const ledger = form4ReadLedger(
+    { AAPL: ['acc-1', 'acc-8'], MSFT: ['m-1'] },
+    { AAPL: inWindow },
+    { AAPL: ['acc-1', 'acc-8', ...first] },
+  );
+  assert.deepEqual(ledger.AAPL, ['acc-9', 'acc-8', 'acc-7', 'acc-6', 'acc-5', 'acc-4'], 'kept in window order; a filing out of the window is dropped');
+  assert.deepEqual(ledger.MSFT, ['m-1'], 'an issuer not checked this build keeps its list');
+  const rows = [];
+  for (let i = 0; i < 130; i++) rows.push({ direction: 'sell', transactionDate: '2026-11-' + String(16 - (i % 10)).padStart(2, '0'), id: 's' + i });
+  rows.push({ direction: 'buy', transactionDate: '2026-09-20', id: 'old-buy' });
+  const kept = form4KeptRows(rows, 120);
+  assert.equal(kept.length, 120);
+  assert.ok(kept.some((r) => r.id === 'old-buy'), 'an older open-market purchase is never cut by the row cap');
+}
 console.log('Ownership explorer checks passed: full books, stock/fund queries, null-safe sorts, raw disclosures, performance coverage, splits and amendments.');
