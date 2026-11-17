@@ -28507,7 +28507,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var putWallText = top.putWall ? fmtOiStrike(top.putWall.strike) : 'near-term support';
     var confirm = setup
       ? 'Spot breaks and holds above ' + callWallText + ' on heavy share volume while call Vol/OI stays ≥1.5× and the next scan confirms new call OI.'
-      : 'The score reaches 4/5: concentrated near-money call OI, C/P ≥2:1, call-wall Vol/OI ≥1.5×, spot within 10%, and ask-side call flow.';
+      : 'The score reaches 4/5: a near-money call strike at 1.5× its nearby strikes, C/P ≥2:1, call-wall Vol/OI ≥1.5×, an overhead call wall within 7.5%, and ask-side call flow.';
     var invalidate = setup
       ? 'Price rejects ' + callWallText + ', loses ' + putWallText + ', ask-side call flow disappears, or the next score falls below 4.'
       : 'Call OI disperses, price moves away from the wall, puts dominate the short-dated chain, or the next scan removes the concentration.';
@@ -38138,7 +38138,22 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // (surging / trending / building) get a highlight card + sparkline; the
   // rest fill the ranked context table. Baked deterministically — see
   // buildIvTrendingPayload in scripts/build.mjs.
-  var ivTrendState = { data: null, loading: false, showAll: false, sort: 'score', colSort: null, search: '' };
+  var ivTrendState = { data: null, loading: false, showAll: false, sort: 'score', colSort: null, search: '', noEarn: VIEWS.get('ivtrend.noearn', false) === true };
+  // Hide names reporting earnings within 30 days (Owner choice 2026-11-17):
+  // most of their IV rise is the usual run-up into the report. Off by
+  // default; one click, remembered on this device.
+  var IVT_EARN_SOON_DAYS = 30;
+  function ivtEarnSoon(r, asOf){
+    var e = r && r.earnings;
+    if (!e) return false;
+    var n = e.inDays != null && isFinite(e.inDays) ? Number(e.inDays) : null;
+    if (n == null && e.date){
+      var t = Date.parse(String(e.date).slice(0, 10) + 'T12:00:00Z');
+      var b = asOf ? Date.parse(String(asOf).slice(0, 10) + 'T12:00:00Z') : Date.now();
+      if (isFinite(t) && isFinite(b)) n = Math.round((t - b) / 864e5);
+    }
+    return n != null && n >= 0 && n <= IVT_EARN_SOON_DAYS;
+  }
   var IVT_TIER_META = {
     surging:  { label: 'Surging',  cls: 'ivt-tier-surging' },
     trending: { label: 'Trending', cls: 'ivt-tier-trending' },
@@ -45454,6 +45469,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
       return;
     }
     if (empty) empty.hidden = true;
+    var earnSoonCount = 0;
+    for (var e0=0; e0<all.length; e0++) if (ivtEarnSoon(all[e0], d.asOf)) earnSoonCount++;
+    if (ivTrendState.noEarn) all = all.filter(function(r){ return !ivtEarnSoon(r, d.asOf); });
     var tierCounts = { surging: 0, trending: 0, building: 0 };
     var elevatedCount = 0;
     var deflatingCount = 0;
@@ -45464,7 +45482,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       if (rc.chg5dPct != null && isFinite(rc.chg5dPct) && Number(rc.chg5dPct) <= -12) deflatingCount++;
     }
     var flaggedTotal = tierCounts.surging + tierCounts.trending + tierCounts.building;
-    if (eye) eye.textContent = (d.asOf ? 'as of ' + d.asOf + ' · ' : '') + flaggedTotal + ' trending · ' + elevatedCount + ' rich / ' + all.length + ' ranked';
+    if (eye) eye.textContent = (d.asOf ? 'as of ' + d.asOf + ' · ' : '') + flaggedTotal + ' trending · ' + elevatedCount + ' rich / ' + all.length + ' ranked' + (ivTrendState.noEarn && earnSoonCount ? ' · ' + earnSoonCount + ' reporting within ' + IVT_EARN_SOON_DAYS + ' days hidden' : '');
     // Reset a tier/elevated filter whose bucket emptied on a data refresh.
     var mode = ivTrendState.sort || 'score';
     if ((tierCounts[mode] != null && tierCounts[mode] === 0) || (mode === 'elevated' && !elevatedCount)){ mode = 'score'; ivTrendState.sort = 'score'; }
@@ -45497,6 +45515,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       var sts = Array.isArray(sum.standouts) ? sum.standouts : [];
       for (var s0=0; s0<sts.length; s0++){
         var st = sts[s0];
+        if (ivTrendState.noEarn && ivtEarnSoon(st, d.asOf)) continue;
         var kindMeta = st.kind && IVT_KIND_META[st.kind] ? IVT_KIND_META[st.kind] : null;
         var stMeta = !kindMeta && st.tier && IVT_TIER_META[st.tier] ? IVT_TIER_META[st.tier] : null;
         var tipBits = [];
@@ -45538,6 +45557,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
       if (cnt === 0) continue;
       sortHtml += '<button type="button" class="ivt-sort-chip" data-ivt-sort="' + def.key + '" aria-pressed="' + (mode === def.key ? 'true' : 'false') + '">' +
         def.label + (cnt != null ? ' <b>' + cnt + '</b>' : '') + '</button>';
+    }
+    if (earnSoonCount || ivTrendState.noEarn){
+      sortHtml += '<button type="button" class="ivt-sort-chip ivt-noearn-chip" data-ivt-noearn aria-pressed="' + (ivTrendState.noEarn ? 'true' : 'false') + '" title="For a stock about to report, most of the rise in implied volatility is the usual run-up into the report">' +
+        'Hide earnings within ' + IVT_EARN_SOON_DAYS + ' days <b>' + earnSoonCount + '</b></button>';
     }
     html += '<div class="ivt-sort" role="toolbar" aria-label="Sort or filter the ranked tickers">' + sortHtml +
       '<input type="search" id="ivt-search" class="ivt-search" placeholder="Search ticker or name…" value="' + escapeHtml(ivTrendState.search || '') + '" autocomplete="off" spellcheck="false" aria-label="Filter Trending-IV tickers by symbol or company name"></div>';
@@ -45662,7 +45685,14 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (btn) btn.addEventListener('click', function(){ ivTrendState.showAll = !ivTrendState.showAll; renderIvTrend(); });
     var vsAvg = root.querySelector('[data-ivt-vsavg]');
     if (vsAvg) vsAvg.addEventListener('toggle', function(){ VIEWS.set('ivtrend.vsavg', vsAvg.open ? null : false); });
-    var sortBtns = root.querySelectorAll('.ivt-sort-chip');
+    var noEarnBtn = root.querySelector('[data-ivt-noearn]');
+    if (noEarnBtn) noEarnBtn.addEventListener('click', function(){
+      ivTrendState.noEarn = !ivTrendState.noEarn;
+      VIEWS.set('ivtrend.noearn', ivTrendState.noEarn ? true : null);
+      ivTrendState.showAll = false;
+      renderIvTrend();
+    });
+    var sortBtns = root.querySelectorAll('.ivt-sort-chip[data-ivt-sort]');
     for (var sb=0; sb<sortBtns.length; sb++){
       sortBtns[sb].addEventListener('click', function(){
         ivTrendState.sort = this.getAttribute('data-ivt-sort') || 'score';

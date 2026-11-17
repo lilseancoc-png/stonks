@@ -42,6 +42,11 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ### Added
 
 - The 1971-2026 strategy-engine history test now shows across the site as context only: "Strategy styles by era" on Pattern lab and style strips on Booms & busts (public), event and crisis strips on Historical Data, "Today's regime fit" in the Regime Lab and the Owner brief, and MCP datasets (Owner). Aggregates only; switch `ENGINES_HISTORY=0` (#849).
+- Rising volatility adds a "Hide earnings within 30 days" button (off by default, remembered on this device): for a stock about to report, most of the rise in implied volatility is the usual run-up into the report. It hides those names from the table, cards, counts and summary chips (Owner choice) (#850).
+
+### Changed
+
+- Options walls: gamma squeeze rule 1 now asks whether a near-the-money call strike stands out against its nearby strikes (1.5 times the average of up to four strikes on each side in the same expiration, and at least 1,000 contracts) instead of the average of every strike within 60% of the price, which the far strikes dragged down so the rule fired for almost every stock. The squeeze score is shown to the Top Picks AI grader, so the grader sees fewer squeeze points; the rule lives in `lib/gamma-squeeze.mjs` with `scripts/gamma-squeeze-smoke.mjs` (Owner choice) (#850).
 
 ### Fixed
 
