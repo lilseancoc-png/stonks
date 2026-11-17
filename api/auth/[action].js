@@ -1105,7 +1105,8 @@ async function webullMirror(req, res) {
       // The strategy engines' record: its trades share the paper account.
       let enginesRecord = null;
       try { const eb = await store.get("engines-record.json"); enginesRecord = eb == null ? null : JSON.parse(eb.toString("utf8")); } catch { enginesRecord = null; }
-      const engineRows = (list) => (Array.isArray(list) ? list : []).filter((e) => e?.engine && e.tradeId);
+      // Engine share trades are record lines only (the mirror places options).
+      const engineRows = (list) => (Array.isArray(list) ? list : []).filter((e) => e?.engine && e.tradeId && e.contract?.structure !== "shares");
       const compareWith = scope === "engines" ? { builtAtIso: enginesRecord?.builtAtIso ?? null, open: engineRows(enginesRecord?.open), closed: engineRows(enginesRecord?.closed) }
         : scope === "all" ? { ...rawRecord, open: [...(rawRecord.open || []), ...engineRows(enginesRecord?.open)], closed: [...(rawRecord.closed || []), ...engineRows(enginesRecord?.closed)] }
         : rawRecord;

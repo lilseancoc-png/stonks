@@ -1,9 +1,14 @@
 # Strategy engines
 
-Six rules-only paper engines run beside Top Picks. Each has its own idea, its
-own data, its own 0 to 100 score and its own track record. All of them trade
-in the one Webull paper account that Top Picks uses. Paper tracking starts
-2026-11-16.
+Eight rules-only paper engines run beside Top Picks: six signal engines and,
+since 2026-11-17, two core engines. Each has its own idea, its own data and
+its own track record. The signal engines score their own setups 0 to 100 and
+trade options (and $5,000 share lots on the slow call setups) in the one
+Webull paper account that Top Picks uses. The core engines (Trend follower,
+Momentum basket) hold long-only shares picked at a monthly check, on the
+record only. The Allocator (2026-11-17) reads every signal setup's record in
+today's market type; see [Allocator](#allocator-2026-11-17). Paper tracking
+starts 2026-11-16.
 
 None of them makes an AI call or a network request, and none can read or
 change a Top Pick, a grade, a gate or the Top Picks Track Record. Top Picks
@@ -36,18 +41,144 @@ not all 85 covered names.
 | Fundamentals | FUN | stocks | One standing rank of every covered stock on earnings power, quality and price; calls on the best, puts on the worst, swapped only when a holding leaves its third | 75-200 days, 0.62 delta | +50% / -40%, 60 sessions, or the stock leaves its third of the rank | 5 (3 calls, 2 puts) |
 | Flow & positioning | FLO | every covered name | One-sided signed option flow (trades bought vs sold, in delta dollars; since 2026-11-16), gamma set-ups near a call wall, short squeezes | 14-50 days, 0.50 delta | +35% / -40%, 7 sessions | 4 |
 | Reversion | REV | every covered name | Washouts in long-term uptrends, spikes in long-term downtrends, capitulation days | 14-45 days, 0.60 delta | +30% / -35%, 5 sessions | 4 |
+| Trend follower | TRD | SPY, QQQ, TLT | Core: at each monthly check, the stronger of SPY and QQQ over 12 months if it beat T-bills, else TLT if it beat T-bills, else cash | $50,000 of shares | Swapped at the monthly check only | 1 |
+| Momentum basket | MOM | every covered stock | Core: the ten strongest by 12-1 momentum, equal weight; TLT with the basket's money while SPY closes a month under its 10-month average | $3,000 of shares each ($30,000 of TLT) | Swapped at the monthly check only | 10 |
 
 The registry is `lib/engines/config.mjs` (`ENGINES`): every setup, its
 plain-language trigger, the entry bar and its limits, the exits and the
 contract window. The rule code is `lib/engines/signals.mjs`.
+
+### Core engines: Trend follower and Momentum basket (2026-11-17)
+
+The owner's plan for beating the S&P 500 is a long-only stock core that
+follows trend and momentum, with the signal engines as a smaller timed
+options sleeve. The two core engines are that core, built from the rules that
+beat holding the S&P 500 in the 1972-2026 and 2006-2026 research
+(`engines/beat-sp500-2026-11-17` in the project files). Code:
+`lib/engines/core.mjs`.
+
+- **Monthly check.** Both read month-end closes (`monthEnds` in
+  `features.mjs`, on each view as `view.mo`; a bar counts as a month-end once
+  a later month has started). The target is fixed from one month-end to the
+  next (`standCore`, "standing" like the Fundamentals rank), so a day's quote
+  cannot reshuffle the book. A holding closes only as `rotate` ("swapped at
+  the monthly check") when the next check drops it (`thesisCheck`). No stops,
+  no targets, no time limit, no learning, no cooldown.
+- **Trend follower (TRD).** Compares SPY's and QQQ's 12-month returns and
+  holds the stronger if it beat T-bills; otherwise TLT if TLT beat T-bills;
+  otherwise nothing. T-bills = the average fed funds rate over the 12 months
+  (`ctx.macro.cash12`). One $50,000 lot.
+- **Momentum basket (MOM).** Ranks the covered stocks (needs 20 or more) by
+  the rise from 12 months ago to 1 month ago and owns the ten strongest at
+  $3,000 each. While SPY's month-end close is under its 10-month average it
+  owns $30,000 of TLT instead (nothing when TLT also trails T-bills).
+- **Book.** Core trades are exempt from the book's per-run cap and from the
+  Allocator, buy shares only, and never go to the Webull paper account. The
+  page shows each core engine as a portfolio: the holdings, the last monthly
+  checks, the ranked list (Momentum), and dollars since its first trade
+  against the same dollars in SPY bought that day (`coreBench`).
+- **History score.** A $1 portfolio that follows the holdings at each open
+  and close, idle money earning fed funds, 0.1% costs a round trip, against
+  SPY bought the same day (`coreMark` in `backtest.mjs`).
+
+### Shares for the slow setups (rules 2, 2026-11-17)
+
+The 1971-2026 history test split every trade into idea, timing and contract.
+For most call setups the idea was right more often than not, but the stock
+moved too little in the holding time for a 0.5-0.7 delta option to beat its
+own decay and spread. Those setups now buy stock on their call side
+(`calls: "shares"` in the registry; `instrumentFor`):
+
+| Engine | Buys shares | Stays on options |
+|---|---|---|
+| Technicals | trend pullback, range breakout | squeeze, every put |
+| Reversion | capitulation day | washout in an uptrend, every put |
+| Earnings | post-earnings drift (calls) | run-in, drift puts |
+| Flow | aggressive flow (bullish), gamma set-up, short squeeze | bearish flow (puts) |
+| Macro | gold with yields and the dollar, dollar against Asia funds (both still on shadow) | conditions easing, yields falling, event drift, every put |
+| Fundamentals | none | rank-top calls, rank-bottom puts |
+
+A share trade (`sharesContract` in `contracts.mjs`, `BOOK.shares*`):
+
+- $5,000 of stock at the run's price (the same 11:00 and 15:30 ET runs), whole
+  shares; a share dearer than $5,000 is not bought.
+- Marked at the stock price. Its result (`optionPnlPct`, kept as the field
+  name) is the stock move less 0.1% a round trip.
+- Exits: the setup's own stock stop or 2 ATR under the entry, whichever is
+  higher; the setup's own target or 3 ATR over it, whichever is lower; the
+  setup's thesis and event exits; 20 sessions at most. No premium take-profit
+  or stop, and no expiry.
+- Long only. A put is always an option: the engines never short stock.
+- Trade ID marked `S` (`TEC:AAPL-S-11/17/26-11:00`), "Shares" badge on the
+  page, `instrument: "shares"` on the page file.
+- Scored apart: each engine's `stats` are its option trades, `sharesStats` its
+  share trades (% of the share price), and the totals the same way. Learning
+  counts a share result 5x (`LEARN.sharesScale`, about the leverage of the
+  engines' options) so its thresholds mean the same thing; its change notes
+  say so.
+- Not placed in the Webull paper account (the mirror places options only):
+  `mergeEngineTrades` and the mirror health leave share trades out, and the
+  same-contract rule does not apply to them.
+
+`ENGINES_SHARES=0` (Owner Settings → Data & desks → "Engines buy shares
+for slow setups"; there is no repo variable, so the daily workflow is
+unchanged) puts every setup back on calls; open share trades still run to
+their exits.
+
+Macro's "VIX curve back to normal" setup (SPY calls) was dropped the same day:
+it lost 11.6% a trade over 128 trades in the 1971-2026 test. It stays in the
+registry as retired so old shadow rows keep their label.
+
+### Money-leak fixes (rules 3, 2026-11-17)
+
+The owner asked where the signal engines lose money. Every 2007-2026 history
+trade was replayed with other entries, exits, contracts and stops, and each
+candidate fix was then checked again inside the whole book: the full history
+re-run with that one fix switched off, so a trade held longer blocks the next
+one the way it does live. Five changes went in (rules 3 on every signal
+engine, one logged rules change each):
+
+| Fix | What changed | Full book, as the engine runs | Switch (Owner Settings → Data & desks) |
+|---|---|---|---|
+| Retire two put setups | Reversion's spike-in-a-downtrend fade and Technicals' range breakdown open nothing (they stay in the registry as `retired`, so old trades keep their labels and checks) | Reversion $72,000 → $136,700, Technicals $49,900 → $52,500 | `ENGINES_FIX_RETIRE_PUTS` |
+| Washout-bounce calls | Reversion's `oversold-bounce` buys calls of about 0.3 delta, 14 to 35 days out (ideal 21), with a -60% stop (`contract` and `exits` on the setup; `contractFor` / `exitsFor` in `config.mjs`) | +0.8% → +7.7% a trade (981 → 884 trades), ahead in both halves | `ENGINES_FIX_BOUNCE` |
+| $2,000 of premium | Each option trade records the number of contracts nearest $2,000 (`optionQty`, at least one; `qty` on the contract, `positionUsd` / `tradeUsd` count it). Percent results are unchanged; the dollar totals now weigh every trade about the same. **The Webull paper account still buys one contract** (`requestedQty: 1`), so compare % there, not dollars | Dollars only | `ENGINES_FIX_SIZE` |
+| Technicals share stop | Share trades stop 3 ATR under the entry instead of at the setup's own tighter stop or 2 ATR (`sharesStopAtr: 3`, `sharesOwnStop: false` on the engine) | +0.5% → +0.9% a trade on 1,158 share trades | `ENGINES_FIX_TEC_SHARES` |
+| Live against the test | Each engine's Track record tab shows every setup's live record under the current rules beside the same setup in the history test (`liveVsHistory`, read once a setup has 10 closed trades: in line within 5 points, else ahead or behind). Macro setups whose test gain came mostly from the option price model are marked | Page only | None |
+
+Not made: **no take-profit on Macro's yields-falling TLT calls.** Trade by
+trade it looked far better (+29.3% against +11.8% on the same 115 entries),
+but in the full book each call sat up to 12 sessions and blocked the next TLT
+signal: 72 trades and $17,356 against 115 and $27,060. The owner chose to keep
+the +30% take-profit (2026-11-17). Lesson kept for later fixes: score a rule
+change inside the book, never on a fixed list of trades.
+
+The bounce's -60% stop is the least settled part: with every setup trading the
+engine's -35% stop did a little better, as the engine runs the -60% did, and
+no stop beat both in both runs (not adopted: more fitting to the same history).
+
+Each switch is on by default; off puts that part back for new trades only
+(open trades keep the exits and size they opened with). `engineSpecs(fixes)`
+builds the registry with some fixes off and the rules note rewritten to list
+only the fixes on; switching one off or back on is logged as a rules change
+on the engines it reaches (`rules.key` / `rules.switchNote`, `adoptRules`), so
+the record and the live-against-test table split there, and each new trade
+carries `fixesOff` with the switched-off fixes that reach its engine. An
+engine still on its first rules gets the rules 2 and rules 3 notes in one
+change (`rules.before`). The page's All engines tab lists the fixes with their
+state; the Setups and learning tab lists every hand-made rules step. These
+fixes were picked from the same history they are scored on, so the live
+record is the real test.
 
 How they differ from Top Picks, on purpose:
 
 - **No shared grade.** Top Picks sums four pillars into one score. Each engine
   reads only its own kind of evidence and scores a named setup from 0 to 100.
 - **No AI.** Top Picks has an AI final grader. The engines are rules only.
-- **Singles only, different contracts.** One long call or put, one contract.
-  Each engine has its own expiry window and delta.
+- **Singles only, different contracts.** One long call or put (about $2,000
+  of premium since 2026-11-17; one contract in the Webull paper account), or
+  $5,000 of stock for the slow call setups above. Each engine has its own
+  expiry window and delta, and a setup may carry its own (the washout bounce).
 - **Different exits.** Each engine has its own take-profit, stop and time
   limit; some setups carry their own (see the table on the page). Technical
   and reversion trades also carry a stock stop or target.
@@ -166,7 +297,9 @@ holiday, before the open or after the close carries the files forward: no
 marks, no session counted, no trades.
 
 Contract screen: mid at least $0.30, spread at most 18% of the mid, open
-interest 50+ or volume 10+, one contract at most $5,000.
+interest 50+ or volume 10+, one contract at most $5,000, delta 0.3 to 0.8
+(down to 0.05 under a lower target: the washout bounce's 0.3-delta calls may
+take 0.25 to 0.3).
 
 ## The record
 
@@ -181,7 +314,7 @@ Three Owner-only files (`lib/premium-keys.mjs`), read before the build wipes
 
 The Top Picks Track Record (`picks-accuracy.json`) is never read into these
 and never written by this code. Trade IDs carry the engine tag:
-`TEC:AAPL-C-11/16/26-11:00`.
+`TEC:AAPL-C-11/16/26-11:00` (`-S-` for a share trade).
 
 Results are modeled from option mids at each run, like the Top Picks record.
 The Webull paper tab shows what the paper account actually filled.
@@ -268,7 +401,8 @@ never blocks a real one.
 
 **Starts on shadow.** Six setups lost more than 3% a trade in both halves of
 the first history test. They are tracked from day one and start trading only
-when 40+ shadow trades average +5% or better.
+when 40+ shadow trades average +5% or better. Five remain since Macro's
+VIX-curve-back-to-normal setup was dropped (2026-11-17).
 
 Every change bumps the engine's rules version (`TEC-2`, `TEC-3`, …), goes in
 its change log and is stamped on new trades, so the record can be split by it.
@@ -289,24 +423,62 @@ Three versions of each test: every setup with no learning, shadow-start setups
 held back with no learning, and the engine as it runs (learning on). Each is
 compared with books that bought the same kind of contract on random days.
 
-Result, 2007 to 2026, as each engine runs:
+Result, 2007 to 2026, as each engine runs (learning on, the Allocator
+advising), with share trades scored on their own lines. Rerun on 2026-11-17
+with the money-leak fixes (rules 3; option trades at about $2,000 of premium,
+so the option dollars are not comparable with the rules 2 table below):
 
-| Engine | Trades | Win rate | Average trade | Random entries | Beat random |
-|---|---|---|---|---|---|
-| Technicals | 1,043 | 45% | -2.3% | -1.7% | 35% of books |
-| Reversion | 1,134 | 47% | -1.1% | -4.0% | 85% |
-| Macro | 473 | 50% | +1.8% | -6.8% | 100% |
+| Engine | Kind | Trades | Average trade | Dollars |
+|---|---|---|---|---|
+| Technicals | options | 92 | +1.4% | +$1,406 |
+| Technicals | shares | 1,158 | +0.9% | +$51,096 |
+| Reversion | options | 884 | +7.7% | +$135,090 |
+| Reversion | shares | 53 | +0.6% | +$1,656 |
+| Macro | options | 490 | +2.2% | +$20,071 |
 
-Honest read: no engine shows a reliable profit after costs. Reversion and
-Macro did better than random entries; Technicals did not. The learning rules
-worked as a brake, not an edge: they roughly halved the largest drop for
-Technicals and Reversion and did not improve the average trade.
+Rules 2 (shares for the slow setups, one contract per option trade), rerun
+the same day after a fix to the slot count (a run's own new trades were
+counted twice against an engine's free slots):
+
+| Engine | Kind | Trades | Win rate | Average trade | Dollars | Random entries | Beat random |
+|---|---|---|---|---|---|---|---|
+| Technicals | options | 194 | 42% | -3.6% | -$8,501 | -6.6% | 90% of books |
+| Technicals | shares | 1,347 | 46% | +0.8% | +$52,209 | +1.0% | 30% |
+| Reversion | options | 1,136 | 46% | -1.7% | -$3,273 | -3.9% | 80% |
+| Reversion | shares | 39 | 59% | +1.8% | +$3,419 | +0.6% | 70% |
+| Macro | options | 490 | 51% | +2.2% | -$6,311 | -7.9% | 100% |
+
+Before the share change (every call an option): Technicals 1,043 trades,
+-2.3% a trade, -$23,675; Reversion -$7,272; Macro -$7,473.
+
+Honest read: buying shares instead of calls turned Technicals from a steady
+loser into a winner, but its share trades did no better than random share
+buys in the same names (they beat 30% of random books): the gain is the
+stocks' own rise, not the timing. Reversion's capitulation shares and Macro
+did better than random. No option side shows a reliable profit after costs.
+The learning rules worked as a brake, not an edge.
+
+Core engines, 2007-02-01 to 2026-11-06, scored as portfolios against SPY
+bought the same day:
+
+| Engine | A year | SPY a year | Total | SPY total | Worst drop | SPY worst drop | Invested | Swaps |
+|---|---|---|---|---|---|---|---|---|
+| Trend follower | 14.1% | 10.6% | +1,242% | +631% | -30.7% | -55.2% | 94% | 33 |
+| Momentum basket | 27.9% | 10.6% | +12,777% | +631% | -40.5% | -55.2% | 93% | 539 |
+
+The Trend follower's edge is mostly sidestepping 2008 (+0.6% against -36.8%)
+and 2022 (-11.6% against -18.2%); it trailed in rebounds (2009 -7.3% against
++26.4%, 2019 +12.0% against +31.2%). The Momentum number is the most
+flattered result in this test: it picks the ten strongest of today's 85
+covered names, which are largely the names that went on to win. On a
+1,000-name list of the time the same rule made about 21% a year, not 28%.
 
 What the test cannot see:
 
 - Real spreads and real implied volatility are not in the history.
 - The names are today's list, so companies that failed are missing.
-- The six shadow-start setups were picked with hindsight on this same history.
+- The shadow-start setups were picked with hindsight on this same history.
+- Share trades use split-adjusted prices as they are and enter at the open.
 - Earnings and Fundamentals need report dates and EPS from the private store,
   so they are not in the long run. Every build replays them over the bars it
   holds (the "Recent replay" on the page). Pass `--earnings FILE` with a
@@ -314,17 +486,64 @@ What the test cannot see:
 - Flow has no stored history. It is judged forward only, on its paper record
   and its shadow trades.
 
+## Allocator (2026-11-17)
+
+`lib/engines/allocator.mjs`. The Allocator picks no trades. Before each
+signal-engine trade it looks up how that setup has done, keyed by engine,
+setup, side and instrument (`allocKey`: `engine|setup|side|o` or `|s`), in
+today's Regime Lab market type and everywhere, and blends the two:
+expected = cn/(cn+30) x the average here + 30/(cn+30) x the average
+everywhere (`allocDecide`). Options count % of premium, shares % of the
+share price x 5 (as in the learning rules). Fewer than 30 results: "new",
+normal size. Expected at or under zero: "closed". Above zero: a size
+w = expected / 4, clamped to 0.1x-2x.
+
+- **Its record.** Every finished signal trade, real and shadow
+  (`allocObserve`), on top of a starting record from the history test's
+  every-setup run (`research.allocPrior`, counts and sums only).
+- **Modes** (`ENGINES_ALLOCATOR`). `advise` (the default): every trade opens
+  and carries the read as `alloc` (`{ w, status, ev, n, cn, cell, mode }`);
+  the page counts the closed trades it would have held back and what they
+  made (`allocBook` `heldUsd`: below zero, holding back would have helped).
+  `on`: a "closed" setup's trade is held back and tracked as a shadow trade
+  ("held back by the Allocator"), so the setup keeps a record and can earn its
+  way back. `off`: not run. In every mode the size is a scored dollar line
+  only; no lot is resized. The core engines are not allocated.
+- **Why it advises by default.** In the history test (Technicals, Reversion,
+  Macro, learning on), holding back lowered the dollar total in both runs:
+  starting from nothing, $37,543 without it and $16,471 with it; with the
+  2007-2016 record carried into 2017-2026 (the way it runs live), $18,391
+  and $7,217. On the same trades, the ones it would have held back made
+  money ($10,730 over 919 trades, and $14,165 over 252): its read was right
+  on Macro (the Macro trades it would have held back lost money in both runs)
+  and wrong on Technicals and Reversion. Its sizes lowered the total starting
+  from nothing and were flat with the record. The advising run's live count
+  is the test of whether that changes.
+- **Page.** Strategy engines → Allocator tab: today's market type, every
+  setup's read (size, expected, results here and everywhere, live vs history
+  count), the live counts, and the history test with the note read from the
+  numbers. Candidates and open trades carry an Allocator line.
+
 ## Switches
 
 | Switch | Where | Effect |
 |---|---|---|
 | `ENGINES` | GitHub repo variable | Unset = on. `pause` = manage open trades, open none. `0` = freeze (files carried forward untouched) |
 | Strategy engines | Owner Settings → Data & desks | The same switch on the site: On, Manage open trades only (`pause`), Frozen (`off`). Applies from the next Top Picks run. A repo variable, when set, wins |
-| `ENGINES_OFF` | GitHub repo variable | Comma list of engines that open no new trades (`earnings`, `macro`, `technicals`, `fundamentals`, `flow`, `reversion`, or their tags) |
+| `ENGINES_OFF` | GitHub repo variable | Comma list of engines that open no new trades (`earnings`, `macro`, `technicals`, `fundamentals`, `flow`, `reversion`, `trend`, `momentum`, or their tags) |
+| `ENGINES_ALLOCATOR` | Owner Settings → Data & desks → "Engine Allocator" (no repo variable) | Unset / `advise` = the Allocator records its read on every signal trade and holds nothing back. `on` = it holds back setups expected to lose in today's market type (shadow trades). `0` = not run |
+| `ENGINES_SHARES` | Owner Settings → Data & desks → "Engines buy shares for slow setups" (no repo variable) | Unset = on. `0` puts every setup back on calls; open share trades run to their exits |
 | `ENGINES_MIRROR` | Vercel env | `0` stops new engine trades entering the paper account. Trades already there keep being managed and closed |
+| `ENGINES_FIX_RETIRE_PUTS` | Owner Settings → Data & desks | Unset / on = Reversion's spike fade and Technicals' range breakdown open nothing. `0` brings them back for new trades |
+| `ENGINES_FIX_BOUNCE` | Owner Settings → Data & desks | Unset / on = the washout bounce buys ~0.3-delta calls about 21 days out with a -60% stop. `0` = the engine's 0.6-delta calls and -35% stop |
+| `ENGINES_FIX_SIZE` | Owner Settings → Data & desks | Unset / on = option trades record about $2,000 of premium. `0` = one contract, as before. Webull buys one contract either way |
+| `ENGINES_FIX_TEC_SHARES` | Owner Settings → Data & desks | Unset / on = Technicals' share trades stop 3 ATR under the entry. `0` = the setup's own stop or 2 ATR |
 
 ## Not in scope
 
 - No real money and no broker other than the Webull paper sandbox.
-- No spreads.
+- No spreads, and no short stock.
+- Share trades, including every core-engine holding, are not placed in the
+  paper account (record only).
+- The Allocator never resizes a lot.
 - No engine result feeds a Top Picks grade, gate or record.

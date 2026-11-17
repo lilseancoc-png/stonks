@@ -22644,6 +22644,12 @@ button.vol-cal-cell:focus-visible { outline: none; box-shadow: var(--focus-ring)
   color: var(--pos);
 }
 .strat-summary-unlim.is-loss { color: var(--neg); }
+.strat-summary-sub {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--muted);
+}
 
 .strat-results-body {
   display: grid;

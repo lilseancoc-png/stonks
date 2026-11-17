@@ -1908,6 +1908,37 @@ stale check stay on either way. Tests: `node scripts/flow-direction-smoke.mjs`,
 `node scripts/picks-smoke.mjs` (and with `FLOW_SIGNED=0`),
 `node scripts/engines-smoke.mjs`.
 
+## Flow scan: opening half hour and a bar per stock, November 17, 2026
+
+The Options activity audit (2026-11-17) found two gaps in the hourly scan that
+feeds the Unusual flow vote and the FLO engine (`lib/flow-scan-rules.mjs`):
+
+- **Opening half hour** (`FLOW_OPEN_WINDOW`): the 9:00 ET scan is before the
+  open, so the first in-session scan had no same-day snapshot and flagged
+  nothing; 9:30-10:00 was never counted. Now, when no same-day in-session
+  snapshot exists and the scan is by 11:30 ET, a contract that has traded
+  today counts all of today's volume (Yahoo restarts a contract's volume at
+  its first trade of the day). A contract that has not traded today still
+  carries yesterday's total and stays unmeasured. These flags carry
+  `sinceOpen` and read "since the open" on the page.
+- **A bar per stock** (`FLOW_STOCK_BARS`): one bar (4,000 contracts an hour
+  inside 14 days, 2,000 past) flagged mostly NVDA, SPY and MU; 49 of 85
+  stocks never flagged in 60 scans. A stock's bar is now 1% (0.5% past 14
+  days) of its median full-day option volume over its last 10 complete
+  sessions (front two expirations, strikes within 55% of spot; a day counts
+  once a scan at 15:00 ET or later recorded it), never above the old bar and
+  never below 500 (250). The scanner records each stock's session volume in
+  `unusual-history.json` (`dailyVol`, 20 days); a stock keeps the old bar
+  until 5 complete sessions are on file, so the change phases in over the
+  first week.
+
+The vote itself is unchanged (3+ contracts and $1M of delta dollars), so the
+grade version stays; new record trades carry `flowScanVersion` and the Track
+Record draws a dated divider. Both switches default on and are Owner Settings
+(Top Picks → Engine); the scanner reads them from the hydrated settings file.
+A workflow env value also works, but `unusual-flow.yml` passes none today.
+Not tested on history: the scan keeps no past chains, so the effect is read
+forward. Test: `node scripts/flow-scan-rules-smoke.mjs`.
 ## Intraday volume read, November 17, 2026
 
 The `unusualVolume` vote (±1 when volume runs at 1.3× or more of normal with a

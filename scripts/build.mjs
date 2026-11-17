@@ -1,4 +1,4 @@
-import { sessionForDate } from "../lib/us-equity-calendar.mjs";
+import { sessionForDate, etClock } from "../lib/us-equity-calendar.mjs";
 import { isOwnershipBookKey } from "../lib/data-ownership.mjs";
 import { createOwnershipSecReader, expandOwnershipSubmissions, ownershipPrimaryUrl, ownershipNotice, ownershipRequestSignal } from "../lib/ownership-sec.mjs";
 import { packOwnershipBooks, ownershipBookClientFactory, retainOwnershipBooks } from "../lib/ownership-books.mjs";
@@ -166,6 +166,7 @@ import { forcedLiquidationContext } from "../lib/forced-liquidation.mjs";
 import { buyoutContextFor } from "../lib/pending-buyout-guard.mjs";
 import { buildShadowSignals, altDataGauges, resemblesGauges, insiderFromStructure } from "../lib/shadow-signals.mjs";
 import { signedFlowBySymbol, legacyPersistBySymbol, signedFlowVote, legacyFlowVote, flowVotesBySymbol } from "../lib/flow-direction.mjs";
+import { flowScanVersion } from "../lib/flow-scan-rules.mjs";
 import { volumeSwitches, volumeReadVersion } from "../lib/volume-flags.mjs";
 import { buildShadowResearch } from "../lib/shadow-research.mjs";
 import { buildEntrySnapshot } from "../lib/trade-snapshot.mjs";
@@ -18516,6 +18517,12 @@ export const PICKS_ACCURACY_RESET_EPOCH = "2026-08-08.top-picks-v3";
 const GRADE_MODEL_VERSION_BASE = PICKS_MACRO_CONTEXT ? "2026-11-macro-context" : "2026-11-price-pillar";
 export const GRADE_MODEL_VERSION = !PICKS_FLOW_SIGNED ? GRADE_MODEL_VERSION_BASE
   : PICKS_MACRO_CONTEXT ? "2026-11-signed-flow" : "2026-11-signed-flow-no-macro";
+// 2026-11-17: the hourly scan behind the flow vote counts the opening half hour
+// and gives each stock its own volume bar (lib/flow-scan-rules.mjs). The grade
+// formula is unchanged, so this rides its own stamp, not the grade version.
+// Read from the same env the scanner uses (Owner Settings FLOW_OPEN_WINDOW /
+// FLOW_STOCK_BARS).
+export const FLOW_SCAN_VERSION = flowScanVersion(process.env);
 // Signal keys the grade no longer scores. Open trades whose entry drivers
 // include them skip those keys in the thesis re-score (see the thesis check
 // in updatePicksAccuracyFile).
@@ -29550,15 +29557,33 @@ function indexHourExtremeWindow(bars, target, side) {
   return null;
 }
 
+// When the build ran, in ET, with that day's close (13:00 on a half day).
+// Yahoo's 30-minute series and daily bar both include the bar still trading,
+// so the session log needs the build time to tell a finished bar from a live one.
+export function indexCalendarAsOf(builtAtIso) {
+  const ms = Date.parse(builtAtIso || "");
+  if (!Number.isFinite(ms)) return null;
+  const clock = etClock(ms);
+  const session = sessionForDate(clock.date);
+  return { date: clock.date, minute: clock.minute, closeMinute: session?.closeMinute ?? 960 };
+}
+function indexCalendarLive(asOf, date) {
+  return !!asOf && asOf.date === date && Number.isFinite(asOf.minute) && asOf.minute < asOf.closeMinute;
+}
+
 // Build one SPY/QQQ/IWM session log from the already-fetched daily + 30-minute
 // bars. A row becomes `firstHourComplete` after the 10:00 bar closes at 10:30 ET;
 // it becomes `dayComplete` once both 15:00/15:30 bars are present. Half-days do
 // not fabricate a 3–4pm reading: their first-hour record remains useful while
-// the last-hour/full-day path fields stay null.
-export function buildIndexHourSession(dailyBars, intradayBars, dailyIdx) {
+// the last-hour/full-day path fields stay null. With `asOf` (indexCalendarAsOf),
+// a bar of the build's own day counts only once its half hour has ended, and
+// the day is never complete before the close: the 10:00 build used to read the
+// live 10:00 bar as the 10:30 price, and the 15:30 build the live close.
+export function buildIndexHourSession(dailyBars, intradayBars, dailyIdx, asOf = null) {
   const daily = dailyBars?.[dailyIdx];
   if (!daily?.t) return null;
   const date = daily.t;
+  const live = indexCalendarLive(asOf, date);
   const prevClose = indexHourNum(dailyBars?.[dailyIdx - 1]?.c);
   const open = indexHourNum(daily.o);
   const close = indexHourNum(daily.c);
@@ -29566,13 +29591,14 @@ export function buildIndexHourSession(dailyBars, intradayBars, dailyIdx) {
   const dailyLow = indexHourNum(daily.l);
   const bars = (intradayBars || [])
     .filter((b) => String(b?.t || "").slice(0, 10) === date)
+    .filter((b) => !live || (indexHourTime(b) ?? Infinity) + 30 <= asOf.minute)
     .slice()
     .sort((a, b) => String(a.t).localeCompare(String(b.t)));
   const at = new Map(bars.map((b) => [indexHourTime(b), b]));
   const firstBars = [at.get(570), at.get(600)].filter(Boolean);
   const lastBars = [at.get(900), at.get(930)].filter(Boolean);
   const firstHourComplete = firstBars.length === 2 && open != null && indexHourNum(firstBars[1].c) != null;
-  const dayComplete = firstHourComplete && lastBars.length === 2 && close != null;
+  const dayComplete = !live && firstHourComplete && lastBars.length === 2 && close != null;
   const gapPct = indexHourPct(prevClose, open);
   const out = {
     prevClose: indexHourRoundPrice(prevClose),
@@ -29581,6 +29607,7 @@ export function buildIndexHourSession(dailyBars, intradayBars, dailyIdx) {
     gapClass: gapPct == null ? null : indexGapClass(gapPct),
     firstHourComplete,
     dayComplete,
+    ...(live ? { inProgress: true } : {}),
   };
   if (!firstHourComplete) return out;
 
@@ -29773,6 +29800,7 @@ export function attachIndexHourSessionContexts(days, calendarPayload = null) {
 }
 
 export function appendIndexCalendar(prev, chains, builtAtIso, extraBars = {}, calendarPayload = null) {
+  const asOf = indexCalendarAsOf(builtAtIso);
   const byDate = new Map();
   for (const d of (prev?.days || [])) if (d && d.date) byDate.set(d.date, { ...d });
   for (const [sym, key] of Object.entries(INDEX_CALENDAR_SYMBOLS)) {
@@ -29815,13 +29843,19 @@ export function appendIndexCalendar(prev, chains, builtAtIso, extraBars = {}, ca
     for (let i = 0; i < dailyBars.length; i++) {
       const date = dailyBars[i]?.t;
       if (!date || !intradayBars.some((b) => String(b?.t || "").startsWith(date))) continue;
-      const session = buildIndexHourSession(dailyBars, intradayBars, i);
+      const session = buildIndexHourSession(dailyBars, intradayBars, i, asOf);
       if (!session) continue;
       const row = byDate.get(date) || { date };
       const leg = row[key] || {};
       row[key] = { ...leg, session };
       byDate.set(date, row);
     }
+  }
+  // The build's own day, before the close, is a move so far, not a close:
+  // `partial` lets the page say so. A carried flag clears on the next build.
+  for (const row of byDate.values()) {
+    if (indexCalendarLive(asOf, row.date)) row.partial = true;
+    else delete row.partial;
   }
   const days = Array.from(byDate.values())
     .sort((a, b) => String(a.date).localeCompare(String(b.date)))
@@ -30582,6 +30616,10 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
       // Exposure-cap rule set (lib/top-picks-caps.mjs), stamped since
       // 2026-11-06 so the Track Record can draw a divider at the change.
       capsVersion: PICKS_CAPS_VERSION,
+      // Unusual-flow scan rules behind the flow vote (lib/flow-scan-rules.mjs,
+      // since 2026-11-17: the opening half hour and a bar per stock), so the
+      // Track Record draws a divider. Absent while both scan switches are off.
+      ...(FLOW_SCAN_VERSION ? { flowScanVersion: FLOW_SCAN_VERSION } : {}),
       // Option-structure rule set (singles by default since 2026-11-07),
       // stamped so the Track Record draws a divider. Unset while
       // PICKS_SINGLES_DEFAULT=0 (the earlier engine mix).
@@ -40067,8 +40105,10 @@ async function main() {
   // housing case studies set against today's AI buildout. Deterministic; it
   // reads only what is already in memory: the long-history cache (Nasdaq,
   // S&P 500, FRED credit and housing series), the prior AI spending, GPU rent
-  // and bond issuance snapshots (all slow-moving) and the chains. Public
-  // history-rhymes.json (history and market-wide signs) + Owner-only
+  // and bond issuance snapshots (all slow-moving), FINRA margin debt from the
+  // crowd payload and the chains. Public
+  // history-rhymes.json (history, AI buildout and whole-market signs, the
+  // bear market test) + Owner-only
   // history-rhymes-owner.json (per-stock role and equity-implied default read).
   let historyRhymes = null, historyRhymesOwner = null;
   try {
@@ -40078,7 +40118,7 @@ async function main() {
       builtAtIso,
       series: sharedHistoryBars(historicalSourceCache, ["^IXIC", "^GSPC"]),
       fred: Object.fromEntries(HISTORY_RHYMES_FRED.map((id) => [id, historicalSourceCache?.context?.[id]?.rows || []])),
-      aiCapex: priorAiCapex, accelerators, ipoCredit: priorIpoCredit, chains,
+      aiCapex: priorAiCapex, accelerators, ipoCredit: priorIpoCredit, chains, crowd: crowdPayload,
     });
     historyRhymesOwner = buildHistoryRhymesOwner({
       builtAtIso, rhymes: historyRhymes, chains,
@@ -40087,7 +40127,7 @@ async function main() {
     });
     await writeFile(resolve(DATA_DIR, HISTORY_RHYMES_KEY), JSON.stringify(historyRhymes), "utf8");
     await writeFile(resolve(DATA_DIR, HISTORY_RHYMES_OWNER_KEY), JSON.stringify(historyRhymesOwner), "utf8");
-    console.log(`wrote data/${HISTORY_RHYMES_KEY} — ${historyRhymes.now.score}/${historyRhymes.now.total} warning signs (${historyRhymes.now.stage.label}), ${historyRhymesOwner.buildout.length + historyRhymesOwner.others.length} stock credit reads`);
+    console.log(`wrote data/${HISTORY_RHYMES_KEY} — AI buildout ${historyRhymes.now.score}/${historyRhymes.now.total} (${historyRhymes.now.stage.label}), whole market ${historyRhymes.now.market.score}/${historyRhymes.now.market.total} (${historyRhymes.now.market.stage.label}), ${historyRhymes.bearTest?.bears?.length ?? 0} bear markets tested, ${historyRhymesOwner.buildout.length + historyRhymesOwner.others.length} stock credit reads`);
   } catch (err) {
     console.log(`  ⚠ booms & busts failed (non-fatal, last good kept): ${err?.message || err}`);
     historyRhymes = priorHistoryRhymes ? { ...priorHistoryRhymes, stale: true } : null;
