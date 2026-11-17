@@ -57,6 +57,7 @@ import { renderEvidenceJs } from './evidence-client.mjs';
 import { renderRegimeLabJs } from './regime-lab-client.mjs';
 import { renderSelfLoopJs } from './self-loop-client.mjs';
 import { renderQuantLabsJs } from './quant-labs-client.mjs';
+import { renderMarketRiskJs } from './market-risk-client.mjs';
 import { renderValuationLabJs } from './valuation-lab-client.mjs';
 import { renderEnginesJs } from './engines-client.mjs';
 import { renderOwnerInsightJs } from './owner-insight-client.mjs';
@@ -129,6 +130,7 @@ ${renderEvidenceJs()}
 ${renderRegimeLabJs()}
 ${renderSelfLoopJs()}
 ${renderQuantLabsJs()}
+${renderMarketRiskJs()}
 ${renderValuationLabJs()}
 ${renderEnginesJs()}
 ${renderOwnerInsightJs()}
@@ -4542,7 +4544,7 @@ ${renderExportBindings()}
         var label = group.querySelector('summary');
         var groupName = label ? label.textContent.toLowerCase() : '';
         group.querySelectorAll('[data-page-tab]').forEach(function(btn){
-          var allowed = valid.indexOf(btn.getAttribute('data-page-tab')) !== -1 && !group.hidden && !btn.hidden && !btn.hasAttribute('data-nav-hidden');
+          var allowed = valid.indexOf(btn.getAttribute('data-page-tab')) !== -1 && !group.hidden && !btn.hidden && !btn.hasAttribute('data-nav-hidden') && !btn.hasAttribute('data-hub-member');
           var match = allowed && (!query || (btn.textContent.toLowerCase() + ' ' + (btn.getAttribute('data-nav-alias') || '').toLowerCase() + ' ' + groupName).indexOf(query) !== -1);
           btn.classList.toggle('nav-filter-hidden', !!query && !match);
           if (match) { count++; navMatches.push(btn); }
@@ -4788,6 +4790,9 @@ ${renderExportBindings()}
         try {
           var legacyLabQ = new URLSearchParams(window.location.search);
           if (legacyLabQ.get('lab') === 'labs' && resolveTab(legacyLabQ.get('tab') || '') === 'quant') name = 'quant-labs';
+          // The Personal tools view moved onto the desks on 2026-11-17: the
+          // position checker now sits on Open picks.
+          if (legacyLabQ.get('lab') === 'personal' && resolveTab(legacyLabQ.get('tab') || '') === 'quant') name = 'open-picks';
         } catch (_) {}
       }
       // nav.replace: sync the URL with replaceState instead of pushState —
@@ -4882,6 +4887,8 @@ ${renderExportBindings()}
         if (name === 'risk' && typeof startMacroTapeLive === 'function') startMacroTapeLive();
         if (name === 'track' && HAS_TRACK_RECORD && typeof loadAccuracy === 'function') loadAccuracy();
         if (name === 'open-picks' && HAS_TRACK_RECORD && typeof loadOpenPicks === 'function') loadOpenPicks();
+        // The held-position checker (once in Owner Lab's Personal tools).
+        if (name === 'open-picks' && HAS_OWNER_ACCESS && typeof bindPositionTool === 'function') bindPositionTool();
         if (name === 'heatmap' && typeof loadHeatmap === 'function') loadHeatmap();
         if (name === 'tickers' && typeof paintTickerDayMoves === 'function') paintTickerDayMoves();
         if (name === 'f13' && typeof loadF13 === 'function') loadF13();
@@ -4931,6 +4938,8 @@ ${renderExportBindings()}
         if (name === 'history-rhymes' && typeof loadHistoryRhymes === 'function') loadHistoryRhymes();
         if (name === 'risk' && typeof loadHistoryRhymesRisk === 'function') loadHistoryRhymesRisk();
         if ((name === 'risk' || name === 'bottom-tracker') && typeof loadMarketOddsCards === 'function') loadMarketOddsCards();
+        // Market risk line: the four market-risk reads side by side.
+        if ((name === 'market' || name === 'risk' || name === 'bottom-tracker') && typeof mrLoad === 'function') mrLoad();
         if (name === 'whats-changed' && typeof loadWhatsChanged === 'function') loadWhatsChanged();
         if (name === 'past-day' && typeof loadPastDays === 'function') loadPastDays();
         if (name === 'flow' && typeof loadZeroDte === 'function') loadZeroDte();
@@ -14623,6 +14632,8 @@ ${renderExportBindings()}
   function renderMarketAnalysis(){
     renderMarketLoadStatus();
     renderMarketDeskStrip();
+    // The Market risk line reads the same tape as the strip above.
+    if (typeof mrRender === 'function') mrRender();
     bindPositionTool();
     renderScenarioEngine();
     renderCycleClock();
@@ -14787,6 +14798,10 @@ ${renderExportBindings()}
           barometerLive.fetchedAt = j.fetchedAt || new Date().toISOString();
         }
         renderMacroTape();
+        // The strip and the Market risk line re-port the tape with the new
+        // legs too, so neither keeps naming the older state.
+        renderMarketDeskStrip();
+        if (typeof mrRender === 'function') mrRender();
       })
       .catch(function(){ macroTape.error = 'Live check unavailable'; renderMacroTape(); })
       .finally(function(){ clearTimeout(timeout); macroTape.loading = false; });
@@ -23550,8 +23565,9 @@ ${renderExportBindings()}
         bottomTrackerState.loading = false;
         bottomTrackerState.fetchedAt = Date.now();
         renderBottomTracker();
+        if (typeof mrRender === 'function') mrRender();
       })
-      .catch(function(){ bottomTrackerState.data = { loadError: true }; bottomTrackerState.loading = false; renderBottomTracker(); });
+      .catch(function(){ bottomTrackerState.data = { loadError: true }; bottomTrackerState.loading = false; renderBottomTracker(); if (typeof mrRender === 'function') mrRender(); });
   }
   function renderBottomTracker(){
     var root = $('bottom-tracker-root');
@@ -25621,11 +25637,11 @@ ${renderExportBindings()}
   });
   // data/quant.json is the daily analytical research payload.
   var quantState = { data: null, loading: false };
-  var ownerLabView = 'personal';
+  var ownerLabView = 'research';
   var ownerLabBound = false;
   var quantPairsAll = false;
   function selectOwnerLabView(view){
-    if (['personal','research','diagnostics','evidence','regime','loop'].indexOf(view) < 0) return;
+    if (['research','diagnostics','evidence','regime','loop'].indexOf(view) < 0) return;
     ownerLabView = view;
     var section = $('quant-section');
     if (!section) return;
@@ -25640,8 +25656,7 @@ ${renderExportBindings()}
     });
     section.querySelectorAll('[data-owner-panel]').forEach(function(panel){ panel.hidden = panel.getAttribute('data-owner-panel') !== view; });
     var eye = $('quant-eyebrow');
-    if (eye && view !== 'research') eye.textContent = view === 'personal' ? 'Private tools' : view === 'evidence' ? 'Tests and gates' : view === 'regime' ? 'Regime Lab' : view === 'loop' ? 'Self-improving loop' : 'Stored research records';
-    if (view === 'personal') loadOwnerTools();
+    if (eye && view !== 'research') eye.textContent = view === 'evidence' ? 'Tests and gates' : view === 'regime' ? 'Regime Lab' : view === 'loop' ? 'Self-improving loop' : 'Stored research records';
     if (view === 'research') loadQuantResearch();
     if (view === 'diagnostics' && window.BookViews) window.BookViews.openTab('quant');
     if (view === 'diagnostics') loadCostHistory();
@@ -25682,10 +25697,6 @@ ${renderExportBindings()}
       index = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length-1 : (index + (event.key === 'ArrowRight' ? 1 : buttons.length-1)) % buttons.length;
       buttons[index].focus(); selectOwnerLabView(buttons[index].getAttribute('data-owner-view'));
     });
-    ['owner-rotation-panel','owner-lev-panel'].forEach(function(id){
-      var panel = $(id);
-      if (panel) panel.addEventListener('toggle', function(){ if (panel.open && ownerLabView === 'personal') loadOwnerTools(); });
-    });
   }
   function quantFetchJson(url){
     return fetch(url, { cache: 'no-store', credentials: 'same-origin' })
@@ -25709,12 +25720,6 @@ ${renderExportBindings()}
           throw err;
         });
       });
-  }
-  function loadOwnerTools(){
-    bindPositionTool();
-    loadStocks();
-    if ($('owner-rotation-panel') && $('owner-rotation-panel').open) loadSectorRotation();
-    if ($('owner-lev-panel') && $('owner-lev-panel').open) loadLevEtf();
   }
   function loadQuant(){
     bindOwnerLab();
@@ -25746,7 +25751,9 @@ ${renderExportBindings()}
         }
       }, function(err){
         var detail = String(err && err.message || err || 'request failed');
-        console.error('Quant Lab data load failed', {
+        // A missing file (404, not written yet) shows the empty state quietly;
+        // Research screens is the Owner Lab's first view since 2026-11-17.
+        if (!(err && err.status === 404)) console.error('Quant Lab data load failed', {
           url: err && err.url || primaryUrl,
           status: err && err.status || null,
           message: detail,
@@ -25882,7 +25889,7 @@ ${renderExportBindings()}
         empty.hidden = false;
         empty.textContent = d.loadError
           ? 'Could not load Quant Lab data' + (d.loadErrorDetail ? ' (' + d.loadErrorDetail + ')' : '') + '. Use Refresh research to retry.'
-          : 'No research snapshot is available yet. Personal tools and Diagnostics can still be used.';
+          : 'No research snapshot is available yet. Diagnostics can still be used.';
       }
       if (eye) eye.textContent = '';
       return;
@@ -27356,7 +27363,7 @@ ${renderExportBindings()}
       '</header>' +
       '<p class="stk-dca-hint">' + (personalized
         ? 'Applies the published multiplier to your private dollar baseline. '
-        : 'Publishes one standardized baseline multiplier inside the Owner workspace; dollar sizing is isolated in Owner Lab. ') +
+        : 'Publishes one standardized baseline multiplier inside the Owner workspace. ') +
         'Each index shows its allocation and multiplier. Expand the price reads to inspect the points. Recomputed at 11:00 and 15:30 ET' + (when ? ' · updated ' + escapeHtml(when) : '') + '. Not financial advice.</p>' +
       '<div class="stk-dca-grid">' + dca.indexes.map(function(ix){ return stkDcaCard(ix, base, personalized); }).join('') + '</div>' +
     '</section>';
@@ -27422,7 +27429,7 @@ ${renderExportBindings()}
       : stkGroupedCards(rows, stkDef);
     root.innerHTML = stkDesk(rows) + funnel + (rows.length
       ? stkControlsHtml(stkDef) + stkBody
-        : '<p class="stk-empty">No quality name is meaningfully beaten down right now — the screen would rather show nothing than stretch the definition of a dip. Candidates appear when a business that passes the quality gate trips at least ' + (d.minSignals || 2) + ' of the five dip reads.</p>') + stkDcaBlock(d, false);
+        : '<p class="stk-empty">No quality name is meaningfully beaten down right now — the screen would rather show nothing than stretch the definition of a dip. Candidates appear when a business that passes the quality gate trips at least ' + (d.minSignals || 2) + ' of the five dip reads.</p>');
     bindBriefChips(root);
   }
   // --- Sector Rotation (premium) -------------------------------------------
@@ -46051,7 +46058,7 @@ ${renderExportBindings()}
     var TABS = [];
     SITE_MAP.forEach(function(sec){
       sec[5].forEach(function(it){
-        if (it[0] !== 'home') TABS.push([it[0], it[1], sec[1] + (it[2] ? ' · ' + it[2] : '')]);
+        if (it[0] !== 'home') TABS.push([it[0], it[1], sec[1] + (it[5] && SITE_HUBS[it[5]] ? ' · ' + SITE_HUBS[it[5]][0] : '') + (it[2] ? ' · ' + it[2] : '')]);
       });
     });
 

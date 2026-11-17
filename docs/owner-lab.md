@@ -1,12 +1,15 @@
 # Owner Lab
 
 Owner Lab uses the existing signed Owner session and the existing data feeds.
-Its three internal views serve different tasks:
+It sits with Quant labs in the Owner "Research labs" sidebar entry
+(Owner · Research). Its internal views serve different tasks:
 
-- **Personal tools** opens by default. It contains the held-contract checker,
-  index DCA baseline, and the two account-risk sizing panels. Sector Rotation
-  and leveraged ETF data load when their sizing panel opens.
-- **Research screens** loads `quant.json` when opened. It shows a compact
+- **Personal tools moved onto the desks they size** (2026-11-17 UI
+  streamline): the held-contract checker is on Open picks, your daily DCA
+  amount on Stock picks, and the account-risk sizing tables on Sector
+  rotation and Leveraged ETFs (each loads with its desk's own data). The old
+  `?tab=quant&lab=personal` link opens Open picks.
+- **Research screens** opens by default and loads `quant.json`. It shows a compact
   overview, unusual price moves, and volatility-premium readings. Peer pairs,
   option-surface readings, dispersion, and earnings drift sit in an advanced
   disclosure. Qualified pairs are the default; the watched-pair filter keeps

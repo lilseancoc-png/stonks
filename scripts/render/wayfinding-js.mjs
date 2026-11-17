@@ -4,13 +4,15 @@
 // map (site-map.mjs) and the sidebar buttons that survived the Owner gate, so
 // a page hidden from this visitor never shows up as a link here either.
 // Purely presentational: no data fetches, nothing leaves the browser.
-import { siteMapForClient } from './site-map.mjs';
+import { siteMapForClient, siteHubsForClient } from './site-map.mjs';
 
 // Top-level helpers (outside bindPageTabs) so the Grade tab can note a viewed
 // ticker without reaching into the navigation closure.
 export function renderWayfindingHelpers() {
   return `
   var SITE_MAP = ${JSON.stringify(siteMapForClient())};
+  // Merged pages: hub id -> [label, blurb]. A page's hub is item[5].
+  var SITE_HUBS = ${JSON.stringify(siteHubsForClient())};
   var RECENT_KEY = 'stonks-recent-v1';
   function wfReadRecent(){
     try {
@@ -52,6 +54,45 @@ export function renderWayfindingBindings() {
     }
     function wfSectionItems(sec, includeHidden){
       return sec[5].filter(function(it){ return wfAllowed(it[0]) && (includeHidden || !it[4]); });
+    }
+    // One entry per sidebar destination: the pages of a hub (merged page)
+    // collapse into one entry that opens its first page this visitor can see.
+    // Entries keep the item shape [id, label, alias, blurb, navHidden, hub].
+    function wfEntries(sec){
+      var seen = {};
+      var out = [];
+      wfSectionItems(sec).forEach(function(it){
+        var hub = it[5];
+        if (!hub){ out.push(it); return; }
+        if (seen[hub]) return;
+        seen[hub] = 1;
+        var h = SITE_HUBS[hub] || [it[1], it[3]];
+        out.push([it[0], h[0], '', h[1], 0, hub]);
+      });
+      return out;
+    }
+    // The pages of one hub this visitor can open, in sidebar order.
+    function wfHubPages(hub){
+      var out = [];
+      SITE_MAP.forEach(function(sec){ wfSectionItems(sec).forEach(function(it){ if (it[5] === hub) out.push(it); }); });
+      return out;
+    }
+    // A hub tab row wider than the screen (phones) fades at the edge that has
+    // more tabs past it, so the hidden tabs read as "scroll for more".
+    function wfHubFade(row){
+      if (!row) return;
+      var spare = row.scrollWidth - row.clientWidth;
+      row.classList.toggle('wf-hub-more', !row.hidden && spare - row.scrollLeft > 2);
+      row.classList.toggle('wf-hub-less', !row.hidden && spare > 2 && row.scrollLeft > 2);
+    }
+    window.addEventListener('resize', function(){
+      document.querySelectorAll('.wf-hub').forEach(wfHubFade);
+    });
+    // The hub's sidebar entry stays lit while any of its pages is open.
+    function wfSyncHubNav(hub){
+      document.querySelectorAll('[data-hub-lead]').forEach(function(b){
+        b.classList.toggle('is-hub-on', !!hub && b.getAttribute('data-hub') === hub);
+      });
     }
     function wfVisibleSections(){
       return SITE_MAP.filter(function(sec){ return wfSectionItems(sec).length > 0; });
@@ -125,6 +166,8 @@ export function renderWayfindingBindings() {
     function renderWayfinding(name){
       if (document.body) document.body.setAttribute('data-active-tab', name);
       syncPhoneTabBar(name);
+      var hubItem = wfItem(name);
+      wfSyncHubNav(hubItem && hubItem[5] ? hubItem[5] : '');
       if (name === 'home'){
         // Home keeps the freshness line above its hero.
         var homeFresh = document.getElementById('freshness-banner');
@@ -143,8 +186,10 @@ export function renderWayfindingBindings() {
         head.setAttribute('aria-label', 'Where you are');
         pane.insertBefore(head, pane.firstChild);
       }
-      var siblings = wfSectionItems(sec);
+      var siblings = wfEntries(sec);
       var firstInSection = siblings[0] ? siblings[0][0] : name;
+      var hub = item[5] || '';
+      var hubPages = hub ? wfHubPages(hub) : [];
       // One page header everywhere: crumb, title (with the page's live status
       // and an About button), the one-line summary, then sibling pages. The
       // header is built once per pane; the crumb and siblings refresh on
@@ -156,21 +201,41 @@ export function renderWayfindingBindings() {
               '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>' +
               '<span>About this page</span></button>' +
             '<div class="wf-meta"></div></div>' +
+          '<nav class="wf-hub ui-tabs" hidden></nav>' +
           '<p class="wf-blurb"></p>' +
           '<div class="wf-about" role="region" hidden></div>' +
           '<div class="wf-sibs" role="list"></div>';
         wfAdoptFirstCard(pane, head);
+        var builtRow = head.querySelector('.wf-hub');
+        builtRow.addEventListener('scroll', function(){ wfHubFade(builtRow); }, { passive: true });
       }
       head.querySelector('.wf-crumb').innerHTML = wfLink('wf-crumb-link', 'home', 'Home') + '<span aria-hidden="true">/</span>' +
         wfLink('wf-crumb-link', firstInSection, escapeHtml(sec[1]));
-      head.querySelector('.wf-title').textContent = item[1];
+      // A hub page carries the hub's name as its title and its pages as tabs.
+      head.querySelector('.wf-title').textContent = hub && SITE_HUBS[hub] ? SITE_HUBS[hub][0] : item[1];
+      var hubRow = head.querySelector('.wf-hub');
+      if (hubRow){
+        var showHub = hubPages.length > 1;
+        hubRow.hidden = !showHub;
+        hubRow.setAttribute('aria-label', 'Pages in ' + (hub && SITE_HUBS[hub] ? SITE_HUBS[hub][0] : ''));
+        hubRow.innerHTML = showHub ? hubPages.map(function(it){
+          var on = it[0] === name;
+          return wfLink('ui-tab wf-hub-tab' + (on ? ' is-on' : ''), it[0], escapeHtml(it[1]), (on ? ' aria-current="page"' : '') + ' title="' + escapeHtml(it[3] || '') + '"');
+        }).join('') : '';
+        if (showHub){
+          var onTab = hubRow.querySelector('.is-on');
+          if (onTab && hubRow.scrollWidth > hubRow.clientWidth) hubRow.scrollLeft = Math.max(0, onTab.offsetLeft - hubRow.offsetLeft - (hubRow.clientWidth - onTab.offsetWidth) / 2);
+        }
+        wfHubFade(hubRow);
+      }
       var blurb = head.querySelector('.wf-blurb');
       blurb.textContent = item[3] || '';
       blurb.hidden = !item[3];
       var sibs = head.querySelector('.wf-sibs');
       sibs.setAttribute('aria-label', 'More in ' + sec[1]);
       sibs.innerHTML = siblings.length > 1 ? siblings.map(function(it){
-        return wfLink('wf-sib' + (it[0] === name ? ' is-here' : ''), it[0], escapeHtml(it[1]), ' role="listitem"' + (it[0] === name ? ' aria-current="page"' : ''));
+        var here = it[0] === name || (!!hub && it[5] === hub);
+        return wfLink('wf-sib' + (here ? ' is-here' : ''), it[0], escapeHtml(it[1]), ' role="listitem"' + (here ? ' aria-current="page"' : ''));
       }).join('') : '';
       sibs.hidden = siblings.length < 2;
       // The data-freshness chip follows the open page into its header.
@@ -207,7 +272,7 @@ export function renderWayfindingBindings() {
       // Topic tiles cover the research sections; Learn & help and the
       // private Owner group stay in the sidebar only.
       host.innerHTML = wfVisibleSections().filter(function(sec){ return !sec[4] && sec[0] !== 'learn'; }).map(function(sec){
-        var items = wfSectionItems(sec).filter(function(it){ return it[0] !== 'home'; });
+        var items = wfEntries(sec).filter(function(it){ return it[0] !== 'home'; });
         return '<section class="topic-tile" aria-label="' + escapeHtml(sec[1]) + '">' +
           '<header>' + wfLink('topic-title', items[0][0], escapeHtml(sec[1]) + ' <span aria-hidden="true">&rarr;</span>') +
           '<span class="topic-count">' + items.length + ' page' + (items.length === 1 ? '' : 's') + '</span></header>' +
@@ -296,6 +361,18 @@ export function renderWayfindingBindings() {
       ev.preventDefault();
       if (t.hasAttribute('data-wf-sym')) wfOpenTicker(t.getAttribute('data-wf-sym'));
       else wfGo(t.getAttribute('data-wf-go'));
+    });
+    // Left / Right (and Home / End) step between a hub's page tabs, like the
+    // in-page tab rows; Enter or a click opens the focused page.
+    document.addEventListener('keydown', function(ev){
+      var t = ev.target && ev.target.closest ? ev.target.closest('.wf-hub-tab') : null;
+      if (!t || ['ArrowLeft','ArrowRight','Home','End'].indexOf(ev.key) < 0) return;
+      var tabs = Array.prototype.slice.call(t.parentNode.querySelectorAll('.wf-hub-tab'));
+      var i = tabs.indexOf(t);
+      if (i < 0) return;
+      ev.preventDefault();
+      i = ev.key === 'Home' ? 0 : ev.key === 'End' ? tabs.length - 1 : (i + (ev.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length;
+      tabs[i].focus();
     });
     function noteWayfindingVisit(name){
       if (name !== 'home' && name !== 'grade') wfNoteRecent('tab:' + name);

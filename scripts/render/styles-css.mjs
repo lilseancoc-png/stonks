@@ -37,6 +37,7 @@ import { renderEvidenceCss } from './evidence-css.mjs';
 import { renderRegimeLabCss } from './regime-lab-css.mjs';
 import { renderSelfLoopCss } from './self-loop-css.mjs';
 import { renderQuantLabsCss } from './quant-labs-css.mjs';
+import { renderMarketRiskCss } from './market-risk-css.mjs';
 import { renderValuationLabCss } from './valuation-lab-css.mjs';
 import { renderEnginesCss } from './engines-css.mjs';
 import { renderOwnerInsightCss } from './owner-insight-css.mjs';
@@ -899,6 +900,9 @@ body.sidenav-open .side-nav {
    selectTab / cmd-K / "open in Grade tab" links keep working, but it never
    shows in the sidebar. */
 .page-tab[data-nav-hidden] { display: none !important; }
+/* Merged pages (site-map.mjs hubs): one sidebar entry per hub; the other
+   pages open as tabs under it, and the entry stays lit while one is open. */
+.page-tab[data-hub-member] { display: none !important; }
 .page-tab {
   position: relative;
   display: flex;
@@ -941,13 +945,13 @@ body.sidenav-open .side-nav {
 /* Active item — a softly brass-washed row, a hairline keyline, a rounded
    accent bar on the left edge and a brass glyph. The wash fades out to the
    right so the row reads lit-from-the-spine rather than flood-filled. */
-.page-tab[aria-selected="true"] {
+.page-tab[aria-selected="true"], .page-tab.is-hub-on {
   color: var(--text-strong);
   font-weight: 600;
   background: linear-gradient(90deg, var(--accent-tint-2), var(--accent-tint-1) 78%);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 20%, transparent);
 }
-.page-tab[aria-selected="true"]::before {
+.page-tab[aria-selected="true"]::before, .page-tab.is-hub-on::before {
   content: "";
   position: absolute;
   left: 0;
@@ -957,7 +961,7 @@ body.sidenav-open .side-nav {
   border-radius: var(--r-pill);
   background: var(--accent);
 }
-.page-tab[aria-selected="true"] .pt-ico { color: var(--accent); opacity: 1; }
+.page-tab[aria-selected="true"] .pt-ico, .page-tab.is-hub-on .pt-ico { color: var(--accent); opacity: 1; }
 .page-tab:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .page-pane[hidden] { display: none; }
 /* Reference / legal / info pages (Buyer's manual, Chart patterns, What's
@@ -25624,6 +25628,7 @@ ${renderEvidenceCss()}
 ${renderRegimeLabCss()}
 ${renderSelfLoopCss()}
 ${renderQuantLabsCss()}
+${renderMarketRiskCss()}
 ${renderValuationLabCss()}
 ${renderEnginesCss()}
 ${renderOwnerInsightCss()}

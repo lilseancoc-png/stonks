@@ -1,7 +1,8 @@
 # Owner Lab — private controls and deterministic quant screens
 
 The current three-view layout, record meanings, pricing guards, and request
-limits are documented in [Owner Lab](owner-lab.md). Personal tools opens first;
+limits are documented in [Owner Lab](owner-lab.md). Research screens opens
+first (the personal sizing tools moved onto their desks on 2026-11-17);
 research and diagnostic records load only when their view or panel opens.
 
 **Status: live.** Feed: `data/quant.json` (rebuilt fresh every bake) +
