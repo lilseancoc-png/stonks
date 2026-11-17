@@ -36,7 +36,7 @@ export const EXPORT_SOURCES = {
   rotation: ['sector-rotation.json'], levetf: ['leveraged-etfs.json'],
   'open-picks': ['picks-open.json', 'picks-accuracy.json'],
   track: ['picks-accuracy.json', 'picks-changes.json', 'picks-roster.json', 'grades-history.json'],
-  quant: ['quant.json'], 'quant-labs': ['quant-labs.json'], 'earnings-forecast': ['earnings-forecast.json'],
+  quant: ['quant.json'], 'quant-labs': ['quant-labs.json'], 'valuation-lab': ['valuation-lab.json'], 'earnings-forecast': ['earnings-forecast.json'],
 };
 
 // Bound inside bindPageTabs, after the split-view bindings: shares the wf*
