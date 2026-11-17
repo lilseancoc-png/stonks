@@ -11,8 +11,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import assert from "node:assert/strict";
-import { ENGINES, ENGINE_IDS, BOOK, MACRO_ETFS, FLAGSHIP, CLOSE_LABEL, engineSwitches, engineByTag, instrumentFor, isSharesTrade } from "../lib/engines/config.mjs";
-import { precompute, featAt, toColumns, barDate } from "../lib/engines/features.mjs";
+import { ENGINES, ENGINE_IDS, SIGNAL_IDS, CORE_IDS, BOOK, MACRO_ETFS, FLAGSHIP, CLOSE_LABEL, engineSwitches, engineByTag, engineName, instrumentFor, isSharesTrade } from "../lib/engines/config.mjs";
+import { precompute, featAt, toColumns, barDate, monthEnds } from "../lib/engines/features.mjs";
+import { trendRead, momentumRead, standCore, ret12, ret12skip1, avg10 } from "../lib/engines/core.mjs";
+import { ALLOC, allocObserve, allocDecide, allocKey, allocStamp, allocBook, allocPriorFrom, allocView, emptyAlloc } from "../lib/engines/allocator.mjs";
 import { evalTechnicals, evalReversion, evalMacro, evalEarnings, evalFundamentals, evalFlow, thesisCheck } from "../lib/engines/signals.mjs";
 import { stepBook, emptyRecord, emptyState, engineTradeId } from "../lib/engines/book.mjs";
 import { pickContract, quoteContract, contractKey, sharesContract, positionUsd } from "../lib/engines/contracts.mjs";
@@ -91,19 +93,31 @@ const CTX = { date: TODAY, spy: spyF, byId: {}, macro: null, env: { rates: "on h
 const V = (sym, f, extra = {}) => ({ sym, isEtf: false, spot: f.c, f, ...extra });
 
 // ---- config ----------------------------------------------------------------
-ok("six engines, unique tags, every setup has a label", () => {
-  assert.deepEqual(ENGINE_IDS, ["earnings", "macro", "technicals", "fundamentals", "flow", "reversion"]);
+ok("eight engines (six signal, two core), unique tags, every setup has a label", () => {
+  assert.deepEqual(ENGINE_IDS, ["earnings", "macro", "technicals", "fundamentals", "flow", "reversion", "trend", "momentum"]);
+  assert.deepEqual(SIGNAL_IDS, ["earnings", "macro", "technicals", "fundamentals", "flow", "reversion"]);
+  assert.deepEqual(CORE_IDS, ["trend", "momentum"]);
   const tags = ENGINE_IDS.map((id) => ENGINES[id].tag);
-  assert.equal(new Set(tags).size, 6);
+  assert.equal(new Set(tags).size, 8);
   assert.ok(!tags.includes(FLAGSHIP.tag));
   for (const id of ENGINE_IDS) {
     const e = ENGINES[id];
     assert.ok(e.slots >= 1 && e.perRun >= 1 && e.bar.min <= e.bar.base && e.bar.base <= e.bar.max, id);
-    assert.ok(e.contract.dteMin < e.contract.dteIdeal && e.contract.dteIdeal < e.contract.dteMax, id);
-    assert.ok(e.exits.tp > 0 && e.exits.stop < 0 && e.exits.maxSessions > 0, id);
     for (const [k, s] of Object.entries(e.setups)) assert.ok(s.label && s.how, `${id}.${k}`);
     assert.equal(engineByTag(e.tag).id, id);
+    if (e.core) {
+      // A core engine: long stock only, its own lot, no stops or targets.
+      assert.ok(e.standing && e.lotUsd > 0 && !Object.keys(e.exits).length, id);
+      assert.ok(Object.values(e.setups).every((s) => s.calls === "shares"), id);
+      assert.equal(instrumentFor(e, Object.keys(e.setups)[0], "call", { shares: false }), "shares", "ENGINES_SHARES=0 leaves the core engines on shares");
+      continue;
+    }
+    assert.ok(e.contract.dteMin < e.contract.dteIdeal && e.contract.dteIdeal < e.contract.dteMax, id);
+    assert.ok(e.exits.tp > 0 && e.exits.stop < 0 && e.exits.maxSessions > 0, id);
   }
+  assert.equal(ENGINES.trend.lotUsd * ENGINES.trend.slots, 50000);
+  assert.equal(ENGINES.momentum.lotUsd * ENGINES.momentum.top, 30000);
+  assert.equal(engineName("allocator"), "Allocator");
   // No two engines buy the same window and delta as each other by design.
   // Five shadow-start setups since Macro's vol-normal was dropped (2026-11-17).
   assert.equal(Object.values(ENGINES).flatMap((e) => Object.values(e.setups)).filter((s) => s.probation).length, 5);
@@ -114,8 +128,13 @@ ok("switches", () => {
   assert.equal(engineSwitches({ ENGINES: "pause" }).mode, "pause");
   for (const v of ["0", "off", "false", "no"]) assert.equal(engineSwitches({ ENGINES: v }).mode, "off");
   assert.deepEqual([...engineSwitches({ ENGINES_OFF: "flow, TEC,nope" }).off].sort(), ["flow", "technicals"]);
+  assert.deepEqual([...engineSwitches({ ENGINES_OFF: "TRD,momentum" }).off].sort(), ["momentum", "trend"]);
   assert.equal(enginesEnabled({ ENGINES: "0" }), false);
   assert.equal(enginesEnabled({}), true);
+  assert.equal(engineSwitches({}).allocator, "advise", "the Allocator advises by default");
+  assert.equal(engineSwitches({ ENGINES_ALLOCATOR: "advise" }).allocator, "advise");
+  assert.equal(engineSwitches({ ENGINES_ALLOCATOR: "on" }).allocator, "on");
+  for (const v of ["0", "off", "false", "no"]) assert.equal(engineSwitches({ ENGINES_ALLOCATOR: v }).allocator, "off");
 });
 ok("the three files are Owner-only and optional bake keys", () => {
   for (const k of [ENGINES_RECORD_KEY, ENGINES_STATE_KEY, ENGINES_VIEW_KEY]) {
@@ -354,7 +373,7 @@ const nowMs = Date.parse(NOW_AM);
 ok("contract pick: each engine's own window and delta; liquidity and cost screens", () => {
   const data = { spot: 100, chains: chainFor(100, nowMs) };
   const seen = new Set();
-  for (const id of ENGINE_IDS) {
+  for (const id of SIGNAL_IDS) {
     const c = pickContract(data, "call", ENGINES[id].contract, { nowMs });
     assert.ok(!c.skip, `${id}: ${c.skip}`);
     assert.ok(c.dte >= ENGINES[id].contract.dteMin && c.dte <= ENGINES[id].contract.dteMax, id);
@@ -526,7 +545,7 @@ ok("book: the rule change reaches a running engine once, as a logged version bum
   // the slow call setups, Macro's vol-normal dropped); each lands once.
   const st2 = emptyState(); for (const id of ENGINE_IDS) { st2.engines[id] = newEngineState(ENGINES[id]); delete st2.engines[id].rules; }
   out = stepBook(st2, emptyRecord(), bookInput({ AAA: V("AAA", pullF()) }, {}));
-  assert.deepEqual(out.changes.map((c) => c.engine), ENGINE_IDS);
+  assert.deepEqual(out.changes.map((c) => c.engine), SIGNAL_IDS, "the core engines start on their first rules");
   assert.ok(out.changes.filter((c) => c.engine !== "fundamentals").every((c) => /shares/.test(c.text)));
   assert.match(out.changes.find((c) => c.engine === "macro").text, /dropped/);
   // A trade opened under the first rules still closes on a report that goes against it, and never on the rank.
@@ -867,7 +886,8 @@ await okAsync("hook: a fresh start, a run, the three files, a second run, and a 
     const res = runEngines({ loaded, ...fixture(`${day}T${hhmm}:00.000Z`) });
     await writeEngineFiles(dir, res);
     opened += res.summary.opened; closed += res.summary.closed; runs++; lastView = res.view;
-    assert.ok(res.summary.opened <= BOOK.perRunTotal);
+    // Core engines are outside the book's per-run limit (share trades never reach Webull).
+    assert.ok(res.summary.opened - res.summary.openedCore <= BOOK.perRunTotal);
     assert.deepEqual(res.summary.errors, []);
     for (const id of ENGINE_IDS) assert.ok(res.record.open.filter((t) => t.engine === id).length <= ENGINES[id].slots, id);
     assert.equal(res.summary.late, hhmm === "20:30");
@@ -896,10 +916,31 @@ await okAsync("hook: a fresh start, a run, the three files, a second run, and a 
   assert.equal(st.runs.length, runs);
   assert.ok(st.replay && st.replay.date === "2026-11-25" && !st.replay.error, JSON.stringify(st.replay).slice(0, 200));
   // The page file.
-  assert.equal(view.engines.length, 6);
+  assert.equal(view.engines.length, 8);
   assert.deepEqual(view.engines.map((e) => e.id), ENGINE_IDS);
   assert.equal(view.engines.reduce((a, e) => a + e.open.length, 0), rec.open.length);
-  assert.equal(view.compare.length, 6);
+  assert.equal(view.compare.length, 8);
+  // The core engines: a monthly target from the October month-end, held as share lots.
+  for (const id of CORE_IDS) {
+    const e = view.engines.find((x) => x.id === id);
+    assert.equal(e.core, true); assert.equal(e.holdings.month, "2026-10");
+    assert.ok(e.holdings.why && e.holdings.log.length >= 1, id);
+    assert.deepEqual([...e.holdings.held].sort(), [...e.holdings.hold].sort(), `${id} holds its target`);
+    assert.ok(e.open.every((t) => t.instrument === "shares" && !t.exits?.maxSessions && t.stopLevel == null), id);
+    assert.equal(e.holdings.bench.since, "2026-11-16"); assert.ok(e.holdings.bench.spyThen > 0);
+  }
+  const mom = view.engines.find((x) => x.id === "momentum");
+  if (mom.holdings.setups && Object.values(mom.holdings.setups).includes("top-10")) {
+    assert.equal(mom.open.length, 10);
+    assert.ok(mom.open.every((t) => Math.abs(t.contract.shares * t.contract.mid - ENGINES.momentum.lotUsd) < t.contract.mid + 1), "a $3,000 lot each");
+  }
+  assert.equal(view.total.core.open, rec.open.filter((t) => CORE_IDS.includes(t.engine)).length);
+  // The Allocator: a row for every live setup, today's market type, and the history test's read.
+  assert.equal(view.allocator.mode, "advise"); assert.equal(view.allocator.cell, "up-calm");
+  assert.ok(view.allocator.rows.length >= SIGNAL_IDS.length);
+  assert.ok(view.allocator.rows.every((r) => SIGNAL_IDS.includes(r.engine)));
+  assert.ok(rec.open.filter((t) => SIGNAL_IDS.includes(t.engine)).every((t) => t.alloc && t.alloc.mode === "advise"), "every signal trade carries the Allocator's stamp");
+  assert.ok(rec.open.filter((t) => CORE_IDS.includes(t.engine)).every((t) => !t.alloc), "core holdings are not allocated");
   assert.equal(view.engines.find((e) => e.id === "technicals").history.live.n, 3);
   assert.ok(view.engines.find((e) => e.id === "technicals").replay?.held, "the recent replay is on the page");
   assert.equal(view.engines.find((e) => e.id === "flow").replay?.held ?? null, null, "Flow has no replay");
@@ -960,6 +1001,208 @@ ok("flagship comparison row", () => {
 });
 ok("trade IDs carry the engine tag and the ET entry time", () => {
   assert.equal(engineTradeId("MAC", "TLT", "put", "2026-11-16T20:30:00.000Z"), "MAC:TLT-P-11/16/26-15:30");
+});
+
+// ---- core engines (Trend follower, Momentum basket) ----------------------------
+// Month-end closes ending at `last` ("YYYY-MM"), oldest first.
+const moSeries = (last, closes) => {
+  const [y, m] = last.split("-").map(Number);
+  return closes.map((c, k) => { const ym = new Date(Date.UTC(y, m - 1 - (closes.length - 1 - k), 1)).toISOString().slice(0, 7); return { m: ym, d: `${ym}-28`, c }; });
+};
+const ramp = (a, b, n = 14) => Array.from({ length: n }, (_, k) => a + ((b - a) * k) / (n - 1));
+const coreView = (sym, closes, { last = "2026-10", etf = true, spot = null } = {}) => {
+  const mo = moSeries(last, closes), px = spot ?? mo.at(-1).c;
+  return { sym, isEtf: etf, spot: px, f: baseF({ c: px, atr: px * 0.02 }), mo };
+};
+const coreCtx = (cash = 4) => ({ ...CTX, macro: { cash12: cash } });
+ok("month-end closes: only months that have ended, read through the prior close", () => {
+  const bars = weekdays("2026-11-13", 320).map((t, i) => ({ t, o: 100 + i, h: 101 + i, l: 99 + i, c: 100 + i, v: 1e6 }));
+  const P = precompute(bars);
+  const me = monthEnds(P, P.n - 1, "2026-11-16", 14);
+  assert.equal(me.length, 14);
+  assert.deepEqual(me.at(-1), { m: "2026-10", d: "2026-10-30", c: bars.find((b) => b.t === "2026-10-30").c });
+  for (const x of me) { const j = bars.findIndex((b) => b.t === x.d); assert.notEqual(bars[j + 1].t.slice(0, 7), x.m); }
+  // On the first run of December the last bar on hand closes November.
+  assert.equal(monthEnds(P, P.n - 1, "2026-12-01", 14).at(-1).m, "2026-11");
+  // Read as of an earlier bar: nothing after it is seen.
+  const i = bars.findIndex((b) => b.t === "2026-06-10");
+  assert.equal(monthEnds(P, i, "2026-06-11", 14).at(-1).m, "2026-05");
+  assert.equal(ret12(me), me.at(-1).c / me.at(-13).c - 1);
+  assert.equal(ret12skip1(me), me.at(-2).c / me.at(-13).c - 1);
+  assert.equal(avg10(me), me.slice(-10).reduce((a, x) => a + x.c, 0) / 10);
+});
+ok("Trend follower: the stronger index fund, else Treasuries, else T-bills", () => {
+  let r = trendRead({ SPY: coreView("SPY", ramp(400, 480)), QQQ: coreView("QQQ", ramp(300, 330)), TLT: coreView("TLT", ramp(100, 100)) }, coreCtx());
+  assert.deepEqual(r.hold, ["SPY"]); assert.equal(r.setups.SPY, "index"); assert.equal(r.month, "2026-10"); assert.match(r.why, /SPY rose/);
+  r = trendRead({ SPY: coreView("SPY", ramp(400, 480)), QQQ: coreView("QQQ", ramp(300, 400)), TLT: coreView("TLT", ramp(100, 100)) }, coreCtx());
+  assert.deepEqual(r.hold, ["QQQ"]);
+  // Neither index beat T-bills; Treasuries did.
+  r = trendRead({ SPY: coreView("SPY", ramp(400, 402)), QQQ: coreView("QQQ", ramp(300, 301)), TLT: coreView("TLT", ramp(90, 100)) }, coreCtx());
+  assert.deepEqual(r.hold, ["TLT"]); assert.equal(r.setups.TLT, "bonds");
+  // Nothing beat T-bills: cash.
+  r = trendRead({ SPY: coreView("SPY", ramp(400, 380)), QQQ: coreView("QQQ", ramp(300, 290)), TLT: coreView("TLT", ramp(100, 95)) }, coreCtx());
+  assert.deepEqual(r.hold, []); assert.match(r.why, /holding T-bills/);
+  // A missing number: no read (the stored target stands).
+  assert.equal(trendRead({ SPY: coreView("SPY", ramp(400, 480)), QQQ: coreView("QQQ", ramp(300, 330)) }, { ...CTX, macro: {} }), null);
+  // A fund whose month-ends stop a month early is not read as current.
+  assert.equal(trendRead({ SPY: coreView("SPY", ramp(400, 480)), QQQ: coreView("QQQ", ramp(300, 400), { last: "2026-09" }) }, coreCtx()), null);
+});
+// 25 stocks: S00 the strongest over 12-1 months, S24 the weakest; J00 jumps
+// only in the latest month (left out of 12-1 momentum).
+function momViews({ spyCloses = ramp(400, 480), tlt = ramp(100, 100), last = "2026-10" } = {}) {
+  const v = { SPY: coreView("SPY", spyCloses, { last }), TLT: coreView("TLT", tlt, { last }) };
+  for (let i = 0; i < 25; i++) v[`S${String(i).padStart(2, "0")}`] = coreView(`S${String(i).padStart(2, "0")}`, ramp(50, 50 + (25 - i) * 4), { etf: false, last });
+  v.J00 = coreView("J00", [...ramp(50, 50, 13), 200], { etf: false, last });
+  return v;
+}
+ok("Momentum basket: the ten strongest on 12-1 momentum, Treasuries or T-bills while SPY is under its 10-month average", () => {
+  let r = momentumRead(momViews(), coreCtx());
+  assert.deepEqual(r.hold, ["S00", "S01", "S02", "S03", "S04", "S05", "S06", "S07", "S08", "S09"]);
+  assert.ok(Object.values(r.setups).every((s) => s === "top-10"));
+  assert.equal(r.ranked[0].symbol, "S00"); assert.equal(r.reads.ranked, 26);
+  assert.ok(!r.hold.includes("J00"), "the latest month's jump is left out");
+  // SPY under its 10-month average: TLT when it beat T-bills, else cash.
+  const weak = [...ramp(400, 480, 10), 470, 440, 420, 400];
+  r = momentumRead(momViews({ spyCloses: weak, tlt: ramp(90, 100) }), coreCtx());
+  assert.deepEqual(r.hold, ["TLT"]); assert.equal(r.setups.TLT, "safe"); assert.equal(r.reads.spyAbove, false);
+  r = momentumRead(momViews({ spyCloses: weak, tlt: ramp(100, 95) }), coreCtx());
+  assert.deepEqual(r.hold, []);
+  // Fewer than 20 ranked names: no read.
+  const few = momViews(); for (let i = 5; i < 25; i++) delete few[`S${String(i).padStart(2, "0")}`];
+  assert.equal(momentumRead(few, coreCtx()), null);
+});
+ok("core target: replaced only by a later month, with the swaps logged", () => {
+  const es = {};
+  const v1 = { SPY: coreView("SPY", ramp(400, 480)), QQQ: coreView("QQQ", ramp(300, 330)), TLT: coreView("TLT", ramp(100, 100)) };
+  standCore(es, "trend", v1, coreCtx(), { today: "2026-11-16" });
+  assert.deepEqual(es.core.hold, ["SPY"]); assert.equal(es.coreLog.length, 1); assert.deepEqual(es.coreLog[0].in, ["SPY"]);
+  // Same month again (a second run): unchanged even if a quote moved.
+  standCore(es, "trend", { ...v1, QQQ: coreView("QQQ", ramp(300, 500)) }, coreCtx(), { today: "2026-11-16" });
+  assert.deepEqual(es.core.hold, ["SPY"]); assert.equal(es.coreLog.length, 1);
+  // A read that cannot be made keeps the stored target.
+  standCore(es, "trend", {}, coreCtx(), { today: "2026-12-01" });
+  assert.deepEqual(es.core.hold, ["SPY"]);
+  // The next month: QQQ leads.
+  const v2 = { SPY: coreView("SPY", ramp(400, 480), { last: "2026-11" }), QQQ: coreView("QQQ", ramp(300, 420), { last: "2026-11" }), TLT: coreView("TLT", ramp(100, 100), { last: "2026-11" }) };
+  standCore(es, "trend", v2, coreCtx(), { today: "2026-12-01" });
+  assert.deepEqual(es.core.hold, ["QQQ"]); assert.equal(es.core.since, "2026-12-01");
+  assert.deepEqual(es.coreLog[0].in, ["QQQ"]); assert.deepEqual(es.coreLog[0].out, ["SPY"]);
+});
+ok("book: core holdings open as share lots outside the run limit, swap as 'rotate', never learn", () => {
+  const state = emptyState(), record = emptyRecord();
+  const v1 = { SPY: coreView("SPY", ramp(400, 500)), QQQ: coreView("QQQ", ramp(300, 330)), TLT: coreView("TLT", ramp(100, 100)) };
+  let out = stepBook(state, record, bookInput(v1, { engines: ["trend"], ctx: { ...coreCtx(), byId: v1 }, maxTotal: 0 }));
+  assert.equal(out.opened.length, 1, "the book's run limit does not hold back a core holding");
+  const t = out.opened[0];
+  assert.equal(t.symbol, "SPY"); assert.equal(t.setup, "index"); assert.equal(t.contract.structure, "shares");
+  assert.equal(t.contract.shares, 100); assert.match(t.tradeId, /^TRD:SPY-S-/);
+  assert.deepEqual(t.exits, {}); assert.equal(t.stopLevel, null); assert.equal(t.targetLevel, null); assert.ok(!t.alloc);
+  assert.ok(state.engines.trend.bench && state.engines.trend.bench.date === "2026-11-16");
+  // A later run in the same month, price down 20%: held (no stop).
+  const v1b = { ...v1, SPY: { ...v1.SPY, spot: 400 } };
+  const day2 = { ...bookInput(v1b, { engines: ["trend"], ctx: { ...coreCtx(), byId: v1b }, nowIso: "2026-11-17T16:00:00.000Z" }) };
+  out = stepBook(state, record, day2);
+  assert.equal(out.closed.length, 0); assert.equal(record.open[0].optionPnlPct, -20.1);
+  // December's check picks QQQ: SPY closes as "rotate" and QQQ opens in the same run.
+  const v2 = { SPY: coreView("SPY", ramp(400, 480), { last: "2026-11", spot: 400 }), QQQ: coreView("QQQ", ramp(300, 420), { last: "2026-11" }), TLT: coreView("TLT", ramp(100, 100), { last: "2026-11" }) };
+  out = stepBook(state, record, bookInput(v2, { engines: ["trend"], ctx: { ...coreCtx(), byId: v2 }, nowIso: "2026-12-01T16:00:00.000Z" }));
+  assert.deepEqual(out.closed.map((x) => [x.symbol, x.status, x.outcome]), [["SPY", "rotate", "loss"]]);
+  assert.deepEqual(out.opened.map((x) => x.symbol), ["QQQ"]);
+  assert.equal(CLOSE_LABEL.rotate, "swapped at the monthly check");
+  // No learning on a core engine, and a loss leaves no cooldown that matters.
+  assert.equal(state.engines.trend.v || 1, 1);
+  assert.equal(thesisCheck({ engine: "trend" }, { core: { trend: false } }), "rotate");
+  assert.equal(thesisCheck({ engine: "trend" }, { core: { trend: true } }), null);
+  assert.equal(thesisCheck({ engine: "trend" }, { core: { momentum: false } }), null);
+});
+ok("book: the Momentum basket buys ten $3,000 lots, then moves the whole basket to Treasuries", () => {
+  const state = emptyState(), record = emptyRecord();
+  const v1 = momViews();
+  let out = stepBook(state, record, bookInput(v1, { engines: ["momentum"], ctx: { ...coreCtx(), byId: v1 }, maxTotal: 2 }));
+  assert.equal(out.opened.length, 10);
+  for (const t of out.opened) { assert.ok(Math.abs(positionUsd(t.contract) - 3000) <= t.contract.mid); assert.equal(t.setup, "top-10"); }
+  const weak = [...ramp(400, 480, 10), 470, 440, 420, 400];
+  const v2 = momViews({ spyCloses: weak, tlt: ramp(90, 100), last: "2026-11" });
+  out = stepBook(state, record, bookInput(v2, { engines: ["momentum"], ctx: { ...coreCtx(), byId: v2 }, nowIso: "2026-12-01T16:00:00.000Z" }));
+  assert.equal(out.closed.length, 10); assert.ok(out.closed.every((t) => t.status === "rotate"));
+  assert.deepEqual(out.opened.map((t) => [t.symbol, t.setup]), [["TLT", "safe"]]);
+  assert.ok(Math.abs(positionUsd(out.opened[0].contract) - 30000) <= 100, "the whole basket's money");
+});
+ok("history test: the core engines are scored as a portfolio against SPY", () => {
+  const res = runBacktest({ series: SERIES, isEtf: (s) => MACRO_ETFS.includes(s), from: SERIES_DATES[300], engines: ["trend", "momentum"], control: 0,
+    fred: { DFF: { t: SERIES_DATES, v: SERIES_DATES.map(() => 4) } } });
+  for (const id of ["trend", "momentum"]) {
+    const c = res.engines[id].core;
+    assert.ok(c && c.years > 0 && Number.isFinite(c.cagr) && Number.isFinite(c.spyCagr), id);
+    assert.ok(c.maxDrawdown <= 0 && c.spyMaxDrawdown <= 0 && c.invested >= 0 && c.invested <= 100, id);
+    assert.ok(c.byYear.length >= 1);
+  }
+  assert.ok(publicResult(res).engines.trend.core, "the public copy carries the portfolio line");
+});
+
+// ---- the Allocator ------------------------------------------------------------
+ok("Allocator: normal size until 30 results, then held back or sized by today's market", () => {
+  const st = {};
+  const mk = (p, cell, shares = false) => ({ engine: "technicals", setup: "pullback", side: "call", optionPnlPct: p, outcome: p > 0 ? "win" : "loss", regime: { cell }, contract: shares ? { structure: "shares" } : { strike: 1 }, exitDate: "2026-11-10T20:00:00.000Z" });
+  const key = allocKey("technicals", "pullback", "call", "option");
+  for (let i = 0; i < 29; i++) allocObserve(st, mk(i % 2 ? 10 : -14, "down-calm"));
+  let d = allocDecide(st, null, key, "down-calm");
+  assert.equal(d.status, "new"); assert.equal(d.w, 1); assert.equal(d.open, true);
+  allocObserve(st, mk(-2 * 30 - (st.alloc.table[key]["*"][1]), "down-calm"));   // brings the 30 to an average of -2
+  d = allocDecide(st, null, key, "down-calm");
+  assert.equal(d.n, 30); assert.equal(d.avg, -2); assert.equal(d.status, "closed"); assert.equal(d.open, false); assert.match(d.why, /trending-down, calm/);
+  // Thirty more in up-calm averaging +10: the overall average is +4.
+  for (let i = 0; i < 30; i++) allocObserve(st, mk(10, "up-calm"));
+  assert.equal(allocDecide(st, null, key, "up-calm").ev, 7);      // 0.5 x 10 + 0.5 x 4
+  assert.equal(allocDecide(st, null, key, "up-calm").w, 1.75);
+  assert.equal(allocDecide(st, null, key, "down-calm").w, 0.25);  // 0.5 x -2 + 0.5 x 4 = 1
+  assert.equal(allocDecide(st, null, key, "chop-calm").w, 1);     // no record there: the overall +4
+  // A share result counts 5x, on its own row.
+  allocObserve(st, mk(1, "up-calm", true));
+  assert.deepEqual(st.alloc.table[allocKey("technicals", "pullback", "call", "shares")]["*"], [1, 5]);
+  // Void trades are not counted.
+  allocObserve(st, { ...mk(50, "up-calm"), outcome: "void" });
+  assert.equal(st.alloc.table[key]["*"][0], 60);
+  // A prior adds to the live record.
+  const prior = allocPriorFrom(Array.from({ length: 40 }, () => mk(-5, "chop-calm")));
+  d = allocDecide({}, prior, key, "chop-calm");
+  assert.equal(d.priorN, 40); assert.equal(d.liveN, 0); assert.equal(d.status, "closed");
+  assert.equal(allocDecide(st, prior, key, "chop-calm").n, 100);
+  // Stamp, and the dollar line at the Allocator's size.
+  assert.equal(allocStamp(d, "on").w, 0); assert.equal(allocStamp(allocDecide(st, null, key, "up-calm"), "on").w, 1.75);
+  const b = allocBook([{ alloc: { w: 2, status: "open" }, optionPnlPct: 10, contract: { mid: 1 } }, { alloc: { w: 0, status: "closed" }, optionPnlPct: -20, contract: { mid: 1 } }, { optionPnlPct: 5, contract: { mid: 1 } }], tradeUsd);
+  assert.deepEqual(b, { n: 2, plainUsd: -10, sizedUsd: 20, advisedOut: 1, heldUsd: -20 });
+  assert.equal(ALLOC.minN, 30);
+});
+ok("book: the Allocator holds a losing setup back as a shadow trade; 'advise' only stamps it", () => {
+  const losing = () => { const s = emptyState(); s.alloc = emptyAlloc("2026-11-01"); s.alloc.table[allocKey("technicals", "pullback", "call", "option")] = { "*": [40, -200], "up-calm": [40, -200] }; return s; };
+  let state = losing(), record = emptyRecord();
+  let out = stepBook(state, record, bookInput({ AAA: V("AAA", pullF()) }, { engines: ["technicals"], allocator: { mode: "on", prior: null } }));
+  assert.equal(out.opened.length, 0); assert.equal(out.shadowOpened, 1);
+  assert.equal(state.engines.technicals.shadow.open[0].shadowWhy, "held back by the Allocator");
+  assert.equal(state.engines.technicals.shadow.open[0].alloc.status, "closed");
+  assert.match(out.candidates.technicals[0].why, /^Allocator: expected -5% a trade/);
+  assert.equal(out.candidates.technicals[0].alloc.status, "closed");
+  state = losing(); record = emptyRecord();
+  out = stepBook(state, record, bookInput({ AAA: V("AAA", pullF()) }, { engines: ["technicals"], allocator: { mode: "advise", prior: null } }));
+  assert.equal(out.opened.length, 1);
+  assert.deepEqual({ w: out.opened[0].alloc.w, status: out.opened[0].alloc.status, mode: out.opened[0].alloc.mode }, { w: 0, status: "closed", mode: "advise" });
+  // Off (the default when not passed): nothing stamped, nothing held back.
+  state = losing(); record = emptyRecord();
+  out = stepBook(state, record, bookInput({ AAA: V("AAA", pullF()) }, { engines: ["technicals"] }));
+  assert.equal(out.opened.length, 1); assert.equal(out.opened[0].alloc, undefined);
+  // Each finished trade, real or shadow, is counted.
+  state = emptyState(); record = emptyRecord();
+  stepBook(state, record, bookInput({ AAA: V("AAA", pullF()) }, { engines: ["technicals"], allocator: { mode: "on", prior: null } }));
+  const views = { AAA: { ...V("AAA", pullF()), spot: 112 } };
+  stepBook(state, record, bookInput(views, { engines: ["technicals"], nowIso: "2026-11-17T16:00:00.000Z", chains: { AAA: { spot: 112, chains: chainFor(112, Date.parse("2026-11-17T16:00:00.000Z")) } }, mode: "pause", allocator: { mode: "on", prior: null } }));
+  assert.equal(record.closed.length, 1);
+  assert.deepEqual(state.alloc.table[allocKey("technicals", "pullback", "call", "option")]["up-calm"][0], 1);
+  // The page's table: every live signal setup, ordered open / new / closed.
+  const v = allocView(losing(), null, ENGINES, SIGNAL_IDS, "up-calm");
+  assert.equal(v.rows.find((r) => r.key === allocKey("technicals", "pullback", "call", "option")).status, "closed");
+  assert.ok(v.rows.every((r) => !ENGINES[r.engine].setups[r.setup].retired));
+  assert.equal(v.cellLabel, "trending-up, calm");
 });
 
 console.log(`${passed} engine checks passed${process.exitCode ? " (with failures)" : ""}`);

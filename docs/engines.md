@@ -1,9 +1,14 @@
 # Strategy engines
 
-Six rules-only paper engines run beside Top Picks. Each has its own idea, its
-own data, its own 0 to 100 score and its own track record. All of them trade
-in the one Webull paper account that Top Picks uses. Paper tracking starts
-2026-11-16.
+Eight rules-only paper engines run beside Top Picks: six signal engines and,
+since 2026-11-17, two core engines. Each has its own idea, its own data and
+its own track record. The signal engines score their own setups 0 to 100 and
+trade options (and $5,000 share lots on the slow call setups) in the one
+Webull paper account that Top Picks uses. The core engines (Trend follower,
+Momentum basket) hold long-only shares picked at a monthly check, on the
+record only. The Allocator (2026-11-17) reads every signal setup's record in
+today's market type; see [Allocator](#allocator-2026-11-17). Paper tracking
+starts 2026-11-16.
 
 None of them makes an AI call or a network request, and none can read or
 change a Top Pick, a grade, a gate or the Top Picks Track Record. Top Picks
@@ -36,10 +41,45 @@ not all 85 covered names.
 | Fundamentals | FUN | stocks | One standing rank of every covered stock on earnings power, quality and price; calls on the best, puts on the worst, swapped only when a holding leaves its third | 75-200 days, 0.62 delta | +50% / -40%, 60 sessions, or the stock leaves its third of the rank | 5 (3 calls, 2 puts) |
 | Flow & positioning | FLO | every covered name | One-sided signed option flow (trades bought vs sold, in delta dollars; since 2026-11-16), gamma set-ups near a call wall, short squeezes | 14-50 days, 0.50 delta | +35% / -40%, 7 sessions | 4 |
 | Reversion | REV | every covered name | Washouts in long-term uptrends, spikes in long-term downtrends, capitulation days | 14-45 days, 0.60 delta | +30% / -35%, 5 sessions | 4 |
+| Trend follower | TRD | SPY, QQQ, TLT | Core: at each monthly check, the stronger of SPY and QQQ over 12 months if it beat T-bills, else TLT if it beat T-bills, else cash | $50,000 of shares | Swapped at the monthly check only | 1 |
+| Momentum basket | MOM | every covered stock | Core: the ten strongest by 12-1 momentum, equal weight; TLT with the basket's money while SPY closes a month under its 10-month average | $3,000 of shares each ($30,000 of TLT) | Swapped at the monthly check only | 10 |
 
 The registry is `lib/engines/config.mjs` (`ENGINES`): every setup, its
 plain-language trigger, the entry bar and its limits, the exits and the
 contract window. The rule code is `lib/engines/signals.mjs`.
+
+### Core engines: Trend follower and Momentum basket (2026-11-17)
+
+The owner's plan for beating the S&P 500 is a long-only stock core that
+follows trend and momentum, with the signal engines as a smaller timed
+options sleeve. The two core engines are that core, built from the rules that
+beat holding the S&P 500 in the 1972-2026 and 2006-2026 research
+(`engines/beat-sp500-2026-11-17` in the project files). Code:
+`lib/engines/core.mjs`.
+
+- **Monthly check.** Both read month-end closes (`monthEnds` in
+  `features.mjs`, on each view as `view.mo`; a bar counts as a month-end once
+  a later month has started). The target is fixed from one month-end to the
+  next (`standCore`, "standing" like the Fundamentals rank), so a day's quote
+  cannot reshuffle the book. A holding closes only as `rotate` ("swapped at
+  the monthly check") when the next check drops it (`thesisCheck`). No stops,
+  no targets, no time limit, no learning, no cooldown.
+- **Trend follower (TRD).** Compares SPY's and QQQ's 12-month returns and
+  holds the stronger if it beat T-bills; otherwise TLT if TLT beat T-bills;
+  otherwise nothing. T-bills = the average fed funds rate over the 12 months
+  (`ctx.macro.cash12`). One $50,000 lot.
+- **Momentum basket (MOM).** Ranks the covered stocks (needs 20 or more) by
+  the rise from 12 months ago to 1 month ago and owns the ten strongest at
+  $3,000 each. While SPY's month-end close is under its 10-month average it
+  owns $30,000 of TLT instead (nothing when TLT also trails T-bills).
+- **Book.** Core trades are exempt from the book's per-run cap and from the
+  Allocator, buy shares only, and never go to the Webull paper account. The
+  page shows each core engine as a portfolio: the holdings, the last monthly
+  checks, the ranked list (Momentum), and dollars since its first trade
+  against the same dollars in SPY bought that day (`coreBench`).
+- **History score.** A $1 portfolio that follows the holdings at each open
+  and close, idle money earning fed funds, 0.1% costs a round trip, against
+  SPY bought the same day (`coreMark` in `backtest.mjs`).
 
 ### Shares for the slow setups (rules 2, 2026-11-17)
 
@@ -339,26 +379,44 @@ Three versions of each test: every setup with no learning, shadow-start setups
 held back with no learning, and the engine as it runs (learning on). Each is
 compared with books that bought the same kind of contract on random days.
 
-Result, 2007 to 2026, as each engine runs, with share trades (rules 2,
-2026-11-17) scored on their own lines:
+Result, 2007 to 2026, as each engine runs (learning on, the Allocator
+advising), with share trades (rules 2, 2026-11-17) scored on their own lines.
+Rerun on 2026-11-17 after a fix to the slot count (a run's own new trades
+were counted twice against an engine's free slots, so engines that may open
+two or more trades a run opened fewer than they should):
 
 | Engine | Kind | Trades | Win rate | Average trade | Dollars | Random entries | Beat random |
 |---|---|---|---|---|---|---|---|
-| Technicals | options | 197 | 40% | -3.6% | -$3,872 | -7.3% | 90% of books |
-| Technicals | shares | 1,419 | 45% | +0.7% | +$50,039 | +1.2% | 10% |
-| Reversion | options | 1,153 | 47% | -0.4% | -$3,502 | -3.8% | 100% |
-| Reversion | shares | 39 | 59% | +1.8% | +$3,522 | +0.9% | 85% |
-| Macro | options | 490 | 51% | +2.2% | -$6,311 | -6.8% | 100% |
+| Technicals | options | 194 | 42% | -3.6% | -$8,501 | -6.6% | 90% of books |
+| Technicals | shares | 1,347 | 46% | +0.8% | +$52,209 | +1.0% | 30% |
+| Reversion | options | 1,136 | 46% | -1.7% | -$3,273 | -3.9% | 80% |
+| Reversion | shares | 39 | 59% | +1.8% | +$3,419 | +0.6% | 70% |
+| Macro | options | 490 | 51% | +2.2% | -$6,311 | -7.9% | 100% |
 
-Before the change (every call an option): Technicals 1,043 trades, -2.3% a
-trade, -$23,675; Reversion -$7,272; Macro -$7,473.
+Before the share change (every call an option): Technicals 1,043 trades,
+-2.3% a trade, -$23,675; Reversion -$7,272; Macro -$7,473.
 
 Honest read: buying shares instead of calls turned Technicals from a steady
 loser into a winner, but its share trades did no better than random share
-buys in the same names (they beat 10% of random books): the gain is the
+buys in the same names (they beat 30% of random books): the gain is the
 stocks' own rise, not the timing. Reversion's capitulation shares and Macro
 did better than random. No option side shows a reliable profit after costs.
 The learning rules worked as a brake, not an edge.
+
+Core engines, 2007-02-01 to 2026-11-06, scored as portfolios against SPY
+bought the same day:
+
+| Engine | A year | SPY a year | Total | SPY total | Worst drop | SPY worst drop | Invested | Swaps |
+|---|---|---|---|---|---|---|---|---|
+| Trend follower | 14.1% | 10.6% | +1,242% | +631% | -30.7% | -55.2% | 94% | 33 |
+| Momentum basket | 27.9% | 10.6% | +12,777% | +631% | -40.5% | -55.2% | 93% | 539 |
+
+The Trend follower's edge is mostly sidestepping 2008 (+0.6% against -36.8%)
+and 2022 (-11.6% against -18.2%); it trailed in rebounds (2009 -7.3% against
++26.4%, 2019 +12.0% against +31.2%). The Momentum number is the most
+flattered result in this test: it picks the ten strongest of today's 85
+covered names, which are largely the names that went on to win. On a
+1,000-name list of the time the same rule made about 21% a year, not 28%.
 
 What the test cannot see:
 
@@ -373,13 +431,52 @@ What the test cannot see:
 - Flow has no stored history. It is judged forward only, on its paper record
   and its shadow trades.
 
+## Allocator (2026-11-17)
+
+`lib/engines/allocator.mjs`. The Allocator picks no trades. Before each
+signal-engine trade it looks up how that setup has done, keyed by engine,
+setup, side and instrument (`allocKey`: `engine|setup|side|o` or `|s`), in
+today's Regime Lab market type and everywhere, and blends the two:
+expected = cn/(cn+30) x the average here + 30/(cn+30) x the average
+everywhere (`allocDecide`). Options count % of premium, shares % of the
+share price x 5 (as in the learning rules). Fewer than 30 results: "new",
+normal size. Expected at or under zero: "closed". Above zero: a size
+w = expected / 4, clamped to 0.1x-2x.
+
+- **Its record.** Every finished signal trade, real and shadow
+  (`allocObserve`), on top of a starting record from the history test's
+  every-setup run (`research.allocPrior`, counts and sums only).
+- **Modes** (`ENGINES_ALLOCATOR`). `advise` (the default): every trade opens
+  and carries the read as `alloc` (`{ w, status, ev, n, cn, cell, mode }`);
+  the page counts the closed trades it would have held back and what they
+  made (`allocBook` `heldUsd`: below zero, holding back would have helped).
+  `on`: a "closed" setup's trade is held back and tracked as a shadow trade
+  ("held back by the Allocator"), so the setup keeps a record and can earn its
+  way back. `off`: not run. In every mode the size is a scored dollar line
+  only; no lot is resized. The core engines are not allocated.
+- **Why it advises by default.** In the history test (Technicals, Reversion,
+  Macro, learning on), holding back lowered the dollar total in both runs:
+  starting from nothing, $37,543 without it and $16,471 with it; with the
+  2007-2016 record carried into 2017-2026 (the way it runs live), $18,391
+  and $7,217. On the same trades, the ones it would have held back made
+  money ($10,730 over 919 trades, and $14,165 over 252): its read was right
+  on Macro (the Macro trades it would have held back lost money in both runs)
+  and wrong on Technicals and Reversion. Its sizes lowered the total starting
+  from nothing and were flat with the record. The advising run's live count
+  is the test of whether that changes.
+- **Page.** Strategy engines → Allocator tab: today's market type, every
+  setup's read (size, expected, results here and everywhere, live vs history
+  count), the live counts, and the history test with the note read from the
+  numbers. Candidates and open trades carry an Allocator line.
+
 ## Switches
 
 | Switch | Where | Effect |
 |---|---|---|
 | `ENGINES` | GitHub repo variable | Unset = on. `pause` = manage open trades, open none. `0` = freeze (files carried forward untouched) |
 | Strategy engines | Owner Settings → Data & desks | The same switch on the site: On, Manage open trades only (`pause`), Frozen (`off`). Applies from the next Top Picks run. A repo variable, when set, wins |
-| `ENGINES_OFF` | GitHub repo variable | Comma list of engines that open no new trades (`earnings`, `macro`, `technicals`, `fundamentals`, `flow`, `reversion`, or their tags) |
+| `ENGINES_OFF` | GitHub repo variable | Comma list of engines that open no new trades (`earnings`, `macro`, `technicals`, `fundamentals`, `flow`, `reversion`, `trend`, `momentum`, or their tags) |
+| `ENGINES_ALLOCATOR` | Owner Settings → Data & desks → "Engine Allocator" (no repo variable) | Unset / `advise` = the Allocator records its read on every signal trade and holds nothing back. `on` = it holds back setups expected to lose in today's market type (shadow trades). `0` = not run |
 | `ENGINES_SHARES` | Owner Settings → Data & desks → "Engines buy shares for slow setups" (no repo variable) | Unset = on. `0` puts every setup back on calls; open share trades run to their exits |
 | `ENGINES_MIRROR` | Vercel env | `0` stops new engine trades entering the paper account. Trades already there keep being managed and closed |
 
@@ -387,5 +484,7 @@ What the test cannot see:
 
 - No real money and no broker other than the Webull paper sandbox.
 - No spreads, and no short stock.
-- Share trades are not placed in the paper account (record only).
+- Share trades, including every core-engine holding, are not placed in the
+  paper account (record only).
+- The Allocator never resizes a lot.
 - No engine result feeds a Top Picks grade, gate or record.
