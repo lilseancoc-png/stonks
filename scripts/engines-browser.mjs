@@ -92,6 +92,11 @@ try {
     check(/Made by/i.test(webullText) && /made_by/.test(webullText), 'the paper account names the engine behind each order and says the downloads do too');
     check(/Webull order IDs start ms(ern|mac|tec|fun|flo|rev)/.test(webullText), 'each order shows the engine tag its Webull order IDs start with');
     check((await s.page.locator('#eng-all-runs tbody tr').count()) === Math.min(20, view.runs.length), 'the run log rendered');
+    const openAll = view.engines.reduce((n, e) => n + e.open.length, 0);
+    check((await s.page.locator('#eng-all-open .vt-table tbody tr:not(.vt-detail)').count()) === openAll, 'every engine\'s open trades sit in one table');
+    const withCurve = view.engines.filter((e) => e.stats?.curve?.length).length;
+    check((await s.page.locator('#eng-all-curve .ln-svg path.ln-line').count()) === withCurve, 'one running-total line per engine with closed trades');
+    check(!/\d{4}-\d{2}-\d{2}/.test(await s.page.locator('#eng-all-curve .ln-svg').innerHTML().then((h) => h.replace(/data-ch='[^']*'/, ''))), 'the curve axis reads as days, not raw ISO dates');
     check(/Went first/i.test(await s.page.locator('#eng-all-runs').innerText()), 'the run log says which engine went first');
     check(mirrorAsks.length >= 1 && mirrorAsks.every((q) => /scope=engines/.test(q)), 'the page asks the mirror for engine trades only');
     await clean(s, 'All engines, desktop');

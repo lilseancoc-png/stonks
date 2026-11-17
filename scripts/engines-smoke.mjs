@@ -207,14 +207,14 @@ ok("fundamentals: one standing rank; calls from the best eight, puts from the wo
   const top = evalFundamentals(views.F01, CTX);
   assert.equal(top.length, 1); assert.equal(top[0].setup, "rank-top"); assert.equal(top[0].side, "call"); assert.equal(top[0].score, 100);
   assert.equal(top[0].signalKey, `F01|rank-top|${TODAY}`);
-  assert.ok(top[0].reasons.some((r) => /^Ranked 1 of 30 covered stocks$/.test(r)));
+  assert.ok(top[0].reasons.some((r) => /^Ranked 1 of 30 stocks with full data \(funds are not ranked\)$/.test(r)));
   assert.ok(top[0].reasons.some((r) => /Earnings power \d+, quality \d+, price \d+/.test(r)));
   assert.equal(evalFundamentals(views.F08, CTX)[0].side, "call");
   assert.equal(evalFundamentals(views.F09, CTX).length, 0, "ninth best: kept if held, never opened");
   assert.equal(views.F10.fund.rank.zone, "top"); assert.equal(views.F11.fund.rank.zone, "mid"); assert.equal(views.F21.fund.rank.zone, "bottom");
   const bottom = evalFundamentals(views.F30, CTX);
   assert.equal(bottom[0].setup, "rank-bottom"); assert.equal(bottom[0].side, "put"); assert.equal(bottom[0].score, 100);
-  assert.ok(bottom[0].reasons.some((r) => /Ranked 30 of 30 covered stocks \(1 from the bottom\)/.test(r)));
+  assert.ok(bottom[0].reasons.some((r) => /Ranked 30 of 30 stocks with full data \(1 from the bottom\)/.test(r)));
   assert.equal(evalFundamentals(views.F23, CTX)[0].side, "put");
   assert.equal(evalFundamentals(views.F22, CTX).length, 0);
   // Held back: a report inside six sessions, the reaction day of a report,

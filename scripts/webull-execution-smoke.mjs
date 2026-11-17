@@ -2,7 +2,7 @@
 // Never loads credentials or contacts Webull, Yahoo, or the production ledger.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { runWebullMirror, ledgerToTestTrades, ledgerToFillRows, fillRowsToCsv, emptyLedger, newTrade, buildOrder, updateQuantities, orderAttemptsToCsv } from "../lib/webull-mirror.mjs";
+import { runWebullMirror, ledgerToTestTrades, ledgerToFillRows, fillRowsToCsv, emptyLedger, newTrade, buildOrder, updateQuantities, orderAttemptsToCsv, describeReviewKinds } from "../lib/webull-mirror.mjs";
 import { executionPrice, endOfDayWindow } from "../lib/webull-execution-policy.mjs";
 import { runEndOfDayWindow } from "../lib/webull-mirror-window.mjs";
 import { pickTradeId } from "../lib/pick-trade-text.mjs";
@@ -247,6 +247,10 @@ assert.equal(n.ledger.trades[id].closeFillPrice, null);
   const args = { client, accountId: "PAPER", acc: { builtAtIso: pick.entryDate, open: [pick], closed: [] } };
   const ended = await runWebullMirror({ ...args, ledger: initial, nowMs: Date.parse("2026-10-28T20:00:10Z"), endOfDayOnly: true });
   assert.equal(ended.ledger.trades[id].reviewCode, "EOD_ORDER_UNCONFIRMED");
+  // The public workflow log names the kind of review and its source, never the ticker.
+  const kinds = describeReviewKinds(ended.summary);
+  assert.match(kinds, /^1 order outcome unconfirmed at the close \(Top Picks\)/, kinds);
+  assert.doesNotMatch(kinds, /TEST|late-entry/);
   const unrelated = structuredClone(ended.ledger);
   unrelated.trades[id].reviewCode = null; unrelated.trades[id].note = "Unrelated exposure requires review";
   const preOpen = structuredClone(initial); preOpen.trades[id].needsReview = false; preOpen.trades[id].reviewCode = null;
