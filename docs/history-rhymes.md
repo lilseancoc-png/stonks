@@ -51,8 +51,19 @@ shown as clear. Each side is a share of its counted signs that have a reading.
 | boom | Debt and off-balance-sheet deals fund the build | CRWV / ORCL total debt, market value, operating cash flow | both lean on debt (debt at least half of market value, more than 3 years of operating cash flow, or operating cash flow not positive) | one |
 | boom | Stock prices run far above trend | Nasdaq Composite (shared long-history cache) | +40% in 250 sessions and +20% over the 200-session average | +20% or +10% |
 | bust | The price of what is built keeps falling | `accelerator-prices.json` H100 composite | 30-day −5% or −10% over 60+ days | neither falling nor rising 5%+ over 30 days (the 2024–2025 index fall stands); rising 5%+ is "not showing" |
-| bust | The most indebted builder cracks | CRWV / ORCL price vs 52-week high | ≤ −40% | ≤ −25% |
-| bust | Supplier stocks fall while spending still rises | SMH vs 52-week high, capex still growing | ≤ −20% | ≤ −10% |
+| bust | The most indebted builder cracks | CRWV / ORCL fall from the 52-week high in each stock's own swings (below) | 1.46 yearly swings (−40% at 35% a year) | 0.82 (−25%) |
+| bust | Supplier stocks fall while spending still rises | SMH fall from the 52-week high in its own swings, capex still growing | 0.64 (−20%) | 0.30 (−10%) |
+
+The two drawdown signs read each fall in the stock's own swings (Owner
+choice, 2026-11-17): the log fall from the 52-week high divided by the stock's
+one-year realized volatility (`drawdownRead`, `DRAWDOWN_REF_VOL` 0.35). The
+bars equal the earlier fixed ones for a stock that moves 35% a year, so a calm
+stock lights on a smaller fall and a wild one needs a bigger one (CoreWeave,
+which moves about 100% a year, needs a fall of about 77% to light the sign).
+The builders' sign reads the deeper of the two falls in swings. With fewer than
+60 closes the fixed −40% / −25% and −20% / −10% bars apply. A funding event
+(a junk downgrade, a failed bond sale, a CDS jump) is not read: there is no
+free daily source for it beyond the dated press quotes.
 
 The spending sign's three parts (shown under it, `SPENDING_PARTS`):
 spending growth against revenue growth (`ai-capex.json`, gap ≥ 15 points lit,
@@ -78,7 +89,7 @@ not changed after it.
 | boom | Companies borrow at a fast pace | SIFMA corporate bond sales (`ipo-credit.json`), last three months vs a year earlier | +25% | +10% |
 | bust | The Fed and bond yields push rates up | FRED `DFF`, `DGS10`, `DGS2` | fed funds 1.75+ above its two-year low, the 10-year +1.5 in a year, or fed funds +0.75 with hikes priced (2-year 0.25+ over fed funds) | 0.75 / 0.75 / hikes priced after any 0.25 rise |
 | bust | The yield curve inverts | FRED `T10Y2Y` | below zero on any day in the last 24 months | under 0.25 now |
-| bust | Credit markets start to charge more | FRED `BAA10Y`, `BAMLH0A0HYM2` | HY +0.75 or Baa +0.35 in 3 months, or HY ≥ 5.5 | HY +0.30 or Baa +0.15 |
+| bust | Credit markets start to charge more | FRED `BAA10Y`, `BAMLH0A0HYM2` | HY +0.75 or Baa +0.35 in 3 months, or HY ≥ 5.5 | HY +0.30 or Baa +0.15, only while Baa is at or above its long-run middle (median since 1986; the history test uses the median up to each month) |
 
 ### Stage
 
@@ -198,7 +209,13 @@ panel's `DFF`, `DGS10`, `DGS2` and `T10Y2Y` were already in the cache
   (`matchNow` in `lib/historical-events.mjs`; a version 1 file still matches
   at 4.5 of 9).
 - **Risk analysis**: a context card under the seven desks with both stages,
-  labeled "Context, not a vote". It does not change the desk vote.
+  labeled "Context, not a vote". It does not change the desk vote. Below it
+  (`#risk-horizons`, `renderRiskHorizons` in
+  `scripts/render/history-rhymes-client.mjs`, Owner choice 2026-11-17) one
+  line explains why the market tape, the Quant labs market odds and Booms &
+  busts can disagree: they read days to weeks, 3 to 12 months and years. It
+  names each one's read, says whether they lean the same way, and shows only
+  when at least two are loaded.
 - **Owner market brief**: a "Buildout warning signs" line with the AI stage,
   the closest case, the whole-market stage and the three highest model default
   chances (priority 1 when either stage is late boom or bust).

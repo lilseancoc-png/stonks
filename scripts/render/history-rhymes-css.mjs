@@ -119,7 +119,7 @@ export function renderHistoryRhymesCss() {
 .hr-roles dt { font: 650 13px/1.4 var(--font-sans); color: var(--text-strong); margin-top: 6px; }
 .hr-roles dd { margin: 0; font: 450 12.5px/1.5 var(--font-sans); color: var(--muted-strong); }
 /* Risk analysis context card (not a voting desk) */
-#risk-rhymes { margin-top: 12px; }
+#risk-rhymes, #risk-horizons { margin-top: 12px; }
 .hr-risk { padding: 10px 12px; border: 1px dashed var(--border); border-radius: 10px; background: var(--surface-2); display: grid; gap: 4px; }
 .hr-risk p { margin: 0; font: 450 13px/1.5 var(--font-sans); color: var(--text); }
 .hr-risk .book-more { justify-self: start; }

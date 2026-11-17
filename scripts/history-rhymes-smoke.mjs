@@ -13,7 +13,7 @@ import {
 import { isPremiumKey, roleClaimForKey } from '../lib/premium-keys.mjs';
 import { OPTIONAL_BAKE_KEYS } from '../lib/data-ownership.mjs';
 import { SHARED_FRED_IDS } from '../lib/historical-sources.mjs';
-import { MARKET_SIGNS, MARKET_COUNT_RULE, bearMarkets, marketHistoryTest, marketSignCounts, readMarketSigns, addMonths } from '../lib/history-rhymes-market.mjs';
+import { MARKET_SIGNS, MARKET_COUNT_RULE, bearMarkets, marketHistoryTest, marketSignCounts, readMarketSigns, addMonths, baaMiddle } from '../lib/history-rhymes-market.mjs';
 import { SOURCE_KEYS } from '../lib/site-catalog/feature-sources.mjs';
 import { FEATURE_DATASETS } from '../lib/mcp/tools.mjs';
 import { buildOwnerMarketBrief, OWNER_BRIEF_SOURCES } from '../lib/owner-market-brief.mjs';
@@ -123,6 +123,24 @@ import { buildShadowSignals } from '../lib/shadow-signals.mjs';
   assert.equal(r['rates-rising'].status, 'lit', r['rates-rising'].now);
   assert.match(r['rates-rising'].now, /10-year yield [\d.]+%, \+1\.[5-9]\d over a year/);
   assert.match(r['rates-rising'].now, /close to fed funds/);
+  // Credit strain needs a level (2026-11-17): a widening counts partly only
+  // while the Baa spread sits at or above its long-run middle; a jump big
+  // enough to light the sign lights it at any level.
+  const baaHist = Array.from({ length: 360 }, (_, i) => ({ t: `${1990 + Math.floor(i / 12)}-${String(i % 12 + 1).padStart(2, '0')}-28`, v: 2.4 }));
+  const dayOf = (i) => new Date(Date.UTC(2026, 7, 1) + i * 86400000).toISOString().slice(0, 10);
+  const baaNow = (to, up) => [...baaHist, ...Array.from({ length: 100 }, (_, i) => ({ t: dayOf(i), v: to - up + up * i / 99 }))];
+  const tight = readMarketSigns({ fred: { BAA10Y: baaNow(2.0, 0.2) } })['credit-strain'];
+  assert.equal(tight.status, 'clear', 'Baa +0.2 to 2.0, below its 2.4 middle, does not count');
+  assert.match(tight.now, /long-run middle is 2\.40\..*still below their long-run middle, so the widening does not count yet\./);
+  const wide = readMarketSigns({ fred: { BAA10Y: baaNow(2.6, 0.2) } })['credit-strain'];
+  assert.equal(wide.status, 'partial', 'Baa +0.2 to 2.6, above its middle, is partly showing');
+  assert.doesNotMatch(wide.now, /does not count/);
+  assert.equal(readMarketSigns({ fred: { BAA10Y: baaNow(1.9, 0.4) } })['credit-strain'].status, 'lit', 'a 0.4 jump lights at any level');
+  const hyOnly = readMarketSigns({ fred: { BAA10Y: baaNow(2.0, 0), BAMLH0A0HYM2: Array.from({ length: 100 }, (_, i) => ({ t: dayOf(i), v: 3 + 0.4 * i / 99 })) } })['credit-strain'];
+  assert.equal(hyOnly.status, 'clear', 'high yield +0.4 with Baa below its middle does not count');
+  assert.equal(baaMiddle(new Map([['2000-01', { last: 1 }]]), '2000-01'), null, 'no middle under two years of months');
+  const mids = new Map(Array.from({ length: 30 }, (_, i) => [addMonths('2000-01', i), { last: i < 20 ? 1 : 9 }]));
+  assert.equal(baaMiddle(mids, addMonths('2000-01', 23)), 1, 'the middle uses months up to the key only');
   assert.equal(r['curve-inverted'].status, 'lit', 'one inverted day inside two years lights the curve sign');
   assert.match(r['curve-inverted'].now, /last inverted in 2025-06/);
   // Valuation, margin debt and bond sales.
@@ -161,7 +179,8 @@ const crowd = { marginDebt: { summary: { month: '2026-10', debitUsdM: 1.25e6, yo
 const aiCapex = { builtAtIso: '2026-11-11T21:00:00Z', totals: { revenue: { capexYoyPct: 60, yoyPct: 14, count: 7, capexToRevenueTtmPct: 27, capexToRevenueFyPriorPct: 19 } } };
 const accelerators = { builtAtIso: '2026-11-06T16:30:00Z', benchmarks: [{ modelId: 'h100', currentMedian: 2.1, change30dPct: -6, compositeHistory: [{ d: '2026-06-01', p: 2.6 }, { d: '2026-11-06', p: 2.1 }] }] };
 const ipoCredit = { raises: { bonds: { latest: { m: '2026-10' }, months: Array.from({ length: 16 }, (_, i) => ({ m: `2025-${String(i + 1).padStart(2, '0')}`, ig: i >= 13 ? 180 : 120, hy: 25, cv: 8 })) } } };
-const bars = (n, vol) => Array.from({ length: n }, (_, i) => ({ c: 100 * Math.exp(vol / Math.sqrt(252) * (i % 2 ? 1 : -1)) }));
+// Alternating closes whose one-year realized volatility is `vol`.
+const bars = (n, vol) => Array.from({ length: n }, (_, i) => ({ c: 100 * Math.exp(vol / (2 * Math.sqrt(252)) * (i % 2 ? 1 : -1)) }));
 const stock = (sym, f, { spot = 100, vol = 0.4, etf = false } = {}) => ({ symbol: sym, spot, _bars: bars(260, vol), fundamentals: { quoteType: etf ? 'ETF' : 'EQUITY', ...f } });
 const chains = {
   CRWV: stock('CRWV', { marketCap: 40e9, totalDebt: 30e9, totalCash: 2e9, fiftyTwoWeekHigh: 190, operatingCashFlow: 3e9, freeCashFlow: -8e9, capitalAllocation: { capexTtm: -11e9 } }, { spot: 95, vol: 1.0 }),
@@ -194,17 +213,22 @@ const rhymes = buildHistoryRhymes({ builtAtIso, series, fred, aiCapex, accelerat
   assert.equal(status['price-falls'], 'lit', 'H100 rent -6% over 30 days');
   assert.equal(status['debt-funding'], 'lit', 'two debt-funded builders lean on debt');
   assert(!('credit-strain' in status), 'credit strain moved to the whole-market panel');
-  assert.equal(status['weak-link'], 'lit', 'CRWV 50% off its high');
-  assert.match(rhymes.now.signs.find((s) => s.id === 'weak-link').now, /^\w+ -?[\d.]+% and \w+ -?[\d.]+% from their 52-week highs\.$/, 'two builders read as one sentence');
+  // Drawdowns in each stock's own swings: CRWV (100% a year) is 50% off its
+  // high, 0.69 of a year's swing; ORCL (50% a year) is 35% off, 0.87.
+  assert.equal(status['weak-link'], 'partial', 'ORCL 35% off its high is the deeper fall in its own swings');
+  const wl = rhymes.now.signs.find((s) => s.id === 'weak-link');
+  assert.equal(wl.value, -35.3, 'the value is the deepest fall in swings, as a percent');
+  assert.match(wl.now, /^\w+ -?[\d.]+% and \w+ -?[\d.]+% from their 52-week highs\. Against each stock's own yearly swing \(ORCL about 50% and CRWV about 100%\), the deepest fall is ORCL's at 0\.87 of a year's swing; 1\.46 lights the sign and 0\.82 lights it partly\.$/, 'two builders read as one sentence, with their swings');
   assert.equal(status['price-stretch'], 'lit', 'Nasdaq doubled in a year');
-  assert.equal(status['leaders-crack'], 'partial', 'SMH 17.5% off its high');
+  assert.equal(status['leaders-crack'], 'partial', 'SMH 17.5% off its high, 0.48 of its 40% yearly swing');
+  assert.match(rhymes.now.signs.find((s) => s.id === 'leaders-crack').now, /It moves about 40% in a typical year, so the fall is 0\.48 of a year's swing; 0\.64 lights the sign and 0\.30 lights it partly\.$/);
   assert(rhymes.now.signs.every((s) => ['lit', 'partial', 'clear', 'unknown'].includes(s.status) && typeof s.now === 'string' && s.now && !/NaN|undefined|null/.test(s.now)), 'every sign has a clean sentence');
   assert(rhymes.now.signs.every((s) => !/(^|[^1\d])[123]th\b|\b1[123](st|nd|rd)\b/.test(s.now)), 'ordinals read 1st, 2nd, 3rd, 11th');
   const expectScore = rhymes.now.lit.length + rhymes.now.partial.length * 0.5;
   assert.equal(rhymes.now.score, expectScore, 'lit counts 1, partial 0.5');
   assert.deepEqual(rhymes.now.boom, { score: 3, known: 3, counted: 3, total: 3 });
-  assert.deepEqual(rhymes.now.bust, { score: 2.5, known: 3, counted: 3, total: 3 });
-  assert.equal(rhymes.now.stage.id, 'bust', 'every boom sign and 2.5 of 3 bust signs');
+  assert.deepEqual(rhymes.now.bust, { score: 2, known: 3, counted: 3, total: 3 });
+  assert.equal(rhymes.now.stage.id, 'bust', 'every boom sign and 2 of 3 bust signs');
   assert(rhymes.now.mostLike && rhymes.now.matches.length === 3, 'three historical cases are compared');
   assert.equal(rhymes.now.mostLike.id, 'telecom', 'all six signs match telecom best');
   // The whole-market panel.
@@ -294,6 +318,22 @@ const rhymes = buildHistoryRhymes({ builtAtIso, series, fred, aiCapex, accelerat
   const fallingSupplier = { SMH: stock('SMH', { fiftyTwoWeekHigh: 100 }, { spot: 70, etf: true }) };
   assert.equal(st({ aiCapex: null, chains: fallingSupplier })['leaders-crack'].status, 'unknown', 'a supplier drawdown cannot establish that spending is still rising without spending growth');
   assert.equal(st({ aiCapex: { totals: { revenue: { capexYoyPct: -10 } } }, chains: fallingSupplier })['leaders-crack'].status, 'clear', 'falling spending does not light the supplier-plus-growing-spending sign');
+  // Drawdowns scale to each stock's swings (2026-11-17): a calm builder
+  // lights on a 30% fall, a wild one needs more than 45%, and with no price
+  // history the fixed 40% / 25% bars stand.
+  const builders = (crwv, orcl) => ({ ...chains, CRWV: crwv, ORCL: orcl });
+  const calm = stock('ORCL', { fiftyTwoWeekHigh: 100 }, { spot: 70, vol: 0.2 });
+  const quiet = stock('CRWV', { fiftyTwoWeekHigh: 100 }, { spot: 99, vol: 0.5 });
+  assert.equal(st({ chains: builders(quiet, calm) })['weak-link'].status, 'lit', 'a 30% fall in a stock that moves 20% a year lights the sign');
+  const wild = stock('CRWV', { fiftyTwoWeekHigh: 100 }, { spot: 55, vol: 1.2 });
+  const flatOrcl = stock('ORCL', { fiftyTwoWeekHigh: 100 }, { spot: 99, vol: 0.3 });
+  assert.equal(st({ chains: builders(wild, flatOrcl) })['weak-link'].status, 'clear', 'a 45% fall in a stock that moves 120% a year does not');
+  const noHistory = { ...stock('CRWV', { fiftyTwoWeekHigh: 100 }, { spot: 58 }), _bars: [] };
+  const nh = st({ chains: { CRWV: noHistory } })['weak-link'];
+  assert.equal(nh.status, 'lit', 'no volatility history: the fixed 40% bar applies');
+  assert.match(nh.now, /fixed bars apply \(40% lights the sign, 25% partly\)/);
+  const calmSmh = { SMH: stock('SMH', { fiftyTwoWeekHigh: 100 }, { spot: 85, vol: 0.2, etf: true }) };
+  assert.equal(st({ chains: calmSmh })['leaders-crack'].status, 'lit', 'SMH 15% off in a 20% year is a large fall in its own swings');
   const noCash = part(st({ chains: { CRWV: stock('CRWV', { operatingCashFlow: -5e9, capitalAllocation: { capexTtm: 10e9 } }) } }), 'capex-vs-cash');
   assert.equal(noCash.status, 'lit', 'known negative operating cash flow with positive capital spending is strain, not missing data');
   assert.match(noCash.now, /negative.*operating cash flow|operating cash flow.*negative/i);

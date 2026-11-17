@@ -486,7 +486,10 @@ export function renderHistoryRhymesJs() {
   // Risk analysis: one context line under the seven desks. It does not vote.
   function loadHistoryRhymesRisk(){
     var host = document.getElementById('risk-rhymes'); if (!host) return;
+    if (HAS_OWNER_ACCESS && typeof qlFetch === 'function') qlFetch().then(function(o){ hzState.odds = o; renderRiskHorizons(); });
     vnJson('history-rhymes.json', false).then(function(d){
+      hzState.rhymes = d && d.now && d.now.stage ? d : null;
+      renderRiskHorizons();
       if (!d || !d.now || !d.now.stage){ host.hidden = true; return; }
       var n = d.now, mk = n.market, lit = (n.signs || []).filter(function(s){ return s.status === 'lit'; }).map(function(s){ return s.label; });
       var mlit = mk ? (mk.signs || []).filter(function(s){ return s.status === 'lit' && s.counts !== false; }).map(function(s){ return s.label; }) : [];
@@ -497,6 +500,50 @@ export function renderHistoryRhymesJs() {
         (d.stale ? '<p class="hr-warn">Last good copy; the newest build could not rebuild it.</p>' : '') +
         '<a class="book-more" href="?tab=history-rhymes">Open Booms &amp; busts</a></div>';
     });
+  }
+  // ---- Why the Risk analysis reads can differ (Owner choice, 2026-11-17) ------
+  // The market tape, the market odds and Booms & busts look at different
+  // stretches of time, so they can point different ways at once (on Nov 16:
+  // severe risk-off, a fall less likely than normal, and a late boom). One
+  // line says so, from whichever of the three are loaded; it votes on nothing.
+  var hzState = { rhymes: null, odds: null, html: null };
+  function hzPct(v){ return Math.round(Number(v) * 100) + '%'; }
+  function renderRiskHorizons(){
+    var host = document.getElementById('risk-horizons'); if (!host || !hzState) return;
+    var pane = document.getElementById('page-pane-risk'); if (pane && pane.hidden) return;
+    var parts = [], leans = [];
+    var tape = typeof riskMarketDesk === 'function' ? riskMarketDesk() : null;
+    if (tape && tape.status === 'ready' && tape.stance != null){
+      parts.push('the market tape (<b>' + escapeHtml(tape.label) + '</b>) reads current prices and moves in indexes, volatility, yields and the dollar, for the days and weeks ahead');
+      leans.push(tape.stance <= -1 ? -1 : tape.stance >= 1 ? 1 : 0);
+    }
+    var card = hzState.odds && hzState.odds.card, head = null;
+    ((card && card.fall) || []).forEach(function(t){ if (t && t.id === 'fall10_6m') head = t; });
+    if (head && head.p != null && isFinite(head.p) && head.base > 0){
+      var ratio = head.p / head.base;
+      var word = ratio > 1.15 ? 'more likely than normal' : ratio < 0.85 ? 'less likely than normal' : 'about as likely as normal';
+      parts.push('the market odds (<b>a 10%+ fall within 6 months ' + word + '</b>, ' + hzPct(head.p) + ' against ' + hzPct(head.base) + ') read rates, credit spreads and the trend against S&amp;P 500 history since ' + escapeHtml(String(card.from || '1962').slice(0, 4)) + ', for the next 3 to 12 months');
+      leans.push(ratio > 1.15 ? -1 : ratio < 0.85 ? 1 : 0);
+    }
+    var n = hzState.rhymes && hzState.rhymes.now;
+    if (n && n.stage){
+      var mk = n.market && n.market.stage, st = mk || n.stage;
+      parts.push('Booms &amp; busts (' + (mk ? 'whole market <b>&ldquo;' + escapeHtml(mk.label) + '&rdquo;</b>, ' : '') + 'AI buildout <b>&ldquo;' + escapeHtml(n.stage.label) + '&rdquo;</b>) compares slow signs such as borrowing, spending and valuations with past booms and busts, over years');
+      leans.push(st.id === 'bust' || st.id === 'late' || st.id === 'strain' ? -1 : st.id === 'quiet' ? 1 : 0);
+    }
+    var html = '';
+    if (parts.length >= 2){
+      var warn = leans.indexOf(-1) >= 0, calm = leans.indexOf(1) >= 0, same = leans.every(function(x){ return x === leans[0]; });
+      var close = warn && calm ? 'So one can warn while another reads calm, as they do today, and both can be right; none of them cancels the others.'
+        : same ? 'Today they lean the same way.'
+        : 'So they need not agree, and none of them cancels the others.';
+      var body = parts.join('; ');
+      html = '<div class="hr-risk hr-horizons"><span class="hr-kicker">Why these reads can differ</span><p>They look at different stretches of time. ' + body.charAt(0).toUpperCase() + body.slice(1) + '. ' + close + '</p></div>';
+    }
+    if (html === hzState.html) return;
+    hzState.html = html;
+    host.hidden = !html;
+    host.innerHTML = html;
   }
   document.addEventListener('click', function(ev){
     var retry = ev.target && ev.target.closest ? ev.target.closest('[data-hr-retry]') : null;

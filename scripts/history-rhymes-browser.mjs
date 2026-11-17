@@ -21,7 +21,9 @@ const fx = historyRhymesFixture();
 let owner = false, haveFile = true;
 const server = await startSiteServer({
   owner: () => owner,
-  data: (key) => (key === HISTORY_RHYMES_KEY ? (haveFile ? fx.rhymes : null) : key === HISTORY_RHYMES_OWNER_KEY ? (owner ? fx.owner : null) : null),
+  data: (key) => (key === HISTORY_RHYMES_KEY ? (haveFile ? fx.rhymes : null) : key === HISTORY_RHYMES_OWNER_KEY ? (owner ? fx.owner : null)
+    // The Quant labs market odds card, for the Risk analysis "why these reads can differ" line.
+    : key === 'quant-labs.json' ? (owner ? { card: { from: '1962-01', asOf: '2026-11-16', fall: [{ id: 'fall10_6m', p: 0.09, base: 0.14, status: 'working' }] } } : null) : null),
 });
 const browser = await launchBrowser();
 let checks = 0;
@@ -165,6 +167,11 @@ try {
     const rp = (await pageProblems(r)).filter((p) => !/blank/.test(p));
     check(rp.length === 0, 'risk card: ' + rp.join(' | '));
     await r.page.locator('#risk-rhymes').screenshot({ path: resolve(output, 'owner-risk-card.png') });
+    await r.page.locator('#risk-horizons .hr-horizons').waitFor({ timeout: 15000 });
+    const hz = await r.page.locator('#risk-horizons').innerText();
+    check(/different stretches of time/.test(hz) && /market odds \(a 10%\+ fall within 6 months less likely than normal, 9% against 14%\)/.test(hz) && /Booms & busts \(whole market “[^”]+”, AI buildout “[^”]+”\)/.test(hz) && /over years/.test(hz), 'risk: one line explains why the reads can differ (' + hz.slice(0, 160) + ')');
+    check(!ADVICE_RE.test(hz), 'risk: the explainer gives no advice');
+    await r.page.locator('#risk-horizons').screenshot({ path: resolve(output, 'owner-risk-horizons.png') });
     await r.context.close();
     owner = false;
   }

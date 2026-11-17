@@ -370,6 +370,7 @@ function riskAnalysisSection() {
     <div id="risk-stack" class="risk-stack" aria-live="polite"></div>
     <div id="risk-odds" hidden></div>
     <div id="risk-rhymes" hidden></div>
+    <div id="risk-horizons" hidden></div>
   </section>`;
 }
 
