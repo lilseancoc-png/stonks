@@ -65,6 +65,10 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Strategy builder: the score's "Directional fit" now reads the same grade-first direction the page shows (the RSI / MACD / 20-day tape adds or takes a little, and decides alone only when the stock has no grade). It used to score RSI and MACD only, so a bull spread on a Put-graded stock could get full marks, and its note always said "matches".
 - Strategy builder: the payoff chart's P/L axis labels are shortened ($26.1K) so five-figure values are no longer clipped.
 
+### Changed
+- The hourly unusual-flow scan counts the first half hour after the open: the 10:00 ET scan (up to 11:30) had nothing in-session to compare with, so 9:30-10:00 never flagged (0 of 188 flags in 60 scans, Nov 5-16). A contract that has traded today now counts all of today's volume and is labeled "since the open". Off switch `FLOW_OPEN_WINDOW` (Owner Settings).
+- Each stock gets its own unusual-flow volume bar: 1% (0.5% past 14 days) of its median full-day option volume over its last 10 complete sessions, between 500 and the old 4,000 (250 to 2,000). A stock keeps the old bar until 5 complete sessions are on file; the scanner now keeps each stock's daily option volume in `unusual-history.json`. 49 of 85 stocks never flagged under the single bar. Off switch `FLOW_STOCK_BARS` (Owner Settings). New Top Picks trades carry `flowScanVersion`, so the Track Record draws a dated divider; the record is not reset.
+
 ## 2026-11-16
 
 ### Added

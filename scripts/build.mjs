@@ -166,6 +166,7 @@ import { forcedLiquidationContext } from "../lib/forced-liquidation.mjs";
 import { buyoutContextFor } from "../lib/pending-buyout-guard.mjs";
 import { buildShadowSignals, altDataGauges, resemblesGauges, insiderFromStructure } from "../lib/shadow-signals.mjs";
 import { signedFlowBySymbol, legacyPersistBySymbol, signedFlowVote, legacyFlowVote, flowVotesBySymbol } from "../lib/flow-direction.mjs";
+import { flowScanVersion } from "../lib/flow-scan-rules.mjs";
 import { buildShadowResearch } from "../lib/shadow-research.mjs";
 import { buildEntrySnapshot } from "../lib/trade-snapshot.mjs";
 import { PICKS_MAX_PER_SECTOR, PICKS_MAX_NEW_PER_FACTOR_RUN, PICKS_CAPS_VERSION, factorOfSectorLabel, exposureCapBlock, countExposure } from "../lib/top-picks-caps.mjs";
@@ -18515,6 +18516,12 @@ export const PICKS_ACCURACY_RESET_EPOCH = "2026-08-08.top-picks-v3";
 const GRADE_MODEL_VERSION_BASE = PICKS_MACRO_CONTEXT ? "2026-11-macro-context" : "2026-11-price-pillar";
 export const GRADE_MODEL_VERSION = !PICKS_FLOW_SIGNED ? GRADE_MODEL_VERSION_BASE
   : PICKS_MACRO_CONTEXT ? "2026-11-signed-flow" : "2026-11-signed-flow-no-macro";
+// 2026-11-17: the hourly scan behind the flow vote counts the opening half hour
+// and gives each stock its own volume bar (lib/flow-scan-rules.mjs). The grade
+// formula is unchanged, so this rides its own stamp, not the grade version.
+// Read from the same env the scanner uses (Owner Settings FLOW_OPEN_WINDOW /
+// FLOW_STOCK_BARS).
+export const FLOW_SCAN_VERSION = flowScanVersion(process.env);
 // Signal keys the grade no longer scores. Open trades whose entry drivers
 // include them skip those keys in the thesis re-score (see the thesis check
 // in updatePicksAccuracyFile).
@@ -30559,6 +30566,10 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
       // Exposure-cap rule set (lib/top-picks-caps.mjs), stamped since
       // 2026-11-06 so the Track Record can draw a divider at the change.
       capsVersion: PICKS_CAPS_VERSION,
+      // Unusual-flow scan rules behind the flow vote (lib/flow-scan-rules.mjs,
+      // since 2026-11-17: the opening half hour and a bar per stock), so the
+      // Track Record draws a divider. Absent while both scan switches are off.
+      ...(FLOW_SCAN_VERSION ? { flowScanVersion: FLOW_SCAN_VERSION } : {}),
       // Option-structure rule set (singles by default since 2026-11-07),
       // stamped so the Track Record draws a divider. Unset while
       // PICKS_SINGLES_DEFAULT=0 (the earlier engine mix).

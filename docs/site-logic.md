@@ -982,9 +982,9 @@ Baseline flag:
 
 - volume greater than open interest;
 - volume increase versus the prior hourly snapshot;
-- increase at least 4,000 for DTE up to 14, otherwise 2,000.
+- increase at least the stock's own bar: 1% of its median full-day option volume over its last 10 complete sessions (front two expirations, strikes within 55% of spot) for DTE up to 14, 0.5% otherwise, never above 4,000 / 2,000 and never below 500 / 250. A stock with fewer than 5 complete sessions on file keeps the flat 4,000 / 2,000 (`lib/flow-scan-rules.mjs`, switch `FLOW_STOCK_BARS`).
 
-The first scan of a day cannot produce an hourly delta because there is no prior snapshot. Last-trade location is labeled at ask, above mid, mid, below mid, or bid. Same-day observations accumulate, and a seven-day repeat log marks recurring contracts after at least two appearances. Each explanation is deterministic prose rebuilt from that observation's current volume, open interest, hourly delta, tape, DTE, moneyness, IV, and premium. It makes no unsupported catalyst or direction claim and has no AI cost or stale contract-note cache.
+The 9:00 ET scan is before the open, so the first in-session scan (normally 10:00 ET, up to 11:30) has no same-day snapshot to compare with. A contract that has traded since the 9:30 open counts all of today's volume and is labeled "since the open"; a contract that has not traded today still carries yesterday's total and is not measured (switch `FLOW_OPEN_WINDOW`). Both switches default on, with an Owner Settings override. Last-trade location is labeled at ask, above mid, mid, below mid, or bid. Same-day observations accumulate, and a seven-day repeat log marks recurring contracts after at least two appearances. Each explanation is deterministic prose rebuilt from that observation's current volume, open interest, hourly delta, tape, DTE, moneyness, IV, and premium. It makes no unsupported catalyst or direction claim and has no AI cost or stale contract-note cache.
 
 The UI's decision queue is stricter than raw detection. It favors aggressive ask/above-mid prints, usually at least $100K premium, or $50K when repeated, or $25K across multiple strikes, with spread at most 35% and extra skepticism for penny-priced/far-OTM contracts. Stale or closed-session flow remains evidence, not an executable order.
 
