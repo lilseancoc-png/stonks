@@ -202,6 +202,8 @@ export function renderHistoryRhymesJs() {
       '<div class="hr-story">' + (c.story || []).map(function(p){ return '<p>' + escapeHtml(p) + '</p>'; }).join('') + '</div>' +
       '<div class="hr-compare"><div class="hr-rhyme"><h4>How it rhymes with today</h4><p>' + escapeHtml(c.rhyme) + '</p></div><div class="hr-differs"><h4>How today is different</h4><p>' + escapeHtml(c.differs) + '</p></div></div>' +
       (c.timeline && c.timeline.length ? '<h4 class="hr-h4">Timeline</h4>' + hrTimelineHtml(c.timeline) : '') +
+      // How each strategy style did in this case's eras (engines-history-client.mjs).
+      '<div data-eh="strip" data-eh-case="rhymes:' + escapeHtml(id) + '" hidden></div>' +
       '<p class="hr-sources-line">Sources: ' + (c.sources || []).map(function(s){ var src = hrSource(s); return src ? hrSourceLink(s, src.label) : ''; }).filter(Boolean).join(' · ') + '</p>' +
     '</article>';
   }
