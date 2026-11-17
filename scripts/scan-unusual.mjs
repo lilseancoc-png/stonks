@@ -52,6 +52,9 @@ import {
   volumeSwitches,
   learnCurveDay,
   curveFromDays,
+  closeRereadOn,
+  closeRereadWaitMs,
+  applyCloseReread,
 } from "../lib/volume-flags.mjs";
 import { OWNER_SETTINGS_KEY, applyOwnerSettingsToEnv } from "../lib/owner-settings.mjs";
 
@@ -644,8 +647,8 @@ async function loadDailyVolume(symbol, date) {
 
 // The volume switches from the Owner Settings page (a repo variable wins).
 // The bake applies the page through scripts/owner-settings-env.mjs; this
-// scanner reads the same file itself and copies only its own two keys.
-const VOLUME_SETTING_KEYS = ["VOLUME_MEASURED_CURVE", "VOLUME_SESSION_READ"];
+// scanner reads the same file itself and copies only its own keys.
+const VOLUME_SETTING_KEYS = ["VOLUME_MEASURED_CURVE", "VOLUME_SESSION_READ", "VOLUME_CLOSE_REREAD"];
 async function applyVolumeOwnerSettings(env = process.env) {
   try {
     const raw = await readFile(resolve(DATA_DIR, OWNER_SETTINGS_KEY), "utf8");
@@ -894,6 +897,37 @@ function buildFlagRow(symbol, evalOut, scannedAt, isFinalScan, bucketStartGap) {
   };
 }
 
+// The closing-auction re-read (lib/volume-flags.mjs closeRereadWaitMs): the
+// scan just after the close waits until a few minutes past it, then reads
+// every name's day volume again in batched quotes (50 a call). A failed
+// chunk leaves those names on the scan's own reading.
+async function closeAuctionReread(rows) {
+  await applyVolumeOwnerSettings();
+  if (!closeRereadOn(process.env)) return { rows, info: null };
+  const waitMs = closeRereadWaitMs(new Date());
+  if (waitMs == null) return { rows, info: null };
+  if (waitMs > 0) {
+    console.log(`volume pass: waiting ${Math.round(waitMs / 1000)}s for the closing auction to reach the day volume`);
+    await sleep(waitMs);
+  }
+  const symbols = [...new Set(rows.map((r) => r?.symbol).filter(Boolean))];
+  const quotes = {};
+  for (let i = 0; i < symbols.length; i += 50) {
+    const chunk = symbols.slice(i, i + 50);
+    try {
+      const got = await yahooFinance.quote(chunk, { fields: ["symbol", "regularMarketVolume", "regularMarketPrice"] });
+      for (const q of Array.isArray(got) ? got : got ? [got] : []) if (q?.symbol) quotes[q.symbol] = q;
+    } catch (err) {
+      console.log(`volume pass: closing re-read chunk failed (${String(err?.message || err).split("\n")[0]})`);
+    }
+    if (i + 50 < symbols.length) await sleep(300);
+  }
+  const { rows: out, summary } = applyCloseReread(rows, quotes);
+  const info = { at: new Date().toISOString(), ...summary };
+  console.log(`volume pass: closing re-read ${summary.names}/${symbols.length} names, median ${summary.medianPct ?? "n/a"}%, ${summary.up10} up 10% or more`);
+  return { rows: out, info };
+}
+
 async function runVolumePass({
   perTickerResults,
   scannedAt,
@@ -905,6 +939,8 @@ async function runVolumePass({
   // hour-over-hour bucket deltas depend on. The hourly full scan (the only
   // caller today) persists.
   persist = true,
+  // The closing-auction re-read summary, stored on the file (null = none).
+  closeReread = null,
 }) {
   const todayKey = volEtDateKey(nowDate);
   const etMin = etMinutesSinceOpen(nowDate);
@@ -1115,6 +1151,9 @@ async function runVolumePass({
     curve: curveInfo,
     // This scan's session-so-far read for every name (empty before 9:50 ET).
     session: { etMin, reads: sessionReads },
+    // The closing-auction re-read on the scan just after the close: when it
+    // ran, how many names it re-read, how many rose 10%+, the median change.
+    ...(closeReread ? { closeReread } : {}),
     tickers: merged,
   };
 
@@ -1473,11 +1512,14 @@ async function main() {
   // unusual-options-flow output — never throws back into the main flow so
   // one bad ticker's per-ticker JSON read can't kill the whole scan.
   try {
+    const marketClosedAllDay = typeof firstMarketState === "string" && firstMarketState.startsWith("CLOSED");
+    const reread = marketClosedAllDay ? { rows: volumeScanResults, info: null } : await closeAuctionReread(volumeScanResults);
     await runVolumePass({
-      perTickerResults: volumeScanResults,
+      perTickerResults: reread.rows,
       scannedAt,
       marketState: firstMarketState,
       nowDate: new Date(scannedAt),
+      closeReread: reread.info,
     });
   } catch (err) {
     console.log(`volume pass failed: ${err.message}`);

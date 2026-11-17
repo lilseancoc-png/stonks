@@ -19,6 +19,9 @@ import {
   learnCurveDay,
   volumeReadVersion,
   volumeSwitches,
+  closeRereadOn,
+  closeRereadWaitMs,
+  applyCloseReread,
 } from "../lib/volume-flags.mjs";
 import { hourlyVolumeRead } from "./build.mjs";
 import { renderHtml } from "./render/html.mjs";
@@ -121,6 +124,32 @@ eq(hourlyVolumeRead("AAA", oldFile, true).volRatio, 2.4, "a file from before the
 
 // --- page shell and the browser's live relative volume ----------------------
 const temp = await mkdtemp(resolve(tmpdir(), "stonks-volcurve-"));
+// The closing-auction re-read (2026-11-17): only the scan just after the
+// close waits, until six minutes past it, in EST, EDT and on a half day.
+eq(closeRereadWaitMs(new Date("2026-11-17T21:00:20Z")), 340000, "16:00:20 EST waits until 16:06");
+eq(closeRereadWaitMs(new Date("2026-06-12T20:00:30Z")), 330000, "16:00:30 EDT waits until 16:06");
+eq(closeRereadWaitMs(new Date("2026-11-17T21:07:00Z")), 0, "a late scan reads at once");
+eq(closeRereadWaitMs(new Date("2026-11-17T20:59:00Z")), null, "15:59 is before the close");
+eq(closeRereadWaitMs(new Date("2026-11-17T21:31:00Z")), null, "more than half an hour after the close: no re-read");
+eq(closeRereadWaitMs(new Date("2026-11-17T14:00:00Z")), null, "the 9:00 pre-market scan never waits");
+eq(closeRereadWaitMs(new Date("2026-11-27T18:02:00Z")), 240000, "half day: 13:02 waits until 13:06");
+eq(closeRereadWaitMs(new Date("2026-11-27T21:00:00Z")), null, "half day: the 16:00 scan is long past the 13:00 close");
+ok(closeRereadOn({}) && closeRereadOn({ VOLUME_CLOSE_REREAD: "1" }) && !closeRereadOn({ VOLUME_CLOSE_REREAD: "0" }), "on by default, 0 turns it off");
+{
+  const rows = [{ symbol: "A", cumVol: 100, spot: 10 }, { symbol: "B", cumVol: 100, spot: 20 }, { symbol: "C", cumVol: 100, spot: 30 }, { symbol: "D", cumVol: 200, spot: 40 }];
+  const { rows: out, summary } = applyCloseReread(rows, {
+    A: { regularMarketVolume: 125, regularMarketPrice: 10.5 },
+    B: { regularMarketVolume: 90, regularMarketPrice: 19 },
+    D: { regularMarketVolume: 204 },
+  });
+  eq(out.map((r) => r.cumVol), [125, 100, 100, 204], "higher readings replace the scan's own; a lower or missing one is kept");
+  eq(out[0].spot, 10.5, "the closing price replaces the last trade");
+  eq(out[3].spot, 40, "no price in the quote keeps the spot");
+  eq(out[1], rows[1], "an unchanged row is the same object");
+  eq(summary, { names: 2, up10: 1, medianPct: 25 }, "summary: two re-read, one up 10%+, median of +2% and +25%");
+  eq(applyCloseReread(null, null).summary, { names: 0, up10: 0, medianPct: null });
+}
+
 try {
   const dataDir = resolve(temp, "data");
   await mkdir(dataDir);

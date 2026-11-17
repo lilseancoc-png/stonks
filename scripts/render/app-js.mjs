@@ -11734,6 +11734,9 @@ ${renderExportBindings()}
         if (s.eodFlagCount) parts.push(s.eodFlagCount + ' EOD');
         var when = fmtScannedAt(VOLUME_FLAGS.scannedAt);
         if (when) parts.push('scanned ' + when);
+        // The scan just after the close re-reads day volume once the closing
+        // auction is in (lib/volume-flags.mjs closeRereadWaitMs).
+        if (VOLUME_FLAGS.closeReread && VOLUME_FLAGS.closeReread.names) parts.push('closing auction included');
         eyebrow.textContent = parts.join(' · ');
       } else {
         eyebrow.textContent = '';

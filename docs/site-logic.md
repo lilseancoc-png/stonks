@@ -1001,6 +1001,8 @@ The old fixed curve (25 / 14 / 11 / 11 / 14 / 25% per hour) expected 12.5% by 10
 
 The grade's `unusualVolume` vote reads the session so far (volume since the open against the curve, move since the prior close; `session.reads` in `volume-flags.json`) rather than the busiest single window, which opened the vote to about 40-50% of names on an ordinary day. `VOLUME_SESSION_READ=0` brings back the busiest-window read. New Top Picks trades carry `volumeReadVersion` (Track Record divider).
 
+The 16:00 ET scan is taken before the closing auction prints, so it used to read every name's day short. That scan now waits until about 16:06 ET (a scan that starts after 16:30 skips this) and re-reads each stock's day volume and closing price in batched Yahoo quotes of 50 (`closeRereadWaitMs` / `applyCloseReread` in `lib/volume-flags.mjs`). A quote only replaces the scan's volume when it is at least as large. The page says "closing auction included" and the scan log prints how many names moved by 10% or more (`closeReread` in `volume-flags.json`). `VOLUME_CLOSE_REREAD=0` (Owner Settings, Data & desks) skips the wait.
+
 - hourly watch: at least 1.2× expected volume;
 - stronger flag: at least 1.5×;
 - end of day: at least 1.3× 20-day average;

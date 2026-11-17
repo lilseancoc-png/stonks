@@ -46,6 +46,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ### Changed
 - Measure the intraday volume curve from the covered stocks' own sessions instead of the fixed 25/14/11/11/14/25% hour curve, which expected too little volume in the first hour and too much in the afternoon (median name traded 16.7% of its day by 10:00, not 12.5%); the Volume page, the heatmap's relative volume and the stock page's live relative volume all read it (`VOLUME_MEASURED_CURVE=0` brings the fixed curve back).
 - The grade's Unusual volume vote reads the session so far (volume since the open against a normal day by now, move since yesterday's close) instead of the busiest single window, which opened the vote to about half of all names on an ordinary day; the strategy engines' relative volume follows it, and new Top Picks trades carry `volumeReadVersion` for a Track Record divider (`VOLUME_SESSION_READ=0` brings back the window read).
+- The scan just after the 16:00 ET close waits until about 16:06 ET and re-reads every stock's day volume and close, so the closing auction counts on the Volume page and in the end-of-day flags (Owner choice; switch `VOLUME_CLOSE_REREAD` in Owner Settings) (#854).
 
 ## 2026-11-16
 
