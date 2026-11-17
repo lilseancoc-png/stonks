@@ -60,6 +60,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Fixed
 
+- Pages opened from a hub tab (and from sibling chips, Previous / Next, the palette or Back) now load their "Additional view" panels, as they do from the sidebar: Earnings results, Ripple effects, Streaks and Market themes were missing them after the hub merge. app.js announces each page switch (`stonks-page-shown`) and `js/book-views.js` listens for it. The hub browser test now opens each of those pages from its hub tab on a fresh load and also prices a holding with the position checker on Open picks.
 - Strategy builder: max gain, max loss and breakevens are now exact. The payoff sweep also samples every leg's strike and the spot price, so a butterfly's peak is no longer missed (a $5-wide fly on a $500 stock showed $170 of its $420 max gain), and a breakeven that lands on a sample is listed once, not twice.
 - Strategy builder: a long put's max gain and a short put's max loss show the figure if the stock goes to $0 instead of "unlimited", and the risk / reward score uses that figure.
 - Strategy builder: the score's "Directional fit" now reads the same grade-first direction the page shows (the RSI / MACD / 20-day tape adds or takes a little, and decides alone only when the stock has no grade). It used to score RSI and MACD only, so a bull spread on a Put-graded stock could get full marks, and its note always said "matches".
