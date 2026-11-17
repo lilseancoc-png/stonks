@@ -33,6 +33,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
 const DATA_DIR = resolve(ROOT, "data");
 const HEATMAP_FILE = "heatmap.json";
+const VOLUME_FLAGS_FILE = "volume-flags.json";
 const MARKET_ANALYSIS_FILE = "market-analysis.json";
 
 // EOD recap — after the close, the day's per-sector aggregates (cap-weighted
@@ -224,6 +225,17 @@ function buildEodSummary(dateKey, generatedAtIso, stats, sectors) {
   };
 }
 
+async function readVolumeCurve() {
+  try {
+    const flags = JSON.parse(await readFile(resolve(DATA_DIR, VOLUME_FLAGS_FILE), "utf8"));
+    return flags?.curve?.mode === "measured" && Array.isArray(flags.curve.knots)
+      ? flags.curve.knots
+      : null;
+  } catch (_) {
+    return null;
+  }
+}
+
 async function main() {
   const path = resolve(DATA_DIR, HEATMAP_FILE);
   let prior;
@@ -277,6 +289,11 @@ async function main() {
     return next;
   };
   const scanNow = new Date();
+  // The flow scan runs just before this in the same workflow and writes the
+  // intraday volume curve it measured from past sessions. Use the same curve
+  // so the map's relative volume agrees with the Volume page; without a
+  // measured curve, cumFracExpected falls back to the fixed one.
+  const volumeCurve = await readVolumeCurve();
   const nextTickers = priorTickers.map((row) => {
     const q = quotes[row.t];
     if (!q) {
@@ -313,7 +330,7 @@ async function main() {
     const avg20 = Number(row.av20);
     const qState = String(q.marketState || "");
     const expectedFrac = qState.startsWith("REGULAR")
-      ? Math.max(0.05, cumFracExpected(etMinutesSinceOpen(scanNow)))
+      ? Math.max(0.05, cumFracExpected(etMinutesSinceOpen(scanNow), volumeCurve))
       : 1;
     const canRefreshRv = !qState.startsWith("PRE")
       && isFinite(dayVolume) && dayVolume > 0

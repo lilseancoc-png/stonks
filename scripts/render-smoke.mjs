@@ -81,7 +81,7 @@ try {
   assert.match(html, /id="workspace-recent"[^>]*hidden/);
   assert.match(html, /data-page-tab="timeline"[\s\S]*?id="page-pane-timeline"/);
   assert.match(html, /08:30 ET[\s\S]*?Premarket Brief[\s\S]*?10:00, 11:00, 13:30, 15:30 &amp; 16:10 ET/);
-  assert.match(html, /11:00 &amp; 15:30 ET[\s\S]*?Swing decision desks[\s\S]*?Friday 11:30 ET[\s\S]*?Weekly Alt Data/);
+  assert.match(html, /11:00 &amp; 15:30 ET[\s\S]*?Swing decision desks[\s\S]*?Fridays, set for 11:30 ET[\s\S]*?Weekly Alt Data/);
   assert.match(html, /id="time-zone-select" aria-label="Display time zone"[\s\S]*?<option value="local">Local<\/option>[\s\S]*?<option value="et">ET<\/option>[\s\S]*?<option value="ct">CT<\/option>[\s\S]*?<option value="mt">MT<\/option>[\s\S]*?<option value="pt">PT<\/option>[\s\S]*?<option value="utc">UTC<\/option>/);
   assert.match(html, /Market schedule · ET \(America\/New_York\)[\s\S]*?header&rsquo;s time-zone setting converts actual build, scan and headline timestamps/);
   assert.match(html, /id="footer-built-time" class="muted" data-built-at="2026-08-02T00:00:00\.000Z">checking&hellip;<\/span>/);

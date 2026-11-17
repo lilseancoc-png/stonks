@@ -204,9 +204,13 @@ edge = realized_spillover_move  −  priced_move
 
 - `realized_spillover_move` = historical average follower event-window move **in the
   driver's direction** (from backtest).
-- `priced_move` = follower's options-implied move for the window ≈ `ATM_IV / √252` (1-day),
-  from `data/iv-history/` (historical) or `computeAtm30dIv` (build.mjs:3820, live); or the
-  ATM straddle ÷ spot for the window.
+- `priced_move` = what a one-day at-the-money call or put on the follower costs, as a share
+  of spot: `ATM_IV / √252 × sqrt(1/2π)` ≈ 0.4 of the one-day 1σ move
+  (`SPILLOVER_OPTION_COST_RATIO`, since 2026-11-17, Owner choice; it was the full 1σ move
+  `ATM_IV / √252`, which no single option charges, so almost every pair read negative). The
+  1σ number rides beside it as `sigmaDay`. IV from `data/iv-history/` (historical) or
+  `computeAtm30dIv` (live). A directional average move above this cost is what a one-day
+  option on the follower would have needed to pay off on average, before spreads.
 - `edge > 0` = the follower historically moves more on this driver's prints than its options
   currently price — the matrix's most interesting cell. `edge ≤ 0` rows still display (the
   market pricing spillover correctly is itself information), just ranked lower.
@@ -336,6 +340,15 @@ write back after — same as `picks-accuracy.json`, `earnings-history.json`). On
 and realizations are logged; there is no position, no marking-to-market, no fills.
 
 This also collects forward the follower-IV-behavior data that history can't give you (§10b).
+
+**Scoring (2026-11-17).** A prediction is frozen before the print from the driver's
+*unsigned* straddle move, so its sign is only the beta's sign. The forward direction hit
+therefore compares `sign(β) × sign(driver realized move)` with the follower's realized
+sign (`updateSpilloverLog`); comparing the bare prediction sign only counted how often
+followers rose. Realized moves are read only from finished sessions (`confirmedDailyBars`),
+so a window ending today resolves on the first bake after the close; logs written under
+the earlier rule (`resolveVersion` 1) have their realized moves re-read once. The deep
+matrix also leaves out a bar dated today, since it is built on the day's first bake.
 
 ## 12. Storage — flat JSON in the private store (no SQL)
 

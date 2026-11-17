@@ -16,6 +16,7 @@ import {
   seriesIdxForReferenceMonth,
   pickMacroPrediction,
   buildCalendarPayload,
+  probsFromDelta,
 } from "./build.mjs";
 import { renderAppJs } from "./render/app-js.mjs";
 
@@ -277,6 +278,28 @@ const liveJobsHelper = appJs.match(/function calParseEmploymentHeadline\(title\)
 ok("Calendar load stamps Employment Situation Actuals", !!liveJobsHelper && /calApplyEmploymentPrints\(calendarState\.data\.events\)/.test(appJs));
 const liveJobsParse = new Function(`${liveJobsHelper}\nreturn calParseEmploymentHeadline;`)();
 ok("live helper parses the BLS jobs headline", liveJobsParse(jobsHeadline).nfp === "+162K" && liveJobsParse(jobsHeadline).unrate === "4.1%");
+
+// FedWatch: a meeting priced past one 25 bps step reads 100% hike, with
+// the 50 bps share beside it; the browser copy gives the same numbers.
+{
+  const near = (a, b) => Math.abs(a - b) < 1e-9;
+  const p29 = probsFromDelta(0.29);
+  ok("FedWatch +29 bps is a 100% hike", near(p29.hike, 1) && near(p29.hold, 0) && near(p29.cut, 0));
+  ok("FedWatch +29 bps: 16% of it a 50 bps hike", near(p29.big, 0.16));
+  ok("FedWatch +10 bps carries no 50 bps share", !("big" in probsFromDelta(0.10)) && near(probsFromDelta(0.10).hike, 0.4));
+  const m40 = probsFromDelta(-0.40);
+  ok("FedWatch -40 bps: 100% cut, 60% of it 50 bps", near(m40.cut, 1) && near(m40.big, 0.6));
+  ok("FedWatch -60 bps: the 50 bps share stops at 100%", near(probsFromDelta(-0.60).big, 1));
+  const js = renderAppJs({});
+  const m = js.match(/function probsFromDeltaLive\(delta\)\{[\s\S]*?\n  \}/);
+  ok("app.js carries probsFromDeltaLive", !!m);
+  if (m) {
+    const live = new Function(m[0] + "; return probsFromDeltaLive;")();
+    const same = [0.29, 0.10, -0.40, -0.60, 0, 0.25].every((d) => JSON.stringify(live(d)) === JSON.stringify(probsFromDelta(d)));
+    ok("browser FedWatch odds match the build's", same);
+  }
+  ok("FedWatch widget draws the 50 bps line", js.includes("Of which a 50 bps "));
+}
 
 if (failures) {
   console.error(`\n${failures} calendar smoke assertion${failures === 1 ? "" : "s"} failed.`);

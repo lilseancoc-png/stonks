@@ -13,8 +13,17 @@ name: Unusual options flow
 # Scheduling is handled externally by cron-job.org, which POSTs to the
 # workflow_dispatch endpoint hourly from 9:00 to 16:00 America/New_York
 # on weekdays. cron-job.org runs in ET so DST is handled by the service.
+#
+# On an NYSE holiday (lib/us-equity-calendar.mjs) the route job ends the run
+# green before anything installs, so a closed market no longer produces eight
+# red runs a day (Labor Day 2026 did). force=true scans anyway.
 on:
   workflow_dispatch:
+    inputs:
+      force:
+        description: "Scan even on an NYSE holiday"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -27,7 +36,40 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  route:
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.session.outputs.run }}
+    steps:
+      # Only the NYSE holiday table, the same file the daily build router and
+      # the Top Picks watchdog read.
+      - name: Check out the market calendar
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.ref_name }}
+          sparse-checkout: lib/us-equity-calendar.mjs
+          sparse-checkout-cone-mode: false
+
+      - name: Skip NYSE holidays
+        id: session
+        env:
+          FORCE_RUN: ${{ inputs.force }}
+        run: |
+          ET_DATE=$(TZ=America/New_York date +%Y-%m-%d)
+          # "closed" only on a weekday market holiday (or a weekend); any
+          # error reads "unknown" and the scan runs as before.
+          SESSION=$(node --input-type=module -e 'import("./lib/us-equity-calendar.mjs").then((m) => { const s = m.sessionForDate(process.argv[1]); console.log(!s ? "unknown" : s.open ? "open" : "closed"); }).catch(() => console.log("unknown"))' "$ET_DATE" 2>/dev/null || echo unknown)
+          if [ "$SESSION" = "closed" ] && [ "$FORCE_RUN" != "true" ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::$ET_DATE is an NYSE holiday; no flow scan. Dispatch with force=true to scan anyway."
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "Market session for $ET_DATE: $SESSION; scanning."
+          fi
+
   scan:
+    needs: route
+    if: ${{ needs.route.outputs.run == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5

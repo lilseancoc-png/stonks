@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import {
   curatedEarningsSession, earningsSessionRepairTargets, applyAmSessionRepair,
   computeEarningsReaction, updateEarningsEventsHistory, etDateKey,
+  liveDailyBarDate, repairEarningsWeek1, EARNINGS_WEEK1_FIX_VERSION,
 } from './build.mjs';
 import { renderAppJs } from './render/app-js.mjs';
 import { readFile } from 'node:fs/promises';
@@ -70,6 +71,36 @@ assert.equal(after.session, 'AM');
 assert.equal(after.movePct, 0.2, 'the announcement-day jump is the reaction');
 assert.equal(after.pre10Pct, 0, 'the run-up stops before the print');
 assert.equal(store.tickers.DDOG.sessionRepairAt, etDateKey());
+
+// 4b. Week-1 drift never comes from an in-progress bar (2026-11-17): the
+// 10:00 ET bake used to stamp it off a half-hour-old price and freeze it.
+{
+  const wk = ['2026-11-09', '2026-11-10', '2026-11-11', '2026-11-12', '2026-11-13', '2026-11-16', '2026-11-17'];
+  const wb = wk.map((t, i) => ({ t, o: 100, c: i === 0 ? 100 : i === 1 ? 110 : i === 6 ? 121 : 115 }));
+  const live = computeEarningsReaction(wb, '2026-11-09', 'PM', { liveBarDate: '2026-11-17' });
+  assert.equal(live.movePct, 0.1);
+  assert.equal(live.week1Done, false, 'the sixth bar is still trading');
+  assert.equal(live.week1Pct, null);
+  const done = computeEarningsReaction(wb, '2026-11-09', 'PM');
+  assert.equal(done.week1Done, true);
+  assert.equal(done.week1Pct, 0.1);
+  const at = new Date('2026-11-17T15:00:00Z');
+  assert.equal(liveDailyBarDate(wb, 'REGULAR', at), '2026-11-17');
+  assert.equal(liveDailyBarDate(wb, 'POST', at), null, 'after the close the last bar is final');
+  assert.equal(liveDailyBarDate(wb.slice(0, -1), 'REGULAR', at), null, 'no bar for today yet');
+  // The one-time repair re-reads a frozen row from the closing price.
+  const entry = { events: [{ date: '2026-11-09', session: 'PM', movePct: 0.1, week1Pct: 0.02, week1Done: true }] };
+  assert.equal(repairEarningsWeek1(entry, wb, null), 1);
+  assert.equal(entry.events[0].week1Pct, 0.1);
+  assert.equal(entry.week1Fix, EARNINGS_WEEK1_FIX_VERSION);
+  assert.equal(repairEarningsWeek1(entry, wb, null), 0, 'runs once');
+  const liveEntry = { events: [{ date: '2026-11-09', session: 'PM', movePct: 0.1, week1Pct: 0.02, week1Done: true }] };
+  repairEarningsWeek1(liveEntry, wb, '2026-11-17');
+  assert.equal(liveEntry.events[0].week1Pct, 0.02, 'no closing price yet: the row is left alone');
+  assert.equal(liveEntry.week1Fix, undefined, 'and retried on the next build');
+  repairEarningsWeek1(liveEntry, wb, null);
+  assert.equal(liveEntry.events[0].week1Pct, 0.1);
+}
 
 // 5. The chatter count is a 30-post sample, not a day's volume.
 const js = renderAppJs();

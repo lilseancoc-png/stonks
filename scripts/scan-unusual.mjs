@@ -8,11 +8,15 @@
 //      ITM hedges or far-OTM lottos). Upper bound is loose enough to keep
 //      low-delta LEAPs (~0.2 delta, 25-35% OTM) in scope.
 //   2. Volume > open interest (the classic baseline "unusual" signal).
-//   3. Hourly delta gate, scaled by days-to-expiry:
-//        - DTE <= 14 (near-term): vol - prevVol >= 4000
-//        - DTE > 14 (further out): vol - prevVol >= 2000
-//   4. A prior snapshot exists for that contract. First scan of the day
-//      produces no hits — we wait one hour so a real delta can be measured.
+//   3. Hourly delta gate, scaled by days-to-expiry: vol - prevVol must clear
+//      the stock's own bar (lib/flow-scan-rules.mjs, FLOW_STOCK_BARS): 1% of
+//      its median full-day option volume inside 14 days to expiry, 0.5%
+//      past, capped at the old flat 4,000 / 2,000 and floored at 500 / 250;
+//      the flat bar until a stock has 5 complete sessions on file.
+//   4. A baseline exists for that contract: the last same-day in-session
+//      snapshot, or, on the first in-session scan of the day
+//      (FLOW_OPEN_WINDOW), zero for a contract that has traded today, so
+//      9:30-10:00 ET is measured ("since the open").
 //
 // Each hit is tagged with a "tape" string (ask/abv/mid/blw/bid) derived
 // from where the last print sat relative to bid/ask, as a read-the-tape
@@ -25,7 +29,8 @@
 // data/unusual-history.json (rolling window of recent snapshots — stores
 // per-contract volume for every in-band candidate, not just flagged hits,
 // so the next scan can compute deltas for contracts that weren't flagged
-// last hour).
+// last hour, plus `dailyVol`: each stock's session option volume per day,
+// the last 20 days, which sets its bar).
 // Invoked by .github/workflows/unusual-flow.yml at the top of every hour
 // 14:00-21:00 UTC Mon-Fri.
 import { writeFile, mkdir, readFile } from "node:fs/promises";
@@ -38,13 +43,33 @@ import { greeks as bsGreeks, bsPrice, yearsToExpiry } from "../lib/greeks.mjs";
 import { buildFlowExplanation } from "../lib/flow-explanation.mjs";
 import { tapeTag, stalePrint, contractDelta, lastTradeMs as flowLastTradeMs, joinNextDayOi, FLOW_DIRECTION_VERSION } from "../lib/flow-direction.mjs";
 import {
+  flowScanSwitches,
+  tradedThisSession,
+  recordDailyVolume,
+  stockVolumeBaseline,
+  flowVolumeBars,
+  barForDte,
+  OPEN_WINDOW_MAX_MIN,
+} from "../lib/flow-scan-rules.mjs";
+import { OWNER_SETTINGS_KEY, applyOwnerSettingsToEnv } from "../lib/owner-settings.mjs";
+import {
   evaluateTicker as evaluateVolumeFlag,
   etDateKey as volEtDateKey,
   etMinutesSinceOpen,
   bucketForMinute,
+  cumFracExpected as volCumFracExpected,
+  sessionCloseMinForDate as volSessionCloseMin,
   BUCKETS as VOLUME_BUCKETS,
   SESSION_OPEN_MIN,
   SESSION_CLOSE_MIN,
+  VOLUME_CURVE_VERSION,
+  CURVE_KEEP_DAYS,
+  volumeSwitches,
+  learnCurveDay,
+  curveFromDays,
+  closeRereadOn,
+  closeRereadWaitMs,
+  applyCloseReread,
 } from "../lib/volume-flags.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -60,9 +85,8 @@ const STRIKE_BAND = 0.55;
 const FRONT_EXPIRATIONS = 2;
 const OTM_MIN = 0.05;
 const OTM_MAX = 0.50;
-const DTE_NEAR_DAYS = 14;
-const DELTA_NEAR = 4000;
-const DELTA_FAR = 2000;
+// The volume bars live in lib/flow-scan-rules.mjs (per stock since
+// 2026-11-17; the old flat 4,000 / 2,000 is the cap and the fallback).
 // Minimum vol to bother persisting a contract in history. Skips dead
 // contracts and keeps history file size reasonable.
 const HISTORY_MIN_VOL = 50;
@@ -189,7 +213,7 @@ function flowDte(expSec, nowMs) {
 // Compresses one in-band contract into the candidate record that's used
 // both for flagging logic AND persisted to history. Returns the raw record
 // (no flag decision); caller filters on whether `flagged` is true.
-function buildCandidate(symbol, side, c, expSec, scannedAt, spot, prevVolLookup, nowMs) {
+function buildCandidate(symbol, side, c, expSec, scannedAt, spot, prevVolLookup, nowMs, ctx = {}) {
   const vol = c.volume ?? 0;
   const oi = c.openInterest ?? 0;
   const strike = c.strike;
@@ -199,13 +223,21 @@ function buildCandidate(symbol, side, c, expSec, scannedAt, spot, prevVolLookup,
   const last = c.lastPrice ?? null;
   const bid = c.bid ?? null;
   const ask = c.ask ?? null;
-  const prevVol = prevVolLookup
+  const lastTradeMs = flowLastTradeMs(c.lastTradeDate);
+  let prevVol = prevVolLookup
     ? (prevVolLookup.get(`${symbol}|${side}|${strike}|${expSec}`)
       ?? (prevVolLookup.coveredSymbols?.has(symbol) ? 0 : null))
     : null;
+  // First in-session scan of the day (no same-day snapshot at all): a
+  // contract that has traded today counts every contract since the open.
+  let sinceOpen = false;
+  if (prevVol == null && !prevVolLookup && ctx.openWindow && tradedThisSession(lastTradeMs, ctx.todayKey)) {
+    prevVol = 0;
+    sinceOpen = true;
+  }
   const havePrev = prevVol != null;
   const deltaVol = havePrev ? vol - prevVol : null;
-  const deltaThreshold = dte <= DTE_NEAR_DAYS ? DELTA_NEAR : DELTA_FAR;
+  const deltaThreshold = barForDte(ctx.bars, dte);
 
   // Flag check — all four conditions must hold.
   const flagged =
@@ -225,7 +257,6 @@ function buildCandidate(symbol, side, c, expSec, scannedAt, spot, prevVolLookup,
   const deltaPremium = (last != null && deltaVol != null && deltaVol > 0)
     ? Math.round(deltaVol * last * 100)
     : null;
-  const lastTradeMs = flowLastTradeMs(c.lastTradeDate);
   const tapeStale = stalePrint(lastTradeMs, nowMs);
   const tape = tapeStale ? null : tapeTag(bid, ask, last);
   const iv = c.impliedVolatility ?? null;
@@ -253,6 +284,9 @@ function buildCandidate(symbol, side, c, expSec, scannedAt, spot, prevVolLookup,
     deltaPremium,
     tape,
     tapeStale,
+    bar: deltaThreshold,
+    ...(ctx.bars?.relative ? { stockBar: true } : {}),
+    ...(sinceOpen ? { sinceOpen: true } : {}),
     flagged,
     scannedAt,
   };
@@ -422,7 +456,7 @@ function buildPrevVolLookup(history, todayKey) {
   return map;
 }
 
-async function scanTicker(symbol, scannedAt, prevVolLookup, nowMs) {
+async function scanTicker(symbol, scannedAt, prevVolLookup, nowMs, ctx = {}) {
   const first = await fetchOptionsWithRetry(symbol);
   const spot =
     first.quote?.regularMarketPrice ??
@@ -456,12 +490,12 @@ async function scanTicker(symbol, scannedAt, prevVolLookup, nowMs) {
   const scanEntry = (entry, expSec) => {
     for (const c of entry.calls || []) {
       if (!inBand(c)) continue;
-      const rec = buildCandidate(symbol, "call", c, expSec, scannedAt, spot, prevVolLookup, nowMs);
+      const rec = buildCandidate(symbol, "call", c, expSec, scannedAt, spot, prevVolLookup, nowMs, ctx);
       if (rec) candidates.push(rec);
     }
     for (const c of entry.puts || []) {
       if (!inBand(c)) continue;
-      const rec = buildCandidate(symbol, "put", c, expSec, scannedAt, spot, prevVolLookup, nowMs);
+      const rec = buildCandidate(symbol, "put", c, expSec, scannedAt, spot, prevVolLookup, nowMs, ctx);
       if (rec) candidates.push(rec);
     }
   };
@@ -610,6 +644,81 @@ async function loadTickerGex(symbol, spot) {
   } catch {
     return null;
   }
+}
+
+// The finished daily-bar volume the bake stored for `symbol` on `date` (the
+// same basis as the 20-day average), for re-measuring the volume curve. Only
+// once a bake on a later day has written a newer bar: the 16:10 bake can
+// catch the day's bar before the late volume settles, and a short total
+// would make the curve read too high. Until then the day waits (the snapshot
+// history keeps it through the next morning's 11:00 scan).
+async function loadDailyVolume(symbol, date) {
+  try {
+    const raw = await readFile(resolve(DATA_DIR, `${symbol}.json`), "utf8");
+    const ps = JSON.parse(raw)?.priceSeries;
+    if (!Array.isArray(ps?.t) || !Array.isArray(ps?.v)) return null;
+    let newer = false;
+    for (let i = ps.t.length - 1; i >= 0; i--) {
+      const key = String(ps.t[i]).slice(0, 10);
+      if (key > date) { newer = true; continue; }
+      if (key === date) { const v = Number(ps.v[i]); return newer && v > 0 ? v : null; }
+      break;
+    }
+  } catch {}
+  return null;
+}
+
+// The volume switches from the Owner Settings page (a repo variable wins).
+// The bake applies the page through scripts/owner-settings-env.mjs; this
+// scanner reads the same file itself and copies only its own keys.
+const VOLUME_SETTING_KEYS = ["VOLUME_MEASURED_CURVE", "VOLUME_SESSION_READ", "VOLUME_CLOSE_REREAD"];
+async function applyVolumeOwnerSettings(env = process.env) {
+  try {
+    const raw = await readFile(resolve(DATA_DIR, OWNER_SETTINGS_KEY), "utf8");
+    const scratch = {};
+    for (const k of VOLUME_SETTING_KEYS) if (env[k] != null) scratch[k] = env[k];
+    const report = applyOwnerSettingsToEnv(raw, scratch);
+    for (const k of VOLUME_SETTING_KEYS) {
+      if (Object.prototype.hasOwnProperty.call(report.applied, k)) env[k] = scratch[k];
+    }
+  } catch {
+    // No settings file (or a bad one): the defaults stand.
+  }
+}
+
+// Re-measure the volume curve: each finished session still in the snapshot
+// history (it keeps about a day and a half) adds one day of points, read
+// against the bake's finished daily volume. Returns the curve in use (null =
+// the fixed U-curve when VOLUME_MEASURED_CURVE=0) and a summary for the page.
+async function updateVolumeCurve(history, todayKey, switches) {
+  const days = Array.isArray(history.curveDays) ? history.curveDays.filter((d) => d && d.date) : [];
+  const have = new Set(days.map((d) => d.date));
+  const pending = [...new Set((history.snapshots || []).map((s) => s?.etDate))]
+    .filter((d) => d && todayKey && d < todayKey && !have.has(d) && volSessionCloseMin(d) === SESSION_CLOSE_MIN)
+    .sort();
+  for (const date of pending) {
+    const symbols = new Set();
+    for (const snap of history.snapshots || []) {
+      if (snap?.etDate !== date) continue;
+      for (const t of snap.tickers || []) if (t?.symbol) symbols.add(t.symbol);
+    }
+    const vols = new Map();
+    for (const sym of symbols) vols.set(sym, await loadDailyVolume(sym, date));
+    const day = learnCurveDay(history.snapshots, date, (sym) => vols.get(sym));
+    if (day) days.push(day);
+  }
+  history.curveDays = days.sort((a, b) => String(a.date).localeCompare(String(b.date))).slice(-CURVE_KEEP_DAYS);
+  const fitted = curveFromDays(history.curveDays);
+  return {
+    curve: switches.measuredCurve ? fitted.knots : null,
+    info: {
+      version: VOLUME_CURVE_VERSION,
+      mode: switches.measuredCurve ? "measured" : "fixed",
+      learnedKnots: fitted.learnedSlots,
+      days: fitted.days,
+      knots: fitted.knots,
+    },
+  };
 }
 
 async function loadVolumeHistory() {
@@ -811,6 +920,37 @@ function buildFlagRow(symbol, evalOut, scannedAt, isFinalScan, bucketStartGap) {
   };
 }
 
+// The closing-auction re-read (lib/volume-flags.mjs closeRereadWaitMs): the
+// scan just after the close waits until a few minutes past it, then reads
+// every name's day volume again in batched quotes (50 a call). A failed
+// chunk leaves those names on the scan's own reading.
+async function closeAuctionReread(rows) {
+  await applyVolumeOwnerSettings();
+  if (!closeRereadOn(process.env)) return { rows, info: null };
+  const waitMs = closeRereadWaitMs(new Date());
+  if (waitMs == null) return { rows, info: null };
+  if (waitMs > 0) {
+    console.log(`volume pass: waiting ${Math.round(waitMs / 1000)}s for the closing auction to reach the day volume`);
+    await sleep(waitMs);
+  }
+  const symbols = [...new Set(rows.map((r) => r?.symbol).filter(Boolean))];
+  const quotes = {};
+  for (let i = 0; i < symbols.length; i += 50) {
+    const chunk = symbols.slice(i, i + 50);
+    try {
+      const got = await yahooFinance.quote(chunk, { fields: ["symbol", "regularMarketVolume", "regularMarketPrice"] });
+      for (const q of Array.isArray(got) ? got : got ? [got] : []) if (q?.symbol) quotes[q.symbol] = q;
+    } catch (err) {
+      console.log(`volume pass: closing re-read chunk failed (${String(err?.message || err).split("\n")[0]})`);
+    }
+    if (i + 50 < symbols.length) await sleep(300);
+  }
+  const { rows: out, summary } = applyCloseReread(rows, quotes);
+  const info = { at: new Date().toISOString(), ...summary };
+  console.log(`volume pass: closing re-read ${summary.names}/${symbols.length} names, median ${summary.medianPct ?? "n/a"}%, ${summary.up10} up 10% or more`);
+  return { rows: out, info };
+}
+
 async function runVolumePass({
   perTickerResults,
   scannedAt,
@@ -822,10 +962,15 @@ async function runVolumePass({
   // hour-over-hour bucket deltas depend on. The hourly full scan (the only
   // caller today) persists.
   persist = true,
+  // The closing-auction re-read summary, stored on the file (null = none).
+  closeReread = null,
 }) {
   const todayKey = volEtDateKey(nowDate);
   const etMin = etMinutesSinceOpen(nowDate);
   const history = await loadVolumeHistory();
+  await applyVolumeOwnerSettings();
+  const switches = volumeSwitches(process.env);
+  const { curve, info: curveInfo } = await updateVolumeCurve(history, todayKey, switches);
   const prevLookup = buildVolPrevSnapLookup(history, todayKey);
   const currentBucket = bucketForMinute(etMin);
   const bucketStartLookup = buildBucketStartLookup(history, todayKey, currentBucket);
@@ -849,6 +994,10 @@ async function runVolumePass({
 
   const freshRows = [];
   const snapshotTickers = [];
+  // Session-so-far read for every evaluated name (flagged or not), for the
+  // grade's unusual-volume vote: r = ratio to normal by now, m = move from
+  // yesterday's close in %, t = minutes past 9:30 ET.
+  const sessionReads = {};
 
   for (const r of perTickerResults) {
     if (!r || !r.symbol) continue;
@@ -899,7 +1048,11 @@ async function runVolumePass({
       bucketStartEtMin,
       moveThresholdPct: tech.moveThresholdPct,
       srBufferPct: tech.srBufferPct,
+      curve,
     });
+    if (evalOut?.session?.ratio != null) {
+      sessionReads[r.symbol] = { r: evalOut.session.ratio, m: evalOut.session.movePct, t: evalOut.etMin };
+    }
     const row = buildFlagRow(r.symbol, evalOut, scannedAt, isFinalScan, bucketStartGap);
     if (row) freshRows.push(row);
   }
@@ -943,7 +1096,9 @@ async function runVolumePass({
         row.bucketHits.push({
           bucketLabel: label,
           actualHourVol: null,
-          expectedHourVol: row.avg20 != null ? Math.round(row.avg20 * bucket.frac) : null,
+          expectedHourVol: row.avg20 != null
+            ? Math.round(row.avg20 * (volCumFracExpected(bucket.endMin, curve) - volCumFracExpected(bucket.startMin, curve)))
+            : null,
           volRatio: null,
           priceMovePct: null,
           hourlyFlagged: false,
@@ -1014,6 +1169,14 @@ async function runVolumePass({
     etMin,
     marketState: marketState || null,
     summary,
+    // Which "normal volume by now" curve this scan used (measured or fixed),
+    // how many of its knots have been re-measured, from how many sessions.
+    curve: curveInfo,
+    // This scan's session-so-far read for every name (empty before 9:50 ET).
+    session: { etMin, reads: sessionReads },
+    // The closing-auction re-read on the scan just after the close: when it
+    // ran, how many names it re-read, how many rose 10%+, the median change.
+    ...(closeReread ? { closeReread } : {}),
     tickers: merged,
   };
 
@@ -1048,6 +1211,25 @@ async function runVolumePass({
   return merged;
 }
 
+// The Owner Settings page can turn the two flow switches off. The scanner
+// does not run under scripts/owner-settings-env.mjs, so copy just these two
+// keys from the hydrated settings file; a repo variable that is set wins. A
+// missing or unreadable file leaves both on.
+const FLOW_SETTING_KEYS = ["FLOW_OPEN_WINDOW", "FLOW_STOCK_BARS"];
+async function applyFlowOwnerSettings(env = process.env) {
+  try {
+    const raw = await readFile(resolve(DATA_DIR, OWNER_SETTINGS_KEY), "utf8");
+    const scratch = {};
+    for (const k of FLOW_SETTING_KEYS) if (env[k] != null) scratch[k] = env[k];
+    const report = applyOwnerSettingsToEnv(raw, scratch);
+    for (const k of FLOW_SETTING_KEYS) {
+      if (Object.prototype.hasOwnProperty.call(report.applied, k)) env[k] = scratch[k];
+    }
+  } catch {
+    // No settings file (or a bad one): the defaults stand.
+  }
+}
+
 async function main() {
   const scannedAt = new Date().toISOString();
   const nowMs = Date.now();
@@ -1061,14 +1243,35 @@ async function main() {
   const history = await loadUnusualHistory();
   const log = await loadUnusualLog();
   const prevVolLookup = buildPrevVolLookup(history, todayKey);
+  // Two switches from the 2026-11-17 audit (lib/flow-scan-rules.mjs). A repo
+  // variable wins; otherwise the Owner Settings page decides; both default on.
+  await applyFlowOwnerSettings();
+  const switches = flowScanSwitches(process.env);
+  const scanEtMin = etMinutesSinceOpen(new Date(scannedAt));
+  // Opening window: no same-day in-session snapshot yet (the 9:00 ET scan is
+  // before the open). Only up to 11:30 ET, so a day whose morning scans all
+  // failed doesn't read hours of volume against an hourly bar.
+  const openWindow = switches.openWindow && !prevVolLookup &&
+    Number.isFinite(scanEtMin) && scanEtMin >= SESSION_OPEN_MIN && scanEtMin <= OPEN_WINDOW_MAX_MIN;
+  const dailyVol = history.dailyVol && typeof history.dailyVol === "object" ? history.dailyVol : {};
+  const barsFor = (symbol) => flowVolumeBars(stockVolumeBaseline(dailyVol, symbol, todayKey), { stockBars: switches.stockBars });
   // Repeat lookup is built from the log BEFORE we append this scan's hits, so
   // a contract that fires for the first time today shows count=1 (not 2) on
   // its inaugural badge.
   const repeatLookup = buildRepeatLookup(log, nowMs);
   console.log(
     `Scanning ${TICKERS.length} tickers for unusual options flow…` +
-      (prevVolLookup ? ` (delta comparison vs ${prevVolLookup.size} prior contracts)` : " (no prior snapshot — flagging skipped this run)"),
+      (prevVolLookup
+        ? ` (delta comparison vs ${prevVolLookup.size} prior contracts)`
+        : openWindow
+          ? " (first scan of the session — counting each contract's volume since the open)"
+          : " (no prior snapshot — flagging skipped this run)") +
+      ` [opening window ${switches.openWindow ? "on" : "off"}, per-stock bars ${switches.stockBars ? "on" : "off"}]`,
   );
+  // Each stock's in-band option volume this session (contracts that traded
+  // today only), kept per day for the per-stock bar's baseline.
+  const sessionVolBySymbol = new Map();
+  let relativeBarCount = 0;
   const tickerRows = [];
   const allCandidates = [];
   // Underlying-level scan results for the volume + S/R break pass. Populated
@@ -1102,11 +1305,18 @@ async function main() {
       if (idx >= scanList.length) return;
       const symbol = scanList[idx];
       try {
-        const result = await scanTicker(symbol, scannedAt, prevVolLookup, nowMs);
+        const bars = barsFor(symbol);
+        if (bars.relative) relativeBarCount++;
+        const result = await scanTicker(symbol, scannedAt, prevVolLookup, nowMs, { openWindow, todayKey, bars });
         if (!result) {
           failedCount++;
         } else {
           scannedCount++;
+          let sessionVol = 0;
+          for (const c of result.candidates) {
+            if (tradedThisSession(Date.parse(c.lastTradeAt || ""), todayKey)) sessionVol += c.vol ?? 0;
+          }
+          sessionVolBySymbol.set(symbol, sessionVol);
           if (!firstMarketState && result.marketState) firstMarketState = result.marketState;
           volumeScanResults.push({
             symbol: result.symbol,
@@ -1274,7 +1484,10 @@ async function main() {
       hottestDelta,
       scanned: scannedCount,
       failed: failedCount,
-      hadPrior: !!prevVolLookup,
+      hadPrior: !!prevVolLookup || openWindow,
+      window: prevVolLookup ? "hour" : openWindow ? "open" : null,
+      stockBars: switches.stockBars,
+      relativeBars: relativeBarCount,
     },
     tickers: mergedTickers,
   };
@@ -1305,6 +1518,18 @@ async function main() {
     })),
   });
   history.snapshots = history.snapshots.slice(-HISTORY_MAX_SNAPSHOTS);
+  // Session option volume per stock (cumulative, so the day's last scan holds
+  // the full day). In-session scans only: a pre-open read still shows
+  // yesterday's totals.
+  if (Number.isFinite(scanEtMin) && scanEtMin >= SESSION_OPEN_MIN) {
+    let recorded = dailyVol;
+    for (const [symbol, total] of sessionVolBySymbol) {
+      recorded = recordDailyVolume(recorded, symbol, todayKey, scanEtMin, total);
+    }
+    history.dailyVol = recorded;
+  } else if (Object.keys(dailyVol).length) {
+    history.dailyVol = dailyVol;
+  }
   const historyPath = resolve(DATA_DIR, HISTORY_FILE);
   await writeFile(historyPath, JSON.stringify(history), "utf8");
   console.log(
@@ -1340,6 +1565,9 @@ async function main() {
         dte: c.dte,
         tape: c.tape,
         ...(c.tapeStale ? { tapeStale: true } : {}),
+        ...(Number.isFinite(c.bar) ? { bar: c.bar } : {}),
+        ...(c.stockBar ? { stockBar: true } : {}),
+        ...(c.sinceOpen ? { sinceOpen: true } : {}),
       });
     }
   }
@@ -1372,11 +1600,14 @@ async function main() {
   // unusual-options-flow output — never throws back into the main flow so
   // one bad ticker's per-ticker JSON read can't kill the whole scan.
   try {
+    const marketClosedAllDay = typeof firstMarketState === "string" && firstMarketState.startsWith("CLOSED");
+    const reread = marketClosedAllDay ? { rows: volumeScanResults, info: null } : await closeAuctionReread(volumeScanResults);
     await runVolumePass({
-      perTickerResults: volumeScanResults,
+      perTickerResults: reread.rows,
       scannedAt,
       marketState: firstMarketState,
       nowDate: new Date(scannedAt),
+      closeReread: reread.info,
     });
   } catch (err) {
     console.log(`volume pass failed: ${err.message}`);
@@ -1406,6 +1637,9 @@ function stripCandidate(c) {
     deltaPremium: c.deltaPremium,
     tape: c.tape,
     ...(c.tapeStale ? { tapeStale: true } : {}),
+    ...(Number.isFinite(c.bar) ? { bar: c.bar } : {}),
+    ...(c.stockBar ? { stockBar: true } : {}),
+    ...(c.sinceOpen ? { sinceOpen: true } : {}),
     delta: c.delta ?? null,
     spot: c.spot ?? null,
     lastTradeAt: c.lastTradeAt ?? null,
@@ -1418,7 +1652,7 @@ function stripCandidate(c) {
 // NOT trigger a live scan — only run main() when invoked directly (mirrors
 // build.mjs's entry guard).
 export {
-  runVolumePass, DATA_DIR, flowDte,
+  runVolumePass, DATA_DIR, flowDte, buildCandidate,
 };
 
 const isEntryPoint = process.argv[1]
