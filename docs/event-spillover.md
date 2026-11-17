@@ -337,6 +337,15 @@ and realizations are logged; there is no position, no marking-to-market, no fill
 
 This also collects forward the follower-IV-behavior data that history can't give you (§10b).
 
+**Scoring (2026-11-17).** A prediction is frozen before the print from the driver's
+*unsigned* straddle move, so its sign is only the beta's sign. The forward direction hit
+therefore compares `sign(β) × sign(driver realized move)` with the follower's realized
+sign (`updateSpilloverLog`); comparing the bare prediction sign only counted how often
+followers rose. Realized moves are read only from finished sessions (`confirmedDailyBars`),
+so a window ending today resolves on the first bake after the close; logs written under
+the earlier rule (`resolveVersion` 1) have their realized moves re-read once. The deep
+matrix also leaves out a bar dated today, since it is built on the day's first bake.
+
 ## 12. Storage — flat JSON in the private store (no SQL)
 
 The repo's storage model is `data/*.json` in the private store (R2), pushed/pulled by
