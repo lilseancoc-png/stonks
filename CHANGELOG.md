@@ -121,6 +121,10 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 - Learn & help audit: the near-term OI tracker compares with the last trading day, so the morning after a market holiday no longer reads almost no OI change (after Labor Day 2026 it compared with the holiday's scans and flagged nothing; `lib/oi-baseline.mjs`). The When data updates page and the weekly Alt Data banners stop promising Friday 11:30 ET, since GitHub has started that job between about 2:30 and 5:00 p.m. every week since September, and the schedule now shows the OI scans and the weekly job running on market holidays. Public visitors no longer see links to Owner-only pages (Grade, Strategy builder) on the Options guide, Chart patterns and Glossary. The Options guide's IV note matches the site's Rich rule, and the Privacy Policy lists message retention, the offline page copy and more local-storage uses, with old contact-box sender hashes now cleared on every inbox change. Test `scripts/learn-help-smoke.mjs`.
 
+### Fixed
+- The market tape's 2-year yield vote no longer counts a day the 2-year fell 4+ bps as "front-end tightening" because its 5-day trend was still up (and the reverse for easing). The 10-year and the dollar already had this guard; on Nov 16 the 16:10 tape listed "2Y -5.0 bps" as a risk-off driver. Server and browser rules change together.
+- The Bottom tracker reads completed sessions only, like the streaks and the macro context: during market hours it no longer treats the session in progress as that day's close, so its verdict and date (which the Top Picks shock-put lane reads at 11:00 and 15:30 ET) come from real closes. Test `node scripts/owner-audit-smoke.mjs`.
+
 ## 2026-11-16
 
 ### Added
