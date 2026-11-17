@@ -4824,6 +4824,10 @@ ${renderExportBindings()}
       }
       syncWorkspacePins();
       try { renderWayfinding(name); noteWayfindingVisit(name); } catch (_) {}
+      // Tell the page's other scripts (js/book-views.js) which page is now
+      // shown, however it was reached: sidebar, hub tab, sibling chip,
+      // Previous / Next, the palette, a link or Back.
+      try { document.dispatchEvent(new CustomEvent('stonks-page-shown', { detail: { tab: name } })); } catch (_) {}
       // Lazy-mount the doc page's shadow content on first open of its tab.
       try { mountDocPane(name); } catch (_) {}
       // Navigating from the mobile drawer closes it — the destination pane

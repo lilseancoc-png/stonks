@@ -1818,6 +1818,12 @@ function boot() {
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", go);
   else go();
   document.addEventListener("stonks-owner-ready", () => { started.clear(); setTimeout(go, 0); });
+  // app.js announces every page switch (hub tabs, sibling chips, Previous /
+  // Next, the palette, links and Back), not only sidebar clicks.
+  document.addEventListener("stonks-page-shown", (event) => {
+    const id = event.detail && event.detail.tab;
+    if (id) setTimeout(() => openTab(id), 0);
+  });
   document.addEventListener("toggle", (event) => {
     const panel = event.target && event.target.getAttribute && event.target.getAttribute("data-book-panel");
     if (panel) state.open[panel] = event.target.open;

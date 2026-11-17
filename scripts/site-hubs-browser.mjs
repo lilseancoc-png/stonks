@@ -132,6 +132,22 @@ try {
     await s.page.keyboard.press('Enter');
     await s.page.waitForFunction((t) => !document.getElementById('page-pane-' + t).hidden, second.id);
     ok(true, `${who}: Enter opens the focused hub tab`);
+    // A page reached by its hub tab (not its sidebar button) still gets its
+    // "Additional view" panels from js/book-views.js (they were missing).
+    const BOOK_PAGES = ['heatmap', 'calendar', 'narratives', 'iv-trend', 'oi', 'streaks', 'spillover', 'ma-tracker', 'earnings'];
+    // A fresh load each time, so no earlier sidebar click has mounted them.
+    for (const it of list.filter((p) => p.hub && BOOK_PAGES.includes(p.id))) {
+      const lead = hubPages(it.hub, isOwner)[0];
+      if (lead.id === it.id) continue;
+      const b = await openTab(browser, server.base, { tab: lead.id });
+      await b.page.waitForSelector(`#page-pane-${lead.id} .wf-hub-tab[data-wf-go="${it.id}"]`, { timeout: 8000 });
+      await b.page.click(`#page-pane-${lead.id} .wf-hub-tab[data-wf-go="${it.id}"]`);
+      try {
+        await b.page.waitForFunction((t) => !!document.querySelector('#page-pane-' + t + ' [data-book-panel]'), it.id, { timeout: 5000 });
+        ok(true, `${who}: ${it.id} opened by its hub tab shows its Additional view panels`);
+      } catch { ok(false, `${who}: ${it.id} opened by its hub tab has no Additional view panel`); }
+      await b.context.close();
+    }
     assert.deepEqual([...s.errors, ...s.consoleErrors], [], `${who}: no page or console errors`);
     await s.context.close();
   }
@@ -194,6 +210,20 @@ try {
   await s.page.waitForFunction(() => !document.getElementById('page-pane-open-picks').hidden, null, { timeout: 8000 });
   ok(new URL(s.page.url()).searchParams.get('tab') === 'open-picks', 'old Personal tools link opens Open picks');
   ok(await s.page.evaluate(() => !!document.querySelector('#page-pane-open-picks #picks-position')), 'position checker sits on Open picks');
+  // It still works there: a typed holding is priced from the stock's chain.
+  const exp = Math.floor(Date.UTC(new Date().getUTCFullYear() + 1, 0, 16) / 1000);
+  data['AAPL.json'] = { symbol: 'AAPL', spot: 200, builtAtIso: new Date(now - 3600e3).toISOString(), expirations: [exp], chains: { [exp]: { c: [{ s: 200, b: 9.8, a: 10.2, l: 10, iv: 0.3, oi: 900, v: 120 }], p: [{ s: 200, b: 8.8, a: 9.2, l: 9, iv: 0.31, oi: 700, v: 80 }] } } };
+  await s.page.evaluate(() => { const d = document.getElementById('picks-position'); if (d && d.tagName === 'DETAILS') d.open = true; });
+  await s.page.fill('#pos-symbol', 'AAPL');
+  await s.page.press('#pos-symbol', 'Enter');
+  await s.page.waitForFunction(() => !document.getElementById('pos-expiry').disabled, null, { timeout: 8000 });
+  await s.page.fill('#pos-strike', '200');
+  await s.page.fill('#pos-entry', '8');
+  await s.page.click('#pos-check');
+  await s.page.waitForFunction(() => (document.getElementById('pos-result').innerText || '').trim().length > 20, null, { timeout: 8000 });
+  const posOut = await s.page.evaluate(() => ({ result: document.getElementById('pos-result').innerText, status: document.getElementById('pos-status').className }));
+  ok(!/err/.test(posOut.status) && /AAPL/.test(posOut.result), 'position checker prices a holding on Open picks');
+  delete data['AAPL.json'];
   await s.context.close();
   s = await openTab(browser, server.base, { tab: 'quant' });
   await settle(s.page, 600);
