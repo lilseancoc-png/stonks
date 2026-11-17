@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { thirdFriday, monthlyExpiration, vixExpiration, marketStructureCalendarEvents, ipoListingsFrom } from "../lib/market-dates.mjs";
+import { thirdFriday, monthlyExpiration, vixExpiration, onOrAfterTradingDay, marketStructureCalendarEvents, ipoListingsFrom } from "../lib/market-dates.mjs";
 import { buildFedLiquidity } from "../lib/fed-liquidity.mjs";
 import { buildMarketMap } from "../lib/market-map.mjs";
 import { buildSiteSnapshot, nextSiteChanges } from "../lib/site-changes.mjs";
@@ -29,6 +29,11 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 eq(thirdFriday(2026, 11), "2026-11-20", "third Friday of Nov 2026");
 eq(monthlyExpiration(2026, 6), "2026-06-18", "Juneteenth moves June 2026 expiration to Thursday");
 eq(vixExpiration(2026, 11), "2026-11-18", "VIX expires 30 days before Dec 18");
+eq(vixExpiration(2026, 5), "2026-05-19", "June 2026 third Friday is Juneteenth: VIX counts back from Thursday June 18 (Cboe rule)");
+eq(vixExpiration(2027, 5), "2027-05-18", "June 18, 2027 is observed Juneteenth: May 2027 VIX expires on Tuesday May 18");
+eq(monthlyExpiration(2027, 6), "2027-06-17", "observed Juneteenth moves June 2027 witching to Thursday");
+eq(onOrAfterTradingDay("2026-11-28"), "2026-11-30", "a Saturday rolls forward to Monday");
+eq(onOrAfterTradingDay("2026-11-26"), "2026-11-27", "Thanksgiving rolls forward to the half day after it");
 const mdEvents = marketStructureCalendarEvents(Date.parse("2026-11-01T00:00:00Z"), Date.parse("2027-01-31T00:00:00Z"), {
   ipos: [{ date: "2026-06-01", symbol: "BIGCO", name: "Big Co", raised: 500e6 }, { date: "2026-06-02", symbol: "TINY", name: "Tiny", raised: 5e6 }],
 });
@@ -37,6 +42,7 @@ eq(kinds("2026-11-20"), ["opex"], "November monthly expiration");
 eq(kinds("2026-12-18"), ["ndx-recon", "sp-rebalance", "witching"], "December witching, S&P rebalance and Nasdaq-100 reset");
 ok(mdEvents.some((e) => e.subtype === "vix-expiry" && e.date === "2026-11-18"), "VIX expiry on the calendar");
 ok(mdEvents.some((e) => e.subtype === "lockup" && e.ipoSymbol === "BIGCO" && e.estimate), "sizable IPO gets an estimated lockup end");
+eq(mdEvents.find((e) => e.ipoSymbol === "BIGCO")?.date, "2026-11-30", "day 180 is Saturday Nov 28: insiders may sell from Monday, not the Friday before");
 ok(!mdEvents.some((e) => e.ipoSymbol === "TINY"), "small IPO is skipped");
 eq(marketStructureCalendarEvents(Date.parse("2026-10-25T12:00:00Z"), Date.parse("2026-11-19T12:00:00Z")).map((e) => e.date + " " + e.subtype),
   ["2026-11-18 vix-expiry"], "a VIX date before the month's expiration is kept when the window ends in between");
@@ -87,6 +93,11 @@ const chains = {};
 const syms = Object.keys(chains);
 const map = buildMarketMap({ chains, symbols: syms, sectorOf: () => "Tech", groupOf: () => "Technology", isEtf: (s) => s === "SPY", ivBand: () => ({ band: "normal" }), builtAtIso: "2026-11-06T21:10:00Z" });
 eq(map.rows.length, 5, "one row per name");
+{
+  const young = buildMarketMap({ chains: { NEWCO: { ...chains.AAA, _bars: chains.AAA._bars.slice(-200) } }, symbols: ["NEWCO"], builtAtIso: "2026-11-06T21:10:00Z" });
+  eq(young.rows[0].r1y, null, "a name listed under a year ago has no 1-year move");
+  ok(map.rows.find((r) => r.s === "AAA").r1y != null, "a year of history still gives the 1-year move");
+}
 const aaa = map.rows.find((r) => r.s === "AAA");
 eq(aaa.si, 5, "short interest % of float on the row");
 ok(Array.isArray(aaa.sp) && aaa.sp.length >= 30 && aaa.sp[0] === 0, "six-month spark starts at zero");
