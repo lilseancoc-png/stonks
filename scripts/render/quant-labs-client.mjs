@@ -1,4 +1,4 @@
-// Owner Lab: the Quant labs view (2026-11-16). Renders the Owner-only
+// Quant labs: its own Owner page (2026-11-16; an Owner Lab view until the same day). Renders the Owner-only
 // quant-labs.json written by every full bake (lib/labs/index.mjs): the chance
 // of a 10% or 20% market fall and of a recovery, how honest every stated
 // chance on the site has been, factor and volatility reads per stock, annual
@@ -11,7 +11,7 @@
 // HAS_OWNER_ACCESS from that scope. ES5 only.
 export function renderQuantLabsJs() {
   return `
-  // ---- Owner Lab: quant labs ------------------------------------------------
+  // ---- Quant labs (Owner page) -----------------------------------------------
   var qlState = { data: null, fetchedAt: 0, error: null, pending: null };
   var QL_TABS = [['summary', 'Summary'], ['odds', 'Market odds'], ['calibration', 'Calibration'], ['factors', 'Factors'], ['vol', 'Volatility'], ['filings', 'Annual reports'], ['registry', 'Registry']];
   var QL_STATUS = { working: ['Working', 'evb-s-pass'], weak: ['Weak', 'evb-s-unclear'], 'no-skill': ['No skill', 'evb-s-fail'], thin: ['Too few cases', 'evb-s-collect'] };
@@ -409,7 +409,7 @@ export function renderQuantLabsJs() {
       '<p class="evb-note">Measurement only: nothing on this page changes a pick, a grade or the Track Record. Built ' + escapeHtml(rglEt(d.builtAt)) + (d.research && d.research.ran ? '; history tests ran ' + escapeHtml(evbDate(d.research.ran)) : '') + '.</p>';
     if (typeof vnTabsReveal === 'function') vnTabsReveal(root);
   }
-  // One read of the Owner file, shared by the Owner Lab view and the cards.
+  // One read of the Owner file, shared by the Quant labs page and the cards.
   function qlFetch(force){
     if (!HAS_OWNER_ACCESS) return Promise.resolve(null);
     if (!force && qlState.data && Date.now() - qlState.fetchedAt < 15 * 60 * 1000) return Promise.resolve(qlState.data);
@@ -434,6 +434,7 @@ export function renderQuantLabsJs() {
     });
   }
   document.addEventListener('click', function(ev){
+    if (ev.target && ev.target.closest && ev.target.closest('[data-owner-labs-refresh]')){ loadQuantLabs(true); return; }
     var t = ev.target && ev.target.closest ? ev.target.closest('[data-ql-tab]') : null;
     if (!t) return;
     VIEWS.set('quant-labs.tab', t.getAttribute('data-ql-tab'));
@@ -459,7 +460,7 @@ export function renderQuantLabsJs() {
       '<div class="ql-chips">' + chip(by.fall10_3m, 'Within 3 months') + chip(by.fall10_12m, 'Within 12 months') + chip(by.fall20_12m, '20%+ within 12 months') + '</div>' +
       (rec ? '<div class="ql-chips"><span class="ql-chips-lbl">Inside this decline</span>' + rec + '</div>' : '') +
       '<p class="ql-card-note">From S&amp;P 500 history since ' + escapeHtml(String(c.from || '1962').slice(0, 4)) + ': rates, credit spreads, the trend and how far the index sits from its high, through the ' + escapeHtml(evbDate(c.asOf)) + ' close (' + slpNum(c.offHigh, 1) + '% under the high). "Normal" is how often it happened across that history.' + (c.stale ? ' Last good copy; the newest build could not refit it.' : '') + '</p>' +
-      '<a class="book-more" href="?tab=quant&amp;lab=labs">Open Quant labs</a></div>';
+      '<a class="book-more" href="?tab=quant-labs">Open Quant labs</a></div>';
   }
   function loadMarketOddsCards(){
     var hosts = [$('risk-odds'), $('bottom-odds')].filter(function(h){ return !!h; });
