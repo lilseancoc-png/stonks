@@ -106,15 +106,21 @@ assert.equal(publicationStatus([]), 1);
 const mirror = workflow("webull-mirror.yml");
 assert.doesNotMatch(mirror, /schedule:|cron:/);
 assert.match(mirror, /workflow_dispatch:/);
+assert.match(mirror, /group: stonks-webull-mirror/, "the mirror has its own queue, not stonks-data-commit");
+assert.match(mirror, /WEBULL_MIRROR_STRICT: '1'/);
+assert.match(mirror, /WEBULL_MIRROR_FOLLOW_UPS: \$\{\{ inputs\.follow_ups \|\| '4' \}\}/);
 const mirrorStep = daily.match(/- name: Mirror published Top Picks to Webull paper[\s\S]*?(?=\n      - name:)/)?.[0];
 assert.ok(mirrorStep);
 assert.match(mirrorStep, /needs\.route\.outputs\.refresh_top_picks == 'true'/);
-assert.match(mirrorStep, /WEBULL_MIRROR_FOLLOW_UPS: '4'/);
-assert.match(mirrorStep, /WEBULL_MIRROR_STRICT: '1'/);
-assert.match(mirrorStep, /id: webull_mirror/);
-assert.match(daily, /webull_outcome: \$\{\{ steps\.webull_mirror\.outcome \}\}/);
-assert.match(daily, /webull-health:[\s\S]*?needs: build[\s\S]*?always\(\) && needs\.build\.outputs\.webull_outcome == 'failure'[\s\S]*?exit 1/);
+assert.match(mirrorStep, /continue-on-error: true/);
+// Dispatched, not run inline: the bounded follow-up window (up to ~8 minutes)
+// must not hold the shared data-commit queue or delay the end-of-day dispatch.
+assert.match(mirrorStep, /gh workflow run webull-mirror\.yml --ref "\$\{GITHUB_REF_NAME:-main\}" -f follow_ups=4/);
+assert.doesNotMatch(mirrorStep, /node scripts\/webull-mirror-trigger\.mjs/);
+assert.doesNotMatch(daily, /webull-health:|webull_outcome/);
 assert.ok(daily.indexOf("run: node scripts/sync-data.mjs push --owner=bake") < daily.indexOf("- name: Mirror published Top Picks"));
+assert.ok(daily.indexOf("- name: Mirror published Top Picks") < daily.indexOf("- name: Start the Webull end-of-day window"));
+assert.match(daily, /actions: write/);
 assert.match(daily, /ET_MIN.*-eq 660.*ET_MIN.*-eq 930/);
 
 const eod = workflow("webull-eod.yml");

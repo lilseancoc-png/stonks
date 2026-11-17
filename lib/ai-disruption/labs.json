@@ -1,5 +1,5 @@
 {
- "version": 1,
+ "version": 2,
  "labs": [
   {
    "id": "openai",
@@ -15,12 +15,20 @@
     {
      "name": "ChatGPT release notes",
      "url": "https://help.openai.com/en/articles/6825453-chatgpt-release-notes",
-     "role": "primary"
+     "role": "primary",
+     "read": {
+      "parser": "dated",
+      "product": "ChatGPT"
+     }
     },
     {
      "name": "OpenAI news",
      "url": "https://openai.com/news/",
-     "role": "primary"
+     "role": "primary",
+     "read": {
+      "parser": "feed",
+      "fetch": "https://openai.com/news/rss.xml"
+     }
     },
     {
      "name": "ChatGPT release notes mirror",
@@ -42,12 +50,20 @@
     {
      "name": "Claude release notes",
      "url": "https://support.claude.com/en/articles/12138966-release-notes",
-     "role": "primary"
+     "role": "primary",
+     "read": {
+      "parser": "dated",
+      "product": "Claude"
+     }
     },
     {
      "name": "Anthropic news",
      "url": "https://www.anthropic.com/news",
-     "role": "primary"
+     "role": "primary",
+     "read": {
+      "parser": "cards",
+      "match": "/news/"
+     }
     }
    ]
   },
@@ -64,12 +80,21 @@
     {
      "name": "Gemini release notes",
      "url": "https://gemini.google/us/release-notes/",
-     "role": "primary"
+     "role": "primary",
+     "read": {
+      "parser": "dated",
+      "product": "Gemini"
+     }
     },
     {
      "name": "Workspace updates",
      "url": "https://workspaceupdates.googleblog.com/",
-     "role": "primary"
+     "role": "primary",
+     "read": {
+      "parser": "feed",
+      "fetch": "https://workspaceupdates.googleblog.com/feeds/posts/default",
+      "product": "Workspace"
+     }
     }
    ]
   },
@@ -79,18 +104,34 @@
    "ticker": "MSFT",
    "products": [
     "Microsoft 365 Copilot",
-    "GitHub Copilot"
+    "GitHub Copilot",
+    "Copilot"
    ],
    "sources": [
     {
      "name": "Microsoft 365 blog",
      "url": "https://www.microsoft.com/en-us/microsoft-365/blog/",
-     "role": "primary"
+     "role": "primary",
+     "read": {
+      "parser": "feed",
+      "fetch": "https://www.microsoft.com/en-us/microsoft-365/blog/feed/"
+     }
     },
     {
      "name": "GitHub newsroom",
      "url": "https://github.com/newsroom",
      "role": "primary"
+    },
+    {
+     "name": "GitHub changelog",
+     "url": "https://github.blog/changelog/",
+     "role": "primary",
+     "read": {
+      "parser": "feed",
+      "fetch": "https://github.blog/changelog/feed/",
+      "product": "GitHub Copilot",
+      "requires": "copilot"
+     }
     }
    ]
   },
@@ -105,7 +146,12 @@
     {
      "name": "Meta newsroom",
      "url": "https://about.fb.com/news/",
-     "role": "secondary"
+     "role": "secondary",
+     "read": {
+      "parser": "feed",
+      "fetch": "https://about.fb.com/news/feed/",
+      "product": "Meta AI"
+     }
     }
    ]
   },
@@ -120,7 +166,12 @@
     {
      "name": "xAI news",
      "url": "https://x.ai/news",
-     "role": "secondary"
+     "role": "secondary",
+     "read": {
+      "parser": "cards",
+      "match": "/news/",
+      "product": "Grok"
+     }
     }
    ]
   }

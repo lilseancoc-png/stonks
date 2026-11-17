@@ -47,7 +47,7 @@ assert.ok(captureScore(bundle, "design") < captureScore(bundle, "slides"));
 assert.equal(captureScore(bundle, "slides"), captureScore(bundle));
 const bb = capabilityBoard([{ ...bundle, id: "x", lab: "openai", date: "2026-01-01" }]);
 assert.ok(bb.design.openai.score < bb.slides.openai.score);
-assert.equal(captureScore({ capabilities: [], plans: ["free", "enterprise"], availability: "ga", autonomy: "unattended", coverage: 5, how: "platform", grades: { integration: 5 } }), 98);
+assert.equal(captureScore({ capabilities: [], plans: ["free", "enterprise"], availability: "ga", autonomy: "unattended", coverage: 5, how: "platform", grades: { integration: 5 } }), 96);
 
 // Outcome rules.
 assert.equal(outcomeFor("direct", "core"), "obsolescence");

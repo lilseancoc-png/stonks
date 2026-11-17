@@ -1,10 +1,12 @@
 // Pings the Webull paper mirror (api/auth/[action].js "webull-mirror") after a
 // Top Picks publication, so it copies the record's new opens/closes into the Webull paper
-// account. Run by .github/workflows/daily.yml. The repo is public, so this
-// prints only the HTTP status: no balances, orders or tokens reach the log.
-// The bearer token is derived from R2_SECRET_ACCESS_KEY (lib/webull-mirror.mjs).
-// The build marks this step nonfatal; strict runs expose errors and pending work.
-import { mirrorTriggerToken } from "../lib/webull-mirror.mjs";
+// account. Run by .github/workflows/webull-mirror.yml, which the 11:00 / 15:30 ET
+// Daily builds dispatch after publication. The repo is public, so this prints
+// only the HTTP status, counts and fixed review labels (describeReviewKinds):
+// no tickers, balances, orders or tokens reach the log. The bearer token is
+// derived from R2_SECRET_ACCESS_KEY (lib/webull-mirror.mjs). Strict runs fail
+// the workflow on errors and pending work.
+import { mirrorTriggerToken, describeReviewKinds } from "../lib/webull-mirror.mjs";
 import { runMirrorWindow } from "../lib/webull-mirror-window.mjs";
 
 const strict = process.env.WEBULL_MIRROR_STRICT === "1";
@@ -29,7 +31,8 @@ async function trigger() {
   const why = body?.ran === false ? `, not run (${String(body.reason || body.summary?.skipped || "unknown").slice(0, 60)})`
     : body?.error ? `, failed (${["code", "status", "kind"].filter((k) => body[k] != null).map((k) => `${k} ${String(body[k]).slice(0, 40)}`).join(", ") || "no code"}${body.detail ? `: ${String(body.detail).slice(0, 120)}` : ""})`
     : body?.ran === true ? `, ran${body.summary?.note ? ` (${String(body.summary.note).slice(0, 60)})` : ""}${body.summary?.errors ? `, ${Number(body.summary.errors) || 0} errors` : ""}` : "";
-  console.log(`Webull mirror: HTTP ${res.status}${why}${body?.summary?.alerts ? ", review required (Owner Webull test view)" : ""}`);
+  const kinds = describeReviewKinds(body?.summary);
+  console.log(`Webull mirror: HTTP ${res.status}${why}${body?.summary?.alerts ? `, review required (${kinds ? `${kinds}; ` : ""}Owner Webull test view)` : ""}`);
   return { ok: res.ok, body };
 }
 try {
@@ -37,7 +40,9 @@ try {
   const res = response, body = response.body;
   if (pending) console.log("Webull mirror: execution/reconciliation remains pending after this build window; check Owner Webull test or run the manual reconciliation.");
   const benignSkip = body?.reason === "mirror already running" || body?.summary?.skipped === "ran less than a minute ago";
-  if (strict && (pending || !res.ok || body?.summary?.errors || body?.summary?.alerts || body?.ran !== true && !benignSkip)) process.exitCode = 1;
+  // A last check that found another window (the end-of-day workflow) holding
+  // the account lease is not a failure: that window is doing the work.
+  if (strict && (pending && !benignSkip || !res.ok || body?.summary?.errors || body?.summary?.alerts || body?.ran !== true && !benignSkip)) process.exitCode = 1;
 } catch (err) {
   console.log(`Webull mirror: request failed (${err?.name || "error"})`);
   if (strict) process.exitCode = 1;

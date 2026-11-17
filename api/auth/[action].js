@@ -15,6 +15,8 @@
 //   track-record-data  -> Owner-only reporting view, independent of execution
 //   owner-watchlist  -> the Owner's stock-page watchlist, synced across devices
 //                       (GET / same-origin POST; lib/owner-watchlist.mjs)
+//   ai-disruption-review -> the Owner's confirm / fix / reject decisions on the
+//                       AI launch log (lib/ai-disruption/review.mjs)
 //   top-picks-mode   -> the Owner's Top Picks market mode: Auto / No new puts /
 //                       No new calls / Pause new trades (GET / same-origin POST;
 //                       lib/top-picks-mode.mjs)
@@ -179,6 +181,8 @@ export default async function handler(req, res) {
       return ownerWatchlist(req, res);
     case "top-picks-mode":
       return topPicksMode(req, res);
+    case "ai-disruption-review":
+      return aiDisruptionReview(req, res);
     case "picks-loop":
       return picksLoopControl(req, res);
     case "owner-settings":
@@ -751,6 +755,56 @@ async function topPicksMode(req, res) {
   } catch (err) {
     console.error("top picks mode failed", { message: String(err?.message || err) });
     return res.status(502).json({ error: "mode unavailable" });
+  }
+}
+
+// --- AI disruption review ------------------------------------------------------
+// GET  /api/auth/ai-disruption-review -> { decisions, history, updatedAt }
+// POST /api/auth/ai-disruption-review { act: confirm|edit|reject|undo, id, fields? }
+//                                     (same-origin only)
+// The Owner's review of the AI launch log (lib/ai-disruption/review.mjs), in
+// ai-disruption-review.json: Owner-only and request-time-owned, no workflow
+// pushes or deletes it. The next bake applies every decision to the log.
+async function aiDisruptionReview(req, res) {
+  res.setHeader("Cache-Control", "private, no-store");
+  if (process.env.PRIVATE_DATA_ENABLED !== "1") return res.status(404).json({ error: "not found" });
+  const session = await getSession(req).catch(() => null);
+  if (!session) return res.status(401).json({ error: "auth required" });
+  if (session.tr !== true || session.tp !== true) return res.status(401).json({ error: "role required" });
+  if (req.method !== "GET" && req.method !== "POST") {
+    res.setHeader("Allow", "GET, POST");
+    return res.status(405).json({ error: "method not allowed" });
+  }
+  if (req.method === "POST" && !isSameOriginRequest(req)) return res.status(403).json({ error: "forbidden" });
+  const { AI_DISRUPTION_REVIEW_KEY, readReviewDoc, applyReviewRequest } = await import("../../lib/ai-disruption/review.mjs");
+  if (req.method === "POST" && applyReviewRequest(null, req.body).error) return res.status(400).json({ error: applyReviewRequest(null, req.body).error });
+  const view = (doc) => ({ decisions: doc.decisions, history: (doc.history || []).slice(0, 50), updatedAt: doc.updatedAt || null });
+  try {
+    const { store } = await import("../../lib/datastore.mjs");
+    if (req.method === "GET") return res.status(200).json(view(readReviewDoc(await store.get(AI_DISRUPTION_REVIEW_KEY))));
+    const save = async (guard) => {
+      const current = readReviewDoc(await store.get(AI_DISRUPTION_REVIEW_KEY));
+      const out = applyReviewRequest(current, req.body, { at: new Date().toISOString(), by: session.name || null });
+      if (out.error) return out;
+      if (!out.unchanged) {
+        if (guard) guard();
+        await store.put(AI_DISRUPTION_REVIEW_KEY, JSON.stringify(out.doc));
+      }
+      return view(out.doc);
+    };
+    let out;
+    if (store.backend === "r2" && typeof store.withLease === "function") {
+      let leased;
+      try { leased = await store.withLease("ai-disruption-review", save); }
+      catch (err) { if (err?.code === "LEASE_CONFLICT") return res.status(409).json({ error: "busy, try again" }); throw err; }
+      if (leased?.busy) return res.status(409).json({ error: "busy, try again" });
+      out = leased.result;
+    } else out = await save(null);
+    if (out.error) return res.status(400).json({ error: out.error });
+    return res.status(200).json(out);
+  } catch (err) {
+    console.error("ai disruption review failed", { message: String(err?.message || err) });
+    return res.status(502).json({ error: "review unavailable" });
   }
 }
 

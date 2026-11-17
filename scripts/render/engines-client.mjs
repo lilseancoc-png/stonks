@@ -63,6 +63,9 @@ export function renderEnginesJs() {
   function engExp(sec){ var n = Number(sec); if (!(n > 0)) return '?'; var d = new Date(n * 1000); return ENG_MONTHS[d.getUTCMonth()] + ' ' + d.getUTCDate() + ', ' + d.getUTCFullYear(); }
   function engContract(t){ var c = (t && t.contract) || {}; return engStrike(c.strike) + ' ' + escapeHtml(String(c.optionType || (t && t.side) || '')) + ' · ' + engExp(c.expiry); }
   function engDay(iso){ return evbDate(String(iso || '').slice(0, 10)); }
+  // Chart axis day: "Aug 10" (with the year when the points span more than one).
+  function engAxisDay(iso, withYear){ var m = /^(\\d{4})-(\\d{2})-(\\d{2})/.exec(String(iso || '')); if (!m) return String(iso || ''); return ENG_MONTHS[+m[2] - 1] + ' ' + (+m[3]) + (withYear ? " '" + m[1].slice(2) : ''); }
+  function engAxisEvery(n){ var narrow = typeof window !== 'undefined' && window.innerWidth && window.innerWidth < 560; return Math.max(1, Math.ceil(n / (narrow ? 3 : 6))); }
   function engCell(k){ return ENG_CELL[k] || String(k || '—'); }
   function engCap(s){ s = String(s == null ? '' : s); return s ? s.charAt(0).toUpperCase() + s.slice(1) : '—'; }
   function engSide(s){ return s === 'put' ? '<span class="eng-side eng-put">Put</span>' : '<span class="eng-side eng-call">Call</span>'; }
@@ -123,7 +126,43 @@ export function renderEnginesJs() {
   }
   function engCurveHtml(curve, aria){
     if (!curve || curve.length < 3) return '';
-    return lineSvgHtml({ labels: curve.map(function(p){ return engDay(p[0]); }), series: [{ name: 'Running total, one contract per trade', values: curve.map(function(p){ return p[1]; }), cls: 'ln-s0' }], h: 220, zero: true, xEvery: Math.max(1, Math.ceil(curve.length / 6)), yFmt: function(v){ return (v < 0 ? '−$' : '$') + Math.abs(Math.round(v)).toLocaleString('en-US'); }, ariaLabel: aria });
+    var yrs = String(curve[0][0]).slice(0, 4) !== String(curve[curve.length - 1][0]).slice(0, 4);
+    return lineSvgHtml({ labels: curve.map(function(p){ return engAxisDay(p[0], yrs); }), series: [{ name: 'Running total, one contract per trade', values: curve.map(function(p){ return p[1]; }), cls: 'ln-s0' }], h: 220, zero: true, xEvery: engAxisEvery(curve.length), yFmt: function(v){ return (v < 0 ? '−$' : '$') + Math.abs(Math.round(v)).toLocaleString('en-US'); }, ariaLabel: aria });
+  }
+  // "All engines": every engine's running total on one chart (closed trades,
+  // one contract each, by exit day; each line carried flat between closes).
+  var ENG_LINE_CLS = ['ln-s0', 'ln-s1', 'ln-s3', 'ln-s4', 'ln-s5', 'ln-s2'];
+  function engAllCurveHtml(d){
+    var list = (d.engines || []).filter(function(e){ return e.stats && e.stats.curve && e.stats.curve.length; });
+    if (!list.length) return '<p class="hint">No engine has closed a trade yet. Each engine gets a line here (dollars made or lost, one contract per closed trade) once its first trade closes.</p>';
+    var days = {};
+    list.forEach(function(e){ e.stats.curve.forEach(function(p){ days[String(p[0]).slice(0, 10)] = 1; }); });
+    var keys = Object.keys(days).sort();
+    if (keys.length < 2) keys = [keys[0], keys[0]];
+    var series = (d.engines || []).map(function(e, i){
+      var byDay = {};
+      ((e.stats && e.stats.curve) || []).forEach(function(p){ byDay[String(p[0]).slice(0, 10)] = p[1]; });
+      var run = 0;
+      return { name: e.name, cls: ENG_LINE_CLS[i % ENG_LINE_CLS.length], values: keys.map(function(k){ if (byDay[k] != null) run = byDay[k]; return run; }) };
+    });
+    var shown = series.filter(function(sr, i){ var e = d.engines[i]; return e.stats && e.stats.curve && e.stats.curve.length; });
+    var yrs = keys[0].slice(0, 4) !== keys[keys.length - 1].slice(0, 4);
+    return lineSvgHtml({ labels: keys.map(function(k){ return engAxisDay(k, yrs); }), series: shown, h: 240, zero: true, xEvery: engAxisEvery(keys.length),
+      yFmt: function(v){ return (v < 0 ? '−$' : '$') + Math.abs(Math.round(v)).toLocaleString('en-US'); }, ariaLabel: 'Running total of each strategy engine in dollars' }) + lineLegendHtml(shown);
+  }
+  // Every engine's open trades in one table (each engine tab still has its own).
+  function engAllOpenHtml(d){
+    var rows = [];
+    (d.engines || []).forEach(function(e){ (e.open || []).forEach(function(t){ rows.push({ e: e, t: t }); }); });
+    var cols = [
+      { label: 'Engine', cell: function(r){ return '<button type="button" class="eng-link" data-eng-go="' + escapeHtml(r.e.id) + '">' + escapeHtml(r.e.name) + '</button>'; }, sort: function(r){ return r.e.name; } },
+      { label: 'Trade', cell: function(r){ return '<b>' + escapeHtml(r.t.symbol) + '</b> ' + engSide(r.t.side) + '<div class="crd-dim eng-id">' + escapeHtml(r.t.tradeId || '') + '</div>' + engSharedHtml(r.t); }, sort: function(r){ return r.t.symbol; } },
+      { label: 'Setup', cell: function(r){ return escapeHtml(engSetup(r.e, r.t.setup)) + '<div class="crd-dim">score ' + slpNum(r.t.score, 0) + '</div>'; }, sort: function(r){ return r.t.setup; } },
+      { label: 'Contract', cell: function(r){ return engContract(r.t) + '<div class="crd-dim">opened ' + escapeHtml(rglEt(r.t.entryDate)) + '</div>'; }, sort: function(r){ return Date.parse(r.t.entryDate) || 0; } },
+      { label: 'Result', num: true, cell: function(r){ return engPnl(r.t.optionPnlPct) + '<div class="crd-dim">' + engMoney(r.t.contract && r.t.contract.mid) + ' → ' + engMoney(r.t.lastMid) + '</div>'; }, sort: function(r){ return r.t.optionPnlPct; } },
+      { label: 'Sessions', num: true, cell: function(r){ return String(r.t.sessions || 0) + (r.t.exits && r.t.exits.maxSessions ? '<span class="crd-dim"> of ' + r.t.exits.maxSessions + '</span>' : ''); }, sort: function(r){ return r.t.sessions || 0; } },
+    ];
+    return VIEWS.tableHtml(cols, rows, { key: 'eng-open-all', empty: 'No engine has an open trade. New ones open at the 11:00 and 15:30 ET runs when a setup clears its bar.' });
   }
   function engStatKpis(s, extra){
     s = s || {};
@@ -452,6 +491,8 @@ export function renderEnginesJs() {
     var mode = d.mode === 'off' ? engPill('Engines off', 'evb-s-fail') : d.mode === 'pause' ? engPill('Paused: open trades are still managed, nothing new opens', 'evb-s-collect') : engPill('Running', 'evb-s-pass');
     return '<p class="evb-lead">' + mode + ' Six rules-only engines trade on paper beside Top Picks. Each has its own idea, its own data, its own score and its own track record, and all of them share one Webull paper account. None of them uses AI, and none can change a Top Pick, a grade or the Top Picks Track Record. Paper tracking started ' + escapeHtml(engDay(d.startedIso || d.startDate)) + '.</p>' +
       slpSection('eng-all-cmp', 'Side by side', cmp + '<p class="evb-note">Engine results are % of the entry premium on one contract per trade, marked at each 11:00 and 15:30 ET run. With few trades the win-rate range is wide: judge an engine on dozens of closed trades, not a week.</p>') +
+      slpSection('eng-all-curve', 'Running total, every engine', engAllCurveHtml(d) + '<p class="evb-note">Closed trades only, one contract each, by the day each trade closed. Top Picks keeps its own curve on the Top Picks track record.</p>') +
+      slpSection('eng-all-open', 'Open trades, every engine (' + ((d.total && d.total.open) || 0) + ')', engAllOpenHtml(d)) +
       slpSection('eng-all-market', 'What the market looks like to them', backdrop) +
       slpSection('eng-all-last', 'Latest run (' + escapeHtml(rglEt(d.runIso)) + ')', last + health) +
       slpSection('eng-all-shared', 'Same contract on more than one engine', '<p class="evb-note">When two engines (or an engine and Top Picks) pick the exact same ticker, strike and expiration, the paper account buys it once. Whoever held it first owns the position; the other records the trade on its own track record, labeled with who holds it.</p>' + shared) +

@@ -14,8 +14,17 @@ Ideas; `scripts/render/engines-client.mjs`). The engines have their own page
 since 2026-11-16, so Top picks, Open picks and the Top Picks track record show
 Top Picks only; Open picks carries one link with the engines' open-trade
 count. `?tab=engines&engine=<id>&ev=<view>` opens one engine and view, and an
-old `?tab=picks&engine=...` link lands on the new page. Tests: `node scripts/engines-smoke.mjs`, `node scripts/engines-mirror-smoke.mjs`,
-`node scripts/engines-browser.mjs`.
+old `?tab=picks&engine=...` link lands on the new page. The All engines tab
+holds the side-by-side scorecards, one running-total chart with a line per
+engine that has closed trades (each engine flat at 0 until its first close),
+and one table of every engine's open trades (sortable; "Held by" shows a
+contract another engine or Top Picks already holds). Tests: `node scripts/engines-smoke.mjs`,
+`node scripts/engines-mirror-smoke.mjs` and `node scripts/engines-browser.mjs`;
+all three run in the Update checker CI job (no npm scripts, on purpose).
+
+A Fundamentals trade's reasons read "Ranked 3 of 69 stocks with full data":
+the count is the ranked stocks (covered stocks with a beat record, no funds),
+not all 85 covered names.
 
 ## The engines
 

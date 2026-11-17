@@ -14,6 +14,8 @@ export function renderChartsCss() {
 .ln-line.ln-s1 { stroke: #3b82f6; }
 .ln-line.ln-s2 { stroke: var(--muted); }
 .ln-line.ln-s3 { stroke: #a855f7; }
+.ln-line.ln-s4 { stroke: #ec4899; }
+.ln-line.ln-s5 { stroke: #14b8a6; }
 .ln-line.ln-dashed { stroke-dasharray: 5 4; }
 .ln-dot { stroke: var(--surface); stroke-width: 1.5; }
 .ln-dot.ln-s0 { fill: var(--accent); }
@@ -27,6 +29,8 @@ export function renderChartsCss() {
 .ln-swatch.ln-s1 { border-color: #3b82f6; }
 .ln-swatch.ln-s2 { border-color: var(--muted); }
 .ln-swatch.ln-s3 { border-color: #a855f7; }
+.ln-swatch.ln-s4 { border-color: #ec4899; }
+.ln-swatch.ln-s5 { border-color: #14b8a6; }
 .ln-swatch.ln-dashed { border-top-style: dashed; }
 .ln-swatch.ln-band-swatch { height: 10px; border: 0; border-radius: 2px; background: var(--accent); opacity: 0.25; }
 
