@@ -174,7 +174,8 @@ assert.match(step, /continue-on-error: true/);
 assert.match(step, /WATCHDOG_CURRENT_RUN_ID: \$\{\{ github\.run_id \}\}/);
 assert.match(step, /WATCHDOG_CURRENT_PUBLISHED: \$\{\{ steps\.flush\.outcome == 'success' \|\| steps\.legacy_commit\.outcome == 'success' \}\}/);
 assert.ok(daily.indexOf("- name: Top Picks watchdog") > daily.indexOf("- name: Commit refreshed site (legacy public data)"), "watchdog runs after publication");
-assert.ok(daily.indexOf("- name: Top Picks watchdog") < daily.indexOf("\n  webull-health:"), "watchdog is a build-job step");
+{ const at = daily.indexOf("- name: Top Picks watchdog"), build = daily.indexOf("\n  build:\n");
+  assert.ok(build > 0 && at > build && !/\n  [a-z-]+:\n/.test(daily.slice(at)), "watchdog is a build-job step (the build is the last job)"); }
 const wd = readFileSync(new URL("../.github/workflows/top-picks-watchdog.yml", import.meta.url), "utf8");
 assert.deepEqual([...wd.matchAll(/cron: "([^"]+)"/g)].map((m) => m[1]), ["10,35 15,16 * * 1-5", "38 19,20 * * 1-5"]);
 assert.match(wd, /actions: write/);

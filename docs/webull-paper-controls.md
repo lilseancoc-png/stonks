@@ -143,10 +143,17 @@ Each publication starts one bounded execution window: an initial call, then
 pending orders or safe unfinished work. A concurrent reconciliation can also
 request this bounded retry. Quiet books stop after the initial check. Unsafe
 reconciliation alerts stop ordinary follow-ups. There is no all-day polling.
-The dedicated
-`.github/workflows/webull-mirror.yml` remains available for manual recovery,
-with the same bounded follow-up option. The server still enforces exchange
-hours, holidays, and early closes before placing orders.
+
+Since 2026-11-16 the window runs in its own workflow,
+`.github/workflows/webull-mirror.yml` (queue `stonks-webull-mirror`): the
+build's "Mirror published Top Picks to Webull paper" step only dispatches it
+(`gh workflow run webull-mirror.yml -f follow_ups=4`) after verified
+publication. Run inside the build, the window held the shared
+`stonks-data-commit` queue (the 15:30 ET build waited 8.5 minutes on
+2026-11-16) and started the end-of-day window 5 minutes late. The same
+workflow is the manual recovery path (`follow_ups` 0, 2 or 4). The server
+still enforces exchange hours, holidays, and early closes before placing
+orders.
 
 `.github/workflows/webull-eod.yml` independently monitors the final 20 minutes
 of the session with one-minute checks, up to 23 calls. It continues through a
@@ -190,10 +197,22 @@ Vercel and the GitHub variable, `WEBULL_MIRROR=on`, Webull **sandbox**
 credentials/account ID, and complete R2 configuration. Validate a manual run
 and inspect broker holdings/ledger before relying on automatic operation.
 Nothing in local tests activates broker execution. The research build retains
-`continue-on-error` for its mirror step so the verified research can publish.
-A separate `webull-health` job fails the overall workflow when that step fails,
-without making the close-bake watchdog repeat a successful research publication.
-Review the mirror step and Owner trade log. GitHub
+`continue-on-error` on its dispatch step so the verified research can publish.
+A failed mirror, errors, alerts, or orders still pending after the window fail
+the `Webull paper reconciliation` run itself (strict mode), so the build stays
+green for the close-bake watchdog while the Webull failure stays visible; a
+final check that finds the end-of-day window holding the account lease
+("mirror already running") is not a failure.
+
+When a run needs review, the public log names only the kind of review and the
+engine, from fixed labels (`REVIEW_KIND_LABELS` / `describeReviewKinds` in
+`lib/webull-mirror.mjs`), for example
+`review required (1 order outcome unconfirmed at the close (Fundamentals); Owner Webull test view)`.
+Kinds: order outcome unconfirmed at the close (`EOD_ORDER_UNCONFIRMED`, clears
+itself once the order is final), signaled exit unfilled at the close, cancel
+unconfirmed, fill price not confirmed, order status unverified, and account
+holdings check. No ticker, order, price or quantity reaches the log.
+Review the Owner trade log for the trade itself. GitHub
 notification preferences govern notifications; this code sends no external
 messages.
 

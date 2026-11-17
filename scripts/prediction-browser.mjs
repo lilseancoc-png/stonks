@@ -93,6 +93,15 @@ try {
     await s.context.close();
   }
 
+  // Deep link from the stock page's "All linked markets" (view=stocks&s=).
+  {
+    const s = await openTab(browser, server.base, { tab: 'prediction-markets', width: 1280, height: 900, theme: 'light', extra: '&view=stocks&s=NVDA' });
+    await s.page.locator('#pm-root .pmk-body').waitFor({ timeout: 15000 });
+    await settle(s.page, 400);
+    check((await s.page.locator('[data-pmk-tab="stocks"][aria-selected="true"]').count()) === 1, 'deep link: view=stocks opens the By stock tab');
+    await s.context.close();
+  }
+
   // Stock page: the odds strip on the Overview tab.
   {
     const s = await openTab(browser, server.base, { tab: 'stock', width: 1280, height: 1000, theme: 'light', extra: '&s=NVDA' });
