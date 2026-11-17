@@ -79,7 +79,11 @@ try {
 
     // All engines.
     let text = await paneText(s);
-    check((await s.page.locator('#eng-all-cmp tbody tr').count()) === ENGINE_IDS.length + 2, 'side by side: the flagship, six engines and a total row');
+    // Share trades (2026-11-17) get their own row under the total.
+    const shareRow = view.total.shares && (view.total.shares.n + view.total.shares.open) > 0 ? 1 : 0;
+    check(shareRow === 1, 'the fixture has engine share trades');
+    check((await s.page.locator('#eng-all-cmp tbody tr').count()) === ENGINE_IDS.length + 2 + shareRow, 'side by side: the flagship, six engines, a total row and the share-trades row');
+    check(/Share trades, every engine/.test(await s.page.locator('#eng-all-cmp').innerText()), 'share trades are scored on their own line');
     for (const id of ENGINE_IDS) check(text.includes(ENGINES[id].name), 'All engines names ' + ENGINES[id].name);
     check(/own pages and Track Record/.test(text) && /Flagship/.test(text), 'the flagship row points at its own pages');
     check((await s.page.locator('#eng-all-shared tbody tr').count()) === view.shared.length, 'one row per shared contract');
@@ -116,6 +120,11 @@ try {
       check(text.includes(e.name) && text.includes(e.idea.slice(0, 40)), id + ': the idea is shown: ' + text.slice(0, 160).replace(/\n/g, ' / '));
       check((await s.page.locator('#eng-open .vt-table tbody tr').count()) === e.open.length, id + ': one row per open trade');
       check(/The rules/.test(text) && /Never a spread/.test(text), id + ': the rules are shown');
+      const shareSetups = e.setups.filter((x) => x.calls === 'shares' && !x.retired);
+      check(/never short stock/.test(text) === shareSetups.length > 0, id + ': the rules say which setups buy shares (' + shareSetups.length + ')');
+      const shrOpen = e.open.filter((t) => t.instrument === 'shares').length;
+      check((await s.page.locator('#eng-open .eng-shr').count()) === shrOpen, id + ': open share trades carry the Shares badge (' + shrOpen + ')');
+      if (shrOpen) check(/shares at \$/.test(await s.page.locator('#eng-open').innerText()) && /Stock levels/.test(await s.page.locator('#eng-open').innerText()), id + ': a share trade shows its lot and stock exits');
       if (e.candidates.length) check((await s.page.locator('#eng-cands tbody tr').count()) === e.candidates.length, id + ': one row per candidate');
       const priced = e.candidates.filter((c) => c.skipped === 'price').length;
       check((await s.page.locator('#eng-cands tr.eng-row-skipped').count()) === priced, id + ': setups ruled out by today’s price move are listed (' + priced + ')');
@@ -143,6 +152,8 @@ try {
       check(/This record belongs to/.test(text), id + ': the record says whose it is');
       check((await s.page.locator('#eng-closed .vt-table tbody tr').count()) === e.closed.length, id + ': one row per closed trade');
       if (e.stats.n) check((await s.page.locator('#eng-splits details').count()) === 8, id + ': eight scorecard cuts');
+      check((await s.page.locator('#eng-shares').count()) === (e.sharesStats ? 1 : 0), id + ': share trades have their own scorecard when there are any');
+      if (e.sharesStats) check(/% of the share price/.test(await s.page.locator('#eng-shares').innerText()), id + ': the share scorecard says its unit');
       if ((e.stats.curve || []).length >= 3) check((await s.page.locator('#eng-pane .eng-body > svg.ln-svg, #eng-pane .eng-body > .ln-wrap svg, #eng-pane .eng-body svg.ln-svg').count()) >= 1, id + ': the running-total chart');
       await clean(s, id + ' record');
 
