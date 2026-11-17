@@ -6821,8 +6821,8 @@ export function earningsSessionRepairTargets(symbol, events, todayIso) {
 // announcement-day session and the run-up and IV reads around it are cleared
 // so the resolve pass refills them on the right side of the print. Returns
 // false (and changes nothing) when the bars cannot price the AM reaction.
-export function applyAmSessionRepair(ev, bars) {
-  const rx = computeEarningsReaction(bars, ev.date, "AM");
+export function applyAmSessionRepair(ev, bars, liveBarDate = null) {
+  const rx = computeEarningsReaction(bars, ev.date, "AM", { liveBarDate });
   if (!rx) return false;
   Object.assign(ev, rx);
   ev.session = "AM";
@@ -7017,8 +7017,12 @@ async function fetchEarningsBackfillBars(symbol, lookbackDays = EARNINGS_BACKFIL
 // sessions AFTER the reaction) stays null until those bars exist —
 // week1Done=false tells the caller to recompute on a later build (which also
 // refreshes a movePct first computed off an in-progress intraday bar).
-// Exported for unit testing, like resolvePickOutcome.
-export function computeEarningsReaction(bars, dateIso, session) {
+// liveBarDate names the date of an in-progress (unfinished) session bar, when
+// the bars end in one: the week-1 drift is never read off it, because
+// week1Done freezes the row (the 10:00 ET bake used to stamp week1Pct from a
+// half-hour-old price and keep it for good). Exported for unit testing, like
+// resolvePickOutcome.
+export function computeEarningsReaction(bars, dateIso, session, { liveBarDate = null } = {}) {
   if (!Array.isArray(bars) || bars.length < 2 || typeof dateIso !== "string") return null;
   const isAm = session === "AM";
   let rIdx = -1;
@@ -7042,11 +7046,39 @@ export function computeEarningsReaction(bars, dateIso, session) {
     week1Done: false,
   };
   const w = bars[rIdx + 5];
-  if (w?.c > 0) {
+  if (w?.c > 0 && !(liveBarDate && w.t === liveBarDate)) {
     out.week1Pct = ehxRound(w.c / r.c - 1);
     out.week1Done = true;
   }
   return out;
+}
+
+// The date of the in-progress session bar the daily bars end in, or null when
+// the last bar is a finished session (the same rule as confirmedDailyBars).
+export function liveDailyBarDate(bars, marketState, now = new Date()) {
+  if (!Array.isArray(bars) || !bars.length) return null;
+  if (confirmedDailyBars(bars, marketState, now).length === bars.length) return null;
+  const last = bars[bars.length - 1];
+  return barDateKey(last?.t ?? last?.date) || null;
+}
+
+// One-time repair (v1, 2026-11-17): re-read every stored week-1 drift the bars
+// still cover, so the rows frozen off an in-progress bar get the closing price.
+export const EARNINGS_WEEK1_FIX_VERSION = 1;
+export function repairEarningsWeek1(entry, bars, liveBarDate = null) {
+  if (!entry || entry.week1Fix === EARNINGS_WEEK1_FIX_VERSION || !Array.isArray(bars) || bars.length < 2) return 0;
+  let fixed = 0;
+  let waiting = false;
+  for (const ev of Array.isArray(entry.events) ? entry.events : []) {
+    if (!ev?.week1Done || !ev.date) continue;
+    const rx = computeEarningsReaction(bars, ev.date, ev.session, { liveBarDate });
+    if (!rx) continue; // older than the bars: nothing to re-read
+    if (!rx.week1Done) { waiting = true; continue; } // its sixth session is still trading: retry next build
+    if (rx.week1Pct !== ev.week1Pct || rx.movePct !== ev.movePct) fixed++;
+    Object.assign(ev, rx);
+  }
+  if (!waiting) entry.week1Fix = EARNINGS_WEEK1_FIX_VERSION;
+  return fixed;
 }
 
 // Pure: the price path around one print for the stock page's earnings mini
@@ -7184,10 +7216,31 @@ export function transcriptGuidanceDirection(rows) {
 // the event) or the result is implausible (<0.5% or >50%). An approximation —
 // it rides a separate field (impliedMoveEstPct) and renders marked ("~±") so
 // it never impersonates a real straddle snapshot. Exported for unit testing.
+// Since 2026-11-17 (Owner choice) the 1σ event move is scaled to what an
+// at-the-money straddle would have cost, about 0.8σ (sqrt(2/π)), so the
+// estimate sits on the same scale as the live straddle stamp it stands in for
+// (impliedMovePct). Before, estimated prints looked about 25% wider than
+// stamped ones, so fewer moves "exceeded" the estimate.
+export const STRADDLE_SIGMA_RATIO = Math.sqrt(2 / Math.PI);
+export const IMPLIED_MOVE_EST_VERSION = 2;
 export function impliedMoveFromIvCrush(ivPre, ivPost) {
   if (!(ivPre > 0) || !(ivPost > 0) || !(ivPre > ivPost)) return null;
-  const m = Math.sqrt((ivPre * ivPre - ivPost * ivPost) * (30 / 365));
+  const m = Math.sqrt((ivPre * ivPre - ivPost * ivPost) * (30 / 365)) * STRADDLE_SIGMA_RATIO;
   return m >= 0.005 && m <= 0.5 ? m : null;
+}
+// Re-read an estimate stored on the old 1σ scale once: from the stored IVs
+// when both are there, else by scaling the stored number. Returns true when it
+// changed the event. A live straddle stamp is never touched.
+export function rescaleImpliedMoveEstimate(ev) {
+  if (!ev || ev.impliedMovePct != null || ev.impliedMoveEstPct == null) return false;
+  if (ev.impliedMoveEstV === IMPLIED_MOVE_EST_VERSION) return false;
+  const fresh = impliedMoveFromIvCrush(ev.ivPre, ev.ivPost);
+  const old = Number(ev.impliedMoveEstPct);
+  const next = fresh != null ? fresh : (Number.isFinite(old) && old > 0 ? old * STRADDLE_SIGMA_RATIO : null);
+  if (next == null) delete ev.impliedMoveEstPct;
+  else ev.impliedMoveEstPct = Math.round(next * 1e4) / 1e4;
+  ev.impliedMoveEstV = IMPLIED_MOVE_EST_VERSION;
+  return true;
 }
 
 // Upsert one event into a ticker's list, matching within ±3 days so the
@@ -7311,6 +7364,8 @@ export async function updateEarningsEventsHistory(store, chains, ivHistoryMap) {
   const oldest = etDateKey(new Date(nowMs - (EARNINGS_DEEP_YEARS + 0.5) * 365.25 * 86400000));
   let backfilled = 0;
   let resolved = 0;
+  let week1Repaired = 0;
+  let estRescaled = 0;
   await runPooled(syms, EARNINGS_BACKFILL_CONCURRENCY, async (sym) => {
     const data = chains[sym];
     const entry = (store.tickers[sym] ||= { events: [] });
@@ -7376,7 +7431,7 @@ export async function updateEarningsEventsHistory(store, chains, ivHistoryMap) {
         let fixed = 0;
         for (const ev of repairTargets) {
           const bars = backfillBars && (!barsStart2 || ev.date <= barsStart2) ? backfillBars : data._bars;
-          if (applyAmSessionRepair(ev, bars)) fixed++;
+          if (applyAmSessionRepair(ev, bars, liveDailyBarDate(bars, data.marketState))) fixed++;
           else ev.amRepairTried = true;
         }
         if (fixed) console.log(`    ${sym}: re-read ${fixed} before-open print(s) on the announcement-day session`);
@@ -7410,6 +7465,9 @@ export async function updateEarningsEventsHistory(store, chains, ivHistoryMap) {
         }, true);
       }
     }
+    // Week-1 drifts stamped off an in-progress bar before 2026-11-17 are
+    // re-read once from the closes the bars still cover.
+    week1Repaired += repairEarningsWeek1(entry, data._bars, liveDailyBarDate(data._bars, data.marketState));
     // Resolve / refresh passed events.
     const ivEntries = ivHistoryMap?.get?.(sym)?.entries || [];
     const guidanceStampCutoff = etDateKey(new Date(nowMs - EARNINGS_GUIDANCE_STAMP_DAYS * 86400000));
@@ -7434,7 +7492,7 @@ export async function updateEarningsEventsHistory(store, chains, ivHistoryMap) {
       const barsStart = data._bars?.find((b) => b?.t)?.t || null;
       const bars = backfillBars && (!barsStart || ev.date <= barsStart) ? backfillBars : data._bars;
       if (!ev.week1Done) {
-        const rx = computeEarningsReaction(bars, ev.date, ev.session);
+        const rx = computeEarningsReaction(bars, ev.date, ev.session, { liveBarDate: liveDailyBarDate(bars, data.marketState) });
         if (rx) {
           Object.assign(ev, rx);
           resolved++;
@@ -7464,8 +7522,8 @@ export async function updateEarningsEventsHistory(store, chains, ivHistoryMap) {
       if (ev.impliedMovePct == null && ev.impliedMoveEstPct == null
         && (ev.epsActual != null || ev.movePct != null)) {
         const est = impliedMoveFromIvCrush(ev.ivPre, ev.ivPost);
-        if (est != null) ev.impliedMoveEstPct = ehxRound(est);
-      }
+        if (est != null) { ev.impliedMoveEstPct = ehxRound(est); ev.impliedMoveEstV = IMPLIED_MOVE_EST_VERSION; }
+      } else if (rescaleImpliedMoveEstimate(ev)) estRescaled++;
       // Stamp the guidance direction, once per print. Two sources, first hit
       // sticks: (1) the earnings-call transcript brief — the primary source
       // (its guidance table lists every raised/maintained/lowered figure from
@@ -7509,7 +7567,7 @@ export async function updateEarningsEventsHistory(store, chains, ivHistoryMap) {
       entry.events = entry.events.slice(-EARNINGS_HISTORY_MAX_EVENTS);
     }
   });
-  console.log(`Earnings history: ${backfilled} tickers backfilled, ${resolved} events resolved/refreshed.`);
+  console.log(`Earnings history: ${backfilled} tickers backfilled, ${resolved} events resolved/refreshed${week1Repaired ? `, ${week1Repaired} week-1 drift(s) re-read from closing prices` : ""}${estRescaled ? `, ${estRescaled} IV-crush move estimate(s) moved to straddle terms` : ""}.`);
 }
 
 // Session-aware epoch (ms) for an earnings print. A bare date string anchors to
@@ -8056,7 +8114,7 @@ export async function buildEarningsTrackerPayload(store, chains, builtAtIso, pri
       beatButDown: 0, missedButUp: 0,
       preKnown: 0, preUp: 0, preFlat: 0, preDown: 0,
     };
-    let mvSum = 0, mvAbsSum = 0, impSum = 0, surSum = 0, surN = 0, wkSum = 0, wkN = 0;
+    let mvSum = 0, mvAbsSum = 0, impSum = 0, impAbsMvSum = 0, surSum = 0, surN = 0, wkSum = 0, wkN = 0;
     let pre10Sum = 0, pre10N = 0, pre15Sum = 0, pre15N = 0;
     let preUpMvSum = 0, preUpMvN = 0, preDownMvSum = 0, preDownMvN = 0;
     for (const r of rows) {
@@ -8075,6 +8133,7 @@ export async function buildEarningsTrackerPayload(store, chains, builtAtIso, pri
         if (r.impliedEst) c.impliedEst++;
         if (r.exceededImplied) c.exceededImplied++; else c.withinImplied++;
         impSum += r.impliedMovePct;
+        impAbsMvSum += Math.abs(r.movePct); // exceededImplied is only set when the move exists
       }
       if (r.movePct != null) {
         c.moveKnown++;
@@ -8103,6 +8162,9 @@ export async function buildEarningsTrackerPayload(store, chains, builtAtIso, pri
       avgMovePct: c.moveKnown ? ehxRound(mvSum / c.moveKnown) : null,
       avgAbsMovePct: c.moveKnown ? ehxRound(mvAbsSum / c.moveKnown) : null,
       avgImpliedMovePct: c.impliedKnown ? ehxRound(impSum / c.impliedKnown) : null,
+      // The realized side of "avg implied vs avg realized", over the SAME
+      // prints that have an implied read (avgAbsMovePct covers every print).
+      avgAbsMoveImpliedPct: c.impliedKnown ? ehxRound(impAbsMvSum / c.impliedKnown) : null,
       avgSurprisePct: surN ? ehxRound(surSum / surN, 2) : null,
       avgWeek1Pct: wkN ? ehxRound(wkSum / wkN) : null,
       breadthPct: (c.up + c.down) ? ehxRound((c.up / (c.up + c.down)) * 100, 1) : null,
@@ -32533,6 +32595,9 @@ export function spillPrepSeries(rows) {
 // Session-aware event-window return (doc §1): the DRIVER's session defines the
 // bar pair applied to every symbol. AM → close[T-1]→close[T]; PM/TBD →
 // close[T]→close[T+1]. Returns { ret, startDate, endDate } or null.
+// One-day at-the-money option cost as a share of the day's 1σ move:
+// an ATM call or put is worth about σ·sqrt(T)·sqrt(1/2π) ≈ 0.4σ.
+export const SPILLOVER_OPTION_COST_RATIO = 1 / Math.sqrt(2 * Math.PI);
 export function spilloverWindowReturn(series, dateIso, session) {
   let i = series.idx.get(dateIso);
   if (i == null) {
@@ -32803,13 +32868,20 @@ export function buildSpilloverMatrix({ events, series, groups = SPILLOVER_GROUPS
   // Merge variants into one pair list (shared primary, strict alongside).
   const strictByKey = new Map(variantStats.strict.map((r) => [`${r.driver}>${r.follower}`, r]));
   const pairs = variantStats.shared.map((r) => {
-    const priced = currentIv[r.follower] > 0 ? round4(currentIv[r.follower] / Math.sqrt(252)) : null;
+    // Edge compares the follower's average move in the driver's direction
+    // with what a one-day at-the-money call or put costs (2026-11-17, Owner
+    // choice): about 0.4 of the day's 1σ move (σ·sqrt(1/2π)). The old bar was
+    // the full 1σ move, which no single option charges, so almost every pair
+    // read negative. sigmaDay keeps the 1σ number beside it.
+    const sigmaDay = currentIv[r.follower] > 0 ? currentIv[r.follower] / Math.sqrt(252) : null;
+    const priced = sigmaDay != null ? round4(sigmaDay * SPILLOVER_OPTION_COST_RATIO) : null;
     const strict = strictByKey.get(`${r.driver}>${r.follower}`) || null;
     return spillStrip({
       ...r,
       nStrict: strict?.n ?? 0,
       strict: strict && strict.n >= 3 ? spillStrip({ b: strict.b, bShrunk: strict.bShrunk, hitB: strict.hitB, r2: strict.r2, p: strict.p }) : null,
       pricedMove: priced,
+      sigmaDay: sigmaDay != null ? round4(sigmaDay) : null,
       edge: priced != null && r.avgAligned != null ? round4(r.avgAligned - priced) : null,
     });
   });
@@ -32833,6 +32905,7 @@ export function buildSpilloverMatrix({ events, series, groups = SPILLOVER_GROUPS
 // staying well under the chain fetch's measured-safe Yahoo request rate.
 async function fetchSpilloverBars(symbols) {
   const out = {};
+  const todayEt = etDateKey();
   const period2 = new Date();
   const period1 = new Date(period2.getTime() - SPILLOVER_BARS_YEARS * 365.25 * 86400000);
   const queue = [...symbols];
@@ -32842,9 +32915,13 @@ async function fetchSpilloverBars(symbols) {
       if (!sym) return;
       try {
         const r = await yahooFinance.chart(sym, { period1, period2, interval: "1d" });
+        // The deep matrix is built once per ET day, on its first bake (10:00
+        // ET, mid-session), so a bar dated today is unfinished: leave it out
+        // of the event windows and the rolling betas until tomorrow's build.
         const rows = (r?.quotes || [])
           .filter((q) => q && q.close != null && q.date)
-          .map((q) => ({ t: new Date(q.date).toISOString().slice(0, 10), c: q.close }));
+          .map((q) => ({ t: new Date(q.date).toISOString().slice(0, 10), c: q.close }))
+          .filter((row) => row.t < todayEt);
         if (rows.length >= 250) out[sym] = spillPrepSeries(rows);
       } catch (_) { /* per-symbol miss — matrix degrades below */ }
       await new Promise((r) => setTimeout(r, 300));
@@ -32948,8 +33025,14 @@ function spillUpcoming(chains, matrix, todayEt, jobs = []) {
 // predictions until the session-aware entry point passes (freeze), then
 // resolve realized follower moves + IV change once the window's bars exist.
 // Predictions and realizations only — no positions, no marks, no fills.
-function updateSpilloverLog(priorLog, { chains, upcoming, todayEt, builtAtIso }) {
-  const events = Array.isArray(priorLog?.events) ? priorLog.events.map((e) => ({ ...e })) : [];
+// Version of the resolve rule: 2 (2026-11-17) reads realized moves only from
+// finished sessions. Version 1 resolved on the first bake of the window's last
+// day, off the in-progress 10:00 ET bar, so a log written under it has its
+// realized moves re-read once from the closes.
+export const SPILLOVER_LOG_RESOLVE_VERSION = 2;
+export function updateSpilloverLog(priorLog, { chains, upcoming, todayEt, builtAtIso }) {
+  const events = Array.isArray(priorLog?.events) ? priorLog.events.map((e) => ({ ...e, ...(Array.isArray(e.predictions) ? { predictions: e.predictions.map((p) => ({ ...p })) } : {}) })) : [];
+  const rereadResolved = priorLog?.resolveVersion !== SPILLOVER_LOG_RESOLVE_VERSION;
   const byId = new Map(events.map((e) => [e.id, e]));
   const ivOf = (sym) => (chains[sym]?.ivRank?.iv > 0 ? Math.round(chains[sym].ivRank.iv * 1e4) / 1e4 : null);
   for (const ev of upcoming) {
@@ -32974,17 +33057,31 @@ function updateSpilloverLog(priorLog, { chains, upcoming, todayEt, builtAtIso })
     }
     if (frozen && !row.frozen) row.frozen = true;
   }
-  // Resolve frozen, unresolved events whose window bars exist.
-  for (const row of events) {
-    if (row.resolvedAt || !row.frozen || !Array.isArray(row.predictions)) continue;
-    const seriesOf = (sym) => {
-      const data = chains[sym];
-      if (!data) return null;
-      const rows = Array.isArray(data._bars) && data._bars.length
+  // Resolve frozen, unresolved events whose window bars exist. Only finished
+  // sessions count: an in-progress bar is dropped (confirmedDailyBars), so a
+  // window ending today resolves on the first bake after the close.
+  const seriesCache = new Map();
+  const seriesOf = (sym) => {
+    if (seriesCache.has(sym)) return seriesCache.get(sym);
+    const data = chains[sym];
+    let out = null;
+    if (data) {
+      const raw = Array.isArray(data._bars) && data._bars.length
         ? data._bars.map((b) => ({ t: b.t, c: b.c }))
         : data.priceSeries?.t?.map((t, i) => ({ t, c: data.priceSeries.c[i] })) || [];
-      return rows.length ? spillPrepSeries(rows) : null;
-    };
+      const rows = confirmedDailyBars(raw, data.marketState);
+      out = rows.length ? spillPrepSeries(rows) : null;
+    }
+    seriesCache.set(sym, out);
+    return out;
+  };
+  for (const row of events) {
+    if (!row.frozen || !Array.isArray(row.predictions)) continue;
+    // Resolved earlier today under the old rule: that read came off today's
+    // unfinished bar, so it resolves again after the close.
+    if (rereadResolved && row.resolvedAt === todayEt) delete row.resolvedAt;
+    const reread = !!row.resolvedAt && rereadResolved;
+    if (row.resolvedAt && !reread) continue;
     const dSeries = seriesOf(row.driver);
     const dWin = dSeries ? spilloverWindowReturn(dSeries, row.date, row.session) : null;
     if (!dWin || dWin.endDate > todayEt) continue; // window not complete yet
@@ -32994,31 +33091,39 @@ function updateSpilloverLog(priorLog, { chains, upcoming, todayEt, builtAtIso })
       const fWin = fSeries ? spilloverWindowReturn(fSeries, row.date, row.session) : null;
       if (!fWin) continue;
       p.realizedPct = Math.round(fWin.ret * 1e4) / 100;
-      const post = ivOf(p.follower);
-      if (p.ivPre != null && post != null) p.ivChange = Math.round((post - p.ivPre) * 1e4) / 1e4;
+      // The IV change is read once, at resolution; a re-read keeps it.
+      if (!reread) {
+        const post = ivOf(p.follower);
+        if (p.ivPre != null && post != null) p.ivChange = Math.round((post - p.ivPre) * 1e4) / 1e4;
+      }
       resolvedAny = true;
     }
     if (resolvedAny) {
       row.driverRealizedPct = Math.round(dWin.ret * 1e4) / 100;
-      row.resolvedAt = todayEt;
+      if (!reread) row.resolvedAt = todayEt;
     }
   }
   events.sort((a, b) => (a.date < b.date ? -1 : 1));
   while (events.length > SPILLOVER_LOG_MAX_EVENTS) events.shift();
   // Running per-engine forward accuracy over resolved predictions.
-  // Direction: sign(predicted) vs sign(realized). Magnitude MAE stays in
-  // percentage points (| |pred| − |realized| |). Zero-sign rows skip the
-  // hit rate but still contribute to MAE.
+  // The predictions are frozen before the print, from the driver's unsigned
+  // straddle move, so their sign is only the beta's sign. The direction they
+  // call is beta × the driver's ACTUAL move: sign(pred) × sign(driver realized)
+  // vs sign(follower realized). (Before 2026-11-17 the hit compared the bare
+  // beta sign, which only counted how often followers rose.) Magnitude MAE
+  // stays in percentage points (| |pred| − |realized| |). Zero-sign rows skip
+  // the hit rate but still contribute to MAE.
   const score = (key) => {
     let hit = 0, scored = 0, mae = 0, n = 0;
     for (const row of events) {
       if (!row.resolvedAt) continue;
+      const dSign = Math.sign(Number(row.driverRealizedPct) || 0);
       for (const p of row.predictions || []) {
         const pred = p[key], real = p.realizedPct;
         if (pred == null || real == null) continue;
         n += 1;
         mae += Math.abs(Math.abs(pred) - Math.abs(real));
-        const pSign = Math.sign(pred), rSign = Math.sign(real);
+        const pSign = Math.sign(pred) * dSign, rSign = Math.sign(real);
         if (!pSign || !rSign) continue;
         scored += 1;
         if (pSign === rSign) hit += 1;
@@ -33028,6 +33133,7 @@ function updateSpilloverLog(priorLog, { chains, upcoming, todayEt, builtAtIso })
   };
   return {
     updatedAt: builtAtIso,
+    resolveVersion: SPILLOVER_LOG_RESOLVE_VERSION,
     events,
     forward: { engineA: score("expA"), engineB: score("expB"), resolvedEvents: events.filter((e) => e.resolvedAt).length },
   };
@@ -40614,7 +40720,7 @@ async function main() {
     });
     console.log(
       `wrote data/${EARNINGS_CALLS_FILE} — ${callsInfo.covered}/${callsInfo.universe} names covered, ` +
-      `${callsInfo.wrote} new summar${callsInfo.wrote === 1 ? "y" : "ies"}${callsInfo.keyless ? " (keyless carry-forward)" : ""}, ${callsInfo.bytes} bytes`,
+      `${callsInfo.wrote} new summar${callsInfo.wrote === 1 ? "y" : "ies"}${callsInfo.keyless ? (shouldRefreshTranscripts() && !process.env.GEMINI_API_KEY ? " (keyless carry-forward)" : " (carried forward; briefs are written at 09:00 and 19:00 ET)") : ""}, ${callsInfo.bytes} bytes`,
     );
   } catch (err) {
     console.log(`  ⚠ Earnings-calls step failed (non-fatal): ${err.message}`);

@@ -104,6 +104,15 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 - Stocks section audit: one dropped SEC connection no longer blanks the 13F buy and sell tables. The shared SEC reader retries a dropped connection once, and a manager whose prior-quarter filing still can't be read keeps the change table an earlier build made from the same two filings, so the cross-firm totals keep that manager (on 2026-11-16 the 16:10 build fell from 13 to 4 managers with changes). Market map no longer shows the move since listing as the 1-year move for a name listed under a year ago (#858).
 
+### Changed
+
+- Earnings results, Earnings week ahead and the stock page: a print with no live straddle reading now gets its estimated expected move (`~±`, from the drop in implied volatility around the report) on the same scale as a straddle, about 0.8 of the old one-standard-deviation number, so estimated and measured prints compare fairly. Stored estimates are re-read once (#860).
+- Earnings ripple effects: Edge now compares each follower's average move with what a one-day at-the-money call or put on it costs (about 0.4 of the day's expected move) instead of the full expected move, which no single option charges; the column is renamed Option cost/day and the expected move shows on hover (#860).
+
+### Fixed
+
+- Earnings audit: the week-after drift on each print is read from a closing price, never from the in-progress bar (the 10:00 ET bake stamped it off a half-hour-old price and kept it), and the stored week-1 drifts the bars still cover are re-read once; Earnings ripple effects resolves its forward record only from finished sessions (stored results are re-read once) and scores direction as beta times the reporting company's actual move, where it had only counted how often peers rose; the deep ripple matrix leaves out today's unfinished bar; Earnings week ahead's "season so far" no longer counts placeholder rows with no EPS and no move; the Earnings results "avg implied vs avg realized" line compares the same prints; the bake log stops calling full-bake transcript carry-forward "keyless" (#860).
+
 ## 2026-11-16
 
 ### Added
