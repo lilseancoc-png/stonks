@@ -287,6 +287,9 @@ ${scenarioEventPhase.toString()}
     HAS_TOP_PICKS = HAS_OWNER_ACCESS;
     HAS_QUANT_LAB = HAS_OWNER_ACCESS;
     if (document.body) document.body.classList.toggle('is-owner', HAS_OWNER_ACCESS);
+    // Reference pages live in shadow roots, which the owner-only CSS can't
+    // reach: their Owner links read the class on each host instead.
+    Array.prototype.forEach.call(document.querySelectorAll('.doc-host'), function(h){ h.classList.toggle('is-owner', !!HAS_OWNER_ACCESS); });
     // The Export menu is for the signed-in owners only.
     var exportBtn = document.getElementById('export-toggle');
     if (exportBtn) exportBtn.hidden = !HAS_OWNER_ACCESS || IS_EMBED;
@@ -1235,19 +1238,28 @@ ${scenarioEventPhase.toString()}
     var d = Math.round(h/24); return d + ' day' + (d===1?'':'s') + ' ago';
   }
   // The weekly Alt Data pages (memory chips, GPU cloud, search trends)
-  // update once a week, Friday 11:30 ET, so midweek they would read as
-  // stale. Their banner says so and names the next update.
+  // update once a week on Friday, so midweek they would read as stale. Their
+  // banner says so and names the next update. The job is set for 11:30 ET,
+  // but it is a GitHub cron, which started between about 14:30 and 17:00 ET
+  // every week from September to November 2026, so "today" holds until this
+  // Friday's data has landed rather than rolling over at 11:30.
   var WEEKLY_ALT_TABS = { 'ram-prices': 1, 'accelerator-prices': 1, 'search-interest': 1 };
-  function nextAltDataFridayLabel(){
+  function etDateKeyOfIso(iso){
+    var t = Date.parse(iso || '');
+    if (!isFinite(t)) return null;
+    try { return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(t)); }
+    catch (e) { return null; }
+  }
+  function nextAltDataFridayLabel(iso){
     var et = etNowParts();
     if (!et || et.dow < 0) return 'Friday';
     var add = (5 - et.dow + 7) % 7;
-    if (add === 0 && et.hour >= 11.5) add = 7;
+    if (add === 0 && iso && etDateKeyOfIso(iso) === et.dateKey) add = 7;
     var base = Date.parse(et.dateKey + 'T12:00:00Z');
     if (!isFinite(base)) return 'Friday';
     var d = new Date(base + add * 86400000);
     var mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getUTCMonth()];
-    return (add === 0 ? 'today' : 'Fri ' + mon + ' ' + d.getUTCDate()) + ', 11:30 ET';
+    return add === 0 ? 'later today' : 'Fri ' + mon + ' ' + d.getUTCDate();
   }
   function weeklyAltDataIso(tab){
     var st = tab === 'ram-prices' ? ramPricesState : tab === 'accelerator-prices' ? acceleratorPricesState : searchInterestState;
@@ -1257,7 +1269,8 @@ ${scenarioEventPhase.toString()}
     // Return {iso, label} when a tab has its own freshness signal worth
     // surfacing, else null (use the default daily-build timestamp).
     if (WEEKLY_ALT_TABS[tab]) {
-      return { iso: weeklyAltDataIso(tab), label: 'weekly data, updated Fridays 11:30 ET · next ' + nextAltDataFridayLabel(), weekly: true };
+      var weeklyIso = weeklyAltDataIso(tab);
+      return { iso: weeklyIso, label: 'weekly data, updated Friday afternoons ET · next ' + nextAltDataFridayLabel(weeklyIso), weekly: true };
     }
     if (tab === 'picks' && typeof picksState !== 'undefined' && picksState.data && picksState.data.builtAtIso) {
       return { iso: picksState.data.builtAtIso, label: 'Top Picks run' };
@@ -4649,6 +4662,7 @@ ${renderExportBindings()}
       var tpl = pane.querySelector('template[data-doc-tpl="' + name + '"]');
       if (!tpl) return;
       var sr = host.attachShadow({ mode: 'open' });
+      host.classList.toggle('is-owner', !!HAS_OWNER_ACCESS);
       sr.appendChild(tpl.content.cloneNode(true));
       try { tpl.parentNode.removeChild(tpl); } catch (_) {}
       // Off-site links open in a new tab; everything else (in-page anchors,
@@ -21924,7 +21938,7 @@ ${renderExportBindings()}
       if (empty) empty.hidden = true;
       if (eye) eye.textContent = 'Unavailable · no posture';
       root.innerHTML = '<section class="rp-empty-desk"><span class="rp-desk-kicker">Memory-cycle desk</span><h3>' + (d.loadError ? 'The RAM price snapshot could not be loaded' : 'No RAM price snapshot is available yet') + '</h3>' +
-        '<p>' + (d.loadError ? 'Do not infer a tightening or easing cycle from missing data. Use current earnings and market evidence until both price layers return.' : 'The next successful Friday 11:30 ET scan will restore wholesale, retail and category-breadth checks.') + '</p>' +
+        '<p>' + (d.loadError ? 'Do not infer a tightening or easing cycle from missing data. Use current earnings and market evidence until both price layers return.' : 'The next successful Friday scan will restore wholesale, retail and category-breadth checks.') + '</p>' +
         '<div class="rp-actions"><button type="button" class="rp-action rp-action-primary" data-rp-tab="calls">Open Earnings calls</button></div></section>';
       bindRamPriceActions(root);
       return;
@@ -22333,7 +22347,7 @@ ${renderExportBindings()}
       if (eye) eye.textContent = 'Unavailable / no compute read';
       root.innerHTML = '<section class="ap-empty-desk"><span>Compute-cost desk</span><h3>' +
         (data.loadError ? 'The accelerator snapshot could not be loaded' : 'No accelerator prices are available yet') +
-        '</h3><p>Do not infer capacity tightening or easing from missing marketplace data. The next Friday 11:30 ET scan will retry every provider independently.</p></section>';
+        '</h3><p>Do not infer capacity tightening or easing from missing marketplace data. The next Friday scan will retry every provider independently.</p></section>';
       return;
     }
     if (empty) empty.hidden = true;

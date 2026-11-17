@@ -41,6 +41,7 @@ import { fileURLToPath } from "node:url";
 import YahooFinance from "yahoo-finance2";
 import { TICKERS } from "./build.mjs";
 import { expiryCloseEpochSec } from "../lib/greeks.mjs";
+import { previousDaySnapshot } from "../lib/oi-baseline.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -236,21 +237,12 @@ async function loadOiHistory() {
   }
 }
 
-// Picks the most recent snapshot whose etDate is strictly before today's —
-// i.e. the last scan from any earlier ET date. On a normal weekday cadence
-// that's yesterday's last scan (EOD if both runs landed, pre-market if only
-// one). Note it is NOT guaranteed to be the previous *trading* day: an
-// off-schedule weekend/holiday scan would interpose. That's acceptable for ΔOI
-// because open interest is static while the market is closed (a weekend
-// snapshot carries Friday's settled OI), and the interposed snapshot's strike
-// coverage often matches the next session better than Friday's would. Returns
-// null on a cold start.
+// The ΔOI baseline: the newest snapshot from an earlier TRADING day (a
+// weekend or holiday scan carries the same settled OI as the next morning,
+// so comparing with it read ~0 everywhere the day after Labor Day 2026).
+// See lib/oi-baseline.mjs; falls back to the newest earlier-date snapshot.
 function findPreviousDaySnapshot(history, todayKey) {
-  const snaps = (history.snapshots || []).slice().reverse();
-  for (const snap of snaps) {
-    if (snap?.etDate && snap.etDate !== todayKey) return snap;
-  }
-  return null;
+  return previousDaySnapshot(history, todayKey);
 }
 
 // Compresses a prior snapshot into a Map keyed by contract identity so

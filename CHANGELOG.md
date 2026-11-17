@@ -42,6 +42,10 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 - The 1971-2026 strategy-engine history test now shows across the site as context only: "Strategy styles by era" on Pattern lab and style strips on Booms & busts (public), event and crisis strips on Historical Data, "Today's regime fit" in the Regime Lab and the Owner brief, and MCP datasets (Owner). Aggregates only; switch `ENGINES_HISTORY=0` (#849).
 
+### Fixed
+
+- Learn & help audit: the near-term OI tracker compares with the last trading day, so the morning after a market holiday no longer reads almost no OI change (after Labor Day 2026 it compared with the holiday's scans and flagged nothing; `lib/oi-baseline.mjs`). The When data updates page and the weekly Alt Data banners stop promising Friday 11:30 ET, since GitHub has started that job between about 2:30 and 5:00 p.m. every week since September, and the schedule now shows the OI scans and the weekly job running on market holidays. Public visitors no longer see links to Owner-only pages (Grade, Strategy builder) on the Options guide, Chart patterns and Glossary. The Options guide's IV note matches the site's Rich rule, and the Privacy Policy lists message retention, the offline page copy and more local-storage uses, with old contact-box sender hashes now cleared on every inbox change. Test `scripts/learn-help-smoke.mjs`.
+
 ## 2026-11-16
 
 ### Added

@@ -1,6 +1,7 @@
 import { writeFileSync } from 'node:fs';
 import { refreshScheduleFactory } from '../../lib/refresh-schedule.mjs';
 import { GLOSSARY } from '../../lib/glossary.mjs';
+import { OWNER_PAGE_IDS } from '../../lib/owner-access-policy.mjs';
 import { resolve } from 'node:path';
 import {
   VALID_INDUSTRY_SET,
@@ -865,7 +866,7 @@ function ramPricesSection() {
     </header>
     <div data-owner-only>${infoNote('How to use the memory-cycle signal', `<p>Start with the <b>trade posture</b>, then require upstream and downstream confirmation. Wholesale DRAM spot usually moves first; US retail shows whether the pressure is passing through to finished DDR5 kits. Retail confirmation uses the median move and breadth across reasonably stocked categories because a scarce configuration can distort the all-kit composite. Tightening favors memory-supplier pricing-power research; easing can relieve system-builder input costs. Verify the move against supplier guidance, relative strength, earnings risk, and each ticker&rsquo;s Grade before acting. Spot data: TrendForce / DRAMeXchange; retail data: WhereIsMyRam.</p>`)}</div>
     <div id="ram-prices-root" class="ram-prices-root">Loading RAM prices&hellip;</div>
-    <div id="ram-prices-empty" class="ram-prices-empty" hidden>RAM price data will appear after the next Friday 11:30 ET refresh.</div>
+    <div id="ram-prices-empty" class="ram-prices-empty" hidden>RAM price data will appear after the next Friday refresh (usually in the afternoon ET).</div>
     <p class="hint">Spot prices are per chip/module in USD (session average); retail prices are per kit in USD (lowest in-stock offer / category average). Sources are scraped best-effort and can go stale. Not financial advice.</p>
   </section>`;
 }
@@ -880,7 +881,7 @@ function acceleratorPricesSection() {
     </header>
     ${infoNote('How to read the compute-cost chart', `<p>First choose one accelerator so every number on the desk refers to the <b>same GPU model</b>. The chart is daily rental-price history in USD per GPU-hour: the thicker line is the cross-provider median and the thinner colored lines are individual provider / market lanes. A <b>falling line means compute is getting cheaper</b>; a rising line means it is getting more expensive. Use Spot to inspect interruptible capacity, On-demand for standard rentals, or All for the broad blended read. The 7-day and 30-day cards compare like-for-like daily snapshots; “Building” means not enough calendar history exists yet. These are rental list prices, not chip selling prices or provider revenue, and a posted rate does not prove capacity was available. Vast.ai rows are medians of verified rentable offers; CoreWeave, Runpod and Lambda rows are provider-published prices.</p>`) }
     <div id="accelerator-prices-root" class="ap-root">Loading GPU cloud prices&hellip;</div>
-    <div id="accelerator-prices-empty" class="ap-empty" hidden>Accelerator price data will appear after the next Friday 11:30 ET refresh.</div>
+    <div id="accelerator-prices-empty" class="ap-empty" hidden>Accelerator price data will appear after the next Friday refresh (usually in the afternoon ET).</div>
     <p class="hint">Public list and marketplace prices only. Taxes, storage, networking, commitments, negotiated discounts, interruption risk and actual capacity can change the effective cost. Not financial advice. Falling rents and what they did to past builders: <a href="?tab=history-rhymes">Booms &amp; busts</a>.</p>
   </section>`;
 }
@@ -1121,25 +1122,27 @@ const REFRESH_SCHEDULE = refreshScheduleFactory();
 const REFRESH_DAY_JOBS = ['brief', 'build', 'picks', 'flow', 'oi', 'calls', 'weekly'].map((key) => {
   const job = REFRESH_SCHEDULE.JOBS[key];
   const tag = (min) => (key === 'weekly' ? 'Fri ' : '') + (job.approx ? '~' : '') + REFRESH_SCHEDULE.clock(min) +
-    (key === 'calls' && min >= 19 * 60 ? ' (calls only)' : '');
+    (key === 'calls' && min >= 19 * 60 ? ' (calls only)' : '') + ' ET' + (job.lateNote ? ' (' + job.lateNote + ')' : '');
   return [job.label, job.runs.map((min) => [min / 60, tag(min)])];
 });
 function refreshDayTimelineHtml() {
   const from = 8, to = 20, pct = (h) => ((h - from) / (to - from) * 100).toFixed(2) + '%';
   const ticks = [];
   for (let h = from; h <= to; h += 2) ticks.push(`<span class="rdt-tick" style="left:${pct(h)}">${h > 12 ? h - 12 : h}${h >= 12 ? 'p' : 'a'}</span>`);
-  const rows = REFRESH_DAY_JOBS.map(([label, runs]) => `<div class="rdt-row"><span class="rdt-label">${label}</span><span class="rdt-track">${runs.map(([h, t]) => `<i class="rdt-dot" style="left:${pct(h)}" title="${label}: ${t} ET"></i>`).join('')}</span></div>`).join('');
+  const rows = REFRESH_DAY_JOBS.map(([label, runs]) => `<div class="rdt-row"><span class="rdt-label">${label}</span><span class="rdt-track">${runs.map(([h, t]) => `<i class="rdt-dot" style="left:${pct(h)}" title="${label}: ${t}"></i>`).join('')}</span></div>`).join('');
   return `<figure class="rdt" aria-label="Scheduled refresh times on a trading day, Eastern Time">
       <div class="rdt-row rdt-axis"><span class="rdt-label"></span><span class="rdt-track"><span class="rdt-session" style="left:${pct(9.5)};width:calc(${pct(16)} - ${pct(9.5)})"></span>${ticks.join('')}</span></div>
       ${rows}
-      <figcaption>Each dot is a scheduled start, Eastern Time. The shaded band is the regular session (9:30 a.m. to 4:00 p.m.). Hover a dot for its time. On a weekday market holiday only the two earnings-call runs go ahead; on a 1:00 p.m. early close there is no 15:30 Top Picks run.</figcaption>
+      <figcaption>Each dot is a scheduled start, Eastern Time. The shaded band is the regular session (9:30 a.m. to 4:00 p.m.). Hover a dot for its time. On a weekday market holiday only the two earnings-call runs, the two open-interest scans and a Friday&rsquo;s weekly job go ahead; on a 1:00 p.m. early close there is no 15:30 Top Picks run. The weekly Alt Data job is set for Friday 11:30 a.m., but GitHub&rsquo;s scheduler has started it between about 2:30 and 5:00 p.m. every week since September, so that data lands in the afternoon.</figcaption>
     </figure>`;
 }
 
 // Learn & help: every word the tap-to-define popovers explain, in one list.
 function glossarySection() {
   const rows = Object.entries(GLOSSARY).sort((a, b) => a[1].term.localeCompare(b[1].term)).map(([key, g]) =>
-    `<div id="gl-${key}"><dt>${htmlEscape(g.term)}</dt><dd>${htmlEscape(g.def)}${g.tab ? ` <a href="/?tab=${g.tab}">See it in use</a>` : ''}</dd></div>`).join('');
+    // A link to an Owner-only page (the Strategy builder) is hidden for public
+    // visitors, who would otherwise land back on Home.
+    `<div id="gl-${key}"><dt>${htmlEscape(g.term)}</dt><dd>${htmlEscape(g.def)}${g.tab ? ` <a href="/?tab=${g.tab}"${OWNER_PAGE_IDS.includes(g.tab) ? ' data-owner-only' : ''}>See it in use</a>` : ''}</dd></div>`).join('');
   return `<section class="card" id="glossary-section">
     <header class="card-header"><div><span class="card-eyebrow">Learn &amp; help</span><h2 class="card-title">Words used on this site</h2></div></header>
     <p class="hint">Tap a dotted word anywhere on the site to see its meaning. This is the full list.</p>
@@ -1244,9 +1247,9 @@ function buildTimelineSection() {
       <article class="refresh-schedule-card"><span>10:00, 11:00, 13:30, 15:30 &amp; 16:10 ET</span><h3>Full market build</h3><p>Refreshes ticker chains and daily/intraday bars, grades, technicals, narratives, calendars, Pending Buyouts, MA Tracker, the Bottom tracker, earnings, Market Analysis and Quant Lab. The 16:10 run captures the completed close; it keeps the 15:30 market themes when that read still has at least four real stories.</p><em>Five evidence windows &middot; no unreliable 09:30 auction build</em></article>
       <article class="refresh-schedule-card"><span>11:00 &amp; 15:30 ET</span><h3>Swing decision desks</h3><p>Runs Top Picks, LEAPS scores, Stock Picks, Sector Rotation and Leveraged ETFs. Other full builds carry the last coherent decisions and ledgers unchanged.</p><em>Twice per market day &middot; aligned evidence</em></article>
       <article class="refresh-schedule-card"><span>Hourly 09:00&ndash;16:00 ET</span><h3>Flow, Volume &amp; Heatmap</h3><p>Re-scans unusual options flow and intraday volume/S&amp;R breaks, then refreshes heatmap price/change fields. The day&rsquo;s closing story is the 16:10 Brief.</p><em>One serialized scan &middot; no partial publish</em></article>
-      <article class="refresh-schedule-card"><span>~08:30 and ~17:00 ET</span><h3>Near-term OI</h3><p>The morning pass publishes settled T+1 OI and day-over-day changes. The evening pass adds completed-session volume and Vol/OI positioning; today&rsquo;s net OI does not publish until the next morning.</p><em>Two different evidence windows</em></article>
+      <article class="refresh-schedule-card"><span>~08:30 and ~17:00 ET</span><h3>Near-term OI</h3><p>The morning pass publishes settled T+1 OI and day-over-day changes. The evening pass adds completed-session volume and Vol/OI positioning; today&rsquo;s net OI does not publish until the next morning. Both passes also run on weekday market holidays, and day-over-day changes always compare with the last trading day.</p><em>Two different evidence windows</em></article>
       <article class="refresh-schedule-card"><span>Checked on each full build</span><h3>Central-bank gold</h3><p>Checks the World Gold Council for a new quarterly global-demand estimate and refreshed official country holdings. Source reporting normally lags the current date.</p><em>Quarterly source cadence &middot; last-good carry-forward</em></article>
-      <article class="refresh-schedule-card"><span>Friday 11:30 ET</span><h3>Weekly Alt Data</h3><p>Refreshes Search Interest theme timelines, wholesale and retail RAM prices, and public GPU-cloud rental prices in one DST-safe weekly job.</p><em>One scan each &middot; Search Interest capped at 40 requests</em></article>
+      <article class="refresh-schedule-card"><span>Fridays, set for 11:30 ET</span><h3>Weekly Alt Data</h3><p>Refreshes Search Interest theme timelines, wholesale and retail RAM prices, and public GPU-cloud rental prices in one weekly job. GitHub&rsquo;s scheduler starts it late, usually between about 2:30 and 5:00 p.m. ET, so each week&rsquo;s numbers land in the afternoon.</p><em>One scan each &middot; Search Interest capped at 40 requests</em></article>
       <article class="refresh-schedule-card"><span>About every 30 seconds while open</span><h3>Live browser overlays</h3><p>Relevant tabs poll live quotes/chains only while visible and the market is regular. These overlays do not replace the stamped build or scanner snapshot and pause outside the session.</p><em>Best-effort request-time data</em></article>
     </div>
     <div class="refresh-schedule-rule"><b>How to verify freshness:</b> use the timestamp inside the service you are reading, not the footer alone. The footer describes the generated shell; scanner-owned data can be newer.</div>
