@@ -1156,6 +1156,8 @@ When a filer's SEC series is more than about 14 months old (TSMC's 20-F data sto
 
 Fiscal years differ by company (MSFT ends June, ORCL May, MU September), so the latest-FY total is labeled with its range of years. The TTM run-rate is the like-for-like current figure.
 
+A company whose latest full year ends more than 380 days before its run-rate (TSMC while its SEC feed stops at FY2024 and Yahoo's quarters cannot rebuild FY2025) is marked `fyStale`: it stays in the run-rate but is left out of the latest-FY total, its labels and growth, and the page says so. A prior year counts only when it is the year right before (`capexPriorYear`), so a skipped year shows no growth instead of a two-year change. The run-rate vs latest FY compares the same companies (`runRateVsFyPct`). The "Combined CapEx by year" chart shows only the years every company has reported, because the newest year holds only the June-to-September filers until the calendar-year companies file in February.
+
 Decision posture:
 
 - **accelerating:** CapEx growth outruns revenue by at least about ten points and the run rate is not falling;
@@ -1198,7 +1200,7 @@ Two independent layers:
 - wholesale DRAM spot from TrendForce, with DRAMeXchange fallback;
 - US retail DDR5-kit pricing from WhereIsMyRam.
 
-Wholesale history is accumulated once each Friday; retail arrives with deeper source history. The retail composite is the median across at least three categories so one scarce kit cannot dominate.
+Wholesale history is accumulated once each Friday; retail arrives with deeper source history. The retail composite is chain-linked: each step is the median price change of the categories priced on both dates (at least three), and the line is anchored so its newest point is today's median category price, so a category entering or leaving does not move it. The page stays current for nine days after the Friday scan.
 
 Cycle states:
 
@@ -1228,7 +1230,12 @@ headline price.
 provider/model/market series. Each provider degrades independently: a failed
 page carries only that provider's last-good rows as stale and does not append a
 new history point. The UI compares spot and on-demand lanes, plots selectable
-model histories, and leads with H100 when available.
+model histories, and leads with H100 when available. The 7- and 30-day changes
+are the median of each lane's own change over the lanes that priced on the
+newest date (`matchedLaneChange`, copied in the browser as `apMatchedChange`),
+so a provider missing one week does not move them; the chart line is still the
+plain cross-provider median. The page stays current for nine days after the
+Friday scan.
 
 The price read is a conditional capacity/utilization overlay. A higher rental
 rate can reflect scarce capacity, but posted price does not prove availability

@@ -168,11 +168,13 @@ function batches(items, size) {
   return out;
 }
 
-function timelineSeries(payload, query) {
+export function timelineSeries(payload, query) {
   const points = Array.isArray(payload?.interest_over_time?.timeline_data)
     ? payload.interest_over_time.timeline_data
     : [];
-  return points.map((point) => {
+  // Google's newest point can be an unfinished day. When the response marks
+  // it partial, leave it out so the 7-day window compares whole days.
+  return points.filter((point) => point?.partial_data !== true && point?.isPartial !== true).map((point) => {
     const match = (point.values || []).find((v) => String(v.query) === query);
     const value = Number(match?.extracted_value);
     const timestamp = Number(point.timestamp);
@@ -265,6 +267,7 @@ async function main() {
     used: 0,
   };
   const prior = await readPrior();
+  const relatedEnabled = String(process.env.SEARCH_TRENDS_RELATED || "1").trim() !== "0";
   const priorById = new Map((Array.isArray(prior.rows) ? prior.rows : []).map((row) => [row.id, row]));
   const themeLimit = envInt("SEARCH_TRENDS_THEME_LIMIT", 0);
   const themeTerms = themeLimit > 0 ? SEARCH_INTEREST_TERMS.slice(0, themeLimit) : SEARCH_INTEREST_TERMS;
@@ -298,7 +301,9 @@ async function main() {
           else rowsById.set(item.id, { ...item, missing: true, stale: true, history: [], topQueries: [], risingQueries: [] });
           continue;
         }
-        const priorRow = priorById.get(item.id);
+        // With related lookups off, old related queries are not carried: a
+        // months-old "breakout" must not read as this week's.
+        const priorRow = relatedEnabled ? priorById.get(item.id) : null;
         rowsById.set(item.id, {
           ...item,
           ...metrics,
@@ -327,7 +332,6 @@ async function main() {
     throw new Error(`No Google Trends interest data returned (${errors[0] || "unknown error"}); output was not written`);
   }
 
-  const relatedEnabled = String(process.env.SEARCH_TRENDS_RELATED || "1").trim() !== "0";
   const relatedLimit = envInt("SEARCH_TRENDS_RELATED_LIMIT", 0);
   const relatedCandidates = items.slice().sort((a, b) => {
     if (a.type !== b.type) return a.type === "theme" ? -1 : 1;

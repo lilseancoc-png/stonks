@@ -1236,6 +1236,9 @@ ${scenarioEventPhase.toString()}
   // update once a week, Friday 11:30 ET, so midweek they would read as
   // stale. Their banner says so and names the next update.
   var WEEKLY_ALT_TABS = { 'ram-prices': 1, 'accelerator-prices': 1, 'search-interest': 1 };
+  // The weekly Alt Data scan runs on Fridays (GitHub often starts it late in
+  // the afternoon), so its pages stay current for nine days, not three.
+  var ALT_WEEKLY_CURRENT_HOURS = 9 * 24;
   function nextAltDataFridayLabel(){
     var et = etNowParts();
     if (!et || et.dow < 0) return 'Friday';
@@ -21652,7 +21655,13 @@ ${renderExportBindings()}
       var deltaTxt = (t.deltaAbs != null) ? (' (' + (t.deltaAbs >= 0 ? '+' : '−') + cxDollars(Math.abs(t.deltaAbs)) + ')') : '';
       var fyLbl = t.fyMixed && t.fyRangeLabel ? escapeHtml(t.fyRangeLabel) : (t.fyLatestLabel ? escapeHtml(t.fyLatestLabel) : 'latest FY');
       var fyMixNote = t.fyMixed && t.fyByLabel ? Object.keys(t.fyByLabel).sort().reverse().map(function(l){ return escapeHtml(l) + ': ' + escapeHtml((t.fyByLabel[l] || []).join(', ')); }).join(' · ') : '';
-      var runRatePct = (t.ttmSum != null && t.fyLatestSum > 0) ? (t.ttmSum / t.fyLatestSum - 1) * 100 : null;
+      // A company whose newest full year is more than a year behind its
+      // run-rate (TSMC: no full year after FY2024 yet) is in the run-rate only.
+      var fyStaleList = Array.isArray(t.fyStale) ? t.fyStale : [];
+      var fyStaleNote = fyStaleList.length ? 'Left out of the fiscal-year total and growth: ' + fyStaleList.map(function(x){ return escapeHtml(x.ticker) + ' (newest full year on file is ' + escapeHtml(x.label || 'old') + ')'; }).join(', ') + '. ' + (fyStaleList.length === 1 ? 'It is' : 'They are') + ' in the run-rate.' : '';
+      var fyCount = t.fyCount != null ? t.fyCount : t.count;
+      // Same companies on both sides (server field); older files fall back.
+      var runRatePct = t.runRateVsFyPct != null ? Number(t.runRateVsFyPct) : (t.ttmSum != null && t.fyLatestSum > 0) ? (t.ttmSum / t.fyLatestSum - 1) * 100 : null;
       var runRateDir = runRatePct == null ? '' : (runRatePct >= 0 ? 'cx-up' : 'cx-down');
       head = '<div class="cx-hero">' +
         '<div class="cx-hero-main">' +
@@ -21664,6 +21673,7 @@ ${renderExportBindings()}
               deltaTxt + ' vs the prior year (' + cxDollars(t.fyPriorSum) + ')' +
             '</div>' : '') +
           (fyMixNote ? '<div class="cx-hero-note">Fiscal years differ by company — ' + fyMixNote + '. The TTM run-rate is the like-for-like current read.</div>' : '') +
+          (fyStaleNote ? '<div class="cx-hero-note">' + fyStaleNote + '</div>' : '') +
         '</div>' +
         (t.ttmSum != null ?
           '<div class="cx-hero-ttm"><div class="cx-hero-label">Current TTM run-rate</div><div class="cx-hero-ttm-val">' + cxDollars(t.ttmSum) + '</div>' +
@@ -21699,10 +21709,10 @@ ${renderExportBindings()}
                 (rv.capexToRevenueTtmPct != null ? (sharePrior != null ? ' · ' : '') + rv.capexToRevenueTtmPct.toFixed(1) + '% on run-rates' : '') +
               '</div>' +
             '</div>' : '') +
-          (rv.count < t.count ? '<div class="cx-hero-note cx-revcmp-note">revenue reported for ' + rv.count + ' of ' + t.count + ' names</div>' : '') +
+          (rv.count < fyCount ? '<div class="cx-hero-note cx-revcmp-note">revenue reported for ' + rv.count + ' of ' + fyCount + ' names</div>' : '') +
         '</div>';
       }
-      var spenders = cos.filter(function(co){ return co && co.fyLatest && co.fyLatest.val > 0; }).slice().sort(function(a,b){ return b.fyLatest.val - a.fyLatest.val; });
+      var spenders = cos.filter(function(co){ return co && !co.fyStale && co.fyLatest && co.fyLatest.val > 0; }).slice().sort(function(a,b){ return b.fyLatest.val - a.fyLatest.val; });
       var top2 = spenders.slice(0, 2);
       var top2Sum = top2.reduce(function(sum, co){ return sum + co.fyLatest.val; }, 0);
       top2Share = t.fyLatestSum > 0 ? (top2Sum / t.fyLatestSum) * 100 : null;
@@ -21804,7 +21814,7 @@ ${renderExportBindings()}
         '<div class="cx-bar-wrap" title="' + escapeHtml(co.ticker + ' capex ' + cxDollars(v) + (co.yoyPct != null ? ' · ' + (co.yoyPct >= 0 ? '+' : '') + co.yoyPct.toFixed(1) + '% YoY' : '')) + '"><div class="cx-bar-track"><div class="cx-bar" style="width:' + w.toFixed(1) + '%"></div></div>' +
           '<span class="cx-bar-val">' + cxDollars(v) + '</span> ' + cxYoyChip(co.yoyPct) + '</div>' +
         '<div class="cx-row-meta">' +
-          (co.fyLatest ? escapeHtml(co.fyLatest.label || '') : '') +
+          (co.fyLatest ? escapeHtml(co.fyLatest.label || '') + (co.fyStale ? ' (newest full year on file)' : '') : '') +
           ' · run-rate ' + ttmTxt +
           (co.capexToRevenuePct != null ? ' · ' + co.capexToRevenuePct.toFixed(1) + '% of revenue' : '') +
           (co.rev && co.rev.yoyPct != null ? ' · revenue ' + (co.rev.yoyPct >= 0 ? '+' : '') + co.rev.yoyPct.toFixed(1) + '% YoY' + (co.rev.fyLatest ? ' (' + cxDollars(co.rev.fyLatest.val) + ')' : '') : '') +
@@ -21815,22 +21825,34 @@ ${renderExportBindings()}
     var missing = (Array.isArray(d.missing) && d.missing.length) ? '<p class="cx-missing">No SEC CapEx data for: ' + escapeHtml(d.missing.join(', ')) + '.</p>' : '';
     var cxStrip = '';
     if (t){
-      var cxByYear = {};
-      cos.forEach(function(co){ (Array.isArray(co.history) ? co.history : []).forEach(function(h){
-        var yr = h && (String(h.label || '').match(/\\d{4}/) || [String(h.end || '').slice(0, 4)])[0];
-        if (yr && isFinite(Number(h.val))) cxByYear[yr] = (cxByYear[yr] || 0) + Number(h.val);
-      }); });
-      var cxYears = Object.keys(cxByYear).sort().map(function(y){ return [y, cxByYear[y]]; });
+      // Only years every company has reported: fiscal calendars differ, so the
+      // newest year holds only the June-to-September filers (MSFT, ORCL, MU,
+      // AAPL) until the calendar-year companies file in February, and a sum
+      // over them would draw a false drop. Stale-year names stay out.
+      var cxByYear = {}, cxYearCount = {}, cxCohort = 0;
+      cos.forEach(function(co){
+        if (!co || co.fyStale || !Array.isArray(co.history) || !co.history.length) return;
+        cxCohort++;
+        var seen = {};
+        co.history.forEach(function(h){
+          var yr = h && (String(h.label || '').match(/\\d{4}/) || [String(h.end || '').slice(0, 4)])[0];
+          if (!yr || seen[yr] || !isFinite(Number(h.val))) return;
+          seen[yr] = 1;
+          cxByYear[yr] = (cxByYear[yr] || 0) + Number(h.val);
+          cxYearCount[yr] = (cxYearCount[yr] || 0) + 1;
+        });
+      });
+      var cxYears = Object.keys(cxByYear).filter(function(y){ return cxYearCount[y] === cxCohort; }).sort().map(function(y){ return [y, cxByYear[y]]; });
       var cxShare = t.revenue && t.revenue.capexToRevenueTtmPct != null ? t.revenue.capexToRevenueTtmPct : (t.revenue && t.revenue.capexToRevenueFyPct);
       cxStrip = trendStripHtml({
         kicker: 'AI spending · ' + cos.length + ' companies', value: cxDollars(t.ttmSum != null ? t.ttmSum : t.fyLatestSum),
-        note: (t.ttmSum != null ? 'Last 12 months of capital spending' : 'Latest fiscal year of capital spending') + (t.yoyPct != null ? ', ' + (t.yoyPct >= 0 ? 'up ' : 'down ') + Math.abs(t.yoyPct).toFixed(1) + '% on the year before' : ''),
+        note: (t.ttmSum != null ? 'Last 12 months of capital spending' : 'Latest fiscal year of capital spending') + (t.yoyPct != null ? '; latest fiscal years ' + (t.yoyPct >= 0 ? 'up ' : 'down ') + Math.abs(t.yoyPct).toFixed(1) + '% on the year before' : ''),
         kpis: [
           { label: 'Latest fiscal year', value: cxDollars(t.fyLatestSum), sub: t.yoyPct != null ? deskStripSignedPct(t.yoyPct, 1) + ' vs prior year' : '', tone: t.yoyPct == null ? '' : t.yoyPct >= 0 ? 'pos' : 'neg' },
           cxShare != null ? { label: 'Share of revenue', value: Number(cxShare).toFixed(1) + '%', sub: 'CapEx ÷ revenue' } : null,
           (t.revenue && t.revenue.yoyPct != null) ? { label: 'Revenue growth', value: deskStripSignedPct(t.revenue.yoyPct, 1), sub: 'same companies, same years', tone: t.revenue.yoyPct >= 0 ? 'pos' : 'neg' } : null
         ],
-        series: cxYears, fmt: function(v){ return cxDollars(v); }, chartLabel: 'Combined CapEx by year',
+        series: cxYears, fmt: function(v){ return cxDollars(v); }, chartLabel: 'Combined CapEx by year (years every company has reported)',
         stocks: cos.map(function(co){ return co.ticker; }).filter(Boolean).slice(0, 7).concat(['NVDA', 'AVGO', 'VRT']).filter(function(x, i, a){ return a.indexOf(x) === i; })
       });
     }
@@ -21871,7 +21893,8 @@ ${renderExportBindings()}
   function rpFreshness(d, spot, retail, comp){
     var builtMs = Date.parse(d && d.builtAtIso);
     var ageHours = isFinite(builtMs) ? (Date.now() - builtMs) / 3600000 : null;
-    var current = !d.stale && !(spot && spot.stale) && !(retail && retail.stale) && ageHours != null && ageHours >= -1 && ageHours <= 72;
+    // Weekly scan (Friday): current for nine days, the same window as Search trends.
+    var current = !d.stale && !(spot && spot.stale) && !(retail && retail.stale) && ageHours != null && ageHours >= -1 && ageHours <= ALT_WEEKLY_CURRENT_HOURS;
     var ageLabel = 'build time unavailable';
     if (ageHours != null){
       if (ageHours < 1) ageLabel = 'built less than 1h ago';
@@ -22172,6 +22195,25 @@ ${renderExportBindings()}
     if (!base || base.age < days * 0.6 || base.age > days * 2.5) return null;
     return (Number(last.p) / base.p - 1) * 100;
   }
+  // Change for one accelerator, lane by lane (copy of matchedLaneChange in
+  // lib/accelerator-prices.mjs; change one, change the other). The median of
+  // each lane's own change over the lanes that priced on the newest date, so a
+  // provider that misses one weekly scan does not move the reading.
+  function apMatchedChange(benchmark, quotes, days){
+    var lanes = (quotes || []).map(function(quote){
+      return benchmark && benchmark.history && Array.isArray(benchmark.history[quote.key]) ? benchmark.history[quote.key] : [];
+    }).filter(function(rows){ return rows.length; });
+    var latest = null;
+    lanes.forEach(function(rows){ var d = rows[rows.length - 1] && rows[rows.length - 1].d; if (d && (!latest || d > latest)) latest = d; });
+    if (!latest) return null;
+    var changes = [];
+    lanes.forEach(function(rows){
+      if (!rows[rows.length - 1] || rows[rows.length - 1].d !== latest) return;
+      var change = apHistoryChange(rows, days);
+      if (change != null && isFinite(change)) changes.push(change);
+    });
+    return changes.length ? apMedian(changes) : null;
+  }
   function apCostMove(value, pending){
     if (value == null || !isFinite(value)) return '<b class="ap-history-pending">' + escapeHtml(pending || 'Building') + '</b>';
     var n = Number(value);
@@ -22212,15 +22254,15 @@ ${renderExportBindings()}
     dates.sort();
     if (!dates.length) return '<div class="ap-chart-empty">Tracking begins with the next successful build.</div>';
     var currentMedian = composite.length ? composite[composite.length - 1].p : null;
-    var change7d = apHistoryChange(composite, 7);
-    var change30d = apHistoryChange(composite, 30);
+    var change7d = apMatchedChange(benchmark, quotes, 7);
+    var change30d = apMatchedChange(benchmark, quotes, 30);
     var sinceChange = composite.length >= 2 && composite[0].p > 0
       ? (composite[composite.length - 1].p / composite[0].p - 1) * 100
       : null;
     var laneLabel = acceleratorPricesState.market === 'all' ? 'all price lanes' : acceleratorPricesState.market;
-    var historyHead = '<div class="ap-history-title"><div><small>Daily price history</small><b>' + escapeHtml(benchmark.model) + '</b><span>' + escapeHtml(laneLabel) + ' · cross-provider median</span></div>' +
+    var historyHead = '<div class="ap-history-title"><div><small>Weekly price history</small><b>' + escapeHtml(benchmark.model) + '</b><span>' + escapeHtml(laneLabel) + ' · cross-provider median</span></div>' +
       '<div><strong>' + apPrice(currentMedian) + '</strong><span>current median</span></div></div>' +
-      '<div class="ap-history-signals"><div><span>7 days</span>' + apCostMove(change7d) + '</div><div><span>30 days</span>' + apCostMove(change30d) + '</div><div><span>Since tracking</span>' + apCostMove(sinceChange) + '</div><div><span>History</span><b>' + dates.length + ' daily snapshot' + (dates.length === 1 ? '' : 's') + '</b></div></div>' +
+      '<div class="ap-history-signals"><div><span>7 days</span>' + apCostMove(change7d) + '</div><div><span>30 days</span>' + apCostMove(change30d) + '</div><div><span>Since tracking</span>' + apCostMove(sinceChange) + '</div><div><span>History</span><b>' + dates.length + ' weekly snapshot' + (dates.length === 1 ? '' : 's') + '</b></div></div>' +
       '<p class="ap-read-key"><span>Line down = compute is getting cheaper</span><span>Line up = compute is getting more expensive</span></p>';
     if (dates.length === 1){
       var baselineRows = quotes.slice(0, AP_COLORS.length).map(function(quote, idx){
@@ -22352,12 +22394,13 @@ ${renderExportBindings()}
       spotLow: selected.spot && selected.spot.low,
       onDemandMedian: selected.onDemand && selected.onDemand.median,
       onDemandLow: selected.onDemand && selected.onDemand.low,
-      change7dPct: apHistoryChange(selectedHistory, 7),
-      change30dPct: apHistoryChange(selectedHistory, 30)
+      change7dPct: apMatchedChange(selected, Array.isArray(selected.quotes) ? selected.quotes : [], 7),
+      change30dPct: apMatchedChange(selected, Array.isArray(selected.quotes) ? selected.quotes : [], 30)
     };
     var builtMs = Date.parse(data.builtAtIso);
     var ageHours = isFinite(builtMs) ? (Date.now() - builtMs) / 3600000 : null;
-    var current = !data.stale && summary.freshSources > 0 && ageHours != null && ageHours >= -1 && ageHours <= 72;
+    // Weekly scan (Friday): current for nine days, the same window as Search trends.
+    var current = !data.stale && summary.freshSources > 0 && ageHours != null && ageHours >= -1 && ageHours <= ALT_WEEKLY_CURRENT_HOURS;
     if (eye) eye.textContent = (current ? 'Current public pricing' : 'Reference only') + ' / ' + Number(summary.freshSources || 0) + '/' + Number(summary.sourceCount || 0) + ' sources';
     var trend = Number(focus.change30dPct);
     var hasTrend = focus.change30dPct != null && focus.change30dPct !== '' && isFinite(trend);
@@ -22392,7 +22435,7 @@ ${renderExportBindings()}
       '<div class="ap-metrics">' +
         '<div><span>' + escapeHtml(focus.model || 'Focus accelerator') + ' spot</span><b>' + apPrice(focus.spotMedian) + '</b><small>median / low ' + apPrice(focus.spotLow) + '</small></div>' +
         '<div><span>' + escapeHtml(focus.model || 'Focus accelerator') + ' on-demand</span><b>' + apPrice(focus.onDemandMedian) + '</b><small>' + (discount != null && isFinite(discount) ? 'spot is ' + discount.toFixed(1) + '% cheaper' : 'median / low ' + apPrice(focus.onDemandLow)) + '</small></div>' +
-        '<div><span>30-day price change</span><b>' + (hasTrend ? (trend > 0 ? '+' : '') + trend.toFixed(1) + '%' : 'Building') + '</b><small>' + (hasTrend ? (trend > 0 ? 'compute got more expensive' : trend < 0 ? 'compute got cheaper' : 'compute cost was flat') : (selectedHistory.length + ' daily snapshot' + (selectedHistory.length === 1 ? '' : 's'))) + '</small></div>' +
+        '<div><span>30-day price change</span><b>' + (hasTrend ? (trend > 0 ? '+' : '') + trend.toFixed(1) + '%' : 'Building') + '</b><small>' + (hasTrend ? (trend > 0 ? 'compute got more expensive' : trend < 0 ? 'compute got cheaper' : 'compute cost was flat') : (selectedHistory.length + ' weekly snapshot' + (selectedHistory.length === 1 ? '' : 's'))) + '</small></div>' +
         '<div><span>Selected coverage</span><b>' + Object.keys(selectedProviders).length + ' providers</b><small>' + Number((selected.quotes || []).length) + ' normalized ' + escapeHtml(focus.model || 'accelerator') + ' quotes</small></div>' +
       '</div><div class="ap-source-state"><span>' + escapeHtml(sourceText) + '</span><small>Built ' + escapeHtml(data.builtAtIso ? formatDisplayInstant(data.builtAtIso, { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }) : 'time unavailable') + '</small></div>' +
       '<div class="ap-actions"><button type="button" data-ap-grade="CRWV">Grade CRWV</button><button type="button" data-ap-grade="NVDA">Grade NVDA</button><button type="button" data-ap-grade="AMD">Grade AMD</button></div>' +
@@ -22688,11 +22731,16 @@ ${renderExportBindings()}
     var relatedEnabled = status.relatedEnabled !== false;
     var weeklyCadence = !!(d.source && d.source.cadence === 'weekly') || !relatedEnabled;
     var ageMs = Date.now() - Date.parse(d.builtAtIso || 0);
-    var staleBuild = !isFinite(ageMs) || ageMs > (weeklyCadence ? 9 * 24 : 48) * 3600000;
+    var staleBuild = !isFinite(ageMs) || ageMs > (weeklyCadence ? ALT_WEEKLY_CURRENT_HOURS : 48) * 3600000;
     var cadenceLabel = weeklyCadence ? 'Weekly refresh' : 'Daily refresh';
     if (eye) eye.textContent = (staleBuild ? 'Reference only' : (status.state === 'partial' ? 'Partial refresh' : cadenceLabel)) +
       ' | ' + rows.length + ' signals' + (d.builtAtIso ? ' | ' + formatDisplayDate(d.builtAtIso, { month:'short', day:'numeric', year:'numeric' }) : '');
 
+    // Rising queries carried from an older run (related lookups are off in the
+    // free tier) must not badge, filter or sort the cards.
+    function siHasBreakout(row){
+      return relatedEnabled && (row.risingQueries || []).some(function(item){ return item.breakout; });
+    }
     var risingThemes = rows.filter(function(row){ return Number(row.change7d) >= 15; }).length;
     var fallingThemes = rows.filter(function(row){ return Number(row.change7d) <= -15; }).length;
     var topTheme = rows.filter(function(row){ return typeof row.change7d === 'number' && isFinite(row.change7d); }).sort(function(a,b){ return b.change7d - a.change7d; })[0];
@@ -22705,7 +22753,7 @@ ${renderExportBindings()}
       : fallingThemes > risingThemes * 1.5 && fallingThemes >= 5 ? 'Theme attention is cooling'
       : 'Attention is selective - follow the theme movers';
     var postureCopy = staleBuild
-      ? 'The snapshot is older than 48 hours. Wait for a current search read before treating a surge as participation.'
+      ? 'The snapshot is older than ' + (weeklyCadence ? 'nine days' : '48 hours') + '. Wait for a current search read before treating a surge as participation.'
       : 'Use the search move as a discovery trigger. Require price, volume and catalyst confirmation before taking risk.';
     var hero = '<section class="si-desk"><div class="si-desk-head"><div><span class="si-kicker">Public-attention desk</span><h3>' +
       escapeHtml(posture) + '</h3><p>' + escapeHtml(postureCopy) + '</p></div><span class="si-status' + (staleBuild ? ' is-stale' : '') + '">' +
@@ -22725,13 +22773,13 @@ ${renderExportBindings()}
     var query = String(searchInterestState.search || '').trim().toLowerCase();
     var filtered = rows.filter(function(row){
       if (query && (String(row.symbol || '') + ' ' + String(row.label || '') + ' ' + String(row.query || '') + ' ' + String(row.sector || '')).toLowerCase().indexOf(query) < 0) return false;
-      if (mode === 'breakouts') return (row.risingQueries || []).some(function(item){ return item.breakout; });
-      if (mode === 'movers') return Math.abs(Number(row.change7d) || 0) >= 10 || (row.risingQueries || []).some(function(item){ return item.breakout; });
+      if (mode === 'breakouts') return siHasBreakout(row);
+      if (mode === 'movers') return Math.abs(Number(row.change7d) || 0) >= 10 || siHasBreakout(row);
       return true;
     });
     filtered.sort(function(a,b){
-      var ab = (a.risingQueries || []).some(function(item){ return item.breakout; }) ? 1 : 0;
-      var bb = (b.risingQueries || []).some(function(item){ return item.breakout; }) ? 1 : 0;
+      var ab = siHasBreakout(a) ? 1 : 0;
+      var bb = siHasBreakout(b) ? 1 : 0;
       if (bb !== ab) return bb - ab;
       return (Number(b.change7d) || -9999) - (Number(a.change7d) || -9999);
     });
@@ -22743,7 +22791,7 @@ ${renderExportBindings()}
       filterButton('movers','Movers') + (relatedEnabled ? filterButton('breakouts','Breakouts') : '') + filterButton('all','All themes') + '</div>' +
       '<input type="search" id="si-search" placeholder="Search theme or topic..." value="' + escapeHtml(searchInterestState.search || '') + '" aria-label="Filter search-interest themes"></div>';
     var cards = shown.map(function(row, cardIndex){
-      var hasBreakout = (row.risingQueries || []).some(function(item){ return item.breakout; });
+      var hasBreakout = siHasBreakout(row);
       var title = '<span class="si-symbol">' + escapeHtml(row.label || '') + '</span>';
       var subtitle = escapeHtml(row.sector || 'Theme');
       return '<details class="si-card' + (hasBreakout ? ' has-breakout' : '') + '"' + (hasBreakout && cardIndex < 4 ? ' open' : '') + '><summary>' +
