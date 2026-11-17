@@ -261,7 +261,7 @@
   }
 
 
-  var SITE_MAP = [["today","Today","Today","What is happening in the market right now",0,[["home","Home","","A one-screen overview of the market and every part of the site.",0],["brief","Market brief","Brief","A short digest of what moved, why, and what is coming up next.",0],["whats-changed","What changed","Since yesterday diff changes new walls crosses streaks insiders","What is new since the previous trading day: option walls and trades, average crosses, streaks, filings and insider trades.",0],["news","News","News desk","Market-moving stock and economic headlines, most important first.",0],["heatmap","Heatmap","","Every tracked stock as a tile: size is company value, color is how much it moved.",0],["calendar","Calendar","","Upcoming earnings reports, economic releases and Fed meetings.",0],["overnight","Overnight markets","","How Asian and European markets traded before the US open, and which US stocks they tend to lead.",0],["past-day","Past days","Time machine history date picker archive replay","Pick an earlier trading day and see the heatmap and index moves as they were.",0]]],["stocks","Stocks","Stocks","Look up, compare and follow companies",0,[["tickers","All stocks","Tickers","Every stock the site follows, with its price, returns and sector.",0],["market-map","Market map","Fear map scatter chart wall sparklines correlation crowding breadth short interest crowded shorts","Every tracked stock on one screen: options fear, any two numbers, every chart, what moves together, breadth and short interest.",0],["stock","Look up a stock","Stock page quote ticker company chart","One company: its price chart, key numbers, news, earnings, options and who owns it.",0],["grade","Grade a stock","Grade a ticker stock report Look up","One stock in depth: its grade, setup signals, fundamentals and the option contract to trade.",1],["compare","Compare stocks","Compare companies","Line up a few companies side by side on price, growth and valuation.",0],["f13","Who owns what","SEC ownership 13F Form 4 insider","What big investment funds bought and sold last quarter, plus recent insider trades.",0],["pending-buyouts","Pending buyouts","M&A mergers","Announced and rumored takeovers, and how far along each deal is.",0]]],["earnings","Earnings","Earnings","Results, what management said, and how peers react",0,[["earnings","Earnings results","Earnings tracker","Which companies beat or missed expectations this season, and how their stocks reacted.",0],["calls","Earnings calls","","What management said on each company’s latest earnings call, and what changed.",0],["earnings-week","Earnings week ahead","Earnings board implied move expected move straddle this week","Every covered report in the next 10 days: the move options expect next to the stock’s own past moves.",0],["spillover","Earnings ripple effects","Event spillover","How one company’s earnings tend to move the other stocks in its industry.",0]]],["market","Market & economy","Market","The big picture: mood, rates, money and themes",0,[["fear-greed","Market mood","Fear & Greed","CNN’s Fear & Greed index: whether investors are acting scared or greedy, from 0 to 100.",0],["bonds-usd","Rates & the dollar","Bonds & USD Fed","Treasury yields, the US dollar and what the Fed is expected to do next.",0],["commodities","Commodities","","Oil, gold, copper and other raw materials, and the stocks that move with them.",0],["central-bank-gold","Central-bank gold","","How much gold the world’s central banks are buying or selling.",0],["capital-raises","Capital markets","Capital raises share sales buybacks IPOs credit issuance debt","Companies selling stock or debt or buying shares back, upcoming IPOs, and how easily companies and households can borrow.",0],["crowd","Crowd & positioning","Positioning put call ratio COT commitments of traders margin debt short volume borrow fee Reddit mentions Wikipedia Stocktwits Kalshi odds perps Hyperliquid leveraged ETF flows","How traders are positioned and where the crowd is looking: put/call ratios, futures, margin debt, short selling, attention, odds.",0],["prediction-markets","Prediction markets","Kalshi Polymarket odds betting markets election odds Fed cut odds tariffs ceasefire war recession odds event contracts what traders are betting on","What traders on Kalshi and Polymarket bet on: the Fed, policy, elections, wars, crypto and companies, and the stocks each bet could move.",0],["history-rhymes","Booms & busts","History rhymes historical case studies railroad railway mania panic of 1873 telecom fiber dot-com bubble 2008 financial crisis housing subprime AI data center buildout GPU debt depreciation credit default swaps CDS credit spreads default risk Merton","Railroads, telecom fiber and the 2008 housing crash beside today’s AI data center buildout, and how many of their warning signs show now.",0],["narratives","Market themes","Narratives","The big stories driving money right now, such as AI spending, and which stocks ride them.",0]]],["options","Options activity","Options","Where traders are placing bets",0,[["flow","Unusual options trades","Unusual flow","Option trades far bigger than normal for that stock, a sign someone expects a move.",0],["oi","Options walls","Gamma exposure GEX","Price levels where large option positions can slow a stock down or speed it up.",0],["iv-trend","Rising volatility","Trending IV implied volatility","Stocks whose options are pricing in a bigger move than usual.",0],["strategies","Strategy builder","Strategies","Pick a stock and build a defined-risk options trade, with its profit and loss at expiry.",0]]],["signals","Price signals","Signals","Price trends, trading volume and repeating patterns",0,[["ma-tracker","Moving averages","MA tracker crossover","Stocks sitting close to their 20, 50, 100 or 200-day average price.",0],["streaks","Up/down streaks","Streaks green red","Stocks on a run of up days or down days in a row.",0],["volume","Trading volume","Volume shares","Days when a stock traded many more or fewer shares than usual.",0],["pattern-lab","Pattern lab","Seasonality","Repeating patterns such as seasonality and how stocks behave after big moves.",0],["index-cal","Daily index moves","Index calendar","A month grid of the major index funds’ daily moves, showing which days the whole market joined in.",0]]],["industry","Industry trends","Industry","Real-world data behind the AI and chip trade",0,[["ai-capex","AI spending","AI CapEx","How much the biggest tech companies are spending on AI data centers.",0],["ai-disruption","AI disruption","AI launches labs OpenAI Anthropic Google Gemini Microsoft Copilot Meta xAI Grok release notes software disruption SaaS capture score","What the AI labs ship, how ready each launch is to take customers from traditional software, and which companies it targets.",0],["ram-prices","Memory chip prices","RAM prices DRAM","Weekly prices for computer memory, a read on the chip cycle.",0],["accelerator-prices","GPU cloud prices","Accelerator","What it costs to rent AI chips by the hour, a read on AI demand.",0],["search-interest","Search trends","Search interest Google","Which market themes people are searching for more or less this week.",0]]],["learn","Learn & help","Learn","Guides and when the data updates",0,[["cheatsheet","Options guide","Buyer's manual","A plain-English guide to buying options: calls, puts, risk and timing.",0],["chart-patterns","Chart patterns","","What common chart shapes look like and how traders read them.",0],["timeline","When data updates","Refresh schedule timeline","When each part of the site refreshes during the trading day.",0],["contact","Send us a message","Contact us feedback message email support help question bug report","Send the site owners a question, idea or bug report, with an email or social link if you want a reply.",0],["glossary","Glossary","Words terms definitions meaning C/P OI IV percentile gamma","Plain-English meanings for the options and market words used on this site.",0],["privacy","Privacy Policy","","What this site collects and how it is used.",1],["terms","Terms of Use","","The terms for using this site. Nothing here is investment advice.",1]]],["owner","Owner · Daily desk","Owner","The private daily read",1,[["owner-market-brief","Owner Market Brief","Private digest outlook predictions scenarios research","The full site read, with private research, conditional paths, counterevidence and a curated review shortlist.",0],["unified-signal-engine","Unified Signal Engine","","Existing decisions with separate investment and trading perspectives.",0],["market","Market analysis","","The cross-asset tape, risk barometer and regime history.",0],["risk","Risk analysis","","Seven risk desks read together, with the reason when they disagree.",0]]],["owner-ideas","Owner · Ideas","Ideas","Trade ideas and how they worked out",1,[["picks","Top picks","","The model’s highest-conviction option contracts for today.",0],["open-picks","Open picks","","Every open trade, with lines ready to copy to a broker.",0],["track","Top Picks track record","","How every closed pick worked out.",0],["engines","Strategy engines","Paper engines earnings macro technicals fundamentals flow reversion ERN MAC TEC FUN FLO REV","Six rules-only paper engines beside Top Picks, each with its own trades and track record.",0],["leaps","LEAPS","","Names scored for a one- to two-year options hold.",0],["stocks","Stock picks","","Quality companies on a dip, as shares rather than options.",0],["levetf","Leveraged ETFs","","Leveraged ETF setups from the same engine.",0],["rotation","Sector rotation","","Strong names sold with their sector that are now turning back up.",0]]],["owner-research","Owner · Research","Research","Private studies and data",1,[["historical-data","Historical Data","","The stored history behind the private research.",0],["earnings-forecast","Earnings Forecast","Quarterly full-year valuation company history revenue EPS industry model","Quarterly forecasts for the top 20 covered companies, company history, full-year valuation and linked industry evidence.",0],["forced-liquidation","Forced Liquidation Tracker","Pledged shares collateral leverage margin","SEC stock pledges, loan terms and estimated price thresholds, with missing terms kept visible.",0],["bottom-tracker","Bottom tracker","","Signs the market is washing out and turning.",0],["party-tracker","Party tracker","Party-Tracker Democrats Republicans president house senate","How the market and each sector did when Democrats or Republicans held the presidency, the House, or the Senate.",0],["quant-labs","Quant labs","Market odds drawdown chance calibration factors volatility forecast annual report risk factors registry","Chance of a market fall, how honest the site's stated chances have been, factor and volatility reads, annual report changes.",0]]],["owner-admin","Owner · Admin","Admin","Diagnostics and build health",1,[["quant","Owner Lab","","Research tools and diagnostics.",0],["update-checker","Update Checker","Build status failures feature health stale missing updates","Build failures and checks of published feature outputs.",0],["owner-settings","Settings","Owner settings switches kill switch toggles config controls","Change Top Picks, research and live site switches on the site, with history and undo.",0]]],["sports","Sports","Sports","Private NBA and NFL research",1,[["sports-nba","NBA","Basketball players props points rebounds games win bust track record PrizePicks","NBA games, two-player PrizePicks combinations across the slate, supporting analysis and the prop track record.",0],["sports-nfl","NFL","Football players props passing yards receptions games win bust track record PrizePicks","NFL games, the best two PrizePicks props per game, supporting analysis and the prop track record.",0],["sports-pick-builder","Pick Builder","Sports picks entry payout paper journal PrizePicks Betr","Build a 1 to 6 pick entry with its real payout, see the odds and save it as a paper pick.",0]]]];
+  var SITE_MAP = [["today","Today","Today","What is happening in the market right now",0,[["home","Home","","A one-screen overview of the market and every part of the site.",0],["brief","Market brief","Brief","A short digest of what moved, why, and what is coming up next.",0],["whats-changed","What changed","Since yesterday diff changes new walls crosses streaks insiders","What is new since the previous trading day: option walls and trades, average crosses, streaks, filings and insider trades.",0],["news","News","News desk","Market-moving stock and economic headlines, most important first.",0],["heatmap","Heatmap","","Every tracked stock as a tile: size is company value, color is how much it moved.",0],["calendar","Calendar","","Upcoming earnings reports, economic releases and Fed meetings.",0],["overnight","Overnight markets","","How Asian and European markets traded before the US open, and which US stocks they tend to lead.",0],["past-day","Past days","Time machine history date picker archive replay","Pick an earlier trading day and see the heatmap and index moves as they were.",0]]],["stocks","Stocks","Stocks","Look up, compare and follow companies",0,[["tickers","All stocks","Tickers","Every stock the site follows, with its price, returns and sector.",0],["market-map","Market map","Fear map scatter chart wall sparklines correlation crowding breadth short interest crowded shorts","Every tracked stock on one screen: options fear, any two numbers, every chart, what moves together, breadth and short interest.",0],["stock","Look up a stock","Stock page quote ticker company chart","One company: its price chart, key numbers, news, earnings, options and who owns it.",0],["grade","Grade a stock","Grade a ticker stock report Look up","One stock in depth: its grade, setup signals, fundamentals and the option contract to trade.",1],["compare","Compare stocks","Compare companies","Line up a few companies side by side on price, growth and valuation.",0],["f13","Who owns what","SEC ownership 13F Form 4 insider","What big investment funds bought and sold last quarter, plus recent insider trades.",0],["pending-buyouts","Pending buyouts","M&A mergers","Announced and rumored takeovers, and how far along each deal is.",0]]],["earnings","Earnings","Earnings","Results, what management said, and how peers react",0,[["earnings","Earnings results","Earnings tracker","Which companies beat or missed expectations this season, and how their stocks reacted.",0],["calls","Earnings calls","","What management said on each company’s latest earnings call, and what changed.",0],["earnings-week","Earnings week ahead","Earnings board implied move expected move straddle this week","Every covered report in the next 10 days: the move options expect next to the stock’s own past moves.",0],["spillover","Earnings ripple effects","Event spillover","How one company’s earnings tend to move the other stocks in its industry.",0]]],["market","Market & economy","Market","The big picture: mood, rates, money and themes",0,[["fear-greed","Market mood","Fear & Greed","CNN’s Fear & Greed index: whether investors are acting scared or greedy, from 0 to 100.",0],["bonds-usd","Rates & the dollar","Bonds & USD Fed","Treasury yields, the US dollar and what the Fed is expected to do next.",0],["commodities","Commodities","","Oil, gold, copper and other raw materials, and the stocks that move with them.",0],["central-bank-gold","Central-bank gold","","How much gold the world’s central banks are buying or selling.",0],["capital-raises","Capital markets","Capital raises share sales buybacks IPOs credit issuance debt","Companies selling stock or debt or buying shares back, upcoming IPOs, and how easily companies and households can borrow.",0],["crowd","Crowd & positioning","Positioning put call ratio COT commitments of traders margin debt short volume borrow fee Reddit mentions Wikipedia Stocktwits Kalshi odds perps Hyperliquid leveraged ETF flows","How traders are positioned and where the crowd is looking: put/call ratios, futures, margin debt, short selling, attention, odds.",0],["prediction-markets","Prediction markets","Kalshi Polymarket odds betting markets election odds Fed cut odds tariffs ceasefire war recession odds event contracts what traders are betting on","What traders on Kalshi and Polymarket bet on: the Fed, policy, elections, wars, crypto and companies, and the stocks each bet could move.",0],["history-rhymes","Booms & busts","History rhymes historical case studies railroad railway mania panic of 1873 telecom fiber dot-com bubble 2008 financial crisis housing subprime AI data center buildout GPU debt depreciation credit default swaps CDS credit spreads default risk Merton","Railroads, telecom fiber and the 2008 housing crash beside today’s AI data center buildout, and how many of their warning signs show now.",0],["narratives","Market themes","Narratives","The big stories driving money right now, such as AI spending, and which stocks ride them.",0]]],["options","Options activity","Options","Where traders are placing bets",0,[["flow","Unusual options trades","Unusual flow","Option trades far bigger than normal for that stock, a sign someone expects a move.",0],["oi","Options walls","Gamma exposure GEX","Price levels where large option positions can slow a stock down or speed it up.",0],["iv-trend","Rising volatility","Trending IV implied volatility","Stocks whose options are pricing in a bigger move than usual.",0],["strategies","Strategy builder","Strategies","Pick a stock and build a defined-risk options trade, with its profit and loss at expiry.",0]]],["signals","Price signals","Signals","Price trends, trading volume and repeating patterns",0,[["ma-tracker","Moving averages","MA tracker crossover","Stocks sitting close to their 20, 50, 100 or 200-day average price.",0],["streaks","Up/down streaks","Streaks green red","Stocks on a run of up days or down days in a row.",0],["volume","Trading volume","Volume shares","Days when a stock traded many more or fewer shares than usual.",0],["pattern-lab","Pattern lab","Seasonality","Repeating patterns such as seasonality and how stocks behave after big moves.",0],["index-cal","Daily index moves","Index calendar","A month grid of the major index funds’ daily moves, showing which days the whole market joined in.",0]]],["industry","Industry trends","Industry","Real-world data behind the AI and chip trade",0,[["ai-capex","AI spending","AI CapEx","How much the biggest tech companies are spending on AI data centers.",0],["ai-disruption","AI disruption","AI launches labs OpenAI Anthropic Google Gemini Microsoft Copilot Meta xAI Grok release notes software disruption SaaS capture score","What the AI labs ship, how ready each launch is to take customers from traditional software, and which companies it targets.",0],["ram-prices","Memory chip prices","RAM prices DRAM","Weekly prices for computer memory, a read on the chip cycle.",0],["accelerator-prices","GPU cloud prices","Accelerator","What it costs to rent AI chips by the hour, a read on AI demand.",0],["search-interest","Search trends","Search interest Google","Which market themes people are searching for more or less this week.",0]]],["learn","Learn & help","Learn","Guides and when the data updates",0,[["cheatsheet","Options guide","Buyer's manual","A plain-English guide to buying options: calls, puts, risk and timing.",0],["chart-patterns","Chart patterns","","What common chart shapes look like and how traders read them.",0],["timeline","When data updates","Refresh schedule timeline","When each part of the site refreshes during the trading day.",0],["contact","Send us a message","Contact us feedback message email support help question bug report","Send the site owners a question, idea or bug report, with an email or social link if you want a reply.",0],["glossary","Glossary","Words terms definitions meaning C/P OI IV percentile gamma","Plain-English meanings for the options and market words used on this site.",0],["privacy","Privacy Policy","","What this site collects and how it is used.",1],["terms","Terms of Use","","The terms for using this site. Nothing here is investment advice.",1]]],["owner","Owner · Daily desk","Owner","The private daily read",1,[["owner-market-brief","Owner Market Brief","Private digest outlook predictions scenarios research","The full site read, with private research, conditional paths, counterevidence and a curated review shortlist.",0],["unified-signal-engine","Unified Signal Engine","","Existing decisions with separate investment and trading perspectives.",0],["market","Market analysis","","The cross-asset tape, risk barometer and regime history.",0],["risk","Risk analysis","","Seven risk desks read together, with the reason when they disagree.",0]]],["owner-ideas","Owner · Ideas","Ideas","Trade ideas and how they worked out",1,[["picks","Top picks","","The model’s highest-conviction option contracts for today.",0],["open-picks","Open picks","","Every open trade, with lines ready to copy to a broker.",0],["track","Top Picks track record","","How every closed pick worked out.",0],["engines","Strategy engines","Paper engines earnings macro technicals fundamentals flow reversion ERN MAC TEC FUN FLO REV","Six rules-only paper engines beside Top Picks, each with its own trades and track record.",0],["leaps","LEAPS","","Names scored for a one- to two-year options hold.",0],["stocks","Stock picks","","Quality companies on a dip, as shares rather than options.",0],["levetf","Leveraged ETFs","","Leveraged ETF setups from the same engine.",0],["rotation","Sector rotation","","Strong names sold with their sector that are now turning back up.",0]]],["owner-research","Owner · Research","Research","Private studies and data",1,[["historical-data","Historical Data","","The stored history behind the private research.",0],["earnings-forecast","Earnings Forecast","Quarterly full-year valuation company history revenue EPS industry model","Quarterly forecasts for the top 20 covered companies, company history, full-year valuation and linked industry evidence.",0],["forced-liquidation","Forced Liquidation Tracker","Pledged shares collateral leverage margin","SEC stock pledges, loan terms and estimated price thresholds, with missing terms kept visible.",0],["bottom-tracker","Bottom tracker","","Signs the market is washing out and turning.",0],["party-tracker","Party tracker","Party-Tracker Democrats Republicans president house senate","How the market and each sector did when Democrats or Republicans held the presidency, the House, or the Senate.",0],["valuation-lab","Valuation lab","Valuation DCF discounted cash flow fair value intrinsic value price discovery multiples peers rate sensitivity reverse DCF what is priced in","Value a stock five ways with your own inputs, then see what today's price assumes and why it differs.",0],["quant-labs","Quant labs","Market odds drawdown chance calibration factors volatility forecast annual report risk factors registry","Chance of a market fall, how honest the site's stated chances have been, factor and volatility reads, annual report changes.",0]]],["owner-admin","Owner · Admin","Admin","Diagnostics and build health",1,[["quant","Owner Lab","","Research tools and diagnostics.",0],["update-checker","Update Checker","Build status failures feature health stale missing updates","Build failures and checks of published feature outputs.",0],["owner-settings","Settings","Owner settings switches kill switch toggles config controls","Change Top Picks, research and live site switches on the site, with history and undo.",0]]],["sports","Sports","Sports","Private NBA and NFL research",1,[["sports-nba","NBA","Basketball players props points rebounds games win bust track record PrizePicks","NBA games, two-player PrizePicks combinations across the slate, supporting analysis and the prop track record.",0],["sports-nfl","NFL","Football players props passing yards receptions games win bust track record PrizePicks","NFL games, the best two PrizePicks props per game, supporting analysis and the prop track record.",0],["sports-pick-builder","Pick Builder","Sports picks entry payout paper journal PrizePicks Betr","Build a 1 to 6 pick entry with its real payout, see the odds and save it as a paper pick.",0]]]];
   var RECENT_KEY = 'stonks-recent-v1';
   function wfReadRecent(){
     try {
@@ -6981,6 +6981,644 @@ function recoveryEvidence(row, data, now = Date.now()) {
   }
 
 
+  // ---- Valuation lab (Owner page) --------------------------------------------
+  var VL = (function valuationLabFactory() {
+  function fin(x) { return typeof x === "number" && isFinite(x); }
+  function clamp(x, lo, hi) { return Math.min(hi, Math.max(lo, x)); }
+  function r2(x) { return fin(x) ? Math.round(x * 100) / 100 : null; }
+  function r1(x) { return fin(x) ? Math.round(x * 10) / 10 : null; }
+  function median(xs) {
+    var v = xs.filter(fin).slice().sort(function (a, b) { return a - b; });
+    if (!v.length) return null;
+    var m = Math.floor(v.length / 2);
+    return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
+  }
+  function copy(o) { var out = {}; for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) out[k] = o[k]; return out; }
+
+  var METHODS = [
+    { key: "dcf", label: "Cash flow (DCF)", short: "Cash flow (DCF)" },
+    { key: "earnings", label: "Earnings path", short: "Earnings path" },
+    { key: "peers", label: "Peer multiples", short: "Peer multiples" },
+    { key: "power", label: "Earnings power (rate-justified)", short: "Earnings power" },
+    { key: "street", label: "Street target", short: "Street target" }
+  ];
+
+  // Every adjustable input: key, label, unit, step, bounds. Bounds keep the
+  // math inside the range where each formula means something.
+  var INPUTS = [
+    { key: "rf", group: "Rates and risk", label: "10-year Treasury yield", unit: "%", step: 0.05, min: 0, max: 12 },
+    { key: "rateShiftBp", group: "Rates and risk", label: "Rate shock on top", unit: "bp", step: 25, min: -300, max: 300 },
+    { key: "erp", group: "Rates and risk", label: "Equity risk premium", unit: "%", step: 0.25, min: 1, max: 12 },
+    { key: "beta", group: "Rates and risk", label: "Beta", unit: "x", step: 0.05, min: 0.3, max: 3 },
+    { key: "creditSpread", group: "Rates and risk", label: "Borrowing spread over Treasuries", unit: "%", step: 0.25, min: 0, max: 10 },
+    { key: "g1", group: "Growth", label: "Revenue growth, first year", unit: "%", step: 0.5, min: -30, max: 80 },
+    { key: "years", group: "Growth", label: "Years of above-normal growth", unit: "yrs", step: 1, min: 3, max: 10 },
+    { key: "gT", group: "Growth", label: "Growth forever after", unit: "%", step: 0.25, min: -2, max: 5 },
+    { key: "epsGrowth", group: "Earnings", label: "EPS growth a year (next 3 years)", unit: "%", step: 0.5, min: -30, max: 80 },
+    { key: "epsShock", group: "Earnings", label: "Earnings surprise / recession hit", unit: "%", step: 1, min: -60, max: 60 },
+    { key: "fcfMargin", group: "Earnings", label: "Free-cash-flow margin today", unit: "%", step: 0.5, min: -50, max: 70 },
+    { key: "marginDrift", group: "Earnings", label: "Margin change by end of growth years", unit: "pp", step: 0.5, min: -30, max: 30 },
+    { key: "roe", group: "Earnings", label: "Return on equity", unit: "%", step: 0.5, min: 2, max: 80 },
+    { key: "exitPE", group: "Multiples", label: "Exit P/E in 3 years", unit: "x", step: 0.5, min: 3, max: 80 },
+    { key: "peerPremium", group: "Multiples", label: "Premium (+) or discount (-) to peers", unit: "%", step: 2.5, min: -60, max: 150 },
+    { key: "usdPct", group: "Macro", label: "Dollar move", unit: "%", step: 1, min: -15, max: 15 },
+    { key: "oilPct", group: "Macro", label: "Oil move", unit: "%", step: 2.5, min: -50, max: 50 }
+  ];
+  var WEIGHT_KEYS = ["dcf", "earnings", "peers", "power", "street"];
+
+  function boundsOf(key) { for (var i = 0; i < INPUTS.length; i++) if (INPUTS[i].key === key) return INPUTS[i]; return null; }
+
+  // Default inputs from the row the bake prepared. Every default says where
+  // it came from so the page can show it.
+  function defaults(row) {
+    var f = row.facts || {}, m = row.market || {}, p = row.peers || {};
+    var src = {};
+    var d = {};
+    d.rf = fin(m.tenY) ? m.tenY : fin(m.rfr) ? m.rfr : 4.25; src.rf = fin(m.tenY) ? "10-year yield, latest build" : fin(m.rfr) ? "3-month bill rate (10-year missing)" : "fallback";
+    d.rateShiftBp = 0; src.rateShiftBp = "none";
+    d.erp = 5; src.erp = "long-run US average, about 5%";
+    var b = fin(row.sens && row.sens.marketBeta) ? row.sens.marketBeta : f.beta;
+    d.beta = fin(b) ? r2(clamp(b, 0.5, 2.5)) : 1; src.beta = fin(row.sens && row.sens.marketBeta) ? "measured vs the S&P 500 (Market Analysis)" : fin(f.beta) ? "Yahoo beta" : "market average";
+    d.creditSpread = row.financial ? 1 : fin(f.debtToEquity) && f.debtToEquity > 150 ? 2.5 : 1.5; src.creditSpread = "rule of thumb from leverage";
+    var growthCands = [f.revenueGrowthYoy, f.fwdRevenueGrowth, f.growthEstimateCurY].filter(fin);
+    var g = median(growthCands);
+    d.g1 = fin(g) ? r1(clamp(g, -10, 40)) : 5; src.g1 = growthCands.length ? "median of last year's revenue growth, analysts' revenue and EPS growth" : "fallback";
+    d.years = 5; src.years = "standard";
+    d.gT = 2.5; src.gT = "about long-run nominal GDP less a margin";
+    var eg = fin(f.growthEstimateCurY) ? f.growthEstimateCurY : d.g1;
+    d.epsGrowth = r1(clamp(eg, -10, 40)); src.epsGrowth = fin(f.growthEstimateCurY) ? "analysts' current-year EPS growth" : "same as revenue growth";
+    d.epsShock = 0; src.epsShock = "none";
+    var fm = fin(f.fcf) && fin(f.revenue) && f.revenue > 0 ? f.fcf / f.revenue * 100 : null;
+    d.fcfMargin = fin(fm) ? r1(clamp(fm, -40, 65)) : 10; src.fcfMargin = fin(fm) ? "trailing free cash flow / revenue" : "fallback";
+    d.marginDrift = 0; src.marginDrift = "none";
+    d.roe = fin(f.roe) ? r1(clamp(f.roe, 4, 60)) : 15; src.roe = fin(f.roe) ? "trailing return on equity" : "fallback";
+    var pe = fin(p.fpe) ? p.fpe : fin(f.forwardPE) ? f.forwardPE : fin(f.trailingPE) ? f.trailingPE : 18;
+    d.exitPE = r1(clamp(pe, 6, 60)); src.exitPE = fin(p.fpe) ? "peer median forward P/E" : fin(f.forwardPE) ? "own forward P/E" : "fallback";
+    d.peerPremium = 0; src.peerPremium = "none";
+    d.usdPct = 0; src.usdPct = "none";
+    d.oilPct = 0; src.oilPct = "none";
+    var w = { dcf: 30, earnings: 25, peers: 25, power: 10, street: 10 };
+    if (row.financial) { w = { dcf: 0, earnings: 30, peers: 30, power: 30, street: 10 }; }
+    if (row.earlyStage) { w = { dcf: 40, earnings: 0, peers: 45, power: 0, street: 15 }; }
+    d.weights = w;
+    return { inputs: d, sources: src };
+  }
+
+  function normalize(inputs) {
+    var d = copy(inputs);
+    for (var i = 0; i < INPUTS.length; i++) {
+      var b = INPUTS[i], v = Number(d[b.key]);
+      d[b.key] = fin(v) ? clamp(v, b.min, b.max) : null;
+    }
+    d.years = fin(d.years) ? Math.round(d.years) : 5;
+    var w = copy(inputs.weights || {});
+    for (var j = 0; j < WEIGHT_KEYS.length; j++) { var k = WEIGHT_KEYS[j]; w[k] = fin(Number(w[k])) ? clamp(Number(w[k]), 0, 100) : 0; }
+    d.weights = w;
+    return d;
+  }
+
+  function rates(row, d) {
+    var rf = (d.rf + d.rateShiftBp / 100) / 100;
+    var ke = rf + d.beta * d.erp / 100;
+    var f = row.facts || {};
+    var E = fin(f.marketCap) && f.marketCap > 0 ? f.marketCap : null;
+    var D = fin(f.debt) && f.debt > 0 && !row.financial ? f.debt : 0;
+    var kd = (rf + d.creditSpread / 100) * (1 - 0.21);
+    var wacc = E ? (ke * E + kd * D) / (E + D) : ke;
+    return { rf: rf, ke: ke, kd: kd, wacc: wacc, debtWeight: E ? D / (E + D) : 0 };
+  }
+
+  function forwardEps(row) {
+    var f = row.facts || {};
+    if (fin(f.forwardEps) && f.forwardEps > 0) return { value: f.forwardEps, source: f.forwardEpsSource || "analysts' next-year EPS" };
+    if (fin(f.trailingEps) && f.trailingEps > 0) return { value: f.trailingEps, source: "trailing EPS (no forward estimate)" };
+    return { value: null, source: null };
+  }
+
+  function dcf(row, d, R) {
+    var f = row.facts || {};
+    if (row.financial) return { value: null, reason: "Free cash flow is not a meaningful measure for a bank or broker; use earnings power and peers." };
+    if (!(fin(f.revenue) && f.revenue > 0 && fin(f.shares) && f.shares > 0)) return { value: null, reason: "Revenue or share count is missing." };
+    var r = R.wacc, gT = d.gT / 100;
+    if (r - gT < 0.01) return { value: null, reason: "The discount rate must sit at least 1 point above long-run growth." };
+    var rev = f.revenue, pv = 0, fcfN = 0, n = d.years, path = [];
+    for (var t = 1; t <= n; t++) {
+      var g = d.g1 / 100 + (gT - d.g1 / 100) * (t - 1) / Math.max(1, n - 1);
+      rev = rev * (1 + g);
+      var margin = (d.fcfMargin + d.marginDrift * t / n) / 100;
+      var cf = rev * margin * (1 + d.epsShock / 100);
+      pv += cf / Math.pow(1 + r, t);
+      fcfN = cf;
+      path.push({ year: t, growth: g * 100, revenue: rev, fcf: cf });
+    }
+    var tv = fcfN * (1 + gT) / (r - gT);
+    var pvTv = tv / Math.pow(1 + r, n);
+    var equity = pv + pvTv - (fin(f.debt) ? f.debt : 0) + (fin(f.cash) ? f.cash : 0);
+    var ps = equity / f.shares;
+    if (!(ps > 0)) return { value: null, reason: "Projected cash flows do not cover the debt (cash burn at these inputs).", terminalShare: null, path: path };
+    return { value: ps, terminalShare: pvTv / (pv + pvTv), discount: r * 100, path: path };
+  }
+
+  function earnings(row, d, R) {
+    var f = row.facts || {}, e = forwardEps(row);
+    if (!fin(e.value)) return { value: null, reason: "No positive EPS to project (the company is not yet profitable)." };
+    var ke = R.ke, g = d.epsGrowth / 100, eps = e.value * (1 + d.epsShock / 100), divPv = 0;
+    var payout = fin(f.payoutRatio) ? clamp(f.payoutRatio / 100, 0, 1) : 0;
+    for (var t = 1; t <= 3; t++) {
+      var et = eps * Math.pow(1 + g, t - 1);
+      divPv += et * payout / Math.pow(1 + ke, t);
+    }
+    var eps3 = eps * Math.pow(1 + g, 3);
+    var value = eps3 * d.exitPE / Math.pow(1 + ke, 3) + divPv;
+    return { value: value > 0 ? value : null, eps0: eps, eps3: eps3, epsSource: e.source, reason: value > 0 ? null : "Earnings path is negative at these inputs." };
+  }
+
+  function peers(row, d) {
+    var f = row.facts || {}, p = row.peers || {}, prem = 1 + d.peerPremium / 100, parts = [];
+    var e = forwardEps(row), shock = 1 + d.epsShock / 100;
+    if (fin(p.fpe) && fin(e.value)) parts.push({ key: "fpe", label: "Forward P/E " + r1(p.fpe) + "x", value: p.fpe * prem * e.value * shock });
+    if (!row.financial && fin(p.evs) && fin(f.revenue) && fin(f.shares) && f.shares > 0) {
+      var eq = p.evs * prem * f.revenue * shock - (fin(f.debt) ? f.debt : 0) + (fin(f.cash) ? f.cash : 0);
+      if (eq > 0) parts.push({ key: "evs", label: "EV/sales " + r1(p.evs) + "x", value: eq / f.shares });
+    }
+    if (fin(p.ps) && fin(f.revenue) && fin(f.shares) && f.shares > 0) parts.push({ key: "ps", label: "Price/sales " + r1(p.ps) + "x", value: p.ps * prem * f.revenue * shock / f.shares });
+    if (!parts.length) return { value: null, reason: "Too few covered peers with the same measures.", parts: [] };
+    return { value: median(parts.map(function (x) { return x.value; })), parts: parts, basis: p.label || null, n: p.n || null };
+  }
+
+  function power(row, d, R) {
+    var e = forwardEps(row);
+    if (!fin(e.value)) return { value: null, reason: "No positive EPS to capitalize." };
+    var ke = R.ke, gT = d.gT / 100, g = d.epsGrowth / 100, roe = d.roe / 100, n = d.years;
+    if (ke - gT < 0.01) return { value: null, reason: "Cost of equity must sit at least 1 point above long-run growth." };
+    var eps = e.value * (1 + d.epsShock / 100), pv = 0, et = eps;
+    for (var t = 1; t <= n; t++) {
+      var gt = g + (gT - g) * (t - 1) / Math.max(1, n - 1);
+      var payout = clamp(1 - gt / roe, 0.05, 1);
+      if (t > 1) et = et * (1 + gt);
+      pv += et * payout / Math.pow(1 + ke, t);
+    }
+    var termPayout = clamp(1 - gT / roe, 0.05, 1);
+    var tv = et * (1 + gT) * termPayout / (ke - gT);
+    var value = pv + tv / Math.pow(1 + ke, n);
+    return { value: value > 0 ? value : null, justifiedPE: value / eps, reason: value > 0 ? null : "Negative at these inputs." };
+  }
+
+  function street(row) {
+    var s = row.street || {};
+    if (!fin(s.mean) || !(s.mean > 0)) return { value: null, reason: "No analyst target." };
+    return { value: s.mean, low: s.low, high: s.high, n: s.n };
+  }
+
+  // The full model at one set of inputs.
+  function compute(row, inputs) {
+    var d = normalize(inputs);
+    var R = rates(row, d);
+    var res = { dcf: dcf(row, d, R), earnings: earnings(row, d, R), peers: peers(row, d), power: power(row, d, R), street: street(row) };
+    var wsum = 0, acc = 0, used = [];
+    for (var i = 0; i < WEIGHT_KEYS.length; i++) {
+      var k = WEIGHT_KEYS[i], v = res[k].value, w = d.weights[k];
+      if (fin(v) && v > 0 && w > 0) { wsum += w; acc += w * v; used.push(k); }
+    }
+    var base = wsum > 0 ? acc / wsum : null;
+    var s = row.sens || {};
+    var macroPct = (fin(s.usd) ? s.usd * d.usdPct : 0) + (fin(s.commodity) ? s.commodity * d.oilPct : 0);
+    macroPct = clamp(macroPct, -30, 30);
+    var value = fin(base) ? base * (1 + macroPct / 100) : null;
+    var spot = row.spot;
+    var shares = {};
+    for (var j = 0; j < used.length; j++) shares[used[j]] = d.weights[used[j]] / wsum;
+    return {
+      inputs: d, rates: { rf: R.rf * 100, ke: R.ke * 100, wacc: R.wacc * 100, kd: R.kd * 100, debtWeight: R.debtWeight * 100 },
+      methods: res, used: used, weightShares: shares, beforeMacro: base, macroPct: macroPct, value: value,
+      gapPct: fin(value) && fin(spot) && spot > 0 ? (value / spot - 1) * 100 : null,
+      measuredRatePct: fin(s.rate10y) ? s.rate10y * d.rateShiftBp / 10 : null
+    };
+  }
+
+  function solve(fn, lo, hi, target) {
+    var a = lo, b = hi, fa = fn(a), fb = fn(b);
+    if (!fin(fa) || !fin(fb) || (fa - target) * (fb - target) > 0) return null;
+    for (var i = 0; i < 60; i++) {
+      var m = (a + b) / 2, fm = fn(m);
+      if (!fin(fm)) return null;
+      if ((fa - target) * (fm - target) <= 0) { b = m; fb = fm; } else { a = m; fa = fm; }
+      if (Math.abs(b - a) < 0.01) break;
+    }
+    return (a + b) / 2;
+  }
+
+  // What today's price implies, holding every other input where it is.
+  function implied(row, inputs) {
+    var d = normalize(inputs), spot = row.spot, out = {};
+    if (!(fin(spot) && spot > 0)) return out;
+    function dcfAt(key) { return function (x) { var dd = copy(d); dd[key] = x; var R = rates(row, dd); var v = dcf(row, dd, R).value; return fin(v) ? v : -1e9; }; }
+    if (fin(dcf(row, d, rates(row, d)).value)) {
+      out.g1 = solve(dcfAt("g1"), -30, 80, spot);
+      out.fcfMargin = solve(dcfAt("fcfMargin"), -20, 80, spot);
+      out.erp = solve(dcfAt("erp"), 0.5, 15, spot);
+    }
+    var e = earnings(row, d, rates(row, d));
+    if (fin(e.value)) {
+      var R = rates(row, d), ke = R.ke, divPart = e.value - e.eps3 * d.exitPE / Math.pow(1 + ke, 3);
+      var pe = (spot - divPart) * Math.pow(1 + ke, 3) / e.eps3;
+      out.exitPE = pe > 0 ? pe : null;
+      out.epsGrowth = solve(function (x) { var dd = copy(d); dd.epsGrowth = x; var v = earnings(row, dd, rates(row, dd)).value; return fin(v) ? v : -1e9; }, -30, 80, spot);
+      out.forwardPE = e.eps0 > 0 ? spot / e.eps0 : null;
+    }
+    var pr = peers(row, d);
+    if (fin(pr.value)) out.peerPremium = (spot / pr.value * (1 + d.peerPremium / 100) - 1) * 100;
+    return out;
+  }
+
+  // Which inputs move the blended value most: each nudged down and up by a
+  // fixed step, everything else held.
+  var NUDGE = { rf: 0.5, erp: 1, beta: 0.2, g1: 3, gT: 0.5, epsGrowth: 3, epsShock: 10, fcfMargin: 2, marginDrift: 3, roe: 3, exitPE: 3, peerPremium: 10 };
+  function drivers(row, inputs) {
+    var d = normalize(inputs), base = compute(row, d).value, out = [];
+    if (!fin(base)) return out;
+    for (var k in NUDGE) {
+      if (!Object.prototype.hasOwnProperty.call(NUDGE, k)) continue;
+      var lo = copy(d), hi = copy(d), b = boundsOf(k);
+      lo[k] = clamp(d[k] - NUDGE[k], b.min, b.max); hi[k] = clamp(d[k] + NUDGE[k], b.min, b.max);
+      var vl = compute(row, lo).value, vh = compute(row, hi).value;
+      if (!fin(vl) || !fin(vh)) continue;
+      var swing = Math.abs(vh - vl);
+      if (swing < 0.005 * base) continue;
+      out.push({ key: k, label: b.label, unit: b.unit, step: NUDGE[k], low: vl, high: vh, swing: swing });
+    }
+    out.sort(function (a, b) { return b.swing - a.swing; });
+    return out;
+  }
+
+  // Blended value across rate shocks (columns) and first-year growth (rows).
+  function grid(row, inputs) {
+    var d = normalize(inputs), shifts = [-100, -50, 0, 50, 100], gs = [-6, -3, 0, 3, 6], rows = [];
+    for (var i = 0; i < gs.length; i++) {
+      var cells = [];
+      for (var j = 0; j < shifts.length; j++) {
+        var dd = copy(d);
+        dd.rateShiftBp = clamp(d.rateShiftBp + shifts[j], -300, 300);
+        dd.g1 = clamp(d.g1 + gs[i], -30, 80);
+        dd.epsGrowth = clamp(d.epsGrowth + gs[i], -30, 80);
+        var v = compute(row, dd).value;
+        cells.push(fin(v) ? v : null);
+      }
+      rows.push({ growthDelta: gs[i], g1: clamp(d.g1 + gs[i], -30, 80), cells: cells });
+    }
+    return { shifts: shifts, rows: rows };
+  }
+
+  function money(x) { return fin(x) ? "$" + (Math.abs(x) >= 1000 ? Math.round(x).toLocaleString("en-US") : x.toFixed(2)) : "n/a"; }
+  function pct(x, dgt) { return fin(x) ? (x > 0 ? "+" : "") + x.toFixed(dgt == null ? 1 : dgt) + "%" : "n/a"; }
+  function num1(x) { return fin(x) ? x.toFixed(1) : "n/a"; }
+
+  // Plain-English read of the gap: what today's price assumes, where the
+  // methods disagree, which input matters most, and what the market may be
+  // pricing that the model leaves out (or the reverse).
+  function explain(row, result, imp, drv) {
+    var d = result.inputs, spot = row.spot, lines = { headline: "", priced: [], disagree: [], market: [], us: [] };
+    if (!fin(result.value) || !fin(spot)) { lines.headline = "Not enough data for a modeled price at these inputs."; return lines; }
+    var gap = result.gapPct, dir = gap >= 0 ? "above" : "below";
+    lines.headline = "Modeled value " + money(result.value) + " vs market " + money(spot) + ": " + Math.abs(gap).toFixed(1) + "% " + dir + " the price." +
+      (Math.abs(gap) < 5 ? " Within 5%, so the market and these inputs roughly agree." : gap > 0 ? " At these inputs the market is paying less than the model thinks the business is worth." : " At these inputs the market is paying for more than the model can justify.");
+    if (fin(imp.g1)) lines.priced.push("To be worth today's price on cash flow, revenue would need to grow about " + num1(imp.g1) + "% in year one (fading to " + num1(d.gT) + "%) vs your " + num1(d.g1) + "%. " + (imp.g1 > d.g1 + 1 ? "The market is pricing in faster growth than you." : imp.g1 < d.g1 - 1 ? "The market is pricing in slower growth than you." : "About the same growth you assume."));
+    if (fin(imp.fcfMargin)) lines.priced.push("Or, at your growth, a free-cash-flow margin near " + num1(imp.fcfMargin) + "% (you use " + num1(d.fcfMargin) + "%).");
+    if (fin(imp.erp)) lines.priced.push("The price implies an equity risk premium of about " + num1(imp.erp) + "% (you use " + num1(d.erp) + "%): " + (imp.erp < d.erp - 0.5 ? "investors accept less reward for risk than you require." : imp.erp > d.erp + 0.5 ? "investors demand more reward for risk than you do." : "close to yours."));
+    if (fin(imp.exitPE)) lines.priced.push("On the earnings path, today's price needs an exit P/E of " + num1(imp.exitPE) + "x in three years (you use " + num1(d.exitPE) + "x)" + (fin(imp.epsGrowth) ? ", or EPS growth near " + num1(imp.epsGrowth) + "% a year." : "."));
+    if (fin(imp.peerPremium)) lines.priced.push("Against peers the stock trades at a " + (imp.peerPremium >= 0 ? num1(imp.peerPremium) + "% premium" : num1(-imp.peerPremium) + "% discount") + " to the peer-median price.");
+    var vals = [];
+    for (var i = 0; i < METHODS.length; i++) { var m = result.methods[METHODS[i].key]; if (fin(m.value)) vals.push({ label: METHODS[i].label, value: m.value }); }
+    vals.sort(function (a, b) { return a.value - b.value; });
+    if (vals.length >= 2) {
+      var lo = vals[0], hi = vals[vals.length - 1];
+      lines.disagree.push("Methods range from " + money(lo.value) + " (" + lo.label + ") to " + money(hi.value) + " (" + hi.label + ")." + (hi.value / lo.value > 1.6 ? " That is a wide spread, so the weights decide a lot." : ""));
+      var nearest = vals.slice().sort(function (a, b) { return Math.abs(a.value - spot) - Math.abs(b.value - spot); })[0];
+      lines.disagree.push("The market price sits closest to " + nearest.label + " (" + money(nearest.value) + ").");
+    }
+    if (drv && drv.length) {
+      var top = drv[0];
+      lines.disagree.push("The input that moves the answer most is " + top.label.toLowerCase() + ": " + top.step + (top.unit === "%" || top.unit === "pp" ? " points" : top.unit === "x" ? "x" : "") + " either way spans " + money(top.low) + " to " + money(top.high) + ".");
+    }
+    if (fin(result.measuredRatePct) && d.rateShiftBp) lines.disagree.push("A " + d.rateShiftBp + "bp rate move: the model reprices it through the discount rate; the stock's own past response to the 10-year suggests " + pct(result.measuredRatePct) + " for the price.");
+    var c = row.context || {};
+    if (fin(c.revision30)) lines.market.push("Analysts' full-year EPS estimate moved " + pct(c.revision30) + " in 30 days" + (c.revision30 > 2 ? ": rising estimates often lead price." : c.revision30 < -2 ? ": falling estimates often weigh on price before the model's inputs catch up." : "."));
+    if (c.grade && fin(c.grade.total)) lines.market.push("Site grade " + (c.grade.total > 0 ? "+" : "") + c.grade.total.toFixed(1) + (c.grade.side ? " (" + c.grade.side + " side)" : " (no trade)") + ": momentum, flow and news the valuation leaves out.");
+    if (c.grade && fin(c.grade.macroPoints) && Math.abs(c.grade.macroPoints) >= 0.3) lines.market.push("Macro fit " + (c.grade.macroPoints > 0 ? "+" : "") + c.grade.macroPoints.toFixed(1) + ": rates, credit and the cycle currently " + (c.grade.macroPoints > 0 ? "favor" : "work against") + " this kind of company.");
+    if (fin(c.shortPct) && c.shortPct >= 8) lines.market.push(num1(c.shortPct) + "% of the float is sold short: a crowd betting the price falls.");
+    if (fin(c.earningsInDays) && c.earningsInDays >= 0 && c.earningsInDays <= 21) lines.market.push("Earnings in " + c.earningsInDays + " day" + (c.earningsInDays === 1 ? "" : "s") + ": the price may be waiting on the print.");
+    if (fin(c.ownPePct)) lines.market.push("Forward P/E is at the " + Math.round(c.ownPePct) + "th percentile of its own saved range" + (c.ownPeDays ? " (" + c.ownPeDays + " sessions)" : "") + ".");
+    if (c.forecast && fin(c.forecast.epsYoy)) lines.market.push("Earnings Forecast for the quarter ending " + c.forecast.quarterEnd + ": EPS " + pct(c.forecast.epsYoy) + " vs the same quarter last year" + (fin(c.forecast.revYoy) ? ", revenue " + pct(c.forecast.revYoy) : "") + ".");
+    var f = row.facts || {};
+    if (row.financial) lines.us.push("Banks and brokers: free cash flow is not used, so cash-flow value is off and the answer leans on earnings power and peers.");
+    if (row.earlyStage) lines.us.push("Early-stage company: earnings-based methods are off until profits are established.");
+    if (fin(f.fcf) && f.fcf <= 0 && !row.financial) lines.us.push("Free cash flow is negative today, so the cash-flow value rests on margins turning positive.");
+    if (result.methods.dcf && fin(result.methods.dcf.terminalShare) && result.methods.dcf.terminalShare > 0.75) lines.us.push(Math.round(result.methods.dcf.terminalShare * 100) + "% of the cash-flow value comes after year " + d.years + ", so small changes to long-run growth or rates swing it.");
+    if (row.peers && fin(row.peers.n) && row.peers.n < 4) lines.us.push("Only " + row.peers.n + " covered peers, so the peer medians are thin.");
+    if (row.notes && row.notes.length) for (var n = 0; n < row.notes.length; n++) lines.us.push(row.notes[n]);
+    lines.us.push("The model leaves out buybacks beyond today's share count, new products, management, competition and anything not in reported numbers.");
+    return lines;
+  }
+
+  // One call for the page: result, implied values, drivers, grid, text.
+  function analyze(row, inputs) {
+    var result = compute(row, inputs);
+    var imp = implied(row, inputs);
+    var drv = drivers(row, inputs);
+    return { result: result, implied: imp, drivers: drv, grid: grid(row, inputs), explain: explain(row, result, imp, drv) };
+  }
+
+  return { METHODS: METHODS, INPUTS: INPUTS, WEIGHT_KEYS: WEIGHT_KEYS, defaults: defaults, normalize: normalize, compute: compute, implied: implied, drivers: drivers, grid: grid, explain: explain, analyze: analyze };
+})();
+  var vlState = { data: null, error: null, pending: null, sym: null, inputs: null, defaults: null };
+  var VL_STORE = 'stonks-valuation-v1';
+  var VL_PRESETS = [
+    ['base', 'Defaults', null],
+    ['bear', 'Bear case', { g1: -5, epsGrowth: -5, epsShock: -20, erp: 1, peerPremium: -15, exitPE: -3 }],
+    ['bull', 'Bull case', { g1: 5, epsGrowth: 5, epsShock: 10, erp: -0.5, peerPremium: 10, exitPE: 3 }],
+    ['rates-up', 'Rates +100bp', { rateShiftBp: 100 }],
+    ['rates-down', 'Rates -100bp', { rateShiftBp: -100 }],
+    ['recession', 'Recession', { epsShock: -30, g1: -8, epsGrowth: -8, erp: 1.5, creditSpread: 2, peerPremium: -20 }]
+  ];
+  var VL_COLORS = { dcf: '#4f7cff', earnings: '#12a37f', peers: '#d98a1c', power: '#9b5de5', street: '#7a8699' };
+
+  function vlFin(x){ return typeof x === 'number' && isFinite(x); }
+  function vlMoney(x){ if (!vlFin(x)) return '—'; var a = Math.abs(x); return '$' + (a >= 1000 ? Math.round(x).toLocaleString('en-US') : a >= 100 ? x.toFixed(1) : x.toFixed(2)); }
+  function vlPct(x, d){ return vlFin(x) ? (x > 0 ? '+' : '') + x.toFixed(d == null ? 1 : d) + '%' : '—'; }
+  function vlNum(x, d){ return vlFin(x) ? Number(x).toFixed(d == null ? 1 : d) : '—'; }
+  function vlBig(x){ if (!vlFin(x)) return '—'; var a = Math.abs(x), s = x < 0 ? '-' : ''; return a >= 1e12 ? s + '$' + (a / 1e12).toFixed(2) + 'T' : a >= 1e9 ? s + '$' + (a / 1e9).toFixed(1) + 'B' : a >= 1e6 ? s + '$' + (a / 1e6).toFixed(0) + 'M' : s + '$' + a.toFixed(0); }
+  function vlGapCls(x){ return !vlFin(x) ? '' : x >= 5 ? 'vl-up' : x <= -5 ? 'vl-down' : 'vl-flat'; }
+  function vlFmtInput(def, v){ if (!vlFin(v)) return '—'; return def.unit === 'x' ? Number(v).toFixed(def.step < 0.1 ? 2 : 1) + 'x' : def.unit === 'bp' ? (v > 0 ? '+' : '') + Math.round(v) + 'bp' : def.unit === 'yrs' ? Math.round(v) + ' yrs' : def.unit === 'pp' ? (v > 0 ? '+' : '') + Number(v).toFixed(1) + ' pts' : Number(v).toFixed(def.step < 0.1 ? 2 : def.step < 1 ? 2 : 1) + '%'; }
+
+  function vlSaved(){ try { var raw = localStorage.getItem(VL_STORE); var o = raw ? JSON.parse(raw) : {}; return o && typeof o === 'object' ? o : {}; } catch (_) { return {}; } }
+  function vlSave(sym, inputs){ try { var o = vlSaved(); if (inputs) o[sym] = inputs; else delete o[sym]; localStorage.setItem(VL_STORE, JSON.stringify(o)); } catch (_) {} }
+  function vlClone(o){ return JSON.parse(JSON.stringify(o)); }
+
+  function vlFetch(force){
+    if (!HAS_OWNER_ACCESS) return Promise.resolve(null);
+    if (!force && vlState.data) return Promise.resolve(vlState.data);
+    if (vlState.pending) return vlState.pending;
+    vlState.error = null;
+    vlState.pending = quantFetchJson(dataUrl('valuation-lab.json')).then(function(d){
+      vlState.data = d && d.rows ? d : null; vlState.pending = null; return vlState.data;
+    }, function(err){
+      vlState.pending = null; vlState.error = err && err.status === 404 ? 'not written yet' : String(err && err.message || err); return null;
+    });
+    return vlState.pending;
+  }
+
+  function vlSymbols(){
+    var rows = (vlState.data && vlState.data.rows) || {};
+    return Object.keys(rows).sort();
+  }
+  function vlRow(){ return vlState.data && vlState.sym ? vlState.data.rows[vlState.sym] : null; }
+
+  function vlPick(sym){
+    var rows = (vlState.data && vlState.data.rows) || {};
+    if (!rows[sym]) sym = rows.NVDA ? 'NVDA' : vlSymbols()[0];
+    if (!sym) return;
+    vlState.sym = sym;
+    VIEWS.set('valuation-lab.symbol', sym);
+    var def = VL.defaults(rows[sym]);
+    vlState.defaults = def;
+    var saved = vlSaved()[sym];
+    vlState.inputs = saved && typeof saved === 'object' ? VL.normalize(Object.assign(vlClone(def.inputs), saved, { weights: Object.assign({}, def.inputs.weights, saved.weights || {}) })) : vlClone(def.inputs);
+  }
+
+  // ---- Pieces ----------------------------------------------------------------
+  function vlKpis(row, a){
+    var r = a.result, imp = a.implied;
+    var k = [
+      ['Market price', vlMoney(row.spot), row.name],
+      ['Modeled value', vlMoney(r.value), r.macroPct ? 'macro dials ' + vlPct(r.macroPct) : r.used.length + ' method' + (r.used.length === 1 ? '' : 's') + ' blended'],
+      ['Gap', '<span class="' + vlGapCls(r.gapPct) + '">' + vlPct(r.gapPct) + '</span>', vlFin(r.gapPct) ? (r.gapPct >= 0 ? 'model above market' : 'model below market') : ''],
+      ['Price implies growth', vlFin(imp.g1) ? vlNum(imp.g1) + '%' : '—', 'first-year revenue growth; you use ' + vlNum(r.inputs.g1) + '%'],
+      ['Cost of equity', vlNum(r.rates.ke, 2) + '%', '10-year ' + vlNum(r.rates.rf, 2) + '% + ' + vlNum(r.inputs.beta, 2) + ' beta x ' + vlNum(r.inputs.erp, 2) + '% premium']
+    ];
+    return '<div class="mm-kpis vl-kpis">' + k.map(function(x){ return '<div class="mm-kpi"><span>' + escapeHtml(x[0]) + '</span><b>' + x[1] + '<small>' + escapeHtml(x[2] || '') + '</small></b></div>'; }).join('') + '</div>';
+  }
+
+  // Football field: each method's value at the base inputs (dot) and across
+  // rates +-100bp and growth +-6 points (bar), with the market price and the
+  // blend as vertical lines.
+  function vlField(row, a){
+    var base = a.result, corners = [];
+    [[-100, -6], [-100, 6], [100, -6], [100, 6]].forEach(function(c){
+      var dd = vlClone(base.inputs); dd.rateShiftBp = Math.max(-300, Math.min(300, dd.rateShiftBp + c[0])); dd.g1 = dd.g1 + c[1]; dd.epsGrowth = dd.epsGrowth + c[1];
+      corners.push(VL.compute(row, dd));
+    });
+    var lines = [], all = [row.spot];
+    VL.METHODS.forEach(function(m){
+      var v = base.methods[m.key].value; if (!vlFin(v)) return;
+      var vals = [v]; corners.forEach(function(c){ var x = c.methods[m.key].value; if (vlFin(x)) vals.push(x); });
+      if (m.key === 'street' && vlFin(row.street.low) && vlFin(row.street.high)) vals = [row.street.low, row.street.high, v];
+      var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+      lines.push({ key: m.key, label: m.short || m.label, v: v, lo: lo, hi: hi, w: base.weightShares[m.key] || 0 }); all.push(lo, hi);
+    });
+    if (vlFin(base.value)) all.push(base.value);
+    if (!lines.length) return '';
+    var mn = Math.min.apply(null, all), mx = Math.max.apply(null, all), pad = (mx - mn) * 0.06 || mx * 0.1;
+    mn = Math.max(0, mn - pad); mx = mx + pad;
+    var W = 720, L = 190, R = 16, rowH = 30, H = lines.length * rowH + 44;
+    function X(v){ return L + (v - mn) / (mx - mn) * (W - L - R); }
+    var s = '<svg class="vl-field" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Value by method compared with the market price">';
+    var ticks = 5;
+    for (var t = 0; t <= ticks; t++){ var tv = mn + (mx - mn) * t / ticks, tx = X(tv); s += '<line x1="' + tx + '" x2="' + tx + '" y1="8" y2="' + (H - 26) + '" class="vl-grid"/><text x="' + tx + '" y="' + (H - 10) + '" text-anchor="middle" class="vl-tick">' + escapeHtml(vlMoney(tv)) + '</text>'; }
+    lines.forEach(function(l, i){
+      var y = 14 + i * rowH;
+      s += '<text x="' + (L - 10) + '" y="' + (y + 12) + '" text-anchor="end" class="vl-lbl">' + escapeHtml(l.label) + (l.w ? ' · ' + Math.round(l.w * 100) + '%' : ' · off') + '</text>';
+      s += '<rect x="' + X(l.lo) + '" y="' + (y + 3) + '" width="' + Math.max(2, X(l.hi) - X(l.lo)) + '" height="14" rx="4" fill="' + VL_COLORS[l.key] + '" opacity="' + (l.w ? 0.32 : 0.14) + '"><title>' + escapeHtml(l.label + ': ' + vlMoney(l.lo) + ' to ' + vlMoney(l.hi)) + '</title></rect>';
+      s += '<circle cx="' + X(l.v) + '" cy="' + (y + 10) + '" r="6" fill="' + VL_COLORS[l.key] + '" opacity="' + (l.w ? 1 : 0.45) + '"><title>' + escapeHtml(l.label + ': ' + vlMoney(l.v)) + '</title></circle>';
+    });
+    var mxp = X(row.spot);
+    s += '<line x1="' + mxp + '" x2="' + mxp + '" y1="4" y2="' + (H - 24) + '" class="vl-mkt"/><text x="' + mxp + '" y="' + 2 + '" dy="8" dx="4" class="vl-mkt-t">Market ' + escapeHtml(vlMoney(row.spot)) + '</text>';
+    if (vlFin(base.value)){ var bx = X(base.value); s += '<line x1="' + bx + '" x2="' + bx + '" y1="4" y2="' + (H - 24) + '" class="vl-blend"/><text x="' + bx + '" y="' + (H - 26) + '" dx="4" class="vl-blend-t">Model ' + escapeHtml(vlMoney(base.value)) + '</text>'; }
+    return s + '</svg><p class="vl-cap">Dot = value at your inputs. Bar = range with rates 100bp lower to higher and growth 6 points lower to higher (street: analysts\' low to high target). Percent = share of the blend.</p>';
+  }
+
+  function vlMethodsTable(row, a){
+    var r = a.result;
+    var body = VL.METHODS.map(function(m){
+      var x = r.methods[m.key], v = x.value, gap = vlFin(v) && row.spot > 0 ? (v / row.spot - 1) * 100 : null, w = r.inputs.weights[m.key];
+      var detail = '';
+      if (m.key === 'dcf' && vlFin(v)) detail = 'Discount rate ' + vlNum(x.discount, 2) + '%; ' + Math.round((x.terminalShare || 0) * 100) + '% of value after year ' + r.inputs.years;
+      if (m.key === 'earnings' && vlFin(v)) detail = 'EPS ' + vlMoney(x.eps0) + ' now → ' + vlMoney(x.eps3) + ' in 3 years at ' + vlNum(r.inputs.exitPE) + 'x; ' + escapeHtml(x.epsSource || '');
+      if (m.key === 'peers' && vlFin(v)) detail = (x.parts || []).map(function(p){ return escapeHtml(p.label) + ' → ' + vlMoney(p.value); }).join(' · ') + (x.basis ? ' (' + escapeHtml(x.basis) + ', ' + (x.n || 0) + ' peers)' : '');
+      if (m.key === 'power' && vlFin(v)) detail = 'Justified P/E ' + vlNum(x.justifiedPE) + 'x at a ' + vlNum(r.rates.ke, 2) + '% cost of equity, ROE ' + vlNum(r.inputs.roe) + '%';
+      if (m.key === 'street' && vlFin(v)) detail = vlMoney(x.low) + ' to ' + vlMoney(x.high) + (x.n ? ' · ' + x.n + ' analysts' : '') + (row.street.rating ? ' · ' + escapeHtml(row.street.rating) : '');
+      if (!vlFin(v)) detail = escapeHtml(x.reason || 'Not available');
+      return '<tr><td><span class="vl-sw" style="background:' + VL_COLORS[m.key] + '"></span>' + escapeHtml(m.label) + '<div class="vl-detail">' + detail + '</div></td>' +
+        '<td class="num">' + vlMoney(v) + '</td><td class="num ' + vlGapCls(gap) + '">' + vlPct(gap) + '</td>' +
+        '<td class="vl-wcell"><input type="range" min="0" max="100" step="5" value="' + w + '" data-vl-weight="' + m.key + '" aria-label="Weight for ' + escapeHtml(m.label) + '"' + (vlFin(v) ? '' : ' disabled') + '><span class="vl-wv" data-vl-wv="' + m.key + '">' + w + '</span></td>' +
+        '<td class="num">' + (r.weightShares[m.key] ? Math.round(r.weightShares[m.key] * 100) + '%' : '—') + '</td></tr>';
+    }).join('');
+    return '<div class="acc-tscroll"><table class="acc-qtable vl-table" data-nosort><thead><tr><th>Method</th><th class="num">Value</th><th class="num">vs market</th><th>Weight</th><th class="num">Share</th></tr></thead><tbody>' + body + '</tbody></table></div>';
+  }
+
+  function vlInputsHtml(){
+    var d = vlState.inputs, src = vlState.defaults.sources, defs = vlState.defaults.inputs, groups = {}, order = [];
+    VL.INPUTS.forEach(function(def){ if (!groups[def.group]){ groups[def.group] = []; order.push(def.group); } groups[def.group].push(def); });
+    var row = vlRow();
+    return order.map(function(g){
+      return '<fieldset class="vl-group"><legend>' + escapeHtml(g) + '</legend>' + groups[g].map(function(def){
+        var changed = Math.abs((d[def.key] || 0) - (defs[def.key] || 0)) > 1e-9;
+        var hint = 'Default ' + vlFmtInput(def, defs[def.key]) + ' · ' + (src[def.key] || '');
+        if (def.key === 'g1' && row && row.growthBars) hint += ' · ' + row.growthBars.label + ' bars: normal ' + (row.growthBars.low == null ? '—' : row.growthBars.low + '%') + ', strong ' + row.growthBars.above + '%, very strong ' + row.growthBars.wellAbove + '%';
+        if (def.key === 'usdPct' && row && row.sens && vlFin(row.sens.usd)) hint += ' · this stock moves about ' + vlNum(row.sens.usd, 2) + '% per 1% dollar move';
+        if (def.key === 'oilPct' && row && row.sens && vlFin(row.sens.commodity)) hint += ' · about ' + vlNum(row.sens.commodity, 2) + '% per 1% oil move';
+        if (def.key === 'rateShiftBp' && row && row.sens && vlFin(row.sens.rate10y)) hint += ' · past response ' + vlNum(row.sens.rate10y, 2) + '% per 10bp';
+        return '<label class="vl-in' + (changed ? ' vl-changed' : '') + '"><span class="vl-in-l">' + escapeHtml(def.label) + '<b data-vl-iv="' + def.key + '">' + escapeHtml(vlFmtInput(def, d[def.key])) + '</b></span>' +
+          '<input type="range" min="' + def.min + '" max="' + def.max + '" step="' + def.step + '" value="' + d[def.key] + '" data-vl-input="' + def.key + '" aria-label="' + escapeHtml(def.label) + '">' +
+          '<small>' + escapeHtml(hint) + '</small></label>';
+      }).join('') + '</fieldset>';
+    }).join('');
+  }
+
+  function vlReadHtml(a){
+    var e = a.explain;
+    function list(title, xs){ return xs && xs.length ? '<div class="vl-read-b"><h4 class="slp-h4">' + escapeHtml(title) + '</h4><ul class="ql-lines">' + xs.map(function(x){ return '<li>' + escapeHtml(x) + '</li>'; }).join('') + '</ul></div>' : ''; }
+    return '<p class="vl-headline">' + escapeHtml(e.headline) + '</p><div class="vl-read">' +
+      list('What today\'s price assumes', e.priced) + list('Where the methods disagree', e.disagree) +
+      list('What the market may be seeing', e.market) + list('What the model may be missing', e.us) + '</div>';
+  }
+
+  function vlDriversHtml(a){
+    var ds = a.drivers.slice(0, 8), base = a.result.value;
+    if (!ds.length || !vlFin(base)) return '<p class="hint">No single input moves the value much at these settings.</p>';
+    var mx = 0; ds.forEach(function(d){ mx = Math.max(mx, Math.abs(d.low - base), Math.abs(d.high - base)); });
+    return '<div class="vl-tornado">' + ds.map(function(d){
+      var lo = Math.min(d.low, d.high) - base, hi = Math.max(d.low, d.high) - base;
+      var left = 50 + lo / mx * 50, width = Math.max(0.6, (hi - lo) / mx * 50);
+      var stepTxt = d.unit === 'x' ? d.step + 'x' : d.unit === '%' || d.unit === 'pp' ? d.step + ' pts' : d.step + ' ' + d.unit;
+      return '<div class="vl-tr"><span class="vl-tr-l">' + escapeHtml(d.label) + ' <small>± ' + escapeHtml(stepTxt) + '</small></span>' +
+        '<span class="vl-tr-bar"><i style="left:' + left.toFixed(2) + '%;width:' + width.toFixed(2) + '%"></i><em></em></span>' +
+        '<span class="vl-tr-v">' + vlMoney(Math.min(d.low, d.high)) + ' – ' + vlMoney(Math.max(d.low, d.high)) + '</span></div>';
+    }).join('') + '</div><p class="vl-cap">Each input moved down and up by the step shown, everything else held. Center line = the modeled value ' + vlMoney(base) + '.</p>';
+  }
+
+  function vlGridHtml(row, a){
+    var g = a.grid;
+    var head = '<tr><th>First-year growth</th>' + g.shifts.map(function(s){ return '<th class="num">' + (s === 0 ? 'Rates now' : (s > 0 ? '+' : '') + s + 'bp') + '</th>'; }).join('') + '</tr>';
+    var body = g.rows.map(function(r){
+      return '<tr' + (r.growthDelta === 0 ? ' class="vl-base"' : '') + '><td>' + vlNum(r.g1) + '%' + (r.growthDelta ? ' <small>(' + (r.growthDelta > 0 ? '+' : '') + r.growthDelta + ')</small>' : ' <small>(yours)</small>') + '</td>' + r.cells.map(function(c, i){
+        var gap = vlFin(c) ? (c / row.spot - 1) * 100 : null;
+        return '<td class="num ' + vlGapCls(gap) + (r.growthDelta === 0 && g.shifts[i] === 0 ? ' vl-here' : '') + '" title="' + escapeHtml(vlPct(gap) + ' vs market') + '">' + vlMoney(c) + '</td>';
+      }).join('') + '</tr>';
+    }).join('');
+    return '<div class="acc-tscroll"><table class="acc-qtable vl-grid-t" data-nosort><thead>' + head + '</thead><tbody>' + body + '</tbody></table></div><p class="vl-cap">Blended value with the 10-year yield moved (columns) and revenue and EPS growth moved together (rows). Green = above the market price by 5%+, red = below by 5%+.</p>';
+  }
+
+  function vlFactsHtml(row, a){
+    var f = row.facts, p = row.peers, r = a.result;
+    var items = [
+      ['Revenue (trailing)', vlBig(f.revenue)], ['Free cash flow', vlBig(f.fcf)], ['Cash / debt', vlBig(f.cash) + ' / ' + vlBig(f.debt)],
+      ['Shares', vlFin(f.shares) ? (f.shares / 1e9).toFixed(2) + 'B' : '—'], ['P/E trailing / forward', vlNum(f.trailingPE) + 'x / ' + vlNum(f.forwardPE) + 'x'],
+      ['Peers (' + escapeHtml(p.label || 'none') + ')', 'fwd P/E ' + vlNum(p.fpe) + 'x · EV/sales ' + vlNum(p.evs) + 'x · P/S ' + vlNum(p.ps) + 'x'],
+      ['Peer names', escapeHtml((p.members || []).join(', ') || '—')],
+      ['Rates', '10-year ' + vlNum(row.market.tenY, 2) + '% · 2-year ' + vlNum(row.market.twoY, 2) + '% · WACC ' + vlNum(r.rates.wacc, 2) + '%'],
+      ['Measured sensitivity', row.sens ? 'beta ' + vlNum(row.sens.marketBeta, 2) + ' · ' + vlNum(row.sens.rate10y, 2) + '% per 10bp · ' + vlNum(row.sens.usd, 2) + ' dollar · ' + vlNum(row.sens.commodity, 2) + ' oil' : 'not measured'],
+      ['Site grade', row.context.grade && vlFin(row.context.grade.total) ? (row.context.grade.total > 0 ? '+' : '') + row.context.grade.total.toFixed(1) + (row.context.grade.side ? ' ' + row.context.grade.side : '') : '—']
+    ];
+    return '<dl class="vl-facts">' + items.map(function(x){ return '<div><dt>' + x[0] + '</dt><dd>' + x[1] + '</dd></div>'; }).join('') + '</dl>';
+  }
+
+  function vlScreenHtml(){
+    var rows = (vlState.data && vlState.data.rows) || {};
+    var list = Object.keys(rows).map(function(s){ var b = rows[s].base || {}; return { s: s, name: rows[s].name, gap: b.gapPct, v: b.value, spot: rows[s].spot, ig: b.impliedGrowth }; }).filter(function(x){ return vlFin(x.gap); });
+    list.sort(function(a, b){ return b.gap - a.gap; });
+    if (!list.length) return '';
+    function rowHtml(x){ return '<tr><td><button type="button" class="ql-linkbtn" data-vl-go="' + escapeHtml(x.s) + '">' + escapeHtml(x.s) + '</button> <small>' + escapeHtml(x.name || '') + '</small></td><td class="num">' + vlMoney(x.spot) + '</td><td class="num">' + vlMoney(x.v) + '</td><td class="num ' + vlGapCls(x.gap) + '">' + vlPct(x.gap) + '</td><td class="num">' + (vlFin(x.ig) ? vlNum(x.ig) + '%' : '—') + '</td></tr>'; }
+    var head = '<thead><tr><th>Stock</th><th class="num">Market</th><th class="num">Model</th><th class="num">Gap</th><th class="num">Price implies growth</th></tr></thead>';
+    return '<details class="vl-screen"><summary>All covered stocks at default inputs (' + list.length + ')</summary><div class="acc-tscroll"><table class="acc-qtable vl-table">' + head + '<tbody>' + list.map(rowHtml).join('') + '</tbody></table></div><p class="vl-cap">Defaults only, from the last build. A big gap at defaults is a question to ask, not a signal: open the stock and check which inputs drive it.</p></details>';
+  }
+
+  // ---- Render ----------------------------------------------------------------
+  function renderValuationLab(){
+    var root = $('valuation-lab-root'); if (!root) return;
+    if (!vlState.data){ root.innerHTML = '<p class="hint">' + (vlState.error ? 'The lab could not be loaded (' + escapeHtml(vlState.error) + '). Every full build writes it; the first one after this deploys creates the file.' : 'Loading…') + '</p>'; return; }
+    if (!vlState.sym){
+      var want = null;
+      try { want = (new URLSearchParams(location.search).get('symbol') || '').toUpperCase() || null; } catch (_) {}
+      vlPick(want || VIEWS.get('valuation-lab.symbol', 'NVDA'));
+    }
+    var row = vlRow(); if (!row){ root.innerHTML = '<p class="hint">No stock has valuation inputs yet.</p>'; return; }
+    var opts = vlSymbols().map(function(s){ var r = vlState.data.rows[s]; return '<option value="' + escapeHtml(s) + '"' + (s === vlState.sym ? ' selected' : '') + '>' + escapeHtml(s + ' · ' + (r.name || '')) + '</option>'; }).join('');
+    var presets = VL_PRESETS.map(function(p){ return '<button type="button" class="vl-preset" data-vl-preset="' + p[0] + '">' + escapeHtml(p[1]) + '</button>'; }).join('');
+    root.innerHTML = '<div class="vl-bar"><label class="vl-pick">Stock <select data-vl-sym aria-label="Stock to value">' + opts + '</select></label><div class="vl-presets" role="group" aria-label="Scenarios">' + presets + '</div><a class="book-more" href="?tab=stock&s=' + encodeURIComponent(vlState.sym) + '">Stock page</a></div>' +
+      '<div class="vl-sticky" id="vl-sticky" aria-live="polite"></div><div class="vl-layout"><div class="vl-main" id="vl-out"></div><aside class="vl-side"><h4 class="slp-h4">Inputs <button type="button" class="ql-linkbtn" data-vl-reset>Reset</button></h4><div id="vl-inputs">' + vlInputsHtml() + '</div></aside></div>' +
+      vlScreenHtml() +
+      '<p class="evb-note">Display only: nothing here changes a pick, a grade or the Track Record. Inputs from the ' + escapeHtml(rglEt(vlState.data.builtAtIso)) + ' build; your changes are kept on this device only.</p>';
+    vlRenderOut();
+  }
+
+  function vlRenderOut(){
+    var out = $('vl-out'), row = vlRow(); if (!out || !row) return;
+    var a = VL.analyze(row, vlState.inputs);
+    var st = $('vl-sticky');
+    if (st) st.innerHTML = '<span>Market <b>' + vlMoney(row.spot) + '</b></span><span>Model <b>' + vlMoney(a.result.value) + '</b></span><span>Gap <b class="' + vlGapCls(a.result.gapPct) + '">' + vlPct(a.result.gapPct) + '</b></span>';
+    out.innerHTML = vlKpis(row, a) +
+      '<div class="vl-card">' + vlField(row, a) + '</div>' +
+      '<div class="vl-card">' + vlReadHtml(a) + '</div>' +
+      '<h4 class="slp-h4">Methods and weights</h4>' + vlMethodsTable(row, a) +
+      '<h4 class="slp-h4">What moves the answer most</h4>' + vlDriversHtml(a) +
+      '<h4 class="slp-h4">Rates x growth</h4>' + vlGridHtml(row, a) +
+      '<h4 class="slp-h4">The numbers underneath</h4>' + vlFactsHtml(row, a);
+  }
+
+  function vlSync(){
+    var d = vlState.inputs, defs = vlState.defaults.inputs;
+    VL.INPUTS.forEach(function(def){
+      var b = document.querySelector('[data-vl-iv="' + def.key + '"]'); if (b) b.textContent = vlFmtInput(def, d[def.key]);
+      var inp = document.querySelector('[data-vl-input="' + def.key + '"]');
+      if (inp){ if (String(inp.value) !== String(d[def.key])) inp.value = d[def.key]; var lab = inp.closest('.vl-in'); if (lab) lab.classList.toggle('vl-changed', Math.abs((d[def.key] || 0) - (defs[def.key] || 0)) > 1e-9); }
+    });
+  }
+
+  var vlTimer = null;
+  function vlChanged(){
+    var same = JSON.stringify(vlState.inputs) === JSON.stringify(vlState.defaults.inputs);
+    vlSave(vlState.sym, same ? null : vlState.inputs);
+    if (vlTimer) cancelAnimationFrame(vlTimer);
+    vlTimer = requestAnimationFrame(function(){ vlTimer = null; vlRenderOut(); });
+  }
+
+  function loadValuationLab(force){
+    var status = $('valuation-lab-status');
+    if (status && !vlState.data) status.textContent = 'Loading the lab…';
+    renderValuationLab();
+    vlFetch(force).then(function(d){
+      if (status) status.textContent = d ? d.count + ' stocks · inputs from the ' + rglEt(d.builtAtIso) + ' build.' : (vlState.error === 'not written yet' ? 'No valuation file yet. The next full build writes it.' : 'The lab is not available right now.');
+      renderValuationLab();
+    });
+  }
+
+  document.addEventListener('input', function(ev){
+    var t = ev.target; if (!t || !t.closest || !t.closest('#valuation-lab-root') || !vlState.inputs) return;
+    var k = t.getAttribute('data-vl-input');
+    if (k){ vlState.inputs[k] = Number(t.value); vlState.inputs = VL.normalize(vlState.inputs); vlSync(); vlChanged(); return; }
+    var w = t.getAttribute('data-vl-weight');
+    if (w){ vlState.inputs.weights[w] = Number(t.value); var wv = document.querySelector('[data-vl-wv="' + w + '"]'); if (wv) wv.textContent = t.value; vlChanged(); }
+  });
+  document.addEventListener('change', function(ev){
+    var t = ev.target; if (!t || !t.matches || !t.matches('[data-vl-sym]')) return;
+    vlPick(t.value); renderValuationLab();
+  });
+  document.addEventListener('click', function(ev){
+    var t = ev.target; if (!t || !t.closest || !t.closest('#valuation-lab-root')) return;
+    var go = t.closest('[data-vl-go]');
+    if (go){ vlPick(go.getAttribute('data-vl-go')); renderValuationLab(); var root = $('valuation-lab-root'); if (root && root.scrollIntoView) root.scrollIntoView({ block: 'start' }); return; }
+    if (t.closest('[data-vl-reset]')){ vlState.inputs = vlClone(vlState.defaults.inputs); vlSave(vlState.sym, null); $('vl-inputs').innerHTML = vlInputsHtml(); vlRenderOut(); return; }
+    var pr = t.closest('[data-vl-preset]');
+    if (pr){
+      var id = pr.getAttribute('data-vl-preset'), p = null;
+      VL_PRESETS.forEach(function(x){ if (x[0] === id) p = x[2]; });
+      var next = vlClone(vlState.defaults.inputs);
+      if (p) for (var k in p) if (Object.prototype.hasOwnProperty.call(p, k)) next[k] = next[k] + p[k];
+      vlState.inputs = VL.normalize(next); $('vl-inputs').innerHTML = vlInputsHtml(); vlChanged();
+    }
+  });
+
+
   // ---- Strategy engines (their own Owner page) ------------------------------
   var ENG_TABS = [{"id":"flagship","name":"Top Picks","tag":"TOP"},{"id":"all","name":"All engines","tag":""},{"id":"earnings","name":"Earnings & events","tag":"ERN"},{"id":"macro","name":"Macro","tag":"MAC"},{"id":"technicals","name":"Technicals","tag":"TEC"},{"id":"fundamentals","name":"Fundamentals","tag":"FUN"},{"id":"flow","name":"Flow & positioning","tag":"FLO"},{"id":"reversion","name":"Reversion","tag":"REV"}];
   var ENG_SUBS = [['now', 'Now'], ['record', 'Track record'], ['learn', 'Setups and learning'], ['history', 'History test'], ['webull', 'Webull paper']];
@@ -10768,7 +11406,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // the Owner analysis/idea/record desks and Owner Lab; this UI boundary keeps
   // destinations hidden until the owner session's compatibility claims resolve.
   // Discord mints both only after verifying the existing Top Picks owner role.
-  var OWNER_TABS = {"update-checker":1,"owner-settings":1,"owner-market-brief":1,"grade":1,"strategies":1,"narratives":1,"earnings-forecast":1,"unified-signal-engine":1,"market":1,"risk":1,"bottom-tracker":1,"historical-data":1,"party-tracker":1,"forced-liquidation":1,"picks":1,"leaps":1,"stocks":1,"rotation":1,"levetf":1,"open-picks":1,"track":1,"engines":1,"quant":1,"quant-labs":1,"sports-nba":1,"sports-nfl":1,"sports-pick-builder":1};
+  var OWNER_TABS = {"update-checker":1,"owner-settings":1,"owner-market-brief":1,"grade":1,"strategies":1,"narratives":1,"earnings-forecast":1,"unified-signal-engine":1,"market":1,"risk":1,"bottom-tracker":1,"historical-data":1,"party-tracker":1,"forced-liquidation":1,"picks":1,"leaps":1,"stocks":1,"rotation":1,"levetf":1,"open-picks":1,"track":1,"engines":1,"quant":1,"quant-labs":1,"valuation-lab":1,"sports-nba":1,"sports-nfl":1,"sports-pick-builder":1};
   var GATE_ON = false;
   var HAS_TRACK_RECORD = false;
   var HAS_TOP_PICKS = false;
@@ -14803,7 +15441,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // resolve the URL's initial tab synchronously at script-evaluation time (the
   // anti-flash pre-select in the boot block) before the /api/auth/me +
   // manifest fetches settle and bind() runs the full selectTab.
-  var PAGE_TAB_IDS = ['home','update-checker','owner-settings','owner-market-brief','tickers','stock','narratives','brief','news','market','risk','unified-signal-engine','historical-data','party-tracker','earnings-forecast','forced-liquidation','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','quant-labs','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ai-disruption','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','bottom-tracker','open-picks','track','engines','sports-nba','sports-nfl','sports-pick-builder','cheatsheet','chart-patterns','timeline','contact','glossary','earnings-week','market-map','crowd','prediction-markets','history-rhymes','whats-changed','past-day','privacy','terms'];
+  var PAGE_TAB_IDS = ['home','update-checker','owner-settings','owner-market-brief','tickers','stock','narratives','brief','news','market','risk','unified-signal-engine','historical-data','party-tracker','earnings-forecast','forced-liquidation','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','quant-labs','valuation-lab','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ai-disruption','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','bottom-tracker','open-picks','track','engines','sports-nba','sports-nfl','sports-pick-builder','cheatsheet','chart-patterns','timeline','contact','glossary','earnings-week','market-map','crowd','prediction-markets','history-rhymes','whats-changed','past-day','privacy','terms'];
   // Friendly aliases so deep-links people might guess work too.
   // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
   // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -14855,6 +15493,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     iv: 'iv-trend', 'trending-iv': 'iv-trend', 'iv-trending': 'iv-trend', ivtrend: 'iv-trend', 'implied-vol': 'iv-trend', 'implied-volatility': 'iv-trend',
     'event-spillover': 'spillover', 'read-through': 'spillover', readthrough: 'spillover', 'spill-over': 'spillover', spill: 'spillover',
     quantlabs: 'quant-labs', 'market-odds': 'quant-labs', 'drawdown-odds': 'quant-labs',
+    valuation: 'valuation-lab', valuationlab: 'valuation-lab', dcf: 'valuation-lab', 'fair-value': 'valuation-lab', 'price-discovery': 'valuation-lab', 'intrinsic-value': 'valuation-lab',
     'quant-lab': 'quant', quantlab: 'quant', pairs: 'quant', 'pair-trading': 'quant', sigma: 'quant', vrp: 'quant', dispersion: 'quant',
     'leveraged-etfs': 'levetf', 'leveraged-etf': 'levetf', leveraged: 'levetf', letf: 'levetf', 'lev-etf': 'levetf', tqqq: 'levetf', soxl: 'levetf',
     // Reference / legal / info pages (now in-app tabs).
@@ -15555,7 +16194,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var exportShot = null; // last picture made: { key, blob }
     // Learn & help pages are guides and legal text, not data.
     var EXPORT_SKIP_SECTIONS = { learn: 1 };
-    var EXPORT_SOURCES = {"home":["heatmap.json"],"brief":["briefs.json"],"news":["news-feed.json"],"heatmap":["heatmap.json"],"calendar":["calendar.json"],"overnight":["correlations.json"],"tickers":["heatmap.json","grades.json"],"compare":["grades.json"],"earnings":["earnings-tracker.json"],"calls":["earnings-calls.json"],"f13":["13f.json"],"pending-buyouts":["pending-buyouts.json"],"bonds-usd":["macro-history.json"],"commodities":["commodities.json"],"central-bank-gold":["central-bank-gold.json"],"capital-raises":["capital-raises.json","ipo-credit.json"],"flow":["unusual.json"],"volume":["volume-flags.json"],"oi":["oi-tracker.json"],"iv-trend":["iv-trending.json"],"ma-tracker":["ma-tracker.json"],"streaks":["streaks.json"],"pattern-lab":["pattern-recognition.json"],"spillover":["spillover-pairs.json"],"index-cal":["index-calendar.json"],"ai-capex":["ai-capex.json"],"ram-prices":["ram-prices.json"],"accelerator-prices":["accelerator-prices.json"],"search-interest":["search-interest.json"],"unified-signal-engine":["market-analysis.json","sector-rotation.json"],"market":["regime-history.json","correlations.json"],"risk":["market-analysis.json"],"bottom-tracker":["bottom-tracker.json"],"party-tracker":["party-tracker.json"],"history-rhymes":["history-rhymes.json","history-rhymes-owner.json"],"prediction-markets":["prediction-odds.json","prediction-odds-owner.json"],"ai-disruption":["ai-disruption.json","ai-disruption-owner.json"],"picks":["picks.json","picks-open.json"],"engines":["engines.json","engines-record.json"],"leaps":["leaps-picks.json"],"stocks":["stock-picks.json"],"rotation":["sector-rotation.json"],"levetf":["leveraged-etfs.json"],"open-picks":["picks-open.json","picks-accuracy.json"],"track":["picks-accuracy.json","picks-changes.json","picks-roster.json","grades-history.json"],"quant":["quant.json"],"quant-labs":["quant-labs.json"],"earnings-forecast":["earnings-forecast.json"]};
+    var EXPORT_SOURCES = {"home":["heatmap.json"],"brief":["briefs.json"],"news":["news-feed.json"],"heatmap":["heatmap.json"],"calendar":["calendar.json"],"overnight":["correlations.json"],"tickers":["heatmap.json","grades.json"],"compare":["grades.json"],"earnings":["earnings-tracker.json"],"calls":["earnings-calls.json"],"f13":["13f.json"],"pending-buyouts":["pending-buyouts.json"],"bonds-usd":["macro-history.json"],"commodities":["commodities.json"],"central-bank-gold":["central-bank-gold.json"],"capital-raises":["capital-raises.json","ipo-credit.json"],"flow":["unusual.json"],"volume":["volume-flags.json"],"oi":["oi-tracker.json"],"iv-trend":["iv-trending.json"],"ma-tracker":["ma-tracker.json"],"streaks":["streaks.json"],"pattern-lab":["pattern-recognition.json"],"spillover":["spillover-pairs.json"],"index-cal":["index-calendar.json"],"ai-capex":["ai-capex.json"],"ram-prices":["ram-prices.json"],"accelerator-prices":["accelerator-prices.json"],"search-interest":["search-interest.json"],"unified-signal-engine":["market-analysis.json","sector-rotation.json"],"market":["regime-history.json","correlations.json"],"risk":["market-analysis.json"],"bottom-tracker":["bottom-tracker.json"],"party-tracker":["party-tracker.json"],"history-rhymes":["history-rhymes.json","history-rhymes-owner.json"],"prediction-markets":["prediction-odds.json","prediction-odds-owner.json"],"ai-disruption":["ai-disruption.json","ai-disruption-owner.json"],"picks":["picks.json","picks-open.json"],"engines":["engines.json","engines-record.json"],"leaps":["leaps-picks.json"],"stocks":["stock-picks.json"],"rotation":["sector-rotation.json"],"levetf":["leveraged-etfs.json"],"open-picks":["picks-open.json","picks-accuracy.json"],"track":["picks-accuracy.json","picks-changes.json","picks-roster.json","grades-history.json"],"quant":["quant.json"],"quant-labs":["quant-labs.json"],"valuation-lab":["valuation-lab.json"],"earnings-forecast":["earnings-forecast.json"]};
     function exportOwner(){ return HAS_OWNER_ACCESS && !IS_EMBED; }
     function exportTabNow(){
       var a = document.querySelector('[data-page-tab][aria-controls][aria-selected="true"]');
@@ -16777,6 +17416,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         if (name === 'spillover' && typeof loadSpillover === 'function') loadSpillover();
         if (name === 'quant' && typeof loadQuant === 'function') loadQuant();
         if (name === 'quant-labs' && typeof loadQuantLabs === 'function') loadQuantLabs();
+        if (name === 'valuation-lab' && typeof loadValuationLab === 'function') loadValuationLab();
       if (name === 'levetf' && typeof loadLevEtf === 'function') loadLevEtf();
       // The sidebar scrolls vertically when the tab list outgrows the
       // viewport. Programmatic selection (e.g. a ?tab= deep-link) can leave
@@ -66864,7 +67504,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // accessibility trees. The server separately withholds their data.
   function enforceOwnerUi(root){
     if (HAS_OWNER_ACCESS || !root || !root.querySelectorAll) return;
-    var selector = "[data-owner-only],#book-grade-return,.flow-decision,.heatmap-decision,.heatmap-eod-decision,#news-feed-summary,.news-posture-triggers,.news-feed-decision,.news-decision,.brief-decision,.brief-analog,.ers-posture,.ers-search-signal,.ecl-decision,.ecl-plan-posture,.cmd-posture,.cx-posture,.rp-posture,.ic-posture,.bonds-ctx-posture,.fng-decision,.idx-cal-decision,.ma-track-summary,.ma-track-desk,.ma-track-leaders,.ma-track-note,#tickers-decision,#tickers-model-summary,#tickers-model-note,#tickers-ready,.ticker-grade,#tickers-scatter .sc-legend,#cmp-pillars,#cmp-summary,[data-ers-view=\"recovery\"],.recovery-screen,option[value=\"grade\"],#tickers-sort option[value=\"score\"],#tickers-sc-x option[value=\"score\"],#tickers-sc-y option[value=\"score\"],#tickers-sort option[value=\"conviction\"],#tickers-sort option[value=\"ready\"],#cmp-sec-metric option[value=\"call\"],#cmp-sec-metric option[value=\"put\"],[data-grade],[data-scn-grade],[data-f13-grade],.flow-grade-btn,[data-go=\"grade\"],[data-go=\"strategies\"],[data-go=\"narratives\"],[data-f13-tab=\"narratives\"],[data-page-tab=\"update-checker\"],[data-go=\"update-checker\"],#page-pane-update-checker,[data-page-tab=\"owner-settings\"],[data-go=\"owner-settings\"],#page-pane-owner-settings,[data-page-tab=\"owner-market-brief\"],[data-go=\"owner-market-brief\"],#page-pane-owner-market-brief,[data-page-tab=\"grade\"],[data-go=\"grade\"],#page-pane-grade,[data-page-tab=\"strategies\"],[data-go=\"strategies\"],#page-pane-strategies,[data-page-tab=\"narratives\"],[data-go=\"narratives\"],#page-pane-narratives,[data-page-tab=\"earnings-forecast\"],[data-go=\"earnings-forecast\"],#page-pane-earnings-forecast,[data-page-tab=\"unified-signal-engine\"],[data-go=\"unified-signal-engine\"],#page-pane-unified-signal-engine,[data-page-tab=\"market\"],[data-go=\"market\"],#page-pane-market,[data-page-tab=\"risk\"],[data-go=\"risk\"],#page-pane-risk,[data-page-tab=\"bottom-tracker\"],[data-go=\"bottom-tracker\"],#page-pane-bottom-tracker,[data-page-tab=\"historical-data\"],[data-go=\"historical-data\"],#page-pane-historical-data,[data-page-tab=\"party-tracker\"],[data-go=\"party-tracker\"],#page-pane-party-tracker,[data-page-tab=\"forced-liquidation\"],[data-go=\"forced-liquidation\"],#page-pane-forced-liquidation,[data-page-tab=\"picks\"],[data-go=\"picks\"],#page-pane-picks,[data-page-tab=\"leaps\"],[data-go=\"leaps\"],#page-pane-leaps,[data-page-tab=\"stocks\"],[data-go=\"stocks\"],#page-pane-stocks,[data-page-tab=\"rotation\"],[data-go=\"rotation\"],#page-pane-rotation,[data-page-tab=\"levetf\"],[data-go=\"levetf\"],#page-pane-levetf,[data-page-tab=\"open-picks\"],[data-go=\"open-picks\"],#page-pane-open-picks,[data-page-tab=\"track\"],[data-go=\"track\"],#page-pane-track,[data-page-tab=\"engines\"],[data-go=\"engines\"],#page-pane-engines,[data-page-tab=\"quant\"],[data-go=\"quant\"],#page-pane-quant,[data-page-tab=\"quant-labs\"],[data-go=\"quant-labs\"],#page-pane-quant-labs,[data-page-tab=\"sports-nba\"],[data-go=\"sports-nba\"],#page-pane-sports-nba,[data-page-tab=\"sports-nfl\"],[data-go=\"sports-nfl\"],#page-pane-sports-nfl,[data-page-tab=\"sports-pick-builder\"],[data-go=\"sports-pick-builder\"],#page-pane-sports-pick-builder";
+    var selector = "[data-owner-only],#book-grade-return,.flow-decision,.heatmap-decision,.heatmap-eod-decision,#news-feed-summary,.news-posture-triggers,.news-feed-decision,.news-decision,.brief-decision,.brief-analog,.ers-posture,.ers-search-signal,.ecl-decision,.ecl-plan-posture,.cmd-posture,.cx-posture,.rp-posture,.ic-posture,.bonds-ctx-posture,.fng-decision,.idx-cal-decision,.ma-track-summary,.ma-track-desk,.ma-track-leaders,.ma-track-note,#tickers-decision,#tickers-model-summary,#tickers-model-note,#tickers-ready,.ticker-grade,#tickers-scatter .sc-legend,#cmp-pillars,#cmp-summary,[data-ers-view=\"recovery\"],.recovery-screen,option[value=\"grade\"],#tickers-sort option[value=\"score\"],#tickers-sc-x option[value=\"score\"],#tickers-sc-y option[value=\"score\"],#tickers-sort option[value=\"conviction\"],#tickers-sort option[value=\"ready\"],#cmp-sec-metric option[value=\"call\"],#cmp-sec-metric option[value=\"put\"],[data-grade],[data-scn-grade],[data-f13-grade],.flow-grade-btn,[data-go=\"grade\"],[data-go=\"strategies\"],[data-go=\"narratives\"],[data-f13-tab=\"narratives\"],[data-page-tab=\"update-checker\"],[data-go=\"update-checker\"],#page-pane-update-checker,[data-page-tab=\"owner-settings\"],[data-go=\"owner-settings\"],#page-pane-owner-settings,[data-page-tab=\"owner-market-brief\"],[data-go=\"owner-market-brief\"],#page-pane-owner-market-brief,[data-page-tab=\"grade\"],[data-go=\"grade\"],#page-pane-grade,[data-page-tab=\"strategies\"],[data-go=\"strategies\"],#page-pane-strategies,[data-page-tab=\"narratives\"],[data-go=\"narratives\"],#page-pane-narratives,[data-page-tab=\"earnings-forecast\"],[data-go=\"earnings-forecast\"],#page-pane-earnings-forecast,[data-page-tab=\"unified-signal-engine\"],[data-go=\"unified-signal-engine\"],#page-pane-unified-signal-engine,[data-page-tab=\"market\"],[data-go=\"market\"],#page-pane-market,[data-page-tab=\"risk\"],[data-go=\"risk\"],#page-pane-risk,[data-page-tab=\"bottom-tracker\"],[data-go=\"bottom-tracker\"],#page-pane-bottom-tracker,[data-page-tab=\"historical-data\"],[data-go=\"historical-data\"],#page-pane-historical-data,[data-page-tab=\"party-tracker\"],[data-go=\"party-tracker\"],#page-pane-party-tracker,[data-page-tab=\"forced-liquidation\"],[data-go=\"forced-liquidation\"],#page-pane-forced-liquidation,[data-page-tab=\"picks\"],[data-go=\"picks\"],#page-pane-picks,[data-page-tab=\"leaps\"],[data-go=\"leaps\"],#page-pane-leaps,[data-page-tab=\"stocks\"],[data-go=\"stocks\"],#page-pane-stocks,[data-page-tab=\"rotation\"],[data-go=\"rotation\"],#page-pane-rotation,[data-page-tab=\"levetf\"],[data-go=\"levetf\"],#page-pane-levetf,[data-page-tab=\"open-picks\"],[data-go=\"open-picks\"],#page-pane-open-picks,[data-page-tab=\"track\"],[data-go=\"track\"],#page-pane-track,[data-page-tab=\"engines\"],[data-go=\"engines\"],#page-pane-engines,[data-page-tab=\"quant\"],[data-go=\"quant\"],#page-pane-quant,[data-page-tab=\"quant-labs\"],[data-go=\"quant-labs\"],#page-pane-quant-labs,[data-page-tab=\"valuation-lab\"],[data-go=\"valuation-lab\"],#page-pane-valuation-lab,[data-page-tab=\"sports-nba\"],[data-go=\"sports-nba\"],#page-pane-sports-nba,[data-page-tab=\"sports-nfl\"],[data-go=\"sports-nfl\"],#page-pane-sports-nfl,[data-page-tab=\"sports-pick-builder\"],[data-go=\"sports-pick-builder\"],#page-pane-sports-pick-builder";
     if (root.matches && root.matches(selector)) { root.remove(); return; }
     root.querySelectorAll(selector).forEach(function(el){ el.remove(); });
   }

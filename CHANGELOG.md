@@ -23,6 +23,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ## [Unreleased]
 
 ### Added
+- Add the Owner **Valuation lab** page (Owner · Research): values each covered stock five ways (cash flow, an earnings path, peer multiples, rate-justified earnings power, the analysts' target) on inputs the Owner can move (rates, risk premium, growth, margins, multiples, the dollar, oil), blends them by adjustable weights, compares the result with the market price and explains the gap (what today's price implies, which input matters most, what the market may be seeing). Same code in the MCP as `value_stock`. No AI, no new download; display only, changes no pick. Kill switch `VALUATION_LAB=0` (`docs/valuation-lab.md`).
 - Start the AI disruption tracker registry (`lib/ai-disruption/`, `docs/ai-disruption.md`): 32 capabilities, six labs and their official release pages, 88 past launches (58 read on the source page), a map of 45 companies that sell each capability and how a launch could hurt them, and the customer-capture score. The check refuses any stock score in the company map, unused capabilities, future dates and sources that are not a lab's listed page. Nothing on the site, in the MCP or in Top Picks reads it yet; no network or AI call. Stock scores stay out of the public repo by rule.
 
 ### Changed

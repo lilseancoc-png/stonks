@@ -36,6 +36,7 @@ import { renderEvidenceCss } from './evidence-css.mjs';
 import { renderRegimeLabCss } from './regime-lab-css.mjs';
 import { renderSelfLoopCss } from './self-loop-css.mjs';
 import { renderQuantLabsCss } from './quant-labs-css.mjs';
+import { renderValuationLabCss } from './valuation-lab-css.mjs';
 import { renderEnginesCss } from './engines-css.mjs';
 import { renderOwnerInsightCss } from './owner-insight-css.mjs';
 import { renderI18nCss } from './i18n-client.mjs';
@@ -25611,6 +25612,7 @@ ${renderEvidenceCss()}
 ${renderRegimeLabCss()}
 ${renderSelfLoopCss()}
 ${renderQuantLabsCss()}
+${renderValuationLabCss()}
 ${renderEnginesCss()}
 ${renderOwnerInsightCss()}
 ${renderI18nCss()}
