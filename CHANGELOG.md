@@ -69,6 +69,10 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - The hourly unusual-flow scan counts the first half hour after the open: the 10:00 ET scan (up to 11:30) had nothing in-session to compare with, so 9:30-10:00 never flagged (0 of 188 flags in 60 scans, Nov 5-16). A contract that has traded today now counts all of today's volume and is labeled "since the open". Off switch `FLOW_OPEN_WINDOW` (Owner Settings).
 - Each stock gets its own unusual-flow volume bar: 1% (0.5% past 14 days) of its median full-day option volume over its last 10 complete sessions, between 500 and the old 4,000 (250 to 2,000). A stock keeps the old bar until 5 complete sessions are on file; the scanner now keeps each stock's daily option volume in `unusual-history.json`. 49 of 85 stocks never flagged under the single bar. Off switch `FLOW_STOCK_BARS` (Owner Settings). New Top Picks trades carry `flowScanVersion`, so the Track Record draws a dated divider; the record is not reset.
 
+### Fixed
+
+- Daily index moves: a 30-minute bar still trading when the build runs no longer counts as finished, so the 10:00 ET build stops reporting a first hour from a 10:05 price and the 15:30 ET build stops marking the day complete with a 15:35 price; today's row is labeled "so far" until the close, and the month read's sleeve counts ("at least 5 of 6") now match the rule instead of saying "four" (`indexCalendarAsOf` in `build.mjs`, `scripts/index-calendar-smoke.mjs`).
+
 ## 2026-11-16
 
 ### Added

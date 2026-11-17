@@ -1,4 +1,4 @@
-import { sessionForDate } from "../lib/us-equity-calendar.mjs";
+import { sessionForDate, etClock } from "../lib/us-equity-calendar.mjs";
 import { isOwnershipBookKey } from "../lib/data-ownership.mjs";
 import { createOwnershipSecReader, expandOwnershipSubmissions, ownershipPrimaryUrl, ownershipNotice, ownershipRequestSignal } from "../lib/ownership-sec.mjs";
 import { packOwnershipBooks, ownershipBookClientFactory, retainOwnershipBooks } from "../lib/ownership-books.mjs";
@@ -29534,15 +29534,33 @@ function indexHourExtremeWindow(bars, target, side) {
   return null;
 }
 
+// When the build ran, in ET, with that day's close (13:00 on a half day).
+// Yahoo's 30-minute series and daily bar both include the bar still trading,
+// so the session log needs the build time to tell a finished bar from a live one.
+export function indexCalendarAsOf(builtAtIso) {
+  const ms = Date.parse(builtAtIso || "");
+  if (!Number.isFinite(ms)) return null;
+  const clock = etClock(ms);
+  const session = sessionForDate(clock.date);
+  return { date: clock.date, minute: clock.minute, closeMinute: session?.closeMinute ?? 960 };
+}
+function indexCalendarLive(asOf, date) {
+  return !!asOf && asOf.date === date && Number.isFinite(asOf.minute) && asOf.minute < asOf.closeMinute;
+}
+
 // Build one SPY/QQQ/IWM session log from the already-fetched daily + 30-minute
 // bars. A row becomes `firstHourComplete` after the 10:00 bar closes at 10:30 ET;
 // it becomes `dayComplete` once both 15:00/15:30 bars are present. Half-days do
 // not fabricate a 3–4pm reading: their first-hour record remains useful while
-// the last-hour/full-day path fields stay null.
-export function buildIndexHourSession(dailyBars, intradayBars, dailyIdx) {
+// the last-hour/full-day path fields stay null. With `asOf` (indexCalendarAsOf),
+// a bar of the build's own day counts only once its half hour has ended, and
+// the day is never complete before the close: the 10:00 build used to read the
+// live 10:00 bar as the 10:30 price, and the 15:30 build the live close.
+export function buildIndexHourSession(dailyBars, intradayBars, dailyIdx, asOf = null) {
   const daily = dailyBars?.[dailyIdx];
   if (!daily?.t) return null;
   const date = daily.t;
+  const live = indexCalendarLive(asOf, date);
   const prevClose = indexHourNum(dailyBars?.[dailyIdx - 1]?.c);
   const open = indexHourNum(daily.o);
   const close = indexHourNum(daily.c);
@@ -29550,13 +29568,14 @@ export function buildIndexHourSession(dailyBars, intradayBars, dailyIdx) {
   const dailyLow = indexHourNum(daily.l);
   const bars = (intradayBars || [])
     .filter((b) => String(b?.t || "").slice(0, 10) === date)
+    .filter((b) => !live || (indexHourTime(b) ?? Infinity) + 30 <= asOf.minute)
     .slice()
     .sort((a, b) => String(a.t).localeCompare(String(b.t)));
   const at = new Map(bars.map((b) => [indexHourTime(b), b]));
   const firstBars = [at.get(570), at.get(600)].filter(Boolean);
   const lastBars = [at.get(900), at.get(930)].filter(Boolean);
   const firstHourComplete = firstBars.length === 2 && open != null && indexHourNum(firstBars[1].c) != null;
-  const dayComplete = firstHourComplete && lastBars.length === 2 && close != null;
+  const dayComplete = !live && firstHourComplete && lastBars.length === 2 && close != null;
   const gapPct = indexHourPct(prevClose, open);
   const out = {
     prevClose: indexHourRoundPrice(prevClose),
@@ -29565,6 +29584,7 @@ export function buildIndexHourSession(dailyBars, intradayBars, dailyIdx) {
     gapClass: gapPct == null ? null : indexGapClass(gapPct),
     firstHourComplete,
     dayComplete,
+    ...(live ? { inProgress: true } : {}),
   };
   if (!firstHourComplete) return out;
 
@@ -29757,6 +29777,7 @@ export function attachIndexHourSessionContexts(days, calendarPayload = null) {
 }
 
 export function appendIndexCalendar(prev, chains, builtAtIso, extraBars = {}, calendarPayload = null) {
+  const asOf = indexCalendarAsOf(builtAtIso);
   const byDate = new Map();
   for (const d of (prev?.days || [])) if (d && d.date) byDate.set(d.date, { ...d });
   for (const [sym, key] of Object.entries(INDEX_CALENDAR_SYMBOLS)) {
@@ -29799,13 +29820,19 @@ export function appendIndexCalendar(prev, chains, builtAtIso, extraBars = {}, ca
     for (let i = 0; i < dailyBars.length; i++) {
       const date = dailyBars[i]?.t;
       if (!date || !intradayBars.some((b) => String(b?.t || "").startsWith(date))) continue;
-      const session = buildIndexHourSession(dailyBars, intradayBars, i);
+      const session = buildIndexHourSession(dailyBars, intradayBars, i, asOf);
       if (!session) continue;
       const row = byDate.get(date) || { date };
       const leg = row[key] || {};
       row[key] = { ...leg, session };
       byDate.set(date, row);
     }
+  }
+  // The build's own day, before the close, is a move so far, not a close:
+  // `partial` lets the page say so. A carried flag clears on the next build.
+  for (const row of byDate.values()) {
+    if (indexCalendarLive(asOf, row.date)) row.partial = true;
+    else delete row.partial;
   }
   const days = Array.from(byDate.values())
     .sort((a, b) => String(a.date).localeCompare(String(b.date)))

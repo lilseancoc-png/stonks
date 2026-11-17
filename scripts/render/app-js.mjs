@@ -14395,7 +14395,7 @@ ${renderExportBindings()}
       var dayUp = dayRisk.filter(function(k){ return Number(lastRow[k].chPct) > 0; }).length;
       var dayVix = lastRow.vix && lastRow.vix.chPct != null ? Number(lastRow.vix.chPct) : null;
       if (dayRisk.length) {
-        why += ' Latest session ' + fmtCalendarDateShort(lastDate) + ': ' + dayUp + ' of ' + dayRisk.length + ' sleeves higher' +
+        why += ' Latest session ' + fmtCalendarDateShort(lastDate) + (lastRow.partial ? ' (in progress)' : '') + ': ' + dayUp + ' of ' + dayRisk.length + ' sleeves higher' +
           (dayVix == null ? '.' : ', VIX ' + (dayVix > 0 ? 'up ' : 'down ') + Math.abs(dayVix).toFixed(2) + '%.');
       }
     }
@@ -33707,7 +33707,8 @@ ${renderExportBindings()}
         if (!best || ch > best.ch) best = { ch: ch, date: date };
         if (!worst || ch < worst.ch) worst = { ch: ch, date: date };
         var heat = Math.round(Math.min(1, Math.abs(ch) / scale) * 72 + 14);
-        var tip = IDX_CAL_LABELS[idxKey] + ' · ' + fmtCalendarDateShort(date) + ' · ' + idxCalFmtPct(ch) + (leg.c != null ? ' · close ' + idxCalFmtClose(leg.c) : '');
+        var yrPartial = !!byDate[date].partial;
+        var tip = IDX_CAL_LABELS[idxKey] + ' · ' + fmtCalendarDateShort(date) + ' · ' + idxCalFmtPct(ch) + (yrPartial ? ' so far' : '') + (leg.c != null ? (yrPartial ? ' · last ' : ' · close ') + idxCalFmtClose(leg.c) : '');
         col += '<button type="button" class="idx-yr-cell ' + (signed > 0 ? 'is-pos' : signed < 0 ? 'is-neg' : 'is-flat') + (date === selectedDate ? ' is-selected' : '') + '" style="--heat:' + heat + '%" data-idx-jump="' + date + '" data-idx-tip="' + escapeHtml(tip) + '" title="' + escapeHtml(tip) + '" aria-label="' + escapeHtml(tip) + '"></button>';
       }
       cols += '<span class="idx-yr-col">' + col + '</span>';
@@ -33803,18 +33804,24 @@ ${renderExportBindings()}
     var monthBadge = 'Mixed';
     var monthHeadline = 'Participation is mixed across the tape';
     var monthWhy = 'Risk sleeves and volatility are not confirming one clean regime.';
-    var monthConfirm = 'Breadth improves to at least four risk sleeves while VIX remains lower.';
+    // The sleeve counts in the text come from the same two bars the read
+    // uses (three quarters for broad, a third for defensive), so the words
+    // match the rule for however many sleeves have a month return.
+    var riskN = riskAvailable.length >= 4 ? riskAvailable.length : IDX_CAL_RISK.length;
+    var riskOnNeed = Math.ceil(riskN * 0.75);
+    var riskOffMax = Math.floor(riskN * 0.34);
+    var monthConfirm = 'Breadth improves to at least ' + riskOnNeed + ' of ' + riskN + ' risk sleeves while VIX remains lower.';
     var monthBreak = 'VIX rises while SPY, IWM and SMH weaken together.';
-    if (riskAvailable.length >= 4 && riskPositive >= Math.ceil(riskAvailable.length * 0.75) && (vixMonth == null || vixMonth <= 0)){
+    if (riskAvailable.length >= 4 && riskPositive >= riskOnNeed && (vixMonth == null || vixMonth <= 0)){
       monthTone = 'riskon'; monthBadge = 'Broad risk-on'; monthHeadline = 'Risk participation is broad';
       monthWhy = riskPositive + ' of ' + riskAvailable.length + ' risk sleeves are positive' + (vixMonth != null ? ' while VIX is lower.' : '.');
       monthConfirm = 'Small caps, semis and international equities stay positive while VIX remains lower.';
-      monthBreak = 'Breadth falls below four sleeves or VIX turns higher.';
-    } else if (riskAvailable.length >= 4 && riskPositive <= Math.floor(riskAvailable.length * 0.34) && (vixMonth == null || vixMonth > 0)){
+      monthBreak = 'Breadth falls below ' + riskOnNeed + ' of ' + riskN + ' sleeves or VIX turns higher.';
+    } else if (riskAvailable.length >= 4 && riskPositive <= riskOffMax && (vixMonth == null || vixMonth > 0)){
       monthTone = 'riskoff'; monthBadge = 'Defensive'; monthHeadline = 'Weak breadth is confirming risk pressure';
       monthWhy = riskPositive + ' of ' + riskAvailable.length + ' risk sleeves are positive' + (vixMonth != null ? ' while VIX is higher.' : '.');
       monthConfirm = 'VIX stays elevated while fewer than half of the risk sleeves recover.';
-      monthBreak = 'Breadth expands to four or more sleeves and VIX gives back the rise.';
+      monthBreak = 'Breadth expands to ' + (riskOffMax + 1) + ' or more of ' + riskN + ' sleeves and VIX gives back the rise.';
     } else if (IDX_CAL_RISK.indexOf(idxKey) >= 0 && riskAvailable.length >= 4 && riskPositive <= Math.ceil(riskAvailable.length / 2) && selectedMonth != null && selectedMonth > 0){
       monthTone = 'narrow'; monthBadge = 'Narrow'; monthHeadline = IDX_CAL_LABELS[idxKey] + ' strength is not broad';
       monthWhy = 'The selected sleeve is positive, but only ' + riskPositive + ' of ' + riskAvailable.length + ' risk sleeves agree.';
@@ -33841,7 +33848,7 @@ ${renderExportBindings()}
       var dayVix = selectedRow.vix && selectedRow.vix.chPct != null ? Number(selectedRow.vix.chPct) : null;
       var dayTone = 'mixed';
       var dayHeadline = 'Rotation, not a clean market-wide signal';
-      var dayCopy = dayUp + ' of ' + dayRisk.length + ' risk sleeves closed higher' + (dayVix != null ? '; VIX moved ' + idxCalFmtPct(dayVix) + '.' : '.');
+      var dayCopy = dayUp + ' of ' + dayRisk.length + ' risk sleeves ' + (selectedRow.partial ? 'are higher so far' : 'closed higher') + (dayVix != null ? '; VIX ' + (selectedRow.partial ? 'has moved ' : 'moved ') + idxCalFmtPct(dayVix) + '.' : '.');
       if (dayRisk.length >= 4 && dayUp >= Math.ceil(dayRisk.length * 0.75) && (dayVix == null || dayVix <= 0)){
         dayTone = 'riskon'; dayHeadline = 'Breadth and volatility agreed on risk-on';
       } else if (dayRisk.length >= 4 && dayUp <= Math.floor(dayRisk.length * 0.34) && (dayVix == null || dayVix > 0)){
@@ -33854,7 +33861,7 @@ ${renderExportBindings()}
         return '<div class="idx-cal-day-tile ' + idxCalPctCls(ch * (IDX_CAL_INVERT[k] ? -1 : 1)) + '"><span>' + IDX_CAL_LABELS[k] + '</span><b>' + idxCalFmtPct(ch) + '</b><small>' + (leg.c != null ? 'close ' + idxCalFmtClose(leg.c) : '') + '</small></div>';
       }).join('');
       dayDetail = '<section class="idx-cal-day idx-cal-day-' + dayTone + '" aria-label="Selected trading day cross-asset read">' +
-        '<div class="idx-cal-day-head"><div><span>Selected session · ' + escapeHtml(fmtCalendarDateShort(selectedDate)) + '</span><h3>' + escapeHtml(dayHeadline) + '</h3><p>' + escapeHtml(dayCopy) + '</p></div>' +
+        '<div class="idx-cal-day-head"><div><span>Selected session · ' + escapeHtml(fmtCalendarDateShort(selectedDate)) + (selectedRow.partial ? ' · in progress at the last update' : '') + '</span><h3>' + escapeHtml(dayHeadline) + '</h3><p>' + escapeHtml(dayCopy) + '</p></div>' +
           '<div class="idx-cal-day-selected"><small>' + IDX_CAL_LABELS[idxKey] + '</small><b class="' + (selectedRow[idxKey] && selectedRow[idxKey].chPct != null ? idxCalPctCls(Number(selectedRow[idxKey].chPct) * idxInv) : '') + '">' + (selectedRow[idxKey] && selectedRow[idxKey].chPct != null ? idxCalFmtPct(Number(selectedRow[idxKey].chPct)) : '—') + '</b></div></div>' +
         '<div class="idx-cal-day-grid">' + dayTiles + '</div>' +
         '<div class="idx-cal-day-rule"><div><span>Confirmation</span><b>SPY, IWM and SMH agree while VIX moves in the opposite risk direction.</b></div><div><span>Guardrail</span><b>One session is context; require follow-through before changing exposure.</b></div></div>' +
@@ -33887,9 +33894,10 @@ ${renderExportBindings()}
       var isToday = date === todayYmd;
       var isSelected = date === selectedDate;
       var cls = 'idx-cal-cell' + (isToday ? ' is-today' : '') + (isSelected ? ' is-selected' : '') + (has ? ' ' + idxCalPctCls(ch * idxInv) : ' is-empty');
+      var partial = !!(day && day.partial);
       var title = IDX_CAL_LABELS[idxKey] + ' · ' + date +
-        (has ? ' · ' + idxCalFmtPct(ch) : '') +
-        (leg && leg.c != null ? ' · close ' + idxCalFmtClose(leg.c) : '');
+        (has ? ' · ' + idxCalFmtPct(ch) + (partial ? ' so far' : '') : '') +
+        (leg && leg.c != null ? (partial ? ' · last ' : ' · close ') + idxCalFmtClose(leg.c) : '');
       var open = day ? '<button type="button" class="' + cls + '" data-idx-day="' + escapeHtml(date) + '" aria-pressed="' + (isSelected ? 'true' : 'false') + '" aria-label="' + escapeHtml(title + ' · open cross-asset session') + '" title="' + escapeHtml(title) + '">' : '<div class="' + cls + '" title="' + escapeHtml(title) + '">';
       var close = day ? '</button>' : '</div>';
       return open +
