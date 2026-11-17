@@ -31354,24 +31354,37 @@ const CORR_SPARK_BARS = 31;       // trailing closes baked per market for the ra
 // and chart meta (currency / display name). Non-fatal at the caller — a failed
 // symbol is simply absent from the snapshot (graceful degradation, like a
 // skipped ticker in the main chain sweep).
+// Yahoo's chart reply for a few foreign indexes (the Euro Stoxx 50 in three
+// of four builds on 2026-11-16) fails the library's schema check on one odd
+// field while the daily closes are fine. Retry that case without the check;
+// the caller keeps only rows with a finite close and a date.
+export async function chartSkippingSchemaErrors(symbol, query, chartFn = (...a) => yahooFinance.chart(...a)) {
+  try {
+    return await chartFn(symbol, query);
+  } catch (err) {
+    if (!/schema validation/i.test(String(err?.message || ""))) throw err;
+    return chartFn(symbol, query, { validateResult: false });
+  }
+}
+
 async function fetchGlobalMarketBars(symbol) {
   const period2 = new Date();
   const period1 = new Date(period2.getTime() - GLOBAL_HISTORY_DAYS * 24 * 3600 * 1000);
-  let result = await yahooFinance.chart(symbol, { period1, period2, interval: "1d" });
+  let result = await chartSkippingSchemaErrors(symbol, { period1, period2, interval: "1d" });
   let quotes = Array.isArray(result?.quotes) ? result.quotes : [];
   // Yahoo occasionally returns a successful but truncated ~15-session slice
   // for a 1-year request. That is enough for the old 24H tile but silently
   // blanks the new 20-session context. Retry once and keep the longer result.
   if (quotes.length > 1 && quotes.length < CORR_SPARK_BARS) {
     await new Promise((r) => setTimeout(r, 180));
-    const retry = await yahooFinance.chart(symbol, { period1, period2, interval: "1d" });
+    const retry = await chartSkippingSchemaErrors(symbol, { period1, period2, interval: "1d" });
     const retryQuotes = Array.isArray(retry?.quotes) ? retry.quotes : [];
     if (retryQuotes.length > quotes.length) { result = retry; quotes = retryQuotes; }
   }
   const barTz = result?.meta?.exchangeTimezoneName || null;
   const researchBars = quotes
-    .filter((q) => q && q.close != null)
-    .map((q) => ({ c: q.close, t: q.date ? (overnightLocalDate(new Date(q.date), barTz) || new Date(q.date).toISOString().slice(0, 10)) : null }))
+    .filter((q) => q && q.close != null && Number.isFinite(Number(q.close)) && q.date != null && Number.isFinite(new Date(q.date).getTime()))
+    .map((q) => ({ c: Number(q.close), t: overnightLocalDate(new Date(q.date), barTz) || new Date(q.date).toISOString().slice(0, 10) }))
     .filter((b) => b.t);
   const bars = splitPatternHistory(researchBars).technical;
   if (bars.length < 2) throw new Error(`no usable bars for ${symbol}`);

@@ -35,6 +35,13 @@ const prefix="A company reports a material development whose first sixty charact
 eq(mergeTickerNewsRows([{...headline,title:prefix+"one"},{...headline,title:prefix+"two"}],nowMs).length,2,"distinct titles cannot collapse by prefix");
 for(const [title,expected] of [["Acme receives no FDA approval","negative"],["Acme recalls product after FDA approval","negative"],["Acme wins dismissal of lawsuit","positive"],["Acme denies acquisition rumor","unclear"],["Acme beats earnings and raises guidance","positive"]])eq(classifyNewsHeadline({title,publishedAt},now).direction,expected,title);
 eq(classifyNewsHeadline({...headline,sources:["Reuters"]},now).impactScore,classifyNewsHeadline({...headline,sources:["Reuters","Yahoo Finance"]},now).impactScore,"syndication is not confirmation");
+// Impact tiers (Today audit 2026-11-17): a buy-or-sell question or listicle that
+// mentions earnings or the Fed is not the catalyst, and a real result written
+// without the word "earnings" is.
+for(const title of ["Should you buy Acme stock before earnings?","Is Acme stock a buy ahead of its earnings report?","3 AI stocks to buy before the Fed meeting","Acme stock forecast for 2027: what analysts expect"])for(const scope of ["company","market"]){const r=classifyNewsHeadline({title,scope,publishedAt,sources:["Reuters"]},now);eq(r.impact==="high",false,`${scope}: ${title} is not high impact`);}
+for(const title of ["Acme reports record revenue of $57 billion, beats estimates","Acme third-quarter profit rises 12%","Acme tops Wall Street expectations"])eq(classifyNewsHeadline({title,publishedAt,sources:["Reuters"]},now).category,"earnings",title);
+eq(classifyNewsHeadline({title:"Kalshi prediction markets see 70% odds of a Fed hike",scope:"market",publishedAt,sources:["Reuters"]},now).impact,"high","prediction markets are not a clickbait prediction");
+eq(classifyNewsHeadline({title:"Market rout: is this a sell-off or a correction?",publishedAt},now).impactScore>classifyNewsHeadline({title:"Is Acme stock a sell?",publishedAt},now).impactScore,true,"a sell-off is not a buy-or-sell question");
 eq(currentNewsSentiment({sentiment:"bullish",builtAt:"2020-01-01",headlines:[headline]},nowMs),null);
 eq(currentNewsSentiment({sentiment:"bullish",builtAt:publishedAt,stale:true,headlines:[headline]},nowMs),null);
 eq(currentNewsSentiment({sentiment:"uncertain",builtAt:publishedAt,headlines:[headline]},nowMs),null);

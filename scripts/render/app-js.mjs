@@ -48088,8 +48088,11 @@ ${renderExportBindings()}
     for (var d = 0; d < 12; d++){
       var dt = new Date(base + d * 86400000);
       var dow = dt.getUTCDay();
-      if (dow === 0 || dow === 6 || MARKET_HOLIDAYS.hasOwnProperty(dt.toISOString().slice(0, 10))) continue;
+      var dayKey = dt.toISOString().slice(0, 10);
+      if (dow === 0 || dow === 6 || MARKET_HOLIDAYS.hasOwnProperty(dayKey)) continue;
       for (var i = 0; i < slots.length; i++){
+        // On a 13:00 ET early close the 15:30 build runs without Top Picks.
+        if (MARKET_HALF_DAYS.hasOwnProperty(dayKey) && slots[i][0] >= 13) continue;
         // A run takes about 20 minutes; inside that window it reads "running now".
         if (d === 0 && et.hour >= slots[i][0] + 0.34) continue;
         var running = d === 0 && et.hour >= slots[i][0];

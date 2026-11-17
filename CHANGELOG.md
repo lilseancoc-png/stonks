@@ -42,6 +42,10 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 - The 1971-2026 strategy-engine history test now shows across the site as context only: "Strategy styles by era" on Pattern lab and style strips on Booms & busts (public), event and crisis strips on Historical Data, "Today's regime fit" in the Regime Lab and the Owner brief, and MCP datasets (Owner). Aggregates only; switch `ENGINES_HISTORY=0` (#849).
 
+### Fixed
+
+- Today section audit: News no longer rates buy-or-sell questions and listicles ("Should you buy X before earnings?") as high impact because they mention earnings or the Fed, and counts results written without the word "earnings" ("beats estimates", "third-quarter profit") as earnings news. Home's "next Top Picks run" skips 15:30 on a 13:00 ET early close (next: the day after Thanksgiving). The Calendar's IPO lockup estimate moves a weekend or holiday day 180 to the next session instead of the one before, and VIX expiration follows Cboe's holiday rule (May 2027 expires Tuesday May 18). The Overnight page retries a Yahoo reply that fails its schema check, which dropped the Euro Stoxx 50 in three of four builds on 2026-11-16 (#PR).
+
 ## 2026-11-16
 
 ### Added
