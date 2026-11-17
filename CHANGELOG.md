@@ -38,6 +38,10 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## 2026-11-17
 
+### Added
+
+- The 1971-2026 strategy-engine history test now shows across the site as context only: "Strategy styles by era" on Pattern lab and style strips on Booms & busts (public), event and crisis strips on Historical Data, "Today's regime fit" in the Regime Lab and the Owner brief, and MCP datasets (Owner). Aggregates only; switch `ENGINES_HISTORY=0` (#849).
+
 ### Changed
 - The hourly unusual-flow scan counts the first half hour after the open: the 10:00 ET scan (up to 11:30) had nothing in-session to compare with, so 9:30-10:00 never flagged (0 of 188 flags in 60 scans, Nov 5-16). A contract that has traded today now counts all of today's volume and is labeled "since the open". Off switch `FLOW_OPEN_WINDOW` (Owner Settings).
 - Each stock gets its own unusual-flow volume bar: 1% (0.5% past 14 days) of its median full-day option volume over its last 10 complete sessions, between 500 and the old 4,000 (250 to 2,000). A stock keeps the old bar until 5 complete sessions are on file; the scanner now keeps each stock's daily option volume in `unusual-history.json`. 49 of 85 stocks never flagged under the single bar. Off switch `FLOW_STOCK_BARS` (Owner Settings). New Top Picks trades carry `flowScanVersion`, so the Track Record draws a dated divider; the record is not reset.
