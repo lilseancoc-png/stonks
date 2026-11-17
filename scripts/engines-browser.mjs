@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { startSiteServer, launchBrowser, openTab, pageProblems, selfTest, settle } from './browser-harness.mjs';
 import { enginesFixture } from './engines-fixture.mjs';
-import { ENGINES, ENGINE_IDS } from '../lib/engines/config.mjs';
+import { ENGINES, ENGINE_IDS, SIGNAL_IDS, CORE_IDS } from '../lib/engines/config.mjs';
 import { ENGINES_VIEW_KEY, ENGINES_RECORD_KEY, ENGINES_STATE_KEY } from '../lib/engines/index.mjs';
 
 const output = process.env.ENGINES_BROWSER_OUT || resolve(tmpdir(), 'stonks-engines-browser');
@@ -69,7 +69,7 @@ try {
     const s = await openTab(browser, server.base, { width: 1440, height: 1000, theme: 'light', tab: 'engines' });
     await s.page.locator('#eng-all-cmp').waitFor({ timeout: 15000 });
     await settle(s.page, 900);
-    check((await s.page.locator('#eng-bar [data-eng]').count()) === ENGINE_IDS.length + 1, 'the page has All engines and one tab per engine');
+    check((await s.page.locator('#eng-bar [data-eng]').count()) === ENGINE_IDS.length + 2, 'the page has All engines, one tab per engine and the Allocator');
     check((await s.page.locator('#eng-bar [data-eng="flagship"]').count()) === 0, 'Top Picks is not a tab here');
     check(await s.page.locator('#eng-bar [data-eng="all"]').evaluate((b) => b.classList.contains('is-on')), 'All engines is the default view');
     check(await s.page.locator('#page-pane-picks').isHidden(), 'the Top Picks page is not shown');
@@ -79,13 +79,22 @@ try {
 
     // All engines.
     let text = await paneText(s);
-    check((await s.page.locator('#eng-all-cmp tbody tr').count()) === ENGINE_IDS.length + 2, 'side by side: the flagship, six engines and a total row');
+    // Share trades (2026-11-17) get their own row under the total.
+    const shareRow = view.total.shares && (view.total.shares.n + view.total.shares.open) > 0 ? 1 : 0;
+    check(shareRow === 1, 'the fixture has engine share trades');
+    const coreRow = view.total.core && (view.total.core.n + view.total.core.open) > 0 ? 1 : 0;
+    check(coreRow === 1, 'the fixture has core-engine holdings');
+    check((await s.page.locator('#eng-all-cmp tbody tr').count()) === ENGINE_IDS.length + 2 + shareRow + coreRow, 'side by side: the flagship, eight engines, a total row, the share-trades row and the core-holdings row');
+    const cmpText = await s.page.locator('#eng-all-cmp').innerText();
+    check(/Signal engines, share trades/.test(cmpText) && /Core engines, holdings/.test(cmpText), 'share trades and core holdings are scored on their own lines');
+    check(/core, monthly/.test(cmpText) && /vs SPY/.test(cmpText), 'a core engine row reads against SPY');
     for (const id of ENGINE_IDS) check(text.includes(ENGINES[id].name), 'All engines names ' + ENGINES[id].name);
     check(/own pages and Track Record/.test(text) && /Flagship/.test(text), 'the flagship row points at its own pages');
     check((await s.page.locator('#eng-all-shared tbody tr').count()) === view.shared.length, 'one row per shared contract');
     check((await s.page.locator('#eng-all-shared').innerText()).includes('Top Picks'), 'the shared contract names its holder');
     check(/Market type/.test(text) && /10-year yield/.test(text), 'the market backdrop rendered');
     check((await s.page.locator('#eng-all-hist tbody tr').count()) === ENGINE_IDS.length, 'the history test summary has every engine');
+    check(/a year against SPY/.test(await s.page.locator('#eng-all-hist').innerText()), 'the core engines are summed up as a portfolio against SPY');
     check(/not in the long test/.test(await s.page.locator('#eng-all-hist').innerText()), 'engines without a long test say so');
     check((await s.page.locator('#eng-all-webull .vt-table tbody tr').count()) === fx.mirror.trades.length, 'the paper account lists every engine order');
     const webullText = await s.page.locator('#eng-all-webull').innerText();
@@ -94,10 +103,13 @@ try {
     check((await s.page.locator('#eng-all-runs tbody tr').count()) === Math.min(20, view.runs.length), 'the run log rendered');
     const openAll = view.engines.reduce((n, e) => n + e.open.length, 0);
     check((await s.page.locator('#eng-all-open .vt-table tbody tr:not(.vt-detail)').count()) === openAll, 'every engine\'s open trades sit in one table');
-    const withCurve = view.engines.filter((e) => e.stats?.curve?.length).length;
+    const withCurve = view.engines.filter((e) => e.stats?.curve?.length).length;   // option trades only: a core engine has none
     check((await s.page.locator('#eng-all-curve .ln-svg path.ln-line').count()) === withCurve, 'one running-total line per engine with closed trades');
     check(!/\d{4}-\d{2}-\d{2}/.test(await s.page.locator('#eng-all-curve .ln-svg').innerHTML().then((h) => h.replace(/data-ch='[^']*'/, ''))), 'the curve axis reads as days, not raw ISO dates');
     check(/Went first/i.test(await s.page.locator('#eng-all-runs').innerText()), 'the run log says which engine went first');
+    // The money-leak fixes (2026-11-17): one line each, with its switch state.
+    check((await s.page.locator('#eng-all-fixes .eng-fixes li').count()) === view.fixes.length && view.fixes.length === 4, 'one line per rule fix');
+    check(/Owner Settings/.test(await s.page.locator('#eng-all-fixes').innerText()) && (await s.page.locator('#eng-all-fixes .evb-s-pass').count()) === view.fixes.filter((f) => f.on).length, 'each fix shows whether it is on and where to switch it');
     check(mirrorAsks.length >= 1 && mirrorAsks.every((q) => /scope=engines/.test(q)), 'the page asks the mirror for engine trades only');
     await clean(s, 'All engines, desktop');
     await s.page.screenshot({ path: resolve(output, 'all-engines-1440.png'), fullPage: true });
@@ -107,8 +119,8 @@ try {
     await settle(s.page, 300);
     check(/engine=technicals/.test(s.page.url()), 'a name in the table opens that engine');
 
-    // Every engine, every view.
-    for (const id of ENGINE_IDS) {
+    // Every signal engine, every view.
+    for (const id of SIGNAL_IDS) {
       const e = view.engines.find((x) => x.id === id);
       await pick(s, id);
       await sub(s, 'now');
@@ -116,6 +128,11 @@ try {
       check(text.includes(e.name) && text.includes(e.idea.slice(0, 40)), id + ': the idea is shown: ' + text.slice(0, 160).replace(/\n/g, ' / '));
       check((await s.page.locator('#eng-open .vt-table tbody tr').count()) === e.open.length, id + ': one row per open trade');
       check(/The rules/.test(text) && /Never a spread/.test(text), id + ': the rules are shown');
+      const shareSetups = e.setups.filter((x) => x.calls === 'shares' && !x.retired);
+      check(/never short stock/.test(text) === shareSetups.length > 0, id + ': the rules say which setups buy shares (' + shareSetups.length + ')');
+      const shrOpen = e.open.filter((t) => t.instrument === 'shares').length;
+      check((await s.page.locator('#eng-open .eng-shr').count()) === shrOpen, id + ': open share trades carry the Shares badge (' + shrOpen + ')');
+      if (shrOpen) check(/shares at \$/.test(await s.page.locator('#eng-open').innerText()) && /Stock levels/.test(await s.page.locator('#eng-open').innerText()), id + ': a share trade shows its lot and stock exits');
       if (e.candidates.length) check((await s.page.locator('#eng-cands tbody tr').count()) === e.candidates.length, id + ': one row per candidate');
       const priced = e.candidates.filter((c) => c.skipped === 'price').length;
       check((await s.page.locator('#eng-cands tr.eng-row-skipped').count()) === priced, id + ': setups ruled out by today’s price move are listed (' + priced + ')');
@@ -143,6 +160,11 @@ try {
       check(/This record belongs to/.test(text), id + ': the record says whose it is');
       check((await s.page.locator('#eng-closed .vt-table tbody tr').count()) === e.closed.length, id + ': one row per closed trade');
       if (e.stats.n) check((await s.page.locator('#eng-splits details').count()) === 8, id + ': eight scorecard cuts');
+      check((await s.page.locator('#eng-shares').count()) === (e.sharesStats ? 1 : 0), id + ': share trades have their own scorecard when there are any');
+      if (e.sharesStats) check(/% of the share price/.test(await s.page.locator('#eng-shares').innerText()), id + ': the share scorecard says its unit');
+      check((await s.page.locator('#eng-vs-hist').count()) === 1, id + ': live against the history test');
+      if (e.vsHistory.rows.length) check((await s.page.locator('#eng-vs-hist tbody tr').count()) === e.vsHistory.rows.length, id + ': one row per setup and instrument (' + e.vsHistory.rows.length + ')');
+      if (e.vsHistory.rows.some((r) => r.modelGain)) check(/price model/.test(await s.page.locator('#eng-vs-hist').innerText()), id + ': the price-model caveat');
       if ((e.stats.curve || []).length >= 3) check((await s.page.locator('#eng-pane .eng-body > svg.ln-svg, #eng-pane .eng-body > .ln-wrap svg, #eng-pane .eng-body svg.ln-svg').count()) >= 1, id + ': the running-total chart');
       await clean(s, id + ' record');
 
@@ -151,6 +173,8 @@ try {
       check((await s.page.locator('#eng-setups tbody tr').count()) === e.setups.length, id + ': one row per setup');
       check(/Change log/.test(text) && /Shadow trades/.test(text), id + ': change log and shadow trades');
       if (e.setups.some((x) => x.startsOnShadow)) check(/Started on shadow/.test(text), id + ': shadow-start setups are marked');
+      if (id === 'reversion') check(/Own contract: about 0\.30 delta, 14 to 35 days/.test(await s.page.locator('#eng-setups').innerText()) && /Own exits: \+30% take-profit, -60% stop/.test(await s.page.locator('#eng-setups').innerText()), 'reversion: the washout bounce shows its own contract and stop');
+      if (id === 'technicals' || id === 'reversion') check(/retired/i.test(await s.page.locator('#eng-setups').innerText()), id + ': the retired put setup is marked');
       if (id === 'fundamentals') {
         check(/Retired/.test(await s.page.locator('#eng-setups').innerText()), 'fundamentals: the first-rules setups are marked retired');
         check(/standing rank/.test(text), 'fundamentals: the learning view explains the rule change');
@@ -181,6 +205,57 @@ try {
       check((await s.page.locator('#eng-pane .eng-body .vt-table tbody tr').count()) === mine.length, id + ': only its own paper orders');
       await clean(s, id + ' webull');
     }
+    // The core engines (2026-11-17): the monthly target, holdings, checks and the S&P line.
+    for (const id of CORE_IDS) {
+      const e = view.engines.find((x) => x.id === id);
+      await pick(s, id);
+      await sub(s, 'now');
+      text = await paneText(s);
+      check(text.includes(e.name) && text.includes(e.idea.slice(0, 40)), id + ': the idea is shown');
+      check(/Core engine/i.test(text), id + ': marked as a core engine');
+      check((await s.page.locator('#eng-core-target').count()) === 1 && /T-bills/.test(await s.page.locator('#eng-core-target').innerText()), id + ': this month’s target and its reads');
+      check((await s.page.locator('#eng-open .vt-table tbody tr').count()) === e.open.length, id + ': one row per holding');
+      check((await s.page.locator('#eng-open .eng-shr').count()) === e.open.length, id + ': every holding is shares');
+      if (e.open.length) check(/Held until a monthly check swaps it/.test(await s.page.locator('#eng-open').innerText()), id + ': no stop or target, held to the monthly check');
+      check((await s.page.locator('#eng-core-log tbody tr').count()) === e.holdings.log.length && e.holdings.log.length >= 2, id + ': one row per monthly check (' + e.holdings.log.length + ')');
+      check(/S&P 500 \(SPY\) since then/.test(text), id + ': read against SPY since it started');
+      check((await s.page.locator('#eng-core-ranked').count()) === (id === 'momentum' ? 1 : 0), id + ': the ranked list only for the basket');
+      check(/Never an option|never an option/.test(text) && /not placed in the Webull/i.test(text), id + ': the rules say stock only, off Webull');
+      await clean(s, id + ' now');
+      await sub(s, 'record');
+      check((await s.page.locator('#eng-closed .vt-table tbody tr').count()) === e.closed.length, id + ': one row per closed holding');
+      check(/swapped at the monthly check/i.test(await paneText(s)) === e.closed.some((t) => t.status === 'rotate'), id + ': swaps are labeled');
+      await clean(s, id + ' record');
+      await sub(s, 'learn');
+      check(/does not learn/.test(await paneText(s)) && (await s.page.locator('#eng-setups tbody tr').count()) === e.setups.length, id + ': a fixed rule, no learning');
+      await clean(s, id + ' learn');
+      await sub(s, 'history');
+      text = await paneText(s);
+      check(/SPY a year/.test(text) && (await s.page.locator('#eng-core-years tbody tr').count()) >= 10, id + ': the portfolio line against SPY, year by year');
+      if (id === 'momentum') check(/1,000-name list/.test(text), 'momentum: the survivor bias is spelled out');
+      await clean(s, id + ' history');
+      await sub(s, 'webull');
+      check(/options only/.test(await paneText(s)), id + ': not in the paper account, and why');
+      await clean(s, id + ' webull');
+    }
+    await pick(s, 'momentum'); await sub(s, 'now');
+    await s.page.screenshot({ path: resolve(output, 'momentum-now-1440.png'), fullPage: true });
+    await pick(s, 'trend'); await sub(s, 'history');
+    await s.page.screenshot({ path: resolve(output, 'trend-history-1440.png'), fullPage: true });
+
+    // The Allocator tab.
+    await pick(s, 'allocator');
+    await s.page.locator('#eng-alloc-table').waitFor({ timeout: 15000 });
+    text = await paneText(s);
+    check(/engine=allocator/.test(s.page.url()), 'the Allocator has its own address');
+    check((await s.page.locator('#eng-alloc-table tbody tr').count()) === view.allocator.rows.length && view.allocator.rows.length >= SIGNAL_IDS.length, 'the Allocator lists every signal setup (' + view.allocator.rows.length + ')');
+    check(/Market today/.test(text) && /Trending up, calm/.test(text), 'the Allocator names today’s market type');
+    check(/not allocated/.test(text) && /Advising: holds nothing back/i.test(text) && /Would hold back/.test(text), 'the Allocator explains its rule and that it advises by default');
+    check((await s.page.locator('#eng-alloc-hist tbody tr').count()) === 2 && /as it runs live/.test(await s.page.locator('#eng-alloc-hist').innerText()) && /would have held back made/.test(await s.page.locator('#eng-alloc-hist').innerText()), 'the Allocator shows its history test, with and without a starting record, and what the trades it would have held back made');
+    check((await s.page.locator('#eng-alloc-table [data-eng-go]').count()) === view.allocator.rows.length, 'each row links to its engine');
+    await clean(s, 'Allocator');
+    await s.page.screenshot({ path: resolve(output, 'allocator-1440.png'), fullPage: true });
+
     await pick(s, 'fundamentals'); await sub(s, 'now');
     await s.page.screenshot({ path: resolve(output, 'fundamentals-now-1440.png'), fullPage: true });
     await sub(s, 'learn');
@@ -278,7 +353,7 @@ try {
     await settle(s.page, 900);
     await clean(s, 'All engines, phone');
     await s.page.screenshot({ path: resolve(output, 'all-engines-390-dark.png'), fullPage: true });
-    for (const id of ['technicals', 'macro', 'flow']) {
+    for (const id of ['technicals', 'macro', 'flow', 'trend', 'momentum']) {
       await pick(s, id);
       for (const v of ['now', 'record', 'learn', 'history', 'webull']) { await sub(s, v); await settle(s.page, 200); await clean(s, id + ' ' + v + ', phone'); }
     }
@@ -287,6 +362,9 @@ try {
     await pick(s, 'fundamentals'); await sub(s, 'now'); await settle(s.page, 300);
     await clean(s, 'fundamentals now, phone');
     await s.page.screenshot({ path: resolve(output, 'fundamentals-now-390-dark.png'), fullPage: true });
+    await pick(s, 'allocator'); await settle(s.page, 300);
+    await clean(s, 'Allocator, phone');
+    await s.page.screenshot({ path: resolve(output, 'allocator-390-dark.png'), fullPage: true });
     await s.context.close();
   }
 

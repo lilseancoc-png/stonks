@@ -2,8 +2,9 @@
 // scripts/history-rhymes-browser.mjs. Index and FRED paths are drawn through a
 // few approximate historical anchor points with a seeded wiggle. The AI
 // spending totals, the H100 rent and the CRWV / ORCL / SMH figures are the
-// site's saved readings from the 2026-11-11 builds (rounded); the other stocks
-// are round illustrative numbers. Nothing here is fetched.
+// site's saved readings from the 2026-11-11 builds (rounded); the other stocks,
+// the rate paths and the margin debt reading are round illustrative numbers.
+// Nothing here is fetched.
 import { buildHistoryRhymes, buildHistoryRhymesOwner } from '../../lib/history-rhymes.mjs';
 
 const DAY = 86400000;
@@ -52,7 +53,17 @@ export function historyRhymesFixture() {
     MORTGAGE30US: anchored([['1971-04-02', 7.3], ['1981-10-09', 18.6], ['1993-10-15', 6.8], ['2000-05-19', 8.6], ['2003-06-13', 5.2], ['2006-07-21', 6.8], ['2012-11-21', 3.3], ['2021-01-07', 2.65], ['2023-10-26', 7.8], ['2026-11-12', 6.2]], { step: 7, wiggle: 0.01, seed: 8 }),
     DRSFRMACBS: anchored([['1991-01-01', 3.1], ['2005-07-01', 1.5], ['2010-01-01', 11.3], ['2019-10-01', 2.4], ['2026-07-01', 1.8]], { step: 91, wiggle: 0.01, seed: 9 }),
     PRCMUCONS: anchored([['1993-01-01', 9500], ['2000-12-01', 29000], ['2003-06-01', 14500], ['2008-06-01', 22000], ['2015-01-01', 17000], ['2026-09-01', 26000]], { step: 30, wiggle: 0.03, seed: 10 }),
+    // Rates for the whole-market panel (approximate path since 1994).
+    DFF: anchored([['1994-01-03', 3.0], ['1995-02-01', 6.0], ['1998-10-01', 5.0], ['2000-05-16', 6.5], ['2001-12-11', 1.75], ['2004-06-30', 1.0], ['2006-06-29', 5.25], ['2008-12-16', 0.12], ['2015-12-16', 0.12], ['2018-12-19', 2.4], ['2020-03-16', 0.08], ['2022-03-16', 0.08], ['2023-07-26', 5.33], ['2024-09-18', 5.33], ['2025-12-31', 3.63], ['2026-11-12', 3.88]], { wiggle: 0.002, seed: 12 }),
+    DGS10: anchored([['1994-01-03', 5.8], ['1994-11-01', 8.0], ['1998-10-05', 4.2], ['2000-01-20', 6.8], ['2003-06-13', 3.1], ['2007-06-12', 5.3], ['2008-12-30', 2.1], ['2012-07-24', 1.4], ['2018-10-05', 3.2], ['2020-08-04', 0.52], ['2023-10-19', 5.0], ['2025-11-12', 4.1], ['2026-11-12', 4.9]], { wiggle: 0.004, seed: 13 }),
+    DGS2: anchored([['1994-01-03', 4.2], ['1994-12-27', 7.7], ['1998-10-05', 4.0], ['2000-05-17', 6.9], ['2003-06-13', 1.1], ['2006-07-01', 5.2], ['2008-12-17', 0.7], ['2014-01-01', 0.3], ['2018-11-08', 2.97], ['2020-08-01', 0.11], ['2023-03-08', 5.07], ['2025-12-31', 3.5], ['2026-11-12', 4.46]], { wiggle: 0.004, seed: 14 }),
   };
+  // The curve is the gap between the two daily yields (it goes below zero, so
+  // it is not drawn through anchors).
+  const two = new Map(fred.DGS2.map((r) => [r.t, r.v]));
+  fred.T10Y2Y = fred.DGS10.filter((r) => two.has(r.t)).map((r) => ({ t: r.t, v: +(r.v - two.get(r.t)).toFixed(2) }));
+  // FINRA margin debt summary as crowd.json carries it.
+  const crowd = { marginDebt: { summary: { month: '2026-10', debitUsdM: 1268000, yoyPct: 33.8, momPct: 2.4, peak: { month: '2026-10', fromPeakPct: 0 } } } };
   const aiCapex = { builtAtIso: '2026-11-11T21:13:39Z', totals: { revenue: { capexYoyPct: 64.7, yoyPct: 21.7, count: 10, capexToRevenueTtmPct: 26, capexToRevenueFyPct: 20.1, capexToRevenueFyPriorPct: 14.8 } } };
   const h100 = [['2026-07-31', 2.59], ['2026-08-14', 2.67], ['2026-08-21', 2.59], ['2026-09-04', 2.59], ['2026-09-18', 2.91], ['2026-10-02', 2.59], ['2026-10-09', 3.03], ['2026-10-16', 2.59], ['2026-10-30', 2.99], ['2026-11-06', 3.19]];
   const accelerators = { builtAtIso: '2026-11-06T21:42:04Z', benchmarks: [{ modelId: 'h100', currentMedian: 3.19, change30dPct: 23.2, compositeHistory: h100.map(([d, p]) => ({ d, p })) }] };
@@ -87,10 +98,11 @@ export function historyRhymesFixture() {
     TSLA: stock('TSLA', 430, 0.6, { marketCap: 1430 * B, totalDebt: 13 * B, totalCash: 41 * B, fiftyTwoWeekHigh: 488, operatingCashFlow: 15 * B, freeCashFlow: 5 * B, capitalAllocation: { capexTtm: -10 * B } }),
     NKE: stock('NKE', 64, 0.38, { marketCap: 95 * B, totalDebt: 11 * B, totalCash: 8 * B, fiftyTwoWeekHigh: 82, operatingCashFlow: 3 * B, freeCashFlow: 2.5 * B, capitalAllocation: { capexTtm: -0.5 * B } }),
     SMH: { symbol: 'SMH', spot: 506.96, fundamentals: { quoteType: 'ETF', fiftyTwoWeekHigh: 671.83 } },
+    SPY: { symbol: 'SPY', spot: 680, fundamentals: { quoteType: 'ETF', trailingPE: 26.8, fiftyTwoWeekHigh: 702 } },
     JPM: stock('JPM', 305, 0.22, { marketCap: 840 * B, totalDebt: 520 * B, fiftyTwoWeekHigh: 330 }),
   };
   const series = { '^IXIC': ixic, '^GSPC': gspc };
-  const rhymes = buildHistoryRhymes({ builtAtIso, series, fred, aiCapex, accelerators, ipoCredit, chains });
+  const rhymes = buildHistoryRhymes({ builtAtIso, series, fred, aiCapex, accelerators, ipoCredit, chains, crowd });
   const owner = buildHistoryRhymesOwner({ builtAtIso, rhymes, chains, r: 0.039, skip: (s) => s === 'JPM' });
   return { rhymes, owner };
 }
