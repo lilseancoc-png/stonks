@@ -19,7 +19,7 @@ export function renderValuationLabJs() {
   return `
   // ---- Valuation lab (Owner page) --------------------------------------------
   var VL = (${valuationLabFactory.toString()})();
-  var vlState = { data: null, error: null, pending: null, sym: null, inputs: null, defaults: null, scenario: null };
+  var vlState = { data: null, error: null, pending: null, sym: null, inputs: null, defaults: null, scenario: null, inputsOpen: null };
   var VL_STORE = 'stonks-valuation-v1';
   var VL_COLORS = { dcf: '#4f7cff', earnings: '#12a37f', peers: '#d98a1c', history: '#0e9fb3', peg: '#d4507a', power: '#9b5de5', book: '#8c6a3f', street: '#7a8699' };
 
@@ -29,7 +29,20 @@ export function renderValuationLabJs() {
   function vlNum(x, d){ return vlFin(x) ? Number(x).toFixed(d == null ? 1 : d) : '—'; }
   function vlBig(x){ if (!vlFin(x)) return '—'; var a = Math.abs(x), s = x < 0 ? '-' : ''; return a >= 1e12 ? s + '$' + (a / 1e12).toFixed(2) + 'T' : a >= 1e9 ? s + '$' + (a / 1e9).toFixed(1) + 'B' : a >= 1e6 ? s + '$' + (a / 1e6).toFixed(0) + 'M' : s + '$' + a.toFixed(0); }
   function vlGapCls(x){ return !vlFin(x) ? '' : x >= 5 ? 'vl-up' : x <= -5 ? 'vl-down' : 'vl-flat'; }
-  function vlFmtInput(def, v){ if (!vlFin(v)) return '—'; return def.unit === 'x' ? Number(v).toFixed(def.step < 0.1 ? 2 : 1) + 'x' : def.unit === 'bp' ? (v > 0 ? '+' : '') + Math.round(v) + 'bp' : def.unit === 'yrs' ? Math.round(v) + ' yrs' : def.unit === 'pp' ? (v > 0 ? '+' : '') + Number(v).toFixed(1) + ' pts' : (def.min < 0 && v > 0 ? '+' : '') + Number(v).toFixed(def.step < 0.1 ? 2 : def.step < 1 ? 2 : 1) + '%'; }
+  // Two decimals only where the slider steps need them (0.05, 0.25), else one.
+  function vlDec(step){ return step < 0.1 || Math.abs(step * 2 - Math.round(step * 2)) > 1e-9 ? 2 : 1; }
+  function vlFmtInput(def, v){ if (!vlFin(v)) return '—'; var dp = vlDec(def.step); return def.unit === 'x' ? Number(v).toFixed(dp) + 'x' : def.unit === 'bp' ? (v > 0 ? '+' : '') + Math.round(v) + 'bp' : def.unit === 'yrs' ? Math.round(v) + ' yrs' : def.unit === 'pp' ? (v > 0 ? '+' : '') + Number(v).toFixed(dp) + ' pts' : (def.min < 0 && v > 0 ? '+' : '') + Number(v).toFixed(dp) + '%'; }
+  // Keep ?symbol= in the address in step with the stock on screen, so a
+  // reload or a shared link opens the same one (only while this page is open).
+  function vlUrl(sym){
+    try {
+      var u = new URL(location.href);
+      if (u.searchParams.get('tab') !== 'valuation-lab' || u.searchParams.get('symbol') === sym) return;
+      u.searchParams.set('symbol', sym);
+      history.replaceState(null, '', u.pathname + u.search + u.hash);
+    } catch (_) {}
+  }
+  function vlWide(){ try { return !window.matchMedia || window.matchMedia('(min-width: 1101px)').matches; } catch (_) { return true; } }
 
   function vlSaved(){ try { var raw = localStorage.getItem(VL_STORE); var o = raw ? JSON.parse(raw) : {}; return o && typeof o === 'object' ? o : {}; } catch (_) { return {}; } }
   function vlSave(sym, inputs){ try { var o = vlSaved(); if (inputs) o[sym] = inputs; else delete o[sym]; localStorage.setItem(VL_STORE, JSON.stringify(o)); } catch (_) {} }
@@ -61,6 +74,7 @@ export function renderValuationLabJs() {
     vlState.sym = sym;
     vlState.scenario = null;
     VIEWS.set('valuation-lab.symbol', sym);
+    vlUrl(sym);
     var def = VL.defaults(rows[sym]);
     vlState.defaults = def;
     var saved = vlSaved()[sym];
@@ -158,7 +172,7 @@ export function renderValuationLabJs() {
         var hint = 'Default ' + vlFmtInput(def, defs[def.key]) + ' · ' + (src[def.key] || '');
         if (def.key === 'g1' && row && row.growthBars) hint += ' · ' + row.growthBars.label + ' bars: normal ' + (row.growthBars.low == null ? '—' : row.growthBars.low + '%') + ', strong ' + row.growthBars.above + '%, very strong ' + row.growthBars.wellAbove + '%';
         if (def.key === 'usdPct' && row && row.sens && vlFin(row.sens.usd)) hint += ' · this stock moves about ' + vlNum(row.sens.usd, 2) + '% per 1% dollar move';
-        if (def.key === 'oilPct' && row && row.sens && vlFin(row.sens.commodity)) hint += ' · about ' + vlNum(row.sens.commodity, 2) + '% per 1% oil move';
+        if (def.key === 'oilPct' && row && row.sens && vlFin(row.sens.commodity)) hint += ' · about ' + vlNum(row.sens.commodity * VL.OIL_DAMP, 2) + '% per 1% oil move';
         if (def.key === 'rateShiftBp' && row && row.sens && vlFin(row.sens.rate10y)) hint += ' · past response ' + vlNum(row.sens.rate10y, 2) + '% per 10bp';
         if (def.key === 'marketPct' && row) hint += ' · moves the value by beta ' + vlNum(row.sens && vlFin(row.sens.marketBeta) ? row.sens.marketBeta : d.beta, 2) + ' x the move';
         if ((def.key === 'taxChangePp' || def.key === 'tradeHitPct') && row) hint += vlFin(row.facts.usShare) ? ' · ' + Math.round(row.facts.usShare * 100) + '% of revenue is US (SEC filings)' : ' · no US / foreign split on file, 60% US assumed';
@@ -299,14 +313,26 @@ export function renderValuationLabJs() {
   }
 
   // ---- Render ----------------------------------------------------------------
+  // The inputs panel is open beside the results on a wide screen and folded
+  // above them on a phone, so the numbers come first; a choice sticks.
+  function vlInputsOpen(){ return vlState.inputsOpen == null ? vlWide() : vlState.inputsOpen; }
+  function vlChangedCount(){
+    var d = vlState.inputs, defs = vlState.defaults && vlState.defaults.inputs, n = 0;
+    if (!d || !defs) return 0;
+    VL.INPUTS.forEach(function(def){ if (Math.abs((d[def.key] || 0) - (defs[def.key] || 0)) > 1e-9) n++; });
+    VL.WEIGHT_KEYS.forEach(function(k){ if (Math.abs(((d.weights || {})[k] || 0) - ((defs.weights || {})[k] || 0)) > 1e-9) n++; });
+    return n;
+  }
+  function vlChangedLabel(){ var n = vlChangedCount(); return n ? n + ' changed' : 'at defaults'; }
   function renderValuationLab(){
     var root = $('valuation-lab-root'); if (!root) return;
     if (!vlState.data){ root.innerHTML = '<p class="hint">' + (vlState.error ? 'The lab could not be loaded (' + escapeHtml(vlState.error) + '). Every full build writes it; the first one after this deploys creates the file.' : 'Loading…') + '</p>'; return; }
-    if (!vlState.sym){
-      var want = null;
-      try { want = (new URLSearchParams(location.search).get('symbol') || '').toUpperCase() || null; } catch (_) {}
-      vlPick(want || VIEWS.get('valuation-lab.symbol', 'NVDA'));
-    }
+    var want = null;
+    try { want = (new URLSearchParams(location.search).get('symbol') || '').toUpperCase() || null; } catch (_) {}
+    // First visit: the link's stock, else the last one viewed. Later, a link
+    // to another stock (from the MCP or the Owner brief) switches to it.
+    if (!vlState.sym) vlPick(want || VIEWS.get('valuation-lab.symbol', 'NVDA'));
+    else if (want && want !== vlState.sym && vlState.data.rows[want]) vlPick(want);
     var row = vlRow(); if (!row){ root.innerHTML = '<p class="hint">No stock has valuation inputs yet.</p>'; return; }
     var opts = vlSymbols().map(function(s){ var r = vlState.data.rows[s]; return '<option value="' + escapeHtml(s) + '"' + (s === vlState.sym ? ' selected' : '') + '>' + escapeHtml(s + ' · ' + (r.name || '')) + '</option>'; }).join('');
     var scs = VL.scenarios(row), groups = [], byGroup = {};
@@ -319,7 +345,7 @@ export function renderValuationLabJs() {
     root.innerHTML = '<div class="vl-bar"><label class="vl-pick">Stock <select data-vl-sym aria-label="Stock to value">' + opts + '</select></label><div class="vl-presets" role="group" aria-label="Scenarios">' + presets + '</div><a class="book-more" href="?tab=stock&s=' + encodeURIComponent(vlState.sym) + '">Stock page</a></div>' +
       '<details class="vl-env"' + (vlState.scenario && !(byGroup.Quick || []).some(function(x){ return x.id === vlState.scenario; }) ? ' open' : '') + '><summary>More environments: economy, the Fed, market mood, policy and politics, oil and the dollar (' + (scs.length - (byGroup.Quick || []).length) + ')</summary>' + more + '</details>' +
       '<p class="vl-scn-note" id="vl-scn-note">' + activeNote + '</p>' +
-      '<div class="vl-sticky" id="vl-sticky" aria-live="polite"></div><div class="vl-layout"><div class="vl-main" id="vl-out"></div><aside class="vl-side"><h4 class="slp-h4">Inputs <button type="button" class="ql-linkbtn" data-vl-reset>Reset</button></h4><div id="vl-inputs">' + vlInputsHtml() + '</div></aside></div>' +
+      '<div class="vl-sticky" id="vl-sticky" aria-live="polite"></div><div class="vl-layout"><div class="vl-main" id="vl-out"></div><aside class="vl-side"><details class="vl-inbox"' + (vlInputsOpen() ? ' open' : '') + '><summary class="slp-h4">Inputs <span class="vl-inbox-n" id="vl-inbox-n">' + vlChangedLabel() + '</span></summary><div class="vl-inbox-bar"><span>Drag a slider; everything on the page updates.</span><button type="button" class="ql-linkbtn" data-vl-reset>Reset</button></div><div id="vl-inputs">' + vlInputsHtml() + '</div></details></aside></div>' +
       vlScreenHtml() +
       '<p class="evb-note">Display only: nothing here changes a pick, a grade or the Track Record. Inputs from the ' + escapeHtml(rglEt(vlState.data.builtAtIso)) + ' build; your changes are kept on this device only.</p>';
     vlRenderOut();
@@ -348,12 +374,14 @@ export function renderValuationLabJs() {
       var inp = document.querySelector('[data-vl-input="' + def.key + '"]');
       if (inp){ if (String(inp.value) !== String(d[def.key])) inp.value = d[def.key]; var lab = inp.closest('.vl-in'); if (lab) lab.classList.toggle('vl-changed', Math.abs((d[def.key] || 0) - (defs[def.key] || 0)) > 1e-9); }
     });
+    var cn = $('vl-inbox-n'); if (cn) cn.textContent = vlChangedLabel();
   }
 
   var vlTimer = null;
   function vlChanged(){
     var same = JSON.stringify(vlState.inputs) === JSON.stringify(vlState.defaults.inputs);
     vlSave(vlState.sym, same ? null : vlState.inputs);
+    var cn = $('vl-inbox-n'); if (cn) cn.textContent = vlChangedLabel();
     if (vlTimer) cancelAnimationFrame(vlTimer);
     vlTimer = requestAnimationFrame(function(){ vlTimer = null; vlRenderOut(); });
   }
@@ -375,6 +403,9 @@ export function renderValuationLabJs() {
     var w = t.getAttribute('data-vl-weight');
     if (w){ vlState.inputs.weights[w] = Number(t.value); var wv = document.querySelector('[data-vl-wv="' + w + '"]'); if (wv) wv.textContent = t.value; vlChanged(); }
   });
+  document.addEventListener('toggle', function(ev){
+    var t = ev.target; if (t && t.classList && t.classList.contains('vl-inbox')) vlState.inputsOpen = !!t.open;
+  }, true);
   document.addEventListener('change', function(ev){
     var t = ev.target; if (!t || !t.matches || !t.matches('[data-vl-sym]')) return;
     vlPick(t.value); renderValuationLab();
@@ -394,6 +425,8 @@ export function renderValuationLabJs() {
       var id = pr.getAttribute('data-vl-preset');
       var next = id === 'base' ? vlClone(vlState.defaults.inputs) : VL.applyScenario(vlRow(), vlState.defaults.inputs, id);
       if (!next) return;
+      // An environment moves the economic inputs; the method weights you set stay.
+      next.weights = vlClone(vlState.inputs.weights || vlState.defaults.inputs.weights);
       vlState.inputs = VL.normalize(next); vlState.scenario = id === 'base' ? null : id;
       vlSave(vlState.sym, JSON.stringify(vlState.inputs) === JSON.stringify(vlState.defaults.inputs) ? null : vlState.inputs);
       renderValuationLab();

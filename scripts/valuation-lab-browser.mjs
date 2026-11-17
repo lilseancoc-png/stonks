@@ -45,12 +45,16 @@ try {
     check(/Range of outcomes/.test(text) && /Worth more than the price/.test(text) && (await s.page.locator('#vl-out svg.vl-hist rect').count()) > 5, vp.name + ': range of outcomes');
     check((await s.page.locator('#vl-out .vl-grid-t tbody tr').count()) === 5, vp.name + ': rate x growth grid');
     check((await s.page.locator('#vl-inputs [data-vl-input]').count()) >= 24, vp.name + ': every input has a slider');
+    const inboxOpen = await s.page.locator('details.vl-inbox').evaluate((el) => el.open);
+    check(vp.width > 1100 ? inboxOpen : !inboxOpen, vp.name + (vp.width > 1100 ? ': inputs open beside the results' : ': inputs folded above the results on a phone'));
+    check(/at defaults/.test(await s.page.locator('#vl-inbox-n').innerText()), vp.name + ': inputs say they are at defaults');
     check(/Mega Platforms/.test(await s.page.locator('[data-vl-sym]').inputValue().then(() => s.page.locator('[data-vl-sym] option:checked').innerText())), vp.name + ': ?symbol= picks the stock');
     let problems = await pageProblems(s);
     check(problems.length === 0, vp.name + ': ' + problems.join(' | '));
     await s.page.screenshot({ path: resolve(output, `${vp.name}.png`), fullPage: true });
     if (vp.width > 1000) await s.page.locator('#valuation-lab-section').screenshot({ path: resolve(output, `${vp.name}-section.png`) });
 
+    if (!inboxOpen) { await s.page.locator('details.vl-inbox > summary').click(); await settle(s.page, 150); }
     // Raising rates lowers the modeled value.
     const before = await modeled(s.page);
     await s.page.locator('[data-vl-input="rateShiftBp"]').fill('200');
@@ -63,10 +67,13 @@ try {
     await settle(s.page, 200);
     const share = await s.page.locator('#vl-out .vl-table tbody tr').nth(2).locator('td').last().innerText();
     check(share.trim() === '100%', vp.name + ': peers carry the whole blend');
+    check(/^8 changed$/.test((await s.page.locator('#vl-inbox-n').innerText()).trim()), vp.name + ': the inputs heading counts the changes');
     // A scenario button, then Reset.
     await s.page.locator('[data-vl-preset="bear"]').click();
     await settle(s.page, 200);
     check((await s.page.locator('#vl-inputs .vl-changed').count()) >= 4, vp.name + ': bear case marks the inputs it moved');
+    check((await s.page.locator('[data-vl-weight="dcf"]').inputValue()) === '0', vp.name + ': an environment keeps the weights you set');
+    check(await s.page.locator('details.vl-inbox').evaluate((el) => el.open), vp.name + ': inputs stay open after a re-render');
     await s.page.locator('[data-vl-reset]').click();
     await settle(s.page, 200);
     check((await s.page.locator('#vl-inputs .vl-changed').count()) === 0, vp.name + ': reset returns to the defaults');
@@ -75,7 +82,7 @@ try {
     await s.page.locator('[data-vl-preset="tariffs"]').click();
     await settle(s.page, 200);
     check(/Tariff escalation:/.test(await s.page.locator('#vl-scn-note').innerText()), vp.name + ': scenario note');
-    check((await s.page.locator('#vl-inputs .vl-changed').count()) >= 3 && /\+1\.5 pts/.test(await s.page.locator('[data-vl-iv="tariffPp"]').innerText()), vp.name + ': tariff scenario moves its inputs');
+    check((await s.page.locator('#vl-inputs .vl-changed').count()) >= 3 && /\+1\.50? pts/.test(await s.page.locator('[data-vl-iv="tariffPp"]').innerText()), vp.name + ': tariff scenario moves its inputs');
     check((await s.page.locator('[data-vl-preset="dsweep"]').count()) === 1, vp.name + ': party scenarios offered');
     await s.page.locator('[data-vl-preset="dsweep"]').click();
     await settle(s.page, 200);
@@ -93,6 +100,7 @@ try {
     await settle(s.page, 300);
     const bankText = await s.page.locator('#vl-out').innerText();
     check(/not a meaningful measure for a bank/.test(bankText), vp.name + ': bank explains the missing DCF');
+    check(new URL(s.page.url()).searchParams.get('symbol') === 'BANKX', vp.name + ': the address follows the stock picked');
     // The all-stocks table opens a stock.
     await s.page.locator('.vl-screen summary').click();
     await s.page.locator('[data-vl-go="BURN"]').click();

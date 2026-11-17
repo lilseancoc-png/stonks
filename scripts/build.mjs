@@ -40981,7 +40981,7 @@ async function main() {
         bands: valuationBandsPayload, scenarioEngine, grades: gradesIndex, earningsForecast: forecastForLab,
         growthProfileOf: (sym, label) => { const key = growthProfileKeyFor(sym, label); return key ? { key, ...GROWTH_PROFILES[key] } : null; },
         macro: macroBackdrop, rfrPct: Number.isFinite(riskFreeRate?.rate) ? riskFreeRate.rate * 100 : null,
-        partyTracker, partyNow: macroPartyOnDate(etDateKey(new Date(builtAtIso))), partyTilt: macroPartyTiltFor, kindEtf: MACRO_KIND_PARTY_ETF,
+        partyTracker, partyNow: macroPartyOnDate(etDateKey(new Date(builtAtIso))), partyTilt: macroPartyTiltFor, kindEtf: MACRO_KIND_PARTY_ETF, kindOf: macroContextKindOf,
         builtAtIso,
       });
       await writeFile(resolve(DATA_DIR, VALUATION_LAB_KEY), JSON.stringify(lab), "utf8");

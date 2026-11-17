@@ -318,6 +318,57 @@ ok(valuationLabEnabled({}) && valuationLabEnabled({ VALUATION_LAB: "1" }) && !va
   ok(Object.keys(out.results.methods).length === 8, "MCP returns all eight methods");
   const bad = await tool.run(ctx, { symbol: "MEGA", scenario: "nope" });
   ok(bad.warnings.some((w) => /Unknown scenario/.test(w)), "MCP warns on an unknown scenario");
+  ok(bad.results.scenario === null, "MCP reports no scenario when the one asked for was not applied");
+  const odd = await tool.run(ctx, { symbol: "MEGA", inputs: "rf=9", weights: [1, 2] });
+  ok(Number.isFinite(odd.results.modeled_value) && odd.results.inputs.rf === dm.inputs.rf, "MCP ignores inputs / weights that are not objects");
+
+  // Audit fixes (2026-11-17).
+  // Oil reads through the same 0.35 scaling as the Market Analysis scenario layer.
+  close(L.compute(mega, { ...dm.inputs, oilPct: 40 }).macroParts.oil, 0.1 * 40 * 0.35, 1e-9, "oil move uses the scenario layer's 0.35 scaling");
+  ok(L.OIL_DAMP === 0.35, "the page reads the same oil scaling");
+  // The price-above-target line reads as a plain size, not a signed change.
+  const hot = L.analyze({ ...mega, street: { ...mega.street, mean: mega.spot * 0.8 } }, dm.inputs);
+  ok(hot.story.analystsMiss.some((x) => /^The price is 25\.0% above the analysts/.test(x)), "price above target reads without a + sign");
+  // The party tilt still works when the grade has no macro kind (macro context off).
+  const fx2 = valuationFixture();
+  const common = { chains: fx2.chains, symbols: Object.keys(fx2.chains), sectors: fx2.sectors, industries: {}, bands: fx2.bands, scenarioEngine: fx2.scenarioEngine, grades: { MEGA: { total: 5.2, side: "call" } }, earningsForecast: fx2.earningsForecast, macro: fx2.macro, rfrPct: 4.0, partyTracker: fx2.partyTracker, partyNow: { president: "R", house: "R", senate: "R" }, partyTilt: partyTiltFor, kindEtf: KIND_PARTY_ETF, builtAtIso: "2026-11-17T16:00:00.000Z" };
+  ok(buildValuationLab(common).rows.MEGA.party == null, "no macro kind and no fallback: no party tilt");
+  const withKind = buildValuationLab({ ...common, kindOf: (sym) => (sym === "MEGA" ? "megacapTech" : null) });
+  ok(withKind.rows.MEGA.party && withKind.rows.MEGA.party.etf === "XLK", "kind fallback keeps the party tilt");
+  ok(buildValuationLab({ ...common, kindOf: () => { throw new Error("x"); } }).count === payload.count, "a failing kind fallback skips the tilt, not the stock");
+  for (const sym of Object.keys(payload.rows)) {
+    const ex = L.analyze(payload.rows[sym], { ...L.defaults(payload.rows[sym]).inputs, tariffPp: 3, taxChangePp: 5 }).explain;
+    ok(!/\b1 points\b/.test(JSON.stringify(ex)), `${sym}: drivers text says 1 point`);
+  }
+
+  // Fuzz: blank, zero, negative or junk fields must never throw or print raw values.
+  let seed = 12345;
+  const rnd = () => { seed = (seed * 48271) % 2147483647; return seed / 2147483647; };
+  const paths = (o, pre = []) => Object.entries(o || {}).flatMap(([k, v]) => (v && typeof v === "object" && !Array.isArray(v) ? [[...pre, k], ...paths(v, [...pre, k])] : [[...pre, k]]));
+  const junk = () => [null, undefined, 0, -1, -1e12, NaN, Infinity, "", "abc", [], {}][Math.floor(rnd() * 11)];
+  let fuzzed = 0;
+  for (let i = 0; i < 400; i++) {
+    const src = payload.rows[Object.keys(payload.rows)[i % Object.keys(payload.rows).length]];
+    const row = JSON.parse(JSON.stringify(src));
+    const all = paths(row);
+    for (let j = 0; j < 1 + Math.floor(rnd() * 6); j++) {
+      const path = all[Math.floor(rnd() * all.length)];
+      let o = row;
+      for (let q = 0; q < path.length - 1 && o; q++) o = o[path[q]];
+      if (o && typeof o === "object") o[path[path.length - 1]] = junk();
+    }
+    const def = L.defaults(row);
+    const inputs = { ...def.inputs };
+    for (const d of L.INPUTS) if (rnd() < 0.2) inputs[d.key] = d.min + rnd() * (d.max - d.min);
+    const an = L.analyze(row, inputs);
+    const txt = JSON.stringify(an.story) + JSON.stringify(an.explain);
+    { const m = txt.match(/[^"]*(undefined|NaN|\[object Object\]|Infinity)[^"]*/); assert.ok(!m, `fuzz ${i}: raw value in text: ${m && m[0]}`); }
+    assert.ok(an.result.value === null || Number.isFinite(an.result.value), `fuzz ${i}: value ${an.result.value}`);
+    for (const k of L.WEIGHT_KEYS) assert.ok(an.result.methods[k].value === null || Number.isFinite(an.result.methods[k].value), `fuzz ${i}: ${k} ${an.result.methods[k].value}`);
+    for (const id of ["bear", "oilspike", "dsweep", "tariffs"]) L.applyScenario(row, def.inputs, id);
+    fuzzed++;
+  }
+  ok(fuzzed === 400, "400 fuzzed rows: no throw, no raw values, values finite or blank");
 }
 
 console.log(`valuation-lab smoke: ${checks} checks passed`);

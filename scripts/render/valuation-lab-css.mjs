@@ -20,6 +20,14 @@ export function renderValuationLabCss() {
 .vl-side { position: sticky; top: 72px; max-height: calc(100vh - 90px); overflow: auto; padding: 4px 10px 10px; border: 1px solid var(--border); border-radius: var(--r-2, 12px); background: var(--surface); }
 @media (max-width: 1100px) { .vl-side { position: static; max-height: none; } }
 .vl-side h4 { display: flex; justify-content: space-between; align-items: baseline; }
+.vl-inbox > summary { cursor: pointer; display: flex; gap: 8px; align-items: baseline; margin: 8px 0 4px; }
+.vl-inbox > summary::after { content: "▾"; margin-left: auto; color: var(--muted); transition: transform .15s; }
+.vl-inbox:not([open]) > summary::after { transform: rotate(-90deg); }
+.vl-inbox > summary::-webkit-details-marker { display: none; }
+.vl-inbox > summary { list-style: none; }
+.vl-inbox-n { font: 500 11.5px/1.3 var(--font-sans); color: var(--muted); text-transform: none; letter-spacing: 0; }
+.vl-inbox-bar { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin: 0 0 4px; font: 500 11.5px/1.35 var(--font-sans); color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { .vl-inbox > summary::after { transition: none; } }
 .vl-group { border: 0; margin: 0 0 8px; padding: 0; min-width: 0; }
 .vl-group legend { padding: 8px 0 2px; font: 650 11px/1.3 var(--font-sans); letter-spacing: .05em; text-transform: uppercase; color: var(--muted-strong); }
 .vl-in { display: block; padding: 6px 0 8px; border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }

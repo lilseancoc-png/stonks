@@ -7382,6 +7382,12 @@ function recoveryEvidence(row, data, now = Date.now()) {
     return { value: s.mean, low: s.low, high: s.high, n: s.n };
   }
 
+  // The oil sensitivity is a blend of the stock's return vs oil and its
+  // business profile, capped at 2; the Market Analysis scenario layer scales
+  // it by 0.35 per 1% of oil, and this does the same so one oil move reads
+  // the same on both pages.
+  var OIL_DAMP = 0.35;
+
   // The full model at one set of inputs.
   function compute(row, inputs) {
     var d = normalize(inputs);
@@ -7395,7 +7401,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
     var base = wsum > 0 ? acc / wsum : null;
     var s = row.sens || {};
     var mBeta = fin(s.marketBeta) ? s.marketBeta : d.beta;
-    var parts = { usd: fin(s.usd) ? s.usd * d.usdPct : 0, oil: fin(s.commodity) ? s.commodity * d.oilPct : 0, market: mBeta * d.marketPct, politics: d.politicsPct };
+    var parts = { usd: fin(s.usd) ? s.usd * d.usdPct : 0, oil: fin(s.commodity) ? s.commodity * d.oilPct * OIL_DAMP : 0, market: mBeta * d.marketPct, politics: d.politicsPct };
     var macroPct = clamp(parts.usd + parts.oil + parts.market + parts.politics, -45, 45);
     var value = fin(base) ? base * (1 + macroPct / 100) : null;
     var spot = row.spot;
@@ -7527,7 +7533,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
     for (var i = 0; i < mixes.length; i++) {
       var t = partyTilt(row, mixes[i][2], mixes[i][3], mixes[i][4]);
       if (!fin(t)) continue;
-      list.push({ id: mixes[i][0], group: "Policy and politics", label: mixes[i][1], set: { politicsPct: clamp(t, -15, 15) }, note: "Since 2001 its sector (" + row.party.etf + ") ran " + (t >= 0 ? "+" : "") + t.toFixed(1) + "% a year vs the S&P 500 under this mix. History, not a forecast; it does not show the party caused it." });
+      list.push({ id: mixes[i][0], group: "Policy and politics", label: mixes[i][1], set: { politicsPct: clamp(t, -15, 15) }, note: "Since 2001 " + sectorLabel(row.party) + " ran " + (t >= 0 ? "+" : "") + t.toFixed(1) + "% a year vs the S&P 500 under this mix. History, not a forecast; it does not show the party caused it." });
     }
     list.push({ id: "oilspike", group: "Oil and the dollar", label: "Oil spike +40%", add: { oilPct: 40, rateShiftBp: 25 }, note: "Oil up 40% (war or supply cut); the stock moves by its measured oil response." });
     list.push({ id: "oilcrash", group: "Oil and the dollar", label: "Oil crash -40%", add: { oilPct: -40 }, note: "Oil down 40%." });
@@ -7577,6 +7583,8 @@ function recoveryEvidence(row, data, now = Date.now()) {
   function money(x) { return fin(x) ? "$" + (Math.abs(x) >= 1000 ? Math.round(x).toLocaleString("en-US") : x.toFixed(2)) : "n/a"; }
   function pct(x, dgt) { return fin(x) ? (x > 0 ? "+" : "") + x.toFixed(dgt == null ? 1 : dgt) + "%" : "n/a"; }
   function num1(x) { return fin(x) ? x.toFixed(1) : "n/a"; }
+  function sectorLabel(p) { return p && typeof p.etf === "string" && p.etf ? "its sector (" + p.etf + ")" : "its sector"; }
+  function qtrLabel(q) { return q && typeof q === "string" ? "the quarter to " + q : "the coming quarter"; }
   function ordinal(x) {
     var r = Math.round(x), t = Math.abs(r) % 100, u = Math.abs(r) % 10;
     return r + ((t >= 11 && t <= 13) ? "th" : u === 1 ? "st" : u === 2 ? "nd" : u === 3 ? "rd" : "th");
@@ -7608,19 +7616,19 @@ function recoveryEvidence(row, data, now = Date.now()) {
     }
     if (drv && drv.length) {
       var top = drv[0];
-      lines.disagree.push("The input that moves the answer most is " + top.label.toLowerCase() + ": " + top.step + (top.unit === "%" || top.unit === "pp" ? " points" : top.unit === "x" ? "x" : "") + " either way spans " + money(top.low) + " to " + money(top.high) + ".");
+      lines.disagree.push("The input that moves the answer most is " + top.label.toLowerCase() + ": " + top.step + (top.unit === "%" || top.unit === "pp" ? (top.step === 1 ? " point" : " points") : top.unit === "x" ? "x" : "") + " either way spans " + money(top.low) + " to " + money(top.high) + ".");
     }
     if (fin(result.measuredRatePct) && d.rateShiftBp) lines.disagree.push("A " + d.rateShiftBp + "bp rate move: the model reprices it through the discount rate; the stock's own past response to the 10-year suggests " + pct(result.measuredRatePct) + " for the price.");
     var c = row.context || {};
     if (fin(c.revision30)) lines.market.push("Analysts' full-year EPS estimate moved " + pct(c.revision30) + " in 30 days" + (c.revision30 > 2 ? ": rising estimates often lead price." : c.revision30 < -2 ? ": falling estimates often weigh on price before the model's inputs catch up." : "."));
-    if (c.grade && fin(c.grade.total)) lines.market.push("Site grade " + (c.grade.total > 0 ? "+" : "") + c.grade.total.toFixed(1) + (c.grade.side ? " (" + c.grade.side + " side)" : " (no trade)") + ": momentum, flow and news the valuation leaves out.");
+    if (c.grade && fin(c.grade.total)) lines.market.push("Site grade " + (c.grade.total > 0 ? "+" : "") + c.grade.total.toFixed(1) + (c.grade.side === "call" || c.grade.side === "put" ? " (" + c.grade.side + " side)" : " (no trade)") + ": momentum, flow and news the valuation leaves out.");
     if (c.grade && fin(c.grade.macroPoints) && Math.abs(c.grade.macroPoints) >= 0.3) lines.market.push("Macro fit " + (c.grade.macroPoints > 0 ? "+" : "") + c.grade.macroPoints.toFixed(1) + ": rates, credit and the cycle currently " + (c.grade.macroPoints > 0 ? "favor" : "work against") + " this kind of company.");
     if (fin(c.shortPct) && c.shortPct >= 8) lines.market.push(num1(c.shortPct) + "% of the float is sold short: a crowd betting the price falls.");
     if (fin(c.earningsInDays) && c.earningsInDays >= 0 && c.earningsInDays <= 21) lines.market.push("Earnings in " + c.earningsInDays + " day" + (c.earningsInDays === 1 ? "" : "s") + ": the price may be waiting on the print.");
-    if (fin(c.ownPePct)) lines.market.push("Forward P/E is at the " + ordinal(c.ownPePct) + " percentile of its own saved range" + (c.ownPeDays ? " (" + c.ownPeDays + " sessions)" : "") + ".");
-    if (c.forecast && fin(c.forecast.epsYoy)) lines.market.push("Earnings Forecast for the quarter ending " + c.forecast.quarterEnd + ": EPS " + pct(c.forecast.epsYoy) + " vs the same quarter last year" + (fin(c.forecast.revYoy) ? ", revenue " + pct(c.forecast.revYoy) : "") + ".");
+    if (fin(c.ownPePct)) lines.market.push("Forward P/E is at the " + ordinal(c.ownPePct) + " percentile of its own saved range" + (fin(c.ownPeDays) && c.ownPeDays > 0 ? " (" + Math.round(c.ownPeDays) + " sessions)" : "") + ".");
+    if (c.forecast && fin(c.forecast.epsYoy)) lines.market.push("Earnings Forecast for " + qtrLabel(c.forecast.quarterEnd) + ": EPS " + pct(c.forecast.epsYoy) + " vs the same quarter last year" + (fin(c.forecast.revYoy) ? ", revenue " + pct(c.forecast.revYoy) : "") + ".");
     var pty = row.party;
-    if (pty && pty.current && fin(pty.currentTilt)) lines.market.push("Party mix now (" + pty.current + "): since 2001 its sector (" + pty.etf + ") ran " + pct(pty.currentTilt) + " a year vs the S&P 500 under this mix. History only; try the party scenarios.");
+    if (pty && typeof pty.current === "string" && pty.current && fin(pty.currentTilt)) lines.market.push("Party mix now (" + pty.current + "): since 2001 " + sectorLabel(pty) + " ran " + pct(pty.currentTilt) + " a year vs the S&P 500 under this mix. History only; try the party scenarios.");
     var f = row.facts || {};
     if (row.financial) lines.us.push("Banks and brokers: free cash flow is not used, so cash-flow value is off and the answer leans on earnings power, book value and peers.");
     if (row.earlyStage) lines.us.push("Early-stage company: earnings-based methods are off until profits are established.");
@@ -7641,15 +7649,15 @@ function recoveryEvidence(row, data, now = Date.now()) {
     var s = row.story || {}, d = result.inputs, a = s.analysts || {}, f = row.facts || {};
     var out = { views: [], analystsMiss: [], modelMiss: [], beat: null };
     var rev = s.rev || {}, eps = s.eps || {}, ni = s.netIncome || {}, nm = s.netMargin || {}, fcf = s.fcf || {}, mult = s.multiples || {}, ours = s.ourForecast || null;
-    out.views.push({ key: "revGrowth", label: "Revenue growth", lastYear: rev.growthPct, analysts: a.revGrowthNextY, ours: ours ? ours.revYoy : null, oursNote: ours ? "quarter to " + ours.quarterEnd + " vs a year earlier" : null, price: imp.g1, yours: d.g1 });
-    out.views.push({ key: "epsGrowth", label: "EPS growth", lastYear: fin(eps.growthPct) ? eps.growthPct : ni.growthPct, analysts: fin(a.epsGrowthNextY) ? a.epsGrowthNextY : a.epsGrowthCurY, ours: ours ? ours.epsYoy : null, oursNote: ours ? "quarter to " + ours.quarterEnd + " vs a year earlier" : null, price: imp.epsGrowth, yours: d.epsGrowth });
-    out.views.push({ key: "pe", label: "Forward P/E", lastYear: mult.fpe ? mult.fpe.median : null, lastYearNote: mult.fpe && mult.fpe.days ? "own median, " + mult.fpe.days + " sessions" : null, analysts: row.peers ? row.peers.fpe : null, analystsNote: "peer median", ours: null, price: imp.exitPE, priceNote: "exit P/E in 3 years", yours: d.exitPE, now: f.forwardPE });
+    out.views.push({ key: "revGrowth", label: "Revenue growth", lastYear: rev.growthPct, analysts: a.revGrowthNextY, ours: ours ? ours.revYoy : null, oursNote: ours ? qtrLabel(ours.quarterEnd) + " vs a year earlier" : null, price: imp.g1, yours: d.g1 });
+    out.views.push({ key: "epsGrowth", label: "EPS growth", lastYear: fin(eps.growthPct) ? eps.growthPct : ni.growthPct, analysts: fin(a.epsGrowthNextY) ? a.epsGrowthNextY : a.epsGrowthCurY, ours: ours ? ours.epsYoy : null, oursNote: ours ? qtrLabel(ours.quarterEnd) + " vs a year earlier" : null, price: imp.epsGrowth, yours: d.epsGrowth });
+    out.views.push({ key: "pe", label: "Forward P/E", lastYear: mult.fpe ? mult.fpe.median : null, lastYearNote: mult.fpe && fin(mult.fpe.days) && mult.fpe.days > 0 ? "own median, " + Math.round(mult.fpe.days) + " sessions" : null, analysts: row.peers ? row.peers.fpe : null, analystsNote: "peer median", ours: null, price: imp.exitPE, priceNote: "exit P/E in 3 years", yours: d.exitPE, now: f.forwardPE });
 
     var bt = s.beats || {};
-    if (fin(bt.n) && bt.n >= 3 && fin(bt.avgSurprise)) {
+    if (fin(bt.n) && fin(bt.beat) && bt.n >= 3 && fin(bt.avgSurprise)) {
       if (bt.beat >= bt.n - 1 && bt.avgSurprise > 2) {
         out.beat = r1(clamp(bt.avgSurprise, -30, 30));
-        out.analystsMiss.push("Analysts have been too low: the company beat the EPS estimate in " + bt.beat + " of the last " + bt.n + " quarters, by " + num1(bt.avgSurprise) + "% on average" + (bt.longRun && bt.longRun.n >= 8 ? " (" + bt.longRun.beat + " of " + bt.longRun.n + " since " + String(bt.longRun.since).slice(0, 4) + ")" : "") + ". If that habit holds, next year's EPS lands about " + num1(bt.avgSurprise) + "% above the estimate.");
+        out.analystsMiss.push("Analysts have been too low: the company beat the EPS estimate in " + bt.beat + " of the last " + bt.n + " quarters, by " + num1(bt.avgSurprise) + "% on average" + (bt.longRun && fin(bt.longRun.n) && fin(bt.longRun.beat) && bt.longRun.n >= 8 ? " (" + bt.longRun.beat + " of " + bt.longRun.n + (bt.longRun.since ? " since " + String(bt.longRun.since).slice(0, 4) : "") + ")" : "") + ". If that habit holds, next year's EPS lands about " + num1(bt.avgSurprise) + "% above the estimate.");
       } else if (bt.n - bt.beat >= bt.n - 1 && bt.avgSurprise < -2) {
         out.beat = r1(clamp(bt.avgSurprise, -30, 30));
         out.analystsMiss.push("Analysts have been too high: the company missed in " + (bt.n - bt.beat) + " of the last " + bt.n + " quarters, by " + num1(-bt.avgSurprise) + "% on average.");
@@ -7663,15 +7671,15 @@ function recoveryEvidence(row, data, now = Date.now()) {
       if (nm.ttm - nm.priorTtm >= 2 && a.epsGrowthNextY <= a.revGrowthNextY + 2) out.analystsMiss.push("Net margin widened from " + num1(nm.priorTtm) + "% to " + num1(nm.ttm) + "% over the last year, but analysts' EPS growth (" + num1(a.epsGrowthNextY) + "%) barely tops their revenue growth (" + num1(a.revGrowthNextY) + "%): estimates may leave out further margin gains.");
       else if (nm.ttm - nm.priorTtm <= -2 && a.epsGrowthNextY >= a.revGrowthNextY + 5) out.analystsMiss.push("Net margin narrowed from " + num1(nm.priorTtm) + "% to " + num1(nm.ttm) + "%, yet analysts expect EPS (" + num1(a.epsGrowthNextY) + "%) to outgrow sales (" + num1(a.revGrowthNextY) + "%): they are counting on margins turning around.");
     }
-    if (fin(a.revision30) && Math.abs(a.revision30) >= 2) out.analystsMiss.push("The full-year EPS estimate moved " + pct(a.revision30) + " in 30 days" + (fin(a.revision90) ? " and " + pct(a.revision90) + " in 90" : "") + (fin(a.up30) || fin(a.down30) ? " (" + (a.up30 || 0) + " analysts raised, " + (a.down30 || 0) + " cut)" : "") + ": " + (a.revision30 > 0 ? "estimates are still catching up, so targets may lag." : "estimates are still falling; the bottom may not be in."));
+    if (fin(a.revision30) && Math.abs(a.revision30) >= 2) out.analystsMiss.push("The full-year EPS estimate moved " + pct(a.revision30) + " in 30 days" + (fin(a.revision90) ? " and " + pct(a.revision90) + " in 90" : "") + (fin(a.up30) || fin(a.down30) ? " (" + (fin(a.up30) ? a.up30 : 0) + " analysts raised, " + (fin(a.down30) ? a.down30 : 0) + " cut)" : "") + ": " + (a.revision30 > 0 ? "estimates are still catching up, so targets may lag." : "estimates are still falling; the bottom may not be in."));
     var st = row.street || {};
     if (fin(st.mean) && fin(row.spot)) {
-      if (row.spot > st.mean * 1.03) out.analystsMiss.push("The price is " + pct((row.spot / st.mean - 1) * 100) + " above the analysts' average target (" + money(st.mean) + "): either analysts lag the stock or the market is ahead of the numbers.");
+      if (row.spot > st.mean * 1.03) out.analystsMiss.push("The price is " + num1((row.spot / st.mean - 1) * 100) + "% above the analysts' average target (" + money(st.mean) + "): either analysts lag the stock or the market is ahead of the numbers.");
       if (fin(st.low) && fin(st.high) && st.low > 0 && st.high / st.low >= 2) out.analystsMiss.push("Analysts disagree widely: targets run from " + money(st.low) + " to " + money(st.high) + ", so the average hides two different stories.");
     }
     if (ours && (fin(ours.vsStreetRevPct) || fin(ours.vsStreetEpsPct))) {
       var big = Math.max(Math.abs(ours.vsStreetRevPct || 0), Math.abs(ours.vsStreetEpsPct || 0));
-      out.analystsMiss.push("Our Earnings Forecast (from filed numbers) for the quarter to " + ours.quarterEnd + " has revenue " + (fin(ours.vsStreetRevPct) ? pct(ours.vsStreetRevPct) : "n/a") + " and EPS " + (fin(ours.vsStreetEpsPct) ? pct(ours.vsStreetEpsPct) : "n/a") + " vs the analysts' estimate" + (big >= 3 ? ": a real difference worth watching on the print." : ": close to the street.") + " (Our EPS is the reported GAAP figure; analysts usually estimate adjusted EPS, so the revenue gap is the cleaner read.)");
+      out.analystsMiss.push("Our Earnings Forecast (from filed numbers) for " + qtrLabel(ours.quarterEnd) + " has revenue " + (fin(ours.vsStreetRevPct) ? pct(ours.vsStreetRevPct) : "n/a") + " and EPS " + (fin(ours.vsStreetEpsPct) ? pct(ours.vsStreetEpsPct) : "n/a") + " vs the analysts' estimate" + (big >= 3 ? ": a real difference worth watching on the print." : ": close to the street.") + " (Our EPS is the reported GAAP figure; analysts usually estimate adjusted EPS, so the revenue gap is the cleaner read.)");
     }
     if (fin(fcf.conversion) && fcf.conversion >= 1.3 && fin(fcf.ttm) && fcf.ttm > 0) out.analystsMiss.push("Free cash flow is " + fcf.conversion.toFixed(1) + "x net income: the business makes more cash than its earnings show, which P/E-based targets can understate.");
     var cap = s.capital || {};
@@ -7685,13 +7693,15 @@ function recoveryEvidence(row, data, now = Date.now()) {
     var op = s.options || {};
     if (fin(op.moveYearPct)) out.modelMiss.push("Options price a move of about +/-" + Math.round(op.moveYearPct) + "% over a year" + (fin(op.ivPct) ? " (implied volatility at the " + ordinal(op.ivPct) + " percentile of its own history)" : "") + ": one modeled value hides that much uncertainty.");
     var rx = s.reactions || {};
-    if (fin(rx.avgAbsMove) && rx.avgAbsMove >= 5) out.modelMiss.push("Earnings days move it about +/-" + num1(rx.avgAbsMove) + "% on average (" + rx.up + " of " + rx.n + " up): one report can close or widen the gap.");
+    if (fin(rx.avgAbsMove) && rx.avgAbsMove >= 5) out.modelMiss.push("Earnings days move it about +/-" + num1(rx.avgAbsMove) + "% on average" + (fin(rx.up) && fin(rx.n) ? " (" + rx.up + " of " + rx.n + " up)" : "") + ": one report can close or widen the gap.");
     if (fin(result.value) && fin(st.mean) && st.mean > 0) {
       var vs = (result.value / st.mean - 1) * 100;
       if (Math.abs(vs) >= 20) out.modelMiss.push("Your model sits " + num1(Math.abs(vs)) + "% " + (vs > 0 ? "above" : "below") + " the analysts' average target. The biggest difference is usually growth: you use " + num1(d.g1) + "% for revenue" + (fin(a.revGrowthNextY) ? ", analysts " + num1(a.revGrowthNextY) + "%" : "") + "; " + num1(d.epsGrowth) + "% for EPS" + (fin(a.epsGrowthNextY) ? ", analysts " + num1(a.epsGrowthNextY) + "%" : "") + ".");
     }
     if (fin(a.revGrowthNextY) && Math.abs(d.g1 - a.revGrowthNextY) >= 5) out.modelMiss.push("Your first-year revenue growth (" + num1(d.g1) + "%) is " + num1(Math.abs(d.g1 - a.revGrowthNextY)) + " points " + (d.g1 > a.revGrowthNextY ? "above" : "below") + " the analysts' (" + num1(a.revGrowthNextY) + "%).");
-    if (fin(rev.accel) && Math.abs(rev.accel) >= 4) out.modelMiss.push("Quarterly revenue growth " + (rev.accel > 0 ? "sped up" : "slowed") + " by " + num1(Math.abs(rev.accel)) + " points over the last " + (rev.accelSpan || 1) + " quarters (latest " + num1(rev.quarters[rev.quarters.length - 1].yoyPct) + "% vs a year earlier): the trend the market may be extrapolating, and one a five-year growth path smooths over.");
+    var span = fin(rev.accelSpan) && rev.accelSpan > 1 ? Math.round(rev.accelSpan) : 1;
+    var lastQ = Array.isArray(rev.quarters) && rev.quarters.length ? rev.quarters[rev.quarters.length - 1] : null;
+    if (fin(rev.accel) && Math.abs(rev.accel) >= 4) out.modelMiss.push("Quarterly revenue growth " + (rev.accel > 0 ? "sped up" : "slowed") + " by " + num1(Math.abs(rev.accel)) + " points over the last " + (span > 1 ? span + " quarters" : "quarter") + (lastQ && fin(lastQ.yoyPct) ? " (latest " + num1(lastQ.yoyPct) + "% vs a year earlier)" : "") + ": the trend the market may be extrapolating, and one a five-year growth path smooths over.");
     return out;
   }
 
@@ -7704,9 +7714,9 @@ function recoveryEvidence(row, data, now = Date.now()) {
     return { result: result, implied: imp, drivers: drv, grid: grid(row, inputs), range: opts && opts.range === false ? null : range(row, inputs), story: story(row, result, imp), explain: explain(row, result, imp, drv) };
   }
 
-  return { METHODS: METHODS, INPUTS: INPUTS, WEIGHT_KEYS: WEIGHT_KEYS, defaults: defaults, normalize: normalize, compute: compute, implied: implied, drivers: drivers, grid: grid, range: range, scenarios: scenarios, applyScenario: applyScenario, partyTilt: partyTilt, story: story, explain: explain, analyze: analyze, ordinal: ordinal };
+  return { OIL_DAMP: OIL_DAMP, METHODS: METHODS, INPUTS: INPUTS, WEIGHT_KEYS: WEIGHT_KEYS, defaults: defaults, normalize: normalize, compute: compute, implied: implied, drivers: drivers, grid: grid, range: range, scenarios: scenarios, applyScenario: applyScenario, partyTilt: partyTilt, story: story, explain: explain, analyze: analyze, ordinal: ordinal };
 })();
-  var vlState = { data: null, error: null, pending: null, sym: null, inputs: null, defaults: null, scenario: null };
+  var vlState = { data: null, error: null, pending: null, sym: null, inputs: null, defaults: null, scenario: null, inputsOpen: null };
   var VL_STORE = 'stonks-valuation-v1';
   var VL_COLORS = { dcf: '#4f7cff', earnings: '#12a37f', peers: '#d98a1c', history: '#0e9fb3', peg: '#d4507a', power: '#9b5de5', book: '#8c6a3f', street: '#7a8699' };
 
@@ -7716,7 +7726,20 @@ function recoveryEvidence(row, data, now = Date.now()) {
   function vlNum(x, d){ return vlFin(x) ? Number(x).toFixed(d == null ? 1 : d) : '—'; }
   function vlBig(x){ if (!vlFin(x)) return '—'; var a = Math.abs(x), s = x < 0 ? '-' : ''; return a >= 1e12 ? s + '$' + (a / 1e12).toFixed(2) + 'T' : a >= 1e9 ? s + '$' + (a / 1e9).toFixed(1) + 'B' : a >= 1e6 ? s + '$' + (a / 1e6).toFixed(0) + 'M' : s + '$' + a.toFixed(0); }
   function vlGapCls(x){ return !vlFin(x) ? '' : x >= 5 ? 'vl-up' : x <= -5 ? 'vl-down' : 'vl-flat'; }
-  function vlFmtInput(def, v){ if (!vlFin(v)) return '—'; return def.unit === 'x' ? Number(v).toFixed(def.step < 0.1 ? 2 : 1) + 'x' : def.unit === 'bp' ? (v > 0 ? '+' : '') + Math.round(v) + 'bp' : def.unit === 'yrs' ? Math.round(v) + ' yrs' : def.unit === 'pp' ? (v > 0 ? '+' : '') + Number(v).toFixed(1) + ' pts' : (def.min < 0 && v > 0 ? '+' : '') + Number(v).toFixed(def.step < 0.1 ? 2 : def.step < 1 ? 2 : 1) + '%'; }
+  // Two decimals only where the slider steps need them (0.05, 0.25), else one.
+  function vlDec(step){ return step < 0.1 || Math.abs(step * 2 - Math.round(step * 2)) > 1e-9 ? 2 : 1; }
+  function vlFmtInput(def, v){ if (!vlFin(v)) return '—'; var dp = vlDec(def.step); return def.unit === 'x' ? Number(v).toFixed(dp) + 'x' : def.unit === 'bp' ? (v > 0 ? '+' : '') + Math.round(v) + 'bp' : def.unit === 'yrs' ? Math.round(v) + ' yrs' : def.unit === 'pp' ? (v > 0 ? '+' : '') + Number(v).toFixed(dp) + ' pts' : (def.min < 0 && v > 0 ? '+' : '') + Number(v).toFixed(dp) + '%'; }
+  // Keep ?symbol= in the address in step with the stock on screen, so a
+  // reload or a shared link opens the same one (only while this page is open).
+  function vlUrl(sym){
+    try {
+      var u = new URL(location.href);
+      if (u.searchParams.get('tab') !== 'valuation-lab' || u.searchParams.get('symbol') === sym) return;
+      u.searchParams.set('symbol', sym);
+      history.replaceState(null, '', u.pathname + u.search + u.hash);
+    } catch (_) {}
+  }
+  function vlWide(){ try { return !window.matchMedia || window.matchMedia('(min-width: 1101px)').matches; } catch (_) { return true; } }
 
   function vlSaved(){ try { var raw = localStorage.getItem(VL_STORE); var o = raw ? JSON.parse(raw) : {}; return o && typeof o === 'object' ? o : {}; } catch (_) { return {}; } }
   function vlSave(sym, inputs){ try { var o = vlSaved(); if (inputs) o[sym] = inputs; else delete o[sym]; localStorage.setItem(VL_STORE, JSON.stringify(o)); } catch (_) {} }
@@ -7748,6 +7771,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
     vlState.sym = sym;
     vlState.scenario = null;
     VIEWS.set('valuation-lab.symbol', sym);
+    vlUrl(sym);
     var def = VL.defaults(rows[sym]);
     vlState.defaults = def;
     var saved = vlSaved()[sym];
@@ -7845,7 +7869,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
         var hint = 'Default ' + vlFmtInput(def, defs[def.key]) + ' · ' + (src[def.key] || '');
         if (def.key === 'g1' && row && row.growthBars) hint += ' · ' + row.growthBars.label + ' bars: normal ' + (row.growthBars.low == null ? '—' : row.growthBars.low + '%') + ', strong ' + row.growthBars.above + '%, very strong ' + row.growthBars.wellAbove + '%';
         if (def.key === 'usdPct' && row && row.sens && vlFin(row.sens.usd)) hint += ' · this stock moves about ' + vlNum(row.sens.usd, 2) + '% per 1% dollar move';
-        if (def.key === 'oilPct' && row && row.sens && vlFin(row.sens.commodity)) hint += ' · about ' + vlNum(row.sens.commodity, 2) + '% per 1% oil move';
+        if (def.key === 'oilPct' && row && row.sens && vlFin(row.sens.commodity)) hint += ' · about ' + vlNum(row.sens.commodity * VL.OIL_DAMP, 2) + '% per 1% oil move';
         if (def.key === 'rateShiftBp' && row && row.sens && vlFin(row.sens.rate10y)) hint += ' · past response ' + vlNum(row.sens.rate10y, 2) + '% per 10bp';
         if (def.key === 'marketPct' && row) hint += ' · moves the value by beta ' + vlNum(row.sens && vlFin(row.sens.marketBeta) ? row.sens.marketBeta : d.beta, 2) + ' x the move';
         if ((def.key === 'taxChangePp' || def.key === 'tradeHitPct') && row) hint += vlFin(row.facts.usShare) ? ' · ' + Math.round(row.facts.usShare * 100) + '% of revenue is US (SEC filings)' : ' · no US / foreign split on file, 60% US assumed';
@@ -7986,14 +8010,26 @@ function recoveryEvidence(row, data, now = Date.now()) {
   }
 
   // ---- Render ----------------------------------------------------------------
+  // The inputs panel is open beside the results on a wide screen and folded
+  // above them on a phone, so the numbers come first; a choice sticks.
+  function vlInputsOpen(){ return vlState.inputsOpen == null ? vlWide() : vlState.inputsOpen; }
+  function vlChangedCount(){
+    var d = vlState.inputs, defs = vlState.defaults && vlState.defaults.inputs, n = 0;
+    if (!d || !defs) return 0;
+    VL.INPUTS.forEach(function(def){ if (Math.abs((d[def.key] || 0) - (defs[def.key] || 0)) > 1e-9) n++; });
+    VL.WEIGHT_KEYS.forEach(function(k){ if (Math.abs(((d.weights || {})[k] || 0) - ((defs.weights || {})[k] || 0)) > 1e-9) n++; });
+    return n;
+  }
+  function vlChangedLabel(){ var n = vlChangedCount(); return n ? n + ' changed' : 'at defaults'; }
   function renderValuationLab(){
     var root = $('valuation-lab-root'); if (!root) return;
     if (!vlState.data){ root.innerHTML = '<p class="hint">' + (vlState.error ? 'The lab could not be loaded (' + escapeHtml(vlState.error) + '). Every full build writes it; the first one after this deploys creates the file.' : 'Loading…') + '</p>'; return; }
-    if (!vlState.sym){
-      var want = null;
-      try { want = (new URLSearchParams(location.search).get('symbol') || '').toUpperCase() || null; } catch (_) {}
-      vlPick(want || VIEWS.get('valuation-lab.symbol', 'NVDA'));
-    }
+    var want = null;
+    try { want = (new URLSearchParams(location.search).get('symbol') || '').toUpperCase() || null; } catch (_) {}
+    // First visit: the link's stock, else the last one viewed. Later, a link
+    // to another stock (from the MCP or the Owner brief) switches to it.
+    if (!vlState.sym) vlPick(want || VIEWS.get('valuation-lab.symbol', 'NVDA'));
+    else if (want && want !== vlState.sym && vlState.data.rows[want]) vlPick(want);
     var row = vlRow(); if (!row){ root.innerHTML = '<p class="hint">No stock has valuation inputs yet.</p>'; return; }
     var opts = vlSymbols().map(function(s){ var r = vlState.data.rows[s]; return '<option value="' + escapeHtml(s) + '"' + (s === vlState.sym ? ' selected' : '') + '>' + escapeHtml(s + ' · ' + (r.name || '')) + '</option>'; }).join('');
     var scs = VL.scenarios(row), groups = [], byGroup = {};
@@ -8006,7 +8042,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
     root.innerHTML = '<div class="vl-bar"><label class="vl-pick">Stock <select data-vl-sym aria-label="Stock to value">' + opts + '</select></label><div class="vl-presets" role="group" aria-label="Scenarios">' + presets + '</div><a class="book-more" href="?tab=stock&s=' + encodeURIComponent(vlState.sym) + '">Stock page</a></div>' +
       '<details class="vl-env"' + (vlState.scenario && !(byGroup.Quick || []).some(function(x){ return x.id === vlState.scenario; }) ? ' open' : '') + '><summary>More environments: economy, the Fed, market mood, policy and politics, oil and the dollar (' + (scs.length - (byGroup.Quick || []).length) + ')</summary>' + more + '</details>' +
       '<p class="vl-scn-note" id="vl-scn-note">' + activeNote + '</p>' +
-      '<div class="vl-sticky" id="vl-sticky" aria-live="polite"></div><div class="vl-layout"><div class="vl-main" id="vl-out"></div><aside class="vl-side"><h4 class="slp-h4">Inputs <button type="button" class="ql-linkbtn" data-vl-reset>Reset</button></h4><div id="vl-inputs">' + vlInputsHtml() + '</div></aside></div>' +
+      '<div class="vl-sticky" id="vl-sticky" aria-live="polite"></div><div class="vl-layout"><div class="vl-main" id="vl-out"></div><aside class="vl-side"><details class="vl-inbox"' + (vlInputsOpen() ? ' open' : '') + '><summary class="slp-h4">Inputs <span class="vl-inbox-n" id="vl-inbox-n">' + vlChangedLabel() + '</span></summary><div class="vl-inbox-bar"><span>Drag a slider; everything on the page updates.</span><button type="button" class="ql-linkbtn" data-vl-reset>Reset</button></div><div id="vl-inputs">' + vlInputsHtml() + '</div></details></aside></div>' +
       vlScreenHtml() +
       '<p class="evb-note">Display only: nothing here changes a pick, a grade or the Track Record. Inputs from the ' + escapeHtml(rglEt(vlState.data.builtAtIso)) + ' build; your changes are kept on this device only.</p>';
     vlRenderOut();
@@ -8035,12 +8071,14 @@ function recoveryEvidence(row, data, now = Date.now()) {
       var inp = document.querySelector('[data-vl-input="' + def.key + '"]');
       if (inp){ if (String(inp.value) !== String(d[def.key])) inp.value = d[def.key]; var lab = inp.closest('.vl-in'); if (lab) lab.classList.toggle('vl-changed', Math.abs((d[def.key] || 0) - (defs[def.key] || 0)) > 1e-9); }
     });
+    var cn = $('vl-inbox-n'); if (cn) cn.textContent = vlChangedLabel();
   }
 
   var vlTimer = null;
   function vlChanged(){
     var same = JSON.stringify(vlState.inputs) === JSON.stringify(vlState.defaults.inputs);
     vlSave(vlState.sym, same ? null : vlState.inputs);
+    var cn = $('vl-inbox-n'); if (cn) cn.textContent = vlChangedLabel();
     if (vlTimer) cancelAnimationFrame(vlTimer);
     vlTimer = requestAnimationFrame(function(){ vlTimer = null; vlRenderOut(); });
   }
@@ -8062,6 +8100,9 @@ function recoveryEvidence(row, data, now = Date.now()) {
     var w = t.getAttribute('data-vl-weight');
     if (w){ vlState.inputs.weights[w] = Number(t.value); var wv = document.querySelector('[data-vl-wv="' + w + '"]'); if (wv) wv.textContent = t.value; vlChanged(); }
   });
+  document.addEventListener('toggle', function(ev){
+    var t = ev.target; if (t && t.classList && t.classList.contains('vl-inbox')) vlState.inputsOpen = !!t.open;
+  }, true);
   document.addEventListener('change', function(ev){
     var t = ev.target; if (!t || !t.matches || !t.matches('[data-vl-sym]')) return;
     vlPick(t.value); renderValuationLab();
@@ -8081,6 +8122,8 @@ function recoveryEvidence(row, data, now = Date.now()) {
       var id = pr.getAttribute('data-vl-preset');
       var next = id === 'base' ? vlClone(vlState.defaults.inputs) : VL.applyScenario(vlRow(), vlState.defaults.inputs, id);
       if (!next) return;
+      // An environment moves the economic inputs; the method weights you set stay.
+      next.weights = vlClone(vlState.inputs.weights || vlState.defaults.inputs.weights);
       vlState.inputs = VL.normalize(next); vlState.scenario = id === 'base' ? null : id;
       vlSave(vlState.sym, JSON.stringify(vlState.inputs) === JSON.stringify(vlState.defaults.inputs) ? null : vlState.inputs);
       renderValuationLab();

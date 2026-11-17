@@ -36,7 +36,8 @@ earnings) 35/0/35/15/0/0/0/15.
 - **Multiples:** exit P/E, peer premium, fair PEG.
 - **Economy and markets:** S&P 500 move (× the stock's beta), dollar and oil moves (the
   Market Analysis scenario layer's measured sensitivities, `sensitivities[].vector.usd` /
-  `.commodity`). The market, dollar, oil and party moves together are capped at ±45%.
+  `.commodity`; the oil one is scaled by 0.35 per 1% of oil, as the scenario layer does,
+  `OIL_DAMP`). The market, dollar, oil and party moves together are capped at ±45%.
   A rate shock goes through every discount rate instead, so rates are never counted twice;
   the stock's measured rate response (`rate10y`, % per 10bp) is shown beside it as a check.
 - **Policy and politics:** corporate tax change (points off the 21% federal rate, applied to
@@ -58,7 +59,8 @@ Republican sweep, and the two split governments. Oil and the dollar: oil ±40%, 
 
 The party scenarios read the Party tracker (`party-tracker.json`): the stock's sector ETF
 (`KIND_PARTY_ETF`) return against the S&P 500 a year while each party held each branch,
-weighted 0.5 president, 0.25 House, 0.25 Senate (`partyTiltFor`). They are history, not a
+weighted 0.5 president, 0.25 House, 0.25 Senate (`partyTiltFor`). The stock's kind comes
+from the grade's macro fit, or from `macroContextKindOf` when the macro context is off. They are history, not a
 forecast, and the page says so. They are hidden when the party data is missing.
 
 ## Range of outcomes
@@ -123,8 +125,14 @@ more than the price.
   stored copy stays as it was.
 - The page recomputes in the browser with the same factory (pasted with `toString()`, so
   no backslashes, backticks or outside names in it, comments included); input changes
-  are kept per device in `stonks-valuation-v1`.
+  are kept per device in `stonks-valuation-v1`. An environment button moves the economic
+  inputs and keeps the method weights you set. The Inputs panel sits beside the results
+  on a wide screen and is folded above them on a phone (its heading counts the changed
+  inputs); `?symbol=` follows the stock on screen.
 - MCP: `value_stock` (Owner) runs the same code with optional `inputs`, `weights` and
-  `scenario`, and returns the range and the story too.
+  `scenario`, and returns the range and the story too (`scenario` in the result is null
+  when the one asked for does not exist for that stock).
 - Display only: nothing here feeds a grade, a gate, a pick or the Track Record.
-- Tests: `node scripts/valuation-lab-smoke.mjs`, `node scripts/valuation-lab-browser.mjs`.
+- Tests: `node scripts/valuation-lab-smoke.mjs` (includes 400 rows with blank, zero,
+  negative or junk fields: no throw, no raw values in the text), `node
+  scripts/valuation-lab-browser.mjs`.
