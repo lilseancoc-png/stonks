@@ -385,7 +385,7 @@ export const GLOBAL_MARKETS = {
   "9984.T":    { name: "SoftBank Group",      region: "Japan",       type: "equity", lead: "Arm parent" },
   // Hong Kong / China (closes ~04:00 ET)
   "^HSI":      { name: "Hang Seng",           region: "China",       type: "index",  lead: "China / HK tech" },
-  "000300.SS": { name: "CSI 300",             region: "China",       type: "index",  lead: "Mainland China large caps" },
+  "000001.SS": { name: "Shanghai Composite",  region: "China",       type: "index",  lead: "Mainland China broad market" },
   // Australia (closes ~01:00-02:00 ET) — broad Asia-Pacific risk, commodity exporters
   "^AXJO":     { name: "ASX 200",             region: "Australia",   type: "index",  lead: "Australia broad / commodity exporters" },
   // Europe (closes ~11:30 ET — concurrent with the US morning, not overnight)
@@ -401,7 +401,7 @@ export const GLOBAL_MARKETS = {
   "AUDUSD=X":  { name: "AUD/USD",             region: "FX & rates",  type: "fx",     lead: "Australian dollar vs USD", hidden: true },
   "GBPUSD=X":  { name: "GBP/USD",             region: "FX & rates",  type: "fx",     lead: "Sterling vs USD", hidden: true },
   "DX-Y.NYB":  { name: "Dollar index (DXY)",  region: "FX & rates",  type: "fx",     lead: "Broad USD" },
-  "CNH=X":     { name: "USD/CNH",             region: "FX & rates",  type: "fx",     lead: "Offshore yuan (up = yuan weaker = Asia stress)" },
+  "CNY=X":     { name: "USD/CNY",             region: "FX & rates",  type: "fx",     lead: "Onshore yuan (up = yuan weaker = Asia stress)" },
   "KRW=X":     { name: "USD/KRW",             region: "FX & rates",  type: "fx",     lead: "Korean won (up = won weaker = chip/EM stress)" },
   "US2Y":      { name: "US 2Y yield",         region: "FX & rates",  type: "rate",   lead: "Short rates / Fed path" },
   "^TNX":      { name: "US 10Y yield",        region: "FX & rates",  type: "rate",   lead: "Long rates / valuations" },
@@ -17320,13 +17320,18 @@ export function fedTargetRangeMidpoint(rate) {
 // linearly interpolates probability between adjacent quantized outcomes:
 //   delta ∈ [0, +25bp]    → P(hike) = delta / 25bp,  P(hold) = 1 − that
 //   delta ∈ [-25bp, 0]    → P(cut)  = |delta| / 25bp, P(hold) = 1 − that
-//   |delta| > 25bp        → P(any-move) saturates at 100% (size info lost)
-function probsFromDelta(delta) {
+//   |delta| > 25bp        → P(any-move) saturates at 100%; `big` (only set
+//                           then) is the share priced as a 50bp move,
+//                           (|delta| − 25bp) / 25bp, for the widget's
+//                           "of which 50 bp" line (2026-11-17, Owner choice)
+// probsFromDeltaLive in scripts/render/app-js.mjs is the browser copy.
+export function probsFromDelta(delta) {
   let hike = 0, cut = 0;
   if (delta > 0) hike = clamp01(delta / 0.25);
   else if (delta < 0) cut = clamp01(-delta / 0.25);
   const hold = clamp01(1 - hike - cut);
-  return { hike, hold, cut };
+  const big = Math.abs(delta) > 0.25 ? clamp01((Math.abs(delta) - 0.25) / 0.25) : 0;
+  return big > 0 ? { hike, hold, cut, big } : { hike, hold, cut };
 }
 
 // Lookback buckets the FedWatch widget renders. Keep the names aligned
@@ -17439,7 +17444,7 @@ export async function fetchFedwatchSnapshot(meetingDates, currentRate) {
       out[m.date][label] = probsFromDelta(delta);
       if (label === "now") {
         const p = out[m.date][label];
-        console.log(`    · FedWatch ${m.date} via ${source}: pre=${preRate.toFixed(3)}% post=${postRate.toFixed(3)}% Δ=${(delta * 100).toFixed(1)}bp → hike=${(p.hike * 100).toFixed(0)}% hold=${(p.hold * 100).toFixed(0)}% cut=${(p.cut * 100).toFixed(0)}%`);
+        console.log(`    · FedWatch ${m.date} via ${source}: pre=${preRate.toFixed(3)}% post=${postRate.toFixed(3)}% Δ=${(delta * 100).toFixed(1)}bp → hike=${(p.hike * 100).toFixed(0)}% hold=${(p.hold * 100).toFixed(0)}% cut=${(p.cut * 100).toFixed(0)}%${p.big ? ` (of which 50bp ${(p.big * 100).toFixed(0)}%)` : ""}`);
       }
       preRate = postRate; // chain forward
     }
@@ -31493,24 +31498,37 @@ const CORR_SPARK_BARS = 31;       // trailing closes baked per market for the ra
 // and chart meta (currency / display name). Non-fatal at the caller — a failed
 // symbol is simply absent from the snapshot (graceful degradation, like a
 // skipped ticker in the main chain sweep).
+// Yahoo's chart reply for a few foreign indexes (the Euro Stoxx 50 in three
+// of four builds on 2026-11-16) fails the library's schema check on one odd
+// field while the daily closes are fine. Retry that case without the check;
+// the caller keeps only rows with a finite close and a date.
+export async function chartSkippingSchemaErrors(symbol, query, chartFn = (...a) => yahooFinance.chart(...a)) {
+  try {
+    return await chartFn(symbol, query);
+  } catch (err) {
+    if (!/schema validation/i.test(String(err?.message || ""))) throw err;
+    return chartFn(symbol, query, { validateResult: false });
+  }
+}
+
 async function fetchGlobalMarketBars(symbol) {
   const period2 = new Date();
   const period1 = new Date(period2.getTime() - GLOBAL_HISTORY_DAYS * 24 * 3600 * 1000);
-  let result = await yahooFinance.chart(symbol, { period1, period2, interval: "1d" });
+  let result = await chartSkippingSchemaErrors(symbol, { period1, period2, interval: "1d" });
   let quotes = Array.isArray(result?.quotes) ? result.quotes : [];
   // Yahoo occasionally returns a successful but truncated ~15-session slice
   // for a 1-year request. That is enough for the old 24H tile but silently
   // blanks the new 20-session context. Retry once and keep the longer result.
   if (quotes.length > 1 && quotes.length < CORR_SPARK_BARS) {
     await new Promise((r) => setTimeout(r, 180));
-    const retry = await yahooFinance.chart(symbol, { period1, period2, interval: "1d" });
+    const retry = await chartSkippingSchemaErrors(symbol, { period1, period2, interval: "1d" });
     const retryQuotes = Array.isArray(retry?.quotes) ? retry.quotes : [];
     if (retryQuotes.length > quotes.length) { result = retry; quotes = retryQuotes; }
   }
   const barTz = result?.meta?.exchangeTimezoneName || null;
   const researchBars = quotes
-    .filter((q) => q && q.close != null)
-    .map((q) => ({ c: q.close, t: q.date ? (overnightLocalDate(new Date(q.date), barTz) || new Date(q.date).toISOString().slice(0, 10)) : null }))
+    .filter((q) => q && q.close != null && Number.isFinite(Number(q.close)) && q.date != null && Number.isFinite(new Date(q.date).getTime()))
+    .map((q) => ({ c: Number(q.close), t: overnightLocalDate(new Date(q.date), barTz) || new Date(q.date).toISOString().slice(0, 10) }))
     .filter((b) => b.t);
   const bars = splitPatternHistory(researchBars).technical;
   if (bars.length < 2) throw new Error(`no usable bars for ${symbol}`);

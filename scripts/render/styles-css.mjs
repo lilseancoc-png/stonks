@@ -11547,6 +11547,10 @@ body.cal-rc-open { overflow: hidden; }
 .fomc-hl-key b { font-size: 13px; color: var(--text); }
 .fomc-hl-key.cut b { color: var(--pos); }
 .fomc-hl-key.hike b { color: var(--neg); }
+.fomc-hl-big { margin-top: 6px; font: 600 12px/1.3 var(--font-mono); color: var(--muted); }
+.fomc-hl-big b { font-size: 13px; color: var(--text); }
+.fomc-hl-big.hike b { color: var(--neg); }
+.fomc-hl-big.cut b { color: var(--pos); }
 .fomc-vote-panel {
   padding: 11px 13px;
   border: 1px solid var(--hairline);

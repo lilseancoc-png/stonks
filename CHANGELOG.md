@@ -89,6 +89,12 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Search trends no longer badge, filter or sort cards by "breakout" queries carried from an old run while related-query lookups are off, and the collector stops carrying them; an unfinished last day marked partial is left out of the 7-day window. The stale note gives the weekly nine-day window instead of 48 hours.
 - Search trends groups its weekly Google Trends requests by each theme's usual size, so small themes are compared with each other instead of reading 0-2 beside ChatGPT or Trump, where their weekly change was mostly rounding (Owner choice) (#856).
 
+### Fixed
+
+- Today section audit: News no longer rates buy-or-sell questions and listicles ("Should you buy X before earnings?") as high impact because they mention earnings or the Fed, and counts results written without the word "earnings" ("beats estimates", "third-quarter profit") as earnings news. Home's "next Top Picks run" skips 15:30 on a 13:00 ET early close (next: the day after Thanksgiving). The Calendar's IPO lockup estimate moves a weekend or holiday day 180 to the next session instead of the one before, and VIX expiration follows Cboe's holiday rule (May 2027 expires Tuesday May 18). The Overnight page retries a Yahoo reply that fails its schema check, which dropped the Euro Stoxx 50 in three of four builds on 2026-11-16 (#857).
+- The Fed policy card says how much of a meeting priced past one 25 bps step is a 50 bps move ("Of which a 50 bps hike: 16%" when futures price +29 bps), instead of only showing a 100% hike (Owner choice) (#857).
+- The overnight read and the Overnight page use the Shanghai Composite and onshore USD/CNY in place of the CSI 300 and offshore USD/CNH: Yahoo often sent the CSI 300 as a single bar with no history and USD/CNH with no bars, so both sat out the Asia and FX votes. Weights are unchanged (Owner choice) (#857).
+
 ## 2026-11-16
 
 ### Added
