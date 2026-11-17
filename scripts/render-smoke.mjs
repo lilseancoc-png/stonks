@@ -11,6 +11,7 @@ import { verifyResearchDisplay } from "./research-display-smoke.mjs";
 import { renderStylesCss } from "./render/styles-css.mjs";
 import { isPremiumKey, roleClaimForKey } from "../lib/premium-keys.mjs";
 import { BRIEF_ACCESS_POLICY_VERSION, sanitizePublicJsonText } from "../lib/public-data-policy.mjs";
+import { stageFor } from "../lib/history-rhymes.mjs";
 import { DISCORD_INVITE_URL } from "../lib/links.mjs";
 import { contentAssetVersion } from "../lib/asset-version.mjs";
 import { SITE_SECTIONS } from "./render/site-map.mjs";
@@ -64,6 +65,14 @@ try {
   assert.match(html, /id="owner-tab-research" data-owner-view="research"[^>]*aria-selected="true"/);
   // Market risk: one line of the four reads on each of its three tabs.
   for (const id of ["market", "risk", "bottom-tracker"]) assert.match(paneOf(id), new RegExp('data-mr-line="' + id + '"'));
+  // The Market risk line gives every Booms & busts stage a tone, so a new
+  // stage never reads as calm by accident.
+  {
+    const toneMap = (renderAppJs({}).match(/var MR_HR_TONE = (\{[^}]+\})/) || [])[1] || "";
+    const ids = new Set();
+    for (const boom of [0, 1, 2, 3]) for (const bust of [0, 1, 2, 3]) ids.add(stageFor({ boom, boomTotal: 3, bust, bustTotal: 3 }).id);
+    for (const id of ids) assert.match(toneMap, new RegExp("\\b" + id + ": '"), "Market risk line has no tone for Booms & busts stage " + id);
+  }
   assert.match(html, /data-nav-group="owner"[\s\S]*?side-nav-group-label">Owner · Desk[\s\S]*?data-page-tab="market"[^>]*data-hub="market-risk" data-hub-lead="1"[\s\S]*?data-page-tab="risk"[^>]*data-hub-member="1"[\s\S]*?data-nav-group="owner-ideas"[\s\S]*?data-page-tab="picks"[\s\S]*?data-page-tab="open-picks"[\s\S]*?data-page-tab="track"[\s\S]*?data-page-tab="leaps"[\s\S]*?data-page-tab="stocks"[\s\S]*?data-page-tab="levetf"[\s\S]*?data-page-tab="rotation"[\s\S]*?data-nav-group="owner-research"[\s\S]*?data-page-tab="quant"[\s\S]*?data-nav-group="owner-admin"[\s\S]*?data-page-tab="owner-settings"/);
   assert.match(html, /id="page-pane-open-picks"[^>]*hidden>[\s\S]*?id="open-picks-root"/);
   assert.doesNotMatch(html, /data-page-tab="daytrade"|data-page-tab="daytrack"|Day Trading Track Record/);

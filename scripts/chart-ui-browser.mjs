@@ -205,7 +205,9 @@ try {
     await page.waitForFunction(() => document.querySelector('#heatmap-live-state')?.textContent.includes('After hours'));
     check(await appleTile.getAttribute('data-sp') === '100', 'Extended-hours prices cannot recolor a regular-session heatmap');
     await page.screenshot({ path: resolve(output, 'heatmap-live.png') });
-    await page.locator('[data-page-tab="party-tracker"]').first().click();
+    // Party tracker is a tab of the Owner history hub, so its sidebar button
+    // is not shown; open it the way a link does.
+    await page.locator('[data-page-tab="party-tracker"]').first().dispatchEvent('click');
     const beforeHidden = count;
     await page.clock.runFor(31000);
     check(count === beforeHidden, 'Leaving heatmap stops its requests');

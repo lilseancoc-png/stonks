@@ -18,7 +18,8 @@ export function renderMarketRiskJs() {
   var mrState = { odds: null, rhymes: null, tape: null, tapeAsked: false, done: {} };
   var MR_PAGES = ['market', 'risk', 'bottom-tracker'];
   var MR_BTM_TONE = { stress: 'off', slowing: 'warn', pullback: 'warn', potential: 'warn', emerging: 'on', confirmed: 'on', 'no-drawdown': 'on' };
-  var MR_HR_TONE = { early: 'on', boom: 'neutral', late: 'warn', bust: 'off' };
+  // Booms & busts stages (lib/history-rhymes.mjs stageFor) for the AI buildout panel.
+  var MR_HR_TONE = { quiet: 'on', early: 'on', boom: 'neutral', late: 'warn', strain: 'warn', bust: 'off' };
   var MR_HORIZON = {
     market: 'the tape reads cross-asset stress today and resets every build',
     'bottom-tracker': 'the Bottom tracker stages the fall from the three-year high',
