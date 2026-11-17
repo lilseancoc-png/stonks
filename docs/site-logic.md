@@ -982,19 +982,26 @@ Baseline flag:
 
 - volume greater than open interest;
 - volume increase versus the prior hourly snapshot;
-- increase at least 4,000 for DTE up to 14, otherwise 2,000.
+- increase at least the stock's own bar: 1% of its median full-day option volume over its last 10 complete sessions (front two expirations, strikes within 55% of spot) for DTE up to 14, 0.5% otherwise, never above 4,000 / 2,000 and never below 500 / 250. A stock with fewer than 5 complete sessions on file keeps the flat 4,000 / 2,000 (`lib/flow-scan-rules.mjs`, switch `FLOW_STOCK_BARS`).
 
-The first scan of a day cannot produce an hourly delta because there is no prior snapshot. Last-trade location is labeled at ask, above mid, mid, below mid, or bid. Same-day observations accumulate, and a seven-day repeat log marks recurring contracts after at least two appearances. Each explanation is deterministic prose rebuilt from that observation's current volume, open interest, hourly delta, tape, DTE, moneyness, IV, and premium. It makes no unsupported catalyst or direction claim and has no AI cost or stale contract-note cache.
+The 9:00 ET scan is before the open, so the first in-session scan (normally 10:00 ET, up to 11:30) has no same-day snapshot to compare with. A contract that has traded since the 9:30 open counts all of today's volume and is labeled "since the open"; a contract that has not traded today still carries yesterday's total and is not measured (switch `FLOW_OPEN_WINDOW`). Both switches default on, with an Owner Settings override. Last-trade location is labeled at ask, above mid, mid, below mid, or bid. Same-day observations accumulate, and a seven-day repeat log marks recurring contracts after at least two appearances. Each explanation is deterministic prose rebuilt from that observation's current volume, open interest, hourly delta, tape, DTE, moneyness, IV, and premium. It makes no unsupported catalyst or direction claim and has no AI cost or stale contract-note cache.
 
 The UI's decision queue is stricter than raw detection. It favors aggressive ask/above-mid prints, usually at least $100K premium, or $50K when repeated, or $25K across multiple strikes, with spread at most 35% and extra skepticism for penny-priced/far-OTM contracts. Stale or closed-session flow remains evidence, not an executable order.
 
 ### Volume
 
-Expected intraday volume follows a U-shaped session curve:
+Expected intraday volume follows a curve measured from the covered stocks' own sessions (`lib/volume-flags.mjs`, since 2026-11-17). Each scan logs every name's cumulative volume; the next day the scanner divides those readings by the finished daily volume, takes the median name at each scan time, and keeps the last 20 sessions (`curveDays` in `volume-history.json`). A scan time with five or more logged sessions uses their median; until then it uses a seed measured from 14 sessions of May and June 2026:
 
 ```text
-25% / 14% / 11% / 11% / 14% / 25%
+share of the day by 10:00 / 11:00 / 12:00 / 13:00 / 14:00 / 15:00 / 16:00
+16% / 32% / 45% / 55% / 64% / 74% / 100% (closing auction included)
 ```
+
+The old fixed curve (25 / 14 / 11 / 11 / 14 / 25% per hour) expected 12.5% by 10:00 and 36% in the last two hours, so morning windows read about 1.3× too heavy and afternoon windows too light. `VOLUME_MEASURED_CURVE=0` brings the fixed curve back.
+
+The grade's `unusualVolume` vote reads the session so far (volume since the open against the curve, move since the prior close; `session.reads` in `volume-flags.json`) rather than the busiest single window, which opened the vote to about 40-50% of names on an ordinary day. `VOLUME_SESSION_READ=0` brings back the busiest-window read. New Top Picks trades carry `volumeReadVersion` (Track Record divider).
+
+The 16:00 ET scan is taken before the closing auction prints, so it used to read every name's day short. That scan now waits until about 16:06 ET (a scan that starts after 16:30 skips this) and re-reads each stock's day volume and closing price in batched Yahoo quotes of 50 (`closeRereadWaitMs` / `applyCloseReread` in `lib/volume-flags.mjs`). A quote only replaces the scan's volume when it is at least as large. The page says "closing auction included" and the scan log prints how many names moved by 10% or more (`closeReread` in `volume-flags.json`). `VOLUME_CLOSE_REREAD=0` (Owner Settings, Data & desks) skips the wait.
 
 - hourly watch: at least 1.2× expected volume;
 - stronger flag: at least 1.5×;
@@ -1023,7 +1030,7 @@ Large OI begins around 1,000 contracts; daily changes are highlighted around +30
 
 Gamma-squeeze score `0…5`, one point each:
 
-1. concentrated call OI within 10% OTM, at least 1.5× average and at least 1,000;
+1. a call strike 0-10% OTM with at least 1,000 contracts and at least 1.5× the average of up to four strikes on each side in the same expiration (`lib/gamma-squeeze.mjs`; until 2026-11-17 the average of every strike in the ±60% band, which fired for almost every stock);
 2. call/put OI ratio at least 2;
 3. call-wall volume/OI at least 1.5;
 4. overhead call wall within 7.5%;
@@ -1034,6 +1041,8 @@ Score 4 or 5 is a setup flag, not an entry.
 ### Trending IV
 
 Requires at least 20 daily ATM-near-30D samples. It compares current IV with the ticker's own history using both classical z-score and robust MAD z-score; when they agree, the more conservative magnitude is used. Histories below 60 samples face stricter provisional thresholds.
+
+The page has a "Hide earnings within 30 days" button (off by default, remembered per device, `ivtrend.noearn`): for a stock about to report, most of the IV rise is the usual run-up into the report. It hides those names from the table, cards, counts and summary chips; the baked file is unchanged.
 
 ```text
 score =
