@@ -13,12 +13,12 @@ if (store.backend !== 'r2') throw new Error('The prop record requires R2');
 let failed = false;
 const requested = process.argv.find((s) => s.startsWith('--sport='))?.slice(8);
 // --no-game-lines: skip the NBA books' game spread/total request (the
-// five-minute research collector; the board falls back to the archived line
-// the :07/:37 scan wrote, so the request budget stays where it was).
+// NBA research collector; the board falls back to the archived line the
+// hourly props scan wrote, so the request budget stays where it was).
 const gameLines = !process.argv.includes('--no-game-lines');
 if (requested && !['nba', 'nfl'].includes(requested)) throw new Error('sport must be nba or nfl');
 // Our own failure reasons, safe for a public log (no lines, names or keys).
-const SAFE_REASONS = new Set(['a current feed is unavailable', 'NBA research recording is unavailable or busy',
+const SAFE_REASONS = new Set(['a current feed is unavailable',
   'a current feed is unavailable; NBA outage evidence retained', 'NBA reference feed unavailable; outage evidence retained', 'recording is unavailable or busy']);
 for (const sport of requested ? [requested] : ['nba', 'nfl']) {
   let feeds = '';
@@ -48,9 +48,18 @@ for (const sport of requested ? [requested] : ['nba', 'nfl']) {
     const m = view.matching || {};
     console.log(`${sport}: lines matched by id ${m.id || 0}, by name ${m.name || 0}, by name variant ${m.variant || 0}; ${m.unmatched_players || 0} player names not matched`);
     if (sport === 'nba') {
+      // The research evidence and the props record are separate files under
+      // separate leases. Since 2026-11-17 (Owner choice) a research capture
+      // that fails or finds another collector busy no longer stops the props
+      // record: the run notes it as a warning and records the props anyway.
       const evidence = await captureNBAResearch({ store, view, now, clock: Date.now });
-      if (evidence.state === 'busy') { console.log('nba: another collector is recording evidence; existing records preserved'); continue; }
-      if (evidence.state !== 'ok') throw new Error('NBA research recording is unavailable or busy');
+      if (evidence.state === 'busy') console.log('nba: another collector is recording evidence; recording the props anyway');
+      else if (evidence.state !== 'ok') {
+        // Which step stopped and a fixed error label (researchFailure), so the
+        // run says why without printing keys or provider text.
+        const f = evidence.failure;
+        console.log(`::warning::nba: research recording failed${f ? ` (research=${f.step}/${f.kind})` : ''}; recording the props anyway`);
+      }
     }
     if (!feedsOk) throw new Error('a current feed is unavailable; NBA outage evidence retained');
     if (sport === 'nba' && sources.reference?.state !== 'ok') throw new Error('NBA reference feed unavailable; outage evidence retained');

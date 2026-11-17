@@ -125,6 +125,16 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - The market tape's 2-year yield vote no longer counts a day the 2-year fell 4+ bps as "front-end tightening" because its 5-day trend was still up (and the reverse for easing). The 10-year and the dollar already had this guard; on Nov 16 the 16:10 tape listed "2Y -5.0 bps" as a risk-off driver. Server and browser rules change together.
 - The Bottom tracker reads completed sessions only, like the streaks and the macro context: during market hours it no longer treats the session in progress as that day's close, so its verdict and date (which the Top Picks shock-put lane reads at 11:00 and 15:30 ET) come from real closes. Test `node scripts/owner-audit-smoke.mjs`.
 
+### Changed
+
+- Sports: the scheduled props scan runs hourly at :37 from 9:37 AM to 11:37 PM Eastern (15 runs a day, was every 30 minutes around the clock), and the NBA research collector runs at :22 and :52 from 11:22 AM to 10:52 PM Eastern (24 a day, was every five minutes, 150 a day), each capture eight minutes before a possible tip-off so its closing-line read still counts. About 125 of the free 1,000 line requests a day (#863).
+- Sports: a failed or busy NBA research capture no longer stops the props record; the run warns with the failure's label and records the props anyway (#863).
+
+### Fixed
+
+- A failed NBA research capture now logs which step stopped it and a fixed error label (for example `research=lease/lease-conflict` or `research=index/store-http-503`), so the recurring "NBA research recording is unavailable or busy" failures in the props and research jobs say why without printing keys or provider text.
+- The win-by record and closing-line notes no longer promise exact run times ("13:20 and 22:30 UTC", "every 30 minutes"); GitHub starts those scheduled jobs hours late or skips them, and the Sports docs now say so. Kalshi's NBA game and spread markets are noted as live since 2026-11-16.
+
 ## 2026-11-16
 
 ### Added

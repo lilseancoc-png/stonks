@@ -225,13 +225,18 @@ pass entries have separate paper-return breakdowns. Never select new cutoffs
 using the already-inspected historical holdout; these new, frozen decisions
 provide a fresh prospective sample instead.
 
-The existing half-hour collector remains in place, with NFL unchanged. A
-new NBA-only workflow fills five-minute gaps during UTC 17:00–07:59. Baseline
+The combined collector (hourly since 2026-11-17, every half hour before)
+remains in place, with NFL unchanged. A
+new NBA-only workflow captures at :22 and :52 during UTC 16:00–03:59 (since
+2026-11-17; it ran every five minutes during UTC 17:00–07:59 before), eight
+minutes before each possible on-the-hour or half-hour tip-off. Baseline
 workflow queues are separate so NBA runs cannot displace a pending NFL scan;
 shared R2 leases coordinate actual writes. A busy collector defers safely
 while the combined collector continues to NFL. Baseline
-traffic is 144 requests/day from the old job plus 300 from the new one, within
-the existing free key's 1,000/day allowance before interactive use. GitHub
+traffic is about 75 requests/day from the combined job plus 48 from the NBA
+one since 2026-11-17 (it was 144 plus 300), within the existing free key's
+1,000/day allowance before interactive use. A failed or busy research capture
+no longer stops the props record (2026-11-17); the run logs a warning. GitHub
 schedule delays can leave closing coverage incomplete; timestamps determine
 quality, not the scheduled time. Outages preserve old records and produce
 pass states; NBA outage evidence can still be retained.

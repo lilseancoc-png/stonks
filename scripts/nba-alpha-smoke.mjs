@@ -9,7 +9,7 @@ import { normalizeOdds, loadPropSources, loadPropSourcesWithRetry, RETRY_WAIT_MS
 import { normalizeNBAQuotes, nbaMarketForProp, impliedAmerican, nbaPairEstimate, checkNBAPayout, selectNBAProps, selectNBASlate, nbaPicksExpiry, shinProbabilities } from '../lib/sports/nba-market.mjs';
 import { nbaRoleScenario, nbaTeamOpportunity } from '../lib/sports/nba-role.mjs';
 import { recommendationsView } from '../lib/sports/props.mjs';
-import { captureNBAResearch, nbaPairAction, nbaResearchSummary, exportNBAResearch, decodeNBAResearch, encodeNBAResearch } from '../lib/sports/nba-research.mjs';
+import { captureNBAResearch, researchFailure, nbaPairAction, nbaResearchSummary, exportNBAResearch, decodeNBAResearch, encodeNBAResearch } from '../lib/sports/nba-research.mjs';
 import { handleSportsRequest, recordLoader } from '../lib/sports/http.mjs';
 import { sportsKey } from '../lib/sports/store.mjs';
 
@@ -200,7 +200,16 @@ assert.equal((await captureNBAResearch({ store, view: v, now })).state, 'ok');
 saved = decodeNBAResearch(JSON.parse(objects.get(key))); assert.deepEqual(saved.paper, fixed); assert.equal(saved.points.length, 2);
 const inputKey = sportsKey('nba-research-input', { sport: 'nba', digest: saved.points[0].input_hash }), originalInput = objects.get(inputKey), originalCase = objects.get(key);
 objects.set(inputKey, JSON.stringify({ ...JSON.parse(originalInput), raw_bytes: 1 }));
-assert.equal((await captureNBAResearch({ store, view: v, now })).state, 'unavailable'); assert.equal(objects.get(key), originalCase, 'corruption cannot reset or replace the record');
+const corrupt = await captureNBAResearch({ store, view: v, now });
+assert.equal(corrupt.state, 'unavailable'); assert.equal(objects.get(key), originalCase, 'corruption cannot reset or replace the record');
+// A failed capture names the step and a fixed error label for the run log.
+assert.deepEqual(corrupt.failure, { step: 'input', kind: 'corrupt-record' });
+assert.deepEqual((await captureNBAResearch({ store: { backend: 'blob' }, view: v, now })).failure, { step: 'setup', kind: 'no-lease-store' });
+assert.deepEqual(researchFailure('lease', Object.assign(new Error('held by another run'), { code: 'LEASE_CONFLICT' })), { step: 'lease', kind: 'lease-conflict' });
+assert.deepEqual(researchFailure('game', new Error('R2 put _stonks/x failed: HTTP 503 secret-body')), { step: 'game', kind: 'store-http-503' });
+assert.deepEqual(researchFailure('game', Object.assign(new Error('too big'), { status: 413 })), { step: 'game', kind: 'size-limit' });
+assert.deepEqual(researchFailure('index', new TypeError('x is undefined')), { step: 'index', kind: 'TypeError' });
+assert.deepEqual(researchFailure('close', new Error('anything else')), { step: 'close', kind: 'error' });
 objects.set(inputKey, originalInput);
 assert.notEqual(saved.points[0].picks[0].market.probability, saved.points[1].picks[0].market.probability);
 const exported = await exportNBAResearch({ store, season: 2026, gameId: game.game_id });
@@ -280,3 +289,15 @@ console.log('NBA alpha passed: fresh paired prices, timestamp/ladder safety, mar
 // Book-price data fixes (2026-11-13): more books, NFL prices, anchored prices,
 // the real-line warning and NBA.com headers. Run here so test:sports covers it.
 await import('./sports-book-data-smoke.mjs');
+// Q19 (2026-11-17, Owner choice): a failed or busy research capture no longer
+// stops the scheduled props record; the run warns and records the props.
+{
+  const { readFile } = await import('node:fs/promises');
+  const src = await readFile(new URL('./refresh-sports-props.mjs', import.meta.url), 'utf8');
+  const research = src.indexOf('captureNBAResearch({'), record = src.indexOf('capturePropPicks({');
+  assert.ok(research > 0 && record > research, 'research capture runs before the props record');
+  const between = src.slice(research, record);
+  assert.doesNotMatch(between, /evidence[^\n]*(?:continue|throw)/, 'a research result never skips or stops the props record');
+  assert.match(between, /::warning::nba: research recording failed/, 'a failed capture is a run warning with its label');
+  console.log('NBA props record survives a failed research capture.');
+}

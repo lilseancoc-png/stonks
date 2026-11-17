@@ -113,12 +113,27 @@ at 5,000 picks per season and the store's 24 MB limit; the code never drops
 old picks to make room. The UI reads the current and previous stored season;
 older season files remain retained privately for future research.
 
-`.github/workflows/sports-props.yml` scans both leagues every 30 minutes
-(plus manual dispatch), even when no Owner has the site open. It runs
+`.github/workflows/sports-props.yml` scans both leagues hourly at :37 from
+14:37 to 04:37 UTC (9:37 AM to 11:37 PM Eastern in winter), 15 runs a day,
+plus manual dispatch, even when no Owner has the site open. It runs
 `scripts/refresh-sports-props.mjs`, shares the exact page ranking and capture
-code, and logs only counts. Three bulk requests/run = 144/day (two NBA, one
-NFL), plus page usage. The NBA-only five-minute-gap collector adds 300/day;
-the baseline total is 444/day before interactive use.
+code, and logs only counts. Five bulk requests a run (three NBA, two NFL) is
+about 75 a day. `.github/workflows/nba-prop-research.yml` captures NBA
+research evidence at :22 and :52 from 16:22 to 03:52 UTC, 24 runs a day,
+each eight minutes before a possible on-the-hour or half-hour tip-off, since
+the research record's closing-line value counts only a capture within ten
+minutes of the start; two requests a run is 48 a day. The baseline is about
+125 of the free 1,000 PropLine requests a day before interactive use.
+Until 2026-11-17 the props scan ran every 30 minutes around the clock (48
+runs) and the research collector every five minutes (150 runs); the Owner
+cut both. Measured 2026-11-10 to 11-17, GitHub's scheduler started the props
+job only 3 to 5 times a day and the NBA collector 2 to 4 times a day (GitHub
+drops scheduled runs when it is busy), so the real counts were far lower;
+dispatching both from cron-job.org at the same times, as the market
+workflows are, would make the closing captures land on time. Since
+2026-11-17 a failed or busy research capture no longer stops the props
+record: the run warns with the failure's label (`research=<step>/<kind>`)
+and records the props anyway.
 Both production and Actions need the free line-feed key; Actions also uses
 the existing R2 secrets and `PRIVATE_DATA_ENABLED` repository variable.
 
@@ -397,7 +412,10 @@ defines and can unpack a single player without the rest of the season.
 morning in the US, after the providers' overnight updates and the previous
 night's games) and, since 2026-11-11, at 22:30 UTC (late afternoon in the US:
 provider fixes made during the day, the NFL's Friday injury report and roster
-moves before the evening's NBA games), and on demand. NFL and NBA are separate jobs, so one provider's
+moves before the evening's NBA games), and on demand. GitHub starts these
+scheduled runs late: in the week to 2026-11-17 the 13:20 run began between
+13:45 and 17:56 ET and the 22:30 run between 21:00 and 22:10 ET, after most
+NBA tip-offs. NFL and NBA are separate jobs, so one provider's
 outage never blocks the other. Each runs `npm run test:sports`, then
 `node scripts/sports-ingest.mjs --sport=<league>`. Both leagues share one
 ingest (`lib/sports/ingest.mjs`) with a small adapter per provider
@@ -1102,7 +1120,7 @@ Since 2026-11-15 (`lib/sports/win-by.mjs`) the block also shows each team's
 the 50% / 80% margin ranges), **Kalshi's prices** for the game winner and the
 win-by markets beside the model (read by the data job from Kalshi's free
 public API into `<sport>/kalshi-games.json`; NFL `KXNFLGAME` / `KXNFLSPREAD`,
-NBA `KXNBAGAME` / `KXNBASPREAD`, not yet seen live; `SPORTS_KALSHI=0` skips
+NBA `KXNBAGAME` / `KXNBASPREAD`, both seen live since the first run on 2026-11-16; `SPORTS_KALSHI=0` skips
 it), and a **live record**: every forecast is frozen before the game into
 `<sport>/win-by-record/<season>.json` and graded after the final (favorite
 won vs the model's chance, Brier against a coin, the chance on the band that
@@ -1169,9 +1187,9 @@ every NBA scan after the game markets were added to it failed with the
 reference feed "unavailable", which stopped the NBA props record and left
 no NBA game lines in the archive. Split, a failed game read leaves the
 player prices up and the other way round, and the scan log names the
-provider's HTTP status for a failed read. The five-minute research collector
+provider's HTTP status for a failed read. The NBA research collector
 skips the game request (`--no-game-lines`) and the props view falls back to
-the line the :07/:37 scan archived for that game day.
+the line the hourly props scan archived for that game day.
 
 ## MCP tools
 
@@ -1318,8 +1336,9 @@ upgrade adds a second daily data run (a few minutes for the two jobs, tests
 included, on a public repo's free minutes), a few more R2 writes a day (the injury report,
 the game spreads and totals in the line archive), up to 16 small NBA.com
 file reads per NBA run. Since 2026-11-12 the NBA game lines are one more
-PropLine request per :07/:37 scan (48 a day, 192 for that job; the research
-collector skips it, so the baseline is 492 of the free 1,000 a day), and the
+PropLine request per hourly props scan (15 a day; the research
+collector skips it, so the baseline is about 125 of the free 1,000 a day since
+the 2026-11-17 cadence cut), and the
 team model refit adds a few seconds and one R2 write per league per run. The
 PropLine feed (free key) is read by the props board and, since 2026-11-11, by
 the MCP tools above; all share one two-minute cache per request, so a burst
