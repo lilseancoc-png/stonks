@@ -41,13 +41,62 @@ The registry is `lib/engines/config.mjs` (`ENGINES`): every setup, its
 plain-language trigger, the entry bar and its limits, the exits and the
 contract window. The rule code is `lib/engines/signals.mjs`.
 
+### Shares for the slow setups (rules 2, 2026-11-17)
+
+The 1971-2026 history test split every trade into idea, timing and contract.
+For most call setups the idea was right more often than not, but the stock
+moved too little in the holding time for a 0.5-0.7 delta option to beat its
+own decay and spread. Those setups now buy stock on their call side
+(`calls: "shares"` in the registry; `instrumentFor`):
+
+| Engine | Buys shares | Stays on options |
+|---|---|---|
+| Technicals | trend pullback, range breakout | squeeze, every put |
+| Reversion | capitulation day | washout in an uptrend, every put |
+| Earnings | post-earnings drift (calls) | run-in, drift puts |
+| Flow | aggressive flow (bullish), gamma set-up, short squeeze | bearish flow (puts) |
+| Macro | gold with yields and the dollar, dollar against Asia funds (both still on shadow) | conditions easing, yields falling, event drift, every put |
+| Fundamentals | none | rank-top calls, rank-bottom puts |
+
+A share trade (`sharesContract` in `contracts.mjs`, `BOOK.shares*`):
+
+- $5,000 of stock at the run's price (the same 11:00 and 15:30 ET runs), whole
+  shares; a share dearer than $5,000 is not bought.
+- Marked at the stock price. Its result (`optionPnlPct`, kept as the field
+  name) is the stock move less 0.1% a round trip.
+- Exits: the setup's own stock stop or 2 ATR under the entry, whichever is
+  higher; the setup's own target or 3 ATR over it, whichever is lower; the
+  setup's thesis and event exits; 20 sessions at most. No premium take-profit
+  or stop, and no expiry.
+- Long only. A put is always an option: the engines never short stock.
+- Trade ID marked `S` (`TEC:AAPL-S-11/17/26-11:00`), "Shares" badge on the
+  page, `instrument: "shares"` on the page file.
+- Scored apart: each engine's `stats` are its option trades, `sharesStats` its
+  share trades (% of the share price), and the totals the same way. Learning
+  counts a share result 5x (`LEARN.sharesScale`, about the leverage of the
+  engines' options) so its thresholds mean the same thing; its change notes
+  say so.
+- Not placed in the Webull paper account (the mirror places options only):
+  `mergeEngineTrades` and the mirror health leave share trades out, and the
+  same-contract rule does not apply to them.
+
+`ENGINES_SHARES=0` (Owner Settings → Data & desks → "Engines buy shares
+for slow setups"; there is no repo variable, so the daily workflow is
+unchanged) puts every setup back on calls; open share trades still run to
+their exits.
+
+Macro's "VIX curve back to normal" setup (SPY calls) was dropped the same day:
+it lost 11.6% a trade over 128 trades in the 1971-2026 test. It stays in the
+registry as retired so old shadow rows keep their label.
+
 How they differ from Top Picks, on purpose:
 
 - **No shared grade.** Top Picks sums four pillars into one score. Each engine
   reads only its own kind of evidence and scores a named setup from 0 to 100.
 - **No AI.** Top Picks has an AI final grader. The engines are rules only.
-- **Singles only, different contracts.** One long call or put, one contract.
-  Each engine has its own expiry window and delta.
+- **Singles only, different contracts.** One long call or put, one contract,
+  or (since 2026-11-17) $5,000 of stock for the slow call setups above. Each
+  engine has its own expiry window and delta.
 - **Different exits.** Each engine has its own take-profit, stop and time
   limit; some setups carry their own (see the table on the page). Technical
   and reversion trades also carry a stock stop or target.
@@ -181,7 +230,7 @@ Three Owner-only files (`lib/premium-keys.mjs`), read before the build wipes
 
 The Top Picks Track Record (`picks-accuracy.json`) is never read into these
 and never written by this code. Trade IDs carry the engine tag:
-`TEC:AAPL-C-11/16/26-11:00`.
+`TEC:AAPL-C-11/16/26-11:00` (`-S-` for a share trade).
 
 Results are modeled from option mids at each run, like the Top Picks record.
 The Webull paper tab shows what the paper account actually filled.
@@ -268,7 +317,8 @@ never blocks a real one.
 
 **Starts on shadow.** Six setups lost more than 3% a trade in both halves of
 the first history test. They are tracked from day one and start trading only
-when 40+ shadow trades average +5% or better.
+when 40+ shadow trades average +5% or better. Five remain since Macro's
+VIX-curve-back-to-normal setup was dropped (2026-11-17).
 
 Every change bumps the engine's rules version (`TEC-2`, `TEC-3`, …), goes in
 its change log and is stamped on new trades, so the record can be split by it.
@@ -289,24 +339,33 @@ Three versions of each test: every setup with no learning, shadow-start setups
 held back with no learning, and the engine as it runs (learning on). Each is
 compared with books that bought the same kind of contract on random days.
 
-Result, 2007 to 2026, as each engine runs:
+Result, 2007 to 2026, as each engine runs, with share trades (rules 2,
+2026-11-17) scored on their own lines:
 
-| Engine | Trades | Win rate | Average trade | Random entries | Beat random |
-|---|---|---|---|---|---|
-| Technicals | 1,043 | 45% | -2.3% | -1.7% | 35% of books |
-| Reversion | 1,134 | 47% | -1.1% | -4.0% | 85% |
-| Macro | 473 | 50% | +1.8% | -6.8% | 100% |
+| Engine | Kind | Trades | Win rate | Average trade | Dollars | Random entries | Beat random |
+|---|---|---|---|---|---|---|---|
+| Technicals | options | 197 | 40% | -3.6% | -$3,872 | -7.3% | 90% of books |
+| Technicals | shares | 1,419 | 45% | +0.7% | +$50,039 | +1.2% | 10% |
+| Reversion | options | 1,153 | 47% | -0.4% | -$3,502 | -3.8% | 100% |
+| Reversion | shares | 39 | 59% | +1.8% | +$3,522 | +0.9% | 85% |
+| Macro | options | 490 | 51% | +2.2% | -$6,311 | -6.8% | 100% |
 
-Honest read: no engine shows a reliable profit after costs. Reversion and
-Macro did better than random entries; Technicals did not. The learning rules
-worked as a brake, not an edge: they roughly halved the largest drop for
-Technicals and Reversion and did not improve the average trade.
+Before the change (every call an option): Technicals 1,043 trades, -2.3% a
+trade, -$23,675; Reversion -$7,272; Macro -$7,473.
+
+Honest read: buying shares instead of calls turned Technicals from a steady
+loser into a winner, but its share trades did no better than random share
+buys in the same names (they beat 10% of random books): the gain is the
+stocks' own rise, not the timing. Reversion's capitulation shares and Macro
+did better than random. No option side shows a reliable profit after costs.
+The learning rules worked as a brake, not an edge.
 
 What the test cannot see:
 
 - Real spreads and real implied volatility are not in the history.
 - The names are today's list, so companies that failed are missing.
-- The six shadow-start setups were picked with hindsight on this same history.
+- The shadow-start setups were picked with hindsight on this same history.
+- Share trades use split-adjusted prices as they are and enter at the open.
 - Earnings and Fundamentals need report dates and EPS from the private store,
   so they are not in the long run. Every build replays them over the bars it
   holds (the "Recent replay" on the page). Pass `--earnings FILE` with a
@@ -321,10 +380,12 @@ What the test cannot see:
 | `ENGINES` | GitHub repo variable | Unset = on. `pause` = manage open trades, open none. `0` = freeze (files carried forward untouched) |
 | Strategy engines | Owner Settings → Data & desks | The same switch on the site: On, Manage open trades only (`pause`), Frozen (`off`). Applies from the next Top Picks run. A repo variable, when set, wins |
 | `ENGINES_OFF` | GitHub repo variable | Comma list of engines that open no new trades (`earnings`, `macro`, `technicals`, `fundamentals`, `flow`, `reversion`, or their tags) |
+| `ENGINES_SHARES` | Owner Settings → Data & desks → "Engines buy shares for slow setups" (no repo variable) | Unset = on. `0` puts every setup back on calls; open share trades run to their exits |
 | `ENGINES_MIRROR` | Vercel env | `0` stops new engine trades entering the paper account. Trades already there keep being managed and closed |
 
 ## Not in scope
 
 - No real money and no broker other than the Webull paper sandbox.
-- No spreads.
+- No spreads, and no short stock.
+- Share trades are not placed in the paper account (record only).
 - No engine result feeds a Top Picks grade, gate or record.

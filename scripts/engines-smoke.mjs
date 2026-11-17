@@ -11,16 +11,16 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import assert from "node:assert/strict";
-import { ENGINES, ENGINE_IDS, BOOK, MACRO_ETFS, FLAGSHIP, CLOSE_LABEL, engineSwitches, engineByTag } from "../lib/engines/config.mjs";
+import { ENGINES, ENGINE_IDS, BOOK, MACRO_ETFS, FLAGSHIP, CLOSE_LABEL, engineSwitches, engineByTag, instrumentFor, isSharesTrade } from "../lib/engines/config.mjs";
 import { precompute, featAt, toColumns, barDate } from "../lib/engines/features.mjs";
 import { evalTechnicals, evalReversion, evalMacro, evalEarnings, evalFundamentals, evalFlow, thesisCheck } from "../lib/engines/signals.mjs";
 import { stepBook, emptyRecord, emptyState, engineTradeId } from "../lib/engines/book.mjs";
-import { pickContract, quoteContract, contractKey } from "../lib/engines/contracts.mjs";
+import { pickContract, quoteContract, contractKey, sharesContract, positionUsd } from "../lib/engines/contracts.mjs";
 import { newEngineState, observe, adapt, LEARN, learnView } from "../lib/engines/learn.mjs";
 import { standRank, rankView, RANK } from "../lib/engines/rank.mjs";
 import { prepareReports, earnView, fundCore } from "../lib/engines/earn.mjs";
 import { buildMacro } from "../lib/engines/macro.mjs";
-import { engineStats, summarize, scoreBand } from "../lib/engines/record.mjs";
+import { engineStats, summarize, scoreBand, tradeUsd } from "../lib/engines/record.mjs";
 import { runBacktest, publicResult } from "../lib/engines/backtest.mjs";
 import { loadEngineFiles, carryEngineFiles, writeEngineFiles, runEngines, buildEnginesView, flagshipCompare, enginesEnabled, ENGINES_RECORD_KEY, ENGINES_STATE_KEY, ENGINES_VIEW_KEY } from "../lib/engines/index.mjs";
 import { isPremiumKey, roleClaimForKey } from "../lib/premium-keys.mjs";
@@ -105,7 +105,9 @@ ok("six engines, unique tags, every setup has a label", () => {
     assert.equal(engineByTag(e.tag).id, id);
   }
   // No two engines buy the same window and delta as each other by design.
-  assert.equal(Object.values(ENGINES).flatMap((e) => Object.values(e.setups)).filter((s) => s.probation).length, 6);
+  // Five shadow-start setups since Macro's vol-normal was dropped (2026-11-17).
+  assert.equal(Object.values(ENGINES).flatMap((e) => Object.values(e.setups)).filter((s) => s.probation).length, 5);
+  assert.equal(ENGINES.macro.setups["vol-normal"].retired, true);
 });
 ok("switches", () => {
   assert.deepEqual(engineSwitches({}).mode, "on");
@@ -377,14 +379,16 @@ const pullF = (over = {}) => baseF({ rsi2Min3: 8, lo5: 98.2, c: 100, pc: 99, vol
 // One feature row that is both a Technicals pullback and a Reversion washout
 // (not a real bar: the test needs two engines on one name).
 const bothF = () => pullF({ rsi2: 4, z20: -2.3, move5Atr: -3, downStreak: 4, l: 99 });
-function bookInput(views, { nowIso = NOW_AM, late = false, chains, flagshipOpen = [], ...rest } = {}) {
+// shares: false by default, so the option mechanics below are tested on the
+// setups that buy shares live too; the share-trade checks pass shares: true.
+function bookInput(views, { nowIso = NOW_AM, late = false, chains, flagshipOpen = [], shares = false, ...rest } = {}) {
   const ms = Date.parse(nowIso);
   const data = chains || Object.fromEntries(Object.values(views).map((v) => [v.sym, { spot: v.spot, chains: chainFor(100, Date.parse(NOW_AM)) }]));
   return {
     nowIso, today: nowIso.slice(0, 10), late, views, ctx: { ...CTX, byId: views },
     quote: (t) => (data[t.symbol] ? quoteContract(data[t.symbol], t.contract, { nowMs: ms }) : null),
     pick: (view, side, spec) => pickContract(data[view.sym], side, spec.contract, { nowMs: ms }),
-    flagshipOpen, coverage: null, ...rest,
+    flagshipOpen, coverage: null, shares, ...rest,
   };
 }
 ok("book: opens inside slots and run limits, one trade per name per engine", () => {
@@ -518,10 +522,13 @@ ok("book: the rule change reaches a running engine once, as a logged version bum
   const only8 = fundViews(); for (const sym of ["F01", "F02", "F03", "F04", "F05", "F06", "F07", "F23", "F24", "F25", "F26", "F27", "F28", "F29", "F30"]) only8[sym] = { ...only8[sym], earn: { next: { sessionsUntil: 3 } } };
   out = stepBook(st3, emptyRecord(), bookInput(only8, { engines: ["fundamentals"] }));
   assert.equal(out.opened.length, 1); assert.equal(out.opened[0].symbol, "F08"); assert.ok(out.opened[0].score < 99);
-  // No other engine carries a hand-made rule change.
+  // Every engine carries a hand-made rule change since 2026-11-17 (shares for
+  // the slow call setups, Macro's vol-normal dropped); each lands once.
   const st2 = emptyState(); for (const id of ENGINE_IDS) { st2.engines[id] = newEngineState(ENGINES[id]); delete st2.engines[id].rules; }
   out = stepBook(st2, emptyRecord(), bookInput({ AAA: V("AAA", pullF()) }, {}));
-  assert.deepEqual(out.changes.map((c) => c.engine), ["fundamentals"]);
+  assert.deepEqual(out.changes.map((c) => c.engine), ENGINE_IDS);
+  assert.ok(out.changes.filter((c) => c.engine !== "fundamentals").every((c) => /shares/.test(c.text)));
+  assert.match(out.changes.find((c) => c.engine === "macro").text, /dropped/);
   // A trade opened under the first rules still closes on a report that goes against it, and never on the rank.
   const old = { engine: "fundamentals", setup: "compounder", side: "call", signalDate: "2026-10-20", entryDate: "2026-10-25T16:00:00.000Z" };
   assert.equal(thesisCheck(old, { earn: { last: { date: "2026-11-10", surprisePct: -5 } }, fund: { rank: { zone: "bottom", n: 30 } } }), "signal-gone");
@@ -568,6 +575,99 @@ ok("book: take-profit, stop, time limit, event exit, expiry, left coverage", () 
   assert.equal(out.closed.length, 0);
   out = step(x, 100, { noChain: true, nowIso: new Date(x.record.open[0].contract.expiry * 1000 + 3 * 86400000).toISOString() });
   assert.equal(out.closed[0].status, "expired");
+});
+// ---- share trades (2026-11-17: fit the contract to the signal) -------------
+ok("shares: which setups buy stock, long only, and the switch", () => {
+  const S = (id, k, side) => instrumentFor(ENGINES[id], k, side);
+  for (const [id, k] of [["technicals", "pullback"], ["technicals", "breakout"], ["reversion", "capitulation"], ["earnings", "drift"], ["flow", "aggressive-flow"], ["flow", "gamma-wall"], ["flow", "short-squeeze"], ["macro", "gold-rates"], ["macro", "dollar-asia"]]) {
+    assert.equal(S(id, k, "call"), "shares", `${id}.${k}`);
+    assert.equal(S(id, k, "put"), "option", `${id}.${k} puts stay options: the engines never short stock`);
+  }
+  for (const [id, k] of [["technicals", "squeeze"], ["reversion", "oversold-bounce"], ["earnings", "run-in"], ["macro", "rates-fall"], ["macro", "stress-off"], ["macro", "event-drift"], ["fundamentals", "rank-top"]]) assert.equal(S(id, k, "call"), "option", `${id}.${k}`);
+  assert.equal(instrumentFor(ENGINES.technicals, "pullback", "call", { shares: false }), "option");
+  assert.equal(engineSwitches({}).shares, true);
+  for (const v of ["0", "off", "false", "no"]) assert.equal(engineSwitches({ ENGINES_SHARES: v }).shares, false);
+  const c = sharesContract(100);
+  assert.deepEqual(c, { structure: "shares", optionType: "call", shares: 50, mid: 100, usd: 5000, costPct: 0.1 });
+  assert.equal(sharesContract(4900).shares, 1);
+  assert.match(sharesContract(7200).skip, /costs more than the \$5,000 lot/);
+  assert.equal(sharesContract(0.3412).mid, 0.3412, "split-adjusted prices keep four decimals");
+  assert.match(sharesContract(0).skip, /no price/);
+  assert.equal(positionUsd(c), 5000); assert.equal(positionUsd({ mid: 4 }), 400);
+  assert.equal(contractKey("AAA", c), "AAA|shares");
+  assert.deepEqual(quoteContract({ spot: 103.4, chains: {} }, c), { mid: 103.4, bid: null, ask: null, spot: 103.4, source: "spot", iv: null });
+});
+ok("shares: a pullback buys $5,000 of stock with stock exits, marked at the price less costs", () => {
+  const mk = (over = {}, input = {}) => {
+    const views = { AAA: V("AAA", pullF()) }, state = emptyState(), record = emptyRecord();
+    const out = stepBook(state, record, bookInput(views, { engines: ["technicals"], shares: true, ...input }));
+    Object.assign(record.open[0], over);
+    return { views, state, record, out };
+  };
+  const step = (x, spot, { nowIso = "2026-11-17T16:00:00.000Z", noChain = false } = {}) => {
+    const views = { AAA: { ...x.views.AAA, spot } };
+    const chains = noChain ? {} : { AAA: { spot, chains: chainFor(spot, Date.parse(nowIso)) } };
+    return stepBook(x.state, x.record, bookInput(views, { engines: ["technicals"], nowIso, chains, mode: "pause", shares: true }));
+  };
+  let x = mk();
+  const t = x.out.opened[0];
+  assert.ok(isSharesTrade(t)); assert.equal(t.side, "call");
+  assert.equal(t.tradeId, "TEC:AAA-S-11/16/26-11:00");
+  assert.equal(t.contract.shares, 50); assert.equal(t.contract.mid, 100);
+  assert.deepEqual(t.exits, { maxSessions: BOOK.sharesMaxSessions });
+  // The pullback's own stop (lo5 98.2 - 0.25 ATR = 97.7) is higher than 2 ATR under (96); target 3 ATR over.
+  assert.equal(t.stopLevel, 97.7); assert.equal(t.targetLevel, 106);
+  assert.ok(!t.noMirror && !t.shared);
+  let out = step(x, 101);
+  assert.equal(out.closed.length, 0); assert.equal(x.record.open[0].optionPnlPct, 0.9, "+1% less 0.1% costs");
+  out = step(x, 106.5);
+  assert.equal(out.closed[0].status, "target"); assert.equal(out.closed[0].outcome, "win"); assert.equal(out.closed[0].optionPnlPct, 6.4);
+  assert.equal(tradeUsd(out.closed[0]), 320, "6.4% of the $5,000 lot");
+  assert.equal(x.state.engines.technicals.outcomes.at(-1).i, "s", "learning knows it was a share trade");
+  const st = engineStats(x.record.closed);
+  assert.equal(st.n, 0, "options scored apart"); assert.equal(st.shares.n, 1); assert.equal(st.shares.usd, 320); assert.equal(st.shares.bySetup[0].key, "pullback");
+  x = mk(); out = step(x, 97.5);
+  assert.equal(out.closed[0].status, "stock-stop"); assert.equal(out.closed[0].outcome, "loss");
+  x = mk({ sessions: BOOK.sharesMaxSessions - 1 }); out = step(x, 100.5);
+  assert.equal(out.closed[0].status, "time");
+  // No expiry: no quote holds it, however long.
+  x = mk(); out = step(x, 100, { noChain: true, nowIso: "2027-06-01T16:00:00.000Z" });
+  assert.equal(out.closed.length, 0);
+  // Top Picks holding a call on the same stock is not a "same contract".
+  const fl = [{ tradeId: "AAA-C-11/16/26-11:00", symbol: "AAA", side: "call", contract: { structure: "long", optionType: "call", strike: 100, expiry: t.contract.expiry ?? 1797000000 } }];
+  x = mk({}, { flagshipOpen: fl });
+  assert.ok(!x.record.open[0].noMirror && !x.record.open[0].shared);
+  // A put setup on the same engine still buys a put.
+  const bd = baseF({ c: 86, pc: 89, l: 85.5, sma200: 95, sma50: 96, lo55p: 88, dayAtr: -1.2, volRatio: 1.8, rangePos: 0.1 });
+  const outP = stepBook(emptyState(), emptyRecord(), bookInput({ BBB: V("BBB", bd) }, { engines: ["technicals"], shares: true, ctx: { ...CTX, spy: baseF({ c: 400, sma50: 420, ret63: 0 }) } }));
+  assert.equal(outP.opened[0].setup, "breakdown"); assert.equal(outP.opened[0].contract.structure, "long"); assert.equal(outP.opened[0].contract.optionType, "put");
+});
+ok("shares: learning counts a share result 5x and says so; the page splits them out", () => {
+  const es = newEngineState(ENGINES.reversion);
+  for (let i = 0; i < 45; i++) observe(es, { setup: "capitulation", side: "call", optionPnlPct: i % 2 ? -1 : -4, exitDate: "2026-11-20", entryDate: "2026-11-18", contract: { structure: "shares" } });
+  const made = adapt(es, ENGINES.reversion, { today: "2026-11-20", parts: { brake: false, bar: false, cells: false } });
+  assert.equal(made[0]?.kind, "mute", "-2.5% stock trades read as -12.7% option trades");
+  assert.match(made[0].text, /Share results count 5x/);
+  const lv = learnView(es, ENGINES.reversion).setups.find((r) => r.key === "capitulation");
+  assert.equal(lv.real.n, 0); assert.equal(lv.realShares.n, 45); assert.ok(lv.realShares.avg > -3 && lv.realShares.avg < -2, "shown in its own %");
+  // Without the 5x the same results would not mute anything.
+  const es2 = newEngineState(ENGINES.reversion);
+  for (let i = 0; i < 45; i++) observe(es2, { setup: "capitulation", side: "call", optionPnlPct: i % 2 ? -1 : -4, exitDate: "2026-11-20", entryDate: "2026-11-18", contract: { structure: "long" } });
+  assert.equal(adapt(es2, ENGINES.reversion, { today: "2026-11-20", parts: { brake: false, bar: false, cells: false } }).length, 0);
+  // The page file: share trades in their own block, not on the shared-contract list.
+  const record = emptyRecord(), state = emptyState();
+  const shr = { engine: "reversion", tag: "REV", tradeId: "REV:AAA-S-11/16/26-11:00", symbol: "AAA", side: "call", setup: "capitulation", entryDate: NOW_AM, contract: sharesContract(100), optionPnlPct: 2, exits: { maxSessions: 20 } };
+  record.open.push(shr, { ...shr, engine: "technicals", tag: "TEC", tradeId: "TEC:AAA-S-11/16/26-11:00", setup: "pullback" });
+  record.closed.push({ ...shr, tradeId: "REV:BBB-S-11/10/26-11:00", symbol: "BBB", status: "target", outcome: "win", exitDate: "2026-11-13T16:00:00.000Z", optionPnlPct: 4 });
+  const view = buildEnginesView({ record, state, ctx: CTX, builtAtIso: NOW_AM });
+  const rev = view.engines.find((e) => e.id === "reversion");
+  assert.equal(rev.stats.n, 0); assert.equal(rev.sharesStats.n, 1); assert.equal(rev.sharesStats.open, 1); assert.equal(rev.sharesStats.openUsd, 100);
+  assert.equal(rev.open[0].instrument, "shares"); assert.equal(rev.open[0].contract.shares, 50);
+  assert.equal(rev.setups.find((r) => r.key === "capitulation").calls, "shares");
+  assert.equal(view.shared.length, 0, "two engines holding the same stock is not a shared contract");
+  assert.equal(view.total.n, 0); assert.equal(view.total.shares.n, 1); assert.equal(view.total.shares.open, 2);
+  assert.equal(view.book.shares.usd, 5000);
+  assert.equal(view.compare.find((c) => c.id === "reversion").shares.n, 1);
 });
 ok("book: pause opens nothing but still manages; an engine switched off opens nothing", () => {
   const views = { AAA: V("AAA", pullF()) };
@@ -784,7 +884,11 @@ await okAsync("hook: a fresh start, a run, the three files, a second run, and a 
     // Everything the Webull mirror reads from a record row.
     assert.ok(t.engine && ENGINES[t.engine] && t.tradeId.startsWith(`${ENGINES[t.engine].tag}:`));
     assert.ok(t.symbol && (t.side === "call" || t.side === "put") && t.entryDate);
-    assert.equal(t.contract.structure, "long"); assert.ok(t.contract.strike > 0 && t.contract.expiry > 0 && t.contract.mid > 0);
+    if (t.contract.structure === "shares") {
+      // A share trade: long stock only, never mirrored, ID marked S.
+      assert.equal(t.side, "call"); assert.match(t.tradeId, /-S-/); assert.ok(t.contract.shares >= 1 && t.contract.mid > 0 && !t.contract.expiry);
+      assert.ok(ENGINES[t.engine].setups[t.setup].calls === "shares");
+    } else { assert.equal(t.contract.structure, "long"); assert.ok(t.contract.strike > 0 && t.contract.expiry > 0 && t.contract.mid > 0); }
     assert.ok(t.env && "rates" in t.env, "macro backdrop tags are on every trade");
     assert.equal(t.regime.cell, "up-calm");
   }

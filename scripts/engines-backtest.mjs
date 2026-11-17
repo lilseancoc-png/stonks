@@ -124,7 +124,8 @@ async function main() {
     notes: [
       "Option prices are modeled (Black-Scholes at 1.15x realized volatility), with 3.5% of premium taken as costs per round trip. Real spreads and real implied volatility are not in the history.",
       "The names are today's coverage list, so companies that failed or were dropped are missing (the results read better than a live list would have).",
-      "Six setups that lost more than 3% a trade in both halves of this same history start on shadow. The numbers with those held back were picked with hindsight, so they flatter the engines; the 'every setup' run is the unpicked read.",
+      "Five setups that lost more than 3% a trade in both halves of this same history start on shadow (a sixth, Macro's VIX-curve-back-to-normal call, was dropped on 2026-11-17). The numbers with those held back were picked with hindsight, so they flatter the engines; the 'every setup' run is the unpicked read.",
+      "Since 2026-11-17 the call side of the slower setups buys $5,000 of stock instead of a call. Those share trades are priced at the open and close with 0.1% costs a round trip and scored on their own, against random share lots with the same stock exits. Split-adjusted prices are used as they are.",
       "Modeled volatility falls more slowly after a bounce than real implied volatility does, so dip-buying calls look better here than they would live.",
       "FOMC days are the real decision dates. Jobs days follow the first-Friday rule. CPI days are not in the research set.",
       R.reports ? "Earnings and Fundamentals use the stored report dates and EPS." : "Earnings and Fundamentals are not in this run (report dates and EPS live in the private store); the build replays them over the bars it holds. Flow has no stored history and is tracked forward only.",
