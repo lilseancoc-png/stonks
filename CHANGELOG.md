@@ -45,6 +45,11 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 - The 1971-2026 strategy-engine history test now shows across the site as context only: "Strategy styles by era" on Pattern lab and style strips on Booms & busts (public), event and crisis strips on Historical Data, "Today's regime fit" in the Regime Lab and the Owner brief, and MCP datasets (Owner). Aggregates only; switch `ENGINES_HISTORY=0` (#849).
 
+### Changed
+
+- Earnings results, Earnings week ahead and the stock page: a print with no live straddle reading now gets its estimated expected move (`~±`, from the drop in implied volatility around the report) on the same scale as a straddle, about 0.8 of the old one-standard-deviation number, so estimated and measured prints compare fairly. Stored estimates are re-read once (#860).
+- Earnings ripple effects: Edge now compares each follower's average move with what a one-day at-the-money call or put on it costs (about 0.4 of the day's expected move) instead of the full expected move, which no single option charges; the column is renamed Option cost/day and the expected move shows on hover (#860).
+
 ### Fixed
 
 - Earnings audit: the week-after drift on each print is read from a closing price, never from the in-progress bar (the 10:00 ET bake stamped it off a half-hour-old price and kept it), and the stored week-1 drifts the bars still cover are re-read once; Earnings ripple effects resolves its forward record only from finished sessions (stored results are re-read once) and scores direction as beta times the reporting company's actual move, where it had only counted how often peers rose; the deep ripple matrix leaves out today's unfinished bar; Earnings week ahead's "season so far" no longer counts placeholder rows with no EPS and no move; the Earnings results "avg implied vs avg realized" line compares the same prints; the bake log stops calling full-bake transcript carry-forward "keyless" (#860).

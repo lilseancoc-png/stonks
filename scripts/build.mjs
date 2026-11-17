@@ -7214,10 +7214,31 @@ export function transcriptGuidanceDirection(rows) {
 // the event) or the result is implausible (<0.5% or >50%). An approximation —
 // it rides a separate field (impliedMoveEstPct) and renders marked ("~±") so
 // it never impersonates a real straddle snapshot. Exported for unit testing.
+// Since 2026-11-17 (Owner choice) the 1σ event move is scaled to what an
+// at-the-money straddle would have cost, about 0.8σ (sqrt(2/π)), so the
+// estimate sits on the same scale as the live straddle stamp it stands in for
+// (impliedMovePct). Before, estimated prints looked about 25% wider than
+// stamped ones, so fewer moves "exceeded" the estimate.
+export const STRADDLE_SIGMA_RATIO = Math.sqrt(2 / Math.PI);
+export const IMPLIED_MOVE_EST_VERSION = 2;
 export function impliedMoveFromIvCrush(ivPre, ivPost) {
   if (!(ivPre > 0) || !(ivPost > 0) || !(ivPre > ivPost)) return null;
-  const m = Math.sqrt((ivPre * ivPre - ivPost * ivPost) * (30 / 365));
+  const m = Math.sqrt((ivPre * ivPre - ivPost * ivPost) * (30 / 365)) * STRADDLE_SIGMA_RATIO;
   return m >= 0.005 && m <= 0.5 ? m : null;
+}
+// Re-read an estimate stored on the old 1σ scale once: from the stored IVs
+// when both are there, else by scaling the stored number. Returns true when it
+// changed the event. A live straddle stamp is never touched.
+export function rescaleImpliedMoveEstimate(ev) {
+  if (!ev || ev.impliedMovePct != null || ev.impliedMoveEstPct == null) return false;
+  if (ev.impliedMoveEstV === IMPLIED_MOVE_EST_VERSION) return false;
+  const fresh = impliedMoveFromIvCrush(ev.ivPre, ev.ivPost);
+  const old = Number(ev.impliedMoveEstPct);
+  const next = fresh != null ? fresh : (Number.isFinite(old) && old > 0 ? old * STRADDLE_SIGMA_RATIO : null);
+  if (next == null) delete ev.impliedMoveEstPct;
+  else ev.impliedMoveEstPct = Math.round(next * 1e4) / 1e4;
+  ev.impliedMoveEstV = IMPLIED_MOVE_EST_VERSION;
+  return true;
 }
 
 // Upsert one event into a ticker's list, matching within ±3 days so the
@@ -7342,6 +7363,7 @@ export async function updateEarningsEventsHistory(store, chains, ivHistoryMap) {
   let backfilled = 0;
   let resolved = 0;
   let week1Repaired = 0;
+  let estRescaled = 0;
   await runPooled(syms, EARNINGS_BACKFILL_CONCURRENCY, async (sym) => {
     const data = chains[sym];
     const entry = (store.tickers[sym] ||= { events: [] });
@@ -7498,8 +7520,8 @@ export async function updateEarningsEventsHistory(store, chains, ivHistoryMap) {
       if (ev.impliedMovePct == null && ev.impliedMoveEstPct == null
         && (ev.epsActual != null || ev.movePct != null)) {
         const est = impliedMoveFromIvCrush(ev.ivPre, ev.ivPost);
-        if (est != null) ev.impliedMoveEstPct = ehxRound(est);
-      }
+        if (est != null) { ev.impliedMoveEstPct = ehxRound(est); ev.impliedMoveEstV = IMPLIED_MOVE_EST_VERSION; }
+      } else if (rescaleImpliedMoveEstimate(ev)) estRescaled++;
       // Stamp the guidance direction, once per print. Two sources, first hit
       // sticks: (1) the earnings-call transcript brief — the primary source
       // (its guidance table lists every raised/maintained/lowered figure from
@@ -7543,7 +7565,7 @@ export async function updateEarningsEventsHistory(store, chains, ivHistoryMap) {
       entry.events = entry.events.slice(-EARNINGS_HISTORY_MAX_EVENTS);
     }
   });
-  console.log(`Earnings history: ${backfilled} tickers backfilled, ${resolved} events resolved/refreshed${week1Repaired ? `, ${week1Repaired} week-1 drift(s) re-read from closing prices` : ""}.`);
+  console.log(`Earnings history: ${backfilled} tickers backfilled, ${resolved} events resolved/refreshed${week1Repaired ? `, ${week1Repaired} week-1 drift(s) re-read from closing prices` : ""}${estRescaled ? `, ${estRescaled} IV-crush move estimate(s) moved to straddle terms` : ""}.`);
 }
 
 // Session-aware epoch (ms) for an earnings print. A bare date string anchors to
@@ -32324,6 +32346,9 @@ export function spillPrepSeries(rows) {
 // Session-aware event-window return (doc §1): the DRIVER's session defines the
 // bar pair applied to every symbol. AM → close[T-1]→close[T]; PM/TBD →
 // close[T]→close[T+1]. Returns { ret, startDate, endDate } or null.
+// One-day at-the-money option cost as a share of the day's 1σ move:
+// an ATM call or put is worth about σ·sqrt(T)·sqrt(1/2π) ≈ 0.4σ.
+export const SPILLOVER_OPTION_COST_RATIO = 1 / Math.sqrt(2 * Math.PI);
 export function spilloverWindowReturn(series, dateIso, session) {
   let i = series.idx.get(dateIso);
   if (i == null) {
@@ -32594,13 +32619,20 @@ export function buildSpilloverMatrix({ events, series, groups = SPILLOVER_GROUPS
   // Merge variants into one pair list (shared primary, strict alongside).
   const strictByKey = new Map(variantStats.strict.map((r) => [`${r.driver}>${r.follower}`, r]));
   const pairs = variantStats.shared.map((r) => {
-    const priced = currentIv[r.follower] > 0 ? round4(currentIv[r.follower] / Math.sqrt(252)) : null;
+    // Edge compares the follower's average move in the driver's direction
+    // with what a one-day at-the-money call or put costs (2026-11-17, Owner
+    // choice): about 0.4 of the day's 1σ move (σ·sqrt(1/2π)). The old bar was
+    // the full 1σ move, which no single option charges, so almost every pair
+    // read negative. sigmaDay keeps the 1σ number beside it.
+    const sigmaDay = currentIv[r.follower] > 0 ? currentIv[r.follower] / Math.sqrt(252) : null;
+    const priced = sigmaDay != null ? round4(sigmaDay * SPILLOVER_OPTION_COST_RATIO) : null;
     const strict = strictByKey.get(`${r.driver}>${r.follower}`) || null;
     return spillStrip({
       ...r,
       nStrict: strict?.n ?? 0,
       strict: strict && strict.n >= 3 ? spillStrip({ b: strict.b, bShrunk: strict.bShrunk, hitB: strict.hitB, r2: strict.r2, p: strict.p }) : null,
       pricedMove: priced,
+      sigmaDay: sigmaDay != null ? round4(sigmaDay) : null,
       edge: priced != null && r.avgAligned != null ? round4(r.avgAligned - priced) : null,
     });
   });

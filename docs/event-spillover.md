@@ -204,9 +204,13 @@ edge = realized_spillover_move  −  priced_move
 
 - `realized_spillover_move` = historical average follower event-window move **in the
   driver's direction** (from backtest).
-- `priced_move` = follower's options-implied move for the window ≈ `ATM_IV / √252` (1-day),
-  from `data/iv-history/` (historical) or `computeAtm30dIv` (build.mjs:3820, live); or the
-  ATM straddle ÷ spot for the window.
+- `priced_move` = what a one-day at-the-money call or put on the follower costs, as a share
+  of spot: `ATM_IV / √252 × sqrt(1/2π)` ≈ 0.4 of the one-day 1σ move
+  (`SPILLOVER_OPTION_COST_RATIO`, since 2026-11-17, Owner choice; it was the full 1σ move
+  `ATM_IV / √252`, which no single option charges, so almost every pair read negative). The
+  1σ number rides beside it as `sigmaDay`. IV from `data/iv-history/` (historical) or
+  `computeAtm30dIv` (live). A directional average move above this cost is what a one-day
+  option on the follower would have needed to pay off on average, before spreads.
 - `edge > 0` = the follower historically moves more on this driver's prints than its options
   currently price — the matrix's most interesting cell. `edge ≤ 0` rows still display (the
   market pricing spillover correctly is itself information), just ranked lower.

@@ -38774,7 +38774,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         '<td>' + (p.r2 != null ? spillNum(p.r2) : '—') + '</td>' +
         '<td>' + (p.p != null ? spillNum(p.p, 3) : '—') + (p.fdrPass ? ' ✓' : '') + '</td>' +
         '<td>' + spillFrac(p.avgAligned) + '</td>' +
-        '<td>' + spillFrac(p.pricedMove) + '</td>' +
+        '<td' + (p.sigmaDay != null ? ' title="One-day expected move (1σ): ' + spillFrac(p.sigmaDay) + '"' : '') + '>' + spillFrac(p.pricedMove) + '</td>' +
         '<td class="' + (p.edge != null && p.edge > 0 ? 'spill-edge-pos' : 'spill-edge-neg') + '">' + spillFrac(p.edge) + '</td>' +
         '<td>' + halves + '</td>' +
         '<td>' + resid + '</td>' +
@@ -38782,7 +38782,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     };
     var spillTable = function(rows){
       return '<div class="spill-scroll"><table class="spill-tbl spill-matrix"><thead><tr>' +
-        '<th>Pair</th><th>n</th><th>β shrunk</th><th>Hit</th><th>R²</th><th>p</th><th>Avg move→</th><th>Priced/day</th><th>Edge</th><th>Halves β</th><th>Resid β</th><th>Status</th>' +
+        '<th>Pair</th><th>n</th><th>β shrunk</th><th>Hit</th><th>R²</th><th>p</th><th>Avg move→</th><th>Option cost/day</th><th>Edge</th><th>Halves β</th><th>Resid β</th><th>Status</th>' +
         '</tr></thead><tbody>' + rows.join('') + '</tbody></table></div>';
     };
     // The filter applies to the matrix too: only pairs touching the queried
@@ -38823,7 +38823,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     } else {
       matrixHtml += spillTable(fPairs.map(spillRowHtml));
     }
-    matrixHtml += '<p class="spill-note">β shrunk = the pair event beta shrunk toward its sector’s pooled event beta (small samples). Hit = share of past events where the follower moved the same direction. A ✓ on p = survives the false-discovery correction, run across every sector’s pairs. Avg move→ = the follower average event-window move in the driver direction; Edge = that average minus the follower current 1-day priced move (ATM IV) — positive means the options market underprices the echo. Pairs are measured within sector groups only; sector prints often cluster (banks especially), so betas measure sector print-day read-through and Resid β (market-stripped) is the control. Correlation map only — nothing here is a trade recommendation.</p>';
+    matrixHtml += '<p class="spill-note">β shrunk = the pair event beta shrunk toward its sector’s pooled event beta (small samples). Hit = share of past events where the follower moved the same direction. A ✓ on p = survives the false-discovery correction, run across every sector’s pairs. Avg move→ = the follower average event-window move in the driver direction; Option cost/day = what a one-day at-the-money call or put on the follower costs at today’s implied volatility, about 0.4 of its one-day expected move. Edge = the average move minus that cost; positive means the average echo has paid more than a one-day option costs. Pairs are measured within sector groups only; sector prints often cluster (banks especially), so betas measure sector print-day read-through and Resid β (market-stripped) is the control. Correlation map only — nothing here is a trade recommendation.</p>';
     html += '<details class="spill-matrix-details"' + (q ? ' open' : '') + '><summary><span>Pair matrix <small>historical event-window read-through</small></span>' +
       '<em>' + qualifiedPairs.length + ' qualified · ' + fPairs.length + (q ? ' matching' : ' measured') + '</em></summary>' +
       '<div class="spill-matrix-body">' + matrixHtml + '</div></details>';

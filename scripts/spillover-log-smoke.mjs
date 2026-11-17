@@ -88,3 +88,33 @@ const later = updateSpilloverLog(again, { chains: chainsAt('REGULAR'), upcoming:
 assert.equal(later.events.find((e) => e.date === days[last - 5]).predictions[0].realizedPct, 9);
 
 console.log('spillover log smoke ok');
+
+// 4. Edge compares the aligned average move with a one-day at-the-money
+//    option's cost (about 0.4 of the day's 1σ move), not the full 1σ move
+//    (2026-11-17, Owner choice).
+{
+  const { buildSpilloverMatrix, spillPrepSeries, SPILLOVER_OPTION_COST_RATIO } = await import('./build.mjs');
+  assert.ok(Math.abs(SPILLOVER_OPTION_COST_RATIO - 0.3989) < 0.0005, 'one-day ATM option ≈ 0.4σ');
+  const dates = [];
+  for (let t = Date.parse('2025-01-02T12:00:00Z'); dates.length < 160; t += 86400000) {
+    const d = new Date(t);
+    if (d.getUTCDay() === 0 || d.getUTCDay() === 6) continue;
+    dates.push(d.toISOString().slice(0, 10));
+  }
+  const evIdx = [30, 50, 70, 90, 110, 130];
+  const mk = (bump) => { let c = 100; return spillPrepSeries(dates.map((t, i) => { c *= 1 + (Math.sin(i * 1.7) * 0.002) + bump(i); return { t, c }; })); };
+  const drv = (i) => (evIdx.includes(i - 1) ? (evIdx.indexOf(i - 1) % 2 ? -0.04 : 0.04) : 0);
+  const fol = (i) => (evIdx.includes(i - 1) ? (evIdx.indexOf(i - 1) % 2 ? -0.015 : 0.015) : 0);
+  const series = { AAA: mk(drv), BBB: mk(fol), SPY: mk(() => 0) };
+  const groups = [{ key: 'g', label: 'G', etf: null, members: ['AAA', 'BBB'] }];
+  const events = evIdx.map((i) => ({ driver: 'AAA', date: dates[i], session: 'PM' }));
+  const out = buildSpilloverMatrix({ events, series, groups, currentIv: { BBB: 0.4 }, builtAtIso: new Date().toISOString(), yearsBack: 1 });
+  const p = out.pairs.find((x) => x.driver === 'AAA' && x.follower === 'BBB');
+  assert.ok(p && p.avgAligned != null, 'pair built');
+  const sigma = 0.4 / Math.sqrt(252);
+  assert.ok(Math.abs(p.sigmaDay - sigma) < 1e-4, 'sigmaDay is the one-day 1σ move');
+  assert.ok(Math.abs(p.pricedMove - sigma * SPILLOVER_OPTION_COST_RATIO) < 1e-4, 'pricedMove is the one-day ATM option cost');
+  assert.ok(Math.abs(p.edge - (p.avgAligned - p.pricedMove)) < 2e-4, 'edge = aligned average minus option cost');
+  assert.ok(p.edge > 0, 'a 1.5% echo beats a ~1% one-day option cost');
+  console.log('spillover edge vs one-day option cost: ok');
+}

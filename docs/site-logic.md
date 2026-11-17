@@ -902,6 +902,7 @@ spread, equity value, latest public update, or target.
 - measures AM reports from prior close to same-day close;
 - measures PM/TBD reports from report-day close to next close;
 - tracks gap, day, week-one, pre-10/pre-15-session drift, implied move, and realized move;
+- a print with no live straddle stamp gets an implied-move estimate from the IV crush around it (marked `~±`): the 1σ event move `sqrt((ivPre² − ivPost²) · 30/365)` scaled by `sqrt(2/π)` ≈ 0.8, what an at-the-money straddle costs, so estimated and stamped prints share one scale (since 2026-11-17; older estimates are re-read once);
 - labels beat-but-down and miss-but-up;
 - tracks guidance up/inline/down;
 - shows upcoming events inside 21 days;
@@ -941,7 +942,7 @@ Pairs stay within industry groups, with special mappings such as NVDA/semiconduc
 1. **ETF bridge:** follower-to-sector beta × sector-to-driver beta, estimated over roughly 63–126 sessions with Newey–West errors.
 2. **Direct event beta:** historical follower-versus-driver event reactions, shrunk toward the pooled sector beta, with lagged and SPY-residual variants.
 
-The research edge is historical aligned spillover minus the follower's currently priced move. Reliability gates include:
+The research edge is historical aligned spillover minus what a one-day at-the-money call or put on the follower costs today (about 0.4 of its one-day 1σ move, since 2026-11-17). Reliability gates include:
 
 - R² generally above 0.25–0.30;
 - Newey–West `p < 0.05`;
