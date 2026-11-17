@@ -1179,7 +1179,12 @@ The job uses SerpApi's Google Trends endpoint (`SERPAPI_KEY`) because Google's
 official programmatic API is still alpha-only. Four theme queries share one
 comparison request with a fifth `stock market` anchor. This makes the displayed
 relative-interest ratio comparable across batches while keeping the Google
-Trends 0-100 time series intact for each query. It stores:
+Trends 0-100 time series intact for each query. Google scales each request to
+its biggest line in whole numbers, so the themes are grouped by last week's
+relative interest (`groupBySize`, since 2026-11-17): small themes share a
+request instead of reading 0-2 beside ChatGPT or Trump, where their weekly
+change was mostly rounding. A theme with no earlier reading joins the biggest
+group. It stores:
 
 - trailing 90-day interest history;
 - current 7-day average relative to the shared anchor;

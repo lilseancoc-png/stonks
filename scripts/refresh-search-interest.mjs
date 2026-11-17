@@ -5,7 +5,10 @@
 // structured Google Trends endpoint. It batches four themes with a
 // shared "stock market" anchor (Google permits five comparisons) so relative
 // interest remains comparable across batches, then fetches each query's top
-// and rising related searches separately.
+// and rising related searches separately. Themes are grouped by last week's
+// size (groupBySize): Google scales each batch to its biggest line in whole
+// numbers, so a small theme next to ChatGPT or Trump read 0-2 and its weekly
+// change was mostly rounding.
 //
 // Output: data/search-interest.json (FREE; lazy-loaded by the Alt data tab).
 //
@@ -168,6 +171,26 @@ function batches(items, size) {
   return out;
 }
 
+// Batches of themes of a similar size (Owner choice, 2026-11-17). Google
+// Trends scales each request to its biggest line, 0-100 in whole numbers, so a
+// small theme batched with a huge one reads 0-2 and its 7-day change is
+// mostly rounding. Sorting by last week's interest vs stock-market searches
+// (comparable across batches through the shared anchor) puts small themes
+// together. A theme with no earlier reading goes in with the biggest, so a
+// new large theme can only flatten its own line, never three small ones.
+// Ties keep the curated order, so the grouping is the same on a rerun.
+export function groupBySize(items, priorById, size = 4) {
+  const sizeOf = (item) => {
+    const v = Number(priorById?.get?.(item.id)?.relativeInterest);
+    return Number.isFinite(v) ? v : Infinity;
+  };
+  const ordered = items
+    .map((item, index) => ({ item, index, v: sizeOf(item) }))
+    .sort((a, b) => (b.v - a.v) || (a.index - b.index))
+    .map((entry) => entry.item);
+  return batches(ordered, size);
+}
+
 export function timelineSeries(payload, query) {
   const points = Array.isArray(payload?.interest_over_time?.timeline_data)
     ? payload.interest_over_time.timeline_data
@@ -272,7 +295,7 @@ async function main() {
   const themeLimit = envInt("SEARCH_TRENDS_THEME_LIMIT", 0);
   const themeTerms = themeLimit > 0 ? SEARCH_INTEREST_TERMS.slice(0, themeLimit) : SEARCH_INTEREST_TERMS;
   const items = themeTerms.map((term) => ({ ...term, type: "theme" }));
-  const interestBatches = batches(items, 4);
+  const interestBatches = groupBySize(items, priorById, 4);
   const today = new Date();
   const start = new Date(today.getTime() - 90 * 86_400_000);
   const dateRange = `${start.toISOString().slice(0, 10)} ${today.toISOString().slice(0, 10)}`;

@@ -52,6 +52,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Pick the Vast.ai lane's GPU count from the offer nearest the median price (the sort compared one offer only).
 - Chain-link the Memory chip prices retail composite: each step is the median price change of the categories priced on both dates, anchored to today's median category price, so a category entering or leaving no longer moves the line or its 3-month and 1-year changes.
 - Search trends no longer badge, filter or sort cards by "breakout" queries carried from an old run while related-query lookups are off, and the collector stops carrying them; an unfinished last day marked partial is left out of the 7-day window. The stale note gives the weekly nine-day window instead of 48 hours.
+- Search trends groups its weekly Google Trends requests by each theme's usual size, so small themes are compared with each other instead of reading 0-2 beside ChatGPT or Trump, where their weekly change was mostly rounding (Owner choice) (#856).
 
 ## 2026-11-16
 

@@ -8,7 +8,7 @@ import {
   buildAcceleratorPricesPayload,
 } from "../lib/accelerator-prices.mjs";
 import { buildRamRetailComposite } from "./build.mjs";
-import { timelineSeries, buildInterestMetrics } from "./refresh-search-interest.mjs";
+import { timelineSeries, buildInterestMetrics, groupBySize, SEARCH_INTEREST_TERMS } from "./refresh-search-interest.mjs";
 
 // --- Vast.ai: the lane's GPU count comes from the offer nearest the median ---
 {
@@ -123,4 +123,21 @@ import { timelineSeries, buildInterestMetrics } from "./refresh-search-interest.
   assert.equal(metrics.relativeInterest, 100);
 }
 
-console.log("Industry trends smoke passed: Vast lane size, matched GPU changes, chain-linked memory composite, partial search day.");
+// --- Search trends: themes of a similar size share a batch ---
+{
+  const items = ["a", "b", "c", "d", "e", "f", "g", "h", "new"].map((id) => ({ id }));
+  const sizes = { a: 2, b: 300, c: 1, d: 150, e: 3, f: 90, g: 0.5, h: 120 };
+  const prior = new Map(Object.entries(sizes).map(([id, relativeInterest]) => [id, { id, relativeInterest }]));
+  const groups = groupBySize(items, prior, 4).map((batch) => batch.map((item) => item.id));
+  assert.deepEqual(groups, [["new", "b", "d", "h"], ["f", "e", "a", "c"], ["g"]],
+    "biggest first, a theme with no reading joins the biggest, small themes together");
+  // No earlier file: the curated order, four at a time.
+  const plain = groupBySize(items, new Map(), 4).map((batch) => batch.map((item) => item.id));
+  assert.deepEqual(plain, [["a", "b", "c", "d"], ["e", "f", "g", "h"], ["new"]]);
+  // Every curated theme lands in exactly one batch of at most four.
+  const all = groupBySize(SEARCH_INTEREST_TERMS, prior, 4);
+  assert.ok(all.every((batch) => batch.length >= 1 && batch.length <= 4));
+  assert.equal(new Set(all.flat().map((item) => item.id)).size, SEARCH_INTEREST_TERMS.length);
+}
+
+console.log("Industry trends smoke passed: Vast lane size, matched GPU changes, chain-linked memory composite, partial search day, size-grouped search batches.");
