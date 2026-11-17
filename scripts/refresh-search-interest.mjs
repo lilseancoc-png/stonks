@@ -5,7 +5,10 @@
 // structured Google Trends endpoint. It batches four themes with a
 // shared "stock market" anchor (Google permits five comparisons) so relative
 // interest remains comparable across batches, then fetches each query's top
-// and rising related searches separately.
+// and rising related searches separately. Themes are grouped by last week's
+// size (groupBySize): Google scales each batch to its biggest line in whole
+// numbers, so a small theme next to ChatGPT or Trump read 0-2 and its weekly
+// change was mostly rounding.
 //
 // Output: data/search-interest.json (FREE; lazy-loaded by the Alt data tab).
 //
@@ -168,11 +171,33 @@ function batches(items, size) {
   return out;
 }
 
-function timelineSeries(payload, query) {
+// Batches of themes of a similar size (Owner choice, 2026-11-17). Google
+// Trends scales each request to its biggest line, 0-100 in whole numbers, so a
+// small theme batched with a huge one reads 0-2 and its 7-day change is
+// mostly rounding. Sorting by last week's interest vs stock-market searches
+// (comparable across batches through the shared anchor) puts small themes
+// together. A theme with no earlier reading goes in with the biggest, so a
+// new large theme can only flatten its own line, never three small ones.
+// Ties keep the curated order, so the grouping is the same on a rerun.
+export function groupBySize(items, priorById, size = 4) {
+  const sizeOf = (item) => {
+    const v = Number(priorById?.get?.(item.id)?.relativeInterest);
+    return Number.isFinite(v) ? v : Infinity;
+  };
+  const ordered = items
+    .map((item, index) => ({ item, index, v: sizeOf(item) }))
+    .sort((a, b) => (b.v - a.v) || (a.index - b.index))
+    .map((entry) => entry.item);
+  return batches(ordered, size);
+}
+
+export function timelineSeries(payload, query) {
   const points = Array.isArray(payload?.interest_over_time?.timeline_data)
     ? payload.interest_over_time.timeline_data
     : [];
-  return points.map((point) => {
+  // Google's newest point can be an unfinished day. When the response marks
+  // it partial, leave it out so the 7-day window compares whole days.
+  return points.filter((point) => point?.partial_data !== true && point?.isPartial !== true).map((point) => {
     const match = (point.values || []).find((v) => String(v.query) === query);
     const value = Number(match?.extracted_value);
     const timestamp = Number(point.timestamp);
@@ -265,11 +290,12 @@ async function main() {
     used: 0,
   };
   const prior = await readPrior();
+  const relatedEnabled = String(process.env.SEARCH_TRENDS_RELATED || "1").trim() !== "0";
   const priorById = new Map((Array.isArray(prior.rows) ? prior.rows : []).map((row) => [row.id, row]));
   const themeLimit = envInt("SEARCH_TRENDS_THEME_LIMIT", 0);
   const themeTerms = themeLimit > 0 ? SEARCH_INTEREST_TERMS.slice(0, themeLimit) : SEARCH_INTEREST_TERMS;
   const items = themeTerms.map((term) => ({ ...term, type: "theme" }));
-  const interestBatches = batches(items, 4);
+  const interestBatches = groupBySize(items, priorById, 4);
   const today = new Date();
   const start = new Date(today.getTime() - 90 * 86_400_000);
   const dateRange = `${start.toISOString().slice(0, 10)} ${today.toISOString().slice(0, 10)}`;
@@ -298,7 +324,9 @@ async function main() {
           else rowsById.set(item.id, { ...item, missing: true, stale: true, history: [], topQueries: [], risingQueries: [] });
           continue;
         }
-        const priorRow = priorById.get(item.id);
+        // With related lookups off, old related queries are not carried: a
+        // months-old "breakout" must not read as this week's.
+        const priorRow = relatedEnabled ? priorById.get(item.id) : null;
         rowsById.set(item.id, {
           ...item,
           ...metrics,
@@ -327,7 +355,6 @@ async function main() {
     throw new Error(`No Google Trends interest data returned (${errors[0] || "unknown error"}); output was not written`);
   }
 
-  const relatedEnabled = String(process.env.SEARCH_TRENDS_RELATED || "1").trim() !== "0";
   const relatedLimit = envInt("SEARCH_TRENDS_RELATED_LIMIT", 0);
   const relatedCandidates = items.slice().sort((a, b) => {
     if (a.type !== b.type) return a.type === "theme" ? -1 : 1;

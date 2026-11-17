@@ -78,6 +78,17 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - The grade's Unusual volume vote reads the session so far (volume since the open against a normal day by now, move since yesterday's close) instead of the busiest single window, which opened the vote to about half of all names on an ordinary day; the strategy engines' relative volume follows it, and new Top Picks trades carry `volumeReadVersion` for a Track Record divider (`VOLUME_SESSION_READ=0` brings back the window read).
 - The scan just after the 16:00 ET close waits until about 16:06 ET and re-reads every stock's day volume and close, so the closing auction counts on the Volume page and in the end-of-day flags (Owner choice; switch `VOLUME_CLOSE_REREAD` in Owner Settings) (#854).
 
+### Fixed
+
+- Stop the AI spending "Combined CapEx by year" chart from drawing a false drop: it now shows only the years every company has reported. The newest year held only the June-to-September filers (MSFT, ORCL, MU, AAPL, about $211B) against about $422B the year before, because the calendar-year companies file in February.
+- Leave a company whose newest full year is more than a year behind its run-rate out of the AI spending fiscal-year total and growth, and say so on the page. TSMC's newest full year on file is still FY2024 (its SEC feed stops there and Yahoo's quarters cannot rebuild FY2025), so it was mixed into the "latest fiscal year" total; it stays in the run-rate. The run-rate vs latest year now compares the same companies, and a series that skips a year no longer shows a two-year change as year over year (TSMC once its 2026 quarters complete).
+- Keep the GPU cloud prices and Memory chip prices pages "current" for nine days after the Friday scan, like Search trends. They switched to "Reference only / needs a fresh build" 72 hours after each scan, so most of every week.
+- Measure the GPU 7- and 30-day price changes lane by lane (the median of each provider lane's own change), so a provider that misses one weekly scan no longer moves the change; this also feeds the H100 sign on Booms & busts and the `gpu30` shadow gauge. History labels now say weekly, not daily.
+- Pick the Vast.ai lane's GPU count from the offer nearest the median price (the sort compared one offer only).
+- Chain-link the Memory chip prices retail composite: each step is the median price change of the categories priced on both dates, anchored to today's median category price, so a category entering or leaving no longer moves the line or its 3-month and 1-year changes.
+- Search trends no longer badge, filter or sort cards by "breakout" queries carried from an old run while related-query lookups are off, and the collector stops carrying them; an unfinished last day marked partial is left out of the 7-day window. The stale note gives the weekly nine-day window instead of 48 hours.
+- Search trends groups its weekly Google Trends requests by each theme's usual size, so small themes are compared with each other instead of reading 0-2 beside ChatGPT or Trump, where their weekly change was mostly rounding (Owner choice) (#856).
+
 ## 2026-11-16
 
 ### Added
