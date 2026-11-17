@@ -36,6 +36,11 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ### Added
 - Add NBA team offensive/defensive efficiency, net rating and pace to prop research, player forecasts and Pick Builder; fit stat-specific efficiency and pace adjustments on prior complete games and use them only when they improve the historical check. NFL predictions are unchanged (#823).
 
+## 2026-11-17
+
+### Fixed
+- Daily index moves: a 30-minute bar still trading when the build runs no longer counts as finished, so the 10:00 ET build stops reporting a first hour from a 10:05 price and the 15:30 ET build stops marking the day complete with a 15:35 price; today's row is labeled "so far" until the close, and the month read's sleeve counts ("at least 5 of 6") now match the rule instead of saying "four" (`indexCalendarAsOf` in `build.mjs`, `scripts/index-calendar-smoke.mjs`).
+
 ## 2026-11-16
 
 ### Added
