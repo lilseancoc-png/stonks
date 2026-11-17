@@ -3,44 +3,63 @@
 // what the price implies, drivers and the rate x growth grid, the bake
 // builder, the Owner-only key, the kill switch, the MCP value_stock tool and
 // that the browser copy of the factory is the same code. Synthetic data only.
+// Round 2 (same day): eight methods, policy and politics dials, about 28
+// environments, the range of outcomes and the then-vs-now / analysts story.
 // Run: node scripts/valuation-lab-smoke.mjs
 import assert from "node:assert/strict";
-import { valuationLabFactory, valuationRow, buildValuationLab, forecastContext, valuationLabEnabled, VALUATION_LAB_KEY } from "../lib/valuation-lab.mjs";
+import { valuationLabFactory, valuationRow, buildValuationLab, forecastContext, valuationLabEnabled, VALUATION_LAB_KEY, usRevenueShare, ttmPair, quarterlyYoy } from "../lib/valuation-lab.mjs";
 import { isPremiumKey, roleClaimForKey } from "../lib/premium-keys.mjs";
 import { OPTIONAL_BAKE_KEYS } from "../lib/data-ownership.mjs";
 import { OWNER_PAGE_IDS } from "../lib/owner-access-policy.mjs";
 import { OWNER_SETTINGS } from "../lib/owner-settings.mjs";
 import { SOURCE_KEYS } from "../lib/site-catalog/feature-sources.mjs";
+import { partyTiltFor, KIND_PARTY_ETF } from "../lib/macro-context.mjs";
 
 const L = valuationLabFactory();
 const close = (a, b, tol, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg}: ${a} vs ${b}`);
 
 // Made-up companies (not real filings).
+function quarters(values) {
+  // Quarter ends from 2024-12-31, about 91 days apart.
+  return values.map((value, i) => ({ date: new Date(Date.parse("2024-12-31") + i * 91.3 * 86400000).toISOString().slice(0, 10), value }));
+}
+
 export function valuationFixture() {
   const chains = {
-    MEGA: { spot: 200, fundamentals: { name: "Mega Platforms (made up)", marketCap: 2e12, sharesOutstanding: 1e10, trailingPE: 32, forwardPE: 27, revenue: 300e9, freeCashFlow: 80e9, totalCash: 60e9, totalDebt: 90e9, beta: 1.15, returnOnEquity: 45, revenueGrowthYoy: 9, growthEstimateCurY: 12, payoutRatio: 12, dividendYield: 0.5, targetMeanPrice: 230, targetLowPrice: 170, targetHighPrice: 290, numberOfAnalystOpinions: 38, recommendationKey: "buy", fyEpsRevision: { pct30: 3.1, pct90: 5 }, shortPercentOfFloat: 1, nextEarningsDate: "2026-11-27", epsForwardEstimates: [{ period: "+1y", value: 8.2 }], revenueForwardEstimates: [{ period: "+1y", value: 330e9 }] } },
-    BANKX: { spot: 150, fundamentals: { name: "Bank X (made up)", marketCap: 400e9, sharesOutstanding: 2.66e9, trailingPE: 13, forwardPE: 12, revenue: 150e9, freeCashFlow: -20e9, totalCash: 500e9, totalDebt: 600e9, beta: 1.1, returnOnEquity: 15, revenueGrowthYoy: 5, growthEstimateCurY: 7, payoutRatio: 30, targetMeanPrice: 165, numberOfAnalystOpinions: 20 } },
+    MEGA: { spot: 200, fundamentals: { name: "Mega Platforms (made up)", marketCap: 2e12, sharesOutstanding: 1e10, trailingPE: 32, forwardPE: 27, revenue: 300e9, freeCashFlow: 80e9, totalCash: 60e9, totalDebt: 90e9, beta: 1.15, returnOnEquity: 45, revenueGrowthYoy: 9, growthEstimateCurY: 12, payoutRatio: 12, dividendYield: 0.5, targetMeanPrice: 230, targetLowPrice: 170, targetHighPrice: 290, numberOfAnalystOpinions: 38, recommendationKey: "buy", fyEpsRevision: { pct30: 3.1, pct90: 5 }, shortPercentOfFloat: 1, nextEarningsDate: "2026-11-27", epsForwardEstimates: [{ date: "2026-12-31", period: "0q", value: 2.0 }, { period: "+1y", value: 8.2 }], revenueForwardEstimates: [{ date: "2026-12-31", period: "0q", value: 86e9 }, { period: "+1y", value: 330e9 }],
+      priceToBook: 12, pegRatio: 2.1, profitMargin: 25, revenueEstimateCurY: 305e9, epsRevisions: { y: { up30: 9, down30: 2 }, yPath: { current: 7.4 } },
+      capitalAllocation: { buybackTtm: 60e9 },
+      revenueHistory: quarters([62, 64, 66, 68, 70, 72, 74, 78].map((x) => x * 1e9)),
+      netIncomeHistory: quarters([13, 14, 14, 15, 17, 18, 19, 21].map((x) => x * 1e9)),
+      fcfHistory: quarters([15, 16, 17, 17, 18, 19, 20, 23].map((x) => x * 1e9)),
+      segments: { geographic: [{ name: "United States", value: 180e9 }, { name: "Europe", value: 70e9 }, { name: "Asia Pacific", value: 50e9 }] } },
+      ivRank: { iv: 0.32, pctile: 40, asOf: "2026-11-16" },
+      earningsHx: { events: [["2025-10-30", 1.4, 1.35], ["2026-01-29", 1.6, 1.5], ["2026-04-30", 1.65, 1.55], ["2026-07-30", 1.8, 1.7], ["2026-10-29", 1.95, 1.8]].map(([date, a, e]) => ({ date, epsActual: a, epsEstimate: e })), longRun: { n: 30, since: "2019-01-30", up: 19, avgAbsMovePct: 0.061, epsN: 30, beat: 26 } } },
+    BANKX: { spot: 150, fundamentals: { name: "Bank X (made up)", priceToBook: 1.4, marketCap: 400e9, sharesOutstanding: 2.66e9, trailingPE: 13, forwardPE: 12, revenue: 150e9, freeCashFlow: -20e9, totalCash: 500e9, totalDebt: 600e9, beta: 1.1, returnOnEquity: 15, revenueGrowthYoy: 5, growthEstimateCurY: 7, payoutRatio: 30, targetMeanPrice: 165, numberOfAnalystOpinions: 20 } },
     BURN: { spot: 20, fundamentals: { name: "Cash Burner (made up)", marketCap: 6e9, sharesOutstanding: 3e8, revenue: 400e6, freeCashFlow: -150e6, totalCash: 900e6, totalDebt: 200e6, beta: 2.1, revenueGrowthYoy: 60, targetMeanPrice: 25, numberOfAnalystOpinions: 6, shortPercentOfFloat: 18 } },
-    PEER1: { spot: 100, fundamentals: { name: "Peer one (made up)", marketCap: 500e9, sharesOutstanding: 5e9, trailingPE: 30, forwardPE: 25, revenue: 80e9, freeCashFlow: 20e9, totalCash: 10e9, totalDebt: 10e9 } },
-    PEER2: { spot: 50, fundamentals: { name: "Peer two (made up)", marketCap: 300e9, sharesOutstanding: 6e9, trailingPE: 28, forwardPE: 24, revenue: 50e9, freeCashFlow: 10e9 } },
+    PEER1: { spot: 100, fundamentals: { name: "Peer one (made up)", pegRatio: 1.8, marketCap: 500e9, sharesOutstanding: 5e9, trailingPE: 30, forwardPE: 25, revenue: 80e9, freeCashFlow: 20e9, totalCash: 10e9, totalDebt: 10e9 } },
+    PEER2: { spot: 50, fundamentals: { name: "Peer two (made up)", pegRatio: 2.0, marketCap: 300e9, sharesOutstanding: 6e9, trailingPE: 28, forwardPE: 24, revenue: 50e9, freeCashFlow: 10e9 } },
+    PEER3: { spot: 80, fundamentals: { name: "Peer three (made up)", pegRatio: 2.6, revenue: 20e9, sharesOutstanding: 1e9 } },
     ETFX: { spot: 400, fundamentals: { name: "Some ETF" } },
   };
-  const sectors = { MEGA: "Mega-cap tech", PEER1: "Mega-cap tech", PEER2: "Mega-cap tech", BANKX: "Bank", BURN: "Space", ETFX: "ETF" };
+  const sectors = { MEGA: "Mega-cap tech", PEER1: "Mega-cap tech", PEER2: "Mega-cap tech", PEER3: "Mega-cap tech", BANKX: "Bank", BURN: "Space", ETFX: "ETF" };
   const bands = { rows: {
-    MEGA: { peers: { label: "Mega-cap tech", basis: "sector", n: 6, members: ["PEER1", "PEER2"] }, fpe: { peers: { median: 25 }, own: { pct: 64, days: 180 } }, evs: { peers: { median: 6.5 } }, ps: { peers: { median: 6.2 } } },
+    MEGA: { peers: { label: "Mega-cap tech", basis: "sector", n: 6, members: ["PEER1", "PEER2", "PEER3"] }, fpe: { value: 27, peers: { median: 25 }, own: { median: 24, p25: 22, p75: 27, pct: 92, days: 180 } }, evs: { value: 6.7, peers: { median: 6.5 }, own: { median: 6.0, days: 180 } }, ps: { value: 6.7, peers: { median: 6.2 }, own: { median: 6.1, days: 180 } } },
     BANKX: { peers: { label: "Bank", basis: "sector", n: 5, members: [] }, fpe: { peers: { median: 11.5 } }, ps: { peers: { median: 2.6 } }, evs: { peers: { median: 9 } } },
     BURN: { peers: { label: "Space", basis: "sector", n: 3, members: [] }, ps: { peers: { median: 12 } }, evs: { peers: { median: 11 } } },
   } };
   const scenarioEngine = { sensitivities: [{ symbol: "MEGA", confidence: "high", vector: { marketBeta: { value: 1.1 }, rate10y: { value: -0.8, source: "return vs 10Y change" }, usd: { value: -0.5 }, commodity: { value: 0.1 } } }] };
-  const grades = { MEGA: { total: 5.2, side: "call", macroFit: { points: 0.6 } } };
+  const grades = { MEGA: { total: 5.2, side: "call", macroFit: { points: 0.6, kind: "megacapTech" } } };
   const earningsForecast = { companies: [{ symbol: "MEGA", forecast: { target: { end: "2026-12-31" }, outputs: { revenue: 90e9, eps: 2.2 }, baseline: { revenue: 82e9, eps: 1.9 } } }] };
-  const macro = { tenY: { value: 4.4 }, twoY: { value: 3.9 }, asOf: "2026-11-17T15:30:00Z" };
-  return { chains, sectors, bands, scenarioEngine, grades, earningsForecast, macro };
+  const macro = { tenY: { value: 4.4 }, twoY: { value: 3.9 }, asOf: "2026-11-17T15:30:00Z", crowdGauges: { kalshiRecessionPct: 22 } };
+  // Party tracker row for the sector ETF (made-up figures).
+  const partyTracker = { rows: [{ id: "XLK", offices: { president: { D: { excessAnnPct: 3.2 }, R: { excessAnnPct: 1.1 } }, house: { D: { excessAnnPct: 2.0 }, R: { excessAnnPct: 2.4 } }, senate: { D: { excessAnnPct: 2.6 }, R: { excessAnnPct: 1.8 } } } }] };
+  return { chains, sectors, bands, scenarioEngine, grades, earningsForecast, macro, partyTracker };
 }
 
 export function valuationPayload() {
   const fx = valuationFixture();
-  return buildValuationLab({ chains: fx.chains, symbols: Object.keys(fx.chains), sectors: fx.sectors, industries: {}, bands: fx.bands, scenarioEngine: fx.scenarioEngine, grades: fx.grades, earningsForecast: fx.earningsForecast, growthProfileOf: (s, label) => (label === "Space" ? { key: "earlyStage", label: "Early-stage", rev: { low: null, above: 30, wellAbove: 60 } } : label === "Mega-cap tech" ? { key: "megaCap", label: "Mega-cap platforms", rev: { low: 8, above: 15, wellAbove: 25 } } : null), macro: fx.macro, rfrPct: 4.0, builtAtIso: "2026-11-17T16:00:00.000Z" });
+  return buildValuationLab({ chains: fx.chains, symbols: Object.keys(fx.chains), sectors: fx.sectors, industries: {}, bands: fx.bands, scenarioEngine: fx.scenarioEngine, grades: fx.grades, earningsForecast: fx.earningsForecast, growthProfileOf: (s, label) => (label === "Space" ? { key: "earlyStage", label: "Early-stage", rev: { low: null, above: 30, wellAbove: 60 } } : label === "Mega-cap tech" ? { key: "megaCap", label: "Mega-cap platforms", rev: { low: 8, above: 15, wellAbove: 25 } } : null), macro: fx.macro, rfrPct: 4.0, partyTracker: fx.partyTracker, partyNow: { president: "R", house: "R", senate: "R" }, partyTilt: partyTiltFor, kindEtf: KIND_PARTY_ETF, builtAtIso: "2026-11-17T16:00:00.000Z" });
 }
 
 let checks = 0;
@@ -48,7 +67,7 @@ const ok = (c, m) => { assert.ok(c, m); checks++; };
 
 // ---- Builder ----------------------------------------------------------------
 const payload = valuationPayload();
-ok(payload.version === 1 && payload.count === 5, "five stocks valued, the ETF left out");
+ok(payload.version === 2 && payload.count === 6, "six stocks valued, the ETF left out");
 ok(!payload.rows.ETFX, "ETFs are never valued");
 const mega = payload.rows.MEGA, bank = payload.rows.BANKX, burn = payload.rows.BURN;
 ok(mega.market.tenY === 4.4 && mega.market.rfr === 4, "market rates ride every row");
@@ -189,6 +208,116 @@ ok(valuationLabEnabled({}) && valuationLabEnabled({ VALUATION_LAB: "1" }) && !va
   ok(out.ai_calls === 0 && out.results.read.headline.length > 20, "zero AI calls, read included");
   ok(Array.isArray(out.results.rate_growth_grid.rows) && out.results.top_drivers.length > 0, "grid and drivers");
   await assert.rejects(() => tool.run(ctx(true), { symbol: "ZZZZ" }), /no valuation row|coverage/); checks++;
+}
+
+// ---- Round 2: new methods, dials, environments, range, story ----------------
+{
+  close(mega.facts.usShare, 0.6, 1e-9, "US share of revenue from the SEC geographic split");
+  close(mega.facts.bookPerShare, 200 / 12, 1e-3, "book value per share = price / price-to-book");
+  ok(mega.peers.peg === 2.0, "peer median PEG from the peers' Yahoo PEG");
+  ok(mega.own.fpe.median === 24 && mega.own.fpe.days === 180, "own-history medians joined");
+  ok(usRevenueShare({ geographic: [{ name: "Americas", value: 50 }, { name: "EMEA", value: 30 }, { name: "Latin America", value: 20 }] }) === 0.5, "Americas counts as US-like, Latin America does not");
+  ok(usRevenueShare({ geographic: [{ name: "Worldwide", value: 10 }] }) === null && usRevenueShare(null) === null, "no split, no share");
+  ok(ttmPair([{ date: "2026-03-31", value: 1 }]).ttm === null, "fewer than four quarters, no trailing year");
+  const st = mega.story;
+  close(st.rev.ttm, 294e9, 1, "trailing revenue");
+  close(st.rev.growthPct, 13.1, 0.05, "revenue growth vs the year before");
+  close(st.netMargin.ttm, 25.5, 0.05, "trailing net margin");
+  close(st.netMargin.priorTtm, 21.5, 0.05, "net margin a year earlier");
+  close(st.fcf.conversion, 80 / 75, 0.01, "free cash flow / net income");
+  close(st.eps.ttm, 7.0, 1e-9, "trailing EPS from the last four prints");
+  ok(st.eps.priorTtm === null, "no prior EPS year with five prints");
+  ok(st.beats.n === 4 && st.beats.beat === 4 && st.beats.avgSurprise > 5, "beat record from actual vs estimate");
+  ok(st.beats.longRun.beat === 26 && st.beats.longRun.n === 30, "long-run beat record joined");
+  close(st.analysts.epsGrowthNextY, 10.8, 0.05, "analysts' next-year EPS growth vs this year");
+  close(st.analysts.revGrowthNextY, 8.2, 0.05, "analysts' next-year revenue growth vs this year");
+  ok(st.analysts.up30 === 9 && st.analysts.down30 === 2, "estimate raises and cuts");
+  close(st.ourForecast.vsStreetRevPct, 4.7, 0.05, "our Earnings Forecast revenue vs the analysts' same-quarter estimate");
+  close(st.ourForecast.vsStreetEpsPct, 10, 0.05, "our Earnings Forecast EPS vs the analysts' estimate");
+  close(st.capital.buybackYield, 3, 1e-9, "buyback yield");
+  ok(st.options.moveYearPct === 32 && st.reactions.avgAbsMove === 6.1, "options move and earnings-day moves");
+  ok(quarterlyYoy(mega.chains?.revenueHistory || []).length === 0, "quarterlyYoy tolerates a missing series");
+  ok(st.rev.quarters.length === 4 && st.rev.accel != null, "quarterly growth and its change");
+  ok(mega.optionsRange.lo < 200 && mega.optionsRange.hi > 200, "options one-year range around the price");
+  ok(mega.party.etf === "XLK" && mega.party.currentTilt === 1.6, "party tilt for the current mix (0.5 president, 0.25 each chamber)");
+  ok(!bank.party, "no party row without a macro kind");
+  ok(bank.story && bank.story.rev.ttm === null && bank.story.beats.n === 0, "a stock with no history gets an empty story, no crash");
+  ok(dm.inputs.recessionOdds === 22 && /Kalshi/.test(dm.sources.recessionOdds), "recession odds default from Kalshi");
+  ok(dm.inputs.targetPeg === 2 && /peer/.test(dm.sources.targetPeg), "fair PEG defaults to the peer median");
+
+  // New methods.
+  close(rm.methods.history.parts.find((p) => p.key === "fpe").value, 24 * mega.facts.forwardEps, 1e-6, "own-history forward P/E value");
+  close(rm.methods.peg.value, mega.facts.forwardEps * 2 * 12, 1e-6, "PEG value = forward EPS x PEG x growth");
+  ok(rm.methods.book.value > mega.facts.bookPerShare && rm.methods.book.spreadPct > 0, "book + excess returns above book when ROE beats the cost of equity");
+  ok(L.compute(mega, { ...dm.inputs, epsGrowth: 2 }).methods.peg.value === null, "PEG off under 3% growth");
+  ok(rb.methods.book.value > 0, "banks get a book value method");
+  ok(L.compute(bank, { ...db.inputs, roe: 5 }).methods.book.value < rb.methods.book.value, "lower ROE, lower book value");
+  ok(L.compute(burn, dbn.inputs).methods.history.value === null, "no own history, no own-history value");
+
+  // Policy and politics dials.
+  const cut = L.compute(mega, { ...dm.inputs, taxChangePp: -6 });
+  close(cut.methods.earnings.value / rm.methods.earnings.value, 1 + 0.06 * 0.6 / 0.79, 1e-9, "tax cut on the US share of profit");
+  const trade = L.compute(mega, { ...dm.inputs, tradeHitPct: 10 });
+  close(trade.methods.earnings.value / rm.methods.earnings.value, 1 - 0.1 * 0.4, 1e-9, "retaliation hits the non-US share of sales");
+  const tar = L.compute(mega, { ...dm.inputs, tariffPp: 1 });
+  close(tar.methods.earnings.value / rm.methods.earnings.value, 1 - 0.79 / 25, 1e-9, "tariff cost comes off pre-tax margin");
+  ok(tar.methods.dcf.value < rm.methods.dcf.value, "tariff cost lowers the cash-flow value");
+  const mkt = L.compute(mega, { ...dm.inputs, marketPct: -20 });
+  close(mkt.macroPct, -22, 1e-9, "S&P -20% at a measured beta of 1.1");
+  close(L.compute(mega, { ...dm.inputs, politicsPct: 2 }).macroPct, 2, 1e-9, "party tilt adds to the macro dials");
+
+  // Environments.
+  const sc = L.scenarios(mega), ids = sc.map((x) => x.id);
+  for (const id of ["base", "bear", "bull", "rates-up", "rates-down", "recession", "soft", "stagflation", "boom", "deflation", "cuts", "higher", "term", "euphoria", "bearmkt", "credit", "tariffs", "tradedeal", "taxcut", "taxhike", "dsweep", "rsweep", "dsplit", "rsplit", "oilspike", "oilcrash", "strongusd", "weakusd"]) ok(ids.includes(id), `scenario ${id}`);
+  ok(!L.scenarios(bank).some((x) => x.id === "dsweep"), "party scenarios need party data");
+  const ds = L.applyScenario(mega, dm.inputs, "dsweep");
+  ok(ds.politicsPct === 2.8, "Democratic sweep sets the sector's history under D/D/D");
+  ok(L.applyScenario(mega, dm.inputs, "recession").epsShock === -30, "recession scenario");
+  ok(L.applyScenario(mega, { ...dm.inputs, tariffPp: 3 }, "tradedeal").tariffPp === 0, "trade deal sets tariffs to zero");
+  ok(L.applyScenario(mega, dm.inputs, "nope") === null, "unknown scenario");
+  for (const x of sc) {
+    if (x.id === "base") continue;
+    const v = L.compute(mega, L.applyScenario(mega, dm.inputs, x.id)).value;
+    ok(Number.isFinite(v) && v > 0, `${x.id}: a finite value`);
+    ok(x.note && x.group && !JUNK.test(x.note), `${x.id}: labeled`);
+  }
+  ok(L.compute(mega, L.applyScenario(mega, dm.inputs, "recession")).value < rm.value && L.compute(mega, L.applyScenario(mega, dm.inputs, "bull")).value > rm.value, "recession below, bull above");
+
+  // Range of outcomes.
+  const r1 = L.range(mega, dm.inputs), r2 = L.range(mega, dm.inputs);
+  ok(r1.p50 === r2.p50 && r1.aboveShare === r2.aboveShare, "same seed, same range");
+  ok(r1.p10 < r1.p50 && r1.p50 < r1.p90 && r1.aboveShare >= 0 && r1.aboveShare <= 1, "ordered range and a share");
+  ok(r1.recessionDraws > 35 && r1.recessionDraws < 100, `about 22% of 300 draws take the recession case (${r1.recessionDraws})`);
+  ok(L.range(mega, { ...dm.inputs, recessionOdds: 80 }).p50 < r1.p50, "higher recession odds, lower middle");
+  ok(mega.base.aboveShare != null && mega.base.p10 < mega.base.p90, "bake keeps the range at defaults");
+
+  // Story.
+  const sa = L.analyze(mega, dm.inputs);
+  ok(sa.story.views.length === 3 && sa.story.views[0].analysts === st.analysts.revGrowthNextY && sa.story.views[0].ours === st.ourForecast.revYoy, "four views of growth");
+  ok(sa.story.analystsMiss.some((x) => /beat the EPS estimate in 4 of the last 4/.test(x)) && sa.story.beat > 5, "beat streak line and the usual surprise");
+  ok(sa.story.analystsMiss.some((x) => /Our Earnings Forecast/.test(x) && /GAAP/.test(x)), "our forecast vs the street, with the GAAP caveat");
+  ok(sa.story.analystsMiss.some((x) => /Buybacks retire about 3\.0%/.test(x)), "buyback line");
+  ok(sa.story.analystsMiss.some((x) => /estimate moved \+3\.1% in 30 days/.test(x)), "revision line");
+  ok(sa.story.modelMiss.some((x) => /top of its own range \(92nd/.test(x)), "rich vs own history");
+  ok(sa.story.modelMiss.some((x) => /Options price a move of about \+\/-32%/.test(x)), "options line");
+  ok(sa.story.modelMiss.some((x) => /Earnings days move it about \+\/-6\.1%/.test(x)), "earnings-day line");
+  ok(sa.explain.market.some((x) => /Party mix now/.test(x)), "current party mix line");
+  for (const sym of Object.keys(payload.rows)) {
+    const an = L.analyze(payload.rows[sym], L.defaults(payload.rows[sym]).inputs);
+    ok(!JUNK.test(JSON.stringify(an.story)) && !JUNK.test(JSON.stringify(an.explain)), `${sym}: story has no raw values`);
+  }
+
+  // MCP: scenario, range and story.
+  const { TOOLS } = await import("../lib/mcp/tools.mjs");
+  const tool = TOOLS.find((t) => t.name === "value_stock");
+  const store = { get: async (k) => (k === VALUATION_LAB_KEY ? Buffer.from(JSON.stringify(payload)) : null) };
+  const ctx = { principal: { owner: true }, store, now: () => Date.parse("2026-11-17T17:00:00Z") };
+  const out = await tool.run(ctx, { symbol: "MEGA", scenario: "tariffs" });
+  ok(out.results.inputs.tariffPp === 1.5 && out.results.scenario === "tariffs", "MCP applies a scenario");
+  ok(out.results.range_of_outcomes.draws > 100 && out.results.story.analysts_may_be_missing.length > 0 && out.results.scenarios.length >= 28, "MCP returns the range, the story and the scenario list");
+  ok(Object.keys(out.results.methods).length === 8, "MCP returns all eight methods");
+  const bad = await tool.run(ctx, { symbol: "MEGA", scenario: "nope" });
+  ok(bad.warnings.some((w) => /Unknown scenario/.test(w)), "MCP warns on an unknown scenario");
 }
 
 console.log(`valuation-lab smoke: ${checks} checks passed`);

@@ -70,6 +70,34 @@ export function renderValuationLabCss() {
 .vl-facts div { min-width: 0; }
 .vl-facts dt { font: 600 11px/1.3 var(--font-sans); color: var(--muted-strong); text-transform: uppercase; letter-spacing: .04em; }
 .vl-facts dd { margin: 1px 0 0; font: 500 12.5px/1.45 var(--font-sans); color: var(--text); overflow-wrap: anywhere; }
+.vl-preset.vl-on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--surface)); color: var(--text-strong); }
+.vl-env { margin: -6px 0 8px; }
+.vl-env summary { cursor: pointer; font: 600 12.5px/1.4 var(--font-sans); color: var(--muted-strong); }
+.vl-env-g { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 8px 0 0; }
+.vl-env-l { min-width: 150px; font: 650 11px/1.3 var(--font-sans); letter-spacing: .05em; text-transform: uppercase; color: var(--muted-strong); }
+@media (max-width: 640px) { .vl-env-l { min-width: 0; width: 100%; } }
+.vl-scn-note { margin: 0 0 10px; font: 450 12.5px/1.45 var(--font-sans); color: var(--text); max-width: 100ch; }
+.vl-scn-note:empty { display: none; }
+.vl-h3 { margin: 2px 0 8px; font: 700 15px/1.35 var(--font-sans); color: var(--text-strong); }
+.vl-field .vl-opt { fill: var(--muted); opacity: .28; }
+.vl-hist { width: 100%; height: auto; display: block; margin: 4px 0; }
+.vl-hist .vl-hb-up { fill: color-mix(in srgb, var(--pos) 60%, transparent); }
+.vl-hist .vl-hb-dn { fill: color-mix(in srgb, var(--neg) 50%, transparent); }
+.vl-hist .vl-mkt { stroke: var(--text-strong); stroke-width: 2; stroke-dasharray: 4 3; }
+.vl-hist .vl-mkt-t { font: 650 11px var(--font-sans); fill: var(--text-strong); }
+.vl-hist .vl-q { stroke: var(--text-strong); stroke-width: 2; }
+.vl-range-k { display: flex; flex-wrap: wrap; gap: 6px 22px; margin: 2px 0 6px; }
+.vl-range-k span { display: flex; flex-direction: column; font: 550 11px/1.3 var(--font-sans); color: var(--muted-strong); }
+.vl-range-k b { font: 700 15px/1.3 var(--font-mono); color: var(--text-strong); }
+.vl-two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 18px; }
+@media (max-width: 860px) { .vl-two { grid-template-columns: minmax(0, 1fr); } }
+.vl-two > div { min-width: 0; }
+.vl-views td small, .vl-then td small { display: block; font: 450 10.5px/1.3 var(--font-sans); color: var(--muted); white-space: normal; }
+.vl-views td:first-child { min-width: 120px; font-weight: 600; }
+.vl-qs { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 8px; font: 500 11.5px/1.4 var(--font-sans); color: var(--muted-strong); }
+.vl-chip { display: inline-block; padding: 3px 8px; border-radius: 999px; border: 1px solid var(--border); background: color-mix(in srgb, var(--surface-2) 60%, transparent); font: 500 11.5px/1.35 var(--font-sans); color: var(--text); }
+.vl-chip b { font: 650 11.5px var(--font-mono); }
+.vl-story [data-vl-apply] { margin: 2px 0 8px; }
 .vl-screen { margin: 16px 0 8px; }
 .vl-screen summary { cursor: pointer; font: 650 13px/1.4 var(--font-sans); color: var(--text-strong); }
 `;

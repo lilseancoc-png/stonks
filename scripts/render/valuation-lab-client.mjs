@@ -1,4 +1,8 @@
 // Valuation lab: Owner page (2026-11-17, Owner · Research, ?tab=valuation-lab).
+// Round 2 (same day): eight methods, about 28 named environments (economy,
+// Fed, market mood, policy and politics, oil and the dollar), a range of
+// outcomes, and the story section (then vs now, last year vs the analysts vs
+// our Earnings Forecast vs the price, what analysts or the model may miss).
 // Renders the Owner-only valuation-lab.json written by every full bake
 // (lib/valuation-lab.mjs) and recomputes every number in the browser with the
 // same valuationLabFactory the bake and the MCP value_stock tool use, so a
@@ -15,17 +19,9 @@ export function renderValuationLabJs() {
   return `
   // ---- Valuation lab (Owner page) --------------------------------------------
   var VL = (${valuationLabFactory.toString()})();
-  var vlState = { data: null, error: null, pending: null, sym: null, inputs: null, defaults: null };
+  var vlState = { data: null, error: null, pending: null, sym: null, inputs: null, defaults: null, scenario: null };
   var VL_STORE = 'stonks-valuation-v1';
-  var VL_PRESETS = [
-    ['base', 'Defaults', null],
-    ['bear', 'Bear case', { g1: -5, epsGrowth: -5, epsShock: -20, erp: 1, peerPremium: -15, exitPE: -3 }],
-    ['bull', 'Bull case', { g1: 5, epsGrowth: 5, epsShock: 10, erp: -0.5, peerPremium: 10, exitPE: 3 }],
-    ['rates-up', 'Rates +100bp', { rateShiftBp: 100 }],
-    ['rates-down', 'Rates -100bp', { rateShiftBp: -100 }],
-    ['recession', 'Recession', { epsShock: -30, g1: -8, epsGrowth: -8, erp: 1.5, creditSpread: 2, peerPremium: -20 }]
-  ];
-  var VL_COLORS = { dcf: '#4f7cff', earnings: '#12a37f', peers: '#d98a1c', power: '#9b5de5', street: '#7a8699' };
+  var VL_COLORS = { dcf: '#4f7cff', earnings: '#12a37f', peers: '#d98a1c', history: '#0e9fb3', peg: '#d4507a', power: '#9b5de5', book: '#8c6a3f', street: '#7a8699' };
 
   function vlFin(x){ return typeof x === 'number' && isFinite(x); }
   function vlMoney(x){ if (!vlFin(x)) return '—'; var a = Math.abs(x); return '$' + (a >= 1000 ? Math.round(x).toLocaleString('en-US') : a >= 100 ? x.toFixed(1) : x.toFixed(2)); }
@@ -33,7 +29,7 @@ export function renderValuationLabJs() {
   function vlNum(x, d){ return vlFin(x) ? Number(x).toFixed(d == null ? 1 : d) : '—'; }
   function vlBig(x){ if (!vlFin(x)) return '—'; var a = Math.abs(x), s = x < 0 ? '-' : ''; return a >= 1e12 ? s + '$' + (a / 1e12).toFixed(2) + 'T' : a >= 1e9 ? s + '$' + (a / 1e9).toFixed(1) + 'B' : a >= 1e6 ? s + '$' + (a / 1e6).toFixed(0) + 'M' : s + '$' + a.toFixed(0); }
   function vlGapCls(x){ return !vlFin(x) ? '' : x >= 5 ? 'vl-up' : x <= -5 ? 'vl-down' : 'vl-flat'; }
-  function vlFmtInput(def, v){ if (!vlFin(v)) return '—'; return def.unit === 'x' ? Number(v).toFixed(def.step < 0.1 ? 2 : 1) + 'x' : def.unit === 'bp' ? (v > 0 ? '+' : '') + Math.round(v) + 'bp' : def.unit === 'yrs' ? Math.round(v) + ' yrs' : def.unit === 'pp' ? (v > 0 ? '+' : '') + Number(v).toFixed(1) + ' pts' : Number(v).toFixed(def.step < 0.1 ? 2 : def.step < 1 ? 2 : 1) + '%'; }
+  function vlFmtInput(def, v){ if (!vlFin(v)) return '—'; return def.unit === 'x' ? Number(v).toFixed(def.step < 0.1 ? 2 : 1) + 'x' : def.unit === 'bp' ? (v > 0 ? '+' : '') + Math.round(v) + 'bp' : def.unit === 'yrs' ? Math.round(v) + ' yrs' : def.unit === 'pp' ? (v > 0 ? '+' : '') + Number(v).toFixed(1) + ' pts' : (def.min < 0 && v > 0 ? '+' : '') + Number(v).toFixed(def.step < 0.1 ? 2 : def.step < 1 ? 2 : 1) + '%'; }
 
   function vlSaved(){ try { var raw = localStorage.getItem(VL_STORE); var o = raw ? JSON.parse(raw) : {}; return o && typeof o === 'object' ? o : {}; } catch (_) { return {}; } }
   function vlSave(sym, inputs){ try { var o = vlSaved(); if (inputs) o[sym] = inputs; else delete o[sym]; localStorage.setItem(VL_STORE, JSON.stringify(o)); } catch (_) {} }
@@ -63,6 +59,7 @@ export function renderValuationLabJs() {
     if (!rows[sym]) sym = rows.NVDA ? 'NVDA' : vlSymbols()[0];
     if (!sym) return;
     vlState.sym = sym;
+    vlState.scenario = null;
     VIEWS.set('valuation-lab.symbol', sym);
     var def = VL.defaults(rows[sym]);
     vlState.defaults = def;
@@ -78,7 +75,8 @@ export function renderValuationLabJs() {
       ['Modeled value', vlMoney(r.value), r.macroPct ? 'macro dials ' + vlPct(r.macroPct) : r.used.length + ' method' + (r.used.length === 1 ? '' : 's') + ' blended'],
       ['Gap', '<span class="' + vlGapCls(r.gapPct) + '">' + vlPct(r.gapPct) + '</span>', vlFin(r.gapPct) ? (r.gapPct >= 0 ? 'model above market' : 'model below market') : ''],
       ['Price implies growth', vlFin(imp.g1) ? vlNum(imp.g1) + '%' : '—', 'first-year revenue growth; you use ' + vlNum(r.inputs.g1) + '%'],
-      ['Cost of equity', vlNum(r.rates.ke, 2) + '%', '10-year ' + vlNum(r.rates.rf, 2) + '% + ' + vlNum(r.inputs.beta, 2) + ' beta x ' + vlNum(r.inputs.erp, 2) + '% premium']
+      ['Cost of equity', vlNum(r.rates.ke, 2) + '%', '10-year ' + vlNum(r.rates.rf, 2) + '% + ' + vlNum(r.inputs.beta, 2) + ' beta x ' + vlNum(r.inputs.erp, 2) + '% premium'],
+      ['Worth more than the price', a.range ? Math.round(a.range.aboveShare * 100) + '%' : '—', a.range ? 'of ' + a.range.n + ' draws around your inputs' : 'not enough data']
     ];
     return '<div class="mm-kpis vl-kpis">' + k.map(function(x){ return '<div class="mm-kpi"><span>' + escapeHtml(x[0]) + '</span><b>' + x[1] + '<small>' + escapeHtml(x[2] || '') + '</small></b></div>'; }).join('') + '</div>';
   }
@@ -101,10 +99,12 @@ export function renderValuationLabJs() {
       lines.push({ key: m.key, label: m.short || m.label, v: v, lo: lo, hi: hi, w: base.weightShares[m.key] || 0 }); all.push(lo, hi);
     });
     if (vlFin(base.value)) all.push(base.value);
+    var opt = row.optionsRange && vlFin(row.optionsRange.lo) && vlFin(row.optionsRange.hi) ? row.optionsRange : null;
+    if (opt) all.push(opt.lo, opt.hi);
     if (!lines.length) return '';
     var mn = Math.min.apply(null, all), mx = Math.max.apply(null, all), pad = (mx - mn) * 0.06 || mx * 0.1;
     mn = Math.max(0, mn - pad); mx = mx + pad;
-    var W = 720, L = 190, R = 16, rowH = 30, H = lines.length * rowH + 44;
+    var W = 720, L = 190, R = 16, rowH = 30, H = (lines.length + (opt ? 1 : 0)) * rowH + 44;
     function X(v){ return L + (v - mn) / (mx - mn) * (W - L - R); }
     var s = '<svg class="vl-field" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Value by method compared with the market price">';
     var ticks = 5;
@@ -115,10 +115,15 @@ export function renderValuationLabJs() {
       s += '<rect x="' + X(l.lo) + '" y="' + (y + 3) + '" width="' + Math.max(2, X(l.hi) - X(l.lo)) + '" height="14" rx="4" fill="' + VL_COLORS[l.key] + '" opacity="' + (l.w ? 0.32 : 0.14) + '"><title>' + escapeHtml(l.label + ': ' + vlMoney(l.lo) + ' to ' + vlMoney(l.hi)) + '</title></rect>';
       s += '<circle cx="' + X(l.v) + '" cy="' + (y + 10) + '" r="6" fill="' + VL_COLORS[l.key] + '" opacity="' + (l.w ? 1 : 0.45) + '"><title>' + escapeHtml(l.label + ': ' + vlMoney(l.v)) + '</title></circle>';
     });
+    if (opt){
+      var oy = 14 + lines.length * rowH;
+      s += '<text x="' + (L - 10) + '" y="' + (oy + 12) + '" text-anchor="end" class="vl-lbl">Options, 1 year ±1σ</text>';
+      s += '<rect x="' + X(opt.lo) + '" y="' + (oy + 3) + '" width="' + Math.max(2, X(opt.hi) - X(opt.lo)) + '" height="14" rx="4" class="vl-opt"><title>' + escapeHtml('Options price a one-year range of ' + vlMoney(opt.lo) + ' to ' + vlMoney(opt.hi) + ' (implied volatility ' + Math.round(opt.iv * 100) + '%)') + '</title></rect>';
+    }
     var mxp = X(row.spot);
     s += '<line x1="' + mxp + '" x2="' + mxp + '" y1="4" y2="' + (H - 24) + '" class="vl-mkt"/><text x="' + mxp + '" y="' + 2 + '" dy="8" dx="4" class="vl-mkt-t">Market ' + escapeHtml(vlMoney(row.spot)) + '</text>';
-    if (vlFin(base.value)){ var bx = X(base.value); s += '<line x1="' + bx + '" x2="' + bx + '" y1="4" y2="' + (H - 24) + '" class="vl-blend"/><text x="' + bx + '" y="' + (H - 26) + '" dx="4" class="vl-blend-t">Model ' + escapeHtml(vlMoney(base.value)) + '</text>'; }
-    return s + '</svg><p class="vl-cap">Dot = value at your inputs. Bar = range with rates 100bp lower to higher and growth 6 points lower to higher (street: analysts\\' low to high target). Percent = share of the blend.</p>';
+    if (vlFin(base.value)){ var bx = X(base.value); s += '<line x1="' + bx + '" x2="' + bx + '" y1="4" y2="' + (H - 24) + '" class="vl-blend"/><text x="' + bx + '" y="' + (H - 26) + '"' + ((mxp > bx && mxp - bx < 96) ? ' dx="-4" text-anchor="end"' : ' dx="4"') + ' class="vl-blend-t">Model ' + escapeHtml(vlMoney(base.value)) + '</text>'; }
+    return s + '</svg><p class="vl-cap">Dot = value at your inputs. Bar = range with rates 100bp lower to higher and growth 6 points lower to higher (street: analysts\\' low to high target). Percent = share of the blend.' + (opt ? ' Grey bar = the one-year range option prices imply (one standard deviation), for scale.' : '') + '</p>';
   }
 
   function vlMethodsTable(row, a){
@@ -129,6 +134,9 @@ export function renderValuationLabJs() {
       if (m.key === 'dcf' && vlFin(v)) detail = 'Discount rate ' + vlNum(x.discount, 2) + '%; ' + Math.round((x.terminalShare || 0) * 100) + '% of value after year ' + r.inputs.years;
       if (m.key === 'earnings' && vlFin(v)) detail = 'EPS ' + vlMoney(x.eps0) + ' now → ' + vlMoney(x.eps3) + ' in 3 years at ' + vlNum(r.inputs.exitPE) + 'x; ' + escapeHtml(x.epsSource || '');
       if (m.key === 'peers' && vlFin(v)) detail = (x.parts || []).map(function(p){ return escapeHtml(p.label) + ' → ' + vlMoney(p.value); }).join(' · ') + (x.basis ? ' (' + escapeHtml(x.basis) + ', ' + (x.n || 0) + ' peers)' : '');
+      if (m.key === 'history' && vlFin(v)) detail = (x.parts || []).map(function(p){ return escapeHtml(p.label) + ' → ' + vlMoney(p.value); }).join(' · ') + ' · ' + x.days + ' saved sessions';
+      if (m.key === 'peg' && vlFin(v)) detail = 'Fair P/E ' + vlNum(x.fairPE) + 'x = PEG ' + vlNum(r.inputs.targetPeg, 2) + ' x ' + vlNum(r.inputs.epsGrowth) + '% EPS growth';
+      if (m.key === 'book' && vlFin(v)) detail = 'Book ' + vlMoney(x.bookPerShare) + ' a share; return on equity ' + (x.spreadPct >= 0 ? vlNum(x.spreadPct) + ' points above' : vlNum(-x.spreadPct) + ' points below') + ' the cost of equity';
       if (m.key === 'power' && vlFin(v)) detail = 'Justified P/E ' + vlNum(x.justifiedPE) + 'x at a ' + vlNum(r.rates.ke, 2) + '% cost of equity, ROE ' + vlNum(r.inputs.roe) + '%';
       if (m.key === 'street' && vlFin(v)) detail = vlMoney(x.low) + ' to ' + vlMoney(x.high) + (x.n ? ' · ' + x.n + ' analysts' : '') + (row.street.rating ? ' · ' + escapeHtml(row.street.rating) : '');
       if (!vlFin(v)) detail = escapeHtml(x.reason || 'Not available');
@@ -152,6 +160,11 @@ export function renderValuationLabJs() {
         if (def.key === 'usdPct' && row && row.sens && vlFin(row.sens.usd)) hint += ' · this stock moves about ' + vlNum(row.sens.usd, 2) + '% per 1% dollar move';
         if (def.key === 'oilPct' && row && row.sens && vlFin(row.sens.commodity)) hint += ' · about ' + vlNum(row.sens.commodity, 2) + '% per 1% oil move';
         if (def.key === 'rateShiftBp' && row && row.sens && vlFin(row.sens.rate10y)) hint += ' · past response ' + vlNum(row.sens.rate10y, 2) + '% per 10bp';
+        if (def.key === 'marketPct' && row) hint += ' · moves the value by beta ' + vlNum(row.sens && vlFin(row.sens.marketBeta) ? row.sens.marketBeta : d.beta, 2) + ' x the move';
+        if ((def.key === 'taxChangePp' || def.key === 'tradeHitPct') && row) hint += vlFin(row.facts.usShare) ? ' · ' + Math.round(row.facts.usShare * 100) + '% of revenue is US (SEC filings)' : ' · no US / foreign split on file, 60% US assumed';
+        if (def.key === 'tariffPp' && row && vlFin(row.facts.profitMargin)) hint += ' · net margin today ' + vlNum(row.facts.profitMargin) + '%';
+        if (def.key === 'politicsPct' && row && row.party) hint += ' · sector ' + row.party.etf + (vlFin(row.party.currentTilt) ? ', ' + vlPct(row.party.currentTilt) + ' a year under today\\'s mix' : '') + '; set by the party scenarios';
+        if (def.key === 'recessionOdds') hint += ' · only changes the range of outcomes';
         return '<label class="vl-in' + (changed ? ' vl-changed' : '') + '"><span class="vl-in-l">' + escapeHtml(def.label) + '<b data-vl-iv="' + def.key + '">' + escapeHtml(vlFmtInput(def, d[def.key])) + '</b></span>' +
           '<input type="range" min="' + def.min + '" max="' + def.max + '" step="' + def.step + '" value="' + d[def.key] + '" data-vl-input="' + def.key + '" aria-label="' + escapeHtml(def.label) + '">' +
           '<small>' + escapeHtml(hint) + '</small></label>';
@@ -165,6 +178,74 @@ export function renderValuationLabJs() {
     return '<p class="vl-headline">' + escapeHtml(e.headline) + '</p><div class="vl-read">' +
       list('What today\\'s price assumes', e.priced) + list('Where the methods disagree', e.disagree) +
       list('What the market may be seeing', e.market) + list('What the model may be missing', e.us) + '</div>';
+  }
+
+  // Range of outcomes: seeded draws around the inputs, as a histogram with the
+  // price and the model value marked, beside the options-implied range.
+  function vlRangeHtml(row, a){
+    var g = a.range;
+    if (!g) return '<p class="hint">Not enough data for a range at these inputs.</p>';
+    var vals = g.values, lo = Math.min(vals[0], row.spot), hi = Math.max(vals[vals.length - 1], row.spot), bins = 24, counts = [], i;
+    if (!(hi > lo)) hi = lo + 1;
+    for (i = 0; i < bins; i++) counts.push(0);
+    vals.forEach(function(v){ var b = Math.min(bins - 1, Math.floor((v - lo) / (hi - lo) * bins)); counts[b]++; });
+    var mx = Math.max.apply(null, counts) || 1, W = 720, H = 120, P = 8;
+    function X(v){ return P + (v - lo) / (hi - lo) * (W - 2 * P); }
+    var bw = (W - 2 * P) / bins, svg = '<svg class="vl-hist" viewBox="0 0 ' + W + ' ' + (H + 22) + '" role="img" aria-label="Range of modeled values">';
+    for (i = 0; i < bins; i++){
+      var h = counts[i] / mx * (H - 10), x0 = P + i * bw, mid = lo + (i + 0.5) / bins * (hi - lo);
+      svg += '<rect x="' + (x0 + 1) + '" y="' + (H - h) + '" width="' + Math.max(1, bw - 2) + '" height="' + h + '" rx="2" class="' + (mid > row.spot ? 'vl-hb-up' : 'vl-hb-dn') + '"><title>' + escapeHtml(vlMoney(lo + i / bins * (hi - lo)) + ' to ' + vlMoney(lo + (i + 1) / bins * (hi - lo)) + ': ' + counts[i] + ' draws') + '</title></rect>';
+    }
+    var sx = X(row.spot);
+    svg += '<line x1="' + sx + '" x2="' + sx + '" y1="0" y2="' + H + '" class="vl-mkt"/><text x="' + sx + '" y="' + (H + 16) + '" text-anchor="middle" class="vl-mkt-t">Market ' + escapeHtml(vlMoney(row.spot)) + '</text>';
+    [['p10', g.p10], ['p50', g.p50], ['p90', g.p90]].forEach(function(q){ var qx = X(q[1]); svg += '<line x1="' + qx + '" x2="' + qx + '" y1="' + (H - 4) + '" y2="' + (H + 4) + '" class="vl-q"/>'; });
+    svg += '</svg>';
+    var opt = row.optionsRange, spread = vlFin(g.p90) && vlFin(g.p10) && g.p50 > 0 ? (g.p90 - g.p10) / 2 / g.p50 * 100 : null;
+    var kp = '<div class="vl-range-k"><span>Worth more than the price<b>' + Math.round(g.aboveShare * 100) + '%</b></span><span>Low (10th pct)<b>' + vlMoney(g.p10) + '</b></span><span>Middle<b>' + vlMoney(g.p50) + '</b></span><span>High (90th pct)<b>' + vlMoney(g.p90) + '</b></span><span>Recession draws<b>' + g.recessionDraws + ' of ' + g.n + '</b></span></div>';
+    var note = 'Each draw moves growth, margin, the risk premium, rates, the exit P/E and the peer premium by a typical amount around your inputs, and ' + vlNum(g.recessionOdds, 0) + '% of draws (' + escapeHtml(vlState.defaults.sources.recessionOdds || '') + ') also take the recession case. It shows how much the answer depends on inputs nobody knows, not where the price will go.';
+    if (opt && vlFin(spread)) note += ' Your inputs spread the value about ±' + Math.round(spread) + '%; option prices imply about ±' + Math.round(opt.iv * 100) + '% over a year.';
+    return kp + svg + '<p class="vl-cap">' + note + '</p>';
+  }
+
+  // The story: then vs now, us vs the analysts.
+  function vlStoryHtml(row, a){
+    var st = row.story || {}, sy = a.story, an = st.analysts || {}, o = '';
+    function cell(v, unit, note){ if (!vlFin(v)) return '<td class="num">—</td>'; return '<td class="num">' + (unit === 'x' ? vlNum(v) + 'x' : vlPct(v)) + (note ? '<small>' + escapeHtml(note) + '</small>' : '') + '</td>'; }
+    var vhead = '<tr><th></th><th class="num">Last year</th><th class="num">Analysts</th><th class="num">Our forecast</th><th class="num">Today\\'s price implies</th><th class="num">Your input</th></tr>';
+    var vbody = sy.views.map(function(v){
+      var unit = v.key === 'pe' ? 'x' : '%';
+      return '<tr><td>' + escapeHtml(v.label) + (v.key === 'pe' && vlFin(v.now) ? '<small>now ' + vlNum(v.now) + 'x</small>' : '') + '</td>' + cell(v.lastYear, unit, v.lastYearNote) + cell(v.analysts, unit, v.analystsNote || (v.key === 'pe' ? '' : 'next year')) + cell(v.ours, unit, v.oursNote) + cell(v.price, unit, v.priceNote || (v.key === 'revGrowth' ? 'first year, cash flow' : 'a year, earnings path')) + cell(v.yours, unit) + '</tr>';
+    }).join('');
+    o += '<h4 class="slp-h4">Five views of the same company</h4><div class="acc-tscroll"><table class="acc-qtable vl-views" data-nosort><thead>' + vhead + '</thead><tbody>' + vbody + '</tbody></table></div>' +
+      '<p class="vl-cap">Last year = the trailing four quarters vs the four before (P/E: its own median over the saved sessions). Analysts = next fiscal year vs this one (P/E: the peer median). Our forecast = the Owner Earnings Forecast quarter vs a year earlier, from filed numbers, where the stock is covered.</p>';
+    var rev = st.rev || {}, ni = st.netIncome || {}, nm = st.netMargin || {}, fcf = st.fcf || {}, eps = st.eps || {}, m = st.multiples || {};
+    var tv = [
+      ['Revenue', vlBig(rev.priorTtm), vlBig(rev.ttm), vlPct(rev.growthPct)],
+      ['Net income', vlBig(ni.priorTtm), vlBig(ni.ttm), vlPct(ni.growthPct)],
+      ['Net margin', vlFin(nm.priorTtm) ? vlNum(nm.priorTtm) + '%' : '—', vlFin(nm.ttm) ? vlNum(nm.ttm) + '%' : '—', vlFin(nm.ttm) && vlFin(nm.priorTtm) ? (nm.ttm - nm.priorTtm >= 0 ? '+' : '') + (nm.ttm - nm.priorTtm).toFixed(1) + ' pts' : '—'],
+      ['Free cash flow', vlBig(fcf.priorTtm), vlBig(fcf.ttm), vlPct(fcf.growthPct)],
+      ['EPS (last four reports)', vlFin(eps.priorTtm) ? vlMoney(eps.priorTtm) : '—', vlFin(eps.ttm) ? vlMoney(eps.ttm) : '—', vlPct(eps.growthPct)]
+    ];
+    if (m.fpe && vlFin(m.fpe.median)) tv.push(['Forward P/E (own median → now)', vlNum(m.fpe.median) + 'x', vlNum(m.fpe.now) + 'x', vlFin(m.fpe.pct) ? VL.ordinal(m.fpe.pct) + ' pct' : '—']);
+    if (m.evs && vlFin(m.evs.median)) tv.push(['EV / sales (own median → now)', vlNum(m.evs.median) + 'x', vlNum(m.evs.now) + 'x', vlFin(m.evs.pct) ? VL.ordinal(m.evs.pct) + ' pct' : '—']);
+    var tvBody = tv.filter(function(r){ return r[1] !== '—' || r[2] !== '—'; }).map(function(r){ return '<tr><td>' + escapeHtml(r[0]) + '</td><td class="num">' + r[1] + '</td><td class="num">' + r[2] + '</td><td class="num">' + r[3] + '</td></tr>'; }).join('');
+    var qs = (rev.quarters || []).map(function(q){ return '<span class="vl-chip">' + escapeHtml(q.date.slice(0, 7)) + ' <b class="' + vlGapCls(q.yoyPct) + '">' + vlPct(q.yoyPct) + '</b></span>'; }).join('');
+    o += '<div class="vl-two"><div><h4 class="slp-h4">Then vs now</h4>' + (tvBody ? '<div class="acc-tscroll"><table class="acc-qtable vl-then" data-nosort><thead><tr><th></th><th class="num">Year before</th><th class="num">Last 4 quarters</th><th class="num">Change</th></tr></thead><tbody>' + tvBody + '</tbody></table></div>' : '<p class="hint">Not enough saved quarters yet.</p>') + (qs ? '<p class="vl-qs">Revenue vs a year earlier, by quarter: ' + qs + '</p>' : '') + '</div>';
+    var bt = st.beats || {}, beatRows = (bt.last || []).map(function(b){ return '<tr><td>' + escapeHtml(String(b.date).slice(0, 7)) + '</td><td class="num">' + vlMoney(b.estimate) + '</td><td class="num">' + vlMoney(b.actual) + '</td><td class="num ' + vlGapCls(b.surprisePct) + '">' + vlPct(b.surprisePct) + '</td></tr>'; }).join('');
+    var chips = [];
+    if (bt.longRun && bt.longRun.n) chips.push('Beat ' + bt.longRun.beat + ' of ' + bt.longRun.n + ' since ' + String(bt.longRun.since || '').slice(0, 4));
+    if (vlFin(an.revision30)) chips.push('EPS estimate ' + vlPct(an.revision30) + ' in 30 days' + (vlFin(an.revision90) ? ', ' + vlPct(an.revision90) + ' in 90' : ''));
+    if (vlFin(an.up30) || vlFin(an.down30)) chips.push((an.up30 || 0) + ' raised, ' + (an.down30 || 0) + ' cut (30 days)');
+    if (vlFin(an.upgrades) || vlFin(an.downgrades)) chips.push((an.upgrades || 0) + ' upgrades, ' + (an.downgrades || 0) + ' downgrades' + (an.ratingWindowDays ? ' (' + an.ratingWindowDays + ' days)' : ''));
+    if (row.street && vlFin(row.street.mean)) chips.push('Target ' + vlMoney(row.street.low) + ' / ' + vlMoney(row.street.mean) + ' / ' + vlMoney(row.street.high) + (row.street.n ? ' · ' + row.street.n + ' analysts' : ''));
+    if (st.ourForecast && (vlFin(st.ourForecast.vsStreetRevPct) || vlFin(st.ourForecast.vsStreetEpsPct))) chips.push('Our forecast vs street, quarter to ' + st.ourForecast.quarterEnd + ': revenue ' + vlPct(st.ourForecast.vsStreetRevPct) + ', EPS ' + vlPct(st.ourForecast.vsStreetEpsPct));
+    if (st.capital && vlFin(st.capital.shareholderYield)) chips.push('Shareholder yield ' + vlNum(st.capital.shareholderYield) + '% (buybacks ' + vlNum(st.capital.buybackYield) + '%, dividends ' + vlNum(st.capital.dividendYield) + '%)');
+    o += '<div><h4 class="slp-h4">The analysts\\' record</h4>' + (beatRows ? '<div class="acc-tscroll"><table class="acc-qtable vl-beats" data-nosort><thead><tr><th>Quarter</th><th class="num">Estimate</th><th class="num">Actual</th><th class="num">Surprise</th></tr></thead><tbody>' + beatRows + '</tbody></table></div>' : '<p class="hint">No recent EPS estimates on file.</p>') +
+      (chips.length ? '<p class="vl-qs">' + chips.map(function(c){ return '<span class="vl-chip">' + escapeHtml(c) + '</span>'; }).join('') + '</p>' : '') +
+      (vlFin(sy.beat) ? '<button type="button" class="vl-preset" data-vl-apply="beat">Assume the usual surprise (' + vlPct(sy.beat) + ')</button>' : '') + '</div></div>';
+    function list(title, xs, empty){ return '<div class="vl-read-b"><h4 class="slp-h4">' + escapeHtml(title) + '</h4>' + (xs && xs.length ? '<ul class="ql-lines">' + xs.map(function(x){ return '<li>' + escapeHtml(x) + '</li>'; }).join('') + '</ul>' : '<p class="hint">' + escapeHtml(empty) + '</p>') + '</div>'; }
+    o += '<div class="vl-read">' + list('What the analysts may be missing', sy.analystsMiss, 'Nothing stands out: their numbers line up with the record and the trend.') + list('What our model may be missing', sy.modelMiss, 'Nothing stands out beyond the limits listed above.') + '</div>';
+    return o;
   }
 
   function vlDriversHtml(a){
@@ -209,11 +290,11 @@ export function renderValuationLabJs() {
 
   function vlScreenHtml(){
     var rows = (vlState.data && vlState.data.rows) || {};
-    var list = Object.keys(rows).map(function(s){ var b = rows[s].base || {}; return { s: s, name: rows[s].name, gap: b.gapPct, v: b.value, spot: rows[s].spot, ig: b.impliedGrowth }; }).filter(function(x){ return vlFin(x.gap); });
+    var list = Object.keys(rows).map(function(s){ var b = rows[s].base || {}; return { s: s, name: rows[s].name, gap: b.gapPct, v: b.value, spot: rows[s].spot, ig: b.impliedGrowth, above: b.aboveShare }; }).filter(function(x){ return vlFin(x.gap); });
     list.sort(function(a, b){ return b.gap - a.gap; });
     if (!list.length) return '';
-    function rowHtml(x){ return '<tr><td><button type="button" class="ql-linkbtn" data-vl-go="' + escapeHtml(x.s) + '">' + escapeHtml(x.s) + '</button> <small>' + escapeHtml(x.name || '') + '</small></td><td class="num">' + vlMoney(x.spot) + '</td><td class="num">' + vlMoney(x.v) + '</td><td class="num ' + vlGapCls(x.gap) + '">' + vlPct(x.gap) + '</td><td class="num">' + (vlFin(x.ig) ? vlNum(x.ig) + '%' : '—') + '</td></tr>'; }
-    var head = '<thead><tr><th>Stock</th><th class="num">Market</th><th class="num">Model</th><th class="num">Gap</th><th class="num">Price implies growth</th></tr></thead>';
+    function rowHtml(x){ return '<tr><td><button type="button" class="ql-linkbtn" data-vl-go="' + escapeHtml(x.s) + '">' + escapeHtml(x.s) + '</button> <small>' + escapeHtml(x.name || '') + '</small></td><td class="num">' + vlMoney(x.spot) + '</td><td class="num">' + vlMoney(x.v) + '</td><td class="num ' + vlGapCls(x.gap) + '">' + vlPct(x.gap) + '</td><td class="num">' + (vlFin(x.ig) ? vlNum(x.ig) + '%' : '—') + '</td><td class="num">' + (vlFin(x.above) ? Math.round(x.above * 100) + '%' : '—') + '</td></tr>'; }
+    var head = '<thead><tr><th>Stock</th><th class="num">Market</th><th class="num">Model</th><th class="num">Gap</th><th class="num">Price implies growth</th><th class="num">Worth more than price</th></tr></thead>';
     return '<details class="vl-screen"><summary>All covered stocks at default inputs (' + list.length + ')</summary><div class="acc-tscroll"><table class="acc-qtable vl-table">' + head + '<tbody>' + list.map(rowHtml).join('') + '</tbody></table></div><p class="vl-cap">Defaults only, from the last build. A big gap at defaults is a question to ask, not a signal: open the stock and check which inputs drive it.</p></details>';
   }
 
@@ -228,8 +309,16 @@ export function renderValuationLabJs() {
     }
     var row = vlRow(); if (!row){ root.innerHTML = '<p class="hint">No stock has valuation inputs yet.</p>'; return; }
     var opts = vlSymbols().map(function(s){ var r = vlState.data.rows[s]; return '<option value="' + escapeHtml(s) + '"' + (s === vlState.sym ? ' selected' : '') + '>' + escapeHtml(s + ' · ' + (r.name || '')) + '</option>'; }).join('');
-    var presets = VL_PRESETS.map(function(p){ return '<button type="button" class="vl-preset" data-vl-preset="' + p[0] + '">' + escapeHtml(p[1]) + '</button>'; }).join('');
+    var scs = VL.scenarios(row), groups = [], byGroup = {};
+    scs.forEach(function(x){ if (!byGroup[x.group]){ byGroup[x.group] = []; groups.push(x.group); } byGroup[x.group].push(x); });
+    function chip(x){ return '<button type="button" class="vl-preset' + (vlState.scenario === x.id ? ' vl-on' : '') + '" data-vl-preset="' + escapeHtml(x.id) + '" title="' + escapeHtml(x.note || '') + '">' + escapeHtml(x.label) + '</button>'; }
+    var presets = (byGroup.Quick || []).map(chip).join('');
+    var more = groups.filter(function(g){ return g !== 'Quick'; }).map(function(g){ return '<div class="vl-env-g"><span class="vl-env-l">' + escapeHtml(g) + '</span>' + byGroup[g].map(chip).join('') + '</div>'; }).join('');
+    var activeNote = '';
+    scs.forEach(function(x){ if (x.id === vlState.scenario && x.id !== 'base') activeNote = '<b>' + escapeHtml(x.label) + ':</b> ' + escapeHtml(x.note || '') + ' Inputs it moved are marked.'; });
     root.innerHTML = '<div class="vl-bar"><label class="vl-pick">Stock <select data-vl-sym aria-label="Stock to value">' + opts + '</select></label><div class="vl-presets" role="group" aria-label="Scenarios">' + presets + '</div><a class="book-more" href="?tab=stock&s=' + encodeURIComponent(vlState.sym) + '">Stock page</a></div>' +
+      '<details class="vl-env"' + (vlState.scenario && !(byGroup.Quick || []).some(function(x){ return x.id === vlState.scenario; }) ? ' open' : '') + '><summary>More environments: economy, the Fed, market mood, policy and politics, oil and the dollar (' + (scs.length - (byGroup.Quick || []).length) + ')</summary>' + more + '</details>' +
+      '<p class="vl-scn-note" id="vl-scn-note">' + activeNote + '</p>' +
       '<div class="vl-sticky" id="vl-sticky" aria-live="polite"></div><div class="vl-layout"><div class="vl-main" id="vl-out"></div><aside class="vl-side"><h4 class="slp-h4">Inputs <button type="button" class="ql-linkbtn" data-vl-reset>Reset</button></h4><div id="vl-inputs">' + vlInputsHtml() + '</div></aside></div>' +
       vlScreenHtml() +
       '<p class="evb-note">Display only: nothing here changes a pick, a grade or the Track Record. Inputs from the ' + escapeHtml(rglEt(vlState.data.builtAtIso)) + ' build; your changes are kept on this device only.</p>';
@@ -244,6 +333,8 @@ export function renderValuationLabJs() {
     out.innerHTML = vlKpis(row, a) +
       '<div class="vl-card">' + vlField(row, a) + '</div>' +
       '<div class="vl-card">' + vlReadHtml(a) + '</div>' +
+      '<div class="vl-card vl-story"><h3 class="vl-h3">The story: then vs now, us vs the analysts</h3>' + vlStoryHtml(row, a) + '</div>' +
+      '<div class="vl-card"><h3 class="vl-h3">Range of outcomes</h3>' + vlRangeHtml(row, a) + '</div>' +
       '<h4 class="slp-h4">Methods and weights</h4>' + vlMethodsTable(row, a) +
       '<h4 class="slp-h4">What moves the answer most</h4>' + vlDriversHtml(a) +
       '<h4 class="slp-h4">Rates x growth</h4>' + vlGridHtml(row, a) +
@@ -292,14 +383,20 @@ export function renderValuationLabJs() {
     var t = ev.target; if (!t || !t.closest || !t.closest('#valuation-lab-root')) return;
     var go = t.closest('[data-vl-go]');
     if (go){ vlPick(go.getAttribute('data-vl-go')); renderValuationLab(); var root = $('valuation-lab-root'); if (root && root.scrollIntoView) root.scrollIntoView({ block: 'start' }); return; }
-    if (t.closest('[data-vl-reset]')){ vlState.inputs = vlClone(vlState.defaults.inputs); vlSave(vlState.sym, null); $('vl-inputs').innerHTML = vlInputsHtml(); vlRenderOut(); return; }
+    if (t.closest('[data-vl-reset]')){ vlState.inputs = vlClone(vlState.defaults.inputs); vlState.scenario = null; vlSave(vlState.sym, null); renderValuationLab(); return; }
+    if (t.closest('[data-vl-apply="beat"]')){
+      var sb = VL.analyze(vlRow(), vlState.inputs, { range: false }).story.beat;
+      if (vlFin(sb)){ vlState.inputs.epsShock = sb; vlState.inputs = VL.normalize(vlState.inputs); $('vl-inputs').innerHTML = vlInputsHtml(); vlChanged(); }
+      return;
+    }
     var pr = t.closest('[data-vl-preset]');
     if (pr){
-      var id = pr.getAttribute('data-vl-preset'), p = null;
-      VL_PRESETS.forEach(function(x){ if (x[0] === id) p = x[2]; });
-      var next = vlClone(vlState.defaults.inputs);
-      if (p) for (var k in p) if (Object.prototype.hasOwnProperty.call(p, k)) next[k] = next[k] + p[k];
-      vlState.inputs = VL.normalize(next); $('vl-inputs').innerHTML = vlInputsHtml(); vlChanged();
+      var id = pr.getAttribute('data-vl-preset');
+      var next = id === 'base' ? vlClone(vlState.defaults.inputs) : VL.applyScenario(vlRow(), vlState.defaults.inputs, id);
+      if (!next) return;
+      vlState.inputs = VL.normalize(next); vlState.scenario = id === 'base' ? null : id;
+      vlSave(vlState.sym, JSON.stringify(vlState.inputs) === JSON.stringify(vlState.defaults.inputs) ? null : vlState.inputs);
+      renderValuationLab();
     }
   });
 `;

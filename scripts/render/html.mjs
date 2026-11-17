@@ -1025,13 +1025,14 @@ function quantLabsSection() {
   </section>`;
 }
 
-// Valuation lab (2026-11-17, Owner · Research): five valuation methods on
-// inputs the Owner can change, compared with the market price. Rendered by
+// Valuation lab (2026-11-17, Owner · Research): eight valuation methods on
+// inputs the Owner can change, in 28 market and political environments,
+// compared with the market price, last year and the analysts. Rendered by
 // scripts/render/valuation-lab-client.mjs from valuation-lab.json.
 function valuationLabSection() {
   return `<section class="card" id="valuation-lab-section">
     <header class="card-header"><h2 class="card-title">Valuation lab</h2><span class="card-eyebrow">Owner · price discovery</span></header>
-    <div class="owner-lab-intro"><div><h3>What is it worth, and what is the market seeing?</h3><p>A price is what the last buyer was willing to pay. This page values a stock five ways (cash flow, an earnings path, peer multiples, rate-justified earnings power and the analysts' target), blends them with weights you set, and compares the answer with the market price. Move any input (rates, growth, margins, multiples, the dollar, oil) and every number updates. Then it works backwards: what today's price assumes, which input matters most, and what the market may be pricing that the model leaves out. No AI. Nothing here changes a pick or a grade.</p></div></div>
+    <div class="owner-lab-intro"><div><h3>What is it worth, and what is the market seeing?</h3><p>A price is what the last buyer was willing to pay. This page values a stock eight ways (cash flow, an earnings path, peer multiples, its own past multiples, growth-adjusted P/E, rate-justified earnings power, book value plus excess returns and the analysts' target), blends them with weights you set, and compares the answer with the market price. Move any input (rates, growth, margins, multiples, the market, the dollar, oil, taxes, tariffs, which party holds power) or pick one of 28 environments, and every number updates. Then it works backwards: what today's price assumes, which input matters most, the range of outcomes, how the company compares with last year and with the analysts, and what the analysts or the model may be missing. No AI. Nothing here changes a pick or a grade.</p></div></div>
     <p class="hint" id="valuation-lab-status" role="status" aria-live="polite">The lab loads on first open.</p>
     <div id="valuation-lab-root" class="vl-root"></div>
   </section>`;

@@ -3,7 +3,9 @@
 // errors, raw values or sideways scroll; moving an input or a weight updates
 // the value; a scenario button and Reset work; picking another stock works;
 // a missing file degrades to one hint; a public visitor never sees the page
-// and never asks for the file. Synthetic data only (the smoke fixture).
+// and never asks for the file. Round 2: eight methods, the environments
+// (a policy scenario marks its inputs), the range of outcomes and the story
+// section with the usual-surprise button. Synthetic data only (the smoke fixture).
 // Run: node scripts/valuation-lab-browser.mjs (after the render output is current)
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
@@ -35,10 +37,14 @@ try {
     check(/What today.s price assumes/.test(text) && /What the market may be seeing/.test(text) && /What the model may be missing/.test(text), vp.name + ': the gap read');
     check(!JUNK.test(text), vp.name + ': no raw values');
     check((await s.page.locator('[data-page-tab="valuation-lab"]').count()) === 1, vp.name + ': sidebar entry');
-    check((await s.page.locator('#vl-out .vl-table tbody tr').count()) === 5, vp.name + ': one row per method');
-    check((await s.page.locator('#vl-out svg.vl-field circle').count()) === 5, vp.name + ': football field has a dot per method');
+    check((await s.page.locator('#vl-out .vl-table tbody tr').count()) === 8, vp.name + ': one row per method');
+    check((await s.page.locator('#vl-out svg.vl-field circle').count()) === 8, vp.name + ': football field has a dot per method');
+    check((await s.page.locator('#vl-out svg.vl-field rect.vl-opt').count()) === 1, vp.name + ': options range on the football field');
+    check(/The story: then vs now/.test(text) && /Five views of the same company/.test(text) && /Then vs now/.test(text) && /The analysts. record/.test(text), vp.name + ': story section');
+    check(/What the analysts may be missing/.test(text) && /What our model may be missing/.test(text), vp.name + ': the two missing lists');
+    check(/Range of outcomes/.test(text) && /Worth more than the price/.test(text) && (await s.page.locator('#vl-out svg.vl-hist rect').count()) > 5, vp.name + ': range of outcomes');
     check((await s.page.locator('#vl-out .vl-grid-t tbody tr').count()) === 5, vp.name + ': rate x growth grid');
-    check((await s.page.locator('#vl-inputs [data-vl-input]').count()) >= 15, vp.name + ': every input has a slider');
+    check((await s.page.locator('#vl-inputs [data-vl-input]').count()) >= 24, vp.name + ': every input has a slider');
     check(/Mega Platforms/.test(await s.page.locator('[data-vl-sym]').inputValue().then(() => s.page.locator('[data-vl-sym] option:checked').innerText())), vp.name + ': ?symbol= picks the stock');
     let problems = await pageProblems(s);
     check(problems.length === 0, vp.name + ': ' + problems.join(' | '));
@@ -53,7 +59,7 @@ try {
     check(after !== before && parseFloat(after.replace(/[$,]/g, '')) < parseFloat(before.replace(/[$,]/g, '')), vp.name + `: +200bp lowers the value (${before} -> ${after})`);
     check(/\+200bp/.test(await s.page.locator('[data-vl-iv="rateShiftBp"]').innerText()), vp.name + ': the input label follows the slider');
     // Weight to zero on four methods leaves peers alone at 100%.
-    for (const k of ['dcf', 'earnings', 'power', 'street']) await s.page.locator(`[data-vl-weight="${k}"]`).fill('0');
+    for (const k of ['dcf', 'earnings', 'history', 'peg', 'power', 'book', 'street']) await s.page.locator(`[data-vl-weight="${k}"]`).fill('0');
     await settle(s.page, 200);
     const share = await s.page.locator('#vl-out .vl-table tbody tr').nth(2).locator('td').last().innerText();
     check(share.trim() === '100%', vp.name + ': peers carry the whole blend');
@@ -64,6 +70,24 @@ try {
     await s.page.locator('[data-vl-reset]').click();
     await settle(s.page, 200);
     check((await s.page.locator('#vl-inputs .vl-changed').count()) === 0, vp.name + ': reset returns to the defaults');
+    // A policy environment from the folded list, then a party scenario.
+    await s.page.locator('.vl-env summary').click();
+    await s.page.locator('[data-vl-preset="tariffs"]').click();
+    await settle(s.page, 200);
+    check(/Tariff escalation:/.test(await s.page.locator('#vl-scn-note').innerText()), vp.name + ': scenario note');
+    check((await s.page.locator('#vl-inputs .vl-changed').count()) >= 3 && /\+1\.5 pts/.test(await s.page.locator('[data-vl-iv="tariffPp"]').innerText()), vp.name + ': tariff scenario moves its inputs');
+    check((await s.page.locator('[data-vl-preset="dsweep"]').count()) === 1, vp.name + ': party scenarios offered');
+    await s.page.locator('[data-vl-preset="dsweep"]').click();
+    await settle(s.page, 200);
+    check(/\+2\.80?%/.test(await s.page.locator('[data-vl-iv="politicsPct"]').innerText()), vp.name + ': Democratic sweep sets the sector tilt');
+    // The usual-surprise button sets the earnings surprise.
+    await s.page.locator('[data-vl-reset]').click();
+    await settle(s.page, 200);
+    await s.page.locator('[data-vl-apply="beat"]').click();
+    await settle(s.page, 200);
+    check(/^\+\d/.test(await s.page.locator('[data-vl-iv="epsShock"]').innerText()), vp.name + ': usual surprise applied');
+    await s.page.locator('[data-vl-reset]').click();
+    await settle(s.page, 200);
     // Another stock: a bank has no DCF, and says why.
     await s.page.locator('[data-vl-sym]').selectOption('BANKX');
     await settle(s.page, 300);
