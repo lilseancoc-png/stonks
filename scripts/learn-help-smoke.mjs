@@ -86,5 +86,13 @@ eq(previousDaySnapshot({ snapshots: [snap("2026-11-26", "pre"), snap("2026-11-26
 eq(previousDaySnapshot({ snapshots: [snap("2026-11-17", "pre")] }, "2026-11-17"), null, "a cold start (only today) has no baseline");
 eq(previousDaySnapshot({ snapshots: [snap("2031-01-02", "eod")] }, "2031-01-03")?.etDate, "2031-01-02", "a year outside the calendar is treated as a trading day");
 
+// 8. The hourly flow scan ends green on an NYSE holiday (Q17, 2026-11-17):
+//    a route job reads the same calendar and gates the scan job.
+const flowYml = readFileSync(new URL("../.github/workflows/unusual-flow.yml", import.meta.url), "utf8");
+eq(/\n  route:\n/.test(flowYml) && /\n  scan:\n    needs: route\n    if: \$\{\{ needs\.route\.outputs\.run == 'true' \}\}/.test(flowYml), true, "the flow scan waits for the holiday route");
+eq(/sessionForDate/.test(flowYml) && /sparse-checkout: lib\/us-equity-calendar\.mjs/.test(flowYml), true, "the route reads the NYSE calendar");
+eq(/force:/.test(flowYml) && /FORCE_RUN/.test(flowYml), true, "force=true still scans on a holiday");
+eq(/\n  top-picks-watchdog:\n    needs: scan\n    if: \$\{\{ always\(\) \}\}/.test(flowYml), true, "the watchdog still runs when the scan is skipped");
+
 console.log(`learn-help-smoke: ${passes} passed, ${failures} failed`);
 if (failures) process.exit(1);
