@@ -1,6 +1,8 @@
 # Quant labs
 
-Owner Lab → **Quant labs** (`?tab=quant&lab=labs`). Six measurement labs that
+**Quant labs**, its own Owner page (Owner · Research, `?tab=quant-labs`) since
+2026-11-16; it was an Owner Lab view, and the old `?tab=quant&lab=labs` link
+still opens it. Six measurement labs that
 answer plain questions about the site's own numbers: how likely is a market
 fall, are the chances the site states honest, what do the grade and the trades
 really lean on, are options priced over or under the moves to come, what
@@ -19,7 +21,7 @@ and `quant-labs-css.mjs`.
 
 | File | Who reads it | What it holds |
 |---|---|---|
-| `quant-labs.json` | Owner Lab page, the Market odds card, MCP dataset `quant.labs` | The page file: one block per lab plus `card` |
+| `quant-labs.json` | The Quant labs page, the Market odds card, MCP dataset `quant.labs` and feature `quant-labs` | The page file: one block per lab plus `card` |
 | `quant-labs-state.json` | The build only (never the browser, never the MCP) | Fitted market-odds models, the log of chances stated at past closes (800 rows), the weekly factor panel (60 weeks), factor ranks frozen per trade, the settled prediction-market log (3,000 rows), the annual report text store |
 
 Both are Owner keys in `lib/premium-keys.mjs` (combined `tr` + `tp` claims,
