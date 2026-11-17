@@ -1,12 +1,17 @@
 name: Sports prop picks
 
 # Sports uses its own scheduler, separate from the market-data bakes.
-# Four bulk line requests per run (192/day: three NBA, for PrizePicks, sportsbook player prices
-# and sportsbook game lines, and one NFL) leave room on the free 1,000/day feed for Owner page
-# refreshes. No AI, sportsbook account or bets.
+# Hourly at :37 from 14:37 to 04:37 UTC (9:37 AM to 11:37 PM Eastern in
+# winter, an hour later in summer): 15 runs a day, cut from every 30 minutes
+# around the clock on 2026-11-17 (Owner choice; overnight runs found no new
+# lines). Five bulk line requests per run (three NBA: PrizePicks, sportsbook
+# player prices and game lines; two NFL: PrizePicks and sportsbook prices),
+# about 75 a day of the free 1,000. The props record's closing line counts
+# when it is seen within four hours of the start, which hourly runs cover.
+# No AI, sportsbook account or bets.
 on:
   schedule:
-    - cron: "7,37 * * * *"
+    - cron: "37 0-4,14-23 * * *"
   workflow_dispatch:
 
 permissions:

@@ -1,14 +1,17 @@
 name: NBA prop research
 
-# Fill the gaps between the existing :07/:37 NBA+NFL collector. This adds
-# 300 bulk requests/day; with the existing job the baseline is 492/1,000.
-# It skips the game spread/total request (--no-game-lines) and reads the
-# line the :07/:37 scan archived.
-# UTC window covers ordinary NBA afternoon/evening slates. The old collector
-# still runs around the clock. Games close using real clocks, never the cron.
+# NBA-only captures timed for tip-offs. NBA games start on the hour or the
+# half hour, and the research record's closing-line value counts only a
+# capture within ten minutes before the start, so this runs at :22 and :52
+# (eight minutes before each possible tip) from 16:22 to 03:52 UTC (11:22 AM
+# to 10:52 PM Eastern in winter): 24 runs a day, cut on 2026-11-17 from 150
+# runs every five minutes (Owner choice). Two bulk requests per run (48 a
+# day); it skips the game spread/total request (--no-game-lines) and reads
+# the line the hourly props scan archived. Games close using real clocks,
+# never the cron, so a late start only loses that game's closing capture.
 on:
   schedule:
-    - cron: '2,12,17,22,27,32,42,47,52,57 0-7,17-23 * * *'
+    - cron: '22,52 0-3,16-23 * * *'
   workflow_dispatch:
 permissions:
   contents: read

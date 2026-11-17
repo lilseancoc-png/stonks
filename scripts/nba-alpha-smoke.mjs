@@ -289,3 +289,15 @@ console.log('NBA alpha passed: fresh paired prices, timestamp/ladder safety, mar
 // Book-price data fixes (2026-11-13): more books, NFL prices, anchored prices,
 // the real-line warning and NBA.com headers. Run here so test:sports covers it.
 await import('./sports-book-data-smoke.mjs');
+// Q19 (2026-11-17, Owner choice): a failed or busy research capture no longer
+// stops the scheduled props record; the run warns and records the props.
+{
+  const { readFile } = await import('node:fs/promises');
+  const src = await readFile(new URL('./refresh-sports-props.mjs', import.meta.url), 'utf8');
+  const research = src.indexOf('captureNBAResearch({'), record = src.indexOf('capturePropPicks({');
+  assert.ok(research > 0 && record > research, 'research capture runs before the props record');
+  const between = src.slice(research, record);
+  assert.doesNotMatch(between, /evidence[^\n]*(?:continue|throw)/, 'a research result never skips or stops the props record');
+  assert.match(between, /::warning::nba: research recording failed/, 'a failed capture is a run warning with its label');
+  console.log('NBA props record survives a failed research capture.');
+}

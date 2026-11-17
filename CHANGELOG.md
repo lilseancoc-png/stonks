@@ -45,6 +45,11 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 - The 1971-2026 strategy-engine history test now shows across the site as context only: "Strategy styles by era" on Pattern lab and style strips on Booms & busts (public), event and crisis strips on Historical Data, "Today's regime fit" in the Regime Lab and the Owner brief, and MCP datasets (Owner). Aggregates only; switch `ENGINES_HISTORY=0` (#849).
 
+### Changed
+
+- Sports: the scheduled props scan runs hourly at :37 from 9:37 AM to 11:37 PM Eastern (15 runs a day, was every 30 minutes around the clock), and the NBA research collector runs at :22 and :52 from 11:22 AM to 10:52 PM Eastern (24 a day, was every five minutes, 150 a day), each capture eight minutes before a possible tip-off so its closing-line read still counts. About 125 of the free 1,000 line requests a day (#863).
+- Sports: a failed or busy NBA research capture no longer stops the props record; the run warns with the failure's label and records the props anyway (#863).
+
 ### Fixed
 
 - A failed NBA research capture now logs which step stopped it and a fixed error label (for example `research=lease/lease-conflict` or `research=index/store-http-503`), so the recurring "NBA research recording is unavailable or busy" failures in the props and research jobs say why without printing keys or provider text.

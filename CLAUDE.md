@@ -130,7 +130,7 @@ since 2026-11-13, NFL_BOOKS, read for NFL only when a caller asks for
 line no book posts is priced from the nearest book line moved by the
 model's step, state `anchored`, `anchoredPrice` in `book-price.mjs`) and, as a request
 of its own since 2026-11-12 (`game_lines` in `loadPropSources`' parts; the
-five-minute research collector skips it with `--no-game-lines`), the books'
+NBA research collector skips it with `--no-game-lines`), the books'
 game spreads, totals and moneylines. The owners chose to keep it
 on 2026-11-08. It is read server-side behind the Owner gate, by the prop
 recording job and (since 2026-11-11) by the MCP's `sports_evaluate_entry` /
