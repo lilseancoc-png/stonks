@@ -38,7 +38,12 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## 2026-11-17
 
+### Added
+
+- The 1971-2026 strategy-engine history test now shows across the site as context only: "Strategy styles by era" on Pattern lab and style strips on Booms & busts (public), event and crisis strips on Historical Data, "Today's regime fit" in the Regime Lab and the Owner brief, and MCP datasets (Owner). Aggregates only; switch `ENGINES_HISTORY=0` (#849).
+
 ### Fixed
+
 - Daily index moves: a 30-minute bar still trading when the build runs no longer counts as finished, so the 10:00 ET build stops reporting a first hour from a 10:05 price and the 15:30 ET build stops marking the day complete with a 15:35 price; today's row is labeled "so far" until the close, and the month read's sleeve counts ("at least 5 of 6") now match the rule instead of saying "four" (`indexCalendarAsOf` in `build.mjs`, `scripts/index-calendar-smoke.mjs`).
 
 ## 2026-11-16
