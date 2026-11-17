@@ -176,6 +176,18 @@ function phoneTabBarHtml() {
 // screens especially. The user clicks the summary to read the methodology.
 // Reuses the established <details> disclosure pattern (cf. .picks-howto /
 // .bonds-primer). `body` is trusted static HTML (one or more <p>…</p>).
+// The measured intraday volume curve the flow scan wrote (lib/volume-flags.mjs),
+// so the browser's live relative-volume read uses the same pace as the scan.
+// A meta that already carries curveKnots (even null, the switch is off) wins.
+function volumeCurveKnotsOf(volumeFlags) {
+  if (!volumeFlags) return null;
+  if (Object.prototype.hasOwnProperty.call(volumeFlags, "curveKnots")) {
+    return Array.isArray(volumeFlags.curveKnots) ? volumeFlags.curveKnots : null;
+  }
+  const curve = volumeFlags.curve;
+  return curve?.mode === "measured" && Array.isArray(curve.knots) ? curve.knots : null;
+}
+
 function infoNote(summary, body) {
   return `<details class="info-note">
       <summary>${summary}</summary>
@@ -1536,7 +1548,7 @@ function volumeFlagsSection() {
         <span class="vol-head-legend-note">Taller means more volume than usual for that hour.</span>
       </div>
     </header>
-    ${infoNote('How the volume flags work', `<p>Hourly volume is compared with the U-shaped 25/14/11/11/14/25% intraday distribution. <strong>≥1.2×</strong> expected pace is a participation watch; <strong>≥1.5×</strong> is the stronger action threshold. The required price move adapts to each ticker's ATR (roughly half an ATR, bounded at 0.6–2.0%) so a quiet utility and a volatile semiconductor are not judged by the same fixed move. At/after 16:00 ET, full-day volume <strong>≥1.3×</strong> the 20D average flags as EOD. Support/resistance uses the prior completed sessions only plus an ATR-scaled crossing buffer; Strong Alert requires ≥1.5×, Watch is 0.8–1.5×, and &lt;0.8× is Likely Fakeout.</p>
+    ${infoNote('How the volume flags work', `<p>Each window's volume is compared with the share of a normal day that usually trades in it. That pace is measured from these stocks' own recent sessions (the last 20 the scan logged; until five are logged, a curve measured from 14 sessions in May and June 2026): about 16% of the day by 10:00, a third by 11:00, slower through midday, and about a quarter in the last hour, closing auction included. The grade's volume vote reads the session so far (volume since the open against that pace) rather than the busiest single window. <strong>≥1.2×</strong> expected pace is a participation watch; <strong>≥1.5×</strong> is the stronger action threshold. The required price move adapts to each ticker's ATR (roughly half an ATR, bounded at 0.6–2.0%) so a quiet utility and a volatile semiconductor are not judged by the same fixed move. At/after 16:00 ET, full-day volume <strong>≥1.3×</strong> the 20D average flags as EOD. Support/resistance uses the prior completed sessions only plus an ATR-scaled crossing buffer; Strong Alert requires ≥1.5×, Watch is 0.8–1.5×, and &lt;0.8× is Likely Fakeout.</p>
     <p>Each row reads <em>Vol actual / expected · ratio</em> — shares traded in that bucket vs. the bucket's share of the 20-day average, and the multiple between them. The trailing % is the price change across the bucket. A flag leans <span class="vol-key-up">bullish</span> when price is up on heavy volume (real demand) and <span class="vol-key-dn">bearish</span> when price is down on heavy volume (real selling pressure).</p>
     <p>Each card also carries a <strong>follow-the-case verdict</strong> — whether the volume evidence says to <em>follow</em> the bull or bear case (heavy volume confirmed the move), <em>wait for confirmation</em> (heavy participation but no decisive direction yet), or <em>not follow</em> it (a weak move or a likely fakeout, prone to fading). Expand a ticker to read the verdict's reasoning in full.</p>
     <p>Names are grouped by sector and <strong>collapsed by default</strong> — click a sector header to open it, then a ticker to expand its hour-by-hour breakdown with the reasoning. Each row's one-line summary shows its strongest flag, bullish/bearish lean, peak hour ratio, and EOD move, and a six-bar <strong>intraday volume profile</strong> — one bar per session hour (open → close), taller where volume ran hotter and tinted <span class="vol-key-up">green</span>/<span class="vol-key-dn">red</span> by that hour's price direction — so you can see <em>when</em> the heavy tape hit (the open, midday, or into the close) without expanding. <em>Group by sector</em> and <em>Expand all</em> toggle the layout.</p>`)}
@@ -2146,7 +2158,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     // Manifest diet: the full volume-flags + OI-tracker payloads are lazy-fetched
     // on tab entry; only these tiny freshness-stub metas stay inline.
     volumeFlagsMeta: volumeFlags
-      ? { scannedAt: volumeFlags.scannedAt || null, etDate: volumeFlags.etDate || null, marketState: volumeFlags.marketState || null }
+      ? { scannedAt: volumeFlags.scannedAt || null, etDate: volumeFlags.etDate || null, marketState: volumeFlags.marketState || null, curveKnots: volumeCurveKnotsOf(volumeFlags) }
       : null,
     nextFomcDates: Array.isArray(nextFomcDates) ? nextFomcDates : [],
     oiMeta: oi
@@ -2459,7 +2471,7 @@ ${i18nHeadScript()}
       </header>
       <p class="hint" data-owner-only>Read the tape at a glance: tile size shows market cap and color shows the selected 1D, 1W, 1M, 3M, YTD, or 1Y return. Find a ticker, switch to relative volume, or tap any tile to open its Grade.</p>
       <p class="hint" data-public-only>Read the tape at a glance: tile size shows market cap and color shows the selected 1D, 1W, 1M, 3M, YTD, or 1Y return. Find a ticker or switch to relative volume to explore observed market activity.</p>
-      ${infoNote('How to read this map', `<p>Choose a <b>Period</b> to compare session, weekly, monthly, quarterly, year-to-date, or one-year performance. Deeper green and red mark larger moves on a scale adjusted to that horizon. In <b>Relative volume</b> mode, saturation shows current cumulative volume versus the fraction of a normal 20-day session expected by that clock time, using the same U-shaped intraday pace curve as the Volume desk; hue still shows the selected period&rsquo;s direction. That keeps the morning comparable with the close instead of labeling every incomplete session quiet. Pre-market keeps the last completed-session read rather than treating prior-session volume as live. Group by sector or industry, press Enter after searching to center the first match, and use the zoom controls or wheel/pinch to inspect the small-cap tail.</p><p>The <b>Sector breadth streak</b> flags a group only after at least 70% of its tracked names have closed in the same direction for two or more consecutive sessions. That proves participation is broad and persistent; it does <em>not</em> measure ETF inflows/outflows, relative strength versus SPY, or the Owner Sector Rotation desk&rsquo;s quality-washout rebound setup. Use a green streak as a leadership candidate and a red streak as a group-risk flag, then confirm with relative performance and volume. Not financial advice.</p>`)}
+      ${infoNote('How to read this map', `<p>Choose a <b>Period</b> to compare session, weekly, monthly, quarterly, year-to-date, or one-year performance. Deeper green and red mark larger moves on a scale adjusted to that horizon. In <b>Relative volume</b> mode, saturation shows current cumulative volume versus the fraction of a normal 20-day session expected by that clock time, using the same intraday pace the Volume page measures from recent sessions; hue still shows the selected period&rsquo;s direction. That keeps the morning comparable with the close instead of labeling every incomplete session quiet. Pre-market keeps the last completed-session read rather than treating prior-session volume as live. Group by sector or industry, press Enter after searching to center the first match, and use the zoom controls or wheel/pinch to inspect the small-cap tail.</p><p>The <b>Sector breadth streak</b> flags a group only after at least 70% of its tracked names have closed in the same direction for two or more consecutive sessions. That proves participation is broad and persistent; it does <em>not</em> measure ETF inflows/outflows, relative strength versus SPY, or the Owner Sector Rotation desk&rsquo;s quality-washout rebound setup. Use a green streak as a leadership candidate and a red streak as a group-risk flag, then confirm with relative performance and volume. Not financial advice.</p>`)}
       <div id="heatmap-decision" class="heatmap-decision" aria-live="polite"></div>
       <div class="heatmap-controls" role="toolbar" aria-label="Heatmap controls">
         <label class="heatmap-control heatmap-group-control">

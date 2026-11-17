@@ -990,11 +990,18 @@ The UI's decision queue is stricter than raw detection. It favors aggressive ask
 
 ### Volume
 
-Expected intraday volume follows a U-shaped session curve:
+Expected intraday volume follows a curve measured from the covered stocks' own sessions (`lib/volume-flags.mjs`, since 2026-11-17). Each scan logs every name's cumulative volume; the next day the scanner divides those readings by the finished daily volume, takes the median name at each scan time, and keeps the last 20 sessions (`curveDays` in `volume-history.json`). A scan time with five or more logged sessions uses their median; until then it uses a seed measured from 14 sessions of May and June 2026:
 
 ```text
-25% / 14% / 11% / 11% / 14% / 25%
+share of the day by 10:00 / 11:00 / 12:00 / 13:00 / 14:00 / 15:00 / 16:00
+16% / 32% / 45% / 55% / 64% / 74% / 100% (closing auction included)
 ```
+
+The old fixed curve (25 / 14 / 11 / 11 / 14 / 25% per hour) expected 12.5% by 10:00 and 36% in the last two hours, so morning windows read about 1.3× too heavy and afternoon windows too light. `VOLUME_MEASURED_CURVE=0` brings the fixed curve back.
+
+The grade's `unusualVolume` vote reads the session so far (volume since the open against the curve, move since the prior close; `session.reads` in `volume-flags.json`) rather than the busiest single window, which opened the vote to about 40-50% of names on an ordinary day. `VOLUME_SESSION_READ=0` brings back the busiest-window read. New Top Picks trades carry `volumeReadVersion` (Track Record divider).
+
+The 16:00 ET scan is taken before the closing auction prints, so it used to read every name's day short. That scan now waits until about 16:06 ET (a scan that starts after 16:30 skips this) and re-reads each stock's day volume and closing price in batched Yahoo quotes of 50 (`closeRereadWaitMs` / `applyCloseReread` in `lib/volume-flags.mjs`). A quote only replaces the scan's volume when it is at least as large. The page says "closing auction included" and the scan log prints how many names moved by 10% or more (`closeReread` in `volume-flags.json`). `VOLUME_CLOSE_REREAD=0` (Owner Settings, Data & desks) skips the wait.
 
 - hourly watch: at least 1.2× expected volume;
 - stronger flag: at least 1.5×;

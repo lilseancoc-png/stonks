@@ -167,6 +167,7 @@ import { buyoutContextFor } from "../lib/pending-buyout-guard.mjs";
 import { buildShadowSignals, altDataGauges, resemblesGauges, insiderFromStructure } from "../lib/shadow-signals.mjs";
 import { signedFlowBySymbol, legacyPersistBySymbol, signedFlowVote, legacyFlowVote, flowVotesBySymbol } from "../lib/flow-direction.mjs";
 import { flowScanVersion } from "../lib/flow-scan-rules.mjs";
+import { volumeSwitches, volumeReadVersion } from "../lib/volume-flags.mjs";
 import { buildShadowResearch } from "../lib/shadow-research.mjs";
 import { buildEntrySnapshot } from "../lib/trade-snapshot.mjs";
 import { PICKS_MAX_PER_SECTOR, PICKS_MAX_NEW_PER_FACTOR_RUN, PICKS_CAPS_VERSION, factorOfSectorLabel, exposureCapBlock, countExposure } from "../lib/top-picks-caps.mjs";
@@ -18526,6 +18527,13 @@ export const FLOW_SCAN_VERSION = flowScanVersion(process.env);
 // include them skip those keys in the thesis re-score (see the thesis check
 // in updatePicksAccuracyFile).
 export const RETIRED_SIGNAL_KEYS = new Set(["macd", "fiftyTwoWeek"]);
+// 2026-11-17 audit: the Unusual volume vote reads volume since the open
+// against the measured "normal by now" curve (lib/volume-flags.mjs), not the
+// best single window of the day. VOLUME_SESSION_READ=0 restores the window
+// read; VOLUME_MEASURED_CURVE=0 the fixed curve (in the scanner). Stamped on
+// new trades as volumeReadVersion ("" = both off) for a Track Record divider.
+const VOLUME_SESSION_READ = volumeSwitches(process.env).sessionRead;
+export const VOLUME_READ_VERSION = volumeReadVersion(process.env);
 // Hard cap on the concurrently-tracked open book. Each build ships <=10
 // actionable picks, but re-entry suppression means every build surfaces NEW
 // names while the previously-enrolled ones stay open until an exit rule fires —
@@ -19031,8 +19039,19 @@ function peerGroupOf(sym, data) {
 // volume-flags.json (volRatio = hourly volume vs 20D-average hourly volume).
 // Returns the strongest bucket of the session, or null when no fresh read is on
 // disk (scoreMechanicals then falls back to daily relative volume).
-function hourlyVolumeRead(sym, volumeFlags) {
-  if (!volumeFlags || !Array.isArray(volumeFlags.tickers)) return null;
+export function hourlyVolumeRead(sym, volumeFlags, sessionRead = VOLUME_SESSION_READ) {
+  if (!volumeFlags) return null;
+  // Session so far (since 2026-11-17): one reading of all of today's volume
+  // against a normal day by now, with the move from yesterday's close. The
+  // scanner writes it for every name it evaluated. A file from before the
+  // change (no session block) falls through to the older window read.
+  const reads = volumeFlags.session?.reads;
+  if (sessionRead && reads && typeof reads === "object") {
+    const s = reads[sym];
+    if (!s || pnum(s.r) == null) return null;
+    return { volRatio: Number(s.r), priceMovePct: pnum(s.m), bucketLabel: null, basis: "session", etMin: pnum(s.t), etDate: volumeFlags.etDate || null };
+  }
+  if (!Array.isArray(volumeFlags.tickers)) return null;
   const row = volumeFlags.tickers.find((t) => t?.symbol === sym);
   if (!row || !Array.isArray(row.bucketHits)) return null;
   let best = null;
@@ -19549,7 +19568,11 @@ function scoreMechanicals(sym, data, unusualPayload) {
   if (hv && pnum(hv.volRatio) != null) {
     uvOk = true; const rv = Number(hv.volRatio); const mv = pnum(hv.priceMovePct) ?? pnum(dv?.priceMove1dPct) ?? 0;
     if (rv >= 1.3 && Math.abs(mv) >= 0.5) uv = mv > 0 ? 1 : -1;
-    uvVal = r1(rv) + "x hrly"; uvNote = `${r2(rv)}x hourly vs 20D-avg hourly`;
+    if (hv.basis === "session") {
+      uvVal = r1(rv) + "x so far"; uvNote = `${r2(rv)}x a normal day's volume by this time (since the open)`;
+    } else {
+      uvVal = r1(rv) + "x hrly"; uvNote = `${r2(rv)}x hourly vs 20D-avg hourly`;
+    }
   } else if (dv && pnum(dv.rvol) != null) {
     uvOk = true; const rv = Number(dv.rvol); const mv = pnum(dv.priceMove1dPct) ?? 0;
     if (rv >= 1.3 && Math.abs(mv) >= 0.5) uv = mv > 0 ? 1 : -1;
@@ -30601,6 +30624,9 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
       // stamped so the Track Record draws a divider. Unset while
       // PICKS_SINGLES_DEFAULT=0 (the earlier engine mix).
       ...(PICKS_STRUCTURE_POLICY_VERSION ? { structurePolicyVersion: PICKS_STRUCTURE_POLICY_VERSION } : {}),
+      // Unusual volume vote rules (measured curve + session read, since
+      // 2026-11-17); unset while both volume switches are off.
+      ...(VOLUME_READ_VERSION ? { volumeReadVersion: VOLUME_READ_VERSION } : {}),
       // The Owner's market mode when the trade opened (since 2026-11-07).
       ...(picksPayload?.rosterMeta?.marketMode?.mode ? { marketMode: picksPayload.rosterMeta.marketMode.mode } : {}),
       // AI final grader mode at entry (live / off / keyless, since
