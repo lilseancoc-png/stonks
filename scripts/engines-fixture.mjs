@@ -6,7 +6,7 @@
 // test. Nothing here is market data, and nothing contacts a provider, an
 // account or the store.
 import { fileURLToPath } from "node:url";
-import { MACRO_ETFS, ENGINES, engineName } from "../lib/engines/config.mjs";
+import { MACRO_ETFS, ENGINES, engineName, isSharesTrade } from "../lib/engines/config.mjs";
 import { clientOrderId, orderIdPrefix } from "../lib/webull-mirror.mjs";
 import { emptyRecord, emptyState } from "../lib/engines/book.mjs";
 import { runEngines, loadEnginesResearch } from "../lib/engines/index.mjs";
@@ -136,7 +136,8 @@ export async function enginesFixture({ end = "2026-11-13", sessions = 70 } = {})
     return { ...res, flag };
   };
   const first = walkRuns(null);
-  const keep = first.record.open.filter((t) => !t.noMirror && t.entryDate.slice(0, 10) !== stepDays[0]).at(-1) || null;
+  // An option trade (a share trade has no contract Top Picks could hold).
+  const keep = first.record.open.filter((t) => !t.noMirror && !isSharesTrade(t) && t.entryDate.slice(0, 10) !== stepDays[0]).at(-1) || null;
   let out = first, flagship = null;
   if (keep) {
     // Top Picks opened it at the run before: the same morning, or the prior afternoon.
@@ -174,11 +175,13 @@ export async function enginesFixture({ end = "2026-11-13", sessions = 70 } = {})
     };
   };
   const rec = out.record;
-  const trades = [...rec.open.map((t, i) => mirrorRow(t, i, false)), ...rec.closed.slice(0, 60).map((t, i) => mirrorRow(t, i + 3, true))];
+  // Share trades never reach the paper account.
+  const opt = (list) => list.filter((t) => !isSharesTrade(t));
+  const trades = [...opt(rec.open).map((t, i) => mirrorRow(t, i, false)), ...opt(rec.closed).slice(0, 60).map((t, i) => mirrorRow(t, i + 3, true))];
   const lastRunIso = new Date(Date.parse(out.view.runIso) + 9 * 60000).toISOString();
   const mirror = {
     scope: "engines", enabled: true, enginesMirror: true, goLiveIso: rec.startedIso, lastRunIso, engineSnapshotIso: out.view.runIso,
-    health: { status: "saved-checks-current", issues: [], counts: {}, engines: { open: rec.open.length, mirrored: trades.filter((t) => t.state === "open").length, shared: rec.open.filter((t) => t.noMirror).length, unfilled: trades.filter((t) => t.state === "missed" && rec.open.some((o) => o.tradeId === t.tradeId)).length, pending: 0, untracked: 0 } },
+    health: { status: "saved-checks-current", issues: [], counts: {}, engines: { open: opt(rec.open).length, mirrored: trades.filter((t) => t.state === "open").length, shared: opt(rec.open).filter((t) => t.noMirror).length, unfilled: trades.filter((t) => t.state === "missed" && opt(rec.open).some((o) => o.tradeId === t.tradeId)).length, pending: 0, untracked: 0 } },
     reconciliation: { checkedAtIso: lastRunIso, status: "matched", alerts: [] }, runs: [], rows: [], trades,
   };
   return { view: out.view, record: out.record, state: out.state, mirror, flagship, names: NAMES, engines: Object.keys(ENGINES) };
