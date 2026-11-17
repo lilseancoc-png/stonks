@@ -183,4 +183,67 @@ assert.equal(quarterlyToUsd(twdQuarters, { currency: "TWD", fxBars: null }), nul
   assert.deepEqual(payload.totals.fyByLabel.FY2026, ["MSFT"]);
 }
 
+// --- A stale latest full year counts in the run-rate only (TSMC, Nov 2026) ---
+{
+  const staleSec = (val) => ({ units: { USD: [
+    { start: "2023-01-01", end: "2023-12-31", val: val * 1.06, form: "20-F", fp: "FY" },
+    { start: "2024-01-01", end: "2024-12-31", val, form: "20-F", fp: "FY" },
+  ] } });
+  const freshSec = (val) => ({ units: { USD: [
+    { start: "2024-01-01", end: "2024-12-31", val: val * 0.6, form: "10-K", fp: "FY" },
+    { start: "2025-01-01", end: "2025-12-31", val, form: "10-K", fp: "FY" },
+  ] } });
+  globalThis.fetch = async (url) => {
+    const u = String(url);
+    const rev = /Revenue/.test(u);
+    if (/CIK0001046179/.test(u)) return { ok: true, json: async () => staleSec(rev ? 88e9 : 29.2e9) };
+    return { ok: true, json: async () => freshSec(rev ? 400e9 : 90e9) };
+  };
+  // Yahoo's window starts at Q2 2025, so FY2025 cannot be rebuilt.
+  const late = ["2025-06-30", "2025-09-30", "2025-12-31", "2026-03-31", "2026-06-30", "2026-09-30"]
+    .map((date) => ({ date, value: 420e9 }));
+  const fx = [];
+  for (let t = Date.parse("2025-01-01"); t <= Date.parse("2026-11-16"); t += 86400000) fx.push({ t: new Date(t).toISOString().slice(0, 10), c: 32 });
+  const chains = { TSM: { fundamentals: { name: "TSMC", financialCurrency: "TWD", fiscalYearEndMonth: 12, capexHistory: late, revenueHistory: late.map((q) => ({ date: q.date, value: q.value * 3 })) } } };
+  const payload = await buildAiCapexPayload(new Map([["TSM", "1046179"], ["GOOGL", "3"]]), chains, "2026-11-16T21:00:00.000Z", null, { fetchFxBars: async () => fx });
+  globalThis.fetch = originalFetch;
+  const tsm = payload.companies.find((c) => c.ticker === "TSM");
+  const googl = payload.companies.find((c) => c.ticker === "GOOGL");
+  assert.equal(tsm.fyLatest.label, "FY2024");
+  assert.equal(tsm.fyStale, true, "FY2024 against a run-rate through Sept 2026 is stale");
+  assert.equal(tsm.ttm.asOf, "2026-09-30");
+  assert.ok(!googl.fyStale);
+  assert.equal(payload.totals.fyLatestSum, 90e9, "the stale year is not in the latest-year total");
+  assert.equal(payload.totals.yoyPct, Math.round((90 / 54 - 1) * 1000) / 10, "growth is GOOGL alone");
+  assert.equal(payload.totals.ttmSum, googl.ttm.val + tsm.ttm.val, "the run-rate keeps TSM");
+  assert.deepEqual(payload.totals.fyStale, [{ ticker: "TSM", label: "FY2024" }]);
+  assert.equal(payload.totals.fyCount, 1);
+  assert.equal(payload.totals.fyMixed, false, "FY2024 no longer mixes into the label");
+  assert.equal(payload.totals.revenue.count, 1);
+  assert.equal(payload.totals.runRateVsFyPct, Math.round((googl.ttm.val / 90e9 - 1) * 1000) / 10, "run-rate vs year compares GOOGL with GOOGL");
+}
+
+// --- A skipped year is not "the prior year" (TSMC once Q4 2026 lands) ---
+{
+  const staleSec = (val) => ({ units: { USD: [
+    { start: "2023-01-01", end: "2023-12-31", val: val * 1.06, form: "20-F", fp: "FY" },
+    { start: "2024-01-01", end: "2024-12-31", val, form: "20-F", fp: "FY" },
+  ] } });
+  globalThis.fetch = async (url) => ({ ok: true, json: async () => staleSec(/Revenue/.test(String(url)) ? 88e9 : 29.2e9) });
+  const y2026 = ["2026-03-31", "2026-06-30", "2026-09-30", "2026-12-31"].map((date) => ({ date, value: 420e9 }));
+  const fx = [];
+  for (let t = Date.parse("2025-06-01"); t <= Date.parse("2027-02-10"); t += 86400000) fx.push({ t: new Date(t).toISOString().slice(0, 10), c: 32 });
+  const chains = { TSM: { fundamentals: { financialCurrency: "TWD", fiscalYearEndMonth: 12, capexHistory: y2026, revenueHistory: y2026.map((q) => ({ date: q.date, value: q.value * 3 })) } } };
+  const payload = await buildAiCapexPayload(new Map([["TSM", "1046179"]]), chains, "2027-02-10T21:00:00.000Z", null, { fetchFxBars: async () => fx });
+  globalThis.fetch = originalFetch;
+  const tsm = payload.companies[0];
+  assert.equal(tsm.fyLatest.label, "FY2026");
+  assert.equal(tsm.fyPrior, null, "FY2024 is two years back");
+  assert.equal(tsm.yoyPct, null, "no two-year change labeled as one year");
+  assert.equal(tsm.rev.fyPrior, null);
+  assert.equal(tsm.rev.yoyPct, null);
+  assert.ok(!tsm.fyStale);
+  assert.equal(payload.totals.yoyPct, null);
+}
+
 console.log("AI CapEx coverage smoke test passed");

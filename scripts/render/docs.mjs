@@ -56,6 +56,9 @@ export const DOC_THEME_OVERRIDE = `
 }
 :host::before, :host::after{ content:none !important; background:none !important; }
 .backlink{ display:none !important; }
+/* Links to Owner-only pages (Grade, Strategy builder). app.js puts is-owner
+   on the host for a signed-in Owner; public visitors never see them. */
+:host(:not(.is-owner)) [data-owner-link]{ display:none !important; }
 header{ padding-top:6px !important; }
 h1{ font-size:clamp(30px,4.5vw,44px) !important; }
 `;
@@ -362,7 +365,7 @@ export const DOC_PAGES = {
       </div>
       <div class="gate-actions">
         <p><b>All five clear?</b> Validate the exact contract. If the payoff needs multiple legs, model the structure first.</p>
-        <div class="gate-links"><a href="/?tab=grade">Grade ticker + contract →</a><a href="/?tab=strategies">Model a strategy →</a></div>
+        <div class="gate-links"><a href="/?tab=stock">Look up the stock and its options →</a><a href="/?tab=grade" data-owner-link>Grade ticker + contract →</a><a href="/?tab=strategies" data-owner-link>Model a strategy →</a></div>
       </div>
     </div>
   </section>
@@ -472,7 +475,7 @@ export const DOC_PAGES = {
       </div>
       <div class="card">
         <h3>IV Rank / Percentile</h3>
-        <p>Tells you if <strong>today's IV is high or low versus the stock's own past year</strong>. Low → buying is cheaper and safer. High → options are pricey and favor sellers. <strong>Check this before you buy.</strong></p>
+        <p>Tells you if <strong>today's IV is high or low versus the stock's own history</strong> (about 18 months on this site). Low → buying is cheaper and safer. High → options are pricey and favor sellers. This site calls options <b>Rich</b> only when the percentile is high <em>and</em> IV sits above how much the stock has really been moving (its 30-day realized volatility). <strong>Check this before you buy.</strong></p>
       </div>
       <div class="card lead-put">
         <h3>IV Crush <span class="tag">the buyer's trap</span></h3>
@@ -743,7 +746,7 @@ export const DOC_PAGES = {
     <div class="pattern-decision">
       <div class="pattern-decision-head">
         <div><small>Shape is context; the break is evidence</small><h2>Trade the confirmation—not the drawing</h2><p>A pattern has two stages. Forming means a recognizable shape is developing; confirmed means price has closed through the named level. Always compare that direction with the side you want to trade.</p></div>
-        <a href="/?tab=grade">Check a live ticker →</a>
+        <a href="/?tab=stock">Check a live ticker →</a>
       </div>
       <div class="pattern-states">
         <div class="pattern-state wait"><span>Forming</span><b>Watch / wait</b><p>No directional permission yet. Use the named confirmation and invalidation levels to define what resolves the setup.</p></div>
@@ -972,7 +975,7 @@ export const DOC_PAGES = {
     <div class="shead"><span class="snum">i</span><h2>How to use this page</h2><p>reference only</p></div>
     <div class="note">
       <p>This page is a <b>reference only</b>. stonks no longer reads chart patterns automatically: the AI pattern read was retired in October 2026 after its confirmed calls proved right only about half the time. Patterns do not affect grades, Top Picks, entry timing or Strategies. Use this guide when you read a chart yourself, and pair any shape you spot with its named confirmation and invalidation levels.</p>
-      <p><a href="/?tab=grade">Open a ticker's price chart in Grade →</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="/?tab=strategies">Model the payoff only after timing clears →</a></p>
+      <p><a href="/?tab=stock">Open a stock's price chart →</a><span data-owner-link>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="/?tab=strategies">Model the payoff only after timing clears →</a></span></p>
     </div>
   </section>
 
@@ -1121,7 +1124,7 @@ export const DOC_PAGES = {
     <h1>Privacy <em>Policy</em></h1>
     <div class="dates">
       <span>Effective Date: <b>June 14, 2026</b></span>
-      <span>Last Updated: <b>August 2, 2026</b></span>
+      <span>Last Updated: <b>November 17, 2026</b></span>
     </div>
     <p class="intro">Ming Street (&ldquo;we,&rdquo; &ldquo;us,&rdquo; or &ldquo;our&rdquo;) operates the website <a href="https://mingstreet.app">mingstreet.app</a> (the &ldquo;Site&rdquo;) and provides stock market analysis tools, custom formulas, and related services (the &ldquo;Service&rdquo;). This Privacy Policy explains how we collect, use, disclose, and protect your personal information when you use our Site and Service.</p>
     <p class="intro">By using the Site or Service, you agree to the collection and use of information in accordance with this Privacy Policy.</p>
@@ -1158,7 +1161,7 @@ export const DOC_PAGES = {
       <p>We do not receive a Discord password. The OAuth access token used for the internal Owner check is processed during login and is not intentionally retained after the request completes.</p>
 
       <h3>Messages You Send Us</h3>
-      <p>If you use &ldquo;Send us a message&rdquo; (Learn &amp; help), we store the title, message, optional name and any emails or social links you choose to add, with the time it was sent. Only the site owners can read these messages. To limit spam we keep a salted one-way hash of your IP address for about a day; the IP address itself is not stored with the message. Owners can delete a message at any time.</p>
+      <p>If you use &ldquo;Send us a message&rdquo; (Learn &amp; help), we store the title, message, optional name and any emails or social links you choose to add, with the time it was sent. Only the site owners can read these messages. To limit spam we keep a salted one-way hash of your IP address for about a day (older hashes are cleared the next time a message is sent or the inbox changes); the IP address itself is not stored with the message. Owners can delete a message at any time.</p>
 
       <h3>Donations</h3>
       <p>Optional donations are handled on Ko-fi. The Site does not receive or store your full payment-card number or billing credentials. Ko-fi processes information under its own terms and privacy policy.</p>
@@ -1207,7 +1210,7 @@ export const DOC_PAGES = {
         <li>Protect the Discord OAuth flow against request forgery.</li>
         <li>Keep the principal logged in and carry Owner access claims for the session.</li>
       </ul>
-      <p>The Site also uses your browser&rsquo;s local storage for preferences and user-entered settings such as theme, selected tabs, pinned symbols, watchlist fallback data, and optional sizing or simulation inputs. Local-storage data normally remains on your device and is not a cookie. Authenticated collaborative features may separately send the action described in the interface to our server.</p>
+      <p>The Site also uses your browser&rsquo;s local storage for preferences and user-entered settings such as theme, language, selected tabs, saved sorts and views, recently viewed pages, pinned symbols, watchlist fallback data, and optional sizing or simulation inputs. Local-storage data normally remains on your device and is not a cookie. So the Site can open without a connection, your browser also keeps a copy of the public page files (never Owner data) in its cache. Authenticated collaborative features may separately send the action described in the interface to our server.</p>
       <p>Vercel Web Analytics does not use cookies. We do not use third-party advertising cookies or cross-site behavioral advertising trackers. We therefore do not respond differently to browser &ldquo;Do Not Track&rdquo; signals. Blocking necessary cookies may prevent private Owner access but does not block the public site; you can clear local storage through your browser controls.</p>
     </section>
 
@@ -1218,7 +1221,7 @@ export const DOC_PAGES = {
 
     <section id="retention">
       <h2><span class="snum">06</span>Data Retention</h2>
-      <p>An Owner login session normally expires within 12 hours unless a different session period is configured. OAuth state cookies expire within about 10 minutes. Vercel retains analytics under the reporting window for our plan. We retain security and infrastructure logs only as long as reasonably necessary to operate and protect the Service, comply with legal obligations, resolve disputes, and enforce our agreements. Browser local-storage data remains until you or your browser clears it. We delete or anonymize personal information when it is no longer reasonably necessary for these purposes.</p>
+      <p>An Owner login session normally expires within 12 hours unless a different session period is configured. OAuth state cookies expire within about 10 minutes. Vercel retains analytics under the reporting window for our plan. We retain security and infrastructure logs only as long as reasonably necessary to operate and protect the Service, comply with legal obligations, resolve disputes, and enforce our agreements. Messages sent through &ldquo;Send us a message&rdquo; stay until an owner deletes them; once 1,000 are stored, the oldest messages already read are removed to make room. Browser local-storage data remains until you or your browser clears it. We delete or anonymize personal information when it is no longer reasonably necessary for these purposes.</p>
     </section>
 
     <section id="rights">

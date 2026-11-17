@@ -38,7 +38,7 @@ async function probe(dir) {
   const fn = source.slice(source.indexOf('function tbDefaultLine('), source.indexOf('function tbPrice(')).trim();
   const defaultLine = new Function('halfUp', 'return (' + fn + ')')(x => Math.round(x - .5) + .5);
   const line = defaultLine({ market: { total: 221.25, home_margin: -10.25 } }, game, { market: 'total', team: null }, 'nba');
-  return { inbox, funding: signs.find(s => s.id === 'capex-vs-cash').status, missingGrowth: signs.find(s => s.id === 'leaders-crack').status,
+  return { inbox, funding: (signs.find(s => s.id === 'capex-vs-cash') || (signs.find(s => s.id === 'spending')?.parts || []).find(p => p.id === 'capex-vs-cash')).status, missingGrowth: signs.find(s => s.id === 'leaders-crack').status,
     parlay: { profit: parlay.expected_net, range: parlay.expected_net_range },
     subcent: await input({ stake: .001 }), nearZero: await input({ legs: [{ ...body.legs[0], probability: .000001 }] }), nearOne: await input({ legs: [{ ...body.legs[0], probability: .999999 }] }),
     integerRange: await input({ legs: [player, { ...player, side: 'under', threshold: 11 }] }, false),

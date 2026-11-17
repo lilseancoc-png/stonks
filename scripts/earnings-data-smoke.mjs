@@ -59,6 +59,19 @@ try {
   assert.equal(row.revenueActual,fact.val);
   assert.deepEqual(row.revenueSource,event.revenueSource);
   assert.equal(row.week1DueDate,'2026-11-06');
+  // "avg implied vs avg realized" compares the same prints: a print with no
+  // implied read stays out of the realized side.
+  {
+    const ev2={date:'2026-10-21',session:'PM',epsActual:1,epsEstimate:1,movePct:-0.10};
+    const ev3={date:'2026-10-22',session:'PM',epsActual:1,epsEstimate:1,movePct:0.04,impliedMovePct:0.05};
+    const l2={tickers:{AMZN:{events:[ev2]},MSFT:{events:[ev3]}}};
+    const d2={AMZN:{fundamentals:{name:'A'}},MSFT:{fundamentals:{name:'M'}}};
+    const p2=await buildEarningsTrackerPayload(l2,d2,'2026-11-02T20:00:00Z');
+    const st=p2.seasons.find(x=>x.key==='2026Q4').stats;
+    assert.equal(st.avgImpliedMovePct,0.05);
+    assert.equal(st.avgAbsMoveImpliedPct,0.04,'realized over the one print with an implied read');
+    assert.equal(st.avgAbsMovePct,0.07,'every print');
+  }
   assert.equal(data.AMZN.earningsHx.events[0].revenueSource.sourceUrl,event.revenueSource.sourceUrl);
   // Funds don't report earnings: a stored fund row (SPY carried a 2005 "print")
   // is dropped, never fetched again, and never attached to the page.

@@ -289,6 +289,9 @@ ${scenarioEventPhase.toString()}
     HAS_TOP_PICKS = HAS_OWNER_ACCESS;
     HAS_QUANT_LAB = HAS_OWNER_ACCESS;
     if (document.body) document.body.classList.toggle('is-owner', HAS_OWNER_ACCESS);
+    // Reference pages live in shadow roots, which the owner-only CSS can't
+    // reach: their Owner links read the class on each host instead.
+    Array.prototype.forEach.call(document.querySelectorAll('.doc-host'), function(h){ h.classList.toggle('is-owner', !!HAS_OWNER_ACCESS); });
     // The Export menu is for the signed-in owners only.
     var exportBtn = document.getElementById('export-toggle');
     if (exportBtn) exportBtn.hidden = !HAS_OWNER_ACCESS || IS_EMBED;
@@ -1237,19 +1240,31 @@ ${scenarioEventPhase.toString()}
     var d = Math.round(h/24); return d + ' day' + (d===1?'':'s') + ' ago';
   }
   // The weekly Alt Data pages (memory chips, GPU cloud, search trends)
-  // update once a week, Friday 11:30 ET, so midweek they would read as
-  // stale. Their banner says so and names the next update.
+  // update once a week on Friday, so midweek they would read as stale. Their
+  // banner says so and names the next update. The job is set for 11:30 ET,
+  // but it is a GitHub cron, which started between about 14:30 and 17:00 ET
+  // every week from September to November 2026, so "today" holds until this
+  // Friday's data has landed rather than rolling over at 11:30.
   var WEEKLY_ALT_TABS = { 'ram-prices': 1, 'accelerator-prices': 1, 'search-interest': 1 };
-  function nextAltDataFridayLabel(){
+  // The weekly Alt Data scan runs on Fridays (GitHub often starts it late in
+  // the afternoon), so its pages stay current for nine days, not three.
+  var ALT_WEEKLY_CURRENT_HOURS = 9 * 24;
+  function etDateKeyOfIso(iso){
+    var t = Date.parse(iso || '');
+    if (!isFinite(t)) return null;
+    try { return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(t)); }
+    catch (e) { return null; }
+  }
+  function nextAltDataFridayLabel(iso){
     var et = etNowParts();
     if (!et || et.dow < 0) return 'Friday';
     var add = (5 - et.dow + 7) % 7;
-    if (add === 0 && et.hour >= 11.5) add = 7;
+    if (add === 0 && iso && etDateKeyOfIso(iso) === et.dateKey) add = 7;
     var base = Date.parse(et.dateKey + 'T12:00:00Z');
     if (!isFinite(base)) return 'Friday';
     var d = new Date(base + add * 86400000);
     var mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getUTCMonth()];
-    return (add === 0 ? 'today' : 'Fri ' + mon + ' ' + d.getUTCDate()) + ', 11:30 ET';
+    return add === 0 ? 'later today' : 'Fri ' + mon + ' ' + d.getUTCDate();
   }
   function weeklyAltDataIso(tab){
     var st = tab === 'ram-prices' ? ramPricesState : tab === 'accelerator-prices' ? acceleratorPricesState : searchInterestState;
@@ -1259,7 +1274,8 @@ ${scenarioEventPhase.toString()}
     // Return {iso, label} when a tab has its own freshness signal worth
     // surfacing, else null (use the default daily-build timestamp).
     if (WEEKLY_ALT_TABS[tab]) {
-      return { iso: weeklyAltDataIso(tab), label: 'weekly data, updated Fridays 11:30 ET · next ' + nextAltDataFridayLabel(), weekly: true };
+      var weeklyIso = weeklyAltDataIso(tab);
+      return { iso: weeklyIso, label: 'weekly data, updated Friday afternoons ET · next ' + nextAltDataFridayLabel(weeklyIso), weekly: true };
     }
     if (tab === 'picks' && typeof picksState !== 'undefined' && picksState.data && picksState.data.builtAtIso) {
       return { iso: picksState.data.builtAtIso, label: 'Top Picks run' };
@@ -2413,14 +2429,26 @@ ${scenarioEventPhase.toString()}
     '</div>';
   }
 
-  // Intraday cumulative-volume curve — a trimmed copy of the U-shaped session
-  // distribution in lib/volume-flags.mjs (BUCKETS / cumFracExpected /
-  // etMinutesSinceOpen). Duplicated here because app.js is a generated IIFE and
-  // can't import the ESM module (same rationale as the greeks duplication noted
-  // in CLAUDE.md). If you retune the curve there, mirror it here. Used only to
-  // project today's live cumulative volume to a full-day figure so the
-  // Execute-now card's relative-volume read can be live + time-of-day-normalized
-  // rather than frozen at the last build.
+  // Intraday cumulative-volume curve. The flow scan measures it from past
+  // sessions (lib/volume-flags.mjs, curveFromDays) and the page shell carries
+  // its points as MANIFEST.volumeFlagsMeta.curveKnots; this reads them the same
+  // way as cumFracExpected there. Without a measured curve it falls back to
+  // the fixed buckets below (the scan's own fallback, BUCKETS; keep the two the
+  // same). Used only to project today's live cumulative volume to a full-day
+  // figure so the Execute-now card's relative-volume read can be live +
+  // time-of-day-normalized rather than frozen at the last build.
+  function execCurveKnots(){
+    var meta = MANIFEST && MANIFEST.volumeFlagsMeta;
+    var k = meta && meta.curveKnots;
+    if (!Array.isArray(k) || k.length < 2) return null;
+    var first = k[0], last = k[k.length - 1];
+    if (!Array.isArray(first) || first[0] !== 0 || first[1] !== 0) return null;
+    if (!Array.isArray(last) || last[0] !== 390 || last[1] !== 1) return null;
+    for (var i = 1; i < k.length; i++){
+      if (!Array.isArray(k[i]) || !(k[i][0] > k[i - 1][0]) || !(k[i][1] >= k[i - 1][1])) return null;
+    }
+    return k;
+  }
   var EXEC_VOL_BUCKETS = [
     { startMin: 0,   endMin: 60,  frac: 0.25 },
     { startMin: 60,  endMin: 120, frac: 0.14 },
@@ -2432,6 +2460,16 @@ ${scenarioEventPhase.toString()}
   function execCumFracExpected(etMin){
     if (etMin <= 0) return 0;
     if (etMin >= 390) return 1;
+    var knots = execCurveKnots();
+    if (knots){
+      for (var j = 1; j < knots.length; j++){
+        if (etMin <= knots[j][0]){
+          var a = knots[j - 1], b2 = knots[j];
+          return a[1] + (b2[1] - a[1]) * (etMin - a[0]) / (b2[0] - a[0]);
+        }
+      }
+      return 1;
+    }
     var cum = 0;
     for (var i = 0; i < EXEC_VOL_BUCKETS.length; i++){
       var b = EXEC_VOL_BUCKETS[i];
@@ -2550,7 +2588,7 @@ ${scenarioEventPhase.toString()}
     // Relative volume — prefer a live, time-of-day-normalized estimate over the
     // baked rvol (frozen at the last build, and itself only a partial in-progress
     // bar during RTH). /api/quote returns regularMarketVolume (cumulative session
-    // volume so far); projecting it to a full-day figure off the U-shaped intraday
+    // volume so far); projecting it to a full-day figure off the measured intraday
     // curve and dividing by the baked 20D average daily volume gives a live
     // "where is today's rvol heading?" read directly comparable to the 1.5x/0.7x
     // thresholds below. Falls back to the baked rvol when live volume or the curve
@@ -3032,7 +3070,7 @@ ${scenarioEventPhase.toString()}
     // jargon (R20 / S20 / relative volume) without escaping them away.
     var R20_TIP = '20-day resistance — the highest price the stock has hit in the last month. Acts as a ceiling: rallies often stall here until volume breaks through.';
     var S20_TIP = '20-day support — the lowest price the stock has hit in the last month. Acts as a floor: selloffs often find buyers here.';
-    var RVOL_TIP = 'Relative volume — today\\'s shares traded divided by the recent daily average. 1.0x is normal. Above 1.5x = unusually active (institutions involved); below 0.7x = quiet tape. When live, today\\'s volume-so-far is projected to a full-day estimate using the typical U-shaped intraday curve so it stays comparable through the session.';
+    var RVOL_TIP = 'Relative volume — today\\'s shares traded divided by the recent daily average. 1.0x is normal. Above 1.5x = unusually active (institutions involved); below 0.7x = quiet tape. When live, today\\'s volume-so-far is projected to a full-day estimate using the intraday pace measured from recent sessions (heaviest in the first hour and the last hour) so it stays comparable through the session.';
     var metaBits = ['<span>Spot $' + fmt(spot) + '</span>'];
     if (todayMovePct != null) metaBits.push('<span>' + escapeHtml(signedPct(todayMovePct)) + ' today (' + escapeHtml(moveSrc) + ')</span>');
     if (rvol != null) metaBits.push('<span>' + rvol.toFixed(2) + 'x avg volume (' + escapeHtml(rvolSrc) + ')' + tipChip(RVOL_TIP) + '</span>');
@@ -4652,6 +4690,7 @@ ${renderExportBindings()}
       var tpl = pane.querySelector('template[data-doc-tpl="' + name + '"]');
       if (!tpl) return;
       var sr = host.attachShadow({ mode: 'open' });
+      host.classList.toggle('is-owner', !!HAS_OWNER_ACCESS);
       sr.appendChild(tpl.content.cloneNode(true));
       try { tpl.parentNode.removeChild(tpl); } catch (_) {}
       // Off-site links open in a new tab; everything else (in-page anchors,
@@ -9288,16 +9327,22 @@ ${renderExportBindings()}
     var flaggedTag = flaggedLbl
       ? '<span class="flow-flagged" title="' + escapeHtml('First flagged unusual at ' + flaggedLbl) + '">\u{2691} ' + escapeHtml(flaggedLbl) + '</span>'
       : '';
-    var tipPrev = c.prevVol != null ? ' · was ' + fmtVolume(c.prevVol) + ' last hr' : '';
+    // c.sinceOpen: the first scan of the session counted every contract since
+    // the 9:30 open (there was no in-session snapshot to compare with).
+    var windowTxt = c.sinceOpen ? ' since the open' : ' this hour';
+    var tipPrev = (c.prevVol != null && !c.sinceOpen) ? ' · was ' + fmtVolume(c.prevVol) + ' last hr' : '';
+    var tipBar = c.bar != null && isFinite(c.bar)
+      ? ' · bar ' + fmtVolume(c.bar) + (c.stockBar ? ' (set from this stock’s normal option volume)' : '')
+      : '';
     var tipVoi = (voiRatio != null && isFinite(voiRatio)) ? ' · vol ' + voiStr + ' OI' : '';
-    var tipHourPrem = hourPrem != null ? ' · ≈' + fmtBigDollars(hourPrem) + ' premium this hour' : '';
+    var tipHourPrem = hourPrem != null ? ' · ≈' + fmtBigDollars(hourPrem) + ' premium' + windowTxt : '';
     var tipDayPrem = dayPrem != null ? ' · ' + fmtBigDollars(dayPrem) + ' on the day' : '';
     var tipTape = tapeLbl ? ' · ' + tapeTitle(c.tape) : '';
     var tipRepeat = repeatCount >= 2 ? ' · flagged ' + repeatCount + 'x in last 5 trading days' : '';
     var tipFlagged = flaggedLbl ? ' · flagged ' + flaggedLbl : '';
     var title = 'Vol ' + fmtVolume(c.vol) + ' vs OI ' + fmtVolume(c.oi) + tipVoi +
-      (c.deltaVol != null ? ' · ' + deltaStr + ' this hour' : '') +
-      tipPrev +
+      (c.deltaVol != null ? ' · ' + deltaStr + windowTxt : '') +
+      tipPrev + tipBar +
       (c.last != null ? ' · last $' + Number(c.last) : '') +
       tipHourPrem + tipDayPrem + tipTape + tipRepeat + tipFlagged;
     var noteHtml = c.note ? '<p class="flow-note">' + escapeHtml(c.note) + '</p>' : '';
@@ -9349,7 +9394,7 @@ ${renderExportBindings()}
         '<span class="flow-oi">' + escapeHtml(fmtVolume(c.oi)) + '</span>' +
       '</span>' +
       voiTag +
-      '<span class="flow-delta">' + escapeHtml(deltaStr) + '/hr</span>' +
+      '<span class="flow-delta">' + escapeHtml(deltaStr) + (c.sinceOpen ? ' since open' : '/hr') + '</span>' +
       premTag +
       sparkTag +
       tapeTag +
@@ -9359,6 +9404,15 @@ ${renderExportBindings()}
       '</div>' +
       noteHtml +
     '</div>';
+  }
+  // True when a row's biggest volume jump is a since-the-open count (the first
+  // scan of the session), not an hourly one.
+  function flowTopSinceOpen(t){
+    var best = null;
+    (t && t.contracts || []).forEach(function(c){
+      if (c && (!best || (Number(c.deltaVol) || 0) > (Number(best.deltaVol) || 0))) best = c;
+    });
+    return !!(best && best.sinceOpen);
   }
   function fmtRepeatSince(iso){
     if (!iso) return '';
@@ -9676,6 +9730,7 @@ ${renderExportBindings()}
       repeats: 0,
       near: 0,
       topDelta: 0,
+      topSinceOpen: false,
       actionTopDelta: 0,
       maxVoi: null,
       topContract: null,
@@ -9697,7 +9752,10 @@ ${renderExportBindings()}
       stats.rawContracts++;
       var premium = Number(c.deltaPremium != null ? c.deltaPremium : c.premium) || 0;
       stats.rawPremium += premium;
-      stats.topDelta = Math.max(stats.topDelta, Number(c.deltaVol) || 0);
+      if ((Number(c.deltaVol) || 0) > stats.topDelta){
+        stats.topDelta = Number(c.deltaVol) || 0;
+        stats.topSinceOpen = !!c.sinceOpen;
+      }
       if (!stats.topContract || premium > stats.topContract.premium){
         stats.topContract = { contract: c, premium: premium };
       }
@@ -9895,7 +9953,7 @@ ${renderExportBindings()}
           '<div><span>Focus qualified premium</span><b>' + escapeHtml(premiumText) + '</b><small>ask-side + material + liquid; not entry permission</small></div>' +
           '<div><span>Persistence</span><b>' + top.repeats + ' repeat' + (top.repeats === 1 ? '' : 's') + '</b><small>' + top.near + ' near-term · ' + top.contracts + ' qualified / ' + top.rawContracts + ' visible for ' + escapeHtml(top.symbol) + '</small></div>' +
         '</div>' +
-        '<p class="flow-decision-context"><b>' + escapeHtml(top.symbol) + ' evidence:</b> top print ' + escapeHtml(fmtDelta(top.topDelta)) + '/hr · ' +
+        '<p class="flow-decision-context"><b>' + escapeHtml(top.symbol) + ' evidence:</b> top print ' + escapeHtml(fmtDelta(top.topDelta)) + (top.topSinceOpen ? ' since the open' : '/hr') + ' · ' +
           escapeHtml(voiText) + '. ' + escapeHtml(flowGexContext(top)) +
           (top.ticker && top.ticker.ats && top.ticker.ats.darkPoolPct != null
             ? ' FINRA ATS was ' + escapeHtml(Number(top.ticker.ats.darkPoolPct).toFixed(1)) + '% of matching weekly volume' +
@@ -9970,7 +10028,7 @@ ${renderExportBindings()}
     if (top && top.c && top.c.strike != null){
       var ts = top.c.side === 'put' ? 'P' : 'C';
       var tp = fmtBigDollars(top.dp);
-      topStr = escapeHtml(top.sym) + ' $' + Number(top.c.strike) + ts + (tp ? ' · ' + escapeHtml(tp) + '/hr' : '');
+      topStr = escapeHtml(top.sym) + ' $' + Number(top.c.strike) + ts + (tp ? ' · ' + escapeHtml(tp) + (top.c.sinceOpen ? ' since the open' : '/hr') : '');
     }
     var barLabel = denom > 0
       ? 'Aggressive ask-side premium: calls ' + callPct + '%, puts ' + putPct + '%'
@@ -10035,7 +10093,13 @@ ${renderExportBindings()}
       { label: 'Flagged', cell: function(x){ return escapeHtml(fmtFlaggedTime(x.c.firstSeen)); }, sort: function(x){ return x.c.firstSeen ? Date.parse(x.c.firstSeen) : null; } },
       { label: 'Tape', title: 'Where the last print traded against the bid and ask', cell: function(x){ var l = tapeLabel(x.c.tape); return l ? '<span class="flow-tape tape-' + String(x.c.tape || '').replace(/[^a-z0-9_-]/gi, '') + '" title="' + escapeHtml(tapeTitle(x.c.tape)) + '">' + escapeHtml(l) + '</span>' : ''; }, sort: function(x){ return { ask: 5, abv: 4, mid: 3, blw: 2, bid: 1 }[x.c.tape] || null; } },
       { label: 'Premium', num: true, title: 'Premium that traded this hour (contracts this hour × last × 100); the day total when the hourly figure is missing', cell: function(x){ var v = prem(x); return v != null ? escapeHtml(flowShortDollars(v)) + (x.c.deltaPremium == null ? '<span class="vt-sub">day total</span>' : '') : ''; }, sort: prem },
-      { label: 'This hour', num: true, title: 'Contracts traded since the last hourly scan', cell: function(x){ return x.c.deltaVol != null ? escapeHtml(fmtDelta(x.c.deltaVol)) : ''; }, sort: function(x){ return x.c.deltaVol; } },
+      { label: 'This hour', num: true, title: 'Contracts traded since the last hourly scan (since the 9:30 open on the first scan of the day), with the bar this stock had to clear', cell: function(x){
+          if (x.c.deltaVol == null) return '';
+          var sub = [];
+          if (x.c.sinceOpen) sub.push('since the open');
+          if (x.c.bar != null && isFinite(x.c.bar)) sub.push('bar ' + fmtVolume(x.c.bar));
+          return escapeHtml(fmtDelta(x.c.deltaVol)) + (sub.length ? '<span class="vt-sub">' + escapeHtml(sub.join(' · ')) + '</span>' : '');
+        }, sort: function(x){ return x.c.deltaVol; } },
       { label: 'Vol / OI', num: true, title: 'Volume today divided by open interest. Above 1× means new positions.', cell: function(x){
           var c = x.c;
           if (c.oi === 0 && c.vol > 0) return '<span class="flow-voi flow-voi-new">new strike</span>';
@@ -10087,7 +10151,7 @@ ${renderExportBindings()}
         if (!UNUSUAL){
           empty.textContent = 'Waiting for the first hourly scan to land.';
         } else if (UNUSUAL.summary && UNUSUAL.summary.hadPrior === false){
-          empty.textContent = 'First scan of the session — hourly delta needs a prior snapshot. Check back after the next hourly run.';
+          empty.textContent = 'No in-session scan to compare with yet. Check back after the next hourly run.';
         } else {
           empty.textContent = 'No block/sweep flow flagged in the latest scan.';
         }
@@ -10129,7 +10193,7 @@ ${renderExportBindings()}
           '<span class="flow-symbol">' + escapeHtml(t.symbol) + '</span>' +
           (spot ? '<span class="flow-spot">' + spot + '</span>' : '') +
           '<span class="flow-count">' + t.contracts.length + ' contract' + (t.contracts.length === 1 ? '' : 's') + '</span>' +
-          '<span class="flow-top">Top · ' + fmtDelta(t.topDelta) + '/hr</span>' +
+          '<span class="flow-top">Top · ' + fmtDelta(t.topDelta) + (flowTopSinceOpen(t) ? ' since open' : '/hr') + '</span>' +
         '</button>' +
         gexStripHtml(t) +
         atsStripHtml(t) +
@@ -11712,6 +11776,9 @@ ${renderExportBindings()}
         if (s.eodFlagCount) parts.push(s.eodFlagCount + ' EOD');
         var when = fmtScannedAt(VOLUME_FLAGS.scannedAt);
         if (when) parts.push('scanned ' + when);
+        // The scan just after the close re-reads day volume once the closing
+        // auction is in (lib/volume-flags.mjs closeRereadWaitMs).
+        if (VOLUME_FLAGS.closeReread && VOLUME_FLAGS.closeReread.names) parts.push('closing auction included');
         eyebrow.textContent = parts.join(' · ');
       } else {
         eyebrow.textContent = '';
@@ -12776,10 +12843,12 @@ ${renderExportBindings()}
       // A 2Y rally on an equity sell-off is flight-to-safety (risk-off), not dovish
       // easing — only credit easing as risk-on when equities aren't falling. Mirrors build.mjs.
       var tapeOk = !axes.indexes || axes.indexes.score >= 0;
+      // Reversal guard, same as the long-yield axis and build.mjs.
+      var revDown = b1 <= -t1 / 2, revUp = b1 >= t1 / 2;
       var s = 0, label = '2Y ' + (b1 >= 0 ? '+' : '') + b1.toFixed(1) + ' bps 1d';
       if (b1 >= t1s){ s = -2; label = '2Y +' + b1.toFixed(1) + ' bps — sharp front-end repricing'; }
-      else if (b1 >= t1 || (rising && b5 >= t1)){ s = -1; label = '2Y ' + (b1 >= 0 ? '+' : '') + b1.toFixed(1) + ' bps — front-end tightening'; }
-      else if ((b1 <= -t1 || (falling && b5 <= -t1)) && tapeOk){ s = 1; label = '2Y ' + b1.toFixed(1) + ' bps — front-end easing'; }
+      else if (b1 >= t1 || (rising && b5 >= t1 && !revDown)){ s = -1; label = '2Y ' + (b1 >= 0 ? '+' : '') + b1.toFixed(1) + ' bps — front-end tightening'; }
+      else if ((b1 <= -t1 || (falling && b5 <= -t1 && !revUp)) && tapeOk){ s = 1; label = '2Y ' + b1.toFixed(1) + ' bps — front-end easing'; }
       axes.twoY = { score: s, label: label, live: isLive };
     })();
 
@@ -13348,7 +13417,7 @@ ${renderExportBindings()}
     if (k === 'fed') return 'The average change in hike-minus-cut probability across the nearest FedWatch meetings votes −1 at +' + v(T.fedDriftPt, 5) + ' points, −2 at +' + (2 * v(T.fedDriftPt, 5)) + ', and +1 at −' + v(T.fedDriftPt, 5) + '. An FOMC decision inside the configured near-event window forces at least −1.' + (T.macroContextOn ? ' Hikes already priced, the 2-year yield ' + v(T.fedPricedPts, 0.25) + ' points or more over fed funds, also force at least −1.' : '') + ' Slow axis — refreshes at the build.';
     if (k === 'geo') return 'Stress-only. Fresh conflict headlines can vote −2; tariff/geopolitical flashpoints or an active bearish narrative can vote −1. De-escalation clears stress to neutral, not risk-on. Slow axis — refreshes at the build.';
     if (k === 'inflation') return 'CPI votes −1 when ≥' + v(T.cpiWarm, 3.0) + '% and re-accelerating by ≥' + v(T.cpiReaccel, 0.3) + 'pp versus 3 months ago, or when ≥' + v(T.cpiHot, 4.0) + '% and still rising; CPI ≤' + v(T.cpiCool, 2.5) + '% and not rising votes +1. Labor subtracts 1 at a Sahm gap ≥' + v(T.ueSahmSoft, 0.3) + 'pp when it is not improving (confirmed regardless of trend at ' + v(T.ueSahm, 0.5) + 'pp). Combined score is capped at −2 / +1. Slow axis.';
-    if (k === 'twoY') return 'Risk-off if the 2Y rises ≥ +' + v(T.twoYBps1d, 8) + 'bp in 1 day (−2 at +' + v(T.twoYBps1dStrong, 14) + 'bp), or its baked rising trend is up that much over 5 days. A matching fall can vote +1 only when indexes, VIX and credit do not signal stress. A Treasury rally during a sell-off is not an easing confirmation.';
+    if (k === 'twoY') return 'Risk-off if the 2Y rises ≥ +' + v(T.twoYBps1d, 8) + 'bp in 1 day (−2 at +' + v(T.twoYBps1dStrong, 14) + 'bp), or its baked rising trend is up that much over 5 days and today did not fall by half the 1-day bar or more. A matching fall can vote +1 only when indexes, VIX and credit do not signal stress. A Treasury rally during a sell-off is not an easing confirmation.';
     if (k === 'bondVol') return 'Risk-off at MOVE ≥ ' + v(T.moveHi, 110) + '; −2 at ≥ ' + v(T.moveVhi, 140) + ', or when MOVE is already ≥ ' + v(T.moveHi, 110) + ' and jumps ≥ +' + v(T.move1d, 6) + '% in 1 day. Risk-on at MOVE ≤ ' + v(T.moveCalm, 80) + '.';
     if (k === 'breadth') return 'Risk-off below ' + v(T.breadthLo, 40) + '% above the 200DMA; −2 below ' + v(T.breadthVlo, 25) + '%, or at ≤' + v(T.breadthLo, 40) + '% with NH−NL ≤ −10. Risk-on requires both long- and short-term breadth: ≥' + v(T.breadthHi, 60) + '% above the 200DMA and, when available, ≥' + v(T.breadthHi, 60) + '% above the 50DMA. A thrust is ≥' + v(T.breadthVhi, 85) + '%, or ≥80% with NH−NL ≥ +20, plus the same 50DMA confirmation. Slow axis.';
     if (k === 'putCall' && T.putCallSrc === 'cboe') return 'The Cboe equity-only put/call ratio votes by its percentile against its own 250 sessions: −1 at the ' + ordinalOf(v(T.putCallCboeHi, 75)) + ' or higher, −2 at the ' + ordinalOf(v(T.putCallCboeVhi, 90)) + ', +1 at the ' + ordinalOf(v(T.putCallCboeLo, 15)) + ' or lower (crowd.json). A day without a Cboe print falls back to the universe OI read.';
@@ -14370,7 +14439,7 @@ ${renderExportBindings()}
       var dayUp = dayRisk.filter(function(k){ return Number(lastRow[k].chPct) > 0; }).length;
       var dayVix = lastRow.vix && lastRow.vix.chPct != null ? Number(lastRow.vix.chPct) : null;
       if (dayRisk.length) {
-        why += ' Latest session ' + fmtCalendarDateShort(lastDate) + ': ' + dayUp + ' of ' + dayRisk.length + ' sleeves higher' +
+        why += ' Latest session ' + fmtCalendarDateShort(lastDate) + (lastRow.partial ? ' (in progress)' : '') + ': ' + dayUp + ' of ' + dayRisk.length + ' sleeves higher' +
           (dayVix == null ? '.' : ', VIX ' + (dayVix > 0 ? 'up ' : 'down ') + Math.abs(dayVix).toFixed(2) + '%.');
       }
     }
@@ -14468,6 +14537,7 @@ ${renderExportBindings()}
       riskGammaDesk()
     ];
     var html = riskStripHtml(riskDesks) + RISK_STACK.present(riskDesks);
+    if (typeof renderRiskHorizons === 'function') renderRiskHorizons();
     if (html === riskStackState.html) return;
     var active = document.activeElement;
     var keep = active && host.contains(active)
@@ -15402,7 +15472,7 @@ ${renderExportBindings()}
     var putWallText = top.putWall ? fmtOiStrike(top.putWall.strike) : 'near-term support';
     var confirm = setup
       ? 'Spot breaks and holds above ' + callWallText + ' on heavy share volume while call Vol/OI stays ≥1.5× and the next scan confirms new call OI.'
-      : 'The score reaches 4/5: concentrated near-money call OI, C/P ≥2:1, call-wall Vol/OI ≥1.5×, spot within 10%, and ask-side call flow.';
+      : 'The score reaches 4/5: a near-money call strike at 1.5× its nearby strikes, C/P ≥2:1, call-wall Vol/OI ≥1.5×, an overhead call wall within 7.5%, and ask-side call flow.';
     var invalidate = setup
       ? 'Price rejects ' + callWallText + ', loses ' + putWallText + ', ask-side call flow disappears, or the next score falls below 4.'
       : 'Call OI disperses, price moves away from the wall, puts dominate the short-dated chain, or the next scan removes the concentration.';
@@ -17243,36 +17313,52 @@ ${renderExportBindings()}
     return isFinite(best) ? best : (Date.now() / 1000);
   }
 
-  // Sweep payoff over a ±25% band around spot (101 samples), find max/min
-  // and breakeven crossings. Flags unlimited gain/loss when the net call
-  // count at the high tail or net put count at the low tail leaves one
-  // side open. Returns dollars per contract × 100.
+  // Sweep payoff over a ±50% band around spot (101 even samples plus every
+  // priced leg's strike and spot itself), find max/min and breakeven
+  // crossings. The expiration payoff only bends at a strike, so sampling the
+  // strikes makes max gain, max loss and the breakevens exact (an even 1%
+  // grid alone missed a butterfly's peak on a high-priced stock). Flags
+  // unlimited gain/loss when the net call count at the high tail or net put
+  // count at the low tail leaves one side open; 'atZero' is the P/L if the
+  // stock goes to $0 (the real cap on a long or short put). Returns dollars
+  // per contract × 100.
   function stratSweepPayoff(enriched){
     var spot = stratState.spot;
     if (!(spot > 0) || !enriched.legs.length) return null;
     var N = 101;
     var lo = spot * 0.5;
     var hi = spot * 1.5;
-    var xs = new Array(N);
-    var ys = new Array(N);
-    var max = -Infinity, min = Infinity, atSpot = null;
-    for (var i=0; i<N; i++){
-      var S = lo + (hi - lo) * (i / (N - 1));
+    var grid = [];
+    for (var i=0; i<N; i++) grid.push(lo + (hi - lo) * (i / (N - 1)));
+    grid.push(spot);
+    for (var gi=0; gi<enriched.legs.length; gi++){
+      var gl = enriched.legs[gi];
+      var gk = gl && gl.leg ? Number(gl.leg.strike) : NaN;
+      if (gl.price != null && gk > lo && gk < hi) grid.push(gk);
+    }
+    grid.sort(function(a, b){ return a - b; });
+    var xs = [], ys = [];
+    var max = -Infinity, min = Infinity;
+    for (var gj=0; gj<grid.length; gj++){
+      var S = grid[gj];
+      if (xs.length && Math.abs(S - xs[xs.length - 1]) < 1e-9) continue;
       var P = stratPayoffAt(enriched, S) * 100;
-      xs[i] = S; ys[i] = P;
+      xs.push(S); ys.push(P);
       if (P > max) max = P;
       if (P < min) min = P;
-      if (Math.abs(S - spot) < (hi - lo) / N) atSpot = P;
     }
-    if (atSpot == null) atSpot = stratPayoffAt(enriched, spot) * 100;
-    // Breakeven crossings (linear interpolation between sign-flipping samples).
+    var atSpot = stratPayoffAt(enriched, spot) * 100;
+    // Breakeven crossings (linear interpolation between sign-flipping
+    // samples). A sample sitting exactly on $0 is one crossing, not two.
     var breakevens = [];
-    for (var j=1; j<N; j++){
+    for (var j=1; j<xs.length; j++){
       var y0 = ys[j-1], y1 = ys[j];
       if ((y0 <= 0 && y1 >= 0) || (y0 >= 0 && y1 <= 0)){
         if (y0 === y1) continue;
         var t = -y0 / (y1 - y0);
-        breakevens.push(xs[j-1] + t * (xs[j] - xs[j-1]));
+        var bx = xs[j-1] + t * (xs[j] - xs[j-1]);
+        if (breakevens.length && Math.abs(bx - breakevens[breakevens.length - 1]) < 1e-6) continue;
+        breakevens.push(bx);
       }
     }
     // Slopes at the tails for unlimited-flag detection. Skip unpriced legs so
@@ -17286,10 +17372,11 @@ ${renderExportBindings()}
     }
     var unlimitedGainUp   = callNet > 0;
     var unlimitedLossUp   = callNet < 0;
-    var unboundedGainDown = putNet  > 0;  // bounded at S=0 but very large
+    var unboundedGainDown = putNet  > 0;  // bounded at S=0 (atZero) but large
     var unboundedLossDown = putNet  < 0;
+    var atZero = putNet !== 0 ? stratPayoffAt(enriched, 0) * 100 : null;
     return {
-      xs: xs, ys: ys, max: max, min: min, atSpot: atSpot,
+      xs: xs, ys: ys, max: max, min: min, atSpot: atSpot, atZero: atZero,
       breakevens: breakevens,
       unlimitedGainUp: unlimitedGainUp,
       unlimitedLossUp: unlimitedLossUp,
@@ -17339,22 +17426,28 @@ ${renderExportBindings()}
     var tech = stratState.technicals;
     var parts = [];
 
-    // 1) Directional fit — only meaningful for bull/bear. Vol/neutral
-    // strategies get a base score so they aren't penalised for ignoring
-    // RSI/MACD.
+    // 1) Directional fit — only meaningful for bull/bear, and read from the
+    // same direction the page shows (stratDirectionRead): the stock's grade
+    // decides when it is graded, the RSI / MACD / 20-day tape adds or takes
+    // a little; with no grade the tape decides alone. Vol/neutral strategies
+    // get a base score so they aren't penalised for ignoring direction.
     var directional = 20;
+    var dirNote = 'volume-conviction read';
     if (bias === 'bull' || bias === 'bear'){
       var s = 20;
       var aligned = bias === 'bull' ? 1 : -1;
-      if (tech && tech.rsi != null){
-        var rsi = tech.rsi;
-        if (aligned > 0) s += rsi >= 55 ? 10 : rsi <= 45 ? -10 : 0;
-        else             s += rsi <= 45 ? 10 : rsi >= 55 ? -10 : 0;
-      }
-      if (tech && tech.macd && tech.macd.hist != null){
-        var hist = tech.macd.hist;
-        if (aligned > 0) s += hist > 0 ? 10 : hist < 0 ? -10 : 0;
-        else             s += hist < 0 ? 10 : hist > 0 ? -10 : 0;
+      var dread = stratDirectionRead();
+      var dirSign = function(d){ return d === 'bull' ? 1 : d === 'bear' ? -1 : 0; };
+      var tapeVotes = dread.tape && isFinite(dread.tape.votes) ? Number(dread.tape.votes) : 0;
+      var gradeFit = dirSign(dread.direction) * aligned;
+      if (dread.source === 'grade'){
+        s += 14 * gradeFit + 2 * aligned * tapeVotes;
+        dirNote = (gradeFit > 0 ? 'matches the grade: ' : gradeFit < 0 ? 'against the grade: ' : 'the grade has no side: ')
+          + dread.label.replace(/^Grade: /, '')
+          + (dread.tape && dread.tape.direction !== 'mixed' ? (dirSign(dread.tape.direction) * aligned > 0 ? '; tape agrees' : '; tape points the other way') : '');
+      } else {
+        s += Math.round(20 / 3 * aligned * tapeVotes);
+        dirNote = (aligned * tapeVotes > 0 ? 'matches' : aligned * tapeVotes < 0 ? 'against' : 'no clear read from') + ' the RSI / MACD / 20-day tape (no grade)';
       }
       directional = Math.max(0, Math.min(40, s));
     } else if (bias === 'volLong' || bias === 'volShort' || bias === 'neutral'){
@@ -17369,10 +17462,7 @@ ${renderExportBindings()}
         else if (bias === 'neutral' && conv === 'indecision') directional = 28;
       }
     }
-    parts.push({ key:'dir', label:'Directional fit', value: directional, max: 40,
-      note: bias === 'bull' ? 'matches RSI/MACD tilt'
-          : bias === 'bear' ? 'matches RSI/MACD tilt'
-          : 'volume-conviction read' });
+    parts.push({ key:'dir', label:'Directional fit', value: directional, max: 40, note: dirNote });
 
     // 2) IV alignment from the shared IV band — long vega wants Cheap, short
     // vega wants Rich or Very rich, directional spreads sit best in Normal.
@@ -17398,13 +17488,14 @@ ${renderExportBindings()}
     var rrScore = 10;
     var rrNote = '';
     if (sweep){
-      var maxGain = sweep.unlimitedGainUp ? Infinity : sweep.max;
+      var maxGain = sweep.unlimitedGainUp ? Infinity
+        : sweep.unboundedGainDown && sweep.atZero != null ? Math.max(sweep.max, sweep.atZero) : sweep.max;
       var maxLoss = sweep.unlimitedLossUp ? -Infinity : sweep.min;
       var gain = isFinite(maxGain) ? Math.max(0, maxGain) : null;
       var loss = isFinite(maxLoss) ? Math.max(0, -maxLoss) : null;
       if (sweep.unlimitedLossUp || sweep.unboundedLossDown){
         rrScore = 4;
-        rrNote = 'naked leg — unbounded loss';
+        rrNote = sweep.unlimitedLossUp ? 'naked call — unbounded loss' : 'naked put — loss runs to the stock at $0';
       } else if (gain == null && loss != null){
         // Unlimited gain, capped loss — long call / long strangle territory.
         rrScore = 17;
@@ -17612,10 +17703,16 @@ ${renderExportBindings()}
       '<text x="' + sx(xMin).toFixed(1) + '" y="' + (H - 10) + '" class="strat-payoff-axislbl" text-anchor="start">' + fmtMoney(xMin) + '</text>' +
       (spot != null ? '<text x="' + sx(spot).toFixed(1) + '" y="' + (H - 10) + '" class="strat-payoff-axislbl strat-payoff-spot-lbl" text-anchor="middle">spot ' + fmtMoney(spot) + '</text>' : '') +
       '<text x="' + sx(xMax).toFixed(1) + '" y="' + (H - 10) + '" class="strat-payoff-axislbl" text-anchor="end">' + fmtMoney(xMax) + '</text>';
+    // Short P/L labels so five-figure values fit the 52px gutter
+    // (fmtMoney's cents clipped "+$25,078.80" to "5,078.80").
+    var axisMoney = function(n){
+      var a = Math.abs(n), sign = n < 0 ? '−' : n > 0 ? '+' : '';
+      return sign + '$' + (a >= 1e6 ? (a / 1e6).toFixed(1) + 'M' : a >= 1e4 ? (a / 1e3).toFixed(1) + 'K' : Math.round(a).toLocaleString());
+    };
     var yLabels =
-      '<text x="' + (PAD_L - 6) + '" y="' + (sy(yHi) + 4) + '" class="strat-payoff-axislbl" text-anchor="end">' + (yHi >= 0 ? '+' : '') + fmtMoney(yHi) + '</text>' +
+      '<text x="' + (PAD_L - 6) + '" y="' + (sy(yHi) + 4) + '" class="strat-payoff-axislbl" text-anchor="end">' + axisMoney(yHi) + '</text>' +
       '<text x="' + (PAD_L - 6) + '" y="' + (zeroY + 4) + '" class="strat-payoff-axislbl" text-anchor="end">$0</text>' +
-      '<text x="' + (PAD_L - 6) + '" y="' + (sy(yLo) - 4) + '" class="strat-payoff-axislbl" text-anchor="end">' + fmtMoney(yLo) + '</text>';
+      '<text x="' + (PAD_L - 6) + '" y="' + (sy(yLo) - 4) + '" class="strat-payoff-axislbl" text-anchor="end">' + axisMoney(yLo) + '</text>';
     // Scrub readout: underlying price at expiry → strategy P/L (per position,
     // ×100 like the sweep). Thin the sweep to ≤80 points to keep the attr small.
     var hoverPts = [];
@@ -17647,12 +17744,16 @@ ${renderExportBindings()}
     var costCls   = netCost >= 0 ? 'is-debit' : 'is-credit';
     var maxGain, maxLoss;
     if (sweep){
-      // Mirror the loss cell: a down-tail-driven extreme (net-long puts →
-      // unboundedGainDown) is flagged "unlimited" just like net-long calls
-      // (unlimitedGainUp). Checking only unlimitedGainUp showed long-put
-      // structures a misleading sampled-band cap from sweep.max.
-      maxGain = sweep.unlimitedGainUp || sweep.unboundedGainDown ? '<span class="strat-summary-unlim">unlimited</span>' : stratFmtSigned(sweep.max);
-      maxLoss = sweep.unlimitedLossUp || sweep.unboundedLossDown ? '<span class="strat-summary-unlim is-loss">unlimited</span>' : stratFmtSigned(sweep.min);
+      // Net-long calls have no cap. Net-long (or short) puts are capped at the
+      // stock going to $0, so show that figure (the ±50% chart band alone
+      // understated a long put's gain), not "unlimited".
+      var zeroNote = '<span class="strat-summary-sub"> if the stock goes to $0</span>';
+      maxGain = sweep.unlimitedGainUp ? '<span class="strat-summary-unlim">unlimited</span>'
+        : sweep.unboundedGainDown && sweep.atZero != null && sweep.atZero > sweep.max ? stratFmtSigned(sweep.atZero) + zeroNote
+        : stratFmtSigned(sweep.max);
+      maxLoss = sweep.unlimitedLossUp ? '<span class="strat-summary-unlim is-loss">unlimited</span>'
+        : sweep.unboundedLossDown && sweep.atZero != null && sweep.atZero < sweep.min ? stratFmtSigned(sweep.atZero) + zeroNote
+        : stratFmtSigned(sweep.min);
     } else {
       maxGain = '—'; maxLoss = '—';
     }
@@ -18247,25 +18348,62 @@ ${renderExportBindings()}
     });
     return sorted.length >= 2 ? out : null;
   }
+  // Every covered name in the reference's sector group (2026-11-17, Owner
+  // choice: the average used to stop at the first 12 names, so Semis and
+  // Software averaged 12 of 18).
   function cmpSectorMembers(){
     var sec = sectorGroupOf(compareState.refSym);
     if (!sec || sec === 'ETF') return [];
-    return SYMBOLS.filter(function(x){ return sectorGroupOf(x) === sec; }).slice(0, 12);
+    return SYMBOLS.filter(function(x){ return sectorGroupOf(x) === sec; });
+  }
+  // The sector average reads every member's daily moves from the one public
+  // market-days.json (about a year of sessions, moves in basis points) rather
+  // than one per-stock file each. If that file fails, it falls back to the
+  // first 12 per-stock files and the label says so.
+  var CMP_SECTOR_FALLBACK = 12;
+  function cmpMarketDaysMaps(members){
+    var md = compareState.marketDays;
+    if (!md || typeof md !== 'object' || !Array.isArray(md.dates) || !md.moves) return null;
+    var maps = [];
+    members.forEach(function(x){
+      var row = md.moves[x];
+      if (!Array.isArray(row)) return;
+      var m = Object.create(null), lvl = 100, n = 0;
+      for (var i = 0; i < md.dates.length && i < row.length; i++){
+        var bp = row[i];
+        if (bp == null || !isFinite(bp)) continue;
+        lvl *= 1 + Number(bp) / 10000;
+        m[md.dates[i]] = lvl; n++;
+      }
+      if (n >= 2) maps.push(m);
+    });
+    return maps;
+  }
+  function cmpSectorMaps(){
+    var members = cmpSectorMembers();
+    var fromDays = cmpMarketDaysMaps(members);
+    if (fromDays && fromDays.length) return fromDays;
+    var maps = [];
+    members.slice(0, CMP_SECTOR_FALLBACK).forEach(function(x){ var j = compareState.cache[x]; if (j && j !== 'error'){ var m = cmpHistoryMap(j); if (m) maps.push(m); } });
+    return maps;
   }
   function cmpBenchMap(ready){
     var b = compareState.bench;
     if (!b) return null;
     if (b === 'avg') return cmpIndexFromMaps(ready.map(function(r){ return cmpHistoryMap(r.j) || {}; }));
     if (b === 'sector'){
-      var maps = [];
-      cmpSectorMembers().forEach(function(x){ var j = compareState.cache[x]; if (j && j !== 'error'){ var m = cmpHistoryMap(j); if (m) maps.push(m); } });
+      var maps = cmpSectorMaps();
+      compareState.sectorCount = maps.length;
       return maps.length ? cmpIndexFromMaps(maps) : null;
     }
     var bj = compareState.cache[b];
     return bj && bj !== 'error' ? cmpHistoryMap(bj) : null;
   }
   function cmpBenchLabel(){
-    if (compareState.bench === 'sector') return (sectorGroupOf(compareState.refSym) || 'Sector') + ' average';
+    if (compareState.bench === 'sector'){
+      var n = compareState.sectorCount || 0, all = cmpSectorMembers().length;
+      return (sectorGroupOf(compareState.refSym) || 'Sector') + ' average' + (n ? ' (' + (n < all ? n + ' of ' + all : n) + ' names)' : '');
+    }
     return CMP_BENCH_LABELS[compareState.bench] || compareState.bench;
   }
   // Fetch whatever the chosen mode / benchmark needs, then re-render.
@@ -18277,7 +18415,16 @@ ${renderExportBindings()}
     }
     var want = [];
     if (compareState.bench && compareState.bench !== 'avg' && compareState.bench !== 'sector') want.push(compareState.bench);
-    if (compareState.bench === 'sector') want = want.concat(cmpSectorMembers());
+    if (compareState.bench === 'sector'){
+      if (compareState.marketDays == null){
+        compareState.marketDays = 'loading';
+        jobs.push(fetch(dataUrl('market-days.json'), { cache:'no-cache' }).then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+          .then(function(j){ compareState.marketDays = j && Array.isArray(j.dates) && j.moves ? j : 'error'; })
+          .catch(function(){ compareState.marketDays = 'error'; }));
+      } else if (compareState.marketDays === 'error'){
+        want = want.concat(cmpSectorMembers().slice(0, CMP_SECTOR_FALLBACK));
+      }
+    }
     want.forEach(function(x){
       if (compareState.cache[x]) return;
       compareState.cache[x] = 'error';
@@ -20481,7 +20628,7 @@ ${renderExportBindings()}
       (c.impliedKnown
         ? ersSplitBar([{ n: c.exceededImplied, cls: 'ers-seg-warn', label: 'Exceeded' }, { n: c.withinImplied, cls: 'ers-seg-flat', label: 'Stayed within' }]) +
           '<div class="ers-tile-sub"><b>' + (c.exceededImplied || 0) + '</b> moved more than options priced · <b>' + (c.withinImplied || 0) + '</b> stayed inside <span class="ers-dim" title="Live straddle snapshots taken in the final week before each print; ~ marks prints that predate the snapshot, estimated from the pre- vs post-print IV crush">(' + c.impliedKnown + ' with a read' + (c.impliedEst ? ', ' + c.impliedEst + ' est. from the IV crush' : '') + ')</span></div>' +
-          ((ersNum(s.avgImpliedMovePct) || ersNum(s.avgAbsMovePct)) ? '<div class="ers-tile-note">avg implied ±' + (ersNum(s.avgImpliedMovePct) ? (s.avgImpliedMovePct * 100).toFixed(1) : '—') + '% vs avg realized ±' + (ersNum(s.avgAbsMovePct) ? (s.avgAbsMovePct * 100).toFixed(1) : '—') + '%</div>' : '')
+          ((ersNum(s.avgImpliedMovePct) || ersNum(s.avgAbsMovePct)) ? '<div class="ers-tile-note">avg implied ±' + (ersNum(s.avgImpliedMovePct) ? (s.avgImpliedMovePct * 100).toFixed(1) : '—') + '% vs avg realized ±' + (ersNum(s.avgAbsMoveImpliedPct) ? (s.avgAbsMoveImpliedPct * 100).toFixed(1) : ersNum(s.avgAbsMovePct) ? (s.avgAbsMovePct * 100).toFixed(1) : '—') + '%' + (ersNum(s.avgAbsMoveImpliedPct) ? ' <span class="ers-dim">(same ' + c.impliedKnown + ' prints)</span>' : '') + '</div>' : '')
         : '<div class="ers-tile-sub ers-dim">No straddle-implied reads for this season — the implied move is snapshotted live in the final week before each print, so this fills in over time.</div>') +
     '</div>';
     tiles += '<div class="ers-tile"><div class="ers-tile-label">Into the print (2&ndash;3 wk drift)</div>' +
@@ -21658,7 +21805,13 @@ ${renderExportBindings()}
       var deltaTxt = (t.deltaAbs != null) ? (' (' + (t.deltaAbs >= 0 ? '+' : '−') + cxDollars(Math.abs(t.deltaAbs)) + ')') : '';
       var fyLbl = t.fyMixed && t.fyRangeLabel ? escapeHtml(t.fyRangeLabel) : (t.fyLatestLabel ? escapeHtml(t.fyLatestLabel) : 'latest FY');
       var fyMixNote = t.fyMixed && t.fyByLabel ? Object.keys(t.fyByLabel).sort().reverse().map(function(l){ return escapeHtml(l) + ': ' + escapeHtml((t.fyByLabel[l] || []).join(', ')); }).join(' · ') : '';
-      var runRatePct = (t.ttmSum != null && t.fyLatestSum > 0) ? (t.ttmSum / t.fyLatestSum - 1) * 100 : null;
+      // A company whose newest full year is more than a year behind its
+      // run-rate (TSMC: no full year after FY2024 yet) is in the run-rate only.
+      var fyStaleList = Array.isArray(t.fyStale) ? t.fyStale : [];
+      var fyStaleNote = fyStaleList.length ? 'Left out of the fiscal-year total and growth: ' + fyStaleList.map(function(x){ return escapeHtml(x.ticker) + ' (newest full year on file is ' + escapeHtml(x.label || 'old') + ')'; }).join(', ') + '. ' + (fyStaleList.length === 1 ? 'It is' : 'They are') + ' in the run-rate.' : '';
+      var fyCount = t.fyCount != null ? t.fyCount : t.count;
+      // Same companies on both sides (server field); older files fall back.
+      var runRatePct = t.runRateVsFyPct != null ? Number(t.runRateVsFyPct) : (t.ttmSum != null && t.fyLatestSum > 0) ? (t.ttmSum / t.fyLatestSum - 1) * 100 : null;
       var runRateDir = runRatePct == null ? '' : (runRatePct >= 0 ? 'cx-up' : 'cx-down');
       head = '<div class="cx-hero">' +
         '<div class="cx-hero-main">' +
@@ -21670,6 +21823,7 @@ ${renderExportBindings()}
               deltaTxt + ' vs the prior year (' + cxDollars(t.fyPriorSum) + ')' +
             '</div>' : '') +
           (fyMixNote ? '<div class="cx-hero-note">Fiscal years differ by company — ' + fyMixNote + '. The TTM run-rate is the like-for-like current read.</div>' : '') +
+          (fyStaleNote ? '<div class="cx-hero-note">' + fyStaleNote + '</div>' : '') +
         '</div>' +
         (t.ttmSum != null ?
           '<div class="cx-hero-ttm"><div class="cx-hero-label">Current TTM run-rate</div><div class="cx-hero-ttm-val">' + cxDollars(t.ttmSum) + '</div>' +
@@ -21705,10 +21859,10 @@ ${renderExportBindings()}
                 (rv.capexToRevenueTtmPct != null ? (sharePrior != null ? ' · ' : '') + rv.capexToRevenueTtmPct.toFixed(1) + '% on run-rates' : '') +
               '</div>' +
             '</div>' : '') +
-          (rv.count < t.count ? '<div class="cx-hero-note cx-revcmp-note">revenue reported for ' + rv.count + ' of ' + t.count + ' names</div>' : '') +
+          (rv.count < fyCount ? '<div class="cx-hero-note cx-revcmp-note">revenue reported for ' + rv.count + ' of ' + fyCount + ' names</div>' : '') +
         '</div>';
       }
-      var spenders = cos.filter(function(co){ return co && co.fyLatest && co.fyLatest.val > 0; }).slice().sort(function(a,b){ return b.fyLatest.val - a.fyLatest.val; });
+      var spenders = cos.filter(function(co){ return co && !co.fyStale && co.fyLatest && co.fyLatest.val > 0; }).slice().sort(function(a,b){ return b.fyLatest.val - a.fyLatest.val; });
       var top2 = spenders.slice(0, 2);
       var top2Sum = top2.reduce(function(sum, co){ return sum + co.fyLatest.val; }, 0);
       top2Share = t.fyLatestSum > 0 ? (top2Sum / t.fyLatestSum) * 100 : null;
@@ -21810,7 +21964,7 @@ ${renderExportBindings()}
         '<div class="cx-bar-wrap" title="' + escapeHtml(co.ticker + ' capex ' + cxDollars(v) + (co.yoyPct != null ? ' · ' + (co.yoyPct >= 0 ? '+' : '') + co.yoyPct.toFixed(1) + '% YoY' : '')) + '"><div class="cx-bar-track"><div class="cx-bar" style="width:' + w.toFixed(1) + '%"></div></div>' +
           '<span class="cx-bar-val">' + cxDollars(v) + '</span> ' + cxYoyChip(co.yoyPct) + '</div>' +
         '<div class="cx-row-meta">' +
-          (co.fyLatest ? escapeHtml(co.fyLatest.label || '') : '') +
+          (co.fyLatest ? escapeHtml(co.fyLatest.label || '') + (co.fyStale ? ' (newest full year on file)' : '') : '') +
           ' · run-rate ' + ttmTxt +
           (co.capexToRevenuePct != null ? ' · ' + co.capexToRevenuePct.toFixed(1) + '% of revenue' : '') +
           (co.rev && co.rev.yoyPct != null ? ' · revenue ' + (co.rev.yoyPct >= 0 ? '+' : '') + co.rev.yoyPct.toFixed(1) + '% YoY' + (co.rev.fyLatest ? ' (' + cxDollars(co.rev.fyLatest.val) + ')' : '') : '') +
@@ -21821,22 +21975,34 @@ ${renderExportBindings()}
     var missing = (Array.isArray(d.missing) && d.missing.length) ? '<p class="cx-missing">No SEC CapEx data for: ' + escapeHtml(d.missing.join(', ')) + '.</p>' : '';
     var cxStrip = '';
     if (t){
-      var cxByYear = {};
-      cos.forEach(function(co){ (Array.isArray(co.history) ? co.history : []).forEach(function(h){
-        var yr = h && (String(h.label || '').match(/\\d{4}/) || [String(h.end || '').slice(0, 4)])[0];
-        if (yr && isFinite(Number(h.val))) cxByYear[yr] = (cxByYear[yr] || 0) + Number(h.val);
-      }); });
-      var cxYears = Object.keys(cxByYear).sort().map(function(y){ return [y, cxByYear[y]]; });
+      // Only years every company has reported: fiscal calendars differ, so the
+      // newest year holds only the June-to-September filers (MSFT, ORCL, MU,
+      // AAPL) until the calendar-year companies file in February, and a sum
+      // over them would draw a false drop. Stale-year names stay out.
+      var cxByYear = {}, cxYearCount = {}, cxCohort = 0;
+      cos.forEach(function(co){
+        if (!co || co.fyStale || !Array.isArray(co.history) || !co.history.length) return;
+        cxCohort++;
+        var seen = {};
+        co.history.forEach(function(h){
+          var yr = h && (String(h.label || '').match(/\\d{4}/) || [String(h.end || '').slice(0, 4)])[0];
+          if (!yr || seen[yr] || !isFinite(Number(h.val))) return;
+          seen[yr] = 1;
+          cxByYear[yr] = (cxByYear[yr] || 0) + Number(h.val);
+          cxYearCount[yr] = (cxYearCount[yr] || 0) + 1;
+        });
+      });
+      var cxYears = Object.keys(cxByYear).filter(function(y){ return cxYearCount[y] === cxCohort; }).sort().map(function(y){ return [y, cxByYear[y]]; });
       var cxShare = t.revenue && t.revenue.capexToRevenueTtmPct != null ? t.revenue.capexToRevenueTtmPct : (t.revenue && t.revenue.capexToRevenueFyPct);
       cxStrip = trendStripHtml({
         kicker: 'AI spending · ' + cos.length + ' companies', value: cxDollars(t.ttmSum != null ? t.ttmSum : t.fyLatestSum),
-        note: (t.ttmSum != null ? 'Last 12 months of capital spending' : 'Latest fiscal year of capital spending') + (t.yoyPct != null ? ', ' + (t.yoyPct >= 0 ? 'up ' : 'down ') + Math.abs(t.yoyPct).toFixed(1) + '% on the year before' : ''),
+        note: (t.ttmSum != null ? 'Last 12 months of capital spending' : 'Latest fiscal year of capital spending') + (t.yoyPct != null ? '; latest fiscal years ' + (t.yoyPct >= 0 ? 'up ' : 'down ') + Math.abs(t.yoyPct).toFixed(1) + '% on the year before' : ''),
         kpis: [
           { label: 'Latest fiscal year', value: cxDollars(t.fyLatestSum), sub: t.yoyPct != null ? deskStripSignedPct(t.yoyPct, 1) + ' vs prior year' : '', tone: t.yoyPct == null ? '' : t.yoyPct >= 0 ? 'pos' : 'neg' },
           cxShare != null ? { label: 'Share of revenue', value: Number(cxShare).toFixed(1) + '%', sub: 'CapEx ÷ revenue' } : null,
           (t.revenue && t.revenue.yoyPct != null) ? { label: 'Revenue growth', value: deskStripSignedPct(t.revenue.yoyPct, 1), sub: 'same companies, same years', tone: t.revenue.yoyPct >= 0 ? 'pos' : 'neg' } : null
         ],
-        series: cxYears, fmt: function(v){ return cxDollars(v); }, chartLabel: 'Combined CapEx by year',
+        series: cxYears, fmt: function(v){ return cxDollars(v); }, chartLabel: 'Combined CapEx by year (years every company has reported)',
         stocks: cos.map(function(co){ return co.ticker; }).filter(Boolean).slice(0, 7).concat(['NVDA', 'AVGO', 'VRT']).filter(function(x, i, a){ return a.indexOf(x) === i; })
       });
     }
@@ -21877,7 +22043,8 @@ ${renderExportBindings()}
   function rpFreshness(d, spot, retail, comp){
     var builtMs = Date.parse(d && d.builtAtIso);
     var ageHours = isFinite(builtMs) ? (Date.now() - builtMs) / 3600000 : null;
-    var current = !d.stale && !(spot && spot.stale) && !(retail && retail.stale) && ageHours != null && ageHours >= -1 && ageHours <= 72;
+    // Weekly scan (Friday): current for nine days, the same window as Search trends.
+    var current = !d.stale && !(spot && spot.stale) && !(retail && retail.stale) && ageHours != null && ageHours >= -1 && ageHours <= ALT_WEEKLY_CURRENT_HOURS;
     var ageLabel = 'build time unavailable';
     if (ageHours != null){
       if (ageHours < 1) ageLabel = 'built less than 1h ago';
@@ -21928,7 +22095,7 @@ ${renderExportBindings()}
       if (empty) empty.hidden = true;
       if (eye) eye.textContent = 'Unavailable · no posture';
       root.innerHTML = '<section class="rp-empty-desk"><span class="rp-desk-kicker">Memory-cycle desk</span><h3>' + (d.loadError ? 'The RAM price snapshot could not be loaded' : 'No RAM price snapshot is available yet') + '</h3>' +
-        '<p>' + (d.loadError ? 'Do not infer a tightening or easing cycle from missing data. Use current earnings and market evidence until both price layers return.' : 'The next successful Friday 11:30 ET scan will restore wholesale, retail and category-breadth checks.') + '</p>' +
+        '<p>' + (d.loadError ? 'Do not infer a tightening or easing cycle from missing data. Use current earnings and market evidence until both price layers return.' : 'The next successful Friday scan will restore wholesale, retail and category-breadth checks.') + '</p>' +
         '<div class="rp-actions"><button type="button" class="rp-action rp-action-primary" data-rp-tab="calls">Open Earnings calls</button></div></section>';
       bindRamPriceActions(root);
       return;
@@ -22178,6 +22345,25 @@ ${renderExportBindings()}
     if (!base || base.age < days * 0.6 || base.age > days * 2.5) return null;
     return (Number(last.p) / base.p - 1) * 100;
   }
+  // Change for one accelerator, lane by lane (copy of matchedLaneChange in
+  // lib/accelerator-prices.mjs; change one, change the other). The median of
+  // each lane's own change over the lanes that priced on the newest date, so a
+  // provider that misses one weekly scan does not move the reading.
+  function apMatchedChange(benchmark, quotes, days){
+    var lanes = (quotes || []).map(function(quote){
+      return benchmark && benchmark.history && Array.isArray(benchmark.history[quote.key]) ? benchmark.history[quote.key] : [];
+    }).filter(function(rows){ return rows.length; });
+    var latest = null;
+    lanes.forEach(function(rows){ var d = rows[rows.length - 1] && rows[rows.length - 1].d; if (d && (!latest || d > latest)) latest = d; });
+    if (!latest) return null;
+    var changes = [];
+    lanes.forEach(function(rows){
+      if (!rows[rows.length - 1] || rows[rows.length - 1].d !== latest) return;
+      var change = apHistoryChange(rows, days);
+      if (change != null && isFinite(change)) changes.push(change);
+    });
+    return changes.length ? apMedian(changes) : null;
+  }
   function apCostMove(value, pending){
     if (value == null || !isFinite(value)) return '<b class="ap-history-pending">' + escapeHtml(pending || 'Building') + '</b>';
     var n = Number(value);
@@ -22218,15 +22404,15 @@ ${renderExportBindings()}
     dates.sort();
     if (!dates.length) return '<div class="ap-chart-empty">Tracking begins with the next successful build.</div>';
     var currentMedian = composite.length ? composite[composite.length - 1].p : null;
-    var change7d = apHistoryChange(composite, 7);
-    var change30d = apHistoryChange(composite, 30);
+    var change7d = apMatchedChange(benchmark, quotes, 7);
+    var change30d = apMatchedChange(benchmark, quotes, 30);
     var sinceChange = composite.length >= 2 && composite[0].p > 0
       ? (composite[composite.length - 1].p / composite[0].p - 1) * 100
       : null;
     var laneLabel = acceleratorPricesState.market === 'all' ? 'all price lanes' : acceleratorPricesState.market;
-    var historyHead = '<div class="ap-history-title"><div><small>Daily price history</small><b>' + escapeHtml(benchmark.model) + '</b><span>' + escapeHtml(laneLabel) + ' · cross-provider median</span></div>' +
+    var historyHead = '<div class="ap-history-title"><div><small>Weekly price history</small><b>' + escapeHtml(benchmark.model) + '</b><span>' + escapeHtml(laneLabel) + ' · cross-provider median</span></div>' +
       '<div><strong>' + apPrice(currentMedian) + '</strong><span>current median</span></div></div>' +
-      '<div class="ap-history-signals"><div><span>7 days</span>' + apCostMove(change7d) + '</div><div><span>30 days</span>' + apCostMove(change30d) + '</div><div><span>Since tracking</span>' + apCostMove(sinceChange) + '</div><div><span>History</span><b>' + dates.length + ' daily snapshot' + (dates.length === 1 ? '' : 's') + '</b></div></div>' +
+      '<div class="ap-history-signals"><div><span>7 days</span>' + apCostMove(change7d) + '</div><div><span>30 days</span>' + apCostMove(change30d) + '</div><div><span>Since tracking</span>' + apCostMove(sinceChange) + '</div><div><span>History</span><b>' + dates.length + ' weekly snapshot' + (dates.length === 1 ? '' : 's') + '</b></div></div>' +
       '<p class="ap-read-key"><span>Line down = compute is getting cheaper</span><span>Line up = compute is getting more expensive</span></p>';
     if (dates.length === 1){
       var baselineRows = quotes.slice(0, AP_COLORS.length).map(function(quote, idx){
@@ -22337,7 +22523,7 @@ ${renderExportBindings()}
       if (eye) eye.textContent = 'Unavailable / no compute read';
       root.innerHTML = '<section class="ap-empty-desk"><span>Compute-cost desk</span><h3>' +
         (data.loadError ? 'The accelerator snapshot could not be loaded' : 'No accelerator prices are available yet') +
-        '</h3><p>Do not infer capacity tightening or easing from missing marketplace data. The next Friday 11:30 ET scan will retry every provider independently.</p></section>';
+        '</h3><p>Do not infer capacity tightening or easing from missing marketplace data. The next Friday scan will retry every provider independently.</p></section>';
       return;
     }
     if (empty) empty.hidden = true;
@@ -22358,12 +22544,13 @@ ${renderExportBindings()}
       spotLow: selected.spot && selected.spot.low,
       onDemandMedian: selected.onDemand && selected.onDemand.median,
       onDemandLow: selected.onDemand && selected.onDemand.low,
-      change7dPct: apHistoryChange(selectedHistory, 7),
-      change30dPct: apHistoryChange(selectedHistory, 30)
+      change7dPct: apMatchedChange(selected, Array.isArray(selected.quotes) ? selected.quotes : [], 7),
+      change30dPct: apMatchedChange(selected, Array.isArray(selected.quotes) ? selected.quotes : [], 30)
     };
     var builtMs = Date.parse(data.builtAtIso);
     var ageHours = isFinite(builtMs) ? (Date.now() - builtMs) / 3600000 : null;
-    var current = !data.stale && summary.freshSources > 0 && ageHours != null && ageHours >= -1 && ageHours <= 72;
+    // Weekly scan (Friday): current for nine days, the same window as Search trends.
+    var current = !data.stale && summary.freshSources > 0 && ageHours != null && ageHours >= -1 && ageHours <= ALT_WEEKLY_CURRENT_HOURS;
     if (eye) eye.textContent = (current ? 'Current public pricing' : 'Reference only') + ' / ' + Number(summary.freshSources || 0) + '/' + Number(summary.sourceCount || 0) + ' sources';
     var trend = Number(focus.change30dPct);
     var hasTrend = focus.change30dPct != null && focus.change30dPct !== '' && isFinite(trend);
@@ -22398,7 +22585,7 @@ ${renderExportBindings()}
       '<div class="ap-metrics">' +
         '<div><span>' + escapeHtml(focus.model || 'Focus accelerator') + ' spot</span><b>' + apPrice(focus.spotMedian) + '</b><small>median / low ' + apPrice(focus.spotLow) + '</small></div>' +
         '<div><span>' + escapeHtml(focus.model || 'Focus accelerator') + ' on-demand</span><b>' + apPrice(focus.onDemandMedian) + '</b><small>' + (discount != null && isFinite(discount) ? 'spot is ' + discount.toFixed(1) + '% cheaper' : 'median / low ' + apPrice(focus.onDemandLow)) + '</small></div>' +
-        '<div><span>30-day price change</span><b>' + (hasTrend ? (trend > 0 ? '+' : '') + trend.toFixed(1) + '%' : 'Building') + '</b><small>' + (hasTrend ? (trend > 0 ? 'compute got more expensive' : trend < 0 ? 'compute got cheaper' : 'compute cost was flat') : (selectedHistory.length + ' daily snapshot' + (selectedHistory.length === 1 ? '' : 's'))) + '</small></div>' +
+        '<div><span>30-day price change</span><b>' + (hasTrend ? (trend > 0 ? '+' : '') + trend.toFixed(1) + '%' : 'Building') + '</b><small>' + (hasTrend ? (trend > 0 ? 'compute got more expensive' : trend < 0 ? 'compute got cheaper' : 'compute cost was flat') : (selectedHistory.length + ' weekly snapshot' + (selectedHistory.length === 1 ? '' : 's'))) + '</small></div>' +
         '<div><span>Selected coverage</span><b>' + Object.keys(selectedProviders).length + ' providers</b><small>' + Number((selected.quotes || []).length) + ' normalized ' + escapeHtml(focus.model || 'accelerator') + ' quotes</small></div>' +
       '</div><div class="ap-source-state"><span>' + escapeHtml(sourceText) + '</span><small>Built ' + escapeHtml(data.builtAtIso ? formatDisplayInstant(data.builtAtIso, { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }) : 'time unavailable') + '</small></div>' +
       '<div class="ap-actions"><button type="button" data-ap-grade="CRWV">Grade CRWV</button><button type="button" data-ap-grade="NVDA">Grade NVDA</button><button type="button" data-ap-grade="AMD">Grade AMD</button></div>' +
@@ -22694,11 +22881,16 @@ ${renderExportBindings()}
     var relatedEnabled = status.relatedEnabled !== false;
     var weeklyCadence = !!(d.source && d.source.cadence === 'weekly') || !relatedEnabled;
     var ageMs = Date.now() - Date.parse(d.builtAtIso || 0);
-    var staleBuild = !isFinite(ageMs) || ageMs > (weeklyCadence ? 9 * 24 : 48) * 3600000;
+    var staleBuild = !isFinite(ageMs) || ageMs > (weeklyCadence ? ALT_WEEKLY_CURRENT_HOURS : 48) * 3600000;
     var cadenceLabel = weeklyCadence ? 'Weekly refresh' : 'Daily refresh';
     if (eye) eye.textContent = (staleBuild ? 'Reference only' : (status.state === 'partial' ? 'Partial refresh' : cadenceLabel)) +
       ' | ' + rows.length + ' signals' + (d.builtAtIso ? ' | ' + formatDisplayDate(d.builtAtIso, { month:'short', day:'numeric', year:'numeric' }) : '');
 
+    // Rising queries carried from an older run (related lookups are off in the
+    // free tier) must not badge, filter or sort the cards.
+    function siHasBreakout(row){
+      return relatedEnabled && (row.risingQueries || []).some(function(item){ return item.breakout; });
+    }
     var risingThemes = rows.filter(function(row){ return Number(row.change7d) >= 15; }).length;
     var fallingThemes = rows.filter(function(row){ return Number(row.change7d) <= -15; }).length;
     var topTheme = rows.filter(function(row){ return typeof row.change7d === 'number' && isFinite(row.change7d); }).sort(function(a,b){ return b.change7d - a.change7d; })[0];
@@ -22711,7 +22903,7 @@ ${renderExportBindings()}
       : fallingThemes > risingThemes * 1.5 && fallingThemes >= 5 ? 'Theme attention is cooling'
       : 'Attention is selective - follow the theme movers';
     var postureCopy = staleBuild
-      ? 'The snapshot is older than 48 hours. Wait for a current search read before treating a surge as participation.'
+      ? 'The snapshot is older than ' + (weeklyCadence ? 'nine days' : '48 hours') + '. Wait for a current search read before treating a surge as participation.'
       : 'Use the search move as a discovery trigger. Require price, volume and catalyst confirmation before taking risk.';
     var hero = '<section class="si-desk"><div class="si-desk-head"><div><span class="si-kicker">Public-attention desk</span><h3>' +
       escapeHtml(posture) + '</h3><p>' + escapeHtml(postureCopy) + '</p></div><span class="si-status' + (staleBuild ? ' is-stale' : '') + '">' +
@@ -22731,13 +22923,13 @@ ${renderExportBindings()}
     var query = String(searchInterestState.search || '').trim().toLowerCase();
     var filtered = rows.filter(function(row){
       if (query && (String(row.symbol || '') + ' ' + String(row.label || '') + ' ' + String(row.query || '') + ' ' + String(row.sector || '')).toLowerCase().indexOf(query) < 0) return false;
-      if (mode === 'breakouts') return (row.risingQueries || []).some(function(item){ return item.breakout; });
-      if (mode === 'movers') return Math.abs(Number(row.change7d) || 0) >= 10 || (row.risingQueries || []).some(function(item){ return item.breakout; });
+      if (mode === 'breakouts') return siHasBreakout(row);
+      if (mode === 'movers') return Math.abs(Number(row.change7d) || 0) >= 10 || siHasBreakout(row);
       return true;
     });
     filtered.sort(function(a,b){
-      var ab = (a.risingQueries || []).some(function(item){ return item.breakout; }) ? 1 : 0;
-      var bb = (b.risingQueries || []).some(function(item){ return item.breakout; }) ? 1 : 0;
+      var ab = siHasBreakout(a) ? 1 : 0;
+      var bb = siHasBreakout(b) ? 1 : 0;
       if (bb !== ab) return bb - ab;
       return (Number(b.change7d) || -9999) - (Number(a.change7d) || -9999);
     });
@@ -22749,7 +22941,7 @@ ${renderExportBindings()}
       filterButton('movers','Movers') + (relatedEnabled ? filterButton('breakouts','Breakouts') : '') + filterButton('all','All themes') + '</div>' +
       '<input type="search" id="si-search" placeholder="Search theme or topic..." value="' + escapeHtml(searchInterestState.search || '') + '" aria-label="Filter search-interest themes"></div>';
     var cards = shown.map(function(row, cardIndex){
-      var hasBreakout = (row.risingQueries || []).some(function(item){ return item.breakout; });
+      var hasBreakout = siHasBreakout(row);
       var title = '<span class="si-symbol">' + escapeHtml(row.label || '') + '</span>';
       var subtitle = escapeHtml(row.sector || 'Theme');
       return '<details class="si-card' + (hasBreakout ? ' has-breakout' : '') + '"' + (hasBreakout && cardIndex < 4 ? ' open' : '') + '><summary>' +
@@ -24765,7 +24957,22 @@ ${renderExportBindings()}
   // (surging / trending / building) get a highlight card + sparkline; the
   // rest fill the ranked context table. Baked deterministically — see
   // buildIvTrendingPayload in scripts/build.mjs.
-  var ivTrendState = { data: null, loading: false, showAll: false, sort: 'score', colSort: null, search: '' };
+  var ivTrendState = { data: null, loading: false, showAll: false, sort: 'score', colSort: null, search: '', noEarn: VIEWS.get('ivtrend.noearn', false) === true };
+  // Hide names reporting earnings within 30 days (Owner choice 2026-11-17):
+  // most of their IV rise is the usual run-up into the report. Off by
+  // default; one click, remembered on this device.
+  var IVT_EARN_SOON_DAYS = 30;
+  function ivtEarnSoon(r, asOf){
+    var e = r && r.earnings;
+    if (!e) return false;
+    var n = e.inDays != null && isFinite(e.inDays) ? Number(e.inDays) : null;
+    if (n == null && e.date){
+      var t = Date.parse(String(e.date).slice(0, 10) + 'T12:00:00Z');
+      var b = asOf ? Date.parse(String(asOf).slice(0, 10) + 'T12:00:00Z') : Date.now();
+      if (isFinite(t) && isFinite(b)) n = Math.round((t - b) / 864e5);
+    }
+    return n != null && n >= 0 && n <= IVT_EARN_SOON_DAYS;
+  }
   var IVT_TIER_META = {
     surging:  { label: 'Surging',  cls: 'ivt-tier-surging' },
     trending: { label: 'Trending', cls: 'ivt-tier-trending' },
@@ -25250,7 +25457,7 @@ ${renderExportBindings()}
         '<td>' + (p.r2 != null ? spillNum(p.r2) : '—') + '</td>' +
         '<td>' + (p.p != null ? spillNum(p.p, 3) : '—') + (p.fdrPass ? ' ✓' : '') + '</td>' +
         '<td>' + spillFrac(p.avgAligned) + '</td>' +
-        '<td>' + spillFrac(p.pricedMove) + '</td>' +
+        '<td' + (p.sigmaDay != null ? ' title="One-day expected move (1σ): ' + spillFrac(p.sigmaDay) + '"' : '') + '>' + spillFrac(p.pricedMove) + '</td>' +
         '<td class="' + (p.edge != null && p.edge > 0 ? 'spill-edge-pos' : 'spill-edge-neg') + '">' + spillFrac(p.edge) + '</td>' +
         '<td>' + halves + '</td>' +
         '<td>' + resid + '</td>' +
@@ -25258,7 +25465,7 @@ ${renderExportBindings()}
     };
     var spillTable = function(rows){
       return '<div class="spill-scroll"><table class="spill-tbl spill-matrix"><thead><tr>' +
-        '<th>Pair</th><th>n</th><th>β shrunk</th><th>Hit</th><th>R²</th><th>p</th><th>Avg move→</th><th>Priced/day</th><th>Edge</th><th>Halves β</th><th>Resid β</th><th>Status</th>' +
+        '<th>Pair</th><th>n</th><th>β shrunk</th><th>Hit</th><th>R²</th><th>p</th><th>Avg move→</th><th>Option cost/day</th><th>Edge</th><th>Halves β</th><th>Resid β</th><th>Status</th>' +
         '</tr></thead><tbody>' + rows.join('') + '</tbody></table></div>';
     };
     // The filter applies to the matrix too: only pairs touching the queried
@@ -25299,7 +25506,7 @@ ${renderExportBindings()}
     } else {
       matrixHtml += spillTable(fPairs.map(spillRowHtml));
     }
-    matrixHtml += '<p class="spill-note">β shrunk = the pair event beta shrunk toward its sector’s pooled event beta (small samples). Hit = share of past events where the follower moved the same direction. A ✓ on p = survives the false-discovery correction, run across every sector’s pairs. Avg move→ = the follower average event-window move in the driver direction; Edge = that average minus the follower current 1-day priced move (ATM IV) — positive means the options market underprices the echo. Pairs are measured within sector groups only; sector prints often cluster (banks especially), so betas measure sector print-day read-through and Resid β (market-stripped) is the control. Correlation map only — nothing here is a trade recommendation.</p>';
+    matrixHtml += '<p class="spill-note">β shrunk = the pair event beta shrunk toward its sector’s pooled event beta (small samples). Hit = share of past events where the follower moved the same direction. A ✓ on p = survives the false-discovery correction, run across every sector’s pairs. Avg move→ = the follower average event-window move in the driver direction; Option cost/day = what a one-day at-the-money call or put on the follower costs at today’s implied volatility, about 0.4 of its one-day expected move. Edge = the average move minus that cost; positive means the average echo has paid more than a one-day option costs. Pairs are measured within sector groups only; sector prints often cluster (banks especially), so betas measure sector print-day read-through and Resid β (market-stripped) is the control. Correlation map only — nothing here is a trade recommendation.</p>';
     html += '<details class="spill-matrix-details"' + (q ? ' open' : '') + '><summary><span>Pair matrix <small>historical event-window read-through</small></span>' +
       '<em>' + qualifiedPairs.length + ' qualified · ' + fPairs.length + (q ? ' matching' : ' measured') + '</em></summary>' +
       '<div class="spill-matrix-body">' + matrixHtml + '</div></details>';
@@ -26051,6 +26258,9 @@ ${renderExportBindings()}
       return;
     }
     if (empty) empty.hidden = true;
+    var earnSoonCount = 0;
+    for (var e0=0; e0<all.length; e0++) if (ivtEarnSoon(all[e0], d.asOf)) earnSoonCount++;
+    if (ivTrendState.noEarn) all = all.filter(function(r){ return !ivtEarnSoon(r, d.asOf); });
     var tierCounts = { surging: 0, trending: 0, building: 0 };
     var elevatedCount = 0;
     var deflatingCount = 0;
@@ -26061,7 +26271,7 @@ ${renderExportBindings()}
       if (rc.chg5dPct != null && isFinite(rc.chg5dPct) && Number(rc.chg5dPct) <= -12) deflatingCount++;
     }
     var flaggedTotal = tierCounts.surging + tierCounts.trending + tierCounts.building;
-    if (eye) eye.textContent = (d.asOf ? 'as of ' + d.asOf + ' · ' : '') + flaggedTotal + ' trending · ' + elevatedCount + ' rich / ' + all.length + ' ranked';
+    if (eye) eye.textContent = (d.asOf ? 'as of ' + d.asOf + ' · ' : '') + flaggedTotal + ' trending · ' + elevatedCount + ' rich / ' + all.length + ' ranked' + (ivTrendState.noEarn && earnSoonCount ? ' · ' + earnSoonCount + ' reporting within ' + IVT_EARN_SOON_DAYS + ' days hidden' : '');
     // Reset a tier/elevated filter whose bucket emptied on a data refresh.
     var mode = ivTrendState.sort || 'score';
     if ((tierCounts[mode] != null && tierCounts[mode] === 0) || (mode === 'elevated' && !elevatedCount)){ mode = 'score'; ivTrendState.sort = 'score'; }
@@ -26094,6 +26304,7 @@ ${renderExportBindings()}
       var sts = Array.isArray(sum.standouts) ? sum.standouts : [];
       for (var s0=0; s0<sts.length; s0++){
         var st = sts[s0];
+        if (ivTrendState.noEarn && ivtEarnSoon(st, d.asOf)) continue;
         var kindMeta = st.kind && IVT_KIND_META[st.kind] ? IVT_KIND_META[st.kind] : null;
         var stMeta = !kindMeta && st.tier && IVT_TIER_META[st.tier] ? IVT_TIER_META[st.tier] : null;
         var tipBits = [];
@@ -26135,6 +26346,10 @@ ${renderExportBindings()}
       if (cnt === 0) continue;
       sortHtml += '<button type="button" class="ivt-sort-chip" data-ivt-sort="' + def.key + '" aria-pressed="' + (mode === def.key ? 'true' : 'false') + '">' +
         def.label + (cnt != null ? ' <b>' + cnt + '</b>' : '') + '</button>';
+    }
+    if (earnSoonCount || ivTrendState.noEarn){
+      sortHtml += '<button type="button" class="ivt-sort-chip ivt-noearn-chip" data-ivt-noearn aria-pressed="' + (ivTrendState.noEarn ? 'true' : 'false') + '" title="For a stock about to report, most of the rise in implied volatility is the usual run-up into the report">' +
+        'Hide earnings within ' + IVT_EARN_SOON_DAYS + ' days <b>' + earnSoonCount + '</b></button>';
     }
     html += '<div class="ivt-sort" role="toolbar" aria-label="Sort or filter the ranked tickers">' + sortHtml +
       '<input type="search" id="ivt-search" class="ivt-search" placeholder="Search ticker or name…" value="' + escapeHtml(ivTrendState.search || '') + '" autocomplete="off" spellcheck="false" aria-label="Filter Trending-IV tickers by symbol or company name"></div>';
@@ -26259,7 +26474,14 @@ ${renderExportBindings()}
     if (btn) btn.addEventListener('click', function(){ ivTrendState.showAll = !ivTrendState.showAll; renderIvTrend(); });
     var vsAvg = root.querySelector('[data-ivt-vsavg]');
     if (vsAvg) vsAvg.addEventListener('toggle', function(){ VIEWS.set('ivtrend.vsavg', vsAvg.open ? null : false); });
-    var sortBtns = root.querySelectorAll('.ivt-sort-chip');
+    var noEarnBtn = root.querySelector('[data-ivt-noearn]');
+    if (noEarnBtn) noEarnBtn.addEventListener('click', function(){
+      ivTrendState.noEarn = !ivTrendState.noEarn;
+      VIEWS.set('ivtrend.noearn', ivTrendState.noEarn ? true : null);
+      ivTrendState.showAll = false;
+      renderIvTrend();
+    });
+    var sortBtns = root.querySelectorAll('.ivt-sort-chip[data-ivt-sort]');
     for (var sb=0; sb<sortBtns.length; sb++){
       sortBtns[sb].addEventListener('click', function(){
         ivTrendState.sort = this.getAttribute('data-ivt-sort') || 'score';
@@ -32211,12 +32433,16 @@ ${renderExportBindings()}
   }
   // Identical to build.mjs probsFromDelta: a (pre,post) rate delta -> the CME
   // hike/hold/cut triple, 25 bps step, linear between adjacent quantized moves.
+  // Past 25 bps, big = the share priced as a 50 bps move (only set then).
   function probsFromDeltaLive(delta){
     var clamp = function(x){ return Math.max(0, Math.min(1, x)); };
     var hike = 0, cut = 0;
     if (delta > 0) hike = clamp(delta / 0.25);
     else if (delta < 0) cut = clamp(-delta / 0.25);
-    return { hike: hike, hold: clamp(1 - hike - cut), cut: cut };
+    var out = { hike: hike, hold: clamp(1 - hike - cut), cut: cut };
+    var big = Math.abs(delta) > 0.25 ? clamp((Math.abs(delta) - 0.25) / 0.25) : 0;
+    if (big > 0) out.big = big;
+    return out;
   }
   // EFFR -> FOMC target-range midpoint (e.g. 3.62 -> 3.625), CME's anchor base.
   function fedTargetMidpoint(rate){ return Math.round((rate - 0.125) / 0.25) * 0.25 + 0.125; }
@@ -32500,9 +32726,21 @@ ${renderExportBindings()}
           '</div>' +
           '<div class="fomc-hl-bar">' + hlSeg(hCut, 'cut', 'Cut') + hlSeg(hHold, 'hold', 'Hold') + hlSeg(hHike, 'hike', 'Hike') + '</div>' +
           '<div class="fomc-hl-keys">' + hlKey(hCut, 'cut', 'cut') + hlKey(hHold, 'hold', 'hold') + hlKey(hHike, 'hike', 'hike') + '</div>' +
+          fomcBigMoveHtml(meetings[0]) +
           fomcPathHtml() +
         '</div>';
       }
+    }
+    // Futures past a full 25 bps step read as a 100% hike or cut. When the
+    // next meeting prices more than that, say how much of it is a 50 bps move
+    // (the marginal now-bucket's big share; 2026-11-17, Owner choice).
+    function fomcBigMoveHtml(m){
+      var mb = m && probs[m.date] && probs[m.date].now;
+      var big = mb ? normProb(mb, 'big') : null;
+      if (big == null || big < 0.005) return '';
+      var side = (normProb(mb, 'hike') || 0) >= (normProb(mb, 'cut') || 0) ? 'hike' : 'cut';
+      var bp = Math.round((0.25 + 0.25 * Math.min(1, big)) * 100);
+      return '<div class="fomc-hl-big ' + side + '" title="Futures price about ' + bp + ' bps at this meeting, more than one 25 bps step">Of which a 50 bps ' + side + ': <b>' + Math.round(big * 100) + '%</b></div>';
     }
     // The next few meetings as one stacked bar each (cumulative cut / hold /
     // hike vs today), so the path reads at a glance without opening the ladder.
@@ -33620,7 +33858,8 @@ ${renderExportBindings()}
         if (!best || ch > best.ch) best = { ch: ch, date: date };
         if (!worst || ch < worst.ch) worst = { ch: ch, date: date };
         var heat = Math.round(Math.min(1, Math.abs(ch) / scale) * 72 + 14);
-        var tip = IDX_CAL_LABELS[idxKey] + ' · ' + fmtCalendarDateShort(date) + ' · ' + idxCalFmtPct(ch) + (leg.c != null ? ' · close ' + idxCalFmtClose(leg.c) : '');
+        var yrPartial = !!byDate[date].partial;
+        var tip = IDX_CAL_LABELS[idxKey] + ' · ' + fmtCalendarDateShort(date) + ' · ' + idxCalFmtPct(ch) + (yrPartial ? ' so far' : '') + (leg.c != null ? (yrPartial ? ' · last ' : ' · close ') + idxCalFmtClose(leg.c) : '');
         col += '<button type="button" class="idx-yr-cell ' + (signed > 0 ? 'is-pos' : signed < 0 ? 'is-neg' : 'is-flat') + (date === selectedDate ? ' is-selected' : '') + '" style="--heat:' + heat + '%" data-idx-jump="' + date + '" data-idx-tip="' + escapeHtml(tip) + '" title="' + escapeHtml(tip) + '" aria-label="' + escapeHtml(tip) + '"></button>';
       }
       cols += '<span class="idx-yr-col">' + col + '</span>';
@@ -33716,18 +33955,24 @@ ${renderExportBindings()}
     var monthBadge = 'Mixed';
     var monthHeadline = 'Participation is mixed across the tape';
     var monthWhy = 'Risk sleeves and volatility are not confirming one clean regime.';
-    var monthConfirm = 'Breadth improves to at least four risk sleeves while VIX remains lower.';
+    // The sleeve counts in the text come from the same two bars the read
+    // uses (three quarters for broad, a third for defensive), so the words
+    // match the rule for however many sleeves have a month return.
+    var riskN = riskAvailable.length >= 4 ? riskAvailable.length : IDX_CAL_RISK.length;
+    var riskOnNeed = Math.ceil(riskN * 0.75);
+    var riskOffMax = Math.floor(riskN * 0.34);
+    var monthConfirm = 'Breadth improves to at least ' + riskOnNeed + ' of ' + riskN + ' risk sleeves while VIX remains lower.';
     var monthBreak = 'VIX rises while SPY, IWM and SMH weaken together.';
-    if (riskAvailable.length >= 4 && riskPositive >= Math.ceil(riskAvailable.length * 0.75) && (vixMonth == null || vixMonth <= 0)){
+    if (riskAvailable.length >= 4 && riskPositive >= riskOnNeed && (vixMonth == null || vixMonth <= 0)){
       monthTone = 'riskon'; monthBadge = 'Broad risk-on'; monthHeadline = 'Risk participation is broad';
       monthWhy = riskPositive + ' of ' + riskAvailable.length + ' risk sleeves are positive' + (vixMonth != null ? ' while VIX is lower.' : '.');
       monthConfirm = 'Small caps, semis and international equities stay positive while VIX remains lower.';
-      monthBreak = 'Breadth falls below four sleeves or VIX turns higher.';
-    } else if (riskAvailable.length >= 4 && riskPositive <= Math.floor(riskAvailable.length * 0.34) && (vixMonth == null || vixMonth > 0)){
+      monthBreak = 'Breadth falls below ' + riskOnNeed + ' of ' + riskN + ' sleeves or VIX turns higher.';
+    } else if (riskAvailable.length >= 4 && riskPositive <= riskOffMax && (vixMonth == null || vixMonth > 0)){
       monthTone = 'riskoff'; monthBadge = 'Defensive'; monthHeadline = 'Weak breadth is confirming risk pressure';
       monthWhy = riskPositive + ' of ' + riskAvailable.length + ' risk sleeves are positive' + (vixMonth != null ? ' while VIX is higher.' : '.');
       monthConfirm = 'VIX stays elevated while fewer than half of the risk sleeves recover.';
-      monthBreak = 'Breadth expands to four or more sleeves and VIX gives back the rise.';
+      monthBreak = 'Breadth expands to ' + (riskOffMax + 1) + ' or more of ' + riskN + ' sleeves and VIX gives back the rise.';
     } else if (IDX_CAL_RISK.indexOf(idxKey) >= 0 && riskAvailable.length >= 4 && riskPositive <= Math.ceil(riskAvailable.length / 2) && selectedMonth != null && selectedMonth > 0){
       monthTone = 'narrow'; monthBadge = 'Narrow'; monthHeadline = IDX_CAL_LABELS[idxKey] + ' strength is not broad';
       monthWhy = 'The selected sleeve is positive, but only ' + riskPositive + ' of ' + riskAvailable.length + ' risk sleeves agree.';
@@ -33754,7 +33999,7 @@ ${renderExportBindings()}
       var dayVix = selectedRow.vix && selectedRow.vix.chPct != null ? Number(selectedRow.vix.chPct) : null;
       var dayTone = 'mixed';
       var dayHeadline = 'Rotation, not a clean market-wide signal';
-      var dayCopy = dayUp + ' of ' + dayRisk.length + ' risk sleeves closed higher' + (dayVix != null ? '; VIX moved ' + idxCalFmtPct(dayVix) + '.' : '.');
+      var dayCopy = dayUp + ' of ' + dayRisk.length + ' risk sleeves ' + (selectedRow.partial ? 'are higher so far' : 'closed higher') + (dayVix != null ? '; VIX ' + (selectedRow.partial ? 'has moved ' : 'moved ') + idxCalFmtPct(dayVix) + '.' : '.');
       if (dayRisk.length >= 4 && dayUp >= Math.ceil(dayRisk.length * 0.75) && (dayVix == null || dayVix <= 0)){
         dayTone = 'riskon'; dayHeadline = 'Breadth and volatility agreed on risk-on';
       } else if (dayRisk.length >= 4 && dayUp <= Math.floor(dayRisk.length * 0.34) && (dayVix == null || dayVix > 0)){
@@ -33767,7 +34012,7 @@ ${renderExportBindings()}
         return '<div class="idx-cal-day-tile ' + idxCalPctCls(ch * (IDX_CAL_INVERT[k] ? -1 : 1)) + '"><span>' + IDX_CAL_LABELS[k] + '</span><b>' + idxCalFmtPct(ch) + '</b><small>' + (leg.c != null ? 'close ' + idxCalFmtClose(leg.c) : '') + '</small></div>';
       }).join('');
       dayDetail = '<section class="idx-cal-day idx-cal-day-' + dayTone + '" aria-label="Selected trading day cross-asset read">' +
-        '<div class="idx-cal-day-head"><div><span>Selected session · ' + escapeHtml(fmtCalendarDateShort(selectedDate)) + '</span><h3>' + escapeHtml(dayHeadline) + '</h3><p>' + escapeHtml(dayCopy) + '</p></div>' +
+        '<div class="idx-cal-day-head"><div><span>Selected session · ' + escapeHtml(fmtCalendarDateShort(selectedDate)) + (selectedRow.partial ? ' · in progress at the last update' : '') + '</span><h3>' + escapeHtml(dayHeadline) + '</h3><p>' + escapeHtml(dayCopy) + '</p></div>' +
           '<div class="idx-cal-day-selected"><small>' + IDX_CAL_LABELS[idxKey] + '</small><b class="' + (selectedRow[idxKey] && selectedRow[idxKey].chPct != null ? idxCalPctCls(Number(selectedRow[idxKey].chPct) * idxInv) : '') + '">' + (selectedRow[idxKey] && selectedRow[idxKey].chPct != null ? idxCalFmtPct(Number(selectedRow[idxKey].chPct)) : '—') + '</b></div></div>' +
         '<div class="idx-cal-day-grid">' + dayTiles + '</div>' +
         '<div class="idx-cal-day-rule"><div><span>Confirmation</span><b>SPY, IWM and SMH agree while VIX moves in the opposite risk direction.</b></div><div><span>Guardrail</span><b>One session is context; require follow-through before changing exposure.</b></div></div>' +
@@ -33800,9 +34045,10 @@ ${renderExportBindings()}
       var isToday = date === todayYmd;
       var isSelected = date === selectedDate;
       var cls = 'idx-cal-cell' + (isToday ? ' is-today' : '') + (isSelected ? ' is-selected' : '') + (has ? ' ' + idxCalPctCls(ch * idxInv) : ' is-empty');
+      var partial = !!(day && day.partial);
       var title = IDX_CAL_LABELS[idxKey] + ' · ' + date +
-        (has ? ' · ' + idxCalFmtPct(ch) : '') +
-        (leg && leg.c != null ? ' · close ' + idxCalFmtClose(leg.c) : '');
+        (has ? ' · ' + idxCalFmtPct(ch) + (partial ? ' so far' : '') : '') +
+        (leg && leg.c != null ? (partial ? ' · last ' : ' · close ') + idxCalFmtClose(leg.c) : '');
       var open = day ? '<button type="button" class="' + cls + '" data-idx-day="' + escapeHtml(date) + '" aria-pressed="' + (isSelected ? 'true' : 'false') + '" aria-label="' + escapeHtml(title + ' · open cross-asset session') + '" title="' + escapeHtml(title) + '">' : '<div class="' + cls + '" title="' + escapeHtml(title) + '">';
       var close = day ? '</button>' : '</div>';
       return open +
@@ -34337,7 +34583,7 @@ ${renderExportBindings()}
       html += '<section class="f4-desk" aria-label="Form 4 insider transactions">' +
         '<div class="f4-head"><div><span class="f13-kicker">Form 4 insider tape</span><h3>What insiders actually reported</h3><p>Open-market purchases and sales are separated from grants, exercises, gifts, and tax withholding. A filing is evidence of the transaction—not proof of the insider&rsquo;s motive.</p></div>' +
           '<span class="f13-coverage"><b>' + Number(f4.openMarketCount || marketRows.length) + '</b><small>open-market rows</small></span></div>' +
-        '<div class="f13-desk-source"><span><b>SEC EDGAR · ' + Number(f4.lookbackDays || 60) + '-day lookback</b> · ' + Number(f4.transactionCount || f4.transactions.length) + ' total non-derivative transactions</span><small>latest up to ' + Number(f4.filingsPerIssuerCap || 2) + ' filings / issuer · usually filed within two business days</small></div>' +
+        '<div class="f13-desk-source"><span><b>SEC EDGAR · ' + Number(f4.lookbackDays || 60) + '-day lookback</b> · ' + Number(f4.transactionCount || f4.transactions.length) + ' total non-derivative transactions</span><small>' + (f4.filingsPerIssuerMode === 'unread' ? 'up to ' + Number(f4.filingsPerIssuerCap || 5) + ' new filings / issuer each update' : 'latest up to ' + Number(f4.filingsPerIssuerCap || 2) + ' filings / issuer') + ' · usually filed within two business days</small></div>' +
         clusterHtml +
         '<div class="f4-grid">' +
           form4Side(f4.topPurchases, 'buy', 'Open-market purchases') +
@@ -37044,6 +37290,9 @@ ${renderExportBindings()}
     } },
     // Exposure caps (lib/top-picks-caps.mjs), stamped from Nov 6.
     { key:'caps', get:function(e){ return (e && e.capsVersion) || ''; } },
+    // Unusual-flow scan rules behind the flow vote (opening half hour, a bar
+    // per stock), stamped from 2026-11-17.
+    { key:'flowscan', get:function(e){ return (e && e.flowScanVersion) || ''; } },
     // Option-structure rule (singles by default), stamped from its first trade.
     { key:'structure', get:function(e){ return (e && e.structurePolicyVersion) || ''; } },
     // AI final grader mode (live / off / keyless), stamped from 2026-11-08.
@@ -37056,7 +37305,10 @@ ${renderExportBindings()}
     { key:'loop', get:function(e){ return (e && e.loopVersion != null) ? 'v' + e.loopVersion : ''; } },
     // Owner Settings page values that change which trades open (stamped from
     // 2026-11-10 only while one differs from its default).
-    { key:'settings', get:function(e){ return (e && typeof e.ownerSettings === 'string' && e.ownerSettings) || ''; } }
+    { key:'settings', get:function(e){ return (e && typeof e.ownerSettings === 'string' && e.ownerSettings) || ''; } },
+    // Unusual volume vote rules (measured intraday curve + session-so-far
+    // read), stamped on new trades; empty while both volume switches are off.
+    { key:'volume', get:function(e){ return (e && typeof e.volumeReadVersion === 'string' && e.volumeReadVersion) || ''; } }
   ];
   var OWNER_SETTING_LABELS = ${JSON.stringify(Object.fromEntries(OWNER_SETTINGS.filter(d => d.picks).map(d => [d.key, d.label])))};
   function ownerSettingsTagText(tag){
@@ -37083,8 +37335,20 @@ ${renderExportBindings()}
     entry: { '2026-10-23-reviewed-entry-v3': { since:'2026-10-23', note:'Entries must pass an option-price check' } },
     timing: { '4': { since:'2026-10-23', note:'Volatility-aware entry timing' }, '5': { since:'2026-11-06', note:'Event-aware: trades through macro events and earnings when the evidence agrees' } },
     caps: { '2026-11-06-factor-run-2': { since:'2026-11-06', note:'At most 2 new trades per run from one stock group (the tech/AI group)' } },
+    // No fixed dates: each divider dates from the first trade under the rule.
+    flowscan: {
+      '2026-11-17': { note:'Flow scan counts the opening half hour and gives each stock its own volume bar, so the flow vote sees more names' },
+      '2026-11-17-open': { note:'Flow scan counts the opening half hour (one volume bar for every stock)' },
+      '2026-11-17-bars': { note:'Flow scan gives each stock its own volume bar (opening half hour not counted)' }
+    },
     // No fixed date: the divider dates from the first trade under the rule.
     structure: { '2026-11-singles-default': { note:'Single calls and puts by default; a debit spread only for earnings inside the hold or one contract over $5,000' } },
+    // No fixed dates: each version's divider dates from its first trade.
+    volume: {
+      '2026-11-17': { note:'Unusual volume vote reads the session so far against an intraday curve measured from recent sessions' },
+      '2026-11-17-curve': { note:'Intraday volume curve measured from recent sessions (session-so-far vote off)' },
+      '2026-11-17-read': { note:'Unusual volume vote reads the session so far (fixed intraday curve)' }
+    },
     // No fixed dates: each mode's divider dates from its first trade.
     grader: { 'off': { note:'AI final grader off (AI_THESIS=0): deterministic grades and entries only' }, 'keyless': { note:'AI final grader had no key: deterministic grades and entries only' }, 'live': { note:'AI final grader back on' } }
   };
@@ -48092,8 +48356,11 @@ ${renderExportBindings()}
     for (var d = 0; d < 12; d++){
       var dt = new Date(base + d * 86400000);
       var dow = dt.getUTCDay();
-      if (dow === 0 || dow === 6 || MARKET_HOLIDAYS.hasOwnProperty(dt.toISOString().slice(0, 10))) continue;
+      var dayKey = dt.toISOString().slice(0, 10);
+      if (dow === 0 || dow === 6 || MARKET_HOLIDAYS.hasOwnProperty(dayKey)) continue;
       for (var i = 0; i < slots.length; i++){
+        // On a 13:00 ET early close the 15:30 build runs without Top Picks.
+        if (MARKET_HALF_DAYS.hasOwnProperty(dayKey) && slots[i][0] >= 13) continue;
         // A run takes about 20 minutes; inside that window it reads "running now".
         if (d === 0 && et.hour >= slots[i][0] + 0.34) continue;
         var running = d === 0 && et.hour >= slots[i][0];

@@ -1,4 +1,4 @@
-import { sessionForDate } from "../lib/us-equity-calendar.mjs";
+import { sessionForDate, etClock } from "../lib/us-equity-calendar.mjs";
 import { isOwnershipBookKey } from "../lib/data-ownership.mjs";
 import { createOwnershipSecReader, expandOwnershipSubmissions, ownershipPrimaryUrl, ownershipNotice, ownershipRequestSignal } from "../lib/ownership-sec.mjs";
 import { packOwnershipBooks, ownershipBookClientFactory, retainOwnershipBooks } from "../lib/ownership-books.mjs";
@@ -166,6 +166,8 @@ import { forcedLiquidationContext } from "../lib/forced-liquidation.mjs";
 import { buyoutContextFor } from "../lib/pending-buyout-guard.mjs";
 import { buildShadowSignals, altDataGauges, resemblesGauges, insiderFromStructure } from "../lib/shadow-signals.mjs";
 import { signedFlowBySymbol, legacyPersistBySymbol, signedFlowVote, legacyFlowVote, flowVotesBySymbol } from "../lib/flow-direction.mjs";
+import { flowScanVersion } from "../lib/flow-scan-rules.mjs";
+import { volumeSwitches, volumeReadVersion } from "../lib/volume-flags.mjs";
 import { buildShadowResearch } from "../lib/shadow-research.mjs";
 import { buildEntrySnapshot } from "../lib/trade-snapshot.mjs";
 import { PICKS_MAX_PER_SECTOR, PICKS_MAX_NEW_PER_FACTOR_RUN, PICKS_CAPS_VERSION, factorOfSectorLabel, exposureCapBlock, countExposure } from "../lib/top-picks-caps.mjs";
@@ -383,7 +385,7 @@ export const GLOBAL_MARKETS = {
   "9984.T":    { name: "SoftBank Group",      region: "Japan",       type: "equity", lead: "Arm parent" },
   // Hong Kong / China (closes ~04:00 ET)
   "^HSI":      { name: "Hang Seng",           region: "China",       type: "index",  lead: "China / HK tech" },
-  "000300.SS": { name: "CSI 300",             region: "China",       type: "index",  lead: "Mainland China large caps" },
+  "000001.SS": { name: "Shanghai Composite",  region: "China",       type: "index",  lead: "Mainland China broad market" },
   // Australia (closes ~01:00-02:00 ET) — broad Asia-Pacific risk, commodity exporters
   "^AXJO":     { name: "ASX 200",             region: "Australia",   type: "index",  lead: "Australia broad / commodity exporters" },
   // Europe (closes ~11:30 ET — concurrent with the US morning, not overnight)
@@ -399,7 +401,7 @@ export const GLOBAL_MARKETS = {
   "AUDUSD=X":  { name: "AUD/USD",             region: "FX & rates",  type: "fx",     lead: "Australian dollar vs USD", hidden: true },
   "GBPUSD=X":  { name: "GBP/USD",             region: "FX & rates",  type: "fx",     lead: "Sterling vs USD", hidden: true },
   "DX-Y.NYB":  { name: "Dollar index (DXY)",  region: "FX & rates",  type: "fx",     lead: "Broad USD" },
-  "CNH=X":     { name: "USD/CNH",             region: "FX & rates",  type: "fx",     lead: "Offshore yuan (up = yuan weaker = Asia stress)" },
+  "CNY=X":     { name: "USD/CNY",             region: "FX & rates",  type: "fx",     lead: "Onshore yuan (up = yuan weaker = Asia stress)" },
   "KRW=X":     { name: "USD/KRW",             region: "FX & rates",  type: "fx",     lead: "Korean won (up = won weaker = chip/EM stress)" },
   "US2Y":      { name: "US 2Y yield",         region: "FX & rates",  type: "rate",   lead: "Short rates / Fed path" },
   "^TNX":      { name: "US 10Y yield",        region: "FX & rates",  type: "rate",   lead: "Long rates / valuations" },
@@ -6819,8 +6821,8 @@ export function earningsSessionRepairTargets(symbol, events, todayIso) {
 // announcement-day session and the run-up and IV reads around it are cleared
 // so the resolve pass refills them on the right side of the print. Returns
 // false (and changes nothing) when the bars cannot price the AM reaction.
-export function applyAmSessionRepair(ev, bars) {
-  const rx = computeEarningsReaction(bars, ev.date, "AM");
+export function applyAmSessionRepair(ev, bars, liveBarDate = null) {
+  const rx = computeEarningsReaction(bars, ev.date, "AM", { liveBarDate });
   if (!rx) return false;
   Object.assign(ev, rx);
   ev.session = "AM";
@@ -7015,8 +7017,12 @@ async function fetchEarningsBackfillBars(symbol, lookbackDays = EARNINGS_BACKFIL
 // sessions AFTER the reaction) stays null until those bars exist —
 // week1Done=false tells the caller to recompute on a later build (which also
 // refreshes a movePct first computed off an in-progress intraday bar).
-// Exported for unit testing, like resolvePickOutcome.
-export function computeEarningsReaction(bars, dateIso, session) {
+// liveBarDate names the date of an in-progress (unfinished) session bar, when
+// the bars end in one: the week-1 drift is never read off it, because
+// week1Done freezes the row (the 10:00 ET bake used to stamp week1Pct from a
+// half-hour-old price and keep it for good). Exported for unit testing, like
+// resolvePickOutcome.
+export function computeEarningsReaction(bars, dateIso, session, { liveBarDate = null } = {}) {
   if (!Array.isArray(bars) || bars.length < 2 || typeof dateIso !== "string") return null;
   const isAm = session === "AM";
   let rIdx = -1;
@@ -7040,11 +7046,39 @@ export function computeEarningsReaction(bars, dateIso, session) {
     week1Done: false,
   };
   const w = bars[rIdx + 5];
-  if (w?.c > 0) {
+  if (w?.c > 0 && !(liveBarDate && w.t === liveBarDate)) {
     out.week1Pct = ehxRound(w.c / r.c - 1);
     out.week1Done = true;
   }
   return out;
+}
+
+// The date of the in-progress session bar the daily bars end in, or null when
+// the last bar is a finished session (the same rule as confirmedDailyBars).
+export function liveDailyBarDate(bars, marketState, now = new Date()) {
+  if (!Array.isArray(bars) || !bars.length) return null;
+  if (confirmedDailyBars(bars, marketState, now).length === bars.length) return null;
+  const last = bars[bars.length - 1];
+  return barDateKey(last?.t ?? last?.date) || null;
+}
+
+// One-time repair (v1, 2026-11-17): re-read every stored week-1 drift the bars
+// still cover, so the rows frozen off an in-progress bar get the closing price.
+export const EARNINGS_WEEK1_FIX_VERSION = 1;
+export function repairEarningsWeek1(entry, bars, liveBarDate = null) {
+  if (!entry || entry.week1Fix === EARNINGS_WEEK1_FIX_VERSION || !Array.isArray(bars) || bars.length < 2) return 0;
+  let fixed = 0;
+  let waiting = false;
+  for (const ev of Array.isArray(entry.events) ? entry.events : []) {
+    if (!ev?.week1Done || !ev.date) continue;
+    const rx = computeEarningsReaction(bars, ev.date, ev.session, { liveBarDate });
+    if (!rx) continue; // older than the bars: nothing to re-read
+    if (!rx.week1Done) { waiting = true; continue; } // its sixth session is still trading: retry next build
+    if (rx.week1Pct !== ev.week1Pct || rx.movePct !== ev.movePct) fixed++;
+    Object.assign(ev, rx);
+  }
+  if (!waiting) entry.week1Fix = EARNINGS_WEEK1_FIX_VERSION;
+  return fixed;
 }
 
 // Pure: the price path around one print for the stock page's earnings mini
@@ -7182,10 +7216,31 @@ export function transcriptGuidanceDirection(rows) {
 // the event) or the result is implausible (<0.5% or >50%). An approximation —
 // it rides a separate field (impliedMoveEstPct) and renders marked ("~±") so
 // it never impersonates a real straddle snapshot. Exported for unit testing.
+// Since 2026-11-17 (Owner choice) the 1σ event move is scaled to what an
+// at-the-money straddle would have cost, about 0.8σ (sqrt(2/π)), so the
+// estimate sits on the same scale as the live straddle stamp it stands in for
+// (impliedMovePct). Before, estimated prints looked about 25% wider than
+// stamped ones, so fewer moves "exceeded" the estimate.
+export const STRADDLE_SIGMA_RATIO = Math.sqrt(2 / Math.PI);
+export const IMPLIED_MOVE_EST_VERSION = 2;
 export function impliedMoveFromIvCrush(ivPre, ivPost) {
   if (!(ivPre > 0) || !(ivPost > 0) || !(ivPre > ivPost)) return null;
-  const m = Math.sqrt((ivPre * ivPre - ivPost * ivPost) * (30 / 365));
+  const m = Math.sqrt((ivPre * ivPre - ivPost * ivPost) * (30 / 365)) * STRADDLE_SIGMA_RATIO;
   return m >= 0.005 && m <= 0.5 ? m : null;
+}
+// Re-read an estimate stored on the old 1σ scale once: from the stored IVs
+// when both are there, else by scaling the stored number. Returns true when it
+// changed the event. A live straddle stamp is never touched.
+export function rescaleImpliedMoveEstimate(ev) {
+  if (!ev || ev.impliedMovePct != null || ev.impliedMoveEstPct == null) return false;
+  if (ev.impliedMoveEstV === IMPLIED_MOVE_EST_VERSION) return false;
+  const fresh = impliedMoveFromIvCrush(ev.ivPre, ev.ivPost);
+  const old = Number(ev.impliedMoveEstPct);
+  const next = fresh != null ? fresh : (Number.isFinite(old) && old > 0 ? old * STRADDLE_SIGMA_RATIO : null);
+  if (next == null) delete ev.impliedMoveEstPct;
+  else ev.impliedMoveEstPct = Math.round(next * 1e4) / 1e4;
+  ev.impliedMoveEstV = IMPLIED_MOVE_EST_VERSION;
+  return true;
 }
 
 // Upsert one event into a ticker's list, matching within ±3 days so the
@@ -7309,6 +7364,8 @@ export async function updateEarningsEventsHistory(store, chains, ivHistoryMap) {
   const oldest = etDateKey(new Date(nowMs - (EARNINGS_DEEP_YEARS + 0.5) * 365.25 * 86400000));
   let backfilled = 0;
   let resolved = 0;
+  let week1Repaired = 0;
+  let estRescaled = 0;
   await runPooled(syms, EARNINGS_BACKFILL_CONCURRENCY, async (sym) => {
     const data = chains[sym];
     const entry = (store.tickers[sym] ||= { events: [] });
@@ -7374,7 +7431,7 @@ export async function updateEarningsEventsHistory(store, chains, ivHistoryMap) {
         let fixed = 0;
         for (const ev of repairTargets) {
           const bars = backfillBars && (!barsStart2 || ev.date <= barsStart2) ? backfillBars : data._bars;
-          if (applyAmSessionRepair(ev, bars)) fixed++;
+          if (applyAmSessionRepair(ev, bars, liveDailyBarDate(bars, data.marketState))) fixed++;
           else ev.amRepairTried = true;
         }
         if (fixed) console.log(`    ${sym}: re-read ${fixed} before-open print(s) on the announcement-day session`);
@@ -7408,6 +7465,9 @@ export async function updateEarningsEventsHistory(store, chains, ivHistoryMap) {
         }, true);
       }
     }
+    // Week-1 drifts stamped off an in-progress bar before 2026-11-17 are
+    // re-read once from the closes the bars still cover.
+    week1Repaired += repairEarningsWeek1(entry, data._bars, liveDailyBarDate(data._bars, data.marketState));
     // Resolve / refresh passed events.
     const ivEntries = ivHistoryMap?.get?.(sym)?.entries || [];
     const guidanceStampCutoff = etDateKey(new Date(nowMs - EARNINGS_GUIDANCE_STAMP_DAYS * 86400000));
@@ -7432,7 +7492,7 @@ export async function updateEarningsEventsHistory(store, chains, ivHistoryMap) {
       const barsStart = data._bars?.find((b) => b?.t)?.t || null;
       const bars = backfillBars && (!barsStart || ev.date <= barsStart) ? backfillBars : data._bars;
       if (!ev.week1Done) {
-        const rx = computeEarningsReaction(bars, ev.date, ev.session);
+        const rx = computeEarningsReaction(bars, ev.date, ev.session, { liveBarDate: liveDailyBarDate(bars, data.marketState) });
         if (rx) {
           Object.assign(ev, rx);
           resolved++;
@@ -7462,8 +7522,8 @@ export async function updateEarningsEventsHistory(store, chains, ivHistoryMap) {
       if (ev.impliedMovePct == null && ev.impliedMoveEstPct == null
         && (ev.epsActual != null || ev.movePct != null)) {
         const est = impliedMoveFromIvCrush(ev.ivPre, ev.ivPost);
-        if (est != null) ev.impliedMoveEstPct = ehxRound(est);
-      }
+        if (est != null) { ev.impliedMoveEstPct = ehxRound(est); ev.impliedMoveEstV = IMPLIED_MOVE_EST_VERSION; }
+      } else if (rescaleImpliedMoveEstimate(ev)) estRescaled++;
       // Stamp the guidance direction, once per print. Two sources, first hit
       // sticks: (1) the earnings-call transcript brief — the primary source
       // (its guidance table lists every raised/maintained/lowered figure from
@@ -7507,7 +7567,7 @@ export async function updateEarningsEventsHistory(store, chains, ivHistoryMap) {
       entry.events = entry.events.slice(-EARNINGS_HISTORY_MAX_EVENTS);
     }
   });
-  console.log(`Earnings history: ${backfilled} tickers backfilled, ${resolved} events resolved/refreshed.`);
+  console.log(`Earnings history: ${backfilled} tickers backfilled, ${resolved} events resolved/refreshed${week1Repaired ? `, ${week1Repaired} week-1 drift(s) re-read from closing prices` : ""}${estRescaled ? `, ${estRescaled} IV-crush move estimate(s) moved to straddle terms` : ""}.`);
 }
 
 // Session-aware epoch (ms) for an earnings print. A bare date string anchors to
@@ -8054,7 +8114,7 @@ export async function buildEarningsTrackerPayload(store, chains, builtAtIso, pri
       beatButDown: 0, missedButUp: 0,
       preKnown: 0, preUp: 0, preFlat: 0, preDown: 0,
     };
-    let mvSum = 0, mvAbsSum = 0, impSum = 0, surSum = 0, surN = 0, wkSum = 0, wkN = 0;
+    let mvSum = 0, mvAbsSum = 0, impSum = 0, impAbsMvSum = 0, surSum = 0, surN = 0, wkSum = 0, wkN = 0;
     let pre10Sum = 0, pre10N = 0, pre15Sum = 0, pre15N = 0;
     let preUpMvSum = 0, preUpMvN = 0, preDownMvSum = 0, preDownMvN = 0;
     for (const r of rows) {
@@ -8073,6 +8133,7 @@ export async function buildEarningsTrackerPayload(store, chains, builtAtIso, pri
         if (r.impliedEst) c.impliedEst++;
         if (r.exceededImplied) c.exceededImplied++; else c.withinImplied++;
         impSum += r.impliedMovePct;
+        impAbsMvSum += Math.abs(r.movePct); // exceededImplied is only set when the move exists
       }
       if (r.movePct != null) {
         c.moveKnown++;
@@ -8101,6 +8162,9 @@ export async function buildEarningsTrackerPayload(store, chains, builtAtIso, pri
       avgMovePct: c.moveKnown ? ehxRound(mvSum / c.moveKnown) : null,
       avgAbsMovePct: c.moveKnown ? ehxRound(mvAbsSum / c.moveKnown) : null,
       avgImpliedMovePct: c.impliedKnown ? ehxRound(impSum / c.impliedKnown) : null,
+      // The realized side of "avg implied vs avg realized", over the SAME
+      // prints that have an implied read (avgAbsMovePct covers every print).
+      avgAbsMoveImpliedPct: c.impliedKnown ? ehxRound(impAbsMvSum / c.impliedKnown) : null,
       avgSurprisePct: surN ? ehxRound(surSum / surN, 2) : null,
       avgWeek1Pct: wkN ? ehxRound(wkSum / wkN) : null,
       breadthPct: (c.up + c.down) ? ehxRound((c.up / (c.up + c.down)) * 100, 1) : null,
@@ -10652,6 +10716,19 @@ export function canDiff13FFirmSnapshot(firm) {
   );
 }
 
+// The prior build's change tables for a manager whose prior-quarter read
+// failed now, when both builds compared the same two filings.
+export function retained13FDeltas(firm, priorPayload, periodEndIso) {
+  if (!firm?.latest || !firm.prior || firm.priorFetchOk || firm.comparisonUnavailable || !firm.latestFetchOk) return null;
+  if (!priorPayload || priorPayload.periodEndIso !== periodEndIso) return null;
+  const cached = priorPayload.perFirm?.[firm.firm];
+  if (!cached || String(cached.cik) !== String(firm.cik)) return null;
+  if (cached.filingDate !== firm.latest.filingDate || cached.priorFilingDate !== firm.prior.filingDate) return null;
+  const rows = (k) => Array.isArray(cached[k]) ? cached[k] : [];
+  if (!rows('topBought').length && !rows('topSold').length) return null;
+  return { ...cached, topBought: rows('topBought'), topSold: rows('topSold') };
+}
+
 export async function buildPerFirm13FHoldings(asOf = new Date(), { priorPayload = null, chains = {}, cusipMapper = fetchOpenFigiCusipMap } = {}) {
   // Freeze one report period for the whole fan-out. currentF13Quarter waits
   // until the filing deadline has passed, avoiding a partially reported
@@ -10753,6 +10830,23 @@ export async function buildPerFirm13FHoldings(asOf = new Date(), { priorPayload 
         reportDate: f.latest.reportDate, filingForm: f.latest.form,
         totalValue: ownership.stockValue, totalPositions: ownership.holdings.filter(r => r.type === 'stock' && !r.isExit).length,
         topBought: [], topSold: [] } : null;
+      // Only the prior-quarter read failed this build: keep the change tables
+      // an earlier build computed from the SAME two filings instead of blanking
+      // them (and the cross-firm totals) until the next build.
+      const retained = retained13FDeltas(f, priorPayload, targetQuarter.periodEndIso);
+      if (perFirm[f.firm] && retained) {
+        Object.assign(perFirm[f.firm], {
+          priorFilingDate: retained.priorFilingDate, priorReportDate: retained.priorReportDate ?? null,
+          priorTotalValue: retained.priorTotalValue ?? null,
+          topBought: relabelF13Rows(retained.topBought, cusipMap), topSold: relabelF13Rows(retained.topSold, cusipMap),
+          deltaStatus: 'retained', deltaCollectedAtIso: retained.collectedAtIso || priorPayload?.builtAtIso || null,
+        });
+        // Only each side's largest 20 rows survive in the published file, so
+        // the cross-firm totals use those for this manager.
+        for (const d of [...perFirm[f.firm].topBought, ...perFirm[f.firm].topSold]) {
+          if (d?.cusip && d.valueChange) allDeltaRows.push({ ...d, firm: f.firm });
+        }
+      }
       continue;
     }
     const latestCollapsed = collapseHoldingsByCusip(f.latestHoldings);
@@ -10836,7 +10930,18 @@ export async function buildPerFirm13FHoldings(asOf = new Date(), { priorPayload 
 // It shares the SEC-filings workspace in the UI but remains a separate payload
 // with its own dates, transaction codes, and explicit open-market classification.
 const FORM4_LOOKBACK_DAYS = 60;
-const FORM4_FILINGS_PER_TICKER = 2;
+// Up to this many not-yet-read filings per issuer each build (Owner choice,
+// 2026-11-17; was the newest 2 filings, so a busy filing day dropped the
+// rest for good). Read filings are remembered in `readAccessions`, so the
+// rest are picked up by the next builds, and a filing with no share rows is
+// not read again.
+const FORM4_FILINGS_PER_TICKER = 5;
+// Rows kept in the published list: every open-market purchase in the window
+// (cluster buying reads them), then the newest of the rest up to this cap.
+const FORM4_KEEP_ROWS = 120;
+// Stop starting new issuers after this long, so a first catch-up run cannot
+// hold the 13F work past its timeout; the rest wait for the next build.
+const FORM4_SWEEP_BUDGET_MS = 150_000;
 
 function xmlTagValue(block, tag) {
   const m = String(block || "").match(new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)<\\/${tag}>`, "i"));
@@ -10911,7 +11016,39 @@ function recentForm4Filings(submissions, cutoffIso) {
     });
   }
   rows.sort((a, b) => String(b.filingDate).localeCompare(String(a.filingDate)));
-  return rows.slice(0, FORM4_FILINGS_PER_TICKER);
+  return rows;
+}
+
+// The filings this build reads for one issuer: the newest unread ones in the
+// window, at most `cap`. `read` is a Set of accession numbers already read.
+export function form4UnreadFilings(inWindow = [], read = new Set(), cap = FORM4_FILINGS_PER_TICKER) {
+  return (inWindow || []).filter((f) => f?.accessionNumber && !read.has(f.accessionNumber)).slice(0, cap);
+}
+
+// The remembered read list, per issuer. An issuer whose filing list came back
+// keeps only the read filings still in the window plus the ones read now; an
+// issuer not checked this build keeps its earlier list.
+export function form4ReadLedger(prior = {}, checked = {}, readNow = {}) {
+  const out = {};
+  for (const [sym, list] of Object.entries(prior || {})) {
+    if (!checked[sym] && Array.isArray(list) && list.length) out[sym] = list.slice();
+  }
+  for (const [sym, inWindow] of Object.entries(checked || {})) {
+    const keep = new Set([...(prior?.[sym] || []), ...(readNow[sym] || [])]);
+    const list = (inWindow || []).map((f) => f?.accessionNumber).filter((a) => a && keep.has(a));
+    if (list.length) out[sym] = list;
+  }
+  return out;
+}
+
+// The published rows: every open-market purchase, then the newest of the
+// rest, newest first, `cap` in all unless purchases alone pass it.
+export function form4KeptRows(rows = [], cap = FORM4_KEEP_ROWS) {
+  const buys = rows.filter((row) => row?.direction === "buy");
+  const room = Math.max(0, cap - buys.length);
+  const rest = rows.filter((row) => row?.direction !== "buy").slice(0, room);
+  const keep = new Set([...buys, ...rest]);
+  return rows.filter((row) => keep.has(row));
 }
 
 async function fetchEdgarForm4(cik, symbol, filing) {
@@ -10960,28 +11097,44 @@ export async function buildForm4InsiderTransactions(priorPayload = null, asOf = 
   }
 
   const symbols = TICKERS.filter((symbol) => _cikMap?.get(symbol));
+  // The remembered read list. A payload from before 2026-11-17 has none, so
+  // the filings that already gave rows count as read.
+  const priorLedger = priorPayload?.insiderTransactions?.readAccessions
+    && typeof priorPayload.insiderTransactions.readAccessions === "object"
+    ? priorPayload.insiderTransactions.readAccessions
+    : null;
+  const readFor = (symbol) => new Set(priorLedger ? (priorLedger[symbol] || []) : []);
   // Fresh rows stay separate until the final merge; a per-issuer submissions
   // outage therefore cannot erase still-in-window prior disclosures.
   const freshTransactions = [];
+  const checked = {}, readNow = {};
   let cursor = 0;
   let issuersChecked = 0;
   let filingsParsed = 0;
+  let unreadLeft = 0;
+  let outOfTime = 0;
+  const startedMs = Date.now();
   const workers = Array.from({ length: Math.min(2, symbols.length) }, async () => {
     while (cursor < symbols.length) {
+      if (Date.now() - startedMs > FORM4_SWEEP_BUDGET_MS) { outOfTime = symbols.length - cursor; break; }
       const symbol = symbols[cursor++];
       const cik = _cikMap.get(symbol);
       try {
         const submissions = await fetchEdgarSubmissions(cik);
         issuersChecked++;
-        for (const filing of recentForm4Filings(submissions, cutoffIso)) {
-          const cached = priorByAccession.get(filing.accessionNumber);
-          if (cached?.length) {
-            continue;
-          }
+        const inWindow = recentForm4Filings(submissions, cutoffIso);
+        checked[symbol] = inWindow;
+        const read = readFor(symbol);
+        if (!priorLedger) for (const f of inWindow) if (priorByAccession.get(f.accessionNumber)?.length) read.add(f.accessionNumber);
+        const toRead = form4UnreadFilings(inWindow, read);
+        unreadLeft += Math.max(0, inWindow.filter((f) => f?.accessionNumber && !read.has(f.accessionNumber)).length - toRead.length);
+        readNow[symbol] = [...read];
+        for (const filing of toRead) {
           try {
             const rows = await fetchEdgarForm4(cik, symbol, filing);
             freshTransactions.push(...rows);
             filingsParsed++;
+            readNow[symbol].push(filing.accessionNumber);
           } catch (err) {
             console.log(`    ⚠ ${symbol} Form 4 ${filing.accessionNumber} failed: ${err.message}`);
           }
@@ -10990,12 +11143,15 @@ export async function buildForm4InsiderTransactions(priorPayload = null, asOf = 
       } catch (err) {
         console.log(`    ⚠ ${symbol} Form 4 submissions failed: ${err.message}`);
       }
-      // Two workers × at most three SEC requests per ticker stays below the
-      // SEC's published 10-request/second fair-access ceiling.
+      // Two workers × at most six SEC requests per ticker, each spaced, stay
+      // below the SEC's published 10-request/second fair-access ceiling.
       await new Promise((resolve) => setTimeout(resolve, 650));
     }
   });
   await Promise.all(workers);
+  if (outOfTime) console.log(`    · Form 4: ${outOfTime} issuers wait for the next build (sweep time budget)`);
+  if (unreadLeft) console.log(`    · Form 4: ${unreadLeft} unread filings wait for the next build (${FORM4_FILINGS_PER_TICKER} per issuer per build)`);
+  const readAccessions = form4ReadLedger(priorLedger || {}, checked, readNow);
 
   const deduped = mergeForm4TransactionRows(priorRows, freshTransactions, cutoffIso);
   const topPurchases = deduped
@@ -11010,19 +11166,23 @@ export async function buildForm4InsiderTransactions(priorPayload = null, asOf = 
     asOf: asOf.toISOString(),
     lookbackDays: FORM4_LOOKBACK_DAYS,
     filingsPerIssuerCap: FORM4_FILINGS_PER_TICKER,
+    filingsPerIssuerMode: "unread",
     issuersChecked,
     filingsParsed,
+    unreadLeft,
     transactionCount: deduped.length,
     openMarketCount: deduped.filter((row) => row.openMarket).length,
     topPurchases,
     topSales,
-    transactions: deduped.slice(0, 120),
+    transactions: form4KeptRows(deduped, FORM4_KEEP_ROWS),
     // Cluster buying (lib/insider-cluster.mjs): names where three or more
     // distinct insiders bought on the open market inside 30 days. Same rule
     // the browser applies to the rows above, stamped here for other readers.
     clusterBuying: findInsiderClusters(deduped, { asOf: asOf.toISOString() }),
+    // Accession numbers already read, per issuer, inside the lookback.
+    readAccessions,
     sourceNote:
-      `SEC EDGAR Form 4 filings, latest ${FORM4_FILINGS_PER_TICKER} filings per tracked issuer inside the ${FORM4_LOOKBACK_DAYS}-day lookback. ` +
+      `SEC EDGAR Form 4 filings inside the ${FORM4_LOOKBACK_DAYS}-day lookback, up to ${FORM4_FILINGS_PER_TICKER} unread filings per tracked issuer each build; filings already read are remembered. ` +
       "Open-market code P purchases and code S sales are ranked separately; awards, option exercises, gifts, and tax withholding remain labeled non-market transactions.",
   };
 }
@@ -11339,6 +11499,29 @@ const capexFyLabel = (endIso) => {
   return "FY" + new Date(end - 31 * 86400000).getUTCFullYear();
 };
 
+// The fiscal year before `latest`, or null when the series skips a year (a
+// filer whose SEC feed stops and whose Yahoo quarters only rebuild a later
+// year, as TSMC's will in early 2027). A two-year gap is not "the prior year".
+export function capexPriorYear(annual) {
+  if (!Array.isArray(annual) || annual.length < 2) return null;
+  const latest = annual[annual.length - 1];
+  const prior = annual[annual.length - 2];
+  const yr = (row) => Number(String(capexFyLabel(row?.endIso) || "").replace(/\D/g, ""));
+  return yr(latest) - yr(prior) === 1 ? prior : null;
+}
+
+// A latest full year that ends more than a year before the company's run-rate
+// is stale: TSMC's SEC feed stops at FY2024 and its Yahoo quarters cannot yet
+// rebuild FY2025, while its run-rate is current. Such a year stays on the
+// company row but is left out of the latest-year totals and growth.
+export const AI_CAPEX_STALE_FY_DAYS = 380;
+export function capexFyIsStale(fyEndIso, ttmAsOfIso) {
+  const end = Date.parse(fyEndIso || "");
+  const asOf = Date.parse(ttmAsOfIso || "");
+  if (!Number.isFinite(end) || !Number.isFinite(asOf)) return false;
+  return (asOf - end) / 86400000 > AI_CAPEX_STALE_FY_DAYS;
+}
+
 // Headline CapEx (and similar) YoY must compare the SAME companies in both
 // years. Mixing a new reporter into the latest sum against a smaller prior
 // cohort invents growth.
@@ -11460,7 +11643,7 @@ export async function buildAiCapexPayload(cikMap, chains, builtAtIso, prior = nu
     if (revReduced) {
       const ra = revReduced.annual;
       const rLatest = ra[ra.length - 1];
-      const rPrior = ra.length >= 2 ? ra[ra.length - 2] : null;
+      const rPrior = capexPriorYear(ra);
       rev = {
         fyLatest: { label: capexFyLabel(rLatest.endIso), end: rLatest.endIso, val: rLatest.val },
         fyPrior: rPrior ? { label: capexFyLabel(rPrior.endIso), end: rPrior.endIso, val: rPrior.val } : null,
@@ -11470,7 +11653,8 @@ export async function buildAiCapexPayload(cikMap, chains, builtAtIso, prior = nu
     }
     const a = reduced.annual;
     const fyLatest = a[a.length - 1];
-    const fyPrior = a.length >= 2 ? a[a.length - 2] : null;
+    const fyPrior = capexPriorYear(a);
+    const fyStale = capexFyIsStale(fyLatest.endIso, reduced.ttm?.asOf);
     const f = chains?.[ticker]?.fundamentals || {};
     // SEC TTM revenue when available (same source + fiscal calendar as capex);
     // Yahoo's totalRevenue is the fallback for the intensity ratio.
@@ -11482,6 +11666,7 @@ export async function buildAiCapexPayload(cikMap, chains, builtAtIso, prior = nu
       fyLatest: { label: capexFyLabel(fyLatest.endIso), end: fyLatest.endIso, val: fyLatest.val },
       fyPrior: fyPrior ? { label: capexFyLabel(fyPrior.endIso), end: fyPrior.endIso, val: fyPrior.val } : null,
       yoyPct,
+      ...(fyStale ? { fyStale: true } : {}),
       ttm: reduced.ttm,
       rev,
       revenue: revenue ?? null,
@@ -11514,21 +11699,29 @@ export async function buildAiCapexPayload(cikMap, chains, builtAtIso, prior = nu
   // differ (MSFT ends June, ORCL May, MU September), so the latest-FY sum is
   // usually a mix of years. Label it with the modal year and say when it is
   // mixed; the TTM run-rate is the like-for-like current read.
+  // A company whose latest full year is stale (fyStale) counts in the
+  // run-rate only, not in the latest-year sums, labels or growth.
+  const fyCompanies = companies.filter((c) => !c.fyStale);
   let fyLatestSum = 0, ttmSum = 0, ttmCount = 0;
   const labelCounts = new Map();
   const priorLabelCounts = new Map();
   for (const c of companies) {
-    fyLatestSum += c.fyLatest.val;
     if (c.ttm) { ttmSum += c.ttm.val; ttmCount++; }
+  }
+  // Run-rate vs latest full year, over the same companies on both sides.
+  let rrTtm = 0, rrFy = 0;
+  for (const c of fyCompanies) {
+    fyLatestSum += c.fyLatest.val;
     labelCounts.set(c.fyLatest.label, (labelCounts.get(c.fyLatest.label) || 0) + 1);
     if (c.fyPrior) priorLabelCounts.set(c.fyPrior.label, (priorLabelCounts.get(c.fyPrior.label) || 0) + 1);
+    if (c.ttm?.val > 0) { rrTtm += c.ttm.val; rrFy += c.fyLatest.val; }
   }
   const modal = (m) => [...m.entries()].sort((x, y) => y[1] - x[1] || String(y[0]).localeCompare(String(x[0])))[0]?.[0] || null;
   const latestLabel = modal(labelCounts);
   const priorLabel = modal(priorLabelCounts);
   const fyLabels = [...labelCounts.keys()].sort();
   const fyMixed = fyLabels.length > 1;
-  const capexYoy = capexCohortYoy(companies);
+  const capexYoy = capexCohortYoy(fyCompanies);
   // Combined-revenue aggregate for the capex-vs-revenue read. Sums are
   // restricted to names that reported BOTH capex and revenue for the window,
   // and the intensity ratios divide capex by revenue over that same subset —
@@ -11539,7 +11732,8 @@ export async function buildAiCapexPayload(cikMap, chains, builtAtIso, prior = nu
   let revCount = 0, revBothFy = 0, revTtmCount = 0;
   let revYoyLatest = 0, capexYoyLatestRev = 0;
   for (const c of companies) {
-    if (!c.rev || !c.rev.fyLatest) continue;
+    if (c.rev?.ttm && c.ttm) { revTtmCount++; revTtmSum += c.rev.ttm.val; capexTtmSumRev += c.ttm.val; }
+    if (c.fyStale || !c.rev || !c.rev.fyLatest) continue;
     revCount++;
     revFySum += c.rev.fyLatest.val;
     capexFySumRev += c.fyLatest.val;
@@ -11550,7 +11744,6 @@ export async function buildAiCapexPayload(cikMap, chains, builtAtIso, prior = nu
       revYoyLatest += c.rev.fyLatest.val;
       capexYoyLatestRev += c.fyLatest.val;
     }
-    if (c.rev.ttm && c.ttm) { revTtmCount++; revTtmSum += c.rev.ttm.val; capexTtmSumRev += c.ttm.val; }
   }
   const revenueTotals = revCount ? {
     fySum: revFySum,
@@ -11568,7 +11761,10 @@ export async function buildAiCapexPayload(cikMap, chains, builtAtIso, prior = nu
     fyLatestLabel: latestLabel, fyPriorLabel: priorLabel,
     fyMixed,
     fyRangeLabel: fyMixed ? `${fyLabels[0]}–${fyLabels[fyLabels.length - 1].replace(/^FY/, "")}` : latestLabel,
-    fyByLabel: Object.fromEntries(fyLabels.map((l) => [l, companies.filter((c) => c.fyLatest.label === l).map((c) => c.ticker)])),
+    fyByLabel: Object.fromEntries(fyLabels.map((l) => [l, fyCompanies.filter((c) => c.fyLatest.label === l).map((c) => c.ticker)])),
+    fyStale: companies.filter((c) => c.fyStale).map((c) => ({ ticker: c.ticker, label: c.fyLatest.label })),
+    fyCount: fyCompanies.length,
+    runRateVsFyPct: rrFy > 0 ? r1((rrTtm / rrFy - 1) * 100) : null,
     ttmAsOfRange: (() => {
       const d = companies.map((c) => c.ttm?.asOf).filter(Boolean).sort();
       return d.length ? [d[0], d[d.length - 1]] : null;
@@ -11810,31 +12006,66 @@ function ramPctBack(hist, days) {
   return r1((last.avg / base.avg - 1) * 100);
 }
 
-// Composite US-retail index: median of per-category avg (and min) prices at
-// each date the source sampled, requiring ≥3 categories per bucket so a
-// lone series can't swing the line.
-function buildRamRetailComposite(categories) {
-  const buckets = new Map();
-  for (const c of categories) {
-    for (const p of c.history || []) {
-      if (!buckets.has(p.d)) buckets.set(p.d, { avgs: [], mins: [] });
-      const b = buckets.get(p.d);
-      if (p.avg != null) b.avgs.push(p.avg);
-      if (p.min != null) b.mins.push(p.min);
-    }
-  }
+// Composite US-retail index. A plain median of category prices at each date
+// jumps whenever a category enters or leaves the sample (a $400 64 GB kit
+// joining a $120 32 GB median moves the "price" with no kit getting dearer),
+// so the line is chain-linked: each step is the median of the price change of
+// the categories priced on BOTH dates (at least three), and the line is
+// anchored so its newest point equals the newest median category price. The
+// min line is linked the same way from the per-category minimums.
+export function buildRamRetailComposite(categories) {
   const median = (xs) => {
     if (!xs.length) return null;
     const s = [...xs].sort((a, b) => a - b);
     const mid = s.length >> 1;
     return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
   };
+  const byDate = new Map();
+  (categories || []).forEach((c, ci) => {
+    for (const p of c?.history || []) {
+      if (!p?.d) continue;
+      if (!byDate.has(p.d)) byDate.set(p.d, new Map());
+      byDate.get(p.d).set(ci, p);
+    }
+  });
+  const dates = [...byDate.keys()].sort();
+  const link = (field) => {
+    const out = new Map();
+    let prevDate = null;
+    let level = null;
+    for (const d of dates) {
+      const now = byDate.get(d);
+      const priced = [...now.values()].filter((p) => p[field] > 0);
+      if (prevDate == null) {
+        if (priced.length >= 3) { level = 1; out.set(d, level); prevDate = d; }
+        continue;
+      }
+      const before = byDate.get(prevDate);
+      const ratios = [];
+      for (const [ci, p] of now) {
+        const q = before.get(ci);
+        if (p[field] > 0 && q?.[field] > 0) ratios.push(p[field] / q[field]);
+      }
+      if (ratios.length < 3) continue; // too few shared categories to link this date
+      level *= median(ratios);
+      out.set(d, level);
+      prevDate = d;
+    }
+    if (!out.size) return out;
+    const lastDate = [...out.keys()].pop();
+    const anchor = median([...byDate.get(lastDate).values()].map((p) => p[field]).filter((v) => v > 0));
+    const scale = anchor > 0 ? anchor / out.get(lastDate) : null;
+    for (const [d, v] of out) out.set(d, scale ? v * scale : null);
+    return out;
+  };
+  const avg = link("avg");
+  const min = link("min");
   const out = [];
-  for (const [d, b] of buckets) {
-    if (b.avgs.length < 3) continue;
-    out.push({ d, avg: Math.round(median(b.avgs)), min: b.mins.length >= 3 ? Math.round(median(b.mins)) : null });
+  for (const [d, v] of avg) {
+    if (!(v > 0)) continue;
+    const m = min.get(d);
+    out.push({ d, avg: Math.round(v), min: m > 0 ? Math.round(m) : null });
   }
-  out.sort((a, b) => (a.d < b.d ? -1 : 1));
   return out;
 }
 
@@ -12544,22 +12775,27 @@ async function readPriorBottomTracker() {
   try { return JSON.parse(await readFile(resolve(DATA_DIR, "bottom-tracker.json"), "utf8")); } catch { return null; }
 }
 
-function closesForBottom(chain) {
+// Completed sessions only (confirmedDailyBars, the rule the streaks and the
+// macro context use): during market hours Yahoo's last daily bar is the
+// session in progress, which is not a close. The verdict is dated by its
+// last bar, and the Top Picks shock-put lane reads it at 11:00 / 15:30 ET.
+export function closesForBottom(chain, now = new Date()) {
   const rows = [];
   if (Array.isArray(chain?._bars) && chain._bars.length) {
     for (const bar of chain._bars) rows.push({ t: bar?.t, c: bar?.c });
   } else if (chain?.priceSeries?.t && chain?.priceSeries?.c) {
     for (let i = 0; i < chain.priceSeries.t.length; i++) rows.push({ t: chain.priceSeries.t[i], c: chain.priceSeries.c[i] });
   }
-  return mergeDailyCloses(rows);
+  return mergeDailyCloses(confirmedDailyBars(rows, chain?.marketState, now));
 }
 
 // Reads SPY/QQQ history and every FRED series from the shared long-history
 // cache (fred(id) -> rows). No downloads of its own: the cache refreshes each
 // series once a day and keeps the last good rows when a download fails.
 async function writeBottomTrackerFile({ chains, indexBars, fred, prior, builtAtIso, crowd = null }) {
-  const spy = mergeDailyCloses(indexBars?.SPY, closesForBottom(chains?.SPY));
-  const qqq = mergeDailyCloses(indexBars?.QQQ, closesForBottom(chains?.QQQ));
+  const at = new Date(builtAtIso || Date.now());
+  const spy = mergeDailyCloses(indexBars?.SPY, closesForBottom(chains?.SPY, at));
+  const qqq = mergeDailyCloses(indexBars?.QQQ, closesForBottom(chains?.QQQ, at));
   const series = (id) => (fred ? fred(id) : []).filter((row) => Number.isFinite(row?.value));
   const hy = series("BAMLH0A0HYM2"), ig = series("BAMLC0A0CM"), stress = series("STLFSI4"), vix = series("VIXCLS");
   const dgs2 = series("DGS2"), cpi = series("CPIAUCSL"), unrate = series("UNRATE"), oil = series("DCOILWTICO");
@@ -12570,7 +12806,7 @@ async function writeBottomTrackerFile({ chains, indexBars, fred, prior, builtAtI
     if (SECTORS[sym] === "ETF") continue;
     const rev = chains[sym]?.fundamentals?.fyEpsRevision;
     if (rev) revisions.push(rev);
-    const bars = closesForBottom(chains[sym]);
+    const bars = closesForBottom(chains[sym], at);
     if (bars.length >= 60) breadthBars[sym] = bars;
   }
   const payload = buildBottomTracker({
@@ -17247,13 +17483,18 @@ export function fedTargetRangeMidpoint(rate) {
 // linearly interpolates probability between adjacent quantized outcomes:
 //   delta ∈ [0, +25bp]    → P(hike) = delta / 25bp,  P(hold) = 1 − that
 //   delta ∈ [-25bp, 0]    → P(cut)  = |delta| / 25bp, P(hold) = 1 − that
-//   |delta| > 25bp        → P(any-move) saturates at 100% (size info lost)
-function probsFromDelta(delta) {
+//   |delta| > 25bp        → P(any-move) saturates at 100%; `big` (only set
+//                           then) is the share priced as a 50bp move,
+//                           (|delta| − 25bp) / 25bp, for the widget's
+//                           "of which 50 bp" line (2026-11-17, Owner choice)
+// probsFromDeltaLive in scripts/render/app-js.mjs is the browser copy.
+export function probsFromDelta(delta) {
   let hike = 0, cut = 0;
   if (delta > 0) hike = clamp01(delta / 0.25);
   else if (delta < 0) cut = clamp01(-delta / 0.25);
   const hold = clamp01(1 - hike - cut);
-  return { hike, hold, cut };
+  const big = Math.abs(delta) > 0.25 ? clamp01((Math.abs(delta) - 0.25) / 0.25) : 0;
+  return big > 0 ? { hike, hold, cut, big } : { hike, hold, cut };
 }
 
 // Lookback buckets the FedWatch widget renders. Keep the names aligned
@@ -17366,7 +17607,7 @@ export async function fetchFedwatchSnapshot(meetingDates, currentRate) {
       out[m.date][label] = probsFromDelta(delta);
       if (label === "now") {
         const p = out[m.date][label];
-        console.log(`    · FedWatch ${m.date} via ${source}: pre=${preRate.toFixed(3)}% post=${postRate.toFixed(3)}% Δ=${(delta * 100).toFixed(1)}bp → hike=${(p.hike * 100).toFixed(0)}% hold=${(p.hold * 100).toFixed(0)}% cut=${(p.cut * 100).toFixed(0)}%`);
+        console.log(`    · FedWatch ${m.date} via ${source}: pre=${preRate.toFixed(3)}% post=${postRate.toFixed(3)}% Δ=${(delta * 100).toFixed(1)}bp → hike=${(p.hike * 100).toFixed(0)}% hold=${(p.hold * 100).toFixed(0)}% cut=${(p.cut * 100).toFixed(0)}%${p.big ? ` (of which 50bp ${(p.big * 100).toFixed(0)}%)` : ""}`);
       }
       preRate = postRate; // chain forward
     }
@@ -18515,10 +18756,23 @@ export const PICKS_ACCURACY_RESET_EPOCH = "2026-08-08.top-picks-v3";
 const GRADE_MODEL_VERSION_BASE = PICKS_MACRO_CONTEXT ? "2026-11-macro-context" : "2026-11-price-pillar";
 export const GRADE_MODEL_VERSION = !PICKS_FLOW_SIGNED ? GRADE_MODEL_VERSION_BASE
   : PICKS_MACRO_CONTEXT ? "2026-11-signed-flow" : "2026-11-signed-flow-no-macro";
+// 2026-11-17: the hourly scan behind the flow vote counts the opening half hour
+// and gives each stock its own volume bar (lib/flow-scan-rules.mjs). The grade
+// formula is unchanged, so this rides its own stamp, not the grade version.
+// Read from the same env the scanner uses (Owner Settings FLOW_OPEN_WINDOW /
+// FLOW_STOCK_BARS).
+export const FLOW_SCAN_VERSION = flowScanVersion(process.env);
 // Signal keys the grade no longer scores. Open trades whose entry drivers
 // include them skip those keys in the thesis re-score (see the thesis check
 // in updatePicksAccuracyFile).
 export const RETIRED_SIGNAL_KEYS = new Set(["macd", "fiftyTwoWeek"]);
+// 2026-11-17 audit: the Unusual volume vote reads volume since the open
+// against the measured "normal by now" curve (lib/volume-flags.mjs), not the
+// best single window of the day. VOLUME_SESSION_READ=0 restores the window
+// read; VOLUME_MEASURED_CURVE=0 the fixed curve (in the scanner). Stamped on
+// new trades as volumeReadVersion ("" = both off) for a Track Record divider.
+const VOLUME_SESSION_READ = volumeSwitches(process.env).sessionRead;
+export const VOLUME_READ_VERSION = volumeReadVersion(process.env);
 // Hard cap on the concurrently-tracked open book. Each build ships <=10
 // actionable picks, but re-entry suppression means every build surfaces NEW
 // names while the previously-enrolled ones stay open until an exit rule fires —
@@ -19024,8 +19278,19 @@ function peerGroupOf(sym, data) {
 // volume-flags.json (volRatio = hourly volume vs 20D-average hourly volume).
 // Returns the strongest bucket of the session, or null when no fresh read is on
 // disk (scoreMechanicals then falls back to daily relative volume).
-function hourlyVolumeRead(sym, volumeFlags) {
-  if (!volumeFlags || !Array.isArray(volumeFlags.tickers)) return null;
+export function hourlyVolumeRead(sym, volumeFlags, sessionRead = VOLUME_SESSION_READ) {
+  if (!volumeFlags) return null;
+  // Session so far (since 2026-11-17): one reading of all of today's volume
+  // against a normal day by now, with the move from yesterday's close. The
+  // scanner writes it for every name it evaluated. A file from before the
+  // change (no session block) falls through to the older window read.
+  const reads = volumeFlags.session?.reads;
+  if (sessionRead && reads && typeof reads === "object") {
+    const s = reads[sym];
+    if (!s || pnum(s.r) == null) return null;
+    return { volRatio: Number(s.r), priceMovePct: pnum(s.m), bucketLabel: null, basis: "session", etMin: pnum(s.t), etDate: volumeFlags.etDate || null };
+  }
+  if (!Array.isArray(volumeFlags.tickers)) return null;
   const row = volumeFlags.tickers.find((t) => t?.symbol === sym);
   if (!row || !Array.isArray(row.bucketHits)) return null;
   let best = null;
@@ -19542,7 +19807,11 @@ function scoreMechanicals(sym, data, unusualPayload) {
   if (hv && pnum(hv.volRatio) != null) {
     uvOk = true; const rv = Number(hv.volRatio); const mv = pnum(hv.priceMovePct) ?? pnum(dv?.priceMove1dPct) ?? 0;
     if (rv >= 1.3 && Math.abs(mv) >= 0.5) uv = mv > 0 ? 1 : -1;
-    uvVal = r1(rv) + "x hrly"; uvNote = `${r2(rv)}x hourly vs 20D-avg hourly`;
+    if (hv.basis === "session") {
+      uvVal = r1(rv) + "x so far"; uvNote = `${r2(rv)}x a normal day's volume by this time (since the open)`;
+    } else {
+      uvVal = r1(rv) + "x hrly"; uvNote = `${r2(rv)}x hourly vs 20D-avg hourly`;
+    }
   } else if (dv && pnum(dv.rvol) != null) {
     uvOk = true; const rv = Number(dv.rvol); const mv = pnum(dv.priceMove1dPct) ?? 0;
     if (rv >= 1.3 && Math.abs(mv) >= 0.5) uv = mv > 0 ? 1 : -1;
@@ -20868,10 +21137,14 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory = null, narrat
     // easing tailwind — only credit front-end easing as risk-on when equities aren't
     // falling. (axes.indexes is already scored above this axis.)
     const tapeOk = !axes.indexes || axes.indexes.score >= 0;
+    // Same reversal guard as the long-yield axis: a 5-day trend does not vote
+    // when today's move runs the other way by at least half the 1-day bar.
+    const twoReversingDown = b1 <= -PICKS_MACRO_TWOY_BPS_1D / 2;
+    const twoReversingUp = b1 >= PICKS_MACRO_TWOY_BPS_1D / 2;
     let s = 0, label = `2Y ${b1 >= 0 ? "+" : ""}${b1.toFixed(1)} bps 1d`;
     if (b1 >= PICKS_MACRO_TWOY_BPS_1D_STRONG) { s = -2; label = `2Y +${b1.toFixed(1)} bps — sharp front-end repricing`; }
-    else if (b1 >= PICKS_MACRO_TWOY_BPS_1D || (rising && b5 >= PICKS_MACRO_TWOY_BPS_1D)) { s = -1; label = `2Y ${b1 >= 0 ? "+" : ""}${b1.toFixed(1)} bps — front-end tightening`; }
-    else if ((b1 <= -PICKS_MACRO_TWOY_BPS_1D || (falling && b5 <= -PICKS_MACRO_TWOY_BPS_1D)) && tapeOk) { s = 1; label = `2Y ${b1.toFixed(1)} bps — front-end easing`; }
+    else if (b1 >= PICKS_MACRO_TWOY_BPS_1D || (rising && b5 >= PICKS_MACRO_TWOY_BPS_1D && !twoReversingDown)) { s = -1; label = `2Y ${b1 >= 0 ? "+" : ""}${b1.toFixed(1)} bps — front-end tightening`; }
+    else if ((b1 <= -PICKS_MACRO_TWOY_BPS_1D || (falling && b5 <= -PICKS_MACRO_TWOY_BPS_1D && !twoReversingUp)) && tapeOk) { s = 1; label = `2Y ${b1.toFixed(1)} bps — front-end easing`; }
     axes.twoY = { score: s, label };
     if (s <= -1) drivers.push(`2Y ${b1 >= 0 ? "+" : ""}${b1.toFixed(1)}bps`);
   } else axes.twoY = { score: 0, label: PICKS_MACRO_TWOY ? "no 2Y data" : "front-end axis off" };
@@ -29527,15 +29800,33 @@ function indexHourExtremeWindow(bars, target, side) {
   return null;
 }
 
+// When the build ran, in ET, with that day's close (13:00 on a half day).
+// Yahoo's 30-minute series and daily bar both include the bar still trading,
+// so the session log needs the build time to tell a finished bar from a live one.
+export function indexCalendarAsOf(builtAtIso) {
+  const ms = Date.parse(builtAtIso || "");
+  if (!Number.isFinite(ms)) return null;
+  const clock = etClock(ms);
+  const session = sessionForDate(clock.date);
+  return { date: clock.date, minute: clock.minute, closeMinute: session?.closeMinute ?? 960 };
+}
+function indexCalendarLive(asOf, date) {
+  return !!asOf && asOf.date === date && Number.isFinite(asOf.minute) && asOf.minute < asOf.closeMinute;
+}
+
 // Build one SPY/QQQ/IWM session log from the already-fetched daily + 30-minute
 // bars. A row becomes `firstHourComplete` after the 10:00 bar closes at 10:30 ET;
 // it becomes `dayComplete` once both 15:00/15:30 bars are present. Half-days do
 // not fabricate a 3–4pm reading: their first-hour record remains useful while
-// the last-hour/full-day path fields stay null.
-export function buildIndexHourSession(dailyBars, intradayBars, dailyIdx) {
+// the last-hour/full-day path fields stay null. With `asOf` (indexCalendarAsOf),
+// a bar of the build's own day counts only once its half hour has ended, and
+// the day is never complete before the close: the 10:00 build used to read the
+// live 10:00 bar as the 10:30 price, and the 15:30 build the live close.
+export function buildIndexHourSession(dailyBars, intradayBars, dailyIdx, asOf = null) {
   const daily = dailyBars?.[dailyIdx];
   if (!daily?.t) return null;
   const date = daily.t;
+  const live = indexCalendarLive(asOf, date);
   const prevClose = indexHourNum(dailyBars?.[dailyIdx - 1]?.c);
   const open = indexHourNum(daily.o);
   const close = indexHourNum(daily.c);
@@ -29543,13 +29834,14 @@ export function buildIndexHourSession(dailyBars, intradayBars, dailyIdx) {
   const dailyLow = indexHourNum(daily.l);
   const bars = (intradayBars || [])
     .filter((b) => String(b?.t || "").slice(0, 10) === date)
+    .filter((b) => !live || (indexHourTime(b) ?? Infinity) + 30 <= asOf.minute)
     .slice()
     .sort((a, b) => String(a.t).localeCompare(String(b.t)));
   const at = new Map(bars.map((b) => [indexHourTime(b), b]));
   const firstBars = [at.get(570), at.get(600)].filter(Boolean);
   const lastBars = [at.get(900), at.get(930)].filter(Boolean);
   const firstHourComplete = firstBars.length === 2 && open != null && indexHourNum(firstBars[1].c) != null;
-  const dayComplete = firstHourComplete && lastBars.length === 2 && close != null;
+  const dayComplete = !live && firstHourComplete && lastBars.length === 2 && close != null;
   const gapPct = indexHourPct(prevClose, open);
   const out = {
     prevClose: indexHourRoundPrice(prevClose),
@@ -29558,6 +29850,7 @@ export function buildIndexHourSession(dailyBars, intradayBars, dailyIdx) {
     gapClass: gapPct == null ? null : indexGapClass(gapPct),
     firstHourComplete,
     dayComplete,
+    ...(live ? { inProgress: true } : {}),
   };
   if (!firstHourComplete) return out;
 
@@ -29750,6 +30043,7 @@ export function attachIndexHourSessionContexts(days, calendarPayload = null) {
 }
 
 export function appendIndexCalendar(prev, chains, builtAtIso, extraBars = {}, calendarPayload = null) {
+  const asOf = indexCalendarAsOf(builtAtIso);
   const byDate = new Map();
   for (const d of (prev?.days || [])) if (d && d.date) byDate.set(d.date, { ...d });
   for (const [sym, key] of Object.entries(INDEX_CALENDAR_SYMBOLS)) {
@@ -29792,13 +30086,19 @@ export function appendIndexCalendar(prev, chains, builtAtIso, extraBars = {}, ca
     for (let i = 0; i < dailyBars.length; i++) {
       const date = dailyBars[i]?.t;
       if (!date || !intradayBars.some((b) => String(b?.t || "").startsWith(date))) continue;
-      const session = buildIndexHourSession(dailyBars, intradayBars, i);
+      const session = buildIndexHourSession(dailyBars, intradayBars, i, asOf);
       if (!session) continue;
       const row = byDate.get(date) || { date };
       const leg = row[key] || {};
       row[key] = { ...leg, session };
       byDate.set(date, row);
     }
+  }
+  // The build's own day, before the close, is a move so far, not a close:
+  // `partial` lets the page say so. A carried flag clears on the next build.
+  for (const row of byDate.values()) {
+    if (indexCalendarLive(asOf, row.date)) row.partial = true;
+    else delete row.partial;
   }
   const days = Array.from(byDate.values())
     .sort((a, b) => String(a.date).localeCompare(String(b.date)))
@@ -30559,10 +30859,17 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
       // Exposure-cap rule set (lib/top-picks-caps.mjs), stamped since
       // 2026-11-06 so the Track Record can draw a divider at the change.
       capsVersion: PICKS_CAPS_VERSION,
+      // Unusual-flow scan rules behind the flow vote (lib/flow-scan-rules.mjs,
+      // since 2026-11-17: the opening half hour and a bar per stock), so the
+      // Track Record draws a divider. Absent while both scan switches are off.
+      ...(FLOW_SCAN_VERSION ? { flowScanVersion: FLOW_SCAN_VERSION } : {}),
       // Option-structure rule set (singles by default since 2026-11-07),
       // stamped so the Track Record draws a divider. Unset while
       // PICKS_SINGLES_DEFAULT=0 (the earlier engine mix).
       ...(PICKS_STRUCTURE_POLICY_VERSION ? { structurePolicyVersion: PICKS_STRUCTURE_POLICY_VERSION } : {}),
+      // Unusual volume vote rules (measured curve + session read, since
+      // 2026-11-17); unset while both volume switches are off.
+      ...(VOLUME_READ_VERSION ? { volumeReadVersion: VOLUME_READ_VERSION } : {}),
       // The Owner's market mode when the trade opened (since 2026-11-07).
       ...(picksPayload?.rosterMeta?.marketMode?.mode ? { marketMode: picksPayload.rosterMeta.marketMode.mode } : {}),
       // AI final grader mode at entry (live / off / keyless, since
@@ -31358,24 +31665,37 @@ const CORR_SPARK_BARS = 31;       // trailing closes baked per market for the ra
 // and chart meta (currency / display name). Non-fatal at the caller — a failed
 // symbol is simply absent from the snapshot (graceful degradation, like a
 // skipped ticker in the main chain sweep).
+// Yahoo's chart reply for a few foreign indexes (the Euro Stoxx 50 in three
+// of four builds on 2026-11-16) fails the library's schema check on one odd
+// field while the daily closes are fine. Retry that case without the check;
+// the caller keeps only rows with a finite close and a date.
+export async function chartSkippingSchemaErrors(symbol, query, chartFn = (...a) => yahooFinance.chart(...a)) {
+  try {
+    return await chartFn(symbol, query);
+  } catch (err) {
+    if (!/schema validation/i.test(String(err?.message || ""))) throw err;
+    return chartFn(symbol, query, { validateResult: false });
+  }
+}
+
 async function fetchGlobalMarketBars(symbol) {
   const period2 = new Date();
   const period1 = new Date(period2.getTime() - GLOBAL_HISTORY_DAYS * 24 * 3600 * 1000);
-  let result = await yahooFinance.chart(symbol, { period1, period2, interval: "1d" });
+  let result = await chartSkippingSchemaErrors(symbol, { period1, period2, interval: "1d" });
   let quotes = Array.isArray(result?.quotes) ? result.quotes : [];
   // Yahoo occasionally returns a successful but truncated ~15-session slice
   // for a 1-year request. That is enough for the old 24H tile but silently
   // blanks the new 20-session context. Retry once and keep the longer result.
   if (quotes.length > 1 && quotes.length < CORR_SPARK_BARS) {
     await new Promise((r) => setTimeout(r, 180));
-    const retry = await yahooFinance.chart(symbol, { period1, period2, interval: "1d" });
+    const retry = await chartSkippingSchemaErrors(symbol, { period1, period2, interval: "1d" });
     const retryQuotes = Array.isArray(retry?.quotes) ? retry.quotes : [];
     if (retryQuotes.length > quotes.length) { result = retry; quotes = retryQuotes; }
   }
   const barTz = result?.meta?.exchangeTimezoneName || null;
   const researchBars = quotes
-    .filter((q) => q && q.close != null)
-    .map((q) => ({ c: q.close, t: q.date ? (overnightLocalDate(new Date(q.date), barTz) || new Date(q.date).toISOString().slice(0, 10)) : null }))
+    .filter((q) => q && q.close != null && Number.isFinite(Number(q.close)) && q.date != null && Number.isFinite(new Date(q.date).getTime()))
+    .map((q) => ({ c: Number(q.close), t: overnightLocalDate(new Date(q.date), barTz) || new Date(q.date).toISOString().slice(0, 10) }))
     .filter((b) => b.t);
   const bars = splitPatternHistory(researchBars).technical;
   if (bars.length < 2) throw new Error(`no usable bars for ${symbol}`);
@@ -32284,6 +32604,9 @@ export function spillPrepSeries(rows) {
 // Session-aware event-window return (doc §1): the DRIVER's session defines the
 // bar pair applied to every symbol. AM → close[T-1]→close[T]; PM/TBD →
 // close[T]→close[T+1]. Returns { ret, startDate, endDate } or null.
+// One-day at-the-money option cost as a share of the day's 1σ move:
+// an ATM call or put is worth about σ·sqrt(T)·sqrt(1/2π) ≈ 0.4σ.
+export const SPILLOVER_OPTION_COST_RATIO = 1 / Math.sqrt(2 * Math.PI);
 export function spilloverWindowReturn(series, dateIso, session) {
   let i = series.idx.get(dateIso);
   if (i == null) {
@@ -32554,13 +32877,20 @@ export function buildSpilloverMatrix({ events, series, groups = SPILLOVER_GROUPS
   // Merge variants into one pair list (shared primary, strict alongside).
   const strictByKey = new Map(variantStats.strict.map((r) => [`${r.driver}>${r.follower}`, r]));
   const pairs = variantStats.shared.map((r) => {
-    const priced = currentIv[r.follower] > 0 ? round4(currentIv[r.follower] / Math.sqrt(252)) : null;
+    // Edge compares the follower's average move in the driver's direction
+    // with what a one-day at-the-money call or put costs (2026-11-17, Owner
+    // choice): about 0.4 of the day's 1σ move (σ·sqrt(1/2π)). The old bar was
+    // the full 1σ move, which no single option charges, so almost every pair
+    // read negative. sigmaDay keeps the 1σ number beside it.
+    const sigmaDay = currentIv[r.follower] > 0 ? currentIv[r.follower] / Math.sqrt(252) : null;
+    const priced = sigmaDay != null ? round4(sigmaDay * SPILLOVER_OPTION_COST_RATIO) : null;
     const strict = strictByKey.get(`${r.driver}>${r.follower}`) || null;
     return spillStrip({
       ...r,
       nStrict: strict?.n ?? 0,
       strict: strict && strict.n >= 3 ? spillStrip({ b: strict.b, bShrunk: strict.bShrunk, hitB: strict.hitB, r2: strict.r2, p: strict.p }) : null,
       pricedMove: priced,
+      sigmaDay: sigmaDay != null ? round4(sigmaDay) : null,
       edge: priced != null && r.avgAligned != null ? round4(r.avgAligned - priced) : null,
     });
   });
@@ -32584,6 +32914,7 @@ export function buildSpilloverMatrix({ events, series, groups = SPILLOVER_GROUPS
 // staying well under the chain fetch's measured-safe Yahoo request rate.
 async function fetchSpilloverBars(symbols) {
   const out = {};
+  const todayEt = etDateKey();
   const period2 = new Date();
   const period1 = new Date(period2.getTime() - SPILLOVER_BARS_YEARS * 365.25 * 86400000);
   const queue = [...symbols];
@@ -32593,9 +32924,13 @@ async function fetchSpilloverBars(symbols) {
       if (!sym) return;
       try {
         const r = await yahooFinance.chart(sym, { period1, period2, interval: "1d" });
+        // The deep matrix is built once per ET day, on its first bake (10:00
+        // ET, mid-session), so a bar dated today is unfinished: leave it out
+        // of the event windows and the rolling betas until tomorrow's build.
         const rows = (r?.quotes || [])
           .filter((q) => q && q.close != null && q.date)
-          .map((q) => ({ t: new Date(q.date).toISOString().slice(0, 10), c: q.close }));
+          .map((q) => ({ t: new Date(q.date).toISOString().slice(0, 10), c: q.close }))
+          .filter((row) => row.t < todayEt);
         if (rows.length >= 250) out[sym] = spillPrepSeries(rows);
       } catch (_) { /* per-symbol miss — matrix degrades below */ }
       await new Promise((r) => setTimeout(r, 300));
@@ -32699,8 +33034,14 @@ function spillUpcoming(chains, matrix, todayEt, jobs = []) {
 // predictions until the session-aware entry point passes (freeze), then
 // resolve realized follower moves + IV change once the window's bars exist.
 // Predictions and realizations only — no positions, no marks, no fills.
-function updateSpilloverLog(priorLog, { chains, upcoming, todayEt, builtAtIso }) {
-  const events = Array.isArray(priorLog?.events) ? priorLog.events.map((e) => ({ ...e })) : [];
+// Version of the resolve rule: 2 (2026-11-17) reads realized moves only from
+// finished sessions. Version 1 resolved on the first bake of the window's last
+// day, off the in-progress 10:00 ET bar, so a log written under it has its
+// realized moves re-read once from the closes.
+export const SPILLOVER_LOG_RESOLVE_VERSION = 2;
+export function updateSpilloverLog(priorLog, { chains, upcoming, todayEt, builtAtIso }) {
+  const events = Array.isArray(priorLog?.events) ? priorLog.events.map((e) => ({ ...e, ...(Array.isArray(e.predictions) ? { predictions: e.predictions.map((p) => ({ ...p })) } : {}) })) : [];
+  const rereadResolved = priorLog?.resolveVersion !== SPILLOVER_LOG_RESOLVE_VERSION;
   const byId = new Map(events.map((e) => [e.id, e]));
   const ivOf = (sym) => (chains[sym]?.ivRank?.iv > 0 ? Math.round(chains[sym].ivRank.iv * 1e4) / 1e4 : null);
   for (const ev of upcoming) {
@@ -32725,17 +33066,31 @@ function updateSpilloverLog(priorLog, { chains, upcoming, todayEt, builtAtIso })
     }
     if (frozen && !row.frozen) row.frozen = true;
   }
-  // Resolve frozen, unresolved events whose window bars exist.
-  for (const row of events) {
-    if (row.resolvedAt || !row.frozen || !Array.isArray(row.predictions)) continue;
-    const seriesOf = (sym) => {
-      const data = chains[sym];
-      if (!data) return null;
-      const rows = Array.isArray(data._bars) && data._bars.length
+  // Resolve frozen, unresolved events whose window bars exist. Only finished
+  // sessions count: an in-progress bar is dropped (confirmedDailyBars), so a
+  // window ending today resolves on the first bake after the close.
+  const seriesCache = new Map();
+  const seriesOf = (sym) => {
+    if (seriesCache.has(sym)) return seriesCache.get(sym);
+    const data = chains[sym];
+    let out = null;
+    if (data) {
+      const raw = Array.isArray(data._bars) && data._bars.length
         ? data._bars.map((b) => ({ t: b.t, c: b.c }))
         : data.priceSeries?.t?.map((t, i) => ({ t, c: data.priceSeries.c[i] })) || [];
-      return rows.length ? spillPrepSeries(rows) : null;
-    };
+      const rows = confirmedDailyBars(raw, data.marketState);
+      out = rows.length ? spillPrepSeries(rows) : null;
+    }
+    seriesCache.set(sym, out);
+    return out;
+  };
+  for (const row of events) {
+    if (!row.frozen || !Array.isArray(row.predictions)) continue;
+    // Resolved earlier today under the old rule: that read came off today's
+    // unfinished bar, so it resolves again after the close.
+    if (rereadResolved && row.resolvedAt === todayEt) delete row.resolvedAt;
+    const reread = !!row.resolvedAt && rereadResolved;
+    if (row.resolvedAt && !reread) continue;
     const dSeries = seriesOf(row.driver);
     const dWin = dSeries ? spilloverWindowReturn(dSeries, row.date, row.session) : null;
     if (!dWin || dWin.endDate > todayEt) continue; // window not complete yet
@@ -32745,31 +33100,39 @@ function updateSpilloverLog(priorLog, { chains, upcoming, todayEt, builtAtIso })
       const fWin = fSeries ? spilloverWindowReturn(fSeries, row.date, row.session) : null;
       if (!fWin) continue;
       p.realizedPct = Math.round(fWin.ret * 1e4) / 100;
-      const post = ivOf(p.follower);
-      if (p.ivPre != null && post != null) p.ivChange = Math.round((post - p.ivPre) * 1e4) / 1e4;
+      // The IV change is read once, at resolution; a re-read keeps it.
+      if (!reread) {
+        const post = ivOf(p.follower);
+        if (p.ivPre != null && post != null) p.ivChange = Math.round((post - p.ivPre) * 1e4) / 1e4;
+      }
       resolvedAny = true;
     }
     if (resolvedAny) {
       row.driverRealizedPct = Math.round(dWin.ret * 1e4) / 100;
-      row.resolvedAt = todayEt;
+      if (!reread) row.resolvedAt = todayEt;
     }
   }
   events.sort((a, b) => (a.date < b.date ? -1 : 1));
   while (events.length > SPILLOVER_LOG_MAX_EVENTS) events.shift();
   // Running per-engine forward accuracy over resolved predictions.
-  // Direction: sign(predicted) vs sign(realized). Magnitude MAE stays in
-  // percentage points (| |pred| − |realized| |). Zero-sign rows skip the
-  // hit rate but still contribute to MAE.
+  // The predictions are frozen before the print, from the driver's unsigned
+  // straddle move, so their sign is only the beta's sign. The direction they
+  // call is beta × the driver's ACTUAL move: sign(pred) × sign(driver realized)
+  // vs sign(follower realized). (Before 2026-11-17 the hit compared the bare
+  // beta sign, which only counted how often followers rose.) Magnitude MAE
+  // stays in percentage points (| |pred| − |realized| |). Zero-sign rows skip
+  // the hit rate but still contribute to MAE.
   const score = (key) => {
     let hit = 0, scored = 0, mae = 0, n = 0;
     for (const row of events) {
       if (!row.resolvedAt) continue;
+      const dSign = Math.sign(Number(row.driverRealizedPct) || 0);
       for (const p of row.predictions || []) {
         const pred = p[key], real = p.realizedPct;
         if (pred == null || real == null) continue;
         n += 1;
         mae += Math.abs(Math.abs(pred) - Math.abs(real));
-        const pSign = Math.sign(pred), rSign = Math.sign(real);
+        const pSign = Math.sign(pred) * dSign, rSign = Math.sign(real);
         if (!pSign || !rSign) continue;
         scored += 1;
         if (pSign === rSign) hit += 1;
@@ -32779,6 +33142,7 @@ function updateSpilloverLog(priorLog, { chains, upcoming, todayEt, builtAtIso })
   };
   return {
     updatedAt: builtAtIso,
+    resolveVersion: SPILLOVER_LOG_RESOLVE_VERSION,
     events,
     forward: { engineA: score("expA"), engineB: score("expB"), resolvedEvents: events.filter((e) => e.resolvedAt).length },
   };
@@ -40041,8 +40405,10 @@ async function main() {
   // housing case studies set against today's AI buildout. Deterministic; it
   // reads only what is already in memory: the long-history cache (Nasdaq,
   // S&P 500, FRED credit and housing series), the prior AI spending, GPU rent
-  // and bond issuance snapshots (all slow-moving) and the chains. Public
-  // history-rhymes.json (history and market-wide signs) + Owner-only
+  // and bond issuance snapshots (all slow-moving), FINRA margin debt from the
+  // crowd payload and the chains. Public
+  // history-rhymes.json (history, AI buildout and whole-market signs, the
+  // bear market test) + Owner-only
   // history-rhymes-owner.json (per-stock role and equity-implied default read).
   let historyRhymes = null, historyRhymesOwner = null;
   try {
@@ -40052,7 +40418,7 @@ async function main() {
       builtAtIso,
       series: sharedHistoryBars(historicalSourceCache, ["^IXIC", "^GSPC"]),
       fred: Object.fromEntries(HISTORY_RHYMES_FRED.map((id) => [id, historicalSourceCache?.context?.[id]?.rows || []])),
-      aiCapex: priorAiCapex, accelerators, ipoCredit: priorIpoCredit, chains,
+      aiCapex: priorAiCapex, accelerators, ipoCredit: priorIpoCredit, chains, crowd: crowdPayload,
     });
     historyRhymesOwner = buildHistoryRhymesOwner({
       builtAtIso, rhymes: historyRhymes, chains,
@@ -40061,7 +40427,7 @@ async function main() {
     });
     await writeFile(resolve(DATA_DIR, HISTORY_RHYMES_KEY), JSON.stringify(historyRhymes), "utf8");
     await writeFile(resolve(DATA_DIR, HISTORY_RHYMES_OWNER_KEY), JSON.stringify(historyRhymesOwner), "utf8");
-    console.log(`wrote data/${HISTORY_RHYMES_KEY} — ${historyRhymes.now.score}/${historyRhymes.now.total} warning signs (${historyRhymes.now.stage.label}), ${historyRhymesOwner.buildout.length + historyRhymesOwner.others.length} stock credit reads`);
+    console.log(`wrote data/${HISTORY_RHYMES_KEY} — AI buildout ${historyRhymes.now.score}/${historyRhymes.now.total} (${historyRhymes.now.stage.label}), whole market ${historyRhymes.now.market.score}/${historyRhymes.now.market.total} (${historyRhymes.now.market.stage.label}), ${historyRhymes.bearTest?.bears?.length ?? 0} bear markets tested, ${historyRhymesOwner.buildout.length + historyRhymesOwner.others.length} stock credit reads`);
   } catch (err) {
     console.log(`  ⚠ booms & busts failed (non-fatal, last good kept): ${err?.message || err}`);
     historyRhymes = priorHistoryRhymes ? { ...priorHistoryRhymes, stale: true } : null;
@@ -40363,7 +40729,7 @@ async function main() {
     });
     console.log(
       `wrote data/${EARNINGS_CALLS_FILE} — ${callsInfo.covered}/${callsInfo.universe} names covered, ` +
-      `${callsInfo.wrote} new summar${callsInfo.wrote === 1 ? "y" : "ies"}${callsInfo.keyless ? " (keyless carry-forward)" : ""}, ${callsInfo.bytes} bytes`,
+      `${callsInfo.wrote} new summar${callsInfo.wrote === 1 ? "y" : "ies"}${callsInfo.keyless ? (shouldRefreshTranscripts() && !process.env.GEMINI_API_KEY ? " (keyless carry-forward)" : " (carried forward; briefs are written at 09:00 and 19:00 ET)") : ""}, ${callsInfo.bytes} bytes`,
     );
   } catch (err) {
     console.log(`  ⚠ Earnings-calls step failed (non-fatal): ${err.message}`);
