@@ -38,7 +38,12 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## 2026-11-17
 
+### Added
+
+- The 1971-2026 strategy-engine history test now shows across the site as context only: "Strategy styles by era" on Pattern lab and style strips on Booms & busts (public), event and crisis strips on Historical Data, "Today's regime fit" in the Regime Lab and the Owner brief, and MCP datasets (Owner). Aggregates only; switch `ENGINES_HISTORY=0` (#849).
+
 ### Fixed
+
 - Stop the AI spending "Combined CapEx by year" chart from drawing a false drop: it now shows only the years every company has reported. The newest year held only the June-to-September filers (MSFT, ORCL, MU, AAPL, about $211B) against about $422B the year before, because the calendar-year companies file in February.
 - Leave a company whose newest full year is more than a year behind its run-rate out of the AI spending fiscal-year total and growth, and say so on the page. TSMC's newest full year on file is still FY2024 (its SEC feed stops there and Yahoo's quarters cannot rebuild FY2025), so it was mixed into the "latest fiscal year" total; it stays in the run-rate. The run-rate vs latest year now compares the same companies, and a series that skips a year no longer shows a two-year change as year over year (TSMC once its 2026 quarters complete).
 - Keep the GPU cloud prices and Memory chip prices pages "current" for nine days after the Friday scan, like Search trends. They switched to "Reference only / needs a fresh build" 72 hours after each scan, so most of every week.

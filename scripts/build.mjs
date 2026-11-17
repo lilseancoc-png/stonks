@@ -105,6 +105,7 @@ import { updateDisruptionState, buildDisruptionFiles, readDisruptionPrior, write
 import { buildScorecard as buildDisruptionScorecard } from "../lib/ai-disruption/scorecard.mjs";
 import { updatePredictionState, bakeMaxMs, buildPredictionPublic, buildPredictionOwner, analyzePrediction, predictionShadow, predictionContextFor, predictionGraderLines, pricesFromChains, readPredictionPrior, writePredictionFiles, PREDICTION_KEY, PREDICTION_OWNER_KEY } from "../lib/prediction/index.mjs";
 import { buildHistoryRhymes, buildHistoryRhymesOwner, historyRhymesSummary, HISTORY_RHYMES_KEY, HISTORY_RHYMES_OWNER_KEY, HISTORY_RHYMES_FRED, REPORTED_CDS } from "../lib/history-rhymes.mjs";
+import { buildEnginesHistory, ENGINES_HISTORY_KEY, ENGINES_HISTORY_RESULTS } from "../lib/engines-history.mjs";
 import { AI_COST_HISTORY_KEY, parseAiCostHistory, upsertAiCostHistory } from "../lib/ai-cost-history.mjs";
 import { refreshCorporateStructure, CORPORATE_STATE_VERSION } from "../lib/corporate-structure/collector.mjs";
 import { buildCorporateViews } from "../lib/corporate-structure/assemble.mjs";
@@ -40144,6 +40145,22 @@ async function main() {
   const historicalAnalyzedAt = new Date().toISOString();
   const historicalInfo = await writeHistoricalDataFile({ dataDir: DATA_DIR, builtAtIso, analyzedAtIso: historicalAnalyzedAt, sourceCache: historicalSourceCache, inputs: { ...historicalEventInputs(chains, trends.macroHeadlines || [], historicalAnalyzedAt), buildout: historyRhymesBrief } });
   console.log(`wrote data/historical-data.json — ${historicalInfo.indexes} markets, ${historicalInfo.bytes} bytes; ${historicalSourceCache.cost.requestsThisRun} free source downloads`);
+  // Engine history on the site (lib/engines-history.mjs, 2026-11-17): the
+  // committed 1971-2026 history-test aggregates joined to today's market cell
+  // from the same long-history cache. Public, context only (no pick, grade,
+  // engine or record reads it). ENGINES_HISTORY=0 writes the off stub.
+  try {
+    const on = process.env.ENGINES_HISTORY !== "0";
+    const results = on ? JSON.parse(await readFile(resolve(ROOT, ENGINES_HISTORY_RESULTS), "utf8")) : null;
+    const enginesHistory = buildEnginesHistory({
+      builtAtIso, results, enabled: on,
+      inputs: { spx: sharedHistoryBars(historicalSourceCache, ["^GSPC"])["^GSPC"], vix: historicalSourceCache?.context?.VIXCLS?.rows, dgs10: historicalSourceCache?.context?.DGS10?.rows, cpi: historicalSourceCache?.context?.CPIAUCSL?.rows, nfci: historicalSourceCache?.context?.NFCI?.rows },
+    });
+    await writeFile(resolve(DATA_DIR, ENGINES_HISTORY_KEY), JSON.stringify(enginesHistory), "utf8");
+    console.log(`wrote data/${ENGINES_HISTORY_KEY} — ${on ? `${results.eras.length} eras, today's cell ${enginesHistory.today?.cell || "unknown"}` : "switched off"}`);
+  } catch (err) {
+    console.log(`  ⚠ engine history failed (non-fatal, stored copy kept): ${err?.message || err}`);
+  }
   const sharedIndexBars = sharedHistoryBars(historicalSourceCache, PATTERN_SEASONALITY_SYMBOLS);
   try {
     const patternInfo = await writePatternRecognitionFiles({
