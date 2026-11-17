@@ -35,9 +35,13 @@ import { leveragedEntryPlan, shareEntryPayoff, pickDisplayDecision } from "../li
 import { buildGradeResearch, emptyGradeResearch, seriesFromChains, writeGradeResearchFile } from "../lib/grade-research.mjs";
 import { dirname, resolve } from "node:path";
 import { readFileSync } from "node:fs";
-import { buildMacroContext, buildCycleTrail, CARD_LENDER_SYMS, KIND_LABELS as MACRO_KIND_LABELS, fitSentence as macroFitSentence, contextLines as macroContextLines, MACRO_CANDIDATE_FRED } from "../lib/macro-context.mjs";
+import { buildMacroContext, buildCycleTrail, CARD_LENDER_SYMS, KIND_LABELS as MACRO_KIND_LABELS, fitSentence as macroFitSentence, contextLines as macroContextLines, MACRO_CANDIDATE_FRED, partyOnDate as macroPartyOnDate, partyTiltFor as macroPartyTiltFor, KIND_PARTY_ETF as MACRO_KIND_PARTY_ETF } from "../lib/macro-context.mjs";
 import { findInsiderClusters } from "../lib/insider-cluster.mjs";
 import { buildValuationBands, VALUATION_BANDS_KEY } from "../lib/valuation-band.mjs";
+// Valuation lab (lib/valuation-lab.mjs, Owner-only valuation-lab.json): five
+// valuation methods per stock on adjustable inputs. Display only, no AI, no
+// fetch; kill switch VALUATION_LAB=0.
+import { buildValuationLab, valuationLabEnabled, VALUATION_LAB_KEY } from "../lib/valuation-lab.mjs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
 import { inflateRawSync } from "node:zlib";
@@ -120,7 +124,7 @@ import { publishOwnerMarketBrief } from './publish-owner-market-brief.mjs';
 import { BRIEF_ACCESS_POLICY_VERSION } from "../lib/public-data-policy.mjs";
 import { buildBriefExtendedHours, extendedSessionForKind } from "../lib/brief-extended-hours.mjs";
 import { contentAssetVersion } from "../lib/asset-version.mjs";
-import { scoreSectorGrowth } from "../lib/sector-growth.mjs";
+import { scoreSectorGrowth, growthProfileKeyFor, GROWTH_PROFILES } from "../lib/sector-growth.mjs";
 import { IV_RICHNESS, IV_RICHNESS_VERSION } from "../lib/iv-richness.mjs";
 import { OVERNIGHT_TONE, OVERNIGHT_TONE_VERSION } from "../lib/overnight-tone.mjs";
 import { buildOvernightCall, priorUsSession, isBeforeUsOpen, etParts as overnightEtParts, preOpenCutoffMs, usCloseMs as overnightUsCloseMs, sigmaPct as overnightSigmaPct, fitAsiaEcho } from "../lib/overnight-inputs.mjs";
@@ -40343,12 +40347,14 @@ async function main() {
   // Peer valuation band (lib/valuation-band.mjs, public valuation-bands.json):
   // each name's multiples against its own saved snapshots and its peers. No
   // fetch; the inputs are the fundamentals already in memory. Non-fatal.
+  let valuationBandsPayload = null;
   try {
     const bands = buildValuationBands({
       chains, symbols: TICKERS, industries: INDUSTRY_OF_TICKER, sectors: SECTORS, groupOf: sectorGroupOf,
       isEtf: (s) => SECTORS[s] === "ETF", history: fundHistory, builtAtIso: new Date().toISOString(), asOf: etDateKey(),
     });
     await writeFile(resolve(DATA_DIR, VALUATION_BANDS_KEY), JSON.stringify(bands), "utf8");
+    valuationBandsPayload = bands;
     console.log(`wrote data/${VALUATION_BANDS_KEY} — ${Object.keys(bands.rows).length} names, ${bands.peerGroups} peer groups`);
   } catch (err) {
     console.warn(`[valuation] bands skipped — ${String(err?.message || err).split("\n")[0]}`);
@@ -41030,6 +41036,33 @@ async function main() {
   const gradesIndex = buildGradesIndex(chains, scoringNarratives, streaksInfo.map, scoringUnusual, macroBackdrop, scoringVolumeFlags, { builtAtIso, priorGrades: gradesHistoryPrev?.latest ?? null, priorClosed: picksAccuracyPrev?.closed ?? null, ...scannerExtras });
   const gradesInfo = await writeGradesFile(chains, scoringNarratives, builtAtIso, scoringUnusual, macroBackdrop, scoringVolumeFlags, gradesIndex);
   console.log(`wrote data/grades.json — ${gradesInfo.count} tickers, ${gradesInfo.bytes} bytes`);
+  // Valuation lab (lib/valuation-lab.mjs): one row of valuation inputs per
+  // covered stock, from data already in memory (fundamentals and their
+  // quarterly histories, the peer and own-history bands, the scenario
+  // sensitivities, this grade index, the Earnings Forecast file written above,
+  // option IV, the SEC revenue split, the party tracker and the Kalshi
+  // recession odds). Owner-only; display only, no AI, no fetch. VALUATION_LAB=0
+  // writes nothing, so the stored copy stays as it was. Non-fatal.
+  if (valuationLabEnabled()) {
+    try {
+      let forecastForLab = null;
+      try { forecastForLab = JSON.parse(await readFile(resolve(DATA_DIR, "earnings-forecast.json"), "utf8")); } catch { /* not written yet */ }
+      const lab = buildValuationLab({
+        chains, symbols: TICKERS, sectors: SECTORS, industries: INDUSTRY_OF_TICKER,
+        bands: valuationBandsPayload, scenarioEngine, grades: gradesIndex, earningsForecast: forecastForLab,
+        growthProfileOf: (sym, label) => { const key = growthProfileKeyFor(sym, label); return key ? { key, ...GROWTH_PROFILES[key] } : null; },
+        macro: macroBackdrop, rfrPct: Number.isFinite(riskFreeRate?.rate) ? riskFreeRate.rate * 100 : null,
+        partyTracker, partyNow: macroPartyOnDate(etDateKey(new Date(builtAtIso))), partyTilt: macroPartyTiltFor, kindEtf: MACRO_KIND_PARTY_ETF, kindOf: macroContextKindOf,
+        builtAtIso,
+      });
+      await writeFile(resolve(DATA_DIR, VALUATION_LAB_KEY), JSON.stringify(lab), "utf8");
+      console.log(`wrote data/${VALUATION_LAB_KEY} — ${lab.count} names (${lab.skipped} skipped)`);
+    } catch (err) {
+      console.warn(`[valuation-lab] skipped — ${String(err?.message || err).split("\n")[0]}`);
+    }
+  } else {
+    console.log("[valuation-lab] off (VALUATION_LAB=0); the stored copy is left as it was");
+  }
   // Earnings week ahead: the public board (implied vs past moves, this
   // season) and the Owner-only engine plan. Rebuilt every bake from data
   // already in hand; no AI and no new fetches. Non-fatal.
