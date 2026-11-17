@@ -37,6 +37,7 @@ import { renderEvidenceCss } from './evidence-css.mjs';
 import { renderRegimeLabCss } from './regime-lab-css.mjs';
 import { renderSelfLoopCss } from './self-loop-css.mjs';
 import { renderQuantLabsCss } from './quant-labs-css.mjs';
+import { renderValuationLabCss } from './valuation-lab-css.mjs';
 import { renderEnginesCss } from './engines-css.mjs';
 import { renderOwnerInsightCss } from './owner-insight-css.mjs';
 import { renderI18nCss } from './i18n-client.mjs';
@@ -22643,6 +22644,12 @@ button.vol-cal-cell:focus-visible { outline: none; box-shadow: var(--focus-ring)
   color: var(--pos);
 }
 .strat-summary-unlim.is-loss { color: var(--neg); }
+.strat-summary-sub {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--muted);
+}
 
 .strat-results-body {
   display: grid;
@@ -25613,6 +25620,7 @@ ${renderEvidenceCss()}
 ${renderRegimeLabCss()}
 ${renderSelfLoopCss()}
 ${renderQuantLabsCss()}
+${renderValuationLabCss()}
 ${renderEnginesCss()}
 ${renderOwnerInsightCss()}
 ${renderI18nCss()}

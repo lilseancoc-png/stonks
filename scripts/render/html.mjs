@@ -85,6 +85,7 @@ const SIDE_NAV_ICONS = {
   'ma-tracker': '<path d="M3.5 19.5h17"/><path d="M3.5 4.5v15"/><path d="m6 15 4-4 3 2 5-6"/><path d="M6 9.5h12"/>',
   spillover: '<circle cx="12" cy="12" r="2.5"/><path d="M12 5.5a6.5 6.5 0 0 1 6.5 6.5"/><path d="M12 2a10 10 0 0 1 10 10"/>',
   quant: '<path d="M18 6.5V4H6l6.5 8L6 20h12v-2.5"/>',
+  'valuation-lab': '<path d="M12 3v18"/><path d="M5 7h14"/><path d="M5 7l-3 6a3 3 0 0 0 6 0z"/><path d="M19 7l-3 6a3 3 0 0 0 6 0z"/><path d="M8 21h8"/>',
   'quant-labs': '<path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 1.7 3h10.6a2 2 0 0 0 1.7-3l-5-9V3"/><path d="M7.5 15h9"/>',
   'historical-data': '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/>',
   'party-tracker': '<path d="M4 20h16M6 20V9M10 20V9M14 20V9M18 20V9M3 9h18M12 3l8 6H4z"/>',
@@ -369,6 +370,7 @@ function riskAnalysisSection() {
     <div id="risk-stack" class="risk-stack" aria-live="polite"></div>
     <div id="risk-odds" hidden></div>
     <div id="risk-rhymes" hidden></div>
+    <div id="risk-horizons" hidden></div>
   </section>`;
 }
 
@@ -1024,6 +1026,19 @@ function quantLabsSection() {
   </section>`;
 }
 
+// Valuation lab (2026-11-17, Owner · Research): eight valuation methods on
+// inputs the Owner can change, in 28 market and political environments,
+// compared with the market price, last year and the analysts. Rendered by
+// scripts/render/valuation-lab-client.mjs from valuation-lab.json.
+function valuationLabSection() {
+  return `<section class="card" id="valuation-lab-section">
+    <header class="card-header"><h2 class="card-title">Valuation lab</h2><span class="card-eyebrow">Owner · price discovery</span></header>
+    <div class="owner-lab-intro"><div><h3>What is it worth, and what is the market seeing?</h3><p>A price is what the last buyer was willing to pay. This page values a stock eight ways (cash flow, an earnings path, peer multiples, its own past multiples, growth-adjusted P/E, rate-justified earnings power, book value plus excess returns and the analysts' target), blends them with weights you set, and compares the answer with the market price. Move any input (rates, growth, margins, multiples, the market, the dollar, oil, taxes, tariffs, which party holds power) or pick one of 28 environments, and every number updates. Then it works backwards: what today's price assumes, which input matters most, the range of outcomes, how the company compares with last year and with the analysts, and what the analysts or the model may be missing. No AI. Nothing here changes a pick or a grade.</p></div></div>
+    <p class="hint" id="valuation-lab-status" role="status" aria-live="polite">The lab loads on first open.</p>
+    <div id="valuation-lab-root" class="vl-root"></div>
+  </section>`;
+}
+
 function quantSection() {
   return `<section class="card" id="quant-section">
     <header class="card-header"><h2 class="card-title">Owner Lab</h2><span class="card-eyebrow" id="quant-eyebrow" aria-live="polite"></span></header>
@@ -1193,7 +1208,7 @@ function historyRhymesSection() {
   // history-rhymes-owner.json after sign-in.
   return `<section class="card" id="history-rhymes-section">
     <header class="card-header"><div><span class="card-eyebrow">Market &amp; economy · history</span><h2 class="card-title">Booms &amp; busts</h2></div><span class="card-eyebrow" id="history-rhymes-asof"></span></header>
-    ${infoNote('How to read this page', `<p>Each case study is a past buildout or credit boom: the British and American railroads, the 1996&ndash;2002 telecom and fiber build, and the 2000s housing boom that ended in the 2008 crisis. Each one is set beside the AI data center buildout. <b>Now vs history</b> reads nine warning signs that showed up before those busts from data the site already collects (SEC spending and revenue, GPU rents, bond sales, credit spreads and prices) and counts how many are showing. It describes how much today looks like the run-up to past busts; it is not a forecast or a timing signal, and some booms never busted.</p><p>Single-company credit default swap prices are sold by data vendors and are not free, so CDS levels appear only as dated quotes reported in the press, next to free bond-market spreads.</p>`)}
+    ${infoNote('How to read this page', `<p>Each case study is a past buildout or credit boom: the British and American railroads, the 1996&ndash;2002 telecom and fiber build, and the 2000s housing boom that ended in the 2008 crisis. Each one is set beside the AI data center buildout. <b>Now vs history</b> has two panels. The AI buildout panel reads six signs that showed up before those busts (SEC spending and revenue, the builders&rsquo; debt, GPU rents and stock prices). The whole-market panel reads six signs that came before past US bear markets (margin debt, stocks against bond yields, bond sales, interest rates, the yield curve and credit spreads), and tests each bust sign against every S&amp;P 500 bear market since 1950. Each panel counts boom signs and bust signs apart. It describes how much today looks like the run-up to past busts; it is not a forecast or a timing signal, and some booms never busted.</p><p>Single-company credit default swap prices are sold by data vendors and are not free, so CDS levels appear only as dated quotes reported in the press, next to free bond-market spreads.</p>`)}
     <div id="history-rhymes-root"><p class="hr-empty">Loading the case studies&hellip;</p></div>
     <p class="hint">Dated facts link to their sources. Computed numbers (house prices, delinquencies, spreads, index moves) come from FRED and index history. Not investment advice.</p>
   </section>`;
@@ -1331,7 +1346,7 @@ function unusualFlowSection() {
       <span class="card-eyebrow" id="flow-eyebrow" aria-live="polite"></span>
     </header>
     <div id="flow-body" class="flow-body">
-      <div data-owner-only>${infoNote('What counts as unusual flow?', `<p>Discovery stays broad: 5–50% OTM contracts that picked up at least 2,000 contracts of volume this hour (4,000 if expiring within 2 weeks) with vol &gt; OI remain visible as block/sweep candidates. The <strong>decision queue</strong> is stricter: it credits only ask/above-ask execution, requires material premium (normally $100k, or $50k when repeated, or $25k when aggressive demand spans multiple strikes), rejects quoted spreads wider than 35% of midpoint, and demands extra support for far-OTM or penny contracts. Midpoint prints remain evidence but are not called directional, and an old or closed-session scan is never called executable. Each chip shows <strong>volume-to-OI</strong> and hourly premium; 🔥 ×N marks repeats over five trading days. A single hour&rsquo;s flags are a <strong>small sample</strong> &mdash; treat one print as a watch, not a confirmed positioning shift. FINRA ATS volume is shown as a <strong>secondary, delayed context signal</strong> with dark-pool share of matching weekly consolidated volume and week-over-week change; it never changes the live flow direction or actionability call. Flow is a watchlist input, not an entry: calls can be sold, puts can be hedges, and every read still needs confirmation from the underlying price, volume, and structure. Hourly scan, front 2 expirations.</p>`)}</div>
+      <div data-owner-only>${infoNote('What counts as unusual flow?', `<p>Discovery stays broad: 5–50% OTM contracts with vol &gt; OI that picked up at least the stock&rsquo;s own bar this hour remain visible as block/sweep candidates. The bar is 1% of the stock&rsquo;s normal full-day option volume for contracts expiring within 2 weeks (0.5% further out), between 500 and 4,000 contracts (250 to 2,000 further out); a stock with under a week of history uses 4,000 / 2,000. The first scan after the 9:30 open counts each contract&rsquo;s volume since the open. The <strong>decision queue</strong> is stricter: it credits only ask/above-ask execution, requires material premium (normally $100k, or $50k when repeated, or $25k when aggressive demand spans multiple strikes), rejects quoted spreads wider than 35% of midpoint, and demands extra support for far-OTM or penny contracts. Midpoint prints remain evidence but are not called directional, and an old or closed-session scan is never called executable. Each chip shows <strong>volume-to-OI</strong> and hourly premium; 🔥 ×N marks repeats over five trading days. A single hour&rsquo;s flags are a <strong>small sample</strong> &mdash; treat one print as a watch, not a confirmed positioning shift. FINRA ATS volume is shown as a <strong>secondary, delayed context signal</strong> with dark-pool share of matching weekly consolidated volume and week-over-week change; it never changes the live flow direction or actionability call. Flow is a watchlist input, not an entry: calls can be sold, puts can be hedges, and every read still needs confirmation from the underlying price, volume, and structure. Hourly scan, front 2 expirations.</p>`)}</div>
       <div id="flow-decision" class="flow-decision" aria-live="polite"></div>
       <div class="flow-controls" role="toolbar" aria-label="Filter unusual flow">
         <label class="flow-search">
@@ -1466,7 +1481,7 @@ function oiTrackerSection() {
       <span class="tab-live-state" id="oi-live-state" aria-live="polite"></span>
     </header>
     <div id="oi-body" class="oi-body">
-      ${infoNote('How the OI ladder & squeeze score work', `<p>Start with the <strong>positioning desk</strong>: it identifies the strongest current squeeze candidate, distinguishes a 4–5/5 setup from a watch-only concentration, and states the price/flow evidence that must confirm or invalidate it. The ladder shows the top 12 highest-OI strikes across this week's and next week's expirations. The <strong>Gamma Squeeze Score</strong> (0–5) awards heavy calls within 10% of spot · C/P ratio ≥ 2:1 · call-wall Vol/OI ≥ 1.5× · an overhead call wall within 7.5% · material ask-side call flow aligned to that wall's strike and expiration. FINRA short interest (% float, days-to-cover, and change vs prior cycle) appears beside the setup as <strong>secondary squeeze fuel</strong> but does not alter the five-point gamma score. A score of <strong>4–5</strong> is a potential setup, not an entry. Strikes with <strong>OI &gt; 1000</strong> get a chip; ΔOI chips fire at <strong>+30%</strong> and <strong>+100%</strong>. The 08:30 ET pass refreshes settled T+1 OI and ΔOI; the 17:00 ET pass refreshes completed-session volume and Vol/OI while carrying that settled OI observation until the next morning. OI and short interest are lagged: price must still break and hold the wall with live share volume. Twice-monthly FINRA short interest.</p>`)}
+      ${infoNote('How the OI ladder & squeeze score work', `<p>Start with the <strong>positioning desk</strong>: it identifies the strongest current squeeze candidate, distinguishes a 4–5/5 setup from a watch-only concentration, and states the price/flow evidence that must confirm or invalidate it. The ladder shows the top 12 highest-OI strikes across this week's and next week's expirations. The <strong>Gamma Squeeze Score</strong> (0–5) awards a call strike within 10% above spot holding at least 1.5× the open interest of its nearby strikes (and 1,000+ contracts) · C/P ratio ≥ 2:1 · call-wall Vol/OI ≥ 1.5× · an overhead call wall within 7.5% · material ask-side call flow aligned to that wall's strike and expiration. FINRA short interest (% float, days-to-cover, and change vs prior cycle) appears beside the setup as <strong>secondary squeeze fuel</strong> but does not alter the five-point gamma score. A score of <strong>4–5</strong> is a potential setup, not an entry. Strikes with <strong>OI &gt; 1000</strong> get a chip; ΔOI chips fire at <strong>+30%</strong> and <strong>+100%</strong>. The 08:30 ET pass refreshes settled T+1 OI and ΔOI; the 17:00 ET pass refreshes completed-session volume and Vol/OI while carrying that settled OI observation until the next morning. OI and short interest are lagged: price must still break and hold the wall with live share volume. Twice-monthly FINRA short interest.</p>`)}
       <div id="oi-decision" class="flow-decision oi-decision flow-decision-empty" aria-live="polite"></div>
       <div class="oi-controls" role="toolbar" aria-label="Filter OI tracker">
         <label class="oi-search">
@@ -2544,6 +2559,9 @@ ${i18nHeadScript()}
   </div>
   <div class="page-pane" id="page-pane-quant" role="tabpanel" aria-labelledby="page-tab-quant" hidden>
   ${quantSection()}
+  </div>
+  <div class="page-pane" id="page-pane-valuation-lab" role="tabpanel" aria-labelledby="page-tab-valuation-lab" hidden>
+  ${valuationLabSection()}
   </div>
   <div class="page-pane" id="page-pane-quant-labs" role="tabpanel" aria-labelledby="page-tab-quant-labs" hidden>
   ${quantLabsSection()}
