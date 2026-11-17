@@ -30,6 +30,14 @@ body:not([data-active-tab="home"]) .page-sub { display: none; }
 #page-pane-home > .freshness { margin: 0 0 10px; }
 .wf-meta .freshness .freshness-detail { display: none; }
 .wf-meta .market-status, #page-pane-home > .freshness .market-status { margin: 0; padding: 2px 8px; font-size: 12px; }
+/* Merged pages: the hub's pages as a row of underlined tabs under the title
+   (shared .ui-tabs look from polish-css). Each tab is its own ?tab= page. */
+.wf-hub { margin: 2px 0 2px; }
+.wf-hub[hidden] { display: none; }
+.wf-hub .wf-hub-tab { padding: 10px 12px 9px; }
+.wf-hub.wf-hub-more { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent); }
+.wf-hub.wf-hub-less { -webkit-mask-image: linear-gradient(90deg, transparent, #000 32px); mask-image: linear-gradient(90deg, transparent, #000 32px); }
+.wf-hub.wf-hub-more.wf-hub-less { -webkit-mask-image: linear-gradient(90deg, transparent, #000 32px, #000 calc(100% - 32px), transparent); mask-image: linear-gradient(90deg, transparent, #000 32px, #000 calc(100% - 32px), transparent); }
 .wf-blurb { margin: 0; max-width: 78ch; font: 400 15px/1.5 var(--font-sans); color: var(--muted-strong); }
 .wf-about { display: grid; gap: 8px; max-width: 92ch; padding: 12px 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
 .wf-about[hidden] { display: none; }

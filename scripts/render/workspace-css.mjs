@@ -49,7 +49,7 @@ main input:focus-visible, main select:focus-visible, main textarea:focus-visible
 .side-nav-group + .side-nav-group { margin-top: 14px; }
 .side-nav-group-label { letter-spacing: .1em; font-size: 10px; color: var(--muted); }
 .page-tab { min-height: 36px; font-size: 13px; border-radius: 6px; }
-.page-tab[aria-selected="true"] { background: var(--accent-tint-2); box-shadow: inset 0 0 0 1px var(--accent-line); }
+.page-tab[aria-selected="true"], .page-tab.is-hub-on { background: var(--accent-tint-2); box-shadow: inset 0 0 0 1px var(--accent-line); }
 .page-tab .pt-ico { opacity: 1; }
 
 /* Home works as an overview: the next actions first, then compact metrics. */

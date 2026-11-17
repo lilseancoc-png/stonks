@@ -52,8 +52,19 @@ try {
   assert.notEqual(contentAssetVersion("unchanged"), contentAssetVersion("changed"));
   assert.equal(contentAssetVersion("same\r\nlines\r\n"), contentAssetVersion("same\nlines\n"));
   assert.equal((html.match(/id="picks-position"/g) || []).length, 1);
-  assert.ok(html.indexOf('id="picks-position"') > html.indexOf('id="quant-section"'));
-  assert.match(html, /data-nav-group="owner"[\s\S]*?side-nav-group-label">Owner · Daily desk[\s\S]*?data-page-tab="market"[\s\S]*?data-page-tab="risk"[\s\S]*?data-nav-group="owner-ideas"[\s\S]*?data-page-tab="picks"[\s\S]*?data-page-tab="open-picks"[\s\S]*?data-page-tab="track"[\s\S]*?data-page-tab="leaps"[\s\S]*?data-page-tab="stocks"[\s\S]*?data-page-tab="levetf"[\s\S]*?data-page-tab="rotation"[\s\S]*?data-nav-group="owner-admin"[\s\S]*?data-page-tab="quant"/);
+  // Owner Lab's Personal tools moved onto the desks they size (2026-11-17):
+  // the position checker sits on Open picks, the DCA dial on Stock picks and
+  // the risk caps on Sector rotation and Leveraged ETFs.
+  const paneOf = (id) => html.match(new RegExp('id="page-pane-' + id + '"[\\s\\S]*?(?=<div class="page-pane" id=)'))?.[0] || "";
+  assert.match(paneOf("open-picks"), /id="picks-position"/);
+  assert.match(paneOf("stocks"), /id="owner-dca-root"/);
+  assert.match(paneOf("rotation"), /id="owner-rotation-root"/);
+  assert.match(paneOf("levetf"), /id="owner-lev-root"/);
+  assert.doesNotMatch(html, /owner-tab-personal|owner-panel-personal/);
+  assert.match(html, /id="owner-tab-research" data-owner-view="research"[^>]*aria-selected="true"/);
+  // Market risk: one line of the four reads on each of its three tabs.
+  for (const id of ["market", "risk", "bottom-tracker"]) assert.match(paneOf(id), new RegExp('data-mr-line="' + id + '"'));
+  assert.match(html, /data-nav-group="owner"[\s\S]*?side-nav-group-label">Owner · Desk[\s\S]*?data-page-tab="market"[^>]*data-hub="market-risk" data-hub-lead="1"[\s\S]*?data-page-tab="risk"[^>]*data-hub-member="1"[\s\S]*?data-nav-group="owner-ideas"[\s\S]*?data-page-tab="picks"[\s\S]*?data-page-tab="open-picks"[\s\S]*?data-page-tab="track"[\s\S]*?data-page-tab="leaps"[\s\S]*?data-page-tab="stocks"[\s\S]*?data-page-tab="levetf"[\s\S]*?data-page-tab="rotation"[\s\S]*?data-nav-group="owner-research"[\s\S]*?data-page-tab="quant"[\s\S]*?data-nav-group="owner-admin"[\s\S]*?data-page-tab="owner-settings"/);
   assert.match(html, /id="page-pane-open-picks"[^>]*hidden>[\s\S]*?id="open-picks-root"/);
   assert.doesNotMatch(html, /data-page-tab="daytrade"|data-page-tab="daytrack"|Day Trading Track Record/);
   const navGroups = html.match(/<details class="side-nav-group"[^>]*>/g) || [];
@@ -68,8 +79,14 @@ try {
   const optionsNav = html.match(/<details class="side-nav-group" data-nav-group="options"[\s\S]*?<\/details>/)?.[0] || "";
   assert.match(optionsNav, /data-page-tab="flow"[\s\S]*?data-page-tab="oi"/);
   assert.doesNotMatch(optionsNav, /data-page-tab="volume"/, "Trading volume is share volume, so it sits under Price signals");
-  const signalsNav = html.match(/<details class="side-nav-group" data-nav-group="signals"[\s\S]*?<\/details>/)?.[0] || "";
-  assert.match(signalsNav, /Price signals[\s\S]*?data-page-tab="volume"[\s\S]*?data-page-tab="index-cal"[^>]*data-nav-alias="Index calendar"/);
+  // Merged pages (2026-11-17): one sidebar entry per hub, labelled with the
+  // hub's name and searchable by every page inside it; the other pages stay
+  // routable buttons marked data-hub-member (hidden from the menu, not removed).
+  const stocksNav = html.match(/<details class="side-nav-group" data-nav-group="stocks"[\s\S]*?<\/details>/)?.[0] || "";
+  assert.match(stocksNav, /data-page-tab="ma-tracker"[^>]*data-hub="price-signals" data-hub-lead="1"[^>]*data-nav-alias="[^"]*Up\/down streaks[^"]*Trading volume[^"]*"[^>]*>[\s\S]*?<span class="pt-label">Price signals<\/span>[\s\S]*?data-page-tab="streaks"[^>]*data-hub-member="1"[\s\S]*?data-page-tab="volume"[^>]*data-hub-member="1"/);
+  const marketGroupNav = html.match(/<details class="side-nav-group" data-nav-group="market"[\s\S]*?<\/details>/)?.[0] || "";
+  assert.match(marketGroupNav, /data-page-tab="index-cal"[^>]*data-hub-member="1"[^>]*data-nav-alias="Index calendar"/);
+  assert.equal((html.match(/data-hub-lead="1"/g) || []).length, 18, "one sidebar entry per merged page");
   const earningsNav = html.match(/<details class="side-nav-group" data-nav-group="earnings"[\s\S]*?<\/details>/)?.[0] || "";
   assert.match(earningsNav, /data-page-tab="earnings"[\s\S]*?data-page-tab="calls"[\s\S]*?data-page-tab="spillover"/);
   for (const id of ["grade", "privacy", "terms"]) assert.match(html, new RegExp('data-page-tab="' + id + '"[^>]*data-nav-hidden="1"'), id + " stays linkable but out of the visible menu");
@@ -133,8 +150,13 @@ try {
   assert.match(appJs, /function loadPatternLab\(\)\{ patternLab\.load\(\); \}/);
   assert.match(appJs, /function maTrackerScore\([\s\S]*?proximity[\s\S]*?approach[\s\S]*?momentum/);
   assert.match(appJs, /name === 'ma-tracker'[\s\S]*?startMaTrackerLive/);
-  assert.match(appJs, /function loadOwnerTools\(\)[\s\S]*?loadStocks\(\);[\s\S]*?loadSectorRotation\(\);[\s\S]*?loadLevEtf\(\);/);
-  assert.match(appJs, /stkDcaBlock\(d, false\)/);
+  assert.doesNotMatch(appJs, /function loadOwnerTools\(/, "Personal tools left Owner Lab for the desks they size");
+  assert.match(appJs, /if \(name === 'open-picks' && HAS_OWNER_ACCESS && typeof bindPositionTool === 'function'\) bindPositionTool\(\);/);
+  assert.match(appJs, /legacyLabQ\.get\('lab'\) === 'personal'[^\n]*name = 'open-picks';/, "Old Personal tools links open Open picks");
+  // One DCA dial on the Stock picks page: the Owner's own amounts (the
+  // standardized copy repeated the same multiplier one card above).
+  assert.doesNotMatch(appJs, /stkDcaBlock\(d, false\)/);
+  assert.equal((appJs.match(/stkDcaBlock\(d, true\)/g) || []).length, 1);
   assert.equal((appJs.match(/data-rot-account><\/label>/g) || []).length, 1);
   assert.equal((appJs.match(/data-lev-account><\/label>/g) || []).length, 1);
   assert.match(appJs, /function rotRecoveryProfile\(c\)[\s\S]*?qualified[\s\S]*?verify-first[\s\S]*?reject/);

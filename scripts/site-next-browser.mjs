@@ -223,6 +223,8 @@ try {
       pickMode = { mode: 'auto', label: 'Auto', updatedAt: null, by: null, history: [] };
       s = await open(width, theme, 'picks');
       await s.page.locator('.nopick-card').waitFor({ state: 'visible', timeout: 15000 });
+      // The card draws once, then again when the grade index tops it up.
+      await s.page.waitForFunction(() => /DRAM/.test(document.querySelector('.nopick-card')?.innerText || ''), null, { timeout: 5000 });
     }
     await s.page.locator('.nopick-card').scrollIntoViewIfNeeded();
     await finish(s, 'picks-nopicks-' + tag);

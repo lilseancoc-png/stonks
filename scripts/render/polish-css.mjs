@@ -608,5 +608,9 @@ button.idea-record-chip:hover { border-color: var(--accent-line); }
 /* Retry / Refresh feedback (initRefreshFeedback in app-js.mjs). */
 button[data-refresh-checking] { opacity: .55; cursor: progress; }
 .refresh-note { margin-left: 8px; font-size: 12px; color: var(--text-muted, var(--muted, inherit)); white-space: nowrap; }
+/* Owner sizing tools on their own desks (UI streamline, 2026-11-17): the
+   position checker on Open picks, the DCA dial on Stock picks and the risk
+   caps on Sector rotation and Leveraged ETFs (once Owner Lab Personal tools). */
+.page-pane > .owner-desk-tool { margin: 16px 0 0; }
 `;
 }

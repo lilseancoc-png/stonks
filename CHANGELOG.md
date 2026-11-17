@@ -135,6 +135,21 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - A failed NBA research capture now logs which step stopped it and a fixed error label (for example `research=lease/lease-conflict` or `research=index/store-http-503`), so the recurring "NBA research recording is unavailable or busy" failures in the props and research jobs say why without printing keys or provider text.
 - The win-by record and closing-line notes no longer promise exact run times ("13:20 and 22:30 UTC", "every 30 minutes"); GitHub starts those scheduled jobs hours late or skips them, and the Sports docs now say so. Kalshi's NBA game and spread markets are noted as live since 2026-11-16.
 
+### Changed
+
+- Streamline the sidebar from 71 entries to 40 (public 44 to 23, Owner 27 to 17 with Sports). Pages that answer one question share one sidebar entry and open as tabs under one title: Daily brief (Market brief, What changed, Overnight markets, Past days), Screener, Price signals, Ownership & deals, Earnings, Commodities, Sentiment & odds, History, AI tracker, Chip & AI prices and Guides; for the Owner, Owner brief, Market risk, Idea desks, Research labs, Company models, Owner history and Admin. Nothing is removed: every page keeps its own link, pins, saved views, loader and Owner gate, and the site map refuses a merge that would mix Owner and public pages. Market themes and Strategy builder (both already Owner-only) move out of public groups into the Owner groups. The palette shows each page's merged entry, the tab row works with the arrow keys and fades at an edge with more tabs on a phone.
+- Open the Owner Market risk pages (Market analysis, Risk analysis, Bottom tracker) with one line that sets the four market-risk reads side by side (the cross-asset tape as the Market analysis strip shows it, the Bottom tracker stage, the Market odds chance of a 10%+ fall within 6 months, the Booms & busts stage), says whether they agree and why they can differ. It reads files those pages already load and votes on nothing; a missing file says Unavailable.
+- Move Owner Lab's Personal tools onto the desks they size: the position checker to Open picks (old `lab=personal` links follow), your daily DCA amount to Stock picks, the risk caps to Sector rotation and Leveraged ETFs. Owner Lab opens on Research screens. Stock picks draws the DCA dial once (the personalized copy carries the same multiplier and adds your dollar amount).
+
+### Fixed
+
+- The Market analysis strip now redraws when the live quotes arrive, so it and the Market risk line name the same tape state.
+- Owner Lab's Research screens stays quiet (no console error) when `quant.json` has not been written yet.
+
+### Docs
+
+- Add `npm run test:site-hubs-browser`: every page Owner and public at 1440 light and 390 dark, the hub tabs and sidebar, the Market risk line, the moved sizing tools, the palette, the arrow keys and Back.
+
 ## 2026-11-16
 
 ### Added

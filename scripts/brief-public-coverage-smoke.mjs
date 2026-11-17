@@ -27,8 +27,13 @@ for (const source of BRIEF_TOOL_SOURCES) {
   assert(!isPremiumKey(source.file), `${source.file} must be public`);
   assert(publicTabs.has(source.tab), `${source.label} must link to an existing public page`);
 }
-assert(BRIEF_CORE_TABS.every((tab) => publicTabs.has(tab)));
-assert([...covered].every((tab) => !ownerTabs.has(tab)));
+// Strategy builder and Market themes are Owner pages and sit in the Owner
+// groups since the 2026-11-17 sidebar streamline (they had sat in public
+// groups). The Brief covers them only through the public data under them
+// (option chains, narratives.json), never through an Owner file.
+const ownerPagesOverPublicData = new Set(['strategies', 'narratives']);
+assert(BRIEF_CORE_TABS.every((tab) => publicTabs.has(tab) || ownerPagesOverPublicData.has(tab)));
+assert([...covered].every((tab) => !ownerTabs.has(tab) || ownerPagesOverPublicData.has(tab)));
 
 const dir = await mkdtemp(resolve(tmpdir(), 'brief-public-'));
 try {

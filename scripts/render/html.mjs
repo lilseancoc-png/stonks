@@ -15,7 +15,7 @@ import {
 import { DOC_PAGES, DOC_ORDER, DOC_THEME_OVERRIDE } from './docs.mjs';
 import { contactSection } from './contact-client.mjs';
 import { ownerSettingsSection } from './owner-settings-client.mjs';
-import { SITE_SECTIONS, TAB_BAR_SECTIONS } from './site-map.mjs';
+import { SITE_SECTIONS, SITE_HUBS, TAB_BAR_SECTIONS } from './site-map.mjs';
 import { sectorGroupOfLabel } from '../../lib/sector-groups.mjs';
 import { DISCORD_INVITE_URL, KO_FI_URL } from '../../lib/links.mjs';
 import { i18nPickerHtml, i18nHeadScript } from './i18n-client.mjs';
@@ -133,9 +133,14 @@ const SIDE_NAV_ICONS = {
 // every "open X in the Grade tab" link work through [data-page-tab] buttons)
 // but hides it from the visible sidebar — used for destination-only panes
 // like Grade a ticker, reached by clicking a ticker anywhere on the site.
-function sideNavItem(id, label, { selected = false, navHidden = false, alias = '' } = {}) {
+// `hub` / `hubRole`: a merged page (site-map.mjs SITE_HUBS). The first page
+// of a hub is its one visible sidebar entry, labelled with the hub name; the
+// other pages keep their buttons (links, pins and the Owner gate key off them)
+// but stay out of the visible sidebar, and open as tabs under the hub title.
+function sideNavItem(id, label, { selected = false, navHidden = false, alias = '', hub = '', hubRole = '' } = {}) {
   const icon = SIDE_NAV_ICONS[id] || '';
-  return `<button type="button" class="page-tab" role="tab" data-page-tab="${id}" aria-selected="${selected ? 'true' : 'false'}" aria-controls="page-pane-${id}" id="page-tab-${id}"${navHidden ? ' data-nav-hidden="1"' : ''}${alias ? ` data-nav-alias="${htmlEscape(alias)}"` : ''}><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icon}</svg><span class="pt-label">${label}</span></button>`;
+  const hubAttrs = hub ? ` data-hub="${hub}"${hubRole === 'lead' ? ' data-hub-lead="1"' : ' data-hub-member="1"'}` : '';
+  return `<button type="button" class="page-tab" role="tab" data-page-tab="${id}" aria-selected="${selected ? 'true' : 'false'}" aria-controls="page-pane-${id}" id="page-tab-${id}"${navHidden ? ' data-nav-hidden="1"' : ''}${hubAttrs}${alias ? ` data-nav-alias="${htmlEscape(alias)}"` : ''}><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icon}</svg><span class="pt-label">${label}</span></button>`;
 }
 
 // The sidebar, rendered from the shared site map (site-map.mjs). Each group
@@ -146,9 +151,18 @@ function sideNavItem(id, label, { selected = false, navHidden = false, alias = '
 function sideNavGroupsHtml() {
   return SITE_SECTIONS.map((sec) => {
     const role = sec.owner ? ' data-role-group="owner"' : '';
-    const items = sec.items.map((it) => sideNavItem(it.id, htmlEscape(it.label), {
-      selected: it.id === 'home', navHidden: !!it.navHidden, alias: it.alias || '',
-    })).join('\n      ');
+    const leads = new Set();
+    const items = sec.items.map((it) => {
+      if (!it.hub) return sideNavItem(it.id, htmlEscape(it.label), {
+        selected: it.id === 'home', navHidden: !!it.navHidden, alias: it.alias || '',
+      });
+      const lead = !leads.has(it.hub);
+      leads.add(it.hub);
+      if (!lead) return sideNavItem(it.id, htmlEscape(it.label), { alias: it.alias || '', hub: it.hub, hubRole: 'member' });
+      // The hub entry is searchable by every page inside it.
+      const all = sec.items.filter((m) => m.hub === it.hub).map((m) => [m.label, m.alias || ''].join(' ')).join(' ');
+      return sideNavItem(it.id, htmlEscape(SITE_HUBS[it.hub].label), { alias: all.trim(), hub: it.hub, hubRole: 'lead' });
+    }).join('\n      ');
     return `<details class="side-nav-group" data-nav-group="${sec.id}"${role} open${sec.owner ? ' hidden' : ''}>
     <summary class="side-nav-group-label">${htmlEscape(sec.label)}</summary>
     <div class="side-nav-group-items">
@@ -345,7 +359,7 @@ function marketAnalysisSection() {
       <span class="card-eyebrow" id="market-eyebrow" aria-live="polite"></span>
     </header>
     ${infoNote('How to read market labels', `<p>The regime describes a weighted set of current market observations. <b>Neutral</b> means usable evidence is mixed; <b>insufficient data</b> means core evidence is missing or stale. Check coverage, observation dates and opposing contributions before using the label. Forward scenarios below are unvalidated relative risk weights, not calibrated probabilities or point forecasts.</p>`)}
-    <p class="hint">Start with the market posture, its drivers and what would change the stance. The combined desk read is on Risk analysis. Expand the scenario and source details as needed. Check held positions in Owner Lab.</p>
+    <p class="hint">Start with the market posture, its drivers and what would change the stance. The combined desk read is on Risk analysis. Expand the scenario and source details as needed. Check a contract you hold on Open picks.</p>
     <div id="market-load-status" class="market-load-status" hidden></div>
     <div id="market-desk-strip" class="desk-strip-host" hidden aria-live="polite"></div>
     <div id="market-action" class="market-action" hidden aria-live="polite"></div>
@@ -1055,44 +1069,15 @@ function valuationLabSection() {
 function quantSection() {
   return `<section class="card" id="quant-section">
     <header class="card-header"><h2 class="card-title">Owner Lab</h2><span class="card-eyebrow" id="quant-eyebrow" aria-live="polite"></span></header>
-    <p class="hint">Apply your own risk budget, explore unusual market readings, or inspect the records behind the research.</p>
+    <p class="hint">Explore unusual market readings, or inspect the records and tests behind the research. Sizing tools sit on their own desks: the position checker on Open picks, the DCA dial on Stock picks, and risk caps on Sector rotation and Leveraged ETFs.</p>
     <div class="owner-lab-tabs" role="tablist" aria-label="Owner Lab views">
-      <button type="button" role="tab" id="owner-tab-personal" data-owner-view="personal" aria-controls="owner-panel-personal" aria-selected="true">Personal tools</button>
-      <button type="button" role="tab" id="owner-tab-research" data-owner-view="research" aria-controls="owner-panel-research" aria-selected="false" tabindex="-1">Research screens</button>
+      <button type="button" role="tab" id="owner-tab-research" data-owner-view="research" aria-controls="owner-panel-research" aria-selected="true">Research screens</button>
       <button type="button" role="tab" id="owner-tab-diagnostics" data-owner-view="diagnostics" aria-controls="owner-panel-diagnostics" aria-selected="false" tabindex="-1">Diagnostics</button>
       <button type="button" role="tab" id="owner-tab-evidence" data-owner-view="evidence" aria-controls="owner-panel-evidence" aria-selected="false" tabindex="-1">Evidence</button>
       <button type="button" role="tab" id="owner-tab-regime" data-owner-view="regime" aria-controls="owner-panel-regime" aria-selected="false" tabindex="-1">Regime Lab</button>
       <button type="button" role="tab" id="owner-tab-loop" data-owner-view="loop" aria-controls="owner-panel-loop" aria-selected="false" tabindex="-1">Loop</button>
     </div>
-    <section id="owner-panel-personal" class="owner-lab-panel" data-owner-panel="personal" role="tabpanel" aria-labelledby="owner-tab-personal">
-    <section class="owner-suite" aria-labelledby="owner-tools-title">
-      <header class="owner-suite-head">
-        <div><span>Private workspace</span><h3 id="owner-tools-title">Owner tools</h3></div>
-        <p>Review a held contract, check the daily index allocation, or size a qualified setup against your risk budget.</p>
-      </header>
-      <details class="picks-position owner-position" id="picks-position">
-        <summary>Check a position you already hold &rarr;</summary>
-        <div class="picks-position-body">
-          <p class="hint">Review a single long call or put against its price, P&amp;L, grade and premium plan. A hold/sell read requires a recent regular-session bid and ask. Last-trade and older prices are reference only. Tracked tickers only. Not financial advice.</p>
-          <div class="pos-form">
-            <label class="pos-field"><span>Ticker</span><input type="text" id="pos-symbol" autocomplete="off" spellcheck="false" placeholder="e.g. NVDA" maxlength="6"></label>
-            <label class="pos-field pos-field-sm"><span>Side</span><select id="pos-side"><option value="call">Call</option><option value="put">Put</option></select></label>
-            <label class="pos-field"><span>Expiry</span><select id="pos-expiry" disabled><option value="">&mdash;</option></select></label>
-            <label class="pos-field pos-field-sm"><span>Strike</span><input type="number" id="pos-strike" list="pos-strike-list" step="0.5" min="0" inputmode="decimal" placeholder="&mdash;" disabled><datalist id="pos-strike-list"></datalist></label>
-            <label class="pos-field pos-field-sm"><span>Price paid</span><input type="number" id="pos-entry" step="0.01" min="0" inputmode="decimal" placeholder="per share"></label>
-            <label class="pos-field pos-field-xs"><span>Contracts</span><input type="number" id="pos-qty" step="1" min="1" value="1" inputmode="numeric"></label>
-            <button type="button" id="pos-check" class="pos-check-btn" disabled>Check position</button>
-          </div>
-          <div id="pos-status" class="pos-status" role="status" aria-live="polite"></div>
-          <div id="pos-result" class="pos-result" role="status" aria-live="polite" hidden></div>
-        </div>
-      </details>
-      <div id="owner-dca-root" class="owner-tool-root">Loading personalized DCA sizing&hellip;</div>
-      <details class="research-details" id="owner-rotation-panel"><summary>Size a Sector Rotation setup</summary><div id="owner-rotation-root" class="owner-tool-root">Loading Sector Rotation sizing&hellip;</div></details>
-      <details class="research-details" id="owner-lev-panel"><summary>Size a leveraged ETF setup</summary><div id="owner-lev-root" class="owner-tool-root">Loading leveraged-ETF sizing&hellip;</div></details>
-    </section>
-    </section>
-    <section id="owner-panel-research" class="owner-lab-panel" data-owner-panel="research" role="tabpanel" aria-labelledby="owner-tab-research" hidden>
+    <section id="owner-panel-research" class="owner-lab-panel" data-owner-panel="research" role="tabpanel" aria-labelledby="owner-tab-research">
       <div class="owner-lab-intro"><div><h3>What stands out?</h3><p>Research candidates from the latest stored build. An unusual reading alone does not establish a trade.</p></div><button type="button" class="book-more" data-owner-research-refresh>Refresh research</button></div>
       <div id="quant-root" class="quant-root">Open this view to load the research snapshot.</div>
       <div id="quant-empty" class="quant-empty" hidden>No research snapshot is available yet.</div>
@@ -1187,7 +1172,7 @@ function marketMapSection() {
 
 function crowdSection() {
   return `<section class="card" id="crowd-section">
-    <header class="card-header"><div><span class="card-eyebrow">Market &amp; economy · positioning and attention</span><h2 class="card-title">Crowd &amp; positioning</h2></div><span class="card-eyebrow" id="crowd-asof"></span></header>
+    <header class="card-header"><div><span class="card-eyebrow">Sentiment &amp; odds · positioning and attention</span><h2 class="card-title">Crowd &amp; positioning</h2></div><span class="card-eyebrow" id="crowd-asof"></span></header>
     <div id="crowd-root"><p class="crd-empty">Loading crowd and positioning data&hellip;</p></div>
     <p class="hint">Put/call ratios, futures positioning, margin debt, short selling, borrow fees, Reddit and Wikipedia attention, Kalshi odds and 24/7 stock perps, all from free public sources. Facts and market-implied readings only: nothing here is a recommendation. Not investment advice.</p>
   </section>`;
@@ -1210,7 +1195,7 @@ function predictionMarketsSection() {
   // prediction-odds.json; the Owner tabs read prediction-odds-owner.json after
   // sign-in.
   return `<section class="card" id="prediction-markets-section">
-    <header class="card-header"><div><span class="card-eyebrow">Market &amp; economy · what traders are betting on</span><h2 class="card-title">Prediction markets</h2></div><span class="card-eyebrow" id="pm-asof"></span></header>
+    <header class="card-header"><div><span class="card-eyebrow">Sentiment &amp; odds · what traders are betting on</span><h2 class="card-title">Prediction markets</h2></div><span class="card-eyebrow" id="pm-asof"></span></header>
     ${infoNote('How to read this page', `<p>Kalshi and Polymarket let people buy a contract that pays $1 if something happens. A contract trading at 62 cents is the crowd putting a 62% chance on it. This page tracks the contracts that can move stocks: Fed decisions and data releases, tariffs and other policy, elections, wars and ceasefires, oil and gold, crypto, and bets that name a covered company or its leaders.</p><p>Each contract lists the covered stocks it could move. A <b>+</b> link means YES would help that stock and a <b>&minus;</b> link means it would hurt, set in advance from what the event means for the business. A <b>?</b> link names the company or a broad event whose direction has to show in the data first. The prices are the traders&rsquo;, not the site&rsquo;s forecast, and a thin market can move on a single order.</p>`)}
     <div id="pm-root"><p class="crd-empty">Loading prediction market odds&hellip;</p></div>
     <p class="hint">Free public market data from Kalshi and Polymarket, refreshed with each full site update. Facts and market-implied readings only: nothing here is a recommendation. Not investment advice.</p>
@@ -1222,7 +1207,7 @@ function historyRhymesSection() {
   // public history-rhymes.json; the Owner-only Stocks tab reads
   // history-rhymes-owner.json after sign-in.
   return `<section class="card" id="history-rhymes-section">
-    <header class="card-header"><div><span class="card-eyebrow">Market &amp; economy · history</span><h2 class="card-title">Booms &amp; busts</h2></div><span class="card-eyebrow" id="history-rhymes-asof"></span></header>
+    <header class="card-header"><div><span class="card-eyebrow">History · past booms and busts</span><h2 class="card-title">Booms &amp; busts</h2></div><span class="card-eyebrow" id="history-rhymes-asof"></span></header>
     ${infoNote('How to read this page', `<p>Each case study is a past buildout or credit boom: the British and American railroads, the 1996&ndash;2002 telecom and fiber build, and the 2000s housing boom that ended in the 2008 crisis. Each one is set beside the AI data center buildout. <b>Now vs history</b> has two panels. The AI buildout panel reads six signs that showed up before those busts (SEC spending and revenue, the builders&rsquo; debt, GPU rents and stock prices). The whole-market panel reads six signs that came before past US bear markets (margin debt, stocks against bond yields, bond sales, interest rates, the yield curve and credit spreads), and tests each bust sign against every S&amp;P 500 bear market since 1950. Each panel counts boom signs and bust signs apart. It describes how much today looks like the run-up to past busts; it is not a forecast or a timing signal, and some booms never busted.</p><p>Single-company credit default swap prices are sold by data vendors and are not free, so CDS levels appear only as dated quotes reported in the press, next to free bond-market spreads.</p>`)}
     <div id="history-rhymes-root"><p class="hr-empty">Loading the case studies&hellip;</p></div>
     <p class="hint">Dated facts link to their sources. Computed numbers (house prices, delinquencies, spreads, index moves) come from FRED and index history. Not investment advice.</p>
@@ -2437,9 +2422,11 @@ ${i18nHeadScript()}
     ${ownerMarketBriefSection()}
   </div>
   <div class="page-pane" id="page-pane-market" role="tabpanel" aria-labelledby="page-tab-market" hidden>
+  <div class="mr-line" data-mr-line="market" role="region" aria-label="Market risk reads" hidden></div>
   ${marketAnalysisSection()}
   </div>
   <div class="page-pane" id="page-pane-risk" role="tabpanel" aria-labelledby="page-tab-risk" hidden>
+  <div class="mr-line" data-mr-line="risk" role="region" aria-label="Market risk reads" hidden></div>
   ${riskAnalysisSection()}
   </div>
   <div class="page-pane" id="page-pane-picks" role="tabpanel" aria-labelledby="page-tab-picks" hidden>
@@ -2453,15 +2440,59 @@ ${i18nHeadScript()}
   </div>
   <div class="page-pane" id="page-pane-stocks" role="tabpanel" aria-labelledby="page-tab-stocks" hidden>
   ${stockPicksSection()}
+  <section class="owner-suite owner-desk-tool" data-owner-tool="dca" aria-labelledby="owner-tool-dca-title">
+      <header class="owner-suite-head">
+        <div><span>Private tool</span><h3 id="owner-tool-dca-title">Your daily DCA amount</h3></div>
+        <p>The published VOO and QQQ multiplier applied to your own daily dollar baseline (saved on this device).</p>
+      </header>
+      <div id="owner-dca-root" class="owner-tool-root">Loading personalized DCA sizing&hellip;</div>
+    </section>
   </div>
   <div class="page-pane" id="page-pane-rotation" role="tabpanel" aria-labelledby="page-tab-rotation" hidden>
   ${sectorRotationSection()}
+  <section class="owner-suite owner-desk-tool" data-owner-tool="rotation" aria-labelledby="owner-tool-rotation-title">
+      <header class="owner-suite-head">
+        <div><span>Private tool</span><h3 id="owner-tool-rotation-title">Size a Sector Rotation setup</h3></div>
+        <p>Your account size and max loss per trade applied to the setup levels above.</p>
+      </header>
+      <details class="research-details" id="owner-rotation-panel"><summary>Open the sizing table</summary><div id="owner-rotation-root" class="owner-tool-root">Loading Sector Rotation sizing&hellip;</div></details>
+    </section>
   </div>
   <div class="page-pane" id="page-pane-levetf" role="tabpanel" aria-labelledby="page-tab-levetf" hidden>
   ${leveragedEtfsSection()}
+  <section class="owner-suite owner-desk-tool" data-owner-tool="lev" aria-labelledby="owner-tool-lev-title">
+      <header class="owner-suite-head">
+        <div><span>Private tool</span><h3 id="owner-tool-lev-title">Size a leveraged ETF setup</h3></div>
+        <p>Your account size and max loss per trade applied to the leveraged ETF setups above.</p>
+      </header>
+      <details class="research-details" id="owner-lev-panel"><summary>Open the sizing table</summary><div id="owner-lev-root" class="owner-tool-root">Loading leveraged-ETF sizing&hellip;</div></details>
+    </section>
   </div>
   <div class="page-pane" id="page-pane-open-picks" role="tabpanel" aria-labelledby="page-tab-open-picks" hidden>
   ${openPicksSection()}
+  <section class="owner-suite owner-desk-tool" data-owner-tool="position" aria-labelledby="owner-tool-position-title">
+      <header class="owner-suite-head">
+        <div><span>Private tool</span><h3 id="owner-tool-position-title">Check a position you hold</h3></div>
+        <p>Review a long call or put you hold against its live price, P&amp;L, grade and premium plan.</p>
+      </header>
+      <details class="picks-position owner-position" id="picks-position">
+        <summary>Open the position checker &rarr;</summary>
+        <div class="picks-position-body">
+          <p class="hint">Review a single long call or put against its price, P&amp;L, grade and premium plan. A hold/sell read requires a recent regular-session bid and ask. Last-trade and older prices are reference only. Tracked tickers only. Not financial advice.</p>
+          <div class="pos-form">
+            <label class="pos-field"><span>Ticker</span><input type="text" id="pos-symbol" autocomplete="off" spellcheck="false" placeholder="e.g. NVDA" maxlength="6"></label>
+            <label class="pos-field pos-field-sm"><span>Side</span><select id="pos-side"><option value="call">Call</option><option value="put">Put</option></select></label>
+            <label class="pos-field"><span>Expiry</span><select id="pos-expiry" disabled><option value="">&mdash;</option></select></label>
+            <label class="pos-field pos-field-sm"><span>Strike</span><input type="number" id="pos-strike" list="pos-strike-list" step="0.5" min="0" inputmode="decimal" placeholder="&mdash;" disabled><datalist id="pos-strike-list"></datalist></label>
+            <label class="pos-field pos-field-sm"><span>Price paid</span><input type="number" id="pos-entry" step="0.01" min="0" inputmode="decimal" placeholder="per share"></label>
+            <label class="pos-field pos-field-xs"><span>Contracts</span><input type="number" id="pos-qty" step="1" min="1" value="1" inputmode="numeric"></label>
+            <button type="button" id="pos-check" class="pos-check-btn" disabled>Check position</button>
+          </div>
+          <div id="pos-status" class="pos-status" role="status" aria-live="polite"></div>
+          <div id="pos-result" class="pos-result" role="status" aria-live="polite" hidden></div>
+        </div>
+      </details>
+    </section>
   </div>
   <div class="page-pane" id="page-pane-track" role="tabpanel" aria-labelledby="page-tab-track" hidden>
   ${trackRecordSection()}
@@ -3013,6 +3044,7 @@ ${i18nHeadScript()}
   ${ipoCreditSection()}
   </div>
   <div class="page-pane" id="page-pane-bottom-tracker" role="tabpanel" aria-labelledby="page-tab-bottom-tracker" hidden>
+  <div class="mr-line" data-mr-line="bottom-tracker" role="region" aria-label="Market risk reads" hidden></div>
   ${bottomTrackerSection()}
   </div>
   <div class="page-pane" id="page-pane-f13" role="tabpanel" aria-labelledby="page-tab-f13" hidden>
