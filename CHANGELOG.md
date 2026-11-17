@@ -148,7 +148,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Docs
 
-- Add `npm run test:site-hubs-browser`: every page Owner and public at 1440 light and 390 dark, the hub tabs and sidebar, the Market risk line, the moved sizing tools, the palette, the arrow keys and Back.
+- Add `node scripts/site-hubs-browser.mjs`: every page Owner and public at 1440 light and 390 dark, the hub tabs and sidebar, the Market risk line, the moved sizing tools, the palette, the arrow keys and Back.
 
 ## 2026-11-16
 

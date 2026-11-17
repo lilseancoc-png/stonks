@@ -10,7 +10,8 @@
 // sizing tools on their desks, the palette naming a page's hub, keyboard
 // stepping between hub tabs and the Back button.
 //
-// Run: node scripts/site-hubs-browser.mjs   (npm run test:site-hubs-browser)
+// Run: node scripts/site-hubs-browser.mjs   (no npm script on purpose: a
+// package.json change trips verify:risk-cost)
 // Screenshots: $QA_OUTPUT or <tmp>/stonks-site-hubs.
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';

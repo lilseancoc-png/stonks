@@ -121,7 +121,6 @@
     "test:contact": "node scripts/contact-smoke.mjs",
     "test:site-next": "node scripts/site-next-smoke.mjs",
     "test:site-next-browser": "node scripts/site-next-browser.mjs",
-    "test:site-hubs-browser": "node scripts/site-hubs-browser.mjs",
     "test:views-next": "node scripts/views-next-smoke.mjs",
     "test:views-next-browser": "node scripts/views-next-browser.mjs",
     "test:crowd": "node scripts/crowd-smoke.mjs",
