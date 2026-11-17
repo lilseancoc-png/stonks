@@ -48,7 +48,7 @@ function toneFor(i) {
     "ES=F": fresh(s, 1), "NQ=F": fresh(s * 1.2, 1.2), "^N225": fresh(s * 0.8, 1.1, { name: "Nikkei 225" }),
     "^HSI": { fresh: false, staleWhy: "closed since " + days[0] + " (holiday or no session yet)", name: "Hang Seng" },
     "^VIX": fresh(-s * 6, 6, { level: 17 }), "^VIX3M": { fresh: false, level: 19, staleWhy: "context level" },
-    "ZN=F": fresh(-s * 0.2, 0.35), "AUDJPY=X": fresh(s * 0.5, 0.6), "CNH=X": fresh(-s * 0.1, 0.25),
+    "ZN=F": fresh(-s * 0.2, 0.35), "AUDJPY=X": fresh(s * 0.5, 0.6), "CNY=X": fresh(-s * 0.1, 0.25),
     "HG=F": fresh(s * 0.9, 1.3), "BTC-USD": fresh(s * 2, 3), "000660.KS": fresh(s * 2, 2.5),
   }, { asiaEcho: { beta: 0.6, residSigmaPct: 0.8 }, priorUsPct: 0.3 });
 }

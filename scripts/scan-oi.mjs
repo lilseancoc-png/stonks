@@ -41,6 +41,7 @@ import { fileURLToPath } from "node:url";
 import YahooFinance from "yahoo-finance2";
 import { TICKERS } from "./build.mjs";
 import { expiryCloseEpochSec } from "../lib/greeks.mjs";
+import { concentratedNearMoneyCall } from "../lib/gamma-squeeze.mjs";
 import { previousDaySnapshot } from "../lib/oi-baseline.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -79,15 +80,9 @@ const DELTA_OI_PCT_AGGR = 1.00;
 // of the tracker rather than inventing a new magic number.
 const NEW_OI_FROM_ZERO_FLOOR = BIG_OI;
 
-// Gamma squeeze "near the money" band: 0–10% OTM (calls).
-const NEAR_THE_MONEY_OTM_MAX = 0.10;
-
-// Gamma squeeze rule thresholds (made explicit for tuning).
-//   CONCENTRATED_RATIO: a near-the-money strike's OI must be at least
-//     this multiple of the average call OI across all short-dated
-//     strikes for rule 1 ("concentrated"). With BIG_OI as the absolute
-//     floor this catches "a wall is forming" rather than "everything is
-//     evenly noisy".
+// Gamma squeeze rule thresholds (made explicit for tuning). Rule 1's band
+// and ratio (a 0-10% OTM call strike at 1.5x the average of its nearby
+// strikes) live in lib/gamma-squeeze.mjs.
 //   CP_RATIO_HOT: call/put OI ratio that fires rule 2.
 //   VOL_OVER_OI_HOT: Vol/OI on the top call wall strike that fires
 //     rule 3. Spec says "Vol >> OI (Vol 1.5x+ higher than OI)".
@@ -95,7 +90,6 @@ const NEAR_THE_MONEY_OTM_MAX = 0.10;
 //     rule 4 to fire.
 //   GAMMA_FLAG_MIN: score at which we set ticker.flagged = true. Spec
 //     says 4 or 5 = strong potential setup.
-const CONCENTRATED_RATIO = 1.5;
 const CP_RATIO_HOT = 2.0;
 const VOL_OVER_OI_HOT = 1.5;
 const NEAR_WALL_PCT = 0.075;
@@ -506,29 +500,20 @@ function computeGammaScore({ contracts, spot, callWall, callOiTotal, putOiTotal,
   const reasons = [];
   let score = 0;
 
-  // Rule 1: heavy call OI concentrated in the 0–10% OTM band, this/next
-  // week. "Concentrated" = a single strike's OI is ≥ CONCENTRATED_RATIO
-  // × the average call OI across all short-dated strikes AND ≥ BIG_OI
-  // in absolute terms.
-  const callStrikes = contracts.filter((c) => c.side === "call");
-  const avgCallOi = callStrikes.length
-    ? callStrikes.reduce((s, c) => s + c.oi, 0) / callStrikes.length
-    : 0;
-  const nearMoneyCalls = callStrikes.filter((c) => {
-    const otm = otmPct("call", c.strike, spot);
-    return otm != null && otm >= 0 && otm <= NEAR_THE_MONEY_OTM_MAX;
-  });
-  // Name the HEAVIEST qualifying strike. The first one in chain order is
-  // usually the nearest strike, so the label disagreed with the call wall
-  // (NVDA 2026-11-06: "Heavy call OI at $187.5" beside a $200 call wall).
-  const concentratedNearMoney = nearMoneyCalls
-    .filter((c) => c.oi >= BIG_OI && (avgCallOi <= 0 || c.oi >= CONCENTRATED_RATIO * avgCallOi))
-    .reduce((best, c) => (!best || c.oi > best.oi ? c : best), null);
-  if (concentratedNearMoney) {
+  // Rule 1: heavy call OI at a strike 0-10% OTM, this/next week, that
+  // stands out against its neighboring strikes in the same expiration
+  // (at least CONCENTRATED_RATIO x their average and BIG_OI; see
+  // lib/gamma-squeeze.mjs, 2026-11-17). Until then it compared with the
+  // average of every strike in the +/-60% band, which the far strikes dragged
+  // down, so it fired for almost every stock. The HEAVIEST qualifying strike
+  // is named (NVDA 2026-11-06: the nearest one disagreed with the $200 wall).
+  const concentrated = concentratedNearMoneyCall(contracts, spot, { bigOi: BIG_OI });
+  if (concentrated) {
+    const c = concentrated.contract;
     score += 1;
     reasons.push({
       rule: "concentrated",
-      label: `Heavy call OI at $${concentratedNearMoney.strike} (${(otmPct("call", concentratedNearMoney.strike, spot) * 100).toFixed(1)}% OTM)`,
+      label: `Heavy call OI at $${c.strike} (${(concentrated.otm * 100).toFixed(1)}% OTM${concentrated.ratio != null ? `, ${concentrated.ratio.toFixed(1)}× the nearby strikes` : ""})`,
     });
   }
 

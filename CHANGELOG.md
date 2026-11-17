@@ -28,6 +28,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Start the AI disruption tracker registry (`lib/ai-disruption/`, `docs/ai-disruption.md`): 32 capabilities, six labs and their official release pages, 88 past launches (58 read on the source page), a map of 45 companies that sell each capability and how a launch could hurt them, and the customer-capture score. The check refuses any stock score in the company map, unused capabilities, future dates and sources that are not a lab's listed page. Nothing on the site, in the MCP or in Top Picks reads it yet; no network or AI call. Stock scores stay out of the public repo by rule.
 
 ### Changed
+- Apply four of the strategy engines' money-leak fixes (rules 3, Owner-only paper engines): retire Reversion's spike-in-a-downtrend puts and Technicals' range-breakdown puts, buy about 0.3-delta washout-bounce calls about 21 days out with a -60% stop, record each option trade as about $2,000 of premium (the Webull paper account still buys one contract), and stop Technicals' share trades 3 ATR under the entry. Each has an Owner Settings switch (`ENGINES_FIX_RETIRE_PUTS`, `ENGINES_FIX_BOUNCE`, `ENGINES_FIX_SIZE`, `ENGINES_FIX_TEC_SHARES`); flipping one is logged as a rules change so the record splits there. Each fix was checked again inside the full 2007-2026 book; the proposed no-take-profit TLT change failed that check and was not made. Each engine's Track record tab now shows every setup live against the history test, and the history test reruns with the fixes.
 - Include NBA Goblin More lines in cross-game two-player comparisons; rank pairs with confirmed actual payouts by conservative expected return, show win probability and break-even, and preserve the separate standard-line track record. Add searchable custom pair comparisons and carry exact checked payouts into Pick Builder (#826).
 - Rank NBA two-player combinations across each day’s full slate, allowing different games and keeping same-game alternatives; show the joint estimate and add both selections to Pick Builder (#825).
 
@@ -43,7 +44,74 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Added
 
+- Add a whole-market panel to Booms & busts: margin debt, stocks against bond yields and corporate bond sales on the boom side; Fed and bond yields rising, the yield curve and credit spreads on the bust side. Each bust sign is tested every build against every S&P 500 bear market since 1950 and counts toward the stage only when its lit months were followed by a bear market at least 1.2 times as often as other months; a sign that fails (rates rising, on the first test) is shown and marked "Not counted". A new table lists each bear market and which signs showed before it. Uses only data the site already keeps.
 - The 1971-2026 strategy-engine history test now shows across the site as context only: "Strategy styles by era" on Pattern lab and style strips on Booms & busts (public), event and crisis strips on Historical Data, "Today's regime fit" in the Regime Lab and the Owner brief, and MCP datasets (Owner). Aggregates only; switch `ENGINES_HISTORY=0` (#849).
+- Risk analysis adds one line under the context cards on why the market tape, the market odds and Booms & busts can disagree: they look at different stretches of time (days to weeks, 3 to 12 months, years). It names each one's current read and votes on nothing (Owner choice) (#848).
+
+### Changed
+
+- Rescore the Booms & busts AI buildout signs: the three capital spending measures become one sign with three parts, so the same spending is no longer counted three times (nine signs become six), and boom and bust signs are counted apart, so a boom with no strain reads "Boom" instead of "Late boom". Market-wide bond sales and credit spreads move to the new whole-market panel. The shadow log's `bsl` is now out of 6 (it was out of 9 until 2026-11-16) and a new `bsm` logs the whole-market score; "Resembles now", the Owner brief, the Risk analysis card, the MCP credit read and Regime Lab positioning read both panels.
+- Booms & busts reads each drawdown in the stock's own swings: the fall from the 52-week high is measured against the stock's one-year volatility, with bars that match the old 40% / 25% (builders) and 20% / 10% (SMH) for a stock that moves 35% a year. A calm stock now lights the sign on a smaller fall and a wild one such as CoreWeave needs a bigger one; with too little price history the fixed bars stand (Owner choice) (#848).
+- Booms & busts credit strain counts a widening as partly showing only while the Baa spread sits at or above its long-run middle (its median since 1986, and in the history test the median up to each month); a jump big enough to light the sign still lights it at any level (Owner choice) (#848).
+- Rising volatility adds a "Hide earnings within 30 days" button (off by default, remembered on this device): for a stock about to report, most of the rise in implied volatility is the usual run-up into the report. It hides those names from the table, cards, counts and summary chips (Owner choice) (#850).
+
+
+- Options walls: gamma squeeze rule 1 now asks whether a near-the-money call strike stands out against its nearby strikes (1.5 times the average of up to four strikes on each side in the same expiration, and at least 1,000 contracts) instead of the average of every strike within 60% of the price, which the far strikes dragged down so the rule fired for almost every stock. The squeeze score is shown to the Top Picks AI grader, so the grader sees fewer squeeze points; the rule lives in `lib/gamma-squeeze.mjs` with `scripts/gamma-squeeze-smoke.mjs` (Owner choice) (#850).
+
+### Fixed
+
+- Strategy builder: max gain, max loss and breakevens are now exact. The payoff sweep also samples every leg's strike and the spot price, so a butterfly's peak is no longer missed (a $5-wide fly on a $500 stock showed $170 of its $420 max gain), and a breakeven that lands on a sample is listed once, not twice.
+- Strategy builder: a long put's max gain and a short put's max loss show the figure if the stock goes to $0 instead of "unlimited", and the risk / reward score uses that figure.
+- Strategy builder: the score's "Directional fit" now reads the same grade-first direction the page shows (the RSI / MACD / 20-day tape adds or takes a little, and decides alone only when the stock has no grade). It used to score RSI and MACD only, so a bull spread on a Put-graded stock could get full marks, and its note always said "matches".
+- Strategy builder: the payoff chart's P/L axis labels are shortened ($26.1K) so five-figure values are no longer clipped.
+
+### Changed
+- The hourly unusual-flow scan counts the first half hour after the open: the 10:00 ET scan (up to 11:30) had nothing in-session to compare with, so 9:30-10:00 never flagged (0 of 188 flags in 60 scans, Nov 5-16). A contract that has traded today now counts all of today's volume and is labeled "since the open". Off switch `FLOW_OPEN_WINDOW` (Owner Settings).
+- Each stock gets its own unusual-flow volume bar: 1% (0.5% past 14 days) of its median full-day option volume over its last 10 complete sessions, between 500 and the old 4,000 (250 to 2,000). A stock keeps the old bar until 5 complete sessions are on file; the scanner now keeps each stock's daily option volume in `unusual-history.json`. 49 of 85 stocks never flagged under the single bar. Off switch `FLOW_STOCK_BARS` (Owner Settings). New Top Picks trades carry `flowScanVersion`, so the Track Record draws a dated divider; the record is not reset.
+
+### Fixed
+
+- Daily index moves: a 30-minute bar still trading when the build runs no longer counts as finished, so the 10:00 ET build stops reporting a first hour from a 10:05 price and the 15:30 ET build stops marking the day complete with a 15:35 price; today's row is labeled "so far" until the close, and the month read's sleeve counts ("at least 5 of 6") now match the rule instead of saying "four" (`indexCalendarAsOf` in `build.mjs`, `scripts/index-calendar-smoke.mjs`).
+
+### Changed
+- Measure the intraday volume curve from the covered stocks' own sessions instead of the fixed 25/14/11/11/14/25% hour curve, which expected too little volume in the first hour and too much in the afternoon (median name traded 16.7% of its day by 10:00, not 12.5%); the Volume page, the heatmap's relative volume and the stock page's live relative volume all read it (`VOLUME_MEASURED_CURVE=0` brings the fixed curve back).
+- The grade's Unusual volume vote reads the session so far (volume since the open against a normal day by now, move since yesterday's close) instead of the busiest single window, which opened the vote to about half of all names on an ordinary day; the strategy engines' relative volume follows it, and new Top Picks trades carry `volumeReadVersion` for a Track Record divider (`VOLUME_SESSION_READ=0` brings back the window read).
+- The scan just after the 16:00 ET close waits until about 16:06 ET and re-reads every stock's day volume and close, so the closing auction counts on the Volume page and in the end-of-day flags (Owner choice; switch `VOLUME_CLOSE_REREAD` in Owner Settings) (#854).
+
+### Fixed
+
+- Stop the AI spending "Combined CapEx by year" chart from drawing a false drop: it now shows only the years every company has reported. The newest year held only the June-to-September filers (MSFT, ORCL, MU, AAPL, about $211B) against about $422B the year before, because the calendar-year companies file in February.
+- Leave a company whose newest full year is more than a year behind its run-rate out of the AI spending fiscal-year total and growth, and say so on the page. TSMC's newest full year on file is still FY2024 (its SEC feed stops there and Yahoo's quarters cannot rebuild FY2025), so it was mixed into the "latest fiscal year" total; it stays in the run-rate. The run-rate vs latest year now compares the same companies, and a series that skips a year no longer shows a two-year change as year over year (TSMC once its 2026 quarters complete).
+- Keep the GPU cloud prices and Memory chip prices pages "current" for nine days after the Friday scan, like Search trends. They switched to "Reference only / needs a fresh build" 72 hours after each scan, so most of every week.
+- Measure the GPU 7- and 30-day price changes lane by lane (the median of each provider lane's own change), so a provider that misses one weekly scan no longer moves the change; this also feeds the H100 sign on Booms & busts and the `gpu30` shadow gauge. History labels now say weekly, not daily.
+- Pick the Vast.ai lane's GPU count from the offer nearest the median price (the sort compared one offer only).
+- Chain-link the Memory chip prices retail composite: each step is the median price change of the categories priced on both dates, anchored to today's median category price, so a category entering or leaving no longer moves the line or its 3-month and 1-year changes.
+- Search trends no longer badge, filter or sort cards by "breakout" queries carried from an old run while related-query lookups are off, and the collector stops carrying them; an unfinished last day marked partial is left out of the 7-day window. The stale note gives the weekly nine-day window instead of 48 hours.
+- Search trends groups its weekly Google Trends requests by each theme's usual size, so small themes are compared with each other instead of reading 0-2 beside ChatGPT or Trump, where their weekly change was mostly rounding (Owner choice) (#856).
+
+### Fixed
+
+- Today section audit: News no longer rates buy-or-sell questions and listicles ("Should you buy X before earnings?") as high impact because they mention earnings or the Fed, and counts results written without the word "earnings" ("beats estimates", "third-quarter profit") as earnings news. Home's "next Top Picks run" skips 15:30 on a 13:00 ET early close (next: the day after Thanksgiving). The Calendar's IPO lockup estimate moves a weekend or holiday day 180 to the next session instead of the one before, and VIX expiration follows Cboe's holiday rule (May 2027 expires Tuesday May 18). The Overnight page retries a Yahoo reply that fails its schema check, which dropped the Euro Stoxx 50 in three of four builds on 2026-11-16 (#857).
+- The Fed policy card says how much of a meeting priced past one 25 bps step is a 50 bps move ("Of which a 50 bps hike: 16%" when futures price +29 bps), instead of only showing a 100% hike (Owner choice) (#857).
+- The overnight read and the Overnight page use the Shanghai Composite and onshore USD/CNY in place of the CSI 300 and offshore USD/CNH: Yahoo often sent the CSI 300 as a single bar with no history and USD/CNH with no bars, so both sat out the Asia and FX votes. Weights are unchanged (Owner choice) (#857).
+
+### Changed
+
+- Insider buys and sells (Form 4) read up to five new filings per company each update instead of the newest three, and remember which filings were already read, so a busy week catches up over the next few updates instead of skipping filings. The sweep stops starting new companies after 150 seconds, and the stored list keeps every buy plus the newest other rows (#858).
+- Compare's sector-average benchmark now averages every covered stock in the reference's sector group (18 for Semis and Software, which used to stop at 12), read from the one public daily-moves file; the label shows the count (#858).
+
+### Fixed
+
+- Stocks section audit: one dropped SEC connection no longer blanks the 13F buy and sell tables. The shared SEC reader retries a dropped connection once, and a manager whose prior-quarter filing still can't be read keeps the change table an earlier build made from the same two filings, so the cross-firm totals keep that manager (on 2026-11-16 the 16:10 build fell from 13 to 4 managers with changes). Market map no longer shows the move since listing as the 1-year move for a name listed under a year ago (#858).
+
+### Changed
+
+- Earnings results, Earnings week ahead and the stock page: a print with no live straddle reading now gets its estimated expected move (`~±`, from the drop in implied volatility around the report) on the same scale as a straddle, about 0.8 of the old one-standard-deviation number, so estimated and measured prints compare fairly. Stored estimates are re-read once (#860).
+- Earnings ripple effects: Edge now compares each follower's average move with what a one-day at-the-money call or put on it costs (about 0.4 of the day's expected move) instead of the full expected move, which no single option charges; the column is renamed Option cost/day and the expected move shows on hover (#860).
+
+### Fixed
+
+- Earnings audit: the week-after drift on each print is read from a closing price, never from the in-progress bar (the 10:00 ET bake stamped it off a half-hour-old price and kept it), and the stored week-1 drifts the bars still cover are re-read once; Earnings ripple effects resolves its forward record only from finished sessions (stored results are re-read once) and scores direction as beta times the reporting company's actual move, where it had only counted how often peers rose; the deep ripple matrix leaves out today's unfinished bar; Earnings week ahead's "season so far" no longer counts placeholder rows with no EPS and no move; the Earnings results "avg implied vs avg realized" line compares the same prints; the bake log stops calling full-bake transcript carry-forward "keyless" (#860).
 
 ### Changed
 

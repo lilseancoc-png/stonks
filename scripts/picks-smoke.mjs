@@ -19,7 +19,7 @@ import {
   assessThesisQuality, selectStrategy, buildPickContract, classifyPick, generateAiTheses, applyAiThesisGrade,
   buildMarketRead, macroKindOf, thesisCacheSig, thesisDecisionGuardSig, canReuseThesisCache, thesisInstructionSignature,
   thesisResearchInputSignature, PICKS_MAX_AI_THESES, buildThesisUserMessage,
-  buildMacroCalendarAhead, transcriptGuidanceDirection, impliedMoveFromIvCrush,
+  buildMacroCalendarAhead, transcriptGuidanceDirection, impliedMoveFromIvCrush, rescaleImpliedMoveEstimate, STRADDLE_SIGMA_RATIO, IMPLIED_MOVE_EST_VERSION,
   buildDcaPlan, DCA_BASE_USD,
   aiSignalsHeadlineSignature, canReuseAiSignals,
   attachIvRanks, computeAtmIvForDte,
@@ -2463,9 +2463,20 @@ ok("guid: raised AND cut → inline (mixed)", transcriptGuidanceDirection([{ met
 ok("guid: maintained only → inline", transcriptGuidanceDirection([{ metric: "FY", value: "$4", change: "maintained" }]) === "inline");
 ok("guid: first-time (new) guidance alone → null", transcriptGuidanceDirection([{ metric: "FY26", value: "$5", change: "new" }]) === null);
 ok("guid: empty / missing rows → null", transcriptGuidanceDirection([]) === null && transcriptGuidanceDirection(null) === null);
-// IV crush: 0.55 → 0.40 should reconstruct a high-single-digit expected move.
+// IV crush: 0.55 → 0.40 is a ~10.8% 1σ event move, ~8.6% in straddle terms
+// (×sqrt(2/π) ≈ 0.8, 2026-11-17).
 const crushEst = impliedMoveFromIvCrush(0.55, 0.40);
-ok("crush: 55→40 vol reconstructs ~10% move", crushEst > 0.08 && crushEst < 0.13);
+ok("crush: 55→40 vol reconstructs a ~8.6% straddle-scale move", crushEst > 0.083 && crushEst < 0.089);
+ok("crush: straddle ratio is about 0.8", Math.abs(STRADDLE_SIGMA_RATIO - 0.798) < 0.001);
+{
+  const fromIv = { impliedMoveEstPct: 0.1082, ivPre: 0.55, ivPost: 0.40 };
+  ok("crush rescale: re-reads an old 1σ estimate from the stored IVs", rescaleImpliedMoveEstimate(fromIv) && Math.abs(fromIv.impliedMoveEstPct - 0.0864) < 0.0005 && fromIv.impliedMoveEstV === IMPLIED_MOVE_EST_VERSION);
+  ok("crush rescale: runs once", rescaleImpliedMoveEstimate(fromIv) === false);
+  const noIv = { impliedMoveEstPct: 0.10 };
+  ok("crush rescale: scales a stored estimate with no IVs", rescaleImpliedMoveEstimate(noIv) && Math.abs(noIv.impliedMoveEstPct - 0.0798) < 0.0001);
+  const live = { impliedMovePct: 0.07, impliedMoveEstPct: 0.10 };
+  ok("crush rescale: leaves a print with a live straddle stamp alone", rescaleImpliedMoveEstimate(live) === false && live.impliedMoveEstPct === 0.10);
+}
 ok("crush: no crush (post ≥ pre) → null", impliedMoveFromIvCrush(0.40, 0.40) === null && impliedMoveFromIvCrush(0.40, 0.55) === null);
 ok("crush: missing sides → null", impliedMoveFromIvCrush(null, 0.4) === null && impliedMoveFromIvCrush(0.5, null) === null);
 ok("crush: implausibly tiny diff → null", impliedMoveFromIvCrush(0.30001, 0.3) === null);

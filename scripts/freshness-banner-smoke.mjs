@@ -47,4 +47,24 @@ const banner = grab('renderFreshness');
 assert(/ageH > 36 && missedAny/.test(banner));
 assert(/ageH > 24\*7 && missedAny/.test(banner));
 
+// Home's "next Top Picks run" (Today audit 2026-11-17): a 13:00 ET early close
+// has no 15:30 Top Picks run, so the next one is the following session's 11:00.
+const nextRunAt = (nowIso) => {
+  const nowMs = RealDate.parse(nowIso);
+  class FakeDate extends RealDate {
+    constructor(...a) { if (a.length) super(...a); else super(nowMs); }
+    static now() { return nowMs; }
+  }
+  const t = closureTables();
+  return new Function('Date', 'MARKET_HOLIDAYS', 'MARKET_HALF_DAYS', `${grab('etNowParts')}\n${grab('nextPickRunEt')}; return nextPickRunEt();`)(FakeDate, t.holidays, t.halfDays);
+};
+const halfNoon = nextRunAt('2026-11-27T17:00:00Z'); // Fri Nov 27, 12:00 ET, early close
+assert.equal(halfNoon.time + ' ' + halfNoon.day, '11:00 Mon', 'no 15:30 run on the day after Thanksgiving');
+const halfMorning = nextRunAt('2026-11-27T14:00:00Z'); // 09:00 ET
+assert.equal(halfMorning.time + ' ' + halfMorning.day, '11:00 today', 'the 11:00 run still happens on a half day');
+const normal = nextRunAt('2026-11-17T17:00:00Z'); // Tue 12:00 ET
+assert.equal(normal.time + ' ' + normal.day, '15:30 today', 'a full day keeps its 15:30 run');
+const thanksgiving = nextRunAt('2026-11-25T21:00:00Z'); // Wed 16:00 ET, before Thanksgiving
+assert.equal(thanksgiving.time + ' ' + thanksgiving.day, '11:00 Fri', 'Thanksgiving is skipped');
+
 console.log('freshness banner smoke ok');

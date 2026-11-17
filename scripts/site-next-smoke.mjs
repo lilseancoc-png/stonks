@@ -94,6 +94,16 @@ eq(impliedVsHistory(5, 5), "in-line", "equal moves read as usual");
 eq(impliedVsHistory(null, 5), null, "no implied move, no read");
 eq(pastEarningsMoves({ events: [] }).n, 0, "no history is an empty record");
 eq(seasonSoFar({}, "2026-11-06", {}).reported, 0, "an empty universe has an empty season");
+{
+  // A row with no EPS and no reaction yet has not reported (the Earnings
+  // results page skips the same rows).
+  const pend = { ZZZ: { earningsHx: { events: [
+    { date: "2026-10-20", epsActual: 1, epsEstimate: 0.9, movePct: 0.03 },
+    { date: "2026-11-05", epsActual: null, movePct: null },
+  ] } } };
+  const ss = seasonSoFar(pend, "2026-11-06", { seasonKeyOf: (iso) => `${iso.slice(0, 4)}Q${Math.floor((Number(iso.slice(5, 7)) - 1) / 3) + 1}` });
+  eq(ss.reported, 1, "a placeholder row with no EPS and no move is not a report");
+}
 
 // --- Owner plan --------------------------------------------------------------
 const plan = buildEarningsWeekPlan(board, chains, {

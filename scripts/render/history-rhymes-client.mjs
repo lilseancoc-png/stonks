@@ -4,8 +4,9 @@
 // inside a template string: write regex escapes as \\d, no backticks.
 //
 // Public: the railroad, telecom and 2008 housing case studies, today's AI
-// buildout, the market-wide warning signs read from site data, credit spreads
-// and dated CDS quotes reported in the press. Owner-only: the Stocks tab
+// buildout, two panels of warning signs read from site data (the AI buildout
+// and, since 2026-11-17, the whole market with its bear market history test),
+// credit spreads and dated CDS quotes reported in the press. Owner-only: the Stocks tab
 // (history-rhymes-owner.json: each covered stock's buildout role and
 // equity-implied default read). A public visitor never requests the Owner file
 // (vnJson(..., true) resolves to null without the Owner session).
@@ -208,34 +209,104 @@ export function renderHistoryRhymesJs() {
   }
 
   // ---- Now vs history ----
+  // Two panels since 2026-11-17: the AI buildout and the whole market, each
+  // with boom signs and bust signs counted apart. An older saved file (one
+  // panel, no sides) still draws.
+  var HR_STAGE_TONE = { quiet: 'is-early', early: 'is-early', boom: 'is-boom', late: 'is-late', strain: 'is-late', bust: 'is-bust' };
+  var HR_TEST_SHORT = { 'rates-rising': 'Rates rising', 'curve-inverted': 'Curve inverted', 'credit-strain': 'Credit strain (Baa)' };
+  function hrHalf(v){ return v == null || !isFinite(v) ? '—' : String(Math.round(v * 2) / 2); }
+  function hrSideLine(side, word){
+    if (!side || side.known == null) return '';
+    var notCounted = side.total != null && side.counted != null ? side.total - side.counted : 0;
+    var noRead = side.counted != null ? side.counted - side.known : 0;
+    var extra = [];
+    if (notCounted > 0) extra.push(notCounted + ' more shown, not counted');
+    if (noRead > 0) extra.push(noRead + ' without a reading');
+    return '<span><b>' + hrHalf(side.score) + ' of ' + side.known + '</b> ' + word + (extra.length ? ' <small class="hr-dim">(' + extra.join('; ') + ')</small>' : '') + '</span>';
+  }
+  function hrPanelHtml(title, p, extra){
+    if (!p || !p.stage) return '';
+    var st = p.stage;
+    return '<div class="hr-panel ' + (HR_STAGE_TONE[st.id] || 'is-early') + '"><span class="hr-kicker">' + escapeHtml(title) + '</span><b class="hr-stage">' + escapeHtml(st.label || '—') + '</b><p>' + escapeHtml(st.note || '') + '</p>' +
+      '<p class="hr-sides">' + hrSideLine(p.boom, 'boom signs') + hrSideLine(p.bust, 'bust signs') + '</p>' + (extra || '') + '</div>';
+  }
   function hrHeroHtml(d){
-    var n = d.now || {}, st = n.stage || {}, m = n.mostLike, cr = d.credit && d.credit.baa;
-    var tone = st.id === 'bust' ? 'is-bust' : st.id === 'late' ? 'is-late' : st.id === 'boom' ? 'is-boom' : 'is-early';
-    var k = [
-      ['Warning signs showing', (n.score != null ? n.score : '—') + ' of ' + (n.total || 9) + (n.known != null && n.known < (n.total || 9) ? ' <small class="hr-dim">(' + n.known + ' read)</small>' : '')],
-      ['Closest past case', m ? escapeHtml(m.name) + ' <small class="hr-dim">' + m.shared + ' of ' + m.caseSigns + ' signs shared</small>' : '—'],
-    ];
+    var n = d.now || {}, m = n.mostLike, cr = d.credit && d.credit.baa, hy = d.credit && d.credit.hy;
+    var k = [];
     if (cr && cr.now) k.push(['Baa corporate spread', vnNum(cr.now.v, 2) + ' pts <small class="hr-dim">' + (cr.pctile != null ? vnOrd(cr.pctile) + ' percentile since ' + escapeHtml(String(cr.since || '').slice(0, 4)) : '') + '</small>']);
-    var hy = d.credit && d.credit.hy;
     if (hy && hy.now) k.push(['High-yield spread', vnNum(hy.now.v, 2) + ' pts' + (hy.chg3m != null ? ' <small class="hr-dim">' + (hy.chg3m >= 0 ? '+' : '') + vnNum(hy.chg3m, 2) + ' in 3 months</small>' : '')]);
-    return '<div class="hr-hero ' + tone + '"><div class="hr-hero-lead"><span class="hr-kicker">Where today sits, by the signs that came before past busts</span><b class="hr-stage">' + escapeHtml(st.label || '—') + '</b><p>' + escapeHtml(st.note || '') + '</p></div>' +
-      '<div class="mm-kpis">' + k.map(function(x){ return '<div class="mm-kpi"><span>' + escapeHtml(x[0]) + '</span><b>' + x[1] + '</b></div>'; }).join('') + '</div></div>';
+    var ai = { stage: n.stage, boom: n.boom, bust: n.bust };
+    var closest = m ? '<p class="hr-closest">Closest past buildout: <b>' + escapeHtml(m.name) + '</b> <small class="hr-dim">' + m.shared + ' of ' + m.caseSigns + ' signs shared</small></p>' : '';
+    if (!n.boom && n.score != null) closest = '<p class="hr-closest"><b>' + hrHalf(n.score) + ' of ' + (n.total || 9) + '</b> warning signs showing</p>' + closest;
+    return '<div class="hr-hero"><span class="hr-kicker">Where today sits, by the signs that came before past busts</span>' +
+      '<div class="hr-panels">' + hrPanelHtml('AI buildout', ai, closest) + hrPanelHtml('Whole market', n.market, n.market ? '<p class="hr-closest"><small class="hr-dim">Margin debt, valuation, bond sales, rates, the yield curve and credit spreads</small></p>' : '') + '</div>' +
+      (k.length ? '<div class="mm-kpis">' + k.map(function(x){ return '<div class="mm-kpi"><span>' + escapeHtml(x[0]) + '</span><b>' + x[1] + '</b></div>'; }).join('') + '</div>' : '') + '</div>';
   }
-  function hrSignsHtml(d){
-    var signs = d.now && d.now.signs || [];
-    return '<div class="hr-signs">' + signs.map(function(s){
-      return '<article class="hr-sign is-' + escapeHtml(s.status || 'unknown') + '"><header>' + hrStatusPill(s.status) + '<h4>' + escapeHtml(s.label) + '</h4></header>' +
-        '<p class="hr-now">' + escapeHtml(s.now || '') + '</p>' +
-        '<p class="hr-seen">Seen before: ' + (s.cases && s.cases.length ? s.cases.map(function(c){ return '<span class="hr-case-chip">' + escapeHtml(HR_CASE_NAMES[c] || c) + '</span>'; }).join('') : '<span class="hr-dim">not in these cases</span>') + '</p>' +
-        '<details><summary>What it looked like then</summary><p>' + escapeHtml(s.then || '') + '</p></details></article>';
-    }).join('') + '</div>';
+  function hrHorizonText(){
+    var bt = hrState.data && hrState.data.bearTest, h = bt && bt.horizonMonths || 24;
+    return h % 12 === 0 ? (h / 12) + ' year' + (h === 12 ? '' : 's') : h + ' months';
   }
+  // The history-test line under a whole-market sign.
+  function hrTestHtml(s){
+    var r = s.record;
+    if (s.tested && r){
+      var rule = hrState.data && hrState.data.now && hrState.data.now.market && hrState.data.now.market.countRule || {};
+      var fail = s.countWhy === 'failed';
+      return '<p class="hr-test ' + (fail ? 'is-fail' : 'is-pass') + '"><b>History test, ' + escapeHtml(String(r.since || '').slice(0, 4)) + ' on:</b> lit in the 12 months before ' + r.bearsBefore + ' of ' + r.bearsCovered + ' bear markets. A new bear market followed within ' + hrHorizonText() + ' after ' + hrPct(r.litPct, 0) + ' of lit months, against ' + hrPct(r.basePct, 0) + ' of all months (' + vnNum(r.lift, 2) + '×). ' +
+        (!fail ? 'Counted toward the stage.' : r.lift != null && r.lift < (rule.minLift || 1.2) ? 'Not counted: a sign counts at ' + vnNum(rule.minLift || 1.2, 1) + '× or more.' : 'Not counted: lit in only ' + r.litMonths + ' months; a sign needs ' + (rule.minLitMonths || 24) + ' lit months to be judged.') + '</p>';
+    }
+    if (s.tested) return '<p class="hr-test">Not enough history in this build to test it; it counts until it can be tested.</p>';
+    if (s.history) return '<p class="hr-test"><b>Not tested in the build.</b> ' + escapeHtml(s.history) + '</p>';
+    return '<p class="hr-test"><b>Not tested:</b> the site keeps no long history for it. It describes a boom; it is not a timing sign.</p>';
+  }
+  function hrSignCardHtml(s, market){
+    var nc = market && s.counts === false;
+    var parts = s.parts && s.parts.length ? '<ul class="hr-parts">' + s.parts.map(function(p){ return '<li>' + hrStatusPill(p.status) + '<span>' + escapeHtml(p.label) + '</span></li>'; }).join('') + '</ul>' : '';
+    var seen = market ? '' : '<p class="hr-seen">Seen before: ' + (s.cases && s.cases.length ? s.cases.map(function(c){ return '<span class="hr-case-chip">' + escapeHtml(HR_CASE_NAMES[c] || c) + '</span>'; }).join('') : '<span class="hr-dim">not in these cases</span>') + '</p>';
+    var srcs = (s.sources || []).map(function(id){ var x = hrSource(id); return x ? hrSourceLink(id, x.label) : ''; }).filter(Boolean);
+    return '<article class="hr-sign is-' + escapeHtml(s.status || 'unknown') + (nc ? ' is-nc' : '') + '"><header><span class="hr-pills">' + hrStatusPill(s.status) + (nc ? '<span class="hr-pill is-nc" title="Its history test did not pass, so it is shown but left out of the count">Not counted</span>' : '') + '</span><h4>' + escapeHtml(s.label) + '</h4></header>' +
+      '<p class="hr-now">' + escapeHtml(s.now || '') + '</p>' + parts + (market ? hrTestHtml(s) : '') + seen +
+      '<details><summary>' + (s.rule ? 'The rule and what it looked like then' : 'What it looked like then') + '</summary>' + (s.rule ? '<p><b>Rule:</b> ' + escapeHtml(s.rule) + '</p>' : '') + '<p>' + escapeHtml(s.then || '') + '</p>' + (srcs.length ? '<p class="hr-sources-line">Data: ' + srcs.join(' · ') + '</p>' : '') + '</details></article>';
+  }
+  function hrSignGroupsHtml(signs, market){
+    var grid = function(list){ return '<div class="hr-signs">' + list.map(function(s){ return hrSignCardHtml(s, market); }).join('') + '</div>'; };
+    var boom = signs.filter(function(s){ return s.side === 'boom'; }), bust = signs.filter(function(s){ return s.side === 'bust'; });
+    var other = signs.filter(function(s){ return s.side !== 'boom' && s.side !== 'bust'; });
+    return (boom.length ? '<h4 class="hr-h4">Boom signs</h4>' + grid(boom) : '') + (bust.length ? '<h4 class="hr-h4">Bust signs</h4>' + grid(bust) : '') + (other.length ? grid(other) : '');
+  }
+  function hrSignsHtml(d){ return hrSignGroupsHtml(d.now && d.now.signs || [], false); }
   function hrMatchesHtml(d){
     var ms = d.now && d.now.matches || [];
     if (!ms.length) return '';
     return '<div class="hr-matches">' + ms.map(function(m){
       return '<div class="hr-match-row"><span class="hr-match-name">' + escapeHtml(m.name) + '</span><span class="hr-bar"><i style="width:' + Math.max(0, Math.min(100, m.similarity)) + '%"></i></span><span class="hr-match-val">' + m.shared + ' of ' + m.caseSigns + '</span></div>';
-    }).join('') + '<p class="hr-note">Signs showing today (partly counts) that also showed before each bust, against all signs in either list. A description of overlap, not a probability.</p></div>';
+    }).join('') + '<p class="hr-note">AI buildout signs showing today (partly counts) that also showed before each bust, against all signs in either list. A description of overlap, not a probability.</p></div>';
+  }
+  // Every S&P 500 bear market in the site's history and which bust signs were
+  // lit in the year before its peak, plus each sign's overall record.
+  function hrBearsHtml(d){
+    var bt = d.bearTest;
+    if (!bt || !bt.bears || !bt.bears.length) return '';
+    var ids = ['rates-rising', 'curve-inverted', 'credit-strain'].filter(function(id){ return bt.bears.some(function(b){ return b.reads && b.reads[id] !== undefined; }); });
+    var cell = function(r){
+      if (!r) return '<span class="hr-dim" title="No data that far back">no data</span>';
+      var lead = r.status === 'lit' && r.leadMonths != null ? ' <small class="hr-dim">' + (r.leadMonths >= (bt.horizonMonths || 24) ? (bt.horizonMonths || 24) + '+ mo before' : r.leadMonths ? 'from ' + r.leadMonths + ' mo before' : 'at the peak') + '</small>' : '';
+      return hrStatusPill(r.status) + lead;
+    };
+    var rows = bt.bears.slice().reverse();
+    var bearTable = '<div class="hr-table-wrap"><table class="hr-table hr-bears"><thead><tr><th>Peak</th><th>Bear market</th><th>Fall</th><th>Low</th>' + ids.map(function(id){ return '<th>' + escapeHtml(HR_TEST_SHORT[id] || id) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+      rows.map(function(b){
+        return '<tr><td class="hr-datecell">' + escapeHtml(b.peak) + '</td><td>' + escapeHtml(b.name || 'Bear market') + (b.ongoing ? ' <small class="hr-warn">still below its high</small>' : '') + '</td><td class="hr-numcell neg">' + hrPct(b.fallPct, 0) + '</td><td class="hr-datecell">' + escapeHtml(b.trough || '') + '</td>' +
+          ids.map(function(id){ return '<td>' + cell(b.reads && b.reads[id]) + '</td>'; }).join('') + '</tr>';
+      }).join('') + '</tbody></table></div>';
+    var recs = ids.map(function(id){ var r = bt.signs && bt.signs[id]; return r ? [HR_TEST_SHORT[id] || id, r] : null; }).filter(Boolean);
+    if (bt.combined) recs.push([bt.combined.label || 'Two or more of the three', bt.combined]);
+    var recTable = recs.length ? '<div class="hr-table-wrap"><table class="hr-table"><thead><tr><th>Sign</th><th>Data from</th><th>Lit before</th><th>Months lit</th><th>Bear within ' + hrHorizonText() + ' after a lit month</th><th>After any month</th><th>Ratio</th></tr></thead><tbody>' +
+      recs.map(function(x){ var r = x[1]; return '<tr><td>' + escapeHtml(x[0]) + '</td><td class="hr-datecell">' + escapeHtml(String(r.since || '').slice(0, 7)) + '</td><td class="hr-numcell">' + r.bearsBefore + ' of ' + r.bearsCovered + '</td><td class="hr-numcell">' + r.litMonths + ' of ' + r.months + '</td><td class="hr-numcell">' + hrPct(r.litPct, 0) + '</td><td class="hr-numcell">' + hrPct(r.basePct, 0) + '</td><td class="hr-numcell' + (r.lift != null && r.lift < 1.2 ? ' hr-warn' : '') + '">' + (r.lift == null ? '—' : vnNum(r.lift, 2) + '×') + '</td></tr>'; }).join('') +
+      '</tbody></table></div>' : '';
+    return '<h3 class="hr-h3">Past bear markets, and what showed before them</h3><p class="hr-lede">Every time the S&amp;P 500 closed 20% or more below its high since 1950, measured from the site\\'s index history. A cell reads the strongest status in the 12 months up to the peak; "from N mo before" is when the sign first lit inside the two years before it.</p>' +
+      bearTable + (recTable ? '<h4 class="hr-h4">Each bust sign\\'s record</h4>' + recTable : '') +
+      '<p class="hr-note">Month-ends through ' + escapeHtml(bt.until || '—') + ' (the last month with ' + hrHorizonText() + ' of history after it). Months inside a decline are left out, because a sign that lights during the fall is not a warning. A sign can be lit before most bear markets and still be weak if it is also lit in many months that no bear market followed; the ratio column shows that. The Baa spread is the only credit series with a long history here, so the credit test reads the Baa part of the sign.</p>';
   }
   function hrAnalogHtml(d){
     var a = d.analog;
@@ -252,10 +323,13 @@ export function renderHistoryRhymesJs() {
       (last ? 'Today, ' + vnNum(last[0] / 52, 1) + ' years in, the AI-era line is at ' + vnNum(last[1], 0) + (then ? '; the 1990s line was at ' + vnNum(then[1], 0) + ' at the same point' : '') + '. ' : '') + 'The choice of starting date changes the picture: this is a case study, not a forecast.</p>' + chart;
   }
   function hrNowHtml(d){
+    var n = d.now || {}, ai = n.signs || [], mk = n.market;
     return hrHeroHtml(d) +
-      '<h3 class="hr-h3">Nine warning signs</h3><p class="hr-lede">Each sign showed up before at least one past bust. Today\\'s reading comes from data the site already collects: SEC capital spending and revenue, GPU rents, bond issuance, credit spreads and stock prices.</p>' +
+      '<h3 class="hr-h3">The AI buildout: ' + ai.length + ' signs</h3><p class="hr-lede">Each sign showed up before at least one past buildout bust. Boom signs describe the build; bust signs are the cracks that showed as past buildouts turned. ' + (n.boom ? 'Capital spending is one sign with three parts, so the same spending is counted once. ' : '') + 'Read from SEC capital spending and revenue, the builders\\' cash flow and debt, GPU rents and stock prices.</p>' +
       hrSignsHtml(d) +
-      '<h3 class="hr-h3">Which past case today looks most like</h3>' + hrMatchesHtml(d) +
+      '<h3 class="hr-h3">Which past buildout today looks most like</h3>' + hrMatchesHtml(d) +
+      (mk ? '<h3 class="hr-h3">The whole market: ' + (mk.signs || []).length + ' signs</h3><p class="hr-lede">Signs that came before past US bear markets, not only buildout busts: borrowed money, valuation and bond sales on the boom side; rates, the yield curve and credit spreads on the bust side. Each bust sign is tested on the site\\'s own history and counts toward the stage only when it passes.</p>' +
+        hrSignGroupsHtml(mk.signs || [], true) + hrBearsHtml(d) : '') +
       hrAnalogHtml(d) +
       '<details class="hr-method"><summary>How this page is measured</summary><ul>' + (d.methodology || []).map(function(m){ return '<li>' + escapeHtml(m) + '</li>'; }).join('') + '</ul></details>';
   }
@@ -412,14 +486,64 @@ export function renderHistoryRhymesJs() {
   // Risk analysis: one context line under the seven desks. It does not vote.
   function loadHistoryRhymesRisk(){
     var host = document.getElementById('risk-rhymes'); if (!host) return;
+    if (HAS_OWNER_ACCESS && typeof qlFetch === 'function') qlFetch().then(function(o){ hzState.odds = o; renderRiskHorizons(); });
     vnJson('history-rhymes.json', false).then(function(d){
+      hzState.rhymes = d && d.now && d.now.stage ? d : null;
+      renderRiskHorizons();
       if (!d || !d.now || !d.now.stage){ host.hidden = true; return; }
-      var n = d.now, lit = (n.signs || []).filter(function(s){ return s.status === 'lit'; }).map(function(s){ return s.label; });
+      var n = d.now, mk = n.market, lit = (n.signs || []).filter(function(s){ return s.status === 'lit'; }).map(function(s){ return s.label; });
+      var mlit = mk ? (mk.signs || []).filter(function(s){ return s.status === 'lit' && s.counts !== false; }).map(function(s){ return s.label; }) : [];
       host.hidden = false;
       host.innerHTML = '<div class="hr-risk"><span class="hr-kicker">Context, not a vote · Booms &amp; busts</span>' +
-        '<p><b>' + escapeHtml(n.stage.label) + '</b>: ' + n.score + ' of ' + n.total + ' warning signs from the railroad, telecom and 2008 busts are showing' + (n.mostLike ? '; closest to ' + escapeHtml(n.mostLike.name) : '') + '.' + (lit.length ? ' Showing: ' + escapeHtml(lit.slice(0, 4).join('; ')) + '.' : '') + (d.stale ? ' <span class="hr-warn">Last good copy; the newest build could not rebuild it.</span>' : '') + '</p>' +
+        '<p><b>AI buildout: ' + escapeHtml(n.stage.label) + '</b>. ' + hrHalf(n.score) + ' of ' + n.total + ' warning signs from the railroad, telecom and 2008 busts are showing' + (n.mostLike ? '; closest to ' + escapeHtml(n.mostLike.name) : '') + '.' + (lit.length ? ' Showing: ' + escapeHtml(lit.slice(0, 3).join('; ')) + '.' : '') + '</p>' +
+        (mk && mk.stage ? '<p><b>Whole market: ' + escapeHtml(mk.stage.label) + '</b>.' + (mlit.length ? ' Showing: ' + escapeHtml(mlit.slice(0, 3).join('; ')) + '.' : '') + '</p>' : '') +
+        (d.stale ? '<p class="hr-warn">Last good copy; the newest build could not rebuild it.</p>' : '') +
         '<a class="book-more" href="?tab=history-rhymes">Open Booms &amp; busts</a></div>';
     });
+  }
+  // ---- Why the Risk analysis reads can differ (Owner choice, 2026-11-17) ------
+  // The market tape, the market odds and Booms & busts look at different
+  // stretches of time, so they can point different ways at once (on Nov 16:
+  // severe risk-off, a fall less likely than normal, and a late boom). One
+  // line says so, from whichever of the three are loaded; it votes on nothing.
+  var hzState = { rhymes: null, odds: null, html: null };
+  function hzPct(v){ return Math.round(Number(v) * 100) + '%'; }
+  function renderRiskHorizons(){
+    var host = document.getElementById('risk-horizons'); if (!host || !hzState) return;
+    var pane = document.getElementById('page-pane-risk'); if (pane && pane.hidden) return;
+    var parts = [], leans = [];
+    var tape = typeof riskMarketDesk === 'function' ? riskMarketDesk() : null;
+    if (tape && tape.status === 'ready' && tape.stance != null){
+      parts.push('the market tape (<b>' + escapeHtml(tape.label) + '</b>) reads current prices and moves in indexes, volatility, yields and the dollar, for the days and weeks ahead');
+      leans.push(tape.stance <= -1 ? -1 : tape.stance >= 1 ? 1 : 0);
+    }
+    var card = hzState.odds && hzState.odds.card, head = null;
+    ((card && card.fall) || []).forEach(function(t){ if (t && t.id === 'fall10_6m') head = t; });
+    if (head && head.p != null && isFinite(head.p) && head.base > 0){
+      var ratio = head.p / head.base;
+      var word = ratio > 1.15 ? 'more likely than normal' : ratio < 0.85 ? 'less likely than normal' : 'about as likely as normal';
+      parts.push('the market odds (<b>a 10%+ fall within 6 months ' + word + '</b>, ' + hzPct(head.p) + ' against ' + hzPct(head.base) + ') read rates, credit spreads and the trend against S&amp;P 500 history since ' + escapeHtml(String(card.from || '1962').slice(0, 4)) + ', for the next 3 to 12 months');
+      leans.push(ratio > 1.15 ? -1 : ratio < 0.85 ? 1 : 0);
+    }
+    var n = hzState.rhymes && hzState.rhymes.now;
+    if (n && n.stage){
+      var mk = n.market && n.market.stage, st = mk || n.stage;
+      parts.push('Booms &amp; busts (' + (mk ? 'whole market <b>&ldquo;' + escapeHtml(mk.label) + '&rdquo;</b>, ' : '') + 'AI buildout <b>&ldquo;' + escapeHtml(n.stage.label) + '&rdquo;</b>) compares slow signs such as borrowing, spending and valuations with past booms and busts, over years');
+      leans.push(st.id === 'bust' || st.id === 'late' || st.id === 'strain' ? -1 : st.id === 'quiet' ? 1 : 0);
+    }
+    var html = '';
+    if (parts.length >= 2){
+      var warn = leans.indexOf(-1) >= 0, calm = leans.indexOf(1) >= 0, same = leans.every(function(x){ return x === leans[0]; });
+      var close = warn && calm ? 'So one can warn while another reads calm, as they do today, and both can be right; none of them cancels the others.'
+        : same ? 'Today they lean the same way.'
+        : 'So they need not agree, and none of them cancels the others.';
+      var body = parts.join('; ');
+      html = '<div class="hr-risk hr-horizons"><span class="hr-kicker">Why these reads can differ</span><p>They look at different stretches of time. ' + body.charAt(0).toUpperCase() + body.slice(1) + '. ' + close + '</p></div>';
+    }
+    if (html === hzState.html) return;
+    hzState.html = html;
+    host.hidden = !html;
+    host.innerHTML = html;
   }
   document.addEventListener('click', function(ev){
     var retry = ev.target && ev.target.closest ? ev.target.closest('[data-hr-retry]') : null;
