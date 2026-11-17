@@ -1,5 +1,6 @@
 // Styles for history-rhymes-client.mjs (2026-11-12): the "Booms & busts" page
-// and its Risk analysis context card. Reuses the mm-* KPI tiles
+// and its Risk analysis context card (two-panel hero, history test lines and
+// the bear market table since 2026-11-17). Reuses the mm-* KPI tiles
 // (views-next-css.mjs), the ln-* chart classes (charts-css.mjs) and the vt-*
 // tables; loaded after them in styles-css.mjs.
 export function renderHistoryRhymesCss() {
@@ -16,7 +17,7 @@ export function renderHistoryRhymesCss() {
 .hr-note { margin: 4px 0 0; font: 450 12px/1.5 var(--font-sans); color: var(--muted); max-width: 80ch; }
 .hr-src { font: 500 11.5px/1.4 var(--font-sans); color: var(--accent, var(--muted-strong)); white-space: nowrap; }
 .hr-linkbtn { background: none; border: 0; padding: 0; font: inherit; color: var(--accent, var(--text)); text-decoration: underline; cursor: pointer; }
-.hr-hero { display: grid; gap: 10px; padding: 12px 14px; border: 1px solid var(--border); border-left: 4px solid var(--hr-tone, var(--muted)); border-radius: 12px; background: var(--surface); }
+.hr-hero { display: grid; gap: 10px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
 .hr-hero.is-early { --hr-tone: var(--pos); }
 .hr-hero.is-boom { --hr-tone: #3b82f6; }
 .hr-hero.is-late { --hr-tone: var(--warn); }
@@ -25,6 +26,27 @@ export function renderHistoryRhymesCss() {
 .hr-stage { display: block; margin-top: 2px; font: 700 20px/1.25 var(--font-sans); color: var(--hr-tone, var(--text-strong)); }
 .hr-hero .mm-kpis { margin: 0; }
 .hr-hero .mm-kpi b small { display: block; margin-top: 2px; font: 500 12px/1.4 var(--font-sans); color: var(--muted); }
+/* Two panels (2026-11-17): AI buildout and whole market */
+.hr-panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 8px; }
+.hr-panel { padding: 10px 12px; border: 1px solid var(--border); border-left: 4px solid var(--hr-tone, var(--muted)); border-radius: 10px; background: var(--surface-2); min-width: 0; }
+.hr-panel.is-early { --hr-tone: var(--pos); }
+.hr-panel.is-boom { --hr-tone: #3b82f6; }
+.hr-panel.is-late { --hr-tone: var(--warn); }
+.hr-panel.is-bust { --hr-tone: var(--neg); }
+.hr-panel > p { margin: 2px 0 0; font: 450 13px/1.5 var(--font-sans); color: var(--muted-strong); }
+.hr-sides { display: flex; flex-wrap: wrap; gap: 2px 14px; }
+.hr-sides b { color: var(--text-strong); font-variant-numeric: tabular-nums; }
+.hr-closest { font-size: 12.5px !important; }
+.hr-pills { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.hr-pill.is-nc { color: var(--muted-strong); border-style: dashed; }
+.hr-sign.is-nc { border-style: dashed; }
+.hr-parts { list-style: none; margin: 0 0 6px; padding: 0; display: grid; gap: 3px; }
+.hr-parts li { display: flex; gap: 6px; align-items: center; font: 500 12px/1.4 var(--font-sans); color: var(--muted-strong); }
+.hr-test { margin: 0 0 6px; padding: 6px 8px; border-radius: 8px; background: var(--surface-2); font: 450 12px/1.5 var(--font-sans); color: var(--muted-strong); }
+.hr-test.is-pass { border-left: 3px solid var(--pos); }
+.hr-test.is-fail { border-left: 3px solid var(--warn); }
+.hr-bears td { white-space: nowrap; }
+.hr-bears td:nth-child(2) { white-space: normal; min-width: 150px; }
 .hr-signs { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
 .hr-sign { padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); min-width: 0; }
 .hr-sign.is-lit { border-color: color-mix(in srgb, var(--neg) 45%, var(--border)); }

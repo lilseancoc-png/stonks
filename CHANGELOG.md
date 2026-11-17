@@ -36,6 +36,14 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ### Added
 - Add NBA team offensive/defensive efficiency, net rating and pace to prop research, player forecasts and Pick Builder; fit stat-specific efficiency and pace adjustments on prior complete games and use them only when they improve the historical check. NFL predictions are unchanged (#823).
 
+## 2026-11-17
+
+### Added
+- Add a whole-market panel to Booms & busts: margin debt, stocks against bond yields and corporate bond sales on the boom side; Fed and bond yields rising, the yield curve and credit spreads on the bust side. Each bust sign is tested every build against every S&P 500 bear market since 1950 and counts toward the stage only when its lit months were followed by a bear market at least 1.2 times as often as other months; a sign that fails (rates rising, on the first test) is shown and marked "Not counted". A new table lists each bear market and which signs showed before it. Uses only data the site already keeps.
+
+### Changed
+- Rescore the Booms & busts AI buildout signs: the three capital spending measures become one sign with three parts, so the same spending is no longer counted three times (nine signs become six), and boom and bust signs are counted apart, so a boom with no strain reads "Boom" instead of "Late boom". Market-wide bond sales and credit spreads move to the new whole-market panel. The shadow log's `bsl` is now out of 6 (it was out of 9 until 2026-11-16) and a new `bsm` logs the whole-market score; "Resembles now", the Owner brief, the Risk analysis card, the MCP credit read and Regime Lab positioning read both panels.
+
 ## 2026-11-16
 
 ### Added
