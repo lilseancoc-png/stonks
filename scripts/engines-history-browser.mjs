@@ -79,7 +79,7 @@ try {
       check((await card.locator('tbody tr').count()) === eh.results.eras.length, tag + ': one row per era');
       const text = await card.innerText();
       check(/Strategy styles by era/.test(text) && /Dip buying/.test(text) && /2008 financial crisis/.test(text), tag + ': titles, styles and eras named');
-      check(/Nothing here beat simply holding the S&P 500/.test(text), tag + ': says nothing beat buy-and-hold');
+      check(/None of the six styles beat simply holding the S&P 500/.test(text) && /2022 rate-hike bear \(/.test(text), tag + ': says no style beat buy-and-hold, with the 2022 numbers');
       check(!/Reversion|\bREV\b/.test(text), tag + ': public card uses style names, not engine names');
       check(!ADVICE_RE.test(text), tag + ': no advice wording');
       await clean(s, 'pattern lab ' + tag);

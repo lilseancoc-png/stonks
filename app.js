@@ -5194,6 +5194,12 @@ function recoveryEvidence(row, data, now = Date.now()) {
   function ehIds(d){ return (d.styles || []).map(function(s){ return s.id; }); }
   function ehEra(d, key){ var list = d.results && d.results.eras || []; for (var i = 0; i < list.length; i++) if (list[i].key === key) return list[i]; return null; }
   function ehYear(t){ return String(t || '').slice(0, 7); }
+  // The trend switch's 2022 line, read from the data (not written in).
+  function ehTs2022(ts){
+    var e = (ts.eras || []).filter(function(x){ return x.key === '2022 rate-hike bear'; })[0];
+    if (!e || e.trendSwitch == null || e.buyHold == null) return '';
+    return e.trendSwitch < e.buyHold ? ', but it lost more than buy-and-hold in the 2022 rate-hike bear (' + ehPct(e.trendSwitch) + ' vs ' + ehPct(e.buyHold) + ')' : '';
+  }
   function ehCaveat(d){
     return '<details class="eh-caveats"><summary>How this was tested and what to keep in mind</summary><p>' + escapeHtml(d.results && d.results.unit || '') + ' Every setup was taken, with no learning, from ' + escapeHtml(String(d.results && d.results.from || '').slice(0, 4)) + ' to ' + escapeHtml(String(d.results && d.results.to || '').slice(0, 4)) + '. "Random" is the same number of trades on random names and days.</p><ul>' +
       (d.results && d.results.caveats || []).map(function(c){ return '<li>' + escapeHtml(c) + '</li>'; }).join('') + '</ul></details>';
@@ -5214,7 +5220,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
       cols.push({ label: (engine ? s.engine : s.label) + (s.standIn ? '*' : ''), num: true, title: s.standIn ? 'Price-only stand-in' : '', cell: function(e){ var x = e.styles && e.styles[id]; return x ? ehVal(x.avg, x.n) : ''; }, sort: function(e){ var x = e.styles && e.styles[id]; return x ? x.avg : null; } });
     });
     var ts = r.trendSwitch;
-    var trend = ts && ts.cagr ? '<p class="eh-callout"><b>Nothing here beat simply holding the S&amp;P 500.</b> Buy and hold made ' + ehPct(ts.cagr.buyHold) + ' a year with a worst fall of ' + ehPct(ts.maxDrawdown && ts.maxDrawdown.buyHold) + '. ' + escapeHtml(ts.rule || '') + ' That made ' + ehPct(ts.cagr.trendSwitch) + ' a year with a worst fall of ' + ehPct(ts.maxDrawdown && ts.maxDrawdown.trendSwitch) + ', but it lost more in the 2022 rate-hike bear.</p>' : '';
+    var trend = ts && ts.cagr ? '<p class="eh-callout"><b>None of the six styles beat simply holding the S&amp;P 500.</b> An account putting 2% into each trade trails buy-and-hold for every style. Buy and hold made ' + ehPct(ts.cagr.buyHold) + ' a year with a worst fall of ' + ehPct(ts.maxDrawdown && ts.maxDrawdown.buyHold) + '. For comparison, a simple trend switch (' + escapeHtml(String(ts.rule || '').replace(/\.$/, '')) + ') made ' + ehPct(ts.cagr.trendSwitch) + ' a year with a worst fall of ' + ehPct(ts.maxDrawdown && ts.maxDrawdown.trendSwitch) + ehTs2022(ts) + '.</p>' : '';
     return '<section class="eh-card" aria-label="Strategy styles by era">' +
       '<header class="eh-head"><span class="eh-kicker">History test · 1971 to ' + escapeHtml(String(r.to || '').slice(0, 4)) + '</span><h3>Strategy styles by era</h3></header>' +
       '<p class="eh-lede">Six rules-only option strategy styles, run through every market since 1971. Each number is the average profit or loss per trade, as a share of the premium paid, after costs. Green made money on average; grey numbers had fewer than 20 trades. Aggregates only; no picks or trades.</p>' +
