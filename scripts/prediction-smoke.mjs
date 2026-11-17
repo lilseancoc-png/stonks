@@ -3,13 +3,13 @@
 // Runs offline against a fake Kalshi + Polymarket API built from the venues'
 // documented response shapes. node scripts/prediction-smoke.mjs
 import assert from 'node:assert/strict';
-import { classifyTheme, themeFor, linksFor, companyMatches, leaderTerms, titleSimilarity, THEME_CAPS, withoutDeadlines } from '../lib/prediction/catalog.mjs';
+import { classifyTheme, themeFor, linksFor, companyMatches, leaderTerms, titleSimilarity, THEME_CAPS, withoutDeadlines, isExcludedContract } from '../lib/prediction/catalog.mjs';
 import { kalshiProb, polyQuote, kalshiCandleProb, createClient } from '../lib/prediction/venues.mjs';
 import { kalshiCandidates, polyCandidates, pickFromEvent, selectContracts } from '../lib/prediction/select.mjs';
 import { etCloseMs, etDate, mergeFine, dailyAt, setDaily, noteSnapshot, changeOver, dailySeries } from '../lib/prediction/history.mjs';
 import { analyzeReactions, bhAdjust, signFlipP, findJumps, mergeJumps, familyCut, corrP, tTwoSidedP } from '../lib/prediction/reactions.mjs';
 import { ladderRead, actualFromSettled, consensusRows, consensusTest, expectedFromSnaps } from '../lib/prediction/consensus.mjs';
-import { updatePredictionState, bakeMaxMs, BAKE_MAX_MS, BAKE_MAX_MS_DECISION, buildPredictionPublic, buildPredictionOwner, analyzePrediction, predictionShadow, provenSign, predictionContextFor, predictionGraderLines, pricesFromChains, PREDICTION_KEY, PREDICTION_OWNER_KEY, PREDICTION_STATE_KEY } from '../lib/prediction/index.mjs';
+import { updatePredictionState, bakeMaxMs, BAKE_MAX_MS, BAKE_MAX_MS_DECISION, buildPredictionPublic, buildPredictionOwner, analyzePrediction, predictionShadow, fedNextDecision, provenSign, predictionContextFor, predictionGraderLines, pricesFromChains, PREDICTION_KEY, PREDICTION_OWNER_KEY, PREDICTION_STATE_KEY } from '../lib/prediction/index.mjs';
 import { isPremiumKey } from '../lib/premium-keys.mjs';
 import { OPTIONAL_BAKE_KEYS } from '../lib/data-ownership.mjs';
 
@@ -401,6 +401,31 @@ ok('grader lines mark an unknown direction with ?', predictionGraderLines(ctx).s
   ok('the t tail matches the table (2.228 on 10 df is 0.05)', near(tTwoSidedP(2.228, 10), 0.05));
   ok('with many pairs it meets the normal tail', near(tTwoSidedP(1.96, 1e6), 0.05));
   ok('no correlation reads p 1, and under four pairs reads none', near(corrP(0, 20), 1) && corrP(0.9, 3) === null);
+}
+
+// ---- audit 2026-11-16: gossip contracts, next-meeting Fed read -------------
+{
+  ok('a CEO affairs bet is dropped', classifyTheme({ text: 'Will 3 Jensen Huang affairs be reported by December 31?' }) === null);
+  ok('a tracked affairs bet is flagged for removal', isExcludedContract({ title: 'Fourth Jensen Huang affair reported by December 31?', eventTitle: 'Jensen Huang affairs' }));
+  ok('foreign affairs is not gossip', !isExcludedContract({ title: 'Will the Minister of Foreign Affairs of Japan resign in 2026?' }));
+  const NOW2 = Date.parse('2026-11-16T21:00:00Z');
+  const pm = (id, title, p, slug, close) => ({ id, venue: 'polymarket', theme: 'fed', status: 'open', title, eventSlug: slug, closeTime: close, last: { p } });
+  const open = [
+    pm('P:1', 'Will the Fed increase interest rates by 50+ bps after the December 2026 meeting?', 0.047, 'fed-dec', '2026-12-09T19:00:00Z'),
+    pm('P:2', 'Will there be no change in Fed interest rates after the December 2026 meeting?', 0.031, 'fed-dec', '2026-12-09T19:00:00Z'),
+    pm('P:3', 'Will the Fed increase interest rates by 25 bps after the December 2026 meeting?', 0.915, 'fed-dec', '2026-12-09T19:00:00Z'),
+    pm('P:4', 'Will the Fed increase interest rates by 25 bps after the January 2027 meeting?', 0.625, 'fed-jan', '2027-01-28T19:00:00Z'),
+    pm('P:5', 'Will the Fed Pause-Hike-Hike in the next three decisions (Oct-Dec-Jan)?', 0.63, 'fed-path', '2026-12-01T19:00:00Z'),
+    pm('P:6', 'Will the Bank of Canada make no change to the target for the overnight rate at the December interest rate announcement?', 0.6, 'boc', '2026-12-08T19:00:00Z'),
+  ];
+  const f = fedNextDecision(open, NOW2);
+  ok('Polymarket gives the next Fed meeting when Kalshi has none', f && f.venue === 'polymarket' && f.meeting === 'December 2026');
+  ok('next-meeting hike sums the 25 and 50+ contracts', f && Math.abs(f.hike - 96.2) < 0.05 && Math.abs(f.hold - 3.1) < 0.05 && f.cut === 0);
+  const kx = [{ id: 'K:KXFEDDECISION-26DEC-H25', venue: 'kalshi', theme: 'fed', status: 'open', series: 'KXFEDDECISION', eventTicker: 'KXFEDDECISION-26DEC', outcome: 'Hike 25bps', title: 'Fed decision', closeTime: '2026-12-09T19:00:00Z', last: { p: 0.9 } },
+    { id: 'K:KXFEDDECISION-26DEC-C25', venue: 'kalshi', theme: 'fed', status: 'open', series: 'KXFEDDECISION', eventTicker: 'KXFEDDECISION-26DEC', outcome: 'Cut 25bps', title: 'Fed decision', closeTime: '2026-12-09T19:00:00Z', last: { p: 0.02 } }];
+  const fk = fedNextDecision([...open, ...kx], NOW2);
+  ok('Kalshi wins when its ladder is tracked', fk && fk.venue === 'kalshi' && fk.hike === 90 && fk.cut === 2);
+  ok('no Fed contracts reads null', fedNextDecision([], NOW2) === null);
 }
 
 console.log(`prediction-smoke: ${passed} checks passed`);

@@ -371,7 +371,7 @@ live Webull schema compatibility, liquidity, scheduler punctuality, or profits.
 
 ## Strategy engines in the same account
 
-The six strategy engines (`docs/engines.md`) trade in this paper account too.
+The six signal engines (`docs/engines.md`) trade in this paper account too; the two core engines (Trend follower, Momentum basket) hold shares on their record only and never reach it.
 At each mirror run the engines' record (`engines-record.json`) joins the Top
 Picks record: Top Picks rows first, then engine rows. Every ledger trade
 carries `engine`, and an engine trade's ID starts with its tag
