@@ -42,6 +42,10 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 - The 1971-2026 strategy-engine history test now shows across the site as context only: "Strategy styles by era" on Pattern lab and style strips on Booms & busts (public), event and crisis strips on Historical Data, "Today's regime fit" in the Regime Lab and the Owner brief, and MCP datasets (Owner). Aggregates only; switch `ENGINES_HISTORY=0` (#849).
 
+### Fixed
+
+- Stocks section audit: one dropped SEC connection no longer blanks the 13F buy and sell tables. The shared SEC reader retries a dropped connection once, and a manager whose prior-quarter filing still can't be read keeps the change table an earlier build made from the same two filings, so the cross-firm totals keep that manager (on 2026-11-16 the 16:10 build fell from 13 to 4 managers with changes). Market map no longer shows the move since listing as the 1-year move for a name listed under a year ago (#PR).
+
 ## 2026-11-16
 
 ### Added

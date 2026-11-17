@@ -3,7 +3,8 @@ import vm from 'node:vm';
 import { ownershipExplorerFactory } from '../lib/ownership-explorer.mjs';
 import { packOwnershipBooks, ownershipBookClientFactory } from '../lib/ownership-books.mjs';
 import { buildOwnershipFund, parseOwnership13FXml } from '../lib/ownership-13f.mjs';
-import { build13FPayload, buildPerFirm13FHoldings, fetchEdgar13FHoldings, findLatestTwo13Fs } from './build.mjs';
+import { build13FPayload, buildPerFirm13FHoldings, fetchEdgar13FHoldings, findLatestTwo13Fs, retained13FDeltas } from './build.mjs';
+import { createOwnershipSecReader, isConnectionError } from '../lib/ownership-sec.mjs';
 import { ownershipFixture, ownershipXml, ownershipCover, ownershipNow } from './fixtures/ownership.mjs';
 import { renderAppJs } from './render/app-js.mjs';
 import { isPremiumKey } from '../lib/premium-keys.mjs';
@@ -136,5 +137,38 @@ try {
   assert.equal(collected.perFirm['Bridgewater Associates'].performance.pct, 25);
   assert.equal(collected.perFirm['Bridgewater Associates'].topBought.length, 1, 'legacy stock deltas still available');
   assert.equal(build13FPayload({}, [], new Date(ownershipNow), collected).ownershipCoverage.fullFunds, 14);
+  // Stocks audit 2026-11-17: one dropped SEC connection failed eleven
+  // managers' prior-quarter reads at once and blanked their change tables.
+  // A prior read that still fails keeps the last build's tables for the same
+  // two filings, and the cross-firm totals keep that manager.
+  const published = build13FPayload({}, [], new Date(ownershipNow), collected);
+  const freshFetch = globalThis.fetch;
+  let priorReads = 0;
+  globalThis.fetch = async (url, opts) => {
+    if (new URL(url).pathname.includes('000000000126000001')) { priorReads++; throw new TypeError('fetch failed'); }
+    return freshFetch(url, opts);
+  };
+  const blip = await buildPerFirm13FHoldings(new Date(ownershipNow), { priorPayload: published, chains, cusipMapper: async () => new Map() });
+  const bw = blip.perFirm['Bridgewater Associates'];
+  assert.equal(bw.deltaStatus, 'retained', 'failed prior read keeps the earlier change table');
+  assert.equal(bw.topBought.length, 1);
+  assert.equal(bw.priorFilingDate, '2026-05-12');
+  assert.ok(blip.overallTopBought.length >= 1, 'cross-firm totals keep the retained managers');
+  assert.equal(priorReads, 28, 'each manager retries its failed prior read once (14 x 2)');
+  const otherPeriod = { ...published, periodEndIso: '2026-03-31' };
+  assert.equal(retained13FDeltas({ firm: 'Bridgewater Associates', cik: bw.cik, latest: { filingDate: bw.filingDate }, prior: { filingDate: '2026-05-12' }, latestFetchOk: true, priorFetchOk: false }, otherPeriod, '2026-06-30'), null, 'another quarter is never reused');
+  assert.equal(retained13FDeltas({ firm: 'Bridgewater Associates', cik: bw.cik, latest: { filingDate: '2026-08-20' }, prior: { filingDate: '2026-05-12' }, latestFetchOk: true, priorFetchOk: false }, published, '2026-06-30'), null, 'a newer current filing is never paired with old tables');
 } finally { globalThis.fetch = originalFetch; }
+{
+  let calls = 0;
+  const read = createOwnershipSecReader({ userAgent: 'test', spacingMs: 0, retryMs: 1, fetchImpl: async () => { if (++calls === 1) throw new TypeError('fetch failed'); return new Response('ok'); } });
+  assert.equal(await (await read('https://www.sec.gov/x')).text(), 'ok', 'a dropped connection is retried once');
+  assert.equal(calls, 2);
+  let aborted = 0;
+  const readAbort = createOwnershipSecReader({ userAgent: 'test', spacingMs: 0, retryMs: 1, fetchImpl: async () => { aborted++; throw new DOMException('timed out', 'TimeoutError'); } });
+  await assert.rejects(() => readAbort('https://www.sec.gov/x'), /timed out/);
+  assert.equal(aborted, 1, 'a timeout is not retried');
+  assert.equal(isConnectionError(new TypeError('fetch failed')), true);
+  assert.equal(isConnectionError(new Error('SEC HTTP 404')), false);
+}
 console.log('Ownership explorer checks passed: full books, stock/fund queries, null-safe sorts, raw disclosures, performance coverage, splits and amendments.');

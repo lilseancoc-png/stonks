@@ -10648,6 +10648,19 @@ export function canDiff13FFirmSnapshot(firm) {
   );
 }
 
+// The prior build's change tables for a manager whose prior-quarter read
+// failed now, when both builds compared the same two filings.
+export function retained13FDeltas(firm, priorPayload, periodEndIso) {
+  if (!firm?.latest || !firm.prior || firm.priorFetchOk || firm.comparisonUnavailable || !firm.latestFetchOk) return null;
+  if (!priorPayload || priorPayload.periodEndIso !== periodEndIso) return null;
+  const cached = priorPayload.perFirm?.[firm.firm];
+  if (!cached || String(cached.cik) !== String(firm.cik)) return null;
+  if (cached.filingDate !== firm.latest.filingDate || cached.priorFilingDate !== firm.prior.filingDate) return null;
+  const rows = (k) => Array.isArray(cached[k]) ? cached[k] : [];
+  if (!rows('topBought').length && !rows('topSold').length) return null;
+  return { ...cached, topBought: rows('topBought'), topSold: rows('topSold') };
+}
+
 export async function buildPerFirm13FHoldings(asOf = new Date(), { priorPayload = null, chains = {}, cusipMapper = fetchOpenFigiCusipMap } = {}) {
   // Freeze one report period for the whole fan-out. currentF13Quarter waits
   // until the filing deadline has passed, avoiding a partially reported
@@ -10749,6 +10762,23 @@ export async function buildPerFirm13FHoldings(asOf = new Date(), { priorPayload 
         reportDate: f.latest.reportDate, filingForm: f.latest.form,
         totalValue: ownership.stockValue, totalPositions: ownership.holdings.filter(r => r.type === 'stock' && !r.isExit).length,
         topBought: [], topSold: [] } : null;
+      // Only the prior-quarter read failed this build: keep the change tables
+      // an earlier build computed from the SAME two filings instead of blanking
+      // them (and the cross-firm totals) until the next build.
+      const retained = retained13FDeltas(f, priorPayload, targetQuarter.periodEndIso);
+      if (perFirm[f.firm] && retained) {
+        Object.assign(perFirm[f.firm], {
+          priorFilingDate: retained.priorFilingDate, priorReportDate: retained.priorReportDate ?? null,
+          priorTotalValue: retained.priorTotalValue ?? null,
+          topBought: relabelF13Rows(retained.topBought, cusipMap), topSold: relabelF13Rows(retained.topSold, cusipMap),
+          deltaStatus: 'retained', deltaCollectedAtIso: retained.collectedAtIso || priorPayload?.builtAtIso || null,
+        });
+        // Only each side's largest 20 rows survive in the published file, so
+        // the cross-firm totals use those for this manager.
+        for (const d of [...perFirm[f.firm].topBought, ...perFirm[f.firm].topSold]) {
+          if (d?.cusip && d.valueChange) allDeltaRows.push({ ...d, firm: f.firm });
+        }
+      }
       continue;
     }
     const latestCollapsed = collapseHoldingsByCusip(f.latestHoldings);
