@@ -53,6 +53,17 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Rescore the Booms & busts AI buildout signs: the three capital spending measures become one sign with three parts, so the same spending is no longer counted three times (nine signs become six), and boom and bust signs are counted apart, so a boom with no strain reads "Boom" instead of "Late boom". Market-wide bond sales and credit spreads move to the new whole-market panel. The shadow log's `bsl` is now out of 6 (it was out of 9 until 2026-11-16) and a new `bsm` logs the whole-market score; "Resembles now", the Owner brief, the Risk analysis card, the MCP credit read and Regime Lab positioning read both panels.
 - Booms & busts reads each drawdown in the stock's own swings: the fall from the 52-week high is measured against the stock's one-year volatility, with bars that match the old 40% / 25% (builders) and 20% / 10% (SMH) for a stock that moves 35% a year. A calm stock now lights the sign on a smaller fall and a wild one such as CoreWeave needs a bigger one; with too little price history the fixed bars stand (Owner choice) (#848).
 - Booms & busts credit strain counts a widening as partly showing only while the Baa spread sits at or above its long-run middle (its median since 1986, and in the history test the median up to each month); a jump big enough to light the sign still lights it at any level (Owner choice) (#848).
+- Rising volatility adds a "Hide earnings within 30 days" button (off by default, remembered on this device): for a stock about to report, most of the rise in implied volatility is the usual run-up into the report. It hides those names from the table, cards, counts and summary chips (Owner choice) (#850).
+
+
+- Options walls: gamma squeeze rule 1 now asks whether a near-the-money call strike stands out against its nearby strikes (1.5 times the average of up to four strikes on each side in the same expiration, and at least 1,000 contracts) instead of the average of every strike within 60% of the price, which the far strikes dragged down so the rule fired for almost every stock. The squeeze score is shown to the Top Picks AI grader, so the grader sees fewer squeeze points; the rule lives in `lib/gamma-squeeze.mjs` with `scripts/gamma-squeeze-smoke.mjs` (Owner choice) (#850).
+
+### Fixed
+
+- Strategy builder: max gain, max loss and breakevens are now exact. The payoff sweep also samples every leg's strike and the spot price, so a butterfly's peak is no longer missed (a $5-wide fly on a $500 stock showed $170 of its $420 max gain), and a breakeven that lands on a sample is listed once, not twice.
+- Strategy builder: a long put's max gain and a short put's max loss show the figure if the stock goes to $0 instead of "unlimited", and the risk / reward score uses that figure.
+- Strategy builder: the score's "Directional fit" now reads the same grade-first direction the page shows (the RSI / MACD / 20-day tape adds or takes a little, and decides alone only when the stock has no grade). It used to score RSI and MACD only, so a bull spread on a Put-graded stock could get full marks, and its note always said "matches".
+- Strategy builder: the payoff chart's P/L axis labels are shortened ($26.1K) so five-figure values are no longer clipped.
 
 ## 2026-11-16
 

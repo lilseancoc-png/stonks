@@ -28863,7 +28863,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var putWallText = top.putWall ? fmtOiStrike(top.putWall.strike) : 'near-term support';
     var confirm = setup
       ? 'Spot breaks and holds above ' + callWallText + ' on heavy share volume while call Vol/OI stays ≥1.5× and the next scan confirms new call OI.'
-      : 'The score reaches 4/5: concentrated near-money call OI, C/P ≥2:1, call-wall Vol/OI ≥1.5×, spot within 10%, and ask-side call flow.';
+      : 'The score reaches 4/5: a near-money call strike at 1.5× its nearby strikes, C/P ≥2:1, call-wall Vol/OI ≥1.5×, an overhead call wall within 7.5%, and ask-side call flow.';
     var invalidate = setup
       ? 'Price rejects ' + callWallText + ', loses ' + putWallText + ', ask-side call flow disappears, or the next score falls below 4.'
       : 'Call OI disperses, price moves away from the wall, puts dominate the short-dated chain, or the next scan removes the concentration.';
@@ -30704,36 +30704,52 @@ function scenarioEventPhase(ev, now = Date.now()) {
     return isFinite(best) ? best : (Date.now() / 1000);
   }
 
-  // Sweep payoff over a ±25% band around spot (101 samples), find max/min
-  // and breakeven crossings. Flags unlimited gain/loss when the net call
-  // count at the high tail or net put count at the low tail leaves one
-  // side open. Returns dollars per contract × 100.
+  // Sweep payoff over a ±50% band around spot (101 even samples plus every
+  // priced leg's strike and spot itself), find max/min and breakeven
+  // crossings. The expiration payoff only bends at a strike, so sampling the
+  // strikes makes max gain, max loss and the breakevens exact (an even 1%
+  // grid alone missed a butterfly's peak on a high-priced stock). Flags
+  // unlimited gain/loss when the net call count at the high tail or net put
+  // count at the low tail leaves one side open; 'atZero' is the P/L if the
+  // stock goes to $0 (the real cap on a long or short put). Returns dollars
+  // per contract × 100.
   function stratSweepPayoff(enriched){
     var spot = stratState.spot;
     if (!(spot > 0) || !enriched.legs.length) return null;
     var N = 101;
     var lo = spot * 0.5;
     var hi = spot * 1.5;
-    var xs = new Array(N);
-    var ys = new Array(N);
-    var max = -Infinity, min = Infinity, atSpot = null;
-    for (var i=0; i<N; i++){
-      var S = lo + (hi - lo) * (i / (N - 1));
+    var grid = [];
+    for (var i=0; i<N; i++) grid.push(lo + (hi - lo) * (i / (N - 1)));
+    grid.push(spot);
+    for (var gi=0; gi<enriched.legs.length; gi++){
+      var gl = enriched.legs[gi];
+      var gk = gl && gl.leg ? Number(gl.leg.strike) : NaN;
+      if (gl.price != null && gk > lo && gk < hi) grid.push(gk);
+    }
+    grid.sort(function(a, b){ return a - b; });
+    var xs = [], ys = [];
+    var max = -Infinity, min = Infinity;
+    for (var gj=0; gj<grid.length; gj++){
+      var S = grid[gj];
+      if (xs.length && Math.abs(S - xs[xs.length - 1]) < 1e-9) continue;
       var P = stratPayoffAt(enriched, S) * 100;
-      xs[i] = S; ys[i] = P;
+      xs.push(S); ys.push(P);
       if (P > max) max = P;
       if (P < min) min = P;
-      if (Math.abs(S - spot) < (hi - lo) / N) atSpot = P;
     }
-    if (atSpot == null) atSpot = stratPayoffAt(enriched, spot) * 100;
-    // Breakeven crossings (linear interpolation between sign-flipping samples).
+    var atSpot = stratPayoffAt(enriched, spot) * 100;
+    // Breakeven crossings (linear interpolation between sign-flipping
+    // samples). A sample sitting exactly on $0 is one crossing, not two.
     var breakevens = [];
-    for (var j=1; j<N; j++){
+    for (var j=1; j<xs.length; j++){
       var y0 = ys[j-1], y1 = ys[j];
       if ((y0 <= 0 && y1 >= 0) || (y0 >= 0 && y1 <= 0)){
         if (y0 === y1) continue;
         var t = -y0 / (y1 - y0);
-        breakevens.push(xs[j-1] + t * (xs[j] - xs[j-1]));
+        var bx = xs[j-1] + t * (xs[j] - xs[j-1]);
+        if (breakevens.length && Math.abs(bx - breakevens[breakevens.length - 1]) < 1e-6) continue;
+        breakevens.push(bx);
       }
     }
     // Slopes at the tails for unlimited-flag detection. Skip unpriced legs so
@@ -30747,10 +30763,11 @@ function scenarioEventPhase(ev, now = Date.now()) {
     }
     var unlimitedGainUp   = callNet > 0;
     var unlimitedLossUp   = callNet < 0;
-    var unboundedGainDown = putNet  > 0;  // bounded at S=0 but very large
+    var unboundedGainDown = putNet  > 0;  // bounded at S=0 (atZero) but large
     var unboundedLossDown = putNet  < 0;
+    var atZero = putNet !== 0 ? stratPayoffAt(enriched, 0) * 100 : null;
     return {
-      xs: xs, ys: ys, max: max, min: min, atSpot: atSpot,
+      xs: xs, ys: ys, max: max, min: min, atSpot: atSpot, atZero: atZero,
       breakevens: breakevens,
       unlimitedGainUp: unlimitedGainUp,
       unlimitedLossUp: unlimitedLossUp,
@@ -30800,22 +30817,28 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var tech = stratState.technicals;
     var parts = [];
 
-    // 1) Directional fit — only meaningful for bull/bear. Vol/neutral
-    // strategies get a base score so they aren't penalised for ignoring
-    // RSI/MACD.
+    // 1) Directional fit — only meaningful for bull/bear, and read from the
+    // same direction the page shows (stratDirectionRead): the stock's grade
+    // decides when it is graded, the RSI / MACD / 20-day tape adds or takes
+    // a little; with no grade the tape decides alone. Vol/neutral strategies
+    // get a base score so they aren't penalised for ignoring direction.
     var directional = 20;
+    var dirNote = 'volume-conviction read';
     if (bias === 'bull' || bias === 'bear'){
       var s = 20;
       var aligned = bias === 'bull' ? 1 : -1;
-      if (tech && tech.rsi != null){
-        var rsi = tech.rsi;
-        if (aligned > 0) s += rsi >= 55 ? 10 : rsi <= 45 ? -10 : 0;
-        else             s += rsi <= 45 ? 10 : rsi >= 55 ? -10 : 0;
-      }
-      if (tech && tech.macd && tech.macd.hist != null){
-        var hist = tech.macd.hist;
-        if (aligned > 0) s += hist > 0 ? 10 : hist < 0 ? -10 : 0;
-        else             s += hist < 0 ? 10 : hist > 0 ? -10 : 0;
+      var dread = stratDirectionRead();
+      var dirSign = function(d){ return d === 'bull' ? 1 : d === 'bear' ? -1 : 0; };
+      var tapeVotes = dread.tape && isFinite(dread.tape.votes) ? Number(dread.tape.votes) : 0;
+      var gradeFit = dirSign(dread.direction) * aligned;
+      if (dread.source === 'grade'){
+        s += 14 * gradeFit + 2 * aligned * tapeVotes;
+        dirNote = (gradeFit > 0 ? 'matches the grade: ' : gradeFit < 0 ? 'against the grade: ' : 'the grade has no side: ')
+          + dread.label.replace(/^Grade: /, '')
+          + (dread.tape && dread.tape.direction !== 'mixed' ? (dirSign(dread.tape.direction) * aligned > 0 ? '; tape agrees' : '; tape points the other way') : '');
+      } else {
+        s += Math.round(20 / 3 * aligned * tapeVotes);
+        dirNote = (aligned * tapeVotes > 0 ? 'matches' : aligned * tapeVotes < 0 ? 'against' : 'no clear read from') + ' the RSI / MACD / 20-day tape (no grade)';
       }
       directional = Math.max(0, Math.min(40, s));
     } else if (bias === 'volLong' || bias === 'volShort' || bias === 'neutral'){
@@ -30830,10 +30853,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         else if (bias === 'neutral' && conv === 'indecision') directional = 28;
       }
     }
-    parts.push({ key:'dir', label:'Directional fit', value: directional, max: 40,
-      note: bias === 'bull' ? 'matches RSI/MACD tilt'
-          : bias === 'bear' ? 'matches RSI/MACD tilt'
-          : 'volume-conviction read' });
+    parts.push({ key:'dir', label:'Directional fit', value: directional, max: 40, note: dirNote });
 
     // 2) IV alignment from the shared IV band — long vega wants Cheap, short
     // vega wants Rich or Very rich, directional spreads sit best in Normal.
@@ -30859,13 +30879,14 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var rrScore = 10;
     var rrNote = '';
     if (sweep){
-      var maxGain = sweep.unlimitedGainUp ? Infinity : sweep.max;
+      var maxGain = sweep.unlimitedGainUp ? Infinity
+        : sweep.unboundedGainDown && sweep.atZero != null ? Math.max(sweep.max, sweep.atZero) : sweep.max;
       var maxLoss = sweep.unlimitedLossUp ? -Infinity : sweep.min;
       var gain = isFinite(maxGain) ? Math.max(0, maxGain) : null;
       var loss = isFinite(maxLoss) ? Math.max(0, -maxLoss) : null;
       if (sweep.unlimitedLossUp || sweep.unboundedLossDown){
         rrScore = 4;
-        rrNote = 'naked leg — unbounded loss';
+        rrNote = sweep.unlimitedLossUp ? 'naked call — unbounded loss' : 'naked put — loss runs to the stock at $0';
       } else if (gain == null && loss != null){
         // Unlimited gain, capped loss — long call / long strangle territory.
         rrScore = 17;
@@ -31073,10 +31094,16 @@ function scenarioEventPhase(ev, now = Date.now()) {
       '<text x="' + sx(xMin).toFixed(1) + '" y="' + (H - 10) + '" class="strat-payoff-axislbl" text-anchor="start">' + fmtMoney(xMin) + '</text>' +
       (spot != null ? '<text x="' + sx(spot).toFixed(1) + '" y="' + (H - 10) + '" class="strat-payoff-axislbl strat-payoff-spot-lbl" text-anchor="middle">spot ' + fmtMoney(spot) + '</text>' : '') +
       '<text x="' + sx(xMax).toFixed(1) + '" y="' + (H - 10) + '" class="strat-payoff-axislbl" text-anchor="end">' + fmtMoney(xMax) + '</text>';
+    // Short P/L labels so five-figure values fit the 52px gutter
+    // (fmtMoney's cents clipped "+$25,078.80" to "5,078.80").
+    var axisMoney = function(n){
+      var a = Math.abs(n), sign = n < 0 ? '−' : n > 0 ? '+' : '';
+      return sign + '$' + (a >= 1e6 ? (a / 1e6).toFixed(1) + 'M' : a >= 1e4 ? (a / 1e3).toFixed(1) + 'K' : Math.round(a).toLocaleString());
+    };
     var yLabels =
-      '<text x="' + (PAD_L - 6) + '" y="' + (sy(yHi) + 4) + '" class="strat-payoff-axislbl" text-anchor="end">' + (yHi >= 0 ? '+' : '') + fmtMoney(yHi) + '</text>' +
+      '<text x="' + (PAD_L - 6) + '" y="' + (sy(yHi) + 4) + '" class="strat-payoff-axislbl" text-anchor="end">' + axisMoney(yHi) + '</text>' +
       '<text x="' + (PAD_L - 6) + '" y="' + (zeroY + 4) + '" class="strat-payoff-axislbl" text-anchor="end">$0</text>' +
-      '<text x="' + (PAD_L - 6) + '" y="' + (sy(yLo) - 4) + '" class="strat-payoff-axislbl" text-anchor="end">' + fmtMoney(yLo) + '</text>';
+      '<text x="' + (PAD_L - 6) + '" y="' + (sy(yLo) - 4) + '" class="strat-payoff-axislbl" text-anchor="end">' + axisMoney(yLo) + '</text>';
     // Scrub readout: underlying price at expiry → strategy P/L (per position,
     // ×100 like the sweep). Thin the sweep to ≤80 points to keep the attr small.
     var hoverPts = [];
@@ -31108,12 +31135,16 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var costCls   = netCost >= 0 ? 'is-debit' : 'is-credit';
     var maxGain, maxLoss;
     if (sweep){
-      // Mirror the loss cell: a down-tail-driven extreme (net-long puts →
-      // unboundedGainDown) is flagged "unlimited" just like net-long calls
-      // (unlimitedGainUp). Checking only unlimitedGainUp showed long-put
-      // structures a misleading sampled-band cap from sweep.max.
-      maxGain = sweep.unlimitedGainUp || sweep.unboundedGainDown ? '<span class="strat-summary-unlim">unlimited</span>' : stratFmtSigned(sweep.max);
-      maxLoss = sweep.unlimitedLossUp || sweep.unboundedLossDown ? '<span class="strat-summary-unlim is-loss">unlimited</span>' : stratFmtSigned(sweep.min);
+      // Net-long calls have no cap. Net-long (or short) puts are capped at the
+      // stock going to $0, so show that figure (the ±50% chart band alone
+      // understated a long put's gain), not "unlimited".
+      var zeroNote = '<span class="strat-summary-sub"> if the stock goes to $0</span>';
+      maxGain = sweep.unlimitedGainUp ? '<span class="strat-summary-unlim">unlimited</span>'
+        : sweep.unboundedGainDown && sweep.atZero != null && sweep.atZero > sweep.max ? stratFmtSigned(sweep.atZero) + zeroNote
+        : stratFmtSigned(sweep.max);
+      maxLoss = sweep.unlimitedLossUp ? '<span class="strat-summary-unlim is-loss">unlimited</span>'
+        : sweep.unboundedLossDown && sweep.atZero != null && sweep.atZero < sweep.min ? stratFmtSigned(sweep.atZero) + zeroNote
+        : stratFmtSigned(sweep.min);
     } else {
       maxGain = '—'; maxLoss = '—';
     }
@@ -38463,7 +38494,22 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // (surging / trending / building) get a highlight card + sparkline; the
   // rest fill the ranked context table. Baked deterministically — see
   // buildIvTrendingPayload in scripts/build.mjs.
-  var ivTrendState = { data: null, loading: false, showAll: false, sort: 'score', colSort: null, search: '' };
+  var ivTrendState = { data: null, loading: false, showAll: false, sort: 'score', colSort: null, search: '', noEarn: VIEWS.get('ivtrend.noearn', false) === true };
+  // Hide names reporting earnings within 30 days (Owner choice 2026-11-17):
+  // most of their IV rise is the usual run-up into the report. Off by
+  // default; one click, remembered on this device.
+  var IVT_EARN_SOON_DAYS = 30;
+  function ivtEarnSoon(r, asOf){
+    var e = r && r.earnings;
+    if (!e) return false;
+    var n = e.inDays != null && isFinite(e.inDays) ? Number(e.inDays) : null;
+    if (n == null && e.date){
+      var t = Date.parse(String(e.date).slice(0, 10) + 'T12:00:00Z');
+      var b = asOf ? Date.parse(String(asOf).slice(0, 10) + 'T12:00:00Z') : Date.now();
+      if (isFinite(t) && isFinite(b)) n = Math.round((t - b) / 864e5);
+    }
+    return n != null && n >= 0 && n <= IVT_EARN_SOON_DAYS;
+  }
   var IVT_TIER_META = {
     surging:  { label: 'Surging',  cls: 'ivt-tier-surging' },
     trending: { label: 'Trending', cls: 'ivt-tier-trending' },
@@ -45779,6 +45825,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
       return;
     }
     if (empty) empty.hidden = true;
+    var earnSoonCount = 0;
+    for (var e0=0; e0<all.length; e0++) if (ivtEarnSoon(all[e0], d.asOf)) earnSoonCount++;
+    if (ivTrendState.noEarn) all = all.filter(function(r){ return !ivtEarnSoon(r, d.asOf); });
     var tierCounts = { surging: 0, trending: 0, building: 0 };
     var elevatedCount = 0;
     var deflatingCount = 0;
@@ -45789,7 +45838,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       if (rc.chg5dPct != null && isFinite(rc.chg5dPct) && Number(rc.chg5dPct) <= -12) deflatingCount++;
     }
     var flaggedTotal = tierCounts.surging + tierCounts.trending + tierCounts.building;
-    if (eye) eye.textContent = (d.asOf ? 'as of ' + d.asOf + ' · ' : '') + flaggedTotal + ' trending · ' + elevatedCount + ' rich / ' + all.length + ' ranked';
+    if (eye) eye.textContent = (d.asOf ? 'as of ' + d.asOf + ' · ' : '') + flaggedTotal + ' trending · ' + elevatedCount + ' rich / ' + all.length + ' ranked' + (ivTrendState.noEarn && earnSoonCount ? ' · ' + earnSoonCount + ' reporting within ' + IVT_EARN_SOON_DAYS + ' days hidden' : '');
     // Reset a tier/elevated filter whose bucket emptied on a data refresh.
     var mode = ivTrendState.sort || 'score';
     if ((tierCounts[mode] != null && tierCounts[mode] === 0) || (mode === 'elevated' && !elevatedCount)){ mode = 'score'; ivTrendState.sort = 'score'; }
@@ -45822,6 +45871,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       var sts = Array.isArray(sum.standouts) ? sum.standouts : [];
       for (var s0=0; s0<sts.length; s0++){
         var st = sts[s0];
+        if (ivTrendState.noEarn && ivtEarnSoon(st, d.asOf)) continue;
         var kindMeta = st.kind && IVT_KIND_META[st.kind] ? IVT_KIND_META[st.kind] : null;
         var stMeta = !kindMeta && st.tier && IVT_TIER_META[st.tier] ? IVT_TIER_META[st.tier] : null;
         var tipBits = [];
@@ -45863,6 +45913,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
       if (cnt === 0) continue;
       sortHtml += '<button type="button" class="ivt-sort-chip" data-ivt-sort="' + def.key + '" aria-pressed="' + (mode === def.key ? 'true' : 'false') + '">' +
         def.label + (cnt != null ? ' <b>' + cnt + '</b>' : '') + '</button>';
+    }
+    if (earnSoonCount || ivTrendState.noEarn){
+      sortHtml += '<button type="button" class="ivt-sort-chip ivt-noearn-chip" data-ivt-noearn aria-pressed="' + (ivTrendState.noEarn ? 'true' : 'false') + '" title="For a stock about to report, most of the rise in implied volatility is the usual run-up into the report">' +
+        'Hide earnings within ' + IVT_EARN_SOON_DAYS + ' days <b>' + earnSoonCount + '</b></button>';
     }
     html += '<div class="ivt-sort" role="toolbar" aria-label="Sort or filter the ranked tickers">' + sortHtml +
       '<input type="search" id="ivt-search" class="ivt-search" placeholder="Search ticker or name…" value="' + escapeHtml(ivTrendState.search || '') + '" autocomplete="off" spellcheck="false" aria-label="Filter Trending-IV tickers by symbol or company name"></div>';
@@ -45987,7 +46041,14 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (btn) btn.addEventListener('click', function(){ ivTrendState.showAll = !ivTrendState.showAll; renderIvTrend(); });
     var vsAvg = root.querySelector('[data-ivt-vsavg]');
     if (vsAvg) vsAvg.addEventListener('toggle', function(){ VIEWS.set('ivtrend.vsavg', vsAvg.open ? null : false); });
-    var sortBtns = root.querySelectorAll('.ivt-sort-chip');
+    var noEarnBtn = root.querySelector('[data-ivt-noearn]');
+    if (noEarnBtn) noEarnBtn.addEventListener('click', function(){
+      ivTrendState.noEarn = !ivTrendState.noEarn;
+      VIEWS.set('ivtrend.noearn', ivTrendState.noEarn ? true : null);
+      ivTrendState.showAll = false;
+      renderIvTrend();
+    });
+    var sortBtns = root.querySelectorAll('.ivt-sort-chip[data-ivt-sort]');
     for (var sb=0; sb<sortBtns.length; sb++){
       sortBtns[sb].addEventListener('click', function(){
         ivTrendState.sort = this.getAttribute('data-ivt-sort') || 'score';

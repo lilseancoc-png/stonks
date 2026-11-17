@@ -1023,7 +1023,7 @@ Large OI begins around 1,000 contracts; daily changes are highlighted around +30
 
 Gamma-squeeze score `0…5`, one point each:
 
-1. concentrated call OI within 10% OTM, at least 1.5× average and at least 1,000;
+1. a call strike 0-10% OTM with at least 1,000 contracts and at least 1.5× the average of up to four strikes on each side in the same expiration (`lib/gamma-squeeze.mjs`; until 2026-11-17 the average of every strike in the ±60% band, which fired for almost every stock);
 2. call/put OI ratio at least 2;
 3. call-wall volume/OI at least 1.5;
 4. overhead call wall within 7.5%;
@@ -1034,6 +1034,8 @@ Score 4 or 5 is a setup flag, not an entry.
 ### Trending IV
 
 Requires at least 20 daily ATM-near-30D samples. It compares current IV with the ticker's own history using both classical z-score and robust MAD z-score; when they agree, the more conservative magnitude is used. Histories below 60 samples face stricter provisional thresholds.
+
+The page has a "Hide earnings within 30 days" button (off by default, remembered per device, `ivtrend.noearn`): for a stock about to report, most of the IV rise is the usual run-up into the report. It hides those names from the table, cards, counts and summary chips; the baked file is unchanged.
 
 ```text
 score =
