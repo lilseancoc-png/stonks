@@ -3,7 +3,7 @@ import vm from 'node:vm';
 import { ownershipExplorerFactory } from '../lib/ownership-explorer.mjs';
 import { packOwnershipBooks, ownershipBookClientFactory } from '../lib/ownership-books.mjs';
 import { buildOwnershipFund, parseOwnership13FXml } from '../lib/ownership-13f.mjs';
-import { build13FPayload, buildPerFirm13FHoldings, fetchEdgar13FHoldings, findLatestTwo13Fs, retained13FDeltas } from './build.mjs';
+import { build13FPayload, buildPerFirm13FHoldings, fetchEdgar13FHoldings, findLatestTwo13Fs, retained13FDeltas, form4UnreadFilings, form4ReadLedger, form4KeptRows } from './build.mjs';
 import { createOwnershipSecReader, isConnectionError } from '../lib/ownership-sec.mjs';
 import { ownershipFixture, ownershipXml, ownershipCover, ownershipNow } from './fixtures/ownership.mjs';
 import { renderAppJs } from './render/app-js.mjs';
@@ -170,5 +170,28 @@ try {
   assert.equal(aborted, 1, 'a timeout is not retried');
   assert.equal(isConnectionError(new TypeError('fetch failed')), true);
   assert.equal(isConnectionError(new Error('SEC HTTP 404')), false);
+}
+{
+  // Form 4 (Owner choice 2026-11-17): up to five unread filings per issuer
+  // each build, remembering which were read.
+  const f = (n, d) => ({ accessionNumber: 'acc-' + n, filingDate: d });
+  const inWindow = [f(9, '2026-11-16'), f(8, '2026-11-16'), f(7, '2026-11-14'), f(6, '2026-11-13'), f(5, '2026-11-12'), f(4, '2026-11-10'), f(3, '2026-11-02')];
+  const first = form4UnreadFilings(inWindow, new Set(['acc-8']), 5).map((x) => x.accessionNumber);
+  assert.deepEqual(first, ['acc-9', 'acc-7', 'acc-6', 'acc-5', 'acc-4'], 'newest unread first, skipping a filing already read');
+  const second = form4UnreadFilings(inWindow, new Set(['acc-8', ...first]), 5).map((x) => x.accessionNumber);
+  assert.deepEqual(second, ['acc-3'], 'the next build picks up the one left over');
+  const ledger = form4ReadLedger(
+    { AAPL: ['acc-1', 'acc-8'], MSFT: ['m-1'] },
+    { AAPL: inWindow },
+    { AAPL: ['acc-1', 'acc-8', ...first] },
+  );
+  assert.deepEqual(ledger.AAPL, ['acc-9', 'acc-8', 'acc-7', 'acc-6', 'acc-5', 'acc-4'], 'kept in window order; a filing out of the window is dropped');
+  assert.deepEqual(ledger.MSFT, ['m-1'], 'an issuer not checked this build keeps its list');
+  const rows = [];
+  for (let i = 0; i < 130; i++) rows.push({ direction: 'sell', transactionDate: '2026-11-' + String(16 - (i % 10)).padStart(2, '0'), id: 's' + i });
+  rows.push({ direction: 'buy', transactionDate: '2026-09-20', id: 'old-buy' });
+  const kept = form4KeptRows(rows, 120);
+  assert.equal(kept.length, 120);
+  assert.ok(kept.some((r) => r.id === 'old-buy'), 'an older open-market purchase is never cut by the row cap');
 }
 console.log('Ownership explorer checks passed: full books, stock/fund queries, null-safe sorts, raw disclosures, performance coverage, splits and amendments.');

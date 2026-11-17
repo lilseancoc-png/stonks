@@ -18247,25 +18247,62 @@ ${renderExportBindings()}
     });
     return sorted.length >= 2 ? out : null;
   }
+  // Every covered name in the reference's sector group (2026-11-17, Owner
+  // choice: the average used to stop at the first 12 names, so Semis and
+  // Software averaged 12 of 18).
   function cmpSectorMembers(){
     var sec = sectorGroupOf(compareState.refSym);
     if (!sec || sec === 'ETF') return [];
-    return SYMBOLS.filter(function(x){ return sectorGroupOf(x) === sec; }).slice(0, 12);
+    return SYMBOLS.filter(function(x){ return sectorGroupOf(x) === sec; });
+  }
+  // The sector average reads every member's daily moves from the one public
+  // market-days.json (about a year of sessions, moves in basis points) rather
+  // than one per-stock file each. If that file fails, it falls back to the
+  // first 12 per-stock files and the label says so.
+  var CMP_SECTOR_FALLBACK = 12;
+  function cmpMarketDaysMaps(members){
+    var md = compareState.marketDays;
+    if (!md || typeof md !== 'object' || !Array.isArray(md.dates) || !md.moves) return null;
+    var maps = [];
+    members.forEach(function(x){
+      var row = md.moves[x];
+      if (!Array.isArray(row)) return;
+      var m = Object.create(null), lvl = 100, n = 0;
+      for (var i = 0; i < md.dates.length && i < row.length; i++){
+        var bp = row[i];
+        if (bp == null || !isFinite(bp)) continue;
+        lvl *= 1 + Number(bp) / 10000;
+        m[md.dates[i]] = lvl; n++;
+      }
+      if (n >= 2) maps.push(m);
+    });
+    return maps;
+  }
+  function cmpSectorMaps(){
+    var members = cmpSectorMembers();
+    var fromDays = cmpMarketDaysMaps(members);
+    if (fromDays && fromDays.length) return fromDays;
+    var maps = [];
+    members.slice(0, CMP_SECTOR_FALLBACK).forEach(function(x){ var j = compareState.cache[x]; if (j && j !== 'error'){ var m = cmpHistoryMap(j); if (m) maps.push(m); } });
+    return maps;
   }
   function cmpBenchMap(ready){
     var b = compareState.bench;
     if (!b) return null;
     if (b === 'avg') return cmpIndexFromMaps(ready.map(function(r){ return cmpHistoryMap(r.j) || {}; }));
     if (b === 'sector'){
-      var maps = [];
-      cmpSectorMembers().forEach(function(x){ var j = compareState.cache[x]; if (j && j !== 'error'){ var m = cmpHistoryMap(j); if (m) maps.push(m); } });
+      var maps = cmpSectorMaps();
+      compareState.sectorCount = maps.length;
       return maps.length ? cmpIndexFromMaps(maps) : null;
     }
     var bj = compareState.cache[b];
     return bj && bj !== 'error' ? cmpHistoryMap(bj) : null;
   }
   function cmpBenchLabel(){
-    if (compareState.bench === 'sector') return (sectorGroupOf(compareState.refSym) || 'Sector') + ' average';
+    if (compareState.bench === 'sector'){
+      var n = compareState.sectorCount || 0, all = cmpSectorMembers().length;
+      return (sectorGroupOf(compareState.refSym) || 'Sector') + ' average' + (n ? ' (' + (n < all ? n + ' of ' + all : n) + ' names)' : '');
+    }
     return CMP_BENCH_LABELS[compareState.bench] || compareState.bench;
   }
   // Fetch whatever the chosen mode / benchmark needs, then re-render.
@@ -18277,7 +18314,16 @@ ${renderExportBindings()}
     }
     var want = [];
     if (compareState.bench && compareState.bench !== 'avg' && compareState.bench !== 'sector') want.push(compareState.bench);
-    if (compareState.bench === 'sector') want = want.concat(cmpSectorMembers());
+    if (compareState.bench === 'sector'){
+      if (compareState.marketDays == null){
+        compareState.marketDays = 'loading';
+        jobs.push(fetch(dataUrl('market-days.json'), { cache:'no-cache' }).then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+          .then(function(j){ compareState.marketDays = j && Array.isArray(j.dates) && j.moves ? j : 'error'; })
+          .catch(function(){ compareState.marketDays = 'error'; }));
+      } else if (compareState.marketDays === 'error'){
+        want = want.concat(cmpSectorMembers().slice(0, CMP_SECTOR_FALLBACK));
+      }
+    }
     want.forEach(function(x){
       if (compareState.cache[x]) return;
       compareState.cache[x] = 'error';
@@ -34337,7 +34383,7 @@ ${renderExportBindings()}
       html += '<section class="f4-desk" aria-label="Form 4 insider transactions">' +
         '<div class="f4-head"><div><span class="f13-kicker">Form 4 insider tape</span><h3>What insiders actually reported</h3><p>Open-market purchases and sales are separated from grants, exercises, gifts, and tax withholding. A filing is evidence of the transaction—not proof of the insider&rsquo;s motive.</p></div>' +
           '<span class="f13-coverage"><b>' + Number(f4.openMarketCount || marketRows.length) + '</b><small>open-market rows</small></span></div>' +
-        '<div class="f13-desk-source"><span><b>SEC EDGAR · ' + Number(f4.lookbackDays || 60) + '-day lookback</b> · ' + Number(f4.transactionCount || f4.transactions.length) + ' total non-derivative transactions</span><small>latest up to ' + Number(f4.filingsPerIssuerCap || 2) + ' filings / issuer · usually filed within two business days</small></div>' +
+        '<div class="f13-desk-source"><span><b>SEC EDGAR · ' + Number(f4.lookbackDays || 60) + '-day lookback</b> · ' + Number(f4.transactionCount || f4.transactions.length) + ' total non-derivative transactions</span><small>' + (f4.filingsPerIssuerMode === 'unread' ? 'up to ' + Number(f4.filingsPerIssuerCap || 5) + ' new filings / issuer each update' : 'latest up to ' + Number(f4.filingsPerIssuerCap || 2) + ' filings / issuer') + ' · usually filed within two business days</small></div>' +
         clusterHtml +
         '<div class="f4-grid">' +
           form4Side(f4.topPurchases, 'buy', 'Open-market purchases') +

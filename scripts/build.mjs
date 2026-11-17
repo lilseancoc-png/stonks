@@ -10866,7 +10866,18 @@ export async function buildPerFirm13FHoldings(asOf = new Date(), { priorPayload 
 // It shares the SEC-filings workspace in the UI but remains a separate payload
 // with its own dates, transaction codes, and explicit open-market classification.
 const FORM4_LOOKBACK_DAYS = 60;
-const FORM4_FILINGS_PER_TICKER = 2;
+// Up to this many not-yet-read filings per issuer each build (Owner choice,
+// 2026-11-17; was the newest 2 filings, so a busy filing day dropped the
+// rest for good). Read filings are remembered in `readAccessions`, so the
+// rest are picked up by the next builds, and a filing with no share rows is
+// not read again.
+const FORM4_FILINGS_PER_TICKER = 5;
+// Rows kept in the published list: every open-market purchase in the window
+// (cluster buying reads them), then the newest of the rest up to this cap.
+const FORM4_KEEP_ROWS = 120;
+// Stop starting new issuers after this long, so a first catch-up run cannot
+// hold the 13F work past its timeout; the rest wait for the next build.
+const FORM4_SWEEP_BUDGET_MS = 150_000;
 
 function xmlTagValue(block, tag) {
   const m = String(block || "").match(new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)<\\/${tag}>`, "i"));
@@ -10941,7 +10952,39 @@ function recentForm4Filings(submissions, cutoffIso) {
     });
   }
   rows.sort((a, b) => String(b.filingDate).localeCompare(String(a.filingDate)));
-  return rows.slice(0, FORM4_FILINGS_PER_TICKER);
+  return rows;
+}
+
+// The filings this build reads for one issuer: the newest unread ones in the
+// window, at most `cap`. `read` is a Set of accession numbers already read.
+export function form4UnreadFilings(inWindow = [], read = new Set(), cap = FORM4_FILINGS_PER_TICKER) {
+  return (inWindow || []).filter((f) => f?.accessionNumber && !read.has(f.accessionNumber)).slice(0, cap);
+}
+
+// The remembered read list, per issuer. An issuer whose filing list came back
+// keeps only the read filings still in the window plus the ones read now; an
+// issuer not checked this build keeps its earlier list.
+export function form4ReadLedger(prior = {}, checked = {}, readNow = {}) {
+  const out = {};
+  for (const [sym, list] of Object.entries(prior || {})) {
+    if (!checked[sym] && Array.isArray(list) && list.length) out[sym] = list.slice();
+  }
+  for (const [sym, inWindow] of Object.entries(checked || {})) {
+    const keep = new Set([...(prior?.[sym] || []), ...(readNow[sym] || [])]);
+    const list = (inWindow || []).map((f) => f?.accessionNumber).filter((a) => a && keep.has(a));
+    if (list.length) out[sym] = list;
+  }
+  return out;
+}
+
+// The published rows: every open-market purchase, then the newest of the
+// rest, newest first, `cap` in all unless purchases alone pass it.
+export function form4KeptRows(rows = [], cap = FORM4_KEEP_ROWS) {
+  const buys = rows.filter((row) => row?.direction === "buy");
+  const room = Math.max(0, cap - buys.length);
+  const rest = rows.filter((row) => row?.direction !== "buy").slice(0, room);
+  const keep = new Set([...buys, ...rest]);
+  return rows.filter((row) => keep.has(row));
 }
 
 async function fetchEdgarForm4(cik, symbol, filing) {
@@ -10990,28 +11033,44 @@ export async function buildForm4InsiderTransactions(priorPayload = null, asOf = 
   }
 
   const symbols = TICKERS.filter((symbol) => _cikMap?.get(symbol));
+  // The remembered read list. A payload from before 2026-11-17 has none, so
+  // the filings that already gave rows count as read.
+  const priorLedger = priorPayload?.insiderTransactions?.readAccessions
+    && typeof priorPayload.insiderTransactions.readAccessions === "object"
+    ? priorPayload.insiderTransactions.readAccessions
+    : null;
+  const readFor = (symbol) => new Set(priorLedger ? (priorLedger[symbol] || []) : []);
   // Fresh rows stay separate until the final merge; a per-issuer submissions
   // outage therefore cannot erase still-in-window prior disclosures.
   const freshTransactions = [];
+  const checked = {}, readNow = {};
   let cursor = 0;
   let issuersChecked = 0;
   let filingsParsed = 0;
+  let unreadLeft = 0;
+  let outOfTime = 0;
+  const startedMs = Date.now();
   const workers = Array.from({ length: Math.min(2, symbols.length) }, async () => {
     while (cursor < symbols.length) {
+      if (Date.now() - startedMs > FORM4_SWEEP_BUDGET_MS) { outOfTime = symbols.length - cursor; break; }
       const symbol = symbols[cursor++];
       const cik = _cikMap.get(symbol);
       try {
         const submissions = await fetchEdgarSubmissions(cik);
         issuersChecked++;
-        for (const filing of recentForm4Filings(submissions, cutoffIso)) {
-          const cached = priorByAccession.get(filing.accessionNumber);
-          if (cached?.length) {
-            continue;
-          }
+        const inWindow = recentForm4Filings(submissions, cutoffIso);
+        checked[symbol] = inWindow;
+        const read = readFor(symbol);
+        if (!priorLedger) for (const f of inWindow) if (priorByAccession.get(f.accessionNumber)?.length) read.add(f.accessionNumber);
+        const toRead = form4UnreadFilings(inWindow, read);
+        unreadLeft += Math.max(0, inWindow.filter((f) => f?.accessionNumber && !read.has(f.accessionNumber)).length - toRead.length);
+        readNow[symbol] = [...read];
+        for (const filing of toRead) {
           try {
             const rows = await fetchEdgarForm4(cik, symbol, filing);
             freshTransactions.push(...rows);
             filingsParsed++;
+            readNow[symbol].push(filing.accessionNumber);
           } catch (err) {
             console.log(`    ⚠ ${symbol} Form 4 ${filing.accessionNumber} failed: ${err.message}`);
           }
@@ -11020,12 +11079,15 @@ export async function buildForm4InsiderTransactions(priorPayload = null, asOf = 
       } catch (err) {
         console.log(`    ⚠ ${symbol} Form 4 submissions failed: ${err.message}`);
       }
-      // Two workers × at most three SEC requests per ticker stays below the
-      // SEC's published 10-request/second fair-access ceiling.
+      // Two workers × at most six SEC requests per ticker, each spaced, stay
+      // below the SEC's published 10-request/second fair-access ceiling.
       await new Promise((resolve) => setTimeout(resolve, 650));
     }
   });
   await Promise.all(workers);
+  if (outOfTime) console.log(`    · Form 4: ${outOfTime} issuers wait for the next build (sweep time budget)`);
+  if (unreadLeft) console.log(`    · Form 4: ${unreadLeft} unread filings wait for the next build (${FORM4_FILINGS_PER_TICKER} per issuer per build)`);
+  const readAccessions = form4ReadLedger(priorLedger || {}, checked, readNow);
 
   const deduped = mergeForm4TransactionRows(priorRows, freshTransactions, cutoffIso);
   const topPurchases = deduped
@@ -11040,19 +11102,23 @@ export async function buildForm4InsiderTransactions(priorPayload = null, asOf = 
     asOf: asOf.toISOString(),
     lookbackDays: FORM4_LOOKBACK_DAYS,
     filingsPerIssuerCap: FORM4_FILINGS_PER_TICKER,
+    filingsPerIssuerMode: "unread",
     issuersChecked,
     filingsParsed,
+    unreadLeft,
     transactionCount: deduped.length,
     openMarketCount: deduped.filter((row) => row.openMarket).length,
     topPurchases,
     topSales,
-    transactions: deduped.slice(0, 120),
+    transactions: form4KeptRows(deduped, FORM4_KEEP_ROWS),
     // Cluster buying (lib/insider-cluster.mjs): names where three or more
     // distinct insiders bought on the open market inside 30 days. Same rule
     // the browser applies to the rows above, stamped here for other readers.
     clusterBuying: findInsiderClusters(deduped, { asOf: asOf.toISOString() }),
+    // Accession numbers already read, per issuer, inside the lookback.
+    readAccessions,
     sourceNote:
-      `SEC EDGAR Form 4 filings, latest ${FORM4_FILINGS_PER_TICKER} filings per tracked issuer inside the ${FORM4_LOOKBACK_DAYS}-day lookback. ` +
+      `SEC EDGAR Form 4 filings inside the ${FORM4_LOOKBACK_DAYS}-day lookback, up to ${FORM4_FILINGS_PER_TICKER} unread filings per tracked issuer each build; filings already read are remembered. ` +
       "Open-market code P purchases and code S sales are ranked separately; awards, option exercises, gifts, and tax withholding remain labeled non-market transactions.",
   };
 }
