@@ -85,6 +85,7 @@ const SIDE_NAV_ICONS = {
   'ma-tracker': '<path d="M3.5 19.5h17"/><path d="M3.5 4.5v15"/><path d="m6 15 4-4 3 2 5-6"/><path d="M6 9.5h12"/>',
   spillover: '<circle cx="12" cy="12" r="2.5"/><path d="M12 5.5a6.5 6.5 0 0 1 6.5 6.5"/><path d="M12 2a10 10 0 0 1 10 10"/>',
   quant: '<path d="M18 6.5V4H6l6.5 8L6 20h12v-2.5"/>',
+  'valuation-lab': '<path d="M12 3v18"/><path d="M5 7h14"/><path d="M5 7l-3 6a3 3 0 0 0 6 0z"/><path d="M19 7l-3 6a3 3 0 0 0 6 0z"/><path d="M8 21h8"/>',
   'quant-labs': '<path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 1.7 3h10.6a2 2 0 0 0 1.7-3l-5-9V3"/><path d="M7.5 15h9"/>',
   'historical-data': '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/>',
   'party-tracker': '<path d="M4 20h16M6 20V9M10 20V9M14 20V9M18 20V9M3 9h18M12 3l8 6H4z"/>',
@@ -1033,6 +1034,19 @@ function quantLabsSection() {
     <div class="owner-lab-intro"><div><h3>How likely, how honest, and would it survive a recount?</h3><p>The chance of a 10% or 20% market fall and of a recovery, fitted on S&amp;P 500 history since 1962; a check of every chance, score and range the site states against what happened; what the grade and the trades lean on; each stock's volatility forecast against its option prices; what changed in the annual reports; and a registry that counts every attempt behind a result. No AI. Nothing here changes a pick, a grade or the Track Record.</p></div><button type="button" class="book-more" data-owner-labs-refresh>Refresh labs</button></div>
     <p class="hint" id="owner-labs-status" role="status" aria-live="polite">The labs load on first open.</p>
     <div id="quant-labs-root" class="evb-root rgl-root slp-root ql-root"></div>
+  </section>`;
+}
+
+// Valuation lab (2026-11-17, Owner · Research): eight valuation methods on
+// inputs the Owner can change, in 28 market and political environments,
+// compared with the market price, last year and the analysts. Rendered by
+// scripts/render/valuation-lab-client.mjs from valuation-lab.json.
+function valuationLabSection() {
+  return `<section class="card" id="valuation-lab-section">
+    <header class="card-header"><h2 class="card-title">Valuation lab</h2><span class="card-eyebrow">Owner · price discovery</span></header>
+    <div class="owner-lab-intro"><div><h3>What is it worth, and what is the market seeing?</h3><p>A price is what the last buyer was willing to pay. This page values a stock eight ways (cash flow, an earnings path, peer multiples, its own past multiples, growth-adjusted P/E, rate-justified earnings power, book value plus excess returns and the analysts' target), blends them with weights you set, and compares the answer with the market price. Move any input (rates, growth, margins, multiples, the market, the dollar, oil, taxes, tariffs, which party holds power) or pick one of 28 environments, and every number updates. Then it works backwards: what today's price assumes, which input matters most, the range of outcomes, how the company compares with last year and with the analysts, and what the analysts or the model may be missing. No AI. Nothing here changes a pick or a grade.</p></div></div>
+    <p class="hint" id="valuation-lab-status" role="status" aria-live="polite">The lab loads on first open.</p>
+    <div id="valuation-lab-root" class="vl-root"></div>
   </section>`;
 }
 
@@ -2556,6 +2570,9 @@ ${i18nHeadScript()}
   </div>
   <div class="page-pane" id="page-pane-quant" role="tabpanel" aria-labelledby="page-tab-quant" hidden>
   ${quantSection()}
+  </div>
+  <div class="page-pane" id="page-pane-valuation-lab" role="tabpanel" aria-labelledby="page-tab-valuation-lab" hidden>
+  ${valuationLabSection()}
   </div>
   <div class="page-pane" id="page-pane-quant-labs" role="tabpanel" aria-labelledby="page-tab-quant-labs" hidden>
   ${quantLabsSection()}

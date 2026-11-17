@@ -57,6 +57,7 @@ import { renderEvidenceJs } from './evidence-client.mjs';
 import { renderRegimeLabJs } from './regime-lab-client.mjs';
 import { renderSelfLoopJs } from './self-loop-client.mjs';
 import { renderQuantLabsJs } from './quant-labs-client.mjs';
+import { renderValuationLabJs } from './valuation-lab-client.mjs';
 import { renderEnginesJs } from './engines-client.mjs';
 import { renderOwnerInsightJs } from './owner-insight-client.mjs';
 import { tradePostMortemFactory } from '../../lib/trade-postmortem.mjs';
@@ -128,6 +129,7 @@ ${renderEvidenceJs()}
 ${renderRegimeLabJs()}
 ${renderSelfLoopJs()}
 ${renderQuantLabsJs()}
+${renderValuationLabJs()}
 ${renderEnginesJs()}
 ${renderOwnerInsightJs()}
 ${calendarSourceLabel.toString()}
@@ -4318,7 +4320,7 @@ ${scenarioEventPhase.toString()}
   // resolve the URL's initial tab synchronously at script-evaluation time (the
   // anti-flash pre-select in the boot block) before the /api/auth/me +
   // manifest fetches settle and bind() runs the full selectTab.
-  var PAGE_TAB_IDS = ['home','update-checker','owner-settings','owner-market-brief','tickers','stock','narratives','brief','news','market','risk','unified-signal-engine','historical-data','party-tracker','earnings-forecast','forced-liquidation','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','quant-labs','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ai-disruption','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','bottom-tracker','open-picks','track','engines','sports-nba','sports-nfl','sports-pick-builder','cheatsheet','chart-patterns','timeline','contact','glossary','earnings-week','market-map','crowd','prediction-markets','history-rhymes','whats-changed','past-day','privacy','terms'];
+  var PAGE_TAB_IDS = ['home','update-checker','owner-settings','owner-market-brief','tickers','stock','narratives','brief','news','market','risk','unified-signal-engine','historical-data','party-tracker','earnings-forecast','forced-liquidation','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','quant-labs','valuation-lab','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ai-disruption','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','bottom-tracker','open-picks','track','engines','sports-nba','sports-nfl','sports-pick-builder','cheatsheet','chart-patterns','timeline','contact','glossary','earnings-week','market-map','crowd','prediction-markets','history-rhymes','whats-changed','past-day','privacy','terms'];
   // Friendly aliases so deep-links people might guess work too.
   // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
   // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -4370,6 +4372,7 @@ ${scenarioEventPhase.toString()}
     iv: 'iv-trend', 'trending-iv': 'iv-trend', 'iv-trending': 'iv-trend', ivtrend: 'iv-trend', 'implied-vol': 'iv-trend', 'implied-volatility': 'iv-trend',
     'event-spillover': 'spillover', 'read-through': 'spillover', readthrough: 'spillover', 'spill-over': 'spillover', spill: 'spillover',
     quantlabs: 'quant-labs', 'market-odds': 'quant-labs', 'drawdown-odds': 'quant-labs',
+    valuation: 'valuation-lab', valuationlab: 'valuation-lab', dcf: 'valuation-lab', 'fair-value': 'valuation-lab', 'price-discovery': 'valuation-lab', 'intrinsic-value': 'valuation-lab',
     'quant-lab': 'quant', quantlab: 'quant', pairs: 'quant', 'pair-trading': 'quant', sigma: 'quant', vrp: 'quant', dispersion: 'quant',
     'leveraged-etfs': 'levetf', 'leveraged-etf': 'levetf', leveraged: 'levetf', letf: 'levetf', 'lev-etf': 'levetf', tqqq: 'levetf', soxl: 'levetf',
     // Reference / legal / info pages (now in-app tabs).
@@ -4934,6 +4937,7 @@ ${renderExportBindings()}
         if (name === 'spillover' && typeof loadSpillover === 'function') loadSpillover();
         if (name === 'quant' && typeof loadQuant === 'function') loadQuant();
         if (name === 'quant-labs' && typeof loadQuantLabs === 'function') loadQuantLabs();
+        if (name === 'valuation-lab' && typeof loadValuationLab === 'function') loadValuationLab();
       if (name === 'levetf' && typeof loadLevEtf === 'function') loadLevEtf();
       // The sidebar scrolls vertically when the tab list outgrows the
       // viewport. Programmatic selection (e.g. a ?tab= deep-link) can leave
