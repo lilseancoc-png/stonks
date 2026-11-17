@@ -844,7 +844,7 @@ The news desk is deterministic triage over public stock and macro headlines:
 - rumors, clickbait, and stale/undated items are penalized;
 - observed market reaction can add weight.
 
-High impact begins at 70; Notable at 45. Undated items cannot be labeled High. The macro lane classifies Fed/rates, inflation, labor, growth, policy/trade, and energy/geopolitics separately from generic market coverage. It also imports the calendar's published actual-versus-consensus releases as date-labeled ECON DATA rows and retains each row's BLS, FRED, ISM, or ForexFactory source attribution. Their hotter/cooler/stronger/weaker surprise read is shown as evidence while the directional chip remains Unclear, because one print is not universally bullish or bearish for risk assets.
+High impact begins at 70; Notable at 45. Undated items cannot be labeled High, and neither can a buy-or-sell question, listicle or "why the stock moved" explainer, whatever catalyst word it mentions (the clickbait penalty applies to every category since 2026-11-17). Results written without the word "earnings" ("beats estimates", "third-quarter profit", "reports record revenue") count as earnings news. The macro lane classifies Fed/rates, inflation, labor, growth, policy/trade, and energy/geopolitics separately from generic market coverage. It also imports the calendar's published actual-versus-consensus releases as date-labeled ECON DATA rows and retains each row's BLS, FRED, ISM, or ForexFactory source attribution. Their hotter/cooler/stronger/weaker surprise read is shown as evidence while the directional chip remains Unclear, because one print is not universally bullish or bearish for risk assets.
 
 The feed keeps seven days, caps at 500 rows, validates links, and carries prior valid coverage through temporary source failures. The UI can isolate Macro, covered stocks, or general market pulse without creating a separate news surface.
 
@@ -982,19 +982,26 @@ Baseline flag:
 
 - volume greater than open interest;
 - volume increase versus the prior hourly snapshot;
-- increase at least 4,000 for DTE up to 14, otherwise 2,000.
+- increase at least the stock's own bar: 1% of its median full-day option volume over its last 10 complete sessions (front two expirations, strikes within 55% of spot) for DTE up to 14, 0.5% otherwise, never above 4,000 / 2,000 and never below 500 / 250. A stock with fewer than 5 complete sessions on file keeps the flat 4,000 / 2,000 (`lib/flow-scan-rules.mjs`, switch `FLOW_STOCK_BARS`).
 
-The first scan of a day cannot produce an hourly delta because there is no prior snapshot. Last-trade location is labeled at ask, above mid, mid, below mid, or bid. Same-day observations accumulate, and a seven-day repeat log marks recurring contracts after at least two appearances. Each explanation is deterministic prose rebuilt from that observation's current volume, open interest, hourly delta, tape, DTE, moneyness, IV, and premium. It makes no unsupported catalyst or direction claim and has no AI cost or stale contract-note cache.
+The 9:00 ET scan is before the open, so the first in-session scan (normally 10:00 ET, up to 11:30) has no same-day snapshot to compare with. A contract that has traded since the 9:30 open counts all of today's volume and is labeled "since the open"; a contract that has not traded today still carries yesterday's total and is not measured (switch `FLOW_OPEN_WINDOW`). Both switches default on, with an Owner Settings override. Last-trade location is labeled at ask, above mid, mid, below mid, or bid. Same-day observations accumulate, and a seven-day repeat log marks recurring contracts after at least two appearances. Each explanation is deterministic prose rebuilt from that observation's current volume, open interest, hourly delta, tape, DTE, moneyness, IV, and premium. It makes no unsupported catalyst or direction claim and has no AI cost or stale contract-note cache.
 
 The UI's decision queue is stricter than raw detection. It favors aggressive ask/above-mid prints, usually at least $100K premium, or $50K when repeated, or $25K across multiple strikes, with spread at most 35% and extra skepticism for penny-priced/far-OTM contracts. Stale or closed-session flow remains evidence, not an executable order.
 
 ### Volume
 
-Expected intraday volume follows a U-shaped session curve:
+Expected intraday volume follows a curve measured from the covered stocks' own sessions (`lib/volume-flags.mjs`, since 2026-11-17). Each scan logs every name's cumulative volume; the next day the scanner divides those readings by the finished daily volume, takes the median name at each scan time, and keeps the last 20 sessions (`curveDays` in `volume-history.json`). A scan time with five or more logged sessions uses their median; until then it uses a seed measured from 14 sessions of May and June 2026:
 
 ```text
-25% / 14% / 11% / 11% / 14% / 25%
+share of the day by 10:00 / 11:00 / 12:00 / 13:00 / 14:00 / 15:00 / 16:00
+16% / 32% / 45% / 55% / 64% / 74% / 100% (closing auction included)
 ```
+
+The old fixed curve (25 / 14 / 11 / 11 / 14 / 25% per hour) expected 12.5% by 10:00 and 36% in the last two hours, so morning windows read about 1.3× too heavy and afternoon windows too light. `VOLUME_MEASURED_CURVE=0` brings the fixed curve back.
+
+The grade's `unusualVolume` vote reads the session so far (volume since the open against the curve, move since the prior close; `session.reads` in `volume-flags.json`) rather than the busiest single window, which opened the vote to about 40-50% of names on an ordinary day. `VOLUME_SESSION_READ=0` brings back the busiest-window read. New Top Picks trades carry `volumeReadVersion` (Track Record divider).
+
+The 16:00 ET scan is taken before the closing auction prints, so it used to read every name's day short. That scan now waits until about 16:06 ET (a scan that starts after 16:30 skips this) and re-reads each stock's day volume and closing price in batched Yahoo quotes of 50 (`closeRereadWaitMs` / `applyCloseReread` in `lib/volume-flags.mjs`). A quote only replaces the scan's volume when it is at least as large. The page says "closing auction included" and the scan log prints how many names moved by 10% or more (`closeReread` in `volume-flags.json`). `VOLUME_CLOSE_REREAD=0` (Owner Settings, Data & desks) skips the wait.
 
 - hourly watch: at least 1.2× expected volume;
 - stronger flag: at least 1.5×;
@@ -1023,7 +1030,7 @@ Large OI begins around 1,000 contracts; daily changes are highlighted around +30
 
 Gamma-squeeze score `0…5`, one point each:
 
-1. concentrated call OI within 10% OTM, at least 1.5× average and at least 1,000;
+1. a call strike 0-10% OTM with at least 1,000 contracts and at least 1.5× the average of up to four strikes on each side in the same expiration (`lib/gamma-squeeze.mjs`; until 2026-11-17 the average of every strike in the ±60% band, which fired for almost every stock);
 2. call/put OI ratio at least 2;
 3. call-wall volume/OI at least 1.5;
 4. overhead call wall within 7.5%;
@@ -1034,6 +1041,8 @@ Score 4 or 5 is a setup flag, not an entry.
 ### Trending IV
 
 Requires at least 20 daily ATM-near-30D samples. It compares current IV with the ticker's own history using both classical z-score and robust MAD z-score; when they agree, the more conservative magnitude is used. Histories below 60 samples face stricter provisional thresholds.
+
+The page has a "Hide earnings within 30 days" button (off by default, remembered per device, `ivtrend.noearn`): for a stock about to report, most of the IV rise is the usual run-up into the report. It hides those names from the table, cards, counts and summary chips; the baked file is unchanged.
 
 ```text
 score =
@@ -1100,7 +1109,7 @@ One scorer, `lib/overnight-tone.mjs`, decides the overnight tone for the Overnig
 
 - **Window.** Every move is measured from the prior US cash close (16:00 ET) to the read time. A market with no trade in that window (an Asian market on holiday, a cash index still showing yesterday, cash VIX before it reopens) is left out and listed with the reason. Europe only counts before the US open.
 - **Scale.** Each move is divided by that market's own daily volatility over the last 60 sessions (a z-score), so the same 0.5% means more on a calm market than on a jumpy one.
-- **Five groups, one vote each.** Equities (US futures 50%, Asia 30% after removing the part that echoes the prior US day, Europe 20%), volatility (VIX change, plus a stress vote when VIX is above VIX3M), rates (10Y futures; only a move of at least one normal day votes, and falling yields with falling stocks are a flight to safety, not risk-on), FX/carry (AUD/JPY, USD/CNH, USD/KRW, dollar index) and growth/credit (copper, HYG before the open, Bitcoin and Ether). A group votes once its weighted z passes ±0.5.
+- **Five groups, one vote each.** Equities (US futures 50%, Asia 30% after removing the part that echoes the prior US day, Europe 20%), volatility (VIX change, plus a stress vote when VIX is above VIX3M), rates (10Y futures; only a move of at least one normal day votes, and falling yields with falling stocks are a flight to safety, not risk-on), FX/carry (AUD/JPY, onshore USD/CNY, USD/KRW, dollar index) and growth/credit (copper, HYG before the open, Bitcoin and Ether). A group votes once its weighted z passes ±0.5.
 - **Label.** The votes sum to −5..+5: ±3 or more is risk-on/off, ±1 or ±2 leans, and fewer than three groups with fresh data is "not enough data". Asia chip stocks, oil, gold, USD/JPY, VVIX, SKEW and MOVE are shown as context and do not vote.
 - **Two calls.** The *gap call* is the direction of the open versus the prior close from the futures move (flat inside ±0.15%). The *session call* (open to close) says "no edge" until the saved record shows one: at least 60 graded days, a hit rate of at least 55%, and at least 3 points above simply guessing the more common session direction.
 - **Saved call and grading.** `scripts/overnight-preopen.mjs` saves the call during the 09:00 ET transcripts dispatch (it reads at about 09:05 ET) to `overnight-preopen.json`. Each bake folds it into `overnight-log.json`, rebuilds any missed day from 15-minute bars at 09:05 ET (marked "rebuilt"; the first bake backfills about eight weeks), and grades completed days against SPY and QQQ: gap, open-to-close and close-to-close. The tab's track record shows each hit rate next to the base rate (how often SPY simply opened up or closed above its open). `scripts/overnight-fit.mjs` reports per-group hit rates and threshold sweeps for re-fitting.
@@ -1156,6 +1165,8 @@ When a filer's SEC series is more than about 14 months old (TSMC's 20-F data sto
 
 Fiscal years differ by company (MSFT ends June, ORCL May, MU September), so the latest-FY total is labeled with its range of years. The TTM run-rate is the like-for-like current figure.
 
+A company whose latest full year ends more than 380 days before its run-rate (TSMC while its SEC feed stops at FY2024 and Yahoo's quarters cannot rebuild FY2025) is marked `fyStale`: it stays in the run-rate but is left out of the latest-FY total, its labels and growth, and the page says so. A prior year counts only when it is the year right before (`capexPriorYear`), so a skipped year shows no growth instead of a two-year change. The run-rate vs latest FY compares the same companies (`runRateVsFyPct`). The "Combined CapEx by year" chart shows only the years every company has reported, because the newest year holds only the June-to-September filers until the calendar-year companies file in February.
+
 Decision posture:
 
 - **accelerating:** CapEx growth outruns revenue by at least about ten points and the run rate is not falling;
@@ -1177,7 +1188,12 @@ The job uses SerpApi's Google Trends endpoint (`SERPAPI_KEY`) because Google's
 official programmatic API is still alpha-only. Four theme queries share one
 comparison request with a fifth `stock market` anchor. This makes the displayed
 relative-interest ratio comparable across batches while keeping the Google
-Trends 0-100 time series intact for each query. It stores:
+Trends 0-100 time series intact for each query. Google scales each request to
+its biggest line in whole numbers, so the themes are grouped by last week's
+relative interest (`groupBySize`, since 2026-11-17): small themes share a
+request instead of reading 0-2 beside ChatGPT or Trump, where their weekly
+change was mostly rounding. A theme with no earlier reading joins the biggest
+group. It stores:
 
 - trailing 90-day interest history;
 - current 7-day average relative to the shared anchor;
@@ -1198,7 +1214,7 @@ Two independent layers:
 - wholesale DRAM spot from TrendForce, with DRAMeXchange fallback;
 - US retail DDR5-kit pricing from WhereIsMyRam.
 
-Wholesale history is accumulated once each Friday; retail arrives with deeper source history. The retail composite is the median across at least three categories so one scarce kit cannot dominate.
+Wholesale history is accumulated once each Friday; retail arrives with deeper source history. The retail composite is chain-linked: each step is the median price change of the categories priced on both dates (at least three), and the line is anchored so its newest point is today's median category price, so a category entering or leaving does not move it. The page stays current for nine days after the Friday scan.
 
 Cycle states:
 
@@ -1228,7 +1244,12 @@ headline price.
 provider/model/market series. Each provider degrades independently: a failed
 page carries only that provider's last-good rows as stale and does not append a
 new history point. The UI compares spot and on-demand lanes, plots selectable
-model histories, and leads with H100 when available.
+model histories, and leads with H100 when available. The 7- and 30-day changes
+are the median of each lane's own change over the lanes that priced on the
+newest date (`matchedLaneChange`, copied in the browser as `apMatchedChange`),
+so a provider missing one week does not move them; the chart line is still the
+plain cross-provider median. The page stays current for nine days after the
+Friday scan.
 
 The price read is a conditional capacity/utilization overlay. A higher rental
 rate can reflect scarce capacity, but posted price does not prove availability

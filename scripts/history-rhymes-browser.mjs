@@ -21,7 +21,9 @@ const fx = historyRhymesFixture();
 let owner = false, haveFile = true;
 const server = await startSiteServer({
   owner: () => owner,
-  data: (key) => (key === HISTORY_RHYMES_KEY ? (haveFile ? fx.rhymes : null) : key === HISTORY_RHYMES_OWNER_KEY ? (owner ? fx.owner : null) : null),
+  data: (key) => (key === HISTORY_RHYMES_KEY ? (haveFile ? fx.rhymes : null) : key === HISTORY_RHYMES_OWNER_KEY ? (owner ? fx.owner : null)
+    // The Quant labs market odds card, for the Risk analysis "why these reads can differ" line.
+    : key === 'quant-labs.json' ? (owner ? { card: { from: '1962-01', asOf: '2026-11-16', fall: [{ id: 'fall10_6m', p: 0.09, base: 0.14, status: 'working' }] } } : null) : null),
 });
 const browser = await launchBrowser();
 let checks = 0;
@@ -40,7 +42,16 @@ try {
     await settle(s.page, 600);
     check((await s.page.locator('#history-rhymes-root [data-hr-tab]').count()) >= PUBLIC_TABS.length, 'public tabs drawn');
     check((await s.page.locator('#history-rhymes-root [data-hr-tab="stocks"]').count()) === 0, 'public: no Stocks tab');
-    check((await s.page.locator('#history-rhymes-root .hr-sign').count()) === 9, 'nine warning signs');
+    check((await s.page.locator('#history-rhymes-root .hr-sign').count()) === 12, 'six AI buildout signs and six whole-market signs');
+    check((await s.page.locator('#history-rhymes-root .hr-panel').count()) === 2, 'two panels: AI buildout and whole market');
+    {
+      const now = await s.page.locator('#history-rhymes-root').innerText();
+      check(/Boom signs/i.test(now) && /Bust signs/i.test(now), 'boom and bust signs are counted apart');
+      check(/History test, \d{4} on:/.test(now), 'a whole-market bust sign shows its history test');
+      check((await s.page.locator('#history-rhymes-root .hr-pill.is-nc').count()) >= 1 && /Not counted: lit in only \d+ months/.test(now), 'a sign that has not passed is shown, marked not counted, with the reason');
+      check((await s.page.locator('#history-rhymes-root .hr-parts li').count()) === 3, 'the spending sign lists its three parts');
+      check((await s.page.locator('#history-rhymes-root table.hr-bears tbody tr').count()) >= 4, 'the bear market table lists each bear market');
+    }
     check((await s.page.locator('#history-rhymes-root .hr-match-row').count()) === 3, 'three case matches');
     for (const tab of PUBLIC_TABS) {
       await s.page.locator('#history-rhymes-root [data-hr-tab="' + tab + '"]').first().click();
@@ -116,7 +127,7 @@ try {
     haveFile = true;
     await s.page.locator('#history-rhymes-root [data-hr-retry]').click();
     await ready(s.page);
-    check((await s.page.locator('#history-rhymes-root .hr-sign').count()) === 9, 'missing file: Try again loads the page once the file exists');
+    check((await s.page.locator('#history-rhymes-root .hr-sign').count()) === 12, 'missing file: Try again loads the page once the file exists');
     haveFile = false;
     const problems = (await pageProblems(s)).filter((p) => !/blank/.test(p));
     check(problems.length === 0, 'missing file: ' + problems.join(' | '));
@@ -152,10 +163,15 @@ try {
     const r = await openTab(browser, server.base, { tab: 'risk', width: 1440, height: 1000, theme: 'light' });
     await r.page.locator('#risk-rhymes .hr-risk').waitFor({ timeout: 15000 });
     const card = await r.page.locator('#risk-rhymes').innerText();
-    check(/Context, not a vote/i.test(card) && /of 9/.test(card), 'risk: the context card names the count and says it does not vote');
+    check(/Context, not a vote/i.test(card) && /of 6/.test(card) && /Whole market/i.test(card), 'risk: the context card names both counts and says it does not vote');
     const rp = (await pageProblems(r)).filter((p) => !/blank/.test(p));
     check(rp.length === 0, 'risk card: ' + rp.join(' | '));
     await r.page.locator('#risk-rhymes').screenshot({ path: resolve(output, 'owner-risk-card.png') });
+    await r.page.locator('#risk-horizons .hr-horizons').waitFor({ timeout: 15000 });
+    const hz = await r.page.locator('#risk-horizons').innerText();
+    check(/different stretches of time/.test(hz) && /market odds \(a 10%\+ fall within 6 months less likely than normal, 9% against 14%\)/.test(hz) && /Booms & busts \(whole market “[^”]+”, AI buildout “[^”]+”\)/.test(hz) && /over years/.test(hz), 'risk: one line explains why the reads can differ (' + hz.slice(0, 160) + ')');
+    check(!ADVICE_RE.test(hz), 'risk: the explainer gives no advice');
+    await r.page.locator('#risk-horizons').screenshot({ path: resolve(output, 'owner-risk-horizons.png') });
     await r.context.close();
     owner = false;
   }

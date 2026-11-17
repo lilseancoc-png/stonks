@@ -311,6 +311,20 @@ await ok("health: an engine trade with no mirror record is flagged only once the
   assert.equal(mirrorHealth({ acc: accOf(), ledger }, T0).engines, undefined);
 });
 
+await ok("shares: an engine share trade is a record line only: never merged, ordered or counted as untracked", async () => {
+  const shr = eng("technicals", "SHR", { tradeId: "TEC:SHR-S-11/16/26-11:00", contract: { structure: "shares", optionType: "call", shares: 50, mid: 100, usd: 5000, costPct: 0.1 } });
+  const opt = eng("technicals", "BBB");
+  const m = merged(accOf(), engOf([shr, opt], [closedRow({ ...shr, tradeId: "TEC:SHR-S-11/13/26-11:00" })]), null);
+  assert.deepEqual(m.open.map((e) => e.symbol), ["BBB"]); assert.equal(m.closed.length, 0);
+  const wb = fakeWebull();
+  const { ledger, summary } = await run({ client: wb, accountId: "PAPER1", acc: m, ledger: null, nowMs: T0 });
+  assert.equal(summary.placed, 1); assert.ok(!ledger.trades["TEC:SHR-S-11/16/26-11:00"]);
+  const led = { goLiveIso: "2026-11-16T15:00:00.000Z", trades: {}, engineSnapshotIso: BUILT, reconciliation: { status: "matched", alerts: [], checkedAtIso: BUILT } };
+  const h = mirrorHealth({ acc: accOf(), ledger: led, engines: engOf([shr]) }, T0);
+  assert.equal(h.engines.open, 0); assert.equal(h.engines.untracked, 0);
+  assert.ok(!h.issues.some((i) => i.code === "ENGINE_TRADES_UNTRACKED"));
+});
+
 await ok("expiry: the engines close on the day the mirror's own expiry control starts", () => {
   for (const exp of ["2026-12-18", "2026-11-27", "2027-01-15", "2026-12-28"]) {
     const sec = Date.parse(exp + "T00:00:00Z") / 1000;
@@ -367,7 +381,9 @@ await ok("end to end: the book's own rows go through the mirror; a shared contra
     ctx: { date: "2026-11-16", spy, byId: views, macro: null, env: { rates: "on hold" }, macroEvent: null, regime: { cell: "up-calm" }, macroState: "neutral" },
     quote: (t) => quoteContract(data[t.symbol], t.contract, { nowMs: ms }),
     pick: (view, side, spec) => pickContract(data[view.sym], side, { ...spec.contract, dteMin: 14, dteMax: 90 }, { nowMs: ms }),
-    flagshipOpen: [], coverage: null,
+    // Options on both engines (the pullback buys shares live since
+    // 2026-11-17): this check is about two engines on one contract.
+    flagshipOpen: [], coverage: null, shares: false,
   });
   const onAAA = out.opened.filter((t) => t.symbol === "AAA");
   assert.equal(onAAA.length, 2, "both engines open AAA");

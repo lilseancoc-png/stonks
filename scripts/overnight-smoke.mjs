@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { buildCorrelationsPayload, GLOBAL_QUOTE_TYPES } from "./build.mjs";
+import { buildCorrelationsPayload, GLOBAL_QUOTE_TYPES, chartSkippingSchemaErrors } from "./build.mjs";
 import { OVERNIGHT_TONE } from "../lib/overnight-tone.mjs";
 
 function bars(start, dailyStep, count = 31) {
@@ -108,5 +108,17 @@ const snap = toneFns.deriveOvernightTone({
 });
 assert.equal(snap.source, "snapshot");
 assert.ok(snap.present >= 3 && snap.score >= 3, `aligned futures/FX/growth should read risk-on (got ${snap.label} ${snap.score})`);
+
+// Today audit 2026-11-17: the Euro Stoxx 50 failed Yahoo's schema check in
+// three of four builds; a schema failure is retried without the check, any
+// other error still throws.
+{
+  const seen = [];
+  const chartFn = async (sym, query, opts) => { seen.push(opts || null); if (!opts) throw new Error("Failed Yahoo Schema validation"); return { quotes: [{ date: "2026-11-16", close: 5600 }] }; };
+  const res = await chartSkippingSchemaErrors("^STOXX50E", {}, chartFn);
+  assert.equal(res.quotes.length, 1, "schema failure retried");
+  assert.deepEqual(seen, [null, { validateResult: false }], "second call skips the schema check");
+  await assert.rejects(() => chartSkippingSchemaErrors("^N225", {}, async () => { throw new Error("fetch failed"); }), /fetch failed/, "network errors still throw");
+}
 
 console.log("overnight smoke: ok");
