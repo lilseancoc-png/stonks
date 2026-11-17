@@ -31,7 +31,9 @@ assert.equal(report.forecasts[0].eps,2.4);assert.equal(report.forecasts[0].cutof
 // Top Picks page and does not read them now that they have their own page.
 // Quant labs is measurement only ("context, not a vote"); the brief did not
 // read it as an Owner Lab view and does not read it as its own page.
-for(const page of OWNER_PAGE_IDS.filter(id=>!['owner-market-brief','update-checker','owner-settings','engines','quant-labs'].includes(id)&&!SPORTS_PAGE_IDS.includes(id)))assert(OWNER_BRIEF_SOURCES.some(s=>s.id===page),'New Owner page needs a brief adapter: '+page);
+// The Valuation lab is a what-if calculator on the Owner's own inputs
+// (display only, 2026-11-17); it is not market evidence for the brief.
+for(const page of OWNER_PAGE_IDS.filter(id=>!['owner-market-brief','update-checker','owner-settings','engines','quant-labs','valuation-lab'].includes(id)&&!SPORTS_PAGE_IDS.includes(id)))assert(OWNER_BRIEF_SOURCES.some(s=>s.id===page),'New Owner page needs a brief adapter: '+page);
 assert(!OWNER_BRIEF_SOURCES.some(s=>String(s.key||'').startsWith('_stonks/')),'Raw internal records never enter brief synthesis');
 assert(isPremiumKey(OWNER_BRIEF_KEY));assert.deepEqual(roleClaimForKey(OWNER_BRIEF_KEY),['tr','tp']);assert(isBakeOwnedKey(OWNER_BRIEF_KEY));
 for(const [value,status] of [[null,'missing'],[{},'undated'],[{builtAtIso:'invalid'},'undated'],[{builtAtIso:'2026-10-24T15:05:00Z'},'future'],[{builtAtIso:'2026-10-01T15:05:00Z'},'stale']])assert.equal(sourceStatus(value,Date.parse(fixture.builtAtIso)).status,status);
