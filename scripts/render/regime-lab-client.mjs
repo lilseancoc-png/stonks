@@ -309,7 +309,7 @@ export function renderRegimeLabJs() {
     var v = d.versions || {};
     var nav = '<nav class="rgl-nav" aria-label="Regime Lab sections">' + [['rgl-today', 'Today'], ['rgl-history', 'History'], ['rgl-positioning', 'Positioning'], ['rgl-stocks', 'Stocks'], ['rgl-books', 'Playbooks'], ['rgl-risk', 'Exits and risk'], ['rgl-oracle', 'Oracle'], ['rgl-crowd', 'Crowd'], ['rgl-catalog', 'Tests'], ['rgl-guards', 'Guards']].map(function(x){ return '<a href="#' + x[0] + '">' + x[1] + '</a>'; }).join('') + '</nav>';
     root.innerHTML = nav +
-      rglSection('rgl-today', 'Today\\'s market', rglTodayHtml(d)) +
+      rglSection('rgl-today', 'Today\\'s market', rglTodayHtml(d) + '<div data-eh="fit" data-eh-names="engine" hidden></div>') +
       rglSection('rgl-history', 'Label history', rglHistoryHtml(d) + rglStabilityHtml(d)) +
       rglSection('rgl-resembles', 'Sessions that resemble now (F16)', rglResemblesHtml(d)) +
       rglSection('rgl-positioning', 'Positioning and credit (research)', rglPositioningHtml(d)) +

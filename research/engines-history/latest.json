@@ -1,0 +1,3858 @@
+{
+ "version": 1,
+ "ranAt": "2026-11-16",
+ "from": "1971-01-01",
+ "to": "2026-11-06",
+ "unit": "Average option profit or loss per trade, in percent of the premium paid, after 3.5 points of costs.",
+ "caveats": [
+  "1971-2006 uses about 100 large US stocks that were still listed in 2017 (survivors only), so single-stock results before 2007 lean optimistic.",
+  "Earnings, Fundamentals and Flow have no deep data: they were tested with price-only stand-ins (gap drift, quality-momentum rank, volume flow), not their live rules.",
+  "Option prices are modeled from volatility, not real quotes. Before 1986 the VIX is 1.42 times 21-day realized volatility.",
+  "Every setup was taken, with no learning. A $10,000 account putting 2% into each trade trails buy-and-hold for every style."
+ ],
+ "styles": {
+  "reversion": {
+   "n": 6181,
+   "avg": 1.7,
+   "t": 2.8,
+   "win": 46,
+   "rand": -3.5,
+   "stock": 0.2,
+   "before2007": {
+    "n": 4270,
+    "avg": 3
+   },
+   "since2007": {
+    "n": 1911,
+    "avg": -1.2
+   },
+   "decades": {
+    "d70": {
+     "n": 561,
+     "avg": -0.9
+    },
+    "d80": {
+     "n": 1086,
+     "avg": 3.9
+    },
+    "d90": {
+     "n": 1580,
+     "avg": 4.8
+    },
+    "d00": {
+     "n": 1234,
+     "avg": 1
+    },
+    "d10": {
+     "n": 926,
+     "avg": -1.8
+    },
+    "d20": {
+     "n": 794,
+     "avg": -0.7
+    }
+   },
+   "calls": {
+    "n": 3782,
+    "avg": 4.9
+   },
+   "puts": {
+    "n": 2399,
+    "avg": -3.4
+   },
+   "account": {
+    "end": 60861,
+    "maxDrawdownPct": -57.8
+   }
+  },
+  "macro": {
+   "n": 2154,
+   "avg": 2,
+   "t": 1.9,
+   "win": 50,
+   "rand": -4,
+   "stock": 0.1,
+   "before2007": {
+    "n": 1202,
+    "avg": 5.5
+   },
+   "since2007": {
+    "n": 952,
+    "avg": -2.4
+   },
+   "decades": {
+    "d70": {
+     "n": 243,
+     "avg": 6.8
+    },
+    "d80": {
+     "n": 410,
+     "avg": 9.1
+    },
+    "d90": {
+     "n": 334,
+     "avg": 5.8
+    },
+    "d00": {
+     "n": 416,
+     "avg": -1.4
+    },
+    "d10": {
+     "n": 414,
+     "avg": -2.2
+    },
+    "d20": {
+     "n": 337,
+     "avg": -4.5
+    }
+   },
+   "calls": {
+    "n": 1077,
+    "avg": 2.7
+   },
+   "puts": {
+    "n": 1077,
+    "avg": 1.3
+   },
+   "account": {
+    "end": 21380,
+    "maxDrawdownPct": -56.9
+   }
+  },
+  "technicals": {
+   "n": 8370,
+   "avg": -2.1,
+   "t": -5,
+   "win": 43,
+   "rand": -2,
+   "stock": -0.1,
+   "before2007": {
+    "n": 5203,
+    "avg": -1.9
+   },
+   "since2007": {
+    "n": 3167,
+    "avg": -2.4
+   },
+   "decades": {
+    "d70": {
+     "n": 992,
+     "avg": -1.4
+    },
+    "d80": {
+     "n": 1442,
+     "avg": -1
+    },
+    "d90": {
+     "n": 1686,
+     "avg": -2.2
+    },
+    "d00": {
+     "n": 1553,
+     "avg": -3.5
+    },
+    "d10": {
+     "n": 1553,
+     "avg": -2
+    },
+    "d20": {
+     "n": 1144,
+     "avg": -2
+    }
+   },
+   "calls": {
+    "n": 5812,
+    "avg": -1.1
+   },
+   "puts": {
+    "n": 2558,
+    "avg": -4.3
+   },
+   "account": {
+    "end": 238,
+    "maxDrawdownPct": -97.9
+   }
+  },
+  "earnings": {
+   "n": 1519,
+   "avg": -1.3,
+   "t": -1.1,
+   "win": 44,
+   "rand": -4.8,
+   "stock": 0.3,
+   "before2007": {
+    "n": 859,
+    "avg": -0.2
+   },
+   "since2007": {
+    "n": 660,
+    "avg": -2.8
+   },
+   "decades": {
+    "d70": {
+     "n": 64,
+     "avg": 5.9
+    },
+    "d80": {
+     "n": 181,
+     "avg": -0.8
+    },
+    "d90": {
+     "n": 337,
+     "avg": 1.7
+    },
+    "d00": {
+     "n": 309,
+     "avg": -3.7
+    },
+    "d10": {
+     "n": 315,
+     "avg": -3.9
+    },
+    "d20": {
+     "n": 313,
+     "avg": -1.4
+    }
+   },
+   "calls": {
+    "n": 861,
+    "avg": 0.2
+   },
+   "puts": {
+    "n": 658,
+    "avg": -3.4
+   },
+   "account": {
+    "end": 6304,
+    "maxDrawdownPct": -46.2
+   }
+  },
+  "fundamentals": {
+   "n": 1208,
+   "avg": -1.3,
+   "t": -0.9,
+   "win": 41,
+   "rand": -5.1,
+   "stock": -1.4,
+   "before2007": {
+    "n": 790,
+    "avg": -0.3
+   },
+   "since2007": {
+    "n": 418,
+    "avg": -3.2
+   },
+   "decades": {
+    "d70": {
+     "n": 182,
+     "avg": 0.5
+    },
+    "d80": {
+     "n": 218,
+     "avg": 2.8
+    },
+    "d90": {
+     "n": 232,
+     "avg": -1.2
+    },
+    "d00": {
+     "n": 214,
+     "avg": -3.5
+    },
+    "d10": {
+     "n": 219,
+     "avg": -6.1
+    },
+    "d20": {
+     "n": 143,
+     "avg": 0.4
+    }
+   },
+   "calls": {
+    "n": 641,
+    "avg": 6.9
+   },
+   "puts": {
+    "n": 567,
+    "avg": -10.6
+   },
+   "account": {
+    "end": 6851,
+    "maxDrawdownPct": -46.2
+   }
+  },
+  "flow": {
+   "n": 8504,
+   "avg": -3.1,
+   "t": -4.8,
+   "win": 39,
+   "rand": -4.6,
+   "stock": -0.3,
+   "before2007": {
+    "n": 5956,
+    "avg": -3
+   },
+   "since2007": {
+    "n": 2548,
+    "avg": -3.1
+   },
+   "decades": {
+    "d70": {
+     "n": 905,
+     "avg": 0.9
+    },
+    "d80": {
+     "n": 1634,
+     "avg": -3.7
+    },
+    "d90": {
+     "n": 2103,
+     "avg": -2.8
+    },
+    "d00": {
+     "n": 1604,
+     "avg": -4.9
+    },
+    "d10": {
+     "n": 1178,
+     "avg": -5.2
+    },
+    "d20": {
+     "n": 1080,
+     "avg": -0.9
+    }
+   },
+   "calls": {
+    "n": 4140,
+    "avg": -2.6
+   },
+   "puts": {
+    "n": 4364,
+    "avg": -3.6
+   },
+   "account": {
+    "end": 31,
+    "maxDrawdownPct": -99.8
+   }
+  }
+ },
+ "eras": [
+  {
+   "key": "1973-74 oil shock bear",
+   "from": "1973-01-11",
+   "to": "1974-12-06",
+   "data": "deep",
+   "spy": -45.9,
+   "styles": {
+    "reversion": {
+     "n": 119,
+     "avg": 4.8,
+     "rand": -0.8,
+     "win": 45
+    },
+    "macro": {
+     "n": 62,
+     "avg": 8.7,
+     "rand": 6.4,
+     "win": 56
+    },
+    "technicals": {
+     "n": 247,
+     "avg": -1.3,
+     "rand": 1.7,
+     "win": 42
+    },
+    "earnings": {
+     "n": 22,
+     "avg": 17.8,
+     "rand": 1.4,
+     "win": 36
+    },
+    "fundamentals": {
+     "n": 39,
+     "avg": -10.7,
+     "rand": -4.8,
+     "win": 26
+    },
+    "flow": {
+     "n": 218,
+     "avg": -1.7,
+     "rand": 1.4,
+     "win": 33
+    }
+   }
+  },
+  {
+   "key": "1975-76 recovery",
+   "from": "1974-12-09",
+   "to": "1976-12-31",
+   "data": "deep",
+   "spy": 63.8,
+   "styles": {
+    "reversion": {
+     "n": 131,
+     "avg": -2.8,
+     "rand": -2.5,
+     "win": 36
+    },
+    "macro": {
+     "n": 52,
+     "avg": 13,
+     "rand": -2.2,
+     "win": 60
+    },
+    "technicals": {
+     "n": 249,
+     "avg": -2.8,
+     "rand": -1.3,
+     "win": 37
+    },
+    "earnings": {
+     "n": 8,
+     "avg": -8.4,
+     "rand": -5.6,
+     "win": 25
+    },
+    "fundamentals": {
+     "n": 41,
+     "avg": -3.7,
+     "rand": -6.1,
+     "win": 39
+    },
+    "flow": {
+     "n": 216,
+     "avg": -2.1,
+     "rand": -5.8,
+     "win": 37
+    }
+   }
+  },
+  {
+   "key": "1979-80 second oil shock + Volcker",
+   "from": "1979-01-02",
+   "to": "1980-12-31",
+   "data": "deep",
+   "spy": 40.3,
+   "styles": {
+    "reversion": {
+     "n": 155,
+     "avg": 0.8,
+     "rand": -2.4,
+     "win": 41
+    },
+    "macro": {
+     "n": 98,
+     "avg": 17.2,
+     "rand": -0.6,
+     "win": 59
+    },
+    "technicals": {
+     "n": 223,
+     "avg": -3.3,
+     "rand": -2.7,
+     "win": 36
+    },
+    "earnings": {
+     "n": 20,
+     "avg": -9.6,
+     "rand": -4.8,
+     "win": 20
+    },
+    "fundamentals": {
+     "n": 41,
+     "avg": -5.7,
+     "rand": -6.5,
+     "win": 34
+    },
+    "flow": {
+     "n": 253,
+     "avg": 2.7,
+     "rand": -5.7,
+     "win": 41
+    }
+   }
+  },
+  {
+   "key": "1981-82 Volcker recession bear",
+   "from": "1981-01-02",
+   "to": "1982-08-12",
+   "data": "deep",
+   "spy": -24.9,
+   "styles": {
+    "reversion": {
+     "n": 156,
+     "avg": 9.2,
+     "rand": -3.3,
+     "win": 41
+    },
+    "macro": {
+     "n": 67,
+     "avg": 5.4,
+     "rand": -0.7,
+     "win": 54
+    },
+    "technicals": {
+     "n": 230,
+     "avg": -3.3,
+     "rand": -4.8,
+     "win": 38
+    },
+    "earnings": {
+     "n": 17,
+     "avg": -7.3,
+     "rand": -10.6,
+     "win": 35
+    },
+    "fundamentals": {
+     "n": 35,
+     "avg": 4.7,
+     "rand": -8.7,
+     "win": 51
+    },
+    "flow": {
+     "n": 216,
+     "avg": -6.2,
+     "rand": -3.7,
+     "win": 32
+    }
+   }
+  },
+  {
+   "key": "1982-87 bull market",
+   "from": "1982-08-13",
+   "to": "1987-08-25",
+   "data": "deep",
+   "spy": 224.3,
+   "styles": {
+    "reversion": {
+     "n": 590,
+     "avg": 2.2,
+     "rand": -2.8,
+     "win": 45
+    },
+    "macro": {
+     "n": 198,
+     "avg": 9.1,
+     "rand": -2.4,
+     "win": 56
+    },
+    "technicals": {
+     "n": 751,
+     "avg": 0.8,
+     "rand": -1.5,
+     "win": 45
+    },
+    "earnings": {
+     "n": 99,
+     "avg": -3.7,
+     "rand": -2.5,
+     "win": 44
+    },
+    "fundamentals": {
+     "n": 111,
+     "avg": 2.4,
+     "rand": -3.5,
+     "win": 44
+    },
+    "flow": {
+     "n": 859,
+     "avg": -5.3,
+     "rand": -4.9,
+     "win": 36
+    }
+   }
+  },
+  {
+   "key": "1987 crash",
+   "from": "1987-08-26",
+   "to": "1987-12-31",
+   "data": "deep",
+   "spy": -26.1,
+   "styles": {
+    "reversion": {
+     "n": 40,
+     "avg": 2.5,
+     "rand": -7.9,
+     "win": 43
+    },
+    "macro": {
+     "n": 26,
+     "avg": 26,
+     "rand": 2.2,
+     "win": 58
+    },
+    "technicals": {
+     "n": 59,
+     "avg": 0.2,
+     "rand": -3.2,
+     "win": 39
+    },
+    "earnings": {
+     "n": 8,
+     "avg": 0.5,
+     "rand": -3.7,
+     "win": 25
+    },
+    "fundamentals": {
+     "n": 7,
+     "avg": 19.2,
+     "rand": -6.1,
+     "win": 43
+    },
+    "flow": {
+     "n": 48,
+     "avg": 0.2,
+     "rand": -3.2,
+     "win": 40
+    }
+   }
+  },
+  {
+   "key": "1990 Gulf War recession",
+   "from": "1990-07-16",
+   "to": "1990-10-11",
+   "data": "deep",
+   "spy": -19.9,
+   "styles": {
+    "reversion": {
+     "n": 32,
+     "avg": -3.6,
+     "rand": -8.6,
+     "win": 47
+    },
+    "macro": {
+     "n": 15,
+     "avg": 33,
+     "rand": 33.1,
+     "win": 73
+    },
+    "technicals": {
+     "n": 46,
+     "avg": 12.6,
+     "rand": 7.3,
+     "win": 67
+    },
+    "earnings": {
+     "n": 5,
+     "avg": 3.1,
+     "rand": -2.1,
+     "win": 40
+    },
+    "fundamentals": {
+     "n": 6,
+     "avg": -22,
+     "rand": -3.1,
+     "win": 17
+    },
+    "flow": {
+     "n": 50,
+     "avg": 16.4,
+     "rand": 11.5,
+     "win": 56
+    }
+   }
+  },
+  {
+   "key": "1995-99 dot-com bubble",
+   "from": "1995-01-03",
+   "to": "2000-03-24",
+   "data": "deep",
+   "spy": 232.7,
+   "styles": {
+    "reversion": {
+     "n": 798,
+     "avg": 9,
+     "rand": -3.9,
+     "win": 55
+    },
+    "macro": {
+     "n": 183,
+     "avg": 3.9,
+     "rand": -2.2,
+     "win": 51
+    },
+    "technicals": {
+     "n": 912,
+     "avg": -0.6,
+     "rand": -1.1,
+     "win": 46
+    },
+    "earnings": {
+     "n": 182,
+     "avg": 2.8,
+     "rand": -4,
+     "win": 49
+    },
+    "fundamentals": {
+     "n": 121,
+     "avg": 1.1,
+     "rand": -2.8,
+     "win": 44
+    },
+    "flow": {
+     "n": 1108,
+     "avg": -2.3,
+     "rand": -4.8,
+     "win": 40
+    }
+   }
+  },
+  {
+   "key": "2000-02 dot-com bust",
+   "from": "2000-03-27",
+   "to": "2002-10-09",
+   "data": "deep",
+   "spy": -49,
+   "styles": {
+    "reversion": {
+     "n": 346,
+     "avg": 4.4,
+     "rand": -4.3,
+     "win": 47
+    },
+    "macro": {
+     "n": 95,
+     "avg": -1.3,
+     "rand": -1,
+     "win": 44
+    },
+    "technicals": {
+     "n": 380,
+     "avg": -6.2,
+     "rand": -5.5,
+     "win": 37
+    },
+    "earnings": {
+     "n": 79,
+     "avg": 2.5,
+     "rand": -5.8,
+     "win": 51
+    },
+    "fundamentals": {
+     "n": 57,
+     "avg": -11.2,
+     "rand": -3.8,
+     "win": 30
+    },
+    "flow": {
+     "n": 474,
+     "avg": -6.1,
+     "rand": -5.3,
+     "win": 36
+    }
+   }
+  },
+  {
+   "key": "2003-07 recovery",
+   "from": "2002-10-10",
+   "to": "2007-10-09",
+   "data": "deep",
+   "spy": 94.7,
+   "styles": {
+    "reversion": {
+     "n": 759,
+     "avg": -1.7,
+     "rand": -4,
+     "win": 43
+    },
+    "macro": {
+     "n": 140,
+     "avg": -4.5,
+     "rand": -4.6,
+     "win": 44
+    },
+    "technicals": {
+     "n": 783,
+     "avg": -2.2,
+     "rand": -3.6,
+     "win": 45
+    },
+    "earnings": {
+     "n": 205,
+     "avg": -3.4,
+     "rand": -5.5,
+     "win": 41
+    },
+    "fundamentals": {
+     "n": 116,
+     "avg": 0.9,
+     "rand": -4.9,
+     "win": 43
+    },
+    "flow": {
+     "n": 934,
+     "avg": -5.9,
+     "rand": -4.9,
+     "win": 39
+    }
+   }
+  },
+  {
+   "key": "2008 financial crisis",
+   "from": "2007-10-10",
+   "to": "2009-03-09",
+   "data": "modern",
+   "spy": -55.1,
+   "styles": {
+    "reversion": {
+     "n": 89,
+     "avg": 2.8,
+     "rand": -1.5,
+     "win": 53
+    },
+    "macro": {
+     "n": 121,
+     "avg": 7.1,
+     "rand": -2.4,
+     "win": 58
+    },
+    "technicals": {
+     "n": 219,
+     "avg": -3.4,
+     "rand": -1.4,
+     "win": 42
+    },
+    "earnings": {
+     "n": 16,
+     "avg": 0.1,
+     "rand": -5.9,
+     "win": 44
+    },
+    "fundamentals": {
+     "n": 27,
+     "avg": 2.7,
+     "rand": -9.5,
+     "win": 48
+    },
+    "flow": {
+     "n": 147,
+     "avg": 3.4,
+     "rand": -0.4,
+     "win": 46
+    }
+   }
+  },
+  {
+   "key": "2009-10 rebound",
+   "from": "2009-03-10",
+   "to": "2010-12-31",
+   "data": "modern",
+   "spy": 81.8,
+   "styles": {
+    "reversion": {
+     "n": 111,
+     "avg": -4.8,
+     "rand": -4.2,
+     "win": 40
+    },
+    "macro": {
+     "n": 91,
+     "avg": -3.9,
+     "rand": -9.4,
+     "win": 47
+    },
+    "technicals": {
+     "n": 288,
+     "avg": -1.4,
+     "rand": -1.1,
+     "win": 47
+    },
+    "earnings": {
+     "n": 23,
+     "avg": -5.7,
+     "rand": -9,
+     "win": 43
+    },
+    "fundamentals": {
+     "n": 34,
+     "avg": -6.8,
+     "rand": -6.6,
+     "win": 38
+    },
+    "flow": {
+     "n": 152,
+     "avg": -7,
+     "rand": -5.9,
+     "win": 39
+    }
+   }
+  },
+  {
+   "key": "2011 euro / debt-ceiling scare",
+   "from": "2011-07-01",
+   "to": "2011-10-31",
+   "data": "modern",
+   "spy": -5.8,
+   "styles": {
+    "reversion": {
+     "n": 32,
+     "avg": 2.5,
+     "rand": -1.3,
+     "win": 47
+    },
+    "macro": {
+     "n": 31,
+     "avg": 3.7,
+     "rand": -0.8,
+     "win": 48
+    },
+    "technicals": {
+     "n": 60,
+     "avg": -3.5,
+     "rand": -0.4,
+     "win": 38
+    },
+    "earnings": {
+     "n": 9,
+     "avg": -5.9,
+     "rand": -6.9,
+     "win": 33
+    },
+    "fundamentals": {
+     "n": 8,
+     "avg": 8.3,
+     "rand": -9.2,
+     "win": 50
+    },
+    "flow": {
+     "n": 35,
+     "avg": -2,
+     "rand": -1,
+     "win": 46
+    }
+   }
+  },
+  {
+   "key": "2013-17 calm bull",
+   "from": "2013-01-02",
+   "to": "2017-12-29",
+   "data": "modern",
+   "spy": 102,
+   "styles": {
+    "reversion": {
+     "n": 485,
+     "avg": 1.5,
+     "rand": -5.1,
+     "win": 48
+    },
+    "macro": {
+     "n": 204,
+     "avg": -3.6,
+     "rand": -5.6,
+     "win": 46
+    },
+    "technicals": {
+     "n": 764,
+     "avg": -2.4,
+     "rand": -2.5,
+     "win": 43
+    },
+    "earnings": {
+     "n": 189,
+     "avg": -4.4,
+     "rand": -4.8,
+     "win": 43
+    },
+    "fundamentals": {
+     "n": 108,
+     "avg": -7.5,
+     "rand": -3,
+     "win": 38
+    },
+    "flow": {
+     "n": 567,
+     "avg": -6.1,
+     "rand": -6.6,
+     "win": 37
+    }
+   }
+  },
+  {
+   "key": "2018 Q4 sell-off",
+   "from": "2018-10-01",
+   "to": "2018-12-24",
+   "data": "modern",
+   "spy": -19.2,
+   "styles": {
+    "reversion": {
+     "n": 22,
+     "avg": -18,
+     "rand": -3,
+     "win": 27
+    },
+    "macro": {
+     "n": 14,
+     "avg": -9.6,
+     "rand": 5.5,
+     "win": 43
+    },
+    "technicals": {
+     "n": 44,
+     "avg": -3.1,
+     "rand": 2.6,
+     "win": 45
+    },
+    "earnings": {
+     "n": 7,
+     "avg": 2.6,
+     "rand": 17.6,
+     "win": 57
+    },
+    "fundamentals": {
+     "n": 6,
+     "avg": -42.9,
+     "rand": -4.3,
+     "win": 0
+    },
+    "flow": {
+     "n": 42,
+     "avg": -11.8,
+     "rand": 9.1,
+     "win": 36
+    }
+   }
+  },
+  {
+   "key": "2020 COVID crash",
+   "from": "2020-02-19",
+   "to": "2020-03-23",
+   "data": "modern",
+   "spy": -33.7,
+   "styles": {
+    "reversion": {
+     "n": 9,
+     "avg": 4.1,
+     "rand": -11.7,
+     "win": 44
+    },
+    "macro": {
+     "n": 12,
+     "avg": 21.3,
+     "rand": 14.8,
+     "win": 67
+    },
+    "technicals": {
+     "n": 25,
+     "avg": 14.9,
+     "rand": 10.9,
+     "win": 60
+    },
+    "earnings": {
+     "n": 5,
+     "avg": -16,
+     "rand": 8.8,
+     "win": 40
+    },
+    "fundamentals": {
+     "n": 2,
+     "avg": 70.4,
+     "rand": 18.9,
+     "win": 100
+    },
+    "flow": {
+     "n": 19,
+     "avg": 34.4,
+     "rand": 28.5,
+     "win": 74
+    }
+   }
+  },
+  {
+   "key": "2020 COVID rebound",
+   "from": "2020-03-24",
+   "to": "2020-12-31",
+   "data": "modern",
+   "spy": 55.7,
+   "styles": {
+    "reversion": {
+     "n": 52,
+     "avg": 9.9,
+     "rand": -5.3,
+     "win": 63
+    },
+    "macro": {
+     "n": 42,
+     "avg": -4.2,
+     "rand": -3.5,
+     "win": 48
+    },
+    "technicals": {
+     "n": 124,
+     "avg": 0.6,
+     "rand": 0,
+     "win": 45
+    },
+    "earnings": {
+     "n": 28,
+     "avg": 4.2,
+     "rand": -3.5,
+     "win": 50
+    },
+    "fundamentals": {
+     "n": 17,
+     "avg": 7.6,
+     "rand": -7,
+     "win": 53
+    },
+    "flow": {
+     "n": 86,
+     "avg": 4.7,
+     "rand": -3.9,
+     "win": 44
+    }
+   }
+  },
+  {
+   "key": "2021 melt-up",
+   "from": "2021-01-04",
+   "to": "2021-12-31",
+   "data": "modern",
+   "spy": 30.5,
+   "styles": {
+    "reversion": {
+     "n": 110,
+     "avg": 9.6,
+     "rand": -0.5,
+     "win": 55
+    },
+    "macro": {
+     "n": 30,
+     "avg": -1.4,
+     "rand": -6.8,
+     "win": 50
+    },
+    "technicals": {
+     "n": 172,
+     "avg": 0.5,
+     "rand": -1.9,
+     "win": 49
+    },
+    "earnings": {
+     "n": 38,
+     "avg": -5.7,
+     "rand": -3.7,
+     "win": 45
+    },
+    "fundamentals": {
+     "n": 24,
+     "avg": 7.2,
+     "rand": -4.4,
+     "win": 50
+    },
+    "flow": {
+     "n": 158,
+     "avg": -1.6,
+     "rand": -7,
+     "win": 42
+    }
+   }
+  },
+  {
+   "key": "2022 rate-hike bear",
+   "from": "2022-01-03",
+   "to": "2022-10-12",
+   "data": "modern",
+   "spy": -24.5,
+   "styles": {
+    "reversion": {
+     "n": 76,
+     "avg": -2.2,
+     "rand": -2.4,
+     "win": 45
+    },
+    "macro": {
+     "n": 54,
+     "avg": -3.1,
+     "rand": 1.2,
+     "win": 52
+    },
+    "technicals": {
+     "n": 128,
+     "avg": -7.3,
+     "rand": -0.8,
+     "win": 38
+    },
+    "earnings": {
+     "n": 28,
+     "avg": -7.4,
+     "rand": -5,
+     "win": 39
+    },
+    "fundamentals": {
+     "n": 19,
+     "avg": -15.5,
+     "rand": -7.7,
+     "win": 26
+    },
+    "flow": {
+     "n": 119,
+     "avg": -3.2,
+     "rand": -3.4,
+     "win": 40
+    }
+   }
+  },
+  {
+   "key": "2023-24 AI rally",
+   "from": "2022-10-13",
+   "to": "2024-12-31",
+   "data": "modern",
+   "spy": 65.4,
+   "styles": {
+    "reversion": {
+     "n": 277,
+     "avg": -6.6,
+     "rand": -4.1,
+     "win": 39
+    },
+    "macro": {
+     "n": 115,
+     "avg": -10.8,
+     "rand": -7.3,
+     "win": 38
+    },
+    "technicals": {
+     "n": 370,
+     "avg": -4.3,
+     "rand": -3.2,
+     "win": 42
+    },
+    "earnings": {
+     "n": 119,
+     "avg": 3.5,
+     "rand": -7.6,
+     "win": 50
+    },
+    "fundamentals": {
+     "n": 40,
+     "avg": 1.8,
+     "rand": -3.5,
+     "win": 45
+    },
+    "flow": {
+     "n": 369,
+     "avg": -1.2,
+     "rand": -5.7,
+     "win": 43
+    }
+   }
+  },
+  {
+   "key": "2025 tariff shock",
+   "from": "2025-02-19",
+   "to": "2025-04-08",
+   "data": "modern",
+   "spy": -18.8,
+   "styles": {
+    "reversion": {
+     "n": 22,
+     "avg": 4.6,
+     "rand": -11.8,
+     "win": 45
+    },
+    "macro": {
+     "n": 15,
+     "avg": -6,
+     "rand": 0.8,
+     "win": 47
+    },
+    "technicals": {
+     "n": 27,
+     "avg": -1.8,
+     "rand": 3.2,
+     "win": 48
+    },
+    "earnings": {
+     "n": 6,
+     "avg": -3.2,
+     "rand": 5,
+     "win": 50
+    },
+    "fundamentals": {
+     "n": 3,
+     "avg": -23.7,
+     "rand": 9.5,
+     "win": 0
+    },
+    "flow": {
+     "n": 26,
+     "avg": 12.2,
+     "rand": 14.5,
+     "win": 58
+    }
+   }
+  },
+  {
+   "key": "2025-26 after tariffs",
+   "from": "2025-04-09",
+   "to": "2026-11-06",
+   "data": "modern",
+   "spy": 36.2,
+   "styles": {
+    "reversion": {
+     "n": 212,
+     "avg": -2,
+     "rand": -3.1,
+     "win": 43
+    },
+    "macro": {
+     "n": 57,
+     "avg": 3.3,
+     "rand": -9,
+     "win": 54
+    },
+    "technicals": {
+     "n": 254,
+     "avg": 0.5,
+     "rand": -1.7,
+     "win": 47
+    },
+    "earnings": {
+     "n": 78,
+     "avg": -4.4,
+     "rand": -5.6,
+     "win": 38
+    },
+    "fundamentals": {
+     "n": 31,
+     "avg": -6.3,
+     "rand": -2.4,
+     "win": 35
+    },
+    "flow": {
+     "n": 256,
+     "avg": -3.8,
+     "rand": -6.4,
+     "win": 40
+    }
+   }
+  }
+ ],
+ "years": [
+  {
+   "y": 1972,
+   "spy": 16.1,
+   "styles": {
+    "reversion": {
+     "n": 56,
+     "avg": -5.6
+    },
+    "macro": {
+     "n": 16,
+     "avg": 6.5
+    },
+    "technicals": {
+     "n": 119,
+     "avg": 2.2
+    },
+    "earnings": {
+     "n": 7,
+     "avg": 12.9
+    },
+    "fundamentals": {
+     "n": 24,
+     "avg": 19.4
+    },
+    "flow": {
+     "n": 86,
+     "avg": -0.8
+    }
+   }
+  },
+  {
+   "y": 1973,
+   "spy": -18.1,
+   "styles": {
+    "reversion": {
+     "n": 58,
+     "avg": 7.4
+    },
+    "macro": {
+     "n": 36,
+     "avg": 13.6
+    },
+    "technicals": {
+     "n": 125,
+     "avg": -4.9
+    },
+    "earnings": {
+     "n": 11,
+     "avg": 0.1
+    },
+    "fundamentals": {
+     "n": 21,
+     "avg": 6.5
+    },
+    "flow": {
+     "n": 125,
+     "avg": -3
+    }
+   }
+  },
+  {
+   "y": 1974,
+   "spy": -29.8,
+   "styles": {
+    "reversion": {
+     "n": 63,
+     "avg": 2.5
+    },
+    "macro": {
+     "n": 31,
+     "avg": 5
+    },
+    "technicals": {
+     "n": 132,
+     "avg": 0.6
+    },
+    "earnings": {
+     "n": 11,
+     "avg": 35.5
+    },
+    "fundamentals": {
+     "n": 20,
+     "avg": -27.2
+    },
+    "flow": {
+     "n": 105,
+     "avg": 1.3
+    }
+   }
+  },
+  {
+   "y": 1975,
+   "spy": 28.4,
+   "styles": {
+    "reversion": {
+     "n": 74,
+     "avg": -2.1
+    },
+    "macro": {
+     "n": 27,
+     "avg": 15.1
+    },
+    "technicals": {
+     "n": 113,
+     "avg": -4.7
+    },
+    "earnings": {
+     "n": 1,
+     "avg": -50.8
+    },
+    "fundamentals": {
+     "n": 18,
+     "avg": -12.9
+    },
+    "flow": {
+     "n": 101,
+     "avg": -4.2
+    }
+   }
+  },
+  {
+   "y": 1976,
+   "spy": 18.2,
+   "styles": {
+    "reversion": {
+     "n": 56,
+     "avg": -4.4
+    },
+    "macro": {
+     "n": 21,
+     "avg": 7.9
+    },
+    "technicals": {
+     "n": 129,
+     "avg": -0.6
+    },
+    "earnings": {
+     "n": 7,
+     "avg": -2.3
+    },
+    "fundamentals": {
+     "n": 23,
+     "avg": 3.5
+    },
+    "flow": {
+     "n": 108,
+     "avg": 0.3
+    }
+   }
+  },
+  {
+   "y": 1977,
+   "spy": -11.1,
+   "styles": {
+    "reversion": {
+     "n": 68,
+     "avg": 1.5
+    },
+    "macro": {
+     "n": 22,
+     "avg": -8.8
+    },
+    "technicals": {
+     "n": 102,
+     "avg": 0.4
+    },
+    "earnings": {
+     "n": 4,
+     "avg": 5.9
+    },
+    "fundamentals": {
+     "n": 24,
+     "avg": 3.3
+    },
+    "flow": {
+     "n": 91,
+     "avg": 7.1
+    }
+   }
+  },
+  {
+   "y": 1978,
+   "spy": 2.4,
+   "styles": {
+    "reversion": {
+     "n": 66,
+     "avg": -1.1
+    },
+    "macro": {
+     "n": 30,
+     "avg": 15.8
+    },
+    "technicals": {
+     "n": 109,
+     "avg": 1.4
+    },
+    "earnings": {
+     "n": 7,
+     "avg": 3.1
+    },
+    "fundamentals": {
+     "n": 21,
+     "avg": 17.9
+    },
+    "flow": {
+     "n": 101,
+     "avg": 12.9
+    }
+   }
+  },
+  {
+   "y": 1979,
+   "spy": 11.6,
+   "styles": {
+    "reversion": {
+     "n": 77,
+     "avg": -1.9
+    },
+    "macro": {
+     "n": 40,
+     "avg": 7.5
+    },
+    "technicals": {
+     "n": 101,
+     "avg": -3.2
+    },
+    "earnings": {
+     "n": 10,
+     "avg": -11.4
+    },
+    "fundamentals": {
+     "n": 20,
+     "avg": -27.5
+    },
+    "flow": {
+     "n": 116,
+     "avg": -6.2
+    }
+   }
+  },
+  {
+   "y": 1980,
+   "spy": 28.4,
+   "styles": {
+    "reversion": {
+     "n": 78,
+     "avg": 3.4
+    },
+    "macro": {
+     "n": 58,
+     "avg": 23.9
+    },
+    "technicals": {
+     "n": 122,
+     "avg": -3.4
+    },
+    "earnings": {
+     "n": 10,
+     "avg": -7.7
+    },
+    "fundamentals": {
+     "n": 21,
+     "avg": 14.9
+    },
+    "flow": {
+     "n": 137,
+     "avg": 10.2
+    }
+   }
+  },
+  {
+   "y": 1981,
+   "spy": -10.1,
+   "styles": {
+    "reversion": {
+     "n": 94,
+     "avg": 12.8
+    },
+    "macro": {
+     "n": 39,
+     "avg": 4.5
+    },
+    "technicals": {
+     "n": 145,
+     "avg": -4.1
+    },
+    "earnings": {
+     "n": 14,
+     "avg": -13.1
+    },
+    "fundamentals": {
+     "n": 21,
+     "avg": -8
+    },
+    "flow": {
+     "n": 138,
+     "avg": -6.3
+    }
+   }
+  },
+  {
+   "y": 1982,
+   "spy": 14.6,
+   "styles": {
+    "reversion": {
+     "n": 87,
+     "avg": -0.3
+    },
+    "macro": {
+     "n": 44,
+     "avg": 8.6
+    },
+    "technicals": {
+     "n": 140,
+     "avg": -1.2
+    },
+    "earnings": {
+     "n": 7,
+     "avg": -6.6
+    },
+    "fundamentals": {
+     "n": 21,
+     "avg": 15.6
+    },
+    "flow": {
+     "n": 131,
+     "avg": -9.6
+    }
+   }
+  },
+  {
+   "y": 1983,
+   "spy": 19.2,
+   "styles": {
+    "reversion": {
+     "n": 122,
+     "avg": 4
+    },
+    "macro": {
+     "n": 33,
+     "avg": 1.4
+    },
+    "technicals": {
+     "n": 159,
+     "avg": -4.7
+    },
+    "earnings": {
+     "n": 16,
+     "avg": -8.7
+    },
+    "fundamentals": {
+     "n": 22,
+     "avg": -16.9
+    },
+    "flow": {
+     "n": 168,
+     "avg": -8.1
+    }
+   }
+  },
+  {
+   "y": 1984,
+   "spy": 2,
+   "styles": {
+    "reversion": {
+     "n": 131,
+     "avg": 1.3
+    },
+    "macro": {
+     "n": 44,
+     "avg": 12.4
+    },
+    "technicals": {
+     "n": 144,
+     "avg": -2
+    },
+    "earnings": {
+     "n": 14,
+     "avg": 5.9
+    },
+    "fundamentals": {
+     "n": 22,
+     "avg": 8.3
+    },
+    "flow": {
+     "n": 170,
+     "avg": -11.7
+    }
+   }
+  },
+  {
+   "y": 1985,
+   "spy": 27.8,
+   "styles": {
+    "reversion": {
+     "n": 124,
+     "avg": -2
+    },
+    "macro": {
+     "n": 37,
+     "avg": 7.2
+    },
+    "technicals": {
+     "n": 154,
+     "avg": 5
+    },
+    "earnings": {
+     "n": 24,
+     "avg": -4.9
+    },
+    "fundamentals": {
+     "n": 22,
+     "avg": 13
+    },
+    "flow": {
+     "n": 167,
+     "avg": 5.6
+    }
+   }
+  },
+  {
+   "y": 1986,
+   "spy": 15.5,
+   "styles": {
+    "reversion": {
+     "n": 124,
+     "avg": 3.7
+    },
+    "macro": {
+     "n": 36,
+     "avg": 13.6
+    },
+    "technicals": {
+     "n": 141,
+     "avg": -0.9
+    },
+    "earnings": {
+     "n": 22,
+     "avg": -19.4
+    },
+    "fundamentals": {
+     "n": 22,
+     "avg": -2.3
+    },
+    "flow": {
+     "n": 175,
+     "avg": -4.5
+    }
+   }
+  },
+  {
+   "y": 1987,
+   "spy": 0.3,
+   "styles": {
+    "reversion": {
+     "n": 104,
+     "avg": 7.6
+    },
+    "macro": {
+     "n": 58,
+     "avg": 16
+    },
+    "technicals": {
+     "n": 157,
+     "avg": 6.3
+    },
+    "earnings": {
+     "n": 27,
+     "avg": 12.9
+    },
+    "fundamentals": {
+     "n": 23,
+     "avg": 15.6
+    },
+    "flow": {
+     "n": 174,
+     "avg": -3.3
+    }
+   }
+  },
+  {
+   "y": 1988,
+   "spy": 8.5,
+   "styles": {
+    "reversion": {
+     "n": 118,
+     "avg": -1.2
+    },
+    "macro": {
+     "n": 26,
+     "avg": -14
+    },
+    "technicals": {
+     "n": 140,
+     "avg": -6.3
+    },
+    "earnings": {
+     "n": 15,
+     "avg": 21.1
+    },
+    "fundamentals": {
+     "n": 22,
+     "avg": -24.3
+    },
+    "flow": {
+     "n": 180,
+     "avg": -12.7
+    }
+   }
+  },
+  {
+   "y": 1989,
+   "spy": 28.4,
+   "styles": {
+    "reversion": {
+     "n": 104,
+     "avg": 12.7
+    },
+    "macro": {
+     "n": 35,
+     "avg": -3
+    },
+    "technicals": {
+     "n": 140,
+     "avg": -0.3
+    },
+    "earnings": {
+     "n": 32,
+     "avg": 3.2
+    },
+    "fundamentals": {
+     "n": 22,
+     "avg": 12.6
+    },
+    "flow": {
+     "n": 194,
+     "avg": 3.9
+    }
+   }
+  },
+  {
+   "y": 1990,
+   "spy": -8.2,
+   "styles": {
+    "reversion": {
+     "n": 143,
+     "avg": -4
+    },
+    "macro": {
+     "n": 40,
+     "avg": 13.5
+    },
+    "technicals": {
+     "n": 171,
+     "avg": 0.8
+    },
+    "earnings": {
+     "n": 23,
+     "avg": 3.6
+    },
+    "fundamentals": {
+     "n": 22,
+     "avg": -9.6
+    },
+    "flow": {
+     "n": 197,
+     "avg": 4.6
+    }
+   }
+  },
+  {
+   "y": 1991,
+   "spy": 27.8,
+   "styles": {
+    "reversion": {
+     "n": 151,
+     "avg": 2.6
+    },
+    "macro": {
+     "n": 29,
+     "avg": 6.5
+    },
+    "technicals": {
+     "n": 171,
+     "avg": -1.9
+    },
+    "earnings": {
+     "n": 39,
+     "avg": -1.6
+    },
+    "fundamentals": {
+     "n": 23,
+     "avg": 4.6
+    },
+    "flow": {
+     "n": 212,
+     "avg": -6.6
+    }
+   }
+  },
+  {
+   "y": 1992,
+   "spy": 4.4,
+   "styles": {
+    "reversion": {
+     "n": 179,
+     "avg": 1.5
+    },
+    "macro": {
+     "n": 25,
+     "avg": 4.6
+    },
+    "technicals": {
+     "n": 158,
+     "avg": -8.3
+    },
+    "earnings": {
+     "n": 36,
+     "avg": -3.4
+    },
+    "fundamentals": {
+     "n": 24,
+     "avg": -2
+    },
+    "flow": {
+     "n": 202,
+     "avg": -2
+    }
+   }
+  },
+  {
+   "y": 1993,
+   "spy": 7.1,
+   "styles": {
+    "reversion": {
+     "n": 181,
+     "avg": 7.9
+    },
+    "macro": {
+     "n": 26,
+     "avg": -3.5
+    },
+    "technicals": {
+     "n": 165,
+     "avg": -3.1
+    },
+    "earnings": {
+     "n": 38,
+     "avg": 1.7
+    },
+    "fundamentals": {
+     "n": 23,
+     "avg": -8.4
+    },
+    "flow": {
+     "n": 212,
+     "avg": -3.3
+    }
+   }
+  },
+  {
+   "y": 1994,
+   "spy": -1.3,
+   "styles": {
+    "reversion": {
+     "n": 167,
+     "avg": -1.4
+    },
+    "macro": {
+     "n": 40,
+     "avg": 13.1
+    },
+    "technicals": {
+     "n": 158,
+     "avg": -5.3
+    },
+    "earnings": {
+     "n": 30,
+     "avg": -4.2
+    },
+    "fundamentals": {
+     "n": 24,
+     "avg": -10.1
+    },
+    "flow": {
+     "n": 220,
+     "avg": -6.1
+    }
+   }
+  },
+  {
+   "y": 1995,
+   "spy": 34.2,
+   "styles": {
+    "reversion": {
+     "n": 163,
+     "avg": 8
+    },
+    "macro": {
+     "n": 38,
+     "avg": 0.2
+    },
+    "technicals": {
+     "n": 170,
+     "avg": 2.5
+    },
+    "earnings": {
+     "n": 43,
+     "avg": 11
+    },
+    "fundamentals": {
+     "n": 23,
+     "avg": 9.5
+    },
+    "flow": {
+     "n": 223,
+     "avg": -2.8
+    }
+   }
+  },
+  {
+   "y": 1996,
+   "spy": 19.3,
+   "styles": {
+    "reversion": {
+     "n": 169,
+     "avg": 10.4
+    },
+    "macro": {
+     "n": 33,
+     "avg": -6.4
+    },
+    "technicals": {
+     "n": 175,
+     "avg": -1
+    },
+    "earnings": {
+     "n": 33,
+     "avg": -0.6
+    },
+    "fundamentals": {
+     "n": 23,
+     "avg": -3.3
+    },
+    "flow": {
+     "n": 208,
+     "avg": -2.8
+    }
+   }
+  },
+  {
+   "y": 1997,
+   "spy": 31.7,
+   "styles": {
+    "reversion": {
+     "n": 135,
+     "avg": 15.1
+    },
+    "macro": {
+     "n": 32,
+     "avg": 3.2
+    },
+    "technicals": {
+     "n": 174,
+     "avg": -4.7
+    },
+    "earnings": {
+     "n": 28,
+     "avg": -3
+    },
+    "fundamentals": {
+     "n": 24,
+     "avg": -1
+    },
+    "flow": {
+     "n": 221,
+     "avg": -3.2
+    }
+   }
+  },
+  {
+   "y": 1998,
+   "spy": 26.1,
+   "styles": {
+    "reversion": {
+     "n": 143,
+     "avg": 0.1
+    },
+    "macro": {
+     "n": 42,
+     "avg": 13.3
+    },
+    "technicals": {
+     "n": 168,
+     "avg": 0
+    },
+    "earnings": {
+     "n": 28,
+     "avg": -6.2
+    },
+    "fundamentals": {
+     "n": 24,
+     "avg": 0.1
+    },
+    "flow": {
+     "n": 203,
+     "avg": -0.8
+    }
+   }
+  },
+  {
+   "y": 1999,
+   "spy": 19.6,
+   "styles": {
+    "reversion": {
+     "n": 149,
+     "avg": 8.4
+    },
+    "macro": {
+     "n": 29,
+     "avg": 7.5
+    },
+    "technicals": {
+     "n": 176,
+     "avg": -2
+    },
+    "earnings": {
+     "n": 39,
+     "avg": 14.2
+    },
+    "fundamentals": {
+     "n": 22,
+     "avg": 9.2
+    },
+    "flow": {
+     "n": 205,
+     "avg": -4.9
+    }
+   }
+  },
+  {
+   "y": 2000,
+   "spy": -9.3,
+   "styles": {
+    "reversion": {
+     "n": 154,
+     "avg": 16.4
+    },
+    "macro": {
+     "n": 39,
+     "avg": 15.1
+    },
+    "technicals": {
+     "n": 162,
+     "avg": -3.1
+    },
+    "earnings": {
+     "n": 33,
+     "avg": -14.9
+    },
+    "fundamentals": {
+     "n": 23,
+     "avg": -27.5
+    },
+    "flow": {
+     "n": 199,
+     "avg": -0.7
+    }
+   }
+  },
+  {
+   "y": 2001,
+   "spy": -10.5,
+   "styles": {
+    "reversion": {
+     "n": 134,
+     "avg": -2.6
+    },
+    "macro": {
+     "n": 34,
+     "avg": -19.1
+    },
+    "technicals": {
+     "n": 146,
+     "avg": -2.8
+    },
+    "earnings": {
+     "n": 28,
+     "avg": 7.1
+    },
+    "fundamentals": {
+     "n": 22,
+     "avg": -10.9
+    },
+    "flow": {
+     "n": 176,
+     "avg": -8.6
+    }
+   }
+  },
+  {
+   "y": 2002,
+   "spy": -23.8,
+   "styles": {
+    "reversion": {
+     "n": 128,
+     "avg": -0.9
+    },
+    "macro": {
+     "n": 36,
+     "avg": -4.4
+    },
+    "technicals": {
+     "n": 158,
+     "avg": -11.1
+    },
+    "earnings": {
+     "n": 38,
+     "avg": 3.1
+    },
+    "fundamentals": {
+     "n": 21,
+     "avg": -3
+    },
+    "flow": {
+     "n": 184,
+     "avg": -8.4
+    }
+   }
+  },
+  {
+   "y": 2003,
+   "spy": 22.3,
+   "styles": {
+    "reversion": {
+     "n": 145,
+     "avg": -5.8
+    },
+    "macro": {
+     "n": 29,
+     "avg": 6
+    },
+    "technicals": {
+     "n": 162,
+     "avg": 1.5
+    },
+    "earnings": {
+     "n": 47,
+     "avg": -12
+    },
+    "fundamentals": {
+     "n": 23,
+     "avg": -12.4
+    },
+    "flow": {
+     "n": 189,
+     "avg": -1.8
+    }
+   }
+  },
+  {
+   "y": 2004,
+   "spy": 9.3,
+   "styles": {
+    "reversion": {
+     "n": 167,
+     "avg": 1
+    },
+    "macro": {
+     "n": 30,
+     "avg": -7
+    },
+    "technicals": {
+     "n": 150,
+     "avg": -6.9
+    },
+    "earnings": {
+     "n": 47,
+     "avg": -8.9
+    },
+    "fundamentals": {
+     "n": 23,
+     "avg": 6.6
+    },
+    "flow": {
+     "n": 197,
+     "avg": -6.5
+    }
+   }
+  },
+  {
+   "y": 2005,
+   "spy": 3.8,
+   "styles": {
+    "reversion": {
+     "n": 158,
+     "avg": -1.5
+    },
+    "macro": {
+     "n": 23,
+     "avg": -8.6
+    },
+    "technicals": {
+     "n": 157,
+     "avg": 0.1
+    },
+    "earnings": {
+     "n": 43,
+     "avg": 1.6
+    },
+    "fundamentals": {
+     "n": 24,
+     "avg": -0.5
+    },
+    "flow": {
+     "n": 187,
+     "avg": -7.5
+    }
+   }
+  },
+  {
+   "y": 2006,
+   "spy": 11.8,
+   "styles": {
+    "reversion": {
+     "n": 157,
+     "avg": 1.1
+    },
+    "macro": {
+     "n": 24,
+     "avg": -11.9
+    },
+    "technicals": {
+     "n": 148,
+     "avg": 0.7
+    },
+    "earnings": {
+     "n": 41,
+     "avg": 2.6
+    },
+    "fundamentals": {
+     "n": 22,
+     "avg": 18.6
+    },
+    "flow": {
+     "n": 182,
+     "avg": -3.8
+    }
+   }
+  },
+  {
+   "y": 2007,
+   "spy": 5.3,
+   "styles": {
+    "reversion": {
+     "n": 71,
+     "avg": 3
+    },
+    "macro": {
+     "n": 58,
+     "avg": -2.2
+    },
+    "technicals": {
+     "n": 163,
+     "avg": -6.2
+    },
+    "earnings": {
+     "n": 11,
+     "avg": -14.3
+    },
+    "fundamentals": {
+     "n": 19,
+     "avg": 1.7
+    },
+    "flow": {
+     "n": 115,
+     "avg": 0.6
+    }
+   }
+  },
+  {
+   "y": 2008,
+   "spy": -36.2,
+   "styles": {
+    "reversion": {
+     "n": 60,
+     "avg": -0.2
+    },
+    "macro": {
+     "n": 91,
+     "avg": 6.9
+    },
+    "technicals": {
+     "n": 148,
+     "avg": -6.5
+    },
+    "earnings": {
+     "n": 10,
+     "avg": 2
+    },
+    "fundamentals": {
+     "n": 20,
+     "avg": 9.5
+    },
+    "flow": {
+     "n": 91,
+     "avg": -0.6
+    }
+   }
+  },
+  {
+   "y": 2009,
+   "spy": 22.7,
+   "styles": {
+    "reversion": {
+     "n": 60,
+     "avg": -4.6
+    },
+    "macro": {
+     "n": 52,
+     "avg": -6.9
+    },
+    "technicals": {
+     "n": 159,
+     "avg": -0.6
+    },
+    "earnings": {
+     "n": 11,
+     "avg": -2.1
+    },
+    "fundamentals": {
+     "n": 17,
+     "avg": -18.1
+    },
+    "flow": {
+     "n": 84,
+     "avg": -10.5
+    }
+   }
+  },
+  {
+   "y": 2010,
+   "spy": 13.1,
+   "styles": {
+    "reversion": {
+     "n": 65,
+     "avg": -4.5
+    },
+    "macro": {
+     "n": 52,
+     "avg": 1.7
+    },
+    "technicals": {
+     "n": 159,
+     "avg": -1.4
+    },
+    "earnings": {
+     "n": 14,
+     "avg": -11.1
+    },
+    "fundamentals": {
+     "n": 20,
+     "avg": -2.4
+    },
+    "flow": {
+     "n": 88,
+     "avg": -4
+    }
+   }
+  },
+  {
+   "y": 2011,
+   "spy": 0.9,
+   "styles": {
+    "reversion": {
+     "n": 88,
+     "avg": -1.4
+    },
+    "macro": {
+     "n": 51,
+     "avg": -0.2
+    },
+    "technicals": {
+     "n": 158,
+     "avg": -2.2
+    },
+    "earnings": {
+     "n": 27,
+     "avg": -1.4
+    },
+    "fundamentals": {
+     "n": 24,
+     "avg": -10.3
+    },
+    "flow": {
+     "n": 95,
+     "avg": -4.1
+    }
+   }
+  },
+  {
+   "y": 2012,
+   "spy": 14.2,
+   "styles": {
+    "reversion": {
+     "n": 107,
+     "avg": 1.9
+    },
+    "macro": {
+     "n": 29,
+     "avg": -9.1
+    },
+    "technicals": {
+     "n": 143,
+     "avg": -1.1
+    },
+    "earnings": {
+     "n": 21,
+     "avg": -3
+    },
+    "fundamentals": {
+     "n": 20,
+     "avg": 10.5
+    },
+    "flow": {
+     "n": 115,
+     "avg": -2.6
+    }
+   }
+  },
+  {
+   "y": 2013,
+   "spy": 29,
+   "styles": {
+    "reversion": {
+     "n": 88,
+     "avg": 1.1
+    },
+    "macro": {
+     "n": 38,
+     "avg": -4.8
+    },
+    "technicals": {
+     "n": 151,
+     "avg": -1.8
+    },
+    "earnings": {
+     "n": 33,
+     "avg": -3.8
+    },
+    "fundamentals": {
+     "n": 20,
+     "avg": -8.1
+    },
+    "flow": {
+     "n": 96,
+     "avg": -12.5
+    }
+   }
+  },
+  {
+   "y": 2014,
+   "spy": 14.6,
+   "styles": {
+    "reversion": {
+     "n": 94,
+     "avg": 3.2
+    },
+    "macro": {
+     "n": 32,
+     "avg": 4.1
+    },
+    "technicals": {
+     "n": 156,
+     "avg": -6.9
+    },
+    "earnings": {
+     "n": 28,
+     "avg": -0.6
+    },
+    "fundamentals": {
+     "n": 23,
+     "avg": -0.7
+    },
+    "flow": {
+     "n": 104,
+     "avg": -9
+    }
+   }
+  },
+  {
+   "y": 2015,
+   "spy": 1.3,
+   "styles": {
+    "reversion": {
+     "n": 97,
+     "avg": 9.9
+    },
+    "macro": {
+     "n": 60,
+     "avg": -7.7
+    },
+    "technicals": {
+     "n": 147,
+     "avg": -3.2
+    },
+    "earnings": {
+     "n": 34,
+     "avg": -3
+    },
+    "fundamentals": {
+     "n": 22,
+     "avg": -0.6
+    },
+    "flow": {
+     "n": 99,
+     "avg": -4
+    }
+   }
+  },
+  {
+   "y": 2016,
+   "spy": 13.6,
+   "styles": {
+    "reversion": {
+     "n": 108,
+     "avg": -8
+    },
+    "macro": {
+     "n": 49,
+     "avg": 5.3
+    },
+    "technicals": {
+     "n": 151,
+     "avg": -3.2
+    },
+    "earnings": {
+     "n": 41,
+     "avg": -7.1
+    },
+    "fundamentals": {
+     "n": 22,
+     "avg": -26.6
+    },
+    "flow": {
+     "n": 117,
+     "avg": -2.6
+    }
+   }
+  },
+  {
+   "y": 2017,
+   "spy": 20.8,
+   "styles": {
+    "reversion": {
+     "n": 98,
+     "avg": 2.3
+    },
+    "macro": {
+     "n": 25,
+     "avg": -19.5
+    },
+    "technicals": {
+     "n": 159,
+     "avg": 2.8
+    },
+    "earnings": {
+     "n": 53,
+     "avg": -5.6
+    },
+    "fundamentals": {
+     "n": 21,
+     "avg": -1.6
+    },
+    "flow": {
+     "n": 151,
+     "avg": -4
+    }
+   }
+  },
+  {
+   "y": 2018,
+   "spy": -5.2,
+   "styles": {
+    "reversion": {
+     "n": 71,
+     "avg": -11.3
+    },
+    "macro": {
+     "n": 45,
+     "avg": -1.1
+    },
+    "technicals": {
+     "n": 172,
+     "avg": -1
+    },
+    "earnings": {
+     "n": 29,
+     "avg": 8.6
+    },
+    "fundamentals": {
+     "n": 24,
+     "avg": -1.6
+    },
+    "flow": {
+     "n": 159,
+     "avg": -8.4
+    }
+   }
+  },
+  {
+   "y": 2019,
+   "spy": 31.1,
+   "styles": {
+    "reversion": {
+     "n": 110,
+     "avg": -12.6
+    },
+    "macro": {
+     "n": 33,
+     "avg": 2.1
+    },
+    "technicals": {
+     "n": 157,
+     "avg": -2.7
+    },
+    "earnings": {
+     "n": 35,
+     "avg": -11.5
+    },
+    "fundamentals": {
+     "n": 23,
+     "avg": -17.2
+    },
+    "flow": {
+     "n": 154,
+     "avg": -2
+    }
+   }
+  },
+  {
+   "y": 2020,
+   "spy": 17.2,
+   "styles": {
+    "reversion": {
+     "n": 74,
+     "avg": 7.5
+    },
+    "macro": {
+     "n": 61,
+     "avg": -0.5
+    },
+    "technicals": {
+     "n": 175,
+     "avg": 1.7
+    },
+    "earnings": {
+     "n": 36,
+     "avg": 3
+    },
+    "fundamentals": {
+     "n": 23,
+     "avg": 13
+    },
+    "flow": {
+     "n": 131,
+     "avg": 2.6
+    }
+   }
+  },
+  {
+   "y": 2021,
+   "spy": 30.5,
+   "styles": {
+    "reversion": {
+     "n": 110,
+     "avg": 9.6
+    },
+    "macro": {
+     "n": 30,
+     "avg": -1.4
+    },
+    "technicals": {
+     "n": 172,
+     "avg": 0.5
+    },
+    "earnings": {
+     "n": 38,
+     "avg": -5.7
+    },
+    "fundamentals": {
+     "n": 24,
+     "avg": 7.2
+    },
+    "flow": {
+     "n": 158,
+     "avg": -1.6
+    }
+   }
+  },
+  {
+   "y": 2022,
+   "spy": -18.6,
+   "styles": {
+    "reversion": {
+     "n": 106,
+     "avg": -6.6
+    },
+    "macro": {
+     "n": 75,
+     "avg": -0.8
+    },
+    "technicals": {
+     "n": 164,
+     "avg": -7.8
+    },
+    "earnings": {
+     "n": 33,
+     "avg": -8.2
+    },
+    "fundamentals": {
+     "n": 23,
+     "avg": -20.6
+    },
+    "flow": {
+     "n": 161,
+     "avg": -5.8
+    }
+   }
+  },
+  {
+   "y": 2023,
+   "spy": 26.7,
+   "styles": {
+    "reversion": {
+     "n": 132,
+     "avg": -7.8
+    },
+    "macro": {
+     "n": 51,
+     "avg": -7.9
+    },
+    "technicals": {
+     "n": 163,
+     "avg": -2.8
+    },
+    "earnings": {
+     "n": 49,
+     "avg": 8.9
+    },
+    "fundamentals": {
+     "n": 21,
+     "avg": 8.2
+    },
+    "flow": {
+     "n": 158,
+     "avg": 2
+    }
+   }
+  },
+  {
+   "y": 2024,
+   "spy": 25.6,
+   "styles": {
+    "reversion": {
+     "n": 115,
+     "avg": -2.4
+    },
+    "macro": {
+     "n": 43,
+     "avg": -22.2
+    },
+    "technicals": {
+     "n": 171,
+     "avg": -4.6
+    },
+    "earnings": {
+     "n": 65,
+     "avg": 0.7
+    },
+    "fundamentals": {
+     "n": 15,
+     "avg": 5.2
+    },
+    "flow": {
+     "n": 169,
+     "avg": -1.1
+    }
+   }
+  },
+  {
+   "y": 2025,
+   "spy": 18,
+   "styles": {
+    "reversion": {
+     "n": 130,
+     "avg": 5.4
+    },
+    "macro": {
+     "n": 37,
+     "avg": -7.7
+    },
+    "technicals": {
+     "n": 166,
+     "avg": -0.6
+    },
+    "earnings": {
+     "n": 46,
+     "avg": -6.6
+    },
+    "fundamentals": {
+     "n": 19,
+     "avg": -11.6
+    },
+    "flow": {
+     "n": 167,
+     "avg": 3.2
+    }
+   }
+  },
+  {
+   "y": 2026,
+   "spy": 8.5,
+   "styles": {
+    "reversion": {
+     "n": 127,
+     "avg": -6.7
+    },
+    "macro": {
+     "n": 40,
+     "avg": 6
+    },
+    "technicals": {
+     "n": 133,
+     "avg": -0.1
+    },
+    "earnings": {
+     "n": 46,
+     "avg": -4.9
+    },
+    "fundamentals": {
+     "n": 18,
+     "avg": 1.9
+    },
+    "flow": {
+     "n": 136,
+     "avg": -5.9
+    }
+   }
+  }
+ ],
+ "regime": {
+  "byState": {
+   "reversion": {
+    "trend": {
+     "up": {
+      "n": 4610,
+      "avg": 1.9,
+      "t": 2.6
+     },
+     "down": {
+      "n": 1571,
+      "avg": 1,
+      "t": 0.9
+     }
+    },
+    "vol": {
+     "calm": {
+      "n": 2330,
+      "avg": 0.7,
+      "t": 0.8
+     },
+     "normal": {
+      "n": 2962,
+      "avg": 1.1,
+      "t": 1.3
+     },
+     "stressed": {
+      "n": 881,
+      "avg": 6.3,
+      "t": 3
+     }
+    },
+    "rates": {
+     "falling": {
+      "n": 1551,
+      "avg": 3.3,
+      "t": 3
+     },
+     "flat": {
+      "n": 3104,
+      "avg": 1.2,
+      "t": 1.4
+     },
+     "rising": {
+      "n": 1526,
+      "avg": 1,
+      "t": 0.8
+     }
+    },
+    "infl": {
+     "low": {
+      "n": 4493,
+      "avg": 2.2,
+      "t": 3
+     },
+     "high": {
+      "n": 1688,
+      "avg": 0.4,
+      "t": 0.4
+     }
+    },
+    "fc": {
+     "loose": {
+      "n": 4805,
+      "avg": 2,
+      "t": 2.9
+     },
+     "tight": {
+      "n": 1376,
+      "avg": 0.6,
+      "t": 0.5
+     }
+    },
+    "cell": {
+     "up/calm": {
+      "n": 2015,
+      "avg": 0.2,
+      "t": 0.2
+     },
+     "down/calm": {
+      "n": 315,
+      "avg": 4.1,
+      "t": 1.6
+     },
+     "down/normal": {
+      "n": 701,
+      "avg": -0.5,
+      "t": -0.3
+     },
+     "up/normal": {
+      "n": 2261,
+      "avg": 1.5,
+      "t": 1.6
+     },
+     "down/stressed": {
+      "n": 555,
+      "avg": 1.1,
+      "t": 0.6
+     },
+     "up/stressed": {
+      "n": 326,
+      "avg": 15.3,
+      "t": 3.2
+     }
+    }
+   },
+   "macro": {
+    "trend": {
+     "up": {
+      "n": 1386,
+      "avg": 1.6,
+      "t": 1.3
+     },
+     "down": {
+      "n": 768,
+      "avg": 2.7,
+      "t": 1.4
+     }
+    },
+    "vol": {
+     "calm": {
+      "n": 623,
+      "avg": -1.4,
+      "t": -0.8
+     },
+     "normal": {
+      "n": 977,
+      "avg": 4.6,
+      "t": 3
+     },
+     "stressed": {
+      "n": 553,
+      "avg": 1.4,
+      "t": 0.6
+     }
+    },
+    "rates": {
+     "flat": {
+      "n": 1034,
+      "avg": 1.8,
+      "t": 1.3
+     },
+     "falling": {
+      "n": 551,
+      "avg": 1.1,
+      "t": 0.5
+     },
+     "rising": {
+      "n": 569,
+      "avg": 3.2,
+      "t": 1.5
+     }
+    },
+    "infl": {
+     "low": {
+      "n": 1434,
+      "avg": -0.3,
+      "t": -0.2
+     },
+     "high": {
+      "n": 720,
+      "avg": 6.5,
+      "t": 3.3
+     }
+    },
+    "fc": {
+     "loose": {
+      "n": 1464,
+      "avg": 0.2,
+      "t": 0.1
+     },
+     "tight": {
+      "n": 690,
+      "avg": 5.9,
+      "t": 3
+     }
+    },
+    "cell": {
+     "up/calm": {
+      "n": 543,
+      "avg": -1.3,
+      "t": -0.7
+     },
+     "down/normal": {
+      "n": 276,
+      "avg": 5.8,
+      "t": 2
+     },
+     "up/normal": {
+      "n": 701,
+      "avg": 4.1,
+      "t": 2.3
+     },
+     "down/calm": {
+      "n": 80,
+      "avg": -1.8,
+      "t": -0.3
+     },
+     "down/stressed": {
+      "n": 412,
+      "avg": 1.5,
+      "t": 0.5
+     },
+     "up/stressed": {
+      "n": 141,
+      "avg": 1,
+      "t": 0.3
+     }
+    }
+   },
+   "technicals": {
+    "trend": {
+     "up": {
+      "n": 6062,
+      "avg": -1.3,
+      "t": -2.6
+     },
+     "down": {
+      "n": 2308,
+      "avg": -4.2,
+      "t": -5.8
+     }
+    },
+    "vol": {
+     "calm": {
+      "n": 3061,
+      "avg": -1.2,
+      "t": -1.7
+     },
+     "normal": {
+      "n": 3851,
+      "avg": -2.3,
+      "t": -3.8
+     },
+     "stressed": {
+      "n": 1455,
+      "avg": -3.3,
+      "t": -3.6
+     }
+    },
+    "rates": {
+     "falling": {
+      "n": 2070,
+      "avg": -2.6,
+      "t": -3.3
+     },
+     "flat": {
+      "n": 4250,
+      "avg": -1.9,
+      "t": -3.2
+     },
+     "rising": {
+      "n": 2050,
+      "avg": -1.9,
+      "t": -2.3
+     }
+    },
+    "infl": {
+     "low": {
+      "n": 5869,
+      "avg": -2.1,
+      "t": -4.1
+     },
+     "high": {
+      "n": 2501,
+      "avg": -2.1,
+      "t": -2.9
+     }
+    },
+    "fc": {
+     "loose": {
+      "n": 6208,
+      "avg": -2,
+      "t": -4.2
+     },
+     "tight": {
+      "n": 2162,
+      "avg": -2.2,
+      "t": -2.9
+     }
+    },
+    "cell": {
+     "up/calm": {
+      "n": 2648,
+      "avg": -1.1,
+      "t": -1.4
+     },
+     "down/calm": {
+      "n": 413,
+      "avg": -1.8,
+      "t": -1
+     },
+     "down/normal": {
+      "n": 927,
+      "avg": -5.3,
+      "t": -4.6
+     },
+     "up/normal": {
+      "n": 2924,
+      "avg": -1.4,
+      "t": -1.9
+     },
+     "down/stressed": {
+      "n": 968,
+      "avg": -4.2,
+      "t": -3.8
+     },
+     "up/stressed": {
+      "n": 487,
+      "avg": -1.5,
+      "t": -0.9
+     }
+    }
+   },
+   "earnings": {
+    "trend": {
+     "up": {
+      "n": 1216,
+      "avg": -1.3,
+      "t": -1
+     },
+     "down": {
+      "n": 303,
+      "avg": -1.5,
+      "t": -0.6
+     }
+    },
+    "vol": {
+     "calm": {
+      "n": 662,
+      "avg": -1,
+      "t": -0.6
+     },
+     "normal": {
+      "n": 687,
+      "avg": -0.6,
+      "t": -0.3
+     },
+     "stressed": {
+      "n": 170,
+      "avg": -5.5,
+      "t": -1.6
+     }
+    },
+    "rates": {
+     "flat": {
+      "n": 820,
+      "avg": -2.1,
+      "t": -1.3
+     },
+     "rising": {
+      "n": 340,
+      "avg": 2,
+      "t": 0.7
+     },
+     "falling": {
+      "n": 359,
+      "avg": -2.7,
+      "t": -1.1
+     }
+    },
+    "infl": {
+     "high": {
+      "n": 306,
+      "avg": 0.8,
+      "t": 0.3
+     },
+     "low": {
+      "n": 1213,
+      "avg": -1.8,
+      "t": -1.4
+     }
+    },
+    "fc": {
+     "tight": {
+      "n": 217,
+      "avg": 3.8,
+      "t": 1.1
+     },
+     "loose": {
+      "n": 1302,
+      "avg": -2.2,
+      "t": -1.8
+     }
+    },
+    "cell": {
+     "up/calm": {
+      "n": 613,
+      "avg": -0.5,
+      "t": -0.3
+     },
+     "up/normal": {
+      "n": 550,
+      "avg": -1.5,
+      "t": -0.7
+     },
+     "down/calm": {
+      "n": 49,
+      "avg": -6.9,
+      "t": -1.3
+     },
+     "down/normal": {
+      "n": 137,
+      "avg": 3.2,
+      "t": 0.8
+     },
+     "down/stressed": {
+      "n": 117,
+      "avg": -4.6,
+      "t": -1.1
+     },
+     "up/stressed": {
+      "n": 53,
+      "avg": -7.5,
+      "t": -1.4
+     }
+    }
+   },
+   "fundamentals": {
+    "trend": {
+     "up": {
+      "n": 867,
+      "avg": 0,
+      "t": 0
+     },
+     "down": {
+      "n": 341,
+      "avg": -4.7,
+      "t": -1.8
+     }
+    },
+    "vol": {
+     "calm": {
+      "n": 464,
+      "avg": 5.1,
+      "t": 2.1
+     },
+     "normal": {
+      "n": 544,
+      "avg": -3.4,
+      "t": -1.6
+     },
+     "stressed": {
+      "n": 198,
+      "avg": -10.7,
+      "t": -3.3
+     }
+    },
+    "rates": {
+     "flat": {
+      "n": 626,
+      "avg": -0.9,
+      "t": -0.5
+     },
+     "rising": {
+      "n": 293,
+      "avg": -2,
+      "t": -0.7
+     },
+     "falling": {
+      "n": 289,
+      "avg": -1.4,
+      "t": -0.5
+     }
+    },
+    "infl": {
+     "high": {
+      "n": 391,
+      "avg": -1.5,
+      "t": -0.6
+     },
+     "low": {
+      "n": 817,
+      "avg": -1.2,
+      "t": -0.7
+     }
+    },
+    "fc": {
+     "tight": {
+      "n": 333,
+      "avg": -0.5,
+      "t": -0.2
+     },
+     "loose": {
+      "n": 875,
+      "avg": -1.6,
+      "t": -1
+     }
+    },
+    "cell": {
+     "up/calm": {
+      "n": 385,
+      "avg": 4.5,
+      "t": 1.7
+     },
+     "down/calm": {
+      "n": 79,
+      "avg": 7.7,
+      "t": 1.3
+     },
+     "up/normal": {
+      "n": 422,
+      "avg": -3.6,
+      "t": -1.4
+     },
+     "down/normal": {
+      "n": 122,
+      "avg": -2.6,
+      "t": -0.6
+     },
+     "down/stressed": {
+      "n": 140,
+      "avg": -13.5,
+      "t": -3.6
+     },
+     "up/stressed": {
+      "n": 58,
+      "avg": -3.7,
+      "t": -0.6
+     }
+    }
+   },
+   "flow": {
+    "trend": {
+     "up": {
+      "n": 6309,
+      "avg": -2.6,
+      "t": -3.4
+     },
+     "down": {
+      "n": 2195,
+      "avg": -4.3,
+      "t": -3.8
+     }
+    },
+    "vol": {
+     "calm": {
+      "n": 3197,
+      "avg": -2.9,
+      "t": -2.8
+     },
+     "normal": {
+      "n": 3983,
+      "avg": -1.7,
+      "t": -1.8
+     },
+     "stressed": {
+      "n": 1321,
+      "avg": -7.6,
+      "t": -5.3
+     }
+    },
+    "rates": {
+     "flat": {
+      "n": 4257,
+      "avg": -3.5,
+      "t": -4.4
+     },
+     "rising": {
+      "n": 2104,
+      "avg": -0.9,
+      "t": -0.7
+     },
+     "falling": {
+      "n": 2143,
+      "avg": -4.4,
+      "t": -2.8
+     }
+    },
+    "infl": {
+     "high": {
+      "n": 2567,
+      "avg": -1.8,
+      "t": -1.5
+     },
+     "low": {
+      "n": 5937,
+      "avg": -3.6,
+      "t": -4.9
+     }
+    },
+    "fc": {
+     "tight": {
+      "n": 2108,
+      "avg": -2.6,
+      "t": -1.8
+     },
+     "loose": {
+      "n": 6396,
+      "avg": -3.2,
+      "t": -4.6
+     }
+    },
+    "cell": {
+     "up/calm": {
+      "n": 2788,
+      "avg": -3.3,
+      "t": -2.9
+     },
+     "down/calm": {
+      "n": 409,
+      "avg": -0.6,
+      "t": -0.2
+     },
+     "up/normal": {
+      "n": 3068,
+      "avg": -1.1,
+      "t": -1
+     },
+     "down/normal": {
+      "n": 915,
+      "avg": -3.6,
+      "t": -2.1
+     },
+     "down/stressed": {
+      "n": 871,
+      "avg": -6.8,
+      "t": -3.7
+     },
+     "up/stressed": {
+      "n": 450,
+      "avg": -9.1,
+      "t": -3.9
+     }
+    }
+   }
+  },
+  "gate": {
+   "reversion": {
+    "1971-1999": {
+     "all": {
+      "n": 3227,
+      "avg": 3.5
+     },
+     "gated": {
+      "n": 2218,
+      "avg": 5.6
+     }
+    },
+    "2000-2026": {
+     "all": {
+      "n": 2954,
+      "avg": -0.3
+     },
+     "gated": {
+      "n": 1835,
+      "avg": 3
+     }
+    },
+    "all": {
+     "all": {
+      "n": 6181,
+      "avg": 1.7
+     },
+     "gated": {
+      "n": 4053,
+      "avg": 4.4
+     }
+    }
+   },
+   "macro": {
+    "1971-1999": {
+     "all": {
+      "n": 987,
+      "avg": 7.4
+     },
+     "gated": {
+      "n": 958,
+      "avg": 6.9
+     }
+    },
+    "2000-2026": {
+     "all": {
+      "n": 1167,
+      "avg": -2.6
+     },
+     "gated": {
+      "n": 981,
+      "avg": -2.6
+     }
+    },
+    "all": {
+     "all": {
+      "n": 2154,
+      "avg": 2
+     },
+     "gated": {
+      "n": 1939,
+      "avg": 2.1
+     }
+    }
+   },
+   "technicals": {
+    "1971-1999": {
+     "all": {
+      "n": 4120,
+      "avg": -1.6
+     },
+     "gated": {
+      "n": 2148,
+      "avg": -2.2
+     }
+    },
+    "2000-2026": {
+     "all": {
+      "n": 4250,
+      "avg": -2.5
+     },
+     "gated": {
+      "n": 680,
+      "avg": -1.5
+     }
+    },
+    "all": {
+     "all": {
+      "n": 8370,
+      "avg": -2.1
+     },
+     "gated": {
+      "n": 2828,
+      "avg": -2.1
+     }
+    }
+   },
+   "earnings": {
+    "1971-1999": {
+     "all": {
+      "n": 582,
+      "avg": 1.4
+     },
+     "gated": {
+      "n": 424,
+      "avg": -0.4
+     }
+    },
+    "2000-2026": {
+     "all": {
+      "n": 937,
+      "avg": -3
+     },
+     "gated": {
+      "n": 553,
+      "avg": -3.5
+     }
+    },
+    "all": {
+     "all": {
+      "n": 1519,
+      "avg": -1.3
+     },
+     "gated": {
+      "n": 977,
+      "avg": -2.1
+     }
+    }
+   },
+   "fundamentals": {
+    "1971-1999": {
+     "all": {
+      "n": 632,
+      "avg": 0.7
+     },
+     "gated": {
+      "n": 498,
+      "avg": 4
+     }
+    },
+    "2000-2026": {
+     "all": {
+      "n": 576,
+      "avg": -3.5
+     },
+     "gated": {
+      "n": 292,
+      "avg": 0.8
+     }
+    },
+    "all": {
+     "all": {
+      "n": 1208,
+      "avg": -1.3
+     },
+     "gated": {
+      "n": 790,
+      "avg": 2.8
+     }
+    }
+   },
+   "flow": {
+    "1971-1999": {
+     "all": {
+      "n": 4642,
+      "avg": -2.4
+     },
+     "gated": {
+      "n": 1665,
+      "avg": -2.7
+     }
+    },
+    "2000-2026": {
+     "all": {
+      "n": 3862,
+      "avg": -3.9
+     },
+     "gated": {
+      "n": 711,
+      "avg": 0.4
+     }
+    },
+    "all": {
+     "all": {
+      "n": 8504,
+      "avg": -3.1
+     },
+     "gated": {
+      "n": 2376,
+      "avg": -1.8
+     }
+    }
+   }
+  }
+ },
+ "trendSwitch": {
+  "rule": "Hold the S&P 500 while it closes above its 200-day average, else 10-year Treasuries.",
+  "cagr": {
+   "buyHold": 9,
+   "trendSwitch": 11.3
+  },
+  "maxDrawdown": {
+   "buyHold": -55.2,
+   "trendSwitch": -39.6
+  },
+  "eras": [
+   {
+    "key": "1973-74 oil shock bear",
+    "buyHold": -45.6,
+    "trendSwitch": -13.7
+   },
+   {
+    "key": "1987 crash",
+    "buyHold": -26.6,
+    "trendSwitch": 8.5
+   },
+   {
+    "key": "2000-02 dot-com bust",
+    "buyHold": -49.1,
+    "trendSwitch": 36.2
+   },
+   {
+    "key": "2008 financial crisis",
+    "buyHold": -55.2,
+    "trendSwitch": 4
+   },
+   {
+    "key": "2020 COVID crash",
+    "buyHold": -33.4,
+    "trendSwitch": -14.1
+   },
+   {
+    "key": "2022 rate-hike bear",
+    "buyHold": -24.1,
+    "trendSwitch": -32.4
+   },
+   {
+    "key": "1995-99 dot-com bubble",
+    "buyHold": 232.6,
+    "trendSwitch": 216.2
+   },
+   {
+    "key": "2023-24 AI rally",
+    "buyHold": 69.8,
+    "trendSwitch": 36.6
+   }
+  ]
+ }
+}
