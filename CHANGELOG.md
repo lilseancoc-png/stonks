@@ -40,6 +40,33 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ### Added
 - Add NBA team offensive/defensive efficiency, net rating and pace to prop research, player forecasts and Pick Builder; fit stat-specific efficiency and pace adjustments on prior complete games and use them only when they improve the historical check. NFL predictions are unchanged (#823).
 
+## 2026-11-18
+
+### Fixed
+- Fix every zoomable chart on the site ("The chart could not load" on Rates & the dollar, the stock page, Pattern lab and others since 2026-11-05): the chart library was never copied into the deploy, so it returned a cached 404. It is now in the deploy list, the request carries a new version so browsers drop the cached 404, and a test fails if any loaded script is missing from the list.
+- Fix the live Fed futures read behind the Rates & the dollar FOMC widget: `/api/fed-futures` failed on every call because the Yahoo library rejected futures rows, so the widget only ever showed the baked numbers. It now skips that shape check like `/api/macro-live` and the build already do, and checks each price itself.
+- Fix Pending buyouts: ditat.io added a column, so the offer price, spread, annualized return, days and close date were each read from the column next to them. Columns are now matched by their header names, and a table whose headers can't be matched keeps the last good list instead of showing shifted numbers.
+- Fix Treasury auctions: TIPS and floating-rate notes were averaged in with regular notes and bonds of the same term (a 10-year TIPS real yield pulled down the 10-year note), and a Fiscal Data feed that stopped posting coupon results in early October still read as current. Each security type is now its own row, a feed more than three weeks behind says so, two years of coupon results are read once, and bills are capped so they can't push coupons out.
+- Fix the Fear & Greed band edges to CNN's (a 24.8 read showed "fear" instead of "extreme fear").
+- Fix the 13F explorer's "Unavailable" performance column: it now says "Not computed" and how much of the book was priced (80% is needed).
+- Fix the News page listing a company press release twice when a news site carried the same headline; the copy now folds into the company's own row with both sources shown.
+- Fix completed IPO quarters missing listings the source added after the quarter closed (Q1 / Q2 2026 showed 88 / 98 against 89 / 100); late listings are now added while the rows already shown stay as they were.
+- Fix the Leveraged ETFs desk offering two funds that no longer trade: ELIS (LLY bear, last traded 2026-04-10) and HOOZ (HOOD bear, closed by Defiance 2026-08-27). Both bears now show as "no listed product", and the open HOOZ record entry, which never had a price, closes as left-universe instead of staying open.
+- Fix the market tape's dollar and long-yield labels when the 5-day trend sets the vote: a label such as "DXY -0.05% — dollar bid" now names the 5-day rise that set it (same in the live re-check).
+- Fix Open picks, the Track Record, LEAPS, Stock picks, Sector rotation and Leveraged ETFs showing the later full build's time as "Updated"; they now show their own 11:00 / 15:30 ET run time, as Top picks already did.
+- Fix a flat open trade (+0.0%) counting as "green" in the open-book summaries.
+- Fix the Earnings Forecast company list showing market caps from the quarterly ranking (Oct 27) as if current: each company now shows today's market cap, the line above the list says when the caps were read and when the list was ranked, and the rank itself still changes only once a quarter.
+- Fix the Earnings Forecast marking a company "unscheduled" on its own report day (NVDA on 2026-11-17): a date-only report day was read as midnight UTC, so it looked past by the evening run. A same-day report now keeps its scheduled horizon.
+- Fix the Update checker calling Leveraged ETF flows ok while no fund had a measurable flow (Yahoo stopped sending share counts and froze net assets): the block now reads aged once two days are stored and nothing can be measured.
+- Fix Treasury auctions' weak-demand list naming a TIPS or floating-rate auction by its term alone ("10-year"); it now says "10-year TIPS".
+
+### Changed
+- Margin debt on Crowd & positioning reads in trillions ($1.45T, not $1448.36B); the Kalshi S&P line names the date of the contract it reads; the leveraged-ETF table says its net assets may be weeks old; the AI tracker says which capex-to-revenue figure is the last 12 months and which is the latest fiscal years.
+- LEAPS rows name the option-price step in the score (rich options take up to 2 points off), so the points shown add up to the score; the paper-record chip says the LEAPS paper book is not running instead of "no paper trades yet".
+- Top Picks AI thesis text carries a note: it is written by AI from the card's data, and if a number in the text differs from the card's own figures, the figures win (the "AI read" tags show the same note on hover).
+- The SEC collateral watch moves from Top Picks to the Forced Liquidation Tracker as a "Top Picks collateral check" above the watchlist (each stock opens its pledge detail). Top Picks now shows a line only when the check actually held back a bullish pick.
+- The Track Record's profit factor and average win / loss say they are per contract, since pricier contracts weigh more there than in the $10,000-per-trade running total.
+
 ## 2026-11-17
 
 ### Added

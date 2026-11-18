@@ -1272,6 +1272,14 @@ ${scenarioEventPhase.toString()}
     var st = tab === 'ram-prices' ? ramPricesState : tab === 'accelerator-prices' ? acceleratorPricesState : searchInterestState;
     return st && st.data && st.data.builtAtIso ? st.data.builtAtIso : null;
   }
+  function picksDeskRunIso(tab){
+    var st = null;
+    try {
+      st = tab === 'open-picks' ? openPicksState : tab === 'track' ? accuracyState : tab === 'stocks' ? stocksState
+        : tab === 'rotation' ? rotationState : tab === 'levetf' ? levState : tab === 'leaps' ? leapsState : null;
+    } catch (_) { st = null; }
+    return st && st.data && !st.data.loadError && st.data.builtAtIso ? st.data.builtAtIso : null;
+  }
   function tabFreshnessOverride(tab){
     // Return {iso, label} when a tab has its own freshness signal worth
     // surfacing, else null (use the default daily-build timestamp).
@@ -1282,6 +1290,10 @@ ${scenarioEventPhase.toString()}
     if (tab === 'picks' && typeof picksState !== 'undefined' && picksState.data && picksState.data.builtAtIso) {
       return { iso: picksState.data.builtAtIso, label: 'Top Picks run' };
     }
+    // The other pages on the Top Picks schedule show their own file's run
+    // time, not the later full build that only carries them forward.
+    var deskIso = picksDeskRunIso(tab);
+    if (deskIso) return { iso: deskIso, label: tab === 'open-picks' || tab === 'track' ? 'Top Picks run' : 'runs with Top Picks' };
     if (tab === 'flow' && UNUSUAL && UNUSUAL.scannedAt) {
       return { iso: UNUSUAL.scannedAt, label: 'hourly unusual-flow scan' };
     }
@@ -12718,8 +12730,8 @@ ${renderExportBindings()}
       var falling = bi.trend === 'falling' && !(d1 >= T.dxy1d / 2);
       var s = 0, label = 'DXY ' + (d1 >= 0 ? '+' : '') + d1.toFixed(2) + '% 1d';
       if (d1 >= T.dxy1dStrong){ s = -2; label = 'DXY +' + d1.toFixed(2) + '% — sharp dollar spike'; }
-      else if (d1 >= T.dxy1d || (rising && d5 >= T.dxy5d)){ s = -1; label = 'DXY ' + (d1 >= 0 ? '+' : '') + d1.toFixed(2) + '% — dollar bid'; }
-      else if (d1 <= -T.dxy1d || (falling && d5 <= -T.dxy5d)){ s = 1; label = 'DXY ' + d1.toFixed(2) + '% — dollar easing'; }
+      else if (d1 >= T.dxy1d || (rising && d5 >= T.dxy5d)){ s = -1; label = d1 >= T.dxy1d ? 'DXY +' + d1.toFixed(2) + '% — dollar bid' : 'DXY +' + d5.toFixed(2) + '% over 5 days — dollar bid'; }
+      else if (d1 <= -T.dxy1d || (falling && d5 <= -T.dxy5d)){ s = 1; label = d1 <= -T.dxy1d ? 'DXY ' + d1.toFixed(2) + '% — dollar easing' : 'DXY ' + d5.toFixed(2) + '% over 5 days — dollar easing'; }
       axes.dxy = { score: s, label: label, live: isLive };
     })();
 
@@ -12740,8 +12752,8 @@ ${renderExportBindings()}
       var fallingTrend = bt.trend === 'falling' && ten5 != null && ten5 <= -T.yieldBps1d && !tenReversingUp;
       var s = 0, label = '10Y ' + (up >= 0 ? '+' : '') + up.toFixed(1) + ' bps 1d';
       if (up >= T.yieldBps1dStrong){ s = -2; label = 'Long yields +' + up.toFixed(1) + ' bps — yield spike'; }
-      else if (up >= T.yieldBps1d || risingTrend){ s = -1; label = 'Long yields ' + (up >= 0 ? '+' : '') + up.toFixed(1) + ' bps — rising'; }
-      else if (dn <= -T.yieldBps1d || fallingTrend){ s = 1; label = 'Long yields ' + dn.toFixed(1) + ' bps — easing'; }
+      else if (up >= T.yieldBps1d || risingTrend){ s = -1; label = up >= T.yieldBps1d ? 'Long yields +' + up.toFixed(1) + ' bps — rising' : '10Y +' + ten5.toFixed(1) + ' bps over 5 days — rising'; }
+      else if (dn <= -T.yieldBps1d || fallingTrend){ s = 1; label = dn <= -T.yieldBps1d ? 'Long yields ' + dn.toFixed(1) + ' bps — easing' : '10Y ' + ten5.toFixed(1) + ' bps over 5 days — easing'; }
       axes.yields = { score: s, label: label, live: isLive };
     })();
 
@@ -21956,7 +21968,7 @@ ${renderExportBindings()}
         '<div class="cx-desk-grid">' +
           '<div class="cx-desk-stat"><span>Management ' + escapeHtml(guide && guide.period ? guide.period.replace(/^CY/, '') : '') + ' outlook</span><b>' + guideValue + '</b><small>' + (guide ? guide.count + ' companies reporting' + (guideReview.length ? ' · ' + guideReview.length + ' awaiting update' : '') : 'guidance unavailable') + '</small></div>' +
           '<div class="cx-desk-stat"><span>Current TTM run-rate</span><b>' + cxDollars(t.ttmSum) + '</b><small>' + (runRatePct == null ? 'run-rate unavailable' : (runRatePct >= 0 ? '+' : '') + runRatePct.toFixed(1) + '% vs latest FY') + '</small></div>' +
-          '<div class="cx-desk-stat"><span>Revenue burden</span><b>' + (share == null ? '—' : share.toFixed(1) + '%') + '</b><small>CapEx as share of combined revenue</small></div>' +
+          '<div class="cx-desk-stat"><span>Revenue burden</span><b>' + (share == null ? '—' : share.toFixed(1) + '%') + '</b><small>CapEx as share of combined revenue, latest fiscal years</small></div>' +
           '<div class="cx-desk-stat"><span>Top-two concentration</span><b>' + (top2Share == null ? '—' : top2Share.toFixed(0) + '%') + '</b><small>' + escapeHtml(top2.map(function(co){ return co.ticker; }).join(' + ') || 'spend leaders unavailable') + '</small></div>' +
         '</div>' +
         posture +
@@ -22018,7 +22030,7 @@ ${renderExportBindings()}
         note: (t.ttmSum != null ? 'Last 12 months of capital spending' : 'Latest fiscal year of capital spending') + (t.yoyPct != null ? '; latest fiscal years ' + (t.yoyPct >= 0 ? 'up ' : 'down ') + Math.abs(t.yoyPct).toFixed(1) + '% on the year before' : ''),
         kpis: [
           { label: 'Latest fiscal year', value: cxDollars(t.fyLatestSum), sub: t.yoyPct != null ? deskStripSignedPct(t.yoyPct, 1) + ' vs prior year' : '', tone: t.yoyPct == null ? '' : t.yoyPct >= 0 ? 'pos' : 'neg' },
-          cxShare != null ? { label: 'Share of revenue', value: Number(cxShare).toFixed(1) + '%', sub: 'CapEx ÷ revenue' } : null,
+          cxShare != null ? { label: 'Share of revenue', value: Number(cxShare).toFixed(1) + '%', sub: t.revenue && t.revenue.capexToRevenueTtmPct != null ? 'CapEx ÷ revenue, last 12 months' : 'CapEx ÷ revenue, latest fiscal years' } : null,
           (t.revenue && t.revenue.yoyPct != null) ? { label: 'Revenue growth', value: deskStripSignedPct(t.revenue.yoyPct, 1), sub: 'same companies, same years', tone: t.revenue.yoyPct >= 0 ? 'pos' : 'neg' } : null
         ],
         series: cxYears, fmt: function(v){ return cxDollars(v); }, chartLabel: 'Combined CapEx by year (years every company has reported)',
@@ -26593,7 +26605,15 @@ ${renderExportBindings()}
     var path = row.trajectory && row.trajectory.available === false ? 'Forward path unverified' : row.trajectory && row.trajectory.dir && row.trajectory.dir !== 'steady' && row.trajectory.score
       ? 'Path ' + leapsFmt(row.trajectory.score) + ' ' + row.trajectory.dir
       : '';
-    var meta = [leapsEntryText(row.entry), aligned, path].filter(Boolean).join(' · ');
+    // Rich or cheap options move the score (lib/leaps-score.mjs applyIvDerate);
+    // the payload carries only the result, so name the step here or the row's
+    // points do not add up to its score.
+    var ivAdj = null;
+    if (leapsNum(row.total) != null && leapsNum(row.score) != null) {
+      ivAdj = leapsNum(row.total) - (leapsNum(row.score) * 4 + (leapsNum(row.prior) || 0) + ((row.trajectory && leapsNum(row.trajectory.score)) || 0));
+      if (Math.abs(ivAdj) < 0.05) ivAdj = null;
+    }
+    var meta = [leapsEntryText(row.entry), aligned, path, ivAdj != null ? 'Option price ' + leapsFmt(ivAdj) : ''].filter(Boolean).join(' · ');
     // Heaviest pillar first, so the row reads in the order the score weighs it.
     var pillarLine = 'Top Picks pillar points · Fundamentals ' + leapsFmt(pillars.fundamentals) +
       ' · Trend ' + leapsFmt(pillars.technicals) +
@@ -26694,14 +26714,15 @@ ${renderExportBindings()}
     return { label: 'Paper record', resolved: closed.length, open: open,
       winPct: closed.length ? wins / closed.length * 100 : null,
       avg: rets.length ? rets.reduce(function(a, b){ return a + b; }, 0) / rets.length : null, avgLabel: 'avg contract',
-      empty: d ? 'no paper trades yet' : 'loading',
-      title: 'LEAPS paper book: one contract per qualified idea, filled at the ask, closed on target, doubling, flag, roll or the six-month time exit.' };
+      empty: !d ? 'loading' : d.missing ? 'paper record not running' : 'no paper trades yet',
+      title: d && d.missing ? 'The LEAPS paper book is not switched on: the build does not enroll LEAPS ideas yet (leapsPicksForBake), so no trades are recorded.'
+        : 'LEAPS paper book: one contract per qualified idea, filled at the ask, closed on target, doubling, flag, roll or the six-month time exit.' };
   }
   function loadLeapsPaper(){
     if (leapsPaperState.data || leapsPaperState.loading) return;
     leapsPaperState.loading = true;
     fetch(dataUrl('leaps-paper.json'), { cache: 'no-cache' })
-      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(r){ if (r.status === 404) return { positions: [], missing: true }; return r.ok ? r.json() : null; })
       .catch(function(){ return null; })
       .then(function(j){ leapsPaperState.loading = false; leapsPaperState.data = j && typeof j === 'object' ? j : { positions: [] }; setIdeaRecordChip('leaps-record-chip', leapsPaperRecord()); });
   }
@@ -26816,6 +26837,7 @@ ${renderExportBindings()}
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(j){
         leapsState.data = (j && typeof j === 'object') ? j : {};
+        if (freshnessActiveTab === 'leaps') renderFreshness();
         leapsState.loading = false;
         leapsState.fetchedAt = Date.now();
         renderLeaps();
@@ -26882,6 +26904,7 @@ ${renderExportBindings()}
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(j){
         stocksState.data = (j && typeof j === 'object') ? j : {};
+        if (freshnessActiveTab === 'stocks') renderFreshness();
         stocksState.loading = false;
         stocksState.fetchedAt = Date.now();
         renderStocks();
@@ -27822,6 +27845,7 @@ ${renderExportBindings()}
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(j){
         rotationState.data = j && typeof j === 'object' ? j : {};
+        if (freshnessActiveTab === 'rotation') renderFreshness();
         rotationState.loading = false;
         rotationState.error = false;
         rotationState.fetchedAt = Date.now();
@@ -29222,6 +29246,7 @@ ${renderExportBindings()}
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(j){
         levState.data = (j && typeof j === 'object') ? j : {};
+        if (freshnessActiveTab === 'levetf') renderFreshness();
         levState.loading = false;
         levState.fetchedAt = Date.now();
         renderLevEtf();
@@ -34830,10 +34855,12 @@ ${renderExportBindings()}
   // theme toggle re-tints correctly.
   function fngBandFromScore(n){
     if (!isFinite(n)) return 'neutral';
-    if (n <= 24) return 'extreme-fear';
-    if (n <= 44) return 'fear';
-    if (n <= 55) return 'neutral';
-    if (n <= 75) return 'greed';
+    // CNN's bands: 0-24 extreme fear, 25-44 fear, 45-54 neutral, 55-74 greed,
+    // 75-100 extreme greed. Scores are fractional (24.78 is extreme fear).
+    if (n < 25) return 'extreme-fear';
+    if (n < 45) return 'fear';
+    if (n < 55) return 'neutral';
+    if (n < 75) return 'greed';
     return 'extreme-greed';
   }
   function fngBandLabel(b){
@@ -35153,8 +35180,8 @@ ${renderExportBindings()}
       return { spec:spec, score:Math.round(Number(entry.score)) };
     }).filter(Boolean);
     var fearCount = componentReadings.filter(function(x){ return x.score <= 44; }).length;
-    var neutralCount = componentReadings.filter(function(x){ return x.score >= 45 && x.score <= 55; }).length;
-    var greedCount = componentReadings.filter(function(x){ return x.score > 55; }).length;
+    var neutralCount = componentReadings.filter(function(x){ return x.score >= 45 && x.score < 55; }).length;
+    var greedCount = componentReadings.filter(function(x){ return x.score >= 55; }).length;
     var weakest = componentReadings.slice().sort(function(a,b){ return a.score - b.score; })[0] || null;
     var strongest = componentReadings.slice().sort(function(a,b){ return b.score - a.score; })[0] || null;
     function fngDelta(value){
@@ -37243,6 +37270,7 @@ ${renderExportBindings()}
     Promise.all([pAcc, pGch, pPch, pRos, pReg, pResearch]).then(function(res){
       var j = res[0], gh = res[1], pc = res[2], ros = res[3], reg = res[4], research = res[5];
       accuracyState.data = (j && typeof j === 'object') ? j : { open: [], closed: [], stats: {} };
+      if (freshnessActiveTab === 'track') renderFreshness();
       accuracyState.gradeChanges = (gh && Array.isArray(gh.changes)) ? gh.changes : [];
       accuracyState.picksChanges = (pc && Array.isArray(pc.changes)) ? pc.changes : [];
       accuracyState.roster = (ros && Array.isArray(ros.roster)) ? ros : null;
@@ -39784,7 +39812,7 @@ ${renderExportBindings()}
     }
     // "At a glance" strip — the headline numbers the report below expands on.
     var glGreens = 0, glMarks = [];
-    open.forEach(function(o){ var p = Number(o.optionPnlPct); if (isFinite(p)){ glMarks.push(p); if (p >= 0) glGreens++; } });
+    open.forEach(function(o){ var p = Number(o.optionPnlPct); if (isFinite(p)){ glMarks.push(p); if (p > 0) glGreens++; } });
     var glTake = rep.n < 30
       ? 'Small modeled sample; descriptive results do not establish a validated edge. Returns are not actual fills.'
       : (rep.diags.length
@@ -39793,9 +39821,9 @@ ${renderExportBindings()}
     accPaneSummary('acc-sum-summary', [
       { val: rep.n < 30 ? 'Early results' : 'Modeled results', lbl: rep.n + ' resolved model trades', cls: '' },
       { val: accPctRate(m.winRate), lbl: 'modeled win rate · n=' + rep.n, cls: (m.winRate != null && m.winRate >= 0.5) ? 'sig-pos' : 'sig-neg' },
-      { val: accPF(m.profitFactor), lbl: 'profit factor', cls: (m.profitFactor != null && (m.profitFactor === Infinity || m.profitFactor >= 1)) ? 'sig-pos' : 'sig-neg', tip: 'Gross winning $ ÷ gross losing $ (per contract, modeled).' },
+      { val: accPF(m.profitFactor), lbl: 'profit factor · one contract each', cls: (m.profitFactor != null && (m.profitFactor === Infinity || m.profitFactor >= 1)) ? 'sig-pos' : 'sig-neg', tip: 'Gross winning $ ÷ gross losing $ (per contract, modeled). Pricier contracts weigh more here than in the $10,000-per-trade running total.' },
       { val: accNum(m.expectancyR, 2) + 'R', lbl: 'avg outcome / unit risk', cls: accSignClass(m.expectancyR), tip: 'Average return on risk per resolved trade.' },
-      (m.avgWin != null || m.avgLoss != null) ? { val: '<span class="sig-pos">' + accMoney(m.avgWin, false) + '</span> / <span class="sig-neg">' + (m.avgLoss != null ? '-' + accMoney(m.avgLoss, false) : '—') + '</span>', lbl: 'avg win / avg loss' + (m.rr != null && m.rr !== Infinity ? ' · ' + m.rr.toFixed(2) + ':1' : ''), cls: '', tip: 'Average winning trade and average losing trade, per contract (modeled). The ratio is reward : risk.' } : null,
+      (m.avgWin != null || m.avgLoss != null) ? { val: '<span class="sig-pos">' + accMoney(m.avgWin, false) + '</span> / <span class="sig-neg">' + (m.avgLoss != null ? '-' + accMoney(m.avgLoss, false) : '—') + '</span>', lbl: 'avg win / avg loss per contract' + (m.rr != null && m.rr !== Infinity ? ' · ' + m.rr.toFixed(2) + ':1' : ''), cls: '', tip: 'Average winning trade and average losing trade, per contract (modeled). The ratio is reward : risk.' } : null,
       open.length ? { val: String(open.length), lbl: 'open now' + (glMarks.length ? ' · ' + glGreens + ' green' : ''), tip: glMarks.length ? 'Open book marked ' + accPct(accMean(glMarks)) + ' on average (modeled, unrealized).' : '' } : null,
     ], glTake);
     // Health banner + narrative. The direction-vs-theta share is computed over
@@ -39812,7 +39840,7 @@ ${renderExportBindings()}
     }
     if (open.length){
       var greens = 0, marks = [];
-      open.forEach(function(o){ var p = Number(o.optionPnlPct); if (isFinite(p)){ marks.push(p); if (p >= 0) greens++; } });
+      open.forEach(function(o){ var p = Number(o.optionPnlPct); if (isFinite(p)){ marks.push(p); if (p > 0) greens++; } });
       story += ' The open book: ' + open.length + ' position' + (open.length === 1 ? '' : 's') + (marks.length ? ', ' + greens + ' green, marked ' + accPct(accMean(marks)) + ' on average' : '') + '.';
     }
     var banner = '<div class="acc-sum-verdict acc-sum-' + (rep.n < 30 ? 'early' : rep.health.key) + '"><span class="acc-sum-badge">' + (rep.n < 30 ? 'Early modeled results' : 'Modeled results') + '</span><p class="acc-sum-story">' + story + '</p></div>';
@@ -41650,6 +41678,7 @@ ${renderExportBindings()}
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(j){
         openPicksState.data = (j && typeof j === 'object') ? j : { open: [] };
+        if (freshnessActiveTab === 'open-picks') renderFreshness();
       })
       .catch(function(){ openPicksState.data = { open: [], loadError: true }; })
       .then(function(){ openPicksState.loading = false; renderOpenPicks(); });
@@ -41760,7 +41789,7 @@ ${renderExportBindings()}
       if (o.side !== 'put') calls++;
       var p = Number(o.optionPnlPct);
       if (!isFinite(p)) return;
-      marks.push(p); if (p >= 0) greens++;
+      marks.push(p); if (p > 0) greens++;
     });
     accPaneSummary('open-picks-sum', [
       { val: String(open.length), lbl: 'open positions' },
@@ -42055,7 +42084,7 @@ ${renderExportBindings()}
     open.forEach(function(o){
       var p = Number(o.optionPnlPct);
       if (!isFinite(p)) return;
-      pkMarks.push(p); if (p >= 0) pkGreens++;
+      pkMarks.push(p); if (p > 0) pkGreens++;
       if (!pkBest || Math.abs(p) > Math.abs(Number(pkBest.optionPnlPct))) pkBest = o;
     });
     var pkTake = pkBest
@@ -44041,6 +44070,13 @@ ${renderExportBindings()}
   // + strategy/no-rec + conviction + any disclosure) and a collapsed "Expand for
   // full reasoning" with Market context / Company drivers / Technical-flow
   // confirmation / Invalidation / Strategy rationale / Thesis-quality checklist.
+  // The AI writes the thesis prose from the same inputs the card shows, but it
+  // can misquote one (it once wrote 95% for a 100% December hike). The card's
+  // own figures come straight from the data, so they win.
+  var AI_NUMBERS_NOTE = 'Written by AI from the data on this card. If a number in the text differs from the card’s own figures, trust the figures: they come straight from the data.';
+  function aiReadTag(){
+    return ' <span class="thesis-prose-tag" title="' + escapeHtml(AI_NUMBERS_NOTE) + '">AI read</span>';
+  }
   function pickThesisBlock(p){
     var tc = p && p.thesisCard;
     if (!tc) return '';
@@ -44068,7 +44104,7 @@ ${renderExportBindings()}
       ? '<div class="thesis-edge' + (edge.hasEdge === false ? ' thesis-edge-none' : '') + '"><span class="thesis-edge-lbl">' + (edge.hasEdge === false ? 'No edge' : 'The edge') + '</span> ' + escapeHtml(edge.text) + '</div>'
       : '';
     var leadHtml = (ai && ai.summary)
-      ? '<div class="thesis-summary"><span class="thesis-summary-lbl">' + (tc.direction === 'bearish' ? 'Bearish' : 'Bullish') + ' thesis</span> ' + escapeHtml(ai.summary) + ' <span class="thesis-prose-tag">AI read</span></div>'
+      ? '<div class="thesis-summary"><span class="thesis-summary-lbl">' + (tc.direction === 'bearish' ? 'Bearish' : 'Bullish') + ' thesis</span> ' + escapeHtml(ai.summary) + aiReadTag() + '</div>'
       : edgeHtml;
 
     // Strategy chip — OR a "no recommendation" note when the thesis is too thin.
@@ -44122,7 +44158,7 @@ ${renderExportBindings()}
       var aiDrv = (ai && Array.isArray(ai.drivers) && ai.drivers.length)
         ? '<div class="thesis-ai-drivers">' + ai.drivers.map(function(d){ return '<span class="thesis-ai-driver">' + escapeHtml(d) + '</span>'; }).join('') + '</div>'
         : '';
-      secs += '<div class="thesis-sec thesis-sec-reasoning"><div class="thesis-sec-head thesis-sec-ai" title="An AI strategist\\'s plain-English thesis — it weighs the whole picture (company + news + interest rates + the dollar + the macro tape), decides what is load-bearing, and tells the story behind the grade. The deterministic grade still drives the trade decision.">Detailed thesis <span class="thesis-prose-tag">AI read</span></div><div class="thesis-narrative">' + beats + '</div>' + aiDrv + '</div>';
+      secs += '<div class="thesis-sec thesis-sec-reasoning"><div class="thesis-sec-head thesis-sec-ai" title="An AI strategist\\'s plain-English thesis — it weighs the whole picture (company + news + interest rates + the dollar + the macro tape), decides what is load-bearing, and tells the story behind the grade. The deterministic grade still drives the trade decision.">Detailed thesis' + aiReadTag() + '</div><div class="thesis-narrative">' + beats + '</div>' + aiDrv + ((ai && (ai.setup || ai.catalyst || ai.outlook || ai.reasoning)) ? '<p class="thesis-ai-note">' + escapeHtml(AI_NUMBERS_NOTE) + '</p>' : '') + '</div>';
     }
     if (tc.marketRead && tc.marketRead.text){
       var sup = tc.marketRead.support;
@@ -44140,7 +44176,7 @@ ${renderExportBindings()}
       var srHtml = '';
       // The AI's IV-vs-structure justification (why sell premium / buy a debit /
       // stay defined-risk) leads; the deterministic reason gives the precise read.
-      if (stratRat) srHtml += '<div class="thesis-strat-reason thesis-strat-reason-ai">' + escapeHtml(stratRat) + ' <span class="thesis-prose-tag">AI read</span></div>';
+      if (stratRat) srHtml += '<div class="thesis-strat-reason thesis-strat-reason-ai">' + escapeHtml(stratRat) + aiReadTag() + '</div>';
       if (tc.strategy && tc.strategy.reason) srHtml += '<div class="thesis-strat-reason">' + escapeHtml(tc.strategy.reason) + '</div>';
       secs += '<div class="thesis-sec"><div class="thesis-sec-head">⑤ Strategy rationale</div>' + srHtml + '</div>';
     }
@@ -44768,7 +44804,7 @@ ${renderExportBindings()}
     var review = pickReviewCheckpoint(p);
     var checkpoint = review ? (review.expired ? 'Contract expired — reassess the setup' : review.due ? 'Review due · ' + review.date : 'Review by ' + review.date) : 'Expiry unavailable — set a review date before entry';
     return '<section class="pick-plan-summary" aria-label="Trade plan at a glance"><header><h3>Trade plan</h3><strong class="' + (decision.ready ? 'sig-pos' : 'sig-warn') + '">' + escapeHtml(decision.label) + '</strong></header>' +
-      '<p class="pick-plan-thesis"><b>Why this setup</b> ' + escapeHtml(thesis) + '</p><div class="pick-plan-grid">' +
+      '<p class="pick-plan-thesis"><b>Why this setup</b> ' + escapeHtml(thesis) + (tc.ai && tc.ai.summary ? aiReadTag() : '') + '</p><div class="pick-plan-grid">' +
       '<div><small>Entry confirmation</small><b>' + (decision.trigger ? '$' + decision.trigger.toFixed(2) : escapeHtml(decision.label)) + '</b><span>' + escapeHtml(decision.reason) + '</span></div>' +
       '<div><small>Invalidation / defense</small><b>' + (cut && cut.price != null ? '$' + Number(cut.price).toFixed(2) : 'Review thesis deterioration') + '</b><span>Reassess if the supporting business drivers fail; the model defense level is not a guaranteed fill.</span></div>' +
       '<div><small>First exit target</small><b>' + (target && target.price != null ? '$' + Number(target.price).toFixed(2) : 'No target supplied') + '</b><span>' + escapeHtml(target && (target.prose || target.label || target.action) || 'Inspect the exit ladder and current contract quote.') + '</span></div>' +
@@ -45550,11 +45586,13 @@ ${renderExportBindings()}
     var marketEvidence=$('picks-market-evidence');
     if(marketEvidence)TOP_PICKS_MARKET_UI.update(marketEvidence,TOP_PICKS_MARKET_UI.context(data));
     try { renderPicksMode(); } catch (_){}
+    // The SEC collateral watch lives on the Forced Liquidation Tracker. Top
+    // Picks only names a bullish pick the collateral check actually held back.
     var collateralBox = $('picks-liquidation-watch');
     if (collateralBox) {
-      var collateralRows = !data.stale && !data.loadError && data.rosterMeta && Array.isArray(data.rosterMeta.forcedLiquidationWatch) ? data.rosterMeta.forcedLiquidationWatch : [];
-      collateralBox.hidden = !collateralRows.length;
-      collateralBox.innerHTML = collateralRows.length ? '<b>SEC collateral watch</b><p>' + collateralRows.map(function(r){ return escapeHtml(r.symbol) + ': ' + (r.engineEligible ? (r.distancePct == null ? 'distance unknown' : r.distancePct.toFixed(1) + '% to estimated threshold') + (r.vetoLong ? ' · new bullish pick blocked' : '') : 'incomplete terms · research only'); }).join(' · ') + '</p><a href="?tab=forced-liquidation">Inspect Forced Liquidation Tracker</a>' : '';
+      var heldBack = !data.stale && !data.loadError && data.rosterMeta && Array.isArray(data.rosterMeta.collateralGated) ? data.rosterMeta.collateralGated : [];
+      collateralBox.hidden = !heldBack.length;
+      collateralBox.innerHTML = heldBack.length ? '<b>Held back by SEC collateral terms</b><p>' + escapeHtml(heldBack.join(', ')) + (heldBack.length === 1 ? ' would have been a new bullish pick, but its' : ' would have been new bullish picks, but their') + ' disclosed share-pledge loan sits within 15% of the estimated trigger.</p><a href="?tab=forced-liquidation">See the Forced Liquidation Tracker</a>' : '';
     }
     // Legacy stale-carry payloads are audit context, never current trade ideas.
     // The build now publishes an empty roster directly, but keep the client
@@ -47023,7 +47061,7 @@ ${renderExportBindings()}
     var cols = [
       { label: 'Term', cell: function(t){ return '<b>' + escapeHtml(t.term) + '</b><span class="vt-sub">' + escapeHtml(t.type + (t.latest.reopening ? ' · reopening' : '')) + '</span>'; }, sort: function(t){ return t.term; } },
       { label: 'Auction', cell: function(t){ return escapeHtml(t.latest.date); }, sort: function(t){ return t.latest.date; } },
-      { label: 'High yield', num: true, title: 'The yield at which the auction cleared', cell: function(t){ return num1(t.latest.yield, 3) + '%' + (t.yieldChange != null ? '<span class="vt-sub">' + (t.yieldChange >= 0 ? '+' : '') + (t.yieldChange * 100).toFixed(0) + ' bp vs prior</span>' : ''); }, sort: function(t){ return t.latest.yield; } },
+      { label: 'High yield', num: true, title: 'The yield at which the auction cleared', cell: function(t){ return (t.latest.yield == null || !isFinite(t.latest.yield) ? (t.type === 'FRN' ? '<span class="vt-sub">floating rate</span>' : '—') : num1(t.latest.yield, 3) + '%') + (t.yieldChange != null ? '<span class="vt-sub">' + (t.yieldChange >= 0 ? '+' : '') + (t.yieldChange * 100).toFixed(0) + ' bp vs prior</span>' : ''); }, sort: function(t){ return t.latest.yield; } },
       { label: 'Bid-to-cover', num: true, title: 'Dollars bid per dollar sold; higher is stronger demand', cell: function(t){ return num1(t.latest.btc, 2) + (t.btcAvg != null ? '<span class="vt-sub">avg ' + num1(t.btcAvg, 2) + ' (' + (t.btcGap >= 0 ? '+' : '') + num1(t.btcGap, 2) + ')</span>' : ''); }, sort: function(t){ return t.latest.btc; } },
       { label: 'Indirect bidders', num: true, title: 'Share taken by indirect bidders, mostly foreign central banks and funds', cell: function(t){ return pctS(t.latest.indirectPct) + (t.indirectAvg != null ? '<span class="vt-sub">avg ' + pctS(t.indirectAvg) + '</span>' : ''); }, sort: function(t){ return t.latest.indirectPct; } },
       { label: 'Dealers', num: true, title: 'Share left with primary dealers; more than usual means weaker outside demand', cell: function(t){ return pctS(t.latest.dealerPct) + (t.dealerAvg != null ? '<span class="vt-sub">avg ' + pctS(t.dealerAvg) + '</span>' : ''); }, sort: function(t){ return t.latest.dealerPct; } },
@@ -47031,7 +47069,11 @@ ${renderExportBindings()}
       { label: 'Read', cell: function(t){ return readPill(t.read); }, sort: function(t){ return t.read; } }
     ];
     var upcoming = (sm.upcoming || []).slice(0, 6).map(function(a){ return escapeHtml(a.date + ' ' + a.term + (a.offered ? ' ' + bn(a.offered) : '')); }).join(' · ');
-    host.innerHTML = '<p class="bonds-auction-head">' + escapeHtml(sm.headline || '') + '</p>' +
+    // Fiscal Data can stop posting results for weeks; say how old the newest one is.
+    var staleNote = sm.couponStale && sm.couponAsOf
+      ? '<p class="hint"><b>Feed behind:</b> the newest coupon result the Treasury&rsquo;s Fiscal Data feed has posted is from ' + escapeHtml(sm.couponAsOf) + ' (' + sm.couponAgeDays + ' days ago). Later auctions appear here once the feed posts them.</p>'
+      : '';
+    host.innerHTML = '<p class="bonds-auction-head">' + escapeHtml(sm.couponStale ? 'Latest posted results (feed behind): ' + (sm.headline || '') : (sm.headline || '')) + '</p>' + staleNote +
       VIEWS.tableHtml(cols, sm.byTerm, { key: 'bonds-auctions', empty: 'No coupon auctions yet.' }) +
       (upcoming ? '<p class="hint"><b>Announced:</b> ' + upcoming + '</p>' : '') +
       '<div class="bonds-auction-chart"></div>' +
@@ -47041,7 +47083,7 @@ ${renderExportBindings()}
     var series = [];
     terms.forEach(function(term, i){
       var t = null;
-      for (var k = 0; k < sm.byTerm.length; k++) if (sm.byTerm[k].term === term) t = sm.byTerm[k];
+      for (var k = 0; k < sm.byTerm.length; k++) if (sm.byTerm[k].term === term && (sm.byTerm[k].type === 'Note' || sm.byTerm[k].type === 'Bond')) t = sm.byTerm[k];
       if (!t || !t.history || t.history.length < 2) return;
       series.push({ name: term + ' bid-to-cover', short: term.replace('-Year', 'Y'), type: 'line', data: t.history.map(function(h){ return { time: h.d, value: h.btc }; }), color: c.series[i % c.series.length], format: function(v){ return v == null ? '—' : Number(v).toFixed(2) + 'x'; } });
     });

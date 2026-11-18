@@ -21,6 +21,11 @@ const assets = [
   "js/streaks.js",
   "js/book-views.js",
   "js/vendor/html-to-image-1.11.11.js",
+  // CHART_LIB in scripts/render/chart-kit-js.mjs: every zoomable time-series
+  // chart loads it on first use. It was missing from this list from #746
+  // (2026-11-05) to 2026-11-18, so production 404'd it and every such chart
+  // read "The chart could not load".
+  "js/vendor/lightweight-charts-4.2.3.js",
   "i18n/zh-CN.json",
   "i18n/zh-TW.json",
   "i18n/ja.json",

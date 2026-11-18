@@ -504,7 +504,9 @@ function recoveryEvidence(row, data, now = Date.now()) {
       if (libLoad) return libLoad;
       libLoad = new Promise(function(resolve, reject){
         var s = document.createElement('script');
-        s.src = LIB;
+        // The query string skips a 404 that browsers may still hold under the
+        // year-long /js/ cache header (the library was not deployed before 2026-11-18).
+        s.src = LIB + '?v=20261118';
         s.async = true;
         s.onload = function(){ window.LightweightCharts ? resolve(window.LightweightCharts) : reject(new Error('Chart tool did not load')); };
         s.onerror = function(){ libLoad = null; reject(new Error('Chart tool did not load')); };
@@ -3549,6 +3551,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
   function crowdUsd(v){
     if (v == null || !isFinite(v)) return '—';
     var a = Math.abs(v), sign = v < 0 ? '-' : '';
+    if (a >= 1e12) return sign + '$' + (a / 1e12).toFixed(2) + 'T';
     if (a >= 1e9) return sign + '$' + (a / 1e9).toFixed(2) + 'B';
     if (a >= 1e6) return sign + '$' + (a / 1e6).toFixed(1) + 'M';
     if (a >= 1e3) return sign + '$' + (a / 1e3).toFixed(0) + 'K';
@@ -3671,7 +3674,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
     ];
     var noFlow = rows.length && !rows.some(function(r){ return r.flowUsd1d != null || r.flowUsd5d != null || r.flowUsd20d != null; });
     return h + '<div class="mm-kpis">' + kpis.map(function(k){ return '<div class="mm-kpi"><span>' + escapeHtml(k[0]) + '</span><b>' + k[1] + '</b></div>'; }).join('') + '</div>' +
-      (noFlow ? '<p class="crd-note"><b>No flow can be measured right now.</b> Yahoo sends no share counts for these funds and has not refreshed their net assets day to day, so creations and redemptions cannot be told apart from price moves. The table keeps prices and assets; flows return when either figure updates daily.</p>' : '') +
+      (noFlow ? '<p class="crd-note"><b>No flow can be measured right now.</b> Yahoo sends no share counts for these funds and has not refreshed their net assets day to day, so creations and redemptions cannot be told apart from price moves. The net assets below are Yahoo’s last reported figures and may be weeks old. Flows return when either figure updates daily.</p>' : '') +
       VIEWS.tableHtml(cols, rows, { key: 'crowd-levflows', empty: 'No funds quoted.' }) +
       '<p class="crd-note">A flow here is the change in a fund\'s shares outstanding times its NAV, or, with no share count, the change in its net assets beyond what the NAV move explains: money arriving in or leaving a leveraged bet on the name. Dashes mean neither figure was updated every day of that window.</p>';
   }
@@ -3826,7 +3829,10 @@ function recoveryEvidence(row, data, now = Date.now()) {
     if (cot.ES && cot.ES.groups) k.push(['Hedge funds in S&P futures', (cot.ES.groups.levFund.net > 0 ? 'net long ' : 'net short ') + crowdInt(Math.abs(cot.ES.groups.levFund.net)) + ' ' + crowdZ(cot.ES.groups.levFund.z3y)]);
     if (md) k.push(['Margin debt, y/y', vnChg(md.yoyPct, 1)]);
     if (sv) k.push(['Avg short-volume share', vnNum(sv[1], 1) + '%']);
-    if (inx && inx.impliedMean != null) k.push(['Kalshi S&P close, implied mean', crowdInt(inx.impliedMean)]);
+    var inxEv = d.kalshi && d.kalshi.series && d.kalshi.series.KXINX && d.kalshi.series.KXINX.events && d.kalshi.series.KXINX.events[0] || null;
+    var inxDay = '';
+    try { inxDay = inxEv && inxEv.closeTime ? new Date(inxEv.closeTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/New_York' }) : ''; } catch (e) { inxDay = ''; }
+    if (inx && inx.impliedMean != null) k.push(['Kalshi S&P close' + (inxDay ? ' ' + inxDay : '') + ', implied mean', crowdInt(inx.impliedMean)]);
     if (rd) k.push(['Most mentioned on Reddit', (rd.tracked ? vnSym(rd.symbol) : escapeHtml(rd.symbol)) + ' <small class="crd-dim">' + crowdInt(rd.mentions) + '</small>']);
     return k.length ? '<div class="mm-kpis">' + k.map(function(x){ return '<div class="mm-kpi"><span>' + escapeHtml(x[0]) + '</span><b>' + x[1] + '</b></div>'; }).join('') + '</div>' : '';
   }
@@ -13411,6 +13417,14 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var st = tab === 'ram-prices' ? ramPricesState : tab === 'accelerator-prices' ? acceleratorPricesState : searchInterestState;
     return st && st.data && st.data.builtAtIso ? st.data.builtAtIso : null;
   }
+  function picksDeskRunIso(tab){
+    var st = null;
+    try {
+      st = tab === 'open-picks' ? openPicksState : tab === 'track' ? accuracyState : tab === 'stocks' ? stocksState
+        : tab === 'rotation' ? rotationState : tab === 'levetf' ? levState : tab === 'leaps' ? leapsState : null;
+    } catch (_) { st = null; }
+    return st && st.data && !st.data.loadError && st.data.builtAtIso ? st.data.builtAtIso : null;
+  }
   function tabFreshnessOverride(tab){
     // Return {iso, label} when a tab has its own freshness signal worth
     // surfacing, else null (use the default daily-build timestamp).
@@ -13421,6 +13435,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (tab === 'picks' && typeof picksState !== 'undefined' && picksState.data && picksState.data.builtAtIso) {
       return { iso: picksState.data.builtAtIso, label: 'Top Picks run' };
     }
+    // The other pages on the Top Picks schedule show their own file's run
+    // time, not the later full build that only carries them forward.
+    var deskIso = picksDeskRunIso(tab);
+    if (deskIso) return { iso: deskIso, label: tab === 'open-picks' || tab === 'track' ? 'Top Picks run' : 'runs with Top Picks' };
     if (tab === 'flow' && UNUSUAL && UNUSUAL.scannedAt) {
       return { iso: UNUSUAL.scannedAt, label: 'hourly unusual-flow scan' };
     }
@@ -26382,8 +26400,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
       var falling = bi.trend === 'falling' && !(d1 >= T.dxy1d / 2);
       var s = 0, label = 'DXY ' + (d1 >= 0 ? '+' : '') + d1.toFixed(2) + '% 1d';
       if (d1 >= T.dxy1dStrong){ s = -2; label = 'DXY +' + d1.toFixed(2) + '% — sharp dollar spike'; }
-      else if (d1 >= T.dxy1d || (rising && d5 >= T.dxy5d)){ s = -1; label = 'DXY ' + (d1 >= 0 ? '+' : '') + d1.toFixed(2) + '% — dollar bid'; }
-      else if (d1 <= -T.dxy1d || (falling && d5 <= -T.dxy5d)){ s = 1; label = 'DXY ' + d1.toFixed(2) + '% — dollar easing'; }
+      else if (d1 >= T.dxy1d || (rising && d5 >= T.dxy5d)){ s = -1; label = d1 >= T.dxy1d ? 'DXY +' + d1.toFixed(2) + '% — dollar bid' : 'DXY +' + d5.toFixed(2) + '% over 5 days — dollar bid'; }
+      else if (d1 <= -T.dxy1d || (falling && d5 <= -T.dxy5d)){ s = 1; label = d1 <= -T.dxy1d ? 'DXY ' + d1.toFixed(2) + '% — dollar easing' : 'DXY ' + d5.toFixed(2) + '% over 5 days — dollar easing'; }
       axes.dxy = { score: s, label: label, live: isLive };
     })();
 
@@ -26404,8 +26422,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
       var fallingTrend = bt.trend === 'falling' && ten5 != null && ten5 <= -T.yieldBps1d && !tenReversingUp;
       var s = 0, label = '10Y ' + (up >= 0 ? '+' : '') + up.toFixed(1) + ' bps 1d';
       if (up >= T.yieldBps1dStrong){ s = -2; label = 'Long yields +' + up.toFixed(1) + ' bps — yield spike'; }
-      else if (up >= T.yieldBps1d || risingTrend){ s = -1; label = 'Long yields ' + (up >= 0 ? '+' : '') + up.toFixed(1) + ' bps — rising'; }
-      else if (dn <= -T.yieldBps1d || fallingTrend){ s = 1; label = 'Long yields ' + dn.toFixed(1) + ' bps — easing'; }
+      else if (up >= T.yieldBps1d || risingTrend){ s = -1; label = up >= T.yieldBps1d ? 'Long yields +' + up.toFixed(1) + ' bps — rising' : '10Y +' + ten5.toFixed(1) + ' bps over 5 days — rising'; }
+      else if (dn <= -T.yieldBps1d || fallingTrend){ s = 1; label = dn <= -T.yieldBps1d ? 'Long yields ' + dn.toFixed(1) + ' bps — easing' : '10Y ' + ten5.toFixed(1) + ' bps over 5 days — easing'; }
       axes.yields = { score: s, label: label, live: isLive };
     })();
 
@@ -35857,7 +35875,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         '<div class="cx-desk-grid">' +
           '<div class="cx-desk-stat"><span>Management ' + escapeHtml(guide && guide.period ? guide.period.replace(/^CY/, '') : '') + ' outlook</span><b>' + guideValue + '</b><small>' + (guide ? guide.count + ' companies reporting' + (guideReview.length ? ' · ' + guideReview.length + ' awaiting update' : '') : 'guidance unavailable') + '</small></div>' +
           '<div class="cx-desk-stat"><span>Current TTM run-rate</span><b>' + cxDollars(t.ttmSum) + '</b><small>' + (runRatePct == null ? 'run-rate unavailable' : (runRatePct >= 0 ? '+' : '') + runRatePct.toFixed(1) + '% vs latest FY') + '</small></div>' +
-          '<div class="cx-desk-stat"><span>Revenue burden</span><b>' + (share == null ? '—' : share.toFixed(1) + '%') + '</b><small>CapEx as share of combined revenue</small></div>' +
+          '<div class="cx-desk-stat"><span>Revenue burden</span><b>' + (share == null ? '—' : share.toFixed(1) + '%') + '</b><small>CapEx as share of combined revenue, latest fiscal years</small></div>' +
           '<div class="cx-desk-stat"><span>Top-two concentration</span><b>' + (top2Share == null ? '—' : top2Share.toFixed(0) + '%') + '</b><small>' + escapeHtml(top2.map(function(co){ return co.ticker; }).join(' + ') || 'spend leaders unavailable') + '</small></div>' +
         '</div>' +
         posture +
@@ -35919,7 +35937,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         note: (t.ttmSum != null ? 'Last 12 months of capital spending' : 'Latest fiscal year of capital spending') + (t.yoyPct != null ? '; latest fiscal years ' + (t.yoyPct >= 0 ? 'up ' : 'down ') + Math.abs(t.yoyPct).toFixed(1) + '% on the year before' : ''),
         kpis: [
           { label: 'Latest fiscal year', value: cxDollars(t.fyLatestSum), sub: t.yoyPct != null ? deskStripSignedPct(t.yoyPct, 1) + ' vs prior year' : '', tone: t.yoyPct == null ? '' : t.yoyPct >= 0 ? 'pos' : 'neg' },
-          cxShare != null ? { label: 'Share of revenue', value: Number(cxShare).toFixed(1) + '%', sub: 'CapEx ÷ revenue' } : null,
+          cxShare != null ? { label: 'Share of revenue', value: Number(cxShare).toFixed(1) + '%', sub: t.revenue && t.revenue.capexToRevenueTtmPct != null ? 'CapEx ÷ revenue, last 12 months' : 'CapEx ÷ revenue, latest fiscal years' } : null,
           (t.revenue && t.revenue.yoyPct != null) ? { label: 'Revenue growth', value: deskStripSignedPct(t.revenue.yoyPct, 1), sub: 'same companies, same years', tone: t.revenue.yoyPct >= 0 ? 'pos' : 'neg' } : null
         ],
         series: cxYears, fmt: function(v){ return cxDollars(v); }, chartLabel: 'Combined CapEx by year (years every company has reported)',
@@ -45064,7 +45082,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
   function sourcesView(c){return '<p>Source facts preserve fiscal periods, currency, accounting basis, source documents and ingestion time. Unknown values are withheld.</p>'+table(['Metric','Period end','Reported value','Source basis','Filed / ingested','Evidence'],c.sources.map(s=>[esc(s.metric),esc(s.periodEnd),esc(finite(s.value)?new Intl.NumberFormat('en-US',{maximumFractionDigits:3}).format(s.value)+' '+s.unit:'Unavailable'),esc(s.basis+' · '+s.quality),esc((s.filed||'Unknown')+' / '+stamp(s.firstSeenAt)),url(s.url)?'<a href="'+url(s.url)+'" target="_blank" rel="noopener noreferrer">SEC source</a>':'Unavailable']))+'<details class="ef-method"><summary>Methodology and limits</summary>'+state.data.methodology.map(m=>'<p>'+esc(m)+'</p>').join('')+'</details>';}
   function nav(companies,c){
-    const button=x=>'<button type="button" data-ef-company="'+esc(x.symbol)+'" aria-pressed="'+(x.symbol===c.symbol)+'"'+(x.former?' class="ef-former"':'')+'><span><small>'+(x.former?'—':esc(String(x.rank).padStart(2,'0')))+'</small><span class="ef-co-id"><b>'+esc(x.symbol)+'</b>'+(x.name&&x.name!==x.symbol?'<i class="ef-co-name" title="'+esc(x.name)+'">'+esc(x.name)+'</i>':'')+'</span>'+(x.joinedAt&&!x.former&&x.joinedAt===state.data?.cohort?.selectedAt?'<em class="ef-badge">New</em>':'')+'</span><span>'+esc(fmt(x.marketCap))+'</span></button>';
+    const button=x=>'<button type="button" data-ef-company="'+esc(x.symbol)+'" aria-pressed="'+(x.symbol===c.symbol)+'"'+(x.former?' class="ef-former"':'')+'><span><small>'+(x.former?'—':esc(String(x.rank).padStart(2,'0')))+'</small><span class="ef-co-id"><b>'+esc(x.symbol)+'</b>'+(x.name&&x.name!==x.symbol?'<i class="ef-co-name" title="'+esc(x.name)+'">'+esc(x.name)+'</i>':'')+'</span>'+(x.joinedAt&&!x.former&&x.joinedAt===state.data?.cohort?.selectedAt?'<em class="ef-badge">New</em>':'')+'</span><span'+(x.rankedMarketCap!=null&&x.rankedMarketCap!==x.marketCap?' title="Market cap now. The list was ranked on '+esc(fmt(x.rankedMarketCap))+' at the quarterly re-rank."':'')+'>'+esc(fmt(x.marketCap))+'</span></button>';
     const current=companies.filter(x=>!x.former),former=companies.filter(x=>x.former);
     return current.map(button).join('')+(former.length?'<p class="ef-divider" role="separator">Left the list · frozen record</p>'+former.map(button).join(''):'');
   }
@@ -45077,7 +45095,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     const c=j.companies.find(c=>c.symbol===state.symbol)||j.companies[0];
     if(!c){el.innerHTML=notice('Market-cap coverage is not ready. The company list has not been invented.')+'<button type="button" data-ef-retry>Retry snapshot</button>';bind();return;}
     state.symbol=c.symbol;const current=j.companies.filter(x=>!x.former),f=c.forecast,age=(Date.now()-Date.parse(j.builtAtIso))/86400000;
-    el.innerHTML='<div class="ef-topline"><span>Snapshot '+esc(stamp(j.builtAtIso))+' · market caps as of '+esc(stamp(j.cohort?.rankingAsOf))+'</span><button type="button" data-ef-retry>Refresh snapshot</button></div>'+
+    el.innerHTML='<div class="ef-topline"><span>Snapshot '+esc(stamp(j.builtAtIso))+' · market caps as of '+esc(stamp(j.marketCapsAsOf||j.cohort?.rankingAsOf))+(j.marketCapsAsOf&&j.cohort?.selectedAt?' · list ranked '+esc(String(j.cohort.selectedAt).slice(0,10))+', re-ranked each quarter':'')+'</span><button type="button" data-ef-retry>Refresh snapshot</button></div>'+
       (age>4?notice('This published snapshot is more than four days old. Forecast cutoffs remain unchanged; newer inputs may be missing.'):'')+
       (j.cohort?.missing?.length?notice('Ranking excludes '+j.cohort.missing.length+' companies with unavailable market caps. The list may change once they are ranked.'):'')+
       '<div class="ef-layout"><nav class="ef-companies" aria-label="Companies">'+nav(j.companies,c)+'</nav><div class="ef-detail"><div class="ef-company-head"><div><p class="ef-kicker">'+(c.former?'Left the list on '+esc(c.former.leftAt.slice(0,10))+' · was rank '+esc(c.rank):'Rank '+esc(c.rank)+' of '+current.length+(c.joinedAt?' · joined '+esc(c.joinedAt.slice(0,10)):''))+'</p><h3>'+esc(c.name)+'</h3><p>'+esc(state.view==='valuation'?'Next four fiscal quarters · approximately twelve months':state.view==='company'?'Rolling three-year reported company history':state.view==='industry'?'Industry observations and company research connections':f.target?.label||'Target period unavailable')+'</p></div><span class="ef-status">'+esc(f.status==='ready'?'Unproven forecast':f.status)+'</span></div>'+
@@ -45417,10 +45435,18 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
   function sortHeader(key,text){const sorted=state.sort===key;return '<th aria-sort="'+(sorted?(direction()==='asc'?'ascending':'descending'):'none')+'"><button type="button" data-fl-sort-key="'+key+'">'+text+(sorted?'<span aria-hidden="true"> '+(direction()==='asc'?'↑':'↓')+'</span>':'')+'</button></th>';}
   function triggerCell(r){return r.triggerPrice!=null?money(r.triggerPrice)+'<small>Disclosed maintenance '+pct(r.maintenanceLtv*100)+'</small>':r.scenarios?.length?'<span>Scenario '+money(Math.min(...r.scenarios.map(s=>s.price)))+'–'+money(Math.max(...r.scenarios.map(s=>s.price)))+'</span><small>35–65% assumed LTV</small>':'<span>Unknown</span><small>'+esc(r.observation.collateralBasis==='mixed'?'Mixed collateral':'Loan terms incomplete')+'</small>';}
+  // The Top Picks engine reads the same rows: fresh, attributable loan terms
+  // (engineEligible) and the ones that would block a new bullish pick (vetoLong).
+  function picksCheck(){
+    const seen=new Set(),rows=data.rows.filter(r=>r.engineEligible&&!seen.has(r.symbol)&&seen.add(r.symbol)).sort((a,b)=>(b.vetoLong-a.vetoLong)||((a.distancePct??1e9)-(b.distancePct??1e9)));
+    if(!rows.length)return '<div class="fl-picks-watch"><b>Top Picks collateral check</b><p>No pledge has fresh, attributable loan terms right now, so nothing here can hold back a Top Pick.</p></div>';
+    const blocked=rows.filter(r=>r.vetoLong).length;
+    return '<div class="fl-picks-watch"><b>Top Picks collateral check</b><p>'+n(rows.length,0)+' stock'+(rows.length===1?' has':'s have')+' fresh loan terms the Top Picks engine reads'+(blocked?'; '+n(blocked,0)+' would hold back a new bullish pick (within 15% of the estimated trigger)':'; none is close enough to hold back a new bullish pick')+'. Being listed here does not make a stock a pick.</p><p>'+rows.map(r=>'<button type="button" class="fl-open" data-fl-open="'+esc(r.id)+'">'+esc(r.symbol)+'</button>: '+(r.distancePct==null?'distance unknown':pct(r.distancePct)+' to estimated trigger')+(r.vetoLong?' · <b>new bullish pick blocked</b>':'')).join(' · ')+'</p></div>';
+  }
   function watch(){
     const groups=watchGroups();
     const head=[['company','Company / borrower'],['stress','Pledge stress'],['shares','Disclosed shares'],['principal','Principal borrowed'],['trigger','Estimated trigger'],['price','Stock price'],['distance','Distance to trigger'],['volume','Pressure signals']].map(([key,title])=>sortHeader(key,title)).join('');
-    return eventsCallout()+toolbar()+'<details class="fl-info"><summary><span aria-hidden="true">ⓘ</span> How to read pledge stress, rows and distance</summary><p class="fl-caption">Pledge stress (0–100) ranks visible pressure without needing loan terms: the drop since the pledge was disclosed, the drop from the 52-week high, the pledged block in days of volume and as a share of float, a modeled trigger when one exists, and any recent forced-sale report. It is not a probability.</p><p class="fl-caption">One row per stock. When several disclosures match, forced-sale reports and breached or nearby thresholds take priority, followed by the highest-stress pledge. Open the stock to review repeated excerpts and separate facilities; amounts are never added together. CSV includes every matching disclosure.</p><p class="fl-caption">Signed distance = (stock price − trigger) ÷ stock price. Negative means the quote is below a modeled threshold. It does not confirm a margin call.</p></details>'+(groups.length?'<div class="fl-scroll" tabindex="0" role="region" aria-label="Pledged-stock watchlist"><table class="fl-table" data-nosort><thead><tr>'+head+'</tr></thead><tbody>'+groups.map(g=>watchRow(g.row,g.count)).join('')+'</tbody></table></div>':warning(data.rows.length?'No disclosures match these filters.':'No pledged-stock disclosures are available in this snapshot. Review scan coverage below; this is not evidence that the market has no pledged stock.'));
+    return eventsCallout()+picksCheck()+toolbar()+'<details class="fl-info"><summary><span aria-hidden="true">ⓘ</span> How to read pledge stress, rows and distance</summary><p class="fl-caption">Pledge stress (0–100) ranks visible pressure without needing loan terms: the drop since the pledge was disclosed, the drop from the 52-week high, the pledged block in days of volume and as a share of float, a modeled trigger when one exists, and any recent forced-sale report. It is not a probability.</p><p class="fl-caption">One row per stock. When several disclosures match, forced-sale reports and breached or nearby thresholds take priority, followed by the highest-stress pledge. Open the stock to review repeated excerpts and separate facilities; amounts are never added together. CSV includes every matching disclosure.</p><p class="fl-caption">Signed distance = (stock price − trigger) ÷ stock price. Negative means the quote is below a modeled threshold. It does not confirm a margin call.</p></details>'+(groups.length?'<div class="fl-scroll" tabindex="0" role="region" aria-label="Pledged-stock watchlist"><table class="fl-table" data-nosort><thead><tr>'+head+'</tr></thead><tbody>'+groups.map(g=>watchRow(g.row,g.count)).join('')+'</tbody></table></div>':warning(data.rows.length?'No disclosures match these filters.':'No pledged-stock disclosures are available in this snapshot. Review scan coverage below; this is not evidence that the market has no pledged stock.'));
   }
   function statusLabel(r){return r.observation.status==='released'?'Pledge released':r.observation.kind==='equity-pledge'&&!r.observation.issuerVerified?'Stock attribution unverified':r.observation.kind==='equity-pledge'&&r.observation.parserVersion!==config.evidenceVersion?'Pledge reported · refresh needed':label(r.state);}
   function pledgeShares(r){return (r.pledge.shares!=null&&r.pledge.shareBasis==='capacity-only'?'Up to ':'')+n(r.pledge.shares,0);}
@@ -46524,7 +46550,15 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var path = row.trajectory && row.trajectory.available === false ? 'Forward path unverified' : row.trajectory && row.trajectory.dir && row.trajectory.dir !== 'steady' && row.trajectory.score
       ? 'Path ' + leapsFmt(row.trajectory.score) + ' ' + row.trajectory.dir
       : '';
-    var meta = [leapsEntryText(row.entry), aligned, path].filter(Boolean).join(' · ');
+    // Rich or cheap options move the score (lib/leaps-score.mjs applyIvDerate);
+    // the payload carries only the result, so name the step here or the row's
+    // points do not add up to its score.
+    var ivAdj = null;
+    if (leapsNum(row.total) != null && leapsNum(row.score) != null) {
+      ivAdj = leapsNum(row.total) - (leapsNum(row.score) * 4 + (leapsNum(row.prior) || 0) + ((row.trajectory && leapsNum(row.trajectory.score)) || 0));
+      if (Math.abs(ivAdj) < 0.05) ivAdj = null;
+    }
+    var meta = [leapsEntryText(row.entry), aligned, path, ivAdj != null ? 'Option price ' + leapsFmt(ivAdj) : ''].filter(Boolean).join(' · ');
     // Heaviest pillar first, so the row reads in the order the score weighs it.
     var pillarLine = 'Top Picks pillar points · Fundamentals ' + leapsFmt(pillars.fundamentals) +
       ' · Trend ' + leapsFmt(pillars.technicals) +
@@ -46625,14 +46659,15 @@ function scenarioEventPhase(ev, now = Date.now()) {
     return { label: 'Paper record', resolved: closed.length, open: open,
       winPct: closed.length ? wins / closed.length * 100 : null,
       avg: rets.length ? rets.reduce(function(a, b){ return a + b; }, 0) / rets.length : null, avgLabel: 'avg contract',
-      empty: d ? 'no paper trades yet' : 'loading',
-      title: 'LEAPS paper book: one contract per qualified idea, filled at the ask, closed on target, doubling, flag, roll or the six-month time exit.' };
+      empty: !d ? 'loading' : d.missing ? 'paper record not running' : 'no paper trades yet',
+      title: d && d.missing ? 'The LEAPS paper book is not switched on: the build does not enroll LEAPS ideas yet (leapsPicksForBake), so no trades are recorded.'
+        : 'LEAPS paper book: one contract per qualified idea, filled at the ask, closed on target, doubling, flag, roll or the six-month time exit.' };
   }
   function loadLeapsPaper(){
     if (leapsPaperState.data || leapsPaperState.loading) return;
     leapsPaperState.loading = true;
     fetch(dataUrl('leaps-paper.json'), { cache: 'no-cache' })
-      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(r){ if (r.status === 404) return { positions: [], missing: true }; return r.ok ? r.json() : null; })
       .catch(function(){ return null; })
       .then(function(j){ leapsPaperState.loading = false; leapsPaperState.data = j && typeof j === 'object' ? j : { positions: [] }; setIdeaRecordChip('leaps-record-chip', leapsPaperRecord()); });
   }
@@ -46747,6 +46782,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(j){
         leapsState.data = (j && typeof j === 'object') ? j : {};
+        if (freshnessActiveTab === 'leaps') renderFreshness();
         leapsState.loading = false;
         leapsState.fetchedAt = Date.now();
         renderLeaps();
@@ -46813,6 +46849,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(j){
         stocksState.data = (j && typeof j === 'object') ? j : {};
+        if (freshnessActiveTab === 'stocks') renderFreshness();
         stocksState.loading = false;
         stocksState.fetchedAt = Date.now();
         renderStocks();
@@ -47753,6 +47790,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(j){
         rotationState.data = j && typeof j === 'object' ? j : {};
+        if (freshnessActiveTab === 'rotation') renderFreshness();
         rotationState.loading = false;
         rotationState.error = false;
         rotationState.fetchedAt = Date.now();
@@ -49153,6 +49191,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(j){
         levState.data = (j && typeof j === 'object') ? j : {};
+        if (freshnessActiveTab === 'levetf') renderFreshness();
         levState.loading = false;
         levState.fetchedAt = Date.now();
         renderLevEtf();
@@ -54186,6 +54225,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
   const price = n => model.finite(n) ? '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 }) : 'Unavailable';
   const money = n => model.finite(n) ? (n < 0 ? '-' : '') + '$' + Math.abs(n).toLocaleString('en-US', { maximumFractionDigits: 0 }) : 'Unavailable';
   const pct = n => model.finite(n) ? n.toFixed(2) + '%' : 'Unavailable';
+  // The price proxy needs 80% of the prior stock book priced; the site prices
+  // only its covered stocks, so most funds fall short. Say why, not just Unavailable.
+  const proxy = f => model.finite(f.performancePct) ? pct(f.performancePct)
+    : model.finite(f.performance?.coveragePct) ? 'Not computed (' + Math.round(f.performance.coveragePct) + '% of book priced, needs 80%)' : 'Not computed';
   const types = { stock: 'Shares', call: 'Calls · underlying shares', put: 'Puts · underlying shares', principal: 'Principal amount', other: 'Other disclosure' };
   const link = (url, label) => {
     try { const u = new URL(url); if (u.protocol === 'https:' && u.hostname === 'www.sec.gov' && u.pathname.startsWith('/Archives/')) return '<a target="_blank" rel="noopener" href="' + esc(u.href) + '">' + esc(label) + '</a>'; } catch {}
@@ -54244,14 +54287,14 @@ function scenarioEventPhase(ev, now = Date.now()) {
   function positionTable(rows) {
     return '<div class="f13-table-scroll" tabindex="0" role="region" aria-label="Disclosed positions"><table class="f13-table own-table" data-nosort><thead><tr><th>Stock / disclosure</th><th>Fund</th><th>Shares / amount</th><th>Reported value</th><th>Stock book weight</th><th>Change vs prior</th><th>Filing</th></tr></thead><tbody>' +
       rows.map(r => '<tr><td><button type="button" class="own-link" data-own-stock="' + esc(r.ticker || r.cusip) + '">' + esc(r.ticker || r.cusip) + '</button><small>' + esc(r.name) + '</small><small>' + esc(r.titleOfClass) + ' · ' + esc(types[r.type] || r.type) + (r.isExit ? ' · Exited' : r.isNew ? ' · New' : '') + '</small>' + disclosures(r) + '</td>' +
-      '<td><button type="button" class="own-link" data-own-fund="' + esc(r.firm) + '">' + esc(r.firm) + '</button>' + sourceStatus(r) + '<small>AUM est. ' + esc(money(r.aum)) + '</small><small>Quarter price proxy ' + esc(pct(r.performancePct)) + '</small></td>' +
+      '<td><button type="button" class="own-link" data-own-fund="' + esc(r.firm) + '">' + esc(r.firm) + '</button>' + sourceStatus(r) + '<small>AUM est. ' + esc(money(r.aum)) + '</small>' + (model.finite(r.performancePct) ? '<small>Quarter price proxy ' + esc(pct(r.performancePct)) + '</small>' : '') + '</td>' +
       '<td class="f13-num">' + esc(numeric(r.sharesNow)) + '<small>Prior ' + esc(numeric(r.sharesPrior)) + '</small></td><td class="f13-num">' + esc(money(r.valueNow)) + '<small>' + (r.type === 'call' || r.type === 'put' ? 'Underlying notional, not premium' : 'Quarter-end USD') + '</small><small>Prior ' + esc(money(r.valuePrior)) + '</small></td>' +
       '<td class="f13-num">' + esc(pct(r.weightPct)) + '</td><td class="f13-num">' + esc(numeric(r.shareChange)) + '<small>Value ' + esc(money(r.valueChange)) + '</small></td><td>' + esc(r.reportDate || '') + '<small>Filed ' + esc(r.filingDate || 'unavailable') + '</small>' + link(r.filingUrl, 'SEC filing') + '</td></tr>').join('') + '</tbody></table></div>';
   }
   function fundTable(rows) {
     return '<div class="f13-table-scroll" tabindex="0" role="region" aria-label="Tracked funds"><table class="f13-table own-table" data-nosort><thead><tr><th>Fund</th><th>AUM estimate</th><th>Reported 13F value</th><th>Quarter price proxy</th><th>Positions</th><th>Top 10 stock weight</th><th>Filing</th></tr></thead><tbody>' +
       rows.map(f => '<tr><td><button type="button" class="own-link" data-own-fund="' + esc(f.firm) + '">' + esc(f.firm) + '</button><small>' + esc(f.kind || '') + ' · CIK ' + esc(f.cik || 'unavailable') + '</small>' + sourceStatus(f) + '<small>' + (f.complete ? 'Full collected book' : 'Holdings unavailable · refresh required') + '</small></td>' +
-      '<td class="f13-num">' + esc(money(f.aum)) + '<small>Undated directory estimate</small></td><td class="f13-num">' + esc(money(f.reportedValue)) + '</td><td class="f13-num">' + esc(pct(f.performancePct)) + '<small>' + esc(pct(f.performance?.coveragePct)) + ' stock coverage</small></td><td class="f13-num">' + esc(numeric(f.positionCount)) + '</td><td class="f13-num">' + esc(pct(f.concentrationPct)) + '</td><td>' + esc(f.reportDate || '') + '<small>Filed ' + esc(f.filingDate || 'unavailable') + '</small></td></tr>').join('') + '</tbody></table></div>';
+      '<td class="f13-num">' + esc(money(f.aum)) + '<small>Undated directory estimate</small></td><td class="f13-num">' + esc(money(f.reportedValue)) + '</td><td class="f13-num">' + (model.finite(f.performancePct) ? esc(pct(f.performancePct)) : 'Not computed') + '<small>' + esc(pct(f.performance?.coveragePct)) + ' of stock book priced (needs 80%)</small></td><td class="f13-num">' + esc(numeric(f.positionCount)) + '</td><td class="f13-num">' + esc(pct(f.concentrationPct)) + '</td><td>' + esc(f.reportDate || '') + '<small>Filed ' + esc(f.filingDate || 'unavailable') + '</small></td></tr>').join('') + '</tbody></table></div>';
   }
   function form4(query) {
     if (!query.trim()) return '';
@@ -54288,7 +54331,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (state.mode === 'funds' && state.selectedFund) {
       const f = allFunds.find(f => f.firm === state.selectedFund);
       html += '<div class="own-fund-head"><button type="button" class="f13-action" data-own-back>All tracked funds</button><h4>' + esc(f.firm) + '</h4>' + sourceStatus(f) + '<p>' + esc(f.kind || '') + ' · CIK ' + esc(f.cik || '') + ' · Period end ' + esc(f.reportDate || 'unavailable') + '</p></div><div class="own-metrics">' +
-        metric('AUM estimate · undated', compactMoney(f.aum), money(f.aum)) + metric('Reported 13F value', compactMoney(f.reportedValue), money(f.reportedValue)) + metric('Quarter price proxy', pct(f.performancePct)) + metric('Stock price coverage', pct(f.performance?.coveragePct)) + '</div>' +
+        metric('AUM estimate · undated', compactMoney(f.aum), money(f.aum)) + metric('Reported 13F value', compactMoney(f.reportedValue), money(f.reportedValue)) + metric('Quarter price proxy', proxy(f)) + metric('Stock price coverage', pct(f.performance?.coveragePct)) + '</div>' +
         (!f.complete ? '<p class="own-empty">The full holdings book is unavailable. ' + esc(f.collectionError || 'The next successful collection will make this manager searchable.') + '</p>' : '');
     }
     if (visible.length) html += directory ? fundTable(visible) : positionTable(visible);
@@ -55050,10 +55093,12 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // theme toggle re-tints correctly.
   function fngBandFromScore(n){
     if (!isFinite(n)) return 'neutral';
-    if (n <= 24) return 'extreme-fear';
-    if (n <= 44) return 'fear';
-    if (n <= 55) return 'neutral';
-    if (n <= 75) return 'greed';
+    // CNN's bands: 0-24 extreme fear, 25-44 fear, 45-54 neutral, 55-74 greed,
+    // 75-100 extreme greed. Scores are fractional (24.78 is extreme fear).
+    if (n < 25) return 'extreme-fear';
+    if (n < 45) return 'fear';
+    if (n < 55) return 'neutral';
+    if (n < 75) return 'greed';
     return 'extreme-greed';
   }
   function fngBandLabel(b){
@@ -55373,8 +55418,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
       return { spec:spec, score:Math.round(Number(entry.score)) };
     }).filter(Boolean);
     var fearCount = componentReadings.filter(function(x){ return x.score <= 44; }).length;
-    var neutralCount = componentReadings.filter(function(x){ return x.score >= 45 && x.score <= 55; }).length;
-    var greedCount = componentReadings.filter(function(x){ return x.score > 55; }).length;
+    var neutralCount = componentReadings.filter(function(x){ return x.score >= 45 && x.score < 55; }).length;
+    var greedCount = componentReadings.filter(function(x){ return x.score >= 55; }).length;
     var weakest = componentReadings.slice().sort(function(a,b){ return a.score - b.score; })[0] || null;
     var strongest = componentReadings.slice().sort(function(a,b){ return b.score - a.score; })[0] || null;
     function fngDelta(value){
@@ -57537,6 +57582,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     Promise.all([pAcc, pGch, pPch, pRos, pReg, pResearch]).then(function(res){
       var j = res[0], gh = res[1], pc = res[2], ros = res[3], reg = res[4], research = res[5];
       accuracyState.data = (j && typeof j === 'object') ? j : { open: [], closed: [], stats: {} };
+      if (freshnessActiveTab === 'track') renderFreshness();
       accuracyState.gradeChanges = (gh && Array.isArray(gh.changes)) ? gh.changes : [];
       accuracyState.picksChanges = (pc && Array.isArray(pc.changes)) ? pc.changes : [];
       accuracyState.roster = (ros && Array.isArray(ros.roster)) ? ros : null;
@@ -60301,7 +60347,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     }
     // "At a glance" strip — the headline numbers the report below expands on.
     var glGreens = 0, glMarks = [];
-    open.forEach(function(o){ var p = Number(o.optionPnlPct); if (isFinite(p)){ glMarks.push(p); if (p >= 0) glGreens++; } });
+    open.forEach(function(o){ var p = Number(o.optionPnlPct); if (isFinite(p)){ glMarks.push(p); if (p > 0) glGreens++; } });
     var glTake = rep.n < 30
       ? 'Small modeled sample; descriptive results do not establish a validated edge. Returns are not actual fills.'
       : (rep.diags.length
@@ -60310,9 +60356,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
     accPaneSummary('acc-sum-summary', [
       { val: rep.n < 30 ? 'Early results' : 'Modeled results', lbl: rep.n + ' resolved model trades', cls: '' },
       { val: accPctRate(m.winRate), lbl: 'modeled win rate · n=' + rep.n, cls: (m.winRate != null && m.winRate >= 0.5) ? 'sig-pos' : 'sig-neg' },
-      { val: accPF(m.profitFactor), lbl: 'profit factor', cls: (m.profitFactor != null && (m.profitFactor === Infinity || m.profitFactor >= 1)) ? 'sig-pos' : 'sig-neg', tip: 'Gross winning $ ÷ gross losing $ (per contract, modeled).' },
+      { val: accPF(m.profitFactor), lbl: 'profit factor · one contract each', cls: (m.profitFactor != null && (m.profitFactor === Infinity || m.profitFactor >= 1)) ? 'sig-pos' : 'sig-neg', tip: 'Gross winning $ ÷ gross losing $ (per contract, modeled). Pricier contracts weigh more here than in the $10,000-per-trade running total.' },
       { val: accNum(m.expectancyR, 2) + 'R', lbl: 'avg outcome / unit risk', cls: accSignClass(m.expectancyR), tip: 'Average return on risk per resolved trade.' },
-      (m.avgWin != null || m.avgLoss != null) ? { val: '<span class="sig-pos">' + accMoney(m.avgWin, false) + '</span> / <span class="sig-neg">' + (m.avgLoss != null ? '-' + accMoney(m.avgLoss, false) : '—') + '</span>', lbl: 'avg win / avg loss' + (m.rr != null && m.rr !== Infinity ? ' · ' + m.rr.toFixed(2) + ':1' : ''), cls: '', tip: 'Average winning trade and average losing trade, per contract (modeled). The ratio is reward : risk.' } : null,
+      (m.avgWin != null || m.avgLoss != null) ? { val: '<span class="sig-pos">' + accMoney(m.avgWin, false) + '</span> / <span class="sig-neg">' + (m.avgLoss != null ? '-' + accMoney(m.avgLoss, false) : '—') + '</span>', lbl: 'avg win / avg loss per contract' + (m.rr != null && m.rr !== Infinity ? ' · ' + m.rr.toFixed(2) + ':1' : ''), cls: '', tip: 'Average winning trade and average losing trade, per contract (modeled). The ratio is reward : risk.' } : null,
       open.length ? { val: String(open.length), lbl: 'open now' + (glMarks.length ? ' · ' + glGreens + ' green' : ''), tip: glMarks.length ? 'Open book marked ' + accPct(accMean(glMarks)) + ' on average (modeled, unrealized).' : '' } : null,
     ], glTake);
     // Health banner + narrative. The direction-vs-theta share is computed over
@@ -60329,7 +60375,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     }
     if (open.length){
       var greens = 0, marks = [];
-      open.forEach(function(o){ var p = Number(o.optionPnlPct); if (isFinite(p)){ marks.push(p); if (p >= 0) greens++; } });
+      open.forEach(function(o){ var p = Number(o.optionPnlPct); if (isFinite(p)){ marks.push(p); if (p > 0) greens++; } });
       story += ' The open book: ' + open.length + ' position' + (open.length === 1 ? '' : 's') + (marks.length ? ', ' + greens + ' green, marked ' + accPct(accMean(marks)) + ' on average' : '') + '.';
     }
     var banner = '<div class="acc-sum-verdict acc-sum-' + (rep.n < 30 ? 'early' : rep.health.key) + '"><span class="acc-sum-badge">' + (rep.n < 30 ? 'Early modeled results' : 'Modeled results') + '</span><p class="acc-sum-story">' + story + '</p></div>';
@@ -62167,6 +62213,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(j){
         openPicksState.data = (j && typeof j === 'object') ? j : { open: [] };
+        if (freshnessActiveTab === 'open-picks') renderFreshness();
       })
       .catch(function(){ openPicksState.data = { open: [], loadError: true }; })
       .then(function(){ openPicksState.loading = false; renderOpenPicks(); });
@@ -62277,7 +62324,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       if (o.side !== 'put') calls++;
       var p = Number(o.optionPnlPct);
       if (!isFinite(p)) return;
-      marks.push(p); if (p >= 0) greens++;
+      marks.push(p); if (p > 0) greens++;
     });
     accPaneSummary('open-picks-sum', [
       { val: String(open.length), lbl: 'open positions' },
@@ -62572,7 +62619,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     open.forEach(function(o){
       var p = Number(o.optionPnlPct);
       if (!isFinite(p)) return;
-      pkMarks.push(p); if (p >= 0) pkGreens++;
+      pkMarks.push(p); if (p > 0) pkGreens++;
       if (!pkBest || Math.abs(p) > Math.abs(Number(pkBest.optionPnlPct))) pkBest = o;
     });
     var pkTake = pkBest
@@ -64558,6 +64605,13 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // + strategy/no-rec + conviction + any disclosure) and a collapsed "Expand for
   // full reasoning" with Market context / Company drivers / Technical-flow
   // confirmation / Invalidation / Strategy rationale / Thesis-quality checklist.
+  // The AI writes the thesis prose from the same inputs the card shows, but it
+  // can misquote one (it once wrote 95% for a 100% December hike). The card's
+  // own figures come straight from the data, so they win.
+  var AI_NUMBERS_NOTE = 'Written by AI from the data on this card. If a number in the text differs from the card’s own figures, trust the figures: they come straight from the data.';
+  function aiReadTag(){
+    return ' <span class="thesis-prose-tag" title="' + escapeHtml(AI_NUMBERS_NOTE) + '">AI read</span>';
+  }
   function pickThesisBlock(p){
     var tc = p && p.thesisCard;
     if (!tc) return '';
@@ -64585,7 +64639,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       ? '<div class="thesis-edge' + (edge.hasEdge === false ? ' thesis-edge-none' : '') + '"><span class="thesis-edge-lbl">' + (edge.hasEdge === false ? 'No edge' : 'The edge') + '</span> ' + escapeHtml(edge.text) + '</div>'
       : '';
     var leadHtml = (ai && ai.summary)
-      ? '<div class="thesis-summary"><span class="thesis-summary-lbl">' + (tc.direction === 'bearish' ? 'Bearish' : 'Bullish') + ' thesis</span> ' + escapeHtml(ai.summary) + ' <span class="thesis-prose-tag">AI read</span></div>'
+      ? '<div class="thesis-summary"><span class="thesis-summary-lbl">' + (tc.direction === 'bearish' ? 'Bearish' : 'Bullish') + ' thesis</span> ' + escapeHtml(ai.summary) + aiReadTag() + '</div>'
       : edgeHtml;
 
     // Strategy chip — OR a "no recommendation" note when the thesis is too thin.
@@ -64639,7 +64693,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       var aiDrv = (ai && Array.isArray(ai.drivers) && ai.drivers.length)
         ? '<div class="thesis-ai-drivers">' + ai.drivers.map(function(d){ return '<span class="thesis-ai-driver">' + escapeHtml(d) + '</span>'; }).join('') + '</div>'
         : '';
-      secs += '<div class="thesis-sec thesis-sec-reasoning"><div class="thesis-sec-head thesis-sec-ai" title="An AI strategist\'s plain-English thesis — it weighs the whole picture (company + news + interest rates + the dollar + the macro tape), decides what is load-bearing, and tells the story behind the grade. The deterministic grade still drives the trade decision.">Detailed thesis <span class="thesis-prose-tag">AI read</span></div><div class="thesis-narrative">' + beats + '</div>' + aiDrv + '</div>';
+      secs += '<div class="thesis-sec thesis-sec-reasoning"><div class="thesis-sec-head thesis-sec-ai" title="An AI strategist\'s plain-English thesis — it weighs the whole picture (company + news + interest rates + the dollar + the macro tape), decides what is load-bearing, and tells the story behind the grade. The deterministic grade still drives the trade decision.">Detailed thesis' + aiReadTag() + '</div><div class="thesis-narrative">' + beats + '</div>' + aiDrv + ((ai && (ai.setup || ai.catalyst || ai.outlook || ai.reasoning)) ? '<p class="thesis-ai-note">' + escapeHtml(AI_NUMBERS_NOTE) + '</p>' : '') + '</div>';
     }
     if (tc.marketRead && tc.marketRead.text){
       var sup = tc.marketRead.support;
@@ -64657,7 +64711,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       var srHtml = '';
       // The AI's IV-vs-structure justification (why sell premium / buy a debit /
       // stay defined-risk) leads; the deterministic reason gives the precise read.
-      if (stratRat) srHtml += '<div class="thesis-strat-reason thesis-strat-reason-ai">' + escapeHtml(stratRat) + ' <span class="thesis-prose-tag">AI read</span></div>';
+      if (stratRat) srHtml += '<div class="thesis-strat-reason thesis-strat-reason-ai">' + escapeHtml(stratRat) + aiReadTag() + '</div>';
       if (tc.strategy && tc.strategy.reason) srHtml += '<div class="thesis-strat-reason">' + escapeHtml(tc.strategy.reason) + '</div>';
       secs += '<div class="thesis-sec"><div class="thesis-sec-head">⑤ Strategy rationale</div>' + srHtml + '</div>';
     }
@@ -65285,7 +65339,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var review = pickReviewCheckpoint(p);
     var checkpoint = review ? (review.expired ? 'Contract expired — reassess the setup' : review.due ? 'Review due · ' + review.date : 'Review by ' + review.date) : 'Expiry unavailable — set a review date before entry';
     return '<section class="pick-plan-summary" aria-label="Trade plan at a glance"><header><h3>Trade plan</h3><strong class="' + (decision.ready ? 'sig-pos' : 'sig-warn') + '">' + escapeHtml(decision.label) + '</strong></header>' +
-      '<p class="pick-plan-thesis"><b>Why this setup</b> ' + escapeHtml(thesis) + '</p><div class="pick-plan-grid">' +
+      '<p class="pick-plan-thesis"><b>Why this setup</b> ' + escapeHtml(thesis) + (tc.ai && tc.ai.summary ? aiReadTag() : '') + '</p><div class="pick-plan-grid">' +
       '<div><small>Entry confirmation</small><b>' + (decision.trigger ? '$' + decision.trigger.toFixed(2) : escapeHtml(decision.label)) + '</b><span>' + escapeHtml(decision.reason) + '</span></div>' +
       '<div><small>Invalidation / defense</small><b>' + (cut && cut.price != null ? '$' + Number(cut.price).toFixed(2) : 'Review thesis deterioration') + '</b><span>Reassess if the supporting business drivers fail; the model defense level is not a guaranteed fill.</span></div>' +
       '<div><small>First exit target</small><b>' + (target && target.price != null ? '$' + Number(target.price).toFixed(2) : 'No target supplied') + '</b><span>' + escapeHtml(target && (target.prose || target.label || target.action) || 'Inspect the exit ladder and current contract quote.') + '</span></div>' +
@@ -66067,11 +66121,13 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var marketEvidence=$('picks-market-evidence');
     if(marketEvidence)TOP_PICKS_MARKET_UI.update(marketEvidence,TOP_PICKS_MARKET_UI.context(data));
     try { renderPicksMode(); } catch (_){}
+    // The SEC collateral watch lives on the Forced Liquidation Tracker. Top
+    // Picks only names a bullish pick the collateral check actually held back.
     var collateralBox = $('picks-liquidation-watch');
     if (collateralBox) {
-      var collateralRows = !data.stale && !data.loadError && data.rosterMeta && Array.isArray(data.rosterMeta.forcedLiquidationWatch) ? data.rosterMeta.forcedLiquidationWatch : [];
-      collateralBox.hidden = !collateralRows.length;
-      collateralBox.innerHTML = collateralRows.length ? '<b>SEC collateral watch</b><p>' + collateralRows.map(function(r){ return escapeHtml(r.symbol) + ': ' + (r.engineEligible ? (r.distancePct == null ? 'distance unknown' : r.distancePct.toFixed(1) + '% to estimated threshold') + (r.vetoLong ? ' · new bullish pick blocked' : '') : 'incomplete terms · research only'); }).join(' · ') + '</p><a href="?tab=forced-liquidation">Inspect Forced Liquidation Tracker</a>' : '';
+      var heldBack = !data.stale && !data.loadError && data.rosterMeta && Array.isArray(data.rosterMeta.collateralGated) ? data.rosterMeta.collateralGated : [];
+      collateralBox.hidden = !heldBack.length;
+      collateralBox.innerHTML = heldBack.length ? '<b>Held back by SEC collateral terms</b><p>' + escapeHtml(heldBack.join(', ')) + (heldBack.length === 1 ? ' would have been a new bullish pick, but its' : ' would have been new bullish picks, but their') + ' disclosed share-pledge loan sits within 15% of the estimated trigger.</p><a href="?tab=forced-liquidation">See the Forced Liquidation Tracker</a>' : '';
     }
     // Legacy stale-carry payloads are audit context, never current trade ideas.
     // The build now publishes an empty roster directly, but keep the client
@@ -67540,7 +67596,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var cols = [
       { label: 'Term', cell: function(t){ return '<b>' + escapeHtml(t.term) + '</b><span class="vt-sub">' + escapeHtml(t.type + (t.latest.reopening ? ' · reopening' : '')) + '</span>'; }, sort: function(t){ return t.term; } },
       { label: 'Auction', cell: function(t){ return escapeHtml(t.latest.date); }, sort: function(t){ return t.latest.date; } },
-      { label: 'High yield', num: true, title: 'The yield at which the auction cleared', cell: function(t){ return num1(t.latest.yield, 3) + '%' + (t.yieldChange != null ? '<span class="vt-sub">' + (t.yieldChange >= 0 ? '+' : '') + (t.yieldChange * 100).toFixed(0) + ' bp vs prior</span>' : ''); }, sort: function(t){ return t.latest.yield; } },
+      { label: 'High yield', num: true, title: 'The yield at which the auction cleared', cell: function(t){ return (t.latest.yield == null || !isFinite(t.latest.yield) ? (t.type === 'FRN' ? '<span class="vt-sub">floating rate</span>' : '—') : num1(t.latest.yield, 3) + '%') + (t.yieldChange != null ? '<span class="vt-sub">' + (t.yieldChange >= 0 ? '+' : '') + (t.yieldChange * 100).toFixed(0) + ' bp vs prior</span>' : ''); }, sort: function(t){ return t.latest.yield; } },
       { label: 'Bid-to-cover', num: true, title: 'Dollars bid per dollar sold; higher is stronger demand', cell: function(t){ return num1(t.latest.btc, 2) + (t.btcAvg != null ? '<span class="vt-sub">avg ' + num1(t.btcAvg, 2) + ' (' + (t.btcGap >= 0 ? '+' : '') + num1(t.btcGap, 2) + ')</span>' : ''); }, sort: function(t){ return t.latest.btc; } },
       { label: 'Indirect bidders', num: true, title: 'Share taken by indirect bidders, mostly foreign central banks and funds', cell: function(t){ return pctS(t.latest.indirectPct) + (t.indirectAvg != null ? '<span class="vt-sub">avg ' + pctS(t.indirectAvg) + '</span>' : ''); }, sort: function(t){ return t.latest.indirectPct; } },
       { label: 'Dealers', num: true, title: 'Share left with primary dealers; more than usual means weaker outside demand', cell: function(t){ return pctS(t.latest.dealerPct) + (t.dealerAvg != null ? '<span class="vt-sub">avg ' + pctS(t.dealerAvg) + '</span>' : ''); }, sort: function(t){ return t.latest.dealerPct; } },
@@ -67548,7 +67604,11 @@ function scenarioEventPhase(ev, now = Date.now()) {
       { label: 'Read', cell: function(t){ return readPill(t.read); }, sort: function(t){ return t.read; } }
     ];
     var upcoming = (sm.upcoming || []).slice(0, 6).map(function(a){ return escapeHtml(a.date + ' ' + a.term + (a.offered ? ' ' + bn(a.offered) : '')); }).join(' · ');
-    host.innerHTML = '<p class="bonds-auction-head">' + escapeHtml(sm.headline || '') + '</p>' +
+    // Fiscal Data can stop posting results for weeks; say how old the newest one is.
+    var staleNote = sm.couponStale && sm.couponAsOf
+      ? '<p class="hint"><b>Feed behind:</b> the newest coupon result the Treasury&rsquo;s Fiscal Data feed has posted is from ' + escapeHtml(sm.couponAsOf) + ' (' + sm.couponAgeDays + ' days ago). Later auctions appear here once the feed posts them.</p>'
+      : '';
+    host.innerHTML = '<p class="bonds-auction-head">' + escapeHtml(sm.couponStale ? 'Latest posted results (feed behind): ' + (sm.headline || '') : (sm.headline || '')) + '</p>' + staleNote +
       VIEWS.tableHtml(cols, sm.byTerm, { key: 'bonds-auctions', empty: 'No coupon auctions yet.' }) +
       (upcoming ? '<p class="hint"><b>Announced:</b> ' + upcoming + '</p>' : '') +
       '<div class="bonds-auction-chart"></div>' +
@@ -67558,7 +67618,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var series = [];
     terms.forEach(function(term, i){
       var t = null;
-      for (var k = 0; k < sm.byTerm.length; k++) if (sm.byTerm[k].term === term) t = sm.byTerm[k];
+      for (var k = 0; k < sm.byTerm.length; k++) if (sm.byTerm[k].term === term && (sm.byTerm[k].type === 'Note' || sm.byTerm[k].type === 'Bond')) t = sm.byTerm[k];
       if (!t || !t.history || t.history.length < 2) return;
       series.push({ name: term + ' bid-to-cover', short: term.replace('-Year', 'Y'), type: 'line', data: t.history.map(function(h){ return { time: h.d, value: h.btc }; }), color: c.series[i % c.series.length], format: function(v){ return v == null ? '—' : Number(v).toFixed(2) + 'x'; } });
     });

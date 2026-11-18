@@ -6,6 +6,7 @@ import { createHmac } from "node:crypto";
 import quotesHandler from "../api/quotes.js";
 import authHandler from "../api/auth/[action].js";
 import macroLiveHandler, { parseTreasuryTwoYearXml } from "../api/macro-live.js";
+import fedFuturesHandler from "../api/fed-futures.js";
 import watchlistHandler from "../api/watchlist.js";
 import {
   fetchChain,
@@ -114,6 +115,31 @@ try {
 } finally {
   yahooFinance.quote = originalQuote;
   globalThis.fetch = originalFetch;
+}
+
+// /api/fed-futures must skip yahoo-finance2's shape check: Yahoo sends
+// futures rows the SDK schema rejects, which made the endpoint answer 502
+// on every call until 2026-11-18 (the live FedWatch widget stayed baked-only).
+try {
+  let fedOpts = null;
+  yahooFinance.quote = async (symbols, query, moduleOpts) => {
+    fedOpts = moduleOpts;
+    if (!moduleOpts || moduleOpts.validateResult !== false) throw new Error("Failed Yahoo Schema validation");
+    return [
+      { symbol: "ZQZ26.CBT", regularMarketPrice: 96.36, marketState: "REGULAR", contractSymbol: false },
+      { symbol: "ZQF27.CBT", regularMarketPrice: null, regularMarketPreviousClose: 96.4, contractSymbol: false },
+      { symbol: "ZQG27.CBT", regularMarketPrice: "n/a" },
+      { symbol: "AAPL", regularMarketPrice: 200 },
+    ];
+  };
+  const fedRes = mockResponse();
+  await fedFuturesHandler({ method: "GET", query: { symbols: "ZQZ26.CBT,ZQF27.CBT,ZQG27.CBT,AAPL" } }, fedRes);
+  assert.equal(fedRes.statusCode, 200);
+  assert.equal(fedOpts.validateResult, false);
+  assert.deepEqual(fedRes.body.prices, { "ZQZ26.CBT": 96.36, "ZQF27.CBT": 96.4 });
+  assert.equal(fedRes.body.marketState, "REGULAR");
+} finally {
+  yahooFinance.quote = originalQuote;
 }
 
 const originalOptions = yahooFinance.options;

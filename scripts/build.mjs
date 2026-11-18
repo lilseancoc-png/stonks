@@ -59,7 +59,7 @@ import { computeGexSummary } from "../lib/gex.mjs";
 import { issuerCreditRatingFor } from "../lib/issuer-credit-ratings.mjs";
 import { fetchFinraMarketStructure, attachShortInterestToChains, chainPutCallTotals, impliedBorrowRate } from "../lib/market-structure.mjs";
 import { MACRO_HISTORY_KEEP, VIX_RANK_WINDOW, macroLevelsFromBackdrop, macroLevelsLate, mergeMacroLevels } from "../lib/macro-levels.mjs";
-import { TREASURY_AUCTIONS_KEY, TREASURY_AUCTIONS_LOOKBACK_DAYS, treasuryAuctionsUrl, parseTreasuryAuctionRows, parseTreasuryAuctions, emptyTreasuryAuctions, upsertTreasuryAuctions, treasuryAuctionsFetchedToday, summarizeTreasuryAuctions } from "../lib/treasury-auctions.mjs";
+import { TREASURY_AUCTIONS_KEY, TREASURY_AUCTIONS_LOOKBACK_DAYS, TREASURY_AUCTIONS_BACKFILL_VERSION, TREASURY_AUCTIONS_BACKFILL_DAYS, treasuryAuctionsUrl, parseTreasuryAuctionRows, parseTreasuryAuctions, emptyTreasuryAuctions, upsertTreasuryAuctions, treasuryAuctionsFetchedToday, summarizeTreasuryAuctions } from "../lib/treasury-auctions.mjs";
 import { marketStructureCalendarEvents, ipoListingsFrom } from "../lib/market-dates.mjs";
 import { buildFedLiquidity } from "../lib/fed-liquidity.mjs";
 import { buildMarketMap, MARKET_MAP_FILE } from "../lib/market-map.mjs";
@@ -12864,8 +12864,8 @@ export function commoditySeriesFromSweep(def, globalMarkets) {
 async function readPriorTreasuryAuctions() {
   try { return parseTreasuryAuctions(await readFile(resolve(DATA_DIR, TREASURY_AUCTIONS_KEY), "utf8")); } catch { return null; }
 }
-export async function fetchTreasuryAuctionRows(sinceDate, fetchImpl = fetch) {
-  const url = treasuryAuctionsUrl(sinceDate);
+export async function fetchTreasuryAuctionRows(sinceDate, fetchImpl = fetch, opts = {}) {
+  const url = treasuryAuctionsUrl(sinceDate, opts);
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 20_000);
   let res;
@@ -12881,12 +12881,20 @@ export async function writeTreasuryAuctionsFile(prior, builtAtIso, { fetchImpl =
   const today = etDateKey(new Date(builtAtIso || Date.now()));
   let state = prior || emptyTreasuryAuctions();
   let fetched = 0, skipped = "";
-  if (treasuryAuctionsFetchedToday(state, today)) skipped = "already read today";
+  const needsBackfill = state.backfillVersion !== TREASURY_AUCTIONS_BACKFILL_VERSION;
+  if (treasuryAuctionsFetchedToday(state, today) && !needsBackfill) skipped = "already read today";
   else {
+    if (needsBackfill) {
+      // One read of two years of coupon auctions (about 210 rows, ~35 KB).
+      const since2y = new Date(Date.parse(`${today}T12:00:00Z`) - TREASURY_AUCTIONS_BACKFILL_DAYS * 86400000).toISOString().slice(0, 10);
+      const coupons = await fetchTreasuryAuctionRows(since2y, fetchImpl, { couponsOnly: true, pageSize: 1000 });
+      fetched += coupons.length;
+      state = { ...upsertTreasuryAuctions(state, coupons, { now: new Date().toISOString() }), backfillVersion: TREASURY_AUCTIONS_BACKFILL_VERSION };
+    }
     const since = new Date(Date.parse(`${today}T12:00:00Z`) - TREASURY_AUCTIONS_LOOKBACK_DAYS * 86400000).toISOString().slice(0, 10);
     const rows = await fetchTreasuryAuctionRows(since, fetchImpl);
-    fetched = rows.length;
-    state = upsertTreasuryAuctions(state, rows, { fetchedDate: today, now: new Date().toISOString() });
+    fetched += rows.length;
+    state = { ...upsertTreasuryAuctions(state, rows, { fetchedDate: today, now: new Date().toISOString() }), backfillVersion: state.backfillVersion };
   }
   const summary = summarizeTreasuryAuctions(state, { today });
   const payload = { ...state, summary };
@@ -14084,6 +14092,22 @@ async function buildIcNyFed(prior) {
   };
 }
 
+// A completed IPO quarter stays a frozen snapshot (its mcap estimates must
+// not drift), but the source keeps adding late-posted pricings for weeks:
+// on 2026-11-17 the site showed 88 / 98 IPOs for Q1 / Q2 2026 against 89 /
+// 100 on stockanalysis.com. When the same year is fetched anyway (it holds
+// the current quarter), add the rows the snapshot lacks and keep every
+// cached row exactly as it was.
+export function icMergeLateListings(cached, yearItems, key) {
+  if (!cached || !Array.isArray(cached.items) || !Array.isArray(yearItems)) return cached;
+  const id = (it) => `${it.symbol}|${it.date}`;
+  const have = new Set(cached.items.map(id));
+  const added = yearItems.filter((it) => it && it.symbol && it.date && icQuarterKey(it.date) === key && !have.has(id(it)));
+  if (!added.length) return cached;
+  const items = [...cached.items, ...added].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+  return { ...cached, count: (Number.isFinite(cached.count) ? cached.count : cached.items.length) + added.length, items: items.slice(0, 400), lateAdded: (cached.lateAdded || 0) + added.length };
+}
+
 export async function buildIpoCreditPayload(builtAtIso, prior = null, priorCapitalRaises = null) {
   const etDate = etDateKey();
   const curKey = icQuarterKey(etDate);
@@ -14162,7 +14186,11 @@ export async function buildIpoCreditPayload(builtAtIso, prior = null, priorCapit
           return { key, label: icQuarterLabel(key), count: inQ.length, src: fetched.src, asOf: etDate, items: inQ.slice(0, 400) };
         }
       }
-      if (cached) return { ...cached, label: icQuarterLabel(key) };
+      if (cached) {
+        const sameYear = byYear.get(key.slice(0, 4));
+        const merged = sameYear?.src === "screener" && cached.src === "screener" ? icMergeLateListings(cached, sameYear.items, key) : cached;
+        return { ...merged, label: icQuarterLabel(key) };
+      }
       return { key, label: icQuarterLabel(key), count: 0 };
     });
     // Two years of zero IPOs everywhere = a silent source failure, not data.
@@ -14324,24 +14352,63 @@ function buyoutCloseIso(label) {
   return Number.isFinite(ms) ? new Date(ms).toISOString().slice(0, 10) : null;
 }
 
+// Column positions come from the table's own header when it has one: ditat.io
+// added a "Mkt cap USD" column on or before 2026-11-17, which shifted every
+// later cell by one (offer price read as the spread, days as the close date).
+// A table with no recognisable header keeps the original ten-column layout.
+const BUYOUT_COLUMN_DEFAULTS = Object.freeze({ ticker: 0, target: 1, acquirer: 2, type: 3, price: 4, offer: 5, gross: 6, annual: 7, days: 8, close: 9 });
+const BUYOUT_COLUMN_PATTERNS = [
+  ["ticker", /^ticker/],
+  ["target", /^target$|^target company/],
+  ["acquirer", /^acquir/],
+  ["type", /^(deal )?type/],
+  ["price", /^target (px|price)|^price/],
+  ["offer", /^implied|^offer|^consideration/],
+  ["gross", /^gross/],
+  ["annual", /^ann/],
+  ["days", /days/],
+  ["close", /^(expected )?close/],
+];
+
+export function buyoutColumnMap(html) {
+  const head = (String(html || "").match(/<thead[^>]*>([\s\S]*?)<\/thead>/i) || [])[1] || "";
+  const labels = [...head.matchAll(/<th\b[^>]*>([\s\S]*?)<\/th>/gi)]
+    .map((m) => buyoutCleanCell(m[1]).replace(/[↕▲▼]/g, "").trim().toLowerCase());
+  if (!labels.length) return { ...BUYOUT_COLUMN_DEFAULTS };
+  const map = {};
+  labels.forEach((label, i) => {
+    for (const [key, re] of BUYOUT_COLUMN_PATTERNS) {
+      if (map[key] == null && re.test(label)) { map[key] = i; break; }
+    }
+  });
+  // Every field the row needs must be found, or the header is not one we know.
+  const needed = Object.keys(BUYOUT_COLUMN_DEFAULTS);
+  return needed.every((k) => map[k] != null) ? map : null;
+}
+
 export function parsePendingBuyoutTable(html) {
+  const col = buyoutColumnMap(html);
+  // An unknown header is a layout change: return nothing so the last-good
+  // confirmed lane carries forward instead of shipping shifted numbers.
+  if (!col) return [];
+  const minCells = Math.max(...Object.values(col)) + 1;
   const body = (String(html || "").match(/<tbody[^>]*>([\s\S]*?)<\/tbody>/i) || [])[1] || "";
   const rows = [];
   for (const rowM of body.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)) {
     const cells = [...rowM[1].matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi)].map((m) => m[1]);
-    if (cells.length < 10) continue;
-    const ticker = buyoutCleanCell(cells[0]).replace(/[✓›]/g, "").trim().toUpperCase();
+    if (cells.length < minCells) continue;
+    const ticker = buyoutCleanCell(cells[col.ticker]).replace(/[✓›]/g, "").trim().toUpperCase();
     if (!/^[A-Z0-9][A-Z0-9.-]{0,11}$/.test(ticker)) continue;
-    const href = (cells[0].match(/href=["']([^"']+)["']/i) || [])[1] || null;
-    const target = buyoutCleanCell(cells[1]);
-    const acquirer = buyoutCleanCell(cells[2]);
-    const dealType = buyoutCleanCell(cells[3]).toLowerCase();
-    const targetPrice = buyoutNumber(buyoutCleanCell(cells[4]));
-    const considerationPerShare = buyoutNumber(buyoutCleanCell(cells[5]));
-    const grossSpreadPct = buyoutNumber(buyoutCleanCell(cells[6]));
-    const annualizedSpreadPct = buyoutNumber(buyoutCleanCell(cells[7]));
-    const daysLeft = buyoutNumber(buyoutCleanCell(cells[8]));
-    const expectedCloseLabel = buyoutCleanCell(cells[9]);
+    const href = (cells[col.ticker].match(/href=["']([^"']+)["']/i) || [])[1] || null;
+    const target = buyoutCleanCell(cells[col.target]);
+    const acquirer = buyoutCleanCell(cells[col.acquirer]);
+    const dealType = buyoutCleanCell(cells[col.type]).toLowerCase();
+    const targetPrice = buyoutNumber(buyoutCleanCell(cells[col.price]));
+    const considerationPerShare = buyoutNumber(buyoutCleanCell(cells[col.offer]));
+    const grossSpreadPct = buyoutNumber(buyoutCleanCell(cells[col.gross]));
+    const annualizedSpreadPct = buyoutNumber(buyoutCleanCell(cells[col.annual]));
+    const daysLeft = buyoutNumber(buyoutCleanCell(cells[col.days]));
+    const expectedCloseLabel = buyoutCleanCell(cells[col.close]);
     if (!target || !acquirer || !(considerationPerShare > 0)) continue;
     rows.push({
       id: `confirmed:${ticker}`,
@@ -14358,7 +14425,7 @@ export function parsePendingBuyoutTable(html) {
       daysLeft,
       expectedCloseAt: buyoutCloseIso(expectedCloseLabel),
       expectedCloseLabel: expectedCloseLabel && expectedCloseLabel !== "—" ? expectedCloseLabel : null,
-      verifiedTerms: /verified/i.test(cells[0]) || /✓/.test(buyoutCleanCell(cells[0])),
+      verifiedTerms: /verified/i.test(cells[col.ticker]) || /✓/.test(buyoutCleanCell(cells[col.ticker])),
       sourceUrl: href,
       sourceName: href && /sec\.gov/i.test(href) ? "SEC filing" : "Referenced deal source",
     });
@@ -20926,10 +20993,12 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory = null, narrat
       const falling = dxy.trend === "falling" && !(d1 >= PICKS_MACRO_DXY_1D / 2);
       let s = 0, label = `DXY ${d1 >= 0 ? "+" : ""}${d1.toFixed(2)}% 1d`;
       if (d1 >= PICKS_MACRO_DXY_1D_STRONG) { s = -2; label = `DXY +${d1.toFixed(2)}% — sharp dollar spike`; }
-      else if (d1 >= PICKS_MACRO_DXY_1D || (rising && d5 >= PICKS_MACRO_DXY_5D)) { s = -1; label = `DXY ${d1 >= 0 ? "+" : ""}${d1.toFixed(2)}% — dollar bid`; }
-      else if (d1 <= -PICKS_MACRO_DXY_1D || (falling && d5 <= -PICKS_MACRO_DXY_5D)) { s = 1; label = `DXY ${d1.toFixed(2)}% — dollar easing`; }
+      // A vote set by the 5-day trend names the 5-day move, so a small 1d dip
+      // never reads "DXY -0.05% — dollar bid".
+      else if (d1 >= PICKS_MACRO_DXY_1D || (rising && d5 >= PICKS_MACRO_DXY_5D)) { s = -1; label = d1 >= PICKS_MACRO_DXY_1D ? `DXY +${d1.toFixed(2)}% — dollar bid` : `DXY +${d5.toFixed(2)}% over 5 days — dollar bid`; }
+      else if (d1 <= -PICKS_MACRO_DXY_1D || (falling && d5 <= -PICKS_MACRO_DXY_5D)) { s = 1; label = d1 <= -PICKS_MACRO_DXY_1D ? `DXY ${d1.toFixed(2)}% — dollar easing` : `DXY ${d5.toFixed(2)}% over 5 days — dollar easing`; }
       axes.dxy = { score: s, label };
-      if (s <= -1) drivers.push(`DXY ${d1 >= 0 ? "+" : ""}${d1.toFixed(2)}%`);
+      if (s <= -1) drivers.push(label.split(" — ")[0]);
     } else axes.dxy = { score: 0, label: "no DXY" };
   }
 
@@ -20946,10 +21015,10 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory = null, narrat
       const fallingTrend = ten && ten.trend === "falling" && Number(ten.bpsChange5d) <= -PICKS_MACRO_YIELD_BPS_1D && !tenReversingUp;
       let s = 0, label = `10Y ${up >= 0 ? "+" : ""}${up.toFixed(1)} bps 1d`;
       if (up >= PICKS_MACRO_YIELD_BPS_1D_STRONG) { s = -2; label = `Long yields +${up.toFixed(1)} bps — yield spike`; }
-      else if (up >= PICKS_MACRO_YIELD_BPS_1D || risingTrend) { s = -1; label = `Long yields ${up >= 0 ? "+" : ""}${up.toFixed(1)} bps — rising`; }
-      else if (dn <= -PICKS_MACRO_YIELD_BPS_1D || fallingTrend) { s = 1; label = `Long yields ${dn.toFixed(1)} bps — easing`; }
+      else if (up >= PICKS_MACRO_YIELD_BPS_1D || risingTrend) { s = -1; label = up >= PICKS_MACRO_YIELD_BPS_1D ? `Long yields +${up.toFixed(1)} bps — rising` : `10Y +${Number(ten.bpsChange5d).toFixed(1)} bps over 5 days — rising`; }
+      else if (dn <= -PICKS_MACRO_YIELD_BPS_1D || fallingTrend) { s = 1; label = dn <= -PICKS_MACRO_YIELD_BPS_1D ? `Long yields ${dn.toFixed(1)} bps — easing` : `10Y ${Number(ten.bpsChange5d).toFixed(1)} bps over 5 days — easing`; }
       axes.yields = { score: s, label };
-      if (s <= -1) drivers.push(`10Y ${up >= 0 ? "+" : ""}${up.toFixed(1)}bps`);
+      if (s <= -1) drivers.push(label.split(" — ")[0]);
     } else axes.yields = { score: 0, label: "no yields" };
   }
 
@@ -27832,8 +27901,7 @@ const LEVETF_WATCH_BAND = 1.5;        // missed the bar by ≤ this → shipped 
 // SHOP) are deliberately absent.
 // `er` = annual expense ratio as a decimal fraction, pulled live from Yahoo
 // quoteSummary (fundProfile.feesExpensesInvestment.annualReportExpenseRatio,
-// verified 2026-07-19); HOOZ is the one Yahoo gap — its 0.0129 comes from the
-// issuer's own site and matches its Defiance siblings (RKLZ/SMCZ).
+// verified 2026-07-19).
 export const LEVERAGED_ETF_SINGLES = {
   NVDA:  { bull: { sym: "NVDL", lev: 2, er: 0.0105 }, bear: { sym: "NVDD", lev: -1, er: 0.0101 } },
   TSLA:  { bull: { sym: "TSLL", lev: 2, er: 0.0083 }, bear: { sym: "TSLS", lev: -1, er: 0.0095 } },
@@ -27854,9 +27922,12 @@ export const LEVERAGED_ETF_SINGLES = {
   ORCL:  { bull: { sym: "ORCU", lev: 2, er: 0.0097 }, bear: { sym: "ORCS", lev: -1, er: 0.0097 } },
   QCOM:  { bull: { sym: "QCML", lev: 2, er: 0.015  }, bear: { sym: "QCMD", lev: -1, er: 0.01, note: "QCMD is a thin listing (~$0.4M/day) — expect wide spreads, use limit orders" } },
   CRWD:  { bull: { sym: "CRWL", lev: 2, er: 0.015  }, bear: null },
-  LLY:   { bull: { sym: "ELIL", lev: 2, er: 0.0107 }, bear: { sym: "ELIS", lev: -1, er: 0.0101, note: "ELIS is a thin listing (~$0.2M/day) — expect wide spreads, use limit orders" } },
+  // ELIS (Direxion LLY Bear 1X) last traded 2026-04-10 and HOOZ (Defiance 2X
+  // Short HOOD) 2026-08-27, when Defiance closed it; both bears are null until
+  // a listed replacement is verified (checked 2026-11-18, Nasdaq + stockanalysis).
+  LLY:   { bull: { sym: "ELIL", lev: 2, er: 0.0107 }, bear: null },
   ARM:   { bull: { sym: "ARMG", lev: 2, er: 0.0078 }, bear: null },
-  HOOD:  { bull: { sym: "HOOG", lev: 2, er: 0.0085 }, bear: { sym: "HOOZ", lev: -2, er: 0.0129 } },
+  HOOD:  { bull: { sym: "HOOG", lev: 2, er: 0.0085 }, bear: null },
   MRVL:  { bull: { sym: "MRVU", lev: 2, er: 0.0097 }, bear: null },
   ASML:  { bull: { sym: "ASMG", lev: 2, er: 0.0077 }, bear: null },
   PANW:  { bull: { sym: "PALU", lev: 2, er: 0.0108 }, bear: null },
@@ -28311,7 +28382,16 @@ export function levEtfEntryInUniverse(e) {
     if (def.proxy && TICKERS.includes(def.proxy)) return true;
     return TICKERS.some((sym) => LEVETF_SECTOR_GROUP[SECTORS[sym]] === e.group);
   }
-  return Boolean(e?.under && LEVERAGED_ETF_SINGLES[e.under] && TICKERS.includes(e.under));
+  const def = e?.under ? LEVERAGED_ETF_SINGLES[e.under] : null;
+  if (!def || !TICKERS.includes(e.under)) return false;
+  // A fund that stopped trading leaves the registry (its side goes null), so
+  // an open entry on it closes as left-universe instead of waiting forever
+  // for a quote that never comes.
+  if (e.etf && (e.direction === "bull" || e.direction === "bear")) {
+    const leg = def[e.direction];
+    return Boolean(leg && leg.sym === e.etf);
+  }
+  return true;
 }
 
 export async function readPriorLevEtfLog() {

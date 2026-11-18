@@ -67,6 +67,22 @@ ok("upcoming list only future pending rows", summarizeTreasuryAuctions(upsertTre
 ok("empty state summary", summarizeTreasuryAuctions(emptyTreasuryAuctions()).headline.startsWith("No coupon"));
 ok("auctions key is public and bake-optional", !isPremiumKey(TREASURY_AUCTIONS_KEY) && OPTIONAL_BAKE_KEYS.includes(TREASURY_AUCTIONS_KEY));
 ok("trailing window constant sane", AUCTION_TRAIL_N === 6);
+// TIPS and FRNs share term labels with nominal notes; they must not pool.
+const tipsRows = parseTreasuryAuctionRows({ data: [
+  { cusip: "TIPS10A", security_type: "Note", security_term: "9-Year 10-Month", auction_date: "2026-09-17", total_accepted: "19000000000", bid_to_cover_ratio: "2.24", high_yield: "2.653", inflation_index_security: "Yes", floating_rate: "No" },
+  { cusip: "NOM10A", security_type: "Note", security_term: "9-Year 10-Month", auction_date: "2026-10-07", total_accepted: "39000000000", bid_to_cover_ratio: "2.77", high_yield: "5.300", inflation_index_security: "No", floating_rate: "No" },
+  { cusip: "FRN2A", security_type: "Note", security_term: "1-Year 10-Month", auction_date: "2026-09-23", total_accepted: "28000000000", bid_to_cover_ratio: "2.63", high_yield: "null", inflation_index_security: "No", floating_rate: "Yes" },
+] });
+ok("TIPS and FRN typed from their flags", tipsRows[0].type === "TIPS" && tipsRows[1].type === "Note" && tipsRows[2].type === "FRN");
+const tipsSm = summarizeTreasuryAuctions(upsertTreasuryAuctions(null, tipsRows), { today: "2026-11-17" });
+const nominal10 = tipsSm.byTerm.find((t) => t.term === "9-Year 10-Month" && t.type === "Note");
+ok("TIPS not pooled with the nominal note", tipsSm.byTerm.length === 3 && nominal10 && nominal10.yieldChange == null && nominal10.trailN === 0);
+ok("stalled feed flagged from the newest coupon result", tipsSm.couponAsOf === "2026-10-07" && tipsSm.couponAgeDays === 41 && tipsSm.couponStale === true);
+ok("url carries the TIPS / FRN flags and a coupon filter", /inflation_index_security/.test(treasuryAuctionsUrl("2024-11-18", { couponsOnly: true })) && /security_type%3Ain%3A%28Note%2CBond%29/.test(treasuryAuctionsUrl("2024-11-18", { couponsOnly: true })));
+const billFlood = Array.from({ length: 300 }, (_, i) => ({ cusip: `B${i}`, date: `2026-10-${String(1 + (i % 28)).padStart(2, "0")}`, type: "Bill", term: "4-Week", btc: 2.8 }));
+const keptMix = upsertTreasuryAuctions(null, [...billFlood, ...tipsRows]).auctions;
+ok("bills never crowd coupons out", keptMix.filter((a) => a.type === "Bill").length === 80 && keptMix.filter((a) => a.type !== "Bill").length === 3);
+ok("backfill version survives a read", parseTreasuryAuctions(JSON.stringify({ ...emptyTreasuryAuctions(), backfillVersion: 1 })).backfillVersion === 1);
 
 // ---- Option-implied borrow --------------------------------------------------
 // Build a chain whose call/put mids satisfy parity with a known borrow rate.

@@ -1,7 +1,7 @@
 {
   "note": "Fingerprints for scripts/owner-scope-smoke.mjs. Update with --update only for a deliberate change, and say why in the PR.",
   "files": {
-    "scripts/build.mjs": "5495204fa7303b20ce8da7b9d674cdb9089f7271034a95b75742e4ac1609528b",
+    "scripts/build.mjs": "0adaf7a634b19edfa88c35f34b7c32cc886fb41c1d0b6bd9e2b9e875ab57f3b7",
     "lib/top-picks-config.mjs": "a11c62af03952f0e390b8a833f680696f9ea49fdef6f6c095aa7d9953adcb61f",
     "lib/datastore.mjs": "524634a5c6a9e041109b98a9637c70da1911106a20e08eb664c60aea05396fdd",
     "lib/data-ownership.mjs": "0becb9e60ab304dfc33c82cda451e9bc7e949aca09f1aa1d2d240d011a4432de",
@@ -21,7 +21,7 @@
     "buildResultHtml": "ad0a953dd6db727461f7e3fcb6815c37c07a950daa5365fcdefd424b08396f5e",
     "computeMaxPain": "98053a6f7765240515cf5f809b3e44a9b2934ba5cd50fbdcec292836541b56d2",
     "computeTermStructure": "7ff7ef5d84570db0912ab0b187e1a571c83aa31b95dd34d0a8e6f0edfc3c18fa",
-    "computeLiveMacroRegime": "e2560b38768c8e7635b0a2459018cfadb94561fb1a02149e6721f2962e4a1cca",
+    "computeLiveMacroRegime": "272695300382f45245065480b63434de5dbdaadcbbf23dbe969df0045d3d703a",
     "computeGexFlip": "3c267bc3483dab4ac871e70ff319cf819684bc30cb2b706b6a70d610fbff7ba7",
     "computeGex": "eb9b4f334efd5d3b6c896a18cac55154696bcc8ab979ef96316779b9e22038d0",
     "maTrackerScore": "5cb2eb551fd1283b892692d7c4a98a12db860888a8e4906229bfa26d36fbaf49",

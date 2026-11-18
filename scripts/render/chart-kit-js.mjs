@@ -24,7 +24,9 @@ export function renderChartKitJs() {
       if (libLoad) return libLoad;
       libLoad = new Promise(function(resolve, reject){
         var s = document.createElement('script');
-        s.src = LIB;
+        // The query string skips a 404 that browsers may still hold under the
+        // year-long /js/ cache header (the library was not deployed before 2026-11-18).
+        s.src = LIB + '?v=20261118';
         s.async = true;
         s.onload = function(){ window.LightweightCharts ? resolve(window.LightweightCharts) : reject(new Error('Chart tool did not load')); };
         s.onerror = function(){ libLoad = null; reject(new Error('Chart tool did not load')); };

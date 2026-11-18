@@ -30,6 +30,25 @@ assert.deepEqual(
   },
 );
 
+// ditat.io's 2026-11 layout: a header row and a "Mkt cap USD" column after Type.
+const headedHtml = `
+  <table><thead><tr><th>Ticker ↕</th><th>Target ↕</th><th>Acquirer ↕</th><th>Type ↕</th><th>Mkt cap USD ↕</th>
+  <th>Target px / unit ↕</th><th>Implied / unit ↕</th><th>Gross spread ↕</th><th>Ann. spread ▼</th><th>Modeled days ↕</th>
+  <th>Close timing ↕</th><th>Valuation context</th></tr></thead>
+  <tbody><tr>
+    <td><a href="https://example.com/unf">UNF</a></td><td>UniFirst Corporation</td><td>Cintas Corporation</td><td>mixed</td>
+    <td><span>—</span><details><summary>Details</summary></details></td>
+    <td>226.32 USD</td><td>325.60 USD</td><td>43.87%</td><td>1,943.66%</td><td>44d</td><td>Dec 31, 2026</td><td>Offer</td>
+  </tr></tbody></table>`;
+const headed = parsePendingBuyoutTable(headedHtml);
+assert.equal(headed.length, 1);
+assert.deepEqual(
+  [headed[0].targetPrice, headed[0].considerationPerShare, headed[0].grossSpreadPct, headed[0].annualizedSpreadPct, headed[0].daysLeft, headed[0].expectedCloseAt],
+  [226.32, 325.6, 43.87, 1943.66, 44, "2026-12-31"],
+);
+// A header we cannot map ships nothing (the last-good lane carries forward).
+assert.equal(parsePendingBuyoutTable(headedHtml.replace("Gross spread", "Mystery")).length, 0);
+
 const builtAtIso = "2026-08-16T15:00:00.000Z";
 const quotes = {
   WDAY: { symbol: "WDAY", quoteType: "EQUITY", name: "Workday, Inc.", price: 210, marketCap: 62000000000, currency: "USD" },

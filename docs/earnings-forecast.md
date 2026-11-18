@@ -31,7 +31,9 @@ Company facts, period normalization and forecast calculations are independent
 of transport and UI. The UI reads only the compact current payload, lazily.
 The company list is the 20 largest names by market cap in the site's non-ETF
 universe, re-ranked once each calendar quarter. Ranking coverage and missing
-market caps remain visible.
+market caps remain visible. The market cap shown beside each company is the
+current one from the build's quote (`marketCapsAsOf` on the payload); the cap
+the list was ranked on stays as `rankedMarketCap` (since 2026-11-18).
 
 The chosen design reuses the existing scheduled bake and private publication
 boundary. A separate service would add scheduling, credentials and cost;

@@ -7,6 +7,10 @@ export function mountOwnershipExplorer(root, data, model, state, books) {
   const price = n => model.finite(n) ? '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 }) : 'Unavailable';
   const money = n => model.finite(n) ? (n < 0 ? '-' : '') + '$' + Math.abs(n).toLocaleString('en-US', { maximumFractionDigits: 0 }) : 'Unavailable';
   const pct = n => model.finite(n) ? n.toFixed(2) + '%' : 'Unavailable';
+  // The price proxy needs 80% of the prior stock book priced; the site prices
+  // only its covered stocks, so most funds fall short. Say why, not just Unavailable.
+  const proxy = f => model.finite(f.performancePct) ? pct(f.performancePct)
+    : model.finite(f.performance?.coveragePct) ? 'Not computed (' + Math.round(f.performance.coveragePct) + '% of book priced, needs 80%)' : 'Not computed';
   const types = { stock: 'Shares', call: 'Calls · underlying shares', put: 'Puts · underlying shares', principal: 'Principal amount', other: 'Other disclosure' };
   const link = (url, label) => {
     try { const u = new URL(url); if (u.protocol === 'https:' && u.hostname === 'www.sec.gov' && u.pathname.startsWith('/Archives/')) return '<a target="_blank" rel="noopener" href="' + esc(u.href) + '">' + esc(label) + '</a>'; } catch {}
@@ -65,14 +69,14 @@ export function mountOwnershipExplorer(root, data, model, state, books) {
   function positionTable(rows) {
     return '<div class="f13-table-scroll" tabindex="0" role="region" aria-label="Disclosed positions"><table class="f13-table own-table" data-nosort><thead><tr><th>Stock / disclosure</th><th>Fund</th><th>Shares / amount</th><th>Reported value</th><th>Stock book weight</th><th>Change vs prior</th><th>Filing</th></tr></thead><tbody>' +
       rows.map(r => '<tr><td><button type="button" class="own-link" data-own-stock="' + esc(r.ticker || r.cusip) + '">' + esc(r.ticker || r.cusip) + '</button><small>' + esc(r.name) + '</small><small>' + esc(r.titleOfClass) + ' · ' + esc(types[r.type] || r.type) + (r.isExit ? ' · Exited' : r.isNew ? ' · New' : '') + '</small>' + disclosures(r) + '</td>' +
-      '<td><button type="button" class="own-link" data-own-fund="' + esc(r.firm) + '">' + esc(r.firm) + '</button>' + sourceStatus(r) + '<small>AUM est. ' + esc(money(r.aum)) + '</small><small>Quarter price proxy ' + esc(pct(r.performancePct)) + '</small></td>' +
+      '<td><button type="button" class="own-link" data-own-fund="' + esc(r.firm) + '">' + esc(r.firm) + '</button>' + sourceStatus(r) + '<small>AUM est. ' + esc(money(r.aum)) + '</small>' + (model.finite(r.performancePct) ? '<small>Quarter price proxy ' + esc(pct(r.performancePct)) + '</small>' : '') + '</td>' +
       '<td class="f13-num">' + esc(numeric(r.sharesNow)) + '<small>Prior ' + esc(numeric(r.sharesPrior)) + '</small></td><td class="f13-num">' + esc(money(r.valueNow)) + '<small>' + (r.type === 'call' || r.type === 'put' ? 'Underlying notional, not premium' : 'Quarter-end USD') + '</small><small>Prior ' + esc(money(r.valuePrior)) + '</small></td>' +
       '<td class="f13-num">' + esc(pct(r.weightPct)) + '</td><td class="f13-num">' + esc(numeric(r.shareChange)) + '<small>Value ' + esc(money(r.valueChange)) + '</small></td><td>' + esc(r.reportDate || '') + '<small>Filed ' + esc(r.filingDate || 'unavailable') + '</small>' + link(r.filingUrl, 'SEC filing') + '</td></tr>').join('') + '</tbody></table></div>';
   }
   function fundTable(rows) {
     return '<div class="f13-table-scroll" tabindex="0" role="region" aria-label="Tracked funds"><table class="f13-table own-table" data-nosort><thead><tr><th>Fund</th><th>AUM estimate</th><th>Reported 13F value</th><th>Quarter price proxy</th><th>Positions</th><th>Top 10 stock weight</th><th>Filing</th></tr></thead><tbody>' +
       rows.map(f => '<tr><td><button type="button" class="own-link" data-own-fund="' + esc(f.firm) + '">' + esc(f.firm) + '</button><small>' + esc(f.kind || '') + ' · CIK ' + esc(f.cik || 'unavailable') + '</small>' + sourceStatus(f) + '<small>' + (f.complete ? 'Full collected book' : 'Holdings unavailable · refresh required') + '</small></td>' +
-      '<td class="f13-num">' + esc(money(f.aum)) + '<small>Undated directory estimate</small></td><td class="f13-num">' + esc(money(f.reportedValue)) + '</td><td class="f13-num">' + esc(pct(f.performancePct)) + '<small>' + esc(pct(f.performance?.coveragePct)) + ' stock coverage</small></td><td class="f13-num">' + esc(numeric(f.positionCount)) + '</td><td class="f13-num">' + esc(pct(f.concentrationPct)) + '</td><td>' + esc(f.reportDate || '') + '<small>Filed ' + esc(f.filingDate || 'unavailable') + '</small></td></tr>').join('') + '</tbody></table></div>';
+      '<td class="f13-num">' + esc(money(f.aum)) + '<small>Undated directory estimate</small></td><td class="f13-num">' + esc(money(f.reportedValue)) + '</td><td class="f13-num">' + (model.finite(f.performancePct) ? esc(pct(f.performancePct)) : 'Not computed') + '<small>' + esc(pct(f.performance?.coveragePct)) + ' of stock book priced (needs 80%)</small></td><td class="f13-num">' + esc(numeric(f.positionCount)) + '</td><td class="f13-num">' + esc(pct(f.concentrationPct)) + '</td><td>' + esc(f.reportDate || '') + '<small>Filed ' + esc(f.filingDate || 'unavailable') + '</small></td></tr>').join('') + '</tbody></table></div>';
   }
   function form4(query) {
     if (!query.trim()) return '';
@@ -109,7 +113,7 @@ export function mountOwnershipExplorer(root, data, model, state, books) {
     if (state.mode === 'funds' && state.selectedFund) {
       const f = allFunds.find(f => f.firm === state.selectedFund);
       html += '<div class="own-fund-head"><button type="button" class="f13-action" data-own-back>All tracked funds</button><h4>' + esc(f.firm) + '</h4>' + sourceStatus(f) + '<p>' + esc(f.kind || '') + ' · CIK ' + esc(f.cik || '') + ' · Period end ' + esc(f.reportDate || 'unavailable') + '</p></div><div class="own-metrics">' +
-        metric('AUM estimate · undated', compactMoney(f.aum), money(f.aum)) + metric('Reported 13F value', compactMoney(f.reportedValue), money(f.reportedValue)) + metric('Quarter price proxy', pct(f.performancePct)) + metric('Stock price coverage', pct(f.performance?.coveragePct)) + '</div>' +
+        metric('AUM estimate · undated', compactMoney(f.aum), money(f.aum)) + metric('Reported 13F value', compactMoney(f.reportedValue), money(f.reportedValue)) + metric('Quarter price proxy', proxy(f)) + metric('Stock price coverage', pct(f.performance?.coveragePct)) + '</div>' +
         (!f.complete ? '<p class="own-empty">The full holdings book is unavailable. ' + esc(f.collectionError || 'The next successful collection will make this manager searchable.') + '</p>' : '');
     }
     if (visible.length) html += directory ? fundTable(visible) : positionTable(visible);

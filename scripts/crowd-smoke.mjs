@@ -333,6 +333,14 @@ okAsync("leveraged flows fall back to net assets net of the NAV move when share 
   const first = await fetchLevFlows({ prior: {}, funds, todayEt: TODAY, nowIso: NOW, quoteFn: async (syms) => syms.map((s) => ({ symbol: s, navPrice: 52, netAssets: 57200000 })) });
   assert.equal(first.totals.bullUsd1d, null);
   assert.equal(first.withFlow, 0);
+  assert.equal(first.aged, false, "a first read has nothing to compare, so it is not aged");
+  assert.equal(out.aged, false);
+  // Two stored days with frozen net assets: quotes came back but no flow can be measured.
+  const flatPrior = { fetchedDate: "2026-11-06", rows: funds.map((f) => ({ ...f, history: [["2026-11-06", null, 50, 57200000]] })) };
+  const flat = await fetchLevFlows({ prior: flatPrior, funds, todayEt: TODAY, nowIso: NOW, quoteFn: async (syms) => syms.map((s) => ({ symbol: s, navPrice: 52, netAssets: 57200000 })) });
+  assert.equal(flat.withFlow, 0);
+  assert.equal(flat.aged, true, "no measurable flow over two stored days is aged, not ok");
+  assert.ok(/no fund has a flow/.test(flat.agedWhy));
 });
 ok("a flat (stale) net-asset figure gives no flow, not a flow equal to the NAV move", () => {
   // Live NVDL 2026-11-10..12: net assets 2,931,027,200 every day while NAV fell 20.91 -> 17.42.

@@ -109,7 +109,7 @@ try{
     await root.locator('[data-fl-view="watch"]').focus();await page.keyboard.press('ArrowRight');ok(await root.locator('[data-fl-view="funds"]').getAttribute('aria-selected')==='true','keyboard changes view');
     await page.keyboard.press('End');ok(await root.locator('[data-fl-view="method"]').getAttribute('aria-selected')==='true');await page.keyboard.press('Home');
     await root.locator('[data-fl-filter]').selectOption('topups');ok((await root.locator('.fl-table tbody tr').count())===1);
-    await root.locator('[data-fl-open]').click();await root.locator('.fl-detail').waitFor();
+    await root.locator('.fl-table [data-fl-open]').click();await root.locator('.fl-detail').waitFor();
     ok((await root.innerText()).includes('Possible collateral top-up'));
     ok((await root.innerText()).includes('500%'));
     ok((await root.locator('.fl-history tbody tr').count())===2,'comparable disclosure history retained');
@@ -145,8 +145,12 @@ try{
     await root.locator('[data-fl-view="method"]').click();
     for(const nextWidth of [390,1024,width]){await page.setViewportSize({width:nextWidth,height:1100});ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'resize fits '+nextWidth);}
     await root.locator('[data-fl-view="watch"]').click();await page.reload();await root.locator('.fl-table').waitFor();
-    await page.goto(preview.base+'/?tab=picks',{waitUntil:'domcontentloaded'});await page.locator('#picks-liquidation-watch').waitFor();
-    ok((await page.locator('#picks-liquidation-watch').innerText()).includes('new bullish pick blocked'));
+    // The collateral watch lives on this page; Top Picks names only what it held back.
+    const check=root.locator('.fl-picks-watch');ok((await check.innerText()).includes('Top Picks collateral check'),'Top Picks check on the tracker');ok((await check.innerText()).includes('new bullish pick blocked'),'blocking rows named on the tracker');
+    await check.locator('[data-fl-open]').first().click();await root.locator('.fl-detail').waitFor();ok(true,'check opens the stock');await root.locator('[data-fl-close]').first().click();
+    await page.goto(preview.base+'/?tab=picks',{waitUntil:'domcontentloaded'});await page.locator('#picks-liquidation-watch').waitFor({state:'attached'});
+    await page.waitForFunction(()=>!document.getElementById('picks-liquidation-watch').hidden);
+    const held=await page.locator('#picks-liquidation-watch').innerText();ok(held.includes('Held back by SEC collateral terms')&&!held.includes('distance unknown'),'Top Picks names only held-back picks');
     ok((await page.locator('#picks-liquidation-watch a').getAttribute('href'))==='?tab=forced-liquidation');
     ok(errors.length===0,'no runtime errors: '+errors.join('; '));await context.close();
   }
