@@ -162,7 +162,11 @@ export async function prepareEarningsForecast({previous,chains,universe,sectors,
   }
   for(const c of state.cohort?.companies||[]){
     const announcement=chains[c.symbol]?.fundamentals?.nextEarningsDate,remaining=announcement?(Date.parse(announcement)-Date.parse(cutoffAt))/DAY:null;
-    const horizon=remaining===null||remaining<0?'unscheduled':remaining>30?'T30plus':remaining>14?'T30':remaining>7?'T14':remaining>1?'T7':'T1';
+    // Yahoo gives a date with no time, read as UTC midnight, so a report later
+    // the same ET day looked past and was labelled 'unscheduled' (NVDA,
+    // 2026-11-17). A same-day date is the next report.
+    const sameDay=remaining!==null&&remaining<0&&/^\d{4}-\d{2}-\d{2}$/.test(String(announcement))&&String(announcement)===new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York'}).format(new Date(cutoffAt));
+    const horizon=remaining===null||(remaining<0&&!sameDay)?'unscheduled':remaining>30?'T30plus':remaining>14?'T30':remaining>7?'T14':remaining>1?'T7':'T1';
     const args={symbol:c.symbol,observations:state.observations[c.symbol]||[],cutoffAt,liveEvaluations:state.evaluations,horizon,reportedPeriodEnd:knownReportedPeriod(chains[c.symbol]?.fundamentals),segmentMix:segmentInputMix(state.mix[c.symbol])};
     let run=forecastQuarter(args);
     // A rule that passed the history test supplies the revenue; forecastQuarter

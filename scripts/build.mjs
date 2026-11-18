@@ -20993,10 +20993,12 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory = null, narrat
       const falling = dxy.trend === "falling" && !(d1 >= PICKS_MACRO_DXY_1D / 2);
       let s = 0, label = `DXY ${d1 >= 0 ? "+" : ""}${d1.toFixed(2)}% 1d`;
       if (d1 >= PICKS_MACRO_DXY_1D_STRONG) { s = -2; label = `DXY +${d1.toFixed(2)}% — sharp dollar spike`; }
-      else if (d1 >= PICKS_MACRO_DXY_1D || (rising && d5 >= PICKS_MACRO_DXY_5D)) { s = -1; label = `DXY ${d1 >= 0 ? "+" : ""}${d1.toFixed(2)}% — dollar bid`; }
-      else if (d1 <= -PICKS_MACRO_DXY_1D || (falling && d5 <= -PICKS_MACRO_DXY_5D)) { s = 1; label = `DXY ${d1.toFixed(2)}% — dollar easing`; }
+      // A vote set by the 5-day trend names the 5-day move, so a small 1d dip
+      // never reads "DXY -0.05% — dollar bid".
+      else if (d1 >= PICKS_MACRO_DXY_1D || (rising && d5 >= PICKS_MACRO_DXY_5D)) { s = -1; label = d1 >= PICKS_MACRO_DXY_1D ? `DXY +${d1.toFixed(2)}% — dollar bid` : `DXY +${d5.toFixed(2)}% over 5 days — dollar bid`; }
+      else if (d1 <= -PICKS_MACRO_DXY_1D || (falling && d5 <= -PICKS_MACRO_DXY_5D)) { s = 1; label = d1 <= -PICKS_MACRO_DXY_1D ? `DXY ${d1.toFixed(2)}% — dollar easing` : `DXY ${d5.toFixed(2)}% over 5 days — dollar easing`; }
       axes.dxy = { score: s, label };
-      if (s <= -1) drivers.push(`DXY ${d1 >= 0 ? "+" : ""}${d1.toFixed(2)}%`);
+      if (s <= -1) drivers.push(label.split(" — ")[0]);
     } else axes.dxy = { score: 0, label: "no DXY" };
   }
 
@@ -21013,10 +21015,10 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory = null, narrat
       const fallingTrend = ten && ten.trend === "falling" && Number(ten.bpsChange5d) <= -PICKS_MACRO_YIELD_BPS_1D && !tenReversingUp;
       let s = 0, label = `10Y ${up >= 0 ? "+" : ""}${up.toFixed(1)} bps 1d`;
       if (up >= PICKS_MACRO_YIELD_BPS_1D_STRONG) { s = -2; label = `Long yields +${up.toFixed(1)} bps — yield spike`; }
-      else if (up >= PICKS_MACRO_YIELD_BPS_1D || risingTrend) { s = -1; label = `Long yields ${up >= 0 ? "+" : ""}${up.toFixed(1)} bps — rising`; }
-      else if (dn <= -PICKS_MACRO_YIELD_BPS_1D || fallingTrend) { s = 1; label = `Long yields ${dn.toFixed(1)} bps — easing`; }
+      else if (up >= PICKS_MACRO_YIELD_BPS_1D || risingTrend) { s = -1; label = up >= PICKS_MACRO_YIELD_BPS_1D ? `Long yields +${up.toFixed(1)} bps — rising` : `10Y +${Number(ten.bpsChange5d).toFixed(1)} bps over 5 days — rising`; }
+      else if (dn <= -PICKS_MACRO_YIELD_BPS_1D || fallingTrend) { s = 1; label = dn <= -PICKS_MACRO_YIELD_BPS_1D ? `Long yields ${dn.toFixed(1)} bps — easing` : `10Y ${Number(ten.bpsChange5d).toFixed(1)} bps over 5 days — easing`; }
       axes.yields = { score: s, label };
-      if (s <= -1) drivers.push(`10Y ${up >= 0 ? "+" : ""}${up.toFixed(1)}bps`);
+      if (s <= -1) drivers.push(label.split(" — ")[0]);
     } else axes.yields = { score: 0, label: "no yields" };
   }
 
@@ -27899,8 +27901,7 @@ const LEVETF_WATCH_BAND = 1.5;        // missed the bar by ≤ this → shipped 
 // SHOP) are deliberately absent.
 // `er` = annual expense ratio as a decimal fraction, pulled live from Yahoo
 // quoteSummary (fundProfile.feesExpensesInvestment.annualReportExpenseRatio,
-// verified 2026-07-19); HOOZ is the one Yahoo gap — its 0.0129 comes from the
-// issuer's own site and matches its Defiance siblings (RKLZ/SMCZ).
+// verified 2026-07-19).
 export const LEVERAGED_ETF_SINGLES = {
   NVDA:  { bull: { sym: "NVDL", lev: 2, er: 0.0105 }, bear: { sym: "NVDD", lev: -1, er: 0.0101 } },
   TSLA:  { bull: { sym: "TSLL", lev: 2, er: 0.0083 }, bear: { sym: "TSLS", lev: -1, er: 0.0095 } },
@@ -27921,9 +27922,12 @@ export const LEVERAGED_ETF_SINGLES = {
   ORCL:  { bull: { sym: "ORCU", lev: 2, er: 0.0097 }, bear: { sym: "ORCS", lev: -1, er: 0.0097 } },
   QCOM:  { bull: { sym: "QCML", lev: 2, er: 0.015  }, bear: { sym: "QCMD", lev: -1, er: 0.01, note: "QCMD is a thin listing (~$0.4M/day) — expect wide spreads, use limit orders" } },
   CRWD:  { bull: { sym: "CRWL", lev: 2, er: 0.015  }, bear: null },
-  LLY:   { bull: { sym: "ELIL", lev: 2, er: 0.0107 }, bear: { sym: "ELIS", lev: -1, er: 0.0101, note: "ELIS is a thin listing (~$0.2M/day) — expect wide spreads, use limit orders" } },
+  // ELIS (Direxion LLY Bear 1X) last traded 2026-04-10 and HOOZ (Defiance 2X
+  // Short HOOD) 2026-08-27, when Defiance closed it; both bears are null until
+  // a listed replacement is verified (checked 2026-11-18, Nasdaq + stockanalysis).
+  LLY:   { bull: { sym: "ELIL", lev: 2, er: 0.0107 }, bear: null },
   ARM:   { bull: { sym: "ARMG", lev: 2, er: 0.0078 }, bear: null },
-  HOOD:  { bull: { sym: "HOOG", lev: 2, er: 0.0085 }, bear: { sym: "HOOZ", lev: -2, er: 0.0129 } },
+  HOOD:  { bull: { sym: "HOOG", lev: 2, er: 0.0085 }, bear: null },
   MRVL:  { bull: { sym: "MRVU", lev: 2, er: 0.0097 }, bear: null },
   ASML:  { bull: { sym: "ASMG", lev: 2, er: 0.0077 }, bear: null },
   PANW:  { bull: { sym: "PALU", lev: 2, er: 0.0108 }, bear: null },
@@ -28378,7 +28382,16 @@ export function levEtfEntryInUniverse(e) {
     if (def.proxy && TICKERS.includes(def.proxy)) return true;
     return TICKERS.some((sym) => LEVETF_SECTOR_GROUP[SECTORS[sym]] === e.group);
   }
-  return Boolean(e?.under && LEVERAGED_ETF_SINGLES[e.under] && TICKERS.includes(e.under));
+  const def = e?.under ? LEVERAGED_ETF_SINGLES[e.under] : null;
+  if (!def || !TICKERS.includes(e.under)) return false;
+  // A fund that stopped trading leaves the registry (its side goes null), so
+  // an open entry on it closes as left-universe instead of waiting forever
+  // for a quote that never comes.
+  if (e.etf && (e.direction === "bull" || e.direction === "bear")) {
+    const leg = def[e.direction];
+    return Boolean(leg && leg.sym === e.etf);
+  }
+  return true;
 }
 
 export async function readPriorLevEtfLog() {
