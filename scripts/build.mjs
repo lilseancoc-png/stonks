@@ -59,7 +59,7 @@ import { computeGexSummary } from "../lib/gex.mjs";
 import { issuerCreditRatingFor } from "../lib/issuer-credit-ratings.mjs";
 import { fetchFinraMarketStructure, attachShortInterestToChains, chainPutCallTotals, impliedBorrowRate } from "../lib/market-structure.mjs";
 import { MACRO_HISTORY_KEEP, VIX_RANK_WINDOW, macroLevelsFromBackdrop, macroLevelsLate, mergeMacroLevels } from "../lib/macro-levels.mjs";
-import { TREASURY_AUCTIONS_KEY, TREASURY_AUCTIONS_LOOKBACK_DAYS, treasuryAuctionsUrl, parseTreasuryAuctionRows, parseTreasuryAuctions, emptyTreasuryAuctions, upsertTreasuryAuctions, treasuryAuctionsFetchedToday, summarizeTreasuryAuctions } from "../lib/treasury-auctions.mjs";
+import { TREASURY_AUCTIONS_KEY, TREASURY_AUCTIONS_LOOKBACK_DAYS, TREASURY_AUCTIONS_BACKFILL_VERSION, TREASURY_AUCTIONS_BACKFILL_DAYS, treasuryAuctionsUrl, parseTreasuryAuctionRows, parseTreasuryAuctions, emptyTreasuryAuctions, upsertTreasuryAuctions, treasuryAuctionsFetchedToday, summarizeTreasuryAuctions } from "../lib/treasury-auctions.mjs";
 import { marketStructureCalendarEvents, ipoListingsFrom } from "../lib/market-dates.mjs";
 import { buildFedLiquidity } from "../lib/fed-liquidity.mjs";
 import { buildMarketMap, MARKET_MAP_FILE } from "../lib/market-map.mjs";
@@ -12864,8 +12864,8 @@ export function commoditySeriesFromSweep(def, globalMarkets) {
 async function readPriorTreasuryAuctions() {
   try { return parseTreasuryAuctions(await readFile(resolve(DATA_DIR, TREASURY_AUCTIONS_KEY), "utf8")); } catch { return null; }
 }
-export async function fetchTreasuryAuctionRows(sinceDate, fetchImpl = fetch) {
-  const url = treasuryAuctionsUrl(sinceDate);
+export async function fetchTreasuryAuctionRows(sinceDate, fetchImpl = fetch, opts = {}) {
+  const url = treasuryAuctionsUrl(sinceDate, opts);
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 20_000);
   let res;
@@ -12881,12 +12881,20 @@ export async function writeTreasuryAuctionsFile(prior, builtAtIso, { fetchImpl =
   const today = etDateKey(new Date(builtAtIso || Date.now()));
   let state = prior || emptyTreasuryAuctions();
   let fetched = 0, skipped = "";
-  if (treasuryAuctionsFetchedToday(state, today)) skipped = "already read today";
+  const needsBackfill = state.backfillVersion !== TREASURY_AUCTIONS_BACKFILL_VERSION;
+  if (treasuryAuctionsFetchedToday(state, today) && !needsBackfill) skipped = "already read today";
   else {
+    if (needsBackfill) {
+      // One read of two years of coupon auctions (about 210 rows, ~35 KB).
+      const since2y = new Date(Date.parse(`${today}T12:00:00Z`) - TREASURY_AUCTIONS_BACKFILL_DAYS * 86400000).toISOString().slice(0, 10);
+      const coupons = await fetchTreasuryAuctionRows(since2y, fetchImpl, { couponsOnly: true, pageSize: 1000 });
+      fetched += coupons.length;
+      state = { ...upsertTreasuryAuctions(state, coupons, { now: new Date().toISOString() }), backfillVersion: TREASURY_AUCTIONS_BACKFILL_VERSION };
+    }
     const since = new Date(Date.parse(`${today}T12:00:00Z`) - TREASURY_AUCTIONS_LOOKBACK_DAYS * 86400000).toISOString().slice(0, 10);
     const rows = await fetchTreasuryAuctionRows(since, fetchImpl);
-    fetched = rows.length;
-    state = upsertTreasuryAuctions(state, rows, { fetchedDate: today, now: new Date().toISOString() });
+    fetched += rows.length;
+    state = { ...upsertTreasuryAuctions(state, rows, { fetchedDate: today, now: new Date().toISOString() }), backfillVersion: state.backfillVersion };
   }
   const summary = summarizeTreasuryAuctions(state, { today });
   const payload = { ...state, summary };
@@ -14084,6 +14092,22 @@ async function buildIcNyFed(prior) {
   };
 }
 
+// A completed IPO quarter stays a frozen snapshot (its mcap estimates must
+// not drift), but the source keeps adding late-posted pricings for weeks:
+// on 2026-11-17 the site showed 88 / 98 IPOs for Q1 / Q2 2026 against 89 /
+// 100 on stockanalysis.com. When the same year is fetched anyway (it holds
+// the current quarter), add the rows the snapshot lacks and keep every
+// cached row exactly as it was.
+export function icMergeLateListings(cached, yearItems, key) {
+  if (!cached || !Array.isArray(cached.items) || !Array.isArray(yearItems)) return cached;
+  const id = (it) => `${it.symbol}|${it.date}`;
+  const have = new Set(cached.items.map(id));
+  const added = yearItems.filter((it) => it && it.symbol && it.date && icQuarterKey(it.date) === key && !have.has(id(it)));
+  if (!added.length) return cached;
+  const items = [...cached.items, ...added].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+  return { ...cached, count: (Number.isFinite(cached.count) ? cached.count : cached.items.length) + added.length, items: items.slice(0, 400), lateAdded: (cached.lateAdded || 0) + added.length };
+}
+
 export async function buildIpoCreditPayload(builtAtIso, prior = null, priorCapitalRaises = null) {
   const etDate = etDateKey();
   const curKey = icQuarterKey(etDate);
@@ -14162,7 +14186,11 @@ export async function buildIpoCreditPayload(builtAtIso, prior = null, priorCapit
           return { key, label: icQuarterLabel(key), count: inQ.length, src: fetched.src, asOf: etDate, items: inQ.slice(0, 400) };
         }
       }
-      if (cached) return { ...cached, label: icQuarterLabel(key) };
+      if (cached) {
+        const sameYear = byYear.get(key.slice(0, 4));
+        const merged = sameYear?.src === "screener" && cached.src === "screener" ? icMergeLateListings(cached, sameYear.items, key) : cached;
+        return { ...merged, label: icQuarterLabel(key) };
+      }
       return { key, label: icQuarterLabel(key), count: 0 };
     });
     // Two years of zero IPOs everywhere = a silent source failure, not data.
@@ -14324,24 +14352,63 @@ function buyoutCloseIso(label) {
   return Number.isFinite(ms) ? new Date(ms).toISOString().slice(0, 10) : null;
 }
 
+// Column positions come from the table's own header when it has one: ditat.io
+// added a "Mkt cap USD" column on or before 2026-11-17, which shifted every
+// later cell by one (offer price read as the spread, days as the close date).
+// A table with no recognisable header keeps the original ten-column layout.
+const BUYOUT_COLUMN_DEFAULTS = Object.freeze({ ticker: 0, target: 1, acquirer: 2, type: 3, price: 4, offer: 5, gross: 6, annual: 7, days: 8, close: 9 });
+const BUYOUT_COLUMN_PATTERNS = [
+  ["ticker", /^ticker/],
+  ["target", /^target$|^target company/],
+  ["acquirer", /^acquir/],
+  ["type", /^(deal )?type/],
+  ["price", /^target (px|price)|^price/],
+  ["offer", /^implied|^offer|^consideration/],
+  ["gross", /^gross/],
+  ["annual", /^ann/],
+  ["days", /days/],
+  ["close", /^(expected )?close/],
+];
+
+export function buyoutColumnMap(html) {
+  const head = (String(html || "").match(/<thead[^>]*>([\s\S]*?)<\/thead>/i) || [])[1] || "";
+  const labels = [...head.matchAll(/<th\b[^>]*>([\s\S]*?)<\/th>/gi)]
+    .map((m) => buyoutCleanCell(m[1]).replace(/[↕▲▼]/g, "").trim().toLowerCase());
+  if (!labels.length) return { ...BUYOUT_COLUMN_DEFAULTS };
+  const map = {};
+  labels.forEach((label, i) => {
+    for (const [key, re] of BUYOUT_COLUMN_PATTERNS) {
+      if (map[key] == null && re.test(label)) { map[key] = i; break; }
+    }
+  });
+  // Every field the row needs must be found, or the header is not one we know.
+  const needed = Object.keys(BUYOUT_COLUMN_DEFAULTS);
+  return needed.every((k) => map[k] != null) ? map : null;
+}
+
 export function parsePendingBuyoutTable(html) {
+  const col = buyoutColumnMap(html);
+  // An unknown header is a layout change: return nothing so the last-good
+  // confirmed lane carries forward instead of shipping shifted numbers.
+  if (!col) return [];
+  const minCells = Math.max(...Object.values(col)) + 1;
   const body = (String(html || "").match(/<tbody[^>]*>([\s\S]*?)<\/tbody>/i) || [])[1] || "";
   const rows = [];
   for (const rowM of body.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)) {
     const cells = [...rowM[1].matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi)].map((m) => m[1]);
-    if (cells.length < 10) continue;
-    const ticker = buyoutCleanCell(cells[0]).replace(/[✓›]/g, "").trim().toUpperCase();
+    if (cells.length < minCells) continue;
+    const ticker = buyoutCleanCell(cells[col.ticker]).replace(/[✓›]/g, "").trim().toUpperCase();
     if (!/^[A-Z0-9][A-Z0-9.-]{0,11}$/.test(ticker)) continue;
-    const href = (cells[0].match(/href=["']([^"']+)["']/i) || [])[1] || null;
-    const target = buyoutCleanCell(cells[1]);
-    const acquirer = buyoutCleanCell(cells[2]);
-    const dealType = buyoutCleanCell(cells[3]).toLowerCase();
-    const targetPrice = buyoutNumber(buyoutCleanCell(cells[4]));
-    const considerationPerShare = buyoutNumber(buyoutCleanCell(cells[5]));
-    const grossSpreadPct = buyoutNumber(buyoutCleanCell(cells[6]));
-    const annualizedSpreadPct = buyoutNumber(buyoutCleanCell(cells[7]));
-    const daysLeft = buyoutNumber(buyoutCleanCell(cells[8]));
-    const expectedCloseLabel = buyoutCleanCell(cells[9]);
+    const href = (cells[col.ticker].match(/href=["']([^"']+)["']/i) || [])[1] || null;
+    const target = buyoutCleanCell(cells[col.target]);
+    const acquirer = buyoutCleanCell(cells[col.acquirer]);
+    const dealType = buyoutCleanCell(cells[col.type]).toLowerCase();
+    const targetPrice = buyoutNumber(buyoutCleanCell(cells[col.price]));
+    const considerationPerShare = buyoutNumber(buyoutCleanCell(cells[col.offer]));
+    const grossSpreadPct = buyoutNumber(buyoutCleanCell(cells[col.gross]));
+    const annualizedSpreadPct = buyoutNumber(buyoutCleanCell(cells[col.annual]));
+    const daysLeft = buyoutNumber(buyoutCleanCell(cells[col.days]));
+    const expectedCloseLabel = buyoutCleanCell(cells[col.close]);
     if (!target || !acquirer || !(considerationPerShare > 0)) continue;
     rows.push({
       id: `confirmed:${ticker}`,
@@ -14358,7 +14425,7 @@ export function parsePendingBuyoutTable(html) {
       daysLeft,
       expectedCloseAt: buyoutCloseIso(expectedCloseLabel),
       expectedCloseLabel: expectedCloseLabel && expectedCloseLabel !== "—" ? expectedCloseLabel : null,
-      verifiedTerms: /verified/i.test(cells[0]) || /✓/.test(buyoutCleanCell(cells[0])),
+      verifiedTerms: /verified/i.test(cells[col.ticker]) || /✓/.test(buyoutCleanCell(cells[col.ticker])),
       sourceUrl: href,
       sourceName: href && /sec\.gov/i.test(href) ? "SEC filing" : "Referenced deal source",
     });

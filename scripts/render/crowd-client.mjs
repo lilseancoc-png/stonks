@@ -19,6 +19,7 @@ export function renderCrowdJs() {
   function crowdUsd(v){
     if (v == null || !isFinite(v)) return '—';
     var a = Math.abs(v), sign = v < 0 ? '-' : '';
+    if (a >= 1e12) return sign + '$' + (a / 1e12).toFixed(2) + 'T';
     if (a >= 1e9) return sign + '$' + (a / 1e9).toFixed(2) + 'B';
     if (a >= 1e6) return sign + '$' + (a / 1e6).toFixed(1) + 'M';
     if (a >= 1e3) return sign + '$' + (a / 1e3).toFixed(0) + 'K';
@@ -141,7 +142,7 @@ export function renderCrowdJs() {
     ];
     var noFlow = rows.length && !rows.some(function(r){ return r.flowUsd1d != null || r.flowUsd5d != null || r.flowUsd20d != null; });
     return h + '<div class="mm-kpis">' + kpis.map(function(k){ return '<div class="mm-kpi"><span>' + escapeHtml(k[0]) + '</span><b>' + k[1] + '</b></div>'; }).join('') + '</div>' +
-      (noFlow ? '<p class="crd-note"><b>No flow can be measured right now.</b> Yahoo sends no share counts for these funds and has not refreshed their net assets day to day, so creations and redemptions cannot be told apart from price moves. The table keeps prices and assets; flows return when either figure updates daily.</p>' : '') +
+      (noFlow ? '<p class="crd-note"><b>No flow can be measured right now.</b> Yahoo sends no share counts for these funds and has not refreshed their net assets day to day, so creations and redemptions cannot be told apart from price moves. The net assets below are Yahoo’s last reported figures and may be weeks old. Flows return when either figure updates daily.</p>' : '') +
       VIEWS.tableHtml(cols, rows, { key: 'crowd-levflows', empty: 'No funds quoted.' }) +
       '<p class="crd-note">A flow here is the change in a fund\\'s shares outstanding times its NAV, or, with no share count, the change in its net assets beyond what the NAV move explains: money arriving in or leaving a leveraged bet on the name. Dashes mean neither figure was updated every day of that window.</p>';
   }
@@ -296,7 +297,10 @@ export function renderCrowdJs() {
     if (cot.ES && cot.ES.groups) k.push(['Hedge funds in S&P futures', (cot.ES.groups.levFund.net > 0 ? 'net long ' : 'net short ') + crowdInt(Math.abs(cot.ES.groups.levFund.net)) + ' ' + crowdZ(cot.ES.groups.levFund.z3y)]);
     if (md) k.push(['Margin debt, y/y', vnChg(md.yoyPct, 1)]);
     if (sv) k.push(['Avg short-volume share', vnNum(sv[1], 1) + '%']);
-    if (inx && inx.impliedMean != null) k.push(['Kalshi S&P close, implied mean', crowdInt(inx.impliedMean)]);
+    var inxEv = d.kalshi && d.kalshi.series && d.kalshi.series.KXINX && d.kalshi.series.KXINX.events && d.kalshi.series.KXINX.events[0] || null;
+    var inxDay = '';
+    try { inxDay = inxEv && inxEv.closeTime ? new Date(inxEv.closeTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/New_York' }) : ''; } catch (e) { inxDay = ''; }
+    if (inx && inx.impliedMean != null) k.push(['Kalshi S&P close' + (inxDay ? ' ' + inxDay : '') + ', implied mean', crowdInt(inx.impliedMean)]);
     if (rd) k.push(['Most mentioned on Reddit', (rd.tracked ? vnSym(rd.symbol) : escapeHtml(rd.symbol)) + ' <small class="crd-dim">' + crowdInt(rd.mentions) + '</small>']);
     return k.length ? '<div class="mm-kpis">' + k.map(function(x){ return '<div class="mm-kpi"><span>' + escapeHtml(x[0]) + '</span><b>' + x[1] + '</b></div>'; }).join('') + '</div>' : '';
   }

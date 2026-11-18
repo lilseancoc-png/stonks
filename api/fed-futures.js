@@ -57,7 +57,12 @@ export default async function handler(req, res) {
     const r = await withYahooTimeout(
       yahooFinance.quote(symbols, {
         fields: ["regularMarketPrice", "regularMarketPreviousClose", "marketState"],
-      }),
+      // yahoo-finance2's runtime schema rejects futures rows (Yahoo sends
+      // `contractSymbol: false`), which threw on every call and made this
+      // endpoint answer 502 until 2026-11-18. The build's ZQ quote and
+      // /api/macro-live already skip the shape check; every field read below
+      // is checked for type and a finite value instead.
+      }, { validateResult: false }),
       `fed-futures(${symbols.length})`,
     );
     const list = Array.isArray(r) ? r : r ? [r] : [];
@@ -68,8 +73,10 @@ export default async function handler(req, res) {
       // live; fall back to the prior settle if a far contract is momentarily
       // quoteless. Partial results are fine — the browser breaks the implied
       // path cleanly when a contract is missing (matches the build's fallback).
-      const px = q?.regularMarketPrice ?? q?.regularMarketPreviousClose ?? null;
-      if (px != null && isFinite(px) && q?.symbol) {
+      const live = q?.regularMarketPrice;
+      const prev = q?.regularMarketPreviousClose;
+      const px = typeof live === "number" && isFinite(live) ? live : typeof prev === "number" && isFinite(prev) ? prev : null;
+      if (px != null && typeof q?.symbol === "string" && isZqSymbol(q.symbol)) {
         prices[q.symbol] = Number(px);
         if (!marketState) marketState = q?.marketState ?? null;
       }

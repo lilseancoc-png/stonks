@@ -40,6 +40,21 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ### Added
 - Add NBA team offensive/defensive efficiency, net rating and pace to prop research, player forecasts and Pick Builder; fit stat-specific efficiency and pace adjustments on prior complete games and use them only when they improve the historical check. NFL predictions are unchanged (#823).
 
+## 2026-11-18
+
+### Fixed
+- Fix every zoomable chart on the site ("The chart could not load" on Rates & the dollar, the stock page, Pattern lab and others since 2026-11-05): the chart library was never copied into the deploy, so it returned a cached 404. It is now in the deploy list, the request carries a new version so browsers drop the cached 404, and a test fails if any loaded script is missing from the list.
+- Fix the live Fed futures read behind the Rates & the dollar FOMC widget: `/api/fed-futures` failed on every call because the Yahoo library rejected futures rows, so the widget only ever showed the baked numbers. It now skips that shape check like `/api/macro-live` and the build already do, and checks each price itself.
+- Fix Pending buyouts: ditat.io added a column, so the offer price, spread, annualized return, days and close date were each read from the column next to them. Columns are now matched by their header names, and a table whose headers can't be matched keeps the last good list instead of showing shifted numbers.
+- Fix Treasury auctions: TIPS and floating-rate notes were averaged in with regular notes and bonds of the same term (a 10-year TIPS real yield pulled down the 10-year note), and a Fiscal Data feed that stopped posting coupon results in early October still read as current. Each security type is now its own row, a feed more than three weeks behind says so, two years of coupon results are read once, and bills are capped so they can't push coupons out.
+- Fix the Fear & Greed band edges to CNN's (a 24.8 read showed "fear" instead of "extreme fear").
+- Fix the 13F explorer's "Unavailable" performance column: it now says "Not computed" and how much of the book was priced (80% is needed).
+- Fix the News page listing a company press release twice when a news site carried the same headline; the copy now folds into the company's own row with both sources shown.
+- Fix completed IPO quarters missing listings the source added after the quarter closed (Q1 / Q2 2026 showed 88 / 98 against 89 / 100); late listings are now added while the rows already shown stay as they were.
+
+### Changed
+- Margin debt on Crowd & positioning reads in trillions ($1.45T, not $1448.36B); the Kalshi S&P line names the date of the contract it reads; the leveraged-ETF table says its net assets may be weeks old; the AI tracker says which capex-to-revenue figure is the last 12 months and which is the latest fiscal years.
+
 ## 2026-11-17
 
 ### Added

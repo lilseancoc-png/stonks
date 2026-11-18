@@ -21956,7 +21956,7 @@ ${renderExportBindings()}
         '<div class="cx-desk-grid">' +
           '<div class="cx-desk-stat"><span>Management ' + escapeHtml(guide && guide.period ? guide.period.replace(/^CY/, '') : '') + ' outlook</span><b>' + guideValue + '</b><small>' + (guide ? guide.count + ' companies reporting' + (guideReview.length ? ' · ' + guideReview.length + ' awaiting update' : '') : 'guidance unavailable') + '</small></div>' +
           '<div class="cx-desk-stat"><span>Current TTM run-rate</span><b>' + cxDollars(t.ttmSum) + '</b><small>' + (runRatePct == null ? 'run-rate unavailable' : (runRatePct >= 0 ? '+' : '') + runRatePct.toFixed(1) + '% vs latest FY') + '</small></div>' +
-          '<div class="cx-desk-stat"><span>Revenue burden</span><b>' + (share == null ? '—' : share.toFixed(1) + '%') + '</b><small>CapEx as share of combined revenue</small></div>' +
+          '<div class="cx-desk-stat"><span>Revenue burden</span><b>' + (share == null ? '—' : share.toFixed(1) + '%') + '</b><small>CapEx as share of combined revenue, latest fiscal years</small></div>' +
           '<div class="cx-desk-stat"><span>Top-two concentration</span><b>' + (top2Share == null ? '—' : top2Share.toFixed(0) + '%') + '</b><small>' + escapeHtml(top2.map(function(co){ return co.ticker; }).join(' + ') || 'spend leaders unavailable') + '</small></div>' +
         '</div>' +
         posture +
@@ -22018,7 +22018,7 @@ ${renderExportBindings()}
         note: (t.ttmSum != null ? 'Last 12 months of capital spending' : 'Latest fiscal year of capital spending') + (t.yoyPct != null ? '; latest fiscal years ' + (t.yoyPct >= 0 ? 'up ' : 'down ') + Math.abs(t.yoyPct).toFixed(1) + '% on the year before' : ''),
         kpis: [
           { label: 'Latest fiscal year', value: cxDollars(t.fyLatestSum), sub: t.yoyPct != null ? deskStripSignedPct(t.yoyPct, 1) + ' vs prior year' : '', tone: t.yoyPct == null ? '' : t.yoyPct >= 0 ? 'pos' : 'neg' },
-          cxShare != null ? { label: 'Share of revenue', value: Number(cxShare).toFixed(1) + '%', sub: 'CapEx ÷ revenue' } : null,
+          cxShare != null ? { label: 'Share of revenue', value: Number(cxShare).toFixed(1) + '%', sub: t.revenue && t.revenue.capexToRevenueTtmPct != null ? 'CapEx ÷ revenue, last 12 months' : 'CapEx ÷ revenue, latest fiscal years' } : null,
           (t.revenue && t.revenue.yoyPct != null) ? { label: 'Revenue growth', value: deskStripSignedPct(t.revenue.yoyPct, 1), sub: 'same companies, same years', tone: t.revenue.yoyPct >= 0 ? 'pos' : 'neg' } : null
         ],
         series: cxYears, fmt: function(v){ return cxDollars(v); }, chartLabel: 'Combined CapEx by year (years every company has reported)',
@@ -34830,10 +34830,12 @@ ${renderExportBindings()}
   // theme toggle re-tints correctly.
   function fngBandFromScore(n){
     if (!isFinite(n)) return 'neutral';
-    if (n <= 24) return 'extreme-fear';
-    if (n <= 44) return 'fear';
-    if (n <= 55) return 'neutral';
-    if (n <= 75) return 'greed';
+    // CNN's bands: 0-24 extreme fear, 25-44 fear, 45-54 neutral, 55-74 greed,
+    // 75-100 extreme greed. Scores are fractional (24.78 is extreme fear).
+    if (n < 25) return 'extreme-fear';
+    if (n < 45) return 'fear';
+    if (n < 55) return 'neutral';
+    if (n < 75) return 'greed';
     return 'extreme-greed';
   }
   function fngBandLabel(b){
@@ -35153,8 +35155,8 @@ ${renderExportBindings()}
       return { spec:spec, score:Math.round(Number(entry.score)) };
     }).filter(Boolean);
     var fearCount = componentReadings.filter(function(x){ return x.score <= 44; }).length;
-    var neutralCount = componentReadings.filter(function(x){ return x.score >= 45 && x.score <= 55; }).length;
-    var greedCount = componentReadings.filter(function(x){ return x.score > 55; }).length;
+    var neutralCount = componentReadings.filter(function(x){ return x.score >= 45 && x.score < 55; }).length;
+    var greedCount = componentReadings.filter(function(x){ return x.score >= 55; }).length;
     var weakest = componentReadings.slice().sort(function(a,b){ return a.score - b.score; })[0] || null;
     var strongest = componentReadings.slice().sort(function(a,b){ return b.score - a.score; })[0] || null;
     function fngDelta(value){
@@ -47023,7 +47025,7 @@ ${renderExportBindings()}
     var cols = [
       { label: 'Term', cell: function(t){ return '<b>' + escapeHtml(t.term) + '</b><span class="vt-sub">' + escapeHtml(t.type + (t.latest.reopening ? ' · reopening' : '')) + '</span>'; }, sort: function(t){ return t.term; } },
       { label: 'Auction', cell: function(t){ return escapeHtml(t.latest.date); }, sort: function(t){ return t.latest.date; } },
-      { label: 'High yield', num: true, title: 'The yield at which the auction cleared', cell: function(t){ return num1(t.latest.yield, 3) + '%' + (t.yieldChange != null ? '<span class="vt-sub">' + (t.yieldChange >= 0 ? '+' : '') + (t.yieldChange * 100).toFixed(0) + ' bp vs prior</span>' : ''); }, sort: function(t){ return t.latest.yield; } },
+      { label: 'High yield', num: true, title: 'The yield at which the auction cleared', cell: function(t){ return (t.latest.yield == null || !isFinite(t.latest.yield) ? (t.type === 'FRN' ? '<span class="vt-sub">floating rate</span>' : '—') : num1(t.latest.yield, 3) + '%') + (t.yieldChange != null ? '<span class="vt-sub">' + (t.yieldChange >= 0 ? '+' : '') + (t.yieldChange * 100).toFixed(0) + ' bp vs prior</span>' : ''); }, sort: function(t){ return t.latest.yield; } },
       { label: 'Bid-to-cover', num: true, title: 'Dollars bid per dollar sold; higher is stronger demand', cell: function(t){ return num1(t.latest.btc, 2) + (t.btcAvg != null ? '<span class="vt-sub">avg ' + num1(t.btcAvg, 2) + ' (' + (t.btcGap >= 0 ? '+' : '') + num1(t.btcGap, 2) + ')</span>' : ''); }, sort: function(t){ return t.latest.btc; } },
       { label: 'Indirect bidders', num: true, title: 'Share taken by indirect bidders, mostly foreign central banks and funds', cell: function(t){ return pctS(t.latest.indirectPct) + (t.indirectAvg != null ? '<span class="vt-sub">avg ' + pctS(t.indirectAvg) + '</span>' : ''); }, sort: function(t){ return t.latest.indirectPct; } },
       { label: 'Dealers', num: true, title: 'Share left with primary dealers; more than usual means weaker outside demand', cell: function(t){ return pctS(t.latest.dealerPct) + (t.dealerAvg != null ? '<span class="vt-sub">avg ' + pctS(t.dealerAvg) + '</span>' : ''); }, sort: function(t){ return t.latest.dealerPct; } },
@@ -47031,7 +47033,11 @@ ${renderExportBindings()}
       { label: 'Read', cell: function(t){ return readPill(t.read); }, sort: function(t){ return t.read; } }
     ];
     var upcoming = (sm.upcoming || []).slice(0, 6).map(function(a){ return escapeHtml(a.date + ' ' + a.term + (a.offered ? ' ' + bn(a.offered) : '')); }).join(' · ');
-    host.innerHTML = '<p class="bonds-auction-head">' + escapeHtml(sm.headline || '') + '</p>' +
+    // Fiscal Data can stop posting results for weeks; say how old the newest one is.
+    var staleNote = sm.couponStale && sm.couponAsOf
+      ? '<p class="hint"><b>Feed behind:</b> the newest coupon result the Treasury&rsquo;s Fiscal Data feed has posted is from ' + escapeHtml(sm.couponAsOf) + ' (' + sm.couponAgeDays + ' days ago). Later auctions appear here once the feed posts them.</p>'
+      : '';
+    host.innerHTML = '<p class="bonds-auction-head">' + escapeHtml(sm.couponStale ? 'Latest posted results (feed behind): ' + (sm.headline || '') : (sm.headline || '')) + '</p>' + staleNote +
       VIEWS.tableHtml(cols, sm.byTerm, { key: 'bonds-auctions', empty: 'No coupon auctions yet.' }) +
       (upcoming ? '<p class="hint"><b>Announced:</b> ' + upcoming + '</p>' : '') +
       '<div class="bonds-auction-chart"></div>' +
@@ -47041,7 +47047,7 @@ ${renderExportBindings()}
     var series = [];
     terms.forEach(function(term, i){
       var t = null;
-      for (var k = 0; k < sm.byTerm.length; k++) if (sm.byTerm[k].term === term) t = sm.byTerm[k];
+      for (var k = 0; k < sm.byTerm.length; k++) if (sm.byTerm[k].term === term && (sm.byTerm[k].type === 'Note' || sm.byTerm[k].type === 'Bond')) t = sm.byTerm[k];
       if (!t || !t.history || t.history.length < 2) return;
       series.push({ name: term + ' bid-to-cover', short: term.replace('-Year', 'Y'), type: 'line', data: t.history.map(function(h){ return { time: h.d, value: h.btc }; }), color: c.series[i % c.series.length], format: function(v){ return v == null ? '—' : Number(v).toFixed(2) + 'x'; } });
     });

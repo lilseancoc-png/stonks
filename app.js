@@ -504,7 +504,9 @@ function recoveryEvidence(row, data, now = Date.now()) {
       if (libLoad) return libLoad;
       libLoad = new Promise(function(resolve, reject){
         var s = document.createElement('script');
-        s.src = LIB;
+        // The query string skips a 404 that browsers may still hold under the
+        // year-long /js/ cache header (the library was not deployed before 2026-11-18).
+        s.src = LIB + '?v=20261118';
         s.async = true;
         s.onload = function(){ window.LightweightCharts ? resolve(window.LightweightCharts) : reject(new Error('Chart tool did not load')); };
         s.onerror = function(){ libLoad = null; reject(new Error('Chart tool did not load')); };
@@ -3549,6 +3551,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
   function crowdUsd(v){
     if (v == null || !isFinite(v)) return '—';
     var a = Math.abs(v), sign = v < 0 ? '-' : '';
+    if (a >= 1e12) return sign + '$' + (a / 1e12).toFixed(2) + 'T';
     if (a >= 1e9) return sign + '$' + (a / 1e9).toFixed(2) + 'B';
     if (a >= 1e6) return sign + '$' + (a / 1e6).toFixed(1) + 'M';
     if (a >= 1e3) return sign + '$' + (a / 1e3).toFixed(0) + 'K';
@@ -3671,7 +3674,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
     ];
     var noFlow = rows.length && !rows.some(function(r){ return r.flowUsd1d != null || r.flowUsd5d != null || r.flowUsd20d != null; });
     return h + '<div class="mm-kpis">' + kpis.map(function(k){ return '<div class="mm-kpi"><span>' + escapeHtml(k[0]) + '</span><b>' + k[1] + '</b></div>'; }).join('') + '</div>' +
-      (noFlow ? '<p class="crd-note"><b>No flow can be measured right now.</b> Yahoo sends no share counts for these funds and has not refreshed their net assets day to day, so creations and redemptions cannot be told apart from price moves. The table keeps prices and assets; flows return when either figure updates daily.</p>' : '') +
+      (noFlow ? '<p class="crd-note"><b>No flow can be measured right now.</b> Yahoo sends no share counts for these funds and has not refreshed their net assets day to day, so creations and redemptions cannot be told apart from price moves. The net assets below are Yahoo’s last reported figures and may be weeks old. Flows return when either figure updates daily.</p>' : '') +
       VIEWS.tableHtml(cols, rows, { key: 'crowd-levflows', empty: 'No funds quoted.' }) +
       '<p class="crd-note">A flow here is the change in a fund\'s shares outstanding times its NAV, or, with no share count, the change in its net assets beyond what the NAV move explains: money arriving in or leaving a leveraged bet on the name. Dashes mean neither figure was updated every day of that window.</p>';
   }
@@ -3826,7 +3829,10 @@ function recoveryEvidence(row, data, now = Date.now()) {
     if (cot.ES && cot.ES.groups) k.push(['Hedge funds in S&P futures', (cot.ES.groups.levFund.net > 0 ? 'net long ' : 'net short ') + crowdInt(Math.abs(cot.ES.groups.levFund.net)) + ' ' + crowdZ(cot.ES.groups.levFund.z3y)]);
     if (md) k.push(['Margin debt, y/y', vnChg(md.yoyPct, 1)]);
     if (sv) k.push(['Avg short-volume share', vnNum(sv[1], 1) + '%']);
-    if (inx && inx.impliedMean != null) k.push(['Kalshi S&P close, implied mean', crowdInt(inx.impliedMean)]);
+    var inxEv = d.kalshi && d.kalshi.series && d.kalshi.series.KXINX && d.kalshi.series.KXINX.events && d.kalshi.series.KXINX.events[0] || null;
+    var inxDay = '';
+    try { inxDay = inxEv && inxEv.closeTime ? new Date(inxEv.closeTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/New_York' }) : ''; } catch (e) { inxDay = ''; }
+    if (inx && inx.impliedMean != null) k.push(['Kalshi S&P close' + (inxDay ? ' ' + inxDay : '') + ', implied mean', crowdInt(inx.impliedMean)]);
     if (rd) k.push(['Most mentioned on Reddit', (rd.tracked ? vnSym(rd.symbol) : escapeHtml(rd.symbol)) + ' <small class="crd-dim">' + crowdInt(rd.mentions) + '</small>']);
     return k.length ? '<div class="mm-kpis">' + k.map(function(x){ return '<div class="mm-kpi"><span>' + escapeHtml(x[0]) + '</span><b>' + x[1] + '</b></div>'; }).join('') + '</div>' : '';
   }
@@ -35857,7 +35863,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         '<div class="cx-desk-grid">' +
           '<div class="cx-desk-stat"><span>Management ' + escapeHtml(guide && guide.period ? guide.period.replace(/^CY/, '') : '') + ' outlook</span><b>' + guideValue + '</b><small>' + (guide ? guide.count + ' companies reporting' + (guideReview.length ? ' · ' + guideReview.length + ' awaiting update' : '') : 'guidance unavailable') + '</small></div>' +
           '<div class="cx-desk-stat"><span>Current TTM run-rate</span><b>' + cxDollars(t.ttmSum) + '</b><small>' + (runRatePct == null ? 'run-rate unavailable' : (runRatePct >= 0 ? '+' : '') + runRatePct.toFixed(1) + '% vs latest FY') + '</small></div>' +
-          '<div class="cx-desk-stat"><span>Revenue burden</span><b>' + (share == null ? '—' : share.toFixed(1) + '%') + '</b><small>CapEx as share of combined revenue</small></div>' +
+          '<div class="cx-desk-stat"><span>Revenue burden</span><b>' + (share == null ? '—' : share.toFixed(1) + '%') + '</b><small>CapEx as share of combined revenue, latest fiscal years</small></div>' +
           '<div class="cx-desk-stat"><span>Top-two concentration</span><b>' + (top2Share == null ? '—' : top2Share.toFixed(0) + '%') + '</b><small>' + escapeHtml(top2.map(function(co){ return co.ticker; }).join(' + ') || 'spend leaders unavailable') + '</small></div>' +
         '</div>' +
         posture +
@@ -35919,7 +35925,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         note: (t.ttmSum != null ? 'Last 12 months of capital spending' : 'Latest fiscal year of capital spending') + (t.yoyPct != null ? '; latest fiscal years ' + (t.yoyPct >= 0 ? 'up ' : 'down ') + Math.abs(t.yoyPct).toFixed(1) + '% on the year before' : ''),
         kpis: [
           { label: 'Latest fiscal year', value: cxDollars(t.fyLatestSum), sub: t.yoyPct != null ? deskStripSignedPct(t.yoyPct, 1) + ' vs prior year' : '', tone: t.yoyPct == null ? '' : t.yoyPct >= 0 ? 'pos' : 'neg' },
-          cxShare != null ? { label: 'Share of revenue', value: Number(cxShare).toFixed(1) + '%', sub: 'CapEx ÷ revenue' } : null,
+          cxShare != null ? { label: 'Share of revenue', value: Number(cxShare).toFixed(1) + '%', sub: t.revenue && t.revenue.capexToRevenueTtmPct != null ? 'CapEx ÷ revenue, last 12 months' : 'CapEx ÷ revenue, latest fiscal years' } : null,
           (t.revenue && t.revenue.yoyPct != null) ? { label: 'Revenue growth', value: deskStripSignedPct(t.revenue.yoyPct, 1), sub: 'same companies, same years', tone: t.revenue.yoyPct >= 0 ? 'pos' : 'neg' } : null
         ],
         series: cxYears, fmt: function(v){ return cxDollars(v); }, chartLabel: 'Combined CapEx by year (years every company has reported)',
@@ -54186,6 +54192,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
   const price = n => model.finite(n) ? '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 }) : 'Unavailable';
   const money = n => model.finite(n) ? (n < 0 ? '-' : '') + '$' + Math.abs(n).toLocaleString('en-US', { maximumFractionDigits: 0 }) : 'Unavailable';
   const pct = n => model.finite(n) ? n.toFixed(2) + '%' : 'Unavailable';
+  // The price proxy needs 80% of the prior stock book priced; the site prices
+  // only its covered stocks, so most funds fall short. Say why, not just Unavailable.
+  const proxy = f => model.finite(f.performancePct) ? pct(f.performancePct)
+    : model.finite(f.performance?.coveragePct) ? 'Not computed (' + Math.round(f.performance.coveragePct) + '% of book priced, needs 80%)' : 'Not computed';
   const types = { stock: 'Shares', call: 'Calls · underlying shares', put: 'Puts · underlying shares', principal: 'Principal amount', other: 'Other disclosure' };
   const link = (url, label) => {
     try { const u = new URL(url); if (u.protocol === 'https:' && u.hostname === 'www.sec.gov' && u.pathname.startsWith('/Archives/')) return '<a target="_blank" rel="noopener" href="' + esc(u.href) + '">' + esc(label) + '</a>'; } catch {}
@@ -54244,14 +54254,14 @@ function scenarioEventPhase(ev, now = Date.now()) {
   function positionTable(rows) {
     return '<div class="f13-table-scroll" tabindex="0" role="region" aria-label="Disclosed positions"><table class="f13-table own-table" data-nosort><thead><tr><th>Stock / disclosure</th><th>Fund</th><th>Shares / amount</th><th>Reported value</th><th>Stock book weight</th><th>Change vs prior</th><th>Filing</th></tr></thead><tbody>' +
       rows.map(r => '<tr><td><button type="button" class="own-link" data-own-stock="' + esc(r.ticker || r.cusip) + '">' + esc(r.ticker || r.cusip) + '</button><small>' + esc(r.name) + '</small><small>' + esc(r.titleOfClass) + ' · ' + esc(types[r.type] || r.type) + (r.isExit ? ' · Exited' : r.isNew ? ' · New' : '') + '</small>' + disclosures(r) + '</td>' +
-      '<td><button type="button" class="own-link" data-own-fund="' + esc(r.firm) + '">' + esc(r.firm) + '</button>' + sourceStatus(r) + '<small>AUM est. ' + esc(money(r.aum)) + '</small><small>Quarter price proxy ' + esc(pct(r.performancePct)) + '</small></td>' +
+      '<td><button type="button" class="own-link" data-own-fund="' + esc(r.firm) + '">' + esc(r.firm) + '</button>' + sourceStatus(r) + '<small>AUM est. ' + esc(money(r.aum)) + '</small>' + (model.finite(r.performancePct) ? '<small>Quarter price proxy ' + esc(pct(r.performancePct)) + '</small>' : '') + '</td>' +
       '<td class="f13-num">' + esc(numeric(r.sharesNow)) + '<small>Prior ' + esc(numeric(r.sharesPrior)) + '</small></td><td class="f13-num">' + esc(money(r.valueNow)) + '<small>' + (r.type === 'call' || r.type === 'put' ? 'Underlying notional, not premium' : 'Quarter-end USD') + '</small><small>Prior ' + esc(money(r.valuePrior)) + '</small></td>' +
       '<td class="f13-num">' + esc(pct(r.weightPct)) + '</td><td class="f13-num">' + esc(numeric(r.shareChange)) + '<small>Value ' + esc(money(r.valueChange)) + '</small></td><td>' + esc(r.reportDate || '') + '<small>Filed ' + esc(r.filingDate || 'unavailable') + '</small>' + link(r.filingUrl, 'SEC filing') + '</td></tr>').join('') + '</tbody></table></div>';
   }
   function fundTable(rows) {
     return '<div class="f13-table-scroll" tabindex="0" role="region" aria-label="Tracked funds"><table class="f13-table own-table" data-nosort><thead><tr><th>Fund</th><th>AUM estimate</th><th>Reported 13F value</th><th>Quarter price proxy</th><th>Positions</th><th>Top 10 stock weight</th><th>Filing</th></tr></thead><tbody>' +
       rows.map(f => '<tr><td><button type="button" class="own-link" data-own-fund="' + esc(f.firm) + '">' + esc(f.firm) + '</button><small>' + esc(f.kind || '') + ' · CIK ' + esc(f.cik || 'unavailable') + '</small>' + sourceStatus(f) + '<small>' + (f.complete ? 'Full collected book' : 'Holdings unavailable · refresh required') + '</small></td>' +
-      '<td class="f13-num">' + esc(money(f.aum)) + '<small>Undated directory estimate</small></td><td class="f13-num">' + esc(money(f.reportedValue)) + '</td><td class="f13-num">' + esc(pct(f.performancePct)) + '<small>' + esc(pct(f.performance?.coveragePct)) + ' stock coverage</small></td><td class="f13-num">' + esc(numeric(f.positionCount)) + '</td><td class="f13-num">' + esc(pct(f.concentrationPct)) + '</td><td>' + esc(f.reportDate || '') + '<small>Filed ' + esc(f.filingDate || 'unavailable') + '</small></td></tr>').join('') + '</tbody></table></div>';
+      '<td class="f13-num">' + esc(money(f.aum)) + '<small>Undated directory estimate</small></td><td class="f13-num">' + esc(money(f.reportedValue)) + '</td><td class="f13-num">' + (model.finite(f.performancePct) ? esc(pct(f.performancePct)) : 'Not computed') + '<small>' + esc(pct(f.performance?.coveragePct)) + ' of stock book priced (needs 80%)</small></td><td class="f13-num">' + esc(numeric(f.positionCount)) + '</td><td class="f13-num">' + esc(pct(f.concentrationPct)) + '</td><td>' + esc(f.reportDate || '') + '<small>Filed ' + esc(f.filingDate || 'unavailable') + '</small></td></tr>').join('') + '</tbody></table></div>';
   }
   function form4(query) {
     if (!query.trim()) return '';
@@ -54288,7 +54298,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (state.mode === 'funds' && state.selectedFund) {
       const f = allFunds.find(f => f.firm === state.selectedFund);
       html += '<div class="own-fund-head"><button type="button" class="f13-action" data-own-back>All tracked funds</button><h4>' + esc(f.firm) + '</h4>' + sourceStatus(f) + '<p>' + esc(f.kind || '') + ' · CIK ' + esc(f.cik || '') + ' · Period end ' + esc(f.reportDate || 'unavailable') + '</p></div><div class="own-metrics">' +
-        metric('AUM estimate · undated', compactMoney(f.aum), money(f.aum)) + metric('Reported 13F value', compactMoney(f.reportedValue), money(f.reportedValue)) + metric('Quarter price proxy', pct(f.performancePct)) + metric('Stock price coverage', pct(f.performance?.coveragePct)) + '</div>' +
+        metric('AUM estimate · undated', compactMoney(f.aum), money(f.aum)) + metric('Reported 13F value', compactMoney(f.reportedValue), money(f.reportedValue)) + metric('Quarter price proxy', proxy(f)) + metric('Stock price coverage', pct(f.performance?.coveragePct)) + '</div>' +
         (!f.complete ? '<p class="own-empty">The full holdings book is unavailable. ' + esc(f.collectionError || 'The next successful collection will make this manager searchable.') + '</p>' : '');
     }
     if (visible.length) html += directory ? fundTable(visible) : positionTable(visible);
@@ -55050,10 +55060,12 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // theme toggle re-tints correctly.
   function fngBandFromScore(n){
     if (!isFinite(n)) return 'neutral';
-    if (n <= 24) return 'extreme-fear';
-    if (n <= 44) return 'fear';
-    if (n <= 55) return 'neutral';
-    if (n <= 75) return 'greed';
+    // CNN's bands: 0-24 extreme fear, 25-44 fear, 45-54 neutral, 55-74 greed,
+    // 75-100 extreme greed. Scores are fractional (24.78 is extreme fear).
+    if (n < 25) return 'extreme-fear';
+    if (n < 45) return 'fear';
+    if (n < 55) return 'neutral';
+    if (n < 75) return 'greed';
     return 'extreme-greed';
   }
   function fngBandLabel(b){
@@ -55373,8 +55385,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
       return { spec:spec, score:Math.round(Number(entry.score)) };
     }).filter(Boolean);
     var fearCount = componentReadings.filter(function(x){ return x.score <= 44; }).length;
-    var neutralCount = componentReadings.filter(function(x){ return x.score >= 45 && x.score <= 55; }).length;
-    var greedCount = componentReadings.filter(function(x){ return x.score > 55; }).length;
+    var neutralCount = componentReadings.filter(function(x){ return x.score >= 45 && x.score < 55; }).length;
+    var greedCount = componentReadings.filter(function(x){ return x.score >= 55; }).length;
     var weakest = componentReadings.slice().sort(function(a,b){ return a.score - b.score; })[0] || null;
     var strongest = componentReadings.slice().sort(function(a,b){ return b.score - a.score; })[0] || null;
     function fngDelta(value){
@@ -67540,7 +67552,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var cols = [
       { label: 'Term', cell: function(t){ return '<b>' + escapeHtml(t.term) + '</b><span class="vt-sub">' + escapeHtml(t.type + (t.latest.reopening ? ' · reopening' : '')) + '</span>'; }, sort: function(t){ return t.term; } },
       { label: 'Auction', cell: function(t){ return escapeHtml(t.latest.date); }, sort: function(t){ return t.latest.date; } },
-      { label: 'High yield', num: true, title: 'The yield at which the auction cleared', cell: function(t){ return num1(t.latest.yield, 3) + '%' + (t.yieldChange != null ? '<span class="vt-sub">' + (t.yieldChange >= 0 ? '+' : '') + (t.yieldChange * 100).toFixed(0) + ' bp vs prior</span>' : ''); }, sort: function(t){ return t.latest.yield; } },
+      { label: 'High yield', num: true, title: 'The yield at which the auction cleared', cell: function(t){ return (t.latest.yield == null || !isFinite(t.latest.yield) ? (t.type === 'FRN' ? '<span class="vt-sub">floating rate</span>' : '—') : num1(t.latest.yield, 3) + '%') + (t.yieldChange != null ? '<span class="vt-sub">' + (t.yieldChange >= 0 ? '+' : '') + (t.yieldChange * 100).toFixed(0) + ' bp vs prior</span>' : ''); }, sort: function(t){ return t.latest.yield; } },
       { label: 'Bid-to-cover', num: true, title: 'Dollars bid per dollar sold; higher is stronger demand', cell: function(t){ return num1(t.latest.btc, 2) + (t.btcAvg != null ? '<span class="vt-sub">avg ' + num1(t.btcAvg, 2) + ' (' + (t.btcGap >= 0 ? '+' : '') + num1(t.btcGap, 2) + ')</span>' : ''); }, sort: function(t){ return t.latest.btc; } },
       { label: 'Indirect bidders', num: true, title: 'Share taken by indirect bidders, mostly foreign central banks and funds', cell: function(t){ return pctS(t.latest.indirectPct) + (t.indirectAvg != null ? '<span class="vt-sub">avg ' + pctS(t.indirectAvg) + '</span>' : ''); }, sort: function(t){ return t.latest.indirectPct; } },
       { label: 'Dealers', num: true, title: 'Share left with primary dealers; more than usual means weaker outside demand', cell: function(t){ return pctS(t.latest.dealerPct) + (t.dealerAvg != null ? '<span class="vt-sub">avg ' + pctS(t.dealerAvg) + '</span>' : ''); }, sort: function(t){ return t.latest.dealerPct; } },
@@ -67548,7 +67560,11 @@ function scenarioEventPhase(ev, now = Date.now()) {
       { label: 'Read', cell: function(t){ return readPill(t.read); }, sort: function(t){ return t.read; } }
     ];
     var upcoming = (sm.upcoming || []).slice(0, 6).map(function(a){ return escapeHtml(a.date + ' ' + a.term + (a.offered ? ' ' + bn(a.offered) : '')); }).join(' · ');
-    host.innerHTML = '<p class="bonds-auction-head">' + escapeHtml(sm.headline || '') + '</p>' +
+    // Fiscal Data can stop posting results for weeks; say how old the newest one is.
+    var staleNote = sm.couponStale && sm.couponAsOf
+      ? '<p class="hint"><b>Feed behind:</b> the newest coupon result the Treasury&rsquo;s Fiscal Data feed has posted is from ' + escapeHtml(sm.couponAsOf) + ' (' + sm.couponAgeDays + ' days ago). Later auctions appear here once the feed posts them.</p>'
+      : '';
+    host.innerHTML = '<p class="bonds-auction-head">' + escapeHtml(sm.couponStale ? 'Latest posted results (feed behind): ' + (sm.headline || '') : (sm.headline || '')) + '</p>' + staleNote +
       VIEWS.tableHtml(cols, sm.byTerm, { key: 'bonds-auctions', empty: 'No coupon auctions yet.' }) +
       (upcoming ? '<p class="hint"><b>Announced:</b> ' + upcoming + '</p>' : '') +
       '<div class="bonds-auction-chart"></div>' +
@@ -67558,7 +67574,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var series = [];
     terms.forEach(function(term, i){
       var t = null;
-      for (var k = 0; k < sm.byTerm.length; k++) if (sm.byTerm[k].term === term) t = sm.byTerm[k];
+      for (var k = 0; k < sm.byTerm.length; k++) if (sm.byTerm[k].term === term && (sm.byTerm[k].type === 'Note' || sm.byTerm[k].type === 'Bond')) t = sm.byTerm[k];
       if (!t || !t.history || t.history.length < 2) return;
       series.push({ name: term + ' bid-to-cover', short: term.replace('-Year', 'Y'), type: 'line', data: t.history.map(function(h){ return { time: h.d, value: h.btc }; }), color: c.series[i % c.series.length], format: function(v){ return v == null ? '—' : Number(v).toFixed(2) + 'x'; } });
     });

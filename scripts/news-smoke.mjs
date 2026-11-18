@@ -147,6 +147,15 @@ const macroFeed=buildNewsFeedPayload({tickerHeadlines:evidenceFeedRows(macroStat
 eq(macroFeed.items[0].desk,"macro");eq(macroFeed.items[0].symbols,["USO"]);eq(macroFeed.items[0].direction,"unclear");
 const carried=buildNewsFeedPayload({priorItems:macroFeed.items,now:new Date(nowMs+DAY)});
 eq(carried.items[0].symbols,["USO"]);eq(carried.items[0].carried,true);
+{ // A wire copy of a press release folds into the issuer row (one story, both sources).
+  const pr={title:"AMD Completes Acquisition of World Labs",symbol:"AMD",publishedAt,eventId:"ir-amd:57dd7dc04c09",sourceKind:"issuer",recordKind:"issuer-announcement",contextOnly:true,publisher:"AMD · company announcement",link:"https://ir.amd.com/x"};
+  const wire={title:"AMD Completes Acquisition of World Labs",symbol:"AMD",publishedAt,publisher:"Yahoo Finance",link:"https://finance.yahoo.com/x"};
+  const other={title:"AMD Completes Acquisition of World Labs",symbol:"INTC",publishedAt,publisher:"Yahoo Finance",link:"https://finance.yahoo.com/y"};
+  const f=buildNewsFeedPayload({tickerHeadlines:[pr,wire],now});
+  eq(f.items.length,1,"press release and its wire copy are one story");
+  eq(f.items[0].link,"https://ir.amd.com/x");eq(f.items[0].sources.includes("Yahoo Finance"),true);
+  eq(buildNewsFeedPayload({tickerHeadlines:[pr,other],now}).items.length,2,"a same-title row about another company stays apart");
+}
 eq(buildNewsFeedPayload({priorItems:[{title:"An undated story carried from an old build",scope:"company",symbols:["ONE"]}],now}).items,[]);
 eq(buildNewsFeedPayload({priorItems:[{title:"Undated corrupt date",scope:"company",symbols:["ONE"],firstSeenAt:"invalid"}],now}).items,[]);
 eq(isPremiumKey(NEWS_EVIDENCE_KEY),true);eq(roleClaimForKey(NEWS_EVIDENCE_KEY),["tr","tp"]);

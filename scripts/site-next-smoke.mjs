@@ -12,6 +12,7 @@ import { weekRecapFactory } from "../lib/week-recap.mjs";
 import { noPicksFactory } from "../lib/no-picks.mjs";
 import { pickDisplayDecision } from "../lib/research-display.mjs";
 import { buildEarningsWeek, buildEarningsWeekPlan, pastEarningsMoves, impliedVsHistory, seasonSoFar } from "../lib/earnings-week.mjs";
+import { CHART_LIB } from "./render/chart-kit-js.mjs";
 
 let checks = 0;
 const ok = (cond, label) => { assert.ok(cond, label); checks++; };
@@ -292,6 +293,9 @@ ok(Object.keys(NP.GATE_NEXT).every((k) => NP.GATE_LABEL[k]), "every rule with ad
   ok(manifest.icons.some((i) => i.purpose === "maskable"), "a maskable icon for Android");
   const staged = read("scripts/prepare-vercel.mjs");
   for (const f of ["manifest.webmanifest", "sw.js", "icons/icon-192.png", "icons/icon-512.png", "icons/icon-maskable-512.png", "icons/apple-touch-icon.png"]) ok(staged.includes(`"${f}"`) && existsSync(new URL(f, rootUrl)), `${f} ships`);
+  // Every script the page loads on demand must be staged for Vercel, or
+  // production answers 404 (the chart library was missed for two weeks).
+  for (const f of [CHART_LIB, "js/vendor/html-to-image-1.11.11.js", "js/streaks.js", "js/book-views.js"]) ok(staged.includes(`"${f}"`) && existsSync(new URL(f, rootUrl)), `${f} is staged for Vercel`);
   const vercel = JSON.parse(read("vercel.json"));
   const sw = vercel.headers.find((h) => h.source === "/sw.js");
   ok(sw && sw.headers.some((x) => x.key === "Cache-Control" && /max-age=0/.test(x.value)), "sw.js is never held in a long cache");

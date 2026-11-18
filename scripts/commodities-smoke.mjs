@@ -10,6 +10,7 @@ import {
   parseHhdcPage3,
   parsePinkSheetMonthly,
   pinkSheetMonthlyUrl,
+  icMergeLateListings,
 } from "./build.mjs";
 
 const byKey = new Map(COMMODITY_TRACKERS.map((item) => [item.key, item]));
@@ -245,5 +246,25 @@ const hhdc = parseHhdcPage3(xlsx({
 assert.deepEqual(hhdc.map((r) => r.q), ["2025Q4", "2026Q1"]);
 assert.equal(hhdc[1].creditCard, 1.18);
 assert.equal(hhdc[1].total, 18.66);
+
+// A frozen completed IPO quarter picks up late-posted listings from the same
+// year's fetch but keeps its cached rows (and their mcap) untouched.
+{
+  const cached = { key: "2026Q2", count: 2, src: "screener", items: [
+    { symbol: "AAA", date: "2026-06-10", mcap: 100 },
+    { symbol: "BBB", date: "2026-04-02", mcap: 50 },
+  ] };
+  const year = [
+    { symbol: "AAA", date: "2026-06-10", mcap: 999 },
+    { symbol: "CCC", date: "2026-06-30", mcap: 70 },
+    { symbol: "DDD", date: "2026-07-01", mcap: 10 },
+  ];
+  const merged = icMergeLateListings(cached, year, "2026Q2");
+  assert.equal(merged.count, 3);
+  assert.deepEqual(merged.items.map((r) => r.symbol), ["CCC", "AAA", "BBB"]);
+  assert.equal(merged.items.find((r) => r.symbol === "AAA").mcap, 100, "cached rows stay frozen");
+  assert.equal(merged.lateAdded, 1);
+  assert.equal(icMergeLateListings(cached, year.slice(0, 1), "2026Q2"), cached, "nothing new leaves the snapshot as is");
+}
 
 console.log("commodities smoke: ok");
