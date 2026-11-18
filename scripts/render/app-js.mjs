@@ -44070,6 +44070,13 @@ ${renderExportBindings()}
   // + strategy/no-rec + conviction + any disclosure) and a collapsed "Expand for
   // full reasoning" with Market context / Company drivers / Technical-flow
   // confirmation / Invalidation / Strategy rationale / Thesis-quality checklist.
+  // The AI writes the thesis prose from the same inputs the card shows, but it
+  // can misquote one (it once wrote 95% for a 100% December hike). The card's
+  // own figures come straight from the data, so they win.
+  var AI_NUMBERS_NOTE = 'Written by AI from the data on this card. If a number in the text differs from the card’s own figures, trust the figures: they come straight from the data.';
+  function aiReadTag(){
+    return ' <span class="thesis-prose-tag" title="' + escapeHtml(AI_NUMBERS_NOTE) + '">AI read</span>';
+  }
   function pickThesisBlock(p){
     var tc = p && p.thesisCard;
     if (!tc) return '';
@@ -44097,7 +44104,7 @@ ${renderExportBindings()}
       ? '<div class="thesis-edge' + (edge.hasEdge === false ? ' thesis-edge-none' : '') + '"><span class="thesis-edge-lbl">' + (edge.hasEdge === false ? 'No edge' : 'The edge') + '</span> ' + escapeHtml(edge.text) + '</div>'
       : '';
     var leadHtml = (ai && ai.summary)
-      ? '<div class="thesis-summary"><span class="thesis-summary-lbl">' + (tc.direction === 'bearish' ? 'Bearish' : 'Bullish') + ' thesis</span> ' + escapeHtml(ai.summary) + ' <span class="thesis-prose-tag">AI read</span></div>'
+      ? '<div class="thesis-summary"><span class="thesis-summary-lbl">' + (tc.direction === 'bearish' ? 'Bearish' : 'Bullish') + ' thesis</span> ' + escapeHtml(ai.summary) + aiReadTag() + '</div>'
       : edgeHtml;
 
     // Strategy chip — OR a "no recommendation" note when the thesis is too thin.
@@ -44151,7 +44158,7 @@ ${renderExportBindings()}
       var aiDrv = (ai && Array.isArray(ai.drivers) && ai.drivers.length)
         ? '<div class="thesis-ai-drivers">' + ai.drivers.map(function(d){ return '<span class="thesis-ai-driver">' + escapeHtml(d) + '</span>'; }).join('') + '</div>'
         : '';
-      secs += '<div class="thesis-sec thesis-sec-reasoning"><div class="thesis-sec-head thesis-sec-ai" title="An AI strategist\\'s plain-English thesis — it weighs the whole picture (company + news + interest rates + the dollar + the macro tape), decides what is load-bearing, and tells the story behind the grade. The deterministic grade still drives the trade decision.">Detailed thesis <span class="thesis-prose-tag">AI read</span></div><div class="thesis-narrative">' + beats + '</div>' + aiDrv + '</div>';
+      secs += '<div class="thesis-sec thesis-sec-reasoning"><div class="thesis-sec-head thesis-sec-ai" title="An AI strategist\\'s plain-English thesis — it weighs the whole picture (company + news + interest rates + the dollar + the macro tape), decides what is load-bearing, and tells the story behind the grade. The deterministic grade still drives the trade decision.">Detailed thesis' + aiReadTag() + '</div><div class="thesis-narrative">' + beats + '</div>' + aiDrv + ((ai && (ai.setup || ai.catalyst || ai.outlook || ai.reasoning)) ? '<p class="thesis-ai-note">' + escapeHtml(AI_NUMBERS_NOTE) + '</p>' : '') + '</div>';
     }
     if (tc.marketRead && tc.marketRead.text){
       var sup = tc.marketRead.support;
@@ -44169,7 +44176,7 @@ ${renderExportBindings()}
       var srHtml = '';
       // The AI's IV-vs-structure justification (why sell premium / buy a debit /
       // stay defined-risk) leads; the deterministic reason gives the precise read.
-      if (stratRat) srHtml += '<div class="thesis-strat-reason thesis-strat-reason-ai">' + escapeHtml(stratRat) + ' <span class="thesis-prose-tag">AI read</span></div>';
+      if (stratRat) srHtml += '<div class="thesis-strat-reason thesis-strat-reason-ai">' + escapeHtml(stratRat) + aiReadTag() + '</div>';
       if (tc.strategy && tc.strategy.reason) srHtml += '<div class="thesis-strat-reason">' + escapeHtml(tc.strategy.reason) + '</div>';
       secs += '<div class="thesis-sec"><div class="thesis-sec-head">⑤ Strategy rationale</div>' + srHtml + '</div>';
     }
@@ -44797,7 +44804,7 @@ ${renderExportBindings()}
     var review = pickReviewCheckpoint(p);
     var checkpoint = review ? (review.expired ? 'Contract expired — reassess the setup' : review.due ? 'Review due · ' + review.date : 'Review by ' + review.date) : 'Expiry unavailable — set a review date before entry';
     return '<section class="pick-plan-summary" aria-label="Trade plan at a glance"><header><h3>Trade plan</h3><strong class="' + (decision.ready ? 'sig-pos' : 'sig-warn') + '">' + escapeHtml(decision.label) + '</strong></header>' +
-      '<p class="pick-plan-thesis"><b>Why this setup</b> ' + escapeHtml(thesis) + '</p><div class="pick-plan-grid">' +
+      '<p class="pick-plan-thesis"><b>Why this setup</b> ' + escapeHtml(thesis) + (tc.ai && tc.ai.summary ? aiReadTag() : '') + '</p><div class="pick-plan-grid">' +
       '<div><small>Entry confirmation</small><b>' + (decision.trigger ? '$' + decision.trigger.toFixed(2) : escapeHtml(decision.label)) + '</b><span>' + escapeHtml(decision.reason) + '</span></div>' +
       '<div><small>Invalidation / defense</small><b>' + (cut && cut.price != null ? '$' + Number(cut.price).toFixed(2) : 'Review thesis deterioration') + '</b><span>Reassess if the supporting business drivers fail; the model defense level is not a guaranteed fill.</span></div>' +
       '<div><small>First exit target</small><b>' + (target && target.price != null ? '$' + Number(target.price).toFixed(2) : 'No target supplied') + '</b><span>' + escapeHtml(target && (target.prose || target.label || target.action) || 'Inspect the exit ladder and current contract quote.') + '</span></div>' +
@@ -45579,11 +45586,13 @@ ${renderExportBindings()}
     var marketEvidence=$('picks-market-evidence');
     if(marketEvidence)TOP_PICKS_MARKET_UI.update(marketEvidence,TOP_PICKS_MARKET_UI.context(data));
     try { renderPicksMode(); } catch (_){}
+    // The SEC collateral watch lives on the Forced Liquidation Tracker. Top
+    // Picks only names a bullish pick the collateral check actually held back.
     var collateralBox = $('picks-liquidation-watch');
     if (collateralBox) {
-      var collateralRows = !data.stale && !data.loadError && data.rosterMeta && Array.isArray(data.rosterMeta.forcedLiquidationWatch) ? data.rosterMeta.forcedLiquidationWatch : [];
-      collateralBox.hidden = !collateralRows.length;
-      collateralBox.innerHTML = collateralRows.length ? '<b>SEC collateral watch</b><p>' + collateralRows.map(function(r){ return escapeHtml(r.symbol) + ': ' + (r.engineEligible ? (r.distancePct == null ? 'distance unknown' : r.distancePct.toFixed(1) + '% to estimated threshold') + (r.vetoLong ? ' · new bullish pick blocked' : '') : 'incomplete terms · research only'); }).join(' · ') + '</p><a href="?tab=forced-liquidation">Inspect Forced Liquidation Tracker</a>' : '';
+      var heldBack = !data.stale && !data.loadError && data.rosterMeta && Array.isArray(data.rosterMeta.collateralGated) ? data.rosterMeta.collateralGated : [];
+      collateralBox.hidden = !heldBack.length;
+      collateralBox.innerHTML = heldBack.length ? '<b>Held back by SEC collateral terms</b><p>' + escapeHtml(heldBack.join(', ')) + (heldBack.length === 1 ? ' would have been a new bullish pick, but its' : ' would have been new bullish picks, but their') + ' disclosed share-pledge loan sits within 15% of the estimated trigger.</p><a href="?tab=forced-liquidation">See the Forced Liquidation Tracker</a>' : '';
     }
     // Legacy stale-carry payloads are audit context, never current trade ideas.
     // The build now publishes an empty roster directly, but keep the client

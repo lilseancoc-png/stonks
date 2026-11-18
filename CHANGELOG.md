@@ -55,11 +55,16 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Fix the market tape's dollar and long-yield labels when the 5-day trend sets the vote: a label such as "DXY -0.05% — dollar bid" now names the 5-day rise that set it (same in the live re-check).
 - Fix Open picks, the Track Record, LEAPS, Stock picks, Sector rotation and Leveraged ETFs showing the later full build's time as "Updated"; they now show their own 11:00 / 15:30 ET run time, as Top picks already did.
 - Fix a flat open trade (+0.0%) counting as "green" in the open-book summaries.
+- Fix the Earnings Forecast company list showing market caps from the quarterly ranking (Oct 27) as if current: each company now shows today's market cap, the line above the list says when the caps were read and when the list was ranked, and the rank itself still changes only once a quarter.
 - Fix the Earnings Forecast marking a company "unscheduled" on its own report day (NVDA on 2026-11-17): a date-only report day was read as midnight UTC, so it looked past by the evening run. A same-day report now keeps its scheduled horizon.
+- Fix the Update checker calling Leveraged ETF flows ok while no fund had a measurable flow (Yahoo stopped sending share counts and froze net assets): the block now reads aged once two days are stored and nothing can be measured.
+- Fix Treasury auctions' weak-demand list naming a TIPS or floating-rate auction by its term alone ("10-year"); it now says "10-year TIPS".
 
 ### Changed
 - Margin debt on Crowd & positioning reads in trillions ($1.45T, not $1448.36B); the Kalshi S&P line names the date of the contract it reads; the leveraged-ETF table says its net assets may be weeks old; the AI tracker says which capex-to-revenue figure is the last 12 months and which is the latest fiscal years.
 - LEAPS rows name the option-price step in the score (rich options take up to 2 points off), so the points shown add up to the score; the paper-record chip says the LEAPS paper book is not running instead of "no paper trades yet".
+- Top Picks AI thesis text carries a note: it is written by AI from the card's data, and if a number in the text differs from the card's own figures, the figures win (the "AI read" tags show the same note on hover).
+- The SEC collateral watch moves from Top Picks to the Forced Liquidation Tracker as a "Top Picks collateral check" above the watchlist (each stock opens its pledge detail). Top Picks now shows a line only when the check actually held back a bullish pick.
 - The Track Record's profit factor and average win / loss say they are per contract, since pricier contracts weigh more there than in the $10,000-per-trade running total.
 
 ## 2026-11-17

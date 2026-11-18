@@ -45082,7 +45082,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
   function sourcesView(c){return '<p>Source facts preserve fiscal periods, currency, accounting basis, source documents and ingestion time. Unknown values are withheld.</p>'+table(['Metric','Period end','Reported value','Source basis','Filed / ingested','Evidence'],c.sources.map(s=>[esc(s.metric),esc(s.periodEnd),esc(finite(s.value)?new Intl.NumberFormat('en-US',{maximumFractionDigits:3}).format(s.value)+' '+s.unit:'Unavailable'),esc(s.basis+' · '+s.quality),esc((s.filed||'Unknown')+' / '+stamp(s.firstSeenAt)),url(s.url)?'<a href="'+url(s.url)+'" target="_blank" rel="noopener noreferrer">SEC source</a>':'Unavailable']))+'<details class="ef-method"><summary>Methodology and limits</summary>'+state.data.methodology.map(m=>'<p>'+esc(m)+'</p>').join('')+'</details>';}
   function nav(companies,c){
-    const button=x=>'<button type="button" data-ef-company="'+esc(x.symbol)+'" aria-pressed="'+(x.symbol===c.symbol)+'"'+(x.former?' class="ef-former"':'')+'><span><small>'+(x.former?'—':esc(String(x.rank).padStart(2,'0')))+'</small><span class="ef-co-id"><b>'+esc(x.symbol)+'</b>'+(x.name&&x.name!==x.symbol?'<i class="ef-co-name" title="'+esc(x.name)+'">'+esc(x.name)+'</i>':'')+'</span>'+(x.joinedAt&&!x.former&&x.joinedAt===state.data?.cohort?.selectedAt?'<em class="ef-badge">New</em>':'')+'</span><span>'+esc(fmt(x.marketCap))+'</span></button>';
+    const button=x=>'<button type="button" data-ef-company="'+esc(x.symbol)+'" aria-pressed="'+(x.symbol===c.symbol)+'"'+(x.former?' class="ef-former"':'')+'><span><small>'+(x.former?'—':esc(String(x.rank).padStart(2,'0')))+'</small><span class="ef-co-id"><b>'+esc(x.symbol)+'</b>'+(x.name&&x.name!==x.symbol?'<i class="ef-co-name" title="'+esc(x.name)+'">'+esc(x.name)+'</i>':'')+'</span>'+(x.joinedAt&&!x.former&&x.joinedAt===state.data?.cohort?.selectedAt?'<em class="ef-badge">New</em>':'')+'</span><span'+(x.rankedMarketCap!=null&&x.rankedMarketCap!==x.marketCap?' title="Market cap now. The list was ranked on '+esc(fmt(x.rankedMarketCap))+' at the quarterly re-rank."':'')+'>'+esc(fmt(x.marketCap))+'</span></button>';
     const current=companies.filter(x=>!x.former),former=companies.filter(x=>x.former);
     return current.map(button).join('')+(former.length?'<p class="ef-divider" role="separator">Left the list · frozen record</p>'+former.map(button).join(''):'');
   }
@@ -45095,7 +45095,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     const c=j.companies.find(c=>c.symbol===state.symbol)||j.companies[0];
     if(!c){el.innerHTML=notice('Market-cap coverage is not ready. The company list has not been invented.')+'<button type="button" data-ef-retry>Retry snapshot</button>';bind();return;}
     state.symbol=c.symbol;const current=j.companies.filter(x=>!x.former),f=c.forecast,age=(Date.now()-Date.parse(j.builtAtIso))/86400000;
-    el.innerHTML='<div class="ef-topline"><span>Snapshot '+esc(stamp(j.builtAtIso))+' · market caps as of '+esc(stamp(j.cohort?.rankingAsOf))+'</span><button type="button" data-ef-retry>Refresh snapshot</button></div>'+
+    el.innerHTML='<div class="ef-topline"><span>Snapshot '+esc(stamp(j.builtAtIso))+' · market caps as of '+esc(stamp(j.marketCapsAsOf||j.cohort?.rankingAsOf))+(j.marketCapsAsOf&&j.cohort?.selectedAt?' · list ranked '+esc(String(j.cohort.selectedAt).slice(0,10))+', re-ranked each quarter':'')+'</span><button type="button" data-ef-retry>Refresh snapshot</button></div>'+
       (age>4?notice('This published snapshot is more than four days old. Forecast cutoffs remain unchanged; newer inputs may be missing.'):'')+
       (j.cohort?.missing?.length?notice('Ranking excludes '+j.cohort.missing.length+' companies with unavailable market caps. The list may change once they are ranked.'):'')+
       '<div class="ef-layout"><nav class="ef-companies" aria-label="Companies">'+nav(j.companies,c)+'</nav><div class="ef-detail"><div class="ef-company-head"><div><p class="ef-kicker">'+(c.former?'Left the list on '+esc(c.former.leftAt.slice(0,10))+' · was rank '+esc(c.rank):'Rank '+esc(c.rank)+' of '+current.length+(c.joinedAt?' · joined '+esc(c.joinedAt.slice(0,10)):''))+'</p><h3>'+esc(c.name)+'</h3><p>'+esc(state.view==='valuation'?'Next four fiscal quarters · approximately twelve months':state.view==='company'?'Rolling three-year reported company history':state.view==='industry'?'Industry observations and company research connections':f.target?.label||'Target period unavailable')+'</p></div><span class="ef-status">'+esc(f.status==='ready'?'Unproven forecast':f.status)+'</span></div>'+
@@ -45435,10 +45435,18 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
   function sortHeader(key,text){const sorted=state.sort===key;return '<th aria-sort="'+(sorted?(direction()==='asc'?'ascending':'descending'):'none')+'"><button type="button" data-fl-sort-key="'+key+'">'+text+(sorted?'<span aria-hidden="true"> '+(direction()==='asc'?'↑':'↓')+'</span>':'')+'</button></th>';}
   function triggerCell(r){return r.triggerPrice!=null?money(r.triggerPrice)+'<small>Disclosed maintenance '+pct(r.maintenanceLtv*100)+'</small>':r.scenarios?.length?'<span>Scenario '+money(Math.min(...r.scenarios.map(s=>s.price)))+'–'+money(Math.max(...r.scenarios.map(s=>s.price)))+'</span><small>35–65% assumed LTV</small>':'<span>Unknown</span><small>'+esc(r.observation.collateralBasis==='mixed'?'Mixed collateral':'Loan terms incomplete')+'</small>';}
+  // The Top Picks engine reads the same rows: fresh, attributable loan terms
+  // (engineEligible) and the ones that would block a new bullish pick (vetoLong).
+  function picksCheck(){
+    const seen=new Set(),rows=data.rows.filter(r=>r.engineEligible&&!seen.has(r.symbol)&&seen.add(r.symbol)).sort((a,b)=>(b.vetoLong-a.vetoLong)||((a.distancePct??1e9)-(b.distancePct??1e9)));
+    if(!rows.length)return '<div class="fl-picks-watch"><b>Top Picks collateral check</b><p>No pledge has fresh, attributable loan terms right now, so nothing here can hold back a Top Pick.</p></div>';
+    const blocked=rows.filter(r=>r.vetoLong).length;
+    return '<div class="fl-picks-watch"><b>Top Picks collateral check</b><p>'+n(rows.length,0)+' stock'+(rows.length===1?' has':'s have')+' fresh loan terms the Top Picks engine reads'+(blocked?'; '+n(blocked,0)+' would hold back a new bullish pick (within 15% of the estimated trigger)':'; none is close enough to hold back a new bullish pick')+'. Being listed here does not make a stock a pick.</p><p>'+rows.map(r=>'<button type="button" class="fl-open" data-fl-open="'+esc(r.id)+'">'+esc(r.symbol)+'</button>: '+(r.distancePct==null?'distance unknown':pct(r.distancePct)+' to estimated trigger')+(r.vetoLong?' · <b>new bullish pick blocked</b>':'')).join(' · ')+'</p></div>';
+  }
   function watch(){
     const groups=watchGroups();
     const head=[['company','Company / borrower'],['stress','Pledge stress'],['shares','Disclosed shares'],['principal','Principal borrowed'],['trigger','Estimated trigger'],['price','Stock price'],['distance','Distance to trigger'],['volume','Pressure signals']].map(([key,title])=>sortHeader(key,title)).join('');
-    return eventsCallout()+toolbar()+'<details class="fl-info"><summary><span aria-hidden="true">ⓘ</span> How to read pledge stress, rows and distance</summary><p class="fl-caption">Pledge stress (0–100) ranks visible pressure without needing loan terms: the drop since the pledge was disclosed, the drop from the 52-week high, the pledged block in days of volume and as a share of float, a modeled trigger when one exists, and any recent forced-sale report. It is not a probability.</p><p class="fl-caption">One row per stock. When several disclosures match, forced-sale reports and breached or nearby thresholds take priority, followed by the highest-stress pledge. Open the stock to review repeated excerpts and separate facilities; amounts are never added together. CSV includes every matching disclosure.</p><p class="fl-caption">Signed distance = (stock price − trigger) ÷ stock price. Negative means the quote is below a modeled threshold. It does not confirm a margin call.</p></details>'+(groups.length?'<div class="fl-scroll" tabindex="0" role="region" aria-label="Pledged-stock watchlist"><table class="fl-table" data-nosort><thead><tr>'+head+'</tr></thead><tbody>'+groups.map(g=>watchRow(g.row,g.count)).join('')+'</tbody></table></div>':warning(data.rows.length?'No disclosures match these filters.':'No pledged-stock disclosures are available in this snapshot. Review scan coverage below; this is not evidence that the market has no pledged stock.'));
+    return eventsCallout()+picksCheck()+toolbar()+'<details class="fl-info"><summary><span aria-hidden="true">ⓘ</span> How to read pledge stress, rows and distance</summary><p class="fl-caption">Pledge stress (0–100) ranks visible pressure without needing loan terms: the drop since the pledge was disclosed, the drop from the 52-week high, the pledged block in days of volume and as a share of float, a modeled trigger when one exists, and any recent forced-sale report. It is not a probability.</p><p class="fl-caption">One row per stock. When several disclosures match, forced-sale reports and breached or nearby thresholds take priority, followed by the highest-stress pledge. Open the stock to review repeated excerpts and separate facilities; amounts are never added together. CSV includes every matching disclosure.</p><p class="fl-caption">Signed distance = (stock price − trigger) ÷ stock price. Negative means the quote is below a modeled threshold. It does not confirm a margin call.</p></details>'+(groups.length?'<div class="fl-scroll" tabindex="0" role="region" aria-label="Pledged-stock watchlist"><table class="fl-table" data-nosort><thead><tr>'+head+'</tr></thead><tbody>'+groups.map(g=>watchRow(g.row,g.count)).join('')+'</tbody></table></div>':warning(data.rows.length?'No disclosures match these filters.':'No pledged-stock disclosures are available in this snapshot. Review scan coverage below; this is not evidence that the market has no pledged stock.'));
   }
   function statusLabel(r){return r.observation.status==='released'?'Pledge released':r.observation.kind==='equity-pledge'&&!r.observation.issuerVerified?'Stock attribution unverified':r.observation.kind==='equity-pledge'&&r.observation.parserVersion!==config.evidenceVersion?'Pledge reported · refresh needed':label(r.state);}
   function pledgeShares(r){return (r.pledge.shares!=null&&r.pledge.shareBasis==='capacity-only'?'Up to ':'')+n(r.pledge.shares,0);}
@@ -64597,6 +64605,13 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // + strategy/no-rec + conviction + any disclosure) and a collapsed "Expand for
   // full reasoning" with Market context / Company drivers / Technical-flow
   // confirmation / Invalidation / Strategy rationale / Thesis-quality checklist.
+  // The AI writes the thesis prose from the same inputs the card shows, but it
+  // can misquote one (it once wrote 95% for a 100% December hike). The card's
+  // own figures come straight from the data, so they win.
+  var AI_NUMBERS_NOTE = 'Written by AI from the data on this card. If a number in the text differs from the card’s own figures, trust the figures: they come straight from the data.';
+  function aiReadTag(){
+    return ' <span class="thesis-prose-tag" title="' + escapeHtml(AI_NUMBERS_NOTE) + '">AI read</span>';
+  }
   function pickThesisBlock(p){
     var tc = p && p.thesisCard;
     if (!tc) return '';
@@ -64624,7 +64639,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       ? '<div class="thesis-edge' + (edge.hasEdge === false ? ' thesis-edge-none' : '') + '"><span class="thesis-edge-lbl">' + (edge.hasEdge === false ? 'No edge' : 'The edge') + '</span> ' + escapeHtml(edge.text) + '</div>'
       : '';
     var leadHtml = (ai && ai.summary)
-      ? '<div class="thesis-summary"><span class="thesis-summary-lbl">' + (tc.direction === 'bearish' ? 'Bearish' : 'Bullish') + ' thesis</span> ' + escapeHtml(ai.summary) + ' <span class="thesis-prose-tag">AI read</span></div>'
+      ? '<div class="thesis-summary"><span class="thesis-summary-lbl">' + (tc.direction === 'bearish' ? 'Bearish' : 'Bullish') + ' thesis</span> ' + escapeHtml(ai.summary) + aiReadTag() + '</div>'
       : edgeHtml;
 
     // Strategy chip — OR a "no recommendation" note when the thesis is too thin.
@@ -64678,7 +64693,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       var aiDrv = (ai && Array.isArray(ai.drivers) && ai.drivers.length)
         ? '<div class="thesis-ai-drivers">' + ai.drivers.map(function(d){ return '<span class="thesis-ai-driver">' + escapeHtml(d) + '</span>'; }).join('') + '</div>'
         : '';
-      secs += '<div class="thesis-sec thesis-sec-reasoning"><div class="thesis-sec-head thesis-sec-ai" title="An AI strategist\'s plain-English thesis — it weighs the whole picture (company + news + interest rates + the dollar + the macro tape), decides what is load-bearing, and tells the story behind the grade. The deterministic grade still drives the trade decision.">Detailed thesis <span class="thesis-prose-tag">AI read</span></div><div class="thesis-narrative">' + beats + '</div>' + aiDrv + '</div>';
+      secs += '<div class="thesis-sec thesis-sec-reasoning"><div class="thesis-sec-head thesis-sec-ai" title="An AI strategist\'s plain-English thesis — it weighs the whole picture (company + news + interest rates + the dollar + the macro tape), decides what is load-bearing, and tells the story behind the grade. The deterministic grade still drives the trade decision.">Detailed thesis' + aiReadTag() + '</div><div class="thesis-narrative">' + beats + '</div>' + aiDrv + ((ai && (ai.setup || ai.catalyst || ai.outlook || ai.reasoning)) ? '<p class="thesis-ai-note">' + escapeHtml(AI_NUMBERS_NOTE) + '</p>' : '') + '</div>';
     }
     if (tc.marketRead && tc.marketRead.text){
       var sup = tc.marketRead.support;
@@ -64696,7 +64711,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       var srHtml = '';
       // The AI's IV-vs-structure justification (why sell premium / buy a debit /
       // stay defined-risk) leads; the deterministic reason gives the precise read.
-      if (stratRat) srHtml += '<div class="thesis-strat-reason thesis-strat-reason-ai">' + escapeHtml(stratRat) + ' <span class="thesis-prose-tag">AI read</span></div>';
+      if (stratRat) srHtml += '<div class="thesis-strat-reason thesis-strat-reason-ai">' + escapeHtml(stratRat) + aiReadTag() + '</div>';
       if (tc.strategy && tc.strategy.reason) srHtml += '<div class="thesis-strat-reason">' + escapeHtml(tc.strategy.reason) + '</div>';
       secs += '<div class="thesis-sec"><div class="thesis-sec-head">⑤ Strategy rationale</div>' + srHtml + '</div>';
     }
@@ -65324,7 +65339,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var review = pickReviewCheckpoint(p);
     var checkpoint = review ? (review.expired ? 'Contract expired — reassess the setup' : review.due ? 'Review due · ' + review.date : 'Review by ' + review.date) : 'Expiry unavailable — set a review date before entry';
     return '<section class="pick-plan-summary" aria-label="Trade plan at a glance"><header><h3>Trade plan</h3><strong class="' + (decision.ready ? 'sig-pos' : 'sig-warn') + '">' + escapeHtml(decision.label) + '</strong></header>' +
-      '<p class="pick-plan-thesis"><b>Why this setup</b> ' + escapeHtml(thesis) + '</p><div class="pick-plan-grid">' +
+      '<p class="pick-plan-thesis"><b>Why this setup</b> ' + escapeHtml(thesis) + (tc.ai && tc.ai.summary ? aiReadTag() : '') + '</p><div class="pick-plan-grid">' +
       '<div><small>Entry confirmation</small><b>' + (decision.trigger ? '$' + decision.trigger.toFixed(2) : escapeHtml(decision.label)) + '</b><span>' + escapeHtml(decision.reason) + '</span></div>' +
       '<div><small>Invalidation / defense</small><b>' + (cut && cut.price != null ? '$' + Number(cut.price).toFixed(2) : 'Review thesis deterioration') + '</b><span>Reassess if the supporting business drivers fail; the model defense level is not a guaranteed fill.</span></div>' +
       '<div><small>First exit target</small><b>' + (target && target.price != null ? '$' + Number(target.price).toFixed(2) : 'No target supplied') + '</b><span>' + escapeHtml(target && (target.prose || target.label || target.action) || 'Inspect the exit ladder and current contract quote.') + '</span></div>' +
@@ -66106,11 +66121,13 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var marketEvidence=$('picks-market-evidence');
     if(marketEvidence)TOP_PICKS_MARKET_UI.update(marketEvidence,TOP_PICKS_MARKET_UI.context(data));
     try { renderPicksMode(); } catch (_){}
+    // The SEC collateral watch lives on the Forced Liquidation Tracker. Top
+    // Picks only names a bullish pick the collateral check actually held back.
     var collateralBox = $('picks-liquidation-watch');
     if (collateralBox) {
-      var collateralRows = !data.stale && !data.loadError && data.rosterMeta && Array.isArray(data.rosterMeta.forcedLiquidationWatch) ? data.rosterMeta.forcedLiquidationWatch : [];
-      collateralBox.hidden = !collateralRows.length;
-      collateralBox.innerHTML = collateralRows.length ? '<b>SEC collateral watch</b><p>' + collateralRows.map(function(r){ return escapeHtml(r.symbol) + ': ' + (r.engineEligible ? (r.distancePct == null ? 'distance unknown' : r.distancePct.toFixed(1) + '% to estimated threshold') + (r.vetoLong ? ' · new bullish pick blocked' : '') : 'incomplete terms · research only'); }).join(' · ') + '</p><a href="?tab=forced-liquidation">Inspect Forced Liquidation Tracker</a>' : '';
+      var heldBack = !data.stale && !data.loadError && data.rosterMeta && Array.isArray(data.rosterMeta.collateralGated) ? data.rosterMeta.collateralGated : [];
+      collateralBox.hidden = !heldBack.length;
+      collateralBox.innerHTML = heldBack.length ? '<b>Held back by SEC collateral terms</b><p>' + escapeHtml(heldBack.join(', ')) + (heldBack.length === 1 ? ' would have been a new bullish pick, but its' : ' would have been new bullish picks, but their') + ' disclosed share-pledge loan sits within 15% of the estimated trigger.</p><a href="?tab=forced-liquidation">See the Forced Liquidation Tracker</a>' : '';
     }
     // Legacy stale-carry payloads are audit context, never current trade ideas.
     // The build now publishes an empty roster directly, but keep the client

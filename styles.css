@@ -16485,6 +16485,8 @@ body.tape-axm-open { overflow: hidden; }
 .thesis-confirm-ul li::before { content: '✓'; color: var(--pos); font-weight: 800; flex: none; }
 .thesis-strat-reason-ai { color: var(--text); margin-bottom: 3px; }
 .thesis-ai-drivers { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.thesis-ai-note { margin: 6px 0 0; font: 400 var(--t-12)/1.45 var(--font-sans); color: var(--text-muted); }
+.thesis-prose-tag[title] { cursor: help; }
 .thesis-ai-driver {
   font: 600 var(--t-11)/1.2 var(--font-sans); color: var(--accent);
   background: color-mix(in srgb, var(--accent) 10%, transparent);
