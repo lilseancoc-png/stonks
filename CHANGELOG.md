@@ -40,6 +40,19 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ### Added
 - Add NBA team offensive/defensive efficiency, net rating and pace to prop research, player forecasts and Pick Builder; fit stat-specific efficiency and pace adjustments on prior complete games and use them only when they improve the historical check. NFL predictions are unchanged (#823).
 
+## 2026-11-19
+
+### Changed
+- Send each trade's real size to the Webull paper account: a strategy-engine option trade buys its record's contract count (1 to 10), a Top Pick is risk sized (the engines' risk budget, else $2,000, over one contract's risk, 1 to 10, never skipped; the Top Picks Track Record stays in % per contract), and engine share trades plus the Trend follower and Momentum basket holdings are bought as stock with a long-only limit order (fields from Webull's official stock-order docs). A partly filled entry keeps and sells only what filled. Three Owner Settings switches turn each part off (Webull share orders, quantities above one, Top Picks risk sizing); trades already in the paper account keep their size.
+
+### Added
+- Show what Webull filled for every trade: filled, partly filled or missed, with the size asked and filled, on the Strategy engines page (the Webull paper tab, plus an "At Webull" column beside each engine's own result), on the Track Record's Real fills tab, and in both Webull CSV downloads (`requested_qty`, `fill_outcome`, `instrument`).
+- Record the engine setup on every Webull paper trade (JSON and both CSVs), and have the Webull build and end-of-day logs name each error and each still-pending order in fixed words (never a ticker), saying plainly when a pending window is just a limit order still working inside its price allowance.
+
+### Fixed
+- Sell an engine share trade at Webull against the stock's own closing price rather than the record's after-cost result, which sat about 0.1% low.
+- Keep the Track Record fills test working as the calendar moves: its SPY test contract now expires about 60 days from today instead of on a fixed date that fell inside 30 days on 18 November 2026.
+
 ## 2026-11-18
 
 ### Fixed

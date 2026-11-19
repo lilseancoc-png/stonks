@@ -73,7 +73,8 @@ beat holding the S&P 500 in the 1972-2026 and 2006-2026 research
   $3,000 each. While SPY's month-end close is under its 10-month average it
   owns $30,000 of TLT instead (nothing when TLT also trails T-bills).
 - **Book.** Core trades are exempt from the book's per-run cap and from the
-  Allocator, buy shares only, and never go to the Webull paper account. The
+  Allocator, buy shares only, and (since 2026-11-19) are bought as stock in
+  the Webull paper account at the record's share count. The
   page shows each core engine as a portfolio: the holdings, the last monthly
   checks, the ranked list (Momentum), and dollars since its first trade
   against the same dollars in SPY bought that day (`coreBench`).
@@ -116,9 +117,11 @@ A share trade (`sharesContract` in `contracts.mjs`, `BOOK.shares*`):
   counts a share result 5x (`LEARN.sharesScale`, about the leverage of the
   engines' options) so its thresholds mean the same thing; its change notes
   say so.
-- Not placed in the Webull paper account (the mirror places options only):
-  `mergeEngineTrades` and the mirror health leave share trades out, and the
-  same-contract rule does not apply to them.
+- Bought as stock in the Webull paper account since 2026-11-19 (the record's
+  whole-share count, long only; Owner Settings `WEBULL_SHARES` off leaves them
+  on the record only, as before). Share trades opened before share orders went
+  live (`sharesGoLiveIso`) are never bought late. The same-contract rule does
+  not apply: each engine buys its own shares. See docs/webull-paper-controls.md.
 
 `ENGINES_SHARES=0` (Owner Settings → Data & desks → "Engines buy shares
 for slow setups"; there is no repo variable, so the daily workflow is
@@ -142,7 +145,7 @@ engine, one logged rules change each):
 |---|---|---|---|
 | Retire two put setups | Reversion's spike-in-a-downtrend fade and Technicals' range breakdown open nothing (they stay in the registry as `retired`, so old trades keep their labels and checks) | Reversion $72,000 → $136,700, Technicals $49,900 → $52,500 | `ENGINES_FIX_RETIRE_PUTS` |
 | Washout-bounce calls | Reversion's `oversold-bounce` buys calls of about 0.3 delta, 14 to 35 days out (ideal 21), with a -60% stop (`contract` and `exits` on the setup; `contractFor` / `exitsFor` in `config.mjs`) | +0.8% → +7.7% a trade (981 → 884 trades), ahead in both halves | `ENGINES_FIX_BOUNCE` |
-| $2,000 of premium | Each option trade records the number of contracts nearest $2,000 (`optionQty`, at least one; `qty` on the contract, `positionUsd` / `tradeUsd` count it). Percent results are unchanged; the dollar totals now weigh every trade about the same. **The Webull paper account still buys one contract** (`requestedQty: 1`), so compare % there, not dollars | Dollars only | `ENGINES_FIX_SIZE` |
+| $2,000 of premium | Each option trade records the number of contracts nearest $2,000 (`optionQty`, at least one; `qty` on the contract, `positionUsd` / `tradeUsd` count it). Percent results are unchanged; the dollar totals now weigh every trade about the same. Since 2026-11-19 the Webull paper account buys the same `qty` (capped at 10; one contract for trades opened before 2026-11-17) | Dollars only | `ENGINES_FIX_SIZE` |
 | Technicals share stop | Share trades stop 3 ATR under the entry instead of at the setup's own tighter stop or 2 ATR (`sharesStopAtr: 3`, `sharesOwnStop: false` on the engine) | +0.5% → +0.9% a trade on 1,158 share trades | `ENGINES_FIX_TEC_SHARES` |
 | Live against the test | Each engine's Track record tab shows every setup's live record under the current rules beside the same setup in the history test (`liveVsHistory`, read once a setup has 10 closed trades: in line within 5 points, else ahead or behind). Macro setups whose test gain came mostly from the option price model are marked | Page only | None |
 
@@ -176,7 +179,8 @@ How they differ from Top Picks, on purpose:
   reads only its own kind of evidence and scores a named setup from 0 to 100.
 - **No AI.** Top Picks has an AI final grader. The engines are rules only.
 - **Singles only, different contracts.** One long call or put (about $2,000
-  of premium since 2026-11-17; one contract in the Webull paper account), or
+  of premium since 2026-11-17; the Webull paper account buys the same
+  `qty`, 1 to 10, since 2026-11-19), or
   $5,000 of stock for the slow call setups above. Each engine has its own
   expiry window and delta, and a setup may carry its own (the washout bounce).
 - **Different exits.** Each engine has its own take-profit, stop and time
@@ -317,7 +321,10 @@ and never written by this code. Trade IDs carry the engine tag:
 `TEC:AAPL-C-11/16/26-11:00` (`-S-` for a share trade).
 
 Results are modeled from option mids at each run, like the Top Picks record.
-The Webull paper tab shows what the paper account actually filled.
+The Webull paper tab shows what the paper account actually filled: filled,
+partly filled or missed per trade, with what was asked and what filled; the
+Track record tab's open and closed tables carry the same read as an "At
+Webull" column beside the engine's own result.
 
 A file that is missing is a fresh start. A file that is there and cannot be
 read skips the engines for that build and keeps the stored copy (an empty
@@ -536,7 +543,7 @@ w = expected / 4, clamped to 0.1x-2x.
 | `ENGINES_MIRROR` | Vercel env | `0` stops new engine trades entering the paper account. Trades already there keep being managed and closed |
 | `ENGINES_FIX_RETIRE_PUTS` | Owner Settings → Data & desks | Unset / on = Reversion's spike fade and Technicals' range breakdown open nothing. `0` brings them back for new trades |
 | `ENGINES_FIX_BOUNCE` | Owner Settings → Data & desks | Unset / on = the washout bounce buys ~0.3-delta calls about 21 days out with a -60% stop. `0` = the engine's 0.6-delta calls and -35% stop |
-| `ENGINES_FIX_SIZE` | Owner Settings → Data & desks | Unset / on = option trades record about $2,000 of premium. `0` = one contract, as before. Webull buys one contract either way |
+| `ENGINES_FIX_SIZE` | Owner Settings → Data & desks | Unset / on = option trades record about $2,000 of premium. `0` = one contract, as before. Webull buys the record's `qty` (1 to 10) unless Owner Settings `WEBULL_QTY` is off |
 | `ENGINES_FIX_TEC_SHARES` | Owner Settings → Data & desks | Unset / on = Technicals' share trades stop 3 ATR under the entry. `0` = the setup's own stop or 2 ATR |
 
 ## Not in scope

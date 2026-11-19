@@ -1,4 +1,4 @@
-import { mirrorTriggerToken, describeReviewKinds } from "../lib/webull-mirror.mjs";
+import { mirrorTriggerToken, describeReviewKinds, describeKindCounts } from "../lib/webull-mirror.mjs";
 import { endOfDayWindow, scheduledClosingWindow } from "../lib/webull-execution-policy.mjs";
 import { runEndOfDayWindow } from "../lib/webull-mirror-window.mjs";
 
@@ -32,7 +32,8 @@ if (!current.monitor && !lateDispatch) {
       const body = await res.json().catch(() => null);
       // The public repository receives counts only, never account/order data.
       const kinds = describeReviewKinds(body?.summary);
-      console.log(`Webull end-of-day: HTTP ${res.status}${body?.summary?.alerts ? `, review required${kinds ? ` (${kinds})` : ""}` : ""}`);
+      const errs = describeKindCounts(body?.summary?.errorKinds);
+      console.log(`Webull end-of-day: HTTP ${res.status}${body?.summary?.errors ? `, ${Number(body.summary.errors) || 0} errors${errs ? ` (${errs})` : ""}` : ""}${body?.summary?.alerts ? `, review required${kinds ? ` (${kinds})` : ""}` : ""}`);
       return { ok: res.ok, body };
     } catch { return { ok: false, body: null }; }
   } });

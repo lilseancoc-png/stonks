@@ -6,7 +6,7 @@
 // no tickers, balances, orders or tokens reach the log. The bearer token is
 // derived from R2_SECRET_ACCESS_KEY (lib/webull-mirror.mjs). Strict runs fail
 // the workflow on errors and pending work.
-import { mirrorTriggerToken, describeReviewKinds } from "../lib/webull-mirror.mjs";
+import { mirrorTriggerToken, describeReviewKinds, describeKindCounts as describeKinds } from "../lib/webull-mirror.mjs";
 import { runMirrorWindow } from "../lib/webull-mirror-window.mjs";
 
 const strict = process.env.WEBULL_MIRROR_STRICT === "1";
@@ -30,7 +30,7 @@ async function trigger() {
   const body = await res.json().catch(() => null);
   const why = body?.ran === false ? `, not run (${String(body.reason || body.summary?.skipped || "unknown").slice(0, 60)})`
     : body?.error ? `, failed (${["code", "status", "kind"].filter((k) => body[k] != null).map((k) => `${k} ${String(body[k]).slice(0, 40)}`).join(", ") || "no code"}${body.detail ? `: ${String(body.detail).slice(0, 120)}` : ""})`
-    : body?.ran === true ? `, ran${body.summary?.note ? ` (${String(body.summary.note).slice(0, 60)})` : ""}${body.summary?.errors ? `, ${Number(body.summary.errors) || 0} errors` : ""}` : "";
+    : body?.ran === true ? `, ran${body.summary?.note ? ` (${String(body.summary.note).slice(0, 60)})` : ""}${body.summary?.errors ? `, ${Number(body.summary.errors) || 0} errors${describeKinds(body.summary.errorKinds) ? ` (${describeKinds(body.summary.errorKinds)})` : ""}` : ""}` : "";
   const kinds = describeReviewKinds(body?.summary);
   console.log(`Webull mirror: HTTP ${res.status}${why}${body?.summary?.alerts ? `, review required (${kinds ? `${kinds}; ` : ""}Owner Webull test view)` : ""}`);
   return { ok: res.ok, body };
@@ -38,7 +38,15 @@ async function trigger() {
 try {
   const { response, pending } = await runMirrorWindow({ trigger, followUps });
   const res = response, body = response.body;
-  if (pending) console.log("Webull mirror: execution/reconciliation remains pending after this build window; check Owner Webull test or run the manual reconciliation.");
+  if (pending) {
+    // Fixed labels only. "Working inside its price allowance" is the normal
+    // 2% / 4% ladder state: the order stays live and the end-of-day window
+    // gives it the 5% ceiling; anything else is worth a look.
+    const pk = body?.summary?.pendingKinds || null, normal = "entry order working inside its price allowance";
+    const onlyNormal = !!pk && Object.keys(pk).every((k) => k === normal || k === "exit order working") && !body?.summary?.errors && !body?.summary?.alerts;
+    console.log(`Webull mirror: still pending after this build window${describeKinds(pk) ? ` (${describeKinds(pk)})` : ""}. ` +
+      (onlyNormal ? "This is the normal state of the price ladder: a limit order is still working inside its cap and stays live until it fills or the end-of-day window raises it to the 5% ceiling." : "Check the Owner Webull test view or run the manual reconciliation."));
+  }
   const benignSkip = body?.reason === "mirror already running" || body?.summary?.skipped === "ran less than a minute ago";
   // A last check that found another window (the end-of-day workflow) holding
   // the account lease is not a failure: that window is doing the work.

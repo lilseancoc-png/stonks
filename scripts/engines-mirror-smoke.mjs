@@ -7,7 +7,7 @@
 // API. No network, no store.
 import assert from "node:assert/strict";
 import {
-  runWebullMirror as runActual, mergeEngineTrades, scopeLedger, mirrorTradeId, sourceName,
+  runWebullMirror as runActual, mergeEngineTrades, LIVE_SIZING, scopeLedger, mirrorTradeId, sourceName,
   ledgerToFillRows, ledgerToTestTrades, fillRowsToCsv, orderAttemptsToCsv, clientOrderId, orderIdTag,
 } from "../lib/webull-mirror.mjs";
 import { mirrorHealth } from "../lib/webull-mirror-health.mjs";
@@ -133,7 +133,7 @@ await ok("one account: Top Picks and three engines open on different contracts, 
   assert.deepEqual(engRows.map((r) => r.engine).sort(), ["earnings", "macro", "technicals"]);
   assert.equal(ledgerToFillRows(scopeLedger(ledger, "all")).length, 4);
   assert.equal(ledgerToTestTrades(scopeLedger(ledger, "engines")).find((x) => x.tradeId.startsWith("TEC:")).engine, "technicals");
-  assert.match(fillRowsToCsv(engRows).split("\n")[0], /,engine,made_by$/);
+  assert.match(fillRowsToCsv(engRows).split("\n")[0], /,setup,engine,made_by$/);
   assert.match(orderAttemptsToCsv(scopeLedger(ledger, "engines")).split("\n")[1], /,(technicals,Technicals,mstec|macro,Macro,msmac|earnings,Earnings & events,msern)$/);
   // Every row names who made the trade, Top Picks included (no blank column).
   assert.equal(flagRows[0].made_by, "Top Picks");
@@ -311,7 +311,7 @@ await ok("health: an engine trade with no mirror record is flagged only once the
   assert.equal(mirrorHealth({ acc: accOf(), ledger }, T0).engines, undefined);
 });
 
-await ok("shares: an engine share trade is a record line only: never merged, ordered or counted as untracked", async () => {
+await ok("shares (share orders off): an engine share trade is a record line only: never merged, ordered or counted as untracked", async () => {
   const shr = eng("technicals", "SHR", { tradeId: "TEC:SHR-S-11/16/26-11:00", contract: { structure: "shares", optionType: "call", shares: 50, mid: 100, usd: 5000, costPct: 0.1 } });
   const opt = eng("technicals", "BBB");
   const m = merged(accOf(), engOf([shr, opt], [closedRow({ ...shr, tradeId: "TEC:SHR-S-11/13/26-11:00" })]), null);
@@ -323,6 +323,22 @@ await ok("shares: an engine share trade is a record line only: never merged, ord
   const h = mirrorHealth({ acc: accOf(), ledger: led, engines: engOf([shr]) }, T0);
   assert.equal(h.engines.open, 0); assert.equal(h.engines.untracked, 0);
   assert.ok(!h.issues.some((i) => i.code === "ENGINE_TRADES_UNTRACKED"));
+});
+
+await ok("shares (share orders on, the live default): the same share trade is bought as stock and counted", async () => {
+  const shr = eng("technicals", "SHR", { tradeId: "TEC:SHR-S-11/16/26-11:00", contract: { structure: "shares", optionType: "call", shares: 50, mid: 100, usd: 5000, costPct: 0.1 } });
+  const opt = eng("technicals", "BBB");
+  const m = merged(accOf(), engOf([shr, opt]), null, { shares: true });
+  assert.deepEqual(m.open.map((e) => e.symbol).sort(), ["BBB", "SHR"]);
+  const wb = fakeWebull();
+  const { ledger, summary } = await run({ client: wb, accountId: "PAPER1", acc: m, ledger: null, nowMs: T0, sizing: { ...LIVE_SIZING, riskUsd: 2000 } });
+  assert.equal(summary.placed, 2);
+  const stock = wb.placed.find((o) => o.symbol === "SHR");
+  assert.equal(stock.instrument_type, "EQUITY"); assert.equal(stock.side, "BUY"); assert.equal(stock.quantity, "50");
+  assert.equal(ledger.trades["TEC:SHR-S-11/16/26-11:00"].instrument, "stock");
+  const led = { goLiveIso: "2026-11-16T15:00:00.000Z", sharesGoLiveIso: "2026-11-16T15:00:00.000Z", trades: {}, engineSnapshotIso: BUILT, reconciliation: { status: "matched", alerts: [], checkedAtIso: BUILT } };
+  const h = mirrorHealth({ acc: accOf(), ledger: led, engines: engOf([shr]), sharesMirror: true }, T0);
+  assert.equal(h.engines.open, 1); assert.equal(h.engines.untracked, 1);
 });
 
 await ok("expiry: the engines close on the day the mirror's own expiry control starts", () => {
