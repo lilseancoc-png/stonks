@@ -94,15 +94,18 @@ export function buildEnginesResearch({ longDir, earningsFile = null } = {}) {
 // plus the Allocator the way it starts live, with a prior: its record from
 // the first half (`split` and before, every setup) carried into the second
 // half, learning on, against the second half without it (`oos`).
-export function runEnginesResearch(R, { from = "2007-01-03", to = "9999-12-31", engines = null, split = "2016-12-31" } = {}) {
+export function runEnginesResearch(R, { from = "2007-01-03", to = "9999-12-31", engines = null, split = "2016-12-31", fearGreed = null } = {}) {
   const ids = engines || ["technicals", "reversion", "macro", ...(R.reports ? ["earnings", "fundamentals"] : []), "trend", "momentum"];
-  const base = { series: R.series, isEtf: R.isEtf, fred: R.H.fred, vix: R.vix, vix3m: R.vix3m, macroEvents: R.macroEvents, reports: R.reports, labels: R.labels, from, to, engines: ids };
+  // fearGreed ([date, score] closes, `--fg <file>`): only the index-fear paper
+  // trial reads it; without it that trial opens nothing in the test.
+  const base = { series: R.series, isEtf: R.isEtf, fred: R.H.fred, vix: R.vix, vix3m: R.vix3m, macroEvents: R.macroEvents, reports: R.reports, labels: R.labels, from, to, engines: ids, fearGreed };
   const raw = runBacktest({ ...base, learn: false, raw: true, keepTrades: true });
   const off = runBacktest({ ...base, learn: false });
   const on = runBacktest({ ...base, learn: true, allocator: "advise" });
   const sig = ids.filter((id) => !ENGINES[id]?.core);
   const withAlloc = sig.length ? runBacktest({ ...base, engines: sig, learn: true, control: 0, allocator: "on" }) : null;
-  const isSig = (t) => !ENGINES[t.engine]?.core;
+  // The Allocator's prior: signal-engine trades, paper trials left out.
+  const isSig = (t) => !ENGINES[t.engine]?.core && !t.trial;
   const priorTrades = (raw.trades || []).filter(isSig);
   const allocPrior = { from: raw.from, to: raw.to, n: priorTrades.length, rows: allocPriorFrom(priorTrades) };
   delete raw.trades;
@@ -153,7 +156,7 @@ async function main() {
   log(`history: ${R.cal.length} sessions ${R.cal[0]}..${R.cal[R.cal.length - 1]}, ${R.universe.length} names, ${R.labels.size} labeled sessions${R.reports ? `, reports for ${R.reportNames} names` : ""}`);
   const engines = typeof flags.engines === "string" ? flags.engines.split(",").map((s) => s.trim()).filter((s) => ENGINES[s]) : null;
   const t0 = Date.now();
-  const { ids, raw, off, on, withAlloc, allocPrior, oos } = runEnginesResearch(R, { from: flags.from || "2007-01-03", to: flags.to || "9999-12-31", engines });
+  const { ids, raw, off, on, withAlloc, allocPrior, oos } = runEnginesResearch(R, { from: flags.from || "2007-01-03", to: flags.to || "9999-12-31", engines, fearGreed: typeof flags.fg === "string" && fs.existsSync(flags.fg) ? JSON.parse(fs.readFileSync(flags.fg, "utf8")) : null });
   log(`ran ${ids.join(", ")} in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
   const sig = ids.filter((id) => !ENGINES[id]?.core), coreIds = ids.filter((id) => ENGINES[id]?.core);
   log("every setup, learning off:"); for (const id of sig) log(line(id, raw.engines[id]));
@@ -190,6 +193,7 @@ async function main() {
       "Since 2026-11-17 each option trade buys about $2,000 of premium (the number of contracts nearest it, at least one), so the dollar totals weigh every trade about the same. Before, every option trade was one contract, and a dear contract (a $40 SPY call) counted forty times a cheap one.",
       "Since 2026-11-17 the call side of the slower setups buys $5,000 of stock instead of a call. Those share trades are priced at the open and close with 0.1% costs a round trip and scored on their own, against random share lots with the same stock exits. Split-adjusted prices are used as they are.",
       "Modeled volatility falls more slowly after a bounce than real implied volatility does, so dip-buying calls look better here than they would live.",
+      "Two paper trials (2026-11-19) run beside Reversion and Macro, scored apart from the engines' own trades: the RSI(2) dip in an uptrend and index funds after extreme fear, both buying shares. They came from a 553-variant test on real option prices and did not clear its bar. The index-fear trial is read here on our rebuild of Fear & Greed (six of CNN's seven parts, no put/call history); live it reads CNN's own index. Since this run every random share book is matched trade by trade to the real trade's hold and exits, so a setup that sells after a few sessions is not judged against random lots held for 20.",
       "FOMC days are the real decision dates. Jobs days follow the first-Friday rule. CPI days are not in the research set.",
       "The core engines (Trend follower, Momentum basket) are scored as a portfolio: $1 that follows the holdings at every open and close, idle money earning the fed funds rate, 0.1% costs a round trip, against SPY bought the same day. Prices are split- and dividend-adjusted as downloaded, the same for both.",
       "The Momentum basket's number is the most flattered here: it picks the ten strongest of today's 85 covered names, which are largely the names that went on to win. On a 1,000-name list of the time (the 2026-11-17 research) the same rule made about 21% a year, not 28%.",
