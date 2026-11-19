@@ -132,7 +132,7 @@ import { fetchOvernightSeries } from "../lib/overnight-fetch.mjs";
 import { mergeOvernightLog, overnightLogSummary, OVERNIGHT_LOG_KEY, OVERNIGHT_PREOPEN_KEY } from "../lib/overnight-log.mjs";
 import { sectorGroupOfLabel } from "../lib/sector-groups.mjs";
 import { outcomeFromPnl, realFillMark, exitDetailFor, mergeArchive } from "../lib/track-record-fills.mjs";
-import { assessDecisionInputsBeforeAi } from "../lib/freshness-policy.mjs";
+import { assessDecisionInputsBeforeAi, pruneUnpublishableTickers } from "../lib/freshness-policy.mjs";
 import { assembleBakeLinkMap, LINK_MAP_SKIPPED_SOURCES } from "../lib/link-map.mjs";
 import {
   LEAPS_PICKS_KEY,
@@ -39533,6 +39533,15 @@ async function main() {
       `Only ${got} / ${TICKERS.length} tickers fetched (need ≥${Math.ceil(MIN_SUCCESS_RATE * TICKERS.length)}). ` +
       `Leaving last-good index.html + data/ in place — GH Pages will keep serving the previous build.`
     );
+  }
+  // A fetched ticker whose input cannot publish is dropped like an unfetched
+  // one; the coverage rule below still fails the build when too many go.
+  const prunedTickers = pruneUnpublishableTickers({ chains, expectedSymbols: TICKERS });
+  for (const row of prunedTickers.dropped) {
+    console.warn(`::warning title=Ticker left out of this build::${row.symbol}: ${row.reason}`);
+  }
+  if (prunedTickers.dropped.length) {
+    console.log(`Left out ${prunedTickers.dropped.length} ticker(s) whose input cannot publish; ${Object.keys(chains).length} / ${TICKERS.length} remain.`);
   }
   const preAiFreshness = assessDecisionInputsBeforeAi({
     chains,
