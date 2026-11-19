@@ -37,6 +37,12 @@
 //                               (default 3.5)
 //   --iv-ratio N                modeled implied volatility as N x realized
 //                               (default 1.15)
+//   --trades-out FILE           also write the learning-on run's closed option
+//                               trades (engine, setup, symbol, side, dates,
+//                               modeled contract, modeled P&L) to FILE as
+//                               JSON lines, for scripts/engines-real-prices.mjs.
+//                               Research only: write it outside the repo (it
+//                               is trade-level, so it never gets committed).
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -117,13 +123,15 @@ export function buildEnginesResearch({ longDir, earningsFile = null } = {}) {
 // (`--fg <file>`, [date, score] closes or { date: score }) is read by the
 // extreme-fear bounce test and the index-fear paper trial; without it
 // neither opens anything in the test.
-export function runEnginesResearch(R, { from = "2007-01-03", to = "9999-12-31", engines = null, split = "2016-12-31", settings = {} } = {}) {
+export function runEnginesResearch(R, { from = "2007-01-03", to = "9999-12-31", engines = null, split = "2016-12-31", settings = {}, keepOnTrades = false } = {}) {
   const ids = engines || ["technicals", "reversion", "macro", ...(R.reports ? ["earnings", "fundamentals"] : []), "trend", "momentum"];
   const base = { series: R.series, isEtf: R.isEtf, fred: R.H.fred, vix: R.vix, vix3m: R.vix3m, macroEvents: R.macroEvents, reports: R.reports, labels: R.labels, from, to, engines: ids,
     groupOf: (s) => { try { return sectorGroupOf(s) || null; } catch { return null; } }, ...settings };
   const raw = runBacktest({ ...base, learn: false, raw: true, keepTrades: true });
   const off = runBacktest({ ...base, learn: false });
-  const on = runBacktest({ ...base, learn: true, allocator: "advise" });
+  const on = runBacktest({ ...base, learn: true, allocator: "advise", ...(keepOnTrades ? { keepTrades: true } : {}) });
+  const onTrades = keepOnTrades ? on.trades || [] : null;
+  if (keepOnTrades) delete on.trades;
   const sig = ids.filter((id) => !ENGINES[id]?.core);
   const withAlloc = sig.length ? runBacktest({ ...base, engines: sig, learn: true, control: 0, allocator: "on" }) : null;
   // The Allocator's prior: signal-engine trades, paper trials left out.
@@ -141,7 +149,21 @@ export function runEnginesResearch(R, { from = "2007-01-03", to = "9999-12-31", 
     const without = runBacktest({ ...sb2, learn: true, allocator: "advise", allocPrior: prior });
     oos = { priorFrom: first.from, priorTo: first.to, ...allocatorSummary(withPrior, without, sig) };
   }
-  return { ids, raw, off, on, withAlloc, allocPrior, oos };
+  return { ids, raw, off, on, withAlloc, allocPrior, oos, onTrades };
+}
+
+// One closed option trade as a JSON-lines row for the real-price re-test
+// (scripts/engines-real-prices.mjs). Share trades are left out (their prices
+// are the stock's own closes, already real).
+export function tradeOutRow(t) {
+  const c = t?.contract;
+  if (!c || c.structure === "shares" || !(c.strike > 0) || !c.expiry) return null;
+  return {
+    engine: t.engine, setup: t.setup || null, symbol: t.symbol, side: t.side, trial: !!t.trial, test: !!t.test,
+    entryDate: String(t.entryDate || "").slice(0, 10), exitDate: String(t.exitDate || "").slice(0, 10), status: t.status || null,
+    optionType: c.optionType, strike: c.strike, expiry: c.expiry, dte: c.dte ?? null, entryMid: c.mid ?? null, iv: c.iv ?? null,
+    exitMid: t.exitMid ?? null, pnlPct: t.optionPnlPct ?? null, qty: t.qty ?? null, outcome: t.outcome || null,
+  };
 }
 
 // The Allocator holding back (`on`) against the same run with it only
@@ -217,7 +239,15 @@ async function main() {
   log(`history: ${R.cal.length} sessions ${R.cal[0]}..${R.cal[R.cal.length - 1]}, ${R.universe.length} names, ${R.labels.size} labeled sessions${R.reports ? `, reports for ${R.reportNames} names` : ""}`);
   const engines = typeof flags.engines === "string" ? flags.engines.split(",").map((s) => s.trim()).filter((s) => ENGINES[s]) : null;
   const t0 = Date.now();
-  const { ids, raw, off, on, withAlloc, allocPrior, oos } = runEnginesResearch(R, { from: flags.from || "2007-01-03", to: flags.to || "9999-12-31", engines, settings });
+  const tradesOut = typeof flags["trades-out"] === "string" ? path.resolve(flags["trades-out"]) : null;
+  if (tradesOut && tradesOut.startsWith(path.resolve(ROOT) + path.sep)) throw new Error("--trades-out writes trade-level rows: point it outside the repo");
+  const { ids, raw, off, on, withAlloc, allocPrior, oos, onTrades } = runEnginesResearch(R, { from: flags.from || "2007-01-03", to: flags.to || "9999-12-31", engines, settings, keepOnTrades: !!tradesOut });
+  if (tradesOut) {
+    const rows = (onTrades || []).map(tradeOutRow).filter(Boolean);
+    fs.mkdirSync(path.dirname(tradesOut), { recursive: true });
+    fs.writeFileSync(tradesOut, rows.map((r) => JSON.stringify(r)).join("\n") + (rows.length ? "\n" : ""));
+    log(`wrote ${rows.length} closed option trades (learning on) to ${tradesOut}`);
+  }
   log(`ran ${ids.join(", ")} in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
   const sig = ids.filter((id) => !ENGINES[id]?.core), coreIds = ids.filter((id) => ENGINES[id]?.core);
   log("every setup, learning off:"); for (const id of sig) log(line(id, raw.engines[id]));

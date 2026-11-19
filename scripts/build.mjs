@@ -107,6 +107,7 @@ import { loadEngineFiles, carryEngineFiles, writeEngineFiles, runEngines, loadEn
 import { firstFridays as enginesFirstFridays } from "../lib/engines/macro.mjs";
 import { pickTradeId } from "../lib/pick-trade-text.mjs";
 import { updateDisruptionState, buildDisruptionFiles, readDisruptionPrior, writeDisruptionFiles, AI_DISRUPTION_KEY, AI_DISRUPTION_OWNER_KEY } from "../lib/ai-disruption/log.mjs";
+import { updatePolicyNews, readPolicyNewsPrior, writePolicyNewsFile, policyNewsShadow, POLICY_NEWS_KEY } from "../lib/policy-news/index.mjs";
 import { buildScorecard as buildDisruptionScorecard } from "../lib/ai-disruption/scorecard.mjs";
 import { updatePredictionState, bakeMaxMs, buildPredictionPublic, buildPredictionOwner, analyzePrediction, predictionShadow, predictionContextFor, predictionGraderLines, pricesFromChains, readPredictionPrior, writePredictionFiles, PREDICTION_KEY, PREDICTION_OWNER_KEY } from "../lib/prediction/index.mjs";
 import { buildHistoryRhymes, buildHistoryRhymesOwner, historyRhymesSummary, HISTORY_RHYMES_KEY, HISTORY_RHYMES_OWNER_KEY, HISTORY_RHYMES_FRED, REPORTED_CDS } from "../lib/history-rhymes.mjs";
@@ -39632,6 +39633,23 @@ async function main() {
   await loadAiUsageState();
   console.log("Loading SEC CIK mapping…");
   await fetchCikMap();
+  // Policy and news data (lib/policy-news/, 2026-11-19): Federal Register
+  // rules and orders tagged to covered stocks, and GDELT news volume and tone
+  // per stock, free with no key and no AI. Read once per ET trading day on the
+  // first non-Top-Picks bake after 09:00 ET. The prior file is read here,
+  // before the wipe; the reads start now so GDELT's one-request-per-5.5-s
+  // pace overlaps the chain fetch, and the result is awaited before the
+  // shadow signals. FEDERAL_REGISTER=0 / GDELT_NEWS=0 carry the prior block.
+  // Context only: nothing reads it into a pick, grade, gate or engine.
+  const policyNewsPrior = await readPolicyNewsPrior(DATA_DIR);
+  const policyNewsPromise = updatePolicyNews({
+    prior: policyNewsPrior, nowMs: Date.now(), symbols: TICKERS,
+    decisionRun: !/^(?:0|false)$/i.test(process.env.REFRESH_TOP_PICKS || "1"),
+    log: (line) => console.log(line),
+  }).catch((err) => {
+    console.warn(`[policy-news] skipped — ${String(err?.message || err).split("\n")[0]}`);
+    return null;
+  });
   console.log("Fetching option chains for", TICKERS.length, "tickers…");
   const chains = await fetchAllTickerChains();
   const got = Object.keys(chains).length;
@@ -41401,6 +41419,19 @@ async function main() {
     ...altDataGauges({ accelerators: await shadowReadJson("accelerator-prices.json"), ram: await shadowReadJson("ram-prices.json"), aiCapex: await shadowReadJson("ai-capex.json") }),
     ...resemblesGauges(historicalInfo?.events || null),
   };
+  // Policy and news (started at the top of main; the file is written here,
+  // after the wipe). A run that read nothing carries the prior file as is.
+  const policyNewsRun = await policyNewsPromise;
+  const policyNewsState = policyNewsRun?.state || policyNewsPrior || null;
+  try {
+    if (policyNewsState) await writePolicyNewsFile(DATA_DIR, policyNewsState);
+    if (policyNewsRun) {
+      const fr = policyNewsState.fr, g = policyNewsState.gdelt;
+      console.log(`wrote data/${POLICY_NEWS_KEY} — ${policyNewsRun.ran.fr || policyNewsRun.ran.gdelt ? "read this bake" : `not read this bake (${policyNewsRun.why})`}; Federal Register ${fr.docs.length} docs kept${fr.stale ? " (stale)" : ""}, GDELT ${g.done.length} stocks read ${g.date || "never"}${g.stale ? " (stale)" : ""}`);
+    }
+  } catch (err) {
+    console.warn(`[policy-news] write skipped — ${String(err?.message || err).split("\n")[0]}`);
+  }
   const shadowOpts = {
     builtAtIso, groupOf: spilloverGroupOf, oiTracker: scoringOiTracker, spillover: scenarioSpilloverMatrix, crowd: crowdPayload,
     defaultChance: historyRhymesDefaultChance, buildout: historyRhymesBrief,
@@ -41416,6 +41447,9 @@ async function main() {
     // Flow keys (version 7): the older Unusual flow vote beside the signed
     // one, from the same fresh scan the grade reads.
     flowVotes: scoringUnusual ? flowVotesBySymbol(scoringUnusual, unusualLog, Date.parse(builtAtIso)) : null,
+    // Policy and news keys (version 8): frn / nvr / ntn per name and the
+    // frp / nvs gauges, from the stored policy-news file (fresh reads only).
+    policyNews: policyNewsState ? policyNewsShadow(policyNewsState, { nowMs: Date.parse(builtAtIso), symbols: TICKERS }) : null,
   };
   try {
     shadowSignalsToday = buildShadowSignals(chains, shadowOpts);
