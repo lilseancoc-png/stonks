@@ -173,6 +173,76 @@ state; the Setups and learning tab lists every hand-made rules step. These
 fixes were picked from the same history they are scored on, so the live
 record is the real test.
 
+### Honest paper trades (rules 4, 2026-11-19)
+
+The owner asked for a paper record a real trader would recognise: fills a
+broker would give, a size that depends on the risk and on how good the setup
+looks, and the losing option setups moved to shares. Six changes went in
+(rules 4 on every signal engine, one logged rules change each). Each is an
+Owner Settings switch (Data & desks → Strategy engines), on by default; off
+puts that part back for new trades only (open trades keep the fill basis, size
+and exits they opened with), and a flip is logged as a rules change on the
+engines it reaches, like the rules 3 fixes (`ENGINE_FIXES` entries with
+`step: 4`).
+
+| Change | What changed | Switch |
+|---|---|---|
+| Fill basis | A new option trade books the **ask going in and the bid coming out** (`entryFill`, `exitFill`, `basis: "bid"`, or `"est"` = the mark less half the spread the contract had at entry when the chain has no two-sided quote). Stops and targets still fire on the mid; only the booked result changes. The page shows "booked: ask → bid" beside the mid result | `ENGINES_FILL_BASIS` |
+| Risk sizing | Each trade risks about `ENGINES_RISK_USD` (default $2,000, 500 to 10,000). An option expiring within 30 days (`BOOK.riskWholeDte`) risks its whole premium, a longer one premium × its stop × 1.25 (`riskStopPad`); 1 to 10 contracts (`riskMaxQty`). A contract costing over 2× the budget (`riskSkipX`) is not bought: the call side buys shares instead, a put is skipped. A share trade risks entry minus stop per share, at most $25,000 of stock (`sharesMaxUsd`). Every trade stores `qty` and `flatQty` (`shares` / `flatShares`) and a `size` object with the arithmetic. Off = the rules 3 sizing (about $2,000 of premium, or one contract with `ENGINES_FIX_SIZE=0`; $5,000 share lots) | `ENGINES_RISK_SIZE`, `ENGINES_RISK_USD` |
+| Conviction multiplier | The risk size times a multiplier, 0.5× to 2× (`BOOK.convMin` / `convMax`), the product of small parts in `SIZE_WEIGHTS`: the score over the engine's entry bar (0.85× at the bar to 1.25× at 20+ points over), the Allocator's read (held back 0.75×, size 1.5×+ 1.15×, 0.5× or less 0.85×), option IV against the stock's own history (cheap 1.15×, rich 0.85×, very rich 0.75×), the spread (over 8% of the mid 0.9×, over 12% 0.8×), the name already open in another engine or Top Picks 0.75×, two or more open trades in its sector group 0.85×. Each trade shows its parts (`convictionRead`, `size.parts`). Off = the flat risk size | `ENGINES_SIZE_MULTIPLIER` |
+| Instrument per engine | Each signal engine can buy options, shares on the up side (puts stay options: the engines never short stock) or both (an option trade plus a shares twin, scored apart) | `ENGINES_INSTRUMENT_EARNINGS`, `_MACRO`, `_TECHNICALS`, `_FUNDAMENTALS`, `_FLOW`, `_REVERSION` (default = the registry) |
+| Technicals shares only | Technicals' squeeze calls buy shares, and its squeeze puts and rally fade are retired (they stay in the registry so old trades keep their labels) | `ENGINES_TEC_SHARES_ONLY` |
+| Crash stand-aside | Reversion's washout bounce (`oversold-bounce`, `crashStand: true`) stands aside when the prior five sessions held a one-day drop of 7% or more (`BOOK.crashDrop`, feature `worst5`); listed under Now with the reason | `ENGINES_CRASH_STANDASIDE` |
+| Extreme-fear bounce test | Reversion's `fear-bounce` (`test: true`): the same washout, only while CNN's fear and greed reading is under 25 (`BOOK.fearBelow`; a reading over 3 days old or marked stale is ignored, `fearRead`), with the crash stand-aside built in. Buys one call of about 0.3 delta 14 to 35 days out (fixed at one contract) plus a shares twin, and never takes a contract another trade holds (`avoid`), so the Webull paper account fills it on its own. Labelled Test on the page; test trades never move learning or the Allocator hold-back | `ENGINES_FEAR_BOUNCE` |
+
+**The Webull paper account buys each trade's size** (since #869, 2026-11-19):
+an option trade sends its record `qty` (1 to 10, the same cap as risk
+sizing) and a share trade its whole-share count, so risk sizing and the
+conviction multiplier reach the paper account (Owner Settings `WEBULL_QTY` /
+`WEBULL_SHARES` turn that off). The fill basis stays on the engine record:
+Webull fills at its own prices, and the mirror's exit ladder starts from the
+model mid (`markPnlPct`), not the booked bid.
+
+History test (`node scripts/engines-backtest.mjs --long <dir>`, 2007-2026,
+modeled option prices, version `engines-backtest-3`):
+
+- With every rules 4 switch off (`--off fillBasis,riskSize,conviction,tecShares,crashStand,fearBounce`)
+  the result is byte-identical to the rules 3 run.
+- At the old sizing (`--sizing premium`), the rule changes take the option book
+  (learning off) from $124,398 to $160,698: Reversion 1,029 → 916 trades,
+  +5.3% → +8.0% a trade (the crash stand-aside), Technicals options to none
+  and 1,600 share trades at +1.1%. Side effect: capitulation shares now get
+  through on some crash days (60 → 75 trades, +0.6% → -0.3%).
+- Risk sizing changes dollar weights, not percent results: options $79,417
+  (flat size $76,898, so the multiplier adds about 3%), shares $333K (lots up
+  to $25,000 of stock against the old $5,000). The option total falls because
+  cheap contracts are capped at 10 and counts round down. By half the
+  multiplier is a wash (whole book, learning off: about -1% in 2007-2016, +1%
+  in 2017-2026), so it is shown as how a trader would size, with the flat
+  result beside it, not as an edge. A $5,000 budget lowers the option total
+  ($65,798): dear contracts get more weight and Macro's dear calls lose.
+- The fear test, on a rebuilt fear and greed series (`--fg FILE`): calls 148
+  trades at +18.6% a trade on modeled prices, shares twins 204 at +0.6%. On
+  real implied volatility (Cboe indexes, the 2026-11-19 research) the same
+  calls lost 9.3% a trade, which is why it is a labelled test.
+- On real implied volatility (Cboe's indexes, a stand-in for names without
+  one; learning off) the option book still loses: rules 3 lost 2.2% a trade
+  (1,793 trades), rules 4 loses 1.4% a trade (1,519 trades; Reversion -2.7%
+  to -1.4%, Technicals' losing options gone). Share trades hold at +1.1% a
+  trade either way. The engines' option edge is not proven; the paper record
+  is the test.
+- The fill basis is not in the history test (the modeled prices have no bid
+  or ask; the 3.5% round-trip cost stands in for the spread).
+
+Rerun flags: `--sizing risk|premium|one`, `--budget N`, `--conviction 0`,
+`--off <ids>` (`ENGINE_FIXES` ids), `--inst engine=options|shares|both`,
+`--fg FILE` (`[date, score, vix]` rows), `--cost N`, `--iv-ratio N`. Each result lists
+`sizing` and the changed `assumptions`, and carries `flatUsd` (the same trades
+at the flat size).
+
+Not built (owner, 2026-11-19): fear-state sizing, adding to losing option
+trades, black-swan hedges. No leverage and no shorting in any mode.
+
 How they differ from Top Picks, on purpose:
 
 - **No shared grade.** Top Picks sums four pillars into one score. Each engine
@@ -545,6 +615,14 @@ w = expected / 4, clamped to 0.1x-2x.
 | `ENGINES_FIX_BOUNCE` | Owner Settings → Data & desks | Unset / on = the washout bounce buys ~0.3-delta calls about 21 days out with a -60% stop. `0` = the engine's 0.6-delta calls and -35% stop |
 | `ENGINES_FIX_SIZE` | Owner Settings → Data & desks | Unset / on = option trades record about $2,000 of premium. `0` = one contract, as before. Webull buys the record's `qty` (1 to 10) unless Owner Settings `WEBULL_QTY` is off |
 | `ENGINES_FIX_TEC_SHARES` | Owner Settings → Data & desks | Unset / on = Technicals' share trades stop 3 ATR under the entry. `0` = the setup's own stop or 2 ATR |
+| `ENGINES_FILL_BASIS` | Owner Settings → Data & desks | Unset / on = new option trades book the ask going in and the bid coming out (triggers stay on the mid). `0` = the mid both ways |
+| `ENGINES_RISK_SIZE` | Owner Settings → Data & desks | Unset / on = each trade risks about `ENGINES_RISK_USD`, 1 to 10 contracts or up to $25,000 of stock. `0` = the rules 3 sizing |
+| `ENGINES_RISK_USD` | Owner Settings → Data & desks | The risk budget a trade, $500 to $10,000 (default $2,000) |
+| `ENGINES_SIZE_MULTIPLIER` | Owner Settings → Data & desks | Unset / on = the conviction multiplier (0.5x to 2x, parts on each trade). `0` = the flat risk size |
+| `ENGINES_TEC_SHARES_ONLY` | Owner Settings → Data & desks | Unset / on = Technicals buys shares only (squeeze puts and rally fade retired). `0` = its rules 3 setups |
+| `ENGINES_CRASH_STANDASIDE` | Owner Settings → Data & desks | Unset / on = Reversion's washout bounce stands aside after a one-day drop of 7%+ in the prior five sessions. `0` = it buys anyway |
+| `ENGINES_FEAR_BOUNCE` | Owner Settings → Data & desks | Unset / on = the extreme-fear bounce test (one call plus a shares twin under fear and greed 25). `0` = not run |
+| `ENGINES_INSTRUMENT_<ENGINE>` | Owner Settings → Data & desks | Per signal engine (`EARNINGS`, `MACRO`, `TECHNICALS`, `FUNDAMENTALS`, `FLOW`, `REVERSION`): default (the registry), `options`, `shares` (call signals buy stock; puts stay options) or `both` |
 
 ## Not in scope
 

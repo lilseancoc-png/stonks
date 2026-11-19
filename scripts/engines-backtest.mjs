@@ -19,17 +19,35 @@
 // Usage:
 //   node scripts/engines-backtest.mjs [--long DIR] [--public FILE] [--from YYYY-MM-DD]
 //        [--to YYYY-MM-DD] [--engines technicals,reversion,macro] [--earnings FILE] [--dry]
+//
+// Settings for reruns (2026-11-19; each changes the assumptions, so a run
+// with any of them is a what-if: write it with --public to a scratch file, or
+// --dry, never over the committed result):
+//   --sizing risk|premium|one   risk = the live default (risk budget, 1-10
+//                               contracts); premium = about $2,000 of premium
+//                               (the 2026-11-17 size); one = one contract
+//   --budget N                  the risk budget in dollars (default 2000)
+//   --conviction 0              risk sizing without the conviction multiplier
+//   --off fillBasis,riskSize,...  switch fixes off (ENGINE_FIXES ids)
+//   --inst technicals=options,reversion=both  the per-engine instrument choice
+//   --fg FILE                   a fear and greed series ([date, score] pairs or
+//                               { date: score }), which turns the extreme-fear
+//                               bounce test on (it never fires without one)
+//   --cost N                    round-trip option costs in points of premium
+//                               (default 3.5)
+//   --iv-ratio N                modeled implied volatility as N x realized
+//                               (default 1.15)
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadLongHistory } from "../research/macro-backtest/common.mjs";
-import { TICKERS, SECTORS } from "./build.mjs";
+import { TICKERS, SECTORS, sectorGroupOf } from "./build.mjs";
 import { buildLabelInputs } from "../lib/regime-lab/payload.mjs";
 import { buildLabelSeries, LABEL_RULES_VERSION } from "../lib/regime-lab/labels.mjs";
 import { FOMC_DECISIONS } from "../lib/historical-events.mjs";
 import { runBacktest, publicResult, WINDOWS, BACKTEST_VERSION } from "../lib/engines/backtest.mjs";
 import { firstFridays } from "../lib/engines/macro.mjs";
-import { ENGINES, ENGINES_VERSION, MACRO_ETFS, BOOK } from "../lib/engines/config.mjs";
+import { ENGINES, ENGINES_VERSION, MACRO_ETFS, BOOK, ENGINE_FIXES, engineSpecs, INSTRUMENT_CHOICES } from "../lib/engines/config.mjs";
 import { allocPriorFrom } from "../lib/engines/allocator.mjs";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
@@ -94,9 +112,12 @@ export function buildEnginesResearch({ longDir, earningsFile = null } = {}) {
 // plus the Allocator the way it starts live, with a prior: its record from
 // the first half (`split` and before, every setup) carried into the second
 // half, learning on, against the second half without it (`oos`).
-export function runEnginesResearch(R, { from = "2007-01-03", to = "9999-12-31", engines = null, split = "2016-12-31" } = {}) {
+// settings (all optional, for reruns): { sizing, specs, fearGreed, costPts,
+// ivRatio } passed straight to runBacktest (see parseSettings).
+export function runEnginesResearch(R, { from = "2007-01-03", to = "9999-12-31", engines = null, split = "2016-12-31", settings = {} } = {}) {
   const ids = engines || ["technicals", "reversion", "macro", ...(R.reports ? ["earnings", "fundamentals"] : []), "trend", "momentum"];
-  const base = { series: R.series, isEtf: R.isEtf, fred: R.H.fred, vix: R.vix, vix3m: R.vix3m, macroEvents: R.macroEvents, reports: R.reports, labels: R.labels, from, to, engines: ids };
+  const base = { series: R.series, isEtf: R.isEtf, fred: R.H.fred, vix: R.vix, vix3m: R.vix3m, macroEvents: R.macroEvents, reports: R.reports, labels: R.labels, from, to, engines: ids,
+    groupOf: (s) => { try { return sectorGroupOf(s) || null; } catch { return null; } }, ...settings };
   const raw = runBacktest({ ...base, learn: false, raw: true, keepTrades: true });
   const off = runBacktest({ ...base, learn: false });
   const on = runBacktest({ ...base, learn: true, allocator: "advise" });
@@ -146,14 +167,53 @@ function line(id, e) {
   return `  ${id.padEnd(12)} n=${String(e.n).padStart(5)} win ${e.winRate == null ? "n/a" : (e.winRate * 100).toFixed(1) + "%"} avg ${e.avg}% median ${e.median}% $${e.usd} pf ${e.profitFactor} ${e.perYear}/yr${c}`;
 }
 
+// The rerun flags as runBacktest options, plus a one-line description of
+// each assumption that differs from the committed run.
+export function parseSettings(flags) {
+  const settings = {}, changed = [];
+  const off = typeof flags.off === "string" ? flags.off.split(",").map((x) => x.trim()).filter((x) => ENGINE_FIXES.some((f) => f.id === x)) : [];
+  // Switching risk sizing (or the multiplier) off sizes the run as the live
+  // engines would with that switch off, unless --sizing says otherwise.
+  const mode = typeof flags.sizing === "string" ? flags.sizing : off.includes("riskSize") ? (off.includes("size") ? "one" : "premium") : "risk";
+  const budget = Number(flags.budget) > 0 ? Number(flags.budget) : BOOK.riskUsd;
+  const conviction = !(flags.conviction === "0" || flags.conviction === "off" || off.includes("conviction"));
+  if (mode === "premium") { settings.sizing = { mode: "premium", optionUsd: BOOK.optionUsd }; changed.push(`sizing: about $${BOOK.optionUsd} of premium a trade`); }
+  else if (mode === "one") { settings.sizing = { mode: "one" }; changed.push("sizing: one contract a trade"); }
+  else {
+    settings.sizing = { mode: "risk", budget, conviction };
+    if (budget !== BOOK.riskUsd) changed.push(`risk budget $${budget}`);
+    if (!conviction) changed.push("no conviction multiplier");
+  }
+  const inst = {};
+  if (typeof flags.inst === "string") for (const kv of flags.inst.split(",")) { const [k, v] = kv.split("=").map((x) => x.trim()); if (ENGINES[k] && INSTRUMENT_CHOICES.includes(v)) inst[k] = v; }
+  if (off.length || Object.keys(inst).length) {
+    settings.specs = engineSpecs(Object.fromEntries(off.map((id) => [id, false])), inst);
+    if (off.length) changed.push(`fixes off: ${off.join(", ")}`);
+    if (Object.keys(inst).length) changed.push(`instrument: ${Object.entries(inst).map(([k, v]) => `${k}=${v}`).join(", ")}`);
+  }
+  if (typeof flags.fg === "string") {
+    const raw = JSON.parse(fs.readFileSync(flags.fg, "utf8"));
+    const m = new Map();
+    if (Array.isArray(raw)) { for (const r of raw) if (Array.isArray(r) && typeof r[0] === "string" && Number.isFinite(Number(r[1]))) m.set(r[0], Number(r[1])); }
+    else if (raw && typeof raw === "object") for (const [d, v] of Object.entries(raw)) if (Number.isFinite(Number(v))) m.set(d, Number(v));
+    settings.fearGreed = m;
+    changed.push(`fear and greed series: ${m.size} days from ${path.basename(flags.fg)}`);
+  }
+  if (typeof flags.cost === "string" && Number.isFinite(Number(flags.cost))) { settings.costPts = Number(flags.cost); changed.push(`option costs ${settings.costPts} points a round trip`); }
+  if (typeof flags["iv-ratio"] === "string" && Number.isFinite(Number(flags["iv-ratio"]))) { settings.ivRatio = Number(flags["iv-ratio"]); changed.push(`modeled IV ${settings.ivRatio}x realized`); }
+  return { settings, changed };
+}
+
 async function main() {
   const flags = parseArgs(process.argv.slice(2));
+  const { settings, changed } = parseSettings(flags);
+  if (changed.length) log(`settings: ${changed.join("; ")}`);
   const longDir = flags.long || process.env.ENGINES_LONG || process.env.REGIME_LAB_LONG || path.join(ROOT, "research/long-history");
   const R = buildEnginesResearch({ longDir, earningsFile: flags.earnings || null });
   log(`history: ${R.cal.length} sessions ${R.cal[0]}..${R.cal[R.cal.length - 1]}, ${R.universe.length} names, ${R.labels.size} labeled sessions${R.reports ? `, reports for ${R.reportNames} names` : ""}`);
   const engines = typeof flags.engines === "string" ? flags.engines.split(",").map((s) => s.trim()).filter((s) => ENGINES[s]) : null;
   const t0 = Date.now();
-  const { ids, raw, off, on, withAlloc, allocPrior, oos } = runEnginesResearch(R, { from: flags.from || "2007-01-03", to: flags.to || "9999-12-31", engines });
+  const { ids, raw, off, on, withAlloc, allocPrior, oos } = runEnginesResearch(R, { from: flags.from || "2007-01-03", to: flags.to || "9999-12-31", engines, settings });
   log(`ran ${ids.join(", ")} in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
   const sig = ids.filter((id) => !ENGINES[id]?.core), coreIds = ids.filter((id) => ENGINES[id]?.core);
   log("every setup, learning off:"); for (const id of sig) log(line(id, raw.engines[id]));
@@ -180,15 +240,21 @@ async function main() {
   const out = {
     version: BACKTEST_VERSION, enginesVersion: ENGINES_VERSION, generatedAt: new Date().toISOString().slice(0, 10),
     data: { from: off.from, to: off.to, sessions: off.sessions, names: R.universe.length, labelRules: R.labelRules },
-    // Premium per option trade in these runs (null = one contract).
-    optionUsd: BOOK.optionUsd,
+    // Premium per option trade when sizing by premium (null = one contract),
+    // and the sizing these runs used (2026-11-19) with any changed assumption.
+    optionUsd: BOOK.optionUsd, sizing: settings.sizing || null, assumptions: changed,
     notes: [
       "Option prices are modeled (Black-Scholes at 1.15x realized volatility), with 3.5% of premium taken as costs per round trip. Real spreads and real implied volatility are not in the history.",
       "The names are today's coverage list, so companies that failed or were dropped are missing (the results read better than a live list would have).",
       "Four setups that lost more than 3% a trade in both halves of this same history start on shadow. Three more were dropped on 2026-11-17 and are left out of every run, the 'every setup' one included: Macro's VIX-curve-back-to-normal call, Reversion's spike-in-a-downtrend put and Technicals' range-breakdown put. The numbers with those held back or dropped were picked with hindsight, so they flatter the engines; the 'every setup' run is the least picked read.",
       "The other money-leak fixes of 2026-11-17 were also picked from this same history, so this run flatters them too: 0.3-delta calls about 21 days out with a -60% stop for Reversion's washout bounce, and a 3 ATR stop on Technicals' share trades. The live record against this test, setup by setup on each engine's Record tab, is the check.",
-      "Since 2026-11-17 each option trade buys about $2,000 of premium (the number of contracts nearest it, at least one), so the dollar totals weigh every trade about the same. Before, every option trade was one contract, and a dear contract (a $40 SPY call) counted forty times a cheap one.",
-      "Since 2026-11-17 the call side of the slower setups buys $5,000 of stock instead of a call. Those share trades are priced at the open and close with 0.1% costs a round trip and scored on their own, against random share lots with the same stock exits. Split-adjusted prices are used as they are.",
+      settings.sizing?.mode === "risk"
+        ? `Since 2026-11-19 each trade is sized to risk about $${settings.sizing.budget.toLocaleString("en-US")}${settings.sizing.conviction ? " times a conviction multiplier (0.5x to 2x)" : ""}: an option expiring within ${BOOK.riskWholeDte} days risks its whole premium, a longer one its premium x its stop x ${BOOK.riskStopPad}, 1 to ${BOOK.riskMaxQty} contracts; a share trade risks entry minus stop per share, at most $${BOOK.sharesMaxUsd.toLocaleString("en-US")} of stock. So a share trade now holds far more stock than the $5,000 lot of 2026-11-17, and a cheap contract is capped at ${BOOK.riskMaxQty}: compare dollar totals with a run sized the old way (--sizing premium), and results in % (which size does not change) across runs. Each result also carries flatUsd, the same trades at the flat size (no multiplier).`
+        : `This run sizes option trades the 2026-11-17 way (${settings.sizing?.mode === "one" ? "one contract each" : "about $2,000 of premium each"}) and share trades at $5,000 of stock.`,
+      "The call side of the slower setups buys stock instead of a call (since 2026-11-17; Technicals' squeeze too since 2026-11-19). Those share trades are priced at the open and close with 0.1% costs a round trip and scored on their own, against random share lots with the same stock exits. Split-adjusted prices are used as they are.",
+      "The ask-in, bid-out fill basis of 2026-11-19 is not in this test: the modeled prices have no bid or ask, so the 3.5% round-trip cost stands in for the spread.",
+      settings.fearGreed ? "The extreme-fear bounce test ran on a rebuilt fear and greed series (the decision on each day reads the prior day's value)." : "The extreme-fear bounce test opens nothing here: no fear and greed history ships with the repo (pass --fg FILE to run it on a rebuild).",
+      "Reversion's washout bounce stands aside when the prior five sessions held a one-day drop of 7% or more (2026-11-19). The rule came from research on this same history, so this run flatters it.",
       "Modeled volatility falls more slowly after a bounce than real implied volatility does, so dip-buying calls look better here than they would live.",
       "FOMC days are the real decision dates. Jobs days follow the first-Friday rule. CPI days are not in the research set.",
       "The core engines (Trend follower, Momentum basket) are scored as a portfolio: $1 that follows the holdings at every open and close, idle money earning the fed funds rate, 0.1% costs a round trip, against SPY bought the same day. Prices are split- and dividend-adjusted as downloaded, the same for both.",

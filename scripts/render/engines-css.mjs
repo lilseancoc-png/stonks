@@ -38,6 +38,11 @@ export function renderEnginesCss() {
 .eng-call { color: var(--pos); background: var(--pos-soft, color-mix(in srgb, var(--pos) 14%, transparent)); }
 .eng-put { color: var(--neg); background: var(--neg-soft, color-mix(in srgb, var(--neg) 14%, transparent)); }
 .eng-shr { color: var(--accent, var(--pos)); background: color-mix(in srgb, var(--accent, var(--pos)) 14%, transparent); }
+.eng-test { color: var(--warn, #b7791f); background: color-mix(in srgb, var(--warn, #b7791f) 14%, transparent); }
+.eng-size { margin-top: 2px; font-size: 12px; color: var(--muted); }
+.eng-size > summary { cursor: pointer; list-style: revert; }
+.eng-size ul { margin: 4px 0 2px 16px; padding: 0; }
+.eng-size li { margin: 1px 0; }
 .eng-reads { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 4px 0 10px; }
 .eng-reads-lbl { font: 650 11px/1.5 var(--font-sans); letter-spacing: .05em; text-transform: uppercase; color: var(--muted-strong); margin-right: 2px; }
 .eng-chip { display: inline-block; padding: 2px 9px; border-radius: var(--r-pill, 999px); border: 1px solid var(--border); font: 500 12px/1.5 var(--font-sans); color: var(--text); background: var(--surface); }

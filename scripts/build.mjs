@@ -41812,6 +41812,9 @@ async function main() {
           ],
           regime: regimeLabToday, labelRows: regimeLabLabels?.series?.rows || null,
           macroState: macroBackdrop?.macroRegime?.state || null,
+          // CNN fear and greed as fetched this bake (stale = last-good); the
+          // extreme-fear bounce test reads it (2026-11-19).
+          fearGreed,
           flagshipOpen: accForEngines?.open || picksAccuracyPrev?.open || [],
           flagshipStats: flagshipCompare(accForEngines),
           rfr: riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE,
