@@ -93,7 +93,10 @@ ok("stats: at-trigger expectancy ((20-50+10)/3)", near(st.atTriggerExpectancyPct
 ok("stats: option win rate counts only > 0", near(st.optionWinRate, 2 / 3, 1e-9));
 
 // --- 6. SPY baseline ------------------------------------------------------------
-const spyExpiry = Date.UTC(2026, 11, 18) / 1000;
+// The contract picker reads the wall clock for days to expiry (30 to 90), so a
+// fixed date stops qualifying as time passes (Dec 18 2026 fell under 30 days on
+// Nov 18 2026). Keep the expiry about 60 days from today, at midnight UTC.
+const spyExpiry = Math.floor((Date.now() / 1000 + 60 * 86400) / 86400) * 86400;
 const spyChain = spot => {
   const chain = { c: [], p: [] };
   for (let k = 560; k <= 640; k += 5) for (const [side, key] of [["call", "c"], ["put", "p"]]) {

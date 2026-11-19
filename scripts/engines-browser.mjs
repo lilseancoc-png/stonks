@@ -98,8 +98,12 @@ try {
     check(/not in the long test/.test(await s.page.locator('#eng-all-hist').innerText()), 'engines without a long test say so');
     check((await s.page.locator('#eng-all-webull .vt-table tbody tr').count()) === fx.mirror.trades.length, 'the paper account lists every engine order');
     const webullText = await s.page.locator('#eng-all-webull').innerText();
-    check(/Made by/i.test(webullText) && /made_by/.test(webullText), 'the paper account names the engine behind each order and says the downloads do too');
+    check(/Made by/i.test(webullText) && /made_by/.test(await s.page.locator('#eng-all-webull').textContent()), 'the paper account names the engine behind each order and says the downloads do too');
     check(/Webull order IDs start ms(ern|mac|tec|fun|flo|rev)/.test(webullText), 'each order shows the engine tag its Webull order IDs start with');
+    check(/Webull fill/.test(webullText) && /Partly filled/.test(webullText), 'the paper account shows filled / partly filled / missed per order');
+    const partlyN = fx.mirror.trades.filter((t) => t.fillOutcome === 'partial').length;
+    if (partlyN) check(new RegExp('\\d+ of \\d+ (contracts|shares)').test(webullText), 'a partly filled order shows what filled of what was asked');
+    check(/share orders on/.test(webullText) && /quantities above one on/.test(webullText), 'the paper account says which Webull sizing switches are on');
     check((await s.page.locator('#eng-all-runs tbody tr').count()) === Math.min(20, view.runs.length), 'the run log rendered');
     const openAll = view.engines.reduce((n, e) => n + e.open.length, 0);
     check((await s.page.locator('#eng-all-open .vt-table tbody tr:not(.vt-detail)').count()) === openAll, 'every engine\'s open trades sit in one table');
@@ -163,6 +167,13 @@ try {
       check((await s.page.locator('#eng-shares').count()) === (e.sharesStats ? 1 : 0), id + ': share trades have their own scorecard when there are any');
       if (e.sharesStats) check(/% of the share price/.test(await s.page.locator('#eng-shares').innerText()), id + ': the share scorecard says its unit');
       check((await s.page.locator('#eng-vs-hist').count()) === 1, id + ': live against the history test');
+      // What Webull filled, beside the engine's own result (2026-11-19).
+      if (e.closed.length) {
+        const closedText = await s.page.locator('#eng-closed').innerText();
+        check(/At Webull/.test(closedText), id + ': the closed trades show what Webull filled');
+        const inMirror = e.closed.slice(0, 60).some((t) => fx.mirror.trades.some((m) => m.tradeId === t.tradeId && m.fillOutcome === 'filled'));
+        if (inMirror) check(/Filled/.test(closedText), id + ': a filled paper trade reads Filled beside the engine result');
+      }
       if (e.vsHistory.rows.length) check((await s.page.locator('#eng-vs-hist tbody tr').count()) === e.vsHistory.rows.length, id + ': one row per setup and instrument (' + e.vsHistory.rows.length + ')');
       if (e.vsHistory.rows.some((r) => r.modelGain)) check(/price model/.test(await s.page.locator('#eng-vs-hist').innerText()), id + ': the price-model caveat');
       if ((e.stats.curve || []).length >= 3) check((await s.page.locator('#eng-pane .eng-body > svg.ln-svg, #eng-pane .eng-body > .ln-wrap svg, #eng-pane .eng-body svg.ln-svg').count()) >= 1, id + ': the running-total chart');
@@ -220,7 +231,7 @@ try {
       check((await s.page.locator('#eng-core-log tbody tr').count()) === e.holdings.log.length && e.holdings.log.length >= 2, id + ': one row per monthly check (' + e.holdings.log.length + ')');
       check(/S&P 500 \(SPY\) since then/.test(text), id + ': read against SPY since it started');
       check((await s.page.locator('#eng-core-ranked').count()) === (id === 'momentum' ? 1 : 0), id + ': the ranked list only for the basket');
-      check(/Never an option|never an option/.test(text) && /not placed in the Webull/i.test(text), id + ': the rules say stock only, off Webull');
+      check(/Never an option|never an option/.test(text) && /bought as stock in the Webull paper account/i.test(text), id + ': the rules say stock only, bought as stock at Webull');
       await clean(s, id + ' now');
       await sub(s, 'record');
       check((await s.page.locator('#eng-closed .vt-table tbody tr').count()) === e.closed.length, id + ': one row per closed holding');
@@ -235,7 +246,10 @@ try {
       if (id === 'momentum') check(/1,000-name list/.test(text), 'momentum: the survivor bias is spelled out');
       await clean(s, id + ' history');
       await sub(s, 'webull');
-      check(/options only/.test(await paneText(s)), id + ': not in the paper account, and why');
+      await s.page.locator('#eng-pane .vt-table, #eng-pane .vt-empty').first().waitFor({ timeout: 15000 });
+      const coreMine = fx.mirror.trades.filter((t) => t.engine === id);
+      check((await s.page.locator('#eng-pane .eng-body .vt-table tbody tr').count()) === coreMine.length, id + ': its holdings in the paper account, as stock');
+      if (coreMine.length) check(/ shares/.test(await paneText(s)), id + ': paper rows read in shares');
       await clean(s, id + ' webull');
     }
     await pick(s, 'momentum'); await sub(s, 'now');

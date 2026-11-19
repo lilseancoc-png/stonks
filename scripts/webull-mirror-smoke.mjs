@@ -44,12 +44,26 @@ ok("client: refuses missing keys", (() => { try { createWebullClient({ host: "ap
   const seen = [];
   const fakeFetch = async (url, init) => { seen.push({ url, init }); return { ok: true, status: 200, text: async () => "{}" }; };
   const c = createWebullClient({ appKey: "k", appSecret: "s", fetchImpl: fakeFetch });
-  await c.placeOrder("A1", [{ client_order_id: "x" }]);
+  await c.placeOrder("A1", [{ client_order_id: "x", instrument_type: "OPTION", market: "US", legs: [{ instrument_type: "OPTION", market: "US" }] }]);
   await c.balance("A1");
   ok("client: posts to the sandbox host", seen[0].url === "https://api.sandbox.webull.com/trading/orders/place");
   ok("client: option orders carry category US_OPTION", seen[0].init.headers.category === "US_OPTION");
   ok("client: x-version v3 + signature", seen[0].init.headers["x-version"] === "v3" && !!seen[0].init.headers["x-signature"]);
   ok("client: GET has the query string and no body", seen[1].url.endsWith("/trading/assets/balances/get?account_id=A1") && seen[1].init.body === undefined);
+  // Stock orders (2026-11-19): category US_EQUITY on place, as the official
+  // SDK's v3 PlaceOrderRequest sets it; previews follow the SDK (no header).
+  const stock = { client_order_id: "s", combo_type: "NORMAL", symbol: "AAPL", instrument_type: "EQUITY", market: "US", order_type: "LIMIT", limit_price: "180.00", quantity: "10", side: "BUY", time_in_force: "DAY", support_trading_session: "CORE", entrust_type: "QTY" };
+  await c.placeOrder("A1", [stock]);
+  ok("client: stock orders carry category US_EQUITY", seen[2].init.headers.category === "US_EQUITY");
+  await c.previewOrder("A1", [stock]);
+  ok("client: a stock preview sends no category header", seen[3].init.headers.category === undefined);
+  await c.previewOrder("A1", [{ instrument_type: "OPTION", market: "US", legs: [{ instrument_type: "OPTION", market: "US" }] }]);
+  ok("client: an option preview keeps US_OPTION", seen[4].init.headers.category === "US_OPTION");
+  const refused = async (o) => { try { await c.placeOrder("A1", [o]); return false; } catch (e) { return e.code === "ORDER_REFUSED"; } };
+  ok("client: refuses a SHORT stock order before Webull", await refused({ ...stock, side: "SHORT" }));
+  ok("client: refuses fractional or zero share quantities", await refused({ ...stock, quantity: "0.5" }) && await refused({ ...stock, quantity: "0" }));
+  ok("client: refuses an order with no market / instrument", await refused({ client_order_id: "x" }));
+  ok("client: refused orders never reach the network", seen.length === 5);
 }
 
 // --- 2. Order bodies -----------------------------------------------------------
@@ -766,4 +780,7 @@ ok("tick: nickel after a rejection", Math.abs(roundTick(1.23, { nickel: true }) 
 }
 
 console.log(`\n${pass}/${pass + fail} checks passed.`);
+// Quantities, partial fills and share orders (2026-11-19) run in the same npm
+// script without a package.json change; they set process.exitCode on a failure.
+await import("./webull-shares-smoke.mjs");
 if (fail) process.exit(1);

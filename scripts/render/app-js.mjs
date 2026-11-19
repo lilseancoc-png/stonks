@@ -38100,7 +38100,7 @@ ${renderExportBindings()}
   // in less on entry, sold for less / paid more to buy back on exit.
   function wbEntryCost(t){ if (t.entrySource === 'manual') return null; var d = wbNum(t.entryDiffPct); return d == null ? null : (wbCredit(t) ? -d : d); }
   function wbExitCost(t){ var d = wbNum(t.exitDiffPct); return d == null ? null : (wbCredit(t) ? d : -d); }
-  function wbFeePct(t){ var f = wbNum(t.fees), o = wbNum(t.fillPrice), q = WB_ANALYTICS.quantity(t); return (f != null && o > 0 && q > 0) ? f / (o * q) : 0; }
+  function wbFeePct(t){ var f = wbNum(t.fees), o = wbNum(t.fillPrice), q = WB_ANALYTICS.quantity(t); return (f != null && o > 0 && q > 0) ? f / (o * q) * (t.structure === 'shares' ? 100 : 1) : 0; }
   function wbNetPnl(t){ return WB_ANALYTICS.net(t); }
   function wbRun(t){ var p = tlEtParts(Date.parse(t.engineEntryIso)); return p ? (Number(p.hour) < 13 ? '11' : '15') : null; }
   function wbJoined(){
@@ -38270,6 +38270,9 @@ ${renderExportBindings()}
     var automaticEntries = T.filter(function(t){ return t.entrySource !== 'manual' || t.automaticEntryOutcome === 'missed'; });
     var filled = automaticEntries.filter(function(t){ return t.entrySource !== 'manual' && WB_ANALYTICS.hasFill(t); });
     var missed = automaticEntries.filter(function(t){ return t.state === 'missed' || t.automaticEntryOutcome === 'missed'; });
+    // Partly filled entries (2026-11-19, quantities above one): counted as
+    // filled, with what was asked and what filled shown beside the count.
+    var partly = filled.filter(function(t){ return t.fillOutcome === 'partial'; });
     // A mirrored trade with no matching record still has its own symbol.
     var review = WB_ANALYTICS.analyze(rows, accView.wbGroup || 'structure', { sectorOf: function(rec, trade){
       return accSectorOf({ symbol: (rec && rec.symbol) || (trade && trade.symbol), sector: rec && rec.sector });
@@ -38284,7 +38287,7 @@ ${renderExportBindings()}
     var pWin = paperNet.length ? paperNet.filter(function(v){ return v > 0; }).length / paperNet.length * 100 : null;
     accPaneSummary('acc-sum-webull', [
       { val: String(T.length), lbl: 'trades tracked' },
-      { val: fillRate == null ? '—' : Math.round(fillRate) + '%', lbl: 'filled (' + missed.length + ' missed)' },
+      { val: fillRate == null ? '—' : Math.round(fillRate) + '%', lbl: 'filled (' + (partly.length ? partly.length + ' partly, ' : '') + missed.length + ' missed)', tip: 'Partly filled = some of the contracts asked for filled; only those are held and sold. Counted as filled here.' },
       { val: accPct(wbMean(entryCosts)), lbl: 'entry vs engine', cls: wbMean(entryCosts) == null ? '' : (wbMean(entryCosts) <= 0 ? 'sig-pos' : 'sig-neg'), tip: '+ means paper paid more than the engine (or took in less on a credit).' },
       { val: accPct(wbMean(paperNet)), lbl: 'paper avg (less known fees)', cls: wbSignCls(wbMean(paperNet)) },
       { val: accPct(wbMean(engine)), lbl: 'engine avg (' + engine.length + ' matched)', cls: wbSignCls(wbMean(engine)) },
@@ -38302,6 +38305,7 @@ ${renderExportBindings()}
     var bucketRows = buckets.map(function(b){ return { label: b.label, n: entryCosts.filter(b.test).length, of: attempted, cls: b.cls }; });
     bucketRows.push({ label: 'Filled, gap unavailable', n: filled.length - entryCosts.length, of: attempted, cls: 'sig-zero' });
     bucketRows.push({ label: 'Missed (not filled)', n: missed.length, of: attempted, cls: 'sig-neg' });
+    if (partly.length) bucketRows.push({ label: 'Of the filled: partly filled', n: partly.length, of: attempted, cls: 'sig-zero' });
     var first = filled.filter(function(t){ return t.entryHow === 'first'; }).length;
     var repriced = filled.filter(function(t){ return t.entryHow === 'reprice'; }).length;
     var spreadPos = [], hours = [], exitTries = [];
@@ -38422,6 +38426,9 @@ ${renderExportBindings()}
     var logRows = rows.map(function(x){
       var t = x.t, ec = wbEntryCost(t), xc = wbExitCost(t), np = WB_ANALYTICS.isClosed(t) ? wbNetPnl(t) : null;
       var quantities = t.filledQty != null ? '<br><small>' + escapeHtml(t.filledQty) + '/' + escapeHtml(t.requestedQty == null ? t.filledQty : t.requestedQty) + ' filled · ' + escapeHtml(t.closedQty == null ? 'unknown' : t.closedQty) + ' closed · ' + escapeHtml(t.openQty == null ? 'unknown' : t.openQty) + ' open</small>' : '';
+      var fillWord = { filled: 'Filled', partial: 'Partly filled', missed: 'Missed', pending: 'Not filled yet' }[t.fillOutcome];
+      if (fillWord) quantities = '<br><small class="' + (t.fillOutcome === 'filled' ? 'sig-pos' : t.fillOutcome === 'missed' ? 'sig-neg' : '') + '">' + fillWord + '</small>' + quantities;
+      if (t.qtyBasis === 'risk' && t.riskPerContract != null) quantities += '<br><small>Sized by risk: about $' + escapeHtml(Math.round(t.riskPerContract)) + ' at risk a contract</small>';
       var history = WB_REVIEW.executionHistory(t);
       return '<tr><td><b>' + escapeHtml(t.tradeId) + '</b><br><small>' + escapeHtml(t.legs || '') + '</small>' + ((t.labels || []).length ? '<br><small>' + escapeHtml(t.labels.join(' · ')) + '</small>' : '') + (t.note && (t.state !== 'closed' || t.needsReview) && (t.labels || []).join(' ').indexOf(t.note) < 0 ? '<br><small>' + escapeHtml(t.note) + '</small>' : '') + '</td>' +
         '<td>' + escapeHtml(t.state === 'entering' && !t.entryTries ? 'queued' : STATE[t.state] || t.state || '') + (t.needsReview || t.state === 'closed' && !WB_ANALYTICS.isClosed(t) ? '<br><strong class="sig-neg">Needs broker review</strong>' : '') + quantities + '</td>' +

@@ -116,7 +116,7 @@ export function mcpRouteOf(req) {
 // Owner Settings "Live site" switches (lib/owner-settings.mjs) can only turn
 // a feature OFF on top of the Vercel env. Read for the few actions they gate,
 // cached for 30 seconds per warm instance; a failed read keeps the Vercel env.
-const SITE_SWITCH_KEYS = ["CONTACT_ENABLED", "SPORTS_ENABLED", "MCP_ENABLED", "MCP_PUBLIC_ACCESS", "WEBULL_MIRROR"];
+const SITE_SWITCH_KEYS = ["CONTACT_ENABLED", "SPORTS_ENABLED", "MCP_ENABLED", "MCP_PUBLIC_ACCESS", "WEBULL_MIRROR", "WEBULL_SHARES", "WEBULL_QTY", "WEBULL_PICKS_SIZING"];
 // Keys this module forced off, with the value they had before. The forced
 // values stay in place between requests and change only when the saved
 // settings change, so two requests running at once on one warm instance can
@@ -1056,6 +1056,24 @@ async function webullFillRows(store) {
 // ENGINES_MIRROR=0 (Vercel) stops NEW strategy-engine trades entering the
 // paper account. Unset = on.
 const enginesMirrorOn = () => !["0", "off", "false", "no"].includes(String(process.env.ENGINES_MIRROR || "").trim().toLowerCase());
+// Webull paper sizing (2026-11-19). Each is on unless Vercel or the Owner
+// Settings "Live site" tab turns it off: WEBULL_SHARES (stock orders for
+// engine share trades and the core engines), WEBULL_QTY (option quantities
+// above one), WEBULL_PICKS_SIZING (Top Picks risk sizing). The Top Picks
+// risk budget is the engines' ENGINES_RISK_USD (Owner Settings number, or a
+// Vercel value), $2,000 when neither is set.
+const envOn = (v) => !["0", "off", "false", "no"].includes(String(v ?? "").trim().toLowerCase());
+async function webullSizing(store) {
+  const sizing = { shares: envOn(process.env.WEBULL_SHARES), quantities: envOn(process.env.WEBULL_QTY), picksSizing: envOn(process.env.WEBULL_PICKS_SIZING), riskUsd: null };
+  let saved = null;
+  try {
+    const { readOwnerSettingsDoc, OWNER_SETTINGS_KEY } = await import("../../lib/owner-settings.mjs");
+    saved = Number(readOwnerSettingsDoc(await store.get(OWNER_SETTINGS_KEY)).values?.ENGINES_RISK_USD);
+  } catch { saved = null; }
+  const fromEnv = Number(String(process.env.ENGINES_RISK_USD ?? "").trim() || NaN);
+  sizing.riskUsd = Number.isFinite(saved) && saved > 0 ? saved : Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : null;
+  return sizing;
+}
 
 async function webullMirror(req, res) {
   res.setHeader("Cache-Control", "private, no-store");
@@ -1105,20 +1123,23 @@ async function webullMirror(req, res) {
       // The strategy engines' record: its trades share the paper account.
       let enginesRecord = null;
       try { const eb = await store.get("engines-record.json"); enginesRecord = eb == null ? null : JSON.parse(eb.toString("utf8")); } catch { enginesRecord = null; }
-      // Engine share trades are record lines only (the mirror places options).
-      const engineRows = (list) => (Array.isArray(list) ? list : []).filter((e) => e?.engine && e.tradeId && e.contract?.structure !== "shares");
+      // Engine trades, share trades included (stock orders since 2026-11-19).
+      const engineRows = (list) => (Array.isArray(list) ? list : []).filter((e) => e?.engine && e.tradeId);
       const compareWith = scope === "engines" ? { builtAtIso: enginesRecord?.builtAtIso ?? null, open: engineRows(enginesRecord?.open), closed: engineRows(enginesRecord?.closed) }
         : scope === "all" ? { ...rawRecord, open: [...(rawRecord.open || []), ...engineRows(enginesRecord?.open)], closed: [...(rawRecord.closed || []), ...engineRows(enginesRecord?.closed)] }
         : rawRecord;
       const engineRecord = webullEngineRecord(compareWith, ledger);
       const { mirrorHealth } = await import('../../lib/webull-mirror-health.mjs');
       const enginesMirror = enginesMirrorOn();
+      const sizing = await webullSizing(store);
       return res.status(200).json({
         scope,
         engineRecord,
-        health: mirrorHealth({ acc: rawRecord, ledger: rawLedger, executionLock, enabled: String(process.env.WEBULL_MIRROR || "").trim().toLowerCase() === "on", engines: enginesRecord, enginesMirror }),
+        health: mirrorHealth({ acc: rawRecord, ledger: rawLedger, executionLock, enabled: String(process.env.WEBULL_MIRROR || "").trim().toLowerCase() === "on", engines: enginesRecord, enginesMirror, sharesMirror: sizing.shares }),
         executionLock,
         enginesMirror,
+        sizing: { shares: sizing.shares, quantities: sizing.quantities, picksSizing: sizing.picksSizing, riskUsd: sizing.riskUsd ?? mirror.DEFAULT_RISK_USD, maxQty: mirror.MIRROR_MAX_QTY },
+        sharesGoLiveIso: ledger.sharesGoLiveIso ?? null,
         enabled: String(process.env.WEBULL_MIRROR || "").trim().toLowerCase() === "on",
         goLiveIso: ledger.goLiveIso,
         lastRunIso: ledger.lastRunIso,
@@ -1156,7 +1177,7 @@ async function webullMirror(req, res) {
     return res.status(200).json({ ran: false, reason: "webull paper keys not configured" });
   }
   try {
-    const [{ store }, { createWebullClient }, { fetchContract }] = await Promise.all([
+    const [{ store }, { createWebullClient }, { fetchContract, fetchQuote }] = await Promise.all([
       import("../../lib/datastore.mjs"),
       import("../../lib/webull-client.mjs"),
       import("../../lib/yahoo.mjs"),
@@ -1187,11 +1208,13 @@ async function webullMirror(req, res) {
         enginesRecord = null; enginesUnavailable = true;
       }
       if (enginesRecord == null) enginesUnavailable = true;
-      acc = mirror.mergeEngineTrades(acc, enginesRecord, ledger, { mirrorNew: enginesMirrorOn() });
+      const sizing = await webullSizing(store);
+      acc = mirror.mergeEngineTrades(acc, enginesRecord, ledger, { mirrorNew: enginesMirrorOn(), shares: sizing.shares });
       const client = createWebullClient({ appKey: WEBULL_APP_KEY, appSecret: WEBULL_APP_SECRET, accessToken: WEBULL_ACCESS_TOKEN || null, timeoutMs: 5000 });
-      const quoteFn = mirror.makeQuoteFn(fetchContract);
+      const quoteFn = mirror.makeQuoteFn(fetchContract, fetchQuote);
       const checkpoint = async (next) => { guard(); await store.put(mirror.LEDGER_KEY, JSON.stringify(next)); };
-      const { summary } = await mirror.runWebullMirror({ client, accountId: WEBULL_PAPER_ACCOUNT_ID, acc, ledger, quoteFn, checkpoint, guard, endOfDayOnly: req.query?.mode === "eod", enginesUnavailable });
+      const { summary } = await mirror.runWebullMirror({ client, accountId: WEBULL_PAPER_ACCOUNT_ID, acc, ledger, quoteFn, checkpoint, guard, endOfDayOnly: req.query?.mode === "eod", enginesUnavailable,
+        sizing: { ...sizing, riskUsd: sizing.riskUsd ?? mirror.DEFAULT_RISK_USD } });
       return { ran: !summary.skipped, summary };
     });
     return res.status(200).json(lease.busy ? { ran: false, reason: "mirror already running", retryAfterMs: lease.retryAfterMs } : lease.result);
