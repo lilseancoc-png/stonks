@@ -38426,6 +38426,28 @@ ${renderExportBindings()}
   // in less on entry, sold for less / paid more to buy back on exit.
   function wbEntryCost(t){ if (t.entrySource === 'manual') return null; var d = wbNum(t.entryDiffPct); return d == null ? null : (wbCredit(t) ? -d : d); }
   function wbExitCost(t){ var d = wbNum(t.exitDiffPct); return d == null ? null : (wbCredit(t) ? d : -d); }
+  // Real Webull fees (order records) vs the order previews' estimates, and
+  // the contract check (2026-11-19, lib/webull-fees.mjs / webull-contracts.mjs).
+  function wbFeeCell(t){
+    if (wbNum(t.fees) == null) return '—';
+    var txt = '$' + Number(t.fees).toFixed(2), est = wbNum(t.feesEstimated);
+    if (t.feeBasis === 'actual') return txt + '<br><small>real' + (est != null ? ' · est. $' + est.toFixed(2) : '') + '</small>';
+    if (t.feeBasis === 'mixed') return txt + '<br><small>part real' + (est != null ? ' · est. $' + est.toFixed(2) : '') + '</small>';
+    if (t.feeBasis === 'estimate') return txt + '<br><small>estimate</small>';
+    return txt;
+  }
+  function wbFeeChip(list){
+    var both = list.filter(function(t){ return t.feeBasis === 'actual' && wbNum(t.feesActual) != null && wbNum(t.feesEstimated) != null; });
+    if (!both.length) return '';
+    var real = both.reduce(function(s, t){ return s + Number(t.feesActual); }, 0), est = both.reduce(function(s, t){ return s + Number(t.feesEstimated); }, 0);
+    return wbChip('$' + real.toFixed(2) + ' vs $' + est.toFixed(2), 'real fees vs preview estimate (' + both.length + ' trades)', '', 'Real fees come from Webull’s own order records (commission plus regulatory fees). The estimate is the order preview before the order was sent.');
+  }
+  function wbContractChip(list){
+    var no = list.filter(function(t){ return t.contractCheck && t.contractCheck.ok === false; }).length;
+    var checked = list.filter(function(t){ return t.contractCheck; }).length;
+    if (!checked) return '';
+    return wbChip(no + ' of ' + checked, 'not tradable at Webull (no order sent)', no ? 'sig-neg' : '', 'Each option trade is looked up in Webull’s contract list before its first order. A contract Webull does not list as tradable gets no order and counts as missed.');
+  }
   function wbFeePct(t){ var f = wbNum(t.fees), o = wbNum(t.fillPrice), q = WB_ANALYTICS.quantity(t); return (f != null && o > 0 && q > 0) ? f / (o * q) * (t.structure === 'shares' ? 100 : 1) : 0; }
   function wbNetPnl(t){ return WB_ANALYTICS.net(t); }
   function wbRun(t){ var p = tlEtParts(Date.parse(t.engineEntryIso)); return p ? (Number(p.hour) < 13 ? '11' : '15') : null; }
@@ -38664,6 +38686,7 @@ ${renderExportBindings()}
         wbChip(spreadPos.length ? accPct(wbMean(spreadPos)) : '—', 'fill vs initial order mid, % of the bid/ask spread', '', 'Uses the quote fetched for the initial order, not a verified exchange quote at fill time. 0% = initial mid. +50% = initial ask (or bid for a credit). Negative = better than that mid.') +
         wbChip(hours.length ? (Math.round(wbMedian(hours) * 10) / 10) + ' h' : '—', 'median time to fill') +
         wbChip(exitTries.length ? (Math.round(wbMean(exitTries) * 10) / 10) + '' : '—', 'avg orders to close') +
+        wbFeeChip(T) + wbContractChip(T) +
       '</div>' + splits;
 
     // 2. Real-money estimate -----------------------------------------------------
@@ -38763,7 +38786,7 @@ ${renderExportBindings()}
         '<td>' + (t.engineExitPrice != null || t.closeFillPrice != null ? (accUsd(t.engineExitPrice) || '—') + ' → ' + (accUsd(t.closeFillPrice) || '—') + (xc != null ? ' <small class="' + (xc <= 0 ? 'sig-pos' : 'sig-neg') + '">(' + accPct(xc) + ')</small>' : '') + '<br><small>' + wbTime(t.engineExitIso) + ' → ' + wbTime(t.closeFillIso) + '</small>' : '—') + '</td>' +
         '<td class="' + wbSignCls(wbNum(t.enginePnlPct)) + '">' + accPct(wbNum(t.enginePnlPct)) + '</td>' +
         '<td class="' + wbSignCls(np) + '">' + accPct(np) + '</td>' +
-        '<td>' + (wbNum(t.fees) != null ? '$' + Number(t.fees).toFixed(2) : '—') + '</td></tr>' +
+        '<td>' + wbFeeCell(t) + '</td></tr>' +
         (history ? '<tr class="wb-execution-row"><td colspan="7">' + history + '</td></tr>' : '');
     }).join('');
     var logBody = '<p class="hint acc-research-note">Each trade from the engine’s open to the paper close. Gaps in brackets: + is worse for us than the engine. Paper P&amp;L is less known fees. <a href="/api/auth/webull-mirror?format=csv">Download all Webull paper trades (CSV)</a> · <a href="/api/auth/webull-mirror?format=orders">Download order attempts (CSV)</a></p>' +

@@ -101,8 +101,15 @@ Picks per run is capped at today's 6 so the AI grader never reads more names.
   per Top Pick). They change only new trades; the mirror's Top Picks risk
   budget reuses `ENGINES_RISK_USD` when it is saved here. See
   docs/webull-paper-controls.md "Quantities and order recovery".
+- Webull data switches (2026-11-19): `WEBULL_CONTRACT_CHECK`,
+  `WEBULL_REAL_FEES` and `WEBULL_STOCK_QUOTES` are live site switches read by
+  `webull-mirror` (on by default; off = no contract lookup before option
+  orders, no order-history fee sweep, share orders priced off Yahoo only). The
+  contract check and stock quotes are marked high impact because they change
+  which orders the mirror sends or at what price. See
+  docs/webull-paper-controls.md "Webull's own data".
 
-No AI call, no new fetch, serverless function or workflow. The only env variables added since are the three optional Webull sizing switches above (`0` in Vercel does what the switch does).
+No AI call, no new fetch, serverless function or workflow. The only env variables added since are the six optional Webull switches above (three sizing, three data) (`0` in Vercel does what the switch does).
 
 Tests: `npm run test:owner-settings` (catalog, rules, route) and `npm run
 test:owner-settings-browser` (tabs, filters, warnings, the are-you-sure box,
