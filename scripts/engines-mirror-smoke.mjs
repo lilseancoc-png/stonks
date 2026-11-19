@@ -341,6 +341,19 @@ await ok("shares (share orders on, the live default): the same share trade is bo
   assert.equal(h.engines.open, 1); assert.equal(h.engines.untracked, 1);
 });
 
+await ok("paper trials: a trial share trade is bought at Webull like any engine share trade", async () => {
+  const tri = eng("reversion", "SPY", { setup: "rsi2-dip", trial: true, tradeId: "REV:SPY-S-11/19/26-11:00", contract: { structure: "shares", optionType: "call", shares: 7, mid: 700, usd: 4900, costPct: 0.1 } });
+  const m = merged(accOf(), engOf([tri]), null, { shares: true });
+  assert.deepEqual(m.open.map((e) => e.symbol), ["SPY"]);
+  const wb = fakeWebull();
+  const { ledger, summary } = await run({ client: wb, accountId: "PAPER1", acc: m, ledger: null, nowMs: T0, sizing: { ...LIVE_SIZING, riskUsd: 2000 } });
+  assert.equal(summary.placed, 1);
+  assert.equal(wb.placed[0].instrument_type, "EQUITY"); assert.equal(wb.placed[0].quantity, "7");
+  assert.equal(ledger.trades["REV:SPY-S-11/19/26-11:00"].instrument, "stock");
+  // Share orders off: the trial stays a record line, like every engine share trade.
+  assert.deepEqual(merged(accOf(), engOf([tri]), null, { shares: false }).open, []);
+});
+
 await ok("expiry: the engines close on the day the mirror's own expiry control starts", () => {
   for (const exp of ["2026-12-18", "2026-11-27", "2027-01-15", "2026-12-28"]) {
     const sec = Date.parse(exp + "T00:00:00Z") / 1000;

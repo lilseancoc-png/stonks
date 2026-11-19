@@ -41933,6 +41933,9 @@ async function main() {
           ],
           regime: regimeLabToday, labelRows: regimeLabLabels?.series?.rows || null,
           macroState: macroBackdrop?.macroRegime?.state || null,
+          // Daily Fear & Greed closes (the index-fear paper trial reads the
+          // last two before today).
+          fearGreed: fngHistoryNext?.snapshots || [],
           flagshipOpen: accForEngines?.open || picksAccuracyPrev?.open || [],
           flagshipStats: flagshipCompare(accForEngines),
           rfr: riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE,
