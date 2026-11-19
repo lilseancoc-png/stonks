@@ -120,7 +120,7 @@ export function quantLabsFixture() {
   };
   const closed = Array.from({ length: 70 }, (_, i) => trade(i));
   const open = Array.from({ length: 5 }, (_, i) => ({ ...trade(100 + i), entryDate: `${i === 0 ? today : cal[cal.length - 6 - i]}T15:00:00Z`, exitDate: null, outcome: null }));
-  const engClosed = [...Array.from({ length: 34 }, (_, i) => trade(200 + i, "tec")), ...Array.from({ length: 12 }, (_, i) => trade(300 + i, "rev"))];
+  const engClosed = [...Array.from({ length: 34 }, (_, i) => trade(200 + i, "tec")), ...Array.from({ length: 12 }, (_, i) => trade(300 + i, "rev")), ...Array.from({ length: 3 }, (_, i) => ({ ...trade(400 + i, "trd"), contract: { structure: "shares", shares: 10 } }))];
   const loopRows = Array.from({ length: 240 }, (_, i) => {
     const p = 35 + rnd() * 30, up = rnd() < p / 100;
     return { d: cal[30 + (i % 200)], pn: 12, p5: p, p10: p, p20: p, pTp: p - 5, y5: up ? 1.2 : -1.1, y10: up ? 2 : -1.8, y20: up ? 3 : -2.5, opt: { res: rnd() < (p - 5) / 100 ? "tp" : "stop" } };
@@ -275,7 +275,16 @@ async function main() {
   ok(cal.sources.every((s) => s.read && s.verdict), "every source has a verdict and a sentence");
   eq(foldPredictionLog(fx.state.predLog, fx.ctx.predictionResolved).length, 45, "settled contracts are logged once");
   eq(recordSources([{ outcome: "flat", contract: { pop: 0.5 } }])[0].rows.length, 0, "flat trades are not graded as wins or losses");
-  eq(engineSources([{ engine: "x", score: 50, optionPnlPct: 5 }], {})[0].rows.length, 1, "engine adapter"); eq(loopSources([{ pn: 0, p5: 50, y5: 1 }])[0].rows.length, 0, "unfitted loop rows are left out");
+  eq(engineSources([{ engine: "x", score: 50, optionPnlPct: 5 }], {})[0].rows.length, 1, "engine adapter");
+  {
+    const mixed = engineSources([
+      { engine: "rev", score: 60, optionPnlPct: 5 }, { engine: "rev", score: 70, optionPnlPct: -3, contract: { structure: "shares" } },
+      { engine: "rev", setup: "rsi2-dip", trial: true, score: 40, optionPnlPct: 1, contract: { structure: "shares" } },
+    ], { rev: "Reversion" });
+    eq(mixed.map((m) => m.id).sort().join(","), "engine-rev,engine-rev-shares,engine-trial-rsi2-dip", "options, shares and a paper trial are scored apart");
+    ok(/paper trial/.test(mixed.find((m) => m.id === "engine-trial-rsi2-dip").label), "the trial is labeled");
+  }
+  eq(trialsFor("engine-strategy-tests"), 553, "a paper trial carries the strategy test series' count"); eq(loopSources([{ pn: 0, p5: 50, y5: 1 }])[0].rows.length, 0, "unfitted loop rows are left out");
   eq(predictionSource([{ p: 0.4, y: 1 }]).rows.length, 1, "prediction adapter"); eq(earningsMoveSource({ tickers: { A: { events: [{ impliedMoveEstPct: 0.05, movePct: 0.02 }] } } }).rows.length, 0, "estimated implied moves are not graded");
   eq(buildCalibrationLab([null, { id: "x", label: "x", rows: [] }]).sources.length, 1, "an empty source is listed as collecting");
 
@@ -294,6 +303,7 @@ async function main() {
   eq(trialsFor("factor-universe"), 18, "the wide factor test counts its 18 tries"); eq(trialsFor("earnings-forecast"), 4, "the earnings forecast test counts its 4 tries");
   const reg = p.registry;
   ok(reg.rows.some((r) => r.id === "top-picks") && reg.rows.some((r) => r.id === "spy-baseline") && reg.rows.some((r) => r.id === "engine-tec"), "registry books");
+  ok(!reg.rows.some((r) => r.id === "engine-trd") && reg.rows.some((r) => r.id === "engine-trd-shares"), "a shares-only engine gets no empty option book");
   eq(reg.rows.find((r) => r.id === "spy-baseline").trials, 1, "the baseline counts one attempt"); ok(reg.research.length === 1 && reg.trials.length === TRIAL_LOG.length, "research tests and the trial log are listed");
   eq(buildRegistry([]).rows.length, 0, "an empty registry");
 
@@ -317,7 +327,7 @@ async function main() {
   ok(fac.snapshots >= 15 && fx.state.panel.length === fac.snapshots, "the weekly panel was backfilled for the price factors");
   ok(fac.skill.some((r) => r.key === "grade") && fac.skill.find((r) => r.key === "mom6").ic.some((x) => x.n > 0), "rank skill includes the grade and the price factors");
   ok(fac.skill.find((r) => r.key === "value").ic.every((x) => x.n <= 1), "fundamental factors have no backfilled history");
-  eq(fac.exposures.map((b) => b.id), ["grade", "top-picks", "engine-tec", "engine-rev"], "a book for the grade, Top Picks and each engine");
+  eq(fac.exposures.map((b) => b.id), ["grade", "top-picks", "engine-tec", "engine-rev", "engine-trd"], "a book for the grade, Top Picks and each engine");
   ok(fac.exposures[0].status === "ok" && fac.exposures[0].betas.length === 5 && Number.isFinite(fac.exposures[0].alpha), "the grade book's exposures");
   ok(fac.gradeVs.status === "ok" && fac.gradeVs.r2 >= 0 && fac.gradeVs.r2 <= 1 && fac.gradeVs.names.length === 30, "the grade against the factors");
   eq(fac.trades.length, 5, "one factor line per open trade"); eq(fac.trades.filter((t) => t.atEntry).length, 1, "only a trade opened today is logged on its entry day");

@@ -533,6 +533,28 @@ async function tool(name, args, opts) {
   assert.equal((await tool("get_top_picks", { symbol: "AAPL" })).structuredContent.error.code, "NOT_FOUND");
   assert.equal(writeAttempts.length, 0, "the market hold is previewed, never saved: " + JSON.stringify(writeAttempts));
   assert.ok(tp.structuredContent.limitations.some((l) => /read-only preview/.test(l)));
+  assert.equal(tp.structuredContent.results.owner_controls, null, "no control saved = owner_controls null");
+  assert.ok(!tp.structuredContent.warnings.some((w) => /NEW_TRADES_STOPPED/.test(w)));
+  // A stop (and an avoid-and-close) comes back with the picks (wave-1 integration).
+  files["owner-controls.json"] = { version: 1, stop: { at: new Date(now - 3_600_000).toISOString(), by: "owner" }, avoid: [{ sym: "TSLA", close: true, at: new Date(now - 3_600_000).toISOString() }], watch: [], catalysts: [], dial: null, past: [], log: [] };
+  const tpStop = await tool("get_top_picks", {});
+  assert.equal(tpStop.structuredContent.results.owner_controls.stop, true);
+  assert.deepEqual(tpStop.structuredContent.results.owner_controls.closing, ["TSLA"]);
+  assert.ok(/NEW_TRADES_STOPPED/.test(tpStop.structuredContent.warnings[0]));
+  files["owner-settings.json"] = { version: 1, values: { OWNER_CONTROLS: false }, history: [] };
+  assert.deepEqual((await tool("get_top_picks", {})).structuredContent.results.owner_controls, { enabled: false }, "the Owner Settings switch off = nothing in force");
+  delete files["owner-settings.json"]; delete files["owner-controls.json"];
+  assert.equal(writeAttempts.length, 0, "reading the controls writes nothing");
+  // The Owner brief's Webull fill counts (Home tile) never reach the MCP.
+  const wbFinding = { id: "desk:webull", tab: "track", source: "Webull paper", title: "Filled at Webull vs the record", detail: "Top Picks, last 7 days: 1 of 3 filled, 2 missed.", priority: 1 };
+  const ctlFinding = { id: "desk:controls", tab: "engines", source: "Owner controls", title: "New trades are stopped", detail: "Stop new trades is on.", priority: 1 };
+  files["owner-market-brief.json"] = { version: 1, builtAtIso: new Date(now - 600_000).toISOString(), headline: wbFinding.title, findings: [wbFinding, ctlFinding], priorities: [wbFinding, ctlFinding], changes: [{ kind: "new", id: "desk:webull", tab: "track", title: wbFinding.title, detail: wbFinding.detail }], desk: { controls: { enabled: true, stop: true }, webull: { n: 3, picks: { filled: 1, missed: 2 } }, limitHolds: null } };
+  const ob = await tool("get_feature", { feature_id: "owner-market-brief" });
+  assert.equal(ob.isError, false, JSON.stringify(ob).slice(0, 400));
+  const obText = JSON.stringify(ob.structuredContent);
+  assert.ok(!/Filled at Webull|"webull"/.test(obText), "no Webull fills through the MCP: " + obText.slice(0, 600));
+  assert.ok(/New trades are stopped/.test(obText), "the controls finding stays");
+  delete files["owner-market-brief.json"];
   const nm = await tool("get_near_misses", {});
   assert.equal(nm.isError, false, JSON.stringify(nm).slice(0, 400));
   const nmr = nm.structuredContent.results;
