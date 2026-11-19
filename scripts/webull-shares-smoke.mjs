@@ -631,6 +631,7 @@ await ok("stock range: Owner Settings values, Vercel values and bad values", () 
   assert.deepEqual(stockRangeFromSettings({ WEBULL_STOCK_MIN_USD: 40000, WEBULL_STOCK_MAX_USD: 30000 }, {}), { stockMinUsd: 30000, stockMaxUsd: 30000 });
   const lo = ownerSettingDef("WEBULL_STOCK_MIN_USD"), hi = ownerSettingDef("WEBULL_STOCK_MAX_USD");
   assert.equal(lo.default, 2000); assert.equal(hi.default, 25000); assert.equal(lo.impact, "high"); assert.equal(hi.impact, "high");
+  for (const d of [lo, hi]) { assert.equal(d.tab, "Account limits"); assert.equal(d.group, "Webull paper stock orders"); assert.equal(d.kind, "number"); assert.equal(d.scope, "build"); assert.ok(d.warn, "a big-impact setting has a warning"); }
   assert.equal(cleanValue(lo, 2500), 2500); assert.equal(cleanValue(lo, 2550), undefined, "off the $100 step");
   assert.equal(cleanValue(hi, 500), undefined, "the maximum is at least $1,000"); assert.equal(cleanValue(hi, 300000), undefined);
 });
