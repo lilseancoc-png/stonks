@@ -26,6 +26,10 @@ export function renderViewsNextCss() {
 .mm-tools select { max-width: 240px; }
 .mm-check input { margin: 0; }
 .mm-chart { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 6px; min-width: 0; }
+.mm-src { display: inline-flex; gap: 2px; margin: 0 0 10px; padding: 2px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-2); max-width: 100%; }
+.mm-src button { appearance: none; min-height: 32px; padding: 0 12px; border: 0; border-radius: 7px; background: transparent; color: var(--muted-strong); font: 600 12.5px/1.2 var(--font-sans); cursor: pointer; }
+.mm-src button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent); }
+.mm-src button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .mm-kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin: 4px 0 12px; }
 .mm-kpi { border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; background: var(--surface); display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .mm-kpi span { font: 500 11.5px/1.3 var(--font-sans); color: var(--muted); }
