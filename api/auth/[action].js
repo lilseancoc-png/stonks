@@ -123,6 +123,7 @@ export function mcpRouteOf(req) {
 // a feature OFF on top of the Vercel env. Read for the few actions they gate,
 // cached for 30 seconds per warm instance; a failed read keeps the Vercel env.
 const SITE_SWITCH_KEYS = ["CONTACT_ENABLED", "SPORTS_ENABLED", "MCP_ENABLED", "MCP_PUBLIC_ACCESS", "WEBULL_MIRROR", "WEBULL_SHARES", "WEBULL_QTY", "WEBULL_PICKS_SIZING",
+  "WEBULL_CONTRACT_CHECK", "WEBULL_REAL_FEES", "WEBULL_STOCK_QUOTES",
   // The daily Webull data runner and its jobs (2026-11-19, lib/webull-data/).
   "WEBULL_DATA", "WEBULL_OPTION_SAVER",
   // W3 Webull data logs: order flow, market breadth, backups.
@@ -1175,6 +1176,14 @@ const enginesMirrorOn = () => !["0", "off", "false", "no"].includes(String(proce
 // risk budget is the engines' ENGINES_RISK_USD (Owner Settings number, or a
 // Vercel value), $2,000 when neither is set.
 const envOn = (v) => !["0", "off", "false", "no"].includes(String(v ?? "").trim().toLowerCase());
+// Webull's own data in the mirror (2026-11-19, wave 2 build A). Each is on
+// unless Vercel or the Owner Settings "Live site" tab turns it off:
+// WEBULL_CONTRACT_CHECK (option contracts checked against Webull's contract
+// list before the first entry order, and Webull's price step),
+// WEBULL_REAL_FEES (real fees read from Webull's order history after each
+// run), WEBULL_STOCK_QUOTES (share orders priced off Webull's real-time stock
+// snapshot, Yahoo as the check and the backup).
+const mirrorDataSwitches = () => ({ contractCheck: envOn(process.env.WEBULL_CONTRACT_CHECK), realFees: envOn(process.env.WEBULL_REAL_FEES), stockQuotes: envOn(process.env.WEBULL_STOCK_QUOTES) });
 async function webullSizing(store) {
   const sizing = { shares: envOn(process.env.WEBULL_SHARES), quantities: envOn(process.env.WEBULL_QTY), picksSizing: envOn(process.env.WEBULL_PICKS_SIZING), riskUsd: null };
   let saved = null, values = {};
@@ -1258,6 +1267,7 @@ async function webullMirror(req, res) {
         enginesMirror,
         sizing: { shares: sizing.shares, quantities: sizing.quantities, picksSizing: sizing.picksSizing, riskUsd: sizing.riskUsd ?? mirror.DEFAULT_RISK_USD, maxQty: mirror.MIRROR_MAX_QTY,
           stockMinUsd: sizing.stockMinUsd, stockMaxUsd: sizing.stockMaxUsd },
+        webullData: { ...mirrorDataSwitches(), orderHistoryShape: rawLedger.orderHistoryShape ?? null, lastFeeSweep: rawLedger.lastFeeSweep ?? null },
         sharesGoLiveIso: ledger.sharesGoLiveIso ?? null,
         enabled: String(process.env.WEBULL_MIRROR || "").trim().toLowerCase() === "on",
         goLiveIso: ledger.goLiveIso,
@@ -1343,10 +1353,36 @@ async function webullMirror(req, res) {
         openGate = oc.mirrorOpenGate(active, oc.accountLimitsFromSettings(values), { nowMs });
       } catch (err) { console.error("owner controls read failed", { message: String(err?.message || err) }); openGate = null; }
       const client = createWebullClient({ appKey: WEBULL_APP_KEY, appSecret: WEBULL_APP_SECRET, accessToken: WEBULL_ACCESS_TOKEN || null, timeoutMs: 5000 });
-      const quoteFn = mirror.makeQuoteFn(fetchContract, fetchQuote);
+      const data = mirrorDataSwitches();
+      const [{ makeContractCheck }, { makeWebullStockFetcher }, { backfillFees }] = await Promise.all([
+        import("../../lib/webull-contracts.mjs"), import("../../lib/webull-quotes.mjs"), import("../../lib/webull-fees.mjs")]);
+      // Share orders: Webull's stock snapshot first, Yahoo as the check and
+      // the backup. Option orders keep Yahoo (Webull's free option quotes are
+      // 15 minutes late).
+      const stockEvents = {};
+      const stockFetch = data.stockQuotes ? makeWebullStockFetcher(client, fetchQuote, { onEvent: (k) => { stockEvents[k] = (stockEvents[k] || 0) + 1; } }) : fetchQuote;
+      const quoteFn = mirror.makeQuoteFn(fetchContract, stockFetch);
       const checkpoint = async (next) => { guard(); await store.put(mirror.LEDGER_KEY, JSON.stringify(next)); };
       const { summary } = await mirror.runWebullMirror({ client, accountId: WEBULL_PAPER_ACCOUNT_ID, acc, ledger, quoteFn, checkpoint, guard, endOfDayOnly: req.query?.mode === "eod", enginesUnavailable, openGate,
-        sizing: { ...sizing, riskUsd: sizing.riskUsd ?? mirror.DEFAULT_RISK_USD } });
+        sizing: { ...sizing, riskUsd: sizing.riskUsd ?? mirror.DEFAULT_RISK_USD }, contractCheck: data.contractCheck ? makeContractCheck(client) : null });
+      if (Object.keys(stockEvents).length) summary.webullData = { ...(summary.webullData || {}), ...stockEvents };
+      // Real fees: one order-history read (only when a filled order lacks
+      // its real fee), never blocking the run. Counts only in the reply.
+      if (data.realFees && !summary.skipped) {
+        try {
+          const fees = await backfillFees({ client, accountId: WEBULL_PAPER_ACCOUNT_ID, ledger, check: guard });
+          if (fees.calls) {
+            ledger.lastFeeSweep = { atIso: new Date().toISOString(), ...fees };
+            if (fees.applied) summary.webullData = { ...(summary.webullData || {}), "real fees added from order history": fees.applied };
+            if (fees.error) summary.warnings = { ...(summary.warnings || {}), "order history unavailable - fees not updated": 1 };
+            await checkpoint(ledger);
+          }
+        } catch (err) {
+          // The mirror run itself is saved; a fee sweep that ran out of
+          // lease time just waits for the next run.
+          console.error("webull fee sweep failed", { message: String(err?.message || err), code: err?.code || null });
+        }
+      }
       return { ran: !summary.skipped, summary };
     });
     return res.status(200).json(lease.busy ? { ran: false, reason: "mirror already running", retryAfterMs: lease.retryAfterMs } : lease.result);
