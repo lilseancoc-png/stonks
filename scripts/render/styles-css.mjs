@@ -32,6 +32,7 @@ import { renderPredictionCss } from './prediction-css.mjs';
 import { renderAiDisruptionCss } from './ai-disruption-css.mjs';
 import { renderHistoryRhymesCss } from './history-rhymes-css.mjs';
 import { renderEnginesHistoryCss } from './engines-history-css.mjs';
+import { renderWebullDataCss } from './webull-data-css.mjs';
 import { renderEdgeOddsCss } from './edge-odds-css.mjs';
 import { renderEvidenceCss } from './evidence-css.mjs';
 import { renderRegimeLabCss } from './regime-lab-css.mjs';
@@ -25632,6 +25633,7 @@ ${renderPredictionCss()}
 ${renderAiDisruptionCss()}
 ${renderHistoryRhymesCss()}
 ${renderEnginesHistoryCss()}
+${renderWebullDataCss()}
 ${renderEdgeOddsCss()}
 ${renderEvidenceCss()}
 ${renderRegimeLabCss()}

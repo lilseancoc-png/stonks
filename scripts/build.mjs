@@ -77,6 +77,10 @@ import {
 import { buildPicksRunRecord, loadPicksRunDay, persistPicksRun, picksRunArchiveEnabled } from "../lib/picks-run-archive.mjs";
 import { addControlEntries, appendRunOutcomes, drawControlEntries, emptyOutcomesState, fillOutcomes, loadPicksOutcomes, markControlBook, marketTypeOf, pruneOutcomes, writePicksOutcomes, CONTROL_PER_RUN_MIN } from "../lib/picks-outcomes.mjs";
 import { buildEvidenceBoard, writeEvidenceBoard } from "../lib/evidence-board.mjs";
+import {
+  readWebullW3, w3LogLine, w3ShadowInputs, w3BottomContextRow, w3EvidenceTests, buildBackupCheck, writeBackupCheck,
+  chainsWithEarningsBackup, streetTargetBackup, fearGreedCheck, fearGreedStandIn,
+} from "../lib/webull-data/bake.mjs";
 // Self-improving loop (lib/self-loop/, docs/self-loop.md): prediction ledger,
 // option outcomes, scorecard. Measurement only; LOOP=0 skips it.
 import { loadLoopState, loopEnabled, loopOnRun, loopOnBake, loopEvidenceTests, writeLoopFiles, LOOP_STATE_KEY } from "../lib/self-loop/index.mjs";
@@ -12801,7 +12805,7 @@ export function closesForBottom(chain, now = new Date()) {
 // Reads SPY/QQQ history and every FRED series from the shared long-history
 // cache (fred(id) -> rows). No downloads of its own: the cache refreshes each
 // series once a day and keeps the last good rows when a download fails.
-async function writeBottomTrackerFile({ chains, indexBars, fred, prior, builtAtIso, crowd = null }) {
+async function writeBottomTrackerFile({ chains, indexBars, fred, prior, builtAtIso, crowd = null, extraContext = [] }) {
   const at = new Date(builtAtIso || Date.now());
   const spy = mergeDailyCloses(indexBars?.SPY, closesForBottom(chains?.SPY, at));
   const qqq = mergeDailyCloses(indexBars?.QQQ, closesForBottom(chains?.QQQ, at));
@@ -12843,6 +12847,8 @@ async function writeBottomTrackerFile({ chains, indexBars, fred, prior, builtAtI
     baa: series("BAA10Y"),
     crowd,
     cds: REPORTED_CDS,
+    // The Webull whole-market breadth row (Owner-only source, context only).
+    extraContext,
   });
   const json = JSON.stringify(payload);
   await writeFile(resolve(DATA_DIR, "bottom-tracker.json"), json, "utf8");
@@ -39914,6 +39920,18 @@ async function main() {
   // The Owner controls (Stop new trades, Avoid, Watch, the risk dial) and the
   // account limits, read before the wipe like the market mode.
   const ownerControlsRun = await readOwnerControlsForRun(new Date().toISOString());
+  // The Webull data logs (W3: order flow, market breadth, backups) are
+  // request-time-owned (written by the Vercel webull-data runner, hydrated by
+  // the pull): read BEFORE writeChainFiles wipes data/. Owner-only consumers.
+  let webullW3 = null;
+  let webullEarningsFilled = [];
+  let webullTargetsFilled = [];
+  try {
+    webullW3 = await readWebullW3(DATA_DIR);
+    console.log(w3LogLine(webullW3));
+  } catch (err) {
+    console.warn(`[webull-data] read skipped — ${String(err?.message || err).split("\n")[0]}`);
+  }
   if (!ownerControlsRun.enabled) console.log("Owner controls: off in Owner Settings (OWNER_CONTROLS); nothing saved there applies");
   if (ownerControlsRun.any || ownerControlsRun.limits.any) {
     const s = controlsSummary(ownerControlsRun);
@@ -39965,6 +39983,24 @@ async function main() {
     console.log("  · CNN fetch failed — keeping last-good snapshot (stale).");
   } else {
     console.log("  · CNN fetch failed and no prior snapshot on disk.");
+  }
+  // Webull's Fear & Greed (W3 backup, Owner-only): checked against CNN's own
+  // daily history every bake. It may stand in for the engines' fear reads
+  // only when CNN failed AND the dates match within 1.5 points (same index);
+  // otherwise it is context in the Owner backup report only.
+  let webullFearGreed = null;
+  if (webullW3?.backup) {
+    try {
+      const cnnDaily = [...(fngHistoryPrev?.snapshots || []), ...(Array.isArray(fngFresh?.history) ? fngFresh.history : [])];
+      const check = fearGreedCheck(webullW3.backup, cnnDaily);
+      const standIn = fearGreedStandIn(webullW3.backup, check, {
+        cnnFresh: !!fngFresh, lastGoodDate: fngLastGood?.asOf ? etDateKey(new Date(fngLastGood.asOf)) : null, todayEt: etDateKey(new Date()),
+      });
+      webullFearGreed = { check, standIn };
+      console.log(`  · Webull Fear & Greed check: ${check.verdict} (${check.matched} dates matched${check.maxGap != null ? `, largest gap ${check.maxGap}` : ""})${standIn ? "; stands in for the engines' fear reads this run" : ""}`);
+    } catch (err) {
+      console.warn(`  · Webull Fear & Greed check skipped — ${String(err?.message || err).split("\n")[0]}`);
+    }
   }
   // collectIvHistory reads each ticker's previous iv-history file from
   // data/iv-history/ before writeChainFiles wipes the directory, then
@@ -40789,6 +40825,7 @@ async function main() {
       prior: priorBottomTracker,
       builtAtIso,
       crowd: crowdPayload,
+      extraContext: [w3BottomContextRow(webullW3, null)].filter(Boolean),
     });
     console.log(`wrote data/bottom-tracker.json — ${bottomInfo.verdict} as of ${bottomInfo.asOf || "—"}, ${bottomInfo.bytes} bytes`);
     // The post-shock put lane reads the stage (lib/event-play.mjs).
@@ -41411,6 +41448,10 @@ async function main() {
     ...altDataGauges({ accelerators: await shadowReadJson("accelerator-prices.json"), ram: await shadowReadJson("ram-prices.json"), aiCapex: await shadowReadJson("ai-capex.json") }),
     ...resemblesGauges(historicalInfo?.events || null),
   };
+  // Webull order flow and breadth (version 8, Owner-only source, logged and
+  // never scored): only sessions before today's ET date.
+  const webullShadow = webullW3 ? w3ShadowInputs(webullW3, etDateKey(new Date(builtAtIso))) : { flow: null, market: {} };
+  Object.assign(shadowMarketExtra, webullShadow.market || {});
   const shadowOpts = {
     builtAtIso, groupOf: spilloverGroupOf, oiTracker: scoringOiTracker, spillover: scenarioSpilloverMatrix, crowd: crowdPayload,
     defaultChance: historyRhymesDefaultChance, buildout: historyRhymesBrief,
@@ -41426,6 +41467,8 @@ async function main() {
     // Flow keys (version 7): the older Unusual flow vote beside the signed
     // one, from the same fresh scan the grade reads.
     flowVotes: scoringUnusual ? flowVotesBySymbol(scoringUnusual, unusualLog, Date.parse(builtAtIso)) : null,
+    // Webull capital flow keys (version 8): wfl / wft / wfl5 per name.
+    webullFlow: webullShadow.flow,
   };
   try {
     shadowSignalsToday = buildShadowSignals(chains, shadowOpts);
@@ -41513,7 +41556,22 @@ async function main() {
       try { loopPlan = loopLivePlan(loopState, { mode: loopTuneMode, today: etDateKey(new Date(builtAtIso)), outcomes: picksOutcomesState }); }
       catch (err) { loopPlan = null; console.warn(`[loop] live settings skipped, base settings used — ${String(err?.message || err).split("\n")[0]}`); }
     }
-    const picksInfo = await writeTopPicksFile(chains, scoringNarratives, builtAtIso, scoringUnusual, macroBackdrop, picksPrev, scoringVolumeFlags, riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE, picksAccuracyPrev?.closed ?? null, gradesHistoryPrev?.latest ?? null, {...scannerExtras,marketAssessment,marketMode:topPicksMarketMode,ownerControls:ownerControlsRun,loopPlan}, picksAccuracyPrev?.open ?? null, true, thesisProseCachePrev, streaksInfo.map, regimeLabRun);
+    // Webull earnings-date backup (W3, Owner-only): a name with no upcoming
+    // date from Yahoo/Nasdaq gets Webull's for this decision only, on a
+    // copy-on-write view of chains, so nothing public ever reads it.
+    // WEBULL_BACKUPS=0 (Owner Settings or env) turns it off.
+    let picksChains = chains;
+    if (webullW3?.backup) {
+      try {
+        const eb = chainsWithEarningsBackup(chains, webullW3.backup, etDateKey(new Date(builtAtIso)), { isEtf: (s) => SECTORS[s] === "ETF" });
+        picksChains = eb.chains;
+        webullEarningsFilled = eb.filled;
+        if (eb.filled.length) console.log(`[webull-data] earnings backup: ${eb.filled.length} name(s) with no main-source date use Webull's for this Top Picks run`);
+      } catch (err) {
+        console.warn(`[webull-data] earnings backup skipped — ${String(err?.message || err).split("\n")[0]}`);
+      }
+    }
+    const picksInfo = await writeTopPicksFile(picksChains, scoringNarratives, builtAtIso, scoringUnusual, macroBackdrop, picksPrev, scoringVolumeFlags, riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE, picksAccuracyPrev?.closed ?? null, gradesHistoryPrev?.latest ?? null, {...scannerExtras,marketAssessment,marketMode:topPicksMarketMode,ownerControls:ownerControlsRun,loopPlan}, picksAccuracyPrev?.open ?? null, true, thesisProseCachePrev, streaksInfo.map, regimeLabRun);
     if (!picksInfo?.leapsWritten && leapsScoreCarry) {
       await writeFile(resolve(DATA_DIR, LEAPS_PICKS_KEY), leapsScoreCarry, "utf8");
     }
@@ -41647,7 +41705,10 @@ async function main() {
         macro: macroBackdrop, rfrPct: Number.isFinite(riskFreeRate?.rate) ? riskFreeRate.rate * 100 : null,
         partyTracker, partyNow: macroPartyOnDate(etDateKey(new Date(builtAtIso))), partyTilt: macroPartyTiltFor, kindEtf: MACRO_KIND_PARTY_ETF, kindOf: macroContextKindOf,
         builtAtIso,
+        // Webull analyst target (W3 backup): used only where Yahoo has none.
+        streetBackup: webullW3?.backup ? streetTargetBackup(webullW3.backup, etDateKey(new Date(builtAtIso))) : null,
       });
+      webullTargetsFilled = lab.streetBackupFilled || [];
       await writeFile(resolve(DATA_DIR, VALUATION_LAB_KEY), JSON.stringify(lab), "utf8");
       console.log(`wrote data/${VALUATION_LAB_KEY} — ${lab.count} names (${lab.skipped} skipped)`);
     } catch (err) {
@@ -41915,6 +41976,24 @@ async function main() {
   // Webull paper mirror reads both records at the same moment. Every other
   // bake re-writes the three files exactly as they were read. No AI call, no
   // fetch; nothing here reads or changes a Top Picks grade, gate or record.
+  // Webull backup report (W3, Owner-only webull-backup-check.json): what the
+  // backups filled this bake and where Webull disagrees with our sources
+  // (earnings dates, macro release dates), plus the Fear & Greed check.
+  if (webullW3) {
+    try {
+      const reports = (calendarInfo?.payload?.events || []).filter((ev) => ev?.type === "report").map((ev) => ({ group: calendarReportGroup(ev), date: String(ev.date || "").slice(0, 10) })).filter((r) => r.group);
+      const check = buildBackupCheck({
+        w3: webullW3, chains, todayEt: etDateKey(new Date(builtAtIso)), isEtf: (s) => SECTORS[s] === "ETF",
+        earningsFilled: webullEarningsFilled, targetsFilled: webullTargetsFilled,
+        fearGreed: webullFearGreed ? { ...webullFearGreed.check, standIn: !!webullFearGreed.standIn } : null,
+        ourReports: reports, builtAtIso,
+      });
+      const info = await writeBackupCheck(DATA_DIR, check);
+      console.log(`wrote data/${info.key} — ${check.earnings.filled.length} earnings filled, ${check.earnings.disagree.length} earnings and ${check.econ.disagree.length} release-date disagreements`);
+    } catch (err) {
+      console.warn(`[webull-data] backup check skipped — ${String(err?.message || err).split("\n")[0]}`);
+    }
+  }
   if (enginesLoaded) {
     let enginesRan = false;
     if (refreshTopPicks && enginesEnabled() && !enginesLoaded.skip) {
@@ -41944,8 +42023,10 @@ async function main() {
           regime: regimeLabToday, labelRows: regimeLabLabels?.series?.rows || null,
           macroState: macroBackdrop?.macroRegime?.state || null,
           // CNN fear and greed as fetched this bake (stale = last-good); the
-          // extreme-fear bounce test reads it (2026-11-19).
-          fearGreed,
+          // extreme-fear bounce test reads it (2026-11-19). When CNN failed
+          // and Webull's index is proven to be CNN's (webullFearGreed above),
+          // Webull's newer reading stands in, labeled "webull-backup".
+          fearGreed: webullFearGreed?.standIn || fearGreed,
           // Daily Fear & Greed closes (the index-fear paper trial reads the
           // last two before today).
           fearHistory: fngHistoryNext?.snapshots || [],
@@ -42116,7 +42197,7 @@ async function main() {
     const board = buildEvidenceBoard({
       outcomes: picksOutcomesState, closed: accNow?.closed || [], open: accNow?.open || [], shadowDays, builtAtIso, today: todayEt,
       tradeBar: PICKS_MIN_CONVICTION, gradeModelVersion: GRADE_MODEL_VERSION, structurePolicyVersion: PICKS_STRUCTURE_POLICY_VERSION,
-      extraTests: [...(regimeLabPayload?.evidence || []), ...loopTests],
+      extraTests: [...(regimeLabPayload?.evidence || []), ...loopTests, ...(webullW3 ? w3EvidenceTests(webullW3, todayEt) : [])],
       shadow: shadowResearchToday,
     });
     const boardInfo = await writeEvidenceBoard(DATA_DIR, board);

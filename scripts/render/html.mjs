@@ -371,6 +371,7 @@ function marketAnalysisSection() {
     <details class="market-secondary"><summary>Cycle clock</summary><p class="hint">Growth against inflation, one dot per month end for the past year, from the macro read the Top Picks grader sees.</p><div id="market-cycle-clock" class="market-cycle-clock" hidden></div></details>
     <details class="market-secondary"><summary>Forward scenarios and sensitivity tools</summary><p class="hint">Build-time scenario context. These unvalidated weights do not refresh with each quote check.</p><div id="market-scenario-engine" class="market-scenario-engine" hidden></div></details>
     <div id="picks-regime-hist" class="picks-regime-hist" hidden></div>
+    <div id="market-webull" data-wb="market" hidden></div>
     <div class="picks-search" role="search">
       <label class="picks-search-label" for="picks-search-input">Grade any ticker</label>
       <div class="combo picks-search-combo" id="picks-search-combo">

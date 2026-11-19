@@ -1351,6 +1351,8 @@ export function renderStockPageJs() {
             }).join('') + '</tbody></table></div><p class="stp-src"><a href="?tab=track" data-go-tab="track">Open Track record</a></p></section>';
         }
         if (!trades.length) html += '<p class="stp-empty">No Top Picks trades in ' + escapeHtml(sym) + ' yet. The Grade tab shows its current grade.</p>';
+        // Webull order flow (webull-data-client.mjs fills it, Owner only).
+        html += '<div data-wb="flow" data-wb-sym="' + escapeHtml(sym) + '" hidden></div>';
         return html;
       });
     }
