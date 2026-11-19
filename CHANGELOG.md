@@ -49,7 +49,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Changed
 - Send each trade's real size to the Webull paper account: a strategy-engine option trade buys its record's contract count (1 to 10), a Top Pick is risk sized (the engines' risk budget, else $2,000, over one contract's risk, 1 to 10, never skipped; the Top Picks Track Record stays in % per contract), and engine share trades plus the Trend follower and Momentum basket holdings are bought as stock with a long-only limit order (fields from Webull's official stock-order docs). A partly filled entry keeps and sells only what filled. Three Owner Settings switches turn each part off (Webull share orders, quantities above one, Top Picks risk sizing); trades already in the paper account keep their size.
-- Move SMCI, ASTS, DIS, CBRS and PYPL out of `TICKERS` (85 to 80) onto the wide map (user decision). They keep their `SECTORS` labels; their open Top Picks and engine trades close as not-counted `left-coverage` at the next run, and leveraged-ETF log entries on SMCI and ASTS close as retired. The views-next browser fixture swaps DIS and SMCI for NKE and DELL so it keeps 24 stocks.
+- Move ASTS, DIS, CBRS and PYPL out of `TICKERS` (85 to 81) onto the wide map (user decision; SMCI stays tracked while it is reviewed separately). They keep their `SECTORS` labels; their open Top Picks and engine trades close as not-counted `left-coverage` at the next run, and leveraged-ETF log entries on ASTS close as retired. The views-next browser fixture swaps DIS for NKE so it keeps 24 stocks.
 
 ### Fixed
 - Sell an engine share trade at Webull against the stock's own closing price rather than the record's after-cost result, which sat about 0.1% low.

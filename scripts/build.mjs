@@ -264,15 +264,16 @@ export const TICKERS = [
   "RKLB", "CRM", "FTNT", "INTU", "TEAM",
   "NKE", "PANW", "IBM", "QCOM",
   "HD", "PLTR", "DDOG",
-  "SBUX", "ANET", "TXN", "INTC", "NVO",
+  "SBUX", "ANET", "TXN", "INTC", "SMCI", "NVO",
   "CRWV", "MRVL", "AMAT", "MU", "BE", "SNDK",
   "WDC", "DRAM",
   // Space — launch
   "SPCX",
   // Added coverage — Arm IP, DC infra, retail
   "ARM", "VRT", "TGT",
-  // SMCI, ASTS, DIS, CBRS and PYPL moved to the wide tier on 2026-11-19 (user
-  // decision, engine roadmap): no chain, grade or AI read; they stay on the
+  // ASTS, DIS, CBRS and PYPL moved to the wide tier on 2026-11-19 (user
+  // decision, engine roadmap; SMCI stays tracked pending a separate
+  // review): no chain, grade or AI read; they stay on the
   // wide heat map (lib/wide-tier.mjs WIDE_EXTRAS) and keep their SECTORS
   // labels below for old Track Record rows. Open Top Picks and engine trades
   // on them close as not-counted "left-coverage" at the next run.
