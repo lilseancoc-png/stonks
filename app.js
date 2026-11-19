@@ -1641,13 +1641,67 @@ function recoveryEvidence(row, data, now = Date.now()) {
         }).catch(function(){
           if (token !== state.token) return;
           parkGrade();
-          root.innerHTML = '<div class="stp-missing"><p>We could not load <b>' + escapeHtml(sym) + '</b>. It may not be one of the stocks this site follows.</p><p><a href="?tab=tickers" data-go-tab="tickers">See all stocks</a></p></div>';
+          wideCard(root, sym, token);
         });
       } else {
         render(root);
         liveQuote(sym, token);
       }
       try { if (typeof wfNoteRecent === 'function') wfNoteRecent('sym:' + sym); } catch (_) {}
+    }
+    // A stock that is not one of the 80 tracked names (an S&P 500 or
+    // Nasdaq-100 member on the wide tier, or a name that left coverage, such
+    // as an old Track Record row) has no per-ticker file. Its row in the
+    // public wide-tier.json (rules only: closes, ranges, the next report)
+    // stands in, lazy-loaded only on that miss; a name on neither list keeps
+    // the plain "could not load" note.
+    function missingHtml(sym){
+      return '<div class="stp-missing"><p>We could not load <b>' + escapeHtml(sym) + '</b>. It may not be one of the stocks this site follows.</p><p><a href="?tab=tickers" data-go-tab="tickers">See all stocks</a></p></div>';
+    }
+    function wideRows(){
+      if (cache.wideP) return cache.wideP;
+      cache.wideP = getJson('wide-tier.json').then(function(j){
+        var map = {};
+        if (j && j.enabled !== false && Array.isArray(j.tickers)) j.tickers.forEach(function(r){ if (r && r.t && !r.fund) map[r.t] = r; });
+        return { rows: map, asOf: j && j.asOf, perfStart: (j && j.perfStart) || {} };
+      }).catch(function(){ cache.wideP = null; return null; });
+      return cache.wideP;
+    }
+    function wideCard(root, sym, token){
+      root.innerHTML = missingHtml(sym);
+      wideRows().then(function(w){
+        if (token !== state.token) return;
+        var r = w && w.rows[sym];
+        if (!r || r.tr) return;
+        var range = (r.hi52 > r.lo52 && r.sp > 0) ? Math.max(0, Math.min(1, (r.sp - r.lo52) / (r.hi52 - r.lo52))) : null;
+        var vsMa = function(ma){ return ma > 0 && r.sp > 0 ? pctRaw((r.sp / ma - 1) * 100, 1) : '—'; };
+        var per = [['1d', r.ch], ['1w', r.perf && r.perf['1w']], ['1m', r.perf && r.perf['1m']], ['3m', r.perf && r.perf['3m']], ['YTD', r.perf && r.perf.ytd], ['1y', r.perf && r.perf['1y']]];
+        var idx = String(r.x || '').split('').map(function(c){ return c === 'S' ? 'S&P 500' : c === 'N' ? 'Nasdaq-100' : ''; }).filter(Boolean).join(' and ');
+        setHeader(r.n || sym, '');
+        root.innerHTML = '<div class="stp-wide" data-stp-wide>' +
+          '<div class="stp-head"><div class="stp-id"><span class="stp-ticker">' + escapeHtml(sym) + '</span><span class="stp-wide-name">' + escapeHtml(r.n || sym) + '</span></div>' +
+          '<div class="stp-price-row"><span class="stp-price">' + money(r.sp) + '</span><span class="stp-change">' + chg(r.ch) + '</span><span class="stp-session">Last close · ' + dateLabel(r.d) + (r.stale ? ' · not updated with the rest' : '') + '</span></div></div>' +
+          '<p class="stp-wide-note">' + escapeHtml(sym) + ' is on the wide list' + (idx ? ' (' + escapeHtml(idx) + ')' : '') + ', not one of the stocks this site follows in full, so there is no grade, option chain or AI read here. These numbers come from its daily closes.</p>' +
+          '<dl class="stp-wide-grid">' +
+            '<div><dt>Sector</dt><dd>' + escapeHtml(r.s || '—') + (r.i ? '<small>' + escapeHtml(r.i) + '</small>' : '') + '</dd></div>' +
+            '<div><dt>Market value</dt><dd>' + big(r.mc) + '</dd></div>' +
+            '<div><dt>52-week range</dt><dd>' + money(r.lo52) + ' to ' + money(r.hi52) + (range != null ? '<small>' + Math.round(range * 100) + '% of the way up</small>' : '') + '</dd></div>' +
+            '<div><dt>Vs 50-day average</dt><dd>' + vsMa(r.ma50) + '</dd></div>' +
+            '<div><dt>Vs 200-day average</dt><dd>' + vsMa(r.ma200) + '</dd></div>' +
+            '<div><dt>Next report</dt><dd>' + (r.er ? dateLabel(r.er) + (r.erEst ? '<small>estimated</small>' : '') : '—') + '</dd></div>' +
+          '</dl>' +
+          '<div class="stp-wide-perf">' + per.map(function(p){ return '<span><b>' + p[0] + '</b> ' + chg(p[1], 1) + '</span>'; }).join('') + '</div>' +
+          '<p class="stp-src"><a href="?tab=heatmap" data-stp-wide-map>See it on the Heatmap, Wide view</a> · <a href="?tab=tickers" data-go-tab="tickers">See all followed stocks</a></p>' +
+        '</div>';
+        var link = root.querySelector('[data-stp-wide-map]');
+        if (link) link.addEventListener('click', function(ev){
+          ev.preventDefault();
+          var b = document.querySelector('[data-page-tab="heatmap"]');
+          if (!b){ window.location.href = '?tab=heatmap'; return; }
+          b.click();
+          try { if (typeof heatmapSetSource === 'function') heatmapSetSource('wide'); } catch (_) {}
+        });
+      });
     }
     function liveQuote(sym, token){
       fetch('/api/quote?symbol=' + encodeURIComponent(sym), { cache: 'no-store' })
@@ -2146,6 +2200,9 @@ function recoveryEvidence(row, data, now = Date.now()) {
           (f.numberOfAnalystOpinions ? '<div class="stp-ret"><span>Analysts</span><b>' + escapeHtml(String(f.numberOfAnalystOpinions)) + '</b></div>' : '') +
           '</div></section>';
       }
+      // The Owner's controls on this stock (owner-controls-client.mjs
+      // ocRenderStock): avoid / watch / catalysts, filled from the live read.
+      if (HAS_OWNER_ACCESS) html += '<section class="stp-sec" id="stp-oc" data-oc-stock="' + escapeHtml(state.sym) + '" hidden></section>';
       html += '<section class="stp-sec" id="stp-valuation" hidden></section>';
       html += '<section class="stp-sec" id="stp-odds" hidden></section>';
       html += '<section class="stp-sec" id="stp-aid" hidden></section>';
@@ -2159,7 +2216,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
       // The valuation band fills in once its public file arrives, after any
       // chart this tab already queued.
       var prevAfter = state.afterTab, vSym = state.sym, vToken = state.token;
-      state.afterTab = function(){ if (typeof prevAfter === 'function') prevAfter(); fillValuation(vSym, vToken); fillOdds(vSym, vToken); fillAid(vSym, vToken); };
+      state.afterTab = function(){ if (typeof prevAfter === 'function') prevAfter(); fillValuation(vSym, vToken); fillOdds(vSym, vToken); fillAid(vSym, vToken); if (typeof ocRenderStock === 'function') ocRenderStock(); };
       return html;
     }
     function tabNews(){
@@ -9725,7 +9782,44 @@ function recoveryEvidence(row, data, now = Date.now()) {
       '</div>' +
       '<details class="oc-cell oc-score" data-oc-score' + (OC.score || OC.scoreLoading ? ' open' : '') + '><summary class="oc-h3">Scorecard</summary>' + ocScoreHtml() + '</details>';
   }
-  function ocRenderAll(){ ocRenderBanners(); ocRenderPanel(); }
+  // The stock page's "Your controls" section (stock-page-js.mjs, #stp-oc):
+  // what is set on this stock, with Watch / Avoid / Lift buttons. A catalyst
+  // and an avoid that also closes open trades are set on the Strategy engines
+  // page (that one asks to confirm).
+  function ocRenderStock(){
+    var host = document.getElementById('stp-oc');
+    if (!host) return;
+    var sym = host.getAttribute('data-oc-stock') || '';
+    var d = OC.data;
+    if (!HAS_OWNER_ACCESS || !sym || !d){ host.hidden = true; host.innerHTML = ''; return; }
+    var av = null, wa = null;
+    (d.avoid || []).forEach(function(a){ if (a.sym === sym && a.active) av = a; });
+    (d.watch || []).forEach(function(w){ if (w.sym === sym && w.active) wa = w; });
+    var cats = (d.catalysts || []).filter(function(k){ return k.active && k.sym === sym; });
+    var bits = [];
+    if (d.enabled === false) bits.push('<span class="muted">Owner controls are off in Owner Settings; nothing saved here applies.</span>');
+    else if (d.stop) bits.push('<b class="sig-neg">New trades are stopped</b> on every stock.');
+    if (d.enabled !== false && av) bits.push('<b>Avoided</b> since ' + ocEsc(ocWhen(av.at)) + (av.until ? ', until ' + ocEsc(ocDay(av.until)) : ', until lifted') + (av.close ? '; its open trades close at the next run' : '') + '.');
+    if (d.enabled !== false && wa) bits.push('<b>Watched closely</b>: front of each queue through ' + ocEsc(ocDay(wa.until)) + '.');
+    if (d.enabled !== false) cats.forEach(function(k){ bits.push('<b>Catalyst</b> ' + ocEsc(ocDay(k.date)) + ': ' + ocEsc(k.text)); });
+    var dis = OC.saving ? ' disabled' : '';
+    host.innerHTML = '<h3 class="stp-h3">Your controls</h3>' +
+      '<p class="stp-lede">' + (bits.length ? bits.join(' ') : 'No control is set on ' + ocEsc(sym) + '.') + '</p>' +
+      '<div class="oc-row">' +
+        (av ? '<button type="button" class="oc-btn" data-oc-act="lift" data-oc-sym="' + ocEsc(sym) + '"' + dis + '>Lift avoid</button>' : '<button type="button" class="oc-btn" data-oc-act="avoid-stock" data-oc-sym="' + ocEsc(sym) + '"' + dis + '>Avoid ' + ocEsc(sym) + '</button>') +
+        (wa ? '<button type="button" class="oc-btn" data-oc-act="unwatch" data-oc-sym="' + ocEsc(sym) + '"' + dis + '>Stop watching</button>' : '<button type="button" class="oc-btn" data-oc-act="watch" data-oc-sym="' + ocEsc(sym) + '"' + dis + '>Watch closely</button>') +
+        '<a class="oc-b-link" href="?tab=engines">Check, flag a catalyst or close trades on the Strategy engines page &rarr;</a>' +
+      '</div>' + (OC.msg && OC.msg.text ? '<p class="oc-msg ' + (OC.msg.ok ? 'is-ok' : 'is-bad') + '" role="status">' + ocEsc(OC.msg.text) + '</p>' : '') +
+      '<p class="stp-src">Avoid: no new Top Picks, engine or Webull paper trade on it; open trades stay. Watch closely: front of each engine queue for five sessions, no bar lowered. Neither changes the grade.</p>';
+    host.hidden = false;
+  }
+  // Home's "Your desk" carries an Owner controls tile (app-js.mjs renderHomeDesk).
+  function ocRenderAll(){ ocRenderBanners(); ocRenderPanel(); ocRenderStock(); if (typeof renderHomeDesk === 'function' && document.getElementById('landing-desk')) renderHomeDesk(); ocRenderCalendar(); }
+  // The Calendar shows the catalyst log as Owner rows (app-js.mjs calWithOwnerCatalysts).
+  function ocRenderCalendar(){
+    var pane = document.getElementById('page-pane-calendar');
+    if (pane && !pane.hidden && typeof calendarState !== 'undefined' && calendarState.data && !calendarState.loading && typeof renderCalendar === 'function') renderCalendar();
+  }
   function ocConfirm(text){ try { return window.confirm(text); } catch (e) { return false; } }
   function ocAct(btn){
     var act = btn.getAttribute('data-oc-act'), sym = btn.getAttribute('data-oc-sym');
@@ -9737,6 +9831,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
       if (level === 'riskier' && !ocConfirm('Riskier until Friday’s close? Engine trades buy 1.5x the size (inside the account limits) and the entry bar drops 3 points.')) return;
       ocPost({ act: 'dial', level: level, confirm: level === 'riskier' ? true : undefined }); return;
     }
+    if (act === 'avoid-stock'){ if (ocConfirm('Avoid ' + sym + '? No new Top Picks, engine or Webull paper trade on it until you lift it. Open trades stay.')) ocPost({ act: 'avoid', sym: sym }); return; }
     if (act === 'lift'){ ocPost({ act: 'lift', sym: sym, px: OC.checkSym === sym && OC.check && OC.check.spot ? OC.check.spot : undefined }); return; }
     if (act === 'watch' || act === 'unwatch'){ ocPost({ act: act, sym: sym }); return; }
     if (act === 'uncatalyst'){ ocPost({ act: 'uncatalyst', id: Number(btn.getAttribute('data-oc-id')) }); return; }
@@ -52250,7 +52345,19 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (cat === 'merger') return 'M&A';
     if (cat === 'investor') return 'Investor day';
     if (cat === 'guidance') return 'Guidance';
+    if (cat === 'owner') return 'Your flag';
     return 'Event';
+  }
+  // The Owner's catalyst log (owner-controls-client.mjs, live read) as
+  // calendar rows, Owner only. A display layer: the bake's calendar.json and
+  // the public calendar are unchanged.
+  function calWithOwnerCatalysts(data){
+    var d = typeof OC !== 'undefined' && OC ? OC.data : null;
+    if (!HAS_OWNER_ACCESS || !d || d.enabled === false || !Array.isArray(d.catalysts)) return data;
+    var mine = d.catalysts.filter(function(k){ return k && k.active && /^\d{4}-\d{2}-\d{2}$/.test(String(k.date || '')); }).map(function(k){
+      return { type: 'catalyst', date: k.date, symbol: k.sym || null, title: k.text || 'Your catalyst', category: 'owner', confidence: 'high', source: 'Your catalyst log', ownerCatalyst: true };
+    });
+    return mine.length ? Object.assign({}, data, { events: (data.events || []).concat(mine) }) : data;
   }
   function calendarTypeMatches(eventType, filter){
     if (filter === 'all') return true;
@@ -53581,7 +53688,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       if (empty) empty.hidden = true;
       return;
     }
-    var data = calendarState.data || { events: [] };
+    var data = calWithOwnerCatalysts(calendarState.data || { events: [] });
     var todayMs = calEtTodayMs();
     var todayYmd = calEtTodayYmd();
     var todayYm = todayYmd.slice(0, 7);
@@ -69901,6 +70008,15 @@ function scenarioEventPhase(ev, now = Date.now()) {
     else if (health && health.state === 'late') runSub += ' · last run published late (' + escapeHtml(health.lastText) + ')';
     else if (health && health.state === 'ok') runSub += ' · last ran ' + escapeHtml(health.lastText);
     tiles.push(homeDeskTile('picks', 'Next Top Picks run', run ? escapeHtml(run.time + ' ET') : '—', runSub));
+    // Owner controls in force (live, owner-controls-client.mjs): a stop or any
+    // saved control gets its own tile, so it is never missed from Home.
+    var ocd = typeof OC !== 'undefined' && OC ? OC.data : null;
+    if (ocd && ocd.enabled !== false && (ocd.stop || ocd.any)){
+      var ocBits = typeof ocSummary === 'function' ? ocSummary(ocd).map(function(b){ return String(b).replace(/<[^>]*>/g, ''); }) : [];
+      tiles.push(homeDeskTile('engines', 'Owner controls', ocd.stop ? 'New trades stopped' : 'In force',
+        ocd.stop ? escapeHtml('since ' + ocWhen(ocd.stop.at) + ' · exits keep running' + (ocBits.length ? ' · ' + ocBits.join(' · ') : ''))
+          : escapeHtml(ocBits.join(' · ') || 'see the controls'), ocd.stop ? 'sig-neg' : ''));
+    }
     if (open){
       var flags = [];
       open.forEach(function(o){
@@ -69925,6 +70041,17 @@ function scenarioEventPhase(ev, now = Date.now()) {
       }
       tiles.push(homeDeskTile('owner-market-brief', 'Owner brief', nCh ? nCh + (nCh === 1 ? ' change' : ' changes') : 'No changes',
         escapeHtml((b.headline ? b.headline : 'latest read') + since)));
+    }
+    // How the Webull paper account filled the record's recent trades, from
+    // the Owner brief's desk block (lib/owner-desk-state.mjs, read by the bake).
+    var wb = b && b.desk && b.desk.webull;
+    if (wb && (wb.picks || wb.engines)){
+      var wbSide = function(x){ return x ? { done: (x.filled || 0), all: (x.filled || 0) + (x.partial || 0) + (x.missed || 0) + (x.pending || 0), miss: (x.missed || 0) + (x.partial || 0) } : { done: 0, all: 0, miss: 0 }; };
+      var wp = wbSide(wb.picks), we = wbSide(wb.engines);
+      var wAll = wp.all + we.all, wDone = wp.done + we.done, wMiss = wp.miss + we.miss;
+      if (wAll) tiles.push(homeDeskTile('track', 'Filled at Webull', wDone + ' of ' + wAll,
+        escapeHtml('last ' + (wb.days || 7) + ' days · Top Picks ' + wp.done + '/' + wp.all + ' · engines ' + we.done + '/' + we.all + (wMiss ? ' · ' + wMiss + ' missed or partial' : '')),
+        wMiss ? 'sig-neg' : 'sig-pos').replace('data-go="track"', 'data-go="track" data-acc-pref="webull"'));
     }
     // Friday after the close and over the weekend: the week's recap.
     if (WEEK_RECAP.recapReady()) tiles.push(homeDeskTile('track', 'Week recap', 'Ready', 'opens, closes, the biggest miss and the busiest rule').replace('data-go="track"', 'data-go="track" data-acc-pref="recap"'));

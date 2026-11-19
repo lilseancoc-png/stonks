@@ -7,6 +7,8 @@ import { OWNER_PAGE_IDS, SPORTS_PAGE_IDS } from '../lib/owner-access-policy.mjs'
 import { isPremiumKey, roleClaimForKey } from '../lib/premium-keys.mjs';
 import { isBakeOwnedKey } from '../lib/data-ownership.mjs';
 import { publishOwnerMarketBrief } from './publish-owner-market-brief.mjs';
+import { deskControls, webullFillSummary, engineLimitHolds, fillLine } from '../lib/owner-desk-state.mjs';
+import { activeControls, readOwnerControlsDoc, accountLimits } from '../lib/owner-controls.mjs';
 import { publicDataPayload } from '../lib/public-data-policy.mjs';
 import { ownerBriefFixture } from './fixtures/owner-market-brief.mjs';
 import { signSession, SESSION_COOKIE } from '../lib/session.mjs';
@@ -53,6 +55,49 @@ assert.equal(buildOwnerMarketBrief({builtAtIso:fixture.builtAtIso}).status,'insu
 const changed=structuredClone(fixture);changed.builtAtIso='2026-10-23T15:10:00Z';changed.payloads['bottom-tracker.json'].summary='Credit weakens again';
 assert(buildOwnerMarketBrief({...changed,previous:report}).changes.some(c=>c.detail==='Credit weakens again'));
 const newVerdict=structuredClone(fixture);newVerdict.builtAtIso='2026-10-23T15:10:00Z';newVerdict.payloads['bottom-tracker.json'].verdict='emerging';assert(buildOwnerMarketBrief({...newVerdict,previous:report}).changes.some(c=>c.title.includes('emerging')),'Verdict changes retain stable finding identity');
+// The Owner's own desk (wave-1 integration): controls, account limits, Webull fills.
+{
+  const now=Date.parse(fixture.builtAtIso);
+  assert.equal(report.desk.controls,null);assert.equal(report.desk.webull,null);assert.equal(report.desk.limitHolds,null);
+  assert(!report.findings.some(f=>f.id.startsWith('desk:')),'No desk finding without desk state');
+  const doc=readOwnerControlsDoc({stop:{at:'2026-10-23T13:00:00Z',by:'owner'},avoid:[{sym:'AAPL',close:true,at:'2026-10-23T13:00:00Z'}],watch:[],catalysts:[],dial:{level:'safer',at:'2026-10-23T13:00:00Z',until:'2026-10-24T20:00:00Z'}});
+  const run={...activeControls(doc,now),enabled:true,limits:accountLimits({ACCOUNT_LIMIT_NEW_PER_DAY:'3'})};
+  const ctl=deskControls(run);
+  assert.equal(ctl.stop,true);assert.deepEqual(ctl.avoid,['AAPL']);assert.deepEqual(ctl.close,['AAPL']);assert.equal(ctl.dial,'safer');assert.equal(ctl.limits.newPerDay,3);
+  assert.doesNotThrow(()=>JSON.stringify(ctl));
+  assert.equal(deskControls({...activeControls(null,now),enabled:true,limits:accountLimits({})}),null,'Nothing set = no desk controls');
+  assert.deepEqual(deskControls({...activeControls(doc,now),enabled:false,limits:accountLimits({})}),{enabled:false,limits:null});
+  const ledger={trades:{
+    a:{tradeId:'a',engineEntryIso:'2026-10-22T15:00:00Z',state:'open',requestedQty:2,filledQty:2,fillPrice:1,entryDiffPct:1.5},
+    b:{tradeId:'b',engineEntryIso:'2026-10-22T15:00:00Z',state:'open',requestedQty:4,filledQty:1,fillPrice:1,entryDiffPct:-0.5},
+    c:{tradeId:'c',engineEntryIso:'2026-10-22T15:00:00Z',state:'missed',requestedQty:1,filledQty:0},
+    d:{tradeId:'d',engine:'TEC',engineEntryIso:'2026-10-22T15:00:00Z',state:'skipped',ownerHold:'Not bought: new trades are stopped by the owner.'},
+    e:{tradeId:'e',engine:'TEC',engineEntryIso:'2026-10-22T15:00:00Z',state:'skipped',sharedContract:'x'},
+    f:{tradeId:'f',engineEntryIso:'2026-09-01T15:00:00Z',state:'closed',requestedQty:1,filledQty:1,fillPrice:1},
+  }};
+  const wb=webullFillSummary(ledger,{nowMs:now});
+  assert.equal(wb.n,5,'Trades older than the window are left out');
+  assert.deepEqual([wb.picks.filled,wb.picks.partial,wb.picks.missed],[1,1,1]);assert.equal(wb.engines.held,1);assert.equal(wb.engines.shared,1);
+  assert.equal(wb.gapPct.picks,0.5);assert.equal(wb.gapPct.engines,null);
+  assert.equal(fillLine(wb.picks),'1 of 3 filled, 1 partly, 1 missed');
+  assert.equal(webullFillSummary({trades:{}},{nowMs:now}),null);assert.equal(webullFillSummary(null),null);
+  const engines={runs:[{iso:'2026-10-23T15:20:00Z'}],checks:{MSFT:[{engine:'TEC',why:'account limit: 3 new trades a day reached'}],NVDA:[{engine:'FUN',why:'run limit'}]}};
+  const holds=engineLimitHolds(engines,now);assert.equal(holds.n,1);assert.deepEqual(holds.syms,['MSFT']);
+  assert.equal(engineLimitHolds({...engines,runs:[{iso:'2026-10-20T15:20:00Z'}]},now),null,'An old run says nothing about today');
+  const f=structuredClone(fixture);f.payloads['engines.json']=engines;
+  const r=buildOwnerMarketBrief({...f,desk:{controls:ctl,webull:wb}});
+  const stop=r.findings.find(x=>x.id==='desk:controls');
+  assert(stop&&stop.priority===1&&stop.title==='New trades are stopped'&&stop.tab==='engines');
+  assert(stop.detail.includes('AAPL')&&stop.detail.includes('Safer')&&stop.detail.includes('keep logging'));
+  assert(r.findings.some(x=>x.id==='desk:limits'&&x.priority===1&&x.detail.includes('MSFT')));
+  const fill=r.findings.find(x=>x.id==='desk:webull');assert(fill&&fill.tab==='track'&&fill.detail.includes('1 of 3 filled'));
+  assert(r.priorities.some(x=>x.id==='desk:controls'),'A stop is a priority');
+  assert.equal(r.summary,report.summary,'Desk state is not a research desk and does not change the coverage count');
+  const off=buildOwnerMarketBrief({...fixture,desk:{controls:{enabled:false,limits:null}}});
+  assert(off.findings.some(x=>x.id==='desk:controls'&&x.title==='Owner controls are off'));
+  const resumed=structuredClone(fixture);resumed.builtAtIso='2026-10-23T15:10:00Z';
+  assert(buildOwnerMarketBrief({...resumed,previous:r}).changes.some(c=>c.kind==='dropped'&&c.title==='New trades are stopped'),'Resuming shows as a change');
+}
 const dir=await mkdtemp(resolve(tmpdir(),'owner-brief-test-'));
 try {
   for(const [key,value]of Object.entries(fixture.payloads))await writeFile(resolve(dir,key),JSON.stringify(value));

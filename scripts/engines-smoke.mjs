@@ -968,6 +968,7 @@ ok("paper trial: index funds after extreme fear buy shares for 20 sessions, deci
   assert.deepEqual(fearReading([{ date: "2026-11-18", score: 22 }, { date: "2026-11-17", score: 30 }], "2026-11-19")?.prev, 30, "objects in any order");
   assert.equal(fearReading([["2026-11-01", 30], ["2026-11-02", 22]], "2026-11-19"), null, "stale");
   assert.equal(fearReading([["2026-11-18", 22]], "2026-11-19"), null);
+  assert.deepEqual(fearReading([["2026-11-17", 20, 30], ["2026-11-18", 22, 31]], "2026-11-19"), { date: "2026-11-18", score: 22, prevDate: "2026-11-17", prev: 20 }, "a [date, score, vix] row reads the score, not the VIX");
   // The signal: a first close under 25, on SPY, QQQ and IWM, with no FRED input needed.
   const idx = Object.fromEntries(["SPY", "QQQ", "IWM"].map((s) => [s, V(s, baseF({ date: "2026-11-18" }), { isEtf: true })]));
   const fear = (score, prev) => ({ date: "2026-11-18", score, prevDate: "2026-11-17", prev });

@@ -209,7 +209,44 @@ export function renderOwnerControlsJs() {
       '</div>' +
       '<details class="oc-cell oc-score" data-oc-score' + (OC.score || OC.scoreLoading ? ' open' : '') + '><summary class="oc-h3">Scorecard</summary>' + ocScoreHtml() + '</details>';
   }
-  function ocRenderAll(){ ocRenderBanners(); ocRenderPanel(); }
+  // The stock page's "Your controls" section (stock-page-js.mjs, #stp-oc):
+  // what is set on this stock, with Watch / Avoid / Lift buttons. A catalyst
+  // and an avoid that also closes open trades are set on the Strategy engines
+  // page (that one asks to confirm).
+  function ocRenderStock(){
+    var host = document.getElementById('stp-oc');
+    if (!host) return;
+    var sym = host.getAttribute('data-oc-stock') || '';
+    var d = OC.data;
+    if (!HAS_OWNER_ACCESS || !sym || !d){ host.hidden = true; host.innerHTML = ''; return; }
+    var av = null, wa = null;
+    (d.avoid || []).forEach(function(a){ if (a.sym === sym && a.active) av = a; });
+    (d.watch || []).forEach(function(w){ if (w.sym === sym && w.active) wa = w; });
+    var cats = (d.catalysts || []).filter(function(k){ return k.active && k.sym === sym; });
+    var bits = [];
+    if (d.enabled === false) bits.push('<span class="muted">Owner controls are off in Owner Settings; nothing saved here applies.</span>');
+    else if (d.stop) bits.push('<b class="sig-neg">New trades are stopped</b> on every stock.');
+    if (d.enabled !== false && av) bits.push('<b>Avoided</b> since ' + ocEsc(ocWhen(av.at)) + (av.until ? ', until ' + ocEsc(ocDay(av.until)) : ', until lifted') + (av.close ? '; its open trades close at the next run' : '') + '.');
+    if (d.enabled !== false && wa) bits.push('<b>Watched closely</b>: front of each queue through ' + ocEsc(ocDay(wa.until)) + '.');
+    if (d.enabled !== false) cats.forEach(function(k){ bits.push('<b>Catalyst</b> ' + ocEsc(ocDay(k.date)) + ': ' + ocEsc(k.text)); });
+    var dis = OC.saving ? ' disabled' : '';
+    host.innerHTML = '<h3 class="stp-h3">Your controls</h3>' +
+      '<p class="stp-lede">' + (bits.length ? bits.join(' ') : 'No control is set on ' + ocEsc(sym) + '.') + '</p>' +
+      '<div class="oc-row">' +
+        (av ? '<button type="button" class="oc-btn" data-oc-act="lift" data-oc-sym="' + ocEsc(sym) + '"' + dis + '>Lift avoid</button>' : '<button type="button" class="oc-btn" data-oc-act="avoid-stock" data-oc-sym="' + ocEsc(sym) + '"' + dis + '>Avoid ' + ocEsc(sym) + '</button>') +
+        (wa ? '<button type="button" class="oc-btn" data-oc-act="unwatch" data-oc-sym="' + ocEsc(sym) + '"' + dis + '>Stop watching</button>' : '<button type="button" class="oc-btn" data-oc-act="watch" data-oc-sym="' + ocEsc(sym) + '"' + dis + '>Watch closely</button>') +
+        '<a class="oc-b-link" href="?tab=engines">Check, flag a catalyst or close trades on the Strategy engines page &rarr;</a>' +
+      '</div>' + (OC.msg && OC.msg.text ? '<p class="oc-msg ' + (OC.msg.ok ? 'is-ok' : 'is-bad') + '" role="status">' + ocEsc(OC.msg.text) + '</p>' : '') +
+      '<p class="stp-src">Avoid: no new Top Picks, engine or Webull paper trade on it; open trades stay. Watch closely: front of each engine queue for five sessions, no bar lowered. Neither changes the grade.</p>';
+    host.hidden = false;
+  }
+  // Home's "Your desk" carries an Owner controls tile (app-js.mjs renderHomeDesk).
+  function ocRenderAll(){ ocRenderBanners(); ocRenderPanel(); ocRenderStock(); if (typeof renderHomeDesk === 'function' && document.getElementById('landing-desk')) renderHomeDesk(); ocRenderCalendar(); }
+  // The Calendar shows the catalyst log as Owner rows (app-js.mjs calWithOwnerCatalysts).
+  function ocRenderCalendar(){
+    var pane = document.getElementById('page-pane-calendar');
+    if (pane && !pane.hidden && typeof calendarState !== 'undefined' && calendarState.data && !calendarState.loading && typeof renderCalendar === 'function') renderCalendar();
+  }
   function ocConfirm(text){ try { return window.confirm(text); } catch (e) { return false; } }
   function ocAct(btn){
     var act = btn.getAttribute('data-oc-act'), sym = btn.getAttribute('data-oc-sym');
@@ -221,6 +258,7 @@ export function renderOwnerControlsJs() {
       if (level === 'riskier' && !ocConfirm('Riskier until Friday’s close? Engine trades buy 1.5x the size (inside the account limits) and the entry bar drops 3 points.')) return;
       ocPost({ act: 'dial', level: level, confirm: level === 'riskier' ? true : undefined }); return;
     }
+    if (act === 'avoid-stock'){ if (ocConfirm('Avoid ' + sym + '? No new Top Picks, engine or Webull paper trade on it until you lift it. Open trades stay.')) ocPost({ act: 'avoid', sym: sym }); return; }
     if (act === 'lift'){ ocPost({ act: 'lift', sym: sym, px: OC.checkSym === sym && OC.check && OC.check.spot ? OC.check.spot : undefined }); return; }
     if (act === 'watch' || act === 'unwatch'){ ocPost({ act: act, sym: sym }); return; }
     if (act === 'uncatalyst'){ ocPost({ act: 'uncatalyst', id: Number(btn.getAttribute('data-oc-id')) }); return; }
@@ -272,6 +310,9 @@ export function renderOwnerControlsCss() {
 .oc-banner.is-stop .oc-b-title { color: var(--neg); }
 .oc-b-act { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .oc-b-link { font-weight: 600; white-space: nowrap; }
+/* The stock page's "Your controls" section (ocRenderStock): its link wraps on a phone. */
+#stp-oc { min-width: 0; }
+#stp-oc .oc-b-link { white-space: normal; align-self: center; }
 .oc-b-jump { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font: inherit; font-weight: 600; }
 .oc-banner .muted, .oc-panel .muted { color: var(--muted-strong); }
 .oc-btn { min-height: 32px; padding: 4px 12px; border: 1px solid var(--border); border-radius: 999px; background: transparent; color: var(--text-strong); font: 600 12.5px/1.2 var(--font-sans); cursor: pointer; }

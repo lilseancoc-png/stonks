@@ -460,9 +460,21 @@ async function picksFeed(req, res) {
     ]);
     const buf = await store.get("picks-accuracy.json");
     const acc = buf == null ? {} : JSON.parse(buf.toString("utf8"));
+    // The Owner controls in force (a stop, avoid-and-close names), so a reader
+    // knows no OPEN is coming. Unreadable = no status line, the feed still serves.
+    let controls = null;
+    try {
+      const [oc, os] = await Promise.all([import("../../lib/owner-controls.mjs"), import("../../lib/owner-settings.mjs")]);
+      const [ctlBuf, setBuf] = await Promise.all([store.get(oc.OWNER_CONTROLS_KEY), store.get(os.OWNER_SETTINGS_KEY)]);
+      const values = os.readOwnerSettingsDoc(setBuf).values;
+      if (oc.controlsEnabledFromSettings(values)) {
+        const active = oc.activeControls(oc.readOwnerControlsDoc(ctlBuf), Date.now());
+        controls = { ...oc.controlsSummary(active), stopAt: active.stopAt };
+      }
+    } catch (err) { console.error("picks feed controls read failed", { message: String(err?.message || err) }); }
     res.setHeader("Content-Type", "text/plain; charset=utf-8");
     res.statusCode = 200;
-    return res.end(buildPicksFeedText(acc));
+    return res.end(buildPicksFeedText(acc, { controls }));
   } catch (err) {
     console.error("picks feed failed", { message: String(err?.message || err) });
     return res.status(502).json({ error: "feed unavailable" });
