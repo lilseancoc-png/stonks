@@ -9,7 +9,7 @@ import {
   isMaterialAiHeadline,
   newMaterialAiHeadlineCount,
 } from "./build.mjs";
-import { assessDecisionInputsBeforeAi } from "../lib/freshness-policy.mjs";
+import { assessDecisionInputsBeforeAi, pruneUnpublishableTickers } from "../lib/freshness-policy.mjs";
 
 const oneMillion = { inputTokens: 1_000_000, outputTokens: 0, cachedTokens: 0, thoughtTokens: 0 };
 assert.equal(estimateAiBucketCost("gemini-2.5-flash", oneMillion), 0.30);
@@ -86,5 +86,54 @@ const afterHours = assessDecisionInputsBeforeAi({
   now: new Date("2026-08-03T22:00:00.000Z"),
 });
 assert.deepEqual(afterHours.errors, [], "outside regular trading, missing IV remains a warning at the final gate");
+
+// One fetched ticker that cannot publish is left out like an unfetched one
+// (2026-11-19: Yahoo sent SNDK 3 daily bars and every build stopped). The
+// coverage rule still decides, with 95% of a 100-name universe as the bar.
+const hundred = Array.from({ length: 100 }, (_, i) => `H${i}`);
+const at = new Date("2026-08-03T16:00:00.000Z");
+const fullHundred = () => Object.fromEntries(hundred.map((symbol) => [symbol, validTicker(symbol)]));
+{
+  const chains = fullHundred();
+  chains.H7 = validTicker("H7", { technicals: null, _bars: [{ c: 1 }, { c: 2 }, { c: 3 }] });
+  const pruned = pruneUnpublishableTickers({ chains, expectedSymbols: hundred, now: at });
+  assert.deepEqual(pruned.dropped, [{ symbol: "H7", reason: "missing technicals" }]);
+  assert.equal(chains.H7, undefined, "the bad ticker is removed from this build");
+  assert.equal(Object.keys(chains).length, 99);
+  const gate = assessDecisionInputsBeforeAi({ chains, expectedSymbols: hundred, sampleIv: (d) => d.mockIv, now: at });
+  assert.deepEqual(gate.errors, [], "99/100 with one bad name must pass");
+}
+{
+  const chains = fullHundred();
+  chains.H3 = validTicker("H3", { quoteAsOf: "2026-07-31T19:30:00.000Z" });
+  chains.H4 = validTicker("H4", { _bars: [] });
+  const pruned = pruneUnpublishableTickers({ chains, expectedSymbols: hundred, now: at });
+  assert.deepEqual(pruned.dropped.map((r) => r.symbol).sort(), ["H3", "H4"]);
+  assert.match(pruned.dropped.find((r) => r.symbol === "H3").reason, /current ET session/);
+  const gate = assessDecisionInputsBeforeAi({ chains, expectedSymbols: hundred, sampleIv: (d) => d.mockIv, now: at });
+  assert.deepEqual(gate.errors, [], "a frozen quote and an empty history are left out, 98/100 passes");
+}
+{
+  const chains = fullHundred();
+  for (let i = 0; i < 6; i++) chains[`H${i}`] = validTicker(`H${i}`, { technicals: null });
+  const pruned = pruneUnpublishableTickers({ chains, expectedSymbols: hundred, now: at });
+  assert.equal(pruned.dropped.length, 6);
+  const gate = assessDecisionInputsBeforeAi({ chains, expectedSymbols: hundred, sampleIv: (d) => d.mockIv, now: at });
+  assert.match(gate.errors.join("; "), /ticker coverage 94\/100; need at least 95/, "too many bad names still fail the build before paid AI");
+}
+{
+  // Outside regular trading an older quote is normal and nothing is dropped.
+  const chains = Object.fromEntries(hundred.map((symbol) => [symbol, validTicker(symbol, { marketState: "POST", quoteAsOf: "2026-07-31T19:30:00.000Z" })]));
+  const pruned = pruneUnpublishableTickers({ chains, expectedSymbols: hundred, now: new Date("2026-08-03T22:00:00.000Z") });
+  assert.deepEqual(pruned.dropped, []);
+  assert.equal(Object.keys(chains).length, 100);
+}
+{
+  // A clean universe is untouched, and names outside the expected list are ignored.
+  const chains = { ...fullHundred(), EXTRA: { spot: null } };
+  const pruned = pruneUnpublishableTickers({ chains, expectedSymbols: hundred, now: at });
+  assert.deepEqual(pruned.dropped, []);
+  assert.ok(chains.EXTRA, "only expected symbols are judged");
+}
 
 console.log("AI cost-control smoke checks passed.");
