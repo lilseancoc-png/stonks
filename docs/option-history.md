@@ -28,6 +28,8 @@ option-price saver (wave 2), so both sources are read by the same code:
 `symbol` is the unpadded OCC symbol (`AAPL261218C00150000`), `right` is
 `C` or `P`, `iv` a decimal, optional numbers may be null. Files:
 `<dir>/<UNDERLYING>/<YEAR>.jsonl.gz`.
+The Webull saver (#880) writes the same rows under `<out>/snapshots/`, so
+point `historyReader` (or `--history`) at that subfolder to read them.
 
 ## Steps
 
