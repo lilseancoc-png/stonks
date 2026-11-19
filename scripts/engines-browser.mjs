@@ -1,7 +1,8 @@
 // Browser check for the Owner "Strategy engines" page (2026-11-16): its tab
 // bar, "All engines", each engine's five views, deep links, old
 // ?tab=picks&engine= links landing on the new page, Top picks staying Top
-// Picks only, the same-contract note and the engines link on Open picks, the
+// Picks only, Open picks listing every open Webull paper trade (Top Picks,
+// every engine trade and anything still working at Webull, 2026-11-19), the
 // first-morning empty state, phone width in dark mode, and a public visitor
 // (who never sees the page and never asks for an engine file or the paper
 // account).
@@ -16,6 +17,7 @@ import { startSiteServer, launchBrowser, openTab, pageProblems, selfTest, settle
 import { enginesFixture } from './engines-fixture.mjs';
 import { ENGINES, ENGINE_IDS, SIGNAL_IDS, CORE_IDS } from '../lib/engines/config.mjs';
 import { ENGINES_VIEW_KEY, ENGINES_RECORD_KEY, ENGINES_STATE_KEY } from '../lib/engines/index.mjs';
+import { mirrorTradeId } from '../lib/webull-mirror.mjs';
 
 const output = process.env.ENGINES_BROWSER_OUT || resolve(tmpdir(), 'stonks-engines-browser');
 await mkdir(output, { recursive: true });
@@ -27,6 +29,13 @@ assert.ok(fx.flagship && view.shared.length >= 1, 'the fixture has a contract sh
 const acc = { builtAtIso: view.runIso, open: [fx.flagship], closed: [] };
 let owner = true, haveFile = true;
 const mirrorAsks = [];
+// The whole paper account (scope=all, read by Open picks): the Top Picks
+// trade filled, every engine row, and one engine trade the record has closed
+// that Webull is still selling.
+const flagshipWb = { tradeId: mirrorTradeId(fx.flagship), engine: null, madeBy: 'Top Picks', symbol: fx.flagship.symbol, side: fx.flagship.side, state: 'open', instrument: 'option', fillOutcome: 'filled', requestedQty: 2, filledQty: 2, paperPnlPct: 3.6, legs: 'BUY spread' };
+const closedEng = fx.mirror.trades.find((t) => t.state === 'closed');
+const exitingWb = closedEng ? { ...closedEng, tradeId: closedEng.tradeId + '-X', state: 'exiting', fillOutcome: 'filled' } : null;
+const allMirror = { ...fx.mirror, scope: 'all', trades: [flagshipWb, ...fx.mirror.trades, ...(exitingWb ? [exitingWb] : [])] };
 const server = await startSiteServer({
   owner: () => owner,
   data: (key) => {
@@ -39,7 +48,8 @@ const server = await startSiteServer({
   api: (url) => {
     if (url.pathname !== '/api/auth/webull-mirror') return undefined;
     mirrorAsks.push(url.search);
-    return url.searchParams.get('scope') === 'engines' ? fx.mirror : { scope: 'flagship', trades: [], rows: [] };
+    const scope = url.searchParams.get('scope');
+    return scope === 'engines' ? fx.mirror : scope === 'all' ? allMirror : { scope: 'flagship', trades: [], rows: [] };
   },
 });
 const browser = await launchBrowser();
@@ -353,22 +363,80 @@ try {
     await oldAll.context.close();
   }
 
-  // ---- Open picks: the same-contract note -------------------------------------
+  // ---- Open picks: every open trade in the Webull paper account ---------------
   {
     const s = await openTab(browser, server.base, { width: 1440, height: 1000, theme: 'light', tab: 'open-picks' });
     await s.page.locator('#open-picks-root .eng-shared-note').waitFor({ timeout: 15000 });
     const note = await s.page.locator('#open-picks-root .eng-shared-note').innerText();
     check(note.includes(fx.flagship.tradeId) && /Top Picks holds the one paper position/.test(note), 'Open picks names the engine trade on the same contract');
-    const link = s.page.locator('#open-picks-root .eng-open-link');
-    check(new RegExp('Strategy engines: ' + view.total.open + ' open paper trade').test(await link.innerText()), 'Open picks links to the engines with their open count');
-    const openBody = await s.page.locator('#open-picks-root').innerText();
-    const otherEngineIds = view.engines.flatMap((e) => e.open.map((t) => t.tradeId)).filter((id) => !note.includes(id));
-    check(otherEngineIds.length > 0 && otherEngineIds.every((id) => !openBody.includes(id)), 'Open picks lists no engine trade of its own');
-    await link.locator('[data-wf-go="engines"]').click();
-    await s.page.locator('#eng-all-cmp').waitFor({ timeout: 15000 });
-    check(/tab=engines/.test(s.page.url()), 'the link opens the Strategy engines page');
-    await clean(s, 'Open picks with the note');
+    await s.page.locator('#open-picks-engines table').first().waitFor({ timeout: 15000 });
+    // Wait for the paper account read to land in the Webull column.
+    await s.page.waitForFunction(() => !/loading…/.test((document.querySelector('#open-picks-engines') || {}).innerText || ''), null, { timeout: 15000 });
+    const engIds = view.engines.flatMap((e) => e.open.map((t) => t.tradeId));
+    const group = s.page.locator('#open-picks-engines');
+    const groupText = await group.innerText();
+    check(engIds.length > 0 && engIds.every((id) => groupText.includes(id)), 'Open picks lists every open engine trade (' + engIds.length + ')');
+    check(new RegExp('Strategy engine trades\\s*' + engIds.length, 'i').test(groupText), 'the engine group head counts them');
+    const madeBy = await group.locator('tbody tr td:nth-child(2)').allInnerTexts();
+    const names = new Set(view.engines.filter((e) => e.open.length).map((e) => e.name));
+    check(madeBy.length >= engIds.length && [...names].every((n) => madeBy.some((m) => m.includes(n))), 'each row says which engine made it');
+    const trials = view.engines.flatMap((e) => e.open).filter((t) => t.trial).length;
+    if (trials) check((await group.locator('.eng-trial').count()) >= trials, 'paper trials carry their badge');
+    // Webull column: filled, held by another and missed rows read from the paper account.
+    const wbTexts = await group.locator('tbody tr td:nth-child(5)').allInnerTexts();
+    const openRows = fx.mirror.trades.filter((t) => engIds.includes(t.tradeId));
+    check(openRows.some((t) => t.fillOutcome === 'filled') && wbTexts.some((x) => /Filled/.test(x)), 'filled engine trades say Filled');
+    if (openRows.some((t) => t.fillOutcome === 'shared')) check(wbTexts.some((x) => /Held by another/.test(x)), 'a follower on a shared contract says Held by another');
+    if (openRows.some((t) => t.fillOutcome === 'missed')) check(wbTexts.some((x) => /Missed/.test(x)), 'a missed entry says Missed');
+    // Top Picks row: Webull column joined by trade ID, Mark filled from entry and P&L.
+    const tp = s.page.locator('#open-picks-root .accuracy-group').first();
+    const tpText = await tp.innerText();
+    check(/Top Picks trades\s*1/i.test(tpText), 'the Top Picks group is labeled and counted apart');
+    if (await tp.locator('table').count()){
+      check(/Filled/.test(tpText) && /\+3\.6%/.test(tpText), 'the Top Picks row shows its Webull fill and paper result');
+    }
+    // Still working at Webull: the closed engine trade still selling.
+    if (exitingWb) check(groupText.includes(exitingWb.tradeId) && /Still working at Webull/i.test(groupText) && /Selling/.test(groupText), 'a trade still selling at Webull after its record closed is listed');
+    const sumText = await s.page.locator('#open-picks-sum').innerText();
+    const total = 1 + engIds.length + (exitingWb ? 1 : 0);
+    check(new RegExp('\\b' + total + '\\b[\\s\\S]*open trades').test(sumText) && /Top Picks · engines/.test(sumText), 'the summary counts every open trade (' + total + ')');
+    check(mirrorAsks.some((q) => /scope=all/.test(q)), 'Open picks reads the whole paper account');
+    // An engine name links to that engine's page.
+    const firstEng = view.engines.find((e) => e.open.length);
+    await group.locator('a[href*="tab=engines&engine=' + firstEng.id + '"]').first().click();
+    await s.page.locator('#eng-pane').waitFor({ timeout: 15000 });
+    check(/tab=engines/.test(s.page.url()) && new RegExp('engine=' + firstEng.id).test(s.page.url()), 'the engine name opens that engine on the Strategy engines page');
     await s.context.close();
+  }
+  // Open picks in table view (Top Picks row's Mark and Webull cells), and at phone width in dark mode.
+  {
+    const s = await openTab(browser, server.base, { width: 1440, height: 1000, theme: 'light', tab: 'open-picks' });
+    await s.page.locator('#open-picks-engines table').first().waitFor({ timeout: 15000 });
+    const tableBtn = s.page.locator('#open-picks-root [data-view-mode="table"], #open-picks-root [data-vmode="table"]').first();
+    if (await tableBtn.count()){ await tableBtn.click(); await settle(s.page, 300); }
+    await s.page.waitForFunction(() => !/loading…/.test((document.querySelector('#open-picks-root') || {}).innerText || ''), null, { timeout: 15000 });
+    const tpTable = s.page.locator('#open-picks-root .accuracy-group').first().locator('table');
+    if (await tpTable.count()){
+      const head = await tpTable.locator('thead').innerText();
+      const row = await tpTable.locator('tbody tr').first().innerText();
+      check(/Webull/.test(head) && /Filled/.test(row), 'the Top Picks table has a Webull column');
+      const pnl = Number(fx.flagship.optionPnlPct), basis = Number(fx.flagship.contract?.netDebit ?? fx.flagship.contract?.mid);
+      if (Number.isFinite(pnl) && basis > 0 && fx.flagship.contract?.structure !== 'credit_vertical'){
+        const mark = '$' + (Math.round(basis * (1 + pnl / 100) * 100) / 100).toFixed(2);
+        check(row.includes(mark), 'the Top Picks Mark cell reads ' + mark);
+      }
+    }
+    await clean(s, 'Open picks, table view');
+    await s.page.screenshot({ path: resolve(output, 'open-picks-1440.png'), fullPage: true });
+    await s.context.close();
+    const p = await openTab(browser, server.base, { width: 390, height: 844, theme: 'dark', tab: 'open-picks' });
+    await p.page.locator('#open-picks-engines table').first().waitFor({ timeout: 15000 });
+    await settle(p.page, 300);
+    const overflow = await p.page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    check(overflow <= 1, 'Open picks has no sideways page scroll at 390 px (' + overflow + ')');
+    await clean(p, 'Open picks, phone dark');
+    await p.page.screenshot({ path: resolve(output, 'open-picks-390-dark.png'), fullPage: true });
+    await p.context.close();
   }
 
   // ---- First morning: no file yet ---------------------------------------------

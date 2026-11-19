@@ -720,14 +720,16 @@ function sectorRotationSection() {
 function openPicksSection() {
   // Card chrome only — renderOpenPicks() in app.js fills it from the open
   // trades in data/picks-accuracy.json (Owner; lazy-fetched on first tab
-  // activation, shared with the Track Record tab when that already loaded it).
+  // activation, shared with the Track Record tab when that already loaded it),
+  // the engine trades in engines.json and the Webull paper account
+  // (/api/auth/webull-mirror?scope=all), since 2026-11-19.
   return `<section class="card" id="open-picks-section">
     <header class="card-header">
       <h2 class="card-title">Open picks</h2>
       <span class="card-eyebrow" id="open-picks-eyebrow" aria-live="polite"></span>
     </header>
     ${ownerControlsBanner('open')}
-    <p class="hint">Every Top Picks trade that is open right now, newest first. Marks are modeled Black-Scholes at constant entry IV, not live chain fills, and refresh at the 11:00 and 15:30 ET Top Picks runs. The trade lines below the cards also list every close from the last 7 days; the full record is on the Top Picks track record tab.</p>
+    <p class="hint">Every trade open in the Webull paper account right now: Top Picks first, then every strategy engine trade (paper trials and tests included), each with what Webull filled. Top Picks marks are modeled Black-Scholes at constant entry IV and engine marks are the engine record's last mid; both refresh at the 11:00 and 15:30 ET runs. The trade lines at the bottom list the Top Picks trades and every Top Picks close from the last 7 days; the Top Picks track record counts Top Picks only, and each engine keeps its own record.</p>
     <div id="open-picks-sum" class="acc-pane-sum-slot"></div>
     <div id="open-picks-root" class="accuracy-root">Loading open picks&hellip;</div>
   </section>`;

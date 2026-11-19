@@ -1,6 +1,7 @@
 // The Owner "Strategy engines" page (page id `engines`). Since 2026-11-16
-// (audit fix 9) the engines have a page of their own, so Top picks, Open
-// picks and the Top Picks track record show Top Picks only; the engines sat
+// (audit fix 9) the engines have a page of their own, so Top picks and the
+// Top Picks track record show Top Picks only (Open picks lists every open
+// Webull paper trade again since 2026-11-19, engOpenPicksHtml); the engines sat
 // in a switcher on the Top Picks page for their first day. One view per
 // rules-only paper engine plus "All engines". It renders the Owner-only
 // engines.json written by every Top Picks decision run
@@ -135,11 +136,113 @@ export function renderEnginesJs() {
     return rows.length ? '<div class="eng-shared-note"><b>Same contract on more than one engine</b><ul>' + rows.join('') + '</ul></div>' : '';
   }
 
-  // One line on Open picks: engine trades live on the Strategy engines page.
-  function engOpenLinkHtml(){
-    var d = engState.data; if (!d) return '';
-    var n = (d.total && d.total.open) || 0;
-    return '<p class="eng-open-link">This page lists Top Picks trades only. <button type="button" class="eng-link" data-wf-go="engines">Strategy engines: ' + n + ' open paper trade' + (n === 1 ? '' : 's') + '</button></p>';
+  // Open picks (owner, 2026-11-19): the page lists every open trade the
+  // Webull paper account carries, Top Picks and every engine, trial and test
+  // trade, each labeled with who made it and what Webull filled. The Top
+  // Picks track record still counts Top Picks only.
+  function engOpenTrades(){
+    var d = engState.data; if (!d || !Array.isArray(d.engines)) return [];
+    var out = [];
+    d.engines.forEach(function(e){ (e.open || []).forEach(function(t){ if (t && t.tradeId) out.push(t); }); });
+    return out;
+  }
+  // The whole paper account (scope=all), read from the Owner API like the
+  // engines page's own read; never a data file and never the MCP.
+  var opWb = { data: null, by: null, loading: false, at: 0, error: null };
+  var OP_WB_LIVE = { entering: 1, open: 1, exiting: 1 };
+  function opRerender(){ var op = $('page-pane-open-picks'); if (op && !op.hidden && typeof renderOpenPicks === 'function') renderOpenPicks(); }
+  function opLoadWebull(force){
+    if (!HAS_OWNER_ACCESS || opWb.loading) return;
+    if (!force && opWb.at && Date.now() - opWb.at < (opWb.error ? 60 * 1000 : 5 * 60 * 1000)) return;
+    opWb.loading = true; opWb.error = null;
+    fetch('/api/auth/webull-mirror?scope=all', { cache: 'no-store', credentials: 'same-origin' }).then(function(r){
+      if (!r.ok){ var e = new Error('HTTP ' + r.status); e.status = r.status; throw e; }
+      return r.json();
+    }).then(function(j){
+      var by = {};
+      ((j && j.trades) || []).forEach(function(t){ if (t && t.tradeId) by[t.tradeId] = t; });
+      opWb.data = j && typeof j === 'object' ? j : null; opWb.by = by; opWb.at = Date.now(); opWb.loading = false;
+      opRerender();
+    }).catch(function(err){
+      opWb.loading = false; opWb.at = Date.now();
+      opWb.error = err && err.status === 404 ? 'off' : String((err && err.message) || err || 'failed');
+      opRerender();
+    });
+  }
+  // Trades still working at Webull whose record has already closed (an exit
+  // still selling) or that no loaded record lists.
+  function opWebullOnly(flagOpen, engOpen){
+    if (!opWb.by) return [];
+    var seen = {};
+    (flagOpen || []).forEach(function(o){ seen[tlTradeId(o)] = 1; });
+    (engOpen || []).forEach(function(t){ seen[t.tradeId] = 1; });
+    return ((opWb.data && opWb.data.trades) || []).filter(function(w){ return w && w.tradeId && OP_WB_LIVE[w.state] && !seen[w.tradeId]; });
+  }
+  var OP_WB_TIP = 'What the Webull paper account did with this trade: filled, partly filled, missed, held by another trade on the same contract, or not bought (with the reason on the Webull tab), and its paper result. Not sent = the trade predates the mirror, a switch kept it off, or the mirror has not run since it opened.';
+  function opWebullHtml(id){
+    if (!opWb.by){
+      if (opWb.error === 'off') return '<span class="crd-dim">Mirror off</span>';
+      return '<span class="crd-dim">' + (opWb.error ? 'Could not read' : 'loading…') + '</span>';
+    }
+    var w = opWb.by[id];
+    if (!w) return '<span class="crd-dim">Not sent</span>';
+    var st = ENG_MIRROR_STATE[w.state] || engCap(w.state);
+    return engFillHtml(w) + '<div class="crd-dim">' + escapeHtml(st) + (w.paperPnlPct != null && isFinite(w.paperPnlPct) ? ' · ' + (w.paperPnlPct > 0 ? '+' : '') + Number(w.paperPnlPct).toFixed(1) + '%' : '') + '</div>';
+  }
+  var OP_WB_RANK = { filled: 0, partial: 1, pending: 2, shared: 3, missed: 4, 'not-bought': 5 };
+  function opWebullSort(id){
+    if (!opWb.by) return null;
+    var w = opWb.by[id];
+    return w ? (OP_WB_RANK[w.fillOutcome] != null ? OP_WB_RANK[w.fillOutcome] : 6) : 7;
+  }
+  function opSourceHtml(t){
+    var e = t && t.engine;
+    // Trial and test badges ride the Ticker cell (engSideT).
+    return '<a href="?tab=engines&amp;engine=' + encodeURIComponent(e || 'all') + '">' + escapeHtml(t.madeBy || engName(e)) + '</a>';
+  }
+  function opDays(iso){ var t = Date.parse(iso); return isFinite(t) ? Math.max(0, (Date.now() - t) / 86400000) : null; }
+  function opEntry(t){ var c = (t && t.contract) || {}; var f = t && t.fill; var v = f && f.entry != null ? Number(f.entry) : Number(c.mid); return isFinite(v) && v > 0 ? v : null; }
+  function opMark(t){ var v = Number(t && t.lastMid); return t && t.lastMid != null && isFinite(v) && v >= 0 ? v : null; }
+  function opPositionHtml(t){
+    var c = (t && t.contract) || {};
+    if (c.structure === 'shares') return (c.shares || '?') + ' shares';
+    return (c.qty > 1 ? c.qty + ' × ' : '') + engStrike(c.strike) + ' ' + escapeHtml(String(c.optionType || t.side || '')) + ' · ' + engExp(c.expiry);
+  }
+  // The engine group under the Top Picks one. Every row links to its engine.
+  function engOpenPicksHtml(engOpen, extra){
+    var d = engState.data;
+    var rows = (engOpen || []).slice().sort(function(a, b){ return (Date.parse(b.entryDate) || 0) - (Date.parse(a.entryDate) || 0); });
+    var cols = [
+      { label: 'Ticker', cell: function(t){ return '<a href="?s=' + encodeURIComponent(t.symbol || '') + '">' + escapeHtml(t.symbol || '') + '</a> ' + engSideT(t); }, sort: function(t){ return t.symbol || null; } },
+      { label: 'Made by', title: 'The strategy engine that opened this trade', cell: opSourceHtml, sort: function(t){ return engName(t.engine); } },
+      { label: 'Position', cell: opPositionHtml, nosort: true },
+      { label: 'P&L', num: true, title: 'The engine record’s open result: % of the premium for an option, % of the share price for shares', cell: function(t){ return t.optionPnlPct == null ? '' : engPnl(t.optionPnlPct); }, sort: function(t){ var v = Number(t.optionPnlPct); return t.optionPnlPct != null && isFinite(v) ? v : null; } },
+      { label: 'Webull', title: OP_WB_TIP, cell: function(t){ return opWebullHtml(t.tradeId); }, sort: function(t){ return opWebullSort(t.tradeId); } },
+      { label: 'Entry', num: true, title: 'Entry price per share (an option at the ask when the record books ask and bid)', cell: function(t){ var v = opEntry(t); return v == null ? '' : engMoney(v); }, sort: opEntry },
+      { label: 'Mark', num: true, title: 'Latest mid price per share on the engine record', cell: function(t){ var v = opMark(t); return v == null ? '' : engMoney(v); }, sort: opMark },
+      { label: 'Opened (ET)', cell: function(t){ return t.entryDate && typeof accOpenedEt === 'function' ? escapeHtml(accOpenedEt(t.entryDate)) : ''; }, sort: function(t){ var x = Date.parse(t.entryDate); return isFinite(x) ? x : null; } },
+      { label: 'Days held', num: true, cell: function(t){ var x = opDays(t.entryDate); return x == null ? '' : x.toFixed(x < 10 ? 1 : 0); }, sort: function(t){ return opDays(t.entryDate); } },
+      { label: 'Setup', cell: function(t){ return escapeHtml(t.setup || ''); }, sort: function(t){ return t.setup || null; } },
+      { label: 'Trade ID', cell: function(t){ return '<span class="crd-dim eng-id">' + escapeHtml(t.tradeId || '') + '</span>'; }, sort: function(t){ return t.tradeId || null; } }
+    ];
+    var head = '<div class="accuracy-group-head">Strategy engine trades <span class="accuracy-group-n">' + rows.length + '</span></div>';
+    var note = '<p class="eng-open-link">Paper trades from the strategy engines, including the paper trials and tests, in the same Webull paper account as Top Picks. They count on each engine’s own record, never on the Top Picks track record. <button type="button" class="eng-link" data-wf-go="engines">Open the Strategy engines page</button></p>';
+    var body;
+    if (!d) body = '<p class="hint">' + (engState.error ? 'The engine trades could not be read (' + escapeHtml(String(engState.error)) + ').' : 'Loading the engine trades…') + '</p>';
+    else body = VIEWS.tableHtml(cols, rows, { key: 'open-picks-engines', empty: 'No engine trades are open right now.' });
+    var tail = '';
+    if (extra && extra.length){
+      var xcols = [
+        { label: 'Trade', cell: function(w){ return '<b>' + escapeHtml(w.symbol || '') + '</b> ' + (w.instrument === 'stock' ? '<span class="eng-side eng-shr">Shares</span>' : engSide(w.side)) + '<div class="crd-dim eng-id">' + escapeHtml(w.tradeId || '') + '</div>'; }, sort: function(w){ return w.symbol || null; } },
+        { label: 'Made by', cell: function(w){ return escapeHtml(w.madeBy || (w.engine ? engName(w.engine) : 'Top Picks')); }, sort: function(w){ return w.madeBy || null; } },
+        { label: 'Position', cell: function(w){ return escapeHtml(String(w.legs || '').replace(/^BUY /, '')); }, nosort: true },
+        { label: 'Webull', title: OP_WB_TIP, cell: function(w){ return opWebullHtml(w.tradeId); }, sort: function(w){ return opWebullSort(w.tradeId); } }
+      ];
+      tail = '<div class="accuracy-group-head">Still working at Webull <span class="accuracy-group-n">' + extra.length + '</span></div>' +
+        '<p class="eng-open-link">The record has closed these, or no open list carries them, but the paper account still holds or is still selling them.</p>' +
+        VIEWS.tableHtml(xcols, extra, { key: 'open-picks-webull-only', empty: '' });
+    }
+    return '<div class="accuracy-group op-engines" id="open-picks-engines">' + head + note + body + tail + '</div>';
   }
 
   // shares: a split of share trades (% of the share price; true, or 'core' for
@@ -649,14 +752,14 @@ export function renderEnginesJs() {
   }
   // The Owner's stock order range at Webull (Owner Settings, 2026-11-19): why
   // a stock order's share count differs from the engine record's.
-  function engUsd(v){ return '$' + Math.round(Number(v) || 0).toLocaleString('en-US'); }
+  function engRangeUsd(v){ return '$' + Math.round(Number(v) || 0).toLocaleString('en-US'); }
   function engStockRangeHtml(t){
     var r = t && t.stockRange;
     if (!r || t.instrument !== 'stock') return '';
     var rec = t.recordQty != null ? ' (record ' + t.recordQty + ')' : '';
-    var txt = t.qtyBasis === 'shares-min' ? 'Raised to the ' + engUsd(r.minUsd) + ' minimum' + rec
-      : t.qtyBasis === 'shares-max' ? 'Cut to the ' + engUsd(r.maxUsd) + ' maximum' + rec
-      : t.qtyBasis === 'shares-over-max' ? 'One share costs more than the ' + engUsd(r.maxUsd) + ' maximum' : '';
+    var txt = t.qtyBasis === 'shares-min' ? 'Raised to the ' + engRangeUsd(r.minUsd) + ' minimum' + rec
+      : t.qtyBasis === 'shares-max' ? 'Cut to the ' + engRangeUsd(r.maxUsd) + ' maximum' + rec
+      : t.qtyBasis === 'shares-over-max' ? 'One share costs more than the ' + engRangeUsd(r.maxUsd) + ' maximum' : '';
     return txt ? '<div class="crd-dim" title="Owner Settings, Account limits: the smallest and largest engine stock order at Webull. The engine record keeps its own share count.">' + escapeHtml(txt) + '</div>' : '';
   }
   function engMirrorById(){
@@ -703,7 +806,7 @@ export function renderEnginesJs() {
     var rows = engMirrorRows(m, id), h = (m.health && m.health.engines) || null;
     var byOut = function(k){ return rows.filter(function(t){ return t.fillOutcome === k; }).length; };
     var z = m.sizing || null;
-    var rangeTxt = z && z.shares && Number(z.stockMaxUsd) > 0 ? '; each stock order ' + (Number(z.stockMinUsd) > 0 ? engUsd(z.stockMinUsd) + ' to ' : 'up to ') + engUsd(z.stockMaxUsd) + ' of stock (Account limits tab)' : '';
+    var rangeTxt = z && z.shares && Number(z.stockMaxUsd) > 0 ? '; each stock order ' + (Number(z.stockMinUsd) > 0 ? engRangeUsd(z.stockMinUsd) + ' to ' : 'up to ') + engRangeUsd(z.stockMaxUsd) + ' of stock (Account limits tab)' : '';
     var sizeLine = z ? '<p class="evb-note">Owner Settings: share orders ' + (z.shares ? 'on' : '<b>off</b> (share trades stay on the engine record only)') + rangeTxt + '; quantities above one ' + (z.quantities ? 'on' : '<b>off</b> (every option trade is sent as one contract)') + '.</p>' : '';
     var filled = rows.filter(function(t){ return t.fillPrice != null; }), done = rows.filter(function(t){ return t.paperPnlPct != null; });
     var gaps = filled.map(function(t){ return Number(t.entryDiffPct); }).filter(function(v){ return isFinite(v); });
@@ -885,6 +988,7 @@ export function renderEnginesJs() {
       engState.loading = false; engState.fetchedAt = Date.now();
       engState.error = err && err.status === 404 ? 'not written yet' : String((err && err.message) || err || 'failed');
       renderEngines();
+      var op = $('page-pane-open-picks'); if (op && !op.hidden && typeof renderOpenPicks === 'function') renderOpenPicks();
     });
   }
   function engUrl(){
