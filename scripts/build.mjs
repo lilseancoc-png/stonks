@@ -33324,11 +33324,17 @@ const AI_FUNDAMENTALS_MODEL = process.env.AI_FUNDAMENTALS_MODEL || "gemini-3.1-f
 const AI_TICKER_MODEL = process.env.AI_TICKER_MODEL || "gemini-3.1-flash-lite";
 const AI_COMBINED = process.env.AI_COMBINED !== "0";
 // Prompt caching for the judgment pass (2026-11-19, lib/ai-prompt-cache.mjs).
-// AI_TICKER_PRIME=0 stops the first call going alone before the rest;
-// AI_TICKER_EXPLICIT_CACHE=0 stops the explicit cache of the instruction
-// block. Either one alone still works; with both off the pass runs as before.
+// AI_TICKER_PRIME (default on; 0 = off) lets the first call go alone and
+// the rest wait for its answer, so they find Gemini's implicit cache. The
+// requests themselves are byte for byte what they were before.
+// AI_TICKER_EXPLICIT_CACHE (default OFF; 1 = on) also makes an explicit cache
+// of the instruction block. It is off by default because a cached request
+// carries the instructions as the system instruction instead of at the front
+// of the message, a small change in what the model sees; turn it on only if
+// the build log's "Ticker-judgment prompt cache" line shows the primed
+// implicit cache missing. Either one alone works; both off = the old pass.
 const AI_TICKER_PRIME = !/^(?:0|false|off)$/i.test(String(process.env.AI_TICKER_PRIME ?? "1").trim());
-const AI_TICKER_EXPLICIT_CACHE = !/^(?:0|false|off)$/i.test(String(process.env.AI_TICKER_EXPLICIT_CACHE ?? "1").trim());
+const AI_TICKER_EXPLICIT_CACHE = /^(?:1|true|on)$/i.test(String(process.env.AI_TICKER_EXPLICIT_CACHE ?? "0").trim());
 const AI_TICKER_CACHE_TTL_S = 900;
 // Set for the length of one attachTickerJudgments pass: { gate, explicit, tally }.
 let _judgmentPromptCache = null;
