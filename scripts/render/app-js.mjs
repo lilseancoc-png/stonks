@@ -31728,7 +31728,19 @@ ${renderExportBindings()}
     if (cat === 'merger') return 'M&A';
     if (cat === 'investor') return 'Investor day';
     if (cat === 'guidance') return 'Guidance';
+    if (cat === 'owner') return 'Your flag';
     return 'Event';
+  }
+  // The Owner's catalyst log (owner-controls-client.mjs, live read) as
+  // calendar rows, Owner only. A display layer: the bake's calendar.json and
+  // the public calendar are unchanged.
+  function calWithOwnerCatalysts(data){
+    var d = typeof OC !== 'undefined' && OC ? OC.data : null;
+    if (!HAS_OWNER_ACCESS || !d || d.enabled === false || !Array.isArray(d.catalysts)) return data;
+    var mine = d.catalysts.filter(function(k){ return k && k.active && /^\\d{4}-\\d{2}-\\d{2}$/.test(String(k.date || '')); }).map(function(k){
+      return { type: 'catalyst', date: k.date, symbol: k.sym || null, title: k.text || 'Your catalyst', category: 'owner', confidence: 'high', source: 'Your catalyst log', ownerCatalyst: true };
+    });
+    return mine.length ? Object.assign({}, data, { events: (data.events || []).concat(mine) }) : data;
   }
   function calendarTypeMatches(eventType, filter){
     if (filter === 'all') return true;
@@ -33059,7 +33071,7 @@ ${renderExportBindings()}
       if (empty) empty.hidden = true;
       return;
     }
-    var data = calendarState.data || { events: [] };
+    var data = calWithOwnerCatalysts(calendarState.data || { events: [] });
     var todayMs = calEtTodayMs();
     var todayYmd = calEtTodayYmd();
     var todayYm = todayYmd.slice(0, 7);
@@ -48742,6 +48754,15 @@ ${renderExportBindings()}
     else if (health && health.state === 'late') runSub += ' · last run published late (' + escapeHtml(health.lastText) + ')';
     else if (health && health.state === 'ok') runSub += ' · last ran ' + escapeHtml(health.lastText);
     tiles.push(homeDeskTile('picks', 'Next Top Picks run', run ? escapeHtml(run.time + ' ET') : '—', runSub));
+    // Owner controls in force (live, owner-controls-client.mjs): a stop or any
+    // saved control gets its own tile, so it is never missed from Home.
+    var ocd = typeof OC !== 'undefined' && OC ? OC.data : null;
+    if (ocd && ocd.enabled !== false && (ocd.stop || ocd.any)){
+      var ocBits = typeof ocSummary === 'function' ? ocSummary(ocd).map(function(b){ return String(b).replace(/<[^>]*>/g, ''); }) : [];
+      tiles.push(homeDeskTile('engines', 'Owner controls', ocd.stop ? 'New trades stopped' : 'In force',
+        ocd.stop ? escapeHtml('since ' + ocWhen(ocd.stop.at) + ' · exits keep running' + (ocBits.length ? ' · ' + ocBits.join(' · ') : ''))
+          : escapeHtml(ocBits.join(' · ') || 'see the controls'), ocd.stop ? 'sig-neg' : ''));
+    }
     if (open){
       var flags = [];
       open.forEach(function(o){
@@ -48766,6 +48787,17 @@ ${renderExportBindings()}
       }
       tiles.push(homeDeskTile('owner-market-brief', 'Owner brief', nCh ? nCh + (nCh === 1 ? ' change' : ' changes') : 'No changes',
         escapeHtml((b.headline ? b.headline : 'latest read') + since)));
+    }
+    // How the Webull paper account filled the record's recent trades, from
+    // the Owner brief's desk block (lib/owner-desk-state.mjs, read by the bake).
+    var wb = b && b.desk && b.desk.webull;
+    if (wb && (wb.picks || wb.engines)){
+      var wbSide = function(x){ return x ? { done: (x.filled || 0), all: (x.filled || 0) + (x.partial || 0) + (x.missed || 0) + (x.pending || 0), miss: (x.missed || 0) + (x.partial || 0) } : { done: 0, all: 0, miss: 0 }; };
+      var wp = wbSide(wb.picks), we = wbSide(wb.engines);
+      var wAll = wp.all + we.all, wDone = wp.done + we.done, wMiss = wp.miss + we.miss;
+      if (wAll) tiles.push(homeDeskTile('track', 'Filled at Webull', wDone + ' of ' + wAll,
+        escapeHtml('last ' + (wb.days || 7) + ' days · Top Picks ' + wp.done + '/' + wp.all + ' · engines ' + we.done + '/' + we.all + (wMiss ? ' · ' + wMiss + ' missed or partial' : '')),
+        wMiss ? 'sig-neg' : 'sig-pos').replace('data-go="track"', 'data-go="track" data-acc-pref="webull"'));
     }
     // Friday after the close and over the weekend: the week's recap.
     if (WEEK_RECAP.recapReady()) tiles.push(homeDeskTile('track', 'Week recap', 'Ready', 'opens, closes, the biggest miss and the busiest rule').replace('data-go="track"', 'data-go="track" data-acc-pref="recap"'));
