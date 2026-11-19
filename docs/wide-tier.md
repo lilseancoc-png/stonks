@@ -47,7 +47,7 @@ outside 480–520 (S&P) or 95–110 (Nasdaq-100). In January, before that year's
 Nasdaq file exists, the prior year's file is used. The committed copy
 `lib/wide-tier-members.json` (518 names, read 2026-11-19) seeds a fresh store;
 refresh it by hand with `node scripts/wide-tier-members.mjs`. Second share
-classes (GOOG, FOX, NWS) are dropped so a company is not counted twice. The four
+classes (GOOG, FOX, NWS) are dropped so a company is not counted twice. The five
 names moved out of `TICKERS` (below) stay on the wide map even when no index
 lists them (`WIDE_EXTRAS`). Names the S&P file gives no sector get one Yahoo
 profile read (up to 40 per bake), mapped to GICS.
@@ -125,16 +125,19 @@ when someone picks Wide, edge-cached like other public files.
 
 ## Moved out of TICKERS
 
-ASTS, DIS, CBRS and PYPL left `TICKERS` on 2026-11-19 (85 → 81; user
-decision; SMCI stays tracked while it is reviewed separately) and now live on
-the wide map. They keep their `SECTORS` labels so old
+SMCI, ASTS, DIS, CBRS and PYPL left `TICKERS` on 2026-11-19 (85 → 80; user
+decision) and now live on the wide map. They keep their `SECTORS` labels so old
 Track Record rows still group. What that does at the next runs:
 
 - open Top Picks and strategy-engine trades on them close as not-counted
   `left-coverage` (as for the 2026-10-18 cut); the Webull mirror follows engine
   closes;
-- leveraged-ETF log entries on ASTS close as retired
-  (`levEtfEntryInUniverse`); none of the four is in ROTATION_OFFENSE;
+- leveraged-ETF log entries on SMCI / ASTS close as retired
+  (`levEtfEntryInUniverse`), and the Leveraged ETFs desk stops listing their
+  funds; the registry rows stay, so the crowd fund-flow and rebalance reads
+  keep counting SMCX / SMCZ / ASTX;
+- SMCI leaves ROTATION_OFFENSE (the tape's offense basket, 12 names);
+- the RAM prices page's buyer lens links DELL and ANET only;
 - LEAPS paper does not run on this branch (`leapsPicksForBake` is empty);
 - their stock pages, grades, AI reads, option chains and flow scans stop.
 

@@ -22227,7 +22227,7 @@ ${renderExportBindings()}
     var breadthCount = cycleTone === 'down' ? retailDownN : retailUpN;
     var breadthCopy = cycleTone === 'down' ? 'stocked categories down ≤−1% 30d' : 'stocked categories up ≥1% 30d';
     var supplierLinks = rpEquityLinks(['MU','SNDK']);
-    var buyerLinks = rpEquityLinks(['DELL','SMCI','ANET']);
+    var buyerLinks = rpEquityLinks(['DELL','ANET']);
     var equityLens = cycleTone === 'down'
       ? '<div class="rp-equity-lens"><div><div class="rp-lens-copy"><b>Buyer relief — prove margin capture</b><small>Gross margin, demand and relative strength must convert cheaper memory into earnings.</small></div><div class="rp-lens-links">' + buyerLinks + '</div></div><div><div class="rp-lens-copy"><b>Supplier pressure — watch guide cuts</b><small>Pricing, inventory and guidance must confirm that spot weakness is reaching results.</small></div><div class="rp-lens-links">' + supplierLinks + '</div></div></div>'
       : '<div class="rp-equity-lens"><div><div class="rp-lens-copy"><b>Supplier upside — prove pricing power</b><small>Guidance, gross margin and relative strength must confirm that tighter spot becomes revenue.</small></div><div class="rp-lens-links">' + supplierLinks + '</div></div><div><div class="rp-lens-copy"><b>Buyer risk — prove pass-through</b><small>Demand, pricing and margins must absorb higher memory costs without estimate cuts.</small></div><div class="rp-lens-links">' + buyerLinks + '</div></div></div>';

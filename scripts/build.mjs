@@ -265,16 +265,15 @@ export const TICKERS = [
   "RKLB", "CRM", "FTNT", "INTU", "TEAM",
   "NKE", "PANW", "IBM", "QCOM",
   "HD", "PLTR", "DDOG",
-  "SBUX", "ANET", "TXN", "INTC", "SMCI", "NVO",
+  "SBUX", "ANET", "TXN", "INTC", "NVO",
   "CRWV", "MRVL", "AMAT", "MU", "BE", "SNDK",
   "WDC", "DRAM",
   // Space — launch
   "SPCX",
   // Added coverage — Arm IP, DC infra, retail
   "ARM", "VRT", "TGT",
-  // ASTS, DIS, CBRS and PYPL moved to the wide tier on 2026-11-19 (user
-  // decision, engine roadmap; SMCI stays tracked pending a separate
-  // review): no chain, grade or AI read; they stay on the
+  // SMCI, ASTS, DIS, CBRS and PYPL moved to the wide tier on 2026-11-19 (user
+  // decision, engine roadmap): no chain, grade or AI read; they stay on the
   // wide heat map (lib/wide-tier.mjs WIDE_EXTRAS) and keep their SECTORS
   // labels below for old Track Record rows. Open Top Picks and engine trades
   // on them close as not-counted "left-coverage" at the next run.
@@ -20794,7 +20793,8 @@ export function buildPutCallAxisInput(chains) {
 // rotation often LEADS the index level. Pure + exported; attached to
 // macroBackdrop.rotation in main() + regen-picks. Baked-only (needs the whole
 // universe, so the browser can't refresh it live — it carries the baked score).
-const ROTATION_OFFENSE = ["NVDA", "AMD", "AVGO", "MRVL", "SMCI", "ARM", "MU", "PLTR", "TSLA", "META", "SHOP", "CRWD", "DDOG"];
+// SMCI left the basket on 2026-11-19 when it moved to the wide tier (no chain).
+const ROTATION_OFFENSE = ["NVDA", "AMD", "AVGO", "MRVL", "ARM", "MU", "PLTR", "TSLA", "META", "SHOP", "CRWD", "DDOG"];
 const ROTATION_DEFENSE = ["WMT", "COST", "SBUX", "LLY", "UNH"];
 export function buildRotationAxisInput(chains) {
   const pnum = marketAnalysis.number;
