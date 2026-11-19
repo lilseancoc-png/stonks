@@ -8433,7 +8433,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
   // Rows of each macro split read in this order (easiest to hardest), not by trade count.
   var ENG_ENV_ORDER = { rates: ['cutting', 'on hold', 'hiking'], inflation: ['low', 'above target', 'high (4%+)'], conditions: ['loose', 'normal', 'tight'], curve: ['inverted', 'flat', 'steep'], vix: ['under 15', '15-20', '20-30', '30+'], recession: ['expansion', 'recession'] };
   var ENG_CELL = { 'up-calm': 'Trending up, calm', 'up-stressed': 'Trending up, stressed', 'down-calm': 'Trending down, calm', 'down-stressed': 'Trending down, stressed', 'chop-calm': 'Choppy, calm', 'chop-stressed': 'Choppy, stressed' };
-  var ENG_STATE = { trading: ['Trading', 'evb-s-pass'], shadow: ['On shadow', 'evb-s-collect'], muted: ['Muted', 'evb-s-fail'], retired: ['Retired', 'evb-s-collect'] };
+  var ENG_STATE = { trading: ['Trading', 'evb-s-pass'], shadow: ['On shadow', 'evb-s-collect'], muted: ['Muted', 'evb-s-fail'], retired: ['Retired', 'evb-s-collect'], off: ['Switched off', 'evb-s-fail'] };
   var ENG_MIRROR_STATE = { entering: 'Buying', open: 'Open', exiting: 'Selling', closed: 'Closed', missed: 'Missed', skipped: 'Not bought', settled: 'Settled' };
   // What Webull actually filled for a trade (fillOutcome in lib/webull-mirror.mjs, 2026-11-19).
   var ENG_FILL = { filled: ['Filled', 'evb-s-pass'], partial: ['Partly filled', 'evb-s-collect'], missed: ['Missed', 'evb-s-fail'], pending: ['Buying', 'evb-s-unclear'], shared: ['Held by another', 'evb-s-unclear'], 'not-bought': ['Not bought', 'evb-s-unclear'] };
@@ -8451,7 +8451,19 @@ function recoveryEvidence(row, data, now = Date.now()) {
   function engStrike(v){ var n = Number(v); if (v == null || !isFinite(n)) return '$?'; if (Math.round(n) === n) return '$' + n; var s = n.toFixed(2); while (s.charAt(s.length - 1) === '0') s = s.slice(0, -1); return '$' + s; }
   function engExp(sec){ var n = Number(sec); if (!(n > 0)) return '?'; var d = new Date(n * 1000); return ENG_MONTHS[d.getUTCMonth()] + ' ' + d.getUTCDate() + ', ' + d.getUTCFullYear(); }
   function engIsShares(t){ return !!(t && t.contract && t.contract.structure === 'shares'); }
-  function engContract(t){ var c = (t && t.contract) || {}; if (c.structure === 'shares') return (c.shares || '?') + ' shares at ' + engMoney(c.mid); return (c.qty > 1 ? '<span title="Contracts bought: about the option size in premium">' + c.qty + ' ×</span> ' : '') + engStrike(c.strike) + ' ' + escapeHtml(String(c.optionType || (t && t.side) || '')) + ' · ' + engExp(c.expiry); }
+  function engContract(t){ var c = (t && t.contract) || {}; if (c.structure === 'shares') return (c.shares || '?') + ' shares at ' + engMoney(c.mid) + engSizeHtml(t); return (c.qty > 1 ? '<span title="Contracts bought">' + c.qty + ' ×</span> ' : '') + engStrike(c.strike) + ' ' + escapeHtml(String(c.optionType || (t && t.side) || '')) + ' · ' + engExp(c.expiry) + engSizeHtml(t); }
+  // How a trade was sized and filled (2026-11-19): the size taken, the flat
+  // risk size beside it, each part of the conviction multiplier, and the ask
+  // and bid the record booked. Opens on a tap (phones have no hover).
+  function engSizeHtml(t){
+    var s = t && t.size, f = t && t.fill, c = (t && t.contract) || {};
+    if (!s && !(f && f.basis === 'ask-bid')) return '';
+    var sh = engIsShares(t), n = sh ? c.shares : (c.qty || 1), flat = sh ? c.flatShares : c.flatQty;
+    var head = (sh ? (n || '?') + ' shares' : n + (n === 1 ? ' contract' : ' contracts')) + (flat != null && flat !== n ? ', flat ' + flat : '') + (s && s.mult != null && s.mult !== 1 ? ', ' + slpNum(s.mult, 2) + 'x' : '');
+    var parts = ((s && s.parts) || []).map(function(p){ return '<li><b>' + slpNum(p.x, 2) + 'x</b> ' + escapeHtml(p.why || p.key || '') + '</li>'; }).join('');
+    var fill = f && f.basis === 'ask-bid' ? '<div>Booked at the ask ' + engMoney(f.entry) + ' (mid ' + engMoney(c.mid) + ')' + (f.exit != null ? ', out at the ' + (f.exitBasis === 'est' ? 'estimated bid ' : 'bid ') + engMoney(f.exit) : t.lastBid != null ? ', bid now ' + engMoney(t.lastBid) + (f.exitBasis === 'est' ? ' (estimated: no two-sided quote)' : '') : '') + '. Stops and targets fire on the mid.</div>' : '';
+    return '<details class="eng-size"><summary>' + escapeHtml(s ? 'Size: ' + head : 'Fill: ask in, bid out') + '</summary>' + (s && s.why ? '<div>' + escapeHtml(engCap(s.why)) + '.</div>' : '') + (parts ? '<ul>' + parts + '</ul>' : '') + fill + '</details>';
+  }
   function engDay(iso){ return evbDate(String(iso || '').slice(0, 10)); }
   // Chart axis day: "Aug 10" (with the year when the points span more than one).
   function engAxisDay(iso, withYear){ var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || '')); if (!m) return String(iso || ''); return ENG_MONTHS[+m[2] - 1] + ' ' + (+m[3]) + (withYear ? " '" + m[1].slice(2) : ''); }
@@ -8460,7 +8472,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
   function engCap(s){ s = String(s == null ? '' : s); return s ? s.charAt(0).toUpperCase() + s.slice(1) : '—'; }
   function engSide(s){ return s === 'put' ? '<span class="eng-side eng-put">Put</span>' : '<span class="eng-side eng-call">Call</span>'; }
   // A trade's badge: Shares for a share trade (2026-11-17), else Call / Put.
-  function engSideT(t){ return (engIsShares(t) ? '<span class="eng-side eng-shr" title="Bought as stock, not an option">Shares</span>' : engSide(t && t.side)) + (t && t.trial ? ENG_TRIAL_BADGE : ''); }
+  function engSideT(t){ return (engIsShares(t) ? '<span class="eng-side eng-shr" title="Bought as stock, not an option">Shares</span>' : engSide(t && t.side)) + (t && t.test ? ' <span class="eng-side eng-test" title="A labeled test: kept apart from the setups the engine trades">Test</span>' : '') + (t && t.trial ? ENG_TRIAL_BADGE : '') + (t && t.twinOf ? '<div class="crd-dim">shares twin of ' + escapeHtml(t.twinOf) + '</div>' : ''); }
   // Paper trials (2026-11-19): unproven setups, scored apart from the engine.
   var ENG_TRIAL_BADGE = ' <span class="eng-side eng-trial" title="An unproven setup on paper, scored apart from the engine">Paper trial</span>';
   // Exit plan of one open trade: premium exits for an option, stock levels for shares.
@@ -8474,8 +8486,11 @@ function recoveryEvidence(row, data, now = Date.now()) {
   // one contract before that or with the size fix switched off.
   function engOptUsd(){ var d = engState.data; return d && d.book && d.book.optionUsd ? Number(d.book.optionUsd) : null; }
   function engUsdWord(v){ return '$' + Number(v).toLocaleString('en-US'); }
-  function engSizeTip(){ var u = engOptUsd(); return u ? 'Dollars made or lost at each trade’s size: about ' + engUsdWord(u) + ' of premium per option trade (one contract each for trades opened before 17 November 2026)' : 'Dollars made or lost buying one contract per option trade'; }
-  function engSizeWords(){ var u = engOptUsd(); return u ? 'about ' + engUsdWord(u) + ' of premium each (the number of contracts nearest that, at least one)' : 'one contract each'; }
+  function engRisk(){ var d = engState.data, z = d && d.sizing; return z && z.mode === 'risk' && z.budget ? z : null; }
+  function engSizeTip(){ var z = engRisk(), u = engOptUsd(); if (z) return 'Dollars made or lost at each trade’s size: since 19 November 2026 each trade risks about ' + engUsdWord(z.budget) + (z.conviction ? ' times its conviction multiplier' : '') + ' (1 to ' + z.maxQty + ' contracts); about $2,000 of premium a trade from 17 November, one contract before'; return u ? 'Dollars made or lost at each trade’s size: about ' + engUsdWord(u) + ' of premium per option trade (one contract each for trades opened before 17 November 2026)' : 'Dollars made or lost buying one contract per option trade'; }
+  function engSizeWords(){ var z = engRisk(), u = engOptUsd(); if (z) return 'sized to risk about ' + engUsdWord(z.budget) + ' a trade, 1 to ' + z.maxQty + ' contracts' + (z.conviction ? ', times a conviction multiplier of ' + slpNum(z.convMin, 1) + 'x to ' + slpNum(z.convMax, 0) + 'x' : ''); return u ? 'about ' + engUsdWord(u) + ' of premium each (the number of contracts nearest that, at least one)' : 'one contract each'; }
+  // Dollars on share trades: kind 'core' = a core engine's holdings (their own lots).
+  function engShareTip(kind){ if (kind === 'core') return 'Dollars made or lost on each holding at its lot size'; var z = engRisk(); return z ? 'Dollars made or lost at each share trade’s size: since 19 November 2026 each risks about ' + engUsdWord(z.budget) + ' (entry minus stop per share)' + (z.conviction ? ' times its conviction multiplier' : '') + ', at most ' + engUsdWord(z.sharesMaxUsd || 25000) + ' of stock; a $5,000 lot before' : 'Dollars made or lost on a $5,000 lot per trade'; }
   function engExitsText(x){ x = x || {}; return (x.tp == null ? 'no take-profit' : '+' + x.tp + '% take-profit') + ', ' + (x.stop == null ? 'no premium stop' : x.stop + '% stop') + (x.maxSessions != null ? ', ' + x.maxSessions + ' sessions at most' : ''); }
 
   // Same-contract label for one engine trade row.
@@ -8511,21 +8526,22 @@ function recoveryEvidence(row, data, now = Date.now()) {
     return '<p class="eng-open-link">This page lists Top Picks trades only. <button type="button" class="eng-link" data-wf-go="engines">Strategy engines: ' + n + ' open paper trade' + (n === 1 ? '' : 's') + '</button></p>';
   }
 
-  // shares: a split of share trades (% of the share price, a $5,000 lot each).
+  // shares: a split of share trades (% of the share price; true, or 'core' for
+  // a core engine's holdings, picks the Dollars wording).
   function engSplitTable(rows, first, nameFn, shares){
     if (!rows || !rows.length) return '<p class="hint">No closed trades in this split yet.</p>';
-    return slpTable([[first], ['Trades', 1], ['Win rate', 1], shares ? ['Average', 1, 'Average result per trade, % of the share price after costs'] : ['Average', 1, 'Average result per trade, % of the entry premium'], ['Median', 1], shares ? ['Dollars', 1, 'Dollars made or lost on a $5,000 lot per trade'] : ['Dollars', 1, engSizeTip()], ['Profit factor', 1, 'Gains divided by losses; above 1 means the wins outweigh the losses']], rows.map(function(r){
+    return slpTable([[first], ['Trades', 1], ['Win rate', 1], shares ? ['Average', 1, 'Average result per trade, % of the share price after costs'] : ['Average', 1, 'Average result per trade, % of the entry premium'], ['Median', 1], shares ? ['Dollars', 1, engShareTip(shares)] : ['Dollars', 1, engSizeTip()], ['Profit factor', 1, 'Gains divided by losses; above 1 means the wins outweigh the losses']], rows.map(function(r){
       return '<tr><td>' + escapeHtml(nameFn ? nameFn(r) : String(r.label || r.key)) + (r.from && r.to ? '<div class="crd-dim">' + escapeHtml(engDay(r.from)) + ' to ' + escapeHtml(engDay(r.to)) + '</div>' : '') + '</td><td class="num">' + (r.n || 0) + '</td><td class="num">' + engRate(r.winRate) + '</td><td class="num">' + engPnl(r.avg) + '</td><td class="num">' + engPnl(r.median) + '</td><td class="num ' + slpSign(r.usd) + '">' + engUsd(r.usd) + '</td><td class="num">' + slpNum(r.profitFactor, 2) + '</td></tr>';
     }).join(''));
   }
-  function engEnvTables(byEnv){
+  function engEnvTables(byEnv, shares){
     if (!byEnv) return '';
     return ENG_ENV.map(function(k){
       var rows = byEnv[k[0]];
       if (!rows || !rows.length) return '';
       var order = ENG_ENV_ORDER[k[0]] || [];
       rows = rows.slice().sort(function(a, b){ var ia = order.indexOf(a.key), ib = order.indexOf(b.key); return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib); });
-      return '<h4 class="slp-h4">' + k[1] + '</h4>' + engSplitTable(rows, k[1], function(r){ return engCap(r.key); });
+      return '<h4 class="slp-h4">' + k[1] + '</h4>' + engSplitTable(rows, k[1], function(r){ return engCap(r.key); }, shares);
     }).join('');
   }
   function engCurveHtml(curve, aria){
@@ -8582,7 +8598,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
     return slpKpis(list.concat(extra || []));
   }
   // Share trades, scored apart from options (2026-11-17): % of the share price.
-  function engShareKpis(s, extra){
+  function engShareKpis(s, extra, kind){
     s = s || {};
     return slpKpis([
       ['Closed share trades', String(s.n || 0), (s.wins || 0) + ' wins, ' + (s.losses || 0) + ' losses' + (s.flat ? ', ' + s.flat + ' flat' : '')],
@@ -8590,10 +8606,11 @@ function recoveryEvidence(row, data, now = Date.now()) {
       ['Average trade', engPnl(s.avg, 2), 'Average result per share trade, % of the share price, after 0.1% costs'],
       ['Avg win / loss', (s.avgWin == null ? '—' : '+' + slpNum(s.avgWin, 1) + '%') + ' / ' + (s.avgLoss == null ? '—' : slpNum(s.avgLoss, 1) + '%')],
       ['Profit factor', slpNum(s.profitFactor, 2)],
-      ['Dollars', '<span class="' + slpSign(s.usd) + '">' + engUsd(s.usd) + '</span>', 'Dollars made or lost on closed share trades, about $5,000 of stock each'],
+      ['Dollars', '<span class="' + slpSign(s.usd) + '">' + engUsd(s.usd) + '</span>', kind === 'core' ? 'Dollars made or lost on closed holdings at their lot sizes' : engShareTip()],
     ].concat(extra || []));
   }
-  function engSharesSetups(e){ return (e.setups || []).filter(function(s){ return s.calls === 'shares' && !s.retired; }).map(function(s){ return s.label; }); }
+  function engSharesSetups(e){ return (e.setups || []).filter(function(s){ return (s.calls === 'shares' || s.instrument === 'both') && !s.retired; }).map(function(s){ return s.label; }); }
+  function engInstBadge(s){ return s.retired ? '' : s.instrument === 'both' ? ' <span class="eng-side eng-shr" title="An option trade plus a shares twin, scored apart">Option + shares</span>' : s.calls === 'shares' ? ' <span class="eng-side eng-shr">Shares</span>' : ''; }
 
   // ---- One engine -----------------------------------------------------------
   function engRulesHtml(e, d){
@@ -8604,7 +8621,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
       '<li><b>What it buys.</b> One single call or put, about ' + slpNum(c.delta, 2) + ' delta, ' + c.dteMin + ' to ' + c.dteMax + ' days to expiry (ideal ' + c.dteIdeal + '). Never a spread.' + (e.setups || []).filter(function(s){ return s.contract && !s.retired; }).map(function(s){ return ' ' + escapeHtml(s.label) + ' buys its own: about ' + slpNum(s.contract.delta, 2) + ' delta, ' + s.contract.dteMin + ' to ' + s.contract.dteMax + ' days (ideal ' + s.contract.dteIdeal + ').'; }).join('') + '</li>' +
       (shr.length && sb ? '<li><b>Shares.</b> ' + escapeHtml(shr.length > 1 ? shr.slice(0, -1).join(', ') + ' and ' + shr[shr.length - 1] : shr[0]) + (shr.length > 1 ? ' buy' : ' buys') + ' stock instead of a call on the up side: $' + Number(sb.usd).toLocaleString('en-US') + ' of shares, out at ' + (e.sharesStopAtr != null && e.sharesOwnStop === false ? e.sharesStopAtr + ' ATR under the entry' : 'the setup’s own stock stop or ' + (e.sharesStopAtr != null ? e.sharesStopAtr : sb.stopAtr) + ' ATR under the entry') + ', its own target or ' + sb.targetAtr + ' ATR over it, or after ' + sb.maxSessions + ' sessions. These setups moved the stock too little for an option to pay in the long history test. A put is always an option: the engines never short stock. Share trades are scored apart from options and, since 19 November 2026, are also bought as stock in the Webull paper account (Owner Settings can switch share orders off).</li>' : '') +
       '<li><b>Exits.</b> ' + engExitsText(x) + (x.trailArm != null ? ', and a trailing stop once the trade is up ' + x.trailArm + '%' : '') + '. Some setups carry their own exits (see Setups and learning). Every trade closes two sessions before its contract expires.</li>' +
-      '<li><b>Size.</b> Up to ' + e.slots + ' open trades' + (e.sideSlots ? ' (' + e.sideSlots.call + ' calls and ' + e.sideSlots.put + ' puts at most)' : '') + ' and ' + e.perRun + ' new per run, ' + engSizeWords() + '.</li>' +
+      '<li><b>Size.</b> Up to ' + e.slots + ' open trades' + (e.sideSlots ? ' (' + e.sideSlots.call + ' calls and ' + e.sideSlots.put + ' puts at most)' : '') + ' and ' + e.perRun + ' new per run, ' + engSizeWords() + '.' + (engRisk() ? ' An option expiring within ' + engRisk().wholeDte + ' days risks its whole premium; a longer one its premium times the stop times ' + engRisk().stopPad + '. Shares risk entry minus stop per share, at most ' + engUsdWord(engRisk().sharesMaxUsd) + ' of stock. A contract dearer than ' + engRisk().skipX + ' times the budget is not bought (a call signal buys shares instead). Each trade’s Size line shows how it was sized.' : '') + (d && d.fillBasis ? ' New option trades book the ask going in and the bid coming out; stops and targets fire on the mid.' : '') + '</li>' +
       (e.standing && e.rank
         ? '<li><b>Entry.</b> By rank, not by a score bar: a new call comes only from the ' + e.rank.enter + ' best-ranked stocks and a new put only from the ' + e.rank.enter + ' worst, best first. Nothing opens inside six sessions of the stock’s report, on a call far under its 200-day or a put far above it, or when today’s price already ran.</li>' +
           '<li><b>Swaps.</b> A holding is closed when the stock leaves the top third (calls) or the bottom third (puts) of the rank. A stock is ranked again when the month changes and after each of its reports; in between its place is fixed. A stock closed by its stop, take-profit or time limit is not bought again until it is ranked again.</li>'
@@ -8626,8 +8643,8 @@ function recoveryEvidence(row, data, now = Date.now()) {
       { label: 'Trade', cell: function(t){ return '<b>' + escapeHtml(t.symbol) + '</b> ' + engSideT(t) + '<div class="crd-dim eng-id">' + escapeHtml(t.tradeId || '') + '</div>' + engSharedHtml(t); }, sort: function(t){ return t.symbol; } },
       { label: 'Setup', cell: function(t){ return escapeHtml(engSetup(e, t.setup)) + '<div class="crd-dim">' + (e.core ? 'monthly target' : 'score ' + slpNum(t.score, 0)) + (t.alloc && t.alloc.status !== 'new' ? ' · Allocator ' + (t.alloc.w === 0 ? 'would hold back' : slpNum(t.alloc.w, 2) + 'x') : '') + '</div>'; }, sort: function(t){ return t.setup; } },
       { label: 'Contract', cell: function(t){ return engContract(t) + '<div class="crd-dim">opened ' + escapeHtml(rglEt(t.entryDate)) + '</div>'; }, sort: function(t){ return Date.parse(t.entryDate) || 0; } },
-      { label: 'In / now', num: true, cell: function(t){ return engMoney(t.contract && t.contract.mid) + ' → ' + engMoney(t.lastMid); }, sort: function(t){ return t.lastMid; } },
-      { label: 'Result', num: true, cell: function(t){ return engPnl(t.optionPnlPct) + '<div class="crd-dim">best ' + slpPts(t.hiPct, 0) + '%, worst ' + slpPts(t.loPct, 0) + '%</div>'; }, sort: function(t){ return t.optionPnlPct; } },
+      { label: 'In / now', num: true, cell: function(t){ return engMoney(t.contract && t.contract.mid) + ' → ' + engMoney(t.lastMid) + (t.fill && t.fill.basis === 'ask-bid' ? '<div class="crd-dim">booked: ask ' + engMoney(t.fill.entry) + (t.lastBid != null ? ' → bid ' + engMoney(t.lastBid) : '') + '</div>' : ''); }, sort: function(t){ return t.lastMid; } },
+      { label: 'Result', num: true, cell: function(t){ return engPnl(t.optionPnlPct) + (t.markPnlPct != null && t.fill ? '<div class="crd-dim">at the mid ' + slpPts(t.markPnlPct, 1) + '%</div>' : '') + '<div class="crd-dim">best ' + slpPts(t.hiPct, 0) + '%, worst ' + slpPts(t.loPct, 0) + '%</div>'; }, sort: function(t){ return t.optionPnlPct; } },
       { label: 'At Webull', title: ENG_AT_WEBULL_TIP, cell: engAtWebullHtml, sort: engAtWebullSort },
       { label: 'Sessions', num: true, cell: function(t){ return String(t.sessions || 0) + (t.exits && t.exits.maxSessions ? '<span class="crd-dim"> of ' + t.exits.maxSessions + '</span>' : ''); }, sort: function(t){ return t.sessions || 0; } },
       { label: 'Exit plan', cell: function(t){ return engExitPlan(t); }, nosort: true },
@@ -8691,7 +8708,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
       { label: 'Closed', cell: function(t){ return escapeHtml(engDay(t.exitDate)); }, sort: function(t){ return Date.parse(t.exitDate) || 0; } },
       { label: 'Trade', cell: function(t){ return '<b>' + escapeHtml(t.symbol) + '</b> ' + engSideT(t) + '<div class="crd-dim eng-id">' + escapeHtml(t.tradeId || '') + '</div>' + engSharedHtml(t); }, sort: function(t){ return t.symbol; } },
       { label: 'Setup', cell: function(t){ return escapeHtml(engSetup(e, t.setup)) + '<div class="crd-dim">score ' + slpNum(t.score, 0) + ' · rules ' + escapeHtml(t.rulesVersion || '—') + '</div>'; }, sort: function(t){ return t.setup; } },
-      { label: 'Contract', cell: function(t){ return engContract(t) + '<div class="crd-dim">' + engMoney(t.contract && t.contract.mid) + ' → ' + engMoney(t.exitMid) + '</div>'; }, sort: function(t){ return t.contract && t.contract.expiry; } },
+      { label: 'Contract', cell: function(t){ return engContract(t) + '<div class="crd-dim">' + (t.fill && t.fill.basis === 'ask-bid' && t.fill.exit != null ? 'ask ' + engMoney(t.fill.entry) + ' → bid ' + engMoney(t.fill.exit) : engMoney(t.contract && t.contract.mid) + ' → ' + engMoney(t.exitMid)) + '</div>'; }, sort: function(t){ return t.contract && t.contract.expiry; } },
       { label: 'Result', num: true, cell: function(t){ return (t.outcome === 'void' ? '<span class="crd-dim">not counted</span>' : engPnl(t.optionPnlPct)) + '<div class="crd-dim">' + (t.sessions || 0) + (t.sessions === 1 ? ' session' : ' sessions') + '</div>'; }, sort: function(t){ return t.optionPnlPct; } },
       { label: 'At Webull', title: ENG_AT_WEBULL_TIP, cell: engAtWebullHtml, sort: engAtWebullSort },
       { label: 'Why it closed', cell: function(t){ return escapeHtml(engCap(t.statusLabel || t.status)); }, sort: function(t){ return t.status; } },
@@ -8739,6 +8756,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
         engCurveHtml(e.trialStats.curve, e.name + ' paper trials, running total in dollars') +
         ((e.trialStats.bySetup || []).length ? engDetails('Paper trials by setup', engSplitTable(e.trialStats.bySetup, 'Setup', function(r){ return engSetup(e, r.key); }, true)) : '')) : '') +
       (e.vsHistory ? slpSection('eng-vs-hist', 'Live against the history test', engVsHistHtml(e, d)) : '') +
+      (e.sizing ? slpSection('eng-sizing', 'Conviction size against flat size', engSizingHtml(e.sizing, d)) : '') +
       slpSection('eng-closed', 'Closed trades', arch + more + engClosedTable(e, d)) +
       slpSection('eng-splits', 'Scorecard', '<p class="evb-note">The same record cut different ways. A split with a handful of trades says very little.</p>' +
         engDetails('By setup', engSplitTable(s.bySetup, 'Setup', function(r){ return engSetup(e, r.key); }), true) +
@@ -8750,13 +8768,24 @@ function recoveryEvidence(row, data, now = Date.now()) {
         engDetails('By rules version', engSplitTable(s.byVersion, 'Rules version')) +
         engDetails('By year', engSplitTable(s.byYear, 'Year')));
   }
+  // Conviction sizing against flat risk sizing (2026-11-19): the same closed
+  // trades, in dollars, at the size taken and at the flat size.
+  function engSizingHtml(z, d){
+    z = z || {};
+    var o = z.options || {}, sh = z.shares || {};
+    var lead = '<p class="evb-note">Since 19 November 2026 each trade records two sizes: the flat risk size (about the risk budget at the stop) and the size taken after the conviction multiplier. Both lines below are the same closed trades, so the gap is what conviction sizing added or cost. ' + (z.open ? z.open + ' open trades carry both sizes. ' : '') + 'Results in % do not change with size.</p>';
+    if (!(o.n || sh.n)) return lead + '<p class="hint">No closed trade with both sizes yet.</p>';
+    var row = function(label, x){ return x && x.n ? '<tr><td>' + label + '</td><td class="num">' + x.n + '</td><td class="num ' + slpSign(x.usd) + '">' + engUsd(x.usd) + '</td><td class="num ' + slpSign(x.flatUsd) + '">' + engUsd(x.flatUsd) + '</td><td class="num ' + slpSign(x.usd - x.flatUsd) + '">' + engUsd(x.usd - x.flatUsd) + '</td><td class="num">' + (x.bigger || 0) + ' / ' + (x.smaller || 0) + '</td></tr>' : ''; };
+    return lead + slpTable([['Trades'], ['Closed', 1], ['At the size taken', 1], ['At the flat size', 1], ['Difference', 1], ['Sized up / down', 1, 'Trades the multiplier sized above and below the flat size']], row('Options', o) + row('Shares', sh));
+  }
   function engLearnHtml(e, d){
     var setups = slpTable([['Setup'], ['How it triggers', 'l'], ['State'], ['Real trades', 1], ['Real average', 1], ['Shadow trades', 1], ['Shadow average', 1]], (e.setups || []).map(function(s){
       var st = ENG_STATE[s.state] || ENG_STATE.trading;
       var x = (s.exitsAll ? '<div class="crd-dim">Own exits: ' + escapeHtml(engExitsText(s.exitsAll)) + '</div>' : '') + (s.contract ? '<div class="crd-dim">Own contract: about ' + slpNum(s.contract.delta, 2) + ' delta, ' + s.contract.dteMin + ' to ' + s.contract.dteMax + ' days (ideal ' + s.contract.dteIdeal + ')</div>' : '');
       // Share results (% of the price) sit under the option ones, never mixed.
       var sub = function(b){ return b && b.n ? '<div class="crd-dim">shares: ' + b.n + '</div>' : ''; }, subAvg = function(b){ return b && b.n ? '<div class="crd-dim">shares: ' + engPnl(b.avg, 2) + '</div>' : ''; };
-      return '<tr><td><b>' + escapeHtml(s.label) + '</b>' + (s.calls === 'shares' && !s.retired ? ' <span class="eng-side eng-shr">Shares</span>' : '') + (s.trial && !s.retired ? ENG_TRIAL_BADGE : '') + (s.startsOnShadow ? '<div class="crd-dim">Started on shadow</div>' : '') + '</td><td class="l">' + escapeHtml(s.how || '') + x + '</td><td>' + engPill(st[0], st[1]) + (s.since ? '<div class="crd-dim">since ' + escapeHtml(engDay(s.since)) + '</div>' : '') + '</td><td class="num">' + ((s.real && s.real.n) || 0) + sub(s.realShares) + '</td><td class="num">' + engPnl(s.real && s.real.avg) + subAvg(s.realShares) + '</td><td class="num">' + ((s.shadow && s.shadow.n) || 0) + sub(s.shadowShares) + '</td><td class="num">' + engPnl(s.shadow && s.shadow.avg) + subAvg(s.shadowShares) + '</td></tr>';
+      var notes = (s.test ? '<div class="crd-dim">A labeled test, own record line</div>' : '') + ((s.retiredSides || []).indexOf('put') >= 0 && !s.retired ? '<div class="crd-dim">Its put side is retired</div>' : '') + (s.crashStand ? '<div class="crd-dim">Stands aside after a 7%+ one-day drop in the prior five sessions</div>' : '');
+      return '<tr><td><b>' + escapeHtml(s.label) + '</b>' + engInstBadge(s) + (s.test ? ' <span class="eng-side eng-test">Test</span>' : '') + (s.trial && !s.retired ? ENG_TRIAL_BADGE : '') + (s.startsOnShadow ? '<div class="crd-dim">Started on shadow</div>' : '') + notes + '</td><td class="l">' + escapeHtml(s.how || '') + x + '</td><td>' + engPill(st[0], st[1]) + (s.since ? '<div class="crd-dim">since ' + escapeHtml(engDay(s.since)) + '</div>' : '') + '</td><td class="num">' + ((s.real && s.real.n) || 0) + sub(s.realShares) + '</td><td class="num">' + engPnl(s.real && s.real.avg) + subAvg(s.realShares) + '</td><td class="num">' + ((s.shadow && s.shadow.n) || 0) + sub(s.shadowShares) + '</td><td class="num">' + engPnl(s.shadow && s.shadow.avg) + subAvg(s.shadowShares) + '</td></tr>';
     }).join(''));
     var log = (e.learning && e.learning.log) || [];
     var logHtml = log.length ? slpTable([['Date'], ['Rules version'], ['What changed', 'l']], log.map(function(c){ return '<tr><td>' + escapeHtml(engDay(c.date)) + '</td><td>' + escapeHtml(c.v || '') + '</td><td class="l">' + escapeHtml(c.text || '') + '</td></tr>'; }).join('')) : '<p class="hint">No changes since the engine started.</p>';
@@ -8803,33 +8832,37 @@ function recoveryEvidence(row, data, now = Date.now()) {
     }
     var sel = H[engState.hist] ? engState.hist : (H.live ? 'live' : H.held ? 'held' : 'raw');
     var h = H[sel];
+    // Shares only in this version (no option trades): the share trades are the test.
+    var shrOnly = !(h.n > 0) && !!(h.shares && h.shares.n), hm = shrOnly ? h.shares : h;
     var pick = '<div class="eng-seg" role="group" aria-label="History test version">' + ENG_HIST.filter(function(o){ return H[o[0]]; }).map(function(o){ return '<button type="button" class="eng-seg-btn' + (o[0] === sel ? ' is-on' : '') + '" data-eng-hist="' + o[0] + '" title="' + escapeHtml(o[2]) + '">' + escapeHtml(o[1]) + '</button>'; }).join('') + '</div>';
     var what = ENG_HIST.filter(function(o){ return o[0] === sel; })[0];
-    var cmp = slpTable([['Version'], ['Trades', 1], ['Win rate', 1], ['Average', 1], ['Dollars', 1, engSizeTip()], ['Largest drop', 1, 'Largest fall from a peak of the running total in dollars'], ['Random entries', 1, 'Average trade of books that bought the same kind of contract on random days'], ['Beat random', 1, 'Share of the random books this version did better than']], ENG_HIST.filter(function(o){ return H[o[0]]; }).map(function(o){ var x = H[o[0]], c = x.control; return '<tr><td>' + escapeHtml(o[1]) + '<div class="crd-dim">' + escapeHtml(o[3]) + '</div></td><td class="num">' + (x.n || 0) + '</td><td class="num">' + engRate(x.winRate) + '</td><td class="num">' + engPnl(x.avg) + '</td><td class="num ' + slpSign(x.usd) + '">' + engUsd(x.usd) + '</td><td class="num">' + (x.maxDrawdownUsd ? '−$' + Number(x.maxDrawdownUsd).toLocaleString('en-US') : '—') + '</td><td class="num">' + (c ? engPnl(c.avg) : '—') + '</td><td class="num">' + (c ? c.beat + '%' : '—') + '</td></tr>'; }).join('')) +
-      (H.live && H.held ? '<p class="evb-note">What learning changed in this history: trades ' + (H.held.n || 0) + ' to ' + (H.live.n || 0) + ', average trade ' + slpPts(H.held.avg, 1) + '% to ' + slpPts(H.live.avg, 1) + '%, largest drop $' + Number(H.held.maxDrawdownUsd || 0).toLocaleString('en-US') + ' to $' + Number(H.live.maxDrawdownUsd || 0).toLocaleString('en-US') + '. The learning rules can only hold the engine back, so read them as risk control, not as an edge.</p>' : '');
+    var cmp = slpTable([['Version'], ['Trades', 1], ['Win rate', 1], ['Average', 1], ['Dollars', 1, engSizeTip()], ['Largest drop', 1, 'Largest fall from a peak of the running total in dollars'], ['Random entries', 1, 'Average trade of books that bought the same kind of contract on random days'], ['Beat random', 1, 'Share of the random books this version did better than']], ENG_HIST.filter(function(o){ return H[o[0]]; }).map(function(o){ var x = H[o[0]], so = !(x.n > 0) && x.shares && x.shares.n; if (so) x = x.shares; var c = x.control; return '<tr><td>' + escapeHtml(o[1]) + '<div class="crd-dim">' + escapeHtml(o[3]) + (so ? ' · share trades' : '') + '</div></td><td class="num">' + (x.n || 0) + '</td><td class="num">' + engRate(x.winRate) + '</td><td class="num">' + engPnl(x.avg) + '</td><td class="num ' + slpSign(x.usd) + '">' + engUsd(x.usd) + '</td><td class="num">' + (x.maxDrawdownUsd ? '−$' + Number(x.maxDrawdownUsd).toLocaleString('en-US') : '—') + '</td><td class="num">' + (c ? engPnl(c.avg) : '—') + '</td><td class="num">' + (c ? c.beat + '%' : '—') + '</td></tr>'; }).join('')) +
+      (H.live && H.held ? (function(){ var so = !(H.held.n > 0) && !(H.live.n > 0) && H.held.shares && H.live.shares, a = so ? H.held.shares : H.held, b = so ? H.live.shares : H.live; return '<p class="evb-note">What learning changed in this history' + (so ? ' (share trades)' : '') + ': trades ' + (a.n || 0) + ' to ' + (b.n || 0) + ', average trade ' + slpPts(a.avg, 1) + '% to ' + slpPts(b.avg, 1) + '%, largest drop $' + Number(a.maxDrawdownUsd || 0).toLocaleString('en-US') + ' to $' + Number(b.maxDrawdownUsd || 0).toLocaleString('en-US') + '. The learning rules can only hold the engine back, so read them as risk control, not as an edge.</p>'; })() : '');
     return '<p class="evb-lead">The engine’s rules replayed day by day over ' + (R && R.data ? escapeHtml(engDay(R.data.from)) + ' to ' + escapeHtml(engDay(R.data.to)) + ' (' + R.data.names + ' names)' : 'the long history') + ', with modeled option prices and 3.5% of premium taken as costs on every round trip. It answers how the idea behaved in different markets. It is not a forecast, and nothing here shows a reliable profit after costs.</p>' +
       slpSection('eng-hist-cmp', 'Three versions of the same test', cmp) +
       pick + '<p class="evb-note">' + escapeHtml(what ? what[2] : '') + (h.changes ? ' The learning rules made ' + h.changes + ' changes over the test and ended on version ' + escapeHtml(h.rulesVersion || '') + ' with the bar at ' + h.bar + '.' : '') + '</p>' +
-      engHistKpis(h) +
-      engCurveHtml(h.curve, e.name + ' history test running total in dollars') +
-      (h.shares && h.shares.n ? slpSection('eng-hist-shares', 'Share trades in this test', '<p class="evb-note">The setups that buy stock instead of a call, replayed at the open and close prices with 0.1% costs a round trip and scored on their own (% of the share price). Their random books buy the same $5,000 lot on random days with the same stock exits, held no longer than the real trade drawn beside it.</p>' +
+      (shrOnly ? '<p class="evb-note">This engine bought only shares in this version of the test, so the tables below are its share trades: % of the share price after 0.1% costs a round trip, against random share lots with the same stock exits.</p>' +
+        engShareKpis(h.shares, [['Random entries', h.shares.control ? engPnl(h.shares.control.avg, 2) : '—', h.shares.control ? 'Average of ' + h.shares.control.books + ' books of random share lots' : 'Needs 20 or more trades'], ['Beat random', h.shares.control ? h.shares.control.beat + '%' : '—']])
+        : engHistKpis(h)) +
+      engCurveHtml(hm.curve, e.name + ' history test running total in dollars') +
+      (!shrOnly && h.shares && h.shares.n ? slpSection('eng-hist-shares', 'Share trades in this test', '<p class="evb-note">The setups that buy stock instead of a call, replayed at the open and close prices with 0.1% costs a round trip and scored on their own (% of the share price). Their random books buy share lots on random days with the same stock exits, held no longer than the real trade drawn beside it.</p>' +
         engShareKpis(h.shares, [['Random entries', h.shares.control ? engPnl(h.shares.control.avg, 2) : '—', h.shares.control ? 'Average of ' + h.shares.control.books + ' books of random share lots' : 'Needs 20 or more trades'], ['Beat random', h.shares.control ? h.shares.control.beat + '%' : '—']]) +
         engDetails('Share trades by setup', engSplitTable(h.shares.bySetup, 'Setup', function(r){ return engSetup(e, r.key); }, true), true) +
         engDetails('Share trades by time period', engSplitTable(h.shares.byWindow, 'Period', null, true)) +
         engDetails('Share trades by market type', engSplitTable(h.shares.byCell, 'Market type', function(r){ return engCell(r.key); }, true))) : '') +
-      (h.trials && h.trials.n ? slpSection('eng-hist-trials', 'Paper trials in this test', '<p class="evb-note">Unproven setups that run on paper beside the engine, scored on their own. Their random books buy the same $5,000 lot on random days and hold it no longer than the real trade drawn beside it, with the same exits, so a setup that sells after a few sessions is compared with a few sessions of random holding. The edge over those books is small; the live record is the real test.</p>' +
+      (h.trials && h.trials.n ? slpSection('eng-hist-trials', 'Paper trials in this test', '<p class="evb-note">Unproven setups that run on paper beside the engine, scored on their own. Their random books buy the same lot on random days and hold it no longer than the real trade drawn beside it, with the same exits, so a setup that sells after a few sessions is compared with a few sessions of random holding. The edge over those books is small; the live record is the real test.</p>' +
         engShareKpis(h.trials, [['Random entries', h.trials.control ? engPnl(h.trials.control.avg, 2) : '—', h.trials.control ? 'Average of ' + h.trials.control.books + ' books of random share lots, matched hold' : 'Needs 20 or more trades'], ['Beat random', h.trials.control ? h.trials.control.beat + '%' : '—']]) +
         engDetails('Paper trials by setup', engSplitTable(h.trials.bySetup, 'Setup', function(r){ return engSetup(e, r.key); }, true), true) +
         engDetails('Paper trials by time period', engSplitTable(h.trials.byWindow, 'Period', null, true))) : '') +
-      slpSection('eng-hist-windows', 'By time period', engSplitTable(h.byWindow, 'Period')) +
-      slpSection('eng-hist-cells', 'By market type', '<p class="evb-note">The Regime Lab label on the day each trade opened: the trend of the market and whether volatility was calm or stressed.</p>' + engSplitTable(h.byCell, 'Market type', function(r){ return engCell(r.key); })) +
-      slpSection('eng-hist-env', 'By macro environment', '<p class="evb-note">What the economy looked like when each trade opened, using only numbers that were public that day.</p>' + (engEnvTables(h.byEnv) || '<p class="hint">No macro labels in this run.</p>')) +
+      slpSection('eng-hist-windows', 'By time period', engSplitTable(hm.byWindow, 'Period', null, shrOnly)) +
+      slpSection('eng-hist-cells', 'By market type', '<p class="evb-note">The Regime Lab label on the day each trade opened: the trend of the market and whether volatility was calm or stressed.</p>' + engSplitTable(hm.byCell, 'Market type', function(r){ return engCell(r.key); }, shrOnly)) +
+      slpSection('eng-hist-env', 'By macro environment', '<p class="evb-note">What the economy looked like when each trade opened, using only numbers that were public that day.</p>' + (engEnvTables(hm.byEnv, shrOnly) || '<p class="hint">No macro labels in this run.</p>')) +
       slpSection('eng-hist-more', 'More cuts',
-        engDetails('By setup', engSplitTable(h.bySetup, 'Setup', function(r){ return engSetup(e, r.key); }), true) +
-        engDetails('By score', engSplitTable(h.byScore, 'Score band')) +
-        engDetails('By side', engSplitTable(h.bySide, 'Side', function(r){ return engCap(r.key); })) +
-        engDetails('By exit', engSplitTable(h.byExit, 'Why it closed', function(r){ return engExitLabel(d, r.key); })) +
-        engDetails('By year', engSplitTable(h.byYear, 'Year')) +
+        engDetails('By setup', engSplitTable(hm.bySetup, 'Setup', function(r){ return engSetup(e, r.key); }, shrOnly), true) +
+        (shrOnly ? '' : engDetails('By score', engSplitTable(h.byScore, 'Score band')) +
+        engDetails('By side', engSplitTable(h.bySide, 'Side', function(r){ return engCap(r.key); }))) +
+        engDetails('By exit', engSplitTable(hm.byExit, 'Why it closed', function(r){ return engExitLabel(d, r.key); }, shrOnly)) +
+        engDetails('By year', engSplitTable(hm.byYear, 'Year', null, shrOnly)) +
         (h.log && h.log.length ? engDetails('Changes the learning rules made (newest)', slpTable([['Date'], ['Rules version'], ['What changed', 'l']], h.log.map(function(c){ return '<tr><td>' + escapeHtml(engDay(c.date)) + '</td><td>' + escapeHtml(c.v || '') + '</td><td class="l">' + escapeHtml(c.text || '') + '</td></tr>'; }).join(''))) : '')) +
       replay +
       (notes ? slpSection('eng-hist-notes', 'What the test cannot see', notes) : '');
@@ -8877,7 +8910,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
   function engCoreRecordHtml(e, d){
     var s = e.sharesStats || {};
     return '<p class="evb-lead">This record belongs to ' + escapeHtml(e.name) + ' only. Each row is one holding from the month it was bought to the month a check swapped it out, in % of the share price after 0.1% costs a round trip.</p>' +
-      engShareKpis(s, [['Open now', (s.open || 0) + ' (' + engUsd(s.openUsd) + ')', 'Unrealized on the latest prices'], ['Largest drop', s.maxDrawdownUsd ? '−$' + Number(s.maxDrawdownUsd).toLocaleString('en-US') : '—']]) +
+      engShareKpis(s, [['Open now', (s.open || 0) + ' (' + engUsd(s.openUsd) + ')', 'Unrealized on the latest prices'], ['Largest drop', s.maxDrawdownUsd ? '−$' + Number(s.maxDrawdownUsd).toLocaleString('en-US') : '—']], 'core') +
       engCurveHtml(s.curve, e.name + ' running total in dollars') +
       slpSection('eng-closed', 'Closed holdings', engClosedTable(e, d)) +
       ((s.bySetup || []).length ? slpSection('eng-splits', 'Scorecard', engDetails('By setup', engSplitTable(s.bySetup, 'Setup', function(r){ return engSetup(e, r.key); }, true), true) + engDetails('By market type', engSplitTable(s.byCell, 'Market type', function(r){ return engCell(r.key); }, true))) : '');
@@ -8897,7 +8930,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
         ['Swaps', String(c.swaps || 0), 'Holdings closed by a monthly check'],
       ]) +
       slpSection('eng-core-years', 'Year by year', byYear) +
-      (h.shares && h.shares.n ? slpSection('eng-core-trades', 'Each holding', engShareKpis(h.shares) + engDetails('By market type', engSplitTable(h.shares.byCell, 'Market type', function(r){ return engCell(r.key); }, true))) : '') +
+      (h.shares && h.shares.n ? slpSection('eng-core-trades', 'Each holding', engShareKpis(h.shares, null, 'core') + engDetails('By market type', engSplitTable(h.shares.byCell, 'Market type', function(r){ return engCell(r.key); }, 'core'))) : '') +
       (notes ? slpSection('eng-hist-notes', 'What the test cannot see', notes) : '');
   }
   function engCoreLearnHtml(e){
@@ -8952,7 +8985,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
       var sizeLine = all(sized, function(d){ return d < 0; }) ? ' Its sizes lowered the dollar total in every run, so no lot is resized: the sizes are a scored line only.'
         : all(sized, function(d){ return d > 0; }) ? ' Its sizes raised the dollar total in every run; they are still a scored line only, and no lot is resized.'
         : ' Its sizes helped in one run and hurt in the other, so no lot is resized: the sizes are a scored line only.';
-      hist = slpTable([['Test'], ['Trades without it', 1], ['Dollars without it', 1, 'At each trade’s size: about $2,000 of premium per option trade (one contract before 17 November 2026) or a $5,000 share lot'], ['It would have held back', 1, 'On the same trades: the ones it would have held back, and what they made'], ['Trades with it', 1], ['Dollars with it', 1, 'The same, after it held back losing setups'], ['At its sizes', 1, 'The trades it let through, each at the size it gave']],
+      hist = slpTable([['Test'], ['Trades without it', 1], ['Dollars without it', 1, engSizeTip() + '. Share trades: ' + engShareTip().replace(/^Dollars made or lost at each share trade’s size: /, '').replace(/^Dollars made or lost on /, '')], ['It would have held back', 1, 'On the same trades: the ones it would have held back, and what they made'], ['Trades with it', 1], ['Dollars with it', 1, 'The same, after it held back losing setups'], ['At its sizes', 1, 'The trades it let through, each at the size it gave']],
         line(H.oos, 'With a starting record, as it runs live', escapeHtml(engDay(H.oos && H.oos.priorFrom)) + ' to ' + escapeHtml(engDay(H.oos && H.oos.priorTo)) + ' as its record, tested ' + escapeHtml(engDay(H.oos && H.oos.from)) + ' to ' + escapeHtml(engDay(H.oos && H.oos.to))) +
         line(H, 'Starting from nothing', escapeHtml(engDay(H.from)) + ' to ' + escapeHtml(engDay(H.to)) + ', judging each setup only on trades already finished')) +
         '<p class="evb-note">Signal engines with learning on, Technicals, Reversion and Macro (the engines the long history covers). ' + verdict + ' ' + escapeHtml(parts.join(' ')) + knock + sizeLine + ' That is why it starts out advising (since November 17, 2026): every trade opens, and the “Trades it would have held back” figure above keeps live score of whether holding back would have helped.</p>';
@@ -9070,10 +9103,14 @@ function recoveryEvidence(row, data, now = Date.now()) {
   // The money-leak fixes of 17 November 2026 and whether each is on (Owner
   // Settings → Data & desks → Strategy engines).
   function engFixesHtml(d){
-    var list = d.fixes || [];
-    if (!list.length) return '';
-    var rows = list.map(function(f){ return '<li>' + engPill(f.on ? 'On' : 'Off', f.on ? 'evb-s-pass' : 'evb-s-fail') + ' ' + escapeHtml(f.label) + ' <span class="crd-dim">(' + (f.engines || []).map(function(id){ return escapeHtml(engName(id)); }).join(', ') + ')</span></li>'; }).join('');
-    return slpSection('eng-all-fixes', 'Rule fixes from the history replay', '<p class="evb-note">On 17 November 2026 every 2007 to 2026 history-test trade was replayed with other entries, exits and contracts. The ' + (['no', 'one', 'two', 'three', 'four', 'five', 'six'][list.length] || list.length) + ' changes below helped in both halves of the history and still helped when the whole history was run again with each one switched off in turn. A fifth, no take-profit on Macro’s yields-falling TLT calls, looked better trade by trade but made less in that full run (each call held longer and blocked the next TLT signal), so it was not made. Each change has its own switch in Owner Settings (Data & desks → Strategy engines); off puts that part back for new trades. They were picked from the same history they are scored on, so the live record decides: each engine’s Track record tab shows its setups live against the test.</p><ul class="eng-notes eng-fixes">' + rows + '</ul>');
+    var all = d.fixes || [];
+    if (!all.length) return '';
+    var li = function(f){ return '<li>' + engPill(f.on ? 'On' : 'Off', f.on ? 'evb-s-pass' : 'evb-s-fail') + ' ' + escapeHtml(f.label) + ' <span class="crd-dim">(' + (f.engines || []).map(function(id){ return escapeHtml(engName(id)); }).join(', ') + ')</span></li>'; };
+    var list = all.filter(function(f){ return f.step !== 4; }), honest = all.filter(function(f){ return f.step === 4; });
+    var rows = list.map(li).join('');
+    var z = d.sizing, fg = d.fear;
+    var honestHtml = honest.length ? slpSection('eng-all-honest', 'Honest paper trades (19 November 2026)', '<p class="evb-note">These make the paper record count what a real account would pay and hold. They were not picked from the history test. Option trades book the ask going in and the bid coming out, so the spread is a cost in the record (stops and targets still fire on the mid). Each trade is sized to risk about ' + (z && z.budget ? engUsdWord(z.budget) : 'the risk budget') + ', 1 to ' + ((z && z.maxQty) || 10) + ' contracts, and a conviction multiplier of ' + slpNum((z && z.convMin) || 0.5, 1) + 'x to ' + slpNum((z && z.convMax) || 2, 0) + 'x moves it with how far the score clears the bar, the Allocator’s read, whether the options are cheap or rich, the spread, and what is already open in the name and its sector group; every trade keeps its flat size beside it. Technicals trades shares only. Reversion’s washout bounce stands aside after a 7% one-day drop. The extreme-fear bounce is a labeled test: one call and a shares twin when fear and greed is under ' + ((fg && fg.below) || 25) + ', each with its own fills. Each has its own switch in Owner Settings (Data & desks → Strategy engines), and the record splits at a new rules version, never reset.' + (fg ? ' Fear and greed at the last run: ' + slpNum(fg.score, 0) + ' (' + escapeHtml(fg.source || 'CNN') + (fg.stale ? ', stale' : '') + ')' + (fg.score < fg.below && !fg.stale ? ', under ' + fg.below + ': the test can open.' : '.') : ' No fear and greed reading reached the last run, so the test opened nothing.') + '</p><ul class="eng-notes eng-fixes">' + honest.map(li).join('') + '</ul>' + (z && z.compare ? engSizingHtml(z.compare, d) : '')) : '';
+    return honestHtml + slpSection('eng-all-fixes', 'Rule fixes from the history replay', '<p class="evb-note">On 17 November 2026 every 2007 to 2026 history-test trade was replayed with other entries, exits and contracts. The ' + (['no', 'one', 'two', 'three', 'four', 'five', 'six'][list.length] || list.length) + ' changes below helped in both halves of the history and still helped when the whole history was run again with each one switched off in turn. A fifth, no take-profit on Macro’s yields-falling TLT calls, looked better trade by trade but made less in that full run (each call held longer and blocked the next TLT signal), so it was not made. Each change has its own switch in Owner Settings (Data & desks → Strategy engines); off puts that part back for new trades. They were picked from the same history they are scored on, so the live record decides: each engine’s Track record tab shows its setups live against the test.</p><ul class="eng-notes eng-fixes">' + rows + '</ul>');
   }
   function engAllHtml(d){
     var f = d.flagshipStats;
@@ -9141,7 +9178,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
 
     var mode = d.mode === 'off' ? engPill('Engines off', 'evb-s-fail') : d.mode === 'pause' ? engPill('Paused: open trades are still managed, nothing new opens', 'evb-s-collect') : engPill('Running', 'evb-s-pass');
     return '<p class="evb-lead">' + mode + ' Eight rules-only engines trade on paper beside Top Picks. Six signal engines each have their own idea, data, score and track record and share one Webull paper account; two core engines (Trend follower, Momentum basket) hold stock month to month, bought as stock in the same paper account since 19 November 2026. The Allocator decides which signal setups may trade in today’s market. None of them uses AI, and none can change a Top Pick, a grade or the Top Picks Track Record. Paper tracking started ' + escapeHtml(engDay(d.startedIso || d.startDate)) + '.</p>' +
-      slpSection('eng-all-cmp', 'Side by side', cmp + '<p class="evb-note">Engine results are % of the entry premium, marked at each 11:00 and 15:30 ET run; the dollars count each trade at its size (' + engSizeWords() + ' since 17 November 2026). Setups that buy shares instead of a call (since 17 November 2026) are scored on their own line, in % of the share price. With few trades the win-rate range is wide: judge an engine on dozens of closed trades, not a week.</p>') +
+      slpSection('eng-all-cmp', 'Side by side', cmp + '<p class="evb-note">Engine results are % of the entry premium, marked at each 11:00 and 15:30 ET run; the dollars count each trade at its size (' + engSizeWords() + (engRisk() ? ' since 19 November 2026; about $2,000 of premium from 17 November' : ' since 17 November 2026') + '). Setups that buy shares instead of a call (since 17 November 2026) are scored on their own line, in % of the share price. With few trades the win-rate range is wide: judge an engine on dozens of closed trades, not a week.</p>') +
       engFixesHtml(d) +
       slpSection('eng-all-curve', 'Running total, every engine', engAllCurveHtml(d) + '<p class="evb-note">Closed trades only, each at its size, by the day each trade closed. Top Picks keeps its own curve on the Top Picks track record.</p>') +
       slpSection('eng-all-open', 'Open trades, every engine (' + (((d.total && d.total.open) || 0) + ((d.total && d.total.shares && d.total.shares.open) || 0) + ((d.total && d.total.core && d.total.core.open) || 0)) + ')', engAllOpenHtml(d)) +
