@@ -180,6 +180,7 @@ import { withYahooTimeout } from "../lib/yahoo.mjs";
 import { yahooQuoteProvenance } from "../lib/quote-provenance.mjs";
 import { prepareTranscriptInput, transcriptListOverruns, transcriptCharacterBudget, salvageTruncatedJson } from "../lib/transcript-input.mjs";
 import { UNIFIED_SIGNAL_KEY } from "../lib/unified-signal.mjs";
+import { createPrimeGate, createExplicitPromptCache, createCacheTally, isCacheRequestError, buildCachedRequest } from "../lib/ai-prompt-cache.mjs";
 import { publishUnifiedSignal } from "./publish-unified-signal.mjs";
 import { attachLeapsExpirations, leapsExtraFetchEnabled } from "../lib/leaps-expirations.mjs";
 import {
@@ -33322,6 +33323,21 @@ const AI_FUNDAMENTALS_MODEL = process.env.AI_FUNDAMENTALS_MODEL || "gemini-3.1-f
 // independent attachAiNewsTakes / attachFundamentalsJudgments calls.
 const AI_TICKER_MODEL = process.env.AI_TICKER_MODEL || "gemini-3.1-flash-lite";
 const AI_COMBINED = process.env.AI_COMBINED !== "0";
+// Prompt caching for the judgment pass (2026-11-19, lib/ai-prompt-cache.mjs).
+// AI_TICKER_PRIME (default on; 0 = off) lets the first call go alone and
+// the rest wait for its answer, so they find Gemini's implicit cache. The
+// requests themselves are byte for byte what they were before.
+// AI_TICKER_EXPLICIT_CACHE (default OFF; 1 = on) also makes an explicit cache
+// of the instruction block. It is off by default because a cached request
+// carries the instructions as the system instruction instead of at the front
+// of the message, a small change in what the model sees; turn it on only if
+// the build log's "Ticker-judgment prompt cache" line shows the primed
+// implicit cache missing. Either one alone works; both off = the old pass.
+const AI_TICKER_PRIME = !/^(?:0|false|off)$/i.test(String(process.env.AI_TICKER_PRIME ?? "1").trim());
+const AI_TICKER_EXPLICIT_CACHE = /^(?:1|true|on)$/i.test(String(process.env.AI_TICKER_EXPLICIT_CACHE ?? "0").trim());
+const AI_TICKER_CACHE_TTL_S = 900;
+// Set for the length of one attachTickerJudgments pass: { gate, explicit, tally }.
+let _judgmentPromptCache = null;
 // Narrative extraction is the trickiest reasoning task in the build, so
 // it's the call where stronger models earn their keep — but Pro models
 // (gemini-2.5-pro, gemini-3.1-pro) require funded Tier 1+ billing and
@@ -37273,16 +37289,16 @@ async function generateFundamentalsJudgment(ai, symbol, spot, fundamentals) {
   };
 }
 
-// Combined ticker-judgment prompt. Intentionally long (≥1.5K tokens after
-// the four worked examples) so it crosses Gemini's 1024-token implicit
-// caching threshold — every per-ticker call shares this exact prefix, so
-// from call 2 onward the prefix tokens come from cache at 25% of the
-// normal input price. The user message carries ALL per-ticker data; if
-// anything ticker-specific leaks into this constant the cache key
-// changes and the discount disappears silently (canary:
-// cachedContentTokenCount in data/ai-usage.json should be > 0 from the
-// second call onward — if it stays 0, this prompt is too short or the
-// model doesn't support implicit caching).
+// Combined ticker-judgment prompt (~2,900 tokens). Every per-ticker call
+// shares this exact block, so it is the part Gemini can serve from cache at
+// 10% of the input price (Flash-Lite: $0.025 against $0.25 per million
+// tokens). Since 2026-11-19 the pass caches it on purpose: an explicit cache
+// made at the start of the pass, or, when that is refused, the first call
+// goes alone so the implicit cache is written before the rest arrive
+// (lib/ai-prompt-cache.mjs). The user message carries ALL per-ticker data;
+// if anything ticker-specific leaks into this constant the cache stops
+// matching and the discount disappears silently (canary: the "Ticker-judgment
+// prompt cache" log line and cachedContentTokenCount in data/ai-usage.json).
 const COMBINED_SYSTEM_PROMPT = `You are an options-savvy equity analyst writing a tight pre-trade briefing that combines a NEWS context paragraph with a FUNDAMENTALS scorecard plus an upcoming CATALYSTS list for a US-listed ticker. All three pieces feed an options trader who is deciding whether to open a contract on the name.
 
 OUTPUT SHAPE — you always return a single JSON object with at minimum a "news" field. The "fundamentals" field is included only when the user message contains a "Fundamentals snapshot:" block (some tickers — ETFs, ADRs without disclosure, micro-caps — have no useful fundamentals; for those return only the news field and omit fundamentals entirely). The "catalysts" field is ALWAYS present (it is an array — empty array when no qualifying catalysts exist; never omit the field).
@@ -37487,36 +37503,65 @@ async function generateTickerJudgment(ai, symbol, spot, headlines, fundamentals)
   // Nothing per-ticker may ever be interpolated into COMBINED_SYSTEM_PROMPT.
   const promptInContents = !/^(?:0|false)$/i.test(process.env.AI_TICKER_SYSTEM_IN_CONTENTS ?? "1");
 
+  // Prompt caching (2026-11-19): the first call of the pass goes alone (the
+  // primer) and makes the explicit cache before it; the others wait until the
+  // primer has its answer. A call with the explicit cache sends only the
+  // per-ticker message, and the cached block stands in as the system
+  // instruction (the shape this pass used before 2026-11-08). Any cache error
+  // turns the explicit cache off and the same attempt runs again in the
+  // normal shape, so a refused cache still leaves the implicit cache primed
+  // before the rest go.
+  const pc = _judgmentPromptCache;
+  const ticket = pc ? await pc.gate.enter() : null;
+  const releasePrime = (ok) => { if (ticket?.primer) ticket.release(ok); };
   let response;
   let lastErr;
-  for (let attempt = 0; attempt < AI_MAX_ATTEMPTS; attempt++) {
-    try {
-      await acquireAiSlot({ judgment: true });
-      response = await ai.models.generateContent({
-        model: aiModelForAttempt(AI_TICKER_MODEL, attempt),
-        config: {
-          ...(promptInContents ? {} : { systemInstruction: COMBINED_SYSTEM_PROMPT }),
-          temperature: 0.3,
-          // Wider than the old 600/900 because we're emitting news +
-          // fundamentals + catalysts in one response; still well under
-          // the 8192 default.
-          maxOutputTokens: 1800,
-          responseMimeType: "application/json",
-          responseSchema: judgmentSchema,
-          thinkingConfig: { thinkingBudget: 0 },
-        },
-        contents: promptInContents ? `${COMBINED_SYSTEM_PROMPT}\n\n${userMessage}` : userMessage,
-      });
-      recordAiUsage({ model: aiModelForAttempt(AI_TICKER_MODEL, attempt), callType: "ticker-judgment", symbol, usage: response?.usageMetadata });
-      break;
-    } catch (err) {
-      lastErr = err;
-      const wait = classifyAiError(err, attempt, aiModelForAttempt(AI_TICKER_MODEL, attempt));
-      if (wait == null || attempt === AI_MAX_ATTEMPTS - 1) throw err;
-      const reason = String(err?.message || err).split("\n")[0].slice(0, 120);
-      console.log(`    ⌛ AI attempt ${attempt + 1}/${AI_MAX_ATTEMPTS} hit ${reason} — backing off ${Math.round(wait / 1000)}s`);
-      await new Promise((r) => setTimeout(r, wait));
+  try {
+    if (pc) await pc.explicit.ensure();
+    let cacheRetried = false;
+    for (let attempt = 0; attempt < AI_MAX_ATTEMPTS; attempt++) {
+      const model = aiModelForAttempt(AI_TICKER_MODEL, attempt);
+      const cacheName = pc ? pc.explicit.nameFor(model) : null;
+      try {
+        await acquireAiSlot({ judgment: true });
+        response = await ai.models.generateContent(buildCachedRequest({
+          model,
+          prompt: COMBINED_SYSTEM_PROMPT,
+          message: userMessage,
+          cacheName,
+          promptInContents,
+          config: {
+            temperature: 0.3,
+            // Wider than the old 600/900 because we're emitting news +
+            // fundamentals + catalysts in one response; still well under
+            // the 8192 default.
+            maxOutputTokens: 1800,
+            responseMimeType: "application/json",
+            responseSchema: judgmentSchema,
+            thinkingConfig: { thinkingBudget: 0 },
+          },
+        }));
+        recordAiUsage({ model, callType: "ticker-judgment", symbol, usage: response?.usageMetadata });
+        if (pc) pc.tally.add(response?.usageMetadata, { explicit: !!cacheName });
+        break;
+      } catch (err) {
+        lastErr = err;
+        if (cacheName && !cacheRetried && isCacheRequestError(err)) {
+          cacheRetried = true;
+          pc.explicit.disable(`${symbol} request refused with the cache: ${String(err?.message || err).split("\n")[0].slice(0, 100)}`);
+          attempt -= 1; // same attempt again, without the cache
+          continue;
+        }
+        releasePrime(false);
+        const wait = classifyAiError(err, attempt, model);
+        if (wait == null || attempt === AI_MAX_ATTEMPTS - 1) throw err;
+        const reason = String(err?.message || err).split("\n")[0].slice(0, 120);
+        console.log(`    ⌛ AI attempt ${attempt + 1}/${AI_MAX_ATTEMPTS} hit ${reason} — backing off ${Math.round(wait / 1000)}s`);
+        await new Promise((r) => setTimeout(r, wait));
+      }
     }
+  } finally {
+    releasePrime(!!response);
   }
   if (!response) throw lastErr ?? new Error("no response from Gemini");
 
@@ -37955,6 +38000,28 @@ async function attachTickerJudgments(chains, macroBackdrop, priorCache = {}) {
   let reused = 0;
   const missBySym = new Map();
   const hb = startHeartbeat("ticker judgments", entries.length);
+  _judgmentPromptCache = {
+    gate: createPrimeGate({ enabled: AI_TICKER_PRIME }),
+    explicit: createExplicitPromptCache({
+      enabled: AI_TICKER_EXPLICIT_CACHE,
+      ai,
+      model: AI_TICKER_MODEL,
+      systemInstruction: COMBINED_SYSTEM_PROMPT,
+      ttlSeconds: AI_TICKER_CACHE_TTL_S,
+      displayName: "ticker-judgment",
+      // The create call goes through the same pacer and daily caps as a
+      // judgment call, and its tokens are booked (at the full input price, a
+      // ceiling) under their own call type.
+      beforeCreate: () => acquireAiSlot({ judgment: true }),
+      onCreated: (cache) => recordAiUsage({
+        model: AI_TICKER_MODEL,
+        callType: "ticker-judgment-cache",
+        usage: { promptTokenCount: Number(cache?.usageMetadata?.totalTokenCount) || 0 },
+      }),
+      log: (msg) => console.log(`  [prompt cache] ${msg}`),
+    }),
+    tally: createCacheTally(),
+  };
   const runPass = (passEntries) =>
     Promise.all(passEntries.map(([sym, data]) => hb.track(async () => {
       try {
@@ -38093,16 +38160,27 @@ async function attachTickerJudgments(chains, macroBackdrop, priorCache = {}) {
         } else if (!data.news) data.news = null;
       }
     })));
-  await runPass(entries);
-  // Final sweep: any ticker still missing a news take hit a transient
-  // streak that exhausted the in-call retry budget. Mirrors the existing
-  // attachFundamentalsJudgments retry — sleep through a quota window,
-  // take one more swing with a fresh attempt budget.
-  const missed = entries.filter(([, data]) => !data.news);
-  if (missed.length > 0) {
-    console.log(`Retrying ${missed.length} ticker judgment(s) after transient failures (sleeping ${AI_MISS_SWEEP_WAIT_MS / 1000}s to clear a transient blip)…`);
-    await new Promise((r) => setTimeout(r, AI_MISS_SWEEP_WAIT_MS));
-    await runPass(missed);
+  try {
+    await runPass(entries);
+    // Final sweep: any ticker still missing a news take hit a transient
+    // streak that exhausted the in-call retry budget. Mirrors the existing
+    // attachFundamentalsJudgments retry — sleep through a quota window,
+    // take one more swing with a fresh attempt budget.
+    const missed = entries.filter(([, data]) => !data.news);
+    if (missed.length > 0) {
+      console.log(`Retrying ${missed.length} ticker judgment(s) after transient failures (sleeping ${AI_MISS_SWEEP_WAIT_MS / 1000}s to clear a transient blip)…`);
+      await new Promise((r) => setTimeout(r, AI_MISS_SWEEP_WAIT_MS));
+      await runPass(missed);
+    }
+  } finally {
+    const pcDone = _judgmentPromptCache;
+    _judgmentPromptCache = null;
+    if (pcDone) {
+      await pcDone.explicit.drop();
+      const g = pcDone.gate.stats;
+      const ex = pcDone.explicit.status;
+      console.log(`${pcDone.tally.summary("Ticker-judgment prompt cache")}; first call primed: ${g.primed ? "yes" : "no"} (${g.waited} waited, ${g.timedOut} timed out); explicit cache: ${ex.state === "off" ? `off (${ex.reason})` : ex.state}.`);
+    }
   }
   console.log(summarizeBodyFetchStats());
   hb.stop();
