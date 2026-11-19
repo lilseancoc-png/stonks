@@ -321,13 +321,67 @@ export function renderStockPageJs() {
         }).catch(function(){
           if (token !== state.token) return;
           parkGrade();
-          root.innerHTML = '<div class="stp-missing"><p>We could not load <b>' + escapeHtml(sym) + '</b>. It may not be one of the stocks this site follows.</p><p><a href="?tab=tickers" data-go-tab="tickers">See all stocks</a></p></div>';
+          wideCard(root, sym, token);
         });
       } else {
         render(root);
         liveQuote(sym, token);
       }
       try { if (typeof wfNoteRecent === 'function') wfNoteRecent('sym:' + sym); } catch (_) {}
+    }
+    // A stock that is not one of the 80 tracked names (an S&P 500 or
+    // Nasdaq-100 member on the wide tier, or a name that left coverage, such
+    // as an old Track Record row) has no per-ticker file. Its row in the
+    // public wide-tier.json (rules only: closes, ranges, the next report)
+    // stands in, lazy-loaded only on that miss; a name on neither list keeps
+    // the plain "could not load" note.
+    function missingHtml(sym){
+      return '<div class="stp-missing"><p>We could not load <b>' + escapeHtml(sym) + '</b>. It may not be one of the stocks this site follows.</p><p><a href="?tab=tickers" data-go-tab="tickers">See all stocks</a></p></div>';
+    }
+    function wideRows(){
+      if (cache.wideP) return cache.wideP;
+      cache.wideP = getJson('wide-tier.json').then(function(j){
+        var map = {};
+        if (j && j.enabled !== false && Array.isArray(j.tickers)) j.tickers.forEach(function(r){ if (r && r.t && !r.fund) map[r.t] = r; });
+        return { rows: map, asOf: j && j.asOf, perfStart: (j && j.perfStart) || {} };
+      }).catch(function(){ cache.wideP = null; return null; });
+      return cache.wideP;
+    }
+    function wideCard(root, sym, token){
+      root.innerHTML = missingHtml(sym);
+      wideRows().then(function(w){
+        if (token !== state.token) return;
+        var r = w && w.rows[sym];
+        if (!r || r.tr) return;
+        var range = (r.hi52 > r.lo52 && r.sp > 0) ? Math.max(0, Math.min(1, (r.sp - r.lo52) / (r.hi52 - r.lo52))) : null;
+        var vsMa = function(ma){ return ma > 0 && r.sp > 0 ? pctRaw((r.sp / ma - 1) * 100, 1) : '—'; };
+        var per = [['1d', r.ch], ['1w', r.perf && r.perf['1w']], ['1m', r.perf && r.perf['1m']], ['3m', r.perf && r.perf['3m']], ['YTD', r.perf && r.perf.ytd], ['1y', r.perf && r.perf['1y']]];
+        var idx = String(r.x || '').split('').map(function(c){ return c === 'S' ? 'S&P 500' : c === 'N' ? 'Nasdaq-100' : ''; }).filter(Boolean).join(' and ');
+        setHeader(r.n || sym, '');
+        root.innerHTML = '<div class="stp-wide" data-stp-wide>' +
+          '<div class="stp-head"><div class="stp-id"><span class="stp-ticker">' + escapeHtml(sym) + '</span><span class="stp-wide-name">' + escapeHtml(r.n || sym) + '</span></div>' +
+          '<div class="stp-price-row"><span class="stp-price">' + money(r.sp) + '</span><span class="stp-change">' + chg(r.ch) + '</span><span class="stp-session">Last close · ' + dateLabel(r.d) + (r.stale ? ' · not updated with the rest' : '') + '</span></div></div>' +
+          '<p class="stp-wide-note">' + escapeHtml(sym) + ' is on the wide list' + (idx ? ' (' + escapeHtml(idx) + ')' : '') + ', not one of the stocks this site follows in full, so there is no grade, option chain or AI read here. These numbers come from its daily closes.</p>' +
+          '<dl class="stp-wide-grid">' +
+            '<div><dt>Sector</dt><dd>' + escapeHtml(r.s || '—') + (r.i ? '<small>' + escapeHtml(r.i) + '</small>' : '') + '</dd></div>' +
+            '<div><dt>Market value</dt><dd>' + big(r.mc) + '</dd></div>' +
+            '<div><dt>52-week range</dt><dd>' + money(r.lo52) + ' to ' + money(r.hi52) + (range != null ? '<small>' + Math.round(range * 100) + '% of the way up</small>' : '') + '</dd></div>' +
+            '<div><dt>Vs 50-day average</dt><dd>' + vsMa(r.ma50) + '</dd></div>' +
+            '<div><dt>Vs 200-day average</dt><dd>' + vsMa(r.ma200) + '</dd></div>' +
+            '<div><dt>Next report</dt><dd>' + (r.er ? dateLabel(r.er) + (r.erEst ? '<small>estimated</small>' : '') : '—') + '</dd></div>' +
+          '</dl>' +
+          '<div class="stp-wide-perf">' + per.map(function(p){ return '<span><b>' + p[0] + '</b> ' + chg(p[1], 1) + '</span>'; }).join('') + '</div>' +
+          '<p class="stp-src"><a href="?tab=heatmap" data-stp-wide-map>See it on the Heatmap, Wide view</a> · <a href="?tab=tickers" data-go-tab="tickers">See all followed stocks</a></p>' +
+        '</div>';
+        var link = root.querySelector('[data-stp-wide-map]');
+        if (link) link.addEventListener('click', function(ev){
+          ev.preventDefault();
+          var b = document.querySelector('[data-page-tab="heatmap"]');
+          if (!b){ window.location.href = '?tab=heatmap'; return; }
+          b.click();
+          try { if (typeof heatmapSetSource === 'function') heatmapSetSource('wide'); } catch (_) {}
+        });
+      });
     }
     function liveQuote(sym, token){
       fetch('/api/quote?symbol=' + encodeURIComponent(sym), { cache: 'no-store' })
