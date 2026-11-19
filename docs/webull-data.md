@@ -4,7 +4,7 @@ The Webull data runner saves option prices from Webull's official OpenAPI once
 a day after the close, for the research history tests. It is Owner-only, makes
 no AI call, uses no paid feed and changes no pick, grade, gate, engine or track
 record. Wave 2 build B ("option price saver") is its first job set; later jobs
-(order flow, breadth, backups) plug into the same runner.
+(order flow, breadth, backups; W3, below) plug into the same runner.
 
 ## How it runs
 
@@ -88,6 +88,96 @@ the job's own object, kept across days (also `ctx.state` in run and save).
      IWM), it asks one at-the-money contract first; if Webull still answers,
      the rest of that date's strikes are fetched. It also registers this week's
      contracts (under 7 days), so they are saved after they expire.
+
+## W3: order flow, breadth and backups (2026-11-19)
+
+Three more jobs on the same runner, after the two option jobs. Each saves one
+Owner-only key under `data/` (request-time-exclusive, so no workflow pushes or
+deletes it; `sync-data pull` hydrates it for the bake, which reads it before
+the wipe through `readWebullW3` in `lib/webull-data/bake.mjs`). A read or parse
+error on the stored key stops the save instead of overwriting the log
+(`readKey` in `jobs/w3-shared.mjs`). Webull's terms (section 5) do not allow
+republishing, so nothing here reaches a public page, the public Brief, the
+public MCP or the Owner MCP; `lib/webull-data/mcp-scrub.mjs` also strips the
+Webull values the bake copies into other Owner files (shadow keys, the Bottom
+tracker row, a backup street target) before any MCP tool sees them.
+
+### C: order flow (`webull-flow.json`, switch `WEBULL_FLOW_LOG`)
+
+- One call per covered name (`TICKERS`) a day:
+  `/market-data/fundamentals/capital-flows/get` (`symbol`, `category=US_STOCK`,
+  `count=5`), group `capital-flow`. The last five sessions are upserted by date,
+  so a missed day is filled by the next run. About 80 calls a day.
+- Kept: `[date, largeIn, largeOut, mediumIn, mediumOut, smallIn, smallOut]` per
+  session in dollars, about 400 sessions per name. A name Webull refuses (an
+  ETF it has no flow for) is logged as a miss with a fixed reason.
+- Shadow keys (`lib/shadow-signals.mjs` version 8): `wfl` (large-order net as a
+  % of everything traded, the session before the bake's date), `wft` (all sizes
+  net, %), `wfl5` (large net over the last five sessions, %). Nothing scores;
+  the Evidence board row "Webull order flow: logging, test after about 3
+  months" turns ready after 63 logged sessions (`w3EvidenceTests`).
+- Shown on the stock page's Owner tab (Top Picks trades): net money in by order
+  size, the last 10 sessions and the five-session line. Not a vote.
+
+### D: breadth (`webull-breadth.json`, switch `WEBULL_BREADTH_LOG`)
+
+- `/market-data/screeners/market-sectors/list` (advancers, decliners and flat
+  per Webull sector, paged), then each sector's
+  `/market-data/screeners/market-sectors/get` detail pages, each stock's change
+  bucketed into the nine breadth-chart ranges (at most `WEBULL_BREADTH_PAGES`,
+  default 40, pages a sector; a sector cut short marks the day's histogram
+  partial), then seven screener lists: gainers and losers
+  (`gainers-losers/list`), most active (`top-actives/list`) and new and near
+  52-week highs and lows (`week52-high-low/list`). Group `screeners`. The lists
+  stop at 200 rows, so a full list is shown as "200+" and is not used as a
+  number in the gauges.
+- Kept: today's sectors, buckets and the top 50 rows of each list, plus one
+  history row per session (about 400).
+- Owner context on Market analysis (the "Whole-market breadth (Webull)" block),
+  labeled as a different, wider source than the wide tier's S&P 500 +
+  Nasdaq-100 breadth.
+- A non-voting Bottom tracker context row (`breadthContextRow`): washout when
+  30% or fewer of movers rose or new lows (50+) are at least twice new highs,
+  stretched at 70%+ up with highs at least twice lows.
+- Market shadow gauges: `wbAdv` (% of movers up), `wbHL` (new highs minus new
+  lows, only when neither list is capped), `wbUp5` (share of traded stocks up
+  5%+ minus down 5%+, only from a complete histogram). Evidence row
+  "Webull breadth".
+
+### E: backups (`webull-backup.json`, switch `WEBULL_BACKUPS`)
+
+- Each covered stock's earnings calendar (every day), analyst ratings and price
+  target (a fifth of the names a day, so each refreshes weekly), Webull's Fear
+  & Greed reading and the US economic calendar for the next 30 days. Group
+  `fundamentals` (Fear & Greed in `screeners`). About 115 calls a day.
+- A Webull value is used only when the main source has none, and is labeled
+  "backup source":
+  - **Earnings date** for the Top Picks decision only (a stock with no Yahoo or
+    Nasdaq date and a Webull date in the next 30 days). It is applied on a copy
+    of the chains map passed to the Top Picks build, so no public file carries
+    it. **This can change which trades open** (the earnings-window rules read
+    it), which is why it ships behind its own switch.
+  - **Street target** on the Valuation lab when Yahoo has no mean target
+    (source `webull-backup`, shown "backup source (Webull)"; the MCP drops it).
+  - **Fear & Greed** stands in for CNN's reading only in the strategy engines,
+    only when CNN failed this bake, and only after a check proves Webull's
+    index is CNN's (4+ shared dates, every gap within 1.5 points). Until then it
+    is shown as context.
+  - **Economic calendar** dates are compared with ours, never used.
+- Disagreements (earnings dates more than a day apart, release dates that
+  differ) and every fill are written to `webull-backup-check.json` (Owner-only,
+  bake-written) and shown in the Market analysis block's "Backup sources"
+  panel.
+
+### W3 budget (estimates until the first live run)
+
+About 80 flow calls, 9 list calls plus 2+ sector-list pages and one detail page
+per 20 stocks a sector (likely 300+ calls, the biggest part, about 14 minutes
+at 24 a minute), and about 115 backup calls a day, on top of the option jobs.
+The status block on the Track Record's Webull tab counts them
+(`flow-names`, `breadth-records`, `backup-records`). Webull's sector lists may
+overlap; if they do, a stock in two sectors is counted twice in the
+histogram. Both are checked on the first live run.
 
 ## Storage
 
@@ -177,3 +267,7 @@ the next session's expiry saving, deleted contracts, the per-minute cap, the
 switches, the export, the trigger token and the cron routing) and
 `node scripts/webull-execution-browser.mjs` (the status block on the Webull
 tab, desktop and phone, light and dark; needs a regenerated `app.js`).
+W3: `node scripts/webull-w3-smoke.mjs` (parsers, logs, gauges, backups, the
+jobs against a fake Webull and store, key registration, the MCP scrub) and
+`node scripts/webull-w3-browser.mjs` (the Market analysis block and the stock
+page order flow as the Owner, and no Webull file asked for by a public visit).

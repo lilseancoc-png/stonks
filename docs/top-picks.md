@@ -1992,3 +1992,24 @@ New Top Picks trades carry `volumeReadVersion` (`2026-11-17`, or `-curve` /
 changes. The 16:00 scan still reads volume before the closing auction posts;
 that is a separate fix.
 
+
+## Webull order flow, breadth and backups, November 19, 2026
+
+Measurement first (spec: [`docs/webull-data.md`](webull-data.md) "W3"). The
+shadow log moves to **version 8**: per name `wfl` (Webull large-order net as a
+% of everything traded, the session before the bake's date), `wft` (all order
+sizes, %) and `wfl5` (large orders over five sessions, %); market gauges
+`wbAdv` (% of Webull movers up), `wbHL` (new 52-week highs minus lows, only
+when neither list hit Webull's 200-row cap) and `wbUp5` (share of stocks up 5%+
+minus down 5%+, only from a complete histogram). Nothing scores; two Evidence
+board rows ("Webull order flow", "Webull breadth") wait for about three months
+of sessions (63) before the first test.
+
+One change can reach the decision: **the Webull earnings date is a backup for
+Top Picks only**. When a stock has no Yahoo or Nasdaq earnings date and Webull
+lists one in the next 30 days, the Top Picks build sees that date (on a copy of
+the chains map, never in a public file), so the earnings-window rules
+(structure, event plays, the event defer) can treat it as an event. Switch:
+Owner Settings `WEBULL_BACKUPS` (off = no backups anywhere). Every fill and
+every disagreement with the main source is listed in the Owner-only
+`webull-backup-check.json` and on Market analysis.

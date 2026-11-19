@@ -124,7 +124,9 @@ export function mcpRouteOf(req) {
 // cached for 30 seconds per warm instance; a failed read keeps the Vercel env.
 const SITE_SWITCH_KEYS = ["CONTACT_ENABLED", "SPORTS_ENABLED", "MCP_ENABLED", "MCP_PUBLIC_ACCESS", "WEBULL_MIRROR", "WEBULL_SHARES", "WEBULL_QTY", "WEBULL_PICKS_SIZING",
   // The daily Webull data runner and its jobs (2026-11-19, lib/webull-data/).
-  "WEBULL_DATA", "WEBULL_OPTION_SAVER"];
+  "WEBULL_DATA", "WEBULL_OPTION_SAVER",
+  // W3 Webull data logs: order flow, market breadth, backups.
+  "WEBULL_FLOW_LOG", "WEBULL_BREADTH_LOG", "WEBULL_BACKUPS"];
 // Keys this module forced off, with the value they had before. The forced
 // values stay in place between requests and change only when the saved
 // settings change, so two requests running at once on one warm instance can

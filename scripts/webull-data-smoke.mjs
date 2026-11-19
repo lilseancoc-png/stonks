@@ -246,8 +246,8 @@ const gz = (store, key) => JSON.parse(gunzipSync(store.m.get(key)).toString("utf
   const clock = { t: at("2026-11-19T21:40:00Z") };
   const store = fakeStore();
   const client = fakeWebull({ clock });
-  const r = await runWebullData({ client, store, jobs: WEBULL_DATA_JOBS, nowFn: () => clock.t, options: { tickers: ["AAPL"] }, switchOn: (k) => k !== "WEBULL_OPTION_SAVER" });
-  eq([r.more, client.log.length], [false, 0], "saver switch off: no calls");
+  const r = await runWebullData({ client, store, jobs: WEBULL_DATA_JOBS, nowFn: () => clock.t, options: { tickers: ["AAPL"] }, switchOn: (k) => k === "WEBULL_DATA" });
+  eq([r.more, client.log.length], [false, 0], "every job switch off: no calls");
 }
 
 // --- rate limit answer ---------------------------------------------------------------------

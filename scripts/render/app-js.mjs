@@ -52,6 +52,7 @@ import { renderPredictionJs } from './prediction-client.mjs';
 import { renderAiDisruptionJs } from './ai-disruption-client.mjs';
 import { renderHistoryRhymesJs } from './history-rhymes-client.mjs';
 import { renderEnginesHistoryJs } from './engines-history-client.mjs';
+import { renderWebullDataJs } from './webull-data-client.mjs';
 import { renderEdgeOddsJs } from './edge-odds-client.mjs';
 import { renderEvidenceJs } from './evidence-client.mjs';
 import { renderRegimeLabJs } from './regime-lab-client.mjs';
@@ -126,6 +127,7 @@ ${renderPredictionJs()}
 ${renderAiDisruptionJs()}
 ${renderHistoryRhymesJs()}
 ${renderEnginesHistoryJs()}
+${renderWebullDataJs()}
 ${renderEdgeOddsJs()}
 ${renderEvidenceJs()}
 ${renderRegimeLabJs()}
@@ -38396,6 +38398,13 @@ ${renderExportBindings()}
       ['That day', n(c['snapshot-names']) + ' names, ' + n(c['snapshot-contracts']) + ' option prices, ' + n(c['expired-saved']) + ' expired contracts saved, ' + n(c['expired-gone']) + ' already deleted by Webull, ' + n(c.calls) + ' Webull calls in ' + n(t && t.invocations) + ' pings'],
       [(d.days || []).length === 1 ? 'Last day' : 'Last ' + n((d.days || []).length) + ' days', n(tot.days) + (Number(tot.days) === 1 ? ' day' : ' days') + ' saved, ' + n(tot.contracts) + ' option prices, ' + n(tot.expired) + ' expired contracts, ' + n(tot.gone) + ' too late, ' + n(tot.misses) + ' misses']
     ];
+    // W3 jobs (order flow, breadth, backups): counts only.
+    var w3 = [];
+    if (sw.WEBULL_FLOW_LOG !== false) w3.push(n(c['flow-names']) + ' names of order flow' + (c['flow-misses'] ? ' (' + n(c['flow-misses']) + ' refused)' : ''));
+    else w3.push('order flow off');
+    w3.push(sw.WEBULL_BREADTH_LOG !== false ? n(c['breadth-records']) + ' breadth records' : 'breadth off');
+    w3.push(sw.WEBULL_BACKUPS !== false ? n(c['backup-records']) + ' backup records' : 'backups off');
+    if (t) rows.push(['Order flow, breadth, backups', w3.join(', ')]);
     if (misses.length) rows.push(['Misses that day', misses.map(function(k){ return escapeHtml(k) + ' ×' + n(t.misses[k]); }).join(', ')]);
     return '<div class="wb-data" data-wb-data>' + head + '<dl class="wb-data-list">' + rows.map(function(r){ return '<dt>' + escapeHtml(r[0]) + '</dt><dd>' + (r[0] === 'Misses that day' ? r[1] : escapeHtml(r[1])) + '</dd>'; }).join('') +
       '</dl><p class="hint acc-an-note">Saved once a day after the close for the research history test (15-minute delayed paper data, Owner only). Nothing here changes a pick or a trade.</p></div>';
