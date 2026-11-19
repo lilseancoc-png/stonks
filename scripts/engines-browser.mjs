@@ -112,8 +112,22 @@ try {
     check(!/\d{4}-\d{2}-\d{2}/.test(await s.page.locator('#eng-all-curve .ln-svg').innerHTML().then((h) => h.replace(/data-ch='[^']*'/, ''))), 'the curve axis reads as days, not raw ISO dates');
     check(/Went first/i.test(await s.page.locator('#eng-all-runs').innerText()), 'the run log says which engine went first');
     // The money-leak fixes (2026-11-17): one line each, with its switch state.
-    check((await s.page.locator('#eng-all-fixes .eng-fixes li').count()) === view.fixes.length && view.fixes.length === 4, 'one line per rule fix');
-    check(/Owner Settings/.test(await s.page.locator('#eng-all-fixes').innerText()) && (await s.page.locator('#eng-all-fixes .evb-s-pass').count()) === view.fixes.filter((f) => f.on).length, 'each fix shows whether it is on and where to switch it');
+    const fix3 = view.fixes.filter((f) => f.step !== 4), fix4 = view.fixes.filter((f) => f.step === 4);
+    check((await s.page.locator('#eng-all-fixes .eng-fixes li').count()) === fix3.length && fix3.length === 4, 'one line per rule fix');
+    check(/Owner Settings/.test(await s.page.locator('#eng-all-fixes').innerText()) && (await s.page.locator('#eng-all-fixes .evb-s-pass').count()) === fix3.filter((f) => f.on).length, 'each fix shows whether it is on and where to switch it');
+    // Honest paper trades (2026-11-19): their own section, one line each, and the sizing comparison.
+    check((await s.page.locator('#eng-all-honest .eng-fixes li').count()) === fix4.length && fix4.length === 6, 'one line per honest-paper change');
+    const honestText = await s.page.locator('#eng-all-honest').innerText();
+    check(/ask going in and the bid coming out/.test(honestText) && /1 to 10 contracts/.test(honestText) && /conviction/i.test(honestText) && /Owner Settings/.test(honestText), 'the honest-paper section says what changed and where to switch it');
+    check(/Fear and greed at the last run|No fear and greed reading/.test(honestText), 'the section says what fear and greed read at the last run');
+    // Every open option trade opened under the new rules says how it was sized and filled.
+    const sized = view.engines.flatMap((e) => e.open).filter((t) => t.size);
+    check(sized.length > 0 && (await s.page.locator('#eng-all-open details.eng-size').count()) >= sized.length, 'each new trade carries its Size line');
+    if (sized.length) {
+      const d0 = s.page.locator('#eng-all-open details.eng-size').first();
+      await d0.locator('summary').click(); await settle(s.page, 150);
+      check(/budget|contract|share/i.test(await d0.innerText()), 'the Size line opens to the reasons');
+    }
     check(mirrorAsks.length >= 1 && mirrorAsks.every((q) => /scope=engines/.test(q)), 'the page asks the mirror for engine trades only');
     await clean(s, 'All engines, desktop');
     await s.page.screenshot({ path: resolve(output, 'all-engines-1440.png'), fullPage: true });
@@ -201,6 +215,8 @@ try {
       text = await paneText(s);
       if (e.history && (e.history.live || e.history.raw)) {
         check((await s.page.locator('#eng-hist-windows tbody tr').count()) >= 5, id + ': results by time period');
+        // Technicals buys shares only since 2026-11-19: its history test is its share trades.
+        if (id === 'technicals') check(/bought only shares in this version/.test(text) && /share trades/.test(await s.page.locator('#eng-hist-cmp').innerText()), 'technicals: the history test shows its share trades');
         check((await s.page.locator('#eng-hist-cells tbody tr').count()) >= 4, id + ': results by market type');
         check(/Fed policy/.test(text) && /Inflation/.test(text) && /VIX level/.test(text), id + ': results by macro environment');
         check(/Random entries/.test(text), id + ': the random-entry control');
